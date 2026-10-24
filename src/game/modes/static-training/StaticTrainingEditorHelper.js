@@ -11,6 +11,7 @@ import {
   getActiveEditItemVariable,
   mutateActiveEditItemVariable,
 } from '../../../stores/staticTrainingPackStore';
+import { useStaticTrainingBallCamTunerStore } from '../../../stores/staticTrainingBallCamTunerStore';
 import { useAppStore } from '../../../stores/appStore';
 import { hudStore } from '../../../stores/hudStore';
 import {
@@ -109,25 +110,49 @@ export function updateEditorCameraAndContinuousInputs(mode, dt) {
       );
     } else if (subMode === 'ball-speed') {
       const bLoc = shot.ball.location || shot.ball.pos || [0, 0, BALL_GROUND_MIN_Z];
-      const targetPos = new THREE.Vector3(bLoc[0], bLoc[2] + 20, bLoc[1]);
+      const ballCenter = new THREE.Vector3(bLoc[0], bLoc[2], bLoc[1]);
       const lookYaw = Number(shot.ball.speedYaw) || 0;
       const lookPitch = Number(shot.ball.speedPitch) || 0;
       const cp = Math.cos(lookPitch);
       const sp = Math.sin(lookPitch);
+
+      const { distance, height, angle, lateralOffset } =
+        useStaticTrainingBallCamTunerStore.getState();
+
+      // Forward along ball velocity direction (Three.js X=RL_X, Y=RL_Z, Z=RL_Y)
       const fwdX = Math.cos(lookYaw) * cp;
       const fwdY = sp;
       const fwdZ = Math.sin(lookYaw) * cp;
-      const dist = 520;
-      const heightOffset = 115;
-      cam.position.set(
-        targetPos.x - fwdX * dist,
-        Math.max(30, targetPos.y - fwdY * dist + heightOffset),
-        targetPos.z - fwdZ * dist
+
+      // Local right & local up relative to ball aim direction so camera stays above arrow & trajectory
+      const rightX = -Math.sin(lookYaw);
+      const rightY = 0;
+      const rightZ = Math.cos(lookYaw);
+
+      const upX = -Math.cos(lookYaw) * sp;
+      const upY = cp;
+      const upZ = -Math.sin(lookYaw) * sp;
+
+      const camX = ballCenter.x - fwdX * distance + upX * height + rightX * lateralOffset;
+      const camY = Math.max(
+        20,
+        ballCenter.y - fwdY * distance + upY * height + rightY * lateralOffset
       );
+      const camZ = ballCenter.z - fwdZ * distance + upZ * height + rightZ * lateralOffset;
+
+      const effectivePitch = Math.max(
+        -Math.PI * 0.48,
+        Math.min(Math.PI * 0.48, lookPitch + (angle * Math.PI) / 180)
+      );
+      const lookDirX = Math.cos(lookYaw) * Math.cos(effectivePitch);
+      const lookDirY = Math.sin(effectivePitch);
+      const lookDirZ = Math.sin(lookYaw) * Math.cos(effectivePitch);
+
+      cam.position.set(camX, camY, camZ);
       cam.lookAt(
-        targetPos.x + fwdX * 480,
-        targetPos.y + fwdY * 480,
-        targetPos.z + fwdZ * 480
+        camX + lookDirX * 800,
+        camY + lookDirY * 800,
+        camZ + lookDirZ * 800
       );
     }
   }
@@ -199,7 +224,7 @@ export function updateEditorCameraAndContinuousInputs(mode, dt) {
   }
 
   let speedDelta = 0;
-  if (subMode === 'car-speed' || subMode === 'ball-speed') {
+  if (subMode === 'car-heading' || subMode === 'car-speed' || subMode === 'ball-speed') {
     if (mode.heldKeys.has('BracketLeft')) speedDelta -= 950 * (dt || 0.016);
     if (mode.heldKeys.has('BracketRight')) speedDelta += 950 * (dt || 0.016);
   }
@@ -246,8 +271,12 @@ export function updateEditorCameraAndContinuousInputs(mode, dt) {
           );
         }
       }
-      if (subMode === 'car-speed' && speedDelta !== 0) {
+      if (speedDelta !== 0) {
         draft.car.speed = Math.max(0, Math.min(2300, Math.round(draft.car.speed + speedDelta)));
+        if (draft.car.speedFollowsHeading !== false) {
+          draft.car.speedYaw = draft.car.headingYaw;
+          draft.car.speedPitch = draft.car.snapToGround ? 0 : draft.car.headingPitch;
+        }
       }
     } else if (subMode === 'ball-speed') {
       draft.ball.location[0] = Math.max(
@@ -392,13 +421,10 @@ export function bindStaticTrainingSessionEvents(mode) {
       mode.heldKeys.add(code);
 
       // Discrete single-press transitions:
-      // 0. Backslash (\) zeroes out speed in car-heading (when speedFollowsHeading), car-speed, or ball-speed
+      // 0. Backslash (\) zeroes out speed in car-heading, car-speed, or ball-speed
       if (code === 'Backslash' && !evt.repeat) {
         mutateActiveEditItemVariable((draft) => {
-          if (
-            subMode === 'car-speed' ||
-            (subMode === 'car-heading' && draft.car.speedFollowsHeading !== false)
-          ) {
+          if (subMode === 'car-heading' || subMode === 'car-speed') {
             draft.car.speed = 0;
           } else if (subMode === 'ball-speed') {
             draft.ball.speed = 0;

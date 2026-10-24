@@ -203,7 +203,18 @@ export const NAME_TAG_TUNER_PRESET: PresetConfig = {
   singleton: true,
 };
 
+export const STATIC_TRAINING_BALL_CAM_TUNER_PRESET: PresetConfig = {
+  id: 'static-training-ball-cam-tuner',
+  title: 'Training Ball Camera & Opacity Tuner',
+  category: 'TrainingBallCam',
+  width: 460,
+  height: 580,
+  resizable: true,
+  singleton: true,
+};
+
 export const PRESET_WINDOWS: PresetConfig[] = [
+  STATIC_TRAINING_BALL_CAM_TUNER_PRESET,
   REPLAY_VIEWER_PRESET,
   NAME_TAG_TUNER_PRESET,
   GOAL_BARRIER_PRESET,

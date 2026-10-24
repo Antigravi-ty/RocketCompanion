@@ -24,6 +24,7 @@ import { ReplayViewerFloatingWindow } from '../panels/ReplayViewerFloatingWindow
 import { GoalBarrierFloatingWindow } from '../panels/GoalBarrierFloatingWindow';
 import { RewinderConfiguratorFloatingWindow } from '../panels/RewinderConfiguratorFloatingWindow';
 import { NameTagTunerFloatingWindow } from '../panels/NameTagTunerFloatingWindow';
+import { StaticTrainingBallCamTunerFloatingWindow } from '../panels/StaticTrainingBallCamTunerFloatingWindow';
 import { getFloatingWindowIcon } from './FloatingWindowIcon';
 
 export interface FloatingWindowManagerProps {
@@ -397,6 +398,8 @@ const FloatingWindowInstance: React.FC<FloatingWindowInstanceProps> = ({
           <NameTagTunerFloatingWindow isLight={isLight} active={!isContentHidden} />
         ) : item.id === 'replay-viewer-window' ? (
           <ReplayViewerFloatingWindow isLight={isLight} active={!isContentHidden} />
+        ) : item.id === 'static-training-ball-cam-tuner' ? (
+          <StaticTrainingBallCamTunerFloatingWindow isLight={isLight} active={!isContentHidden} />
         ) : item.id === 'goal-barrier-config' ? (
           <GoalBarrierFloatingWindow isLight={isLight} active={!isContentHidden} />
         ) : item.id === 'rewinder-configurator' ? (

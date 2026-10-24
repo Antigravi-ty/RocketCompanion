@@ -249,7 +249,7 @@ export class StaticTrainingVisuals {
         carPosThree,
         carSpeedDirThree,
         arrowLen,
-        editSubMode === 'car-speed' || (followsHeading && editSubMode === 'car-heading' && carSpeedVal > 0)
+        editSubMode === 'car-speed' || (editSubMode === 'car-heading' && carSpeedVal > 0)
       );
     } else if (showPlayArrows) {
       // In Play Mode before player moves: always show Car Speed Direction arrow

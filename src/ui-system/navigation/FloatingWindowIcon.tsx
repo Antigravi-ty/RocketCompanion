@@ -33,6 +33,7 @@ import {
   REPLAY_VIEWER_PRESET,
   NAME_TAG_TUNER_PRESET,
   CAMERA_DETERMINISM_PRESET,
+  STATIC_TRAINING_BALL_CAM_TUNER_PRESET,
 } from '../../stores/floatingPresets';
 
 export const RotateCcwClockIcon: React.FC<{ className?: string }> = ({ className = 'h-4 w-4 shrink-0' }) => (
@@ -66,6 +67,10 @@ export interface FloatingWindowIconProps {
 export const getFloatingWindowIcon = (category?: string, id?: string, extraClass: string = 'h-4 w-4 shrink-0') => {
   const normId = (id || '').toLowerCase();
   const normCat = (category || '').toLowerCase();
+
+  if (normId === STATIC_TRAINING_BALL_CAM_TUNER_PRESET.id || normCat === 'trainingballcam') {
+    return <Camera className={`${extraClass} text-sky-500 dark:text-sky-400`} />;
+  }
 
   if (normId === NAME_TAG_TUNER_PRESET.id || normId.includes('name-tag') || normCat === 'nametagtuner') {
     return <Tag className={`${extraClass} text-sky-500 dark:text-sky-400`} />;

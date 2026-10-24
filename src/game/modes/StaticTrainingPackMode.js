@@ -20,6 +20,8 @@ import {
   useStaticTrainingPackStore,
   getActiveEditItemVariable,
 } from '../../stores/staticTrainingPackStore';
+import { useStaticTrainingBallCamTunerStore } from '../../stores/staticTrainingBallCamTunerStore';
+import { setTemporaryBallOpacityOverride } from '../../config/ballVisualConfig.js';
 import { hudStore } from '../../stores/hudStore';
 import { gameAudio } from '../../audio/GameAudioEngineFacade.js';
 import {
@@ -79,6 +81,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
     this.hasBallMoved = false;
     this.stagedShot = null;
     this.effectiveBallAngVel = [0, 0, 0];
+    this._lastAppliedEditBallOpacityOverride = undefined;
 
     // Edit session input state
     this.heldKeys = new Set();
@@ -96,6 +99,24 @@ export class StaticTrainingPackMode extends BaseGameMode {
     this._contextMenuHandler = null;
 
     this._resetGoalTracking();
+  }
+
+  _syncEditBallOpacityOverride(force = false) {
+    const r = this.runtime;
+    const store = useStaticTrainingPackStore.getState();
+    const isEditNonPlayable =
+      store.sessionMode === 'edit' && !this.isTestingSingleShot && !this.isReplayActive;
+
+    let desiredOverride = null;
+    if (isEditNonPlayable) {
+      const tuner = useStaticTrainingBallCamTunerStore.getState();
+      desiredOverride = tuner.enableEditOpacityOverride ? tuner.editBallOpacity : null;
+    }
+
+    if (force || this._lastAppliedEditBallOpacityOverride !== desiredOverride) {
+      this._lastAppliedEditBallOpacityOverride = desiredOverride;
+      setTemporaryBallOpacityOverride(desiredOverride, r?.arena?.ball);
+    }
   }
 
   _resetGoalTracking() {
@@ -144,6 +165,8 @@ export class StaticTrainingPackMode extends BaseGameMode {
     unbindStaticTrainingSessionEvents(this);
     this.heldKeys.clear();
     this.isLeftMouseDragging = false;
+    this._lastAppliedEditBallOpacityOverride = null;
+    setTemporaryBallOpacityOverride(null, r?.arena?.ball);
 
     if (this.isReplayActive) {
       this.replayController?.endReplaySession?.();
@@ -295,6 +318,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
 
     const store = useStaticTrainingPackStore.getState();
     store.setFreeCamTrajectoryTesting(false);
+    this._syncEditBallOpacityOverride(true);
     const shot = this._getCurrentShotConfig();
     if (!shot) return;
 
@@ -723,6 +747,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
   update(context) {
     const dt = context.dt ?? 0.016;
     const store = useStaticTrainingPackStore.getState();
+    this._syncEditBallOpacityOverride();
 
     // 1. Handle active Goal / Expire Replay
     if (this.isReplayActive && this.replayController.isActive) {

@@ -155,6 +155,7 @@ import {
   subscribeBallVisualConfig,
   registerBallVisualApplier,
   updateBallVisualConfig,
+  setTemporaryBallOpacityOverride,
 } from '../config/ballVisualConfig.js';
 
 export {
@@ -163,13 +164,21 @@ export {
   getBallVisualConfig,
   subscribeBallVisualConfig,
   updateBallVisualConfig,
+  setTemporaryBallOpacityOverride,
 };
 
 const activeBallCompositeGroups = new Set();
 
+function resolveEffectiveBallOpacity(config) {
+  if (typeof config?.temporaryOpacityOverride === 'number' && Number.isFinite(config.temporaryOpacityOverride)) {
+    return Math.max(0, Math.min(1, config.temporaryOpacityOverride));
+  }
+  return Math.max(0, Math.min(1, Number(config?.opacity) ?? 1.0));
+}
+
 function applyConfigToSingleMaterial(mat, config) {
   if (!mat) return;
-  const opacity = Math.max(0, Math.min(1, Number(config.opacity) ?? 1.0));
+  const opacity = resolveEffectiveBallOpacity(config);
   const isTransparent = opacity < 0.999;
   const targetDepthWrite = isTransparent ? Boolean(config.depthWriteWhenTransparent) : true;
   const targetSide =
@@ -192,7 +201,8 @@ function applyConfigToSingleMaterial(mat, config) {
 
 export function applyBallVisualConfigToObject(ballRoot, config = ballVisualRuntimeConfig, indicatorRings = []) {
   if (ballRoot) {
-    ballRoot.visible = config.visible !== false && (Number(config.opacity) ?? 1.0) > 0.001;
+    const effOpacity = resolveEffectiveBallOpacity(config);
+    ballRoot.visible = config.visible !== false && effOpacity > 0.001;
     ballRoot.traverse?.((node) => {
       if (!node.isMesh || !node.material) return;
       const mats = Array.isArray(node.material) ? node.material : [node.material];

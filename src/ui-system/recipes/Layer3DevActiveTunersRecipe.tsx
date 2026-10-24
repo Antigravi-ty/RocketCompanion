@@ -19,6 +19,7 @@ import { PanelContainer, PanelHeader, PanelContent, PanelFooter } from '../layou
 import { VStack } from '../layout/VStack';
 import { DEFAULT_PANEL_SIZING } from '../tokens';
 import {
+  STATIC_TRAINING_BALL_CAM_TUNER_PRESET,
   VEHICLE_GARAGE_TUNER_PRESET,
   NAME_TAG_TUNER_PRESET,
   REACHABILITY_TUNER_PRESET,
@@ -48,6 +49,7 @@ export interface Layer3DevActiveTunersRecipeProps {
 /**
  * [Recipe] Layer 3 Active Tuners, Audio & Diagnostics
  * Hosts all uncalibrated / actively tuned developer tools:
+ * - Training Ball Camera & Opacity Tuner (Relative Ball Camera Distance/Height/Angle/Lateral Offset + Edit-Mode Ball Opacity Override + JSON Export)
  * - Vehicle Model & Offset Tuner (Per-Vehicle Hitbox & Align, Wheel Hub Anchors & Boost Nozzle Offsets)
  * - Multiplayer Name Tag Active Tuner (6-Car Kickoff Stadium Spawner, Horizontal Pill Dimensions, Typography & Team Colors)
  * - Reachability & Intercept Tuner
@@ -108,6 +110,20 @@ export const Layer3DevActiveTunersRecipe: React.FC<Layer3DevActiveTunersRecipePr
 
       <PanelContent scrollable className="p-6">
         <VStack gap="md" isLight={isLight}>
+          {/* 0. Training Ball Camera & Opacity Tuner (Relative Ball Camera + Edit-Mode Temporary Opacity Override) */}
+          <FloatingWindowCard
+            preset={STATIC_TRAINING_BALL_CAM_TUNER_PRESET}
+            icon={<Camera className="h-5 w-5" />}
+            iconBgClass="bg-sky-500/10 text-sky-500"
+            badge="Ball Cam · Opacity Override"
+            badgeClass="bg-sky-500/15 border-sky-500/30 text-sky-400"
+            description="Relative ball camera (Distance, Height, Angle, Lateral Offset), Edit-Mode 70% Opacity Override & JSON Export"
+            hoverTooltip="Training Ball Camera & Opacity Tuner: Live slider + text input tuner for Static Training Pack relative ball camera and temporary Edit-Mode ball opacity override (reverts to Follow Global when testing [G] or playing)."
+            onHover={setHoveredDesc}
+            onLeave={() => setHoveredDesc(null)}
+            isLight={isLight}
+          />
+
           {/* 1. Vehicle Model & Offset Tuner (Per-Vehicle Spatial Calibration) */}
           <FloatingWindowCard
             preset={VEHICLE_GARAGE_TUNER_PRESET}

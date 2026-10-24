@@ -6,6 +6,7 @@
 export const DEFAULT_BALL_VISUAL_CONFIG = {
   visible: true,
   opacity: 1.0,
+  temporaryOpacityOverride: null,
   depthWriteWhenTransparent: false,
   doubleSideWhenTransparent: false,
   wireframe: false,
@@ -59,4 +60,15 @@ export function updateBallVisualConfig(patch = {}, ballRoot = null, indicatorRin
     }
   }
   return snapshot;
+}
+
+export function setTemporaryBallOpacityOverride(opacityOrNull = null, ballRoot = null, indicatorRings = []) {
+  const normalized =
+    typeof opacityOrNull === 'number' && Number.isFinite(opacityOrNull)
+      ? Math.max(0.05, Math.min(1.0, opacityOrNull))
+      : null;
+  if (ballVisualRuntimeConfig.temporaryOpacityOverride === normalized && !ballRoot) {
+    return { ...ballVisualRuntimeConfig };
+  }
+  return updateBallVisualConfig({ temporaryOpacityOverride: normalized }, ballRoot, indicatorRings);
 }
