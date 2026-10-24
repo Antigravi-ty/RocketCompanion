@@ -333,7 +333,7 @@ export function restoreWasmSnapshotState(engine, buffer) {
       buffer.subarray ? buffer.subarray(0, copyLen) : buffer.slice(0, copyLen)
     );
     if (typeof engine.module?._physics_restoreCompactState === 'function') {
-      const ok = engine.module._physics_restoreCompactState(0) === 1;
+      const ok = engine.module._physics_restoreCompactState(engine.statePtr, copyLen) === 1;
       if (
         ok &&
         typeof engine.module._physics_saveState === 'function' &&
@@ -344,18 +344,21 @@ export function restoreWasmSnapshotState(engine, buffer) {
         const wOffset = engine.wasmStatePtr >> 2;
         const u32 = engine.module.HEAPU32;
         const f32 = engine.module.HEAPF32;
+        const numCars = Math.min(
+          MAX_CARS,
+          Math.max(1, Math.round(buffer[SIM_OFFSETS.NUM_CARS] || engine.numCars || 1))
+        );
 
-        for (let c = 0; c < MAX_CARS; c++) {
+        for (let c = 0; c < numCars; c++) {
           const carOff = SIM_OFFSETS.CARS + c * CAR_STATE_STRIDE;
           const extOff = 416 + c * 4;
           if (carOff + 24 >= copyLen) break;
 
-          const onGround = engine.state[carOff + 19] >= 0.5;
-          const isDemoed = engine.state[carOff + 21] >= 0.5 ? 1 : 0;
-          const hasFlipOrJump = engine.state[carOff + 22] >= 0.5;
-          const isFlipping = engine.state[carOff + 24] >= 0.5;
-          const isJumping = extOff < copyLen ? engine.state[extOff + 0] >= 0.5 : false;
-          const airTimeSinceJump = extOff + 3 < copyLen ? engine.state[extOff + 3] : 0;
+          const onGround = buffer[carOff + 19] >= 0.5;
+          const hasFlipOrJump = buffer[carOff + 22] >= 0.5;
+          const isFlipping = buffer[carOff + 24] >= 0.5;
+          const isJumping = extOff < copyLen ? buffer[extOff + 0] >= 0.5 : false;
+          const airTimeSinceJump = extOff + 3 < copyLen ? buffer[extOff + 3] : 0;
 
           let hasJumped = 0;
           let hasDoubleJumped = 0;
@@ -376,27 +379,17 @@ export function restoreWasmSnapshotState(engine, buffer) {
               }
             }
           }
-          const word34 = onGround ? 0x01010101 : 0x00000000;
-          const word35 =
-            (isDemoed & 0xff) |
-            (hasJumped << 8) |
-            (hasDoubleJumped << 16) |
-            (hasFlipped << 24);
           const carSnapBase = wOffset + 169 + c * 504;
           if (carSnapBase + 45 < wOffset + fullSnapSize) {
-            u32[carSnapBase + 34] = word34;
-            u32[carSnapBase + 35] = word35;
+            const wheel3Contact = u32[carSnapBase + 35] & 0xff;
+            u32[carSnapBase + 35] =
+              wheel3Contact |
+              (hasJumped << 8) |
+              (hasDoubleJumped << 16) |
+              (hasFlipped << 24);
             if (!isFlipping) {
               f32[carSnapBase + 41] = 0;
             }
-          }
-          if (c === 0 && fullSnapSize >= 4201) {
-            u32[wOffset + 4003] = word34;
-            u32[wOffset + 4004] = word35;
-            u32[wOffset + 4051] = word34;
-            u32[wOffset + 4052] = word35;
-            u32[wOffset + 4139] = word34;
-            u32[wOffset + 4140] = word35;
           }
         }
         engine.module._physics_restoreState(engine.wasmStatePtr);
