@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   Sparkles,
+  Box,
   Car,
   Crosshair,
   Film,
@@ -21,6 +22,7 @@ import { DEFAULT_PANEL_SIZING } from '../tokens';
 import {
   VEHICLE_GARAGE_TUNER_PRESET,
   NAME_TAG_TUNER_PRESET,
+  GOAL_VOLUME_TUNER_PRESET,
   REACHABILITY_TUNER_PRESET,
   REPLAY_DIRECTOR_TUNER_PRESET,
   KICKOFF_TRAINING_PRESET,
