@@ -23,7 +23,7 @@ export function applyReplayFrameToEngine(engine, frameBuffer, interpolator = nul
     engine.addCar(engine.numCars % 2, 'octane');
   }
   if (typeof engine.restoreState === 'function') {
-    engine.restoreState(frameBuffer);
+    engine.restoreState(frameBuffer, { preserveEngineTick: true });
   } else {
     if (typeof engine.setBallState === 'function') {
       engine.setBallState(frameBuffer.subarray(SIM_OFFSETS.BALL, SIM_OFFSETS.BALL + BALL_STATE_STRIDE));

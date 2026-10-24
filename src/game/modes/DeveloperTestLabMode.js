@@ -22,17 +22,17 @@ import {
 import {
   bindDevTestLabReplayHotkeys,
   unbindDevTestLabReplayHotkeys,
-  recordTasFrameAfterTick,
+  recordRewinderFrameAfterTick,
   exportStateReplayFile,
-  startTasRecordingSession,
-  pauseTasRecordingSession,
-  beginTasScrubSession,
-  pauseTasScrubSession,
-  seekTasFrameToIndex,
-  resumeTasFromCursorSession,
-  importTasReplayFile,
-  clearTasBufferSession,
-  stepTasBeforePhysicsTick,
+  startRewinderRecordingSession,
+  pauseRewinderRecordingSession,
+  beginRewinderScrubSession,
+  pauseRewinderScrubSession,
+  seekRewinderFrameToIndex,
+  resumeRewinderFromCursorSession,
+  importRewinderReplayFile,
+  clearRewinderBufferSession,
+  stepRewinderBeforePhysicsTick,
 } from './dev-test-lab/DevTestLabReplayHelper.js';
 import {
   applyIncidentControlledCar,
@@ -90,11 +90,11 @@ export class DeveloperTestLabMode extends BaseGameMode {
     this.ghostVisuals = null;
     this._currentActiveWorldIdx = 0;
 
-    this.tasFrames = [];
-    this.tasCursor = 0;
-    this.tasTargetFrame = 0;
-    this.tasScrubAccumulator = 0;
-    this._tasLastCountdownSecBeep = -1;
+    this.rewinderFrames = [];
+    this.rewinderCursor = 0;
+    this.rewinderTargetFrame = 0;
+    this.rewinderScrubAccumulator = 0;
+    this._rewinderLastCountdownSecBeep = -1;
     this._keyDownHandler = null;
     this._keyUpHandler = null;
 
@@ -251,7 +251,7 @@ export class DeveloperTestLabMode extends BaseGameMode {
       this.ghostVisuals.setVisible(false);
     }
 
-    this.clearTasBuffer();
+    this.clearRewinderBuffer();
 
     r?.interpolator?.setTrainingPhysicsRate?.(120);
     r?.resetAudio?.();
@@ -260,11 +260,11 @@ export class DeveloperTestLabMode extends BaseGameMode {
 
     store.updateLiveTelemetry({
       probeCameraTarget: 'player',
-      tasState: 'idle',
-      tasRecordedFrames: 0,
-      tasCursorFrame: 0,
-      tasTargetFrame: 0,
-      tasPrerollRemainingSec: 0,
+      rewinderState: 'idle',
+      rewinderRecordedFrames: 0,
+      rewinderCursorFrame: 0,
+      rewinderTargetFrame: 0,
+      rewinderPrerollRemainingSec: 0,
       podiumActive: false,
       goalReplayPhase: 'live',
       goalReplayPaused: false,
@@ -318,8 +318,8 @@ export class DeveloperTestLabMode extends BaseGameMode {
       dualWorldEnabled: targetTab === 'dual-world',
       incidentMatchActive: targetTab === 'incident-match',
       probeCameraTarget: 'player',
-      tasState: 'idle',
-      tasPrerollRemainingSec: 0,
+      rewinderState: 'idle',
+      rewinderPrerollRemainingSec: 0,
       podiumActive: false,
       goalReplayPhase: 'live',
     });
@@ -345,20 +345,20 @@ export class DeveloperTestLabMode extends BaseGameMode {
         this._ensureTabActive('dual-world');
         this._handleSwitchWorld(idx);
       },
-      onTasStartRecording: () => {
-        this.startTasRecording();
+      onRewinderStartRecording: () => {
+        this.startRewinderRecording();
       },
-      onTasStopRecording: () => this.stopTasRecording(),
-      onTasPushBackwardStart: () => this.beginTasScrub('rewinding'),
-      onTasPushBackwardStop: () => this.pauseTasScrub(),
-      onTasPushForwardStart: () => this.beginTasScrub('forwarding'),
-      onTasPushForwardStop: () => this.pauseTasScrub(),
-      onTasResumeFromHere: () => this.resumeTasFromCursor(),
-      onTasClearBuffer: () => this.clearTasBuffer(),
-      onTasCancelToFreeplay: () => this.clearTasBuffer(),
-      onTasExportReplay: () => this.exportTasReplay(),
-      onTasImportReplay: (file) => this.importTasReplay(file),
-      onTasSeekFrame: (idx) => this.seekTasFrame(idx),
+      onRewinderStopRecording: () => this.stopRewinderRecording(),
+      onRewinderPushBackwardStart: () => this.beginRewinderScrub('rewinding'),
+      onRewinderPushBackwardStop: () => this.pauseRewinderScrub(),
+      onRewinderPushForwardStart: () => this.beginRewinderScrub('forwarding'),
+      onRewinderPushForwardStop: () => this.pauseRewinderScrub(),
+      onRewinderResumeFromHere: () => this.resumeRewinderFromCursor(),
+      onRewinderClearBuffer: () => this.clearRewinderBuffer(),
+      onRewinderCancelToFreeplay: () => this.clearRewinderBuffer(),
+      onRewinderExportReplay: () => this.exportRewinderReplay(),
+      onRewinderImportReplay: (file) => this.importRewinderReplay(file),
+      onRewinderSeekFrame: (idx) => this.seekRewinderFrame(idx),
       onStartIncidentMatch: (oppMode) => {
         if (!this._ensureTabActive('incident-match')) {
           this.startIncidentMatch(oppMode);
@@ -433,8 +433,8 @@ export class DeveloperTestLabMode extends BaseGameMode {
     unbindDevTestLabReplayHotkeys(this);
     this._resetLabArenaBaseline();
     useDevTestLabStore.getState().updateLiveTelemetry({
-      tasState: 'idle',
-      tasPrerollRemainingSec: 0,
+      rewinderState: 'idle',
+      rewinderPrerollRemainingSec: 0,
       incidentMatchActive: false,
       dualWorldEnabled: false,
       probesEnabled: false,
@@ -528,52 +528,52 @@ export class DeveloperTestLabMode extends BaseGameMode {
     return handleSwitchWorld(this);
   }
 
-  startTasRecording() {
-    startTasRecordingSession(this);
+  startRewinderRecording() {
+    startRewinderRecordingSession(this);
   }
 
-  pauseTasRecording() {
-    pauseTasRecordingSession(this);
+  pauseRewinderRecording() {
+    pauseRewinderRecordingSession(this);
   }
 
-  stopTasRecording() {
-    pauseTasRecordingSession(this);
+  stopRewinderRecording() {
+    pauseRewinderRecordingSession(this);
   }
 
-  beginTasScrub(direction = 'rewinding') {
-    beginTasScrubSession(this, direction);
+  beginRewinderScrub(direction = 'rewinding') {
+    beginRewinderScrubSession(this, direction);
   }
 
-  pauseTasScrub() {
-    pauseTasScrubSession(this);
+  pauseRewinderScrub() {
+    pauseRewinderScrubSession(this);
   }
 
-  seekTasFrame(frameIndex) {
-    seekTasFrameToIndex(this, frameIndex);
+  seekRewinderFrame(frameIndex) {
+    seekRewinderFrameToIndex(this, frameIndex);
   }
 
-  resumeTasFromCursor() {
-    resumeTasFromCursorSession(this);
+  resumeRewinderFromCursor() {
+    resumeRewinderFromCursorSession(this);
   }
 
-  async exportTasReplay() {
-    if (!this.tasFrames || this.tasFrames.length === 0) {
-      console.warn('[DeveloperTestLabMode] Cannot export TAS replay: recorded frame buffer is empty (0 frames).');
+  async exportRewinderReplay() {
+    if (!this.rewinderFrames || this.rewinderFrames.length === 0) {
+      console.warn('[DeveloperTestLabMode] Cannot export state replay: recorded frame buffer is empty (0 frames).');
       return false;
     }
-    return exportStateReplayFile(this.tasFrames);
+    return exportStateReplayFile(this.rewinderFrames);
   }
 
-  async importTasReplay(fileOrBuffer) {
-    return importTasReplayFile(this, fileOrBuffer);
+  async importRewinderReplay(fileOrBuffer) {
+    return importRewinderReplayFile(this, fileOrBuffer);
   }
 
-  clearTasBuffer() {
-    clearTasBufferSession(this);
+  clearRewinderBuffer() {
+    clearRewinderBufferSession(this);
   }
 
-  cancelTasToFreeplay() {
-    clearTasBufferSession(this);
+  cancelRewinderToFreeplay() {
+    clearRewinderBufferSession(this);
   }
 
   async startIncidentMatch(opponentMode = 'stationary') {
@@ -593,7 +593,7 @@ export class DeveloperTestLabMode extends BaseGameMode {
       return false;
     }
 
-    if (!stepTasBeforePhysicsTick(this, store)) {
+    if (!stepRewinderBeforePhysicsTick(this, store)) {
       return false;
     }
 
@@ -644,7 +644,7 @@ export class DeveloperTestLabMode extends BaseGameMode {
 
   onAfterPhysicsTick() {
     const store = useDevTestLabStore.getState();
-    recordTasFrameAfterTick(this, store);
+    recordRewinderFrameAfterTick(this, store);
     recordGoalReplayBenchAfterTick(this, store);
   }
 

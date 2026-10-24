@@ -555,7 +555,7 @@ export class RocketSimPhysicsEngine {
   _ensureStateBuffer(size) { ensureWasmSnapshotBuffer(this, size); }
   saveState(targetBuffer = null) { return saveWasmSnapshotState(this, targetBuffer); }
   saveCompactState(targetBuffer = null) { return saveCompactStateSnapshot(this, targetBuffer); }
-  restoreState(buffer) { return restoreWasmSnapshotState(this, buffer); }
+  restoreState(buffer, options = {}) { return restoreWasmSnapshotState(this, buffer, options); }
 
   resetKickoff(seed = -1, preservePossessionScore = true) {
     if (preservePossessionScore && this.state && this.state.length >= 416) {

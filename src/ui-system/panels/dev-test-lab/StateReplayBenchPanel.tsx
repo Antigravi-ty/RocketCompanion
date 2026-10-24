@@ -12,8 +12,8 @@ import {
 import { RotateCcwClockIcon } from '../../navigation/FloatingWindowIcon';
 import {
   useDevTestLabStore,
-  type TasFlowPreset,
-  type TasDownCounterOption,
+  type RewinderFlowPreset,
+  type RewinderDownCounterOption,
 } from '../../../stores/devTestLabStore';
 import { SegmentedSwitch } from '../../primitives/SegmentedSwitch';
 import { SliderControl } from '../../primitives/SliderControl';
@@ -34,23 +34,23 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const {
-    tasState,
-    tasRecordedFrames,
-    tasCursorFrame,
-    tasTargetFrame,
-    tasDownCounterSec,
-    tasPrerollRemainingSec,
-    tasFlowPreset,
-    tasCustomFlowPct,
-    tasEffectiveFlowPct,
-    setTasDownCounterSec,
-    setTasFlowPreset,
-    setTasCustomFlowPct,
+    rewinderState,
+    rewinderRecordedFrames,
+    rewinderCursorFrame,
+    rewinderTargetFrame,
+    rewinderDownCounterSec,
+    rewinderPrerollRemainingSec,
+    rewinderFlowPreset,
+    rewinderCustomFlowPct,
+    rewinderEffectiveFlowPct,
+    setRewinderDownCounterSec,
+    setRewinderFlowPreset,
+    setRewinderCustomFlowPct,
     runtimeHandlers,
   } = useDevTestLabStore();
 
-  const minRequiredFrames = tasDownCounterSec === 0 ? 120 : 240;
-  const canResumeFromHere = tasRecordedFrames >= minRequiredFrames;
+  const minRequiredFrames = rewinderDownCounterSec === 0 ? 120 : 240;
+  const canResumeFromHere = rewinderRecordedFrames >= minRequiredFrames;
 
   return (
     <div className="flex flex-col gap-2.5">
@@ -61,16 +61,16 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
             <span className="font-semibold text-[11px]">Rewinder Configurator</span>
           </div>
           <div className="flex items-center gap-1.5">
-            {tasState === 'preroll-countdown' && (
+            {rewinderState === 'preroll-countdown' && (
               <Badge variant="amber" size="sm" isLight={isLight} className="font-mono text-[10px]">
-                COUNTDOWN {tasPrerollRemainingSec}s
+                COUNTDOWN {rewinderPrerollRemainingSec}s
               </Badge>
             )}
             <Badge
               variant={
-                tasState === 'recording' || tasState === 'preroll-countdown'
+                rewinderState === 'recording' || rewinderState === 'preroll-countdown'
                   ? 'amber'
-                  : tasState === 'idle'
+                  : rewinderState === 'idle'
                   ? 'neutral'
                   : 'emerald'
               }
@@ -78,7 +78,7 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
               isLight={isLight}
               className="font-mono text-[10px] uppercase"
             >
-              {tasState}
+              {rewinderState}
             </Badge>
           </div>
         </div>
@@ -91,7 +91,7 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) {
-              runtimeHandlers.onTasImportReplay?.(file);
+              runtimeHandlers.onRewinderImportReplay?.(file);
             }
             e.target.value = '';
           }}
@@ -100,30 +100,30 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
         <div className={`p-2 rounded-lg border font-mono text-[10px] flex flex-col gap-1.5 ${subPanelBg}`}>
           <div className="flex items-center justify-between">
             <span>
-              Cursor: <b>Frame #{tasCursorFrame}</b> ({(tasCursorFrame / 120).toFixed(2)}s)
+              Cursor: <b>Frame #{rewinderCursorFrame}</b> ({(rewinderCursorFrame / 120).toFixed(2)}s)
             </span>
             <span>
-              Recorded: <b>{tasRecordedFrames}f</b> ({(tasRecordedFrames / 120).toFixed(2)}s)
+              Recorded: <b>{rewinderRecordedFrames}f</b> ({(rewinderRecordedFrames / 120).toFixed(2)}s)
             </span>
           </div>
           <div className="flex items-center justify-between text-[9.5px] opacity-80">
             <span>
-              Release Marker: <b>Frame #{tasTargetFrame}</b> ({(tasTargetFrame / 120).toFixed(2)}s)
+              Release Marker: <b>Frame #{rewinderTargetFrame}</b> ({(rewinderTargetFrame / 120).toFixed(2)}s)
             </span>
             <span className={canResumeFromHere ? 'text-emerald-400' : 'text-amber-400'}>
               {canResumeFromHere
                 ? `Ready (>= ${minRequiredFrames}f / ${(minRequiredFrames / 120).toFixed(1)}s)`
-                : `Need >= ${minRequiredFrames}f (${Math.max(0, minRequiredFrames - tasRecordedFrames)}f more)`}
+                : `Need >= ${minRequiredFrames}f (${Math.max(0, minRequiredFrames - rewinderRecordedFrames)}f more)`}
             </span>
           </div>
           <div
             className="w-full h-2 rounded-full bg-neutral-800 overflow-hidden cursor-pointer"
             onClick={(e) => {
-              if (tasRecordedFrames <= 0) return;
+              if (rewinderRecordedFrames <= 0) return;
               const rect = e.currentTarget.getBoundingClientRect();
               const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-              const targetF = Math.round(pct * tasRecordedFrames);
-              runtimeHandlers.onTasSeekFrame?.(targetF);
+              const targetF = Math.round(pct * rewinderRecordedFrames);
+              runtimeHandlers.onRewinderSeekFrame?.(targetF);
             }}
             title="Click to seek frame"
           >
@@ -131,8 +131,8 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
               className="h-full bg-amber-400 transition-all duration-75 pointer-events-none"
               style={{
                 width: `${
-                  tasRecordedFrames > 0
-                    ? Math.min(100, Math.max(0, (tasCursorFrame / tasRecordedFrames) * 100))
+                  rewinderRecordedFrames > 0
+                    ? Math.min(100, Math.max(0, (rewinderCursorFrame / rewinderRecordedFrames) * 100))
                     : 0
                 }%`,
               }}
@@ -142,9 +142,9 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
 
         <div className="grid grid-cols-2 gap-1.5 pt-0.5">
           <Button
-            variant={tasState === 'recording' ? 'primary' : 'secondary'}
+            variant={rewinderState === 'recording' ? 'primary' : 'secondary'}
             size="sm"
-            onClick={() => runtimeHandlers.onTasStartRecording?.()}
+            onClick={() => runtimeHandlers.onRewinderStartRecording?.()}
             isLight={isLight}
             className="justify-between px-2.5 py-1.5 text-[11px]"
           >
@@ -158,7 +158,7 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => runtimeHandlers.onTasStopRecording?.()}
+            onClick={() => runtimeHandlers.onRewinderStopRecording?.()}
             isLight={isLight}
             className="justify-between px-2.5 py-1.5 text-[11px]"
           >
@@ -171,11 +171,11 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
 
           <button
             type="button"
-            onMouseDown={() => runtimeHandlers.onTasPushBackwardStart?.()}
-            onMouseUp={() => runtimeHandlers.onTasPushBackwardStop?.()}
-            onMouseLeave={() => runtimeHandlers.onTasPushBackwardStop?.()}
+            onMouseDown={() => runtimeHandlers.onRewinderPushBackwardStart?.()}
+            onMouseUp={() => runtimeHandlers.onRewinderPushBackwardStop?.()}
+            onMouseLeave={() => runtimeHandlers.onRewinderPushBackwardStop?.()}
             className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold cursor-pointer active:scale-95 transition-all ${
-              tasState === 'rewinding'
+              rewinderState === 'rewinding'
                 ? 'bg-amber-500 text-neutral-950 border-amber-400'
                 : isLight
                 ? 'bg-white hover:bg-neutral-100 border-neutral-300 text-neutral-800'
@@ -191,11 +191,11 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
 
           <button
             type="button"
-            onMouseDown={() => runtimeHandlers.onTasPushForwardStart?.()}
-            onMouseUp={() => runtimeHandlers.onTasPushForwardStop?.()}
-            onMouseLeave={() => runtimeHandlers.onTasPushForwardStop?.()}
+            onMouseDown={() => runtimeHandlers.onRewinderPushForwardStart?.()}
+            onMouseUp={() => runtimeHandlers.onRewinderPushForwardStop?.()}
+            onMouseLeave={() => runtimeHandlers.onRewinderPushForwardStop?.()}
             className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold cursor-pointer active:scale-95 transition-all ${
-              tasState === 'forwarding'
+              rewinderState === 'forwarding'
                 ? 'bg-amber-500 text-neutral-950 border-amber-400'
                 : isLight
                 ? 'bg-white hover:bg-neutral-100 border-neutral-300 text-neutral-800'
@@ -226,8 +226,8 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
           <Button
             variant="secondary"
             size="sm"
-            disabled={tasRecordedFrames === 0}
-            onClick={() => runtimeHandlers.onTasExportReplay?.()}
+            disabled={rewinderRecordedFrames === 0}
+            onClick={() => runtimeHandlers.onRewinderExportReplay?.()}
             isLight={isLight}
             className="gap-1.5 py-1.5 text-[11px]"
           >
@@ -244,17 +244,17 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
               <span>Down Counter</span>
             </span>
             <span className="font-mono text-[10px] opacity-75">
-              {tasDownCounterSec === 0
+              {rewinderDownCounterSec === 0
                 ? 'Replays from -1s (120f, immediate 1s beep)'
-                : `Replays from -${(tasDownCounterSec || 0) + 1}s (${((tasDownCounterSec || 0) + 1) * 120}f)`}
+                : `Replays from -${(rewinderDownCounterSec || 0) + 1}s (${((rewinderDownCounterSec || 0) + 1) * 120}f)`}
             </span>
           </div>
           <SegmentedSwitch
-            value={String(tasDownCounterSec ?? 0)}
+            value={String(rewinderDownCounterSec ?? 0)}
             fullWidth
             size="sm"
             isLight={isLight}
-            onValueChange={(v) => setTasDownCounterSec(Number(v) as TasDownCounterOption)}
+            onValueChange={(v) => setRewinderDownCounterSec(Number(v) as RewinderDownCounterOption)}
             options={[
               { value: '3', label: '3 (-4s)' },
               { value: '2', label: '2 (-3s)' },
@@ -269,7 +269,7 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
             variant="primary"
             size="sm"
             disabled={!canResumeFromHere}
-            onClick={() => runtimeHandlers.onTasResumeFromHere?.()}
+            onClick={() => runtimeHandlers.onRewinderResumeFromHere?.()}
             isLight={isLight}
             className="justify-between px-2.5 py-1.5 text-[11px] font-bold"
           >
@@ -284,7 +284,7 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
             variant="secondary"
             size="sm"
             onClick={() =>
-              (runtimeHandlers.onTasClearBuffer ?? runtimeHandlers.onTasCancelToFreeplay)?.()
+              (runtimeHandlers.onRewinderClearBuffer ?? runtimeHandlers.onRewinderCancelToFreeplay)?.()
             }
             isLight={isLight}
             className="gap-1.5 py-1.5 text-[11px]"
@@ -299,16 +299,16 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
         <div className="flex items-center justify-between">
           <span className="font-semibold text-[11px]">Rewind / Forward Flow Speed</span>
           <Badge variant="neutral" size="sm" isLight={isLight} className="font-mono text-[10px]">
-            {tasEffectiveFlowPct}% ({Math.round((120 * tasEffectiveFlowPct) / 100)} fps)
+            {rewinderEffectiveFlowPct}% ({Math.round((120 * rewinderEffectiveFlowPct) / 100)} fps)
           </Badge>
         </div>
 
         <SegmentedSwitch
-          value={tasFlowPreset}
+          value={rewinderFlowPreset}
           fullWidth
           size="sm"
           isLight={isLight}
-          onValueChange={(v) => setTasFlowPreset(v as TasFlowPreset)}
+          onValueChange={(v) => setRewinderFlowPreset(v as RewinderFlowPreset)}
           options={[
             { value: '100', label: '100%' },
             { value: '75', label: '75%' },
@@ -318,11 +318,11 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
           ]}
         />
 
-        {tasFlowPreset === 'custom' && (
+        {rewinderFlowPreset === 'custom' && (
           <div className={`p-2 rounded-lg border ${subPanelBg}`}>
             <SliderControl
-              label={`Custom Flow Speed (${tasCustomFlowPct}%)`}
-              value={tasCustomFlowPct}
+              label={`Custom Flow Speed (${rewinderCustomFlowPct}%)`}
+              value={rewinderCustomFlowPct}
               min={5}
               max={200}
               step={5}
@@ -330,7 +330,7 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
               showStepper={true}
               colorScheme="neutral"
               isLight={isLight}
-              onChange={(val) => setTasCustomFlowPct(val)}
+              onChange={(val) => setRewinderCustomFlowPct(val)}
             />
           </div>
         )}

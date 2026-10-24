@@ -65,12 +65,12 @@ export type IncidentControlledCar = 0 | 1;
 export type IncidentSpeedMultiplier = 100 | 200 | 300 | 400 | 500;
 export type ReplayFlowPreset = '100' | '50' | '25' | '75' | 'custom';
 export type StateReplayRecorderState = 'idle' | 'recording' | 'stopped' | 'rewinding' | 'forwarding' | 'paused-scrub' | 'preroll-countdown';
-export type TasRecorderState = StateReplayRecorderState;
-export type TasFlowPreset = ReplayFlowPreset;
-export type TasDownCounterSec = 0 | 1 | 2 | 3;
-export type TasDownCounterOption = TasDownCounterSec;
+export type RewinderRecorderState = StateReplayRecorderState;
+export type RewinderFlowPreset = ReplayFlowPreset;
+export type RewinderDownCounterSec = 0 | 1 | 2 | 3;
+export type RewinderDownCounterOption = RewinderDownCounterSec;
 
-export function resolveTasRateFromPreset(preset: ReplayFlowPreset, customPct: number): number {
+export function resolveRewinderRateFromPreset(preset: ReplayFlowPreset, customPct: number): number {
   if (preset === '100' || preset === '75' || preset === '50' || preset === '25') return Number(preset);
   return Math.max(5, Math.min(200, Math.round(customPct)));
 }
@@ -104,16 +104,16 @@ export interface DevTestLabState {
   syncOtherWorldBall: boolean;
 
   // Bench 3: State Replay Scrubbing & Recording Sandbox (O / P / [ / ])
-  tasState: TasRecorderState;
-  tasRecordedFrames: number;
-  tasCursorFrame: number;
-  tasTargetFrame: number;
-  tasDownCounterSec: TasDownCounterSec;
-  tasPrerollRemainingSec: number;
-  tasMaxCapacityFrames: number;
-  tasFlowPreset: TasFlowPreset;
-  tasCustomFlowPct: number;
-  tasEffectiveFlowPct: number;
+  rewinderState: RewinderRecorderState;
+  rewinderRecordedFrames: number;
+  rewinderCursorFrame: number;
+  rewinderTargetFrame: number;
+  rewinderDownCounterSec: RewinderDownCounterSec;
+  rewinderPrerollRemainingSec: number;
+  rewinderMaxCapacityFrames: number;
+  rewinderFlowPreset: RewinderFlowPreset;
+  rewinderCustomFlowPct: number;
+  rewinderEffectiveFlowPct: number;
 
   // Bench 4: 90s Incident & Overtime Match Sandbox
   incidentMatchActive: boolean;
@@ -204,9 +204,9 @@ export interface DevTestLabState {
   setGhostWorldCount: (count: 2 | 3 | 4) => void;
   setGhostCarsPerWorld: (carsCount: number) => void;
   setGhostOpacity: (opacity: number) => void;
-  setTasFlowPreset: (preset: TasFlowPreset) => void;
-  setTasCustomFlowPct: (pct: number) => void;
-  setTasDownCounterSec: (sec: TasDownCounterSec) => void;
+  setRewinderFlowPreset: (preset: RewinderFlowPreset) => void;
+  setRewinderCustomFlowPct: (pct: number) => void;
+  setRewinderDownCounterSec: (sec: RewinderDownCounterSec) => void;
   setIncidentOpponentMode: (mode: IncidentOpponentMode) => void;
   setIncidentControlledCar: (carIdx: IncidentControlledCar) => void;
   switchIncidentControlledCar: () => void;
@@ -235,18 +235,18 @@ export interface DevTestLabState {
     onProbeCameraChange?: (target: 'player' | 'boost_probe' | 'qe_probe') => void;
     onDualWorldConfigChange?: () => void;
     onSwitchWorld?: (idx: number) => void;
-    onTasStartRecording?: () => void;
-    onTasStopRecording?: () => void;
-    onTasPushBackwardStart?: () => void;
-    onTasPushBackwardStop?: () => void;
-    onTasPushForwardStart?: () => void;
-    onTasPushForwardStop?: () => void;
-    onTasResumeFromHere?: () => void;
-    onTasClearBuffer?: () => void;
-    onTasCancelToFreeplay?: () => void;
-    onTasExportReplay?: () => Promise<boolean | void> | boolean | void;
-    onTasImportReplay?: (file: File) => Promise<boolean | void> | boolean | void;
-    onTasSeekFrame?: (frameIndex: number) => void;
+    onRewinderStartRecording?: () => void;
+    onRewinderStopRecording?: () => void;
+    onRewinderPushBackwardStart?: () => void;
+    onRewinderPushBackwardStop?: () => void;
+    onRewinderPushForwardStart?: () => void;
+    onRewinderPushForwardStop?: () => void;
+    onRewinderResumeFromHere?: () => void;
+    onRewinderClearBuffer?: () => void;
+    onRewinderCancelToFreeplay?: () => void;
+    onRewinderExportReplay?: () => Promise<boolean | void> | boolean | void;
+    onRewinderImportReplay?: (file: File) => Promise<boolean | void> | boolean | void;
+    onRewinderSeekFrame?: (frameIndex: number) => void;
     onStartIncidentMatch?: (opponentMode: IncidentOpponentMode) => void;
     onIncidentControlModeChange?: (opponentMode: IncidentOpponentMode) => void;
     onIncidentControlledCarChange?: (carIdx: IncidentControlledCar) => void;
@@ -296,16 +296,16 @@ export const useDevTestLabStore = create<DevTestLabState>((set, get) => ({
   ghostOpacity: 0.45,
   syncOtherWorldBall: true,
 
-  tasState: 'idle',
-  tasRecordedFrames: 0,
-  tasCursorFrame: 0,
-  tasTargetFrame: 0,
-  tasDownCounterSec: 0,
-  tasPrerollRemainingSec: 0,
-  tasMaxCapacityFrames: 18000,
-  tasFlowPreset: '100',
-  tasCustomFlowPct: 50,
-  tasEffectiveFlowPct: 100,
+  rewinderState: 'idle',
+  rewinderRecordedFrames: 0,
+  rewinderCursorFrame: 0,
+  rewinderTargetFrame: 0,
+  rewinderDownCounterSec: 0,
+  rewinderPrerollRemainingSec: 0,
+  rewinderMaxCapacityFrames: 18000,
+  rewinderFlowPreset: '100',
+  rewinderCustomFlowPct: 50,
+  rewinderEffectiveFlowPct: 100,
 
   incidentMatchActive: false,
   incidentOpponentMode: 'stationary',
@@ -426,11 +426,11 @@ export const useDevTestLabStore = create<DevTestLabState>((set, get) => ({
       activeWorldIndex: 0,
       incidentMatchActive: activeTab === 'incident-match',
       probeCameraTarget: 'player',
-      tasState: 'idle',
-      tasRecordedFrames: 0,
-      tasCursorFrame: 0,
-      tasTargetFrame: 0,
-      tasPrerollRemainingSec: 0,
+      rewinderState: 'idle',
+      rewinderRecordedFrames: 0,
+      rewinderCursorFrame: 0,
+      rewinderTargetFrame: 0,
+      rewinderPrerollRemainingSec: 0,
       podiumActive: false,
       goalReplayPhase: 'live',
       goalReplayPaused: false,
@@ -548,19 +548,19 @@ export const useDevTestLabStore = create<DevTestLabState>((set, get) => ({
     }
   },
 
-  setTasFlowPreset: (tasFlowPreset) => {
-    const eff = resolveTasRateFromPreset(tasFlowPreset, get().tasCustomFlowPct);
-    set({ tasFlowPreset, tasEffectiveFlowPct: eff });
+  setRewinderFlowPreset: (rewinderFlowPreset) => {
+    const eff = resolveRewinderRateFromPreset(rewinderFlowPreset, get().rewinderCustomFlowPct);
+    set({ rewinderFlowPreset, rewinderEffectiveFlowPct: eff });
   },
-  setTasCustomFlowPct: (pct) => {
+  setRewinderCustomFlowPct: (pct) => {
     const clamped = Math.max(5, Math.min(200, Math.round(pct)));
-    const eff = get().tasFlowPreset === 'custom' ? clamped : get().tasEffectiveFlowPct;
-    set({ tasCustomFlowPct: clamped, tasEffectiveFlowPct: eff });
+    const eff = get().rewinderFlowPreset === 'custom' ? clamped : get().rewinderEffectiveFlowPct;
+    set({ rewinderCustomFlowPct: clamped, rewinderEffectiveFlowPct: eff });
   },
-  setTasDownCounterSec: (tasDownCounterSec) => {
-    const clamped: TasDownCounterSec =
-      tasDownCounterSec === 0 ? 0 : tasDownCounterSec === 1 ? 1 : tasDownCounterSec === 2 ? 2 : 3;
-    set({ tasDownCounterSec: clamped });
+  setRewinderDownCounterSec: (rewinderDownCounterSec) => {
+    const clamped: RewinderDownCounterSec =
+      rewinderDownCounterSec === 0 ? 0 : rewinderDownCounterSec === 1 ? 1 : rewinderDownCounterSec === 2 ? 2 : 3;
+    set({ rewinderDownCounterSec: clamped });
   },
 
   setIncidentOpponentMode: (incidentOpponentMode) => {

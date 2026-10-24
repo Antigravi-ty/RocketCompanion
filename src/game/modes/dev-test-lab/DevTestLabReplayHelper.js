@@ -16,14 +16,14 @@ import {
 import { DEFAULT_CAR_CONTROLS } from '../../../ai/experimental/ExperimentalBotAgent.js';
 import { gameAudio } from '../../../audio/GameAudioEngineFacade.js';
 
-export const MAX_TAS_FRAMES = 18000; // 150 seconds @ 120Hz
+export const MAX_REWINDER_FRAMES = 18000; // 150 seconds @ 120Hz
 
-export async function exportStateReplayFile(tasFrames, options = {}) {
-  if (!Array.isArray(tasFrames) || tasFrames.length === 0) return false;
+export async function exportStateReplayFile(rewinderFrames, options = {}) {
+  if (!Array.isArray(rewinderFrames) || rewinderFrames.length === 0) return false;
   const normalizedFrames = [];
   const normalizedSlots = [];
-  for (let i = 0; i < tasFrames.length; i++) {
-    const item = tasFrames[i];
+  for (let i = 0; i < rewinderFrames.length; i++) {
+    const item = rewinderFrames[i];
     const src =
       item instanceof Float32Array
         ? item
@@ -86,7 +86,7 @@ export function bindDevTestLabReplayHotkeys(mode) {
       if (!evt.repeat) {
         evt.preventDefault();
         evt.stopImmediatePropagation();
-        mode.startTasRecording();
+        mode.startRewinderRecording();
       }
       return;
     }
@@ -95,7 +95,7 @@ export function bindDevTestLabReplayHotkeys(mode) {
       if (!evt.repeat) {
         evt.preventDefault();
         evt.stopImmediatePropagation();
-        mode.stopTasRecording();
+        mode.stopRewinderRecording();
       }
       return;
     }
@@ -104,20 +104,20 @@ export function bindDevTestLabReplayHotkeys(mode) {
       if (!evt.repeat) {
         evt.preventDefault();
         evt.stopImmediatePropagation();
-        mode.resumeTasFromCursor();
+        mode.resumeRewinderFromCursor();
       }
       return;
     }
 
     if (evt.code === 'BracketLeft' || evt.key === '[') {
       evt.preventDefault();
-      if (!evt.repeat) mode.beginTasScrub('rewinding');
+      if (!evt.repeat) mode.beginRewinderScrub('rewinding');
       return;
     }
 
     if (evt.code === 'BracketRight' || evt.key === ']') {
       evt.preventDefault();
-      if (!evt.repeat) mode.beginTasScrub('forwarding');
+      if (!evt.repeat) mode.beginRewinderScrub('forwarding');
     }
   };
 
@@ -126,7 +126,7 @@ export function bindDevTestLabReplayHotkeys(mode) {
     if (!doesRewinderWindowExist()) return;
     if (evt.code === 'BracketLeft' || evt.key === '[' || evt.code === 'BracketRight' || evt.key === ']') {
       evt.preventDefault();
-      mode.pauseTasScrub();
+      mode.pauseRewinderScrub();
     }
   };
 
@@ -146,11 +146,15 @@ export function unbindDevTestLabReplayHotkeys(mode) {
   }
 }
 
-export function applyTasFrameAtCursor(mode, smoothStep = false) {
+export function applyRewinderFrameAtCursor(
+  mode,
+  smoothStep = false,
+  restoreOptions = { preserveEngineTick: true }
+) {
   const r = mode.runtime;
-  if (!r?.physics || mode.tasFrames.length === 0) return;
-  const idx = Math.max(0, Math.min(mode.tasFrames.length - 1, Math.floor(mode.tasCursor)));
-  const entry = mode.tasFrames[idx];
+  if (!r?.physics || mode.rewinderFrames.length === 0) return;
+  const idx = Math.max(0, Math.min(mode.rewinderFrames.length - 1, Math.floor(mode.rewinderCursor)));
+  const entry = mode.rewinderFrames[idx];
   if (!entry) return;
 
   if (smoothStep && r.interpolator) {
@@ -159,7 +163,7 @@ export function applyTasFrameAtCursor(mode, smoothStep = false) {
 
   const compactSnap = entry.compactSnap || entry.renderState || entry.arenaSnap;
   if (compactSnap) {
-    r.physics.restoreState(compactSnap);
+    r.physics.restoreState(compactSnap, restoreOptions);
   }
   if (r.interpolator) {
     if (!smoothStep) {
@@ -170,28 +174,28 @@ export function applyTasFrameAtCursor(mode, smoothStep = false) {
   }
 }
 
-export function recordTasFrameAfterTick(mode, store) {
+export function recordRewinderFrameAfterTick(mode, store) {
   const r = mode.runtime;
-  if (store.tasState !== 'recording' || !r?.physics) return;
-  if (mode.tasFrames.length < MAX_TAS_FRAMES) {
+  if (store.rewinderState !== 'recording' || !r?.physics) return;
+  if (mode.rewinderFrames.length < MAX_REWINDER_FRAMES) {
     const compactSnap = r.physics.saveCompactState();
-    mode.tasFrames.push({
+    mode.rewinderFrames.push({
       compactSnap,
       renderState: compactSnap,
       controls: { ...r.playerControls },
     });
     r.physics.recordReplayFrame?.();
-    mode.tasCursor = mode.tasFrames.length - 1;
-    mode.tasTargetFrame = mode.tasCursor;
-    if (mode.tasFrames.length % 6 === 0 || mode.tasFrames.length === 120 || mode.tasFrames.length === 240) {
+    mode.rewinderCursor = mode.rewinderFrames.length - 1;
+    mode.rewinderTargetFrame = mode.rewinderCursor;
+    if (mode.rewinderFrames.length % 6 === 0 || mode.rewinderFrames.length === 120 || mode.rewinderFrames.length === 240) {
       store.updateLiveTelemetry({
-        tasRecordedFrames: mode.tasFrames.length,
-        tasCursorFrame: mode.tasCursor,
-        tasTargetFrame: mode.tasTargetFrame,
+        rewinderRecordedFrames: mode.rewinderFrames.length,
+        rewinderCursorFrame: mode.rewinderCursor,
+        rewinderTargetFrame: mode.rewinderTargetFrame,
       });
     }
   } else {
-    mode.stopTasRecording();
+    mode.stopRewinderRecording();
   }
 }
 
@@ -206,8 +210,8 @@ function ensureDevTestLabActive(mode, actionName) {
   return true;
 }
 
-export function startTasRecordingSession(mode) {
-  if (!ensureDevTestLabActive(mode, 'startTasRecordingSession')) return;
+export function startRewinderRecordingSession(mode) {
+  if (!ensureDevTestLabActive(mode, 'startRewinderRecordingSession')) return;
   const r = mode.runtime;
   if (!r?.physics) {
     console.warn('[DevTestLabReplayHelper] Cannot start recording: physics engine is not initialized.');
@@ -215,11 +219,11 @@ export function startTasRecordingSession(mode) {
   }
   const store = useDevTestLabStore.getState();
 
-  mode.tasFrames = [];
-  mode.tasCursor = 0;
-  mode.tasTargetFrame = 0;
-  mode.tasScrubAccumulator = 0;
-  mode._tasLastCountdownSecBeep = -1;
+  mode.rewinderFrames = [];
+  mode.rewinderCursor = 0;
+  mode.rewinderTargetFrame = 0;
+  mode.rewinderScrubAccumulator = 0;
+  mode._rewinderLastCountdownSecBeep = -1;
   r.physics.clearReplayBuffer?.();
   r.physics.clearEvents?.();
   r.physics.resetGoalLatch?.();
@@ -227,155 +231,155 @@ export function startTasRecordingSession(mode) {
   r.simulationStage?.resetActionStates?.();
 
   store.updateLiveTelemetry({
-    tasState: 'recording',
-    tasRecordedFrames: 0,
-    tasCursorFrame: 0,
-    tasTargetFrame: 0,
-    tasPrerollRemainingSec: 0,
+    rewinderState: 'recording',
+    rewinderRecordedFrames: 0,
+    rewinderCursorFrame: 0,
+    rewinderTargetFrame: 0,
+    rewinderPrerollRemainingSec: 0,
   });
 }
 
-export function pauseTasRecordingSession(mode) {
-  if (!ensureDevTestLabActive(mode, 'pauseTasRecordingSession')) return;
+export function pauseRewinderRecordingSession(mode) {
+  if (!ensureDevTestLabActive(mode, 'pauseRewinderRecordingSession')) return;
   const store = useDevTestLabStore.getState();
-  if (store.tasState === 'recording') {
-    const lastFrame = Math.max(0, mode.tasFrames.length - 1);
-    mode.tasCursor = lastFrame;
-    mode.tasTargetFrame = lastFrame;
+  if (store.rewinderState === 'recording') {
+    const lastFrame = Math.max(0, mode.rewinderFrames.length - 1);
+    mode.rewinderCursor = lastFrame;
+    mode.rewinderTargetFrame = lastFrame;
     store.updateLiveTelemetry({
-      tasState: 'stopped',
-      tasRecordedFrames: mode.tasFrames.length,
-      tasCursorFrame: lastFrame,
-      tasTargetFrame: lastFrame,
-      tasPrerollRemainingSec: 0,
+      rewinderState: 'stopped',
+      rewinderRecordedFrames: mode.rewinderFrames.length,
+      rewinderCursorFrame: lastFrame,
+      rewinderTargetFrame: lastFrame,
+      rewinderPrerollRemainingSec: 0,
     });
   } else {
-    console.warn(`[DevTestLabReplayHelper] Cannot stop recording: current state is "${store.tasState}".`);
+    console.warn(`[DevTestLabReplayHelper] Cannot stop recording: current state is "${store.rewinderState}".`);
   }
 }
 
-export function beginTasScrubSession(mode, direction = 'rewinding') {
-  if (!ensureDevTestLabActive(mode, `beginTasScrubSession(${direction})`)) return;
-  if (mode.tasFrames.length === 0) {
+export function beginRewinderScrubSession(mode, direction = 'rewinding') {
+  if (!ensureDevTestLabActive(mode, `beginRewinderScrubSession(${direction})`)) return;
+  if (mode.rewinderFrames.length === 0) {
     console.warn(`[DevTestLabReplayHelper] Cannot start ${direction}: recorded frame buffer is empty (0 frames).`);
     return;
   }
   const store = useDevTestLabStore.getState();
-  if (store.tasState === 'recording') {
-    mode.tasCursor = mode.tasFrames.length - 1;
-    mode.tasTargetFrame = mode.tasCursor;
-  } else if (store.tasState === 'preroll-countdown') {
-    mode.tasCursor = mode.tasTargetFrame;
+  if (store.rewinderState === 'recording') {
+    mode.rewinderCursor = mode.rewinderFrames.length - 1;
+    mode.rewinderTargetFrame = mode.rewinderCursor;
+  } else if (store.rewinderState === 'preroll-countdown') {
+    mode.rewinderCursor = mode.rewinderTargetFrame;
   }
-  mode.tasScrubAccumulator = 0;
-  mode._tasLastCountdownSecBeep = -1;
+  mode.rewinderScrubAccumulator = 0;
+  mode._rewinderLastCountdownSecBeep = -1;
   store.updateLiveTelemetry({
-    tasState: direction,
-    tasRecordedFrames: mode.tasFrames.length,
-    tasCursorFrame: Math.round(mode.tasCursor),
-    tasTargetFrame: Math.round(mode.tasCursor),
-    tasPrerollRemainingSec: 0,
+    rewinderState: direction,
+    rewinderRecordedFrames: mode.rewinderFrames.length,
+    rewinderCursorFrame: Math.round(mode.rewinderCursor),
+    rewinderTargetFrame: Math.round(mode.rewinderCursor),
+    rewinderPrerollRemainingSec: 0,
   });
 }
 
-export function pauseTasScrubSession(mode) {
+export function pauseRewinderScrubSession(mode) {
   const store = useDevTestLabStore.getState();
-  if (store.tasState === 'rewinding' || store.tasState === 'forwarding') {
-    const clamped = Math.max(0, Math.min(mode.tasFrames.length - 1, Math.round(mode.tasCursor)));
-    mode.tasCursor = clamped;
-    mode.tasTargetFrame = clamped;
+  if (store.rewinderState === 'rewinding' || store.rewinderState === 'forwarding') {
+    const clamped = Math.max(0, Math.min(mode.rewinderFrames.length - 1, Math.round(mode.rewinderCursor)));
+    mode.rewinderCursor = clamped;
+    mode.rewinderTargetFrame = clamped;
     store.updateLiveTelemetry({
-      tasState: 'paused-scrub',
-      tasCursorFrame: clamped,
-      tasTargetFrame: clamped,
+      rewinderState: 'paused-scrub',
+      rewinderCursorFrame: clamped,
+      rewinderTargetFrame: clamped,
     });
   }
 }
 
-export function seekTasFrameToIndex(mode, frameIndex) {
-  if (!ensureDevTestLabActive(mode, 'seekTasFrameToIndex')) return;
-  if (!mode.tasFrames || mode.tasFrames.length === 0) {
+export function seekRewinderFrameToIndex(mode, frameIndex) {
+  if (!ensureDevTestLabActive(mode, 'seekRewinderFrameToIndex')) return;
+  if (!mode.rewinderFrames || mode.rewinderFrames.length === 0) {
     console.warn('[DevTestLabReplayHelper] Cannot seek frame: recorded frame buffer is empty (0 frames).');
     return;
   }
-  const clamped = Math.max(0, Math.min(mode.tasFrames.length - 1, Math.round(frameIndex)));
-  mode.tasCursor = clamped;
-  mode.tasTargetFrame = clamped;
-  mode.tasScrubAccumulator = 0;
-  mode._tasLastCountdownSecBeep = -1;
-  applyTasFrameAtCursor(mode, false);
+  const clamped = Math.max(0, Math.min(mode.rewinderFrames.length - 1, Math.round(frameIndex)));
+  mode.rewinderCursor = clamped;
+  mode.rewinderTargetFrame = clamped;
+  mode.rewinderScrubAccumulator = 0;
+  mode._rewinderLastCountdownSecBeep = -1;
+  applyRewinderFrameAtCursor(mode, false);
   useDevTestLabStore.getState().updateLiveTelemetry({
-    tasState: 'paused-scrub',
-    tasCursorFrame: clamped,
-    tasTargetFrame: clamped,
-    tasPrerollRemainingSec: 0,
+    rewinderState: 'paused-scrub',
+    rewinderCursorFrame: clamped,
+    rewinderTargetFrame: clamped,
+    rewinderPrerollRemainingSec: 0,
   });
 }
 
-export function resumeTasFromCursorSession(mode) {
-  if (!ensureDevTestLabActive(mode, 'resumeTasFromCursorSession')) return;
+export function resumeRewinderFromCursorSession(mode) {
+  if (!ensureDevTestLabActive(mode, 'resumeRewinderFromCursorSession')) return;
   const r = mode.runtime;
   const store = useDevTestLabStore.getState();
-  const downSec = store.tasDownCounterSec ?? 3;
+  const downSec = store.rewinderDownCounterSec ?? 3;
   const minRequiredFrames = downSec === 0 ? 120 : 240;
   if (!r?.physics) {
     console.warn('[DevTestLabReplayHelper] Cannot resume from cursor: physics engine is not initialized.');
     return;
   }
-  if (mode.tasFrames.length < minRequiredFrames) {
+  if (mode.rewinderFrames.length < minRequiredFrames) {
     console.warn(
-      `[DevTestLabReplayHelper] Cannot resume from cursor: recorded frames (${mode.tasFrames.length}) < minimum required frames (${minRequiredFrames}) for downCounter=${downSec}s.`
+      `[DevTestLabReplayHelper] Cannot resume from cursor: recorded frames (${mode.rewinderFrames.length}) < minimum required frames (${minRequiredFrames}) for downCounter=${downSec}s.`
     );
     return;
   }
 
-  if (store.tasState === 'recording') {
-    const lastFrame = Math.max(0, mode.tasFrames.length - 1);
-    mode.tasCursor = lastFrame;
-    mode.tasTargetFrame = lastFrame;
+  if (store.rewinderState === 'recording') {
+    const lastFrame = Math.max(0, mode.rewinderFrames.length - 1);
+    mode.rewinderCursor = lastFrame;
+    mode.rewinderTargetFrame = lastFrame;
   }
 
   const baseTarget =
-    store.tasState === 'preroll-countdown' || store.tasState === 'stopped'
-      ? mode.tasTargetFrame || mode.tasCursor
-      : mode.tasCursor;
+    store.rewinderState === 'preroll-countdown' || store.rewinderState === 'stopped'
+      ? mode.rewinderTargetFrame || mode.rewinderCursor
+      : mode.rewinderCursor;
 
   const targetIdx = Math.max(
     minRequiredFrames - 1,
-    Math.min(mode.tasFrames.length - 1, Math.round(baseTarget))
+    Math.min(mode.rewinderFrames.length - 1, Math.round(baseTarget))
   );
   const lookbackFrames = (downSec === 0 ? 1 : downSec + 1) * 120;
   const startIdx = Math.max(0, targetIdx - lookbackFrames);
 
-  mode.tasTargetFrame = targetIdx;
-  mode.tasCursor = startIdx;
-  mode._tasLastCountdownSecBeep = -1;
+  mode.rewinderTargetFrame = targetIdx;
+  mode.rewinderCursor = startIdx;
+  mode._rewinderLastCountdownSecBeep = -1;
 
-  applyTasFrameAtCursor(mode, false);
+  applyRewinderFrameAtCursor(mode, false);
   r.simulationStage?.resetActionStates?.();
 
   const remFrames = Math.max(0, targetIdx - startIdx);
   const remSec = Math.ceil(remFrames / 120);
   const audio = r?.options?.gameAudio || gameAudio;
   if (downSec === 0) {
-    mode._tasLastCountdownSecBeep = 1;
+    mode._rewinderLastCountdownSecBeep = 1;
     audio?.play?.('training_countdown', 1.0, 200);
   } else if (remSec >= 1 && remSec <= downSec) {
-    mode._tasLastCountdownSecBeep = remSec;
+    mode._rewinderLastCountdownSecBeep = remSec;
     audio?.play?.('training_countdown', 1.0, 200);
   }
 
   store.updateLiveTelemetry({
-    tasState: 'preroll-countdown',
-    tasRecordedFrames: mode.tasFrames.length,
-    tasCursorFrame: startIdx,
-    tasTargetFrame: targetIdx,
-    tasPrerollRemainingSec: downSec === 0 ? 1 : Math.min(downSec, remSec),
+    rewinderState: 'preroll-countdown',
+    rewinderRecordedFrames: mode.rewinderFrames.length,
+    rewinderCursorFrame: startIdx,
+    rewinderTargetFrame: targetIdx,
+    rewinderPrerollRemainingSec: downSec === 0 ? 1 : Math.min(downSec, remSec),
   });
 }
 
-export async function importTasReplayFile(mode, fileOrBuffer) {
-  if (!ensureDevTestLabActive(mode, 'importTasReplayFile')) return false;
+export async function importRewinderReplayFile(mode, fileOrBuffer) {
+  if (!ensureDevTestLabActive(mode, 'importRewinderReplayFile')) return false;
   const r = mode.runtime;
   if (!r?.physics) {
     console.warn('[DevTestLabReplayHelper] Cannot import replay: physics engine is not initialized.');
@@ -387,7 +391,7 @@ export async function importTasReplayFile(mode, fileOrBuffer) {
       throw new Error('No valid frames found in replay file.');
     }
     mode._ensureSinglePlayerCarOnly(false);
-    mode.tasFrames = parsed.frames.map((snap, idx) => {
+    mode.rewinderFrames = parsed.frames.map((snap, idx) => {
       const slot = parsed.frameSlots?.[idx] || null;
       const car0Ctrl =
         slot?.acknowledgedControls?.[0] ||
@@ -404,20 +408,20 @@ export async function importTasReplayFile(mode, fileOrBuffer) {
         audioEvents: slot?.audioEvents || snap?.audioEvents || [],
       };
     });
-    mode.tasCursor = 0;
-    mode.tasTargetFrame = Math.max(0, mode.tasFrames.length - 1);
-    mode.tasScrubAccumulator = 0;
-    mode._tasLastCountdownSecBeep = -1;
+    mode.rewinderCursor = 0;
+    mode.rewinderTargetFrame = Math.max(0, mode.rewinderFrames.length - 1);
+    mode.rewinderScrubAccumulator = 0;
+    mode._rewinderLastCountdownSecBeep = -1;
 
-    applyTasFrameAtCursor(mode, false);
+    applyRewinderFrameAtCursor(mode, false);
     r.simulationStage?.resetActionStates?.();
 
     useDevTestLabStore.getState().updateLiveTelemetry({
-      tasState: 'stopped',
-      tasRecordedFrames: mode.tasFrames.length,
-      tasCursorFrame: 0,
-      tasTargetFrame: Math.max(0, mode.tasFrames.length - 1),
-      tasPrerollRemainingSec: 0,
+      rewinderState: 'stopped',
+      rewinderRecordedFrames: mode.rewinderFrames.length,
+      rewinderCursorFrame: 0,
+      rewinderTargetFrame: Math.max(0, mode.rewinderFrames.length - 1),
+      rewinderPrerollRemainingSec: 0,
     });
     return true;
   } catch (err) {
@@ -426,20 +430,20 @@ export async function importTasReplayFile(mode, fileOrBuffer) {
   }
 }
 
-export function clearTasBufferSession(mode) {
+export function clearRewinderBufferSession(mode) {
   const r = mode.runtime;
-  mode.tasFrames = [];
-  mode.tasCursor = 0;
-  mode.tasTargetFrame = 0;
-  mode.tasScrubAccumulator = 0;
-  mode._tasLastCountdownSecBeep = -1;
+  mode.rewinderFrames = [];
+  mode.rewinderCursor = 0;
+  mode.rewinderTargetFrame = 0;
+  mode.rewinderScrubAccumulator = 0;
+  mode._rewinderLastCountdownSecBeep = -1;
   r?.physics?.clearReplayBuffer?.();
   useDevTestLabStore.getState().updateLiveTelemetry({
-    tasState: 'idle',
-    tasRecordedFrames: 0,
-    tasCursorFrame: 0,
-    tasTargetFrame: 0,
-    tasPrerollRemainingSec: 0,
+    rewinderState: 'idle',
+    rewinderRecordedFrames: 0,
+    rewinderCursorFrame: 0,
+    rewinderTargetFrame: 0,
+    rewinderPrerollRemainingSec: 0,
   });
 }
 
@@ -447,37 +451,42 @@ export function clearTasBufferSession(mode) {
  * Advances State Replay pre-roll countdown or scrubbing before each physics tick.
  * Returns false if live physics stepping should be suppressed on this tick, or true to step physics.
  */
-export function stepTasBeforePhysicsTick(mode, store) {
+export function stepRewinderBeforePhysicsTick(mode, store) {
   const r = mode.runtime;
 
-  if (store.tasState === 'preroll-countdown') {
+  if (store.rewinderState === 'preroll-countdown') {
     const targetIdx = Math.max(
       0,
-      Math.min(mode.tasFrames.length - 1, Math.round(mode.tasTargetFrame))
+      Math.min(mode.rewinderFrames.length - 1, Math.round(mode.rewinderTargetFrame))
     );
-    const nextCursor = Math.min(targetIdx, Math.round(mode.tasCursor) + 1);
-    mode.tasCursor = nextCursor;
-    applyTasFrameAtCursor(mode, true);
+    const nextCursor = Math.min(targetIdx, Math.round(mode.rewinderCursor) + 1);
+    mode.rewinderCursor = nextCursor;
+    applyRewinderFrameAtCursor(mode, true, { preserveEngineTick: true });
 
     const remFrames = Math.max(0, targetIdx - nextCursor);
-    const downSec = store.tasDownCounterSec ?? 3;
+    const downSec = store.rewinderDownCounterSec ?? 3;
     const maxBeepSec = downSec === 0 ? 1 : downSec;
     const audio = r?.options?.gameAudio || gameAudio;
 
     if (remFrames <= 0) {
-      // Reached the release timestamp! Push state, reset action latches, play start sound, and release live user controls
-      applyTasFrameAtCursor(mode, false);
+      // Reached the release timestamp! Advance engine tick monotonically, reset action latches, play start sound, and release live user controls
+      const prevEngineTick = Math.floor(r?.physics?.getHeaderView?.()?.tickCount ?? 0);
+      const liveTick = Math.max(prevEngineTick + 16, targetIdx + 16);
+      applyRewinderFrameAtCursor(mode, false, { overrideTick: liveTick });
+      r.physics?.clearEvents?.();
+      r.physics?.resetGoalLatch?.();
+      r._clientGoalIncidentLatched = false;
       r.simulationStage?.resetActionStates?.();
       if (r.playerControls) {
         r.physics.setControls?.(r.playerCarIndex || 0, r.playerControls);
       }
       audio?.play?.('match_start_go', 1.0, 200);
-      mode._tasLastCountdownSecBeep = -1;
+      mode._rewinderLastCountdownSecBeep = -1;
       store.updateLiveTelemetry({
-        tasState: 'stopped',
-        tasCursorFrame: targetIdx,
-        tasTargetFrame: targetIdx,
-        tasPrerollRemainingSec: 0,
+        rewinderState: 'stopped',
+        rewinderCursorFrame: targetIdx,
+        rewinderTargetFrame: targetIdx,
+        rewinderPrerollRemainingSec: 0,
       });
       return false;
     }
@@ -486,37 +495,37 @@ export function stepTasBeforePhysicsTick(mode, store) {
     if (
       countdownSec >= 1 &&
       countdownSec <= maxBeepSec &&
-      countdownSec !== mode._tasLastCountdownSecBeep
+      countdownSec !== mode._rewinderLastCountdownSecBeep
     ) {
-      mode._tasLastCountdownSecBeep = countdownSec;
+      mode._rewinderLastCountdownSecBeep = countdownSec;
       audio?.play?.('training_countdown', 1.0, 200);
     }
 
     if (remFrames % 6 === 0 || remFrames % 120 === 0) {
       store.updateLiveTelemetry({
-        tasCursorFrame: nextCursor,
-        tasPrerollRemainingSec: Math.min(maxBeepSec, countdownSec),
+        rewinderCursorFrame: nextCursor,
+        rewinderPrerollRemainingSec: Math.min(maxBeepSec, countdownSec),
       });
     }
     return false;
   }
 
   if (
-    store.tasState === 'rewinding' ||
-    store.tasState === 'forwarding' ||
-    store.tasState === 'paused-scrub'
+    store.rewinderState === 'rewinding' ||
+    store.rewinderState === 'forwarding' ||
+    store.rewinderState === 'paused-scrub'
   ) {
-    if (store.tasState === 'rewinding' || store.tasState === 'forwarding') {
-      const stepPerTick = (store.tasEffectiveFlowPct || 100) / 100;
-      mode.tasCursor =
-        store.tasState === 'rewinding'
-          ? Math.max(0, mode.tasCursor - stepPerTick)
-          : Math.min(Math.max(0, mode.tasFrames.length - 1), mode.tasCursor + stepPerTick);
-      mode.tasTargetFrame = Math.round(mode.tasCursor);
-      applyTasFrameAtCursor(mode, false);
+    if (store.rewinderState === 'rewinding' || store.rewinderState === 'forwarding') {
+      const stepPerTick = (store.rewinderEffectiveFlowPct || 100) / 100;
+      mode.rewinderCursor =
+        store.rewinderState === 'rewinding'
+          ? Math.max(0, mode.rewinderCursor - stepPerTick)
+          : Math.min(Math.max(0, mode.rewinderFrames.length - 1), mode.rewinderCursor + stepPerTick);
+      mode.rewinderTargetFrame = Math.round(mode.rewinderCursor);
+      applyRewinderFrameAtCursor(mode, false, { preserveEngineTick: true });
       store.updateLiveTelemetry({
-        tasCursorFrame: mode.tasTargetFrame,
-        tasTargetFrame: mode.tasTargetFrame,
+        rewinderCursorFrame: mode.rewinderTargetFrame,
+        rewinderTargetFrame: mode.rewinderTargetFrame,
       });
     }
     return false;

@@ -6,7 +6,7 @@
  * and Preroll Countdown + Resume From Here (G).
  */
 
-import { SIM_OFFSETS, MAX_CARS } from '../physics/RocketSimConstants.js';
+import { SIM_OFFSETS, MAX_CARS, INCIDENT_EVENT_TYPES } from '../physics/RocketSimConstants.js';
 import { getRetainedMatchReplay, parseRCReplayFile } from './ReplayFileExporter.js';
 import { dispatchReplayFrameEvents } from './ReplayTimelineController.js';
 import { useReplayViewerStore } from '../stores/replayViewerStore';
@@ -204,7 +204,11 @@ export class StandaloneReplayViewerController {
     };
   }
 
-  _applyFrameAtCursor(smoothStep = false, dispatchEvents = false) {
+  _applyFrameAtCursor(
+    smoothStep = false,
+    dispatchEvents = false,
+    restoreOptions = { preserveEngineTick: true }
+  ) {
     const r = this.runtime;
     if (!r?.physics || this.frames.length === 0) return;
     const idx = Math.max(0, Math.min(this.frames.length - 1, Math.floor(this.cursor)));
@@ -223,7 +227,7 @@ export class StandaloneReplayViewerController {
       r.interpolator.prevState.set(r.interpolator.currState);
     }
 
-    r.physics.restoreState(snap);
+    r.physics.restoreState(snap, restoreOptions);
 
     const controls =
       slot?.acknowledgedControls ||
@@ -232,8 +236,9 @@ export class StandaloneReplayViewerController {
       snap?.controls;
     if (Array.isArray(controls) && typeof r.physics.setControls === 'function') {
       for (let c = 0; c < Math.min(controls.length, r.physics.numCars || MAX_CARS); c++) {
-        if (controls[c]) {
-          r.physics.setControls(c, controls[c]);
+        const ctrlPayload = controls[c]?.controls || controls[c];
+        if (ctrlPayload) {
+          r.physics.setControls(c, ctrlPayload);
         }
       }
     }
@@ -306,6 +311,82 @@ export class StandaloneReplayViewerController {
         hudStore.getState().setMatchState(hudPatch);
       }
       this._lastDispatchedCursorFrame = idx;
+    }
+  }
+
+  _handoffToLiveFreeplay(targetIdx) {
+    const r = this.runtime;
+    if (!r?.physics) return;
+    const sim = r.physics;
+    const freeplayMode = r.gameModeManager?.modes?.get?.('freeplay') || null;
+    const maxHistory = Math.min(targetIdx + 1, freeplayMode?.replayRingBuffer?.capacityTicks || 2400);
+    const firstIdx = Math.max(0, targetIdx + 1 - maxHistory);
+    const historySpan = Math.max(0, targetIdx - firstIdx);
+    const prevEngineTick = Math.floor(sim.getHeaderView?.()?.tickCount ?? 0);
+    const liveTick = Math.max(prevEngineTick + 16, historySpan + 16);
+
+    this.cursor = targetIdx;
+    this._applyFrameAtCursor(false, false, { overrideTick: liveTick });
+
+    sim.clearEvents?.();
+    sim.resetGoalLatch?.();
+    r._clientGoalIncidentLatched = false;
+    r.simulationStage?.resetActionStates?.();
+    if (r.keyboard) {
+      r.keyboard.ballControlEnabled = true;
+    }
+    if (r.playerControls) {
+      sim.setControls?.(r.playerCarIndex || 0, r.playerControls);
+    }
+
+    if (freeplayMode) {
+      const currentTick = Math.floor(sim.getHeaderView?.()?.tickCount ?? liveTick);
+      const bView = sim.getBallStateView?.();
+      freeplayMode.goalIncidentTick = -1;
+      freeplayMode.goalResetTicks = 0;
+      freeplayMode.frozenGoalBallState = null;
+      freeplayMode.prevBallVelX = bView?.velX ?? 0;
+      freeplayMode.prevBallVelY = bView?.velY ?? 0;
+      freeplayMode.prevBallVelZ = bView?.velZ ?? 0;
+
+      if (freeplayMode.replayRingBuffer) {
+        freeplayMode.replayRingBuffer.clear();
+        const baseTick = currentTick - historySpan;
+        let latestTouchTick = -1;
+
+        for (let i = firstIdx; i <= targetIdx; i++) {
+          const slot =
+            this.stateInputTimeline?.getFrameAt?.(i) ||
+            this.frameSlots?.[i] ||
+            null;
+          const snap = slot?.snapshot || this.frames[i];
+          if (!snap) continue;
+          const syntheticTick = baseTick + (i - firstIdx);
+          const recordedSlot = freeplayMode.replayRingBuffer.recordFrame(syntheticTick, snap, {
+            acknowledgedControls: slot?.acknowledgedControls || slot?.controls || [],
+          });
+          if (recordedSlot?.snapshot) {
+            recordedSlot.snapshot[SIM_OFFSETS.TICK] = syntheticTick;
+          }
+          const frameIncidents =
+            this.incidentTimeline?.getEventsAtFrame?.(i) ||
+            slot?.incidents ||
+            snap?.incidents ||
+            [];
+          for (const inc of frameIncidents) {
+            freeplayMode.replayRingBuffer.appendIncident(syntheticTick, {
+              ...inc,
+              tick: syntheticTick,
+            });
+            if (inc.type === INCIDENT_EVENT_TYPES.CAR_BALL_HIT || inc.type === 0x01) {
+              latestTouchTick = syntheticTick;
+            }
+          }
+        }
+
+        freeplayMode.lastKickoffStartTick = baseTick;
+        freeplayMode.lastTouchTick = latestTouchTick;
+      }
     }
   }
 
@@ -540,7 +621,7 @@ export class StandaloneReplayViewerController {
       );
       const nextCursor = Math.min(targetIdx, Math.round(this.cursor) + 1);
       this.cursor = nextCursor;
-      this._applyFrameAtCursor(true, true);
+      this._applyFrameAtCursor(true, true, { preserveEngineTick: true });
 
       const remFrames = Math.max(0, targetIdx - nextCursor);
       const downSec = store.downCounterSec ?? 3;
@@ -548,11 +629,7 @@ export class StandaloneReplayViewerController {
       const audio = r?.options?.gameAudio || gameAudio;
 
       if (remFrames <= 0) {
-        this._applyFrameAtCursor(false, false);
-        r.simulationStage?.resetActionStates?.();
-        if (r.playerControls) {
-          r.physics.setControls?.(r.playerCarIndex || 0, r.playerControls);
-        }
+        this._handoffToLiveFreeplay(targetIdx);
         audio?.play?.('match_start_go', 1.0, 200);
         this._lastCountdownSecBeep = -1;
         store.updateLiveTelemetry({
@@ -592,7 +669,7 @@ export class StandaloneReplayViewerController {
       }
       const rounded = Math.round(this.cursor);
       this.targetFrame = rounded;
-      this._applyFrameAtCursor(state === 'playing', state === 'playing' || state === 'forwarding');
+      this._applyFrameAtCursor(state === 'playing', state === 'playing' || state === 'forwarding', { preserveEngineTick: true });
 
       if (state === 'playing' && rounded >= this.frames.length - 1) {
         store.updateLiveTelemetry({

@@ -13,7 +13,7 @@ import { hudStore } from '../stores/hudStore';
 import { SIM_OFFSETS, MAX_CARS, INCIDENT_EVENT_TYPES } from '../physics/RocketSimConstants.js';
 import { parseRCReplayFile } from './ReplayFileExporter.js';
 import { dispatchReplayFrameEvents } from './ReplayTimelineController.js';
-import { exportStateReplayFile, MAX_TAS_FRAMES } from '../game/modes/dev-test-lab/DevTestLabReplayHelper.js';
+import { exportStateReplayFile, MAX_REWINDER_FRAMES } from '../game/modes/dev-test-lab/DevTestLabReplayHelper.js';
 import { DEFAULT_CAR_CONTROLS } from '../ai/experimental/ExperimentalBotAgent.js';
 import { gameAudio } from '../audio/GameAudioEngineFacade.js';
 
@@ -21,12 +21,12 @@ export class FreeplayRewinderController {
   constructor(runtime, mode) {
     this.runtime = runtime;
     this.mode = mode;
-    this.tasFrames = [];
+    this.rewinderFrames = [];
     this.timelines = null;
-    this.tasCursor = 0;
-    this.tasTargetFrame = 0;
-    this.tasScrubAccumulator = 0;
-    this._tasLastCountdownSecBeep = -1;
+    this.rewinderCursor = 0;
+    this.rewinderTargetFrame = 0;
+    this.rewinderScrubAccumulator = 0;
+    this._rewinderLastCountdownSecBeep = -1;
     this._pendingFrameIncidents = [];
     this._keyDownHandler = null;
     this._keyUpHandler = null;
@@ -37,18 +37,18 @@ export class FreeplayRewinderController {
     const store = useDevTestLabStore.getState();
     store.setRuntimeHandlers({
       ...store.runtimeHandlers,
-      onTasStartRecording: () => this.startNewRecording(),
-      onTasStopRecording: () => this.stopRecording(),
-      onTasPushBackwardStart: () => this.beginScrub('rewinding'),
-      onTasPushBackwardStop: () => this.pauseScrub(),
-      onTasPushForwardStart: () => this.beginScrub('forwarding'),
-      onTasPushForwardStop: () => this.pauseScrub(),
-      onTasResumeFromHere: () => this.resumeFromCursor(),
-      onTasClearBuffer: () => this.clearBuffer(),
-      onTasCancelToFreeplay: () => this.clearBuffer(),
-      onTasExportReplay: () => this.exportReplay(),
-      onTasImportReplay: (file) => this.importReplay(file),
-      onTasSeekFrame: (idx) => this.seekFrame(idx),
+      onRewinderStartRecording: () => this.startNewRecording(),
+      onRewinderStopRecording: () => this.stopRecording(),
+      onRewinderPushBackwardStart: () => this.beginScrub('rewinding'),
+      onRewinderPushBackwardStop: () => this.pauseScrub(),
+      onRewinderPushForwardStart: () => this.beginScrub('forwarding'),
+      onRewinderPushForwardStop: () => this.pauseScrub(),
+      onRewinderResumeFromHere: () => this.resumeFromCursor(),
+      onRewinderClearBuffer: () => this.clearBuffer(),
+      onRewinderCancelToFreeplay: () => this.clearBuffer(),
+      onRewinderExportReplay: () => this.exportReplay(),
+      onRewinderImportReplay: (file) => this.importReplay(file),
+      onRewinderSeekFrame: (idx) => this.seekFrame(idx),
     });
     this._bindHotkeys();
 
@@ -87,7 +87,7 @@ export class FreeplayRewinderController {
   }
 
   get isBlockingLivePhysics() {
-    const st = useDevTestLabStore.getState().tasState;
+    const st = useDevTestLabStore.getState().rewinderState;
     return (
       st === 'rewinding' ||
       st === 'forwarding' ||
@@ -246,11 +246,11 @@ export class FreeplayRewinderController {
     r.arena?.syncCarsCount?.(numCars);
   }
 
-  applyFrameAtCursor(smoothStep = false) {
+  applyFrameAtCursor(smoothStep = false, restoreOptions = { preserveEngineTick: true }) {
     const r = this.runtime;
-    if (!r?.physics || this.tasFrames.length === 0) return null;
-    const idx = Math.max(0, Math.min(this.tasFrames.length - 1, Math.floor(this.tasCursor)));
-    const entry = this.tasFrames[idx];
+    if (!r?.physics || this.rewinderFrames.length === 0) return null;
+    const idx = Math.max(0, Math.min(this.rewinderFrames.length - 1, Math.floor(this.rewinderCursor)));
+    const entry = this.rewinderFrames[idx];
     if (!entry) return null;
 
     const compactSnap = entry.compactSnap || entry.renderState;
@@ -262,7 +262,7 @@ export class FreeplayRewinderController {
       r.interpolator.prevState.set(r.interpolator.currState);
     }
 
-    r.physics.restoreState(compactSnap);
+    r.physics.restoreState(compactSnap, restoreOptions);
 
     if (r.interpolator) {
       if (!smoothStep) {
@@ -280,7 +280,15 @@ export class FreeplayRewinderController {
     if (!r?.physics) return;
 
     this._exitGoalOrReplayIfNeeded();
-    const entry = this.applyFrameAtCursor(false);
+
+    const sim = r.physics;
+    const maxHistory = Math.min(targetIdx + 1, m?.replayRingBuffer?.capacityTicks || 2400);
+    const firstIdx = Math.max(0, targetIdx + 1 - maxHistory);
+    const historySpan = Math.max(0, targetIdx - firstIdx);
+    const prevEngineTick = Math.floor(sim.getHeaderView?.()?.tickCount ?? 0);
+    const liveTick = Math.max(prevEngineTick + 16, historySpan + 16);
+
+    const entry = this.applyFrameAtCursor(false, { overrideTick: liveTick });
 
     r.physics.clearEvents?.();
     r.physics.resetGoalLatch?.();
@@ -295,8 +303,7 @@ export class FreeplayRewinderController {
     }
 
     if (m) {
-      const sim = r.physics;
-      const currentTick = Math.floor(sim.getHeaderView?.()?.tickCount ?? 0);
+      const currentTick = Math.floor(sim.getHeaderView?.()?.tickCount ?? liveTick);
       const bView = sim.getBallStateView?.();
       m.goalIncidentTick = -1;
       m.goalResetTicks = 0;
@@ -307,17 +314,20 @@ export class FreeplayRewinderController {
 
       if (m.replayRingBuffer) {
         m.replayRingBuffer.clear();
-        const maxHistory = Math.min(targetIdx + 1, m.replayRingBuffer.capacityTicks || 2400);
-        const firstIdx = Math.max(0, targetIdx + 1 - maxHistory);
-        const baseTick = currentTick - (targetIdx - firstIdx);
+        const baseTick = currentTick - historySpan;
         let latestTouchTick = -1;
 
         for (let i = firstIdx; i <= targetIdx; i++) {
-          const fEntry = this.tasFrames[i];
+          const fEntry = this.rewinderFrames[i];
           const snap = fEntry?.compactSnap || fEntry?.renderState;
           if (!snap) continue;
           const syntheticTick = baseTick + (i - firstIdx);
-          m.replayRingBuffer.recordFrame(syntheticTick, snap);
+          const recordedSlot = m.replayRingBuffer.recordFrame(syntheticTick, snap, {
+            acknowledgedControls: fEntry.acknowledgedControls || (fEntry.controls ? [{ carIndex: r.playerCarIndex ?? 0, controls: { ...fEntry.controls } }] : []),
+          });
+          if (recordedSlot?.snapshot) {
+            recordedSlot.snapshot[SIM_OFFSETS.TICK] = syntheticTick;
+          }
           if (Array.isArray(fEntry.incidents)) {
             for (const inc of fEntry.incidents) {
               m.replayRingBuffer.appendIncident(syntheticTick, {
@@ -341,11 +351,11 @@ export class FreeplayRewinderController {
   }
 
   _returnToLivePlayFromScrub() {
-    const idx = Math.max(0, Math.min(this.tasFrames.length - 1, Math.round(this.tasCursor)));
+    const idx = Math.max(0, Math.min(this.rewinderFrames.length - 1, Math.round(this.rewinderCursor)));
     this._handoffToLiveFreeplay(idx);
     useDevTestLabStore.getState().updateLiveTelemetry({
-      tasState: this.tasFrames.length > 0 ? 'stopped' : 'idle',
-      tasPrerollRemainingSec: 0,
+      rewinderState: this.rewinderFrames.length > 0 ? 'stopped' : 'idle',
+      rewinderPrerollRemainingSec: 0,
     });
   }
 
@@ -358,8 +368,9 @@ export class FreeplayRewinderController {
     }
 
     this._exitGoalOrReplayIfNeeded();
-    if (this.isBlockingLivePhysics && this.tasFrames.length > 0) {
-      this.applyFrameAtCursor(false);
+    if (this.isBlockingLivePhysics && this.rewinderFrames.length > 0) {
+      const idx = Math.max(0, Math.min(this.rewinderFrames.length - 1, Math.round(this.rewinderCursor)));
+      this._handoffToLiveFreeplay(idx);
     }
 
     r.physics.clearEvents?.();
@@ -370,90 +381,90 @@ export class FreeplayRewinderController {
       r.keyboard.ballControlEnabled = true;
     }
 
-    this.tasFrames = [];
-    this.tasCursor = 0;
-    this.tasTargetFrame = 0;
-    this.tasScrubAccumulator = 0;
-    this._tasLastCountdownSecBeep = -1;
+    this.rewinderFrames = [];
+    this.rewinderCursor = 0;
+    this.rewinderTargetFrame = 0;
+    this.rewinderScrubAccumulator = 0;
+    this._rewinderLastCountdownSecBeep = -1;
     this._pendingFrameIncidents = [];
     r.physics.clearReplayBuffer?.();
 
     useDevTestLabStore.getState().updateLiveTelemetry({
-      tasState: 'recording',
-      tasRecordedFrames: 0,
-      tasCursorFrame: 0,
-      tasTargetFrame: 0,
-      tasPrerollRemainingSec: 0,
+      rewinderState: 'recording',
+      rewinderRecordedFrames: 0,
+      rewinderCursorFrame: 0,
+      rewinderTargetFrame: 0,
+      rewinderPrerollRemainingSec: 0,
     });
   }
 
   stopRecording() {
     if (!this._ensureFreeplayMode('stopRecording')) return;
     const store = useDevTestLabStore.getState();
-    if (store.tasState === 'recording') {
-      const lastFrame = Math.max(0, this.tasFrames.length - 1);
-      this.tasCursor = lastFrame;
-      this.tasTargetFrame = lastFrame;
+    if (store.rewinderState === 'recording') {
+      const lastFrame = Math.max(0, this.rewinderFrames.length - 1);
+      this.rewinderCursor = lastFrame;
+      this.rewinderTargetFrame = lastFrame;
       store.updateLiveTelemetry({
-        tasState: 'stopped',
-        tasRecordedFrames: this.tasFrames.length,
-        tasCursorFrame: lastFrame,
-        tasTargetFrame: lastFrame,
-        tasPrerollRemainingSec: 0,
+        rewinderState: 'stopped',
+        rewinderRecordedFrames: this.rewinderFrames.length,
+        rewinderCursorFrame: lastFrame,
+        rewinderTargetFrame: lastFrame,
+        rewinderPrerollRemainingSec: 0,
       });
     } else if (this.isBlockingLivePhysics) {
       this._returnToLivePlayFromScrub();
     } else {
-      console.warn(`[FreeplayRewinderController] Cannot stop recording: current state is "${store.tasState}".`);
+      console.warn(`[FreeplayRewinderController] Cannot stop recording: current state is "${store.rewinderState}".`);
     }
   }
 
   beginScrub(direction = 'rewinding') {
     if (!this._ensureFreeplayMode(`beginScrub(${direction})`)) return;
-    if (this.tasFrames.length === 0) {
+    if (this.rewinderFrames.length === 0) {
       console.warn(`[FreeplayRewinderController] Cannot start ${direction}: recorded frame buffer is empty (0 frames).`);
       return;
     }
     this._exitGoalOrReplayIfNeeded();
     const store = useDevTestLabStore.getState();
-    if (store.tasState === 'recording') {
-      this.tasCursor = this.tasFrames.length - 1;
-      this.tasTargetFrame = this.tasCursor;
-    } else if (store.tasState === 'preroll-countdown') {
-      this.tasCursor = this.tasTargetFrame;
+    if (store.rewinderState === 'recording') {
+      this.rewinderCursor = this.rewinderFrames.length - 1;
+      this.rewinderTargetFrame = this.rewinderCursor;
+    } else if (store.rewinderState === 'preroll-countdown') {
+      this.rewinderCursor = this.rewinderTargetFrame;
     }
     if (this.runtime?.keyboard) {
       this.runtime.keyboard.ballControlEnabled = false;
     }
-    this.tasScrubAccumulator = 0;
-    this._tasLastCountdownSecBeep = -1;
+    this.rewinderScrubAccumulator = 0;
+    this._rewinderLastCountdownSecBeep = -1;
     store.updateLiveTelemetry({
-      tasState: direction,
-      tasRecordedFrames: this.tasFrames.length,
-      tasCursorFrame: Math.round(this.tasCursor),
-      tasTargetFrame: Math.round(this.tasCursor),
-      tasPrerollRemainingSec: 0,
+      rewinderState: direction,
+      rewinderRecordedFrames: this.rewinderFrames.length,
+      rewinderCursorFrame: Math.round(this.rewinderCursor),
+      rewinderTargetFrame: Math.round(this.rewinderCursor),
+      rewinderPrerollRemainingSec: 0,
     });
   }
 
   pauseScrub() {
     const store = useDevTestLabStore.getState();
-    if (store.tasState === 'rewinding' || store.tasState === 'forwarding') {
-      const clamped = Math.max(0, Math.min(this.tasFrames.length - 1, Math.round(this.tasCursor)));
-      this.tasCursor = clamped;
-      this.tasTargetFrame = clamped;
-      this.applyFrameAtCursor(false);
+    if (store.rewinderState === 'rewinding' || store.rewinderState === 'forwarding') {
+      const clamped = Math.max(0, Math.min(this.rewinderFrames.length - 1, Math.round(this.rewinderCursor)));
+      this.rewinderCursor = clamped;
+      this.rewinderTargetFrame = clamped;
+      this.applyFrameAtCursor(false, { preserveEngineTick: true });
       store.updateLiveTelemetry({
-        tasState: 'paused-scrub',
-        tasCursorFrame: clamped,
-        tasTargetFrame: clamped,
+        rewinderState: 'paused-scrub',
+        rewinderCursorFrame: clamped,
+        rewinderTargetFrame: clamped,
       });
     }
   }
 
   seekFrame(frameIndex) {
     if (!this._ensureFreeplayMode('seekFrame')) return;
-    if (!this.tasFrames || this.tasFrames.length === 0) {
+    if (!this.rewinderFrames || this.rewinderFrames.length === 0) {
       console.warn('[FreeplayRewinderController] Cannot seek frame: recorded frame buffer is empty (0 frames).');
       return;
     }
@@ -461,17 +472,17 @@ export class FreeplayRewinderController {
     if (this.runtime?.keyboard) {
       this.runtime.keyboard.ballControlEnabled = false;
     }
-    const clamped = Math.max(0, Math.min(this.tasFrames.length - 1, Math.round(frameIndex)));
-    this.tasCursor = clamped;
-    this.tasTargetFrame = clamped;
-    this.tasScrubAccumulator = 0;
-    this._tasLastCountdownSecBeep = -1;
-    this.applyFrameAtCursor(false);
+    const clamped = Math.max(0, Math.min(this.rewinderFrames.length - 1, Math.round(frameIndex)));
+    this.rewinderCursor = clamped;
+    this.rewinderTargetFrame = clamped;
+    this.rewinderScrubAccumulator = 0;
+    this._rewinderLastCountdownSecBeep = -1;
+    this.applyFrameAtCursor(false, { preserveEngineTick: true });
     useDevTestLabStore.getState().updateLiveTelemetry({
-      tasState: 'paused-scrub',
-      tasCursorFrame: clamped,
-      tasTargetFrame: clamped,
-      tasPrerollRemainingSec: 0,
+      rewinderState: 'paused-scrub',
+      rewinderCursorFrame: clamped,
+      rewinderTargetFrame: clamped,
+      rewinderPrerollRemainingSec: 0,
     });
   }
 
@@ -479,15 +490,15 @@ export class FreeplayRewinderController {
     if (!this._ensureFreeplayMode('resumeFromCursor')) return;
     const r = this.runtime;
     const store = useDevTestLabStore.getState();
-    const downSec = store.tasDownCounterSec ?? 0;
+    const downSec = store.rewinderDownCounterSec ?? 0;
     const minRequiredFrames = downSec === 0 ? 120 : 240;
     if (!r?.physics) {
       console.warn('[FreeplayRewinderController] Cannot resume from cursor: physics engine is not initialized.');
       return;
     }
-    if (this.tasFrames.length < minRequiredFrames) {
+    if (this.rewinderFrames.length < minRequiredFrames) {
       console.warn(
-        `[FreeplayRewinderController] Cannot resume from cursor: recorded frames (${this.tasFrames.length}) < minimum required frames (${minRequiredFrames}) for downCounter=${downSec}s.`
+        `[FreeplayRewinderController] Cannot resume from cursor: recorded frames (${this.rewinderFrames.length}) < minimum required frames (${minRequiredFrames}) for downCounter=${downSec}s.`
       );
       return;
     }
@@ -497,57 +508,57 @@ export class FreeplayRewinderController {
       r.keyboard.ballControlEnabled = false;
     }
 
-    if (store.tasState === 'recording') {
-      const lastFrame = Math.max(0, this.tasFrames.length - 1);
-      this.tasCursor = lastFrame;
-      this.tasTargetFrame = lastFrame;
+    if (store.rewinderState === 'recording') {
+      const lastFrame = Math.max(0, this.rewinderFrames.length - 1);
+      this.rewinderCursor = lastFrame;
+      this.rewinderTargetFrame = lastFrame;
     }
 
     const baseTarget =
-      store.tasState === 'preroll-countdown' || store.tasState === 'stopped'
-        ? this.tasTargetFrame || this.tasCursor
-        : this.tasCursor;
+      store.rewinderState === 'preroll-countdown' || store.rewinderState === 'stopped'
+        ? this.rewinderTargetFrame || this.rewinderCursor
+        : this.rewinderCursor;
 
     const targetIdx = Math.max(
       minRequiredFrames - 1,
-      Math.min(this.tasFrames.length - 1, Math.round(baseTarget))
+      Math.min(this.rewinderFrames.length - 1, Math.round(baseTarget))
     );
     const lookbackFrames = (downSec === 0 ? 1 : downSec + 1) * 120;
     const startIdx = Math.max(0, targetIdx - lookbackFrames);
 
-    this.tasTargetFrame = targetIdx;
-    this.tasCursor = startIdx;
-    this._tasLastCountdownSecBeep = -1;
+    this.rewinderTargetFrame = targetIdx;
+    this.rewinderCursor = startIdx;
+    this._rewinderLastCountdownSecBeep = -1;
 
-    this.applyFrameAtCursor(false);
+    this.applyFrameAtCursor(false, { preserveEngineTick: true });
     r.simulationStage?.resetActionStates?.();
 
     const remFrames = Math.max(0, targetIdx - startIdx);
     const remSec = Math.ceil(remFrames / 120);
     const audio = r?.options?.gameAudio || gameAudio;
     if (downSec === 0) {
-      this._tasLastCountdownSecBeep = 1;
+      this._rewinderLastCountdownSecBeep = 1;
       audio?.play?.('training_countdown', 1.0, 200);
     } else if (remSec >= 1 && remSec <= downSec) {
-      this._tasLastCountdownSecBeep = remSec;
+      this._rewinderLastCountdownSecBeep = remSec;
       audio?.play?.('training_countdown', 1.0, 200);
     }
 
     store.updateLiveTelemetry({
-      tasState: 'preroll-countdown',
-      tasRecordedFrames: this.tasFrames.length,
-      tasCursorFrame: startIdx,
-      tasTargetFrame: targetIdx,
-      tasPrerollRemainingSec: downSec === 0 ? 1 : Math.min(downSec, remSec),
+      rewinderState: 'preroll-countdown',
+      rewinderRecordedFrames: this.rewinderFrames.length,
+      rewinderCursorFrame: startIdx,
+      rewinderTargetFrame: targetIdx,
+      rewinderPrerollRemainingSec: downSec === 0 ? 1 : Math.min(downSec, remSec),
     });
   }
 
   async exportReplay() {
-    if (!this.tasFrames || this.tasFrames.length === 0) {
+    if (!this.rewinderFrames || this.rewinderFrames.length === 0) {
       console.warn('[FreeplayRewinderController] Cannot export replay: recorded frame buffer is empty (0 frames).');
       return false;
     }
-    return exportStateReplayFile(this.tasFrames);
+    return exportStateReplayFile(this.rewinderFrames);
   }
 
   async importReplay(fileOrBuffer) {
@@ -568,10 +579,11 @@ export class FreeplayRewinderController {
       const incidentTimeline = parsed.timelines?.incidentTimeline || null;
       const signalTimeline = parsed.timelines?.signalTimeline || null;
 
-      this.tasFrames = parsed.frames.map((snap, idx) => {
+      this.rewinderFrames = parsed.frames.map((snap, idx) => {
         const slot = stateInputTimeline?.getFrameAt?.(idx) || parsed.frameSlots?.[idx] || null;
         const ackControls = slot?.acknowledgedControls || slot?.controls || snap?.controls || [];
         const car0Ctrl =
+          ackControls[0]?.controls ||
           ackControls[0] ||
           r.neutralControls ||
           DEFAULT_CAR_CONTROLS;
@@ -601,23 +613,23 @@ export class FreeplayRewinderController {
           lastTouchTick: hadTouch ? Math.floor(snap[0] || idx) : -1,
         };
       });
-      this.tasCursor = 0;
-      this.tasTargetFrame = Math.max(0, this.tasFrames.length - 1);
-      this.tasScrubAccumulator = 0;
-      this._tasLastCountdownSecBeep = -1;
+      this.rewinderCursor = 0;
+      this.rewinderTargetFrame = Math.max(0, this.rewinderFrames.length - 1);
+      this.rewinderScrubAccumulator = 0;
+      this._rewinderLastCountdownSecBeep = -1;
 
       if (r.keyboard) {
         r.keyboard.ballControlEnabled = false;
       }
-      this.applyFrameAtCursor(false);
+      this.applyFrameAtCursor(false, { preserveEngineTick: true });
       r.simulationStage?.resetActionStates?.();
 
       useDevTestLabStore.getState().updateLiveTelemetry({
-        tasState: 'paused-scrub',
-        tasRecordedFrames: this.tasFrames.length,
-        tasCursorFrame: 0,
-        tasTargetFrame: Math.max(0, this.tasFrames.length - 1),
-        tasPrerollRemainingSec: 0,
+        rewinderState: 'paused-scrub',
+        rewinderRecordedFrames: this.rewinderFrames.length,
+        rewinderCursorFrame: 0,
+        rewinderTargetFrame: Math.max(0, this.rewinderFrames.length - 1),
+        rewinderPrerollRemainingSec: 0,
       });
       return true;
     } catch (err) {
@@ -629,26 +641,26 @@ export class FreeplayRewinderController {
   clearBuffer() {
     const r = this.runtime;
     if (this.isBlockingLivePhysics) {
-      const idx = Math.max(0, Math.min(this.tasFrames.length - 1, Math.round(this.tasCursor)));
+      const idx = Math.max(0, Math.min(this.rewinderFrames.length - 1, Math.round(this.rewinderCursor)));
       this._handoffToLiveFreeplay(idx);
     }
-    this.tasFrames = [];
+    this.rewinderFrames = [];
     this.timelines = null;
-    this.tasCursor = 0;
-    this.tasTargetFrame = 0;
-    this.tasScrubAccumulator = 0;
-    this._tasLastCountdownSecBeep = -1;
+    this.rewinderCursor = 0;
+    this.rewinderTargetFrame = 0;
+    this.rewinderScrubAccumulator = 0;
+    this._rewinderLastCountdownSecBeep = -1;
     this._pendingFrameIncidents = [];
     r?.physics?.clearReplayBuffer?.();
     if (r?.keyboard) {
       r.keyboard.ballControlEnabled = true;
     }
     useDevTestLabStore.getState().updateLiveTelemetry({
-      tasState: 'idle',
-      tasRecordedFrames: 0,
-      tasCursorFrame: 0,
-      tasTargetFrame: 0,
-      tasPrerollRemainingSec: 0,
+      rewinderState: 'idle',
+      rewinderRecordedFrames: 0,
+      rewinderCursorFrame: 0,
+      rewinderTargetFrame: 0,
+      rewinderPrerollRemainingSec: 0,
     });
   }
 
@@ -659,8 +671,8 @@ export class FreeplayRewinderController {
         this.runtime.keyboard.ballControlEnabled = true;
       }
       store.updateLiveTelemetry({
-        tasState: this.tasFrames.length > 0 ? 'stopped' : 'idle',
-        tasPrerollRemainingSec: 0,
+        rewinderState: this.rewinderFrames.length > 0 ? 'stopped' : 'idle',
+        rewinderPrerollRemainingSec: 0,
       });
     }
   }
@@ -668,22 +680,43 @@ export class FreeplayRewinderController {
   onPhysicsEvent(event) {
     if (!event) return;
     const store = useDevTestLabStore.getState();
-    if (store.tasState !== 'recording') return;
-    this._pendingFrameIncidents.push({ ...event });
+    if (store.rewinderState !== 'recording') return;
+
+    // In SimulationStage, readEvents() runs after onAfterPhysicsTick() for the same physics step.
+    // Attach the incident directly to the most recently recorded frame when available.
+    if (this.rewinderFrames.length > 0) {
+      const latestFrame = this.rewinderFrames[this.rewinderFrames.length - 1];
+      if (!Array.isArray(latestFrame.incidents)) {
+        latestFrame.incidents = [];
+      }
+      latestFrame.incidents.push({ ...event });
+      if (event.type === INCIDENT_EVENT_TYPES.CAR_BALL_HIT || event.type === 0x01) {
+        latestFrame.hadTouch = true;
+        const tick = Math.floor(
+          this.runtime?.physics?.getHeaderView?.()?.tickCount ??
+            event.tick ??
+            latestFrame.compactSnap?.[0] ??
+            0
+        );
+        latestFrame.lastTouchTick = tick;
+      }
+    } else {
+      this._pendingFrameIncidents.push({ ...event });
+    }
   }
 
   onBeforePhysicsTick() {
     const r = this.runtime;
     const store = useDevTestLabStore.getState();
 
-    if (store.tasState === 'preroll-countdown') {
+    if (store.rewinderState === 'preroll-countdown') {
       const targetIdx = Math.max(
         0,
-        Math.min(this.tasFrames.length - 1, Math.round(this.tasTargetFrame))
+        Math.min(this.rewinderFrames.length - 1, Math.round(this.rewinderTargetFrame))
       );
-      const nextCursor = Math.min(targetIdx, Math.round(this.tasCursor) + 1);
-      this.tasCursor = nextCursor;
-      const entry = this.applyFrameAtCursor(true);
+      const nextCursor = Math.min(targetIdx, Math.round(this.rewinderCursor) + 1);
+      this.rewinderCursor = nextCursor;
+      const entry = this.applyFrameAtCursor(true, { preserveEngineTick: true });
 
       if (entry?.controls && r) {
         r.playerThrottle = entry.controls.throttle ?? 0;
@@ -705,19 +738,19 @@ export class FreeplayRewinderController {
       }
 
       const remFrames = Math.max(0, targetIdx - nextCursor);
-      const downSec = store.tasDownCounterSec ?? 0;
+      const downSec = store.rewinderDownCounterSec ?? 0;
       const maxBeepSec = downSec === 0 ? 1 : downSec;
       const audio = r?.options?.gameAudio || gameAudio;
 
       if (remFrames <= 0) {
         this._handoffToLiveFreeplay(targetIdx);
         audio?.play?.('match_start_go', 1.0, 200);
-        this._tasLastCountdownSecBeep = -1;
+        this._rewinderLastCountdownSecBeep = -1;
         store.updateLiveTelemetry({
-          tasState: 'stopped',
-          tasCursorFrame: targetIdx,
-          tasTargetFrame: targetIdx,
-          tasPrerollRemainingSec: 0,
+          rewinderState: 'stopped',
+          rewinderCursorFrame: targetIdx,
+          rewinderTargetFrame: targetIdx,
+          rewinderPrerollRemainingSec: 0,
         });
         return false;
       }
@@ -726,37 +759,37 @@ export class FreeplayRewinderController {
       if (
         countdownSec >= 1 &&
         countdownSec <= maxBeepSec &&
-        countdownSec !== this._tasLastCountdownSecBeep
+        countdownSec !== this._rewinderLastCountdownSecBeep
       ) {
-        this._tasLastCountdownSecBeep = countdownSec;
+        this._rewinderLastCountdownSecBeep = countdownSec;
         audio?.play?.('training_countdown', 1.0, 200);
       }
 
       if (remFrames % 6 === 0 || remFrames % 120 === 0) {
         store.updateLiveTelemetry({
-          tasCursorFrame: nextCursor,
-          tasPrerollRemainingSec: Math.min(maxBeepSec, countdownSec),
+          rewinderCursorFrame: nextCursor,
+          rewinderPrerollRemainingSec: Math.min(maxBeepSec, countdownSec),
         });
       }
       return false;
     }
 
     if (
-      store.tasState === 'rewinding' ||
-      store.tasState === 'forwarding' ||
-      store.tasState === 'paused-scrub'
+      store.rewinderState === 'rewinding' ||
+      store.rewinderState === 'forwarding' ||
+      store.rewinderState === 'paused-scrub'
     ) {
-      if (store.tasState === 'rewinding' || store.tasState === 'forwarding') {
-        const stepPerTick = (store.tasEffectiveFlowPct || 100) / 100;
-        this.tasCursor =
-          store.tasState === 'rewinding'
-            ? Math.max(0, this.tasCursor - stepPerTick)
-            : Math.min(Math.max(0, this.tasFrames.length - 1), this.tasCursor + stepPerTick);
-        this.tasTargetFrame = Math.round(this.tasCursor);
-        this.applyFrameAtCursor(false);
+      if (store.rewinderState === 'rewinding' || store.rewinderState === 'forwarding') {
+        const stepPerTick = (store.rewinderEffectiveFlowPct || 100) / 100;
+        this.rewinderCursor =
+          store.rewinderState === 'rewinding'
+            ? Math.max(0, this.rewinderCursor - stepPerTick)
+            : Math.min(Math.max(0, this.rewinderFrames.length - 1), this.rewinderCursor + stepPerTick);
+        this.rewinderTargetFrame = Math.round(this.rewinderCursor);
+        this.applyFrameAtCursor(false, { preserveEngineTick: true });
         store.updateLiveTelemetry({
-          tasCursorFrame: this.tasTargetFrame,
-          tasTargetFrame: this.tasTargetFrame,
+          rewinderCursorFrame: this.rewinderTargetFrame,
+          rewinderTargetFrame: this.rewinderTargetFrame,
         });
       }
       return false;
@@ -768,12 +801,12 @@ export class FreeplayRewinderController {
   onAfterPhysicsTick() {
     const r = this.runtime;
     const store = useDevTestLabStore.getState();
-    if (store.tasState !== 'recording' || !r?.physics) {
+    if (store.rewinderState !== 'recording' || !r?.physics) {
       this._pendingFrameIncidents.length = 0;
       return;
     }
 
-    if (this.tasFrames.length < MAX_TAS_FRAMES) {
+    if (this.rewinderFrames.length < MAX_REWINDER_FRAMES) {
       const compactSnap = r.physics.saveCompactState();
       const currentTick = Math.floor(r.physics.getHeaderView?.()?.tickCount ?? 0);
       const hadTouch = Boolean(this.mode && this.mode.lastTouchTick === currentTick);
@@ -781,7 +814,7 @@ export class FreeplayRewinderController {
         this._pendingFrameIncidents.length > 0 ? this._pendingFrameIncidents.slice() : [];
       this._pendingFrameIncidents.length = 0;
 
-      this.tasFrames.push({
+      this.rewinderFrames.push({
         compactSnap,
         renderState: compactSnap,
         controls: { ...(r.playerControls || DEFAULT_CAR_CONTROLS) },
@@ -790,14 +823,14 @@ export class FreeplayRewinderController {
         lastTouchTick: this.mode?.lastTouchTick ?? -1,
       });
       r.physics.recordReplayFrame?.();
-      this.tasCursor = this.tasFrames.length - 1;
-      this.tasTargetFrame = this.tasCursor;
+      this.rewinderCursor = this.rewinderFrames.length - 1;
+      this.rewinderTargetFrame = this.rewinderCursor;
 
-      if (this.tasFrames.length % 6 === 0 || this.tasFrames.length === 120 || this.tasFrames.length === 240) {
+      if (this.rewinderFrames.length % 6 === 0 || this.rewinderFrames.length === 120 || this.rewinderFrames.length === 240) {
         store.updateLiveTelemetry({
-          tasRecordedFrames: this.tasFrames.length,
-          tasCursorFrame: this.tasCursor,
-          tasTargetFrame: this.tasTargetFrame,
+          rewinderRecordedFrames: this.rewinderFrames.length,
+          rewinderCursorFrame: this.rewinderCursor,
+          rewinderTargetFrame: this.rewinderTargetFrame,
         });
       }
     } else {
