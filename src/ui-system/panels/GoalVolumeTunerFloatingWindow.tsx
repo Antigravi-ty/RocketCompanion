@@ -37,10 +37,10 @@ type PresetTab = 'standard' | 'throwback';
 type TunerSectionTab = 'ball_rim_fx' | 'hitbox';
 
 const BALL_RIM_BEZIER_PRESETS: CubicBezierPreset[] = [
+  { name: 'Calibrated Default', value: { p1x: 0.75, p1y: 0.01, p2x: 1.0, p2y: 0.24 } },
   { name: 'Sharp Rim', value: { p1x: 0.42, p1y: 0.0, p2x: 0.85, p2y: 0.25 } },
   { name: 'Razor Edge', value: { p1x: 0.65, p1y: 0.0, p2x: 0.92, p2y: 0.1 } },
   { name: 'Smooth Ease', value: { p1x: 0.25, p1y: 0.1, p2x: 0.25, p2y: 1.0 } },
-  { name: 'Linear', value: { p1x: 0.33, p1y: 0.33, p2x: 0.67, p2y: 0.67 } },
 ];
 
 export const GoalVolumeTunerFloatingWindow: React.FC<GoalVolumeTunerFloatingWindowProps> = ({

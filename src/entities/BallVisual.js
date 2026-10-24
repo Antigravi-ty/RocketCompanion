@@ -184,42 +184,42 @@ const ballGoalUniforms = {
   uGoalTime: { value: 0.0 },
   uGoalPenetration: { value: 0.0 },
   uGoalJitterWorldOffset: { value: new THREE.Vector3(0, 0, 0) },
-  uGoalRimRange: { value: new THREE.Vector2(0.90, 1.00) },
-  uGoalRimBezier: { value: new THREE.Vector4(0.42, 0.0, 0.85, 0.25) },
-  uGoalRimColor: { value: new THREE.Color('#ffffff') },
+  uGoalRimRange: { value: new THREE.Vector2(0.60, 1.00) },
+  uGoalRimBezier: { value: new THREE.Vector4(0.75, 0.01, 1.0, 0.24) },
+  uGoalRimColor: { value: new THREE.Color('#989898') },
   uGoalRimIntensity: { value: 1.0 },
-  uGoalCoreColor: { value: new THREE.Color('#050608') },
+  uGoalCoreColor: { value: new THREE.Color('#2d2d2d') },
   uGoalCoreBrightness: { value: 1.0 },
-  uGoalSeamParams: { value: new THREE.Vector2(3.5, 0.35) },
+  uGoalSeamParams: { value: new THREE.Vector2(10.0, 0.8) },
 };
 
 function syncBallGoalRimUniforms() {
   const rimCfg = getBallGoalRimFxConfig();
   if (!rimCfg) return;
-  const innerFrac = Math.max(0.0, Math.min(0.999, (Number(rimCfg.innerStartPct) ?? 90) / 100));
+  const innerFrac = Math.max(0.0, Math.min(0.999, (Number(rimCfg.innerStartPct) ?? 60) / 100));
   const outerFrac = Math.max(innerFrac + 0.001, Math.min(1.0, (Number(rimCfg.outerEndPct) ?? 100) / 100));
   ballGoalUniforms.uGoalRimRange.value.set(innerFrac, outerFrac);
   ballGoalUniforms.uGoalRimBezier.value.set(
-    Math.max(0.0, Math.min(1.0, Number(rimCfg.bezierP1X) ?? 0.42)),
-    Number.isFinite(Number(rimCfg.bezierP1Y)) ? Number(rimCfg.bezierP1Y) : 0.0,
-    Math.max(0.0, Math.min(1.0, Number(rimCfg.bezierP2X) ?? 0.85)),
-    Number.isFinite(Number(rimCfg.bezierP2Y)) ? Number(rimCfg.bezierP2Y) : 0.25
+    Math.max(0.0, Math.min(1.0, Number(rimCfg.bezierP1X) ?? 0.75)),
+    Number.isFinite(Number(rimCfg.bezierP1Y)) ? Number(rimCfg.bezierP1Y) : 0.01,
+    Math.max(0.0, Math.min(1.0, Number(rimCfg.bezierP2X) ?? 1.0)),
+    Number.isFinite(Number(rimCfg.bezierP2Y)) ? Number(rimCfg.bezierP2Y) : 0.24
   );
   try {
-    ballGoalUniforms.uGoalRimColor.value.set(rimCfg.rimColor || '#ffffff');
+    ballGoalUniforms.uGoalRimColor.value.set(rimCfg.rimColor || '#989898');
   } catch {
-    ballGoalUniforms.uGoalRimColor.value.set('#ffffff');
+    ballGoalUniforms.uGoalRimColor.value.set('#989898');
   }
   ballGoalUniforms.uGoalRimIntensity.value = Math.max(0.0, Number(rimCfg.rimIntensity) ?? 1.0);
   try {
-    ballGoalUniforms.uGoalCoreColor.value.set(rimCfg.coreColor || '#050608');
+    ballGoalUniforms.uGoalCoreColor.value.set(rimCfg.coreColor || '#2d2d2d');
   } catch {
-    ballGoalUniforms.uGoalCoreColor.value.set('#050608');
+    ballGoalUniforms.uGoalCoreColor.value.set('#2d2d2d');
   }
   ballGoalUniforms.uGoalCoreBrightness.value = Math.max(0.0, Number(rimCfg.coreBrightness) ?? 1.0);
   ballGoalUniforms.uGoalSeamParams.value.set(
-    Math.max(0.0, Number(rimCfg.seamWidthUu) ?? 3.5),
-    Math.max(0.0, Number(rimCfg.seamIntensity) ?? 0.35)
+    Math.max(0.0, Number(rimCfg.seamWidthUu) ?? 10.0),
+    Math.max(0.0, Number(rimCfg.seamIntensity) ?? 0.8)
   );
 }
 
