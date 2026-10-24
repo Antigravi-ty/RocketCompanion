@@ -37,7 +37,7 @@ export class FreeCameraController {
     this.target = new THREE.Vector3(0, 0, 0);
     this.moveVector = new THREE.Vector3(0, 0, 0);
 
-    this.yaw = 0;
+    this.yaw = Math.PI;
     this.pitch = -0.35;
     this.syncOrientationVectors();
 
@@ -101,11 +101,34 @@ export class FreeCameraController {
   }
 
   /**
+   * Position Free Camera at `position` and orient yaw/pitch to look directly at `lookAtTarget`.
+   */
+  setPoseLookAt(position, lookAtTarget = [0, 80, 0]) {
+    if (Array.isArray(position)) {
+      this.camPosition.set(position[0] ?? 0, position[1] ?? 720, position[2] ?? -2600);
+    } else if (position && typeof position.x === 'number') {
+      this.camPosition.copy(position);
+    }
+    const tx = Array.isArray(lookAtTarget) ? (lookAtTarget[0] ?? 0) : (lookAtTarget?.x ?? 0);
+    const ty = Array.isArray(lookAtTarget) ? (lookAtTarget[1] ?? 80) : (lookAtTarget?.y ?? 80);
+    const tz = Array.isArray(lookAtTarget) ? (lookAtTarget[2] ?? 0) : (lookAtTarget?.z ?? 0);
+    const dx = tx - this.camPosition.x;
+    const dy = ty - this.camPosition.y;
+    const dz = tz - this.camPosition.z;
+    const horizDist = Math.hypot(dx, dz);
+    if (horizDist > 1e-4) {
+      this.yaw = Math.atan2(-dx, -dz);
+      this.pitch = Math.max(-1.55, Math.min(1.55, Math.atan2(dy, horizDist)));
+    }
+    this.onActivate();
+  }
+
+  /**
    * Reset position to default stadium spectator overview coordinates
    */
   resetToDefaultOverview() {
     this.camPosition.set(0, 1600, -3600);
-    this.yaw = 0;
+    this.yaw = Math.PI;
     this.pitch = -0.35;
     this.syncOrientationVectors();
     if (this.camera) {

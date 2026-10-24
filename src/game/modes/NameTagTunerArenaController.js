@@ -102,16 +102,15 @@ export class NameTagTunerArenaController {
 
     // Position Free Camera overlooking midfield so all 6 kickoff cars & name tags are visible
     if (r.camera) {
-      r.camera.setFreeCam?.(true);
+      if (typeof r.camera.setFreeCamPose === 'function') {
+        r.camera.setFreeCamPose([-1950, 720, -2600], [0, 80, 0]);
+      } else {
+        r.camera.setFreeCam?.(true);
+      }
       appState.setFreeCam(true);
-      if (r.camera.freeCamPos) {
-        r.camera.freeCamPos.set(-1950, 720, -2600);
-      }
-      if (typeof r.camera.freeCamYaw === 'number') {
-        r.camera.freeCamYaw = 0.64;
-        r.camera.freeCamPitch = -0.22;
-      }
     }
+
+    r.arena?.nameTagSystem?.update?.(r.arena, 6, r.camera?.camera);
   }
 
   reshuffleKickoffPositions() {

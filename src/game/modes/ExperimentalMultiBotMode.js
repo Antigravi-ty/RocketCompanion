@@ -23,6 +23,7 @@ import {
   getExpColorSwatch,
 } from '../../stores/expMultiBotsStore';
 import { hudStore } from '../../stores/hudStore';
+import { setNameTagRuntimeState } from '../../config/nameTagConfig.ts';
 import {
   getExpModeAudio,
   getExpCarDisplayName,

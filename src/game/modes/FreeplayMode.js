@@ -553,11 +553,18 @@ export class FreeplayMode extends BaseGameMode {
     this.goalResetTicks = 0;
     this._resetPlayTouchAndGoalState();
     r.ballTrajectoryPredictor?.clear?.();
-    r.physics?.resetKickoff?.(seed);
+    if (this.nameTagTunerController?.isActive) {
+      this.nameTagTunerController._spawnSixKickoffCars();
+      this.nameTagTunerController._syncCarEntriesFromConfig();
+    } else {
+      r.physics?.resetKickoff?.(seed);
+    }
     r.audioSubsystem?.resetAudio?.();
     r.interpolator?.sync?.();
     r.arena?.resetBallTrail?.();
-    r.camera?.resetView?.();
+    if (!this.nameTagTunerController?.isActive) {
+      r.camera?.resetView?.();
+    }
     this.lastKickoffStartTick = Math.floor(r?.physics?.getHeaderView?.()?.tickCount ?? 0);
     if (r?.match?.state) {
       r.match.state.phase = 'playing';

@@ -48,6 +48,9 @@ function createNameTagSprite() {
   if (texture) {
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
+    if (THREE.SRGBColorSpace) {
+      texture.colorSpace = THREE.SRGBColorSpace;
+    }
   }
   const material = new THREE.SpriteMaterial({
     map: texture,
@@ -55,9 +58,11 @@ function createNameTagSprite() {
     opacity: 0.94,
     depthTest: false,
     depthWrite: false,
+    toneMapped: false,
   });
   const sprite = new THREE.Sprite(material);
   sprite.renderOrder = 950;
+  sprite.frustumCulled = false;
   sprite.visible = false;
   sprite.userData = {
     canvas,
@@ -160,7 +165,8 @@ export class VehicleNameTagSystem {
       Boolean(cfg.enabled) &&
       (Boolean(rt.isTunerArenaActive) ||
         Boolean(rt.isMultiplayerOrMultiCarMode) ||
-        Boolean(arena.isLobbyMode));
+        Boolean(arena.isLobbyMode) ||
+        numCars > 1);
 
     if (!shouldShowSystem) {
       this.root.visible = false;
@@ -182,7 +188,7 @@ export class VehicleNameTagSystem {
       }
 
       const isLocalCar = carIndex === (arena.playerCarIndex ?? 0);
-      if (isLocalCar && !cfg.showOnLocalCar && !rt.isTunerArenaActive) {
+      if (isLocalCar && !cfg.showOnLocalCar && !rt.isTunerArenaActive && !arena.isFreeCam) {
         sprite.visible = false;
         continue;
       }

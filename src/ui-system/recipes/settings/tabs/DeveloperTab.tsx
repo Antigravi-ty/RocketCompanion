@@ -160,7 +160,7 @@ export const DeveloperTab: React.FC<DeveloperTabProps> = ({
         }`}
         onMouseEnter={() =>
           onHover(
-            'Open Layer 3 Active Tuners & Diagnostics: Vehicle Model & Offset Tuner, Reachability & Intercept Tuner, Kickoff Training (PPO), Audio Settings (Layer 4), Event Stream OB & Determinism Harness.'
+            'Open Layer 3 Active Tuners & Diagnostics: Multiplayer Name Tag Active Tuner, Vehicle Model & Offset Tuner, Reachability & Intercept Tuner, Kickoff Training (PPO), Audio Settings (Layer 4), Event Stream OB & Determinism Harness.'
           )
         }
         onMouseLeave={onLeave}
@@ -177,7 +177,7 @@ export const DeveloperTab: React.FC<DeveloperTabProps> = ({
               </span>
             </div>
             <span className={`text-[11px] mt-0.5 truncate ${isLight ? 'text-neutral-600' : 'text-neutral-300'}`}>
-              Vehicle Model & Offsets · Reachability · Kickoff PPO · Audio (L4) · OB & Determinism
+              Multiplayer Name Tag · Vehicle Offsets · Reachability · Kickoff PPO · Audio (L4)
             </span>
           </div>
         </div>

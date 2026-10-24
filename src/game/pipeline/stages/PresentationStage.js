@@ -32,6 +32,7 @@ export class PresentationStage {
     const car1Controls = getCarControls(1);
 
     r.arena.playerCarIndex = r.playerCarIndex;
+    r.arena.isFreeCam = Boolean(r.camera?.isFreeCam);
     if (r.camera?.camera) {
       r.arena.camera = r.camera.camera;
     }
@@ -89,6 +90,10 @@ export class PresentationStage {
 
     // Camera follow & dynamics
     r.cameraSubsystem?.update?.(context);
+
+    // Refresh name tag positions & distance scaling against final frame camera pose
+    const numCars = r.interpolator?.getCurrHeaderView?.()?.numCars ?? r.physics?.numCars ?? 0;
+    r.arena?.nameTagSystem?.update(r.arena, numCars, r.camera?.camera);
 
     if (r.profiler) r.profiler.mark();
   }

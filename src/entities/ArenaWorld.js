@@ -12,9 +12,10 @@ import { createStadiumDomeSky, updateSkyboxConfig } from './arena/ArenaSky.js';
 import { ArenaLightingManager, updateShadowRuntimeConfig } from './arena/ArenaLighting.js';
 import { updateBoostVisuals } from './arena/ArenaVehicleAnimator.js';
 import { ArenaVehicleRegistry } from './arena/ArenaVehicleRegistry.js';
-import { loadBallAssetInto, loadCarAndPadAssets, loadArenaStadiumMeshes } from './arena/ArenaAssetLoader.js';
+import { loadBallAssetInto, loadCarAndPadAssets, loadArenaStadiumMeshes, preloadRemainingVehicleAssets } from './arena/ArenaAssetLoader.js';
 import { updateBallVisualConfig } from './BallVisual.js';
 import { updateArenaFrame } from './arena/ArenaWorldUpdater.js';
+import { VehicleNameTagSystem } from './arena/VehicleNameTagSystem.js';
 import { StadiumEnvironmentManager } from './stadium/StadiumEnvironmentManager.js';
 import { createDriftwoodsManager, setExperimentalWallFxRuntimeConfig } from './stadium/driftwoods/DriftwoodsMaterialManager.js';
 import { loadThrowbackStadiumField, loadThrowbackCollisionOverlay } from './stadium/ThrowbackStadiumLoader.js';
@@ -67,6 +68,7 @@ export class ArenaWorld {
     this.carHitboxes = vr.carHitboxes; this.carSuspension = vr.carSuspension;
     this.carWheels = vr.carWheels; this.carWheelSpecs = vr.carWheelSpecs; this.wheelSpin = vr.wheelSpin;
     this.carBoosts = vr.carBoosts; this.carDemolitions = vr.carDemolitions;
+    this.nameTagSystem = new VehicleNameTagSystem(this.scene);
 
     this.envManager = new StadiumEnvironmentManager(this.scene, () => this.markRenderTreeChanged());
     this.driftwoodsStadium = null;

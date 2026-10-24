@@ -215,6 +215,17 @@ export class CameraManager {
   }
 
   /**
+   * Enable Free Camera and set its position + look-at target
+   */
+  setFreeCamPose(position, lookAtTarget = [0, 80, 0]) {
+    this.setFreeCam(true);
+    const free = this.controllers.get(CAMERA_MODES.FREE);
+    if (free && typeof free.setPoseLookAt === 'function') {
+      free.setPoseLookAt(position, lookAtTarget);
+    }
+  }
+
+  /**
    * Event Delegation: Delegate input action to the appropriate controller.
    * @param {string} actionId
    * @param {any} [eventData]
