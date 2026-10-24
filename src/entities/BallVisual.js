@@ -198,7 +198,7 @@ function attachBallGoalShader(mat) {
     shader.uniforms.uGoalJitterWorldOffset = ballGoalUniforms.uGoalJitterWorldOffset;
 
     shader.vertexShader =
-      `varying vec3 vBallWorldPos;\nuniform vec3 uGoalJitterWorldOffset;\n` +
+      `varying vec3 vBallWorldPos;\nvarying vec3 vBallViewNormal;\nvarying vec3 vBallViewDir;\nuniform vec3 uGoalJitterWorldOffset;\n` +
       shader.vertexShader.replace(
         '#include <project_vertex>',
         `vec4 mvPosition = vec4( transformed, 1.0 );
@@ -206,14 +206,18 @@ function attachBallGoalShader(mat) {
   mvPosition = instanceMatrix * mvPosition;
 #endif
 vec4 ballWorldPosition = modelMatrix * mvPosition;
-vBallWorldPos = ballWorldPosition.xyz;
 ballWorldPosition.xyz += uGoalJitterWorldOffset;
+vBallWorldPos = ballWorldPosition.xyz;
 mvPosition = viewMatrix * ballWorldPosition;
+vBallViewNormal = normalize( normalMatrix * objectNormal );
+vBallViewDir = normalize( -mvPosition.xyz );
 gl_Position = projectionMatrix * mvPosition;`
       );
 
     shader.fragmentShader =
       `varying vec3 vBallWorldPos;
+varying vec3 vBallViewNormal;
+varying vec3 vBallViewDir;
 uniform float uGoalEffectEnabled;
 uniform float uGoalPlaneMinY;
 uniform float uGoalPlaneMaxY;
@@ -231,20 +235,24 @@ if (uGoalEffectEnabled > 0.5 && uGoalPenetration > 0.001) {
   float inMouthY = 1.0 - smoothstep(uGoalMaxZ - 6.0, uGoalMaxZ + 6.0, vBallWorldPos.y);
   float inDepthBack = 1.0 - smoothstep(uGoalPlaneMaxY - 8.0, uGoalPlaneMaxY + 8.0, absZ);
   float sliceDist = absZ - uGoalPlaneMinY;
-  float insideMask = smoothstep(-3.0, 3.0, sliceDist) * inMouthX * inMouthY * inDepthBack;
+  float insideMask = smoothstep(-2.0, 2.0, sliceDist) * inMouthX * inMouthY * inDepthBack;
   if (insideMask > 0.001) {
-    float strobeA = step(0.0, sin(uGoalTime * 95.0));
-    float strobeB = 0.5 + 0.5 * sin(uGoalTime * 57.0 + sliceDist * 0.12);
-    float flickerLuma = mix(0.015, 0.13, strobeA * 0.65 + strobeB * 0.35);
-    float boundarySeam = (1.0 - smoothstep(0.0, 5.5, abs(sliceDist))) * inMouthX * inMouthY * inDepthBack;
-    float seamLuma = boundarySeam * (0.12 + 0.10 * strobeA);
-    vec3 goalDarkColor = vec3(flickerLuma + seamLuma);
-    gl_FragColor.rgb = mix(gl_FragColor.rgb, goalDarkColor, insideMask);
+    vec3 viewDir = normalize(vBallViewDir);
+    vec3 surfNormal = normalize(vBallViewNormal);
+    float ndotv = clamp(abs(dot(surfNormal, viewDir)), 0.0, 1.0);
+    float fresnel = 1.0 - ndotv;
+    float outerRim = pow(fresnel, 2.5) * 0.95 + pow(fresnel, 1.35) * 0.24;
+    float planeSeam = exp(-abs(sliceDist) * 0.28) * 0.52;
+    float rimGlow = clamp(max(outerRim, planeSeam), 0.0, 1.0);
+    vec3 darkCore = vec3(0.015, 0.018, 0.022);
+    vec3 whiteGlow = vec3(0.96, 0.98, 1.0);
+    vec3 goalBallColor = mix(darkCore, whiteGlow, rimGlow);
+    gl_FragColor.rgb = mix(gl_FragColor.rgb, goalBallColor, insideMask);
   }
 }`
       );
   };
-  mat.customProgramCacheKey = () => 'ball-goal-darken-jitter-v1';
+  mat.customProgramCacheKey = () => 'ball-goal-darken-jitter-v3';
   mat.needsUpdate = true;
 }
 

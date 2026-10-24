@@ -96,8 +96,8 @@ export const BallTab: React.FC<BallTabProps> = ({
         />
 
         <ToggleSwitch
-          label="In-Goal Black Flicker & Jitter Effect"
-          description="Turns the portion of the ball inside the goal plane dark with a high-frequency black strobe and jitter"
+          label="In-Goal Dark Core & White Rim Jitter Effect"
+          description="Turns the portion of the ball inside the goal plane dark with a white inner rim glow and 3D jitter"
           checked={ballConfig.goalDarkenJitterEnabled !== false}
           onChange={(checked) => applyBallPatch({ goalDarkenJitterEnabled: checked })}
           disabled={ballConfig.visible === false}
