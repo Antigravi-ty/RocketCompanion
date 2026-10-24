@@ -41,7 +41,9 @@ export function generateLayoutReport(routeLabel = 'ACTIVE_MENU'): string {
   const winW = window.innerWidth;
   const winH = window.innerHeight;
 
-  const shellEl = document.querySelector<HTMLElement>('[data-ui-element="menu-shell"], [data-morph-container="true"], [data-panel="container"]');
+  const shellEl = document.querySelector<HTMLElement>(
+    '[data-ui-element="edge-inspector-drawer"], [data-ui-element="menu-shell"], [data-morph-container="true"], [data-panel="container"]'
+  );
   const headerEl = shellEl ? shellEl.querySelector<HTMLElement>('[data-ui-element="panel-header"]') : null;
   const tabsEl = shellEl ? shellEl.querySelector<HTMLElement>('[role="tablist"]') : null;
   const tabButtons = tabsEl ? Array.from(tabsEl.querySelectorAll<HTMLElement>('[role="tab"]')) : [];

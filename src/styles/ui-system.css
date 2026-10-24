@@ -46,6 +46,19 @@
   font-family: var(--font-mono) !important;
 }
 
+/* Hide scrollbar completely while preserving scroll functionality */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+
 /* Base resets & fallbacks for SimpleUI standard primitives */
 [data-ui-element="menu-shell"],
 [data-morph-container="true"] {

@@ -37,7 +37,8 @@ import { Layer3DevActiveTunersRecipe } from '../recipes/Layer3DevActiveTunersRec
 import { Layer3DevCalibratedPresetsRecipe } from '../recipes/Layer3DevCalibratedPresetsRecipe';
 import { Layer3DevUnderDevelopmentRecipe } from '../recipes/Layer3DevUnderDevelopmentRecipe';
 import { Layer4StaticTrainingPackBrowseRecipe } from '../recipes/Layer4StaticTrainingPackBrowseRecipe';
-import { Layer5StaticTrainingPackSessionRecipe } from '../recipes/Layer5StaticTrainingPackSessionRecipe';
+import { Layer5StaticTrainingPackEditRecipe } from '../recipes/Layer5StaticTrainingPackEditRecipe';
+import { EdgeInspectorDrawer } from '../navigation/EdgeInspectorDrawer';
 import { useStaticTrainingPackStore } from '../../stores/staticTrainingPackStore';
 import { StaticTrainingPackHUD } from '../hud/StaticTrainingPackHUD';
 
@@ -160,7 +161,9 @@ export const MenuShell: React.FC<MenuShellProps> = ({ inspectorSlot }) => {
 
   const isLivePreviewRoute =
     activeRoute === 'trajectory' ||
-    activeRoute === 'camera' ||
+    activeRoute === 'camera';
+
+  const isEdgeInspectorRoute =
     activeRoute === 'static-training-pack-session';
 
   // Synchronize external isLivePreviewCollapsed changes (e.g. TAB shortcut)
@@ -178,6 +181,17 @@ export const MenuShell: React.FC<MenuShellProps> = ({ inspectorSlot }) => {
       }
     }
   }, [isLivePreviewCollapsed, activeRoute, isLivePreviewRoute]);
+
+  // Synchronize 3D input/pause bridge when EdgeInspectorDrawer collapses/expands (via TAB or button)
+  useEffect(() => {
+    if (!isOpen || !isEdgeInspectorRoute) return;
+    if (isLivePreviewCollapsed) {
+      bridge.onOverlayChange?.(false);
+      bridge.onResume?.();
+    } else {
+      bridge.onOverlayChange?.(true);
+    }
+  }, [isOpen, isEdgeInspectorRoute, isLivePreviewCollapsed, bridge]);
 
   // Dock state: whether container is occupying or animating to/from the right edge dock
   const isDockState =
@@ -251,7 +265,7 @@ export const MenuShell: React.FC<MenuShellProps> = ({ inspectorSlot }) => {
       <FloatingStackIcon
         isLight={isLight}
         absolute={true}
-        isMenuOpen={isOpen && !isDockState}
+        isMenuOpen={isOpen && !isDockState && !isEdgeInspectorRoute}
         blockedTooltipText={
           activeRoute === 'settings'
             ? 'Please close settings window first'
@@ -262,9 +276,34 @@ export const MenuShell: React.FC<MenuShellProps> = ({ inspectorSlot }) => {
         }}
       />
 
+      {/* 2.5. Decoupled 6E Edge Inspector Drawer (Static Training Pack Edit Session, 0% backdrop darkening) */}
+      <EdgeInspectorDrawer
+        open={isOpen && isEdgeInspectorRoute}
+        collapsed={isLivePreviewCollapsed}
+        onCollapsedChange={(collapsed) => {
+          setLivePreviewCollapsed(collapsed);
+        }}
+        position="right"
+        topOffset={72}
+        bottomOffset={184}
+        expandedWidth={520}
+        isLight={isLight}
+      >
+        <Layer5StaticTrainingPackEditRecipe
+          isLight={isLight}
+          transparent={true}
+          onCollapseDrawer={() => setLivePreviewCollapsed(true)}
+          onExitSession={() => {
+            setLivePreviewCollapsed(false);
+            goBack();
+          }}
+        />
+      </EdgeInspectorDrawer>
+      {isOpen && isEdgeInspectorRoute && inspectorSlot}
+
       {/* 3. Main Decoupled Stage Shell (z-30) */}
       <MorphingShell
-        open={isOpen}
+        open={isOpen && !isEdgeInspectorRoute}
         onOpenChange={(open) => {
           if (!open) closeMenu();
         }}
@@ -384,30 +423,15 @@ export const MenuShell: React.FC<MenuShellProps> = ({ inspectorSlot }) => {
               await store.selectPack(uuid);
               store.setSessionMode('play');
               bridge.onStartStaticTrainingPack?.('play');
-              navigate('static-training-pack-session');
-              setLiveAnimPhase('collapsed');
-              setLivePreviewCollapsed(true);
+              closeMenu();
             }}
             onStartEditSession={async (uuid) => {
               const store = useStaticTrainingPackStore.getState();
               await store.beginEditSession(uuid);
               bridge.onStartStaticTrainingPack?.('edit');
-              setLiveAnimPhase('expanded');
+              setLivePreviewCollapsed(false);
               navigate('static-training-pack-session');
             }}
-          />
-        )}
-
-        {/* Layer 5: Static Training Pack Play / Edit Session (Live Preview [TAB]) */}
-        {activeRoute === 'static-training-pack-session' && (
-          <Layer5StaticTrainingPackSessionRecipe
-            isLight={isLight}
-            transparent={true}
-            onBack={() => {
-              setLiveAnimPhase('expanded');
-              goBack();
-            }}
-            onCollapsePreview={handleTriggerCollapse}
           />
         )}
 

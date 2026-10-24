@@ -8,7 +8,6 @@ import {
   Save,
 } from 'lucide-react';
 import { ToggleSwitch } from '../../primitives/ToggleSwitch';
-import { KeycapBadge } from '../../primitives/KeycapBadge';
 import { CompactNumberSlider } from './CompactNumberSlider';
 import {
   useStaticTrainingPackStore,
@@ -20,6 +19,11 @@ import {
 export interface StaticTrainingShotInspectorViewProps {
   isLight: boolean;
   currentShot: StaticTrainingShotItem;
+  editSubMode?: EditSubMode;
+  isDirty?: boolean;
+  onChangeSubMode?: (mode: EditSubMode) => void;
+  onMutateShot?: (updater: (draft: StaticTrainingShotItem) => void) => void;
+  onSaveShot?: () => void | Promise<void>;
   onHoverDesc: (desc: string | null) => void;
 }
 
@@ -29,48 +33,77 @@ const degToRad = (d: number) => Number(((d * Math.PI) / 180).toFixed(4));
 const SUB_MODE_OPTIONS: {
   id: EditSubMode;
   label: string;
+  shortLabel: string;
   icon: React.ReactNode;
   hint: string;
 }[] = [
   {
     id: 'car-heading',
     label: 'Car Heading',
-    icon: <Compass className="h-3.5 w-3.5" />,
-    hint: 'WASD/Space/V Move Car • Drag Mouse = Car Heading & Pitch • [ / ] = Car Speed • Q/E = Air Roll • O/P = Boost',
+    shortLabel: 'Heading',
+    icon: <Compass className="h-3.5 w-3.5 shrink-0" />,
+    hint: 'Car Heading Mode: WASD/Space/V Move Car • Drag Mouse = Car Heading & Pitch • Q/E = Air Roll • O/P = Boost',
   },
   {
     id: 'car-speed',
     label: 'Car Speed',
-    icon: <Gauge className="h-3.5 w-3.5" />,
-    hint: 'WASD/Space/V Move Car • Drag Mouse = Car Velocity Yaw & Pitch • [ / ] = Car Speed',
+    shortLabel: 'Car Spd',
+    icon: <Gauge className="h-3.5 w-3.5 shrink-0" />,
+    hint: 'Car Speed Mode: WASD/Space/V Move Car • Drag Mouse = Car Velocity Yaw & Pitch • [ / ] = Car Speed',
   },
   {
     id: 'ball-speed',
     label: 'Ball Speed',
-    icon: <CircleDot className="h-3.5 w-3.5" />,
-    hint: 'WASD/Space/V Move Ball • Drag Mouse = Ball Velocity Yaw & Pitch • [ / ] = Ball Speed • [F] = Switch Camera Side',
+    shortLabel: 'Ball Spd',
+    icon: <CircleDot className="h-3.5 w-3.5 shrink-0" />,
+    hint: 'Ball Speed Mode: WASD/Space/V Move Ball • Drag Mouse = Ball Velocity Yaw & Pitch • [ / ] = Ball Speed • [F] = Switch Camera Side',
   },
   {
     id: 'free-cam',
     label: 'Free Cam',
-    icon: <Camera className="h-3.5 w-3.5" />,
-    hint: 'WASD/Space/V + Drag Look • [T] Toggle Trajectory Preview • [G] Test Single Shot',
+    shortLabel: 'Free Cam',
+    icon: <Camera className="h-3.5 w-3.5 shrink-0" />,
+    hint: 'Free Camera Mode: WASD/Space/V + Drag Look • [T] Toggle Trajectory Preview • [G] Test Single Shot',
   },
 ];
 
-export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspectorViewProps> = ({
+/**
+ * StaticTrainingShotInspectorView
+ * Ultra-compact single-line row inspector:
+ * 1. Shot Name input + Save button on row 1.
+ * 2. 3 or 4 cycling Sub-Mode buttons + Reset Level action squeezed into a single unified toolbar row (no redundant 'Sub-Mode: 9 / 0' label).
+ * 3. Every toggle/slider row is single-line with zero inline sub-descriptions; hovering any row sends its detailed description to the PanelFooter.
+ */
+export const StaticTrainingShotInspectorView: React.FC<
+  StaticTrainingShotInspectorViewProps
+> = ({
   isLight,
   currentShot,
+  editSubMode: controlledEditSubMode,
+  isDirty: controlledIsDirty,
+  onChangeSubMode,
+  onMutateShot,
+  onSaveShot,
   onHoverDesc,
 }) => {
-  const editSubMode = useStaticTrainingPackStore((s) => s.editSubMode);
-  const setEditSubMode = useStaticTrainingPackStore((s) => s.setEditSubMode);
-  const isCurrentShotDirty = useStaticTrainingPackStore((s) => s.isCurrentShotDirty);
-  const saveCurrentShotToEditWorkspace = useStaticTrainingPackStore(
+  const storeEditSubMode = useStaticTrainingPackStore((s) => s.editSubMode);
+  const storeSetEditSubMode = useStaticTrainingPackStore((s) => s.setEditSubMode);
+  const storeIsCurrentShotDirty = useStaticTrainingPackStore((s) => s.isCurrentShotDirty);
+  const storeSaveCurrentShotToEditWorkspace = useStaticTrainingPackStore(
     (s) => s.saveCurrentShotToEditWorkspace
   );
   const editVarVersion = useStaticTrainingPackStore((s) => s.editVarVersion);
   void editVarVersion;
+
+  const editSubMode = controlledEditSubMode ?? storeEditSubMode;
+  const isDirty = controlledIsDirty ?? storeIsCurrentShotDirty();
+  const handleChangeSubMode = onChangeSubMode ?? storeSetEditSubMode;
+  const handleMutateShot =
+    onMutateShot ??
+    ((updater: (draft: StaticTrainingShotItem) => void) => {
+      mutateActiveEditItemVariable(updater);
+    });
+  const handleSaveShot = onSaveShot ?? storeSaveCurrentShotToEditWorkspace;
 
   // Show Advanced is transient UI state: always defaults to false and resets whenever selecting a shot
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -78,7 +111,6 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
     setShowAdvanced(false);
   }, [currentShot.id, currentShot.index]);
 
-  const isDirty = isCurrentShotDirty();
   const limitBoostAmount = !currentShot.car.unlimitedBoost;
   const hasFlip = currentShot.car.hasFlip !== false;
   const speedFollowsHeading = currentShot.car.speedFollowsHeading !== false;
@@ -87,22 +119,33 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
     : SUB_MODE_OPTIONS;
 
   const sectionBg = isLight
-    ? 'bg-white border-neutral-200 text-neutral-900'
+    ? 'bg-white border-neutral-200/90 text-neutral-900'
     : 'bg-neutral-900/60 border-neutral-800 text-neutral-100';
 
+  const rowHoverClass =
+    'flex items-center justify-between py-1 px-1.5 rounded-lg hover:bg-neutral-500/10 transition-colors select-none';
+
   return (
-    <div className="flex flex-col gap-2.5">
-      {/* 1. Top Bar: Shot Name Input on Left + Save Button on Right (Disabled when clean) */}
-      <div className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 ${sectionBg}`}>
+    <div className="flex flex-col gap-2">
+      {/* 1. Top Row: Shot Name Input + Save Button */}
+      <div
+        className={`p-2 rounded-xl border flex items-center justify-between gap-2 ${sectionBg}`}
+      >
         <input
           type="text"
           value={currentShot.name}
           onChange={(e) =>
-            mutateActiveEditItemVariable((d) => {
+            handleMutateShot((d) => {
               d.name = e.target.value;
             })
           }
-          className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold grow outline-none ${
+          onMouseEnter={() =>
+            onHoverDesc(
+              `Rename Shot #${String(currentShot.index + 1).padStart(2, '0')} (${currentShot.name}).`
+            )
+          }
+          onMouseLeave={() => onHoverDesc(null)}
+          className={`px-2.5 py-1 rounded-lg border text-xs font-bold grow min-w-0 outline-none transition-colors ${
             isLight
               ? 'bg-neutral-50 focus:bg-white border-neutral-300 text-neutral-900'
               : 'bg-neutral-850 focus:bg-neutral-800 border-neutral-700 text-neutral-100'
@@ -114,8 +157,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
           type="button"
           disabled={!isDirty}
           onClick={async () => {
-            await saveCurrentShotToEditWorkspace();
-            onHoverDesc(`Saved #${String(currentShot.index + 1).padStart(2, '0')} (${currentShot.name}) to edit workspace.`);
+            await handleSaveShot();
+            onHoverDesc(
+              `Saved #${String(currentShot.index + 1).padStart(2, '0')} (${currentShot.name}) to edit workspace.`
+            );
           }}
           onMouseEnter={() =>
             onHoverDesc(
@@ -125,7 +170,7 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
             )
           }
           onMouseLeave={() => onHoverDesc(null)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold shrink-0 transition-all ${
+          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-bold shrink-0 transition-all ${
             isDirty
               ? isLight
                 ? 'bg-neutral-900 hover:bg-neutral-800 border-neutral-900 text-white cursor-pointer active:scale-95'
@@ -140,42 +185,13 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
         </button>
       </div>
 
-      {/* 2. Top Quick Action Bar: Air Roll Reset Level + Sub-Mode Buttons */}
-      <div className={`p-2.5 rounded-xl border flex flex-col gap-2 ${sectionBg}`}>
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-[10px] font-mono opacity-80">
-            <span>Sub-Mode:</span>
-            <KeycapBadge shortcut="9 / 0" size="sm" isLight={isLight} />
-          </div>
-
-          <button
-            type="button"
-            onClick={() =>
-              mutateActiveEditItemVariable((d) => {
-                d.car.airRoll = 0;
-                d.car.headingPitch = 0;
-                if (d.car.speedFollowsHeading !== false) {
-                  d.car.speedPitch = 0;
-                }
-              })
-            }
-            onMouseEnter={() =>
-              onHoverDesc('Reset Car Air Roll and Pitch to horizontal level (0 deg).')
-            }
-            onMouseLeave={() => onHoverDesc(null)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold cursor-pointer transition-all active:scale-95 ${
-              isLight
-                ? 'bg-neutral-100 hover:bg-neutral-200 border-neutral-300 text-neutral-800'
-                : 'bg-neutral-800 hover:bg-neutral-700 border-neutral-700 text-neutral-200'
-            }`}
-          >
-            <RotateCw className="h-3 w-3" />
-            <span>Air Roll Reset Level</span>
-          </button>
-        </div>
-
+      {/* 2. Single-Row Sub-Mode Cycling Bar (3 or 4 modes) + Reset Level Button (No 'Sub-Mode: 9/0' header) */}
+      <div
+        className={`p-1.5 rounded-xl border flex items-center gap-1.5 ${sectionBg}`}
+      >
+        {/* Segmented 3 or 4 Cycling Sub-Mode Buttons */}
         <div
-          className={`grid gap-1.5 ${
+          className={`grid flex-1 min-w-0 gap-1 ${
             visibleSubModeOptions.length === 3 ? 'grid-cols-3' : 'grid-cols-4'
           }`}
         >
@@ -183,49 +199,89 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
             const active = editSubMode === opt.id;
             const hintText =
               opt.id === 'car-heading' && speedFollowsHeading
-                ? 'WASD/Space/V Move Car • Drag Mouse = Car Heading & Pitch • [ / ] = Car Speed • Q/E = Air Roll • O/P = Boost'
-                : opt.hint;
+                ? 'Car Heading Mode [9/0 to Cycle]: WASD/Space/V Move Car • Drag Mouse = Car Heading & Pitch • [ / ] = Car Speed • Q/E = Air Roll • O/P = Boost'
+                : `${opt.hint} (Press [9] / [0] or Right-Click to cycle sub-modes)`;
             return (
               <button
                 key={opt.id}
                 type="button"
-                onClick={() => setEditSubMode(opt.id)}
+                onClick={() => handleChangeSubMode(opt.id)}
                 onMouseEnter={() => onHoverDesc(hintText)}
                 onMouseLeave={() => onHoverDesc(null)}
-                className={`flex items-center justify-center gap-1 py-1.5 px-1.5 rounded-lg border text-[10px] font-bold transition-all cursor-pointer ${
+                className={`flex items-center justify-center gap-1 py-1.5 px-1.5 rounded-lg border text-[10px] font-bold transition-all cursor-pointer min-w-0 ${
                   active
                     ? isLight
                       ? 'bg-neutral-900 border-neutral-900 text-white shadow-2xs'
                       : 'bg-white border-white text-neutral-900 shadow-2xs'
                     : isLight
-                    ? 'bg-neutral-50 hover:bg-neutral-100 border-neutral-300 text-neutral-700'
-                    : 'bg-neutral-850 hover:bg-neutral-800 border-neutral-700 text-neutral-300'
+                    ? 'bg-neutral-50 hover:bg-neutral-100 border-neutral-200/90 text-neutral-700'
+                    : 'bg-neutral-850 hover:bg-neutral-800 border-neutral-700/80 text-neutral-300'
                 }`}
               >
                 {opt.icon}
-                <span className="truncate">{opt.label}</span>
+                <span className="truncate">
+                  {visibleSubModeOptions.length === 4 ? opt.shortLabel : opt.label}
+                </span>
               </button>
             );
           })}
         </div>
+
+        {/* Vertical Separator */}
+        <div
+          className={`h-5 w-px shrink-0 ${
+            isLight ? 'bg-neutral-200' : 'bg-neutral-800'
+          }`}
+        />
+
+        {/* Reset Level (Air Roll & Pitch = 0) */}
+        <button
+          type="button"
+          onClick={() =>
+            handleMutateShot((d) => {
+              d.car.airRoll = 0;
+              d.car.headingPitch = 0;
+              if (d.car.speedFollowsHeading !== false) {
+                d.car.speedPitch = 0;
+              }
+            })
+          }
+          onMouseEnter={() =>
+            onHoverDesc(
+              'Air Roll Reset Level: Reset Car Air Roll and Pitch to horizontal level (0 deg).'
+            )
+          }
+          onMouseLeave={() => onHoverDesc(null)}
+          className={`flex items-center gap-1 py-1.5 px-2 rounded-lg border text-[10px] font-bold shrink-0 cursor-pointer transition-all active:scale-95 ${
+            isLight
+              ? 'bg-neutral-100 hover:bg-neutral-200 border-neutral-300 text-neutral-800'
+              : 'bg-neutral-800 hover:bg-neutral-700 border-neutral-700 text-neutral-200'
+          }`}
+        >
+          <RotateCw className="h-3 w-3 shrink-0" />
+          <span>Reset Level</span>
+        </button>
       </div>
 
-      {/* 3. Core Shot Controls (Ordered as specified) */}
-      <div className={`p-2.5 rounded-xl border flex flex-col gap-2 ${sectionBg}`}>
-        {/* (a) Limit Boost Amount Toggle Switch (Default OFF -> Unlimited Boost) */}
-        <div className="flex items-center justify-between py-0.5 px-1">
-          <div className="flex flex-col">
-            <span className="text-[11px] font-semibold">Limit Boost Amount</span>
-            <span className="text-[10px] opacity-65">
-              {limitBoostAmount
-                ? `Limited (${Math.round(currentShot.car.initialBoost)}% initial boost)`
-                : 'Unlimited Boost (INF)'}
-            </span>
-          </div>
+      {/* 3. Ultra-Compact Core Shot Controls (Zero inline descriptions; hover routes to Footer) */}
+      <div className={`p-2 rounded-xl border flex flex-col gap-1 ${sectionBg}`}>
+        {/* (a) Limit Boost Amount */}
+        <div
+          className={rowHoverClass}
+          onMouseEnter={() =>
+            onHoverDesc(
+              limitBoostAmount
+                ? `Limit Boost Amount: ON (${Math.round(currentShot.car.initialBoost)}% initial boost reserve; adjust with [O]/[P]).`
+                : 'Limit Boost Amount: OFF — Car spawns with Unlimited Boost (INF).'
+            )
+          }
+          onMouseLeave={() => onHoverDesc(null)}
+        >
+          <span className="text-[11px] font-semibold">Limit Boost Amount</span>
           <ToggleSwitch
             checked={limitBoostAmount}
             onCheckedChange={(checked) =>
-              mutateActiveEditItemVariable((d) => {
+              handleMutateShot((d) => {
                 d.car.unlimitedBoost = !checked;
               })
             }
@@ -242,8 +298,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
             max={100}
             step={1}
             unit="%"
+            description="Initial Boost Reserve (0% – 100%). Press [O] / [P] in 3D editor to adjust."
+            onHoverDesc={onHoverDesc}
             onChange={(b) =>
-              mutateActiveEditItemVariable((d) => {
+              handleMutateShot((d) => {
                 d.car.initialBoost = b;
               })
             }
@@ -251,7 +309,7 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
           />
         )}
 
-        {/* (b) Time Limit Slider (Default 10s, Max 60s) */}
+        {/* (b) Time Limit */}
         <CompactNumberSlider
           label="Time Limit"
           value={currentShot.timeoutSeconds}
@@ -259,28 +317,33 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
           max={60}
           step={1}
           unit="s"
+          description="Shot Time Limit (1s – 60s, default 10s) before shot expires."
+          onHoverDesc={onHoverDesc}
           onChange={(val) =>
-            mutateActiveEditItemVariable((d) => {
+            handleMutateShot((d) => {
               d.timeoutSeconds = Math.max(1, Math.min(60, val));
             })
           }
           isLight={isLight}
         />
 
-        {/* (c) Align Speed with Car Nose Toggle Switch (Default ON) */}
-        <div className="flex items-center justify-between py-0.5 px-1">
-          <div className="flex flex-col">
-            <span className="text-[11px] font-semibold">Align Speed with Car Nose</span>
-            <span className="text-[10px] opacity-65">
-              {speedFollowsHeading
-                ? 'Velocity follows car heading ([ / ] adjusts speed in Car Heading)'
-                : 'Independent car velocity direction (Car Speed sub-mode enabled)'}
-            </span>
-          </div>
+        {/* (c) Align Speed with Car Nose */}
+        <div
+          className={rowHoverClass}
+          onMouseEnter={() =>
+            onHoverDesc(
+              speedFollowsHeading
+                ? 'Align Speed with Car Nose: ON — Car velocity direction stays aligned with car nose ([ / ] adjusts speed directly in Car Heading mode).'
+                : 'Align Speed with Car Nose: OFF — Independent car velocity yaw & pitch (enables 4th Car Speed sub-mode).'
+            )
+          }
+          onMouseLeave={() => onHoverDesc(null)}
+        >
+          <span className="text-[11px] font-semibold">Align Speed with Car Nose</span>
           <ToggleSwitch
             checked={speedFollowsHeading}
             onCheckedChange={(checked) => {
-              mutateActiveEditItemVariable((d) => {
+              handleMutateShot((d) => {
                 d.car.speedFollowsHeading = checked;
                 if (checked) {
                   d.car.speedYaw = d.car.headingYaw;
@@ -288,7 +351,7 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
                 }
               });
               if (checked && editSubMode === 'car-speed') {
-                setEditSubMode('car-heading');
+                handleChangeSubMode('car-heading');
               }
             }}
             isLight={isLight}
@@ -296,18 +359,21 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
           />
         </div>
 
-        {/* (d) Snap to Ground Toggle Switch (Default ON) */}
-        <div className="flex items-center justify-between py-0.5 px-1">
-          <div className="flex flex-col">
-            <span className="text-[11px] font-semibold">Snap to Ground</span>
-            <span className="text-[10px] opacity-65">
-              60-frame suspension settle on ground [V]
-            </span>
-          </div>
+        {/* (d) Snap to Ground */}
+        <div
+          className={rowHoverClass}
+          onMouseEnter={() =>
+            onHoverDesc(
+              'Snap to Ground [V]: When ON, car spawns at ground level (Z=17.05) with 60-frame wheel suspension settle.'
+            )
+          }
+          onMouseLeave={() => onHoverDesc(null)}
+        >
+          <span className="text-[11px] font-semibold">Snap to Ground</span>
           <ToggleSwitch
             checked={currentShot.car.snapToGround}
             onCheckedChange={(checked) =>
-              mutateActiveEditItemVariable((d) => {
+              handleMutateShot((d) => {
                 d.car.snapToGround = checked;
                 if (checked) {
                   d.car.location[2] = 17.05;
@@ -327,22 +393,25 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
           />
         </div>
 
-        {/* (e) Has Flip Toggle Switch (Default ON; when airborne & OFF, spawns without flip) */}
-        <div className="flex items-center justify-between py-0.5 px-1">
-          <div className="flex flex-col">
-            <span className="text-[11px] font-semibold">Has Flip</span>
-            <span className="text-[10px] opacity-65">
-              {currentShot.car.snapToGround
-                ? 'On Ground (Flip always available)'
+        {/* (e) Has Flip */}
+        <div
+          className={rowHoverClass}
+          onMouseEnter={() =>
+            onHoverDesc(
+              currentShot.car.snapToGround
+                ? 'Has Flip: On Ground (Flip is always available when grounded).'
                 : hasFlip
-                ? 'Airborne spawn with flip available'
-                : 'Airborne spawn with NO flip'}
-            </span>
-          </div>
+                ? 'Has Flip: ON — Airborne car spawns with an available dodge/flip.'
+                : 'Has Flip: OFF — Airborne car spawns without a flip (NO FLIP).'
+            )
+          }
+          onMouseLeave={() => onHoverDesc(null)}
+        >
+          <span className="text-[11px] font-semibold">Has Flip</span>
           <ToggleSwitch
             checked={currentShot.car.snapToGround ? true : hasFlip}
             onCheckedChange={(checked) =>
-              mutateActiveEditItemVariable((d) => {
+              handleMutateShot((d) => {
                 d.car.hasFlip = checked;
                 if (!checked && d.car.snapToGround) {
                   d.car.snapToGround = false;
@@ -357,20 +426,23 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
           />
         </div>
 
-        {/* (f) Random Angular Velocity Toggle Switch (Default ON) */}
-        <div className="flex items-center justify-between py-0.5 px-1">
-          <div className="flex flex-col">
-            <span className="text-[11px] font-semibold">Random Angular Velocity</span>
-            <span className="text-[10px] opacity-65">
-              {currentShot.ball.randomAngularVelocity
-                ? 'Ball spin auto-generated from speed'
-                : 'Manual 3-axis ball angular velocity'}
-            </span>
-          </div>
+        {/* (f) Random Angular Velocity */}
+        <div
+          className={rowHoverClass}
+          onMouseEnter={() =>
+            onHoverDesc(
+              currentShot.ball.randomAngularVelocity
+                ? 'Random Angular Velocity: ON — Ball spin is automatically generated from launch speed.'
+                : 'Random Angular Velocity: OFF — Manual 3-axis ball angular velocity (Pitch, Roll, Yaw rad/s).'
+            )
+          }
+          onMouseLeave={() => onHoverDesc(null)}
+        >
+          <span className="text-[11px] font-semibold">Random Angular Velocity</span>
           <ToggleSwitch
             checked={currentShot.ball.randomAngularVelocity}
             onCheckedChange={(checked) =>
-              mutateActiveEditItemVariable((d) => {
+              handleMutateShot((d) => {
                 d.ball.randomAngularVelocity = checked;
               })
             }
@@ -379,9 +451,9 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
           />
         </div>
 
-        {/* Manual Angular Velocity Sliders (ONLY shown when Random Angular Velocity is OFF) */}
+        {/* Manual Angular Velocity Sliders (when Random Angular Velocity is OFF) */}
         {!currentShot.ball.randomAngularVelocity && (
-          <div className="flex flex-col gap-1.5 pt-1.5 border-t border-neutral-500/15">
+          <div className="flex flex-col gap-1 pt-1 border-t border-neutral-500/15">
             <CompactNumberSlider
               label="AngVel X (Pitch)"
               value={currentShot.ball.angularVelocity[0]}
@@ -389,8 +461,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
               max={6}
               step={0.1}
               unit=" r/s"
+              description="Ball Angular Velocity X-axis (Pitch spin in rad/s, -6 to +6)."
+              onHoverDesc={onHoverDesc}
               onChange={(v) =>
-                mutateActiveEditItemVariable((d) => {
+                handleMutateShot((d) => {
                   d.ball.angularVelocity[0] = Number(v.toFixed(2));
                 })
               }
@@ -403,8 +477,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
               max={6}
               step={0.1}
               unit=" r/s"
+              description="Ball Angular Velocity Y-axis (Roll spin in rad/s, -6 to +6)."
+              onHoverDesc={onHoverDesc}
               onChange={(v) =>
-                mutateActiveEditItemVariable((d) => {
+                handleMutateShot((d) => {
                   d.ball.angularVelocity[1] = Number(v.toFixed(2));
                 })
               }
@@ -417,8 +493,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
               max={6}
               step={0.1}
               unit=" r/s"
+              description="Ball Angular Velocity Z-axis (Yaw side-spin in rad/s, -6 to +6)."
+              onHoverDesc={onHoverDesc}
               onChange={(v) =>
-                mutateActiveEditItemVariable((d) => {
+                handleMutateShot((d) => {
                   d.ball.angularVelocity[2] = Number(v.toFixed(2));
                 })
               }
@@ -427,14 +505,17 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
           </div>
         )}
 
-        {/* (g) Show Advanced Toggle Switch (Default OFF, never persisted) */}
-        <div className="flex items-center justify-between py-0.5 px-1 border-t border-neutral-500/15 pt-2">
-          <div className="flex flex-col">
-            <span className="text-[11px] font-semibold">Show Advanced</span>
-            <span className="text-[10px] opacity-65">
-              Reveal exact coordinates, angles, speeds &amp; kickoff freeze
-            </span>
-          </div>
+        {/* (g) Show Advanced */}
+        <div
+          className={`${rowHoverClass} border-t border-neutral-500/15 pt-1.5 mt-0.5`}
+          onMouseEnter={() =>
+            onHoverDesc(
+              'Show Advanced: Reveal exact 3D coordinates (X/Y/Z), orientation angles, launch speeds, and Kickoff Freeze state.'
+            )
+          }
+          onMouseLeave={() => onHoverDesc(null)}
+        >
+          <span className="text-[11px] font-semibold">Show Advanced</span>
           <ToggleSwitch
             checked={showAdvanced}
             onCheckedChange={(checked) => setShowAdvanced(checked)}
@@ -444,10 +525,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
         </div>
       </div>
 
-      {/* 4. Advanced Detailed Parameters (ONLY visible when Show Advanced is ON) */}
+      {/* 4. Advanced Detailed Parameters (Compact single-line rows) */}
       {showAdvanced && (
-        <div className={`p-2.5 rounded-xl border flex flex-col gap-2 ${sectionBg}`}>
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-400">
+        <div className={`p-2 rounded-xl border flex flex-col gap-1 ${sectionBg}`}>
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-500 px-1">
             Advanced Car Parameters
           </span>
 
@@ -458,8 +539,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
             max={3900}
             step={10}
             unit=" UU"
+            description="Car Spawn X Coordinate (-3900 to +3900 UU)."
+            onHoverDesc={onHoverDesc}
             onChange={(val) =>
-              mutateActiveEditItemVariable((d) => {
+              handleMutateShot((d) => {
                 d.car.location[0] = val;
               })
             }
@@ -472,8 +555,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
             max={5000}
             step={10}
             unit=" UU"
+            description="Car Spawn Y Coordinate (-5000 Blue Goal to +5000 Orange Goal UU)."
+            onHoverDesc={onHoverDesc}
             onChange={(val) =>
-              mutateActiveEditItemVariable((d) => {
+              handleMutateShot((d) => {
                 d.car.location[1] = val;
               })
             }
@@ -486,8 +571,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
             max={1980}
             step={5}
             unit=" UU"
+            description="Car Spawn Z Elevation (17 UU Ground to 1980 UU Ceiling)."
+            onHoverDesc={onHoverDesc}
             onChange={(val) =>
-              mutateActiveEditItemVariable((d) => {
+              handleMutateShot((d) => {
                 d.car.location[2] = val;
                 if (val > 22) d.car.snapToGround = false;
               })
@@ -502,8 +589,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
             max={180}
             step={1}
             unit="°"
+            description="Car Nose Heading Yaw Angle (-180° to +180°)."
+            onHoverDesc={onHoverDesc}
             onChange={(deg) =>
-              mutateActiveEditItemVariable((d) => {
+              handleMutateShot((d) => {
                 d.car.headingYaw = degToRad(deg);
                 if (d.car.speedFollowsHeading !== false) {
                   d.car.speedYaw = d.car.headingYaw;
@@ -519,8 +608,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
             max={85}
             step={1}
             unit="°"
+            description="Car Nose Pitch Angle (-85° dive to +85° nose up)."
+            onHoverDesc={onHoverDesc}
             onChange={(deg) =>
-              mutateActiveEditItemVariable((d) => {
+              handleMutateShot((d) => {
                 d.car.headingPitch = degToRad(deg);
                 if (deg !== 0) d.car.snapToGround = false;
                 if (d.car.speedFollowsHeading !== false) {
@@ -537,8 +628,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
             max={180}
             step={1}
             unit="°"
+            description="Car Air Roll Bank Angle (-180° to +180°, shortcut [Q]/[E])."
+            onHoverDesc={onHoverDesc}
             onChange={(deg) =>
-              mutateActiveEditItemVariable((d) => {
+              handleMutateShot((d) => {
                 d.car.airRoll = degToRad(deg);
                 if (deg !== 0) d.car.snapToGround = false;
               })
@@ -553,8 +646,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
             max={2300}
             step={10}
             unit=" UU"
+            description="Car Initial Launch Speed (0 to 2300 UU/s supersonic, shortcut [[] / []])."
+            onHoverDesc={onHoverDesc}
             onChange={(spd) =>
-              mutateActiveEditItemVariable((d) => {
+              handleMutateShot((d) => {
                 d.car.speed = spd;
               })
             }
@@ -569,8 +664,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
                 max={180}
                 step={1}
                 unit="°"
+                description="Independent Car Linear Velocity Yaw Angle (-180° to +180°)."
+                onHoverDesc={onHoverDesc}
                 onChange={(deg) =>
-                  mutateActiveEditItemVariable((d) => {
+                  handleMutateShot((d) => {
                     d.car.speedYaw = degToRad(deg);
                   })
                 }
@@ -583,8 +680,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
                 max={85}
                 step={1}
                 unit="°"
+                description="Independent Car Linear Velocity Pitch Angle (-85° to +85°)."
+                onHoverDesc={onHoverDesc}
                 onChange={(deg) =>
-                  mutateActiveEditItemVariable((d) => {
+                  handleMutateShot((d) => {
                     d.car.speedPitch = degToRad(deg);
                   })
                 }
@@ -593,22 +692,25 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
             </>
           )}
 
-          <div className="pt-2 border-t border-neutral-500/15 flex flex-col gap-2">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-sky-400">
+          <div className="pt-1.5 mt-0.5 border-t border-neutral-500/15 flex flex-col gap-1">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-sky-500 px-1">
               Advanced Ball Parameters
             </span>
 
-            <div className="flex items-center justify-between py-0.5 px-1">
-              <div className="flex flex-col">
-                <span className="text-[11px] font-semibold">Kickoff Freeze State</span>
-                <span className="text-[10px] opacity-65">
-                  Stationary mid-air until touched (or press &apos;[&apos; at 0 speed)
-                </span>
-              </div>
+            <div
+              className={rowHoverClass}
+              onMouseEnter={() =>
+                onHoverDesc(
+                  "Kickoff Freeze State: Ball stays suspended stationary in mid-air until touched (or press '[' at 0 speed)."
+                )
+              }
+              onMouseLeave={() => onHoverDesc(null)}
+            >
+              <span className="text-[11px] font-semibold">Kickoff Freeze State</span>
               <ToggleSwitch
                 checked={currentShot.ball.kickoffState}
                 onCheckedChange={(checked) =>
-                  mutateActiveEditItemVariable((d) => {
+                  handleMutateShot((d) => {
                     d.ball.kickoffState = checked;
                     if (checked) d.ball.speed = 0;
                   })
@@ -625,8 +727,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
               max={3900}
               step={10}
               unit=" UU"
+              description="Ball Spawn X Coordinate (-3900 to +3900 UU)."
+              onHoverDesc={onHoverDesc}
               onChange={(val) =>
-                mutateActiveEditItemVariable((d) => {
+                handleMutateShot((d) => {
                   d.ball.location[0] = val;
                 })
               }
@@ -639,8 +743,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
               max={5000}
               step={10}
               unit=" UU"
+              description="Ball Spawn Y Coordinate (-5000 to +5000 UU)."
+              onHoverDesc={onHoverDesc}
               onChange={(val) =>
-                mutateActiveEditItemVariable((d) => {
+                handleMutateShot((d) => {
                   d.ball.location[1] = val;
                 })
               }
@@ -653,8 +759,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
               max={1940}
               step={5}
               unit=" UU"
+              description="Ball Spawn Z Elevation (94 UU Floor to 1940 UU Ceiling)."
+              onHoverDesc={onHoverDesc}
               onChange={(val) =>
-                mutateActiveEditItemVariable((d) => {
+                handleMutateShot((d) => {
                   d.ball.location[2] = val;
                 })
               }
@@ -670,8 +778,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
                   max={4000}
                   step={10}
                   unit=" UU"
+                  description="Ball Launch Speed (0 to 4000 UU/s, shortcut [[] / []])."
+                  onHoverDesc={onHoverDesc}
                   onChange={(spd) =>
-                    mutateActiveEditItemVariable((d) => {
+                    handleMutateShot((d) => {
                       d.ball.speed = spd;
                     })
                   }
@@ -684,8 +794,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
                   max={180}
                   step={1}
                   unit="°"
+                  description="Ball Velocity Horizontal Aim Yaw (-180° to +180°)."
+                  onHoverDesc={onHoverDesc}
                   onChange={(deg) =>
-                    mutateActiveEditItemVariable((d) => {
+                    handleMutateShot((d) => {
                       d.ball.speedYaw = degToRad(deg);
                     })
                   }
@@ -698,8 +810,10 @@ export const StaticTrainingShotInspectorView: React.FC<StaticTrainingShotInspect
                   max={85}
                   step={1}
                   unit="°"
+                  description="Ball Velocity Vertical Trajectory Pitch (-85° to +85°)."
+                  onHoverDesc={onHoverDesc}
                   onChange={(deg) =>
-                    mutateActiveEditItemVariable((d) => {
+                    handleMutateShot((d) => {
                       d.ball.speedPitch = degToRad(deg);
                     })
                   }

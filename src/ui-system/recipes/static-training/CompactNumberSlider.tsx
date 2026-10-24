@@ -9,6 +9,8 @@ export interface CompactNumberSliderProps {
   step?: number;
   unit?: string;
   displayValue?: string | number;
+  description?: string;
+  onHoverDesc?: (desc: string | null) => void;
   onChange: (val: number) => void;
   isLight?: boolean;
 }
@@ -21,12 +23,18 @@ export const CompactNumberSlider: React.FC<CompactNumberSliderProps> = ({
   step = 1,
   unit = '',
   displayValue,
+  description,
+  onHoverDesc,
   onChange,
   isLight = false,
 }) => (
-  <div className="flex items-center gap-2.5 w-full py-0.5 px-1.5 rounded-lg hover:bg-neutral-500/10 select-none">
+  <div
+    onMouseEnter={() => description && onHoverDesc?.(description)}
+    onMouseLeave={() => description && onHoverDesc?.(null)}
+    className="flex items-center gap-2 w-full py-0.5 px-1.5 rounded-lg hover:bg-neutral-500/10 select-none transition-colors"
+  >
     <span
-      className={`w-32 shrink-0 text-[11px] font-semibold truncate ${
+      className={`w-28 shrink-0 text-[11px] font-semibold truncate ${
         isLight ? 'text-neutral-800' : 'text-neutral-200'
       }`}
     >
@@ -58,7 +66,7 @@ export const CompactNumberSlider: React.FC<CompactNumberSliderProps> = ({
       />
     </SliderPrimitive.Root>
     <span
-      className={`font-mono text-[10px] w-16 shrink-0 text-center py-0.5 rounded border select-none ${
+      className={`font-mono text-[10px] w-14 shrink-0 text-center py-0.5 rounded border select-none ${
         isLight
           ? 'bg-neutral-100 text-neutral-700 border-neutral-300'
           : 'bg-neutral-800 text-neutral-300 border-neutral-700'

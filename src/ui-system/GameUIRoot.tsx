@@ -6,6 +6,7 @@ import { copyAndLogLayoutSnapshot } from './core/UIInspector';
 import { floatingStore } from '../stores/floatingStore';
 import { OPACITY_MANAGER_PRESET } from '../stores/floatingPresets';
 import { useStaticTrainingPackStore } from '../stores/staticTrainingPackStore';
+import { promptExitStaticTrainingEditSession } from './recipes/Layer5StaticTrainingPackEditRecipe';
 import { Copy, Check } from 'lucide-react';
 
 export interface GameUIRootProps {
@@ -61,7 +62,7 @@ export const GameUIRoot: React.FC<GameUIRootProps> = ({ portalContainer }) => {
 
       const state = useAppStore.getState();
 
-      // 1. Tab key toggles Live Preview when in trajectory, camera, or static-training-pack-session mode
+      // 1. Tab key toggles Live Preview / Edge Inspector Drawer when in trajectory, camera, or static-training-pack-session mode
       if (e.key === 'Tab') {
         if (
           state.isOpen &&
@@ -91,17 +92,21 @@ export const GameUIRoot: React.FC<GameUIRootProps> = ({ portalContainer }) => {
 
         if (state.isOpen) {
           if (state.isLivePreviewCollapsed) {
-            if (
-              state.activeRoute === 'static-training-pack-session' &&
-              useStaticTrainingPackStore.getState().sessionMode === 'play'
-            ) {
-              state.goBack();
+            state.setLivePreviewCollapsed(false);
+          } else if (state.activeRoute === 'static-training-pack-session') {
+            const packStore = useStaticTrainingPackStore.getState();
+            if (packStore.isEditingItem) {
+              void packStore.deselectEditShot();
             } else {
-              state.setLivePreviewCollapsed(false);
+              promptExitStaticTrainingEditSession(() => {
+                state.goBack();
+              });
             }
           } else {
             state.goBack();
           }
+        } else if (state.matchMode === 'static-training-pack') {
+          state.openMenu('static-training-pack');
         } else {
           state.openMenu('main-menu');
         }

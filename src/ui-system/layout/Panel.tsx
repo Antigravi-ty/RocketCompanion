@@ -16,6 +16,8 @@ export interface PanelHeaderProps {
   subtitle?: string;
   badge?: React.ReactNode;
   onBack?: () => void;
+  /** Keep the Back button permanently mounted in the header but disabled (prevents header height shift between root and detail views) */
+  backDisabled?: boolean;
   rightElement?: React.ReactNode;
   actions?: React.ReactNode;
   isLight?: boolean;
@@ -30,6 +32,7 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
   subtitle,
   badge,
   onBack,
+  backDisabled = false,
   rightElement,
   actions,
   isLight = false,
@@ -48,11 +51,16 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
         {onBack && (
           <button
             type="button"
-            onClick={onBack}
-            className={`inline-flex items-center justify-center h-8 w-8 shrink-0 aspect-square rounded-lg border transition-all active:scale-95 outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:focus-visible:ring-neutral-500 cursor-pointer ${
-              isLight
-                ? 'bg-white hover:bg-neutral-100 border-neutral-300/80 text-neutral-700 shadow-2xs'
-                : 'bg-neutral-800/80 hover:bg-neutral-700/80 border-neutral-700/60 text-neutral-200 shadow-2xs'
+            disabled={backDisabled}
+            onClick={backDisabled ? undefined : onBack}
+            className={`inline-flex items-center justify-center h-8 w-8 shrink-0 aspect-square rounded-lg border transition-all outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:focus-visible:ring-neutral-500 ${
+              backDisabled
+                ? isLight
+                  ? 'bg-neutral-100/70 border-neutral-200/80 text-neutral-300 opacity-50 cursor-not-allowed'
+                  : 'bg-neutral-900/50 border-neutral-800/60 text-neutral-600 opacity-50 cursor-not-allowed'
+                : isLight
+                ? 'bg-white hover:bg-neutral-100 border-neutral-300/80 text-neutral-700 shadow-2xs active:scale-95 cursor-pointer'
+                : 'bg-neutral-800/80 hover:bg-neutral-700/80 border-neutral-700/60 text-neutral-200 shadow-2xs active:scale-95 cursor-pointer'
             }`}
             aria-label="Back"
           >

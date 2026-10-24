@@ -570,7 +570,8 @@ export const useStaticTrainingPackStore = create<StaticTrainingPackStoreState>((
   },
 
   addNewShot: async () => {
-    if (get().isEditingItem && get().isCurrentShotDirty()) {
+    const wasEditingItem = get().isEditingItem;
+    if (wasEditingItem && get().isCurrentShotDirty()) {
       await get().saveCurrentShotToEditWorkspace();
     }
     const { activePack, activeItems } = get();
@@ -585,12 +586,28 @@ export const useStaticTrainingPackStore = create<StaticTrainingPackStoreState>((
     };
     await saveEditWorkspacePackFull(updatedMeta, nextItems);
     const bundle = buildActivePackBundle(updatedMeta, nextItems);
-    set({
-      activePack: bundle,
-      activeItems: nextItems,
-      currentShotIndex: newIndex,
-    });
-    get().runtimeHandlers.onShotChanged?.(newIndex);
+    if (wasEditingItem) {
+      const draft = cloneShotItem(newShot, newIndex);
+      activeEditItemVariable = cloneShotItem(draft, newIndex);
+      set((s) => ({
+        activePack: bundle,
+        activeItems: nextItems,
+        currentShotIndex: newIndex,
+        activeEditItemDraft: draft,
+        editVarVersion: s.editVarVersion + 1,
+      }));
+      const h = get().runtimeHandlers;
+      h.onShotChanged?.(newIndex);
+      h.onEditVariableMutated?.(draft);
+      h.onSyncEditDraftToArena?.(draft);
+    } else {
+      set({
+        activePack: bundle,
+        activeItems: nextItems,
+        currentShotIndex: newIndex,
+      });
+      get().runtimeHandlers.onShotChanged?.(newIndex);
+    }
   },
 
   duplicateShot: async (index: number) => {

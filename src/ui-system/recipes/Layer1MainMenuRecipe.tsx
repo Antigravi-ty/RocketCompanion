@@ -231,8 +231,8 @@ export const Layer1MainMenuRecipe: React.FC<Layer1MainMenuRecipeProps> = ({
               />
             </>
           )}
-          {/* Developer Test Lab, Exhibition, Experimental Multi Bots, or Kickoff Training: Return to Free Play at bottom */}
-          {(isDevTestLab || isExpMultiBots || isKickoffTraining) && (
+          {/* Developer Test Lab, Exhibition, Experimental Multi Bots, Kickoff Training, or Static Training Pack: Return to Free Play at bottom */}
+          {(isDevTestLab || isExpMultiBots || isKickoffTraining || isStaticTrainingPack) && (
             <>
               <MenuDivider isLight={isLight} />
               <MenuItem
@@ -245,7 +245,9 @@ export const Layer1MainMenuRecipe: React.FC<Layer1MainMenuRecipeProps> = ({
                       ? isExhibitionMode
                         ? "Leave Exhibition match and return to Free Play"
                         : "Close Experimental Multiple Bots and return to Free Play"
-                      : "Leave Kickoff Training and return to Free Play"
+                      : isStaticTrainingPack
+                        ? "Leave Static Training Pack and return to Free Play"
+                        : "Leave Kickoff Training and return to Free Play"
                 }
                 variant="secondary"
                 onClick={onReturnToFreeplay}
