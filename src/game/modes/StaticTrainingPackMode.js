@@ -165,6 +165,10 @@ export class StaticTrainingPackMode extends BaseGameMode {
       if (r.keyboard) {
         r.keyboard.ballControlEnabled = true;
       }
+      const innerBallMesh = r.arena?.ball?.children?.[0];
+      if (innerBallMesh) {
+        innerBallMesh.quaternion.identity();
+      }
     }
 
     hudStore.getState().setReplayState({

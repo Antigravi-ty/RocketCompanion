@@ -252,6 +252,11 @@ export function launchStaticTrainingShotNow(mode) {
     });
   }
 
+  const innerBallMesh = r?.arena?.ball?.children?.[0];
+  if (innerBallMesh) {
+    innerBallMesh.quaternion.identity();
+  }
+
   if (r.ballTrajectoryPredictor) {
     r.ballTrajectoryPredictor.clearStaticPreview?.();
     r.ballTrajectoryPredictor.forcePredictAnyMovement = true;
@@ -266,7 +271,7 @@ export function launchStaticTrainingShotNow(mode) {
 }
 
 /**
- * Launches both Car and Ball in-place during Free Camera [T] trajectory test
+ * Launches both Car and Ball in-place during [T] trajectory test
  * without starting any countdown or timeout timer.
  */
 export function launchFreeCamTrajectoryPreview(mode) {
@@ -325,22 +330,35 @@ export function launchFreeCamTrajectoryPreview(mode) {
     });
   }
 
+  const innerBallMesh = r?.arena?.ball?.children?.[0];
+  if (innerBallMesh) {
+    innerBallMesh.quaternion.identity();
+  }
+
   if (r.ballTrajectoryPredictor) {
     r.ballTrajectoryPredictor.clearStaticPreview?.();
     r.ballTrajectoryPredictor.forcePredictAnyMovement = true;
   }
 }
 
+const _spinAxis = new THREE.Vector3();
+const _spinDeltaQuat = new THREE.Quaternion();
+
 export function spinBallMeshInPlace(mode, dt) {
   const r = mode.runtime;
-  const ballMesh = r?.arena?.ball;
-  if (!ballMesh || !mode.stagedShot) return;
+  const ballGroup = r?.arena?.ball;
+  if (!ballGroup || !mode.stagedShot) return;
 
-  if (mode.stagedShot.ball.kickoffState) return;
-  const [wx, wy, wz] = mode.effectiveBallAngVel;
+  // Rotate inner Classic Ball mesh (children[0]) so PresentationStage's outer Group
+  // physics quaternion interpolation does not overwrite the stationary visual spin.
+  const targetMesh = ballGroup.children?.[0] || ballGroup;
+  const [wx, wy, wz] = mode.effectiveBallAngVel || [0, 0, 0];
   const safeDt = Math.min(0.05, dt || 0.016);
-  // RocketSim (wx, wy, wz) -> Three.js (wx, wz, wy)
-  ballMesh.rotation.x += wx * safeDt;
-  ballMesh.rotation.y += wz * safeDt;
-  ballMesh.rotation.z += wy * safeDt;
+  // RocketSim (wx, wy, wz) -> Three.js axis (wx, wz, wy)
+  const angSpeed = Math.hypot(wx, wy, wz);
+  if (angSpeed > 1e-4) {
+    _spinAxis.set(wx / angSpeed, wz / angSpeed, wy / angSpeed);
+    _spinDeltaQuat.setFromAxisAngle(_spinAxis, angSpeed * safeDt);
+    targetMesh.quaternion.premultiply(_spinDeltaQuat);
+  }
 }

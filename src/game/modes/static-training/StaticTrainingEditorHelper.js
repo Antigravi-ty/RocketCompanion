@@ -367,18 +367,20 @@ export function bindStaticTrainingSessionEvents(mode) {
 
       const subMode = store.editSubMode;
 
-      // Free Camera [T] Trajectory Test & [G] Single Shot Test
+      // [T] Trajectory Simulation Test & [G] Single Shot Test available in ALL Edit sub-modes
+      // Camera remains stationary at its unlaunched position during [T] simulation
+      if ((code === 'KeyT' || evt.key === 't' || evt.key === 'T') && !evt.repeat) {
+        evt.preventDefault();
+        mode.toggleFreeCamTrajectoryTest?.();
+        return;
+      }
+      if ((code === 'KeyG' || evt.key === 'g' || evt.key === 'G') && !evt.repeat) {
+        evt.preventDefault();
+        mode.toggleSingleShotTest?.();
+        return;
+      }
+
       if (subMode === 'free-cam') {
-        if ((code === 'KeyT' || evt.key === 't' || evt.key === 'T') && !evt.repeat) {
-          evt.preventDefault();
-          mode.toggleFreeCamTrajectoryTest?.();
-          return;
-        }
-        if ((code === 'KeyG' || evt.key === 'g' || evt.key === 'G') && !evt.repeat) {
-          evt.preventDefault();
-          mode.toggleSingleShotTest?.();
-          return;
-        }
         return;
       }
 
@@ -525,7 +527,7 @@ export function bindStaticTrainingSessionEvents(mode) {
 
     mutateActiveEditItemVariable((draft) => {
       if (subMode === 'car-heading') {
-        draft.car.headingYaw = Number((draft.car.headingYaw - dx * sens).toFixed(4));
+        draft.car.headingYaw = Number((draft.car.headingYaw + dx * sens).toFixed(4));
         if (!draft.car.snapToGround) {
           draft.car.headingPitch = Number(
             Math.max(
@@ -539,7 +541,7 @@ export function bindStaticTrainingSessionEvents(mode) {
           draft.car.speedPitch = draft.car.snapToGround ? 0 : draft.car.headingPitch;
         }
       } else if (subMode === 'car-speed') {
-        draft.car.speedYaw = Number((draft.car.speedYaw - dx * sens).toFixed(4));
+        draft.car.speedYaw = Number((draft.car.speedYaw + dx * sens).toFixed(4));
         draft.car.speedPitch = Number(
           Math.max(
             -Math.PI * 0.48,
@@ -547,7 +549,7 @@ export function bindStaticTrainingSessionEvents(mode) {
           ).toFixed(4)
         );
       } else if (subMode === 'ball-speed') {
-        draft.ball.speedYaw = Number((draft.ball.speedYaw - dx * sens).toFixed(4));
+        draft.ball.speedYaw = Number((draft.ball.speedYaw + dx * sens).toFixed(4));
         draft.ball.speedPitch = Number(
           Math.max(
             -Math.PI * 0.48,

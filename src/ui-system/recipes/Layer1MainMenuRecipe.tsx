@@ -171,7 +171,7 @@ export const Layer1MainMenuRecipe: React.FC<Layer1MainMenuRecipeProps> = ({
               onClick={onNavigateExpMultiBotsConfig}
               isLight={isLight}
             />
-          ) : (
+          ) : !isStaticTrainingPack ? (
             <MenuItem
               icon={<Gamepad2 className="h-5 w-5" />}
               title="Play"
@@ -180,7 +180,7 @@ export const Layer1MainMenuRecipe: React.FC<Layer1MainMenuRecipeProps> = ({
               onClick={onNavigatePlay}
               isLight={isLight}
             />
-          )}
+          ) : null}
 
           {/* Garage */}
           <MenuItem
