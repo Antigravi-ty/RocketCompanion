@@ -203,9 +203,20 @@ export const NAME_TAG_TUNER_PRESET: PresetConfig = {
   singleton: true,
 };
 
+export const GOAL_VOLUME_TUNER_PRESET: PresetConfig = {
+  id: 'goal-volume-tuner',
+  title: 'Goal Volume Hitbox Active Tuner',
+  category: 'GoalVolumeTuner',
+  width: 470,
+  height: 580,
+  resizable: true,
+  singleton: true,
+};
+
 export const PRESET_WINDOWS: PresetConfig[] = [
   REPLAY_VIEWER_PRESET,
   NAME_TAG_TUNER_PRESET,
+  GOAL_VOLUME_TUNER_PRESET,
   GOAL_BARRIER_PRESET,
   REWINDER_CONFIGURATOR_PRESET,
   REPLAY_DIRECTOR_TUNER_PRESET,

@@ -305,6 +305,37 @@ export class ReplayRingBuffer {
   }
 
   /**
+   * Appends a match signal to the frame matching `tick` (or the newest recorded frame).
+   * @param {number} tick
+   * @param {object} sig
+   */
+  appendSignal(tick, sig) {
+    if (!sig || this._size <= 0) return false;
+    const targetTick = typeof tick === 'number' && tick > 0 ? (tick >>> 0) : -1;
+    let slot = targetTick >= 0 ? this.findFrameByTick(targetTick) : this.getNewestFrame();
+    if (!slot || (targetTick >= 0 && Math.abs(slot.tick - targetTick) > 8)) {
+      slot = this.getNewestFrame();
+    }
+    if (!slot) return false;
+    if (!Array.isArray(slot.signals)) {
+      slot.signals = [];
+    }
+    const normalized = {
+      signalId: sig.signalId ?? 0,
+      signalType: sig.signalType,
+      frameId: sig.frameId ?? slot.tick,
+      param1: sig.param1 ?? 0,
+      param2: sig.param2 ?? 0
+    };
+    slot.signals.push(normalized);
+    const cue = resolveReplayAudioCueForSignal(normalized, this.isCountUpMode);
+    if (cue && Array.isArray(slot.audioEvents)) {
+      slot.audioEvents.push(cue);
+    }
+    return true;
+  }
+
+  /**
    * Appends an explicit audio cue to the frame matching `tick` (or the newest recorded frame).
    * @param {number} tick
    * @param {object} cue

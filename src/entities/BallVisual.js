@@ -307,7 +307,7 @@ export function updateBallGoalEffect(ballGroup, isThrowback = false, delta = 0) 
   const dt = Number.isFinite(delta) && delta > 0 ? Math.min(delta, 0.1) : 1 / 120;
   ballGoalUniforms.uGoalTime.value += dt;
 
-  const box = isThrowback ? THROWBACK_GOAL_VOLUME_BOX : STANDARD_GOAL_VOLUME_BOX;
+  const box = getGoalVolumeBoxForPreset(isThrowback);
   ballGoalUniforms.uGoalPlaneMinY.value = box.minY;
   ballGoalUniforms.uGoalPlaneMaxY.value = box.maxY;
   ballGoalUniforms.uGoalHalfWidthX.value = box.halfWidthX;

@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import {
-  BALL_COLLISION_RADIUS,
-  STANDARD_GOAL_VOLUME_BOX,
-  THROWBACK_GOAL_VOLUME_BOX
+  BALL_COLLISION_RADIUS
 } from '../../physics/RocketSimConstants.js';
+import {
+  getGoalVolumeTunerConfig,
+  getGoalVolumeBoxForPreset,
+  registerGoalVolumeTunerApplier
+} from '../../config/goalVolumeTunerConfig.js';
 
 const BLUE_OUTER_COLOR = 0x38bdf8;
 const BLUE_INNER_COLOR = 0x22d3ee;
@@ -75,7 +78,7 @@ function createGoalBoxObjects(signY, outerHex, innerHex) {
 function updateGoalBoxTransform(goalObj, cfg) {
   const { signY, outerMesh, outerLines, innerMesh, innerLines } = goalObj;
   const r = cfg.ballRadius ?? BALL_COLLISION_RADIUS;
-  const margin = cfg.isThrowback ? 0.25 * r : 0.0;
+  const margin = (cfg.isThrowback || cfg.enabled) ? 0.25 * r : 0.0;
 
   const outerWidthX = cfg.halfWidthX * 2.0;
   const outerHeightY = Math.max(1.0, cfg.maxZ - cfg.minZ);
@@ -112,7 +115,7 @@ export class GoalVolumeHitboxVisual {
   constructor() {
     this.group = new THREE.Group();
     this.group.name = 'GoalVolumeHitboxVisual';
-    this.group.visible = false;
+    this.group.visible = Boolean(getGoalVolumeTunerConfig().showHitboxVisual);
 
     this.isThrowback = false;
     this.blueGoal = createGoalBoxObjects(-1, BLUE_OUTER_COLOR, BLUE_INNER_COLOR);
@@ -120,13 +123,22 @@ export class GoalVolumeHitboxVisual {
 
     this.group.add(this.blueGoal.root, this.orangeGoal.root);
     this.setArenaPreset(false);
+
+    const weakThis = new WeakRef(this);
+    this._unsubTuner = registerGoalVolumeTunerApplier((cfg) => {
+      const self = weakThis.deref();
+      if (!self) return;
+      self.group.visible = Boolean(cfg.showHitboxVisual);
+      self.setArenaPreset(self.isThrowback);
+    });
   }
 
   setArenaPreset(isThrowback = false, customBox = null) {
     this.isThrowback = Boolean(isThrowback);
-    const base = customBox || (this.isThrowback ? THROWBACK_GOAL_VOLUME_BOX : STANDARD_GOAL_VOLUME_BOX);
+    const base = customBox || getGoalVolumeBoxForPreset(this.isThrowback);
     const cfg = {
       isThrowback: this.isThrowback,
+      enabled: Boolean(base.enabled),
       halfWidthX: base.halfWidthX,
       minY: base.minY,
       maxY: base.maxY,
@@ -143,6 +155,8 @@ export class GoalVolumeHitboxVisual {
   }
 
   dispose() {
+    this._unsubTuner?.();
+    this._unsubTuner = null;
     for (const g of [this.blueGoal, this.orangeGoal]) {
       if (!g) continue;
       g.unitBoxGeom?.dispose?.();

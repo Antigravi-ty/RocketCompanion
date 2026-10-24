@@ -22,6 +22,7 @@ import { ReachabilityTunerFloatingWindow } from '../panels/ReachabilityTunerFloa
 import { ReplayDirectorTunerFloatingWindow } from '../panels/ReplayDirectorTunerFloatingWindow';
 import { ReplayViewerFloatingWindow } from '../panels/ReplayViewerFloatingWindow';
 import { GoalBarrierFloatingWindow } from '../panels/GoalBarrierFloatingWindow';
+import { GoalVolumeTunerFloatingWindow } from '../panels/GoalVolumeTunerFloatingWindow';
 import { RewinderConfiguratorFloatingWindow } from '../panels/RewinderConfiguratorFloatingWindow';
 import { NameTagTunerFloatingWindow } from '../panels/NameTagTunerFloatingWindow';
 import { getFloatingWindowIcon } from './FloatingWindowIcon';
@@ -395,6 +396,8 @@ const FloatingWindowInstance: React.FC<FloatingWindowInstanceProps> = ({
           <OpacityManagerFloatingWindow isLight={isLight} />
         ) : item.id === 'name-tag-tuner' ? (
           <NameTagTunerFloatingWindow isLight={isLight} active={!isContentHidden} />
+        ) : item.id === 'goal-volume-tuner' ? (
+          <GoalVolumeTunerFloatingWindow isLight={isLight} active={!isContentHidden} />
         ) : item.id === 'replay-viewer-window' ? (
           <ReplayViewerFloatingWindow isLight={isLight} active={!isContentHidden} />
         ) : item.id === 'goal-barrier-config' ? (

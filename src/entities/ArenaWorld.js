@@ -91,20 +91,11 @@ export class ArenaWorld {
   }
 
   get opponentSun() { return this.lighting.opponentSun; } set opponentSun(v) { this.lighting.opponentSun = v; }
-  get carHitboxesVisible() { return this.vehicleRegistry.carHitboxesVisible; }
-  set carHitboxesVisible(v) {
-    this.vehicleRegistry.carHitboxesVisible = v;
-    this._syncGoalVolumeHitboxVisibility();
-  }
+  get carHitboxesVisible() { return this.vehicleRegistry.carHitboxesVisible; } set carHitboxesVisible(v) { this.vehicleRegistry.carHitboxesVisible = v; }
   get carColors() { return this.vehicleRegistry.carColors; } set carColors(v) { this.vehicleRegistry.carColors = v; }
   get flatCarAsset() { return this.vehicleRegistry.flatCarAsset; } set flatCarAsset(v) { this.vehicleRegistry.flatCarAsset = v; }
   get stadiumVisible() { return this.envManager.stadiumVisible; } set stadiumVisible(v) { this.envManager.stadiumVisible = v; }
   get driftwoodsStadiumVisible() { return this.envManager.driftwoodsStadiumVisible; } set driftwoodsStadiumVisible(v) { this.envManager.driftwoodsStadiumVisible = v; }
-
-  _syncGoalVolumeHitboxVisibility() {
-    const show = Boolean(this.collisionOverlayRequested || this.vehicleRegistry?.carHitboxesVisible);
-    this.goalVolumeHitboxVisual?.setVisible(show);
-  }
 
   resetBallTrail() { this.ballSpeedTrail?.reset(); }
   resetCarBoosts(carIndex = null) { this.vehicleRegistry?.resetCarBoosts?.(carIndex); }
@@ -193,7 +184,6 @@ export class ArenaWorld {
         this.driftwoodsStadium.visible = Boolean(this.stadiumVisible);
       }
       this.collisionOverlayRequested = Boolean(showCollisionOverlay);
-      this._syncGoalVolumeHitboxVisibility();
     }
     this.markRenderTreeChanged();
   }
@@ -212,7 +202,6 @@ export class ArenaWorld {
     if (this.throwbackCollisionOverlay) {
       this.throwbackCollisionOverlay.visible = Boolean(next && this.isThrowbackStadiumActive);
     }
-    this._syncGoalVolumeHitboxVisibility();
     this.markRenderTreeChanged();
   }
 
@@ -248,10 +237,7 @@ export class ArenaWorld {
   swapCarVisual(carIndex, newVisual) { return this.vehicleRegistry.swapCarVisual(carIndex, newVisual); }
   refreshCustomVehicle(vehicleId) { return this.vehicleRegistry.refreshCustomVehicle?.(vehicleId); }
   removeCar(carIndex) { return this.vehicleRegistry.removeCar(carIndex); }
-  setCarHitboxesVisible(visible) {
-    this.vehicleRegistry.setCarHitboxesVisible(visible);
-    this._syncGoalVolumeHitboxVisibility();
-  }
+  setCarHitboxesVisible(visible) { this.vehicleRegistry.setCarHitboxesVisible(visible); }
   prepareBallSpeedTrail(camera) { this.ballSpeedTrail?.prepare(camera); }
 
   addPads(padDefs) {

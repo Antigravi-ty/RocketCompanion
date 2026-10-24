@@ -136,6 +136,20 @@ export const Layer3DevActiveTunersRecipe: React.FC<Layer3DevActiveTunersRecipePr
             isLight={isLight}
           />
 
+          {/* 2.25 Goal Volume Hitbox Active Tuner */}
+          <FloatingWindowCard
+            preset={GOAL_VOLUME_TUNER_PRESET}
+            icon={<Box className="h-5 w-5" />}
+            iconBgClass="bg-emerald-500/10 text-emerald-500"
+            badge="3D AABB · JSON Export"
+            badgeClass="bg-emerald-500/15 border-emerald-500/30 text-emerald-400"
+            description="Goal Volume Hitbox 3D wireframe overlay (default off), Standard & Throwback AABB calibration & JSON export"
+            hoverTooltip="Goal Volume Hitbox Active Tuner: Toggle the 3D Goal Volume & Ball-Center Trigger wireframe overlay (default off), tune Standard & Throwback goal bounds, and export/import JSON."
+            onHover={setHoveredDesc}
+            onLeave={() => setHoveredDesc(null)}
+            isLight={isLight}
+          />
+
           {/* 2.5 Reachability & Intercept Tuner */}
           <FloatingWindowCard
             preset={REACHABILITY_TUNER_PRESET}

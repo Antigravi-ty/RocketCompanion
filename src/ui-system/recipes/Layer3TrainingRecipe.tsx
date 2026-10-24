@@ -208,6 +208,41 @@ export const Layer3TrainingRecipe: React.FC<Layer3TrainingRecipeProps> = ({
             />
           </div>
 
+          {/* Section 2.5: Disable Goal Reset */}
+          <div
+            className={`p-3.5 rounded-xl border flex items-center justify-between transition-colors cursor-pointer select-none ${
+              isLight ? 'bg-neutral-50/90 border-neutral-200 hover:bg-neutral-100/80' : 'bg-neutral-850/90 border-neutral-700/80 hover:bg-neutral-800/80'
+            }`}
+            onClick={() => updateGameplay({ goalRestart: Boolean(!gameplay.goalRestart) })}
+            onMouseEnter={() =>
+              setHoveredDesc('When enabled, scoring a goal will not trigger goal replay or reset the ball to kickoff, allowing continuous practice inside and around the goal.')
+            }
+            onMouseLeave={() => setHoveredDesc(null)}
+          >
+            <div className="flex items-center gap-2.5 min-w-0 pr-2">
+              <RotateCcwClockIcon className="h-4 w-4 text-rose-400 shrink-0" />
+              <div className="flex flex-col text-left leading-tight min-w-0">
+                <span className={`text-xs font-semibold truncate ${
+                  isLight ? 'text-neutral-800' : 'text-neutral-200'
+                }`}>
+                  Disable Goal Reset
+                </span>
+                <span className={`text-[11px] mt-0.5 truncate ${
+                  isLight ? 'text-neutral-500' : 'text-neutral-400'
+                }`}>
+                  Keep playing without goal replay or kickoff reset when ball enters the net
+                </span>
+              </div>
+            </div>
+
+            <ToggleSwitch
+              checked={!gameplay.goalRestart}
+              onCheckedChange={(disableReset) => updateGameplay({ goalRestart: !disableReset })}
+              isLight={isLight}
+              variant="neutral"
+            />
+          </div>
+
           {/* Section 3: Goal Barrier Config Floating Window */}
           <CompactToolSpawnerRow
             preset={GOAL_BARRIER_PRESET}

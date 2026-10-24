@@ -316,11 +316,7 @@ export class RocketSimPhysicsEngine {
 
   setArenaPreset(presetIndex = 0) {
     this.arenaPreset = presetIndex === 1 ? 1 : 0;
-    const baseBox = this.arenaPreset === 1 ? THROWBACK_GOAL_VOLUME_BOX : STANDARD_GOAL_VOLUME_BOX;
-    this.goalVolumeBox = {
-      ...baseBox,
-      enabled: this.arenaPreset === 1
-    };
+    this.goalVolumeBox = getGoalVolumeBoxForPreset(this.arenaPreset === 1);
     this.module?._physics_setArenaPreset?.(this.arenaPreset);
     this._syncGoalVolumeBoxToWasm();
   }
@@ -331,7 +327,7 @@ export class RocketSimPhysicsEngine {
 
   _syncGoalVolumeBoxToWasm() {
     if (!this.module?._physics_setGoalVolumeBox) return;
-    const box = this.goalVolumeBox || (this.arenaPreset === 1 ? THROWBACK_GOAL_VOLUME_BOX : STANDARD_GOAL_VOLUME_BOX);
+    const box = this.goalVolumeBox || getGoalVolumeBoxForPreset(this.arenaPreset === 1);
     const enabled = this.arenaPreset === 1 || Boolean(box.enabled);
     this.module._physics_setGoalVolumeBox(
       enabled ? 1 : 0,
@@ -344,7 +340,7 @@ export class RocketSimPhysicsEngine {
 
   getGoalVolumeConfig() {
     const preset = this.getArenaPreset();
-    const box = this.goalVolumeBox || (preset === 1 ? THROWBACK_GOAL_VOLUME_BOX : STANDARD_GOAL_VOLUME_BOX);
+    const box = this.goalVolumeBox || getGoalVolumeBoxForPreset(preset === 1);
     return {
       isThrowback: preset === 1,
       enabled: preset === 1 || Boolean(box.enabled),
@@ -375,7 +371,7 @@ export class RocketSimPhysicsEngine {
       return absY > cfg.minY + r && absY < cfg.maxY;
     }
 
-    return absY > STANDARD_GOAL_VOLUME_BOX.minY + r;
+    return absY > cfg.minY + r;
   }
 
   async reloadMeshes(manifestPath = '/arenamesh/manifest.json') {

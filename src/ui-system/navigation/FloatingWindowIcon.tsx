@@ -2,6 +2,7 @@ import React from 'react';
 import {
   Activity,
   Bot,
+  Box,
   Camera,
   Car,
   Cpu,
@@ -22,6 +23,7 @@ import {
   DRIFTWOODS_TUNER_PRESET,
   KICKOFF_TRAINING_PRESET,
   GOAL_BARRIER_PRESET,
+  GOAL_VOLUME_TUNER_PRESET,
   REWINDER_CONFIGURATOR_PRESET,
   DEV_TEST_LAB_PRESET,
   EXPERIMENTAL_FEATURES_PRESET,
@@ -69,6 +71,10 @@ export const getFloatingWindowIcon = (category?: string, id?: string, extraClass
 
   if (normId === NAME_TAG_TUNER_PRESET.id || normId.includes('name-tag') || normCat === 'nametagtuner') {
     return <Tag className={`${extraClass} text-sky-500 dark:text-sky-400`} />;
+  }
+
+  if (normId === GOAL_VOLUME_TUNER_PRESET.id || normId.includes('goal-volume') || normCat === 'goalvolumetuner') {
+    return <Box className={`${extraClass} text-emerald-500 dark:text-emerald-400`} />;
   }
 
   if (normId === REPLAY_VIEWER_PRESET.id || normId.includes('replay-viewer') || normCat === 'replayviewer') {

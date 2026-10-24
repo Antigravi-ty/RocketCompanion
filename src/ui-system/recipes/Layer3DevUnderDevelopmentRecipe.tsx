@@ -206,12 +206,12 @@ export const Layer3DevUnderDevelopmentRecipe: React.FC<Layer3DevUnderDevelopment
               </div>
             </div>
 
-            {/* Collision GLB & Goal Volume Hitbox Wireframe Overlay Toggle */}
+            {/* Collision GLB Wireframe Overlay Toggle */}
             <div className="flex items-center justify-between pt-2 border-t border-neutral-500/15">
               <div className="flex items-center gap-2">
                 <Eye className="h-3.5 w-3.5 text-sky-400 shrink-0" />
                 <span className={`text-xs font-medium ${isLight ? 'text-neutral-700' : 'text-neutral-300'}`}>
-                  Show Goal Volume Hitbox &amp; Throwback Collision Wireframe Overlay
+                  Show ThrowbackStadium_Collision.glb Wireframe Overlay
                 </span>
               </div>
               <ToggleSwitch
