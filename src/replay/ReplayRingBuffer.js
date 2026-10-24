@@ -175,6 +175,14 @@ export class ReplayRingBuffer {
    * @returns {object} The recorded slot reference
    */
   recordFrame(tick, stateSnapshot, signals = [], audioEvents = null, incidents = null, acknowledgedControls = null) {
+    if (signals && typeof signals === 'object' && !Array.isArray(signals)) {
+      const opts = signals;
+      signals = opts.signals || [];
+      audioEvents = opts.audioEvents ?? audioEvents;
+      incidents = opts.incidents ?? incidents;
+      acknowledgedControls = opts.acknowledgedControls ?? acknowledgedControls;
+    }
+
     const writeIdx = this._head;
     let slot = this._slots[writeIdx];
 
@@ -282,6 +290,41 @@ export class ReplayRingBuffer {
     this._totalRecordedFrames++;
 
     return slot;
+  }
+
+  /**
+   * Appends a match signal event to the frame matching `tick` (or the newest recorded frame),
+   * and resolves any corresponding replay audio cue.
+   * @param {number} tick
+   * @param {object} signal
+   */
+  appendSignal(tick, signal) {
+    if (!signal || this._size <= 0) return false;
+    const targetTick = typeof tick === 'number' && tick > 0 ? (tick >>> 0) : -1;
+    let slot = targetTick >= 0 ? this.findFrameByTick(targetTick) : this.getNewestFrame();
+    if (!slot || (targetTick >= 0 && Math.abs(slot.tick - targetTick) > 8)) {
+      slot = this.getNewestFrame();
+    }
+    if (!slot) return false;
+    if (!Array.isArray(slot.signals)) {
+      slot.signals = [];
+    }
+    const normalizedSignal = {
+      signalId: signal.signalId ?? 0,
+      signalType: signal.signalType,
+      frameId: signal.frameId ?? slot.tick,
+      param1: signal.param1 ?? 0,
+      param2: signal.param2 ?? 0
+    };
+    slot.signals.push(normalizedSignal);
+    const cue = resolveReplayAudioCueForSignal(normalizedSignal, this.isCountUpMode);
+    if (cue) {
+      if (!Array.isArray(slot.audioEvents)) {
+        slot.audioEvents = [];
+      }
+      slot.audioEvents.push(cue);
+    }
+    return true;
   }
 
   /**
