@@ -24,6 +24,10 @@ import {
   setCarTeamInWasm, readArenaPads
 } from './RocketSimSnapshotHelper.js';
 import { isPointInGoalBarrier } from '../config/goalBarrierConfig.ts';
+import {
+  getGoalVolumeBoxForPreset,
+  registerGoalVolumeTunerApplier
+} from '../config/goalVolumeTunerConfig.js';
 
 export {
   PLAYER_CAR_INDEX, BOT_CAR_INDEX, getTeamAssignment, getHitboxIndex,
@@ -56,12 +60,20 @@ export class RocketSimPhysicsEngine {
     this.goalBarrierChunks = [];
     this.goalBarrierMeta = null;
     this.arenaPreset = 0;
-    this.goalVolumeBox = { ...STANDARD_GOAL_VOLUME_BOX, enabled: false };
+    this.goalVolumeBox = getGoalVolumeBoxForPreset(false);
     this._carSpecs = [];
     this._accumulatedBluePossessionPts = 0;
     this._accumulatedOrangePossessionPts = 0;
     this._lastRawBluePossessionPts = 0;
     this._lastRawOrangePossessionPts = 0;
+
+    const weakThis = new WeakRef(this);
+    registerGoalVolumeTunerApplier(() => {
+      const self = weakThis.deref();
+      if (!self) return;
+      self.goalVolumeBox = getGoalVolumeBoxForPreset(self.arenaPreset === 1);
+      self._syncGoalVolumeBoxToWasm();
+    });
   }
 
   get state() {
