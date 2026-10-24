@@ -137,6 +137,7 @@ export function buildCurrentFrameDiagnosticSnapshot(ctrl) {
       nextTouchCarIndex: lookahead.nextCarIndex,
       nextTouchBlend: lookahead.nextTouchBlend,
       nextTouchBallPos: lookahead.nextTouchBallPos,
+      postGoalElapsedSec: lookahead.postGoalElapsedSec ?? 0,
     },
     dt: 1 / REPLAY_TICK_RATE,
     exactDt: true,
@@ -182,6 +183,7 @@ export function buildCurrentFrameDiagnosticSnapshot(ctrl) {
             round3(lookahead.nextTouchBallPos.z),
           ]
         : null,
+      postGoalElapsedSec: round3(lookahead.postGoalElapsedSec ?? 0),
       lateralBias: ctrl.directorCameraState.lateralBias || 1.0,
     },
     cameraPose: {
@@ -208,6 +210,21 @@ function wrapAngleDeltaDeg(a, b) {
   while (d > 180) d -= 360;
   while (d < -180) d += 360;
   return d;
+}
+
+function computeViewAngleToPointDeg(pose, pt) {
+  if (!pose || !pt) return 0;
+  const fx = pose.targetX - pose.eyeX;
+  const fy = pose.targetY - pose.eyeY;
+  const fz = pose.targetZ - pose.eyeZ;
+  const fl = Math.hypot(fx, fy, fz);
+  const vx = pt[0] - pose.eyeX;
+  const vy = pt[1] - pose.eyeY;
+  const vz = pt[2] - pose.eyeZ;
+  const vl = Math.hypot(vx, vy, vz);
+  if (fl < 1e-4 || vl < 1e-4) return 0;
+  const dot = Math.max(-1, Math.min(1, (fx * vx + fy * vy + fz * vz) / (fl * vl)));
+  return round3((Math.acos(dot) * 180) / Math.PI);
 }
 
 /**
@@ -237,10 +254,15 @@ export function buildDirectorDiagnosticPatternPayload(ctrl, options = {}) {
     targetZ: 0,
     lateralBias: ctrl.directorCameraState.lateralBias || 1.0,
     hasResolvedInitialLateralBias: Boolean(ctrl.directorCameraState.hasResolvedInitialLateralBias),
-    activeTouchCarIndex: ctrl.scorerCarIndex ?? 0,
+    activeTouchCarIndex: ctrl.directorCameraState.activeTouchCarIndex ?? ctrl.scorerCarIndex ?? 0,
+    scorerCarIndex: ctrl.directorCameraState.scorerCarIndex ?? ctrl.scorerCarIndex ?? 0,
     nextTouchCarIndex: -1,
     nextTouchBlend: 0,
     nextTouchBallPos: null,
+    postGoalElapsedSec: 0,
+    initialSettledCarPos: ctrl.directorCameraState.initialSettledCarPos
+      ? { ...ctrl.directorCameraState.initialSettledCarPos }
+      : null,
     touchEvents: Array.isArray(ctrl.directorCameraState.touchEvents)
       ? ctrl.directorCameraState.touchEvents.map((t) => ({ ...t }))
       : [],
@@ -262,6 +284,9 @@ export function buildDirectorDiagnosticPatternPayload(ctrl, options = {}) {
   let maxEyeAccelUu = 0;
   let maxTargetAccelUu = 0;
   let maxYawStepDeg = 0;
+  let maxPreGoalCarViewAngleDeg = 0;
+  let maxPreGoalBallViewAngleDeg = 0;
+  let maxPostGoalCarViewAngleDeg = 0;
 
   for (let idx = 0; idx < total; idx++) {
     const entry = ctrl.getFrameEntryByIndex(idx);
@@ -280,6 +305,7 @@ export function buildDirectorDiagnosticPatternPayload(ctrl, options = {}) {
     simDirectorState.nextTouchCarIndex = lookahead.nextCarIndex;
     simDirectorState.nextTouchBlend = lookahead.nextTouchBlend;
     simDirectorState.nextTouchBallPos = lookahead.nextTouchBallPos;
+    simDirectorState.postGoalElapsedSec = lookahead.postGoalElapsedSec ?? 0;
 
     const slowMoFactor = ctrl.computeDramaticSlowMoFactor(idx, { ignoreScrubState: true });
     // Each replay frame step is exactly 1 simulation tick (1 / 120s) regardless of slow-mo display rate
@@ -304,6 +330,31 @@ export function buildDirectorDiagnosticPatternPayload(ctrl, options = {}) {
 
     const dampedAngles = computeCameraAnglesFromPose(dampedPose);
     const rawAngles = computeCameraAnglesFromPose(rawPose);
+
+    const focusCar =
+      entities.cars.find((c) => c.carIndex === lookahead.primaryCarIndex) ||
+      entities.cars[0] ||
+      null;
+    const effectiveCarPos =
+      idx === 0 && simDirectorState.initialSettledCarPos
+        ? [
+            simDirectorState.initialSettledCarPos.x,
+            simDirectorState.initialSettledCarPos.y,
+            simDirectorState.initialSettledCarPos.z,
+          ]
+        : focusCar
+          ? focusCar.pos
+          : null;
+    const carViewAngleDeg = effectiveCarPos ? computeViewAngleToPointDeg(dampedPose, effectiveCarPos) : 0;
+    const ballViewAngleDeg = computeViewAngleToPointDeg(dampedPose, entities.ball.pos);
+
+    const goalIdx = simDirectorState.goalLineFrameIdx;
+    if (goalIdx < 0 || idx <= goalIdx) {
+      if (carViewAngleDeg > maxPreGoalCarViewAngleDeg) maxPreGoalCarViewAngleDeg = carViewAngleDeg;
+      if (ballViewAngleDeg > maxPreGoalBallViewAngleDeg) maxPreGoalBallViewAngleDeg = ballViewAngleDeg;
+    } else if (idx >= goalIdx + 45) {
+      if (carViewAngleDeg > maxPostGoalCarViewAngleDeg) maxPostGoalCarViewAngleDeg = carViewAngleDeg;
+    }
 
     let eyeStepUu = 0;
     let targetStepUu = 0;
@@ -376,6 +427,7 @@ export function buildDirectorDiagnosticPatternPayload(ctrl, options = {}) {
               round3(lookahead.nextTouchBallPos.z),
             ]
           : null,
+        postGoalElapsedSec: round3(lookahead.postGoalElapsedSec ?? 0),
         smoothedStrikerPos: [
           round3(simDirectorState.smoothedCarX ?? 0),
           round3(simDirectorState.smoothedCarY ?? 0),
@@ -393,6 +445,8 @@ export function buildDirectorDiagnosticPatternPayload(ctrl, options = {}) {
         distanceToTarget: dampedAngles.distanceToTarget,
         yawDeg: dampedAngles.yawDeg,
         pitchDeg: dampedAngles.pitchDeg,
+        carViewAngleDeg,
+        ballViewAngleDeg,
         rawUndampedEyeUnreal: [round3(rawPose.eyeX), round3(rawPose.eyeY), round3(rawPose.eyeZ)],
         rawUndampedTargetUnreal: [round3(rawPose.targetX), round3(rawPose.targetY), round3(rawPose.targetZ)],
         rawDistanceToTarget: rawAngles.distanceToTarget,
@@ -462,6 +516,9 @@ export function buildDirectorDiagnosticPatternPayload(ctrl, options = {}) {
         maxEyeAccelUu: round3(maxEyeAccelUu),
         maxTargetAccelUu: round3(maxTargetAccelUu),
         maxYawStepDeg: round4(maxYawStepDeg),
+        maxPreGoalCarViewAngleDeg: round3(maxPreGoalCarViewAngleDeg),
+        maxPreGoalBallViewAngleDeg: round3(maxPreGoalBallViewAngleDeg),
+        maxPostGoalCarViewAngleDeg: round3(maxPostGoalCarViewAngleDeg),
       },
       playbackStateAtExport: {
         selectedReplayFrameIndex: ctrl.currentFrameIndex,
@@ -540,6 +597,8 @@ export function buildDirectorDiagnosticPatternCsv(ctrl, options = {}) {
     'raw_target_step_uu',
     'eye_accel_uu',
     'target_accel_uu',
+    'car_view_angle_deg',
+    'ball_view_angle_deg',
   ];
 
   const lines = [columns.join(',')];
@@ -596,6 +655,8 @@ export function buildDirectorDiagnosticPatternCsv(ctrl, options = {}) {
       f.cameraPose.rawTargetStepUu ?? 0,
       f.cameraPose.eyeAccelUu ?? 0,
       f.cameraPose.targetAccelUu ?? 0,
+      f.cameraPose.carViewAngleDeg ?? 0,
+      f.cameraPose.ballViewAngleDeg ?? 0,
     ];
     lines.push(row.join(','));
   }

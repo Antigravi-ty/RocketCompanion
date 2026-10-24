@@ -5,6 +5,9 @@
 
 import { REPLAY_TICK_RATE, resolveReplayAudioCueForSignal } from './ReplayRingBuffer.js';
 import {
+  SIM_OFFSETS,
+  CAR_STATE_STRIDE,
+  MAX_CARS,
   PHYSICS_EVENT_TYPES,
   INCIDENT_EVENT_TYPES,
   MATCH_SIGNALS,
@@ -297,8 +300,13 @@ export class ReplayTimelineController {
             inc.type === PHYSICS_EVENT_TYPES.CAR_BALL_HIT ||
             inc.type === 0x01
           ) {
-            const carIndex = inc.carIndex ?? inc.primaryId ?? -1;
-            if (carIndex >= 0) {
+            const numCars = Math.min(
+              MAX_CARS,
+              Math.max(1, Math.round(snap?.[SIM_OFFSETS.NUM_CARS] || 1))
+            );
+            const rawCarIndex = inc.carIndex ?? inc.primaryId ?? -1;
+            const carIndex = rawCarIndex >= 0 && rawCarIndex < numCars ? rawCarIndex : 0;
+            if (rawCarIndex >= 0) {
               const team = carTeamResolver(carIndex);
               const ballX = snap && snap.length > 6 ? snap[4] : 0;
               const ballY = snap && snap.length > 6 ? snap[5] : 0;
@@ -330,11 +338,11 @@ export class ReplayTimelineController {
             const ballX = snap[4] || 0;
             const ballY = snap[5] || 0;
             const ballZ = snap[6] || 93;
-            const numCars = Math.min(8, Math.max(0, Math.round(snap[3] || 0)));
+            const numCars = Math.min(MAX_CARS, Math.max(0, Math.round(snap[SIM_OFFSETS.NUM_CARS] || 0)));
             let bestCar = -1;
             let bestDist = 265.0;
             for (let c = 0; c < numCars; c++) {
-              const cBase = 22 + c * 40;
+              const cBase = SIM_OFFSETS.CARS + c * CAR_STATE_STRIDE;
               if (snap.length < cBase + 3) continue;
               const dist = Math.hypot(
                 (snap[cBase] || 0) - ballX,
@@ -382,15 +390,53 @@ export class ReplayTimelineController {
     const interiorSign = meanBallX <= 0 ? 1.0 : -1.0;
     const resolvedLateralBias = (-goalSignY * interiorSign) >= 0 ? 1.0 : -1.0;
 
+    const scoringTouches = touchEvents.filter((t) => t.team === scoringTeam);
+    const candidateTouches = scoringTouches.length > 0 ? scoringTouches : touchEvents;
+    const openingCarIndex =
+      candidateTouches.length > 0 ? candidateTouches[0].carIndex : resolvedScorerCarIndex;
+
+    // Detect 1-tick kickoff spawn reset teleports in the first 3 frames so idx=0 starts at the settled spawn position
+    let initialSettledCarPos = null;
+    const maxCheckIdx = Math.min(total - 1, 3);
+    for (let idx = 1; idx <= maxCheckIdx; idx++) {
+      const prevSnap = frames[idx - 1]?.snapshot;
+      const currSnap = frames[idx]?.snapshot;
+      if (!prevSnap || !currSnap) continue;
+      const numCars = Math.min(
+        Math.round(prevSnap[SIM_OFFSETS.NUM_CARS] || 0),
+        Math.round(currSnap[SIM_OFFSETS.NUM_CARS] || 0),
+        MAX_CARS
+      );
+      if (openingCarIndex >= 0 && openingCarIndex < numCars) {
+        const base = SIM_OFFSETS.CARS + openingCarIndex * CAR_STATE_STRIDE;
+        const stepDist = Math.hypot(
+          currSnap[base + 0] - prevSnap[base + 0],
+          currSnap[base + 1] - prevSnap[base + 1],
+          currSnap[base + 2] - prevSnap[base + 2]
+        );
+        if (stepDist > 180.0) {
+          initialSettledCarPos = {
+            carIndex: openingCarIndex,
+            x: currSnap[base + 0],
+            y: currSnap[base + 1],
+            z: currSnap[base + 2],
+          };
+        }
+      }
+    }
+
     this.directorCameraState.touchEvents = touchEvents;
     this.directorCameraState.lastScoringTouchFrameIdx = lastScoringTouchFrameIdx;
     this.directorCameraState.goalLineFrameIdx = goalLineFrameIdx;
-    this.directorCameraState.activeTouchCarIndex = resolvedScorerCarIndex;
+    this.directorCameraState.scorerCarIndex = resolvedScorerCarIndex;
+    this.directorCameraState.activeTouchCarIndex = openingCarIndex;
     this.directorCameraState.nextTouchCarIndex = -1;
     this.directorCameraState.nextTouchBlend = 0;
     this.directorCameraState.nextTouchBallPos = null;
     this.directorCameraState.lateralBias = resolvedLateralBias;
     this.directorCameraState.hasResolvedInitialLateralBias = true;
+    this.directorCameraState.postGoalElapsedSec = 0;
+    this.directorCameraState.initialSettledCarPos = initialSettledCarPos;
   }
 
   /**
@@ -400,13 +446,24 @@ export class ReplayTimelineController {
    */
   resolveTouchLookaheadForFrame(frameIdx, fallbackScorerCarIndex = 0) {
     const state = this.directorCameraState;
+    const goalLineFrameIdx = state?.goalLineFrameIdx ?? -1;
+    const postGoalElapsedSec =
+      goalLineFrameIdx > 0 && frameIdx > goalLineFrameIdx
+        ? (frameIdx - goalLineFrameIdx) / REPLAY_TICK_RATE
+        : 0;
+    const resolvedScorerCarIndex =
+      typeof state?.scorerCarIndex === 'number' && state.scorerCarIndex >= 0
+        ? state.scorerCarIndex
+        : fallbackScorerCarIndex;
+
     const touches = state?.touchEvents;
     if (!Array.isArray(touches) || touches.length === 0) {
       return {
-        primaryCarIndex: fallbackScorerCarIndex,
+        primaryCarIndex: resolvedScorerCarIndex,
         nextCarIndex: -1,
         nextTouchBlend: 0,
         nextTouchBallPos: null,
+        postGoalElapsedSec,
       };
     }
 
@@ -432,7 +489,12 @@ export class ReplayTimelineController {
 
     const lastTouch = candidateTouches[candidateTouches.length - 1];
     const primaryTouch = primaryIdx >= 0 ? candidateTouches[primaryIdx] : lastTouch;
-    const primaryCarIndex = primaryTouch ? primaryTouch.carIndex : fallbackScorerCarIndex;
+    const primaryCarIndex =
+      postGoalElapsedSec > 0
+        ? resolvedScorerCarIndex
+        : primaryTouch
+          ? primaryTouch.carIndex
+          : resolvedScorerCarIndex;
 
     let sumW = 0;
     let sumX = 0;
@@ -480,11 +542,13 @@ export class ReplayTimelineController {
         nextCarIndex: -1,
         nextTouchBlend: 0,
         nextTouchBallPos: null,
+        postGoalElapsedSec,
       };
     }
 
     const effectiveW = sumW / (1.0 + 0.35 * sumW);
-    const nextTouchBlend = anticipationWeight * effectiveW;
+    const postGoalFade = postGoalElapsedSec > 0 ? Math.max(0, 1.0 - postGoalElapsedSec / 0.25) : 1.0;
+    const nextTouchBlend = anticipationWeight * effectiveW * postGoalFade;
 
     return {
       primaryCarIndex,
@@ -495,6 +559,7 @@ export class ReplayTimelineController {
         y: sumY / sumW,
         z: sumZ / sumW,
       },
+      postGoalElapsedSec,
     };
   }
 
@@ -682,6 +747,7 @@ export class ReplayTimelineController {
         this.directorCameraState.nextTouchCarIndex = la.nextCarIndex;
         this.directorCameraState.nextTouchBlend = la.nextTouchBlend;
         this.directorCameraState.nextTouchBallPos = la.nextTouchBallPos;
+        this.directorCameraState.postGoalElapsedSec = la.postGoalElapsedSec ?? 0;
         computeGoalReplayCameraPose(s, this.scoringTeam, {
           scorerCarIndex: this.scorerCarIndex,
           progress: total > 1 ? i / (total - 1) : 0,
@@ -794,6 +860,7 @@ export class ReplayTimelineController {
     this.directorCameraState.nextTouchCarIndex = lookahead.nextCarIndex;
     this.directorCameraState.nextTouchBlend = lookahead.nextTouchBlend;
     this.directorCameraState.nextTouchBallPos = lookahead.nextTouchBallPos;
+    this.directorCameraState.postGoalElapsedSec = lookahead.postGoalElapsedSec ?? 0;
 
     const prevFrame = this.getFrameBufferByIndex(baseIdx);
     const currFrame = this.getFrameBufferByIndex(nextIdx) || prevFrame;
