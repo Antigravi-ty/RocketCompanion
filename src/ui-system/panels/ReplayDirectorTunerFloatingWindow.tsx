@@ -132,6 +132,8 @@ export const ReplayDirectorTunerFloatingWindow: React.FC<ReplayDirectorTunerFloa
       onReplayTogglePause();
     } else if (activeCtrl && activeCtrl.isActive) {
       activeCtrl.togglePause();
+    } else {
+      console.warn('[ReplayDirectorTuner] handleTogglePauseScrub ignored: no active goal replay session.');
     }
     setTickRevision((r) => r + 1);
   };
@@ -143,6 +145,8 @@ export const ReplayDirectorTunerFloatingWindow: React.FC<ReplayDirectorTunerFloa
       onReplayCycleSpeed();
     } else if (activeCtrl && activeCtrl.isActive) {
       activeCtrl.cyclePlaybackSpeed();
+    } else {
+      console.warn('[ReplayDirectorTuner] handleCycleSpeed ignored: no active goal replay session.');
     }
     setTickRevision((r) => r + 1);
   };
@@ -154,6 +158,8 @@ export const ReplayDirectorTunerFloatingWindow: React.FC<ReplayDirectorTunerFloa
       onReplaySeekNormalized(norm01);
     } else if (activeCtrl && activeCtrl.isActive) {
       activeCtrl.seekToNormalized(norm01);
+    } else {
+      console.warn('[ReplayDirectorTuner] handleScrubNormalized ignored: no active goal replay session.');
     }
     setTickRevision((r) => r + 1);
   };
@@ -177,7 +183,9 @@ export const ReplayDirectorTunerFloatingWindow: React.FC<ReplayDirectorTunerFloa
     };
     const json = JSON.stringify(payload, null, 2);
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(json).catch(() => {});
+      navigator.clipboard.writeText(json).catch((err) => {
+        console.warn('[ReplayDirectorTuner] Failed to copy frame diagnostic JSON to clipboard:', err);
+      });
     }
     setCopiedFrameSnap(true);
     setTimeout(() => setCopiedFrameSnap(false), 1800);
@@ -196,7 +204,9 @@ export const ReplayDirectorTunerFloatingWindow: React.FC<ReplayDirectorTunerFloa
   const handleCopyJson = () => {
     const json = JSON.stringify(REPLAY_DIRECTOR_CONFIG, null, 2);
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(json).catch(() => {});
+      navigator.clipboard.writeText(json).catch((err) => {
+        console.warn('[ReplayDirectorTuner] Failed to copy director config JSON to clipboard:', err);
+      });
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);

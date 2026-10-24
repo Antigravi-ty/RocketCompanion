@@ -54,10 +54,14 @@ export class StateAudioEngine {
     this.ballEmitter.init(buffers);
 
     if (!this.initialized) {
+      const hasStereoPanner = typeof ctx.createStereoPanner === "function";
+      if (!hasStereoPanner) {
+        console.warn('[StateAudioEngine] AudioContext.createStereoPanner is unavailable; connecting supersonic and boost loop gains directly to destination.');
+      }
       // Supersonic loop pipeline
       this.supersonicGain = ctx.createGain();
       this.supersonicGain.gain.setValueAtTime(0, ctx.currentTime);
-      if (typeof ctx.createStereoPanner === "function") {
+      if (hasStereoPanner) {
         this.supersonicPanner = ctx.createStereoPanner();
         this.supersonicGain.connect(this.supersonicPanner);
         if (dest) this.supersonicPanner.connect(dest);
@@ -68,7 +72,7 @@ export class StateAudioEngine {
       // Boost loop pipeline
       this.boostGain = ctx.createGain();
       this.boostGain.gain.setValueAtTime(0, ctx.currentTime);
-      if (typeof ctx.createStereoPanner === "function") {
+      if (hasStereoPanner) {
         this.boostPanner = ctx.createStereoPanner();
         this.boostGain.connect(this.boostPanner);
         if (dest) this.boostPanner.connect(dest);
@@ -95,7 +99,9 @@ export class StateAudioEngine {
         this.boostSource.onended = null;
         this.boostSource.stop();
         this.boostSource.disconnect();
-      } catch (_) {}
+      } catch (err) {
+        console.warn('[StateAudioEngine] Error stopping previous boostSource:', err);
+      }
       this.boostSource = null;
     }
     if (this.initialized) {

@@ -93,6 +93,11 @@ export class BoostPadSystem {
     this.collectAnimations.clear();
 
     const templates = padTemplates || this.padTemplates;
+    if (!templates && padsData.length > 0) {
+      console.warn(
+        `[BoostPadSystem] GLB boost pad templates are unavailable; falling back to procedural whitebox pad meshes for ${padsData.length} pads.`
+      );
+    }
     const computedAngles = computeAllPadRotations(this.tunerConfig);
 
     for (let padIndex = 0; padIndex < padsData.length; padIndex++) {

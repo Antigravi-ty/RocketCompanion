@@ -50,7 +50,13 @@ export class BallAudioEmitter {
     if (!this.initialized) {
       // 3D Spatial Panner dedicated to the ball (follows unified spatialPanningModel)
       this.ballPanner = ctx.createPanner();
-      this.ballPanner.panningModel = audioConfig.get('spatialPanningModel') || 'equalpower';
+      const panModel = audioConfig.get('spatialPanningModel') || 'equalpower';
+      try {
+        this.ballPanner.panningModel = panModel;
+      } catch (err) {
+        console.warn(`[BallAudioEmitter] Failed to set panningModel="${panModel}", falling back to "equalpower":`, err);
+        this.ballPanner.panningModel = 'equalpower';
+      }
       this.ballPanner.distanceModel = 'inverse';
       this.ballPanner.rolloffFactor = 0;
       this.ballPanner.coneInnerAngle = 360;

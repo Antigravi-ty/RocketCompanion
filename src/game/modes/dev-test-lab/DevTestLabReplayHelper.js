@@ -195,9 +195,24 @@ export function recordTasFrameAfterTick(mode, store) {
   }
 }
 
+function ensureDevTestLabActive(mode, actionName) {
+  const currentMode = mode?.runtime?.match?.state?.mode || 'dev-test-lab';
+  if (currentMode !== 'dev-test-lab') {
+    console.warn(
+      `[DevTestLabReplayHelper] Cannot execute "${actionName}": active mode is "${currentMode}" (requires "dev-test-lab").`
+    );
+    return false;
+  }
+  return true;
+}
+
 export function startTasRecordingSession(mode) {
+  if (!ensureDevTestLabActive(mode, 'startTasRecordingSession')) return;
   const r = mode.runtime;
-  if (!r?.physics) return;
+  if (!r?.physics) {
+    console.warn('[DevTestLabReplayHelper] Cannot start recording: physics engine is not initialized.');
+    return;
+  }
   const store = useDevTestLabStore.getState();
 
   mode.tasFrames = [];
@@ -221,6 +236,7 @@ export function startTasRecordingSession(mode) {
 }
 
 export function pauseTasRecordingSession(mode) {
+  if (!ensureDevTestLabActive(mode, 'pauseTasRecordingSession')) return;
   const store = useDevTestLabStore.getState();
   if (store.tasState === 'recording') {
     const lastFrame = Math.max(0, mode.tasFrames.length - 1);
@@ -233,11 +249,17 @@ export function pauseTasRecordingSession(mode) {
       tasTargetFrame: lastFrame,
       tasPrerollRemainingSec: 0,
     });
+  } else {
+    console.warn(`[DevTestLabReplayHelper] Cannot stop recording: current state is "${store.tasState}".`);
   }
 }
 
 export function beginTasScrubSession(mode, direction = 'rewinding') {
-  if (mode.tasFrames.length === 0) return;
+  if (!ensureDevTestLabActive(mode, `beginTasScrubSession(${direction})`)) return;
+  if (mode.tasFrames.length === 0) {
+    console.warn(`[DevTestLabReplayHelper] Cannot start ${direction}: recorded frame buffer is empty (0 frames).`);
+    return;
+  }
   const store = useDevTestLabStore.getState();
   if (store.tasState === 'recording') {
     mode.tasCursor = mode.tasFrames.length - 1;
@@ -271,7 +293,11 @@ export function pauseTasScrubSession(mode) {
 }
 
 export function seekTasFrameToIndex(mode, frameIndex) {
-  if (!mode.tasFrames || mode.tasFrames.length === 0) return;
+  if (!ensureDevTestLabActive(mode, 'seekTasFrameToIndex')) return;
+  if (!mode.tasFrames || mode.tasFrames.length === 0) {
+    console.warn('[DevTestLabReplayHelper] Cannot seek frame: recorded frame buffer is empty (0 frames).');
+    return;
+  }
   const clamped = Math.max(0, Math.min(mode.tasFrames.length - 1, Math.round(frameIndex)));
   mode.tasCursor = clamped;
   mode.tasTargetFrame = clamped;
@@ -287,11 +313,21 @@ export function seekTasFrameToIndex(mode, frameIndex) {
 }
 
 export function resumeTasFromCursorSession(mode) {
+  if (!ensureDevTestLabActive(mode, 'resumeTasFromCursorSession')) return;
   const r = mode.runtime;
   const store = useDevTestLabStore.getState();
   const downSec = store.tasDownCounterSec ?? 3;
   const minRequiredFrames = downSec === 0 ? 120 : 240;
-  if (!r?.physics || mode.tasFrames.length < minRequiredFrames) return;
+  if (!r?.physics) {
+    console.warn('[DevTestLabReplayHelper] Cannot resume from cursor: physics engine is not initialized.');
+    return;
+  }
+  if (mode.tasFrames.length < minRequiredFrames) {
+    console.warn(
+      `[DevTestLabReplayHelper] Cannot resume from cursor: recorded frames (${mode.tasFrames.length}) < minimum required frames (${minRequiredFrames}) for downCounter=${downSec}s.`
+    );
+    return;
+  }
 
   if (store.tasState === 'recording') {
     const lastFrame = Math.max(0, mode.tasFrames.length - 1);
@@ -339,8 +375,12 @@ export function resumeTasFromCursorSession(mode) {
 }
 
 export async function importTasReplayFile(mode, fileOrBuffer) {
+  if (!ensureDevTestLabActive(mode, 'importTasReplayFile')) return false;
   const r = mode.runtime;
-  if (!r?.physics) return false;
+  if (!r?.physics) {
+    console.warn('[DevTestLabReplayHelper] Cannot import replay: physics engine is not initialized.');
+    return false;
+  }
   try {
     const parsed = await parseRCReplayFile(fileOrBuffer);
     if (!parsed || !Array.isArray(parsed.frames) || parsed.frames.length === 0) {

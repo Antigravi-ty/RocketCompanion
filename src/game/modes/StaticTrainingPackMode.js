@@ -176,13 +176,34 @@ export class StaticTrainingPackMode extends BaseGameMode {
     });
   }
 
+  _ensureActiveMode(actionName) {
+    const activeMode = this.runtime?.match?.state?.mode;
+    if (activeMode !== 'static-training-pack') {
+      console.warn(
+        `[StaticTrainingPackMode] ${actionName} ignored: active mode is "${activeMode ?? 'none'}", requires "static-training-pack".`
+      );
+      return false;
+    }
+    return true;
+  }
+
   _bindStoreRuntimeHandlers() {
     useStaticTrainingPackStore.getState().setRuntimeHandlers({
-      onShotChanged: () => this.reloadCurrentShot(),
-      onSessionModeChanged: () => this.reloadCurrentShot(),
-      onEditSubModeChanged: (subMode) => applyEditSubModeCamera(this, subMode),
-      onEditVariableMutated: (item) => applyStagedShotToArena(this, item, true),
-      onResetShotRequested: () => this.reloadCurrentShot(),
+      onShotChanged: () => {
+        if (this._ensureActiveMode('onShotChanged')) this.reloadCurrentShot();
+      },
+      onSessionModeChanged: () => {
+        if (this._ensureActiveMode('onSessionModeChanged')) this.reloadCurrentShot();
+      },
+      onEditSubModeChanged: (subMode) => {
+        if (this._ensureActiveMode('onEditSubModeChanged')) applyEditSubModeCamera(this, subMode);
+      },
+      onEditVariableMutated: (item) => {
+        if (this._ensureActiveMode('onEditVariableMutated')) applyStagedShotToArena(this, item, true);
+      },
+      onResetShotRequested: () => {
+        if (this._ensureActiveMode('onResetShotRequested')) this.reloadCurrentShot();
+      },
     });
   }
 
@@ -202,7 +223,10 @@ export class StaticTrainingPackMode extends BaseGameMode {
 
   reloadCurrentShot() {
     const r = this.runtime;
-    if (!r?.physics) return;
+    if (!r?.physics) {
+      console.warn('[StaticTrainingPackMode] reloadCurrentShot ignored: physics engine is not initialized.');
+      return;
+    }
 
     if (this.isReplayActive) {
       this.replayController?.endReplaySession?.();
@@ -218,7 +242,10 @@ export class StaticTrainingPackMode extends BaseGameMode {
 
     const store = useStaticTrainingPackStore.getState();
     const shot = this._getCurrentShotConfig();
-    if (!shot) return;
+    if (!shot) {
+      console.warn('[StaticTrainingPackMode] reloadCurrentShot ignored: no active training shot configuration found.');
+      return;
+    }
 
     this.stagedShot = shot;
     applyStagedShotToArena(this, shot, false);

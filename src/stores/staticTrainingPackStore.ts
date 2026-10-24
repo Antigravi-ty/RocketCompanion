@@ -62,9 +62,27 @@ export function mutateActiveEditItemVariable(
     activeEditItemDraft: activeEditItemVariable,
   }));
   const handlers = store.runtimeHandlers;
-  handlers.onEditVariableMutated?.(activeEditItemVariable);
-  handlers.onSyncEditDraftToArena?.(activeEditItemVariable);
+  (handlers.onEditVariableMutated ?? handlers.onSyncEditDraftToArena)?.(activeEditItemVariable);
   return activeEditItemVariable;
+}
+
+function createGuardedRuntimeHandlers<T extends object>(storeTag: string, rawHandlers: T): T {
+  return new Proxy(rawHandlers, {
+    get(target, prop, receiver) {
+      const val = Reflect.get(target, prop, receiver);
+      if (typeof val === 'function') {
+        return val;
+      }
+      if (typeof prop === 'string' && prop.startsWith('on')) {
+        return (..._args: unknown[]) => {
+          console.warn(
+            `[${storeTag}] Runtime handler "${prop}" was invoked before StaticTrainingPackMode registered its handlers.`
+          );
+        };
+      }
+      return val;
+    },
+  });
 }
 
 function buildActivePackBundle(
@@ -203,7 +221,10 @@ export const useStaticTrainingPackStore = create<StaticTrainingPackStoreState>((
   isReplayActive: false,
   replayType: null,
 
-  runtimeHandlers: {},
+  runtimeHandlers: createGuardedRuntimeHandlers<StaticTrainingPackRuntimeHandlers>(
+    'staticTrainingPackStore',
+    {}
+  ),
 
   initStore: async () => {
     await get().initPacks();
@@ -382,8 +403,7 @@ export const useStaticTrainingPackStore = create<StaticTrainingPackStoreState>((
       remainingTimeoutSec: items[wrapped]?.timeoutSeconds ?? 10,
     });
     const h = get().runtimeHandlers;
-    h.onShotChanged?.(wrapped);
-    h.onLoadShotInArena?.(wrapped);
+    (h.onShotChanged ?? h.onLoadShotInArena)?.(wrapped);
   },
 
   nextShot: () => {
@@ -402,8 +422,7 @@ export const useStaticTrainingPackStore = create<StaticTrainingPackStoreState>((
 
   resetCurrentShot: () => {
     const h = get().runtimeHandlers;
-    h.onResetShotRequested?.();
-    h.onResetCurrentShot?.();
+    (h.onResetShotRequested ?? h.onResetCurrentShot)?.();
   },
 
   addNewShot: async () => {
@@ -554,8 +573,7 @@ export const useStaticTrainingPackStore = create<StaticTrainingPackStoreState>((
     }));
 
     const h = get().runtimeHandlers;
-    h.onEditVariableMutated?.(draft);
-    h.onSyncEditDraftToArena?.(draft);
+    (h.onEditVariableMutated ?? h.onSyncEditDraftToArena)?.(draft);
   },
 
   exitItemEditModeAndSave: async () => {
@@ -614,8 +632,7 @@ export const useStaticTrainingPackStore = create<StaticTrainingPackStoreState>((
         editVarVersion: s.editVarVersion + 1,
       }));
       const h = get().runtimeHandlers;
-      h.onEditVariableMutated?.(parsedItem);
-      h.onSyncEditDraftToArena?.(parsedItem);
+      (h.onEditVariableMutated ?? h.onSyncEditDraftToArena)?.(parsedItem);
       return;
     }
 
@@ -665,7 +682,10 @@ export const useStaticTrainingPackStore = create<StaticTrainingPackStoreState>((
 
   setRuntimeHandlers: (handlers) => {
     set((s) => ({
-      runtimeHandlers: { ...s.runtimeHandlers, ...handlers },
+      runtimeHandlers: createGuardedRuntimeHandlers<StaticTrainingPackRuntimeHandlers>(
+        'staticTrainingPackStore',
+        { ...s.runtimeHandlers, ...handlers }
+      ),
     }));
   },
 }));

@@ -21,9 +21,11 @@ export class AudioMixer {
         this.input.connect(this.output);
         this.output.connect(this.analyser);
       } else {
+        console.warn('[AudioMixer] AudioContext.createAnalyser is unavailable; connecting input directly to output without analyser.');
         this.input.connect(this.output);
       }
-    } catch (_) {
+    } catch (err) {
+      console.warn('[AudioMixer] Failed to initialize AnalyserNode; connecting input directly to output:', err);
       this.input.connect(this.output);
     }
   }
@@ -58,6 +60,7 @@ export class AudioMixer {
         silent: peak < 1e-4
       };
     } catch (e) {
+      console.warn('[AudioMixer] sampleOutputMetrics failed; returning silent metrics fallback:', e);
       return { rms: 0, peak: 0, dbfs: -120, silent: true, error: e?.message || String(e) };
     }
   }

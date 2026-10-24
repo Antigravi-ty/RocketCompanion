@@ -122,6 +122,7 @@ self.onmessage = async (e) => {
           buffer: compressedBuf
         }, [compressedBuf]);
       } else {
+        console.warn('[RCReplayCompressionWorker] CompressionStream is unavailable inside Worker; returning uncompressed .rcreplay container.');
         self.postMessage({
           id,
           ok: true,
@@ -167,10 +168,14 @@ export async function packAndCompressReplayInBackground(replayObj) {
         const cleanup = () => {
           try {
             worker.terminate();
-          } catch (_) {}
+          } catch (termErr) {
+            console.warn('[RCReplayCompressionWorkerClient] Failed to terminate compression worker:', termErr);
+          }
           try {
             URL.revokeObjectURL(url);
-          } catch (_) {}
+          } catch (revokeErr) {
+            console.warn('[RCReplayCompressionWorkerClient] Failed to revoke worker blob URL:', revokeErr);
+          }
         };
         const stateCopy = new Uint8Array(tracks.stateInputBytes);
         const incCopy = new Uint8Array(tracks.incidentBytes);
@@ -201,9 +206,11 @@ export async function packAndCompressReplayInBackground(replayObj) {
         );
       });
       return workerResult;
-    } catch (_) {
-      // Fall through to async CompressionStream
+    } catch (workerErr) {
+      console.warn('[RCReplayCompressionWorkerClient] Background Worker compression failed; falling back to main-thread serialization:', workerErr);
     }
+  } else {
+    console.warn('[RCReplayCompressionWorkerClient] Blob Worker is unavailable in this environment; falling back to main-thread serialization.');
   }
 
   // Fallback for Node.js / environments without Blob Worker
@@ -227,6 +234,7 @@ export async function packAndCompressReplayInBackground(replayObj) {
     };
   }
 
+  console.warn('[RCReplayCompressionWorkerClient] CompressionStream is unavailable; returning uncompressed .rcreplay container.');
   return {
     ok: true,
     compressed: false,

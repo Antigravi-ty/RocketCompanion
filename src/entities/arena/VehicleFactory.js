@@ -25,7 +25,11 @@ export function buildVehicleModel(visual, teamColor, isBot, assets, loaders, car
   let boostOutlets = null;
 
   if (isHitbox) {
-    const preset = HITBOX_PRESETS[visual] || HITBOX_PRESETS["hitbox-octane"];
+    let preset = HITBOX_PRESETS[visual];
+    if (!preset) {
+      console.warn(`[VehicleFactory] Unrecognized hitbox preset "${visual}"; falling back to "hitbox-octane".`);
+      preset = HITBOX_PRESETS["hitbox-octane"];
+    }
     try {
       carModel = createWhiteboxCarModel(visual, teamColor);
     } catch (err) {
@@ -47,9 +51,13 @@ export function buildVehicleModel(visual, teamColor, isBot, assets, loaders, car
     if (customAsset && loaders.createCustomGlbCarModel) {
       carModel = loaders.createCustomGlbCarModel(visual, customAsset, teamColor);
     } else {
+      console.warn(
+        `[VehicleFactory] Custom GLB asset or loader unavailable for "${visual}"; falling back to whitebox model "${descriptor?.hitboxPreset || 'hitbox-octane'}".`
+      );
       try {
         carModel = createWhiteboxCarModel(descriptor?.hitboxPreset || "hitbox-octane", teamColor);
-      } catch {
+      } catch (err) {
+        console.warn(`[VehicleFactory] Failed to create whitebox fallback for "${visual}"; using empty Group:`, err);
         carModel = new THREE.Group();
       }
     }
@@ -62,6 +70,7 @@ export function buildVehicleModel(visual, teamColor, isBot, assets, loaders, car
     return { carModel, carHitbox, boostOutlets };
   }
 
+  console.warn(`[VehicleFactory] Visual preset "${visual}" has no custom GLB descriptor; falling back to "hitbox-octane" whitebox model.`);
   try {
     carModel = createWhiteboxCarModel("hitbox-octane", teamColor);
   } catch (err) {
@@ -86,6 +95,9 @@ export function buildVehicleWheels(carRoot, visual, teamColor, wheelSpecs, asset
   const wheels = [];
 
   if (isHitbox || !isCustomGlb) {
+    if (!loaders.createProceduralSportWheel) {
+      console.warn(`[VehicleFactory] createProceduralSportWheel loader unavailable for "${visual}"; falling back to cylinder wheel geometry.`);
+    }
     const wheelGeom = new THREE.CylinderGeometry(13.5, 13.5, 9, 16);
     wheelGeom.rotateX(Math.PI / 2);
     const wheelMat = new THREE.MeshStandardMaterial({ color: 2171169, roughness: 0.9, metalness: 0.1 });
@@ -110,6 +122,9 @@ export function buildVehicleWheels(carRoot, visual, teamColor, wheelSpecs, asset
   }
 
   const descriptor = getVehicleDescriptor(visual);
+  if (!loaders.createProceduralSportWheel) {
+    console.warn(`[VehicleFactory] createProceduralSportWheel loader unavailable for custom vehicle "${visual}"; using empty wheel groups.`);
+  }
 
   for (let i = 0; i < wheelSpecs.length; i++) {
     const [specX, specZ, specRadius] = wheelSpecs[i];

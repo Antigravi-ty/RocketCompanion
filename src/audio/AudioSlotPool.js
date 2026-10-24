@@ -44,6 +44,8 @@ export class AudioSlotPool {
       if (typeof ctx.createStereoPanner === 'function') {
         panner2D = ctx.createStereoPanner();
         if (dest) panner2D.connect(dest);
+      } else if (i === 0) {
+        console.warn('[AudioSlotPool] AudioContext.createStereoPanner is unavailable; 2D stereo signals will connect directly to destination without stereo panning.');
       }
 
       this.slots.push({

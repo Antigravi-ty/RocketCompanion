@@ -455,7 +455,11 @@ export function bindReconcilerSignals(runtime, reconciler) {
                   winnerTeam: winningTeam,
                   winReason
                 });
-              }).catch(() => {
+              }).catch((err) => {
+                console.warn(
+                  '[RuntimeReconcilerSignalHandler] requestFullReplayExport failed; falling back to local hostReplayRingBuffer / cachedSnapshot:',
+                  err
+                );
                 retainCompletedMatchReplayAndNotify({
                   ringBuffer: r.authoritativeServer?.hostReplayRingBuffer || r.physics?.replayRingBuffer,
                   fallbackState: r.authoritativeServer?.cachedSnapshot || r.physics?.state,
@@ -467,6 +471,9 @@ export function bindReconcilerSignals(runtime, reconciler) {
                 });
               });
             } else {
+              console.warn(
+                '[RuntimeReconcilerSignalHandler] authoritativeServer.requestFullReplayExport is unavailable; falling back to local hostReplayRingBuffer / cachedSnapshot.'
+              );
               retainCompletedMatchReplayAndNotify({
                 ringBuffer: r.authoritativeServer.hostReplayRingBuffer || r.physics?.replayRingBuffer,
                 fallbackState: r.authoritativeServer.cachedSnapshot || r.physics?.state,

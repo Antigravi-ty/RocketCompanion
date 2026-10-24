@@ -462,8 +462,8 @@ export function updateAnodizedPaintTuning(patch = {}) {
   for (const listener of anodizedPaintListeners) {
     try {
       listener(patch, anodizedPaintTuning);
-    } catch {
-      // ignore listener errors
+    } catch (err) {
+      console.warn('[vehicleTunerConfig] Anodized paint listener threw an error:', err);
     }
   }
   return anodizedPaintTuning;

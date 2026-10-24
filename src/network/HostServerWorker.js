@@ -135,6 +135,9 @@ export class HostServerWorker {
         }
       });
     }
+    console.warn(
+      `[HostServerWorker] Initializing in-memory server fallback (Worker available: ${typeof Worker !== 'undefined'}, forceFallback: ${Boolean(this.options.forceFallback)}).`
+    );
     return this._initFallback();
   }
 

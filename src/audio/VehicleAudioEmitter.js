@@ -45,7 +45,12 @@ export class VehicleAudioEmitter {
 
     this.panner3D = ctx.createPanner();
     const panModel = audioConfig.get('spatialPanningModel') || 'equalpower';
-    try { this.panner3D.panningModel = panModel; } catch (_) { this.panner3D.panningModel = 'equalpower'; }
+    try {
+      this.panner3D.panningModel = panModel;
+    } catch (err) {
+      console.warn(`[PositionalVehicleAudio] Failed to set panningModel="${panModel}", falling back to "equalpower":`, err);
+      this.panner3D.panningModel = 'equalpower';
+    }
     this.panner3D.distanceModel = 'inverse';
     this.panner3D.rolloffFactor = 0;
     this.panner3D.coneInnerAngle = 360;
@@ -110,7 +115,9 @@ export class VehicleAudioEmitter {
           this.boostLoopSource.onended = null;
           this.boostLoopSource.stop();
           this.boostLoopSource.disconnect();
-        } catch (_) {}
+        } catch (err) {
+          console.warn('[PositionalVehicleAudio] Error stopping previous boostLoopSource:', err);
+        }
         this.boostLoopSource = null;
       }
     }
@@ -121,7 +128,9 @@ export class VehicleAudioEmitter {
           this.supersonicLoopSource.onended = null;
           this.supersonicLoopSource.stop();
           this.supersonicLoopSource.disconnect();
-        } catch (_) {}
+        } catch (err) {
+          console.warn('[PositionalVehicleAudio] Error stopping previous supersonicLoopSource:', err);
+        }
         this.supersonicLoopSource = null;
       }
     }

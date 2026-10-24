@@ -25,19 +25,24 @@ export async function compressGzipBytes(rawBytes: Uint8Array): Promise<Uint8Arra
     } catch (err) {
       console.warn('[StaticTrainingPackCodec] GZIP compression fallback to raw UTF-8:', err);
     }
+  } else {
+    console.warn('[StaticTrainingPackCodec] CompressionStream is undefined; falling back to uncompressed UTF-8 bytes.');
   }
   return rawBytes;
 }
 
 export async function decompressGzipOrText(bytes: Uint8Array): Promise<string> {
   const isGzip = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
-  if (isGzip && typeof DecompressionStream !== 'undefined') {
-    const ds = new DecompressionStream('gzip');
-    const writer = ds.writable.getWriter();
-    writer.write(bytes as unknown as BufferSource);
-    writer.close();
-    const resp = new Response(ds.readable);
-    return await resp.text();
+  if (isGzip) {
+    if (typeof DecompressionStream !== 'undefined') {
+      const ds = new DecompressionStream('gzip');
+      const writer = ds.writable.getWriter();
+      writer.write(bytes as unknown as BufferSource);
+      writer.close();
+      const resp = new Response(ds.readable);
+      return await resp.text();
+    }
+    console.warn('[StaticTrainingPackCodec] GZIP magic header detected (0x1f8b) but DecompressionStream is undefined; falling back to TextDecoder.');
   }
   return new TextDecoder().decode(bytes);
 }

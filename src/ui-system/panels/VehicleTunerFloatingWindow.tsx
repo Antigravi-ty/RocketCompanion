@@ -114,8 +114,8 @@ export const VehicleTunerFloatingWindow: React.FC<VehicleTunerFloatingWindowProp
     setActiveCar(carId);
     try {
       garageSettingsStore.save({ vehiclePreset: carId, carVisual: carId });
-    } catch {
-      // ignore storage errors
+    } catch (err) {
+      console.warn('[VehicleModelOffsetTuner] Failed to persist selected vehicle to garageSettingsStore:', err);
     }
     bridge.onVehicleChange?.(carId);
   };

@@ -218,6 +218,10 @@ export function createDefaultHostChannel(hostWorker, options = {}) {
             return true;
           }
           if (hostWorker.fallbackDataHandler) {
+            if (!hostWorker._loggedFallbackSend) {
+              hostWorker._loggedFallbackSend = true;
+              console.info('[HostLoopbackChannel] Routing host loopback packets through in-memory fallbackDataHandler.');
+            }
             hostWorker.fallbackDataHandler.handleIncomingPacket('host', clonedPacket, nowMs);
             return true;
           }
@@ -302,6 +306,10 @@ export function deliverToHostLoopback(hostChannel, packet) {
   }
 
   // Fallback for custom mock channels without a NetworkSimulator instance
+  if (!hostChannel._loggedMockFallback) {
+    hostChannel._loggedMockFallback = true;
+    console.warn('[HostLoopbackChannel] hostChannel.simulator is missing; using direct mock channel queue fallback.');
+  }
   if (hostChannel.packetLossRate > 0 && Math.random() < hostChannel.packetLossRate) {
     return false;
   }

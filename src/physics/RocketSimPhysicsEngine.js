@@ -220,7 +220,7 @@ export class RocketSimPhysicsEngine {
   resetGoalLatch() { this.module?._physics_resetGoalLatch?.(); }
   getPlayerInputBufferAmount(carIndex = 0) { return this.inputBufferCount?.[carIndex] || 0; }
   readEvents(callback) { return readPhysicsEvents(this, callback); }
-  addCar(team, hitboxType = 'default') {
+  addCar(team, hitboxType = 'octane') {
     const hitboxIdx = getHitboxIndex(hitboxType);
     const idx = this.module._physics_addCar(team, hitboxIdx);
     if (idx >= 0) {
@@ -483,7 +483,7 @@ export class RocketSimPhysicsEngine {
     if (this.addCar(isMatch ? playerTeam : defaultPlayerTeam, hitboxType) !== PLAYER_CAR_INDEX) {
       throw new Error('Player creation failed');
     }
-    if (isMatch && this.addCar(botTeam, 'default') !== BOT_CAR_INDEX) {
+    if (isMatch && this.addCar(botTeam, 'octane') !== BOT_CAR_INDEX) {
       throw new Error('Opponent creation failed');
     }
     this.resetKickoff();

@@ -204,6 +204,7 @@ export class FreeplayMode extends BaseGameMode {
         },
       ],
     });
+    this.rewinderController?.onAfterPhysicsTick?.();
 
     // 4. Advance post-goal celebration countdown -> transition to Goal Replay
     if (this.goalResetTicks > 0) {

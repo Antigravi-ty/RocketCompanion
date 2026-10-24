@@ -131,6 +131,9 @@ function materializeFramesFromBinaryTracks(tracks, matchInfo = {}) {
 
   let synthesizedSignals = [];
   if (signalCount === 0 && frameCount > 0) {
+    console.info(
+      `[ReplayFileExporter] Signal track is empty for ${frameCount} frames; synthesizing fallback signals from incidents.`
+    );
     synthesizedSignals = synthesizeFallbackSignalsFromIncidents(incidents, frameSlots, matchInfo);
     for (let s = 0; s < synthesizedSignals.length; s++) {
       const sig = synthesizedSignals[s];
@@ -252,6 +255,9 @@ export function retainCompletedMatchReplayAndNotify(options = {}) {
     }
 
     if (rawFrames.length === 0 && options.fallbackState instanceof Float32Array) {
+      console.warn(
+        '[ReplayFileExporter] Replay ring buffer and frame tracks were empty; falling back to single-frame fallbackState snapshot.'
+      );
       const snap = new Float32Array(STATE_BUFFER_FLOATS);
       snap.set(options.fallbackState.subarray(0, Math.min(options.fallbackState.length, STATE_BUFFER_FLOATS)));
       rawFrames.push({ tick: Math.floor(snap[0] || 0), snapshot: snap });
@@ -375,8 +381,8 @@ export function clearRetainedMatchReplayOnMatchStart() {
   _retainedMatchReplay = null;
   try {
     useQuickNotificationStore.getState().dismissNotification(MATCH_REPLAY_NOTIFICATION_ID);
-  } catch (_) {
-    // ignore
+  } catch (err) {
+    console.warn('[ReplayFileExporter] Failed to dismiss match replay notification:', err);
   }
 }
 
@@ -408,7 +414,9 @@ export async function exportRetainedMatchReplayFile(replayObj = _retainedMatchRe
       isSpinningIcon: true,
       tone: 'info',
     });
-  } catch (_) {}
+  } catch (err) {
+    console.warn('[ReplayFileExporter] Failed to push ongoing export notification:', err);
+  }
 
   try {
     const packedResult = await packAndCompressReplayInBackground(replayObj);
@@ -444,14 +452,18 @@ export async function exportRetainedMatchReplayFile(replayObj = _retainedMatchRe
         tone: 'success',
         autoDismissMs: 2200,
       });
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[ReplayFileExporter] Failed to complete ongoing export notification:', err);
+    }
 
     return true;
   } catch (err) {
     console.warn('[ReplayFileExporter] Background replay export failed:', err);
     try {
       notifStore.dismissOngoingNotification(MATCH_REPLAY_SAVING_TASK_ID);
-    } catch (_) {}
+    } catch (dismissErr) {
+      console.warn('[ReplayFileExporter] Failed to dismiss ongoing export notification after failure:', dismissErr);
+    }
     return false;
   } finally {
     _isExportingReplay = false;
@@ -496,6 +508,7 @@ export async function parseRCReplayFile(fileOrBuffer) {
   }
 
   // Fallback for JSON-structured test fixtures if passed in memory
+  console.warn('[ReplayFileExporter] Input is not a binary RCREPLAY v2 container; attempting JSON fixture fallback parse.');
   const jsonText = new TextDecoder().decode(rawBuffer);
   const parsed = JSON.parse(jsonText);
   if (parsed && Array.isArray(parsed.frames)) {

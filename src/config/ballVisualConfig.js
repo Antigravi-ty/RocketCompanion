@@ -46,16 +46,16 @@ export function updateBallVisualConfig(patch = {}, ballRoot = null, indicatorRin
   for (const applier of ballVisualObjectAppliers) {
     try {
       applier(ballVisualRuntimeConfig, ballRoot, indicatorRings);
-    } catch {
-      // ignore applier errors
+    } catch (err) {
+      console.warn('[ballVisualConfig] Object applier threw an error:', err);
     }
   }
   const snapshot = { ...ballVisualRuntimeConfig };
   for (const listener of ballVisualListeners) {
     try {
       listener(snapshot);
-    } catch {
-      // ignore listener errors
+    } catch (err) {
+      console.warn('[ballVisualConfig] Listener threw an error:', err);
     }
   }
   return snapshot;

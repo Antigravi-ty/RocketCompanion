@@ -39,13 +39,15 @@ export class GameAudioEngineFacade {
     const dest = getMasterAudioInput() || ctx?.destination;
     if (!ctx || !dest) return;
     if (ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
+      ctx.resume().catch((err) => console.warn('[GameAudioEngineFacade] AudioContext resume failed/blocked:', err));
     }
     if (this._previewSource) {
       try {
         this._previewSource.stop();
         this._previewSource.disconnect();
-      } catch (_) {}
+      } catch (err) {
+        console.warn('[GameAudioEngineFacade] Error stopping previous previewSource:', err);
+      }
       this._previewSource = null;
     }
     const normalizedPhase = phase === 'release' ? 'end' : phase;
@@ -76,7 +78,9 @@ export class GameAudioEngineFacade {
         try {
           src.disconnect();
           gain.disconnect();
-        } catch (_) {}
+        } catch (err) {
+          console.warn('[GameAudioEngineFacade] Error disconnecting previewSource onended:', err);
+        }
       };
     } catch (e) {
       console.warn('[GameAudioEngineFacade] Failed to preview boost variation:', e);

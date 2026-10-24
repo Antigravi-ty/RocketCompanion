@@ -126,7 +126,8 @@ export const ExperimentalFeaturesFloatingWindow: React.FC<ExperimentalFeaturesFl
       await navigator.clipboard.writeText(json);
       setCopiedSnapshot(true);
       setTimeout(() => setCopiedSnapshot(false), 1800);
-    } catch {
+    } catch (err) {
+      console.warn('[ExperimentalFeaturesFloatingWindow] navigator.clipboard.writeText failed; falling back to textarea execCommand("copy"):', err);
       const ta = document.createElement('textarea');
       ta.value = json;
       document.body.appendChild(ta);

@@ -29,7 +29,10 @@ export function extractCandidatePort(cand) {
     const match = candStr.match(/\s(\d{1,5})\styp\b/);
     if (match) {
       const p = parseInt(match[1], 10);
-      if (!isNaN(p) && p > 0) return p;
+      if (!isNaN(p) && p > 0) {
+        console.warn(`[sdpUtils] Standard token split did not yield port for candidate "${candStr}"; extracted port ${p} via regex fallback.`);
+        return p;
+      }
     }
   }
   return null;
@@ -54,7 +57,8 @@ export function getLoopbackPortFromCandidates(candidates, sdp = "") {
   }
 
   // Fallback: extract candidate lines from SDP
-  if (!cand0 && typeof sdp === "string") {
+  if (!cand0 && typeof sdp === "string" && sdp.length > 0) {
+    console.warn('[sdpUtils] No explicit ICE candidates provided to getLoopbackPortFromCandidates; falling back to scanning SDP a=candidate lines.');
     const matches = [...sdp.matchAll(/a=(candidate:[^\r\n]+)/g)];
     if (matches.length > 0) cand0 = matches[0][1];
     if (matches.length > 1) cand1 = matches[1][1];
@@ -62,8 +66,13 @@ export function getLoopbackPortFromCandidates(candidates, sdp = "") {
 
   const port0 = cand0 ? extractCandidatePort(cand0) : null;
   const port1 = cand1 ? extractCandidatePort(cand1) : port0;
+  const resolvedPort = port1 || port0;
+  if (!resolvedPort) {
+    console.warn('[sdpUtils] Could not extract loopback port from candidates or SDP; falling back to default port 50000.');
+    return 50000;
+  }
 
-  return port1 || port0 || 50000;
+  return resolvedPort;
 }
 
 /**
@@ -74,7 +83,11 @@ export function getLoopbackPortFromCandidates(candidates, sdp = "") {
  * @returns {object}
  */
 export function createLoopbackCandidate(sourceCandidate, customPort = null) {
-  const port = customPort || (sourceCandidate ? extractCandidatePort(sourceCandidate) : null) || 50000;
+  const extractedPort = customPort || (sourceCandidate ? extractCandidatePort(sourceCandidate) : null);
+  if (!extractedPort) {
+    console.warn('[sdpUtils] createLoopbackCandidate could not resolve port from sourceCandidate; falling back to default port 50000.');
+  }
+  const port = extractedPort || 50000;
   const sdpMid = typeof sourceCandidate === "object" ? (sourceCandidate?.sdpMid ?? "0") : "0";
   const sdpMLineIndex = typeof sourceCandidate === "object" ? (sourceCandidate?.sdpMLineIndex ?? 0) : 0;
 

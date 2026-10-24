@@ -373,9 +373,44 @@ export const useDevTestLabStore = create<DevTestLabState>((set, get) => ({
   kickoffDuelDiagnosticRunning: false,
   kickoffDuelDiagnosticSummary: '',
 
-  runtimeHandlers: {},
+  runtimeHandlers: new Proxy({} as DevTestLabState['runtimeHandlers'], {
+    get(target, prop, receiver) {
+      const val = Reflect.get(target, prop, receiver);
+      if (typeof val === 'function') {
+        return val;
+      }
+      if (typeof prop === 'string' && prop.startsWith('on')) {
+        return (..._args: unknown[]) => {
+          console.warn(
+            `[devTestLabStore] Runtime handler "${prop}" was invoked before DeveloperTestLabMode or FreeplayRewinderController registered it.`
+          );
+        };
+      }
+      return val;
+    },
+  }),
   setRuntimeHandlers: (handlers) =>
-    set((s) => ({ runtimeHandlers: { ...s.runtimeHandlers, ...handlers } })),
+    set((s) => {
+      const merged = { ...s.runtimeHandlers, ...handlers };
+      return {
+        runtimeHandlers: new Proxy(merged, {
+          get(target, prop, receiver) {
+            const val = Reflect.get(target, prop, receiver);
+            if (typeof val === 'function') {
+              return val;
+            }
+            if (typeof prop === 'string' && prop.startsWith('on')) {
+              return (..._args: unknown[]) => {
+                console.warn(
+                  `[devTestLabStore] Runtime handler "${prop}" is not registered in the current mode.`
+                );
+              };
+            }
+            return val;
+          },
+        }),
+      };
+    }),
 
   setSelectedTab: (selectedTab) => {
     set({ selectedTab });

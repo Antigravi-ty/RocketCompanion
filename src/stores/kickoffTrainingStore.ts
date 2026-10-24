@@ -184,9 +184,44 @@ export const useKickoffTrainingStore = create<KickoffTrainingState>((set, get) =
   playerTouchTick: null,
   lastDeltaTicks: null,
 
-  runtimeHandlers: {},
+  runtimeHandlers: new Proxy({} as KickoffTrainingState['runtimeHandlers'], {
+    get(target, prop, receiver) {
+      const val = Reflect.get(target, prop, receiver);
+      if (typeof val === 'function') {
+        return val;
+      }
+      if (typeof prop === 'string' && prop.startsWith('on')) {
+        return (..._args: unknown[]) => {
+          console.warn(
+            `[kickoffTrainingStore] Runtime handler "${prop}" was invoked before KickoffTrainingMode registered its handlers.`
+          );
+        };
+      }
+      return val;
+    },
+  }),
   setRuntimeHandlers: (handlers) =>
-    set((s) => ({ runtimeHandlers: { ...s.runtimeHandlers, ...handlers } })),
+    set((s) => {
+      const merged = { ...s.runtimeHandlers, ...handlers };
+      return {
+        runtimeHandlers: new Proxy(merged, {
+          get(target, prop, receiver) {
+            const val = Reflect.get(target, prop, receiver);
+            if (typeof val === 'function') {
+              return val;
+            }
+            if (typeof prop === 'string' && prop.startsWith('on')) {
+              return (..._args: unknown[]) => {
+                console.warn(
+                  `[kickoffTrainingStore] Runtime handler "${prop}" is not registered.`
+                );
+              };
+            }
+            return val;
+          },
+        }),
+      };
+    }),
 
   setSubMode: (subMode) => {
     set({ subMode });

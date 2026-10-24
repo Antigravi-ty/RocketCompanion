@@ -71,6 +71,7 @@ export function buildItemPath(uuid: string, index: number): string {
 
 function openVfsDb(): Promise<IDBDatabase | null> {
   if (typeof indexedDB === 'undefined') {
+    console.warn('[StaticTrainingPackStorage] IndexedDB is undefined in this environment; using in-memory VFS fallback.');
     return Promise.resolve(null);
   }
   return new Promise((resolve) => {
@@ -114,10 +115,12 @@ async function vfsPutNodes(nodes: VfsNodeRecord[]): Promise<void> {
         resolve();
       };
       tx.onerror = () => {
+        console.warn('[StaticTrainingPackStorage] vfsPutNodes IndexedDB transaction failed, retaining nodes in memory fallback:', tx.error);
         db.close();
         resolve();
       };
-    } catch {
+    } catch (err) {
+      console.warn('[StaticTrainingPackStorage] vfsPutNodes IndexedDB exception, retaining nodes in memory fallback:', err);
       db.close();
       resolve();
     }
@@ -143,10 +146,12 @@ async function vfsGetAllByCategory(
         resolve(res);
       };
       req.onerror = () => {
+        console.warn(`[StaticTrainingPackStorage] vfsGetAllByCategory("${category}") failed, falling back to memoryVfsFallback:`, req.error);
         db.close();
         resolve(Array.from(memoryVfsFallback.values()).filter((n) => n.category === category));
       };
-    } catch {
+    } catch (err) {
+      console.warn(`[StaticTrainingPackStorage] vfsGetAllByCategory("${category}") exception, falling back to memoryVfsFallback:`, err);
       db.close();
       resolve(Array.from(memoryVfsFallback.values()).filter((n) => n.category === category));
     }
@@ -170,10 +175,12 @@ async function vfsGetByUuid(uuid: string): Promise<VfsNodeRecord[]> {
         resolve(res);
       };
       req.onerror = () => {
+        console.warn(`[StaticTrainingPackStorage] vfsGetByUuid("${uuid}") failed, falling back to memoryVfsFallback:`, req.error);
         db.close();
         resolve(Array.from(memoryVfsFallback.values()).filter((n) => n.uuid === uuid));
       };
-    } catch {
+    } catch (err) {
+      console.warn(`[StaticTrainingPackStorage] vfsGetByUuid("${uuid}") exception, falling back to memoryVfsFallback:`, err);
       db.close();
       resolve(Array.from(memoryVfsFallback.values()).filter((n) => n.uuid === uuid));
     }
@@ -199,10 +206,12 @@ async function vfsDeleteByUuid(uuid: string): Promise<void> {
         resolve();
       };
       tx.onerror = () => {
+        console.warn(`[StaticTrainingPackStorage] vfsDeleteByUuid("${uuid}") IndexedDB transaction failed:`, tx.error);
         db.close();
         resolve();
       };
-    } catch {
+    } catch (err) {
+      console.warn(`[StaticTrainingPackStorage] vfsDeleteByUuid("${uuid}") IndexedDB exception:`, err);
       db.close();
       resolve();
     }

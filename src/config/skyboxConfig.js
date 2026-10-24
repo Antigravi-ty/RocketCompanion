@@ -476,8 +476,8 @@ export function updateSkyboxConfig(patch = {}) {
   for (const listener of skyboxConfigListeners) {
     try {
       listener(skyboxRuntimeConfig);
-    } catch {
-      // ignore listener errors
+    } catch (err) {
+      console.warn('[skyboxConfig] Listener threw an error:', err);
     }
   }
   return skyboxRuntimeConfig;

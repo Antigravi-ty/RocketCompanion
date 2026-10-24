@@ -155,6 +155,7 @@ export function createLocalStorageStore<T extends Record<string, any>>(
         }
         return defaults;
       }
+      console.warn(`[storageHelpers] Stored settings for key "${key}" is not a plain object, falling back to defaults:`, parsed);
       return defaultFactory();
     } catch (err) {
       console.warn(`[storageHelpers] Corrupted stored settings for key "${key}", using defaults:`, err);

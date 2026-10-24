@@ -170,10 +170,18 @@ export class DataChannelTransport {
     const ch = this.channel;
     const payload = JSON.stringify({ type: 'diagnostic_fleet_toggle', enabled: Boolean(enabled), anchorMode });
     if (ch.dataChannel && ch.dataChannel.readyState === 'open') {
-      try { ch.dataChannel.send(payload); } catch (e) {}
+      try {
+        ch.dataChannel.send(payload);
+      } catch (err) {
+        console.warn('[P2PWebRTCChannel] Failed to send diagnostic_fleet_toggle via DataChannel:', err);
+      }
     }
     if (ch.roomBroadcastChannel) {
-      try { ch.roomBroadcastChannel.postMessage({ type: 'diagnostic_fleet_toggle', enabled: Boolean(enabled), anchorMode }); } catch (e) {}
+      try {
+        ch.roomBroadcastChannel.postMessage({ type: 'diagnostic_fleet_toggle', enabled: Boolean(enabled), anchorMode });
+      } catch (err) {
+        console.warn('[P2PWebRTCChannel] Failed to send diagnostic_fleet_toggle via RoomChannel:', err);
+      }
     }
   }
 }

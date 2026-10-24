@@ -106,6 +106,7 @@ export const Layer4StaticTrainingPackBrowseRecipe: React.FC<Layer4StaticTraining
       await importPackRCS(file);
       setHoveredDesc(`Imported pack from ${file.name}`);
     } catch (err: any) {
+      console.error('[Layer4StaticTrainingPackBrowseRecipe] Failed to import .RCSPack file:', err);
       setHoveredDesc(`Import failed: ${err?.message || 'Invalid .RCSPack file'}`);
     } finally {
       e.target.value = '';

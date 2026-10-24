@@ -479,7 +479,8 @@ export function loadGoalBarrierConfig(): GoalBarrierPersistedState {
       opacity,
       rects,
     };
-  } catch {
+  } catch (err) {
+    console.warn('[goalBarrierConfig] Failed to load or parse goal barrier config, falling back to DEFAULT_GOAL_BARRIER_STATE:', err);
     return { ...DEFAULT_GOAL_BARRIER_STATE };
   }
 }
@@ -496,7 +497,7 @@ export function saveGoalBarrierConfig(state: GoalBarrierPersistedState): void {
         rects: state.rects,
       })
     );
-  } catch {
-    // Ignore storage quota errors
+  } catch (err) {
+    console.warn('[goalBarrierConfig] Failed to persist goal barrier config:', err);
   }
 }

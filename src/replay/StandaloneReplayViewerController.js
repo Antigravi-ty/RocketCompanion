@@ -230,10 +230,10 @@ export class StandaloneReplayViewerController {
       slot?.controls ||
       this.stateInputTimeline?.getControlsAt?.(idx) ||
       snap?.controls;
-    if (Array.isArray(controls) && typeof r.physics.setCarControls === 'function') {
+    if (Array.isArray(controls) && typeof r.physics.setControls === 'function') {
       for (let c = 0; c < Math.min(controls.length, r.physics.numCars || MAX_CARS); c++) {
         if (controls[c]) {
-          r.physics.setCarControls(c, controls[c]);
+          r.physics.setControls(c, controls[c]);
         }
       }
     }
@@ -336,6 +336,7 @@ export class StandaloneReplayViewerController {
         ...this._buildTimelineStorePatch(),
       });
     } catch (err) {
+      console.error('[StandaloneReplayViewerController] Failed to parse uploaded replay file:', err);
       store.setErrorMessage(err?.message || 'Failed to parse replay file.');
     }
   }
@@ -344,6 +345,7 @@ export class StandaloneReplayViewerController {
     const retained = getRetainedMatchReplay();
     const store = useReplayViewerStore.getState();
     if (!retained || !retained.frames || retained.frames.length === 0) {
+      console.warn('[StandaloneReplayViewerController] Cannot load retained match replay: no recent match replay in memory.');
       store.setErrorMessage('No recent match replay in memory.');
       return;
     }
@@ -382,7 +384,10 @@ export class StandaloneReplayViewerController {
   }
 
   startPlaying() {
-    if (this.frames.length === 0) return;
+    if (this.frames.length === 0) {
+      console.warn('[StandaloneReplayViewerController] Cannot start playing: no replay frames loaded.');
+      return;
+    }
     if (this.cursor >= this.frames.length - 1) {
       this.cursor = 0;
       this._lastDispatchedCursorFrame = -1;
@@ -397,7 +402,10 @@ export class StandaloneReplayViewerController {
   }
 
   pausePlaying() {
-    if (this.frames.length === 0) return;
+    if (this.frames.length === 0) {
+      console.warn('[StandaloneReplayViewerController] Cannot pause playing: no replay frames loaded.');
+      return;
+    }
     const clamped = Math.max(0, Math.min(this.frames.length - 1, Math.round(this.cursor)));
     this.cursor = clamped;
     this.targetFrame = clamped;
@@ -411,7 +419,10 @@ export class StandaloneReplayViewerController {
   }
 
   seekFrame(frameIndex) {
-    if (this.frames.length === 0) return;
+    if (this.frames.length === 0) {
+      console.warn('[StandaloneReplayViewerController] Cannot seek frame: no replay frames loaded.');
+      return;
+    }
     const clamped = Math.max(0, Math.min(this.frames.length - 1, Math.round(frameIndex)));
     this.cursor = clamped;
     this.targetFrame = clamped;
@@ -425,7 +436,10 @@ export class StandaloneReplayViewerController {
   }
 
   beginScrub(direction = 'rewinding') {
-    if (this.frames.length === 0) return;
+    if (this.frames.length === 0) {
+      console.warn(`[StandaloneReplayViewerController] Cannot start ${direction}: no replay frames loaded.`);
+      return;
+    }
     this._lastCountdownSecBeep = -1;
     useReplayViewerStore.getState().updateLiveTelemetry({
       viewerState: direction,
@@ -447,7 +461,16 @@ export class StandaloneReplayViewerController {
     const store = useReplayViewerStore.getState();
     const downSec = store.downCounterSec ?? 3;
     const minRequiredFrames = downSec === 0 ? 120 : 240;
-    if (!r?.physics || this.frames.length < minRequiredFrames) return;
+    if (!r?.physics) {
+      console.warn('[StandaloneReplayViewerController] Cannot resume from cursor: physics engine is not initialized.');
+      return;
+    }
+    if (this.frames.length < minRequiredFrames) {
+      console.warn(
+        `[StandaloneReplayViewerController] Cannot resume from cursor: loaded frames (${this.frames.length}) < minimum required frames (${minRequiredFrames}) for downCounter=${downSec}s.`
+      );
+      return;
+    }
 
     const baseTarget = Math.max(minRequiredFrames - 1, Math.min(this.frames.length - 1, Math.round(this.cursor)));
     const lookbackFrames = (downSec === 0 ? 1 : downSec + 1) * 120;
@@ -528,7 +551,7 @@ export class StandaloneReplayViewerController {
         this._applyFrameAtCursor(false, false);
         r.simulationStage?.resetActionStates?.();
         if (r.playerControls) {
-          r.physics.setCarControls?.(r.playerCarIndex || 0, r.playerControls);
+          r.physics.setControls?.(r.playerCarIndex || 0, r.playerControls);
         }
         audio?.play?.('match_start_go', 1.0, 200);
         this._lastCountdownSecBeep = -1;

@@ -143,17 +143,43 @@ export class ExperimentalMultiBotMode extends BaseGameMode {
       this.replayController.attach(r.physics, this.replayRingBuffer);
     }
 
+    const ensureActiveExpMode = (actionName) => {
+      const activeMode = r?.match?.state?.mode;
+      if (activeMode !== 'exp-multi-bots') {
+        console.warn(
+          `[ExperimentalMultiBotMode] ${actionName} ignored: active mode is "${activeMode ?? 'none'}", requires "exp-multi-bots".`
+        );
+        return false;
+      }
+      return true;
+    };
+
     store.setRuntimeHandlers({
-      onApplyRosterAndStart: () => this.applyRosterAndStartMatch(),
-      onSelectCameraCar: (carIdx) => this._applyCameraCarIndex(carIdx),
-      onSpeedMultiplierChange: (mult) => this._applySpeedMultiplier(mult),
-      onUnlimitedBoostChange: (unlimited) => {
-        r.physics?.setUnlimitedBoost?.(Boolean(unlimited));
+      onApplyRosterAndStart: () => {
+        if (ensureActiveExpMode('onApplyRosterAndStart')) this.applyRosterAndStartMatch();
       },
-      onTriggerAction: (action) => this.triggerSandboxAction(action),
-      onHotSwapSlotBotType: (team, slotIndex, botType) =>
-        this._hotSwapSlotBotType(team, slotIndex, botType),
-      onHotSwapSlotColor: () => this._syncCarColorsFromStore(),
+      onSelectCameraCar: (carIdx) => {
+        if (ensureActiveExpMode('onSelectCameraCar')) this._applyCameraCarIndex(carIdx);
+      },
+      onSpeedMultiplierChange: (mult) => {
+        if (ensureActiveExpMode('onSpeedMultiplierChange')) this._applySpeedMultiplier(mult);
+      },
+      onUnlimitedBoostChange: (unlimited) => {
+        if (ensureActiveExpMode('onUnlimitedBoostChange')) {
+          r.physics?.setUnlimitedBoost?.(Boolean(unlimited));
+        }
+      },
+      onTriggerAction: (action) => {
+        if (ensureActiveExpMode('onTriggerAction')) this.triggerSandboxAction(action);
+      },
+      onHotSwapSlotBotType: (team, slotIndex, botType) => {
+        if (ensureActiveExpMode('onHotSwapSlotBotType')) {
+          this._hotSwapSlotBotType(team, slotIndex, botType);
+        }
+      },
+      onHotSwapSlotColor: () => {
+        if (ensureActiveExpMode('onHotSwapSlotColor')) this._syncCarColorsFromStore();
+      },
       onPreloadEngines: () => this._preloadNativeModels(),
     });
 

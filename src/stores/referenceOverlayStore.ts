@@ -165,8 +165,8 @@ export const useReferenceOverlayStore = create<ReferenceOverlayState>((set, get)
       if (img.url.startsWith('blob:')) {
         try {
           URL.revokeObjectURL(img.url);
-        } catch {
-          // ignore
+        } catch (err) {
+          console.warn('[referenceOverlayStore] Failed to revoke previous blob URL:', err);
         }
       }
     });
@@ -213,8 +213,8 @@ export const useReferenceOverlayStore = create<ReferenceOverlayState>((set, get)
       if (img.url.startsWith('blob:')) {
         try {
           URL.revokeObjectURL(img.url);
-        } catch {
-          // ignore
+        } catch (err) {
+          console.warn('[referenceOverlayStore] Failed to revoke blob URL during clearImages:', err);
         }
       }
     });

@@ -83,6 +83,8 @@ export async function preloadKickoffPPOWeights(rawUrl = KICKOFF_PPO_WEIGHTS_URL)
           isFallback: false,
         };
         return _cachedSlices;
+      } else {
+        console.warn('[KickoffPPOWeights] Global fetch is unavailable; using zero-initialized fallback weights.');
       }
     } catch (err) {
       console.warn('[KickoffPPOWeights] Failed to fetch SafeTensors weights, using fallback until loaded:', err);
@@ -107,6 +109,9 @@ export function getKickoffPPOActorWeights() {
   if (_cachedSlices) {
     return _cachedSlices;
   }
+  console.warn(
+    '[KickoffPPOWeights] getKickoffPPOActorWeights called before async preload completed; returning zero-initialized fallback weights while preloading in background.'
+  );
   preloadKickoffPPOWeights();
   _cachedSlices = sliceFlatWeights(new Float32Array(KICKOFF_PPO_META.totalFloats), true);
   return _cachedSlices;

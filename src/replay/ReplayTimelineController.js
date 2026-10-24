@@ -63,7 +63,9 @@ function notifyReplaySessionListeners() {
   for (const fn of _replaySessionListeners) {
     try {
       fn(_activeReplayController);
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[ReplayTimelineController] Replay session listener failed:', err);
+    }
   }
 }
 
@@ -103,7 +105,9 @@ export function dispatchReplayFrameEvents(stepRes, runtime = null) {
       }
       try {
         eventStreamStore?.addEvent?.(evt);
-      } catch (_) {}
+      } catch (err) {
+        console.warn('[ReplayTimelineController] Failed to push replay incident to eventStreamStore:', err);
+      }
       gameAudioEngine?.handleEvent?.(evt, camera);
     }
   }
@@ -678,10 +682,16 @@ export class ReplayTimelineController {
       applyReplayFrameToEngine(this.engine, currFrame, interpolator, prevFrame, alpha);
       const currEntry = this.getFrameEntryByIndex(baseIdx);
       const controls = currEntry?.acknowledgedControls || currFrame?.controls;
-      if (Array.isArray(controls) && typeof this.engine.setCarControls === 'function') {
+      const setControlsFn =
+        typeof this.engine.setControls === 'function'
+          ? this.engine.setControls.bind(this.engine)
+          : typeof this.engine.setCarControls === 'function'
+            ? this.engine.setCarControls.bind(this.engine)
+            : null;
+      if (Array.isArray(controls) && setControlsFn) {
         for (let c = 0; c < controls.length; c++) {
           if (controls[c]) {
-            this.engine.setCarControls(c, controls[c]);
+            setControlsFn(c, controls[c]);
           }
         }
       }

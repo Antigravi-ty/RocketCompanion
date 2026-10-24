@@ -128,7 +128,11 @@ export function updateReplayDirectorConfig(patch = {}) {
     }
   }
   for (const fn of directorConfigListeners) {
-    try { fn({ ...REPLAY_DIRECTOR_CONFIG }); } catch (_) {}
+    try {
+      fn({ ...REPLAY_DIRECTOR_CONFIG });
+    } catch (err) {
+      console.warn('[ReplayFrameInterpolator] Director config listener failed:', err);
+    }
   }
   return REPLAY_DIRECTOR_CONFIG;
 }
@@ -136,7 +140,11 @@ export function updateReplayDirectorConfig(patch = {}) {
 export function resetReplayDirectorConfig() {
   Object.assign(REPLAY_DIRECTOR_CONFIG, DEFAULT_REPLAY_DIRECTOR_CONFIG);
   for (const fn of directorConfigListeners) {
-    try { fn({ ...REPLAY_DIRECTOR_CONFIG }); } catch (_) {}
+    try {
+      fn({ ...REPLAY_DIRECTOR_CONFIG });
+    } catch (err) {
+      console.warn('[ReplayFrameInterpolator] Director config reset listener failed:', err);
+    }
   }
   return REPLAY_DIRECTOR_CONFIG;
 }

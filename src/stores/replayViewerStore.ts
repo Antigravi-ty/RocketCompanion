@@ -72,6 +72,25 @@ export interface ReplayViewerStoreState {
   setRuntimeHandlers: (handlers: Partial<ReplayViewerStoreState['runtimeHandlers']>) => void;
 }
 
+function createGuardedRuntimeHandlers<T extends object>(rawHandlers: T): T {
+  return new Proxy(rawHandlers, {
+    get(target, prop, receiver) {
+      const val = Reflect.get(target, prop, receiver);
+      if (typeof val === 'function') {
+        return val;
+      }
+      if (typeof prop === 'string' && prop.startsWith('on')) {
+        return (..._args: unknown[]) => {
+          console.warn(
+            `[replayViewerStore] Runtime handler "${prop}" was invoked before StandaloneReplayViewerController registered its handlers.`
+          );
+        };
+      }
+      return val;
+    },
+  });
+}
+
 export const useReplayViewerStore = create<ReplayViewerStoreState>((set) => ({
   viewerState: 'idle',
   loadedFileName: null,
@@ -107,8 +126,13 @@ export const useReplayViewerStore = create<ReplayViewerStoreState>((set) => ({
   setErrorMessage: (errorMessage) => set({ errorMessage }),
   updateLiveTelemetry: (patch) => set((s) => ({ ...s, ...patch })),
 
-  runtimeHandlers: {},
+  runtimeHandlers: createGuardedRuntimeHandlers<ReplayViewerStoreState['runtimeHandlers']>({}),
   setRuntimeHandlers: (handlers) =>
-    set((s) => ({ runtimeHandlers: { ...s.runtimeHandlers, ...handlers } })),
+    set((s) => ({
+      runtimeHandlers: createGuardedRuntimeHandlers<ReplayViewerStoreState['runtimeHandlers']>({
+        ...s.runtimeHandlers,
+        ...handlers,
+      }),
+    })),
 }));
 

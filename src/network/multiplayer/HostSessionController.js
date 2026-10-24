@@ -220,6 +220,9 @@ export class HostSessionController {
   async handleAnswer(sdp, fromPeerId = null) {
     let targetChannel = fromPeerId ? this.peerChannels.get(fromPeerId) : null;
     if (!targetChannel) {
+      console.warn(
+        `[HostSessionController] handleAnswer: peer channel not found for fromPeerId="${fromPeerId ?? 'null'}"; falling back to first channel awaiting an answer.`
+      );
       // Fallback to first channel awaiting an answer
       for (const ch of this.peerChannels.values()) {
         if (!ch.connected && (!ch.pc || ch.pc.signalingState !== 'stable')) {
@@ -228,6 +231,7 @@ export class HostSessionController {
         }
       }
       if (!targetChannel) {
+        console.warn('[HostSessionController] handleAnswer: no pending peerChannel found; falling back to primary this.channel.');
         targetChannel = this.channel;
       }
     }
@@ -244,6 +248,9 @@ export class HostSessionController {
       this.peerChannels.get(fromPeerId).addIceCandidate(candidate);
       return;
     }
+    console.warn(
+      `[HostSessionController] handleRemoteCandidate: peer channel not found for fromPeerId="${fromPeerId ?? 'null'}"; broadcasting ICE candidate to primary and unconnected peer channels as fallback.`
+    );
     if (this.channel) {
       this.channel.addIceCandidate(candidate);
     }

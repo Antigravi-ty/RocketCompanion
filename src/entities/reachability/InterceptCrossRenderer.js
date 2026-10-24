@@ -98,6 +98,7 @@ export class InterceptCrossRenderer {
       rawPoints = btp.rawPredictedPoints;
       predCount = btp.predictionCount;
       elapsedTicks = Math.max(0, Math.floor(currentTick - btp.impactTick));
+      this._lastPredSource = 'btp';
     } else if (phys) {
       // Fallback: even if BallTrajectoryPredictor line is hidden or ball is slow/resting,
       // populate fallback buffer so intercept cross always works seamlessly.
@@ -108,6 +109,10 @@ export class InterceptCrossRenderer {
           const cnt = phys.updateBallPrediction(3.0);
           const wasmPred = phys.getBallPrediction?.();
           if (wasmPred && cnt > 1) {
+            if (this._lastPredSource !== 'wasm-fallback') {
+              this._lastPredSource = 'wasm-fallback';
+              console.info('[InterceptCrossRenderer] BallTrajectoryPredictor buffer inactive; using WASM ball prediction fallback.');
+            }
             const actual = Math.min(cnt, 360);
             for (let i = 0; i < actual; i++) {
               const sOff = i * 6;
@@ -122,6 +127,10 @@ export class InterceptCrossRenderer {
           }
         }
         if (!rawPoints) {
+          if (this._lastPredSource !== 'stationary-fallback') {
+            this._lastPredSource = 'stationary-fallback';
+            console.info('[InterceptCrossRenderer] Ball is stationary or prediction unavailable; using constant-position trajectory fallback.');
+          }
           // Ball is resting/stationary: fill constant position across 360 ticks
           const bx = bv.posX, by = bv.posY, bz = bv.posZ;
           for (let i = 0; i < 360; i++) {

@@ -424,6 +424,12 @@ export class ExperimentalBotAgent {
 
     const parsedModel = getCachedSafeTensors(this.botType);
     if (!parsedModel || !parsedModel.tensors) {
+      if (!this._warnedUnloadedFallback) {
+        this._warnedUnloadedFallback = true;
+        console.warn(
+          `[ExperimentalBotAgent] SafeTensors model "${this.botType}" is not yet loaded for car ${this.carIndex}; falling back to multiCarHeuristicDecide while loading in background.`
+        );
+      }
       ensureExperimentalEngine(this.botType);
       this.action = multiCarHeuristicDecide(
         simState,
@@ -435,6 +441,7 @@ export class ExperimentalBotAgent {
       this.lastInferenceMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
       return this.action;
     }
+    this._warnedUnloadedFallback = false;
 
     try {
       if (this.botType === 'nexto') {

@@ -218,8 +218,8 @@ export const cameraDeterminismStore = {
     harnessRef?.resetCaptureAndPeaks?.();
     try {
       useQuickNotificationStore.getState().dismissNotification(CAMERA_DIVERGENCE_NOTIFICATION_ID);
-    } catch {
-      // Ignore if notification store not mounted
+    } catch (err) {
+      console.warn('[cameraDeterminismStore] Failed to dismiss divergence notification:', err);
     }
   },
 

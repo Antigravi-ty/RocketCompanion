@@ -63,7 +63,6 @@ export class FreeplayRewinderController {
   }
 
   detach() {
-    this._unbindHotkeys();
     if (this._unsubscribeFloating) {
       this._unsubscribeFloating();
       this._unsubscribeFloating = null;
@@ -74,6 +73,17 @@ export class FreeplayRewinderController {
     return floatingStore
       .getSnapshot()
       .windows.some((w) => w.id === 'rewinder-configurator');
+  }
+
+  _ensureFreeplayMode(actionName) {
+    const currentMode = this.runtime?.match?.state?.mode || 'freeplay';
+    if (currentMode !== 'freeplay') {
+      console.warn(
+        `[FreeplayRewinderController] Cannot execute "${actionName}": active mode is "${currentMode}" (Rewinder Configurator requires "freeplay" or "dev-test-lab").`
+      );
+      return false;
+    }
+    return true;
   }
 
   get isBlockingLivePhysics() {
@@ -91,14 +101,34 @@ export class FreeplayRewinderController {
     this._unbindHotkeys();
 
     this._keyDownHandler = (evt) => {
-      if (this.runtime?.match?.state?.mode !== 'freeplay') return;
       if (useAppStore.getState().isOpen) return;
       if (!this._doesRewinderWindowExist()) return;
       const tag = evt.target?.tagName?.toUpperCase?.() || '';
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
       const noMods = !evt.ctrlKey && !evt.shiftKey && !evt.altKey && !evt.metaKey;
-      if ((evt.code === 'KeyO' || evt.key === 'o' || evt.key === 'O') && noMods) {
+      const isRecordKey = (evt.code === 'KeyO' || evt.key === 'o' || evt.key === 'O') && noMods;
+      const isStopKey = (evt.code === 'KeyP' || evt.key === 'p' || evt.key === 'P') && noMods;
+      const isResumeKey = (evt.code === 'KeyG' || evt.key === 'g' || evt.key === 'G') && noMods;
+      const isRewindKey = evt.code === 'BracketLeft' || evt.key === '[';
+      const isForwardKey = evt.code === 'BracketRight' || evt.key === ']';
+
+      if (!isRecordKey && !isStopKey && !isResumeKey && !isRewindKey && !isForwardKey) {
+        return;
+      }
+
+      const currentMode = this.runtime?.match?.state?.mode || 'freeplay';
+      if (currentMode === 'dev-test-lab') return;
+      if (currentMode !== 'freeplay') {
+        if (!evt.repeat) {
+          console.warn(
+            `[FreeplayRewinderController] Ignoring Rewinder hotkey "${evt.key}" because active mode "${currentMode}" does not support Rewinder Configurator (requires "freeplay" or "dev-test-lab").`
+          );
+        }
+        return;
+      }
+
+      if (isRecordKey) {
         if (!evt.repeat) {
           evt.preventDefault();
           evt.stopImmediatePropagation();
@@ -107,7 +137,7 @@ export class FreeplayRewinderController {
         return;
       }
 
-      if ((evt.code === 'KeyP' || evt.key === 'p' || evt.key === 'P') && noMods) {
+      if (isStopKey) {
         if (!evt.repeat) {
           evt.preventDefault();
           evt.stopImmediatePropagation();
@@ -116,7 +146,7 @@ export class FreeplayRewinderController {
         return;
       }
 
-      if ((evt.code === 'KeyG' || evt.key === 'g' || evt.key === 'G') && noMods) {
+      if (isResumeKey) {
         if (!evt.repeat) {
           evt.preventDefault();
           evt.stopImmediatePropagation();
@@ -125,14 +155,14 @@ export class FreeplayRewinderController {
         return;
       }
 
-      if (evt.code === 'BracketLeft' || evt.key === '[') {
+      if (isRewindKey) {
         evt.preventDefault();
         evt.stopImmediatePropagation();
         if (!evt.repeat) this.beginScrub('rewinding');
         return;
       }
 
-      if (evt.code === 'BracketRight' || evt.key === ']') {
+      if (isForwardKey) {
         evt.preventDefault();
         evt.stopImmediatePropagation();
         if (!evt.repeat) this.beginScrub('forwarding');
@@ -320,8 +350,12 @@ export class FreeplayRewinderController {
   }
 
   startNewRecording() {
+    if (!this._ensureFreeplayMode('startNewRecording')) return;
     const r = this.runtime;
-    if (!r?.physics) return;
+    if (!r?.physics) {
+      console.warn('[FreeplayRewinderController] Cannot start recording: physics engine is not initialized.');
+      return;
+    }
 
     this._exitGoalOrReplayIfNeeded();
     if (this.isBlockingLivePhysics && this.tasFrames.length > 0) {
@@ -354,6 +388,7 @@ export class FreeplayRewinderController {
   }
 
   stopRecording() {
+    if (!this._ensureFreeplayMode('stopRecording')) return;
     const store = useDevTestLabStore.getState();
     if (store.tasState === 'recording') {
       const lastFrame = Math.max(0, this.tasFrames.length - 1);
@@ -368,11 +403,17 @@ export class FreeplayRewinderController {
       });
     } else if (this.isBlockingLivePhysics) {
       this._returnToLivePlayFromScrub();
+    } else {
+      console.warn(`[FreeplayRewinderController] Cannot stop recording: current state is "${store.tasState}".`);
     }
   }
 
   beginScrub(direction = 'rewinding') {
-    if (this.tasFrames.length === 0) return;
+    if (!this._ensureFreeplayMode(`beginScrub(${direction})`)) return;
+    if (this.tasFrames.length === 0) {
+      console.warn(`[FreeplayRewinderController] Cannot start ${direction}: recorded frame buffer is empty (0 frames).`);
+      return;
+    }
     this._exitGoalOrReplayIfNeeded();
     const store = useDevTestLabStore.getState();
     if (store.tasState === 'recording') {
@@ -411,7 +452,11 @@ export class FreeplayRewinderController {
   }
 
   seekFrame(frameIndex) {
-    if (!this.tasFrames || this.tasFrames.length === 0) return;
+    if (!this._ensureFreeplayMode('seekFrame')) return;
+    if (!this.tasFrames || this.tasFrames.length === 0) {
+      console.warn('[FreeplayRewinderController] Cannot seek frame: recorded frame buffer is empty (0 frames).');
+      return;
+    }
     this._exitGoalOrReplayIfNeeded();
     if (this.runtime?.keyboard) {
       this.runtime.keyboard.ballControlEnabled = false;
@@ -431,11 +476,21 @@ export class FreeplayRewinderController {
   }
 
   resumeFromCursor() {
+    if (!this._ensureFreeplayMode('resumeFromCursor')) return;
     const r = this.runtime;
     const store = useDevTestLabStore.getState();
     const downSec = store.tasDownCounterSec ?? 0;
     const minRequiredFrames = downSec === 0 ? 120 : 240;
-    if (!r?.physics || this.tasFrames.length < minRequiredFrames) return;
+    if (!r?.physics) {
+      console.warn('[FreeplayRewinderController] Cannot resume from cursor: physics engine is not initialized.');
+      return;
+    }
+    if (this.tasFrames.length < minRequiredFrames) {
+      console.warn(
+        `[FreeplayRewinderController] Cannot resume from cursor: recorded frames (${this.tasFrames.length}) < minimum required frames (${minRequiredFrames}) for downCounter=${downSec}s.`
+      );
+      return;
+    }
 
     this._exitGoalOrReplayIfNeeded();
     if (r.keyboard) {
@@ -488,13 +543,20 @@ export class FreeplayRewinderController {
   }
 
   async exportReplay() {
-    if (!this.tasFrames || this.tasFrames.length === 0) return false;
+    if (!this.tasFrames || this.tasFrames.length === 0) {
+      console.warn('[FreeplayRewinderController] Cannot export replay: recorded frame buffer is empty (0 frames).');
+      return false;
+    }
     return exportStateReplayFile(this.tasFrames);
   }
 
   async importReplay(fileOrBuffer) {
+    if (!this._ensureFreeplayMode('importReplay')) return false;
     const r = this.runtime;
-    if (!r?.physics) return false;
+    if (!r?.physics) {
+      console.warn('[FreeplayRewinderController] Cannot import replay: physics engine is not initialized.');
+      return false;
+    }
     try {
       const parsed = await parseRCReplayFile(fileOrBuffer);
       if (!parsed || !Array.isArray(parsed.frames) || parsed.frames.length === 0) {

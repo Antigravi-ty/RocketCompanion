@@ -71,8 +71,8 @@ export function dismissHostLobbyOngoingNotification() {
   try {
     const notifyStore = useQuickNotificationStore?.getState?.();
     notifyStore?.dismissOngoingNotification?.(HOST_LOBBY_ONGOING_NOTIFICATION_ID);
-  } catch {
-    // Ignore if store not ready
+  } catch (err) {
+    console.warn('[RuntimeOnlineRosterSync] Failed to dismiss host lobby ongoing notification:', err);
   }
 }
 

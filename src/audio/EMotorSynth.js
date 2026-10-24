@@ -161,7 +161,9 @@ export class EMotorSynth {
       const continueOnBlur = typeof audioConfig !== 'undefined' && audioConfig?.get ? audioConfig.get('continueAudioOnLostFocus') : false;
       const isHidden = typeof document !== 'undefined' ? (document.hidden && !continueOnBlur) : false;
       if (params.audible !== false && !isHidden && (this.context.state === 'suspended' || this.context.state === 'interrupted')) {
-        this.context.resume().catch(() => {});
+        this.context.resume().catch((err) => {
+          console.warn('[EMotorSynth] AudioContext resume failed/blocked:', err);
+        });
       }
       return;
     }

@@ -346,7 +346,6 @@ export class DeveloperTestLabMode extends BaseGameMode {
         this._handleSwitchWorld(idx);
       },
       onTasStartRecording: () => {
-        this._ensureTabActive('state-replay');
         this.startTasRecording();
       },
       onTasStopRecording: () => this.stopTasRecording(),
@@ -377,17 +376,26 @@ export class DeveloperTestLabMode extends BaseGameMode {
         triggerGoalReplayBenchScenario(this, scenario);
       },
       onGoalReplayTogglePause: () => {
-        if (!this.goalReplayTimelineController) return;
+        if (!this.goalReplayTimelineController) {
+          console.warn('[DeveloperTestLabMode] Cannot toggle goal replay pause: goalReplayTimelineController is not initialized.');
+          return;
+        }
         const paused = this.goalReplayTimelineController.togglePause();
         useDevTestLabStore.getState().updateLiveTelemetry({ goalReplayPaused: paused });
       },
       onGoalReplayCycleSpeed: () => {
-        if (!this.goalReplayTimelineController) return;
+        if (!this.goalReplayTimelineController) {
+          console.warn('[DeveloperTestLabMode] Cannot cycle goal replay speed: goalReplayTimelineController is not initialized.');
+          return;
+        }
         const speed = this.goalReplayTimelineController.cyclePlaybackSpeed();
         useDevTestLabStore.getState().updateLiveTelemetry({ goalReplaySpeed: speed });
       },
       onGoalReplaySeekNormalized: (progress01) => {
-        if (!this.goalReplayTimelineController) return;
+        if (!this.goalReplayTimelineController) {
+          console.warn('[DeveloperTestLabMode] Cannot seek goal replay: goalReplayTimelineController is not initialized.');
+          return;
+        }
         this.goalReplayTimelineController.seekToNormalized(progress01, r.interpolator);
         useDevTestLabStore.getState().updateLiveTelemetry({
           goalReplayPlaybackCursor: this.goalReplayTimelineController.currentFrameIndex,
@@ -434,6 +442,7 @@ export class DeveloperTestLabMode extends BaseGameMode {
       podiumActive: false,
       goalReplayPhase: 'live',
     });
+    this.runtime?.gameModeManager?.modes?.get?.('freeplay')?.rewinderController?.attach?.();
   }
 
   _handleTabSwitch(tab) {
@@ -450,8 +459,6 @@ export class DeveloperTestLabMode extends BaseGameMode {
         this.ghostVisuals = new MultiWorldGhostRenderer(r.arena);
       }
       this._syncDualWorldConfiguration(true);
-    } else if (tab === 'state-replay') {
-      // Arena baseline & TAS buffer are already freshly reset by _resetLabArenaBaseline()
     } else if (tab === 'incident-match') {
       this.startIncidentMatch(store.incidentOpponentMode);
     } else if (tab === 'goal-replay') {
@@ -550,7 +557,10 @@ export class DeveloperTestLabMode extends BaseGameMode {
   }
 
   async exportTasReplay() {
-    if (!this.tasFrames || this.tasFrames.length === 0) return false;
+    if (!this.tasFrames || this.tasFrames.length === 0) {
+      console.warn('[DeveloperTestLabMode] Cannot export TAS replay: recorded frame buffer is empty (0 frames).');
+      return false;
+    }
     return exportStateReplayFile(this.tasFrames);
   }
 
@@ -583,8 +593,8 @@ export class DeveloperTestLabMode extends BaseGameMode {
       return false;
     }
 
-    if (activeTab === 'state-replay') {
-      return stepTasBeforePhysicsTick(this, store);
+    if (!stepTasBeforePhysicsTick(this, store)) {
+      return false;
     }
 
     if (activeTab === 'goal-replay') {

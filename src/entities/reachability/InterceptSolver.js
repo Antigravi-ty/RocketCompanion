@@ -175,7 +175,14 @@ export function solveOptimalIntercept(
   if (result.status !== 'reachable') {
     result.paceStatus = 'unreachable';
     if (!config.showClosestWhenUnreachable || bestFallbackTick < 0) {
+      solveOptimalIntercept._lastStatus = 'none';
       return result;
+    }
+    if (solveOptimalIntercept._lastStatus !== 'closest-fallback') {
+      solveOptimalIntercept._lastStatus = 'closest-fallback';
+      console.info(
+        `[InterceptSolver] Trajectory is unreachable within horn; falling back to closest-approach point at tick ${bestFallbackTick} (margin=${bestFallbackMargin.toFixed(1)}).`
+      );
     }
     result.status = 'closest-fallback';
     result.margin = bestFallbackMargin;
@@ -185,6 +192,7 @@ export function solveOptimalIntercept(
     bestHitDist = bestFallbackDist;
     bestHitREnv = bestFallbackREnv;
   } else {
+    solveOptimalIntercept._lastStatus = 'reachable';
     result.margin = bestHitMargin;
   }
 

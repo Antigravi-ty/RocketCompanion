@@ -44,6 +44,7 @@ export const StaticTrainingShotListView: React.FC<StaticTrainingShotListViewProp
       await importSingleShotJson(file);
       onHoverDesc(`Imported shot item from ${file.name}`);
     } catch (err: any) {
+      console.error('[StaticTrainingShotListView] Failed to import shot JSON:', err);
       onHoverDesc(`Failed to import shot JSON: ${err?.message || 'Invalid JSON'}`);
     } finally {
       e.target.value = '';

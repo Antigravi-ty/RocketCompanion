@@ -81,7 +81,7 @@ export class KickoffTrainingMode extends BaseGameMode {
         freshInstance: true,
         isolated: true,
       });
-      sim.configureCars('default', false, 0);
+      sim.configureCars('octane', false, 0);
       sim.setUnlimitedBoost(false);
       this.ghostSim = sim;
       this.ghostPrevState = sim.state.slice();
@@ -104,38 +104,51 @@ export class KickoffTrainingMode extends BaseGameMode {
 
     r.arena?.ensureOpponent?.();
 
+    const ensureActiveKickoffMode = (actionName) => {
+      const activeMode = r?.match?.state?.mode;
+      if (activeMode !== 'kickoff-training') {
+        console.warn(
+          `[KickoffTrainingMode] ${actionName} ignored: active mode is "${activeMode ?? 'none'}", requires "kickoff-training".`
+        );
+        return false;
+      }
+      return true;
+    };
+
     store.setRuntimeHandlers({
       onSelectSpawn: (idx) => {
-        if (r.match?.state?.mode === 'kickoff-training') this.selectSpawn(idx);
+        if (ensureActiveKickoffMode('onSelectSpawn')) this.selectSpawn(idx);
       },
       onResetSpawn: () => {
-        if (r.match?.state?.mode === 'kickoff-training') this.selectSpawn(this.spawnIndex);
+        if (ensureActiveKickoffMode('onResetSpawn')) this.selectSpawn(this.spawnIndex);
       },
       onSubModeChange: (nextSubMode) => {
         this.subMode = nextSubMode;
-        if (r.match?.state?.mode === 'kickoff-training') this.selectSpawn(this.spawnIndex);
+        if (ensureActiveKickoffMode('onSubModeChange')) this.selectSpawn(this.spawnIndex);
       },
       onSpeedChange: (physicsRate) => {
-        if (r.match?.state?.mode === 'kickoff-training' && r.interpolator) {
+        if (!ensureActiveKickoffMode('onSpeedChange')) return;
+        if (r.interpolator) {
           r.interpolator.setTrainingPhysicsRate?.(physicsRate);
         }
       },
       onRealisticWaitChange: () => {
-        if (r.match?.state?.mode === 'kickoff-training' && this.subMode === 'realistic') {
+        if (!ensureActiveKickoffMode('onRealisticWaitChange')) return;
+        if (this.subMode === 'realistic') {
           this.selectSpawn(this.spawnIndex);
         }
       },
       onGhostPlacementChange: (placement) => {
         this.ghostPlacement = placement;
         this.ghostVisuals?.setGhostPlacement(placement);
-        if (r.match?.state?.mode === 'kickoff-training' && !this.ghostModeEnabled) {
+        if (ensureActiveKickoffMode('onGhostPlacementChange') && !this.ghostModeEnabled) {
           this.selectSpawn(useKickoffTrainingStore.getState().spawnIndex);
         }
       },
       onGhostModeChange: (enabled) => {
         this.ghostModeEnabled = enabled;
         this.ghostVisuals?.setVisible(enabled);
-        if (r.match?.state?.mode === 'kickoff-training') {
+        if (ensureActiveKickoffMode('onGhostModeChange')) {
           this.selectSpawn(useKickoffTrainingStore.getState().spawnIndex);
         }
       },
