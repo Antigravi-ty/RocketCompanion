@@ -126,26 +126,21 @@ export function buildCurrentFrameDiagnosticSnapshot(ctrl) {
     idx,
     ctrl.directorCameraState.activeTouchCarIndex ?? ctrl.scorerCarIndex ?? 0
   );
-  const slowMoFactor = ctrl.computeDramaticSlowMoFactor(idx);
+  const slowMoFactor = ctrl.computeDramaticSlowMoFactor(idx, { ignoreScrubState: true });
 
   const rawPose = computeGoalReplayCameraPose(snap, ctrl.scoringTeam, {
     scorerCarIndex: ctrl.scorerCarIndex,
     progress,
     directorState: {
-      initialized: false,
-      eyeX: 0,
-      eyeY: 0,
-      eyeZ: 0,
-      targetX: 0,
-      targetY: 0,
-      targetZ: 0,
-      lateralBias: ctrl.directorCameraState.lateralBias || 1.0,
+      ...ctrl.directorCameraState,
       activeTouchCarIndex: lookahead.primaryCarIndex,
       nextTouchCarIndex: lookahead.nextCarIndex,
       nextTouchBlend: lookahead.nextTouchBlend,
       nextTouchBallPos: lookahead.nextTouchBallPos,
     },
     dt: 1 / REPLAY_TICK_RATE,
+    exactDt: true,
+    skipDamping: true,
   });
 
   const dampedPose = ctrl.directorCameraState.initialized
@@ -208,6 +203,13 @@ export function buildCurrentFrameDiagnosticSnapshot(ctrl) {
   };
 }
 
+function wrapAngleDeltaDeg(a, b) {
+  let d = a - b;
+  while (d > 180) d -= 360;
+  while (d < -180) d += 360;
+  return d;
+}
+
 /**
  * Simulates the full Goal Replay Director camera trajectory deterministically at 120Hz
  * across all frames in the replay window for camera diagnostics.
@@ -233,7 +235,8 @@ export function buildDirectorDiagnosticPatternPayload(ctrl, options = {}) {
     targetX: 0,
     targetY: 0,
     targetZ: 0,
-    lateralBias: 1.0,
+    lateralBias: ctrl.directorCameraState.lateralBias || 1.0,
+    hasResolvedInitialLateralBias: Boolean(ctrl.directorCameraState.hasResolvedInitialLateralBias),
     activeTouchCarIndex: ctrl.scorerCarIndex ?? 0,
     nextTouchCarIndex: -1,
     nextTouchBlend: 0,
@@ -246,6 +249,20 @@ export function buildDirectorDiagnosticPatternPayload(ctrl, options = {}) {
   };
 
   const frames = [];
+  let prevPose = null;
+  let prevRawPose = null;
+  let prevAngles = null;
+  let prevEyeVel = null;
+  let prevTargetVel = null;
+
+  let maxEyeStepUu = 0;
+  let maxTargetStepUu = 0;
+  let maxRawEyeStepUu = 0;
+  let maxRawTargetStepUu = 0;
+  let maxEyeAccelUu = 0;
+  let maxTargetAccelUu = 0;
+  let maxYawStepDeg = 0;
+
   for (let idx = 0; idx < total; idx++) {
     const entry = ctrl.getFrameEntryByIndex(idx);
     const snap = ctrl.getFrameBufferByIndex(idx);
@@ -264,28 +281,82 @@ export function buildDirectorDiagnosticPatternPayload(ctrl, options = {}) {
     simDirectorState.nextTouchBlend = lookahead.nextTouchBlend;
     simDirectorState.nextTouchBallPos = lookahead.nextTouchBallPos;
 
-    const slowMoFactor = ctrl.computeDramaticSlowMoFactor(idx);
-    const effectiveDt = (1 / REPLAY_TICK_RATE) / Math.max(0.25, slowMoFactor);
-
-    const rawPose = computeGoalReplayCameraPose(snap, ctrl.scoringTeam, {
-      scorerCarIndex: ctrl.scorerCarIndex,
-      progress,
-      directorState: {
-        ...simDirectorState,
-        initialized: false,
-      },
-      dt: effectiveDt,
-    });
+    const slowMoFactor = ctrl.computeDramaticSlowMoFactor(idx, { ignoreScrubState: true });
+    // Each replay frame step is exactly 1 simulation tick (1 / 120s) regardless of slow-mo display rate
+    const effectiveDt = 1 / REPLAY_TICK_RATE;
 
     const dampedPose = computeGoalReplayCameraPose(snap, ctrl.scoringTeam, {
       scorerCarIndex: ctrl.scorerCarIndex,
       progress,
       directorState: simDirectorState,
       dt: effectiveDt,
+      exactDt: true,
     });
+
+    const rawPose = {
+      eyeX: dampedPose.rawEyeX ?? dampedPose.eyeX,
+      eyeY: dampedPose.rawEyeY ?? dampedPose.eyeY,
+      eyeZ: dampedPose.rawEyeZ ?? dampedPose.eyeZ,
+      targetX: dampedPose.rawTargetX ?? dampedPose.targetX,
+      targetY: dampedPose.rawTargetY ?? dampedPose.targetY,
+      targetZ: dampedPose.rawTargetZ ?? dampedPose.targetZ,
+    };
 
     const dampedAngles = computeCameraAnglesFromPose(dampedPose);
     const rawAngles = computeCameraAnglesFromPose(rawPose);
+
+    let eyeStepUu = 0;
+    let targetStepUu = 0;
+    let rawEyeStepUu = 0;
+    let rawTargetStepUu = 0;
+    let yawStepDeg = 0;
+    let pitchStepDeg = 0;
+    let eyeAccelUu = 0;
+    let targetAccelUu = 0;
+
+    if (prevPose && prevRawPose && prevAngles) {
+      const evX = dampedPose.eyeX - prevPose.eyeX;
+      const evY = dampedPose.eyeY - prevPose.eyeY;
+      const evZ = dampedPose.eyeZ - prevPose.eyeZ;
+      const tvX = dampedPose.targetX - prevPose.targetX;
+      const tvY = dampedPose.targetY - prevPose.targetY;
+      const tvZ = dampedPose.targetZ - prevPose.targetZ;
+
+      eyeStepUu = Math.hypot(evX, evY, evZ);
+      targetStepUu = Math.hypot(tvX, tvY, tvZ);
+      rawEyeStepUu = Math.hypot(
+        rawPose.eyeX - prevRawPose.eyeX,
+        rawPose.eyeY - prevRawPose.eyeY,
+        rawPose.eyeZ - prevRawPose.eyeZ
+      );
+      rawTargetStepUu = Math.hypot(
+        rawPose.targetX - prevRawPose.targetX,
+        rawPose.targetY - prevRawPose.targetY,
+        rawPose.targetZ - prevRawPose.targetZ
+      );
+      yawStepDeg = wrapAngleDeltaDeg(dampedAngles.yawDeg, prevAngles.yawDeg);
+      pitchStepDeg = dampedAngles.pitchDeg - prevAngles.pitchDeg;
+
+      if (prevEyeVel && prevTargetVel) {
+        eyeAccelUu = Math.hypot(evX - prevEyeVel[0], evY - prevEyeVel[1], evZ - prevEyeVel[2]);
+        targetAccelUu = Math.hypot(tvX - prevTargetVel[0], tvY - prevTargetVel[1], tvZ - prevTargetVel[2]);
+      }
+
+      prevEyeVel = [evX, evY, evZ];
+      prevTargetVel = [tvX, tvY, tvZ];
+
+      if (eyeStepUu > maxEyeStepUu) maxEyeStepUu = eyeStepUu;
+      if (targetStepUu > maxTargetStepUu) maxTargetStepUu = targetStepUu;
+      if (rawEyeStepUu > maxRawEyeStepUu) maxRawEyeStepUu = rawEyeStepUu;
+      if (rawTargetStepUu > maxRawTargetStepUu) maxRawTargetStepUu = rawTargetStepUu;
+      if (eyeAccelUu > maxEyeAccelUu) maxEyeAccelUu = eyeAccelUu;
+      if (targetAccelUu > maxTargetAccelUu) maxTargetAccelUu = targetAccelUu;
+      if (Math.abs(yawStepDeg) > maxYawStepDeg) maxYawStepDeg = Math.abs(yawStepDeg);
+    }
+
+    prevPose = { ...dampedPose };
+    prevRawPose = { ...rawPose };
+    prevAngles = { ...dampedAngles };
 
     frames.push({
       frameId,
@@ -327,6 +398,14 @@ export function buildDirectorDiagnosticPatternPayload(ctrl, options = {}) {
         rawDistanceToTarget: rawAngles.distanceToTarget,
         rawYawDeg: rawAngles.yawDeg,
         rawPitchDeg: rawAngles.pitchDeg,
+        eyeStepUu: round3(eyeStepUu),
+        targetStepUu: round3(targetStepUu),
+        yawStepDeg: round4(yawStepDeg),
+        pitchStepDeg: round4(pitchStepDeg),
+        rawEyeStepUu: round3(rawEyeStepUu),
+        rawTargetStepUu: round3(rawTargetStepUu),
+        eyeAccelUu: round3(eyeAccelUu),
+        targetAccelUu: round3(targetAccelUu),
       },
       ball: entities.ball,
       cars: entities.cars,
@@ -375,6 +454,15 @@ export function buildDirectorDiagnosticPatternPayload(ctrl, options = {}) {
         goalLineIdx >= 0
           ? (ctrl.getFrameEntryByIndex(goalLineIdx)?.tick ?? (startFrameId + goalLineIdx))
           : -1,
+      trajectorySmoothnessSummary: {
+        maxEyeStepUu: round3(maxEyeStepUu),
+        maxTargetStepUu: round3(maxTargetStepUu),
+        maxRawEyeStepUu: round3(maxRawEyeStepUu),
+        maxRawTargetStepUu: round3(maxRawTargetStepUu),
+        maxEyeAccelUu: round3(maxEyeAccelUu),
+        maxTargetAccelUu: round3(maxTargetAccelUu),
+        maxYawStepDeg: round4(maxYawStepDeg),
+      },
       playbackStateAtExport: {
         selectedReplayFrameIndex: ctrl.currentFrameIndex,
         selectedFrameId: currentSnapshot?.frameId ?? startFrameId,
@@ -397,7 +485,8 @@ export function buildDirectorDiagnosticPatternPayload(ctrl, options = {}) {
 
 /**
  * Builds a flat CSV string of the full replay window with `frame_id`, `replay_frame_index`,
- * camera eye/target/angles, lookahead weights, ball pos/vel, and primary car pos/vel.
+ * camera eye/target/angles, lookahead weights, ball pos/vel, primary car pos/vel,
+ * and per-frame step/acceleration smoothness metrics.
  */
 export function buildDirectorDiagnosticPatternCsv(ctrl, options = {}) {
   const payload = buildDirectorDiagnosticPatternPayload(ctrl, options);
@@ -443,6 +532,14 @@ export function buildDirectorDiagnosticPatternCsv(ctrl, options = {}) {
     'focus_car_vy',
     'focus_car_vz',
     'focus_car_dist_to_ball',
+    'eye_step_uu',
+    'target_step_uu',
+    'yaw_step_deg',
+    'pitch_step_deg',
+    'raw_eye_step_uu',
+    'raw_target_step_uu',
+    'eye_accel_uu',
+    'target_accel_uu',
   ];
 
   const lines = [columns.join(',')];
@@ -491,6 +588,14 @@ export function buildDirectorDiagnosticPatternCsv(ctrl, options = {}) {
       focusCar ? focusCar.vel[1] : 0,
       focusCar ? focusCar.vel[2] : 0,
       focusCar ? focusCar.distToBall : 0,
+      f.cameraPose.eyeStepUu ?? 0,
+      f.cameraPose.targetStepUu ?? 0,
+      f.cameraPose.yawStepDeg ?? 0,
+      f.cameraPose.pitchStepDeg ?? 0,
+      f.cameraPose.rawEyeStepUu ?? 0,
+      f.cameraPose.rawTargetStepUu ?? 0,
+      f.cameraPose.eyeAccelUu ?? 0,
+      f.cameraPose.targetAccelUu ?? 0,
     ];
     lines.push(row.join(','));
   }

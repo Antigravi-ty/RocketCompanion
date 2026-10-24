@@ -253,17 +253,41 @@ export class ReplayTimelineController {
 
     const touchEvents = [];
     let goalLineFrameIdx = -1;
+    let sumPreGoalBallX = 0;
+    let countPreGoalBallX = 0;
+
+    const pushTouchCandidate = (idx, tick, carIndex, team, ballX, ballY, ballZ) => {
+      const prevTouch = touchEvents[touchEvents.length - 1];
+      if (!prevTouch || prevTouch.carIndex !== carIndex || idx - prevTouch.frameIndex > 10) {
+        touchEvents.push({
+          frameIndex: idx,
+          tick,
+          carIndex,
+          team,
+          ballX,
+          ballY,
+          ballZ,
+        });
+      }
+    };
 
     for (let idx = 0; idx < total; idx++) {
       const entry = frames[idx];
       if (!entry) continue;
       const snap = entry.snapshot;
-      if (goalLineFrameIdx < 0 && snap && snap.length > 6) {
+      if (snap && snap.length > 6) {
+        const ballX = snap[4] || 0;
         const ballY = snap[5] || 0;
-        if (Math.abs(ballY) >= 5100 || (snap[1] || 0) > 0) {
-          goalLineFrameIdx = idx;
+        if (goalLineFrameIdx < 0) {
+          sumPreGoalBallX += ballX;
+          countPreGoalBallX++;
+          if (Math.abs(ballY) >= 5100) {
+            goalLineFrameIdx = idx;
+          }
         }
       }
+
+      let recordedIncidentTouch = false;
       if (Array.isArray(entry.incidents) && entry.incidents.length > 0) {
         for (let j = 0; j < entry.incidents.length; j++) {
           const inc = entry.incidents[j];
@@ -279,23 +303,52 @@ export class ReplayTimelineController {
               const ballX = snap && snap.length > 6 ? snap[4] : 0;
               const ballY = snap && snap.length > 6 ? snap[5] : 0;
               const ballZ = snap && snap.length > 6 ? snap[6] : 93;
-              const prevTouch = touchEvents[touchEvents.length - 1];
-              if (!prevTouch || prevTouch.carIndex !== carIndex || idx - prevTouch.frameIndex > 8) {
-                touchEvents.push({
-                  frameIndex: idx,
-                  tick: entry.tick ?? idx,
-                  carIndex,
-                  team,
-                  ballX,
-                  ballY,
-                  ballZ,
-                });
-              } else {
-                prevTouch.frameIndex = idx;
-                prevTouch.ballX = ballX;
-                prevTouch.ballY = ballY;
-                prevTouch.ballZ = ballZ;
+              pushTouchCandidate(idx, entry.tick ?? idx, carIndex, team, ballX, ballY, ballZ);
+              recordedIncidentTouch = true;
+            }
+          }
+        }
+      }
+
+      // Kinematic fallback: detect car-ball hits when ball velocity undergoes a sudden impulse
+      // while a car is within contact proximity (< 260 UU) and before goal-line crossing.
+      if (
+        !recordedIncidentTouch &&
+        idx > 1 &&
+        (goalLineFrameIdx < 0 || idx <= goalLineFrameIdx + 4) &&
+        snap &&
+        snap.length >= 22
+      ) {
+        const prevSnap = frames[idx - 1]?.snapshot;
+        if (prevSnap && prevSnap.length >= 22) {
+          const dvx = (snap[16] || 0) - (prevSnap[16] || 0);
+          const dvy = (snap[17] || 0) - (prevSnap[17] || 0);
+          const dvz = (snap[18] || 0) - (prevSnap[18] || 0);
+          // Subtract expected gravity dvz (~ -650 / 120 = -5.4 UU/tick)
+          const impulse = Math.hypot(dvx, dvy, dvz + 5.4);
+          if (impulse > 180.0) {
+            const ballX = snap[4] || 0;
+            const ballY = snap[5] || 0;
+            const ballZ = snap[6] || 93;
+            const numCars = Math.min(8, Math.max(0, Math.round(snap[3] || 0)));
+            let bestCar = -1;
+            let bestDist = 265.0;
+            for (let c = 0; c < numCars; c++) {
+              const cBase = 22 + c * 40;
+              if (snap.length < cBase + 3) continue;
+              const dist = Math.hypot(
+                (snap[cBase] || 0) - ballX,
+                (snap[cBase + 1] || 0) - ballY,
+                (snap[cBase + 2] || 0) - ballZ
+              );
+              if (dist < bestDist) {
+                bestDist = dist;
+                bestCar = c;
               }
+            }
+            if (bestCar >= 0) {
+              const team = carTeamResolver(bestCar);
+              pushTouchCandidate(idx, entry.tick ?? idx, bestCar, team, ballX, ballY, ballZ);
             }
           }
         }
@@ -322,6 +375,13 @@ export class ReplayTimelineController {
       resolvedScorerCarIndex = lastT.carIndex;
     }
 
+    // Resolve a consistent replay-wide lateralBias from the dominant pre-goal ball side
+    const meanBallX = countPreGoalBallX > 0 ? sumPreGoalBallX / countPreGoalBallX : 0;
+    const goalSignY = scoringTeam === 0 ? 1.0 : -1.0;
+    // Perpendicular vector usX ≈ -ugY ≈ -goalSignY; interior side is opposite sign of meanBallX
+    const interiorSign = meanBallX <= 0 ? 1.0 : -1.0;
+    const resolvedLateralBias = (-goalSignY * interiorSign) >= 0 ? 1.0 : -1.0;
+
     this.directorCameraState.touchEvents = touchEvents;
     this.directorCameraState.lastScoringTouchFrameIdx = lastScoringTouchFrameIdx;
     this.directorCameraState.goalLineFrameIdx = goalLineFrameIdx;
@@ -329,11 +389,14 @@ export class ReplayTimelineController {
     this.directorCameraState.nextTouchCarIndex = -1;
     this.directorCameraState.nextTouchBlend = 0;
     this.directorCameraState.nextTouchBallPos = null;
+    this.directorCameraState.lateralBias = resolvedLateralBias;
+    this.directorCameraState.hasResolvedInitialLateralBias = true;
   }
 
   /**
-   * Resolves a Two-Touch Lookahead plan at `frameIdx`:
-   * Identifies both the primary upcoming scoring-team touch (T1) and the subsequent touch (T2).
+   * Resolves a C1-continuous Multi-Touch Lookahead plan at `frameIdx`:
+   * Uses smooth raised-cosine bell windows over all upcoming touches so `nextTouchBlend`
+   * and `nextTouchBallPos` never step-jump or cliff-drop to zero on a single frame.
    */
   resolveTouchLookaheadForFrame(frameIdx, fallbackScorerCarIndex = 0) {
     const state = this.directorCameraState;
@@ -349,7 +412,12 @@ export class ReplayTimelineController {
 
     const scoringTeam = this.scoringTeam ?? 0;
     const holdTicks = Math.round((REPLAY_DIRECTOR_CONFIG.touchHoldAfterSeconds ?? 0.2) * REPLAY_TICK_RATE);
-    const lookaheadTicks = Math.round((REPLAY_DIRECTOR_CONFIG.twoTouchLookaheadSeconds ?? 2.2) * REPLAY_TICK_RATE);
+    const lookaheadTicks = Math.max(
+      60,
+      Math.round((REPLAY_DIRECTOR_CONFIG.twoTouchLookaheadSeconds ?? 2.2) * REPLAY_TICK_RATE)
+    );
+    const releaseTicks = Math.max(48, holdTicks + 36);
+    const anticipationWeight = REPLAY_DIRECTOR_CONFIG.twoTouchAnticipationWeight ?? 0.36;
 
     const scoringTouches = touches.filter((t) => t.team === scoringTeam);
     const candidateTouches = scoringTouches.length > 0 ? scoringTouches : touches;
@@ -362,41 +430,71 @@ export class ReplayTimelineController {
       }
     }
 
-    if (primaryIdx < 0) {
-      const lastTouch = candidateTouches[candidateTouches.length - 1];
+    const lastTouch = candidateTouches[candidateTouches.length - 1];
+    const primaryTouch = primaryIdx >= 0 ? candidateTouches[primaryIdx] : lastTouch;
+    const primaryCarIndex = primaryTouch ? primaryTouch.carIndex : fallbackScorerCarIndex;
+
+    let sumW = 0;
+    let sumX = 0;
+    let sumY = 0;
+    let sumZ = 0;
+    let bestW = 0;
+    let nextCarIndex = -1;
+
+    for (let i = 0; i < candidateTouches.length; i++) {
+      const t = candidateTouches[i];
+      // Skip touches that are neither future touches nor the initial opening touch (> 18 ticks into replay)
+      if (i === 0 && t.frameIndex <= 18) continue;
+
+      const dt = t.frameIndex - frameIdx;
+      if (dt > lookaheadTicks || dt < -releaseTicks) continue;
+
+      let w = 0;
+      if (dt >= 0) {
+        // Smooth raised-cosine rise as the ball approaches touch `t`
+        const u = 1.0 - dt / lookaheadTicks;
+        const s = 0.5 - 0.5 * Math.cos(Math.max(0, Math.min(1, u)) * Math.PI);
+        w = s * s;
+      } else {
+        // Smooth raised-cosine decay after touch `t` so lookahead never cliff-drops at t + holdTicks
+        const u = 1.0 - (-dt) / releaseTicks;
+        const s = 0.5 - 0.5 * Math.cos(Math.max(0, Math.min(1, u)) * Math.PI);
+        w = s * s;
+      }
+
+      if (w > 1e-5) {
+        sumW += w;
+        sumX += w * t.ballX;
+        sumY += w * t.ballY;
+        sumZ += w * t.ballZ;
+        if (w > bestW) {
+          bestW = w;
+          nextCarIndex = t.carIndex;
+        }
+      }
+    }
+
+    if (sumW <= 1e-4) {
       return {
-        primaryCarIndex: lastTouch ? lastTouch.carIndex : fallbackScorerCarIndex,
+        primaryCarIndex,
         nextCarIndex: -1,
         nextTouchBlend: 0,
         nextTouchBallPos: null,
       };
     }
 
-    const primaryTouch = candidateTouches[primaryIdx];
-    const nextTouch = primaryIdx + 1 < candidateTouches.length ? candidateTouches[primaryIdx + 1] : null;
-
-    let nextTouchBlend = 0;
-    let nextTouchBallPos = null;
-
-    if (nextTouch && nextTouch.frameIndex - frameIdx <= lookaheadTicks) {
-      nextTouchBallPos = {
-        x: nextTouch.ballX,
-        y: nextTouch.ballY,
-        z: nextTouch.ballZ,
-      };
-      const spanStart = primaryTouch.frameIndex - 45;
-      const spanEnd = Math.min(nextTouch.frameIndex, primaryTouch.frameIndex + holdTicks + 25);
-      const rawT = (frameIdx - spanStart) / Math.max(1, spanEnd - spanStart);
-      const clampedT = Math.max(0, Math.min(1, rawT));
-      const smoothCurve = clampedT * clampedT * (3 - 2 * clampedT);
-      nextTouchBlend = (REPLAY_DIRECTOR_CONFIG.twoTouchAnticipationWeight ?? 0.36) * smoothCurve;
-    }
+    const effectiveW = sumW / (1.0 + 0.35 * sumW);
+    const nextTouchBlend = anticipationWeight * effectiveW;
 
     return {
-      primaryCarIndex: primaryTouch.carIndex,
-      nextCarIndex: nextTouch ? nextTouch.carIndex : -1,
+      primaryCarIndex,
+      nextCarIndex,
       nextTouchBlend,
-      nextTouchBallPos,
+      nextTouchBallPos: {
+        x: sumX / sumW,
+        y: sumY / sumW,
+        z: sumZ / sumW,
+      },
     };
   }
 
@@ -409,8 +507,12 @@ export class ReplayTimelineController {
    * - Final scoring touch: [-0.50s (-60 ticks) .. +0.25s (+30 ticks)] held at 50% (0.50x)
    * - Goal-line crossing:  [-0.25s (-30 ticks) .. +0.25s (+30 ticks)] held at 50% (0.50x)
    */
-  computeDramaticSlowMoFactor(cursorFloat) {
-    if (this.disableSlowMo || Math.abs(this.playbackSpeed - 1.0) > 0.01 || this.isScrubbing) {
+  computeDramaticSlowMoFactor(cursorFloat, options = {}) {
+    const ignoreScrubState = Boolean(options?.ignoreScrubState);
+    if (
+      this.disableSlowMo ||
+      (!ignoreScrubState && (Math.abs(this.playbackSpeed - 1.0) > 0.01 || this.isScrubbing))
+    ) {
       return 1.0;
     }
     const state = this.directorCameraState;
@@ -561,8 +663,36 @@ export class ReplayTimelineController {
     this.cursorFloat = clamped;
     this.isScrubbing = true;
     this.isPersistent = true;
-    this._lastDispatchedFrameIndex = Math.floor(clamped);
-    const buf = this.getFrameBufferByIndex(Math.floor(clamped));
+    const targetIdx = Math.floor(clamped);
+    this._lastDispatchedFrameIndex = targetIdx;
+
+    // Deterministically warm-up Director Camera state up to targetIdx so scrubbing/seeking
+    // lands on the exact damped trajectory pose without post-seek drift.
+    if (this.directorCameraState) {
+      const warmStart = Math.max(0, targetIdx - 90);
+      this.directorCameraState.initialized = false;
+      for (let i = warmStart; i <= targetIdx; i++) {
+        const s = this.getFrameBufferByIndex(i);
+        if (!s) continue;
+        const la = this.resolveTouchLookaheadForFrame(
+          i,
+          this.directorCameraState.activeTouchCarIndex ?? this.scorerCarIndex ?? 0
+        );
+        this.directorCameraState.activeTouchCarIndex = la.primaryCarIndex;
+        this.directorCameraState.nextTouchCarIndex = la.nextCarIndex;
+        this.directorCameraState.nextTouchBlend = la.nextTouchBlend;
+        this.directorCameraState.nextTouchBallPos = la.nextTouchBallPos;
+        computeGoalReplayCameraPose(s, this.scoringTeam, {
+          scorerCarIndex: this.scorerCarIndex,
+          progress: total > 1 ? i / (total - 1) : 0,
+          directorState: this.directorCameraState,
+          dt: 1 / REPLAY_TICK_RATE,
+          exactDt: true,
+        });
+      }
+    }
+
+    const buf = this.getFrameBufferByIndex(targetIdx);
     if (buf && this.engine) {
       applyReplayFrameToEngine(this.engine, buf, interpolator);
     }
@@ -575,17 +705,7 @@ export class ReplayTimelineController {
     const total = this.getTotalRecordedFrames();
     if (total <= 0) return null;
     const targetIdx = Math.max(0, Math.min(total - 1, total - 1 - Math.max(0, Math.floor(ticksAgo))));
-    this.cursorFloat = targetIdx;
-    this.isScrubbing = true;
-    this.isPersistent = true;
-    this._lastDispatchedFrameIndex = Math.floor(targetIdx);
-    const buf = this.getFrameBufferByOffset(ticksAgo);
-    if (buf && this.engine) {
-      applyReplayFrameToEngine(this.engine, buf, interpolator);
-    }
-    _activeReplayController = this;
-    notifyReplaySessionListeners();
-    return buf;
+    return this.seekToIndex(targetIdx, interpolator);
   }
 
   seekToNormalized(progress01, interpolator = null) {
@@ -598,8 +718,9 @@ export class ReplayTimelineController {
   setPaused(paused) {
     this.isPaused = Boolean(paused);
     if (this.isPaused) {
-      this.isScrubbing = true;
       this.isPersistent = true;
+    } else {
+      this.isScrubbing = false;
     }
     _activeReplayController = this;
     notifyReplaySessionListeners();
@@ -652,6 +773,9 @@ export class ReplayTimelineController {
     }
 
     _activeReplayController = this;
+    if (!this.isPaused && this.isScrubbing) {
+      this.isScrubbing = false;
+    }
     const slowMoFactor = this.computeDramaticSlowMoFactor(this.cursorFloat);
     if (!this.isPaused) {
       const advanceTicks = Math.max(0, dtSeconds * REPLAY_TICK_RATE * this.playbackSpeed * slowMoFactor);

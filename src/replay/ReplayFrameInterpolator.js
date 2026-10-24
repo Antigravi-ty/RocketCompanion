@@ -290,7 +290,40 @@ export function computeGoalReplayCameraPose(stateBuffer, scoringTeam = 0, option
     directorState.nextTouchBlend = embeddedTelemetry.nextTouchBlend;
     directorState.nextTouchBallPos = embeddedTelemetry.nextTouchBallPos;
   }
-  const dt = clamp(options.dt ?? 0.016, 0.001, 0.1);
+  const dt = options.exactDt
+    ? Math.max(1e-4, Number(options.dt) || 1 / 120)
+    : clamp(options.dt ?? 0.016, 0.001, 0.1);
+  const skipDamping = Boolean(options.skipDamping);
+
+  // Smooth ball velocity feedforward so car-ball impulse spikes and post-goal ball freeze do not step-jump rawTarget
+  let ffBallVelX = ballVelX;
+  let ffBallVelY = ballVelY;
+  let ffBallVelZ = ballVelZ;
+  if (directorState) {
+    if (!directorState.initialized || typeof directorState.smoothedBallVelX !== 'number') {
+      if (!skipDamping) {
+        directorState.smoothedBallVelX = ballVelX;
+        directorState.smoothedBallVelY = ballVelY;
+        directorState.smoothedBallVelZ = ballVelZ;
+      }
+      ffBallVelX = directorState.smoothedBallVelX ?? ballVelX;
+      ffBallVelY = directorState.smoothedBallVelY ?? ballVelY;
+      ffBallVelZ = directorState.smoothedBallVelZ ?? ballVelZ;
+    } else {
+      const velAlpha = 1.0 - Math.exp(-dt * 9.0);
+      const nextVx = directorState.smoothedBallVelX + (ballVelX - directorState.smoothedBallVelX) * velAlpha;
+      const nextVy = directorState.smoothedBallVelY + (ballVelY - directorState.smoothedBallVelY) * velAlpha;
+      const nextVz = directorState.smoothedBallVelZ + (ballVelZ - directorState.smoothedBallVelZ) * velAlpha;
+      if (!skipDamping) {
+        directorState.smoothedBallVelX = nextVx;
+        directorState.smoothedBallVelY = nextVy;
+        directorState.smoothedBallVelZ = nextVz;
+      }
+      ffBallVelX = nextVx;
+      ffBallVelY = nextVy;
+      ffBallVelZ = nextVz;
+    }
+  }
 
   const headerCars = Math.min(MAX_CARS, Math.max(0, Math.round(stateBuffer[SIM_OFFSETS.NUM_CARS] || 0)));
   const preferredCarIdx =
@@ -317,31 +350,44 @@ export function computeGoalReplayCameraPose(stateBuffer, scoringTeam = 0, option
   let carZ = rawCarZ;
   if (directorState) {
     if (!directorState.initialized || typeof directorState.smoothedCarX !== 'number') {
-      directorState.smoothedCarX = rawCarX;
-      directorState.smoothedCarY = rawCarY;
-      directorState.smoothedCarZ = rawCarZ;
-      directorState.lastTrackedCarIndex = preferredCarIdx;
-      directorState.carSwitchBlend = 1.0;
-    } else {
-      if (directorState.lastTrackedCarIndex !== preferredCarIdx) {
-        directorState.lastTrackedCarIndex = preferredCarIdx;
-        directorState.carSwitchBlend = 0.0;
-      }
-      const switchRate = Math.max(0.5, REPLAY_DIRECTOR_CONFIG.strikerSwitchDampingRate ?? 4.2);
-      if ((directorState.carSwitchBlend ?? 1.0) < 0.995) {
-        const carAlpha = 1.0 - Math.exp(-dt * switchRate);
-        directorState.carSwitchBlend = Math.min(1.0, (directorState.carSwitchBlend ?? 0) + dt * switchRate * 0.65);
-        directorState.smoothedCarX += (rawCarX - directorState.smoothedCarX) * carAlpha;
-        directorState.smoothedCarY += (rawCarY - directorState.smoothedCarY) * carAlpha;
-        directorState.smoothedCarZ += (rawCarZ - directorState.smoothedCarZ) * carAlpha;
-      } else {
+      if (!skipDamping) {
         directorState.smoothedCarX = rawCarX;
         directorState.smoothedCarY = rawCarY;
         directorState.smoothedCarZ = rawCarZ;
+        directorState.lastTrackedCarIndex = preferredCarIdx;
+        directorState.carSwitchBlend = 1.0;
       }
-      carX = directorState.smoothedCarX;
-      carY = directorState.smoothedCarY;
-      carZ = directorState.smoothedCarZ;
+      carX = directorState.smoothedCarX ?? rawCarX;
+      carY = directorState.smoothedCarY ?? rawCarY;
+      carZ = directorState.smoothedCarZ ?? rawCarZ;
+    } else {
+      let lastTracked = directorState.lastTrackedCarIndex;
+      let switchBlend = directorState.carSwitchBlend ?? 1.0;
+      if (lastTracked !== preferredCarIdx) {
+        lastTracked = preferredCarIdx;
+        switchBlend = 0.0;
+      }
+      const switchRate = Math.max(0.5, REPLAY_DIRECTOR_CONFIG.strikerSwitchDampingRate ?? 4.2);
+      let nextCarX = rawCarX;
+      let nextCarY = rawCarY;
+      let nextCarZ = rawCarZ;
+      if (switchBlend < 0.995) {
+        const carAlpha = 1.0 - Math.exp(-dt * switchRate);
+        switchBlend = Math.min(1.0, switchBlend + dt * switchRate * 0.65);
+        nextCarX = directorState.smoothedCarX + (rawCarX - directorState.smoothedCarX) * carAlpha;
+        nextCarY = directorState.smoothedCarY + (rawCarY - directorState.smoothedCarY) * carAlpha;
+        nextCarZ = directorState.smoothedCarZ + (rawCarZ - directorState.smoothedCarZ) * carAlpha;
+      }
+      if (!skipDamping) {
+        directorState.lastTrackedCarIndex = lastTracked;
+        directorState.carSwitchBlend = switchBlend;
+        directorState.smoothedCarX = nextCarX;
+        directorState.smoothedCarY = nextCarY;
+        directorState.smoothedCarZ = nextCarZ;
+      }
+      carX = nextCarX;
+      carY = nextCarY;
+      carZ = nextCarZ;
     }
   }
 
@@ -362,7 +408,7 @@ export function computeGoalReplayCameraPose(stateBuffer, scoringTeam = 0, option
   let lookaheadX = ballX;
   let lookaheadY = ballY;
   let lookaheadZ = ballZ;
-  if (nextTouchBlend > 0.01) {
+  if (nextTouchBlend > 1e-4) {
     if (hasNextCar && nextCarIdx !== preferredCarIdx) {
       const nCarX = lerpBuf(nextCarBase);
       const nCarY = lerpBuf(nextCarBase + 1);
@@ -381,34 +427,41 @@ export function computeGoalReplayCameraPose(stateBuffer, scoringTeam = 0, option
   const goalY = goalSignY * 5120.0;
   const goalZ = 310.0;
 
-  // Direction unit vector from ball to target goal center
+  // Direction unit vector from ball to back of target net (5420 UU so toGoalY never flips sign at the 5120 goal line)
+  const anchorGoalY = goalSignY * 5420.0;
   const toGoalX = 0.0 - ballX;
-  const toGoalY = goalY - ballY;
-  const distToGoal = Math.hypot(toGoalX, toGoalY) || 1.0;
-  const ugX = toGoalX / distToGoal;
-  const ugY = toGoalY / distToGoal;
+  const toGoalY = goalSignY * Math.max(420.0, (anchorGoalY - ballY) * goalSignY);
+  const distToGoal = Math.hypot(ballX, goalY - ballY) || 1.0;
+  const dirNorm = Math.hypot(toGoalX, toGoalY) || 1.0;
+  const ugX = toGoalX / dirNorm;
+  const ugY = toGoalY / dirNorm;
 
   // Perpendicular lateral unit vector in XY plane
   const usX = -ugY;
   const usY = ugX;
 
   const carToBallDist = Math.hypot(ballX - carX, ballY - carY, ballZ - carZ);
-  const lookaheadToBallDist = nextTouchBlend > 0.01
+  const lookaheadToBallDist = nextTouchBlend > 1e-4
     ? Math.hypot(lookaheadX - ballX, lookaheadY - ballY, lookaheadZ - ballZ)
     : 0.0;
 
   // Pick a consistent lateral vantage side that places the camera toward the open interior of the arena
   let lateralBias = 1.0;
   if (directorState) {
-    if (!directorState.initialized) {
+    if (directorState.hasResolvedInitialLateralBias && (directorState.lateralBias === 1.0 || directorState.lateralBias === -1.0)) {
+      lateralBias = directorState.lateralBias;
+    } else if (!directorState.initialized) {
       if (Math.abs(ballX) > 220.0) {
         lateralBias = usX * (-ballX) >= 0 ? 1.0 : -1.0;
       } else if (Math.abs(carX - ballX) > 100.0) {
         lateralBias = (carX - ballX) * usX >= 0 ? 1.0 : -1.0;
       } else {
-        lateralBias = 1.0;
+        lateralBias = directorState.lateralBias || 1.0;
       }
-      directorState.lateralBias = lateralBias;
+      if (!skipDamping) {
+        directorState.lateralBias = lateralBias;
+        directorState.hasResolvedInitialLateralBias = true;
+      }
     } else {
       lateralBias = directorState.lateralBias || 1.0;
     }
@@ -418,8 +471,9 @@ export function computeGoalReplayCameraPose(stateBuffer, scoringTeam = 0, option
 
   const progress = clamp(options.progress ?? 0.5, 0, 1);
 
-  // Goal-box settle weight: 0 in backfield/midfield, 1 when ball is inside the final 550 UU of the net
-  const goalSettleWeight = smoothstep(1850.0, 550.0, distToGoal);
+  // Goal-box settle weight: smoothly ramps as ball enters final 2100..550 UU of the net
+  const goalSettleLinear = smoothstep(2100.0, 550.0, distToGoal);
+  const goalSettleWeight = goalSettleLinear * goalSettleLinear * (3.0 - 2.0 * goalSettleLinear);
 
   // Primary striker framing weight (up to 44% when within ~2500 UU of ball)
   const carFramingFactor = hasFocusCar
@@ -442,10 +496,13 @@ export function computeGoalReplayCameraPose(stateBuffer, scoringTeam = 0, option
   const extraPullBack = effectiveSpan * 0.36;
   const extraSidePull = effectiveSpan * 0.26;
 
-  // 1. Corridor Trail Pose (Frames the 2-touch composite midpoint along the Ball -> Goal corridor)
+  // 1. Corridor Trail Pose + Continuous Goal-Front Settling
+  // Instead of cross-fading to an opposite-side static point, smoothly brakes forward progression
+  // along the established lateral corridor so the camera never whips across the field.
   const backStart = REPLAY_DIRECTOR_CONFIG.corridorBackDistStart ?? 780.0;
   const backEnd = REPLAY_DIRECTOR_CONFIG.corridorBackDistEnd ?? 600.0;
   const sideBase = REPLAY_DIRECTOR_CONFIG.corridorSideDistBase ?? 550.0;
+  const showcaseDist = REPLAY_DIRECTOR_CONFIG.goalBoxShowcaseDist ?? 1250.0;
 
   const trailBackDist = (backStart - progress * (backStart - backEnd)) + extraPullBack;
   const trailSideDist = sideBase + Math.sin(progress * Math.PI) * 100.0 + extraSidePull;
@@ -453,43 +510,51 @@ export function computeGoalReplayCameraPose(stateBuffer, scoringTeam = 0, option
   const trailEyeY = midY - ugY * trailBackDist + usY * (trailSideDist * lateralBias);
   const trailEyeZ = clamp(250.0 + midZ * 0.52 + effectiveSpan * 0.08, 220.0, 940.0);
 
-  // 2. Goal-Box Showcase Pose (Brakes and settles ~1250 UU in front of the net as the ball arrives)
-  // Uses a continuous netSideBlend aligned with the established corridor lateral side so goal-box X never flips abruptly
-  const showcaseDist = REPLAY_DIRECTOR_CONFIG.goalBoxShowcaseDist ?? 1250.0;
-  const corridorSideX = usX * lateralBias >= 0 ? 1.0 : -1.0;
-  const ballSideX = clamp(-ballX / 420.0, -1.0, 1.0);
-  const netSideBlend = clamp(corridorSideX * 0.65 + ballSideX * 0.35, -1.0, 1.0);
-  const goalBoxEyeX = clamp(ballX * 0.32 + netSideBlend * 640.0, -1950.0, 1950.0);
-  const goalBoxEyeY = goalY - goalSignY * showcaseDist;
-  const goalBoxEyeZ = clamp(290.0 + ballZ * 0.35, 250.0, 680.0);
+  // Keep goal-box vantage on the SAME lateral side as trailEye, while softly braking Y in front of the net
+  const settleEyeX = clamp(
+    midX * 0.65 + usX * (sideBase * 0.92 * lateralBias),
+    -1950.0,
+    1950.0
+  );
+  const maxGoalFrontY = goalY - goalSignY * showcaseDist;
+  const brakedY =
+    goalSignY > 0
+      ? Math.min(trailEyeY, maxGoalFrontY)
+      : Math.max(trailEyeY, maxGoalFrontY);
+  const settleEyeY = trailEyeY * 0.35 + brakedY * 0.65;
+  const settleEyeZ = clamp(280.0 + midZ * 0.42, 240.0, 760.0);
 
-  let rawEyeX = trailEyeX * (1.0 - goalSettleWeight) + goalBoxEyeX * goalSettleWeight;
-  let rawEyeY = trailEyeY * (1.0 - goalSettleWeight) + goalBoxEyeY * goalSettleWeight;
-  const rawEyeZ = trailEyeZ * (1.0 - goalSettleWeight) + goalBoxEyeZ * goalSettleWeight;
+  let rawEyeX = trailEyeX * (1.0 - goalSettleWeight * 0.65) + settleEyeX * (goalSettleWeight * 0.65);
+  let rawEyeY = trailEyeY * (1.0 - goalSettleWeight * 0.75) + settleEyeY * (goalSettleWeight * 0.75);
+  const rawEyeZ = trailEyeZ * (1.0 - goalSettleWeight * 0.55) + settleEyeZ * (goalSettleWeight * 0.55);
 
-  // Keep a minimum horizontal standoff radius from BOTH the ball and the active touch car
+  // Smooth C1 soft standoff repulsion from ball and active touch car (no hard threshold kink)
   const dxBall = rawEyeX - ballX;
   const dyBall = rawEyeY - ballY;
   const horizDistToBall = Math.hypot(dxBall, dyBall);
-  if (horizDistToBall < 440.0) {
+  const minBallStandoff = 440.0;
+  if (horizDistToBall < minBallStandoff) {
+    const tPush = 1.0 - horizDistToBall / minBallStandoff;
+    const smoothPush = tPush * tPush * (minBallStandoff * 0.65);
     if (horizDistToBall > 1e-3) {
-      const push = 440.0 / horizDistToBall;
-      rawEyeX = ballX + dxBall * push;
-      rawEyeY = ballY + dyBall * push;
+      rawEyeX += (dxBall / horizDistToBall) * smoothPush;
+      rawEyeY += (dyBall / horizDistToBall) * smoothPush;
     } else {
-      rawEyeX = ballX + usX * lateralBias * 440.0;
-      rawEyeY = ballY + usY * lateralBias * 440.0;
+      rawEyeX += usX * lateralBias * smoothPush;
+      rawEyeY += usY * lateralBias * smoothPush;
     }
   }
 
-  if (hasFocusCar && carFramingFactor > 0.15) {
+  if (hasFocusCar && carFramingFactor > 0.05) {
     const dxCar = rawEyeX - carX;
     const dyCar = rawEyeY - carY;
     const horizDistToCar = Math.hypot(dxCar, dyCar);
-    if (horizDistToCar < 360.0 && horizDistToCar > 1e-3) {
-      const pushCar = 360.0 / horizDistToCar;
-      rawEyeX = carX + dxCar * pushCar;
-      rawEyeY = carY + dyCar * pushCar;
+    const minCarStandoff = 360.0;
+    if (horizDistToCar < minCarStandoff && horizDistToCar > 1e-3) {
+      const tCar = 1.0 - horizDistToCar / minCarStandoff;
+      const smoothCarPush = tCar * tCar * (minCarStandoff * 0.55) * Math.min(1.0, carFramingFactor * 2.0);
+      rawEyeX += (dxCar / horizDistToCar) * smoothCarPush;
+      rawEyeY += (dyCar / horizDistToCar) * smoothCarPush;
     }
   }
 
@@ -506,25 +571,25 @@ export function computeGoalReplayCameraPose(stateBuffer, scoringTeam = 0, option
     carX * carFocusWeight +
     lookaheadX * nextFocusWeight +
     0.0 * goalFocusWeight +
-    ballVelX * 0.035;
+    ffBallVelX * 0.032;
   const rawTargetY =
     ballY * ballFocusWeight +
     carY * carFocusWeight +
     lookaheadY * nextFocusWeight +
     goalY * goalFocusWeight +
-    ballVelY * 0.035;
+    ffBallVelY * 0.032;
   const rawTargetZ = clamp(
     (ballZ + 18.0) * ballFocusWeight +
     (carZ + 32.0) * carFocusWeight +
     (lookaheadZ + 24.0) * nextFocusWeight +
     goalZ * goalFocusWeight +
-    ballVelZ * 0.025,
+    ffBallVelZ * 0.022,
     90.0,
     1650.0
   );
 
-  // 4. Damped camera progression
-  if (directorState) {
+  // 4. Damped camera progression (Critically-damped 2-stage cascade to eliminate acceleration spikes)
+  if (directorState && !skipDamping) {
     const jumpDist = directorState.initialized
       ? Math.hypot(
           clampedEye.x - directorState.eyeX,
@@ -534,6 +599,12 @@ export function computeGoalReplayCameraPose(stateBuffer, scoringTeam = 0, option
       : Infinity;
 
     if (!directorState.initialized || jumpDist > 4200.0) {
+      directorState.preEyeX = clampedEye.x;
+      directorState.preEyeY = clampedEye.y;
+      directorState.preEyeZ = clampedEye.z;
+      directorState.preTargetX = rawTargetX;
+      directorState.preTargetY = rawTargetY;
+      directorState.preTargetZ = rawTargetZ;
       directorState.eyeX = clampedEye.x;
       directorState.eyeY = clampedEye.y;
       directorState.eyeZ = clampedEye.z;
@@ -544,14 +615,24 @@ export function computeGoalReplayCameraPose(stateBuffer, scoringTeam = 0, option
     } else {
       const eyeRate = REPLAY_DIRECTOR_CONFIG.eyeDampingRate ?? 3.8;
       const gazeRate = REPLAY_DIRECTOR_CONFIG.gazeDampingRate ?? 7.5;
+      const preAlpha = 1.0 - Math.exp(-dt * 14.0);
       const eyeAlpha = 1.0 - Math.exp(-dt * eyeRate);
       const targetAlpha = 1.0 - Math.exp(-dt * gazeRate);
-      directorState.eyeX += (clampedEye.x - directorState.eyeX) * eyeAlpha;
-      directorState.eyeY += (clampedEye.y - directorState.eyeY) * eyeAlpha;
-      directorState.eyeZ += (clampedEye.z - directorState.eyeZ) * eyeAlpha;
-      directorState.targetX += (rawTargetX - directorState.targetX) * targetAlpha;
-      directorState.targetY += (rawTargetY - directorState.targetY) * targetAlpha;
-      directorState.targetZ += (rawTargetZ - directorState.targetZ) * targetAlpha;
+
+      directorState.preEyeX = (directorState.preEyeX ?? directorState.eyeX) + (clampedEye.x - (directorState.preEyeX ?? directorState.eyeX)) * preAlpha;
+      directorState.preEyeY = (directorState.preEyeY ?? directorState.eyeY) + (clampedEye.y - (directorState.preEyeY ?? directorState.eyeY)) * preAlpha;
+      directorState.preEyeZ = (directorState.preEyeZ ?? directorState.eyeZ) + (clampedEye.z - (directorState.preEyeZ ?? directorState.eyeZ)) * preAlpha;
+
+      directorState.preTargetX = (directorState.preTargetX ?? directorState.targetX) + (rawTargetX - (directorState.preTargetX ?? directorState.targetX)) * preAlpha;
+      directorState.preTargetY = (directorState.preTargetY ?? directorState.targetY) + (rawTargetY - (directorState.preTargetY ?? directorState.targetY)) * preAlpha;
+      directorState.preTargetZ = (directorState.preTargetZ ?? directorState.targetZ) + (rawTargetZ - (directorState.preTargetZ ?? directorState.targetZ)) * preAlpha;
+
+      directorState.eyeX += (directorState.preEyeX - directorState.eyeX) * eyeAlpha;
+      directorState.eyeY += (directorState.preEyeY - directorState.eyeY) * eyeAlpha;
+      directorState.eyeZ += (directorState.preEyeZ - directorState.eyeZ) * eyeAlpha;
+      directorState.targetX += (directorState.preTargetX - directorState.targetX) * targetAlpha;
+      directorState.targetY += (directorState.preTargetY - directorState.targetY) * targetAlpha;
+      directorState.targetZ += (directorState.preTargetZ - directorState.targetZ) * targetAlpha;
     }
 
     const finalClamped = clampPositionInsideArena(
@@ -565,7 +646,13 @@ export function computeGoalReplayCameraPose(stateBuffer, scoringTeam = 0, option
       eyeZ: finalClamped.z,
       targetX: directorState.targetX,
       targetY: directorState.targetY,
-      targetZ: directorState.targetZ
+      targetZ: directorState.targetZ,
+      rawEyeX: clampedEye.x,
+      rawEyeY: clampedEye.y,
+      rawEyeZ: clampedEye.z,
+      rawTargetX,
+      rawTargetY,
+      rawTargetZ,
     };
   }
 
@@ -575,7 +662,13 @@ export function computeGoalReplayCameraPose(stateBuffer, scoringTeam = 0, option
     eyeZ: clampedEye.z,
     targetX: rawTargetX,
     targetY: rawTargetY,
-    targetZ: rawTargetZ
+    targetZ: rawTargetZ,
+    rawEyeX: clampedEye.x,
+    rawEyeY: clampedEye.y,
+    rawEyeZ: clampedEye.z,
+    rawTargetX,
+    rawTargetY,
+    rawTargetZ,
   };
 }
 
@@ -650,13 +743,15 @@ export function applyDirectorReplayCamera(
 
   if (!currFrame) return;
 
+  const isReplayFrozen = Boolean(stepOrInterpolator?.isPaused || stepOrInterpolator?.isScrubbing);
   const pose = computeGoalReplayCameraPose(currFrame, scoringTeam, {
     prevStateBuffer: prevFrame || currFrame,
     alpha,
     scorerCarIndex,
     progress,
     directorState,
-    dt
+    dt: isReplayFrozen ? 0.0 : dt,
+    exactDt: isReplayFrozen,
   });
 
   // Unreal (X, Y, Z) -> Three.js (X, Z, Y)
