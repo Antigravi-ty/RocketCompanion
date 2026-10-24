@@ -150,8 +150,8 @@ export function createClassicBall(patternColor = null) {
 import { getThemeMaterial, isMultiThemeMaterial } from '../effects/ThemeMaterialPipeline.js';
 import {
   STANDARD_GOAL_VOLUME_BOX,
-  THROWBACK_GOAL_VOLUME_BOX,
 } from '../physics/RocketSimConstants.js';
+import { getGoalVolumeBoxForPreset } from '../config/goalVolumeTunerConfig.js';
 import {
   DEFAULT_BALL_VISUAL_CONFIG,
   ballVisualRuntimeConfig,
