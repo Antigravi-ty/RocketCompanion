@@ -21,12 +21,29 @@ export const DEFAULT_GOAL_VOLUME_TUNER_CONFIG = Object.freeze({
     minZ: THROWBACK_GOAL_VOLUME_BOX.minZ,
     maxZ: THROWBACK_GOAL_VOLUME_BOX.maxZ,
   },
+  ballRimFx: {
+    enabled: true,
+    innerStartPct: 90,
+    outerEndPct: 100,
+    rimColor: '#ffffff',
+    rimIntensity: 1.0,
+    coreColor: '#050608',
+    coreBrightness: 1.0,
+    bezierP1X: 0.42,
+    bezierP1Y: 0.0,
+    bezierP2X: 0.85,
+    bezierP2Y: 0.25,
+    seamWidthUu: 3.5,
+    seamIntensity: 0.35,
+    jitterAmplitude: 1.0,
+  },
 });
 
 export const goalVolumeTunerRuntimeConfig = {
   showHitboxVisual: DEFAULT_GOAL_VOLUME_TUNER_CONFIG.showHitboxVisual,
   standard: { ...DEFAULT_GOAL_VOLUME_TUNER_CONFIG.standard },
   throwback: { ...DEFAULT_GOAL_VOLUME_TUNER_CONFIG.throwback },
+  ballRimFx: { ...DEFAULT_GOAL_VOLUME_TUNER_CONFIG.ballRimFx },
 };
 
 const goalVolumeListeners = new Set();
@@ -37,6 +54,7 @@ export function getGoalVolumeTunerConfig() {
     showHitboxVisual: Boolean(goalVolumeTunerRuntimeConfig.showHitboxVisual),
     standard: { ...goalVolumeTunerRuntimeConfig.standard },
     throwback: { ...goalVolumeTunerRuntimeConfig.throwback },
+    ballRimFx: { ...goalVolumeTunerRuntimeConfig.ballRimFx },
   };
 }
 
@@ -52,6 +70,10 @@ export function getGoalVolumeBoxForPreset(isThrowback = false) {
     minZ: Number.isFinite(Number(src.minZ)) ? Number(src.minZ) : 0.0,
     maxZ: Number(src.maxZ) || (isThrowback ? THROWBACK_GOAL_VOLUME_BOX.maxZ : STANDARD_GOAL_VOLUME_BOX.maxZ),
   };
+}
+
+export function getBallGoalRimFxConfig() {
+  return goalVolumeTunerRuntimeConfig.ballRimFx;
 }
 
 export function subscribeGoalVolumeTunerConfig(listener) {
@@ -100,6 +122,9 @@ export function updateGoalVolumeTunerConfig(patch = {}) {
   if (patch.throwback && typeof patch.throwback === 'object') {
     Object.assign(goalVolumeTunerRuntimeConfig.throwback, patch.throwback);
   }
+  if (patch.ballRimFx && typeof patch.ballRimFx === 'object') {
+    Object.assign(goalVolumeTunerRuntimeConfig.ballRimFx, patch.ballRimFx);
+  }
   return notifyAll();
 }
 
@@ -107,5 +132,6 @@ export function resetGoalVolumeTunerConfig() {
   goalVolumeTunerRuntimeConfig.showHitboxVisual = DEFAULT_GOAL_VOLUME_TUNER_CONFIG.showHitboxVisual;
   goalVolumeTunerRuntimeConfig.standard = { ...DEFAULT_GOAL_VOLUME_TUNER_CONFIG.standard };
   goalVolumeTunerRuntimeConfig.throwback = { ...DEFAULT_GOAL_VOLUME_TUNER_CONFIG.throwback };
+  goalVolumeTunerRuntimeConfig.ballRimFx = { ...DEFAULT_GOAL_VOLUME_TUNER_CONFIG.ballRimFx };
   return notifyAll();
 }

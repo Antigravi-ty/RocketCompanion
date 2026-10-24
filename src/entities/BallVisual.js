@@ -151,7 +151,11 @@ import { getThemeMaterial, isMultiThemeMaterial } from '../effects/ThemeMaterial
 import {
   STANDARD_GOAL_VOLUME_BOX,
 } from '../physics/RocketSimConstants.js';
-import { getGoalVolumeBoxForPreset } from '../config/goalVolumeTunerConfig.js';
+import {
+   getGoalVolumeBoxForPreset,
+  getBallGoalRimFxConfig,
+  registerGoalVolumeTunerApplier,
+} from '../config/goalVolumeTunerConfig.js';
 import {
   DEFAULT_BALL_VISUAL_CONFIG,
   ballVisualRuntimeConfig,
@@ -180,7 +184,49 @@ const ballGoalUniforms = {
   uGoalTime: { value: 0.0 },
   uGoalPenetration: { value: 0.0 },
   uGoalJitterWorldOffset: { value: new THREE.Vector3(0, 0, 0) },
+  uGoalRimRange: { value: new THREE.Vector2(0.90, 1.00) },
+  uGoalRimBezier: { value: new THREE.Vector4(0.42, 0.0, 0.85, 0.25) },
+  uGoalRimColor: { value: new THREE.Color('#ffffff') },
+  uGoalRimIntensity: { value: 1.0 },
+  uGoalCoreColor: { value: new THREE.Color('#050608') },
+  uGoalCoreBrightness: { value: 1.0 },
+  uGoalSeamParams: { value: new THREE.Vector2(3.5, 0.35) },
 };
+
+function syncBallGoalRimUniforms() {
+  const rimCfg = getBallGoalRimFxConfig();
+  if (!rimCfg) return;
+  const innerFrac = Math.max(0.0, Math.min(0.999, (Number(rimCfg.innerStartPct) ?? 90) / 100));
+  const outerFrac = Math.max(innerFrac + 0.001, Math.min(1.0, (Number(rimCfg.outerEndPct) ?? 100) / 100));
+  ballGoalUniforms.uGoalRimRange.value.set(innerFrac, outerFrac);
+  ballGoalUniforms.uGoalRimBezier.value.set(
+    Math.max(0.0, Math.min(1.0, Number(rimCfg.bezierP1X) ?? 0.42)),
+    Number.isFinite(Number(rimCfg.bezierP1Y)) ? Number(rimCfg.bezierP1Y) : 0.0,
+    Math.max(0.0, Math.min(1.0, Number(rimCfg.bezierP2X) ?? 0.85)),
+    Number.isFinite(Number(rimCfg.bezierP2Y)) ? Number(rimCfg.bezierP2Y) : 0.25
+  );
+  try {
+    ballGoalUniforms.uGoalRimColor.value.set(rimCfg.rimColor || '#ffffff');
+  } catch {
+    ballGoalUniforms.uGoalRimColor.value.set('#ffffff');
+  }
+  ballGoalUniforms.uGoalRimIntensity.value = Math.max(0.0, Number(rimCfg.rimIntensity) ?? 1.0);
+  try {
+    ballGoalUniforms.uGoalCoreColor.value.set(rimCfg.coreColor || '#050608');
+  } catch {
+    ballGoalUniforms.uGoalCoreColor.value.set('#050608');
+  }
+  ballGoalUniforms.uGoalCoreBrightness.value = Math.max(0.0, Number(rimCfg.coreBrightness) ?? 1.0);
+  ballGoalUniforms.uGoalSeamParams.value.set(
+    Math.max(0.0, Number(rimCfg.seamWidthUu) ?? 3.5),
+    Math.max(0.0, Number(rimCfg.seamIntensity) ?? 0.35)
+  );
+}
+
+syncBallGoalRimUniforms();
+registerGoalVolumeTunerApplier(() => {
+  syncBallGoalRimUniforms();
+});
 
 function attachBallGoalShader(mat) {
   if (!mat || mat.userData?.hasBallGoalShader) return;
@@ -196,6 +242,13 @@ function attachBallGoalShader(mat) {
     shader.uniforms.uGoalTime = ballGoalUniforms.uGoalTime;
     shader.uniforms.uGoalPenetration = ballGoalUniforms.uGoalPenetration;
     shader.uniforms.uGoalJitterWorldOffset = ballGoalUniforms.uGoalJitterWorldOffset;
+    shader.uniforms.uGoalRimRange = ballGoalUniforms.uGoalRimRange;
+    shader.uniforms.uGoalRimBezier = ballGoalUniforms.uGoalRimBezier;
+    shader.uniforms.uGoalRimColor = ballGoalUniforms.uGoalRimColor;
+    shader.uniforms.uGoalRimIntensity = ballGoalUniforms.uGoalRimIntensity;
+    shader.uniforms.uGoalCoreColor = ballGoalUniforms.uGoalCoreColor;
+    shader.uniforms.uGoalCoreBrightness = ballGoalUniforms.uGoalCoreBrightness;
+    shader.uniforms.uGoalSeamParams = ballGoalUniforms.uGoalSeamParams;
 
     shader.vertexShader =
       `varying vec3 vBallWorldPos;\nvarying vec3 vBallViewNormal;\nvarying vec3 vBallViewDir;\nuniform vec3 uGoalJitterWorldOffset;\n` +
@@ -225,6 +278,31 @@ uniform float uGoalHalfWidthX;
 uniform float uGoalMaxZ;
 uniform float uGoalTime;
 uniform float uGoalPenetration;
+uniform vec2 uGoalRimRange;
+uniform vec4 uGoalRimBezier;
+uniform vec3 uGoalRimColor;
+uniform float uGoalRimIntensity;
+uniform vec3 uGoalCoreColor;
+uniform float uGoalCoreBrightness;
+uniform vec2 uGoalSeamParams;
+
+float evalGoalRimCubicBezier01(float t, vec4 bez) {
+  float x = clamp(t, 0.0, 1.0);
+  float x1 = clamp(bez.x, 0.0, 1.0);
+  float y1 = bez.y;
+  float x2 = clamp(bez.z, 0.0, 1.0);
+  float y2 = bez.w;
+  float u = x;
+  for (int i = 0; i < 5; i++) {
+    float om = 1.0 - u;
+    float bx = 3.0 * om * om * u * x1 + 3.0 * om * u * u * x2 + u * u * u - x;
+    float dbx = 3.0 * om * om * x1 + 6.0 * om * u * (x2 - x1) + 3.0 * u * u * (1.0 - x2);
+    if (abs(dbx) < 1e-4) break;
+    u = clamp(u - bx / dbx, 0.0, 1.0);
+  }
+  float om = 1.0 - u;
+  return 3.0 * om * om * u * y1 + 3.0 * om * u * u * y2 + u * u * u;
+}
 ` +
       shader.fragmentShader.replace(
         '#include <dithering_fragment>',
@@ -240,19 +318,24 @@ if (uGoalEffectEnabled > 0.5 && uGoalPenetration > 0.001) {
     vec3 viewDir = normalize(vBallViewDir);
     vec3 surfNormal = normalize(vBallViewNormal);
     float ndotv = clamp(abs(dot(surfNormal, viewDir)), 0.0, 1.0);
-    float fresnel = 1.0 - ndotv;
-    float outerRim = pow(fresnel, 2.5) * 0.95 + pow(fresnel, 1.35) * 0.24;
-    float planeSeam = exp(-abs(sliceDist) * 0.28) * 0.52;
+    float radialPct = sqrt(max(0.0, 1.0 - ndotv * ndotv));
+    float innerStart = uGoalRimRange.x;
+    float outerEnd = max(innerStart + 0.001, uGoalRimRange.y);
+    float tRim = clamp((radialPct - innerStart) / (outerEnd - innerStart), 0.0, 1.0);
+    float outerRim = clamp(evalGoalRimCubicBezier01(tRim, uGoalRimBezier), 0.0, 1.0);
+    float planeSeam = (uGoalSeamParams.x > 0.01 && uGoalSeamParams.y > 0.001)
+      ? exp(-abs(sliceDist) / max(0.1, uGoalSeamParams.x)) * uGoalSeamParams.y
+      : 0.0;
     float rimGlow = clamp(max(outerRim, planeSeam), 0.0, 1.0);
-    vec3 darkCore = vec3(0.015, 0.018, 0.022);
-    vec3 whiteGlow = vec3(0.96, 0.98, 1.0);
-    vec3 goalBallColor = mix(darkCore, whiteGlow, rimGlow);
+    vec3 darkCore = uGoalCoreColor * uGoalCoreBrightness;
+    vec3 brightRim = uGoalRimColor * uGoalRimIntensity;
+    vec3 goalBallColor = mix(darkCore, brightRim, rimGlow);
     gl_FragColor.rgb = mix(gl_FragColor.rgb, goalBallColor, insideMask);
   }
 }`
       );
   };
-  mat.customProgramCacheKey = () => 'ball-goal-darken-jitter-v3';
+  mat.customProgramCacheKey = () => 'ball-goal-darken-jitter-v4';
   mat.needsUpdate = true;
 }
 
@@ -281,7 +364,9 @@ function applyConfigToSingleMaterial(mat, config) {
 }
 
 export function applyBallVisualConfigToObject(ballRoot, config = ballVisualRuntimeConfig, indicatorRings = []) {
-  ballGoalUniforms.uGoalEffectEnabled.value = config.goalDarkenJitterEnabled !== false ? 1.0 : 0.0;
+  const rimCfg = getBallGoalRimFxConfig();
+  ballGoalUniforms.uGoalEffectEnabled.value =
+    config.goalDarkenJitterEnabled !== false && rimCfg?.enabled !== false ? 1.0 : 0.0;
   if (ballRoot) {
     ballRoot.visible = config.visible !== false && (Number(config.opacity) ?? 1.0) > 0.001;
     ballRoot.traverse?.((node) => {
@@ -321,7 +406,12 @@ export function updateBallGoalEffect(ballGroup, isThrowback = false, delta = 0) 
   ballGoalUniforms.uGoalHalfWidthX.value = box.halfWidthX;
   ballGoalUniforms.uGoalMaxZ.value = box.maxZ;
 
-  const enabled = ballVisualRuntimeConfig.goalDarkenJitterEnabled !== false;
+  syncBallGoalRimUniforms();
+  const rimCfg = getBallGoalRimFxConfig();
+
+  const enabled =
+    ballVisualRuntimeConfig.goalDarkenJitterEnabled !== false &&
+    rimCfg?.enabled !== false;
   ballGoalUniforms.uGoalEffectEnabled.value = enabled ? 1.0 : 0.0;
   if (!enabled) {
     ballGoalUniforms.uGoalPenetration.value = 0.0;
@@ -350,8 +440,9 @@ export function updateBallGoalEffect(ballGroup, isThrowback = false, delta = 0) 
   const penetration = Math.max(0.0, Math.min(1.0, (absYUu - (box.minY - r)) / (2.0 * r)));
   ballGoalUniforms.uGoalPenetration.value = penetration;
 
+  const jitterScale = Math.max(0.0, Number(rimCfg?.jitterAmplitude) ?? 1.0);
   const t = ballGoalUniforms.uGoalTime.value;
-  const amp = (1.6 + 4.2 * penetration) * penetration;
+  const amp = (1.6 + 4.2 * penetration) * penetration * jitterScale;
   const jx = Math.sin(t * 137.0) * Math.cos(t * 59.0) * amp;
   const jy = Math.cos(t * 151.0) * Math.sin(t * 73.0) * amp;
   const jz = Math.sin(t * 179.0 + 1.3) * amp * 0.85;
