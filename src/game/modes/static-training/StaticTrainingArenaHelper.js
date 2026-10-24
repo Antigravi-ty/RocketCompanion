@@ -4,6 +4,7 @@
  * and visual ball spin for StaticTrainingPackMode.
  */
 
+import * as THREE from 'three';
 import { useStaticTrainingPackStore } from '../../../stores/staticTrainingPackStore';
 import { hudStore } from '../../../stores/hudStore';
 
@@ -48,7 +49,7 @@ export function computeEffectiveBallAngVel(ball) {
     ];
   }
   const spd = Math.max(0, Number(ball.speed) || 0);
-  const mag = Math.min(5.5, Math.max(1.4, (spd / 1200) * 3.2));
+  const mag = Math.min(5.5, Math.max(2.2, (spd / 1200) * 3.2));
   const yaw = Number(ball.speedYaw) || 0;
   const pitch = Number(ball.speedPitch) || 0;
   return [
