@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Camera, Eye, Download, Copy, Check, RotateCcw } from 'lucide-react';
+import { Camera, Eye, Download, Copy, Check, RotateCcw, ArrowLeftRight } from 'lucide-react';
 import {
   useStaticTrainingBallCamTunerStore,
   DEFAULT_STATIC_TRAINING_BALL_CAM_TUNER_CONFIG,
@@ -25,6 +25,7 @@ interface SliderWithTextInputRowProps {
   decimals?: number;
   disabled?: boolean;
   isLight?: boolean;
+  extraAction?: React.ReactNode;
   onChange: (nextValue: number) => void;
 }
 
@@ -38,10 +39,13 @@ const SliderWithTextInputRow: React.FC<SliderWithTextInputRowProps> = ({
   decimals = 0,
   disabled = false,
   isLight = false,
+  extraAction,
   onChange,
 }) => {
-  const formatVal = (v: number) =>
-    decimals > 0 ? Number(v).toFixed(decimals) : String(Math.round(v));
+  const formatVal = (v: number) => {
+    if (!Number.isFinite(v)) return String(v);
+    return String(v);
+  };
 
   const [draftText, setDraftText] = useState<string>(() => formatVal(value));
   const [isFocused, setIsFocused] = useState(false);
@@ -50,22 +54,28 @@ const SliderWithTextInputRow: React.FC<SliderWithTextInputRowProps> = ({
     if (!isFocused) {
       setDraftText(formatVal(value));
     }
-  }, [value, isFocused, decimals]);
+  }, [value, isFocused]);
 
   const commitDraft = () => {
-    const parsed = parseFloat(draftText.trim());
-    if (!Number.isFinite(parsed)) {
-      setDraftText(formatVal(value));
+    const raw = draftText.trim();
+    const parsed = Number(raw);
+    if (raw === '' || Number.isNaN(parsed)) {
+      console.error(
+        new TypeError(
+          `[TrainingBallCamTuner] Invalid numeric input for "${label}": "${draftText}"`
+        )
+      );
+      onChange(parsed);
       return;
     }
-    const clamped = Math.max(min, Math.min(max, parsed));
-    const rounded =
-      decimals > 0 ? Number(clamped.toFixed(decimals)) : Math.round(clamped);
-    onChange(rounded);
-    setDraftText(formatVal(rounded));
+    onChange(parsed);
+    setDraftText(String(parsed));
   };
 
-  const pct = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+  const sliderVal = Number.isFinite(value)
+    ? Math.max(min, Math.min(max, value))
+    : min;
+  const pct = Math.max(0, Math.min(100, ((sliderVal - min) / (max - min)) * 100));
 
   return (
     <div
@@ -78,15 +88,18 @@ const SliderWithTextInputRow: React.FC<SliderWithTextInputRowProps> = ({
       }`}
     >
       <div className="flex items-center justify-between gap-2">
-        <span
-          className={`text-[11px] font-medium ${
-            isLight ? 'text-neutral-700' : 'text-neutral-200'
-          }`}
-        >
-          {label}
-        </span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span
+            className={`text-[11px] font-medium truncate ${
+              isLight ? 'text-neutral-700' : 'text-neutral-200'
+            }`}
+          >
+            {label}
+          </span>
+          {extraAction}
+        </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0">
           <input
             type="text"
             value={draftText}
@@ -108,8 +121,8 @@ const SliderWithTextInputRow: React.FC<SliderWithTextInputRowProps> = ({
                 (e.target as HTMLInputElement).blur();
               }
             }}
-            title="Type a value and press Enter to confirm"
-            className={`w-16 px-1.5 py-0.5 rounded text-right font-mono text-[11px] font-semibold border outline-none transition-colors ${
+            title="Type any value and press Enter to confirm (unbounded)"
+            className={`w-20 px-1.5 py-0.5 rounded text-right font-mono text-[11px] font-semibold border outline-none transition-colors ${
               isLight
                 ? 'bg-neutral-100 border-neutral-300 text-neutral-800 focus:border-amber-500 focus:bg-white'
                 : 'bg-neutral-950 border-neutral-700 text-amber-400 focus:border-amber-500'
@@ -138,7 +151,7 @@ const SliderWithTextInputRow: React.FC<SliderWithTextInputRowProps> = ({
           max={max}
           step={step}
           disabled={disabled}
-          value={value}
+          value={sliderVal}
           onChange={(e) => {
             const v = parseFloat(e.target.value);
             if (Number.isFinite(v)) {
@@ -165,6 +178,7 @@ export const StaticTrainingBallCamTunerFloatingWindow: React.FC<
     editBallOpacity,
     enableEditOpacityOverride,
     updateConfig,
+    switchLateralSide,
     resetDefaults,
   } = useStaticTrainingBallCamTunerStore();
 
@@ -251,7 +265,7 @@ export const StaticTrainingBallCamTunerFloatingWindow: React.FC<
               Relative Ball Camera (Ball Speed Sub-Mode)
             </span>
             <span className="text-[10px] text-neutral-400 truncate">
-              Type in input box + Enter or drag slider
+              Unbounded text input + Enter · [F] Switch Side
             </span>
           </div>
         </div>
@@ -273,8 +287,8 @@ export const StaticTrainingBallCamTunerFloatingWindow: React.FC<
           label="Distance"
           unit="UU"
           value={distance}
-          min={120}
-          max={900}
+          min={50}
+          max={1200}
           step={5}
           decimals={0}
           isLight={isLight}
@@ -285,8 +299,8 @@ export const StaticTrainingBallCamTunerFloatingWindow: React.FC<
           label="Height Offset"
           unit="UU"
           value={height}
-          min={-100}
-          max={400}
+          min={-200}
+          max={800}
           step={5}
           decimals={0}
           isLight={isLight}
@@ -297,8 +311,8 @@ export const StaticTrainingBallCamTunerFloatingWindow: React.FC<
           label="Pitch Angle Offset"
           unit="deg"
           value={angle}
-          min={-45}
-          max={45}
+          min={-90}
+          max={90}
           step={0.5}
           decimals={1}
           isLight={isLight}
@@ -306,14 +320,29 @@ export const StaticTrainingBallCamTunerFloatingWindow: React.FC<
         />
 
         <SliderWithTextInputRow
-          label="Lateral Offset (Horizontal)"
+          label="Lateral Offset"
           unit="UU"
           value={lateralOffset}
-          min={-300}
-          max={300}
+          min={-400}
+          max={400}
           step={5}
           decimals={0}
           isLight={isLight}
+          extraAction={
+            <button
+              type="button"
+              onClick={switchLateralSide}
+              title="Switch lateral offset side (Hotkey: F)"
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold border transition-colors ${
+                isLight
+                  ? 'bg-neutral-100 border-neutral-300 text-neutral-700 hover:bg-neutral-200'
+                  : 'bg-neutral-800 border-neutral-700 text-sky-300 hover:bg-neutral-700'
+              }`}
+            >
+              <ArrowLeftRight className="w-2.5 h-2.5" />
+              <span>[F] Switch Side</span>
+            </button>
+          }
           onChange={(v) => updateConfig({ lateralOffset: v })}
         />
       </div>
@@ -364,7 +393,7 @@ export const StaticTrainingBallCamTunerFloatingWindow: React.FC<
           label="Edit Mode Ball Opacity"
           unit=""
           value={editBallOpacity}
-          min={0.1}
+          min={0.05}
           max={1.0}
           step={0.05}
           decimals={2}

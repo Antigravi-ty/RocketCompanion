@@ -187,7 +187,7 @@ export const StaticTrainingPackHUD: React.FC<StaticTrainingPackHUDProps> = ({
               : 'bg-neutral-900/80 border-neutral-800 text-neutral-300'
           }`}
         >
-          9/0 Cycle Selection · T Simulate · V to Move Down · O/P Boost · [/] Speed
+          9/0 Cycle Selection · T Simulate · F Switch Side · V Move Down · O/P Boost · [/] Speed
         </div>
       )}
     </div>

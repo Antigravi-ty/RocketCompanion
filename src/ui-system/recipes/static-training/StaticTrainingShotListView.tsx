@@ -89,13 +89,16 @@ export const StaticTrainingShotListView: React.FC<StaticTrainingShotListViewProp
               <span className="font-bold text-sky-400">[O] / [P]</span> : Decrease / Increase Car Boost amount (press [P] at 100 to enable Unlimited Boost INF).
             </div>
             <div>
-              <span className="font-bold text-sky-400">[[] / []]</span> : Decrease / Increase launch speed. Pressing [[] at 0 Ball Speed toggles Kickoff Freeze (stationary mid-air until touched).
+              <span className="font-bold text-sky-400">[[] / []]</span> : Decrease / Increase launch speed (Car or Ball). Pressing [[] at 0 Ball Speed toggles Kickoff Freeze (stationary mid-air until touched).
             </div>
             <div>
-              <span className="font-bold text-emerald-400">[T] (in Free Camera)</span> : Toggle trajectory preview test (launches Car &amp; Ball in-place without starting timer; press [T] again to reset).
+              <span className="font-bold text-sky-400">[F]</span> : Switch relative ball camera horizontal lateral offset side (flips between right +offset and left -offset).
             </div>
             <div>
-              <span className="font-bold text-emerald-400">[G] (in Free Camera)</span> : Test Single Shot (enter playable control for this shot only; press [G] again to return to editor).
+              <span className="font-bold text-emerald-400">[T]</span> : Toggle trajectory preview test in any Edit sub-mode (launches Car &amp; Ball while keeping the camera at its unlaunched viewpoint; press [T] again to reset).
+            </div>
+            <div>
+              <span className="font-bold text-emerald-400">[G]</span> : Test Single Shot (enter playable control for this shot only; press [G] again to return to editor).
             </div>
           </div>
         </div>

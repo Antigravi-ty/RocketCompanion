@@ -36,7 +36,7 @@ const SUB_MODE_OPTIONS: {
     id: 'car-heading',
     label: 'Car Heading',
     icon: <Compass className="h-3.5 w-3.5" />,
-    hint: 'WASD/Space/V Move Car • Drag Mouse = Car Heading & Pitch • Q/E = Air Roll • O/P = Boost',
+    hint: 'WASD/Space/V Move Car • Drag Mouse = Car Heading & Pitch • [ / ] = Car Speed • Q/E = Air Roll • O/P = Boost',
   },
   {
     id: 'car-speed',
@@ -48,7 +48,7 @@ const SUB_MODE_OPTIONS: {
     id: 'ball-speed',
     label: 'Ball Speed',
     icon: <CircleDot className="h-3.5 w-3.5" />,
-    hint: 'WASD/Space/V Move Ball • Drag Mouse = Ball Velocity Yaw & Pitch • [ / ] = Ball Speed',
+    hint: 'WASD/Space/V Move Ball • Drag Mouse = Ball Velocity Yaw & Pitch • [ / ] = Ball Speed • [F] = Switch Camera Side',
   },
   {
     id: 'free-cam',

@@ -26,6 +26,10 @@ export function applyEditSubModeCamera(mode, subMode) {
   const r = mode.runtime;
   if (!r?.camera) return;
 
+  if (r.camera.camera && (subMode !== 'ball-speed' || mode.isTestingSingleShot)) {
+    r.camera.camera.up.set(0, 1, 0);
+  }
+
   if (subMode !== 'free-cam' && mode.isFreeCamTrajectoryTesting) {
     mode.stopFreeCamTrajectoryTest?.();
   }
@@ -65,6 +69,7 @@ export function updateEditorCameraAndContinuousInputs(mode, dt) {
     const cam = r.camera.camera;
 
     if (subMode === 'car-heading') {
+      cam.up.set(0, 1, 0);
       const cLoc = shot.car.location || shot.car.pos || [0, -2400, CAR_GROUND_MIN_Z];
       const targetPos = new THREE.Vector3(cLoc[0], cLoc[2] + 35, cLoc[1]);
       const lookYaw = Number(shot.car.headingYaw) || 0;
@@ -87,6 +92,7 @@ export function updateEditorCameraAndContinuousInputs(mode, dt) {
         targetPos.z + fwdZ * 420
       );
     } else if (subMode === 'car-speed') {
+      cam.up.set(0, 1, 0);
       const cLoc = shot.car.location || shot.car.pos || [0, -2400, CAR_GROUND_MIN_Z];
       const targetPos = new THREE.Vector3(cLoc[0], cLoc[2] + 35, cLoc[1]);
       const lookYaw = Number(shot.car.speedYaw ?? shot.car.headingYaw) || 0;
@@ -124,7 +130,7 @@ export function updateEditorCameraAndContinuousInputs(mode, dt) {
       const fwdY = sp;
       const fwdZ = Math.sin(lookYaw) * cp;
 
-      // Local right & local up relative to ball aim direction so camera stays above arrow & trajectory
+      // Local right & local up relative to ball aim direction
       const rightX = -Math.sin(lookYaw);
       const rightY = 0;
       const rightZ = Math.cos(lookYaw);
@@ -134,21 +140,18 @@ export function updateEditorCameraAndContinuousInputs(mode, dt) {
       const upZ = -Math.sin(lookYaw) * sp;
 
       const camX = ballCenter.x - fwdX * distance + upX * height + rightX * lateralOffset;
-      const camY = Math.max(
-        20,
-        ballCenter.y - fwdY * distance + upY * height + rightY * lateralOffset
-      );
+      const camY = ballCenter.y - fwdY * distance + upY * height + rightY * lateralOffset;
       const camZ = ballCenter.z - fwdZ * distance + upZ * height + rightZ * lateralOffset;
 
-      const effectivePitch = Math.max(
-        -Math.PI * 0.48,
-        Math.min(Math.PI * 0.48, lookPitch + (angle * Math.PI) / 180)
-      );
-      const lookDirX = Math.cos(lookYaw) * Math.cos(effectivePitch);
-      const lookDirY = Math.sin(effectivePitch);
-      const lookDirZ = Math.sin(lookYaw) * Math.cos(effectivePitch);
+      const effectivePitch = lookPitch + (angle * Math.PI) / 180;
+      const cep = Math.cos(effectivePitch);
+      const sep = Math.sin(effectivePitch);
+      const lookDirX = Math.cos(lookYaw) * cep;
+      const lookDirY = sep;
+      const lookDirZ = Math.sin(lookYaw) * cep;
 
       cam.position.set(camX, camY, camZ);
+      cam.up.set(-Math.cos(lookYaw) * sep, cep, -Math.sin(lookYaw) * sep);
       cam.lookAt(
         camX + lookDirX * 800,
         camY + lookDirY * 800,
@@ -396,7 +399,7 @@ export function bindStaticTrainingSessionEvents(mode) {
 
       const subMode = store.editSubMode;
 
-      // [T] Trajectory Simulation Test & [G] Single Shot Test available in ALL Edit sub-modes
+      // [T] Trajectory Simulation Test, [G] Single Shot Test & [F] Switch Camera Lateral Offset Side
       // Camera remains stationary at its unlaunched position during [T] simulation
       if ((code === 'KeyT' || evt.key === 't' || evt.key === 'T') && !evt.repeat) {
         evt.preventDefault();
@@ -406,6 +409,15 @@ export function bindStaticTrainingSessionEvents(mode) {
       if ((code === 'KeyG' || evt.key === 'g' || evt.key === 'G') && !evt.repeat) {
         evt.preventDefault();
         mode.toggleSingleShotTest?.();
+        return;
+      }
+      if (
+        (code === 'KeyF' || evt.key === 'f' || evt.key === 'F') &&
+        !evt.shiftKey &&
+        !evt.repeat
+      ) {
+        evt.preventDefault();
+        useStaticTrainingBallCamTunerStore.getState().switchLateralSide();
         return;
       }
 
