@@ -1,0 +1,8 @@
+[submodule "public"]
+	path = public
+	url = ../RocketCompanionStatics.git
+	branch = main
+[submodule "src/ui-core"]
+	path = src/ui-core
+	url = https://github.com/Antigravi-ty/RCUIModule.git
+	branch = main
