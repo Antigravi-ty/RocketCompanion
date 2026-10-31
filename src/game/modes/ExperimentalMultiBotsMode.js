@@ -37,6 +37,7 @@ import {
 import {
   POST_GOAL_CELEBRATION_TICKS,
   POST_GOAL_FREEZE_DELAY_TICKS,
+  retainExpMultiBotGoalReplayBuffer,
   retainExpMatchReplayAndNotify,
   finishExpMultiBotMatch,
   beginExpMultiBotGoalReplay,
@@ -194,6 +195,10 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
   onLeave() {
     const r = this.runtime;
     this._unbindPovHotkeys();
+
+    if (this.goalResetTicks > 0 && this.goalIncidentTick > 0) {
+      retainExpMultiBotGoalReplayBuffer(this);
+    }
 
     this.podiumController?.exitPodium?.();
     this.replayController?.endReplaySession?.();
@@ -654,6 +659,7 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
         if (!store.disableGoalReplay) {
           this._beginGoalReplay();
         } else {
+          retainExpMultiBotGoalReplayBuffer(this);
           this._completePostGoalOrReplayTransition();
         }
       }

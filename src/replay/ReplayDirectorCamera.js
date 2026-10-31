@@ -608,16 +608,16 @@ export function buildSuffixSafeDirectorTrajectory(frames, options = {}) {
   const interiorXDir = meanBallX >= 0 ? -1.0 : 1.0;
   const resolvedLateralBias = interiorXDir * wxAxis >= 0 ? 1.0 : -1.0;
 
-  const backStart = clamp(REPLAY_DIRECTOR_CONFIG.corridorBackDistStart ?? 640.0, 280.0, 1600.0);
-  const backEnd = clamp(REPLAY_DIRECTOR_CONFIG.corridorBackDistEnd ?? 520.0, 240.0, 1500.0);
-  const sideBase = clamp(REPLAY_DIRECTOR_CONFIG.corridorSideDistBase ?? 460.0, 120.0, 1200.0);
+  const backStart = clamp(REPLAY_DIRECTOR_CONFIG.corridorBackDistStart ?? 500.0, 240.0, 1600.0);
+  const backEnd = clamp(REPLAY_DIRECTOR_CONFIG.corridorBackDistEnd ?? 400.0, 200.0, 1500.0);
+  const sideBase = clamp(REPLAY_DIRECTOR_CONFIG.corridorSideDistBase ?? 760.0, 120.0, 1400.0);
   const showcaseDist = clamp(REPLAY_DIRECTOR_CONFIG.goalBoxShowcaseDist ?? 920.0, 420.0, 1800.0);
   const baseHeightUu = clamp(REPLAY_DIRECTOR_CONFIG.cameraBaseHeightUu ?? 195.0, 145.0, 520.0);
   const aerialSlope = clamp(REPLAY_DIRECTOR_CONFIG.cameraAerialHeightSlope ?? 0.36, 0.10, 0.85);
   const suffixDecay = clamp(REPLAY_DIRECTOR_CONFIG.suffixTimeDecayRate ?? 1.40, 0.25, 4.0);
   const smoothPasses = Math.round(clamp(REPLAY_DIRECTOR_CONFIG.trajectorySmoothPasses ?? 4, 1, 8));
 
-  // Project active subjects { Ball(t), C_score(t), C_opp(t) } onto (U, W) and compute sightline-aligned requirements
+  // Project active subjects { Ball(t), C_score(t), C_opp(t) } onto (U, W) and compute oblique side-rear requirements
   const reqRearU = new Float64Array(goalIdx + 1);
   const reqLatV = new Float64Array(goalIdx + 1);
   const reqEyeZ = new Float64Array(goalIdx + 1);
@@ -633,26 +633,6 @@ export function buildSuffixSafeDirectorTrajectory(frames, options = {}) {
     const ou = smOcx[i] * ux + smOcy[i] * uy;
     const ov = smOcx[i] * wxAxis + smOcy[i] * wyAxis;
     const ow = smOppW[i];
-
-    // Weighted sightline direction from active subjects toward goal/future ball
-    const futureIdx = Math.min(goalIdx, i + 75);
-    const fbx = sbx[futureIdx] * 0.45 + 0.0 * 0.55;
-    const fby = sby[futureIdx] * 0.45 + goalY * 0.55;
-
-    const anchorX = sbx[i] * 0.52 + smScx[i] * (0.48 - 0.18 * ow) + smOcx[i] * (0.18 * ow);
-    const anchorY = sby[i] * 0.52 + smScy[i] * (0.48 - 0.18 * ow) + smOcy[i] * (0.18 * ow);
-
-    let dx = fbx - anchorX;
-    let dy = fby - anchorY;
-    if (dy * goalSignY < 450.0) {
-      dy = goalSignY * 450.0;
-    }
-    const dNorm = Math.hypot(dx, dy) || 1.0;
-    dx /= dNorm;
-    dy /= dNorm;
-
-    const dirU = Math.max(0.58, dx * ux + dy * uy);
-    const dirV = clamp(dx * wxAxis + dy * wyAxis, -0.68, 0.68);
 
     // Rearmost subject along U among { Ball, Scoring Player, Opponent Interceptor }
     let minSubU = Math.min(bu, su);
@@ -674,21 +654,30 @@ export function buildSuffixSafeDirectorTrajectory(frames, options = {}) {
     const vertSpread = Math.abs(sbz[i] - smScz[i]);
     const aerialPullback = aerialBlend * 115.0 + Math.min(450.0, vertSpread) * 0.14;
 
+    // Moderate longitudinal distance behind minSubU so the side-rear oblique offset achieves a 45-60 deg (~60 deg) viewing angle
     const trailBack =
-      backStart -
-      prog * (backStart - backEnd) +
-      latSpread * 0.18 +
-      Math.min(600.0, longSpread) * 0.10 +
-      aerialPullback;
-    reqRearU[i] = minSubU - dirU * trailBack;
+      (backStart - prog * (backStart - backEnd)) * 0.72 +
+      latSpread * 0.12 +
+      Math.min(500.0, longSpread) * 0.06 +
+      aerialPullback * 0.65;
+    reqRearU[i] = minSubU - trailBack;
 
-    // Sightline-aligned lateral position behind the subjects + interior clearance when climbing side walls
+    // Oblique 45-60 deg (~55-60 deg) side-rear lateral offset toward the open arena interior
+    // (never subtracting dirV * trailBack against resolvedLateralBias, avoiding tail-chasing behind the car)
     const centerV = bv * 0.52 + sv * (0.48 - 0.18 * ow) + ov * (0.18 * ow);
-    const wallProx = smoothstep(2350.0, 3850.0, Math.max(Math.abs(sbx[i]), Math.abs(smScx[i])));
-    const wallClimbClearance = wallProx * (160.0 + 180.0 * smoothstep(140.0, 820.0, activeZ));
+    const interiorSubV =
+      Math.max(
+        bv * resolvedLateralBias,
+        sv * resolvedLateralBias,
+        ow > 0.15 ? ov * resolvedLateralBias : -1e9
+      ) * resolvedLateralBias;
+    const baseLatV = 0.50 * centerV + 0.50 * interiorSubV;
+    const wallProx = smoothstep(2200.0, 3800.0, Math.max(Math.abs(sbx[i]), Math.abs(smScx[i])));
+    const wallClimbClearance = wallProx * (180.0 + 200.0 * smoothstep(140.0, 820.0, activeZ));
     const sideOffset =
-      ((sideBase - 280.0) * (1.0 - 0.40 * prog) + wallClimbClearance) * resolvedLateralBias;
-    reqLatV[i] = centerV - dirV * trailBack + sideOffset;
+      (sideBase * (1.0 - 0.12 * prog) + wallClimbClearance + aerialPullback * 0.55) *
+      resolvedLateralBias;
+    reqLatV[i] = baseLatV + sideOffset;
 
     // Adaptive Multi-Stage Camera Height:
     // Low (~195-245 UU) on ground plays, rising smoothly with wall climbs & air dribbles so the viewer
@@ -720,16 +709,10 @@ export function buildSuffixSafeDirectorTrajectory(frames, options = {}) {
     rawPreU[i] = safeSuffixU[i] * (1.0 - blendLocal) + targetU * blendLocal;
   }
 
-  // Backward-deduced lateral path from T_goal to 0
-  const backLatV = new Float64Array(goalIdx + 1);
-  backLatV[goalIdx] = reqLatV[goalIdx];
-  const latBackAlpha = clamp(0.028 * suffixDecay, 0.012, 0.07);
-  for (let i = goalIdx - 1; i >= 0; i--) {
-    backLatV[i] = backLatV[i + 1] + (reqLatV[i] - backLatV[i + 1]) * latBackAlpha;
-  }
+  // Preserve full oblique lateral offset across the pre-goal window without pulling inward toward goal center
   const rawPreV = new Float64Array(goalIdx + 1);
   for (let i = 0; i <= goalIdx; i++) {
-    rawPreV[i] = 0.55 * backLatV[i] + 0.45 * reqLatV[i];
+    rawPreV[i] = reqLatV[i];
   }
 
   const smoothPreU = smooth1DZeroPhase(rawPreU, 0.045, smoothPasses);
@@ -771,8 +754,9 @@ export function buildSuffixSafeDirectorTrajectory(frames, options = {}) {
     const sy = smScy[i];
     const sz = smScz[i];
 
-    const postBackDist = 680.0 + stretch * (stretchDist * 0.72);
-    const followX = clamp(sx * 0.68, -2800.0, 2800.0);
+    const postBackDist = 540.0 + stretch * (stretchDist * 0.65);
+    const postSideOffset = wxAxis * (sideBase * 0.55 * resolvedLateralBias);
+    const followX = clamp(sx * 0.72 + postSideOffset, -3200.0, 3200.0);
     const followY = Math.min(
       goalEyeY * goalSignY,
       (sy - goalSignY * postBackDist) * goalSignY
@@ -1281,9 +1265,9 @@ export function computeGoalReplayCameraPose(stateBuffer, scoringTeam = 0, option
   const lateralBias = directorState?.lateralBias || 1.0;
   const progress = clamp(options.progress ?? 0.5, 0, 1);
 
-  const backStart = REPLAY_DIRECTOR_CONFIG.corridorBackDistStart ?? 640.0;
-  const backEnd = REPLAY_DIRECTOR_CONFIG.corridorBackDistEnd ?? 520.0;
-  const sideBase = REPLAY_DIRECTOR_CONFIG.corridorSideDistBase ?? 460.0;
+  const backStart = REPLAY_DIRECTOR_CONFIG.corridorBackDistStart ?? 500.0;
+  const backEnd = REPLAY_DIRECTOR_CONFIG.corridorBackDistEnd ?? 400.0;
+  const sideBase = REPLAY_DIRECTOR_CONFIG.corridorSideDistBase ?? 760.0;
   const baseHeightUu = REPLAY_DIRECTOR_CONFIG.cameraBaseHeightUu ?? 195.0;
   const aerialSlope = REPLAY_DIRECTOR_CONFIG.cameraAerialHeightSlope ?? 0.36;
 
@@ -1306,11 +1290,13 @@ export function computeGoalReplayCameraPose(stateBuffer, scoringTeam = 0, option
   const rearDelta = Math.max(carBehind, oppBehind);
 
   const trailBackDist =
-    backStart - progress * (backStart - backEnd) + Math.min(600.0, rearDelta) + aerialPullback;
-  const wallProx = smoothstep(2350.0, 3850.0, Math.max(Math.abs(ballX), Math.abs(carX)));
-  const wallClimbClearance = wallProx * (160.0 + 180.0 * smoothstep(140.0, 820.0, activeZ));
+    (backStart - progress * (backStart - backEnd)) * 0.72 +
+    Math.min(500.0, rearDelta) +
+    aerialPullback * 0.65;
+  const wallProx = smoothstep(2200.0, 3800.0, Math.max(Math.abs(ballX), Math.abs(carX)));
+  const wallClimbClearance = wallProx * (180.0 + 200.0 * smoothstep(140.0, 820.0, activeZ));
   const trailSideDist =
-    ((sideBase - 240.0) * (1.0 - 0.35 * progress) + wallClimbClearance) * lateralBias;
+    (sideBase * (1.0 - 0.12 * progress) + wallClimbClearance + aerialPullback * 0.55) * lateralBias;
 
   const rawEyeX = anchorX - ugX * trailBackDist + usX * trailSideDist;
   const rawEyeY = anchorY - ugY * trailBackDist + usY * trailSideDist;

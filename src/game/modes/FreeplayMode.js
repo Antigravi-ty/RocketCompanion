@@ -17,6 +17,7 @@ import {
 } from '../../replay/ReplayDirectorDiagnostics.js';
 import {
   getActiveReplayTimelineController,
+  getLatestRetainedReplayTimelineController,
   setActiveReplayTimelineController,
   registerReplayDirectorPreviewHandlers,
 } from '../../ui-core/config/replayDirectorConfig.js';
@@ -107,6 +108,17 @@ export class FreeplayMode extends BaseGameMode {
       this.replayController.attach(r.physics, this.replayRingBuffer);
     }
     this._registerDirectorPreviewHandlers();
+    const latestRetainedCtrl =
+      getLatestRetainedReplayTimelineController() || getActiveReplayTimelineController();
+    if (
+      latestRetainedCtrl &&
+      latestRetainedCtrl !== this.replayController &&
+      latestRetainedCtrl.ActiveWindowCount > 0 &&
+      ((latestRetainedCtrl.retainedReplaySeq || 0) > (this.replayController.retainedReplaySeq || 0) ||
+        this.replayController.ActiveWindowCount <= 0)
+    ) {
+      this.replayController.copyRetainedReplayFrom(latestRetainedCtrl);
+    }
     setActiveReplayTimelineController(this.replayController);
     this.standaloneReplayViewer.runtime = r;
     this.standaloneReplayViewer.mode = this;
@@ -599,34 +611,16 @@ export class FreeplayMode extends BaseGameMode {
 
     if (parsedPattern) {
       this.replayController.loadImportedDiagnosticPattern(parsedPattern, options);
-    } else if (
-      this.replayController.ActiveWindowCount <= 0 &&
-      activeCtrl &&
-      activeCtrl !== this.replayController &&
-      activeCtrl.ActiveWindowCount > 0
-    ) {
-      this.replayController.activeFrames = activeCtrl.activeFrames.slice();
-      this.replayController.expectedDurationTicks = activeCtrl.activeFrames.length;
-      this.replayController.scoringTeam = activeCtrl.scoringTeam ?? 0;
-      this.replayController.scorerCarIndex = activeCtrl.scorerCarIndex ?? 0;
-      this.replayController.carTeamResolver = activeCtrl.carTeamResolver || null;
-      this.replayController.hasRetainedReplay = true;
-      this.replayController.isImportedPreview = Boolean(activeCtrl.isImportedPreview);
-      this.replayController.importedFileName = activeCtrl.importedFileName || null;
-      this.replayController.importedSummary = activeCtrl.importedSummary || null;
-      this.replayController.importedAnomalyPeaks = activeCtrl.importedAnomalyPeaks || null;
-      this.replayController.importedCarEntries = activeCtrl.importedCarEntries || activeCtrl.carEntries || null;
-      this.replayController.carEntries = activeCtrl.carEntries || null;
-      this.replayController.useRecordedCsvCamera = Boolean(activeCtrl.useRecordedCsvCamera);
-      this.replayController.cursorFloat = activeCtrl.cursorFloat ?? 0;
-      if (activeCtrl.directorCameraState) {
-        this.replayController.directorCameraState = {
-          ...this.replayController.directorCameraState,
-          ...activeCtrl.directorCameraState,
-          touchEvents: Array.isArray(activeCtrl.directorCameraState.touchEvents)
-            ? activeCtrl.directorCameraState.touchEvents.map((t) => ({ ...t }))
-            : [],
-        };
+    } else {
+      const sourceCtrl = getLatestRetainedReplayTimelineController() || activeCtrl;
+      if (
+        sourceCtrl &&
+        sourceCtrl !== this.replayController &&
+        sourceCtrl.ActiveWindowCount > 0 &&
+        ((sourceCtrl.retainedReplaySeq || 0) > (this.replayController.retainedReplaySeq || 0) ||
+          this.replayController.ActiveWindowCount <= 0)
+      ) {
+        this.replayController.copyRetainedReplayFrom(sourceCtrl);
       }
     }
 

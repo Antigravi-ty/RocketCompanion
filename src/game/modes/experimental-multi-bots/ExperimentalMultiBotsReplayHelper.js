@@ -19,9 +19,69 @@ export const POST_GOAL_FREEZE_DELAY_TICKS = 30; // 0.25s ball flight into net be
 export const MAX_GOAL_LOOKBACK_SECONDS = 10.0; // Max 10s before goal (1200 ticks @ 120Hz)
 export const SCORER_TOUCH_LOOKBACK_SECONDS = 7.0; // Max 7s before scorer's last touch (840 ticks @ 120Hz)
 
+export function buildExpCarEntriesForReplay(mode) {
+  if (!Array.isArray(mode.spawnedCars) || mode.spawnedCars.length === 0) return [];
+  return mode.spawnedCars.map((c) => {
+    const displayName = c.name || getExpCarDisplayName(c, mode.spawnedCars);
+    return {
+      carIndex: c.carIndex,
+      name: displayName,
+      username: displayName,
+      team: c.team === 1 ? 1 : 0,
+      isBot: !c.isPlayer,
+      isLocalPlayer: Boolean(c.isPlayer),
+    };
+  });
+}
+
+export function retainExpMultiBotGoalReplayBuffer(mode) {
+  const sim = mode.runtime?.physics;
+  if (!mode.replayRingBuffer || mode.replayRingBuffer.size === 0) return 0;
+  const currentTick = Math.floor(
+    sim?.getHeaderView?.()?.tickCount ??
+      mode.replayRingBuffer.getNewestFrame?.()?.tick ??
+      0
+  );
+  const goalTick = mode.goalIncidentTick > 0 ? mode.goalIncidentTick : currentTick;
+  const postGoalTicks = Math.max(0, currentTick - goalTick);
+  if (sim && mode.replayController.engine !== sim) {
+    mode.replayController.attach(sim, mode.replayRingBuffer);
+  }
+  const extractedFrames = extractGoalReplayFrames({
+    ringBuffer: mode.replayRingBuffer,
+    engine: null,
+    goalIncidentTick: goalTick,
+    scorerTouchTick: mode.goalScorerTouchTick,
+    lookbackSeconds: MAX_GOAL_LOOKBACK_SECONDS,
+    touchLookbackSeconds: SCORER_TOUCH_LOOKBACK_SECONDS,
+    postGoalTicks,
+    lastKickoffWillStartTick: mode.lastKickoffStartTick,
+  });
+  if (!Array.isArray(extractedFrames) || extractedFrames.length === 0) return 0;
+  const carEntries = buildExpCarEntriesForReplay(mode);
+  return mode.replayController.retainReplaySessionFrames({
+    scoringTeam: mode.goalScoringTeam ?? 0,
+    scorerCarIndex: mode.goalScorerCarIndex ?? 0,
+    carTeamResolver: (c) => {
+      const entry = mode.spawnedCars.find((e) => e.carIndex === c);
+      return entry ? entry.team : c % 2;
+    },
+    carEntries,
+    frames: extractedFrames,
+  });
+}
+
 export function retainExpMatchReplayAndNotify(mode, winnerTeam) {
   const simState = mode.runtime?.physics?.state || null;
   if ((!mode.replayRingBuffer || mode.replayRingBuffer.size === 0) && !simState) return;
+  if (
+    mode.goalIncidentTick > 0 &&
+    mode.replayRingBuffer &&
+    mode.replayRingBuffer.size > 0 &&
+    (!mode.replayController || mode.replayController.ActiveWindowCount <= 0)
+  ) {
+    retainExpMultiBotGoalReplayBuffer(mode);
+  }
   const blueCount = mode.spawnedCars.filter((c) => c.team === 0).length || 1;
   const orangeCount = mode.spawnedCars.filter((c) => c.team === 1).length || 1;
   const roster = Array.isArray(mode.spawnedCars)
@@ -133,6 +193,7 @@ export function beginExpMultiBotGoalReplay(mode) {
     return;
   }
 
+  const carEntries = buildExpCarEntriesForReplay(mode);
   const totalFrames = mode.replayController.beginReplaySession({
     scoringTeam: mode.goalScoringTeam,
     scorerCarIndex: mode.goalScorerCarIndex,
@@ -140,21 +201,12 @@ export function beginExpMultiBotGoalReplay(mode) {
       const entry = mode.spawnedCars.find((e) => e.carIndex === c);
       return entry ? entry.team : c % 2;
     },
+    carEntries,
     frames: extractedFrames,
   });
 
-  if (Array.isArray(mode.spawnedCars) && mode.spawnedCars.length > 0) {
-    mode.replayController.carEntries = mode.spawnedCars.map((c) => {
-      const displayName = c.name || getExpCarDisplayName(c, mode.spawnedCars);
-      return {
-        carIndex: c.carIndex,
-        name: displayName,
-        username: displayName,
-        team: c.team === 1 ? 1 : 0,
-        isBot: !c.isPlayer,
-        isLocalPlayer: Boolean(c.isPlayer),
-      };
-    });
+  if (carEntries.length > 0) {
+    mode.replayController.carEntries = carEntries;
   }
 
   mode.isReplayActive = true;

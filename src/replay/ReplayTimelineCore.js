@@ -36,6 +36,7 @@ import {
   setActiveReplayTimelineController,
   notifyActiveReplayTimelineController,
   registerReplayDirectorDiagnosticExporter,
+  markReplayTimelineControllerRetained,
 } from '../ui-core/config/replayDirectorConfig.js';
 import {
   buildCurrentFrameDiagnosticSnapshot,
@@ -78,6 +79,7 @@ export class ReplayTimelineController {
     this.expectedDurationTicks = DEFAULT_GOAL_REPLAY_TICKS;
     this._streamedFramesReceived = 0;
     this.hasRetainedReplay = false;
+    this.retainedReplaySeq = 0;
     this.isImportedPreview = false;
     this.importedFileName = null;
     this.importedSummary = null;
@@ -762,6 +764,9 @@ export class ReplayTimelineController {
       this.directorCameraState.lateralBias = options.lateralBias;
       this.directorCameraState.hasResolvedInitialLateralBias = true;
     }
+    if (Array.isArray(options.carEntries) && options.carEntries.length > 0) {
+      this.carEntries = options.carEntries.map((c) => ({ ...c }));
+    }
     this._SmoothedEye = null;
     this._SmoothedTarget = null;
     this._cachedSuffixCameraPlan = null;
@@ -771,7 +776,103 @@ export class ReplayTimelineController {
       this.ensureSuffixCameraPlan();
       buildDirectorDiagnosticPatternPayload(this);
     }
+    if (this.hasRetainedReplay) {
+      markReplayTimelineControllerRetained(this);
+    }
     setActiveReplayTimelineController(this);
+    return this.activeFrames.length;
+  }
+
+  /**
+   * Retains a goal replay window in this controller's buffer without entering active playback mode
+   * (used when Goal Replay is disabled or when exiting a match during post-goal celebration).
+   */
+  retainReplaySessionFrames(options = {}) {
+    const frames = Array.isArray(options.frames) ? options.frames : [];
+    if (frames.length === 0) return 0;
+    this.activeFrames = frames;
+    this.expectedDurationTicks = frames.length;
+    this.scoringTeam = options.scoringTeam ?? 0;
+    this.scorerCarIndex =
+      typeof options.scorerCarIndex === 'number' && options.scorerCarIndex >= 0
+        ? options.scorerCarIndex
+        : 0;
+    this.carTeamResolver =
+      typeof options.carTeamResolver === 'function' ? options.carTeamResolver : null;
+    if (Array.isArray(options.carEntries) && options.carEntries.length > 0) {
+      this.carEntries = options.carEntries.map((c) => ({ ...c }));
+    }
+    this.hasRetainedReplay = true;
+    this.isImportedPreview = false;
+    this.importedFileName = null;
+    this.importedSummary = null;
+    this.importedAnomalyPeaks = null;
+    this.useRecordedCsvCamera = false;
+    this.isNetworkStreamed = false;
+    this.cursorFloat = 0;
+    this._lastDispatchedFrameIndex = -1;
+    this.directorCameraState.initialized = false;
+    this.directorCameraState.useRecordedCsvPose = false;
+    this.directorCameraState.recordedPose = null;
+    this._analyzeReplayTouchTimeline(options);
+    this._cachedSuffixCameraPlan = null;
+    this._cachedSmoothnessSummary = null;
+    this._cachedAnomalyPeaks = null;
+    this.ensureSuffixCameraPlan();
+    buildDirectorDiagnosticPatternPayload(this);
+    markReplayTimelineControllerRetained(this);
+    setActiveReplayTimelineController(this);
+    return this.activeFrames.length;
+  }
+
+  /**
+   * Copies the retained replay window, car roster, and computed Director Camera state from another controller.
+   */
+  copyRetainedReplayFrom(sourceCtrl) {
+    if (
+      !sourceCtrl ||
+      sourceCtrl === this ||
+      !Array.isArray(sourceCtrl.activeFrames) ||
+      sourceCtrl.activeFrames.length === 0
+    ) {
+      return 0;
+    }
+    this.activeFrames = sourceCtrl.activeFrames.slice();
+    this.expectedDurationTicks = sourceCtrl.activeFrames.length;
+    this.scoringTeam = sourceCtrl.scoringTeam ?? 0;
+    this.scorerCarIndex = sourceCtrl.scorerCarIndex ?? 0;
+    this.carTeamResolver = sourceCtrl.carTeamResolver || null;
+    this.hasRetainedReplay = true;
+    this.retainedReplaySeq = sourceCtrl.retainedReplaySeq || this.retainedReplaySeq;
+    this.isImportedPreview = Boolean(sourceCtrl.isImportedPreview);
+    this.importedFileName = sourceCtrl.importedFileName || null;
+    this.importedSummary = sourceCtrl.importedSummary || null;
+    this.importedAnomalyPeaks = sourceCtrl.importedAnomalyPeaks || null;
+    this.importedCarEntries = Array.isArray(sourceCtrl.importedCarEntries)
+      ? sourceCtrl.importedCarEntries.map((c) => ({ ...c }))
+      : Array.isArray(sourceCtrl.carEntries)
+        ? sourceCtrl.carEntries.map((c) => ({ ...c }))
+        : null;
+    this.carEntries = Array.isArray(sourceCtrl.carEntries)
+      ? sourceCtrl.carEntries.map((c) => ({ ...c }))
+      : this.importedCarEntries;
+    this.useRecordedCsvCamera = Boolean(sourceCtrl.useRecordedCsvCamera);
+    this.cursorFloat = Math.max(
+      0,
+      Math.min(this.activeFrames.length - 1, Math.floor(sourceCtrl.cursorFloat ?? 0))
+    );
+    if (sourceCtrl.directorCameraState) {
+      this.directorCameraState = {
+        ...this.directorCameraState,
+        ...sourceCtrl.directorCameraState,
+        touchEvents: Array.isArray(sourceCtrl.directorCameraState.touchEvents)
+          ? sourceCtrl.directorCameraState.touchEvents.map((t) => ({ ...t }))
+          : [],
+      };
+    }
+    this._cachedSuffixCameraPlan = sourceCtrl._cachedSuffixCameraPlan || null;
+    this._cachedSmoothnessSummary = sourceCtrl._cachedSmoothnessSummary || null;
+    this._cachedAnomalyPeaks = sourceCtrl._cachedAnomalyPeaks || null;
     return this.activeFrames.length;
   }
 
@@ -861,6 +962,7 @@ export class ReplayTimelineController {
     this.cursorFloat = options.startFromBeginning ? 0 : startIdx;
     this._lastDispatchedFrameIndex = -1;
     this.refreshCurrentFrameDirectorPose();
+    markReplayTimelineControllerRetained(this);
     setActiveReplayTimelineController(this);
     notifyActiveReplayTimelineController();
     return this.activeFrames.length;
@@ -1087,6 +1189,7 @@ export class ReplayTimelineController {
     if (!this.isPaused && !this.isScrubbing) {
       this.cursorFloat = Math.max(0, this.activeFrames.length - 1);
     }
+    markReplayTimelineControllerRetained(this);
     setActiveReplayTimelineController(this);
     return this.activeFrames.length;
   }
@@ -1102,6 +1205,7 @@ export class ReplayTimelineController {
     this.hasRetainedReplay = Array.isArray(this.activeFrames) && this.activeFrames.length > 0;
     if (this.hasRetainedReplay) {
       this.cursorFloat = Math.max(0, Math.min(this.activeFrames.length - 1, Math.floor(this.cursorFloat)));
+      markReplayTimelineControllerRetained(this);
     } else {
       this.cursorFloat = 0;
     }
@@ -1118,6 +1222,7 @@ export class ReplayTimelineController {
   clearRetainedReplay() {
     this.activeFrames = [];
     this.hasRetainedReplay = false;
+    this.retainedReplaySeq = 0;
     this.isImportedPreview = false;
     this.importedFileName = null;
     this.importedSummary = null;

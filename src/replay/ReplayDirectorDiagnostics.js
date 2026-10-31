@@ -14,7 +14,10 @@ import {
   BOOST_PAD_STATES_OFFSET,
   BOOST_PAD_STATE_STRIDE,
   INCIDENT_EVENT_TYPES,
+  PHYSICS_EVENT_TYPES,
+  MATCH_SIGNALS,
 } from '../physics/RocketSimConstants.js';
+import { resolveGoalReplayWindowBounds } from './ReplayPlaybackState.js';
 import {
   computeGoalReplayCameraPose,
   resolveGoalExplosionFrameIndex,
@@ -1313,13 +1316,185 @@ export function parseDirectorDiagnosticContainerBytes(
   const recordedRows = Array.isArray(dMeta?.recordedDirectorFrames)
     ? dMeta.recordedDirectorFrames
     : null;
-  const scoringTeam =
+
+  const carEntries =
+    Array.isArray(dMeta?.carEntries) && dMeta.carEntries.length > 0
+      ? dMeta.carEntries
+      : Array.isArray(decoded.metadata?.roster)
+        ? decoded.metadata.roster
+        : [];
+
+  const rosterTeamMap = new Map();
+  for (const c of carEntries) {
+    if (typeof c?.carIndex === 'number' && typeof c?.team === 'number') {
+      rosterTeamMap.set(c.carIndex, c.team);
+    }
+  }
+  const resolveCarTeam = (carIdx) =>
+    rosterTeamMap.has(carIdx) ? rosterTeamMap.get(carIdx) : carIdx % 2;
+
+  let inferredScoringTeam =
     typeof dMeta?.scoringTeam === 'number'
       ? dMeta.scoringTeam
       : decoded.metadata?.winner === 'orange'
         ? 1
         : 0;
-  const scorerCarIndex = typeof dMeta?.scorerCarIndex === 'number' ? dMeta.scorerCarIndex : 0;
+  let inferredScorerCarIndex =
+    typeof dMeta?.scorerCarIndex === 'number' ? dMeta.scorerCarIndex : 0;
+
+  let sourceFrameSlots = decoded.frameSlots;
+
+  // When importing a full-match .rcreplay.gz container (no directorReplayMeta and not already a goal-replay slice),
+  // automatically locate the latest goal and extract its Goal Replay window.
+  if (!dMeta && decoded.metadata?.mode !== 'goal-replay' && decoded.frameSlots.length > 400) {
+    let goalTick = -1;
+    let hasExplicitScorer = false;
+
+    const allIncidents = Array.isArray(decoded.timelines?.incidents)
+      ? decoded.timelines.incidents
+      : Array.isArray(decoded.incidents)
+        ? decoded.incidents
+        : decoded.frameSlots.flatMap((s) => (Array.isArray(s?.incidents) ? s.incidents : []));
+    for (let i = allIncidents.length - 1; i >= 0; i--) {
+      const inc = allIncidents[i];
+      if (inc && inc.type === INCIDENT_EVENT_TYPES.GOAL_SCORED) {
+        goalTick = typeof inc.tick === 'number' ? inc.tick : -1;
+        if (typeof inc.team === 'number') {
+          inferredScoringTeam = inc.team;
+        }
+        if (typeof inc.carIndex === 'number' && inc.carIndex >= 0) {
+          inferredScorerCarIndex = inc.carIndex;
+          hasExplicitScorer = true;
+        }
+        break;
+      }
+    }
+
+    const allSignals = Array.isArray(decoded.timelines?.signals)
+      ? decoded.timelines.signals
+      : Array.isArray(decoded.signals)
+        ? decoded.signals
+        : decoded.frameSlots.flatMap((s) => (Array.isArray(s?.signals) ? s.signals : []));
+    if (goalTick < 0) {
+      for (let i = allSignals.length - 1; i >= 0; i--) {
+        const sig = allSignals[i];
+        if (
+          sig &&
+          (sig.signalType === MATCH_SIGNALS.GOAL_REPLAY_WILL_START ||
+            sig.signalType === MATCH_SIGNALS.SCORE_UPDATED) &&
+          typeof sig.frameId === 'number'
+        ) {
+          goalTick = sig.frameId;
+          if (typeof sig.primaryId === 'number' && (sig.primaryId === 0 || sig.primaryId === 1)) {
+            inferredScoringTeam = sig.primaryId;
+          }
+          if (typeof sig.secondaryId === 'number' && sig.secondaryId >= 0) {
+            inferredScorerCarIndex = sig.secondaryId;
+            hasExplicitScorer = true;
+          }
+          break;
+        }
+      }
+    }
+
+    if (goalTick < 0) {
+      for (let i = decoded.frameSlots.length - 1; i >= 0; i--) {
+        const snap = decoded.frameSlots[i]?.snapshot;
+        if (!snap || snap.length <= 6) continue;
+        if (Math.abs((snap[302] || 0) - 1337.5) <= 0.01) continue;
+        const by = snap[5] || 0;
+        const bx = snap[4] || 0;
+        const bz = snap[6] || 0;
+        if (Math.abs(by) >= 5120 && Math.abs(bx) < 893 && bz < 643) {
+          inferredScoringTeam = by > 0 ? 0 : 1;
+          let entryIdx = i;
+          while (entryIdx > 0) {
+            const prevSnap = decoded.frameSlots[entryIdx - 1]?.snapshot;
+            if (!prevSnap || Math.abs(prevSnap[5] || 0) < 5120) break;
+            entryIdx--;
+          }
+          goalTick = decoded.frameSlots[entryIdx]?.tick ?? -1;
+          break;
+        }
+      }
+    }
+
+    if (goalTick >= 0) {
+      let scorerTouchTick = -1;
+      for (let i = allIncidents.length - 1; i >= 0; i--) {
+        const inc = allIncidents[i];
+        if (!inc) continue;
+        const tTick = typeof inc.tick === 'number' ? inc.tick : -1;
+        if (tTick < 0 || tTick > goalTick) continue;
+        if (
+          inc.type === INCIDENT_EVENT_TYPES.CAR_BALL_HIT ||
+          inc.type === PHYSICS_EVENT_TYPES.CAR_BALL_HIT ||
+          inc.type === 0x01
+        ) {
+          const hitCar = inc.carIndex ?? inc.primaryId ?? -1;
+          const hitTeam =
+            typeof inc.team === 'number'
+              ? inc.team
+              : hitCar >= 0
+                ? resolveCarTeam(hitCar)
+                : -1;
+          if (hitTeam === inferredScoringTeam) {
+            if (!hasExplicitScorer && hitCar >= 0) {
+              inferredScorerCarIndex = hitCar;
+              hasExplicitScorer = true;
+            }
+            if (hitCar === inferredScorerCarIndex || scorerTouchTick < 0) {
+              scorerTouchTick = tTick;
+              if (hitCar === inferredScorerCarIndex) break;
+            }
+          }
+        }
+      }
+
+      let kickoffTick = -1;
+      for (let i = allSignals.length - 1; i >= 0; i--) {
+        const sig = allSignals[i];
+        if (
+          sig &&
+          sig.signalType === MATCH_SIGNALS.KICKOFF_WILL_START &&
+          typeof sig.frameId === 'number' &&
+          sig.frameId <= goalTick
+        ) {
+          kickoffTick = sig.frameId;
+          break;
+        }
+      }
+
+      const newestTick =
+        decoded.frameSlots[decoded.frameSlots.length - 1]?.tick ?? goalTick + 180;
+      const postGoalTicks = Math.min(360, Math.max(60, newestTick - goalTick));
+      const bounds = resolveGoalReplayWindowBounds({
+        goalIncidentTick: goalTick,
+        scorerTouchTick,
+        lookbackSeconds: 10.0,
+        touchLookbackSeconds: 7.0,
+        postGoalTicks,
+        lastKickoffWillStartTick: kickoffTick,
+        signalLog: allSignals,
+      });
+
+      const extracted = decoded.frameSlots.filter((slot) => {
+        if (!slot || typeof slot.tick !== 'number') return false;
+        const snap = slot.snapshot;
+        if (snap && snap.length > 302 && Math.abs((snap[302] || 0) - 1337.5) <= 0.01) {
+          return false;
+        }
+        return slot.tick >= bounds.effectiveStartFrame && slot.tick <= bounds.effectiveEndFrame;
+      });
+
+      if (extracted.length > 0) {
+        sourceFrameSlots = extracted;
+      }
+    }
+  }
+
+  const scoringTeam = inferredScoringTeam;
+  const scorerCarIndex = inferredScorerCarIndex;
   const rawGoalLineFrameIdx =
     typeof dMeta?.goalLineFrameIdx === 'number' ? dMeta.goalLineFrameIdx : -1;
   const lastScoringTouchFrameIdx =
@@ -1327,7 +1502,7 @@ export function parseDirectorDiagnosticContainerBytes(
   const selectedCursorIndex =
     typeof dMeta?.selectedReplayFrameIndex === 'number' ? dMeta.selectedReplayFrameIndex : 0;
 
-  const activeFrames = decoded.frameSlots.map((slot, i) => ({
+  const activeFrames = sourceFrameSlots.map((slot, i) => ({
     ...slot,
     timestamp: i / REPLAY_TICK_RATE,
     recordedCsvRow: recordedRows && recordedRows[i] ? recordedRows[i] : null,
@@ -1350,13 +1525,6 @@ export function parseDirectorDiagnosticContainerBytes(
         ballZ: t.ballPos?.[2] ?? 0,
       }))
     : [];
-
-  const carEntries =
-    Array.isArray(dMeta?.carEntries) && dMeta.carEntries.length > 0
-      ? dMeta.carEntries
-      : Array.isArray(decoded.metadata?.roster)
-        ? decoded.metadata.roster
-        : [];
 
   return {
     format: 'rcgr',
