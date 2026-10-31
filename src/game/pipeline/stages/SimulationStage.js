@@ -1,6 +1,7 @@
 import {
   PHYSICS_EVENT_TYPES,
   INCIDENT_EVENT_TYPES,
+  isIncidentEvent,
   isBallFlipResetEvent,
   isDiagnosticProbeSlot
 } from '../../../physics/RocketSimConstants.js';
@@ -398,6 +399,9 @@ export class SimulationStage {
       }
 
       r.physics.readEvents((event) => {
+        if (!isIncidentEvent(event.type)) {
+          return;
+        }
         const evtCarIdx = event.carIndex ?? event.primaryId ?? -1;
         if ((evtCarIdx === 6 || evtCarIdx === 7) && !r.testCarAudioEnabled) {
           return;

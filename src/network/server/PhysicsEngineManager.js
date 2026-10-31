@@ -14,6 +14,10 @@
  */
 
 import { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.js';
+import {
+  BALL_REST_Z,
+  BALL_GROUND_CONTACT_MAX_Z,
+} from '../../physics/RocketSimConstants.js';
 import { NEUTRAL_CONTROLS, MAX_INPUT_BUFFER_TICKS } from './NetworkInputBuffer.js';
 import { MATCH_SIGNALS } from '../protocol/GlobalPayloadCodec.js';
 import { LobbyGhostCarCoordinator } from './LobbyGhostCarCoordinator.js';
@@ -525,7 +529,7 @@ export class PhysicsEngineManager {
   resetBallToCenter() {
     this.resetGoalLatch();
     if (typeof this.sim?.setBallState === 'function') {
-      this.sim.setBallState(new Float32Array([0, 0, 93, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]));
+      this.sim.setBallState(new Float32Array([0, 0, BALL_REST_Z, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]));
     }
   }
 
@@ -534,7 +538,7 @@ export class PhysicsEngineManager {
     if (typeof this.sim.ballOnGround === 'boolean') return this.sim.ballOnGround;
     if (typeof this.sim.getBallOnGround === 'function') return Boolean(this.sim.getBallOnGround());
     const b = this.sim.getBallStateView?.();
-    return Boolean(b && typeof b.posZ === 'number' && b.posZ <= 95);
+    return Boolean(b && typeof b.posZ === 'number' && b.posZ <= BALL_GROUND_CONTACT_MAX_Z);
   }
 
   resetKickoff(seed = 0) {

@@ -9,7 +9,7 @@
  */
 
 import { BaseGameMode } from './BaseGameMode.js';
-import { INCIDENT_EVENT_TYPES } from '../../physics/RocketSimConstants.js';
+import { INCIDENT_EVENT_TYPES, isIncidentEvent } from '../../physics/RocketSimConstants.js';
 import {
   ReplayRingBuffer,
   REPLAY_BUFFER_MODES,
@@ -430,7 +430,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
   }
 
   onPhysicsEvent(event) {
-    if (!event || this.isReplayActive) return;
+    if (!event || !isIncidentEvent(event.type) || this.isReplayActive) return;
     const currentTick = Math.floor(this.runtime?.physics?.getHeaderView?.()?.tickCount ?? 0);
     const eventTick = typeof event.tick === 'number' && event.tick > 0 ? event.tick : currentTick;
 
@@ -722,9 +722,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
 
     if (this.remainingTimeoutTicks <= 0 && bView) {
       const ballSpeed = Math.hypot(bView.velX, bView.velY, bView.velZ);
-      const isBallTouchingGround =
-        bView.posZ <= BALL_GROUND_MIN_Z + 5.5 ||
-        Boolean(sim.getBallOnGround?.());
+      const isBallTouchingGround = Boolean(sim.ballOnGround);
       const isBallUntouched = Boolean(
         this.kickoffBallFrozen || (!this.hasBallMoved && this.lastTouchTick < 0)
       );

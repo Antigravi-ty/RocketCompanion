@@ -5,7 +5,7 @@
  * persistent post-match QuickNotification lifecycle, and multi-timeline file parsing for the Replay Viewer.
  */
 
-import { STATE_BUFFER_FLOATS } from '../physics/RocketSimConstants.js';
+import { STATE_BUFFER_FLOATS, isIncidentEvent } from '../physics/RocketSimConstants.js';
 import { useQuickNotificationStore } from '../ui-core/stores/quickNotificationStore';
 import { useReplayViewerStore } from '../ui-core/stores/replayViewerStore';
 import {
@@ -81,13 +81,16 @@ function materializeFramesFromBinaryTracks(tracks, matchInfo = {}) {
     return Math.max(0, Math.min(frameCount - 1, hintIdx ?? 0));
   };
 
-  const incidents = new Array(incidentCount);
+  const incidents = [];
   const incidentsByFrame = new Map();
   for (let i = 0; i < incidentCount; i++) {
     const inc = decodeIncidentFrom64Bytes(incidentBytes, i * 64);
+    if (!isIncidentEvent(inc.type)) {
+      continue;
+    }
     const fIdx = resolveFrameIdxByTick(inc.tick, inc.frameIndex ?? 0);
     inc.frameIndex = fIdx;
-    incidents[i] = inc;
+    incidents.push(inc);
     let arr = incidentsByFrame.get(fIdx);
     if (!arr) {
       arr = [];

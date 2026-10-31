@@ -14,7 +14,7 @@
  * - Zero Three.js / DOM dependencies (safe inside Web Workers and Headless Node.js).
  */
 
-import { MATCH_SIGNALS } from '../physics/RocketSimConstants.js';
+import { MATCH_SIGNALS, isIncidentEvent } from '../physics/RocketSimConstants.js';
 
 export const CLOCK_MODES = Object.freeze({
   REGULATION_COUNTDOWN: 0,
@@ -248,8 +248,9 @@ export class ReplayRingBuffer {
 
     if (Array.isArray(incidents) && incidents.length > 0) {
       for (let i = 0; i < incidents.length; i++) {
-        if (incidents[i]) {
-          slot.incidents.push({ ...incidents[i] });
+        const inc = incidents[i];
+        if (inc && isIncidentEvent(inc.type)) {
+          slot.incidents.push({ ...inc });
         }
       }
     }
@@ -322,7 +323,7 @@ export class ReplayRingBuffer {
    * @param {object} incident
    */
   appendIncident(tick, incident) {
-    if (!incident || this._size <= 0) return false;
+    if (!incident || !isIncidentEvent(incident.type) || this._size <= 0) return false;
     const targetTick = typeof tick === 'number' && tick > 0 ? (tick >>> 0) : -1;
     let slot = targetTick >= 0 ? this.findFrameByTick(targetTick) : this.getNewestFrame();
     if (!slot || (targetTick >= 0 && Math.abs(slot.tick - targetTick) > 8)) {

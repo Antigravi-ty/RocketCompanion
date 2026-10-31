@@ -6,6 +6,7 @@
 import {
   STATE_BUFFER_FLOATS,
   MAX_CARS,
+  isIncidentEvent,
 } from '../../physics/RocketSimConstants.js';
 import {
   RC_REPLAY_MAGIC_V2,
@@ -99,42 +100,43 @@ export function normalizeReplayTracksPayload(replayObj = {}) {
     const stateInputSlice = replayObj.stateInputBytes.subarray(0, frameCount * stride);
     let incidentBytes =
       replayObj.incidentBytes instanceof Uint8Array ? replayObj.incidentBytes : new Uint8Array(0);
-    const incidentCount = Math.floor(incidentBytes.byteLength / RC_REPLAY_EVENT_STRIDE);
-    if (incidentCount > 0 && frameCount > 0) {
-      let clonedIncidents = null;
-      for (let i = 0; i < incidentCount; i++) {
+    const rawIncidentCount = Math.floor(incidentBytes.byteLength / RC_REPLAY_EVENT_STRIDE);
+    let incidentCount = 0;
+    if (rawIncidentCount > 0) {
+      const filteredIncidents = new Uint8Array(rawIncidentCount * RC_REPLAY_EVENT_STRIDE);
+      for (let i = 0; i < rawIncidentCount; i++) {
         const byteOff = i * RC_REPLAY_EVENT_STRIDE;
-        const u32 = new Uint32Array(
-          incidentBytes.buffer,
-          incidentBytes.byteOffset + byteOff,
-          16
+        const evtType = incidentBytes[byteOff];
+        if (!isIncidentEvent(evtType)) {
+          continue;
+        }
+        const dstByteOff = incidentCount * RC_REPLAY_EVENT_STRIDE;
+        filteredIncidents.set(
+          incidentBytes.subarray(byteOff, byteOff + RC_REPLAY_EVENT_STRIDE),
+          dstByteOff
         );
-        const tick = u32[1];
-        const rawFrameIdx = u32[15];
-        if (tick > 0) {
-          const resolvedIdx = resolveFrameIndexFromTrackBytes(
-            stateInputSlice,
-            frameCount,
-            stride,
-            tick,
-            rawFrameIdx
+        if (frameCount > 0) {
+          const dstU32 = new Uint32Array(
+            filteredIncidents.buffer,
+            filteredIncidents.byteOffset + dstByteOff,
+            16
           );
-          if (resolvedIdx !== rawFrameIdx) {
-            if (!clonedIncidents) {
-              clonedIncidents = new Uint8Array(incidentBytes);
-            }
-            const dstU32 = new Uint32Array(
-              clonedIncidents.buffer,
-              clonedIncidents.byteOffset + byteOff,
-              16
+          const tick = dstU32[1];
+          const rawFrameIdx = dstU32[15];
+          if (tick > 0) {
+            const resolvedIdx = resolveFrameIndexFromTrackBytes(
+              stateInputSlice,
+              frameCount,
+              stride,
+              tick,
+              rawFrameIdx
             );
             dstU32[15] = resolvedIdx >>> 0;
           }
         }
+        incidentCount++;
       }
-      if (clonedIncidents) {
-        incidentBytes = clonedIncidents;
-      }
+      incidentBytes = filteredIncidents.subarray(0, incidentCount * RC_REPLAY_EVENT_STRIDE);
     }
     const signalBytes =
       replayObj.signalBytes instanceof Uint8Array ? replayObj.signalBytes : new Uint8Array(0);
@@ -215,7 +217,7 @@ export function normalizeReplayTracksPayload(replayObj = {}) {
     if (Array.isArray(item?.incidents)) {
       for (let j = 0; j < item.incidents.length; j++) {
         const inc = item.incidents[j];
-        if (inc) {
+        if (inc && isIncidentEvent(inc.type)) {
           collectedIncidents.push({ ...inc, tick: inc.tick ?? tick, frameIndex: i });
         }
       }
@@ -243,7 +245,10 @@ export function normalizeReplayTracksPayload(replayObj = {}) {
   // Also merge top-level incidents / signals if provided separately
   if (Array.isArray(replayObj.incidents) && collectedIncidents.length === 0) {
     for (let i = 0; i < replayObj.incidents.length; i++) {
-      if (replayObj.incidents[i]) collectedIncidents.push(replayObj.incidents[i]);
+      const inc = replayObj.incidents[i];
+      if (inc && isIncidentEvent(inc.type)) {
+        collectedIncidents.push(inc);
+      }
     }
   }
   if (Array.isArray(replayObj.signals) && collectedSignals.length === 0) {

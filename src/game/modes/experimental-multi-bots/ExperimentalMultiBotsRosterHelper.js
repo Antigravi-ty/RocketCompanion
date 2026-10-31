@@ -413,7 +413,7 @@ export function beginExpKickoffCountdown(mode) {
   mode.clockStarted = false;
   mode.clockTickAccum = 0;
   mode.matchPhase = 'kickoff (3)';
-  mode.lastKickoffStartTick = Math.floor(r?.physics?.getHeaderView?.()?.tickCount ?? 0);
+  mode.lastKickoffStartTick = Math.floor(r?.physics?.getHeaderView?.()?.tickCount ?? 0) + 1;
   mode._emitReplaySignal?.(MATCH_SIGNALS.KICKOFF_WILL_START, KICKOFF_COUNTDOWN_TICKS, 3);
 
   if (r?.match?.state) {
@@ -490,12 +490,11 @@ export function triggerExpSandboxAction(mode, action) {
       mode.blueScore = tied;
       mode.orangeScore = tied;
       mode.remainingSec = 0;
-      mode.isOvertime = true;
+      mode.isOvertime = false;
+      mode.pendingOvertimeAfterReplay = true;
       mode.overtimeSeconds = 0;
       mode.clockDirection = 'up';
       mode._emitReplaySignal?.(MATCH_SIGNALS.SCORE_UPDATED, tied, tied);
-      mode._emitReplaySignal?.(MATCH_SIGNALS.OVERTIME_START, 0, 0);
-      audio?.play?.('match_entering_overtime', 1.0, 10000);
       resetExpMultiCarKickoffSpawns(mode);
       beginExpKickoffCountdown(mode);
       store.updateLiveTelemetry({

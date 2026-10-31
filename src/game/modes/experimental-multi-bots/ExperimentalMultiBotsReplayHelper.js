@@ -117,9 +117,10 @@ export function finishExpMultiBotMatch(mode, winnerTeam) {
   const r = mode.runtime;
   const store = useExperimentalMultiBotsStore.getState();
   const audio = getExpModeAudio(r);
+  const currentTick = Math.floor(r?.physics?.getHeaderView?.()?.tickCount ?? 0);
 
-  mode._emitReplaySignal?.(MATCH_SIGNALS.MATCH_ENDED, winnerTeam, 0);
-  mode._emitReplaySignal?.(MATCH_SIGNALS.PODIUM_START, winnerTeam, 0);
+  mode._emitReplaySignal?.(MATCH_SIGNALS.MATCH_ENDED, winnerTeam, 0, currentTick);
+  mode._emitReplaySignal?.(MATCH_SIGNALS.PODIUM_START, winnerTeam, 0, currentTick);
   retainExpMatchReplayAndNotify(mode, winnerTeam);
 
   mode.isReplayActive = false;

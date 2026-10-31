@@ -706,17 +706,30 @@ export class RocketSimPhysicsEngine {
     stepPhysicsEngineWithPadEdgeDetection(this, ticks);
     this._applyAccumulatedPossessionToState();
   }
-  stepSilent(ticks = 1) { this.module._physics_stepSilent(ticks); }
+  stepSilent(ticks = 1) {
+    this._ballTouchedFloorInLastStep = false;
+    this.module._physics_stepSilent(ticks);
+  }
   saveStateSlot(slot) { return this.module._physics_saveStateSlot(slot) === 1; }
-  restoreStateSlot(slot) { return this.module._physics_restoreStateSlot(slot) === 1; }
+  restoreStateSlot(slot) {
+    this._ballTouchedFloorInLastStep = false;
+    return this.module._physics_restoreStateSlot(slot) === 1;
+  }
   getStateSnapshotSize() { return this.module._physics_getStateSnapshotSize(); }
   _ensureStateBuffer(size) { ensureWasmSnapshotBuffer(this, size); }
   saveState(targetBuffer = null) { return saveWasmSnapshotState(this, targetBuffer); }
   saveCompactState(targetBuffer = null) { return saveCompactStateSnapshot(this, targetBuffer); }
-  restoreState(buffer, options = {}) { return restoreWasmSnapshotState(this, buffer, options); }
-  restoreCompactState(buffer, options = {}) { return restoreWasmSnapshotState(this, buffer, options); }
+  restoreState(buffer, options = {}) {
+    this._ballTouchedFloorInLastStep = false;
+    return restoreWasmSnapshotState(this, buffer, options);
+  }
+  restoreCompactState(buffer, options = {}) {
+    this._ballTouchedFloorInLastStep = false;
+    return restoreWasmSnapshotState(this, buffer, options);
+  }
 
   resetKickoff(seed = -1, preservePossessionScore = true) {
+    this._ballTouchedFloorInLastStep = false;
     if (preservePossessionScore && this.state && this.state.length >= 416) {
       this._accumulatedBluePossessionPts = Math.max(
         this._accumulatedBluePossessionPts,
@@ -739,6 +752,7 @@ export class RocketSimPhysicsEngine {
     if (!this.module || typeof this.module._physics_controlBall !== 'function') return false;
     const modeIndex = typeof mode === 'number' ? mode : BALL_CONTROL_MODES.indexOf(mode);
     if (modeIndex < 0 || modeIndex >= BALL_CONTROL_MODES.length) return false;
+    this._ballTouchedFloorInLastStep = false;
     return this.module._physics_controlBall(carIndex, modeIndex) === 1;
   }
 
@@ -876,7 +890,12 @@ export class RocketSimPhysicsEngine {
   }
 
   get ballRadius() { return this.module._physics_getBallRadius(); }
-  get ballOnGround() { return this.module._physics_getBallOnGround() === 1; }
+  get ballOnGround() {
+    return this.module._physics_getBallOnGround() === 1 || Boolean(this._ballTouchedFloorInLastStep);
+  }
+  getBallOnGround() {
+    return this.ballOnGround;
+  }
   getPads() { return readArenaPads(this); }
 
   destroy() {

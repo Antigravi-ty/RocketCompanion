@@ -126,6 +126,30 @@ export function stepPhysicsEngineWithPadEdgeDetection(engine, ticks = 1) {
     const writeSeqBefore = engine.eventReader ? engine.eventReader.writeSeq : 0;
     engine.module._physics_step(1);
 
+    const writeSeqAfter = engine.eventReader ? engine.eventReader.writeSeq : 0;
+    const u32 = engine.eventReader?.u32View;
+    const capacity = engine.eventReader?.capacity || 256;
+    const stride = engine.eventReader?.strideWords || 16;
+    const scanStart = Math.max(writeSeqBefore, writeSeqAfter - capacity);
+
+    let floorHitThisTick = engine.module._physics_getBallOnGround?.() === 1;
+    if (!floorHitThisTick && u32 && writeSeqAfter > scanStart) {
+      for (let seq = scanStart; seq < writeSeqAfter; seq++) {
+        const slot = seq % capacity;
+        const wordOffset = 4 + slot * stride;
+        const evType = u32[wordOffset];
+        const subType = u32[wordOffset + 12];
+        if (
+          evType === INCIDENT_EVENT_TYPES.BALL_WORLD_HIT &&
+          subType === SURFACE_SUBTYPES.FLOOR
+        ) {
+          floorHitThisTick = true;
+          break;
+        }
+      }
+    }
+    engine._ballTouchedFloorInLastStep = Boolean(floorHitThisTick);
+
     const postSt = engine.state;
     if (!hasPadSlice || !postSt) continue;
 
@@ -144,12 +168,6 @@ export function stepPhysicsEngineWithPadEdgeDetection(engine, ticks = 1) {
     }
 
     if (!hasCandidatePickup) continue;
-
-    const writeSeqAfter = engine.eventReader ? engine.eventReader.writeSeq : 0;
-    const u32 = engine.eventReader?.u32View;
-    const capacity = engine.eventReader?.capacity || 256;
-    const stride = engine.eventReader?.strideWords || 16;
-    const scanStart = Math.max(writeSeqBefore, writeSeqAfter - capacity);
 
     if (!engine._cachedPads || engine._cachedPadsPreset !== engine.arenaPreset) {
       engine._cachedPads = readArenaPads(engine);
@@ -253,6 +271,7 @@ export function stepPhysicsEngineWithPadEdgeDetection(engine, ticks = 1) {
 }
 
 export function applyBallStateToEngine(engine, ballState) {
+  engine._ballTouchedFloorInLastStep = false;
   if (typeof ballState === 'number') {
     if (typeof engine.module?._physics_setBallState === 'function') {
       engine.module._physics_setBallState(ballState);

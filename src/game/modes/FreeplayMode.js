@@ -4,6 +4,7 @@ import {
   MATCH_SIGNALS,
   SIM_OFFSETS,
   MAX_CARS,
+  isIncidentEvent,
 } from '../../physics/RocketSimConstants.js';
 import { ReplayRingBuffer, REPLAY_BUFFER_MODES } from '../../replay/ReplayRingBuffer.js';
 import { ReplayTimelineController } from '../../replay/ReplayTimelineCore.js';
@@ -171,6 +172,7 @@ export class FreeplayMode extends BaseGameMode {
   onPhysicsEvent(event) {
     if (
       !event ||
+      !isIncidentEvent(event.type) ||
       this.isReplayActive ||
       this.standaloneReplayViewer?.isActive ||
       this.rewinderController?.isBlockingLivePhysics

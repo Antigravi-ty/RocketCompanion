@@ -395,6 +395,24 @@ export function stepIncidentMatchTick(mode, store) {
       if (mode.incidentPhase.includes('WINS') || mode.incidentPhase.includes('MATCH END')) {
         return;
       }
+      if (!mode.incidentOvertime && mode.incidentClockStarted && mode.incidentRemainingSec === 0) {
+        if (mode.incidentBlueScore === mode.incidentOrangeScore) {
+          mode.incidentOvertime = true;
+          mode.incidentPhase = 'overtime';
+          audio?.play?.('match_entering_overtime', 1.0, 10000);
+        } else {
+          mode.incidentPhase =
+            mode.incidentBlueScore > mode.incidentOrangeScore
+              ? 'MATCH END (BLUE WINS)'
+              : 'MATCH END (ORANGE WINS)';
+          audio?.play?.('endgame', 1.0);
+          store.updateLiveTelemetry({
+            incidentPhase: mode.incidentPhase,
+            incidentOvertime: false,
+          });
+          return;
+        }
+      }
       sim.resetGoalLatch?.();
       sim.resetKickoff(0, true);
       r.interpolator?.sync?.();
@@ -476,35 +494,43 @@ export function stepIncidentMatchTick(mode, store) {
       if (!mode.incidentOvertime) {
         if (mode.incidentRemainingSec > 0) {
           mode.incidentRemainingSec--;
-        }
-
-        if (mode.incidentRemainingSec === 60) {
-          audio?.play?.('match_60_seconds_left', 1.0, 10000);
-        } else if (mode.incidentRemainingSec === 30) {
-          audio?.play?.('match_30_seconds_left', 1.0, 10000);
-        } else if (mode.incidentRemainingSec <= 10 && mode.incidentRemainingSec >= 1) {
-          audio?.play?.('match_countdown_10s', 1.0);
-        }
-
-        if (mode.incidentRemainingSec === 0) {
-          if (mode.incidentBlueScore === mode.incidentOrangeScore) {
-            mode.incidentOvertime = true;
-            mode.incidentPhase = 'overtime';
-            audio?.play?.('match_entering_overtime', 1.0, 10000);
-            sim.resetKickoff(0, true);
-            r.interpolator?.sync?.();
-            resetIncidentBotEpoch(mode);
-            beginIncidentKickoffCountdown(mode, store);
-          } else {
-            mode.incidentPhase =
-              mode.incidentBlueScore > mode.incidentOrangeScore
-                ? 'MATCH END (BLUE WINS)'
-                : 'MATCH END (ORANGE WINS)';
-            audio?.play?.('endgame', 1.0);
+          if (mode.incidentRemainingSec === 60) {
+            audio?.play?.('match_60_seconds_left', 1.0, 10000);
+          } else if (mode.incidentRemainingSec === 30) {
+            audio?.play?.('match_30_seconds_left', 1.0, 10000);
+          } else if (mode.incidentRemainingSec <= 10 && mode.incidentRemainingSec >= 1) {
+            audio?.play?.('match_countdown_10s', 1.0);
           }
         }
       } else {
         mode.incidentRemainingSec++;
+      }
+    }
+  }
+
+  // Zero-second regulation end check: wait for native physics engine ground contact
+  if (
+    !mode.incidentOvertime &&
+    mode.incidentClockStarted &&
+    mode.incidentRemainingSec === 0 &&
+    !mode.incidentPhase.includes('MATCH END')
+  ) {
+    if (Boolean(sim.ballOnGround)) {
+      if (mode.incidentBlueScore === mode.incidentOrangeScore) {
+        mode.incidentOvertime = true;
+        mode.incidentPhase = 'overtime';
+        audio?.play?.('match_entering_overtime', 1.0, 10000);
+        sim.resetGoalLatch?.();
+        sim.resetKickoff(0, true);
+        r.interpolator?.sync?.();
+        resetIncidentBotEpoch(mode);
+        beginIncidentKickoffCountdown(mode, store);
+      } else {
+        mode.incidentPhase =
+          mode.incidentBlueScore > mode.incidentOrangeScore
+            ? 'MATCH END (BLUE WINS)'
+            : 'MATCH END (ORANGE WINS)';
+        audio?.play?.('endgame', 1.0);
       }
     }
   }

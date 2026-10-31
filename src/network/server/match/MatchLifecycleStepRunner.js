@@ -576,6 +576,14 @@ export function stepMatchSessionFrame(admin) {
       if (admin.blueScore === admin.orangeScore) {
         admin.pendingOvertimeAfterGoal = true;
         admin.startKickoffSequence(KICKOFF_TOTAL_TICKS);
+        if (physicsSnapshot && admin.physicsManager?.sim) {
+          const sim = admin.physicsManager.sim;
+          if (typeof sim.saveCompactState === 'function') {
+            physicsSnapshot.stateSnapshot = sim.saveCompactState();
+          } else if (typeof sim.saveState === 'function') {
+            physicsSnapshot.stateSnapshot = sim.saveState();
+          }
+        }
       } else {
         admin.endMatch(null, 0);
       }

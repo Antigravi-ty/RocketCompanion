@@ -10,7 +10,11 @@ import {
   ensureExperimentalEngine,
   isExperimentalEngineReady,
 } from '../../ai/experimental/ExperimentalBotAgent.js';
-import { INCIDENT_EVENT_TYPES, MATCH_SIGNALS } from '../../physics/RocketSimConstants.js';
+import {
+  INCIDENT_EVENT_TYPES,
+  MATCH_SIGNALS,
+  isIncidentEvent,
+} from '../../physics/RocketSimConstants.js';
 import {
   ReplayRingBuffer,
   REPLAY_BUFFER_MODES,
@@ -97,26 +101,57 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
     });
   }
 
+  _pushSignalToPhysicsEngine(sig) {
+    const sim = this.runtime?.physics;
+    if (!sim || typeof sim.pushSignalEvent !== 'function') return;
+    sim.pushSignalEvent(
+      sig.signalType,
+      0,
+      sig.param1 | 0,
+      sig.param2 | 0,
+      0,
+      0,
+      sig.frameId,
+      sig.param1,
+      sig.param2,
+      sig.signalId,
+      0,
+      0,
+      0,
+      0
+    );
+  }
+
   _emitReplaySignal(signalType, param1 = 0, param2 = 0, explicitTick = null) {
     const sim = this.runtime?.physics;
-    const currentTick =
-      explicitTick !== null
-        ? Math.floor(explicitTick)
-        : Math.floor(sim?.getHeaderView?.()?.tickCount ?? 0);
+    if (explicitTick !== null) {
+      const targetTick = Math.floor(explicitTick);
+      const sig = {
+        signalId: this._nextReplaySignalId++,
+        signalType,
+        frameId: targetTick,
+        param1,
+        param2,
+      };
+      this._pushSignalToPhysicsEngine(sig);
+      const slot = this.replayRingBuffer?.findFrameByTick?.(targetTick);
+      if (slot) {
+        this.replayRingBuffer.appendSignal(targetTick, sig);
+      } else {
+        this._pendingFrameSignals.push(sig);
+      }
+      return sig;
+    }
+
+    const nextTick = Math.floor(sim?.getHeaderView?.()?.tickCount ?? 0) + 1;
     const sig = {
       signalId: this._nextReplaySignalId++,
       signalType,
-      frameId: currentTick,
+      frameId: nextTick,
       param1,
       param2,
     };
-    sim?.pushSignalEvent?.(sig.signalType, sig.frameId, sig.param1, sig.param2, sig.signalId);
-    const slot = this.replayRingBuffer?.findFrameByTick?.(currentTick);
-    if (slot) {
-      this.replayRingBuffer.appendSignal(currentTick, sig);
-    } else {
-      this._pendingFrameSignals.push(sig);
-    }
+    this._pendingFrameSignals.push(sig);
     return sig;
   }
 
@@ -418,7 +453,7 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
   }
 
   onPhysicsEvent(event) {
-    if (!event || this.isReplayActive || this.isMatchEnded) return;
+    if (!event || !isIncidentEvent(event.type) || this.isReplayActive || this.isMatchEnded) return;
     const currentTick = Math.floor(this.runtime?.physics?.getHeaderView?.()?.tickCount ?? 0);
     const eventTick = typeof event.tick === 'number' && event.tick > 0 ? event.tick : currentTick;
 
@@ -488,7 +523,7 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
         hudStore.getState().setMatchState({ matchPhase: 'kickoff', kickoffCountdown: 1 });
       } else if (this.countdownTicks === 0) {
         this.matchPhase = this.isOvertime ? 'overtime' : 'playing';
-        this.lastKickoffStartTick = Math.floor(sim.getHeaderView?.()?.tickCount ?? 0);
+        this.lastKickoffStartTick = Math.floor(sim.getHeaderView?.()?.tickCount ?? 0) + 1;
         this._emitReplaySignal(MATCH_SIGNALS.KICKOFF_START, 0, 0);
         if (r?.match?.state) {
           r.match.state.phase = 'playing';
@@ -594,15 +629,16 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
     this._pendingFrameSignals.length = 0;
     for (let s = 0; s < pendingSignals.length; s++) {
       pendingSignals[s].frameId = currentTick;
+      this._pushSignalToPhysicsEngine(pendingSignals[s]);
     }
 
-    // Always record 448-float compact snapshot + 8-car controls + pending signals into ring buffer
-    this.replayRingBuffer.recordFrame(currentTick, sim.state, {
-      acknowledgedControls,
-      signals: pendingSignals,
-    });
-
-    if (this.countdownTicks > 0) return;
+    if (this.countdownTicks > 0) {
+      this.replayRingBuffer.recordFrame(currentTick, sim.state, {
+        acknowledgedControls,
+        signals: pendingSignals,
+      });
+      return;
+    }
 
     const store = useExperimentalMultiBotsStore.getState();
     const audio = getExpModeAudio(r);
@@ -651,6 +687,12 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
         sim.setBallState(this.frozenGoalBallState);
       }
     }
+
+    // Always record 448-float compact snapshot + 8-car controls + pending signals into ring buffer
+    this.replayRingBuffer.recordFrame(currentTick, sim.state, {
+      acknowledgedControls,
+      signals: pendingSignals,
+    });
 
     // 3. Advance post-goal celebration countdown -> transition to Replay or Kickoff
     if (this.goalResetTicks > 0) {
@@ -808,7 +850,7 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
 
     // Zero-second regulation end check (waits for ball to touch ground or tied -> overtime)
     if (!this.isOvertime && this.clockStarted && this.remainingSec === 0) {
-      const ballOnGround = Boolean(sim.ballOnGround || bView.posZ <= 108.0);
+      const ballOnGround = Boolean(sim.ballOnGround);
       if (ballOnGround) {
         if (this.blueScore === this.orangeScore) {
           this.pendingOvertimeAfterReplay = true;

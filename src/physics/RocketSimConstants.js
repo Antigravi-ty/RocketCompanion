@@ -157,6 +157,8 @@ export const CONTROLS_OFFSETS = Object.freeze({
  */
 export const GRAVITY_Z = -650;
 export const BALL_COLLISION_RADIUS = 91.25;
+export const BALL_REST_Z = 93.15;
+export const BALL_GROUND_CONTACT_MAX_Z = BALL_COLLISION_RADIUS + 2.0; // 93.25 UU (matches WASM physics_getBallOnGround)
 export const BALL_MAX_SPEED = 4000;
 export const CAR_MAX_SPEED = 2300;
 export const SUPERSONIC_SPEED_THRESHOLD = 2200;
