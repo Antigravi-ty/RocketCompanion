@@ -214,10 +214,10 @@ export class BotMatchMode extends BaseGameMode {
       });
     }
 
-    if (phase === 'podium' || phase === 'ended') {
+    if (phase === 'podium') {
       this.podiumController.update(context);
       this.podiumController.updateCamera(r.camera, dt ?? 0.016);
-    } else if (this.podiumController.isActive) {
+    } else if (this.podiumController.isActive && phase !== 'ended') {
       this.podiumController.exitPodium();
     }
 

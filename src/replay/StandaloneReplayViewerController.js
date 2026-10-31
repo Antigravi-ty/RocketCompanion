@@ -51,6 +51,7 @@ export class StandaloneReplayViewerController {
     this.localTeam = 0;
     this.activePovCarIndex = 0;
     this.activePovSlotKey = 1;
+    this.activePovTeam = 0;
     this.cursor = 0;
     this.targetFrame = 0;
     this._scrubAccumulator = 0;
@@ -454,6 +455,7 @@ export class StandaloneReplayViewerController {
     const selfEntry = allEntries.find((e) => e.isSelf) || allEntries[0] || null;
     this.activePovCarIndex = selfEntry ? selfEntry.carIndex : 0;
     this.activePovSlotKey = selfEntry ? selfEntry.slotKey : 1;
+    this.activePovTeam = selfEntry?.team === 1 ? 1 : 0;
 
     if (r?.physics) {
       const activeSet = new Set(allEntries.map((e) => e.carIndex));
@@ -539,6 +541,7 @@ export class StandaloneReplayViewerController {
 
     this.activePovCarIndex = entry.carIndex;
     this.activePovSlotKey = entry.slotKey;
+    this.activePovTeam = entry.team === 1 ? 1 : 0;
 
     const r = this.runtime;
     if (r) {
@@ -573,6 +576,7 @@ export class StandaloneReplayViewerController {
     useReplayViewerStore.getState().updateLiveTelemetry({
       activePovCarIndex: this.activePovCarIndex,
       activePovSlotKey: this.activePovSlotKey,
+      activePovTeam: this.activePovTeam,
     });
   }
 
@@ -633,6 +637,7 @@ export class StandaloneReplayViewerController {
       signalMarkers,
       activePovCarIndex: this.activePovCarIndex,
       activePovSlotKey: this.activePovSlotKey,
+      activePovTeam: this.activePovTeam,
     };
   }
 
@@ -1467,9 +1472,9 @@ export class StandaloneReplayViewerController {
 
     const remFrames = Math.max(0, baseTarget - startIdx);
     const remSec = Math.ceil(remFrames / 120);
-    const maxBeepSec = downSec === 0 ? 1 : downSec;
-    if (remSec >= 1 && remSec <= maxBeepSec) {
-      this._lastCountdownSecBeep = remSec;
+    const visibleCountdownSec = downSec > 0 && remSec >= 1 && remSec <= downSec ? remSec : 0;
+    if (visibleCountdownSec >= 1) {
+      this._lastCountdownSecBeep = visibleCountdownSec;
       const audio = r?.options?.gameAudio || gameAudio;
       audio?.play?.('training_countdown', 1.0, 200);
     }
@@ -1478,7 +1483,7 @@ export class StandaloneReplayViewerController {
       viewerState: 'preroll-countdown',
       cursorFrame: startIdx,
       targetFrame: baseTarget,
-      prerollRemainingSec: Math.min(maxBeepSec, remSec),
+      prerollRemainingSec: visibleCountdownSec,
     });
   }
 
@@ -1493,6 +1498,7 @@ export class StandaloneReplayViewerController {
     this.localTeam = 0;
     this.activePovCarIndex = 0;
     this.activePovSlotKey = 1;
+    this.activePovTeam = 0;
     this._bindTimelines(null, null);
     this.cursor = 0;
     this.targetFrame = 0;
@@ -1556,6 +1562,7 @@ export class StandaloneReplayViewerController {
       prerollRemainingSec: 0,
       activePovCarIndex: 0,
       activePovSlotKey: 1,
+      activePovTeam: 0,
       errorMessage: null,
     });
   }
@@ -1593,7 +1600,6 @@ export class StandaloneReplayViewerController {
 
       const remFrames = Math.max(0, targetIdx - nextCursor);
       const downSec = store.downCounterSec ?? 0;
-      const maxBeepSec = downSec === 0 ? 1 : downSec;
       const audio = r?.options?.gameAudio || gameAudio;
 
       if (remFrames <= 0) {
@@ -1610,19 +1616,24 @@ export class StandaloneReplayViewerController {
       }
 
       const countdownSec = Math.ceil(remFrames / 120);
+      const visibleCountdownSec =
+        downSec > 0 && countdownSec >= 1 && countdownSec <= downSec ? countdownSec : 0;
       if (
-        countdownSec >= 1 &&
-        countdownSec <= maxBeepSec &&
-        countdownSec !== this._lastCountdownSecBeep
+        visibleCountdownSec >= 1 &&
+        visibleCountdownSec !== this._lastCountdownSecBeep
       ) {
-        this._lastCountdownSecBeep = countdownSec;
+        this._lastCountdownSecBeep = visibleCountdownSec;
         audio?.play?.('training_countdown', 1.0, 200);
       }
 
-      if (remFrames % 6 === 0 || remFrames % 120 === 0) {
+      if (
+        remFrames % 6 === 0 ||
+        remFrames % 120 === 0 ||
+        visibleCountdownSec !== store.prerollRemainingSec
+      ) {
         store.updateLiveTelemetry({
           cursorFrame: nextCursor,
-          prerollRemainingSec: Math.min(maxBeepSec, countdownSec),
+          prerollRemainingSec: visibleCountdownSec,
         });
       }
       return false;

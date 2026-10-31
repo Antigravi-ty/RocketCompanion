@@ -191,6 +191,10 @@ export class NetworkDataHandler {
       }
     }
 
+    if (hasValidInput && typeof this.matchManager?.recordSkipReplayInputEdge === 'function') {
+      this.matchManager.recordSkipReplayInputEdge(channelId, inputHistory);
+    }
+
     if (session.role === 'spectator') {
       return;
     }

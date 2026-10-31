@@ -597,12 +597,10 @@ export class FreeplayRewinderController {
 
     const remFrames = Math.max(0, targetIdx - startIdx);
     const remSec = Math.ceil(remFrames / 120);
+    const visibleCountdownSec = downSec > 0 && remSec >= 1 && remSec <= downSec ? remSec : 0;
     const audio = r?.options?.gameAudio || gameAudio;
-    if (downSec === 0) {
-      this._rewinderLastCountdownSecBeep = 1;
-      audio?.play?.('training_countdown', 1.0, 200);
-    } else if (remSec >= 1 && remSec <= downSec) {
-      this._rewinderLastCountdownSecBeep = remSec;
+    if (visibleCountdownSec >= 1) {
+      this._rewinderLastCountdownSecBeep = visibleCountdownSec;
       audio?.play?.('training_countdown', 1.0, 200);
     }
 
@@ -611,7 +609,7 @@ export class FreeplayRewinderController {
       rewinderRecordedFrames: this.rewinderFrames.length,
       rewinderCursorFrame: startIdx,
       rewinderTargetFrame: targetIdx,
-      rewinderPrerollRemainingSec: downSec === 0 ? 1 : Math.min(downSec, remSec),
+      rewinderPrerollRemainingSec: visibleCountdownSec,
     });
   }
 
@@ -832,7 +830,6 @@ export class FreeplayRewinderController {
 
       const remFrames = Math.max(0, targetIdx - nextCursor);
       const downSec = store.rewinderDownCounterSec ?? 0;
-      const maxBeepSec = downSec === 0 ? 1 : downSec;
       const audio = r?.options?.gameAudio || gameAudio;
 
       if (remFrames <= 0) {
@@ -850,19 +847,24 @@ export class FreeplayRewinderController {
       }
 
       const countdownSec = Math.ceil(remFrames / 120);
+      const visibleCountdownSec =
+        downSec > 0 && countdownSec >= 1 && countdownSec <= downSec ? countdownSec : 0;
       if (
-        countdownSec >= 1 &&
-        countdownSec <= maxBeepSec &&
-        countdownSec !== this._rewinderLastCountdownSecBeep
+        visibleCountdownSec >= 1 &&
+        visibleCountdownSec !== this._rewinderLastCountdownSecBeep
       ) {
-        this._rewinderLastCountdownSecBeep = countdownSec;
+        this._rewinderLastCountdownSecBeep = visibleCountdownSec;
         audio?.play?.('training_countdown', 1.0, 200);
       }
 
-      if (remFrames % 6 === 0 || remFrames % 120 === 0) {
+      if (
+        remFrames % 6 === 0 ||
+        remFrames % 120 === 0 ||
+        visibleCountdownSec !== store.rewinderPrerollRemainingSec
+      ) {
         store.updateLiveTelemetry({
           rewinderCursorFrame: nextCursor,
-          rewinderPrerollRemainingSec: Math.min(maxBeepSec, countdownSec),
+          rewinderPrerollRemainingSec: visibleCountdownSec,
         });
       }
       return false;

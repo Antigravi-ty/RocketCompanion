@@ -277,10 +277,36 @@ function stepServerFilledBots(admin) {
   }
 }
 
+function buildReplaySkipAckControls(admin) {
+  const ackList = [];
+  for (const [sid, p] of admin.players.entries()) {
+    if (!p || p.role === 'spectator' || typeof p.entityId !== 'number' || p.entityId < 0) continue;
+    const isSkipReady = Boolean(p.isBot || admin.skipReplayVotes?.has(sid));
+    ackList.push({
+      carIndex: p.entityId,
+      controls: {
+        ...DEFAULT_CAR_CONTROLS,
+        jump: isSkipReady,
+      },
+    });
+  }
+  return ackList;
+}
+
 export function stepMatchSessionFrame(admin) {
   if (admin.state === MATCH_STATES.ENDED || admin.state === MATCH_STATES.PODIUM) {
+    if (admin.state === MATCH_STATES.ENDED) {
+      if (typeof admin.podiumDelayTicks === 'number' && admin.podiumDelayTicks > 0) {
+        admin.podiumDelayTicks--;
+        if (admin.podiumDelayTicks <= 0) {
+          admin.enterPodiumPhase?.();
+        }
+      } else {
+        admin.enterPodiumPhase?.();
+      }
+    }
     let podiumSnapshot = null;
-    if (admin.state === MATCH_STATES.PODIUM && admin.physicsManager && !admin.physicsManager.isPaused) {
+    if (admin.physicsManager && !admin.physicsManager.isPaused) {
       podiumSnapshot = admin.physicsManager.stepAuthoritativeTick();
       admin.matchTick = podiumSnapshot.tick;
     } else {
@@ -365,6 +391,7 @@ export function stepMatchSessionFrame(admin) {
   if (admin.state === MATCH_STATES.REPLAY) {
     admin.replayTicksRemaining--;
     let replayPhysicsSnapshot = null;
+    const replayAckControls = buildReplaySkipAckControls(admin);
     const replayFrames = admin._replayController?.frames || admin._replayController?.activeFrames;
     if (admin._replayController && admin._replayController.isActive && Array.isArray(replayFrames) && replayFrames.length > 0) {
       const useSlowMo = admin.enableDramaticReplaySlowMo !== false;
@@ -389,7 +416,7 @@ export function stepMatchSessionFrame(admin) {
           tick: admin.matchTick,
           activeCarMask: admin.physicsManager?.getActiveCarMask?.() || 0,
           stateSnapshot: blendedSnap,
-          acknowledgedControls: null,
+          acknowledgedControls: replayAckControls,
           isReplaySlice: true
         };
       }
@@ -400,7 +427,7 @@ export function stepMatchSessionFrame(admin) {
           tick: admin.matchTick,
           activeCarMask: admin.physicsManager?.getActiveCarMask?.() || 0,
           stateSnapshot: slot.snapshot,
-          acknowledgedControls: null,
+          acknowledgedControls: replayAckControls,
           isReplaySlice: true
         };
       }

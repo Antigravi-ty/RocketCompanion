@@ -44,6 +44,7 @@ import {
   retainExpMultiBotGoalReplayBuffer,
   retainExpMatchReplayAndNotify,
   finishExpMultiBotMatch,
+  enterExpMultiBotPodium,
   beginExpMultiBotGoalReplay,
   completeExpPostGoalOrReplayTransition,
   stepExpMultiBotReplayUpdate,
@@ -66,6 +67,8 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
     this.remainingSec = 300;
     this.isOvertime = false;
     this.isMatchEnded = false;
+    this.matchWinnerTeam = 0;
+    this.podiumDelayTicks = 0;
     this.matchPhase = 'kickoff (3)';
     this.blueScore = 0;
     this.orangeScore = 0;
@@ -496,7 +499,22 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
     const r = this.runtime;
     const sim = r?.physics;
     if (!sim || this.spawnedCars.length === 0) return true;
-    if (this.isReplayActive || this.isMatchEnded) return false;
+    if (this.isReplayActive) return false;
+    if (this.isMatchEnded) {
+      if (this.podiumDelayTicks > 0) {
+        for (const entry of this.spawnedCars) {
+          sim.setControls(entry.carIndex, r.neutralControls);
+          this.carControlsMap.set(entry.carIndex, r.neutralControls);
+        }
+        this.podiumDelayTicks--;
+        if (this.podiumDelayTicks <= 0) {
+          enterExpMultiBotPodium(this);
+          return false;
+        }
+        return true;
+      }
+      return false;
+    }
 
     const store = useExperimentalMultiBotsStore.getState();
     const audio = getExpModeAudio(r);

@@ -181,8 +181,11 @@ export class PredictionReconciler {
 
   setReplayPlaybackMode(enabled) {
     const next = Boolean(enabled);
-    if (this.replayPlaybackMode !== next && Array.isArray(this.drainedReplayPackets)) {
-      this.drainedReplayPackets.length = 0;
+    if (this.replayPlaybackMode !== next) {
+      this.localSkipReplayReady = false;
+      if (Array.isArray(this.drainedReplayPackets)) {
+        this.drainedReplayPackets.length = 0;
+      }
     }
     if (this.replayPlaybackMode && !next) {
       this.resetTimelineState();

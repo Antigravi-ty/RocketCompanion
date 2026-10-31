@@ -113,6 +113,8 @@ export function retainExpMatchReplayAndNotify(mode, winnerTeam) {
   });
 }
 
+export const POST_MATCH_PODIUM_DELAY_TICKS = 360; // 3.0s @ 120Hz before entering podium
+
 export function finishExpMultiBotMatch(mode, winnerTeam) {
   const r = mode.runtime;
   const store = useExperimentalMultiBotsStore.getState();
@@ -120,33 +122,56 @@ export function finishExpMultiBotMatch(mode, winnerTeam) {
   const currentTick = Math.floor(r?.physics?.getHeaderView?.()?.tickCount ?? 0);
 
   mode._emitReplaySignal?.(MATCH_SIGNALS.MATCH_ENDED, winnerTeam, 0, currentTick);
-  mode._emitReplaySignal?.(MATCH_SIGNALS.PODIUM_START, winnerTeam, 0, currentTick);
   retainExpMatchReplayAndNotify(mode, winnerTeam);
 
   mode.isReplayActive = false;
   mode.isMatchEnded = true;
+  mode.matchWinnerTeam = winnerTeam;
+  mode.podiumDelayTicks = POST_MATCH_PODIUM_DELAY_TICKS;
   mode.isOvertime = false;
   mode.goalResetTicks = 0;
   mode.pendingMatchEndAfterReplay = false;
   mode.matchPhase = winnerTeam === 0 ? 'MATCH END (BLUE WINS)' : 'MATCH END (ORANGE WINS)';
 
   if (r) {
+    r._localSkipReplayReady = false;
     r.goalReplayCameraOverrideActive = false;
     r.podiumController = mode.podiumController;
   }
+
+  if (r?.match?.state) {
+    r.match.state.phase = 'ended';
+    r.match.state.winner = winnerTeam;
+  }
+
+  audio?.play?.('endgame', 1.0);
+
+  store.updateLiveTelemetry({
+    matchPhase: mode.matchPhase,
+    isOvertime: false,
+  });
+  hudStore.getState().setMatchState({
+    matchPhase: 'ended',
+    isOvertime: false,
+    winner: winnerTeam,
+    winReason: 'SCORE',
+  });
+}
+
+export function enterExpMultiBotPodium(mode) {
+  const r = mode.runtime;
+  const winnerTeam = mode.matchWinnerTeam ?? (mode.blueScore >= mode.orangeScore ? 0 : 1);
+  const currentTick = Math.floor(r?.physics?.getHeaderView?.()?.tickCount ?? 0);
+
+  mode._emitReplaySignal?.(MATCH_SIGNALS.PODIUM_START, winnerTeam, 0, currentTick);
+  mode.podiumDelayTicks = 0;
 
   if (r?.match?.state) {
     r.match.state.phase = 'podium';
     r.match.state.winner = winnerTeam;
   }
 
-  audio?.play?.('endgame', 1.0);
   mode.podiumController?.enterPodium?.(winnerTeam, 'SCORE');
-
-  store.updateLiveTelemetry({
-    matchPhase: mode.matchPhase,
-    isOvertime: false,
-  });
   hudStore.getState().setMatchState({
     matchPhase: 'podium',
     isOvertime: false,
@@ -159,6 +184,9 @@ export function beginExpMultiBotGoalReplay(mode) {
   const r = mode.runtime;
   const sim = r?.physics;
   const store = useExperimentalMultiBotsStore.getState();
+  if (r) {
+    r._localSkipReplayReady = false;
+  }
   if (!sim || !mode.replayRingBuffer || mode.replayRingBuffer.size === 0) {
     completeExpPostGoalOrReplayTransition(mode);
     return;
@@ -356,6 +384,7 @@ export function completeExpPostGoalOrReplayTransition(mode) {
   mode.replayController?.endReplaySession?.();
   mode.isReplayActive = false;
   if (r) {
+    r._localSkipReplayReady = false;
     r.goalReplayCameraOverrideActive = false;
   }
   hudStore.getState().setReplayState({

@@ -142,6 +142,7 @@ export class TelemetryStage {
           carIndex: c.carIndex,
           name: c.name || defaultName,
           isSelf,
+          isBot: !c.isPlayer,
         };
         if (c.team === 1) {
           orangeEntries.push(item);
@@ -192,10 +193,16 @@ export class TelemetryStage {
           if (isSelf) {
             detectedLocalTeam = isOrange ? 1 : 0;
           }
+          const isBot = Boolean(
+            p.isBot ||
+              p.botType ||
+              String(p.peerId || p.sessionId || '').startsWith('bot')
+          );
           const item = {
             carIndex: cIdx,
             name: p.username || p.name || p.playerName || `Player ${cIdx + 1}`,
             isSelf,
+            isBot,
           };
           if (isOrange) {
             orangeEntries.push(item);
@@ -219,6 +226,7 @@ export class TelemetryStage {
           name: selfName,
           team: selfTeam === 1 || selfTeam === 'orange' ? 1 : 0,
           isSelf: true,
+          isBot: false,
         });
 
         let fallbackIdx = 0;
@@ -242,17 +250,20 @@ export class TelemetryStage {
             name: p.name || p.username || r?.networkReconciler?.carNames?.get?.(cIdx) || `Player ${cIdx + 1}`,
             team: isOrange ? 1 : 0,
             isSelf,
+            isBot: Boolean(p.isBot || p.botType),
           });
         }
 
         if (r?._participantTeams instanceof Map) {
           for (const [cIdx, tVal] of r._participantTeams.entries()) {
             if (typeof cIdx === 'number' && cIdx >= 0 && cIdx < 8 && !combinedByCar.has(cIdx)) {
+              const cName = r?.networkReconciler?.carNames?.get?.(cIdx) || `Player ${cIdx + 1}`;
               combinedByCar.set(cIdx, {
                 carIndex: cIdx,
-                name: r?.networkReconciler?.carNames?.get?.(cIdx) || `Player ${cIdx + 1}`,
+                name: cName,
                 team: tVal === 1 ? 1 : 0,
                 isSelf: cIdx === localCarIdx,
+                isBot: /^(necto|nexto|bot\b)/i.test(String(cName)),
               });
             }
           }
@@ -269,6 +280,7 @@ export class TelemetryStage {
             carIndex: entry.carIndex,
             name: entry.name,
             isSelf: entry.isSelf,
+            isBot: Boolean(entry.isBot),
           };
           if (entry.team === 1) {
             orangeEntries.push(item);
@@ -281,18 +293,18 @@ export class TelemetryStage {
         const botDisplay = botNameRaw.charAt(0).toUpperCase() + botNameRaw.slice(1);
         const selfName =
           r?.multiplayerSession?.playerName || appState?.onlineSession?.playerName || 'Player';
-        blueEntries.push({ carIndex: 0, name: selfName, isSelf: true });
+        blueEntries.push({ carIndex: 0, name: selfName, isSelf: true, isBot: false });
         detectedLocalTeam = 0;
         if ((r?.physics?.numCars ?? 2) >= 2) {
-          orangeEntries.push({ carIndex: 1, name: botDisplay, isSelf: false });
+          orangeEntries.push({ carIndex: 1, name: botDisplay, isSelf: false, isBot: true });
         }
       }
     } else if (matchMode === 'dev-test-lab') {
       const numCars = r?.physics?.numCars ?? 1;
-      blueEntries.push({ carIndex: 0, name: 'Player', isSelf: true });
+      blueEntries.push({ carIndex: 0, name: 'Player', isSelf: true, isBot: false });
       detectedLocalTeam = 0;
       if (numCars >= 2) {
-        orangeEntries.push({ carIndex: 1, name: 'Bot', isSelf: false });
+        orangeEntries.push({ carIndex: 1, name: 'Bot', isSelf: false, isBot: true });
       }
     }
 
@@ -330,6 +342,18 @@ export class TelemetryStage {
       ? 'spectator'
       : 'player-live';
 
+    const ackJumpByCar = new Map();
+    if (
+      isGoalReplayView &&
+      Array.isArray(r?.networkReconciler?.lastParsedPacket?.acknowledgedControls)
+    ) {
+      for (const item of r.networkReconciler.lastParsedPacket.acknowledgedControls) {
+        if (item && typeof item.carIndex === 'number') {
+          ackJumpByCar.set(item.carIndex, Boolean(item.controls?.jump));
+        }
+      }
+    }
+
     let focusedSlotKey = null;
 
     const leftPlayers = [0, 1, 2, 3, 4].map((idx) => {
@@ -348,6 +372,7 @@ export class TelemetryStage {
           demoRespawnRemainingSec: 0,
           demoRespawnTotalSec: 3.0,
           demolishedAtMs: 0,
+          replaySkipReady: false,
         };
       }
       const tel = this._resolveCarHudTelemetry(entry.carIndex);
@@ -360,6 +385,14 @@ export class TelemetryStage {
       if (isFocused) {
         focusedSlotKey = slotKey;
       }
+      const replaySkipReady = isGoalReplayView
+        ? Boolean(
+            entry.isBot ||
+              (entry.isSelf &&
+                (r?._localSkipReplayReady || r?.networkReconciler?.localSkipReplayReady)) ||
+              ackJumpByCar.get(entry.carIndex)
+          )
+        : false;
       return {
         slotKey,
         carIndex: entry.carIndex,
@@ -373,6 +406,7 @@ export class TelemetryStage {
         demoRespawnRemainingSec: tel.demoRespawnRemainingSec,
         demoRespawnTotalSec: 3.0,
         demolishedAtMs: tel.demolishedAtMs,
+        replaySkipReady,
       };
     });
 
@@ -392,6 +426,7 @@ export class TelemetryStage {
           demoRespawnRemainingSec: 0,
           demoRespawnTotalSec: 3.0,
           demolishedAtMs: 0,
+          replaySkipReady: false,
         };
       }
       const tel = this._resolveCarHudTelemetry(entry.carIndex);
@@ -404,6 +439,14 @@ export class TelemetryStage {
       if (isFocused) {
         focusedSlotKey = slotKey;
       }
+      const replaySkipReady = isGoalReplayView
+        ? Boolean(
+            entry.isBot ||
+              (entry.isSelf &&
+                (r?._localSkipReplayReady || r?.networkReconciler?.localSkipReplayReady)) ||
+              ackJumpByCar.get(entry.carIndex)
+          )
+        : false;
       return {
         slotKey,
         carIndex: entry.carIndex,
@@ -417,6 +460,7 @@ export class TelemetryStage {
         demoRespawnRemainingSec: tel.demoRespawnRemainingSec,
         demoRespawnTotalSec: 3.0,
         demolishedAtMs: tel.demolishedAtMs,
+        replaySkipReady,
       };
     });
 

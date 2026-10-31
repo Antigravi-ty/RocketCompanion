@@ -293,6 +293,13 @@ export class PhysicsEngineManager {
         }
         break;
 
+      case MATCH_SIGNALS.MATCH_ENDED:
+        this.isPaused = false;
+        this.isRecordingFullReplay = false;
+        this.sim?.setReplayRecordingActive?.(false);
+        this.setInputMask(true);
+        break;
+
       case MATCH_SIGNALS.PODIUM_START:
         this.isPaused = false;
         this.isRecordingFullReplay = false;

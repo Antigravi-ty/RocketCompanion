@@ -120,11 +120,21 @@ export function sendReconcilerOutboundInputForTick(reconciler, tick, carIndex = 
 export function flushReconcilerPendingControlPackets(reconciler, nowMs = performance.now()) {
   const hasAcks = reconciler.pendingSignalAcks && reconciler.pendingSignalAcks.size > 0;
   const hasCommands = reconciler.pendingClientCommands && reconciler.pendingClientCommands.size > 0;
-  if (!hasAcks && !hasCommands) return;
+  const wantSkipReplayJump = Boolean(reconciler.replayPlaybackMode && reconciler.localSkipReplayReady);
+  if (!hasAcks && !hasCommands && !wantSkipReplayJump) return;
   const currentTick = Math.floor(reconciler.sim?.getHeaderView?.()?.tickCount ?? reconciler.lastAckedServerTick ?? 0);
   const { acks, commands } = collectPiggybackAcksAndCommands(reconciler);
-  if (acks.length === 0 && commands.length === 0) return;
-  const singleWindow = [{ tick: currentTick, carIndex: reconciler.localCarIndex, controls: { ...reconciler.neutralControls } }];
+  if (acks.length === 0 && commands.length === 0 && !wantSkipReplayJump) return;
+  const singleWindow = [
+    {
+      tick: currentTick,
+      carIndex: reconciler.localCarIndex,
+      controls: {
+        ...reconciler.neutralControls,
+        jump: wantSkipReplayJump,
+      },
+    },
+  ];
   const outboundPacket = InputPacketCodec.encode(reconciler.localCarIndex, currentTick, singleWindow, nowMs, acks, commands);
   if (typeof reconciler.channel?.sendClientInput === 'function') {
     reconciler.channel.sendClientInput(outboundPacket, nowMs);

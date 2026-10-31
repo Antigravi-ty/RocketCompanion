@@ -103,6 +103,7 @@ export class MatchSessionAdmin {
     this.startCountdownTicks = -1;
     this.prepareTimeoutTicks = -1;
     this.willResumeUntilTick = -1;
+    this.podiumDelayTicks = 0;
   }
 
   get matchState() { return this.state; }
@@ -646,12 +647,28 @@ export class MatchSessionAdmin {
     finishMatchGoalReplay(this, KICKOFF_TOTAL_TICKS);
   }
 
+  recordSkipReplayInputEdge(sessionId, inputHistory) {
+    if (this.state !== MATCH_STATES.REPLAY) return false;
+    if (!Array.isArray(inputHistory) || inputHistory.length === 0) return false;
+    if (this.skipReplayVotes.has(sessionId)) return true;
+    for (let i = 0; i < inputHistory.length; i++) {
+      const ctrl = inputHistory[i]?.controls || inputHistory[i];
+      if (ctrl?.jump) {
+        this.skipReplayVotes.add(sessionId);
+        checkSkipReplayVotes(this);
+        return true;
+      }
+    }
+    return false;
+  }
+
   resolvePossessionWinner() {
     return resolvePossessionWinner(this);
   }
 
   endMatch(forcedWinner = null, winReason = 0) {
-    this.state = MATCH_STATES.PODIUM;
+    this.state = MATCH_STATES.ENDED;
+    this.podiumDelayTicks = 360;
     let winner = forcedWinner;
     if (winner === null || winner === undefined) {
       winner = this.blueScore > this.orangeScore ? 0 : (this.orangeScore > this.blueScore ? 1 : 2);
@@ -659,7 +676,7 @@ export class MatchSessionAdmin {
     this.winner = winner;
     this.winReason = winReason;
     if (this.physicsManager) {
-      this.physicsManager.applySignal(MATCH_SIGNALS.PODIUM_START, { winner, winReason });
+      this.physicsManager.applySignal(MATCH_SIGNALS.MATCH_ENDED, { winner, winReason });
     }
     this.activeSignals.delete(MATCH_SIGNALS.KICKOFF_WILL_START);
     this.activeSignals.delete(MATCH_SIGNALS.SCORE_UPDATED);
@@ -670,7 +687,6 @@ export class MatchSessionAdmin {
       this.sessionManager.signalBuffer.retireByType(MATCH_SIGNALS.GOAL_REPLAY_WILL_START);
     }
     this.dispatchSignal(MATCH_SIGNALS.MATCH_ENDED, this.matchTick, winner, winReason);
-    this.dispatchSignal(MATCH_SIGNALS.PODIUM_START, this.matchTick, winner, winReason);
     if (
       this.isHost &&
       typeof this.onRetainCompletedReplay === 'function' &&
@@ -691,6 +707,18 @@ export class MatchSessionAdmin {
         loadouts: rosterMeta,
       });
     }
+  }
+
+  enterPodiumPhase() {
+    if (this.state !== MATCH_STATES.ENDED) return;
+    this.state = MATCH_STATES.PODIUM;
+    this.podiumDelayTicks = 0;
+    const winner = this.winner ?? 0;
+    const winReason = this.winReason ?? 0;
+    if (this.physicsManager) {
+      this.physicsManager.applySignal(MATCH_SIGNALS.PODIUM_START, { winner, winReason });
+    }
+    this.dispatchSignal(MATCH_SIGNALS.PODIUM_START, this.matchTick, winner, winReason);
   }
 
   stepFrame() {

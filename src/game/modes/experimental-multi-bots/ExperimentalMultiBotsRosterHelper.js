@@ -102,9 +102,11 @@ export async function applyExpRosterAndStartMatch(mode) {
   mode.replayRingBuffer?.clear?.();
   mode.isReplayActive = false;
   mode.isMatchEnded = false;
+  mode.podiumDelayTicks = 0;
   mode.pendingMatchEndAfterReplay = false;
   mode.pendingMatchWinner = null;
   if (r) {
+    r._localSkipReplayReady = false;
     r.goalReplayCameraOverrideActive = false;
   }
 

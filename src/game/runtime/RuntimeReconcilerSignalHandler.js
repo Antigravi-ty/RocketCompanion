@@ -565,6 +565,7 @@ export function bindReconcilerSignals(runtime, reconciler) {
         }
 
         case MATCH_SIGNALS.GOAL_REPLAY_WILL_START: {
+          r._localSkipReplayReady = false;
           r.lastKickoffTargetFrame = -1;
           r.latchedKickoffSeconds?.clear?.();
           const rawParam1 = sig.param1 ?? 0;
@@ -589,6 +590,7 @@ export function bindReconcilerSignals(runtime, reconciler) {
         }
 
         case MATCH_SIGNALS.GOAL_REPLAY_START: {
+          r._localSkipReplayReady = false;
           r.lastKickoffTargetFrame = -1;
           r.latchedKickoffSeconds?.clear?.();
           audio?.resetIncidentDebounceState?.();
@@ -638,6 +640,7 @@ export function bindReconcilerSignals(runtime, reconciler) {
 
         case MATCH_SIGNALS.GOAL_REPLAY_END:
         case MATCH_SIGNALS.ROUND_STARTED: {
+          r._localSkipReplayReady = false;
           reconciler.setReplayPlaybackMode?.(false);
           if (!r.clientReplayOverflowPaused) {
             r.physics?.setReplayRecordingActive?.(true);
@@ -718,6 +721,7 @@ export function bindReconcilerSignals(runtime, reconciler) {
         }
 
         case MATCH_SIGNALS.MATCH_DESTROYED: {
+          r._localSkipReplayReady = false;
           reconciler.setMatchTelemetryActive?.(false, false);
           reconciler.setKickoffMaskUntilTick?.(-1);
           r.goalReplayCameraOverrideActive = false;
@@ -732,18 +736,23 @@ export function bindReconcilerSignals(runtime, reconciler) {
           if (r.arena?.isLobbyMode || r.match?.state?.phase === 'lobby' || reconciler.lobbyDualWorldMode) {
             break;
           }
+          r._localSkipReplayReady = false;
           const winningTeam = sig.param1;
           const winReasonCode = sig.param2 || 0;
           const winnerName = winningTeam === 0 ? 'BLUE' : (winningTeam === 1 ? 'ORANGE' : 'DRAW');
           const winReason = WIN_REASON_LABELS[winReasonCode] || 'SCORE';
-          const targetPhase = sig.signalType === MATCH_SIGNALS.PODIUM_START ? 'podium' : 'ended';
+          const isPodiumStart = sig.signalType === MATCH_SIGNALS.PODIUM_START;
+          const targetPhase = isPodiumStart ? 'podium' : 'ended';
           const wasNotEnded = r.match?.state?.phase !== 'ended' && r.match?.state?.phase !== 'podium';
 
-          reconciler.setMatchTelemetryActive?.(false, false);
+          reconciler.setReplayPlaybackMode?.(false);
           reconciler.setKickoffMaskUntilTick?.(-1);
           r.goalReplayCameraOverrideActive = false;
           r.replayTimelineController?.endReplaySession?.();
-          r.podiumController?.enterPodium?.(winningTeam, winReason);
+          if (isPodiumStart) {
+            reconciler.setMatchTelemetryActive?.(false, false);
+            r.podiumController?.enterPodium?.(winningTeam, winReason);
+          }
 
           if (r.match) {
             r.match.state.phase = targetPhase;

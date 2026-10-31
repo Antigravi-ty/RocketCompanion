@@ -224,14 +224,16 @@ export function checkSkipReplayVotes(admin) {
   let humanCount = 0;
   let votedCount = 0;
   for (const [sid, p] of admin.players.entries()) {
-    if (!p.isBot) {
+    if (!p.isBot && p.role !== 'spectator') {
       humanCount++;
       if (admin.skipReplayVotes.has(sid)) {
         votedCount++;
       }
     }
   }
-  if (humanCount > 0 && votedCount >= humanCount) {
+  const allHumansVoted = humanCount > 0 && votedCount >= humanCount;
+  const spectatorSkippedAllBotMatch = humanCount === 0 && admin.skipReplayVotes.size > 0;
+  if (allHumansVoted || spectatorSkippedAllBotMatch) {
     if (admin.state === MATCH_STATES.REPLAY) {
       admin.finishGoalReplay();
     } else if (admin.state === MATCH_STATES.GOAL_SCORED && admin.goalBufferTicks > 35) {
@@ -339,10 +341,8 @@ export function handleClientCommand(admin, sessionId, cmd) {
     case CLIENT_COMMAND_TYPES.CMD_VOTE_SKIP_REPLAY: {
       if (param1 !== 0) {
         admin.skipReplayVotes.add(sessionId);
-      } else {
-        admin.skipReplayVotes.delete(sessionId);
+        checkSkipReplayVotes(admin);
       }
-      checkSkipReplayVotes(admin);
       break;
     }
 

@@ -87,6 +87,36 @@ export function createRuntimeWindowKeyDownHandler(runtime) {
       hudStore.getState().matchPhase === 'replay' ||
       Boolean(runtime?.modeManager?.getActiveMode?.()?.isReplayActive);
 
+    // Hotkey Enter: Vote / trigger Skip Replay during Goal Replay
+    if (
+      isGoalReplay &&
+      isOutsideEditableUI &&
+      !evt.repeat &&
+      !evt.ctrlKey &&
+      !evt.metaKey &&
+      !evt.altKey &&
+      (evt.code === 'Enter' || evt.code === 'NumpadEnter' || evt.key === 'Enter')
+    ) {
+      const isMenuOpen = Boolean(useAppStore?.getState?.()?.isOpen);
+      if (!isMenuOpen) {
+        evt.preventDefault();
+        runtime._localSkipReplayReady = true;
+        if (runtime.networkReconciler) {
+          runtime.networkReconciler.localSkipReplayReady = true;
+          runtime.networkReconciler.flushPendingControlPackets?.(performance.now());
+        } else {
+          const skipFn = hudStore.getState().onReplaySkip;
+          const activeMode = runtime?.modeManager?.getActiveMode?.();
+          if (typeof skipFn === 'function') {
+            skipFn();
+          } else if (typeof activeMode?.skipGoalReplay === 'function') {
+            activeMode.skipGoalReplay();
+          }
+        }
+        return;
+      }
+    }
+
     // Hotkeys 1-6 (switch player POV) and 7 (switch back to Director camera) during Goal Replay
     if (
       isGoalReplay &&
