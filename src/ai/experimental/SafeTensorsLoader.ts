@@ -62,12 +62,21 @@ const _F16_TO_F32_LUT = (() => {
   return lut;
 })();
 
+export interface SafeTensorEntry {
+  shape: number[];
+  dtype: string;
+  data: Float32Array | Int32Array;
+}
+
+export interface ParsedSafeTensorsModel {
+  metadata: Record<string, unknown>;
+  tensors: Record<string, SafeTensorEntry>;
+}
+
 /**
  * Parses an ArrayBuffer in SafeTensors format into Float32Array / Int32Array views.
- * @param {ArrayBuffer} buffer
- * @returns {{ metadata: Object, tensors: Object<string, { shape: number[], dtype: string, data: Float32Array|Int32Array }> }}
  */
-export function parseSafeTensorsBuffer(buffer) {
+export function parseSafeTensorsBuffer(buffer: ArrayBuffer): ParsedSafeTensorsModel {
   if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < 16) {
     throw new Error(`[SafeTensorsLoader] Invalid buffer (byteLength=${buffer?.byteLength ?? 0}).`);
   }
@@ -84,8 +93,8 @@ export function parseSafeTensorsBuffer(buffer) {
   const headerJson = JSON.parse(headerStr);
 
   const dataBaseOffset = 8 + headerLenLow;
-  const metadata = headerJson.__metadata__ || {};
-  const tensors: Record<string, any> = {};
+  const metadata: Record<string, unknown> = headerJson.__metadata__ || {};
+  const tensors: Record<string, SafeTensorEntry> = {};
 
   for (const [name, info] of Object.entries<any>(headerJson)) {
     if (name === '__metadata__') continue;

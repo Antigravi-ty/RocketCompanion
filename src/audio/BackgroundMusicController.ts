@@ -226,6 +226,38 @@ export class BackgroundMusicController {
     return true;
   }
 
+  handleFocusChanged(muted: boolean, cfg: Partial<SpatialAudioTunerConfig>): void {
+    this.fadeEnvelope = 0.0;
+    if (muted) {
+      this.lastShouldBeAudible = false;
+      this.host.getBgmChain()?.resetAndSilence(cfg);
+      if (this.audioEl && !this.audioEl.paused) {
+        this.audioEl.pause();
+      }
+    } else {
+      this.host.getBgmChain()?.applyBlend(this.blend, cfg, 0.0, true);
+      this.syncPlaybackState();
+    }
+  }
+
+  applyCurrentChainBlend(
+    cfg: Partial<SpatialAudioTunerConfig>,
+    bgmVolScalar: number,
+    immediate = false
+  ): void {
+    this.host
+      .getBgmChain()
+      ?.applyBlend(this.blend, cfg, this.fadeEnvelope * bgmVolScalar, immediate);
+  }
+
+  updateGoalSequenceGate(isGoalOrReplayPhase: boolean, isAnthemStillActive: boolean): boolean {
+    if (!this.goalSequenceActive) return false;
+    if (!isGoalOrReplayPhase && !isAnthemStillActive) {
+      this.goalSequenceActive = false;
+    }
+    return this.goalSequenceActive;
+  }
+
   onFilesUploaded(): void {
     this.userPaused = false;
     const store = useSpatialAudioStore.getState();

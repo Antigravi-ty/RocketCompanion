@@ -2,6 +2,51 @@ import {
   releaseDiagnosticFleetIfEnabled,
   type WorkerRouterContext,
 } from './workerReplayAndDiagnosticsRouter.ts';
+import type { CarControlsInput } from '../protocol/GlobalPayloadCodec.ts';
+import type { ExtraLoadoutConfig } from './match/matchLoadoutAndSpawnPipeline.ts';
+import type { TrainingRulesetOptions } from './match/MatchSystemControlSubController.ts';
+
+export interface WorkerTrainingAndPhysicsPayload extends TrainingRulesetOptions {
+  carIndex?: number;
+  team?: number;
+  visualId?: string;
+  controls?: CarControlsInput;
+  state?: Float32Array | number[] | Record<string, unknown>;
+  stateObj?: Float32Array | number[] | Record<string, unknown>;
+  ballState?: Float32Array | number[] | Record<string, unknown>;
+  mode?: number | string;
+  actionId?: number | string;
+  interactWithBall?: boolean;
+  interactWithCars?: boolean;
+  opacity?: number;
+  enabled?: boolean;
+  fx?: number;
+  fy?: number;
+  fz?: number;
+  gravityScale?: number;
+  mutators?: Record<string, unknown>;
+  paused?: boolean;
+  countdownSeconds?: number;
+  stateSnapshot?: Float32Array | number[] | null;
+  cursorTick?: number;
+  resumeTick?: number;
+  durationSeconds?: number;
+  gameMode?: string;
+  botFillMode?: string;
+  botName?: string | null;
+  sessionId?: string;
+  colorSlot?: number;
+  hitboxId?: string | null;
+  extraLoadout?: ExtraLoadoutConfig | null;
+  role?: string;
+  disabled?: boolean;
+  collectable?: boolean;
+  rechargePerSecond?: number;
+  rechargeDelay?: number;
+  seed?: number;
+  reqId?: number;
+  [key: string]: unknown;
+}
 
 /**
  * Narrow-waist router for direct physics/training mutators, car entity lifecycle,
@@ -10,17 +55,17 @@ import {
 export function routeTrainingAndPhysicsMessage(
   workerCtx: WorkerRouterContext,
   type: string,
-  payload: Record<string, any>,
+  payload: WorkerTrainingAndPhysicsPayload,
   syncRoomState: () => void,
-  emitRaw: ((msg: any, transfer?: Transferable[]) => void) | null | undefined
+  emitRaw: ((msg: Record<string, unknown>, transfer?: Transferable[]) => void) | null | undefined
 ): boolean {
   const { sim, physicsManager, matchManager } = workerCtx;
 
   switch (type) {
     case 'ensureCar':
       physicsManager?.registerCarEntity(
-        payload.carIndex,
-        payload.team ?? payload.carIndex % 2,
+        payload.carIndex ?? 0,
+        payload.team ?? (payload.carIndex ?? 0) % 2,
         payload.visualId || 'octane'
       );
       return true;
@@ -34,20 +79,24 @@ export function routeTrainingAndPhysicsMessage(
           }
         }
       }
-      physicsManager?.unregisterCarEntity(targetCarIdx);
+      if (typeof targetCarIdx === 'number') {
+        physicsManager?.unregisterCarEntity(targetCarIdx);
+      }
       return true;
     }
 
     case 'setCarControls':
-      physicsManager?.setDirectCarControls(payload.carIndex, payload.controls);
+      if (payload.controls) {
+        physicsManager?.setDirectCarControls(payload.carIndex ?? 0, payload.controls);
+      }
       return true;
 
     case 'setCarState':
-      sim?.setCarState?.(payload.carIndex, payload.state || payload.stateObj);
+      sim?.setCarState?.(payload.carIndex ?? 0, (payload.state || payload.stateObj || {}) as never);
       return true;
 
     case 'setBallState':
-      sim?.setBallState?.(payload.ballState || payload.state);
+      sim?.setBallState?.((payload.ballState || payload.state || {}) as never);
       return true;
 
     case 'controlBall':
@@ -57,7 +106,7 @@ export function routeTrainingAndPhysicsMessage(
     case 'setCarCollisionMask':
     case 'setGhostCarConfig':
       physicsManager?.setCarCollisionMask(
-        payload.carIndex,
+        payload.carIndex ?? 0,
         Boolean(payload.interactWithBall),
         Boolean(payload.interactWithCars),
         payload.opacity
@@ -73,7 +122,7 @@ export function routeTrainingAndPhysicsMessage(
 
     case 'setCarLinearFactorAndGravity':
       sim?.setCarLinearFactorAndGravity?.(
-        payload.carIndex,
+        payload.carIndex ?? 0,
         payload.fx ?? 1,
         payload.fy ?? 1,
         payload.fz ?? 1,
@@ -160,7 +209,7 @@ export function routeTrainingAndPhysicsMessage(
         payload.visualId || 'octane',
         payload.colorSlot ?? 0,
         payload.hitboxId ?? null,
-        payload.extraLoadout ?? null
+        (payload.extraLoadout ?? null) as never
       );
       return true;
 
@@ -182,7 +231,7 @@ export function routeTrainingAndPhysicsMessage(
       return true;
 
     case 'setUnlimitedBoost':
-      sim?.setUnlimitedBoost(Boolean(payload.enabled));
+      sim?.setUnlimitedBoost?.(Boolean(payload.enabled));
       return true;
 
     case 'setCarUnlimitedBoost':
@@ -211,9 +260,9 @@ export function routeTrainingAndPhysicsMessage(
 
     case 'restoreState': {
       const { state, reqId } = payload;
-      if (sim && state) sim.restoreState(state);
-      const snap = sim ? (sim.saveCompactState ? sim.saveCompactState() : sim.saveState()) : null;
-      const tickCount = sim ? Math.floor(sim.getHeaderView().tickCount) : 0;
+      if (sim && state) sim.restoreState?.(state as Float32Array | number[]);
+      const snap = sim ? (sim.saveCompactState ? sim.saveCompactState() : sim.saveState?.() ?? null) : null;
+      const tickCount = sim?.getHeaderView ? Math.floor(sim.getHeaderView().tickCount) : 0;
       if (matchManager && sim) {
         matchManager.domain.matchTick = tickCount;
       }
@@ -227,8 +276,8 @@ export function routeTrainingAndPhysicsMessage(
 
     case 'saveState': {
       const { reqId } = payload;
-      const snap = sim ? (sim.saveCompactState ? sim.saveCompactState() : sim.saveState()) : null;
-      const tickCount = sim ? Math.floor(sim.getHeaderView().tickCount) : 0;
+      const snap = sim ? (sim.saveCompactState ? sim.saveCompactState() : sim.saveState?.() ?? null) : null;
+      const tickCount = sim?.getHeaderView ? Math.floor(sim.getHeaderView().tickCount) : 0;
       emitRaw?.({
         type: 'requestResponse',
         reqId,

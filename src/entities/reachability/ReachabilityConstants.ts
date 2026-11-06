@@ -72,10 +72,10 @@ for (let i = 0; i <= BUBBLE_LAT; i++) {
 }
 
 /**
- * Clips RocketSim world coordinates (x, y, z) to the standard Soccar arena boundary
+ * Clips RocketSim world coordinates (x, y, z) to the standard carball arena boundary
  * including 45-degree corner bevels (|x| + |y| <= 8064 - margin).
  */
-export function clipArenaRocketSimXYZ(x, y, z, margin = 46.0) {
+export function clipArenaRocketSimXYZ(x: number, y: number, z: number, margin = 46.0) {
   const xLim = 4096.0 - margin;
   const yLim = 5120.0 - margin;
   const zMin = 16.0;

@@ -1,69 +1,48 @@
 import {
-  InputPacketCodec,
-  type PiggybackedSignalAck,
-  type PiggybackedClientCommand,
+  InputPacketCodec, type PiggybackedSignalAck, type PiggybackedClientCommand, type UnpackedCarControls,
 } from '../protocol/InputPacketCodec.ts';
-import { EstablishedSessionManager } from '../server/EstablishedSessionManager.ts';
+import { EstablishedSessionManager, type ParsedClientPacketHeader } from '../server/EstablishedSessionManager.ts';
 import {
-  GlobalPayloadCodec,
-  MATCH_SIGNALS,
-  createBoostPadEdgeTracker,
-  seedBoostPadEdgeTrackerFromSnapshot,
-  applyBoostPadEdgeCooldowns,
-  type BoostPadEdgeTracker,
-  type MatchSignalDescriptor,
+  GlobalPayloadCodec, MATCH_SIGNALS, createBoostPadEdgeTracker, seedBoostPadEdgeTrackerFromSnapshot,
+  applyBoostPadEdgeCooldowns, type BoostPadEdgeTracker, type DecodedGlobalPayload, type MatchSignalDescriptor,
 } from '../protocol/GlobalPayloadCodec.ts';
-import { dumpNetworkPacket } from '../diagnostics/PacketDumpDiagnostics.ts';
+import { dumpNetworkPacket, type DumpedNetworkPacket, type InspectablePacketInput } from '../diagnostics/PacketDumpDiagnostics.ts';
 import type { CarControls, LocalClientInputBuffer } from './PredictionHistoryBuffer.ts';
+import type { ReconcilerMetrics, TelemetryChannelPort, TelemetrySimPort } from './NetworkTelemetryCollector.ts';
 
-export interface PendingSignalAckEntry {
-  signalId: number;
-  signalType: number;
-  remainingSends: number;
+export interface ParsedReconcilerPacket extends InspectablePacketInput {
+  serverTick: number; activeCarMask?: number; activeCarIndices?: number[];
+  boostPadMaskLow?: number; boostPadMaskHigh?: number; stateSnapshot: Float32Array;
+  acknowledgedControls?: Array<{ carIndex: number; controls: UnpackedCarControls }>;
+  timestamp?: number; clientHeader?: ParsedClientPacketHeader; globalPayload?: DecodedGlobalPayload;
+  rawBytes?: Uint8Array | ArrayBuffer;
 }
 
-export interface PendingClientCommandEntry {
-  commandId: number;
-  commandType: number;
-  param1: number;
-  param2: number;
-  remainingSends: number;
-}
+export interface PendingSignalAckEntry { signalId: number; signalType: number; remainingSends: number; }
+export interface PendingClientCommandEntry { commandId: number; commandType: number; param1: number; param2: number; remainingSends: number; }
 
 export interface OutboundInputContext {
-  channel: any;
-  localCarIndex: number;
-  redundantHistoryCount: number;
-  enableRedundantInputs: boolean;
-  redundantHistoryTicks: number;
-  tickDtMs: number;
-  lastServerRecordedInputTick: number;
+  channel: TelemetryChannelPort | null | undefined;
+  localCarIndex: number; redundantHistoryCount: number; enableRedundantInputs: boolean;
+  redundantHistoryTicks: number; tickDtMs: number; lastServerRecordedInputTick: number;
   clientInputRingBuffer: LocalClientInputBuffer;
   getPreviousCommittedControls: (tick: number, carIndex: number) => CarControls;
 }
 
 export interface FlushPendingControlContext {
-  channel: any;
-  sim: any;
-  lastAckedServerTick: number;
-  localCarIndex: number;
-  neutralControls: Readonly<CarControls>;
-  replayPlaybackMode: boolean;
-  localSkipReplayReady: boolean;
+  channel: TelemetryChannelPort | null | undefined; sim: TelemetrySimPort | null | undefined;
+  lastAckedServerTick: number; localCarIndex: number; neutralControls: Readonly<CarControls>;
+  replayPlaybackMode: boolean; localSkipReplayReady: boolean;
 }
 
 export interface DrainServerPacketsContext {
-  channel: any;
-  lobbyDualWorldMode: boolean;
-  hostLobbyMode: boolean;
-  replayPlaybackMode: boolean;
-  inputBufferTarget: number;
-  metrics: Record<string, any>;
-  boostPadEdgeTracker: BoostPadEdgeTracker;
+  channel: TelemetryChannelPort | null | undefined;
+  lobbyDualWorldMode: boolean; hostLobbyMode: boolean; replayPlaybackMode: boolean;
+  inputBufferTarget: number; metrics: ReconcilerMetrics; boostPadEdgeTracker: BoostPadEdgeTracker;
   isTimelineSynchronized: () => boolean;
   onSignals: ((signals: MatchSignalDescriptor[], packetServerTick: number | null) => void) | null;
-  onRosterUpdate: ((msg: any) => void) | null;
-  onHandshakeResponse: ((msg: any) => void) | null;
+  onRosterUpdate: ((msg: Record<string, unknown>) => void) | null;
+  onHandshakeResponse: ((msg: Record<string, unknown>) => void) | null;
   setLocalCarIndex: (entityId: number) => void;
   setLobbyDualWorldMode: (enabled: boolean) => void;
   setLobbyAuthoritativeSnapshots: (prev: Float32Array, curr: Float32Array) => void;
@@ -80,11 +59,11 @@ export class ReconcilerControlMessenger {
   lastProcessedClientTimestamp = 0;
   baseMeasuredRtt = 0;
   measuredRtt = 0;
-  lastReceivedPacketRaw: any = null;
-  lastParsedPacket: any = null;
+  lastReceivedPacketRaw: Uint8Array | ArrayBuffer | null = null;
+  lastParsedPacket: ParsedReconcilerPacket | null = null;
   pendingDumpNextPacket = false;
-  onNextDumpResolve: ((dumped: any) => void) | null = null;
-  drainedReplayPackets: any[] = [];
+  onNextDumpResolve: ((dumped: DumpedNetworkPacket | null) => void) | null = null;
+  drainedReplayPackets: ParsedReconcilerPacket[] = [];
 
   constructor(initialServerRecordedInputTick = -1) {
     this.lastServerRecordedInputTick = initialServerRecordedInputTick;
@@ -96,7 +75,10 @@ export class ReconcilerControlMessenger {
     this.drainedReplayPackets.length = 0;
   }
 
-  receiveChannelPackets(channel: any, nowMs: number): any[] | null {
+  receiveChannelPackets(
+    channel: TelemetryChannelPort | null | undefined,
+    nowMs: number
+  ): unknown[] | null {
     if (typeof channel?.receiveClientPackets === 'function')
       return channel.receiveClientPackets(nowMs);
     if (typeof channel?.receiveServerPackets === 'function')
@@ -105,20 +87,22 @@ export class ReconcilerControlMessenger {
     return null;
   }
 
-  triggerDumpNextPacket(): Promise<any> {
+  triggerDumpNextPacket(): Promise<DumpedNetworkPacket | null> {
     this.pendingDumpNextPacket = true;
     return new Promise((resolve) => {
       this.onNextDumpResolve = resolve;
     });
   }
 
-  dumpPacket(packetOrRaw: any = null): any {
+  dumpPacket(
+    packetOrRaw: InspectablePacketInput | Uint8Array | ArrayBuffer | null = null
+  ): DumpedNetworkPacket | null {
     return dumpNetworkPacket(
       packetOrRaw || this.lastParsedPacket || this.lastReceivedPacketRaw
     );
   }
 
-  recordLatestParsedPacket(packet: any): void {
+  recordLatestParsedPacket(packet: ParsedReconcilerPacket): void {
     this.lastParsedPacket = packet;
     if (this.pendingDumpNextPacket) {
       this.pendingDumpNextPacket = false;
@@ -132,7 +116,7 @@ export class ReconcilerControlMessenger {
 
   updateLobbyAuthoritativeSnapshots(
     lobbyDualWorldMode: boolean,
-    packet: any,
+    packet: ParsedReconcilerPacket | null | undefined,
     prev: Float32Array | null,
     curr: Float32Array | null
   ): { prev: Float32Array | null; curr: Float32Array | null } {
@@ -336,15 +320,15 @@ export class ReconcilerControlMessenger {
 
   drainAndParseServerPackets(
     ctx: DrainServerPacketsContext,
-    incomingPackets: any[],
+    incomingPackets: unknown[],
     nowMs: number
-  ): any {
-    let latestPacket: any = null;
+  ): ParsedReconcilerPacket | null {
+    let latestPacket: ParsedReconcilerPacket | null = null;
     this.drainedReplayPackets.length = 0;
     const boostPadTracker = ctx.boostPadEdgeTracker || createBoostPadEdgeTracker();
 
     for (const rawItem of incomingPackets) {
-      let packet: any = null;
+      let packet: ParsedReconcilerPacket | null = null;
 
       if (rawItem instanceof Uint8Array || rawItem instanceof ArrayBuffer) {
         this.lastReceivedPacketRaw = rawItem;
@@ -419,7 +403,7 @@ export class ReconcilerControlMessenger {
               let hasTransitionSignal = false;
               for (const sig of allSignals) {
                 if (!sig) continue;
-                if (sig.signalType === MATCH_SIGNALS.COMMAND_ACK) {
+                if (sig.signalType === MATCH_SIGNALS.COMMAND_ACK && typeof sig.param1 === 'number') {
                   this.resolveClientCommandAck(sig.param1);
                 }
                 if (
@@ -494,7 +478,7 @@ export class ReconcilerControlMessenger {
           }
         }
       } else if (rawItem) {
-        let parsedItem = rawItem;
+        let parsedItem: unknown = rawItem;
         if (typeof rawItem === 'string') {
           try {
             parsedItem = JSON.parse(rawItem);
@@ -507,39 +491,39 @@ export class ReconcilerControlMessenger {
           }
         }
         if (parsedItem && typeof parsedItem === 'object') {
-          if (parsedItem.serverTick !== undefined) {
-            packet = parsedItem;
-          } else if (parsedItem.type === 'roster_update') {
-            ctx.onRosterUpdate?.(parsedItem);
+          const obj = parsedItem as Record<string, unknown>;
+          if (typeof obj.serverTick === 'number') {
+            packet = obj as unknown as ParsedReconcilerPacket;
+          } else if (obj.type === 'roster_update') {
+            ctx.onRosterUpdate?.(obj);
             continue;
-          } else if (parsedItem.type === 'handshake_response') {
-            if (typeof parsedItem.entityId === 'number' && parsedItem.entityId >= 0) {
-              ctx.setLocalCarIndex(parsedItem.entityId);
+          } else if (obj.type === 'handshake_response') {
+            if (typeof obj.entityId === 'number' && obj.entityId >= 0) {
+              ctx.setLocalCarIndex(obj.entityId);
             }
-            if (parsedItem.state === 'lobby') {
+            const initSnap = obj.initialSnapshot as ArrayLike<number> | undefined;
+            const frame =
+              (typeof obj.serverFrame === 'number' ? obj.serverFrame : undefined) ??
+              (typeof obj.matchTick === 'number' ? obj.matchTick : 0);
+            if (obj.state === 'lobby') {
               ctx.setLobbyDualWorldMode(true);
-              if (parsedItem.initialSnapshot) {
-                const snap = new Float32Array(parsedItem.initialSnapshot);
-                seedBoostPadEdgeTrackerFromSnapshot(
-                  boostPadTracker,
-                  snap,
-                  parsedItem.serverFrame ?? parsedItem.matchTick ?? 0
-                );
+              if (initSnap) {
+                const snap = new Float32Array(initSnap);
+                seedBoostPadEdgeTrackerFromSnapshot(boostPadTracker, snap, frame);
                 ctx.setLobbyAuthoritativeSnapshots(new Float32Array(snap), new Float32Array(snap));
               }
             } else {
               ctx.setLobbyDualWorldMode(false);
               if (
-                parsedItem.initialSnapshot &&
-                (parsedItem.serverFrame !== undefined || parsedItem.matchTick !== undefined)
+                initSnap &&
+                (obj.serverFrame !== undefined || obj.matchTick !== undefined)
               ) {
-                const frame = parsedItem.serverFrame ?? parsedItem.matchTick ?? 0;
-                const snap = new Float32Array(parsedItem.initialSnapshot);
+                const snap = new Float32Array(initSnap);
                 seedBoostPadEdgeTrackerFromSnapshot(boostPadTracker, snap, frame);
                 ctx.syncTimelineFromHandshake(snap, frame, nowMs);
               }
             }
-            ctx.onHandshakeResponse?.(parsedItem);
+            ctx.onHandshakeResponse?.(obj);
             continue;
           }
         }

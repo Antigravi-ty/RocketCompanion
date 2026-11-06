@@ -4,12 +4,17 @@ import { NetworkInputBuffer, MAX_INPUT_BUFFER_TICKS } from './NetworkInputBuffer
 import { EstablishedSessionManager } from './EstablishedSessionManager.ts';
 import { MatchSessionAdmin } from './match/MatchSessionAdmin.ts';
 import { NetworkDataHandler } from './NetworkDataHandler.ts';
-import { deliverToHostLoopback } from './HostLoopbackChannel.ts';
+import {
+  deliverToHostLoopback,
+  type HostLoopbackChannelPort,
+} from './HostLoopbackChannel.ts';
 import {
   HOST_WORKER_MSG_TYPES,
   buildWorkerRoomStateSummary,
   routeProtocolMessageInWorker,
   type WorkerRoomStateSummary,
+  type HostWorkerInitOptions,
+  type WorkerProtocolIncomingMessage,
 } from './HostWorkerMessageRouter.ts';
 import {
   GlobalPayloadCodec,
@@ -24,6 +29,15 @@ import {
   retainCompletedMatchReplayAndNotify,
   clearRetainedMatchReplayOnMatchStart,
 } from '../../replay/ReplayFileExporter.ts';
+import type { AuthoritativePhysicsSimPort } from './authoritativePhysicsStepPipeline.ts';
+import type { AdminPhysicsManagerPort } from './match/MatchSessionAdmin.ts';
+import type {
+  ReplayRingBuffer,
+  ReplayAcknowledgedControlEntry,
+  ReplaySignalsOrOptionsArg,
+} from '../../replay/ReplayRingBuffer.ts';
+
+export type { HostWorkerInitOptions };
 
 export interface FallbackStepResult {
   snapshot: Float32Array;
@@ -41,7 +55,9 @@ export interface DecodedHostLoopbackFrame {
   acknowledgedControls: AcknowledgedCarControlEntry[] | null;
 }
 
-export function buildWorkerInitEnvelopePayload(options: Record<string, any>): Record<string, any> {
+export function buildWorkerInitEnvelopePayload(
+  options: HostWorkerInitOptions
+): HostWorkerInitOptions {
   const cachedCollision =
     options.wasmInitOptions?.collisionData ||
     RocketSimPhysicsEngine.cachedCollisionData ||
@@ -88,15 +104,9 @@ let prewarmServerWorkerPromise: Promise<boolean> | null = null;
  * Free Play starts, eliminating on-demand module/WASM/mesh requests when hosting a server.
  */
 export function prewarmAuthoritativeServerWorker(): Promise<boolean> {
-  if (typeof Worker === 'undefined') {
-    return Promise.resolve(false);
-  }
-  if (prewarmedServerWorker) {
-    return Promise.resolve(true);
-  }
-  if (prewarmServerWorkerPromise) {
-    return prewarmServerWorkerPromise;
-  }
+  if (typeof Worker === 'undefined') return Promise.resolve(false);
+  if (prewarmedServerWorker) return Promise.resolve(true);
+  if (prewarmServerWorkerPromise) return prewarmServerWorkerPromise;
 
   prewarmServerWorkerPromise = new Promise<boolean>((resolve) => {
     let settled = false;
@@ -104,21 +114,17 @@ export function prewarmAuthoritativeServerWorker(): Promise<boolean> {
       if (settled) return;
       settled = true;
       prewarmServerWorkerPromise = null;
-      if (ok && worker) {
-        prewarmedServerWorker = worker;
-      } else {
-        try {
-          worker?.terminate();
-        } catch (_e) {}
+      if (ok && worker) prewarmedServerWorker = worker;
+      else {
+        try { worker?.terminate(); } catch (_e) {}
       }
       resolve(ok);
     };
 
     try {
-      const worker = new Worker(
-        new URL('./AuthoritativeServerWorker.ts', import.meta.url),
-        { type: 'module' }
-      );
+      const worker = new Worker(new URL('./AuthoritativeServerWorker.ts', import.meta.url), {
+        type: 'module',
+      });
       const timer = setTimeout(() => {
         worker.removeEventListener('message', onMsg);
         finish(false, worker);
@@ -173,9 +179,7 @@ function resolveRoomStatePhaseFromSignal(signalType: number): string | null {
   ) {
     return 'replay';
   }
-  if (signalType === MATCH_SIGNALS.MATCH_PREPARE) {
-    return 'prepare';
-  }
+  if (signalType === MATCH_SIGNALS.MATCH_PREPARE) return 'prepare';
   if (signalType === MATCH_SIGNALS.MATCH_ENDED || signalType === MATCH_SIGNALS.PODIUM_START) {
     return 'ended';
   }
@@ -237,13 +241,20 @@ export function decodeHostLoopbackFramePacket(
   };
 }
 
+export interface WorkerReadyResult {
+  snapshot?: Float32Array | number[] | null;
+  tickCount?: number;
+  roomState?: WorkerRoomStateSummary | null;
+  [key: string]: unknown;
+}
+
 export interface WorkerSpawnCallbacks {
-  options: Record<string, any>;
+  options: HostWorkerInitOptions;
   getWorker: () => Worker | null;
   setWorker: (w: Worker | null) => void;
-  onMessage: (data: any) => void;
-  sendInitEnvelope: (payload: Record<string, any>) => void;
-  onWorkerReady: (res: Record<string, any>) => void;
+  onMessage: (data: unknown) => void;
+  sendInitEnvelope: (payload: HostWorkerInitOptions) => void;
+  onWorkerReady: (res: WorkerReadyResult) => void;
   onFallbackToMainThread: (err: unknown) => Promise<void>;
 }
 
@@ -260,9 +271,7 @@ export function spawnAuthoritativeWorkerWithRetry(cb: WorkerSpawnCallbacks): Pro
         '[HostServerWorker] Worker initialization failed after retries, falling back to in-memory:',
         err
       );
-      try {
-        cb.getWorker()?.terminate();
-      } catch (_e) {}
+      try { cb.getWorker()?.terminate(); } catch (_e) {}
       cb.setWorker(null);
       cb.onFallbackToMainThread(err).then(resolve).catch(reject);
     };
@@ -271,9 +280,7 @@ export function spawnAuthoritativeWorkerWithRetry(cb: WorkerSpawnCallbacks): Pro
       if (settled) return;
       attempt++;
       try {
-        try {
-          cb.getWorker()?.terminate();
-        } catch (_e) {}
+        try { cb.getWorker()?.terminate(); } catch (_e) {}
         cb.setWorker(null);
 
         let workerInstance: Worker;
@@ -281,10 +288,9 @@ export function spawnAuthoritativeWorkerWithRetry(cb: WorkerSpawnCallbacks): Pro
           workerInstance = prewarmedServerWorker;
           prewarmedServerWorker = null;
         } else {
-          workerInstance = new Worker(
-            new URL('./AuthoritativeServerWorker.ts', import.meta.url),
-            { type: 'module' }
-          );
+          workerInstance = new Worker(new URL('./AuthoritativeServerWorker.ts', import.meta.url), {
+            type: 'module',
+          });
         }
         cb.setWorker(workerInstance);
         workerInstance.onmessage = (event) => cb.onMessage(event.data);
@@ -347,8 +353,8 @@ export class HostServerFallbackSubController {
   dataHandler: NetworkDataHandler | null = null;
 
   async init(
-    options: Record<string, any>,
-    hostChannel: Record<string, any> | null
+    options: HostWorkerInitOptions,
+    hostChannel: HostLoopbackChannelPort | null
   ): Promise<FallbackStepResult> {
     console.warn(
       '[HostServerWorker:Fallback] Operating in synchronous main-thread fallback mode (WebWorker disabled)'
@@ -358,18 +364,18 @@ export class HostServerFallbackSubController {
 
     this.sim = new RocketSimPhysicsEngine();
     const wasmInitOpts = { ...(options.wasmInitOptions || {}), isolated: true };
-    if (!wasmInitOpts.collisionData && (RocketSimPhysicsEngine as any).cachedCollisionData) {
-      wasmInitOpts.collisionData = (RocketSimPhysicsEngine as any).cachedCollisionData;
+    if (!wasmInitOpts.collisionData && RocketSimPhysicsEngine.cachedCollisionData) {
+      wasmInitOpts.collisionData = RocketSimPhysicsEngine.cachedCollisionData;
     }
     await this.sim.init(wasmInitOpts);
     this.inputBuffer = new NetworkInputBuffer(MAX_INPUT_BUFFER_TICKS);
     this.physicsManager = new PhysicsEngineManager({
-      sim: this.sim,
+      sim: this.sim as unknown as AuthoritativePhysicsSimPort,
       inputBuffer: this.inputBuffer,
     });
     this.sessionManager = new EstablishedSessionManager(this.physicsManager);
     this.matchManager = new MatchSessionAdmin({
-      physicsManager: this.physicsManager,
+      physicsManager: this.physicsManager as unknown as AdminPhysicsManagerPort,
       sessionManager: this.sessionManager,
       isHost: true,
       externalBotTunnels: true,
@@ -399,41 +405,26 @@ export class HostServerFallbackSubController {
       'player',
       0,
       {
-        visualId: hostVisualId,
-        hitboxId: options.hostHitboxId || null,
-        colorSlot: hostColorSlot,
-        blueColorSlot: options.hostBlueColorSlot ?? null,
-        orangeColorSlot: options.hostOrangeColorSlot ?? null,
-        paintFinish: options.hostPaintFinish || 'metallic',
-        boostVisual: options.hostBoostVisual || 'cartoon',
+        visualId: hostVisualId, hitboxId: options.hostHitboxId || null, colorSlot: hostColorSlot,
+        blueColorSlot: options.hostBlueColorSlot ?? null, orangeColorSlot: options.hostOrangeColorSlot ?? null,
+        paintFinish: options.hostPaintFinish || 'metallic', boostVisual: options.hostBoostVisual || 'cartoon',
         boostAudio: options.hostBoostAudio || 'rush',
       },
       hostColorSlot
     );
 
-    if (options.isBotMatch || options.numCars >= 2) {
+    if (options.isBotMatch || (options.numCars ?? 0) >= 2) {
       const rolledBot = this.matchManager.roster.rollBotLoadoutForTeam(1);
       const botVisualId = options.botVisualId || rolledBot.visualId;
-      this.physicsManager.registerCarEntity(1, 1, rolledBot.hitboxId || botVisualId);
+      this.physicsManager.registerCarEntity(1, 1, String(rolledBot.hitboxId || botVisualId));
       if (options.isBotMatch) {
         this.physicsManager.setDirectCarControls(1, {
-          throttle: 0,
-          steer: 0,
-          pitch: 0,
-          yaw: 0,
-          roll: 0,
-          jump: false,
-          boost: false,
-          handbrake: false,
+          throttle: 0, steer: 0, pitch: 0, yaw: 0, roll: 0, jump: false, boost: false, handbrake: false,
         });
       }
       this.matchManager.roster.assignPlayerSlot(
-        'bot',
-        options.botPlayerName || 'AI Bot',
-        'player',
-        1,
-        { ...rolledBot, visualId: botVisualId },
-        rolledBot.colorSlot
+        'bot', options.botPlayerName || 'AI Bot', 'player', 1,
+        { ...rolledBot, visualId: botVisualId }, rolledBot.colorSlot
       );
     }
 
@@ -441,9 +432,7 @@ export class HostServerFallbackSubController {
       send: (packet) => deliverToHostLoopback(hostChannel, packet),
     });
 
-    if (options.initialState) {
-      this.sim.restoreState(options.initialState);
-    }
+    if (options.initialState) this.sim.restoreState(options.initialState);
 
     if (options.startAsMatch) {
       this.matchManager.lifecycle.startMatch(options.durationSeconds);
@@ -457,18 +446,10 @@ export class HostServerFallbackSubController {
       });
     }
 
-    const snap =
-      typeof this.sim.saveCompactState === 'function'
-        ? this.sim.saveCompactState()
-        : this.sim.saveState();
+    const snap = typeof this.sim.saveCompactState === 'function' ? this.sim.saveCompactState() : this.sim.saveState();
     const serverTick = Math.floor(this.sim.getHeaderView().tickCount);
     const roomState = buildWorkerRoomStateSummary(this.matchManager, this.physicsManager);
-    return {
-      snapshot: snap,
-      serverTick,
-      roomState,
-      matchState: this.matchManager.lifecycle.state,
-    };
+    return { snapshot: snap, serverTick, roomState, matchState: this.matchManager.lifecycle.state };
   }
 
   step(): FallbackStepResult | null {
@@ -477,35 +458,24 @@ export class HostServerFallbackSubController {
     if (globalPayloadBytes && globalPayloadBytes.length > 0) {
       this.dataHandler.dispatchFrameToSessions(globalPayloadBytes);
     }
-    const snap =
-      typeof this.sim.saveCompactState === 'function'
-        ? this.sim.saveCompactState()
-        : this.sim.saveState();
+    const snap = typeof this.sim.saveCompactState === 'function' ? this.sim.saveCompactState() : this.sim.saveState();
     const serverTick = Math.floor(this.sim.getHeaderView().tickCount);
     const roomState = buildWorkerRoomStateSummary(this.matchManager, this.physicsManager);
-    return {
-      snapshot: snap,
-      serverTick,
-      roomState,
-      matchState: this.matchManager.lifecycle.state,
-    };
+    return { snapshot: snap, serverTick, roomState, matchState: this.matchManager.lifecycle.state };
   }
 
-  routeEnvelope(
-    envelope: WorkerEnvelope,
-    onReplyEnvelope: (replyEnv: WorkerEnvelope) => void
-  ): boolean {
+  routeEnvelope(envelope: WorkerEnvelope, onReplyEnvelope: (replyEnv: WorkerEnvelope) => void): boolean {
     if (!this.matchManager) return false;
     return routeProtocolMessageInWorker(
       {
-        sim: this.sim,
+        sim: this.sim as unknown as AuthoritativePhysicsSimPort,
         physicsManager: this.physicsManager,
         sessionManager: this.sessionManager,
         matchManager: this.matchManager,
         dataHandler: this.dataHandler,
         postEnvelope: onReplyEnvelope,
       },
-      envelope
+      envelope as unknown as WorkerProtocolIncomingMessage
     );
   }
 
@@ -524,7 +494,26 @@ export class HostServerFallbackSubController {
   }
 }
 
-export function processHostLoopbackChannelPacket(host: Record<string, any>, packet: any): void {
+export interface HostLoopbackPacketConsumerPort {
+  lastRoomState: Partial<WorkerRoomStateSummary> | null;
+  botTunnelManager?: {
+    syncFromRoomState?(state: Partial<WorkerRoomStateSummary> | null): void;
+    onServerPhysicsFrame(snapshot: Float32Array, tick: number, state: string): void;
+  } | null;
+  hostChannel: HostLoopbackChannelPort | null;
+  boostPadEdgeTracker: BoostPadEdgeTracker;
+  _seenReplaySignalIds: Set<string>;
+  cachedSnapshot: Float32Array;
+  lastServerTick: number;
+  isWorker: boolean;
+  hostReplayRingBuffer?: ReplayRingBuffer | null;
+}
+
+export function processHostLoopbackChannelPacket(
+  host: HostLoopbackPacketConsumerPort,
+  packet: Uint8Array | ArrayBuffer | string | undefined
+): void {
+  if (!packet) return;
   if (typeof packet === 'string') {
     try {
       const parsed = JSON.parse(packet);
@@ -532,8 +521,7 @@ export function processHostLoopbackChannelPacket(host: Record<string, any>, pack
         host.lastRoomState = {
           ...(host.lastRoomState || {}),
           state: parsed.state || host.lastRoomState?.state || 'lobby',
-          roster: parsed.roster ||
-            host.lastRoomState?.roster || { players: [], spectators: [] },
+          roster: parsed.roster || host.lastRoomState?.roster || { players: [], spectators: [] },
         };
         host.botTunnelManager?.syncFromRoomState?.(host.lastRoomState);
       }
@@ -542,17 +530,16 @@ export function processHostLoopbackChannelPacket(host: Record<string, any>, pack
   if (!deliverToHostLoopback(host.hostChannel, packet)) return;
   if (packet instanceof Uint8Array || packet instanceof ArrayBuffer) {
     try {
-      const decoded = decodeHostLoopbackFramePacket(
-        packet,
-        host.boostPadEdgeTracker,
-        host._seenReplaySignalIds
-      );
+      const decoded = decodeHostLoopbackFramePacket(packet, host.boostPadEdgeTracker, host._seenReplaySignalIds);
       if (decoded) {
         if (decoded.roomStatePhase) {
           if (!host.lastRoomState) {
             host.lastRoomState = {
               state: decoded.roomStatePhase,
-              roster: { players: [], spectators: [] },
+              roster: {
+                players: [], spectators: [], gameMode: '3v3', botFillMode: 'no_bots',
+                durationSeconds: 300, clockSeconds: 300, score: { blue: 0, orange: 0 },
+              },
             };
           } else {
             host.lastRoomState.state = decoded.roomStatePhase;
@@ -566,9 +553,7 @@ export function processHostLoopbackChannelPacket(host: Record<string, any>, pack
           host.lastServerTick = decoded.tick;
           if (host.botTunnelManager && host.isWorker) {
             host.botTunnelManager.onServerPhysicsFrame(
-              host.cachedSnapshot,
-              host.lastServerTick,
-              host.lastRoomState?.state || 'playing'
+              host.cachedSnapshot, host.lastServerTick, host.lastRoomState?.state || 'playing'
             );
           }
           const isReplaySliceFrame =
@@ -578,10 +563,10 @@ export function processHostLoopbackChannelPacket(host: Record<string, any>, pack
             host.hostReplayRingBuffer?.recordFrame(
               host.lastServerTick,
               host.cachedSnapshot,
-              decoded.newReplaySignals,
+              decoded.newReplaySignals as unknown as ReplaySignalsOrOptionsArg,
               null,
               null,
-              decoded.acknowledgedControls
+              decoded.acknowledgedControls as unknown as readonly ReplayAcknowledgedControlEntry[] | null
             );
           }
         }

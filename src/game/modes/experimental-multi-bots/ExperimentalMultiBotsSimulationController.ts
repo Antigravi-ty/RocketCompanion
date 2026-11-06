@@ -3,30 +3,36 @@ import {
   INCIDENT_EVENT_TYPES,
   isIncidentEvent,
 } from '../../../physics/RocketSimConstants.ts';
+import type {
+  ReplayAcknowledgedControlEntry,
+  ReplayRecordedIncident,
+} from '../../../replay/ReplayRingBuffer.ts';
 import {
   evaluateGoalScoredFromBallView,
   findClosestTouchingCarIndex,
 } from '../shared/goalAndBallTouchPipeline.ts';
 import { stepMultiCarBotRoster } from '../shared/multiCarBotStepPipeline.ts';
+import type { ExpModeRuntimePort } from './ExperimentalMultiBotsMatchMath.ts';
 import { ExperimentalMultiBotsRosterController } from './ExperimentalMultiBotsRosterController.ts';
 import { ExperimentalMultiBotsReplayController } from './ExperimentalMultiBotsReplayController.ts';
 import { ExperimentalMultiBotsMatchLifecycleController } from './ExperimentalMultiBotsMatchLifecycleController.ts';
 
 export class ExperimentalMultiBotsSimulationController {
-  private readonly runtime: any;
+  private readonly runtime: ExpModeRuntimePort | null;
 
-  constructor(runtime: any) {
+  constructor(runtime: ExpModeRuntimePort | null) {
     this.runtime = runtime;
   }
 
   onPhysicsEvent(
-    event: any,
+    event: ReplayRecordedIncident | null | undefined,
     rosterCtrl: ExperimentalMultiBotsRosterController,
     replayCtrl: ExperimentalMultiBotsReplayController,
     lifecycleCtrl: ExperimentalMultiBotsMatchLifecycleController
   ): void {
     if (
       !event ||
+      typeof event.type !== 'number' ||
       !isIncidentEvent(event.type) ||
       replayCtrl.isReplayActive ||
       lifecycleCtrl.isMatchEnded
@@ -63,13 +69,12 @@ export class ExperimentalMultiBotsSimulationController {
     if (!sim || rosterCtrl.spawnedCars.length === 0) return true;
     if (replayCtrl.isReplayActive) return false;
     if (lifecycleCtrl.isMatchEnded) {
-      if (lifecycleCtrl.podiumDelayTicks > 0) {
+      lifecycleCtrl.stepEndedMatchPodiumDelay(replayCtrl, () => {
         for (const entry of rosterCtrl.spawnedCars) {
           sim.setControls(entry.carIndex, r.neutralControls);
           rosterCtrl.carControlsMap.set(entry.carIndex, r.neutralControls);
         }
-        lifecycleCtrl.stepEndedMatchPodiumDelay(replayCtrl);
-      }
+      });
       return false;
     }
 
@@ -122,7 +127,7 @@ export class ExperimentalMultiBotsSimulationController {
     }
 
     const currentTick = Math.floor(sim.getHeaderView?.()?.tickCount ?? 0);
-    const acknowledgedControls: Array<{ carIndex: number; controls: any }> = [];
+    const acknowledgedControls: ReplayAcknowledgedControlEntry[] = [];
     for (let i = 0; i < rosterCtrl.spawnedCars.length; i++) {
       const cIdx = rosterCtrl.spawnedCars[i].carIndex;
       const ctrl =
@@ -166,20 +171,12 @@ export class ExperimentalMultiBotsSimulationController {
       acknowledgedControls
     );
 
-    if (lifecycleCtrl.stepPostGoalResetCountdown(rosterCtrl, replayCtrl)) {
-      return;
-    }
-
     const goalEval = evaluateGoalScoredFromBallView(sim, bView);
-    if (goalEval.scored) {
-      lifecycleCtrl.recordGoalScored(goalEval, bView, currentTick, rosterCtrl, replayCtrl);
-      return;
-    }
-
-    lifecycleCtrl.stepPlayingClock(
+    lifecycleCtrl.stepPostFrameLifecycle(
       currentTick,
       bView,
       Boolean(sim.ballOnGround),
+      goalEval,
       rosterCtrl,
       replayCtrl
     );

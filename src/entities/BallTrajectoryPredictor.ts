@@ -103,30 +103,19 @@ export class BallTrajectoryPredictor {
 
   public get predictedPoints(): Float32Array { return this.sampler.predictedPoints; }
   public get rawPredictedPoints(): Float32Array { return this.sampler.rawPredictedPoints; }
-  public get bounceMarkersBuffer(): Float32Array { return this.sampler.bounceMarkersBuffer; }
   public get predictionCount(): number { return this.sampler.predictionCount; }
-  public set predictionCount(val: number) { this.sampler.predictionCount = val; }
-  public get bounceCount(): number { return this.sampler.bounceCount; }
-  public get maxHeightUu(): number { return this.sampler.maxHeightUu; }
   public get impactTick(): number { return this.sampler.impactTick; }
-  public set impactTick(val: number) { this.sampler.impactTick = val; }
   public get patternAnchorTick(): number { return this.sampler.patternAnchorTick; }
-  public set patternAnchorTick(val: number) { this.sampler.patternAnchorTick = val; }
   public get isActive(): boolean { return this.sampler.isActive; }
-  public set isActive(val: boolean) { this.sampler.isActive = val; }
   public get staticPreviewActive(): boolean { return this.sampler.staticPreviewActive; }
-  public set staticPreviewActive(val: boolean) { this.sampler.staticPreviewActive = val; }
   public get anomalyRecorder() { return this.sampler.anomalyRecorder; }
 
   public notifyCarBallHit(tick?: number): void {
-    this.sampler.pendingCarBallHit = true;
-    if (typeof tick === 'number' && Number.isFinite(tick)) {
-      this.sampler.lastCarBallHitTick = tick;
-    }
+    this.sampler.notifyCarBallHit(tick);
   }
 
   public notifyBallStateReset(): void {
-    this.sampler.pendingIntentionalReset = true;
+    this.sampler.notifyBallStateReset();
   }
 
   public getAnomalySummary() {
@@ -259,7 +248,6 @@ export class BallTrajectoryPredictor {
   }
 
   public clearStaticPreview(): void {
-    this.sampler.staticPreviewActive = false;
     this.clear();
   }
 
@@ -307,8 +295,8 @@ export class BallTrajectoryPredictor {
       this.predictedPoints,
       this.predictionCount,
       startIndex,
-      this.bounceMarkersBuffer,
-      this.bounceCount,
+      this.sampler.bounceMarkersBuffer,
+      this.sampler.bounceCount,
       tubeParams,
     );
 
@@ -377,7 +365,7 @@ export class BallTrajectoryPredictor {
       const prims = this._renderTrajectoryGeometry(0, -scrollOffset, false, liveBallPosition);
       const geomUs =
         ((typeof performance !== 'undefined' ? performance.now() : 0) - tGeom0) * 1000.0;
-      this.sampler.lastUpdateKind = 'static-preview';
+      this.sampler.markStaticPreviewUpdate();
       this._maybePublishTelemetry(frameStartMs, geomUs, this.predictionCount, prims, 0);
       return;
     }
@@ -387,11 +375,8 @@ export class BallTrajectoryPredictor {
     const stateBuf = phys.state;
     const isSleeping = phys.isBallSleeping?.() ?? false;
     if (isSleeping || !stateBuf) {
-      this.sampler.wasMovingFast = false;
-      this.sampler.pendingCarBallHit = false;
       if (this.isActive) this.clear();
-      this.sampler.lastUpdateKind = 'sleeping';
-      this.sampler.lastWasmUpdateUs = 0;
+      this.sampler.markSleeping();
       this._maybePublishTelemetry(frameStartMs, 0, 0, 0, 0);
       return;
     }

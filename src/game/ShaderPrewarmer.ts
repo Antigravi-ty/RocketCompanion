@@ -1,7 +1,11 @@
 import * as THREE from 'three';
 
+export interface ShaderPrewarmPassPort {
+  enabled?: boolean;
+}
+
 export interface ShaderPrewarmPipelineOptions {
-  passes?: Array<{ enabled?: boolean; [key: string]: any }>;
+  passes?: Array<ShaderPrewarmPassPort | null | undefined>;
   disappearingLightRoots?: Array<THREE.Object3D | null | undefined>;
   composerRenderTarget?: THREE.WebGLRenderTarget | null;
   nonPovHiddenLights?: Array<THREE.Light | null | undefined>;
@@ -10,19 +14,59 @@ export interface ShaderPrewarmPipelineOptions {
   onProgress?: (ratio: number) => void;
 }
 
-function isLightNode(obj: any): obj is THREE.Light {
-  return Boolean(obj && (obj.isLight || (THREE.Light && obj instanceof THREE.Light)));
+export interface WebGLShaderProgramPort {
+  isReady?: () => boolean;
 }
 
-function isRenderableVisualNode(obj: any): boolean {
+export interface WebGLMaterialPropertiesPort {
+  currentProgram?: WebGLShaderProgramPort | null;
+}
+
+export interface WebGLShaderCompilerRendererPort {
+  extensions?: {
+    get?: (name: string) => unknown;
+  };
+  properties?: {
+    get?: (material: THREE.Material) => WebGLMaterialPropertiesPort | undefined;
+  };
+  getContext?: () => WebGLRenderingContext | WebGL2RenderingContext | null;
+  compile?: (
+    scene: THREE.Object3D,
+    camera: THREE.Camera,
+    targetScene?: THREE.Scene | null,
+  ) => Set<THREE.Material> | void;
+  getRenderTarget?: () => THREE.WebGLRenderTarget | null;
+  setRenderTarget?: (renderTarget: THREE.WebGLRenderTarget | null) => void;
+  shadowMap?: {
+    needsUpdate: boolean;
+  };
+}
+
+interface RenderableGeometryNode extends THREE.Object3D {
+  isMesh?: boolean;
+  isPoints?: boolean;
+  isLine?: boolean;
+  geometry?: THREE.BufferGeometry;
+}
+
+function isLightNode(obj: THREE.Object3D | null | undefined): obj is THREE.Light {
   return Boolean(
-    obj &&
-      (obj.isMesh ||
-        (THREE.Mesh && obj instanceof THREE.Mesh) ||
-        obj.isPoints ||
-        (THREE.Points && obj instanceof THREE.Points) ||
-        obj.isLine ||
-        (THREE.Line && obj instanceof THREE.Line))
+    obj && ((obj as THREE.Light).isLight || (THREE.Light && obj instanceof THREE.Light)),
+  );
+}
+
+function isRenderableVisualNode(
+  obj: THREE.Object3D | null | undefined,
+): obj is RenderableGeometryNode {
+  const candidate = obj as RenderableGeometryNode | null | undefined;
+  return Boolean(
+    candidate &&
+      (candidate.isMesh ||
+        (THREE.Mesh && candidate instanceof THREE.Mesh) ||
+        candidate.isPoints ||
+        (THREE.Points && candidate instanceof THREE.Points) ||
+        candidate.isLine ||
+        (THREE.Line && candidate instanceof THREE.Line)),
   );
 }
 
@@ -54,8 +98,8 @@ function yieldFrameOrTimeout(maxWaitMs = 32): Promise<void> {
 }
 
 export function waitForCompiledMaterials(
-  renderer: any,
-  materials: Set<any> | null | undefined,
+  renderer: WebGLShaderCompilerRendererPort | null | undefined,
+  materials: Set<THREE.Material> | null | undefined,
   maxWaitMs = 8000
 ): Promise<void> {
   if (!renderer || !materials || typeof materials.forEach !== 'function' || materials.size === 0) {
@@ -76,19 +120,19 @@ export function waitForCompiledMaterials(
   return new Promise((resolve, reject) => {
     function checkMaterialsReady() {
       try {
-        const props = renderer.properties;
+        const props = renderer?.properties;
         if (!props || typeof props.get !== 'function') {
           materials?.clear?.();
           resolve();
           return;
         }
 
-        materials!.forEach((material: any) => {
+        materials!.forEach((material: THREE.Material) => {
           if (!material) {
             materials!.delete(material);
             return;
           }
-          const materialProperties = props.get(material);
+          const materialProperties = props.get!(material);
           const program = materialProperties ? materialProperties.currentProgram : null;
           if (!program || typeof program.isReady !== 'function' || program.isReady()) {
             materials!.delete(material);
@@ -118,7 +162,7 @@ export function waitForCompiledMaterials(
 }
 
 export async function compileSceneAsync(
-  renderer: any,
+  renderer: WebGLShaderCompilerRendererPort | null | undefined,
   scene: THREE.Scene,
   camera: THREE.Camera,
   targetScene: THREE.Scene | null = null,
@@ -130,9 +174,9 @@ export async function compileSceneAsync(
     if (composerRenderTarget && typeof renderer.setRenderTarget === 'function') {
       renderer.setRenderTarget(composerRenderTarget);
     }
-    let materials: Set<any> | null | undefined;
+    let materials: Set<THREE.Material> | null | undefined;
     try {
-      materials = renderer.compile(scene, camera, targetScene);
+      materials = renderer.compile(scene, camera, targetScene) || undefined;
     } finally {
       if (composerRenderTarget && typeof renderer.setRenderTarget === 'function') {
         renderer.setRenderTarget(prevTarget);
@@ -144,7 +188,7 @@ export async function compileSceneAsync(
 }
 
 export async function prewarmSceneShaders(
-  renderer: any,
+  renderer: WebGLShaderCompilerRendererPort | null | undefined,
   scene: THREE.Scene,
   camera: THREE.Camera,
   pipeline: ShaderPrewarmPipelineOptions = {}
@@ -162,8 +206,8 @@ export async function prewarmSceneShaders(
     frustumCulled: boolean;
     castShadow: boolean;
   }> = [];
-  const savedDrawRanges = new Map<any, { start: number; count: number }>();
-  const passes = (pipeline.passes ?? []).map((p) => ({ pass: p, enabled: p.enabled }));
+  const savedDrawRanges = new Map<THREE.BufferGeometry, { start: number; count: number }>();
+  const passes = (pipeline.passes ?? []).map((p) => ({ pass: p, enabled: p?.enabled }));
   const disappearingLightRoots = (pipeline.disappearingLightRoots ?? [])
     .map((root) => {
       const lights: THREE.Light[] = [];
@@ -180,7 +224,7 @@ export async function prewarmSceneShaders(
   const prevRenderTarget = renderer.getRenderTarget ? renderer.getRenderTarget() : null;
   const prevShadowMapNeedsUpdate = renderer.shadowMap ? renderer.shadowMap.needsUpdate : false;
 
-  scene.traverse?.((node: any) => {
+  scene.traverse?.((node: THREE.Object3D) => {
     savedStates.push({
       object: node,
       visible: node.visible,

@@ -12,12 +12,15 @@ import {
   buildTailoredClientPacket,
   parseTailoredClientPacket,
   type PeerSessionOptions,
+  type ParsedTailoredClientPacket,
 } from './PeerSession.ts';
 import type { PhysicsEngineManager } from './PhysicsEngineManager.ts';
 import type {
   PiggybackedSignalAck,
   PiggybackedClientCommand,
 } from '../protocol/InputPacketCodec.ts';
+
+export type ParsedClientPacketHeader = ParsedTailoredClientPacket;
 
 export interface EstablishedSessionManagerOptions {
   staleInputTimeoutMs?: number;

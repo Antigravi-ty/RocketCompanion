@@ -35,7 +35,7 @@ export interface NameTagArenaHost {
   ballRadius?: number;
   cars?: Array<THREE.Object3D | null | undefined>;
   carTeams?: ArrayLike<number>;
-  carColors?: Array<string | null | undefined>;
+  carColors?: Array<string | number | null | undefined>;
   carBoostAmounts?: ArrayLike<number>;
   carVerticalVelZUu?: ArrayLike<number>;
   carAirborneFlipExhausted?: ArrayLike<number>;
@@ -269,7 +269,12 @@ export class VehicleNameTagSystem {
         carPitchFwdZ: simClimb.activeClimbStatus?.pitchFwdZ,
         carJumpHoldMs: simClimb.activeClimbStatus?.maxJumpHoldMs,
         povCarPosition: arena.cars?.[focusedIdx]?.position ?? null,
-        liveCarColorHex: arena.carColors?.[carIndex] ?? null,
+        liveCarColorHex:
+          typeof arena.carColors?.[carIndex] === 'string'
+            ? (arena.carColors[carIndex] as string)
+            : typeof arena.carColors?.[carIndex] === 'number'
+              ? `#${(Math.trunc(arena.carColors[carIndex] as number) & 0xffffff).toString(16).padStart(6, '0')}`
+              : null,
         activeCamera: activeCam,
         cameraUpVector: this.cameraUpVector,
         cameraForwardVector: this.cameraForwardVector,

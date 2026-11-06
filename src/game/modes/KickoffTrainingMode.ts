@@ -29,35 +29,35 @@ export class KickoffTrainingMode extends BaseGameMode {
   }
 
   public get spawnIndex(): number {
-    return this.episodeController.spawnIndex;
+    return this.episodeController.getConfigSnapshot().spawnIndex;
   }
 
   public set spawnIndex(val: number) {
-    this.episodeController.spawnIndex = val;
+    this.episodeController.applyConfigPatch({ spawnIndex: val });
   }
 
   public get subMode(): KickoffSubMode {
-    return this.episodeController.subMode;
+    return this.episodeController.getConfigSnapshot().subMode;
   }
 
   public set subMode(val: KickoffSubMode) {
-    this.episodeController.subMode = val;
+    this.episodeController.applyConfigPatch({ subMode: val });
   }
 
   public get ghostPlacement(): KickoffGhostPlacement {
-    return this.episodeController.ghostPlacement;
+    return this.episodeController.getConfigSnapshot().ghostPlacement;
   }
 
   public set ghostPlacement(val: KickoffGhostPlacement) {
-    this.episodeController.ghostPlacement = val;
+    this.episodeController.applyConfigPatch({ ghostPlacement: val });
   }
 
   public get ghostModeEnabled(): boolean {
-    return this.episodeController.ghostModeEnabled;
+    return this.episodeController.getConfigSnapshot().ghostModeEnabled;
   }
 
   public set ghostModeEnabled(val: boolean) {
-    this.episodeController.ghostModeEnabled = Boolean(val);
+    this.episodeController.applyConfigPatch({ ghostModeEnabled: Boolean(val) });
   }
 
   public override onEnter(): void {
@@ -88,7 +88,7 @@ export class KickoffTrainingMode extends BaseGameMode {
         if (ensureActiveKickoffMode('onResetSpawn')) this.selectSpawn(this.spawnIndex);
       },
       onSubModeChange: (nextSubMode: KickoffSubMode) => {
-        this.episodeController.setSubMode(nextSubMode);
+        this.episodeController.applyConfigPatch({ subMode: nextSubMode });
         if (ensureActiveKickoffMode('onSubModeChange')) this.selectSpawn(this.spawnIndex);
       },
       onSpeedChange: (physicsRate: number) => {
@@ -104,19 +104,21 @@ export class KickoffTrainingMode extends BaseGameMode {
         }
       },
       onGhostPlacementChange: (placement: KickoffGhostPlacement) => {
-        this.episodeController.setGhostPlacement(placement);
+        this.episodeController.applyConfigPatch({ ghostPlacement: placement });
         if (ensureActiveKickoffMode('onGhostPlacementChange') && !this.ghostModeEnabled) {
           this.selectSpawn(useKickoffTrainingStore.getState().spawnIndex);
         }
       },
       onGhostModeChange: (enabled: boolean) => {
-        this.episodeController.setGhostModeEnabled(enabled);
+        this.episodeController.applyConfigPatch({ ghostModeEnabled: enabled });
         if (ensureActiveKickoffMode('onGhostModeChange')) {
           this.selectSpawn(useKickoffTrainingStore.getState().spawnIndex);
         }
       },
       onGhostVisibilityChange: (showCar: boolean, showBall: boolean) => {
-        this.episodeController.setGhostEntityVisibility(showCar, showBall);
+        this.episodeController.applyConfigPatch({
+          ghostVisibility: { showCar, showBall },
+        });
       },
     });
 

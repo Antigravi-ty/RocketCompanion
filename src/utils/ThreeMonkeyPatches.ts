@@ -86,7 +86,8 @@ export function applyThreeMonkeyPatches(THREE) {
 
   // 2. Box3 setFromBufferAttribute NaN bounds guarding
   if (THREE.Box3 && THREE.Vector3) {
-    THREE.Box3.prototype.setFromBufferAttribute = function (attribute) {
+    const box3Proto = THREE.Box3.prototype;
+    box3Proto.setFromBufferAttribute = function (attribute: { count?: number } | null | undefined) {
       if (!attribute) return this.makeEmpty();
       this.makeEmpty();
       const v = new THREE.Vector3();
@@ -103,7 +104,8 @@ export function applyThreeMonkeyPatches(THREE) {
 
   // 3. LoadingManager resolveURL defensive fallback
   if (THREE.LoadingManager && !THREE.LoadingManager.prototype.resolveURL) {
-    THREE.LoadingManager.prototype.resolveURL = function (url) {
+    const lmProto = THREE.LoadingManager.prototype;
+    lmProto.resolveURL = function (url: string) {
       return typeof this.urlModifier === 'function' ? this.urlModifier(url) : url;
     };
   }
@@ -116,8 +118,14 @@ export function applyThreeMonkeyPatches(THREE) {
 
   // 5. FileLoader asset diagnostics, SPA 404 HTML fallback guard, and stream stall retry
   if (THREE.FileLoader && !THREE.FileLoader.prototype._hasAssetDiagnosticsPatch) {
-    const originalLoad = THREE.FileLoader.prototype.load;
-    THREE.FileLoader.prototype.load = function (url, onLoad, onProgress, onError) {
+    const flProto = THREE.FileLoader.prototype;
+    const originalLoad = flProto.load;
+    flProto.load = function (
+      url: string,
+      onLoad?: (data: unknown) => void,
+      onProgress?: (event: ProgressEvent) => void,
+      onError?: (err: unknown) => void
+    ) {
       const origFetch = globalThis.fetch;
       if (typeof origFetch === 'function') {
         const responseType = this.responseType;
@@ -174,8 +182,9 @@ export function applyThreeMonkeyPatches(THREE) {
                 statusText: res.statusText || 'OK',
                 headers: res.headers,
               });
-            } catch (err: any) {
-              if (attempt === 0 && !err?.isAssetError) {
+            } catch (err: unknown) {
+              const assetErr = err as { isAssetError?: boolean } | null;
+              if (attempt === 0 && !assetErr?.isAssetError) {
                 await new Promise((r) => setTimeout(r, 200));
                 return executeAttempt(1);
               }
@@ -196,12 +205,13 @@ export function applyThreeMonkeyPatches(THREE) {
         return originalLoad.call(this, url, onLoad, onProgress, onError);
       }
     };
-    THREE.FileLoader.prototype._hasAssetDiagnosticsPatch = true;
+    flProto._hasAssetDiagnosticsPatch = true;
   }
 
   // 6. WebGLRenderer.compileAsync defensive guard against disposed materials and unrejected setTimeout errors
   if (THREE.WebGLRenderer && THREE.WebGLRenderer.prototype && !THREE.WebGLRenderer.prototype._hasSafeCompileAsyncPatch) {
-    Object.defineProperty(THREE.WebGLRenderer.prototype, 'compileAsync', {
+    const rendererProto = THREE.WebGLRenderer.prototype;
+    Object.defineProperty(rendererProto, 'compileAsync', {
       configurable: true,
       enumerable: true,
       get() {
@@ -209,10 +219,10 @@ export function applyThreeMonkeyPatches(THREE) {
       },
       set(origCompileAsync) {
         this._origCompileAsync = origCompileAsync;
-        this._safeCompileAsync = function (scene, camera, targetScene = null) {
+        this._safeCompileAsync = function (scene: unknown, camera: unknown, targetScene: unknown = null) {
           const renderer = this;
           return new Promise((resolve, reject) => {
-            let materials;
+            let materials: Set<unknown> | null = null;
             try {
               if (typeof renderer.compile === 'function') {
                 materials = renderer.compile(scene, camera, targetScene);
@@ -233,36 +243,37 @@ export function applyThreeMonkeyPatches(THREE) {
 
             const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
             const maxWaitMs = 15000;
+            const activeMaterials = materials;
 
             function checkMaterialsReady() {
               try {
                 const props = renderer.properties;
                 if (!props || typeof props.get !== 'function') {
-                  materials.clear?.();
+                  activeMaterials.clear?.();
                   resolve(scene);
                   return;
                 }
 
-                materials.forEach((material) => {
+                activeMaterials.forEach((material: unknown) => {
                   if (!material) {
-                    materials.delete(material);
+                    activeMaterials.delete(material);
                     return;
                   }
                   const materialProperties = props.get(material);
                   const program = materialProperties ? materialProperties.currentProgram : null;
                   if (!program || typeof program.isReady !== 'function' || program.isReady()) {
-                    materials.delete(material);
+                    activeMaterials.delete(material);
                   }
                 });
 
-                if (materials.size === 0) {
+                if (activeMaterials.size === 0) {
                   resolve(scene);
                   return;
                 }
 
                 const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
                 if (now - startTime > maxWaitMs) {
-                  materials.clear?.();
+                  activeMaterials.clear?.();
                   resolve(scene);
                   return;
                 }
@@ -278,13 +289,13 @@ export function applyThreeMonkeyPatches(THREE) {
         };
       }
     });
-    THREE.WebGLRenderer.prototype._hasSafeCompileAsyncPatch = true;
+    rendererProto._hasSafeCompileAsyncPatch = true;
   }
 
   patchesApplied = true;
   return THREE;
 }
 
-export function areThreeMonkeyPatchesApplied() {
+export function areThreeMonkeyPatchesApplied(): boolean {
   return patchesApplied;
 }

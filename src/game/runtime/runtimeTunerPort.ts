@@ -29,7 +29,7 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
     targetGoal: 'blue' | 'orange' | 'both';
     enabled: boolean;
     opacity: number;
-    chunks: unknown[];
+    chunks: Uint8Array[];
   } | null = null;
   let appliedGoalBarrierEffectiveEnabled = false;
 
@@ -154,7 +154,6 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
       }
     },
     applyGraphicsSettings: (graphicsConfig) => {
-      owner.activeGraphicsSettings = graphicsConfig;
       owner.domEventManager.updateViewport(graphicsConfig);
       owner.arena?.setStadiumVisible?.(Boolean(graphicsConfig.showStadium));
       owner.domEventManager.syncPausedAndInputState(graphicsConfig);
@@ -162,12 +161,13 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
     applyGameplaySettings: (gameplayConfig) => {
       const showAll = Boolean(gameplayConfig.showAllCarHitboxes);
       if (owner.trainingOptions) {
-        Object.assign(owner.trainingOptions, {
+        owner.trainingOptions = {
+          ...owner.trainingOptions,
           boostOption: gameplayConfig.unlimitedBoost ? 'unlimited' : 'standard',
           disableGoalReset: !gameplayConfig.goalRestart,
           showCarHitbox: gameplayConfig.showCarHitbox,
           showAllCarHitboxes: showAll,
-        });
+        };
       }
       if (isFreeplayConfigScopeActive(resolveActiveMode(), isOnlineSessionActive())) {
         owner.physics?.setUnlimitedBoost?.(gameplayConfig.unlimitedBoost);
@@ -185,11 +185,7 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
       owner.arena?.setCarHitboxesVisible?.(gameplayConfig.showCarHitbox, showAll);
     },
     applyTrajectorySettings: (trajectoryConfig) => {
-      if (owner.ballTrajectoryPredictor?.updateSettings) {
-        owner.ballTrajectoryPredictor.updateSettings(trajectoryConfig);
-      } else if (owner.ballTrajectoryPredictor?.settings) {
-        Object.assign(owner.ballTrajectoryPredictor.settings, trajectoryConfig);
-      }
+      owner.ballTrajectoryPredictor?.updateSettings?.(trajectoryConfig);
     },
     syncMaterialsConfig: (materialsConfig = null) => {
       const config = (materialsConfig || getMaterialsConfig()) as MaterialsConfigLike;

@@ -174,11 +174,11 @@ export class CloudProfileSyncClient {
       const onSecondPass = (msg: DecodedMqttPublishPayload) => {
         if (msg.topic === resolvedUserTopic) {
           collector.setUserSlot(
-            msg.parsedJson ? (msg.parsedJson as CloudUserSlotPayload) : null
+            msg.parsedJson ? (msg.parsedJson as unknown as CloudUserSlotPayload) : null
           );
         } else if (msg.topic === resolvedDevTopic) {
           collector.setDevSlot(
-            msg.parsedJson ? (msg.parsedJson as CloudDevSlotPayload) : null
+            msg.parsedJson ? (msg.parsedJson as unknown as CloudDevSlotPayload) : null
           );
         }
       };

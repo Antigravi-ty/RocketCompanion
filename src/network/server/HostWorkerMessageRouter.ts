@@ -11,12 +11,20 @@ import {
   releaseDiagnosticFleetIfEnabled,
   routeReplayAndDiagnosticsMessage,
   type WorkerRouterContext,
+  type WorkerReplayDiagnosticsPayload,
 } from './workerReplayAndDiagnosticsRouter.ts';
-import { routeTrainingAndPhysicsMessage } from './workerTrainingAndPhysicsRouter.ts';
+import {
+  routeTrainingAndPhysicsMessage,
+  type WorkerTrainingAndPhysicsPayload,
+} from './workerTrainingAndPhysicsRouter.ts';
 import type { MatchSessionAdmin } from './match/MatchSessionAdmin.ts';
 import type { PhysicsEngineManager } from './PhysicsEngineManager.ts';
 import type { EstablishedSessionManager } from './EstablishedSessionManager.ts';
 import type { NetworkDataHandler } from './NetworkDataHandler.ts';
+import type { AuthoritativePhysicsSimPort } from './authoritativePhysicsStepPipeline.ts';
+import type { LobbyGhostConfigOptions } from './LobbyGhostCarCoordinator.ts';
+import type { CarControlsInput } from '../protocol/GlobalPayloadCodec.ts';
+import type { ClientReliableCommand } from './match/MatchCommandQueueSubController.ts';
 
 export { HOST_WORKER_MSG_TYPES, createWorkerEnvelope };
 
@@ -34,12 +42,87 @@ export interface WorkerRoomStateSummary {
   winner: string | number | null;
   winReason: string | number | null;
   lobbyPhysicsActive: boolean;
-  ghostConfig: any;
-  pads: any;
+  ghostConfig: LobbyGhostConfigOptions | null;
+  pads: unknown;
   roster: RosterSnapshot;
 }
 
 export type { WorkerRouterContext };
+
+export interface HostWorkerInitOptions {
+  roomId?: string;
+  gameMode?: string;
+  botFillMode?: string;
+  externalBotTunnels?: boolean;
+  initialState?: Float32Array | number[] | null;
+  wasmInitOptions?: { collisionData?: Uint8Array[] | null; isolated?: boolean; [key: string]: unknown };
+  hostPlayerName?: string;
+  hostVisualId?: string;
+  hostHitboxId?: string | null;
+  hostColorSlot?: number;
+  hostBlueColorSlot?: number | null;
+  hostOrangeColorSlot?: number | null;
+  hostPaintFinish?: string;
+  hostBoostVisual?: string;
+  hostBoostAudio?: string;
+  isBotMatch?: boolean;
+  botPlayerName?: string;
+  botVisualId?: string;
+  numCars?: number;
+  startAsMatch?: boolean;
+  lobbyMode?: boolean;
+  lobbyOptions?: Record<string, unknown> | null;
+  durationSeconds?: number;
+  maxOvertimeSeconds?: number;
+  skipReplayByDefault?: boolean;
+  trainingOptions?: WorkerTrainingAndPhysicsPayload | null;
+  resetKickoff?: boolean;
+  autoStartLoop?: boolean;
+  [key: string]: unknown;
+}
+
+export interface WorkerProtocolPayload
+  extends WorkerReplayDiagnosticsPayload,
+    WorkerTrainingAndPhysicsPayload,
+    HostWorkerInitOptions {
+  channelId?: string;
+  playerName?: string;
+  name?: string;
+  preferredTeam?: number | null;
+  paintFinish?: string;
+  boostVisual?: string;
+  boostAudio?: string;
+  packet?: Uint8Array | ArrayBuffer;
+  timestamp?: number;
+  targetTick?: number;
+  commands?: ClientReliableCommand[];
+  command?: ClientReliableCommand;
+  commandType?: number;
+  acks?: Array<{ signalId: number; signalType?: number }>;
+  signalId?: number;
+  signalType?: number;
+  forceEnterLobby?: boolean;
+  ghostCars?: boolean;
+  ghostMode?: string;
+  hostCarIndex?: number;
+  hostInteractsWithBall?: boolean;
+  broadcastHostOnly?: boolean;
+  ghostOpacity?: number;
+  force?: boolean;
+  prepareOnly?: boolean;
+  entityId?: number;
+  controls?: CarControlsInput;
+}
+
+export interface WorkerProtocolIncomingMessage extends WorkerProtocolPayload {
+  type?: string;
+  seq?: number;
+  payload?: WorkerProtocolPayload | Uint8Array;
+}
+
+export interface HostWorkerMessageRouterOptions extends WorkerRouterContext {
+  admin?: MatchSessionAdmin | null;
+}
 
 export function buildWorkerRoomStateSummary(
   matchManager: MatchSessionAdmin | null | undefined,
@@ -70,24 +153,29 @@ export function buildWorkerRoomStateSummary(
 
 export function routeProtocolMessageInWorker(
   workerCtx: WorkerRouterContext,
-  msg: Record<string, any> | null | undefined
+  msg: WorkerProtocolIncomingMessage | null | undefined
 ): boolean {
   if (!msg || typeof msg.type !== 'string') return false;
   const { type, ...rest } = msg;
-  const payload =
+  const payload: WorkerProtocolPayload =
     msg.payload && typeof msg.payload === 'object' && !(msg.payload instanceof Uint8Array)
       ? { ...rest, ...msg.payload }
-      : msg.payload !== undefined
-        ? msg.payload
-        : rest;
+      : (rest as WorkerProtocolPayload);
   const seq = msg.seq ?? payload?.reqId ?? 0;
   const { sim, physicsManager, sessionManager, matchManager, dataHandler } = workerCtx;
-  const emitRaw: ((msg: any, transfer?: Transferable[]) => void) | null | undefined =
-    workerCtx.emit || (workerCtx.postEnvelope as any);
+  const emitRaw: ((msg: Record<string, unknown>, transfer?: Transferable[]) => void) | null =
+    workerCtx.emit ||
+    (workerCtx.postEnvelope
+      ? (envMsg: Record<string, unknown>, transfer?: Transferable[]) =>
+          workerCtx.postEnvelope?.(envMsg as unknown as WorkerEnvelope, transfer)
+      : null);
 
-  const reply = (replyType: string, replyPayload: any, transfer: Transferable[] = []) => {
+  const reply = (replyType: string, replyPayload: unknown, transfer: Transferable[] = []) => {
     if (typeof workerCtx.postEnvelope === 'function') {
-      workerCtx.postEnvelope(createWorkerEnvelope(replyType, replyPayload, seq), transfer);
+      workerCtx.postEnvelope(
+        createWorkerEnvelope(replyType, (replyPayload || {}) as Record<string, unknown>, seq),
+        transfer
+      );
     }
   };
   const syncRoomState = () => {
@@ -191,7 +279,10 @@ export function routeProtocolMessageInWorker(
         } else if (payload.command) {
           matchManager.commandQueue.handleClientCommand(sessionId, payload.command);
         } else if (typeof payload.commandType === 'number') {
-          matchManager.commandQueue.handleClientCommand(sessionId, payload);
+          matchManager.commandQueue.handleClientCommand(
+            sessionId,
+            payload as unknown as ClientReliableCommand
+          );
         }
       }
       return true;
@@ -219,12 +310,11 @@ export function routeProtocolMessageInWorker(
             matchManager.lifecycle.enterLobbyMode(payload);
           } else if (physicsManager) {
             physicsManager.setLobbyGhostMode(payload.ghostCars !== false, {
-              mode: payload.mode || payload.ghostMode || 'ghost_passthrough',
+              mode: String(payload.mode || payload.ghostMode || 'ghost_passthrough'),
               hostCarIndex: payload.hostCarIndex ?? 0,
               hostInteractsWithBall: payload.hostInteractsWithBall ?? true,
               broadcastHostOnly: payload.broadcastHostOnly ?? false,
               ghostOpacity: payload.ghostOpacity ?? payload.opacity ?? 0.7,
-              ...payload,
             });
           }
         } else if (physicsManager) {
@@ -245,7 +335,13 @@ export function routeProtocolMessageInWorker(
             payload.opacity
           );
         } else {
-          physicsManager.setLobbyGhostMode(payload.enabled ?? true, payload);
+          physicsManager.setLobbyGhostMode(payload.enabled ?? true, {
+            mode: typeof payload.mode === 'string' ? payload.mode : undefined,
+            hostCarIndex: payload.hostCarIndex,
+            hostInteractsWithBall: payload.hostInteractsWithBall,
+            broadcastHostOnly: payload.broadcastHostOnly,
+            ghostOpacity: payload.ghostOpacity ?? payload.opacity,
+          });
         }
         syncRoomState();
       }
@@ -292,20 +388,22 @@ export function routeProtocolMessageInWorker(
     }
 
     case 'registerChannel':
-      workerCtx.registerWorkerChannel?.(payload.channelId);
+      if (payload.channelId) workerCtx.registerWorkerChannel?.(payload.channelId);
       return true;
 
     case 'removeChannel':
-      workerCtx.unregisterWorkerChannel?.(payload.channelId);
+      if (payload.channelId) workerCtx.unregisterWorkerChannel?.(payload.channelId);
       return true;
 
     case 'channel_packet':
     case 'clientInput':
-      dataHandler?.handleIncomingPacket(
-        payload.channelId,
-        payload.packet,
-        payload.timestamp || performance.now()
-      );
+      if (payload.channelId && payload.packet) {
+        dataHandler?.handleIncomingPacket(
+          payload.channelId,
+          payload.packet,
+          payload.timestamp || performance.now()
+        );
+      }
       return true;
 
     case 'notifyPlayerJoined': {
@@ -335,7 +433,7 @@ export function routeProtocolMessageInWorker(
 }
 
 export class HostWorkerMessageRouter {
-  sim: any;
+  sim: AuthoritativePhysicsSimPort | null;
   matchManager: MatchSessionAdmin | null;
   physicsManager: PhysicsEngineManager | null;
   sessionManager: EstablishedSessionManager | null;
@@ -344,11 +442,17 @@ export class HostWorkerMessageRouter {
   unregisterWorkerChannel: ((channelId: string) => void) | null;
   postEnvelope: ((envelope: WorkerEnvelope, transfer?: Transferable[]) => void) | null;
 
-  constructor(options: Record<string, any> = {}) {
-    this.sim = options.sim || options.admin?.sim || options.physicsManager?.sim || null;
+  constructor(options: HostWorkerMessageRouterOptions = {}) {
+    this.sim = options.sim || options.physicsManager?.sim || null;
     this.matchManager = options.matchManager || options.admin || null;
-    this.physicsManager = options.physicsManager || this.matchManager?.physicsManager || null;
-    this.sessionManager = options.sessionManager || this.matchManager?.sessionManager || null;
+    this.physicsManager =
+      options.physicsManager ||
+      (this.matchManager?.physicsManager as PhysicsEngineManager | null) ||
+      null;
+    this.sessionManager =
+      options.sessionManager ||
+      (this.matchManager?.sessionManager as EstablishedSessionManager | null) ||
+      null;
     this.dataHandler = options.dataHandler || null;
     this.registerWorkerChannel = options.registerWorkerChannel || null;
     this.unregisterWorkerChannel = options.unregisterWorkerChannel || null;
@@ -356,7 +460,10 @@ export class HostWorkerMessageRouter {
   }
 
   handleEnvelope(envelope: WorkerEnvelope): boolean {
-    return routeProtocolMessageInWorker(this, envelope);
+    return routeProtocolMessageInWorker(
+      this,
+      envelope as unknown as WorkerProtocolIncomingMessage
+    );
   }
 }
 

@@ -13,9 +13,18 @@ import {
   restoreClientLobbyLocalEntities,
   type LatencyBreakdownResult,
   type NetworkTelemetryCollector,
+  type ReconcilerMetrics,
+  type TelemetryChannelPort,
+  type TelemetrySimPort,
 } from './NetworkTelemetryCollector.ts';
 import type { CarControls } from './PredictionHistoryBuffer.ts';
 import type { PacingControllerParams } from '../../ui-core/config/pacingControllerEvaluator';
+
+export interface ClockPacingInterpolatorPort {
+  physicsRate?: number;
+  setPhysicsRate?: (rateHz: number) => void;
+  sync?: (nowMs: number) => void;
+}
 
 export interface ClientClockPacingControllerOptions {
   clockPacingMode?: string;
@@ -30,11 +39,11 @@ export interface ClientClockPacingControllerOptions {
 
 export interface ClientClockPacingStepContext {
   nowMs: number;
-  sim: any;
-  channel: any;
-  interpolator: any;
+  sim: TelemetrySimPort;
+  channel: TelemetryChannelPort | null | undefined;
+  interpolator: ClockPacingInterpolatorPort | null | undefined;
   telemetryCollector: NetworkTelemetryCollector;
-  metrics: Record<string, any> | undefined;
+  metrics: ReconcilerMetrics | undefined;
   kickoffMaskUntilTick: number;
   hasServerReportedBuffer: boolean;
   lobbyDualWorldMode: boolean;
@@ -67,8 +76,16 @@ export class ClientClockPacingController {
     this.maxLeadTicks = options.maxLeadTicks;
   }
 
+  resetTelemetry(telemetryCollector: NetworkTelemetryCollector): void {
+    telemetryCollector.reset(
+      this.clockPacingMode,
+      this.clockPacingPriority,
+      this.clockPacingParams
+    );
+  }
+
   resolveLatencyBreakdown(
-    channel: any,
+    channel: TelemetryChannelPort | null | undefined,
     baseMeasuredRtt: number,
     measuredRtt: number,
     hasServerReportedBuffer: boolean,
@@ -86,11 +103,11 @@ export class ClientClockPacingController {
   }
 
   syncLatencyBreakdownToMetrics(
-    channel: any,
+    channel: TelemetryChannelPort | null | undefined,
     baseMeasuredRtt: number,
     measuredRtt: number,
     hasServerReportedBuffer: boolean,
-    metrics: Record<string, any>,
+    metrics: ReconcilerMetrics,
     enableSmoothing: boolean,
     rollbackWindow: number
   ): LatencyBreakdownResult {
@@ -104,15 +121,11 @@ export class ClientClockPacingController {
     if (!Number.isFinite(breakdown.rttMs)) {
       throw new Error(`[PredictionReconciler] Channel rttMs is non-finite: ${breakdown.rttMs}`);
     }
-    metrics.rttMs = breakdown.rttMs;
-    if (channel && !channel.isLoopback && breakdown.rttMs > 0) channel.rttMs = breakdown.rttMs;
-    metrics.uplinkMs = breakdown.uplinkMs;
-    metrics.downlinkMs = breakdown.downlinkMs;
-    metrics.extraUplinkMs = breakdown.extraUplinkMs;
-    metrics.extraDownlinkMs = breakdown.extraDownlinkMs;
-    metrics.extraRttMs = breakdown.extraRttMs;
-    metrics.enableSmoothing = enableSmoothing;
-    metrics.rollbackWindow = rollbackWindow;
+    if (channel && !channel.isLoopback && breakdown.rttMs > 0) {
+      if (channel.simulator) channel.simulator.rttMs = breakdown.rttMs;
+      else channel.rttMs = breakdown.rttMs;
+    }
+    metrics.applyLatencyBreakdown(breakdown, enableSmoothing, rollbackWindow);
     return breakdown;
   }
 
@@ -134,10 +147,32 @@ export class ClientClockPacingController {
     return computeDownlinkTicksFromBreakdown(breakdown, this.tickDtMs, rttMs);
   }
 
+  evaluateTimelineTargets(
+    channel: TelemetryChannelPort | null | undefined,
+    baseMeasuredRtt: number,
+    measuredRtt: number,
+    hasServerReportedBuffer: boolean,
+    inputBufferSize: number | undefined,
+    rttMs?: number
+  ): { breakdown: LatencyBreakdownResult; leadTicks: number; downlinkTicks: number } {
+    const breakdown = this.resolveLatencyBreakdown(
+      channel,
+      baseMeasuredRtt,
+      measuredRtt,
+      hasServerReportedBuffer,
+      inputBufferSize
+    );
+    return {
+      breakdown,
+      leadTicks: this.calculateLeadTicks(breakdown, rttMs),
+      downlinkTicks: this.calculateDownlinkTicks(breakdown, rttMs),
+    };
+  }
+
   setClockPacingMode(
     mode: string,
-    interpolator: any,
-    metrics: Record<string, any> | undefined,
+    interpolator: ClockPacingInterpolatorPort | null | undefined,
+    metrics: ReconcilerMetrics | undefined,
     telemetryCollector: NetworkTelemetryCollector
   ): void {
     if (mode !== 'csts' && mode !== 'sts' && mode !== 'legacy' && mode !== 'custom') {
@@ -173,7 +208,7 @@ export class ClientClockPacingController {
   setClockPacingParams(
     params: PacingControllerParams,
     breakdown: LatencyBreakdownResult,
-    metrics: Record<string, any>,
+    metrics: ReconcilerMetrics,
     telemetryCollector: NetworkTelemetryCollector
   ): boolean {
     if (!params || typeof params !== 'object') return false;
@@ -210,7 +245,7 @@ export class ClientClockPacingController {
   setInputBufferTarget(
     target: number,
     breakdown: LatencyBreakdownResult,
-    metrics: Record<string, any>
+    metrics: ReconcilerMetrics
   ): boolean {
     if (typeof target === 'number' && Number.isFinite(target) && target >= 1) {
       const rounded = Math.max(1, Math.min(12, Math.round(target)));
@@ -297,15 +332,7 @@ export class ClientClockPacingController {
 
     const { stepOut, rawServerBuffer, hasServerBuf } = decision;
     if (ctx.metrics) {
-      ctx.metrics.effectiveInputBuffer = Math.round(stepOut.effectiveBuffer * 100) / 100;
-      ctx.metrics.targetInputBuffer = Math.round(stepOut.activeTarget * 100) / 100;
-      ctx.metrics.pacingTier = stepOut.tierState;
-      ctx.metrics.physicsRateHz = stepOut.physicsRateHz;
-      ctx.metrics.smoothRttMs = Math.round(stepOut.smoothRttMs * 10) / 10;
-      ctx.metrics.measuredJitterMs = Math.round(stepOut.jitterMs * 10) / 10;
-      if (!hasServerBuf) {
-        ctx.metrics.inputBufferSize = Math.max(-64, Math.min(63, Math.round(rawServerBuffer)));
-      }
+      ctx.metrics.applyPacingStep(stepOut, rawServerBuffer, hasServerBuf);
     }
     ctx.telemetryCollector.lastPacingStepStatus = {
       stepOut,

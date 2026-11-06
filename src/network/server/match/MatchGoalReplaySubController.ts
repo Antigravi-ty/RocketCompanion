@@ -25,9 +25,28 @@ import {
 } from './matchLoadoutAndSpawnPipeline.ts';
 import type { MatchDomainState } from './MatchDomainState.ts';
 import type { MatchCommandQueueSubController } from './MatchCommandQueueSubController.ts';
+import type { ReplayRingBuffer } from '../../../replay/ReplayRingBuffer.ts';
+import type { LifecyclePhysicsSnapshotPort } from './matchLifecyclePipeline.ts';
+
+export interface ServerBotAgentPort {
+  carIndex: number;
+  team: number;
+  botType: string;
+  ready: boolean;
+  tickSkip: number;
+  tickSkipCounter: number;
+  action: Record<string, number | boolean>;
+  reset?: () => void;
+  overrideControls: (controls: Record<string, number | boolean>) => void;
+  decideSync: (
+    state: unknown,
+    pads: unknown[],
+    activeCars: Array<{ carIndex: number; team: number }>
+  ) => Record<string, number | boolean>;
+}
 
 export interface ServerBotAgentRecord {
-  agent: any;
+  agent: ServerBotAgentPort;
   kickoffStep: number;
   staggered: boolean;
 }
@@ -38,12 +57,23 @@ export interface MatchGoalReplayLifecycleActionsPort {
   endMatch(forcedWinner?: number | null, winReason?: number): void;
 }
 
+export interface GoalReplayPhysicsManagerPort {
+  sim?: {
+    state?: { ball?: unknown } | null;
+    boostPads?: unknown[];
+    syncToStateObject?: () => void;
+  } | null;
+  applySignal: (signal: number | string, payload?: Record<string, unknown>) => void;
+  getActiveCarMask?: () => number;
+  setDirectCarControls: (carIndex: number, controls: Record<string, number | boolean>) => void;
+}
+
 export interface MatchGoalReplayHostPort {
   readonly domain: MatchDomainState;
   readonly commandQueue: MatchCommandQueueSubController;
   readonly actions: MatchGoalReplayLifecycleActionsPort;
-  readonly replayBuffer: any;
-  readonly physicsManager: any;
+  readonly replayBuffer: ReplayRingBuffer | null | undefined;
+  readonly physicsManager: GoalReplayPhysicsManagerPort | null | undefined;
 }
 
 export interface MatchGoalReplayOptions {
@@ -65,7 +95,7 @@ const REPLAY_START_RETIRE_SIGNAL_TYPES = [
 export class MatchGoalReplaySubController {
   readonly host: MatchGoalReplayHostPort;
   replayController: ReplayTimelineController | null = null;
-  activeReplayFrames: any[] | null = null;
+  activeReplayFrames: Array<Float32Array | { snapshot?: Float32Array }> | null = null;
   activeReplayCursor = 0;
   replayInterpolatedBuffer: Float32Array | null = null;
   replayTicksRemaining = -1;
@@ -100,9 +130,9 @@ export class MatchGoalReplaySubController {
     this.lastGoalBallSpeedKph = ballSpeedKph;
   }
 
-  buildReplaySkipAckControls(): Array<{ carIndex: number; controls: any }> {
+  buildReplaySkipAckControls(): Array<{ carIndex: number; controls: Record<string, number | boolean> }> {
     const { domain, commandQueue } = this.host;
-    const ackList: Array<{ carIndex: number; controls: any }> = [];
+    const ackList: Array<{ carIndex: number; controls: Record<string, number | boolean> }> = [];
     for (const [sid, p] of domain.players.entries()) {
       if (!p || p.role === 'spectator' || typeof p.entityId !== 'number' || p.entityId < 0) {
         continue;
@@ -132,20 +162,20 @@ export class MatchGoalReplaySubController {
     domain.state = MATCH_STATES.REPLAY;
     commandQueue.retireSignalTypes(REPLAY_START_RETIRE_SIGNAL_TYPES);
     this.activeReplayFrames = extractGoalReplayFrames({
-      ringBuffer: replayBuffer,
-      engine: physicsManager?.sim || null,
+      ringBuffer: replayBuffer as never,
+      engine: (physicsManager?.sim || null) as never,
       durationTicks: GOAL_REPLAY_DURATION_TICKS,
       goalIncidentTick: this.lastGoalIncidentFrame >= 0 ? this.lastGoalIncidentFrame : null,
       scorerTouchTick: this.lastScorerTouchFrame >= 0 ? this.lastScorerTouchFrame : undefined,
       lookbackSeconds: this.goalReplayLookbackSeconds ?? 10.0,
       postGoalSeconds: this.goalReplayPostGoalSeconds ?? 3.0,
       lastKickoffWillStartTick: domain.lastKickoffWillStartFrame ?? -1,
-      signalLog: commandQueue.replaySignalLog,
-    });
+      signalLog: commandQueue.replaySignalLog as never,
+    }) as Array<{ snapshot?: Float32Array } | Float32Array>;
 
     if (!this.replayController) {
       this.replayController = new ReplayTimelineController({
-        ringBuffer: replayBuffer,
+        ringBuffer: replayBuffer as never,
       });
     }
     if (this.activeReplayFrames && this.activeReplayFrames.length > 0) {
@@ -176,7 +206,7 @@ export class MatchGoalReplaySubController {
           )
         );
       this.replayController.beginReplaySession({
-        frames: this.activeReplayFrames,
+        frames: this.activeReplayFrames as never,
         scoringTeam: this.lastScoringTeam ?? 0,
         scorerCarIndex: this.lastScorerCarIndex ?? 0,
         carEntries,
@@ -252,10 +282,10 @@ export class MatchGoalReplaySubController {
     actions.startKickoffSequence(KICKOFF_TOTAL_TICKS);
   }
 
-  stepReplayTick(): { finished: boolean; replayPhysicsSnapshot: any | null } {
+  stepReplayTick(): { finished: boolean; replayPhysicsSnapshot: LifecyclePhysicsSnapshotPort | null } {
     const { domain, physicsManager } = this.host;
     this.replayTicksRemaining--;
-    let replayPhysicsSnapshot: any | null = null;
+    let replayPhysicsSnapshot: LifecyclePhysicsSnapshotPort | null = null;
     const replayAckControls = this.buildReplaySkipAckControls();
     const replayFrames =
       this.replayController?.frames || this.replayController?.sessionState?.activeFrames;
@@ -268,14 +298,20 @@ export class MatchGoalReplaySubController {
       const useSlowMo = this.enableDramaticReplaySlowMo !== false;
       const stepRes = this.replayController.stepPlayback(1 / MATCH_TICK_RATE, null, useSlowMo);
       this.activeReplayCursor = stepRes.frameIndex;
-      const currSnap = (stepRes.frame as any)?.snapshot || stepRes.frame;
-      const prevSnap = (stepRes.prevFrame as any)?.snapshot || stepRes.prevFrame || currSnap;
+      const frameObj = stepRes.frame as { snapshot?: Float32Array } | Float32Array | null;
+      const prevFrameObj = stepRes.prevFrame as { snapshot?: Float32Array } | Float32Array | null;
+      const currSnap =
+        frameObj && 'snapshot' in frameObj ? frameObj.snapshot : (frameObj as Float32Array | null);
+      const prevSnap =
+        prevFrameObj && 'snapshot' in prevFrameObj
+          ? prevFrameObj.snapshot
+          : (prevFrameObj as Float32Array | null) || currSnap;
       if (currSnap) {
         const blendedSnap = interpolateReplaySnapshots(
-          prevSnap,
+          prevSnap || currSnap,
           currSnap,
           stepRes.alpha,
-          (this.replayInterpolatedBuffer as any) || null
+          this.replayInterpolatedBuffer || undefined
         );
         this.replayInterpolatedBuffer = blendedSnap;
         encodeReplayDirectorTelemetryIntoState(
@@ -284,7 +320,6 @@ export class MatchGoalReplaySubController {
           stepRes.progress
         );
         replayPhysicsSnapshot = {
-          tick: domain.matchTick,
           activeCarMask: physicsManager?.getActiveCarMask?.() || 0,
           stateSnapshot: blendedSnap,
           acknowledgedControls: replayAckControls,
@@ -297,7 +332,8 @@ export class MatchGoalReplaySubController {
     ) {
       const sliceFrame = this.activeReplayFrames[this.activeReplayCursor];
       this.activeReplayCursor++;
-      const snap = sliceFrame?.snapshot || sliceFrame;
+      const snap =
+        sliceFrame && 'snapshot' in sliceFrame ? sliceFrame.snapshot : (sliceFrame as Float32Array);
       if (snap) {
         const total = Math.max(1, this.activeReplayFrames.length - 1);
         const progress = Math.min(1, Math.max(0, (this.activeReplayCursor - 1) / total));
@@ -309,7 +345,6 @@ export class MatchGoalReplaySubController {
           progress
         );
         replayPhysicsSnapshot = {
-          tick: domain.matchTick,
           activeCarMask: physicsManager?.getActiveCarMask?.() || 0,
           stateSnapshot: outSnap,
           acknowledgedControls: replayAckControls,
@@ -363,14 +398,17 @@ export class MatchGoalReplaySubController {
         if (!p.isBot) continue;
         if (domain.externalBotTunnels && sid === 'bot') continue;
         if (typeof p.entityId === 'number' && p.entityId >= 0) {
-          physicsManager.setDirectCarControls(p.entityId, DEFAULT_CAR_CONTROLS);
+          physicsManager.setDirectCarControls(
+            p.entityId,
+            { ...DEFAULT_CAR_CONTROLS } as Record<string, number | boolean>
+          );
         }
       }
       return;
     }
 
     const pads = sim.boostPads || [];
-    const activeCars: any[] = [];
+    const activeCars: Array<{ carIndex: number; team: number }> = [];
     for (const p of domain.players.values()) {
       if (typeof p.entityId === 'number' && p.entityId >= 0) {
         activeCars.push({
@@ -395,7 +433,7 @@ export class MatchGoalReplaySubController {
       ) {
         ensureExperimentalEngine(requestedBotType);
         record = {
-          agent: new ExperimentalBotAgent(requestedBotType, p.entityId, botTeam),
+          agent: new ExperimentalBotAgent(requestedBotType, p.entityId, botTeam) as unknown as ServerBotAgentPort,
           kickoffStep: 0,
           staggered: false,
         };
@@ -403,11 +441,14 @@ export class MatchGoalReplaySubController {
       }
 
       if (!record.agent.ready) {
-        physicsManager.setDirectCarControls(p.entityId, DEFAULT_CAR_CONTROLS);
+        physicsManager.setDirectCarControls(
+          p.entityId,
+          { ...DEFAULT_CAR_CONTROLS } as Record<string, number | boolean>
+        );
         continue;
       }
 
-      let ctrl: any;
+      let ctrl: Record<string, number | boolean>;
       if (record.kickoffStep < 24) {
         const ko = {
           ...DEFAULT_CAR_CONTROLS,

@@ -54,6 +54,31 @@ export interface RuntimeSignalLatchState {
   lastAlert30Frame: number;
 }
 
+export interface RuntimeSignalActiveModePort {
+  id?: string;
+  onPhysicsEvent?(event: Record<string, unknown>): void;
+  skipGoalReplay?(): void;
+  setReplayCameraMode?(mode: 'director' | 'pov'): void;
+  replaySession?: {
+    isReplayActive?: boolean;
+    replayCameraMode?: 'director' | 'pov' | string;
+    replayPovCarIndex?: number | null;
+  } | null;
+  directorPreview?: {
+    isReplayActive?: boolean;
+    goalScorerCarIndex?: number;
+  } | null;
+  rewinderController?: {
+    isBlockingLivePhysics?: boolean;
+    isScrubbing?: boolean;
+  } | null;
+  standaloneReplayViewer?: {
+    isActive?: boolean;
+  } | null;
+  isGoalReplayActive?(): boolean;
+  goalReplayPhase?: string;
+}
+
 export interface RuntimeSignalHostPort {
   readonly arena: ArenaWorld | null;
   readonly physics: RocketSimPhysicsEngine | null;
@@ -63,7 +88,7 @@ export interface RuntimeSignalHostPort {
   readonly match: RuntimeMatchState | null;
   readonly modeManager: {
     setMode?(modeName: string): void;
-    getActiveMode?(): { id?: string; onPhysicsEvent?(event: Record<string, unknown>): void } | null;
+    getActiveMode?(): RuntimeSignalActiveModePort | null;
   } | null;
   readonly replayTimelineController: ReplayTimelineController | null;
   readonly podiumController: PodiumCelebrationController | null;
@@ -74,6 +99,7 @@ export interface RuntimeSignalHostPort {
   readonly authoritativeServer: AuthoritativeServerHost | null;
   readonly remotePeerCarMap: Map<string, number>;
   playerCarIndex: number;
+  replayPovCarIndex?: number | null;
   selectedColorSlot: number | null;
   clientReplayOverflowPaused: boolean;
   _clientGoalIncidentLatched: boolean;
@@ -91,7 +117,6 @@ export interface RuntimeSignalHostPort {
   isGoalReplayCameraOverrideActive(): boolean;
   acquireGoalReplayCameraOverride?(source?: string): void;
   releaseGoalReplayCameraOverride(source?: string | null): void;
-  replayPovCarIndex?: number | null;
   getFlipResetVisual?(carIdx: number): { play(): void } | null;
   resetAudio?(): void;
   latchJumpSuppression?(): void;
@@ -148,6 +173,131 @@ export function resolveParticipantAnthemId(
   return found?.anthemId || null;
 }
 
+export function isLocalReplayOrRewinderBlockingLivePhysics(
+  modeManager: RuntimeSignalHostPort['modeManager'],
+): boolean {
+  const activeMode = modeManager?.getActiveMode?.();
+  return Boolean(
+    activeMode?.rewinderController?.isBlockingLivePhysics ||
+      activeMode?.standaloneReplayViewer?.isActive,
+  );
+}
+
+export function focusLocalPlayerCarInArenaAndCamera(
+  reconciler: PredictionReconciler | null | undefined,
+  host: RuntimeSignalHostPort,
+  options: { resetView?: boolean; syncInterpolator?: boolean; alwaysAssign?: boolean } = {},
+): number {
+  const hasLocalCar =
+    typeof reconciler?.localCarIndex === 'number' && reconciler.localCarIndex >= 0;
+  if (hasLocalCar || options.alwaysAssign) {
+    const resolvedIndex = hasLocalCar
+      ? reconciler!.localCarIndex
+      : typeof host.playerCarIndex === 'number' && host.playerCarIndex >= 0
+        ? host.playerCarIndex
+        : 0;
+    host.playerCarIndex = resolvedIndex;
+    if (host.arena) {
+      host.arena.playerCarIndex = resolvedIndex;
+    }
+    host.camera?.setFocusedCarIndex?.(resolvedIndex);
+  }
+  if (options.resetView) {
+    host.camera?.resetView?.();
+  }
+  if (options.syncInterpolator) {
+    host.interpolator?.sync?.();
+  }
+  return host.playerCarIndex;
+}
+
+export function teardownSignalReplayAndPodiumSession(
+  host: RuntimeSignalHostPort,
+  options: { exitPodium?: boolean; resetCameraIfWasInReplay?: boolean } = {},
+): void {
+  const wasOverrideActive = Boolean(
+    options.resetCameraIfWasInReplay && host.isGoalReplayCameraOverrideActive(),
+  );
+  host.replayPovCarIndex = null;
+  host.releaseGoalReplayCameraOverride();
+  const serverReplayCtrl = host.authoritativeServer?.fallbackManager?.goalReplay?.replayController;
+  if (
+    host.replayTimelineController &&
+    serverReplayCtrl &&
+    serverReplayCtrl !== host.replayTimelineController &&
+    serverReplayCtrl.ActiveWindowCount > 0
+  ) {
+    const existingEntries = host.replayTimelineController.sessionState?.carEntries;
+    host.replayTimelineController.copyRetainedReplayFrom(serverReplayCtrl);
+    if (
+      (!Array.isArray(host.replayTimelineController.sessionState.carEntries) ||
+        host.replayTimelineController.sessionState.carEntries.length === 0) &&
+      Array.isArray(existingEntries) &&
+      existingEntries.length > 0
+    ) {
+      host.replayTimelineController.sessionState.carEntries = existingEntries;
+    }
+  }
+  host.replayTimelineController?.endReplaySession?.();
+  if (options.exitPodium) {
+    host.podiumController?.exitPodium?.();
+  }
+  if (wasOverrideActive) {
+    host.camera?.resetView?.();
+  }
+}
+
+export function toggleGoalReplayCameraViewMode(
+  host: RuntimeSignalHostPort,
+  scorerCarIdx: number,
+): void {
+  const curMode = hudStore.getState().replayCameraMode === 'pov' ? 'pov' : 'director';
+  const nextMode = curMode === 'director' ? 'pov' : 'director';
+  const activeMode = host.modeManager?.getActiveMode?.();
+  if (typeof activeMode?.setReplayCameraMode === 'function') {
+    activeMode.setReplayCameraMode(nextMode);
+  } else if (activeMode?.replaySession) {
+    activeMode.replaySession.replayCameraMode = nextMode;
+  } else if (nextMode === 'pov') {
+    host.replayPovCarIndex = scorerCarIdx;
+    host.releaseGoalReplayCameraOverride();
+    hudStore.getState().setReplayState?.({ replayCameraMode: 'pov' });
+  } else {
+    host.replayPovCarIndex = null;
+    host.acquireGoalReplayCameraOverride?.('goal-replay');
+    hudStore.getState().setReplayState?.({ replayCameraMode: 'director' });
+  }
+}
+
+export function startGoalReplayDirectorSession(
+  host: RuntimeSignalHostPort,
+  options: { durationTicks: number; scoringTeam: number; scorerCarIndex: number },
+): void {
+  host.replayPovCarIndex = null;
+  host.acquireGoalReplayCameraOverride?.('goal-replay');
+  const carEntries = captureRuntimeReplayCarEntries(host, {
+    defaultTeam: options.scoringTeam,
+  });
+  setNameTagRuntimeState({ carEntries });
+  host.replayTimelineController?.beginReplaySession?.({
+    durationTicks: options.durationTicks,
+    scoringTeam: options.scoringTeam,
+    scorerCarIndex: options.scorerCarIndex,
+    carEntries,
+    isNetworkStreamed: true,
+  });
+}
+
+export function resetGoalReplayIncidentFlags(
+  host: RuntimeSignalHostPort,
+  clearIncidentLatch = false,
+): void {
+  if (clearIncidentLatch) {
+    host._clientGoalIncidentLatched = false;
+  }
+  host._localSkipReplayReady = false;
+}
+
 /**
  * RuntimeGoalReplaySignalSubController
  * Stateful SubController owning goal scoring, goal replay choreography transitions,
@@ -163,10 +313,21 @@ export class RuntimeGoalReplaySignalSubController {
   }
 
   public reset(): void {
+    resetGoalReplayIncidentFlags(this.host, true);
+    teardownSignalReplayAndPodiumSession(this.host);
+  }
+
+  private resolveScorerPresentation(
+    scoringTeam: number,
+    scorerCarIdx: number,
+  ): { scorerName: string; scorerAnthemId: string | null } {
     const h = this.host;
-    h._clientGoalIncidentLatched = false;
-    h._localSkipReplayReady = false;
-    h.releaseGoalReplayCameraOverride();
+    const playerCarIdx = h.playerCarIndex ?? 0;
+    const lastRosterSnapshot = h.getLastRosterSnapshot();
+    return {
+      scorerName: resolveParticipantDisplayName(lastRosterSnapshot, playerCarIdx, scorerCarIdx, scoringTeam),
+      scorerAnthemId: resolveParticipantAnthemId(lastRosterSnapshot, playerCarIdx, scorerCarIdx),
+    };
   }
 
   private handleScoreUpdated(
@@ -174,24 +335,25 @@ export class RuntimeGoalReplaySignalSubController {
     audio: SignalAudioFacadeLike | null | undefined,
   ): void {
     const h = this.host;
+    const matchState = h.match?.state;
     const bScore = sig.param1 ?? 0;
     const oScore = sig.param2 ?? 0;
     const isInitialZeroScore = bScore === 0 && oScore === 0;
     const isScoreChange =
       !isInitialZeroScore &&
-      (h.match?.state?.blueScore !== bScore || h.match?.state?.orangeScore !== oScore);
+      (matchState?.blueScore !== bScore || matchState?.orangeScore !== oScore);
 
     if (!isInitialZeroScore) {
       this.latch.lastKickoffTargetFrame = -1;
       this.latch.latchedKickoffSeconds.clear();
     }
-    if (h.match) {
-      if (!isInitialZeroScore && h.match.state.phase !== 'replay') h.match.state.phase = 'goal';
-      h.match.state.blueScore = bScore;
-      h.match.state.orangeScore = oScore;
+    if (matchState) {
+      if (!isInitialZeroScore && matchState.phase !== 'replay') matchState.phase = 'goal';
+      matchState.blueScore = bScore;
+      matchState.orangeScore = oScore;
     }
     hudStore.getState().setMatchState({
-      ...(isInitialZeroScore || h.match?.state?.phase === 'replay' ? {} : { matchPhase: 'goal' }),
+      ...(isInitialZeroScore || matchState?.phase === 'replay' ? {} : { matchPhase: 'goal' }),
       blueScore: bScore,
       orangeScore: oScore,
     });
@@ -202,33 +364,22 @@ export class RuntimeGoalReplaySignalSubController {
 
   private handleGoalReplayWillStart(sig: RuntimeSignalPacket): void {
     const h = this.host;
-    const playerCarIdx = h.playerCarIndex ?? 0;
-    const lastRosterSnapshot = h.getLastRosterSnapshot();
-    h._localSkipReplayReady = false;
+    const matchState = h.match?.state;
+    resetGoalReplayIncidentFlags(h);
     this.latch.lastKickoffTargetFrame = -1;
     this.latch.latchedKickoffSeconds.clear();
     const rawParam1 = sig.param1 ?? 0;
     const scoringTeam = rawParam1 & 0x1;
     const scorerCarIdx = (rawParam1 >>> 8) & 0xff;
     const speedKph = (rawParam1 >>> 16) & 0xffff;
-    const scorerName = resolveParticipantDisplayName(
-      lastRosterSnapshot,
-      playerCarIdx,
-      scorerCarIdx,
-      scoringTeam,
-    );
-    const scorerAnthemId = resolveParticipantAnthemId(
-      lastRosterSnapshot,
-      playerCarIdx,
-      scorerCarIdx,
-    );
-    if (h.match) {
-      if (h.match.state.phase !== 'replay') h.match.state.phase = 'goal';
-      h.match.state.scorer = scoringTeam;
-      h.match.state.scorerCarIndex = scorerCarIdx;
+    const { scorerName, scorerAnthemId } = this.resolveScorerPresentation(scoringTeam, scorerCarIdx);
+    if (matchState) {
+      if (matchState.phase !== 'replay') matchState.phase = 'goal';
+      matchState.scorer = scoringTeam;
+      matchState.scorerCarIndex = scorerCarIdx;
     }
     hudStore.getState().setMatchState({
-      ...(h.match?.state?.phase === 'replay' ? {} : { matchPhase: 'goal' }),
+      ...(matchState?.phase === 'replay' ? {} : { matchPhase: 'goal' }),
       replayScorerName: scorerName,
       replayScorerTeam: scoringTeam,
       replayScorerAnthemId: scorerAnthemId,
@@ -242,49 +393,31 @@ export class RuntimeGoalReplaySignalSubController {
     audio: SignalAudioFacadeLike | null | undefined,
   ): void {
     const h = this.host;
-    const playerCarIdx = h.playerCarIndex ?? 0;
-    const lastRosterSnapshot = h.getLastRosterSnapshot();
-    h._localSkipReplayReady = false;
+    const matchState = h.match?.state;
+    const physics = h.physics;
+    resetGoalReplayIncidentFlags(h);
     this.latch.lastKickoffTargetFrame = -1;
     this.latch.latchedKickoffSeconds.clear();
     audio?.resetIncidentDebounceState?.();
     reconciler.setReplayPlaybackMode?.(true);
-    if (!h.clientReplayOverflowPaused) h.physics?.setReplayRecordingActive?.(true);
-    h.physics?.resetGoalLatch?.();
+    if (!h.clientReplayOverflowPaused) physics?.setReplayRecordingActive?.(true);
+    physics?.resetGoalLatch?.();
     const replayTicks = (sig.param1 ?? 0) > 0 ? sig.param1! : 360;
     const rawMeta = sig.param2 ?? 0;
-    const scoringTeam = rawMeta > 0 ? rawMeta & 0x1 : (h.match?.state?.scorer ?? 0);
+    const scoringTeam = rawMeta > 0 ? rawMeta & 0x1 : (matchState?.scorer ?? 0);
     const scorerCarIdx =
-      rawMeta > 0 ? (rawMeta >>> 1) & 0xff : (h.match?.state?.scorerCarIndex ?? 0);
+      rawMeta > 0 ? (rawMeta >>> 1) & 0xff : (matchState?.scorerCarIndex ?? 0);
     const speedKph = (rawMeta >>> 16) & 0xffff;
-    const scorerName = resolveParticipantDisplayName(
-      lastRosterSnapshot,
-      playerCarIdx,
-      scorerCarIdx,
-      scoringTeam,
-    );
-    const scorerAnthemId = resolveParticipantAnthemId(
-      lastRosterSnapshot,
-      playerCarIdx,
-      scorerCarIdx,
-    );
-    if (h.match) {
-      h.match.state.phase = 'replay';
-      h.match.state.scorer = scoringTeam;
-      h.match.state.scorerCarIndex = scorerCarIdx;
+    const { scorerName, scorerAnthemId } = this.resolveScorerPresentation(scoringTeam, scorerCarIdx);
+    if (matchState) {
+      matchState.phase = 'replay';
+      matchState.scorer = scoringTeam;
+      matchState.scorerCarIndex = scorerCarIdx;
     }
-    h.replayPovCarIndex = null;
-    h.acquireGoalReplayCameraOverride?.('goal-replay');
-    const carEntries = captureRuntimeReplayCarEntries(h, {
-      defaultTeam: scoringTeam,
-    });
-    setNameTagRuntimeState({ carEntries });
-    h.replayTimelineController?.beginReplaySession?.({
+    startGoalReplayDirectorSession(h, {
       durationTicks: replayTicks,
       scoringTeam,
       scorerCarIndex: scorerCarIdx,
-      carEntries,
-      isNetworkStreamed: true,
     });
     hudStore.getState().setMatchState({
       matchPhase: 'replay',
@@ -300,88 +433,43 @@ export class RuntimeGoalReplaySignalSubController {
       replayScorerTeam: scoringTeam,
       ...(speedKph > 0 ? { replayBallSpeedKph: speedKph } : {}),
       onReplaySkip: () => {
-        const activeMode = h.modeManager?.getActiveMode?.() as any;
+        const activeMode = h.modeManager?.getActiveMode?.();
         if (typeof activeMode?.skipGoalReplay === 'function') {
           activeMode.skipGoalReplay();
         }
       },
       onReplayToggleCamera: () => {
-        const curMode = hudStore.getState().replayCameraMode === 'pov' ? 'pov' : 'director';
-        const nextMode = curMode === 'director' ? 'pov' : 'director';
-        const activeMode = h.modeManager?.getActiveMode?.() as any;
-        if (typeof activeMode?.setReplayCameraMode === 'function') {
-          activeMode.setReplayCameraMode(nextMode);
-        } else if (activeMode?.replaySession) {
-          activeMode.replaySession.replayCameraMode = nextMode;
-        } else if (nextMode === 'pov') {
-          h.replayPovCarIndex = scorerCarIdx;
-          h.releaseGoalReplayCameraOverride();
-          hudStore.getState().setReplayState?.({ replayCameraMode: 'pov' });
-        } else {
-          h.replayPovCarIndex = null;
-          h.acquireGoalReplayCameraOverride?.('goal-replay');
-          hudStore.getState().setReplayState?.({ replayCameraMode: 'director' });
-        }
+        toggleGoalReplayCameraViewMode(h, scorerCarIdx);
       },
     });
   }
 
   private handleGoalReplayEndOrRoundStart(reconciler: PredictionReconciler): void {
     const h = this.host;
-    h._localSkipReplayReady = false;
+    const matchState = h.match?.state;
+    const physics = h.physics;
+    resetGoalReplayIncidentFlags(h);
     reconciler.setReplayPlaybackMode?.(false);
-    if (!h.clientReplayOverflowPaused) h.physics?.setReplayRecordingActive?.(true);
-    h.physics?.resetGoalLatch?.();
-    h.physics?.setSimulationFrozen?.(false);
-    h.replayPovCarIndex = null;
-    h.releaseGoalReplayCameraOverride();
-    const serverReplayCtrl = (h.authoritativeServer as any)?.fallbackManager?.goalReplay
-      ?.replayController;
-    if (
-      h.replayTimelineController &&
-      serverReplayCtrl &&
-      serverReplayCtrl !== h.replayTimelineController &&
-      serverReplayCtrl.ActiveWindowCount > 0
-    ) {
-      const existingEntries = h.replayTimelineController.sessionState?.carEntries;
-      h.replayTimelineController.copyRetainedReplayFrom(serverReplayCtrl);
-      if (
-        (!Array.isArray(h.replayTimelineController.sessionState.carEntries) ||
-          h.replayTimelineController.sessionState.carEntries.length === 0) &&
-        Array.isArray(existingEntries) &&
-        existingEntries.length > 0
-      ) {
-        h.replayTimelineController.sessionState.carEntries = existingEntries;
-      }
-    }
-    h.replayTimelineController?.endReplaySession?.();
-    const activeMode = h.modeManager?.getActiveMode?.() as any;
+    if (!h.clientReplayOverflowPaused) physics?.setReplayRecordingActive?.(true);
+    physics?.resetGoalLatch?.();
+    physics?.setSimulationFrozen?.(false);
+    teardownSignalReplayAndPodiumSession(h);
+    const activeMode = h.modeManager?.getActiveMode?.();
     if (activeMode?.directorPreview?.isReplayActive) {
       activeMode.directorPreview.isReplayActive = false;
     }
-    if (typeof reconciler?.localCarIndex === 'number' && reconciler.localCarIndex >= 0) {
-      h.playerCarIndex = reconciler.localCarIndex;
-      if (h.arena) h.arena.playerCarIndex = reconciler.localCarIndex;
-      h.camera?.setFocusedCarIndex?.(reconciler.localCarIndex);
-    }
-    h.camera?.resetView?.();
-    h.interpolator?.sync?.();
+    focusLocalPlayerCarInArenaAndCamera(reconciler, h, { resetView: true, syncInterpolator: true });
     h.latchJumpSuppression?.();
-    const isFreeplayMode = h.match?.state?.mode === 'freeplay';
+    const isFreeplayMode = matchState?.mode === 'freeplay';
     const nextPhase = isFreeplayMode ? 'playing' : 'kickoff';
-    if (h.match && (h.match.state.phase === 'replay' || (isFreeplayMode && h.match.state.phase === 'goal'))) {
-      h.match.state.phase = nextPhase;
+    if (matchState && (matchState.phase === 'replay' || (isFreeplayMode && matchState.phase === 'goal'))) {
+      matchState.phase = nextPhase;
     }
     if (hudStore.getState().matchPhase === 'replay' || (isFreeplayMode && hudStore.getState().matchPhase === 'goal')) {
       hudStore.getState().setMatchState({
         matchPhase: nextPhase,
         ...(isFreeplayMode
-          ? {
-              replayScorerName: null,
-              replayScorerTeam: null,
-              replayBallSpeedKph: null,
-              replayAssistName: null,
-            }
+          ? { replayScorerName: null, replayScorerTeam: null, replayBallSpeedKph: null, replayAssistName: null }
           : {}),
       });
     }
@@ -395,13 +483,14 @@ export class RuntimeGoalReplaySignalSubController {
   ): void {
     if (!isFirstSeenSignalId) return;
     const h = this.host;
+    const physics = h.physics;
     const targetCarIdx =
       typeof sig.param1 === 'number' && sig.param1 >= 0 ? sig.param1 : h.playerCarIndex;
     const resetSubType =
       typeof sig.param2 === 'number' && sig.param2 > 0 ? sig.param2 : FLIP_RESET_SUBTYPES.BALL;
     if (resetSubType !== FLIP_RESET_SUBTYPES.BALL) return;
 
-    const cv = h.physics?.getCarStateView?.(targetCarIdx);
+    const cv = physics?.getCarStateView?.(targetCarIdx);
     const st = h.simulationStage?.getCarActionState?.(targetCarIdx);
     const nowMs = performance.now();
     const signalTick = sig.frameId || 0;
@@ -413,8 +502,8 @@ export class RuntimeGoalReplaySignalSubController {
     if (tickDelta < 60 || timeDeltaMs < 450) return;
 
     if (cv && !cv.isOnGround && !cv.hasFlipOrJump) {
-      const maxFlips = Math.max(1, h.physics?.getCarMaxFlipCount?.(targetCarIdx) ?? 1);
-      h.physics?.setCarState?.(targetCarIdx, { hasFlipOrJump: true, flipsRemaining: maxFlips });
+      const maxFlips = Math.max(1, physics?.getCarMaxFlipCount?.(targetCarIdx) ?? 1);
+      physics?.setCarState?.(targetCarIdx, { hasFlipOrJump: true, flipsRemaining: maxFlips });
     }
     if (st) {
       if (!cv?.isFlipping) st.hasAirJumped = false;

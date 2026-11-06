@@ -21,26 +21,35 @@ export interface SignalingPeerMetadata {
   approved?: boolean;
 }
 
+export type SignalingCallbackFn = (payload: Record<string, unknown>) => unknown;
+
 export interface SignalingEnvelopeDispatchContext {
   localPeerId: string;
   playerName: string;
   cryptoSession: SignalingCryptoSession | null;
-  callbacks: Record<string, ((...args: any[]) => any) | undefined>;
+  callbacks: Record<string, SignalingCallbackFn | undefined>;
   getRelayLabel: (relayId: string) => string;
   getPairingCodeForPeer: (peerId: string) => string | null;
   sendEncryptedToPeer: (
     targetPeerId: string,
-    payloadObj: Record<string, any>,
+    payloadObj: Record<string, unknown>,
     preferredRelayId?: string | null
   ) => Promise<boolean>;
-  sendCandidate: (targetPeerId: string, candidate: any) => Promise<boolean>;
+  sendCandidate: (targetPeerId: string, candidate: unknown) => Promise<boolean>;
   isCleanedUp: () => boolean;
+}
+
+export interface EncryptedSignalingWrapper {
+  fromPeerId?: string;
+  _brgHop?: number;
+  _brgFrom?: string;
+  env?: Parameters<SignalingCryptoSession['decryptFromPeer']>[1];
 }
 
 export class SignalingEncryptedEnvelopeHandler {
   peerRelayRoutes = new Map<string, string>();
   peerMetadata = new Map<string, SignalingPeerMetadata>();
-  pendingCandidatesOut = new Map<string, any[]>();
+  pendingCandidatesOut = new Map<string, unknown[]>();
   pairingKeepAliveTimer: ReturnType<typeof setInterval> | null = null;
 
   registerClientHelloPeer(
@@ -94,7 +103,7 @@ export class SignalingEncryptedEnvelopeHandler {
     });
   }
 
-  queuePendingOutgoingCandidate(targetPeerId: string, candidate: any): void {
+  queuePendingOutgoingCandidate(targetPeerId: string, candidate: unknown): void {
     const list = this.pendingCandidatesOut.get(targetPeerId) || [];
     list.push(candidate);
     this.pendingCandidatesOut.set(targetPeerId, list);
@@ -136,11 +145,11 @@ export class SignalingEncryptedEnvelopeHandler {
 
   async handleEncryptedEnvelope(
     relayId: string,
-    wrapper: any,
+    wrapper: EncryptedSignalingWrapper,
     ctx: SignalingEnvelopeDispatchContext
   ): Promise<void> {
     const fromPeerId = wrapper.fromPeerId;
-    if (!fromPeerId || !ctx.cryptoSession?.getPeerSession(fromPeerId)) return;
+    if (!fromPeerId || !wrapper.env || !ctx.cryptoSession?.getPeerSession(fromPeerId)) return;
 
     const existingMeta = this.peerMetadata.get(fromPeerId);
     if (existingMeta && Number(wrapper._brgHop || 0) >= 1) {
@@ -150,13 +159,19 @@ export class SignalingEncryptedEnvelopeHandler {
       }
     }
 
-    let inner: any;
+    let inner: Record<string, unknown> & {
+      type?: string;
+      pairingCode?: string;
+      hostName?: string;
+      reason?: string;
+      name?: string;
+    };
     try {
       inner = await ctx.cryptoSession.decryptFromPeer(fromPeerId, wrapper.env);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.warn(
         '[SignalingProtocolHandler] Dropped undecryptable signaling frame:',
-        err?.message || err
+        err instanceof Error ? err.message : err
       );
       return;
     }
@@ -169,7 +184,12 @@ export class SignalingEncryptedEnvelopeHandler {
     }
 
     if (inner.type === 'sig_pairing_hold') {
-      this.startClientPairingKeepAlive(fromPeerId, inner.pairingCode, inner.hostName, ctx);
+      this.startClientPairingKeepAlive(
+        fromPeerId,
+        String(inner.pairingCode || ''),
+        inner.hostName,
+        ctx
+      );
       return;
     }
 

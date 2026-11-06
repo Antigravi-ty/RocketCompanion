@@ -36,7 +36,7 @@ export class WebSocketSignalingClient {
   gameMode: string;
   ws: WebSocket | null = null;
   isConnected = false;
-  eventListeners = new Map<string, Array<(data?: any) => void>>();
+  eventListeners = new Map<string, Array<(data?: Record<string, unknown> | Error | Event | CloseEvent) => void>>();
   _heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(workerUrl: string, options: WebSocketSignalingClientOptions = {}) {
@@ -96,7 +96,9 @@ export class WebSocketSignalingClient {
     }
 
     const WebSocketConstructor: typeof WebSocket | null =
-      typeof WebSocket !== 'undefined' ? WebSocket : (globalThis as any).WebSocket || null;
+      typeof WebSocket !== 'undefined'
+        ? WebSocket
+        : (globalThis as unknown as { WebSocket?: typeof WebSocket }).WebSocket || null;
 
     if (!WebSocketConstructor) {
       throw new Error('WebSocket is not supported in this environment');
@@ -160,13 +162,14 @@ export class WebSocketSignalingClient {
         resolve();
       };
 
-      const settleFailure = (err: any) => {
+      const settleFailure = (err: unknown) => {
         if (isSettled) return;
         isSettled = true;
         cleanupExcept(null);
         this.isConnected = false;
-        this.emit('error', err);
-        reject(err);
+        const errorObj = err instanceof Error ? err : new Error(String(err));
+        this.emit('error', errorObj);
+        reject(errorObj);
       };
 
       if (timeoutMs > 0) {
@@ -266,7 +269,7 @@ export class WebSocketSignalingClient {
     }
   }
 
-  handleMessage(msg: any): void {
+  handleMessage(msg: Record<string, unknown> & { type?: string }): void {
     if (!msg) return;
     if (msg.type === 'ping') {
       this.send({ type: 'pong', peerId: this.peerId, timestamp: Date.now() });
@@ -298,7 +301,7 @@ export class WebSocketSignalingClient {
     });
   }
 
-  sendCandidate(targetPeerId: string | null, candidate: any): boolean {
+  sendCandidate(targetPeerId: string | null, candidate: RTCIceCandidateInit | Record<string, unknown>): boolean {
     return this.send({
       type: 'candidate',
       targetPeerId,
@@ -308,7 +311,7 @@ export class WebSocketSignalingClient {
     });
   }
 
-  send(data: any): boolean {
+  send(data: Record<string, unknown>): boolean {
     if (this.ws && this.ws.readyState === (typeof WebSocket !== 'undefined' ? WebSocket.OPEN : 1)) {
       this.ws.send(JSON.stringify(data));
       return true;
@@ -332,7 +335,7 @@ export class WebSocketSignalingClient {
     );
   }
 
-  emit(event: string, data?: any): void {
+  emit(event: string, data?: Record<string, unknown> | Error | Event | CloseEvent): void {
     const list = this.eventListeners.get(event);
     if (!list) return;
     for (let i = 0; i < list.length; i++) {

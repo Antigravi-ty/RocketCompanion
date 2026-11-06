@@ -12,11 +12,18 @@ import {
   stepKickoffCountdownState,
   stepMatchClockState,
 } from '../shared/matchClockAndPhasePipeline.ts';
-import type { LabTabContext, LabTabController } from './LabTabTypes.ts';
+import type {
+  LabAudioPort,
+  LabPhysicsEnginePort,
+  LabTabContext,
+  LabTabController,
+} from './LabTabTypes.ts';
 import {
   NinetySecDualBotController,
   setupTwoCarIncidentArena,
 } from './NinetySecDualBotController.ts';
+
+type IsolationLabStoreState = ReturnType<typeof useSubsystemIsolationLabStore.getState>;
 
 export type IncidentOpponentMode = 'stationary' | 'nexto' | string;
 
@@ -92,9 +99,9 @@ export class NinetySecMatchLabTab implements LabTabController {
     return true;
   }
 
-  private getAudio(): any {
+  private getAudio(): LabAudioPort | null {
     const runtime = this.ctx?.runtime;
-    return runtime?.options?.gameAudio || gameAudio;
+    return runtime?.options?.gameAudio || (gameAudio as unknown as LabAudioPort);
   }
 
   private resetIncidentBotEpoch(): void {
@@ -116,7 +123,7 @@ export class NinetySecMatchLabTab implements LabTabController {
     r.interpolator.setTrainingPhysicsRate?.(Math.round(120 * (mult / 100)));
   }
 
-  private beginIncidentKickoffCountdown(store: any): void {
+  private beginIncidentKickoffCountdown(store: IsolationLabStoreState): void {
     const r = this.ctx?.runtime;
     const audio = this.getAudio();
     this.incidentCountdownTicks = KICKOFF_COUNTDOWN_TICKS;
@@ -304,11 +311,11 @@ export class NinetySecMatchLabTab implements LabTabController {
     }
   }
 
-  private stepDualNextoBots(sim: any): void {
+  private stepDualNextoBots(sim: LabPhysicsEnginePort): void {
     this.botCtrl.stepDualNextoBots(sim);
   }
 
-  private stepIncidentMatchTick(store: any): void {
+  private stepIncidentMatchTick(store: IsolationLabStoreState): void {
     const r = this.ctx?.runtime;
     const sim = r?.physics;
     if (!sim) return;

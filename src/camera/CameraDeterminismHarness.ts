@@ -30,70 +30,132 @@ export {
 };
 
 const CSV_COLUMNS = [
-  'frame_index',
-  'capture_phase',
-  'timestamp_ms',
-  'did_reset',
-  'in_dt',
-  'in_ball_cam',
-  'in_car_pos_x',
-  'in_car_pos_y',
-  'in_car_pos_z',
-  'in_car_quat_x',
-  'in_car_quat_y',
-  'in_car_quat_z',
-  'in_car_quat_w',
-  'in_ball_pos_x',
-  'in_ball_pos_y',
-  'in_ball_pos_z',
-  'in_flags',
-  'in_on_ground',
-  'in_ground_normal_x',
-  'in_ground_normal_y',
-  'in_ground_normal_z',
-  'in_vel_x',
-  'in_vel_y',
-  'in_vel_z',
-  'in_supersonic',
-  'in_fov',
-  'in_distance',
-  'in_height',
-  'in_angle_deg',
-  'in_stiffness',
-  'in_transition_speed',
-  'in_aspect',
-  'in_look_x',
-  'in_look_y',
-  'in_swivel_speed',
-  'in_invert_swivel',
-  'wasm_pos_x',
-  'wasm_pos_y',
-  'wasm_pos_z',
-  'wasm_dir_x',
-  'wasm_dir_y',
-  'wasm_dir_z',
-  'wasm_up_x',
-  'wasm_up_y',
-  'wasm_up_z',
-  'wasm_fov',
-  'clean_pos_x',
-  'clean_pos_y',
-  'clean_pos_z',
-  'clean_dir_x',
-  'clean_dir_y',
-  'clean_dir_z',
-  'clean_up_x',
-  'clean_up_y',
-  'clean_up_z',
-  'clean_fov',
-  'delta_pos',
-  'delta_dir',
-  'delta_up',
-  'delta_fov',
-  'max_rel_error'
+  'frame_index', 'capture_phase', 'timestamp_ms', 'did_reset',
+  'in_dt', 'in_ball_cam', 'in_car_pos_x', 'in_car_pos_y', 'in_car_pos_z',
+  'in_car_quat_x', 'in_car_quat_y', 'in_car_quat_z', 'in_car_quat_w',
+  'in_ball_pos_x', 'in_ball_pos_y', 'in_ball_pos_z', 'in_flags', 'in_on_ground',
+  'in_ground_normal_x', 'in_ground_normal_y', 'in_ground_normal_z',
+  'in_vel_x', 'in_vel_y', 'in_vel_z', 'in_supersonic',
+  'in_fov', 'in_distance', 'in_height', 'in_angle_deg', 'in_stiffness',
+  'in_transition_speed', 'in_aspect', 'in_look_x', 'in_look_y', 'in_swivel_speed', 'in_invert_swivel',
+  'wasm_pos_x', 'wasm_pos_y', 'wasm_pos_z', 'wasm_dir_x', 'wasm_dir_y', 'wasm_dir_z',
+  'wasm_up_x', 'wasm_up_y', 'wasm_up_z', 'wasm_fov',
+  'clean_pos_x', 'clean_pos_y', 'clean_pos_z', 'clean_dir_x', 'clean_dir_y', 'clean_dir_z',
+  'clean_up_x', 'clean_up_y', 'clean_up_z', 'clean_fov',
+  'delta_pos', 'delta_dir', 'delta_up', 'delta_fov', 'max_rel_error',
 ];
 
-function createEmptyFrameRecord() {
+export interface CameraFrameRecord {
+  frameIndex: number;
+  capturePhase: string;
+  timestampMs: number;
+  didReset: number;
+  input: Float64Array;
+  wasmOutput: Float64Array;
+  cleanOutput: Float64Array;
+  deltaPos: number;
+  deltaDir: number;
+  deltaUp: number;
+  deltaFov: number;
+  maxRelError: number;
+}
+
+export class CameraDeterminismMetricsState {
+  frameIndex = 0;
+  activeSource: string = CAMERA_SOURCE_MODES.CLEAN_JS;
+  captureState: string = CAMERA_CAPTURE_STATES.MONITORING;
+  preBufferCount = 0;
+  postBufferCount = 0;
+  totalCapturedCount = 0;
+  triggerFrameIndex = -1;
+  deltaPos = 0;
+  deltaDir = 0;
+  deltaUp = 0;
+  deltaFov = 0;
+  maxRelError = 0;
+  peakDeltaPos = 0;
+  peakDeltaDir = 0;
+  peakDeltaUp = 0;
+  peakDeltaFov = 0;
+  peakRelError = 0;
+  divergenceCount = 0;
+  isMatching = true;
+
+  resetCaptureAndPeaks(): void {
+    this.captureState = CAMERA_CAPTURE_STATES.MONITORING;
+    this.preBufferCount = 0;
+    this.postBufferCount = 0;
+    this.totalCapturedCount = 0;
+    this.triggerFrameIndex = -1;
+    this.peakDeltaPos = 0;
+    this.peakDeltaDir = 0;
+    this.peakDeltaUp = 0;
+    this.peakDeltaFov = 0;
+    this.peakRelError = 0;
+    this.divergenceCount = 0;
+    this.isMatching = true;
+  }
+
+  beginPostCapture(triggerFrameIdx: number, capturedCount: number): void {
+    this.captureState = CAMERA_CAPTURE_STATES.CAPTURING_POST;
+    this.triggerFrameIndex = triggerFrameIdx;
+    this.postBufferCount = 0;
+    this.totalCapturedCount = capturedCount;
+  }
+
+  recordFrameComparison(
+    frameIdx: number,
+    deltaPos: number,
+    deltaDir: number,
+    deltaUp: number,
+    deltaFov: number,
+    maxRelError: number,
+    isDivergent: boolean
+  ): boolean {
+    this.frameIndex = frameIdx;
+    this.deltaPos = deltaPos;
+    this.deltaDir = deltaDir;
+    this.deltaUp = deltaUp;
+    this.deltaFov = deltaFov;
+    this.maxRelError = maxRelError;
+
+    if (deltaPos > this.peakDeltaPos) this.peakDeltaPos = deltaPos;
+    if (deltaDir > this.peakDeltaDir) this.peakDeltaDir = deltaDir;
+    if (deltaUp > this.peakDeltaUp) this.peakDeltaUp = deltaUp;
+    if (deltaFov > this.peakDeltaFov) this.peakDeltaFov = deltaFov;
+    if (maxRelError > this.peakRelError) this.peakRelError = maxRelError;
+
+    let stateChanged = false;
+    if (isDivergent) {
+      this.divergenceCount += 1;
+      if (this.isMatching) {
+        this.isMatching = false;
+        stateChanged = true;
+      }
+    }
+    return stateChanged;
+  }
+
+  updateBufferCounts(
+    preCount: number,
+    postCount: number,
+    totalCount: number,
+    captureState: string
+  ): void {
+    this.preBufferCount = preCount;
+    this.postBufferCount = postCount;
+    this.totalCapturedCount = totalCount;
+    this.captureState = captureState;
+  }
+}
+
+export type CameraDeterminismListener = (metrics: CameraDeterminismMetricsState) => void;
+
+export interface CameraStepKernelPort {
+  stepView(inputArray?: ArrayLike<number>): Float64Array;
+}
+
+function createEmptyFrameRecord(): CameraFrameRecord {
   return {
     frameIndex: 0,
     capturePhase: 'pre_trigger',
@@ -110,7 +172,7 @@ function createEmptyFrameRecord() {
   };
 }
 
-function copyFrameRecord(dst, src) {
+function copyFrameRecord(dst: CameraFrameRecord, src: CameraFrameRecord): void {
   dst.frameIndex = src.frameIndex;
   dst.capturePhase = src.capturePhase;
   dst.timestampMs = src.timestampMs;
@@ -125,32 +187,32 @@ function copyFrameRecord(dst, src) {
   dst.maxRelError = src.maxRelError;
 }
 
-function formatPrecision8(val) {
+function formatPrecision8(val: number): string {
   if (typeof val !== 'number' || !Number.isFinite(val)) return '0';
   if (val === 0) return '0';
   return Number(val.toPrecision(8)).toString();
 }
 
 export class CameraDeterminismHarness {
-  _lastNotifyTimeMs: any;
-  _listeners: any;
-  activeSource: any;
-  autoCaptureEnabled: any;
-  captureState: any;
-  capturedFrameCount: any;
-  capturedFramesBuffer: any;
-  cleanKernel: any;
-  dirTolerance: any;
-  fovTolerance: any;
-  metrics: any;
-  pendingResetFlag: any;
-  posTolerance: any;
-  postRemainingFrames: any;
-  preBufferedCount: any;
-  preRingBuffer: any;
-  preWriteCursor: any;
-  upTolerance: any;
-  [key: string]: any;
+  _lastNotifyTimeMs: number;
+  _listeners: Set<CameraDeterminismListener>;
+  activeSource: string;
+  autoCaptureEnabled: boolean;
+  captureState: string;
+  capturedFrameCount: number;
+  capturedFramesBuffer: CameraFrameRecord[];
+  cleanKernel: CleanPovCameraKernel;
+  dirTolerance: number;
+  fovTolerance: number;
+  metrics: CameraDeterminismMetricsState;
+  pendingResetFlag: number;
+  posTolerance: number;
+  postRemainingFrames: number;
+  preBufferedCount: number;
+  preRingBuffer: CameraFrameRecord[];
+  preWriteCursor: number;
+  upTolerance: number;
+
   constructor() {
     this.cleanKernel = new CleanPovCameraKernel();
     this.activeSource = CAMERA_SOURCE_MODES.CLEAN_JS;
@@ -173,36 +235,15 @@ export class CameraDeterminismHarness {
     this.pendingResetFlag = 0;
     this._lastNotifyTimeMs = 0;
 
-    this.metrics = {
-      frameIndex: 0,
-      activeSource: this.activeSource,
-      captureState: this.captureState,
-      preBufferCount: 0,
-      postBufferCount: 0,
-      totalCapturedCount: 0,
-      triggerFrameIndex: -1,
-      deltaPos: 0,
-      deltaDir: 0,
-      deltaUp: 0,
-      deltaFov: 0,
-      maxRelError: 0,
-      peakDeltaPos: 0,
-      peakDeltaDir: 0,
-      peakDeltaUp: 0,
-      peakDeltaFov: 0,
-      peakRelError: 0,
-      divergenceCount: 0,
-      isMatching: true
-    };
-
+    this.metrics = new CameraDeterminismMetricsState();
     this._listeners = new Set();
   }
 
-  get capturedFrames() {
+  get capturedFrames(): CameraFrameRecord[] {
     return this.capturedFramesBuffer.slice(0, this.capturedFrameCount);
   }
 
-  subscribe(listener) {
+  subscribe(listener: CameraDeterminismListener): () => void {
     if (typeof listener === 'function') {
       this._listeners.add(listener);
       return () => this._listeners.delete(listener);
@@ -210,7 +251,7 @@ export class CameraDeterminismHarness {
     return () => {};
   }
 
-  _notify() {
+  _notify(): void {
     for (const listener of this._listeners) {
       try {
         listener(this.metrics);
@@ -220,7 +261,7 @@ export class CameraDeterminismHarness {
     }
   }
 
-  setActiveSource(source) {
+  setActiveSource(source: string): void {
     if (source === CAMERA_SOURCE_MODES.WASM || source === CAMERA_SOURCE_MODES.CLEAN_JS) {
       this.activeSource = source;
       this.metrics.activeSource = source;
@@ -228,7 +269,7 @@ export class CameraDeterminismHarness {
     }
   }
 
-  toggleActiveSource() {
+  toggleActiveSource(): string {
     const next =
       this.activeSource === CAMERA_SOURCE_MODES.CLEAN_JS
         ? CAMERA_SOURCE_MODES.WASM
@@ -237,7 +278,7 @@ export class CameraDeterminismHarness {
     return next;
   }
 
-  setPosTolerance(tolerance) {
+  setPosTolerance(tolerance: number | string): void {
     const parsed = Number(tolerance);
     if (Number.isFinite(parsed) && parsed >= 0) {
       this.posTolerance = parsed;
@@ -245,41 +286,28 @@ export class CameraDeterminismHarness {
     }
   }
 
-  onResetView() {
+  onResetView(): void {
     this.cleanKernel.resetView();
     this.pendingResetFlag = 1;
   }
 
-  resetCaptureAndPeaks() {
+  resetCaptureAndPeaks(): void {
     this.preWriteCursor = 0;
     this.preBufferedCount = 0;
     this.capturedFrameCount = 0;
     this.postRemainingFrames = 0;
     this.captureState = CAMERA_CAPTURE_STATES.MONITORING;
-
-    this.metrics.captureState = CAMERA_CAPTURE_STATES.MONITORING;
-    this.metrics.preBufferCount = 0;
-    this.metrics.postBufferCount = 0;
-    this.metrics.totalCapturedCount = 0;
-    this.metrics.triggerFrameIndex = -1;
-    this.metrics.peakDeltaPos = 0;
-    this.metrics.peakDeltaDir = 0;
-    this.metrics.peakDeltaUp = 0;
-    this.metrics.peakDeltaFov = 0;
-    this.metrics.peakRelError = 0;
-    this.metrics.divergenceCount = 0;
-    this.metrics.isMatching = true;
-
+    this.metrics.resetCaptureAndPeaks();
     this._notify();
   }
 
-  triggerManualCapture() {
+  triggerManualCapture(): void {
     if (this.captureState !== CAMERA_CAPTURE_STATES.MONITORING) return;
     this._lockPreBufferAndStartPostCapture(this.metrics.frameIndex);
     this._notify();
   }
 
-  _lockPreBufferAndStartPostCapture(triggerFrameIdx) {
+  _lockPreBufferAndStartPostCapture(triggerFrameIdx: number): void {
     const count = this.preBufferedCount;
     const startIdx = (this.preWriteCursor - count + PRE_TRIGGER_FRAME_LIMIT) % PRE_TRIGGER_FRAME_LIMIT;
 
@@ -293,28 +321,23 @@ export class CameraDeterminismHarness {
     this.capturedFrameCount = count;
     this.captureState = CAMERA_CAPTURE_STATES.CAPTURING_POST;
     this.postRemainingFrames = POST_TRIGGER_FRAME_LIMIT;
-    this.metrics.captureState = this.captureState;
-    this.metrics.triggerFrameIndex = triggerFrameIdx;
-    this.metrics.postBufferCount = 0;
-    this.metrics.totalCapturedCount = this.capturedFrameCount;
+    this.metrics.beginPostCapture(triggerFrameIdx, this.capturedFrameCount);
   }
 
   /**
    * Executes both WASM and Clean JS camera kernels on the 32-Float64 input array,
    * compares their 10-Float64 outputs, records into the 600-frame ring buffer / post-trigger buffer,
    * and returns the selected active camera's 42-Float64 view buffer.
-   *
-   * @param {object} wasmKernel - CameraMicrokernel instance
-   * @param {Float64Array} inputArray - 32-Float64 input buffer
-   * @param {string|null} [preferredSource] - Optional override ('clean_js' | 'wasm')
-   * @returns {Float64Array} 42-Float64 buffer with output at indices [32..41]
    */
-  stepAndCompare(wasmKernel, inputArray, preferredSource = null) {
+  stepAndCompare(
+    wasmKernel: CameraStepKernelPort,
+    inputArray: Float64Array,
+    preferredSource: string | null = null
+  ): Float64Array {
     const wasmView = wasmKernel.stepView(inputArray);
     const cleanView = this.cleanKernel.stepView(inputArray);
 
     const frameIdx = this.metrics.frameIndex + 1;
-    this.metrics.frameIndex = frameIdx;
 
     const dxPos = wasmView[32] - cleanView[32];
     const dyPos = wasmView[33] - cleanView[33];
@@ -349,26 +372,15 @@ export class CameraDeterminismHarness {
       deltaUp > this.upTolerance ||
       deltaFov > this.fovTolerance;
 
-    this.metrics.deltaPos = deltaPos;
-    this.metrics.deltaDir = deltaDir;
-    this.metrics.deltaUp = deltaUp;
-    this.metrics.deltaFov = deltaFov;
-    this.metrics.maxRelError = maxRelError;
-
-    if (deltaPos > this.metrics.peakDeltaPos) this.metrics.peakDeltaPos = deltaPos;
-    if (deltaDir > this.metrics.peakDeltaDir) this.metrics.peakDeltaDir = deltaDir;
-    if (deltaUp > this.metrics.peakDeltaUp) this.metrics.peakDeltaUp = deltaUp;
-    if (deltaFov > this.metrics.peakDeltaFov) this.metrics.peakDeltaFov = deltaFov;
-    if (maxRelError > this.metrics.peakRelError) this.metrics.peakRelError = maxRelError;
-
-    let stateChanged = false;
-    if (isDivergent) {
-      this.metrics.divergenceCount += 1;
-      if (this.metrics.isMatching) {
-        this.metrics.isMatching = false;
-        stateChanged = true;
-      }
-    }
+    let stateChanged = this.metrics.recordFrameComparison(
+      frameIdx,
+      deltaPos,
+      deltaDir,
+      deltaUp,
+      deltaFov,
+      maxRelError,
+      isDivergent
+    );
 
     const nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const didReset = this.pendingResetFlag;
@@ -395,8 +407,12 @@ export class CameraDeterminismHarness {
       if (this.preBufferedCount < PRE_TRIGGER_FRAME_LIMIT) {
         this.preBufferedCount += 1;
       }
-      this.metrics.preBufferCount = this.preBufferedCount;
-      this.metrics.totalCapturedCount = this.preBufferedCount;
+      this.metrics.updateBufferCounts(
+        this.preBufferedCount,
+        0,
+        this.preBufferedCount,
+        this.captureState
+      );
 
       if (isDivergent && this.autoCaptureEnabled) {
         this._lockPreBufferAndStartPostCapture(frameIdx);
@@ -423,14 +439,16 @@ export class CameraDeterminismHarness {
       }
 
       this.postRemainingFrames -= 1;
-      this.metrics.postBufferCount = POST_TRIGGER_FRAME_LIMIT - this.postRemainingFrames;
-      this.metrics.totalCapturedCount = this.capturedFrameCount;
-
       if (this.postRemainingFrames <= 0) {
         this.captureState = CAMERA_CAPTURE_STATES.CAPTURED_READY;
-        this.metrics.captureState = this.captureState;
         stateChanged = true;
       }
+      this.metrics.updateBufferCounts(
+        this.preBufferedCount,
+        POST_TRIGGER_FRAME_LIMIT - this.postRemainingFrames,
+        this.capturedFrameCount,
+        this.captureState
+      );
     }
 
     const effectiveSource = preferredSource || this.activeSource;
@@ -446,11 +464,9 @@ export class CameraDeterminismHarness {
    * Builds CSV content string from either the locked capture buffer (if triggered)
    * or the current 600-frame rolling buffer (if still monitoring).
    * All floating-point numbers are formatted with toPrecision(8).
-   *
-   * @returns {string}
    */
-  buildCsvString() {
-    let records: any[] = [];
+  buildCsvString(): string {
+    let records: CameraFrameRecord[] = [];
     if (
       this.captureState === CAMERA_CAPTURE_STATES.CAPTURING_POST ||
       this.captureState === CAMERA_CAPTURE_STATES.CAPTURED_READY

@@ -73,31 +73,37 @@ export interface FlipResetVisualHandle {
   stopVisual?(): void;
 }
 
-export interface OnlineRosterSyncHostPort {
+export interface OnlineRosterSessionPort {
   readonly authoritativeServer: AuthoritativeServerHost | null;
-  readonly isBotMatch: boolean;
-  readonly arena: ArenaWorld | null;
-  readonly match: RuntimeMatchState | null;
   readonly networkReconciler: PredictionReconciler | null;
-  readonly multiplayerSession: MultiplayerSessionManager | null;
+  readonly remotePeerCarMap: Map<string, number>;
+  isLobbyDualWorldActive(): boolean;
+}
+
+export interface OnlineRosterWorldPort {
+  readonly arena: ArenaWorld | null;
   readonly physics: RocketSimPhysicsEngine | null;
   readonly entityManager: EntityManager | null;
   readonly interpolator: PhysicsStateInterpolator | null;
-  readonly options: {
-    gameAudio?: {
-      setCarBoostAudioVariation?: (carIndex: number, variation: string) => void;
-    };
-    [key: string]: unknown;
-  } | null;
+  readonly match: RuntimeMatchState | null;
+  readonly multiplayerSession: MultiplayerSessionManager | null;
   readonly flipResetVisuals: Map<number, FlipResetVisualHandle>;
   readonly playerCarIndex: number;
+  readonly isBotMatch: boolean;
   selectedColorSlot: number | null;
-  readonly remotePeerCarMap: Map<string, number>;
-  isLobbyDualWorldActive(): boolean;
+  setCarColor(carIndex: number, hexColor: string, persistPreference?: boolean): void;
+}
+
+export interface OnlineRosterDiagnosticsPort {
   isDiagnosticFleetEnabled(): boolean;
   spawnDiagnosticTestFleet(options?: { anchorMode?: string }): Promise<unknown>;
   despawnDiagnosticTestFleet(): void;
-  setCarColor(carIndex: number, hexColor: string, persistPreference?: boolean): void;
+}
+
+export interface OnlineRosterSyncHostPort {
+  readonly session: OnlineRosterSessionPort;
+  readonly world: OnlineRosterWorldPort;
+  readonly diagnostics: OnlineRosterDiagnosticsPort;
 }
 
 export function dismissHostLobbyOngoingNotification(): void {
@@ -127,16 +133,16 @@ export class OnlineRosterSyncCoordinator {
   }
 
   public syncHostLobbyOngoingNotification(): void {
-    const h = this.host;
-    if (!h.authoritativeServer || h.isBotMatch) {
+    const { session, world } = this.host;
+    if (!session.authoritativeServer || world.isBotMatch) {
       dismissHostLobbyOngoingNotification();
       return;
     }
 
     const isLobby = Boolean(
-      h.arena?.isLobbyMode ||
-        h.match?.state?.mode !== 'match' ||
-        h.match?.state?.phase === 'lobby',
+      world.arena?.isLobbyMode ||
+        world.match?.state?.mode !== 'match' ||
+        world.match?.state?.phase === 'lobby',
     );
     if (!isLobby) {
       dismissHostLobbyOngoingNotification();
@@ -191,14 +197,14 @@ export class OnlineRosterSyncCoordinator {
   public async applyRosterSnapshot(
     roster: OnlineRosterSnapshotPayload | null | undefined,
   ): Promise<void> {
-    const h = this.host;
+    const { session, world, diagnostics } = this.host;
     if (!roster || !Array.isArray(roster.players)) return;
     this.lastRosterSnapshot = roster;
 
-    const isLobbyDualWorld = h.isLobbyDualWorldActive();
-    const isHostLobby = Boolean(h.authoritativeServer && isLobbyDualWorld);
+    const isLobbyDualWorld = session.isLobbyDualWorldActive();
+    const isHostLobby = Boolean(session.authoritativeServer && isLobbyDualWorld);
 
-    await h.arena?.ensureOpponent?.();
+    await world.arena?.ensureOpponent?.();
     const connectedPeers: OnlinePeerEntryPort[] = [];
     const nameTagEntries: Array<{
       carIndex: number;
@@ -224,10 +230,10 @@ export class OnlineRosterSyncCoordinator {
         isBot: Boolean(p.isBot),
       });
 
-      if (cIdx !== h.playerCarIndex) {
+      if (cIdx !== world.playerCarIndex) {
         const prevPeers = useAppStore?.getState?.()?.onlineSession?.connectedPeers || [];
         const hostPeerList =
-          (h.multiplayerSession?.hostController?.getConnectedPeerList?.() as
+          (world.multiplayerSession?.hostController?.getConnectedPeerList?.() as
             | Array<{
                 id?: string;
                 carIndex?: number;
@@ -244,11 +250,11 @@ export class OnlineRosterSyncCoordinator {
         const resolvedPairingCode =
           matchedHostPeer?.pairingCode ||
           (matchedPrevPeer?.pairingCode as string | undefined) ||
-          (!h.authoritativeServer
+          (!session.authoritativeServer
             ? useAppStore?.getState?.()?.onlineSession?.pairingCode
             : undefined);
 
-        const lastParsed = h.networkReconciler?.lastParsedPacket as
+        const lastParsed = session.networkReconciler?.lastParsedPacket as
           | {
               allUserRtt?: {
                 players?: Array<{ carIndex?: number; rtt?: number }>;
@@ -272,7 +278,7 @@ export class OnlineRosterSyncCoordinator {
                 (typeof matchedPrevPeer?.pingMs === 'number' && matchedPrevPeer.pingMs > 0
                   ? matchedPrevPeer.pingMs
                   : null) ??
-                (!h.authoritativeServer ? h.networkReconciler?.metrics?.rttMs || 15 : 15),
+                (!session.authoritativeServer ? session.networkReconciler?.metrics?.rttMs || 15 : 15),
             );
 
         connectedPeers.push({
@@ -288,48 +294,48 @@ export class OnlineRosterSyncCoordinator {
         });
       }
 
-      h.networkReconciler?.setCarVisualPreset?.(cIdx, preset);
+      session.networkReconciler?.setCarVisualPreset?.(cIdx, preset);
 
-      if (isLobbyDualWorld && cIdx !== h.playerCarIndex) {
-        if (h.arena?.cars?.[cIdx]) {
-          h.arena.cars[cIdx].visible = false;
+      if (isLobbyDualWorld && cIdx !== world.playerCarIndex) {
+        if (world.arena?.cars?.[cIdx]) {
+          world.arena.cars[cIdx].visible = false;
         }
         continue;
       }
 
-      if (h.physics) {
-        if (typeof h.physics.addCarAtSlot === 'function') {
-          h.physics.addCarAtSlot(cIdx, physicsTeam, preset);
+      if (world.physics) {
+        if (typeof world.physics.addCarAtSlot === 'function') {
+          world.physics.addCarAtSlot(cIdx, physicsTeam, preset);
         } else {
-          while (h.physics.numCars <= cIdx) {
-            const nextIdx = h.physics.numCars;
-            h.physics.addCar(
+          while (world.physics.numCars <= cIdx) {
+            const nextIdx = world.physics.numCars;
+            world.physics.addCar(
               nextIdx === cIdx ? physicsTeam : nextIdx % 2,
-              h.networkReconciler?.carVisualPresets?.get(nextIdx) || 'octane',
+              session.networkReconciler?.carVisualPresets?.get(nextIdx) || 'octane',
             );
           }
         }
       }
-      h.physics?.setCarTeam?.(cIdx, physicsTeam);
+      world.physics?.setCarTeam?.(cIdx, physicsTeam);
 
-      if (h.arena) {
-        if (typeof h.arena.ensureCar === 'function') {
-          h.arena.ensureCar(cIdx, physicsTeam, 'fennec');
+      if (world.arena) {
+        if (typeof world.arena.ensureCar === 'function') {
+          world.arena.ensureCar(cIdx, physicsTeam, 'fennec');
         } else {
-          while (h.arena.cars.length <= cIdx) {
-            h.arena.addCar(h.arena.cars.length % 2, 'fennec');
+          while (world.arena.cars.length <= cIdx) {
+            world.arena.addCar(world.arena.cars.length % 2, 'fennec');
           }
         }
-        if (h.arena.cars[cIdx]) {
-          h.arena.cars[cIdx].visible = isLobbyDualWorld ? cIdx === h.playerCarIndex : true;
+        if (world.arena.cars[cIdx]) {
+          world.arena.cars[cIdx].visible = isLobbyDualWorld ? cIdx === world.playerCarIndex : true;
         }
       }
 
-      if (h.entityManager) {
-        h.entityManager.hotSwapVehicle(cIdx, { visual: preset, hitbox });
+      if (world.entityManager) {
+        world.entityManager.hotSwapVehicle(cIdx, { visual: preset, hitbox });
       } else {
-        h.arena?.swapCarVisual?.(cIdx, preset);
-        h.physics?.setCarHitbox?.(cIdx, hitbox);
+        world.arena?.swapCarVisual?.(cIdx, preset);
+        world.physics?.setCarHitbox?.(cIdx, hitbox);
       }
 
       let colorHex: string | null = null;
@@ -337,26 +343,25 @@ export class OnlineRosterSyncCoordinator {
         const slotObj = CAR_COLOR_SLOTS.find((s) => s.id === p.colorSlot);
         if (slotObj) {
           colorHex = slotObj.hex;
-          h.arena?.setCarColor?.(cIdx, slotObj.hex);
-          if (cIdx === h.playerCarIndex) {
-            h.selectedColorSlot = slotObj.id;
+          world.arena?.setCarColor?.(cIdx, slotObj.hex);
+          if (cIdx === world.playerCarIndex) {
+            world.selectedColorSlot = slotObj.id;
           }
         }
       } else {
-        h.arena?.setCarTeam?.(cIdx, physicsTeam);
+        world.arena?.setCarTeam?.(cIdx, physicsTeam);
       }
 
-      h.arena?.setCarLoadout?.(cIdx, {
+      world.arena?.setCarLoadout?.(cIdx, {
         colorHex: colorHex || undefined,
         paintFinish: p.paintFinish || 'metallic',
         boostVisual: p.boostVisual || 'gold-rush',
         boostAudio: p.boostAudio || 'rush',
       });
-      const audioEngine = h.options?.gameAudio || gameAudio;
-      audioEngine?.setCarBoostAudioVariation?.(cIdx, p.boostAudio || 'rush');
+      gameAudio?.setCarBoostAudioVariation?.(cIdx, p.boostAudio || 'rush');
     }
 
-    if (isLobbyDualWorld || h.isDiagnosticFleetEnabled()) {
+    if (isLobbyDualWorld || diagnostics.isDiagnosticFleetEnabled()) {
       if (!nameTagEntries.some((e) => e.carIndex === 6)) {
         nameTagEntries.push({ carIndex: 6, name: 'Boost', team: 0, isBot: true });
       }
@@ -374,7 +379,8 @@ export class OnlineRosterSyncCoordinator {
       const localRosterEntry = roster.players.find(
         (p) =>
           p &&
-          (p.entityId === h.playerCarIndex || (h.authoritativeServer && p.sessionId === 'host')),
+          (p.entityId === world.playerCarIndex ||
+            (session.authoritativeServer && p.sessionId === 'host')),
       );
       const sessionPatch: Record<string, unknown> = { connectedPeers };
       if (localRosterEntry) {
@@ -397,13 +403,13 @@ export class OnlineRosterSyncCoordinator {
         roster.durationSeconds >= 0
       ) {
         sessionPatch.matchDurationSeconds = roster.durationSeconds;
-        if (isLobbyDualWorld && h.match?.state) {
-          h.match.state.durationSeconds = roster.durationSeconds;
+        if (isLobbyDualWorld && world.match?.state) {
+          world.match.state.durationSeconds = roster.durationSeconds;
         }
       }
       useAppStore.getState().setOnlineSession(sessionPatch);
     }
-    if (isHostLobby || h.authoritativeServer) {
+    if (isHostLobby || session.authoritativeServer) {
       this.syncHostLobbyOngoingNotification();
     }
   }
@@ -413,9 +419,9 @@ export class OnlineRosterSyncCoordinator {
     remotePlayerName = 'Player 2',
     assignedCarIndex: number | null = null,
   ): Promise<number | null> {
-    const h = this.host;
-    if (h.authoritativeServer && channel) {
-      const channelId = h.authoritativeServer.addClientChannel(channel);
+    const { session, world, diagnostics } = this.host;
+    if (session.authoritativeServer && channel) {
+      const channelId = session.authoritativeServer.addClientChannel(channel);
       let targetCarIndex = assignedCarIndex;
       if (typeof targetCarIndex !== 'number' || targetCarIndex < 1) {
         const existingPeers = useAppStore?.getState?.()?.onlineSession?.connectedPeers || [];
@@ -424,7 +430,7 @@ export class OnlineRosterSyncCoordinator {
             .filter((p) => !p?.isBot && !String(p?.id || '').startsWith('bot_'))
             .map((p) => p.carIndex)
             .filter((idx): idx is number => typeof idx === 'number'),
-          ...h.remotePeerCarMap.values(),
+          ...session.remotePeerCarMap.values(),
         ]);
         for (let i = 1; i < 6; i++) {
           if (!usedCarIndices.has(i)) {
@@ -434,7 +440,7 @@ export class OnlineRosterSyncCoordinator {
         }
         if (typeof targetCarIndex !== 'number') targetCarIndex = 1;
       }
-      h.remotePeerCarMap.set(channelId || `peer_${targetCarIndex}`, targetCarIndex);
+      session.remotePeerCarMap.set(channelId || `peer_${targetCarIndex}`, targetCarIndex);
       channel.carIndex = targetCarIndex;
 
       const team = targetCarIndex % 2;
@@ -445,15 +451,15 @@ export class OnlineRosterSyncCoordinator {
       const peerBoostVisual = channel.boostVisual || 'gold-rush';
       const peerBoostAudio = channel.boostAudio || 'rush';
       const isLobby = Boolean(
-        h.isLobbyDualWorldActive() ||
-          h.match?.state?.mode !== 'match' ||
-          h.match?.state?.phase === 'lobby',
+        session.isLobbyDualWorldActive() ||
+          world.match?.state?.mode !== 'match' ||
+          world.match?.state?.phase === 'lobby',
       );
 
       if (!isLobby) {
-        h.authoritativeServer.ensureCar(targetCarIndex, team, peerVisualId);
+        session.authoritativeServer.ensureCar(targetCarIndex, team, peerVisualId);
       }
-      h.authoritativeServer.notifyPlayerJoined(
+      session.authoritativeServer.notifyPlayerJoined(
         targetCarIndex,
         remotePlayerName,
         'player',
@@ -467,49 +473,49 @@ export class OnlineRosterSyncCoordinator {
       );
 
       if (!isLobby) {
-        if (h.arena) {
-          await h.arena.ensureOpponent?.();
-          if (typeof h.arena.ensureCar === 'function') {
-            h.arena.ensureCar(targetCarIndex, team, 'fennec');
+        if (world.arena) {
+          await world.arena.ensureOpponent?.();
+          if (typeof world.arena.ensureCar === 'function') {
+            world.arena.ensureCar(targetCarIndex, team, 'fennec');
           } else {
-            while (h.arena.cars.length <= targetCarIndex) {
-              h.arena.addCar(h.arena.cars.length % 2, 'fennec');
+            while (world.arena.cars.length <= targetCarIndex) {
+              world.arena.addCar(world.arena.cars.length % 2, 'fennec');
             }
-            if (!h.arena.cars[targetCarIndex]) {
-              h.arena.addCar(team, 'fennec', targetCarIndex);
+            if (!world.arena.cars[targetCarIndex]) {
+              world.arena.addCar(team, 'fennec', targetCarIndex);
             }
           }
-          if (h.arena.cars[targetCarIndex]) {
-            h.arena.cars[targetCarIndex].visible = true;
+          if (world.arena.cars[targetCarIndex]) {
+            world.arena.cars[targetCarIndex].visible = true;
           }
         }
-        if (h.physics) {
-          if (typeof h.physics.addCarAtSlot === 'function') {
-            h.physics.addCarAtSlot(targetCarIndex, team, peerVisualId);
+        if (world.physics) {
+          if (typeof world.physics.addCarAtSlot === 'function') {
+            world.physics.addCarAtSlot(targetCarIndex, team, peerVisualId);
           } else {
-            while (h.physics.numCars <= targetCarIndex) {
-              h.physics.addCar(h.physics.numCars % 2, peerVisualId);
+            while (world.physics.numCars <= targetCarIndex) {
+              world.physics.addCar(world.physics.numCars % 2, peerVisualId);
             }
           }
-          h.physics.setCarTeam?.(targetCarIndex, team);
-          h.physics.setCarHitbox(targetCarIndex, peerVisualId);
+          world.physics.setCarTeam?.(targetCarIndex, team);
+          world.physics.setCarHitbox(targetCarIndex, peerVisualId);
         }
-        if (h.interpolator) {
-          h.interpolator.sync(performance.now());
+        if (world.interpolator) {
+          world.interpolator.sync(performance.now());
         }
-      } else if (h.arena?.cars?.[targetCarIndex]) {
-        h.arena.cars[targetCarIndex].visible = false;
+      } else if (world.arena?.cars?.[targetCarIndex]) {
+        world.arena.cars[targetCarIndex].visible = false;
       }
 
       channel.onColorChange = (msg: { carIndex?: number; hex: string }) => {
         const cIdx = msg.carIndex ?? targetCarIndex;
-        h.setCarColor(cIdx, msg.hex, false);
+        world.setCarColor(cIdx, msg.hex, false);
       };
       channel.onDiagnosticFleetToggle = (enabled: boolean, anchorMode?: string) => {
         if (enabled) {
-          void h.spawnDiagnosticTestFleet({ anchorMode });
+          void diagnostics.spawnDiagnosticTestFleet({ anchorMode });
         } else {
-          h.despawnDiagnosticTestFleet();
+          diagnostics.despawnDiagnosticTestFleet();
         }
       };
 
@@ -538,23 +544,23 @@ export class OnlineRosterSyncCoordinator {
   }
 
   public async removeRemotePlayer(carIndex: number): Promise<void> {
-    const h = this.host;
-    if (carIndex === h.playerCarIndex) return;
+    const { session, world } = this.host;
+    if (carIndex === world.playerCarIndex) return;
 
-    for (const [k, v] of h.remotePeerCarMap.entries()) {
-      if (v === carIndex) h.remotePeerCarMap.delete(k);
+    for (const [k, v] of session.remotePeerCarMap.entries()) {
+      if (v === carIndex) session.remotePeerCarMap.delete(k);
     }
 
-    if (h.arena) {
-      h.arena.removeCar?.(carIndex);
+    if (world.arena) {
+      world.arena.removeCar?.(carIndex);
     }
-    if (h.flipResetVisuals?.has?.(carIndex)) {
-      h.flipResetVisuals.get(carIndex)?.stopVisual?.();
-      h.flipResetVisuals.delete(carIndex);
+    if (world.flipResetVisuals?.has?.(carIndex)) {
+      world.flipResetVisuals.get(carIndex)?.stopVisual?.();
+      world.flipResetVisuals.delete(carIndex);
     }
 
-    if (h.authoritativeServer) {
-      h.authoritativeServer.removeCar?.(carIndex);
+    if (session.authoritativeServer) {
+      session.authoritativeServer.removeCar?.(carIndex);
     }
 
     if (useAppStore && typeof useAppStore.getState === 'function') {

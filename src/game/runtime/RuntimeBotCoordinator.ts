@@ -1,5 +1,8 @@
 import { getTeamAssignment } from '../../physics/RocketSimMeshLoader.ts';
-import { CAR_COLOR_SLOTS } from '../../ui-core/config/vehicleConstants';
+import {
+  CAR_COLOR_SLOTS,
+  resolveVehicleHitboxId,
+} from '../../ui-core/config/vehicleConstants';
 import {
   garageSettingsStore,
   getPreferredColorSlot,
@@ -16,6 +19,7 @@ import {
 import { ensureWasmSimdMatVec } from '../../ai/experimental/wasmSimdMatVec.ts';
 import { AuthoritativeServerHost } from '../../network/server/AuthoritativeServerHost.ts';
 import { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
+import { NEUTRAL_CAR_CONTROLS } from '../../network/client/PredictionHistoryBuffer.ts';
 import { networkDiagnosticsStore, hudStore, useAppStore } from '../runtimeUiPort.ts';
 import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
 import type { RuntimeMatchState } from './RuntimeMatchState.ts';
@@ -57,21 +61,18 @@ export interface RuntimeBotCoordinatorHostPort {
   readonly match: RuntimeMatchState | null;
   readonly arena: ArenaWorld | null;
   readonly interpolator: PhysicsStateInterpolator | null;
-  readonly neutralControls: CarControlsInput;
   readonly trainingOptions: { boostOption?: string; [key: string]: unknown } | null;
-  readonly teamAssignment: { playerTeam: number; opponentTeam: number } | null;
-  readonly audioSubsystem: { resetMatchClockTracking(durationSeconds?: number): void } | null;
+  readonly audioSubsystem: {
+    resetMatchClockTracking(durationSeconds?: number): void;
+    resetAudio(): void;
+  } | null;
   readonly networkManager: RuntimeNetworkManager | null;
+  readonly loadoutCoordinator?: {
+    restoreLocalPlayerFreeplayLoadout(carIndex?: number): void;
+  } | null;
   playerCarIndex: number;
-  selectedPreset: string | null;
-  selectedHitbox?: string | null;
-  selectedColorSlot: number | null;
   matchDurationSeconds: number;
-  lastKickoffCountdownSec: number;
   resetKickoff(seed?: number): void;
-  resetAudio(): void;
-  setCarColor(carIndex: number, hexColor: string, persistPreference?: boolean): void;
-  restoreLocalPlayerFreeplayLoadout?(carIndex?: number): void;
 }
 
 /**
@@ -91,7 +92,7 @@ export class RuntimeBotCoordinator {
 
   constructor(runtime: RuntimeBotCoordinatorHostPort) {
     this.runtime = runtime;
-    this.botControls = { ...runtime.neutralControls };
+    this.botControls = { ...NEUTRAL_CAR_CONTROLS };
   }
 
   public async setupBot(
@@ -188,7 +189,7 @@ export class RuntimeBotCoordinator {
 
     if (isKickoff) {
       this.botKickoffStep = 0;
-      this.botControls = r.neutralControls;
+      this.botControls = { ...NEUTRAL_CAR_CONTROLS };
       server.setCarControls(BOT_CAR_INDEX, this.botControls);
       r.physics.setControls(BOT_CAR_INDEX, this.botControls);
       return;
@@ -259,7 +260,7 @@ export class RuntimeBotCoordinator {
     this.botDecisionEpoch++;
     this.botTickSkip = 0;
     this.isBotDeciding = false;
-    this.botControls = { ...r.neutralControls };
+    this.botControls = { ...NEUTRAL_CAR_CONTROLS };
     this.botKickoffStep = 0;
   }
 
@@ -293,16 +294,12 @@ export class RuntimeBotCoordinator {
     const initialSnapshot = r.physics.saveCompactState();
 
     const garagePrefs = garageSettingsStore.get() as { vehiclePreset?: string } | null;
-    const presetId = r.selectedPreset || garagePrefs?.vehiclePreset || 'fennec';
+    const presetId =
+      useAppStore?.getState?.()?.activeCar || garagePrefs?.vehiclePreset || 'fennec';
     const storedPrefs = loadStoredColorPrefs();
     const preferredBlueSlot = getPreferredColorSlot(storedPrefs, 0);
     const preferredOrangeSlot = getPreferredColorSlot(storedPrefs, 1);
-    const hostColorSlot =
-      typeof r.selectedColorSlot === 'number' &&
-      CAR_COLOR_SLOTS[r.selectedColorSlot]?.team === 0
-        ? r.selectedColorSlot
-        : preferredBlueSlot;
-    r.selectedColorSlot = hostColorSlot;
+    const hostColorSlot = preferredBlueSlot;
     const hostColorHex = CAR_COLOR_SLOTS[hostColorSlot]?.hex || '#42a5f5';
     r.arena?.setCarColor?.(0, hostColorHex);
 
@@ -391,15 +388,8 @@ export class RuntimeBotCoordinator {
 
     r.matchDurationSeconds = durationSeconds;
     r.audioSubsystem?.resetMatchClockTracking(durationSeconds);
-    r.lastKickoffCountdownSec = -1;
 
-    if (r.match) {
-      r.match.state.mode = 'match';
-      r.match.state.paused = false;
-      r.match.state.phase = 'kickoff';
-      r.match.state.overtime = false;
-      r.match.state.winner = null;
-    }
+    r.match?.start();
 
     hudStore.getState().setMatchState({
       matchPhase: 'kickoff',
@@ -423,7 +413,7 @@ export class RuntimeBotCoordinator {
     const session = net?.sessionCoordinator;
     this.isBotMatch = false;
     this.resetBotState();
-    r.resetAudio();
+    r.audioSubsystem?.resetAudio();
     net?.signalCoordinator?.resetSignalState?.();
     net?.diagnosticsProbe.configureLobbyGhostMode(false);
     if (session?.authoritativeServer) {
@@ -447,10 +437,8 @@ export class RuntimeBotCoordinator {
         }
       }
     }
-    r.match?.leave?.();
     if (r.match) {
-      r.match.state.mode = 'freeplay';
-      r.match.state.paused = false;
+      r.match.leave();
       r.match.state.phase = 'freeplay';
       r.match.state.overtime = false;
       r.match.state.winner = null;
@@ -459,20 +447,18 @@ export class RuntimeBotCoordinator {
     this.isBotPaused = false;
     const freeplayPrefs = loadStoredColorPrefs();
     const freeplayTeam = freeplayPrefs.primaryTeam === 'orange' ? 1 : 0;
-    const freeplayColorSlot = getPreferredColorSlot(freeplayPrefs, freeplayTeam);
-    const freeplayColorHex = CAR_COLOR_SLOTS[freeplayColorSlot]?.hex || '#ffc107';
-    if (r.teamAssignment) {
-      r.teamAssignment.playerTeam = freeplayTeam;
-      r.teamAssignment.opponentTeam = freeplayTeam === 0 ? 1 : 0;
-    }
-    const playerHitbox = r.selectedHitbox || r.selectedPreset || 'fennec';
+    const garagePrefs = garageSettingsStore.get() as { vehiclePreset?: string } | null;
+    const presetId =
+      useAppStore?.getState?.()?.activeCar || garagePrefs?.vehiclePreset || 'fennec';
+    const playerHitbox = resolveVehicleHitboxId(presetId);
     r.physics?.configureCars(playerHitbox, false, freeplayTeam);
-    if (typeof r.restoreLocalPlayerFreeplayLoadout === 'function') {
-      r.restoreLocalPlayerFreeplayLoadout(0);
+    if (r.loadoutCoordinator) {
+      r.loadoutCoordinator.restoreLocalPlayerFreeplayLoadout(0);
     } else {
+      const freeplayColorSlot = getPreferredColorSlot(freeplayPrefs, freeplayTeam);
+      const freeplayColorHex = CAR_COLOR_SLOTS[freeplayColorSlot]?.hex || '#ffc107';
       r.arena?.setCarTeam?.(0, freeplayTeam);
-      r.setCarColor?.(0, freeplayColorHex, false);
-      r.selectedColorSlot = freeplayColorSlot;
+      r.arena?.setCarColor?.(0, freeplayColorHex);
     }
     r.physics?.setUnlimitedBoost(r.trainingOptions?.boostOption === 'unlimited');
     r.resetKickoff();

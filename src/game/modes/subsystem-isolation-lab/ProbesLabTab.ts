@@ -42,15 +42,19 @@ export class ProbesLabTab implements LabTabController {
     if (!this.probeState) {
       this.syncConfiguration(false);
     }
-    const telemetry = stepDevTestLabProbes(runtime.physics, this.probeState);
-    if (telemetry && this.probeState && this.probeState.tickCounter % 4 === 0) {
-      store.updateLiveTelemetry({
-        probeBoostZ: telemetry.posZ,
-        probeBoostVz: telemetry.velZ,
-        probeBoostPhase: telemetry.phase,
-        probeBoostHoldTicks: telemetry.holdCounter,
-        probeRollDir: telemetry.rollDir,
-      });
+    const stepOutput = stepDevTestLabProbes(runtime.physics, this.probeState);
+    if (stepOutput) {
+      this.probeState = stepOutput.nextState;
+      if (this.probeState.tickCounter % 4 === 0) {
+        const { telemetry } = stepOutput;
+        store.updateLiveTelemetry({
+          probeBoostZ: telemetry.posZ,
+          probeBoostVz: telemetry.velZ,
+          probeBoostPhase: telemetry.phase,
+          probeBoostHoldTicks: telemetry.holdCounter,
+          probeRollDir: telemetry.rollDir,
+        });
+      }
     }
     return true;
   }
@@ -62,7 +66,7 @@ export class ProbesLabTab implements LabTabController {
 
     if (store.probesEnabled) {
       if (!forceRestart && this.probeState && runtime.physics.numCars > PROBE_QE_SLOT) {
-        updateDevTestLabProbeParameters(
+        this.probeState = updateDevTestLabProbeParameters(
           runtime.physics,
           this.probeState,
           store.probeBaseAltitudeZ,

@@ -41,6 +41,8 @@ import {
   writeBoostPads34,
 } from './botpack9700488ObsCorePipeline.ts';
 
+export type { BallPredictionEnginePort };
+
 function safeUnit3(x: number, y: number, z: number): [number, number, number] {
   const lenSq = x * x + y * y + z * z;
   if (!Number.isFinite(lenSq) || lenSq <= 1e-6) return [0.0, 0.0, 0.0];

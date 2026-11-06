@@ -44,7 +44,7 @@ export interface SignalAudioActiveModePort {
 
 export interface SignalAudioRuntimePort {
   replayViewerController?: { isActive?: boolean } | null;
-  modeManager?: { getActiveMode?: () => SignalAudioActiveModePort | null } | null;
+  modeManager?: { getActiveMode?: () => SignalAudioActiveModePort | null; [key: string]: unknown } | null;
   match?: { state?: { phase?: string } | null } | null;
   isGoalReplayCameraOverrideActive?: (() => boolean) | unknown;
   networkReconciler?: { replayPlaybackMode?: boolean } | null;
@@ -115,29 +115,16 @@ interface WindowWithWebkitAudioContext extends Window {
 
 export type AudioContextWithLatency = AudioContext;
 
-export interface AudioSubsystemState {
-  context: AudioContext | null;
-  masterMixer: AudioMixer | null;
-  slotPool: AudioSlotPool | null;
-  buffers: Map<string, AudioBuffer | null>;
-  loading: Promise<void> | null;
-  loaded: boolean;
-  audioEngine: AudioEnginePort | null;
-  runtime: AudioRuntimePort | null;
-  lastTelemetry: AudioTelemetryState;
-  lifecycleHistory: AudioLifecycleEventEntry[];
-}
-
-export const subsystemState: AudioSubsystemState = {
-  context: null,
-  masterMixer: null,
-  slotPool: null,
-  buffers: new Map(),
-  loading: null,
-  loaded: false,
-  audioEngine: null,
-  runtime: null,
-  lastTelemetry: {
+export class AudioSubsystemStateStore {
+  context: AudioContext | null = null;
+  masterMixer: AudioMixer | null = null;
+  slotPool: AudioSlotPool | null = null;
+  buffers: Map<string, AudioBuffer | null> = new Map();
+  loading: Promise<void> | null = null;
+  loaded = false;
+  audioEngine: AudioEnginePort | null = null;
+  runtime: AudioRuntimePort | null = null;
+  lastTelemetry: AudioTelemetryState = {
     updatedAt: 0,
     contextCurrentTime: 0,
     isMatchActive: false,
@@ -149,10 +136,14 @@ export const subsystemState: AudioSubsystemState = {
     activeCar: 0,
     effectiveNumCars: 0,
     engineSynthsCount: 0,
-    activeEngineSynths: 0
-  },
-  lifecycleHistory: []
-};
+    activeEngineSynths: 0,
+  };
+  lifecycleHistory: AudioLifecycleEventEntry[] = [];
+}
+
+export type AudioSubsystemState = AudioSubsystemStateStore;
+
+export const subsystemState = new AudioSubsystemStateStore();
 
 export function recordAudioLifecycleEvent(
   eventType: string,

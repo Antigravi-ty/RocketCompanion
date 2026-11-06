@@ -1,4 +1,8 @@
 import { CLIENT_COMMAND_TYPES } from '../../network/protocol/GlobalPayloadCodec.ts';
+import {
+  packLoadoutCommandParam1,
+  packLoadoutCommandParam2,
+} from '../../ui-core/config/vehicleConstants';
 import { useAppStore } from '../runtimeUiPort.ts';
 import { ReconcilerSignalCoordinator } from './ReconcilerSignalCoordinator.ts';
 import {
@@ -6,22 +10,22 @@ import {
   type OnlineRosterSnapshotPayload,
   type OnlineRosterSyncHostPort,
 } from './OnlineRosterSyncCoordinator.ts';
-import type { RuntimeSignalHostPort, SignalAudioFacadeLike } from './RuntimeGoalReplaySignalSubController.ts';
+import type {
+  RuntimeSignalHostPort,
+  SignalAudioFacadeLike,
+} from './RuntimeGoalReplaySignalSubController.ts';
 import {
   NetworkDiagnosticsProbe,
   type NetworkDiagnosticsHostPort,
 } from './NetworkDiagnosticsProbe.ts';
-import { OnlineSessionCoordinator } from './OnlineSessionCoordinator.ts';
-import type {
-  NetworkSessionChannelLike,
-  OnlineSessionHostPort,
-} from './onlineLobbyTransitionPipeline.ts';
-import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
+import {
+  OnlineSessionCoordinator,
+  type OnlineSessionCoordinatorHostPort,
+  type OnlineSessionLifecyclePort,
+  type OnlineSessionWorldPort,
+} from './OnlineSessionCoordinator.ts';
+import type { LocalPlayerLoadoutSyncRequest } from './RuntimeLoadoutCoordinator.ts';
 import type { EntityManager } from '../../entities/EntityManager.ts';
-import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
-import type { PhysicsStateInterpolator } from '../../physics/PhysicsStateInterpolator.ts';
-import type { CameraManager } from '../../camera/CameraManager.ts';
-import type { RuntimeMatchState } from './RuntimeMatchState.ts';
 import type { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
 import type { ReplayTimelineController } from '../../replay/ReplayTimelineController.ts';
 import type { PodiumCelebrationController } from '../modes/PodiumCelebrationController.ts';
@@ -30,13 +34,8 @@ import type { GameAudioSubsystem } from '../subsystems/GameAudioSubsystem.ts';
 import type { DeterminismHarness } from '../../physics/DeterminismHarness.ts';
 import type { MultiplayerSessionManager } from '../../network/transport/MultiplayerSessionManager.ts';
 
-export interface RuntimeNetworkHostPort {
-  readonly arena: ArenaWorld | null;
-  readonly physics: RocketSimPhysicsEngine | null;
+export interface RuntimeNetworkHostPort extends OnlineSessionWorldPort, OnlineSessionLifecyclePort {
   readonly entityManager: EntityManager | null;
-  readonly interpolator: PhysicsStateInterpolator | null;
-  readonly camera: CameraManager | null;
-  readonly match: RuntimeMatchState | null;
   readonly multiplayerSession: MultiplayerSessionManager | null;
   readonly modeManager: {
     setMode?(modeName: string): void;
@@ -48,33 +47,36 @@ export interface RuntimeNetworkHostPort {
   readonly audioSubsystem: GameAudioSubsystem | null;
   readonly flipResetVisuals: Map<number, { stopVisual(): void; play?(): void }>;
   readonly options: { gameAudio?: SignalAudioFacadeLike; [key: string]: unknown } | null;
-  readonly trainingOptions: { boostOption?: string; [key: string]: unknown };
-  playerCarIndex: number;
-  isBotMatch: boolean;
-  selectedPreset: string;
-  selectedHitbox: string | null;
-  selectedColorSlot: number | null;
   _clientGoalIncidentLatched: boolean;
   _localSkipReplayReady: boolean;
   readonly botCoordinator?: { botKickoffStep: number } | null;
-  readonly domEventManager?: { syncPausedAndInputState(): void } | null;
-  readonly cameraSubsystem?: { cameraDynamics: object | null } | null;
   readonly inputPoller?: { latchJumpSuppression?(): void } | null;
   getFlipResetVisual?(carIndex: number): { play(): void; stopVisual(): void } | null;
-  resetKickoff?(): void;
   resetAudio?(): void;
-  setCarColor(carIndex: number, hex: string, persistPreference?: boolean): void;
   isGoalReplayCameraOverrideActive(): boolean;
-  acquireGoalReplayCameraOverride(source?: string): void;
+  acquireGoalReplayCameraOverride?(source?: string): void;
   releaseGoalReplayCameraOverride(source?: string | null): void;
   replayPovCarIndex?: number | null;
   onDeterminismHarnessReady?(harness: DeterminismHarness, showHUD: boolean): void;
-  onSessionReady?(
-    reconciler: PredictionReconciler | null,
-    channel: NetworkSessionChannelLike | null,
-  ): void;
-  onShowNetworkHUD?(): void;
 }
+
+type SignalNetworkOverrides = Pick<
+  RuntimeSignalHostPort,
+  | 'authoritativeServer'
+  | 'remotePeerCarMap'
+  | 'clientReplayOverflowPaused'
+  | 'getLastRosterSnapshot'
+  | 'getParticipantTeams'
+  | 'syncHostLobbyOngoingNotification'
+  | 'isLobbyDualWorldActive'
+  | 'despawnDiagnosticTestFleet'
+  | 'setLobbyGhostMode'
+  | 'setLatestServerRosterState'
+  | 'isNetworkTelemetryNotified'
+  | 'markNetworkTelemetryNotified'
+  | 'resetBotKickoffStep'
+  | 'latchJumpSuppression'
+>;
 
 /**
  * Autonomous SubController owning OnlineSessionCoordinator, NetworkDiagnosticsProbe,
@@ -124,51 +126,23 @@ export class RuntimeNetworkManager {
     };
   }
 
-  private createSessionHostPort(): OnlineSessionHostPort {
+  private createSessionHostPort(): OnlineSessionCoordinatorHostPort {
     return {
-      getPhysics: () => this.runtime.physics,
-      getArena: () => this.runtime.arena,
-      getInterpolator: () => this.runtime.interpolator,
-      getCamera: () => this.runtime.camera,
-      getCameraDynamics: () => this.runtime.cameraSubsystem?.cameraDynamics ?? null,
-      getPlayerCarIndex: () => this.runtime.playerCarIndex ?? 0,
-      setPlayerCarIndex: (carIndex: number) => { this.runtime.playerCarIndex = carIndex; },
-      setIsBotMatch: (isBotMatch: boolean) => { this.runtime.isBotMatch = Boolean(isBotMatch); },
-      getLocalVehicleLoadout: () => ({
-        selectedPreset: this.runtime.selectedPreset,
-        selectedHitbox: this.runtime.selectedHitbox,
-        selectedColorSlot: this.runtime.selectedColorSlot,
-      }),
-      setSelectedColorSlot: (slot: number) => { this.runtime.selectedColorSlot = slot; },
-      getDefaultFreeplayUnlimitedBoost: () =>
-        this.runtime.trainingOptions?.boostOption === 'unlimited',
-      getDisableGoalReset: () => Boolean(this.runtime.trainingOptions?.disableGoalReset),
-      getMatchState: () => this.runtime.match?.state ?? null,
-      setActiveGameMode: (modeId: string) => { this.runtime.modeManager?.setMode?.(modeId); },
-      resetKickoff: () => { this.runtime.resetKickoff?.(); },
-      syncPausedAndInputState: () => { this.runtime.domEventManager?.syncPausedAndInputState?.(); },
-      teardownActiveReplayAndPodium: () => {
-        this.runtime.podiumController?.exitPodium?.();
-        this.runtime.replayTimelineController?.endReplaySession?.();
-        this.runtime.releaseGoalReplayCameraOverride?.();
-      },
-      resetReconcilerSignalState: () => { this.signalCoordinator.resetSignalState(); },
-      bindReconcilerSignals: (reconciler: PredictionReconciler) => {
-        this.signalCoordinator.bindReconcilerSignals(reconciler);
-      },
-      applyRosterSnapshot: async (roster: OnlineRosterSnapshotPayload | null) => {
-        await this.rosterSyncCoordinator.applyRosterSnapshot(roster);
-      },
-      ensureFlipResetVisual: (carIndex: number) => { this.runtime.getFlipResetVisual?.(carIndex); },
-      applyRemoteCarColor: (carIndex: number, hex: string) => {
-        this.runtime.setCarColor?.(carIndex, hex, false);
-      },
-      notifySessionReady: (reconciler, channel) => {
-        this.runtime.onSessionReady?.(reconciler, channel);
-      },
-      notifyShowNetworkHUD: () => { this.runtime.onShowNetworkHUD?.(); },
-      syncHostLobbyNotification: () => {
-        this.rosterSyncCoordinator.syncHostLobbyOngoingNotification();
+      world: this.runtime,
+      lifecycle: this.runtime,
+      coordinators: {
+        resetReconcilerSignalState: () => {
+          this.signalCoordinator.resetSignalState();
+        },
+        bindReconcilerSignals: (reconciler: PredictionReconciler) => {
+          this.signalCoordinator.bindReconcilerSignals(reconciler);
+        },
+        applyRosterSnapshot: async (roster: OnlineRosterSnapshotPayload | null) => {
+          await this.rosterSyncCoordinator.applyRosterSnapshot(roster);
+        },
+        syncHostLobbyNotification: () => {
+          this.rosterSyncCoordinator.syncHostLobbyOngoingNotification();
+        },
       },
     };
   }
@@ -185,68 +159,52 @@ export class RuntimeNetworkManager {
   }
 
   private createRosterSyncHostPort(): OnlineRosterSyncHostPort {
-    const r = this.runtime;
     const self = this;
     return {
-      get authoritativeServer() { return self.sessionCoordinator.authoritativeServer; },
-      get isBotMatch() { return r.isBotMatch; },
-      get arena() { return r.arena; },
-      get match() { return r.match; },
-      get networkReconciler() { return self.sessionCoordinator.networkReconciler; },
-      get multiplayerSession() { return r.multiplayerSession; },
-      get physics() { return r.physics; },
-      get entityManager() { return r.entityManager; },
-      get interpolator() { return r.interpolator; },
-      get options() { return r.options ?? {}; },
-      get flipResetVisuals() { return r.flipResetVisuals; },
-      get remotePeerCarMap() { return self.sessionCoordinator.remotePeerCarMap; },
-      get playerCarIndex() { return r.playerCarIndex; },
-      get selectedColorSlot() { return r.selectedColorSlot; },
-      set selectedColorSlot(val: number | null) { r.selectedColorSlot = val; },
-      isLobbyDualWorldActive: () => self.isLobbyDualWorldActive(),
-      isDiagnosticFleetEnabled: () => Boolean(self.diagnosticsProbe.diagnosticsFleetController?.enabled),
-      spawnDiagnosticTestFleet: (options) => self.diagnosticsProbe.spawnDiagnosticTestFleet(options),
-      despawnDiagnosticTestFleet: () => self.diagnosticsProbe.despawnDiagnosticTestFleet(),
-      setCarColor: (carIndex: number, hexColor: string, persistPreference = true) =>
-        r.setCarColor(carIndex, hexColor, persistPreference),
+      world: this.runtime,
+      session: {
+        get authoritativeServer() {
+          return self.sessionCoordinator.authoritativeServer;
+        },
+        get networkReconciler() {
+          return self.sessionCoordinator.networkReconciler;
+        },
+        get remotePeerCarMap() {
+          return self.sessionCoordinator.remotePeerCarMap;
+        },
+        isLobbyDualWorldActive: () => self.isLobbyDualWorldActive(),
+      },
+      diagnostics: {
+        isDiagnosticFleetEnabled: () =>
+          Boolean(self.diagnosticsProbe.diagnosticsFleetController?.enabled),
+        spawnDiagnosticTestFleet: (options) =>
+          self.diagnosticsProbe.spawnDiagnosticTestFleet(options),
+        despawnDiagnosticTestFleet: () => self.diagnosticsProbe.despawnDiagnosticTestFleet(),
+      },
     };
   }
 
   private createSignalHostPort(): RuntimeSignalHostPort {
     const r = this.runtime;
     const self = this;
-    return {
-      get arena() { return r.arena; },
-      get physics() { return r.physics; },
-      get entityManager() { return r.entityManager; },
-      get options() { return r.options; },
-      get flipResetVisuals() { return r.flipResetVisuals; },
-      get match() { return r.match; },
-      get modeManager() { return r.modeManager; },
-      get replayTimelineController() { return r.replayTimelineController; },
-      get podiumController() { return r.podiumController; },
-      get camera() { return r.camera; },
-      get interpolator() { return r.interpolator; },
-      get simulationStage() { return r.simulationStage; },
-      get audioSubsystem() { return r.audioSubsystem; },
-      get authoritativeServer() { return self.sessionCoordinator.authoritativeServer; },
-      get remotePeerCarMap() { return self.sessionCoordinator.remotePeerCarMap; },
-      get playerCarIndex() { return r.playerCarIndex; },
-      set playerCarIndex(val: number) { r.playerCarIndex = val; },
-      get selectedColorSlot() { return r.selectedColorSlot; },
-      set selectedColorSlot(val: number | null) { r.selectedColorSlot = val; },
-      get clientReplayOverflowPaused() { return self.sessionCoordinator.clientReplayOverflowPaused; },
-      set clientReplayOverflowPaused(val: boolean) { self.sessionCoordinator.clientReplayOverflowPaused = Boolean(val); },
-      get _clientGoalIncidentLatched() { return r._clientGoalIncidentLatched; },
-      set _clientGoalIncidentLatched(val: boolean) { r._clientGoalIncidentLatched = Boolean(val); },
-      get _localSkipReplayReady() { return r._localSkipReplayReady; },
-      set _localSkipReplayReady(val: boolean) { r._localSkipReplayReady = Boolean(val); },
+    const overrides: SignalNetworkOverrides = {
+      get authoritativeServer() {
+        return self.sessionCoordinator.authoritativeServer;
+      },
+      get remotePeerCarMap() {
+        return self.sessionCoordinator.remotePeerCarMap;
+      },
+      get clientReplayOverflowPaused() {
+        return self.sessionCoordinator.clientReplayOverflowPaused;
+      },
+      set clientReplayOverflowPaused(val: boolean) {
+        self.sessionCoordinator.clientReplayOverflowPaused = Boolean(val);
+      },
       getLastRosterSnapshot: () => self.rosterSyncCoordinator.lastRosterSnapshot,
       getParticipantTeams: () => self.rosterSyncCoordinator.participantTeams,
       syncHostLobbyOngoingNotification: () =>
         self.rosterSyncCoordinator.syncHostLobbyOngoingNotification(),
-      isLobbyDualWorldActive: (reconciler) =>
-        self.isLobbyDualWorldActive(reconciler),
+      isLobbyDualWorldActive: (reconciler) => self.isLobbyDualWorldActive(reconciler),
       despawnDiagnosticTestFleet: () => self.diagnosticsProbe.despawnDiagnosticTestFleet(),
       setLobbyGhostMode: (enabled, options) => {
         self.diagnosticsProbe.configureLobbyGhostMode(enabled, options);
@@ -262,18 +220,67 @@ export class RuntimeNetworkManager {
       resetBotKickoffStep: () => {
         if (r.botCoordinator) r.botCoordinator.botKickoffStep = 0;
       },
-      isGoalReplayCameraOverrideActive: () => r.isGoalReplayCameraOverrideActive(),
-      acquireGoalReplayCameraOverride: (source = 'default') =>
-        r.acquireGoalReplayCameraOverride(source),
-      releaseGoalReplayCameraOverride: (source = null) => r.releaseGoalReplayCameraOverride(source),
-      get replayPovCarIndex() { return r.replayPovCarIndex ?? null; },
-      set replayPovCarIndex(val: number | null) { r.replayPovCarIndex = val; },
-      getFlipResetVisual: (carIdx: number) => r.getFlipResetVisual?.(carIdx) ?? null,
-      resetAudio: () => r.resetAudio?.(),
       latchJumpSuppression: () => r.inputPoller?.latchJumpSuppression?.(),
-      setCarColor: (carIndex: number, hexColor: string, persistPreference = true) =>
-        r.setCarColor(carIndex, hexColor, persistPreference),
     };
+
+    return new Proxy(r as unknown as RuntimeSignalHostPort, {
+      get(_target, prop, _receiver) {
+        if (prop in overrides) {
+          return Reflect.get(overrides, prop, overrides);
+        }
+        const value = Reflect.get(r, prop, r);
+        return typeof value === 'function' ? value.bind(r) : value;
+      },
+      set(_target, prop, value) {
+        if (prop in overrides) {
+          return Reflect.set(overrides, prop, value, overrides);
+        }
+        return Reflect.set(r, prop, value, r);
+      },
+    });
+  }
+
+  syncLocalPlayerLoadout(request: LocalPlayerLoadoutSyncRequest): void {
+    const playerCarIndex = this.runtime.playerCarIndex ?? 0;
+    const server = this.sessionCoordinator.authoritativeServer;
+    const reconciler = this.sessionCoordinator.networkReconciler;
+    const channel = this.sessionCoordinator.networkChannel;
+
+    if (request.updateVisualPreset && reconciler) {
+      reconciler.setCarVisualPreset?.(playerCarIndex, request.visualId);
+    }
+
+    if (request.carIndex === playerCarIndex) {
+      server?.setLoadout?.(
+        'host',
+        request.visualId,
+        request.colorSlotId,
+        request.hitboxId,
+        {
+          paintFinish: request.paintFinish,
+          boostVisual: request.boostVisual,
+          boostAudio: request.boostAudio,
+        },
+      );
+      reconciler?.queueClientCommand?.(
+        CLIENT_COMMAND_TYPES.CMD_SET_LOADOUT,
+        packLoadoutCommandParam1(request.visualId, request.hitboxId),
+        packLoadoutCommandParam2(
+          request.colorSlotId,
+          request.paintFinish,
+          request.boostVisual,
+          request.boostAudio,
+        ),
+      );
+    }
+
+    if (request.broadcastColorHex && channel?.sendColorChange) {
+      try {
+        channel.sendColorChange(request.colorSlotId, request.broadcastColorHex, request.carIndex);
+      } catch (err) {
+        console.error('[GameRuntime] Failed to broadcast color change over network channel:', err);
+      }
+    }
   }
 
   forceStartOnlineMatch(durationSeconds = 300): void {

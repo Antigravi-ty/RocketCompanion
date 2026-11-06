@@ -54,7 +54,7 @@ export interface BoostPadInstance {
   id: number; full: THREE.Object3D; base: THREE.Object3D;
   glowMesh: THREE.Mesh | null; glowMaterial: THREE.Material;
   orbMesh: THREE.Mesh | null; shadowMesh: THREE.Mesh | null;
-  group: THREE.Group; isBig: boolean; pos: [number, number] | number[]; angleDeg: number;
+  group: THREE.Group; isBig: boolean; pos: [number, number] | number[] | Float32Array; angleDeg: number;
 }
 export type BoostPadTunerConfig = typeof DEFAULT_BOOST_PAD_TUNER;
 
@@ -600,7 +600,7 @@ export class ArenaWorld {
 
     this.lighting.updateSunIntensities(header.numCars);
     updateSkyboxFrame(actualDelta, this.lighting?._shadowDir);
-    this.boostPadSystem?.update(currState, undefined, actualDelta, this.camera);
+    this.boostPadSystem?.update(currState as Float32Array | null, undefined, actualDelta, this.camera);
     this.respawnGhostPreview?.update?.(currState, actualDelta);
     updateBoostVisuals(
       this.cars, this.carBoosts, currState, actualThrottle, actualDelta, opponentControls?.throttle ?? 0,

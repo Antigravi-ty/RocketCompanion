@@ -36,7 +36,25 @@ export async function fetchArenaCollisionManifest(manifestPath = ARENA_MESH_MANI
   return manifestRes.json();
 }
 
-export async function fetchArenaCollisionChunks(chunkFilenames: any[], options: Record<string, any> = {}): Promise<Uint8Array[]> {
+export interface ArenaCollisionMeshOptions {
+  fetchBuffer?: ((url: string) => Promise<ArrayBuffer>) | null;
+  onChunkLoaded?: ((completed: number, total: number, chunkFile: string) => void) | null;
+  baseDir?: string;
+  manifestPath?: string;
+}
+
+export interface RocketSimCollisionWasmModule {
+  HEAPU8: Uint8Array;
+  HEAP32: Int32Array;
+  _malloc(byteLength: number): number;
+  _free(bytePtr: number): void;
+  _physics_init(dataPtr: number, sizesPtr: number, count: number): number;
+}
+
+export async function fetchArenaCollisionChunks(
+  chunkFilenames: string[],
+  options: ArenaCollisionMeshOptions = {}
+): Promise<Uint8Array[]> {
   const { fetchBuffer = null, onChunkLoaded = null, baseDir = '/arenamesh' } = options;
   const total = chunkFilenames.length;
   let completed = 0;
@@ -44,7 +62,7 @@ export async function fetchArenaCollisionChunks(chunkFilenames: any[], options: 
   return Promise.all(
     chunkFilenames.map(async (chunkFile) => {
       const chunkPath = resolveAssetPath(`${baseDir}/${chunkFile}`);
-      let arrayBuffer;
+      let arrayBuffer: ArrayBuffer;
       if (typeof fetchBuffer === 'function') {
         arrayBuffer = await fetchBuffer(chunkPath);
       } else {
@@ -65,7 +83,10 @@ export async function fetchArenaCollisionChunks(chunkFilenames: any[], options: 
 const collisionMeshCacheByManifest = new Map<string, Uint8Array[]>();
 const collisionMeshPendingByManifest = new Map<string, Promise<Uint8Array[]>>();
 
-export async function fetchArenaCollisionMeshes(cachedCollisionData: any = null, options: Record<string, any> = {}): Promise<Uint8Array[]> {
+export async function fetchArenaCollisionMeshes(
+  cachedCollisionData: Uint8Array[] | null = null,
+  options: ArenaCollisionMeshOptions = {}
+): Promise<Uint8Array[]> {
   const manifestPath = options.manifestPath || ARENA_MESH_MANIFEST_PATH;
   if (cachedCollisionData) {
     if (Array.isArray(cachedCollisionData) && cachedCollisionData.length > 0) {
@@ -103,7 +124,10 @@ export async function preloadThrowbackCollisionMeshes(): Promise<Uint8Array[]> {
   });
 }
 
-export function initWasmCollisionMeshes(module: any, collisionData: any[]) {
+export function initWasmCollisionMeshes(
+  module: RocketSimCollisionWasmModule,
+  collisionData: Uint8Array[]
+): void {
   const totalBytes = collisionData.reduce((acc, chunk) => acc + chunk.length, 0);
   const dataPtr = module._malloc(totalBytes);
   const sizesPtr = module._malloc(collisionData.length * 4);

@@ -1,20 +1,33 @@
 import { extractGoalReplayFrames } from '../../../replay/ReplayPlaybackState.ts';
 import { applyReplayFrameToEngine } from '../../../replay/ReplayFrameInterpolator.ts';
-import { applyDirectorReplayCamera } from '../../../replay/ReplayDirectorCamera.ts';
+import {
+  applyDirectorReplayCamera,
+  type DirectorCameraTargetPort,
+  type DirectorInterpolatorSnapshot,
+} from '../../../replay/ReplayDirectorCamera.ts';
+import { dispatchReplayFrameEvents } from '../../../replay/ReplayFrameEventDispatcher.ts';
 import {
   ReplayRingBuffer,
   REPLAY_BUFFER_MODES,
-  type ReplayRecordedIncident,
   type ReplayAudioCue,
+  type ReplayRecordedIncident,
+  type ReplayRingBufferSlot,
 } from '../../../replay/ReplayRingBuffer.ts';
-import { ReplayTimelineController } from '../../../replay/ReplayTimelineController.ts';
+import {
+  ReplayTimelineController,
+  type ReplayTimelineFrameEntry,
+} from '../../../replay/ReplayTimelineController.ts';
+import type {
+  ReplayInterpolatorPort,
+  ReplayPhysicsEnginePort,
+} from '../../../replay/ReplayDirectorStatePipeline.ts';
 import { useStaticTrainingPackStore, hudStore } from '../../runtimeUiPort.ts';
 import {
   beginGoalReplaySession,
   endGoalReplaySession,
   stepGoalReplaySessionFrame,
 } from '../shared/GoalReplaySessionCoordinator.ts';
-import { StaticTrainingShotConfig } from './ShotGizmoMath.ts';
+import { type StaticTrainingShotConfig } from './ShotGizmoMath.ts';
 
 export const POST_GOAL_CELEBRATION_TICKS = 360;
 export const POST_EXPIRE_CELEBRATION_TICKS = 360;
@@ -33,8 +46,25 @@ export interface StaticTrainingReplayIncidentMeta {
   goalBallSpeedKph: number | null;
 }
 
+export interface StaticTrainingReplayPhysicsPort extends ReplayPhysicsEnginePort {
+  getHeaderView?: () => { tickCount?: number } | null;
+}
+
+export interface StaticTrainingReplayRuntimePort {
+  physics?: StaticTrainingReplayPhysicsPort | null;
+  interpolator?: (ReplayInterpolatorPort & DirectorInterpolatorSnapshot) | null;
+  camera?: DirectorCameraTargetPort | null;
+  match?: { state?: { phase?: string } | null } | null;
+  acquireGoalReplayCameraOverride?: (source?: string) => void;
+  releaseGoalReplayCameraOverride: (source?: string | null) => void;
+}
+
+export interface StaticTrainingReplayVisualsPort {
+  setVisible: (visible: boolean) => void;
+}
+
 export class StaticTrainingReplayController {
-  private readonly runtime: any;
+  private readonly runtime: StaticTrainingReplayRuntimePort | null;
   public readonly replayRingBuffer: ReplayRingBuffer & { currentRecordTick?: number };
   public readonly replayController: ReplayTimelineController;
 
@@ -52,7 +82,7 @@ export class StaticTrainingReplayController {
     goalBallSpeedKph: null,
   };
 
-  constructor(runtime: any) {
+  constructor(runtime: StaticTrainingReplayRuntimePort | null) {
     this.runtime = runtime;
     this.replayRingBuffer = new ReplayRingBuffer({
       mode: REPLAY_BUFFER_MODES.COUNTDOWN_MATCH,
@@ -86,15 +116,15 @@ export class StaticTrainingReplayController {
     this.replayRingBuffer?.clear?.();
   }
 
-  recordFrame(tick: number, state: Float32Array | ArrayLike<number> | null): void {
+  recordFrame(tick: number, state: Float32Array | number[] | null | undefined): void {
     this.currentRecordTick = Math.max(this.currentRecordTick, tick);
-    const slot = this.replayRingBuffer?.recordFrame?.(tick, state as Float32Array);
+    const slot = this.replayRingBuffer?.recordFrame?.(tick, state);
     if (slot?.snapshot) {
       slot.snapshot[0] = tick;
     }
   }
 
-  recordNextTickFrame(state: Float32Array | ArrayLike<number> | null): number {
+  recordNextTickFrame(state: Float32Array | number[] | null | undefined): number {
     const nextTick = Math.max(1, this.currentRecordTick + 1);
     this.recordFrame(nextTick, state);
     return nextTick;
@@ -141,7 +171,7 @@ export class StaticTrainingReplayController {
           : Math.floor(sim.getHeaderView?.()?.tickCount ?? 0);
     this.attachPhysicsIfNeeded();
 
-    let extractedFrames: ReturnType<typeof extractGoalReplayFrames> = [];
+    let extractedFrames: Array<ReplayTimelineFrameEntry | ReplayRingBufferSlot> = [];
     if (type === 'expire') {
       const expireTick =
         incidentMeta.goalIncidentTick > 0 ? incidentMeta.goalIncidentTick : currentTick;
@@ -149,7 +179,7 @@ export class StaticTrainingReplayController {
         incidentMeta.lastKickoffStartTick,
         expireTick - EXPIRE_REPLAY_LOOKBACK_TICKS
       );
-      extractedFrames = this.replayRingBuffer.extractRange(startTick, currentTick);
+      extractedFrames = this.replayRingBuffer.getFramesInTickRange(startTick, currentTick);
     } else {
       const goalTick =
         incidentMeta.goalIncidentTick > 0 ? incidentMeta.goalIncidentTick : currentTick;
@@ -204,15 +234,15 @@ export class StaticTrainingReplayController {
     });
 
     const firstSnap = extractedFrames[0].snapshot;
-    applyReplayFrameToEngine(sim, firstSnap, r.interpolator, firstSnap, 1.0);
+    applyReplayFrameToEngine(sim, firstSnap, r?.interpolator ?? null, firstSnap, 1.0);
     applyDirectorReplayCamera(
-      r.camera,
-      r.interpolator,
+      r?.camera,
+      r?.interpolator,
       0,
       incidentMeta.goalScoringTeam,
       0.016,
       incidentMeta.goalScorerCarIndex,
-      this.replayController.directorCameraState as any
+      this.replayController.directorCameraState
     );
 
     useStaticTrainingPackStore.getState().updateLiveTelemetry({
@@ -264,10 +294,10 @@ export class StaticTrainingReplayController {
   }
 
   stepUpdate(
-    context: any,
+    context: Record<string, unknown> | null | undefined,
     dt: number,
     stagedShot: StaticTrainingShotConfig | null,
-    visuals: any,
+    visuals: StaticTrainingReplayVisualsPort | null | undefined,
     onCompleteCallback: () => void
   ): void {
     const r = this.runtime;

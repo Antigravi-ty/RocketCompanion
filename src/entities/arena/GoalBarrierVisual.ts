@@ -143,15 +143,28 @@ const CONTOUR_FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
+export interface GoalBarrierUniforms {
+  [uniform: string]: THREE.IUniform;
+  uTime: { value: number };
+  uOpacity: { value: number };
+  uBlueColor: { value: THREE.Color };
+  uOrangeColor: { value: THREE.Color };
+  uImpactPos: { value: THREE.Vector3 };
+  uImpactAge: { value: number };
+  uHalfWidth: { value: number };
+  uHeight: { value: number };
+  uCornerRadius: { value: number };
+}
+
 export class GoalBarrierVisual {
-  public uniforms: any;
-  public contourGeometry: any;
-  public contourLines: any;
-  public contourMaterial: any;
-  public group: any;
-  public surfaceGeometry: any;
-  public surfaceMaterial: any;
-  public surfaceMesh: any;
+  public uniforms: GoalBarrierUniforms;
+  public contourGeometry: THREE.BufferGeometry;
+  public contourLines: THREE.LineSegments<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  public contourMaterial: THREE.ShaderMaterial;
+  public group: THREE.Group;
+  public surfaceGeometry: THREE.BufferGeometry;
+  public surfaceMaterial: THREE.ShaderMaterial;
+  public surfaceMesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
 
   constructor() {
     this.group = new THREE.Group();
@@ -211,12 +224,20 @@ export class GoalBarrierVisual {
     this.group.add(this.surfaceMesh, this.contourLines);
   }
 
-  setTeamColors(blueHex, orangeHex) {
+  setTeamColors(blueHex: THREE.ColorRepresentation | null | undefined, orangeHex: THREE.ColorRepresentation | null | undefined) {
     if (blueHex) this.uniforms.uBlueColor.value.set(blueHex);
     if (orangeHex) this.uniforms.uOrangeColor.value.set(orangeHex);
   }
 
-  updateConfig(decomposition, targetGoal = 'both', enabled = false, opacity = 0.55) {
+  updateConfig(
+    decomposition: {
+      mergedRects?: Array<{ u0: number; u1: number; v0: number; v1: number }>;
+      contourSegments?: Array<{ u0: number; u1: number; v0: number; v1: number }>;
+    } | null | undefined,
+    targetGoal = 'both',
+    enabled = false,
+    opacity = 0.55
+  ) {
     this.uniforms.uOpacity.value = Math.max(0.1, Math.min(1.0, Number(opacity) || 0.55));
 
     const rects = decomposition?.mergedRects || [];
@@ -226,7 +247,7 @@ export class GoalBarrierVisual {
       return;
     }
 
-    const goalSigns: any[] = [];
+    const goalSigns: Array<1 | -1> = [];
     if (targetGoal === 'both' || targetGoal === 'orange') goalSigns.push(1);
     if (targetGoal === 'both' || targetGoal === 'blue') goalSigns.push(-1);
 

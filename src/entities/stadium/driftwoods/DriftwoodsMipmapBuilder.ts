@@ -16,16 +16,14 @@ export const Q1_WIDTH = GROUND_Q1_MANIFEST.resolution?.width || 2048;
 export const Q1_HEIGHT = GROUND_Q1_MANIFEST.resolution?.height || 3000;
 export const Q1_TOTAL_PIXELS = Q1_WIDTH * Q1_HEIGHT;
 
-/** @type {import('three').Texture | null} */
-let sharedQ1GroundTexture: any = null;
-/** @type {Uint8Array | null} */
-let sharedQ1DilatedLayerId: any = null;
-/** @type {Uint8Array | null} */
-let sharedQ1NormalizedCoverage: any = null;
-/** @type {Set<() => void>} */
-const q1MaskReadyListeners = new Set<any>();
+import type { Texture } from 'three';
 
-export function subscribeQ1MaskReady(listener) {
+let sharedQ1GroundTexture: Texture | null = null;
+let sharedQ1DilatedLayerId: Uint8Array | null = null;
+let sharedQ1NormalizedCoverage: Uint8Array | null = null;
+const q1MaskReadyListeners = new Set<() => void>();
+
+export function subscribeQ1MaskReady(listener: () => void) {
   q1MaskReadyListeners.add(listener);
   return () => q1MaskReadyListeners.delete(listener);
 }
@@ -181,7 +179,7 @@ export function ensureQ1MaskPrecomputed(image) {
   }
 }
 
-export function getOrLoadQ1GroundTexture( existingTex: any = null) {
+export function getOrLoadQ1GroundTexture(existingTex: Texture | null = null) {
   if (existingTex && existingTex.image && !sharedQ1GroundTexture) {
     sharedQ1GroundTexture = existingTex;
     if (ensureQ1MaskPrecomputed(existingTex.image)) {

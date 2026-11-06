@@ -98,7 +98,7 @@ export interface SignalingRelayLaunchHooks {
   onFirstRelayOpen: (info: { relayId: string; relayLabel: string; topicHash: string }) => void;
   onRelayConnected?: (relayId: string) => void;
   onRelayHealthChanged?: (snapshot: SignalingPoolHealthSnapshot) => void;
-  onFrameReceived: (relayId: string, frame: any) => void;
+  onFrameReceived: (relayId: string, frame: Record<string, unknown>) => void;
   onAllRelaysClosed: (lastClosedRelayId: string) => void;
   onAllRelaysFailed: (finalError: Error) => void;
 }
@@ -184,13 +184,13 @@ export class SignalingMultiRelayTransportPool {
     return bestId || this.activeRelayId;
   }
 
-  sendOnRelay(relayId: string, payload: Record<string, any>, qos = 0): boolean {
+  sendOnRelay(relayId: string, payload: Record<string, unknown>, qos = 0): boolean {
     const transport = this.transports.get(relayId);
     if (!transport || !transport.isConnected) return false;
     return (transport as MqttWebSocketClient).send(payload, qos);
   }
 
-  async sendBridgeOnRelay(relayId: string, payload: Record<string, any>): Promise<boolean> {
+  async sendBridgeOnRelay(relayId: string, payload: Record<string, unknown>): Promise<boolean> {
     const targetId = this.getBestRelayIdForBridge(relayId);
     if (!targetId) return false;
     const transport = this.transports.get(targetId);
@@ -228,7 +228,7 @@ export class SignalingMultiRelayTransportPool {
   }
 
   sendRoutedFrame(
-    wrapper: Record<string, any>,
+    wrapper: Record<string, unknown>,
     preferredRelayId: string | null = null,
     qos = 1
   ): boolean {
@@ -364,7 +364,7 @@ export class SignalingMultiRelayTransportPool {
         resolve();
       };
 
-      const recordRelayFailure = (err: any) => {
+      const recordRelayFailure = (err: unknown) => {
         failedCount++;
         if (!anyConnected && failedCount >= totalRelays) {
           if (globalTimeoutHandle) {
@@ -419,7 +419,7 @@ export class SignalingMultiRelayTransportPool {
     hooks: SignalingRelayLaunchHooks,
     perRelayTimeout: number,
     onSuccess?: () => void,
-    onFailure?: (err: any) => void
+    onFailure?: (err: unknown) => void
   ): void {
     if (this.isCleanedUp) return;
 
@@ -438,8 +438,8 @@ export class SignalingMultiRelayTransportPool {
     const transport = createSignalingRelayTransport(relay, hooks);
     this.transports.set(relay.id, transport);
 
-    transport.on('message', (msg: any) => {
-      if (!this.isCleanedUp) {
+    transport.on('message', (msg?: Record<string, unknown>) => {
+      if (!this.isCleanedUp && msg) {
         hooks.onFrameReceived(relay.id, msg);
       }
     });
@@ -460,7 +460,7 @@ export class SignalingMultiRelayTransportPool {
         hooks.onRelayConnected?.(relay.id);
         this.emitHealthSnapshot();
       })
-      .catch((err: any) => {
+      .catch((err: unknown) => {
         onFailure?.(err);
         this.handleRelayClosed(relay.id, hooks);
       });

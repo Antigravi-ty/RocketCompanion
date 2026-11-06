@@ -16,27 +16,33 @@ import { RealisticBoostEmitter } from './realisticBoostEmitter.ts';
 import { ArcadeParticlePhysics } from './arcadeParticlePhysics.ts';
 
 export class VehicleBoostEmitter {
-  public _scratchWorldNozzle: any;
-  public boostVisualOverride: any;
-  public car: any;
-  public cone: any;
-  public coneMaterials: any;
-  public coneOpacity: any;
-  public drive: any;
-  public elapsed: any;
-  public goldRush: any;
-  public light: any;
-  public nozzleFlash: any;
-  public nozzleLocal: any;
-  public offset: any;
-  public physics: any;
-  public scene: any;
-  public theme: any;
-  public trail: any;
+  public _scratchWorldNozzle: THREE.Vector3;
+  public boostVisualOverride: string | null;
+  public car: THREE.Object3D;
+  public cone: THREE.Group;
+  public coneMaterials: THREE.ShaderMaterial[];
+  public coneOpacity: number;
+  public drive: ArcadeBoostParticleMesh;
+  public elapsed: number;
+  public goldRush: RealisticBoostEmitter;
+  public light: THREE.PointLight | null;
+  public nozzleFlash: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> | null;
+  public nozzleLocal: THREE.Vector3;
+  public offset: THREE.Vector3;
+  public physics: ArcadeParticlePhysics;
+  public scene: THREE.Scene | THREE.Object3D;
+  public theme: string;
+  public trail: ArcadeBoostParticleMesh;
 
-  setSpatial(isSpatial) {}
+  setSpatial(isSpatial: boolean) {}
 
-  constructor(scene, carRoot, nozzleLocal, isPrimary = true, isBot = false) {
+  constructor(
+    scene: THREE.Scene | THREE.Object3D,
+    carRoot: THREE.Object3D,
+    nozzleLocal: THREE.Vector3,
+    isPrimary = true,
+    isBot = false
+  ) {
     const { Group, Mesh, PointLight, Color, Vector3 } = THREE;
 
     this.scene = scene;
@@ -45,8 +51,6 @@ export class VehicleBoostEmitter {
     this.offset = this.nozzleLocal;
     this.cone = new Group();
     this.coneMaterials = [];
-    this.drive = null;
-    this.trail = null;
     this.nozzleFlash = null;
     this.light = null;
 

@@ -22,13 +22,20 @@ export interface MqttStreamPopResult {
   malformed: boolean;
 }
 
+export interface DecodedMqttJsonPayload {
+  type?: string;
+  probeId?: string;
+  fromPeerId?: string;
+  [key: string]: unknown;
+}
+
 export interface DecodedMqttPublishPayload {
   topic: string;
   qos: number;
   retain: boolean;
   packetId: number;
   rawText: string;
-  parsedJson: any | null;
+  parsedJson: DecodedMqttJsonPayload | null;
 }
 
 export function encodeRemainingLength(lengthValue: number): number[] {

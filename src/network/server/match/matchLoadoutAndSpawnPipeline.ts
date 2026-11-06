@@ -5,24 +5,14 @@
  */
 
 import {
-  CAR_STATE_OFFSETS,
-  CAR_STATE_STRIDE,
-  KICKOFF_SPAWN_PRESETS,
+  CAR_STATE_OFFSETS, CAR_STATE_STRIDE, KICKOFF_SPAWN_PRESETS,
 } from '../../../physics/RocketSimConstants.ts';
 import {
-  CAR_COLOR_SLOTS,
-  encodeVisualIdIndex,
-  decodeVisualIdIndex,
-  encodeHitboxIdIndex,
-  resolveHitboxIndex,
-  decodeHitboxIndex,
-  decodePaintFinishIndex,
-  decodeBoostVisualIndex,
-  decodeBoostAudioIndex,
-  getCarColorSlotById,
-  packLoadoutSignalParam2,
-  unpackLoadoutCommandParam1,
-  unpackLoadoutCommandParam2,
+  CAR_COLOR_SLOTS, encodeVisualIdIndex, decodeVisualIdIndex,
+  encodeHitboxIdIndex, resolveHitboxIndex, decodeHitboxIndex,
+  decodePaintFinishIndex, decodeBoostVisualIndex, decodeBoostAudioIndex,
+  getCarColorSlotById, packLoadoutSignalParam2,
+  unpackLoadoutCommandParam1, unpackLoadoutCommandParam2,
 } from '../../../ui-core/config/vehicleConstants';
 
 export const MATCH_TICK_RATE = 120;
@@ -64,6 +54,8 @@ export interface PlayerLoadoutOptions {
   boostAudio?: string | number;
   anthemId?: string;
 }
+
+export type ExtraLoadoutConfig = PlayerLoadoutOptions;
 
 export interface MatchPlayerSlot {
   sessionId: string;
@@ -153,34 +145,15 @@ export interface MatchRosterMetadataEntry {
 }
 
 export interface RosterSnapshotPlayerEntry {
-  sessionId: string;
-  entityId: number;
-  carIndex: number;
-  team: number;
-  preferredTeam: number;
-  name: string;
-  spawnSlot: number;
-  visualId: string;
-  visualIndex: number;
-  hitboxId: string;
-  hitboxIndex: number;
-  colorSlot: number;
-  colorHex: string | null;
-  paintFinish: string;
-  boostVisual: string;
-  boostAudio: string;
-  anthemId: string;
-  isBot: boolean;
-  ready: boolean;
-  arenaLoaded: boolean;
-  pingMs: number;
+  sessionId: string; entityId: number; carIndex: number; team: number; preferredTeam: number;
+  name: string; spawnSlot: number; visualId: string; visualIndex: number; hitboxId: string;
+  hitboxIndex: number; colorSlot: number; colorHex: string | null; paintFinish: string;
+  boostVisual: string; boostAudio: string; anthemId: string; isBot: boolean;
+  ready: boolean; arenaLoaded: boolean; pingMs: number;
 }
 
 export interface RosterSnapshotSpectatorEntry {
-  sessionId: string;
-  name: string;
-  role: 'spectator';
-  pingMs: number;
+  sessionId: string; name: string; role: 'spectator'; pingMs: number;
 }
 
 export interface RosterSnapshot {
@@ -193,10 +166,29 @@ export interface RosterSnapshot {
   score: { blue: number; orange: number };
 }
 
+export interface RosterSessionEntryPort {
+  role?: string;
+  entityId: number;
+  team?: number;
+  playerName?: string;
+  rttMs?: number;
+  deferPhysicsRegistration?: boolean;
+}
+
+export interface RosterSessionManagerPort {
+  getSession?: (sessionId: string) => RosterSessionEntryPort | null | undefined;
+  getAllSessions?: () => Iterable<RosterSessionEntryPort>;
+}
+
+export interface SimSpawnPort {
+  setCarState?: (carIndex: number, state: Float32Array) => void;
+  setCarTeam?: (carIndex: number, team: number) => void;
+}
+
 export interface RosterSnapshotSource {
   players: Map<string, MatchPlayerSlot>;
   spectators: Map<string, MatchSpectatorSlot>;
-  sessionManager?: any;
+  sessionManager?: RosterSessionManagerPort | null;
   gameMode: string;
   botFillMode: string;
   clockDuration: number;
@@ -215,7 +207,7 @@ export function isColorSlotValidForTeam(colorSlot: unknown, team: number): color
   }
   if (team !== 0 && team !== 1) return true;
   const slotObj =
-    CAR_COLOR_SLOTS[colorSlot] || CAR_COLOR_SLOTS.find((s: any) => s.id === colorSlot);
+    CAR_COLOR_SLOTS[colorSlot] || CAR_COLOR_SLOTS.find((s: { id: number; team: number }) => s.id === colorSlot);
   return Boolean(slotObj && slotObj.team === team);
 }
 
@@ -304,8 +296,8 @@ export function resolveUpdatedPlayerLoadout(
   visualIdOrPackedParam1: string | number,
   colorSlotOrPackedParam2: number | null = null,
   explicitHitbox: string | number | null = null,
-  extraLoadout: Record<string, any> | null = null
-): number {
+  extraLoadout: Record<string, string | number | undefined> | null = null
+): { patch: Partial<MatchPlayerSlot>; packedLoadout: number } {
   const unpacked = unpackLoadoutCommandParam1(visualIdOrPackedParam1);
   const visualId = unpacked.visualId;
   const visualIndex = unpacked.visualIndex;
@@ -316,6 +308,8 @@ export function resolveUpdatedPlayerLoadout(
   const hitboxId = decodeHitboxIndex(hitboxIndex);
 
   let nextColorSlot = player.colorSlot;
+  let nextBlueColorSlot = player.blueColorSlot;
+  let nextOrangeColorSlot = player.orangeColorSlot;
   let nextPaintFinish = player.paintFinish || 'metallic';
   let nextBoostVisual = player.boostVisual || 'cartoon';
   let nextBoostAudio = player.boostAudio || 'rush';
@@ -325,14 +319,14 @@ export function resolveUpdatedPlayerLoadout(
     if (unpackedParam2.colorSlot >= 0 && unpackedParam2.colorSlot < CAR_COLOR_SLOTS.length) {
       if (isColorSlotValidForTeam(unpackedParam2.colorSlot, player.team)) {
         nextColorSlot = unpackedParam2.colorSlot;
-        if (player.team === 0) player.blueColorSlot = nextColorSlot;
-        else if (player.team === 1) player.orangeColorSlot = nextColorSlot;
+        if (player.team === 0) nextBlueColorSlot = nextColorSlot;
+        else if (player.team === 1) nextOrangeColorSlot = nextColorSlot;
       } else {
         nextColorSlot = resolveTeamMatchedColorSlot(
           unpackedParam2.colorSlot,
           player.team,
-          player.blueColorSlot,
-          player.orangeColorSlot
+          nextBlueColorSlot,
+          nextOrangeColorSlot
         );
       }
     } else {
@@ -358,21 +352,28 @@ export function resolveUpdatedPlayerLoadout(
     }
   }
 
-  player.visualId = visualId;
-  player.visualIndex = visualIndex;
-  player.hitboxId = hitboxId;
-  player.hitboxIndex = hitboxIndex;
-  player.colorSlot = nextColorSlot;
-  player.colorHex = resolveColorHexForSlot(nextColorSlot, player.team);
-  player.paintFinish = nextPaintFinish;
-  player.boostVisual = nextBoostVisual;
-  player.boostAudio = nextBoostAudio;
-
-  return packLoadoutSignalParam2(visualIndex, nextColorSlot, hitboxIndex, {
+  const patch: Partial<MatchPlayerSlot> = {
+    visualId,
+    visualIndex,
+    hitboxId,
+    hitboxIndex,
+    colorSlot: nextColorSlot,
+    blueColorSlot: nextBlueColorSlot,
+    orangeColorSlot: nextOrangeColorSlot,
+    colorHex: resolveColorHexForSlot(nextColorSlot, player.team),
     paintFinish: nextPaintFinish,
     boostVisual: nextBoostVisual,
     boostAudio: nextBoostAudio,
-  });
+  };
+
+  return {
+    patch,
+    packedLoadout: packLoadoutSignalParam2(visualIndex, nextColorSlot, hitboxIndex, {
+      paintFinish: nextPaintFinish,
+      boostVisual: nextBoostVisual,
+      boostAudio: nextBoostAudio,
+    }),
+  };
 }
 
 export function computeNormalizedTeamSpawnSlots(players: Iterable<MatchPlayerSlot>): void {
@@ -426,7 +427,7 @@ export function buildKickoffCarStateArray(
 }
 
 export function applyKickoffSpawnsToSim(
-  sim: any,
+  sim: SimSpawnPort | null | undefined,
   activeCarIndices: Set<number> | null | undefined,
   players: Iterable<MatchPlayerSlot>,
   boostAmount: number
@@ -452,7 +453,9 @@ export function applyKickoffSpawnsToSim(
   }
 }
 
-export function collectSessionUserRtt(sessionManager: any): UserRttSummary {
+export function collectSessionUserRtt(
+  sessionManager: RosterSessionManagerPort | null | undefined
+): UserRttSummary {
   const playersRtt: Array<number | null> = [null, null, null, null, null, null];
   const spectatorsRtt: Array<{ id: number; rtt: number }> = [];
 

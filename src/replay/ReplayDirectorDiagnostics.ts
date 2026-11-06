@@ -131,6 +131,7 @@ export interface DirectorDiagnosticPatternPayload {
     goalLineFrameId: number;
     trajectorySmoothnessSummary: DirectorSmoothnessSummary;
     anomalyPeaks: DirectorAnomalyPeaks;
+    carEntries?: ReplayCarRosterEntry[];
     playbackStateAtExport: {
       selectedReplayFrameIndex: number;
       selectedFrameId: number;

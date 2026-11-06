@@ -8,6 +8,11 @@ import {
 import { eventStreamStore } from '../../runtimeUiPort.ts';
 import { isEventLogEnabled } from '../../../ui-core/config/audioConfig';
 import { gameAudio } from '../../../audio/GameAudioEngineFacade.ts';
+import type { RocketSimPhysicsEngine } from '../../../physics/RocketSimPhysicsEngine.ts';
+import type { PhysicsEventRecord } from '../../../physics/PhysicsEventReader.ts';
+import type { CarControlsInput } from '../../../network/protocol/GlobalPayloadCodec.ts';
+import type { CameraManager } from '../../../camera/CameraManager.ts';
+import type { CameraTransformLike } from '../../../audio/SpatialAudioSource.ts';
 
 export interface CarActionDebounceState {
   boostLatched: boolean;
@@ -31,20 +36,70 @@ export interface CarActionDebounceState {
   prevRemoteSupersonic: boolean;
 }
 
+export interface CarActionPhysicsEventPayload {
+  type: number;
+  carIndex?: number;
+  primaryId?: number;
+  secondaryId?: number;
+  x?: number;
+  y?: number;
+  z?: number;
+  speed?: number;
+  impulse?: number;
+  tick?: number;
+  isGoalBarrierHit?: boolean;
+}
+
 export interface ProcessTickEventsParams {
-  physics: any;
+  physics: RocketSimPhysicsEngine | null;
   playerCarIndex: number;
-  playerControls: Record<string, any> | null | undefined;
-  networkReconciler: any;
+  playerControls: Partial<CarControlsInput> | null | undefined;
+  networkReconciler: { lobbyDualWorldMode?: boolean } | null | undefined;
   testCarAudioEnabled: boolean;
   isMatchEnded: boolean;
   matchPhase: string;
   clientGoalIncidentLatched: boolean;
-  camera: any;
-  arena: any;
+  camera: CameraTransformLike | null | undefined;
+  arena: { triggerGoalBarrierImpact?(x?: number, y?: number, z?: number): void } | null | undefined;
   onGoalIncidentLatched: () => void;
-  onModePhysicsEvent: (event: any) => void;
+  onModePhysicsEvent: (event: CarActionPhysicsEventPayload) => void;
   onPlayFlipResetVisual: (carIndex: number) => void;
+}
+
+export interface CarActionSynthesizerRuntimePort {
+  physics: RocketSimPhysicsEngine | null;
+  playerCarIndex: number;
+  playerControls: CarControlsInput;
+  networkManager?: {
+    sessionCoordinator?: {
+      networkReconciler?: { lobbyDualWorldMode?: boolean } | null;
+    } | null;
+    diagnosticsProbe?: {
+      testCarAudioEnabled?: boolean;
+    } | null;
+  } | null;
+  match?: { state: { phase: string } } | null;
+  _clientGoalIncidentLatched: boolean;
+  camera: CameraManager | CameraTransformLike | null;
+  arena: {
+    triggerGoalBarrierImpact?(x?: number, y?: number, z?: number): void;
+    carVisual?: string;
+    vehiclePresets?: ArrayLike<string | null | undefined>;
+    carTeams?: ArrayLike<number | null | undefined>;
+    carColors?: ArrayLike<string | number | null | undefined>;
+    carPaintFinishes?: ArrayLike<string | null | undefined>;
+    carBoostVisuals?: ArrayLike<string | null | undefined>;
+    carBoostAudios?: ArrayLike<string | null | undefined>;
+    cars?: ArrayLike<{ visible?: boolean } | null | undefined>;
+  } | null;
+  ballTrajectoryPredictor?: { notifyCarBallHit?(tick?: number): void } | null;
+  modeManager?: {
+    getActiveMode?(): {
+      standaloneReplayViewer?: { isActive?: boolean; isIntervening?: boolean } | null;
+      onPhysicsEvent?(event: CarActionPhysicsEventPayload): void;
+    } | null;
+  } | null;
+  getFlipResetVisual?(carIndex: number): { play(): void } | null;
 }
 
 /**
@@ -95,6 +150,52 @@ export class CarActionEventSynthesizer {
     if (playerCarIndex >= 0) {
       this.getCarActionState(playerCarIndex).jumpReleasedSinceSingleJump = true;
     }
+  }
+
+  public processRuntimeTickEvents(
+    runtime: CarActionSynthesizerRuntimePort,
+    isMatchEnded: boolean,
+  ): void {
+    if (!runtime.physics) return;
+    const matchPhase = runtime.match?.state.phase ?? 'playing';
+    const ballPosY = Math.abs(runtime.physics.getBallStateView?.()?.posY || 0);
+    if (ballPosY < 5000 && matchPhase !== 'goal') {
+      runtime._clientGoalIncidentLatched = false;
+    }
+    const activeMode = runtime.modeManager?.getActiveMode?.();
+    if (activeMode?.standaloneReplayViewer?.isActive && !activeMode.standaloneReplayViewer.isIntervening) {
+      return;
+    }
+    const camTransform: CameraTransformLike | null | undefined =
+      runtime.camera && 'camera' in runtime.camera ? runtime.camera.camera : runtime.camera;
+
+    this.processTickEvents({
+      physics: runtime.physics,
+      playerCarIndex: runtime.playerCarIndex ?? 0,
+      playerControls: runtime.playerControls,
+      networkReconciler: runtime.networkManager?.sessionCoordinator?.networkReconciler,
+      testCarAudioEnabled: Boolean(runtime.networkManager?.diagnosticsProbe?.testCarAudioEnabled),
+      isMatchEnded,
+      matchPhase,
+      clientGoalIncidentLatched: Boolean(runtime._clientGoalIncidentLatched),
+      camera: camTransform,
+      arena: runtime.arena,
+      onGoalIncidentLatched: () => {
+        runtime._clientGoalIncidentLatched = true;
+      },
+      onModePhysicsEvent: (event) => {
+        if (event?.type === INCIDENT_EVENT_TYPES.CAR_BALL_HIT) {
+          runtime.ballTrajectoryPredictor?.notifyCarBallHit?.(event.tick);
+        }
+        runtime.modeManager?.getActiveMode?.()?.onPhysicsEvent?.(event);
+      },
+      onPlayFlipResetVisual: (carIdx) => {
+        const visual = runtime.getFlipResetVisual?.(carIdx);
+        if (visual) {
+          visual.play();
+        }
+      },
+    });
   }
 
   public processTickEvents(params: ProcessTickEventsParams): void {
@@ -210,7 +311,7 @@ export class CarActionEventSynthesizer {
       }
     }
 
-    physics.readEvents((event: any) => {
+    physics.readEvents((event: PhysicsEventRecord) => {
       if (!isIncidentEvent(event.type)) {
         return;
       }

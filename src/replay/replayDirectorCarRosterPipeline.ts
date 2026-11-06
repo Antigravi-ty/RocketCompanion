@@ -77,13 +77,13 @@ export interface ReplayDirectorRosterRuntimePort {
   } | null;
   arena?: {
     carVisual?: string;
-    vehiclePresets?: Array<string | null | undefined>;
-    carTeams?: Array<number | null | undefined>;
-    carColors?: Array<string | number | null | undefined>;
-    carPaintFinishes?: Array<string | null | undefined>;
-    carBoostVisuals?: Array<string | null | undefined>;
-    carBoostAudios?: Array<string | null | undefined>;
-    cars?: Array<{ visible?: boolean } | null | undefined>;
+    vehiclePresets?: ArrayLike<string | null | undefined>;
+    carTeams?: ArrayLike<number | null | undefined>;
+    carColors?: ArrayLike<string | number | null | undefined>;
+    carPaintFinishes?: ArrayLike<string | null | undefined>;
+    carBoostVisuals?: ArrayLike<string | null | undefined>;
+    carBoostAudios?: ArrayLike<string | null | undefined>;
+    cars?: ArrayLike<{ visible?: boolean } | null | undefined>;
     ensureOpponent?: () => void;
     ensureCar?: (carIndex: number, team: number, visualId: string) => void;
     swapCarVisual?: (carIndex: number, visualId: string) => void;
@@ -110,6 +110,8 @@ export interface ReplayDirectorRosterRuntimePort {
   } | null;
 }
 
+export type ReplayCarEntryRuntimePort = ReplayDirectorRosterRuntimePort;
+
 export interface CaptureReplayCarEntriesOptions {
   numCars?: number;
   frameBuffer?: ArrayLike<number> | null;
@@ -131,7 +133,7 @@ function toHexColorString(colorVal: unknown): string | null {
 export function normalizeReplayDirectorCarEntry(
   raw: RawReplayCarEntryLike | null | undefined,
   fallbackIndex = 0,
-  fallbackTeam?: number
+  fallbackTeam?: number | string
 ): NormalizedReplayDirectorCarEntry {
   const carIndex =
     typeof raw?.carIndex === 'number' && raw.carIndex >= 0

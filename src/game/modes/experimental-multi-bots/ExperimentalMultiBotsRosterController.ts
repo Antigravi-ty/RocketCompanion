@@ -19,26 +19,42 @@ import { getMaterialsConfig } from '../../../ui-core/config/materialsConfig';
 import { rollRandomBotLoadout } from '../../../ui-core/config/botsLoadoutConfig';
 import { assignTeamSlotKeys } from '../../../replay/container/RCReplayTimelineParser.ts';
 import {
-  ExpActiveCarRef,
-  ExpSpawnedCarEntry,
+  type CarControls,
+  type ExpActiveCarRef,
+  type ExpModeRuntimePort,
+  type ExpSpawnedCarEntry,
   computeKickoffSpawnPlacement,
   getExpCarDisplayName,
   getExpModeAudio,
 } from './ExperimentalMultiBotsMatchMath.ts';
 
+interface ExpCombinedSlotConfig {
+  id?: string;
+  team: 0 | 1;
+  teamSlotIndex: number;
+  isPlayer?: boolean;
+  botType: string;
+  colorSlot: number;
+  visualId?: string;
+  hitboxId?: string;
+  paintFinish?: string;
+  boostVisual?: string;
+  boostAudio?: string;
+}
+
 export class ExperimentalMultiBotsRosterController {
-  private readonly runtime: any;
+  private readonly runtime: ExpModeRuntimePort | null;
   public spawnedCars: ExpSpawnedCarEntry[] = [];
   public activeCarsList: ExpActiveCarRef[] = [];
-  public readonly carControlsMap = new Map<number, any>();
+  public readonly carControlsMap = new Map<number, CarControls>();
   public humanPlayerCarIndex = -1;
   public kickoffPermutationSeed = 0;
 
-  constructor(runtime: any) {
+  constructor(runtime: ExpModeRuntimePort | null) {
     this.runtime = runtime;
   }
 
-  getCarControls(carIndex: number): any {
+  getCarControls(carIndex: number): CarControls {
     return (
       this.carControlsMap.get(carIndex) ||
       this.runtime?.neutralControls ||
@@ -159,9 +175,9 @@ export class ExperimentalMultiBotsRosterController {
 
     const blueSlots = store.blueSlots.slice(0, 5);
     const orangeSlots = store.orangeSlots.slice(0, 5);
-    const combinedSlots: any[] = [
-      ...blueSlots.map((s: any, idx: number) => ({ ...s, team: 0 as const, teamSlotIndex: idx })),
-      ...orangeSlots.map((s: any, idx: number) => ({ ...s, team: 1 as const, teamSlotIndex: idx })),
+    const combinedSlots: ExpCombinedSlotConfig[] = [
+      ...blueSlots.map((s, idx) => ({ ...s, team: 0 as const, teamSlotIndex: idx })),
+      ...orangeSlots.map((s, idx) => ({ ...s, team: 1 as const, teamSlotIndex: idx })),
     ].slice(0, 6);
 
     if (combinedSlots.length === 0) {
@@ -208,7 +224,7 @@ export class ExperimentalMultiBotsRosterController {
       const swatch =
         typeof slot.colorSlot === 'number' && !usedColorSlotsByTeam[teamKey].has(slot.colorSlot)
           ? getExpColorSwatch(slot.colorSlot)
-          : getExpColorSwatch(rolledBot ? rolledBot.colorSlot : slot.colorSlot);
+          : getExpColorSwatch(rolledBot?.colorSlot ?? slot.colorSlot);
       usedColorSlotsByTeam[teamKey].add(swatch.id);
 
       const visualId = normalizeVisualId(

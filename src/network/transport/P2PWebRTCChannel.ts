@@ -6,9 +6,14 @@
  */
 
 import { encodeSignalToken, decodeSignalToken } from './webrtc/SignalTokenCodec.ts';
-import { NetworkSimulator, type NetworkSimulatorOptions } from './webrtc/NetworkSimulator.ts';
+import {
+  NetworkSimulator,
+  type NetworkSimulatorOptions,
+  type SimulatedPayload,
+} from './webrtc/NetworkSimulator.ts';
 import { CrossTabSignaling } from './webrtc/CrossTabSignaling.ts';
 import { WebRTCConnection } from './webrtc/WebRTCConnection.ts';
+import type { IceCandidateDescriptor } from './webrtc/SdpUtils.ts';
 import { HandshakeSession, type HandshakeMetadataState } from './webrtc/HandshakeSession.ts';
 import { DataChannelTransport } from './webrtc/DataChannelTransport.ts';
 
@@ -49,6 +54,11 @@ export class P2PWebRTCChannel {
 
   readonly simulator: NetworkSimulator;
   stats: NetworkSimulator['stats'];
+  declare extraRttMs: number;
+  declare baseMeasuredRttMs: number;
+  declare measuredJitterMs: number;
+  declare latencyMs: number;
+
   readonly signaling: CrossTabSignaling;
   readonly connection: WebRTCConnection;
   readonly handshake: HandshakeSession;
@@ -56,12 +66,12 @@ export class P2PWebRTCChannel {
 
   onConnected: (() => void) | null = null;
   onDisconnected: (() => void) | null = null;
-  onPacketReceived: ((data: any) => void) | null = null;
-  onMessage: ((data: any) => void) | null = null;
-  onColorChange: ((msg: any) => void) | null = null;
+  onPacketReceived: ((data: SimulatedPayload) => void) | null = null;
+  onMessage: ((data: SimulatedPayload) => void) | null = null;
+  onColorChange: ((msg: Record<string, unknown>) => void) | null = null;
   onDiagnosticFleetToggle: ((enabled: boolean, anchorMode: string) => void) | null = null;
-  onBroadcastSignal: ((msg: any) => void) | null = null;
-  onIceCandidate: ((cand: any) => void) | null = null;
+  onBroadcastSignal: ((msg: Record<string, unknown>) => void) | null = null;
+  onIceCandidate: ((cand: IceCandidateDescriptor) => void) | null = null;
 
   constructor(options: P2PWebRTCChannelOptions = {}) {
     this.role = options.role ?? 'client';
@@ -78,7 +88,7 @@ export class P2PWebRTCChannel {
       signalingChannelName: options.signalingChannelName ?? 'online_discovery',
       roomId: this.roomId,
       onBroadcastMessage: (msg) => this._handleBroadcastMessage(msg),
-      onRoomMessage: (data) => this._handleRoomMessage(data),
+      onRoomMessage: (data) => this._handleRoomMessage(data as Record<string, unknown>),
     });
 
     this.connection = new WebRTCConnection({
@@ -176,50 +186,33 @@ export class P2PWebRTCChannel {
   get connected(): boolean {
     return Boolean(this.isOpen || (this.dataChannel && this.dataChannel.readyState === 'open'));
   }
-  get extraUplinkMs(): number {
-    return this.simulator.extraUplinkMs;
-  }
-  set extraUplinkMs(v: number) {
-    this.simulator.setExtraUplinkLatency(v);
-  }
-  get extraDownlinkMs(): number {
-    return this.simulator.extraDownlinkMs;
-  }
-  set extraDownlinkMs(v: number) {
-    this.simulator.setExtraDownlinkLatency(v);
-  }
-  get extraLatencyMs(): number {
-    return this.simulator.extraLatencyMs;
-  }
-  set extraLatencyMs(v: number) {
-    this.simulator.setExtraLatency(v);
-  }
-  get jitterMs(): number {
-    return this.simulator.jitterMs;
-  }
-  set jitterMs(v: number) {
-    this.simulator.setJitter(v);
-  }
-  get packetLossRate(): number {
-    return this.simulator.packetLossRate;
-  }
-  set packetLossRate(v: number) {
-    this.simulator.setPacketLossRate(v);
-  }
-  get baseMeasuredRttMs(): number {
-    return this.simulator.baseMeasuredRttMs;
-  }
-  get measuredRttMs(): number {
-    return this.simulator.measuredRttMs;
-  }
-  get measuredJitterMs(): number {
-    return this.simulator.measuredJitterMs;
-  }
+
   get rttMs(): number {
     return this.simulator.rttMs;
   }
-  set rttMs(val: number) {
-    this.simulator.rttMs = val;
+
+  get measuredRttMs(): number {
+    return this.simulator.measuredRttMs;
+  }
+
+  get extraUplinkMs(): number {
+    return this.simulator.extraUplinkMs;
+  }
+
+  get extraDownlinkMs(): number {
+    return this.simulator.extraDownlinkMs;
+  }
+
+  get extraLatencyMs(): number {
+    return this.simulator.extraLatencyMs;
+  }
+
+  get jitterMs(): number {
+    return this.simulator.jitterMs;
+  }
+
+  get packetLossRate(): number {
+    return this.simulator.packetLossRate;
   }
 
   setColor(slotId: number, hex: string): void {
@@ -250,13 +243,13 @@ export class P2PWebRTCChannel {
     this.roomId = roomId;
     this.signaling.initRoomChannel(roomId);
   }
-  _sendRoomMessage(msg: any): void {
+  _sendRoomMessage(msg: Record<string, unknown>): void {
     this.signaling.sendRoomMessage(msg, this.peerId);
   }
-  _handleRoomMessage(data: any): void {
+  _handleRoomMessage(data: Record<string, unknown>): void {
     this.handshake.handleRoomMessage(data);
   }
-  _handleBroadcastMessage(msg: any): void {
+  _handleBroadcastMessage(msg: Record<string, unknown>): void {
     this.handshake.handleBroadcastMessage(msg);
   }
 
@@ -294,16 +287,20 @@ export class P2PWebRTCChannel {
     }
   }
 
-  async addIceCandidate(candJson: any): Promise<void> {
+  async addIceCandidate(
+    candJson: IceCandidateDescriptor | RTCIceCandidateInit | Record<string, unknown>
+  ): Promise<void> {
     return this.addRemoteCandidate(candJson);
   }
-  async addRemoteCandidate(candJson: any): Promise<void> {
-    return this.connection.addRemoteCandidate(candJson);
+  async addRemoteCandidate(
+    candJson: IceCandidateDescriptor | RTCIceCandidateInit | Record<string, unknown>
+  ): Promise<void> {
+    return this.connection.addRemoteCandidate(candJson as IceCandidateDescriptor);
   }
   async flushPendingCandidates(): Promise<void> {
     return this.connection.flushPendingCandidates();
   }
-  broadcastSignal(type: string, payload: Record<string, any> = {}): boolean {
+  broadcastSignal(type: string, payload: Record<string, unknown> = {}): boolean {
     return this.signaling.broadcastSignal(type, payload, {
       roomId: this.roomId,
       role: this.role,
@@ -341,7 +338,7 @@ export class P2PWebRTCChannel {
   _bindDataChannel(channel: RTCDataChannel): void {
     this.transport.bindDataChannel(channel);
   }
-  _handleIncomingMessage(data: any): void {
+  _handleIncomingMessage(data: SimulatedPayload): void {
     this.transport.handleIncomingMessage(data);
   }
   _sendPong(sendTime: number): void {
@@ -356,22 +353,22 @@ export class P2PWebRTCChannel {
   sendDiagnosticFleetToggle(enabled: boolean, anchorMode: string): void {
     this.transport.sendDiagnosticFleetToggle(enabled, anchorMode);
   }
-  send(packet: any, nowMs = performance.now()): boolean {
+  send(packet: SimulatedPayload, nowMs = performance.now()): boolean {
     return this.transport.send(packet, nowMs);
   }
-  sendClientInput(packet: any, nowMs = performance.now()): boolean {
+  sendClientInput(packet: SimulatedPayload, nowMs = performance.now()): boolean {
     return this.transport.sendClientInput(packet, nowMs);
   }
-  sendServerState(packet: any, nowMs = performance.now()): boolean {
+  sendServerState(packet: SimulatedPayload, nowMs = performance.now()): boolean {
     return this.transport.send(packet, nowMs);
   }
-  receiveServerPackets(nowMs = performance.now()): any[] {
+  receiveServerPackets(nowMs = performance.now()): SimulatedPayload[] {
     return this._drainInboundQueue(nowMs);
   }
-  receiveClientPackets(nowMs = performance.now()): any[] {
+  receiveClientPackets(nowMs = performance.now()): SimulatedPayload[] {
     return this._drainInboundQueue(nowMs);
   }
-  _drainInboundQueue(nowMs = performance.now()): any[] {
+  _drainInboundQueue(nowMs = performance.now()): SimulatedPayload[] {
     return this.simulator.drainInboundQueue(nowMs);
   }
 

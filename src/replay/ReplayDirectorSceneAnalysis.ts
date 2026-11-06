@@ -37,6 +37,7 @@ export interface ExtractedCarEntity {
   up: [number, number, number];
   speedUu: number;
   boost: number;
+  boostPct?: number;
   onGround: boolean;
   supersonic: boolean;
   demoed: boolean;

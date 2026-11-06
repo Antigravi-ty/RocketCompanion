@@ -11,19 +11,24 @@ import {
 } from './SdpUtils.ts';
 import { credentialBundleManager } from '../CredentialBundleManager.ts';
 
+export interface SdpHandshakePayload {
+  sdp?: string;
+  candidates?: IceCandidateDescriptor[];
+}
+
 export interface WebRTCConnectionOptions {
-  onIceCandidate?: ((cand: any) => void) | null;
+  onIceCandidate?: ((cand: IceCandidateDescriptor) => void) | null;
   onConnectionStateChange?: ((state: RTCPeerConnectionState) => void) | null;
   onIceConnectionStateChange?: ((state: RTCIceConnectionState) => void) | null;
   onDataChannel?: ((event: RTCDataChannelEvent) => void) | null;
-  broadcastSignal?: ((type: string, payload: Record<string, any>) => void) | null;
+  broadcastSignal?: ((type: string, payload: Record<string, unknown>) => void) | null;
 }
 
 export class WebRTCConnection {
   options: WebRTCConnectionOptions;
   pc: RTCPeerConnection | null = null;
-  localCandidates: Array<IceCandidateDescriptor | any> = [];
-  pendingRemoteCandidates: any[] = [];
+  localCandidates: IceCandidateDescriptor[] = [];
+  pendingRemoteCandidates: IceCandidateDescriptor[] = [];
   gatheringPromise: Promise<void> | null = null;
 
   constructor(options: WebRTCConnectionOptions = {}) {
@@ -57,8 +62,8 @@ export class WebRTCConnection {
 
     this.pc.onicecandidate = (event) => {
       if (event.candidate) {
-        const candJson: any = event.candidate.toJSON
-          ? event.candidate.toJSON()
+        const candJson: IceCandidateDescriptor = event.candidate.toJSON
+          ? (event.candidate.toJSON() as IceCandidateDescriptor)
           : {
               candidate: event.candidate.candidate,
               sdpMid: event.candidate.sdpMid,
@@ -161,12 +166,14 @@ export class WebRTCConnection {
     });
   }
 
-  async addRemoteCandidate(candJson: any): Promise<void> {
+  async addRemoteCandidate(candJson: IceCandidateDescriptor | null | undefined): Promise<void> {
     if (!candJson) return;
     if (this.pc && this.pc.remoteDescription && this.pc.remoteDescription.type) {
       try {
         const c =
-          typeof RTCIceCandidate !== 'undefined' ? new RTCIceCandidate(candJson) : candJson;
+          typeof RTCIceCandidate !== 'undefined'
+            ? new RTCIceCandidate(candJson as RTCIceCandidateInit)
+            : (candJson as RTCIceCandidateInit);
         await this.pc.addIceCandidate(c);
       } catch (err) {
         console.warn('[P2PWebRTCChannel] Failed to add ICE candidate:', err);
@@ -185,7 +192,10 @@ export class WebRTCConnection {
     this.pendingRemoteCandidates = [];
     for (const cand of queued) {
       try {
-        const c = typeof RTCIceCandidate !== 'undefined' ? new RTCIceCandidate(cand) : cand;
+        const c =
+          typeof RTCIceCandidate !== 'undefined'
+            ? new RTCIceCandidate(cand as RTCIceCandidateInit)
+            : (cand as RTCIceCandidateInit);
         await this.pc.addIceCandidate(c);
       } catch (err) {
         console.warn('[P2PWebRTCChannel] Failed to add queued ICE candidate:', err);
@@ -210,12 +220,12 @@ export class WebRTCConnection {
     return ensureValidSdp(sdp);
   }
 
-  async applyRemoteOfferAndCreateAnswer(offerData: any): Promise<string> {
+  async applyRemoteOfferAndCreateAnswer(offerData: SdpHandshakePayload): Promise<string> {
     if (!this.pc || !offerData?.sdp) return '';
 
     let remoteSdp = ensureValidSdp(offerData.sdp);
     const remoteLoopback = Array.isArray(offerData.candidates)
-      ? offerData.candidates.find((c: any) =>
+      ? offerData.candidates.find((c: IceCandidateDescriptor) =>
           (c?.candidate || c?.address || c?.ip || '').includes('127.0.0.1')
         )
       : null;
@@ -262,7 +272,7 @@ export class WebRTCConnection {
     return ensureValidSdp(sdp);
   }
 
-  async applyRemoteAnswer(answerData: any): Promise<void> {
+  async applyRemoteAnswer(answerData: SdpHandshakePayload): Promise<void> {
     if (!this.pc || this.pc.signalingState === 'stable') {
       return;
     }
@@ -270,7 +280,7 @@ export class WebRTCConnection {
 
     let remoteSdp = ensureValidSdp(answerData.sdp);
     const remoteLoopback = Array.isArray(answerData.candidates)
-      ? answerData.candidates.find((c: any) =>
+      ? answerData.candidates.find((c: IceCandidateDescriptor) =>
           (c?.candidate || c?.address || c?.ip || '').includes('127.0.0.1')
         )
       : null;

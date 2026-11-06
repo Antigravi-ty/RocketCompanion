@@ -4,11 +4,17 @@ import {
   ensureExperimentalEngine,
   multiCarHeuristicDecide,
 } from '../../../ai/experimental/ExperimentalBotAgent.ts';
+import type { CarControls } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
+import type { ArenaBoostPadDescriptor } from '../../../physics/RocketSimSnapshotSerializer.ts';
+import type {
+  LabPhysicsEnginePort,
+  LabRuntimePort,
+} from './LabTabTypes.ts';
 
-const INCIDENT_ACTIVE_CARS = Object.freeze([
+const INCIDENT_ACTIVE_CARS: Array<{ carIndex: number; team: number }> = [
   { carIndex: 0, team: 0 },
   { carIndex: 1, team: 1 },
-]);
+];
 
 /**
  * NinetySecDualBotController
@@ -16,10 +22,10 @@ const INCIDENT_ACTIVE_CARS = Object.freeze([
  * and wall/ceiling heuristic fallback for the 90s Match Isolation Lab tab.
  */
 export class NinetySecDualBotController {
-  private botBlue: any = null;
-  private botOrange: any = null;
-  private botBlueControls: Record<string, any> = { ...DEFAULT_CAR_CONTROLS };
-  private botOrangeControls: Record<string, any> = { ...DEFAULT_CAR_CONTROLS };
+  private botBlue: ExperimentalBotAgent | null = null;
+  private botOrange: ExperimentalBotAgent | null = null;
+  private botBlueControls: CarControls = { ...DEFAULT_CAR_CONTROLS };
+  private botOrangeControls: CarControls = { ...DEFAULT_CAR_CONTROLS };
   private botBlueTickSkip = 0;
   private botOrangeTickSkip = 0;
   private botDecisionEpoch = 0;
@@ -47,11 +53,11 @@ export class NinetySecDualBotController {
   }
 
   private stepSingleNextoCar(
-    sim: any,
-    pads: any,
+    sim: LabPhysicsEnginePort,
+    pads: ReadonlyArray<ArenaBoostPadDescriptor>,
     carIdx: number,
     team: number,
-    isOrange: boolean,
+    isOrange: boolean
   ): void {
     const bot = isOrange ? this.botOrange : this.botBlue;
     if (!bot) return;
@@ -73,9 +79,15 @@ export class NinetySecDualBotController {
       ctrl = ko;
       bot.overrideControls(ko);
     } else if (onWallOrCeiling) {
-      ctrl = multiCarHeuristicDecide(sim.state, pads, carIdx, team, INCIDENT_ACTIVE_CARS as any);
+      ctrl = multiCarHeuristicDecide(
+        sim.state,
+        pads,
+        carIdx,
+        team,
+        INCIDENT_ACTIVE_CARS
+      );
     } else if (skip <= 0) {
-      ctrl = bot.decideSync(sim.state, pads, INCIDENT_ACTIVE_CARS as any);
+      ctrl = bot.decideSync(sim.state, pads, INCIDENT_ACTIVE_CARS);
       skip = bot.tickSkip - 1;
     } else {
       skip--;
@@ -91,7 +103,7 @@ export class NinetySecDualBotController {
     sim.setControls(carIdx, ctrl);
   }
 
-  public stepDualNextoBots(sim: any): void {
+  public stepDualNextoBots(sim: LabPhysicsEnginePort): void {
     if (!this.botBlue || !this.botOrange) {
       void this.ensureLoaded();
     }
@@ -102,7 +114,9 @@ export class NinetySecDualBotController {
   }
 }
 
-export function setupTwoCarIncidentArena(r: any): void {
+export function setupTwoCarIncidentArena(
+  r: LabRuntimePort | null | undefined
+): void {
   if (!r?.physics) return;
   while (r.physics.numCars > 0 && typeof r.physics.removeCar === 'function') {
     r.physics.removeCar(r.physics.numCars - 1);
@@ -124,4 +138,3 @@ export function setupTwoCarIncidentArena(r: any): void {
     }
   }
 }
-

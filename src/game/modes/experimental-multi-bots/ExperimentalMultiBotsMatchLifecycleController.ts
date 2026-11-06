@@ -5,30 +5,23 @@ import { clearRetainedMatchReplayOnMatchStart } from '../../../replay/ReplayFile
 import { useExperimentalMultiBotsStore } from '../../runtimeUiPort.ts';
 import { PodiumCelebrationController } from '../PodiumCelebrationController.ts';
 import {
-  hasKickoffBallMoved,
-  stepPostGoalBallFreeze,
+  type BallStateViewLike, type GoalScoredEvaluation,
+  hasKickoffBallMoved, stepPostGoalBallFreeze,
 } from '../shared/goalAndBallTouchPipeline.ts';
 import {
-  KICKOFF_COUNTDOWN_TICKS,
-  POST_GOAL_CELEBRATION_TICKS,
-  POST_MATCH_PODIUM_DELAY_TICKS,
-  stepKickoffCountdownState,
-  stepMatchClockState,
-  syncLocalMatchStateToRuntimeAndHud,
+  KICKOFF_COUNTDOWN_TICKS, POST_GOAL_CELEBRATION_TICKS, POST_MATCH_PODIUM_DELAY_TICKS,
+  stepKickoffCountdownState, stepMatchClockState, syncLocalMatchStateToRuntimeAndHud,
 } from '../shared/matchClockAndPhasePipeline.ts';
 import {
-  ExpGoalIncidentMeta,
-  ExpSpawnedCarEntry,
-  ExpTeamTouchRecord,
-  getExpCarDisplayName,
-  getExpModeAudio,
-  resolveGoalAttribution,
+  type ExpGoalIncidentMeta, type ExpModeRuntimePort, type ExpPhysicsEnginePort,
+  type ExpSpawnedCarEntry, type ExpTeamTouchRecord,
+  getExpCarDisplayName, getExpModeAudio, resolveGoalAttribution,
 } from './ExperimentalMultiBotsMatchMath.ts';
 import { ExperimentalMultiBotsRosterController } from './ExperimentalMultiBotsRosterController.ts';
 import { ExperimentalMultiBotsReplayController } from './ExperimentalMultiBotsReplayController.ts';
 
 export class ExperimentalMultiBotsMatchLifecycleController {
-  private readonly runtime: any;
+  private readonly runtime: ExpModeRuntimePort | null;
   public readonly podiumController: PodiumCelebrationController;
 
   public countdownTicks = 0;
@@ -69,7 +62,7 @@ export class ExperimentalMultiBotsMatchLifecycleController {
   public prevBallVelZ = 0;
   private matchStartToken = 0;
 
-  constructor(runtime: any) {
+  constructor(runtime: ExpModeRuntimePort | null) {
     this.runtime = runtime;
     this.podiumController = new PodiumCelebrationController(runtime);
     if (runtime && !runtime.podiumController) {
@@ -96,22 +89,15 @@ export class ExperimentalMultiBotsMatchLifecycleController {
 
   getGoalIncidentMeta(): ExpGoalIncidentMeta {
     return {
-      goalIncidentTick: this.goalIncidentTick,
-      goalScoringTeam: this.goalScoringTeam,
-      goalScorerCarIndex: this.goalScorerCarIndex,
-      goalScorerName: this.goalScorerName,
-      goalScorerTouchTick: this.goalScorerTouchTick,
-      goalAssistName: this.goalAssistName,
-      goalBallSpeedKph: this.goalBallSpeedKph,
-      lastKickoffStartTick: this.lastKickoffStartTick,
+      goalIncidentTick: this.goalIncidentTick, goalScoringTeam: this.goalScoringTeam,
+      goalScorerCarIndex: this.goalScorerCarIndex, goalScorerName: this.goalScorerName,
+      goalScorerTouchTick: this.goalScorerTouchTick, goalAssistName: this.goalAssistName,
+      goalBallSpeedKph: this.goalBallSpeedKph, lastKickoffStartTick: this.lastKickoffStartTick,
     };
   }
 
   recordCarBallTouch(
-    carIndex: number,
-    tick: number,
-    spawnedCars: ReadonlyArray<ExpSpawnedCarEntry>,
-    isReplayActive: boolean
+    carIndex: number, tick: number, spawnedCars: ReadonlyArray<ExpSpawnedCarEntry>, isReplayActive: boolean
   ): void {
     if (isReplayActive || this.isMatchEnded) return;
     if (this.goalIncidentTick >= 0 && tick > this.goalIncidentTick) return;
@@ -128,8 +114,7 @@ export class ExperimentalMultiBotsMatchLifecycleController {
   }
 
   async applyRosterAndStartMatch(
-    rosterCtrl: ExperimentalMultiBotsRosterController,
-    replayCtrl: ExperimentalMultiBotsReplayController
+    rosterCtrl: ExperimentalMultiBotsRosterController, replayCtrl: ExperimentalMultiBotsReplayController
   ): Promise<void> {
     const r = this.runtime;
     if (!r?.physics) return;
@@ -144,10 +129,8 @@ export class ExperimentalMultiBotsMatchLifecycleController {
     this.podiumDelayTicks = 0;
     this.pendingMatchEndAfterReplay = false;
     this.pendingMatchWinner = null;
-    if (r) {
-      r._localSkipReplayReady = false;
-      r.releaseGoalReplayCameraOverride();
-    }
+    r._localSkipReplayReady = false;
+    r.releaseGoalReplayCameraOverride();
 
     await rosterCtrl.preloadNativeModels();
     if (token !== this.matchStartToken || r?.match?.state?.mode !== 'exp-multi-bots') return;
@@ -176,9 +159,7 @@ export class ExperimentalMultiBotsMatchLifecycleController {
     for (const c of rosterCtrl.spawnedCars) {
       replayCtrl.emitReplaySignal(MATCH_SIGNALS.PLAYER_JOINED, c.carIndex, c.team & 0xff);
       const packed = packLoadoutSignalParam2(c.visualId, c.colorSlot, c.hitboxId, {
-        paintFinish: c.paintFinish,
-        boostVisual: c.boostVisual,
-        boostAudio: c.boostAudio,
+        paintFinish: c.paintFinish, boostVisual: c.boostVisual, boostAudio: c.boostAudio,
       });
       replayCtrl.emitReplaySignal(MATCH_SIGNALS.PLAYER_LOADOUT_UPDATED, c.carIndex, packed);
     }
@@ -254,9 +235,7 @@ export class ExperimentalMultiBotsMatchLifecycleController {
   }
 
   finishMatch(
-    winnerTeam: 0 | 1,
-    rosterCtrl: ExperimentalMultiBotsRosterController,
-    replayCtrl: ExperimentalMultiBotsReplayController
+    winnerTeam: 0 | 1, rosterCtrl: ExperimentalMultiBotsRosterController, replayCtrl: ExperimentalMultiBotsReplayController
   ): void {
     const r = this.runtime;
     const store = useExperimentalMultiBotsStore.getState();
@@ -314,8 +293,7 @@ export class ExperimentalMultiBotsMatchLifecycleController {
   }
 
   completePostGoalOrReplayTransition(
-    rosterCtrl: ExperimentalMultiBotsRosterController,
-    replayCtrl: ExperimentalMultiBotsReplayController
+    rosterCtrl: ExperimentalMultiBotsRosterController, replayCtrl: ExperimentalMultiBotsReplayController
   ): void {
     replayCtrl.endSession(rosterCtrl);
     if (this.pendingMatchEndAfterReplay) {
@@ -328,9 +306,7 @@ export class ExperimentalMultiBotsMatchLifecycleController {
   }
 
   triggerSandboxAction(
-    action: string,
-    rosterCtrl: ExperimentalMultiBotsRosterController,
-    replayCtrl: ExperimentalMultiBotsReplayController
+    action: string, rosterCtrl: ExperimentalMultiBotsRosterController, replayCtrl: ExperimentalMultiBotsReplayController
   ): void {
     const r = this.runtime;
     const store = useExperimentalMultiBotsStore.getState();
@@ -382,8 +358,11 @@ export class ExperimentalMultiBotsMatchLifecycleController {
     }
   }
 
-  stepEndedMatchPodiumDelay(replayCtrl: ExperimentalMultiBotsReplayController): boolean {
+  stepEndedMatchPodiumDelay(
+    replayCtrl: ExperimentalMultiBotsReplayController, onDelayStep?: () => void
+  ): boolean {
     if (this.podiumDelayTicks <= 0) return false;
+    onDelayStep?.();
     if (--this.podiumDelayTicks <= 0) this.enterPodium(replayCtrl);
     return true;
   }
@@ -419,19 +398,15 @@ export class ExperimentalMultiBotsMatchLifecycleController {
     this.lastStepInferenceMs = totalInferenceMs;
   }
 
-  stepPostGoalFreeze(sim: any, currentTick: number): void {
+  stepPostGoalFreeze(sim: ExpPhysicsEnginePort, currentTick: number): void {
     this.frozenGoalBallState = stepPostGoalBallFreeze({
-      sim,
-      goalResetTicks: this.goalResetTicks,
-      currentTick,
-      goalIncidentTick: this.goalIncidentTick,
-      frozenBallState: this.frozenGoalBallState,
+      sim, goalResetTicks: this.goalResetTicks, currentTick,
+      goalIncidentTick: this.goalIncidentTick, frozenBallState: this.frozenGoalBallState,
     });
   }
 
   stepPostGoalResetCountdown(
-    rosterCtrl: ExperimentalMultiBotsRosterController,
-    replayCtrl: ExperimentalMultiBotsReplayController
+    rosterCtrl: ExperimentalMultiBotsRosterController, replayCtrl: ExperimentalMultiBotsReplayController
   ): boolean {
     if (this.goalResetTicks <= 0) return false;
     if (--this.goalResetTicks <= 0) {
@@ -450,10 +425,8 @@ export class ExperimentalMultiBotsMatchLifecycleController {
   }
 
   recordGoalScored(
-    goalEval: { scoringTeam: 0 | 1; ballSpeedKph: number; ballSpeedUu: number },
-    bView: any,
-    currentTick: number,
-    rosterCtrl: ExperimentalMultiBotsRosterController,
+    goalEval: { scoringTeam: 0 | 1; ballSpeedKph: number; ballSpeedUu: number }, bView: BallStateViewLike,
+    currentTick: number, rosterCtrl: ExperimentalMultiBotsRosterController,
     replayCtrl: ExperimentalMultiBotsReplayController
   ): void {
     const r = this.runtime;
@@ -464,10 +437,7 @@ export class ExperimentalMultiBotsMatchLifecycleController {
     this.orangeScore += scoringTeam === 1 ? 1 : 0;
 
     const attr = resolveGoalAttribution(
-      scoringTeam,
-      this.lastTouchByTeam,
-      this.prevTouchByTeam,
-      rosterCtrl.spawnedCars
+      scoringTeam, this.lastTouchByTeam, this.prevTouchByTeam, rosterCtrl.spawnedCars
     );
     this.goalScorerCarIndex = attr.scorerCarIndex;
     this.goalScorerName = attr.scorerName;
@@ -518,7 +488,7 @@ export class ExperimentalMultiBotsMatchLifecycleController {
 
   stepPlayingClock(
     currentTick: number,
-    bView: any,
+    bView: BallStateViewLike | null | undefined,
     ballOnGround: boolean,
     rosterCtrl: ExperimentalMultiBotsRosterController,
     replayCtrl: ExperimentalMultiBotsReplayController
@@ -579,6 +549,19 @@ export class ExperimentalMultiBotsMatchLifecycleController {
         overtimeSeconds: this.isOvertime ? this.remainingSec : 0, matchPhase: 'playing',
       });
     }
+  }
+
+  stepPostFrameLifecycle(
+    currentTick: number, bView: BallStateViewLike | null | undefined, ballOnGround: boolean,
+    goalEval: GoalScoredEvaluation, rosterCtrl: ExperimentalMultiBotsRosterController,
+    replayCtrl: ExperimentalMultiBotsReplayController
+  ): void {
+    if (this.stepPostGoalResetCountdown(rosterCtrl, replayCtrl)) return;
+    if (goalEval.scored && bView) {
+      this.recordGoalScored(goalEval, bView, currentTick, rosterCtrl, replayCtrl);
+      return;
+    }
+    this.stepPlayingClock(currentTick, bView, ballOnGround, rosterCtrl, replayCtrl);
   }
 }
 

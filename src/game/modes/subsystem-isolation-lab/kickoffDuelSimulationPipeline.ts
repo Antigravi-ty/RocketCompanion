@@ -3,6 +3,7 @@ import {
   ExperimentalBotAgent,
   ensureExperimentalEngine,
 } from '../../../ai/experimental/ExperimentalBotAgent.ts';
+import type { CarControls } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
 import { loadExperimentalPolicySafeTensors } from '../../../ai/experimental/SafeTensorsLoader.ts';
 import {
   KickoffPPOAgent,
@@ -14,6 +15,14 @@ import {
   classifyBallOutcome,
   formatDiscreteActionKeys,
 } from '../../../ai/KickoffV2SafeTensorsAgent.ts';
+import type {
+  ArenaBoostPadDescriptor,
+  CarControlsInput,
+} from '../../../physics/RocketSimSnapshotSerializer.ts';
+import type {
+  BallStateView,
+  CarStateView,
+} from '../../../physics/RocketSimStateViews.ts';
 import {
   KICKOFF_DUEL_MODELS,
   KICKOFF_DUEL_PAIRINGS,
@@ -27,10 +36,26 @@ export {
   classifyBallOutcome,
 };
 
-export const DUEL_ACTIVE_CARS = Object.freeze([
+export const DUEL_ACTIVE_CARS: Array<{ carIndex: number; team: number }> = [
   { carIndex: 0, team: 0 },
   { carIndex: 1, team: 1 },
-]);
+];
+
+export interface KickoffSimulationEnginePort {
+  numCars: number;
+  state: Float32Array;
+  addCar: (team: number, hitboxType?: string) => number;
+  removeCar?: (carIndex: number) => boolean | void;
+  setUnlimitedBoost: (enabled: boolean) => void;
+  resetKickoffAtSpawn: (spawnIndex: number, settleTicks?: number) => void;
+  getCarState: (carIndex: number) => Float32Array;
+  setCarState: (carIndex: number, carState: Float32Array) => boolean | void;
+  getCarStateView: (carIndex?: number) => CarStateView;
+  getBallStateView: () => BallStateView;
+  setControls: (carIndex: number, controls?: CarControlsInput | null) => void;
+  getPads: () => ArenaBoostPadDescriptor[];
+  step: (ticks?: number) => void;
+}
 
 export interface KickoffDuelAgentEnsemble {
   koV2Blue: KickoffV2SafeTensorsAgent;
@@ -39,10 +64,15 @@ export interface KickoffDuelAgentEnsemble {
   koV1Orange: KickoffPPOAgent;
   expBlue: ExperimentalBotAgent;
   expOrange: ExperimentalBotAgent;
-  blueCtrl: Record<string, any>;
-  orangeCtrl: Record<string, any>;
+  blueCtrl: CarControls;
+  orangeCtrl: CarControls;
   blueAct: number[] | null;
   orangeAct: number[] | null;
+}
+
+export interface KickoffCarDecisionOutput {
+  controls: CarControls;
+  nextHelpers: KickoffDuelAgentEnsemble;
 }
 
 export interface KickoffStepTraceEntry {
@@ -94,7 +124,10 @@ export async function ensureKickoffDuelModelsLoaded(
   await Promise.all(tasks);
 }
 
-export function resetSimToKickoffSlotAndSettle(sim: any, slotIndex = 0): void {
+export function resetSimToKickoffSlotAndSettle(
+  sim: KickoffSimulationEnginePort,
+  slotIndex = 0
+): void {
   const slot = KICKOFF_DUEL_SLOTS[slotIndex] || KICKOFF_DUEL_SLOTS[0];
   while (sim.numCars > 2 && typeof sim.removeCar === 'function') {
     sim.removeCar(sim.numCars - 1);
@@ -153,60 +186,102 @@ export function createKickoffDuelHelpers(
   };
 }
 
+export function resetKickoffDuelEnsemble(
+  helpers: KickoffDuelAgentEnsemble
+): KickoffDuelAgentEnsemble {
+  helpers.koV2Blue.reset();
+  helpers.koV2Orange.reset();
+  helpers.koV1Blue.resetTracker();
+  helpers.koV1Orange.resetTracker();
+  helpers.expBlue.reset();
+  helpers.expOrange.reset();
+  return {
+    ...helpers,
+    blueCtrl: { ...DEFAULT_CAR_CONTROLS },
+    orangeCtrl: { ...DEFAULT_CAR_CONTROLS },
+    blueAct: [1, 1, 1, 0, 0, 0],
+    orangeAct: [1, 1, 1, 0, 0, 0],
+  };
+}
+
 export function decideCarControlsForModel(
-  sim: any,
+  sim: KickoffSimulationEnginePort,
   modelId: string,
   carIndex: number,
   team: number,
   tick: number,
   helpers: KickoffDuelAgentEnsemble,
   options: { nextoScripted?: boolean; channelMode?: string } = {}
-): Record<string, any> {
+): KickoffCarDecisionOutput {
   const isOrange = team === 1;
   const teamSign = isOrange ? -1.0 : 1.0;
   const nextoScriptedKickoff = Boolean(options.nextoScripted);
   const channelMode = options.channelMode || 'keyboard_coupled';
 
+  let blueCtrl = helpers.blueCtrl;
+  let orangeCtrl = helpers.orangeCtrl;
+  let blueAct = helpers.blueAct;
+  let orangeAct = helpers.orangeAct;
+
   if (modelId === 'ko_v2') {
     const agent = carIndex === 0 ? helpers.koV2Blue : helpers.koV2Orange;
-    (agent as any).channelMode = channelMode;
+    agent.channelMode = channelMode;
     if (tick % 4 === 0) {
       const rawCtrl = agent.actDeterministic(sim, carIndex, isOrange);
       if (carIndex === 0) {
-        helpers.blueCtrl = rawCtrl;
-        helpers.blueAct = [...(agent as any).act];
+        blueCtrl = rawCtrl;
+        blueAct = [...agent.act];
       } else {
-        helpers.orangeCtrl = rawCtrl;
-        helpers.orangeAct = [...(agent as any).act];
+        orangeCtrl = rawCtrl;
+        orangeAct = [...agent.act];
       }
     }
-    const raw = carIndex === 0 ? helpers.blueCtrl : helpers.orangeCtrl;
-    return agent.sanitizeAndRecordTickControls(sim, carIndex, raw);
+    const raw = carIndex === 0 ? blueCtrl : orangeCtrl;
+    const sanitized = agent.sanitizeAndRecordTickControls(sim, carIndex, raw);
+    return {
+      controls: sanitized,
+      nextHelpers: {
+        ...helpers,
+        blueCtrl,
+        orangeCtrl,
+        blueAct,
+        orangeAct,
+      },
+    };
   }
 
   if (modelId === 'ko_v1') {
     const agent = carIndex === 0 ? helpers.koV1Blue : helpers.koV1Orange;
     if (tick % 4 === 0) {
-      const obs = agent.buildObsV3(sim, carIndex, (agent as any).obsBuffer, teamSign);
+      const obs = agent.buildObsV3(sim, carIndex, agent.obsBuffer, teamSign);
       const act = agent.actDeterministic(obs);
       const ctrl = multiDiscreteToControls(act);
       if (carIndex === 0) {
-        helpers.blueCtrl = ctrl;
-        helpers.blueAct = [...act];
+        blueCtrl = ctrl;
+        blueAct = [...act];
       } else {
-        helpers.orangeCtrl = ctrl;
-        helpers.orangeAct = [...act];
+        orangeCtrl = ctrl;
+        orangeAct = [...act];
       }
     }
-    const ctrl = carIndex === 0 ? helpers.blueCtrl : helpers.orangeCtrl;
+    const ctrl = carIndex === 0 ? blueCtrl : orangeCtrl;
     const cv = sim.getCarStateView(carIndex);
-    (agent as any).tracker.stepTick(Boolean(ctrl.jump), Boolean(cv.isOnGround));
-    return ctrl;
+    agent.tracker.stepTick(Boolean(ctrl.jump), Boolean(cv.isOnGround));
+    return {
+      controls: ctrl,
+      nextHelpers: {
+        ...helpers,
+        blueCtrl,
+        orangeCtrl,
+        blueAct,
+        orangeAct,
+      },
+    };
   }
 
   if (modelId === 'nexto' || modelId === 'necto') {
     const bot = carIndex === 0 ? helpers.expBlue : helpers.expOrange;
-    if ((bot as any).botType !== modelId) {
+    if (bot.botType !== modelId) {
       bot.setBotType(modelId);
     }
     const kickoffStepArg = modelId === 'nexto' && nextoScriptedKickoff ? tick : 999;
@@ -214,30 +289,43 @@ export function decideCarControlsForModel(
       const ctrl = bot.decideSync(
         sim.state,
         sim.getPads(),
-        DUEL_ACTIVE_CARS as any,
+        DUEL_ACTIVE_CARS,
         kickoffStepArg
       );
       if (carIndex === 0) {
-        helpers.blueCtrl = ctrl;
-        helpers.blueAct = null;
+        blueCtrl = ctrl;
+        blueAct = null;
       } else {
-        helpers.orangeCtrl = ctrl;
-        helpers.orangeAct = null;
+        orangeCtrl = ctrl;
+        orangeAct = null;
       }
     }
-    return carIndex === 0 ? helpers.blueCtrl : helpers.orangeCtrl;
+    const ctrl = carIndex === 0 ? blueCtrl : orangeCtrl;
+    return {
+      controls: ctrl,
+      nextHelpers: {
+        ...helpers,
+        blueCtrl,
+        orangeCtrl,
+        blueAct,
+        orangeAct,
+      },
+    };
   }
 
-  return { ...DEFAULT_CAR_CONTROLS };
+  return {
+    controls: { ...DEFAULT_CAR_CONTROLS },
+    nextHelpers: helpers,
+  };
 }
 
 export function buildCarStepTraceEntry(
-  sim: any,
+  sim: KickoffSimulationEnginePort,
   modelId: string,
   carIndex: number,
   tick: number,
   helpers: KickoffDuelAgentEnsemble,
-  ctrl: Record<string, any>
+  ctrl: CarControls
 ): KickoffStepTraceEntry {
   const cs = sim.getCarStateView(carIndex);
   const bs = sim.getBallStateView();
@@ -247,7 +335,7 @@ export function buildCarStepTraceEntry(
   const ko2Agent = carIndex === 0 ? helpers.koV2Blue : helpers.koV2Orange;
   const prevAct0 =
     modelId === 'ko_v2'
-      ? Number(((ko2Agent as any).prevActionVec[0] ?? 0).toFixed(3))
+      ? Number((ko2Agent.prevActionVec[0] ?? 0).toFixed(3))
       : Number((cs.isOnGround ? ctrl.throttle : -ctrl.pitch).toFixed(3));
 
   return {

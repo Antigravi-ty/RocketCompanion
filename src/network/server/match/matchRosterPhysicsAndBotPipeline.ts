@@ -20,15 +20,46 @@ import {
   MATCH_STATES,
   resolveTeamMatchedColorSlot,
   resolveColorHexForSlot,
-  computeNormalizedTeamSpawnSlots,
   type MatchPlayerSlot,
+  type DisconnectedPlayerSlot,
+  type PlayerLoadoutOptions,
 } from './matchLoadoutAndSpawnPipeline.ts';
 
+export interface RosterPhysicsSimPort {
+  removeCar?: (carIndex: number) => void;
+  isCarSlotActive?: (carIndex: number) => boolean;
+  getCarState?: (carIndex: number) => unknown;
+  setCarState?: (carIndex: number, state: Float32Array) => void;
+  setCarTeam?: (carIndex: number, team: number) => void;
+}
+
+export interface RosterPhysicsManagerPort {
+  activeCarIndices: Iterable<number>;
+  sim?: RosterPhysicsSimPort | null;
+  lobbyGhostCoordinator?: { lobbyModeActive?: boolean } | null;
+  registerCarEntity: (entityId: number, team: number, hitboxOrVisual: string) => void;
+  unregisterCarEntity: (entityId: number) => void;
+  applySignal: (type: string, payload: Record<string, unknown>) => void;
+  syncLobbyGhostMasks?: () => void;
+}
+
+export interface RosterSessionPort {
+  getSession?: (sessionId: string) => {
+    team?: number;
+    playerName?: string;
+    deferPhysicsRegistration?: boolean;
+  } | null | undefined;
+  registerSession: (sessionId: string, config: Record<string, unknown>) => void;
+  unregisterSession?: (sessionId: string) => void;
+}
+
+export type SignalDispatchFn = (type: number, frame: number, p1?: number, p2?: number) => unknown;
+
 export function rollTeamBotLoadout(
-  botsLoadoutConfig: any,
+  botsLoadoutConfig: Record<string, unknown> | null | undefined,
   players: Iterable<MatchPlayerSlot>,
   team = 0
-): Record<string, any> {
+): PlayerLoadoutOptions {
   const teamNum = team === 1 ? 1 : 0;
   const usedColorSlots = new Set<number>();
   for (const p of players) {
@@ -36,7 +67,7 @@ export function rollTeamBotLoadout(
       usedColorSlots.add(p.colorSlot);
     }
   }
-  return rollRandomBotLoadout(botsLoadoutConfig, teamNum, usedColorSlots);
+  return rollRandomBotLoadout(botsLoadoutConfig as never, teamNum, usedColorSlots) as PlayerLoadoutOptions;
 }
 
 export function buildSpawnPresetCarState(
@@ -70,8 +101,8 @@ export function buildSpawnPresetCarState(
 
 export function syncRosterCarsWithPhysicsEngine(params: {
   players: Map<string, MatchPlayerSlot>;
-  physicsManager: any;
-  sessionManager: any;
+  physicsManager: RosterPhysicsManagerPort | null | undefined;
+  sessionManager: RosterSessionPort | null | undefined;
   lobbyPhysicsActive: boolean;
 }): void {
   const { players, physicsManager, sessionManager, lobbyPhysicsActive } = params;
@@ -92,7 +123,7 @@ export function syncRosterCarsWithPhysicsEngine(params: {
   }
 
   if (!lobbyPhysicsActive) {
-    for (const activeIdx of Array.from(physicsManager.activeCarIndices as Iterable<number>)) {
+    for (const activeIdx of Array.from(physicsManager.activeCarIndices)) {
       if (!rosterEntityIds.has(activeIdx)) {
         physicsManager.unregisterCarEntity(activeIdx);
       }
@@ -117,9 +148,9 @@ export function registerAssignedPlayerWithSessionAndPhysics(params: {
   lobbyMode: boolean;
   isTrainingMode: boolean;
   matchTick: number;
-  sessionManager: any;
-  physicsManager: any;
-  dispatchSignal: (type: number, frame: number, p1?: number, p2?: number) => any;
+  sessionManager: RosterSessionPort | null | undefined;
+  physicsManager: RosterPhysicsManagerPort | null | undefined;
+  dispatchSignal: SignalDispatchFn;
 }): void {
   const {
     sessionId,
@@ -160,7 +191,7 @@ export function registerAssignedPlayerWithSessionAndPhysics(params: {
         boostAmount
       );
       if (carState) {
-        physicsManager.sim.setCarState(playerInfo.entityId, carState);
+        physicsManager.sim.setCarState?.(playerInfo.entityId, carState);
       }
     }
     if (state === MATCH_STATES.LOBBY && physicsManager.lobbyGhostCoordinator?.lobbyModeActive) {
@@ -186,17 +217,15 @@ export function registerAssignedPlayerWithSessionAndPhysics(params: {
   );
 }
 
-export function applyLobbyExistingPlayerTeamSwitch(params: {
+export function resolveLobbyExistingPlayerTeamSwitchPatch(params: {
   sessionId: string;
   existing: MatchPlayerSlot;
   preferredTeam: number;
   requestedColorSlot?: number | null;
   players: Map<string, MatchPlayerSlot>;
-  sessionManager: any;
-  physicsManager: any;
-  matchTick: number;
-  dispatchSignal: (type: number, frame: number, p1?: number, p2?: number) => any;
-}): void {
+  sessionManager: RosterSessionPort | null | undefined;
+  physicsManager: RosterPhysicsManagerPort | null | undefined;
+}): Partial<MatchPlayerSlot> {
   const {
     sessionId,
     existing,
@@ -205,8 +234,6 @@ export function applyLobbyExistingPlayerTeamSwitch(params: {
     players,
     sessionManager,
     physicsManager,
-    matchTick,
-    dispatchSignal,
   } = params;
   const occupiedTargetSlots = new Set<number>();
   for (const [sid, p] of players.entries()) {
@@ -218,32 +245,26 @@ export function applyLobbyExistingPlayerTeamSwitch(params: {
   while (occupiedTargetSlots.has(nextSpawnSlot) && nextSpawnSlot < KICKOFF_SPAWN_PRESETS.length) {
     nextSpawnSlot++;
   }
-  existing.team = preferredTeam;
-  existing.spawnSlot = nextSpawnSlot % KICKOFF_SPAWN_PRESETS.length;
-  existing.colorSlot = resolveTeamMatchedColorSlot(
+  const resolvedColorSlot = resolveTeamMatchedColorSlot(
     requestedColorSlot ?? existing.colorSlot,
-    existing.team,
+    preferredTeam,
     existing.blueColorSlot,
     existing.orangeColorSlot
   );
-  existing.colorHex = resolveColorHexForSlot(existing.colorSlot, existing.team);
-  const s = sessionManager?.getSession(sessionId);
+  const s = sessionManager?.getSession?.(sessionId);
   if (s) s.team = preferredTeam;
   if (physicsManager?.sim && typeof existing.entityId === 'number' && existing.entityId >= 0) {
     physicsManager.sim.setCarTeam?.(existing.entityId, preferredTeam);
   }
-  computeNormalizedTeamSpawnSlots(players.values());
-  if (typeof existing.entityId === 'number' && existing.entityId >= 0) {
-    dispatchSignal(
-      MATCH_SIGNALS.PLAYER_SLOT_UPDATED,
-      matchTick,
-      existing.entityId,
-      existing.team
-    );
-  }
+  return {
+    team: preferredTeam,
+    spawnSlot: nextSpawnSlot % KICKOFF_SPAWN_PRESETS.length,
+    colorSlot: resolvedColorSlot,
+    colorHex: resolveColorHexForSlot(resolvedColorSlot, preferredTeam),
+  };
 }
 
-export function applyInPlacePlayerTeamSwitch(params: {
+export function resolveInPlacePlayerTeamSwitchPatch(params: {
   sessionId: string;
   currentPlayer: MatchPlayerSlot;
   targetTeam: number;
@@ -251,10 +272,10 @@ export function applyInPlacePlayerTeamSwitch(params: {
   state: string;
   isTrainingMode: boolean;
   matchTick: number;
-  sessionManager: any;
-  physicsManager: any;
-  dispatchSignal: (type: number, frame: number, p1?: number, p2?: number) => any;
-}): MatchPlayerSlot {
+  sessionManager: RosterSessionPort | null | undefined;
+  physicsManager: RosterPhysicsManagerPort | null | undefined;
+  dispatchSignal: SignalDispatchFn;
+}): Partial<MatchPlayerSlot> {
   const {
     sessionId,
     currentPlayer,
@@ -279,20 +300,23 @@ export function applyInPlacePlayerTeamSwitch(params: {
   while (occupiedTargetSlots.has(spawnSlot) && spawnSlot < KICKOFF_SPAWN_PRESETS.length) {
     spawnSlot++;
   }
-  currentPlayer.team = targetTeam;
-  currentPlayer.preferredTeam = targetTeam;
-  currentPlayer.spawnSlot = spawnSlot;
+  let resolvedColorSlot = currentPlayer.colorSlot;
+  const patch: Partial<MatchPlayerSlot> = {
+    team: targetTeam,
+    preferredTeam: targetTeam,
+    spawnSlot,
+  };
   if (targetTeam === 0 || targetTeam === 1) {
-    const nextColorSlot = resolveTeamMatchedColorSlot(
+    resolvedColorSlot = resolveTeamMatchedColorSlot(
       null,
       targetTeam,
       currentPlayer.blueColorSlot,
       currentPlayer.orangeColorSlot
     );
-    currentPlayer.colorSlot = nextColorSlot;
-    currentPlayer.colorHex = resolveColorHexForSlot(nextColorSlot, targetTeam);
+    patch.colorSlot = resolvedColorSlot;
+    patch.colorHex = resolveColorHexForSlot(resolvedColorSlot, targetTeam);
   }
-  const s = sessionManager?.getSession(sessionId);
+  const s = sessionManager?.getSession?.(sessionId);
   if (s) s.team = targetTeam;
 
   if (
@@ -319,7 +343,7 @@ export function applyInPlacePlayerTeamSwitch(params: {
     currentPlayer.entityId,
     packLoadoutSignalParam2(
       currentPlayer.visualIndex ?? encodeVisualIdIndex(currentPlayer.visualId || 'octane'),
-      currentPlayer.colorSlot,
+      resolvedColorSlot,
       currentPlayer.hitboxIndex ??
         resolveHitboxIndex(currentPlayer.hitboxId || currentPlayer.visualId || 'octane'),
       {
@@ -329,24 +353,24 @@ export function applyInPlacePlayerTeamSwitch(params: {
       }
     )
   );
-  return currentPlayer;
+  return patch;
 }
 
 export function executeBotFillPolicyOnRoster(params: {
   players: Map<string, MatchPlayerSlot>;
   botFillMode: string;
   maxPlayers: number;
-  botsLoadoutConfig: any;
+  botsLoadoutConfig: Record<string, unknown> | null | undefined;
   removePlayerSession: (sid: string) => void;
-  switchPlayerRoleOrTeam: (sid: string, role: string, team: number) => any;
+  switchPlayerRoleOrTeam: (sid: string, role: string, team: number) => unknown;
   assignPlayerSlot: (
     sid: string,
     name: string,
     role: string,
     team: number,
-    loadout: any,
-    colorSlot: any
-  ) => any;
+    loadout: PlayerLoadoutOptions,
+    colorSlot: number | null | undefined
+  ) => unknown;
 }): void {
   const {
     players,
@@ -442,11 +466,11 @@ export function executeBotFillPolicyOnRoster(params: {
 }
 
 export function popReclaimedPlayerSlotCandidate(
-  disconnectedPlayerSlots: Map<number, any>,
+  disconnectedPlayerSlots: Map<number, DisconnectedPlayerSlot>,
   players: Iterable<MatchPlayerSlot>,
   requestedEntityId: number
-): { reclaimed: any | null; entityId: number } {
-  let reclaimed: any | null = null;
+): { reclaimed: DisconnectedPlayerSlot | null; entityId: number } {
+  let reclaimed: DisconnectedPlayerSlot | null = null;
   if (disconnectedPlayerSlots.size > 0) {
     if (
       typeof requestedEntityId === 'number' &&

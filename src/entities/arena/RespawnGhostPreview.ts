@@ -7,7 +7,7 @@
  */
 
 import * as THREE from 'three';
-import { buildVehicleModel, buildVehicleWheels } from './VehicleFactory.ts';
+import { buildVehicleModel, buildVehicleWheels, type VehicleAssetStore } from './VehicleFactory.ts';
 import { getWheelSpecsForVisual, updateCarSuspensionAndSteering } from '../VehicleSuspensionSystem.ts';
 import { getDesiredRespawnPose } from '../../physics/RocketSimConstants.ts';
 import { hasVehicleDescriptor } from '../../ui-core/config/vehicleTunerConfig';
@@ -33,26 +33,64 @@ export function applyRespawnPoseToObject3D(targetObj, pose, basisFwd, basisRight
   targetObj.quaternion.setFromRotationMatrix(basisMatrix);
 }
 
-export class RespawnGhostPreview {
-  public wheelSpecs: any;
-  public _basisFwd: any;
-  public _basisMatrix: any;
-  public _basisRight: any;
-  public _basisUp: any;
-  public _dummyGroundView: any;
-  public activeTeam: any;
-  public arena: any;
-  public builtHasCustomAsset: any;
-  public builtVisual: any;
-  public lineMaterials: any;
-  public materials: any;
-  public root: any;
-  public scene: any;
-  public suspension: any;
-  public wheelSpin: any;
-  public wheels: any;
+export interface DummyGroundCarView {
+  isOnGround: boolean;
+  forwardSpeed: number;
+  steer: number;
+  getWheelContact: () => boolean;
+  getWheelSusLength: () => number;
+  getWheelSteerAngle: () => number;
+  getWheelSteerYaw: () => number;
+}
 
-  constructor(arena) {
+export interface RespawnGhostWheelGroupList extends Array<{ steer: THREE.Group; spin: THREE.Group }> {
+  threeWheels?: boolean;
+}
+
+export interface RespawnGhostArenaPort {
+  scene?: THREE.Scene | null;
+  vehicleRegistry?: {
+    _ensureAsyncCustomAsset?: (visual: string, carIndex: number) => void;
+    assets?: VehicleAssetStore;
+    carLoaders?: {
+      wheelSpecs?: { game?: number[][] };
+      [key: string]: unknown;
+    };
+    customVehicleAssets?: Map<string, unknown>;
+    carWheels?: Array<{ threeWheels?: boolean } | null>;
+  } | null;
+  playerCarIndex?: number;
+  carHitboxesVisible?: boolean;
+  markRenderTreeChanged?: () => void;
+  isGoalReplayActive?: boolean;
+  _headerView: { attach: (state: Float32Array) => { numCars: number } };
+  _currCarView: { attachCar: (state: Float32Array, index: number) => { demoSpawnSelection: number; isDemoed: boolean } };
+  vehiclePresets?: Array<string | null>;
+  carVisual?: string;
+  vehiclePreset?: string;
+  carTeams?: number[];
+}
+
+export class RespawnGhostPreview {
+  public wheelSpecs: number[][];
+  public _basisFwd: THREE.Vector3;
+  public _basisMatrix: THREE.Matrix4;
+  public _basisRight: THREE.Vector3;
+  public _basisUp: THREE.Vector3;
+  public _dummyGroundView: DummyGroundCarView;
+  public activeTeam: number;
+  public arena: RespawnGhostArenaPort | null;
+  public builtHasCustomAsset: boolean;
+  public builtVisual: string | null;
+  public lineMaterials: THREE.LineBasicMaterial[];
+  public materials: THREE.MeshStandardMaterial[];
+  public root: THREE.Group | null;
+  public scene: THREE.Scene | null;
+  public suspension: number[];
+  public wheelSpin: number[];
+  public wheels: RespawnGhostWheelGroupList;
+
+  constructor(arena: RespawnGhostArenaPort | null) {
     this.arena = arena;
     this.scene = arena?.scene || null;
     this.root = null;

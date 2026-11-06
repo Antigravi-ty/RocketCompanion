@@ -15,7 +15,12 @@ import {
   DEFAULT_CAR_CONTROLS,
 } from '../../ai/experimental/ExperimentalBotAgent.ts';
 import { BallStateView, CarStateView } from '../../physics/RocketSimStateViews.ts';
-import { InputPacketCodec } from '../protocol/InputPacketCodec.ts';
+import {
+  InputPacketCodec,
+  type CarControlsInput,
+  type ClientCommandEntry,
+  type SignalAckEntry,
+} from '../protocol/InputPacketCodec.ts';
 
 export interface BoostPadCoordSpec {
   readonly pos: readonly [number, number, number];
@@ -28,8 +33,8 @@ export interface BotSessionStepSpec {
   entityId?: number;
   team?: number;
   botType?: string;
-  acks?: any[];
-  commands?: any[];
+  acks?: SignalAckEntry[];
+  commands?: ClientCommandEntry[];
 }
 
 export interface ActiveCarTopologyEntry {
@@ -54,16 +59,130 @@ export interface BotTunnelEncodedPacket {
   packetBytes: Uint8Array;
 }
 
-interface BotAgentRuntimeRecord {
-  agent: any;
-  kickoffStep: number;
-  staggered: boolean;
-  lastServerTick: number;
-  maxCommittedTick: number;
-  committedControls: Map<number, any>;
+class BotAgentRuntimeRecord {
+  readonly agent: ExperimentalBotAgent;
+  kickoffStep = 0;
+  staggered = false;
+  lastServerTick = -1;
+  maxCommittedTick = -1;
+  readonly committedControls = new Map<number, CarControlsInput>();
+
+  constructor(botType: string, carIndex: number, team: 0 | 1) {
+    this.agent = new ExperimentalBotAgent(botType, carIndex, team);
+    ensureExperimentalEngine(botType);
+  }
+
+  syncIdentity(carIndex: number, team: 0 | 1, botType: string): void {
+    this.agent.carIndex = carIndex;
+    this.agent.team = team;
+    if (this.agent.botType !== botType) {
+      this.agent.setBotType(botType);
+    }
+  }
+
+  stepSessionHistory(
+    stateSnapshot: Float32Array,
+    serverTick: number,
+    matchState: string,
+    carIndex: number,
+    isPrimaryKickoffCar: boolean,
+    pads: readonly BoostPadCoordSpec[],
+    activeCars: ActiveCarTopologyEntry[],
+    redundantTicks: number
+  ): {
+    targetTick: number;
+    history: Array<{ tick: number; carIndex: number; controls: CarControlsInput }>;
+  } {
+    if (
+      matchState !== 'playing' ||
+      this.maxCommittedTick < serverTick - 16 ||
+      this.maxCommittedTick > serverTick + 16
+    ) {
+      this.maxCommittedTick = serverTick - 1;
+      this.committedControls.clear();
+    }
+
+    const deltaTicks =
+      this.lastServerTick >= 0 && serverTick > this.lastServerTick
+        ? Math.min(16, serverTick - this.lastServerTick)
+        : 1;
+    this.lastServerTick = serverTick;
+
+    let ctrl: CarControlsInput = DEFAULT_CAR_CONTROLS;
+    const baseKickoffStep = this.kickoffStep;
+
+    if (matchState !== 'playing') {
+      this.kickoffStep = 0;
+      this.staggered = false;
+      this.agent.reset();
+      ctrl = DEFAULT_CAR_CONTROLS;
+    } else {
+      const ko = this.agent.getKickoffControls(
+        stateSnapshot,
+        baseKickoffStep,
+        isPrimaryKickoffCar
+      );
+      if (ko) {
+        ctrl = ko as CarControlsInput;
+        this.agent.overrideControls(ko);
+      } else if (this.agent.tickSkipCounter <= 0) {
+        ctrl = this.agent.decideSync(
+          stateSnapshot,
+          pads as BoostPadCoordSpec[],
+          activeCars
+        ) as CarControlsInput;
+        this.agent.tickSkipCounter = this.staggered
+          ? Math.max(0, this.agent.tickSkip - deltaTicks)
+          : (carIndex % this.agent.tickSkip) + 1;
+        this.staggered = true;
+      } else {
+        this.agent.tickSkipCounter = Math.max(0, this.agent.tickSkipCounter - deltaTicks);
+        ctrl = this.agent.action as CarControlsInput;
+      }
+      this.kickoffStep += deltaTicks;
+    }
+
+    const horizonTicks = Math.max(2, Math.min(8, Number(redundantTicks) || 6));
+    const targetTick = serverTick + horizonTicks;
+    const startCommitTick = Math.max(serverTick, this.maxCommittedTick + 1);
+    for (let t = startCommitTick; t <= targetTick; t++) {
+      let tickCtrl: CarControlsInput = ctrl || DEFAULT_CAR_CONTROLS;
+      const k = t - serverTick;
+      if (matchState === 'playing' && baseKickoffStep + k < 168) {
+        const koTick = this.agent.getKickoffControls(
+          stateSnapshot,
+          baseKickoffStep + k,
+          isPrimaryKickoffCar
+        );
+        if (koTick) {
+          tickCtrl = koTick as CarControlsInput;
+        }
+      }
+      this.committedControls.set(t, { ...tickCtrl });
+      this.maxCommittedTick = t;
+    }
+
+    for (const oldTick of this.committedControls.keys()) {
+      if (oldTick < serverTick - 4) {
+        this.committedControls.delete(oldTick);
+      }
+    }
+
+    const history: Array<{ tick: number; carIndex: number; controls: CarControlsInput }> = [];
+    for (let t = serverTick; t <= targetTick; t++) {
+      const committed = this.committedControls.get(t) || ctrl || DEFAULT_CAR_CONTROLS;
+      history.push({
+        tick: t,
+        carIndex,
+        controls: committed,
+      });
+    }
+
+    return { targetTick, history };
+  }
 }
 
-const DEFAULT_SOCCAR_BOOST_PADS: readonly BoostPadCoordSpec[] = Object.freeze([
+const DEFAULT_ARENA_BOOST_PADS: readonly BoostPadCoordSpec[] = Object.freeze([
   { pos: [-3584, 0, 73], isBig: true },
   { pos: [3584, 0, 73], isBig: true },
   { pos: [-3072, 4096, 73], isBig: true },
@@ -103,13 +222,16 @@ const DEFAULT_SOCCAR_BOOST_PADS: readonly BoostPadCoordSpec[] = Object.freeze([
 const botAgents = new Map<string, BotAgentRuntimeRecord>();
 const sBallView = new BallStateView();
 const sCarView = new CarStateView();
-let cachedPads: readonly BoostPadCoordSpec[] = DEFAULT_SOCCAR_BOOST_PADS;
+let cachedPads: readonly BoostPadCoordSpec[] = DEFAULT_ARENA_BOOST_PADS;
 let directServerPort: MessagePort | null = null;
 
-function postWorkerMessage(msg: any, transfer: Transferable[] = []): void {
+function postWorkerMessage(msg: Record<string, unknown>, transfer: Transferable[] = []): void {
   if (typeof self !== 'undefined' && typeof self.postMessage === 'function') {
     if (transfer && transfer.length > 0) {
-      (self as any).postMessage(msg, transfer);
+      (self as unknown as { postMessage(m: unknown, t: Transferable[]): void }).postMessage(
+        msg,
+        transfer
+      );
     } else {
       self.postMessage(msg);
     }
@@ -178,106 +300,23 @@ export function stepBotInferenceBatch(
 
     let record = botAgents.get(sid);
     if (!record) {
-      const agent = new ExperimentalBotAgent(botType, carIndex, team);
-      ensureExperimentalEngine(botType);
-      record = {
-        agent,
-        kickoffStep: 0,
-        staggered: false,
-        lastServerTick: -1,
-        maxCommittedTick: -1,
-        committedControls: new Map(),
-      };
+      record = new BotAgentRuntimeRecord(botType, carIndex, team);
       botAgents.set(sid, record);
     } else {
-      record.agent.carIndex = carIndex;
-      record.agent.team = team;
-      if (record.agent.botType !== botType) {
-        record.agent.setBotType(botType);
-      }
+      record.syncIdentity(carIndex, team, botType);
     }
 
-    if (
-      matchState !== 'playing' ||
-      record.maxCommittedTick < serverTick - 16 ||
-      record.maxCommittedTick > serverTick + 16
-    ) {
-      record.maxCommittedTick = serverTick - 1;
-      record.committedControls.clear();
-    }
-
-    const deltaTicks =
-      record.lastServerTick >= 0 && serverTick > record.lastServerTick
-        ? Math.min(16, serverTick - record.lastServerTick)
-        : 1;
-    record.lastServerTick = serverTick;
-
-    let ctrl = DEFAULT_CAR_CONTROLS;
     const isPrimaryKickoffCar = closestCarPerTeam[team] === carIndex;
-    const baseKickoffStep = record.kickoffStep;
-
-    if (matchState !== 'playing') {
-      record.kickoffStep = 0;
-      record.staggered = false;
-      record.agent.reset();
-      ctrl = DEFAULT_CAR_CONTROLS;
-    } else {
-      const ko = record.agent.getKickoffControls(
-        stateSnapshot,
-        baseKickoffStep,
-        isPrimaryKickoffCar
-      );
-      if (ko) {
-        ctrl = ko;
-        record.agent.overrideControls(ko);
-      } else if (record.agent.tickSkipCounter <= 0) {
-        ctrl = record.agent.decideSync(stateSnapshot, cachedPads, activeCars);
-        record.agent.tickSkipCounter = record.staggered
-          ? Math.max(0, record.agent.tickSkip - deltaTicks)
-          : (carIndex % record.agent.tickSkip) + 1;
-        record.staggered = true;
-      } else {
-        record.agent.tickSkipCounter = Math.max(0, record.agent.tickSkipCounter - deltaTicks);
-        ctrl = record.agent.action;
-      }
-      record.kickoffStep += deltaTicks;
-    }
-
-    const horizonTicks = Math.max(2, Math.min(8, Number(redundantTicks) || 6));
-    const targetTick = serverTick + horizonTicks;
-    const startCommitTick = Math.max(serverTick, record.maxCommittedTick + 1);
-    for (let t = startCommitTick; t <= targetTick; t++) {
-      let tickCtrl = ctrl || DEFAULT_CAR_CONTROLS;
-      const k = t - serverTick;
-      if (matchState === 'playing' && baseKickoffStep + k < 168) {
-        const koTick = record.agent.getKickoffControls(
-          stateSnapshot,
-          baseKickoffStep + k,
-          isPrimaryKickoffCar
-        );
-        if (koTick) {
-          tickCtrl = koTick;
-        }
-      }
-      record.committedControls.set(t, { ...tickCtrl });
-      record.maxCommittedTick = t;
-    }
-
-    for (const oldTick of record.committedControls.keys()) {
-      if (oldTick < serverTick - 4) {
-        record.committedControls.delete(oldTick);
-      }
-    }
-
-    const history: Array<{ tick: number; carIndex: number; controls: any }> = [];
-    for (let t = serverTick; t <= targetTick; t++) {
-      const committed = record.committedControls.get(t) || ctrl || DEFAULT_CAR_CONTROLS;
-      history.push({
-        tick: t,
-        carIndex,
-        controls: committed,
-      });
-    }
+    const { targetTick, history } = record.stepSessionHistory(
+      stateSnapshot,
+      serverTick,
+      matchState,
+      carIndex,
+      isPrimaryKickoffCar,
+      cachedPads,
+      activeCars,
+      redundantTicks
+    );
 
     const packetBytes = InputPacketCodec.encode(
       carIndex,
@@ -298,11 +337,23 @@ export function stepBotInferenceBatch(
   return packets;
 }
 
+export interface BotWorkerMessageData extends BotInferenceBatchPayload {
+  type?: string;
+  botType?: string;
+  port?: MessagePort | null;
+}
+
 export async function handleBotWorkerMessage(
-  eventOrData: any,
-  customEmit: ((msg: any, transfer?: Transferable[]) => void) | null = null
+  eventOrData:
+    | { data?: BotWorkerMessageData; ports?: readonly MessagePort[] }
+    | BotWorkerMessageData
+    | null
+    | undefined,
+  customEmit: ((msg: Record<string, unknown>, transfer?: Transferable[]) => void) | null = null
 ): Promise<void> {
-  const data = eventOrData?.data !== undefined ? eventOrData.data : eventOrData || {};
+  const raw = eventOrData as { data?: BotWorkerMessageData; ports?: readonly MessagePort[] };
+  const data: BotWorkerMessageData =
+    raw?.data !== undefined ? raw.data : (eventOrData as BotWorkerMessageData) || {};
   const emit = customEmit || postWorkerMessage;
 
   switch (data.type) {
@@ -319,8 +370,8 @@ export async function handleBotWorkerMessage(
       if (Array.isArray(data.pads) && data.pads.length > 0) {
         cachedPads = data.pads;
       }
-      if (data.port || eventOrData?.ports?.[0]) {
-        const port = data.port || eventOrData.ports[0];
+      if (data.port || raw?.ports?.[0]) {
+        const port = data.port || raw.ports![0];
         attachDirectServerPort(port);
       }
       emit({ type: 'initialized', botType });
@@ -335,7 +386,7 @@ export async function handleBotWorkerMessage(
     }
 
     case 'attach_port': {
-      const port = data.port || eventOrData?.ports?.[0];
+      const port = data.port || raw?.ports?.[0];
       if (port) {
         attachDirectServerPort(port);
       }
@@ -381,7 +432,7 @@ function attachDirectServerPort(port: MessagePort | null): void {
     }
   }
   directServerPort = port;
-  const portEmit = (msg: any, transfer: Transferable[] = []) => {
+  const portEmit = (msg: Record<string, unknown>, transfer: Transferable[] = []) => {
     if (!directServerPort) return;
     try {
       if (transfer && transfer.length > 0) {

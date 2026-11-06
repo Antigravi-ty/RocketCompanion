@@ -31,7 +31,7 @@ export interface SpectatorRelayPlan {
 }
 
 export interface CommittedSnapshotItem {
-  packetBuffer: any;
+  packetBuffer: ArrayBuffer | Uint8Array | string;
   serverTick: number;
   receivedAtMs: number;
 }
@@ -162,7 +162,7 @@ export class CommittedFrameDaisyChainBuffer {
   }
 
   enqueueVerifiedSnapshot(
-    packetBuffer: any,
+    packetBuffer: ArrayBuffer | Uint8Array | string,
     serverTick: number,
     receivedAtMs = performance.now()
   ): void {

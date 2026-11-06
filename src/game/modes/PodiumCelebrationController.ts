@@ -18,6 +18,7 @@ import {
   computePodiumFormationSpots,
   applyPodiumFormationToEngine,
   releasePodiumLocksOnEngine,
+  type PodiumCapablePhysicsEngine,
   type PodiumFormationSpot,
 } from '../../replay/podiumFormationPipeline.ts';
 import type { CameraManager } from '../../camera/CameraManager.ts';
@@ -31,7 +32,7 @@ export {
   type PodiumFormationSpot,
 };
 
-export interface PodiumCelebrationControls {
+export type PodiumCelebrationControls = {
   throttle: number;
   steer: number;
   pitch: number;
@@ -40,10 +41,82 @@ export interface PodiumCelebrationControls {
   jump: boolean;
   boost: boolean;
   handbrake: boolean;
+};
+
+export interface PodiumFrameContextPort {
+  dt?: number;
+  activeCar?: number;
 }
 
+export interface PodiumCelebrationRuntimePort {
+  physics?: (PodiumCapablePhysicsEngine & {
+    controlsView?: Float32Array | null;
+    getCarState?: (carIndex: number) => Float32Array | null;
+    setControls?: (carIndex: number, controls: PodiumCelebrationControls) => void;
+    step?: (ticks?: number) => void;
+  }) | null;
+  interpolator?: {
+    currState: Float32Array;
+    prevState: Float32Array;
+    alpha: number;
+    sync?: (timestamp?: number) => void;
+  } | null;
+  arena?: {
+    playerCarIndex?: number;
+    cars?: Array<{ visible: boolean } | null | undefined>;
+    resetBallTrail?: () => void;
+  } | null;
+  authoritativeServer?: {
+    setCarControls?: (carIndex: number, controls: PodiumCelebrationControls) => void;
+    matchAdmin?: unknown;
+  } | null;
+  modeManager?: {
+    modes?: unknown;
+    getActiveMode?: () => {
+      id?: string;
+      rosterController?: {
+        spawnedCars?: Array<{ carIndex?: number; team?: number }>;
+        carControlsMap?: Map<number, PodiumCelebrationControls>;
+      } | null;
+    } | null;
+  } | null;
+  keyboard?: { ballControlEnabled?: boolean; read?: () => PodiumCelebrationControls } | null;
+  gamepad?: { active?: () => boolean; read?: () => PodiumCelebrationControls } | null;
+  botCoordinator?: {
+    isBotMatch: boolean;
+    botControls: PodiumCelebrationControls;
+  } | null;
+  networkReconciler?: {
+    historyBuffer?: {
+      lastRemoteControls?: Map<
+        number,
+        { controls?: PodiumCelebrationControls } & PodiumCelebrationControls
+      >;
+    };
+    sampleAndPredictInput?: (
+      carIndex: number,
+      controls: PodiumCelebrationControls
+    ) => PodiumCelebrationControls | null;
+  } | null;
+  simulationStage?: { resetActionStates?: () => void } | null;
+  playerControls?: PodiumCelebrationControls;
+  playerThrottle?: number;
+  resetAudio?: () => void;
+}
+
+const NEUTRAL_PODIUM_CONTROLS: PodiumCelebrationControls = Object.freeze({
+  throttle: 0,
+  steer: 0,
+  pitch: 0,
+  yaw: 0,
+  roll: 0,
+  jump: false,
+  boost: false,
+  handbrake: false,
+});
+
 export class PodiumCelebrationController {
-  public runtime: any;
+  public runtime: PodiumCelebrationRuntimePort | null;
   public isActive = false;
   public winningTeam = 0;
   public winReason = 'SCORE';
@@ -55,7 +128,7 @@ export class PodiumCelebrationController {
   private readonly _cameraPos = new THREE.Vector3();
   private readonly _cameraLookAt = new THREE.Vector3();
 
-  constructor(runtime: any) {
+  constructor(runtime: PodiumCelebrationRuntimePort | null) {
     this.runtime = runtime;
   }
 
@@ -63,7 +136,9 @@ export class PodiumCelebrationController {
     const r = this.runtime;
     const spawnedCars = r?.modeManager?.getActiveMode?.()?.rosterController?.spawnedCars;
     if (Array.isArray(spawnedCars)) {
-      const entry = spawnedCars.find((c: any) => c.carIndex === carIndex);
+      const entry = spawnedCars.find(
+        (c: { carIndex?: number; team?: number }) => c.carIndex === carIndex
+      );
       if (entry && (entry.team === 0 || entry.team === 1)) {
         return entry.team;
       }
@@ -97,7 +172,7 @@ export class PodiumCelebrationController {
       const numCars = Math.min(r.physics.numCars || 0, 6);
       for (let c = 0; c < numCars; c++) {
         if (r.arena?.cars?.[c]) {
-          r.arena.cars[c].visible = true;
+          r.arena.cars[c]!.visible = true;
         }
       }
     } else {
@@ -117,16 +192,7 @@ export class PodiumCelebrationController {
     const r = this.runtime;
     if (r?.physics) {
       releasePodiumLocksOnEngine(r.physics);
-      const neutral: PodiumCelebrationControls = r.neutralControls || {
-        throttle: 0,
-        steer: 0,
-        pitch: 0,
-        yaw: 0,
-        roll: 0,
-        jump: false,
-        boost: false,
-        handbrake: false,
-      };
+      const neutral: PodiumCelebrationControls = { ...NEUTRAL_PODIUM_CONTROLS };
       const numCars = Math.min(r.physics.numCars || 0, 8);
       for (let c = 0; c < numCars; c++) {
         r.physics.setControls?.(c, neutral);
@@ -136,7 +202,9 @@ export class PodiumCelebrationController {
         r.physics.controlsView.fill(0);
       }
       r.playerControls = { ...neutral };
-      r.botControls = { ...neutral };
+      if (r.botCoordinator) {
+        r.botCoordinator.botControls = { ...neutral };
+      }
       r.playerThrottle = 0;
     }
 
@@ -144,7 +212,7 @@ export class PodiumCelebrationController {
     activeMode?.rosterController?.carControlsMap?.clear?.();
 
     r?.simulationStage?.resetActionStates?.();
-    r?.audioSubsystem?.resetAudio?.();
+    r?.resetAudio?.();
     r?.interpolator?.sync?.();
   }
 
@@ -166,10 +234,11 @@ export class PodiumCelebrationController {
     };
   }
 
-  private _clampPodiumCarsToPedestals(): void {
-    const engine = this.runtime?.physics;
+  private _clampPodiumCarsToPedestals(
+    engine: (PodiumCapablePhysicsEngine & { getCarState?: (c: number) => Float32Array | null }) | null | undefined
+  ): void {
     const spots = this.podiumCarSpots;
-    if (!engine || !spots) return;
+    if (!engine || !spots || typeof engine.getCarState !== 'function') return;
 
     const numCars = Math.min(engine.numCars || 0, 6);
     for (let c = 0; c < numCars; c++) {
@@ -192,26 +261,26 @@ export class PodiumCelebrationController {
           carSlice[2] = 165.0;
           if (vz > 0) carSlice[14] = 0.0;
         }
-        engine.setCarState(c, carSlice);
+        engine.setCarState?.(c, carSlice);
       }
     }
   }
 
-  public update(context: any): void {
+  public update(context?: PodiumFrameContextPort | null): void {
     const r = this.runtime;
-    if (!r || !r.physics) return;
+    const sim = r?.physics;
+    if (!r || !sim) return;
 
     if (!this.isActive) {
-      const w = r.match?.state?.winner ?? 0;
-      this.enterPodium(w, r.match?.state?.winReason || 'SCORE');
+      this.enterPodium(0, 'SCORE');
     }
 
     const dt = Math.min(Math.max(context?.dt ?? FIXED_TIMESTEP, 0), 0.1);
     this.elapsedSeconds += dt;
     this.accumulator += dt;
 
-    const kbReading = r.keyboard?.read?.() || r.neutralControls;
-    const padReading = r.gamepad?.read?.() || r.neutralControls;
+    const kbReading = r.keyboard?.read?.() || NEUTRAL_PODIUM_CONTROLS;
+    const padReading = r.gamepad?.read?.() || NEUTRAL_PODIUM_CONTROLS;
     const activeDevice = r.gamepad?.active?.() ? 'gamepad' : 'keyboard';
     const playerControls = activeDevice === 'gamepad' ? padReading : kbReading;
 
@@ -224,8 +293,12 @@ export class PodiumCelebrationController {
       substeps = MAX_PHYSICS_SUBSTEPS;
     }
 
-    const numCars = Math.min(r.physics.numCars || 1, 6);
-    const localCarTeam = this._resolveCarTeam(r.playerCarIndex);
+    const numCars = Math.min(sim.numCars || 1, 6);
+    const localCarIndex =
+      typeof context?.activeCar === 'number'
+        ? context.activeCar
+        : (r.arena?.playerCarIndex ?? 0);
+    const localCarTeam = this._resolveCarTeam(localCarIndex);
     const isLocalWinner = this.winningTeam === 2 || localCarTeam === this.winningTeam;
     const effectivePlayerControls = isLocalWinner
       ? playerControls
@@ -233,33 +306,37 @@ export class PodiumCelebrationController {
 
     const activeMode = r.modeManager?.getActiveMode?.();
     const carControlsMap = activeMode?.rosterController?.carControlsMap;
-    const isExpMultiBots = r.match?.state?.mode === 'exp-multi-bots';
+    const isExpMultiBots = activeMode?.id === 'exp-multi-bots' || Boolean(carControlsMap);
     if (isExpMultiBots && carControlsMap) {
-      carControlsMap.set(r.playerCarIndex, effectivePlayerControls);
+      carControlsMap.set(localCarIndex, effectivePlayerControls);
     }
+
+    const isBotMatch = Boolean(r.botCoordinator?.isBotMatch);
 
     for (let i = 0; i < substeps; i++) {
       this.podiumTick++;
 
       for (let c = 0; c < numCars; c++) {
-        if (c === r.playerCarIndex) continue;
-        if ((r.isBotMatch && c === 1) || isExpMultiBots) {
+        if (c === localCarIndex) continue;
+        if ((isBotMatch && c === 1) || isExpMultiBots) {
           const botTeam = this._resolveCarTeam(c);
           const isBotWinner = this.winningTeam === 2 || botTeam === this.winningTeam;
           const rawBotCtrl = this._computeBotCelebrationControls(this.podiumTick, c);
           const botCtrl = isBotWinner
             ? rawBotCtrl
             : { ...rawBotCtrl, throttle: 0, steer: 0 };
-          if (c === 1) r.botControls = botCtrl;
+          if (c === 1 && r.botCoordinator) {
+            r.botCoordinator.botControls = botCtrl;
+          }
           if (isExpMultiBots && carControlsMap) {
             carControlsMap.set(c, botCtrl);
           }
-          r.physics.setControls(c, botCtrl);
+          sim.setControls?.(c, botCtrl);
           r.authoritativeServer?.setCarControls?.(c, botCtrl);
-        } else if (r.networkReconciler?.historyBuffer.lastRemoteControls) {
+        } else if (r.networkReconciler?.historyBuffer?.lastRemoteControls) {
           const remote = r.networkReconciler.historyBuffer.lastRemoteControls.get(c);
-          const remoteCtrl = remote?.controls ? remote.controls : remote || r.neutralControls;
-          r.physics.setControls(c, remoteCtrl);
+          const remoteCtrl = remote?.controls ? remote.controls : remote || NEUTRAL_PODIUM_CONTROLS;
+          sim.setControls?.(c, remoteCtrl);
         }
       }
 
@@ -267,21 +344,21 @@ export class PodiumCelebrationController {
         r.interpolator.prevState.set(r.interpolator.currState);
       }
 
-      if (r.networkReconciler) {
+      if (r.networkReconciler?.sampleAndPredictInput) {
         const predicted =
-          r.networkReconciler.sampleAndPredictInput(r.playerCarIndex, effectivePlayerControls) ||
+          r.networkReconciler.sampleAndPredictInput(localCarIndex, effectivePlayerControls) ||
           effectivePlayerControls;
-        r.physics.setControls(r.playerCarIndex, predicted);
-        r.physics.step(1);
+        sim.setControls?.(localCarIndex, predicted);
+        sim.step?.(1);
       } else {
-        r.physics.setControls(r.playerCarIndex, effectivePlayerControls);
-        r.physics.step(1);
+        sim.setControls?.(localCarIndex, effectivePlayerControls);
+        sim.step?.(1);
       }
 
-      this._clampPodiumCarsToPedestals();
+      this._clampPodiumCarsToPedestals(sim);
 
-      if (r.interpolator) {
-        r.interpolator.currState.set(r.physics.state);
+      if (r.interpolator && sim.state) {
+        r.interpolator.currState.set(sim.state);
       }
     }
 

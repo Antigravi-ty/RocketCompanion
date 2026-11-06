@@ -20,6 +20,7 @@ import type {
   BootstrapTaskTelemetry,
   BootstrapTelemetrySnapshot,
   ScenarioRunReport,
+  ScenarioRuntimePort,
 } from './ScenarioTypes.ts';
 import { VirtualClockFastForwardDriver } from './VirtualClockFastForwardDriver.ts';
 
@@ -120,12 +121,12 @@ export class ScenarioBootstrapTelemetryObserver implements LoadingProgressObserv
 }
 
 export class ScenarioAutorunController {
-  public readonly runtime: any;
+  public readonly runtime: ScenarioRuntimePort;
   public readonly bootstrapObserver: ScenarioBootstrapTelemetryObserver;
   public readonly driver: VirtualClockFastForwardDriver;
   private readonly initialShaderPrograms: number;
 
-  constructor(runtime: any, bootstrapObserver: ScenarioBootstrapTelemetryObserver) {
+  constructor(runtime: ScenarioRuntimePort, bootstrapObserver: ScenarioBootstrapTelemetryObserver) {
     this.runtime = runtime;
     this.bootstrapObserver = bootstrapObserver;
     this.driver = new VirtualClockFastForwardDriver(runtime);
@@ -184,7 +185,7 @@ export class ScenarioAutorunController {
 }
 
 export function attachScenarioAutorunController(
-  runtime: any,
+  runtime: ScenarioRuntimePort,
   bootstrapObserver: ScenarioBootstrapTelemetryObserver,
   backgroundAssetsPromise: Promise<unknown>,
 ): ScenarioAutorunController {

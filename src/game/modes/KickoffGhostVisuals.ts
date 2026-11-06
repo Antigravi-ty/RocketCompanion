@@ -5,7 +5,12 @@
  */
 
 import * as THREE from 'three';
-import { buildVehicleModel, buildVehicleWheels } from '../../entities/arena/VehicleFactory.ts';
+import {
+  buildVehicleModel,
+  buildVehicleWheels,
+  type VehicleAssetStore,
+  type VehicleLoaderCallbacks,
+} from '../../entities/arena/VehicleFactory.ts';
 import {
   getWheelSpecsForVisual,
   updateCarSuspensionAndSteering,
@@ -22,23 +27,37 @@ const GHOST_OPPOSITE_EMISSIVE_HEX = 0xea580c;
 const MAX_TRAJECTORY_POINTS = 240;
 
 export type GhostPlacementMode = 'same' | 'opposite';
+export type GhostWheelMountList = ReturnType<typeof buildVehicleWheels>;
+export type GhostWheelSpecList = ReturnType<typeof getWheelSpecsForVisual>;
+export type GhostSuspensionList = Parameters<typeof updateCarSuspensionAndSteering>[2];
+
+export interface KickoffGhostArenaPort {
+  scene?: THREE.Scene | null;
+  vehicleRegistry?: {
+    assets?: VehicleAssetStore;
+    carLoaders?: VehicleLoaderCallbacks & {
+      wheelSpecs?: { game?: GhostWheelSpecList };
+    };
+  } | null;
+  onRenderTreeChanged?: () => void;
+}
 
 export class KickoffGhostVisuals {
-  public arena: any;
+  public arena: KickoffGhostArenaPort | null;
   public scene: THREE.Scene | null;
 
   public ghostCarRoot: THREE.Group | null = null;
   public ghostCarMaterials: THREE.MeshStandardMaterial[] = [];
   public ghostCarLineMaterials: THREE.LineBasicMaterial[] = [];
-  public ghostCarWheels: any[] = [];
-  public ghostCarWheelSpecs: any[] = [];
-  public ghostCarSuspension: any[] = [];
+  public ghostCarWheels: GhostWheelMountList = [];
+  public ghostCarWheelSpecs: GhostWheelSpecList = [];
+  public ghostCarSuspension: GhostSuspensionList = [];
   public ghostWheelSpin: number[] = [0, 0, 0, 0];
   public ghostBoostPlume: THREE.Mesh<THREE.ConeGeometry, THREE.MeshBasicMaterial> | null = null;
 
   public ghostBallMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> | null = null;
   public ghostBallRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> | null = null;
-  public ghostBallTrail: any = null;
+  public ghostBallTrail: SpeedTrail | null = null;
   public ghostTrajectoryLine: THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial> | null = null;
   public ghostTrajectoryPositions = new Float32Array(MAX_TRAJECTORY_POINTS * 3);
   public ghostTrajectoryCount = 0;
@@ -64,7 +83,7 @@ export class KickoffGhostVisuals {
   private readonly _basisUp = new THREE.Vector3();
   private readonly _basisMat = new THREE.Matrix4();
 
-  constructor(arena: any) {
+  constructor(arena: KickoffGhostArenaPort | null) {
     this.arena = arena;
     this.scene = arena?.scene || null;
   }
@@ -110,11 +129,13 @@ export class KickoffGhostVisuals {
     this.ghostCarMaterials = [];
     this.ghostCarLineMaterials = [];
 
-    this.ghostCarRoot.traverse((obj: any) => {
-      if (obj.isMesh) {
-        obj.castShadow = false;
-        obj.receiveShadow = false;
-        obj.renderOrder = 11;
+    this.ghostCarRoot.traverse((obj: THREE.Object3D) => {
+      const meshObj = obj as THREE.Mesh;
+      const lineObj = obj as THREE.Line & THREE.LineSegments;
+      if (meshObj.isMesh) {
+        meshObj.castShadow = false;
+        meshObj.receiveShadow = false;
+        meshObj.renderOrder = 11;
         const mat = new THREE.MeshStandardMaterial({
           color: GHOST_CYAN_HEX,
           emissive: GHOST_EMISSIVE_HEX,
@@ -125,17 +146,17 @@ export class KickoffGhostVisuals {
           opacity: 0.44,
           depthWrite: false,
         });
-        obj.material = mat;
+        meshObj.material = mat;
         this.ghostCarMaterials.push(mat);
-      } else if (obj.isLineSegments || obj.isLine) {
-        obj.renderOrder = 12;
+      } else if (lineObj.isLineSegments || lineObj.isLine) {
+        lineObj.renderOrder = 12;
         const lmat = new THREE.LineBasicMaterial({
           color: 0x7dd3fc,
           transparent: true,
           opacity: 0.65,
           depthWrite: false,
         });
-        obj.material = lmat;
+        lineObj.material = lmat;
         this.ghostCarLineMaterials.push(lmat);
       }
     });
@@ -158,7 +179,7 @@ export class KickoffGhostVisuals {
 
     scene.add(this.ghostCarRoot);
 
-    const ballGeo = createGeodesicBallGeometry(GHOST_EMISSIVE_HEX as any);
+    const ballGeo = createGeodesicBallGeometry(GHOST_EMISSIVE_HEX);
     const ballMat = new THREE.MeshStandardMaterial({
       vertexColors: true,
       color: 0x7dd3fc,

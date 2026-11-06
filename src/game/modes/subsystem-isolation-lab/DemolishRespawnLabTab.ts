@@ -379,7 +379,7 @@ export class DemolishRespawnLabTab implements LabTabController {
     let wheelLocalYs: number[] = [];
     const ghost = r.arena?.respawnGhostPreview;
     if (ghost?.wheels?.threeWheels && ghost.wheels.threeWheels.length > 0) {
-      wheelLocalYs = ghost.wheels.threeWheels.map((w: any) =>
+      wheelLocalYs = ghost.wheels.threeWheels.map((w) =>
         Number((w?.position?.y ?? 0).toFixed(2))
       );
     }

@@ -18,15 +18,15 @@ import {
 } from './GroundReachabilityMath.ts';
 
 export class GroundReachabilityRenderer {
-  public _groundWorldRings: any;
-  public _hasPrevRadii: any;
-  public _rawRadii: any;
-  public _smoothedRadii: any;
-  public groundFills: any;
-  public groundLines: any;
-  public group: any;
+  public _groundWorldRings: [Float32Array, Float32Array, Float32Array];
+  public _hasPrevRadii: boolean;
+  public _rawRadii: Float32Array;
+  public _smoothedRadii: Float32Array;
+  public groundFills: Array<THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>>;
+  public groundLines: Array<THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial>>;
+  public group: THREE.Group;
 
-  constructor(parentGroup) {
+  constructor(parentGroup: THREE.Object3D | null | undefined) {
     this.group = new THREE.Group();
     this.group.name = 'reachability-ground-group';
     if (parentGroup) {

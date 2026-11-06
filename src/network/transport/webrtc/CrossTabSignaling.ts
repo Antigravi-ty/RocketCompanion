@@ -6,8 +6,8 @@
 export interface CrossTabSignalingOptions {
   signalingChannelName?: string;
   roomId?: string | null;
-  onBroadcastMessage?: ((data: any) => void) | null;
-  onRoomMessage?: ((data: any) => void) | null;
+  onBroadcastMessage?: ((data: Record<string, unknown>) => void) | null;
+  onRoomMessage?: ((data: Record<string, unknown> | Uint8Array | ArrayBuffer) => void) | null;
 }
 
 export interface BroadcastSignalContext {
@@ -19,8 +19,8 @@ export interface BroadcastSignalContext {
 export class CrossTabSignaling {
   signalingChannelName: string;
   roomId: string | null;
-  onBroadcastMessage: ((data: any) => void) | null;
-  onRoomMessage: ((data: any) => void) | null;
+  onBroadcastMessage: ((data: Record<string, unknown>) => void) | null;
+  onRoomMessage: ((data: Record<string, unknown> | Uint8Array | ArrayBuffer) => void) | null;
   broadcastChannel: BroadcastChannel | null = null;
   roomBroadcastChannel: BroadcastChannel | null = null;
 
@@ -44,8 +44,9 @@ export class CrossTabSignaling {
         this.broadcastChannel.close();
       }
       this.broadcastChannel = new BroadcastChannel(channelName);
-      if (typeof (this.broadcastChannel as any).unref === 'function') {
-        (this.broadcastChannel as any).unref();
+      const unrefFn = (this.broadcastChannel as BroadcastChannel & { unref?: () => void }).unref;
+      if (typeof unrefFn === 'function') {
+        unrefFn.call(this.broadcastChannel);
       }
       this.broadcastChannel.onmessage = (e) => {
         this.onBroadcastMessage?.(e.data);
@@ -76,7 +77,10 @@ export class CrossTabSignaling {
     }
   }
 
-  sendRoomMessage(msg: any, peerId: string | null = null): boolean {
+  sendRoomMessage(
+    msg: Record<string, unknown> | Uint8Array | ArrayBuffer | string,
+    peerId: string | null = null
+  ): boolean {
     if (this.roomBroadcastChannel) {
       try {
         const payload =
@@ -97,7 +101,7 @@ export class CrossTabSignaling {
 
   broadcastSignal(
     type: string,
-    payload: Record<string, any> = {},
+    payload: Record<string, unknown> = {},
     context: BroadcastSignalContext = {}
   ): boolean {
     if (this.broadcastChannel) {

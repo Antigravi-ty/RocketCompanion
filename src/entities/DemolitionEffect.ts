@@ -142,16 +142,16 @@ export function createDemolitionQuadGeometry() {
 }
 
 export class DemolitionEffect {
-  public opacity: any;
-  public elapsed: any;
-  public flash: any;
-  public object: any;
-  public offsets: any;
-  public rotations: any;
-  public sizes: any;
-  public smoke: any;
-  public warmth: any;
-  public wasDemolished: any;
+  public opacity: Float32Array;
+  public elapsed: number;
+  public flash: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  public object: THREE.Group;
+  public offsets: Float32Array;
+  public rotations: Float32Array;
+  public sizes: Float32Array;
+  public smoke: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  public warmth: Float32Array;
+  public wasDemolished: boolean | null;
 
   constructor() {
     const {
@@ -177,7 +177,7 @@ export class DemolitionEffect {
     this.elapsed = Infinity;
 
     const smokeGeo = createDemolitionQuadGeometry();
-    const attrDefs = [
+    const attrDefs: Array<[string, Float32Array, number]> = [
       ["aOffset", this.offsets, 3],
       ["aSize", this.sizes, 1],
       ["aOpacity", this.opacity, 1],

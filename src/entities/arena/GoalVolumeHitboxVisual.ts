@@ -111,12 +111,23 @@ function updateGoalBoxTransform(goalObj, cfg) {
   innerLines.position.copy(innerMesh.position);
 }
 
+export type GoalBoxObjects = ReturnType<typeof createGoalBoxObjects>;
+
+export interface CustomGoalVolumeBox {
+  enabled?: boolean;
+  halfWidthX: number;
+  minY: number;
+  maxY: number;
+  minZ?: number;
+  maxZ: number;
+}
+
 export class GoalVolumeHitboxVisual {
-  public isThrowback: any;
-  public _unsubTuner: any;
-  public blueGoal: any;
-  public group: any;
-  public orangeGoal: any;
+  public isThrowback: boolean;
+  public _unsubTuner: (() => void) | null;
+  public blueGoal: GoalBoxObjects;
+  public group: THREE.Group;
+  public orangeGoal: GoalBoxObjects;
 
   constructor() {
     this.group = new THREE.Group();
@@ -139,7 +150,7 @@ export class GoalVolumeHitboxVisual {
     });
   }
 
-  setArenaPreset(isThrowback = false, customBox: any = null) {
+  setArenaPreset(isThrowback = false, customBox: CustomGoalVolumeBox | null = null) {
     this.isThrowback = Boolean(isThrowback);
     const base = customBox || getGoalVolumeBoxForPreset(this.isThrowback);
     const cfg = {

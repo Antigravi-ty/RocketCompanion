@@ -6,7 +6,12 @@
  */
 
 import * as THREE from 'three';
-import { buildVehicleModel, buildVehicleWheels } from '../../entities/arena/VehicleFactory.ts';
+import {
+  buildVehicleModel,
+  buildVehicleWheels,
+  type VehicleAssetStore,
+  type VehicleLoaderCallbacks,
+} from '../../entities/arena/VehicleFactory.ts';
 import {
   getWheelSpecsForVisual,
   updateCarSuspensionAndSteering,
@@ -15,6 +20,21 @@ import { unrealToThreeCoords } from '../../entities/arena/ArenaMath.ts';
 import { createGeodesicBallGeometry } from '../../entities/BallVisual.ts';
 import { CarStateView, BallStateView } from '../../physics/RocketSimStateViews.ts';
 import { SIM_OFFSETS, MAX_CARS } from '../../physics/RocketSimConstants.ts';
+
+export type MultiWorldWheelMountList = ReturnType<typeof buildVehicleWheels>;
+export type MultiWorldWheelSpecList = ReturnType<typeof getWheelSpecsForVisual>;
+export type MultiWorldSuspensionList = Parameters<typeof updateCarSuspensionAndSteering>[2];
+
+export interface MultiWorldGhostArenaPort {
+  scene?: THREE.Scene | null;
+  vehicleRegistry?: {
+    assets?: VehicleAssetStore;
+    carLoaders?: VehicleLoaderCallbacks & {
+      wheelSpecs?: { game?: MultiWorldWheelSpecList };
+    };
+  } | null;
+  onRenderTreeChanged?: () => void;
+}
 
 export interface GhostWorldPalette {
   mainHex: number;
@@ -39,9 +59,9 @@ export interface GhostCarSlotEntry {
   root: THREE.Group;
   materials: THREE.MeshStandardMaterial[];
   lineMaterials: THREE.LineBasicMaterial[];
-  wheels: any[];
-  wheelSpecs: any[];
-  suspension: any[];
+  wheels: MultiWorldWheelMountList;
+  wheelSpecs: MultiWorldWheelSpecList;
+  suspension: MultiWorldSuspensionList;
   wheelSpin: number[];
   boostPlume: THREE.Mesh<THREE.ConeGeometry, THREE.MeshBasicMaterial>;
   prevCarView: CarStateView;
@@ -79,7 +99,7 @@ export interface GhostWorldUpdateOptions {
 }
 
 export class MultiWorldGhostRenderer {
-  public arena: any;
+  public arena: MultiWorldGhostArenaPort | null;
   public scene: THREE.Scene | null;
   public worlds = new Map<string | number, GhostWorldEntry>();
   public visible = false;
@@ -97,16 +117,20 @@ export class MultiWorldGhostRenderer {
   private readonly _basisUp = new THREE.Vector3();
   private readonly _basisMat = new THREE.Matrix4();
 
-  constructor(arena: any) {
+  constructor(arena: MultiWorldGhostArenaPort | null) {
     this.arena = arena;
     this.scene = arena?.scene || null;
   }
 
   private _resolvePalette(worldIndex = 0, placement = 'same'): GhostWorldPalette {
-    if (placement === 'opposite' && worldIndex === 0) {
-      return GHOST_WORLD_PALETTES[1];
-    }
+    if (placement === 'opposite' && worldIndex === 0) return GHOST_WORLD_PALETTES[1];
     return GHOST_WORLD_PALETTES[Math.abs(worldIndex) % GHOST_WORLD_PALETTES.length];
+  }
+
+  private _getTargetWorlds(worldId: string | number | null): GhostWorldEntry[] {
+    if (worldId === null) return Array.from(this.worlds.values());
+    const found = this.worlds.get(worldId);
+    return found ? [found] : [];
   }
 
   private _buildGhostCarSlot(
@@ -124,12 +148,7 @@ export class MultiWorldGhostRenderer {
     carRoot.name = `ghost-world-${worldEntry.worldId}-car-${slotIndex}`;
 
     const { carModel, carHitbox } = buildVehicleModel(
-      visual,
-      palette.mainHex,
-      true,
-      reg?.assets || {},
-      reg?.carLoaders || {},
-      true,
+      visual, palette.mainHex, true, reg?.assets || {}, reg?.carLoaders || {}, true,
     );
     carRoot.add(carModel);
     if (carHitbox) {
@@ -137,27 +156,21 @@ export class MultiWorldGhostRenderer {
       carRoot.add(carHitbox);
     }
 
-    let wheelSpecs = getWheelSpecsForVisual(visual);
-    if (reg?.carLoaders?.wheelSpecs?.game) {
-      wheelSpecs = reg.carLoaders.wheelSpecs.game;
-    }
+    const wheelSpecs = reg?.carLoaders?.wheelSpecs?.game || getWheelSpecsForVisual(visual);
     const wheels = buildVehicleWheels(
-      carRoot,
-      visual,
-      palette.mainHex,
-      wheelSpecs,
-      reg?.assets || {},
-      reg?.carLoaders || {},
+      carRoot, visual, palette.mainHex, wheelSpecs, reg?.assets || {}, reg?.carLoaders || {},
     );
 
     const materials: THREE.MeshStandardMaterial[] = [];
     const lineMaterials: THREE.LineBasicMaterial[] = [];
 
-    carRoot.traverse((obj: any) => {
-      if (obj.isMesh) {
-        obj.castShadow = false;
-        obj.receiveShadow = false;
-        obj.renderOrder = 11;
+    carRoot.traverse((obj: THREE.Object3D) => {
+      const meshObj = obj as THREE.Mesh;
+      const lineObj = obj as THREE.Line & THREE.LineSegments;
+      if (meshObj.isMesh) {
+        meshObj.castShadow = false;
+        meshObj.receiveShadow = false;
+        meshObj.renderOrder = 11;
         const mat = new THREE.MeshStandardMaterial({
           color: palette.mainHex,
           emissive: palette.emissiveHex,
@@ -168,17 +181,17 @@ export class MultiWorldGhostRenderer {
           opacity: worldEntry.opacity,
           depthWrite: false,
         });
-        obj.material = mat;
+        meshObj.material = mat;
         materials.push(mat);
-      } else if (obj.isLineSegments || obj.isLine) {
-        obj.renderOrder = 12;
+      } else if (lineObj.isLineSegments || lineObj.isLine) {
+        lineObj.renderOrder = 12;
         const lmat = new THREE.LineBasicMaterial({
           color: palette.wireHex,
           transparent: true,
           opacity: Math.min(0.95, worldEntry.opacity + 0.2),
           depthWrite: false,
         });
-        obj.material = lmat;
+        lineObj.material = lmat;
         lineMaterials.push(lmat);
       }
     });
@@ -227,21 +240,16 @@ export class MultiWorldGhostRenderer {
     options: GhostWorldUpdateOptions = {},
   ): GhostWorldEntry | null {
     const existing = this.worlds.get(worldId);
-    if (existing) {
-      return existing;
-    }
+    if (existing) return existing;
     if (!this.arena?.scene) return null;
     const scene = this.arena.scene as THREE.Scene;
     this.scene = scene;
 
-    const worldIndex =
-      typeof options.paletteIndex === 'number' ? options.paletteIndex : this.worlds.size;
-    const palette =
-      options.palette ||
-      this._resolvePalette(worldIndex, options.placement || this.ghostPlacement);
+    const worldIndex = typeof options.paletteIndex === 'number' ? options.paletteIndex : this.worlds.size;
+    const palette = options.palette || this._resolvePalette(worldIndex, options.placement || this.ghostPlacement);
     const opacity = typeof options.opacity === 'number' ? options.opacity : this.defaultOpacity;
 
-    const ballGeo = createGeodesicBallGeometry(palette.emissiveHex as any);
+    const ballGeo = createGeodesicBallGeometry(palette.emissiveHex);
     const ballMat = new THREE.MeshStandardMaterial({
       vertexColors: true,
       color: palette.wireHex,
@@ -317,34 +325,17 @@ export class MultiWorldGhostRenderer {
 
   public setOpacity(opacity: number, worldId: string | number | null = null): void {
     const clamped = Math.max(0.05, Math.min(0.95, Number(opacity) || 0.45));
-    if (worldId === null) {
-      this.defaultOpacity = clamped;
-    }
-    const targets: GhostWorldEntry[] =
-      worldId !== null
-        ? ([this.worlds.get(worldId)].filter(Boolean) as GhostWorldEntry[])
-        : Array.from(this.worlds.values());
-
-    for (const w of targets) {
+    if (worldId === null) this.defaultOpacity = clamped;
+    for (const w of this._getTargetWorlds(worldId)) {
       w.opacity = clamped;
       for (const c of w.cars) {
         if (!c) continue;
-        for (const mat of c.materials) {
-          mat.opacity = clamped;
-        }
-        for (const lmat of c.lineMaterials) {
-          lmat.opacity = Math.min(0.95, clamped + 0.2);
-        }
-        if (c.boostPlume?.material) {
-          c.boostPlume.material.opacity = Math.min(0.9, clamped + 0.2);
-        }
+        for (const mat of c.materials) mat.opacity = clamped;
+        for (const lmat of c.lineMaterials) lmat.opacity = Math.min(0.95, clamped + 0.2);
+        if (c.boostPlume?.material) c.boostPlume.material.opacity = Math.min(0.9, clamped + 0.2);
       }
-      if (w.ballMesh?.material) {
-        w.ballMesh.material.opacity = clamped * 0.85;
-      }
-      if (w.ballRing?.material) {
-        w.ballRing.material.opacity = clamped * 0.85;
-      }
+      if (w.ballMesh?.material) w.ballMesh.material.opacity = clamped * 0.85;
+      if (w.ballRing?.material) w.ballRing.material.opacity = clamped * 0.85;
     }
   }
 
@@ -353,15 +344,8 @@ export class MultiWorldGhostRenderer {
     worldId: string | number | null = null,
   ): void {
     const next: 'same' | 'opposite' = placement === 'opposite' ? 'opposite' : 'same';
-    if (worldId === null) {
-      this.ghostPlacement = next;
-    }
-    const targets: GhostWorldEntry[] =
-      worldId !== null
-        ? ([this.worlds.get(worldId)].filter(Boolean) as GhostWorldEntry[])
-        : Array.from(this.worlds.values());
-
-    for (const w of targets) {
+    if (worldId === null) this.ghostPlacement = next;
+    for (const w of this._getTargetWorlds(worldId)) {
       w.placement = next;
       w.palette = this._resolvePalette(w.worldIndex, next);
       for (const c of w.cars) {
@@ -370,20 +354,14 @@ export class MultiWorldGhostRenderer {
           mat.color.setHex(w.palette.mainHex);
           mat.emissive.setHex(w.palette.emissiveHex);
         }
-        for (const lmat of c.lineMaterials) {
-          lmat.color.setHex(w.palette.wireHex);
-        }
-        if (c.boostPlume?.material) {
-          c.boostPlume.material.color.setHex(w.palette.mainHex);
-        }
+        for (const lmat of c.lineMaterials) lmat.color.setHex(w.palette.wireHex);
+        if (c.boostPlume?.material) c.boostPlume.material.color.setHex(w.palette.mainHex);
       }
       if (w.ballMesh?.material) {
         w.ballMesh.material.color.setHex(w.palette.wireHex);
         w.ballMesh.material.emissive.setHex(w.palette.emissiveHex);
       }
-      if (w.ballRing?.material) {
-        w.ballRing.material.color.setHex(w.palette.mainHex);
-      }
+      if (w.ballRing?.material) w.ballRing.material.color.setHex(w.palette.mainHex);
     }
   }
 
@@ -396,12 +374,7 @@ export class MultiWorldGhostRenderer {
       this.showCar = Boolean(showCar);
       this.showBall = Boolean(showBall);
     }
-    const targets: GhostWorldEntry[] =
-      worldId !== null
-        ? ([this.worlds.get(worldId)].filter(Boolean) as GhostWorldEntry[])
-        : Array.from(this.worlds.values());
-
-    for (const w of targets) {
+    for (const w of this._getTargetWorlds(worldId)) {
       w.showCar = Boolean(showCar);
       w.showBall = Boolean(showBall);
     }
@@ -409,15 +382,8 @@ export class MultiWorldGhostRenderer {
   }
 
   public setVisible(visible: boolean, worldId: string | number | null = null): void {
-    if (worldId === null) {
-      this.visible = Boolean(visible);
-    }
-    const targets: GhostWorldEntry[] =
-      worldId !== null
-        ? ([this.worlds.get(worldId)].filter(Boolean) as GhostWorldEntry[])
-        : Array.from(this.worlds.values());
-
-    for (const w of targets) {
+    if (worldId === null) this.visible = Boolean(visible);
+    for (const w of this._getTargetWorlds(worldId)) {
       w.visible = Boolean(visible);
       if (!w.visible) {
         for (const c of w.cars) {
@@ -496,26 +462,19 @@ export class MultiWorldGhostRenderer {
       for (let c = 0; c < MAX_CARS; c++) {
         if (c >= numCars || (excludeSet && excludeSet.has(c))) {
           const existingRoot = worldEntry.cars[c]?.root;
-          if (existingRoot) {
-            existingRoot.visible = false;
-          }
+          if (existingRoot) existingRoot.visible = false;
           continue;
         }
 
         let slotObj = worldEntry.cars[c];
-        if (!slotObj) {
-          slotObj = this._buildGhostCarSlot(worldEntry, c, 'fennec');
-        }
+        if (!slotObj) slotObj = this._buildGhostCarSlot(worldEntry, c, 'fennec');
         if (!slotObj?.root) continue;
 
         const prevCar = slotObj.prevCarView.attachCar(prevState, c);
         const currCar = slotObj.currCarView.attachCar(currState, c);
 
         const isZeroedSlot =
-          currCar.fwdX * currCar.fwdX +
-            currCar.fwdY * currCar.fwdY +
-            currCar.fwdZ * currCar.fwdZ <
-          0.01;
+          currCar.fwdX * currCar.fwdX + currCar.fwdY * currCar.fwdY + currCar.fwdZ * currCar.fwdZ < 0.01;
         if (isZeroedSlot || currCar.posZ <= -200 || currCar.posX < -5000 || currCar.isDemoed) {
           slotObj.root.visible = false;
           continue;
@@ -532,14 +491,8 @@ export class MultiWorldGhostRenderer {
               : options.controls;
 
         updateCarSuspensionAndSteering(
-          slotObj.wheels,
-          slotObj.wheelSpecs,
-          slotObj.suspension,
-          slotObj.wheelSpin,
-          currCar,
-          slotObj.visual || 'fennec',
-          dt,
-          ctrlForCar?.throttle ?? 0,
+          slotObj.wheels, slotObj.wheelSpecs, slotObj.suspension, slotObj.wheelSpin,
+          currCar, slotObj.visual || 'fennec', dt, ctrlForCar?.throttle ?? 0,
         );
 
         if (slotObj.boostPlume) {
@@ -554,14 +507,11 @@ export class MultiWorldGhostRenderer {
     } else {
       for (let c = 0; c < MAX_CARS; c++) {
         const existingRoot = worldEntry.cars[c]?.root;
-        if (existingRoot) {
-          existingRoot.visible = false;
-        }
+        if (existingRoot) existingRoot.visible = false;
       }
     }
 
-    const showWorldBall =
-      options.showBall !== undefined ? Boolean(options.showBall) : worldEntry.showBall;
+    const showWorldBall = options.showBall !== undefined ? Boolean(options.showBall) : worldEntry.showBall;
     if (worldEntry.ballMesh && showWorldBall) {
       const prevBall = worldEntry.prevBallView.attach(prevState);
       const currBall = worldEntry.currBallView.attach(currState);
@@ -571,9 +521,7 @@ export class MultiWorldGhostRenderer {
       const ballSpeed = Math.hypot(currBall.velX, currBall.velY, currBall.velZ);
       if (worldEntry.ballMesh.material) {
         worldEntry.ballMesh.material.opacity =
-          ballSpeed > 10
-            ? Math.min(0.85, worldEntry.opacity * 0.9)
-            : Math.max(0.15, worldEntry.opacity * 0.45);
+          ballSpeed > 10 ? Math.min(0.85, worldEntry.opacity * 0.9) : Math.max(0.15, worldEntry.opacity * 0.45);
       }
 
       if (worldEntry.ballRing) {
@@ -595,10 +543,7 @@ export class MultiWorldGhostRenderer {
     ghostControls: { throttle?: number } | null = null,
     showBall?: boolean,
   ): void {
-    this.updateWorld('world-1', prevState, currState, alpha, dt, {
-      controls: ghostControls,
-      showBall,
-    });
+    this.updateWorld('world-1', prevState, currState, alpha, dt, { controls: ghostControls, showBall });
   }
 
   public removeWorld(worldId: string | number): void {

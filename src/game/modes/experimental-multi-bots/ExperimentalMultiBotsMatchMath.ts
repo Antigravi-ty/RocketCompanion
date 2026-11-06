@@ -1,7 +1,16 @@
-import { getExperimentalBotPolicyMeta } from '../../../ai/experimental/ExperimentalBotAgent.ts';
+import {
+  type ExperimentalBotAgent,
+  getExperimentalBotPolicyMeta,
+} from '../../../ai/experimental/ExperimentalBotAgent.ts';
+import type { CarControls } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
 import { KICKOFF_SPAWN_PRESETS } from '../../../physics/RocketSimConstants.ts';
 import { assignTeamSlotKeys } from '../../../replay/container/RCReplayTimelineParser.ts';
 import { gameAudio } from '../../../audio/GameAudioEngineFacade.ts';
+import type { BallStateViewLike, CarStateViewLike } from '../shared/goalAndBallTouchPipeline.ts';
+import type { MatchStateData } from '../../runtime/RuntimeMatchState.ts';
+import type { PodiumCelebrationController } from '../PodiumCelebrationController.ts';
+
+export type { CarControls, BallStateViewLike, CarStateViewLike };
 
 export const MAX_GOAL_LOOKBACK_SECONDS = 10.0;
 export const SCORER_TOUCH_LOOKBACK_SECONDS = 7.0;
@@ -13,6 +22,95 @@ export const KICKOFF_SLOT_PERMUTATIONS: ReadonlyArray<ReadonlyArray<number>> = [
   [1, 3, 4, 0, 2],
   [2, 3, 4, 0, 1],
 ];
+
+export interface ExpModeAudioPort {
+  play?: (cueName: string, volume?: number, maxDurationMs?: number) => void;
+  setCarBoostAudioVariation?: (carIndex: number, boostAudio: string) => void;
+}
+
+export interface ExpPhysicsEnginePort {
+  state: Float32Array;
+  numCars: number;
+  ballOnGround?: boolean;
+  getHeaderView?: () => { tickCount: number } | null;
+  getBallStateView: () => BallStateViewLike;
+  getCarStateView: (carIndex: number) => CarStateViewLike | null;
+  getPads: () => unknown;
+  setControls: (carIndex: number, controls: CarControls) => void;
+  setBallState: (
+    state:
+      | { pos: [number, number, number]; vel: [number, number, number]; angVel: [number, number, number] }
+      | Float32Array
+  ) => boolean | void;
+  getBallState?: () => Float32Array | ArrayLike<number>;
+  setCarState: (carIndex: number, state: Record<string, unknown> | Float32Array) => boolean | void;
+  setCarTeam?: (carIndex: number, team: 0 | 1) => void;
+  setCarHitbox?: (carIndex: number, hitboxId: string) => void;
+  addCar: (team: number, preset: string) => number | void;
+  removeCar: (carIndex: number) => void;
+  resetGoalLatch?: () => void;
+  resetKickoff: (seed?: number, mirror?: boolean) => void;
+  setUnlimitedBoost: (unlimited: boolean) => void;
+  setPossessionReportingEnabled?: (enabled: boolean) => void;
+  resetPossessionStats?: () => void;
+  setSimulationFrozen?: (frozen: boolean, freezeCarIdx?: number, freezeBall?: boolean) => void;
+  pushSignalEvent?: (...args: number[]) => void;
+  isBallScored?: (bView: BallStateViewLike) => boolean;
+}
+
+export interface ExpInterpolatorCarViewPort {
+  boost: number;
+  velX: number;
+  velY: number;
+  velZ: number;
+  fwdX: number;
+  fwdY: number;
+  fwdZ: number;
+  isJumping?: boolean | number;
+  isBoosting: number | boolean;
+}
+
+export interface ExpModeRuntimePort {
+  physics?: ExpPhysicsEnginePort | null;
+  arena?: {
+    playerCarIndex?: number;
+    cars?: Array<{ visible: boolean }>;
+    carDemolitions?: Array<{ stop?: () => void } | null | undefined>;
+    supersonicWheelTrailSystem?: { clear?: () => void; resetCar?: (carIndex: number) => void } | null;
+    lighting?: { updateSunIntensities?: (scale?: number) => void } | null;
+    ensureOpponent?: () => Promise<void> | void;
+    ensureCar?: (carIndex: number, team: 0 | 1, visualId: string) => void;
+    setCarTeam?: (carIndex: number, team: 0 | 1) => void;
+    setCarColor?: (carIndex: number, colorHex: string) => void;
+    setCarLoadout?: (carIndex: number, loadout: Record<string, unknown>) => void;
+    resetCarBoosts?: (carIndex: number) => void;
+  } | null;
+  interpolator?: {
+    currState: Float32Array;
+    prevState: Float32Array;
+    alpha: number;
+    setTrainingPhysicsRate?: (rateHz: number) => void;
+    sync?: () => void;
+    getCurrCarStateView?: (carIndex: number) => ExpInterpolatorCarViewPort | null;
+  } | null;
+  ballTrajectoryPredictor?: { clear?: () => void } | null;
+  camera?: { resetView?: () => void } | null;
+  match?: { state?: MatchStateData | null } | null;
+  audioSubsystem?: { resetAudio?: () => void } | null;
+  options?: { gameAudio?: ExpModeAudioPort | null } | null;
+  podiumController?: PodiumCelebrationController | null;
+  playerCarIndex: number;
+  playerControls: CarControls;
+  neutralControls: CarControls;
+  playerThrottle?: number;
+  selectedPreset?: string;
+  selectedHitbox?: string;
+  selectedColorSlot?: number;
+  _localSkipReplayReady?: boolean;
+  releaseGoalReplayCameraOverride: (source?: string) => void;
+  restoreLocalPlayerFreeplayLoadout: (carIndex: number) => void;
+  resetAudio?: () => void;
+}
 
 export interface ExpSpawnedCarEntry {
   carIndex: number;
@@ -32,7 +130,7 @@ export interface ExpSpawnedCarEntry {
   anthemId: string;
   label: string;
   name?: string;
-  agent: any | null;
+  agent: ExperimentalBotAgent | null;
   [key: string]: unknown;
 }
 
@@ -57,6 +155,23 @@ export interface ExpReplayCarEntry {
   boostVisual?: string;
   boostAudio?: string;
   anthemId?: string;
+}
+
+export interface ExpExportedRosterEntry {
+  carIndex: number;
+  team: 0 | 1;
+  name: string;
+  isPlayer: boolean;
+  botType: string | null;
+  visualId: string;
+  hitboxId: string;
+  colorSlot: number;
+  colorHex: string | null;
+  paintFinish: string;
+  boostVisual: string;
+  boostAudio: string;
+  anthemId: string;
+  [key: string]: unknown;
 }
 
 export interface ExpTeamTouchRecord {
@@ -86,8 +201,10 @@ export interface ExpGoalIncidentMeta {
   lastKickoffStartTick: number;
 }
 
-export function getExpModeAudio(runtime: any): any {
-  return runtime?.options?.gameAudio || gameAudio;
+export function getExpModeAudio(
+  runtime: ExpModeRuntimePort | null | undefined
+): ExpModeAudioPort | null {
+  return runtime?.options?.gameAudio || (gameAudio as ExpModeAudioPort);
 }
 
 export function getExpCarDisplayName(
@@ -135,7 +252,7 @@ export function buildExpCarEntriesForReplay(
 
 export function buildExpRosterForExport(
   spawnedCars: ReadonlyArray<ExpSpawnedCarEntry>
-): any[] {
+): ExpExportedRosterEntry[] {
   if (!Array.isArray(spawnedCars)) return [];
   return spawnedCars.map((c) => ({
     carIndex: c.carIndex,

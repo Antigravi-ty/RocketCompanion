@@ -106,14 +106,6 @@ export class StadiumSpatialAudioEngine {
     });
   }
 
-  get anthemBufferCache(): Map<string, AudioBuffer> {
-    return this.anthemPlayer.bufferCache;
-  }
-
-  get activeAnthemSource(): AudioBufferSourceNode | null {
-    return this.anthemPlayer.activeSource;
-  }
-
   get activeAnthemMode(): AnthemPlaybackMode | null {
     return this.anthemPlayer.activeMode;
   }
@@ -122,28 +114,8 @@ export class StadiumSpatialAudioEngine {
     return this.anthemPlayer.activeAnthemId;
   }
 
-  get anthemLinearPhase(): number {
-    return this.anthemPlayer.linearPhase;
-  }
-
   get anthemBlend(): number {
     return this.anthemPlayer.blend;
-  }
-
-  get bgmAudioEl(): HTMLAudioElement | null {
-    return this.bgmController.audioEl;
-  }
-
-  get bgmLinearPhase(): number {
-    return this.bgmController.linearPhase;
-  }
-
-  get bgmBlend(): number {
-    return this.bgmController.blend;
-  }
-
-  get bgmFadeEnvelope(): number {
-    return this.bgmController.fadeEnvelope;
   }
 
   init(): void {
@@ -192,11 +164,7 @@ export class StadiumSpatialAudioEngine {
       const anthemOutGain = this._getAnthemOutputGain();
       const bgmVolScalar = this._getBgmVolScalar(curStore);
       this.anthemChain?.applyBlend(this.anthemBlend, cfg, anthemOutGain);
-      this.bgmChain?.applyBlend(
-        this.bgmBlend,
-        cfg,
-        this.bgmController.fadeEnvelope * bgmVolScalar
-      );
+      this.bgmController.applyCurrentChainBlend(cfg, bgmVolScalar);
     });
 
     this._startTransitionLoop();
@@ -285,22 +253,15 @@ export class StadiumSpatialAudioEngine {
       if (this.anthemPlayer.isTailDraining) {
         this.anthemPlayer.completeTailDrain();
       }
-      this.bgmController.fadeEnvelope = 0.0;
-      this.bgmController.lastShouldBeAudible = false;
       const store = useSpatialAudioStore.getState();
-      this.bgmChain?.resetAndSilence(store.tunerConfig);
-      if (this.bgmController.audioEl && !this.bgmController.audioEl.paused) {
-        this.bgmController.audioEl.pause();
-      }
+      this.bgmController.handleFocusChanged(true, store.tunerConfig);
     } else if (this._isWindowUnfocusedMuted) {
       this._isWindowUnfocusedMuted = false;
       if (typeof performance !== 'undefined') {
         this._lastRafTime = performance.now();
       }
-      this.bgmController.fadeEnvelope = 0.0;
       const store = useSpatialAudioStore.getState();
-      this.bgmChain?.applyBlend(this.bgmBlend, store.tunerConfig, 0.0, true);
-      this.syncBgmPlaybackState();
+      this.bgmController.handleFocusChanged(false, store.tunerConfig);
     }
   }
 
@@ -341,12 +302,7 @@ export class StadiumSpatialAudioEngine {
         this.impulseBuffer
       );
       this.anthemChain.applyBlend(this.anthemBlend, cfg, anthemOutGain, true);
-      this.bgmChain.applyBlend(
-        this.bgmBlend,
-        cfg,
-        this.bgmController.fadeEnvelope * bgmVolScalar,
-        true
-      );
+      this.bgmController.applyCurrentChainBlend(cfg, bgmVolScalar, true);
       this.bgmController.attachToBusChain(ctx, this.bgmChain);
     } else if (Math.abs(decaySec - this.lastImpulseDecaySec) > 0.05) {
       this.lastImpulseDecaySec = decaySec;
@@ -484,17 +440,12 @@ export class StadiumSpatialAudioEngine {
   }
 
   _refreshGoalSequenceBgmGate(): boolean {
-    if (!this.bgmController.goalSequenceActive) return false;
     const currentPhase = this.runtimeContext.matchPhase;
     const isGoalOrReplayPhase =
       (currentPhase === 'goal' || currentPhase === 'replay') &&
       !this._isTrainingShotExpire();
     const isAnthemStillActive = this.anthemPlayer.isGoalSequenceAnthemActive();
-
-    if (!isGoalOrReplayPhase && !isAnthemStillActive) {
-      this.bgmController.goalSequenceActive = false;
-    }
-    return this.bgmController.goalSequenceActive;
+    return this.bgmController.updateGoalSequenceGate(isGoalOrReplayPhase, isAnthemStillActive);
   }
 
   notifyGoalReplaySkipped(): void {

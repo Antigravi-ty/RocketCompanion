@@ -39,7 +39,7 @@ export const GAME_STATE_BUFFER_FLOATS = 448;
 export const STATE_BUFFER_FLOATS = GAME_STATE_BUFFER_FLOATS;
 
 export const ARENA_PRESETS = Object.freeze({
-  STANDARD_SOCCAR: 0,
+  STANDARD_ARENA: 0,
   THROWBACK_STADIUM: 1
 });
 
@@ -571,7 +571,7 @@ export const MUTATOR_OFFSETS = Object.freeze({
   GOAL_VOLUME_MAX_Y: 35,
 });
 
-export const DEFAULT_SOCCAR_MUTATOR_CONFIG = Object.freeze({
+export const DEFAULT_STANDARD_MUTATOR_CONFIG = Object.freeze({
   gravityX: 0.0,
   gravityY: 0.0,
   gravityZ: -650.0,

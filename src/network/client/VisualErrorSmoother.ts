@@ -13,6 +13,9 @@ import {
   saveClientLobbyLocalEntities,
   configureClientLobbyDiagnosticProbes,
   restoreClientLobbyLocalEntities,
+  type ReconcilerMetrics,
+  type TelemetrySimPort,
+  type TopologyPacketPort,
 } from './NetworkTelemetryCollector.ts';
 
 export interface Vector3Like {
@@ -100,7 +103,7 @@ export function resolveSmoothedRenderPosition(physicsPos: Vector3Like, smoothing
 }
 
 export function capturePreResimPositions(
-  sim: any,
+  sim: TelemetrySimPort | null | undefined,
   maxCars = 8
 ): { prePositions: PreResimPositions; hasNaN: boolean; numCars: number } {
   const numCars = Math.min(sim?.numCars ?? 0, maxCars);
@@ -108,15 +111,17 @@ export function capturePreResimPositions(
   const cars = new Array<Vector3Like | undefined>(numCars);
   let hasNaN = false;
 
-  for (let c = 0; c < numCars; c++) {
-    if (hasSlotCheck && !sim.isCarSlotActive(c)) continue;
-    const carView = sim.getCarStateView(c);
-    if (!carView) continue;
-    if (Number.isNaN(carView.posX) || Number.isNaN(carView.posY) || Number.isNaN(carView.posZ)) {
-      hasNaN = true;
-      break;
+  if (sim) {
+    for (let c = 0; c < numCars; c++) {
+      if (hasSlotCheck && !sim.isCarSlotActive!(c)) continue;
+      const carView = sim.getCarStateView(c);
+      if (!carView) continue;
+      if (Number.isNaN(carView.posX) || Number.isNaN(carView.posY) || Number.isNaN(carView.posZ)) {
+        hasNaN = true;
+        break;
+      }
+      cars[c] = { x: carView.posX, y: carView.posY, z: carView.posZ };
     }
-    cars[c] = { x: carView.posX, y: carView.posY, z: carView.posZ };
   }
 
   let ball: Vector3Like | null = null;
@@ -130,7 +135,7 @@ export function capturePreResimPositions(
 }
 
 export function evaluatePostResimDiscrepancy(
-  sim: any,
+  sim: TelemetrySimPort,
   prePositions: PreResimPositions,
   input: PostResimDiscrepancyInput
 ): PostResimDiscrepancyResult {
@@ -158,7 +163,7 @@ export function evaluatePostResimDiscrepancy(
   let probeMaxDelta = 0;
   for (let c = 0; c < numCars; c++) {
     if (c === localCarIndex) continue;
-    if (hasSlotCheck && !sim.isCarSlotActive(c)) continue;
+    if (hasSlotCheck && !sim.isCarSlotActive!(c)) continue;
     const preRemote = prePositions.cars[c];
     const postRemote = sim.getCarStateView(c);
     if (!preRemote || !postRemote) continue;
@@ -244,21 +249,17 @@ export class VisualErrorSmoother {
   }
 
   applyPostResimDiscrepancy(
-    sim: any,
+    sim: TelemetrySimPort,
     prePositions: PreResimPositions,
     input: PostResimDiscrepancyInput,
-    metrics: Record<string, any>
+    metrics: ReconcilerMetrics
   ): PostResimDiscrepancyResult {
     const discrepancy = evaluatePostResimDiscrepancy(sim, prePositions, input);
-    metrics.localCorrectionDelta = discrepancy.localDelta;
-    metrics.ballCorrectionDelta = discrepancy.ballDelta;
-    metrics.remoteCorrectionDelta = discrepancy.remoteMaxDelta;
-    metrics.probeCorrectionDelta = discrepancy.probeMaxDelta;
-    metrics.reconcileTier = discrepancy.isTier3HardSnap ? 3 : 2;
     if (discrepancy.isTier3HardSnap) this.reset();
 
+    let lastCorrectionDelta = discrepancy.primaryDelta;
     if (discrepancy.effectiveDelta > 0.05) {
-      metrics.lastCorrectionDelta = discrepancy.effectiveDelta;
+      lastCorrectionDelta = discrepancy.effectiveDelta;
       if (this.enabled && !discrepancy.isTier3HardSnap && !input.isLobbyDualWorld) {
         const postLocalCar = sim.getCarStateView(input.localCarIndex);
         this.applyCorrection(
@@ -268,17 +269,15 @@ export class VisualErrorSmoother {
           input.isLobbyDualWorld
         );
       }
-    } else {
-      metrics.lastCorrectionDelta = discrepancy.primaryDelta;
     }
-    metrics.smoothingMagnitude = this.getMagnitude();
+    metrics.applySmootherDiscrepancy(discrepancy, lastCorrectionDelta, this.getMagnitude());
     return discrepancy;
   }
 
   executeReplayAndEvaluateCorrection(params: {
-    sim: any;
+    sim: TelemetrySimPort;
     historyBuffer: PredictionHistoryBuffer;
-    packet: any;
+    packet: TopologyPacketPort;
     serverTick: number;
     currentClientTick: number;
     prePositions: PreResimPositions;
@@ -287,7 +286,7 @@ export class VisualErrorSmoother {
     lobbyDualWorldMode: boolean;
     kickoffMaskUntilTick: number;
     tolerances: ReconciliationTolerances;
-    metrics: Record<string, any>;
+    metrics: ReconcilerMetrics;
     skippedCorrections: number;
     hardSnapCount: number;
     totalCorrections: number;
@@ -313,22 +312,15 @@ export class VisualErrorSmoother {
       localCarIndex,
       isLobbyDualWorld: lobbyDualWorldMode,
       tolerances,
-      isCarSlotActive: typeof sim?.isCarSlotActive === 'function' ? (c: number) => sim.isCarSlotActive(c) : undefined,
+      isCarSlotActive: typeof sim?.isCarSlotActive === 'function' ? (c: number) => sim.isCarSlotActive!(c) : undefined,
     });
     if (evalResult.canCompare) {
-      metrics.historicalPosDelta = evalResult.localPosDelta;
       if (evalResult.withinTier1) {
         skippedCorrections = (skippedCorrections || 0) + 1;
-        metrics.skippedCorrections = skippedCorrections;
-        metrics.reconcileTier = 1;
-        metrics.lastCorrectionDelta = evalResult.localPosDelta;
-        metrics.localCorrectionDelta = evalResult.localPosDelta || 0;
-        metrics.ballCorrectionDelta = 0;
-        metrics.remoteCorrectionDelta = 0;
-        metrics.probeCorrectionDelta = 0;
-        metrics.smoothingMagnitude = this.getMagnitude();
+        metrics.applyTier1Skip(evalResult.localPosDelta, skippedCorrections, this.getMagnitude());
         return { skippedCorrections, hardSnapCount, totalCorrections, maxCorrectionDelta };
       }
+      metrics.historicalPosDelta = evalResult.localPosDelta;
     }
     const isTier3HistoricalHardSnap = Boolean(evalResult.canCompare && evalResult.exceedsHardSnap);
     const savedLobbyEntities = saveClientLobbyLocalEntities(sim, lobbyDualWorldMode);
@@ -359,18 +351,22 @@ export class VisualErrorSmoother {
       { numCars, localCarIndex, isLobbyDualWorld: lobbyDualWorldMode, hardSnapThreshold: tolerances.hardSnapThreshold ?? 500.0, isTier3HistoricalHardSnap },
       metrics
     );
+    let nextHardSnap: number | undefined;
+    let nextTotal: number | undefined;
+    let nextMaxDelta: number | undefined;
     if (discrepancy.isTier3HardSnap) {
       hardSnapCount = (hardSnapCount || 0) + 1;
-      metrics.hardSnapCount = hardSnapCount;
+      nextHardSnap = hardSnapCount;
     }
     if (discrepancy.effectiveDelta > 0.05) {
       totalCorrections++;
-      metrics.totalCorrections = totalCorrections;
+      nextTotal = totalCorrections;
       if (discrepancy.effectiveDelta > maxCorrectionDelta) {
         maxCorrectionDelta = discrepancy.effectiveDelta;
-        metrics.maxCorrectionDelta = discrepancy.effectiveDelta;
+        nextMaxDelta = discrepancy.effectiveDelta;
       }
     }
+    metrics.applyCorrectionCounters(nextHardSnap, nextTotal, nextMaxDelta);
     return { skippedCorrections, hardSnapCount, totalCorrections, maxCorrectionDelta };
   }
 }
@@ -380,11 +376,11 @@ const FULL_SNAPSHOT_CAR_BLOCK_BASE = 169;
 const FULL_SNAPSHOT_CAR_BLOCK_STRIDE = 508;
 
 export function preserveCarTransientTimersAcrossCompactRestore(
-  sim: any,
+  sim: (TelemetrySimPort & { isUnlimitedBoost?: boolean }) | null | undefined,
   slotFullState: Float32Array | null | undefined,
   numCars: number
 ): void {
-  if (!slotFullState || slotFullState.length < FULL_SNAPSHOT_MIN_FLOATS || typeof sim?.saveState !== 'function') {
+  if (!sim || !slotFullState || slotFullState.length < FULL_SNAPSHOT_MIN_FLOATS || typeof sim.saveState !== 'function') {
     return;
   }
   const mergedFullState: Float32Array | null = sim.saveState();
@@ -394,11 +390,11 @@ export function preserveCarTransientTimersAcrossCompactRestore(
   const slotBytes = new Uint8Array(slotFullState.buffer, slotFullState.byteOffset, slotFullState.byteLength);
   const mergedBytes = new Uint8Array(mergedFullState.buffer, mergedFullState.byteOffset, mergedFullState.byteLength);
   const maxCars = Math.min(numCars, 8);
-  const hasSlotCheck = typeof sim?.isCarSlotActive === 'function';
+  const isSlotActive = typeof sim.isCarSlotActive === 'function' ? sim.isCarSlotActive.bind(sim) : null;
   let modified = false;
 
   for (let c = 0; c < maxCars; c++) {
-    if (hasSlotCheck && !sim.isCarSlotActive(c)) continue;
+    if (isSlotActive && !isSlotActive(c)) continue;
     const base = FULL_SNAPSHOT_CAR_BLOCK_BASE + c * FULL_SNAPSHOT_CAR_BLOCK_STRIDE;
     if (base + 110 > slotFullState.length || base + 110 > mergedFullState.length) continue;
 

@@ -11,21 +11,56 @@ import {
 import { isEditableEventTarget } from '../../../input/hotkeyInputGuard.ts';
 import {
   CAR_GROUND_MIN_Z,
-  StaticTrainingEditSubMode,
-  StaticTrainingShotConfig,
+  type BallCamTunerParams,
+  type ShotBallConfig,
+  type ShotCarConfig,
+  type StaticTrainingEditSubMode,
+  type StaticTrainingShotConfig,
   computeEditorContinuousDeltas,
-  applyContinuousDeltasToShotDraft,
-  applyMouseDragToShotDraft,
+  computeContinuousDeltasShotPatch,
+  computeMouseDragShotPatch,
 } from './ShotGizmoMath.ts';
 import {
   computeThreeJsFreeCamPoseFromShot,
   extractShotEditorFreeCamFromSnapshot,
 } from './staticTrainingVariationMath.ts';
 
+export interface StaticTrainingEditorCameraPort {
+  isFreeCam?: boolean;
+  camera?: THREE.Camera | null;
+  setEditorOverride?: (enabled: boolean) => void;
+  setFreeCam: (enabled: boolean) => void;
+  setFreeCamPose?: (
+    position: [number, number, number] | number[],
+    lookAt: [number, number, number] | number[]
+  ) => void;
+  getFreeCamStateSnapshot?: () => {
+    eyeUnreal: [number, number, number];
+    yawUnrealDeg: number;
+    pitchUnrealDeg: number;
+  } | null;
+  syncEditorShotCamera?: (
+    subMode: StaticTrainingEditSubMode,
+    shot: StaticTrainingShotConfig,
+    tuner: BallCamTunerParams
+  ) => void;
+}
+
+export interface StaticTrainingEditorRuntimePort {
+  camera?: StaticTrainingEditorCameraPort | null;
+  match?: { state?: { mode?: string } | null } | null;
+  releaseGoalReplayCameraOverride: () => void;
+}
+
+export interface StaticTrainingEditorReplayControllerPort {
+  togglePause: () => boolean;
+  sessionState: { isPersistent: boolean };
+}
+
 export interface StaticTrainingShotEditorHostCallbacks {
-  getRuntime: () => any;
+  getRuntime: () => StaticTrainingEditorRuntimePort | null;
   isReplayActive: () => boolean;
-  getReplayController: () => any;
+  getReplayController: () => StaticTrainingEditorReplayControllerPort;
   isTestingSingleShot: () => boolean;
   isFreeCamTrajectoryTesting: () => boolean;
   getCurrentShotConfig: () => StaticTrainingShotConfig | null;
@@ -41,7 +76,7 @@ function hasActiveModalDialogue(): boolean {
 
 function isReplayDirectorTunerWindowPresent(): boolean {
   const windows = floatingStore.getSnapshot()?.windows || [];
-  return windows.some((w: any) => w.id === 'replay-director-tuner');
+  return windows.some((w: { id?: string }) => w.id === 'replay-director-tuner');
 }
 
 export class StaticTrainingShotEditor {
@@ -62,6 +97,18 @@ export class StaticTrainingShotEditor {
 
   constructor(host: StaticTrainingShotEditorHostCallbacks) {
     this.host = host;
+  }
+
+  private applyShotPatch(
+    draft: StaticTrainingShotConfig,
+    patch: { carPatch?: Partial<ShotCarConfig>; ballPatch?: Partial<ShotBallConfig> }
+  ): void {
+    if (patch.carPatch) {
+      draft.car = { ...draft.car, ...patch.carPatch };
+    }
+    if (patch.ballPatch) {
+      draft.ball = { ...draft.ball, ...patch.ballPatch };
+    }
   }
 
   resetInputState(): void {
@@ -171,12 +218,13 @@ export class StaticTrainingShotEditor {
     if (!deltas.hasAnyChange) return;
 
     mutateActiveEditItemVariable((draft: StaticTrainingShotConfig) => {
-      const res = applyContinuousDeltasToShotDraft(
+      const res = computeContinuousDeltasShotPatch(
         draft,
         subMode,
         deltas,
         this.ballSpeedZeroLatch
       );
+      this.applyShotPatch(draft, res);
       this.ballSpeedZeroLatch = res.nextBallSpeedZeroLatch;
     });
   }
@@ -485,7 +533,8 @@ export class StaticTrainingShotEditor {
       const subMode = store.editSubMode as StaticTrainingEditSubMode;
 
       mutateActiveEditItemVariable((draft: StaticTrainingShotConfig) => {
-        applyMouseDragToShotDraft(draft, subMode, dx, dy, 0.0045);
+        const patch = computeMouseDragShotPatch(draft, subMode, dx, dy, 0.0045);
+        this.applyShotPatch(draft, patch);
       });
     };
 

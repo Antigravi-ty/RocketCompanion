@@ -57,7 +57,7 @@ export class MqttWebSocketClient {
   _keepAliveTimer: ReturnType<typeof setInterval> | null = null;
   _probeId = `probe_${Math.random().toString(36).slice(2, 10)}`;
   _probeSentAt = 0;
-  eventListeners = new Map<string, Array<(payload?: any) => void>>();
+  eventListeners = new Map<string, Array<(payload?: Record<string, unknown> | Error | CloseEvent) => void>>();
 
   constructor(brokerUrl: string, options: MqttWebSocketClientOptions = {}) {
     this.brokerUrl = String(brokerUrl || '').trim();
@@ -88,7 +88,9 @@ export class MqttWebSocketClient {
     }
 
     const WebSocketConstructor: typeof WebSocket | null =
-      typeof WebSocket !== 'undefined' ? WebSocket : (globalThis as any).WebSocket || null;
+      typeof WebSocket !== 'undefined'
+        ? WebSocket
+        : (globalThis as unknown as { WebSocket?: typeof WebSocket }).WebSocket || null;
 
     if (!WebSocketConstructor) {
       throw new Error('WebSocket is not supported in this environment');
@@ -111,7 +113,7 @@ export class MqttWebSocketClient {
         resolve();
       };
 
-      const finishFailure = (err: any) => {
+      const finishFailure = (err: unknown) => {
         if (settled) return;
         settled = true;
         if (timeoutHandle) clearTimeout(timeoutHandle);
@@ -288,12 +290,12 @@ export class MqttWebSocketClient {
     }
   }
 
-  send(data: any, qos = 0): boolean {
+  send(data: Record<string, unknown> | string, qos = 0): boolean {
     if (!this.topic) return false;
     return this.publishToTopic(this.topic, data, qos);
   }
 
-  publishToTopic(targetTopic: string, data: any, qos = 0): boolean {
+  publishToTopic(targetTopic: string, data: Record<string, unknown> | string, qos = 0): boolean {
     if (!this.ws || this.ws.readyState !== 1 || !this.isConnected || !targetTopic) {
       return false;
     }
@@ -309,7 +311,7 @@ export class MqttWebSocketClient {
     }
   }
 
-  sendBridge(data: any, customBridgeTopic?: string, qos = 1): boolean {
+  sendBridge(data: Record<string, unknown> | string, customBridgeTopic?: string, qos = 1): boolean {
     const targetBridgeTopic =
       customBridgeTopic ||
       this.bridgeTopic ||
@@ -366,7 +368,7 @@ export class MqttWebSocketClient {
     );
   }
 
-  emit(event: string, payload?: any): void {
+  emit(event: string, payload?: Record<string, unknown> | Error | CloseEvent): void {
     const list = this.eventListeners.get(event);
     if (!list) return;
     for (let i = 0; i < list.length; i++) {

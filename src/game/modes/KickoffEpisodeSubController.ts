@@ -59,6 +59,21 @@ export interface KickoffFrameUpdateContext {
   dt?: number;
 }
 
+export interface KickoffEpisodeConfigSnapshot {
+  spawnIndex: number;
+  subMode: KickoffSubMode;
+  ghostPlacement: KickoffGhostPlacement;
+  ghostModeEnabled: boolean;
+}
+
+export interface KickoffEpisodeConfigPatch {
+  spawnIndex?: number;
+  subMode?: KickoffSubMode;
+  ghostPlacement?: KickoffGhostPlacement;
+  ghostModeEnabled?: boolean;
+  ghostVisibility?: { showCar: boolean; showBall: boolean };
+}
+
 export interface KickoffEpisodeSubControllerDeps {
   getRuntime: () => any;
   getGhostVisuals: () => KickoffGhostVisualsPort | null;
@@ -141,9 +156,27 @@ export class KickoffEpisodeSubController {
     this.latchedCountdownSeconds.clear();
   }
 
+  public getConfigSnapshot(): KickoffEpisodeConfigSnapshot {
+    return {
+      spawnIndex: this.spawnIndex,
+      subMode: this.subMode,
+      ghostPlacement: this.ghostPlacement,
+      ghostModeEnabled: this.ghostModeEnabled,
+    };
+  }
+
+  public applyConfigPatch(patch: KickoffEpisodeConfigPatch): void {
+    if (patch.spawnIndex !== undefined) this.spawnIndex = patch.spawnIndex;
+    if (patch.subMode !== undefined) this.setSubMode(patch.subMode);
+    if (patch.ghostPlacement !== undefined) this.setGhostPlacement(patch.ghostPlacement);
+    if (patch.ghostModeEnabled !== undefined) this.setGhostModeEnabled(patch.ghostModeEnabled);
+    if (patch.ghostVisibility) {
+      this.setGhostEntityVisibility(patch.ghostVisibility.showCar, patch.ghostVisibility.showBall);
+    }
+  }
+
   public setSubMode(nextSubMode: KickoffSubMode): void {
-    this.subMode =
-      nextSubMode === 'realistic' || nextSubMode === 'easy-learning' ? nextSubMode : 'instant';
+    this.subMode = nextSubMode === 'realistic' || nextSubMode === 'easy-learning' ? nextSubMode : 'instant';
   }
 
   public setGhostPlacement(placement: KickoffGhostPlacement): void {
@@ -157,10 +190,7 @@ export class KickoffEpisodeSubController {
   public setGhostEntityVisibility(showCar: boolean, showBall: boolean): void {
     const gv = this.deps.getGhostVisuals();
     if (!gv) return;
-    gv.setEntityVisibility(
-      this.ghostModeEnabled && Boolean(showCar),
-      this.ghostModeEnabled && Boolean(showBall)
-    );
+    gv.setEntityVisibility(this.ghostModeEnabled && Boolean(showCar), this.ghostModeEnabled && Boolean(showBall));
   }
 
   public selectSpawn(spawnIndex: number = this.spawnIndex): void {
@@ -172,17 +202,12 @@ export class KickoffEpisodeSubController {
     if (!this.ghostModeEnabled && this.ghostPlacement === 'same' && clamped === 2) return;
 
     this.spawnIndex = clamped;
-    if (store.spawnIndex !== clamped) {
-      useKickoffTrainingStore.setState({ spawnIndex: clamped });
-    }
+    if (store.spawnIndex !== clamped) useKickoffTrainingStore.setState({ spawnIndex: clamped });
     this.resetEpisode(clamped);
   }
 
   public clampSettledCar(
-    carIdx: number,
-    spawn: KickoffSpawnPoint,
-    teamSign: number = 1,
-    preSettleState: Float32Array | null = null
+    carIdx: number, spawn: KickoffSpawnPoint, teamSign: number = 1, preSettleState: Float32Array | null = null
   ): void {
     const r = this.deps.getRuntime();
     if (!r?.physics) return;
@@ -193,14 +218,8 @@ export class KickoffEpisodeSubController {
     const r = this.deps.getRuntime();
     if (!r?.physics) return;
     clampKickoffSettledPlayerAndPartnerCars(
-      r.physics,
-      r.playerCarIndex ?? 0,
-      this.spawnIndex,
-      spawn,
-      this.ghostModeEnabled,
-      this.ghostPlacement,
-      this.preSettleCar0State,
-      this.preSettleCar1State
+      r.physics, r.playerCarIndex ?? 0, this.spawnIndex, spawn,
+      this.ghostModeEnabled, this.ghostPlacement, this.preSettleCar0State, this.preSettleCar1State
     );
   }
 
@@ -213,15 +232,10 @@ export class KickoffEpisodeSubController {
     this.solidAgent?.reset?.();
 
     const resetResult = resetKickoffSpawnInPhysics({
-      physics: r.physics,
-      arena: r.arena,
-      spawnIndex,
-      playerCarIndex: r.playerCarIndex ?? 0,
-      selectedHitbox: r.selectedHitbox || 'default',
-      neutralControls: neutral,
-      ghostModeEnabled: this.ghostModeEnabled,
-      ghostPlacement: this.ghostPlacement,
-      settleImmediate,
+      physics: r.physics, arena: r.arena, spawnIndex,
+      playerCarIndex: r.playerCarIndex ?? 0, selectedHitbox: r.selectedHitbox || 'default',
+      neutralControls: neutral, ghostModeEnabled: this.ghostModeEnabled,
+      ghostPlacement: this.ghostPlacement, settleImmediate,
     });
     this.aiTeamSign = resetResult.aiTeamSign;
     this.preSettleCar0State = resetResult.preSettleCar0State;

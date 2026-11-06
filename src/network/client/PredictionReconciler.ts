@@ -11,19 +11,40 @@ import {
   type CarControls, type ReconciliationTolerances,
 } from './PredictionHistoryBuffer.ts';
 import {
-  VisualErrorSmoother, capturePreResimPositions, type PreResimPositions, type Vector3Like,
+  VisualErrorSmoother, capturePreResimPositions,
+  type PreResimPositions, type Vector3Like,
 } from './VisualErrorSmoother.ts';
 import {
   NetworkTelemetryCollector, createInitialReconcilerMetrics, configureClientLobbyDiagnosticProbes,
   saveClientLobbyLocalEntities, restoreClientLobbyLocalEntities,
   syncClientCarTopology, recordReconcileTelemetryTick,
-  type LatencyBreakdownResult,
+  type LatencyBreakdownResult, type ReconcilerMetrics, type TelemetryChannelPort,
+  type TelemetryRecorderPort, type TelemetrySimPort, type TopologyPacketPort,
 } from './NetworkTelemetryCollector.ts';
-import { ClientClockPacingController } from './ClientClockPacingController.ts';
-import { createBoostPadEdgeTracker } from '../protocol/GlobalPayloadCodec.ts';
-import { ReconcilerControlMessenger } from './ReconcilerControlMessenger.ts';
+import {
+  ClientClockPacingController,
+  type ClockPacingInterpolatorPort as InterpolatorPort,
+} from './ClientClockPacingController.ts';
+import {
+  createBoostPadEdgeTracker,
+  type MatchSignalDescriptor as ServerSignalEntry,
+} from '../protocol/GlobalPayloadCodec.ts';
+import type {
+  PiggybackedSignalAck as PiggybackAckEntry,
+  PiggybackedClientCommand as PiggybackCommandEntry,
+} from '../protocol/InputPacketCodec.ts';
+import {
+  ReconcilerControlMessenger,
+  type ParsedReconcilerPacket as ParsedServerPacketSnapshot,
+} from './ReconcilerControlMessenger.ts';
+import type { DumpedNetworkPacket } from '../diagnostics/PacketDumpDiagnostics.ts';
 import { globalPacingTelemetryRecorder } from '../../game/runtimeUiPort.ts';
 import type { PacingControllerParams } from '../../ui-core/config/pacingControllerEvaluator';
+
+export type ReconcilerSimPort = TelemetrySimPort;
+export type ReconciliationPacketPort = TopologyPacketPort & Partial<ParsedServerPacketSnapshot>;
+export type HandshakeResponsePayload = Record<string, unknown>;
+export type RosterStatePayload = Record<string, unknown>;
 
 export interface PredictionReconcilerOptions {
   localCarIndex?: number;
@@ -45,11 +66,11 @@ export interface PredictionReconcilerOptions {
   enableSmoothing?: boolean;
   enableRedundantInputs?: boolean;
   redundantHistoryTicks?: number;
-  interpolator?: any;
+  interpolator?: InterpolatorPort | null;
   clockPacingMode?: string;
   clockPacingPriority?: string;
   clockPacingParams?: PacingControllerParams | null;
-  telemetryRecorder?: any;
+  telemetryRecorder?: TelemetryRecorderPort | null;
   resetTelemetryOnStart?: boolean;
   onHardResync?: (() => void) | null;
   lobbyDualWorldMode?: boolean;
@@ -58,8 +79,8 @@ export interface PredictionReconcilerOptions {
 }
 
 export class PredictionReconciler {
-  sim: any;
-  channel: any;
+  sim: ReconcilerSimPort;
+  channel: TelemetryChannelPort | null | undefined;
   options: PredictionReconcilerOptions;
   localCarIndex: number;
   readonly capacity = 1024;
@@ -89,20 +110,20 @@ export class PredictionReconciler {
   enableRedundantInputs: boolean;
   redundantHistoryTicks: number;
   shouldSkipLocalStep = false;
-  interpolator: any;
+  interpolator: InterpolatorPort | null;
   _hasServerReportedBuffer = false;
   lastHardResyncTime = 0;
   onHardResync: (() => void) | null;
-  onSignals: ((signals: any[], packetServerTick?: number | null) => void) | null = null;
-  onRosterUpdate: ((msg: any) => void) | null = null;
-  onHandshakeResponse: ((msg: any) => void) | null = null;
+  onSignals: ((signals: ServerSignalEntry[], packetServerTick?: number | null) => void) | null = null;
+  onRosterUpdate: ((msg: RosterStatePayload) => void) | null = null;
+  onHandshakeResponse: ((msg: HandshakeResponsePayload) => void) | null = null;
   _lastProcessedClientTimestamp = 0;
   _baseMeasuredRtt = 0;
   measuredRtt = 0;
-  lastReceivedPacketRaw: any = null;
-  lastParsedPacket: any = null;
+  lastReceivedPacketRaw: unknown = null;
+  lastParsedPacket: ParsedServerPacketSnapshot | null = null;
   pendingDumpNextPacket = false;
-  _onNextDumpResolve: ((dumped: any) => void) | null = null;
+  _onNextDumpResolve: ((dumped: DumpedNetworkPacket | null) => void) | null = null;
   kickoffMaskUntilTick = -1;
   carVisualPresets = new Map<number, string>();
   carNames = new Map<number, string>();
@@ -112,14 +133,18 @@ export class PredictionReconciler {
   hostLobbyMode: boolean;
   replayPlaybackMode = false;
   localSkipReplayReady = false;
-  drainedReplayPackets: any[] = [];
+  drainedReplayPackets: ParsedServerPacketSnapshot[] = [];
   lobbyPrevAuthoritativeState: Float32Array | null = null;
   lobbyCurrAuthoritativeState: Float32Array | null = null;
-  metrics: Record<string, any>;
-  onMetricsUpdated: ((metrics: any) => void) | null = null;
+  metrics: ReconcilerMetrics;
+  onMetricsUpdated: ((metrics: ReconcilerMetrics) => void) | null = null;
 
-  constructor(clientSim: any, channel: any, options: PredictionReconcilerOptions = {}) {
-    this.sim = clientSim;
+  constructor(
+    clientSim: ReconcilerSimPort | null,
+    channel: TelemetryChannelPort | null | undefined,
+    options: PredictionReconcilerOptions = {}
+  ) {
+    this.sim = clientSim as ReconcilerSimPort;
     this.channel = channel;
     this.options = options;
     this.localCarIndex = options.localCarIndex ?? 0;
@@ -153,14 +178,11 @@ export class PredictionReconciler {
     const initialTelemetryActive = options.isMatchTelemetryActive !== undefined
       ? Boolean(options.isMatchTelemetryActive) : !this.lobbyDualWorldMode;
     this.telemetryCollector = new NetworkTelemetryCollector(
-      options.telemetryRecorder || globalPacingTelemetryRecorder, initialTelemetryActive
+      options.telemetryRecorder || (globalPacingTelemetryRecorder as TelemetryRecorderPort),
+      initialTelemetryActive
     );
     if (options.resetTelemetryOnStart !== false) {
-      this.telemetryCollector.reset(
-        this.pacingController.clockPacingMode,
-        this.pacingController.clockPacingPriority,
-        this.pacingController.clockPacingParams,
-      );
+      this.pacingController.resetTelemetry(this.telemetryCollector);
     }
     this.onHardResync = options.onHardResync || null;
     this.leadTicks = this.calculateLeadTicks();
@@ -181,11 +203,7 @@ export class PredictionReconciler {
   setMatchTelemetryActive(enabled: boolean, resetRecorder = false): void {
     this.telemetryCollector.isMatchTelemetryActive = Boolean(enabled);
     if (resetRecorder) {
-      this.telemetryCollector.reset(
-        this.pacingController.clockPacingMode,
-        this.pacingController.clockPacingPriority,
-        this.pacingController.clockPacingParams,
-      );
+      this.pacingController.resetTelemetry(this.telemetryCollector);
     }
   }
   setLobbyDualWorldMode(enabled: boolean): void {
@@ -217,10 +235,10 @@ export class PredictionReconciler {
     if (Array.isArray(this.drainedReplayPackets)) this.drainedReplayPackets.length = 0;
   }
   _resolveLatencyBreakdown(): LatencyBreakdownResult {
-    return this.pacingController.resolveLatencyBreakdown(
+    return this.pacingController.evaluateTimelineTargets(
       this.channel, this._baseMeasuredRtt, this.measuredRtt,
       this._hasServerReportedBuffer, this.metrics?.inputBufferSize
-    );
+    ).breakdown;
   }
   _resolveEffectiveRtt(): number { return this._resolveLatencyBreakdown().rttMs; }
   setClockPacingMode(mode: string): void {
@@ -246,11 +264,10 @@ export class PredictionReconciler {
     this.pacingController.setInputBufferThresholds(catchupOffset, skipOffset);
     this.notifyMetricsUpdated();
   }
-  addMetricsListener(fn: (metrics: any) => void): () => void { return this.telemetryCollector.addListener(fn); }
+  addMetricsListener(fn: (metrics: ReconcilerMetrics) => void): () => void { return this.telemetryCollector.addListener(fn); }
   setEnableSmoothing(enabled: boolean): void {
     this.visualSmoother.setEnabled(enabled);
-    this.metrics.enableSmoothing = this.visualSmoother.enabled;
-    if (!this.visualSmoother.enabled) this.metrics.smoothingMagnitude = 0;
+    this.metrics.applySmoothingToggle(this.visualSmoother.enabled);
     this.notifyMetricsUpdated();
   }
   setReconciliationTolerances(tolerances: Partial<ReconciliationTolerances> = {}): void {
@@ -274,10 +291,16 @@ export class PredictionReconciler {
     this.telemetryCollector.emitMetrics(this.metrics, this.onMetricsUpdated);
   }
   calculateLeadTicks(rttMs?: number): number {
-    return this.pacingController.calculateLeadTicks(this._resolveLatencyBreakdown(), rttMs);
+    return this.pacingController.evaluateTimelineTargets(
+      this.channel, this._baseMeasuredRtt, this.measuredRtt,
+      this._hasServerReportedBuffer, this.metrics?.inputBufferSize, rttMs
+    ).leadTicks;
   }
   calculateDownlinkTicks(rttMs?: number): number {
-    return this.pacingController.calculateDownlinkTicks(this._resolveLatencyBreakdown(), rttMs);
+    return this.pacingController.evaluateTimelineTargets(
+      this.channel, this._baseMeasuredRtt, this.measuredRtt,
+      this._hasServerReportedBuffer, this.metrics?.inputBufferSize, rttMs
+    ).downlinkTicks;
   }
   getPreviousCommittedControls(tick: number, carIndex = this.localCarIndex): CarControls {
     return this.historyBuffer.getPreviousCommittedControls(tick, carIndex, this.localCarIndex);
@@ -285,7 +308,7 @@ export class PredictionReconciler {
   acknowledgeSignal(signalId: number, signalType: number, repeatCount = 8): void {
     this.controlMessenger.acknowledgeSignal(signalId, signalType, repeatCount);
   }
-  acknowledgeServerSignals(signals: any[]): void { this.controlMessenger.acknowledgeServerSignals(signals); }
+  acknowledgeServerSignals(signals: ServerSignalEntry[]): void { this.controlMessenger.acknowledgeServerSignals(signals); }
   enqueueClientCommand(commandType: number, param1 = 0, param2 = 0, maxSends = 60): number {
     return this.controlMessenger.enqueueClientCommand(commandType, param1, param2, maxSends);
   }
@@ -299,7 +322,7 @@ export class PredictionReconciler {
   setCarVisualPreset(carIndex: number, visualId: string): void {
     if (typeof carIndex === 'number' && carIndex >= 0 && visualId) this.carVisualPresets.set(carIndex, visualId);
   }
-  _collectPiggybackAcksAndCommands(): { acks: any[]; commands: any[] } {
+  _collectPiggybackAcksAndCommands(): { acks: PiggybackAckEntry[]; commands: PiggybackCommandEntry[] } {
     return this.controlMessenger.collectPiggybackAcksAndCommands();
   }
   sendOutboundInputForTick(tick: number, carIndex = this.localCarIndex, controls: CarControls | null = null, nowMs = performance.now()): void {
@@ -310,7 +333,7 @@ export class PredictionReconciler {
         redundantHistoryCount: this.redundantHistoryCount,
         enableRedundantInputs: this.enableRedundantInputs,
         redundantHistoryTicks: this.redundantHistoryTicks,
-        tickDtMs: this.pacingController.tickDtMs,
+        tickDtMs: 1000.0 / 120.0,
         lastServerRecordedInputTick: this.lastServerRecordedInputTick,
         clientInputRingBuffer: this.historyBuffer.clientInputRingBuffer,
         getPreviousCommittedControls: (t, cIdx) => this.getPreviousCommittedControls(t, cIdx),
@@ -349,7 +372,7 @@ export class PredictionReconciler {
     if (savedLobbyEntities) {
       restoreClientLobbyLocalEntities(this.sim, this.lobbyDualWorldMode, this.localCarIndex, this.historyBuffer.lastLocalControls, savedLobbyEntities);
     }
-    const currentClientTick = Math.floor(this.sim.getHeaderView().tickCount);
+    const currentClientTick = Math.floor(this.sim.getHeaderView!().tickCount);
     this.lastAckedServerTick = serverTick;
     this.isTimelineSynchronized = true;
     this.shouldSkipLocalStep = false;
@@ -358,16 +381,12 @@ export class PredictionReconciler {
     this.visualSmoother.reset();
     this.sim.saveStateSlot(currentClientTick % 256);
     this.historyBuffer.saveTickSnapshot(currentClientTick, this.sim);
-    this.metrics.reconcileTier = 3;
-    this.metrics.hardSnapCount = this.hardSnapCount;
-    this.metrics.clientTick = currentClientTick;
-    this.metrics.serverTick = serverTick;
-    this.metrics.leadTicks = this.leadTicks;
+    this.metrics.applyHardSyncState(currentClientTick, serverTick, this.leadTicks, this.hardSnapCount);
     this.notifyMetricsUpdated();
   }
 
   sampleAndPredictInput(carIndex: number, controls: CarControls, nowMs = performance.now()): CarControls {
-    const currentTick = Math.floor(this.sim.getHeaderView().tickCount);
+    const currentTick = Math.floor(this.sim.getHeaderView!().tickCount);
     const isKickoffMasked = this.kickoffMaskUntilTick > 0 && currentTick < this.kickoffMaskUntilTick;
     const existing = this.historyBuffer.getCarControls(currentTick, carIndex);
     const committedControls = isKickoffMasked
@@ -378,9 +397,7 @@ export class PredictionReconciler {
     this.sendOutboundInputForTick(currentTick, carIndex, committedControls, nowMs);
     this.sim.saveStateSlot(currentTick % 256);
     this.historyBuffer.saveTickSnapshot(currentTick, this.sim);
-    this.metrics.clientTick = currentTick;
-    this.metrics.rttMs = this._resolveEffectiveRtt();
-    this.metrics.leadTicks = this.leadTicks;
+    this.metrics.applyClientPredictionStep(currentTick, this._resolveEffectiveRtt(), this.leadTicks);
     if (currentTick % 2 === 0) this.notifyMetricsUpdated();
     return committedControls;
   }
@@ -401,7 +418,7 @@ export class PredictionReconciler {
   }
 
   private replayAndEvaluateCorrection(
-    packet: any, serverTick: number, currentClientTick: number, prePositions: PreResimPositions, numCars: number
+    packet: ReconciliationPacketPort, serverTick: number, currentClientTick: number, prePositions: PreResimPositions, numCars: number
   ): void {
     const updatedStats = this.visualSmoother.executeReplayAndEvaluateCorrection({
       sim: this.sim, historyBuffer: this.historyBuffer, packet, serverTick, currentClientTick,
@@ -441,9 +458,8 @@ export class PredictionReconciler {
     const serverTick = packet.serverTick;
     if (!this.replayPlaybackMode && serverTick <= this.lastAckedServerTick && serverTick > 0) return;
     this.lastAckedServerTick = serverTick;
-    this.metrics.serverTick = serverTick;
     const effectiveRtt = this._resolveEffectiveRtt();
-    this.metrics.rttMs = effectiveRtt;
+    this.metrics.applyServerAck(serverTick, effectiveRtt);
     const maxAckCarIndex = this.historyBuffer.recordAcknowledgedRemoteControls(packet.acknowledgedControls, this.localCarIndex);
     this.lastParsedPacket = packet;
     this.controlMessenger.recordLatestParsedPacket(packet);
@@ -472,7 +488,7 @@ export class PredictionReconciler {
     this.leadTicks = this.calculateLeadTicks(effectiveRtt);
     this.metrics.leadTicks = this.leadTicks;
     const targetDelta = this.leadTicks + this.calculateDownlinkTicks(effectiveRtt);
-    let currentClientTick = Math.floor(this.sim.getHeaderView().tickCount);
+    let currentClientTick = Math.floor(this.sim.getHeaderView!().tickCount);
     const currentDelta = currentClientTick - serverTick;
     const desyncDistance = Math.abs(currentDelta - targetDelta);
     const rollbackDepth = currentClientTick - serverTick;
@@ -484,7 +500,7 @@ export class PredictionReconciler {
           `[PredictionReconciler] Timeline sync aligned (currentDelta: ${currentDelta}, target: ${targetDelta}, rollbackDepth: ${rollbackDepth}). Snapping timeline to server tick ${serverTick}.`
         );
         this.syncTimeline(packet.stateSnapshot, serverTick, nowMs);
-        const syncedClientTick = Math.floor(this.sim.getHeaderView().tickCount);
+        const syncedClientTick = Math.floor(this.sim.getHeaderView!().tickCount);
         const isKickoffMasked = this.kickoffMaskUntilTick > 0 && syncedClientTick < this.kickoffMaskUntilTick;
         if (this.telemetryCollector.isMatchTelemetryActive && wasAlreadySynchronized && !isKickoffMasked) {
           recordReconcileTelemetryTick({
@@ -523,22 +539,15 @@ export class PredictionReconciler {
     this.notifyMetricsUpdated();
   }
   updateSmoothing(deltaSeconds: number): Vector3Like { return this.visualSmoother.stepDecay(deltaSeconds); }
-  triggerDumpNextPacket(): Promise<any> { return this.controlMessenger.triggerDumpNextPacket(); }
-  dumpPacket(packetOrRaw: any = null): any { return this.controlMessenger.dumpPacket(packetOrRaw || this.lastParsedPacket || this.lastReceivedPacketRaw); }
+  triggerDumpNextPacket(): Promise<DumpedNetworkPacket | null> { return this.controlMessenger.triggerDumpNextPacket(); }
+  dumpPacket(packetOrRaw: unknown = null): DumpedNetworkPacket | null { return this.controlMessenger.dumpPacket((packetOrRaw || this.lastParsedPacket || this.lastReceivedPacketRaw) as never); }
   resetStats(): void {
     this.totalCorrections = 0;
     this.skippedCorrections = 0;
     this.hardSnapCount = 0;
     this.maxCorrectionDelta = 0;
     this.visualSmoother.reset();
-    this.metrics.reconcileTier = 1;
-    this.metrics.historicalPosDelta = 0;
-    this.metrics.totalCorrections = 0;
-    this.metrics.skippedCorrections = 0;
-    this.metrics.hardSnapCount = 0;
-    this.metrics.lastCorrectionDelta = 0;
-    this.metrics.maxCorrectionDelta = 0;
-    this.metrics.smoothingMagnitude = 0;
+    this.metrics.resetCorrectionStats();
     this.telemetryCollector.recorder?.reset?.();
   }
 }

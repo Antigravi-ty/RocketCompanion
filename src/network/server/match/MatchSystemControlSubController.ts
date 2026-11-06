@@ -14,13 +14,32 @@ import { REPLAY_BUFFER_MODES } from '../../../replay/ReplayRingBuffer.ts';
 import { MATCH_STATES, MATCH_TICK_RATE } from './matchLoadoutAndSpawnPipeline.ts';
 import type { MatchDomainState } from './MatchDomainState.ts';
 import type { MatchCommandQueueSubController } from './MatchCommandQueueSubController.ts';
+import type { LifecyclePhysicsSnapshotPort } from './matchLifecyclePipeline.ts';
+
+export interface SystemControlPhysicsManagerPort {
+  currentTick: number;
+  sim?: {
+    setUnlimitedBoost?: (enabled: boolean) => void;
+    loadCompactState?: (snapshot: Float32Array | number[]) => void;
+    loadState?: (snapshot: Float32Array | number[]) => void;
+    syncToStateObject?: () => void;
+    saveCompactState?: () => Float32Array;
+    saveState?: () => Float32Array;
+  } | null;
+  applySignal: (signal: number | string, payload?: Record<string, unknown>) => void;
+  getActiveCarMask?: () => number;
+}
+
+export interface SystemControlReplayBufferPort {
+  configureMode: (mode: string, capacityTicks?: number | null) => void;
+}
 
 export interface MatchSystemControlHostPort {
   readonly domain: MatchDomainState;
   readonly commandQueue: MatchCommandQueueSubController;
-  readonly physicsManager: any;
-  readonly replayBuffer: any;
-  encodeFramePacket(physicsSnapshot: any): Uint8Array;
+  readonly physicsManager: SystemControlPhysicsManagerPort | null | undefined;
+  readonly replayBuffer: SystemControlReplayBufferPort | null | undefined;
+  encodeFramePacket(physicsSnapshot: LifecyclePhysicsSnapshotPort | null): Uint8Array;
 }
 
 export interface TrainingRulesetConfigOptions {
@@ -30,6 +49,8 @@ export interface TrainingRulesetConfigOptions {
   celebrationTicks?: number;
   fifoDurationSeconds?: number;
 }
+
+export type TrainingRulesetOptions = TrainingRulesetConfigOptions;
 
 export class MatchSystemControlSubController {
   readonly host: MatchSystemControlHostPort;
@@ -60,17 +81,8 @@ export class MatchSystemControlSubController {
 
   configureTrainingRuleset(options: TrainingRulesetConfigOptions = {}): void {
     const { domain, physicsManager, replayBuffer } = this.host;
-    if (options.disableGoalReset !== undefined) {
-      domain.trainingDisableGoalReset = Boolean(options.disableGoalReset);
-    }
-    if (options.goalReplayEnabled !== undefined) {
-      domain.trainingGoalReplayEnabled = Boolean(options.goalReplayEnabled);
-    }
-    if (typeof options.celebrationTicks === 'number' && options.celebrationTicks > 0) {
-      domain.trainingGoalCelebrationTicks = Math.round(options.celebrationTicks);
-    }
+    domain.applyTrainingRulesetOptions(options);
     if (options.unlimitedBoost !== undefined) {
-      domain.trainingUnlimitedBoost = Boolean(options.unlimitedBoost);
       physicsManager?.sim?.setUnlimitedBoost?.(Boolean(options.unlimitedBoost));
     }
     if (
@@ -90,8 +102,7 @@ export class MatchSystemControlSubController {
     this.isStateOnlyMode = true;
     this.interveneTargetTick = -1;
     this.interveneRemainingTicks = -1;
-    domain.stateOnlyMode = true;
-    domain.interveneTargetTick = -1;
+    domain.applySystemControlState('state_only', cursorTick);
 
     if (physicsManager) {
       if (stateSnapshot && physicsManager.sim) {
@@ -104,7 +115,6 @@ export class MatchSystemControlSubController {
       }
       if (typeof cursorTick === 'number' && cursorTick >= 0) {
         physicsManager.currentTick = cursorTick;
-        domain.matchTick = cursorTick;
       }
       physicsManager.applySignal(SYSTEM_CONTROL_SIGNALS.SYS_CTRL_STATE_ONLY, {
         cursorTick: domain.matchTick,
@@ -140,9 +150,7 @@ export class MatchSystemControlSubController {
     this.isStateOnlyMode = true;
     this.interveneCountdownSeconds = Math.ceil(clampedSec);
     this.interveneRemainingTicks = ticks;
-    this.interveneTargetTick = domain.matchTick + ticks;
-    domain.stateOnlyMode = true;
-    domain.interveneTargetTick = this.interveneTargetTick;
+    this.interveneTargetTick = domain.applySystemControlState('intervene', ticks);
 
     if (physicsManager) {
       if (stateSnapshot && physicsManager.sim) {
@@ -186,11 +194,7 @@ export class MatchSystemControlSubController {
     this.isStateOnlyMode = false;
     this.interveneTargetTick = -1;
     this.interveneRemainingTicks = -1;
-    domain.stateOnlyMode = false;
-    domain.interveneTargetTick = -1;
-    if (domain.state === MATCH_STATES.PAUSED || domain.state === MATCH_STATES.REPLAY) {
-      domain.state = MATCH_STATES.PLAYING;
-    }
+    domain.applySystemControlState('resume', resumeTick);
 
     if (physicsManager) {
       if (stateSnapshot && physicsManager.sim) {
@@ -203,7 +207,6 @@ export class MatchSystemControlSubController {
       }
       if (typeof resumeTick === 'number' && resumeTick >= 0) {
         physicsManager.currentTick = resumeTick;
-        domain.matchTick = resumeTick;
       }
       physicsManager.applySignal(SYSTEM_CONTROL_SIGNALS.SYS_CTRL_PHYSICS_RESUME, {
         resumeTick: domain.matchTick,
@@ -237,7 +240,7 @@ export class MatchSystemControlSubController {
 
     if (this.interveneRemainingTicks > 0) {
       this.interveneRemainingTicks--;
-      domain.matchTick++;
+      domain.matchTick += 1;
       if (physicsManager) {
         physicsManager.currentTick = domain.matchTick;
       }
@@ -254,9 +257,8 @@ export class MatchSystemControlSubController {
         : sim && typeof sim.saveState === 'function'
           ? sim.saveState()
           : null;
-    const stateOnlySnapshot = rawSnap
+    const stateOnlySnapshot: LifecyclePhysicsSnapshotPort | null = rawSnap
       ? {
-          tick: domain.matchTick,
           activeCarMask: physicsManager?.getActiveCarMask?.() || 1,
           stateSnapshot: rawSnap,
           acknowledgedControls: [],

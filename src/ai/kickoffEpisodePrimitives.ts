@@ -27,6 +27,7 @@ export interface KickoffCarControls {
 }
 
 export interface KickoffOverlayKeys {
+  [key: string]: boolean;
   Shift: boolean;
   Q: boolean;
   A: boolean;

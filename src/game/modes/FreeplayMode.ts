@@ -1,32 +1,48 @@
-import { BaseGameMode } from './BaseGameMode.ts';
+import {
+  BaseGameMode,
+  type GameModePhysicsEvent,
+  type GameModeRuntimePort,
+} from './BaseGameMode.ts';
 import { isIncidentEvent } from '../../physics/RocketSimConstants.ts';
 import { ReplayRingBuffer, REPLAY_BUFFER_MODES } from '../../replay/ReplayRingBuffer.ts';
 import { ReplayTimelineController } from '../../replay/ReplayTimelineController.ts';
+import type { ImportedDiagnosticPatternInput } from '../../replay/ReplayDirectorStatePipeline.ts';
 import {
   DirectorPreviewSubController,
+  type DirectorPatternPreviewOptions,
   type DirectorPreviewStepContext,
+  type ReferenceFreeCamOptions,
 } from './freeplay/DirectorPreviewSubController.ts';
 import { FreeplayGoalAndTouchSubController } from './freeplay/FreeplayGoalAndTouchSubController.ts';
+import { endGoalReplaySession } from './shared/GoalReplaySessionCoordinator.ts';
 import {
   getActiveReplayTimelineController,
   setActiveReplayTimelineController,
   setNameTagRuntimeState,
   hudStore,
-  useAppStore,
 } from '../runtimeUiPort.ts';
-import {
-  getPreferredColorHex,
-  getPreferredFreeplayTeam,
-} from '../../ui-core/config/vehiclePresets';
+import { getPreferredFreeplayTeam } from '../../ui-core/config/vehiclePresets';
 import { StandaloneReplayViewerController } from '../../replay/StandaloneReplayViewerController.ts';
-import { FreeplayRewinderController } from '../../replay/FreeplayRewinderController.ts';
+import type { ReplayScoreboardRuntimePort } from '../../replay/ReplayScoreboardSynchronizer.ts';
+import {
+  FreeplayRewinderController,
+  type FreeplayRewinderRuntimePort,
+} from '../../replay/FreeplayRewinderController.ts';
 import {
   retainCompletedMatchReplayAndNotify,
   type RetainedMatchReplay,
 } from '../../replay/ReplayFileExporter.ts';
-import { NameTagTunerArenaController } from './NameTagTunerArenaController.ts';
+import {
+  NameTagTunerArenaController,
+  type NameTagTunerRuntimeHost,
+} from './NameTagTunerArenaController.ts';
 
 export const DEFAULT_FREEPLAY_REPLAY_DURATION_SECONDS = 30;
+
+export type FreeplayRuntimePort = GameModeRuntimePort &
+  ReplayScoreboardRuntimePort &
+  FreeplayRewinderRuntimePort &
+  NameTagTunerRuntimeHost;
 
 /**
  * FreeplayMode.ts
@@ -34,7 +50,7 @@ export const DEFAULT_FREEPLAY_REPLAY_DURATION_SECONDS = 30;
  * Pause & Persistent (P key) timeline scrubbing, incident audio replay,
  * unlimited boost support, free ball controls, Standalone Replay Viewer, and Rewinder Configurator.
  */
-export class FreeplayMode extends BaseGameMode {
+export class FreeplayMode extends BaseGameMode<FreeplayRuntimePort> {
   public readonly replayRingBuffer: ReplayRingBuffer;
   public readonly replayController: ReplayTimelineController;
   public readonly standaloneReplayViewer: StandaloneReplayViewerController;
@@ -43,7 +59,7 @@ export class FreeplayMode extends BaseGameMode {
   public readonly directorPreview: DirectorPreviewSubController;
   public readonly goalAndTouch: FreeplayGoalAndTouchSubController;
 
-  constructor(runtime: Record<string, any> | null) {
+  constructor(runtime: FreeplayRuntimePort | null) {
     super('freeplay', runtime);
 
     const configuredSeconds = Number(runtime?.trainingOptions?.freeplayReplayDurationSeconds);
@@ -60,11 +76,11 @@ export class FreeplayMode extends BaseGameMode {
       engine: runtime?.physics || null,
       ringBuffer: this.replayRingBuffer,
     });
-    this.standaloneReplayViewer = new StandaloneReplayViewerController(runtime, this);
+    this.standaloneReplayViewer = new StandaloneReplayViewerController(this.runtime, this);
     this.standaloneReplayViewer.attach();
-    this.rewinderController = new FreeplayRewinderController(runtime, this);
+    this.rewinderController = new FreeplayRewinderController(this.runtime, this);
     this.rewinderController.attach();
-    this.nameTagTunerController = new NameTagTunerArenaController(runtime as any);
+    this.nameTagTunerController = new NameTagTunerArenaController(this.runtime);
     this.nameTagTunerController.attach();
     this.directorPreview = new DirectorPreviewSubController({
       getRuntime: () => this.runtime,
@@ -131,17 +147,12 @@ export class FreeplayMode extends BaseGameMode {
     return getPreferredFreeplayTeam();
   }
 
-  private _syncPlayerPreferredFreeplayTeam(): 0 | 1 {
-    const r = this.runtime;
+  private _syncPlayerPreferredFreeplayTeam(
+    options: { resetPlayerCarIndex?: boolean; restoreLoadout?: boolean } = {}
+  ): 0 | 1 {
     const freeplayTeam = getPreferredFreeplayTeam();
-    if (!this.standaloneReplayViewer?.hasLoadedReplay && r) {
-      const playerIdx = r.playerCarIndex ?? 0;
-      if (r.teamAssignment) {
-        r.teamAssignment.playerTeam = freeplayTeam;
-        r.teamAssignment.opponentTeam = freeplayTeam === 0 ? 1 : 0;
-      }
-      r.physics?.setCarTeam?.(playerIdx, freeplayTeam);
-      r.arena?.setCarTeam?.(playerIdx, freeplayTeam);
+    if (!this.standaloneReplayViewer?.hasLoadedReplay) {
+      this.syncPlayerTeamAndFreeplayLoadout(freeplayTeam, options);
     }
     return freeplayTeam;
   }
@@ -153,14 +164,14 @@ export class FreeplayMode extends BaseGameMode {
 
   public override onEnter(): void {
     const r = this.runtime;
-    const freeplayTeam = this._syncPlayerPreferredFreeplayTeam();
-    if (
+    const shouldRestoreLoadout = Boolean(
       !this.standaloneReplayViewer?.hasLoadedReplay &&
-      !r?.arena?.isLobbyMode &&
-      r?.match?.state?.phase !== 'lobby'
-    ) {
-      r?.restoreLocalPlayerFreeplayLoadout?.(0);
-    }
+        !r?.arena?.isLobbyMode &&
+        r?.match?.state?.phase !== 'lobby'
+    );
+    const freeplayTeam = this._syncPlayerPreferredFreeplayTeam({
+      restoreLoadout: shouldRestoreLoadout,
+    });
     if (r?.keyboard) {
       r.keyboard.ballControlEnabled = !this.standaloneReplayViewer?.hasLoadedReplay;
     }
@@ -170,11 +181,8 @@ export class FreeplayMode extends BaseGameMode {
     this.rewinderController.runtime = r;
     this.rewinderController.mode = this;
     this.rewinderController.attach();
-    this.nameTagTunerController.runtime = r as any;
+    this.nameTagTunerController.runtime = r;
     this.nameTagTunerController.attach();
-    if (r && !r.replayTimelineController) {
-      r.replayTimelineController = this.replayController;
-    }
     this.directorPreview.onEnter(freeplayTeam);
     this.goalAndTouch.goalResetTicks = 0;
     this.replayRingBuffer?.clear?.();
@@ -210,10 +218,10 @@ export class FreeplayMode extends BaseGameMode {
     this.goalAndTouch.goalResetTicks = 0;
   }
 
-  public onPhysicsEvent(event: Record<string, any> | null | undefined): void {
+  public override onPhysicsEvent(event: GameModePhysicsEvent | null | undefined): void {
     if (
       !event ||
-      !isIncidentEvent(event.type) ||
+      !isIncidentEvent(event.type ?? -1) ||
       this.isGoalReplayActive() ||
       this.standaloneReplayViewer?.isActive ||
       this.rewinderController?.isBlockingLivePhysics
@@ -227,7 +235,7 @@ export class FreeplayMode extends BaseGameMode {
     this.rewinderController?.onPhysicsEvent?.(event);
   }
 
-  public onBeforePhysicsTick(): boolean {
+  public override onBeforePhysicsTick(): boolean {
     this.nameTagTunerController?.onBeforePhysicsTick?.();
     if (this.rewinderController && !this.rewinderController.onBeforePhysicsTick()) {
       return false;
@@ -239,7 +247,7 @@ export class FreeplayMode extends BaseGameMode {
     return true;
   }
 
-  public onAfterPhysicsTick(): void {
+  public override onAfterPhysicsTick(): void {
     const r = this.runtime;
     const sim = r?.physics;
     if (
@@ -269,29 +277,31 @@ export class FreeplayMode extends BaseGameMode {
     this.directorPreview.bindReplayHudState(totalFrames);
   }
 
-  public async importDirectorDiagnosticPattern(
+  public override async importDirectorDiagnosticPattern(
     fileOrInput: unknown,
-    options: Record<string, unknown> = {}
-  ): Promise<boolean> {
+    options: DirectorPatternPreviewOptions = {}
+  ): Promise<ImportedDiagnosticPatternInput | null> {
     return this.directorPreview.importDiagnosticPattern(fileOrInput, options);
   }
 
-  public startDirectorPatternPreview(
-    parsedPattern: Record<string, any> | null = null,
-    options: Record<string, any> = {}
+  public override startDirectorPatternPreview(
+    parsedPattern: ImportedDiagnosticPatternInput | null = null,
+    options: DirectorPatternPreviewOptions = {}
   ): boolean {
     return this.directorPreview.startPatternPreview(parsedPattern, options);
   }
 
-  public enterDirectorReferenceFreeCamFromHere(options: Record<string, any> = {}): boolean {
+  public override enterDirectorReferenceFreeCamFromHere(
+    options: ReferenceFreeCamOptions = {}
+  ): boolean {
     return this.directorPreview.enterReferenceFreeCamFromHere(options);
   }
 
-  public exitDirectorReferenceFreeCam(): boolean {
+  public override exitDirectorReferenceFreeCam(): boolean {
     return this.directorPreview.exitReferenceFreeCam();
   }
 
-  public exitDirectorPatternPreview(): boolean {
+  public override exitDirectorPatternPreview(): boolean {
     return this.directorPreview.exitPatternPreview();
   }
 
@@ -300,7 +310,7 @@ export class FreeplayMode extends BaseGameMode {
     this.directorPreview.completeReplaySession();
   }
 
-  public skipGoalReplay(): void {
+  public override skipGoalReplay(): void {
     if (!this.isGoalReplayActive() && this.goalAndTouch.getEffectiveGoalResetTicks() <= 0) return;
     const r = this.runtime;
     if (r?.networkReconciler && !this.directorPreview.isReplayActive) {
@@ -311,7 +321,7 @@ export class FreeplayMode extends BaseGameMode {
     this._completePostGoalOrReplayTransition();
   }
 
-  public exportRecentHighlightReplay(
+  public override exportRecentHighlightReplay(
     durationSeconds = DEFAULT_FREEPLAY_REPLAY_DURATION_SECONDS,
     suppressNotification = false
   ): RetainedMatchReplay | null {
@@ -329,7 +339,7 @@ export class FreeplayMode extends BaseGameMode {
     });
   }
 
-  public override update(context: DirectorPreviewStepContext & Record<string, any>): void {
+  public override update(context: DirectorPreviewStepContext): void {
     const r = this.runtime;
     const activeCarIdx = context.activeCar ?? r?.playerCarIndex ?? 0;
     const isScrubOrViewerActive =
@@ -346,18 +356,15 @@ export class FreeplayMode extends BaseGameMode {
       return;
     }
 
-    if (r?.isGoalReplayCameraOverrideActive?.()) {
-      r.releaseGoalReplayCameraOverride();
-      r.camera?.resetView?.();
-    }
-
     const { playerCarView } = context;
     if (playerCarView) {
-      hudStore.getState().setBoost(playerCarView.boost, playerCarView.isBoosting, isUnlimited);
+      hudStore
+        .getState()
+        .setBoost(playerCarView.boost, Boolean(playerCarView.isBoosting), isUnlimited);
     }
   }
 
-  public resetToCleanFreeplay(): void {
+  public override resetToCleanFreeplay(): void {
     const r = this.runtime;
     this.id = 'freeplay';
 
@@ -384,10 +391,10 @@ export class FreeplayMode extends BaseGameMode {
       }
     }
     if (r?.arena?.cars) {
-      if (r.arena.cars[0]) r.arena.cars[0].visible = true;
+      if (r.arena.cars[0]) r.arena.cars[0]!.visible = true;
       for (let i = 1; i < r.arena.cars.length; i++) {
         if (r.arena.cars[i]) {
-          r.arena.cars[i].visible = false;
+          r.arena.cars[i]!.visible = false;
         }
         r.arena.resetCarBoosts?.(i);
         r.arena.carDemolitions?.[i]?.stop?.();
@@ -405,24 +412,12 @@ export class FreeplayMode extends BaseGameMode {
     }
 
     if (r) {
-      r.playerCarIndex = 0;
-      if (r.arena) {
-        r.arena.playerCarIndex = 0;
-      }
-      r.releaseGoalReplayCameraOverride();
-      const playerTeam = this._syncPlayerPreferredFreeplayTeam();
+      endGoalReplaySession(r, null, { resetHudFlags: false });
+      const playerTeam = this.syncPlayerTeamAndFreeplayLoadout(getPreferredFreeplayTeam(), {
+        resetPlayerCarIndex: true,
+        restoreLoadout: true,
+      }) ?? getPreferredFreeplayTeam();
       hudStore.getState().setMatchState({ localTeam: playerTeam });
-      if (typeof r.restoreLocalPlayerFreeplayLoadout === 'function') {
-        r.restoreLocalPlayerFreeplayLoadout(0);
-      } else {
-        const appState = useAppStore?.getState?.();
-        const targetCar = appState?.activeCar || r.selectedPreset;
-        if (targetCar) {
-          r.changePlayerVehicle?.(targetCar);
-        }
-        r.setCarColor?.(0, getPreferredColorHex(null, playerTeam), false);
-        r.syncPlayerMaterialsLoadout?.();
-      }
       if (r.keyboard) {
         r.keyboard.ballControlEnabled = true;
       }
@@ -434,17 +429,13 @@ export class FreeplayMode extends BaseGameMode {
     if (this.directorPreview?.isReplayActive) {
       this.directorPreview.onExit();
     }
-    if (r?.networkReconciler?.replayPlaybackMode || r?.replayTimelineController?.sessionState?.isActive) {
-      r.networkReconciler?.setReplayPlaybackMode?.(false);
-      r.replayTimelineController?.endReplaySession?.();
-      r.replayPovCarIndex = null;
-      r.releaseGoalReplayCameraOverride?.();
-      hudStore.getState().setReplayState?.({ replayPaused: false, replayPersistent: false });
+    if (r?.networkReconciler?.replayPlaybackMode || this.replayController?.sessionState?.isActive) {
+      r?.networkReconciler?.setReplayPlaybackMode?.(false);
+      endGoalReplaySession(r, this.replayController, { clearHud: false });
     }
     this.rewinderController?.onResetKickoff?.();
     this.goalAndTouch.goalResetTicks = 0;
     this._resetPlayTouchAndGoalState();
-    r?.ballTrajectoryPredictor?.clear?.();
 
     if (this.standaloneReplayViewer?.hasLoadedReplay) {
       const takeover = this.standaloneReplayViewer.takeoverSubController;
@@ -460,10 +451,7 @@ export class FreeplayMode extends BaseGameMode {
       } else {
         this.standaloneReplayViewer._applyFrameAtCursor(false, false);
       }
-      r?.audioSubsystem?.resetAudio?.();
-      r?.interpolator?.sync?.();
-      r?.arena?.resetBallTrail?.();
-      r?.camera?.resetView?.();
+      this.resetKickoffPresentationAndAudio({ resetCamera: true, resetBots: false });
       if (r?.match?.state) {
         r.match.state.phase = 'playing';
       }
@@ -482,7 +470,9 @@ export class FreeplayMode extends BaseGameMode {
     r?.physics?.setUnlimitedBoost?.(isTrainingUnlimited);
     r?.inputPoller?.latchJumpSuppression?.();
     if (r) {
-      r.playerControls = { ...r.neutralControls };
+      if (r.neutralControls) {
+        r.playerControls = { ...r.neutralControls };
+      }
       r.playerThrottle = 0;
     }
     if (this.nameTagTunerController?.isActive) {
@@ -507,12 +497,11 @@ export class FreeplayMode extends BaseGameMode {
       r.authoritativeServer.lastReceivedControls?.clear?.();
       r.networkReconciler?.syncTimeline?.(snap, curTick);
     }
-    r?.audioSubsystem?.resetAudio?.();
-    r?.interpolator?.sync?.();
-    r?.arena?.resetBallTrail?.();
-    if (!this.nameTagTunerController?.isActive || !r?.camera?.isFreeCam) {
-      r?.camera?.resetView?.();
-    }
+    const shouldResetCamera = !this.nameTagTunerController?.isActive || !r?.camera?.isFreeCam;
+    this.resetKickoffPresentationAndAudio({
+      resetCamera: shouldResetCamera,
+      resetBots: false,
+    });
     this.goalAndTouch.lastKickoffStartTick = Math.floor(
       r?.physics?.getHeaderView?.()?.tickCount ?? 0
     );

@@ -30,16 +30,16 @@ export async function loadThrowbackStadiumField(): Promise<THREE.Group | null> {
         stadium.name = 'Stadium / Throwback Hockey Field';
         stadium.scale.setScalar(100);
 
-        stadium.traverse((obj: any) => {
-          if (obj.name && obj.name.startsWith('BoostPad')) {
-            obj.visible = false;
+        stadium.traverse((node: THREE.Object3D & { isMesh?: boolean }) => {
+          if (node.name && node.name.startsWith('BoostPad')) {
+            node.visible = false;
           }
-          if (obj.isMesh) {
-            if (obj.name && obj.name.startsWith('BoostPad')) {
-              obj.visible = false;
+          if (node.isMesh) {
+            if (node.name && node.name.startsWith('BoostPad')) {
+              node.visible = false;
             }
-            obj.castShadow = false;
-            obj.receiveShadow = true;
+            node.castShadow = false;
+            node.receiveShadow = true;
           }
         });
         cachedFieldTemplate = stadium;
@@ -79,12 +79,12 @@ export async function loadThrowbackCollisionOverlay(): Promise<THREE.Group | nul
           depthWrite: false
         });
 
-        collisionRoot.traverse((obj: any) => {
-          if (obj.isMesh) {
-            obj.material = wireMat;
-            obj.castShadow = false;
-            obj.receiveShadow = false;
-            obj.renderOrder = 3;
+        collisionRoot.traverse((node: THREE.Object3D & { isMesh?: boolean; material?: THREE.Material }) => {
+          if (node.isMesh) {
+            node.material = wireMat;
+            node.castShadow = false;
+            node.receiveShadow = false;
+            node.renderOrder = 3;
           }
         });
         cachedCollisionTemplate = collisionRoot;

@@ -210,7 +210,6 @@ export class ReplayScoreboardSynchronizer {
       return;
     }
     this._lastHudSyncKey = syncKey;
-
     const hudPatch: Record<string, unknown> = {
       localTeam: activePovTeam,
       blueScore: evalState.blueScore,

@@ -13,8 +13,19 @@ export interface ExtractedWasmReplayTracks {
   signalBytes: Uint8Array;
 }
 
+export interface WasmReplayTrackModule {
+  HEAPF32?: Float32Array;
+  HEAPU8?: Uint8Array;
+  _physics_getReplayFramePtr?(ticksAgo: number): number;
+  _physics_getReplayFramePtrByIndex?(frameIndex: number): number;
+  _physics_getReplayControlsPtrByIndex?(frameIndex: number): number;
+  _physics_getReplayStateTrackPtr?(): number;
+  _physics_getReplayIncidentTrackPtr?(): number;
+  _physics_getReplaySignalTrackPtr?(): number;
+}
+
 export function getWasmReplayFrameByOffset(
-  wasmModule: Record<string, any> | null | undefined,
+  wasmModule: WasmReplayTrackModule | null | undefined,
   stateLen: number,
   ticksAgo = 0
 ): Float32Array | null {
@@ -24,7 +35,7 @@ export function getWasmReplayFrameByOffset(
 }
 
 export function getWasmReplayFrameByIndex(
-  wasmModule: Record<string, any> | null | undefined,
+  wasmModule: WasmReplayTrackModule | null | undefined,
   stateLen: number,
   frameIndex = 0
 ): Float32Array | null {
@@ -34,7 +45,7 @@ export function getWasmReplayFrameByIndex(
 }
 
 export function getWasmReplayControlsByIndex(
-  wasmModule: Record<string, any> | null | undefined,
+  wasmModule: WasmReplayTrackModule | null | undefined,
   frameIndex = 0
 ): Uint8Array | null {
   const ptr = wasmModule?._physics_getReplayControlsPtrByIndex?.(frameIndex) || 0;
@@ -43,7 +54,7 @@ export function getWasmReplayControlsByIndex(
 }
 
 export function getWasmReplayStateTrackBytes(
-  wasmModule: Record<string, any> | null | undefined,
+  wasmModule: WasmReplayTrackModule | null | undefined,
   frameCount: number,
   stateStride: number
 ): Uint8Array {
@@ -55,7 +66,7 @@ export function getWasmReplayStateTrackBytes(
 }
 
 export function getWasmReplayIncidentTrackBytes(
-  wasmModule: Record<string, any> | null | undefined,
+  wasmModule: WasmReplayTrackModule | null | undefined,
   incidentCount: number
 ): Uint8Array {
   const ptr = wasmModule?._physics_getReplayIncidentTrackPtr?.() || 0;
@@ -66,7 +77,7 @@ export function getWasmReplayIncidentTrackBytes(
 }
 
 export function getWasmReplaySignalTrackBytes(
-  wasmModule: Record<string, any> | null | undefined,
+  wasmModule: WasmReplayTrackModule | null | undefined,
   signalCount: number
 ): Uint8Array {
   const ptr = wasmModule?._physics_getReplaySignalTrackPtr?.() || 0;
@@ -77,7 +88,7 @@ export function getWasmReplaySignalTrackBytes(
 }
 
 export function extractWasmReplayTracks(
-  wasmModule: Record<string, any> | null | undefined,
+  wasmModule: WasmReplayTrackModule | null | undefined,
   frameCount: number,
   stateStride: number,
   incidentCount: number,

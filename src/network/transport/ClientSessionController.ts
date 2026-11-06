@@ -23,6 +23,12 @@ export interface ClientSessionOptions {
   rollbackCommitWindowMs?: number;
 }
 
+export interface ClientSignalingPort {
+  sendAnswer: (sdp: string, targetPeerId?: string | null) => unknown;
+  sendCandidate: (targetPeerId: string, candidate: unknown) => unknown;
+  sendOffer: (targetPeerId: string, offerToken: string) => Promise<unknown> | unknown;
+}
+
 export interface ClientSessionCallbacks {
   onConnected?: (
     channel: P2PWebRTCChannel,
@@ -30,7 +36,7 @@ export interface ClientSessionCallbacks {
     pairingCode: string | null
   ) => Promise<void> | void;
   onDisconnected?: () => void;
-  onIceCandidate?: (cand: any) => void;
+  onIceCandidate?: (cand: RTCIceCandidateInit | Record<string, unknown>) => void;
 }
 
 export class ClientSessionController {
@@ -62,6 +68,10 @@ export class ClientSessionController {
     );
   }
 
+  private getActiveChannel(): P2PWebRTCChannel | null {
+    return this.channel;
+  }
+
   async initializeChannel(): Promise<P2PWebRTCChannel> {
     this.cleanup();
 
@@ -77,10 +87,11 @@ export class ClientSessionController {
     this.channel._initRoomChannel(this.roomId);
 
     this.channel.onConnected = async () => {
-      if (!this.channel) return;
-      const peerName = this.channel.peerName || 'Host';
+      const active = this.getActiveChannel();
+      if (!active) return;
+      const peerName = active.peerName || 'Host';
       if (this.callbacks.onConnected) {
-        await this.callbacks.onConnected(this.channel, peerName, this.pairingCode);
+        await this.callbacks.onConnected(active, peerName, this.pairingCode);
       }
     };
 
@@ -107,15 +118,16 @@ export class ClientSessionController {
   _checkLocalStorageOffer(): void {
     try {
       const hostInfo = loadActiveHostOffer();
-      if (hostInfo && hostInfo.roomId === this.roomId && hostInfo.token && this.channel) {
-        this.channel
+      const active = this.getActiveChannel();
+      if (hostInfo && hostInfo.roomId === this.roomId && hostInfo.token && active) {
+        active
           .acceptOfferAndCreateAnswer(hostInfo.token, {
             clientColorSlot: this.colorSlot,
             clientColorHex: this.colorHex,
           })
           .then((answer) => {
             this.answerToken = answer;
-            this.channel?._sendRoomMessage({
+            this.getActiveChannel()?._sendRoomMessage({
               type: 'room_answer',
               sdp: answer,
               roomId: this.roomId,
@@ -134,28 +146,29 @@ export class ClientSessionController {
   async handleOffer(
     sdp: string,
     fromPeerId: string | null | undefined,
-    signalingClient: any,
+    signalingClient: ClientSignalingPort | null | undefined,
     metadata: { pairingCode?: string } = {}
   ): Promise<void> {
-    if (this.channel?.isOpen) return;
+    const active = this.getActiveChannel();
+    if (active?.isOpen) return;
     if (this._isProcessingOffer) return;
 
     this._isProcessingOffer = true;
     try {
       if (metadata.pairingCode) {
         this.pairingCode = metadata.pairingCode;
-        if (this.channel) {
-          this.channel.pairingCode = metadata.pairingCode;
+        if (active) {
+          active.pairingCode = metadata.pairingCode;
         }
       }
 
-      if (this.channel?.connected && this.answerToken) {
+      if (active?.connected && this.answerToken) {
         signalingClient?.sendAnswer(this.answerToken, fromPeerId || null);
         return;
       }
 
-      if (!this.channel) return;
-      const answer = await this.channel.acceptOfferAndCreateAnswer(sdp, {
+      if (!active) return;
+      const answer = await active.acceptOfferAndCreateAnswer(sdp, {
         clientColorSlot: this.colorSlot,
         clientColorHex: this.colorHex,
       });
@@ -170,16 +183,17 @@ export class ClientSessionController {
     }
   }
 
-  handleRemoteCandidate(candidate: any): void {
-    if (candidate && this.channel) {
-      this.channel.addIceCandidate(candidate);
+  handleRemoteCandidate(candidate: RTCIceCandidateInit | Record<string, unknown> | null | undefined): void {
+    const active = this.getActiveChannel();
+    if (candidate && active) {
+      active.addIceCandidate(candidate);
     }
   }
 
   async acceptDownstreamSpectatorPeer(
     spectatorPeerId: string,
     spectatorName: string | undefined,
-    signalingClient: any
+    signalingClient: ClientSignalingPort | null | undefined
   ): Promise<P2PWebRTCChannel | null> {
     if (!this.allowSpectatorRelay || !spectatorPeerId || !signalingClient) return null;
     let specChannel = this.downstreamSpectatorChannels.get(spectatorPeerId);
@@ -215,7 +229,7 @@ export class ClientSessionController {
   }
 
   forwardCommittedSnapshotToSpectators(
-    packetBuffer: any,
+    packetBuffer: ArrayBuffer | Uint8Array | string,
     serverTick = 0,
     nowMs = performance.now()
   ): void {
@@ -234,8 +248,9 @@ export class ClientSessionController {
   }
 
   sendReadyAck(ready = true): void {
-    if (this.channel && (this.channel.connected || this.channel.isOpen)) {
-      this.channel.send(
+    const active = this.getActiveChannel();
+    if (active && (active.connected || active.isOpen)) {
+      active.send(
         JSON.stringify({
           type: 'match_ready_ack',
           ready: Boolean(ready),
@@ -247,8 +262,9 @@ export class ClientSessionController {
   }
 
   sendArenaLoadedAck(matchSeq = 0): void {
-    if (this.channel && (this.channel.connected || this.channel.isOpen)) {
-      this.channel.send(
+    const active = this.getActiveChannel();
+    if (active && (active.connected || active.isOpen)) {
+      active.send(
         JSON.stringify({
           type: 'arena_loaded_ack',
           ready: true,

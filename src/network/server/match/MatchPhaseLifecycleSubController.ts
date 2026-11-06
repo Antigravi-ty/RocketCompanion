@@ -8,20 +8,15 @@
 import { MATCH_SIGNALS } from '../../protocol/GlobalPayloadCodec.ts';
 import { REPLAY_BUFFER_MODES } from '../../../replay/ReplayRingBuffer.ts';
 import {
-  MATCH_STATES,
-  DEFAULT_MATCH_DURATION_SECONDS,
-  KICKOFF_TOTAL_TICKS,
-  type MatchState,
+  MATCH_STATES, DEFAULT_MATCH_DURATION_SECONDS, KICKOFF_TOTAL_TICKS,
+  type MatchState, type RosterSessionManagerPort,
 } from './matchLoadoutAndSpawnPipeline.ts';
 import {
-  emitRosterJoinAndLoadoutSignals,
-  configureLobbyPhysicsArena,
-  dispatchFlipResetIncidents,
-  dispatchCountdownClockSecondSignals,
-  resolvePossessionTieBreakWinner,
-  evaluateGoalScoredOutcome,
-  encodeMatchGlobalFramePacket,
+  emitRosterJoinAndLoadoutSignals, configureLobbyPhysicsArena, dispatchFlipResetIncidents,
+  resolvePossessionTieBreakWinner, evaluateGoalScoredOutcome, encodeMatchGlobalFramePacket,
   advancePlayingClockState,
+  type LifecyclePhysicsManagerPort, type LifecyclePhysicsSnapshotPort,
+  type LifecycleDiagnosticsPort, type LifecycleReplayBufferPort,
 } from './matchLifecyclePipeline.ts';
 import type { MatchDomainState } from './MatchDomainState.ts';
 import type { MatchRosterSubController } from './MatchRosterSubController.ts';
@@ -29,18 +24,64 @@ import type { MatchCommandQueueSubController } from './MatchCommandQueueSubContr
 import type { MatchGoalReplaySubController } from './MatchGoalReplaySubController.ts';
 import type { MatchSystemControlSubController } from './MatchSystemControlSubController.ts';
 
+export type LobbyEnterOptions = Record<string, unknown>;
+
+export interface PhaseLifecyclePhysicsSnapshotPort extends LifecyclePhysicsSnapshotPort {
+  tick: number;
+  goalScored?: boolean;
+}
+
+export interface PhaseLifecyclePhysicsManagerPort extends LifecyclePhysicsManagerPort {
+  currentTick: number;
+  isRecordingFullReplay?: boolean;
+  inputBuffer?: {
+    lobbyMode?: boolean;
+    setLobbyMode: (enabled: boolean) => void;
+    registerCar?: (entityId: number) => void;
+  } | null;
+  sim?: (NonNullable<LifecyclePhysicsManagerPort['sim']> & {
+    setReplayRecordingActive?: (enabled: boolean) => void;
+    restoreState?: (snapshot: Float32Array | number[]) => void;
+    getHeaderView?: () => { tickCount?: number } | null;
+  }) | null;
+  restoreSolidCollisions?: () => void;
+  resetKickoff: (mode: number) => void;
+  applySignal: (signal: number | string, payload?: Record<string, unknown>) => void;
+  stepAuthoritativeTick: () => PhaseLifecyclePhysicsSnapshotPort;
+  resetBallToCenter: () => void;
+}
+
+export interface PhaseLifecycleSessionManagerPort extends RosterSessionManagerPort {
+  sessions?: Map<string, unknown>;
+  signalBuffer?: {
+    entries?: Map<unknown, unknown>;
+    clear?: () => void;
+    pruneExpired: (tick: number, keys?: Iterable<string>) => void;
+  } | null;
+}
+
+export interface PhaseLifecycleDiagnosticsPort extends LifecycleDiagnosticsPort {
+  releasePhysics: (physicsManager: PhaseLifecyclePhysicsManagerPort) => void;
+  applyToAuthority: (physicsManager: PhaseLifecyclePhysicsManagerPort, tick: number) => void;
+}
+
+export interface PhaseLifecycleReplayBufferPort extends LifecycleReplayBufferPort {
+  size: number;
+  configureMode: (mode: string, capacityTicks?: number | null) => void;
+}
+
 export interface MatchPhaseLifecycleHostPort {
   readonly domain: MatchDomainState;
   readonly roster: MatchRosterSubController;
   readonly commandQueue: MatchCommandQueueSubController;
   readonly goalReplay: MatchGoalReplaySubController;
   readonly systemControl?: MatchSystemControlSubController;
-  readonly physicsManager: any;
-  readonly sessionManager: any;
-  readonly diagnosticsController: any;
-  readonly replayBuffer: any;
+  readonly physicsManager: PhaseLifecyclePhysicsManagerPort | null | undefined;
+  readonly sessionManager: PhaseLifecycleSessionManagerPort | null | undefined;
+  readonly diagnosticsController: PhaseLifecycleDiagnosticsPort | null | undefined;
+  readonly replayBuffer: PhaseLifecycleReplayBufferPort | null | undefined;
   readonly onClearRetainedReplay: (() => void) | null;
-  readonly onRetainCompletedReplay: ((data: Record<string, any>) => void) | null;
+  readonly onRetainCompletedReplay: ((data: Record<string, unknown>) => void) | null;
 }
 
 export class MatchPhaseLifecycleSubController {
@@ -50,24 +91,12 @@ export class MatchPhaseLifecycleSubController {
     this.host = host;
   }
 
-  get state(): MatchState {
-    return this.host.domain.state;
-  }
-  set state(v: MatchState) {
-    this.host.domain.state = v;
-  }
-  get matchTick(): number {
-    return this.host.domain.matchTick;
-  }
-  set matchTick(v: number) {
-    this.host.domain.matchTick = v;
-  }
-  get winner(): number | null {
-    return this.host.domain.winner;
-  }
-  set winner(v: number | null) {
-    this.host.domain.winner = v;
-  }
+  get state(): MatchState { return this.host.domain.state; }
+  set state(v: MatchState) { this.host.domain.state = v; }
+  get matchTick(): number { return this.host.domain.matchTick; }
+  set matchTick(v: number) { this.host.domain.matchTick = v; }
+  get winner(): number | null { return this.host.domain.winner; }
+  set winner(v: number | null) { this.host.domain.winner = v; }
 
   private prepareArenaForActiveMatch(): void {
     const { domain, physicsManager, diagnosticsController, roster } = this.host;
@@ -85,77 +114,62 @@ export class MatchPhaseLifecycleSubController {
 
   initiateMatchPrepare(durationSeconds: number | null = null, timeoutTicks = 240): void {
     const { domain, physicsManager, roster, commandQueue } = this.host;
-    domain.beginPreparePhase(durationSeconds, timeoutTicks);
+    domain.beginPrepareOrCountdown('prepare', durationSeconds, timeoutTicks);
     this.prepareArenaForActiveMatch();
     commandQueue.matchSequence = ((commandQueue.matchSequence || 0) + 1) & 0xffff;
-    domain.beginPreparePhase(durationSeconds, timeoutTicks);
     if (physicsManager) {
       physicsManager.resetKickoff(0);
       roster.applyRosterKickoffSpawns();
       physicsManager.setInputMask?.(true);
-      domain.matchTick = physicsManager.currentTick;
     }
-
-    let allBotsOrHostReady = true;
-    for (const [sid, p] of domain.players.entries()) {
-      p.arenaLoaded = Boolean(p.isBot || sid === 'host');
-      if (!p.arenaLoaded) allBotsOrHostReady = false;
-    }
+    const { allReady, clockDuration } = domain.beginPrepareOrCountdown(
+      'prepare',
+      durationSeconds,
+      timeoutTicks,
+      physicsManager?.currentTick
+    );
 
     commandQueue.dispatchSignal(
-      MATCH_SIGNALS.MATCH_PREPARE,
-      domain.matchTick,
-      commandQueue.matchSequence,
-      domain.clockDuration
+      MATCH_SIGNALS.MATCH_PREPARE, domain.matchTick, commandQueue.matchSequence, clockDuration
     );
-    emitRosterJoinAndLoadoutSignals(commandQueue, domain.players.values(), domain.matchTick);
-    if (allBotsOrHostReady) this.startMatch(domain.clockDuration);
+    emitRosterJoinAndLoadoutSignals(commandQueue, roster.players.values(), domain.matchTick);
+    if (allReady) this.startMatch(clockDuration);
   }
 
   checkArenaLoadedBarrier(): boolean {
-    const { domain } = this.host;
-    if (domain.state !== MATCH_STATES.PREPARE) return false;
-    for (const p of domain.players.values()) {
-      if (!p.isBot && !p.arenaLoaded) return false;
-    }
-    this.startMatch(domain.clockDuration);
+    const { allReady, clockDuration } = this.host.domain.beginPrepareOrCountdown('check_barrier');
+    if (!allReady) return false;
+    this.startMatch(clockDuration);
     return true;
   }
 
   triggerStartCountdown(countdownSeconds = 3): void {
-    this.host.domain.beginCountdownPhase(countdownSeconds);
+    this.host.domain.beginPrepareOrCountdown('countdown', countdownSeconds);
   }
 
   forceStartMatch(durationSeconds: number | null = null): void {
-    const { domain } = this.host;
-    domain.resolveValidDuration(durationSeconds);
-    let hasRemoteHuman = false;
-    for (const [sid, p] of domain.players.entries()) {
-      if (!p.isBot && sid !== 'host') {
-        hasRemoteHuman = true;
-        break;
-      }
-    }
-    if (hasRemoteHuman && domain.state === MATCH_STATES.LOBBY) {
-      this.initiateMatchPrepare(domain.clockDuration, 120);
+    const { allReady, clockDuration } = this.host.domain.beginPrepareOrCountdown(
+      'check_force_prepare',
+      durationSeconds
+    );
+    if (allReady) {
+      this.initiateMatchPrepare(clockDuration, 120);
     } else {
-      this.startMatch(domain.clockDuration);
+      this.startMatch(clockDuration);
     }
   }
 
   startMatch(durationSeconds?: number | null): void {
-    const {
-      domain,
-      physicsManager,
-      replayBuffer,
-      onClearRetainedReplay,
-      roster,
-      commandQueue,
-      goalReplay,
-    } = this.host;
+    const { domain, physicsManager, replayBuffer, onClearRetainedReplay, roster, commandQueue, goalReplay } = this.host;
 
     if (typeof onClearRetainedReplay === 'function') onClearRetainedReplay();
-    domain.resetForMatchStart(durationSeconds);
+    const {
+      modeCode,
+      clockDuration,
+      clockSecondsRemaining,
+      blueScore,
+      orangeScore,
+    } = domain.resetForMatchStart(durationSeconds);
     this.prepareArenaForActiveMatch();
     goalReplay.resetForMatchStart();
     commandQueue.resetForMatchStart();
@@ -169,32 +183,17 @@ export class MatchPhaseLifecycleSubController {
       domain.matchTick = physicsManager.currentTick;
     }
 
-    const modeCode = domain.gameMode === '1v1' ? 1 : domain.gameMode === '2v2' ? 2 : 3;
-    commandQueue.dispatchSignal(MATCH_SIGNALS.MATCH_INITIALIZED, domain.matchTick, modeCode, domain.clockDuration);
-    commandQueue.dispatchSignal(MATCH_SIGNALS.MATCH_STARTED, domain.matchTick, domain.clockSecondsRemaining, 0);
-    emitRosterJoinAndLoadoutSignals(commandQueue, domain.players.values(), domain.matchTick);
-    commandQueue.dispatchSignal(MATCH_SIGNALS.SCORE_UPDATED, domain.matchTick, domain.blueScore, domain.orangeScore);
-    if (domain.isOvertime) {
-      domain.pendingOvertimeAfterGoal = true;
-      domain.isOvertime = false;
-    }
+    commandQueue.dispatchSignal(MATCH_SIGNALS.MATCH_INITIALIZED, domain.matchTick, modeCode, clockDuration);
+    commandQueue.dispatchSignal(MATCH_SIGNALS.MATCH_STARTED, domain.matchTick, clockSecondsRemaining, 0);
+    emitRosterJoinAndLoadoutSignals(commandQueue, roster.players.values(), domain.matchTick);
+    commandQueue.dispatchSignal(MATCH_SIGNALS.SCORE_UPDATED, domain.matchTick, blueScore, orangeScore);
     this.startKickoffSequence(KICKOFF_TOTAL_TICKS);
   }
 
-  enterLobbyMode(options: Record<string, any> = {}): MatchState {
-    const {
-      domain,
-      physicsManager,
-      sessionManager,
-      diagnosticsController,
-      replayBuffer,
-      roster,
-      commandQueue,
-    } = this.host;
+  enterLobbyMode(options: Record<string, unknown> = {}): MatchState {
+    const { domain, physicsManager, sessionManager, diagnosticsController, replayBuffer, roster, commandQueue } = this.host;
 
-    const lobbyPhysicsActive =
-      options.lobbyPhysicsActive !== undefined ? Boolean(options.lobbyPhysicsActive) : true;
-    domain.enterLobbyState(lobbyPhysicsActive);
+    const nextState = domain.applyLobbyOrTrainingTransition('lobby', options);
     commandQueue.activeSignals.clear();
     sessionManager?.signalBuffer?.clear?.();
     replayBuffer?.configureMode(REPLAY_BUFFER_MODES.COUNTUP_FIFO);
@@ -202,7 +201,7 @@ export class MatchPhaseLifecycleSubController {
     const prevApplying = roster.applyingBotFillPolicy;
     roster.applyingBotFillPolicy = true;
     try {
-      for (const [sid, p] of Array.from(domain.players.entries())) {
+      for (const [sid, p] of Array.from(roster.players.entries())) {
         if (p.isBot && String(sid).startsWith('bot_fill_')) roster.removePlayerSession(sid);
       }
     } finally {
@@ -213,17 +212,17 @@ export class MatchPhaseLifecycleSubController {
       physicsManager,
       sessionManager,
       diagnosticsController,
-      players: domain.players,
+      players: roster.players,
       applyRosterKickoffSpawns: () => roster.applyRosterKickoffSpawns(),
       options,
     });
     roster.broadcastRosterUpdate();
-    return domain.state;
+    return nextState;
   }
 
   resetTrainingPlay(): void {
     const { domain, physicsManager, roster, commandQueue, goalReplay } = this.host;
-    domain.resetForTrainingPlay();
+    domain.applyLobbyOrTrainingTransition('training_reset');
     goalReplay.replayTicksRemaining = -1;
     if (physicsManager) {
       roster.applyPendingHitboxSwaps();
@@ -246,7 +245,7 @@ export class MatchPhaseLifecycleSubController {
       domain.matchTick = physicsManager.currentTick;
     }
 
-    const { startedOvertime, kickoffWillStartAt } = domain.beginKickoffPhase(countdownTicks);
+    const { startedOvertime, kickoffWillStartAt, isOvertime } = domain.beginKickoffPhase(countdownTicks);
     if (startedOvertime) {
       commandQueue.retireSignalTypes(
         [
@@ -264,7 +263,7 @@ export class MatchPhaseLifecycleSubController {
       MATCH_SIGNALS.KICKOFF_WILL_START,
       domain.matchTick,
       kickoffWillStartAt,
-      domain.isOvertime ? 1 : 0
+      isOvertime ? 1 : 0
     );
     physicsManager?.applySignal(MATCH_SIGNALS.KICKOFF_WILL_START, {
       kickoffWillStartAt,
@@ -273,8 +272,7 @@ export class MatchPhaseLifecycleSubController {
 
   setPaused(pause: boolean): void {
     const { domain, physicsManager, commandQueue } = this.host;
-    if (domain.state !== MATCH_STATES.PLAYING && domain.state !== MATCH_STATES.PAUSED) return;
-    domain.applyPauseState(pause);
+    if (!domain.applyPauseOrResume(pause).changed) return;
     const sig = pause ? MATCH_SIGNALS.MATCH_PAUSED : MATCH_SIGNALS.MATCH_RESUMED;
     physicsManager?.applySignal(sig, { paused: pause });
     commandQueue.dispatchSignal(sig, domain.matchTick);
@@ -282,16 +280,15 @@ export class MatchPhaseLifecycleSubController {
 
   requestResumeWithCountdown(countdownSeconds = 5): void {
     const { domain, physicsManager, commandQueue } = this.host;
-    if (domain.state !== MATCH_STATES.PAUSED) return;
-    const resumeTicks = Math.max(1, Math.round(countdownSeconds * 120));
-    const targetTick = domain.scheduleResumeAtTick(resumeTicks);
+    const { changed, targetResumeTick } = domain.applyPauseOrResume(null, countdownSeconds);
+    if (!changed) return;
     physicsManager?.applySignal(MATCH_SIGNALS.MATCH_WILL_RESUME, {
-      targetResumeTick: targetTick,
+      targetResumeTick,
     });
     commandQueue.dispatchSignal(
       MATCH_SIGNALS.MATCH_WILL_RESUME,
       domain.matchTick,
-      targetTick,
+      targetResumeTick,
       countdownSeconds
     );
   }
@@ -310,7 +307,17 @@ export class MatchPhaseLifecycleSubController {
       commandQueue,
     } = this.host;
 
-    const winner = domain.recordMatchEnded(forcedWinner, winReason);
+    const { winner, retentionPayload } = domain.recordMatchEndedOrPodium(
+      'end',
+      forcedWinner,
+      winReason,
+      {
+        engine: physicsManager?.sim || null,
+        ringBuffer: replayBuffer,
+        signals: commandQueue.replaySignalLog,
+        roster: roster.getMatchRosterMetadata(),
+      }
+    );
     physicsManager?.applySignal(MATCH_SIGNALS.MATCH_ENDED, { winner, winReason });
     commandQueue.retireSignalTypes(
       [
@@ -321,37 +328,29 @@ export class MatchPhaseLifecycleSubController {
       true
     );
     commandQueue.dispatchSignal(MATCH_SIGNALS.MATCH_ENDED, domain.matchTick, winner, winReason);
-    if (domain.isHost && typeof onRetainCompletedReplay === 'function' && replayBuffer && replayBuffer.size > 0) {
-      const rosterMeta = roster.getMatchRosterMetadata();
-      onRetainCompletedReplay({
-        engine: physicsManager?.sim || null,
-        ringBuffer: replayBuffer,
-        signals: commandQueue.replaySignalLog,
-        winnerTeam: winner,
-        blueScore: domain.blueScore,
-        orangeScore: domain.orangeScore,
-        gameMode: domain.gameMode || '3v3',
-        durationSeconds: domain.clockDuration,
-        roster: rosterMeta,
-        loadouts: rosterMeta,
-      });
+    if (typeof onRetainCompletedReplay === 'function' && retentionPayload) {
+      onRetainCompletedReplay(retentionPayload);
     }
   }
 
   enterPodiumPhase(): void {
     const { domain, physicsManager, commandQueue } = this.host;
-    if (domain.state !== MATCH_STATES.ENDED) return;
-    const { winner, winReason } = domain.enterPodiumState();
+    const { changed, winner, winReason } = domain.recordMatchEndedOrPodium('podium');
+    if (!changed) return;
     physicsManager?.applySignal(MATCH_SIGNALS.PODIUM_START, { winner, winReason });
     commandQueue.dispatchSignal(MATCH_SIGNALS.PODIUM_START, domain.matchTick, winner, winReason);
   }
 
-  startTrainingMode(options: Record<string, any> = {}): void {
+  startTrainingMode(options: Record<string, unknown> = {}): void {
     const { domain, physicsManager, replayBuffer, commandQueue } = this.host;
-    domain.configureTrainingStart(options);
+    domain.applyLobbyOrTrainingTransition('training_start', options);
     commandQueue.resetForTrainingStart();
     const capTicks =
-      options.replayCapacityTicks || (options.fifoDurationSeconds ? Math.round(options.fifoDurationSeconds * 120) : null);
+      typeof options.replayCapacityTicks === 'number'
+        ? options.replayCapacityTicks
+        : typeof options.fifoDurationSeconds === 'number'
+          ? Math.round(options.fifoDurationSeconds * 120)
+          : null;
     replayBuffer?.configureMode(REPLAY_BUFFER_MODES.COUNTUP_FIFO, capTicks);
     if (physicsManager) {
       physicsManager.setInputMask(false);
@@ -362,7 +361,7 @@ export class MatchPhaseLifecycleSubController {
         physicsManager.sim?.setUnlimitedBoost?.(Boolean(options.unlimitedBoost));
       }
       if (options.initialState) {
-        physicsManager.sim?.restoreState?.(options.initialState);
+        physicsManager.sim?.restoreState?.(options.initialState as Float32Array | number[]);
       } else if (options.resetKickoff) {
         physicsManager.resetKickoff(0);
       }
@@ -374,26 +373,14 @@ export class MatchPhaseLifecycleSubController {
     }
   }
 
-  private handleGoalScoredInPlay(physicsSnapshot: any): void {
+  private handleGoalScoredInPlay(physicsSnapshot: LifecyclePhysicsSnapshotPort): void {
     const { domain, physicsManager, goalReplay, commandQueue } = this.host;
     const outcome = evaluateGoalScoredOutcome({
+      ...domain,
       physicsSnapshot,
       physicsManager,
-      matchTick: domain.matchTick,
-      isTrainingMode: domain.isTrainingMode,
-      trainingDisableGoalReset: domain.trainingDisableGoalReset,
-      trainingGoalReplayEnabled: domain.trainingGoalReplayEnabled,
-      trainingGoalCelebrationTicks: domain.trainingGoalCelebrationTicks,
-      isOvertime: domain.isOvertime,
-      clockSecondsRemaining: domain.clockSecondsRemaining,
-      blueScore: domain.blueScore,
-      orangeScore: domain.orangeScore,
-      skipReplayByDefault: domain.skipReplayByDefault,
       goalReplayController: goalReplay,
       commandController: commandQueue,
-      pendingOvertimeAfterGoal: domain.pendingOvertimeAfterGoal,
-      pendingMatchEndAfterGoal: domain.pendingMatchEndAfterGoal,
-      pendingMatchWinner: domain.pendingMatchWinner,
     });
     if (outcome.ignoredGoal) return;
     domain.applyGoalScoredOutcome(outcome);
@@ -401,14 +388,10 @@ export class MatchPhaseLifecycleSubController {
 
   private stepEndedOrPodiumFrame(): Uint8Array {
     const { domain, physicsManager, sessionManager, commandQueue } = this.host;
-    if (domain.state === MATCH_STATES.ENDED) {
-      if (typeof domain.podiumDelayTicks === 'number' && domain.podiumDelayTicks > 0) {
-        if (--domain.podiumDelayTicks <= 0) this.enterPodiumPhase();
-      } else {
-        this.enterPodiumPhase();
-      }
+    if (domain.stepFramePhaseGate('ended_podium_tick').action === 'ended_or_podium') {
+      this.enterPodiumPhase();
     }
-    let podiumSnapshot: any = null;
+    let podiumSnapshot: PhaseLifecyclePhysicsSnapshotPort | null = null;
     if (physicsManager && !physicsManager.isPaused) {
       podiumSnapshot = physicsManager.stepAuthoritativeTick();
       domain.matchTick = podiumSnapshot.tick;
@@ -440,7 +423,9 @@ export class MatchPhaseLifecycleSubController {
     return commandQueue.activeSignals.size > 0 ? this.encodeFramePacket(null) : new Uint8Array(0);
   }
 
-  private advancePlayingClockAndRegulationEnd(physicsSnapshot: any): void {
+  private advancePlayingClockAndRegulationEnd(
+    physicsSnapshot: LifecyclePhysicsSnapshotPort | null
+  ): void {
     const { domain, physicsManager, commandQueue } = this.host;
     advancePlayingClockState({
       domain,
@@ -459,39 +444,39 @@ export class MatchPhaseLifecycleSubController {
     if (stateOnlyPacket) {
       return stateOnlyPacket;
     }
-    if (domain.state === MATCH_STATES.ENDED || domain.state === MATCH_STATES.PODIUM) {
-      return this.stepEndedOrPodiumFrame();
-    }
-    if (domain.state === MATCH_STATES.PREPARE) {
-      domain.matchTick = physicsManager ? physicsManager.currentTick : domain.matchTick + 1;
-      if (--domain.prepareTimeoutTicks <= 0) {
-        this.startMatch(domain.clockDuration);
-      } else {
+    const preGate = domain.stepFramePhaseGate('pre', physicsManager?.currentTick);
+    switch (preGate.action) {
+      case 'ended_or_podium':
+        return this.stepEndedOrPodiumFrame();
+      case 'start_from_prepare':
+        this.startMatch(preGate.clockDuration);
+        break;
+      case 'initiate_prepare_from_countdown':
+        this.initiateMatchPrepare(preGate.clockDuration, 120);
         return this.encodeFramePacket(null);
+      case 'encode_null':
+        return this.encodeFramePacket(null);
+      case 'lobby':
+        return this.stepLobbyFrame();
+      case 'resume_from_pause':
+        this.setPaused(false);
+        return this.encodeFramePacket(null);
+      case 'reset_training_play':
+        this.resetTrainingPlay();
+        break;
+      case 'begin_goal_replay':
+        goalReplay.beginGoalReplay();
+        break;
+      case 'replay': {
+        const replayStep = goalReplay.stepReplayTick();
+        if (!replayStep.finished) return this.encodeFramePacket(replayStep.replayPhysicsSnapshot);
+        break;
       }
-    }
-    if (domain.state === MATCH_STATES.COUNTDOWN) {
-      domain.matchTick = physicsManager ? physicsManager.currentTick : domain.matchTick + 1;
-      if (--domain.startCountdownTicks <= 0) {
-        this.initiateMatchPrepare(domain.clockDuration, 120);
-      }
-      return this.encodeFramePacket(null);
-    }
-    if (domain.state === MATCH_STATES.LOBBY) return this.stepLobbyFrame();
-    if (domain.state === MATCH_STATES.PAUSED && domain.willResumeUntilTick > 0) {
-      if (++domain.matchTick >= domain.willResumeUntilTick) this.setPaused(false);
-      return this.encodeFramePacket(null);
-    }
-    if (domain.state === MATCH_STATES.GOAL_SCORED && --domain.goalBufferTicks <= 0) {
-      if (domain.isTrainingMode && !domain.trainingGoalReplayEnabled) this.resetTrainingPlay();
-      else goalReplay.beginGoalReplay();
-    }
-    if (domain.state === MATCH_STATES.REPLAY) {
-      const replayStep = goalReplay.stepReplayTick();
-      if (!replayStep.finished) return this.encodeFramePacket(replayStep.replayPhysicsSnapshot);
+      default:
+        break;
     }
 
-    let physicsSnapshot: any = null;
+    let physicsSnapshot: PhaseLifecyclePhysicsSnapshotPort | null = null;
     if (physicsManager) {
       goalReplay.stepServerFilledBots();
       physicsSnapshot = physicsManager.stepAuthoritativeTick();
@@ -500,16 +485,10 @@ export class MatchPhaseLifecycleSubController {
       if (physicsSnapshot.goalScored && domain.state === MATCH_STATES.PLAYING) {
         this.handleGoalScoredInPlay(physicsSnapshot);
       }
-    } else {
-      domain.matchTick++;
     }
 
-    if (
-      domain.state === MATCH_STATES.KICKOFF &&
-      domain.matchTick >= domain.kickoffWillStartAt &&
-      domain.kickoffWillStartAt > 0
-    ) {
-      domain.completeKickoffToPlaying();
+    const postGate = domain.stepFramePhaseGate('post', physicsSnapshot?.tick, Boolean(physicsManager));
+    if (postGate.action === 'kickoff_started') {
       commandQueue.activeSignals.delete(MATCH_SIGNALS.KICKOFF_WILL_START);
       commandQueue.dispatchSignal(MATCH_SIGNALS.KICKOFF_START, domain.matchTick);
       physicsManager?.applySignal(MATCH_SIGNALS.KICKOFF_START);
@@ -519,7 +498,7 @@ export class MatchPhaseLifecycleSubController {
     return this.encodeFramePacket(physicsSnapshot);
   }
 
-  encodeFramePacket(physicsSnapshot: any): Uint8Array {
+  encodeFramePacket(physicsSnapshot: LifecyclePhysicsSnapshotPort | null): Uint8Array {
     const { domain, physicsManager, sessionManager, replayBuffer, commandQueue } = this.host;
     return encodeMatchGlobalFramePacket({
       state: domain.state,

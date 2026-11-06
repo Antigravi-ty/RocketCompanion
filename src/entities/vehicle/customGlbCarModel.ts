@@ -23,7 +23,12 @@ import {
 import { getMaterialsConfig } from '../../ui-core/config/materialsConfig';
 import { resolveAssetPath } from '../../utils/AssetResponseValidator.ts';
 
-const cachedCustomAssets = new Map<any, any>();
+export interface CustomGlbVehicleAsset {
+  id: string;
+  scene: THREE.Group;
+}
+
+const cachedCustomAssets = new Map<string, CustomGlbVehicleAsset>();
 
 import {
   buildCustomToonRampTexture
@@ -38,7 +43,7 @@ import {
  * Splits a single geometry primitive containing both front (X >= 0) and rear (X < 0)
  * lamp triangles into two separate BufferGeometries.
  */
-function splitLampGeometryByX(geometry) {
+function splitLampGeometryByX(geometry: THREE.BufferGeometry) {
   const posAttr = geometry.getAttribute('position');
   if (!posAttr) return null;
 
@@ -46,10 +51,10 @@ function splitLampGeometryByX(geometry) {
   const uvAttr = geometry.getAttribute('uv');
   const indexAttr = geometry.index;
 
-  const frontIndices: any[] = [];
-  const rearIndices: any[] = [];
+  const frontIndices: number[] = [];
+  const rearIndices: number[] = [];
 
-  const getX = (vertIdx) => (
+  const getX = (vertIdx: number) => (
     posAttr.getX ? posAttr.getX(vertIdx) : posAttr.array[vertIdx * 3]
   );
 
@@ -78,7 +83,7 @@ function splitLampGeometryByX(geometry) {
     }
   }
 
-  const buildSubGeometry = (indices) => {
+  const buildSubGeometry = (indices: number[]) => {
     if (indices.length === 0) return null;
     const subGeom = new THREE.BufferGeometry();
     const posOut = new Float32Array(indices.length * 3);
@@ -127,13 +132,13 @@ function splitLampGeometryByX(geometry) {
  * - Preserves original material slot names on every Mesh.
  * - Automatically splits combined `lamps` / `lamps.001` meshes into `FrontBulb` and `BackBulb`.
  */
-function normalizeCustomVehicleScene(scene, vehicleId) {
+function normalizeCustomVehicleScene(scene: THREE.Object3D, vehicleId: string) {
   const rawBox = new THREE.Box3().setFromObject(scene);
   const rawSize = new THREE.Vector3();
   rawBox.getSize(rawSize);
   if (rawSize.length() > 0 && rawSize.length() < 10) {
-    const scaledGeometries = new Set();
-    scene.traverse?.((node) => {
+    const scaledGeometries = new Set<THREE.BufferGeometry>();
+    scene.traverse?.((node: THREE.Object3D & { isMesh?: boolean; geometry?: THREE.BufferGeometry }) => {
       if (node.isMesh && node.geometry && !scaledGeometries.has(node.geometry)) {
         scaledGeometries.add(node.geometry);
         node.geometry.scale(100, 100, 100);
@@ -143,8 +148,8 @@ function normalizeCustomVehicleScene(scene, vehicleId) {
     });
   }
 
-  const meshesToSplit: any[] = [];
-  scene.traverse?.((node) => {
+  const meshesToSplit: THREE.Mesh[] = [];
+  scene.traverse?.((node: THREE.Object3D & { isMesh?: boolean; material?: THREE.Material | THREE.Material[] }) => {
     if (!node.isMesh) return;
     const matName = Array.isArray(node.material)
       ? (node.material[0]?.name || '')
@@ -154,7 +159,7 @@ function normalizeCustomVehicleScene(scene, vehicleId) {
 
     const lowerMat = matName.toLowerCase();
     if (matName === 'lamps.001' || (lowerMat.includes('lamp') && lowerMat !== 'frontbulb' && lowerMat !== 'backbulb')) {
-      meshesToSplit.push(node);
+      meshesToSplit.push(node as THREE.Mesh);
     }
   });
 
@@ -196,10 +201,10 @@ function normalizeCustomVehicleScene(scene, vehicleId) {
 /**
  * Loads a custom GLB vehicle asset registered in vehicleDescriptors.
  */
-export async function loadCustomGlbCarAsset(vehicleId) {
+export async function loadCustomGlbCarAsset(vehicleId: string): Promise<CustomGlbVehicleAsset> {
   const id = String(vehicleId || '').toLowerCase();
   if (cachedCustomAssets.has(id)) {
-    return cachedCustomAssets.get(id);
+    return cachedCustomAssets.get(id)!;
   }
   const descriptor = getVehicleDescriptor(id);
   if (!descriptor || !descriptor.modelUrl) {
@@ -211,7 +216,7 @@ export async function loadCustomGlbCarAsset(vehicleId) {
   gltf.scene.updateMatrixWorld?.(true);
   normalizeCustomVehicleScene(gltf.scene, id);
 
-  const asset = {
+  const asset: CustomGlbVehicleAsset = {
     id,
     scene: gltf.scene
   };
@@ -286,10 +291,10 @@ export function createCustomGlbCarModel(vehicleId, asset, teamColor) {
   if (asset && asset.scene) {
     const clonedScene = asset.scene.clone(true);
     // Preserve userData across clone
-    const srcMeshes: any[] = [];
-    const dstMeshes: any[] = [];
-    asset.scene.traverse?.((n) => { if (n.isMesh) srcMeshes.push(n); });
-    clonedScene.traverse?.((n) => { if (n.isMesh) dstMeshes.push(n); });
+    const srcMeshes: THREE.Object3D[] = [];
+    const dstMeshes: THREE.Object3D[] = [];
+    asset.scene.traverse?.((n: THREE.Object3D & { isMesh?: boolean }) => { if (n.isMesh) srcMeshes.push(n); });
+    clonedScene.traverse?.((n: THREE.Object3D & { isMesh?: boolean }) => { if (n.isMesh) dstMeshes.push(n); });
     for (let i = 0; i < dstMeshes.length && i < srcMeshes.length; i++) {
       dstMeshes[i].userData = { ...srcMeshes[i].userData };
     }
@@ -306,7 +311,15 @@ export function createCustomGlbCarModel(vehicleId, asset, teamColor) {
 /**
  * Live-updates an instantiated carRoot in the Arena when parameters are tweaked in the Floating Window.
  */
-export function applyLiveVehicleDescriptorUpdate(carRoot, carHitbox, carWheels, carBoosts, descriptor, teamColor, paintFinish: any = null) {
+export function applyLiveVehicleDescriptorUpdate(
+  carRoot,
+  carHitbox,
+  carWheels,
+  carBoosts,
+  descriptor,
+  teamColor,
+  paintFinish: string | null = null
+) {
   if (!carRoot || !descriptor) return;
 
   const bodyMesh = carRoot.children?.find((c) => c.name === 'car-body-mesh');

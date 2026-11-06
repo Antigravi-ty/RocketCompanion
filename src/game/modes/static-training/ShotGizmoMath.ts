@@ -53,6 +53,19 @@ export interface StaticTrainingShotConfig {
   };
 }
 
+export interface BallCamTunerParams {
+  distance: number;
+  height: number;
+  angle: number;
+  lateralOffset: number;
+}
+
+export interface EditorCameraPose {
+  position: [number, number, number];
+  lookAt: [number, number, number];
+  up: [number, number, number];
+}
+
 export interface EditorContinuousDeltaInput {
   heldKeys: ReadonlySet<string>;
   subMode: StaticTrainingEditSubMode;
@@ -248,6 +261,17 @@ export function computeEditorContinuousDeltas(
   };
 }
 
+export interface ShotDraftPatchResult {
+  carPatch?: Partial<ShotCarConfig>;
+  ballPatch?: Partial<ShotBallConfig>;
+  nextBallSpeedZeroLatch: boolean;
+}
+
+export interface ShotMouseDragPatchResult {
+  carPatch?: Partial<ShotCarConfig>;
+  ballPatch?: Partial<ShotBallConfig>;
+}
+
 export interface PlayerDrivingControlsInput {
   throttle?: number;
   steer?: number;
@@ -259,134 +283,170 @@ export interface PlayerDrivingControlsInput {
   handbrake?: boolean | number;
 }
 
-export function applyContinuousDeltasToShotDraft(
-  draft: StaticTrainingShotConfig,
+export function computeContinuousDeltasShotPatch(
+  shot: StaticTrainingShotConfig,
   subMode: StaticTrainingEditSubMode,
   deltas: EditorContinuousDeltas,
   ballSpeedZeroLatch: boolean
-): { nextBallSpeedZeroLatch: boolean } {
+): ShotDraftPatchResult {
   let nextLatch = ballSpeedZeroLatch;
   const { moveX, moveY, moveZ, rollDelta, boostDelta, speedDelta } = deltas;
 
   if (subMode === 'car-heading' || subMode === 'car-speed') {
-    const target = draft.car;
-    const loc = target.location || [0, -2400, CAR_GROUND_MIN_Z];
-    loc[0] = Math.max(-ARENA_MAX_X, Math.min(ARENA_MAX_X, loc[0] + moveX));
-    loc[1] = Math.max(-ARENA_MAX_Y, Math.min(ARENA_MAX_Y, loc[1] + moveY));
+    const baseLoc = shot.car.location || [0, -2400, CAR_GROUND_MIN_Z];
+    const nextX = Math.max(-ARENA_MAX_X, Math.min(ARENA_MAX_X, baseLoc[0] + moveX));
+    const nextY = Math.max(-ARENA_MAX_Y, Math.min(ARENA_MAX_Y, baseLoc[1] + moveY));
+    let nextZ = baseLoc[2];
+    let nextSnapToGround = shot.car.snapToGround;
     if (moveZ > 0) {
-      target.snapToGround = false;
-      loc[2] = Math.min(ARENA_MAX_Z, loc[2] + moveZ);
+      nextSnapToGround = false;
+      nextZ = Math.min(ARENA_MAX_Z, baseLoc[2] + moveZ);
     } else if (moveZ < 0) {
-      loc[2] = Math.max(CAR_GROUND_MIN_Z, loc[2] + moveZ);
+      nextZ = Math.max(CAR_GROUND_MIN_Z, baseLoc[2] + moveZ);
     }
-    target.location = loc;
 
-    if (rollDelta !== 0) {
-      target.airRoll = Number((target.airRoll + rollDelta).toFixed(4));
-    }
+    const nextAirRoll =
+      rollDelta !== 0 ? Number((shot.car.airRoll + rollDelta).toFixed(4)) : shot.car.airRoll;
+
+    let nextUnlimitedBoost = shot.car.unlimitedBoost;
+    let nextInitialBoost = shot.car.initialBoost;
     if (boostDelta !== 0) {
-      if (boostDelta < 0 && target.unlimitedBoost) {
-        target.unlimitedBoost = false;
-        target.initialBoost = 100;
-      } else if (!target.unlimitedBoost) {
-        target.initialBoost = Math.max(
+      if (boostDelta < 0 && shot.car.unlimitedBoost) {
+        nextUnlimitedBoost = false;
+        nextInitialBoost = 100;
+      } else if (!shot.car.unlimitedBoost) {
+        nextInitialBoost = Math.max(
           0,
-          Math.min(100, Number((target.initialBoost + boostDelta).toFixed(2)))
+          Math.min(100, Number((shot.car.initialBoost + boostDelta).toFixed(2)))
         );
       }
     }
+
+    let nextSpeed = shot.car.speed;
+    let nextSpeedYaw = shot.car.speedYaw;
+    let nextSpeedPitch = shot.car.speedPitch;
     if (speedDelta !== 0) {
-      target.speed = Math.max(
+      nextSpeed = Math.max(
         0,
-        Math.min(2300, Number((target.speed + speedDelta).toFixed(1)))
+        Math.min(2300, Number((shot.car.speed + speedDelta).toFixed(1)))
       );
-      if (target.speedFollowsHeading !== false) {
-        target.speedYaw = target.headingYaw;
-        target.speedPitch = target.snapToGround ? 0 : target.headingPitch;
+      if (shot.car.speedFollowsHeading !== false) {
+        nextSpeedYaw = shot.car.headingYaw;
+        nextSpeedPitch = nextSnapToGround ? 0 : shot.car.headingPitch;
       }
     }
-  } else if (subMode === 'ball-speed') {
-    const out = draft.ball;
-    const loc = out.location || [0, 0, BALL_GROUND_MIN_Z];
-    loc[0] = Math.max(-ARENA_MAX_X, Math.min(ARENA_MAX_X, loc[0] + moveX));
-    loc[1] = Math.max(-ARENA_MAX_Y, Math.min(ARENA_MAX_Y, loc[1] + moveY));
-    if (moveZ !== 0) {
-      loc[2] = Math.max(BALL_GROUND_MIN_Z, Math.min(ARENA_MAX_Z, loc[2] + moveZ));
-    }
-    out.location = loc;
+
+    return {
+      carPatch: {
+        location: [nextX, nextY, nextZ],
+        snapToGround: nextSnapToGround,
+        airRoll: nextAirRoll,
+        unlimitedBoost: nextUnlimitedBoost,
+        initialBoost: nextInitialBoost,
+        speed: nextSpeed,
+        speedYaw: nextSpeedYaw,
+        speedPitch: nextSpeedPitch,
+      },
+      nextBallSpeedZeroLatch: nextLatch,
+    };
+  }
+
+  if (subMode === 'ball-speed') {
+    const baseLoc = shot.ball.location || [0, 0, BALL_GROUND_MIN_Z];
+    const nextX = Math.max(-ARENA_MAX_X, Math.min(ARENA_MAX_X, baseLoc[0] + moveX));
+    const nextY = Math.max(-ARENA_MAX_Y, Math.min(ARENA_MAX_Y, baseLoc[1] + moveY));
+    const nextZ =
+      moveZ !== 0
+        ? Math.max(BALL_GROUND_MIN_Z, Math.min(ARENA_MAX_Z, baseLoc[2] + moveZ))
+        : baseLoc[2];
+
+    let nextBallSpeed = shot.ball.speed;
+    let nextKickoffState = shot.ball.kickoffState;
 
     if (speedDelta < 0) {
-      if (out.speed > 0 && !ballSpeedZeroLatch) {
-        const nextSpd = Math.max(0, Number((out.speed + speedDelta).toFixed(1)));
-        out.speed = nextSpd;
-        if (nextSpd === 0) {
+      if (shot.ball.speed > 0 && !ballSpeedZeroLatch) {
+        const computedSpd = Math.max(0, Number((shot.ball.speed + speedDelta).toFixed(1)));
+        nextBallSpeed = computedSpd;
+        if (computedSpd === 0) {
           nextLatch = true;
         }
       }
     } else if (speedDelta > 0) {
-      if (out.kickoffState) {
-        out.kickoffState = false;
-        out.speed = 0;
+      if (shot.ball.kickoffState) {
+        nextKickoffState = false;
+        nextBallSpeed = 0;
       } else {
-        out.speed = Math.min(
+        nextBallSpeed = Math.min(
           4000,
-          Number((out.speed + speedDelta).toFixed(1))
+          Number((shot.ball.speed + speedDelta).toFixed(1))
         );
       }
     }
+
+    return {
+      ballPatch: {
+        location: [nextX, nextY, nextZ],
+        speed: nextBallSpeed,
+        kickoffState: nextKickoffState,
+      },
+      nextBallSpeedZeroLatch: nextLatch,
+    };
   }
 
   return { nextBallSpeedZeroLatch: nextLatch };
 }
 
-export function applyMouseDragToShotDraft(
-  draft: StaticTrainingShotConfig,
+export function computeMouseDragShotPatch(
+  shot: StaticTrainingShotConfig,
   subMode: StaticTrainingEditSubMode,
   dx: number,
   dy: number,
   sensitivity = 0.0045
-): void {
+): ShotMouseDragPatchResult {
+  const clampPitch = (val: number): number =>
+    Number(Math.max(-Math.PI * 0.48, Math.min(Math.PI * 0.48, val)).toFixed(4));
+
   if (subMode === 'car-heading') {
-    const target = draft.car;
-    target.headingYaw = Number((target.headingYaw + dx * sensitivity).toFixed(4));
-    if (!target.snapToGround) {
-      target.headingPitch = Number(
-        Math.max(
-          -Math.PI * 0.48,
-          Math.min(Math.PI * 0.48, target.headingPitch - dy * sensitivity)
-        ).toFixed(4)
-      );
-    }
-    if (target.speedFollowsHeading !== false) {
-      target.speedYaw = target.headingYaw;
-      target.speedPitch = target.snapToGround ? 0 : target.headingPitch;
-    }
-  } else if (subMode === 'car-speed') {
-    const target = draft.car;
-    const curSpeedYaw = Number(target.speedYaw ?? target.headingYaw) || 0;
-    const curSpeedPitch = Number(target.speedPitch) || 0;
-    target.speedYaw = Number((curSpeedYaw + dx * sensitivity).toFixed(4));
-    target.speedPitch = Number(
-      Math.max(
-        -Math.PI * 0.48,
-        Math.min(Math.PI * 0.48, curSpeedPitch - dy * sensitivity)
-      ).toFixed(4)
-    );
-  } else if (subMode === 'ball-speed') {
-    const out = draft.ball;
-    out.speedYaw = Number((out.speedYaw + dx * sensitivity).toFixed(4));
-    out.speedPitch = Number(
-      Math.max(
-        -Math.PI * 0.48,
-        Math.min(Math.PI * 0.48, out.speedPitch - dy * sensitivity)
-      ).toFixed(4)
-    );
+    const nextHeadingYaw = Number((shot.car.headingYaw + dx * sensitivity).toFixed(4));
+    const nextHeadingPitch = shot.car.snapToGround
+      ? shot.car.headingPitch
+      : clampPitch(shot.car.headingPitch - dy * sensitivity);
+    const followsHeading = shot.car.speedFollowsHeading !== false;
+    return {
+      carPatch: {
+        headingYaw: nextHeadingYaw,
+        headingPitch: nextHeadingPitch,
+        ...(followsHeading
+          ? { speedYaw: nextHeadingYaw, speedPitch: shot.car.snapToGround ? 0 : nextHeadingPitch }
+          : {}),
+      },
+    };
   }
+
+  if (subMode === 'car-speed') {
+    const curSpeedYaw = Number(shot.car.speedYaw ?? shot.car.headingYaw) || 0;
+    const curSpeedPitch = Number(shot.car.speedPitch) || 0;
+    return {
+      carPatch: {
+        speedYaw: Number((curSpeedYaw + dx * sensitivity).toFixed(4)),
+        speedPitch: clampPitch(curSpeedPitch - dy * sensitivity),
+      },
+    };
+  }
+
+  if (subMode === 'ball-speed') {
+    return {
+      ballPatch: {
+        speedYaw: Number((shot.ball.speedYaw + dx * sensitivity).toFixed(4)),
+        speedPitch: clampPitch(shot.ball.speedPitch - dy * sensitivity),
+      },
+    };
+  }
+
+  return {};
 }
 
-export function hasPlayerDrivingInput(
-  controls: PlayerDrivingControlsInput | null | undefined
-): boolean {
+export function hasPlayerDrivingInput(controls: PlayerDrivingControlsInput | null | undefined): boolean {
   if (!controls) return false;
   return (
     Math.abs(controls.throttle || 0) > 0.05 ||

@@ -6,21 +6,35 @@
  */
 
 import { ArenaHeaderView } from '../../physics/RocketSimStateViews.ts';
+import type { AuthoritativePhysicsSimPort } from './authoritativePhysicsStepPipeline.ts';
+import type { PhysicsEngineManager } from './PhysicsEngineManager.ts';
+import type { NetworkDataHandler } from './NetworkDataHandler.ts';
+
+export interface HostSimProxyOptions {
+  isBotMatch?: boolean;
+  numCars?: number;
+  [key: string]: unknown;
+}
+
+export interface HostSimRestoreStateResult {
+  snapshot?: Float32Array | number[] | null;
+  tickCount?: number;
+}
 
 export interface HostSimProxyPort {
   isWorker: boolean;
   worker: Worker | null;
-  fallbackSim: any;
-  fallbackPhysics: any;
-  fallbackDataHandler: any;
-  options: Record<string, any>;
+  fallbackSim: AuthoritativePhysicsSimPort | null;
+  fallbackPhysics: PhysicsEngineManager | null;
+  fallbackDataHandler: NetworkDataHandler | null;
+  options: HostSimProxyOptions;
   cachedSnapshot: Float32Array;
   lastServerTick: number;
   lastGoal: number;
-  headerViewInstance: any;
+  headerViewInstance: ArenaHeaderView | null;
   _loggedFallbackSend?: boolean;
-  _postCommand(type: string, data?: Record<string, any>, transfer?: Transferable[]): void;
-  _sendRequest(type: string, data?: Record<string, any>): Promise<any>;
+  _postCommand(type: string, data?: Record<string, unknown>, transfer?: Transferable[]): void;
+  _sendRequest(type: string, data?: Record<string, unknown>): Promise<HostSimRestoreStateResult>;
 }
 
 export function createHostSimProxy(hostWorker: HostSimProxyPort) {
@@ -33,7 +47,7 @@ export function createHostSimProxy(hostWorker: HostSimProxyPort) {
       const hdr = sim.getHeaderView();
       return (
         hdr?.numCars ??
-        (hostWorker.options.isBotMatch || hostWorker.options.numCars >= 2 ? 2 : 1)
+        (hostWorker.options.isBotMatch || (hostWorker.options.numCars ?? 0) >= 2 ? 2 : 1)
       );
     },
     _carUnlimitedBoost: {} as Record<number, boolean>,
@@ -49,12 +63,16 @@ export function createHostSimProxy(hostWorker: HostSimProxyPort) {
       if (hostWorker.isWorker && hostWorker.worker) {
         hostWorker._postCommand('setUnlimitedBoost', { enabled: flag });
       } else if (hostWorker.fallbackSim) {
-        hostWorker.fallbackSim.setUnlimitedBoost(flag);
+        hostWorker.fallbackSim.setUnlimitedBoost?.(flag);
       }
     },
     getUnlimitedBoost: (): boolean => {
-      if (!hostWorker.isWorker && hostWorker.fallbackSim) {
-        return hostWorker.fallbackSim.getUnlimitedBoost();
+      if (
+        !hostWorker.isWorker &&
+        hostWorker.fallbackSim &&
+        typeof hostWorker.fallbackSim.getUnlimitedBoost === 'function'
+      ) {
+        return Boolean(hostWorker.fallbackSim.getUnlimitedBoost());
       }
       return Boolean(sim.isUnlimitedBoost);
     },
@@ -71,8 +89,11 @@ export function createHostSimProxy(hostWorker: HostSimProxyPort) {
     },
     getCarUnlimitedBoost: (carIndex = 0): boolean => {
       const idx = Number(carIndex) || 0;
-      if (!hostWorker.isWorker && hostWorker.fallbackSim?.getCarUnlimitedBoost) {
-        return hostWorker.fallbackSim.getCarUnlimitedBoost(idx);
+      if (
+        !hostWorker.isWorker &&
+        typeof hostWorker.fallbackSim?.getCarUnlimitedBoost === 'function'
+      ) {
+        return Boolean(hostWorker.fallbackSim.getCarUnlimitedBoost(idx));
       }
       if (idx in sim._carUnlimitedBoost) return Boolean(sim._carUnlimitedBoost[idx]);
       return Boolean(sim.isUnlimitedBoost);
@@ -89,8 +110,11 @@ export function createHostSimProxy(hostWorker: HostSimProxyPort) {
     },
     getCarBoostCollectable: (carIndex = 0): boolean => {
       const idx = Number(carIndex) || 0;
-      if (!hostWorker.isWorker && hostWorker.fallbackSim?.getCarBoostCollectable) {
-        return hostWorker.fallbackSim.getCarBoostCollectable(idx);
+      if (
+        !hostWorker.isWorker &&
+        typeof hostWorker.fallbackSim?.getCarBoostCollectable === 'function'
+      ) {
+        return Boolean(hostWorker.fallbackSim.getCarBoostCollectable(idx));
       }
       if (idx in sim._carBoostCollectable) return Boolean(sim._carBoostCollectable[idx]);
       return true;
@@ -121,22 +145,31 @@ export function createHostSimProxy(hostWorker: HostSimProxyPort) {
     },
     getCarBoostRechargeEnabled: (carIndex = 0): boolean => {
       const idx = Number(carIndex) || 0;
-      if (!hostWorker.isWorker && hostWorker.fallbackSim?.getCarBoostRechargeEnabled) {
-        return hostWorker.fallbackSim.getCarBoostRechargeEnabled(idx);
+      if (
+        !hostWorker.isWorker &&
+        typeof hostWorker.fallbackSim?.getCarBoostRechargeEnabled === 'function'
+      ) {
+        return Boolean(hostWorker.fallbackSim.getCarBoostRechargeEnabled(idx));
       }
       return Boolean(sim._carBoostRecharge[idx]?.enabled);
     },
     getCarBoostRechargePerSecond: (carIndex = 0): number => {
       const idx = Number(carIndex) || 0;
-      if (!hostWorker.isWorker && hostWorker.fallbackSim?.getCarBoostRechargePerSecond) {
-        return hostWorker.fallbackSim.getCarBoostRechargePerSecond(idx);
+      if (
+        !hostWorker.isWorker &&
+        typeof hostWorker.fallbackSim?.getCarBoostRechargePerSecond === 'function'
+      ) {
+        return Number(hostWorker.fallbackSim.getCarBoostRechargePerSecond(idx));
       }
       return sim._carBoostRecharge[idx]?.rechargePerSecond ?? 10.0;
     },
     getCarBoostRechargeDelay: (carIndex = 0): number => {
       const idx = Number(carIndex) || 0;
-      if (!hostWorker.isWorker && hostWorker.fallbackSim?.getCarBoostRechargeDelay) {
-        return hostWorker.fallbackSim.getCarBoostRechargeDelay(idx);
+      if (
+        !hostWorker.isWorker &&
+        typeof hostWorker.fallbackSim?.getCarBoostRechargeDelay === 'function'
+      ) {
+        return Number(hostWorker.fallbackSim.getCarBoostRechargeDelay(idx));
       }
       return sim._carBoostRecharge[idx]?.rechargeDelay ?? 0.25;
     },
@@ -171,17 +204,21 @@ export function createHostSimProxy(hostWorker: HostSimProxyPort) {
             return hostWorker.cachedSnapshot;
           });
       } else if (hostWorker.fallbackSim) {
-        const res = hostWorker.fallbackSim.restoreState(state);
-        hostWorker.lastServerTick = Math.floor(hostWorker.fallbackSim.getHeaderView().tickCount);
+        const res = hostWorker.fallbackSim.restoreState?.(state);
+        hostWorker.lastServerTick = Math.floor(
+          hostWorker.fallbackSim.getHeaderView?.()?.tickCount ?? 0
+        );
         return res;
       }
       return undefined;
     },
     saveState: (targetBuf?: Float32Array): Float32Array => {
       if (!hostWorker.isWorker && hostWorker.fallbackSim) {
-        return typeof hostWorker.fallbackSim.saveCompactState === 'function'
-          ? hostWorker.fallbackSim.saveCompactState(targetBuf)
-          : hostWorker.fallbackSim.saveState(targetBuf);
+        const fn =
+          typeof hostWorker.fallbackSim.saveCompactState === 'function'
+            ? (hostWorker.fallbackSim.saveCompactState as (b?: Float32Array) => Float32Array)
+            : (hostWorker.fallbackSim.saveState as (b?: Float32Array) => Float32Array);
+        return fn.call(hostWorker.fallbackSim, targetBuf);
       }
       if (targetBuf) {
         const copyLen = Math.min(targetBuf.length, hostWorker.cachedSnapshot.length);
@@ -191,8 +228,8 @@ export function createHostSimProxy(hostWorker: HostSimProxyPort) {
       return new Float32Array(hostWorker.cachedSnapshot);
     },
     saveCompactState: (targetBuf?: Float32Array): Float32Array => sim.saveState(targetBuf),
-    getHeaderView: (): any => {
-      if (!hostWorker.isWorker && hostWorker.fallbackSim) {
+    getHeaderView: (): { tickCount: number; numCars?: number; goalScoredFlag?: number } => {
+      if (!hostWorker.isWorker && hostWorker.fallbackSim?.getHeaderView) {
         return hostWorker.fallbackSim.getHeaderView();
       }
       if (!hostWorker.headerViewInstance) {
@@ -204,7 +241,8 @@ export function createHostSimProxy(hostWorker: HostSimProxyPort) {
       }
       return {
         tickCount: hostWorker.lastServerTick,
-        numCars: hostWorker.options.isBotMatch || hostWorker.options.numCars >= 2 ? 2 : 1,
+        numCars:
+          hostWorker.options.isBotMatch || (hostWorker.options.numCars ?? 0) >= 2 ? 2 : 1,
       };
     },
     resetKickoff: (seed?: number) => {
@@ -221,7 +259,7 @@ export function createHostSimProxy(hostWorker: HostSimProxyPort) {
         hostWorker.fallbackPhysics.resetGoalLatch();
       }
     },
-    setCarState: (carIndex: number, stateObj: any): number => {
+    setCarState: (carIndex: number, stateObj: Float32Array | number[] | Record<string, unknown>): number => {
       if (hostWorker.isWorker && hostWorker.worker) {
         const serialized = stateObj instanceof Float32Array ? Array.from(stateObj) : stateObj;
         hostWorker._postCommand('setCarState', {
@@ -232,11 +270,11 @@ export function createHostSimProxy(hostWorker: HostSimProxyPort) {
         return 1;
       }
       if (hostWorker.fallbackSim) {
-        return hostWorker.fallbackSim.setCarState(carIndex, stateObj);
+        return Number(hostWorker.fallbackSim.setCarState?.(carIndex, stateObj) ?? 0);
       }
       return 0;
     },
-    setBallState: (ballState: any): boolean => {
+    setBallState: (ballState: Float32Array | number[] | Record<string, unknown>): boolean => {
       if (hostWorker.isWorker && hostWorker.worker) {
         const serialized = ballState instanceof Float32Array ? Array.from(ballState) : ballState;
         hostWorker._postCommand('setBallState', { ballState: serialized });
@@ -276,11 +314,13 @@ export function createHostSimProxy(hostWorker: HostSimProxyPort) {
         );
         return 1;
       }
-      if (hostWorker.fallbackSim) {
-        return hostWorker.fallbackSim.setCarCollisionMask(
-          carIndex,
-          interactWithBall,
-          interactWithCars
+      if (typeof hostWorker.fallbackSim?.setCarCollisionMask === 'function') {
+        return Number(
+          hostWorker.fallbackSim.setCarCollisionMask(
+            carIndex,
+            interactWithBall,
+            interactWithCars
+          )
         );
       }
       return 0;
@@ -303,27 +343,29 @@ export function createHostSimProxy(hostWorker: HostSimProxyPort) {
         return 1;
       }
       if (hostWorker.fallbackSim) {
-        return hostWorker.fallbackSim.setCarLinearFactorAndGravity(
-          carIndex,
-          fx,
-          fy,
-          fz,
-          gravityScale
+        return Number(
+          hostWorker.fallbackSim.setCarLinearFactorAndGravity?.(
+            carIndex,
+            fx,
+            fy,
+            fz,
+            gravityScale
+          ) ?? 0
         );
       }
       return 0;
     },
-    setArenaMutators: (mutators: Record<string, any>): boolean => {
+    setArenaMutators: (mutators: Record<string, unknown>): boolean => {
       if (hostWorker.isWorker && hostWorker.worker) {
         hostWorker._postCommand('setArenaMutators', { mutators });
         return true;
       } else if (hostWorker.fallbackSim) {
-        return hostWorker.fallbackSim.setArenaMutators(mutators);
+        return Boolean(hostWorker.fallbackSim.setArenaMutators?.(mutators));
       }
       return false;
     },
     pollGoal: (): number => {
-      if (!hostWorker.isWorker && hostWorker.fallbackSim) {
+      if (!hostWorker.isWorker && hostWorker.fallbackSim?.pollGoal) {
         return hostWorker.fallbackSim.pollGoal();
       }
       const g = hostWorker.lastGoal;
@@ -331,8 +373,11 @@ export function createHostSimProxy(hostWorker: HostSimProxyPort) {
       return g;
     },
     getStateSnapshotSize: (): number => {
-      if (!hostWorker.isWorker && hostWorker.fallbackSim) {
-        return hostWorker.fallbackSim.getStateSnapshotSize();
+      if (
+        !hostWorker.isWorker &&
+        typeof hostWorker.fallbackSim?.getStateSnapshotSize === 'function'
+      ) {
+        return Number(hostWorker.fallbackSim.getStateSnapshotSize());
       }
       return hostWorker.cachedSnapshot.length || 448;
     },

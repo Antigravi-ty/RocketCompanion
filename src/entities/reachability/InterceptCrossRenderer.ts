@@ -10,23 +10,25 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { solveOptimalIntercept } from './InterceptSolver.ts';
 
-export class InterceptCrossRenderer {
-  public _colCenter: any;
-  public _colEdge: any;
-  public _colMid: any;
-  public _colWork: any;
-  public _crossSegmentsBuf: any;
-  public _fallbackBallPred: any;
-  public _lastPredSource: any;
-  public ballTrajectoryPredictor: any;
-  public coreMat: any;
-  public coreSphere: any;
-  public crossGeometry: any;
-  public crossMaterial: any;
-  public crossMesh: any;
-  public group: any;
+import type { BallTrajectoryPredictor } from '../BallTrajectoryPredictor.ts';
 
-  constructor(parentGroup, ballTrajectoryPredictor: any = null) {
+export class InterceptCrossRenderer {
+  public _colCenter: THREE.Color;
+  public _colEdge: THREE.Color;
+  public _colMid: THREE.Color;
+  public _colWork: THREE.Color;
+  public _crossSegmentsBuf: Float32Array;
+  public _fallbackBallPred: Float32Array;
+  public _lastPredSource: string | undefined;
+  public ballTrajectoryPredictor: BallTrajectoryPredictor | null;
+  public coreMat: THREE.MeshBasicMaterial;
+  public coreSphere: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  public crossGeometry: LineSegmentsGeometry;
+  public crossMaterial: LineMaterial;
+  public crossMesh: LineSegments2;
+  public group: THREE.Group;
+
+  constructor(parentGroup: THREE.Object3D | null | undefined, ballTrajectoryPredictor: BallTrajectoryPredictor | null = null) {
     this.ballTrajectoryPredictor = ballTrajectoryPredictor;
     this.group = new THREE.Group();
     this.group.name = 'reachability-intercept-group';
@@ -39,6 +41,12 @@ export class InterceptCrossRenderer {
     this._colMid = new THREE.Color('#ffbe0b');
     this._colCenter = new THREE.Color('#00f59b');
     this._colWork = new THREE.Color('#00f59b');
+    this._crossSegmentsBuf = new Float32Array(18);
+    this.crossGeometry = null!;
+    this.crossMaterial = null!;
+    this.crossMesh = null!;
+    this.coreMat = null!;
+    this.coreSphere = null!;
     this._initMeshes();
   }
 
@@ -104,7 +112,7 @@ export class InterceptCrossRenderer {
     }
 
     // Retrieve predicted ball trajectory from BallTrajectoryPredictor or physics fallback
-    let rawPoints: any = null;
+    let rawPoints: Float32Array | null = null;
     let predCount = 0;
     let elapsedTicks = 0;
 

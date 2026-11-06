@@ -15,7 +15,7 @@ export interface AnomalyPhysicsCarTeamPort {
 
 /**
  * High-speed arena surface / seam classification around the ball in Unreal Units (UU).
- * Standard Soccar arena half-extents:
+ * Standard carball arena half-extents:
  * - Sidewall X: +-4096 UU (with corner 45-deg bevel starting near |X| + |Y| > 8064)
  * - Backwall Y: +-5120 UU (goal opening |X| < 893, Z < 642.775)
  * - Floor Z: 0 UU (ball center resting ~93.15 UU)

@@ -3,7 +3,7 @@ export const CLASSIC_BALL_RADIUS = 95;
 
 
 
-export function createGeodesicBallGeometry( patternColor: any = null) {
+export function createGeodesicBallGeometry(patternColor: THREE.ColorRepresentation | null = null) {
   const {
     BufferGeometry,
     BufferAttribute,
@@ -14,13 +14,13 @@ export function createGeodesicBallGeometry( patternColor: any = null) {
 
   const baseIco = new IcosahedronGeometry(1, 0);
   const posAttr = baseIco.getAttribute("position");
-  const uniqueVertices: any[] = [];
-  const vertexLookup = new Map();
-  const faces: any[] = [];
+  const uniqueVertices: THREE.Vector3[] = [];
+  const vertexLookup = new Map<string, number>();
+  const faces: number[][] = [];
 
   if (posAttr) {
     for (let i = 0; i < posAttr.count; i += 3) {
-      const face: any[] = [];
+      const face: number[] = [];
       for (let cornerIdx = 0; cornerIdx < 3; cornerIdx++) {
         const v = new Vector3().fromBufferAttribute(posAttr, i + cornerIdx);
         const key = v.toArray().map(val => Number(val).toFixed(6)).join(",");
@@ -28,16 +28,16 @@ export function createGeodesicBallGeometry( patternColor: any = null) {
           vertexLookup.set(key, uniqueVertices.length);
           uniqueVertices.push(v);
         }
-        face.push(vertexLookup.get(key));
+        face.push(vertexLookup.get(key)!);
       }
       faces.push(face);
     }
   }
   baseIco.dispose();
 
-  const lerpNorm = (aIdx, bIdx) => uniqueVertices[aIdx].clone().lerp(uniqueVertices[bIdx], 1 / 3).normalize();
-  const adjacent = uniqueVertices.map(() => new Set());
-  const panels: any[] = [];
+  const lerpNorm = (aIdx: number, bIdx: number) => uniqueVertices[aIdx].clone().lerp(uniqueVertices[bIdx], 1 / 3).normalize();
+  const adjacent = uniqueVertices.map(() => new Set<number>());
+  const panels: Array<{ corners: THREE.Vector3[]; black: boolean }> = [];
 
   for (const [a, b, c] of faces) {
     adjacent[a].add(b).add(c);
@@ -61,16 +61,16 @@ export function createGeodesicBallGeometry( patternColor: any = null) {
     });
   }
 
-  const positions: any[] = [];
-  const normals: any[] = [];
-  const colors: any[] = [];
-  const indices: any[] = [];
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
 
   const whiteColor = new Color(16052713);
   const darkColor = patternColor != null ? new Color(patternColor) : new Color(1054498);
   const seamColor = new Color(3423560);
 
-  const addVertex = (vNorm, radius, col) => {
+  const addVertex = (vNorm: THREE.Vector3, radius: number, col: THREE.Color) => {
     const idx = positions.length / 3;
     positions.push(vNorm.x * radius, vNorm.y * radius, vNorm.z * radius);
     normals.push(vNorm.x, vNorm.y, vNorm.z);
@@ -82,7 +82,7 @@ export function createGeodesicBallGeometry( patternColor: any = null) {
     const center = corners.reduce((acc, cur) => acc.add(cur), new Vector3()).normalize();
     const panelColor = black ? darkColor : whiteColor;
     const centerIdx = addVertex(center, CLASSIC_BALL_RADIUS, panelColor);
-    const interpolated: any[] = [];
+    const interpolated: THREE.Vector3[] = [];
 
     for (let i = 0; i < corners.length; i++) {
       for (let step = 0; step < 3; step++) {
@@ -90,7 +90,7 @@ export function createGeodesicBallGeometry( patternColor: any = null) {
       }
     }
 
-    let previousRing: any = null;
+    let previousRing: number[] | null = null;
     for (const radiusFraction of [0.3, 0.6, 0.85, 0.975, 1.0]) {
       const isRim = radiusFraction === 1.0;
       const currentRing = interpolated.map(pt =>
@@ -129,7 +129,7 @@ export function createGeodesicBallGeometry( patternColor: any = null) {
   return geometry;
 }
 
-export function createClassicBall( patternColor: any = null) {
+export function createClassicBall(patternColor: THREE.ColorRepresentation | null = null) {
   const { Mesh, Group, MeshStandardMaterial } = THREE;
   const geometry = createGeodesicBallGeometry(patternColor);
   const material = new MeshStandardMaterial({
@@ -164,7 +164,7 @@ import {
   registerBallVisualApplier,
 } from '../ui-core/config/ballVisualConfig';
 
-const activeBallCompositeGroups = new Set<any>();
+const activeBallCompositeGroups = new Set<WeakRef<THREE.Group>>();
 
 function resolveEffectiveBallOpacity(config) {
   if (typeof config?.temporaryOpacityOverride === 'number' && Number.isFinite(config.temporaryOpacityOverride)) {
@@ -173,12 +173,12 @@ function resolveEffectiveBallOpacity(config) {
   return Math.max(0, Math.min(1, Number(config?.opacity) ?? 1.0));
 }
 
-const ballGoalUniforms: Record<string, any> = {
+const ballGoalUniforms = {
   uGoalEffectEnabled: { value: 1.0 },
-  uGoalPlaneMinY: { value: STANDARD_GOAL_VOLUME_BOX.minY },
-  uGoalPlaneMaxY: { value: STANDARD_GOAL_VOLUME_BOX.maxY },
-  uGoalHalfWidthX: { value: STANDARD_GOAL_VOLUME_BOX.halfWidthX },
-  uGoalMaxZ: { value: STANDARD_GOAL_VOLUME_BOX.maxZ },
+  uGoalPlaneMinY: { value: Number(STANDARD_GOAL_VOLUME_BOX.minY) },
+  uGoalPlaneMaxY: { value: Number(STANDARD_GOAL_VOLUME_BOX.maxY) },
+  uGoalHalfWidthX: { value: Number(STANDARD_GOAL_VOLUME_BOX.halfWidthX) },
+  uGoalMaxZ: { value: Number(STANDARD_GOAL_VOLUME_BOX.maxZ) },
   uGoalTime: { value: 0.0 },
   uGoalPenetration: { value: 0.0 },
   uGoalJitterWorldOffset: { value: new THREE.Vector3(0, 0, 0) },
@@ -361,14 +361,23 @@ function applyConfigToSingleMaterial(mat, config) {
   }
 }
 
-export function applyBallVisualConfigToObject(ballRoot, config = ballVisualRuntimeConfig, indicatorRings: any[] = []) {
+export interface BallIndicatorRingLike {
+  visible?: boolean;
+  material?: { opacity?: number; transparent?: boolean } | null;
+}
+
+export function applyBallVisualConfigToObject(
+  ballRoot: THREE.Object3D | null | undefined,
+  config = ballVisualRuntimeConfig,
+  indicatorRings: Array<BallIndicatorRingLike | unknown> = []
+) {
   const rimCfg = getBallGoalRimFxConfig();
   ballGoalUniforms.uGoalEffectEnabled.value =
     config.goalDarkenJitterEnabled !== false && rimCfg?.enabled !== false ? 1.0 : 0.0;
   if (ballRoot) {
     const effOpacity = resolveEffectiveBallOpacity(config);
     ballRoot.visible = config.visible !== false && effOpacity > 0.001;
-    ballRoot.traverse?.((node) => {
+    ballRoot.traverse?.((node: THREE.Object3D & { isMesh?: boolean; material?: THREE.Material | THREE.Material[] }) => {
       if (!node.isMesh || !node.material) return;
       const mats = Array.isArray(node.material) ? node.material : [node.material];
       for (const m of mats) {
@@ -383,7 +392,8 @@ export function applyBallVisualConfigToObject(ballRoot, config = ballVisualRunti
 
   if (Array.isArray(indicatorRings)) {
     const ringAlpha = Math.max(0, Math.min(1, Number(config.indicatorRingOpacity) ?? 0.2));
-    for (const ring of indicatorRings) {
+    for (const rawRing of indicatorRings) {
+      const ring = rawRing as BallIndicatorRingLike | null | undefined;
       if (!ring) continue;
       ring.visible = ringAlpha > 0.001;
       if (ring.material) {

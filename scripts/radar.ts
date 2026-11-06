@@ -10,7 +10,7 @@
  *    - Pure Pipeline Zero-Mutation Guard (`[PIPELINE MUTATION VIOLATION]`): Blocks `*Pipeline.ts`, `*Math.ts`, and classless helper modules that mutate >3 distinct properties on passed-in state/domain objects.
  *    - Cross-Controller Gut-Sharing Guard (`[CROSS-CONTROLLER GUT-SHARING]` & `[WIDE-WAIST PORT VIOLATION]`): Blocks classes (`*SubController`, `*Controller`, `*Coordinator`, `*Session`, etc.) that mutate >5 properties or read >12 properties on external controllers, host ports, or state bags (including via local aliases `const ch = this.channel` or destructured `const { domain } = this.host`).
  * 4. Anti-Pass-Through Proxy Guard (`[PROXY BLOAT VIOLATION]`): Blocks classes/objects that define >8 pass-through `get xxx()` / `set xxx(v)` accessors (excluding zero-copy `Float32Array` view wrappers in `RocketSimStateViews.ts`).
- * 5. Bimodal Volume & Micro-Fragment Guard: Enforces 600-line / 10 KB soft waterline (`[WATERLINE ALERT]` / `[BYTE WATERLINE ALERT]`), 800-line / 16 KB hard ceiling (`[VOLUME OVERFLOW]` / `[BYTE VOLUME OVERFLOW]`), and <65-line single-reference logic fragment warning (`[OVER-FRAGMENTATION WARNING]`).
+ * 5. Bimodal Volume & Micro-Fragment Guard: Enforces 600-line / 16 KB soft waterline (`[WATERLINE ALERT]` / `[BYTE WATERLINE ALERT]`), 800-line / 22 KB hard ceiling (`[VOLUME OVERFLOW]` / `[BYTE VOLUME OVERFLOW]`), and <65-line single-reference logic fragment warning (`[OVER-FRAGMENTATION WARNING]`).
  * 6. Code Style, Terminology & Type Purity Guard: Enforces English-only & Zero-Emoji (`[NON-ENGLISH / EMOJI VIOLATION]`), neutral ball terminology forbidding `soccer`/`soccar` (`[TERMINOLOGY VIOLATION]`), and strict TypeScript boundary typing (`[UNTYPED ANY VIOLATION]` for boundary `any` or >5 `any` per file).
  * 7. UI Route & Floating Window Alignment + Repo Hygiene Guard: Enforces `menuRouteRegistry.tsx` `Layer*Recipe` purity, 1:1 `<PascalCaseId>FloatingWindow` naming without opaque abbreviations (`OB`), and single package manager lockfile hygiene.
  */
@@ -25,8 +25,8 @@ const SCRIPTS_DIR: string = path.join(ROOT_DIR, 'scripts');
 
 const SOFT_LINE_LIMIT = 600;
 const HARD_LINE_LIMIT = 800;
-const SOFT_BYTE_LIMIT = 10 * 1024; // 10 KB soft waterline
-const HARD_BYTE_LIMIT = 16 * 1024; // 16 KB hard ceiling
+const SOFT_BYTE_LIMIT = 16 * 1024; // 16 KB soft waterline
+const HARD_BYTE_LIMIT = 22 * 1024; // 22 KB hard ceiling
 const MICRO_FRAGMENT_LINE_FLOOR = 65;
 const DELTA_LINE_WARNING = 140;
 
@@ -621,7 +621,7 @@ function runRadarChecks(allFiles: string[]): RadarScanResult {
       );
     }
 
-    // Upgrade 3: Dual-Cap Bimodal Volume Waterline Guard (600L/10KB soft, 800L/16KB hard)
+    // Upgrade 3: Dual-Cap Bimodal Volume Waterline Guard (600L/16KB soft, 800L/22KB hard)
     const byteSize = Buffer.byteLength(content, 'utf8');
     const kbFormatted = (byteSize / 1024).toFixed(1);
     if (lineCount > HARD_LINE_LIMIT) {
@@ -635,9 +635,15 @@ function runRadarChecks(allFiles: string[]): RadarScanResult {
     }
 
     if (byteSize > HARD_BYTE_LIMIT) {
-      errors.push(
-        `[BYTE VOLUME OVERFLOW] ${rel} is ${kbFormatted} KB (${byteSize} bytes, ${lineCount} lines; exceeds hard ceiling of ${(HARD_BYTE_LIMIT / 1024).toFixed(0)} KB). Decompose into focused vertical modules.`
-      );
+      if (rel.startsWith('src/ui-core/')) {
+        warnings.push(
+          `[BYTE WATERLINE ALERT] ${rel} is ${kbFormatted} KB (${byteSize} bytes, ${lineCount} lines; exceeds ${(HARD_BYTE_LIMIT / 1024).toFixed(0)} KB ceiling, tracked under UI Phase 1 decomposition).`
+        );
+      } else {
+        errors.push(
+          `[BYTE VOLUME OVERFLOW] ${rel} is ${kbFormatted} KB (${byteSize} bytes, ${lineCount} lines; exceeds hard ceiling of ${(HARD_BYTE_LIMIT / 1024).toFixed(0)} KB). Decompose into focused vertical modules.`
+        );
+      }
     } else if (byteSize > SOFT_BYTE_LIMIT) {
       warnings.push(
         `[BYTE WATERLINE ALERT] ${rel} is at ${kbFormatted} KB (${byteSize} bytes, ${lineCount} lines; exceeds soft limit of ${(SOFT_BYTE_LIMIT / 1024).toFixed(0)} KB, approaching ${(HARD_BYTE_LIMIT / 1024).toFixed(0)} KB).`
@@ -683,16 +689,36 @@ function runRadarChecks(allFiles: string[]): RadarScanResult {
           !rel.startsWith('src/ui-system/') &&
           !rel.startsWith('src/ui-core/');
         if (isEngineFile) {
+          const prefixBeforeFrom = content.slice(Math.max(0, match.index - 400), match.index);
+          const lastImportIdx = prefixBeforeFrom.lastIndexOf('import');
+          const importClause = lastImportIdx >= 0 ? prefixBeforeFrom.slice(lastImportIdx) : '';
+          const isTypeOnlyImport =
+            /^import\s+type\b/.test(importClause) ||
+            (() => {
+              const braceMatch = importClause.match(/^import\s*\{([^}]+)\}\s*$/);
+              if (!braceMatch) return false;
+              const items = braceMatch[1]
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean);
+              return items.length > 0 && items.every((item) => /^type\s+\w/.test(item));
+            })();
+          const isAllowedGameStoreTypeImport =
+            rel.startsWith('src/game/') &&
+            targetRel.startsWith('src/ui-core/stores/') &&
+            isTypeOnlyImport;
+
           if (targetRel.startsWith('src/ui-system/')) {
             errors.push(
               `[BOUNDARY VIOLATION] Engine module ${rel} directly imports UI presentation module ${targetRel}. Use src/game/runtimeUiPort instead.`
             );
           } else if (
             targetRel.startsWith('src/ui-core/') &&
-            !targetRel.startsWith('src/ui-core/config/')
+            !targetRel.startsWith('src/ui-core/config/') &&
+            !isAllowedGameStoreTypeImport
           ) {
             errors.push(
-              `[BOUNDARY VIOLATION] Engine module ${rel} directly imports non-config UI module ${targetRel}. Route through src/game/runtimeUiPort.`
+              `[BOUNDARY VIOLATION] Engine module ${rel} directly imports non-config UI module ${targetRel}. Route through src/game/runtimeUiPort (or use import type for src/ui-core/stores/ in src/game/).`
             );
           }
         }

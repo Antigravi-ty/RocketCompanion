@@ -52,13 +52,10 @@ function transitionToTrainingMode(
   stopActiveOnlineOrLoopbackSessionIfNeeded(owner);
   leaveActiveBotMatchIfNeeded(owner);
   const alreadyActive = owner.modeManager?.activeMode?.id === modeId;
-  if (owner.match?.state) {
-    Object.assign(owner.match.state, {
-      mode: modeId,
-      phase: 'playing',
-      paused: false,
-      countdown: 0,
-    });
+  if (owner.match) {
+    owner.match.leave();
+    owner.match.state.mode = modeId;
+    owner.match.state.countdown = 0;
   }
   if (reEnterIfActive && alreadyActive) {
     owner.modeManager?.activeMode?.onEnter?.();
@@ -73,13 +70,9 @@ function transitionToExpMultiBotsMode(owner: RuntimeDomainPortOwner): void {
   leaveActiveBotMatchIfNeeded(owner);
   const activeMode = owner.modeManager?.activeMode;
   const alreadyExpMode = activeMode?.id === 'exp-multi-bots';
-  if (owner.match?.state) {
-    Object.assign(owner.match.state, {
-      mode: 'exp-multi-bots',
-      phase: 'kickoff',
-      paused: false,
-      countdown: 3,
-    });
+  if (owner.match) {
+    owner.match.start();
+    owner.match.state.mode = 'exp-multi-bots';
   }
   if (alreadyExpMode) {
     void activeMode?.applyRosterAndStartMatch?.();
@@ -98,13 +91,7 @@ export function createGameRuntimeDomainPorts(
 ): GameRuntimeUiBridgePort {
   const cameraPort: RuntimeCameraPort = {
     applyPovSettings: (cameraConfig) => {
-      if (owner.camera) {
-        if (typeof owner.camera.applyPovSettings === 'function') {
-          owner.camera.applyPovSettings(cameraConfig);
-        } else if (owner.camera.settings) {
-          Object.assign(owner.camera.settings, cameraConfig);
-        }
-      }
+      owner.camera?.applyPovSettings?.(cameraConfig);
     },
     setFreeCam: (enabled) => {
       owner.camera?.setFreeCam?.(enabled);
@@ -202,11 +189,7 @@ export function createGameRuntimeDomainPorts(
         void netSession.stopOnlineServer({ rebindLoopback: false });
       }
       leaveActiveBotMatchIfNeeded(owner);
-      if (owner.match?.state) {
-        owner.match.state.mode = 'freeplay';
-        owner.match.state.phase = 'playing';
-        owner.match.state.paused = false;
-      }
+      owner.match?.leave();
       owner.modeManager?.setMode?.('freeplay');
 
       const freeplayMode = owner.modeManager?.modes?.get?.('freeplay') as

@@ -18,34 +18,65 @@ export const CAMERA_VIEW_BUFFER_FLOATS = 42;
 export const TOTAL_VIEW_BUFFER_SIZE = 42;
 export const CAMERA_VIEW_BUFFER_BYTES = CAMERA_VIEW_BUFFER_FLOATS * Float64Array.BYTES_PER_ELEMENT; // 336 bytes
 
+export interface CameraMicrokernelOptions {
+  locateFile?: (filename: string) => string;
+  wasmBinary?: ArrayBuffer | ArrayBufferView;
+  _skipHashCheckForAbiTest?: boolean;
+}
+
+export interface MicrokernelFatalError extends Error {
+  isMicrokernelError?: boolean;
+  expectedHash?: string;
+  actualHash?: string;
+  cause?: unknown;
+}
+
+interface CameraWasmAbiExports extends WebAssembly.Exports {
+  memory: WebAssembly.Memory;
+  getViewPtr: () => number;
+  stepView: () => void;
+  resetView: () => void;
+}
+
+function createMicrokernelError(
+  message: string,
+  extra?: Partial<Pick<MicrokernelFatalError, 'expectedHash' | 'actualHash' | 'cause'>>
+): MicrokernelFatalError {
+  const err = new Error(message) as MicrokernelFatalError;
+  err.isMicrokernelError = true;
+  if (extra) {
+    Object.assign(err, extra);
+  }
+  return err;
+}
+
 /**
  * Computes SHA-256 hash hex string of binary buffer using Web Crypto API.
- * @param {ArrayBuffer|Uint8Array} buffer
- * @returns {Promise<string>}
  */
-export async function computeSha256(buffer) {
+export async function computeSha256(buffer: ArrayBuffer | ArrayBufferView): Promise<string> {
   const subtle = globalThis.crypto?.subtle;
   if (!subtle) {
     throw new Error('[FATAL] Web Crypto API (crypto.subtle) is unavailable for POV Camera Microkernel verification.');
   }
 
-  // Ensure ArrayBufferView or ArrayBuffer input
-  const sourceBuffer = ArrayBuffer.isView(buffer) ? buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) : buffer;
+  const sourceBuffer = ArrayBuffer.isView(buffer)
+    ? (buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer)
+    : buffer;
   const hashBuffer = await subtle.digest('SHA-256', sourceBuffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 export class CameraMicrokernel {
-  _fnGetViewPtr: any;
-  _fnResetView: any;
-  _fnStepView: any;
-  instance: any;
-  memory: any;
-  viewPtr: any;
-  viewView: any;
-  wasmHash: any;
-  [key: string]: any;
+  _fnGetViewPtr: (() => number) | null;
+  _fnResetView: (() => void) | null;
+  _fnStepView: (() => void) | null;
+  instance: WebAssembly.Instance | null;
+  memory: WebAssembly.Memory | null;
+  viewPtr: number;
+  viewView: Float64Array | null;
+  wasmHash: string | null;
+
   constructor() {
     this.instance = null;
     this.memory = null;
@@ -59,13 +90,8 @@ export class CameraMicrokernel {
 
   /**
    * Asynchronously load and initialize camera WASM microkernel with dual verification.
-   * @param {object} [options]
-   * @param {function} [options.locateFile]
-   * @param {ArrayBuffer|Uint8Array} [options.wasmBinary]
-   * @param {boolean} [options._skipHashCheckForAbiTest] Internal testing flag only
-   * @returns {Promise<CameraMicrokernel>}
    */
-  async init(options: Record<string, any> = {}) {
+  async init(options: CameraMicrokernelOptions = {}): Promise<CameraMicrokernel> {
     let wasmBytes = options.wasmBinary;
 
     if (!wasmBytes) {
@@ -76,23 +102,24 @@ export class CameraMicrokernel {
       try {
         const res = await fetch(wasmPath);
         if (!res.ok) {
-          const err: any = new Error(`[FATAL] POV Camera Microkernel hash mismatch or missing! Tampering detected. (HTTP ${res.status}: ${res.statusText})`);
-          (err as any).isMicrokernelError = true;
-          throw err;
+          throw createMicrokernelError(
+            `[FATAL] POV Camera Microkernel hash mismatch or missing! Tampering detected. (HTTP ${res.status}: ${res.statusText})`
+          );
         }
         wasmBytes = await res.arrayBuffer();
-      } catch (loadErr: any) {
-        const fatalErr: any = new Error(`[FATAL] POV Camera Microkernel hash mismatch or missing! Tampering detected. (${loadErr.message})`);
-        fatalErr.isMicrokernelError = true;
-        fatalErr.cause = loadErr;
-        throw fatalErr;
+      } catch (loadErr: unknown) {
+        const errMessage = loadErr instanceof Error ? loadErr.message : String(loadErr);
+        throw createMicrokernelError(
+          `[FATAL] POV Camera Microkernel hash mismatch or missing! Tampering detected. (${errMessage})`,
+          { cause: loadErr }
+        );
       }
     }
 
     if (!wasmBytes || wasmBytes.byteLength === 0) {
-      const err: any = new Error('[FATAL] POV Camera Microkernel hash mismatch or missing! Tampering detected. (Empty binary)');
-      (err as any).isMicrokernelError = true;
-      throw err;
+      throw createMicrokernelError(
+        '[FATAL] POV Camera Microkernel hash mismatch or missing! Tampering detected. (Empty binary)'
+      );
     }
 
     // 1. WASM Binary SHA-256 Hash Verification (Fail-Fast)
@@ -100,40 +127,42 @@ export class CameraMicrokernel {
       const actualHash = await computeSha256(wasmBytes);
       this.wasmHash = actualHash;
       if (actualHash !== EXPECTED_CAMERA_WASM_HASH) {
-        const hashErr: any = new Error(
+        throw createMicrokernelError(
           `[FATAL] POV Camera Microkernel hash mismatch or missing! Tampering detected. ` +
-          `(Expected: ${EXPECTED_CAMERA_WASM_HASH}, Got: ${actualHash})`
+          `(Expected: ${EXPECTED_CAMERA_WASM_HASH}, Got: ${actualHash})`,
+          {
+            expectedHash: EXPECTED_CAMERA_WASM_HASH,
+            actualHash,
+          }
         );
-        hashErr.isMicrokernelError = true;
-        hashErr.expectedHash = EXPECTED_CAMERA_WASM_HASH;
-        hashErr.actualHash = actualHash;
-        throw hashErr;
       }
     }
 
     // 2. WebAssembly Instantiation (zero imports required for standalone microkernel)
-    let result;
+    let result: WebAssembly.WebAssemblyInstantiatedSource | WebAssembly.Instance;
     try {
-      result = await WebAssembly.instantiate(wasmBytes, {});
-    } catch (instantiateErr) {
-      const err: any = new Error(`[FATAL] POV Camera Microkernel instantiation failed: ${instantiateErr.message}`);
-      (err as any).isMicrokernelError = true;
-      throw err;
+      const sourceBytes = ArrayBuffer.isView(wasmBytes)
+        ? (wasmBytes.buffer.slice(wasmBytes.byteOffset, wasmBytes.byteOffset + wasmBytes.byteLength) as ArrayBuffer)
+        : wasmBytes;
+      result = await WebAssembly.instantiate(sourceBytes, {});
+    } catch (instantiateErr: unknown) {
+      const msg = instantiateErr instanceof Error ? instantiateErr.message : String(instantiateErr);
+      throw createMicrokernelError(`[FATAL] POV Camera Microkernel instantiation failed: ${msg}`);
     }
-    const instance = result.instance || result;
+    const instance = 'instance' in result ? result.instance : result;
     this.instance = instance;
 
     // 3. ABI Contract Validation: memory, getViewPtr, stepView, resetView
-    const exp = instance.exports;
+    const exp = instance.exports as Partial<CameraWasmAbiExports>;
     if (
       !exp.memory ||
       typeof exp.getViewPtr !== 'function' ||
       typeof exp.stepView !== 'function' ||
       typeof exp.resetView !== 'function'
     ) {
-      const err: any = new Error('camera.wasm is missing required ABI exports (memory, getViewPtr, stepView, resetView)');
-      (err as any).isMicrokernelError = true;
-      throw err;
+      throw createMicrokernelError(
+        'camera.wasm is missing required ABI exports (memory, getViewPtr, stepView, resetView)'
+      );
     }
 
     this.memory = exp.memory;
@@ -152,9 +181,9 @@ export class CameraMicrokernel {
       this.viewPtr % Float64Array.BYTES_PER_ELEMENT !== 0 ||
       this.viewPtr + CAMERA_VIEW_BUFFER_BYTES > memBuffer.byteLength
     ) {
-      const err: any = new Error(`camera.wasm getViewPtr() returned invalid pointer (${this.viewPtr}) or out-of-bounds linear memory segment`);
-      (err as any).isMicrokernelError = true;
-      throw err;
+      throw createMicrokernelError(
+        `camera.wasm getViewPtr() returned invalid pointer (${this.viewPtr}) or out-of-bounds linear memory segment`
+      );
     }
 
     this.resetView();
@@ -164,7 +193,7 @@ export class CameraMicrokernel {
   /**
    * Reset internal camera history, swivel, and tracking filters
    */
-  resetView() {
+  resetView(): void {
     if (typeof this._fnResetView === 'function') {
       this._fnResetView();
     }
@@ -176,10 +205,11 @@ export class CameraMicrokernel {
 
   /**
    * Advance camera perspective one frame using 42-Float64 view buffer
-   * @param {ArrayLike<number>} [inputView]
-   * @returns {Float64Array}
    */
-  stepView(inputView) {
+  stepView(inputView?: ArrayLike<number>): Float64Array {
+    if (!this.memory) {
+      throw createMicrokernelError('CameraMicrokernel memory is uninitialized');
+    }
     if (!this.viewView || this.viewView.buffer !== this.memory.buffer) {
       this.viewView = new Float64Array(this.memory.buffer, this.viewPtr, CAMERA_VIEW_BUFFER_FLOATS);
     }
@@ -192,15 +222,18 @@ export class CameraMicrokernel {
     return this.viewView;
   }
 
-  getViewPtr() {
+  getViewPtr(): number {
     return this.viewPtr;
   }
 
-  getBuffer() {
+  getBuffer(): ArrayBuffer | undefined {
     return this.memory?.buffer;
   }
 
-  getViewArray() {
+  getViewArray(): Float64Array {
+    if (!this.memory) {
+      throw createMicrokernelError('CameraMicrokernel memory is uninitialized');
+    }
     if (!this.viewView || this.viewView.buffer !== this.memory.buffer) {
       this.viewView = new Float64Array(this.memory.buffer, this.viewPtr, CAMERA_VIEW_BUFFER_FLOATS);
     }
@@ -212,10 +245,8 @@ let cachedCameraKernel: CameraMicrokernel | null = null;
 
 /**
  * Load singleton CameraMicrokernel instance with integrity validation.
- * @param {object} [options]
- * @returns {Promise<CameraMicrokernel>}
  */
-export async function loadCameraMicrokernel(options: Record<string, any> = {}) {
+export async function loadCameraMicrokernel(options: CameraMicrokernelOptions = {}): Promise<CameraMicrokernel> {
   if (cachedCameraKernel) {
     return cachedCameraKernel;
   }
@@ -227,26 +258,23 @@ export async function loadCameraMicrokernel(options: Record<string, any> = {}) {
 
 /**
  * Synchronously retrieve already loaded singleton CameraMicrokernel, or null.
- * @returns {CameraMicrokernel|null}
  */
-export function getCachedCameraMicrokernel() {
+export function getCachedCameraMicrokernel(): CameraMicrokernel | null {
   return cachedCameraKernel;
 }
 
 /**
  * Resets cached CameraMicrokernel singleton (useful for test isolation).
  */
-export function clearCachedCameraMicrokernel() {
+export function clearCachedCameraMicrokernel(): void {
   cachedCameraKernel = null;
 }
 
 /**
  * Pre-flight verification helper for POV Camera Microkernel.
  * Guarantees camera.wasm exists, passes SHA-256 hash match, and satisfies strict ABI.
- * @param {object} [options]
- * @returns {Promise<CameraMicrokernel>}
  */
-export async function verifyCameraMicrokernelIntegrity(options = {}) {
+export async function verifyCameraMicrokernelIntegrity(options: CameraMicrokernelOptions = {}): Promise<CameraMicrokernel> {
   return await loadCameraMicrokernel(options);
 }
 
@@ -254,10 +282,8 @@ export default loadCameraMicrokernel;
 
 /**
  * Formats dedicated actionable fatal error modal for POV Camera Microkernel failures.
- * @param {Error|any} error Caught microkernel error
- * @returns {string} Styled HTML modal
  */
-export function formatMicrokernelErrorHtml(error) {
+export function formatMicrokernelErrorHtml(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return `
   <div class="microkernel-fatal-modal" style="text-align:left;line-height:1.6;font-size:13px;max-width:640px;background:rgba(20,5,8,0.96);padding:20px;border-radius:12px;border:2px solid #ef4444;box-shadow:0 16px 40px rgba(239,68,68,0.35);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#fecaca;">

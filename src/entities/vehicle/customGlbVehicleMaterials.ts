@@ -100,7 +100,47 @@ export function buildSurfaceSlotMaterial(slotConfig, teamColor) {
   return stdMat;
 }
 
-function updateExistingSurfaceSlotMaterial(existingMat: any, slotConfig: any, teamColor: any): boolean {
+export interface SurfaceSlotConfig {
+  mode?: string;
+  slotName?: string;
+  color?: string | number;
+  toonSteps?: number;
+  toonShadowMin?: number;
+  toonHighlightMax?: number;
+  toonSmooth?: boolean;
+  pearlColor?: string | number;
+  metalness?: number;
+  roughness?: number;
+  clearcoat?: number;
+  clearcoatRoughness?: number;
+  sheen?: number;
+  envMapIntensity?: number;
+}
+
+type UpdatableSlotMaterial = THREE.Material & {
+  color?: THREE.Color;
+  metalness?: number;
+  roughness?: number;
+  clearcoat?: number;
+  clearcoatRoughness?: number;
+  sheen?: number;
+  sheenColor?: THREE.Color;
+  sheenRoughness?: number;
+  envMapIntensity?: number;
+  userData: {
+    _slotMode?: string;
+    _pearlUniforms?: {
+      pearlColor?: { value?: THREE.Color };
+    };
+    [key: string]: unknown;
+  };
+};
+
+function updateExistingSurfaceSlotMaterial(
+  existingMat: UpdatableSlotMaterial | null | undefined,
+  slotConfig: SurfaceSlotConfig,
+  teamColor: number | string | null | undefined
+): boolean {
   if (!existingMat) return false;
   const rawMode = slotConfig.mode || 'standard';
   const mode = rawMode === 'standard' || rawMode === 'toon' || rawMode === 'pbr' ? rawMode : 'standard';
@@ -134,7 +174,12 @@ function updateExistingSurfaceSlotMaterial(existingMat: any, slotConfig: any, te
   return false;
 }
 
-export function applyCustomGlbVehicleMaterials(root, vehicleId, teamColor, paintFinish: any = null) {
+export function applyCustomGlbVehicleMaterials(
+  root: THREE.Object3D,
+  vehicleId: string,
+  teamColor: number,
+  paintFinish: string | null = null
+) {
   const descriptor = getVehicleDescriptor(vehicleId) || FENNEC_DESCRIPTOR;
   const palette = createCarPaintMaterial(teamColor, descriptor.colors?.default);
   const finishPreset = paintFinish === 'metallic'
@@ -177,15 +222,15 @@ export function applyCustomGlbVehicleMaterials(root, vehicleId, teamColor, paint
     });
   }
 
-  const prevCustomMats: any[] = Array.isArray(root.userData.customDisposables)
+  const prevCustomMats: THREE.Material[] = Array.isArray(root.userData.customDisposables)
     ? root.userData.customDisposables
     : [];
-  const prevSlotMap: Map<string, any> | null =
+  const prevSlotMap: Map<string, UpdatableSlotMaterial> | null =
     root.userData.vehicleId === descriptor.id && root.userData.slotMaterialMap instanceof Map
       ? root.userData.slotMaterialMap
       : null;
 
-  const slotMaterialMap = new Map();
+  const slotMaterialMap = new Map<string, THREE.Material>();
   for (const [slotKey, slotCfg] of Object.entries(surfaceConfigs)) {
     const lowerKey = slotKey.toLowerCase();
     const isBodySlot = lowerKey === 'body' || lowerKey === 'body-shell';
@@ -203,20 +248,20 @@ export function applyCustomGlbVehicleMaterials(root, vehicleId, teamColor, paint
     }
   }
   if (!slotMaterialMap.has('body-shell') && slotMaterialMap.has('body')) {
-    slotMaterialMap.set('body-shell', slotMaterialMap.get('body'));
+    slotMaterialMap.set('body-shell', slotMaterialMap.get('body')!);
   }
   if (slotMaterialMap.has('border')) {
     if (!slotMaterialMap.has('chassis')) {
-      slotMaterialMap.set('chassis', slotMaterialMap.get('border'));
+      slotMaterialMap.set('chassis', slotMaterialMap.get('border')!);
     }
     if (!slotMaterialMap.has('bottom')) {
-      slotMaterialMap.set('bottom', slotMaterialMap.get('border'));
+      slotMaterialMap.set('bottom', slotMaterialMap.get('border')!);
     }
   }
 
-  const tailLampMaterials: any[] = [];
+  const tailLampMaterials: THREE.MeshBasicMaterial[] = [];
 
-  root.traverse?.((node) => {
+  root.traverse?.((node: THREE.Object3D & { isMesh?: boolean; material?: THREE.Material | THREE.Material[] }) => {
     if (!node.isMesh) return;
     if (node.name === 'boost-nozzle-gizmo' || node.name === 'car-hitbox' || node.name === 'car-hitbox-wireframe') {
       return;
@@ -259,7 +304,7 @@ export function applyCustomGlbVehicleMaterials(root, vehicleId, teamColor, paint
     }
 
     if (slotMaterialMap.has(lowerName)) {
-      node.material = slotMaterialMap.get(lowerName);
+      node.material = slotMaterialMap.get(lowerName)!;
     } else if (lowerName.includes('body') || lowerName.includes('shell')) {
       node.material = palette.body;
     } else {
@@ -282,12 +327,12 @@ export function applyCustomGlbVehicleMaterials(root, vehicleId, teamColor, paint
     }
   }
 
-  root.userData.vehicleId = descriptor.id;
-  root.userData.slotMaterialMap = slotMaterialMap;
-  root.userData.tailLampMaterials = tailLampMaterials;
-  root.userData.frontLampMaterial = frontLampMaterial;
-  root.userData.customDisposables = nextDisposables;
-  if (typeof teamColor === 'number') {
-    root.userData.teamColor = teamColor;
-  }
+  Object.assign(root.userData, {
+    vehicleId: descriptor.id,
+    slotMaterialMap,
+    tailLampMaterials,
+    frontLampMaterial,
+    customDisposables: nextDisposables,
+    ...(typeof teamColor === 'number' ? { teamColor } : {}),
+  });
 }

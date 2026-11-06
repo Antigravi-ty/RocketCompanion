@@ -1,6 +1,6 @@
 import { BaseGameMode } from './BaseGameMode.ts';
 import type { FrameContext } from '../pipeline/FramePipeline.ts';
-import { DEFAULT_CAR_CONTROLS } from '../../ai/experimental/ExperimentalBotAgent.ts';
+import type { GhostWorldUpdateOptions } from './MultiWorldGhostRenderer.ts';
 import {
   hudStore,
   useRewinderStore,
@@ -8,6 +8,8 @@ import {
 } from '../runtimeUiPort.ts';
 import type {
   IsolationLabTabId,
+  LabFrameUpdateContext,
+  LabRuntimePort,
   LabTabContext,
   LabTabController,
 } from './subsystem-isolation-lab/LabTabTypes.ts';
@@ -15,6 +17,7 @@ import {
   type ProbeCameraTarget,
   ProbesLabTab,
 } from './subsystem-isolation-lab/ProbesLabTab.ts';
+import { resetSinglePlayerLabBaseline } from './subsystem-isolation-lab/probeKinematicsPipeline.ts';
 import { MultiGhostLabTab } from './subsystem-isolation-lab/MultiGhostLabTab.ts';
 import { StateReplayLabTab } from './subsystem-isolation-lab/StateReplayLabTab.ts';
 import {
@@ -28,6 +31,7 @@ import { KickoffDuelLabTab } from './subsystem-isolation-lab/KickoffDuelLabTab.t
 import { DemolishRespawnLabTab } from './subsystem-isolation-lab/DemolishRespawnLabTab.ts';
 
 export class SubsystemIsolationLabMode extends BaseGameMode {
+  declare runtime: LabRuntimePort;
   private tabSwitchEpoch = 0;
   private activeTabCtrl: LabTabController | null = null;
 
@@ -42,7 +46,7 @@ export class SubsystemIsolationLabMode extends BaseGameMode {
   private readonly tabControllers = new Map<IsolationLabTabId, LabTabController>();
   private readonly tabContext: LabTabContext;
 
-  constructor(runtime: any) {
+  constructor(runtime: LabRuntimePort) {
     super('dev-test-lab', runtime);
 
     this.tabControllers.set('probes', this.probesTab);
@@ -74,59 +78,13 @@ export class SubsystemIsolationLabMode extends BaseGameMode {
     worldId: string,
     prevState: Float32Array | number[],
     currState: Float32Array | number[],
-    options: Record<string, any> = {}
+    options: GhostWorldUpdateOptions = {}
   ): void {
     this.multiGhostTab.syncExternalGhostWorld(worldId, prevState, currState, options);
   }
 
   private ensureSinglePlayerCarOnly(resetKickoffState = true): void {
-    const r = this.runtime;
-    if (!r?.physics) return;
-
-    while (r.physics.numCars > 1 && typeof r.physics.removeCar === 'function') {
-      r.physics.removeCar(r.physics.numCars - 1);
-    }
-    if (r.physics.numCars < 1 && typeof r.physics.addCar === 'function') {
-      r.physics.addCar(0, 'octane');
-    }
-    r.physics.setCarLinearFactorAndGravity?.(0, 1, 1, 1, 1);
-    r.physics.setCarCollisionMask?.(0, true, true);
-    r.physics.setSimulationFrozen?.(false, 0, false);
-    r.physics.setPossessionReportingEnabled?.(false);
-    r.physics.setUnlimitedBoost?.(true);
-
-    const neutral = r.neutralControls || DEFAULT_CAR_CONTROLS;
-    for (let slot = 0; slot < 8; slot++) {
-      r.physics.setControls?.(slot, neutral);
-    }
-
-    if (resetKickoffState) {
-      r.physics.resetGoalLatch?.();
-      r.physics.resetKickoff?.(0, false);
-      r.physics.clearEvents?.();
-    }
-
-    if (r.arena?.cars) {
-      if (r.arena.cars[0]) {
-        r.arena.cars[0].visible = true;
-        r.arena.setCarTeam?.(0, 0);
-      }
-      for (let i = 1; i < r.arena.cars.length; i++) {
-        if (r.arena.cars[i]) r.arena.cars[i].visible = false;
-      }
-      r.arena.clearAllGhostOpacities?.();
-    }
-    r.arena?.resetAllCarEffects?.();
-    if (Array.isArray(r.flipResetVisuals)) {
-      for (const fx of r.flipResetVisuals) fx?.stopVisual?.();
-    }
-    r.boostBloom?.clear?.();
-    r.ballTrajectoryPredictor?.clear?.();
-    r.simulationStage?.resetActionStates?.();
-    r.interpolator?.sync?.();
-
-    r.playerCarIndex = 0;
-    if (r.arena) r.arena.playerCarIndex = 0;
+    resetSinglePlayerLabBaseline(this.runtime, resetKickoffState);
   }
 
   private resetLabArenaBaseline(): void {
@@ -207,7 +165,8 @@ export class SubsystemIsolationLabMode extends BaseGameMode {
       onRewinderClearBuffer: () => this.stateReplayTab.clearBuffer(),
       onRewinderCancelToFreeplay: () => this.stateReplayTab.clearBuffer(),
       onRewinderExportReplay: () => this.stateReplayTab.exportReplay(),
-      onRewinderImportReplay: (file: any) => this.stateReplayTab.importReplay(file),
+      onRewinderImportReplay: (file: File | Blob | ArrayBuffer | Uint8Array) =>
+        this.stateReplayTab.importReplay(file),
       onRewinderSeekFrame: (idx: number) => this.stateReplayTab.seekFrame(idx),
     };
 
@@ -367,7 +326,7 @@ export class SubsystemIsolationLabMode extends BaseGameMode {
   }
 
   update(context: FrameContext): void {
-    const ctx = context as any;
+    const ctx = context as unknown as LabFrameUpdateContext;
     const { playerCarView } = ctx;
     const store = useSubsystemIsolationLabStore.getState();
 
@@ -378,7 +337,7 @@ export class SubsystemIsolationLabMode extends BaseGameMode {
 
     if (playerCarView) {
       const r = this.runtime;
-      const activeCarIdx = ctx.activeCar ?? r?.playerCarIndex ?? 0;
+      const activeCarIdx = ctx.activeCar ?? ctx.activeCarIndex ?? 0;
       const isRewinderScrubOrPreroll = this.stateReplayTab.isScrubOrPrerollActive();
       const defaultUnlimited =
         store.activeTab !== '90s-match' && store.activeTab !== 'kickoff-duel';

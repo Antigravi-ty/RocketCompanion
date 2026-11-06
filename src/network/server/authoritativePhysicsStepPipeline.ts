@@ -18,6 +18,85 @@ import type { LobbyGhostCarCoordinator } from './LobbyGhostCarCoordinator.ts';
 
 export const POST_GOAL_FREEZE_DELAY_TICKS = 30;
 
+export interface AuthoritativePhysicsSimPort {
+  isInitialized?: boolean;
+  state?: Float32Array | null;
+  numCars: number;
+  ballOnGround?: boolean;
+  init?(): Promise<unknown>;
+  destroy?(): void;
+  setGoalBarrierChunks?(chunks: Uint8Array[], meta?: Record<string, unknown> | null): void;
+  step(ticks: number): void;
+  resetKickoff(seed?: number): void;
+  saveState(): Float32Array;
+  saveCompactState?(): Float32Array;
+  restoreState?(state: Float32Array | number[]): unknown;
+  addCar?(team: number, config: string): number;
+  addCarAtSlot?(carIndex: number, team: number, config: string): number;
+  removeCar?(carIndex: number): void;
+  isCarSlotActive?(carIndex: number): boolean;
+  setCarHitbox?(carIndex: number, config: string): void;
+  setCarTeam?(carIndex: number, team: number): void;
+  configureCars?(mode: string, b: boolean, n: number): void;
+  setControls?(carIndex: number, controls: CarControlsInput): void;
+  setCarControls?(carIndex: number, controls: CarControlsInput): void;
+  setCarState?(carIndex: number, state: unknown): unknown;
+  getBallState?(): Float32Array;
+  setBallState?(state: Float32Array | Record<string, unknown> | number[]): unknown;
+  getBallOnGround?(): boolean;
+  controlBall?(carIndex: number, mode: number | string): unknown;
+  getBallStateView?(): {
+    posX: number;
+    posY: number;
+    posZ: number;
+    velX: number;
+    velY: number;
+    velZ: number;
+  };
+  isBallScored?(ballView: { posX: number; posY: number; posZ: number }): boolean;
+  getHeaderView?(): { tickCount: number; goalScoredFlag?: number; numCars?: number };
+  pollGoal?(): number;
+  resetGoalLatch?(): void;
+  readEvents?(cb: (ev: MatchIncidentPayload) => void): void;
+  initReplayBuffer?(): void;
+  clearReplayBuffer?(): void;
+  setReplayRecordingActive?(active: boolean): void;
+  recordReplayFrame?(): void;
+  getReplayFrameCount?(): number;
+  extractWasmReplayTracks?(): {
+    frameCount: number;
+    stateStride: number;
+    incidentCount: number;
+    signalCount: number;
+    stateInputBytes?: Uint8Array;
+    incidentBytes?: Uint8Array;
+    signalBytes?: Uint8Array;
+  };
+  setPossessionReportingEnabled?(enabled: boolean): void;
+  getPossessionStats?(): { team: number; bluePoints: number; orangePoints: number; time: number };
+  getActiveCarMask?(): number;
+  setCarLinearFactorAndGravity?(
+    carIndex: number,
+    fx: number,
+    fy: number,
+    fz: number,
+    gravityScale: number
+  ): void;
+  setSimulationFrozen?(frozen: boolean, mode: number, lockCars: boolean): void;
+  setArenaMutators?(mutators: unknown): void;
+  setUnlimitedBoost?(enabled: boolean): void;
+  setCarUnlimitedBoost?(carIndex: number, enabled: boolean): void;
+  setCarBoostCollectable?(carIndex: number, collectable: boolean): void;
+  setCarBoostRecharge?(
+    carIndex: number,
+    enabled: boolean,
+    rechargePerSecond: number,
+    rechargeDelay: number
+  ): void;
+  getPads?(): unknown;
+  [key: string]: unknown;
+}
+
 export interface AuthoritativePhysicsStepOutput {
   tick: number;
   activeCarMask: number;
@@ -32,7 +111,7 @@ export interface AuthoritativePhysicsStepOutput {
 }
 
 export function syncCarSlotWithSim(
-  sim: any,
+  sim: AuthoritativePhysicsSimPort | null | undefined,
   carIndex: number,
   team: number,
   config: string,
@@ -72,7 +151,7 @@ export function syncCarSlotWithSim(
 }
 
 export function buildPausedPhysicsStepOutput(params: {
-  sim: any;
+  sim: AuthoritativePhysicsSimPort | null | undefined;
   currentTick: number;
   activeCarMask: number;
   activeCarIndices: Iterable<number>;
@@ -102,7 +181,7 @@ export function buildPausedPhysicsStepOutput(params: {
 }
 
 export function sampleAuthoritativeCarControlsForTick(params: {
-  sim: any;
+  sim: AuthoritativePhysicsSimPort;
   tick: number;
   mask: boolean;
   activeCarIndices: Iterable<number>;
@@ -167,7 +246,7 @@ export function sampleAuthoritativeCarControlsForTick(params: {
 }
 
 export function evaluatePostStepIncidentsAndGoalLatch(params: {
-  sim: any;
+  sim: AuthoritativePhysicsSimPort;
   currentTick: number;
   isRecordingFullReplay: boolean;
   goalLatched: boolean;
@@ -202,8 +281,8 @@ export function evaluatePostStepIncidentsAndGoalLatch(params: {
 
   sim.step(1);
   if (typeof sim.readEvents === 'function') {
-    sim.readEvents((ev: any) => {
-      if (!ev || ev.type <= 0 || ev.type > 0x3f) return;
+    sim.readEvents((ev: MatchIncidentPayload) => {
+      if (!ev || typeof ev.type !== 'number' || ev.type <= 0 || ev.type > 0x3f) return;
       const copy: MatchIncidentPayload = { ...ev };
       frameIncidents.push(copy);
       if (copy.type === 0x01) {

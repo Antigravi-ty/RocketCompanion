@@ -40,6 +40,7 @@ export interface PhysicsEventRecord {
   normalX: number;
   normalY: number;
   normalZ: number;
+  normalRelVel?: number;
   impulse: number;
   isDemo: boolean;
   car1Index: number;
@@ -53,11 +54,39 @@ export interface PhysicsEventRecord {
   padIndex: number;
   isBig: boolean;
   flags: number;
+  primaryId?: number;
+  secondaryId?: number;
+  customFloat?: number;
+  customInt?: number;
+  directionDotNormal?: number;
+  dirDot?: number;
+  impactAngleDeg?: number;
   isInitialTouch: boolean;
   isSupersonic: boolean;
   isFlipping: boolean;
   isOnGround: boolean;
-  [key: string]: any;
+  carPosX?: number;
+  carPosY?: number;
+  carPosZ?: number;
+  ballPosX?: number;
+  ballPosY?: number;
+  ballPosZ?: number;
+  carPos?: { x: number; y: number; z: number };
+  ballPos?: { x: number; y: number; z: number };
+  resetSubType?: number;
+  resetSubTypeName?: string;
+  resetObjectCode?: number;
+  resetObjectType?: string;
+  resetTargetCarIndex?: number;
+  resetSurfaceTag?: number;
+  resetWheelCount?: number;
+  isBallFlipReset?: boolean;
+  [key: string]: unknown;
+}
+
+export interface PhysicsEventBufferSource {
+  HEAPU8?: Uint8Array;
+  buffer?: ArrayBufferLike;
 }
 
 export class PhysicsEventReader {
@@ -66,13 +95,13 @@ export class PhysicsEventReader {
   u32View: Uint32Array | null;
   f32View: Float32Array | null;
   lastReadSeq: number;
-  ballStateProvider: any;
-  module?: any;
+  ballStateProvider: { velX?: number; velY?: number; velZ?: number } | null;
+  module?: { HEAPU8?: Uint8Array } | null;
   bufferCapacity?: number;
   strideWords?: number;
   currentEvent: PhysicsEventRecord;
 
-  constructor(buffer: any = null, byteOffset = 0) {
+  constructor(buffer: ArrayBufferLike | PhysicsEventBufferSource | null = null, byteOffset = 0) {
     this.buffer = null;
     this.byteOffset = 0;
     this.u32View = null;

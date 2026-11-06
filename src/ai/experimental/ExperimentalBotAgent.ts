@@ -39,6 +39,7 @@ import {
   buildDuckyObs,
   buildFuryObs,
   buildGalactusObs,
+  type BallPredictionEnginePort,
 } from './botpack9700488ObsExtendedPipeline.ts';
 import { RippleAgentState } from './RippleObsBuilder.ts';
 import { multiCarHeuristicDecide } from './multiCarHeuristicPolicy.ts';
@@ -50,7 +51,10 @@ import {
   getNextoKickoffControls,
   buildDynamicNextoObs,
   buildDynamicNectoObs,
+  type CarControls,
+  type BoostPadDescriptor,
 } from './experimentalMultiCarObsPipeline.ts';
+import type { ParsedSafeTensorsModel, SafeTensorEntry } from './SafeTensorsLoader.ts';
 
 export {
   DEFAULT_CAR_CONTROLS,
@@ -75,138 +79,17 @@ export interface ExperimentalBotPolicyMeta {
 }
 
 export const EXPERIMENTAL_BOT_POLICIES: ReadonlyArray<Readonly<ExperimentalBotPolicyMeta>> = Object.freeze([
-  {
-    id: 'nexto',
-    name: 'Nexto (Native SafeTensors)',
-    shortName: 'Nexto',
-    rank: 'Grand Champion',
-    modelUrl: EXPERIMENTAL_MODEL_URLS.nexto,
-    tickSkip: 8,
-    maxPlayers: 3,
-    showcaseFormat: '3v3',
-    category: 'legacy',
-    scriptedKickoff: true,
-  },
-  {
-    id: 'necto',
-    name: 'Necto (Native SafeTensors)',
-    shortName: 'Necto',
-    rank: 'Diamond',
-    modelUrl: EXPERIMENTAL_MODEL_URLS.necto,
-    tickSkip: 8,
-    maxPlayers: 3,
-    showcaseFormat: '3v3',
-    category: 'legacy',
-    scriptedKickoff: false,
-  },
-  {
-    id: 'heuristic',
-    name: 'Tactical Heuristic (Multi-Role)',
-    shortName: 'Heuristic',
-    rank: 'All-Star',
-    modelUrl: null,
-    tickSkip: 4,
-    maxPlayers: 3,
-    showcaseFormat: '3v3',
-    category: 'legacy',
-    scriptedKickoff: false,
-  },
-  {
-    id: 'chronos',
-    name: 'Chronos v2.1 (Botpack #9700488)',
-    shortName: 'Chronos v2.1',
-    rank: 'SSL (3v3)',
-    modelUrl: EXPERIMENTAL_MODEL_URLS.chronos,
-    tickSkip: 8,
-    maxPlayers: 3,
-    showcaseFormat: '3v3',
-    category: 'botpack_9700488',
-    scriptedKickoff: false,
-  },
-  {
-    id: 'dice',
-    name: 'Dice (Botpack #9700488)',
-    shortName: 'Dice',
-    rank: 'GC (2v2)',
-    modelUrl: EXPERIMENTAL_MODEL_URLS.dice,
-    tickSkip: 8,
-    maxPlayers: 2,
-    showcaseFormat: '2v2',
-    category: 'botpack_9700488',
-    scriptedKickoff: false,
-  },
-  {
-    id: 'ducky',
-    name: 'Ducky (Botpack #9700488)',
-    shortName: 'Ducky',
-    rank: 'GC (3v3)',
-    modelUrl: EXPERIMENTAL_MODEL_URLS.ducky,
-    tickSkip: 8,
-    maxPlayers: 3,
-    showcaseFormat: '3v3',
-    category: 'botpack_9700488',
-    scriptedKickoff: false,
-  },
-  {
-    id: 'fury',
-    name: 'Fury (Botpack #9700488)',
-    shortName: 'Fury',
-    rank: 'SSL (3v3)',
-    modelUrl: EXPERIMENTAL_MODEL_URLS.fury,
-    tickSkip: 8,
-    maxPlayers: 3,
-    showcaseFormat: '3v3',
-    category: 'botpack_9700488',
-    scriptedKickoff: false,
-  },
-  {
-    id: 'galactus',
-    name: 'Galactus v2 (Botpack #9700488)',
-    shortName: 'Galactus v2',
-    rank: 'GC (3v3)',
-    modelUrl: EXPERIMENTAL_MODEL_URLS.galactus,
-    tickSkip: 8,
-    maxPlayers: 3,
-    showcaseFormat: '3v3',
-    category: 'botpack_9700488',
-    scriptedKickoff: false,
-  },
-  {
-    id: 'kira',
-    name: 'Kira (Botpack #9700488)',
-    shortName: 'Kira',
-    rank: 'SSL Duel (1v1)',
-    modelUrl: EXPERIMENTAL_MODEL_URLS.kira,
-    tickSkip: 8,
-    maxPlayers: 1,
-    showcaseFormat: '1v1',
-    category: 'botpack_9700488',
-    scriptedKickoff: false,
-  },
-  {
-    id: 'rain',
-    name: 'Rain (Botpack #9700488)',
-    shortName: 'Rain',
-    rank: 'SSL (3v3)',
-    modelUrl: EXPERIMENTAL_MODEL_URLS.rain,
-    tickSkip: 6,
-    maxPlayers: 3,
-    showcaseFormat: '3v3',
-    category: 'botpack_9700488',
-    scriptedKickoff: false,
-  },
-  {
-    id: 'ripple_v1_1',
-    name: 'Ripple v1.1 (Botpack #9700488)',
-    shortName: 'Ripple v1.1',
-    rank: 'SSL Human-Pretrained (3v3)',
-    modelUrl: EXPERIMENTAL_MODEL_URLS.ripple_v1_1,
-    tickSkip: 4,
-    maxPlayers: 3,
-    showcaseFormat: '3v3',
-    category: 'botpack_9700488',
-    scriptedKickoff: false,
-  },
+  { id: 'nexto', name: 'Nexto (Native SafeTensors)', shortName: 'Nexto', rank: 'Grand Champion', modelUrl: EXPERIMENTAL_MODEL_URLS.nexto, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'legacy', scriptedKickoff: true },
+  { id: 'necto', name: 'Necto (Native SafeTensors)', shortName: 'Necto', rank: 'Diamond', modelUrl: EXPERIMENTAL_MODEL_URLS.necto, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'legacy', scriptedKickoff: false },
+  { id: 'heuristic', name: 'Tactical Heuristic (Multi-Role)', shortName: 'Heuristic', rank: 'All-Star', modelUrl: null, tickSkip: 4, maxPlayers: 3, showcaseFormat: '3v3', category: 'legacy', scriptedKickoff: false },
+  { id: 'chronos', name: 'Chronos v2.1 (Botpack #9700488)', shortName: 'Chronos v2.1', rank: 'SSL (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.chronos, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
+  { id: 'dice', name: 'Dice (Botpack #9700488)', shortName: 'Dice', rank: 'GC (2v2)', modelUrl: EXPERIMENTAL_MODEL_URLS.dice, tickSkip: 8, maxPlayers: 2, showcaseFormat: '2v2', category: 'botpack_9700488', scriptedKickoff: false },
+  { id: 'ducky', name: 'Ducky (Botpack #9700488)', shortName: 'Ducky', rank: 'GC (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.ducky, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
+  { id: 'fury', name: 'Fury (Botpack #9700488)', shortName: 'Fury', rank: 'SSL (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.fury, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
+  { id: 'galactus', name: 'Galactus v2 (Botpack #9700488)', shortName: 'Galactus v2', rank: 'GC (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.galactus, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
+  { id: 'kira', name: 'Kira (Botpack #9700488)', shortName: 'Kira', rank: 'SSL Duel (1v1)', modelUrl: EXPERIMENTAL_MODEL_URLS.kira, tickSkip: 8, maxPlayers: 1, showcaseFormat: '1v1', category: 'botpack_9700488', scriptedKickoff: false },
+  { id: 'rain', name: 'Rain (Botpack #9700488)', shortName: 'Rain', rank: 'SSL (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.rain, tickSkip: 6, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
+  { id: 'ripple_v1_1', name: 'Ripple v1.1 (Botpack #9700488)', shortName: 'Ripple v1.1', rank: 'SSL Human-Pretrained (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.ripple_v1_1, tickSkip: 4, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
 ]);
 
 export const BOTPACK_9700488_POLICIES: ReadonlyArray<Readonly<ExperimentalBotPolicyMeta>> = Object.freeze(
@@ -225,7 +108,7 @@ const sRippleEngine = new RipplePerceiverEngine();
 /**
  * Preloads or retrieves a cached SafeTensors model for any neural policy.
  */
-export async function ensureExperimentalEngine(botType: string): Promise<any | null> {
+export async function ensureExperimentalEngine(botType: string): Promise<ParsedSafeTensorsModel | null> {
   if (!botType || botType === 'heuristic' || !EXPERIMENTAL_MODEL_URLS[botType]) {
     return null;
   }
@@ -242,7 +125,10 @@ export async function ensureExperimentalEngine(botType: string): Promise<any | n
 /**
  * Synchronously registers pre-parsed SafeTensors weights (useful for Node/headless verification).
  */
-export function registerExperimentalEngineTensors(botType: string, parsedSafeTensors: any): any {
+export function registerExperimentalEngineTensors(
+  botType: string,
+  parsedSafeTensors: ParsedSafeTensorsModel
+): ParsedSafeTensorsModel {
   registerCachedSafeTensors(botType, parsedSafeTensors);
   return parsedSafeTensors;
 }
@@ -258,7 +144,7 @@ export function isExperimentalEngineReady(botType: string): boolean {
 /**
  * Decodes Nexto 90-action logits into CarControls.
  */
-function decodeNextoLogits(logits: ArrayLike<number>): Record<string, any> {
+function decodeNextoLogits(logits: ArrayLike<number>): CarControls {
   let bestIdx = 0;
   let bestVal = logits[0];
   for (let i = 1; i < logits.length; i++) {
@@ -275,7 +161,7 @@ function decodeNextoLogits(logits: ArrayLike<number>): Record<string, any> {
 /**
  * Writes a CarControls object into an 8-float array [throttle, steer, pitch, yaw, roll, jump, boost, handbrake].
  */
-function writeControlsToFloat8(ctrl: Record<string, any>, out8: Float32Array): void {
+function writeControlsToFloat8(ctrl: Partial<CarControls>, out8: Float32Array): void {
   out8[0] = ctrl.throttle || 0;
   out8[1] = ctrl.steer || 0;
   out8[2] = ctrl.pitch || 0;
@@ -289,7 +175,7 @@ function writeControlsToFloat8(ctrl: Record<string, any>, out8: Float32Array): v
 /**
  * Decodes Necto 12-dim logits ([3 throttle, 3 steer, 2 jump, 2 boost, 2 handbrake]) into CarControls.
  */
-function decodeNectoLogits(logits12: ArrayLike<number>): Record<string, any> {
+function decodeNectoLogits(logits12: ArrayLike<number>): CarControls {
   const argmaxRange = (start: number, len: number): number => {
     let best = 0;
     for (let i = 1; i < len; i++) {
@@ -323,7 +209,7 @@ export class ExperimentalBotAgent {
   botType: string;
   carIndex: number;
   team: number;
-  action: any;
+  action: CarControls;
   prevAction8: Float32Array;
   obsBuf: Float32Array;
   mask90: Uint8Array;
@@ -334,6 +220,7 @@ export class ExperimentalBotAgent {
   tickSkipCounter: number;
   lastInferenceMs: number;
   _warnedUnloadedFallback?: boolean;
+  _staggered = false;
 
   constructor(botType: string = 'nexto', carIndex: number = 0, team: number = 0) {
     this.botType = botType;
@@ -354,8 +241,6 @@ export class ExperimentalBotAgent {
       ensureExperimentalEngine(botType);
     }
   }
-
-  _staggered = false;
 
   setBotType(botType: string): void {
     if (this.botType !== botType) {
@@ -392,8 +277,28 @@ export class ExperimentalBotAgent {
     return policy ? policy.tickSkip : 8;
   }
 
-  overrideControls(controls: Record<string, any>): void {
-    this.action = { ...controls };
+  overrideControls(
+    controls: {
+      throttle?: number;
+      steer?: number;
+      pitch?: number;
+      yaw?: number;
+      roll?: number;
+      jump?: boolean | number;
+      boost?: boolean | number;
+      handbrake?: boolean | number;
+    }
+  ): void {
+    this.action = {
+      throttle: Number(controls.throttle ?? DEFAULT_CAR_CONTROLS.throttle),
+      steer: Number(controls.steer ?? DEFAULT_CAR_CONTROLS.steer),
+      pitch: Number(controls.pitch ?? DEFAULT_CAR_CONTROLS.pitch),
+      yaw: Number(controls.yaw ?? DEFAULT_CAR_CONTROLS.yaw),
+      roll: Number(controls.roll ?? DEFAULT_CAR_CONTROLS.roll),
+      jump: Boolean(controls.jump),
+      boost: Boolean(controls.boost),
+      handbrake: Boolean(controls.handbrake),
+    };
     writeControlsToFloat8(this.action, this.prevAction8);
   }
 
@@ -404,7 +309,7 @@ export class ExperimentalBotAgent {
     simState: Float32Array,
     kickoffTick: number,
     isPrimaryKickoffCar: boolean = true
-  ): Record<string, any> | null {
+  ): CarControls | null {
     if (!isPrimaryKickoffCar) return null;
     if (this.botType !== 'nexto') return null;
     const normTeam = this.team === 1 ? 1 : this.team === 0 ? 0 : this.carIndex % 2;
@@ -416,10 +321,10 @@ export class ExperimentalBotAgent {
    */
   decideSync(
     simState: Float32Array,
-    boostPads: any[],
+    boostPads: ReadonlyArray<BoostPadDescriptor>,
     activeCars: Array<{ carIndex: number; team: number }>,
-    physicsEngine: any = null
-  ): Record<string, any> {
+    physicsEngine: BallPredictionEnginePort | number | null | undefined = null
+  ): CarControls {
     const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
     if (this.botType === 'heuristic') {
@@ -495,12 +400,13 @@ export class ExperimentalBotAgent {
         this.action = decodeNectoLogits(logits12);
         writeControlsToFloat8(this.action, this.prevAction8);
       } else if (this.botType === 'ripple_v1_1') {
+        const enginePort = typeof physicsEngine === 'object' ? physicsEngine : null;
         const rObs = this.rippleState.buildObs(
           simState,
           this.carIndex,
           this.team,
           activeCars,
-          physicsEngine
+          enginePort
         );
         const rippleSpec = RIPPLE_BOTPACK_SPECS[this.botType];
         const logits276 = sRippleEngine.forward(rObs, parsedModel.tensors, rippleSpec);
@@ -508,10 +414,11 @@ export class ExperimentalBotAgent {
         this.action = this.rippleState.stepDelayedActionQueue(actIdx);
         writeControlsToFloat8(this.action, this.prevAction8);
       } else {
+        const enginePort = typeof physicsEngine === 'object' ? physicsEngine : null;
         this._decideMlpBotpack9700488(
           simState,
           activeCars,
-          physicsEngine,
+          enginePort,
           parsedModel.tensors
         );
       }
@@ -534,11 +441,11 @@ export class ExperimentalBotAgent {
   _decideMlpBotpack9700488(
     simState: Float32Array,
     activeCars: Array<{ carIndex: number; team: number }>,
-    physicsEngine: any,
-    tensors: Record<string, any>
+    physicsEngine: BallPredictionEnginePort | null | undefined,
+    tensors: Record<string, SafeTensorEntry>
   ): void {
     const spec = MLP_BOTPACK_SPECS[this.botType] || MLP_BOTPACK_SPECS.rain;
-    let built: any;
+    let built: ReturnType<typeof buildRainObs>;
 
     switch (this.botType) {
       case 'chronos':

@@ -3,8 +3,12 @@
  * Pure goal volume configuration and goal barrier geometry evaluation pipeline.
  */
 
-import { BALL_COLLISION_RADIUS, SIM_OFFSETS } from './RocketSimConstants.ts';
-import { fetchArenaCollisionMeshes, initWasmCollisionMeshes } from './RocketSimMeshLoader.ts';
+import { BALL_COLLISION_RADIUS } from './RocketSimConstants.ts';
+import {
+  fetchArenaCollisionMeshes,
+  initWasmCollisionMeshes,
+  type RocketSimCollisionWasmModule,
+} from './RocketSimMeshLoader.ts';
 import { isPointInGoalBarrier } from '../ui-core/config/goalBarrierConfig';
 import { getGoalVolumeBoxForPreset } from '../ui-core/config/goalVolumeTunerConfig';
 
@@ -34,8 +38,42 @@ export interface CarSpecEntry {
   threeWheels: boolean;
 }
 
+export interface GoalBarrierRect {
+  u0: number;
+  v0: number;
+  u1: number;
+  v1: number;
+  xMin?: number;
+  xMax?: number;
+  zMin?: number;
+  zMax?: number;
+  [key: string]: unknown;
+}
+
+export interface GoalBarrierMetadata {
+  enabled?: boolean;
+  targetGoal?: 'both' | 'blue' | 'orange' | string;
+  rects?: GoalBarrierRect[];
+  decomposition?: {
+    mergedRects?: GoalBarrierRect[];
+  };
+  [key: string]: unknown;
+}
+
+export interface GoalBarrierWasmModule extends RocketSimCollisionWasmModule {
+  _physics_setGoalVolumeBox?(
+    enabled: number,
+    halfWidthX: number,
+    minY: number,
+    maxY: number,
+    maxZ: number
+  ): void;
+  _physics_setArenaPreset?(preset: number): void;
+  _physics_createArena(): number;
+}
+
 export function syncGoalVolumeBoxToWasm(
-  wasmModule: Record<string, any> | null | undefined,
+  wasmModule: Partial<GoalBarrierWasmModule> | null | undefined,
   arenaPreset: number,
   goalVolumeBox: GoalVolumeBoxConfig | null | undefined
 ): void {
@@ -69,7 +107,7 @@ export function resolveGoalVolumeConfig(
 }
 
 export function checkActiveGoalBarrier(
-  goalBarrierMeta: Record<string, any> | null | undefined,
+  goalBarrierMeta: GoalBarrierMetadata | null | undefined,
   yUu: number = 0
 ): boolean {
   if (!goalBarrierMeta || !goalBarrierMeta.enabled) return false;
@@ -82,19 +120,19 @@ export function checkActiveGoalBarrier(
 }
 
 export function checkPointOnGoalBarrier(
-  goalBarrierMeta: Record<string, any> | null | undefined,
+  goalBarrierMeta: GoalBarrierMetadata | null | undefined,
   xUu: number,
   yUu: number,
   zUu: number
 ): boolean {
   if (!goalBarrierMeta || !goalBarrierMeta.enabled) return false;
-  const rects = goalBarrierMeta.rects || goalBarrierMeta.decomposition?.mergedRects;
+  const rects = goalBarrierMeta.rects || goalBarrierMeta.decomposition?.mergedRects || [];
   return isPointInGoalBarrier(
     xUu,
     yUu,
     zUu,
     rects,
-    goalBarrierMeta.targetGoal,
+    (goalBarrierMeta.targetGoal as 'both' | 'blue' | 'orange' | undefined) || 'both',
     goalBarrierMeta.enabled
   );
 }
@@ -103,7 +141,7 @@ export function evaluateBallScored(
   ballView: { posX: number; posY: number; posZ: number } | null | undefined,
   preset: number,
   goalVolumeBox: GoalVolumeBoxConfig | null | undefined,
-  goalBarrierMeta: Record<string, any> | null | undefined
+  goalBarrierMeta: GoalBarrierMetadata | null | undefined
 ): boolean {
   if (!ballView) return false;
   const x = ballView.posX;
@@ -126,10 +164,10 @@ export function evaluateBallScored(
 }
 
 export async function reloadArenaCollisionMeshes(
-  wasmModule: any,
-  goalBarrierChunks: unknown[],
+  wasmModule: GoalBarrierWasmModule | null | undefined,
+  goalBarrierChunks: Uint8Array[],
   manifestPath = '/arenamesh/manifest.json'
-): Promise<any[] | null> {
+): Promise<Uint8Array[] | null> {
   if (!wasmModule) return null;
   const baseDir = manifestPath.replace(/\/[^/]+$/, '') || '/arenamesh';
   const collisionData = await fetchArenaCollisionMeshes(null, { manifestPath, baseDir });
@@ -140,9 +178,9 @@ export async function reloadArenaCollisionMeshes(
 }
 
 export function applyGoalBarrierChunksToWasmArena(
-  wasmModule: any,
-  baseData: any[] | null,
-  goalBarrierChunks: unknown[],
+  wasmModule: GoalBarrierWasmModule | null | undefined,
+  baseData: Uint8Array[] | null,
+  goalBarrierChunks: Uint8Array[],
   savedPreset: number,
   goalVolumeBox: GoalVolumeBoxConfig
 ): boolean {

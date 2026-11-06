@@ -6,7 +6,10 @@
 
 import { REPLAY_TICK_RATE } from './ReplayRingBuffer.ts';
 import { serializeRCReplayBinaryContainer } from './container/RCReplayBinaryEncoder.ts';
-import { normalizeReplayDirectorCarEntry } from './replayDirectorCarRosterPipeline.ts';
+import {
+  normalizeReplayDirectorCarEntry,
+  type RawReplayCarEntryLike,
+} from './replayDirectorCarRosterPipeline.ts';
 import type {
   DirectorDiagnosticPatternPayload,
   DirectorDiagnosticFrameEntry,
@@ -39,10 +42,10 @@ export interface DirectorSerializerControllerPort {
   ) => DirectorDiagnosticPatternPayload | null;
 }
 
-function encodeCarsPoseCompact(cars: any[] | undefined): string {
+function encodeCarsPoseCompact(cars: ExtractedCarEntity[] | undefined): string {
   if (!Array.isArray(cars) || cars.length === 0) return '';
   return cars
-    .map((c: any) => {
+    .map((c: ExtractedCarEntity) => {
       const idx = c.carIndex ?? 0;
       const team = c.team ?? idx % 2;
       const vis = String(c.visualId || 'octane').replace(/[,:;]/g, '');
@@ -355,18 +358,18 @@ export function buildDirectorReplayContainerPayload(
     };
   });
 
-  const rawCarEntries =
+  const rawCarEntries: RawReplayCarEntryLike[] =
     options.carEntries ||
     ctrl.sessionState?.carEntries ||
     ctrl.sessionState?.importedCarEntries ||
     payload.replayMetadata?.carEntries ||
     [];
-  const carEntries = Array.isArray(rawCarEntries) && rawCarEntries.length > 0
-    ? rawCarEntries.map((c: any, idx: number) =>
+  const carEntries: ReplayCarRosterEntry[] = Array.isArray(rawCarEntries) && rawCarEntries.length > 0
+    ? rawCarEntries.map((c: RawReplayCarEntryLike, idx: number) =>
         normalizeReplayDirectorCarEntry(c, c?.carIndex ?? idx, c?.team ?? idx % 2)
       )
     : Array.isArray(payload.frames[0]?.cars)
-      ? payload.frames[0].cars.map((c: any, idx: number) =>
+      ? payload.frames[0].cars.map((c: ExtractedCarEntity, idx: number) =>
           normalizeReplayDirectorCarEntry(c, c?.carIndex ?? idx, c?.team ?? idx % 2)
         )
       : [];

@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import { applyThreeMonkeyPatches } from '../utils/ThreeMonkeyPatches.ts';
-import { DualProgressUIAdapter } from '../loader/DualProgressUIAdapter.ts';
+import {
+  DualProgressUIAdapter,
+  type CustomLoadingProgressUI,
+} from '../loader/DualProgressUIAdapter.ts';
+import type {
+  MinimumLoaderDomContainer,
+  MinimumProgressLoader,
+} from '../loader/MinimumProgressLoader.ts';
 import {
   ConsoleProgressObserver,
   isVerboseLogEnabled
@@ -9,12 +16,19 @@ import {
   buildEngineLoadingPipeline,
   startBackgroundAssetPipeline
 } from '../loader/engineLoadingPipeline.ts';
-import { GameRuntime } from './GameRuntime.ts';
+import { GameRuntime, type GameRuntimeOptions } from './GameRuntime.ts';
 import { useQuickNotificationStore } from './runtimeUiPort.ts';
 import {
   attachScenarioAutorunController,
   ScenarioBootstrapTelemetryObserver,
 } from './scenario/ScenarioAutorunBootstrap.ts';
+import type { ScenarioRuntimePort } from './scenario/ScenarioTypes.ts';
+
+export interface GameBootstrapOptions extends GameRuntimeOptions {
+  container?: HTMLElement | null;
+  loader?: MinimumProgressLoader | null;
+  customProgressBar?: CustomLoadingProgressUI | null;
+}
 
 let activeGameRuntime: GameRuntime | null = null;
 let activeBootstrapPromise: Promise<GameRuntime> | null = null;
@@ -58,19 +72,19 @@ export function setupInputMethodDetection(container: HTMLElement | null): () => 
 
 export class GameBootstrap {
   container: HTMLElement | null;
-  options: Record<string, any>;
+  options: GameBootstrapOptions;
   cleanupInput: (() => void) | null = null;
   runtime: GameRuntime | null = null;
-  customProgressBar: any;
+  customProgressBar: CustomLoadingProgressUI | null;
 
-  constructor(container?: HTMLElement | null, options: Record<string, any> = {}) {
+  constructor(container?: HTMLElement | null, options: GameBootstrapOptions = {}) {
     this.container =
       container || (typeof document !== 'undefined' ? (document.querySelector('#app') as HTMLElement | null) : null);
     this.options = options;
     this.customProgressBar = options.customProgressBar || null;
   }
 
-  registerCustomProgressBar(customUI: any): void {
+  registerCustomProgressBar(customUI: CustomLoadingProgressUI | null): void {
     this.customProgressBar = customUI;
   }
 
@@ -84,7 +98,7 @@ export class GameBootstrap {
     applyThreeMonkeyPatches(THREE);
     this.prepareDOM();
 
-    const uiAdapter = new DualProgressUIAdapter(this.container as any, this.options.loader || null);
+    const uiAdapter = new DualProgressUIAdapter(this.container, this.options.loader || null);
     if (this.customProgressBar) {
       uiAdapter.registerCustomUI(this.customProgressBar);
     }
@@ -136,13 +150,17 @@ export class GameBootstrap {
       }
 
       const runtimeInstance = this.runtime;
-      const bgAssetsPromise = startBackgroundAssetPipeline(runtimeInstance as any, null, {
+      const bgAssetsPromise = startBackgroundAssetPipeline(runtimeInstance, null, {
         notifyStore: useQuickNotificationStore.getState()
       }).catch((err) => {
         console.warn('[Loading] Background asset pipeline unhandled rejection:', err);
       });
 
-      attachScenarioAutorunController(this.runtime, scenarioBootstrapObserver, bgAssetsPromise);
+      attachScenarioAutorunController(
+        this.runtime as unknown as ScenarioRuntimePort,
+        scenarioBootstrapObserver,
+        bgAssetsPromise,
+      );
 
       return this.runtime;
     } catch (err) {
@@ -176,13 +194,13 @@ export class GameBootstrap {
 
 export async function bootstrapGameEngine(
   container?: HTMLElement | null,
-  options: Record<string, any> = {}
+  options: GameBootstrapOptions = {}
 ): Promise<GameRuntime> {
   const bootstrap = new GameBootstrap(container, options);
   return await bootstrap.start();
 }
 
-export async function bootstrapEngine(options: Record<string, any> = {}): Promise<GameRuntime> {
+export async function bootstrapEngine(options: GameBootstrapOptions = {}): Promise<GameRuntime> {
   if (activeGameRuntime) {
     return activeGameRuntime;
   }
@@ -191,8 +209,10 @@ export async function bootstrapEngine(options: Record<string, any> = {}): Promis
   }
 
   activeBootstrapPromise = (async () => {
-    const host: any =
-      options.container || (typeof document !== 'undefined' ? document.querySelector('#app') : null);
+    const host = (options.container ||
+      (typeof document !== 'undefined' ? document.querySelector('#app') : null)) as
+      | (HTMLElement & MinimumLoaderDomContainer)
+      | null;
     const loader = options.loader || host?.__minimumProgressLoader || null;
 
     if (loader) {

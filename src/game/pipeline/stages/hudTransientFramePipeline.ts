@@ -34,6 +34,51 @@ export interface ResolvedModeRosterEntries {
   detectedLocalTeam: number | null;
 }
 
+export interface ReplayViewerRosterEntryInput {
+  carIndex: number;
+  name?: string;
+  isSelf?: boolean;
+  team?: number;
+}
+
+export interface ExpSpawnedCarRosterInput {
+  carIndex: number;
+  isPlayer?: boolean;
+  botType?: string;
+  keyNumber?: number;
+  name?: string;
+  team?: number;
+}
+
+export interface RawRosterPlayerInput {
+  carIndex?: number;
+  entityId?: number;
+  team?: number | string;
+  role?: string;
+  isLocal?: boolean;
+  isLocalPlayer?: boolean;
+  peerId?: string;
+  sessionId?: string;
+  isBot?: boolean;
+  botType?: string;
+  username?: string;
+  name?: string;
+  playerName?: string;
+}
+
+export interface ConnectedPeerRosterInput {
+  id?: string;
+  carIndex?: number;
+  entityId?: number;
+  team?: number | string;
+  role?: string;
+  isSelf?: boolean;
+  name?: string;
+  username?: string;
+  isBot?: boolean;
+  botType?: string;
+}
+
 export interface HudRosterSourceContext {
   matchMode: string;
   isReplayViewerLoaded: boolean;
@@ -41,12 +86,15 @@ export interface HudRosterSourceContext {
   replayViewerActivePovTeam?: number;
   replayViewerLocalTeam?: number;
   replayViewerActivePovCarIndex?: number;
-  replayViewerResolvedRoster?: ReadonlyArray<any>;
+  replayViewerResolvedRoster?: ReadonlyArray<ReplayViewerRosterEntryInput>;
   expPlayerParticipation?: string;
-  expSpawnedCars?: ReadonlyArray<any>;
-  rawRosterSnapshot?: any;
-  replayTimelineCarEntries?: ReadonlyArray<any>;
-  connectedPeers?: ReadonlyArray<any>;
+  expSpawnedCars?: ReadonlyArray<ExpSpawnedCarRosterInput>;
+  rawRosterSnapshot?:
+    | ReadonlyArray<RawRosterPlayerInput>
+    | { players?: ReadonlyArray<RawRosterPlayerInput> }
+    | null;
+  replayTimelineCarEntries?: ReadonlyArray<RawRosterPlayerInput>;
+  connectedPeers?: ReadonlyArray<ConnectedPeerRosterInput>;
   localPeerId?: string | null;
   localCarIdx?: number;
   participantTeams?: ReadonlyMap<number, number> | null;
@@ -167,20 +215,14 @@ export function resolveModeRosterEntries(
           ? c.carIndex === source.replayViewerActivePovCarIndex
           : Boolean(c.isSelf),
       };
-      if (c.team === 1) {
-        orangeEntries.push(item);
-      } else {
-        blueEntries.push(item);
-      }
+      if (c.team === 1) orangeEntries.push(item);
+      else blueEntries.push(item);
     }
   } else if (source.matchMode === 'exp-multi-bots') {
     const rawCars = source.expSpawnedCars || [];
     isSpectatingNoHuman = source.expPlayerParticipation === 'none';
-    if (source.expPlayerParticipation === 'orange') {
-      detectedLocalTeam = 1;
-    } else if (source.expPlayerParticipation === 'blue') {
-      detectedLocalTeam = 0;
-    }
+    if (source.expPlayerParticipation === 'orange') detectedLocalTeam = 1;
+    else if (source.expPlayerParticipation === 'blue') detectedLocalTeam = 0;
 
     const sameBotCounts: Record<string, number> = {};
     for (const c of rawCars) {
@@ -199,25 +241,22 @@ export function resolveModeRosterEntries(
           ? `${capBot} #${c.keyNumber || c.carIndex + 1}`
           : capBot;
       const isSelf = Boolean(c.isPlayer);
-      if (isSelf) {
-        detectedLocalTeam = c.team === 1 ? 1 : 0;
-      }
+      if (isSelf) detectedLocalTeam = c.team === 1 ? 1 : 0;
       const item: RosterTeamEntry = {
         carIndex: c.carIndex,
         name: c.name || defaultName,
         isSelf,
         isBot: !c.isPlayer,
       };
-      if (c.team === 1) {
-        orangeEntries.push(item);
-      } else {
-        blueEntries.push(item);
-      }
+      if (c.team === 1) orangeEntries.push(item);
+      else blueEntries.push(item);
     }
   } else if (source.matchMode === 'match' || source.matchMode === 'online-warmup') {
     const rawRoster = source.rawRosterSnapshot;
-    const rosterSnap = Array.isArray(rawRoster?.players)
-      ? rawRoster.players
+    const rawPlayers =
+      rawRoster && !Array.isArray(rawRoster) && 'players' in rawRoster ? rawRoster.players : undefined;
+    const rosterSnap: ReadonlyArray<RawRosterPlayerInput> = Array.isArray(rawPlayers)
+      ? rawPlayers
       : Array.isArray(rawRoster)
         ? rawRoster
         : Array.isArray(source.replayTimelineCarEntries)
@@ -228,11 +267,13 @@ export function resolveModeRosterEntries(
     const localCarIdx = source.localCarIdx ?? 0;
 
     if (rosterSnap.length > 0) {
-      const sortedRoster = [...rosterSnap].sort((a: any, b: any) => {
-        const ca = typeof a?.carIndex === 'number' ? a.carIndex : (a?.entityId ?? 0);
-        const cb = typeof b?.carIndex === 'number' ? b.carIndex : (b?.entityId ?? 0);
-        return ca - cb;
-      });
+      const sortedRoster = [...rosterSnap].sort(
+        (a: RawRosterPlayerInput, b: RawRosterPlayerInput) => {
+          const ca = typeof a?.carIndex === 'number' ? a.carIndex : (a?.entityId ?? 0);
+          const cb = typeof b?.carIndex === 'number' ? b.carIndex : (b?.entityId ?? 0);
+          return ca - cb;
+        },
+      );
       for (const p of sortedRoster) {
         const cIdx =
           typeof p?.carIndex === 'number'
@@ -248,9 +289,7 @@ export function resolveModeRosterEntries(
             (localPeerId && (p.peerId === localPeerId || p.sessionId === localPeerId)) ||
             cIdx === localCarIdx,
         );
-        if (isSelf) {
-          detectedLocalTeam = isOrange ? 1 : 0;
-        }
+        if (isSelf) detectedLocalTeam = isOrange ? 1 : 0;
         const isBot = Boolean(
           p.isBot ||
             p.botType ||
@@ -262,11 +301,8 @@ export function resolveModeRosterEntries(
           isSelf,
           isBot,
         };
-        if (isOrange) {
-          orangeEntries.push(item);
-        } else {
-          blueEntries.push(item);
-        }
+        if (isOrange) orangeEntries.push(item);
+        else blueEntries.push(item);
       }
     } else if (
       peers.length > 0 ||
@@ -274,13 +310,9 @@ export function resolveModeRosterEntries(
     ) {
       const combinedByCar = new Map<number, RosterTeamEntry & { team: number }>();
       const selfTeam =
-        source.participantTeams?.get?.(localCarIdx) ??
-        source.arenaCarTeams?.[localCarIdx] ??
-        localCarIdx % 2;
+        source.participantTeams?.get?.(localCarIdx) ?? source.arenaCarTeams?.[localCarIdx] ?? localCarIdx % 2;
       const selfName =
-        source.localPlayerName ||
-        source.carNamesByIndex?.get?.(localCarIdx) ||
-        `Player ${localCarIdx + 1}`;
+        source.localPlayerName || source.carNamesByIndex?.get?.(localCarIdx) || `Player ${localCarIdx + 1}`;
       combinedByCar.set(localCarIdx, {
         carIndex: localCarIdx,
         name: selfName,
@@ -298,21 +330,14 @@ export function resolveModeRosterEntries(
             : typeof p.entityId === 'number'
               ? p.entityId
               : fallbackIdx++;
-        const isSelf = Boolean(
-          p.isSelf || (localPeerId && p.id === localPeerId) || cIdx === localCarIdx,
-        );
+        const isSelf = Boolean(p.isSelf || (localPeerId && p.id === localPeerId) || cIdx === localCarIdx);
         const isOrange =
           p.team === 1 ||
           p.team === 'orange' ||
-          (p.team === undefined &&
-            (source.participantTeams?.get?.(cIdx) ?? cIdx % 2) === 1);
+          (p.team === undefined && (source.participantTeams?.get?.(cIdx) ?? cIdx % 2) === 1);
         combinedByCar.set(cIdx, {
           carIndex: cIdx,
-          name:
-            p.name ||
-            p.username ||
-            source.carNamesByIndex?.get?.(cIdx) ||
-            `Player ${cIdx + 1}`,
+          name: p.name || p.username || source.carNamesByIndex?.get?.(cIdx) || `Player ${cIdx + 1}`,
           team: isOrange ? 1 : 0,
           isSelf,
           isBot: Boolean(p.isBot || p.botType),
@@ -321,14 +346,8 @@ export function resolveModeRosterEntries(
 
       if (source.participantTeams instanceof Map) {
         for (const [cIdx, tVal] of source.participantTeams.entries()) {
-          if (
-            typeof cIdx === 'number' &&
-            cIdx >= 0 &&
-            cIdx < 8 &&
-            !combinedByCar.has(cIdx)
-          ) {
-            const cName =
-              source.carNamesByIndex?.get?.(cIdx) || `Player ${cIdx + 1}`;
+          if (typeof cIdx === 'number' && cIdx >= 0 && cIdx < 8 && !combinedByCar.has(cIdx)) {
+            const cName = source.carNamesByIndex?.get?.(cIdx) || `Player ${cIdx + 1}`;
             combinedByCar.set(cIdx, {
               carIndex: cIdx,
               name: cName,
@@ -340,24 +359,17 @@ export function resolveModeRosterEntries(
         }
       }
 
-      const orderedEntries = Array.from(combinedByCar.values()).sort(
-        (a, b) => a.carIndex - b.carIndex,
-      );
+      const orderedEntries = Array.from(combinedByCar.values()).sort((a, b) => a.carIndex - b.carIndex);
       for (const entry of orderedEntries) {
-        if (entry.isSelf) {
-          detectedLocalTeam = entry.team === 1 ? 1 : 0;
-        }
+        if (entry.isSelf) detectedLocalTeam = entry.team === 1 ? 1 : 0;
         const item: RosterTeamEntry = {
           carIndex: entry.carIndex,
           name: entry.name,
           isSelf: entry.isSelf,
           isBot: Boolean(entry.isBot),
         };
-        if (entry.team === 1) {
-          orangeEntries.push(item);
-        } else {
-          blueEntries.push(item);
-        }
+        if (entry.team === 1) orangeEntries.push(item);
+        else blueEntries.push(item);
       }
     } else {
       const botNameRaw = String(source.activeBotName || 'Necto');
@@ -378,12 +390,7 @@ export function resolveModeRosterEntries(
     }
   }
 
-  return {
-    blueEntries,
-    orangeEntries,
-    isSpectatingNoHuman,
-    detectedLocalTeam,
-  };
+  return { blueEntries, orangeEntries, isSpectatingNoHuman, detectedLocalTeam };
 }
 
 export function computeMiniMapCoordinates(
@@ -417,9 +424,7 @@ export function projectNameTagScreenPositions(
   viewportWidthPx = 1920,
   viewportHeightPx = 1080,
 ): HudTransientNameTagProjection2D[] {
-  if (!carPositions || carPositions.length === 0 || !perspectiveCamera) {
-    return [];
-  }
+  if (!carPositions || carPositions.length === 0 || !perspectiveCamera) return [];
   const projections: HudTransientNameTagProjection2D[] = [];
   for (const car of carPositions) {
     _scratchProjVec.set(car.posX, car.posZ, car.posY).project(perspectiveCamera);
@@ -444,11 +449,7 @@ export function buildHudTransientFramePayload(
   const localInOrange = orangeEntries.some((e) => e.isSelf);
   const localInBlue = blueEntries.some((e) => e.isSelf);
   const localTeam: 0 | 1 =
-    detectedLocalTeam === 1 || localInOrange
-      ? 1
-      : detectedLocalTeam === 0 || localInBlue
-        ? 0
-        : 0;
+    detectedLocalTeam === 1 || localInOrange ? 1 : detectedLocalTeam === 0 || localInBlue ? 0 : 0;
 
   const leftEntries = localTeam === 1 ? orangeEntries : blueEntries;
   const rightEntries = localTeam === 1 ? blueEntries : orangeEntries;
@@ -460,9 +461,7 @@ export function buildHudTransientFramePayload(
 
   const sig = roster.choreographySignal || 'kickoff-will-start';
   const isGoalReplayView =
-    sig === 'goal-replay-started' ||
-    sig === 'goal-replay-will-end' ||
-    roster.matchPhase === 'replay';
+    sig === 'goal-replay-started' || sig === 'goal-replay-will-end' || roster.matchPhase === 'replay';
 
   const viewMode: 'player-live' | 'goal-replay' | 'spectator' = isGoalReplayView
     ? 'goal-replay'
@@ -474,7 +473,7 @@ export function buildHudTransientFramePayload(
   let focusedSlotKey: number | null = null;
 
   const buildSideSlot = (
-    idx: number,
+    _idx: number,
     side: 'left' | 'right',
     slotKeyRaw: number,
     labelPrefix: string,
@@ -505,9 +504,7 @@ export function buildHudTransientFramePayload(
         : viewMode === 'player-live'
           ? Boolean(entry.isSelf || entry.carIndex === activeCameraCar)
           : entry.carIndex === activeCameraCar;
-    if (isFocused) {
-      focusedSlotKey = slotKey;
-    }
+    if (isFocused) focusedSlotKey = slotKey;
 
     const replaySkipReady = isGoalReplayView
       ? Boolean(
@@ -539,13 +536,7 @@ export function buildHudTransientFramePayload(
   );
 
   const rightPlayers = [0, 1, 2, 3, 4].map((idx) =>
-    buildSideSlot(
-      idx,
-      'right',
-      rightSlotKeys[idx] ?? rightStartKey + idx,
-      rightLabelPrefix,
-      rightEntries[idx],
-    ),
+    buildSideSlot(idx, 'right', rightSlotKeys[idx] ?? rightStartKey + idx, rightLabelPrefix, rightEntries[idx]),
   );
 
   const miniMap = computeMiniMapCoordinates(
@@ -567,12 +558,7 @@ export function buildHudTransientFramePayload(
   return {
     localTeam,
     slotKeyToCarIndex,
-    rosterPatch: {
-      viewMode,
-      focusedSlotKey,
-      leftPlayers,
-      rightPlayers,
-    },
+    rosterPatch: { viewMode, focusedSlotKey, leftPlayers, rightPlayers },
     miniMap,
     nameTagProjections,
   };

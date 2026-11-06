@@ -14,7 +14,10 @@
  */
 
 import * as THREE from 'three';
-import { PovCameraController } from './exempt_pov_microkernel/PovCameraController.ts';
+import {
+  PovCameraController,
+  type PovCameraKernelLike,
+} from './exempt_pov_microkernel/PovCameraController.ts';
 import { RearViewCamera } from './RearViewCamera.ts';
 import {
   FreeCameraController,
@@ -120,7 +123,7 @@ export class CameraManager {
 
   constructor(
     aspect: number = typeof window !== 'undefined' ? window.innerWidth / window.innerHeight : 16 / 9,
-    kernel: unknown = null,
+    kernel: PovCameraKernelLike | null = null,
     options: CameraManagerOptions = {}
   ) {
     this.settings = options?.settings || { ...DEFAULT_CAMERA_SETTINGS };

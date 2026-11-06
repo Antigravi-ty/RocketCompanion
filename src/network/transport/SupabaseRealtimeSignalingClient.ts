@@ -84,7 +84,10 @@ export class SupabaseRealtimeSignalingClient {
   private _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private _probeId = `sb_probe_${Math.random().toString(36).slice(2, 10)}`;
   private _probeSentAt = 0;
-  private eventListeners = new Map<string, Array<(payload?: any) => void>>();
+  private eventListeners = new Map<
+    string,
+    Array<(payload?: Record<string, unknown> | Error | CloseEvent) => void>
+  >();
 
   constructor(endpointUrl: string, options: SupabaseRealtimeSignalingClientOptions = {}) {
     this.endpointUrl = String(endpointUrl || '').trim();
@@ -115,7 +118,9 @@ export class SupabaseRealtimeSignalingClient {
     }
 
     const WebSocketConstructor: typeof WebSocket | null =
-      typeof WebSocket !== 'undefined' ? WebSocket : (globalThis as any).WebSocket || null;
+      typeof WebSocket !== 'undefined'
+        ? WebSocket
+        : (globalThis as unknown as { WebSocket?: typeof WebSocket }).WebSocket || null;
 
     if (!WebSocketConstructor) {
       throw new Error('WebSocket is not supported in this environment');
@@ -147,7 +152,7 @@ export class SupabaseRealtimeSignalingClient {
         resolve();
       };
 
-      const finishFailure = (err: any) => {
+      const finishFailure = (err: unknown) => {
         if (settled) return;
         settled = true;
         if (timeoutHandle) clearTimeout(timeoutHandle);
@@ -278,7 +283,7 @@ export class SupabaseRealtimeSignalingClient {
     });
   }
 
-  send(data: any, _qos = 0): boolean {
+  send(data: Record<string, unknown> | string, _qos = 0): boolean {
     if (!this.ws || this.ws.readyState !== 1 || !this.isConnected || !this.isSubscribed) {
       return false;
     }
@@ -304,10 +309,10 @@ export class SupabaseRealtimeSignalingClient {
   }
 
   async sendBridge(
-    data: any,
+    data: Record<string, unknown> | string,
     customBridgeTopic?: string,
     customEdgeFunctionUrl?: string
-  ): Promise<{ ok: boolean; latencyMs: number; response?: any; error?: string }> {
+  ): Promise<{ ok: boolean; latencyMs: number; response?: Record<string, unknown>; error?: string }> {
     const bridgeUrl = (customEdgeFunctionUrl || this.edgeFunctionBridgeUrl || '').trim();
     if (!bridgeUrl) {
       return { ok: false, latencyMs: 0, error: 'No Edge Function bridge URL configured' };
@@ -343,7 +348,7 @@ export class SupabaseRealtimeSignalingClient {
         1,
         Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startAt)
       );
-      const json = await resp.json().catch(() => ({}));
+      const json = (await resp.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!resp.ok || json.ok === false) {
         return {
           ok: false,
@@ -353,12 +358,12 @@ export class SupabaseRealtimeSignalingClient {
         };
       }
       return { ok: true, latencyMs, response: json };
-    } catch (err: any) {
+    } catch (err: unknown) {
       const latencyMs = Math.max(
         1,
         Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startAt)
       );
-      return { ok: false, latencyMs, error: err?.message || String(err) };
+      return { ok: false, latencyMs, error: err instanceof Error ? err.message : String(err) };
     }
   }
 
@@ -406,7 +411,7 @@ export class SupabaseRealtimeSignalingClient {
     );
   }
 
-  emit(event: string, payload?: any): void {
+  emit(event: string, payload?: Record<string, unknown> | Error | CloseEvent): void {
     const list = this.eventListeners.get(event);
     if (!list) return;
     for (let i = 0; i < list.length; i++) {

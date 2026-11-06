@@ -5,7 +5,10 @@ import {
   hudStore,
   useSubsystemIsolationLabStore,
 } from '../../runtimeUiPort.ts';
-import type { LabFrameUpdateContext } from './LabTabTypes.ts';
+import type {
+  LabFrameUpdateContext,
+  LabRuntimePort,
+} from './LabTabTypes.ts';
 import {
   type ReplayExportPayload,
   buildMatchReplayExportPayload,
@@ -18,7 +21,9 @@ export class GoalReplayPodiumSubController {
     return Boolean(this.podiumController?.isActive);
   }
 
-  ensureController(runtime: any): PodiumCelebrationController | null {
+  ensureController(
+    runtime: LabRuntimePort | null | undefined
+  ): PodiumCelebrationController | null {
     if (!this.podiumController && runtime) {
       this.podiumController =
         runtime.podiumController || new PodiumCelebrationController(runtime);
@@ -40,7 +45,7 @@ export class GoalReplayPodiumSubController {
   }
 
   enterShowcase(
-    runtime: any,
+    runtime: LabRuntimePort | null | undefined,
     winningTeam = 0,
     timelineController?: ReplayTimelineController | null,
     isReplaying = false
@@ -57,7 +62,7 @@ export class GoalReplayPodiumSubController {
     while (runtime.physics.numCars < 2) {
       runtime.physics.addCar(runtime.physics.numCars % 2, 'octane');
     }
-    runtime.arena?.ensureOpponent?.();
+    void runtime.arena?.ensureOpponent?.();
     if (runtime.arena?.cars) {
       if (runtime.arena.cars[0]) runtime.arena.cars[0].visible = true;
       if (runtime.arena.cars[1]) runtime.arena.cars[1].visible = true;
@@ -78,7 +83,7 @@ export class GoalReplayPodiumSubController {
     return true;
   }
 
-  exitShowcase(runtime: any): boolean {
+  exitShowcase(runtime: LabRuntimePort | null | undefined): boolean {
     if (!runtime?.physics) return false;
     const store = useSubsystemIsolationLabStore.getState();
 
@@ -100,7 +105,7 @@ export class GoalReplayPodiumSubController {
   }
 
   exportReplayBufferAsJson(
-    runtime: any,
+    runtime: LabRuntimePort | null | undefined,
     fallbackRingBuffer: ReplayRingBuffer | null
   ): ReplayExportPayload {
     const ringBuffer =

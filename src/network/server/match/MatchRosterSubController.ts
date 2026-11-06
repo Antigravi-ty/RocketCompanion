@@ -9,9 +9,9 @@ import {
   MATCH_STATES,
   resolveNormalizedSlotLoadout,
   resolveUpdatedPlayerLoadout,
+  computeNormalizedTeamSpawnSlots,
   applyKickoffSpawnsToSim,
   buildMatchRosterMetadata,
-  buildRosterSnapshot,
   type MatchPlayerSlot,
   type MatchSpectatorSlot,
   type DisconnectedPlayerSlot,
@@ -20,27 +20,45 @@ import {
   type RosterSnapshot,
 } from './matchLoadoutAndSpawnPipeline.ts';
 import {
-  applyCosmeticsToExistingPlayerSlot,
+  resolveCosmeticsPatchForExistingPlayerSlot,
   createNewPlayerSlotInfo,
   executePlayerSessionRemoval,
   executePlayerSessionReclaim,
   executePlayerRoleOrTeamSwitch,
+  type RoleSwitchDataHandlerPort,
 } from './matchSessionRoleSwitchPipeline.ts';
 import {
   rollTeamBotLoadout,
   syncRosterCarsWithPhysicsEngine,
   registerAssignedPlayerWithSessionAndPhysics,
-  applyLobbyExistingPlayerTeamSwitch,
+  resolveLobbyExistingPlayerTeamSwitchPatch,
+  resolveInPlacePlayerTeamSwitchPatch,
   executeBotFillPolicyOnRoster,
+  type RosterPhysicsManagerPort,
+  type RosterSessionPort,
 } from './matchRosterPhysicsAndBotPipeline.ts';
-import { type MatchDomainState, resolveMaxPlayersForGameMode } from './MatchDomainState.ts';
+import type { MatchDomainState } from './MatchDomainState.ts';
+import type { RosterSessionManagerPort } from './matchLoadoutAndSpawnPipeline.ts';
+
+export interface RosterDataHandlerPort extends RoleSwitchDataHandlerPort {
+  broadcast?: (packet: string | Uint8Array, filter?: (id: string) => boolean) => void;
+}
 
 export interface MatchRosterHostPort {
   readonly domain: MatchDomainState;
-  readonly physicsManager: any;
-  readonly sessionManager: any;
-  readonly dataHandler: any;
-  dispatchSignal(signalType: number, frameId: number, param1?: number, param2?: number): any;
+  readonly physicsManager: RosterPhysicsManagerPort | null | undefined;
+  readonly sessionManager: (RosterSessionPort & RosterSessionManagerPort & {
+    getSession?: (sessionId: string) => {
+      team?: number;
+      playerName?: string;
+      rttMs?: number;
+      entityId: number;
+      role?: string;
+      deferPhysicsRegistration?: boolean;
+    } | null | undefined;
+  }) | null | undefined;
+  readonly dataHandler: RosterDataHandlerPort | null | undefined;
+  dispatchSignal(signalType: number, frameId: number, param1?: number, param2?: number): unknown;
   onPlayerSessionRemoved(sessionId: string): void;
   onLobbyAutoStartTriggered(): void;
 }
@@ -68,91 +86,57 @@ export class MatchRosterSubController {
   }
 
   buildRosterSnapshot(): RosterSnapshot {
-    const { domain, sessionManager } = this.host;
-    return buildRosterSnapshot({
-      players: domain.players,
-      spectators: domain.spectators,
-      sessionManager,
-      gameMode: domain.gameMode,
-      botFillMode: domain.botFillMode,
-      clockDuration: domain.clockDuration,
-      clockSecondsRemaining: domain.clockSecondsRemaining,
-      blueScore: domain.blueScore,
-      orangeScore: domain.orangeScore,
-    });
+    return this.host.domain.buildRosterEnvelope(this.host.sessionManager).roster;
   }
 
   broadcastRosterUpdate(): void {
-    const { dataHandler, domain } = this.host;
+    const { domain, dataHandler, sessionManager } = this.host;
     if (!dataHandler || typeof dataHandler.broadcast !== 'function') return;
     if (this.applyingBotFillPolicy) return;
     try {
-      dataHandler.broadcast(
-        JSON.stringify({
-          type: 'roster_update',
-          roomId: domain.roomId,
-          gameMode: domain.gameMode,
-          botFillMode: domain.botFillMode,
-          durationSeconds: domain.clockDuration,
-          state: domain.state,
-          roster: this.buildRosterSnapshot(),
-        })
-      );
+      dataHandler.broadcast(domain.buildRosterEnvelope(sessionManager).rosterUpdateJson);
     } catch (err) {
       console.warn('[MatchRosterSubController] Failed to broadcast roster_update:', err);
     }
   }
 
   setGameMode(gameMode: string, durationSeconds: number | null = null): void {
-    const { domain } = this.host;
-    if (gameMode === '1v1' || gameMode === '2v2' || gameMode === '3v3') {
-      domain.gameMode = gameMode;
-      domain.maxPlayers = resolveMaxPlayersForGameMode(gameMode);
-    }
-    if (typeof durationSeconds === 'number' && Number.isFinite(durationSeconds) && durationSeconds >= 0) {
-      domain.clockDuration = durationSeconds;
-      if (domain.state === MATCH_STATES.LOBBY) domain.clockSecondsRemaining = durationSeconds;
-    }
-    if (
-      domain.state !== MATCH_STATES.LOBBY &&
-      (domain.botFillMode === 'auto_fill' || domain.botFillMode === 'bots_vs_humans')
-    ) {
-      this.applyBotFillPolicy();
-    } else {
-      this.broadcastRosterUpdate();
-    }
-  }
-
-  setBotFillMode(botFillMode = 'no_bots'): void {
-    const { domain } = this.host;
-    const valid = ['no_bots', 'auto_fill', 'bots_vs_humans', 'custom'];
-    if (valid.includes(botFillMode)) domain.botFillMode = botFillMode;
-    if (domain.state !== MATCH_STATES.LOBBY) this.applyBotFillPolicy();
+    const { shouldApplyBotFill } = this.host.domain.applyRosterPolicyConfig({
+      gameMode,
+      durationSeconds,
+    });
+    if (shouldApplyBotFill) this.applyBotFillPolicy();
     else this.broadcastRosterUpdate();
   }
 
-  rollBotLoadoutForTeam(team = 0): Record<string, any> {
+  setBotFillMode(botFillMode = 'no_bots'): void {
+    const { shouldApplyBotFill } = this.host.domain.applyRosterPolicyConfig({ botFillMode });
+    if (shouldApplyBotFill) this.applyBotFillPolicy();
+    else this.broadcastRosterUpdate();
+  }
+
+  rollBotLoadoutForTeam(team = 0): PlayerLoadoutOptions {
     return rollTeamBotLoadout(this.host.domain.botsLoadoutConfig, this.players.values(), team);
   }
 
   addBotPlayer(
     preferredTeam = 1,
     botName: string | null = null,
-    visualId: string | Record<string, any> | null = null
-  ): MatchPlayerSlot | any {
+    visualId: string | PlayerLoadoutOptions | null = null
+  ): MatchPlayerSlot | MatchSpectatorSlot | { entityId: number; team: number; role: string; spawnSlot: number } | null {
     if (this.players.size >= 6) return null;
     let botIdx = 1;
     while (this.players.has(`bot_${botIdx}`)) botIdx++;
     const sid = `bot_${botIdx}`;
     const resolvedName = botName || `Nexto #${botIdx}`;
     const rolled = this.rollBotLoadoutForTeam(preferredTeam ?? 1);
-    const loadout =
+    const loadout: PlayerLoadoutOptions =
       visualId && typeof visualId === 'object'
         ? { ...rolled, ...visualId }
         : visualId
           ? { ...rolled, visualId }
           : rolled;
-    return this.assignPlayerSlot(sid, resolvedName, 'player', preferredTeam, loadout, loadout.colorSlot);
+    return this.assignPlayerSlot(sid, resolvedName, 'player', preferredTeam, loadout, loadout.colorSlot ?? null);
   }
 
   applyBotFillPolicy(): void {
@@ -168,7 +152,7 @@ export class MatchRosterSubController {
         removePlayerSession: (sid) => this.removePlayerSession(sid),
         switchPlayerRoleOrTeam: (sid, role, team) => this.switchPlayerRoleOrTeam(sid, role, team),
         assignPlayerSlot: (sid, name, role, team, loadout, colorSlot) =>
-          this.assignPlayerSlot(sid, name, role, team, loadout, colorSlot),
+          this.assignPlayerSlot(sid, name, role, team, loadout, colorSlot ?? null),
       });
     } finally {
       this.applyingBotFillPolicy = false;
@@ -182,7 +166,7 @@ export class MatchRosterSubController {
       players: this.players,
       physicsManager,
       sessionManager,
-      lobbyPhysicsActive: domain.lobbyPhysicsActive,
+      lobbyPhysicsActive: domain.applyRosterPolicyConfig().lobbyPhysicsActive,
     });
   }
 
@@ -202,12 +186,11 @@ export class MatchRosterSubController {
 
   applyRosterKickoffSpawns(): void {
     const { domain, physicsManager } = this.host;
-    const boostAmount = domain.state === MATCH_STATES.LOBBY || domain.isTrainingMode ? 100.0 : 33.33;
     applyKickoffSpawnsToSim(
       physicsManager?.sim,
-      physicsManager?.activeCarIndices,
+      physicsManager ? new Set(physicsManager.activeCarIndices) : null,
       this.players.values(),
-      boostAmount
+      domain.applyRosterPolicyConfig().kickoffBoostAmount
     );
   }
 
@@ -218,7 +201,7 @@ export class MatchRosterSubController {
     preferredTeam: number | null = null,
     loadoutOptions: PlayerLoadoutOptions | string | number = {},
     colorSlotArg: number | null = null
-  ): any {
+  ): MatchPlayerSlot | MatchSpectatorSlot | { entityId: number; team: number; role: string; spawnSlot: number } | null {
     const { domain, sessionManager, physicsManager } = this.host;
     const isBotSession = sessionId === 'bot' || String(sessionId).startsWith('bot_');
     const resolved = resolveNormalizedSlotLoadout(loadoutOptions, colorSlotArg, isBotSession);
@@ -226,24 +209,27 @@ export class MatchRosterSubController {
 
     if (this.players.has(sessionId)) {
       const existing = this.players.get(sessionId)!;
+      const basePatch: Partial<MatchPlayerSlot> = {};
       if (typeof normalizedLoadout.blueColorSlot === 'number') {
-        existing.blueColorSlot = normalizedLoadout.blueColorSlot;
+        basePatch.blueColorSlot = normalizedLoadout.blueColorSlot;
       }
       if (typeof normalizedLoadout.orangeColorSlot === 'number') {
-        existing.orangeColorSlot = normalizedLoadout.orangeColorSlot;
+        basePatch.orangeColorSlot = normalizedLoadout.orangeColorSlot;
       }
       if (playerName && playerName !== 'Player') {
-        existing.name = playerName;
-        const s = sessionManager?.getSession(sessionId);
+        basePatch.name = playerName;
+        const s = sessionManager?.getSession?.(sessionId);
         if (s) s.playerName = playerName;
       }
+      domain.updatePlayerSlot(sessionId, basePatch);
+
       if (
         !isBotSession &&
         (preferredTeam === 0 || preferredTeam === 1) &&
         existing.team !== preferredTeam &&
         domain.state === MATCH_STATES.LOBBY
       ) {
-        applyLobbyExistingPlayerTeamSwitch({
+        const teamPatch = resolveLobbyExistingPlayerTeamSwitchPatch({
           sessionId,
           existing,
           preferredTeam,
@@ -251,17 +237,27 @@ export class MatchRosterSubController {
           players: this.players,
           sessionManager,
           physicsManager,
-          matchTick: domain.matchTick,
-          dispatchSignal: (t, f, p1, p2) => this.host.dispatchSignal(t, f, p1, p2),
         });
+        domain.updatePlayerSlot(sessionId, teamPatch);
+        computeNormalizedTeamSpawnSlots(this.players.values());
+        if (typeof existing.entityId === 'number' && existing.entityId >= 0) {
+          this.host.dispatchSignal(
+            MATCH_SIGNALS.PLAYER_SLOT_UPDATED,
+            domain.matchTick,
+            existing.entityId,
+            existing.team
+          );
+        }
       }
-      applyCosmeticsToExistingPlayerSlot(existing, resolved);
+      domain.updatePlayerSlot(
+        sessionId,
+        resolveCosmeticsPatchForExistingPlayerSlot(existing, resolved)
+      );
 
       if (
         !isBotSession &&
         !this.applyingBotFillPolicy &&
-        domain.state !== MATCH_STATES.LOBBY &&
-        (domain.botFillMode === 'auto_fill' || domain.botFillMode === 'bots_vs_humans')
+        domain.applyRosterPolicyConfig().shouldApplyBotFill
       ) {
         this.applyBotFillPolicy();
       }
@@ -315,12 +311,13 @@ export class MatchRosterSubController {
     );
     this.players.set(sessionId, playerInfo);
 
+    const policyFlags = domain.applyRosterPolicyConfig();
     registerAssignedPlayerWithSessionAndPhysics({
       sessionId,
       playerInfo,
       state: domain.state,
-      lobbyMode: domain.lobbyMode,
-      isTrainingMode: domain.isTrainingMode,
+      lobbyMode: policyFlags.lobbyMode,
+      isTrainingMode: policyFlags.isTrainingMode,
       matchTick: domain.matchTick,
       sessionManager,
       physicsManager,
@@ -328,9 +325,7 @@ export class MatchRosterSubController {
     });
 
     if (
-      (clearedAutoFillBots ||
-        domain.botFillMode === 'auto_fill' ||
-        domain.botFillMode === 'bots_vs_humans') &&
+      (clearedAutoFillBots || policyFlags.shouldApplyBotFill) &&
       !isBotSession &&
       !this.applyingBotFillPolicy &&
       domain.state !== MATCH_STATES.LOBBY
@@ -340,12 +335,7 @@ export class MatchRosterSubController {
 
     this.broadcastRosterUpdate();
 
-    if (
-      !this.applyingBotFillPolicy &&
-      domain.autoStartWhenFull &&
-      this.players.size >= domain.maxPlayers &&
-      domain.state === MATCH_STATES.LOBBY
-    ) {
+    if (!this.applyingBotFillPolicy && domain.applyRosterPolicyConfig().shouldAutoStartLobby) {
       this.host.onLobbyAutoStartTriggered();
     }
 
@@ -360,8 +350,7 @@ export class MatchRosterSubController {
       spectators: this.spectators,
       disconnectedPlayerSlots: this.disconnectedPlayerSlots,
       matchTick: domain.matchTick,
-      state: domain.state,
-      botFillMode: domain.botFillMode,
+      shouldRunActiveMatchBotFill: domain.applyRosterPolicyConfig().shouldApplyBotFill,
       applyingBotFillPolicy: this.applyingBotFillPolicy,
       sessionManager,
       physicsManager,
@@ -376,7 +365,7 @@ export class MatchRosterSubController {
     sessionId: string,
     requestedEntityId = -1,
     preferredTeam: number | null = null
-  ): any {
+  ): MatchPlayerSlot | MatchSpectatorSlot | null | undefined {
     const { domain, sessionManager, physicsManager } = this.host;
     return executePlayerSessionReclaim({
       sessionId,
@@ -388,7 +377,8 @@ export class MatchRosterSubController {
       matchTick: domain.matchTick,
       sessionManager,
       physicsManager,
-      assignPlayerSlot: (sid, name, role, team) => this.assignPlayerSlot(sid, name, role, team),
+      assignPlayerSlot: (sid, name, role, team) =>
+        this.assignPlayerSlot(sid, name, role, team) as MatchPlayerSlot | MatchSpectatorSlot | null,
       dispatchSignal: (t, f, p1, p2) => this.host.dispatchSignal(t, f, p1, p2),
       broadcastRosterUpdate: () => this.broadcastRosterUpdate(),
     });
@@ -399,13 +389,13 @@ export class MatchRosterSubController {
     visualIdOrPackedParam1: string | number,
     colorSlotOrPackedParam2: number | null = null,
     explicitHitbox: string | number | null = null,
-    extraLoadout: Record<string, any> | null = null
+    extraLoadout: Record<string, string | number | undefined> | null = null
   ): MatchPlayerSlot | null {
     const { domain, physicsManager } = this.host;
     const player = this.players.get(sessionId);
     if (!player) return null;
 
-    const packedLoadout = resolveUpdatedPlayerLoadout(
+    const { patch, packedLoadout } = resolveUpdatedPlayerLoadout(
       player,
       sessionId,
       visualIdOrPackedParam1,
@@ -413,14 +403,9 @@ export class MatchRosterSubController {
       explicitHitbox,
       extraLoadout
     );
+    domain.updatePlayerSlot(sessionId, patch);
 
-    const canHotSwapNow =
-      domain.state === MATCH_STATES.LOBBY ||
-      domain.state === MATCH_STATES.PREPARE ||
-      domain.state === MATCH_STATES.KICKOFF ||
-      domain.isTrainingMode;
-
-    if (canHotSwapNow && physicsManager && player.entityId >= 0) {
+    if (domain.applyRosterPolicyConfig().canHotSwapNow && physicsManager && player.entityId >= 0) {
       physicsManager.applySignal('HOTSWAP_HITBOX', {
         carIndex: player.entityId,
         hitboxType: player.hitboxId,
@@ -444,26 +429,18 @@ export class MatchRosterSubController {
     sessionId: string,
     targetRole: string | number = 'player',
     targetTeam = 0
-  ): any {
+  ): MatchPlayerSlot | MatchSpectatorSlot | null {
     const { domain, sessionManager, physicsManager, dataHandler } = this.host;
+    const policyFlags = domain.applyRosterPolicyConfig();
     return executePlayerRoleOrTeamSwitch({
       sessionId,
       targetRole,
       targetTeam,
       players: this.players,
       spectators: this.spectators,
-      roomId: domain.roomId,
-      gameMode: domain.gameMode,
-      botFillMode: domain.botFillMode,
-      clockDuration: domain.clockDuration,
-      clockSecondsRemaining: domain.clockSecondsRemaining,
-      blueScore: domain.blueScore,
-      orangeScore: domain.orangeScore,
       matchTick: domain.matchTick,
       state: domain.state,
-      isTrainingMode: domain.isTrainingMode,
-      sessionManager,
-      physicsManager,
+      shouldRunActiveMatchBotFill: policyFlags.shouldApplyBotFill,
       dataHandler,
       isApplyingBotFillPolicy: () => this.applyingBotFillPolicy,
       setApplyingBotFillPolicy: (v) => {
@@ -471,9 +448,25 @@ export class MatchRosterSubController {
       },
       removePlayerSession: (sid) => this.removePlayerSession(sid),
       assignPlayerSlot: (sid, name, role, team, loadout) =>
-        this.assignPlayerSlot(sid, name, role, team, loadout),
+        this.assignPlayerSlot(sid, name, role, team, loadout) as MatchPlayerSlot | MatchSpectatorSlot | null,
+      applyInPlaceTeamSwitch: (currentPlayer, nextTeam) => {
+        const patch = resolveInPlacePlayerTeamSwitchPatch({
+          sessionId,
+          currentPlayer,
+          targetTeam: nextTeam,
+          players: this.players,
+          state: domain.state,
+          isTrainingMode: policyFlags.isTrainingMode,
+          matchTick: domain.matchTick,
+          sessionManager,
+          physicsManager,
+          dispatchSignal: (t, f, p1, p2) => this.host.dispatchSignal(t, f, p1, p2),
+        });
+        return domain.updatePlayerSlot(sessionId, patch) || currentPlayer;
+      },
       applyBotFillPolicy: () => this.applyBotFillPolicy(),
-      buildRosterSnapshot: () => this.buildRosterSnapshot(),
+      buildHandshakePacketJson: (player) =>
+        domain.buildRosterEnvelope(sessionManager).buildHandshakeJson(player),
       broadcastRosterUpdate: () => this.broadcastRosterUpdate(),
       dispatchSignal: (t, f, p1, p2) => this.host.dispatchSignal(t, f, p1, p2),
     });

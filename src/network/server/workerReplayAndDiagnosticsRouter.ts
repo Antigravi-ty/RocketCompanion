@@ -6,31 +6,45 @@ import {
   ZERO_G_ANCHOR_MODES,
   configureZeroGVehiclePhysics,
   releaseZeroGVehiclePhysics,
+  type DiagnosticFleetEntry,
 } from '../diagnostics/DiagnosticsTestVehicles.ts';
 import type { WorkerEnvelope } from '../protocol/HostWorkerProtocol.ts';
 import type { MatchSessionAdmin } from './match/MatchSessionAdmin.ts';
 import type { PhysicsEngineManager } from './PhysicsEngineManager.ts';
 import type { EstablishedSessionManager } from './EstablishedSessionManager.ts';
 import type { NetworkDataHandler } from './NetworkDataHandler.ts';
+import type { AuthoritativePhysicsSimPort } from './authoritativePhysicsStepPipeline.ts';
 
 export interface WorkerRouterContext {
-  sim?: any;
+  sim?: AuthoritativePhysicsSimPort | null;
   physicsManager?: PhysicsEngineManager | null;
   sessionManager?: EstablishedSessionManager | null;
   matchManager?: MatchSessionAdmin | null;
   dataHandler?: NetworkDataHandler | null;
-  diagnosticsController?: any;
+  diagnosticsController?: DiagnosticsTestVehicleController | null;
   registerWorkerChannel?: ((channelId: string) => void) | null;
   unregisterWorkerChannel?: ((channelId: string) => void) | null;
   postEnvelope?: ((envelope: WorkerEnvelope, transfer?: Transferable[]) => void) | null;
-  emit?: ((msg: any, transfer?: Transferable[]) => void) | null;
+  emit?: ((msg: Record<string, unknown>, transfer?: Transferable[]) => void) | null;
 }
 
 export type WorkerReplyFn = (
   replyType: string,
-  replyPayload: any,
+  replyPayload: unknown,
   transfer?: Transferable[]
 ) => void;
+
+export interface WorkerReplayDiagnosticsPayload {
+  enabled?: boolean;
+  fleet?: DiagnosticFleetEntry[];
+  anchorMode?: string;
+  extraLatencyMs?: number;
+  jitterMs?: number;
+  packetLossRate?: number;
+  count?: number;
+  reqId?: number;
+  [key: string]: unknown;
+}
 
 export function releaseDiagnosticFleetIfEnabled(
   workerCtx: WorkerRouterContext,
@@ -40,12 +54,12 @@ export function releaseDiagnosticFleetIfEnabled(
   const diagCtrl = workerCtx.diagnosticsController || matchManager?.diagnosticsController;
   if (diagCtrl?.enabled && physicsManager) {
     diagCtrl.enabled = false;
-    diagCtrl.releasePhysics(physicsManager);
+    diagCtrl.releasePhysics(physicsManager as never);
   }
 }
 
 export function handleFullReplayExport(
-  sim: any,
+  sim: AuthoritativePhysicsSimPort | null | undefined,
   matchManager: MatchSessionAdmin | null | undefined,
   reqId: number,
   reply: WorkerReplyFn
@@ -117,7 +131,7 @@ export function handleFullReplayExport(
 export function routeReplayAndDiagnosticsMessage(
   workerCtx: WorkerRouterContext,
   type: string,
-  payload: Record<string, any>,
+  payload: WorkerReplayDiagnosticsPayload,
   seq: number,
   reply: WorkerReplyFn
 ): boolean {
@@ -130,8 +144,9 @@ export function routeReplayAndDiagnosticsMessage(
       const enableZeroG = Boolean(payload.enabled) && isLobby;
       const fleet = Array.isArray(payload.fleet) ? payload.fleet : DEFAULT_DIAGNOSTIC_FLEET;
       const anchorMode = payload.anchorMode || ZERO_G_ANCHOR_MODES.Z_HOVER;
-      let diagCtrl =
-        workerCtx.diagnosticsController || matchManager?.diagnosticsController || null;
+      let diagCtrl = (workerCtx.diagnosticsController ||
+        matchManager?.diagnosticsController ||
+        null) as DiagnosticsTestVehicleController | null;
       if (!diagCtrl && workerCtx) {
         diagCtrl = new DiagnosticsTestVehicleController(fleet, { anchorMode });
         workerCtx.diagnosticsController = diagCtrl;
@@ -140,12 +155,12 @@ export function routeReplayAndDiagnosticsMessage(
         diagCtrl.anchorMode = anchorMode;
         diagCtrl.enabled = enableZeroG;
         if (physicsManager) {
-          if (enableZeroG) diagCtrl.configurePhysics(physicsManager, anchorMode);
-          else diagCtrl.releasePhysics(physicsManager);
+          if (enableZeroG) diagCtrl.configurePhysics(physicsManager as never, anchorMode);
+          else diagCtrl.releasePhysics(physicsManager as never);
         }
       } else if (physicsManager && sim) {
-        if (enableZeroG) configureZeroGVehiclePhysics(physicsManager, fleet, anchorMode);
-        else releaseZeroGVehiclePhysics(physicsManager, fleet);
+        if (enableZeroG) configureZeroGVehiclePhysics(physicsManager as never, fleet, anchorMode);
+        else releaseZeroGVehiclePhysics(physicsManager as never, fleet);
       }
       return true;
     }

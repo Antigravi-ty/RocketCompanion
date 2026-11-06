@@ -10,48 +10,72 @@
  * 4. Enables zero-reload in-place vehicle hot-swapping without resetting match state.
  */
 
-export class EntityManager {
-  public arena: any;
-  public entities: any;
-  public physics: any;
+export interface EntityPhysicsPort {
+  numCars: number;
+  addCar(team: number, hitbox?: string): unknown;
+  removeCar?(slot: number): void;
+  setCarHitbox?(slot: number, hitbox: string): void;
+}
 
-  /**
-   * @param {object} [options={}]
-   * @param {import('../physics/RocketSimPhysicsEngine.ts').RocketSimPhysicsEngine} [options.physics]
-   * @param {import('./ArenaWorld.ts').ArenaWorld} [options.arena]
-   */
-  constructor( options: any = {}) {
+export interface EntityArenaPort {
+  cars?: unknown[];
+  addCar(team: number, visual?: string): unknown;
+  removeCar?(slot: number): void;
+  swapCarVisual?(slot: number, visual: string): void;
+}
+
+export interface EntityManagerOptions {
+  physics?: EntityPhysicsPort | null;
+  arena?: EntityArenaPort | null;
+}
+
+export interface SpawnVehicleOptions {
+  team?: number;
+  visual?: string;
+  hitbox?: string;
+  isPlayer?: boolean;
+  isBot?: boolean;
+  controller?: unknown;
+}
+
+export interface HotSwapVehicleOptions {
+  visual?: string;
+  hitbox?: string;
+}
+
+export interface EntityDescriptor {
+  slot: number;
+  team: number;
+  visual: string;
+  hitbox: string;
+  isPlayer: boolean;
+  isBot: boolean;
+  controller: unknown;
+}
+
+export class EntityManager {
+  public arena: EntityArenaPort | null;
+  public entities: Map<number, EntityDescriptor>;
+  public physics: EntityPhysicsPort | null;
+
+  constructor(options: EntityManagerOptions = {}) {
     this.physics = options.physics || null;
     this.arena = options.arena || null;
-
-    /**
-     * Map of slot (carIndex) -> EntityDescriptor
-     * @type {Map<number, { slot: number, team: number, visual: string, hitbox: string, isPlayer: boolean, isBot: boolean, controller: any }>}
-     */
     this.entities = new Map();
   }
 
-  setPhysics(physics) {
+  setPhysics(physics: EntityPhysicsPort | null) {
     this.physics = physics;
   }
 
-  setArena(arena) {
+  setArena(arena: EntityArenaPort | null) {
     this.arena = arena;
   }
 
   /**
    * Spawn a new vehicle entity in both physics simulation and visual arena
-   * @param {number} slot
-   * @param {object} [options={}]
-   * @param {number} [options.team=0]
-   * @param {string} [options.visual='fennec']
-   * @param {string} [options.hitbox='default']
-   * @param {boolean} [options.isPlayer=false]
-   * @param {boolean} [options.isBot=false]
-   * @param {any} [options.controller=null]
-   * @returns {object} EntityDescriptor
    */
-  spawnVehicle(slot, options: any = {}) {
+  spawnVehicle(slot: number, options: SpawnVehicleOptions = {}): EntityDescriptor {
     const {
       team = 0,
       visual = 'fennec',
@@ -78,7 +102,7 @@ export class EntityManager {
       }
     }
 
-    const entity = {
+    const entity: EntityDescriptor = {
       slot,
       team,
       visual,
@@ -94,10 +118,8 @@ export class EntityManager {
 
   /**
    * Despawn a vehicle entity from both physics simulation and visual scene
-   * @param {number} slot
-   * @returns {boolean}
    */
-  despawnVehicle(slot) {
+  despawnVehicle(slot: number): boolean {
     const entity = this.entities.get(slot);
     if (!entity) return false;
 
@@ -120,13 +142,8 @@ export class EntityManager {
 
   /**
    * In-place Hot Swap: Update visual appearance and physical hitbox without restarting arena
-   * @param {number} slot
-   * @param {object} options
-   * @param {string} [options.visual]
-   * @param {string} [options.hitbox]
-   * @returns {boolean}
    */
-  hotSwapVehicle(slot, options: any = {}) {
+  hotSwapVehicle(slot: number, options: HotSwapVehicleOptions = {}): boolean {
     const entity = this.entities.get(slot);
     const newVisual = options.visual || entity?.visual || 'fennec';
     const newHitbox = options.hitbox || options.visual || entity?.hitbox || 'default';

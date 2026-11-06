@@ -71,31 +71,56 @@ export const CAMERA_INPUT_INDICES = {
   INVERT_SWIVEL: 31
 };
 
+export interface PovCameraSettings {
+  fov: number;
+  distance: number;
+  height: number;
+  angleDeg: number;
+  stiffness: number;
+  transitionSpeed: number;
+  swivelSpeed: number;
+  invertSwivel: boolean;
+}
+
+export interface PovCameraKernelLike {
+  stepView?: (inputView?: ArrayLike<number>) => Float64Array;
+  resetView?: () => void;
+  cameraKernel?: PovCameraKernelLike | null;
+}
+
+export interface PovCameraObject3D {
+  position?: { x: number; y: number; z: number } | null;
+  quaternion?: { x: number; y: number; z: number; w: number } | null;
+}
+
+export interface PovCameraExtraInfo {
+  onGround?: boolean;
+  groundNormal?: { x: number; y: number; z: number } | null;
+  velocity?: { x: number; y: number; z: number } | null;
+  supersonic?: boolean;
+  lookX?: number;
+  lookY?: number;
+}
+
 /**
  * PovCameraController
  * Dedicated controller driving POV perspective and Ball-Cam via the WASM microkernel or CleanPovCameraKernel.
  */
 export class PovCameraController {
-  _ballCam: any;
-  camera: any;
-  direction: any;
-  input: any;
-  kernel: any;
-  settings: any;
-  sourceMode: any;
-  target: any;
-  [key: string]: any;
-  /**
-   * @param {number} aspect - Camera aspect ratio (width / height)
-   * @param {object|null} kernel - CameraMicrokernel or RocketSimPhysicsEngine instance
-   * @param {object|null} existingCamera - Optional existing camera instance
-   * @param {string|null} [sourceMode] - Optional explicit kernel source ('clean_js' | 'wasm')
-   */
+  _ballCam: boolean;
+  camera: THREE.PerspectiveCamera | null;
+  direction: THREE.Vector3 | null;
+  input: Float64Array | null;
+  kernel: PovCameraKernelLike | null;
+  settings: PovCameraSettings;
+  sourceMode: string | null;
+  target: THREE.Vector3 | null;
+
   constructor(
     aspect = (typeof window !== 'undefined' ? window.innerWidth / window.innerHeight : 16 / 9),
-    kernel: any = null,
-    existingCamera: any = null,
-    sourceMode: any = null
+    kernel: PovCameraKernelLike | null = null,
+    existingCamera: THREE.PerspectiveCamera | null = null,
+    sourceMode: string | null = null
   ) {
     this.settings = { ...DEFAULT_CAMERA_SETTINGS };
     this._ballCam = true;
@@ -118,7 +143,7 @@ export class PovCameraController {
   /**
    * Reset internal camera smoothing and perspective filters
    */
-  resetView() {
+  resetView(): void {
     const viewKernel = this._resolveKernel();
     if (viewKernel && typeof viewKernel.resetView === 'function') {
       viewKernel.resetView();
@@ -128,16 +153,15 @@ export class PovCameraController {
 
   /**
    * Resolves active CameraMicrokernel
-   * @private
    */
-  _resolveKernel() {
+  _resolveKernel(): PovCameraKernelLike | null {
     if (this.kernel && typeof this.kernel.stepView === 'function') {
       return this.kernel;
     }
     if (this.kernel && this.kernel.cameraKernel && typeof this.kernel.cameraKernel.stepView === 'function') {
       return this.kernel.cameraKernel;
     }
-    const cached: any = getCachedCameraMicrokernel();
+    const cached = getCachedCameraMicrokernel();
     if (cached && typeof cached.stepView === 'function') {
       this.kernel = cached;
       return cached;
@@ -148,22 +172,21 @@ export class PovCameraController {
   /**
    * Get Ball Cam active status
    */
-  get ballCam() {
+  get ballCam(): boolean {
     return this._ballCam;
   }
 
   /**
    * Set Ball Cam active status
    */
-  set ballCam(value) {
+  set ballCam(value: boolean) {
     this._ballCam = Boolean(value);
   }
 
   /**
    * Toggle Ball Cam state
-   * @returns {boolean} New ballCam state
    */
-  toggleBallCam() {
+  toggleBallCam(): boolean {
     this._ballCam = !this._ballCam;
     return this._ballCam;
   }
@@ -171,7 +194,7 @@ export class PovCameraController {
   /**
    * Resize camera aspect ratio
    */
-  resize(width, height) {
+  resize(width: number, height: number): void {
     if (this.camera && height > 0) {
       this.camera.aspect = width / height;
       this.camera.updateProjectionMatrix();
@@ -180,19 +203,19 @@ export class PovCameraController {
 
   /**
    * Step camera physics using the dual-kernel determinism harness (WASM + Clean JS) and update camera transform.
-   *
-   * @param {object} carObject - Car 3D object (position {x, y, z} and quaternion {x, y, z, w})
-   * @param {object} ballObject - Ball 3D object (position {x, y, z})
-   * @param {number} dt - Frame delta time in seconds
-   * @param {object} [extraInfo] - Vehicle physical telemetry
    */
-  update(carObject: any, ballObject: any, dt: number = 0, extraInfo: any = null) {
-    if (!carObject) return;
+  update(
+    carObject: PovCameraObject3D | null | undefined,
+    ballObject: PovCameraObject3D | null | undefined,
+    dt: number = 0,
+    extraInfo: PovCameraExtraInfo | null = null
+  ): void {
+    if (!carObject || !this.input || !this.camera || !this.direction || !this.target) return;
 
     const s = this.input;
-    const carPosX = Number.isFinite(carObject.position?.x) ? carObject.position.x : 0;
-    const carPosY = Number.isFinite(carObject.position?.y) ? carObject.position.y : 17;
-    const carPosZ = Number.isFinite(carObject.position?.z) ? carObject.position.z : 0;
+    const carPosX = Number.isFinite(carObject.position?.x) ? carObject.position!.x : 0;
+    const carPosY = Number.isFinite(carObject.position?.y) ? carObject.position!.y : 17;
+    const carPosZ = Number.isFinite(carObject.position?.z) ? carObject.position!.z : 0;
     const rawQx = carObject.quaternion?.x ?? 0;
     const rawQy = carObject.quaternion?.y ?? 0;
     const rawQz = carObject.quaternion?.z ?? 0;
@@ -214,9 +237,9 @@ export class PovCameraController {
     s[CAMERA_INPUT_INDICES.CAR_QUAT_Z] = quatOk ? rawQz : 0;
     s[CAMERA_INPUT_INDICES.CAR_QUAT_W] = quatOk ? rawQw : 1;
 
-    s[CAMERA_INPUT_INDICES.BALL_POS_X] = Number.isFinite(ballObject?.position?.x) ? ballObject.position.x : 0;
-    s[CAMERA_INPUT_INDICES.BALL_POS_Y] = Number.isFinite(ballObject?.position?.y) ? ballObject.position.y : 93.15;
-    s[CAMERA_INPUT_INDICES.BALL_POS_Z] = Number.isFinite(ballObject?.position?.z) ? ballObject.position.z : 0;
+    s[CAMERA_INPUT_INDICES.BALL_POS_X] = Number.isFinite(ballObject?.position?.x) ? ballObject!.position!.x : 0;
+    s[CAMERA_INPUT_INDICES.BALL_POS_Y] = Number.isFinite(ballObject?.position?.y) ? ballObject!.position!.y : 93.15;
+    s[CAMERA_INPUT_INDICES.BALL_POS_Z] = Number.isFinite(ballObject?.position?.z) ? ballObject!.position!.z : 0;
 
     let flags = 0;
     if (extraInfo?.onGround !== undefined) flags |= CAMERA_FLAG_ON_GROUND;
@@ -226,12 +249,12 @@ export class PovCameraController {
     s[CAMERA_INPUT_INDICES.FLAGS] = flags;
 
     s[CAMERA_INPUT_INDICES.ON_GROUND] = (extraInfo && extraInfo.onGround) ? 1 : 0;
-    s[CAMERA_INPUT_INDICES.GROUND_NORMAL_X] = Number.isFinite(extraInfo?.groundNormal?.x) ? extraInfo.groundNormal.x : 0;
-    s[CAMERA_INPUT_INDICES.GROUND_NORMAL_Y] = Number.isFinite(extraInfo?.groundNormal?.y) ? extraInfo.groundNormal.y : 1;
-    s[CAMERA_INPUT_INDICES.GROUND_NORMAL_Z] = Number.isFinite(extraInfo?.groundNormal?.z) ? extraInfo.groundNormal.z : 0;
-    s[CAMERA_INPUT_INDICES.VELOCITY_X] = Number.isFinite(extraInfo?.velocity?.x) ? extraInfo.velocity.x : 0;
-    s[CAMERA_INPUT_INDICES.VELOCITY_Y] = Number.isFinite(extraInfo?.velocity?.y) ? extraInfo.velocity.y : 0;
-    s[CAMERA_INPUT_INDICES.VELOCITY_Z] = Number.isFinite(extraInfo?.velocity?.z) ? extraInfo.velocity.z : 0;
+    s[CAMERA_INPUT_INDICES.GROUND_NORMAL_X] = Number.isFinite(extraInfo?.groundNormal?.x) ? extraInfo!.groundNormal!.x : 0;
+    s[CAMERA_INPUT_INDICES.GROUND_NORMAL_Y] = Number.isFinite(extraInfo?.groundNormal?.y) ? extraInfo!.groundNormal!.y : 1;
+    s[CAMERA_INPUT_INDICES.GROUND_NORMAL_Z] = Number.isFinite(extraInfo?.groundNormal?.z) ? extraInfo!.groundNormal!.z : 0;
+    s[CAMERA_INPUT_INDICES.VELOCITY_X] = Number.isFinite(extraInfo?.velocity?.x) ? extraInfo!.velocity!.x : 0;
+    s[CAMERA_INPUT_INDICES.VELOCITY_Y] = Number.isFinite(extraInfo?.velocity?.y) ? extraInfo!.velocity!.y : 0;
+    s[CAMERA_INPUT_INDICES.VELOCITY_Z] = Number.isFinite(extraInfo?.velocity?.z) ? extraInfo!.velocity!.z : 0;
     s[CAMERA_INPUT_INDICES.SUPERSONIC] = (extraInfo && extraInfo.supersonic) ? 1 : 0;
 
     s[CAMERA_INPUT_INDICES.FOV] = this.settings.fov;
@@ -241,8 +264,8 @@ export class PovCameraController {
     s[CAMERA_INPUT_INDICES.STIFFNESS] = this.settings.stiffness;
     s[CAMERA_INPUT_INDICES.TRANSITION_SPEED] = this.settings.transitionSpeed;
     s[CAMERA_INPUT_INDICES.ASPECT] = this.camera?.aspect ?? (16 / 9);
-    s[CAMERA_INPUT_INDICES.LOOK_X] = Number.isFinite(extraInfo?.lookX) ? extraInfo.lookX : 0;
-    s[CAMERA_INPUT_INDICES.LOOK_Y] = Number.isFinite(extraInfo?.lookY) ? extraInfo.lookY : 0;
+    s[CAMERA_INPUT_INDICES.LOOK_X] = Number.isFinite(extraInfo?.lookX) ? extraInfo!.lookX! : 0;
+    s[CAMERA_INPUT_INDICES.LOOK_Y] = Number.isFinite(extraInfo?.lookY) ? extraInfo!.lookY! : 0;
     s[CAMERA_INPUT_INDICES.SWIVEL_SPEED] = this.settings.swivelSpeed;
     s[CAMERA_INPUT_INDICES.INVERT_SWIVEL] = this.settings.invertSwivel ? 1 : 0;
 
@@ -251,8 +274,8 @@ export class PovCameraController {
       throw new Error('[FATAL] POV Camera Microkernel required: missing microkernel instance. Pure JS fallback is permanently removed.');
     }
 
-    const harness: any = getCameraDeterminismHarness();
-    let output = harness.stepAndCompare(viewKernel, s, this.sourceMode);
+    const harness = getCameraDeterminismHarness();
+    let output = harness.stepAndCompare({ stepView: (inp) => viewKernel.stepView!(inp) }, s, this.sourceMode);
     if (!output || output.length < TOTAL_VIEW_BUFFER_SIZE) {
       throw new Error('[FATAL] POV Camera Microkernel output missing or invalid. Pure JS fallback (stepFallbackView) is permanently removed.');
     }
@@ -265,7 +288,7 @@ export class PovCameraController {
       !Number.isFinite(output[CAMERA_DIR_OFFSET + 2])
     ) {
       this.resetView();
-      output = harness.stepAndCompare(viewKernel, s, this.sourceMode);
+      output = harness.stepAndCompare({ stepView: (inp) => viewKernel.stepView!(inp) }, s, this.sourceMode);
     }
 
     // 1. Position from camera microkernel
@@ -301,11 +324,11 @@ export class PovCameraController {
     }
   }
 
-  dispose() {
+  dispose(): void {
     this.destroy();
   }
 
-  destroy() {
+  destroy(): void {
     this.kernel = null;
     this.input = null;
     this.direction = null;

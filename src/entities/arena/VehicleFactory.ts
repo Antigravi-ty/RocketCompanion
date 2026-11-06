@@ -36,20 +36,28 @@ export function createDefaultVehicleLoaders() {
   };
 }
 
+export type VehicleAssetStore = Map<string, unknown> | Record<string, unknown> | null | undefined;
+
+export interface VehicleLoaderCallbacks {
+  createCustomGlbCarModel?: (visualId: string, customAsset: unknown, teamColor: number) => THREE.Object3D;
+  createProceduralSportWheel?: (radius: number, teamColor: number, wheelIndex: number) => THREE.Object3D;
+  [key: string]: unknown;
+}
+
 export function buildVehicleModel(
   rawVisual: string,
   teamColor: number,
   isBot: boolean,
-  assets: any,
-  loaders: any,
+  assets: VehicleAssetStore,
+  loaders: VehicleLoaderCallbacks,
   carHitboxesVisible: boolean
 ) {
   const visual = normalizeVisualId(rawVisual);
   const isHitbox = visual.startsWith("hitbox-");
   const isCustomGlb = hasVehicleDescriptor(visual);
 
-  let carModel: any = null;
-  let carHitbox: any = null;
+  let carModel: THREE.Object3D | null = null;
+  let carHitbox: THREE.Object3D | null = null;
   let boostOutlets: THREE.Vector3[] | null = null;
 
   if (isHitbox) {
@@ -77,7 +85,8 @@ export function buildVehicleModel(
     if (descriptor) {
       recomputeDescriptorBoostOutlets(descriptor);
     }
-    const hitboxPreset = (HITBOX_PRESETS as any)[descriptor?.hitboxPreset as any] || OCTANE_HITBOX_PRESET;
+    const hitboxKey = descriptor?.hitboxPreset || 'hitbox-octane';
+    const hitboxPreset = HITBOX_PRESETS[hitboxKey as keyof typeof HITBOX_PRESETS] || OCTANE_HITBOX_PRESET;
     const customAsset = assets instanceof Map ? assets.get(visual) : assets?.[visual];
     if (customAsset && loaders.createCustomGlbCarModel) {
       carModel = loaders.createCustomGlbCarModel(visual, customAsset, teamColor);
@@ -121,9 +130,9 @@ export function buildVehicleWheels(
   carRoot: THREE.Object3D,
   rawVisual: string,
   teamColor: number,
-  wheelSpecs: any[],
-  assets: any,
-  loaders: any
+  wheelSpecs: number[][],
+  assets: VehicleAssetStore,
+  loaders: VehicleLoaderCallbacks
 ) {
   const visual = normalizeVisualId(rawVisual);
   const isHitbox = visual.startsWith("hitbox-");
@@ -202,17 +211,17 @@ export function removeCarMeshes(carRoot: THREE.Object3D, removeWheels = false) {
   for (const child of toRemove) {
     carRoot.remove(child);
     const preserveSharedGlbGeometry = child.name === "car-body-mesh";
-    child.traverse?.((node: any) => {
+    child.traverse?.((node: THREE.Object3D & { geometry?: THREE.BufferGeometry; material?: THREE.Material | THREE.Material[] }) => {
       if (!preserveSharedGlbGeometry && node.geometry) node.geometry.dispose?.();
       if (node.material) {
         const mats = Array.isArray(node.material) ? node.material : [node.material];
-        mats.forEach((m: any) => m?.dispose?.());
+        mats.forEach((m) => m?.dispose?.());
       }
     });
   }
 }
 
-export function createWhiteboxCarModel(presetId: string, teamColor = 0x0088ff, three: any = THREE) {
+export function createWhiteboxCarModel(presetId: string, teamColor = 0x0088ff, three: typeof THREE = THREE) {
   const cfg = HITBOX_PRESETS[presetId] || HITBOX_PRESETS["hitbox-octane"];
   if (!three || !three.Group || !three.BoxGeometry || !three.MeshStandardMaterial || !three.Mesh) {
     throw new Error("[Garage] Three.js context required to build procedural car model.");

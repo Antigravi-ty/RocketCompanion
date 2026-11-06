@@ -137,11 +137,147 @@ export interface ScenarioAssertionResult {
   detail: string;
 }
 
+export interface ScenarioActiveModePort {
+  isReplayActive?: boolean;
+  replayCameraMode?: string;
+  goalResetTicks?: number;
+  isGoalReplayActive?(): boolean;
+  setReplayCameraMode?(mode: string): void;
+  skipGoalReplay?(): void;
+  resetToCleanFreeplay?(): void;
+  directorPreview?: {
+    isReplayActive?: boolean;
+    replayCameraMode?: string;
+    setReplayCameraMode?(mode: string): void;
+  } | null;
+  standaloneReplayViewer?: {
+    isActive?: boolean;
+    hasLoadedReplay?: boolean;
+    loadReplayFromBytes?(bytes: Uint8Array, fileName?: string): Promise<boolean> | boolean;
+    handleLoadRetainedMatchReplay(): void;
+    startPlayback?(): void;
+    startPlaying(): void;
+    beginInterventionPreRoll?(): void;
+    selectPovCarSlot?(slotKey: number): void;
+    selectPovSlot?(slotKey: number): void;
+    rosterSubController?: {
+      resolvedRoster: Array<{ slotKey: number; carIndex: number }>;
+      activePovCarIndex: number;
+    };
+    takeoverSubController?: {
+      cursor?: number;
+      getViewerState?(): string;
+    };
+  } | null;
+  replayRingBuffer?: {
+    capacityTicks?: number;
+    mode?: string;
+    appendSignal?(
+      tick: number,
+      sig: { signalType: number; frameId: number; param1: number; param2: number },
+    ): void;
+    getFrames?(): ReadonlyArray<{
+      signals?: ReadonlyArray<{ signalType?: number; type?: number }>;
+    }>;
+  } | null;
+  goalAndTouch?: {
+    goalResetTicks?: number;
+    getEffectiveGoalResetTicks?(): number;
+  } | null;
+  rewinderController?: {
+    startNewRecording?(): void;
+    stopRecording?(): void;
+    seekFrame?(frame: number): void;
+    resumeFromCursor?(): void;
+    _returnToLivePlayFromScrub?(): void;
+  } | null;
+}
+
+export interface ScenarioRuntimePort {
+  playerCarIndex?: number;
+  arena?: {
+    cars?: Array<({ visible: boolean } & Record<string, unknown>) | null>;
+    carBoosts?: Array<Array<{
+      physics?: { driveParticlesActive?: boolean; trailParticlesActive?: boolean };
+      goldRush?: { driveParticlesActive?: boolean; trailParticlesActive?: boolean };
+    }>>;
+  } | null;
+  simulationStage?: {
+    getCarActionState?(carIdx: number): {
+      boostLatched?: boolean;
+      hasSingleJumped?: boolean;
+      hasAirJumped?: boolean;
+    };
+  } | null;
+  authoritativeServer?: {
+    enterStateOnlyMode?(snap: Float32Array | null, tick: number): void;
+    beginInterveneCountdown?(seconds: number, snap: Float32Array | null): void;
+    resumePhysicsFromState?(snap: Float32Array | null, tick: number): void;
+    fallbackManager?: {
+      systemControl?: {
+        isStateOnlyMode?: boolean;
+        lastSystemControlSignal?: number;
+      } | null;
+    } | null;
+  } | null;
+  networkReconciler?: object | null;
+  networkManager?: {
+    sessionCoordinator?: {
+      stopOnlineServer?(opts?: { rebindLoopback?: boolean }): Promise<void> | void;
+      enableNetworkPrediction?(
+        enabled: boolean,
+        opts?: { forceFallback?: boolean },
+      ): Promise<unknown> | unknown;
+    } | null;
+  } | null;
+  modeManager: {
+    setActiveMode(mode: string): void;
+    getActiveMode(): ScenarioActiveModePort;
+  };
+  match?: {
+    state?: {
+      phase?: string;
+      mode?: string;
+      blueScore?: number;
+      score?: { blue?: number; orange?: number };
+    } | null;
+  } | null;
+  physics?: {
+    numCars: number;
+    addCar?(team: number, preset: string): number | void;
+    resetKickoff?(seed?: number): void;
+    setControls?(carIndex: number, controls: Partial<CarControlsInput>): void;
+    step?(ticks?: number): void;
+    getCarStateView?(carIndex: number): {
+      posX: number;
+      posY: number;
+      posZ: number;
+      velX: number;
+      velY: number;
+      velZ: number;
+      boost: number;
+      isOnGround: boolean | number;
+      isJumping?: boolean | number;
+    } | null;
+    saveCompactState?(): Float32Array;
+  } | null;
+  lastSystemControlSignal?: number;
+  resetKickoff?(seed?: number): void;
+  isGoalReplayCameraOverrideActive?(): boolean;
+}
+
+export interface ScenarioLoopbackSimulatorPort {
+  startSixCarLoopbackSession(durationSeconds?: number): Promise<void>;
+  triggerForceStartMatch(durationSeconds?: number): void;
+  collectTelemetry(): MultiplayerLoopbackTelemetry;
+  stop(): Promise<void> | void;
+}
+
 export interface ScenarioStepContext {
   readonly tick: number;
   readonly virtualTimeMs: number;
-  readonly runtime: any;
-  readonly loopbackSimulator: any;
+  readonly runtime: ScenarioRuntimePort;
+  readonly loopbackSimulator: ScenarioLoopbackSimulatorPort;
   setLocalCarControls(controls: Partial<CarControlsInput> | null): void;
   setBallState(state: {
     pos?: [number, number, number];

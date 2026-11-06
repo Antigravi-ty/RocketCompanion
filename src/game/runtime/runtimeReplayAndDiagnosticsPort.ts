@@ -80,7 +80,7 @@ export interface RuntimeDomainPortOwner {
     } | null;
     setMode?(modeId: string): void;
   } | null;
-  readonly trainingOptions: {
+  trainingOptions: {
     boostOption?: string;
     disableGoalReset?: boolean;
     showCarHitbox?: boolean;
@@ -279,11 +279,9 @@ export function createRuntimeReplayPort(owner: RuntimeDomainPortOwner): RuntimeR
         owner.physics?.setReplayRecordingActive?.(true);
       }
       session.authoritativeServer?.hostReplayRingBuffer?.clear?.();
+      session.networkReconciler?.resetStats();
       if (session.networkReconciler?.metrics) {
         session.networkReconciler.metrics.mispredictions = 0;
-        session.networkReconciler.metrics.totalCorrections = 0;
-        session.networkReconciler.metrics.lastCorrectionDelta = 0;
-        session.networkReconciler.metrics.maxCorrectionDelta = 0;
       }
       const recorder =
         (session.networkReconciler?.telemetryCollector.recorder as
@@ -311,7 +309,7 @@ export function createRuntimeReplayPort(owner: RuntimeDomainPortOwner): RuntimeR
     retainAndExportStandaloneClientReplay: (isLobby) => {
       const clientFrames = Number(owner.physics?.getReplayFrameCount?.() ?? 0);
       const freeplayMode = owner.modeManager?.modes?.get?.('freeplay') as
-        | { replayRingBuffer?: { size?: number; getRecentFrames?(): unknown[] } }
+        | { replayRingBuffer?: typeof owner.networkManager.sessionCoordinator.authoritativeServer extends { hostReplayRingBuffer: infer R } | null ? R : never }
         | undefined;
       const fallbackRingBuffer =
         owner.networkManager.sessionCoordinator.authoritativeServer?.hostReplayRingBuffer ||

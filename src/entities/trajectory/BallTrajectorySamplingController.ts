@@ -104,6 +104,28 @@ export class BallTrajectorySamplingController {
     this.lastUpdatedTick = -1;
   }
 
+  public notifyCarBallHit(tick?: number): void {
+    this.pendingCarBallHit = true;
+    if (typeof tick === 'number' && Number.isFinite(tick)) {
+      this.lastCarBallHitTick = tick;
+    }
+  }
+
+  public notifyBallStateReset(): void {
+    this.pendingIntentionalReset = true;
+  }
+
+  public markStaticPreviewUpdate(): void {
+    this.lastUpdateKind = 'static-preview';
+  }
+
+  public markSleeping(): void {
+    this.wasMovingFast = false;
+    this.pendingCarBallHit = false;
+    this.lastUpdateKind = 'sleeping';
+    this.lastWasmUpdateUs = 0;
+  }
+
   private _updateBounceMetrics(rawSource: Float32Array | null, visibleSlices: number): void {
     const bounceRes = detectTrajectoryBounces(
       rawSource,

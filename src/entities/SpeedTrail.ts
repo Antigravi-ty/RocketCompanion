@@ -69,36 +69,41 @@ export function createSpeedTrailGlowTexture() {
   return texture;
 }
 
+export interface SpeedTrailPoint {
+  position: THREE.Vector3;
+  age: number;
+}
+
 export class SpeedTrail {
-  public side: any;
-  public opacity: any;
-  public across: any;
-  public activationGlow: any;
-  public activationGlowAge: any;
-  public cameraPosition: any;
-  public emissionClock: any;
-  public fallbackAxis: any;
-  public geometry: any;
-  public geometryDirty: any;
-  public glowGeometry: any;
-  public glowMaterial: any;
-  public hasSourcePosition: any;
-  public hasSpawnedStartupGlow: any;
-  public indices: any;
-  public lifeAlpha: any;
-  public lifeAlphaAttribute: any;
-  public material: any;
-  public object: any;
-  public pointPool: any;
-  public points: any;
-  public positionAttribute: any;
-  public positions: any;
-  public previousSourcePosition: any;
-  public ribbon: any;
-  public sourcePosition: any;
-  public tangent: any;
-  public timeDilation: any;
-  public viewDirection: any;
+  public side: THREE.Vector3;
+  public opacity: number;
+  public across: Float32Array;
+  public activationGlow: THREE.Sprite;
+  public activationGlowAge: number;
+  public cameraPosition: THREE.Vector3;
+  public emissionClock: number;
+  public fallbackAxis: THREE.Vector3;
+  public geometry: THREE.BufferGeometry;
+  public geometryDirty: boolean;
+  public glowGeometry: THREE.BufferGeometry | undefined;
+  public glowMaterial: THREE.SpriteMaterial | undefined;
+  public hasSourcePosition: boolean;
+  public hasSpawnedStartupGlow: boolean;
+  public indices: Uint16Array;
+  public lifeAlpha: Float32Array;
+  public lifeAlphaAttribute: THREE.BufferAttribute;
+  public material: THREE.ShaderMaterial;
+  public object: THREE.Group;
+  public pointPool: SpeedTrailPoint[];
+  public points: SpeedTrailPoint[];
+  public positionAttribute: THREE.BufferAttribute;
+  public positions: Float32Array;
+  public previousSourcePosition: THREE.Vector3;
+  public ribbon: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  public sourcePosition: THREE.Vector3;
+  public tangent: THREE.Vector3;
+  public timeDilation: number;
+  public viewDirection: THREE.Vector3;
 
   constructor() {
     const {
@@ -218,7 +223,7 @@ export class SpeedTrail {
 
   reset() {
     while (this.points.length > 0) {
-      this.pointPool.push(this.points.pop());
+      this.pointPool.push(this.points.pop()!);
     }
     this.emissionClock = 0;
     this.hasSourcePosition = false;
@@ -251,7 +256,7 @@ export class SpeedTrail {
 
     if (sourcePos.distanceTo(this.previousSourcePosition) > SPEED_TRAIL_TELEPORT_RESET_DISTANCE) {
       while (this.points.length > 0) {
-        this.pointPool.push(this.points.pop());
+        this.pointPool.push(this.points.pop()!);
       }
       this.emissionClock = 0;
       this.previousSourcePosition.copy(sourcePos);
@@ -262,7 +267,7 @@ export class SpeedTrail {
       this.points[i].age += scaledDeltaTime;
     }
     while (this.points.length && this.points[this.points.length - 1].age >= SPEED_TRAIL_MAX_POINT_AGE) {
-      this.pointPool.push(this.points.pop());
+      this.pointPool.push(this.points.pop()!);
     }
 
     if (isSupersonic) {
@@ -272,7 +277,7 @@ export class SpeedTrail {
         this.emissionClock -= interval;
         const subTime = this.emissionClock / this.timeDilation;
         const factor = clampedDt > 0 ? THREE.MathUtils.clamp(1 - subTime / clampedDt, 0, 1) : 1;
-        const pt = this.points.length >= SPEED_TRAIL_MAX_POINTS ? this.points.pop() : this.pointPool.pop();
+        const pt = (this.points.length >= SPEED_TRAIL_MAX_POINTS ? this.points.pop() : this.pointPool.pop())!;
         pt.position.lerpVectors(this.previousSourcePosition, sourcePos, factor);
         pt.age = this.emissionClock;
         this.points.unshift(pt);

@@ -2,27 +2,43 @@ import { DEFAULT_CAR_CONTROLS } from '../../../ai/experimental/ExperimentalBotAg
 import { RocketSimPhysicsEngine } from '../../../physics/RocketSimPhysicsEngine.ts';
 import { useSubsystemIsolationLabStore } from '../../runtimeUiPort.ts';
 import {
-  KICKOFF_DUEL_MODELS,
-  KICKOFF_DUEL_PAIRINGS,
-  KICKOFF_DUEL_SLOTS,
-  type KickoffStepTraceEntry,
-  buildCarStepTraceEntry,
-  classifyBallOutcome,
-  createKickoffDuelHelpers,
-  decideCarControlsForModel,
-  ensureKickoffDuelModelsLoaded,
-  resetSimToKickoffSlotAndSettle,
+  KICKOFF_DUEL_MODELS, KICKOFF_DUEL_PAIRINGS, KICKOFF_DUEL_SLOTS,
+  type KickoffStepTraceEntry, buildCarStepTraceEntry, classifyBallOutcome,
+  createKickoffDuelHelpers, decideCarControlsForModel, ensureKickoffDuelModelsLoaded,
+  resetKickoffDuelEnsemble, resetSimToKickoffSlotAndSettle,
 } from './kickoffDuelSimulationPipeline.ts';
 
-let cachedHeadlessSim: any = null;
+export interface KickoffDuelSoloBenchmarkResult {
+  modelId: string; shortName: string; hasOpponentObs: boolean;
+  slotTicks: number[]; avgTicks: number; avgSec: number;
+}
 
-async function getOrCreateHeadlessSim(): Promise<any> {
+export interface KickoffDuelMatrixSlotResult {
+  slotIndex: number; slotCode: string; touchTick: number; touchSec: number;
+  winner: string; blueDist: number; orangeDist: number;
+  endBallX: number; endBallY: number; endBallVy: number; outcome: string;
+}
+
+export interface KickoffDuelMatrixPairingResult {
+  pairId: string; label: string; category: string; blue: string; orange: string;
+  blueWins: number; orangeWins: number; ties: number; slots: KickoffDuelMatrixSlotResult[];
+}
+
+export interface KickoffDiagnosticTrajectoryTrace {
+  modelId: string; label: string; slotIndex: number; slotCode: string;
+  channelMode: string; touchTick: number; touchSec: number; maxCarSpeed: number;
+  steps: KickoffStepTraceEntry[];
+}
+
+let cachedHeadlessSim: RocketSimPhysicsEngine | null = null;
+
+async function getOrCreateHeadlessSim(): Promise<RocketSimPhysicsEngine> {
   if (cachedHeadlessSim && cachedHeadlessSim.isInitialized) {
     return cachedHeadlessSim;
   }
   const sim = new RocketSimPhysicsEngine();
   await sim.init({
-    collisionData: (RocketSimPhysicsEngine as any).cachedCollisionData,
+    collisionData: RocketSimPhysicsEngine.cachedCollisionData ?? undefined,
     freshInstance: true,
     isolated: true,
   });
@@ -34,11 +50,7 @@ function yieldToBrowser(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function triggerBrowserDownload(
-  filename: string,
-  content: string,
-  mimeType: string
-): void {
+function triggerBrowserDownload(filename: string, content: string, mimeType: string): void {
   if (typeof document === 'undefined') return;
   const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
@@ -53,39 +65,15 @@ function triggerBrowserDownload(
 
 export function convertStepTracesToCsv(
   seriesList: Array<{
-    modelId: string;
-    role: string;
-    slotCode: string;
-    channelMode: string;
+    modelId: string; role: string; slotCode: string; channelMode: string;
     steps: KickoffStepTraceEntry[];
   }>
 ): string {
   const header = [
-    'model',
-    'role',
-    'slot',
-    'channel_mode',
-    'tick',
-    'time_sec',
-    'on_ground',
-    'has_flip',
-    'is_flipping',
-    'boost_amt',
-    'car_x',
-    'car_y',
-    'car_z',
-    'car_speed',
-    'dist_to_ball',
-    'keys',
-    'throttle',
-    'steer',
-    'pitch',
-    'yaw',
-    'roll',
-    'jump',
-    'boost',
-    'handbrake',
-    'prev_act_0',
+    'model', 'role', 'slot', 'channel_mode', 'tick', 'time_sec', 'on_ground',
+    'has_flip', 'is_flipping', 'boost_amt', 'car_x', 'car_y', 'car_z',
+    'car_speed', 'dist_to_ball', 'keys', 'throttle', 'steer', 'pitch', 'yaw',
+    'roll', 'jump', 'boost', 'handbrake', 'prev_act_0',
   ].join(',');
 
   const rows = [header];
@@ -138,7 +126,7 @@ export async function runFullKickoffDuelMatrixBenchmark(): Promise<void> {
 
     const curStore = useSubsystemIsolationLabStore.getState();
     const channelMode = curStore.kickoffDuelChannelMode || 'keyboard_coupled';
-    const helpers = createKickoffDuelHelpers(channelMode);
+    let helpers = createKickoffDuelHelpers(channelMode);
     const cutoffDelayTicks = Math.max(
       0,
       Math.round((curStore.kickoffDuelCutoffDelaySec ?? 0.5) * 120)
@@ -148,7 +136,7 @@ export async function runFullKickoffDuelMatrixBenchmark(): Promise<void> {
       channelMode,
     };
 
-    const soloResults: any[] = [];
+    const soloResults: KickoffDuelSoloBenchmarkResult[] = [];
     for (const modelMeta of KICKOFF_DUEL_MODELS) {
       const slotTicks: number[] = [];
       for (let s = 0; s < 5; s++) {
@@ -160,15 +148,12 @@ export async function runFullKickoffDuelMatrixBenchmark(): Promise<void> {
           rot: [0, -Math.PI / 2, 0],
           boost: 0,
         });
-        helpers.koV2Blue.reset();
-        helpers.koV1Blue.resetTracker();
         helpers.expBlue.setBotType(modelMeta.id === 'necto' ? 'necto' : 'nexto');
-        helpers.expBlue.reset();
-        helpers.blueCtrl = { ...DEFAULT_CAR_CONTROLS };
+        helpers = resetKickoffDuelEnsemble(helpers);
 
         let touchTick = 420;
         for (let t = 0; t < 420; t++) {
-          const ctrl0 = decideCarControlsForModel(
+          const decision0 = decideCarControlsForModel(
             sim,
             modelMeta.id,
             0,
@@ -177,7 +162,8 @@ export async function runFullKickoffDuelMatrixBenchmark(): Promise<void> {
             helpers,
             decideOpts
           );
-          sim.setControls(0, ctrl0);
+          helpers = decision0.nextHelpers;
+          sim.setControls(0, decision0.controls);
           sim.setControls(1, DEFAULT_CAR_CONTROLS);
           sim.step(1);
           const bs = sim.getBallStateView();
@@ -205,25 +191,18 @@ export async function runFullKickoffDuelMatrixBenchmark(): Promise<void> {
       await yieldToBrowser();
     }
 
-    const matrixResults: any[] = [];
+    const matrixResults: KickoffDuelMatrixPairingResult[] = [];
     for (const pair of KICKOFF_DUEL_PAIRINGS) {
-      const slots: any[] = [];
+      const slots: KickoffDuelMatrixSlotResult[] = [];
       let blueWins = 0;
       let orangeWins = 0;
       let ties = 0;
 
       for (let s = 0; s < 5; s++) {
         resetSimToKickoffSlotAndSettle(sim, s);
-        helpers.koV2Blue.reset();
-        helpers.koV2Orange.reset();
-        helpers.koV1Blue.resetTracker();
-        helpers.koV1Orange.resetTracker();
         helpers.expBlue.setBotType(pair.blue === 'necto' ? 'necto' : 'nexto');
         helpers.expOrange.setBotType(pair.orange === 'necto' ? 'necto' : 'nexto');
-        helpers.expBlue.reset();
-        helpers.expOrange.reset();
-        helpers.blueCtrl = { ...DEFAULT_CAR_CONTROLS };
-        helpers.orangeCtrl = { ...DEFAULT_CAR_CONTROLS };
+        helpers = resetKickoffDuelEnsemble(helpers);
 
         let touched = false;
         let touchTick = -1;
@@ -237,7 +216,7 @@ export async function runFullKickoffDuelMatrixBenchmark(): Promise<void> {
             sim.setControls(0, DEFAULT_CAR_CONTROLS);
             sim.setControls(1, DEFAULT_CAR_CONTROLS);
           } else {
-            const c0Ctrl = decideCarControlsForModel(
+            const dec0 = decideCarControlsForModel(
               sim,
               pair.blue,
               0,
@@ -246,7 +225,8 @@ export async function runFullKickoffDuelMatrixBenchmark(): Promise<void> {
               helpers,
               decideOpts
             );
-            const c1Ctrl = decideCarControlsForModel(
+            helpers = dec0.nextHelpers;
+            const dec1 = decideCarControlsForModel(
               sim,
               pair.orange,
               1,
@@ -255,8 +235,9 @@ export async function runFullKickoffDuelMatrixBenchmark(): Promise<void> {
               helpers,
               decideOpts
             );
-            sim.setControls(0, c0Ctrl);
-            sim.setControls(1, c1Ctrl);
+            helpers = dec1.nextHelpers;
+            sim.setControls(0, dec0.controls);
+            sim.setControls(1, dec1.controls);
           }
           sim.step(1);
 
@@ -440,9 +421,9 @@ export async function exportKickoffDuelDiagnosticsData(
       },
     ];
 
-    const traces: any[] = [];
+    const traces: KickoffDiagnosticTrajectoryTrace[] = [];
     for (const cfg of configs) {
-      const helpers = createKickoffDuelHelpers(cfg.channelMode);
+      let helpers = createKickoffDuelHelpers(cfg.channelMode);
       for (let s = 0; s < 5; s++) {
         resetSimToKickoffSlotAndSettle(sim, s);
         sim.setCarState(1, {
@@ -452,21 +433,20 @@ export async function exportKickoffDuelDiagnosticsData(
           rot: [0, -Math.PI / 2, 0],
           boost: 0,
         });
-        helpers.koV2Blue.reset();
-        helpers.koV1Blue.resetTracker();
         helpers.expBlue.setBotType(cfg.modelId === 'necto' ? 'necto' : 'nexto');
-        helpers.expBlue.reset();
-        helpers.blueCtrl = { ...DEFAULT_CAR_CONTROLS };
+        helpers = resetKickoffDuelEnsemble(helpers);
 
         const steps: KickoffStepTraceEntry[] = [];
         let touchTick = 420;
         let maxCarSpeed = 0;
 
         for (let t = 0; t < 380; t++) {
-          const ctrl0 = decideCarControlsForModel(sim, cfg.modelId, 0, 0, t, helpers, {
+          const dec0 = decideCarControlsForModel(sim, cfg.modelId, 0, 0, t, helpers, {
             nextoScripted: false,
             channelMode: cfg.channelMode,
           });
+          helpers = dec0.nextHelpers;
+          const ctrl0 = dec0.controls;
           if (t % 4 === 0) {
             const stepEntry = buildCarStepTraceEntry(
               sim,
@@ -547,11 +527,12 @@ export async function exportKickoffDuelDiagnosticsData(
       kickoffDuelDiagnosticRunning: false,
       kickoffDuelDiagnosticSummary: `Exported 25 full trajectories (4 models + coupled/separated comparison across 5 slots) as ${format.toUpperCase()}.`,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[KickoffDuelDiagnostics] Export failed:', err);
+    const message = err instanceof Error ? err.message : String(err);
     useSubsystemIsolationLabStore.getState().updateLiveTelemetry({
       kickoffDuelDiagnosticRunning: false,
-      kickoffDuelDiagnosticSummary: `Export failed: ${err?.message || String(err)}`,
+      kickoffDuelDiagnosticSummary: `Export failed: ${message}`,
     });
   }
 }

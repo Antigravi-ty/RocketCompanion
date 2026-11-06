@@ -1,4 +1,9 @@
 import { MATCH_SIGNALS } from '../../../physics/RocketSimConstants.ts';
+import type {
+  ReplayRingBuffer,
+  ReplaySignalEntry,
+} from '../../../replay/ReplayRingBuffer.ts';
+import type { LabPhysicsEnginePort } from './LabTabTypes.ts';
 
 export type GoalReplayBenchScenario =
   | 'instant_kickoff_goal'
@@ -10,6 +15,17 @@ export type GoalReplayBenchScenario =
   | 'clear_replay_buffer'
   | 'export_replay_json'
   | string;
+
+export interface GoalReplayStoreConfigSnapshot {
+  goalReplayLookbackSec?: number;
+  goalReplayPostGoalSec?: number;
+  goalReplayLastKickoffFrameId?: number;
+  goalReplayIncidentFrameId?: number;
+  goalReplayRequestedStartFrameId?: number;
+  goalReplayEffectiveStartFrameId?: number;
+  goalReplayEffectiveEndFrameId?: number;
+  goalReplayClampedByKickoff?: boolean;
+}
 
 export interface ReplayExportPayload {
   schema: string;
@@ -27,7 +43,7 @@ export interface ReplayExportPayload {
     effectiveEndFrameId: number;
     clampedByKickoff: boolean;
   };
-  signals: any[];
+  signals: ReplaySignalEntry[];
   frames: Array<{
     tick: number;
     ballPos: [number, number, number];
@@ -36,9 +52,9 @@ export interface ReplayExportPayload {
 }
 
 export function buildMatchReplayExportPayload(
-  ringBuffer: any,
+  ringBuffer: ReplayRingBuffer | null | undefined,
   wasmFramesCount: number,
-  storeState: any,
+  storeState: GoalReplayStoreConfigSnapshot,
   exportedAtIso = new Date().toISOString()
 ): ReplayExportPayload {
   const framesCount = ringBuffer?.size || 0;
@@ -47,7 +63,7 @@ export function buildMatchReplayExportPayload(
     ballPos: [number, number, number];
     car0Pos: [number, number, number];
   }> = [];
-  const collectedSignals: any[] = [];
+  const collectedSignals: ReplaySignalEntry[] = [];
 
   if (ringBuffer && framesCount > 0) {
     const allFrames = ringBuffer.getRecentFrames(Math.min(framesCount, 1800));
@@ -87,14 +103,14 @@ export function buildMatchReplayExportPayload(
     ringBufferFramesRecorded: framesCount,
     wasmReplayBufferFramesRecorded: wasmFramesCount,
     goalReplayConfig: {
-      lookbackSeconds: storeState.goalReplayLookbackSec,
-      postGoalSeconds: storeState.goalReplayPostGoalSec,
-      lastKickoffWillStartFrameId: storeState.goalReplayLastKickoffFrameId,
-      lastGoalIncidentFrameId: storeState.goalReplayIncidentFrameId,
-      requestedStartFrameId: storeState.goalReplayRequestedStartFrameId,
-      effectiveStartFrameId: storeState.goalReplayEffectiveStartFrameId,
-      effectiveEndFrameId: storeState.goalReplayEffectiveEndFrameId,
-      clampedByKickoff: storeState.goalReplayClampedByKickoff,
+      lookbackSeconds: storeState.goalReplayLookbackSec ?? 10,
+      postGoalSeconds: storeState.goalReplayPostGoalSec ?? 3,
+      lastKickoffWillStartFrameId: storeState.goalReplayLastKickoffFrameId ?? 0,
+      lastGoalIncidentFrameId: storeState.goalReplayIncidentFrameId ?? 0,
+      requestedStartFrameId: storeState.goalReplayRequestedStartFrameId ?? 0,
+      effectiveStartFrameId: storeState.goalReplayEffectiveStartFrameId ?? 0,
+      effectiveEndFrameId: storeState.goalReplayEffectiveEndFrameId ?? 0,
+      clampedByKickoff: Boolean(storeState.goalReplayClampedByKickoff),
     },
     signals: collectedSignals,
     frames: sampleFrames,
@@ -102,13 +118,13 @@ export function buildMatchReplayExportPayload(
 }
 
 export function applyInstantKickoffGoalScenario(
-  physics: any,
-  ringBuffer: any
+  physics: LabPhysicsEnginePort,
+  ringBuffer: ReplayRingBuffer | null | undefined
 ): number {
   physics.resetGoalLatch?.();
   physics.resetKickoff(0, false);
   const currentTick = Math.floor(physics.getHeaderView?.()?.tickCount || 0);
-  ringBuffer.recordFrame(currentTick, physics.state, [
+  ringBuffer?.recordFrame(currentTick, physics.state, [
     {
       signalType: MATCH_SIGNALS.KICKOFF_WILL_START,
       frameId: currentTick,
@@ -141,8 +157,8 @@ export function applyInstantKickoffGoalScenario(
 }
 
 export function applyNormalPlayGoalScenario(
-  physics: any,
-  ringBuffer: any,
+  physics: LabPhysicsEnginePort,
+  ringBuffer: ReplayRingBuffer | null | undefined,
   lastKickoffFrame: number
 ): void {
   physics.resetGoalLatch?.();
@@ -175,7 +191,7 @@ export function applyNormalPlayGoalScenario(
       });
       physics.step(1);
       const t = Math.floor(physics.getHeaderView?.()?.tickCount || 0);
-      ringBuffer.recordFrame(t, physics.state);
+      ringBuffer?.recordFrame(t, physics.state);
       physics.recordReplayFrame?.();
     }
   }

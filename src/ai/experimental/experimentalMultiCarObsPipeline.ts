@@ -117,6 +117,17 @@ export const NEXTO_ACTION_TABLE: ReadonlyArray<Readonly<CarControls>> = (() => {
   return actions.map((a) => Object.freeze(a));
 })();
 
+export interface BoostPadDescriptor {
+  pos: ArrayLike<number>;
+  isBig?: boolean | number;
+}
+
+export interface DynamicPerceiverObs {
+  query: Float32Array;
+  entities: Float32Array;
+  numEntities: number;
+}
+
 /**
  * Scripted kickoff behavior for Nexto (fast speed-flip kickoff, symmetric for left/right spawns).
  */
@@ -134,30 +145,32 @@ export function getNextoKickoffControls(
   const normX = team === 0 ? cv.posX : -cv.posX;
   const sign = normX < -10 ? -1 : 1;
 
-  const c: CarControls = { ...DEFAULT_CAR_CONTROLS, throttle: 1 };
   if (kickoffTick < 44) {
-    c.boost = true;
-  } else if (kickoffTick < 60) {
-    c.boost = true;
-    c.steer = -1 * sign;
-  } else if (kickoffTick < 68) {
-    c.boost = true;
-    c.jump = true;
-  } else if (kickoffTick < 72) {
-    c.boost = true;
-  } else if (kickoffTick < 76) {
-    c.boost = true;
-    c.jump = true;
-    c.yaw = 0.8 * sign;
-    c.pitch = -0.7;
-  } else if (kickoffTick < 128) {
-    c.boost = true;
-    c.pitch = 1;
-  } else {
-    c.roll = 1 * sign;
-    c.pitch = 0.5;
+    return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true };
   }
-  return c;
+  if (kickoffTick < 60) {
+    return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true, steer: -1 * sign };
+  }
+  if (kickoffTick < 68) {
+    return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true, jump: true };
+  }
+  if (kickoffTick < 72) {
+    return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true };
+  }
+  if (kickoffTick < 76) {
+    return {
+      ...DEFAULT_CAR_CONTROLS,
+      throttle: 1,
+      boost: true,
+      jump: true,
+      yaw: 0.8 * sign,
+      pitch: -0.7,
+    };
+  }
+  if (kickoffTick < 128) {
+    return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true, pitch: 1 };
+  }
+  return { ...DEFAULT_CAR_CONTROLS, throttle: 1, roll: 1 * sign, pitch: 0.5 };
 }
 
 /**
@@ -202,12 +215,12 @@ export function resolveActiveCars(
  */
 export function buildDynamicNextoObs(
   simState: Float32Array,
-  boostPads: any,
-  currentControls: any,
+  boostPads: ReadonlyArray<BoostPadDescriptor> | null | undefined,
+  currentControls: Partial<CarControls>,
   selfCarIndex: number,
   selfTeam: number,
   activeCars: ActiveCarEntry[] | null = null
-) {
+): DynamicPerceiverObs {
   const normSelfTeam = selfTeam === 1 ? 1 : selfTeam === 0 ? 0 : selfCarIndex % 2;
   const roster = resolveActiveCars(simState, activeCars);
   const orderedCars: ActiveCarEntry[] = [];
@@ -278,7 +291,7 @@ export function buildDynamicNextoObs(
 
   // 3. Boost pad entities
   for (let p = 0; p < numPads; p++) {
-    const pad = boostPads[p];
+    const pad = boostPads![p];
     const pOff = (numCars + 1 + p) * ENTITY_DIMS;
     sPadView.attach(simState, p);
     entities[pOff + 4] = 1; // IS_BOOST
@@ -356,15 +369,15 @@ export function buildDynamicNextoObs(
  * @returns {{ query: Float32Array, entities: Float32Array, numEntities: number }}
  */
 export function buildDynamicNectoObs(
-  simState: any,
-  boostPads: any,
-  currentControls: any,
+  simState: Float32Array,
+  boostPads: ReadonlyArray<BoostPadDescriptor> | null | undefined,
+  currentControls: Partial<CarControls>,
   selfCarIndex: number,
   selfTeam: number,
-  activeCars: any[] | null = null,
+  activeCars: ActiveCarEntry[] | null = null,
   demoTimers: Float64Array | Float32Array | null = null,
   boostTimers: Float64Array | Float32Array | null = null
-) {
+): DynamicPerceiverObs {
   const normSelfTeam = selfTeam === 1 ? 1 : selfTeam === 0 ? 0 : selfCarIndex % 2;
   const roster = resolveActiveCars(simState, activeCars);
   const orderedCars: Array<{ carIndex: number; team: number }> = [];
@@ -455,7 +468,7 @@ export function buildDynamicNectoObs(
 
   // 3. Boost Pads at entities (1 + numCars) .. (numEntities - 1)
   for (let p = 0; p < numPads; p++) {
-    const pad = boostPads[p];
+    const pad = boostPads![p];
     const h = (1 + numCars + p) * ENTITY_DIMS;
     sPadView.attach(simState, p);
     const isActive = sPadView.isActive ? 1 : 0;
@@ -464,7 +477,7 @@ export function buildDynamicNectoObs(
     entities[h + 5] = pad.pos[0];
     entities[h + 6] = pad.pos[1];
     entities[h + 7] = pad.pos[2];
-    entities[h + 20] = 0.12 + 0.88 * +pad.isBig;
+    entities[h + 20] = 0.12 + 0.88 * +(pad.isBig ?? false);
 
     if (boostTimers && p < boostTimers.length) {
       if (isActive === 1 && boostTimers[p] === 0) {

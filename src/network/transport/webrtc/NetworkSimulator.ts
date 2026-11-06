@@ -26,6 +26,8 @@ export interface NetworkSimulatorStats {
   pongsReceived: number;
 }
 
+export type SimulatedPayload = Uint8Array | ArrayBuffer | string | Record<string, unknown> | unknown;
+
 export class NetworkSimulator {
   extraUplinkMs: number;
   extraDownlinkMs: number;
@@ -33,8 +35,8 @@ export class NetworkSimulator {
   packetLossRate: number;
   pingIntervalMs: number;
   isLoopback: boolean;
-  inboundQueue: any[] = [];
-  outboundQueue: Array<{ payload: any; deliverAt: number }> = [];
+  inboundQueue: SimulatedPayload[] = [];
+  outboundQueue: Array<{ payload: SimulatedPayload; deliverAt: number }> = [];
   baseMeasuredRttMs = 0;
   measuredRttMs = 0;
   measuredJitterMs = 0;
@@ -75,28 +77,30 @@ export class NetworkSimulator {
     };
   }
 
-  static clonePayload(packet: any): any {
+  static clonePayload<T>(packet: T): T {
     if (packet instanceof Uint8Array) {
-      return new Uint8Array(packet);
+      return new Uint8Array(packet) as unknown as T;
     }
     if (packet instanceof ArrayBuffer) {
-      return packet.slice(0);
+      return packet.slice(0) as unknown as T;
     }
     if (ArrayBuffer.isView(packet)) {
       return new Uint8Array(
         packet.buffer.slice(packet.byteOffset, packet.byteOffset + packet.byteLength)
-      );
+      ) as unknown as T;
     }
     return packet;
   }
 
-  clonePayload(packet: any): any {
+  clonePayload<T>(packet: T): T {
     return NetworkSimulator.clonePayload(packet);
   }
 
-  getPayloadByteLength(packet: any): number {
+  getPayloadByteLength(packet: SimulatedPayload): number {
     if (!packet) return 0;
-    if (typeof packet.byteLength === 'number') return packet.byteLength;
+    if (typeof (packet as { byteLength?: number }).byteLength === 'number') {
+      return (packet as { byteLength: number }).byteLength;
+    }
     if (typeof packet === 'string') return packet.length;
     return 0;
   }
@@ -335,9 +339,9 @@ export class NetworkSimulator {
     return this.calculateUplinkDelay();
   }
 
-  scheduleSend(
-    packet: any,
-    transmitFn: (cloned: any) => boolean | void,
+  scheduleSend<T>(
+    packet: T,
+    transmitFn: (cloned: T) => boolean | void,
     nowMs = performance.now()
   ): boolean {
     this.stats.packetsSent++;
@@ -370,9 +374,9 @@ export class NetworkSimulator {
     return doTransmit();
   }
 
-  receivePayload(
-    payload: any,
-    onDeliver?: ((delivered: any) => void) | null,
+  receivePayload<T>(
+    payload: T,
+    onDeliver?: ((delivered: T) => void) | null,
     nowMs = performance.now()
   ): boolean {
     if (!payload) return false;
@@ -422,12 +426,12 @@ export class NetworkSimulator {
     }
   }
 
-  drainInboundQueue(nowMs = performance.now()): any[] {
-    const delivered: any[] = [];
-    const remaining: any[] = [];
+  drainInboundQueue(nowMs = performance.now()): SimulatedPayload[] {
+    const delivered: SimulatedPayload[] = [];
+    const remaining: SimulatedPayload[] = [];
 
     for (let i = 0; i < this.inboundQueue.length; i++) {
-      const item = this.inboundQueue[i];
+      const item = this.inboundQueue[i] as { deliverAt?: number; payload?: SimulatedPayload };
       if (item && item.deliverAt !== undefined) {
         if (item.deliverAt <= nowMs) {
           delivered.push(item.payload);

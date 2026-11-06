@@ -1,14 +1,11 @@
-import { BaseGameMode } from './BaseGameMode.ts';
+import { BaseGameMode, type GameModeRuntimePort } from './BaseGameMode.ts';
 import { hudStore, useAppStore } from '../runtimeUiPort.ts';
 import { audioConfig } from '../../ui-core/config/audioConfig';
 import { ReplayTimelineController } from '../../replay/ReplayTimelineController.ts';
-import { decodeReplayDirectorTelemetryFromState } from '../../replay/ReplayFrameInterpolator.ts';
-import { captureRuntimeReplayCarEntries } from '../../replay/replayDirectorCarRosterPipeline.ts';
 import { PodiumCelebrationController } from './PodiumCelebrationController.ts';
 import {
-  beginGoalReplaySession,
   endGoalReplaySession,
-  stepGoalReplaySessionFrame,
+  stepNetworkStreamedGoalReplayFrame,
   type GoalReplayCameraMode,
 } from './shared/GoalReplaySessionCoordinator.ts';
 import type { FrameContext } from '../pipeline/FramePipeline.ts';
@@ -18,13 +15,13 @@ import type { FrameContext } from '../pipeline/FramePipeline.ts';
  * Competitive match mode with authoritative match rules, 256MB WASM Replay Timeline Scrubbing,
  * Goal Replay highlight camera, and Post-Match Podium Showcase celebrations.
  */
-export class BotMatchMode extends BaseGameMode {
+export class BotMatchMode extends BaseGameMode<GameModeRuntimePort> {
   public replayController: ReplayTimelineController;
   public podiumController: PodiumCelebrationController;
   public replayCameraMode: GoalReplayCameraMode = 'director';
   public replayPovCarIndex: number | null = null;
 
-  constructor(runtime: any) {
+  constructor(runtime: GameModeRuntimePort) {
     super('match', runtime);
     this.replayController = new ReplayTimelineController({ engine: runtime?.physics || null });
     this.podiumController = new PodiumCelebrationController(runtime);
@@ -48,9 +45,9 @@ export class BotMatchMode extends BaseGameMode {
     }
   }
 
-  public override update(context: FrameContext | any): void {
+  public override update(context: FrameContext): void {
     const r = this.runtime;
-    const { playerCarView, dt } = context;
+    const { playerCarView } = context;
     this._ensureControllers();
 
     const phase = r.match?.state?.phase || 'playing';
@@ -59,23 +56,25 @@ export class BotMatchMode extends BaseGameMode {
     const isHidden =
       typeof document !== 'undefined' && (!document.hasFocus() || document.hidden);
     const shouldPauseOnHidden = !continueOnBlur && isHidden;
-    const blockingOverlays = Array.from(r.openOverlays as Set<string>).filter(
+    const blockingOverlays = Array.from(r.openOverlays ?? []).filter(
       (n) => n !== 'trajectory',
     );
     const hasBlockingOverlay = blockingOverlays.length > 0;
-    const isTrajectoryOnly = r.openOverlays.has('trajectory') && !hasBlockingOverlay;
+    const isTrajectoryOnly = Boolean(r.openOverlays?.has('trajectory')) && !hasBlockingOverlay;
 
     const isMenuOpen = useAppStore ? useAppStore.getState().isOpen : false;
     const isOnlineSession = Boolean(useAppStore?.getState?.()?.onlineSession?.roomId);
-    const shouldPauseMatch =
+    const isBotPaused = Boolean(r.botCoordinator?.isBotPaused ?? r.isBotPaused);
+    const shouldPauseMatch = Boolean(
       !isOnlineSession &&
-      ((r.isCursorBrowsing && !isTrajectoryOnly) ||
-        hasBlockingOverlay ||
-        shouldPauseOnHidden ||
-        r.isBotPaused ||
-        isMenuOpen);
+        ((r.isCursorBrowsing && !isTrajectoryOnly) ||
+          hasBlockingOverlay ||
+          shouldPauseOnHidden ||
+          isBotPaused ||
+          isMenuOpen),
+    );
 
-    if (!isOnlineSession && shouldPauseMatch !== r.match.state.paused) {
+    if (!isOnlineSession && r.match?.state && shouldPauseMatch !== r.match.state.paused) {
       r.match.state.paused = shouldPauseMatch;
       if (r.authoritativeServer) {
         r.authoritativeServer.pauseMatch(shouldPauseMatch);
@@ -83,105 +82,44 @@ export class BotMatchMode extends BaseGameMode {
     }
 
     if (phase === 'replay') {
-      if (!this.replayController.sessionState.isActive) {
-        const scoringTeam = r.match?.state?.scorer ?? 0;
-        const scorerCarIndex = r.match?.state?.scorerCarIndex ?? 0;
-        const carEntries = captureRuntimeReplayCarEntries(r, {
-          defaultTeam: scoringTeam,
-        });
-        const totalFrames = this.replayController.beginReplaySession({
-          scoringTeam,
-          scorerCarIndex,
-          carEntries,
-          isNetworkStreamed: Boolean(r.networkReconciler),
-        });
-        this.replayCameraMode = 'director';
-        this.replayPovCarIndex = null;
-        r.replayPovCarIndex = null;
-        beginGoalReplaySession(r, this.replayController, {
-          cameraMode: 'director',
-          source: 'bot-match-goal-replay',
-          syncHud: true,
-          totalFrames,
-          getCameraMode: () => this.replayCameraMode || 'director',
-          setCameraMode: (nextMode) => {
-            this.replayCameraMode = nextMode;
-          },
-          getScoringTeam: () => this.replayController.sessionState.scoringTeam ?? 0,
-          getScorerCarIndex: () => this.replayController.sessionState.scorerCarIndex ?? 0,
-          getPovCarIndex: () => this.replayPovCarIndex,
-          setPovCarIndex: (carIdx) => {
-            this.replayPovCarIndex = carIdx;
-          },
-        });
-      }
-      if (typeof r.replayPovCarIndex === 'number' && r.replayPovCarIndex >= 0) {
-        this.replayCameraMode = 'pov';
-        this.replayPovCarIndex = r.replayPovCarIndex;
-      } else if (
-        r.isGoalReplayCameraOverrideActive() &&
-        this.replayCameraMode === 'pov' &&
-        r.replayPovCarIndex === null
-      ) {
-        this.replayCameraMode = 'director';
-        this.replayPovCarIndex = null;
-      }
-      const s = this.replayController.sessionState;
-      const isCustomScrubbing =
-        s.isScrubbing ||
-        s.isPaused ||
-        Math.abs(s.playbackSpeed - 1.0) > 0.01;
-      const networkStreamSnapshot = !isCustomScrubbing
-        ? (r.networkReconciler?.lastParsedPacket?.stateSnapshot ?? null)
-        : null;
-      const embedded = networkStreamSnapshot
-        ? decodeReplayDirectorTelemetryFromState(networkStreamSnapshot)
-        : null;
-      stepGoalReplaySessionFrame({
+      stepNetworkStreamedGoalReplayFrame({
         runtime: r,
         replayController: this.replayController,
         context,
-        dt: dt ?? 1 / 120,
         source: 'bot-match-goal-replay',
-        cameraMode: this.replayCameraMode || 'director',
-        scoringTeam: s.scoringTeam ?? 0,
-        scorerCarIndex: s.scorerCarIndex ?? 0,
-        povCarIndex:
-          this.replayCameraMode === 'pov' && typeof this.replayPovCarIndex === 'number'
-            ? this.replayPovCarIndex
-            : null,
-        applyToEngine: isCustomScrubbing,
-        dispatchEvents: false,
+        isUnlimitedBoost: false,
         syncCarAudioControls: false,
         syncBoostToHud: false,
-        emitWillEndSignal: false,
-        syncHudProgress: true,
-        networkStreamSnapshot,
-        overrideProgress:
-          embedded && typeof embedded.progress === 'number' ? embedded.progress : null,
+        getCameraMode: () => this.replayCameraMode || 'director',
+        setCameraMode: (nextMode) => {
+          this.replayCameraMode = nextMode;
+        },
+        getScoringTeam: () => this.replayController.sessionState.scoringTeam ?? 0,
+        getScorerCarIndex: () => this.replayController.sessionState.scorerCarIndex ?? 0,
+        getPovCarIndex: () => this.replayPovCarIndex,
+        setPovCarIndex: (carIdx) => {
+          this.replayPovCarIndex = carIdx;
+        },
       });
-    } else if (this.replayController.sessionState.isActive || r.isGoalReplayCameraOverrideActive()) {
+    } else if (this.replayController.sessionState.isActive || r.isGoalReplayCameraOverrideActive?.()) {
       endGoalReplaySession(r, this.replayController, {
         source: 'bot-match-goal-replay',
         clearHud: true,
+        restoreLocalCarFocus: true,
+        fallbackLocalCarIndex: 0,
+        syncAfterEnd: true,
       });
       this.replayCameraMode = 'director';
       this.replayPovCarIndex = null;
-      const localCarIdx =
-        typeof r?.networkReconciler?.localCarIndex === 'number' &&
-        r.networkReconciler.localCarIndex >= 0
-          ? r.networkReconciler.localCarIndex
-          : typeof r?.reconciler?.localCarIndex === 'number' && r.reconciler.localCarIndex >= 0
-            ? r.reconciler.localCarIndex
-            : 0;
-      r.playerCarIndex = localCarIdx;
-      if (r.arena) r.arena.playerCarIndex = localCarIdx;
-      r.camera?.setFocusedCarIndex?.(localCarIdx);
-      r.camera?.resetView?.();
-      r.interpolator?.sync?.();
     }
 
     if (phase === 'podium') {
+      if (!this.podiumController.isActive) {
+        this.podiumController.enterPodium(
+          r.match?.state?.winner ?? 0,
+          r.match?.state?.winReason || 'SCORE',
+        );
+      }
       this.podiumController.update(context);
     } else if (this.podiumController.isActive && phase !== 'ended') {
       this.podiumController.exitPodium();
@@ -196,21 +134,12 @@ export class BotMatchMode extends BaseGameMode {
 
   public override onLeave(): void {
     const r = this.runtime;
-    endGoalReplaySession(r, this.replayController, { clearHud: false });
+    endGoalReplaySession(r, this.replayController, {
+      clearHud: false,
+      restoreLocalCarFocus: true,
+    });
     this.replayCameraMode = 'director';
     this.replayPovCarIndex = null;
-    if (r) {
-      const localCarIdx =
-        typeof r.networkReconciler?.localCarIndex === 'number' &&
-        r.networkReconciler.localCarIndex >= 0
-          ? r.networkReconciler.localCarIndex
-          : typeof r.reconciler?.localCarIndex === 'number' && r.reconciler.localCarIndex >= 0
-            ? r.reconciler.localCarIndex
-            : r.playerCarIndex ?? 0;
-      r.playerCarIndex = localCarIdx;
-      if (r.arena) r.arena.playerCarIndex = localCarIdx;
-      r.camera?.setFocusedCarIndex?.(localCarIdx);
-    }
     this.podiumController?.exitPodium?.();
   }
 
@@ -218,13 +147,7 @@ export class BotMatchMode extends BaseGameMode {
     const r = this.runtime;
     endGoalReplaySession(r, this.replayController, { clearHud: false });
     this.podiumController?.exitPodium?.();
-    r.ballTrajectoryPredictor?.clear?.();
-    r.inputPoller?.latchJumpSuppression?.();
-    r.playerControls = { ...r.neutralControls };
-    r.playerThrottle = 0;
     r.physics?.resetKickoff?.(seed);
-    r.audioSubsystem?.resetAudio?.();
-    r.resetBotState?.();
 
     if (r.authoritativeServer) {
       r.authoritativeServer.sim?.resetKickoff?.(seed);
@@ -232,7 +155,7 @@ export class BotMatchMode extends BaseGameMode {
       r.authoritativeServer.clientInputBuffer?.clear?.();
       r.authoritativeServer.lastReceivedControls?.clear?.();
     }
-    if (r.networkReconciler) {
+    if (r.networkReconciler && r.physics) {
       const sSnap = r.authoritativeServer
         ? r.authoritativeServer.sim.saveCompactState()
         : r.physics.saveCompactState();
@@ -242,10 +165,6 @@ export class BotMatchMode extends BaseGameMode {
       r.networkReconciler.syncTimeline(sSnap, sTick);
     }
 
-    for (const v of r.flipResetVisuals.values()) v.update(0, false);
-
-    r.arena?.resetBallTrail?.();
-    r.camera?.resetView?.();
-    r.interpolator?.sync?.();
+    this.resetKickoffPresentationAndAudio({ resetCamera: true, resetBots: true });
   }
 }

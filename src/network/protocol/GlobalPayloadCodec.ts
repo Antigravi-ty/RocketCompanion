@@ -103,7 +103,7 @@ export interface MatchIncidentPayload {
   frameId?: number;
   param1?: number;
   param2?: number;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface GlobalSignalEntry {

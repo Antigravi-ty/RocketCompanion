@@ -16,60 +16,179 @@ const BALL_OFFSET = 4;
 const CAR_BASE_OFFSET = 22;
 const CAR_STRIDE = 40;
 
+export interface TelemetrySimulatorPort {
+  extraUplinkMs?: number; extraDownlinkMs?: number; extraLatencyMs?: number; extraRttMs?: number;
+  isLoopback?: boolean; baseMeasuredRttMs?: number; rttMs?: number; measuredRttMs?: number;
+  jitterMs?: number; packetLossRate?: number; burstDropEnabled?: boolean;
+}
+
+export interface TelemetryChannelPort extends TelemetrySimulatorPort {
+  simulator?: TelemetrySimulatorPort;
+  sendClientInput?: (packet: Uint8Array, nowMs?: number) => unknown;
+  send?: (packet: Uint8Array, nowMs?: number) => unknown;
+  receiveClientPackets?: (nowMs?: number) => unknown[];
+  receiveServerPackets?: (nowMs?: number) => unknown[];
+  inboundQueue?: unknown[];
+}
+
+export interface TelemetrySimPort {
+  state?: Float32Array;
+  numCars: number;
+  isCarSlotActive?: (carIndex: number) => boolean;
+  setCarLinearFactorAndGravity?: (carIndex: number, lx: number, ly: number, lz: number, gravityScale: number) => void;
+  setCarUnlimitedBoost?: (carIndex: number, enabled: boolean) => void;
+  setCarCollisionMask?: (carIndex: number, collideWithBall: boolean, collideWithCars: boolean) => void;
+  saveCompactState?: () => Float32Array;
+  restoreCompactState?: (state: Float32Array, opts?: { preserveEngineTick?: boolean }) => void;
+  setBallState?: (state: Float32Array | Record<string, unknown>) => void;
+  setCarState?: (carIndex: number, state: Float32Array | Record<string, unknown>) => void;
+  getCarStateView: (carIndex: number) => { posX: number; posY: number; posZ: number } | null;
+  getBallStateView?: () => { posX: number; posY: number; posZ: number } | null;
+  getHeaderView?: () => { tickCount: number };
+  setControls?: (carIndex: number, controls: unknown) => void;
+  addCarAtSlot?: (carIndex: number, team: number, preset: string) => void;
+  addCar: (team: number, preset: string) => void;
+  removeCar?: (carIndex: number) => boolean;
+  saveState?: () => Float32Array;
+  saveStateSlot: (slot: number) => void;
+  restoreStateSlot: (slot: number) => boolean | void;
+  restoreState: (snapshot: Float32Array | number[]) => void;
+}
+
+export interface TelemetryRecorderPort {
+  count: number;
+  reset?: () => void;
+  setSessionMetadata?: (mode: string, priority: string, params: PacingControllerParams | null) => void;
+  recordTick?: (entry: Record<string, unknown>) => void;
+}
+
+export class ReconcilerMetrics {
+  [key: string]: number | boolean | unknown;
+  clientTick = 0; serverTick = 0; leadTicks: number;
+  rttMs = 0; uplinkMs = 0; downlinkMs = 0;
+  extraUplinkMs = 0; extraDownlinkMs = 0; extraRttMs = 0;
+  smoothRttMs = 0; measuredJitterMs = 0;
+  inputBufferSize: number; effectiveInputBuffer: number; targetInputBuffer: number;
+  pacingTier = 0; physicsRateHz = 120; reconcileTier = 1;
+  historicalPosDelta = 0; totalCorrections = 0; skippedCorrections = 0; hardSnapCount = 0;
+  lastCorrectionDelta = 0; maxCorrectionDelta = 0; smoothingMagnitude = 0;
+  localCorrectionDelta?: number; ballCorrectionDelta?: number;
+  remoteCorrectionDelta?: number; probeCorrectionDelta?: number;
+  enableSmoothing?: boolean; rollbackWindow?: number;
+  allUserRtt?: unknown; mispredictions?: number;
+
+  constructor(leadTicks: number, inputBufferTarget: number) {
+    this.leadTicks = leadTicks;
+    this.inputBufferSize = inputBufferTarget;
+    this.effectiveInputBuffer = inputBufferTarget;
+    this.targetInputBuffer = inputBufferTarget;
+  }
+
+  applyLatencyBreakdown(breakdown: LatencyBreakdownResult, enableSmoothing: boolean, rollbackWindow: number): void {
+    this.rttMs = breakdown.rttMs; this.uplinkMs = breakdown.uplinkMs; this.downlinkMs = breakdown.downlinkMs;
+    this.extraUplinkMs = breakdown.extraUplinkMs; this.extraDownlinkMs = breakdown.extraDownlinkMs;
+    this.extraRttMs = breakdown.extraRttMs; this.enableSmoothing = enableSmoothing; this.rollbackWindow = rollbackWindow;
+  }
+
+  applyPacingStep(stepOut: PacingControllerStepResult, rawServerBuffer: number, hasServerBuf: boolean): void {
+    this.effectiveInputBuffer = Math.round(stepOut.effectiveBuffer * 100) / 100;
+    this.targetInputBuffer = Math.round(stepOut.activeTarget * 100) / 100;
+    this.pacingTier = stepOut.tierState; this.physicsRateHz = stepOut.physicsRateHz;
+    this.smoothRttMs = Math.round(stepOut.smoothRttMs * 10) / 10;
+    this.measuredJitterMs = Math.round(stepOut.jitterMs * 10) / 10;
+    if (!hasServerBuf) this.inputBufferSize = Math.max(-64, Math.min(63, Math.round(rawServerBuffer)));
+  }
+
+  applySmoothingToggle(enabled: boolean): void {
+    this.enableSmoothing = enabled;
+    if (!enabled) this.smoothingMagnitude = 0;
+  }
+
+  applyHardSyncState(clientTick: number, serverTick: number, leadTicks: number, hardSnapCount: number): void {
+    this.reconcileTier = 3; this.hardSnapCount = hardSnapCount;
+    this.clientTick = clientTick; this.serverTick = serverTick; this.leadTicks = leadTicks;
+  }
+
+  applyClientPredictionStep(clientTick: number, rttMs: number, leadTicks: number): void {
+    this.clientTick = clientTick; this.rttMs = rttMs; this.leadTicks = leadTicks;
+  }
+
+  applyServerAck(serverTick: number, rttMs: number): void {
+    this.serverTick = serverTick; this.rttMs = rttMs;
+  }
+
+  applyTier1Skip(localPosDelta: number, skippedCorrections: number, smoothingMagnitude: number): void {
+    this.historicalPosDelta = localPosDelta; this.skippedCorrections = skippedCorrections;
+    this.reconcileTier = 1; this.lastCorrectionDelta = localPosDelta;
+    this.localCorrectionDelta = localPosDelta || 0; this.ballCorrectionDelta = 0;
+    this.remoteCorrectionDelta = 0; this.probeCorrectionDelta = 0;
+    this.smoothingMagnitude = smoothingMagnitude;
+  }
+
+  applySmootherDiscrepancy(
+    discrepancy: { localDelta: number; ballDelta: number; remoteMaxDelta: number; probeMaxDelta: number; isTier3HardSnap: boolean },
+    lastCorrectionDelta: number,
+    smoothingMagnitude: number
+  ): void {
+    this.localCorrectionDelta = discrepancy.localDelta; this.ballCorrectionDelta = discrepancy.ballDelta;
+    this.remoteCorrectionDelta = discrepancy.remoteMaxDelta; this.probeCorrectionDelta = discrepancy.probeMaxDelta;
+    this.reconcileTier = discrepancy.isTier3HardSnap ? 3 : 2;
+    this.lastCorrectionDelta = lastCorrectionDelta; this.smoothingMagnitude = smoothingMagnitude;
+  }
+
+  applyCorrectionCounters(hardSnapCount?: number, totalCorrections?: number, maxCorrectionDelta?: number): void {
+    if (hardSnapCount !== undefined) this.hardSnapCount = hardSnapCount;
+    if (totalCorrections !== undefined) this.totalCorrections = totalCorrections;
+    if (maxCorrectionDelta !== undefined) this.maxCorrectionDelta = maxCorrectionDelta;
+  }
+
+  resetCorrectionStats(): void {
+    this.reconcileTier = 1; this.historicalPosDelta = 0; this.totalCorrections = 0;
+    this.skippedCorrections = 0; this.hardSnapCount = 0; this.lastCorrectionDelta = 0;
+    this.maxCorrectionDelta = 0; this.smoothingMagnitude = 0;
+  }
+}
+
+export interface TopologyPacketPort {
+  serverTick?: number;
+  stateSnapshot: Float32Array;
+  activeCarMask?: number;
+  acknowledgedControls?: Array<{ carIndex: number; controls?: unknown }>;
+}
+
 export interface LatencyBreakdownInput {
-  channel: any;
-  baseMeasuredRtt?: number;
-  measuredRtt?: number;
-  hasServerReportedBuffer?: boolean;
-  inputBufferSize?: number;
-  inputBufferTarget?: number;
-  tickDtMs?: number;
+  channel: TelemetryChannelPort | null | undefined;
+  baseMeasuredRtt?: number; measuredRtt?: number;
+  hasServerReportedBuffer?: boolean; inputBufferSize?: number;
+  inputBufferTarget?: number; tickDtMs?: number;
 }
 
 export interface LatencyBreakdownResult {
-  rttMs: number;
-  baseRttMs: number;
-  uplinkMs: number;
-  downlinkMs: number;
-  extraUplinkMs: number;
-  extraDownlinkMs: number;
-  extraRttMs: number;
+  rttMs: number; baseRttMs: number; uplinkMs: number; downlinkMs: number;
+  extraUplinkMs: number; extraDownlinkMs: number; extraRttMs: number;
 }
 
 export interface PacingStepStatus {
-  stepOut: PacingControllerStepResult;
-  rawServerBuffer: number;
-  stepCatchup: boolean;
-  stepSkip: boolean;
-  nowMs: number;
+  stepOut: PacingControllerStepResult; rawServerBuffer: number;
+  stepCatchup: boolean; stepSkip: boolean; nowMs: number;
 }
 
 export interface PacingStepModulationInput {
-  currentClientTick: number;
-  currentDelta: number;
-  targetDelta: number;
-  effectiveRtt: number;
-  nowMs: number;
-  channel: any;
-  kickoffMaskUntilTick: number;
-  inputBufferTarget: number;
-  catchupThresholdOffset: number;
-  skipThresholdOffset: number;
-  hasServerReportedBuffer: boolean;
-  reportedInputBufferSize: number;
-  clockPacingMode: string;
-  clockPacingParams: PacingControllerParams | null;
+  currentClientTick: number; currentDelta: number; targetDelta: number;
+  effectiveRtt: number; nowMs: number;
+  channel: TelemetryChannelPort | null | undefined;
+  kickoffMaskUntilTick: number; inputBufferTarget: number;
+  catchupThresholdOffset: number; skipThresholdOffset: number;
+  hasServerReportedBuffer: boolean; reportedInputBufferSize: number | undefined;
+  clockPacingMode: string; clockPacingParams: PacingControllerParams | null;
   forceTargetAlign: boolean;
 }
 
 export interface PacingStepModulationDecision {
-  stepOut: PacingControllerStepResult;
-  rawServerBuffer: number;
-  hasServerBuf: boolean;
-  clearForceTargetAlign: boolean;
+  stepOut: PacingControllerStepResult; rawServerBuffer: number;
+  hasServerBuf: boolean; clearForceTargetAlign: boolean;
   interpolatorRateHz: number | null;
-  action: 'none' | 'skip' | 'catchup';
-  desiredClientTick: number;
+  action: 'none' | 'skip' | 'catchup'; desiredClientTick: number;
 }
 
 export interface SavedLobbyLocalEntities {
@@ -78,51 +197,36 @@ export interface SavedLobbyLocalEntities {
 
 export interface ReconcileTelemetryTickInput {
   isMatchTelemetryActive: boolean;
-  telemetryRecorder: any;
-  nowMs: number;
-  clientTick: number;
-  serverTick: number;
-  effectiveRtt: number;
-  isHardResyncSnap: boolean;
-  kickoffMaskUntilTick: number;
-  inputBufferTarget: number;
-  leadTicks: number;
-  interpolatorPhysicsRate?: number;
-  metrics: Record<string, any>;
+  telemetryRecorder: TelemetryRecorderPort | null | undefined;
+  nowMs: number; clientTick: number; serverTick: number; effectiveRtt: number;
+  isHardResyncSnap: boolean; kickoffMaskUntilTick: number;
+  inputBufferTarget: number; leadTicks: number;
+  interpolatorPhysicsRate?: number; metrics: ReconcilerMetrics;
   lastPacingStepStatus?: PacingStepStatus | null;
 }
 
 export interface TopologySyncInput {
-  sim: any;
-  packet: any;
-  maxAckCarIndex: number;
-  localCarIndex: number;
-  lobbyDualWorldMode: boolean;
-  hostLobbyMode: boolean;
-  isLoopback: boolean;
+  sim: TelemetrySimPort; packet: TopologyPacketPort;
+  maxAckCarIndex: number; localCarIndex: number;
+  lobbyDualWorldMode: boolean; hostLobbyMode: boolean; isLoopback: boolean;
   carVisualPresets: Map<number, string>;
 }
 
 export interface TopologySyncResult {
-  shouldAbortReconcile: boolean;
-  shouldNotifyMetrics: boolean;
-  invalidateTimelineSync: boolean;
-  activeCarMask?: number;
+  shouldAbortReconcile: boolean; shouldNotifyMetrics: boolean;
+  invalidateTimelineSync: boolean; activeCarMask?: number;
 }
 
-export function createInitialReconcilerMetrics(leadTicks: number, inputBufferTarget: number): Record<string, any> {
-  return {
-    clientTick: 0, serverTick: 0, leadTicks,
-    rttMs: 0, uplinkMs: 0, downlinkMs: 0, extraUplinkMs: 0, extraDownlinkMs: 0, extraRttMs: 0,
-    smoothRttMs: 0, measuredJitterMs: 0,
-    inputBufferSize: inputBufferTarget, effectiveInputBuffer: inputBufferTarget,
-    targetInputBuffer: inputBufferTarget, pacingTier: 0, physicsRateHz: 120,
-    reconcileTier: 1, historicalPosDelta: 0, totalCorrections: 0, skippedCorrections: 0,
-    hardSnapCount: 0, lastCorrectionDelta: 0, maxCorrectionDelta: 0, smoothingMagnitude: 0,
-  };
+export function createInitialReconcilerMetrics(
+  leadTicks: number,
+  inputBufferTarget: number
+): ReconcilerMetrics {
+  return new ReconcilerMetrics(leadTicks, inputBufferTarget);
 }
 
-export function configureClientLobbyDiagnosticProbes(sim: any): void {
+export function configureClientLobbyDiagnosticProbes(
+  sim: TelemetrySimPort | null | undefined
+): void {
   if (!sim) return;
   const hasSlot6 = typeof sim.isCarSlotActive === 'function' ? sim.isCarSlotActive(6) : sim.numCars > 6;
   if (hasSlot6) {
@@ -138,7 +242,10 @@ export function configureClientLobbyDiagnosticProbes(sim: any): void {
   }
 }
 
-export function saveClientLobbyLocalEntities(sim: any, lobbyDualWorldMode: boolean): SavedLobbyLocalEntities | null {
+export function saveClientLobbyLocalEntities(
+  sim: TelemetrySimPort | null | undefined,
+  lobbyDualWorldMode: boolean
+): SavedLobbyLocalEntities | null {
   if (!lobbyDualWorldMode || !sim) return null;
   const compactState = typeof sim.saveCompactState === 'function'
     ? sim.saveCompactState()
@@ -147,7 +254,11 @@ export function saveClientLobbyLocalEntities(sim: any, lobbyDualWorldMode: boole
 }
 
 export function restoreClientLobbyLocalEntities(
-  sim: any, lobbyDualWorldMode: boolean, localCarIndex: number, lastLocalControls: any, saved: SavedLobbyLocalEntities | null
+  sim: TelemetrySimPort | null | undefined,
+  lobbyDualWorldMode: boolean,
+  localCarIndex: number,
+  lastLocalControls: unknown,
+  saved: SavedLobbyLocalEntities | null
 ): void {
   if (!lobbyDualWorldMode || !sim || !saved) return;
   const localIdx = localCarIndex ?? 1;
@@ -190,11 +301,12 @@ export function restoreClientLobbyLocalEntities(
 
 export function resolveLatencyBreakdown(input: LatencyBreakdownInput): LatencyBreakdownResult {
   const ch = input.channel;
-  const extraUplinkMs = Math.max(0, Math.round(Number(ch?.extraUplinkMs ?? ch?.extraLatencyMs ?? 0) || 0));
-  const extraDownlinkMs = Math.max(0, Math.round(Number(ch?.extraDownlinkMs ?? ch?.extraLatencyMs ?? 0) || 0));
+  const sim = ch?.simulator ?? ch;
+  const extraUplinkMs = Math.max(0, Math.round(Number(sim?.extraUplinkMs ?? sim?.extraLatencyMs ?? ch?.extraUplinkMs ?? ch?.extraLatencyMs ?? 0) || 0));
+  const extraDownlinkMs = Math.max(0, Math.round(Number(sim?.extraDownlinkMs ?? sim?.extraLatencyMs ?? ch?.extraDownlinkMs ?? ch?.extraLatencyMs ?? 0) || 0));
   const extraRttMs = extraUplinkMs + extraDownlinkMs;
 
-  if (ch?.isLoopback) {
+  if (ch?.isLoopback || sim?.isLoopback) {
     return {
       rttMs: extraRttMs, baseRttMs: 0, uplinkMs: extraUplinkMs, downlinkMs: extraDownlinkMs,
       extraUplinkMs, extraDownlinkMs, extraRttMs,
@@ -202,16 +314,19 @@ export function resolveLatencyBreakdown(input: LatencyBreakdownInput): LatencyBr
   }
 
   let baseRttMs = 0;
+  const simBaseRtt = sim?.baseMeasuredRttMs ?? ch?.baseMeasuredRttMs;
   if (Number.isFinite(input.baseMeasuredRtt) && (input.baseMeasuredRtt as number) > 0) {
     baseRttMs = Math.round(input.baseMeasuredRtt as number);
-  } else if (typeof ch?.baseMeasuredRttMs === 'number' && Number.isFinite(ch.baseMeasuredRttMs) && ch.baseMeasuredRttMs > 0) {
-    baseRttMs = Math.round(ch.baseMeasuredRttMs);
+  } else if (typeof simBaseRtt === 'number' && Number.isFinite(simBaseRtt) && simBaseRtt > 0) {
+    baseRttMs = Math.round(simBaseRtt);
   } else if (Number.isFinite(input.measuredRtt) && (input.measuredRtt as number) > 0) {
     baseRttMs = Math.max(0, Math.round((input.measuredRtt as number) - extraRttMs));
   } else {
-    const chRtt = typeof ch?.rttMs === 'number' && Number.isFinite(ch.rttMs)
-      ? ch.rttMs
-      : typeof ch?.measuredRttMs === 'number' && Number.isFinite(ch.measuredRttMs) ? ch.measuredRttMs : 0;
+    const rawRtt = sim?.rttMs ?? ch?.rttMs;
+    const rawMeasured = sim?.measuredRttMs ?? ch?.measuredRttMs;
+    const chRtt = typeof rawRtt === 'number' && Number.isFinite(rawRtt)
+      ? rawRtt
+      : typeof rawMeasured === 'number' && Number.isFinite(rawMeasured) ? rawMeasured : 0;
     baseRttMs = Math.max(0, Math.round(chRtt - extraRttMs));
   }
 
@@ -271,12 +386,13 @@ export function evaluatePacingModulationDecision(
     hasServerReportedBuffer, reportedInputBufferSize, clockPacingMode, clockPacingParams, forceTargetAlign,
   } = input;
 
+  const sim = ch?.simulator ?? ch;
   const serverTick = currentClientTick - currentDelta;
   const targetClientTick = serverTick + targetDelta;
   const isUnimpairedLoopback = Boolean(
-    ch?.isLoopback &&
-      !((ch?.extraRttMs ?? (ch?.extraLatencyMs ?? 0) * 2) > 0) &&
-      !(ch?.jitterMs > 0) && !(ch?.packetLossRate > 0) && !ch?.burstDropEnabled
+    (ch?.isLoopback || sim?.isLoopback) &&
+      !((sim?.extraRttMs ?? ch?.extraRttMs ?? ((sim?.extraLatencyMs ?? ch?.extraLatencyMs ?? 0) * 2)) > 0) &&
+      !((sim?.jitterMs ?? ch?.jitterMs ?? 0) > 0) && !((sim?.packetLossRate ?? ch?.packetLossRate ?? 0) > 0) && !(sim?.burstDropEnabled ?? ch?.burstDropEnabled)
   );
   const isKickoffMasked = kickoffMaskUntilTick > 0 && currentClientTick < kickoffMaskUntilTick;
   const impliedBufferFromTimeline = inputBufferTarget + (currentDelta - targetDelta);
@@ -301,21 +417,24 @@ export function evaluatePacingModulationDecision(
     enableHardResync: true, hardResyncThresholdTicks: 10, hardResyncCooldownMs: 1000,
   };
 
-  const stepOut = evaluatePacingControllerStep(
+  const rawStepOut = evaluatePacingControllerStep(
     pacingState,
     { nowMs, rawRttMs: effectiveRtt, rawServerBuffer, packetArrived: true },
     clockPacingMode || 'legacy',
     params
   );
 
-  if (isUnimpairedLoopback) {
-    stepOut.physicsRateHz = 120.0;
-    stepOut.tierState = 0;
-    stepOut.tierSwitched = false;
-    stepOut.requestHardResync = false;
-    stepOut.requestStepCatchup = false;
-    stepOut.requestStepSkip = false;
-  }
+  const stepOut: PacingControllerStepResult = isUnimpairedLoopback
+    ? {
+        ...rawStepOut,
+        physicsRateHz: 120.0,
+        tierState: 0,
+        tierSwitched: false,
+        requestHardResync: false,
+        requestStepCatchup: false,
+        requestStepSkip: false,
+      }
+    : rawStepOut;
 
   let action: 'none' | 'skip' | 'catchup' = 'none';
   let desiredClientTick = currentClientTick;
@@ -459,40 +578,31 @@ export function recordReconcileTelemetryTick(input: ReconcileTelemetryTickInput)
   const stepOut = lastPacingStepStatus?.stepOut;
   const recTier = metrics.reconcileTier || 1;
   telemetryRecorder.recordTick?.({
-    nowMs, clientTick, serverTick,
-    rawRttMs: effectiveRtt,
-    smoothRttMs: stepOut?.smoothRttMs ?? effectiveRtt,
-    jitterMs: stepOut?.jitterMs ?? 0,
+    nowMs, clientTick, serverTick, rawRttMs: effectiveRtt,
+    smoothRttMs: stepOut?.smoothRttMs ?? effectiveRtt, jitterMs: stepOut?.jitterMs ?? 0,
     serverBuffer: lastPacingStepStatus?.rawServerBuffer ?? (metrics.inputBufferSize ?? inputBufferTarget),
     effectiveBuffer: stepOut?.effectiveBuffer ?? (metrics.effectiveInputBuffer ?? inputBufferTarget),
     targetBuffer: stepOut?.activeTarget ?? (metrics.targetInputBuffer ?? inputBufferTarget),
-    physicsRateHz: stepOut?.physicsRateHz ?? (interpolatorPhysicsRate ?? 120),
-    leadTicks,
-    posErrorUu: metrics.lastCorrectionDelta || 0,
-    localPosErrorUu: metrics.localCorrectionDelta || 0,
-    ballPosErrorUu: metrics.ballCorrectionDelta || 0,
-    remotePosErrorUu: metrics.remoteCorrectionDelta || 0,
-    probePosErrorUu: metrics.probeCorrectionDelta || 0,
-    reconcileTier: recTier,
-    tierState: stepOut?.tierState ?? 0,
-    packetArrived: true,
-    hardResync: Boolean(stepOut?.requestHardResync),
-    tier3Snap: Boolean(recTier === 3),
+    physicsRateHz: stepOut?.physicsRateHz ?? (interpolatorPhysicsRate ?? 120), leadTicks,
+    posErrorUu: metrics.lastCorrectionDelta || 0, localPosErrorUu: metrics.localCorrectionDelta || 0,
+    ballPosErrorUu: metrics.ballCorrectionDelta || 0, remotePosErrorUu: metrics.remoteCorrectionDelta || 0,
+    probePosErrorUu: metrics.probeCorrectionDelta || 0, reconcileTier: recTier,
+    tierState: stepOut?.tierState ?? 0, packetArrived: true,
+    hardResync: Boolean(stepOut?.requestHardResync), tier3Snap: Boolean(recTier === 3),
     stepCatchup: Boolean(lastPacingStepStatus?.stepCatchup),
     stepSkip: Boolean(lastPacingStepStatus?.stepSkip),
-    tierSwitched: Boolean(stepOut?.tierSwitched),
-    isKickoffMasked,
+    tierSwitched: Boolean(stepOut?.tierSwitched), isKickoffMasked,
   });
 }
 
 export class NetworkTelemetryCollector {
-  recorder: any;
+  recorder: TelemetryRecorderPort | null | undefined;
   isMatchTelemetryActive: boolean;
   pacingControllerState: PacingControllerState = { initialized: false };
   lastPacingStepStatus: PacingStepStatus | null = null;
-  private readonly listeners = new Set<(metrics: any) => void>();
+  private readonly listeners = new Set<(metrics: ReconcilerMetrics) => void>();
 
-  constructor(recorder: any, isMatchTelemetryActive = true) {
+  constructor(recorder: TelemetryRecorderPort | null | undefined, isMatchTelemetryActive = true) {
     this.recorder = recorder;
     this.isMatchTelemetryActive = Boolean(isMatchTelemetryActive);
   }
@@ -510,7 +620,7 @@ export class NetworkTelemetryCollector {
     this.recorder?.setSessionMetadata?.(mode, priority, params);
   }
 
-  addListener(fn: (metrics: any) => void): () => void {
+  addListener(fn: (metrics: ReconcilerMetrics) => void): () => void {
     if (typeof fn === 'function') {
       this.listeners.add(fn);
       return () => this.listeners.delete(fn);
@@ -518,7 +628,10 @@ export class NetworkTelemetryCollector {
     return () => {};
   }
 
-  emitMetrics(metrics: any, onMetricsUpdated?: ((metrics: any) => void) | null): void {
+  emitMetrics(
+    metrics: ReconcilerMetrics,
+    onMetricsUpdated?: ((metrics: ReconcilerMetrics) => void) | null
+  ): void {
     if (onMetricsUpdated) {
       try { onMetricsUpdated(metrics); } catch (err) {
         console.error('[PredictionReconciler] Error in onMetricsUpdated callback:', err);

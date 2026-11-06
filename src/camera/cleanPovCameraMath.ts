@@ -122,101 +122,101 @@ export function copyCameraPoseSnapshot(dst: CameraPoseSnapshot, src: CameraPoseS
 }
 
 export function computeTransitionDelta(
-  delta: PoseTransitionDelta, fromPose: CameraPoseSnapshot, toPose: CameraPoseSnapshot
+  out: PoseTransitionDelta, fromPose: CameraPoseSnapshot, toPose: CameraPoseSnapshot
 ): void {
-  delta.focusX = fromPose.focusX - toPose.focusX;
-  delta.focusY = fromPose.focusY - toPose.focusY;
-  delta.focusZ = fromPose.focusZ - toPose.focusZ;
-  delta.pitch = wrapRadiansPi(fromPose.pitch - toPose.pitch);
-  delta.yaw = wrapRadiansPi(fromPose.yaw - toPose.yaw);
-  delta.roll = wrapRadiansPi(fromPose.roll - toPose.roll);
-  delta.distance = fromPose.distance - toPose.distance;
-  delta.fov = fromPose.fov - toPose.fov;
+  out.focusX = fromPose.focusX - toPose.focusX;
+  out.focusY = fromPose.focusY - toPose.focusY;
+  out.focusZ = fromPose.focusZ - toPose.focusZ;
+  out.pitch = wrapRadiansPi(fromPose.pitch - toPose.pitch);
+  out.yaw = wrapRadiansPi(fromPose.yaw - toPose.yaw);
+  out.roll = wrapRadiansPi(fromPose.roll - toPose.roll);
+  out.distance = fromPose.distance - toPose.distance;
+  out.fov = fromPose.fov - toPose.fov;
 }
 
 export function applyQuadraticTransitionBlend(
-  pose: CameraPoseSnapshot, delta: PoseTransitionDelta,
+  out: CameraPoseSnapshot, delta: PoseTransitionDelta,
   remainingTime: number, totalDuration: number, distanceFirst: boolean
 ): void {
   if (remainingTime <= 0.0 || totalDuration <= 0.0) return;
   const ratio = Math.max(0.0, Math.min(1.0, remainingTime / totalDuration));
   const weight = ratio * ratio;
-  pose.focusX += delta.focusX * weight;
-  pose.focusY += delta.focusY * weight;
-  pose.focusZ += delta.focusZ * weight;
+  out.focusX += delta.focusX * weight;
+  out.focusY += delta.focusY * weight;
+  out.focusZ += delta.focusZ * weight;
   if (distanceFirst) {
-    pose.distance += delta.distance * weight;
-    pose.fov += delta.fov * weight;
-    pose.pitch = wrapRadiansPi(pose.pitch + delta.pitch * weight);
-    pose.yaw = wrapRadiansPi(pose.yaw + delta.yaw * weight);
-    pose.roll = wrapRadiansPi(pose.roll + delta.roll * weight);
+    out.distance += delta.distance * weight;
+    out.fov += delta.fov * weight;
+    out.pitch = wrapRadiansPi(out.pitch + delta.pitch * weight);
+    out.yaw = wrapRadiansPi(out.yaw + delta.yaw * weight);
+    out.roll = wrapRadiansPi(out.roll + delta.roll * weight);
   } else {
-    pose.pitch = wrapRadiansPi(pose.pitch + delta.pitch * weight);
-    pose.yaw = wrapRadiansPi(pose.yaw + delta.yaw * weight);
-    pose.roll = wrapRadiansPi(pose.roll + delta.roll * weight);
-    pose.distance += delta.distance * weight;
-    pose.fov += delta.fov * weight;
+    out.pitch = wrapRadiansPi(out.pitch + delta.pitch * weight);
+    out.yaw = wrapRadiansPi(out.yaw + delta.yaw * weight);
+    out.roll = wrapRadiansPi(out.roll + delta.roll * weight);
+    out.distance += delta.distance * weight;
+    out.fov += delta.fov * weight;
   }
 }
 
 export function stepSpringFilter3D(
-  spring: SpringFilter3DState, target: Vec3State, dt: number, outDiff: Vec3State
+  out: SpringFilter3DState, target: Vec3State, dt: number, outDiff: Vec3State
 ): void {
   const targetX = target.x, targetY = target.y, targetZ = target.z;
-  if (!spring.initialized) {
-    spring.initialized = true;
-    spring.posX = targetX; spring.posY = targetY; spring.posZ = targetZ;
-    spring.velX = 0.0; spring.velY = 0.0; spring.velZ = 0.0;
+  if (!out.initialized) {
+    out.initialized = true;
+    out.posX = targetX; out.posY = targetY; out.posZ = targetZ;
+    out.velX = 0.0; out.velY = 0.0; out.velZ = 0.0;
     return;
   }
 
-  const alpha = 1.0 - Math.exp(dt * -spring.rate);
-  spring.posX += (targetX - spring.posX) * alpha;
-  spring.posY += (targetY - spring.posY) * alpha;
-  spring.posZ += (targetZ - spring.posZ) * alpha;
+  const alpha = 1.0 - Math.exp(dt * -out.rate);
+  out.posX += (targetX - out.posX) * alpha;
+  out.posY += (targetY - out.posY) * alpha;
+  out.posZ += (targetZ - out.posZ) * alpha;
 
-  const diffX = targetX - spring.posX;
-  const diffY = targetY - spring.posY;
-  const diffZ = targetZ - spring.posZ;
+  const diffX = targetX - out.posX;
+  const diffY = targetY - out.posY;
+  const diffZ = targetZ - out.posZ;
   outDiff.x = diffX; outDiff.y = diffY; outDiff.z = diffZ;
 
-  if (spring.maxLagDistance > 0.0) {
+  if (out.maxLagDistance > 0.0) {
     const distSq = diffZ * diffZ + diffX * diffX + diffY * diffY;
-    if (distSq > spring.maxLagDistance * spring.maxLagDistance) {
+    if (distSq > out.maxLagDistance * out.maxLagDistance) {
       const invDist = distSq === 0.0 ? 1.0 : 1.0 / Math.sqrt(distSq);
-      const clampedZ = spring.maxLagDistance * (diffZ * invDist);
-      const clampedY = spring.maxLagDistance * (diffY * invDist);
-      const clampedX = spring.maxLagDistance * (diffX * invDist);
+      const clampedZ = out.maxLagDistance * (diffZ * invDist);
+      const clampedY = out.maxLagDistance * (diffY * invDist);
+      const clampedX = out.maxLagDistance * (diffX * invDist);
       outDiff.z = clampedZ; outDiff.y = clampedY; outDiff.x = clampedX;
-      spring.posZ = targetZ - clampedZ;
-      spring.posY = targetY - clampedY;
-      spring.posX = targetX - clampedX;
+      out.posZ = targetZ - clampedZ;
+      out.posY = targetY - clampedY;
+      out.posX = targetX - clampedX;
     }
   }
 
-  spring.posZ = Math.fround(spring.posZ);
-  spring.posY = Math.fround(spring.posY);
-  spring.posX = Math.fround(spring.posX);
+  out.posZ = Math.fround(out.posZ);
+  out.posY = Math.fround(out.posY);
+  out.posX = Math.fround(out.posX);
 
-  const scale = spring.scale;
-  spring.velZ = Math.fround(outDiff.z * scale);
-  spring.velY = Math.fround(outDiff.y * scale);
-  spring.velX = Math.fround(outDiff.x * scale);
+  const scale = out.scale;
+  out.velZ = Math.fround(outDiff.z * scale);
+  out.velY = Math.fround(outDiff.y * scale);
+  out.velX = Math.fround(outDiff.x * scale);
 }
 
 export function computeBallCamRotation(
-  ballPos: Vec3State, pose: CameraPoseSnapshot, angleDeg: number,
+  ballPos: Vec3State, out: CameraPoseSnapshot, angleDeg: number,
   snapOrientation: boolean, dt: number, scratchVecA: Vec3State, scratchEulerA: EulerAnglesState
 ): void {
-  const toBallX = ballPos.x - pose.focusX;
-  const toBallY = ballPos.y - pose.focusY;
-  const toBallZ = ballPos.z - pose.focusZ;
+  const toBallX = ballPos.x - out.focusX;
+  const toBallY = ballPos.y - out.focusY;
+  const toBallZ = ballPos.z - out.focusZ;
   const elevToBall = quantizeAngleRadiansToUrot16(Math.atan2(toBallY, Math.hypot(toBallX, toBallZ)));
-  pose.focusY += Math.abs(elevToBall * UROT_PER_RAD) * 0.005;
+  out.focusY += Math.abs(elevToBall * UROT_PER_RAD) * 0.005;
 
-  const lookBallX = ballPos.x - pose.focusX;
-  const lookBallY = ballPos.y - pose.focusY;
-  const lookBallZ = ballPos.z - pose.focusZ;
+  const lookBallX = ballPos.x - out.focusX;
+  const lookBallY = ballPos.y - out.focusY;
+  const lookBallZ = ballPos.z - out.focusZ;
   scratchVecA.x = lookBallX; scratchVecA.y = lookBallY; scratchVecA.z = lookBallZ;
 
   let yawUnits = 16384.0;
@@ -237,17 +237,17 @@ export function computeBallCamRotation(
   scratchEulerA.pitch = ballPitch;
 
   if (snapOrientation) {
-    pose.roll = scratchEulerA.roll; pose.yaw = scratchEulerA.yaw; pose.pitch = scratchEulerA.pitch;
+    out.roll = scratchEulerA.roll; out.yaw = scratchEulerA.yaw; out.pitch = scratchEulerA.pitch;
   } else {
     const ballCamAlpha = 1.0 - Math.exp(dt * -8.59);
-    pose.roll = wrapRadiansPi(pose.roll + wrapRadiansPi(0.0 - pose.roll) * ballCamAlpha);
-    pose.yaw = wrapRadiansPi(pose.yaw + wrapRadiansPi(ballYaw - pose.yaw) * ballCamAlpha);
-    pose.pitch = wrapRadiansPi(pose.pitch + wrapRadiansPi(ballPitch - pose.pitch) * ballCamAlpha);
+    out.roll = wrapRadiansPi(out.roll + wrapRadiansPi(0.0 - out.roll) * ballCamAlpha);
+    out.yaw = wrapRadiansPi(out.yaw + wrapRadiansPi(ballYaw - out.yaw) * ballCamAlpha);
+    out.pitch = wrapRadiansPi(out.pitch + wrapRadiansPi(ballPitch - out.pitch) * ballCamAlpha);
   }
 }
 
 export function computeAirCarCamRotation(
-  input: AirCarCamRotationInput, pose: CameraPoseSnapshot
+  input: AirCarCamRotationInput, out: CameraPoseSnapshot
 ): void {
   if (input.snapOrientation) {
     const fwdY = input.carForwardY;
@@ -287,14 +287,14 @@ export function computeAirCarCamRotation(
     input.scratchEulerC.yaw = blendedYaw;
     input.scratchEulerC.pitch = wrapRadiansPi(wrapRadiansPi(velPitch - forwardPitch) * speedBlend + forwardPitch);
 
-    pose.yaw = blendedYaw; pose.roll = 0.0;
-    pose.pitch = quantizeAngleRadiansToUrot16(input.angleDeg * DEG_TO_RAD);
+    out.yaw = blendedYaw; out.roll = 0.0;
+    out.pitch = quantizeAngleRadiansToUrot16(input.angleDeg * DEG_TO_RAD);
     return;
   }
 
-  const dirX = pose.focusX - pose.cameraPosX;
-  const dirY = pose.focusY - pose.cameraPosY;
-  const dirZ = pose.focusZ - pose.cameraPosZ;
+  const dirX = out.focusX - out.cameraPosX;
+  const dirY = out.focusY - out.cameraPosY;
+  const dirZ = out.focusZ - out.cameraPosZ;
   input.scratchVecA.x = dirX; input.scratchVecA.y = dirY; input.scratchVecA.z = dirZ;
 
   const vxF32 = Math.fround(input.carVelX), vyF32 = Math.fround(input.carVelY), vzF32 = Math.fround(input.carVelZ);
@@ -313,14 +313,14 @@ export function computeAirCarCamRotation(
   input.scratchEulerA.roll = 0.0; input.scratchEulerA.yaw = targetYaw; input.scratchEulerA.pitch = targetPitch;
 
   const blendAlphaF32 = Math.fround(Math.min(1.0, stiffnessFactor / 60.0));
-  pose.yaw = interpolateUrot16Angle(pose.yaw, targetYaw, blendAlphaF32);
-  pose.pitch = interpolateUrot16Angle(pose.pitch, targetPitch, blendAlphaF32);
-  pose.roll = interpolateUrot16Angle(pose.roll, 0.0, blendAlphaF32);
+  out.yaw = interpolateUrot16Angle(out.yaw, targetYaw, blendAlphaF32);
+  out.pitch = interpolateUrot16Angle(out.pitch, targetPitch, blendAlphaF32);
+  out.roll = interpolateUrot16Angle(out.roll, 0.0, blendAlphaF32);
 
-  const sinPitch = Math.fround(Math.sin(pose.pitch));
-  const cosPitch = Math.fround(Math.cos(pose.pitch));
-  const cosYaw = Math.fround(Math.cos(pose.yaw));
-  const sinYaw = Math.fround(Math.sin(pose.yaw));
+  const sinPitch = Math.fround(Math.sin(out.pitch));
+  const cosPitch = Math.fround(Math.cos(out.pitch));
+  const cosYaw = Math.fround(Math.cos(out.yaw));
+  const sinYaw = Math.fround(Math.sin(out.yaw));
 
   const lookY = sinPitch, lookZ = Math.fround(cosPitch * cosYaw), lookX = Math.fround(cosPitch * sinYaw);
   input.scratchVecA.x = lookX; input.scratchVecA.y = lookY; input.scratchVecA.z = lookZ;
@@ -329,14 +329,14 @@ export function computeAirCarCamRotation(
   if (dotVel < 0.0) {
     const horizSpeedRatio = Math.min(1.0, Math.fround(Math.fround(Math.sqrt(Math.fround(vxSqF32 + vzSqF32))) / Math.fround(2300.0)));
     const dampScaleF32 = Math.fround(1.0 - horizSpeedRatio);
-    const pitchUrot = radiansToRoundedUrotInt(pose.pitch);
+    const pitchUrot = radiansToRoundedUrotInt(out.pitch);
     const dampedUrot = extendInt16(saturateInt32(Math.trunc(Math.fround(dampScaleF32 * Math.fround(pitchUrot)))));
-    pose.pitch = dampedUrot / UROT_PER_RAD;
+    out.pitch = dampedUrot / UROT_PER_RAD;
   }
 }
 
 export function computeGroundCarCamRotation(
-  input: GroundCarCamRotationInput, pose: CameraPoseSnapshot
+  input: GroundCarCamRotationInput, out: CameraPoseSnapshot
 ): { smoothedNormalX: number; smoothedNormalY: number; smoothedNormalZ: number } {
   const blendAlpha = 1.0 - Math.exp(input.dt * -10.46);
   let nx = input.smoothedNormalX + (input.surfaceNormalX - input.smoothedNormalX) * blendAlpha;
@@ -387,7 +387,7 @@ export function computeGroundCarCamRotation(
   input.scratchEulerA.pitch = basePitch;
 
   if (input.snapOrientation) {
-    pose.roll = input.scratchEulerA.roll; pose.yaw = input.scratchEulerA.yaw; pose.pitch = input.scratchEulerA.pitch;
+    out.roll = input.scratchEulerA.roll; out.yaw = input.scratchEulerA.yaw; out.pitch = input.scratchEulerA.pitch;
     return { smoothedNormalX: nx, smoothedNormalY: ny, smoothedNormalZ: nz };
   }
 
@@ -397,9 +397,9 @@ export function computeGroundCarCamRotation(
   let fastYaw: number, fastPitch: number, fastRoll: number;
   if (stiffness < 1.0) {
     const fastAlphaF32 = Math.fround(1.0 - Math.exp(input.dt * (stiffnessScale * -13.39)));
-    fastYaw = interpolateUrot16Angle(pose.yaw, baseYaw, fastAlphaF32);
-    fastPitch = interpolateUrot16Angle(pose.pitch, basePitch, fastAlphaF32);
-    fastRoll = interpolateUrot16Angle(pose.roll, 0.0, fastAlphaF32);
+    fastYaw = interpolateUrot16Angle(out.yaw, baseYaw, fastAlphaF32);
+    fastPitch = interpolateUrot16Angle(out.pitch, basePitch, fastAlphaF32);
+    fastRoll = interpolateUrot16Angle(out.roll, 0.0, fastAlphaF32);
     input.scratchEulerB.yaw = fastYaw; input.scratchEulerB.pitch = fastPitch; input.scratchEulerB.roll = fastRoll;
   } else {
     fastRoll = input.scratchEulerA.roll; fastYaw = input.scratchEulerA.yaw; fastPitch = input.scratchEulerA.pitch;
@@ -407,15 +407,15 @@ export function computeGroundCarCamRotation(
   }
 
   const slowAlphaF32 = Math.fround(1.0 - Math.exp(input.dt * (stiffnessScale * -2.03)));
-  const slowYaw = interpolateUrot16Angle(pose.yaw, baseYaw, slowAlphaF32);
-  const slowPitch = interpolateUrot16Angle(pose.pitch, basePitch, slowAlphaF32);
-  const slowRoll = interpolateUrot16Angle(pose.roll, 0.0, slowAlphaF32);
+  const slowYaw = interpolateUrot16Angle(out.yaw, baseYaw, slowAlphaF32);
+  const slowPitch = interpolateUrot16Angle(out.pitch, basePitch, slowAlphaF32);
+  const slowRoll = interpolateUrot16Angle(out.roll, 0.0, slowAlphaF32);
   input.scratchEulerC.yaw = slowYaw; input.scratchEulerC.pitch = slowPitch; input.scratchEulerC.roll = slowRoll;
 
   const wallBlendF32 = Math.fround(1.0 - Math.abs(ny));
-  pose.yaw = interpolateUrot16Angle(fastYaw, slowYaw, wallBlendF32);
-  pose.pitch = interpolateUrot16Angle(fastPitch, slowPitch, wallBlendF32);
-  pose.roll = interpolateUrot16Angle(fastRoll, slowRoll, wallBlendF32);
+  out.yaw = interpolateUrot16Angle(fastYaw, slowYaw, wallBlendF32);
+  out.pitch = interpolateUrot16Angle(fastPitch, slowPitch, wallBlendF32);
+  out.roll = interpolateUrot16Angle(fastRoll, slowRoll, wallBlendF32);
   return { smoothedNormalX: nx, smoothedNormalY: ny, smoothedNormalZ: nz };
 }
 

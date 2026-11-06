@@ -1,26 +1,50 @@
-import { EstablishedSessionManager } from '../server/EstablishedSessionManager.ts';
-import { GlobalPayloadCodec } from '../protocol/GlobalPayloadCodec.ts';
+import {
+  EstablishedSessionManager,
+  type ParsedClientPacketHeader,
+} from '../server/EstablishedSessionManager.ts';
+import {
+  GlobalPayloadCodec,
+  type DecodedGlobalPayload,
+} from '../protocol/GlobalPayloadCodec.ts';
 import { GameStateView } from '../../physics/RocketSimStateViews.ts';
+
+export interface DumpedPhysicsSnapshot {
+  tick: number;
+  boostPadMaskLow?: number;
+  boostPadMaskHigh?: number;
+  acknowledgedControls: DecodedGlobalPayload['physics'] extends { acknowledgedControls: infer A }
+    ? A
+    : unknown[];
+  cars: Array<Record<string, unknown>>;
+  ball: Record<string, unknown> | null;
+  rawSnapshotLength?: number;
+}
 
 export interface DumpedNetworkPacket {
   inspectionTimestamp: number;
-  summary: Record<string, any>;
-  clientHeader: Record<string, any> | null;
-  signals: any[];
-  allUserRtt: any;
-  physics: Record<string, any> | null;
+  summary: Record<string, unknown>;
+  clientHeader: Record<string, unknown> | null;
+  signals: DecodedGlobalPayload['signals'];
+  allUserRtt: DecodedGlobalPayload['allUserRtt'];
+  physics: DumpedPhysicsSnapshot | null;
 }
 
-export function dumpNetworkPacket(item: any): DumpedNetworkPacket | null {
+export interface InspectablePacketInput {
+  clientHeader?: ParsedClientPacketHeader | null;
+  globalPayload?: DecodedGlobalPayload | null;
+  rawBytes?: Uint8Array | ArrayBuffer;
+}
+
+export function dumpNetworkPacket(
+  item: InspectablePacketInput | Uint8Array | ArrayBuffer | null | undefined
+): DumpedNetworkPacket | null {
   if (!item) {
     console.warn('[NetworkPacket] No network packet available to inspect.');
     return null;
   }
 
-  let parsed: any = null;
-  if (item.clientHeader && item.globalPayload) {
-    parsed = item;
-  } else if (item instanceof Uint8Array || item instanceof ArrayBuffer) {
+  let parsed: InspectablePacketInput | null = null;
+  if (item instanceof Uint8Array || item instanceof ArrayBuffer) {
     const clientHeader = EstablishedSessionManager.parseClientPacket(item);
     const globalPayload = clientHeader?.globalPayloadSlice
       ? GlobalPayloadCodec.decode(clientHeader.globalPayloadSlice)
@@ -43,30 +67,34 @@ export function dumpNetworkPacket(item: any): DumpedNetworkPacket | null {
     const ch = parsed.clientHeader;
     const roundTripMs =
       ch.clientTimestamp > 0 ? (performance.now() - ch.clientTimestamp).toFixed(2) + ' ms' : 'N/A';
-    output.clientHeader = {
-      clientTimestamp: ch.clientTimestamp,
-      serverTimestamp: ch.serverTimestamp,
+    Object.assign(output, {
+      clientHeader: {
+        clientTimestamp: ch.clientTimestamp,
+        serverTimestamp: ch.serverTimestamp,
+        inputBufferSize: ch.inputBufferSize,
+        inferredRoundTrip: roundTripMs,
+      },
+    });
+    Object.assign(output.summary, {
       inputBufferSize: ch.inputBufferSize,
-      inferredRoundTrip: roundTripMs,
-    };
-    output.summary.inputBufferSize = ch.inputBufferSize;
-    output.summary.inferredRtt = roundTripMs;
+      inferredRtt: roundTripMs,
+    });
   }
 
   const gp = parsed?.globalPayload;
   if (gp) {
     if (gp.signals && gp.signals.length > 0) {
-      output.signals = gp.signals;
-      output.summary.signalsCount = gp.signals.length;
+      Object.assign(output, { signals: gp.signals });
+      Object.assign(output.summary, { signalsCount: gp.signals.length });
     }
     if (gp.allUserRtt) {
-      output.allUserRtt = gp.allUserRtt;
-      output.summary.playersRtt = gp.allUserRtt.players;
+      Object.assign(output, { allUserRtt: gp.allUserRtt });
+      Object.assign(output.summary, { playersRtt: gp.allUserRtt.players });
     }
     if (gp.hasPhysics && gp.physics) {
       const phy = gp.physics;
-      output.summary.serverTick = phy.tick;
-      output.physics = {
+      Object.assign(output.summary, { serverTick: phy.tick });
+      const physicsDump: DumpedPhysicsSnapshot = {
         tick: phy.tick,
         boostPadMaskLow: phy.boostPadMaskLow,
         boostPadMaskHigh: phy.boostPadMaskHigh,
@@ -74,12 +102,13 @@ export function dumpNetworkPacket(item: any): DumpedNetworkPacket | null {
         cars: [],
         ball: null,
       };
+      Object.assign(output, { physics: physicsDump });
 
       if (phy.stateSnapshot && phy.stateSnapshot.length > 0) {
         try {
           const gv = new GameStateView();
           gv.attach(phy.stateSnapshot);
-          output.physics.ball = {
+          physicsDump.ball = {
             pos: {
               x: +gv.ball.posX.toFixed(2),
               y: +gv.ball.posY.toFixed(2),
@@ -99,7 +128,7 @@ export function dumpNetworkPacket(item: any): DumpedNetworkPacket | null {
           const activeCars = Math.min(8, Math.max(1, gv.header.numCars || 2));
           for (let i = 0; i < activeCars; i++) {
             const car = gv.getCar(i);
-            output.physics.cars.push({
+            physicsDump.cars.push({
               carIndex: i,
               pos: { x: +car.posX.toFixed(2), y: +car.posY.toFixed(2), z: +car.posZ.toFixed(2) },
               vel: { x: +car.velX.toFixed(2), y: +car.velY.toFixed(2), z: +car.velZ.toFixed(2) },
@@ -111,7 +140,7 @@ export function dumpNetworkPacket(item: any): DumpedNetworkPacket | null {
           }
         } catch (e) {
           console.warn('[PredictionReconciler] Failed to parse car snapshot in diagnostics:', e);
-          output.physics.rawSnapshotLength = phy.stateSnapshot.length;
+          physicsDump.rawSnapshotLength = phy.stateSnapshot.length;
         }
       }
     }
@@ -131,10 +160,12 @@ export function dumpNetworkPacket(item: any): DumpedNetworkPacket | null {
       console.log('Authoritative Physics Tick:', output.physics.tick);
       if (output.physics.acknowledgedControls?.length) {
         console.table(
-          output.physics.acknowledgedControls.map((a: any) => ({
-            carIndex: a.carIndex,
-            ...a.controls,
-          }))
+          output.physics.acknowledgedControls.map(
+            (a: { carIndex: number; controls: unknown }) => ({
+              carIndex: a.carIndex,
+              ...((a.controls as Record<string, unknown>) || {}),
+            })
+          )
         );
       }
       if (output.physics.cars?.length) {

@@ -1,72 +1,42 @@
 import { DEFAULT_CAR_CONTROLS } from '../../../ai/experimental/ExperimentalBotAgent.ts';
 import { gameAudio } from '../../../audio/GameAudioEngineFacade.ts';
-import {
-  isGlobalHotkeyBlockedByUi,
-  subscribeGlobalKeyDown,
-  subscribeGlobalKeyUp,
-} from '../../../input/hotkeyInputGuard.ts';
-import {
-  MAX_REWINDER_FRAMES,
-  exportStateReplayFile,
-  parseRCReplayFile,
-} from '../../../replay/ReplayFileExporter.ts';
-import {
-  useRewinderStore,
-  useSubsystemIsolationLabStore,
-} from '../../runtimeUiPort.ts';
-import type { LabTabContext, LabTabController } from './LabTabTypes.ts';
+import { isGlobalHotkeyBlockedByUi, subscribeGlobalKeyDown, subscribeGlobalKeyUp } from '../../../input/hotkeyInputGuard.ts';
+import type { CarControlsInput, RestoreSnapshotOptions } from '../../../physics/RocketSimSnapshotSerializer.ts';
+import type { DecodedIncidentEvent, DecodedSignalEvent, ReplaySnapshotFloat32Array } from '../../../replay/container/RCReplayBinarySchema.ts';
+import { MAX_REWINDER_FRAMES, exportStateReplayFile, parseRCReplayFile } from '../../../replay/ReplayFileExporter.ts';
+import type { ReplayAudioCue } from '../../../replay/ReplayRingBuffer.ts';
+import { useRewinderStore, useSubsystemIsolationLabStore } from '../../runtimeUiPort.ts';
+import type { LabAudioPort, LabTabContext, LabTabController } from './LabTabTypes.ts';
 
 export interface RewinderFrameEntry {
   [key: string]: unknown;
-  compactSnap: any;
-  renderState: any;
-  controls: Record<string, any>;
-  acknowledgedControls?: any[];
-  incidents?: any[];
-  signals?: any[];
-  audioEvents?: any[];
+  compactSnap: Float32Array; renderState: Float32Array; arenaSnap?: Float32Array;
+  controls: CarControlsInput; acknowledgedControls?: CarControlsInput[];
+  incidents?: DecodedIncidentEvent[]; signals?: DecodedSignalEvent[]; audioEvents?: ReplayAudioCue[];
 }
 
 export interface PrerollCalculationOutput {
-  startIdx: number;
-  targetIdx: number;
-  remFrames: number;
-  remSec: number;
+  startIdx: number; targetIdx: number; remFrames: number; remSec: number;
 }
 
 export function computeRewinderPrerollWindow(
-  totalFrames: number,
-  rawCursor: number,
-  rawTargetFrame: number,
-  downCounterSec: number,
-  currentRewinderState: string
+  totalFrames: number, rawCursor: number, rawTargetFrame: number,
+  downCounterSec: number, currentRewinderState: string
 ): PrerollCalculationOutput {
   const minRequiredFrames = downCounterSec === 0 ? 120 : 240;
   const lastFrame = Math.max(0, totalFrames - 1);
-
   const effectiveCursor = currentRewinderState === 'recording' ? lastFrame : rawCursor;
   const effectiveTarget = currentRewinderState === 'recording' ? lastFrame : rawTargetFrame;
-
   const baseTarget =
     currentRewinderState === 'preroll-countdown' || currentRewinderState === 'stopped'
       ? effectiveTarget || effectiveCursor
       : effectiveCursor;
-
-  const targetIdx = Math.max(
-    minRequiredFrames - 1,
-    Math.min(lastFrame, Math.round(baseTarget))
-  );
+  const targetIdx = Math.max(minRequiredFrames - 1, Math.min(lastFrame, Math.round(baseTarget)));
   const lookbackFrames = (downCounterSec === 0 ? 1 : downCounterSec + 1) * 120;
   const startIdx = Math.max(0, targetIdx - lookbackFrames);
   const remFrames = Math.max(0, targetIdx - startIdx);
   const remSec = Math.ceil(remFrames / 120);
-
-  return {
-    startIdx,
-    targetIdx,
-    remFrames,
-    remSec,
-  };
+  return { startIdx, targetIdx, remFrames, remSec };
 }
 
 export class StateReplayLabTab implements LabTabController {
@@ -98,6 +68,10 @@ export class StateReplayLabTab implements LabTabController {
     return Boolean(useRewinderStore.getState().rewinderWindowOpen);
   }
 
+  private getAudio(): LabAudioPort | null {
+    return this.ctx?.runtime?.options?.gameAudio || (gameAudio as unknown as LabAudioPort);
+  }
+
   bindHotkeys(): void {
     if (typeof window === 'undefined') return;
     this.unbindHotkeys();
@@ -117,7 +91,6 @@ export class StateReplayLabTab implements LabTabController {
         }
         return;
       }
-
       if ((evt.code === 'KeyP' || evt.key === 'p' || evt.key === 'P') && noMods) {
         if (!evt.repeat) {
           evt.preventDefault();
@@ -126,7 +99,6 @@ export class StateReplayLabTab implements LabTabController {
         }
         return;
       }
-
       if ((evt.code === 'KeyG' || evt.key === 'g' || evt.key === 'G') && noMods) {
         if (!evt.repeat) {
           evt.preventDefault();
@@ -135,13 +107,11 @@ export class StateReplayLabTab implements LabTabController {
         }
         return;
       }
-
       if (evt.code === 'BracketLeft' || evt.key === '[') {
         evt.preventDefault();
         if (!evt.repeat) this.beginScrub('rewinding');
         return;
       }
-
       if (evt.code === 'BracketRight' || evt.key === ']') {
         evt.preventDefault();
         if (!evt.repeat) this.beginScrub('forwarding');
@@ -150,8 +120,9 @@ export class StateReplayLabTab implements LabTabController {
 
     this.keyUpHandler = (evt: KeyboardEvent) => {
       const runtime = this.ctx?.runtime;
-      if (runtime?.match?.state?.mode !== 'dev-test-lab') return;
-      if (!this.doesRewinderWindowExist()) return;
+      if (runtime?.match?.state?.mode !== 'dev-test-lab' || !this.doesRewinderWindowExist()) {
+        return;
+      }
       if (
         evt.code === 'BracketLeft' ||
         evt.key === '[' ||
@@ -190,21 +161,21 @@ export class StateReplayLabTab implements LabTabController {
     const currentMode = this.ctx?.runtime?.match?.state?.mode || 'dev-test-lab';
     if (currentMode !== 'dev-test-lab') {
       console.warn(
-        `[StateReplayLabTab] Cannot execute "${actionName}": active mode is "${currentMode}" (requires "dev-test-lab").`
+        `[StateReplayLabTab] Cannot execute "${actionName}": active mode is "${currentMode}".`
       );
       return false;
     }
     return true;
   }
 
-  private updateStoresTelemetry(patch: Record<string, any>): void {
+  private updateStoresTelemetry(patch: Record<string, unknown>): void {
     useRewinderStore.getState().updateLiveTelemetry(patch);
     useSubsystemIsolationLabStore.getState().updateLiveTelemetry(patch);
   }
 
   private applyFrameAtCursor(
     smoothStep = false,
-    restoreOptions: Record<string, any> = { preserveEngineTick: true }
+    restoreOptions: RestoreSnapshotOptions = { preserveEngineTick: true }
   ): void {
     const r = this.ctx?.runtime;
     if (!r?.physics || this.rewinderFrames.length === 0) return;
@@ -219,7 +190,7 @@ export class StateReplayLabTab implements LabTabController {
       r.interpolator.prevState.set(r.interpolator.currState);
     }
 
-    const compactSnap = entry.compactSnap || entry.renderState || (entry as any).arenaSnap;
+    const compactSnap = entry.compactSnap || entry.renderState || entry.arenaSnap;
     if (compactSnap) {
       r.physics.restoreState(compactSnap, restoreOptions);
     }
@@ -236,9 +207,7 @@ export class StateReplayLabTab implements LabTabController {
     if (!this.ensureDevTestLabActive('startRewinderRecordingSession')) return;
     const r = this.ctx?.runtime;
     if (!r?.physics) {
-      console.warn(
-        '[StateReplayLabTab] Cannot start recording: physics engine is not initialized.'
-      );
+      console.warn('[StateReplayLabTab] Cannot start recording: physics engine not initialized.');
       return;
     }
 
@@ -277,18 +246,14 @@ export class StateReplayLabTab implements LabTabController {
         rewinderPrerollRemainingSec: 0,
       });
     } else {
-      console.warn(
-        `[StateReplayLabTab] Cannot stop recording: current state is "${store.rewinderState}".`
-      );
+      console.warn(`[StateReplayLabTab] Cannot stop recording in state "${store.rewinderState}".`);
     }
   }
 
   beginScrub(direction: 'rewinding' | 'forwarding' = 'rewinding'): void {
     if (!this.ensureDevTestLabActive(`beginRewinderScrubSession(${direction})`)) return;
     if (this.rewinderFrames.length === 0) {
-      console.warn(
-        `[StateReplayLabTab] Cannot start ${direction}: recorded frame buffer is empty (0 frames).`
-      );
+      console.warn(`[StateReplayLabTab] Cannot start ${direction}: buffer is empty.`);
       return;
     }
     const store = useRewinderStore.getState();
@@ -329,9 +294,7 @@ export class StateReplayLabTab implements LabTabController {
   seekFrame(frameIndex: number): void {
     if (!this.ensureDevTestLabActive('seekRewinderFrameToIndex')) return;
     if (!this.rewinderFrames || this.rewinderFrames.length === 0) {
-      console.warn(
-        '[StateReplayLabTab] Cannot seek frame: recorded frame buffer is empty (0 frames).'
-      );
+      console.warn('[StateReplayLabTab] Cannot seek frame: recorded frame buffer is empty.');
       return;
     }
     const clamped = Math.max(
@@ -358,14 +321,12 @@ export class StateReplayLabTab implements LabTabController {
     const downSec = store.rewinderDownCounterSec ?? 3;
     const minRequiredFrames = downSec === 0 ? 120 : 240;
     if (!r?.physics) {
-      console.warn(
-        '[StateReplayLabTab] Cannot resume from cursor: physics engine is not initialized.'
-      );
+      console.warn('[StateReplayLabTab] Cannot resume: physics engine not initialized.');
       return;
     }
     if (this.rewinderFrames.length < minRequiredFrames) {
       console.warn(
-        `[StateReplayLabTab] Cannot resume from cursor: recorded frames (${this.rewinderFrames.length}) < minimum required frames (${minRequiredFrames}) for downCounter=${downSec}s.`
+        `[StateReplayLabTab] Cannot resume: recorded frames (${this.rewinderFrames.length}) < ${minRequiredFrames}.`
       );
       return;
     }
@@ -386,7 +347,7 @@ export class StateReplayLabTab implements LabTabController {
     this.applyFrameAtCursor(false);
     r.simulationStage?.resetActionStates?.();
 
-    const audio = r?.options?.gameAudio || gameAudio;
+    const audio = this.getAudio();
     if (downSec === 0) {
       this.rewinderLastCountdownSecBeep = 1;
       audio?.play?.('training_countdown', 1.0, 200);
@@ -406,21 +367,19 @@ export class StateReplayLabTab implements LabTabController {
 
   async exportReplay(): Promise<boolean> {
     if (!this.rewinderFrames || this.rewinderFrames.length === 0) {
-      console.warn(
-        '[StateReplayLabTab] Cannot export state replay: recorded frame buffer is empty (0 frames).'
-      );
+      console.warn('[StateReplayLabTab] Cannot export state replay: buffer is empty.');
       return false;
     }
     return Boolean(await exportStateReplayFile(this.rewinderFrames));
   }
 
-  async importReplay(fileOrBuffer: any): Promise<boolean> {
+  async importReplay(
+    fileOrBuffer: File | Blob | ArrayBuffer | Uint8Array
+  ): Promise<boolean> {
     if (!this.ensureDevTestLabActive('importRewinderReplayFile')) return false;
     const r = this.ctx?.runtime;
     if (!r?.physics) {
-      console.warn(
-        '[StateReplayLabTab] Cannot import replay: physics engine is not initialized.'
-      );
+      console.warn('[StateReplayLabTab] Cannot import replay: physics engine not initialized.');
       return false;
     }
     try {
@@ -429,23 +388,26 @@ export class StateReplayLabTab implements LabTabController {
         throw new Error('No valid frames found in replay file.');
       }
       this.ctx?.ensureSinglePlayerCarOnly(false);
-      this.rewinderFrames = parsed.frames.map((snap: any, idx: number) => {
-        const slot = parsed.frameSlots?.[idx] || null;
-        const car0Ctrl =
-          slot?.acknowledgedControls?.[0] ||
-          snap?.controls?.[0] ||
-          r.neutralControls ||
-          DEFAULT_CAR_CONTROLS;
-        return {
-          compactSnap: snap,
-          renderState: snap,
-          controls: { ...car0Ctrl },
-          acknowledgedControls: slot?.acknowledgedControls || snap?.controls || [{ ...car0Ctrl }],
-          incidents: slot?.incidents || snap?.incidents || [],
-          signals: slot?.signals || snap?.signals || [],
-          audioEvents: slot?.audioEvents || snap?.audioEvents || [],
-        };
-      });
+      this.rewinderFrames = parsed.frames.map(
+        (snap: ReplaySnapshotFloat32Array, idx: number): RewinderFrameEntry => {
+          const slot = parsed.frameSlots?.[idx] || null;
+          const car0Ctrl: CarControlsInput =
+            slot?.acknowledgedControls?.[0] ||
+            snap?.controls?.[0] ||
+            r.neutralControls ||
+            DEFAULT_CAR_CONTROLS;
+          return {
+            compactSnap: snap,
+            renderState: snap,
+            controls: { ...car0Ctrl },
+            acknowledgedControls: slot?.acknowledgedControls ||
+              snap?.controls || [{ ...car0Ctrl }],
+            incidents: slot?.incidents || snap?.incidents || [],
+            signals: slot?.signals || snap?.signals || [],
+            audioEvents: slot?.audioEvents || snap?.audioEvents || [],
+          };
+        }
+      );
       this.rewinderCursor = 0;
       this.rewinderTargetFrame = Math.max(0, this.rewinderFrames.length - 1);
       this.rewinderScrubAccumulator = 0;
@@ -531,7 +493,7 @@ export class StateReplayLabTab implements LabTabController {
       const remFrames = Math.max(0, targetIdx - nextCursor);
       const downSec = store.rewinderDownCounterSec ?? 3;
       const maxBeepSec = downSec === 0 ? 1 : downSec;
-      const audio = r?.options?.gameAudio || gameAudio;
+      const audio = this.getAudio();
 
       if (remFrames <= 0) {
         const prevEngineTick = Math.floor(r?.physics?.getHeaderView?.()?.tickCount ?? 0);
@@ -542,8 +504,8 @@ export class StateReplayLabTab implements LabTabController {
         r?.physics?.resetGoalLatch?.();
         if (r) r._clientGoalIncidentLatched = false;
         r?.simulationStage?.resetActionStates?.();
-        if (r?.playerControls) {
-          r.physics.setControls?.(r.playerCarIndex || 0, r.playerControls);
+        if (r?.playerControls && r.physics) {
+          r.physics.setControls(r.playerCarIndex || 0, r.playerControls);
         }
         audio?.play?.('match_start_go', 1.0, 200);
         this.rewinderLastCountdownSecBeep = -1;
@@ -586,13 +548,11 @@ export class StateReplayLabTab implements LabTabController {
     ) {
       if (store.rewinderState === 'rewinding' || store.rewinderState === 'forwarding') {
         const stepPerTick = (store.rewinderEffectiveFlowPct || 100) / 100;
+        const maxIdx = Math.max(0, this.rewinderFrames.length - 1);
         this.rewinderCursor =
           store.rewinderState === 'rewinding'
             ? Math.max(0, this.rewinderCursor - stepPerTick)
-            : Math.min(
-                Math.max(0, this.rewinderFrames.length - 1),
-                this.rewinderCursor + stepPerTick
-              );
+            : Math.min(maxIdx, this.rewinderCursor + stepPerTick);
         this.rewinderTargetFrame = Math.round(this.rewinderCursor);
         this.applyFrameAtCursor(false, { preserveEngineTick: true });
         this.updateStoresTelemetry({

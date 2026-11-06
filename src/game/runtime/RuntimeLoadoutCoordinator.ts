@@ -1,8 +1,6 @@
 import {
   CAR_COLOR_SLOTS,
   normalizeVisualId,
-  packLoadoutCommandParam1,
-  packLoadoutCommandParam2,
   resolveVehicleHitboxId,
 } from '../../ui-core/config/vehicleConstants';
 import {
@@ -14,20 +12,25 @@ import {
 } from '../../ui-core/config/vehiclePresets';
 import { getMaterialsConfig } from '../../ui-core/config/materialsConfig';
 import { gameAudio } from '../../audio/GameAudioEngineFacade.ts';
-import { CLIENT_COMMAND_TYPES } from '../../network/protocol/GlobalPayloadCodec.ts';
+import { FlipResetVisual } from '../../effects/FlipResetVisual.ts';
 import { useAppStore } from '../runtimeUiPort.ts';
 import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
 import type { EntityManager } from '../../entities/EntityManager.ts';
 import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
 import type { CameraManager } from '../../camera/CameraManager.ts';
-import type { AuthoritativeServerHost } from '../../network/server/AuthoritativeServerHost.ts';
-import type { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
-import type { FlipResetVisual } from '../../effects/FlipResetVisual.ts';
-import type {
-  MaterialsConfigLike,
-  NetworkSessionChannelLike,
-} from './onlineLobbyTransitionPipeline.ts';
-import type { SignalAudioFacadeLike } from './RuntimeGoalReplaySignalSubController.ts';
+import type { MaterialsConfigLike } from './onlineLobbyTransitionPipeline.ts';
+
+export interface LocalPlayerLoadoutSyncRequest {
+  carIndex: number;
+  visualId: string;
+  hitboxId: string;
+  colorSlotId: number;
+  paintFinish: string;
+  boostVisual: string;
+  boostAudio: string;
+  updateVisualPreset?: boolean;
+  broadcastColorHex?: string | null;
+}
 
 export interface ActiveModeLoadoutPort {
   id?: string;
@@ -47,20 +50,16 @@ export interface RuntimeLoadoutHostPort {
   readonly entityManager: EntityManager | null;
   readonly physics: RocketSimPhysicsEngine | null;
   readonly camera: CameraManager | null;
-  readonly cameraSubsystem?: { cameraDynamics: object | null } | null;
   readonly modeManager: { activeMode?: ActiveModeLoadoutPort | null } | null;
-  readonly options: { gameAudio?: SignalAudioFacadeLike; [key: string]: unknown } | null;
-  readonly authoritativeServer: AuthoritativeServerHost | null;
-  readonly networkReconciler: PredictionReconciler | null;
-  readonly networkChannel: NetworkSessionChannelLike | null;
+  readonly networkManager?: {
+    syncLocalPlayerLoadout(request: LocalPlayerLoadoutSyncRequest): void;
+  } | null;
   readonly playerCarIndex: number;
   readonly teamAssignment?: { playerTeam: number; opponentTeam: number } | null;
   readonly flipResetVisuals?: Map<number, FlipResetVisual>;
   selectedPreset: string;
   selectedHitbox: string | null;
   selectedColorSlot: number | null;
-  flipResetVisual: FlipResetVisual | null;
-  getFlipResetVisual(carIndex: number): FlipResetVisual | null;
 }
 
 /**
@@ -75,6 +74,20 @@ export class RuntimeLoadoutCoordinator {
 
   constructor(host: RuntimeLoadoutHostPort) {
     this.host = host;
+  }
+
+  private rebindFlipResetVisual(carIndex: number): void {
+    const h = this.host;
+    const carRoot = h.arena?.cars?.[carIndex];
+    if (!carRoot) return;
+    const prevFx = h.flipResetVisuals?.get?.(carIndex);
+    prevFx?.dispose?.();
+    h.flipResetVisuals?.delete?.(carIndex);
+    try {
+      h.flipResetVisuals?.set?.(carIndex, new FlipResetVisual(carRoot));
+    } catch (err) {
+      console.warn('[GameRuntime] FlipResetVisual re-bind skipped:', err);
+    }
   }
 
   public changePlayerVehicle(visualId: string, hitboxId: string | null = null): void {
@@ -104,20 +117,8 @@ export class RuntimeLoadoutCoordinator {
     }
 
     if (h.arena?.cars?.[targetCarIdx]) {
-      const prevFx = h.flipResetVisuals?.get?.(targetCarIdx) ?? h.flipResetVisual;
-      prevFx?.dispose?.();
-      h.flipResetVisuals?.delete?.(targetCarIdx);
-      try {
-        h.getFlipResetVisual(targetCarIdx);
-      } catch (err) {
-        console.warn('[GameRuntime] FlipResetVisual re-bind skipped:', err);
-      }
-      h.camera?.update?.(
-        h.arena.cars[h.playerCarIndex],
-        h.arena.ball,
-        0,
-        h.cameraSubsystem?.cameraDynamics ?? {},
-      );
+      this.rebindFlipResetVisual(targetCarIdx);
+      h.camera?.update?.(h.arena.cars[h.playerCarIndex], h.arena.ball, 0, {});
     }
 
     const colorSlotId = h.selectedColorSlot ?? 0;
@@ -126,7 +127,7 @@ export class RuntimeLoadoutCoordinator {
     const boostVisual = matCfg?.boostVisual || 'cartoon';
     const boostAudio = matCfg?.boostAudio || 'standard';
     h.arena?.setCarLoadout?.(targetCarIdx, { paintFinish, boostVisual, boostAudio });
-    (h.options?.gameAudio || gameAudio)?.setCarBoostAudioVariation?.(targetCarIdx, boostAudio);
+    gameAudio?.setCarBoostAudioVariation?.(targetCarIdx, boostAudio);
 
     if (expMode) {
       const entry = expMode.spawnedCars?.[targetCarIdx];
@@ -140,23 +141,16 @@ export class RuntimeLoadoutCoordinator {
       }
     }
 
-    if (h.authoritativeServer) {
-      h.authoritativeServer.setLoadout?.(
-        'host',
-        normalizedVisual,
-        colorSlotId,
-        resolvedHitboxId,
-        { paintFinish, boostVisual, boostAudio },
-      );
-    }
-    if (h.networkReconciler) {
-      h.networkReconciler.setCarVisualPreset?.(h.playerCarIndex, normalizedVisual);
-      h.networkReconciler.queueClientCommand?.(
-        CLIENT_COMMAND_TYPES.CMD_SET_LOADOUT,
-        packLoadoutCommandParam1(normalizedVisual, resolvedHitboxId),
-        packLoadoutCommandParam2(colorSlotId, paintFinish, boostVisual, boostAudio),
-      );
-    }
+    h.networkManager?.syncLocalPlayerLoadout({
+      carIndex: h.playerCarIndex,
+      visualId: normalizedVisual,
+      hitboxId: resolvedHitboxId,
+      colorSlotId,
+      paintFinish,
+      boostVisual,
+      boostAudio,
+      updateVisualPreset: true,
+    });
   }
 
   public setCarColor(carIndex: number, colorVal: number | string, broadcast = true): void {
@@ -183,29 +177,16 @@ export class RuntimeLoadoutCoordinator {
     const boostVisual = matCfg?.boostVisual || 'cartoon';
     const boostAudio = matCfg?.boostAudio || 'standard';
 
-    if (h.authoritativeServer && carIndex === h.playerCarIndex) {
-      h.authoritativeServer.setLoadout?.(
-        'host',
-        activeVisual,
-        slot.id,
-        activeHitbox,
-        { paintFinish, boostVisual, boostAudio },
-      );
-    }
-    if (h.networkReconciler && carIndex === h.playerCarIndex) {
-      h.networkReconciler.queueClientCommand?.(
-        CLIENT_COMMAND_TYPES.CMD_SET_LOADOUT,
-        packLoadoutCommandParam1(activeVisual, activeHitbox),
-        packLoadoutCommandParam2(slot.id, paintFinish, boostVisual, boostAudio),
-      );
-    }
-    if (h.networkChannel?.sendColorChange) {
-      try {
-        h.networkChannel.sendColorChange(slot.id, hex, carIndex);
-      } catch (err) {
-        console.error('[GameRuntime] Failed to broadcast color change over network channel:', err);
-      }
-    }
+    h.networkManager?.syncLocalPlayerLoadout({
+      carIndex,
+      visualId: activeVisual,
+      hitboxId: activeHitbox,
+      colorSlotId: slot.id,
+      paintFinish,
+      boostVisual,
+      boostAudio,
+      broadcastColorHex: hex,
+    });
   }
 
   public syncPlayerMaterialsLoadout(materialsConfig: MaterialsConfigLike | null = null): void {
@@ -232,7 +213,7 @@ export class RuntimeLoadoutCoordinator {
       boostVisual,
       boostAudio,
     });
-    (h.options?.gameAudio || gameAudio)?.setCarBoostAudioVariation?.(targetCarIdx, boostAudio);
+    gameAudio?.setCarBoostAudioVariation?.(targetCarIdx, boostAudio);
 
     if (expMode) {
       const entry = expMode.rosterController?.spawnedCars?.[targetCarIdx];
@@ -252,30 +233,20 @@ export class RuntimeLoadoutCoordinator {
     const activeHitbox = h.selectedHitbox || resolveVehicleHitboxId(activeVisual);
     const colorSlotId = h.selectedColorSlot ?? 0;
 
-    if (h.authoritativeServer) {
-      h.authoritativeServer.setLoadout?.(
-        'host',
-        activeVisual,
-        colorSlotId,
-        activeHitbox,
-        { paintFinish, boostVisual, boostAudio },
-      );
-    }
-    if (h.networkReconciler) {
-      h.networkReconciler.queueClientCommand?.(
-        CLIENT_COMMAND_TYPES.CMD_SET_LOADOUT,
-        packLoadoutCommandParam1(activeVisual, activeHitbox),
-        packLoadoutCommandParam2(colorSlotId, paintFinish, boostVisual, boostAudio),
-      );
-    }
+    h.networkManager?.syncLocalPlayerLoadout({
+      carIndex: h.playerCarIndex,
+      visualId: activeVisual,
+      hitboxId: activeHitbox,
+      colorSlotId,
+      paintFinish,
+      boostVisual,
+      boostAudio,
+    });
   }
 
   /**
    * Restores the local player's saved Freeplay vehicle preset, hitbox, preferred team,
    * color slot, paint finish, boost visual, and boost audio onto `carIndex` (default 0).
-   * Prevents multi-car modes (Exhibition / Multi-Bots / Replay Viewer / Online) where
-   * `carIndex = 0` may have been occupied by a bot or remote peer from leaking that
-   * loadout into Freeplay or subsequent single-car training modes.
    */
   public restoreLocalPlayerFreeplayLoadout(carIndex = 0): void {
     const h = this.host;
@@ -333,17 +304,7 @@ export class RuntimeLoadoutCoordinator {
       }
     }
 
-    if (h.arena?.cars?.[carIndex]) {
-      const prevFx = h.flipResetVisuals?.get?.(carIndex) ?? h.flipResetVisual;
-      prevFx?.dispose?.();
-      h.flipResetVisuals?.delete?.(carIndex);
-      try {
-        h.getFlipResetVisual(carIndex);
-      } catch (err) {
-        console.warn('[GameRuntime] FlipResetVisual re-bind skipped:', err);
-      }
-    }
-
-    (h.options?.gameAudio || gameAudio)?.setCarBoostAudioVariation?.(carIndex, boostAudio);
+    this.rebindFlipResetVisual(carIndex);
+    gameAudio?.setCarBoostAudioVariation?.(carIndex, boostAudio);
   }
 }

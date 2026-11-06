@@ -106,8 +106,27 @@ export class PeerSession {
   }
 }
 
+export interface TailoredPacketSessionManagerPort {
+  sessions: Map<string, PeerSession>;
+  physicsManager?: {
+    currentTick: number;
+    getInputBufferSize(entityId: number): number;
+  } | null;
+  signalBuffer: {
+    getPendingSignalsForSession(
+      sessionId: string,
+      currentTick: number | null
+    ): DecodedSessionSignal[];
+  };
+  getTime(): number;
+  extractSignalsFromGlobalPayload(globalPayloadBytes: Uint8Array): {
+    statelessPayloadBytes: Uint8Array;
+    serverTick: number | null;
+  };
+}
+
 export function buildTailoredClientPacket(
-  manager: any,
+  manager: TailoredPacketSessionManagerPort,
   sessionId: string,
   globalPayloadBytes: Uint8Array,
   options: TailoredPacketOptions = {}

@@ -271,8 +271,6 @@ export const MENU_ROUTE_RENDERERS: Record<
       }}
       onNavigateKeybindingsDetail={() => ctx.navigate('keybindings')}
       onNavigateTrainingDetail={() => ctx.navigate('training-config')}
-      onNavigateAdvancedAudio={() => ctx.navigate('advanced-audio')}
-      onNavigateEventTriggerRules={() => ctx.navigate('event-trigger-rules')}
       onNavigateExpMultiBots={() => {
         ctx.expConfigParentRef.current = 'settings';
         ctx.navigate('exp-multi-bots');
@@ -281,8 +279,12 @@ export const MENU_ROUTE_RENDERERS: Record<
       onNavigateDevActiveTuners={() => ctx.navigate('dev-active-tuners')}
       onNavigateDevCalibratedPresets={() => ctx.navigate('dev-calibrated-presets')}
       onNavigateDevQuickActions={() => ctx.navigate('dev-quick-actions')}
-      onNavigateDevSelfTest={() => ctx.navigate('dev-self-test')}
-      onNavigateDevUnderDevelopment={() => ctx.navigate('dev-under-development')}
+      stateOverride={{
+        onNavigateAdvancedAudio: () => ctx.navigate('advanced-audio'),
+        onNavigateEventTriggerRules: () => ctx.navigate('event-trigger-rules'),
+        onNavigateDevSelfTest: () => ctx.navigate('dev-self-test'),
+        onNavigateDevUnderDevelopment: () => ctx.navigate('dev-under-development'),
+      }}
     />
   ),
 

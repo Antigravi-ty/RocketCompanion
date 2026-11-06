@@ -1,7 +1,16 @@
 import * as THREE from 'three';
-import { hudStore, useReferenceOverlayStore } from '../runtimeUiPort.ts';
+import {
+  getNameTagRuntimeState,
+  hudStore,
+  setNameTagRuntimeState,
+  useReferenceOverlayStore,
+} from '../runtimeUiPort.ts';
 import { getDesiredRespawnPose } from '../../physics/RocketSimConstants.ts';
 import { applyRespawnPoseToObject3D } from '../../entities/arena/RespawnGhostPreview.ts';
+import type { CarStateView } from '../../physics/RocketSimStateViews.ts';
+import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
+import type { CameraManager } from '../../camera/CameraManager.ts';
+import type { PhysicsStateInterpolator } from '../../physics/PhysicsStateInterpolator.ts';
 import type { FrameContext } from '../pipeline/FramePipeline.ts';
 
 export interface FrameCameraMetadata {
@@ -18,12 +27,44 @@ export interface CameraDynamicsState {
   supersonic: boolean;
   lookX: number;
   lookY: number;
-  carView?: any;
+  carView?: CarStateView | null;
 }
 
 export interface CameraInputState {
   isRearViewHeld: boolean;
-  podiumController: any;
+  podiumController?: { isActive?: boolean } | undefined;
+}
+
+interface ActiveModeCameraPort {
+  isGoalReplayActive?(): boolean;
+  directorPreview?: { isReplayActive?: boolean } | null;
+  standaloneReplayViewer?: { isActive?: boolean; isIntervening?: boolean } | null;
+  rewinderController?: { isBlockingLivePhysics?: boolean } | null;
+  replaySession?: {
+    isReplayActive?: boolean;
+    replayController?: { sessionState?: { isActive?: boolean } | null } | null;
+  } | null;
+  goalReplayPhase?: string;
+  replayController?: { sessionState?: { isActive?: boolean } | null } | null;
+  goalReplayTimelineController?: { sessionState?: { isActive?: boolean } | null } | null;
+  isTestingSingleShot?: boolean;
+}
+
+export interface CameraSubsystemRuntimePort {
+  camera: CameraManager | null;
+  arena: ArenaWorld | null;
+  interpolator: PhysicsStateInterpolator | null;
+  match: { state: { mode: string; phase: string } } | null;
+  modeManager: { getActiveMode(): unknown } | null;
+  replayTimelineController: { sessionState?: { isActive?: boolean } | null } | null;
+  ballTrajectoryPredictor: { releaseTemporarySuppression?(): void } | null;
+  replayPovCarIndex: number | null;
+  networkManager: {
+    diagnosticsProbe: { diagnosticObservationTarget?: number };
+  } | null;
+  podiumController: { isActive?: boolean } | null;
+  keyboard: { held?(action: string): boolean } | null;
+  gamepad: { pressed?(action: string): boolean } | null;
 }
 
 /**
@@ -32,7 +73,7 @@ export interface CameraInputState {
  * ball camera target follow, and HUD arrow orientation.
  */
 export class GameCameraSubsystem {
-  public runtime: any;
+  public runtime: CameraSubsystemRuntimePort;
   public scratchGroundNormal: THREE.Vector3 | null = new THREE.Vector3(0, 0, 0);
   public scratchVelocity: THREE.Vector3 | null = new THREE.Vector3(0, 0, 0);
   public respawnCameraProxy: { position: THREE.Vector3; quaternion: THREE.Quaternion } | null = {
@@ -49,7 +90,7 @@ export class GameCameraSubsystem {
   public cameraDynamics: CameraDynamicsState | null;
   public cameraInputState: CameraInputState;
 
-  constructor(runtime: any) {
+  constructor(runtime: CameraSubsystemRuntimePort) {
     this.runtime = runtime;
 
     this.cameraDynamics = {
@@ -63,7 +104,7 @@ export class GameCameraSubsystem {
 
     this.cameraInputState = {
       isRearViewHeld: false,
-      podiumController: null,
+      podiumController: undefined,
     };
   }
 
@@ -104,12 +145,15 @@ export class GameCameraSubsystem {
   private _hasActiveGoalReplaySession(): boolean {
     const r = this.runtime;
     if (!r) return false;
-    const activeMode = r.modeManager?.getActiveMode?.();
+    const activeMode = r.modeManager?.getActiveMode?.() as ActiveModeCameraPort | null;
+    const activeReplayViewer = activeMode?.standaloneReplayViewer;
     return Boolean(
       r.match?.state?.phase === 'replay' ||
         hudStore.getState().matchPhase === 'replay' ||
         activeMode?.isGoalReplayActive?.() ||
         activeMode?.directorPreview?.isReplayActive ||
+        (activeReplayViewer?.isActive && !activeReplayViewer?.isIntervening) ||
+        activeMode?.rewinderController?.isBlockingLivePhysics ||
         activeMode?.replaySession?.isReplayActive ||
         activeMode?.goalReplayPhase === 'replaying' ||
         activeMode?.replayController?.sessionState?.isActive ||
@@ -122,7 +166,7 @@ export class GameCameraSubsystem {
   private _reconcileSceneCameraOverrides(): void {
     const r = this.runtime;
     if (!r) return;
-    const activeMode = r.modeManager?.getActiveMode?.();
+    const activeMode = r.modeManager?.getActiveMode?.() as ActiveModeCameraPort | null;
     const hasActiveReplaySession = this._hasActiveGoalReplaySession();
     if (!hasActiveReplaySession) {
       if (this.isGoalReplayCameraOverrideActive()) {
@@ -142,7 +186,7 @@ export class GameCameraSubsystem {
 
   public resolveFrameCameraMetadata(context?: Partial<FrameContext> | null): FrameCameraMetadata {
     const r = this.runtime;
-    const activeCar = context?.activeCar ?? r?.playerCarIndex ?? 0;
+    const activeCar = context?.activeCar ?? 0;
     const isReplayPhase = this._hasActiveGoalReplaySession();
     const isDirectorOverride = this.isGoalReplayCameraOverrideActive();
     const isReplayPov =
@@ -153,7 +197,7 @@ export class GameCameraSubsystem {
 
     const diagTarget = r?.networkManager?.diagnosticsProbe?.diagnosticObservationTarget ?? 0;
     const obsTargetIdx = isReplayPov
-      ? r.replayPovCarIndex
+      ? (r.replayPovCarIndex ?? activeCar)
       : diagTarget > 0 && r.arena?.cars?.[diagTarget]?.visible
         ? diagTarget
         : activeCar;
@@ -180,6 +224,22 @@ export class GameCameraSubsystem {
     };
   }
 
+  public syncArenaCameraMetadata(context: FrameContext): void {
+    const r = this.runtime;
+    if (!r.arena) return;
+    r.arena.playerCarIndex = context.activeCar;
+    r.arena.isFreeCam = Boolean(r.camera?.isFreeCam);
+    const camMeta = this.resolveFrameCameraMetadata(context);
+    r.arena.isGoalReplayActive = camMeta.isGoalReplayActive;
+    r.arena.cameraMode = camMeta.cameraMode;
+    r.arena.isPovCamera = camMeta.isPovCamera;
+    r.arena.focusedCarIndex = camMeta.obsTargetIdx;
+    context.isGoalReplayActive = camMeta.isGoalReplayActive;
+    if (r.camera?.camera) {
+      r.arena.camera = r.camera.camera;
+    }
+  }
+
   public update(context: FrameContext): void {
     const r = this.runtime;
     if (!r?.camera || !this.cameraDynamics || !this.scratchGroundNormal || !this.scratchVelocity) {
@@ -189,7 +249,9 @@ export class GameCameraSubsystem {
 
     this._reconcileSceneCameraOverrides();
 
-    const { obsTargetIdx } = this.resolveFrameCameraMetadata(context);
+    const camMeta = this.resolveFrameCameraMetadata(context);
+    const { obsTargetIdx } = camMeta;
+    context.isGoalReplayActive = camMeta.isGoalReplayActive;
     const targetMesh = obsTargetIdx !== activeCar ? r.arena?.cars?.[obsTargetIdx] : activeCarMesh;
     const targetView =
       obsTargetIdx !== activeCar
@@ -198,7 +260,8 @@ export class GameCameraSubsystem {
 
     r.camera.setFocusedCarIndex?.(obsTargetIdx);
 
-    let effectiveCarObject = targetMesh;
+    let effectiveCarObject: THREE.Object3D | { position: THREE.Vector3; quaternion: THREE.Quaternion } | null | undefined =
+      targetMesh;
     const isLocalTarget = obsTargetIdx === activeCar;
     const selectedRespawnSlot = targetView?.demoSpawnSelection ?? -1;
 
@@ -254,6 +317,7 @@ export class GameCameraSubsystem {
         this.cameraDynamics.velocity = this.scratchVelocity;
       }
     }
+    context.cameraVelocity = this.scratchVelocity;
 
     const refOverlayState = useReferenceOverlayStore?.getState?.();
     const overrideLookX = refOverlayState?.cameraLookXOverride ?? 0;
@@ -269,10 +333,10 @@ export class GameCameraSubsystem {
       overrideRearView ||
       ((r.keyboard?.held?.('rearView') || r.gamepad?.pressed?.('rearView')) ?? false);
     this.cameraInputState.isRearViewHeld = isRearViewHeld;
-    this.cameraInputState.podiumController = r.podiumController || null;
+    this.cameraInputState.podiumController = r.podiumController || undefined;
 
     r.camera.update(
-      effectiveCarObject,
+      effectiveCarObject as THREE.Object3D | null | undefined,
       r.arena?.ball,
       dt ?? 0.016,
       this.cameraDynamics,
@@ -292,9 +356,24 @@ export class GameCameraSubsystem {
         r.camera.ballCam,
         obsTargetIdx,
         r.arena.ball,
-        effectiveCarObject,
+        effectiveCarObject as THREE.Object3D,
       );
     }
+
+    const nameTagRuntime = getNameTagRuntimeState();
+    if (
+      nameTagRuntime.activeCameraMode !== activeCameraMode ||
+      nameTagRuntime.focusedCarIndex !== obsTargetIdx
+    ) {
+      setNameTagRuntimeState({
+        activeCameraMode,
+        focusedCarIndex: obsTargetIdx,
+      });
+    }
+
+    const numCars = r.interpolator?.getCurrHeaderView?.()?.numCars ?? r.interpolator?.numCars ?? 0;
+    r.arena?.nameTagSystem?.update(r.arena, numCars, r.camera.camera);
+    r.arena?.spatialAudioVisualizer?.update(r.arena, r.camera.camera);
 
     const hud = hudStore.getState();
     hud.setBallCamActive(r.camera.ballCam);

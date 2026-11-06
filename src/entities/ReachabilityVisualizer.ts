@@ -12,28 +12,40 @@ import { GroundReachabilityRenderer } from './reachability/GroundReachabilityRen
 import { AerialReachabilityRenderer } from './reachability/AerialReachabilityRenderer.ts';
 import { InterceptCrossRenderer } from './reachability/InterceptCrossRenderer.ts';
 
-export class ReachabilityVisualizer {
-  public _lastTelemetryPublishMs: any;
-  public aerialGroup: any;
-  public aerialRenderer: any;
-  public ballTrajectoryPredictor: any;
-  public getConfig: any;
-  public groundGroup: any;
-  public groundRenderer: any;
-  public interceptGroup: any;
-  public interceptRenderer: any;
-  public onTelemetry: any;
-  public physics: any;
-  public rootGroup: any;
-  public scene: any;
+import type { BallTrajectoryPredictor } from './BallTrajectoryPredictor.ts';
 
-  /**
-   * @param {THREE.Scene} scene
-   * @param {Object} physics - RocketSimPhysicsEngine
-   * @param {Object} ballTrajectoryPredictor - BallTrajectoryPredictor instance
-   * @param {Object} [options] - Optional getConfig and onTelemetry callbacks
-   */
-  constructor(scene, physics: any = null, ballTrajectoryPredictor: any = null, options: any = {}) {
+export interface ReachabilityVisualizerConfig {
+  enabled?: boolean;
+  targetCarIndex?: number;
+  [key: string]: unknown;
+}
+
+export interface ReachabilityVisualizerOptions {
+  getConfig?: (() => ReachabilityVisualizerConfig | null | undefined) | null;
+  onTelemetry?: ((telemetry: Record<string, unknown>) => void) | null;
+}
+
+export class ReachabilityVisualizer {
+  public _lastTelemetryPublishMs: number;
+  public aerialGroup: THREE.Group;
+  public aerialRenderer: AerialReachabilityRenderer;
+  public ballTrajectoryPredictor: BallTrajectoryPredictor | null;
+  public getConfig: (() => ReachabilityVisualizerConfig | null | undefined) | null;
+  public groundGroup: THREE.Group;
+  public groundRenderer: GroundReachabilityRenderer;
+  public interceptGroup: THREE.Group;
+  public interceptRenderer: InterceptCrossRenderer;
+  public onTelemetry: ((telemetry: Record<string, unknown>) => void) | null;
+  public physics: unknown;
+  public rootGroup: THREE.Group;
+  public scene: THREE.Scene | null;
+
+  constructor(
+    scene: THREE.Scene | null,
+    physics: unknown = null,
+    ballTrajectoryPredictor: BallTrajectoryPredictor | null = null,
+    options: ReachabilityVisualizerOptions = {}
+  ) {
     this.scene = scene;
     this.physics = physics;
     this.ballTrajectoryPredictor = ballTrajectoryPredictor;
@@ -76,8 +88,8 @@ export class ReachabilityVisualizer {
     const phys = runtime?.physics || this.physics;
     if (!phys) return;
 
-    const targetIdx = config.targetCarIndex >= 0
-      ? config.targetCarIndex
+    const targetIdx = (config.targetCarIndex ?? -1) >= 0
+      ? config.targetCarIndex!
       : (runtime?.playerCarIndex ?? 0);
 
     const carView = runtime?.interpolator?.getCurrCarStateView?.(targetIdx) || phys.getCarStateView?.(targetIdx);

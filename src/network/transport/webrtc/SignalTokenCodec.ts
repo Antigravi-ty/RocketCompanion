@@ -3,11 +3,26 @@
  * Base64 URL-safe pack / unpack and token serialization for WebRTC signaling.
  */
 
-import { injectLoopback } from './SdpUtils.ts';
+import { injectLoopback, type IceCandidateDescriptor } from './SdpUtils.ts';
+
+export interface DecodedSignalTokenPayload {
+  type?: string;
+  sdp?: string;
+  candidates?: IceCandidateDescriptor[];
+  roomId?: string | null;
+  hostName?: string;
+  hostColorSlot?: number | null;
+  hostColorHex?: string | null;
+  clientName?: string;
+  clientColorSlot?: number | null;
+  clientColorHex?: string | null;
+  timestamp?: number;
+  [key: string]: unknown;
+}
 
 export function packSdp(
   sdpObj: { type?: string; sdp?: string } | string | null | undefined,
-  candidates: any[] = []
+  candidates: Array<IceCandidateDescriptor | RTCIceCandidateInit | string> = []
 ): string {
   const sdpStr = typeof sdpObj === 'string' ? sdpObj : sdpObj?.sdp || '';
   const type = typeof sdpObj === 'object' && sdpObj?.type ? sdpObj.type : 'offer';
@@ -16,7 +31,7 @@ export function packSdp(
   );
 }
 
-export function unpackSdp(str: string | null | undefined): any {
+export function unpackSdp(str: string | null | undefined): DecodedSignalTokenPayload | null {
   if (!str) return null;
   return JSON.parse(decodeURIComponent(atob(str.trim())));
 }
@@ -24,7 +39,7 @@ export function unpackSdp(str: string | null | undefined): any {
 export const pack = packSdp;
 export const unpack = unpackSdp;
 
-export function encodeSignalToken(obj: any): string {
+export function encodeSignalToken(obj: Record<string, unknown>): string {
   const json = JSON.stringify(obj);
   return btoa(
     encodeURIComponent(json).replace(/%([0-9A-F]{2})/g, (_match, p1) =>
@@ -33,7 +48,7 @@ export function encodeSignalToken(obj: any): string {
   );
 }
 
-export function decodeSignalToken(tokenStr: string): any {
+export function decodeSignalToken(tokenStr: string): DecodedSignalTokenPayload {
   if (!tokenStr) throw new Error('Token string is empty');
   const clean = tokenStr.trim().replace(/^RL_(OFFER|ANSWER)_/, '');
   try {

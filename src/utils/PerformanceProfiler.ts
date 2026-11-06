@@ -22,29 +22,70 @@ export const STATUS_CHART_CONFIG = {
 /**
  * Low-overhead performance sampler and statistical profiler
  */
+export interface ProfilerMetricStats {
+  avgMs: number;
+  p50: number;
+  p95: number;
+  p99: number;
+  worstMs: number;
+  fps: number;
+}
+
+export interface ProfilerPhaseBreakdown {
+  phase: string;
+  avgMs: number;
+  share: number;
+}
+
+export interface ProfilerSimStats {
+  ticksPerFrame: number;
+  droppedTicks: number;
+  clampedFrames: number;
+  stalls: number;
+}
+
+export interface ProfilerSnapshot {
+  count: number;
+  windowSeconds: number;
+  frame: ProfilerMetricStats;
+  cpu: ProfilerMetricStats;
+  refreshHz: number;
+  budgetMs: number;
+  overBudgetPct: number;
+  phases: ProfilerPhaseBreakdown[];
+  sim: ProfilerSimStats;
+  history: Float32Array;
+  historySeconds: number;
+}
+
+/**
+ * Low-overhead performance sampler and statistical profiler
+ */
 export class PerformanceProfiler {
-  clampedFrames: any;
-  count: any;
-  cpuMs: any;
-  displayCount: any;
-  displayMs: any;
-  displayWrite: any;
-  droppedTicks: any;
-  frameMs: any;
-  frameStartedAt: any;
-  lastMarkAt: any;
-  pending: any;
-  phaseIndex: any;
-  phaseMs: any;
-  previousDisplayAt: any;
-  previousFrameAt: any;
-  resumes: any;
-  scratch: any;
-  stalls: any;
-  stamp: any;
-  ticks: any;
-  write: any;
-  [key: string]: any;
+  frameMs: Float32Array;
+  cpuMs: Float32Array;
+  stamp: Float64Array;
+  phaseMs: Float32Array[];
+  ticks: Float32Array;
+  scratch: Float32Array;
+  write: number;
+  count: number;
+  activeTimeMs: number;
+  resumeWarmupFrames: number;
+  frameStartedAt: number;
+  previousFrameAt: number;
+  lastMarkAt: number;
+  phaseIndex: number;
+  pending: Float32Array;
+  droppedTicks: number;
+  clampedFrames: number;
+  stalls: number;
+  resumes: number;
+  displayMs: Float32Array;
+  previousDisplayAt: number;
+  displayWrite: number;
+  displayCount: number;
+
   constructor() {
     this.frameMs = new Float32Array(PROFILER_HISTORY_LENGTH);
     this.cpuMs = new Float32Array(PROFILER_HISTORY_LENGTH);
@@ -78,7 +119,7 @@ export class PerformanceProfiler {
    * Records a display presentation event from requestAnimationFrame
    * @param {number} timestamp - Performance timestamp
    */
-  displayFrame(timestamp) {
+  displayFrame(timestamp: number): void {
     const delta = timestamp - this.previousDisplayAt;
     if (this.previousDisplayAt >= 0 && delta > 0 && delta < MAX_FRAME_GAP_MS) {
       this.displayMs[this.displayWrite] = delta;
@@ -91,7 +132,7 @@ export class PerformanceProfiler {
   /**
    * Marks start of a CPU render frame
    */
-  frameStart() {
+  frameStart(): void {
     const now = performance.now();
     this.previousFrameAt = this.frameStartedAt;
     this.frameStartedAt = now;
@@ -103,7 +144,7 @@ export class PerformanceProfiler {
   /**
    * Marks transition between frame phases (sim -> scene -> camera -> prep -> bloom -> final)
    */
-  mark() {
+  mark(): void {
     if (this.phaseIndex >= PROFILER_PHASES.length) return;
     const now = performance.now();
     this.pending[this.phaseIndex] = now - this.lastMarkAt;
@@ -118,7 +159,7 @@ export class PerformanceProfiler {
    * @param {boolean} stalled - Whether physical simulation stalled
    * @param {boolean} skipSample - Whether to omit this frame from statistical ring buffers (e.g. during Power Saving mode)
    */
-  frameEnd(ticks, dropped = 0, stalled = false, skipSample = false) {
+  frameEnd(ticks: number, dropped = 0, stalled = false, skipSample = false): void {
     if (skipSample) {
       this.previousFrameAt = 0;
       this.resumeWarmupFrames = Math.max(this.resumeWarmupFrames, 2);

@@ -18,34 +18,37 @@ import { RealisticParticlePhysics } from './realisticParticlePhysics.ts';
  * Gold Rush Boost Emitter (plume.webp, turbulence.webp, sparks.webp)
  */
 export class RealisticBoostEmitter {
-  public _scratchA: any;
-  public car: any;
-  public cone: any;
-  public coneMaterials: any;
-  public coneOpacity: any;
-  public drive: any;
-  public elapsed: any;
-  public lensFlare: any;
-  public light: any;
-  public nozzleLocal: any;
-  public offset: any;
-  public physics: any;
-  public scene: any;
-  public trail: any;
+  public _scratchA: THREE.Vector3;
+  public car: THREE.Object3D;
+  public cone: THREE.Group;
+  public coneMaterials: THREE.ShaderMaterial[];
+  public coneOpacity: number;
+  public drive: RealisticBoostParticleMesh;
+  public elapsed: number;
+  public lensFlare: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> | null;
+  public light: THREE.PointLight | null;
+  public nozzleLocal: THREE.Vector3;
+  public offset: THREE.Vector3;
+  public physics: RealisticParticlePhysics;
+  public scene: THREE.Scene | THREE.Object3D;
+  public trail: RealisticBoostParticleMesh;
 
-  constructor(scene, carRoot, nozzleLocal, pointLight) {
+  constructor(
+    scene: THREE.Scene | THREE.Object3D,
+    carRoot: THREE.Object3D,
+    nozzleLocal: THREE.Vector3,
+    pointLight: THREE.PointLight | null
+  ) {
     const { Group, Mesh, Vector3 } = THREE;
 
     this.scene = scene;
     this.car = carRoot;
-    this.nozzleLocal = nozzleLocal?.isVector3
+    this.nozzleLocal = (nozzleLocal as THREE.Vector3 & { isVector3?: boolean })?.isVector3
       ? nozzleLocal
       : (nozzleLocal?.clone ? nozzleLocal.clone() : new Vector3(nozzleLocal?.x ?? 0, nozzleLocal?.y ?? 0, nozzleLocal?.z ?? 0));
     this.offset = this.nozzleLocal;
     this.cone = new Group();
     this.coneMaterials = [];
-    this.drive = null;
-    this.trail = null;
     this.lensFlare = null;
     this.light = pointLight;
 
@@ -125,7 +128,11 @@ export class RealisticBoostEmitter {
     }
   }
 
-  setNozzleOffset(xOrVec, y, z) {
+  setNozzleOffset(
+    xOrVec: number | number[] | { x?: number; y?: number; z?: number } | null | undefined,
+    y?: number,
+    z?: number
+  ) {
     if (xOrVec && typeof xOrVec === 'object') {
       if (Array.isArray(xOrVec)) {
         this.nozzleLocal.set(Number(xOrVec[0]) || 0, Number(xOrVec[1]) || 0, Number(xOrVec[2]) || 0);

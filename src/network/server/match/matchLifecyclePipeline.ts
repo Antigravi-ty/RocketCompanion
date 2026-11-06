@@ -14,12 +14,102 @@ import {
   collectSessionUserRtt,
   type MatchPlayerSlot,
   type MatchState,
+  type ActiveMatchSignal,
+  type ReplaySignalLogEntry,
+  type RosterSessionManagerPort,
 } from './matchLoadoutAndSpawnPipeline.ts';
 import type { MatchDomainState } from './MatchDomainState.ts';
 
 export interface SignalDispatcherPort {
-  dispatchSignal(signalType: number, frameId: number, param1?: number, param2?: number): any;
+  dispatchSignal(signalType: number, frameId: number, param1?: number, param2?: number): ActiveMatchSignal | unknown;
   retireSignalTypes?(signalTypes: number[], retireBuffer?: boolean): void;
+}
+
+export interface LifecyclePhysicsManagerPort {
+  inputBuffer?: {
+    setLobbyMode?: (enabled: boolean) => void;
+    registerCar?: (entityId: number) => void;
+  } | null;
+  sim?: {
+    setCarLinearFactorAndGravity?: (
+      carIndex: number,
+      lx: number,
+      ly: number,
+      lz: number,
+      gravityScale: number
+    ) => void;
+    setUnlimitedBoost?: (enabled: boolean) => void;
+    getBallStateView?: () => { velX: number; velY: number; velZ: number } | null;
+    saveCompactState?: () => Float32Array;
+    saveState?: () => Float32Array;
+  } | null;
+  isPaused?: boolean;
+  resetBallToCenter?: () => void;
+  unregisterCarEntity: (entityId: number) => void;
+  registerCarEntity: (entityId: number, team: number, hitboxOrVisual: string) => void;
+  setInputMask: (masked: boolean) => void;
+  setLobbyGhostMode: (enabled: boolean, options: Record<string, unknown>) => void;
+  getPossessionStats?: () => {
+    bluePoints?: number;
+    blueFrames?: number;
+    orangePoints?: number;
+    orangeFrames?: number;
+    team?: number;
+  } | null;
+  isBallOnGround: () => boolean;
+  resetGoalLatch?: () => void;
+  getActiveCarMask?: () => number;
+}
+
+export interface LifecycleDiagnosticsPort {
+  enabled: boolean;
+  configurePhysics: (physicsManager: LifecyclePhysicsManagerPort) => void;
+}
+
+export interface LifecycleIncidentEntry {
+  type?: number;
+  subType?: number;
+  carIndex?: number;
+  primaryId?: number;
+  resetWheelCount?: number;
+  flags?: number;
+  [key: string]: unknown;
+}
+
+export interface LifecyclePhysicsSnapshotPort {
+  kickoffTouched?: boolean;
+  stateSnapshot?: Float32Array | null;
+  goalTeam?: number;
+  scoringTeam?: number;
+  scorerCarIndex?: number;
+  scorerTouchTick?: number;
+  isReplaySlice?: boolean;
+  incidents?: LifecycleIncidentEntry[] | null;
+  acknowledgedControls?: Array<{ carIndex: number; controls: Record<string, number | boolean> }> | null;
+  activeCarMask?: number;
+}
+
+export interface LifecycleGoalReplayPort {
+  lastScorerCarIndex?: number;
+  goalReplayPostGoalSeconds?: number;
+  recordGoalIncident: (
+    matchTick: number,
+    scoringTeam: number,
+    scorerCarIndex: number,
+    scorerTouchTick: number,
+    ballSpeedKph: number
+  ) => void;
+}
+
+export interface LifecycleReplayBufferPort {
+  recordFrame: (
+    tick: number,
+    stateSnapshot: Float32Array | null | undefined,
+    signals: ReplaySignalLogEntry[],
+    reserved: null,
+    incidents: LifecycleIncidentEntry[] | null | undefined,
+    acknowledgedControls: unknown
+  ) => void;
 }
 
 export function emitRosterJoinAndLoadoutSignals(
@@ -50,18 +140,18 @@ export function emitRosterJoinAndLoadoutSignals(
 }
 
 export function configureLobbyPhysicsArena(params: {
-  physicsManager: any;
-  sessionManager: any;
-  diagnosticsController: any;
+  physicsManager: LifecyclePhysicsManagerPort | null | undefined;
+  sessionManager: RosterSessionManagerPort | null | undefined;
+  diagnosticsController: LifecycleDiagnosticsPort | null | undefined;
   players: Map<string, MatchPlayerSlot>;
   applyRosterKickoffSpawns: () => void;
-  options: Record<string, any>;
+  options: Record<string, unknown>;
 }): void {
   const { physicsManager, sessionManager, diagnosticsController, players, options } = params;
   if (!physicsManager) return;
 
   physicsManager.inputBuffer?.setLobbyMode?.(true);
-  releasePodiumLocksOnEngine(physicsManager.sim);
+  releasePodiumLocksOnEngine(physicsManager.sim as never);
   physicsManager.resetBallToCenter?.();
   const deferRemotePlayers = options.deferRemotePlayers !== false;
 
@@ -107,14 +197,14 @@ export function configureLobbyPhysicsArena(params: {
 }
 
 export function dispatchFlipResetIncidents(
-  incidents: any[] | null | undefined,
+  incidents: LifecycleIncidentEntry[] | null | undefined,
   matchTick: number,
   dispatcher: SignalDispatcherPort
 ): void {
   if (!Array.isArray(incidents) || incidents.length === 0) return;
   for (let i = 0; i < incidents.length; i++) {
     const inc = incidents[i];
-    if (!inc || inc.type !== 0x0f || !isBallFlipResetEvent(inc)) continue;
+    if (!inc || inc.type !== 0x0f || !isBallFlipResetEvent(inc as never)) continue;
     if ((inc.resetWheelCount ?? 0) <= 0 && ((inc.flags ?? 0) & 0xff00) === 0) continue;
     const carIdx =
       typeof inc.carIndex === 'number' && inc.carIndex >= 0 ? inc.carIndex : (inc.primaryId ?? 0);
@@ -142,7 +232,9 @@ export function dispatchCountdownClockSecondSignals(
   }
 }
 
-export function resolvePossessionTieBreakWinner(physicsManager: any): number {
+export function resolvePossessionTieBreakWinner(
+  physicsManager: LifecyclePhysicsManagerPort | null | undefined
+): number {
   const stats = physicsManager?.getPossessionStats?.();
   if (stats) {
     const blueVal = stats.bluePoints ?? stats.blueFrames ?? 0;
@@ -157,8 +249,8 @@ export function resolvePossessionTieBreakWinner(physicsManager: any): number {
 
 export function advancePlayingClockState(params: {
   domain: MatchDomainState;
-  physicsManager: any;
-  physicsSnapshot: any;
+  physicsManager: LifecyclePhysicsManagerPort | null | undefined;
+  physicsSnapshot: LifecyclePhysicsSnapshotPort | null | undefined;
   commandQueue: SignalDispatcherPort;
   onStartOvertimeKickoff: (countdownTicks: number) => void;
   onEndMatch: (forcedWinner: number | null, winReason: number) => void;
@@ -235,8 +327,8 @@ export interface GoalScoredResolutionResult {
 }
 
 export function evaluateGoalScoredOutcome(params: {
-  physicsSnapshot: any;
-  physicsManager: any;
+  physicsSnapshot: LifecyclePhysicsSnapshotPort;
+  physicsManager: LifecyclePhysicsManagerPort | null | undefined;
   matchTick: number;
   isTrainingMode: boolean;
   trainingDisableGoalReset?: boolean;
@@ -247,7 +339,7 @@ export function evaluateGoalScoredOutcome(params: {
   blueScore: number;
   orangeScore: number;
   skipReplayByDefault: boolean;
-  goalReplayController: any;
+  goalReplayController: LifecycleGoalReplayPort;
   commandController: SignalDispatcherPort;
   pendingOvertimeAfterGoal: boolean;
   pendingMatchEndAfterGoal: boolean;
@@ -380,13 +472,13 @@ export function evaluateGoalScoredOutcome(params: {
 export function encodeMatchGlobalFramePacket(params: {
   state: MatchState;
   matchTick: number;
-  physicsSnapshot: any;
-  physicsManager: any;
-  sessionManager: any;
-  replayBuffer: any;
+  physicsSnapshot: LifecyclePhysicsSnapshotPort | null | undefined;
+  physicsManager: LifecyclePhysicsManagerPort | null | undefined;
+  sessionManager: RosterSessionManagerPort | null | undefined;
+  replayBuffer: LifecycleReplayBufferPort | null | undefined;
   commandController: {
-    currentFrameSignals: any[];
-    activeSignals: Map<string | number, any>;
+    currentFrameSignals: ReplaySignalLogEntry[];
+    activeSignals: Map<string | number, ActiveMatchSignal>;
     lastRttBroadcastTick: number;
     rttIntervalTicks: number;
   };
@@ -424,7 +516,7 @@ export function encodeMatchGlobalFramePacket(params: {
     commandController.currentFrameSignals.length = 0;
   }
 
-  let allUserRttData: any = null;
+  let allUserRttData: ReturnType<typeof collectSessionUserRtt> | null = null;
   if (
     matchTick - commandController.lastRttBroadcastTick >=
     commandController.rttIntervalTicks
@@ -441,8 +533,8 @@ export function encodeMatchGlobalFramePacket(params: {
           tick: matchTick,
           activeCarMask:
             physicsSnapshot.activeCarMask ?? physicsManager?.getActiveCarMask?.(),
-          stateSnapshot: physicsSnapshot.stateSnapshot,
-          acknowledgedControls: physicsSnapshot.acknowledgedControls,
+          stateSnapshot: physicsSnapshot.stateSnapshot || new Float32Array(0),
+          acknowledgedControls: physicsSnapshot.acknowledgedControls || undefined,
         }
       : null,
     signals: signalsList,

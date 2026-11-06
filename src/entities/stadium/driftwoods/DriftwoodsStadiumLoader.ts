@@ -4,20 +4,24 @@
  */
 
 import {
+  type Group,
   LinearFilter,
   LinearMipmapLinearFilter,
+  type Mesh,
   MirroredRepeatWrapping,
   NoColorSpace,
+  type Object3D,
+  type Texture,
   TextureLoader
 } from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { type GLTF, GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { resolveAssetPath } from '../../../utils/AssetResponseValidator.ts';
 
 export const DRIFTWOODS_GLB_URL = '/assets/arena/driftwoods.glb';
 export const DRIFTWOODS_Q1_GROUND_TEXTURE_URL = '/assets/arena/ground_q1_7gray_2048x3000.webp';
 
-function loadTextureWithTimeout(texLoader: TextureLoader, url: string, timeoutMs = 8000) {
-  return new Promise<any>((resolve, reject) => {
+function loadTextureWithTimeout(texLoader: TextureLoader, url: string, timeoutMs = 8000): Promise<Texture> {
+  return new Promise<Texture>((resolve, reject) => {
     let settled = false;
     const timer = setTimeout(() => {
       if (settled) return;
@@ -79,9 +83,9 @@ export async function loadDriftwoodsQ1GroundTexture() {
 /**
  * Loads the Driftwoods stadium GLB model.
  */
-export async function loadDriftwoodsStadium() {
+export async function loadDriftwoodsStadium(): Promise<Group | null> {
   const loader = new GLTFLoader();
-  let gltf: any = null;
+  let gltf: GLTF | null = null;
   const candidatePaths = [
     DRIFTWOODS_GLB_URL
   ];
@@ -111,24 +115,24 @@ export async function loadDriftwoodsStadium() {
     stadium.userData.q1GroundTexture = q1GroundTexture;
   }
 
-  stadium.traverse((obj) => {
-    if (obj.name === 'BoostPads_Combined_Base') {
-      obj.visible = false;
+  stadium.traverse((node: Object3D & { isMesh?: boolean }) => {
+    if (node.name === 'BoostPads_Combined_Base') {
+      node.visible = false;
     }
-    if (obj.isMesh) {
-      if (obj.name === 'BoostPads_Combined_Base') {
-        obj.visible = false;
+    if (node.isMesh) {
+      if (node.name === 'BoostPads_Combined_Base') {
+        node.visible = false;
       }
-      obj.castShadow = false;
-      obj.receiveShadow = true;
-      obj.frustumCulled = false;
-      if (obj.name === 'Woods_Field_Ground') {
-        alignWoodsFieldGroundTexture(obj);
+      node.castShadow = false;
+      node.receiveShadow = true;
+      node.frustumCulled = false;
+      if (node.name === 'Woods_Field_Ground') {
+        alignWoodsFieldGroundTexture(node as Mesh);
         if (q1GroundTexture) {
-          obj.userData.q1GroundTexture = q1GroundTexture;
+          node.userData.q1GroundTexture = q1GroundTexture;
         }
-      } else if (obj.name === 'Woods_Field_Walls_Hexes') {
-        normalizeWoodsFieldHexNormals(obj);
+      } else if (node.name === 'Woods_Field_Walls_Hexes') {
+        normalizeWoodsFieldHexNormals(node as Mesh);
       }
     }
   });

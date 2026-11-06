@@ -1,11 +1,11 @@
 import { extractGoalReplayFrames } from '../../../replay/ReplayPlaybackState.ts';
-import { applyReplayFrameToEngine } from '../../../replay/ReplayFrameInterpolator.ts';
-import { applyDirectorReplayCamera } from '../../../replay/ReplayDirectorCamera.ts';
-import { dispatchReplayFrameEvents } from '../../../replay/ReplayFrameEventDispatcher.ts';
 import {
   ReplayRingBuffer,
   REPLAY_BUFFER_MODES,
   COUNTDOWN_REPLAY_CAPACITY_TICKS,
+  type ReplayAcknowledgedControlEntry,
+  type ReplayAudioCue,
+  type ReplayRecordedIncident,
 } from '../../../replay/ReplayRingBuffer.ts';
 import { ReplayTimelineController } from '../../../replay/ReplayTimelineController.ts';
 import { retainCompletedMatchReplayAndNotify } from '../../../replay/ReplayFileExporter.ts';
@@ -17,9 +17,10 @@ import {
   stepGoalReplaySessionFrame,
 } from '../shared/GoalReplaySessionCoordinator.ts';
 import {
-  ExpGoalIncidentMeta,
-  ExpReplaySignal,
-  ExpSpawnedCarEntry,
+  type ExpGoalIncidentMeta,
+  type ExpModeRuntimePort,
+  type ExpReplaySignal,
+  type ExpSpawnedCarEntry,
   MAX_GOAL_LOOKBACK_SECONDS,
   SCORER_TOUCH_LOOKBACK_SECONDS,
   buildExpCarEntriesForReplay,
@@ -28,7 +29,7 @@ import {
 import { ExperimentalMultiBotsRosterController } from './ExperimentalMultiBotsRosterController.ts';
 
 export class ExperimentalMultiBotsReplayController {
-  private readonly runtime: any;
+  private readonly runtime: ExpModeRuntimePort | null;
   public readonly replayRingBuffer: ReplayRingBuffer;
   public readonly replayController: ReplayTimelineController;
 
@@ -50,7 +51,7 @@ export class ExperimentalMultiBotsReplayController {
     lastKickoffStartTick: 0,
   };
 
-  constructor(runtime: any) {
+  constructor(runtime: ExpModeRuntimePort | null) {
     this.runtime = runtime;
     this.replayRingBuffer = new ReplayRingBuffer({
       mode: REPLAY_BUFFER_MODES.COUNTDOWN_MATCH,
@@ -65,7 +66,7 @@ export class ExperimentalMultiBotsReplayController {
   attachPhysicsIfNeeded(): void {
     const sim = this.runtime?.physics;
     if (sim && this.replayController.engine !== sim) {
-      this.replayController.attach(sim, this.replayRingBuffer as any);
+      this.replayController.attach(sim, this.replayRingBuffer);
     }
   }
 
@@ -139,8 +140,8 @@ export class ExperimentalMultiBotsReplayController {
 
   flushPendingSignalsAndRecordFrame(
     currentTick: number,
-    state: any,
-    acknowledgedControls: any[]
+    state: Float32Array,
+    acknowledgedControls: ReplayAcknowledgedControlEntry[]
   ): void {
     const pending =
       this.pendingFrameSignals.length > 0 ? this.pendingFrameSignals.slice() : [];
@@ -152,14 +153,14 @@ export class ExperimentalMultiBotsReplayController {
     this.replayRingBuffer.recordFrame(currentTick, state, {
       acknowledgedControls,
       signals: pending,
-    } as any);
+    });
   }
 
-  appendIncident(tick: number, event: any): void {
+  appendIncident(tick: number, event: ReplayRecordedIncident): void {
     this.replayRingBuffer?.appendIncident?.(tick, event);
   }
 
-  appendAudioEvent(tick: number, audioEvt: any): void {
+  appendAudioEvent(tick: number, audioEvt: ReplayAudioCue): void {
     this.replayRingBuffer?.appendAudioEvent?.(tick, audioEvt);
   }
 
@@ -376,7 +377,7 @@ export class ExperimentalMultiBotsReplayController {
   }
 
   stepUpdate(
-    context: any,
+    context: Record<string, unknown>,
     unlimited: boolean,
     rosterCtrl: ExperimentalMultiBotsRosterController,
     onCompleteTransition: () => void
@@ -400,7 +401,7 @@ export class ExperimentalMultiBotsReplayController {
       isUnlimitedBoost: unlimited,
       onStepAfterEvents: () => {
         for (const entry of rosterCtrl.spawnedCars) {
-          const cv = r.interpolator?.getCurrCarStateView(entry.carIndex);
+          const cv = r?.interpolator?.getCurrCarStateView?.(entry.carIndex);
           if (cv) {
             const fwdSpeed = cv.velX * cv.fwdX + cv.velY * cv.fwdY + cv.velZ * cv.fwdZ;
             rosterCtrl.carControlsMap.set(entry.carIndex, {

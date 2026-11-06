@@ -10,39 +10,41 @@ import {
 } from './boostCurves.ts';
 import * as THREE from 'three';
 
+import type { ArcadeBoostParticleMesh } from './ArcadeBoostParticleMesh.ts';
+
 /**
  * Cartoon Boost particle state machine, distance-based spawning, and physics updates.
  */
 export class ArcadeParticlePhysics {
-  public _scratchDelta: any;
-  public _scratchParticlePos: any;
-  public _scratchPrevNozzle: any;
-  public currentNozzle: any;
-  public drive: any;
-  public driveAge: any;
-  public driveBaseSize: any;
-  public driveHead: any;
-  public driveParticlesActive: any;
-  public driveSpawnAccumulator: any;
-  public driveVelocity: any;
-  public hasPreviousNozzle: any;
-  public longSpawnRemainder: any;
-  public nozzleLocal: any;
-  public previousNozzle: any;
-  public shortSpawnRemainder: any;
-  public spawnRemainder: any;
-  public trail: any;
-  public trailAcceleration: any;
-  public trailAge: any;
-  public trailBaseSize: any;
-  public trailHead: any;
-  public trailMaxLife: any;
-  public trailOpacityWeight: any;
-  public trailParticlesActive: any;
-  public trailScaleRefLife: any;
-  public trailVelocity: any;
+  public _scratchDelta: THREE.Vector3;
+  public _scratchParticlePos: THREE.Vector3;
+  public _scratchPrevNozzle: THREE.Vector3;
+  public currentNozzle: THREE.Vector3;
+  public drive: ArcadeBoostParticleMesh;
+  public driveAge: Float32Array;
+  public driveBaseSize: Float32Array;
+  public driveHead: number;
+  public driveParticlesActive: boolean;
+  public driveSpawnAccumulator: number;
+  public driveVelocity: Float32Array;
+  public hasPreviousNozzle: boolean;
+  public longSpawnRemainder: number;
+  public nozzleLocal: THREE.Vector3;
+  public previousNozzle: THREE.Vector3;
+  public shortSpawnRemainder: number;
+  public spawnRemainder: number;
+  public trail: ArcadeBoostParticleMesh;
+  public trailAcceleration: Float32Array;
+  public trailAge: Float32Array;
+  public trailBaseSize: Float32Array;
+  public trailHead: number;
+  public trailMaxLife: Float32Array;
+  public trailOpacityWeight: Float32Array;
+  public trailParticlesActive: boolean;
+  public trailScaleRefLife: Float32Array;
+  public trailVelocity: Float32Array;
 
-  constructor(driveMesh, trailMesh, nozzleLocal) {
+  constructor(driveMesh: ArcadeBoostParticleMesh, trailMesh: ArcadeBoostParticleMesh, nozzleLocal: THREE.Vector3) {
     const { Vector3 } = THREE;
     this.drive = driveMesh;
     this.trail = trailMesh;
@@ -240,7 +242,12 @@ export class ArcadeParticlePhysics {
     this.previousNozzle.copy(pos);
   }
 
-  spawnTrailParticle(pos, customLifetime: any = null, customScaleRefLife: any = null, opacityWeight = 1.0) {
+  spawnTrailParticle(
+    pos: THREE.Vector3,
+    customLifetime: number | null = null,
+    customScaleRefLife: number | null = null,
+    opacityWeight = 1.0
+  ) {
     const head = this.trailHead;
     this.trailHead = (head + 1) % ARCADE_TRAIL_COUNT;
     const pIdx = head * 3;

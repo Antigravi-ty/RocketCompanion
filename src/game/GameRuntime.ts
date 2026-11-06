@@ -124,14 +124,7 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
 
   playerCarIndex = PLAYER_CAR_INDEX;
   neutralControls: CarControlsInput = {
-    throttle: 0,
-    steer: 0,
-    pitch: 0,
-    yaw: 0,
-    roll: 0,
-    jump: false,
-    boost: false,
-    handbrake: false,
+    throttle: 0, steer: 0, pitch: 0, yaw: 0, roll: 0, jump: false, boost: false, handbrake: false,
   };
   playerControls: CarControlsInput;
   playerThrottle = 0;
@@ -187,12 +180,8 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
 
   constructor(container?: HTMLElement | null, options: GameRuntimeOptions = {}) {
     this.container =
-      container ||
-      (typeof document !== 'undefined'
-        ? (document.querySelector('#app') as HTMLElement | null)
-        : null);
+      container || (typeof document !== 'undefined' ? (document.querySelector('#app') as HTMLElement | null) : null);
     this.options = options;
-
     this.playerControls = { ...this.neutralControls };
     this.trainingOptions = { ...DEFAULT_TRAINING_SETTINGS };
 
@@ -235,16 +224,13 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
     return this.networkManager.sessionCoordinator.networkReconciler;
   }
   get botControls(): CarControlsInput {
-    return this.botCoordinator.botControls;
+    return this.botCoordinator?.botControls ?? this.neutralControls;
   }
   set botControls(v: CarControlsInput) {
     this.botCoordinator.botControls = v;
   }
   get isBotPaused(): boolean {
     return this.botCoordinator.isBotPaused;
-  }
-  set isBotPaused(v: boolean) {
-    this.botCoordinator.isBotPaused = v;
   }
   get isBotMatch(): boolean {
     return this.botCoordinator.isBotMatch;
@@ -253,10 +239,7 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
     this.botCoordinator.isBotMatch = v;
   }
   get engineSynths() {
-    return this.audioSubsystem.engineSynths;
-  }
-  set engineSynths(v) {
-    this.audioSubsystem.engineSynths = v;
+    return this.audioSubsystem?.engineSynths ?? [];
   }
 
   isGoalReplayCameraOverrideActive(): boolean {
@@ -307,13 +290,7 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
     return this.getFlipResetVisual(this.playerCarIndex);
   }
 
-  set flipResetVisual(v: FlipResetVisual | null) {
-    if (v) this.flipResetVisuals.set(this.playerCarIndex, v);
-  }
-
-  async setupScene(
-    onProgress: ((progress: number, message?: string) => void) | null = null,
-  ): Promise<void> {
+  async setupScene(onProgress: ((progress: number, message?: string) => void) | null = null): Promise<void> {
     if (!this.physics || !this.interpolator) {
       throw new Error('[GameRuntime] setupPhysics must complete before setupScene.');
     }
@@ -355,9 +332,7 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
         },
         onKickoffSpawnSelect: (spawnIndex) => {
           if (this.match?.state?.mode === 'kickoff-training') {
-            const mode = this.modeManager?.getActiveMode?.() as {
-              selectSpawn?(idx: number): void;
-            } | null;
+            const mode = this.modeManager?.getActiveMode?.() as { selectSpawn?(idx: number): void } | null;
             mode?.selectSpawn?.(spawnIndex);
           }
         },
@@ -386,10 +361,8 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
         onStopOnlineServer: () => this.networkManager.sessionCoordinator.stopOnlineServer(),
         onJoinOnlineServer: (opts) => this.networkManager.sessionCoordinator.joinOnlineServer(opts),
         onRemotePlayerConnected: async (channel, name) =>
-          (await this.networkManager.rosterSyncCoordinator.onRemotePlayerConnected(channel, name)) ??
-          -1,
-        onRemoveRemotePlayer: (carIndex) =>
-          this.networkManager.rosterSyncCoordinator.removeRemotePlayer(carIndex),
+          (await this.networkManager.rosterSyncCoordinator.onRemotePlayerConnected(channel, name)) ?? -1,
+        onRemoveRemotePlayer: (carIndex) => this.networkManager.rosterSyncCoordinator.removeRemotePlayer(carIndex),
         onSetCarColor: (carIndex, hex) => this.setCarColor(carIndex, hex),
         onMountOrAttachGameUI: (container) => {
           if (this.options?.gameUI) {
@@ -429,21 +402,15 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
     this.domEventManager.setupWindowEvents();
   }
 
-  async setupAudio(
-    onProgress: ((loaded: number, total?: number, file?: string) => void) | null = null,
-  ): Promise<void> {
+  async setupAudio(onProgress: ((loaded: number, total?: number, file?: string) => void) | null = null): Promise<void> {
     return this.audioSubsystem.setupAudio(onProgress);
   }
 
-  async setupBot(
-    onProgress: ((completed?: number, total?: number, name?: string) => void) | null = null,
-  ): Promise<void> {
+  async setupBot(onProgress: ((completed?: number, total?: number, name?: string) => void) | null = null): Promise<void> {
     return this.botCoordinator.setupBot(onProgress);
   }
 
-  async setupShaders(
-    onProgress: ((progress: number, label?: string) => void) | null = null,
-  ): Promise<void> {
+  async setupShaders(onProgress: ((progress: number, label?: string) => void) | null = null): Promise<void> {
     return this.bloomOcclusion.setupShaders(onProgress);
   }
 
@@ -468,9 +435,7 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
     );
     if (this.activeGraphicsSettings) {
       this.clockScheduler.setFpsLimit(
-        this.activeGraphicsSettings.limitFps
-          ? (this.activeGraphicsSettings.maxFps ?? null)
-          : null,
+        this.activeGraphicsSettings.limitFps ? (this.activeGraphicsSettings.maxFps ?? null) : null,
       );
     }
     this.domEventManager.updateInteractionState();
@@ -491,12 +456,7 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
     this.pipeline.executeSimulationOnly(timestamp);
   }
 
-  triggerGameAudioEvents(
-    goalScored: boolean,
-    curBoost: number,
-    isSupersonic: boolean,
-    curr: Float32Array,
-  ): void {
+  triggerGameAudioEvents(goalScored: boolean, curBoost: number, isSupersonic: boolean, curr: Float32Array): void {
     return this.audioSubsystem.triggerGameAudioEvents(goalScored, curBoost, isSupersonic, curr);
   }
 
@@ -520,10 +480,7 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
     this.loadoutCoordinator.restoreLocalPlayerFreeplayLoadout(carIndex);
   }
 
-  onSessionReady(
-    reconciler: PredictionReconciler | null,
-    channel: NetworkSessionChannelLike | null,
-  ): void {
+  onSessionReady(reconciler: PredictionReconciler | null, channel: NetworkSessionChannelLike | null): void {
     networkDiagnosticsStore.setSession(reconciler, channel, this);
   }
 

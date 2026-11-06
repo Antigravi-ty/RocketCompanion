@@ -42,6 +42,7 @@ export interface UnderDevelopmentConfigPort {
 }
 
 export interface GoalBarrierRectPort {
+  [key: string]: unknown;
   u0: number;
   v0: number;
   u1: number;

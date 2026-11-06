@@ -27,11 +27,30 @@ import {
   buildPausedPhysicsStepOutput,
   sampleAuthoritativeCarControlsForTick,
   evaluatePostStepIncidentsAndGoalLatch,
+  type AuthoritativePhysicsSimPort,
   type AuthoritativePhysicsStepOutput,
 } from './authoritativePhysicsStepPipeline.ts';
 
+export interface PhysicsSignalData extends LobbyGhostConfigOptions {
+  kickoffWillStartAt?: number;
+  param1?: number;
+  untilFrame?: number;
+  forceReset?: boolean;
+  seed?: number;
+  winner?: number;
+  targetResumeTick?: number;
+  paused?: boolean;
+  masked?: boolean;
+  carIndex?: number;
+  interactWithBall?: boolean;
+  interactWithCars?: boolean;
+  opacity?: number;
+  hitboxType?: string;
+  [key: string]: unknown;
+}
+
 export interface PhysicsEngineManagerOptions {
-  sim?: any;
+  sim?: AuthoritativePhysicsSimPort;
   inputBuffer?: NetworkInputBuffer | null;
   maxBufferTicks?: number;
   onPhysicsOutput?: ((output: AuthoritativePhysicsStepOutput) => void) | null;
@@ -41,7 +60,7 @@ export interface PhysicsEngineManagerOptions {
 }
 
 export class PhysicsEngineManager {
-  sim: any;
+  sim: AuthoritativePhysicsSimPort;
   inputBuffer: NetworkInputBuffer | null;
   maxBufferTicks: number;
   onPhysicsOutput: ((output: AuthoritativePhysicsStepOutput) => void) | null;
@@ -61,7 +80,8 @@ export class PhysicsEngineManager {
   lastBallTouchTick?: number;
 
   constructor(options: PhysicsEngineManagerOptions = {}) {
-    this.sim = options.sim || new RocketSimPhysicsEngine();
+    this.sim =
+      options.sim || (new RocketSimPhysicsEngine() as unknown as AuthoritativePhysicsSimPort);
     this.inputBuffer = options.inputBuffer || null;
     this.maxBufferTicks = options.maxBufferTicks ?? MAX_INPUT_BUFFER_TICKS;
     this.onPhysicsOutput = options.onPhysicsOutput || null;
@@ -97,7 +117,7 @@ export class PhysicsEngineManager {
   }
 
   async init(): Promise<this> {
-    if (!this.sim.isInitialized) await this.sim.init();
+    if (!this.sim.isInitialized) await this.sim.init?.();
     this.sim.setPossessionReportingEnabled?.(true);
     this.sim.initReplayBuffer?.();
     return this;
@@ -284,14 +304,14 @@ export class PhysicsEngineManager {
     }
   }
 
-  applySignal(signalType: number | string, data: Record<string, any> = {}): void {
+  applySignal(signalType: number | string, data: PhysicsSignalData = {}): void {
     switch (signalType) {
       case MATCH_SIGNALS.MATCH_STARTED:
       case MATCH_SIGNALS.KICKOFF_WILL_START:
         this.resetGoalLatch();
         this.isRecordingFullReplay = true;
         this.sim?.setReplayRecordingActive?.(true);
-        releasePodiumLocksOnEngine(this.sim);
+        releasePodiumLocksOnEngine(this.sim as never);
         if (this.lobbyGhostCoordinator.lobbyModeActive) {
           this.restoreSolidCollisions();
         }
@@ -309,7 +329,7 @@ export class PhysicsEngineManager {
         this.resetGoalLatch();
         this.isRecordingFullReplay = true;
         this.sim?.setReplayRecordingActive?.(true);
-        releasePodiumLocksOnEngine(this.sim);
+        releasePodiumLocksOnEngine(this.sim as never);
         if (this.lobbyGhostCoordinator.lobbyModeActive) {
           this.restoreSolidCollisions();
         }
@@ -332,7 +352,7 @@ export class PhysicsEngineManager {
         this.isRecordingFullReplay = false;
         this.sim?.setReplayRecordingActive?.(false);
         this.setInputMask(false);
-        applyPodiumFormationToEngine(this.sim, data.winner ?? data.param1 ?? 0);
+        applyPodiumFormationToEngine(this.sim as never, data.winner ?? data.param1 ?? 0);
         break;
 
       case MATCH_SIGNALS.GOAL_REPLAY_WILL_START:

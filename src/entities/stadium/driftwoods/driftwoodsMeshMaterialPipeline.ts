@@ -300,12 +300,13 @@ export function setupDriftwoodsMeshMaterials(
     injectGroundDetailShader(lambertMat, ctx.groundUniforms, ctx.wallFxUniforms);
 
     for (const mat of [standardMat, lambertMat]) {
-      if (mat.map) {
-        mat.map.wrapS = RepeatWrapping;
-        mat.map.wrapT = RepeatWrapping;
-        mat.map.generateMipmaps = true;
-        mat.map.minFilter = LinearMipmapLinearFilter;
-        mat.map.needsUpdate = true;
+      const tex = mat.map;
+      if (tex) {
+        tex.wrapS = RepeatWrapping;
+        tex.wrapT = RepeatWrapping;
+        tex.generateMipmaps = true;
+        tex.minFilter = LinearMipmapLinearFilter;
+        tex.needsUpdate = true;
       }
     }
   } else if (name === 'Woods_Field_Walls_Hexes' || name === 'Woods_Field_Walls') {

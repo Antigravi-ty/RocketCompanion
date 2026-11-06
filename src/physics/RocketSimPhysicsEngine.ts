@@ -57,11 +57,16 @@ import {
   syncGoalVolumeBoxToWasm, resolveGoalVolumeConfig, checkActiveGoalBarrier,
   checkPointOnGoalBarrier, evaluateBallScored, reloadArenaCollisionMeshes,
   applyGoalBarrierChunksToWasmArena,
-  type GoalVolumeBoxConfig, type GoalVolumeResolvedConfig, type CarSpecEntry,
+  type GoalVolumeBoxConfig, type GoalVolumeResolvedConfig, type CarSpecEntry, type GoalBarrierMetadata,
 } from './goalBarrierVolumePipeline.ts';
+import type { RocketSimWasmModuleOptions } from './RocketSimWasm.ts';
+
+export interface RocketSimEngineInitOptions extends RocketSimWasmModuleOptions {
+  collisionData?: Uint8Array[] | null;
+}
 
 export class RocketSimPhysicsEngine {
-  public static cachedCollisionData: any = null;
+  public static cachedCollisionData: Uint8Array[] | null = null;
 
   public module: RocketSimWasmModule | null = null;
   public isInitialized = false;
@@ -85,9 +90,9 @@ export class RocketSimPhysicsEngine {
   public wasmStateSize = 0;
   public cachedSnapshotBuffer: Float32Array | null = null;
   public isUnlimitedBoost = false;
-  public baseCollisionData: any = null;
-  public goalBarrierChunks: unknown[] = [];
-  public goalBarrierMeta: Record<string, any> | null = null;
+  public baseCollisionData: Uint8Array[] | null = null;
+  public goalBarrierChunks: Uint8Array[] = [];
+  public goalBarrierMeta: GoalBarrierMetadata | null = null;
   public arenaPreset = 0;
   public goalVolumeBox: GoalVolumeBoxConfig = getGoalVolumeBoxForPreset(false);
   public _carSpecs: Array<CarSpecEntry | null> = [];
@@ -119,7 +124,7 @@ export class RocketSimPhysicsEngine {
     return this.stateView;
   }
 
-  public async init(options: Record<string, any> = {}): Promise<void> {
+  public async init(options: RocketSimEngineInitOptions = {}): Promise<void> {
     if (options.collisionData) {
       RocketSimPhysicsEngine.cachedCollisionData = options.collisionData;
     }
@@ -146,7 +151,7 @@ export class RocketSimPhysicsEngine {
     if (typeof this.module!._physics_getEventBufferPtr === 'function') {
       this.eventBufferPtr = this.module!._physics_getEventBufferPtr();
       this.eventBufferSize = this.module!._physics_getEventBufferSize?.() ?? EVENT_TOTAL_BUFFER_BYTES;
-      this.eventReader = new PhysicsEventReader(this.module as any, this.eventBufferPtr);
+      this.eventReader = new PhysicsEventReader(this.module, this.eventBufferPtr);
     } else {
       this.eventReader = null;
     }
@@ -155,7 +160,7 @@ export class RocketSimPhysicsEngine {
     this.controlsView = null;
     this.initReplayBuffer();
     if (this.eventReader && this.module?.HEAPU8?.buffer) {
-      this.eventReader.attach(this.module as any, this.eventBufferPtr);
+      this.eventReader.attach(this.module, this.eventBufferPtr);
     }
   }
 
@@ -165,7 +170,7 @@ export class RocketSimPhysicsEngine {
   public clearEvents(): void {
     this.module?._physics_clearEvents?.();
     if (this.eventReader && this.module?.HEAPU8?.buffer && this.eventReader.buffer !== this.module.HEAPU8.buffer) {
-      this.eventReader.attach(this.module as any, this.eventBufferPtr);
+      this.eventReader.attach(this.module, this.eventBufferPtr);
     }
     this.eventReader?.reset();
     this.syntheticFallback?.reset?.();
@@ -308,7 +313,7 @@ export class RocketSimPhysicsEngine {
     const spec = this._carSpecs[slot];
     if (spec && spec.team === normalizedTeam) return true;
     const hitboxIdx = spec?.hitboxIndex ?? 0;
-    const ok = setCarTeamInWasm(this.module as any, slot, normalizedTeam, hitboxIdx, this);
+    const ok = setCarTeamInWasm(this.module, slot, normalizedTeam, hitboxIdx, this);
     if (ok && slot >= 0 && slot < 8) {
       this._carSpecs[slot] = { team: normalizedTeam, hitboxIndex: hitboxIdx, threeWheels: spec?.threeWheels ?? false };
     }
@@ -375,7 +380,7 @@ export class RocketSimPhysicsEngine {
     return true;
   }
 
-  public setGoalBarrierChunks(barrierChunks: unknown[] = [], barrierMeta: Record<string, any> | null = null): boolean {
+  public setGoalBarrierChunks(barrierChunks: Uint8Array[] = [], barrierMeta: GoalBarrierMetadata | null = null): boolean {
     const nextChunks = Array.isArray(barrierChunks) ? barrierChunks : [];
     const hadChunks = this.goalBarrierChunks.length > 0;
     this.goalBarrierChunks = nextChunks;
@@ -469,8 +474,8 @@ export class RocketSimPhysicsEngine {
     this.resetKickoff();
   }
 
-  public setControls(carIndex: number, controls: CarControlsInput): void { writeCarControls(this.module as any, this, carIndex, controls); }
-  public setCarControls(carIndex: number, controls: CarControlsInput): void { writeCarControls(this.module as any, this, carIndex, controls); }
+  public setControls(carIndex: number, controls: CarControlsInput): void { writeCarControls(this.module!, this, carIndex, controls); }
+  public setCarControls(carIndex: number, controls: CarControlsInput): void { writeCarControls(this.module!, this, carIndex, controls); }
 
   public getHeaderView(): ArenaHeaderView {
     if (!this.headerViewInstance) this.headerViewInstance = new ArenaHeaderView();
@@ -488,7 +493,7 @@ export class RocketSimPhysicsEngine {
   public setBallState(ballState: number | ArrayLike<number> | BallStateObjectInput | null | undefined): boolean {
     this._ballTouchedFloorInLastStep = false;
     this.ballStateWriteRevision = (this.ballStateWriteRevision + 1) | 0;
-    return applyBallState(this.module as any, this, ballState);
+    return applyBallState(this.module, this, ballState);
   }
 
   public getCarStateView(carIndex = 0): CarStateView {
@@ -510,7 +515,7 @@ export class RocketSimPhysicsEngine {
     return this.state.subarray(offset, offset + CAR_STATE_STRIDE);
   }
   public setCarState(carIndex: number, carState: number | ArrayLike<number> | CarStateObjectInput | null | undefined): boolean {
-    return applyCarState(this.module as any, this, carIndex, carState);
+    return applyCarState(this.module, this, carIndex, carState);
   }
   public getCarConfig(hitboxTypeOrIndex: string | number = 'default'): unknown {
     const idx = getHitboxIndex(hitboxTypeOrIndex);
@@ -535,18 +540,18 @@ export class RocketSimPhysicsEngine {
     return this.module!._physics_restoreStateSlot(slot) === 1;
   }
   public getStateSnapshotSize(): number { return this.module!._physics_getStateSnapshotSize(); }
-  public _ensureStateBuffer(size: number): void { ensureWasmSnapshotBuffer(this.module as any, this, size); }
-  public saveState(targetBuffer: Float32Array | null = null): Float32Array { return saveWasmSnapshotState(this.module as any, this, targetBuffer); }
+  public _ensureStateBuffer(size: number): void { ensureWasmSnapshotBuffer(this.module!, this, size); }
+  public saveState(targetBuffer: Float32Array | null = null): Float32Array { return saveWasmSnapshotState(this.module!, this, targetBuffer); }
   public saveCompactState(targetBuffer: Float32Array | null = null): Float32Array { return saveCompactStateSnapshot(this, targetBuffer); }
   public restoreState(buffer: NumericBufferLike | null | undefined, options: RestoreSnapshotOptions = {}): boolean {
     this._ballTouchedFloorInLastStep = false;
     this.ballStateWriteRevision = (this.ballStateWriteRevision + 1) | 0;
-    return restoreWasmSnapshotState(this.module as any, this, buffer, options);
+    return restoreWasmSnapshotState(this.module!, this, buffer, options);
   }
   public restoreCompactState(buffer: NumericBufferLike | null | undefined, options: RestoreSnapshotOptions = {}): boolean {
     this._ballTouchedFloorInLastStep = false;
     this.ballStateWriteRevision = (this.ballStateWriteRevision + 1) | 0;
-    return restoreWasmSnapshotState(this.module as any, this, buffer, options);
+    return restoreWasmSnapshotState(this.module!, this, buffer, options);
   }
 
   public resetKickoff(seed = -1, preservePossessionScore = true): void {
@@ -618,7 +623,7 @@ export class RocketSimPhysicsEngine {
   public get ballRadius(): number { return this.module!._physics_getBallRadius(); }
   public get ballOnGround(): boolean { return this.module!._physics_getBallOnGround() === 1 || Boolean(this._ballTouchedFloorInLastStep); }
   public getBallOnGround(): boolean { return this.ballOnGround; }
-  public getPads(): ArenaBoostPadDescriptor[] { return readArenaPads(this.module as any, this); }
+  public getPads(): ArenaBoostPadDescriptor[] { return readArenaPads(this.module!, this); }
 
   public destroy(): void {
     if (this.wasmStatePtr && this.module && typeof this.module._free === 'function') {

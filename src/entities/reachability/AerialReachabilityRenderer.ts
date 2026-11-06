@@ -28,18 +28,18 @@ import {
 } from './AerialReachabilityMath.ts';
 
 export class AerialReachabilityRenderer {
-  public _bubbleRibIdx: any;
-  public bubbleMeshes: any;
-  public bubbleRibLines: any;
-  public bubblesSubGroup: any;
-  public funnelMat: any;
-  public funnelMesh: any;
-  public funnelRailsLine: any;
-  public funnelRingLines: any;
-  public funnelSubGroup: any;
-  public group: any;
+  public _bubbleRibIdx: Uint16Array;
+  public bubbleMeshes: Array<THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>>;
+  public bubbleRibLines: Array<THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>>;
+  public bubblesSubGroup: THREE.Group;
+  public funnelMat: THREE.MeshBasicMaterial;
+  public funnelMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+  public funnelRailsLine: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>;
+  public funnelRingLines: Array<THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial>>;
+  public funnelSubGroup: THREE.Group;
+  public group: THREE.Group;
 
-  constructor(parentGroup) {
+  constructor(parentGroup: THREE.Object3D | null | undefined) {
     this.group = new THREE.Group();
     this.group.name = 'reachability-aerial-group';
     if (parentGroup) {
@@ -50,6 +50,14 @@ export class AerialReachabilityRenderer {
     this.bubblesSubGroup = new THREE.Group();
     this.group.add(this.funnelSubGroup);
     this.group.add(this.bubblesSubGroup);
+
+    this.funnelMat = null!;
+    this.funnelMesh = null!;
+    this.funnelRailsLine = null!;
+    this.funnelRingLines = [];
+    this.bubbleMeshes = [];
+    this.bubbleRibLines = [];
+    this._bubbleRibIdx = new Uint16Array(0);
 
     this._initFunnelMeshes();
     this._initBubblesMeshes();
@@ -140,7 +148,7 @@ export class AerialReachabilityRenderer {
     this.bubbleRibLines = [];
 
     // Precompute sphere triangle indices and rib segment vertex pairs
-    const triList: any[] = [];
+    const triList: number[] = [];
     for (let i = 0; i < BUBBLE_LAT; i++) {
       for (let j = 0; j < BUBBLE_LON; j++) {
         const jn = (j + 1) % BUBBLE_LON;
@@ -154,7 +162,7 @@ export class AerialReachabilityRenderer {
     }
     const sharedBubbleIndices = new Uint16Array(triList);
 
-    const ribPairs: any[] = [];
+    const ribPairs: number[] = [];
     for (const i of [3, 6, 9]) {
       for (let j = 0; j < BUBBLE_LON; j++) {
         ribPairs.push(i * BUBBLE_LON + j, i * BUBBLE_LON + ((j + 1) % BUBBLE_LON));

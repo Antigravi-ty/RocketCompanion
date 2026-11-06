@@ -6,7 +6,7 @@
 
 import type { RocketSimWasmModule } from './RocketSimWasm.ts';
 import {
-  DEFAULT_SOCCAR_MUTATOR_CONFIG,
+  DEFAULT_STANDARD_MUTATOR_CONFIG,
   MUTATOR_CONFIG_FLOAT_COUNT,
   MUTATOR_OFFSETS,
 } from './RocketSimConstants.ts';
@@ -142,13 +142,13 @@ export function encodeMutatorConfigBuffer(
 
 export function readWasmMutatorConfig(wasmModule: RocketSimWasmModule | null): ArenaMutatorConfig {
   if (!wasmModule || typeof wasmModule._physics_getMutatorConfig !== 'function') {
-    return { ...DEFAULT_SOCCAR_MUTATOR_CONFIG };
+    return { ...DEFAULT_STANDARD_MUTATOR_CONFIG };
   }
   const ptr = wasmModule._malloc(MUTATOR_CONFIG_FLOAT_COUNT * 4);
-  if (!ptr) return { ...DEFAULT_SOCCAR_MUTATOR_CONFIG };
+  if (!ptr) return { ...DEFAULT_STANDARD_MUTATOR_CONFIG };
   try {
     const ok = wasmModule._physics_getMutatorConfig(ptr) === 1;
-    if (!ok) return { ...DEFAULT_SOCCAR_MUTATOR_CONFIG };
+    if (!ok) return { ...DEFAULT_STANDARD_MUTATOR_CONFIG };
     const view = new Float32Array(wasmModule.HEAPF32.buffer, ptr, MUTATOR_CONFIG_FLOAT_COUNT);
     return decodeMutatorConfigBuffer(view);
   } finally {

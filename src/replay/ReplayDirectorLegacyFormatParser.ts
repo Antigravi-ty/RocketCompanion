@@ -16,7 +16,10 @@ import {
 import { encodeReplayDirectorTelemetryIntoState } from './ReplayFrameInterpolator.ts';
 import { round3 } from './ReplayDirectorSceneAnalysis.ts';
 import type { ReplayTouchEvent } from './ReplayDirectorGazeSolver.ts';
-import { normalizeReplayDirectorCarEntry } from './replayDirectorCarRosterPipeline.ts';
+import {
+  normalizeReplayDirectorCarEntry,
+  type RawReplayCarEntryLike,
+} from './replayDirectorCarRosterPipeline.ts';
 import type {
   ReplayActiveFrameEntry,
   ReplayCarRosterEntry,
@@ -289,7 +292,7 @@ export function parseDirectorDiagnosticPatternJson(
     }
   }
 
-  const rawCarEntries =
+  const rawCarEntries: RawReplayCarEntryLike[] =
     Array.isArray(meta.carEntries) && meta.carEntries.length > 0
       ? meta.carEntries
       : Array.isArray(meta.roster) && meta.roster.length > 0
@@ -299,7 +302,7 @@ export function parseDirectorDiagnosticPatternJson(
           : Array.isArray(payload.frames[0]?.cars)
             ? payload.frames[0].cars
             : [];
-  const carEntries = rawCarEntries.map((entry: any, idx: number) => {
+  const carEntries = rawCarEntries.map((entry: RawReplayCarEntryLike, idx: number) => {
     const cIdx = typeof entry?.carIndex === 'number' ? entry.carIndex : idx;
     return normalizeReplayDirectorCarEntry(entry, cIdx, entry?.team ?? cIdx % 2);
   });

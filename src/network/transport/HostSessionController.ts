@@ -20,6 +20,12 @@ export interface HostSessionOptions {
   maxBroadcastChannels?: number;
 }
 
+export interface HostSignalingPort {
+  peerId?: string;
+  sendOffer: (targetPeerId: string, offerToken: string) => unknown;
+  sendRelayAssignment?: (targetPeerId: string, relayPlan: unknown) => Promise<unknown>;
+}
+
 export interface HostSessionCallbacks {
   onPeerConnected?: (
     ch: P2PWebRTCChannel,
@@ -29,7 +35,7 @@ export interface HostSessionCallbacks {
   ) => Promise<number | void> | number | void;
   onPeerDisconnected?: (peerId: string, ch: P2PWebRTCChannel) => void;
   onColorChange?: (carIdx: number, slotId: number | null, hex: string | null) => void;
-  onIceCandidate?: (cand: any, peerId: string) => void;
+  onIceCandidate?: (cand: RTCIceCandidateInit | Record<string, unknown>, peerId: string) => void;
 }
 
 export interface ConnectedPeerSummary {
@@ -138,7 +144,7 @@ export class HostSessionController {
       this.callbacks.onPeerDisconnected?.(peerId, ch);
     };
 
-    ch.onColorChange = (msg: any) => {
+    ch.onColorChange = (msg: { carIndex?: number; slotId: number | null; hex: string | null }) => {
       const cIdx = msg.carIndex ?? ch.carIndex ?? 1;
       if (msg.slotId !== undefined) {
         ch.peerColorSlot = msg.slotId;
@@ -149,7 +155,7 @@ export class HostSessionController {
       this.callbacks.onColorChange?.(cIdx, msg.slotId, msg.hex);
     };
 
-    ch.onIceCandidate = (cand: any) => {
+    ch.onIceCandidate = (cand: RTCIceCandidateInit | Record<string, unknown>) => {
       this.callbacks.onIceCandidate?.(cand, peerId);
     };
 
@@ -206,7 +212,7 @@ export class HostSessionController {
   async dispatchOfferToPeer(
     peerId: string,
     peerName: string | undefined,
-    signalingClient: any,
+    signalingClient: HostSignalingPort | null | undefined,
     role = 'player',
     metadata: { pairingCode?: string; allowSpectatorRelay?: boolean } = {}
   ): Promise<void> {
@@ -329,7 +335,10 @@ export class HostSessionController {
     return targetChannel.acceptAnswerToken(sdp);
   }
 
-  handleRemoteCandidate(candidate: any, fromPeerId: string | null = null): void {
+  handleRemoteCandidate(
+    candidate: RTCIceCandidateInit | Record<string, unknown> | null | undefined,
+    fromPeerId: string | null = null
+  ): void {
     if (!candidate) return;
     if (fromPeerId && this.peerChannels.has(fromPeerId)) {
       this.peerChannels.get(fromPeerId)!.addIceCandidate(candidate);
@@ -345,7 +354,7 @@ export class HostSessionController {
     }
   }
 
-  broadcastMatchPrepare(matchConfig: Record<string, any> = {}): void {
+  broadcastMatchPrepare(matchConfig: Record<string, unknown> = {}): void {
     const msg = JSON.stringify({
       type: 'match_prepare',
       roomId: this.roomId,

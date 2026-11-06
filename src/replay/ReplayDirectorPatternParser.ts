@@ -19,7 +19,10 @@ import {
   parseDirectorDiagnosticPatternJson,
   type ParsedDirectorDiagnosticPattern,
 } from './ReplayDirectorLegacyFormatParser.ts';
-import { normalizeReplayDirectorCarEntry } from './replayDirectorCarRosterPipeline.ts';
+import {
+  normalizeReplayDirectorCarEntry,
+  type RawReplayCarEntryLike,
+} from './replayDirectorCarRosterPipeline.ts';
 
 export {
   parseDirectorDiagnosticPatternCsv,
@@ -74,7 +77,7 @@ export function parseDirectorDiagnosticContainerBytes(
 
   const dMeta = (decoded.metadata?.directorReplayMeta || null) as {
     recordedDirectorFrames?: Array<Record<string, number>> | null;
-    carEntries?: Array<{ carIndex?: number; team?: number; [key: string]: unknown }> | null;
+    carEntries?: RawReplayCarEntryLike[] | null;
     scoringTeam?: number;
     scorerCarIndex?: number;
     goalLineFrameIdx?: number;
@@ -97,20 +100,24 @@ export function parseDirectorDiagnosticContainerBytes(
     ? dMeta.recordedDirectorFrames
     : null;
 
-  const rawMetaEntries =
+  const rawMetaEntries: RawReplayCarEntryLike[] =
     Array.isArray(dMeta?.carEntries) && dMeta.carEntries.length > 0
       ? dMeta.carEntries
       : Array.isArray(decoded.metadata?.roster) && decoded.metadata.roster.length > 0
-        ? decoded.metadata.roster
+        ? (decoded.metadata.roster as RawReplayCarEntryLike[])
         : Array.isArray(decoded.metadata?.loadouts)
-          ? decoded.metadata.loadouts
+          ? (decoded.metadata.loadouts as RawReplayCarEntryLike[])
           : [];
-  const rawLoadouts = Array.isArray(decoded.metadata?.loadouts) ? decoded.metadata.loadouts : [];
-  const carEntries = rawMetaEntries.map((entry: any, idx: number) => {
+  const rawLoadouts: RawReplayCarEntryLike[] = Array.isArray(decoded.metadata?.loadouts)
+    ? (decoded.metadata.loadouts as RawReplayCarEntryLike[])
+    : [];
+  const carEntries = rawMetaEntries.map((entry: RawReplayCarEntryLike, idx: number) => {
     const carIdx = typeof entry?.carIndex === 'number' ? entry.carIndex : idx;
     const loadoutMatch =
-      rawLoadouts.find((l: any) => l && l.carIndex === carIdx) || rawLoadouts[idx] || null;
-    const merged = loadoutMatch ? { ...loadoutMatch, ...entry } : entry;
+      rawLoadouts.find((l: RawReplayCarEntryLike) => l && l.carIndex === carIdx) ||
+      rawLoadouts[idx] ||
+      null;
+    const merged: RawReplayCarEntryLike = loadoutMatch ? { ...loadoutMatch, ...entry } : entry;
     return normalizeReplayDirectorCarEntry(merged, carIdx, merged?.team ?? carIdx % 2);
   });
 

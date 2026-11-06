@@ -151,7 +151,7 @@ export class NetworkDataHandler {
       if (freshCommands.length > 0 && this.matchManager) {
         for (let i = 0; i < freshCommands.length; i++) {
           const cmd = freshCommands[i];
-          this.matchManager.commandQueue.handleClientCommand(channelId, cmd, session);
+          this.matchManager.commandQueue.handleClientCommand(channelId, cmd as never, session);
         }
       }
     }
@@ -198,7 +198,7 @@ export class NetworkDataHandler {
       }
     }
 
-    this.matchManager.commandQueue.evaluateControlPacket(channelId, packetType, parsed);
+    this.matchManager.commandQueue.evaluateControlPacket(channelId, packetType, parsed as never);
   }
 
   sendPacket(channelId: string, packetData: Uint8Array | string): boolean {

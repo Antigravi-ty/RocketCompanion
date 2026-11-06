@@ -1,7 +1,15 @@
 import { RocketSimPhysicsEngine } from '../../../physics/RocketSimPhysicsEngine.ts';
-import { MultiWorldGhostRenderer } from '../MultiWorldGhostRenderer.ts';
+import {
+  type GhostWorldUpdateOptions,
+  MultiWorldGhostRenderer,
+} from '../MultiWorldGhostRenderer.ts';
 import { useSubsystemIsolationLabStore } from '../../runtimeUiPort.ts';
-import type { LabFrameUpdateContext, LabTabContext, LabTabController } from './LabTabTypes.ts';
+import type {
+  LabFrameUpdateContext,
+  LabPhysicsEnginePort,
+  LabTabContext,
+  LabTabController,
+} from './LabTabTypes.ts';
 
 export const MULTI_WORLD_SPAWN_PRESETS = Object.freeze([
   { pos: [0, -2560, 17.05] as const, rot: [0, Math.PI / 2, 0] as const },
@@ -17,7 +25,7 @@ export const MULTI_WORLD_SPAWN_PRESETS = Object.freeze([
 export interface GhostWorldInstance {
   worldId: string;
   worldIndex: number;
-  sim: any;
+  sim: RocketSimPhysicsEngine;
   prevState: Float32Array;
   currState: Float32Array;
 }
@@ -26,7 +34,7 @@ export interface ExternalGhostWorldFeed {
   worldId: string;
   prevState: Float32Array;
   currState: Float32Array;
-  options: Record<string, any>;
+  options: GhostWorldUpdateOptions;
 }
 
 export function computeMultiWorldCarSpawnState(
@@ -95,7 +103,9 @@ export class MultiGhostLabTab implements LabTabController {
       if (!gw?.sim?.isInitialized) continue;
       gw.prevState.set(gw.currState);
       for (let c = 0; c < Math.min(carsPerWorld, gw.sim.numCars); c++) {
-        gw.sim.setControls(c, runtime?.neutralControls);
+        if (runtime?.neutralControls) {
+          gw.sim.setControls(c, runtime.neutralControls);
+        }
       }
       gw.sim.step(1);
       gw.currState.set(gw.sim.state);
@@ -123,9 +133,9 @@ export class MultiGhostLabTab implements LabTabController {
         frameDt,
         {
           paletteIndex: i + 1,
-          controls: runtime?.neutralControls,
+          controls: runtime?.neutralControls ?? null,
           showBall: true,
-        } as any
+        }
       );
     }
 
@@ -136,7 +146,7 @@ export class MultiGhostLabTab implements LabTabController {
         ext.currState,
         alpha,
         frameDt,
-        (ext.options || { showBall: true }) as any
+        ext.options || { showBall: true }
       );
     }
   }
@@ -145,7 +155,7 @@ export class MultiGhostLabTab implements LabTabController {
     worldId: string,
     prevState: Float32Array | number[],
     currState: Float32Array | number[],
-    options: Record<string, any> = {}
+    options: GhostWorldUpdateOptions = {}
   ): void {
     if (!prevState || !currState) return;
     this.externalGhostWorlds.set(worldId, {
@@ -157,7 +167,7 @@ export class MultiGhostLabTab implements LabTabController {
   }
 
   private configureWorldCarsCount(
-    sim: any,
+    sim: LabPhysicsEnginePort | null | undefined,
     carsPerWorld = 1,
     worldIndex = 0,
     syncArenaVisuals = false,
@@ -205,7 +215,11 @@ export class MultiGhostLabTab implements LabTabController {
     }
   }
 
-  private resetSecondaryWorldSpawn(sim: any, worldIndex = 1, carsPerWorld = 1): void {
+  private resetSecondaryWorldSpawn(
+    sim: LabPhysicsEnginePort | null | undefined,
+    worldIndex = 1,
+    carsPerWorld = 1
+  ): void {
     if (!sim) return;
     sim.resetGoalLatch?.();
     sim.resetKickoff(0, false);
@@ -237,7 +251,7 @@ export class MultiGhostLabTab implements LabTabController {
         const wIdx = this.ghostWorlds.length + 1;
         const sim = new RocketSimPhysicsEngine();
         await sim.init({
-          collisionData: (RocketSimPhysicsEngine as any).cachedCollisionData,
+          collisionData: RocketSimPhysicsEngine.cachedCollisionData ?? undefined,
           freshInstance: true,
           isolated: true,
         });
@@ -312,8 +326,8 @@ export class MultiGhostLabTab implements LabTabController {
               opacity,
               showCar: true,
               showBall: true,
-            } as any);
-            this.ghostVisuals.setVisible(isActiveGhost, gw.worldId as any);
+            });
+            this.ghostVisuals.setVisible(isActiveGhost, gw.worldId);
           }
           this.ghostVisuals.setVisible(true);
           this.ghostVisuals.setOpacity(opacity);
@@ -335,7 +349,7 @@ export class MultiGhostLabTab implements LabTabController {
     if (!runtime?.physics || this.ghostWorlds.length < ghostCount) return;
 
     const primarySnap = runtime.physics.saveCompactState();
-    const ghostSnaps: any[] = [];
+    const ghostSnaps: Float32Array[] = [];
     for (let i = 0; i < ghostCount; i++) {
       ghostSnaps.push(this.ghostWorlds[i].sim.saveCompactState());
     }

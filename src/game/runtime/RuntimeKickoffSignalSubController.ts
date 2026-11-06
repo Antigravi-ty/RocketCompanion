@@ -7,11 +7,14 @@ import { useAppStore, hudStore } from '../runtimeUiPort.ts';
 import { dismissHostLobbyOngoingNotification } from './OnlineRosterSyncCoordinator.ts';
 import { clearRetainedMatchReplayOnMatchStart } from '../../replay/ReplayFileExporter.ts';
 import type { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
-import type {
-  RuntimeSignalHostPort,
-  RuntimeSignalLatchState,
-  RuntimeSignalPacket,
-  SignalAudioFacadeLike,
+import {
+  focusLocalPlayerCarInArenaAndCamera,
+  resetGoalReplayIncidentFlags,
+  teardownSignalReplayAndPodiumSession,
+  type RuntimeSignalHostPort,
+  type RuntimeSignalLatchState,
+  type RuntimeSignalPacket,
+  type SignalAudioFacadeLike,
 } from './RuntimeGoalReplaySignalSubController.ts';
 
 export interface KickoffSignalStepContext {
@@ -20,6 +23,89 @@ export interface KickoffSignalStepContext {
   isFirstSeenSignalId: boolean;
   hasKickoffStartInBatch: boolean;
   audio: SignalAudioFacadeLike | null | undefined;
+}
+
+function exitLobbyDualWorldAndActivateMatchMode(host: RuntimeSignalHostPort): void {
+  const arena = host.arena;
+  if (arena) {
+    arena.isLobbyMode = false;
+    arena.isHostLobby = false;
+  }
+  host.setLobbyGhostMode(false, { syncServerLobby: false });
+  host.setLatestServerRosterState('match');
+  host.interpolator?.sync?.();
+  host.modeManager?.setMode?.('match');
+  useAppStore.getState().setMatchMode('match');
+}
+
+function preparePhysicsReplayRecordingForMatch(
+  host: RuntimeSignalHostPort,
+  options: { clearBuffer?: boolean; resetBallTrail?: boolean } = {},
+): void {
+  const physics = host.physics;
+  if (options.clearBuffer) {
+    physics?.clearReplayBuffer?.();
+    host.clientReplayOverflowPaused = false;
+  }
+  if (!host.clientReplayOverflowPaused) {
+    physics?.setReplayRecordingActive?.(true);
+  }
+  physics?.resetGoalLatch?.();
+  physics?.setSimulationFrozen?.(false);
+  physics?.setUnlimitedBoost?.(false);
+  if (options.resetBallTrail) {
+    host.arena?.resetBallTrail?.();
+  }
+}
+
+function pushMatchPrepareSignalToPhysicsBuffer(
+  host: RuntimeSignalHostPort,
+  sig: RuntimeSignalPacket,
+  currentTick: number,
+): void {
+  const physics = host.physics;
+  if (physics && typeof physics.pushSignalEvent === 'function') {
+    const p1 = Number(sig.param1 || 0) >>> 0;
+    const p2 = Number(sig.param2 || 0) >>> 0;
+    physics.pushSignalEvent(
+      sig.signalType || 0,
+      (sig.frameId ?? currentTick) >>> 0,
+      Number(sig.param1 || 0),
+      Number(sig.param2 || 0),
+      0,
+      0,
+      0,
+      0,
+      p1 & 0xffff,
+      (p1 >>> 16) & 0xffff,
+      p2,
+      (sig.signalId || 0) >>> 0,
+      0,
+      0,
+    );
+  }
+}
+
+function isKickoffTransitioningFromReplay(host: RuntimeSignalHostPort): boolean {
+  return Boolean(
+    host.isGoalReplayCameraOverrideActive() ||
+      host.replayTimelineController?.sessionState?.isActive ||
+      host.match?.state?.phase === 'replay',
+  );
+}
+
+function resetCameraViewIfInvalidOrWasInReplay(
+  host: RuntimeSignalHostPort,
+  wasInReplay: boolean,
+): void {
+  const camPos = host.camera?.camera?.position;
+  if (
+    wasInReplay ||
+    (camPos &&
+      (!Number.isFinite(camPos.x) || !Number.isFinite(camPos.y) || !Number.isFinite(camPos.z)))
+  ) {
+    host.camera?.resetView?.();
+  }
 }
 
 /**
@@ -38,21 +124,13 @@ export class RuntimeKickoffSignalSubController {
 
   public ensureMatchParticipantsInLocalWorld(reconciler: PredictionReconciler | null): void {
     const h = this.host;
-    if (!h || !h.physics) return;
+    const physics = h?.physics;
+    const arena = h?.arena;
+    if (!h || !physics) return;
     const presets = reconciler?.carVisualPresets;
     const peers = useAppStore?.getState?.()?.onlineSession?.connectedPeers || [];
     const activeParticipantMap = new Map<number, number>();
-    const localIdx =
-      typeof reconciler?.localCarIndex === 'number' && reconciler.localCarIndex >= 0
-        ? reconciler.localCarIndex
-        : typeof h.playerCarIndex === 'number' && h.playerCarIndex >= 0
-          ? h.playerCarIndex
-          : 0;
-    h.playerCarIndex = localIdx;
-    if (h.arena) {
-      h.arena.playerCarIndex = localIdx;
-    }
-    h.camera?.setFocusedCarIndex?.(localIdx);
+    const localIdx = focusLocalPlayerCarInArenaAndCamera(reconciler, h, { alwaysAssign: true });
     activeParticipantMap.set(localIdx, localIdx % 2);
 
     if (presets instanceof Map) {
@@ -92,33 +170,47 @@ export class RuntimeKickoffSignalSubController {
       if (activeParticipantMap.has(c)) {
         const team = activeParticipantMap.get(c) ?? c % 2;
         const preset = presets?.get?.(c) || 'octane';
-        if (typeof h.physics.addCarAtSlot === 'function') {
-          h.physics.addCarAtSlot(c, team, preset);
-        } else if (h.physics.numCars <= c) {
-          h.physics.addCar(team, preset);
+        if (typeof physics.addCarAtSlot === 'function') {
+          physics.addCarAtSlot(c, team, preset);
+        } else if (physics.numCars <= c) {
+          physics.addCar(team, preset);
         }
-        h.physics.setCarTeam?.(c, team);
-        h.physics.setCarCollisionMask?.(c, true, true);
-        h.physics.setCarLinearFactorAndGravity?.(c, 1, 1, 1, 1);
-        if (h.arena) {
-          h.arena.ensureCar?.(c, team, preset);
-          if (h.arena.cars?.[c]) {
-            h.arena.cars[c].visible = true;
+        physics.setCarTeam?.(c, team);
+        physics.setCarCollisionMask?.(c, true, true);
+        physics.setCarLinearFactorAndGravity?.(c, 1, 1, 1, 1);
+        if (arena) {
+          arena.ensureCar?.(c, team, preset);
+          if (arena.cars?.[c]) {
+            arena.cars[c].visible = true;
           }
         }
       } else {
         const isSlotActive =
-          typeof h.physics.isCarSlotActive === 'function'
-            ? h.physics.isCarSlotActive(c)
-            : false;
-        if (isSlotActive && typeof h.physics.removeCar === 'function') {
-          h.physics.removeCar(c);
+          typeof physics.isCarSlotActive === 'function' ? physics.isCarSlotActive(c) : false;
+        if (isSlotActive && typeof physics.removeCar === 'function') {
+          physics.removeCar(c);
         }
-        if (h.arena?.cars?.[c]) {
-          h.arena.cars[c].visible = false;
+        if (arena?.cars?.[c]) {
+          arena.cars[c].visible = false;
         }
       }
     }
+  }
+
+  private resetHostTelemetryAndReplayForNewMatch(reconciler: PredictionReconciler): void {
+    const h = this.host;
+    dismissHostLobbyOngoingNotification();
+    if (h.authoritativeServer) {
+      clearRetainedMatchReplayOnMatchStart();
+      this.latch.hostMatchReplayNotified = false;
+    }
+    h.markNetworkTelemetryNotified(false);
+    this.latch.overtimeAudioPlayed = false;
+    h.despawnDiagnosticTestFleet();
+    reconciler.setLobbyDualWorldMode?.(false);
+    reconciler.setReplayPlaybackMode?.(false);
+    reconciler.setMatchTelemetryActive?.(true, true);
+    reconciler.resetTimelineState?.();
   }
 
   public handleSignal(
@@ -127,6 +219,7 @@ export class RuntimeKickoffSignalSubController {
     ctx: KickoffSignalStepContext,
   ): { handled: boolean; currentTick: number } {
     const h = this.host;
+    const matchState = h.match?.state;
     let { currentTick } = ctx;
     const { packetServerTick, isFirstSeenSignalId, hasKickoffStartInBatch, audio } = ctx;
 
@@ -134,74 +227,28 @@ export class RuntimeKickoffSignalSubController {
       case MATCH_SIGNALS.MATCH_INITIALIZED: {
         const durationSec =
           typeof sig.param2 === 'number' && sig.param2 >= 0 ? sig.param2 : 300;
-        if (h.match) {
-          h.match.state.durationSeconds = durationSec;
+        if (matchState) {
+          matchState.durationSeconds = durationSec;
         }
         return { handled: true, currentTick };
       }
 
       case MATCH_SIGNALS.MATCH_PREPARE: {
         const matchSeq = sig.param1 || 1;
-        dismissHostLobbyOngoingNotification();
-        if (h.authoritativeServer) {
-          clearRetainedMatchReplayOnMatchStart();
-          this.latch.hostMatchReplayNotified = false;
-        }
-        h.markNetworkTelemetryNotified(false);
-        this.latch.overtimeAudioPlayed = false;
-        h.despawnDiagnosticTestFleet();
-        reconciler.setLobbyDualWorldMode?.(false);
-        reconciler.setReplayPlaybackMode?.(false);
-        reconciler.setMatchTelemetryActive?.(true, true);
-        reconciler.resetTimelineState?.();
+        this.resetHostTelemetryAndReplayForNewMatch(reconciler);
         if (packetServerTick === null) currentTick = 0;
-        h.physics?.resetGoalLatch?.();
-        h.physics?.clearReplayBuffer?.();
-        h.physics?.setReplayRecordingActive?.(true);
-        if (h.physics && typeof h.physics.pushSignalEvent === 'function') {
-          const p1 = Number(sig.param1 || 0) >>> 0;
-          const p2 = Number(sig.param2 || 0) >>> 0;
-          h.physics.pushSignalEvent(
-            sig.signalType || 0,
-            (sig.frameId ?? currentTick) >>> 0,
-            Number(sig.param1 || 0),
-            Number(sig.param2 || 0),
-            0,
-            0,
-            0,
-            0,
-            p1 & 0xffff,
-            (p1 >>> 16) & 0xffff,
-            p2,
-            (sig.signalId || 0) >>> 0,
-            0,
-            0,
-          );
-        }
-        h.clientReplayOverflowPaused = false;
-        h.physics?.setSimulationFrozen?.(false);
-        h.physics?.setUnlimitedBoost?.(false);
-        h._clientGoalIncidentLatched = false;
-        h.releaseGoalReplayCameraOverride();
-        h.replayTimelineController?.endReplaySession?.();
-        h.arena?.resetBallTrail?.();
-
-        if (h.arena) {
-          h.arena.isLobbyMode = false;
-          h.arena.isHostLobby = false;
-        }
+        preparePhysicsReplayRecordingForMatch(h, { clearBuffer: true, resetBallTrail: true });
+        pushMatchPrepareSignalToPhysicsBuffer(h, sig, currentTick);
+        resetGoalReplayIncidentFlags(h, true);
+        teardownSignalReplayAndPodiumSession(h);
         this.ensureMatchParticipantsInLocalWorld(reconciler);
-        h.setLobbyGhostMode(false, { syncServerLobby: false });
-        h.setLatestServerRosterState('match');
-        h.interpolator?.sync?.();
-        if (h.match) {
-          h.match.state.mode = 'match';
-          h.match.state.phase = 'prepare';
-          h.match.state.paused = false;
-          h.match.state.overtime = false;
+        exitLobbyDualWorldAndActivateMatchMode(h);
+        if (matchState) {
+          matchState.mode = 'match';
+          matchState.phase = 'prepare';
+          matchState.paused = false;
+          matchState.overtime = false;
         }
-        h.modeManager?.setMode?.('match');
-        useAppStore.getState().setMatchMode('match');
         hudStore.getState().setMatchState({
           matchPhase: 'prepare',
           kickoffCountdown: 0,
@@ -222,53 +269,28 @@ export class RuntimeKickoffSignalSubController {
       }
 
       case MATCH_SIGNALS.MATCH_STARTED: {
-        dismissHostLobbyOngoingNotification();
-        if (h.authoritativeServer) {
-          clearRetainedMatchReplayOnMatchStart();
-          this.latch.hostMatchReplayNotified = false;
-        }
-        h.markNetworkTelemetryNotified(false);
-        this.latch.overtimeAudioPlayed = false;
-        h.despawnDiagnosticTestFleet();
-        reconciler.setLobbyDualWorldMode?.(false);
-        reconciler.setReplayPlaybackMode?.(false);
-        reconciler.setMatchTelemetryActive?.(true, true);
-        reconciler.resetTimelineState?.();
+        this.resetHostTelemetryAndReplayForNewMatch(reconciler);
         if (packetServerTick === null) currentTick = 0;
-        h.physics?.resetGoalLatch?.();
-        h.physics?.clearReplayBuffer?.();
-        h.physics?.setReplayRecordingActive?.(true);
-        h.clientReplayOverflowPaused = false;
-        h.physics?.setSimulationFrozen?.(false);
-        h.physics?.setUnlimitedBoost?.(false);
-        h._clientGoalIncidentLatched = false;
-        h.releaseGoalReplayCameraOverride();
-        h.replayTimelineController?.endReplaySession?.();
-        if (h.arena) {
-          h.arena.isLobbyMode = false;
-          h.arena.isHostLobby = false;
-        }
+        preparePhysicsReplayRecordingForMatch(h, { clearBuffer: true });
+        resetGoalReplayIncidentFlags(h, true);
+        teardownSignalReplayAndPodiumSession(h);
         this.ensureMatchParticipantsInLocalWorld(reconciler);
-        h.setLobbyGhostMode(false, { syncServerLobby: false });
-        h.setLatestServerRosterState('match');
-        h.interpolator?.sync?.();
+        exitLobbyDualWorldAndActivateMatchMode(h);
         const durationSec =
           typeof sig.param1 === 'number' &&
           Number.isFinite(sig.param1) &&
           sig.param1 >= 0
             ? sig.param1
             : 300;
-        if (h.match) {
-          h.match.state.mode = 'match';
-          h.match.state.blueScore = 0;
-          h.match.state.orangeScore = 0;
-          h.match.state.remainingSeconds = durationSec;
-          h.match.state.overtime = false;
-          h.match.state.overtimeSeconds = 0;
-          h.match.state.winner = null;
+        if (matchState) {
+          matchState.mode = 'match';
+          matchState.blueScore = 0;
+          matchState.orangeScore = 0;
+          matchState.remainingSeconds = durationSec;
+          matchState.overtime = false;
+          matchState.overtimeSeconds = 0;
+          matchState.winner = null;
         }
-        h.modeManager?.setMode?.('match');
-        useAppStore.getState().setMatchMode('match');
         hudStore.getState().setMatchState({
           blueScore: 0,
           orangeScore: 0,
@@ -286,18 +308,14 @@ export class RuntimeKickoffSignalSubController {
           return { handled: true, currentTick };
         }
         const targetFrame = sig.param1 ?? 0;
-        const isOvertimeKickoff = sig.param2 === 1 || Boolean(h.match?.state?.overtime);
+        const isOvertimeKickoff = sig.param2 === 1 || Boolean(matchState?.overtime);
         const isNewKickoffPhase =
           isFirstSeenSignalId || this.latch.lastKickoffTargetFrame !== targetFrame;
-        if (!isNewKickoffPhase && h.match?.state?.phase === 'playing') {
+        if (!isNewKickoffPhase && matchState?.phase === 'playing') {
           return { handled: true, currentTick };
         }
         if (isNewKickoffPhase) {
-          const wasInReplay = Boolean(
-            h.isGoalReplayCameraOverrideActive() ||
-              h.replayTimelineController?.sessionState?.isActive ||
-              h.match?.state?.phase === 'replay',
-          );
+          const wasInReplay = isKickoffTransitioningFromReplay(h);
           dismissHostLobbyOngoingNotification();
           h.despawnDiagnosticTestFleet();
           reconciler.setLobbyDualWorldMode?.(false);
@@ -305,37 +323,17 @@ export class RuntimeKickoffSignalSubController {
           if (!reconciler.telemetryCollector.isMatchTelemetryActive) {
             reconciler.setMatchTelemetryActive?.(true, false);
           }
-          if (!h.clientReplayOverflowPaused) {
-            h.physics?.setReplayRecordingActive?.(true);
-          }
-          h.physics?.resetGoalLatch?.();
-          h.physics?.setSimulationFrozen?.(false);
-          h.physics?.setUnlimitedBoost?.(false);
-          if (h.arena) {
-            h.arena.isLobbyMode = false;
-            h.arena.isHostLobby = false;
-          }
+          preparePhysicsReplayRecordingForMatch(h);
           this.ensureMatchParticipantsInLocalWorld(reconciler);
-          h.setLobbyGhostMode(false, { syncServerLobby: false });
-          h.setLatestServerRosterState('match');
-          h.releaseGoalReplayCameraOverride();
-          h.replayTimelineController?.endReplaySession?.();
-          h.podiumController?.exitPodium?.();
-          const camPos = h.camera?.camera?.position;
-          if (
-            wasInReplay ||
-            (camPos &&
-              (!Number.isFinite(camPos.x) ||
-                !Number.isFinite(camPos.y) ||
-                !Number.isFinite(camPos.z)))
-          ) {
-            h.camera?.resetView?.();
-          }
-          h.interpolator?.sync?.();
+          teardownSignalReplayAndPodiumSession(h, { exitPodium: true });
+          resetCameraViewIfInvalidOrWasInReplay(h, wasInReplay);
+          exitLobbyDualWorldAndActivateMatchMode(h);
           hudStore.getState().setReplayState?.({
             replayPaused: false,
             replayPersistent: false,
           });
+        } else {
+          useAppStore.getState().setMatchMode('match');
         }
         reconciler.setKickoffMaskUntilTick?.(targetFrame);
 
@@ -349,26 +347,24 @@ export class RuntimeKickoffSignalSubController {
         const rawDisplaySec = Math.max(1, Math.min(3, Math.ceil(remainingTicks / 120)));
         const prevSec =
           !isNewKickoffPhase &&
-          h.match?.state?.phase === 'kickoff' &&
-          typeof h.match.state.countdown === 'number' &&
-          h.match.state.countdown >= 1
-            ? h.match.state.countdown
+          matchState?.phase === 'kickoff' &&
+          typeof matchState.countdown === 'number' &&
+          matchState.countdown >= 1
+            ? matchState.countdown
             : 3;
         const displaySec = isNewKickoffPhase
           ? rawDisplaySec
           : Math.min(prevSec, rawDisplaySec);
 
-        if (h.match) {
-          h.match.state.mode = 'match';
-          h.match.state.phase = 'kickoff';
-          h.match.state.paused = false;
-          h.match.state.countdown = displaySec;
+        if (matchState) {
+          matchState.mode = 'match';
+          matchState.phase = 'kickoff';
+          matchState.paused = false;
+          matchState.countdown = displaySec;
           if (isOvertimeKickoff) {
-            h.match.state.overtime = true;
+            matchState.overtime = true;
           }
         }
-        h.modeManager?.setMode?.('match');
-        useAppStore.getState().setMatchMode('match');
 
         hudStore.getState().setMatchState({
           matchPhase: 'kickoff',
@@ -423,29 +419,16 @@ export class RuntimeKickoffSignalSubController {
         if (!reconciler.telemetryCollector.isMatchTelemetryActive) {
           reconciler.setMatchTelemetryActive?.(true, false);
         }
-        if (!h.clientReplayOverflowPaused) {
-          h.physics?.setReplayRecordingActive?.(true);
-        }
-        h.physics?.resetGoalLatch?.();
-        h.physics?.setSimulationFrozen?.(false);
-        if (h.isGoalReplayCameraOverrideActive()) {
-          h.releaseGoalReplayCameraOverride();
-          h.camera?.resetView?.();
-        }
-        h.replayTimelineController?.endReplaySession?.();
-        if (
-          typeof reconciler?.localCarIndex === 'number' &&
-          reconciler.localCarIndex >= 0
-        ) {
-          h.playerCarIndex = reconciler.localCarIndex;
-          if (h.arena) h.arena.playerCarIndex = reconciler.localCarIndex;
-          h.camera?.setFocusedCarIndex?.(reconciler.localCarIndex);
-        }
+        preparePhysicsReplayRecordingForMatch(h);
+        teardownSignalReplayAndPodiumSession(h, {
+          exitPodium: true,
+          resetCameraIfWasInReplay: true,
+        });
+        focusLocalPlayerCarInArenaAndCamera(reconciler, h);
         hudStore.getState().setReplayState?.({
           replayPaused: false,
           replayPersistent: false,
         });
-        h.podiumController?.exitPodium?.();
         reconciler.setKickoffMaskUntilTick?.(-1);
         h.resetBotKickoffStep();
 
@@ -456,9 +439,9 @@ export class RuntimeKickoffSignalSubController {
         this.latch.lastKickoffTargetFrame = -1;
         this.latch.latchedKickoffSeconds.clear();
 
-        if (h.match) {
-          h.match.state.phase = 'playing';
-          h.match.state.countdown = 0;
+        if (matchState) {
+          matchState.phase = 'playing';
+          matchState.countdown = 0;
         }
         hudStore.getState().setMatchState({
           matchPhase: 'playing',

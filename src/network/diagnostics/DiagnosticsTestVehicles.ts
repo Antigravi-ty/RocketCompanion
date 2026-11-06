@@ -28,6 +28,8 @@ export {
   type DiagnosticVehicleSpec,
 };
 
+export type DiagnosticFleetEntry = DiagnosticVehicleSpec;
+
 export const DIAGNOSTIC_VEHICLE_PROFILES = Object.freeze({
   BOOST_PULSE: 'boost_pulse',
   QE_ROLL: 'qe_roll',

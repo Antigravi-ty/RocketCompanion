@@ -10,10 +10,9 @@ import {
 import { loadInputBindings } from '../../ui-core/config/inputBindings';
 import { audioConfig } from '../../ui-core/config/audioConfig';
 import { gameAudio } from '../../audio/GameAudioEngineFacade.ts';
-import { getAudioSlotPool } from '../../audio/audioContext.ts';
+import { getAudioSlotPool, subsystemState } from '../../audio/audioContext.ts';
 import type { GamepadController } from '../../input/GamepadController.ts';
 import type { BoostBloom } from '../../effects/BoostBloom.ts';
-import type { SupersonicSpeedLinesPass } from '../../effects/SupersonicSpeedLinesPass.ts';
 import {
   RuntimeWindowHotkeysController,
   type RuntimeWindowHotkeysHostPort,
@@ -29,26 +28,15 @@ declare global {
 
 export interface RuntimeDOMEventHostPort extends RuntimeWindowHotkeysHostPort {
   readonly container: HTMLElement | null;
-  readonly renderer: THREE.WebGLRenderer | null;
   readonly composer: EffectComposer | null;
   readonly boostBloom: BoostBloom | null;
-  readonly speedLinesPass: SupersonicSpeedLinesPass | null;
   readonly openOverlays: Set<string>;
-  readonly activeGraphicsSettings: GraphicsSettingsPort | null;
   readonly clockScheduler: {
     setFpsLimit(fps: number | null): void;
     setUnfocusedFpsLimit?(fps: number | null): void;
   } | null;
-  readonly profiler?: {
-    resetTimingAfterPowerSave?(): void;
-  } | null;
-  readonly cursorHintButton: HTMLButtonElement | null;
   readonly gamepad: GamepadController | null;
-  readonly interpolator: { sync(now?: number): void } | null;
-  readonly engineSynths: Array<{ synth?: { silence?(): void } | null }>;
   isPaused: boolean;
-  isWindowMinimized?: boolean;
-  isWindowFocused: boolean;
   isPowerSavingActive?: boolean;
 }
 
@@ -61,7 +49,6 @@ export class RuntimeDOMEventManager {
   public readonly runtime: RuntimeDOMEventHostPort;
   public readonly windowHotkeys: RuntimeWindowHotkeysController;
   public pendingClickToPlay = false;
-  private _wasPowerSavingActive = false;
   private _onWindowResize: (() => void) | null = null;
   private _onContainerPointerDown: ((evt: PointerEvent) => void) | null = null;
   private _onWindowKeyDown: ((evt: KeyboardEvent) => void) | null = null;
@@ -77,13 +64,18 @@ export class RuntimeDOMEventManager {
 
   public updateViewport(graphics: GraphicsSettingsPort | null = null): void {
     const r = this.runtime;
-    if (typeof window === 'undefined' || !r.renderer || !r.camera) return;
+    const renderer = r.boostBloom?.renderer;
+    const renderPass = r.composer?.passes?.[0] as
+      | { camera?: THREE.PerspectiveCamera }
+      | undefined;
+    const perspectiveCamera = renderPass?.camera;
+    if (typeof window === 'undefined' || !renderer || !perspectiveCamera) return;
 
     const width = window.innerWidth;
     const height = window.innerHeight;
 
-    r.camera.camera.aspect = width / height;
-    r.camera.camera.updateProjectionMatrix();
+    perspectiveCamera.aspect = width / height;
+    perspectiveCamera.updateProjectionMatrix();
 
     const currentGraphics =
       graphics ||
@@ -94,8 +86,8 @@ export class RuntimeDOMEventManager {
     const basePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
     const effectivePixelRatio = Math.max(0.1, basePixelRatio * scale);
 
-    r.renderer.setPixelRatio(effectivePixelRatio);
-    r.renderer.setSize(width, height);
+    renderer.setPixelRatio(effectivePixelRatio);
+    renderer.setSize(width, height);
 
     if (r.composer) {
       r.composer.setPixelRatio(effectivePixelRatio);
@@ -103,16 +95,6 @@ export class RuntimeDOMEventManager {
     }
     if (r.boostBloom) {
       r.boostBloom.setSize(width, height, effectivePixelRatio);
-    }
-    if (r.speedLinesPass) {
-      if (typeof r.speedLinesPass.setSize === 'function') {
-        r.speedLinesPass.setSize(width, height);
-      } else if (
-        r.speedLinesPass.pass &&
-        typeof r.speedLinesPass.pass.setSize === 'function'
-      ) {
-        r.speedLinesPass.pass.setSize(width, height);
-      }
     }
   }
 
@@ -123,7 +105,7 @@ export class RuntimeDOMEventManager {
       r.isCursorBrowsing = true;
     } else {
       r.openOverlays.delete(name);
-      if (r.openOverlays.size === 0 && !(r.gameUI && useAppStore.getState().isOpen)) {
+      if (r.openOverlays.size === 0 && !(r.container && useAppStore.getState().isOpen)) {
         r.isCursorBrowsing = false;
       }
     }
@@ -139,7 +121,7 @@ export class RuntimeDOMEventManager {
       appState.isLivePreviewCollapsed &&
       (appState.activeRoute === 'trajectory' || appState.activeRoute === 'camera');
     const isUiOpen = Boolean(
-      (r.gameUI && appState.isOpen && !isLivePreviewDockCollapsed) ||
+      (r.container && appState.isOpen && !isLivePreviewDockCollapsed) ||
         (r.openOverlays.size > 0 && !isLivePreviewDockCollapsed),
     );
     const isMinimized = typeof document !== 'undefined' && Boolean(document.hidden);
@@ -148,8 +130,9 @@ export class RuntimeDOMEventManager {
         ? !isMinimized &&
           (typeof document.hasFocus === 'function' ? document.hasFocus() : true)
         : true;
-    r.isWindowMinimized = isMinimized;
-    r.isWindowFocused = hasFocus;
+    if (subsystemState.runtime) {
+      subsystemState.runtime.isWindowFocused = hasFocus;
+    }
     const isUnfocused = !hasFocus;
     const isPaused = isUiOpen;
 
@@ -179,17 +162,12 @@ export class RuntimeDOMEventManager {
       r.gamepad.enabled = allowInputs;
     }
 
-    const gfx =
-      graphicsOverride || useAppStore?.getState?.()?.graphics || r.activeGraphicsSettings;
+    const gfx = graphicsOverride || appState?.graphics;
     const powerSave = gfx?.menuPowerSave || '30';
     const isPowerSaveEnabled = powerSave !== 'match' && powerSave !== 'disable';
     const shouldThrottlePowerSave =
       isMinimized || ((isUiOpen || isUnfocused) && isPowerSaveEnabled);
 
-    if (this._wasPowerSavingActive && !shouldThrottlePowerSave) {
-      r.profiler?.resetTimingAfterPowerSave?.();
-    }
-    this._wasPowerSavingActive = shouldThrottlePowerSave;
     r.isPowerSavingActive = shouldThrottlePowerSave;
 
     if (r.clockScheduler) {
@@ -230,23 +208,11 @@ export class RuntimeDOMEventManager {
 
   public updateCursorHint(): void {
     const r = this.runtime;
-    if (!r.cursorHintButton) return;
+    const hintBtn = r.container?.querySelector<HTMLElement>('.cursor-hint');
+    if (!hintBtn) return;
     const isUiOpen =
-      Boolean(r.gameUI && useAppStore.getState().isOpen) || r.openOverlays.size > 0;
-    if (isUiOpen || !r.isCursorBrowsing) {
-      r.cursorHintButton.style.display = 'none';
-    } else {
-      r.cursorHintButton.style.display = 'block';
-    }
-  }
-
-  public setupHudButtons(): void {
-    const r = this.runtime;
-    if (!r.container || typeof document === 'undefined') return;
-    const hudTools = r.container.querySelector('.hud-tools');
-    if (hudTools && r.cursorHintButton) {
-      hudTools.appendChild(r.cursorHintButton);
-    }
+      Boolean(r.container && useAppStore.getState().isOpen) || r.openOverlays.size > 0;
+    hintBtn.style.display = isUiOpen || !r.isCursorBrowsing ? 'none' : 'block';
   }
 
   public setupWindowEvents(): void {
@@ -260,10 +226,6 @@ export class RuntimeDOMEventManager {
     window.addEventListener('resize', this._onWindowResize);
 
     const onSettingsToggle = () => {
-      if (r.gameUI?.toggleMenu) {
-        r.gameUI.toggleMenu();
-        return;
-      }
       useAppStore?.getState?.()?.toggleMenu?.();
     };
     if (r.gamepad) {
@@ -280,7 +242,7 @@ export class RuntimeDOMEventManager {
 
     const onCursorToggle = () => {
       const isUiOpen =
-        Boolean(r.gameUI && useAppStore.getState().isOpen) || r.openOverlays.size > 0;
+        Boolean(r.container && useAppStore.getState().isOpen) || r.openOverlays.size > 0;
       if (isUiOpen) {
         r.isCursorBrowsing = true;
         onSettingsToggle();
@@ -293,9 +255,6 @@ export class RuntimeDOMEventManager {
     };
     if (r.keyboard) {
       r.keyboard.onSettingsToggle = onSettingsToggle;
-    }
-    if (r.cursorHintButton) {
-      r.cursorHintButton.addEventListener('click', onSettingsToggle);
     }
 
     if (r.container) {
@@ -357,7 +316,6 @@ export class RuntimeDOMEventManager {
     this._onWindowBlurFocus = () => {
       this.pendingClickToPlay = false;
       this.updateInteractionState();
-      if (r.interpolator) r.interpolator.sync();
       const hasFocus =
         typeof document !== 'undefined'
           ? !document.hidden &&
@@ -366,8 +324,16 @@ export class RuntimeDOMEventManager {
       if (!audioConfig.get('continueAudioOnLostFocus')) {
         if (!hasFocus) {
           gameAudio.silenceAll?.();
-          if (r.engineSynths) {
-            for (const entry of r.engineSynths) entry.synth?.silence?.();
+          const audioRuntime = subsystemState.runtime as
+            | {
+                audioSubsystem?: {
+                  engineSynths?: Array<{ synth?: { silence?(): void } | null }>;
+                };
+              }
+            | null;
+          const synths = audioRuntime?.audioSubsystem?.engineSynths;
+          if (synths) {
+            for (const entry of synths) entry.synth?.silence?.();
           }
           const pool = getAudioSlotPool?.();
           if (pool) {
@@ -391,7 +357,8 @@ export class RuntimeDOMEventManager {
       document.addEventListener('visibilitychange', this._onWindowBlurFocus);
     }
 
-    if (r.renderer?.domElement) {
+    const canvasDom = r.boostBloom?.renderer?.domElement;
+    if (canvasDom) {
       this._onCanvasMouseDown = (evt: MouseEvent) => {
         const appState = useAppStore?.getState?.();
         if (appState?.touchMode) {
@@ -414,7 +381,7 @@ export class RuntimeDOMEventManager {
           onCursorToggle();
         }
       };
-      r.renderer.domElement.addEventListener('mousedown', this._onCanvasMouseDown);
+      canvasDom.addEventListener('mousedown', this._onCanvasMouseDown);
 
       this._onCanvasClick = (evt: MouseEvent) => {
         const appState = useAppStore?.getState?.();
@@ -438,7 +405,7 @@ export class RuntimeDOMEventManager {
           onDismissCursor();
         }
       };
-      r.renderer.domElement.addEventListener('click', this._onCanvasClick);
+      canvasDom.addEventListener('click', this._onCanvasClick);
     }
   }
 
@@ -467,13 +434,14 @@ export class RuntimeDOMEventManager {
     }
     this._onWindowBlurFocus = null;
     this._onToggleNetworkHUD = null;
-    if (r.renderer?.domElement) {
+    const canvasDom = r.boostBloom?.renderer?.domElement;
+    if (canvasDom) {
       if (this._onCanvasMouseDown) {
-        r.renderer.domElement.removeEventListener('mousedown', this._onCanvasMouseDown);
+        canvasDom.removeEventListener('mousedown', this._onCanvasMouseDown);
         this._onCanvasMouseDown = null;
       }
       if (this._onCanvasClick) {
-        r.renderer.domElement.removeEventListener('click', this._onCanvasClick);
+        canvasDom.removeEventListener('click', this._onCanvasClick);
         this._onCanvasClick = null;
       }
     }

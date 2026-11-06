@@ -11,7 +11,22 @@ import {
   routeProtocolMessageInWorker,
   buildWorkerRoomStateSummary,
   type WorkerRouterContext,
+  type WorkerProtocolIncomingMessage,
+  type HostWorkerInitOptions,
 } from './HostWorkerMessageRouter.ts';
+import type { DiagnosticsTestVehicleController } from '../diagnostics/DiagnosticsTestVehicles.ts';
+import type { AuthoritativePhysicsSimPort } from './authoritativePhysicsStepPipeline.ts';
+import type { AdminPhysicsManagerPort } from './match/MatchSessionAdmin.ts';
+
+export interface AuthoritativeWorkerIncomingEvent extends HostWorkerInitOptions {
+  type?: string;
+  seq?: number;
+  port?: MessagePort;
+  ports?: readonly MessagePort[];
+  collisionData?: unknown;
+  payload?: HostWorkerInitOptions | Uint8Array;
+  data?: AuthoritativeWorkerIncomingEvent;
+}
 
 let sim: RocketSimPhysicsEngine | null = null;
 let physicsManager: PhysicsEngineManager | null = null;
@@ -19,7 +34,7 @@ let inputBuffer: NetworkInputBuffer | null = null;
 let sessionManager: EstablishedSessionManager | null = null;
 let matchManager: MatchSessionAdmin | null = null;
 let dataHandler: NetworkDataHandler | null = null;
-let diagnosticsController: any = null;
+let diagnosticsController: DiagnosticsTestVehicleController | null = null;
 let botPort: MessagePort | null = null;
 let botInferenceInFlight = false;
 let botInferenceLastSentAt = 0;
@@ -31,12 +46,15 @@ let lastTickTime = -1;
 let accumulator = 0;
 const fixedTimestep = 1.0 / 120.0;
 
-function postWorkerMessage(msg: any, transfer: Transferable[] = []): void {
+function postWorkerMessage(msg: unknown, transfer: Transferable[] = []): void {
   if (typeof self !== 'undefined' && typeof self.postMessage === 'function') {
+    const workerSelf = self as unknown as {
+      postMessage(message: unknown, transfer?: Transferable[]): void;
+    };
     if (transfer && transfer.length > 0) {
-      (self as any).postMessage(msg, transfer);
+      workerSelf.postMessage(msg, transfer);
     } else {
-      (self as any).postMessage(msg);
+      workerSelf.postMessage(msg);
     }
   }
 }
@@ -109,7 +127,7 @@ function computeRoomSyncSignature(): string {
 }
 
 function syncWorkerRoomStateIfNeeded(
-  emitFn: (msg: any, transfer?: Transferable[]) => void = postWorkerMessage,
+  emitFn: (msg: unknown, transfer?: Transferable[]) => void = postWorkerMessage,
   force = false
 ): void {
   if (!matchManager || !physicsManager) return;
@@ -188,7 +206,7 @@ function stepDirectBotPort(): void {
 
   const serverTick = physicsManager?.currentTick ?? Math.floor(sim.getHeaderView().tickCount);
   const stateCopy = new Float32Array(sim.state);
-  let pads: any = null;
+  let pads: unknown = null;
   if (!sentPadsToBotPort && typeof sim.getPads === 'function') {
     pads = sim.getPads();
     sentPadsToBotPort = true;
@@ -273,19 +291,22 @@ export function getAuthoritativeWorkerState() {
 }
 
 export async function handleAuthoritativeWorkerMessage(
-  eventOrData: any,
-  customPostMessage: ((msg: any, transfer?: Transferable[]) => void) | null = null
+  eventOrData: AuthoritativeWorkerIncomingEvent | MessageEvent<AuthoritativeWorkerIncomingEvent>,
+  customPostMessage: ((msg: unknown, transfer?: Transferable[]) => void) | null = null
 ): Promise<void> {
-  const raw = eventOrData?.data !== undefined ? eventOrData.data : eventOrData || {};
+  const raw: AuthoritativeWorkerIncomingEvent =
+    eventOrData && 'data' in eventOrData && eventOrData.data !== undefined
+      ? (eventOrData.data as AuthoritativeWorkerIncomingEvent)
+      : ((eventOrData || {}) as AuthoritativeWorkerIncomingEvent);
   const { type, ...rest } = raw;
-  const data =
+  const data: AuthoritativeWorkerIncomingEvent =
     raw.payload && typeof raw.payload === 'object' && !(raw.payload instanceof Uint8Array)
       ? { ...rest, ...raw.payload }
       : rest;
   const emit = customPostMessage || postWorkerMessage;
 
   const workerCtx: WorkerRouterContext = {
-    sim,
+    sim: sim as unknown as AuthoritativePhysicsSimPort | null,
     physicsManager,
     sessionManager,
     matchManager,
@@ -305,7 +326,7 @@ export async function handleAuthoritativeWorkerMessage(
     type !== HOST_WORKER_MSG_TYPES.WORKER_DESTROY &&
     type !== 'attach_bot_port' &&
     type !== 'detach_bot_port' &&
-    routeProtocolMessageInWorker(workerCtx, raw)
+    routeProtocolMessageInWorker(workerCtx, raw as unknown as WorkerProtocolIncomingMessage)
   ) {
     if (workerCtx.diagnosticsController) {
       diagnosticsController = workerCtx.diagnosticsController;
@@ -320,18 +341,22 @@ export async function handleAuthoritativeWorkerMessage(
     case 'prewarm': {
       try {
         if (data.collisionData) {
-          RocketSimPhysicsEngine.cachedCollisionData = data.collisionData;
+          RocketSimPhysicsEngine.cachedCollisionData =
+            data.collisionData as typeof RocketSimPhysicsEngine.cachedCollisionData;
         }
         await loadRocketSimWasmModule();
         emit({ type: 'prewarmed' });
-      } catch (err: any) {
-        emit({ type: 'prewarm_error', error: err?.message || String(err) });
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        emit({ type: 'prewarm_error', error: errMsg });
       }
       break;
     }
 
     case 'attach_bot_port': {
-      const port = data.port || raw.port || eventOrData?.ports?.[0];
+      const eventPorts =
+        eventOrData && 'ports' in eventOrData ? eventOrData.ports : undefined;
+      const port = data.port || raw.port || eventPorts?.[0];
       if (port) {
         attachDirectBotPort(port);
       }
@@ -358,10 +383,13 @@ export async function handleAuthoritativeWorkerMessage(
         await sim.init(data.wasmInitOptions || {});
 
         inputBuffer = new NetworkInputBuffer(MAX_INPUT_BUFFER_TICKS);
-        physicsManager = new PhysicsEngineManager({ sim, inputBuffer });
+        physicsManager = new PhysicsEngineManager({
+          sim: sim as unknown as AuthoritativePhysicsSimPort,
+          inputBuffer,
+        });
         sessionManager = new EstablishedSessionManager(physicsManager);
         matchManager = new MatchSessionAdmin({
-          physicsManager,
+          physicsManager: physicsManager as unknown as AdminPhysicsManagerPort,
           sessionManager,
           isHost: true,
           externalBotTunnels:
@@ -381,7 +409,9 @@ export async function handleAuthoritativeWorkerMessage(
           physicsManager,
         });
         matchManager.dataHandler = dataHandler;
-        diagnosticsController = matchManager.diagnosticsController;
+        diagnosticsController =
+          (matchManager.diagnosticsController as unknown as DiagnosticsTestVehicleController | null) ||
+          null;
 
         physicsManager.registerCarEntity(0, 0, data.hostHitboxId || hostVisualId);
         const resolvedHostName =
@@ -407,10 +437,10 @@ export async function handleAuthoritativeWorkerMessage(
         );
         registerWorkerChannel('host');
 
-        if (data.isBotMatch || data.numCars >= 2) {
+        if (data.isBotMatch || (data.numCars ?? 0) >= 2) {
           const rolledBot = matchManager.roster.rollBotLoadoutForTeam(1);
           const botVisualId = data.botVisualId || rolledBot.visualId;
-          physicsManager.registerCarEntity(1, 1, rolledBot.hitboxId || botVisualId);
+          physicsManager.registerCarEntity(1, 1, String(rolledBot.hitboxId || botVisualId));
           if (data.isBotMatch) {
             physicsManager.setDirectCarControls(1, {
               throttle: 0,
@@ -469,9 +499,10 @@ export async function handleAuthoritativeWorkerMessage(
             raw.seq || 0
           )
         );
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('[AuthoritativeServerWorker] Init failed:', err);
-        emit({ type: 'error', error: err.message });
+        const errMsg = err instanceof Error ? err.message : String(err);
+        emit({ type: 'error', error: errMsg });
       }
       break;
     }

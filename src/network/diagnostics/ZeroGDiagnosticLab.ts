@@ -36,12 +36,40 @@ export interface DiagnosticVehicleSpec {
   readonly spawnPos?: DiagnosticVehicleSpawnPos;
 }
 
-export interface ProbeAltitudeControllerState {
+export class ProbeAltitudeControllerState {
   mode: string;
   holdTicks: number;
   posZ: number;
   velZ: number;
   shouldBoost: boolean;
+
+  constructor(
+    mode = 'CLIMB_TO_PEAK',
+    holdTicks = 0,
+    posZ = 500,
+    velZ = 0,
+    shouldBoost = true
+  ) {
+    this.mode = mode;
+    this.holdTicks = holdTicks;
+    this.posZ = posZ;
+    this.velZ = velZ;
+    this.shouldBoost = shouldBoost;
+  }
+
+  applyHoverStep(
+    posZ: number,
+    velZ: number,
+    mode: string,
+    holdTicks: number,
+    shouldBoost: boolean
+  ): void {
+    this.posZ = posZ;
+    this.velZ = velZ;
+    this.mode = mode;
+    this.holdTicks = holdTicks;
+    this.shouldBoost = shouldBoost;
+  }
 }
 
 export interface DiagnosticFleetTelemetrySample {
@@ -62,19 +90,47 @@ const _probeClimbState = new Map<number, ProbeAltitudeControllerState>();
 export function getProbeAltitudeControllerState(carIndex = 6): ProbeAltitudeControllerState {
   let st = _probeClimbState.get(carIndex);
   if (!st) {
-    st = {
-      mode: 'CLIMB_TO_PEAK',
-      holdTicks: 0,
-      posZ: 500,
-      velZ: 0,
-      shouldBoost: true,
-    };
+    st = new ProbeAltitudeControllerState('CLIMB_TO_PEAK', 0, 500, 0, true);
     _probeClimbState.set(carIndex, st);
   }
   return st;
 }
 
-export function resolvePhysicsEngine(target: any): any | null {
+export interface ZeroGPhysicsEnginePort {
+  state?: Float32Array | null;
+  numCars?: number;
+  setCarLinearFactorAndGravity?: (
+    carIndex: number,
+    lx: number,
+    ly: number,
+    lz: number,
+    gravityScale: number
+  ) => void;
+  isCarSlotActive?: (carIndex: number) => boolean;
+  addCarAtSlot?: (carIndex: number, team: number, hitbox: string) => void;
+  setCarTeam?: (carIndex: number, team: number) => void;
+  addCar?: (team: number, hitbox: string) => void;
+  removeCar?: (carIndex: number) => void;
+  setCarState?: (carIndex: number, state: Record<string, unknown>) => void;
+  setCarCollisionMask?: (
+    carIndex: number,
+    collideWithBall: boolean,
+    collideWithCars: boolean
+  ) => boolean | number | void;
+  getCarStateView?: (carIndex: number) => CarStateView | null;
+}
+
+export interface ZeroGTargetPort extends ZeroGPhysicsEnginePort {
+  sim?: ZeroGPhysicsEnginePort | null;
+  fallbackSim?: ZeroGPhysicsEnginePort | null;
+  ensureCar?: (carIndex: number, team: number, hitbox: string) => void;
+  registerCarEntity?: (carIndex: number, team: number, hitbox: string) => void;
+  unregisterCarEntity?: (carIndex: number) => void;
+}
+
+export function resolvePhysicsEngine(
+  target: ZeroGTargetPort | null | undefined
+): ZeroGPhysicsEnginePort | null {
   if (!target) return null;
   if (typeof target.setCarLinearFactorAndGravity === 'function') return target;
   if (target.sim && typeof target.sim.setCarLinearFactorAndGravity === 'function') return target.sim;
@@ -85,12 +141,12 @@ export function resolvePhysicsEngine(target: any): any | null {
 }
 
 export function configureZeroGVehiclePhysics(
-  targetSimOrAuthority: any,
+  targetSimOrAuthority: ZeroGTargetPort | null | undefined,
   fleet: readonly DiagnosticVehicleSpec[],
   anchorMode: string = ZERO_G_ANCHOR_MODES.Z_HOVER
 ): boolean {
   const sim = resolvePhysicsEngine(targetSimOrAuthority);
-  if (!sim || !Array.isArray(fleet)) return false;
+  if (!sim || !targetSimOrAuthority || !Array.isArray(fleet)) return false;
 
   for (let i = 0; i < fleet.length; i++) {
     const spec = fleet[i];
@@ -107,7 +163,7 @@ export function configureZeroGVehiclePhysics(
         sim.setCarTeam?.(spec.carIndex, spec.team);
       }
     } else if (typeof sim.addCar === 'function') {
-      while (sim.numCars <= spec.carIndex) {
+      while ((sim.numCars ?? 0) <= spec.carIndex) {
         sim.addCar(spec.team, 'octane');
       }
     }
@@ -120,13 +176,10 @@ export function configureZeroGVehiclePhysics(
     };
 
     if (isBoostAltitudeProbe) {
-      _probeClimbState.set(spec.carIndex, {
-        mode: 'CLIMB_TO_PEAK',
-        holdTicks: 0,
-        posZ: pos.z,
-        velZ: 0,
-        shouldBoost: true,
-      });
+      _probeClimbState.set(
+        spec.carIndex,
+        new ProbeAltitudeControllerState('CLIMB_TO_PEAK', 0, pos.z, 0, true)
+      );
     }
 
     const initialState = isBoostAltitudeProbe
@@ -172,11 +225,11 @@ export function configureZeroGVehiclePhysics(
 }
 
 export function releaseZeroGVehiclePhysics(
-  targetSimOrAuthority: any,
+  targetSimOrAuthority: ZeroGTargetPort | null | undefined,
   fleet: readonly DiagnosticVehicleSpec[]
 ): boolean {
   const sim = resolvePhysicsEngine(targetSimOrAuthority);
-  if (!sim || !Array.isArray(fleet)) return false;
+  if (!sim || !targetSimOrAuthority || !Array.isArray(fleet)) return false;
 
   for (let i = 0; i < fleet.length; i++) {
     const spec = fleet[i];
@@ -193,7 +246,7 @@ export function releaseZeroGVehiclePhysics(
 }
 
 export function setLobbyGhostCarIsolation(
-  targetSimOrAuthority: any,
+  targetSimOrAuthority: ZeroGTargetPort | null | undefined,
   carIndex = 0,
   isGhost = true,
   interactWithBallWhenGhost = false
@@ -201,13 +254,13 @@ export function setLobbyGhostCarIsolation(
   const sim = resolvePhysicsEngine(targetSimOrAuthority);
   if (!sim || typeof sim.setCarCollisionMask !== 'function') return false;
   if (isGhost) {
-    return sim.setCarCollisionMask(carIndex, Boolean(interactWithBallWhenGhost), false);
+    return Boolean(sim.setCarCollisionMask(carIndex, Boolean(interactWithBallWhenGhost), false));
   }
-  return sim.setCarCollisionMask(carIndex, true, true);
+  return Boolean(sim.setCarCollisionMask(carIndex, true, true));
 }
 
 export function enforceZeroGFleetConstraints(
-  targetSimOrAuthority: any,
+  targetSimOrAuthority: ZeroGTargetPort | null | undefined,
   fleet: readonly DiagnosticVehicleSpec[],
   anchorMode: string = ZERO_G_ANCHOR_MODES.Z_HOVER
 ): void {
@@ -236,8 +289,8 @@ export function enforceZeroGFleetConstraints(
       const curZ = view.posZ;
       const curVz = view.velZ;
       const st = getProbeAltitudeControllerState(spec.carIndex);
-      st.posZ = curZ;
-      st.velZ = curVz;
+      let nextMode = st.mode;
+      let nextHoldTicks = st.holdTicks;
       view.boost = 100;
 
       if (
@@ -258,19 +311,19 @@ export function enforceZeroGFleetConstraints(
       }
 
       let shouldBoost = false;
-      if (st.mode === 'CLIMB_TO_PEAK' || st.mode === 'CLIMB_Z1') {
+      if (nextMode === 'CLIMB_TO_PEAK' || nextMode === 'CLIMB_Z1') {
         if (curZ < z1) {
           shouldBoost = true;
         } else {
           shouldBoost = false;
-          st.mode = 'FALL_BELOW_BASE';
-          st.holdTicks = 0;
+          nextMode = 'FALL_BELOW_BASE';
+          nextHoldTicks = 0;
         }
-      } else if (st.mode === 'FALL_BELOW_BASE' || st.mode === 'FALL_Z0') {
+      } else if (nextMode === 'FALL_BELOW_BASE' || nextMode === 'FALL_Z0') {
         shouldBoost = false;
         if (curZ < z0) {
-          st.mode = 'RECOVER_AND_HOLD';
-          st.holdTicks = 0;
+          nextMode = 'RECOVER_AND_HOLD';
+          nextHoldTicks = 0;
           shouldBoost = true;
         }
       } else {
@@ -283,8 +336,8 @@ export function enforceZeroGFleetConstraints(
         }
 
         if (Math.abs(curZ - z0) <= tol && Math.abs(curVz) <= 45) {
-          st.holdTicks++;
-          if (st.holdTicks >= targetHoldTicks) {
+          nextHoldTicks++;
+          if (nextHoldTicks >= targetHoldTicks) {
             sim.setCarState?.(spec.carIndex, {
               pos: [targetX, targetY, z0],
               forward: [0, 0, 1],
@@ -295,16 +348,14 @@ export function enforceZeroGFleetConstraints(
               boost: 100,
               isOnGround: false,
             });
-            st.mode = 'CLIMB_TO_PEAK';
-            st.holdTicks = 0;
+            nextMode = 'CLIMB_TO_PEAK';
+            nextHoldTicks = 0;
             shouldBoost = true;
           }
         } else if (Math.abs(curZ - z0) > tol * 1.5) {
-          st.holdTicks = 0;
+          nextHoldTicks = 0;
         }
       }
-
-      st.shouldBoost = shouldBoost;
 
       if (!Number.isFinite(curZ) || curZ < 80 || curZ > 1200) {
         sim.setCarState?.(spec.carIndex, {
@@ -317,10 +368,12 @@ export function enforceZeroGFleetConstraints(
           boost: 100,
           isOnGround: false,
         });
-        st.mode = 'CLIMB_TO_PEAK';
-        st.holdTicks = 0;
-        st.shouldBoost = true;
+        nextMode = 'CLIMB_TO_PEAK';
+        nextHoldTicks = 0;
+        shouldBoost = true;
       }
+
+      st.applyHoverStep(curZ, curVz, nextMode, nextHoldTicks, shouldBoost);
     } else {
       const targetX = spec.spawnPos?.x ?? -2500;
       const targetY = spec.spawnPos?.y ?? 400;
@@ -349,7 +402,7 @@ export function enforceZeroGFleetConstraints(
 }
 
 export function sampleDiagnosticFleetTelemetry(
-  clientSim: any,
+  clientSim: ZeroGPhysicsEnginePort | null | undefined,
   serverStateBuffer: Float32Array | null = null,
   fleet: readonly DiagnosticVehicleSpec[] = []
 ): DiagnosticFleetTelemetrySample[] {

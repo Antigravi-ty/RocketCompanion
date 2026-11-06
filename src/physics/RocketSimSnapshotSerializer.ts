@@ -379,9 +379,11 @@ export function ensureWasmSnapshotBuffer(
     if (memoryViews.wasmStatePtr && wasmModule && typeof wasmModule._free === 'function') {
       wasmModule._free(memoryViews.wasmStatePtr);
     }
-    memoryViews.wasmStatePtr = wasmModule._malloc(size * 4);
-    memoryViews.wasmStateSize = size;
-    memoryViews.cachedSnapshotBuffer = new Float32Array(size);
+    Object.assign(memoryViews, {
+      wasmStatePtr: wasmModule._malloc(size * 4),
+      wasmStateSize: size,
+      cachedSnapshotBuffer: new Float32Array(size),
+    });
   }
 }
 

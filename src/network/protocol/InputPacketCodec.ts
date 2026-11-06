@@ -42,6 +42,7 @@ export interface SignalAckWireItem {
 }
 
 export type PiggybackedSignalAck = SignalAckWireItem;
+export type SignalAckEntry = SignalAckWireItem;
 
 export interface ClientCommandWireItem {
   commandId?: number;
@@ -51,6 +52,7 @@ export interface ClientCommandWireItem {
 }
 
 export type PiggybackedClientCommand = ClientCommandWireItem;
+export type ClientCommandEntry = ClientCommandWireItem;
 
 export interface DecodedInputPacket {
   carIndex: number;

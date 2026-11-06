@@ -24,12 +24,13 @@ import { HEMISPHERE_SKY_GLSL } from './skybox/HemisphereSkyShader.ts';
 import { FULL_SPHERE_SKY_GLSL } from './skybox/FullSphereSkyShader.ts';
 import { resolveAssetPath } from '../../utils/AssetResponseValidator.ts';
 
-let activeSkyUniforms: any = null;
-const cachedSkyTexturesByPath = new Map();
-let cachedCoronaTexture: any = null;
-let cachedSunGlowTexture: any = null;
-let cachedCloudOverlayTexture: any = null;
-let cachedOobNormalTexture: any = null;
+type SkyboxUniformMap = ReturnType<typeof createSkyUniformMap>;
+let activeSkyUniforms: SkyboxUniformMap | null = null;
+const cachedSkyTexturesByPath = new Map<string, THREE.Texture>();
+let cachedCoronaTexture: THREE.Texture | null = null;
+let cachedSunGlowTexture: THREE.Texture | null = null;
+let cachedCloudOverlayTexture: THREE.Texture | null = null;
+let cachedOobNormalTexture: THREE.Texture | null = null;
 let skyAccumulatedTime = 0;
 const latestSceneSunDir = new THREE.Vector3(2500, 4000, 1500).normalize();
 
@@ -213,14 +214,14 @@ function syncActiveSkyUniforms(c = skyboxRuntimeConfig) {
 
 subscribeSkyboxConfig(syncActiveSkyUniforms);
 
-export function updateSkyboxConfig( patch: any = {}) {
+export function updateSkyboxConfig(patch: Partial<typeof skyboxRuntimeConfig> = {}) {
   return updateSkyboxConfigState(patch);
 }
 
 /**
  * Per-frame lightweight skybox uniform updater for animated cloud drift and scene-sun tracking.
  */
-export function updateSkyboxFrame(delta = 0, sceneSunDir: any = null) {
+export function updateSkyboxFrame(delta = 0, sceneSunDir: THREE.Vector3 | null = null) {
   if (sceneSunDir && sceneSunDir.isVector3) {
     latestSceneSunDir.copy(sceneSunDir).normalize();
   }
@@ -237,11 +238,7 @@ export function updateSkyboxFrame(delta = 0, sceneSunDir: any = null) {
   }
 }
 
-/**
- * Creates stadium dome sky shader mesh supporting both Hemisphere and Full-Sphere rendering pipelines.
- */
-export function createStadiumDomeSky() {
-  const c = skyboxRuntimeConfig;
+function createSkyUniformMap(c = skyboxRuntimeConfig) {
   const activePreset = resolveSkyboxPreset(c.presetId || c.texturePath, c.skyCategory);
   const isFullSphere = (c.skyCategory || activePreset.category) === 'full-sphere';
   const targetPath = c.texturePath || activePreset.path;
@@ -254,7 +251,7 @@ export function createStadiumDomeSky() {
   const emptyTex = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
   emptyTex.needsUpdate = true;
 
-  const uniforms = {
+  return {
     uSkyMap: { value: skyTex },
     uSkyCategory: { value: isFullSphere ? 1.0 : 0.0 },
     uUseTexture: { value: useTex ? 1.0 : 0.0 },
@@ -311,6 +308,14 @@ export function createStadiumDomeSky() {
     uOobNormalTileScale: { value: Math.max(0.5, Number(c.oobNormalTileScale) || 6.0) },
     uOobScrollOffset: { value: 0.0 },
   };
+}
+
+/**
+ * Creates stadium dome sky shader mesh supporting both Hemisphere and Full-Sphere rendering pipelines.
+ */
+export function createStadiumDomeSky() {
+  const c = skyboxRuntimeConfig;
+  const uniforms = createSkyUniformMap(c);
 
   updateCoronaSunBasisUniforms(uniforms, c);
   activeSkyUniforms = uniforms;

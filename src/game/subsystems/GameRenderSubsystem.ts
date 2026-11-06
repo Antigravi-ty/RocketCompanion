@@ -1,5 +1,31 @@
+import type * as THREE from 'three';
+import type { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { useAppStore } from '../runtimeUiPort.ts';
+import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
+import type { BoostBloom } from '../../effects/BoostBloom.ts';
+import type { SupersonicSpeedLinesPass } from '../../effects/SupersonicSpeedLinesPass.ts';
+import type { BallTrajectoryPredictor } from '../../entities/BallTrajectoryPredictor.ts';
+import type { ReachabilityVisualizer } from '../../entities/ReachabilityVisualizer.ts';
+import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
 import type { FrameContext } from '../pipeline/FramePipeline.ts';
+
+export interface RenderSubsystemRuntimePort {
+  renderer: THREE.WebGLRenderer | null;
+  composer: EffectComposer | null;
+  arena: ArenaWorld | null;
+  speedLinesPass: SupersonicSpeedLinesPass | null;
+  physics: RocketSimPhysicsEngine | null;
+  ballTrajectoryPredictor: BallTrajectoryPredictor | null;
+  reachabilityVisualizer: ReachabilityVisualizer | null;
+  gameUI: unknown;
+  bloomEnabled: boolean;
+  boostBloom: BoostBloom | null;
+  bloomOcclusion: {
+    applyBloomOccluders(): void;
+    restoreBloomMaterials(): void;
+  };
+  profiler: { mark(): void } | null;
+}
 
 /**
  * GameRenderSubsystem.ts
@@ -7,54 +33,50 @@ import type { FrameContext } from '../pipeline/FramePipeline.ts';
  * supersonic speed lines, and composer execution.
  */
 export class GameRenderSubsystem {
-  public runtime: any;
+  public runtime: RenderSubsystemRuntimePort;
   public lastBloomActive = true;
 
-  constructor(runtime: any) {
+  constructor(runtime: RenderSubsystemRuntimePort) {
     this.runtime = runtime;
   }
 
   public update(context: FrameContext): void {
     const r = this.runtime;
-    const { dt, isMatchActive, isSupersonic } = context;
+    const {
+      dt,
+      isMatchActive,
+      isSupersonic,
+      isInputEnabled,
+      cameraVelocity,
+      isGoalReplayActive,
+      isPodiumActive,
+      hasActiveFlipResetBloom,
+    } = context;
 
-    if (!r.renderer || !r.composer || !r.camera?.camera) return;
+    const activeCamera = r.arena?.camera;
+    if (!r.renderer || !r.composer || !activeCamera) return;
 
-    r.arena?.prepareBallSpeedTrail?.(r.camera.camera);
+    r.arena?.prepareBallSpeedTrail?.(activeCamera);
 
-    if (r.speedLinesPass && r.cameraSubsystem) {
+    if (r.speedLinesPass) {
       r.speedLinesPass.update(
         dt,
-        Boolean(isSupersonic && r.keyboard?.enabled && isMatchActive),
-        r.cameraSubsystem.scratchVelocity,
-        r.camera.camera,
+        Boolean(isSupersonic && isInputEnabled && isMatchActive),
+        cameraVelocity,
+        activeCamera,
       );
     }
 
-    const winWidth = r.container
-      ? r.container.clientWidth || window.innerWidth
-      : window.innerWidth;
-    const winHeight = r.container
-      ? r.container.clientHeight || window.innerHeight
-      : window.innerHeight;
+    const domCanvas = r.renderer.domElement;
+    const winWidth = domCanvas?.clientWidth || window.innerWidth;
+    const winHeight = domCanvas?.clientHeight || window.innerHeight;
     const curTick = r.physics?.getHeaderView()?.tickCount ?? 0;
-    const activeMode = r.modeManager?.activeMode ?? r.modeManager?.getActiveMode?.();
-    const activeReplayViewer = activeMode?.standaloneReplayViewer;
-    const isStandaloneOrRewinderReplayActive = Boolean(
-      (activeReplayViewer?.isActive && !activeReplayViewer?.isIntervening) ||
-        activeMode?.rewinderController?.isBlockingLivePhysics,
-    );
-    const isGoalReplayActive = Boolean(
-      r.arena?.isGoalReplayActive ||
-        isStandaloneOrRewinderReplayActive ||
-        r.cameraSubsystem?.resolveFrameCameraMetadata?.(context)?.isGoalReplayActive,
-    );
-    const isPodiumActive = Boolean(
-      r.podiumController?.isActive || r.match?.state?.phase === 'podium',
+    const effectiveGoalReplayActive = Boolean(
+      r.arena?.isGoalReplayActive || isGoalReplayActive,
     );
     if (r.ballTrajectoryPredictor) {
       r.ballTrajectoryPredictor.setSceneContext?.({
-        isGoalReplayActive,
+        isGoalReplayActive: effectiveGoalReplayActive,
         isPodiumActive,
       });
       r.ballTrajectoryPredictor.update(
@@ -91,22 +113,14 @@ export class GameRenderSubsystem {
       return;
     }
 
-    let flipResetBloom = false;
-    if (r.flipResetVisuals && r.flipResetVisuals.size > 0) {
-      for (const v of r.flipResetVisuals.values()) {
-        if (v?.bloomActive) {
-          flipResetBloom = true;
-          break;
-        }
-      }
-    }
     const isBloomActive =
-      r.bloomEnabled !== false && Boolean(r.arena?.boostBloomActive || flipResetBloom);
-    if (isBloomActive) {
-      r.camera.camera.layers.set(0);
+      r.bloomEnabled !== false &&
+      Boolean(r.arena?.boostBloomActive || hasActiveFlipResetBloom);
+    if (isBloomActive && r.arena && r.boostBloom) {
+      activeCamera.layers.set(0);
       r.bloomOcclusion.applyBloomOccluders();
       try {
-        r.boostBloom.render(r.arena.scene, r.camera.camera);
+        r.boostBloom.render(r.arena.scene, activeCamera);
       } finally {
         r.bloomOcclusion.restoreBloomMaterials();
       }

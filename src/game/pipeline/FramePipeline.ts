@@ -1,3 +1,4 @@
+import type * as THREE from 'three';
 import { useAppStore } from '../runtimeUiPort.ts';
 import { audioConfig } from '../../ui-core/config/audioConfig';
 import type { CarStateView } from '../../physics/RocketSimStateViews.ts';
@@ -8,19 +9,51 @@ import type { CarStateView } from '../../physics/RocketSimStateViews.ts';
  * and lightweight pipeline stages (InputStage, GameplayModeStage, AudioStage, RenderStage).
  */
 
+export type ActiveCarMeshPort = THREE.Object3D & {
+  group?: THREE.Object3D;
+  visible?: boolean;
+};
+
+export interface FramePipelineRuntimePort {
+  playerCarIndex: number;
+  lastTimestamp: number;
+  container: HTMLElement | null;
+  openOverlays: Set<string>;
+  arena: { cars?: Array<ActiveCarMeshPort | null | undefined> } | null;
+  interpolator: {
+    numCars: number;
+    lastTicks?: number;
+    lastDropped?: number;
+    lastStalled?: boolean;
+    getCurrCarStateView(carIndex: number): CarStateView | null;
+  } | null;
+  keyboard: { enabled?: boolean } | null;
+  match: { state: { mode: string } } | null;
+  profiler: { frameStart(): void; mark(): void } | null;
+  modeManager: { update(context: FrameContext): void } | null;
+  audioSubsystem: { update(context: FrameContext): void } | null;
+  renderSubsystem: { update(context: FrameContext): void } | null;
+  pollInputs(commitPhysicsStep?: boolean): boolean;
+}
+
 export interface PipelineStage {
   name?: string;
   execute(context: FrameContext): void;
 }
 
 export class FrameContext {
-  public runtime: any;
+  public runtime: FramePipelineRuntimePort;
   public timestamp = 0;
   public dt = 0;
   public isMatchActive = false;
+  public isInputEnabled = true;
+  public isPodiumActive = false;
+  public isGoalReplayActive = false;
+  public hasActiveFlipResetBloom = false;
+  public cameraVelocity: THREE.Vector3 | null = null;
   public goalScored = false;
   public activeCar = 0;
-  public activeCarMesh: any = null;
+  public activeCarMesh: ActiveCarMeshPort | null = null;
   public playerCarView: CarStateView | null = null;
   public numCarsInArena = 0;
   public isSupersonic = false;
@@ -32,7 +65,7 @@ export class FrameContext {
   public shouldSkipGpuRender = false;
   public isSimulationOnly = false;
 
-  constructor(runtime: any) {
+  constructor(runtime: FramePipelineRuntimePort) {
     this.runtime = runtime;
     this.reset(0, 0);
   }
@@ -41,6 +74,11 @@ export class FrameContext {
     this.timestamp = timestamp;
     this.dt = dt;
     this.isMatchActive = false;
+    this.isInputEnabled = true;
+    this.isPodiumActive = false;
+    this.isGoalReplayActive = false;
+    this.hasActiveFlipResetBloom = false;
+    this.cameraVelocity = null;
     this.goalScored = false;
     this.activeCar = 0;
     this.activeCarMesh = null;
@@ -58,9 +96,9 @@ export class FrameContext {
 }
 
 export class InputStage implements PipelineStage {
-  public runtime: any;
+  public runtime: FramePipelineRuntimePort;
 
-  constructor(runtime: any) {
+  constructor(runtime: FramePipelineRuntimePort) {
     this.runtime = runtime;
   }
 
@@ -69,7 +107,7 @@ export class InputStage implements PipelineStage {
     r.pollInputs(false);
 
     const activeCar = r.playerCarIndex;
-    const activeCarMesh = r.arena?.cars?.[activeCar];
+    const activeCarMesh = (r.arena?.cars?.[activeCar] as ActiveCarMeshPort | undefined) ?? null;
     const playerCarView = r.interpolator?.getCurrCarStateView(activeCar) ?? null;
     const numCarsInArena = r.interpolator ? r.interpolator.numCars : 0;
 
@@ -77,13 +115,14 @@ export class InputStage implements PipelineStage {
     context.activeCarMesh = activeCarMesh;
     context.playerCarView = playerCarView;
     context.numCarsInArena = numCarsInArena;
+    context.isInputEnabled = Boolean(r.keyboard?.enabled);
   }
 }
 
 export class GameplayModeStage implements PipelineStage {
-  public runtime: any;
+  public runtime: FramePipelineRuntimePort;
 
-  constructor(runtime: any) {
+  constructor(runtime: FramePipelineRuntimePort) {
     this.runtime = runtime;
   }
 
@@ -97,7 +136,7 @@ export class GameplayModeStage implements PipelineStage {
 
     r.modeManager?.update?.(context);
 
-    if (r.container && r.container.dataset.gameMode !== r.match.state.mode) {
+    if (r.container && r.match && r.container.dataset.gameMode !== r.match.state.mode) {
       r.container.dataset.gameMode = r.match.state.mode;
       if (useAppStore && typeof useAppStore.getState === 'function') {
         useAppStore.getState().setMatchMode(r.match.state.mode);
@@ -109,9 +148,9 @@ export class GameplayModeStage implements PipelineStage {
 }
 
 export class AudioStage implements PipelineStage {
-  public runtime: any;
+  public runtime: FramePipelineRuntimePort;
 
-  constructor(runtime: any) {
+  constructor(runtime: FramePipelineRuntimePort) {
     this.runtime = runtime;
   }
 
@@ -142,9 +181,9 @@ export class AudioStage implements PipelineStage {
 }
 
 export class RenderStage implements PipelineStage {
-  public runtime: any;
+  public runtime: FramePipelineRuntimePort;
 
-  constructor(runtime: any) {
+  constructor(runtime: FramePipelineRuntimePort) {
     this.runtime = runtime;
   }
 
@@ -155,14 +194,14 @@ export class RenderStage implements PipelineStage {
 }
 
 export class FramePipeline {
-  public runtime: any;
+  public runtime: FramePipelineRuntimePort;
   public context: FrameContext;
   public stages: PipelineStage[] = [];
   public _accumSimTicks = 0;
   public _accumSimDropped = 0;
   public _accumSimStalled = false;
 
-  constructor(runtime: any) {
+  constructor(runtime: FramePipelineRuntimePort) {
     this.runtime = runtime;
     this.context = new FrameContext(runtime);
   }

@@ -39,13 +39,45 @@ import {
   multiDiscreteToKeyString,
 } from './kickoffEpisodePrimitives.ts';
 
+import type { CarControls } from './experimental/experimentalMultiCarObsPipeline.ts';
+import type { ParsedSafeTensorsModel } from './experimental/SafeTensorsLoader.ts';
+
 export const KICKOFF_V1_SETTLE_TICKS = 60;
 
-export function preloadKickoffV1BestWeights() {
+export interface KickoffTimelineStep {
+  step: number;
+  startTick: number;
+  endTick: number;
+  action: number[];
+  controls: CarControls;
+  keys: Record<string, boolean>;
+  keyStr: string;
+}
+
+export interface KickoffTimelineNoteBar {
+  key: string;
+  startTick: number;
+  endTick: number;
+  startStep: number;
+  endStep: number;
+}
+
+export interface KickoffPrecomputedTimeline {
+  spawnIndex: number;
+  steps: KickoffTimelineStep[];
+  noteBars: KickoffTimelineNoteBar[];
+  touchTick: number;
+  touchStep: number;
+}
+
+export function preloadKickoffV1BestWeights(): Promise<ParsedSafeTensorsModel | null> {
   return loadExperimentalPolicySafeTensors('ko_v2');
 }
 
-export function formatDiscreteActionKeys(act?: any, ctrl?: any) {
+export function formatDiscreteActionKeys(
+  act?: ArrayLike<number> | null,
+  ctrl?: Partial<CarControls> | null
+): string {
   if (act && act.length >= 5) {
     const keys: string[] = [];
     if (act[0] === 2) keys.push('W');
@@ -61,12 +93,12 @@ export function formatDiscreteActionKeys(act?: any, ctrl?: any) {
   }
   if (!ctrl) return 'Coast';
   const keys: string[] = [];
-  if (ctrl.throttle > 0.3 || ctrl.pitch < -0.3) keys.push('W');
-  else if (ctrl.throttle < -0.3 || ctrl.pitch > 0.3) keys.push('S');
-  if (ctrl.steer < -0.3 || ctrl.yaw < -0.3) keys.push('A');
-  else if (ctrl.steer > 0.3 || ctrl.yaw > 0.3) keys.push('D');
-  if (ctrl.roll < -0.3) keys.push('Q');
-  else if (ctrl.roll > 0.3) keys.push('E');
+  if ((ctrl.throttle ?? 0) > 0.3 || (ctrl.pitch ?? 0) < -0.3) keys.push('W');
+  else if ((ctrl.throttle ?? 0) < -0.3 || (ctrl.pitch ?? 0) > 0.3) keys.push('S');
+  if ((ctrl.steer ?? 0) < -0.3 || (ctrl.yaw ?? 0) < -0.3) keys.push('A');
+  else if ((ctrl.steer ?? 0) > 0.3 || (ctrl.yaw ?? 0) > 0.3) keys.push('D');
+  if ((ctrl.roll ?? 0) < -0.3) keys.push('Q');
+  else if ((ctrl.roll ?? 0) > 0.3) keys.push('E');
   if (ctrl.jump) keys.push('Jump');
   if (ctrl.boost) keys.push('Boost');
   if (ctrl.handbrake) keys.push('Drift');
@@ -356,7 +388,7 @@ export class KickoffV2SafeTensorsAgent {
     });
     this.reset();
 
-    const steps: any[] = [];
+    const steps: KickoffTimelineStep[] = [];
     let touchTick = -1;
     let touchStep = -1;
 
@@ -390,9 +422,9 @@ export class KickoffV2SafeTensorsAgent {
     }
 
     const laneKeys = ['Shift', 'Q', 'A', 'W', 'S', 'D', 'E', 'Boost', 'Jump'];
-    const noteBars: any[] = [];
+    const noteBars: KickoffTimelineNoteBar[] = [];
     for (const lane of laneKeys) {
-      let activeBar: any = null;
+      let activeBar: KickoffTimelineNoteBar | null = null;
       for (const s of steps) {
         const pressed = !!s.keys[lane];
         if (pressed) {

@@ -113,17 +113,24 @@ export function createLoopbackCandidate(
 }
 
 export function injectLoopbackCandidate(
-  candidates: Array<any> | null | undefined,
+  candidates: Array<IceCandidateDescriptor | RTCIceCandidateInit | string> | null | undefined,
   sdp = ''
 ): IceCandidateDescriptor[] {
   let list = Array.isArray(candidates) ? [...candidates] : [];
 
   list = list.filter((c) => {
-    const s = typeof c === 'string' ? c : c?.candidate || c?.ip || c?.address || '';
+    const s =
+      typeof c === 'string'
+        ? c
+        : c?.candidate ||
+          (c as IceCandidateDescriptor)?.ip ||
+          (c as IceCandidateDescriptor)?.address ||
+          '';
     return !s.includes('127.0.0.1');
   });
 
-  let sourceCand = list.length > 0 ? list[0] : null;
+  let sourceCand: IceCandidateDescriptor | RTCIceCandidateInit | string | null =
+    list.length > 0 ? list[0] : null;
   if (!sourceCand && typeof sdp === 'string') {
     const m = sdp.match(/a=(candidate:[^\r\n]+)/);
     if (m) {
@@ -134,7 +141,7 @@ export function injectLoopbackCandidate(
   const port = getLoopbackPortFromCandidates(list, sdp);
   const loopback = createLoopbackCandidate(sourceCand, port);
 
-  return [loopback, ...list];
+  return [loopback, ...list.map((c) => (typeof c === 'string' ? { candidate: c } : (c as IceCandidateDescriptor)))];
 }
 
 export function ensureValidSdp(sdp: string): string {
@@ -224,7 +231,10 @@ export function injectLoopbackIntoSdp(
   return ensureValidSdp(res.join('\r\n'));
 }
 
-export function injectLoopback(sdp: string, candidates: any[] = []): string {
+export function injectLoopback(
+  sdp: string,
+  candidates: Array<IceCandidateDescriptor | RTCIceCandidateInit | string> = []
+): string {
   if (!sdp || typeof sdp !== 'string') return sdp;
   const port = getLoopbackPortFromCandidates(candidates, sdp);
   const foundation = Math.floor(Math.random() * 100000);

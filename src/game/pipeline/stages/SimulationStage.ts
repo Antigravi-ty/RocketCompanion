@@ -1,13 +1,78 @@
 import { applyReplayFrameToEngine } from '../../../replay/ReplayFrameInterpolator.ts';
 import { captureRuntimeReplayCarEntries } from '../../../replay/replayDirectorCarRosterPipeline.ts';
-import { INCIDENT_EVENT_TYPES } from '../../../physics/RocketSimConstants.ts';
+import type { CameraManager } from '../../../camera/CameraManager.ts';
+import type { AuthoritativeServerHost } from '../../../network/server/AuthoritativeServerHost.ts';
+import type { PredictionReconciler } from '../../../network/client/PredictionReconciler.ts';
+import type { PhysicsStateInterpolator } from '../../../physics/PhysicsStateInterpolator.ts';
+import type { ReplayTimelineController } from '../../../replay/ReplayTimelineController.ts';
 import type { FrameContext, PipelineStage } from '../FramePipeline.ts';
 import {
   CarActionEventSynthesizer,
   type CarActionDebounceState,
+  type CarActionSynthesizerRuntimePort,
 } from './CarActionEventSynthesizer.ts';
 
 export type { CarActionDebounceState };
+
+interface ActiveModeSimulationPort {
+  directorPreview?: { isReplayActive?: boolean } | null;
+  lifecycleController?: { podiumDelayTicks?: number } | null;
+  rewinderController?: {
+    isBlockingLivePhysics?: boolean;
+    getRewinderState?(): string;
+  } | null;
+  standaloneReplayViewer?: {
+    isActive?: boolean;
+    hasLoadedReplay?: boolean;
+    getViewerState?(): string;
+  } | null;
+  replayController?: { sessionState?: { isPaused?: boolean } | null } | null;
+  replaySession?: {
+    replayController?: { sessionState?: { isPaused?: boolean } | null } | null;
+  } | null;
+  onBeforePhysicsTick?(): boolean | void;
+  onStepPhysicsTick?(): boolean | void;
+  onAfterPhysicsTick?(): void;
+  onPhysicsEvent?(event: unknown): void;
+}
+
+export interface SimulationStageRuntimePort extends CarActionSynthesizerRuntimePort {
+  interpolator: PhysicsStateInterpolator | null;
+  match: { state: { mode: string; phase: string; paused?: boolean; scorer?: number | null; scorerCarIndex?: number | null } } | null;
+  camera: CameraManager | null;
+  podiumController: { isActive: boolean } | null;
+  replayTimelineController: ReplayTimelineController | null;
+  modeManager: {
+    getActiveMode(): ActiveModeSimulationPort | null;
+  } | null;
+  networkManager: {
+    diagnosticDumpMaxFrames?: number;
+    rosterSyncCoordinator?: {
+      lastRosterSnapshot?: {
+        players?: Array<{
+          carIndex?: number;
+          entityId?: number;
+          team?: number | string;
+          [key: string]: unknown;
+        }>;
+      } | null;
+    } | null;
+    sessionCoordinator: {
+      authoritativeServer: AuthoritativeServerHost | null;
+      networkReconciler: PredictionReconciler | null;
+      clientReplayOverflowPaused?: boolean;
+    };
+    diagnosticsProbe: {
+      testCarAudioEnabled?: boolean;
+      diagnosticsFleetController?: {
+        enabled: boolean;
+        applyToAuthority(serverOrSim: unknown, tick: number): void;
+      } | null;
+    };
+  } | null;
+  profiler: { mark(): void } | null;
+  pollInputs(commitPhysicsStep?: boolean): boolean;
+}
 
 /**
  * SimulationStage.ts
@@ -15,12 +80,12 @@ export type { CarActionDebounceState };
  * and delegates vehicle action debounce & incident synthesis to CarActionEventSynthesizer.
  */
 export class SimulationStage implements PipelineStage {
-  public runtime: any;
+  public runtime: SimulationStageRuntimePort;
   public readonly actionSynthesizer = new CarActionEventSynthesizer();
   private _lastRecordedClientReplayTick = -1;
   private _pendingGoalScored = false;
 
-  constructor(runtime: any) {
+  constructor(runtime: SimulationStageRuntimePort) {
     this.runtime = runtime;
   }
 
@@ -39,8 +104,17 @@ export class SimulationStage implements PipelineStage {
 
   public execute(context: FrameContext): void {
     const r = this.runtime;
-    const { timestamp } = context;
-    const activeMode = r.modeManager?.getActiveMode?.();
+    if (!r.match || !r.interpolator || !r.physics) return;
+    const { timestamp, activeCar } = context;
+    const activeMode = r.modeManager?.getActiveMode?.() as ActiveModeSimulationPort | null;
+    const net = r.networkManager;
+    const session = net?.sessionCoordinator;
+    const reconciler = session?.networkReconciler ?? null;
+    const server = session?.authoritativeServer ?? null;
+
+    context.isPodiumActive = Boolean(
+      r.podiumController?.isActive || r.match.state.phase === 'podium',
+    );
 
     const isExpPodiumDelayActive =
       r.match.state.mode === 'exp-multi-bots' &&
@@ -63,8 +137,8 @@ export class SimulationStage implements PipelineStage {
     const isMinimizedOffline =
       typeof document !== 'undefined' &&
       Boolean(document.hidden) &&
-      !r.networkReconciler &&
-      !r.authoritativeServer;
+      !reconciler &&
+      !server;
 
     const isLocalReplayControllerStepping = Boolean(
       isLocalDirectorPreview ||
@@ -86,35 +160,36 @@ export class SimulationStage implements PipelineStage {
         timestamp,
         () => {
           r.pollInputs();
-          if (r.playerCarIndex >= 0 && !r.playerControls?.jump) {
-            this.actionSynthesizer.notifyLocalJumpReleased(r.playerCarIndex);
+          if (activeCar >= 0 && !r.playerControls?.jump) {
+            this.actionSynthesizer.notifyLocalJumpReleased(activeCar);
           }
-          const fleet = r.networkManager?.diagnosticsProbe?.diagnosticsFleetController;
-          if (fleet?.enabled && r.physics && !r.networkReconciler) {
+          const fleet = net?.diagnosticsProbe?.diagnosticsFleetController;
+          if (fleet?.enabled && r.physics && !reconciler) {
             const cTick = Math.floor(r.physics.getHeaderView().tickCount);
             fleet.applyToAuthority(r.physics, cTick);
           }
+          const modeName = r.match?.state.mode;
           if (
-            r.match.state.mode === 'freeplay' ||
-            r.match.state.mode === 'replay-viewer' ||
-            r.match.state.mode === 'kickoff-training' ||
-            r.match.state.mode === 'dev-test-lab' ||
-            r.match.state.mode === 'exp-multi-bots' ||
-            r.match.state.mode === 'static-training-pack'
+            modeName === 'freeplay' ||
+            modeName === 'replay-viewer' ||
+            modeName === 'kickoff-training' ||
+            modeName === 'dev-test-lab' ||
+            modeName === 'exp-multi-bots' ||
+            modeName === 'static-training-pack'
           ) {
-            return r.modeManager.getActiveMode()?.onBeforePhysicsTick?.();
+            return r.modeManager?.getActiveMode()?.onBeforePhysicsTick?.();
           }
         },
         r.match.state.mode === 'kickoff-training'
-          ? () => r.modeManager.getActiveMode()?.onStepPhysicsTick?.()
+          ? () => r.modeManager?.getActiveMode()?.onStepPhysicsTick?.()
           : r.match.state.mode === 'freeplay' ||
               r.match.state.mode === 'replay-viewer' ||
               r.match.state.mode === 'dev-test-lab' ||
               r.match.state.mode === 'exp-multi-bots' ||
               r.match.state.mode === 'static-training-pack'
             ? () => {
-                r.physics.step(1);
-                r.modeManager.getActiveMode()?.onAfterPhysicsTick?.();
+                r.physics!.step(1);
+                r.modeManager?.getActiveMode()?.onAfterPhysicsTick?.();
                 return true;
               }
             : undefined,
@@ -122,7 +197,7 @@ export class SimulationStage implements PipelineStage {
     }
 
     const activeSim = r.physics;
-    if (r.networkReconciler) {
+    if (reconciler) {
       context.goalScored = r.match.state.phase === 'goal';
     } else {
       if (activeSim.pollGoal() !== 0) {
@@ -134,38 +209,37 @@ export class SimulationStage implements PipelineStage {
       }
     }
 
-    if (r.networkReconciler && !isLocalDirectorPreview) {
+    if (reconciler && !isLocalDirectorPreview) {
       const now = performance.now();
-      const net = r.networkManager;
-      if (r.authoritativeServer) {
+      if (server) {
         if (
           net?.diagnosticsProbe?.diagnosticsFleetController?.enabled &&
-          !r.authoritativeServer.isWorker
+          !server.isWorker
         ) {
-          const sTick = Math.floor(r.authoritativeServer.sim?.getHeaderView?.()?.tickCount ?? 0);
+          const sTick = Math.floor(server.sim?.getHeaderView?.()?.tickCount ?? 0);
           net.diagnosticsProbe.diagnosticsFleetController.applyToAuthority(
-            r.authoritativeServer,
+            server,
             sTick,
           );
         }
-        r.authoritativeServer.update(now);
+        server.update();
       }
       const tickBeforeReconcile = Math.floor(r.physics.getHeaderView().tickCount);
-      r.networkReconciler.reconcile(now);
+      reconciler.reconcile(now);
       if (
         r.match.state.paused ||
         isMatchEnded ||
         isGoalReplay ||
-        r.networkReconciler.replayPlaybackMode ||
+        reconciler.replayPlaybackMode ||
         r.match.state.phase === 'prepare'
       ) {
-        r.networkReconciler.flushPendingControlPackets?.(now);
+        reconciler.flushPendingControlPackets?.(now);
       }
       const tickAfterReconcile = Math.floor(r.physics.getHeaderView().tickCount);
       if (
         r.interpolator &&
         !isGoalReplay &&
-        !r.networkReconciler.replayPlaybackMode &&
+        !reconciler.replayPlaybackMode &&
         r.physics?.state
       ) {
         let hadStateNaN = false;
@@ -199,17 +273,17 @@ export class SimulationStage implements PipelineStage {
           r.interpolator.currState.set(st);
           if (
             tickAfterReconcile !== tickBeforeReconcile ||
-            (r.networkReconciler.metrics.lastCorrectionDelta > 0.05 &&
-              !r.networkReconciler.enableSmoothing)
+            (reconciler.metrics.lastCorrectionDelta > 0.05 &&
+              !reconciler.enableSmoothing)
           ) {
             r.interpolator.prevState.set(st);
           }
         }
       }
       if (
-        r.networkReconciler.replayPlaybackMode &&
-        Array.isArray(r.networkReconciler.drainedReplayPackets) &&
-        r.networkReconciler.drainedReplayPackets.length > 0
+        reconciler.replayPlaybackMode &&
+        Array.isArray(reconciler.drainedReplayPackets) &&
+        reconciler.drainedReplayPackets.length > 0
       ) {
         const ctrl = r.replayTimelineController;
         const s = ctrl?.sessionState;
@@ -219,8 +293,8 @@ export class SimulationStage implements PipelineStage {
               s.isPaused ||
               Math.abs((s.playbackSpeed ?? 1.0) - 1.0) > 0.01),
         );
-        for (let i = 0; i < r.networkReconciler.drainedReplayPackets.length; i++) {
-          const pkt = r.networkReconciler.drainedReplayPackets[i];
+        for (let i = 0; i < reconciler.drainedReplayPackets.length; i++) {
+          const pkt = reconciler.drainedReplayPackets[i];
           if (!pkt || !pkt.stateSnapshot) continue;
           if (isGoalReplay && ctrl) {
             if (!ctrl.sessionState.isActive) {
@@ -246,38 +320,39 @@ export class SimulationStage implements PipelineStage {
           }
           if (r.physics && (!isCustomScrubbing || !isGoalReplay) && !isLocalReplayControllerStepping) {
             applyReplayFrameToEngine(r.physics, pkt.stateSnapshot, r.interpolator);
-            if (!r.match.state.paused && !isMatchEnded && net) {
+            if (!r.match.state.paused && !isMatchEnded && net && session) {
               const maxFrames = net.diagnosticDumpMaxFrames || 36000;
               const curFrames = r.physics.getReplayFrameCount?.() ?? 0;
               if (curFrames >= maxFrames) {
                 r.physics.setReplayRecordingActive?.(false);
-                net.sessionCoordinator.clientReplayOverflowPaused = true;
+                session.clientReplayOverflowPaused = true;
               } else if (r.physics.getReplayRecordingActive?.() !== false) {
                 r.physics.recordReplayFrame?.();
-                net.sessionCoordinator.clientReplayOverflowPaused = false;
+                session.clientReplayOverflowPaused = false;
               }
             }
           }
         }
-        r.networkReconciler.drainedReplayPackets.length = 0;
+        reconciler.drainedReplayPackets.length = 0;
       } else if (
         r.physics &&
         net &&
+        session &&
         !r.match.state.paused &&
         !isMatchEnded &&
         !isGoalReplay &&
-        !r.networkReconciler.replayPlaybackMode &&
+        !reconciler.replayPlaybackMode &&
         tickAfterReconcile !== this._lastRecordedClientReplayTick
       ) {
         const maxFrames = net.diagnosticDumpMaxFrames || 36000;
         const curFrames = r.physics.getReplayFrameCount?.() ?? 0;
         if (curFrames >= maxFrames) {
           r.physics.setReplayRecordingActive?.(false);
-          net.sessionCoordinator.clientReplayOverflowPaused = true;
+          session.clientReplayOverflowPaused = true;
         } else if (r.physics.getReplayRecordingActive?.() !== false) {
           r.physics.recordReplayFrame?.();
           this._lastRecordedClientReplayTick = tickAfterReconcile;
-          net.sessionCoordinator.clientReplayOverflowPaused = false;
+          session.clientReplayOverflowPaused = false;
         }
       }
     }
@@ -313,48 +388,7 @@ export class SimulationStage implements PipelineStage {
             r.match.state.phase === 'kickoff' ||
             r.match.state.phase === 'goal')));
 
-    if (r.physics) {
-      const ballPosY = Math.abs(r.physics.getBallStateView?.()?.posY || 0);
-      if (ballPosY < 5000 && r.match.state.phase !== 'goal') {
-        r._clientGoalIncidentLatched = false;
-      }
-
-      const activeMode = r.modeManager?.getActiveMode?.();
-      const isReplayViewerPassivePlayback = Boolean(
-        activeMode?.standaloneReplayViewer?.isActive &&
-          !activeMode?.standaloneReplayViewer?.isIntervening
-      );
-
-      if (!isReplayViewerPassivePlayback) {
-        this.actionSynthesizer.processTickEvents({
-          physics: r.physics,
-          playerCarIndex: r.playerCarIndex ?? 0,
-          playerControls: r.playerControls,
-        networkReconciler: r.networkReconciler,
-        testCarAudioEnabled: Boolean(r.networkManager?.diagnosticsProbe?.testCarAudioEnabled),
-        isMatchEnded,
-        matchPhase: r.match.state.phase,
-        clientGoalIncidentLatched: Boolean(r._clientGoalIncidentLatched),
-        camera: r.camera,
-        arena: r.arena,
-        onGoalIncidentLatched: () => {
-          r._clientGoalIncidentLatched = true;
-        },
-        onModePhysicsEvent: (event) => {
-          if (event?.type === INCIDENT_EVENT_TYPES.CAR_BALL_HIT) {
-            r.ballTrajectoryPredictor?.notifyCarBallHit?.(event.tick);
-          }
-          r.modeManager?.getActiveMode()?.onPhysicsEvent?.(event);
-        },
-        onPlayFlipResetVisual: (carIdx) => {
-          const visual = r.getFlipResetVisual?.(carIdx);
-          if (visual) {
-            visual.play();
-          }
-        },
-        });
-      }
-    }
+    this.actionSynthesizer.processRuntimeTickEvents(r, isMatchEnded);
 
     if (r.profiler && !context.isSimulationOnly) r.profiler.mark();
   }

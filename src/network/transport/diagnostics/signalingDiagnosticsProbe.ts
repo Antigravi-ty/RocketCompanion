@@ -139,16 +139,18 @@ export async function testSignalingConnectivity(
         try {
           if (sock.readyState === 0) {
             const pendingSock = sock;
-            pendingSock.onopen = () => {
-              try {
-                pendingSock.close(1000, 'Diagnostic probe finished');
-              } catch (_) {
-                // Ignore close error
-              }
-            };
-            pendingSock.onerror = null;
-            pendingSock.onclose = null;
-            pendingSock.onmessage = null;
+            Object.assign(pendingSock, {
+              onopen: () => {
+                try {
+                  pendingSock.close(1000, 'Diagnostic probe finished');
+                } catch (_) {
+                  // Ignore close error
+                }
+              },
+              onerror: null,
+              onclose: null,
+              onmessage: null,
+            });
           } else if (sock.readyState === 1) {
             if (protocol === 'mqtt') {
               try {

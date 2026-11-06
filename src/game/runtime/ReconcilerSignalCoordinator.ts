@@ -14,23 +14,62 @@ import { RuntimeKickoffSignalSubController } from './RuntimeKickoffSignalSubCont
 import type { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
 
 /**
+ * Domain state object owning signal deduplication and kickoff/alert frame latches.
+ */
+export class SignalLatchState implements RuntimeSignalLatchState {
+  public readonly seenSignalIds = new Set<number>();
+  public lastPreparedMatchSeq = -1;
+  public hostMatchReplayNotified = false;
+  public overtimeAudioPlayed = false;
+  public lastKickoffTargetFrame = -1;
+  public readonly latchedKickoffSeconds = new Set<number>();
+  public lastKickoffStartedFrame = -1;
+  public lastAlert60Frame = -1;
+  public lastAlert30Frame = -1;
+
+  public resetForKickoff(): void {
+    this.lastKickoffTargetFrame = -1;
+    this.latchedKickoffSeconds.clear();
+    this.lastKickoffStartedFrame = -1;
+  }
+
+  public resetForMatchPrepare(matchSeq = -1): void {
+    this.lastPreparedMatchSeq = matchSeq;
+    this.hostMatchReplayNotified = false;
+    this.overtimeAudioPlayed = false;
+    this.resetForKickoff();
+    this.lastAlert60Frame = -1;
+    this.lastAlert30Frame = -1;
+  }
+
+  public resetAll(): void {
+    this.seenSignalIds.clear();
+    this.resetForMatchPrepare(-1);
+  }
+
+  public recordSignalId(signalId?: number): boolean {
+    const isFirstSeen = !signalId || !this.seenSignalIds.has(signalId);
+    if (signalId) {
+      this.seenSignalIds.add(signalId);
+      if (this.seenSignalIds.size > 512) {
+        const oldest = this.seenSignalIds.values().next().value;
+        if (oldest !== undefined) {
+          this.seenSignalIds.delete(oldest);
+        }
+      }
+    }
+    return isFirstSeen;
+  }
+}
+
+/**
  * ReconcilerSignalCoordinator
  * Stateful SubController owning network reconciler signal deduplication, kickoff latch,
  * alert frame state, and domain signal routing under RuntimeNetworkManager.
  */
 export class ReconcilerSignalCoordinator {
   public readonly host: RuntimeSignalHostPort;
-  public readonly latch: RuntimeSignalLatchState = {
-    seenSignalIds: new Set<number>(),
-    lastPreparedMatchSeq: -1,
-    hostMatchReplayNotified: false,
-    overtimeAudioPlayed: false,
-    lastKickoffTargetFrame: -1,
-    latchedKickoffSeconds: new Set<number>(),
-    lastKickoffStartedFrame: -1,
-    lastAlert60Frame: -1,
-    lastAlert30Frame: -1,
-  };
+  public readonly latch = new SignalLatchState();
   public readonly domainSubController: RuntimeSignalDomainSubController;
   public readonly kickoffSubController: RuntimeKickoffSignalSubController;
 
@@ -53,15 +92,7 @@ export class ReconcilerSignalCoordinator {
   }
 
   public resetSignalState(): void {
-    this.latch.seenSignalIds.clear();
-    this.latch.lastPreparedMatchSeq = -1;
-    this.latch.hostMatchReplayNotified = false;
-    this.latch.overtimeAudioPlayed = false;
-    this.latch.lastKickoffTargetFrame = -1;
-    this.latch.latchedKickoffSeconds.clear();
-    this.latch.lastKickoffStartedFrame = -1;
-    this.latch.lastAlert60Frame = -1;
-    this.latch.lastAlert30Frame = -1;
+    this.latch.resetAll();
 
     const h = this.host;
     if (!h) return;
@@ -122,16 +153,7 @@ export class ReconcilerSignalCoordinator {
           reconciler.acknowledgeSignal?.(sig.signalId, sig.signalType);
         }
 
-        const isFirstSeenSignalId = !sig.signalId || !this.latch.seenSignalIds.has(sig.signalId);
-        if (sig.signalId) {
-          this.latch.seenSignalIds.add(sig.signalId);
-          if (this.latch.seenSignalIds.size > 512) {
-            const oldest = this.latch.seenSignalIds.values().next().value;
-            if (oldest !== undefined) {
-              this.latch.seenSignalIds.delete(oldest);
-            }
-          }
-        }
+        const isFirstSeenSignalId = this.latch.recordSignalId(sig.signalId);
 
         if (isFirstSeenSignalId) {
           const rawSignalType = sig.signalType || 0;

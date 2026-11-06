@@ -1,4 +1,8 @@
 import { DEFAULT_CAR_CONTROLS } from '../../../ai/experimental/ExperimentalBotAgent.ts';
+import type {
+  BallStateView,
+  CarStateView,
+} from '../../../physics/RocketSimStateViews.ts';
 import { useSubsystemIsolationLabStore } from '../../runtimeUiPort.ts';
 import type { LabTabContext, LabTabController } from './LabTabTypes.ts';
 import {
@@ -10,6 +14,7 @@ import {
   createKickoffDuelHelpers,
   decideCarControlsForModel,
   ensureKickoffDuelModelsLoaded,
+  resetKickoffDuelEnsemble,
   resetSimToKickoffSlotAndSettle,
 } from './kickoffDuelSimulationPipeline.ts';
 import {
@@ -17,28 +22,158 @@ import {
   runFullKickoffDuelMatrixBenchmark,
 } from './kickoffDuelBenchmarkPipeline.ts';
 
-interface KickoffDuelEpisodeRuntime {
-  tick: number;
-  slotIndex: number;
-  touched: boolean;
-  touchTick: number;
-  touchWinner: string;
-  blueDistAtTouch: number;
-  orangeDistAtTouch: number;
-  ballSpeedAtTouch: number;
-  ballVyAtTouch: number;
-  inputsCutOff: boolean;
-  cutoffTick: number;
-  postCutoffTicks: number;
-  blueSteps: KickoffStepTraceEntry[];
-  orangeSteps: KickoffStepTraceEntry[];
+export class KickoffDuelEpisodeTracker {
+  public tick = 0;
+  public readonly slotIndex: number;
+  public touched = false;
+  public touchTick = -1;
+  public touchWinner = 'NONE';
+  public blueDistAtTouch = 0;
+  public orangeDistAtTouch = 0;
+  public ballSpeedAtTouch = 0;
+  public ballVyAtTouch = 0;
+  public inputsCutOff = false;
+  public cutoffTick = -1;
+  public postCutoffTicks = 0;
+  public readonly blueSteps: KickoffStepTraceEntry[] = [];
+  public readonly orangeSteps: KickoffStepTraceEntry[] = [];
+
+  constructor(slotIndex: number) {
+    this.slotIndex = slotIndex;
+  }
+
+  evaluateBallTouchAndCutoff(
+    bs: BallStateView,
+    c0: CarStateView,
+    c1: CarStateView,
+    cutoffDelayTicks: number
+  ): boolean {
+    const ballMoved =
+      Math.hypot(bs.posX, bs.posY, bs.posZ - 93.15) > 0.8 ||
+      Math.hypot(bs.velX, bs.velY, bs.velZ) > 5.0;
+
+    if (!this.touched && ballMoved) {
+      this.touched = true;
+      this.touchTick = this.tick;
+      const d0 = Math.hypot(c0.posX - bs.posX, c0.posY - bs.posY, c0.posZ - bs.posZ);
+      const d1 = Math.hypot(c1.posX - bs.posX, c1.posY - bs.posY, c1.posZ - bs.posZ);
+      this.blueDistAtTouch = Math.round(d0);
+      this.orangeDistAtTouch = Math.round(d1);
+      this.ballSpeedAtTouch = Math.round(Math.hypot(bs.velX, bs.velY, bs.velZ));
+      this.ballVyAtTouch = Math.round(bs.velY);
+
+      if (Math.abs(d0 - d1) <= 8.0) {
+        this.touchWinner = 'TIE';
+      } else if (d0 < d1) {
+        this.touchWinner = 'BLUE';
+      } else {
+        this.touchWinner = 'ORANGE';
+      }
+    }
+
+    if (
+      this.touched &&
+      !this.inputsCutOff &&
+      this.tick >= this.touchTick + cutoffDelayTicks
+    ) {
+      this.inputsCutOff = true;
+      this.cutoffTick = this.tick;
+    }
+
+    return this.inputsCutOff;
+  }
+
+  recordPostCutoffTick(): void {
+    this.postCutoffTicks++;
+  }
+
+  shouldSampleStepTrace(): boolean {
+    return this.tick % 4 === 0 && this.blueSteps.length < 120;
+  }
+
+  recordStepTraces(
+    blueEntry: KickoffStepTraceEntry,
+    orangeEntry: KickoffStepTraceEntry
+  ): void {
+    this.blueSteps.push(blueEntry);
+    this.orangeSteps.push(orangeEntry);
+  }
+
+  advanceTick(): number {
+    this.tick++;
+    return this.tick;
+  }
+
+  shouldPublishTelemetry(): boolean {
+    return (
+      this.tick % 4 === 0 ||
+      this.tick === this.touchTick + 1 ||
+      this.tick === this.cutoffTick + 1
+    );
+  }
+
+  buildLiveTelemetryPatch(
+    bs: BallStateView,
+    c0: CarStateView,
+    c1: CarStateView,
+    cutoffDelayTicks: number
+  ): Record<string, unknown> {
+    const d0Now = Math.round(
+      Math.hypot(c0.posX - bs.posX, c0.posY - bs.posY, c0.posZ - bs.posZ)
+    );
+    const d1Now = Math.round(
+      Math.hypot(c1.posX - bs.posX, c1.posY - bs.posY, c1.posZ - bs.posZ)
+    );
+    const bSpd = Math.round(Math.hypot(bs.velX, bs.velY, bs.velZ));
+    const outcome = this.touched
+      ? classifyBallOutcome(bs.posX, bs.posY, bs.velX, bs.velY)
+      : 'Approaching Ball...';
+
+    let phase = 'APPROACHING';
+    if (this.inputsCutOff) {
+      phase = 'INPUTS CUT OFF (OBSERVING BALL)';
+    } else if (this.touched) {
+      phase = `POST-TOUCH FOLLOW-THROUGH (${Math.max(0, this.touchTick + cutoffDelayTicks - this.tick)}f left)`;
+    }
+
+    return {
+      kickoffDuelPhase: phase,
+      kickoffDuelCurrentTick: this.tick,
+      kickoffDuelTouchTick: this.touchTick,
+      kickoffDuelTouchWinner: this.touchWinner,
+      kickoffDuelInputsCutOff: this.inputsCutOff,
+      kickoffDuelBlueDist: this.touched ? this.blueDistAtTouch : d0Now,
+      kickoffDuelOrangeDist: this.touched ? this.orangeDistAtTouch : d1Now,
+      kickoffDuelBallPos: [
+        Math.round(bs.posX),
+        Math.round(bs.posY),
+        Math.round(bs.posZ),
+      ],
+      kickoffDuelBallVel: [
+        Math.round(bs.velX),
+        Math.round(bs.velY),
+        Math.round(bs.velZ),
+      ],
+      kickoffDuelBallSpeed: bSpd,
+      kickoffDuelBallOutcome: outcome,
+      kickoffDuelLiveBlueSteps: this.blueSteps.slice(-16),
+      kickoffDuelLiveOrangeSteps: this.orangeSteps.slice(-16),
+    };
+  }
+
+  isEpisodeComplete(maxObservationTicks = 180): boolean {
+    const timedOut = !this.touched && this.tick >= 420;
+    const finishedObservation =
+      this.inputsCutOff && this.postCutoffTicks >= maxObservationTicks;
+    return finishedObservation || timedOut;
+  }
 }
 
 export class KickoffDuelLabTab implements LabTabController {
   readonly tabId = 'kickoff-duel' as const;
   private ctx: LabTabContext | null = null;
   private kickoffDuelHelpers: KickoffDuelAgentEnsemble | null = null;
-  private kickoffDuelRuntime: KickoffDuelEpisodeRuntime | null = null;
+  private kickoffDuelRuntime: KickoffDuelEpisodeTracker | null = null;
 
   onActivate(ctx: LabTabContext): void {
     this.ctx = ctx;
@@ -122,42 +257,18 @@ export class KickoffDuelLabTab implements LabTabController {
     r.interpolator?.sync?.();
 
     if (this.kickoffDuelHelpers) {
-      (this.kickoffDuelHelpers.koV2Blue as any).channelMode =
-        store.kickoffDuelChannelMode;
-      (this.kickoffDuelHelpers.koV2Orange as any).channelMode =
-        store.kickoffDuelChannelMode;
-      this.kickoffDuelHelpers.koV2Blue.reset();
-      this.kickoffDuelHelpers.koV2Orange.reset();
-      this.kickoffDuelHelpers.koV1Blue.resetTracker();
-      this.kickoffDuelHelpers.koV1Orange.resetTracker();
+      this.kickoffDuelHelpers.koV2Blue.channelMode = store.kickoffDuelChannelMode;
+      this.kickoffDuelHelpers.koV2Orange.channelMode = store.kickoffDuelChannelMode;
       this.kickoffDuelHelpers.expBlue.setBotType(
         store.kickoffDuelBlueModel === 'necto' ? 'necto' : 'nexto'
       );
       this.kickoffDuelHelpers.expOrange.setBotType(
         store.kickoffDuelOrangeModel === 'necto' ? 'necto' : 'nexto'
       );
-      this.kickoffDuelHelpers.expBlue.reset();
-      this.kickoffDuelHelpers.expOrange.reset();
-      this.kickoffDuelHelpers.blueCtrl = { ...DEFAULT_CAR_CONTROLS };
-      this.kickoffDuelHelpers.orangeCtrl = { ...DEFAULT_CAR_CONTROLS };
+      this.kickoffDuelHelpers = resetKickoffDuelEnsemble(this.kickoffDuelHelpers);
     }
 
-    this.kickoffDuelRuntime = {
-      tick: 0,
-      slotIndex: slotIdx,
-      touched: false,
-      touchTick: -1,
-      touchWinner: 'NONE',
-      blueDistAtTouch: 0,
-      orangeDistAtTouch: 0,
-      ballSpeedAtTouch: 0,
-      ballVyAtTouch: 0,
-      inputsCutOff: false,
-      cutoffTick: -1,
-      postCutoffTicks: 0,
-      blueSteps: [],
-      orangeSteps: [],
-    };
+    this.kickoffDuelRuntime = new KickoffDuelEpisodeTracker(slotIdx);
 
     store.updateLiveTelemetry({
       kickoffDuelSlotIndex: slotIdx,
@@ -213,52 +324,22 @@ export class KickoffDuelLabTab implements LabTabController {
     }
 
     const rt = this.kickoffDuelRuntime;
-    const helpers = this.kickoffDuelHelpers;
+    let helpers = this.kickoffDuelHelpers;
 
     const bs = sim.getBallStateView();
     const c0 = sim.getCarStateView(0);
     const c1 = sim.getCarStateView(1);
 
-    const ballMoved =
-      Math.hypot(bs.posX, bs.posY, bs.posZ - 93.15) > 0.8 ||
-      Math.hypot(bs.velX, bs.velY, bs.velZ) > 5.0;
-
-    if (!rt.touched && ballMoved) {
-      rt.touched = true;
-      rt.touchTick = rt.tick;
-      const d0 = Math.hypot(c0.posX - bs.posX, c0.posY - bs.posY, c0.posZ - bs.posZ);
-      const d1 = Math.hypot(c1.posX - bs.posX, c1.posY - bs.posY, c1.posZ - bs.posZ);
-      rt.blueDistAtTouch = Math.round(d0);
-      rt.orangeDistAtTouch = Math.round(d1);
-      rt.ballSpeedAtTouch = Math.round(Math.hypot(bs.velX, bs.velY, bs.velZ));
-      rt.ballVyAtTouch = Math.round(bs.velY);
-
-      if (Math.abs(d0 - d1) <= 8.0) {
-        rt.touchWinner = 'TIE';
-      } else if (d0 < d1) {
-        rt.touchWinner = 'BLUE';
-      } else {
-        rt.touchWinner = 'ORANGE';
-      }
-    }
-
     const cutoffDelayTicks = Math.max(
       0,
       Math.round((store.kickoffDuelCutoffDelaySec ?? 0.5) * 120)
     );
-    if (
-      rt.touched &&
-      !rt.inputsCutOff &&
-      rt.tick >= rt.touchTick + cutoffDelayTicks
-    ) {
-      rt.inputsCutOff = true;
-      rt.cutoffTick = rt.tick;
-    }
+    const isCutOff = rt.evaluateBallTouchAndCutoff(bs, c0, c1, cutoffDelayTicks);
 
-    if (rt.inputsCutOff) {
+    if (isCutOff) {
       sim.setControls(0, DEFAULT_CAR_CONTROLS);
       sim.setControls(1, DEFAULT_CAR_CONTROLS);
-      rt.postCutoffTicks++;
+      rt.recordPostCutoffTick();
     } else {
       const blueModel = store.kickoffDuelBlueModel || 'ko_v2';
       const orangeModel = store.kickoffDuelOrangeModel || 'ko_v1';
@@ -267,7 +348,7 @@ export class KickoffDuelLabTab implements LabTabController {
         channelMode: store.kickoffDuelChannelMode || 'keyboard_coupled',
       };
 
-      const ctrl0 = decideCarControlsForModel(
+      const dec0 = decideCarControlsForModel(
         sim,
         blueModel,
         0,
@@ -276,7 +357,8 @@ export class KickoffDuelLabTab implements LabTabController {
         helpers,
         decideOpts
       );
-      const ctrl1 = decideCarControlsForModel(
+      helpers = dec0.nextHelpers;
+      const dec1 = decideCarControlsForModel(
         sim,
         orangeModel,
         1,
@@ -285,76 +367,29 @@ export class KickoffDuelLabTab implements LabTabController {
         helpers,
         decideOpts
       );
+      helpers = dec1.nextHelpers;
+      this.kickoffDuelHelpers = helpers;
 
-      if (rt.tick % 4 === 0 && rt.blueSteps.length < 120) {
-        rt.blueSteps.push(
-          buildCarStepTraceEntry(sim, blueModel, 0, rt.tick, helpers, ctrl0)
-        );
-        rt.orangeSteps.push(
-          buildCarStepTraceEntry(sim, orangeModel, 1, rt.tick, helpers, ctrl1)
+      if (rt.shouldSampleStepTrace()) {
+        rt.recordStepTraces(
+          buildCarStepTraceEntry(sim, blueModel, 0, rt.tick, helpers, dec0.controls),
+          buildCarStepTraceEntry(sim, orangeModel, 1, rt.tick, helpers, dec1.controls)
         );
       }
 
-      sim.setControls(0, ctrl0);
-      sim.setControls(1, ctrl1);
+      sim.setControls(0, dec0.controls);
+      sim.setControls(1, dec1.controls);
     }
 
-    rt.tick++;
+    rt.advanceTick();
 
-    if (
-      rt.tick % 4 === 0 ||
-      rt.tick === rt.touchTick + 1 ||
-      rt.tick === rt.cutoffTick + 1
-    ) {
-      const d0Now = Math.round(
-        Math.hypot(c0.posX - bs.posX, c0.posY - bs.posY, c0.posZ - bs.posZ)
+    if (rt.shouldPublishTelemetry()) {
+      store.updateLiveTelemetry(
+        rt.buildLiveTelemetryPatch(bs, c0, c1, cutoffDelayTicks)
       );
-      const d1Now = Math.round(
-        Math.hypot(c1.posX - bs.posX, c1.posY - bs.posY, c1.posZ - bs.posZ)
-      );
-      const bSpd = Math.round(Math.hypot(bs.velX, bs.velY, bs.velZ));
-      const outcome = rt.touched
-        ? classifyBallOutcome(bs.posX, bs.posY, bs.velX, bs.velY)
-        : 'Approaching Ball...';
-
-      let phase = 'APPROACHING';
-      if (rt.inputsCutOff) {
-        phase = 'INPUTS CUT OFF (OBSERVING BALL)';
-      } else if (rt.touched) {
-        phase = `POST-TOUCH FOLLOW-THROUGH (${Math.max(0, rt.touchTick + cutoffDelayTicks - rt.tick)}f left)`;
-      }
-
-      store.updateLiveTelemetry({
-        kickoffDuelPhase: phase,
-        kickoffDuelCurrentTick: rt.tick,
-        kickoffDuelTouchTick: rt.touchTick,
-        kickoffDuelTouchWinner: rt.touchWinner,
-        kickoffDuelInputsCutOff: rt.inputsCutOff,
-        kickoffDuelBlueDist: rt.touched ? rt.blueDistAtTouch : d0Now,
-        kickoffDuelOrangeDist: rt.touched ? rt.orangeDistAtTouch : d1Now,
-        kickoffDuelBallPos: [
-          Math.round(bs.posX),
-          Math.round(bs.posY),
-          Math.round(bs.posZ),
-        ],
-        kickoffDuelBallVel: [
-          Math.round(bs.velX),
-          Math.round(bs.velY),
-          Math.round(bs.velZ),
-        ],
-        kickoffDuelBallSpeed: bSpd,
-        kickoffDuelBallOutcome: outcome,
-        kickoffDuelLiveBlueSteps: rt.blueSteps.slice(-16),
-        kickoffDuelLiveOrangeSteps: rt.orangeSteps.slice(-16),
-      });
     }
 
-    const maxObservationTicks = 180;
-    const timedOut = !rt.touched && rt.tick >= 420;
-    const finishedObservation =
-      rt.inputsCutOff && rt.postCutoffTicks >= maxObservationTicks;
-
-    if ((finishedObservation || timedOut) && store.kickoffDuelAutoCycle) {
+    if (rt.isEpisodeComplete(180) && store.kickoffDuelAutoCycle) {
       const nextSlot = (rt.slotIndex + 1) % 5;
       if (nextSlot === 0 && store.kickoffDuelAutoCycleAllPairs) {
         const currentPairIdx = KICKOFF_DUEL_PAIRINGS.findIndex(

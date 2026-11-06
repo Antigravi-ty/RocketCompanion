@@ -4,6 +4,7 @@ import {
   ExperimentalBotAgent,
   ensureExperimentalEngine,
 } from '../../ai/experimental/ExperimentalBotAgent.ts';
+import { NEUTRAL_CAR_CONTROLS } from '../../network/client/PredictionHistoryBuffer.ts';
 import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
 import type { CarControlsInput } from '../../network/protocol/GlobalPayloadCodec.ts';
 import type { GamepadController } from '../../input/GamepadController.ts';
@@ -29,23 +30,26 @@ export interface RuntimeInputPollerHostPort {
   readonly modeManager: { getActiveMode(): ActiveModeCarListPort | null } | null;
   readonly physics: RocketSimPhysicsEngine | null;
   readonly arena?: { readonly carTeams?: ArrayLike<number> } | null;
+  readonly networkReconciler?: PredictionReconciler | null;
   readonly networkManager?: {
+    readonly sessionCoordinator?: {
+      readonly networkReconciler: PredictionReconciler | null;
+    };
     readonly rosterSyncCoordinator?: {
       readonly participantTeams?: ReadonlyMap<number, number>;
     };
   } | null;
   readonly teamAssignment?: { playerTeam: number; opponentTeam: number } | null;
-  readonly isBotMatch?: boolean;
   readonly playerCarIndex: number;
-  readonly neutralControls: CarControlsInput;
-  readonly gameUI: { openMenu(route: string): void } | null;
   readonly gamepad: GamepadController | null;
   readonly keyboard: KeyboardMouseController | null;
   readonly camera: CameraManager | null;
   readonly match: RuntimeMatchState | null;
   readonly cameraSubsystem?: { cameraDynamics: { lookX: number; lookY: number } | null } | null;
-  readonly networkReconciler: PredictionReconciler | null;
-  readonly botCoordinator?: { stepAuthoritativeBotControls(isKickoff: boolean): void } | null;
+  readonly botCoordinator?: {
+    readonly isBotMatch?: boolean;
+    stepAuthoritativeBotControls(isKickoff: boolean): void;
+  } | null;
   playerThrottle: number;
   playerControls: CarControlsInput;
 }
@@ -81,7 +85,7 @@ function resolveFallbackCarTeam(
     if (cIdx === localCarIndex) {
       const pt = normalizeTeamBit(pollerHost.teamAssignment.playerTeam);
       if (pt !== null) return pt;
-    } else if (cIdx === 1 && pollerHost.isBotMatch) {
+    } else if (cIdx === 1 && pollerHost.botCoordinator?.isBotMatch) {
       const ot = normalizeTeamBit(pollerHost.teamAssignment.opponentTeam);
       if (ot !== null) return ot;
     }
@@ -246,12 +250,12 @@ export class RuntimeInputPoller {
     if (isKickoff) {
       this._touchAgentKickoffStep = 0;
       agent.reset();
-      return host.neutralControls;
+      return NEUTRAL_CAR_CONTROLS;
     }
 
     const simState = host.physics?.state;
     if (!simState) {
-      return host.neutralControls;
+      return NEUTRAL_CAR_CONTROLS;
     }
 
     const kickoffStep = this._touchAgentKickoffStep || 0;
@@ -273,7 +277,7 @@ export class RuntimeInputPoller {
       ctrl = agent.action as CarControlsInput;
     }
     this._touchAgentKickoffStep = kickoffStep + 1;
-    return ctrl || host.neutralControls;
+    return ctrl || NEUTRAL_CAR_CONTROLS;
   }
 
   public pollInputs(commitPhysicsStep = true): boolean {
@@ -291,8 +295,8 @@ export class RuntimeInputPoller {
     const appState = useAppStore ? useAppStore.getState() : null;
     const isMenuOpen = Boolean(appState?.isOpen);
     const shouldToggleMatch = btn8 && !this.lastGamepadButton8 && !isMenuOpen;
-    if (shouldToggleMatch && host.gameUI) {
-      host.gameUI.openMenu('play');
+    if (shouldToggleMatch) {
+      appState?.openMenu?.('play');
     }
     this.lastGamepadButton8 = btn8;
 
@@ -302,7 +306,7 @@ export class RuntimeInputPoller {
 
     if (this.gamepadSettingsJustClosed) {
       this.gamepadSettingsJustClosed = [0, 1, 8, 9].some((i) => pad?.buttons[i]?.pressed);
-      if (this.gamepadSettingsJustClosed) padReading = host.neutralControls;
+      if (this.gamepadSettingsJustClosed) padReading = NEUTRAL_CAR_CONTROLS;
     }
 
     const kbReading = host.keyboard.read();
@@ -338,14 +342,14 @@ export class RuntimeInputPoller {
       if ((isKickoff || isKickoffMasked) && (touchInputAgent === 'necto' || touchInputAgent === 'nexto')) {
         this._resolveTouchAgentControls(touchInputAgent, true);
       }
-      effectiveControls = host.neutralControls;
+      effectiveControls = NEUTRAL_CAR_CONTROLS;
     } else if (touchInputAgent === 'necto' || touchInputAgent === 'nexto') {
       effectiveControls = commitPhysicsStep
         ? this._resolveTouchAgentControls(touchInputAgent, false)
         : ((this._touchInputAgentInstance?.action as CarControlsInput | undefined) ||
-          host.neutralControls);
+          NEUTRAL_CAR_CONTROLS);
     } else if (touchMode && touchInputAgent === 'none') {
-      effectiveControls = host.neutralControls;
+      effectiveControls = NEUTRAL_CAR_CONTROLS;
     } else if (this._suppressJumpUntilReleased && rawControls.jump) {
       effectiveControls = { ...rawControls, jump: false };
     } else {
@@ -383,8 +387,9 @@ export class RuntimeInputPoller {
       return true;
     }
 
-    if (host.networkReconciler?.shouldSkipLocalStep) {
-      host.networkReconciler.shouldSkipLocalStep = false;
+    const reconciler = host.networkManager?.sessionCoordinator?.networkReconciler ?? null;
+    if (reconciler?.shouldSkipLocalStep) {
+      reconciler.shouldSkipLocalStep = false;
       return false;
     }
 
@@ -399,9 +404,9 @@ export class RuntimeInputPoller {
       handbrake: Boolean(effectiveControls.handbrake),
     };
     let car0Controls: CarControlsInput = normalizedEffective;
-    if (host.networkReconciler) {
+    if (reconciler) {
       car0Controls =
-        (host.networkReconciler.sampleAndPredictInput(
+        (reconciler.sampleAndPredictInput(
           host.playerCarIndex,
           normalizedEffective,
         ) as CarControlsInput | null) || normalizedEffective;
@@ -415,14 +420,14 @@ export class RuntimeInputPoller {
       host.botCoordinator.stepAuthoritativeBotControls(isKickoff);
     }
 
-    if (host.networkReconciler?.historyBuffer.lastRemoteControls) {
+    if (reconciler?.historyBuffer.lastRemoteControls) {
       const numCars = Math.min(host.physics.numCars, 8);
       for (let c = 0; c < numCars; c++) {
         if (c !== host.playerCarIndex) {
-          const remote = host.networkReconciler.historyBuffer.lastRemoteControls.get(c) as
+          const remote = reconciler.historyBuffer.lastRemoteControls.get(c) as
             | ({ controls?: CarControlsInput } & CarControlsInput)
             | undefined;
-          const remoteCtrl = remote?.controls ? remote.controls : remote || host.neutralControls;
+          const remoteCtrl = remote?.controls ? remote.controls : remote || NEUTRAL_CAR_CONTROLS;
           host.physics.setControls(c, remoteCtrl);
         }
       }

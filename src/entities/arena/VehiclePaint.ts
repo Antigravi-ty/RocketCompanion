@@ -87,7 +87,7 @@ export function applyVehiclePaint(
 
   if (preset && hasVehicleDescriptor(preset)) {
     const bodyMesh = carRoot.children?.find((c: THREE.Object3D) => c.name === "car-body-mesh") || carRoot;
-    applyCustomGlbVehicleMaterials(bodyMesh, preset, num, paintFinish);
+    applyCustomGlbVehicleMaterials(bodyMesh, preset, num ?? 0x3b82f6, paintFinish);
     const palette = createCarPaintMaterial(num, undefined);
     if (finishPreset && palette?.body) {
       palette.body.metalness = finishPreset.metalness;

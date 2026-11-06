@@ -25,49 +25,48 @@ import {
   type RosterSnapshot,
 } from './matchLoadoutAndSpawnPipeline.ts';
 import {
-  applyInPlacePlayerTeamSwitch,
   popReclaimedPlayerSlotCandidate,
+  type RosterPhysicsManagerPort,
+  type RosterSessionPort,
+  type SignalDispatchFn,
 } from './matchRosterPhysicsAndBotPipeline.ts';
 
-export function applyCosmeticsToExistingPlayerSlot(
+export interface RoleSwitchDataHandlerPort {
+  sendPacket: (sessionId: string, packet: string | Uint8Array) => void;
+}
+
+export function resolveCosmeticsPatchForExistingPlayerSlot(
   existing: MatchPlayerSlot,
   resolved: NormalizedSlotLoadoutResult
-): void {
+): Partial<MatchPlayerSlot> {
   const {
-    normalizedLoadout,
-    requestedVisual,
-    requestedHitboxIndex,
-    requestedHitboxId,
-    requestedPaintFinish,
-    requestedBoostVisual,
-    requestedBoostAudio,
+    normalizedLoadout, requestedVisual, requestedHitboxIndex, requestedHitboxId,
+    requestedPaintFinish, requestedBoostVisual, requestedBoostAudio,
   } = resolved;
 
+  const patch: Partial<MatchPlayerSlot> = {};
   if (normalizedLoadout.visualId !== undefined || normalizedLoadout.visualIndex !== undefined) {
-    existing.visualId = requestedVisual;
-    existing.visualIndex = encodeVisualIdIndex(requestedVisual);
+    patch.visualId = requestedVisual;
+    patch.visualIndex = encodeVisualIdIndex(requestedVisual);
   }
   if (normalizedLoadout.hitboxId !== undefined || normalizedLoadout.hitboxIndex !== undefined) {
-    existing.hitboxId = requestedHitboxId;
-    existing.hitboxIndex = requestedHitboxIndex;
+    patch.hitboxId = requestedHitboxId;
+    patch.hitboxIndex = requestedHitboxIndex;
   }
   if (typeof normalizedLoadout.colorSlot === 'number') {
-    existing.colorSlot = resolveTeamMatchedColorSlot(
-      normalizedLoadout.colorSlot,
-      existing.team,
-      existing.blueColorSlot,
-      existing.orangeColorSlot
+    const colorSlot = resolveTeamMatchedColorSlot(
+      normalizedLoadout.colorSlot, existing.team, existing.blueColorSlot, existing.orangeColorSlot
     );
-    if (existing.team === 0) existing.blueColorSlot = existing.colorSlot;
-    else if (existing.team === 1) existing.orangeColorSlot = existing.colorSlot;
-    existing.colorHex = resolveColorHexForSlot(existing.colorSlot, existing.team);
+    patch.colorSlot = colorSlot;
+    if (existing.team === 0) patch.blueColorSlot = colorSlot;
+    else if (existing.team === 1) patch.orangeColorSlot = colorSlot;
+    patch.colorHex = resolveColorHexForSlot(colorSlot, existing.team);
   }
-  if (normalizedLoadout.paintFinish !== undefined) existing.paintFinish = requestedPaintFinish;
-  if (normalizedLoadout.boostVisual !== undefined) existing.boostVisual = requestedBoostVisual;
-  if (normalizedLoadout.boostAudio !== undefined) existing.boostAudio = requestedBoostAudio;
-  if (normalizedLoadout.anthemId !== undefined) {
-    existing.anthemId = String(normalizedLoadout.anthemId);
-  }
+  if (normalizedLoadout.paintFinish !== undefined) patch.paintFinish = requestedPaintFinish;
+  if (normalizedLoadout.boostVisual !== undefined) patch.boostVisual = requestedBoostVisual;
+  if (normalizedLoadout.boostAudio !== undefined) patch.boostAudio = requestedBoostAudio;
+  if (normalizedLoadout.anthemId !== undefined) patch.anthemId = String(normalizedLoadout.anthemId);
+  return patch;
 }
 
 export function createNewPlayerSlotInfo(
@@ -79,14 +78,8 @@ export function createNewPlayerSlotInfo(
   isBotSession: boolean
 ): MatchPlayerSlot {
   const {
-    normalizedLoadout,
-    requestedVisual,
-    requestedHitboxIndex,
-    requestedHitboxId,
-    requestedPaintFinish,
-    requestedBoostVisual,
-    requestedBoostAudio,
-    requestedAnthemId,
+    normalizedLoadout, requestedVisual, requestedHitboxIndex, requestedHitboxId,
+    requestedPaintFinish, requestedBoostVisual, requestedBoostAudio, requestedAnthemId,
   } = resolved;
 
   let team0Count = 0;
@@ -142,33 +135,18 @@ export function createNewPlayerSlotInfo(
       ? normalizedLoadout.colorSlot!
       : null;
   const colorSlot = resolveTeamMatchedColorSlot(
-    normalizedLoadout.colorSlot,
-    assignedTeam,
-    blueColorSlot,
-    orangeColorSlot
+    normalizedLoadout.colorSlot, assignedTeam, blueColorSlot, orangeColorSlot
   );
   const colorHex = resolveColorHexForSlot(colorSlot, assignedTeam);
 
   return {
-    sessionId,
-    entityId: assignedEntityId,
-    carIndex: assignedEntityId,
-    team: assignedTeam,
-    name: playerName,
-    role: 'player',
-    spawnSlot,
-    visualId: requestedVisual,
-    visualIndex,
-    hitboxId: requestedHitboxId,
-    hitboxIndex: requestedHitboxIndex,
-    colorSlot,
+    sessionId, entityId: assignedEntityId, carIndex: assignedEntityId, team: assignedTeam,
+    name: playerName, role: 'player', spawnSlot, visualId: requestedVisual, visualIndex,
+    hitboxId: requestedHitboxId, hitboxIndex: requestedHitboxIndex, colorSlot,
     blueColorSlot: assignedTeam === 0 ? colorSlot : blueColorSlot,
     orangeColorSlot: assignedTeam === 1 ? colorSlot : orangeColorSlot,
-    colorHex,
-    paintFinish: requestedPaintFinish,
-    boostVisual: requestedBoostVisual,
-    boostAudio: requestedBoostAudio,
-    anthemId: requestedAnthemId,
+    colorHex, paintFinish: requestedPaintFinish, boostVisual: requestedBoostVisual,
+    boostAudio: requestedBoostAudio, anthemId: requestedAnthemId,
     ready: isBotSession || sessionId === 'host',
     arenaLoaded: isBotSession || sessionId === 'host',
     isBot: isBotSession,
@@ -210,10 +188,7 @@ export function buildPlayerHandshakePacketJson(params: {
     botFillMode: params.botFillMode,
     durationSeconds: params.clockDuration,
     clockSeconds: params.clockSecondsRemaining,
-    score: {
-      blue: params.blueScore ?? 0,
-      orange: params.orangeScore ?? 0,
-    },
+    score: { blue: params.blueScore ?? 0, orange: params.orangeScore ?? 0 },
     matchTick: params.matchTick,
     serverFrame: params.matchTick,
     roster: params.roster,
@@ -251,27 +226,18 @@ export function executePlayerSessionRemoval(params: {
   spectators: Map<string, MatchSpectatorSlot>;
   disconnectedPlayerSlots: Map<number, DisconnectedPlayerSlot>;
   matchTick: number;
-  state: string;
-  botFillMode: string;
+  shouldRunActiveMatchBotFill: boolean;
   applyingBotFillPolicy: boolean;
-  sessionManager: any;
-  physicsManager: any;
-  dispatchSignal: (signalType: number, frameId: number, param1?: number, param2?: number) => any;
+  sessionManager: RosterSessionPort | null | undefined;
+  physicsManager: RosterPhysicsManagerPort | null | undefined;
+  dispatchSignal: SignalDispatchFn;
   onPlayerSessionRemoved: (sessionId: string) => void;
   applyBotFillPolicy: () => void;
   broadcastRosterUpdate: () => void;
 }): void {
   const {
-    sessionId,
-    players,
-    spectators,
-    disconnectedPlayerSlots,
-    matchTick,
-    state,
-    botFillMode,
-    applyingBotFillPolicy,
-    sessionManager,
-    physicsManager,
+    sessionId, players, spectators, disconnectedPlayerSlots, matchTick,
+    shouldRunActiveMatchBotFill, applyingBotFillPolicy, sessionManager, physicsManager,
   } = params;
 
   const player = players.get(sessionId);
@@ -279,24 +245,16 @@ export function executePlayerSessionRemoval(params: {
     const entityId = player.entityId;
     const wasHuman = !player.isBot;
     if (wasHuman && entityId >= 0) {
-      disconnectedPlayerSlots.set(entityId, {
-        ...player,
-        disconnectedAtTick: matchTick,
-      });
+      disconnectedPlayerSlots.set(entityId, { ...player, disconnectedAtTick: matchTick });
     }
     players.delete(sessionId);
-    sessionManager?.unregisterSession(sessionId);
+    sessionManager?.unregisterSession?.(sessionId);
     if (physicsManager && entityId >= 0) {
       physicsManager.unregisterCarEntity(entityId);
     }
     params.dispatchSignal(MATCH_SIGNALS.PLAYER_LEFT, matchTick, entityId, player.team ?? 0);
     params.onPlayerSessionRemoved(sessionId);
-    if (
-      wasHuman &&
-      !applyingBotFillPolicy &&
-      state !== MATCH_STATES.LOBBY &&
-      (botFillMode === 'auto_fill' || botFillMode === 'bots_vs_humans')
-    ) {
+    if (wasHuman && !applyingBotFillPolicy && shouldRunActiveMatchBotFill) {
       params.applyBotFillPolicy();
     }
     params.broadcastRosterUpdate();
@@ -305,7 +263,7 @@ export function executePlayerSessionRemoval(params: {
 
   if (spectators.has(sessionId)) {
     spectators.delete(sessionId);
-    sessionManager?.unregisterSession(sessionId);
+    sessionManager?.unregisterSession?.(sessionId);
     params.dispatchSignal(MATCH_SIGNALS.PLAYER_LEFT, matchTick, -1, 2);
     params.broadcastRosterUpdate();
   }
@@ -319,34 +277,25 @@ export function executePlayerSessionReclaim(params: {
   spectators: Map<string, MatchSpectatorSlot>;
   disconnectedPlayerSlots: Map<number, DisconnectedPlayerSlot>;
   matchTick: number;
-  sessionManager: any;
-  physicsManager: any;
+  sessionManager: RosterSessionPort | null | undefined;
+  physicsManager: RosterPhysicsManagerPort | null | undefined;
   assignPlayerSlot: (
     sessionId: string,
     playerName: string,
     role: string,
     preferredTeam?: number | null
-  ) => any;
-  dispatchSignal: (signalType: number, frameId: number, param1?: number, param2?: number) => any;
+  ) => MatchPlayerSlot | MatchSpectatorSlot | null;
+  dispatchSignal: SignalDispatchFn;
   broadcastRosterUpdate: () => void;
-}): any {
+}): MatchPlayerSlot | MatchSpectatorSlot | null | undefined {
   const {
-    sessionId,
-    requestedEntityId,
-    preferredTeam,
-    players,
-    spectators,
-    disconnectedPlayerSlots,
-    matchTick,
-    sessionManager,
-    physicsManager,
+    sessionId, requestedEntityId, preferredTeam, players, spectators,
+    disconnectedPlayerSlots, matchTick, sessionManager, physicsManager,
   } = params;
 
   if (players.has(sessionId)) return players.get(sessionId);
   const { reclaimed, entityId } = popReclaimedPlayerSlotCandidate(
-    disconnectedPlayerSlots,
-    players.values(),
-    requestedEntityId
+    disconnectedPlayerSlots, players.values(), requestedEntityId
   );
   if (!reclaimed) return params.assignPlayerSlot(sessionId, 'Player', 'player', preferredTeam);
   if (entityId < 0) {
@@ -356,31 +305,21 @@ export function executePlayerSessionReclaim(params: {
   if (spectators.has(sessionId)) spectators.delete(sessionId);
 
   const playerInfo: MatchPlayerSlot = {
-    ...reclaimed,
-    sessionId,
-    entityId,
-    carIndex: entityId,
-    ready: true,
-    arenaLoaded: true,
-    isBot: false,
+    ...reclaimed, sessionId, entityId, carIndex: entityId,
+    ready: true, arenaLoaded: true, isBot: false,
   };
   players.set(sessionId, playerInfo);
   sessionManager?.registerSession(sessionId, {
-    role: 'player',
-    entityId,
-    team: playerInfo.team,
-    visualId: playerInfo.visualId,
-    hitboxId: playerInfo.hitboxId,
-    deferPhysicsRegistration: false,
-    playerName: playerInfo.name,
+    role: 'player', entityId, team: playerInfo.team,
+    visualId: playerInfo.visualId, hitboxId: playerInfo.hitboxId,
+    deferPhysicsRegistration: false, playerName: playerInfo.name,
   });
 
   if (physicsManager) {
     const hitboxOrVisual = playerInfo.hitboxId || playerInfo.visualId || 'octane';
     physicsManager.registerCarEntity(entityId, playerInfo.team, hitboxOrVisual);
     physicsManager.applySignal('HOTSWAP_HITBOX', {
-      carIndex: entityId,
-      hitboxType: hitboxOrVisual,
+      carIndex: entityId, hitboxType: hitboxOrVisual,
     });
   }
 
@@ -411,19 +350,10 @@ export function executePlayerRoleOrTeamSwitch(params: {
   targetTeam: number;
   players: Map<string, MatchPlayerSlot>;
   spectators: Map<string, MatchSpectatorSlot>;
-  roomId: string;
-  gameMode: string;
-  botFillMode: string;
-  clockDuration: number;
-  clockSecondsRemaining: number;
-  blueScore: number;
-  orangeScore: number;
   matchTick: number;
   state: string;
-  isTrainingMode: boolean;
-  sessionManager: any;
-  physicsManager: any;
-  dataHandler: any;
+  shouldRunActiveMatchBotFill: boolean;
+  dataHandler: RoleSwitchDataHandlerPort | null | undefined;
   isApplyingBotFillPolicy: () => boolean;
   setApplyingBotFillPolicy: (value: boolean) => void;
   removePlayerSession: (sessionId: string) => void;
@@ -433,31 +363,16 @@ export function executePlayerRoleOrTeamSwitch(params: {
     role: string,
     preferredTeam: number | null,
     loadoutOptions: PlayerLoadoutOptions
-  ) => any;
+  ) => MatchPlayerSlot | MatchSpectatorSlot | null;
+  applyInPlaceTeamSwitch: (currentPlayer: MatchPlayerSlot, targetTeam: number) => MatchPlayerSlot;
   applyBotFillPolicy: () => void;
-  buildRosterSnapshot: () => RosterSnapshot;
+  buildHandshakePacketJson: (player: MatchPlayerSlot | null) => string;
   broadcastRosterUpdate: () => void;
-  dispatchSignal: (signalType: number, frameId: number, param1?: number, param2?: number) => any;
-}): any {
+  dispatchSignal: SignalDispatchFn;
+}): MatchPlayerSlot | MatchSpectatorSlot | null {
   const {
-    sessionId,
-    targetRole,
-    targetTeam,
-    players,
-    spectators,
-    roomId,
-    gameMode,
-    botFillMode,
-    clockDuration,
-    clockSecondsRemaining,
-    blueScore,
-    orangeScore,
-    matchTick,
-    state,
-    isTrainingMode,
-    sessionManager,
-    physicsManager,
-    dataHandler,
+    sessionId, targetRole, targetTeam, players, spectators, matchTick, state,
+    shouldRunActiveMatchBotFill, dataHandler,
   } = params;
 
   const currentPlayer = players.get(sessionId);
@@ -473,30 +388,13 @@ export function executePlayerRoleOrTeamSwitch(params: {
   if (targetRole === 'spectator' || targetRole === 2) {
     if (currentPlayer) params.removePlayerSession(sessionId);
     const specSlot = params.assignPlayerSlot(sessionId, playerName, 'spectator', null, {
-      visualId,
-      hitboxId,
-      colorSlot,
-      paintFinish,
-      boostVisual,
-      boostAudio,
+      visualId, hitboxId, colorSlot, paintFinish, boostVisual, boostAudio,
     });
     params.dispatchSignal(
-      MATCH_SIGNALS.PLAYER_SLOT_UPDATED,
-      matchTick,
-      65535,
-      PLAYER_ROLE_CODES.SPECTATOR
+      MATCH_SIGNALS.PLAYER_SLOT_UPDATED, matchTick, 65535, PLAYER_ROLE_CODES.SPECTATOR
     );
     if (dataHandler && sessionId && sessionId !== 'host') {
-      dataHandler.sendPacket(
-        sessionId,
-        buildSpectatorHandshakePacketJson({
-          roomId,
-          gameMode,
-          matchTick,
-          state,
-          roster: params.buildRosterSnapshot(),
-        })
-      );
+      dataHandler.sendPacket(sessionId, params.buildHandshakePacketJson(null));
     }
     return specSlot;
   }
@@ -528,23 +426,12 @@ export function executePlayerRoleOrTeamSwitch(params: {
 
   if (currentPlayer && currentPlayer.team === targetTeam) return currentPlayer;
 
-  let updated: any;
+  let updated: MatchPlayerSlot | MatchSpectatorSlot | null = null;
   const hadValidEntitySlot = Boolean(
     currentPlayer && typeof currentPlayer.entityId === 'number' && currentPlayer.entityId >= 0
   );
   if (hadValidEntitySlot && currentPlayer) {
-    updated = applyInPlacePlayerTeamSwitch({
-      sessionId,
-      currentPlayer,
-      targetTeam,
-      players,
-      state,
-      isTrainingMode,
-      matchTick,
-      sessionManager,
-      physicsManager,
-      dispatchSignal: params.dispatchSignal,
-    });
+    updated = params.applyInPlaceTeamSwitch(currentPlayer, targetTeam);
     params.broadcastRosterUpdate();
   } else {
     const prevApplying = params.isApplyingBotFillPolicy();
@@ -552,52 +439,27 @@ export function executePlayerRoleOrTeamSwitch(params: {
     try {
       if (currentSpec) params.removePlayerSession(sessionId);
       updated = params.assignPlayerSlot(sessionId, playerName, 'player', targetTeam, {
-        visualId,
-        hitboxId,
+        visualId, hitboxId,
         colorSlot: resolveDefaultColorSlotForTeam(targetTeam === 1 ? 1 : 0),
-        paintFinish,
-        boostVisual,
-        boostAudio,
+        paintFinish, boostVisual, boostAudio,
       });
     } finally {
       params.setApplyingBotFillPolicy(prevApplying);
     }
   }
 
-  if (
-    !params.isApplyingBotFillPolicy() &&
-    state !== MATCH_STATES.LOBBY &&
-    (botFillMode === 'auto_fill' || botFillMode === 'bots_vs_humans')
-  ) {
+  if (!params.isApplyingBotFillPolicy() && shouldRunActiveMatchBotFill) {
     params.applyBotFillPolicy();
   }
 
-  if (updated && updated.entityId >= 0) {
+  if (updated && 'entityId' in updated && updated.entityId >= 0) {
     if (state !== MATCH_STATES.LOBBY || !hadValidEntitySlot) {
       params.dispatchSignal(
-        MATCH_SIGNALS.PLAYER_SLOT_UPDATED,
-        matchTick,
-        updated.entityId,
-        updated.team === 1 ? 1 : 0
+        MATCH_SIGNALS.PLAYER_SLOT_UPDATED, matchTick, updated.entityId, updated.team === 1 ? 1 : 0
       );
     }
     if (!hadValidEntitySlot && dataHandler && sessionId && sessionId !== 'host') {
-      dataHandler.sendPacket(
-        sessionId,
-        buildPlayerHandshakePacketJson({
-          player: updated,
-          roomId,
-          gameMode,
-          botFillMode,
-          clockDuration,
-          clockSecondsRemaining,
-          blueScore,
-          orangeScore,
-          matchTick,
-          state,
-          roster: params.buildRosterSnapshot(),
-        })
-      );
+      dataHandler.sendPacket(sessionId, params.buildHandshakePacketJson(updated));
     }
   }
   return updated;
