@@ -1,0 +1,282 @@
+import {
+  DEFAULT_CAR_CONTROLS,
+  ExperimentalBotAgent,
+  ensureExperimentalEngine,
+} from '../../../ai/experimental/ExperimentalBotAgent.ts';
+import { loadExperimentalPolicySafeTensors } from '../../../ai/experimental/SafeTensorsLoader.ts';
+import {
+  KickoffPPOAgent,
+  multiDiscreteToControls,
+  preloadKickoffPPOWeights,
+} from '../../../ai/KickoffPPOAgent.ts';
+import {
+  KickoffV2SafeTensorsAgent,
+  classifyBallOutcome,
+  formatDiscreteActionKeys,
+} from '../../../ai/KickoffV2SafeTensorsAgent.ts';
+import {
+  KICKOFF_DUEL_MODELS,
+  KICKOFF_DUEL_PAIRINGS,
+  KICKOFF_DUEL_SLOTS,
+} from '../../../ui-core/config/kickoffDuelConfig.ts';
+
+export {
+  KICKOFF_DUEL_MODELS,
+  KICKOFF_DUEL_PAIRINGS,
+  KICKOFF_DUEL_SLOTS,
+  classifyBallOutcome,
+};
+
+export const DUEL_ACTIVE_CARS = Object.freeze([
+  { carIndex: 0, team: 0 },
+  { carIndex: 1, team: 1 },
+]);
+
+export interface KickoffDuelAgentEnsemble {
+  koV2Blue: KickoffV2SafeTensorsAgent;
+  koV2Orange: KickoffV2SafeTensorsAgent;
+  koV1Blue: KickoffPPOAgent;
+  koV1Orange: KickoffPPOAgent;
+  expBlue: ExperimentalBotAgent;
+  expOrange: ExperimentalBotAgent;
+  blueCtrl: Record<string, any>;
+  orangeCtrl: Record<string, any>;
+  blueAct: number[] | null;
+  orangeAct: number[] | null;
+}
+
+export interface KickoffStepTraceEntry {
+  tick: number;
+  timeSec: number;
+  onGround: boolean;
+  hasFlip: boolean;
+  isFlipping: boolean;
+  boostAmount: number;
+  carPos: [number, number, number];
+  carVel: [number, number, number];
+  carSpeed: number;
+  distToBall: number;
+  discreteAct?: number[];
+  keysLabel: string;
+  controls: {
+    throttle: number;
+    steer: number;
+    pitch: number;
+    yaw: number;
+    roll: number;
+    jump: boolean;
+    boost: boolean;
+    handbrake: boolean;
+  };
+  prevAct0: number;
+}
+
+export async function ensureKickoffDuelModelsLoaded(
+  modelIds: string[] = ['ko_v2', 'ko_v1', 'nexto', 'necto']
+): Promise<void> {
+  const uniqueIds = Array.from(new Set(modelIds));
+  const tasks = uniqueIds.map((id) => {
+    if (id === 'ko_v2') {
+      return loadExperimentalPolicySafeTensors('ko_v2').catch((e) =>
+        console.warn('[KickoffDuelLab] Failed to load ko_v2 SafeTensors:', e)
+      );
+    }
+    if (id === 'ko_v1') {
+      return preloadKickoffPPOWeights().catch((e) =>
+        console.warn('[KickoffDuelLab] Failed to load ko_v1 SafeTensors:', e)
+      );
+    }
+    if (id === 'nexto' || id === 'necto') {
+      return ensureExperimentalEngine(id);
+    }
+    return Promise.resolve();
+  });
+  await Promise.all(tasks);
+}
+
+export function resetSimToKickoffSlotAndSettle(sim: any, slotIndex = 0): void {
+  const slot = KICKOFF_DUEL_SLOTS[slotIndex] || KICKOFF_DUEL_SLOTS[0];
+  while (sim.numCars > 2 && typeof sim.removeCar === 'function') {
+    sim.removeCar(sim.numCars - 1);
+  }
+  while (sim.numCars < 2) {
+    sim.addCar(sim.numCars, 'octane');
+  }
+  sim.setUnlimitedBoost(false);
+
+  sim.resetKickoffAtSpawn(slot.cppIdx, 0);
+  const pre0 = new Float32Array(sim.getCarState(0));
+
+  sim.resetKickoffAtSpawn(slot.cppIdx, 60);
+  const s0 = new Float32Array(sim.getCarState(0));
+  const s1 = new Float32Array(sim.getCarState(1));
+
+  s0[0] = pre0[0];
+  s0[1] = pre0[1];
+  for (let k = 3; k <= 11; k++) s0[k] = pre0[k];
+  for (let k = 12; k <= 17; k++) s0[k] = 0.0;
+  sim.setCarState(0, s0);
+
+  s1[0] = -s0[0];
+  s1[1] = -s0[1];
+  s1[2] = s0[2];
+  s1[3] = -s0[3];
+  s1[4] = -s0[4];
+  s1[5] = s0[5];
+  s1[6] = -s0[6];
+  s1[7] = -s0[7];
+  s1[8] = s0[8];
+  s1[9] = -s0[9];
+  s1[10] = -s0[10];
+  s1[11] = s0[11];
+  for (let k = 12; k <= 17; k++) s1[k] = 0.0;
+  sim.setCarState(1, s1);
+
+  sim.setControls(0, DEFAULT_CAR_CONTROLS);
+  sim.setControls(1, DEFAULT_CAR_CONTROLS);
+}
+
+export function createKickoffDuelHelpers(
+  channelMode = 'keyboard_coupled'
+): KickoffDuelAgentEnsemble {
+  return {
+    koV2Blue: new KickoffV2SafeTensorsAgent({ channelMode }),
+    koV2Orange: new KickoffV2SafeTensorsAgent({ channelMode }),
+    koV1Blue: new KickoffPPOAgent(),
+    koV1Orange: new KickoffPPOAgent(),
+    expBlue: new ExperimentalBotAgent('nexto', 0, 0),
+    expOrange: new ExperimentalBotAgent('nexto', 1, 1),
+    blueCtrl: { ...DEFAULT_CAR_CONTROLS },
+    orangeCtrl: { ...DEFAULT_CAR_CONTROLS },
+    blueAct: [1, 1, 1, 0, 0, 0],
+    orangeAct: [1, 1, 1, 0, 0, 0],
+  };
+}
+
+export function decideCarControlsForModel(
+  sim: any,
+  modelId: string,
+  carIndex: number,
+  team: number,
+  tick: number,
+  helpers: KickoffDuelAgentEnsemble,
+  options: { nextoScripted?: boolean; channelMode?: string } = {}
+): Record<string, any> {
+  const isOrange = team === 1;
+  const teamSign = isOrange ? -1.0 : 1.0;
+  const nextoScriptedKickoff = Boolean(options.nextoScripted);
+  const channelMode = options.channelMode || 'keyboard_coupled';
+
+  if (modelId === 'ko_v2') {
+    const agent = carIndex === 0 ? helpers.koV2Blue : helpers.koV2Orange;
+    (agent as any).channelMode = channelMode;
+    if (tick % 4 === 0) {
+      const rawCtrl = agent.actDeterministic(sim, carIndex, isOrange);
+      if (carIndex === 0) {
+        helpers.blueCtrl = rawCtrl;
+        helpers.blueAct = [...(agent as any).act];
+      } else {
+        helpers.orangeCtrl = rawCtrl;
+        helpers.orangeAct = [...(agent as any).act];
+      }
+    }
+    const raw = carIndex === 0 ? helpers.blueCtrl : helpers.orangeCtrl;
+    return agent.sanitizeAndRecordTickControls(sim, carIndex, raw);
+  }
+
+  if (modelId === 'ko_v1') {
+    const agent = carIndex === 0 ? helpers.koV1Blue : helpers.koV1Orange;
+    if (tick % 4 === 0) {
+      const obs = agent.buildObsV3(sim, carIndex, (agent as any).obsBuffer, teamSign);
+      const act = agent.actDeterministic(obs);
+      const ctrl = multiDiscreteToControls(act);
+      if (carIndex === 0) {
+        helpers.blueCtrl = ctrl;
+        helpers.blueAct = [...act];
+      } else {
+        helpers.orangeCtrl = ctrl;
+        helpers.orangeAct = [...act];
+      }
+    }
+    const ctrl = carIndex === 0 ? helpers.blueCtrl : helpers.orangeCtrl;
+    const cv = sim.getCarStateView(carIndex);
+    (agent as any).tracker.stepTick(Boolean(ctrl.jump), Boolean(cv.isOnGround));
+    return ctrl;
+  }
+
+  if (modelId === 'nexto' || modelId === 'necto') {
+    const bot = carIndex === 0 ? helpers.expBlue : helpers.expOrange;
+    if ((bot as any).botType !== modelId) {
+      bot.setBotType(modelId);
+    }
+    const kickoffStepArg = modelId === 'nexto' && nextoScriptedKickoff ? tick : 999;
+    if (tick % 8 === 0) {
+      const ctrl = bot.decideSync(
+        sim.state,
+        sim.getPads(),
+        DUEL_ACTIVE_CARS as any,
+        kickoffStepArg
+      );
+      if (carIndex === 0) {
+        helpers.blueCtrl = ctrl;
+        helpers.blueAct = null;
+      } else {
+        helpers.orangeCtrl = ctrl;
+        helpers.orangeAct = null;
+      }
+    }
+    return carIndex === 0 ? helpers.blueCtrl : helpers.orangeCtrl;
+  }
+
+  return { ...DEFAULT_CAR_CONTROLS };
+}
+
+export function buildCarStepTraceEntry(
+  sim: any,
+  modelId: string,
+  carIndex: number,
+  tick: number,
+  helpers: KickoffDuelAgentEnsemble,
+  ctrl: Record<string, any>
+): KickoffStepTraceEntry {
+  const cs = sim.getCarStateView(carIndex);
+  const bs = sim.getBallStateView();
+  const speed = Math.hypot(cs.velX, cs.velY, cs.velZ);
+  const distToBall = Math.hypot(cs.posX - bs.posX, cs.posY - bs.posY, cs.posZ - bs.posZ);
+  const act = carIndex === 0 ? helpers.blueAct : helpers.orangeAct;
+  const ko2Agent = carIndex === 0 ? helpers.koV2Blue : helpers.koV2Orange;
+  const prevAct0 =
+    modelId === 'ko_v2'
+      ? Number(((ko2Agent as any).prevActionVec[0] ?? 0).toFixed(3))
+      : Number((cs.isOnGround ? ctrl.throttle : -ctrl.pitch).toFixed(3));
+
+  return {
+    tick,
+    timeSec: Number((tick / 120).toFixed(3)),
+    onGround: Boolean(cs.isOnGround),
+    hasFlip: Boolean(cs.hasFlipOrJump),
+    isFlipping: Boolean(cs.isFlipping),
+    boostAmount: Math.round(Number(cs.boost ?? 0)),
+    carPos: [
+      Math.round(cs.posX * 10) / 10,
+      Math.round(cs.posY * 10) / 10,
+      Math.round(cs.posZ * 10) / 10,
+    ],
+    carVel: [Math.round(cs.velX), Math.round(cs.velY), Math.round(cs.velZ)],
+    carSpeed: Math.round(speed),
+    distToBall: Math.round(distToBall),
+    discreteAct: act ? act.slice(0, 5) : undefined,
+    keysLabel: formatDiscreteActionKeys(act, ctrl),
+    controls: {
+      throttle: Number((ctrl.throttle ?? 0).toFixed(3)),
+      steer: Number((ctrl.steer ?? 0).toFixed(3)),
+      pitch: Number((ctrl.pitch ?? 0).toFixed(3)),
+      yaw: Number((ctrl.yaw ?? 0).toFixed(3)),
+      roll: Number((ctrl.roll ?? 0).toFixed(3)),
+      jump: Boolean(ctrl.jump),
+      boost: Boolean(ctrl.boost),
+      handbrake: Boolean(ctrl.handbrake),
+    },
+    prevAct0,
+  };
+}

@@ -1,0 +1,436 @@
+/**
+ * VisualErrorSmoother.ts
+ * Pure mathematical operators and stateful wrapper for client-side visual error smoothing.
+ * Computes post-resimulation spatial discrepancy and decays visual smoothing offsets.
+ */
+
+import {
+  type PredictionHistoryBuffer,
+  type ReconciliationTolerances,
+  evaluateHistoricalSnapshotDelta,
+} from './PredictionHistoryBuffer.ts';
+import {
+  saveClientLobbyLocalEntities,
+  configureClientLobbyDiagnosticProbes,
+  restoreClientLobbyLocalEntities,
+} from './NetworkTelemetryCollector.ts';
+
+export interface Vector3Like {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface PreResimPositions {
+  cars: Array<Vector3Like | undefined>;
+  ball: Vector3Like | null;
+}
+
+export interface PostResimDiscrepancyInput {
+  numCars: number;
+  localCarIndex: number;
+  isLobbyDualWorld: boolean;
+  hardSnapThreshold: number;
+  isTier3HistoricalHardSnap: boolean;
+}
+
+export interface PostResimDiscrepancyResult {
+  localDelta: number;
+  ballDelta: number;
+  remoteMaxDelta: number;
+  probeMaxDelta: number;
+  primaryDelta: number;
+  effectiveDelta: number;
+  isTier3HardSnap: boolean;
+}
+
+export function computeVector3Magnitude(vec: Vector3Like): number {
+  return Math.hypot(vec.x, vec.y, vec.z);
+}
+
+export function accumulateSmoothingCorrectionOffset(
+  currentOffset: Vector3Like,
+  prePhysicsPos: Vector3Like | null | undefined,
+  postPhysicsPos: Vector3Like | null | undefined,
+  maxOffsetMagnitude = 300.0
+): { offset: Vector3Like; magnitude: number } {
+  if (!prePhysicsPos || !postPhysicsPos) {
+    return { offset: { ...currentOffset }, magnitude: computeVector3Magnitude(currentOffset) };
+  }
+  let x = currentOffset.x + (prePhysicsPos.x - postPhysicsPos.x);
+  let y = currentOffset.y + (prePhysicsPos.y - postPhysicsPos.y);
+  let z = currentOffset.z + (prePhysicsPos.z - postPhysicsPos.z);
+  let mag = Math.hypot(x, y, z);
+  if (mag > maxOffsetMagnitude && mag > 0) {
+    const scale = maxOffsetMagnitude / mag;
+    x *= scale;
+    y *= scale;
+    z *= scale;
+    mag = maxOffsetMagnitude;
+  }
+  return { offset: { x, y, z }, magnitude: mag };
+}
+
+export function stepVisualSmoothingDecay(
+  currentOffset: Vector3Like,
+  deltaSeconds: number,
+  decayRate = 18.0,
+  snapZeroEpsilon = 0.01
+): { offset: Vector3Like; magnitude: number } {
+  if (deltaSeconds <= 0) {
+    return { offset: { ...currentOffset }, magnitude: computeVector3Magnitude(currentOffset) };
+  }
+  const decay = Math.exp(-decayRate * deltaSeconds);
+  let x = currentOffset.x * decay;
+  let y = currentOffset.y * decay;
+  let z = currentOffset.z * decay;
+  let mag = Math.hypot(x, y, z);
+  if (mag < snapZeroEpsilon) {
+    x = 0; y = 0; z = 0; mag = 0;
+  }
+  return { offset: { x, y, z }, magnitude: mag };
+}
+
+export function resolveSmoothedRenderPosition(physicsPos: Vector3Like, smoothingOffset: Vector3Like): Vector3Like {
+  return {
+    x: physicsPos.x + smoothingOffset.x,
+    y: physicsPos.y + smoothingOffset.y,
+    z: physicsPos.z + smoothingOffset.z,
+  };
+}
+
+export function capturePreResimPositions(
+  sim: any,
+  maxCars = 8
+): { prePositions: PreResimPositions; hasNaN: boolean; numCars: number } {
+  const numCars = Math.min(sim?.numCars ?? 0, maxCars);
+  const hasSlotCheck = typeof sim?.isCarSlotActive === 'function';
+  const cars = new Array<Vector3Like | undefined>(numCars);
+  let hasNaN = false;
+
+  for (let c = 0; c < numCars; c++) {
+    if (hasSlotCheck && !sim.isCarSlotActive(c)) continue;
+    const carView = sim.getCarStateView(c);
+    if (!carView) continue;
+    if (Number.isNaN(carView.posX) || Number.isNaN(carView.posY) || Number.isNaN(carView.posZ)) {
+      hasNaN = true;
+      break;
+    }
+    cars[c] = { x: carView.posX, y: carView.posY, z: carView.posZ };
+  }
+
+  let ball: Vector3Like | null = null;
+  if (!hasNaN && typeof sim?.getBallStateView === 'function') {
+    const ballView = sim.getBallStateView();
+    if (ballView && !Number.isNaN(ballView.posX) && !Number.isNaN(ballView.posY) && !Number.isNaN(ballView.posZ)) {
+      ball = { x: ballView.posX, y: ballView.posY, z: ballView.posZ };
+    }
+  }
+  return { prePositions: { cars, ball }, hasNaN, numCars };
+}
+
+export function evaluatePostResimDiscrepancy(
+  sim: any,
+  prePositions: PreResimPositions,
+  input: PostResimDiscrepancyInput
+): PostResimDiscrepancyResult {
+  const { numCars, localCarIndex, isLobbyDualWorld, hardSnapThreshold, isTier3HistoricalHardSnap } = input;
+  const hasSlotCheck = typeof sim?.isCarSlotActive === 'function';
+  const postLocalCar = sim.getCarStateView(localCarIndex);
+  const preLocalPos = prePositions.cars[localCarIndex];
+  const localDelta = postLocalCar && preLocalPos
+    ? Math.hypot(postLocalCar.posX - preLocalPos.x, postLocalCar.posY - preLocalPos.y, postLocalCar.posZ - preLocalPos.z)
+    : 0;
+
+  let ballDelta = 0;
+  if (prePositions.ball && typeof sim?.getBallStateView === 'function') {
+    const postBall = sim.getBallStateView();
+    if (postBall && !Number.isNaN(postBall.posX)) {
+      ballDelta = Math.hypot(
+        postBall.posX - prePositions.ball.x,
+        postBall.posY - prePositions.ball.y,
+        postBall.posZ - prePositions.ball.z
+      );
+    }
+  }
+
+  let remoteMaxDelta = 0;
+  let probeMaxDelta = 0;
+  for (let c = 0; c < numCars; c++) {
+    if (c === localCarIndex) continue;
+    if (hasSlotCheck && !sim.isCarSlotActive(c)) continue;
+    const preRemote = prePositions.cars[c];
+    const postRemote = sim.getCarStateView(c);
+    if (!preRemote || !postRemote) continue;
+    const rDelta = Math.hypot(
+      postRemote.posX - preRemote.x,
+      postRemote.posY - preRemote.y,
+      postRemote.posZ - preRemote.z
+    );
+    if (c >= 6) {
+      if (rDelta > probeMaxDelta) probeMaxDelta = rDelta;
+    } else if (rDelta > remoteMaxDelta) {
+      remoteMaxDelta = rDelta;
+    }
+  }
+
+  const primaryDelta = isLobbyDualWorld ? probeMaxDelta : localDelta;
+  const isTier3HardSnap = isLobbyDualWorld
+    ? isTier3HistoricalHardSnap || probeMaxDelta >= hardSnapThreshold
+    : isTier3HistoricalHardSnap || localDelta >= hardSnapThreshold || ballDelta >= hardSnapThreshold;
+  const effectiveDelta = isLobbyDualWorld
+    ? probeMaxDelta
+    : Math.max(localDelta, ballDelta, remoteMaxDelta, probeMaxDelta);
+
+  return { localDelta, ballDelta, remoteMaxDelta, probeMaxDelta, primaryDelta, effectiveDelta, isTier3HardSnap };
+}
+
+export class VisualErrorSmoother {
+  enabled: boolean;
+  decayRate: number;
+  maxOffsetMagnitude: number;
+  readonly offset: Vector3Like = { x: 0, y: 0, z: 0 };
+
+  constructor(enabled = false, decayRate = 18.0, maxOffsetMagnitude = 300.0) {
+    this.enabled = Boolean(enabled);
+    this.decayRate = decayRate;
+    this.maxOffsetMagnitude = maxOffsetMagnitude;
+  }
+
+  reset(): void {
+    this.offset.x = 0;
+    this.offset.y = 0;
+    this.offset.z = 0;
+  }
+
+  setEnabled(enabled: boolean): void {
+    this.enabled = Boolean(enabled);
+    if (!this.enabled) this.reset();
+  }
+
+  getMagnitude(): number {
+    return computeVector3Magnitude(this.offset);
+  }
+
+  applyCorrection(
+    preLocalPos: Vector3Like | null | undefined,
+    postLocalPos: Vector3Like | null | undefined,
+    isTier3HardSnap = false,
+    isLobbyDualWorld = false
+  ): number {
+    if (isTier3HardSnap) {
+      this.reset();
+      return 0;
+    }
+    if (!this.enabled || isLobbyDualWorld || !preLocalPos || !postLocalPos) {
+      return this.getMagnitude();
+    }
+    const { offset, magnitude } = accumulateSmoothingCorrectionOffset(
+      this.offset, preLocalPos, postLocalPos, this.maxOffsetMagnitude
+    );
+    this.offset.x = offset.x;
+    this.offset.y = offset.y;
+    this.offset.z = offset.z;
+    return magnitude;
+  }
+
+  stepDecay(deltaSeconds: number): Vector3Like {
+    if (!this.enabled) return this.offset;
+    const { offset } = stepVisualSmoothingDecay(this.offset, deltaSeconds, this.decayRate);
+    this.offset.x = offset.x;
+    this.offset.y = offset.y;
+    this.offset.z = offset.z;
+    return this.offset;
+  }
+
+  applyPostResimDiscrepancy(
+    sim: any,
+    prePositions: PreResimPositions,
+    input: PostResimDiscrepancyInput,
+    metrics: Record<string, any>
+  ): PostResimDiscrepancyResult {
+    const discrepancy = evaluatePostResimDiscrepancy(sim, prePositions, input);
+    metrics.localCorrectionDelta = discrepancy.localDelta;
+    metrics.ballCorrectionDelta = discrepancy.ballDelta;
+    metrics.remoteCorrectionDelta = discrepancy.remoteMaxDelta;
+    metrics.probeCorrectionDelta = discrepancy.probeMaxDelta;
+    metrics.reconcileTier = discrepancy.isTier3HardSnap ? 3 : 2;
+    if (discrepancy.isTier3HardSnap) this.reset();
+
+    if (discrepancy.effectiveDelta > 0.05) {
+      metrics.lastCorrectionDelta = discrepancy.effectiveDelta;
+      if (this.enabled && !discrepancy.isTier3HardSnap && !input.isLobbyDualWorld) {
+        const postLocalCar = sim.getCarStateView(input.localCarIndex);
+        this.applyCorrection(
+          prePositions.cars[input.localCarIndex],
+          postLocalCar ? { x: postLocalCar.posX, y: postLocalCar.posY, z: postLocalCar.posZ } : undefined,
+          discrepancy.isTier3HardSnap,
+          input.isLobbyDualWorld
+        );
+      }
+    } else {
+      metrics.lastCorrectionDelta = discrepancy.primaryDelta;
+    }
+    metrics.smoothingMagnitude = this.getMagnitude();
+    return discrepancy;
+  }
+
+  executeReplayAndEvaluateCorrection(params: {
+    sim: any;
+    historyBuffer: PredictionHistoryBuffer;
+    packet: any;
+    serverTick: number;
+    currentClientTick: number;
+    prePositions: PreResimPositions;
+    numCars: number;
+    localCarIndex: number;
+    lobbyDualWorldMode: boolean;
+    kickoffMaskUntilTick: number;
+    tolerances: ReconciliationTolerances;
+    metrics: Record<string, any>;
+    skippedCorrections: number;
+    hardSnapCount: number;
+    totalCorrections: number;
+    maxCorrectionDelta: number;
+  }): {
+    skippedCorrections: number;
+    hardSnapCount: number;
+    totalCorrections: number;
+    maxCorrectionDelta: number;
+  } {
+    const {
+      sim, historyBuffer, packet, serverTick, currentClientTick,
+      prePositions, numCars, localCarIndex, lobbyDualWorldMode,
+      kickoffMaskUntilTick, tolerances, metrics,
+    } = params;
+    let { skippedCorrections, hardSnapCount, totalCorrections, maxCorrectionDelta } = params;
+
+    sim.saveStateSlot?.(currentClientTick % 256);
+    historyBuffer.saveTickSnapshot(currentClientTick, sim);
+    const histSnap = historyBuffer.getTickSnapshot(serverTick);
+    const evalResult = evaluateHistoricalSnapshotDelta(packet.stateSnapshot, histSnap, {
+      numCars,
+      localCarIndex,
+      isLobbyDualWorld: lobbyDualWorldMode,
+      tolerances,
+      isCarSlotActive: typeof sim?.isCarSlotActive === 'function' ? (c: number) => sim.isCarSlotActive(c) : undefined,
+    });
+    if (evalResult.canCompare) {
+      metrics.historicalPosDelta = evalResult.localPosDelta;
+      if (evalResult.withinTier1) {
+        skippedCorrections = (skippedCorrections || 0) + 1;
+        metrics.skippedCorrections = skippedCorrections;
+        metrics.reconcileTier = 1;
+        metrics.lastCorrectionDelta = evalResult.localPosDelta;
+        metrics.localCorrectionDelta = evalResult.localPosDelta || 0;
+        metrics.ballCorrectionDelta = 0;
+        metrics.remoteCorrectionDelta = 0;
+        metrics.probeCorrectionDelta = 0;
+        metrics.smoothingMagnitude = this.getMagnitude();
+        return { skippedCorrections, hardSnapCount, totalCorrections, maxCorrectionDelta };
+      }
+    }
+    const isTier3HistoricalHardSnap = Boolean(evalResult.canCompare && evalResult.exceedsHardSnap);
+    const savedLobbyEntities = saveClientLobbyLocalEntities(sim, lobbyDualWorldMode);
+    let slotFullStateAtServerTick: Float32Array | null = null;
+    if (serverTick < currentClientTick && currentClientTick - serverTick < 256) {
+      const restoredSlot = sim.restoreStateSlot?.(serverTick % 256);
+      if (restoredSlot && typeof sim?.saveState === 'function') {
+        slotFullStateAtServerTick = sim.saveState();
+      }
+    }
+    sim.restoreState(packet.stateSnapshot);
+    if (slotFullStateAtServerTick) {
+      preserveCarTransientTimersAcrossCompactRestore(sim, slotFullStateAtServerTick, numCars);
+    }
+    if (lobbyDualWorldMode || (typeof sim?.isCarSlotActive === 'function' && (sim.isCarSlotActive(6) || sim.isCarSlotActive(7)))) {
+      configureClientLobbyDiagnosticProbes(sim);
+    }
+    historyBuffer.backfillMissingLocalInputs(serverTick - 16, serverTick, localCarIndex, kickoffMaskUntilTick);
+    historyBuffer.resimulateSilentRange(sim, serverTick, currentClientTick, numCars, localCarIndex, kickoffMaskUntilTick);
+    if (savedLobbyEntities) {
+      restoreClientLobbyLocalEntities(sim, lobbyDualWorldMode, localCarIndex, historyBuffer.lastLocalControls, savedLobbyEntities);
+    }
+    sim.saveStateSlot(currentClientTick % 256);
+    historyBuffer.saveTickSnapshot(currentClientTick, sim);
+    const discrepancy = this.applyPostResimDiscrepancy(
+      sim,
+      prePositions,
+      { numCars, localCarIndex, isLobbyDualWorld: lobbyDualWorldMode, hardSnapThreshold: tolerances.hardSnapThreshold ?? 500.0, isTier3HistoricalHardSnap },
+      metrics
+    );
+    if (discrepancy.isTier3HardSnap) {
+      hardSnapCount = (hardSnapCount || 0) + 1;
+      metrics.hardSnapCount = hardSnapCount;
+    }
+    if (discrepancy.effectiveDelta > 0.05) {
+      totalCorrections++;
+      metrics.totalCorrections = totalCorrections;
+      if (discrepancy.effectiveDelta > maxCorrectionDelta) {
+        maxCorrectionDelta = discrepancy.effectiveDelta;
+        metrics.maxCorrectionDelta = discrepancy.effectiveDelta;
+      }
+    }
+    return { skippedCorrections, hardSnapCount, totalCorrections, maxCorrectionDelta };
+  }
+}
+
+const FULL_SNAPSHOT_MIN_FLOATS = 4201;
+const FULL_SNAPSHOT_CAR_BLOCK_BASE = 169;
+const FULL_SNAPSHOT_CAR_BLOCK_STRIDE = 508;
+
+export function preserveCarTransientTimersAcrossCompactRestore(
+  sim: any,
+  slotFullState: Float32Array | null | undefined,
+  numCars: number
+): void {
+  if (!slotFullState || slotFullState.length < FULL_SNAPSHOT_MIN_FLOATS || typeof sim?.saveState !== 'function') {
+    return;
+  }
+  const mergedFullState: Float32Array | null = sim.saveState();
+  if (!mergedFullState || mergedFullState.length < slotFullState.length) {
+    return;
+  }
+  const slotBytes = new Uint8Array(slotFullState.buffer, slotFullState.byteOffset, slotFullState.byteLength);
+  const mergedBytes = new Uint8Array(mergedFullState.buffer, mergedFullState.byteOffset, mergedFullState.byteLength);
+  const maxCars = Math.min(numCars, 8);
+  const hasSlotCheck = typeof sim?.isCarSlotActive === 'function';
+  let modified = false;
+
+  for (let c = 0; c < maxCars; c++) {
+    if (hasSlotCheck && !sim.isCarSlotActive(c)) continue;
+    const base = FULL_SNAPSHOT_CAR_BLOCK_BASE + c * FULL_SNAPSHOT_CAR_BLOCK_STRIDE;
+    if (base + 110 > slotFullState.length || base + 110 > mergedFullState.length) continue;
+
+    const slotIsDemoed = slotBytes[(base + 29) * 4];
+    const mergedIsDemoed = mergedBytes[(base + 29) * 4];
+    const slotIsOnGround = slotBytes[(base + 34) * 4];
+    const mergedIsOnGround = mergedBytes[(base + 34) * 4];
+
+    if (slotIsDemoed !== 0 || mergedIsDemoed !== 0 || slotIsOnGround !== mergedIsOnGround) {
+      continue;
+    }
+
+    for (let k = 35; k <= 44; k++) {
+      mergedFullState[base + k] = slotFullState[base + k];
+    }
+
+    const hasFuel = mergedFullState[base + 46] > 0.1 || Boolean(sim.isUnlimitedBoost);
+    if (hasFuel) {
+      mergedFullState[base + 47] = slotFullState[base + 47];
+      mergedFullState[base + 48] = slotFullState[base + 48];
+    }
+
+    for (let k = 49; k <= 51; k++) {
+      mergedFullState[base + k] = slotFullState[base + k];
+    }
+    for (let k = 104; k <= 109; k++) {
+      mergedFullState[base + k] = slotFullState[base + k];
+    }
+    modified = true;
+  }
+
+  if (modified) {
+    sim.restoreState(mergedFullState);
+  }
+}
