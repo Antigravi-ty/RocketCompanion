@@ -130,10 +130,13 @@ export class ReplayTimelineController {
   }
 
   beginReplaySession(options: ReplaySessionInitOptions = {}): number {
-    const s = (this.sessionState = buildTimelineReplaySessionInitState({
-      ringBuffer: this.ringBuffer, engine: this.engine, options,
-      currentRetainedReplaySeq: this.sessionState.retainedReplaySeq,
-    }));
+    const s = Object.assign(
+      this.sessionState,
+      buildTimelineReplaySessionInitState({
+        ringBuffer: this.ringBuffer, engine: this.engine, options,
+        currentRetainedReplaySeq: this.sessionState.retainedReplaySeq,
+      })
+    );
     this.directorCamera.reset(s.isImportedPreview && s.useRecordedCsvCamera, false, false);
     this._analyzeReplayTouchTimeline(options);
     this.directorCamera.applyPostAnalysisOverrides(options);
@@ -146,7 +149,7 @@ export class ReplayTimelineController {
   retainReplaySessionFrames(options: ReplaySessionInitOptions = {}): number {
     const next = buildRetainedReplaySessionState(this.sessionState, options);
     if (next.activeFrames.length === 0) return 0;
-    this.sessionState = next;
+    Object.assign(this.sessionState, next);
     this.directorCamera.reset(false, next.isPaused, next.isScrubbing);
     this._analyzeReplayTouchTimeline(options);
     this.ensureSuffixCameraPlan();
@@ -160,7 +163,7 @@ export class ReplayTimelineController {
   ): number {
     const src = srcCtrl?.sessionState;
     if (!srcCtrl || srcCtrl === this || !src || !Array.isArray(src.activeFrames) || src.activeFrames.length === 0) return 0;
-    this.sessionState = buildClonedRetainedReplaySessionState({ currentSessionState: this.sessionState, sourceSessionState: src });
+    Object.assign(this.sessionState, buildClonedRetainedReplaySessionState({ currentSessionState: this.sessionState, sourceSessionState: src }));
     this.directorCamera.cloneFrom(srcCtrl.directorCamera?.state || srcCtrl.directorCameraState);
     return this.sessionState.activeFrames.length;
   }

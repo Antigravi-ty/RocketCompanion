@@ -21,6 +21,7 @@ import {
   MULTIPLAYER_6CAR_LOADOUT_STRESS_SCENARIO,
   REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO,
 } from './replayViewerBaselineScenario.ts';
+import { REPLAY_DIRECTOR_AND_EXPORT_SCENARIO } from './replayDirectorAndExportScenario.ts';
 import type { ScenarioScript } from './ScenarioTypes.ts';
 
 export const BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO: ScenarioScript = {
@@ -249,6 +250,7 @@ export const BUILTIN_BASELINE_SCENARIOS: Readonly<Record<string, ScenarioScript>
   [BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO.id]: BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO,
   [MULTIPLAYER_6CAR_LOADOUT_STRESS_SCENARIO.id]: MULTIPLAYER_6CAR_LOADOUT_STRESS_SCENARIO,
   [REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO.id]: REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO,
+  [REPLAY_DIRECTOR_AND_EXPORT_SCENARIO.id]: REPLAY_DIRECTOR_AND_EXPORT_SCENARIO,
 });
 
 export function resolveRequestedScenarios(queryValue: string | null | undefined): ScenarioScript[] {
