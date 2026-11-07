@@ -147,6 +147,7 @@ export class ArenaWorld {
     this.carBoosts = vr.carBoosts;
     this.carDemolitions = vr.carDemolitions;
     this.carColors = vr.carColors;
+    this.carTeams = vr.carTeams;
     this.aerialClimbTracker = new VehicleAerialClimbTracker(8);
     this.carBoostAmounts = this.aerialClimbTracker.carBoostAmounts;
     this.carVerticalVelZUu = this.aerialClimbTracker.carVerticalVelZUu;

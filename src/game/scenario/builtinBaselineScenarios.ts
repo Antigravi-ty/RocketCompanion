@@ -17,6 +17,7 @@ import {
   isSystemControlSignal,
 } from '../../physics/RocketSimConstants.ts';
 import { COUNTUP_REPLAY_CAPACITY_TICKS } from '../../replay/ReplayRingBuffer.ts';
+import { ISOLATION_LAB_AND_TUNER_SCENARIO } from './isolationLabAndTunerScenario.ts';
 import {
   MULTIPLAYER_6CAR_LOADOUT_STRESS_SCENARIO,
   REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO,
@@ -249,6 +250,7 @@ export const BUILTIN_BASELINE_SCENARIOS: Readonly<Record<string, ScenarioScript>
   [BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO.id]: BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO,
   [MULTIPLAYER_6CAR_LOADOUT_STRESS_SCENARIO.id]: MULTIPLAYER_6CAR_LOADOUT_STRESS_SCENARIO,
   [REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO.id]: REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO,
+  [ISOLATION_LAB_AND_TUNER_SCENARIO.id]: ISOLATION_LAB_AND_TUNER_SCENARIO,
 });
 
 export function resolveRequestedScenarios(queryValue: string | null | undefined): ScenarioScript[] {

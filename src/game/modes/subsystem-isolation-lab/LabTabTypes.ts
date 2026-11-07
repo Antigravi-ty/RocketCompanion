@@ -62,18 +62,31 @@ export interface LabPhysicsEnginePort {
   isCarDemolished?: (carIndex: number) => boolean; getCarDemolishTimer?: (carIndex: number) => number;
   setCarRespawnSelection?: (carIndex: number, slotIndex: number) => void;
   getCarRespawnSelection?: (carIndex: number) => number;
+  carMutators?: {
+    setCarDemoSpawnSelection?: (carIndex?: number, slotIndex?: number) => boolean;
+    getCarDemoSpawnSelection?: (carIndex?: number) => number;
+    getCarDemoRespawnTimer?: (carIndex?: number) => number;
+    respawnCar?: (carIndex: number, seed?: number, boostAmount?: number) => boolean;
+  };
 }
 
-export interface LabWheelObject { position?: { x?: number; y?: number; z?: number }; }
+export interface LabWheelObject {
+  steer?: { position?: { x?: number; y?: number; z?: number } };
+  position?: { x?: number; y?: number; z?: number };
+}
 
 export interface LabArenaPort {
   scene?: THREE.Scene | null; vehicleRegistry?: MultiWorldGhostArenaPort['vehicleRegistry']; playerCarIndex?: number;
   cars: Array<{ visible: boolean }>;
   carDemolitions?: Array<{ stop?: () => void } | undefined>;
-  respawnGhostPreview?: { wheels?: { threeWheels?: LabWheelObject[] } } | null;
+  respawnGhostPreview?: {
+    wheels?: LabWheelObject[] & { threeWheels?: boolean };
+    update?: (currState: Float32Array, dt?: number) => void;
+  } | null;
   ensureOpponent?: () => Promise<void> | void;
   ensureCar?: (slotIndex: number, team: number, visualId?: string) => void;
   setCarTeam?: (carIndex: number, team: number) => void;
+  swapCarVisual?: (carIndex: number, visualId: string) => boolean | void;
   setCarVisual?: (carIndex: number, visualId: string) => void;
   resetCarBoosts?: (carIndex: number) => void; resetAllCarEffects?: () => void;
   clearAllGhostOpacities?: () => void; resetBallTrail?: () => void;

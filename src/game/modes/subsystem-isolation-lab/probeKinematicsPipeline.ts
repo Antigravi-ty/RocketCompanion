@@ -1,24 +1,20 @@
 import { DEFAULT_CAR_CONTROLS } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
-import type {
-  LabArenaPort,
-  LabPhysicsEnginePort,
-  LabRuntimePort,
-} from './LabTabTypes.ts';
+import type { LabArenaPort, LabPhysicsEnginePort, LabRuntimePort } from './LabTabTypes.ts';
 
 export const PROBE_BOOST_SLOT = 6;
 export const PROBE_QE_SLOT = 7;
 
-export type ProbePhase =
-  | 'CLIMB_TO_PEAK'
-  | 'HOLD_AT_PEAK'
-  | 'FALL_TO_BASE'
-  | 'REBOUND_TO_PEAK'
-  | string;
+export const DEFAULT_PROBE_ANCHOR_X = -2500;
+export const DEFAULT_PROBE_BOOST_Y = -400;
+export const DEFAULT_PROBE_QE_Y = 400;
+
+export type ProbeBoostPhase = 'CLIMB_TO_PEAK' | 'FALL_BELOW_BASE' | 'RECOVER_AND_HOLD';
+export type ProbePhase = ProbeBoostPhase | string;
 
 export interface ProbeControllerState {
-  phase: ProbePhase;
-  holdCounter: number;
-  tickCounter: number;
+  phase: ProbeBoostPhase;
+  baseZ: number;
+  peakZ: number;
   baseAltitudeZ: number;
   peakAltitudeZ: number;
   offsetX: number;
@@ -30,14 +26,32 @@ export interface ProbeControllerState {
   qeProbePosY: number;
   effectiveBaseZ: number;
   effectivePeakZ: number;
+  toleranceZ: number;
+  targetHoldTicks: number;
+  holdCounter: number;
+  lastZ: number;
+  lastVz: number;
+  rollDir: number;
+  tickCounter: number;
+}
+
+export interface ProbeSpawnCoordinates {
+  boostPos: { x: number; y: number; z: number };
+  qePos: { x: number; y: number; z: number };
+}
+
+export interface ProbeKinematicsStepInput {
+  curZ: number; curVz: number; effectiveBaseZ: number; effectivePeakZ: number;
+  toleranceZ: number; targetHoldTicks: number; phase: ProbeBoostPhase; holdCounter: number;
+}
+
+export interface ProbeKinematicsStepOutput {
+  nextPhase: ProbeBoostPhase; nextHoldCounter: number; shouldBoost: boolean; reanchorAtBase: boolean;
 }
 
 export interface ProbeTelemetrySnapshot {
-  posZ: number;
-  velZ: number;
-  phase: ProbePhase;
-  holdCounter: number;
-  rollDir: number;
+  posX: number; posY: number; posZ: number; velZ: number;
+  phase: ProbeBoostPhase; holdCounter: number; rollDir: number;
 }
 
 export interface ProbeStepResult {
@@ -50,11 +64,7 @@ export function resetSinglePlayerLabBaseline(
   resetKickoffState = true
 ): void {
   if (!runtime?.physics) return;
-
-  while (
-    runtime.physics.numCars > 1 &&
-    typeof runtime.physics.removeCar === 'function'
-  ) {
+  while (runtime.physics.numCars > 1 && typeof runtime.physics.removeCar === 'function') {
     runtime.physics.removeCar(runtime.physics.numCars - 1);
   }
   if (runtime.physics.numCars < 1 && typeof runtime.physics.addCar === 'function') {
@@ -100,36 +110,131 @@ export function resetSinglePlayerLabBaseline(
   if (runtime.arena) runtime.arena.playerCarIndex = 0;
 }
 
-export function computeDevTestLabProbeSpawn(
-  baseAltitudeZ = 400,
-  peakAltitudeZ = 1550,
+export function getProbeSpawnCoordinates(
+  baseZ = 500,
+  offsetX = 0,
+  offsetY = 0,
+  offsetZ = 0
+): ProbeSpawnCoordinates {
+  const ox = Number.isFinite(offsetX) ? offsetX : 0;
+  const oy = Number.isFinite(offsetY) ? offsetY : 0;
+  const oz = Number.isFinite(offsetZ) ? offsetZ : 0;
+  const z0 = (Number.isFinite(baseZ) ? baseZ : 500) + oz;
+  return {
+    boostPos: {
+      x: DEFAULT_PROBE_ANCHOR_X + ox,
+      y: DEFAULT_PROBE_BOOST_Y + oy,
+      z: z0,
+    },
+    qePos: {
+      x: DEFAULT_PROBE_ANCHOR_X + ox,
+      y: DEFAULT_PROBE_QE_Y + oy,
+      z: z0 + 50,
+    },
+  };
+}
+
+export function createProbeControllerState(
+  baseZ = 500,
+  peakZ = 600,
   offsetX = 0,
   offsetY = 0,
   offsetZ = 0
 ): ProbeControllerState {
+  const safeBaseZ = Number.isFinite(baseZ) ? baseZ : 500;
+  const safePeakZ = Number.isFinite(peakZ) ? peakZ : 600;
   const ox = Number.isFinite(offsetX) ? offsetX : 0;
   const oy = Number.isFinite(offsetY) ? offsetY : 0;
   const oz = Number.isFinite(offsetZ) ? offsetZ : 0;
-  const effectiveBaseZ = Math.max(80, Math.min(1850, baseAltitudeZ + oz));
-  const effectivePeakZ = Math.max(
-    effectiveBaseZ + 120,
-    Math.min(1950, peakAltitudeZ + oz)
-  );
+  const effectiveBaseZ = safeBaseZ + oz;
+  const effectivePeakZ = Math.max(effectiveBaseZ + 20, safePeakZ + oz);
+  const coords = getProbeSpawnCoordinates(safeBaseZ, ox, oy, oz);
   return {
     phase: 'CLIMB_TO_PEAK',
-    holdCounter: 0,
-    tickCounter: 0,
-    baseAltitudeZ,
-    peakAltitudeZ,
+    baseZ: safeBaseZ,
+    peakZ: safePeakZ,
+    baseAltitudeZ: safeBaseZ,
+    peakAltitudeZ: safePeakZ,
     offsetX: ox,
     offsetY: oy,
     offsetZ: oz,
-    boostProbePosX: -1200 + ox,
-    boostProbePosY: 0 + oy,
-    qeProbePosX: 1200 + ox,
-    qeProbePosY: 0 + oy,
+    boostProbePosX: coords.boostPos.x,
+    boostProbePosY: coords.boostPos.y,
+    qeProbePosX: coords.qePos.x,
+    qeProbePosY: coords.qePos.y,
     effectiveBaseZ,
     effectivePeakZ,
+    toleranceZ: 10,
+    targetHoldTicks: 120,
+    holdCounter: 0,
+    lastZ: effectiveBaseZ,
+    lastVz: 0,
+    rollDir: 1,
+    tickCounter: 0,
+  };
+}
+
+export const computeDevTestLabProbeSpawn = createProbeControllerState;
+
+export function evaluateBoostProbeKinematics(
+  input: ProbeKinematicsStepInput
+): ProbeKinematicsStepOutput {
+  const {
+    curZ,
+    curVz,
+    effectiveBaseZ: z0,
+    effectivePeakZ: z1,
+    toleranceZ: tol,
+    targetHoldTicks,
+  } = input;
+
+  let nextPhase: ProbeBoostPhase = input.phase;
+  let nextHoldCounter = input.holdCounter;
+  let shouldBoost = false;
+  let reanchorAtBase = false;
+
+  if (nextPhase === 'CLIMB_TO_PEAK') {
+    if (curZ < z1) {
+      shouldBoost = true;
+    } else {
+      shouldBoost = false;
+      nextPhase = 'FALL_BELOW_BASE';
+      nextHoldCounter = 0;
+    }
+  } else if (nextPhase === 'FALL_BELOW_BASE') {
+    shouldBoost = false;
+    if (curZ < z0) {
+      nextPhase = 'RECOVER_AND_HOLD';
+      nextHoldCounter = 0;
+      shouldBoost = true;
+    }
+  } else if (nextPhase === 'RECOVER_AND_HOLD') {
+    if (curVz > 0) {
+      const coastApexZ = curZ + (curVz * curVz) / (2 * 650.0);
+      shouldBoost = coastApexZ < z0;
+    } else {
+      const predictedZ = curZ + curVz * 0.08;
+      shouldBoost = predictedZ < z0;
+    }
+
+    if (Math.abs(curZ - z0) <= tol && Math.abs(curVz) <= 45) {
+      nextHoldCounter++;
+      if (nextHoldCounter >= targetHoldTicks) {
+        reanchorAtBase = true;
+        nextPhase = 'CLIMB_TO_PEAK';
+        nextHoldCounter = 0;
+        shouldBoost = true;
+      }
+    } else if (Math.abs(curZ - z0) > tol * 1.5) {
+      nextHoldCounter = 0;
+    }
+  }
+
+  return {
+    nextPhase,
+    nextHoldCounter,
+    shouldBoost,
+    reanchorAtBase,
   };
 }
 
@@ -138,108 +243,99 @@ export function parkDevTestLabProbes(
   arena?: LabArenaPort | null
 ): void {
   if (!physics) return;
-  for (const slot of [PROBE_BOOST_SLOT, PROBE_QE_SLOT]) {
-    if (physics.numCars > slot) {
-      physics.setCarLinearFactorAndGravity?.(slot, 0, 0, 0, 0);
-      physics.setCarCollisionMask?.(slot, false, false);
-      physics.setCarState(slot, {
-        pos: [slot === PROBE_BOOST_SLOT ? -9500 : 9500, 9500, -2000],
-        vel: [0, 0, 0],
-        angVel: [0, 0, 0],
-        rot: [0, 0, 0],
-        boost: 0,
-      });
-      physics.setControls(slot, DEFAULT_CAR_CONTROLS);
+  for (let slot = 1; slot < 8; slot++) {
+    if (slot < physics.numCars) {
+      physics.setCarLinearFactorAndGravity?.(slot, 1, 1, 1, 1);
+      physics.setCarCollisionMask?.(slot, true, true);
+      physics.setControls?.(slot, DEFAULT_CAR_CONTROLS);
     }
     if (arena?.cars?.[slot]) {
       arena.cars[slot].visible = false;
-      arena.resetCarBoosts?.(slot);
     }
+    arena?.resetCarBoosts?.(slot);
+    arena?.carDemolitions?.[slot]?.stop?.();
+  }
+  while (physics.numCars > 1 && typeof physics.removeCar === 'function') {
+    physics.removeCar(physics.numCars - 1);
   }
 }
 
 export function setupDevTestLabProbes(
   physics: LabPhysicsEnginePort | null | undefined,
   arena: LabArenaPort | null | undefined,
-  baseAltitudeZ = 400,
-  peakAltitudeZ = 1550,
+  baseZ = 500,
+  peakZ = 600,
   offsetX = 0,
   offsetY = 0,
   offsetZ = 0
 ): ProbeControllerState | null {
   if (!physics) return null;
+  const coords = getProbeSpawnCoordinates(baseZ, offsetX, offsetY, offsetZ);
 
   while (physics.numCars <= PROBE_QE_SLOT) {
-    const slotIdx = physics.numCars;
-    const team = slotIdx === PROBE_QE_SLOT ? 1 : 0;
-    physics.addCar(team, 'octane');
+    physics.addCar(physics.numCars % 2, 'octane');
   }
-  physics.setCarTeam?.(PROBE_BOOST_SLOT, 0);
-  physics.setCarTeam?.(PROBE_QE_SLOT, 1);
+
+  for (let idx = 1; idx < PROBE_BOOST_SLOT; idx++) {
+    physics.setCarLinearFactorAndGravity?.(idx, 0, 0, 0, 0);
+    physics.setCarCollisionMask?.(idx, false, false);
+    physics.setCarState(idx, {
+      pos: [-5500, idx * 300, -500],
+      vel: [0, 0, 0],
+      angVel: [0, 0, 0],
+      boost: 0,
+      isOnGround: false,
+    });
+    if (arena?.cars?.[idx]) {
+      arena.cars[idx].visible = false;
+    }
+    arena?.resetCarBoosts?.(idx);
+    arena?.carDemolitions?.[idx]?.stop?.();
+  }
 
   if (arena) {
-    for (let i = 1; i < PROBE_BOOST_SLOT; i++) {
-      if (arena.cars[i]) arena.cars[i].visible = false;
-      if (physics.numCars > i) {
-        physics.setCarLinearFactorAndGravity?.(i, 0, 0, 0, 0);
-        physics.setCarCollisionMask?.(i, false, false);
-        physics.setCarState(i, {
-          pos: [9000 + i * 200, 9000, -2000],
-          vel: [0, 0, 0],
-          angVel: [0, 0, 0],
-          rot: [0, 0, 0],
-          boost: 0,
-        });
-      }
-    }
-    arena.ensureCar?.(PROBE_BOOST_SLOT, 0, 'fennec');
-    arena.ensureCar?.(PROBE_QE_SLOT, 1, 'fennec');
+    arena.ensureCar?.(PROBE_BOOST_SLOT, 1, 'fennec');
+    arena.ensureCar?.(PROBE_QE_SLOT, 0, 'fennec');
     if (arena.cars[PROBE_BOOST_SLOT]) arena.cars[PROBE_BOOST_SLOT].visible = true;
     if (arena.cars[PROBE_QE_SLOT]) arena.cars[PROBE_QE_SLOT].visible = true;
     arena.resetCarBoosts?.(PROBE_BOOST_SLOT);
     arena.resetCarBoosts?.(PROBE_QE_SLOT);
   }
 
-  const probeState = computeDevTestLabProbeSpawn(
-    baseAltitudeZ,
-    peakAltitudeZ,
-    offsetX,
-    offsetY,
-    offsetZ
-  );
-
   physics.setCarCollisionMask?.(PROBE_BOOST_SLOT, false, false);
-  physics.setCarLinearFactorAndGravity?.(PROBE_BOOST_SLOT, 0, 0, 1, 1);
   physics.setCarState(PROBE_BOOST_SLOT, {
-    pos: [
-      probeState.boostProbePosX,
-      probeState.boostProbePosY,
-      probeState.effectiveBaseZ,
-    ],
+    pos: [coords.boostPos.x, coords.boostPos.y, coords.boostPos.z],
+    forward: [0, 0, 1],
+    right: [0, 1, 0],
+    up: [-1, 0, 0],
     vel: [0, 0, 0],
     angVel: [0, 0, 0],
-    rot: [Math.PI / 2, 0, 0],
     boost: 100,
+    isOnGround: false,
   });
+  physics.setCarLinearFactorAndGravity?.(PROBE_BOOST_SLOT, 0, 0, 1, 1.0);
 
   physics.setCarCollisionMask?.(PROBE_QE_SLOT, false, false);
-  physics.setCarLinearFactorAndGravity?.(PROBE_QE_SLOT, 0, 0, 0, 0);
   physics.setCarState(PROBE_QE_SLOT, {
-    pos: [probeState.qeProbePosX, probeState.qeProbePosY, 650 + probeState.offsetZ],
+    pos: [coords.qePos.x, coords.qePos.y, coords.qePos.z],
+    forward: [1, 0, 0],
+    right: [0, 1, 0],
+    up: [0, 0, 1],
     vel: [0, 0, 0],
     angVel: [0, 0, 0],
-    rot: [0, Math.PI / 2, 0],
     boost: 100,
+    isOnGround: false,
   });
+  physics.setCarLinearFactorAndGravity?.(PROBE_QE_SLOT, 0, 0, 0, 0.0);
 
-  return probeState;
+  return createProbeControllerState(baseZ, peakZ, offsetX, offsetY, offsetZ);
 }
 
 export function updateDevTestLabProbeParameters(
   physics: LabPhysicsEnginePort | null | undefined,
   probeState: ProbeControllerState | null,
-  baseAltitudeZ = 400,
-  peakAltitudeZ = 1550,
+  baseZ = 500,
+  peakZ = 600,
   offsetX = 0,
   offsetY = 0,
   offsetZ = 0,
@@ -247,67 +343,52 @@ export function updateDevTestLabProbeParameters(
 ): ProbeControllerState | null {
   if (!physics) return null;
   if (!probeState || physics.numCars <= PROBE_QE_SLOT) {
-    return setupDevTestLabProbes(
-      physics,
-      arena,
-      baseAltitudeZ,
-      peakAltitudeZ,
-      offsetX,
-      offsetY,
-      offsetZ
-    );
+    return setupDevTestLabProbes(physics, arena, baseZ, peakZ, offsetX, offsetY, offsetZ);
   }
 
-  const updated = computeDevTestLabProbeSpawn(
-    baseAltitudeZ,
-    peakAltitudeZ,
-    offsetX,
-    offsetY,
-    offsetZ
-  );
-  const nextState: ProbeControllerState = {
-    ...probeState,
-    baseAltitudeZ: updated.baseAltitudeZ,
-    peakAltitudeZ: updated.peakAltitudeZ,
-    offsetX: updated.offsetX,
-    offsetY: updated.offsetY,
-    offsetZ: updated.offsetZ,
-    boostProbePosX: updated.boostProbePosX,
-    boostProbePosY: updated.boostProbePosY,
-    qeProbePosX: updated.qeProbePosX,
-    qeProbePosY: updated.qeProbePosY,
-    effectiveBaseZ: updated.effectiveBaseZ,
-    effectivePeakZ: updated.effectivePeakZ,
-  };
+  const nextState = createProbeControllerState(baseZ, peakZ, offsetX, offsetY, offsetZ);
+  nextState.tickCounter = probeState.tickCounter;
+  nextState.rollDir = probeState.rollDir;
 
-  const bCar = physics.getCarStateView(PROBE_BOOST_SLOT);
-  const clampedBoostZ = Math.max(
-    nextState.effectiveBaseZ,
-    Math.min(
-      nextState.effectivePeakZ,
-      Number.isFinite(bCar?.posZ) ? bCar.posZ : nextState.effectiveBaseZ
-    )
+  const coords = getProbeSpawnCoordinates(
+    nextState.baseZ,
+    nextState.offsetX,
+    nextState.offsetY,
+    nextState.offsetZ
   );
-  physics.setCarState(PROBE_BOOST_SLOT, {
-    pos: [nextState.boostProbePosX, nextState.boostProbePosY, clampedBoostZ],
-    vel: [0, 0, Number.isFinite(bCar?.velZ) ? bCar.velZ : 0],
-    angVel: [0, 0, 0],
-    rot: [Math.PI / 2, 0, 0],
-    boost: 100,
-  });
 
-  const qCar = physics.getCarStateView(PROBE_QE_SLOT);
-  physics.setCarState(PROBE_QE_SLOT, {
-    pos: [nextState.qeProbePosX, nextState.qeProbePosY, 650 + nextState.offsetZ],
-    vel: [0, 0, 0],
-    angVel: [
-      Number.isFinite(qCar?.angVelX) ? qCar.angVelX : 0,
-      Number.isFinite(qCar?.angVelY) ? qCar.angVelY : 0,
-      Number.isFinite(qCar?.angVelZ) ? qCar.angVelZ : 0,
-    ],
-    rot: [0, Math.PI / 2, 0],
-    boost: 100,
-  });
+  if (physics.numCars > PROBE_BOOST_SLOT) {
+    physics.setCarState(PROBE_BOOST_SLOT, {
+      pos: [coords.boostPos.x, coords.boostPos.y, coords.boostPos.z],
+      forward: [0, 0, 1],
+      right: [0, 1, 0],
+      up: [-1, 0, 0],
+      vel: [0, 0, 0],
+      angVel: [0, 0, 0],
+      boost: 100,
+      isOnGround: false,
+    });
+    nextState.phase = 'CLIMB_TO_PEAK';
+    nextState.holdCounter = 0;
+    nextState.lastZ = coords.boostPos.z;
+    nextState.lastVz = 0;
+    arena?.resetCarBoosts?.(PROBE_BOOST_SLOT);
+  }
+
+  if (physics.numCars > PROBE_QE_SLOT) {
+    const qeView = physics.getCarStateView(PROBE_QE_SLOT);
+    physics.setCarState(PROBE_QE_SLOT, {
+      pos: [coords.qePos.x, coords.qePos.y, coords.qePos.z],
+      forward: qeView ? [qeView.fwdX, qeView.fwdY, qeView.fwdZ] : [1, 0, 0],
+      right: qeView ? [qeView.rightX, qeView.rightY, qeView.rightZ] : [0, 1, 0],
+      up: qeView ? [qeView.upX, qeView.upY, qeView.upZ] : [0, 0, 1],
+      vel: [0, 0, 0],
+      angVel: qeView ? [qeView.angVelX, qeView.angVelY, qeView.angVelZ] : [0, 0, 0],
+      boost: 100,
+      isOnGround: false,
+    });
+    arena?.resetCarBoosts?.(PROBE_QE_SLOT);
+  }
 
   return nextState;
 }
@@ -318,91 +399,99 @@ export function stepDevTestLabProbes(
 ): ProbeStepResult | null {
   if (!physics || !probeState || physics.numCars <= PROBE_QE_SLOT) return null;
 
-  let phase = probeState.phase;
-  let holdCounter = probeState.holdCounter;
+  const coords = getProbeSpawnCoordinates(
+    probeState.baseZ,
+    probeState.offsetX,
+    probeState.offsetY,
+    probeState.offsetZ
+  );
+  const boostView = physics.getCarStateView(PROBE_BOOST_SLOT);
+  const qeView = physics.getCarStateView(PROBE_QE_SLOT);
+  if (!boostView || !qeView) return null;
+
   const tickCounter = probeState.tickCounter + 1;
+  const curZ = boostView.posZ;
+  const curVz = boostView.velZ;
 
-  const bCar = physics.getCarStateView(PROBE_BOOST_SLOT);
-  const posZ = bCar.posZ;
-  const velZ = bCar.velZ;
-  const baseZ = probeState.effectiveBaseZ ?? probeState.baseAltitudeZ;
-  const peakZ = probeState.effectivePeakZ ?? probeState.peakAltitudeZ;
-  const probeX = probeState.boostProbePosX ?? -1200;
-  const probeY = probeState.boostProbePosY ?? 0;
+  boostView.boost = 100;
+  qeView.boost = 100;
 
-  let boostActive = false;
-
-  if (phase === 'CLIMB_TO_PEAK') {
-    if (posZ >= peakZ) {
-      phase = 'HOLD_AT_PEAK';
-      holdCounter = 120;
-      physics.setCarLinearFactorAndGravity?.(PROBE_BOOST_SLOT, 0, 0, 0, 0);
-      physics.setCarState(PROBE_BOOST_SLOT, {
-        pos: [probeX, probeY, peakZ],
-        vel: [0, 0, 0],
-        angVel: [0, 0, 0],
-        rot: [Math.PI / 2, 0, 0],
-        boost: 100,
-      });
-      boostActive = false;
-    } else {
-      physics.setCarLinearFactorAndGravity?.(PROBE_BOOST_SLOT, 0, 0, 1, 1);
-      boostActive = true;
-    }
-  } else if (phase === 'HOLD_AT_PEAK') {
-    holdCounter--;
-    physics.setCarLinearFactorAndGravity?.(PROBE_BOOST_SLOT, 0, 0, 0, 0);
+  if (
+    boostView.fwdZ < 0.995 ||
+    Math.abs(boostView.posX - coords.boostPos.x) > 5 ||
+    Math.abs(boostView.posY - coords.boostPos.y) > 5
+  ) {
     physics.setCarState(PROBE_BOOST_SLOT, {
-      pos: [probeX, probeY, peakZ],
+      pos: [coords.boostPos.x, coords.boostPos.y, curZ],
+      forward: [0, 0, 1],
+      right: [0, 1, 0],
+      up: [-1, 0, 0],
+      vel: [0, 0, curVz],
+      angVel: [0, 0, 0],
+      boost: 100,
+      isOnGround: false,
+    });
+  }
+
+  if (
+    Math.abs(qeView.posX - coords.qePos.x) > 5 ||
+    Math.abs(qeView.posY - coords.qePos.y) > 5 ||
+    Math.abs(qeView.posZ - coords.qePos.z) > 5
+  ) {
+    physics.setCarState(PROBE_QE_SLOT, {
+      pos: [coords.qePos.x, coords.qePos.y, coords.qePos.z],
+      forward: [qeView.fwdX, qeView.fwdY, qeView.fwdZ],
+      right: [qeView.rightX, qeView.rightY, qeView.rightZ],
+      up: [qeView.upX, qeView.upY, qeView.upZ],
+      vel: [0, 0, 0],
+      angVel: [qeView.angVelX, qeView.angVelY, qeView.angVelZ],
+      boost: 100,
+      isOnGround: false,
+    });
+  }
+
+  const z0 = probeState.baseZ + probeState.offsetZ;
+  const z1 = probeState.peakZ + probeState.offsetZ;
+
+  const evalOut = evaluateBoostProbeKinematics({
+    curZ,
+    curVz,
+    effectiveBaseZ: z0,
+    effectivePeakZ: z1,
+    toleranceZ: probeState.toleranceZ,
+    targetHoldTicks: probeState.targetHoldTicks,
+    phase: probeState.phase,
+    holdCounter: probeState.holdCounter,
+  });
+
+  let nextPhase = evalOut.nextPhase;
+  let nextHoldCounter = evalOut.nextHoldCounter;
+  const shouldBoost = evalOut.shouldBoost;
+
+  if (evalOut.reanchorAtBase || !Number.isFinite(curZ)) {
+    physics.setCarState(PROBE_BOOST_SLOT, {
+      pos: [coords.boostPos.x, coords.boostPos.y, z0],
+      forward: [0, 0, 1],
+      right: [0, 1, 0],
+      up: [-1, 0, 0],
       vel: [0, 0, 0],
       angVel: [0, 0, 0],
-      rot: [Math.PI / 2, 0, 0],
       boost: 100,
+      isOnGround: false,
     });
-    boostActive = false;
-    if (holdCounter <= 0) {
-      phase = 'FALL_TO_BASE';
-      physics.setCarLinearFactorAndGravity?.(PROBE_BOOST_SLOT, 0, 0, 1, 1);
-    }
-  } else if (phase === 'FALL_TO_BASE') {
-    physics.setCarLinearFactorAndGravity?.(PROBE_BOOST_SLOT, 0, 0, 1, 1);
-    boostActive = false;
-    if (posZ <= baseZ) {
-      phase = 'REBOUND_TO_PEAK';
-      boostActive = true;
-    }
-  } else if (phase === 'REBOUND_TO_PEAK') {
-    physics.setCarLinearFactorAndGravity?.(PROBE_BOOST_SLOT, 0, 0, 1, 1);
-    boostActive = true;
-    if (posZ >= peakZ) {
-      phase = 'HOLD_AT_PEAK';
-      holdCounter = 120;
-      physics.setCarLinearFactorAndGravity?.(PROBE_BOOST_SLOT, 0, 0, 0, 0);
-      physics.setCarState(PROBE_BOOST_SLOT, {
-        pos: [probeX, probeY, peakZ],
-        vel: [0, 0, 0],
-        angVel: [0, 0, 0],
-        rot: [Math.PI / 2, 0, 0],
-        boost: 100,
-      });
-      boostActive = false;
+    if (!Number.isFinite(curZ)) {
+      nextPhase = 'CLIMB_TO_PEAK';
+      nextHoldCounter = 0;
     }
   }
 
   physics.setControls(PROBE_BOOST_SLOT, {
     ...DEFAULT_CAR_CONTROLS,
-    boost: boostActive,
+    throttle: shouldBoost ? 1.0 : 0.0,
+    boost: shouldBoost,
   });
 
-  const cycleTick = tickCounter % 360;
-  let rollDir = 0;
-  if (cycleTick < 150) {
-    rollDir = 1;
-  } else if (cycleTick >= 180 && cycleTick < 330) {
-    rollDir = -1;
-  }
-
-  physics.setCarLinearFactorAndGravity?.(PROBE_QE_SLOT, 0, 0, 0, 0);
+  const rollDir = Math.floor(tickCounter / 240) % 2 === 0 ? 1.0 : -1.0;
   physics.setControls(PROBE_QE_SLOT, {
     ...DEFAULT_CAR_CONTROLS,
     roll: rollDir,
@@ -411,18 +500,25 @@ export function stepDevTestLabProbes(
 
   const nextState: ProbeControllerState = {
     ...probeState,
-    phase,
-    holdCounter,
+    phase: nextPhase,
+    holdCounter: nextHoldCounter,
+    effectiveBaseZ: z0,
+    effectivePeakZ: z1,
+    lastZ: curZ,
+    lastVz: curVz,
+    rollDir,
     tickCounter,
   };
 
   return {
     nextState,
     telemetry: {
-      posZ: Number(posZ.toFixed(1)),
-      velZ: Number(velZ.toFixed(1)),
-      phase,
-      holdCounter,
+      posX: boostView.posX,
+      posY: boostView.posY,
+      posZ: Number(curZ.toFixed(1)),
+      velZ: Number(curVz.toFixed(1)),
+      phase: nextPhase,
+      holdCounter: nextHoldCounter,
       rollDir,
     },
   };
