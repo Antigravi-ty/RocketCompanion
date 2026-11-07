@@ -13,38 +13,22 @@ import {
   saveClientLobbyLocalEntities,
   configureClientLobbyDiagnosticProbes,
   restoreClientLobbyLocalEntities,
-  type ReconcilerMetrics,
-  type TelemetrySimPort,
-  type TopologyPacketPort,
 } from './NetworkTelemetryCollector.ts';
+import type {
+  ReconcilerMetrics,
+  TelemetrySimPort,
+  TopologyPacketPort,
+} from './ReconcilerMetricsModel.ts';
 
-export interface Vector3Like {
-  x: number;
-  y: number;
-  z: number;
-}
-
-export interface PreResimPositions {
-  cars: Array<Vector3Like | undefined>;
-  ball: Vector3Like | null;
-}
-
+export interface Vector3Like { x: number; y: number; z: number }
+export interface PreResimPositions { cars: Array<Vector3Like | undefined>; ball: Vector3Like | null }
 export interface PostResimDiscrepancyInput {
-  numCars: number;
-  localCarIndex: number;
-  isLobbyDualWorld: boolean;
-  hardSnapThreshold: number;
-  isTier3HistoricalHardSnap: boolean;
+  numCars: number; localCarIndex: number; isLobbyDualWorld: boolean;
+  hardSnapThreshold: number; isTier3HistoricalHardSnap: boolean;
 }
-
 export interface PostResimDiscrepancyResult {
-  localDelta: number;
-  ballDelta: number;
-  remoteMaxDelta: number;
-  probeMaxDelta: number;
-  primaryDelta: number;
-  effectiveDelta: number;
-  isTier3HardSnap: boolean;
+  localDelta: number; ballDelta: number; remoteMaxDelta: number; probeMaxDelta: number;
+  primaryDelta: number; effectiveDelta: number; isTier3HardSnap: boolean;
 }
 
 export function computeVector3Magnitude(vec: Vector3Like): number {
@@ -92,14 +76,6 @@ export function stepVisualSmoothingDecay(
     x = 0; y = 0; z = 0; mag = 0;
   }
   return { offset: { x, y, z }, magnitude: mag };
-}
-
-export function resolveSmoothedRenderPosition(physicsPos: Vector3Like, smoothingOffset: Vector3Like): Vector3Like {
-  return {
-    x: physicsPos.x + smoothingOffset.x,
-    y: physicsPos.y + smoothingOffset.y,
-    z: physicsPos.z + smoothingOffset.z,
-  };
 }
 
 export function capturePreResimPositions(
@@ -407,9 +383,7 @@ export function preserveCarTransientTimersAcrossCompactRestore(
       continue;
     }
 
-    for (let k = 35; k <= 44; k++) {
-      mergedFullState[base + k] = slotFullState[base + k];
-    }
+    for (let k = 35; k <= 44; k++) mergedFullState[base + k] = slotFullState[base + k];
 
     const hasFuel = mergedFullState[base + 46] > 0.1 || Boolean(sim.isUnlimitedBoost);
     if (hasFuel) {
@@ -417,12 +391,8 @@ export function preserveCarTransientTimersAcrossCompactRestore(
       mergedFullState[base + 48] = slotFullState[base + 48];
     }
 
-    for (let k = 49; k <= 51; k++) {
-      mergedFullState[base + k] = slotFullState[base + k];
-    }
-    for (let k = 104; k <= 109; k++) {
-      mergedFullState[base + k] = slotFullState[base + k];
-    }
+    for (let k = 49; k <= 51; k++) mergedFullState[base + k] = slotFullState[base + k];
+    for (let k = 104; k <= 109; k++) mergedFullState[base + k] = slotFullState[base + k];
     modified = true;
   }
 
