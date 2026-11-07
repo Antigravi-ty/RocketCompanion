@@ -21,6 +21,8 @@ import {
 } from '../../../ui-core/config/atmosphereFxConfig';
 import {
   createWallFxUniforms,
+} from './WallFxShaderInjector.ts';
+import {
   createSpherePreviewMeshes,
   syncManagerSpherePreviewMeshes,
   updateManagerBallProximity,
@@ -34,13 +36,15 @@ import {
 } from './DriftwoodsMipmapBuilder.ts';
 import {
   createDriftwoodsShaderUniforms,
-  bakeQ1GroundTexturesIntoManager,
-  resolveDriftwoodsTeamColors,
   applyDriftwoodsLayerMaterials,
   type DriftwoodsGroundUniforms,
   type DriftwoodsGoalTeamUniforms,
   type DriftwoodsSpecularAAUniforms,
   type DriftwoodsOcclusionUniforms,
+} from './DriftwoodsMaterialPaletteSpecs.ts';
+import {
+  bakeQ1GroundTexturesIntoManager,
+  resolveDriftwoodsTeamColors,
   type DriftwoodsResolvedTeamColors,
 } from './DriftwoodsColorMath.ts';
 import {
