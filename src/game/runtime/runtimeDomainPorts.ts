@@ -164,7 +164,7 @@ export function createGameRuntimeDomainPorts(
       floatingStore.closeWindow('subsystem-isolation-lab');
       floatingStore.closeWindow('experimental-multi-bots');
       floatingStore.closeWindow('experimental-bot-pack');
-      floatingStore.closeWindow('kickoff-training');
+      floatingStore.closeWindow('kickoff-training-tuner');
       floatingStore.closeWindow('replay-viewer');
 
       if (owner.networkManager.diagnosticsProbe.diagnosticsFleetController?.enabled) {
