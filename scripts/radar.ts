@@ -465,6 +465,38 @@ function checkAntiGutSharingAndMutations(
   }
 }
 
+function expandRelativeGlobPattern(fromFileAbs: string, pattern: string): string[] {
+  if (!pattern.startsWith('.')) return [];
+  const fromDir = path.dirname(fromFileAbs);
+  const braceMatch = pattern.match(/^(.*)\{([^}]+)\}(.*)$/);
+  const subPatterns = braceMatch
+    ? braceMatch[2].split(',').map((opt) => `${braceMatch[1]}${opt.trim()}${braceMatch[3]}`)
+    : [pattern];
+
+  const results: string[] = [];
+  for (const sub of subPatterns) {
+    const targetDir = path.resolve(fromDir, path.posix.dirname(sub));
+    const filePattern = path.posix.basename(sub);
+    if (!fs.existsSync(targetDir) || !fs.statSync(targetDir).isDirectory()) continue;
+    const regexStr =
+      '^' +
+      filePattern
+        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*/g, '.*') +
+      '$';
+    const fileRe = new RegExp(regexStr);
+    for (const entry of fs.readdirSync(targetDir, { withFileTypes: true })) {
+      if (entry.isFile() && fileRe.test(entry.name)) {
+        const absMatch = path.join(targetDir, entry.name);
+        let relSpec = path.relative(fromDir, absMatch).split(path.sep).join('/');
+        if (!relSpec.startsWith('.')) relSpec = `./${relSpec}`;
+        results.push(relSpec);
+      }
+    }
+  }
+  return results;
+}
+
 function checkUiNamingAndRouteAlignment(errors: string[]): void {
   // 1. Route Registry Purity Guard: all route components in menuRouteRegistry.tsx must come from src/ui-core/recipes/Layer*Recipe.tsx
   const routeRegistryPath = path.join(SRC_DIR, 'ui-system/core/menuRouteRegistry.tsx');
@@ -505,6 +537,8 @@ function checkUiNamingAndRouteAlignment(errors: string[]): void {
   const registryContent = fs.existsSync(registryPath)
     ? stripComments(fs.readFileSync(registryPath, 'utf8'))
     : '';
+  const usesGlobAutoDiscovery =
+    /\b(?:import\.meta\.glob|importMetaGlob|getDiscoveredFloatingSurfaces)\b/.test(registryContent);
 
   const presetBlockRegex = /export\s+const\s+\w+_PRESET\s*:\s*PresetConfig\s*=\s*\{([\s\S]*?)\n\};/g;
   for (const presetFile of presetFiles) {
@@ -542,7 +576,26 @@ function checkUiNamingAndRouteAlignment(errors: string[]): void {
         );
       }
 
-      if (registryContent && !registryContent.includes(`<${expectedComponent}`)) {
+      if (usesGlobAutoDiscovery) {
+        const absSourcePath = sourcePath.startsWith('src/')
+          ? path.join(ROOT_DIR, sourcePath)
+          : path.join(SRC_DIR, 'ui-core', sourcePath);
+        if (!fs.existsSync(absSourcePath)) {
+          errors.push(
+            `[UI NAMING VIOLATION] ${rel} preset '${id}' points to missing floating window file '${sourcePath}'.`
+          );
+        } else {
+          const winContent = stripComments(fs.readFileSync(absSourcePath, 'utf8'));
+          const metaBlockMatch = winContent.match(
+            /\bexport\s+const\s+SURFACE_META\b[\s\S]*?\bid\s*:\s*['"]([^'"]+)['"]/
+          );
+          if (!metaBlockMatch || metaBlockMatch[1] !== id) {
+            errors.push(
+              `[UI NAMING VIOLATION] ${sourcePath} must export SURFACE_META with id '${id}' (found '${metaBlockMatch?.[1] || 'missing'}') to match 1:1 filename '${expectedComponent}.tsx'.`
+            );
+          }
+        }
+      } else if (registryContent && !registryContent.includes(`<${expectedComponent}`)) {
         errors.push(
           `[UI NAMING VIOLATION] src/ui-core/panels/floatingWindowRegistry.tsx does not render expected 1:1 component <${expectedComponent}> for preset '${id}'.`
         );
@@ -734,6 +787,23 @@ function runRadarChecks(allFiles: string[]): RadarScanResult {
         }
       }
     }
+
+    // Expand Vite import.meta.glob / importMetaGlob patterns into the reference graph
+    const globRegex =
+      /\b(?:import\.meta\.glob|importMetaGlob)\s*(?:<[\s\S]*?>)?\s*\(\s*['"]([^'"]+)['"]/g;
+    let globMatch: RegExpExecArray | null;
+    while ((globMatch = globRegex.exec(content)) !== null) {
+      const pattern = globMatch[1];
+      for (const expanded of expandRelativeGlobPattern(file, pattern)) {
+        const resolved = resolveImportPath(file, expanded);
+        if (resolved) {
+          const targetRel = toPosixRel(resolved);
+          deps.push(targetRel);
+          incomingRefCounts.set(targetRel, (incomingRefCounts.get(targetRel) || 0) + 1);
+        }
+      }
+    }
+
     importGraph.set(rel, deps);
 
     // WebWorker Bundle Guard

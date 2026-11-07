@@ -1,5 +1,4 @@
 import React from 'react';
-import { LogOut } from 'lucide-react';
 import { useAppStore } from '../../ui-core/stores/appStore';
 import { type AppState } from '../../ui-core/stores/appStoreTypes';
 import { type ActiveMenuRoute } from '../../ui-core/config/uiConfig';
@@ -113,51 +112,50 @@ export const MENU_ROUTE_RENDERERS: Record<
   'main-menu': (ctx) => (
     <Layer1MainMenuRecipe
       isLight={ctx.isLight}
-      onResume={ctx.closeMenu}
-      onRestartMatch={ctx.bridge.onRestartMatch}
-      onReturnToFreeplay={ctx.bridge.onReturnToFreeplay}
-      extraBottomAction={
-        ctx.isStaticTrainingEditActive
-          ? {
-              title: 'Exit Edit Mode',
-              subtitle: 'Save or discard training pack edits & leave editor',
-              icon: <LogOut className="h-5 w-5" />,
-              variant: 'danger',
-              onClick: () => {
-                openStaticTrainingExitConfirmDialogue(() => {
-                  ctx.closeMenu();
-                  ctx.bridge.onReturnToFreeplay?.();
-                });
-              },
+      onBack={ctx.closeMenu}
+      onTabChange={(target) => {
+        if (target === 'play') {
+          ctx.navigate('play');
+        } else if (target === 'garage') {
+          ctx.navigate('garage');
+        } else if (target.startsWith('settings')) {
+          const tab = target.split(':')[1];
+          if (tab) ctx.setSettingsTargetTab(tab);
+          ctx.navigate('settings');
+        } else if (target === 'manage-room') {
+          ctx.navigate('manage-room');
+        } else if (target === 'exp-multi-bots') {
+          const expState = useExperimentalMultiBotsStore.getState();
+          if (expState.isExhibitionMode) {
+            ctx.exhibitionParentRef.current = 'main-menu';
+            ctx.navigate('exhibition');
+          } else if (expState.activeSubMode === 'botpack') {
+            ctx.expConfigParentRef.current = 'main-menu';
+            ctx.navigate('exp-botpack-9700488');
+          } else {
+            ctx.expConfigParentRef.current = 'main-menu';
+            ctx.navigate('exp-multi-bots');
+          }
+        } else if (target === 'restart-match') {
+          ctx.bridge.onRestartMatch?.();
+        } else if (target === 'return-freeplay') {
+          ctx.setMatchMode('freeplay');
+          ctx.closeMenu();
+          ctx.bridge.onReturnToFreeplay?.();
+        } else if (target === 'leave-room') {
+          void (async () => {
+            if (ctx.bridge.onLeaveOnlineServer) {
+              await ctx.bridge.onLeaveOnlineServer();
             }
-          : undefined
-      }
-      onNavigatePlay={() => ctx.navigate('play')}
-      onNavigateGarage={() => ctx.navigate('garage')}
-      onNavigateSettings={(tab) => {
-        if (tab) ctx.setSettingsTargetTab(tab);
-        ctx.navigate('settings');
-      }}
-      onNavigateManageRoom={() => ctx.navigate('manage-room')}
-      onNavigateExpMultiBotsConfig={() => {
-        const expState = useExperimentalMultiBotsStore.getState();
-        if (expState.isExhibitionMode) {
-          ctx.exhibitionParentRef.current = 'main-menu';
-          ctx.navigate('exhibition');
-        } else if (expState.activeSubMode === 'botpack') {
-          ctx.expConfigParentRef.current = 'main-menu';
-          ctx.navigate('exp-botpack-9700488');
-        } else {
-          ctx.expConfigParentRef.current = 'main-menu';
-          ctx.navigate('exp-multi-bots');
+            ctx.setMatchMode('freeplay');
+            ctx.closeMenu();
+          })();
+        } else if (target === 'exit-edit-mode') {
+          openStaticTrainingExitConfirmDialogue(() => {
+            ctx.closeMenu();
+            ctx.bridge.onReturnToFreeplay?.();
+          });
         }
-      }}
-      onLeaveRoom={async () => {
-        if (ctx.bridge.onLeaveOnlineServer) {
-          await ctx.bridge.onLeaveOnlineServer();
-        }
-        ctx.setMatchMode('freeplay');
-        ctx.closeMenu();
       }}
     />
   ),
@@ -166,19 +164,24 @@ export const MENU_ROUTE_RENDERERS: Record<
     <Layer2PlayRecipe
       isLight={ctx.isLight}
       onBack={ctx.goBack}
-      onSelectExhibition={() => {
-        ctx.exhibitionParentRef.current = 'play';
-        ctx.navigate('exhibition');
+      onTabChange={(modeId) => {
+        if (modeId === 'exhibition') {
+          ctx.exhibitionParentRef.current = 'play';
+          ctx.navigate('exhibition');
+        } else if (modeId === 'host-match') {
+          useAppStore.getState().setOnlineSession({ roomType: 'match', gameMode: '1v1' });
+          ctx.navigate('host-match');
+        } else if (modeId === 'join-room') {
+          useAppStore.getState().setOnlineSession({ roomType: 'match', gameMode: '1v1' });
+          ctx.navigate('join-room');
+        } else if (modeId === 'self-training') {
+          ctx.navigate('self-training');
+        } else if (modeId === 'online-training') {
+          ctx.navigate('host-training');
+        } else if (modeId === 'advanced') {
+          ctx.navigate('custom-play');
+        }
       }}
-      onSelectHostMatch={() => {
-        useAppStore.getState().setOnlineSession({ roomType: 'match', gameMode: '1v1' });
-        ctx.navigate('host-match');
-      }}
-      onSelectJoinRoom={() => {
-        useAppStore.getState().setOnlineSession({ roomType: 'match', gameMode: '1v1' });
-        ctx.navigate('join-room');
-      }}
-      onSelectSelfTraining={() => ctx.navigate('self-training')}
     />
   ),
 
@@ -191,19 +194,6 @@ export const MENU_ROUTE_RENDERERS: Record<
       isLight={ctx.isLight}
       isDevMode={false}
       onBack={ctx.goBack}
-      onStartPlaySession={async (uuid) => {
-        const store = useStaticTrainingPackStore.getState();
-        await store.selectPack(uuid, 'normal');
-        store.setSessionMode('play');
-        ctx.bridge.onStartStaticTrainingPack?.('play');
-        ctx.closeMenu();
-      }}
-      onStartEditSession={async (uuid) => {
-        const store = useStaticTrainingPackStore.getState();
-        await store.beginEditSession(uuid, 'normal');
-        ctx.bridge.onStartStaticTrainingPack?.('edit');
-        ctx.closeMenu();
-      }}
     />
   ),
 
@@ -257,55 +247,12 @@ export const MENU_ROUTE_RENDERERS: Record<
       isLight={ctx.isLight}
       activeTab={ctx.settingsTargetTab}
       onTabChange={ctx.setSettingsTargetTab}
-      highlightSetting={ctx.highlightSetting}
-      onClearHighlight={ctx.clearHighlightSetting}
       onBack={ctx.goBack}
-      onNavigateAcousticsEqualizer={() => ctx.navigate('acoustics-equalizer')}
-      onNavigateTrajectoryDetail={() => {
-        ctx.resetLivePreviewToExpanded();
-        ctx.navigate('trajectory');
-      }}
-      onNavigateCameraDetail={() => {
-        ctx.resetLivePreviewToExpanded();
-        ctx.navigate('camera');
-      }}
-      onNavigateKeybindingsDetail={() => ctx.navigate('keybindings')}
-      onNavigateTrainingDetail={() => ctx.navigate('training-config')}
-      onNavigateExpMultiBots={() => {
-        ctx.expConfigParentRef.current = 'settings';
-        ctx.navigate('exp-multi-bots');
-      }}
-      onNavigateDevSandboxes={() => ctx.navigate('dev-sandboxes')}
-      onNavigateDevActiveTuners={() => ctx.navigate('dev-active-tuners')}
-      onNavigateDevCalibratedPresets={() => ctx.navigate('dev-calibrated-presets')}
-      onNavigateDevQuickActions={() => ctx.navigate('dev-quick-actions')}
-      stateOverride={{
-        onNavigateAdvancedAudio: () => ctx.navigate('advanced-audio'),
-        onNavigateEventTriggerRules: () => ctx.navigate('event-trigger-rules'),
-        onNavigateDevSelfTest: () => ctx.navigate('dev-self-test'),
-        onNavigateDevUnderDevelopment: () => ctx.navigate('dev-under-development'),
-      }}
     />
   ),
 
   'dev-sandboxes': (ctx) => (
-    <Layer3DevSandboxesRecipe
-      isLight={ctx.isLight}
-      onBack={ctx.goBack}
-      onNavigateExpMultiBots={() => {
-        useExperimentalMultiBotsStore.getState().activateMultiBotsSubMode(false);
-        ctx.expConfigParentRef.current = 'dev-sandboxes';
-        ctx.navigate('exp-multi-bots');
-      }}
-      onNavigateExpBotpack9700488={() => {
-        useExperimentalMultiBotsStore.getState().activateBotpackSubMode(undefined, false);
-        ctx.expConfigParentRef.current = 'dev-sandboxes';
-        ctx.navigate('exp-botpack-9700488');
-      }}
-      onNavigateTemPackConverter={() => {
-        ctx.navigate('dev-tem-pack-converter');
-      }}
-    />
+    <Layer3DevSandboxesRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
   ),
 
   'dev-tem-pack-converter': (ctx) => (
@@ -313,29 +260,11 @@ export const MENU_ROUTE_RENDERERS: Record<
       isLight={ctx.isLight}
       isDevMode={true}
       onBack={ctx.goBack}
-      onStartPlaySession={async (uuid) => {
-        const store = useStaticTrainingPackStore.getState();
-        await store.selectPack(uuid, 'dev');
-        store.setSessionMode('play');
-        ctx.bridge.onStartStaticTrainingPack?.('play');
-        ctx.closeMenu();
-      }}
-      onStartEditSession={async (uuid) => {
-        const store = useStaticTrainingPackStore.getState();
-        await store.beginEditSession(uuid, 'dev');
-        ctx.bridge.onStartStaticTrainingPack?.('edit');
-        ctx.closeMenu();
-      }}
     />
   ),
 
   'dev-active-tuners': (ctx) => (
-    <Layer3DevActiveTunersRecipe
-      isLight={ctx.isLight}
-      onBack={ctx.goBack}
-      onNavigateAdvancedAudio={() => ctx.navigate('advanced-audio')}
-      onNavigateEventTriggerRules={() => ctx.navigate('event-trigger-rules')}
-    />
+    <Layer3DevActiveTunersRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
   ),
 
   'dev-calibrated-presets': (ctx) => (
@@ -347,19 +276,11 @@ export const MENU_ROUTE_RENDERERS: Record<
   ),
 
   'dev-self-test': (ctx) => (
-    <Layer3DevSelfTestRecipe
-      isLight={ctx.isLight}
-      onBack={ctx.goBack}
-      onNavigateSignalingLab={() => ctx.navigate('dev-signaling-lab')}
-    />
+    <Layer3DevSelfTestRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
   ),
 
   'dev-under-development': (ctx) => (
-    <Layer3DevUnderDevelopmentRecipe
-      isLight={ctx.isLight}
-      onBack={ctx.goBack}
-      onNavigateSignalingLab={() => ctx.navigate('dev-signaling-lab')}
-    />
+    <Layer3DevUnderDevelopmentRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
   ),
 
   'dev-remote-profile': (ctx) => (
@@ -391,12 +312,10 @@ export const MENU_ROUTE_RENDERERS: Record<
   'trajectory': (ctx) => (
     <Layer3BallTrajectoryRecipe
       isLight={ctx.isLight}
-      transparent={true}
       onBack={() => {
         ctx.resetLivePreviewToExpanded();
         ctx.goBack();
       }}
-      onCollapsePreview={ctx.handleTriggerCollapse}
     />
   ),
 
@@ -407,7 +326,6 @@ export const MENU_ROUTE_RENDERERS: Record<
         ctx.resetLivePreviewToExpanded();
         ctx.goBack();
       }}
-      onCollapsePreview={ctx.handleTriggerCollapse}
     />
   ),
 
@@ -416,12 +334,7 @@ export const MENU_ROUTE_RENDERERS: Record<
   ),
 
   'keybindings': (ctx) => (
-    <Layer3KeybindingsRecipe
-      standalone
-      isLight={ctx.isLight}
-      onBack={ctx.goBack}
-      onNavigateAdvanced={() => ctx.navigate('controller-settings')}
-    />
+    <Layer3KeybindingsRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
   ),
 
   'controller-settings': (ctx) => (
@@ -441,3 +354,4 @@ export function renderActiveMenuRoute(ctx: MenuRouteRenderContext): React.ReactN
   const renderer = MENU_ROUTE_RENDERERS[ctx.activeRoute];
   return renderer ? renderer(ctx) : null;
 }
+
