@@ -1,9 +1,4 @@
 import { MATCH_SIGNALS } from '../../network/protocol/GlobalPayloadCodec.ts';
-import {
-  CAR_COLOR_SLOTS,
-  unpackLoadoutSignalParam2,
-} from '../../ui-core/config/vehicleConstants';
-import { gameAudio } from '../../audio/GameAudioEngineFacade.ts';
 import { isSignalAudioMutedInGoalReplay } from '../../audio/SignalAudioEngine.ts';
 import {
   hudStore,
@@ -22,6 +17,7 @@ import {
   type RuntimeSignalLatchState,
   type RuntimeSignalHostPort,
 } from './RuntimeGoalReplaySignalSubController.ts';
+import { RuntimeParticipantAndCombatSignalSubController } from './RuntimeParticipantAndCombatSignalSubController.ts';
 
 export const WIN_REASON_LABELS: Readonly<Record<number, string>> = Object.freeze({
   0: 'SCORE',
@@ -39,98 +35,6 @@ interface ReplayExportDataLike {
   durationSeconds?: number;
   blueScore?: number;
   orangeScore?: number;
-}
-
-function syncJoinedParticipantCarInWorld(
-  host: RuntimeSignalHostPort,
-  carIdx: number,
-  team: number,
-  preset: string,
-  isLobbyDualWorld: boolean,
-): void {
-  const physics = host.physics;
-  const arena = host.arena;
-  if (isLobbyDualWorld && carIdx !== host.playerCarIndex) {
-    if (arena?.cars?.[carIdx]) arena.cars[carIdx].visible = false;
-    return;
-  }
-  if (physics) {
-    physics.addCarAtSlot(carIdx, team, preset);
-    physics.setCarTeam?.(carIdx, team);
-  }
-  if (arena) {
-    arena.ensureCar(carIdx, team, 'fennec');
-    arena.setCarTeam?.(carIdx, team);
-    if (arena.cars[carIdx]) {
-      arena.cars[carIdx].visible = isLobbyDualWorld ? carIdx === host.playerCarIndex : true;
-    }
-  }
-  if (preset) physics?.setCarHitbox?.(carIdx, preset);
-}
-
-function applyParticipantLoadoutToWorld(
-  host: RuntimeSignalHostPort,
-  carIdx: number,
-  loadout: ReturnType<typeof unpackLoadoutSignalParam2>,
-  isLobbyDualWorld: boolean,
-): void {
-  const {
-    visualId,
-    hitboxId,
-    colorSlot: colorSlotId,
-    paintFinish,
-    boostVisual,
-    boostAudio,
-  } = loadout;
-  const arena = host.arena;
-  const physics = host.physics;
-  const entityManager = host.entityManager;
-
-  if (isLobbyDualWorld && carIdx !== host.playerCarIndex) {
-    if (arena?.cars?.[carIdx]) arena.cars[carIdx].visible = false;
-    return;
-  }
-  if (arena && !arena.cars[carIdx]) arena.ensureCar(carIdx, carIdx % 2, 'fennec');
-  const currentConfig = entityManager?.getVehicle?.(carIdx);
-  if (currentConfig?.visual !== visualId || currentConfig?.hitbox !== hitboxId) {
-    if (entityManager) {
-      entityManager.hotSwapVehicle(carIdx, { visual: visualId, hitbox: hitboxId });
-    } else {
-      arena?.swapCarVisual?.(carIdx, visualId);
-      physics?.setCarHitbox?.(carIdx, hitboxId);
-    }
-  } else {
-    physics?.setCarHitbox?.(carIdx, hitboxId);
-  }
-
-  let colorHex: string | null = null;
-  if (colorSlotId >= 0 && colorSlotId < CAR_COLOR_SLOTS.length) {
-    const slotObj =
-      CAR_COLOR_SLOTS[colorSlotId] || CAR_COLOR_SLOTS.find((s) => s.id === colorSlotId);
-    if (slotObj) {
-      colorHex = slotObj.hex;
-      arena?.setCarColor?.(carIdx, slotObj.hex);
-      if (carIdx === host.playerCarIndex) host.selectedColorSlot = slotObj.id;
-    }
-  }
-  arena?.setCarLoadout?.(carIdx, {
-    colorHex: colorHex || undefined,
-    paintFinish,
-    boostVisual,
-    boostAudio,
-  });
-  const audioEngine = host.options?.gameAudio || gameAudio;
-  audioEngine?.setCarBoostAudioVariation?.(carIdx, boostAudio || 'rush');
-}
-
-function removeLeftParticipantFromWorld(host: RuntimeSignalHostPort, leftCarIndex: number): void {
-  if (leftCarIndex < 0 || leftCarIndex >= 65535 || leftCarIndex === host.playerCarIndex) return;
-  host.physics?.removeCar(leftCarIndex);
-  host.arena?.removeCar(leftCarIndex);
-  if (host.flipResetVisuals.has(leftCarIndex)) {
-    host.flipResetVisuals.get(leftCarIndex)?.stopVisual();
-    host.flipResetVisuals.delete(leftCarIndex);
-  }
 }
 
 function enterPodiumAndResetEndgameAudio(
@@ -157,18 +61,24 @@ function enterPodiumAndResetEndgameAudio(
 
 /**
  * RuntimeSignalDomainSubController
- * Stateful SubController owning player roster/loadout signals, match clock/pause/overtime
- * state synchronization, and match lifecycle/endgame/podium transitions.
+ * Stateful SubController owning match clock/pause/overtime state synchronization,
+ * match lifecycle/endgame/podium transitions, and coordinating roster/goal-replay subcontrollers.
  */
 export class RuntimeSignalDomainSubController {
   public readonly host: RuntimeSignalHostPort;
   public readonly latch: RuntimeSignalLatchState;
+  public readonly participantAndCombat: RuntimeParticipantAndCombatSignalSubController;
   public readonly goalReplaySubController: RuntimeGoalReplaySignalSubController;
 
   constructor(host: RuntimeSignalHostPort, latch: RuntimeSignalLatchState) {
     this.host = host;
     this.latch = latch;
-    this.goalReplaySubController = new RuntimeGoalReplaySignalSubController(host, latch);
+    this.participantAndCombat = new RuntimeParticipantAndCombatSignalSubController(host);
+    this.goalReplaySubController = new RuntimeGoalReplaySignalSubController(
+      host,
+      latch,
+      this.participantAndCombat,
+    );
   }
 
   public reset(): void {
@@ -241,44 +151,7 @@ export class RuntimeSignalDomainSubController {
   }
 
   public handleRosterSignal(reconciler: PredictionReconciler, sig: RuntimeSignalPacket): boolean {
-    const h = this.host;
-    const isLobbyDualWorld = h.isLobbyDualWorldActive(reconciler);
-    const participantTeams = h.getParticipantTeams();
-    switch (sig.signalType) {
-      case MATCH_SIGNALS.PLAYER_JOINED:
-      case MATCH_SIGNALS.PLAYER_SLOT_UPDATED: {
-        const carIdx = sig.param1 ?? -1;
-        const team = (sig.param2 ?? 0) & 0xff;
-        if (typeof carIdx === 'number' && carIdx >= 0 && carIdx < 8) {
-          if (team === 0 || team === 1) participantTeams.set(carIdx, team);
-          const preset = reconciler.carVisualPresets?.get(carIdx) || 'fennec';
-          syncJoinedParticipantCarInWorld(h, carIdx, team, preset, isLobbyDualWorld);
-        }
-        h.syncHostLobbyOngoingNotification();
-        return true;
-      }
-
-      case MATCH_SIGNALS.PLAYER_LOADOUT_UPDATED: {
-        const carIdx = sig.param1 ?? -1;
-        const loadout = unpackLoadoutSignalParam2(sig.param2 ?? 0);
-        if (typeof carIdx === 'number' && carIdx >= 0 && carIdx < 8) {
-          reconciler.setCarVisualPreset?.(carIdx, loadout.visualId);
-          applyParticipantLoadoutToWorld(h, carIdx, loadout, isLobbyDualWorld);
-        }
-        return true;
-      }
-
-      case MATCH_SIGNALS.PLAYER_LEFT: {
-        const leftCarIndex = sig.param1 ?? -1;
-        if (leftCarIndex >= 0 && leftCarIndex < 65535) participantTeams.delete(leftCarIndex);
-        removeLeftParticipantFromWorld(h, leftCarIndex);
-        h.syncHostLobbyOngoingNotification();
-        return true;
-      }
-
-      default:
-        return false;
-    }
+    return this.participantAndCombat.handleRosterSignal(reconciler, sig);
   }
 
   public handleClockAndPauseSignal(
