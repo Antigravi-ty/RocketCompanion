@@ -198,21 +198,44 @@ function normalizeCustomVehicleScene(scene, vehicleId) {
  */
 export async function loadCustomGlbCarAsset(vehicleId) {
   const id = String(vehicleId || '').toLowerCase();
-  if (cachedCustomAssets.has(id)) {
-    return cachedCustomAssets.get(id);
-  }
   const descriptor = getVehicleDescriptor(id);
   if (!descriptor || !descriptor.modelUrl) {
     throw new Error(`Unknown custom GLB vehicle descriptor for "${vehicleId}"`);
   }
+  const existing = cachedCustomAssets.get(id);
+  if (existing && existing.modelUrl === descriptor.modelUrl) {
+    return existing;
+  }
 
   const loader = new GLTFLoader();
-  const gltf = await loader.loadAsync(resolveAssetPath(descriptor.modelUrl));
+  const resolvedUrl = descriptor.modelUrl.startsWith('blob:')
+    ? descriptor.modelUrl
+    : resolveAssetPath(descriptor.modelUrl);
+  const gltf = await loader.loadAsync(resolvedUrl);
   gltf.scene.updateMatrixWorld?.(true);
   normalizeCustomVehicleScene(gltf.scene, id);
 
+  const normBox = new THREE.Box3().setFromObject(gltf.scene);
+  if (!normBox.isEmpty()) {
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    normBox.getSize(size);
+    normBox.getCenter(center);
+    descriptor.rawBounds = {
+      min: [Number(normBox.min.x.toFixed(4)), Number(normBox.min.y.toFixed(4)), Number(normBox.min.z.toFixed(4))],
+      max: [Number(normBox.max.x.toFixed(4)), Number(normBox.max.y.toFixed(4)), Number(normBox.max.z.toFixed(4))],
+      length: Number(size.x.toFixed(4)),
+      height: Number(size.y.toFixed(4)),
+      width: Number(size.z.toFixed(4)),
+      center: [Number(center.x.toFixed(4)), Number(center.y.toFixed(4)), Number(center.z.toFixed(4))],
+      roofTopY: Number(normBox.max.y.toFixed(4)),
+      rlHitboxTopY: descriptor.rawBounds?.rlHitboxTopY ?? 38.8346,
+    };
+  }
+
   const asset = {
     id,
+    modelUrl: descriptor.modelUrl,
     scene: gltf.scene
   };
   cachedCustomAssets.set(id, asset);

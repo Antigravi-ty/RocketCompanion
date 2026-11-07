@@ -205,6 +205,9 @@ export function applyCustomGlbVehicleMaterials(root, vehicleId, teamColor, paint
   if (!slotMaterialMap.has('body-shell') && slotMaterialMap.has('body')) {
     slotMaterialMap.set('body-shell', slotMaterialMap.get('body'));
   }
+  if (!slotMaterialMap.has('draw') && slotMaterialMap.has('body')) {
+    slotMaterialMap.set('draw', slotMaterialMap.get('body'));
+  }
   if (slotMaterialMap.has('border')) {
     if (!slotMaterialMap.has('chassis')) {
       slotMaterialMap.set('chassis', slotMaterialMap.get('border'));
@@ -260,8 +263,8 @@ export function applyCustomGlbVehicleMaterials(root, vehicleId, teamColor, paint
 
     if (slotMaterialMap.has(lowerName)) {
       node.material = slotMaterialMap.get(lowerName);
-    } else if (lowerName.includes('body') || lowerName.includes('shell')) {
-      node.material = palette.body;
+    } else if (lowerName === '' || lowerName === 'draw' || lowerName.includes('body') || lowerName.includes('shell')) {
+      node.material = slotMaterialMap.get('body') || palette.body;
     } else {
       node.material = palette.lowerDetail;
     }

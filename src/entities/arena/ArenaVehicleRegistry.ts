@@ -390,7 +390,19 @@ export class ArenaVehicleRegistry {
       const teamIndex = this.carTeams?.[i] ?? (i % 2);
       const teamColor = this.carColors?.[i] ?? this.carLoaders.teamColors?.[teamIndex] ?? DEFAULT_TEAM_COLORS[teamIndex % 2];
       const carDesc = hasVehicleDescriptor(preset || '') ? getVehicleDescriptor(preset || '') : (preset === vehicleId ? targetDescriptor : null);
-      const hasLoadedCustomAsset = Boolean(carDesc && this.customVehicleAssets.has(String(carDesc.id).toLowerCase()));
+      const cachedAsset = carDesc ? this.customVehicleAssets.get(String(carDesc.id).toLowerCase()) : null;
+      const hasLoadedCustomAsset = Boolean(carDesc && cachedAsset && (!cachedAsset.modelUrl || cachedAsset.modelUrl === carDesc.modelUrl));
+
+      if (carDesc && !hasLoadedCustomAsset && this.carLoaders.loadCustomGlbCarAsset) {
+        const descId = String(carDesc.id).toLowerCase();
+        this.carLoaders.loadCustomGlbCarAsset(descId).then((asset) => {
+          if (asset) {
+            this.customVehicleAssets.set(descId, asset);
+            this.setCarVehiclePreset(i, descId);
+          }
+        }).catch(() => {});
+        continue;
+      }
 
       if (carDesc && hasLoadedCustomAsset) {
         this.carWheelSpecs[i] = getWheelSpecsForVisual(preset) as WheelSpecTuple[];
