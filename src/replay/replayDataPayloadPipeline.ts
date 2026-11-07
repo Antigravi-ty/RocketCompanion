@@ -6,7 +6,7 @@
  */
 
 import { SIM_OFFSETS, MAX_CARS, INCIDENT_EVENT_TYPES } from '../physics/RocketSimConstants.ts';
-import { DEFAULT_CAR_CONTROLS } from '../ai/experimental/ExperimentalBotAgent.ts';
+import { DEFAULT_CAR_CONTROLS } from '../ai/experimental/experimentalMultiCarObsPipeline.ts';
 
 export type ReplayAnnotatedFloat32Frame = Float32Array & {
   tick?: number;

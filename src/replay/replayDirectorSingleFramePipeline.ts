@@ -33,7 +33,6 @@ import type {
 import type { ResolvedTouchLookahead } from './ReplayTouchTimelineAnalyzer.ts';
 
 export type { ReplayDirectorDiagnosticInput, EmbeddedReplayDirectorTelemetry };
-export { resolveEmbeddedLookahead, computeViewAngleToPointDeg };
 
 export function syncLookaheadState(
   state: DirectorCameraState,

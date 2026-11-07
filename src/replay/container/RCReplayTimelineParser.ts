@@ -16,18 +16,14 @@ import type {
   ReplaySnapshotFloat32Array,
   DecodedReplayFrameSlot,
 } from './RCReplayBinarySchema.ts';
-import {
-  SIGNAL_TYPE_LABELS,
-  SignalTimeline,
-  type SignalTimelineOptions,
-  type SignalTimelineMarker,
+import type {
+  SignalTimelineOptions,
+  SignalTimelineMarker,
 } from './RCReplaySignalTimeline.ts';
 
-export {
-  SIGNAL_TYPE_LABELS,
-  SignalTimeline,
-  type SignalTimelineOptions,
-  type SignalTimelineMarker,
+export type {
+  SignalTimelineOptions,
+  SignalTimelineMarker,
 };
 
 export const INCIDENT_TYPE_LABELS: Readonly<Record<number, string>> = Object.freeze({

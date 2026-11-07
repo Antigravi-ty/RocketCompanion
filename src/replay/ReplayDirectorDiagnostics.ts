@@ -45,7 +45,6 @@ import type {
   DirectorDiagnosticTouchTimelineEntry,
 } from './replayDirectorStateTypes.ts';
 
-export { buildCurrentFrameDiagnosticSnapshot };
 export type {
   CurrentFrameDiagnosticSnapshot,
   DirectorDiagnosticPatternPayload,

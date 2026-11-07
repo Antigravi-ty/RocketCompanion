@@ -98,8 +98,6 @@ export function syncGoalBarrierToGame(
   );
 }
 
-export { syncMaterialsToGame };
-
 export function attachGameRuntimeBridge(
   runtimePort: GameRuntimeUiBridgePort | null | undefined,
 ): void {

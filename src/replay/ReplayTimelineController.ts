@@ -19,8 +19,8 @@ import {
 } from './replayDirectorStateTypes.ts';
 import {
   buildTimelineReplaySessionInitState, buildRetainedReplaySessionState,
-  buildClonedRetainedReplaySessionState, resetReplaySessionStateOnEnd,
-  clearRetainedReplayState, executeReplayPlaybackStep, type ReplayPlaybackStepResult,
+  buildClonedRetainedReplaySessionState, buildEndedReplaySessionState,
+  buildClearedRetainedReplaySessionState, executeReplayPlaybackStep, type ReplayPlaybackStepResult,
 } from './ReplayDirectorStatePipeline.ts';
 import {
   resolveSessionTouchLookahead, computeSessionDramaticSlowMo, type ResolvedTouchLookahead,
@@ -204,13 +204,14 @@ export class ReplayTimelineController {
   }
 
   endReplaySession(): void {
-    if (resetReplaySessionStateOnEnd(this.sessionState, this.directorCamera)) markReplayTimelineControllerRetained(this);
+    this.sessionState = buildEndedReplaySessionState(this.sessionState, this.directorCamera);
+    if (this.sessionState.hasRetainedReplay) markReplayTimelineControllerRetained(this);
     setActiveReplayTimelineController(this);
     notifyActiveReplayTimelineController();
   }
 
   clearRetainedReplay(): void {
-    clearRetainedReplayState(this.sessionState, this.directorCamera);
+    this.sessionState = buildClearedRetainedReplaySessionState(this.sessionState, this.directorCamera);
     if (getActiveReplayTimelineController() === this) notifyActiveReplayTimelineController();
   }
 
@@ -291,7 +292,7 @@ export class ReplayTimelineController {
     const total = this.getTotalRecordedFrames();
     if (total <= 0) return { frame: null, frameIndex: 0, totalFrames: 0, progress: 0, isFinished: true, incidents: [], audioEvents: [] };
     setActiveReplayTimelineController(this);
-    return executeReplayPlaybackStep({
+    const res = executeReplayPlaybackStep({
       totalFrames: total, dtSeconds: dt, interpolator, applyToEngine, engine: this.engine,
       sessionState: this.sessionState, directorCamera: this.directorCamera,
       getFrameEntryByIndex: (idx) => this.getFrameEntryByIndex(idx),
@@ -300,6 +301,8 @@ export class ReplayTimelineController {
       resolveTouchLookaheadForFrame: (idx, fb) => this.resolveTouchLookaheadForFrame(idx, fb),
       computeDramaticSlowMoFactor: (c, opts) => this.computeDramaticSlowMoFactor(c, opts),
     });
+    if (res.nextSessionState) this.sessionState = res.nextSessionState;
+    return res;
   }
 
   getCurrentFrameDiagnosticSnapshot() { return this.diagnosticPatterns.getCurrentFrameDiagnosticSnapshot(); }

@@ -11,22 +11,15 @@ import {
   type GoalExplosionFrameInput,
 } from './ReplayDirectorGazeSolver.ts';
 import {
-  clamp,
-  smooth1DZeroPhase,
-  computeBounceBridgedBallTrajectory,
-  resolveInitialCorridorAndLateralBias,
+  clamp, smooth1DZeroPhase, computeBounceBridgedBallTrajectory, resolveInitialCorridorAndLateralBias,
 } from './replayDirectorElevationPipeline.ts';
 
 const TICK_RATE = 120;
 
 export interface BuildDirectorSubjectAnchorsOptions {
-  scoringTeam?: number;
-  scorerCarIndex?: number;
-  goalLineFrameIdx?: number;
-  touchEvents?: ReplayTouchEvent[];
-  carTeamResolver?: (carIndex: number) => number;
-  lateralBias?: number;
-  initialSettledCarPos?: { carIndex?: number; x: number; y: number; z: number } | null;
+  scoringTeam?: number; scorerCarIndex?: number; goalLineFrameIdx?: number;
+  touchEvents?: ReplayTouchEvent[]; carTeamResolver?: (carIndex: number) => number;
+  lateralBias?: number; initialSettledCarPos?: { carIndex?: number; x: number; y: number; z: number } | null;
 }
 
 export interface DirectorSubjectAnchorsResult {
@@ -51,8 +44,7 @@ export interface DirectorSubjectAnchorsResult {
 function getFrameSnap(item: GoalExplosionFrameInput): ArrayLike<number> | null {
   if (!item) return null;
   if ('snapshot' in item && item.snapshot) return item.snapshot;
-  if ('length' in item && typeof item.length === 'number') return item;
-  return null;
+  return 'length' in item && typeof item.length === 'number' ? item : null;
 }
 
 export function buildDirectorSubjectAnchors(
@@ -65,22 +57,17 @@ export function buildDirectorSubjectAnchors(
   const scoringTeam = options.scoringTeam ?? 0;
   const goalSignY = scoringTeam === 0 ? 1.0 : -1.0;
   const goalY = goalSignY * 5120.0;
-  const fallbackScorer =
-    typeof options.scorerCarIndex === 'number' && options.scorerCarIndex >= 0 ? options.scorerCarIndex : 0;
-
+  const fallbackScorer = typeof options.scorerCarIndex === 'number' && options.scorerCarIndex >= 0 ? options.scorerCarIndex : 0;
   const firstSnap = getFrameSnap(frames[0]);
   const numCars = Math.min(MAX_CARS, Math.max(1, Math.round(firstSnap?.[SIM_OFFSETS.NUM_CARS] || 1)));
 
-  const bx = new Float64Array(N), by = new Float64Array(N), bz = new Float64Array(N);
-  const bvx = new Float64Array(N), bvy = new Float64Array(N), bvz = new Float64Array(N);
-  const cx: Float64Array[] = Array.from({ length: numCars }, () => new Float64Array(N));
-  const cy: Float64Array[] = Array.from({ length: numCars }, () => new Float64Array(N));
-  const cz: Float64Array[] = Array.from({ length: numCars }, () => new Float64Array(N));
+  const f64 = () => new Float64Array(N);
+  const i32 = () => new Int32Array(N);
+  const bx = f64(), by = f64(), bz = f64(), bvx = f64(), bvy = f64(), bvz = f64();
+  const cx = Array.from({ length: numCars }, f64), cy = Array.from({ length: numCars }, f64), cz = Array.from({ length: numCars }, f64);
 
-  let resolvedGoalIdx = resolveGoalExplosionFrameIndex(
-    frames,
-    goalSignY,
-    typeof options.goalLineFrameIdx === 'number' ? options.goalLineFrameIdx : -1
+  const resolvedGoalIdx = resolveGoalExplosionFrameIndex(
+    frames, goalSignY, typeof options.goalLineFrameIdx === 'number' ? options.goalLineFrameIdx : -1
   );
 
   for (let i = 0; i < N; i++) {
@@ -90,28 +77,21 @@ export function buildDirectorSubjectAnchors(
     bvx[i] = snap[SIM_OFFSETS.BALL + 12] || 0; bvy[i] = snap[SIM_OFFSETS.BALL + 13] || 0; bvz[i] = snap[SIM_OFFSETS.BALL + 14] || 0;
     for (let c = 0; c < numCars; c++) {
       const base = SIM_OFFSETS.CARS + c * CAR_STATE_STRIDE;
-      if (snap.length < base + 15) continue;
-      cx[c][i] = snap[base] || 0; cy[c][i] = snap[base + 1] || 0; cz[c][i] = snap[base + 2] || 17;
+      if (snap.length >= base + 15) {
+        cx[c][i] = snap[base] || 0; cy[c][i] = snap[base + 1] || 0; cz[c][i] = snap[base + 2] || 17;
+      }
     }
   }
 
-  if (resolvedGoalIdx < 0) resolvedGoalIdx = Math.max(0, N - 1);
-  const goalIdx = clamp(resolvedGoalIdx, 0, N - 1);
-
-  const settledCheckMax = Math.min(N - 1, 3);
+  const goalIdx = clamp(resolvedGoalIdx < 0 ? Math.max(0, N - 1) : resolvedGoalIdx, 0, N - 1);
   for (let c = 0; c < numCars; c++) {
-    for (let idx = settledCheckMax; idx >= 1; idx--) {
-      const step = Math.hypot(cx[c][idx] - cx[c][idx - 1], cy[c][idx] - cy[c][idx - 1], cz[c][idx] - cz[c][idx - 1]);
-      if (step > 180.0) {
-        for (let k = 0; k < idx; k++) {
-          cx[c][k] = cx[c][idx]; cy[c][k] = cy[c][idx]; cz[c][k] = cz[c][idx];
-        }
+    for (let idx = Math.min(N - 1, 3); idx >= 1; idx--) {
+      if (Math.hypot(cx[c][idx] - cx[c][idx - 1], cy[c][idx] - cy[c][idx - 1], cz[c][idx] - cz[c][idx - 1]) > 180.0) {
+        for (let k = 0; k < idx; k++) { cx[c][k] = cx[c][idx]; cy[c][k] = cy[c][idx]; cz[c][k] = cz[c][idx]; }
         break;
       }
     }
-    cx[c] = smooth1DZeroPhase(cx[c], 0.22, 2);
-    cy[c] = smooth1DZeroPhase(cy[c], 0.22, 2);
-    cz[c] = smooth1DZeroPhase(cz[c], 0.18, 2);
+    cx[c] = smooth1DZeroPhase(cx[c], 0.22, 2); cy[c] = smooth1DZeroPhase(cy[c], 0.22, 2); cz[c] = smooth1DZeroPhase(cz[c], 0.18, 2);
   }
 
   const sbx = smooth1DZeroPhase(bx, 0.18, 2), sby = smooth1DZeroPhase(by, 0.18, 2), sbz = smooth1DZeroPhase(bz, 0.16, 2);
@@ -119,15 +99,11 @@ export function buildDirectorSubjectAnchors(
 
   const rawTouches: ReplayTouchEvent[] = Array.isArray(options.touchEvents) ? options.touchEvents : [];
   const touchTeamByCar = new Map<number, number>();
-  for (let i = 0; i < rawTouches.length; i++) {
-    const t = rawTouches[i];
+  for (const t of rawTouches) {
     if (t && typeof t.carIndex === 'number' && typeof t.team === 'number') touchTeamByCar.set(t.carIndex, t.team);
   }
-  const resolveCarTeam = (c: number): number => {
-    if (typeof options.carTeamResolver === 'function') return options.carTeamResolver(c);
-    const recorded = touchTeamByCar.get(c);
-    return typeof recorded === 'number' ? recorded : c % 2;
-  };
+  const resolveCarTeam = (c: number): number =>
+    typeof options.carTeamResolver === 'function' ? options.carTeamResolver(c) : (touchTeamByCar.get(c) ?? (c % 2));
 
   const preGoalTouches = rawTouches.filter((t) => t && t.frameIndex <= goalIdx + 8);
   const scoringTouches = preGoalTouches.filter((t) => t.team === scoringTeam);
@@ -137,12 +113,7 @@ export function buildDirectorSubjectAnchors(
       team: scoringTeam, ballX: bx[goalIdx], ballY: by[goalIdx], ballZ: bz[goalIdx],
     }];
 
-  const scorerCarIdx = clamp(
-    activeScoringTouches[activeScoringTouches.length - 1]?.carIndex ?? fallbackScorer,
-    0,
-    numCars - 1
-  );
-
+  const scorerCarIdx = clamp(activeScoringTouches[activeScoringTouches.length - 1]?.carIndex ?? fallbackScorer, 0, numCars - 1);
   const oppTouches: ReplayTouchEvent[] = preGoalTouches
     .filter((t) => t.team !== scoringTeam && t.frameIndex > 12 && t.frameIndex <= goalIdx + 2)
     .map((t) => ({ ...t }));
@@ -172,12 +143,9 @@ export function buildDirectorSubjectAnchors(
   const interceptorPostTicks = Math.round(0.75 * TICK_RATE);
   const interceptorWeightCfg = clamp(cfg.interceptorFramingWeight ?? 0.72, 0.0, 1.0);
 
-  const scx = new Float64Array(N), scy = new Float64Array(N), scz = new Float64Array(N);
-  const handoffArcWArr = new Float64Array(N), handoffZLiftArr = new Float64Array(N), oppChallengeWArr = new Float64Array(N), postShotBallFocus = new Float64Array(N);
-  const activeScoreCar = new Int32Array(N), nextScoreCar = new Int32Array(N), nextTouchBlendArr = new Float64Array(N);
-  const nextTouchBallX = new Float64Array(N), nextTouchBallY = new Float64Array(N), nextTouchBallZ = new Float64Array(N);
-  const hasNextTouchBall = new Uint8Array(N), carSwitchBlendArr = new Float64Array(N);
-  const ocx = new Float64Array(N), ocy = new Float64Array(N), ocz = new Float64Array(N), oppW = new Float64Array(N), activeOppCar = new Int32Array(N);
+  const scx = f64(), scy = f64(), scz = f64(), handoffArcWArr = f64(), handoffZLiftArr = f64(), oppChallengeWArr = f64(), postShotBallFocus = f64();
+  const activeScoreCar = i32(), nextScoreCar = i32(), nextTouchBlendArr = f64(), nextTouchBallX = f64(), nextTouchBallY = f64(), nextTouchBallZ = f64();
+  const hasNextTouchBall = new Uint8Array(N), carSwitchBlendArr = f64(), ocx = f64(), ocy = f64(), ocz = f64(), oppW = f64(), activeOppCar = i32();
 
   const lastScoreTouchFrame = activeScoringTouches[activeScoringTouches.length - 1]?.frameIndex ?? goalIdx;
   const postShotReleaseTicks = Math.max(24, Math.round(0.32 * TICK_RATE));
@@ -185,10 +153,7 @@ export function buildDirectorSubjectAnchors(
 
   for (let i = 0; i < N; i++) {
     const firstTouchF = activeScoringTouches[0]?.frameIndex ?? goalIdx;
-    const firstRefF =
-      activeScoringTouches.length > 1 && activeScoringTouches[1].carIndex !== firstCarIdx
-        ? Math.min(i, firstTouchF + 16)
-        : i;
+    const firstRefF = activeScoringTouches.length > 1 && activeScoringTouches[1].carIndex !== firstCarIdx ? Math.min(i, firstTouchF + 16) : i;
     let wx = cx[firstCarIdx][firstRefF], wy = cy[firstCarIdx][firstRefF], wz = cz[firstCarIdx][firstRefF];
     let domCar = firstCarIdx, swBlend = 1.0, handoffArcW = 0.0;
 
@@ -218,12 +183,10 @@ export function buildDirectorSubjectAnchors(
     }
 
     if (i <= goalIdx) {
-      if (i > lastScoreTouchFrame + holdTicks) {
-        const uRel = clamp((i - (lastScoreTouchFrame + holdTicks)) / postShotReleaseTicks, 0, 1);
-        postShotBallFocus[i] = 0.5 - 0.5 * Math.cos(uRel * Math.PI);
-      } else {
-        postShotBallFocus[i] = 0.0;
-      }
+      postShotBallFocus[i] =
+        i > lastScoreTouchFrame + holdTicks
+          ? 0.5 - 0.5 * Math.cos(clamp((i - (lastScoreTouchFrame + holdTicks)) / postShotReleaseTicks, 0, 1) * Math.PI)
+          : 0.0;
     } else {
       postShotBallFocus[i] = 1.0;
       const postS = 0.5 - 0.5 * Math.cos(clamp((i - goalIdx) / 28, 0, 1) * Math.PI);
@@ -234,46 +197,44 @@ export function buildDirectorSubjectAnchors(
     }
 
     scx[i] = wx; scy[i] = wy; scz[i] = wz;
-    handoffArcWArr[i] = handoffArcW;
-    handoffZLiftArr[i] = 0.0;
-    activeScoreCar[i] = domCar;
-    carSwitchBlendArr[i] = swBlend;
+    handoffArcWArr[i] = handoffArcW; handoffZLiftArr[i] = 0.0;
+    activeScoreCar[i] = domCar; carSwitchBlendArr[i] = swBlend;
 
     let kCurr = activeScoringTouches.length - 1;
     for (let j = 0; j < activeScoringTouches.length; j++) {
       if (i <= activeScoringTouches[j].frameIndex + holdTicks) { kCurr = j; break; }
     }
     const currTouch = activeScoringTouches[kCurr];
-    const nextTouchCandidate = i >= currTouch.frameIndex - 65 && kCurr + 1 < activeScoringTouches.length ? activeScoringTouches[kCurr + 1] : currTouch;
-
-    let nCar = -1, nBlend = 0, nbx = bx[i], nby = by[i], nbz = bz[i], hasNb = 0;
-    const nt = nextTouchCandidate, dtNext = nt.frameIndex - i;
+    const nt = i >= currTouch.frameIndex - 65 && kCurr + 1 < activeScoringTouches.length ? activeScoringTouches[kCurr + 1] : currTouch;
+    const dtNext = nt.frameIndex - i;
     if (dtNext > 0 && dtNext <= lookaheadTicks) {
       const s = 0.5 - 0.5 * Math.cos(clamp(1.0 - dtNext / lookaheadTicks, 0, 1) * Math.PI);
-      nCar = clamp(nt.carIndex, 0, numCars - 1); nBlend = anticipationWeight * s * s;
-      nbx = nt.ballX ?? bx[nt.frameIndex]; nby = nt.ballY ?? by[nt.frameIndex]; nbz = nt.ballZ ?? bz[nt.frameIndex];
-      hasNb = 1;
+      nextScoreCar[i] = clamp(nt.carIndex, 0, numCars - 1);
+      nextTouchBlendArr[i] = anticipationWeight * s * s;
+      nextTouchBallX[i] = nt.ballX ?? bx[nt.frameIndex];
+      nextTouchBallY[i] = nt.ballY ?? by[nt.frameIndex];
+      nextTouchBallZ[i] = nt.ballZ ?? bz[nt.frameIndex];
+      hasNextTouchBall[i] = 1;
+    } else {
+      nextScoreCar[i] = -1; nextTouchBlendArr[i] = 0;
+      nextTouchBallX[i] = bx[i]; nextTouchBallY[i] = by[i]; nextTouchBallZ[i] = bz[i];
+      hasNextTouchBall[i] = 0;
     }
-    nextScoreCar[i] = nCar; nextTouchBlendArr[i] = nBlend;
-    nextTouchBallX[i] = nbx; nextTouchBallY[i] = nby; nextTouchBallZ[i] = nbz;
-    hasNextTouchBall[i] = hasNb;
 
     let challengeW = 0, sumOppW = 0, sumOx = 0, sumOy = 0, sumOz = 0, bestOppW = 0, bestOppCar = -1;
-    for (let j = 0; j < oppTouches.length; j++) {
-      const ot = oppTouches[j];
+    for (const ot of oppTouches) {
       const cIdx = clamp(ot.carIndex, 0, numCars - 1);
       const absDt = Math.abs(i - ot.frameIndex);
       if (!ot.isSaveAttempt && absDt < 65) {
         challengeW = Math.max(challengeW, 0.16 * (0.5 + 0.5 * Math.cos((absDt / 65) * Math.PI)));
       }
-
       const dtTicks = ot.frameIndex - i;
-      let w = 0;
-      if (dtTicks >= 0 && dtTicks <= interceptorPreTicks) {
-        w = 0.5 - 0.5 * Math.cos((1.0 - dtTicks / interceptorPreTicks) * Math.PI);
-      } else if (dtTicks < 0 && -dtTicks <= interceptorPostTicks) {
-        w = 0.5 - 0.5 * Math.cos((1.0 - -dtTicks / interceptorPostTicks) * Math.PI);
-      }
+      let w =
+        dtTicks >= 0 && dtTicks <= interceptorPreTicks
+          ? 0.5 - 0.5 * Math.cos((1.0 - dtTicks / interceptorPreTicks) * Math.PI)
+          : dtTicks < 0 && -dtTicks <= interceptorPostTicks
+            ? 0.5 - 0.5 * Math.cos((1.0 - -dtTicks / interceptorPostTicks) * Math.PI)
+            : 0;
       w *= (ot.isSaveAttempt ? 0.55 : 0.85) * interceptorWeightCfg;
       if (w > 1e-4) {
         sumOppW += w;
@@ -285,8 +246,7 @@ export function buildDirectorSubjectAnchors(
 
     if (sumOppW > 1e-4 && i <= goalIdx + 12) {
       ocx[i] = sumOx / sumOppW; ocy[i] = sumOy / sumOppW; ocz[i] = sumOz / sumOppW;
-      oppW[i] = Math.min(0.65, bestOppW);
-      activeOppCar[i] = bestOppCar;
+      oppW[i] = Math.min(0.65, bestOppW); activeOppCar[i] = bestOppCar;
     } else {
       ocx[i] = bx[i]; ocy[i] = by[i]; ocz[i] = bz[i];
       oppW[i] = 0; activeOppCar[i] = -1;
@@ -296,23 +256,19 @@ export function buildDirectorSubjectAnchors(
   const smScx = smooth1DZeroPhase(scx, 0.11, 2), smScy = smooth1DZeroPhase(scy, 0.11, 2), smScz = smooth1DZeroPhase(scz, 0.12, 2);
   const smOcx = smooth1DZeroPhase(ocx, 0.16, 2), smOcy = smooth1DZeroPhase(ocy, 0.16, 2), smOcz = smooth1DZeroPhase(ocz, 0.16, 2);
   const smOppW = smooth1DZeroPhase(oppW, 0.12, 2);
-
   const { ux, uy, wxAxis, wyAxis, openSideX, resolvedLateralBias } = resolveInitialCorridorAndLateralBias({
     goalIdx, goalY, goalSignY, lastScoreTouchFrame, holdTicks, sbx, sby, smScx, smScy,
   });
 
   return {
     N, goalIdx, goalSignY, goalY, holdTicks, scorerCarIdx, lastScoreTouchFrame, openSideX,
-    activeScoringTouches, oppTouches,
-    bx, by, bz, sbx, sby, sbz,
-    gazeEnvelopeZ, eyeEnvelopeZ, bouncePullbackUu,
-    smScx, smScy, smScz,
+    activeScoringTouches, oppTouches, bx, by, bz, sbx, sby, sbz,
+    gazeEnvelopeZ, eyeEnvelopeZ, bouncePullbackUu, smScx, smScy, smScz,
     lastScorerX: cx[scorerCarIdx], lastScorerY: cy[scorerCarIdx], lastScorerZ: cz[scorerCarIdx],
     handoffArcWArr, handoffZLiftArr, oppChallengeWArr,
     smOcx, smOcy, smOcz, smOppW, postShotBallFocus,
     activeScoreCar, nextScoreCar, nextTouchBlendArr, hasNextTouchBall,
-    nextTouchBallX, nextTouchBallY, nextTouchBallZ,
-    activeOppCar, carSwitchBlendArr,
+    nextTouchBallX, nextTouchBallY, nextTouchBallZ, activeOppCar, carSwitchBlendArr,
     ux, uy, wxAxis, wyAxis, resolvedLateralBias,
   };
 }

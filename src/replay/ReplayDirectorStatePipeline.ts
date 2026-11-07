@@ -41,6 +41,7 @@ export interface ReplayPlaybackStepResult {
   incidents: ReplayIncidentEntry[];
   signals?: ReplaySignalEntry[];
   audioEvents: ReplayAudioCue[];
+  nextSessionState?: ReplaySessionState;
 }
 
 export interface ExecuteReplayPlaybackStepInput {
@@ -58,6 +59,9 @@ export interface ExecuteReplayPlaybackStepInput {
   computeDramaticSlowMoFactor: (cursorFloat: number, options?: { ignoreScrubState?: boolean }) => number;
 }
 
+const cloneCarRoster = (entries: ReadonlyArray<ReplayCarRosterEntry> | null | undefined) =>
+  Array.isArray(entries) && entries.length > 0 ? entries.map((c) => ({ ...c })) : null;
+
 export function applyStepFrameAndControlsToEngine(
   engine: ReplayPhysicsEnginePort,
   currFrame: Float32Array,
@@ -73,8 +77,7 @@ export function applyStepFrameAndControlsToEngine(
     : typeof engine.setCarControls === 'function' ? engine.setCarControls.bind(engine) : null;
   if (Array.isArray(controls) && setControlsFn) {
     for (let c = 0; c < controls.length; c++) {
-      const ctrlEntry = controls[c];
-      if (ctrlEntry) setControlsFn(c, ctrlEntry);
+      if (controls[c]) setControlsFn(c, controls[c]);
     }
   }
 }
@@ -91,9 +94,9 @@ export function collectDispatchedEventsInWindow(
   for (let idx = startIdx; idx <= baseIdx; idx++) {
     const entry = getFrameEntryByIndex(idx);
     if (!entry) continue;
-    if (Array.isArray(entry.incidents) && entry.incidents.length > 0) incidents.push(...entry.incidents);
-    if (Array.isArray(entry.audioEvents) && entry.audioEvents.length > 0) audioEvents.push(...entry.audioEvents);
-    if (Array.isArray(entry.signals) && entry.signals.length > 0) signals.push(...entry.signals);
+    if (entry.incidents?.length) incidents.push(...entry.incidents);
+    if (entry.audioEvents?.length) audioEvents.push(...entry.audioEvents);
+    if (entry.signals?.length) signals.push(...entry.signals);
   }
   return { incidents, audioEvents, signals };
 }
@@ -105,10 +108,6 @@ export function buildTimelineReplaySessionInitState(input: TimelineReplaySession
     Array.isArray(options.frames) && options.frames.length > 0
       ? options.frames
       : extractGoalReplayFrames({ ringBuffer, engine, durationTicks });
-  const clonedCarEntries =
-    Array.isArray(options.carEntries) && options.carEntries.length > 0
-      ? options.carEntries.map((c: ReplayCarRosterEntry) => ({ ...c }))
-      : null;
 
   return {
     activeFrames, cursorFloat: 0, isPaused: false, isPersistent: Boolean(options.isPersistent),
@@ -123,7 +122,7 @@ export function buildTimelineReplaySessionInitState(input: TimelineReplaySession
     importedFileName: options.importedFileName || null,
     importedSummary: options.importedSummary || null,
     importedAnomalyPeaks: options.importedAnomalyPeaks || null,
-    importedCarEntries: null, carEntries: clonedCarEntries,
+    importedCarEntries: null, carEntries: cloneCarRoster(options.carEntries),
     cachedSuffixCameraPlan: null, cachedSmoothnessSummary: null, cachedAnomalyPeaks: null,
     useRecordedCsvCamera: Boolean(options.useRecordedCsvCamera),
     isLoopingPreview: Boolean(options.isLoopingPreview),
@@ -139,11 +138,6 @@ export function buildRetainedReplaySessionState(
   options: ReplaySessionInitOptions = {}
 ): ReplaySessionState {
   const frames: ReplayTimelineFrameEntry[] = Array.isArray(options.frames) ? options.frames : [];
-  const clonedCarEntries =
-    Array.isArray(options.carEntries) && options.carEntries.length > 0
-      ? options.carEntries.map((c: ReplayCarRosterEntry) => ({ ...c }))
-      : currentState.carEntries;
-
   return {
     ...currentState,
     activeFrames: frames, expectedDurationTicks: frames.length,
@@ -154,7 +148,7 @@ export function buildRetainedReplaySessionState(
     importedSummary: null, importedAnomalyPeaks: null, useRecordedCsvCamera: false,
     isNetworkStreamed: false, cursorFloat: 0, lastDispatchedFrameIndex: -1,
     cachedSuffixCameraPlan: null, cachedSmoothnessSummary: null, cachedAnomalyPeaks: null,
-    carEntries: clonedCarEntries,
+    carEntries: cloneCarRoster(options.carEntries) || currentState.carEntries,
   };
 }
 
@@ -162,11 +156,7 @@ export function buildClonedRetainedReplaySessionState(
   input: RetainedReplaySnapshotCloneInput
 ): ReplaySessionState {
   const { currentSessionState, sourceSessionState: src } = input;
-  const srcEntries = src.importedCarEntries || src.carEntries;
-  const importedCarEntries = Array.isArray(srcEntries)
-    ? srcEntries.map((c: ReplayCarRosterEntry) => ({ ...c }))
-    : null;
-
+  const importedCarEntries = cloneCarRoster(src.importedCarEntries || src.carEntries);
   return {
     ...currentSessionState,
     activeFrames: src.activeFrames.slice(), expectedDurationTicks: src.activeFrames.length,
@@ -178,9 +168,7 @@ export function buildClonedRetainedReplaySessionState(
     importedSummary: src.importedSummary || null,
     importedAnomalyPeaks: src.importedAnomalyPeaks || null,
     importedCarEntries,
-    carEntries: Array.isArray(src.carEntries)
-      ? src.carEntries.map((c: ReplayCarRosterEntry) => ({ ...c }))
-      : importedCarEntries,
+    carEntries: cloneCarRoster(src.carEntries) || importedCarEntries,
     useRecordedCsvCamera: Boolean(src.useRecordedCsvCamera),
     cursorFloat: Math.max(0, Math.min(src.activeFrames.length - 1, Math.floor(src.cursorFloat ?? 0))),
     cachedSuffixCameraPlan: src.cachedSuffixCameraPlan || null,
@@ -189,43 +177,45 @@ export function buildClonedRetainedReplaySessionState(
   };
 }
 
-export function resetReplaySessionStateOnEnd(
-  sessionState: ReplaySessionState,
+export function buildEndedReplaySessionState(
+  currentState: ReplaySessionState,
   directorCamera: ReplayDirectorCameraSubController
-): boolean {
-  const wasNetworkStreamed = Boolean(sessionState.isNetworkStreamed);
-  const hasRetained = Array.isArray(sessionState.activeFrames) && sessionState.activeFrames.length > 0;
-  Object.assign(sessionState, {
+): ReplaySessionState {
+  const wasNetworkStreamed = Boolean(currentState.isNetworkStreamed);
+  const hasRetained = Array.isArray(currentState.activeFrames) && currentState.activeFrames.length > 0;
+  const nextState: ReplaySessionState = {
+    ...currentState,
     isActive: false, isPaused: false, isPersistent: false, isScrubbing: false,
     isLoopingPreview: false, disableSlowMo: false, isNetworkStreamed: false,
     hasRetainedReplay: hasRetained, lastDispatchedFrameIndex: -1,
     smoothedEye: null, smoothedTarget: null,
     cursorFloat: hasRetained
-      ? Math.max(0, Math.min(sessionState.activeFrames.length - 1, Math.floor(sessionState.cursorFloat)))
+      ? Math.max(0, Math.min(currentState.activeFrames.length - 1, Math.floor(currentState.cursorFloat)))
       : 0,
-  });
+  };
   if (hasRetained && wasNetworkStreamed) {
-    analyzeAndSyncReplayTouchTimelineState(sessionState, directorCamera, {
-      carTeamResolver: sessionState.carTeamResolver,
-      scorerCarIndex: sessionState.scorerCarIndex,
+    analyzeAndSyncReplayTouchTimelineState(nextState, directorCamera, {
+      carTeamResolver: nextState.carTeamResolver,
+      scorerCarIndex: nextState.scorerCarIndex,
     });
   }
   directorCamera.resetSmoothing();
   directorCamera.setPauseAndScrubState(false, false);
-  return hasRetained;
+  return nextState;
 }
 
-export function clearRetainedReplayState(
-  sessionState: ReplaySessionState,
+export function buildClearedRetainedReplaySessionState(
+  currentState: ReplaySessionState,
   directorCamera: ReplayDirectorCameraSubController
-): void {
-  Object.assign(sessionState, {
+): ReplaySessionState {
+  directorCamera.clearRetained();
+  return {
+    ...currentState,
     activeFrames: [], hasRetainedReplay: false, retainedReplaySeq: 0,
     isImportedPreview: false, importedFileName: null, importedSummary: null,
     cachedSuffixCameraPlan: null, useRecordedCsvCamera: false, isLoopingPreview: false,
     streamedFramesReceived: 0, cursorFloat: 0,
-  });
-  directorCamera.clearRetained();
+  };
 }
 
 export function executeReplayPlaybackStep(input: ExecuteReplayPlaybackStepInput): ReplayPlaybackStepResult {
@@ -235,13 +225,11 @@ export function executeReplayPlaybackStep(input: ExecuteReplayPlaybackStepInput)
     resolveTouchLookaheadForFrame, computeDramaticSlowMoFactor,
   } = input;
 
-  if (!sessionState.isPaused && sessionState.isScrubbing) {
-    Object.assign(sessionState, { isScrubbing: false });
-  }
-
+  let isPaused = sessionState.isPaused;
+  const isScrubbing = isPaused ? sessionState.isScrubbing : false;
   const isFollowingLiveStream =
     sessionState.isNetworkStreamed && sessionState.streamedFramesReceived > 0 &&
-    !sessionState.isPaused && !sessionState.isScrubbing && Math.abs(sessionState.playbackSpeed - 1.0) <= 0.01;
+    !isPaused && !isScrubbing && Math.abs(sessionState.playbackSpeed - 1.0) <= 0.01;
 
   const currentEntry = getFrameEntryByIndex(Math.floor(sessionState.cursorFloat));
   const useCsvPose = Boolean(
@@ -252,20 +240,15 @@ export function executeReplayPlaybackStep(input: ExecuteReplayPlaybackStepInput)
     ? Math.max(0.25, Math.min(1.0, currentEntry?.recordedCsvRow?.slow_mo_factor ?? 1.0))
     : computeDramaticSlowMoFactor(sessionState.cursorFloat);
 
-  let nextCursorFloat = sessionState.cursorFloat;
-  if (isFollowingLiveStream) {
-    nextCursorFloat = Math.max(0, total - 1);
-  } else if (!sessionState.isPaused) {
-    nextCursorFloat = Math.min(
-      total - 1,
-      sessionState.cursorFloat + Math.max(0, dtSeconds * REPLAY_TICK_RATE * sessionState.playbackSpeed * slowMoFactor)
-    );
-  }
-  Object.assign(sessionState, { cursorFloat: nextCursorFloat });
+  let cursorFloat = isFollowingLiveStream
+    ? Math.max(0, total - 1)
+    : !isPaused
+      ? Math.min(total - 1, sessionState.cursorFloat + Math.max(0, dtSeconds * REPLAY_TICK_RATE * sessionState.playbackSpeed * slowMoFactor))
+      : sessionState.cursorFloat;
 
-  const baseIdx = Math.max(0, Math.min(total - 1, Math.floor(sessionState.cursorFloat)));
+  const baseIdx = Math.max(0, Math.min(total - 1, Math.floor(cursorFloat)));
   const nextIdx = Math.min(total - 1, baseIdx + 1);
-  const alpha = Math.max(0, Math.min(1, sessionState.cursorFloat - baseIdx));
+  const alpha = Math.max(0, Math.min(1, cursorFloat - baseIdx));
 
   const prevEntry = getFrameEntryByIndex(baseIdx);
   const nextEntry = getFrameEntryByIndex(nextIdx) || prevEntry;
@@ -274,59 +257,58 @@ export function executeReplayPlaybackStep(input: ExecuteReplayPlaybackStepInput)
   const suffixPlan = !useCsvPose ? ensureSuffixCameraPlan() : null;
 
   const { embeddedTelemetry: embedded, resolvedScorerCarIndex } = directorCamera.syncForPlaybackStep({
-    baseIdx, nextIdx, alpha, useCsvPose,
-    cursorFloat: sessionState.cursorFloat,
-    isPaused: sessionState.isPaused,
-    isScrubbing: sessionState.isScrubbing,
+    baseIdx, nextIdx, alpha, useCsvPose, cursorFloat, isPaused, isScrubbing,
     prevEntry, nextEntry, currFrame, suffixPlan,
     scorerCarIndex: sessionState.scorerCarIndex,
     resolveTouchLookaheadForFrame: (idx, fb) => resolveTouchLookaheadForFrame(idx, fb),
   });
-  Object.assign(sessionState, { scorerCarIndex: resolvedScorerCarIndex });
 
-  if (
-    (applyToEngine || sessionState.isScrubbing || sessionState.isPaused || sessionState.playbackSpeed !== 1.0) &&
-    currFrame && engine
-  ) {
+  if ((applyToEngine || isScrubbing || isPaused || sessionState.playbackSpeed !== 1.0) && currFrame && engine) {
     applyStepFrameAndControlsToEngine(engine, currFrame, prevFrame, alpha, interpolator, prevEntry);
   }
 
   let incidents: ReplayIncidentEntry[] = [];
   let audioEvents: ReplayAudioCue[] = [];
   let signals: ReplaySignalEntry[] = [];
-  if (!sessionState.isPaused && baseIdx > sessionState.lastDispatchedFrameIndex) {
-    const dispatched = collectDispatchedEventsInWindow(
-      (idx) => getFrameEntryByIndex(idx),
-      sessionState.lastDispatchedFrameIndex,
-      baseIdx
-    );
+  let lastDispatchedFrameIndex = sessionState.lastDispatchedFrameIndex;
+  if (!isPaused && baseIdx > lastDispatchedFrameIndex) {
+    const dispatched = collectDispatchedEventsInWindow((idx) => getFrameEntryByIndex(idx), lastDispatchedFrameIndex, baseIdx);
     incidents = dispatched.incidents;
     audioEvents = dispatched.audioEvents;
     signals = dispatched.signals;
-    Object.assign(sessionState, { lastDispatchedFrameIndex: baseIdx });
+    lastDispatchedFrameIndex = baseIdx;
   }
 
-  let isFinished = sessionState.cursorFloat >= total - 1;
-  if (isFinished && sessionState.isLoopingPreview && !sessionState.isPaused && !sessionState.isScrubbing && total > 1) {
-    Object.assign(sessionState, { cursorFloat: 0, lastDispatchedFrameIndex: -1 });
+  let isFinished = cursorFloat >= total - 1;
+  if (isFinished && sessionState.isLoopingPreview && !isPaused && !isScrubbing && total > 1) {
+    cursorFloat = 0;
+    lastDispatchedFrameIndex = -1;
     directorCamera.resetSmoothing();
     isFinished = false;
-  } else if (isFinished && sessionState.isPersistent && !sessionState.isPaused) {
-    Object.assign(sessionState, { isPaused: true });
-    directorCamera.setPauseAndScrubState(true, sessionState.isScrubbing);
+  } else if (isFinished && sessionState.isPersistent && !isPaused) {
+    isPaused = true;
+    directorCamera.setPauseAndScrubState(true, isScrubbing);
   }
 
-  const effectiveProgress =
+  const nextSessionState: ReplaySessionState = {
+    ...sessionState,
+    cursorFloat, isPaused, isScrubbing,
+    scorerCarIndex: resolvedScorerCarIndex,
+    lastDispatchedFrameIndex,
+  };
+
+  const progress =
     embedded && typeof embedded.progress === 'number' && embedded.progress > 0
       ? embedded.progress
       : isFollowingLiveStream && sessionState.expectedDurationTicks > 1
-        ? Math.min(1, sessionState.cursorFloat / Math.max(1, sessionState.expectedDurationTicks - 1))
-        : total > 1 ? sessionState.cursorFloat / (total - 1) : 1;
+        ? Math.min(1, cursorFloat / Math.max(1, sessionState.expectedDurationTicks - 1))
+        : total > 1 ? cursorFloat / (total - 1) : 1;
 
   return {
     frame: currFrame, prevFrame, currFrame, alpha,
-    frameIndex: baseIdx, totalFrames: total, progress: effectiveProgress,
+    frameIndex: baseIdx, totalFrames: total, progress,
     slowMoFactor, activeTouchCarIndex: directorCamera.state.activeTouchCarIndex,
-    isFinished, incidents, signals, audioEvents,
+    isFinished, incidents, signals, audioEvents, nextSessionState,
   };
 }
+

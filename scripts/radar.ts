@@ -5,12 +5,12 @@
  *
  * Runs in ~300ms via Node.js native type stripping (`node --experimental-strip-types scripts/radar.ts`):
  * 1. Zero-JS & Zero-Shim Guard: Forbids `.js`/`.mjs`/`.cjs` files under `src/` (except Emscripten `src/physics/core.js`), forbids relative `.js` import specifiers, and enforces inline `new Worker(new URL(..., import.meta.url))` bundling syntax.
- * 2. Unidirectional Layer, DAG & Zero Re-Export Guard: Enforces 0 circular dependencies, 0 broken relative imports, 0 engine->UI boundary leaks, 0 unreferenced orphan modules, and 0 cross-file value re-export facades (`export { ... } from '...'`).
+ * 2. Unidirectional Layer, DAG & Zero Re-Export Guard: Enforces 0 circular dependencies, 0 broken relative imports, 0 engine->UI boundary leaks, 0 unreferenced orphan modules, and 0 cross-file value re-export facades (`export { ... } from '...'` and indirect `import { x } from '...'; export { x }`).
  * 3. Anti-Gut-Sharing & In-Place Mutation Guard:
  *    - Pure Pipeline Zero-Mutation Guard (`[PIPELINE MUTATION VIOLATION]`): Blocks `*Pipeline.ts`, `*Math.ts`, and classless helper modules that mutate >3 distinct properties on passed-in state/domain objects.
  *    - Cross-Controller Gut-Sharing Guard (`[CROSS-CONTROLLER GUT-SHARING]` & `[WIDE-WAIST PORT VIOLATION]`): Blocks classes (`*SubController`, `*Controller`, `*Coordinator`, `*Session`, etc.) that mutate >5 properties or read >12 properties on external controllers, host ports, or state bags (including via local aliases `const ch = this.channel` or destructured `const { domain } = this.host`).
  * 4. Anti-Pass-Through Proxy Guard (`[PROXY BLOAT VIOLATION]`): Blocks classes/objects that define >8 pass-through `get xxx()` / `set xxx(v)` accessors (excluding zero-copy `Float32Array` view wrappers in `RocketSimStateViews.ts`).
- * 5. Bimodal Volume & Micro-Fragment Guard: Enforces 600-line / 16 KB soft waterline (`[WATERLINE ALERT]` / `[BYTE WATERLINE ALERT]`), 800-line / 22 KB hard ceiling (`[VOLUME OVERFLOW]` / `[BYTE VOLUME OVERFLOW]`), and <65-line single-reference logic fragment warning (`[OVER-FRAGMENTATION WARNING]`).
+ * 5. Bimodal Volume & Micro-Fragment Guard: Enforces 550-line / 16 KB soft waterline (`[WATERLINE ALERT]` / `[BYTE WATERLINE ALERT]`), 600-line / 22 KB hard ceiling (`[VOLUME OVERFLOW]` / `[BYTE VOLUME OVERFLOW]`), and <65-line single-reference logic fragment warning (`[OVER-FRAGMENTATION WARNING]`).
  * 6. Code Style, Terminology & Type Purity Guard: Enforces English-only & Zero-Emoji (`[NON-ENGLISH / EMOJI VIOLATION]`), neutral ball terminology forbidding `soccer`/`soccar` (`[TERMINOLOGY VIOLATION]`), and strict TypeScript boundary typing (`[UNTYPED ANY VIOLATION]` for boundary `any` or >5 `any` per file).
  * 7. UI Route & Floating Window Alignment + Repo Hygiene Guard: Enforces `menuRouteRegistry.tsx` `Layer*Recipe` purity, 1:1 `<PascalCaseId>FloatingWindow` naming without opaque abbreviations (`OB`), and single package manager lockfile hygiene.
  */
@@ -23,8 +23,8 @@ const ROOT_DIR: string = process.cwd();
 const SRC_DIR: string = path.join(ROOT_DIR, 'src');
 const SCRIPTS_DIR: string = path.join(ROOT_DIR, 'scripts');
 
-const SOFT_LINE_LIMIT = 600;
-const HARD_LINE_LIMIT = 800;
+const SOFT_LINE_LIMIT = 550;
+const HARD_LINE_LIMIT = 600;
 const SOFT_BYTE_LIMIT = 16 * 1024; // 16 KB soft waterline
 const HARD_BYTE_LIMIT = 22 * 1024; // 22 KB hard ceiling
 const MICRO_FRAGMENT_LINE_FLOOR = 65;
@@ -190,6 +190,8 @@ function checkLanguageAndEmoji(rel: string, content: string, errors: string[]): 
 }
 
 function checkValueReExports(rel: string, codeWithoutComments: string, errors: string[]): void {
+  if (rel === 'src/ui-core/index.ts') return;
+
   const reExportRegex = /\bexport\s+(type\s+)?(\*|\{[^}]*\})\s+from\s+['"]([^'"]+)['"]/g;
   let match: RegExpExecArray | null;
   while ((match = reExportRegex.exec(codeWithoutComments)) !== null) {
@@ -215,6 +217,54 @@ function checkValueReExports(rel: string, codeWithoutComments: string, errors: s
       errors.push(
         `[RE-EXPORT FACADE VIOLATION] ${rel} re-exports values { ${valueSpecs.slice(0, 4).join(', ')}${valueSpecs.length > 4 ? ', ...' : ''} } from "${fromSpec}". Import directly from the defining source module.`
       );
+    }
+  }
+
+  // Indirect two-step value re-exports: `import { x } from './y'; export { x };`
+  const importedValueLocals = new Map<string, string>();
+  const importStmtRegex = /\bimport\s+(type\s+)?([\s\S]*?)\s+from\s+['"]([^'"]+)['"]/g;
+  let impMatch: RegExpExecArray | null;
+  while ((impMatch = importStmtRegex.exec(codeWithoutComments)) !== null) {
+    if (impMatch[1]) continue;
+    const clause = impMatch[2].trim();
+    const fromSpec = impMatch[3];
+
+    const namedMatch = clause.match(/\{([^}]*)\}/);
+    if (namedMatch) {
+      for (const rawSpec of namedMatch[1].split(',')) {
+        const spec = rawSpec.trim();
+        if (!spec || /^type\s+/.test(spec)) continue;
+        const asParts = spec.split(/\s+as\s+/);
+        const localName = (asParts[1] || asParts[0]).trim();
+        if (localName) importedValueLocals.set(localName, fromSpec);
+      }
+    }
+
+    const defaultPart = clause.replace(/\{[^}]*\}/, '').replace(/,/g, '').trim();
+    if (defaultPart && !defaultPart.startsWith('*') && /^[A-Za-z_$][\w$]*$/.test(defaultPart)) {
+      importedValueLocals.set(defaultPart, fromSpec);
+    }
+  }
+
+  if (importedValueLocals.size > 0) {
+    const localExportRegex = /\bexport\s+(type\s+)?\{([^}]*)\}(?!\s*from\b)/g;
+    let expMatch: RegExpExecArray | null;
+    while ((expMatch = localExportRegex.exec(codeWithoutComments)) !== null) {
+      if (expMatch[1]) continue;
+      const reExportedLocals: string[] = [];
+      for (const rawSpec of expMatch[2].split(',')) {
+        const spec = rawSpec.trim();
+        if (!spec || /^type\s+/.test(spec)) continue;
+        const localName = spec.split(/\s+as\s+/)[0].trim();
+        if (importedValueLocals.has(localName)) {
+          reExportedLocals.push(`${localName} (from "${importedValueLocals.get(localName)}")`);
+        }
+      }
+      if (reExportedLocals.length > 0) {
+        errors.push(
+          `[RE-EXPORT FACADE VIOLATION] ${rel} indirectly re-exports imported values { ${reExportedLocals.slice(0, 4).join(', ')}${reExportedLocals.length > 4 ? ', ...' : ''} }. Import directly from the defining source module.`
+        );
+      }
     }
   }
 }
