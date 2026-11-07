@@ -12,28 +12,20 @@ import {
   INCIDENT_EVENT_TYPES,
 } from '../physics/RocketSimConstants.ts';
 import type { ReplayTouchEvent } from './ReplayDirectorGazeSolver.ts';
-import {
-  ensureSuffixCameraPlan,
-  resolveTouchLookaheadForFrame,
-  resolveFocusCarForFrame,
-  computeDramaticSlowMoFactor,
-  type ReplayReboundEvent,
-  type SuffixCameraPlanInput,
-  type ResolveTouchLookaheadInput,
-  type DramaticSlowMoInput,
-  type ResolvedTouchLookahead,
+import type {
+  ReplayReboundEvent,
+  SuffixCameraPlanInput,
+  ResolveTouchLookaheadInput,
+  DramaticSlowMoInput,
+  ResolvedTouchLookahead,
 } from './replayTouchLookaheadPipeline.ts';
 
-export {
-  ensureSuffixCameraPlan,
-  resolveTouchLookaheadForFrame,
-  resolveFocusCarForFrame,
-  computeDramaticSlowMoFactor,
-  type ReplayReboundEvent,
-  type SuffixCameraPlanInput,
-  type ResolveTouchLookaheadInput,
-  type DramaticSlowMoInput,
-  type ResolvedTouchLookahead,
+export type {
+  ReplayReboundEvent,
+  SuffixCameraPlanInput,
+  ResolveTouchLookaheadInput,
+  DramaticSlowMoInput,
+  ResolvedTouchLookahead,
 };
 
 export interface ReplayTouchAnalysisConfig {
@@ -345,4 +337,98 @@ export function analyzeReplayTouchTimeline(
     resolvedLateralBias,
     initialSettledCarPos,
   };
+}
+
+export function analyzeAndSyncReplayTouchTimelineState(
+  sessionState: {
+    activeFrames: ReadonlyArray<any>;
+    scoringTeam: number;
+    isNetworkStreamed: boolean;
+    watchAllTouches: boolean;
+    carTeamResolver: ((carIndex: number) => number) | null;
+    scorerCarIndex: number;
+    reboundEvents?: ReplayReboundEvent[];
+    goalLineFrameIdx?: number;
+    lateralBias?: number;
+    cachedSuffixCameraPlan?: unknown;
+  },
+  directorCamera: { onTimelineAnalyzed: (res: ReplayTouchAnalysisResult) => void },
+  options: ReplayTouchAnalysisConfig = {}
+): void {
+  const res = analyzeReplayTouchTimeline(sessionState.activeFrames, {
+    scoringTeam: sessionState.scoringTeam,
+    isNetworkStreamed: sessionState.isNetworkStreamed,
+    watchAllTouches: sessionState.watchAllTouches,
+    carTeamResolver: options.carTeamResolver ?? sessionState.carTeamResolver,
+    scorerCarIndex: options.scorerCarIndex ?? sessionState.scorerCarIndex,
+  });
+  Object.assign(sessionState, {
+    reboundEvents: res.reboundEvents,
+    goalLineFrameIdx: res.goalLineFrameIdx,
+    lateralBias: res.resolvedLateralBias,
+    cachedSuffixCameraPlan: null,
+  });
+  directorCamera.onTimelineAnalyzed(res);
+}
+
+export function appendStreamedReplayFrameToState(
+  sessionState: {
+    activeFrames: any[];
+    streamedFramesReceived: number;
+    hasRetainedReplay: boolean;
+    scoringTeam: number;
+    isNetworkStreamed: boolean;
+    watchAllTouches: boolean;
+    carTeamResolver: ((carIndex: number) => number) | null;
+    scorerCarIndex: number;
+    isPaused: boolean;
+    isScrubbing: boolean;
+    cursorFloat: number;
+  },
+  directorCamera: {
+    onTimelineAnalyzed: (res: ReplayTouchAnalysisResult) => void;
+    preserveSmoothingAround: (fn: () => void) => void;
+    applyStreamedTelemetry: (snap: Float32Array, isFollowingLive: boolean, scorerCarIndex: number) => number;
+  },
+  stateSnapshot: Float32Array | number[],
+  serverTick = 0,
+  acknowledgedControls: any[] | null = null
+): number {
+  if (!stateSnapshot || stateSnapshot.length < 410) return 0;
+  const snap = new Float32Array(stateSnapshot.length);
+  snap.set(stateSnapshot);
+
+  const nextFrames = sessionState.streamedFramesReceived === 0 ? [] : sessionState.activeFrames;
+  const nextCount = sessionState.streamedFramesReceived + 1;
+  const tick = Math.floor(snap[SIM_OFFSETS.TICK] || serverTick || nextCount);
+  const lastEntry = nextFrames.length > 0 ? nextFrames[nextFrames.length - 1] : null;
+
+  if (!lastEntry || lastEntry.tick !== tick) {
+    nextFrames.push({
+      tick, snapshot: snap, acknowledgedControls: acknowledgedControls || null,
+      incidents: [], signals: [], audioEvents: [],
+    });
+    Object.assign(sessionState, {
+      activeFrames: nextFrames, streamedFramesReceived: nextCount, hasRetainedReplay: true,
+    });
+    directorCamera.preserveSmoothingAround(() => {
+      analyzeAndSyncReplayTouchTimelineState(sessionState, directorCamera, {
+        carTeamResolver: sessionState.carTeamResolver,
+        scorerCarIndex: sessionState.scorerCarIndex,
+      });
+    });
+  } else {
+    Object.assign(sessionState, { activeFrames: nextFrames, streamedFramesReceived: nextCount });
+    if (acknowledgedControls && !lastEntry.acknowledgedControls) {
+      lastEntry.acknowledgedControls = acknowledgedControls;
+    }
+  }
+
+  const isFollowingLive = !sessionState.isPaused && !sessionState.isScrubbing;
+  const resolvedScorer = directorCamera.applyStreamedTelemetry(snap, isFollowingLive, sessionState.scorerCarIndex);
+  Object.assign(sessionState, {
+    scorerCarIndex: resolvedScorer,
+    ...(isFollowingLive ? { cursorFloat: Math.max(0, sessionState.activeFrames.length - 1) } : {}),
+  });
+  return sessionState.activeFrames.length;
 }

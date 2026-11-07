@@ -51,13 +51,9 @@ export const BALL_FIELD_OFFSETS = Object.freeze({
 });
 
 export const CAR_FIELD_OFFSETS = Object.freeze({
-  POS_X: 0, POS_Y: 1, POS_Z: 2,
-  FWD_X: 3, FWD_Y: 4, FWD_Z: 5,
-  RIGHT_X: 6, RIGHT_Y: 7, RIGHT_Z: 8,
-  UP_X: 9, UP_Y: 10, UP_Z: 11,
-  VEL_X: 12, VEL_Y: 13, VEL_Z: 14,
-  BOOST: 18, IS_ON_GROUND: 19, IS_SUPERSONIC: 20,
-  IS_DEMOED: 21, HAS_FLIPPED_OR_DOUBLE_JUMPED: 22, IS_BOOSTING: 23,
+  POS_X: 0, POS_Y: 1, POS_Z: 2, FWD_X: 3, FWD_Y: 4, FWD_Z: 5, RIGHT_X: 6, RIGHT_Y: 7, RIGHT_Z: 8,
+  UP_X: 9, UP_Y: 10, UP_Z: 11, VEL_X: 12, VEL_Y: 13, VEL_Z: 14, BOOST: 18, IS_ON_GROUND: 19,
+  IS_SUPERSONIC: 20, IS_DEMOED: 21, HAS_FLIPPED_OR_DOUBLE_JUMPED: 22, IS_BOOSTING: 23,
 });
 
 export interface OrthonormalBasis {
@@ -112,13 +108,9 @@ export function initBlankSnapshotBuffer(tick: number, numCars: number): Float32A
   buf[bBase + 3] = 1; buf[bBase + 7] = 1; buf[bBase + 11] = 1;
 
   for (let c = 0; c < MAX_CARS; c++) {
-    const base = SIM_OFFSETS.CARS + c * CAR_STATE_STRIDE;
-    buf[base + CAR_FIELD_OFFSETS.POS_X] = -9999;
-    buf[base + CAR_FIELD_OFFSETS.POS_Y] = -9999;
-    buf[base + CAR_FIELD_OFFSETS.POS_Z] = -500;
-    buf[base + CAR_FIELD_OFFSETS.FWD_Y] = 1;
-    buf[base + CAR_FIELD_OFFSETS.RIGHT_X] = -1;
-    buf[base + CAR_FIELD_OFFSETS.UP_Z] = 1;
+    const base = SIM_OFFSETS.CARS + c * CAR_STATE_STRIDE, O = CAR_FIELD_OFFSETS;
+    buf[base + O.POS_X] = -9999; buf[base + O.POS_Y] = -9999; buf[base + O.POS_Z] = -500;
+    buf[base + O.FWD_Y] = 1; buf[base + O.RIGHT_X] = -1; buf[base + O.UP_Z] = 1;
   }
 
   for (let p = 0; p < NUM_BOOST_PADS; p++) {
@@ -130,52 +122,25 @@ export function initBlankSnapshotBuffer(tick: number, numCars: number): Float32A
 }
 
 export function writeBallStateToSnapshot(
-  snap: Float32Array,
-  bx: number, by: number, bz: number,
-  bvx: number, bvy: number, bvz: number
+  snap: Float32Array, bx: number, by: number, bz: number, bvx: number, bvy: number, bvz: number
 ): void {
   const bBase = SIM_OFFSETS.BALL;
-  snap[bBase + BALL_FIELD_OFFSETS.POS_X] = bx;
-  snap[bBase + BALL_FIELD_OFFSETS.POS_Y] = by;
-  snap[bBase + BALL_FIELD_OFFSETS.POS_Z] = bz;
-  snap[bBase + BALL_FIELD_OFFSETS.VEL_X] = bvx;
-  snap[bBase + BALL_FIELD_OFFSETS.VEL_Y] = bvy;
-  snap[bBase + BALL_FIELD_OFFSETS.VEL_Z] = bvz;
+  snap[bBase + BALL_FIELD_OFFSETS.POS_X] = bx; snap[bBase + BALL_FIELD_OFFSETS.POS_Y] = by; snap[bBase + BALL_FIELD_OFFSETS.POS_Z] = bz;
+  snap[bBase + BALL_FIELD_OFFSETS.VEL_X] = bvx; snap[bBase + BALL_FIELD_OFFSETS.VEL_Y] = bvy; snap[bBase + BALL_FIELD_OFFSETS.VEL_Z] = bvz;
 }
 
 export function writeCarStateToSnapshot(
-  snap: Float32Array,
-  carIndex: number,
-  pos: [number, number, number],
-  vel: [number, number, number],
-  basis: OrthonormalBasis,
-  boost: number,
-  onGround: boolean,
-  demoed: boolean,
-  isBoosting: boolean,
-  supersonic: boolean
+  snap: Float32Array, carIndex: number, pos: [number, number, number], vel: [number, number, number],
+  b: OrthonormalBasis, boost: number, onGround: boolean, demoed: boolean, isBoosting: boolean, supersonic: boolean
 ): void {
-  const cBase = SIM_OFFSETS.CARS + carIndex * CAR_STATE_STRIDE;
-  snap[cBase + CAR_FIELD_OFFSETS.POS_X] = pos[0];
-  snap[cBase + CAR_FIELD_OFFSETS.POS_Y] = pos[1];
-  snap[cBase + CAR_FIELD_OFFSETS.POS_Z] = pos[2];
-  snap[cBase + CAR_FIELD_OFFSETS.VEL_X] = vel[0];
-  snap[cBase + CAR_FIELD_OFFSETS.VEL_Y] = vel[1];
-  snap[cBase + CAR_FIELD_OFFSETS.VEL_Z] = vel[2];
-  snap[cBase + CAR_FIELD_OFFSETS.FWD_X] = basis.fx;
-  snap[cBase + CAR_FIELD_OFFSETS.FWD_Y] = basis.fy;
-  snap[cBase + CAR_FIELD_OFFSETS.FWD_Z] = basis.fz;
-  snap[cBase + CAR_FIELD_OFFSETS.RIGHT_X] = basis.rx;
-  snap[cBase + CAR_FIELD_OFFSETS.RIGHT_Y] = basis.ry;
-  snap[cBase + CAR_FIELD_OFFSETS.RIGHT_Z] = basis.rz;
-  snap[cBase + CAR_FIELD_OFFSETS.UP_X] = basis.ux;
-  snap[cBase + CAR_FIELD_OFFSETS.UP_Y] = basis.uy;
-  snap[cBase + CAR_FIELD_OFFSETS.UP_Z] = basis.uz;
-  snap[cBase + CAR_FIELD_OFFSETS.BOOST] = boost;
-  snap[cBase + CAR_FIELD_OFFSETS.IS_ON_GROUND] = onGround ? 1 : 0;
-  snap[cBase + CAR_FIELD_OFFSETS.IS_DEMOED] = demoed ? 1 : 0;
-  snap[cBase + CAR_FIELD_OFFSETS.IS_BOOSTING] = isBoosting ? 1 : 0;
-  snap[cBase + CAR_FIELD_OFFSETS.IS_SUPERSONIC] = supersonic ? 1 : 0;
+  const c = SIM_OFFSETS.CARS + carIndex * CAR_STATE_STRIDE, O = CAR_FIELD_OFFSETS;
+  snap[c + O.POS_X] = pos[0]; snap[c + O.POS_Y] = pos[1]; snap[c + O.POS_Z] = pos[2];
+  snap[c + O.VEL_X] = vel[0]; snap[c + O.VEL_Y] = vel[1]; snap[c + O.VEL_Z] = vel[2];
+  snap[c + O.FWD_X] = b.fx; snap[c + O.FWD_Y] = b.fy; snap[c + O.FWD_Z] = b.fz;
+  snap[c + O.RIGHT_X] = b.rx; snap[c + O.RIGHT_Y] = b.ry; snap[c + O.RIGHT_Z] = b.rz;
+  snap[c + O.UP_X] = b.ux; snap[c + O.UP_Y] = b.uy; snap[c + O.UP_Z] = b.uz;
+  snap[c + O.BOOST] = boost; snap[c + O.IS_ON_GROUND] = onGround ? 1 : 0;
+  snap[c + O.IS_DEMOED] = demoed ? 1 : 0; snap[c + O.IS_BOOSTING] = isBoosting ? 1 : 0; snap[c + O.IS_SUPERSONIC] = supersonic ? 1 : 0;
 }
 
 interface LegacyPatternCarJson {
@@ -269,12 +234,8 @@ export function parseDirectorDiagnosticPatternJson(
     const tick = Math.round(f.frameId ?? i);
     const snap = initBlankSnapshotBuffer(tick, maxCars);
 
-    writeBallStateToSnapshot(
-      snap,
-      f.ball?.pos?.[0] ?? 0, f.ball?.pos?.[1] ?? 0, f.ball?.pos?.[2] ?? 93,
-      f.ball?.vel?.[0] ?? 0, f.ball?.vel?.[1] ?? 0, f.ball?.vel?.[2] ?? 0
-    );
-
+    const bPos = f.ball?.pos, bVel = f.ball?.vel;
+    writeBallStateToSnapshot(snap, bPos?.[0] ?? 0, bPos?.[1] ?? 0, bPos?.[2] ?? 93, bVel?.[0] ?? 0, bVel?.[1] ?? 0, bVel?.[2] ?? 0);
     if (Array.isArray(f.cars)) {
       for (const car of f.cars) {
         const c = car.carIndex ?? 0;
@@ -284,25 +245,15 @@ export function parseDirectorDiagnosticPatternJson(
           car.up?.[0] ?? 0, car.up?.[1] ?? 0, car.up?.[2] ?? 1
         );
         writeCarStateToSnapshot(
-          snap,
-          c,
-          [car.pos?.[0] ?? 0, car.pos?.[1] ?? 0, car.pos?.[2] ?? 17],
-          [car.vel?.[0] ?? 0, car.vel?.[1] ?? 0, car.vel?.[2] ?? 0],
-          basis,
+          snap, c, [car.pos?.[0] ?? 0, car.pos?.[1] ?? 0, car.pos?.[2] ?? 17],
+          [car.vel?.[0] ?? 0, car.vel?.[1] ?? 0, car.vel?.[2] ?? 0], basis,
           car.boost ?? (car.boostPct ?? 50) / 100,
-          Boolean(car.onGround),
-          Boolean(car.demoed),
-          Boolean(car.isBoosting),
-          Boolean(car.supersonic)
+          Boolean(car.onGround), Boolean(car.demoed), Boolean(car.isBoosting), Boolean(car.supersonic)
         );
       }
     }
-
-    const la = f.lookahead || {};
-    const cp = f.cameraPose || {};
-    const focusCar =
-      (Array.isArray(f.cars) && f.cars.find((c: LegacyPatternCarJson) => c.carIndex === la.activeTouchCarIndex)) ||
-      f.cars?.[0] || null;
+    const la = f.lookahead || {}, cp = f.cameraPose || {};
+    const focusCar = (Array.isArray(f.cars) && f.cars.find((c: LegacyPatternCarJson) => c.carIndex === la.activeTouchCarIndex)) || f.cars?.[0] || null;
 
     const recordedCsvRow = {
       frame_id: tick, replay_frame_index: i,
@@ -317,12 +268,8 @@ export function parseDirectorDiagnosticPatternJson(
       cam_eye_x: cp.eyeUnreal?.[0] ?? 0, cam_eye_y: cp.eyeUnreal?.[1] ?? 0, cam_eye_z: cp.eyeUnreal?.[2] ?? 0,
       cam_target_x: cp.targetUnreal?.[0] ?? 0, cam_target_y: cp.targetUnreal?.[1] ?? 0, cam_target_z: cp.targetUnreal?.[2] ?? 0,
       cam_dist_to_target: cp.distanceToTarget ?? 0, cam_yaw_deg: cp.yawDeg ?? 0, cam_pitch_deg: cp.pitchDeg ?? 0,
-      raw_eye_x: cp.rawUndampedEyeUnreal?.[0] ?? cp.eyeUnreal?.[0] ?? 0,
-      raw_eye_y: cp.rawUndampedEyeUnreal?.[1] ?? cp.eyeUnreal?.[1] ?? 0,
-      raw_eye_z: cp.rawUndampedEyeUnreal?.[2] ?? cp.eyeUnreal?.[2] ?? 0,
-      raw_target_x: cp.rawUndampedTargetUnreal?.[0] ?? cp.targetUnreal?.[0] ?? 0,
-      raw_target_y: cp.rawUndampedTargetUnreal?.[1] ?? cp.targetUnreal?.[1] ?? 0,
-      raw_target_z: cp.rawUndampedTargetUnreal?.[2] ?? cp.targetUnreal?.[2] ?? 0,
+      raw_eye_x: cp.rawUndampedEyeUnreal?.[0] ?? cp.eyeUnreal?.[0] ?? 0, raw_eye_y: cp.rawUndampedEyeUnreal?.[1] ?? cp.eyeUnreal?.[1] ?? 0, raw_eye_z: cp.rawUndampedEyeUnreal?.[2] ?? cp.eyeUnreal?.[2] ?? 0,
+      raw_target_x: cp.rawUndampedTargetUnreal?.[0] ?? cp.targetUnreal?.[0] ?? 0, raw_target_y: cp.rawUndampedTargetUnreal?.[1] ?? cp.targetUnreal?.[1] ?? 0, raw_target_z: cp.rawUndampedTargetUnreal?.[2] ?? cp.targetUnreal?.[2] ?? 0,
       ball_x: f.ball?.pos?.[0] ?? 0, ball_y: f.ball?.pos?.[1] ?? 0, ball_z: f.ball?.pos?.[2] ?? 93,
       ball_vx: f.ball?.vel?.[0] ?? 0, ball_vy: f.ball?.vel?.[1] ?? 0, ball_vz: f.ball?.vel?.[2] ?? 0,
       ball_speed_kph: f.ball?.speedKph ?? 0,

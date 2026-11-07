@@ -7,7 +7,7 @@ import {
   INCIDENT_EVENT_TYPES,
   MATCH_SIGNALS,
 } from '../../physics/RocketSimConstants.ts';
-import { resolveReplayAudioCueForSignal } from '../ReplayRingBuffer.ts';
+import { resolveReplayAudioCueForSignal } from '../ReplayBufferSliceExtractor.ts';
 import type {
   DecodedIncidentEvent,
   DecodedSignalEvent,

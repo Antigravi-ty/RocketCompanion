@@ -24,11 +24,7 @@ import {
   type RawReplayCarEntryLike,
 } from './replayDirectorCarRosterPipeline.ts';
 
-export {
-  parseDirectorDiagnosticPatternCsv,
-  parseDirectorDiagnosticPatternJson,
-  type ParsedDirectorDiagnosticPattern,
-};
+export type { ParsedDirectorDiagnosticPattern };
 
 async function decompressBytesIfGzip(
   bytesOrBuffer: Uint8Array | ArrayBuffer

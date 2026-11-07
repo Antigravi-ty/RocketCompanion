@@ -7,16 +7,16 @@ import { REPLAY_TICK_RATE } from './ReplayRingBuffer.ts';
 import { computeGoalReplayCameraPose } from './ReplayDirectorCamera.ts';
 import { decodeReplayDirectorTelemetryFromState } from './ReplayFrameInterpolator.ts';
 import type { SuffixDirectorTrajectoryPlan } from './ReplayDirectorTrajectoryPlanner.ts';
-import { resolveGoalExplosionFrameIndex, type ReplayTouchEvent } from './ReplayDirectorGazeSolver.ts';
+import { ensureSuffixCameraPlan } from './replayTouchLookaheadPipeline.ts';
+import type { ReplayTouchEvent } from './ReplayDirectorGazeSolver.ts';
 import type { ReplayTouchAnalysisResult } from './ReplayTouchTimelineAnalyzer.ts';
 import {
   createInitialDirectorCameraState,
   type DirectorCameraPose,
   type DirectorCameraState,
-  type ImportedDiagnosticPatternInput,
   type RefreshDirectorPoseInput,
   type ReplaySessionInitOptions,
-  type ReplayTimelineFrameEntry,
+  type ReplaySessionState,
   type StepDirectorCameraSyncInput,
   type StepDirectorCameraSyncResult,
 } from './replayDirectorStateTypes.ts';
@@ -53,6 +53,26 @@ export class ReplayDirectorCameraSubController {
     }
   }
 
+  ensureSuffixCameraPlanForSession(sessionState: ReplaySessionState): SuffixDirectorTrajectoryPlan | null {
+    const d = this.state;
+    const plan = ensureSuffixCameraPlan(sessionState.activeFrames, {
+      isNetworkStreamed: sessionState.isNetworkStreamed,
+      streamedFramesReceived: sessionState.streamedFramesReceived,
+      expectedDurationTicks: sessionState.expectedDurationTicks,
+      cachedPlan: sessionState.cachedSuffixCameraPlan,
+      scoringTeam: sessionState.scoringTeam,
+      scorerCarIndex: d.scorerCarIndex ?? sessionState.scorerCarIndex ?? 0,
+      goalLineFrameIdx: d.goalLineFrameIdx ?? -1,
+      touchEvents: d.touchEvents || [],
+      carTeamResolver: sessionState.carTeamResolver,
+      lateralBias: d.lateralBias,
+      initialSettledCarPos: d.initialSettledCarPos,
+    });
+    sessionState.cachedSuffixCameraPlan = plan;
+    this.setSuffixCameraPlan(plan);
+    return plan;
+  }
+
   onTimelineAnalyzed(res: ReplayTouchAnalysisResult): void {
     const d = this.state;
     d.touchEvents = res.touchEvents;
@@ -84,37 +104,6 @@ export class ReplayDirectorCameraSubController {
       this.state.lateralBias = options.lateralBias;
       this.state.hasResolvedInitialLateralBias = true;
     }
-  }
-
-  applyImportedPatternOverrides(
-    parsedPattern: ImportedDiagnosticPatternInput,
-    activeFrames: ReplayTimelineFrameEntry[],
-    scoringTeam: number,
-    currentGoalLineFrameIdx: number
-  ): number {
-    let resolvedGoalLineFrameIdx = currentGoalLineFrameIdx;
-    if (Array.isArray(parsedPattern.touchEvents) && parsedPattern.touchEvents.length > 0) {
-      this.state.touchEvents = parsedPattern.touchEvents.map((t: ReplayTouchEvent) => ({ ...t }));
-    }
-    if (typeof parsedPattern.lastScoringTouchFrameIdx === 'number' && parsedPattern.lastScoringTouchFrameIdx >= 0) {
-      this.state.lastScoringTouchFrameIdx = parsedPattern.lastScoringTouchFrameIdx;
-    }
-    if (typeof parsedPattern.goalLineFrameIdx === 'number' && parsedPattern.goalLineFrameIdx >= 0) {
-      resolvedGoalLineFrameIdx = resolveGoalExplosionFrameIndex(
-        activeFrames,
-        (scoringTeam ?? 0) === 0 ? 1.0 : -1.0,
-        parsedPattern.goalLineFrameIdx
-      );
-      this.state.goalLineFrameIdx = resolvedGoalLineFrameIdx;
-    }
-    if (parsedPattern.initialSettledCarPos && typeof parsedPattern.initialSettledCarPos === 'object') {
-      this.state.initialSettledCarPos = { ...parsedPattern.initialSettledCarPos };
-    }
-    if (typeof parsedPattern.lateralBias === 'number' && parsedPattern.lateralBias !== 0) {
-      this.state.lateralBias = parsedPattern.lateralBias;
-      this.state.hasResolvedInitialLateralBias = true;
-    }
-    return resolvedGoalLineFrameIdx;
   }
 
   preserveSmoothingAround(runTouchAnalysis: () => void): void {
@@ -173,6 +162,30 @@ export class ReplayDirectorCameraSubController {
     }
     if ((d.postGoalElapsedSec ?? 0) <= 0) d.goalAnchorEyeY = undefined;
     return resolvedScorer;
+  }
+
+
+  refreshSessionDirectorPose(
+    sessionState: ReplaySessionState,
+    totalFrames: number,
+    getFrameEntryByIndex: (index: number) => RefreshDirectorPoseInput['getFrameEntryByIndex'] extends (i: number) => infer R ? R : never,
+    getFrameBufferByIndex: (index: number) => Float32Array | null,
+    resolveTouchLookaheadForFrame: (frameIdx: number, fallbackScorerCarIndex: number) => ReturnType<RefreshDirectorPoseInput['resolveTouchLookaheadForFrame']>
+  ): DirectorCameraPose | null {
+    return this.refreshPoseAtCursor({
+      totalFrames,
+      cursorFloat: sessionState.cursorFloat,
+      isPaused: sessionState.isPaused,
+      isScrubbing: sessionState.isScrubbing,
+      isImportedPreview: sessionState.isImportedPreview,
+      useRecordedCsvCamera: sessionState.useRecordedCsvCamera,
+      scoringTeam: sessionState.scoringTeam,
+      scorerCarIndex: sessionState.scorerCarIndex,
+      getFrameEntryByIndex,
+      getFrameBufferByIndex,
+      ensureSuffixCameraPlan: () => this.ensureSuffixCameraPlanForSession(sessionState),
+      resolveTouchLookaheadForFrame,
+    });
   }
 
   refreshPoseAtCursor(input: RefreshDirectorPoseInput): DirectorCameraPose | null {

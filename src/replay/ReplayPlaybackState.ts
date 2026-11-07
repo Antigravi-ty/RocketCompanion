@@ -5,7 +5,8 @@
  */
 
 import { MATCH_SIGNALS } from '../physics/RocketSimConstants.ts';
-import { REPLAY_TICK_RATE, resolveReplayAudioCueForSignal } from './ReplayRingBuffer.ts';
+import { REPLAY_TICK_RATE } from './ReplayRingBuffer.ts';
+import { resolveReplayAudioCueForSignal } from './ReplayBufferSliceExtractor.ts';
 import {
   unpackControls64ToCars,
   unpackIncidentTrackToEvents,
@@ -16,10 +17,10 @@ import {
 import type { ReplayRingBuffer, ReplayRingBufferSlot } from './ReplayRingBuffer.ts';
 
 export const REPLAY_PLAYBACK_SPEEDS = Object.freeze([0.25, 0.5, 1.0, 2.0]);
-export const DEFAULT_GOAL_REPLAY_TICKS = 360; // 3.0s @ 120Hz
-export const DEFAULT_GOAL_LOOKBACK_SECONDS = 10.0; // Max 10.0s before goal incident (1200 ticks @ 120Hz)
-export const DEFAULT_SCORER_TOUCH_LOOKBACK_SECONDS = 7.0; // Max 7.0s before scorer's last touch (840 ticks @ 120Hz)
-export const DEFAULT_GOAL_POST_SECONDS = 3.0; // 3.0s after goal incident (360 ticks @ 120Hz)
+export const DEFAULT_GOAL_REPLAY_TICKS = 360;
+export const DEFAULT_GOAL_LOOKBACK_SECONDS = 10.0;
+export const DEFAULT_SCORER_TOUCH_LOOKBACK_SECONDS = 7.0;
+export const DEFAULT_GOAL_POST_SECONDS = 3.0;
 
 interface WasmEventTrackMaps {
   incidentsByFrame: Map<number, DecodedIncidentEvent[]>;
@@ -46,19 +47,13 @@ function decodeWasmEventTrackMaps(engine: any): WasmEventTrackMaps {
       const fIdx = inc.frameIndex ?? -1;
       if (fIdx >= 0) {
         let arr = incidentsByFrame.get(fIdx);
-        if (!arr) {
-          arr = [];
-          incidentsByFrame.set(fIdx, arr);
-        }
+        if (!arr) { arr = []; incidentsByFrame.set(fIdx, arr); }
         arr.push(inc);
       }
       const tick = inc.tick ?? -1;
       if (tick >= 0) {
         let tArr = incidentsByTick.get(tick);
-        if (!tArr) {
-          tArr = [];
-          incidentsByTick.set(tick, tArr);
-        }
+        if (!tArr) { tArr = []; incidentsByTick.set(tick, tArr); }
         tArr.push(inc);
       }
     }
@@ -72,19 +67,13 @@ function decodeWasmEventTrackMaps(engine: any): WasmEventTrackMaps {
       const fIdx = sig.frameIndex ?? -1;
       if (fIdx >= 0) {
         let arr = signalsByFrame.get(fIdx);
-        if (!arr) {
-          arr = [];
-          signalsByFrame.set(fIdx, arr);
-        }
+        if (!arr) { arr = []; signalsByFrame.set(fIdx, arr); }
         arr.push(sig);
       }
       const tick = sig.frameId ?? -1;
       if (tick >= 0) {
         let tArr = signalsByTick.get(tick);
-        if (!tArr) {
-          tArr = [];
-          signalsByTick.set(tick, tArr);
-        }
+        if (!tArr) { tArr = []; signalsByTick.set(tick, tArr); }
         tArr.push(sig);
       }
     }
@@ -158,30 +147,17 @@ export interface GoalReplayWindowBounds {
   clampedByKickoff: boolean;
 }
 
-/**
- * Computes the effective Goal Replay frame bounds [effectiveStartFrame, effectiveEndFrame]
- * around `goalIncidentTick`.
- *
- * Online / Exhibition Goal Replay Two-Timestamp Rule:
- * - Timestamp A: `goalIncidentTick - lookbackSeconds` (default 10s = 1200 ticks before goal)
- * - Timestamp B: `scorerTouchTick - touchLookbackSeconds` (default 7s = 840 ticks before scorer's last touch)
- * Whichever lookback duration is shorter (`Math.max(TimestampA, TimestampB)`) is selected,
- * then clamped to the most recent `KICKOFF_WILL_START` tick (`lastKickoffWillStartTick`).
- */
+
 export function resolveGoalReplayWindowBounds(
   options: GoalReplayWindowOptions = {}
 ): GoalReplayWindowBounds {
   const {
-    goalIncidentTick = null,
-    scorerTouchTick = -1,
+    goalIncidentTick = null, scorerTouchTick = -1,
     lookbackSeconds = DEFAULT_GOAL_LOOKBACK_SECONDS,
     touchLookbackSeconds = DEFAULT_SCORER_TOUCH_LOOKBACK_SECONDS,
     postGoalSeconds = DEFAULT_GOAL_POST_SECONDS,
-    preGoalTicks = null,
-    postGoalTicks = null,
-    lastKickoffWillStartTick = -1,
-    ringBuffer = null,
-    signalLog = null
+    preGoalTicks = null, postGoalTicks = null,
+    lastKickoffWillStartTick = -1, ringBuffer = null, signalLog = null,
   } = options;
 
   const resolvedPreTicks = typeof preGoalTicks === 'number' && Number.isFinite(preGoalTicks)
@@ -290,26 +266,15 @@ export function resolveGoalReplayWindowBounds(
   };
 }
 
-/**
- * Extracts a chronological slice of replay frames from either a ReplayRingBuffer
- * or the 256MB C++ WASM Replay Buffer (getReplayFrameByOffset).
- */
+
 export function extractGoalReplayFrames(
   options: GoalReplayWindowOptions = {}
 ): ReplayRingBufferSlot[] {
   const {
-    ringBuffer = null,
-    engine = null,
-    durationTicks = DEFAULT_GOAL_REPLAY_TICKS,
-    goalIncidentTick = null,
-    scorerTouchTick = -1,
-    lookbackSeconds = undefined,
-    touchLookbackSeconds = undefined,
-    postGoalSeconds = undefined,
-    preGoalTicks = null,
-    postGoalTicks = null,
-    lastKickoffWillStartTick = -1,
-    signalLog = null
+    ringBuffer = null, engine = null, durationTicks = DEFAULT_GOAL_REPLAY_TICKS,
+    goalIncidentTick = null, scorerTouchTick = -1,
+    lookbackSeconds = undefined, touchLookbackSeconds = undefined, postGoalSeconds = undefined,
+    preGoalTicks = null, postGoalTicks = null, lastKickoffWillStartTick = -1, signalLog = null,
   } = options;
 
   const hasExplicitGoalWindow =
@@ -396,4 +361,55 @@ export function extractGoalReplayFrames(
   }
 
   return [];
+}
+
+export function resolveTimelineFrameEntryAt<T extends { snapshot?: Float32Array | null }>(
+  activeFrames: T[],
+  ringBuffer: ReplayRingBuffer | null,
+  index: number
+): T | ReplayRingBufferSlot | null {
+  if (Array.isArray(activeFrames) && activeFrames.length > 0) {
+    return activeFrames[Math.max(0, Math.min(activeFrames.length - 1, Math.floor(index)))] || null;
+  }
+  if (ringBuffer && ringBuffer.size > 0) {
+    return ringBuffer.getFrameAt(Math.max(0, Math.min(ringBuffer.size - 1, Math.floor(index)))) || null;
+  }
+  return null;
+}
+
+export function resolveTimelineFrameBufferAt(
+  activeFrames: ReadonlyArray<{ snapshot?: Float32Array | null }>,
+  engine: { getReplayFrameCount?: () => number; getReplayFrameByIndex?: (index: number) => Float32Array | null } | null,
+  ringBuffer: ReplayRingBuffer | null,
+  index: number
+): Float32Array | null {
+  if (Array.isArray(activeFrames) && activeFrames.length > 0) {
+    return activeFrames[Math.max(0, Math.min(activeFrames.length - 1, Math.floor(index)))]?.snapshot || null;
+  }
+  if (engine && typeof engine.getReplayFrameByIndex === 'function') {
+    const wasmCount = engine.getReplayFrameCount?.() ?? 0;
+    if (wasmCount > 0) return engine.getReplayFrameByIndex(Math.max(0, Math.min(wasmCount - 1, Math.floor(index))));
+  }
+  if (ringBuffer && ringBuffer.size > 0) {
+    return ringBuffer.getFrameAt(Math.max(0, Math.min(ringBuffer.size - 1, Math.floor(index))))?.snapshot || null;
+  }
+  return null;
+}
+
+export function resolveTimelineFrameBufferByOffset(
+  activeFrames: ReadonlyArray<{ snapshot?: Float32Array | null }>,
+  engine: { getReplayFrameByOffset?: (ticksAgo: number) => Float32Array | null } | null,
+  ringBuffer: ReplayRingBuffer | null,
+  ticksAgo = 0
+): Float32Array | null {
+  const safeOffset = Math.max(0, Math.floor(ticksAgo));
+  if (Array.isArray(activeFrames) && activeFrames.length > 0) {
+    return activeFrames[Math.max(0, activeFrames.length - 1 - safeOffset)]?.snapshot || null;
+  }
+  if (engine && typeof engine.getReplayFrameByOffset === 'function') {
+    const wasmFrame = engine.getReplayFrameByOffset(safeOffset);
+    if (wasmFrame) return wasmFrame;
+  }
+  if (ringBuffer && ringBuffer.size > 0) return ringBuffer.getFrameByOffset(safeOffset)?.snapshot || null;
+  return null;
 }

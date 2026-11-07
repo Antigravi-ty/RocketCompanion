@@ -4,7 +4,7 @@
  * Goal Replay Controller, and main-thread audio/HUD event dispatcher.
  */
 
-import { resolveReplayAudioCueForSignal } from './ReplayRingBuffer.ts';
+import { resolveReplayAudioCueForSignal } from './ReplayBufferSliceExtractor.ts';
 import {
   MAX_CARS,
   PHYSICS_EVENT_TYPES,
