@@ -26,7 +26,7 @@ import type { LobbyGhostConfigOptions } from './LobbyGhostCarCoordinator.ts';
 import type { CarControlsInput } from '../protocol/GlobalPayloadCodec.ts';
 import type { ClientReliableCommand } from './match/MatchCommandQueueSubController.ts';
 
-export { HOST_WORKER_MSG_TYPES, createWorkerEnvelope };
+export type { WorkerRouterContext };
 
 export interface WorkerRoomStateSummary {
   roomId: string;
@@ -46,8 +46,6 @@ export interface WorkerRoomStateSummary {
   pads: unknown;
   roster: RosterSnapshot;
 }
-
-export type { WorkerRouterContext };
 
 export interface HostWorkerInitOptions {
   roomId?: string;
