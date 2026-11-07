@@ -38,6 +38,7 @@ export interface HostOnlineServerOptions extends OnlineLoadoutOptions {
   lobbyMode?: boolean;
   gameMode?: string;
   botFillMode?: string;
+  botType?: string;
   durationSeconds?: number;
   skipReplayByDefault?: boolean;
   roomId?: string;
@@ -177,6 +178,7 @@ export function resolveHostSessionLaunchConfig(
       hostBoostAudio: ld.boostAudio,
       gameMode,
       botFillMode,
+      botType: options.botType,
       durationSeconds,
       lobbyMode: isMatchLobby,
       skipReplayByDefault,

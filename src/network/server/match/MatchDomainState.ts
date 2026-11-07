@@ -60,6 +60,8 @@ export class MatchDomainState extends MatchRosterPolicyState {
       isTrainingMode: false, state: MATCH_STATES.KICKOFF, matchTick: 0, clockSecondsRemaining: d,
       isOvertime: false, overtimeSeconds: 0, clockDirection: d === 0 ? 'up' : 'down',
       blueScore: 0, orangeScore: 0, winner: null, winReason: 0, lastKickoffWillStartFrame: -1,
+      kickoffWillStartAt: -1, kickoffStartedAtTick: -1, goalBufferTicks: -1,
+      willResumeUntilTick: -1, podiumDelayTicks: 0, clockStarted: false,
       pendingMatchEndAfterGoal: false, pendingMatchWinner: null, pendingOvertimeAfterGoal: d === 0,
     });
     this.disconnectedPlayerSlots.clear();

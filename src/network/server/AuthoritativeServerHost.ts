@@ -71,7 +71,7 @@ export class AuthoritativeServerHost {
     }
     this.options = { ...opts };
     this.isWorker = typeof Worker !== "undefined" && !opts.forceFallback;
-    this.botTunnelManager = new BotTunnelManager(this);
+    this.botTunnelManager = new BotTunnelManager(this, { forceInProcess: Boolean(opts.forceFallback) });
     this.hostReplayRingBuffer = new ReplayRingBuffer({
       mode: opts.startAsMatch ? RBM.COUNTDOWN_MATCH : RBM.COUNTUP_FIFO,
       capacityTicks: opts.replayCapacityTicks ?? undefined,
@@ -216,9 +216,11 @@ export class AuthoritativeServerHost {
   setGameMode(gameMode: string, durationSeconds: number | null = null): void {
     this._postCommand("setGameMode", { gameMode, durationSeconds });
   }
-  setBotFillMode(botFillMode: string): void { this._postCommand("setBotFillMode", { botFillMode }); }
-  addBotPlayer(team = 1, botName: string | null = null, visualId = "octane"): void {
-    this._postCommand("addBotPlayer", { team, botName, visualId });
+  setBotFillMode(botFillMode: string, botType?: string): void {
+    this._postCommand("setBotFillMode", { botFillMode, botType });
+  }
+  addBotPlayer(team = 1, botName: string | null = null, visualId = "octane", botType?: string): void {
+    this._postCommand("addBotPlayer", { team, botName, visualId, botType });
   }
 
   setLoadout(

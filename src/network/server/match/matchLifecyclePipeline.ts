@@ -59,7 +59,7 @@ export interface LifecycleDiagnosticsPort {
 }
 
 export interface LifecycleIncidentEntry {
-  type?: number; subType?: number; carIndex?: number; primaryId?: number;
+  type?: number; subType?: number; carIndex?: number; primaryId?: number; secondaryId?: number;
   resetWheelCount?: number; flags?: number; [key: string]: unknown;
 }
 

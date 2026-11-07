@@ -38,7 +38,7 @@ export interface PlayerLoadoutOptions {
   hitboxId?: string | number | null; hitboxIndex?: number | null;
   colorSlot?: number | null; blueColorSlot?: number | null; orangeColorSlot?: number | null;
   paintFinish?: string | number; boostVisual?: string | number;
-  boostAudio?: string | number; anthemId?: string;
+  boostAudio?: string | number; anthemId?: string; botType?: string;
 }
 
 export type ExtraLoadoutConfig = PlayerLoadoutOptions;
@@ -79,7 +79,7 @@ export interface UserRttSummary {
 
 export interface MatchRosterMetadataEntry {
   carIndex: number; entityId: number; sessionId: string; name: string;
-  team: number; role: string; isBot: boolean;
+  team: number; role: string; isBot: boolean; botType?: string;
   visualId: string; visualIndex: number; hitboxId: string; hitboxIndex: number;
   colorSlot: number; colorHex: string;
   paintFinish: string; boostVisual: string; boostAudio: string; anthemId: string;
@@ -89,7 +89,7 @@ export interface RosterSnapshotPlayerEntry {
   sessionId: string; entityId: number; carIndex: number; team: number; preferredTeam: number;
   name: string; spawnSlot: number; visualId: string; visualIndex: number; hitboxId: string;
   hitboxIndex: number; colorSlot: number; colorHex: string | null; paintFinish: string;
-  boostVisual: string; boostAudio: string; anthemId: string; isBot: boolean;
+  boostVisual: string; boostAudio: string; anthemId: string; isBot: boolean; botType?: string;
   ready: boolean; arenaLoaded: boolean; pingMs: number;
 }
 
@@ -210,6 +210,7 @@ export function resolveCosmeticsPatchForExistingPlayerSlot(
   if (nl.boostVisual !== undefined) patch.boostVisual = r.requestedBoostVisual;
   if (nl.boostAudio !== undefined) patch.boostAudio = r.requestedBoostAudio;
   if (nl.anthemId !== undefined) patch.anthemId = r.requestedAnthemId;
+  if (nl.botType !== undefined) patch.botType = nl.botType;
   return patch;
 }
 

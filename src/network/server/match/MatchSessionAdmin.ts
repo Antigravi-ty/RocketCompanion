@@ -275,16 +275,17 @@ export class MatchSessionAdmin {
     this.roster.setGameMode(gameMode, durationSeconds);
   }
 
-  setBotFillMode(botFillMode = 'no_bots'): void {
-    this.roster.setBotFillMode(botFillMode);
+  setBotFillMode(botFillMode = 'no_bots', botType?: string): void {
+    this.roster.setBotFillMode(botFillMode, botType);
   }
 
   addBotPlayer(
     preferredTeam = 1,
     botName: string | null = null,
-    visualId: string | PlayerLoadoutOptions | null = null
+    visualId: string | PlayerLoadoutOptions | null = null,
+    botType?: string
   ): MatchPlayerSlot | MatchSpectatorSlot | { entityId: number; team: number; role: string; spawnSlot: number } | null {
-    return this.roster.addBotPlayer(preferredTeam, botName, visualId);
+    return this.roster.addBotPlayer(preferredTeam, botName, visualId, botType);
   }
 
   initiateMatchPrepare(durationSeconds: number | null = null, timeoutTicks = 240): void {

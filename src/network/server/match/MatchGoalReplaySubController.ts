@@ -41,7 +41,7 @@ export interface ServerReplayTimelineHandle {
 }
 
 export interface ServerBotAgentPort {
-  carIndex: number; team: number; botType: string; ready: boolean;
+  carIndex: number; team: number; botType: string; ready: boolean; isReady?: boolean;
   tickSkip: number; tickSkipCounter: number;
   action: Record<string, number | boolean>;
   reset?: () => void;
@@ -205,27 +205,26 @@ export class MatchGoalReplaySubController {
 
   stepServerFilledBots(): void {
     const { domain, physicsManager } = this.host;
-    if (!physicsManager?.sim) return;
+    if (!physicsManager?.sim || domain.externalBotTunnels) return;
     const st = domain.state;
     if (st !== MATCH_STATES.PLAYING && st !== MATCH_STATES.KICKOFF && st !== MATCH_STATES.GOAL_SCORED) return;
 
     let hasFilledBots = false;
-    for (const [sid, p] of domain.players.entries()) {
-      if (p.isBot && !(domain.externalBotTunnels && sid === 'bot') && typeof p.entityId === 'number' && p.entityId >= 0) {
+    for (const p of domain.players.values()) {
+      if (p.isBot && typeof p.entityId === 'number' && p.entityId >= 0) {
         hasFilledBots = true; break;
       }
     }
     if (!hasFilledBots) return;
 
-    ensureExperimentalEngine('nexto');
     const sim = physicsManager.sim;
     sim.syncToStateObject?.();
     if (!sim.state?.ball) return;
 
     if (st === MATCH_STATES.KICKOFF) {
       for (const rec of this.serverBotAgents.values()) { rec.kickoffStep = 0; rec.agent?.reset?.(); }
-      for (const [sid, p] of domain.players.entries()) {
-        if (p.isBot && !(domain.externalBotTunnels && sid === 'bot') && typeof p.entityId === 'number' && p.entityId >= 0) {
+      for (const p of domain.players.values()) {
+        if (p.isBot && typeof p.entityId === 'number' && p.entityId >= 0) {
           physicsManager.setDirectCarControls(p.entityId, { ...DEFAULT_CAR_CONTROLS } as Record<string, number | boolean>);
         }
       }
@@ -239,7 +238,7 @@ export class MatchGoalReplaySubController {
     }
 
     for (const [sid, p] of domain.players.entries()) {
-      if (!p.isBot || typeof p.entityId !== 'number' || p.entityId < 0 || (domain.externalBotTunnels && sid === 'bot')) continue;
+      if (!p.isBot || typeof p.entityId !== 'number' || p.entityId < 0) continue;
       let rec = this.serverBotAgents.get(sid);
       const botTeam = p.team === 1 ? 1 : 0, botType = p.botType || 'nexto';
       if (!rec || rec.agent.carIndex !== p.entityId || rec.agent.team !== botTeam || rec.agent.botType !== botType) {
@@ -247,7 +246,7 @@ export class MatchGoalReplaySubController {
         rec = { agent: new ExperimentalBotAgent(botType, p.entityId, botTeam) as unknown as ServerBotAgentPort, kickoffStep: 0, staggered: false };
         this.serverBotAgents.set(sid, rec);
       }
-      if (!rec.agent.ready) {
+      if (!rec.agent.isReady && !rec.agent.ready && botType !== 'heuristic') {
         physicsManager.setDirectCarControls(p.entityId, { ...DEFAULT_CAR_CONTROLS } as Record<string, number | boolean>);
         continue;
       }

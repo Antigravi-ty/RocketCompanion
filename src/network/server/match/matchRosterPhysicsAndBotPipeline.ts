@@ -81,6 +81,7 @@ export function createNewPlayerSlotInfo(
     paintFinish: r.requestedPaintFinish, boostVisual: r.requestedBoostVisual,
     boostAudio: r.requestedBoostAudio, anthemId: r.requestedAnthemId,
     ready, arenaLoaded: ready, isBot: isBotSession,
+    botType: isBotSession ? (nl.botType || 'nexto') : nl.botType,
   };
 }
 
@@ -234,13 +235,15 @@ export function resolveInPlacePlayerTeamSwitchPatch(params: {
 
 export function executeBotFillPolicyOnRoster(params: {
   players: Map<string, MatchPlayerSlot>; botFillMode: string; maxPlayers: number;
+  defaultBotType?: string;
   botsLoadoutConfig: Record<string, unknown> | null | undefined;
   removePlayerSession: (sid: string) => void;
   switchPlayerRoleOrTeam: (sid: string, role: string, team: number) => unknown;
   assignPlayerSlot: (sid: string, name: string, role: string, team: number, loadout: PlayerLoadoutOptions, colorSlot: number | null | undefined) => unknown;
 }): void {
-  const { players, botFillMode, maxPlayers, botsLoadoutConfig, removePlayerSession, switchPlayerRoleOrTeam, assignPlayerSlot } = params;
+  const { players, botFillMode, maxPlayers, defaultBotType = 'nexto', botsLoadoutConfig, removePlayerSession, switchPlayerRoleOrTeam, assignPlayerSlot } = params;
   const maxPerTeam = Math.max(1, Math.floor(maxPlayers / 2));
+  const botLabel = defaultBotType.charAt(0).toUpperCase() + defaultBotType.slice(1);
 
   for (const [sid, p] of Array.from(players.entries())) {
     if (p.isBot && String(sid).startsWith('bot_fill_')) removePlayerSession(sid);
@@ -270,8 +273,8 @@ export function executeBotFillPolicyOnRoster(params: {
     for (const p of players.values()) if (p.team === 1) orangeCount++;
     let fillSeq = 1;
     while (orangeCount < maxPerTeam && players.size < maxPlayers) {
-      const rolled = rollTeamBotLoadout(botsLoadoutConfig, players.values(), 1);
-      assignPlayerSlot(`bot_fill_${fillSeq}`, `Nexto #${fillSeq}`, 'player', 1, rolled, rolled.colorSlot);
+      const rolled = { ...rollTeamBotLoadout(botsLoadoutConfig, players.values(), 1), botType: defaultBotType };
+      assignPlayerSlot(`bot_fill_${fillSeq}`, `${botLabel} #${fillSeq}`, 'player', 1, rolled, rolled.colorSlot);
       fillSeq++; orangeCount++;
     }
     return;
@@ -282,13 +285,13 @@ export function executeBotFillPolicyOnRoster(params: {
     for (const p of players.values()) { if (p.team === 0) blueCount++; else if (p.team === 1) orangeCount++; }
     let fillSeq = 1;
     while (blueCount < maxPerTeam && players.size < maxPlayers) {
-      const rolled = rollTeamBotLoadout(botsLoadoutConfig, players.values(), 0);
-      assignPlayerSlot(`bot_fill_${fillSeq}`, `Nexto #${fillSeq}`, 'player', 0, rolled, rolled.colorSlot);
+      const rolled = { ...rollTeamBotLoadout(botsLoadoutConfig, players.values(), 0), botType: defaultBotType };
+      assignPlayerSlot(`bot_fill_${fillSeq}`, `${botLabel} #${fillSeq}`, 'player', 0, rolled, rolled.colorSlot);
       fillSeq++; blueCount++;
     }
     while (orangeCount < maxPerTeam && players.size < maxPlayers) {
-      const rolled = rollTeamBotLoadout(botsLoadoutConfig, players.values(), 1);
-      assignPlayerSlot(`bot_fill_${fillSeq}`, `Nexto #${fillSeq}`, 'player', 1, rolled, rolled.colorSlot);
+      const rolled = { ...rollTeamBotLoadout(botsLoadoutConfig, players.values(), 1), botType: defaultBotType };
+      assignPlayerSlot(`bot_fill_${fillSeq}`, `${botLabel} #${fillSeq}`, 'player', 1, rolled, rolled.colorSlot);
       fillSeq++; orangeCount++;
     }
   }

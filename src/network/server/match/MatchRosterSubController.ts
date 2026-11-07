@@ -97,8 +97,8 @@ export class MatchRosterSubController {
     else this.broadcastRosterUpdate();
   }
 
-  setBotFillMode(botFillMode = 'no_bots'): void {
-    const { shouldApplyBotFill } = this.host.domain.applyRosterPolicyConfig({ botFillMode });
+  setBotFillMode(botFillMode = 'no_bots', botType?: string): void {
+    const { shouldApplyBotFill } = this.host.domain.applyRosterPolicyConfig({ botFillMode, botType });
     if (shouldApplyBotFill) this.applyBotFillPolicy();
     else this.broadcastRosterUpdate();
   }
@@ -108,15 +108,17 @@ export class MatchRosterSubController {
   }
 
   addBotPlayer(
-    preferredTeam = 1, botName: string | null = null, visualId: string | PlayerLoadoutOptions | null = null
+    preferredTeam = 1, botName: string | null = null, visualId: string | PlayerLoadoutOptions | null = null, botType?: string
   ): MatchPlayerSlot | MatchSpectatorSlot | { entityId: number; team: number; role: string; spawnSlot: number } | null {
     if (this.players.size >= 6) return null;
     let botIdx = 1;
     while (this.players.has(`bot_${botIdx}`)) botIdx++;
-    const sid = `bot_${botIdx}`, resolvedName = botName || `Nexto #${botIdx}`;
-    const rolled = this.rollBotLoadoutForTeam(preferredTeam ?? 1);
+    const resolvedBotType = botType || (visualId && typeof visualId === 'object' ? visualId.botType : undefined) || this.host.domain.defaultBotType || 'nexto';
+    const botLabel = resolvedBotType.charAt(0).toUpperCase() + resolvedBotType.slice(1);
+    const sid = `bot_${botIdx}`, resolvedName = botName || `${botLabel} #${botIdx}`;
+    const rolled = { ...this.rollBotLoadoutForTeam(preferredTeam ?? 1), botType: resolvedBotType };
     const loadout: PlayerLoadoutOptions =
-      visualId && typeof visualId === 'object' ? { ...rolled, ...visualId }
+      visualId && typeof visualId === 'object' ? { ...rolled, ...visualId, botType: resolvedBotType }
       : visualId ? { ...rolled, visualId } : rolled;
     return this.assignPlayerSlot(sid, resolvedName, 'player', preferredTeam, loadout, loadout.colorSlot ?? null);
   }
@@ -127,7 +129,8 @@ export class MatchRosterSubController {
     this.withBotFillGuard(() => {
       executeBotFillPolicyOnRoster({
         players: this.players, botFillMode: domain.botFillMode,
-        maxPlayers: domain.maxPlayers, botsLoadoutConfig: domain.botsLoadoutConfig,
+        maxPlayers: domain.maxPlayers, defaultBotType: domain.defaultBotType,
+        botsLoadoutConfig: domain.botsLoadoutConfig,
         removePlayerSession: (sid) => this.removePlayerSession(sid),
         switchPlayerRoleOrTeam: (sid, role, team) => this.switchPlayerRoleOrTeam(sid, role, team),
         assignPlayerSlot: (sid, name, role, team, loadout, colorSlot) =>
