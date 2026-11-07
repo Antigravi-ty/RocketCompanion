@@ -179,7 +179,7 @@ export class RuntimeKickoffSignalSubController {
         physics.setCarCollisionMask?.(c, true, true);
         physics.setCarLinearFactorAndGravity?.(c, 1, 1, 1, 1);
         if (arena) {
-          arena.ensureCar?.(c, team, preset);
+          arena.vehicleRegistry.ensureCar(c, team, preset);
           if (arena.cars?.[c]) {
             arena.cars[c].visible = true;
           }
@@ -259,7 +259,7 @@ export class RuntimeKickoffSignalSubController {
 
         if (this.latch.lastPreparedMatchSeq !== matchSeq) {
           this.latch.lastPreparedMatchSeq = matchSeq;
-          reconciler.queueClientCommand?.(
+          reconciler.controlMessenger.enqueueClientCommand(
             CLIENT_COMMAND_TYPES.CMD_ARENA_LOADED_ACK,
             matchSeq,
             1,

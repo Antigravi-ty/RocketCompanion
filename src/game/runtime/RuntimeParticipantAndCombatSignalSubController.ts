@@ -197,8 +197,8 @@ export class RuntimeParticipantAndCombatSignalSubController {
       physics.setCarTeam?.(carIdx, team);
     }
     if (arena) {
-      arena.ensureCar(carIdx, team, 'fennec');
-      arena.setCarTeam?.(carIdx, team);
+      arena.vehicleRegistry.ensureCar(carIdx, team, 'fennec');
+      arena.vehicleRegistry.setCarTeam(carIdx, team);
       if (arena.cars[carIdx]) {
         arena.cars[carIdx].visible = isLobbyDualWorld ? carIdx === playerCarIndex : true;
       }
@@ -225,13 +225,13 @@ export class RuntimeParticipantAndCombatSignalSubController {
       if (arena?.cars?.[carIdx]) arena.cars[carIdx].visible = false;
       return;
     }
-    if (arena && !arena.cars[carIdx]) arena.ensureCar(carIdx, carIdx % 2, 'fennec');
+    if (arena && !arena.cars[carIdx]) arena.vehicleRegistry.ensureCar(carIdx, carIdx % 2, 'fennec');
     const currentConfig = entityManager?.getVehicle?.(carIdx);
     if (currentConfig?.visual !== visualId || currentConfig?.hitbox !== hitboxId) {
       if (entityManager) {
         entityManager.hotSwapVehicle(carIdx, { visual: visualId, hitbox: hitboxId });
       } else {
-        arena?.swapCarVisual?.(carIdx, visualId);
+        arena?.vehicleRegistry.swapCarVisual(carIdx, visualId);
         physics?.setCarHitbox?.(carIdx, hitboxId);
       }
     } else {
@@ -244,11 +244,11 @@ export class RuntimeParticipantAndCombatSignalSubController {
         CAR_COLOR_SLOTS[colorSlotId] || CAR_COLOR_SLOTS.find((s) => s.id === colorSlotId);
       if (slotObj) {
         colorHex = slotObj.hex;
-        arena?.setCarColor?.(carIdx, slotObj.hex);
+        arena?.vehicleRegistry.setCarColor(carIdx, slotObj.hex);
         if (carIdx === playerCarIndex) this.host.selectedColorSlot = slotObj.id;
       }
     }
-    arena?.setCarLoadout?.(carIdx, {
+    arena?.vehicleRegistry.setCarLoadout(carIdx, {
       colorHex: colorHex || undefined,
       paintFinish,
       boostVisual,
@@ -262,7 +262,7 @@ export class RuntimeParticipantAndCombatSignalSubController {
     const { physics, arena, flipResetVisuals, playerCarIndex } = this.host;
     if (leftCarIndex < 0 || leftCarIndex >= 65535 || leftCarIndex === playerCarIndex) return;
     physics?.removeCar(leftCarIndex);
-    arena?.removeCar(leftCarIndex);
+    arena?.vehicleRegistry.removeCar(leftCarIndex);
     if (flipResetVisuals.has(leftCarIndex)) {
       flipResetVisuals.get(leftCarIndex)?.stopVisual();
       flipResetVisuals.delete(leftCarIndex);

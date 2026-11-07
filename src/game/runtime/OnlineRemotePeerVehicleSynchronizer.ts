@@ -199,13 +199,7 @@ export class OnlineRemotePeerVehicleSynchronizer {
     world.physics?.setCarTeam?.(cIdx, physicsTeam);
 
     if (world.arena) {
-      if (typeof world.arena.ensureCar === 'function') {
-        world.arena.ensureCar(cIdx, physicsTeam, 'fennec');
-      } else {
-        while (world.arena.cars.length <= cIdx) {
-          world.arena.addCar(world.arena.cars.length % 2, 'fennec');
-        }
-      }
+      world.arena.vehicleRegistry.ensureCar(cIdx, physicsTeam, 'fennec');
       if (world.arena.cars[cIdx]) {
         world.arena.cars[cIdx].visible = isLobbyDualWorld ? cIdx === world.playerCarIndex : true;
       }
@@ -214,7 +208,7 @@ export class OnlineRemotePeerVehicleSynchronizer {
     if (world.entityManager) {
       world.entityManager.hotSwapVehicle(cIdx, { visual: preset, hitbox });
     } else {
-      world.arena?.swapCarVisual?.(cIdx, preset);
+      world.arena?.vehicleRegistry.swapCarVisual(cIdx, preset);
       world.physics?.setCarHitbox?.(cIdx, hitbox);
     }
 
@@ -223,16 +217,16 @@ export class OnlineRemotePeerVehicleSynchronizer {
       const slotObj = CAR_COLOR_SLOTS.find((s) => s.id === p.colorSlot);
       if (slotObj) {
         colorHex = slotObj.hex;
-        world.arena?.setCarColor?.(cIdx, slotObj.hex);
+        world.arena?.vehicleRegistry.setCarColor(cIdx, slotObj.hex);
         if (cIdx === world.playerCarIndex) {
           world.selectedColorSlot = slotObj.id;
         }
       }
     } else {
-      world.arena?.setCarTeam?.(cIdx, physicsTeam);
+      world.arena?.vehicleRegistry.setCarTeam(cIdx, physicsTeam);
     }
 
-    world.arena?.setCarLoadout?.(cIdx, {
+    world.arena?.vehicleRegistry.setCarLoadout(cIdx, {
       colorHex: colorHex || undefined,
       paintFinish: p.paintFinish || 'metallic',
       boostVisual: p.boostVisual || 'gold-rush',
@@ -303,17 +297,8 @@ export class OnlineRemotePeerVehicleSynchronizer {
 
     if (!isLobby) {
       if (world.arena) {
-        await world.arena.ensureOpponent?.();
-        if (typeof world.arena.ensureCar === 'function') {
-          world.arena.ensureCar(targetCarIndex, team, 'fennec');
-        } else {
-          while (world.arena.cars.length <= targetCarIndex) {
-            world.arena.addCar(world.arena.cars.length % 2, 'fennec');
-          }
-          if (!world.arena.cars[targetCarIndex]) {
-            world.arena.addCar(team, 'fennec', targetCarIndex);
-          }
-        }
+        await world.arena.vehicleRegistry.ensureOpponent();
+        world.arena.vehicleRegistry.ensureCar(targetCarIndex, team, 'fennec');
         if (world.arena.cars[targetCarIndex]) {
           world.arena.cars[targetCarIndex].visible = true;
         }
@@ -373,7 +358,7 @@ export class OnlineRemotePeerVehicleSynchronizer {
       if (v === carIndex) session.remotePeerCarMap.delete(k);
     }
 
-    world.arena?.removeCar?.(carIndex);
+    world.arena?.vehicleRegistry.removeCar(carIndex);
     if (world.flipResetVisuals?.has?.(carIndex)) {
       world.flipResetVisuals.get(carIndex)?.stopVisual?.();
       world.flipResetVisuals.delete(carIndex);

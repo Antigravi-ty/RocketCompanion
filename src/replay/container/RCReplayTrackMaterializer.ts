@@ -9,7 +9,7 @@ import {
   STATE_BUFFER_FLOATS,
   isIncidentEvent,
 } from '../../physics/RocketSimConstants.ts';
-import { resolveReplayAudioCueForSignal } from '../ReplayRingBuffer.ts';
+import { resolveReplayAudioCueForSignal } from '../ReplayBufferSliceExtractor.ts';
 import {
   RC_REPLAY_STATE_BYTES,
   RC_REPLAY_STATE_INPUT_STRIDE,

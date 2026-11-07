@@ -1,54 +1,54 @@
 /**
  * src/network/server/match/MatchGoalReplaySubController.ts
  * Stateful SubController owning post-goal replay slice extraction/playback,
- * dramatic slow-motion timeline stepping, and server-filled bot inference agents.
+ * dramatic slow-motion timeline stepping, director camera telemetry encoding,
+ * and server-filled bot inference agents.
  */
 
 import { MATCH_SIGNALS } from '../../protocol/GlobalPayloadCodec.ts';
-import { ReplayTimelineController } from '../../../replay/ReplayTimelineController.ts';
 import { extractGoalReplayFrames } from '../../../replay/ReplayPlaybackState.ts';
+import { ReplayDirectorCameraSubController } from '../../../replay/ReplayDirectorCameraSubController.ts';
 import {
-  interpolateReplaySnapshots,
-  encodeReplayDirectorTelemetryIntoState,
-} from '../../../replay/ReplayFrameInterpolator.ts';
-import { normalizeReplayDirectorCarEntry } from '../../../replay/replayDirectorCarRosterPipeline.ts';
+  createInitialReplaySessionState,
+  type DirectorCameraState, type ReplaySessionState, type ReplayTimelineFrameEntry,
+} from '../../../replay/replayDirectorStateTypes.ts';
 import {
-  ExperimentalBotAgent,
-  ensureExperimentalEngine,
-  DEFAULT_CAR_CONTROLS,
+  ExperimentalBotAgent, ensureExperimentalEngine, DEFAULT_CAR_CONTROLS,
 } from '../../../ai/experimental/ExperimentalBotAgent.ts';
 import {
-  MATCH_STATES,
-  MATCH_TICK_RATE,
-  GOAL_REPLAY_DURATION_TICKS,
-  KICKOFF_TOTAL_TICKS,
+  MATCH_STATES, GOAL_REPLAY_DURATION_TICKS, KICKOFF_TOTAL_TICKS,
 } from './matchLoadoutAndSpawnPipeline.ts';
+import {
+  initServerGoalReplaySession, stepServerGoalReplaySession,
+  type ServerReplayTimelineState,
+} from './MatchSystemControlSubController.ts';
 import type { MatchDomainState } from './MatchDomainState.ts';
 import type { MatchCommandQueueSubController } from './MatchCommandQueueSubController.ts';
 import type { ReplayRingBuffer } from '../../../replay/ReplayRingBuffer.ts';
 import type { LifecyclePhysicsSnapshotPort } from './matchLifecyclePipeline.ts';
 
+export type { ServerReplayTimelineState };
+
+export interface ServerReplayTimelineHandle {
+  sessionState: ReplaySessionState;
+  directorCamera: ReplayDirectorCameraSubController;
+  readonly directorCameraState: DirectorCameraState;
+  readonly frames: ReplayTimelineFrameEntry[];
+  readonly ActiveWindowCount: number;
+  endReplaySession: () => void;
+}
+
 export interface ServerBotAgentPort {
-  carIndex: number;
-  team: number;
-  botType: string;
-  ready: boolean;
-  tickSkip: number;
-  tickSkipCounter: number;
+  carIndex: number; team: number; botType: string; ready: boolean;
+  tickSkip: number; tickSkipCounter: number;
   action: Record<string, number | boolean>;
   reset?: () => void;
   overrideControls: (controls: Record<string, number | boolean>) => void;
-  decideSync: (
-    state: unknown,
-    pads: unknown[],
-    activeCars: Array<{ carIndex: number; team: number }>
-  ) => Record<string, number | boolean>;
+  decideSync: (state: unknown, pads: unknown[], activeCars: Array<{ carIndex: number; team: number }>) => Record<string, number | boolean>;
 }
 
 export interface ServerBotAgentRecord {
-  agent: ServerBotAgentPort;
-  kickoffStep: number;
-  staggered: boolean;
+  agent: ServerBotAgentPort; kickoffStep: number; staggered: boolean;
 }
 
 export interface MatchGoalReplayLifecycleActionsPort {
@@ -58,303 +58,143 @@ export interface MatchGoalReplayLifecycleActionsPort {
 }
 
 export interface GoalReplayPhysicsManagerPort {
-  sim?: {
-    state?: { ball?: unknown } | null;
-    boostPads?: unknown[];
-    syncToStateObject?: () => void;
-  } | null;
+  sim?: { state?: { ball?: unknown } | null; boostPads?: unknown[]; syncToStateObject?: () => void } | null;
   applySignal: (signal: number | string, payload?: Record<string, unknown>) => void;
   getActiveCarMask?: () => number;
   setDirectCarControls: (carIndex: number, controls: Record<string, number | boolean>) => void;
 }
 
 export interface MatchGoalReplayHostPort {
-  readonly domain: MatchDomainState;
-  readonly commandQueue: MatchCommandQueueSubController;
+  readonly domain: MatchDomainState; readonly commandQueue: MatchCommandQueueSubController;
   readonly actions: MatchGoalReplayLifecycleActionsPort;
   readonly replayBuffer: ReplayRingBuffer | null | undefined;
   readonly physicsManager: GoalReplayPhysicsManagerPort | null | undefined;
 }
 
 export interface MatchGoalReplayOptions {
-  goalReplayLookbackSeconds?: number;
-  goalReplayPostGoalSeconds?: number;
-  enableDramaticReplaySlowMo?: boolean;
+  goalReplayLookbackSeconds?: number; goalReplayPostGoalSeconds?: number; enableDramaticReplaySlowMo?: boolean;
 }
 
-const REPLAY_START_RETIRE_SIGNAL_TYPES = [
-  MATCH_SIGNALS.KICKOFF_WILL_START,
-  MATCH_SIGNALS.KICKOFF_START,
-  MATCH_SIGNALS.TIME_ALERT_60S,
-  MATCH_SIGNALS.TIME_ALERT_30S,
-  MATCH_SIGNALS.COUNTDOWN_10S,
-  MATCH_SIGNALS.SCORE_UPDATED,
-  MATCH_SIGNALS.GOAL_REPLAY_WILL_START,
+const REPLAY_RETIRE_SIGNALS = [
+  MATCH_SIGNALS.KICKOFF_WILL_START, MATCH_SIGNALS.KICKOFF_START, MATCH_SIGNALS.TIME_ALERT_60S,
+  MATCH_SIGNALS.TIME_ALERT_30S, MATCH_SIGNALS.COUNTDOWN_10S, MATCH_SIGNALS.SCORE_UPDATED, MATCH_SIGNALS.GOAL_REPLAY_WILL_START,
 ];
 
 export class MatchGoalReplaySubController {
   readonly host: MatchGoalReplayHostPort;
-  replayController: ReplayTimelineController | null = null;
-  activeReplayFrames: Array<Float32Array | { snapshot?: Float32Array }> | null = null;
-  activeReplayCursor = 0;
-  replayInterpolatedBuffer: Float32Array | null = null;
-  replayTicksRemaining = -1;
-  lastGoalIncidentFrame = -1;
-  lastScoringTeam = 0;
-  lastScorerCarIndex = 0;
-  lastScorerTouchFrame = -1;
-  lastGoalBallSpeedKph = 100;
-  goalReplayLookbackSeconds: number;
-  goalReplayPostGoalSeconds: number;
-  enableDramaticReplaySlowMo: boolean;
+  readonly directorCamera = new ReplayDirectorCameraSubController();
+  sessionState: ReplaySessionState = createInitialReplaySessionState();
+  replayController: ServerReplayTimelineHandle | null = null;
+  activeReplayFrames: Array<Float32Array | { snapshot?: Float32Array | null }> | null = null;
+  activeReplayCursor = 0; replayInterpolatedBuffer: Float32Array | null = null;
+  replayTicksRemaining = -1; lastGoalIncidentFrame = -1;
+  lastScoringTeam = 0; lastScorerCarIndex = 0; lastScorerTouchFrame = -1; lastGoalBallSpeedKph = 100;
+  goalReplayLookbackSeconds: number; goalReplayPostGoalSeconds: number; enableDramaticReplaySlowMo: boolean;
   serverBotAgents = new Map<string, ServerBotAgentRecord>();
 
-  constructor(host: MatchGoalReplayHostPort, options: MatchGoalReplayOptions = {}) {
+  constructor(host: MatchGoalReplayHostPort, opts: MatchGoalReplayOptions = {}) {
     this.host = host;
-    this.goalReplayLookbackSeconds = options.goalReplayLookbackSeconds ?? 10.0;
-    this.goalReplayPostGoalSeconds = options.goalReplayPostGoalSeconds ?? 3.0;
-    this.enableDramaticReplaySlowMo = options.enableDramaticReplaySlowMo ?? true;
+    this.goalReplayLookbackSeconds = opts.goalReplayLookbackSeconds ?? 10.0;
+    this.goalReplayPostGoalSeconds = opts.goalReplayPostGoalSeconds ?? 3.0;
+    this.enableDramaticReplaySlowMo = opts.enableDramaticReplaySlowMo ?? true;
+    const self = this;
+    this.replayController = {
+      get sessionState() { return self.sessionState; },
+      directorCamera: this.directorCamera,
+      get directorCameraState() { return self.directorCamera.state; },
+      get frames() { return self.sessionState.activeFrames; },
+      get ActiveWindowCount() { return self.sessionState.activeFrames.length; },
+      endReplaySession: () => { self.sessionState.isActive = false; },
+    };
   }
 
-  recordGoalIncident(
-    matchTick: number,
-    scoringTeam: number,
-    scorerCarIndex: number,
-    scorerTouchTick: number,
-    ballSpeedKph: number
-  ): void {
-    this.lastGoalIncidentFrame = matchTick;
-    this.lastScoringTeam = scoringTeam;
-    this.lastScorerCarIndex = scorerCarIndex;
-    this.lastScorerTouchFrame = scorerTouchTick;
-    this.lastGoalBallSpeedKph = ballSpeedKph;
+  recordGoalIncident(tick: number, team: number, carIdx: number, touchTick: number, kph: number): void {
+    this.lastGoalIncidentFrame = tick; this.lastScoringTeam = team;
+    this.lastScorerCarIndex = carIdx; this.lastScorerTouchFrame = touchTick;
+    this.lastGoalBallSpeedKph = kph;
   }
 
   buildReplaySkipAckControls(): Array<{ carIndex: number; controls: Record<string, number | boolean> }> {
     const { domain, commandQueue } = this.host;
-    const ackList: Array<{ carIndex: number; controls: Record<string, number | boolean> }> = [];
+    const out: Array<{ carIndex: number; controls: Record<string, number | boolean> }> = [];
     for (const [sid, p] of domain.players.entries()) {
-      if (!p || p.role === 'spectator' || typeof p.entityId !== 'number' || p.entityId < 0) {
-        continue;
-      }
-      const isSkipReady = Boolean(p.isBot || commandQueue.skipReplayVotes.has(sid));
-      ackList.push({
+      if (!p || p.role === 'spectator' || typeof p.entityId !== 'number' || p.entityId < 0) continue;
+      out.push({
         carIndex: p.entityId,
-        controls: {
-          ...DEFAULT_CAR_CONTROLS,
-          jump: isSkipReady,
-        },
+        controls: { ...DEFAULT_CAR_CONTROLS, jump: Boolean(p.isBot || commandQueue.skipReplayVotes.has(sid)) },
       });
     }
-    return ackList;
+    return out;
   }
 
   beginGoalReplay(): void {
     const { domain, commandQueue, actions, replayBuffer, physicsManager } = this.host;
-    if (domain.isTrainingMode && !domain.trainingGoalReplayEnabled) {
-      actions.resetTrainingPlay();
-      return;
-    }
-    if (!domain.isTrainingMode && domain.skipReplayByDefault) {
-      this.finishGoalReplay();
-      return;
-    }
+    if (domain.isTrainingMode && !domain.trainingGoalReplayEnabled) { actions.resetTrainingPlay(); return; }
+    if (!domain.isTrainingMode && domain.skipReplayByDefault) { this.finishGoalReplay(); return; }
     domain.state = MATCH_STATES.REPLAY;
-    commandQueue.retireSignalTypes(REPLAY_START_RETIRE_SIGNAL_TYPES);
-    this.activeReplayFrames = extractGoalReplayFrames({
-      ringBuffer: replayBuffer as never,
-      engine: (physicsManager?.sim || null) as never,
+    commandQueue.retireSignalTypes(REPLAY_RETIRE_SIGNALS);
+    const extracted = extractGoalReplayFrames({
+      ringBuffer: replayBuffer as never, engine: (physicsManager?.sim || null) as never,
       durationTicks: GOAL_REPLAY_DURATION_TICKS,
       goalIncidentTick: this.lastGoalIncidentFrame >= 0 ? this.lastGoalIncidentFrame : null,
       scorerTouchTick: this.lastScorerTouchFrame >= 0 ? this.lastScorerTouchFrame : undefined,
-      lookbackSeconds: this.goalReplayLookbackSeconds ?? 10.0,
-      postGoalSeconds: this.goalReplayPostGoalSeconds ?? 3.0,
-      lastKickoffWillStartTick: domain.lastKickoffWillStartFrame ?? -1,
-      signalLog: commandQueue.replaySignalLog as never,
-    }) as Array<{ snapshot?: Float32Array } | Float32Array>;
-
-    if (!this.replayController) {
-      this.replayController = new ReplayTimelineController({
-        ringBuffer: replayBuffer as never,
+      lookbackSeconds: this.goalReplayLookbackSeconds ?? 10.0, postGoalSeconds: this.goalReplayPostGoalSeconds ?? 3.0,
+      lastKickoffWillStartTick: domain.lastKickoffWillStartFrame ?? -1, signalLog: commandQueue.replaySignalLog as never,
+    }) as ReplayTimelineFrameEntry[];
+    this.activeReplayFrames = extracted;
+    if (extracted && extracted.length > 0) {
+      const init = initServerGoalReplaySession({
+        baseState: createInitialReplaySessionState(), extracted, players: domain.players,
+        scoringTeam: this.lastScoringTeam ?? 0, scorerCarIndex: this.lastScorerCarIndex ?? 0,
+        prevRetainedSeq: this.sessionState.retainedReplaySeq || 0,
+        enableDramaticReplaySlowMo: this.enableDramaticReplaySlowMo !== false, directorCamera: this.directorCamera,
       });
-    }
-    if (this.activeReplayFrames && this.activeReplayFrames.length > 0) {
-      const carEntries = Array.from(domain.players.values())
-        .filter((p) => p && p.role !== 'spectator' && typeof p.entityId === 'number' && p.entityId >= 0)
-        .sort((a, b) => a.entityId - b.entityId)
-        .map((p) =>
-          normalizeReplayDirectorCarEntry(
-            {
-              carIndex: p.entityId,
-              name: p.name,
-              username: p.name,
-              team: p.team ?? p.entityId % 2,
-              isBot: Boolean(p.isBot),
-              isLocalPlayer: !p.isBot && p.entityId === 0,
-              botType: p.botType || null,
-              visualId: p.visualId,
-              hitboxId: p.hitboxId,
-              colorSlot: p.colorSlot,
-              colorHex: p.colorHex,
-              paintFinish: p.paintFinish,
-              boostVisual: p.boostVisual,
-              boostAudio: p.boostAudio,
-              anthemId: p.anthemId,
-            },
-            p.entityId,
-            p.team ?? p.entityId % 2
-          )
-        );
-      this.replayController.beginReplaySession({
-        frames: this.activeReplayFrames as never,
-        scoringTeam: this.lastScoringTeam ?? 0,
-        scorerCarIndex: this.lastScorerCarIndex ?? 0,
-        carEntries,
-        carTeamResolver: (carIdx: number) => {
-          for (const p of domain.players.values()) {
-            if (p.entityId === carIdx) return p.team ?? carIdx % 2;
-          }
-          return carIdx % 2;
-        },
-      });
-      if (this.enableDramaticReplaySlowMo !== false && this.activeReplayFrames.length > 1) {
-        let simCursor = 0;
-        let estTicks = 0;
-        const maxIndex = this.activeReplayFrames.length - 1;
-        while (simCursor < maxIndex && estTicks < maxIndex * 3) {
-          const factor = this.replayController.computeDramaticSlowMoFactor(simCursor);
-          simCursor += Math.max(0.1, factor);
-          estTicks++;
-        }
-        this.replayTicksRemaining = Math.max(this.activeReplayFrames.length, estTicks);
-      } else {
-        this.replayTicksRemaining = this.activeReplayFrames.length;
-      }
+      this.sessionState = init.sessionState; this.replayTicksRemaining = init.replayTicksRemaining;
     } else {
-      this.replayTicksRemaining = GOAL_REPLAY_DURATION_TICKS;
+      this.sessionState.isActive = false; this.replayTicksRemaining = GOAL_REPLAY_DURATION_TICKS;
     }
     this.activeReplayCursor = 0;
-
-    if (physicsManager) {
-      physicsManager.applySignal(MATCH_SIGNALS.GOAL_REPLAY_START);
-    }
-    const replayStartMeta =
-      ((this.lastScoringTeam ?? 0) & 0x1) |
-      (((this.lastScorerCarIndex ?? 0) & 0xff) << 1) |
-      (((this.lastGoalBallSpeedKph ?? 100) & 0xffff) << 16);
-    commandQueue.dispatchSignal(
-      MATCH_SIGNALS.GOAL_REPLAY_START,
-      domain.matchTick,
-      this.replayTicksRemaining,
-      replayStartMeta
-    );
+    physicsManager?.applySignal(MATCH_SIGNALS.GOAL_REPLAY_START);
+    const meta = ((this.lastScoringTeam ?? 0) & 0x1) | (((this.lastScorerCarIndex ?? 0) & 0xff) << 1) | (((this.lastGoalBallSpeedKph ?? 100) & 0xffff) << 16);
+    commandQueue.dispatchSignal(MATCH_SIGNALS.GOAL_REPLAY_START, domain.matchTick, this.replayTicksRemaining, meta);
   }
 
   finishGoalReplay(): void {
     const { domain, commandQueue, actions, physicsManager } = this.host;
-    this.replayController?.endReplaySession?.();
-    this.activeReplayFrames = null;
-    this.activeReplayCursor = 0;
-    if (domain.isTrainingMode) {
-      if (physicsManager) {
-        physicsManager.applySignal(MATCH_SIGNALS.GOAL_REPLAY_END);
-      }
-      commandQueue.dispatchSignal(MATCH_SIGNALS.GOAL_REPLAY_END, domain.matchTick, 0, 0);
-      actions.resetTrainingPlay();
-      return;
-    }
-    if (physicsManager) {
-      physicsManager.applySignal(MATCH_SIGNALS.GOAL_REPLAY_END);
-    }
+    this.sessionState.isActive = false; this.activeReplayFrames = null; this.activeReplayCursor = 0;
+    physicsManager?.applySignal(MATCH_SIGNALS.GOAL_REPLAY_END);
     commandQueue.dispatchSignal(MATCH_SIGNALS.GOAL_REPLAY_END, domain.matchTick, 0, 0);
+    if (domain.isTrainingMode) { actions.resetTrainingPlay(); return; }
     const pendingEnd = domain.consumePendingMatchEndAfterGoal();
-    if (pendingEnd.shouldEnd) {
-      const w = pendingEnd.winner ?? (domain.blueScore > domain.orangeScore ? 0 : 1);
-      actions.endMatch(w, 0);
-      return;
-    }
-    commandQueue.dispatchSignal(
-      MATCH_SIGNALS.ROUND_STARTED,
-      domain.matchTick,
-      domain.blueScore + domain.orangeScore + 1,
-      0
-    );
+    if (pendingEnd.shouldEnd) { actions.endMatch(pendingEnd.winner ?? (domain.blueScore > domain.orangeScore ? 0 : 1), 0); return; }
+    commandQueue.dispatchSignal(MATCH_SIGNALS.ROUND_STARTED, domain.matchTick, domain.blueScore + domain.orangeScore + 1, 0);
     actions.startKickoffSequence(KICKOFF_TOTAL_TICKS);
   }
 
   stepReplayTick(): { finished: boolean; replayPhysicsSnapshot: LifecyclePhysicsSnapshotPort | null } {
-    const { domain, physicsManager } = this.host;
+    const { physicsManager } = this.host;
     this.replayTicksRemaining--;
     let replayPhysicsSnapshot: LifecyclePhysicsSnapshotPort | null = null;
-    const replayAckControls = this.buildReplaySkipAckControls();
-    const replayFrames =
-      this.replayController?.frames || this.replayController?.sessionState?.activeFrames;
-    if (
-      this.replayController &&
-      this.replayController.sessionState.isActive &&
-      Array.isArray(replayFrames) &&
-      replayFrames.length > 0
-    ) {
-      const useSlowMo = this.enableDramaticReplaySlowMo !== false;
-      const stepRes = this.replayController.stepPlayback(1 / MATCH_TICK_RATE, null, useSlowMo);
-      this.activeReplayCursor = stepRes.frameIndex;
-      const frameObj = stepRes.frame as { snapshot?: Float32Array } | Float32Array | null;
-      const prevFrameObj = stepRes.prevFrame as { snapshot?: Float32Array } | Float32Array | null;
-      const currSnap =
-        frameObj && 'snapshot' in frameObj ? frameObj.snapshot : (frameObj as Float32Array | null);
-      const prevSnap =
-        prevFrameObj && 'snapshot' in prevFrameObj
-          ? prevFrameObj.snapshot
-          : (prevFrameObj as Float32Array | null) || currSnap;
-      if (currSnap) {
-        const blendedSnap = interpolateReplaySnapshots(
-          prevSnap || currSnap,
-          currSnap,
-          stepRes.alpha,
-          this.replayInterpolatedBuffer || undefined
-        );
+    const ackControls = this.buildReplaySkipAckControls();
+    const s = this.sessionState;
+
+    if (s.isActive && s.activeFrames.length > 0) {
+      const { baseIdx, blendedSnap } = stepServerGoalReplaySession({
+        sessionState: s, directorCamera: this.directorCamera,
+        enableDramaticReplaySlowMo: this.enableDramaticReplaySlowMo !== false,
+        replayInterpolatedBuffer: this.replayInterpolatedBuffer,
+      });
+      this.activeReplayCursor = baseIdx;
+      if (blendedSnap) {
         this.replayInterpolatedBuffer = blendedSnap;
-        encodeReplayDirectorTelemetryIntoState(
-          blendedSnap,
-          this.replayController.directorCameraState,
-          stepRes.progress
-        );
         replayPhysicsSnapshot = {
           activeCarMask: physicsManager?.getActiveCarMask?.() || 0,
-          stateSnapshot: blendedSnap,
-          acknowledgedControls: replayAckControls,
-          isReplaySlice: true,
-        };
-      }
-    } else if (
-      Array.isArray(this.activeReplayFrames) &&
-      this.activeReplayCursor < this.activeReplayFrames.length
-    ) {
-      const sliceFrame = this.activeReplayFrames[this.activeReplayCursor];
-      this.activeReplayCursor++;
-      const snap =
-        sliceFrame && 'snapshot' in sliceFrame ? sliceFrame.snapshot : (sliceFrame as Float32Array);
-      if (snap) {
-        const total = Math.max(1, this.activeReplayFrames.length - 1);
-        const progress = Math.min(1, Math.max(0, (this.activeReplayCursor - 1) / total));
-        const outSnap = new Float32Array(snap.length);
-        outSnap.set(snap);
-        encodeReplayDirectorTelemetryIntoState(
-          outSnap,
-          this.replayController?.directorCameraState || null,
-          progress
-        );
-        replayPhysicsSnapshot = {
-          activeCarMask: physicsManager?.getActiveCarMask?.() || 0,
-          stateSnapshot: outSnap,
-          acknowledgedControls: replayAckControls,
-          isReplaySlice: true,
+          stateSnapshot: blendedSnap, acknowledgedControls: ackControls, isReplaySlice: true,
         };
       }
     }
 
-    const controllerDone = this.replayController && !this.replayController.sessionState.isActive;
-    if (this.replayTicksRemaining <= 0 || controllerDone) {
+    if (this.replayTicksRemaining <= 0 || !s.isActive) {
       this.finishGoalReplay();
       return { finished: true, replayPhysicsSnapshot };
     }
@@ -363,45 +203,28 @@ export class MatchGoalReplaySubController {
 
   stepServerFilledBots(): void {
     const { domain, physicsManager } = this.host;
-    if (!physicsManager || !physicsManager.sim) return;
-    if (
-      domain.state !== MATCH_STATES.PLAYING &&
-      domain.state !== MATCH_STATES.KICKOFF &&
-      domain.state !== MATCH_STATES.GOAL_SCORED
-    ) {
-      return;
-    }
+    if (!physicsManager?.sim) return;
+    const st = domain.state;
+    if (st !== MATCH_STATES.PLAYING && st !== MATCH_STATES.KICKOFF && st !== MATCH_STATES.GOAL_SCORED) return;
 
     let hasFilledBots = false;
     for (const [sid, p] of domain.players.entries()) {
-      if (!p.isBot) continue;
-      if (domain.externalBotTunnels && sid === 'bot') continue;
-      if (typeof p.entityId === 'number' && p.entityId >= 0) {
-        hasFilledBots = true;
-        break;
+      if (p.isBot && !(domain.externalBotTunnels && sid === 'bot') && typeof p.entityId === 'number' && p.entityId >= 0) {
+        hasFilledBots = true; break;
       }
     }
     if (!hasFilledBots) return;
 
     ensureExperimentalEngine('nexto');
-
     const sim = physicsManager.sim;
     sim.syncToStateObject?.();
     if (!sim.state?.ball) return;
 
-    if (domain.state === MATCH_STATES.KICKOFF) {
-      for (const rec of this.serverBotAgents.values()) {
-        rec.kickoffStep = 0;
-        rec.agent?.reset?.();
-      }
+    if (st === MATCH_STATES.KICKOFF) {
+      for (const rec of this.serverBotAgents.values()) { rec.kickoffStep = 0; rec.agent?.reset?.(); }
       for (const [sid, p] of domain.players.entries()) {
-        if (!p.isBot) continue;
-        if (domain.externalBotTunnels && sid === 'bot') continue;
-        if (typeof p.entityId === 'number' && p.entityId >= 0) {
-          physicsManager.setDirectCarControls(
-            p.entityId,
-            { ...DEFAULT_CAR_CONTROLS } as Record<string, number | boolean>
-          );
+        if (p.isBot && !(domain.externalBotTunnels && sid === 'bot') && typeof p.entityId === 'number' && p.entityId >= 0) {
+          physicsManager.setDirectCarControls(p.entityId, { ...DEFAULT_CAR_CONTROLS } as Record<string, number | boolean>);
         }
       }
       return;
@@ -410,80 +233,47 @@ export class MatchGoalReplaySubController {
     const pads = sim.boostPads || [];
     const activeCars: Array<{ carIndex: number; team: number }> = [];
     for (const p of domain.players.values()) {
-      if (typeof p.entityId === 'number' && p.entityId >= 0) {
-        activeCars.push({
-          carIndex: p.entityId,
-          team: p.team === 1 ? 1 : 0,
-        });
-      }
+      if (typeof p.entityId === 'number' && p.entityId >= 0) activeCars.push({ carIndex: p.entityId, team: p.team === 1 ? 1 : 0 });
     }
 
     for (const [sid, p] of domain.players.entries()) {
-      if (!p.isBot || typeof p.entityId !== 'number' || p.entityId < 0) continue;
-      if (domain.externalBotTunnels && sid === 'bot') continue;
-
-      let record = this.serverBotAgents.get(sid);
-      const botTeam = p.team === 1 ? 1 : 0;
-      const requestedBotType = p.botType || 'nexto';
-      if (
-        !record ||
-        record.agent.carIndex !== p.entityId ||
-        record.agent.team !== botTeam ||
-        record.agent.botType !== requestedBotType
-      ) {
-        ensureExperimentalEngine(requestedBotType);
-        record = {
-          agent: new ExperimentalBotAgent(requestedBotType, p.entityId, botTeam) as unknown as ServerBotAgentPort,
-          kickoffStep: 0,
-          staggered: false,
-        };
-        this.serverBotAgents.set(sid, record);
+      if (!p.isBot || typeof p.entityId !== 'number' || p.entityId < 0 || (domain.externalBotTunnels && sid === 'bot')) continue;
+      let rec = this.serverBotAgents.get(sid);
+      const botTeam = p.team === 1 ? 1 : 0, botType = p.botType || 'nexto';
+      if (!rec || rec.agent.carIndex !== p.entityId || rec.agent.team !== botTeam || rec.agent.botType !== botType) {
+        ensureExperimentalEngine(botType);
+        rec = { agent: new ExperimentalBotAgent(botType, p.entityId, botTeam) as unknown as ServerBotAgentPort, kickoffStep: 0, staggered: false };
+        this.serverBotAgents.set(sid, rec);
       }
-
-      if (!record.agent.ready) {
-        physicsManager.setDirectCarControls(
-          p.entityId,
-          { ...DEFAULT_CAR_CONTROLS } as Record<string, number | boolean>
-        );
+      if (!rec.agent.ready) {
+        physicsManager.setDirectCarControls(p.entityId, { ...DEFAULT_CAR_CONTROLS } as Record<string, number | boolean>);
         continue;
       }
-
       let ctrl: Record<string, number | boolean>;
-      if (record.kickoffStep < 24) {
-        const ko = {
-          ...DEFAULT_CAR_CONTROLS,
-          throttle: 1.0,
-          boost: true,
-        };
-        ctrl = ko;
-        record.agent.overrideControls(ko);
-      } else if (record.agent.tickSkipCounter <= 0) {
-        ctrl = record.agent.decideSync(sim.state, pads, activeCars);
-        record.agent.tickSkipCounter = record.staggered
-          ? record.agent.tickSkip - 1
-          : (p.entityId % record.agent.tickSkip) + 1;
-        record.staggered = true;
+      if (rec.kickoffStep < 24) {
+        ctrl = { ...DEFAULT_CAR_CONTROLS, throttle: 1.0, boost: true };
+        rec.agent.overrideControls(ctrl);
+      } else if (rec.agent.tickSkipCounter <= 0) {
+        ctrl = rec.agent.decideSync(sim.state, pads, activeCars);
+        rec.agent.tickSkipCounter = rec.staggered ? rec.agent.tickSkip - 1 : (p.entityId % rec.agent.tickSkip) + 1;
+        rec.staggered = true;
       } else {
-        record.agent.tickSkipCounter--;
-        ctrl = record.agent.action;
+        rec.agent.tickSkipCounter--;
+        ctrl = rec.agent.action;
       }
-
-      record.kickoffStep++;
+      rec.kickoffStep++;
       physicsManager.setDirectCarControls(p.entityId, ctrl || DEFAULT_CAR_CONTROLS);
     }
   }
 
   resetForMatchStart(): void {
-    this.lastGoalIncidentFrame = -1;
-    this.replayTicksRemaining = -1;
-    this.activeReplayFrames = null;
-    this.activeReplayCursor = 0;
+    this.lastGoalIncidentFrame = this.replayTicksRemaining = -1;
+    this.activeReplayFrames = null; this.activeReplayCursor = 0;
   }
 
   clear(): void {
-    this.replayController?.endReplaySession?.();
-    this.activeReplayFrames = null;
-    this.activeReplayCursor = 0;
+    this.sessionState.isActive = false;
+    this.activeReplayFrames = null; this.activeReplayCursor = 0;
     this.serverBotAgents.clear();
   }
 }

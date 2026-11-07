@@ -19,7 +19,7 @@ import {
   type TrajectoryUpdateKind,
 } from './ballTrajectoryPolicy.ts';
 import { extractCarProximitySnapshots } from './ballTrajectoryAnomalyPipeline.ts';
-import { BallTrajectoryAnomalyRecorder } from './BallTrajectoryAnomalyRecorder.ts';
+import { BallTrajectoryAnomalyDetector } from './BallTrajectoryAnomalyDetector.ts';
 import { getActiveBotBallPredictionHorizonSeconds } from '../../ai/experimental/botpackSharedBallPredPipeline.ts';
 import type { BallStateObjectInput } from '../../physics/RocketSimSnapshotSerializer.ts';
 
@@ -53,7 +53,7 @@ export class BallTrajectorySamplingController {
   public readonly rawPredictedPoints: Float32Array;
   public readonly rawSlicesBuffer: Float32Array;
   public readonly bounceMarkersBuffer: Float32Array;
-  public readonly anomalyRecorder = new BallTrajectoryAnomalyRecorder();
+  public readonly anomalyRecorder = new BallTrajectoryAnomalyDetector();
 
   public predictionCount = 0;
   public validCachedCount = 0;
@@ -342,29 +342,20 @@ export class BallTrajectorySamplingController {
     this.impactTick = resolvedTick;
     this.lastUpdatedTick = resolvedTick;
 
+    const isIncWindow = updateMode === 'continuous-incremental' && catchupBudget < actualCount;
+    const stepVisible = isIncWindow
+      ? Math.min(actualCount, Math.max(2, prevVisible - deltaTicks + catchupBudget))
+      : actualCount;
     if (wasIncrementalShift) {
-      const nextVisible =
-        updateMode === 'continuous-incremental' && catchupBudget < actualCount
-          ? Math.min(actualCount, Math.max(2, prevVisible - deltaTicks + catchupBudget))
-          : actualCount;
-      this.predictionCount = nextVisible;
+      this.predictionCount = stepVisible;
       this.incrementalStepCount++;
-      this.lastUpdateKind =
-        nextVisible < actualCount ? 'progressive-catchup' : 'incremental-tail';
+      this.lastUpdateKind = stepVisible < actualCount ? 'progressive-catchup' : 'incremental-tail';
     } else if (!needFull) {
-      const nextVisible =
-        updateMode === 'continuous-incremental' && catchupBudget < actualCount
-          ? Math.min(actualCount, Math.max(2, prevVisible - deltaTicks + catchupBudget))
-          : actualCount;
-      this.predictionCount = nextVisible;
+      this.predictionCount = stepVisible;
       this.fullRecomputeCount++;
       this.lastUpdateKind = 'wasm-seam-resync';
     } else {
-      const initialVisible =
-        updateMode === 'continuous-incremental' && catchupBudget < actualCount
-          ? Math.min(actualCount, Math.max(2, catchupBudget))
-          : actualCount;
-      this.predictionCount = initialVisible;
+      this.predictionCount = isIncWindow ? Math.min(actualCount, Math.max(2, catchupBudget)) : actualCount;
       this.fullRecomputeCount++;
       this.patternAnchorTick = resolvedTick;
       this.lastUpdateKind = options.reason || 'full-initial';

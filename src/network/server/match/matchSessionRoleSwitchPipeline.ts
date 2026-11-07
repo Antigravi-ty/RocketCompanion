@@ -1,466 +1,271 @@
 /**
  * src/network/server/match/matchSessionRoleSwitchPipeline.ts
- * Narrow-interface pipeline for player/spectator handshake packet construction,
- * disconnected slot reclamation, session removal, and role/team switching.
+ * Narrow-interface pipeline for disconnected slot reclamation, session removal,
+ * role/team switching, and JSON control packet evaluation.
  */
 
-import { MATCH_SIGNALS } from '../../protocol/GlobalPayloadCodec.ts';
+import { MATCH_SIGNALS, CLIENT_COMMAND_TYPES } from '../../protocol/GlobalPayloadCodec.ts';
+import { PLAYER_ROLE_CODES, packLoadoutSignalParam2 } from '../../../ui-core/config/vehicleConstants';
 import {
-  PLAYER_ROLE_CODES,
-  encodeVisualIdIndex,
-  packLoadoutSignalParam2,
-} from '../../../ui-core/config/vehicleConstants';
-import { KICKOFF_SPAWN_PRESETS } from '../../../physics/RocketSimConstants.ts';
-import {
-  MATCH_STATES,
-  isColorSlotValidForTeam,
-  resolveTeamMatchedColorSlot,
-  resolveDefaultColorSlotForTeam,
-  resolveColorHexForSlot,
-  type MatchPlayerSlot,
-  type MatchSpectatorSlot,
-  type DisconnectedPlayerSlot,
-  type NormalizedSlotLoadoutResult,
-  type PlayerLoadoutOptions,
-  type RosterSnapshot,
+  MATCH_STATES, resolveDefaultColorSlotForTeam,
+  type MatchPlayerSlot, type MatchSpectatorSlot, type DisconnectedPlayerSlot, type PlayerLoadoutOptions,
 } from './matchLoadoutAndSpawnPipeline.ts';
-import {
-  popReclaimedPlayerSlotCandidate,
-  type RosterPhysicsManagerPort,
-  type RosterSessionPort,
-  type SignalDispatchFn,
-} from './matchRosterPhysicsAndBotPipeline.ts';
+import type { RosterPhysicsManagerPort, RosterSessionPort } from './matchRosterPhysicsAndBotPipeline.ts';
+
+function popReclaimedPlayerSlotCandidate(
+  disconnectedPlayerSlots: Map<number, DisconnectedPlayerSlot>,
+  players: Iterable<MatchPlayerSlot>, requestedEntityId: number
+): { reclaimed: DisconnectedPlayerSlot | null; entityId: number } {
+  let reclaimed: DisconnectedPlayerSlot | null = null;
+  if (disconnectedPlayerSlots.size > 0) {
+    if (typeof requestedEntityId === 'number' && requestedEntityId >= 0 && disconnectedPlayerSlots.has(requestedEntityId)) {
+      reclaimed = disconnectedPlayerSlots.get(requestedEntityId) || null;
+      disconnectedPlayerSlots.delete(requestedEntityId);
+    } else {
+      const firstEntry = disconnectedPlayerSlots.entries().next().value;
+      if (firstEntry) { reclaimed = firstEntry[1]; disconnectedPlayerSlots.delete(firstEntry[0]); }
+    }
+  }
+  if (!reclaimed) return { reclaimed: null, entityId: -1 };
+  const usedEntityIds = new Set(Array.from(players).map((p) => p.entityId));
+  let entityId = reclaimed.entityId;
+  if (usedEntityIds.has(entityId) || entityId < 0 || entityId >= 6) {
+    entityId = -1;
+    for (let i = 0; i < 6; i++) if (!usedEntityIds.has(i)) { entityId = i; break; }
+  }
+  return { reclaimed, entityId };
+}
+
+export interface ClientCommandPayload {
+  commandId?: number; commandType: number; param1?: number; param2?: number;
+  stateSnapshot?: Float32Array | number[] | null;
+}
 
 export interface RoleSwitchDataHandlerPort {
   sendPacket: (sessionId: string, packet: string | Uint8Array) => void;
+  broadcast?: (packet: string | Uint8Array, filter?: (id: string) => boolean) => void;
 }
 
-export function resolveCosmeticsPatchForExistingPlayerSlot(
-  existing: MatchPlayerSlot,
-  resolved: NormalizedSlotLoadoutResult
-): Partial<MatchPlayerSlot> {
-  const {
-    normalizedLoadout, requestedVisual, requestedHitboxIndex, requestedHitboxId,
-    requestedPaintFinish, requestedBoostVisual, requestedBoostAudio,
-  } = resolved;
-
-  const patch: Partial<MatchPlayerSlot> = {};
-  if (normalizedLoadout.visualId !== undefined || normalizedLoadout.visualIndex !== undefined) {
-    patch.visualId = requestedVisual;
-    patch.visualIndex = encodeVisualIdIndex(requestedVisual);
-  }
-  if (normalizedLoadout.hitboxId !== undefined || normalizedLoadout.hitboxIndex !== undefined) {
-    patch.hitboxId = requestedHitboxId;
-    patch.hitboxIndex = requestedHitboxIndex;
-  }
-  if (typeof normalizedLoadout.colorSlot === 'number') {
-    const colorSlot = resolveTeamMatchedColorSlot(
-      normalizedLoadout.colorSlot, existing.team, existing.blueColorSlot, existing.orangeColorSlot
-    );
-    patch.colorSlot = colorSlot;
-    if (existing.team === 0) patch.blueColorSlot = colorSlot;
-    else if (existing.team === 1) patch.orangeColorSlot = colorSlot;
-    patch.colorHex = resolveColorHexForSlot(colorSlot, existing.team);
-  }
-  if (normalizedLoadout.paintFinish !== undefined) patch.paintFinish = requestedPaintFinish;
-  if (normalizedLoadout.boostVisual !== undefined) patch.boostVisual = requestedBoostVisual;
-  if (normalizedLoadout.boostAudio !== undefined) patch.boostAudio = requestedBoostAudio;
-  if (normalizedLoadout.anthemId !== undefined) patch.anthemId = String(normalizedLoadout.anthemId);
-  return patch;
+export interface ControlPacketPayload {
+  type?: string | number; playerName?: string; clientName?: string; role?: string;
+  preferredTeam?: number | null; visualId?: string | number; carVisual?: string | number;
+  hitboxId?: string | number | null; carHitbox?: string | number | null;
+  colorSlot?: number | null; slotId?: number | null;
+  blueColorSlot?: number | null; orangeColorSlot?: number | null;
+  paintFinish?: string | number; boostVisual?: string | number;
+  boostAudio?: string | number; anthemId?: string;
+  commandId?: number; commandType?: number; param1?: number; param2?: number;
+  ready?: boolean; matchSequence?: number; rtt?: number; sendTime?: number;
+  stateSnapshot?: Float32Array | number[] | null;
 }
 
-export function createNewPlayerSlotInfo(
-  sessionId: string,
-  playerName: string,
-  preferredTeam: number | null,
-  currentPlayers: Iterable<MatchPlayerSlot>,
-  resolved: NormalizedSlotLoadoutResult,
-  isBotSession: boolean
-): MatchPlayerSlot {
-  const {
-    normalizedLoadout, requestedVisual, requestedHitboxIndex, requestedHitboxId,
-    requestedPaintFinish, requestedBoostVisual, requestedBoostAudio, requestedAnthemId,
-  } = resolved;
-
-  let team0Count = 0;
-  let team1Count = 0;
-  const occupiedSlotsTeam0 = new Set<number>();
-  const occupiedSlotsTeam1 = new Set<number>();
-  const usedEntityIds = new Set<number>();
-
-  for (const p of currentPlayers) {
-    usedEntityIds.add(p.entityId);
-    if (p.team === 0) {
-      team0Count++;
-      occupiedSlotsTeam0.add(p.spawnSlot);
-    } else {
-      team1Count++;
-      occupiedSlotsTeam1.add(p.spawnSlot);
-    }
-  }
-
-  const maxPerTeam = 5;
-  let assignedTeam = preferredTeam;
-  if (assignedTeam === 0 && team0Count >= maxPerTeam && team1Count < maxPerTeam) {
-    assignedTeam = 1;
-  } else if (assignedTeam === 1 && team1Count >= maxPerTeam && team0Count < maxPerTeam) {
-    assignedTeam = 0;
-  } else if (assignedTeam !== 0 && assignedTeam !== 1) {
-    assignedTeam = team0Count <= team1Count ? 0 : 1;
-  }
-
-  let spawnSlot = 0;
-  const targetOccupied = assignedTeam === 0 ? occupiedSlotsTeam0 : occupiedSlotsTeam1;
-  while (targetOccupied.has(spawnSlot) && spawnSlot < KICKOFF_SPAWN_PRESETS.length) {
-    spawnSlot++;
-  }
-
-  let assignedEntityId = -1;
-  for (let i = 0; i < 6; i++) {
-    if (!usedEntityIds.has(i)) {
-      assignedEntityId = i;
-      break;
-    }
-  }
-
-  const visualIndex = encodeVisualIdIndex(requestedVisual);
-  const blueColorSlot = isColorSlotValidForTeam(normalizedLoadout.blueColorSlot, 0)
-    ? normalizedLoadout.blueColorSlot!
-    : isColorSlotValidForTeam(normalizedLoadout.colorSlot, 0)
-      ? normalizedLoadout.colorSlot!
-      : null;
-  const orangeColorSlot = isColorSlotValidForTeam(normalizedLoadout.orangeColorSlot, 1)
-    ? normalizedLoadout.orangeColorSlot!
-    : isColorSlotValidForTeam(normalizedLoadout.colorSlot, 1)
-      ? normalizedLoadout.colorSlot!
-      : null;
-  const colorSlot = resolveTeamMatchedColorSlot(
-    normalizedLoadout.colorSlot, assignedTeam, blueColorSlot, orangeColorSlot
-  );
-  const colorHex = resolveColorHexForSlot(colorSlot, assignedTeam);
-
-  return {
-    sessionId, entityId: assignedEntityId, carIndex: assignedEntityId, team: assignedTeam,
-    name: playerName, role: 'player', spawnSlot, visualId: requestedVisual, visualIndex,
-    hitboxId: requestedHitboxId, hitboxIndex: requestedHitboxIndex, colorSlot,
-    blueColorSlot: assignedTeam === 0 ? colorSlot : blueColorSlot,
-    orangeColorSlot: assignedTeam === 1 ? colorSlot : orangeColorSlot,
-    colorHex, paintFinish: requestedPaintFinish, boostVisual: requestedBoostVisual,
-    boostAudio: requestedBoostAudio, anthemId: requestedAnthemId,
-    ready: isBotSession || sessionId === 'host',
-    arenaLoaded: isBotSession || sessionId === 'host',
-    isBot: isBotSession,
-  };
-}
-
-export function buildPlayerHandshakePacketJson(params: {
-  player: MatchPlayerSlot;
-  roomId: string;
-  gameMode: string;
-  botFillMode: string;
-  clockDuration: number;
-  clockSecondsRemaining: number;
-  blueScore: number;
-  orangeScore: number;
-  matchTick: number;
-  state: string;
-  roster: RosterSnapshot;
-  initialSnapshot?: number[] | null;
-}): string {
-  const { player } = params;
-  return JSON.stringify({
-    type: 'handshake_response',
-    entityId: player.entityId,
-    team: player.team,
-    preferredTeam: player.preferredTeam ?? player.team,
-    spawnSlot: player.spawnSlot,
-    visualId: player.visualId,
-    visualIndex: player.visualIndex,
-    hitboxId: player.hitboxId,
-    hitboxIndex: player.hitboxIndex,
-    colorSlot: player.colorSlot,
-    colorHex: player.colorHex,
-    paintFinish: player.paintFinish,
-    boostVisual: player.boostVisual,
-    boostAudio: player.boostAudio,
-    roomId: params.roomId,
-    gameMode: params.gameMode,
-    botFillMode: params.botFillMode,
-    durationSeconds: params.clockDuration,
-    clockSeconds: params.clockSecondsRemaining,
-    score: { blue: params.blueScore ?? 0, orange: params.orangeScore ?? 0 },
-    matchTick: params.matchTick,
-    serverFrame: params.matchTick,
-    roster: params.roster,
-    state: params.state,
-    isHost: false,
-    ...(params.initialSnapshot !== undefined ? { initialSnapshot: params.initialSnapshot } : {}),
-  });
-}
-
-export function buildSpectatorHandshakePacketJson(params: {
-  roomId: string;
-  gameMode: string;
-  matchTick: number;
-  state: string;
-  roster: RosterSnapshot;
-}): string {
-  return JSON.stringify({
-    type: 'handshake_response',
-    entityId: -1,
-    team: -1,
-    role: 'spectator',
-    roomId: params.roomId,
-    gameMode: params.gameMode,
-    matchTick: params.matchTick,
-    serverFrame: params.matchTick,
-    roster: params.roster,
-    state: params.state,
-    isHost: false,
-  });
-}
-
-export function executePlayerSessionRemoval(params: {
-  sessionId: string;
-  players: Map<string, MatchPlayerSlot>;
-  spectators: Map<string, MatchSpectatorSlot>;
-  disconnectedPlayerSlots: Map<number, DisconnectedPlayerSlot>;
-  matchTick: number;
-  shouldRunActiveMatchBotFill: boolean;
+export interface RosterSwitchControllerPort {
   applyingBotFillPolicy: boolean;
-  sessionManager: RosterSessionPort | null | undefined;
-  physicsManager: RosterPhysicsManagerPort | null | undefined;
-  dispatchSignal: SignalDispatchFn;
-  onPlayerSessionRemoved: (sessionId: string) => void;
-  applyBotFillPolicy: () => void;
-  broadcastRosterUpdate: () => void;
-}): void {
-  const {
-    sessionId, players, spectators, disconnectedPlayerSlots, matchTick,
-    shouldRunActiveMatchBotFill, applyingBotFillPolicy, sessionManager, physicsManager,
-  } = params;
+  readonly players: Map<string, MatchPlayerSlot>;
+  readonly spectators: Map<string, MatchSpectatorSlot>;
+  readonly disconnectedPlayerSlots: Map<number, DisconnectedPlayerSlot>;
+  readonly host: {
+    readonly domain: {
+      matchTick: number; state: string;
+      applyRosterPolicyConfig: () => { shouldApplyBotFill: boolean; isTrainingMode: boolean };
+      buildRosterEnvelope: (sm?: unknown) => { buildHandshakeJson: (p: MatchPlayerSlot | null, snap?: number[] | null) => string };
+    };
+    readonly sessionManager: RosterSessionPort | null | undefined;
+    readonly physicsManager: RosterPhysicsManagerPort | null | undefined;
+    readonly dataHandler: RoleSwitchDataHandlerPort | null | undefined;
+    dispatchSignal: (type: number, frame: number, p1?: number, p2?: number) => unknown;
+    onPlayerSessionRemoved: (sid: string) => void;
+  };
+  withBotFillGuard<T>(fn: () => T): T;
+  removePlayerSession(sid: string): void;
+  assignPlayerSlot(
+    sid: string, name?: string, role?: string, team?: number | null,
+    loadout?: PlayerLoadoutOptions | string | number, colorSlot?: number | null
+  ): MatchPlayerSlot | MatchSpectatorSlot | { entityId: number; team: number; role: string; spawnSlot: number } | null;
+  applyInPlaceTeamSwitch(sid: string, p: MatchPlayerSlot, targetTeam: number, isTrainingMode: boolean): MatchPlayerSlot;
+  applyBotFillPolicy(): void;
+  broadcastRosterUpdate(): void;
+}
 
-  const player = players.get(sessionId);
+export function executePlayerSessionRemoval(ctrl: RosterSwitchControllerPort, sessionId: string): void {
+  const { domain, sessionManager, physicsManager } = ctrl.host;
+  const tick = domain.matchTick, player = ctrl.players.get(sessionId);
   if (player) {
-    const entityId = player.entityId;
-    const wasHuman = !player.isBot;
-    if (wasHuman && entityId >= 0) {
-      disconnectedPlayerSlots.set(entityId, { ...player, disconnectedAtTick: matchTick });
-    }
-    players.delete(sessionId);
+    const entityId = player.entityId, wasHuman = !player.isBot;
+    if (wasHuman && entityId >= 0) ctrl.disconnectedPlayerSlots.set(entityId, { ...player, disconnectedAtTick: tick });
+    ctrl.players.delete(sessionId);
     sessionManager?.unregisterSession?.(sessionId);
-    if (physicsManager && entityId >= 0) {
-      physicsManager.unregisterCarEntity(entityId);
-    }
-    params.dispatchSignal(MATCH_SIGNALS.PLAYER_LEFT, matchTick, entityId, player.team ?? 0);
-    params.onPlayerSessionRemoved(sessionId);
-    if (wasHuman && !applyingBotFillPolicy && shouldRunActiveMatchBotFill) {
-      params.applyBotFillPolicy();
-    }
-    params.broadcastRosterUpdate();
+    if (physicsManager && entityId >= 0) physicsManager.unregisterCarEntity(entityId);
+    ctrl.host.dispatchSignal(MATCH_SIGNALS.PLAYER_LEFT, tick, entityId, player.team ?? 0);
+    ctrl.host.onPlayerSessionRemoved(sessionId);
+    if (wasHuman && !ctrl.applyingBotFillPolicy && domain.applyRosterPolicyConfig().shouldApplyBotFill) ctrl.applyBotFillPolicy();
+    ctrl.broadcastRosterUpdate();
     return;
   }
-
-  if (spectators.has(sessionId)) {
-    spectators.delete(sessionId);
+  if (ctrl.spectators.has(sessionId)) {
+    ctrl.spectators.delete(sessionId);
     sessionManager?.unregisterSession?.(sessionId);
-    params.dispatchSignal(MATCH_SIGNALS.PLAYER_LEFT, matchTick, -1, 2);
-    params.broadcastRosterUpdate();
+    ctrl.host.dispatchSignal(MATCH_SIGNALS.PLAYER_LEFT, tick, -1, 2);
+    ctrl.broadcastRosterUpdate();
   }
 }
 
-export function executePlayerSessionReclaim(params: {
-  sessionId: string;
-  requestedEntityId: number;
-  preferredTeam: number | null;
-  players: Map<string, MatchPlayerSlot>;
-  spectators: Map<string, MatchSpectatorSlot>;
-  disconnectedPlayerSlots: Map<number, DisconnectedPlayerSlot>;
-  matchTick: number;
-  sessionManager: RosterSessionPort | null | undefined;
-  physicsManager: RosterPhysicsManagerPort | null | undefined;
-  assignPlayerSlot: (
-    sessionId: string,
-    playerName: string,
-    role: string,
-    preferredTeam?: number | null
-  ) => MatchPlayerSlot | MatchSpectatorSlot | null;
-  dispatchSignal: SignalDispatchFn;
-  broadcastRosterUpdate: () => void;
-}): MatchPlayerSlot | MatchSpectatorSlot | null | undefined {
-  const {
-    sessionId, requestedEntityId, preferredTeam, players, spectators,
-    disconnectedPlayerSlots, matchTick, sessionManager, physicsManager,
-  } = params;
+export function executePlayerSessionReclaim(
+  ctrl: RosterSwitchControllerPort, sessionId: string, requestedEntityId: number, preferredTeam: number | null
+): MatchPlayerSlot | MatchSpectatorSlot | null | undefined {
+  const { domain, sessionManager, physicsManager } = ctrl.host;
+  if (ctrl.players.has(sessionId)) return ctrl.players.get(sessionId);
+  const { reclaimed, entityId } = popReclaimedPlayerSlotCandidate(ctrl.disconnectedPlayerSlots, ctrl.players.values(), requestedEntityId);
+  if (!reclaimed) return ctrl.assignPlayerSlot(sessionId, 'Player', 'player', preferredTeam) as MatchPlayerSlot | MatchSpectatorSlot | null;
+  if (entityId < 0) return ctrl.assignPlayerSlot(sessionId, reclaimed.name || 'Player', 'spectator') as MatchPlayerSlot | MatchSpectatorSlot | null;
+  if (ctrl.spectators.has(sessionId)) ctrl.spectators.delete(sessionId);
 
-  if (players.has(sessionId)) return players.get(sessionId);
-  const { reclaimed, entityId } = popReclaimedPlayerSlotCandidate(
-    disconnectedPlayerSlots, players.values(), requestedEntityId
-  );
-  if (!reclaimed) return params.assignPlayerSlot(sessionId, 'Player', 'player', preferredTeam);
-  if (entityId < 0) {
-    return params.assignPlayerSlot(sessionId, reclaimed.name || 'Player', 'spectator');
-  }
-
-  if (spectators.has(sessionId)) spectators.delete(sessionId);
-
-  const playerInfo: MatchPlayerSlot = {
-    ...reclaimed, sessionId, entityId, carIndex: entityId,
-    ready: true, arenaLoaded: true, isBot: false,
-  };
-  players.set(sessionId, playerInfo);
+  const p: MatchPlayerSlot = { ...reclaimed, sessionId, entityId, carIndex: entityId, ready: true, arenaLoaded: true, isBot: false };
+  ctrl.players.set(sessionId, p);
   sessionManager?.registerSession(sessionId, {
-    role: 'player', entityId, team: playerInfo.team,
-    visualId: playerInfo.visualId, hitboxId: playerInfo.hitboxId,
-    deferPhysicsRegistration: false, playerName: playerInfo.name,
+    role: 'player', entityId, team: p.team, visualId: p.visualId,
+    hitboxId: p.hitboxId, deferPhysicsRegistration: false, playerName: p.name,
   });
-
   if (physicsManager) {
-    const hitboxOrVisual = playerInfo.hitboxId || playerInfo.visualId || 'octane';
-    physicsManager.registerCarEntity(entityId, playerInfo.team, hitboxOrVisual);
-    physicsManager.applySignal('HOTSWAP_HITBOX', {
-      carIndex: entityId, hitboxType: hitboxOrVisual,
-    });
+    const hb = p.hitboxId || p.visualId || 'octane';
+    physicsManager.registerCarEntity(entityId, p.team, hb);
+    physicsManager.applySignal('HOTSWAP_HITBOX', { carIndex: entityId, hitboxType: hb });
   }
-
-  params.dispatchSignal(MATCH_SIGNALS.PLAYER_JOINED, matchTick, entityId, playerInfo.team);
-  params.dispatchSignal(MATCH_SIGNALS.PLAYER_SLOT_UPDATED, matchTick, entityId, playerInfo.team);
-  params.dispatchSignal(
-    MATCH_SIGNALS.PLAYER_LOADOUT_UPDATED,
-    matchTick,
-    entityId,
-    packLoadoutSignalParam2(
-      playerInfo.visualIndex ?? playerInfo.visualId,
-      playerInfo.colorSlot,
-      playerInfo.hitboxIndex ?? playerInfo.hitboxId,
-      {
-        paintFinish: playerInfo.paintFinish || 'metallic',
-        boostVisual: playerInfo.boostVisual || 'cartoon',
-        boostAudio: playerInfo.boostAudio || 'rush',
-      }
-    )
+  const tick = domain.matchTick;
+  ctrl.host.dispatchSignal(MATCH_SIGNALS.PLAYER_JOINED, tick, entityId, p.team);
+  ctrl.host.dispatchSignal(MATCH_SIGNALS.PLAYER_SLOT_UPDATED, tick, entityId, p.team);
+  ctrl.host.dispatchSignal(
+    MATCH_SIGNALS.PLAYER_LOADOUT_UPDATED, tick, entityId,
+    packLoadoutSignalParam2(p.visualIndex ?? p.visualId, p.colorSlot, p.hitboxIndex ?? p.hitboxId, {
+      paintFinish: p.paintFinish || 'metallic', boostVisual: p.boostVisual || 'cartoon', boostAudio: p.boostAudio || 'rush',
+    })
   );
-  params.broadcastRosterUpdate();
-  return playerInfo;
+  ctrl.broadcastRosterUpdate();
+  return p;
 }
 
-export function executePlayerRoleOrTeamSwitch(params: {
-  sessionId: string;
-  targetRole: string | number;
-  targetTeam: number;
-  players: Map<string, MatchPlayerSlot>;
-  spectators: Map<string, MatchSpectatorSlot>;
-  matchTick: number;
-  state: string;
-  shouldRunActiveMatchBotFill: boolean;
-  dataHandler: RoleSwitchDataHandlerPort | null | undefined;
-  isApplyingBotFillPolicy: () => boolean;
-  setApplyingBotFillPolicy: (value: boolean) => void;
-  removePlayerSession: (sessionId: string) => void;
-  assignPlayerSlot: (
-    sessionId: string,
-    playerName: string,
-    role: string,
-    preferredTeam: number | null,
-    loadoutOptions: PlayerLoadoutOptions
-  ) => MatchPlayerSlot | MatchSpectatorSlot | null;
-  applyInPlaceTeamSwitch: (currentPlayer: MatchPlayerSlot, targetTeam: number) => MatchPlayerSlot;
-  applyBotFillPolicy: () => void;
-  buildHandshakePacketJson: (player: MatchPlayerSlot | null) => string;
-  broadcastRosterUpdate: () => void;
-  dispatchSignal: SignalDispatchFn;
-}): MatchPlayerSlot | MatchSpectatorSlot | null {
-  const {
-    sessionId, targetRole, targetTeam, players, spectators, matchTick, state,
-    shouldRunActiveMatchBotFill, dataHandler,
-  } = params;
-
-  const currentPlayer = players.get(sessionId);
-  const currentSpec = spectators.get(sessionId);
-  const playerName = currentPlayer?.name || currentSpec?.name || 'Player';
-  const visualId = currentPlayer?.visualId || 'fennec';
-  const hitboxId = currentPlayer?.hitboxId || visualId;
-  const colorSlot = currentPlayer?.colorSlot ?? resolveDefaultColorSlotForTeam(targetTeam);
-  const paintFinish = currentPlayer?.paintFinish || 'metallic';
-  const boostVisual = currentPlayer?.boostVisual || 'cartoon';
-  const boostAudio = currentPlayer?.boostAudio || 'rush';
+export function executePlayerRoleOrTeamSwitch(
+  ctrl: RosterSwitchControllerPort, sessionId: string, targetRole: string | number, targetTeam: number
+): MatchPlayerSlot | MatchSpectatorSlot | null {
+  const { domain, sessionManager, dataHandler } = ctrl.host;
+  const policyFlags = domain.applyRosterPolicyConfig();
+  const cp = ctrl.players.get(sessionId), cs = ctrl.spectators.get(sessionId);
+  const name = cp?.name || cs?.name || 'Player';
+  const visualId = cp?.visualId || 'fennec', hitboxId = cp?.hitboxId || visualId;
+  const colorSlot = cp?.colorSlot ?? resolveDefaultColorSlotForTeam(targetTeam);
+  const paintFinish = cp?.paintFinish || 'metallic', boostVisual = cp?.boostVisual || 'cartoon', boostAudio = cp?.boostAudio || 'rush';
 
   if (targetRole === 'spectator' || targetRole === 2) {
-    if (currentPlayer) params.removePlayerSession(sessionId);
-    const specSlot = params.assignPlayerSlot(sessionId, playerName, 'spectator', null, {
+    if (cp) ctrl.removePlayerSession(sessionId);
+    const specSlot = ctrl.assignPlayerSlot(sessionId, name, 'spectator', null, {
       visualId, hitboxId, colorSlot, paintFinish, boostVisual, boostAudio,
-    });
-    params.dispatchSignal(
-      MATCH_SIGNALS.PLAYER_SLOT_UPDATED, matchTick, 65535, PLAYER_ROLE_CODES.SPECTATOR
-    );
+    }) as MatchSpectatorSlot | null;
+    ctrl.host.dispatchSignal(MATCH_SIGNALS.PLAYER_SLOT_UPDATED, domain.matchTick, 65535, PLAYER_ROLE_CODES.SPECTATOR);
     if (dataHandler && sessionId && sessionId !== 'host') {
-      dataHandler.sendPacket(sessionId, params.buildHandshakePacketJson(null));
+      dataHandler.sendPacket(sessionId, domain.buildRosterEnvelope(sessionManager).buildHandshakeJson(null));
     }
     return specSlot;
   }
 
-  const maxPerTeam = 5;
-  let teamCount = 0;
-  let targetTeamAutoFillBotSid: string | null = null;
+  let teamCount = 0, autoFillBotSid: string | null = null;
   if (targetTeam === 0 || targetTeam === 1) {
-    for (const [sid, p] of players.entries()) {
+    for (const [sid, p] of ctrl.players.entries()) {
       if (sid !== sessionId && p.team === targetTeam) {
         teamCount++;
-        if (p.isBot && String(sid).startsWith('bot_fill_') && !targetTeamAutoFillBotSid) {
-          targetTeamAutoFillBotSid = sid;
-        }
+        if (p.isBot && String(sid).startsWith('bot_fill_') && !autoFillBotSid) autoFillBotSid = sid;
       }
     }
-    if (teamCount >= maxPerTeam && targetTeamAutoFillBotSid && !params.isApplyingBotFillPolicy()) {
-      const prevApplying = params.isApplyingBotFillPolicy();
-      params.setApplyingBotFillPolicy(true);
-      try {
-        params.removePlayerSession(targetTeamAutoFillBotSid);
-        teamCount--;
-      } finally {
-        params.setApplyingBotFillPolicy(prevApplying);
-      }
+    if (teamCount >= 5 && autoFillBotSid && !ctrl.applyingBotFillPolicy) {
+      ctrl.withBotFillGuard(() => { ctrl.removePlayerSession(autoFillBotSid!); teamCount--; });
     }
-    if (teamCount >= maxPerTeam) return currentPlayer || currentSpec || null;
+    if (teamCount >= 5) return cp || cs || null;
   }
-
-  if (currentPlayer && currentPlayer.team === targetTeam) return currentPlayer;
+  if (cp && cp.team === targetTeam) return cp;
 
   let updated: MatchPlayerSlot | MatchSpectatorSlot | null = null;
-  const hadValidEntitySlot = Boolean(
-    currentPlayer && typeof currentPlayer.entityId === 'number' && currentPlayer.entityId >= 0
-  );
-  if (hadValidEntitySlot && currentPlayer) {
-    updated = params.applyInPlaceTeamSwitch(currentPlayer, targetTeam);
-    params.broadcastRosterUpdate();
+  const hadValidEntity = Boolean(cp && typeof cp.entityId === 'number' && cp.entityId >= 0);
+  if (hadValidEntity && cp) {
+    updated = ctrl.applyInPlaceTeamSwitch(sessionId, cp, targetTeam, policyFlags.isTrainingMode);
+    ctrl.broadcastRosterUpdate();
   } else {
-    const prevApplying = params.isApplyingBotFillPolicy();
-    params.setApplyingBotFillPolicy(true);
-    try {
-      if (currentSpec) params.removePlayerSession(sessionId);
-      updated = params.assignPlayerSlot(sessionId, playerName, 'player', targetTeam, {
-        visualId, hitboxId,
-        colorSlot: resolveDefaultColorSlotForTeam(targetTeam === 1 ? 1 : 0),
+    updated = ctrl.withBotFillGuard(() => {
+      if (cs) ctrl.removePlayerSession(sessionId);
+      return ctrl.assignPlayerSlot(sessionId, name, 'player', targetTeam, {
+        visualId, hitboxId, colorSlot: resolveDefaultColorSlotForTeam(targetTeam === 1 ? 1 : 0),
         paintFinish, boostVisual, boostAudio,
-      });
-    } finally {
-      params.setApplyingBotFillPolicy(prevApplying);
-    }
+      }) as MatchPlayerSlot | MatchSpectatorSlot | null;
+    });
   }
 
-  if (!params.isApplyingBotFillPolicy() && shouldRunActiveMatchBotFill) {
-    params.applyBotFillPolicy();
-  }
-
+  if (!ctrl.applyingBotFillPolicy && policyFlags.shouldApplyBotFill) ctrl.applyBotFillPolicy();
   if (updated && 'entityId' in updated && updated.entityId >= 0) {
-    if (state !== MATCH_STATES.LOBBY || !hadValidEntitySlot) {
-      params.dispatchSignal(
-        MATCH_SIGNALS.PLAYER_SLOT_UPDATED, matchTick, updated.entityId, updated.team === 1 ? 1 : 0
-      );
+    if (domain.state !== MATCH_STATES.LOBBY || !hadValidEntity) {
+      ctrl.host.dispatchSignal(MATCH_SIGNALS.PLAYER_SLOT_UPDATED, domain.matchTick, updated.entityId, updated.team === 1 ? 1 : 0);
     }
-    if (!hadValidEntitySlot && dataHandler && sessionId && sessionId !== 'host') {
-      dataHandler.sendPacket(sessionId, params.buildHandshakePacketJson(updated));
+    if (!hadValidEntity && dataHandler && sessionId && sessionId !== 'host') {
+      dataHandler.sendPacket(sessionId, domain.buildRosterEnvelope(sessionManager).buildHandshakeJson(updated));
     }
   }
   return updated;
+}
+
+export function evaluateSessionControlPacket(params: {
+  channelId: string; packetType: string | number;
+  packetData: ControlPacketPayload | null | undefined;
+  roster: {
+    assignPlayerSlot: (sid: string, name: string, role: string, preferredTeam: number | null, loadout: PlayerLoadoutOptions) => unknown;
+    updatePlayerLoadout: (sid: string, visual: string | number, colorSlot: number | null, hitbox: string | number | null, extra: Record<string, string | number | undefined>) => unknown;
+    removePlayerSession: (sid: string) => void;
+  };
+  dataHandler: RoleSwitchDataHandlerPort | null | undefined;
+  sim?: { saveCompactState?: () => Float32Array; saveState?: () => Float32Array } | null;
+  sessionManager?: { getSession?: (sid: string) => { updateRtt?: (rtt: number) => void } | null | undefined } | null;
+  buildHandshakeJson: (player: MatchPlayerSlot | null, initialSnapshot?: number[] | null) => string;
+  handleClientCommand: (channelId: string, cmd: ClientCommandPayload) => void;
+}): unknown {
+  const { channelId, packetType, packetData: pd, roster, dataHandler, sim, sessionManager, buildHandshakeJson, handleClientCommand } = params;
+  if (!pd) return null;
+  const type = pd.type || packetType;
+
+  if (type === 'join' || type === 'join_training' || type === 'token' || type === 'handshake_request') {
+    const info = roster.assignPlayerSlot(
+      channelId, pd.playerName || pd.clientName || 'Player', pd.role || 'player', pd.preferredTeam ?? null,
+      {
+        visualId: pd.visualId || pd.carVisual || 'fennec', hitboxId: pd.hitboxId || pd.carHitbox || null,
+        colorSlot: pd.colorSlot, blueColorSlot: pd.blueColorSlot, orangeColorSlot: pd.orangeColorSlot,
+        paintFinish: pd.paintFinish, boostVisual: pd.boostVisual, boostAudio: pd.boostAudio, anthemId: pd.anthemId,
+      }
+    );
+    if (dataHandler && info && typeof info === 'object' && 'visualId' in info) {
+      const rawSnap = sim?.saveCompactState ? sim.saveCompactState() : sim?.saveState?.();
+      dataHandler.sendPacket(channelId, buildHandshakeJson(info as MatchPlayerSlot, rawSnap ? Array.from<number>(rawSnap) : null));
+    }
+    return info;
+  }
+
+  if (type === 'color_change' || type === 'loadout_change') {
+    if (pd.visualId !== undefined || pd.slotId !== undefined || pd.hitboxId !== undefined || pd.paintFinish !== undefined || pd.boostVisual !== undefined || pd.boostAudio !== undefined) {
+      roster.updatePlayerLoadout(channelId, pd.visualId ?? 'fennec', pd.slotId ?? null, pd.hitboxId ?? null, {
+        paintFinish: pd.paintFinish, boostVisual: pd.boostVisual, boostAudio: pd.boostAudio,
+      });
+    }
+    dataHandler?.broadcast?.(JSON.stringify(pd), (id: string) => id !== channelId);
+    return null;
+  }
+  if (type === 'client_command' && typeof pd.commandType === 'number') { handleClientCommand(channelId, pd as ClientCommandPayload); return null; }
+  if (type === 'match_ready_ack') {
+    handleClientCommand(channelId, { commandId: pd.commandId ?? 0, commandType: CLIENT_COMMAND_TYPES.CMD_READY_ACK, param1: pd.ready === false ? 0 : 1, param2: 0 });
+    return null;
+  }
+  if (type === 'arena_loaded_ack') {
+    handleClientCommand(channelId, { commandId: pd.commandId ?? 0, commandType: CLIENT_COMMAND_TYPES.CMD_ARENA_LOADED_ACK, param1: pd.matchSequence ?? 0, param2: 0 });
+    return null;
+  }
+  if (type === 'ping') {
+    if (typeof pd.rtt === 'number') sessionManager?.getSession?.(channelId)?.updateRtt?.(pd.rtt);
+    dataHandler?.sendPacket(channelId, JSON.stringify({ type: 'pong', sendTime: pd.sendTime || Date.now(), serverTime: Date.now() }));
+    return null;
+  }
+  if (type === 'leave') { roster.removePlayerSession(channelId); return null; }
+  return null;
 }

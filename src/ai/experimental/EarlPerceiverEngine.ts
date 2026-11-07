@@ -8,6 +8,7 @@
  */
 
 import { simdMatVecBias } from './wasmSimdMatVec.ts';
+import type { SafeTensorEntry } from './SafeTensorsLoader.ts';
 
 const MAX_ENTITIES = 64;
 const EMBED_DIM = 128;
@@ -16,10 +17,22 @@ const HEAD_DIM = 32;
 const ATTN_SCALE = 5.656854249492381; // Math.sqrt(32)
 const LN_EPS = 1e-5;
 
+function f32(entry: SafeTensorEntry): Float32Array {
+  return entry.data as Float32Array;
+}
+
 /**
  * Dense linear transformation for a single vector: out[outDim] = weight[outDim, inDim] * x[inDim] + bias[outDim]
  */
-function linearVec(x, inDim, outDim, weight, bias, out, applyReLU = false) {
+function linearVec(
+  x: Float32Array,
+  inDim: number,
+  outDim: number,
+  weight: Float32Array,
+  bias: Float32Array,
+  out: Float32Array,
+  applyReLU = false
+): void {
   simdMatVecBias(x, inDim, outDim, weight, bias, out, 0, 0);
   if (applyReLU) {
     for (let o = 0; o < outDim; o++) {
@@ -34,7 +47,16 @@ function linearVec(x, inDim, outDim, weight, bias, out, applyReLU = false) {
  * Uses column-wise accumulation when inDim <= 32 (where entity tokens are >60% sparse zeros)
  * and SIMD row dot-products for dense 128-dim hidden layers.
  */
-function linearBatch(x, numTokens, inDim, outDim, weight, bias, out, applyReLU = false) {
+function linearBatch(
+  x: Float32Array,
+  numTokens: number,
+  inDim: number,
+  outDim: number,
+  weight: Float32Array,
+  bias: Float32Array,
+  out: Float32Array,
+  applyReLU = false
+): void {
   if (inDim <= 32) {
     for (let n = 0; n < numTokens; n++) {
       const inBase = n * inDim;
@@ -73,7 +95,13 @@ function linearBatch(x, numTokens, inDim, outDim, weight, bias, out, applyReLU =
 /**
  * LayerNorm over the last dimension (128) for N tokens.
  */
-function layerNorm128(x, numTokens, weight, bias, out) {
+function layerNorm128(
+  x: Float32Array,
+  numTokens: number,
+  weight: Float32Array,
+  bias: Float32Array,
+  out: Float32Array
+): void {
   for (let n = 0; n < numTokens; n++) {
     const base = n * EMBED_DIM;
     let sum = 0;
@@ -96,27 +124,23 @@ function layerNorm128(x, numTokens, weight, bias, out) {
 /**
  * 4-Head Cross-Attention where Query has length 1 (128-dim) and Key/Value has length numEntities (numEntities * 128).
  * Matches PyTorch torch.nn.MultiheadAttention with in_proj_weight [384, 128] and in_proj_bias [384].
- *
- * Algebraically factored for single-query cross-attention (12.1x fewer MACs):
- *   q_h^T (W_{K,h} x_n + b_{K,h}) = (W_{K,h}^T q_h)^T x_n + q_h^T b_{K,h}
- *   sum_n alpha_{h,n} (W_{V,h} x_n + b_{V,h}) = W_{V,h} (sum_n alpha_{h,n} x_n) + b_{V,h}
  */
 function crossAttentionSingleQuery(
-  qVec,
-  kvMat,
-  numEntities,
-  mask,
-  inProjWeight,
-  inProjBias,
-  outProjWeight,
-  outProjBias,
-  qProjBuf,
-  kProjBuf,
-  vProjBuf,
-  scoresBuf,
-  headConcatBuf,
-  outVec
-) {
+  qVec: Float32Array,
+  kvMat: Float32Array,
+  numEntities: number,
+  mask: Float32Array | null,
+  inProjWeight: Float32Array,
+  inProjBias: Float32Array,
+  outProjWeight: Float32Array,
+  outProjBias: Float32Array,
+  qProjBuf: Float32Array,
+  kProjBuf: Float32Array,
+  vProjBuf: Float32Array,
+  scoresBuf: Float32Array,
+  headConcatBuf: Float32Array,
+  outVec: Float32Array
+): void {
   // 1. Project Query (1 x 128) using first 128 rows of inProjWeight
   for (let o = 0; o < EMBED_DIM; o++) {
     let sum = inProjBias[o];
@@ -136,7 +160,6 @@ function crossAttentionSingleQuery(
   const kBiasOffset = EMBED_DIM;
   const vBiasOffset = 2 * EMBED_DIM;
 
-  // Reuse first 128 floats of kProjBuf as qK[128] and vProjBuf as vAgg[128]
   const qKBuf = kProjBuf;
   const vAggBuf = vProjBuf;
 
@@ -145,9 +168,7 @@ function crossAttentionSingleQuery(
     const headOffset = h * HEAD_DIM;
 
     let biasScore = 0;
-    for (let i = 0; i < EMBED_DIM; i++) {
-      qKBuf[i] = 0;
-    }
+    qKBuf.fill(0, 0, EMBED_DIM);
 
     for (let d = 0; d < HEAD_DIM; d++) {
       const qVal = qProjBuf[headOffset + d];
@@ -186,9 +207,7 @@ function crossAttentionSingleQuery(
     }
     const invExpSum = expSum > 0 ? 1.0 / expSum : 0;
 
-    for (let i = 0; i < EMBED_DIM; i++) {
-      vAggBuf[i] = 0;
-    }
+    vAggBuf.fill(0, 0, EMBED_DIM);
     for (let n = 0; n < numEntities; n++) {
       const weight = scoresBuf[n] * invExpSum;
       const kvBase = n * EMBED_DIM;
@@ -219,99 +238,148 @@ function crossAttentionSingleQuery(
 }
 
 export class EarlPerceiverEngine {
-  qH1: Float32Array;
-  qEmbed: Float32Array;
-  kvH1: Float32Array;
-  kvEmbed: Float32Array;
-  qNorm: Float32Array;
-  kvNorm: Float32Array;
-  qProj: Float32Array;
-  kProj: Float32Array;
-  vProj: Float32Array;
-  scores: Float32Array;
-  headConcat: Float32Array;
-  attnOut: Float32Array;
-  res1: Float32Array;
-  res1Norm: Float32Array;
-  ffnHidden: Float32Array;
-  ffnOut: Float32Array;
-  blockOut: Float32Array;
-  postReLU: Float32Array;
-  nectoLogits: Float32Array;
-  nextoEmb32: Float32Array;
-  nextoLogits: Float32Array;
+  qH1 = new Float32Array(EMBED_DIM);
+  qEmbed = new Float32Array(EMBED_DIM);
+  kvH1 = new Float32Array(MAX_ENTITIES * EMBED_DIM);
+  kvEmbed = new Float32Array(MAX_ENTITIES * EMBED_DIM);
+  qNorm = new Float32Array(EMBED_DIM);
+  kvNorm = new Float32Array(MAX_ENTITIES * EMBED_DIM);
+  qProj = new Float32Array(EMBED_DIM);
+  kProj = new Float32Array(EMBED_DIM);
+  vProj = new Float32Array(EMBED_DIM);
+  scores = new Float32Array(MAX_ENTITIES);
+  headConcat = new Float32Array(EMBED_DIM);
+  attnOut = new Float32Array(EMBED_DIM);
+  res1 = new Float32Array(EMBED_DIM);
+  res1Norm = new Float32Array(EMBED_DIM);
+  ffnHidden = new Float32Array(512);
+  ffnOut = new Float32Array(EMBED_DIM);
+  blockOut = new Float32Array(EMBED_DIM);
+  postReLU = new Float32Array(EMBED_DIM);
+  nectoLogits = new Float32Array(12);
+  nextoEmb32 = new Float32Array(32);
+  nextoLogits = new Float32Array(90);
 
-  constructor() {
-    this.qH1 = new Float32Array(EMBED_DIM);
-    this.qEmbed = new Float32Array(EMBED_DIM);
-    this.kvH1 = new Float32Array(MAX_ENTITIES * EMBED_DIM);
-    this.kvEmbed = new Float32Array(MAX_ENTITIES * EMBED_DIM);
-
-    this.qNorm = new Float32Array(EMBED_DIM);
-    this.kvNorm = new Float32Array(MAX_ENTITIES * EMBED_DIM);
-
-    this.qProj = new Float32Array(EMBED_DIM);
-    this.kProj = new Float32Array(EMBED_DIM);
-    this.vProj = new Float32Array(EMBED_DIM);
-    this.scores = new Float32Array(MAX_ENTITIES);
-    this.headConcat = new Float32Array(EMBED_DIM);
-    this.attnOut = new Float32Array(EMBED_DIM);
-
-    this.res1 = new Float32Array(EMBED_DIM);
-    this.res1Norm = new Float32Array(EMBED_DIM);
-    this.ffnHidden = new Float32Array(512);
-    this.ffnOut = new Float32Array(EMBED_DIM);
-    this.blockOut = new Float32Array(EMBED_DIM);
-
-    this.postReLU = new Float32Array(EMBED_DIM);
-    this.nectoLogits = new Float32Array(12);
-    this.nextoEmb32 = new Float32Array(32);
-    this.nextoLogits = new Float32Array(90);
-  }
-
-  forwardNecto(query: Float32Array, entities: Float32Array, numEntities: number, tensors: any, mask: Float32Array | null = null) {
+  private _preprocessQueryAndKV(
+    query: Float32Array,
+    entities: Float32Array,
+    numEntities: number,
+    tensors: Record<string, SafeTensorEntry>
+  ): void {
     if (numEntities > MAX_ENTITIES) {
       throw new Error(`[EarlPerceiverEngine] numEntities (${numEntities}) exceeds MAX_ENTITIES (${MAX_ENTITIES}).`);
     }
 
-    // 1. Query preprocess: Linear(32->128) -> ReLU -> Linear(128->128) -> ReLU
     linearVec(
       query, 32, 128,
-      tensors['net.earl.query_preprocess.0.weight'].data,
-      tensors['net.earl.query_preprocess.0.bias'].data,
+      f32(tensors['net.earl.query_preprocess.0.weight']),
+      f32(tensors['net.earl.query_preprocess.0.bias']),
       this.qH1, true
     );
     linearVec(
       this.qH1, 128, 128,
-      tensors['net.earl.query_preprocess.2.weight'].data,
-      tensors['net.earl.query_preprocess.2.bias'].data,
+      f32(tensors['net.earl.query_preprocess.2.weight']),
+      f32(tensors['net.earl.query_preprocess.2.bias']),
       this.qEmbed, true
     );
 
-    // 2. Key-Value preprocess: Linear(24->128) -> ReLU -> Linear(128->128) -> ReLU
     linearBatch(
       entities, numEntities, 24, 128,
-      tensors['net.earl.key_value_preprocess.0.weight'].data,
-      tensors['net.earl.key_value_preprocess.0.bias'].data,
+      f32(tensors['net.earl.key_value_preprocess.0.weight']),
+      f32(tensors['net.earl.key_value_preprocess.0.bias']),
       this.kvH1, true
     );
     linearBatch(
       this.kvH1, numEntities, 128, 128,
-      tensors['net.earl.key_value_preprocess.2.weight'].data,
-      tensors['net.earl.key_value_preprocess.2.bias'].data,
+      f32(tensors['net.earl.key_value_preprocess.2.weight']),
+      f32(tensors['net.earl.key_value_preprocess.2.bias']),
       this.kvEmbed, true
     );
+  }
 
-    // 3. Block 0: Cross-Attention + Residual + FFN (128 -> 256 -> 128) + Residual
+  private _runPreLnBlock(
+    blockIdx: number,
+    qInput: Float32Array,
+    numEntities: number,
+    tensors: Record<string, SafeTensorEntry>,
+    mask: Float32Array | null,
+    outBuf: Float32Array,
+    applyFinalReLU: boolean
+  ): void {
+    const pfx = `net.earl.blocks.${blockIdx}`;
+    layerNorm128(
+      qInput, 1,
+      f32(tensors[`${pfx}.norm1.weight`]),
+      f32(tensors[`${pfx}.norm1.bias`]),
+      this.qNorm
+    );
+    layerNorm128(
+      this.kvEmbed, numEntities,
+      f32(tensors[`${pfx}.norm2.weight`]),
+      f32(tensors[`${pfx}.norm2.bias`]),
+      this.kvNorm
+    );
+    crossAttentionSingleQuery(
+      this.qNorm,
+      this.kvNorm,
+      numEntities,
+      mask,
+      f32(tensors[`${pfx}.attention.in_proj_weight`]),
+      f32(tensors[`${pfx}.attention.in_proj_bias`]),
+      f32(tensors[`${pfx}.attention.out_proj.weight`]),
+      f32(tensors[`${pfx}.attention.out_proj.bias`]),
+      this.qProj,
+      this.kProj,
+      this.vProj,
+      this.scores,
+      this.headConcat,
+      this.attnOut
+    );
+    for (let d = 0; d < EMBED_DIM; d++) {
+      this.res1[d] = qInput[d] + this.attnOut[d];
+    }
+    layerNorm128(
+      this.res1, 1,
+      f32(tensors[`${pfx}.norm3.weight`]),
+      f32(tensors[`${pfx}.norm3.bias`]),
+      this.res1Norm
+    );
+    linearVec(
+      this.res1Norm, 128, 512,
+      f32(tensors[`${pfx}.linear1.weight`]),
+      f32(tensors[`${pfx}.linear1.bias`]),
+      this.ffnHidden, true
+    );
+    linearVec(
+      this.ffnHidden, 512, 128,
+      f32(tensors[`${pfx}.linear2.weight`]),
+      f32(tensors[`${pfx}.linear2.bias`]),
+      this.ffnOut, false
+    );
+    for (let d = 0; d < EMBED_DIM; d++) {
+      const v = this.res1[d] + this.ffnOut[d];
+      outBuf[d] = applyFinalReLU && v < 0 ? 0 : v;
+    }
+  }
+
+  forwardNecto(
+    query: Float32Array,
+    entities: Float32Array,
+    numEntities: number,
+    tensors: Record<string, SafeTensorEntry>,
+    mask: Float32Array | null = null
+  ): Float32Array {
+    this._preprocessQueryAndKV(query, entities, numEntities, tensors);
+
     crossAttentionSingleQuery(
       this.qEmbed,
       this.kvEmbed,
       numEntities,
       mask,
-      tensors['net.earl.blocks.0.attention.in_proj_weight'].data,
-      tensors['net.earl.blocks.0.attention.in_proj_bias'].data,
-      tensors['net.earl.blocks.0.attention.out_proj.weight'].data,
-      tensors['net.earl.blocks.0.attention.out_proj.bias'].data,
+      f32(tensors['net.earl.blocks.0.attention.in_proj_weight']),
+      f32(tensors['net.earl.blocks.0.attention.in_proj_bias']),
+      f32(tensors['net.earl.blocks.0.attention.out_proj.weight']),
+      f32(tensors['net.earl.blocks.0.attention.out_proj.bias']),
       this.qProj,
       this.kProj,
       this.vProj,
@@ -326,14 +394,14 @@ export class EarlPerceiverEngine {
 
     linearVec(
       this.res1, 128, 256,
-      tensors['net.earl.blocks.0.linear1.weight'].data,
-      tensors['net.earl.blocks.0.linear1.bias'].data,
+      f32(tensors['net.earl.blocks.0.linear1.weight']),
+      f32(tensors['net.earl.blocks.0.linear1.bias']),
       this.ffnHidden, true
     );
     linearVec(
       this.ffnHidden, 256, 128,
-      tensors['net.earl.blocks.0.linear2.weight'].data,
-      tensors['net.earl.blocks.0.linear2.bias'].data,
+      f32(tensors['net.earl.blocks.0.linear2.weight']),
+      f32(tensors['net.earl.blocks.0.linear2.bias']),
       this.ffnOut, false
     );
 
@@ -342,11 +410,10 @@ export class EarlPerceiverEngine {
       this.postReLU[d] = v > 0 ? v : 0;
     }
 
-    // 4. Output head: Linear(128 -> 12)
     linearVec(
       this.postReLU, 128, 12,
-      tensors['net.output.linear.weight'].data,
-      tensors['net.output.linear.bias'].data,
+      f32(tensors['net.output.linear.weight']),
+      f32(tensors['net.output.linear.bias']),
       this.nectoLogits, false
     );
 
@@ -355,164 +422,26 @@ export class EarlPerceiverEngine {
 
   /**
    * Forward pass for Nexto (2-block Pre-LN Perceiver, 90-action dot-product output head).
-   * @param {Float32Array} query [32]
-   * @param {Float32Array} entities [numEntities * 24]
-   * @param {number} numEntities
-   * @param {Object} tensors Parsed SafeTensors dictionary
-   * @param {Float32Array} [mask] Optional [numEntities] mask
-   * @returns {Float32Array} [90] action logits
    */
-  forwardNexto(query, entities, numEntities, tensors, mask = null) {
-    if (numEntities > MAX_ENTITIES) {
-      throw new Error(`[EarlPerceiverEngine] numEntities (${numEntities}) exceeds MAX_ENTITIES (${MAX_ENTITIES}).`);
-    }
+  forwardNexto(
+    query: Float32Array,
+    entities: Float32Array,
+    numEntities: number,
+    tensors: Record<string, SafeTensorEntry>,
+    mask: Float32Array | null = null
+  ): Float32Array {
+    this._preprocessQueryAndKV(query, entities, numEntities, tensors);
+    this._runPreLnBlock(0, this.qEmbed, numEntities, tensors, mask, this.blockOut, false);
+    this._runPreLnBlock(1, this.blockOut, numEntities, tensors, mask, this.postReLU, true);
 
-    // 1. Query preprocess: Linear(32->128) -> ReLU -> Linear(128->128) -> ReLU
-    linearVec(
-      query, 32, 128,
-      tensors['net.earl.query_preprocess.0.weight'].data,
-      tensors['net.earl.query_preprocess.0.bias'].data,
-      this.qH1, true
-    );
-    linearVec(
-      this.qH1, 128, 128,
-      tensors['net.earl.query_preprocess.2.weight'].data,
-      tensors['net.earl.query_preprocess.2.bias'].data,
-      this.qEmbed, true
-    );
-
-    // 2. Key-Value preprocess: Linear(24->128) -> ReLU -> Linear(128->128) -> ReLU
-    linearBatch(
-      entities, numEntities, 24, 128,
-      tensors['net.earl.key_value_preprocess.0.weight'].data,
-      tensors['net.earl.key_value_preprocess.0.bias'].data,
-      this.kvH1, true
-    );
-    linearBatch(
-      this.kvH1, numEntities, 128, 128,
-      tensors['net.earl.key_value_preprocess.2.weight'].data,
-      tensors['net.earl.key_value_preprocess.2.bias'].data,
-      this.kvEmbed, true
-    );
-
-    // 3. Block 0 (Pre-LN)
-    layerNorm128(
-      this.qEmbed, 1,
-      tensors['net.earl.blocks.0.norm1.weight'].data,
-      tensors['net.earl.blocks.0.norm1.bias'].data,
-      this.qNorm
-    );
-    layerNorm128(
-      this.kvEmbed, numEntities,
-      tensors['net.earl.blocks.0.norm2.weight'].data,
-      tensors['net.earl.blocks.0.norm2.bias'].data,
-      this.kvNorm
-    );
-    crossAttentionSingleQuery(
-      this.qNorm,
-      this.kvNorm,
-      numEntities,
-      mask,
-      tensors['net.earl.blocks.0.attention.in_proj_weight'].data,
-      tensors['net.earl.blocks.0.attention.in_proj_bias'].data,
-      tensors['net.earl.blocks.0.attention.out_proj.weight'].data,
-      tensors['net.earl.blocks.0.attention.out_proj.bias'].data,
-      this.qProj,
-      this.kProj,
-      this.vProj,
-      this.scores,
-      this.headConcat,
-      this.attnOut
-    );
-    for (let d = 0; d < EMBED_DIM; d++) {
-      this.res1[d] = this.qEmbed[d] + this.attnOut[d];
-    }
-    layerNorm128(
-      this.res1, 1,
-      tensors['net.earl.blocks.0.norm3.weight'].data,
-      tensors['net.earl.blocks.0.norm3.bias'].data,
-      this.res1Norm
-    );
-    linearVec(
-      this.res1Norm, 128, 512,
-      tensors['net.earl.blocks.0.linear1.weight'].data,
-      tensors['net.earl.blocks.0.linear1.bias'].data,
-      this.ffnHidden, true
-    );
-    linearVec(
-      this.ffnHidden, 512, 128,
-      tensors['net.earl.blocks.0.linear2.weight'].data,
-      tensors['net.earl.blocks.0.linear2.bias'].data,
-      this.ffnOut, false
-    );
-    for (let d = 0; d < EMBED_DIM; d++) {
-      this.blockOut[d] = this.res1[d] + this.ffnOut[d];
-    }
-
-    // 4. Block 1 (Pre-LN, reuses kvEmbed from step 2)
-    layerNorm128(
-      this.blockOut, 1,
-      tensors['net.earl.blocks.1.norm1.weight'].data,
-      tensors['net.earl.blocks.1.norm1.bias'].data,
-      this.qNorm
-    );
-    layerNorm128(
-      this.kvEmbed, numEntities,
-      tensors['net.earl.blocks.1.norm2.weight'].data,
-      tensors['net.earl.blocks.1.norm2.bias'].data,
-      this.kvNorm
-    );
-    crossAttentionSingleQuery(
-      this.qNorm,
-      this.kvNorm,
-      numEntities,
-      mask,
-      tensors['net.earl.blocks.1.attention.in_proj_weight'].data,
-      tensors['net.earl.blocks.1.attention.in_proj_bias'].data,
-      tensors['net.earl.blocks.1.attention.out_proj.weight'].data,
-      tensors['net.earl.blocks.1.attention.out_proj.bias'].data,
-      this.qProj,
-      this.kProj,
-      this.vProj,
-      this.scores,
-      this.headConcat,
-      this.attnOut
-    );
-    for (let d = 0; d < EMBED_DIM; d++) {
-      this.res1[d] = this.blockOut[d] + this.attnOut[d];
-    }
-    layerNorm128(
-      this.res1, 1,
-      tensors['net.earl.blocks.1.norm3.weight'].data,
-      tensors['net.earl.blocks.1.norm3.bias'].data,
-      this.res1Norm
-    );
-    linearVec(
-      this.res1Norm, 128, 512,
-      tensors['net.earl.blocks.1.linear1.weight'].data,
-      tensors['net.earl.blocks.1.linear1.bias'].data,
-      this.ffnHidden, true
-    );
-    linearVec(
-      this.ffnHidden, 512, 128,
-      tensors['net.earl.blocks.1.linear2.weight'].data,
-      tensors['net.earl.blocks.1.linear2.bias'].data,
-      this.ffnOut, false
-    );
-    for (let d = 0; d < EMBED_DIM; d++) {
-      const v = this.res1[d] + this.ffnOut[d];
-      this.postReLU[d] = v > 0 ? v : 0;
-    }
-
-    // 5. Output head (ControlsPredictorDot): emb_convertor (128 -> 32) dot precomputed.action_embeddings (90 x 32)
     linearVec(
       this.postReLU, 128, 32,
-      tensors['net.output.emb_convertor.weight'].data,
-      tensors['net.output.emb_convertor.bias'].data,
+      f32(tensors['net.output.emb_convertor.weight']),
+      f32(tensors['net.output.emb_convertor.bias']),
       this.nextoEmb32, false
     );
 
-    const actEmb = tensors['precomputed.action_embeddings'].data;
+    const actEmb = f32(tensors['precomputed.action_embeddings']);
     for (let a = 0; a < 90; a++) {
       const aOff = a * 32;
       let dot = 0;

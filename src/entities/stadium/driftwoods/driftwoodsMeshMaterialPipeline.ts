@@ -30,20 +30,22 @@ import {
   type DriftwoodsSpecularAAUniforms,
   type DriftwoodsOcclusionUniforms,
   type DriftwoodsGoalTeamUniforms,
-} from './DriftwoodsColorMath.ts';
+} from './DriftwoodsMaterialPaletteSpecs.ts';
 import {
   injectSpecularAAShader,
-  injectGoalTeamShader,
-  injectWallPostTrimOcclusionShader,
   injectGroundDetailShader,
-  injectRampsIndicatorRingShader,
 } from './DriftwoodsGroundShader.ts';
 import {
+  injectGoalTeamShader,
+  injectWallPostTrimOcclusionShader,
+  injectRampsIndicatorRingShader,
+} from './DriftwoodsGoalAndRampShader.ts';
+import {
   injectWallFxShader,
-  type createWallFxUniforms,
-} from './WallFxShaderController.ts';
+  type WallFxUniforms,
+} from './WallFxShaderInjector.ts';
 
-export type DriftwoodsWallFxUniforms = ReturnType<typeof createWallFxUniforms>;
+export type DriftwoodsWallFxUniforms = WallFxUniforms;
 
 export interface DriftwoodsSharedUpperOuterMaterials {
   standardMat: MeshStandardMaterial;

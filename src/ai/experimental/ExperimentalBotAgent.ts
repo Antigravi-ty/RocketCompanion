@@ -24,10 +24,17 @@ import {
   computeDefaultAction90Mask,
   computeFuryAction380Mask,
   mirrorActionControlsX,
+  decodeNextoLogits,
+  decodeNectoLogits,
+  writeControlsToFloat8,
 } from './botpack9700488Actions.ts';
 import {
   MLP_BOTPACK_SPECS,
   RIPPLE_BOTPACK_SPECS,
+  EXPERIMENTAL_BOT_POLICIES,
+  BOTPACK_9700488_POLICIES,
+  getExperimentalBotPolicyMeta,
+  type ExperimentalBotPolicyMeta,
 } from './botpack9700488Specs.ts';
 import {
   buildChronosObs,
@@ -56,6 +63,7 @@ import {
 } from './experimentalMultiCarObsPipeline.ts';
 import type { ParsedSafeTensorsModel, SafeTensorEntry } from './SafeTensorsLoader.ts';
 
+export type { ExperimentalBotPolicyMeta };
 export {
   DEFAULT_CAR_CONTROLS,
   NEXTO_ACTION_TABLE,
@@ -63,42 +71,10 @@ export {
   decodeCarControls,
   getNextoKickoffControls,
   multiCarHeuristicDecide,
+  EXPERIMENTAL_BOT_POLICIES,
+  BOTPACK_9700488_POLICIES,
+  getExperimentalBotPolicyMeta,
 };
-
-export interface ExperimentalBotPolicyMeta {
-  id: string;
-  name: string;
-  shortName: string;
-  rank: string;
-  modelUrl: string | null;
-  tickSkip: number;
-  maxPlayers: number;
-  showcaseFormat: string;
-  category: string;
-  scriptedKickoff: boolean;
-}
-
-export const EXPERIMENTAL_BOT_POLICIES: ReadonlyArray<Readonly<ExperimentalBotPolicyMeta>> = Object.freeze([
-  { id: 'nexto', name: 'Nexto (Native SafeTensors)', shortName: 'Nexto', rank: 'Grand Champion', modelUrl: EXPERIMENTAL_MODEL_URLS.nexto, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'legacy', scriptedKickoff: true },
-  { id: 'necto', name: 'Necto (Native SafeTensors)', shortName: 'Necto', rank: 'Diamond', modelUrl: EXPERIMENTAL_MODEL_URLS.necto, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'legacy', scriptedKickoff: false },
-  { id: 'heuristic', name: 'Tactical Heuristic (Multi-Role)', shortName: 'Heuristic', rank: 'All-Star', modelUrl: null, tickSkip: 4, maxPlayers: 3, showcaseFormat: '3v3', category: 'legacy', scriptedKickoff: false },
-  { id: 'chronos', name: 'Chronos v2.1 (Botpack #9700488)', shortName: 'Chronos v2.1', rank: 'SSL (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.chronos, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
-  { id: 'dice', name: 'Dice (Botpack #9700488)', shortName: 'Dice', rank: 'GC (2v2)', modelUrl: EXPERIMENTAL_MODEL_URLS.dice, tickSkip: 8, maxPlayers: 2, showcaseFormat: '2v2', category: 'botpack_9700488', scriptedKickoff: false },
-  { id: 'ducky', name: 'Ducky (Botpack #9700488)', shortName: 'Ducky', rank: 'GC (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.ducky, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
-  { id: 'fury', name: 'Fury (Botpack #9700488)', shortName: 'Fury', rank: 'SSL (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.fury, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
-  { id: 'galactus', name: 'Galactus v2 (Botpack #9700488)', shortName: 'Galactus v2', rank: 'GC (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.galactus, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
-  { id: 'kira', name: 'Kira (Botpack #9700488)', shortName: 'Kira', rank: 'SSL Duel (1v1)', modelUrl: EXPERIMENTAL_MODEL_URLS.kira, tickSkip: 8, maxPlayers: 1, showcaseFormat: '1v1', category: 'botpack_9700488', scriptedKickoff: false },
-  { id: 'rain', name: 'Rain (Botpack #9700488)', shortName: 'Rain', rank: 'SSL (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.rain, tickSkip: 6, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
-  { id: 'ripple_v1_1', name: 'Ripple v1.1 (Botpack #9700488)', shortName: 'Ripple v1.1', rank: 'SSL Human-Pretrained (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.ripple_v1_1, tickSkip: 4, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
-]);
-
-export const BOTPACK_9700488_POLICIES: ReadonlyArray<Readonly<ExperimentalBotPolicyMeta>> = Object.freeze(
-  EXPERIMENTAL_BOT_POLICIES.filter((p) => p.category === 'botpack_9700488')
-);
-
-export function getExperimentalBotPolicyMeta(botType: string): Readonly<ExperimentalBotPolicyMeta> | null {
-  return EXPERIMENTAL_BOT_POLICIES.find((p) => p.id === botType) || null;
-}
 
 // Shared zero-GC forward engines (stateless across calls; per-agent state stays on ExperimentalBotAgent)
 const sPerceiverEngine = new EarlPerceiverEngine();
@@ -139,66 +115,6 @@ export function registerExperimentalEngineTensors(
 export function isExperimentalEngineReady(botType: string): boolean {
   if (botType === 'heuristic') return true;
   return Boolean(getCachedSafeTensors(botType));
-}
-
-/**
- * Decodes Nexto 90-action logits into CarControls.
- */
-function decodeNextoLogits(logits: ArrayLike<number>): CarControls {
-  let bestIdx = 0;
-  let bestVal = logits[0];
-  for (let i = 1; i < logits.length; i++) {
-    const v = logits[i];
-    if (!Number.isFinite(v)) continue;
-    if (v > bestVal) {
-      bestVal = v;
-      bestIdx = i;
-    }
-  }
-  return { ...NEXTO_ACTION_TABLE[bestIdx] };
-}
-
-/**
- * Writes a CarControls object into an 8-float array [throttle, steer, pitch, yaw, roll, jump, boost, handbrake].
- */
-function writeControlsToFloat8(ctrl: Partial<CarControls>, out8: Float32Array): void {
-  out8[0] = ctrl.throttle || 0;
-  out8[1] = ctrl.steer || 0;
-  out8[2] = ctrl.pitch || 0;
-  out8[3] = ctrl.yaw || 0;
-  out8[4] = ctrl.roll || 0;
-  out8[5] = ctrl.jump ? 1 : 0;
-  out8[6] = ctrl.boost ? 1 : 0;
-  out8[7] = ctrl.handbrake ? 1 : 0;
-}
-
-/**
- * Decodes Necto 12-dim logits ([3 throttle, 3 steer, 2 jump, 2 boost, 2 handbrake]) into CarControls.
- */
-function decodeNectoLogits(logits12: ArrayLike<number>): CarControls {
-  const argmaxRange = (start: number, len: number): number => {
-    let best = 0;
-    for (let i = 1; i < len; i++) {
-      if (logits12[start + i] > logits12[start + best]) best = i;
-    }
-    return best;
-  };
-  const throttle = argmaxRange(0, 3);
-  const steer = argmaxRange(3, 3);
-  const jump = argmaxRange(6, 2);
-  const boost = argmaxRange(8, 2);
-  const handbrake = argmaxRange(10, 2);
-
-  return decodeCarControls([
-    throttle - 1,
-    steer - 1,
-    throttle - 1,
-    (steer - 1) * (1 - handbrake) || 0,
-    (steer - 1) * handbrake || 0,
-    jump,
-    boost,
-    handbrake,
-  ]);
 }
 
 /**
@@ -273,7 +189,7 @@ export class ExperimentalBotAgent {
   }
 
   get tickSkip(): number {
-    const policy = EXPERIMENTAL_BOT_POLICIES.find((p) => p.id === this.botType);
+    const policy = getExperimentalBotPolicyMeta(this.botType);
     return policy ? policy.tickSkip : 8;
   }
 

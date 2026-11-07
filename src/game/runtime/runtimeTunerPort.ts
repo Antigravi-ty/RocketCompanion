@@ -56,8 +56,8 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
     const effectiveEnabled = Boolean(
       enabled && isTrainingGoalBarrierScopeActive(resolveActiveMode(modeOverride), isOnlineSessionActive()),
     );
-    owner.arena?.updateGoalBarrier?.(
-      decomposition as unknown as Parameters<ArenaWorld['updateGoalBarrier']>[0],
+    owner.arena?.environment.updateGoalBarrier(
+      decomposition as unknown as Parameters<ArenaWorld['environment']['updateGoalBarrier']>[0],
       targetGoal,
       effectiveEnabled,
       opacity,
@@ -103,7 +103,7 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
         if (owner.teamAssignment) {
           owner.teamAssignment.playerTeam = freeplayTeam;
         }
-        owner.arena?.setCarTeam?.(playerIdx, freeplayTeam);
+        owner.arena?.vehicleRegistry.setCarTeam(playerIdx, freeplayTeam);
         owner.physics?.setCarTeam?.(playerIdx, freeplayTeam);
         owner.networkManager.sessionCoordinator.authoritativeServer?.fallbackSim?.setCarTeam?.(playerIdx, freeplayTeam);
         hudStore.getState().setMatchState({ localTeam: freeplayTeam });
@@ -149,13 +149,13 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
         }
         owner.physics?.setCarTeam?.(playerIdx, freeplayTeam);
         owner.networkManager.sessionCoordinator.authoritativeServer?.fallbackSim?.setCarTeam?.(playerIdx, freeplayTeam);
-        owner.arena?.setCarTeam?.(playerIdx, freeplayTeam);
+        owner.arena?.vehicleRegistry.setCarTeam(playerIdx, freeplayTeam);
         hudStore.getState().setMatchState({ localTeam: freeplayTeam });
       }
     },
     applyGraphicsSettings: (graphicsConfig) => {
       owner.domEventManager.updateViewport(graphicsConfig);
-      owner.arena?.setStadiumVisible?.(Boolean(graphicsConfig.showStadium));
+      owner.arena?.environment.setStadiumVisible(Boolean(graphicsConfig.showStadium));
       owner.domEventManager.syncPausedAndInputState(graphicsConfig);
     },
     applyGameplaySettings: (gameplayConfig) => {
@@ -182,7 +182,7 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
           });
         }
       }
-      owner.arena?.setCarHitboxesVisible?.(gameplayConfig.showCarHitbox, showAll);
+      owner.arena?.vehicleRegistry.setCarHitboxesVisible(gameplayConfig.showCarHitbox, showAll, owner.arena.playerCarIndex ?? 0);
     },
     applyTrajectorySettings: (trajectoryConfig) => {
       owner.ballTrajectoryPredictor?.updateSettings?.(trajectoryConfig);
@@ -190,7 +190,7 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
     syncMaterialsConfig: (materialsConfig = null) => {
       const config = (materialsConfig || getMaterialsConfig()) as MaterialsConfigLike;
       owner.syncPlayerMaterialsLoadout(config);
-      owner.arena?.refreshCustomVehicle?.();
+      owner.arena?.vehicleRegistry.refreshCustomVehicle();
       owner.arena?.markRenderTreeChanged?.();
     },
     applyBoostPadTuner: (boostPadConfig) => {
@@ -201,7 +201,7 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
       }
     },
     applyDriftwoodsTuner: (driftwoodsConfig) => {
-      owner.arena?.updateDriftwoodsTuner?.(driftwoodsConfig);
+      owner.arena?.environment.updateDriftwoodsTuner(driftwoodsConfig);
     },
     applyInputBindings: (bindings) => {
       owner.keyboard?.setBindings?.(bindings);
@@ -227,10 +227,10 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
       else if (typeof padIndex === 'number') sys.simulateRefill?.(padIndex, duration);
     },
     applyExperimentalWallConfig: (wallConfig) => {
-      owner.arena?.updateExperimentalWallConfig?.(wallConfig);
+      owner.arena?.environment.updateExperimentalWallConfig(wallConfig);
     },
     applyShadowConfig: (shadowConfig) => {
-      owner.arena?.updateShadowConfig?.(shadowConfig, owner.renderer);
+      owner.arena?.environment.updateShadowConfig(shadowConfig, owner.renderer);
     },
     markArenaRenderTreeChanged: () => {
       owner.arena?.markRenderTreeChanged?.();
@@ -241,13 +241,13 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
       }
     },
     applySkyboxConfig: (skyboxConfig) => {
-      owner.arena?.updateSkyboxConfig?.(skyboxConfig);
+      owner.arena?.environment.updateSkyboxConfig(skyboxConfig);
     },
     applyBallVisualConfig: (ballConfig) => {
-      owner.arena?.updateBallVisualConfig?.(ballConfig);
+      owner.arena?.environment.updateBallVisualConfig(ballConfig);
     },
     applyCustomVehicleTuner: (vehicleId, hitboxPreset) => {
-      owner.arena?.refreshCustomVehicle?.(vehicleId);
+      owner.arena?.vehicleRegistry.refreshCustomVehicle(vehicleId);
       if (hitboxPreset && owner.selectedPreset === vehicleId) {
         owner.selectedHitbox = hitboxPreset;
         owner.physics?.setCarHitbox?.(owner.playerCarIndex ?? 0, hitboxPreset);
@@ -287,7 +287,7 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
         }
 
         if (owner.arena) {
-          await owner.arena.setThrowbackStadiumActive?.(
+          await owner.arena.environment.setThrowbackStadiumActive(
             isThrowback,
             Boolean(config.showThrowbackCollisionOverlay),
           );
@@ -303,7 +303,7 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
       }
 
       if (patch.showThrowbackCollisionOverlay !== undefined && patch.stadiumPreset === undefined) {
-        await owner.arena?.setThrowbackCollisionVisible?.(
+        await owner.arena?.environment.setThrowbackCollisionVisible(
           Boolean(config.showThrowbackCollisionOverlay),
         );
       }

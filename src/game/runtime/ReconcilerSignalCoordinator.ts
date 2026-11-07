@@ -150,7 +150,7 @@ export class ReconcilerSignalCoordinator {
         if (!sig) continue;
 
         if (typeof sig.signalId === 'number' && sig.signalId > 0) {
-          reconciler.acknowledgeSignal?.(sig.signalId, sig.signalType);
+          reconciler.controlMessenger.acknowledgeSignal(sig.signalId, sig.signalType);
         }
 
         const isFirstSeenSignalId = this.latch.recordSignalId(sig.signalId);
@@ -208,7 +208,7 @@ export class ReconcilerSignalCoordinator {
         }
 
         if (sig.signalType === MATCH_SIGNALS.COMMAND_ACK) {
-          reconciler.resolveClientCommandAck?.(sig.param1 ?? 0);
+          reconciler.controlMessenger.resolveClientCommandAck(sig.param1 ?? 0);
           continue;
         }
 

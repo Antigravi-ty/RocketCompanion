@@ -202,7 +202,7 @@ export async function createCoreSceneGraph(
       visual: selectedPreset,
       isPlayer: true,
     });
-    await arena.ensureOpponent();
+    await arena.vehicleRegistry.ensureOpponent();
     if (arena.cars[1]) {
       arena.cars[1].visible = false;
     }

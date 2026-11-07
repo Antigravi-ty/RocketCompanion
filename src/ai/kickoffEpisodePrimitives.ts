@@ -296,3 +296,50 @@ export function areMultiDiscreteActionsEqual(
   }
   return true;
 }
+
+export interface KickoffTimelineNoteBar {
+  key: string;
+  startTick: number;
+  endTick: number;
+  startStep: number;
+  endStep: number;
+}
+
+const KICKOFF_TIMELINE_LANE_KEYS = ['Shift', 'Q', 'A', 'W', 'S', 'D', 'E', 'Boost', 'Jump'] as const;
+
+export function buildKickoffTimelineNoteBars(
+  steps: ReadonlyArray<{
+    step: number;
+    startTick: number;
+    endTick: number;
+    keys: Record<string, boolean>;
+  }>
+): KickoffTimelineNoteBar[] {
+  const noteBars: KickoffTimelineNoteBar[] = [];
+  for (const lane of KICKOFF_TIMELINE_LANE_KEYS) {
+    let activeBar: KickoffTimelineNoteBar | null = null;
+    for (const s of steps) {
+      if (s.keys[lane]) {
+        if (!activeBar) {
+          activeBar = {
+            key: lane,
+            startTick: s.startTick,
+            endTick: s.endTick,
+            startStep: s.step,
+            endStep: s.step + 1,
+          };
+        } else {
+          activeBar.endTick = s.endTick;
+          activeBar.endStep = s.step + 1;
+        }
+      } else if (activeBar) {
+        noteBars.push(activeBar);
+        activeBar = null;
+      }
+    }
+    if (activeBar) {
+      noteBars.push(activeBar);
+    }
+  }
+  return noteBars;
+}

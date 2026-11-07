@@ -16,6 +16,10 @@ export interface ExtractedWasmReplayTracks {
 export interface WasmReplayTrackModule {
   HEAPF32?: Float32Array;
   HEAPU8?: Uint8Array;
+  _physics_getReplayFrameCount?(): number;
+  _physics_getReplayStateStride?(): number;
+  _physics_getReplayIncidentCount?(): number;
+  _physics_getReplaySignalCount?(): number;
   _physics_getReplayFramePtr?(ticksAgo: number): number;
   _physics_getReplayFramePtrByIndex?(frameIndex: number): number;
   _physics_getReplayControlsPtrByIndex?(frameIndex: number): number;
@@ -55,8 +59,8 @@ export function getWasmReplayControlsByIndex(
 
 export function getWasmReplayStateTrackBytes(
   wasmModule: WasmReplayTrackModule | null | undefined,
-  frameCount: number,
-  stateStride: number
+  frameCount = wasmModule?._physics_getReplayFrameCount?.() ?? 0,
+  stateStride = wasmModule?._physics_getReplayStateStride?.() ?? 1856
 ): Uint8Array {
   const ptr = wasmModule?._physics_getReplayStateTrackPtr?.() || 0;
   if (!ptr || frameCount <= 0 || stateStride <= 0 || !wasmModule?.HEAPU8?.buffer) {
@@ -67,7 +71,7 @@ export function getWasmReplayStateTrackBytes(
 
 export function getWasmReplayIncidentTrackBytes(
   wasmModule: WasmReplayTrackModule | null | undefined,
-  incidentCount: number
+  incidentCount = wasmModule?._physics_getReplayIncidentCount?.() ?? 0
 ): Uint8Array {
   const ptr = wasmModule?._physics_getReplayIncidentTrackPtr?.() || 0;
   if (!ptr || incidentCount <= 0 || !wasmModule?.HEAPU8?.buffer) {
@@ -78,7 +82,7 @@ export function getWasmReplayIncidentTrackBytes(
 
 export function getWasmReplaySignalTrackBytes(
   wasmModule: WasmReplayTrackModule | null | undefined,
-  signalCount: number
+  signalCount = wasmModule?._physics_getReplaySignalCount?.() ?? 0
 ): Uint8Array {
   const ptr = wasmModule?._physics_getReplaySignalTrackPtr?.() || 0;
   if (!ptr || signalCount <= 0 || !wasmModule?.HEAPU8?.buffer) {
@@ -89,10 +93,10 @@ export function getWasmReplaySignalTrackBytes(
 
 export function extractWasmReplayTracks(
   wasmModule: WasmReplayTrackModule | null | undefined,
-  frameCount: number,
-  stateStride: number,
-  incidentCount: number,
-  signalCount: number
+  frameCount = wasmModule?._physics_getReplayFrameCount?.() ?? 0,
+  stateStride = wasmModule?._physics_getReplayStateStride?.() ?? 1856,
+  incidentCount = wasmModule?._physics_getReplayIncidentCount?.() ?? 0,
+  signalCount = wasmModule?._physics_getReplaySignalCount?.() ?? 0
 ): ExtractedWasmReplayTracks {
   const stateView = getWasmReplayStateTrackBytes(wasmModule, frameCount, stateStride);
   const incidentView = getWasmReplayIncidentTrackBytes(wasmModule, incidentCount);

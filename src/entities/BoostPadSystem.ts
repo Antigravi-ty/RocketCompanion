@@ -15,9 +15,48 @@ import {
   type BoostPadTemplates,
   type BoostPadInstance,
 } from './arena/BoostPadTemplateLoader.ts';
-import { createCubicBezier } from '../utils/CubicBezier.ts';
-
 export type { BoostPadTemplates, BoostPadInstance };
+
+function createCubicBezier(p1x: number, p1y: number, p2x: number, p2y: number): (x: number) => number {
+  const cx = 3.0 * p1x;
+  const bx = 3.0 * (p2x - p1x) - cx;
+  const ax = 1.0 - cx - bx;
+  const cy = 3.0 * p1y;
+  const by = 3.0 * (p2y - p1y) - cy;
+  const ay = 1.0 - cy - by;
+  const sampleCurveX = (t: number) => ((ax * t + bx) * t + cx) * t;
+  const sampleCurveY = (t: number) => ((ay * t + by) * t + cy) * t;
+  const sampleCurveDerivativeX = (t: number) => (3.0 * ax * t + 2.0 * bx) * t + cx;
+
+  function solveCurveX(x: number): number {
+    let t2 = x;
+    for (let i = 0; i < 8; i++) {
+      const x2 = sampleCurveX(t2) - x;
+      if (Math.abs(x2) < 1e-6) return t2;
+      const d2 = sampleCurveDerivativeX(t2);
+      if (Math.abs(d2) < 1e-6) break;
+      t2 = t2 - x2 / d2;
+    }
+    let t0 = 0.0;
+    let t1 = 1.0;
+    t2 = x;
+    while (t0 < t1) {
+      const x2 = sampleCurveX(t2);
+      if (Math.abs(x2 - x) < 1e-6) return t2;
+      if (x > x2) t0 = t2;
+      else t1 = t2;
+      t2 = (t1 - t0) * 0.5 + t0;
+    }
+    return t2;
+  }
+
+  return function solve(x: number): number {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    if (p1x === p1y && p2x === p2y) return x;
+    return sampleCurveY(solveCurveX(x));
+  };
+}
 
 export interface BoostPadCollectAnimation {
   startTime: number;

@@ -31,6 +31,7 @@ export type VehicleVisualInput = string | VehicleVisualOptions;
 export class ArenaVehicleRegistry {
   public scene: THREE.Scene;
   public onRenderTreeChanged?: () => void;
+  public onEnsureOpponentSun?: () => void;
   public loadout: ArenaVehicleLoadoutManager;
   public cars: Array<THREE.Group | null>;
   public vehiclePresets: Array<string | null>;
@@ -52,9 +53,10 @@ export class ArenaVehicleRegistry {
   public customVehicleAssets: Map<string, unknown>;
   public carLoaders: ReturnType<typeof createDefaultVehicleLoaders>;
 
-  constructor(arenaScene: THREE.Scene, onRenderTreeChanged?: () => void) {
+  constructor(arenaScene: THREE.Scene, onRenderTreeChanged?: () => void, onEnsureOpponentSun?: () => void) {
     this.scene = arenaScene;
     this.onRenderTreeChanged = onRenderTreeChanged;
+    this.onEnsureOpponentSun = onEnsureOpponentSun;
 
     this.cars = [];
     this.vehiclePresets = [];
@@ -396,7 +398,7 @@ export class ArenaVehicleRegistry {
           console.warn(`Opponent "${id}" asset load skipped:`, err);
         }
       }
-      ensureOpponentSunFn?.();
+      (ensureOpponentSunFn ?? this.onEnsureOpponentSun)?.();
       this.addCar(1, id, 1);
     }
   }

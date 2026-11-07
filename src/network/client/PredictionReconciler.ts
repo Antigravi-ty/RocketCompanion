@@ -227,10 +227,6 @@ export class PredictionReconciler {
 
   calculateLeadTicks(rttMs?: number): number { return this.pacingController.calculateLeadTicks(this._resolveLatencyBreakdown(), rttMs); }
 
-  acknowledgeSignal(signalId: number, signalType: number, repeatCount = 8): void { this.controlMessenger.acknowledgeSignal(signalId, signalType, repeatCount); }
-  queueClientCommand(commandType: number, param1 = 0, param2 = 0, maxSends = 240): number { return this.controlMessenger.enqueueClientCommand(commandType, param1, param2, maxSends); }
-
-  resolveClientCommandAck(commandId: number): void { this.controlMessenger.resolveClientCommandAck(commandId); }
   setKickoffMaskUntilTick(targetTick: number): void { this.kickoffMaskUntilTick = typeof targetTick === 'number' ? targetTick : -1; }
   setCarVisualPreset(carIndex: number, visualId: string): void {
     if (typeof carIndex === 'number' && carIndex >= 0 && visualId) this.carVisualPresets.set(carIndex, visualId);
@@ -251,7 +247,7 @@ export class PredictionReconciler {
       lobbyDualWorldMode: this.lobbyDualWorldMode, kickoffMaskUntilTick: this.kickoffMaskUntilTick,
       leadTicks: this.leadTicks, downlinkTicks: targets.downlinkTicks, hardSnapCount: this.hardSnapCount,
       isRedundant: this.redundantHistoryCount > 1 || Boolean(this.enableRedundantInputs),
-      sendOutboundInput: (t, ctrl, ts) => this.sendOutboundInputForTick(t, this.localCarIndex, ctrl, ts),
+      sendOutboundInput: (t, ctrl, ts) => this.controlMessenger.sendOutboundInputForTick(this, t, this.localCarIndex, ctrl, ts),
     });
     this.lastServerRecordedInputTick = syncOut.lastServerRecordedInputTick;
     this.lastAckedServerTick = syncOut.lastAckedServerTick;
@@ -264,7 +260,6 @@ export class PredictionReconciler {
 
   reconcile(nowMs = performance.now()): void { this.rollbackStepper.executeReconcileStep(this, nowMs); }
   updateSmoothing(deltaSeconds: number): Vector3Like { return this.visualSmoother.stepDecay(deltaSeconds); }
-  triggerDumpNextPacket(): Promise<DumpedNetworkPacket | null> { return this.controlMessenger.triggerDumpNextPacket(); }
   dumpPacket(packetOrRaw: unknown = null): DumpedNetworkPacket | null { return this.controlMessenger.dumpPacket((packetOrRaw || this.lastParsedPacket || this.lastReceivedPacketRaw) as never); }
   resetStats(): void {
     this.totalCorrections = 0; this.skippedCorrections = 0;

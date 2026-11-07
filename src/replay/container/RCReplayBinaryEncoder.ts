@@ -267,32 +267,17 @@ export function normalizeReplayTracksPayload(
 
   const incidentBytes = new Uint8Array(collectedIncidents.length * RC_REPLAY_EVENT_STRIDE);
   for (let i = 0; i < collectedIncidents.length; i++) {
-    encodeIncidentTo64Bytes(
-      collectedIncidents[i],
-      incidentBytes,
-      i * RC_REPLAY_EVENT_STRIDE,
-      collectedIncidents[i].frameIndex ?? 0
-    );
+    encodeIncidentTo64Bytes(collectedIncidents[i], incidentBytes, i * RC_REPLAY_EVENT_STRIDE, collectedIncidents[i].frameIndex ?? 0);
   }
 
   const signalBytes = new Uint8Array(collectedSignals.length * RC_REPLAY_EVENT_STRIDE);
   for (let i = 0; i < collectedSignals.length; i++) {
-    encodeSignalTo64Bytes(
-      collectedSignals[i],
-      signalBytes,
-      i * RC_REPLAY_EVENT_STRIDE,
-      collectedSignals[i].frameIndex ?? 0
-    );
+    encodeSignalTo64Bytes(collectedSignals[i], signalBytes, i * RC_REPLAY_EVENT_STRIDE, collectedSignals[i].frameIndex ?? 0);
   }
 
   return {
-    frameCount,
-    stateStride: stride,
-    incidentCount: collectedIncidents.length,
-    signalCount: collectedSignals.length,
-    stateInputBytes,
-    incidentBytes,
-    signalBytes,
+    frameCount, stateStride: stride, incidentCount: collectedIncidents.length,
+    signalCount: collectedSignals.length, stateInputBytes, incidentBytes, signalBytes,
   };
 }
 

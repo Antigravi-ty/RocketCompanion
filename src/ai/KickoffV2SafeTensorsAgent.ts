@@ -35,13 +35,17 @@ import {
   TICKS_PER_DECISION,
   resetEngineToKickoffSpawn,
   multiDiscreteToControls,
+  controlsToMultiDiscrete,
   multiDiscreteToOverlayKeys,
   multiDiscreteToKeyString,
+  buildKickoffTimelineNoteBars,
+  type KickoffTimelineNoteBar,
 } from './kickoffEpisodePrimitives.ts';
 
 import type { CarControls } from './experimental/experimentalMultiCarObsPipeline.ts';
 import type { ParsedSafeTensorsModel } from './experimental/SafeTensorsLoader.ts';
 
+export type { KickoffTimelineNoteBar };
 export const KICKOFF_V1_SETTLE_TICKS = 60;
 
 export interface KickoffTimelineStep {
@@ -52,14 +56,6 @@ export interface KickoffTimelineStep {
   controls: CarControls;
   keys: Record<string, boolean>;
   keyStr: string;
-}
-
-export interface KickoffTimelineNoteBar {
-  key: string;
-  startTick: number;
-  endTick: number;
-  startStep: number;
-  endStep: number;
 }
 
 export interface KickoffPrecomputedTimeline {
@@ -78,30 +74,18 @@ export function formatDiscreteActionKeys(
   act?: ArrayLike<number> | null,
   ctrl?: Partial<CarControls> | null
 ): string {
-  if (act && act.length >= 5) {
-    const keys: string[] = [];
-    if (act[0] === 2) keys.push('W');
-    else if (act[0] === 0) keys.push('S');
-    if (act[1] === 0) keys.push('A');
-    else if (act[1] === 2) keys.push('D');
-    if (act[2] === 0) keys.push('Q');
-    else if (act[2] === 2) keys.push('E');
-    if (act[3] === 1) keys.push('Jump');
-    if (act[4] === 1) keys.push('Boost');
-    if (act[5] === 1) keys.push('Drift');
-    return keys.length > 0 ? keys.join('+') : 'Coast';
-  }
-  if (!ctrl) return 'Coast';
+  const resolved = act && act.length >= 5 ? act : ctrl ? controlsToMultiDiscrete(ctrl) : null;
+  if (!resolved) return 'Coast';
   const keys: string[] = [];
-  if ((ctrl.throttle ?? 0) > 0.3 || (ctrl.pitch ?? 0) < -0.3) keys.push('W');
-  else if ((ctrl.throttle ?? 0) < -0.3 || (ctrl.pitch ?? 0) > 0.3) keys.push('S');
-  if ((ctrl.steer ?? 0) < -0.3 || (ctrl.yaw ?? 0) < -0.3) keys.push('A');
-  else if ((ctrl.steer ?? 0) > 0.3 || (ctrl.yaw ?? 0) > 0.3) keys.push('D');
-  if ((ctrl.roll ?? 0) < -0.3) keys.push('Q');
-  else if ((ctrl.roll ?? 0) > 0.3) keys.push('E');
-  if (ctrl.jump) keys.push('Jump');
-  if (ctrl.boost) keys.push('Boost');
-  if (ctrl.handbrake) keys.push('Drift');
+  if (resolved[0] === 2) keys.push('W');
+  else if (resolved[0] === 0) keys.push('S');
+  if (resolved[1] === 0) keys.push('A');
+  else if (resolved[1] === 2) keys.push('D');
+  if (resolved[2] === 0) keys.push('Q');
+  else if (resolved[2] === 2) keys.push('E');
+  if (resolved[3] === 1) keys.push('Jump');
+  if (resolved[4] === 1) keys.push('Boost');
+  if (resolved[5] === 1) keys.push('Drift');
   return keys.length > 0 ? keys.join('+') : 'Coast';
 }
 
@@ -421,34 +405,7 @@ export class KickoffV2SafeTensorsAgent {
       }
     }
 
-    const laneKeys = ['Shift', 'Q', 'A', 'W', 'S', 'D', 'E', 'Boost', 'Jump'];
-    const noteBars: KickoffTimelineNoteBar[] = [];
-    for (const lane of laneKeys) {
-      let activeBar: KickoffTimelineNoteBar | null = null;
-      for (const s of steps) {
-        const pressed = !!s.keys[lane];
-        if (pressed) {
-          if (!activeBar) {
-            activeBar = {
-              key: lane,
-              startTick: s.startTick,
-              endTick: s.endTick,
-              startStep: s.step,
-              endStep: s.step + 1,
-            };
-          } else {
-            activeBar.endTick = s.endTick;
-            activeBar.endStep = s.step + 1;
-          }
-        } else if (activeBar) {
-          noteBars.push(activeBar);
-          activeBar = null;
-        }
-      }
-      if (activeBar) {
-        noteBars.push(activeBar);
-      }
-    }
+    const noteBars = buildKickoffTimelineNoteBars(steps);
 
     resetEngineToKickoffSpawn(ghostEngine, spawnIndex, {
       settleTicks: KICKOFF_V1_SETTLE_TICKS,

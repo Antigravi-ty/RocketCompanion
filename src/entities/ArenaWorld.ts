@@ -7,6 +7,7 @@ import {
   type BoostPadTunerConfig,
 } from './arena/BoostPadTemplateLoader.ts';
 import { BallLocatorArrow } from './BallLocatorArrow.ts';
+import { ArenaEnvironmentManager, createBallGroundIndicatorRings } from './arena/ArenaEnvironmentManager.ts';
 import { SpeedTrail } from './SpeedTrail.ts';
 import { onThemeChange } from '../ui-core/config/themeConfig';
 import { ArenaHeaderView, CarStateView, BallStateView, type NumericStateBuffer } from '../physics/RocketSimStateViews.ts';
@@ -30,18 +31,9 @@ import {
   prepareAllArenaWarmupAssets,
   runParallelArenaAssetSteps,
 } from './arena/ArenaAssetLoader.ts';
-import {
-  ArenaEnvironmentManager,
-  createBallGroundIndicatorRings,
-} from './arena/ArenaEnvironmentManager.ts';
-import type { BallVisualConfig } from '../ui-core/config/ballVisualConfig';
 import { VehicleNameTagSystem } from './arena/VehicleNameTagSystem.ts';
 import { VehicleAerialClimbTracker, type CarAerialClimbStatus } from './arena/VehicleAerialClimbTracker.ts';
 import type { DriftwoodsMaterialManager } from './stadium/driftwoods/DriftwoodsMaterialManager.ts';
-import type { ExperimentalWallFxConfig, ShadowConfig } from '../ui-core/config/atmosphereFxConfig';
-import type { DriftwoodsTunerConfig } from '../ui-core/config/driftwoodsConfig';
-import type { SkyboxConfig } from '../ui-core/config/skyboxConfig';
-import type { GoalBarrierDecomposition, GoalBarrierTargetGoal } from '../ui-core/config/goalBarrierConfig';
 import { GoalBarrierVisual } from './arena/GoalBarrierVisual.ts';
 import { GoalVolumeHitboxVisual } from './arena/GoalVolumeHitboxVisual.ts';
 import { RespawnGhostPreview } from './arena/RespawnGhostPreview.ts';
@@ -84,6 +76,7 @@ export class ArenaWorld {
   public carBoosts: Array<VehicleBoostEmitter[] | null>;
   public carDemolitions: Array<DemolitionEffect | null>;
   public carColors: Array<number | null | undefined>;
+  public carTeams: number[];
   public carBoostAmounts: Float32Array;
   public carVerticalVelZUu: Float32Array;
   public carAirborneFlipExhausted: Uint8Array;
@@ -107,7 +100,7 @@ export class ArenaWorld {
   public isHostLobby?: boolean;
   public isGoalReplayActive?: boolean;
 
-  constructor(ballRadius: number, defaultCarVisual = "fennec") {
+  constructor(ballRadius: number, defaultCarVisual = 'fennec') {
     this.scene = new THREE.Scene();
     this.ball = new THREE.Group();
     this.pads = [];
@@ -143,7 +136,11 @@ export class ArenaWorld {
     this.indicatorRing = rings.indicatorRing;
     this.indicatorHeightRing = rings.indicatorHeightRing;
 
-    const vr = this.vehicleRegistry = new ArenaVehicleRegistry(this.scene, () => this.markRenderTreeChanged());
+    const vr = (this.vehicleRegistry = new ArenaVehicleRegistry(
+      this.scene,
+      () => this.markRenderTreeChanged(),
+      () => this.lighting.ensureOpponentSun()
+    ));
     this.cars = vr.cars;
     this.vehiclePresets = vr.vehiclePresets;
     this.carWheels = vr.carWheels;
@@ -197,16 +194,25 @@ export class ArenaWorld {
     this.markRenderTreeChanged();
   }
 
-  updateBallLocatorArrow(ballCamActive: boolean, carIndex = 0, targetBall: THREE.Object3D | null = this.ball, targetCar: THREE.Object3D | null = null) {
-    this.ballLocatorArrow?.update(targetCar || this.cars[carIndex] || this.cars[0], targetBall || this.ball, ballCamActive);
+  updateBallLocatorArrow(
+    ballCamActive: boolean,
+    carIndex = 0,
+    targetBall: THREE.Object3D | null = this.ball,
+    targetCar: THREE.Object3D | null = null
+  ) {
+    this.ballLocatorArrow?.update(
+      targetCar || this.cars[carIndex] || this.cars[0],
+      targetBall || this.ball,
+      ballCamActive
+    );
   }
 
   async loadAllAssets(onProgress: ((progress: number, name: string) => void) | null = null) {
     await runParallelArenaAssetSteps(
       [
-        { label: "Stadium Architecture & Boundary", run: () => this.loadArena() },
-        { label: "Ball Geometry", run: () => this.loadBall() },
-        { label: "Vehicle Models & Boost Pads", run: () => this.loadCarAndPadAssets() }
+        { label: 'Stadium Architecture & Boundary', run: () => this.environment.loadArena() },
+        { label: 'Ball Geometry', run: () => this.loadBall() },
+        { label: 'Vehicle Models & Boost Pads', run: () => this.loadCarAndPadAssets() },
       ],
       onProgress
     );
@@ -214,42 +220,54 @@ export class ArenaWorld {
   }
 
   async loadCarAndPadAssets() {
-    this.padTemplates = await loadCarAndPadAssets(this.vehicleRegistry, this.boostPadSystem, this.vehiclePreset);
+    this.padTemplates = await loadCarAndPadAssets(
+      this.vehicleRegistry,
+      this.boostPadSystem,
+      this.vehiclePreset
+    );
     this.markRenderTreeChanged();
   }
 
-  async loadArena() { await this.environment.loadArena(); }
-  async setThrowbackStadiumActive(enabled: boolean, showCollisionOverlay = false) {
-    await this.environment.setThrowbackStadiumActive(enabled, showCollisionOverlay);
-  }
-  async setThrowbackCollisionVisible(visible: boolean) {
-    await this.environment.setThrowbackCollisionVisible(visible);
-  }
-  updateDriftwoodsTuner(config: Partial<DriftwoodsTunerConfig> | null | undefined) {
-    this.environment.updateDriftwoodsTuner(config);
-  }
-  setStadiumVisible(visible: boolean) { this.environment.setStadiumVisible(visible); }
-
-  setCarColor(carIndex: number, colorVal: string | number | null | undefined) { this.vehicleRegistry.setCarColor(carIndex, colorVal); }
-  setCarLoadout(carIndex: number, loadout: CarLoadoutConfig | null | undefined) { this.vehicleRegistry.setCarLoadout?.(carIndex, loadout); }
-  async ensureOpponent() { await this.vehicleRegistry.ensureOpponent(() => this.lighting.ensureOpponentSun()); }
-
   async prepareAssets(onProgress: ((loaded: number, total: number, label: string) => void) | null = null) {
-    await prepareAllArenaWarmupAssets(() => this.ensureOpponent(), this.vehicleRegistry, onProgress);
+    await prepareAllArenaWarmupAssets(
+      () => this.vehicleRegistry.ensureOpponent(),
+      this.vehicleRegistry,
+      onProgress
+    );
   }
 
-  addCar(teamIndex: number, visual: VehicleVisualInput = this.carVisual, targetIndex: number | null = null) { return this.vehicleRegistry.addCar(teamIndex, visual, targetIndex); }
-  ensureCar(carIndex: number, teamIndex: number | null = null, visual: VehicleVisualInput = this.carVisual) { return this.vehicleRegistry.ensureCar(carIndex, teamIndex, visual); }
-  setCarTeam(carIndex: number, teamIndex: number) { return this.vehicleRegistry.setCarTeam(carIndex, teamIndex); }
-  get carTeams() { return this.vehicleRegistry.carTeams; }
-  swapCarVisual(carIndex: number, newVisual: VehicleVisualInput) { return this.vehicleRegistry.swapCarVisual(carIndex, newVisual); }
-  refreshCustomVehicle(vehicleId?: string) { return this.vehicleRegistry.refreshCustomVehicle?.(vehicleId); }
-  removeCar(carIndex: number) { return this.vehicleRegistry.removeCar(carIndex); }
-  setCarHitboxesVisible(visible: boolean, allVisible?: boolean) {
-    this.vehicleRegistry.setCarHitboxesVisible(visible, allVisible, this.playerCarIndex ?? 0);
+  // Legacy vehicle delegates retained strictly for parallel branch callers outside src/game/runtime/
+  setCarColor(carIndex: number, colorVal: string | number | null | undefined) {
+    this.vehicleRegistry.setCarColor(carIndex, colorVal);
   }
-  setCarGhostOpacity(carIndex: number, isGhost = true, opacity = 0.7) { return this.vehicleRegistry.setCarGhostOpacity(carIndex, isGhost, opacity); }
-  clearAllGhostOpacities() { this.vehicleRegistry.clearAllGhostOpacities(); }
+  setCarLoadout(carIndex: number, loadout: CarLoadoutConfig | null | undefined) {
+    this.vehicleRegistry.setCarLoadout?.(carIndex, loadout);
+  }
+  addCar(teamIndex = 0, visualOrOptions: VehicleVisualInput = this.carVisual, targetIndex: number | null = null) {
+    return this.vehicleRegistry.addCar(teamIndex, visualOrOptions, targetIndex);
+  }
+  removeCar(carIndex: number) {
+    return this.vehicleRegistry.removeCar(carIndex);
+  }
+  async ensureOpponent() {
+    await this.vehicleRegistry.ensureOpponent();
+  }
+  ensureCar(carIndex: number, teamIndex: number | null = null, visual: VehicleVisualInput = this.carVisual) {
+    return this.vehicleRegistry.ensureCar(carIndex, teamIndex, visual);
+  }
+  setCarTeam(carIndex: number, teamIndex: number) {
+    return this.vehicleRegistry.setCarTeam(carIndex, teamIndex);
+  }
+  swapCarVisual(carIndex: number, newVisual: VehicleVisualInput) {
+    return this.vehicleRegistry.swapCarVisual(carIndex, newVisual);
+  }
+  refreshCustomVehicle(vehicleId?: string) {
+    return this.vehicleRegistry.refreshCustomVehicle?.(vehicleId);
+  }
+  clearAllGhostOpacities() {
+    this.vehicleRegistry.clearAllGhostOpacities();
+  }
+
   prepareBallSpeedTrail(camera: THREE.Camera | null | undefined) {
     this.ballSpeedTrail?.prepare(camera);
     this.supersonicWheelTrailSystem?.prepare(camera, this);
@@ -261,24 +279,10 @@ export class ArenaWorld {
     this.markRenderTreeChanged();
   }
 
-  updateExperimentalWallConfig(patch: Partial<ExperimentalWallFxConfig>) {
-    this.environment.updateExperimentalWallConfig(patch);
-  }
-  updateSkyboxConfig(patch: Partial<SkyboxConfig>) {
-    this.environment.updateSkyboxConfig(patch);
-  }
-  updateShadowConfig(patch: Partial<ShadowConfig>, renderer: THREE.WebGLRenderer | null = null) {
-    this.environment.updateShadowConfig(patch, renderer);
-  }
-  updateBallVisualConfig(patch: Partial<BallVisualConfig>) {
-    this.environment.updateBallVisualConfig(patch);
-  }
   updateBoostPadTuner(config: Partial<BoostPadTunerConfig> | null | undefined) {
     this.boostPadSystem?.updateVisualTuningParams?.(config);
   }
-  updateGoalBarrier(decomposition: GoalBarrierDecomposition | null | undefined, targetGoal: GoalBarrierTargetGoal = 'both', enabled = false, opacity = 0.55) {
-    this.environment.updateGoalBarrier(decomposition, targetGoal, enabled, opacity);
-  }
+
   triggerGoalBarrierImpact(xUu: number, yUu: number, zUu: number) {
     this.goalBarrierVisual?.triggerImpact(xUu, yUu, zUu);
   }

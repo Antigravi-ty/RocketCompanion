@@ -20,6 +20,7 @@ import {
   multiDiscreteToOverlayKeys,
   multiDiscreteToKeyString,
   areMultiDiscreteActionsEqual,
+  buildKickoffTimelineNoteBars,
 } from './kickoffEpisodePrimitives.ts';
 
 export {
@@ -334,28 +335,7 @@ export class KickoffPPOAgent {
       }
     }
 
-    const laneKeys = ['Shift', 'Q', 'A', 'W', 'S', 'D', 'E', 'Boost', 'Jump'];
-    const noteBars: any[] = [];
-    for (const lane of laneKeys) {
-      let activeBar: any = null;
-      for (const s of steps) {
-        const pressed = !!s.keys[lane];
-        if (pressed) {
-          if (!activeBar) {
-            activeBar = { key: lane, startTick: s.startTick, endTick: s.endTick, startStep: s.step, endStep: s.step + 1 };
-          } else {
-            activeBar.endTick = s.endTick;
-            activeBar.endStep = s.step + 1;
-          }
-        } else if (activeBar) {
-          noteBars.push(activeBar);
-          activeBar = null;
-        }
-      }
-      if (activeBar) {
-        noteBars.push(activeBar);
-      }
-    }
+    const noteBars = buildKickoffTimelineNoteBars(steps);
 
     resetEngineToKickoffSpawn(ghostEngine, spawnIndex, { settleTicks: KICKOFF_SETTLE_TICKS, recreateArena: false });
     this.resetTracker();

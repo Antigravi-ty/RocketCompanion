@@ -359,3 +359,62 @@ export function computeDramaticSlowMoFactor(
 
   return Math.max(0.25, Math.min(1.0, factor));
 }
+
+export function buildLookaheadInputFromSession(
+  sessionState: { scoringTeam: number; scorerCarIndex: number; watchAllTouches: boolean },
+  directorState: {
+    goalLineFrameIdx?: number;
+    scorerCarIndex?: number;
+    touchEvents?: ReplayTouchEvent[];
+    reboundEvents?: ReplayReboundEvent[];
+  },
+  suffixPlan: SuffixDirectorTrajectoryPlan | null,
+): ResolveTouchLookaheadInput {
+  return {
+    suffixPlan,
+    goalLineFrameIdx: directorState.goalLineFrameIdx ?? -1,
+    scorerCarIndex: directorState.scorerCarIndex ?? sessionState.scorerCarIndex ?? 0,
+    touchEvents: directorState.touchEvents || [],
+    reboundEvents: directorState.reboundEvents || [],
+    scoringTeam: sessionState.scoringTeam,
+    watchAllTouches: sessionState.watchAllTouches,
+  };
+}
+
+export function resolveSessionTouchLookahead(
+  sessionState: { scoringTeam: number; scorerCarIndex: number; watchAllTouches: boolean },
+  directorState: {
+    goalLineFrameIdx?: number;
+    scorerCarIndex?: number;
+    touchEvents?: ReplayTouchEvent[];
+    reboundEvents?: ReplayReboundEvent[];
+  },
+  suffixPlan: SuffixDirectorTrajectoryPlan | null,
+  frameIdx: number,
+  fallbackScorerCarIndex = 0,
+): ResolvedTouchLookahead {
+  return resolveTouchLookaheadForFrame(
+    buildLookaheadInputFromSession(sessionState, directorState, suffixPlan),
+    frameIdx,
+    fallbackScorerCarIndex,
+  );
+}
+
+export function computeSessionDramaticSlowMo(
+  sessionState: { disableSlowMo: boolean; playbackSpeed: number; isScrubbing: boolean },
+  directorState: { lastScoringTouchFrameIdx?: number; goalLineFrameIdx?: number },
+  cursorFloat: number,
+  options: { ignoreScrubState?: boolean } = {},
+): number {
+  return computeDramaticSlowMoFactor(
+    {
+      disableSlowMo: sessionState.disableSlowMo,
+      playbackSpeed: sessionState.playbackSpeed,
+      isScrubbing: sessionState.isScrubbing,
+      lastScoringTouchFrameIdx: directorState.lastScoringTouchFrameIdx ?? -1,
+      goalLineFrameIdx: directorState.goalLineFrameIdx ?? -1,
+    },
+    cursorFloat,
+    options,
+  );
+}

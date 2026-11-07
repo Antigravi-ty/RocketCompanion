@@ -18,12 +18,6 @@ import {
   DEFAULT_DIAGNOSTIC_FLEET,
 } from '../../diagnostics/DiagnosticsTestVehicles.ts';
 import {
-  MATCH_STATES,
-  DEFAULT_MATCH_DURATION_SECONDS,
-  DEFAULT_MAX_OVERTIME_SECONDS,
-  KICKOFF_TOTAL_TICKS,
-  GOAL_CELEBRATION_TICKS,
-  GOAL_REPLAY_DURATION_TICKS,
   collectSessionUserRtt,
   type MatchState,
   type MatchPlayerSlot,
@@ -67,17 +61,7 @@ import type { RosterPhysicsManagerPort } from './matchRosterPhysicsAndBotPipelin
 import type { LifecyclePhysicsSnapshotPort } from './matchLifecyclePipeline.ts';
 import type { UserRttSummary, MatchSpectatorSlot } from './matchLoadoutAndSpawnPipeline.ts';
 
-export {
-  MATCH_STATES,
-  DEFAULT_MATCH_DURATION_SECONDS,
-  DEFAULT_MAX_OVERTIME_SECONDS,
-  KICKOFF_TOTAL_TICKS,
-  GOAL_CELEBRATION_TICKS,
-  GOAL_REPLAY_DURATION_TICKS,
-  MatchDomainState,
-  type MatchSessionSnapshot,
-  type TrainingRulesetConfigOptions,
-};
+export type { MatchSessionSnapshot, TrainingRulesetConfigOptions };
 
 export type AdminPhysicsManagerPort = PhaseLifecyclePhysicsManagerPort &
   RosterPhysicsManagerPort &

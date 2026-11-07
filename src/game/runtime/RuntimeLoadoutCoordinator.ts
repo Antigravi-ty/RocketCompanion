@@ -112,7 +112,7 @@ export class RuntimeLoadoutCoordinator {
         hitbox: resolvedHitboxId,
       });
     } else {
-      h.arena?.swapCarVisual?.(targetCarIdx, normalizedVisual);
+      h.arena?.vehicleRegistry.swapCarVisual(targetCarIdx, normalizedVisual);
       h.physics?.setCarHitbox?.(targetCarIdx, resolvedHitboxId);
     }
 
@@ -126,7 +126,7 @@ export class RuntimeLoadoutCoordinator {
     const paintFinish = matCfg?.paintFinish || 'metallic';
     const boostVisual = matCfg?.boostVisual || 'cartoon';
     const boostAudio = matCfg?.boostAudio || 'standard';
-    h.arena?.setCarLoadout?.(targetCarIdx, { paintFinish, boostVisual, boostAudio });
+    h.arena?.vehicleRegistry.setCarLoadout(targetCarIdx, { paintFinish, boostVisual, boostAudio });
     gameAudio?.setCarBoostAudioVariation?.(targetCarIdx, boostAudio);
 
     if (expMode) {
@@ -157,7 +157,7 @@ export class RuntimeLoadoutCoordinator {
     const h = this.host;
     const activeMode = h.modeManager?.activeMode ?? null;
     if (!activeMode?.standaloneReplayViewer?.isActive) {
-      h.arena?.setCarColor?.(carIndex, colorVal);
+      h.arena?.vehicleRegistry.setCarColor(carIndex, colorVal);
     }
     if (!broadcast) return;
 
@@ -208,7 +208,7 @@ export class RuntimeLoadoutCoordinator {
         ? expHumanCarIdx
         : h.playerCarIndex;
 
-    h.arena?.setCarLoadout?.(targetCarIdx, {
+    h.arena?.vehicleRegistry.setCarLoadout(targetCarIdx, {
       paintFinish,
       boostVisual,
       boostAudio,
@@ -286,13 +286,13 @@ export class RuntimeLoadoutCoordinator {
     }
 
     if (h.arena) {
-      h.arena.ensureCar?.(carIndex, freeplayTeam, visualId);
+      h.arena.vehicleRegistry.ensureCar(carIndex, freeplayTeam, visualId);
       if (h.arena.vehiclePresets?.[carIndex] !== visualId) {
-        h.arena.swapCarVisual?.(carIndex, visualId);
+        h.arena.vehicleRegistry.swapCarVisual(carIndex, visualId);
       }
-      h.arena.setCarTeam?.(carIndex, freeplayTeam);
-      h.arena.setCarColor?.(carIndex, freeplayColorHex);
-      h.arena.setCarLoadout?.(carIndex, {
+      h.arena.vehicleRegistry.setCarTeam(carIndex, freeplayTeam);
+      h.arena.vehicleRegistry.setCarColor(carIndex, freeplayColorHex);
+      h.arena.vehicleRegistry.setCarLoadout(carIndex, {
         visualId,
         colorHex: freeplayColorHex,
         paintFinish,
