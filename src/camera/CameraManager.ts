@@ -1,53 +1,22 @@
 /**
- * Implements strict architectural decoupling:
- * 1. Context-Free Isolation:
- *    Controllers are independent black boxes. No transform history is preserved or passed.
- *    Mode switching is strictly an instant hard cut with zero cross-controller blending.
- * 2. Exclusive Pipeline Takeover:
- *    Lazy evaluation ensures only the currently active controller computes frame updates.
- *    Exactly one controller outputs to the camera in any render frame.
- * 3. Event Delegation & Encapsulation:
- *    Manager delegates events (e.g. ballCam toggle) to the owning controller.
- *    Controller internal state machines handle transitions internally.
- * 4. Extensible Dispatching:
- *    Pre-configured for POV and Rear View, ready for Free/Orbit/Spectator modes.
+ * CameraManager.ts
+ * Context-free camera controller dispatcher and mode arbitrator.
  */
 
 import * as THREE from 'three';
-import {
-  PovCameraController,
-  type PovCameraKernelLike,
-} from './exempt_pov_microkernel/PovCameraController.ts';
+import { PovCameraController, type PovCameraKernelLike } from './exempt_pov_microkernel/PovCameraController.ts';
 import { RearViewCamera } from './RearViewCamera.ts';
+import { FreeCameraController, type Vector3TupleOrObject } from './FreeCameraController.ts';
 import {
-  FreeCameraController,
-  type Vector3TupleOrObject,
-} from './FreeCameraController.ts';
-import {
-  DirectorCameraController,
-  PodiumCameraController,
-  EditorCameraController,
-  type BallCamTunerSettings,
-  type SceneCameraInputState,
-  type StaticTrainingShotEditorConfig,
+  DirectorCameraController, PodiumCameraController, EditorCameraController,
+  type BallCamTunerSettings, type SceneCameraInputState, type StaticTrainingShotEditorConfig,
 } from './SceneOverrideCameraControllers.ts';
 import {
-  CAMERA_MODES,
-  DEFAULT_REPLAY_DIRECTOR_FOV_DEG,
-  DEFAULT_PODIUM_CAMERA_FOV_DEG,
-  DEFAULT_EDITOR_CAMERA_FOV_DEG,
-  isPovFamilyMode,
-  isCarAttachedCameraMode,
-  clampHorizontalFovDeg,
-  convertHorizontalToVerticalFov,
-  resolveModeHorizontalFov,
-  applyCanonicalUpAndHorizontalFov,
-  arbitrateFrameCameraMode,
-  resolveSnapshotHorizontalFov,
-  buildCameraPoseStateSnapshot,
-  type CameraMode,
-  type CameraFovSources,
-  type FreeCamStateSnapshot,
+  CAMERA_MODES, DEFAULT_REPLAY_DIRECTOR_FOV_DEG, DEFAULT_PODIUM_CAMERA_FOV_DEG, DEFAULT_EDITOR_CAMERA_FOV_DEG,
+  isPovFamilyMode, isCarAttachedCameraMode, clampHorizontalFovDeg, convertHorizontalToVerticalFov,
+  resolveModeHorizontalFov, applyCanonicalUpAndHorizontalFov, arbitrateFrameCameraMode,
+  resolveSnapshotHorizontalFov, buildCameraPoseStateSnapshot,
+  type CameraMode, type CameraFovSources, type FreeCamStateSnapshot,
 } from './cameraFovAndPosePipeline.ts';
 import { getCameraDeterminismHarness, CAMERA_SOURCE_MODES } from './CameraDeterminismHarness.ts';
 import { DEFAULT_CAMERA_SETTINGS, type CameraSettingsConfig } from '../ui-core/config/cameraDefaults';
@@ -61,28 +30,16 @@ export interface CameraControllerContract {
   resize?: (width: number, height: number) => void;
   handleAction?: (actionId: string, eventData?: unknown) => boolean;
   update?: (
-    carObject?: unknown,
-    ballObject?: unknown,
-    dt?: number,
-    extraInfo?: unknown,
-    inputState?: SceneCameraInputState | null
+    carObject?: unknown, ballObject?: unknown, dt?: number,
+    extraInfo?: unknown, inputState?: SceneCameraInputState | null
   ) => void;
   dispose?: () => void;
   fov?: number;
   ballCam?: boolean;
   toggleBallCam?: () => boolean;
-  setPoseThreeJs?: (
-    eyeX: number,
-    eyeY: number,
-    eyeZ: number,
-    targetX: number,
-    targetY: number,
-    targetZ: number
-  ) => void;
+  setPoseThreeJs?: (eyeX: number, eyeY: number, eyeZ: number, targetX: number, targetY: number, targetZ: number) => void;
   syncShotPose?: (
-    subMode: string,
-    shot: StaticTrainingShotEditorConfig | null | undefined,
-    ballCamTuner?: BallCamTunerSettings | null
+    subMode: string, shot: StaticTrainingShotEditorConfig | null | undefined, ballCamTuner?: BallCamTunerSettings | null
   ) => void;
   resetToDefaultOverview?: () => void;
   setPoseLookAt?: (position: Vector3TupleOrObject, lookAtTarget?: Vector3TupleOrObject) => void;
@@ -102,23 +59,19 @@ export interface CameraManagerOptions {
 }
 
 export interface CameraStateSnapshot {
-  mode: CameraMode;
-  isPovMode: boolean;
-  isFreeCam: boolean;
-  isDirectorOverrideActive: boolean;
-  isEditorOverrideActive: boolean;
-  ballCam: boolean;
-  focusedCarIndex: number;
+  mode: CameraMode; isPovMode: boolean; isFreeCam: boolean;
+  isDirectorOverrideActive: boolean; isEditorOverrideActive: boolean;
+  ballCam: boolean; focusedCarIndex: number;
 }
 
 export class CameraManager {
   private _sharedCamera: THREE.PerspectiveCamera | null;
-  public activeMode: CameraMode;
+  public activeMode: CameraMode = CAMERA_MODES.POV;
   public readonly controllers: Map<CameraMode, CameraControllerContract>;
-  public focusedCarIndex: number;
-  public isDirectorOverrideActive: boolean;
-  public isEditorOverrideActive: boolean;
-  public isFreeCam: boolean;
+  public focusedCarIndex = 0;
+  public isDirectorOverrideActive = false;
+  public isEditorOverrideActive = false;
+  public isFreeCam = false;
   public settings: CameraSettingsConfig | null;
 
   constructor(
@@ -127,55 +80,24 @@ export class CameraManager {
     options: CameraManagerOptions = {}
   ) {
     this.settings = options?.settings || { ...DEFAULT_CAMERA_SETTINGS };
-
     const initialVFov = convertHorizontalToVerticalFov(this.settings.fov ?? 110, aspect);
-    this._sharedCamera = new THREE.PerspectiveCamera(initialVFov, aspect, 4, 40000);
+    const cam = new THREE.PerspectiveCamera(initialVFov, aspect, 4, 40000);
+    this._sharedCamera = cam;
     this.controllers = new Map<CameraMode, CameraControllerContract>();
 
-    const povController = new PovCameraController(
-      aspect,
-      kernel,
-      this._sharedCamera,
-      CAMERA_SOURCE_MODES.CLEAN_JS
-    );
-    povController.settings = this.settings;
-    this.controllers.set(CAMERA_MODES.POV, povController);
+    const povCtrl = new PovCameraController(aspect, kernel, cam, CAMERA_SOURCE_MODES.CLEAN_JS);
+    povCtrl.settings = this.settings;
+    this.controllers.set(CAMERA_MODES.POV, povCtrl);
 
-    const wasmPovController = new PovCameraController(
-      aspect,
-      kernel,
-      this._sharedCamera,
-      CAMERA_SOURCE_MODES.WASM
-    );
-    wasmPovController.settings = this.settings;
-    this.controllers.set(CAMERA_MODES.WASM_POV, wasmPovController);
+    const wasmPovCtrl = new PovCameraController(aspect, kernel, cam, CAMERA_SOURCE_MODES.WASM);
+    wasmPovCtrl.settings = this.settings;
+    this.controllers.set(CAMERA_MODES.WASM_POV, wasmPovCtrl);
 
-    this.controllers.set(
-      CAMERA_MODES.REAR_VIEW,
-      new RearViewCamera(aspect, this.settings, this._sharedCamera)
-    );
-    this.controllers.set(
-      CAMERA_MODES.FREE,
-      new FreeCameraController(aspect, this.settings, this._sharedCamera)
-    );
-    this.controllers.set(
-      CAMERA_MODES.DIRECTOR,
-      new DirectorCameraController(this._sharedCamera, DEFAULT_REPLAY_DIRECTOR_FOV_DEG)
-    );
-    this.controllers.set(
-      CAMERA_MODES.PODIUM,
-      new PodiumCameraController(this._sharedCamera, this, DEFAULT_PODIUM_CAMERA_FOV_DEG)
-    );
-    this.controllers.set(
-      CAMERA_MODES.EDITOR,
-      new EditorCameraController(this._sharedCamera, DEFAULT_EDITOR_CAMERA_FOV_DEG)
-    );
-
-    this.isFreeCam = false;
-    this.isDirectorOverrideActive = false;
-    this.isEditorOverrideActive = false;
-    this.focusedCarIndex = 0;
-    this.activeMode = CAMERA_MODES.POV;
+    this.controllers.set(CAMERA_MODES.REAR_VIEW, new RearViewCamera(aspect, this.settings, cam));
+    this.controllers.set(CAMERA_MODES.FREE, new FreeCameraController(aspect, this.settings, cam));
+    this.controllers.set(CAMERA_MODES.DIRECTOR, new DirectorCameraController(cam, DEFAULT_REPLAY_DIRECTOR_FOV_DEG));
+    this.controllers.set(CAMERA_MODES.PODIUM, new PodiumCameraController(cam, this, DEFAULT_PODIUM_CAMERA_FOV_DEG));
+    this.controllers.set(CAMERA_MODES.EDITOR, new EditorCameraController(cam, DEFAULT_EDITOR_CAMERA_FOV_DEG));
   }
 
   private getFovSources(): CameraFovSources {
@@ -192,24 +114,13 @@ export class CameraManager {
     };
   }
 
-  /**
-   * Reset the shared Three.js camera up-vector and mode-appropriate base FOV so controllers that rely on
-   * cam.lookAt() (such as Director Camera, Podium Camera, and RearViewCamera) never inherit
-   * a wall-tilted up vector or wrong FOV from another controller.
-   */
   resetSharedCameraUpAndFov(): void {
     applyCanonicalUpAndHorizontalFov(this._sharedCamera, resolveModeHorizontalFov(this.getFovSources()));
   }
 
-  /**
-   * Apply user POV / RearView camera settings and synchronize the shared Three.js camera
-   * vertical FOV when currently in an active POV or RearView mode.
-   */
   applyPovSettings(cameraConfig: Partial<CameraSettingsConfig> | null | undefined): void {
     if (!cameraConfig) return;
-    if (!this.settings) {
-      this.settings = { ...DEFAULT_CAMERA_SETTINGS };
-    }
+    if (!this.settings) this.settings = { ...DEFAULT_CAMERA_SETTINGS };
     Object.assign(this.settings, cameraConfig);
     if (this._sharedCamera && this.isPovMode) {
       const hFov = Number(this.settings.fov) || 110;
@@ -238,21 +149,14 @@ export class CameraManager {
   }
 
   setDirectorCameraPoseThreeJs(
-    eyeX: number,
-    eyeY: number,
-    eyeZ: number,
-    targetX: number,
-    targetY: number,
-    targetZ: number
+    eyeX: number, eyeY: number, eyeZ: number, targetX: number, targetY: number, targetZ: number
   ): void {
     this.controllers.get(CAMERA_MODES.DIRECTOR)?.setPoseThreeJs?.(eyeX, eyeY, eyeZ, targetX, targetY, targetZ);
   }
 
   setDirectorFov(fov: number): void {
     const directorCtrl = this.controllers.get(CAMERA_MODES.DIRECTOR);
-    if (directorCtrl && 'fov' in directorCtrl) {
-      directorCtrl.fov = fov;
-    }
+    if (directorCtrl && 'fov' in directorCtrl) directorCtrl.fov = fov;
   }
 
   getDirectorFov(): number {
@@ -332,16 +236,11 @@ export class CameraManager {
   }
 
   getPreferredPovMode(): CameraMode {
-    const harness = getCameraDeterminismHarness();
-    return harness.activeSource === CAMERA_SOURCE_MODES.WASM
+    return getCameraDeterminismHarness().activeSource === CAMERA_SOURCE_MODES.WASM
       ? CAMERA_MODES.WASM_POV
       : CAMERA_MODES.POV;
   }
 
-  /**
-   * Atomic Instant Hard Switch between camera modes.
-   * Context-free: does not transfer transforms from previous controller.
-   */
   setActiveMode(newMode: CameraMode): void {
     if (this.activeMode === newMode) return;
     if (!this.controllers.has(newMode)) {
@@ -351,7 +250,6 @@ export class CameraManager {
 
     const prevMode = this.activeMode;
     this.controllers.get(prevMode)?.onDeactivate?.();
-
     this.activeMode = newMode;
     this.resetSharedCameraUpAndFov();
 
@@ -420,10 +318,7 @@ export class CameraManager {
     this.controllers.get(CAMERA_MODES.FREE)?.resetToDefaultOverview?.();
   }
 
-  setFreeCamPose(
-    position: Vector3TupleOrObject,
-    lookAtTarget: Vector3TupleOrObject = [0, 80, 0]
-  ): void {
+  setFreeCamPose(position: Vector3TupleOrObject, lookAtTarget: Vector3TupleOrObject = [0, 80, 0]): void {
     this.setFreeCam(true);
     this.controllers.get(CAMERA_MODES.FREE)?.setPoseLookAt?.(position, lookAtTarget);
   }
@@ -435,9 +330,7 @@ export class CameraManager {
   }
 
   handleAction(actionId: string, eventData: unknown = null): boolean {
-    if (actionId === 'ballCam') {
-      return this.toggleBallCam();
-    }
+    if (actionId === 'ballCam') return this.toggleBallCam();
     return this.activeController?.handleAction?.(actionId, eventData) ?? false;
   }
 
@@ -485,7 +378,7 @@ export class CameraManager {
   update(
     carObject: unknown,
     ballObject: unknown,
-    dt: number = 0,
+    dt = 0,
     extraInfo: unknown = null,
     inputState: { podiumController?: { isActive?: boolean }; isRearViewHeld?: boolean } | null = null
   ): void {
