@@ -5,24 +5,22 @@
  * 4-digit SAS pairing verification, and spectator daisy-chain routing.
  */
 
-import {
-  SignalingProtocolHandler,
-  type RelayTransportClient,
-  type SignalingPoolHealthSnapshot,
-} from './SignalingProtocolHandler.ts';
+import type { SignalingProtocolHandler } from './SignalingProtocolHandler.ts';
 import { HostSessionController } from './HostSessionController.ts';
 import type { ClientSessionController } from './ClientSessionController.ts';
 import { ClientJoinNegotiationSubController } from './ClientJoinNegotiationSubController.ts';
+import {
+  HostSignalingNegotiationSubController,
+  type HostSignalingNegotiationCallbacks,
+  type PendingPairingRequest,
+} from './HostSignalingNegotiationSubController.ts';
 import type { P2PWebRTCChannel } from './P2PWebRTCChannel.ts';
 import {
   saveActiveHostOffer,
   clearActiveHostOffer,
 } from './signalingRelayConfig.ts';
-import { testAllSignalingRelays } from './diagnostics/signalingDiagnosticsProbe.ts';
 import {
-  applyConnectivityMaskToRoomCode,
   generateRandomRoomCode,
-  getSlotBitForRelayId,
   parseRoomCode,
 } from '../../ui-core/config/roomCodeConnectivityCodec.ts';
 
@@ -53,7 +51,7 @@ export interface MultiplayerSessionCallbacks {
   ) => Promise<number | void> | number | void;
   onRemovePlayer?: (carIndex: number) => void;
   onColorSelect?: (carIdx: number, slotId: number | null, hex: string | null) => void;
-  onPairingApprovalRequest?: (request: any) => void;
+  onPairingApprovalRequest?: (request: PendingPairingRequest) => void;
   onUnexpectedDisconnect?: () => void;
   resolvePlayerName?: () => string;
   resolveTeamColor?: (assignedTeam: number | null) => SessionColorSelection | null;
@@ -75,9 +73,8 @@ export class MultiplayerSessionManager {
   clientColorHex: string;
 
   hostController: HostSessionController | null = null;
+  readonly hostSignalingNegotiator = new HostSignalingNegotiationSubController();
   readonly clientJoinNegotiator = new ClientJoinNegotiationSubController();
-  private hostSignalingHandler: SignalingProtocolHandler | null = null;
-  pendingPairingRequests = new Map<string, any>();
 
   constructor(callbacks: MultiplayerSessionCallbacks = {}) {
     this.callbacks = callbacks;
@@ -127,64 +124,46 @@ export class MultiplayerSessionManager {
     return fallback;
   }
 
+  private getHostSignalingCallbacks(): HostSignalingNegotiationCallbacks {
+    return {
+      getRoomId: () => this.roomId,
+      setRoomId: (roomId) => {
+        this.roomId = roomId;
+      },
+      getPassword: () => this.password,
+      getPlayerName: () => this.playerName,
+      isHosting: () => this.isHosting,
+      getHostController: () => this.hostController,
+      updateSessionStatus: (status) => this._updateSessionStatus(status),
+      onPairingApprovalRequest: this.callbacks.onPairingApprovalRequest,
+    };
+  }
+
   get clientController(): ClientSessionController | null {
     return this.clientJoinNegotiator.clientController;
   }
 
-  set clientController(val: ClientSessionController | null) {
-    this.clientJoinNegotiator.clientController = val;
-  }
-
   get signalingHandler(): SignalingProtocolHandler | null {
-    return this.hostSignalingHandler || this.clientJoinNegotiator.signalingHandler;
+    return (
+      this.hostSignalingNegotiator.signalingHandler ||
+      this.clientJoinNegotiator.signalingHandler
+    );
   }
 
-  set signalingHandler(val: SignalingProtocolHandler | null) {
-    this.hostSignalingHandler = val;
-    if (!val) {
-      this.clientJoinNegotiator.signalingHandler = null;
-    }
-  }
-
-  get hostP2PChannel(): P2PWebRTCChannel | null {
-    return this.hostController?.channel || null;
-  }
-
-  get clientP2PChannel(): P2PWebRTCChannel | null {
-    return this.clientJoinNegotiator.channel;
-  }
-
-  get signalingClient(): RelayTransportClient | null {
-    return this.signalingHandler?.client || null;
+  get localPeerId(): string | null {
+    return this.signalingHandler?.peerId || null;
   }
 
   approvePendingPeer(peerId: string): boolean {
-    const req = this.pendingPairingRequests.get(peerId);
-    if (!req) return false;
-    this.pendingPairingRequests.delete(peerId);
-    this._syncPendingPairingStatus();
-    req.approve?.();
-    return true;
+    return this.hostSignalingNegotiator.approvePendingPeer(peerId, (status) =>
+      this._updateSessionStatus(status)
+    );
   }
 
   declinePendingPeer(peerId: string): boolean {
-    const req = this.pendingPairingRequests.get(peerId);
-    if (!req) return false;
-    this.pendingPairingRequests.delete(peerId);
-    this._syncPendingPairingStatus();
-    req.decline?.('Host declined the pairing verification request.');
-    return true;
-  }
-
-  _syncPendingPairingStatus(): void {
-    const list = Array.from(this.pendingPairingRequests.values()).map((r) => ({
-      peerId: r.peerId,
-      peerName: r.peerName,
-      pairingCode: r.pairingCode,
-      relayLabel: r.relayLabel,
-      role: r.role,
-    }));
-    this._updateSessionStatus({ pendingPairingRequests: list });
+    return this.hostSignalingNegotiator.declinePendingPeer(peerId, (status) =>
+      this._updateSessionStatus(status)
+    );
   }
 
   async startHosting(
@@ -202,7 +181,7 @@ export class MultiplayerSessionManager {
     this.roomId = parsedHostRoom?.canonicalRoomCode || generateRandomRoomCode(0x0f);
     this.password = String(password || '').trim();
     this.isHosting = true;
-    this.pendingPairingRequests.clear();
+    this.hostSignalingNegotiator.pendingPairingRequests.clear();
 
     const hostColor = this._resolvePreferredColor(0, DEFAULT_HOST_COLOR);
     this.hostColorSlot = hostColor.slot;
@@ -254,8 +233,9 @@ export class MultiplayerSessionManager {
           return assignedCarIdx;
         },
         onPeerDisconnected: (peerId, channel) => {
-          this.pendingPairingRequests.delete(peerId);
-          this._syncPendingPairingStatus();
+          this.hostSignalingNegotiator.removePendingPeer(peerId, (status) =>
+            this._updateSessionStatus(status)
+          );
           if (typeof channel?.carIndex === 'number' && channel.carIndex > 0) {
             this.callbacks.onRemovePlayer?.(channel.carIndex);
           }
@@ -268,7 +248,7 @@ export class MultiplayerSessionManager {
         },
         onIceCandidate: (cand, targetPeerId) => {
           if (this.signalingHandler) {
-            this.signalingHandler.sendCandidate(targetPeerId || null, cand);
+            void this.signalingHandler.sendCandidate(targetPeerId || null, cand);
           }
         },
       }
@@ -294,160 +274,22 @@ export class MultiplayerSessionManager {
   }
 
   initHostSignaling(probedMask?: number): void {
-    if (!this.isHosting) return;
-    if (this.hostSignalingHandler) {
-      this.hostSignalingHandler.cleanup();
-      this.hostSignalingHandler = null;
-    }
-    const parsedHostRoom = parseRoomCode(this.roomId);
-    const effectiveProbedMask =
-      typeof probedMask === 'number' && (probedMask & 0x0f) !== 0
-        ? probedMask & 0x0f
-        : parsedHostRoom?.hostMask || 0x0f;
-
-    this.hostSignalingHandler = new SignalingProtocolHandler(
-      {
-        roomId: this.roomId,
-        password: this.password,
-        role: 'host',
-        playerName: this.playerName,
-        allowSpectatorRelay: true,
-        probedHostMask: effectiveProbedMask,
-      },
-      {
-        onOpen: ({ relayLabel }) => {
-          const liveMask = this.hostSignalingHandler?.relayPool.getConnectedConnectivityMask() || 0;
-          const healthSnapshot = this.hostSignalingHandler?.relayPool.getHealthSnapshot();
-          this._updateSessionStatus({
-            signalingConnected: true,
-            signalingHealthLevel: healthSnapshot?.healthLevel || 'healthy',
-            roomId: this.roomId,
-            activeRelayLabel: relayLabel,
-            hostMask: liveMask,
-          });
-        },
-        onRelayHealthChanged: (snapshot: SignalingPoolHealthSnapshot) => {
-          this._updateSessionStatus({
-            signalingConnected: snapshot.hasAnyConnected,
-            signalingHealthLevel: snapshot.healthLevel,
-            hostMask: snapshot.connectedMask,
-          });
-        },
-        onClose: () => {
-          this._updateSessionStatus({
-            signalingConnected: false,
-            signalingHealthLevel: 'offline',
-          });
-          if (this.isHosting) {
-            this.hostSignalingHandler?.scheduleReconnect(3000, () =>
-              this.initHostSignaling(effectiveProbedMask)
-            );
-          }
-        },
-        onError: () => {
-          this._updateSessionStatus({
-            signalingConnected: false,
-            signalingHealthLevel: 'offline',
-          });
-          if (this.isHosting) {
-            this.hostSignalingHandler?.scheduleReconnect(3000, () =>
-              this.initHostSignaling(effectiveProbedMask)
-            );
-          }
-        },
-        onPairingApprovalRequired: (request) => {
-          this.pendingPairingRequests.set(request.peerId, request);
-          this._syncPendingPairingStatus();
-          this.callbacks.onPairingApprovalRequest?.(request);
-        },
-        onPeerJoined: ({ peerId, name, peerName, role, allowSpectatorRelay, pairingCode }) => {
-          this.pendingPairingRequests.delete(peerId);
-          this._syncPendingPairingStatus();
-          this.hostController?.dispatchOfferToPeer(
-            peerId,
-            name || peerName,
-            this.hostSignalingHandler,
-            role || 'player',
-            { allowSpectatorRelay, pairingCode }
-          );
-        },
-        onRoomInfo: ({ participants }) => {
-          if (!Array.isArray(participants) || !this.isHosting) return;
-          for (const p of participants) {
-            if (p?.peerId && p.peerId !== this.hostSignalingHandler?.peerId) {
-              this.hostController?.dispatchOfferToPeer(
-                p.peerId,
-                p.peerName || p.name,
-                this.hostSignalingHandler,
-                p.role || 'player'
-              );
-            }
-          }
-        },
-        onRequestOffer: ({ fromPeerId, name, senderName, role, pairingCode }) => {
-          this.hostController?.dispatchOfferToPeer(
-            fromPeerId,
-            name || senderName,
-            this.hostSignalingHandler,
-            role || 'player',
-            { pairingCode }
-          );
-        },
-        onAnswer: async ({ sdp, fromPeerId, pairingCode }) => {
-          try {
-            await this.hostController?.handleAnswer(sdp, fromPeerId || null, { pairingCode });
-          } catch (err) {
-            console.error('[MultiplayerSessionManager] Error accepting peer answer:', err);
-            throw err;
-          }
-        },
-        onCandidate: ({ candidate, fromPeerId }) => {
-          this.hostController?.handleRemoteCandidate(candidate, fromPeerId || null);
-        },
-      }
+    this.hostSignalingNegotiator.initHostSignaling(
+      this.getHostSignalingCallbacks(),
+      probedMask
     );
-
-    this.hostSignalingHandler.connect().catch((err) => {
-      console.warn(
-        '[MultiplayerSessionManager] Signaling connection notice:',
-        err?.message || err
-      );
-      if (this.isHosting) {
-        this.hostSignalingHandler?.scheduleReconnect(3000, () =>
-          this.initHostSignaling(effectiveProbedMask)
-        );
-      }
-    });
   }
 
   async reprobeAndRefreshHostSignaling(): Promise<void> {
-    if (!this.isHosting) return;
-    let probedMask = 0;
-    try {
-      const probeResults = await testAllSignalingRelays(4000);
-      for (const r of probeResults) {
-        if (r.ok) {
-          probedMask |= getSlotBitForRelayId(r.id);
-        }
-      }
-    } catch (err) {
-      console.warn('[MultiplayerSessionManager] Relay re-probe failed:', err);
-    }
-    const cleanMask = (probedMask & 0x0f) || 0x0f;
-    this.roomId = applyConnectivityMaskToRoomCode(this.roomId, cleanMask);
-    this._updateSessionStatus({
-      roomId: this.roomId,
-      hostMask: cleanMask,
-    });
-    this.initHostSignaling(cleanMask);
+    return this.hostSignalingNegotiator.reprobeAndRefresh(this.getHostSignalingCallbacks());
   }
 
   notifyMatchStarted(): void {
-    this.hostSignalingHandler?.applyMatchPhaseRelayConvergence();
+    this.hostSignalingNegotiator.notifyMatchStarted();
   }
 
   notifyReturnedToLobby(): void {
-    this.hostSignalingHandler?.restoreLobbyRelays();
+    this.hostSignalingNegotiator.notifyReturnedToLobby();
   }
 
   async joinRoom(roomId: string, password = '', timeoutMs = 10000): Promise<boolean> {
@@ -498,11 +340,7 @@ export class MultiplayerSessionManager {
 
   async stopHosting(): Promise<void> {
     this.isHosting = false;
-    this.pendingPairingRequests.clear();
-    if (this.hostSignalingHandler) {
-      this.hostSignalingHandler.cleanup();
-      this.hostSignalingHandler = null;
-    }
+    this.hostSignalingNegotiator.cleanup();
     if (this.hostController) {
       this.hostController.cleanup();
       this.hostController = null;
@@ -514,22 +352,10 @@ export class MultiplayerSessionManager {
   }
 
   async leaveSession(): Promise<void> {
-    this.pendingPairingRequests.clear();
     this.clientJoinNegotiator.cleanup();
-    if (this.hostSignalingHandler) {
-      this.hostSignalingHandler.cleanup();
-      this.hostSignalingHandler = null;
-    }
+    this.hostSignalingNegotiator.cleanup();
     if (this.callbacks.onLeaveServer) {
       await this.callbacks.onLeaveServer();
-    }
-  }
-
-  reconnectSignaling(): void {
-    if (this.signalingHandler) {
-      this.signalingHandler.connect().catch((err) => {
-        console.warn('[MultiplayerSessionManager] Reconnect error:', err);
-      });
     }
   }
 }

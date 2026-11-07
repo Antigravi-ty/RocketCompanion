@@ -1,15 +1,22 @@
 /**
  * signalingRelaySlotRegistry.ts
  * Canonical 4-server relay slot registry, bitmask definitions, ID normalization,
- * and default endpoint resolution for RocketCompanion's 4-Server Full-Mesh Signaling
- * and Dual Edge Bridge (JP + SG) architecture.
+ * default endpoint resolution, and transport client instantiation for RocketCompanion's
+ * 4-Server Full-Mesh Signaling and Dual Edge Bridge (JP + SG) architecture.
  *
  * All legacy relay IDs (emqx_1, emqx_2, supabase_1, supabase_2, private_emqx) are
  * deprecated and strictly rejected.
  */
 
 import { credentialBundleManager } from './CredentialBundleManager.ts';
-import { deriveDefaultEdgeFunctionBridgeUrl } from './SupabaseRealtimeSignalingClient.ts';
+import { WebSocketSignalingClient } from './WebSocketSignalingClient.ts';
+import { MqttWebSocketClient } from './MqttWebSocketClient.ts';
+import {
+  SupabaseRealtimeSignalingClient,
+  deriveDefaultEdgeFunctionBridgeUrl,
+} from './SupabaseRealtimeSignalingClient.ts';
+import type { SignalingRelaySpec } from './signalingRelayConfig.ts';
+import type { DeterministicRoomContext } from './SignalingCryptoSession.ts';
 import {
   CANONICAL_RELAY_ORDER,
   RELAY_SLOT_BITS,
@@ -29,6 +36,64 @@ export {
   type CanonicalEdgeNodeId,
   type CanonicalRelayId,
 };
+
+export type RelayTransportClient =
+  | MqttWebSocketClient
+  | WebSocketSignalingClient
+  | SupabaseRealtimeSignalingClient;
+
+export interface RelayTransportFactoryContext {
+  role: string;
+  peerId: string;
+  roomId: string;
+  playerName: string;
+  roomContext: DeterministicRoomContext;
+}
+
+export function createSignalingRelayTransport(
+  relay: SignalingRelaySpec,
+  ctx: RelayTransportFactoryContext
+): RelayTransportClient {
+  if (relay.protocol === 'mqtt') {
+    return new MqttWebSocketClient(relay.url, {
+      relayId: relay.id,
+      relayLabel: relay.label,
+      topic: ctx.roomContext.mqttTopic,
+      bridgeTopic: ctx.roomContext.mqttBridgeTopic,
+      peerId: ctx.peerId,
+      username: relay.username || '',
+      password: relay.password || '',
+      keepAliveSeconds: relay.keepAliveSeconds || 30,
+    });
+  }
+
+  if (relay.protocol === 'supabase') {
+    return new SupabaseRealtimeSignalingClient(relay.url, {
+      relayId: relay.id,
+      relayLabel: relay.label,
+      channelTopic: ctx.roomContext.supabaseChannelTopic,
+      bridgeTopic: ctx.roomContext.supabaseBridgeTopic,
+      topicHash: ctx.roomContext.topicHash,
+      peerId: ctx.peerId,
+      anonKey: relay.authToken || relay.password || '',
+      edgeFunctionBridgeUrl:
+        relay.edgeFunctionBridgeUrl || deriveDefaultEdgeFunctionBridgeUrl(relay.url),
+      keepAliveSeconds: relay.keepAliveSeconds || 25,
+    });
+  }
+
+  return new WebSocketSignalingClient(relay.url, {
+    relayId: relay.id,
+    relayLabel: relay.label,
+    roomId: ctx.roomId,
+    workerRoomKey: ctx.roomContext.workerRoomKey,
+    role: ctx.role,
+    peerId: ctx.peerId,
+    password: '',
+    authToken: relay.authToken || relay.password || '',
+    playerName: ctx.playerName,
+  });
+}
 
 export const DEFAULT_JP_EDGE_BRIDGE_URL = '';
 export const DEFAULT_SG_EDGE_BRIDGE_URL = '';
