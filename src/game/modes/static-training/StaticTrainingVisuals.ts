@@ -5,18 +5,14 @@
  * - Car Heading Arrow (visible during Edit Mode to distinguish nose heading from velocity direction)
  * - Ball Velocity Arrow & Kickoff-State Halo Ring
  * - Ground Drop-Lines & Target Rings (for Free Camera inspection)
- *
- * Upgraded with 3D shaded materials, dark silhouette shadow shells, radial clarity halo backdrops
- * (inspired by BallLocatorArrow.ts), semi-transparency, and real-time geometric tuning via
- * `useStaticTrainingBallCamTunerStore`.
  */
 
 import * as THREE from 'three';
-import { createBallLocatorHaloTexture } from '../../entities/BallLocatorArrow.ts';
+import { createBallLocatorHaloTexture } from '../../../entities/BallLocatorArrow.ts';
 import {
   useStaticTrainingBallCamTunerStore,
   DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG,
-} from '../runtimeUiPort.ts';
+} from '../../runtimeUiPort.ts';
 
 interface ArrowUserData {
   shaftMesh: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshStandardMaterial>;
@@ -50,10 +46,34 @@ function buildConeUnitGeometry(coneRadius: number, tipRadius: number): THREE.Cyl
   return geo;
 }
 
+function createGroundRingMesh(
+  innerR: number,
+  outerR: number,
+  segments: number,
+  color: number,
+  opacity: number,
+  renderOrder: number,
+): THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> {
+  const geo = new THREE.RingGeometry(innerR, outerR, segments);
+  geo.rotateX(-Math.PI / 2);
+  const mesh = new THREE.Mesh(
+    geo,
+    new THREE.MeshBasicMaterial({
+      color,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity,
+      depthWrite: false,
+    }),
+  );
+  mesh.renderOrder = renderOrder;
+  return mesh;
+}
+
 function create3DArrowMesh(
   colorHex: number,
   emissiveHex: number,
-  scaleFactor = 1.0
+  scaleFactor = 1.0,
 ): THREE.Group {
   const group = new THREE.Group();
   const d = DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG;
@@ -93,7 +113,6 @@ function create3DArrowMesh(
   haloSprite.renderOrder = 12;
   group.add(haloSprite);
 
-  // Unit cylinder shaft (radius = 1, height = 1, translated to y = 0..1)
   const unitShaftGeo = new THREE.CylinderGeometry(1, 1, 1, 20);
   unitShaftGeo.translate(0, 0.5, 0);
 
@@ -105,12 +124,8 @@ function create3DArrowMesh(
   shaftMesh.renderOrder = 14;
   group.add(shaftMesh);
 
-  // Arrow head group (positioned at y = shaftLen)
   const headGroup = new THREE.Group();
-  const initConeGeo = buildConeUnitGeometry(
-    d.coneRadius * scaleFactor,
-    d.tipRadius * scaleFactor
-  );
+  const initConeGeo = buildConeUnitGeometry(d.coneRadius * scaleFactor, d.tipRadius * scaleFactor);
 
   const headShadowConeMesh = new THREE.Mesh(initConeGeo, shadowMat);
   headShadowConeMesh.renderOrder = 13;
@@ -120,8 +135,7 @@ function create3DArrowMesh(
   headConeMesh.renderOrder = 14;
   headGroup.add(headConeMesh);
 
-  const tipCapGeo = new THREE.SphereGeometry(1, 16, 12);
-  const headTipCapMesh = new THREE.Mesh(tipCapGeo, bodyMat);
+  const headTipCapMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), bodyMat);
   headTipCapMesh.renderOrder = 14;
   headGroup.add(headTipCapMesh);
 
@@ -151,7 +165,7 @@ function update3DArrowMesh(
   originThree: THREE.Vector3,
   dirThree: THREE.Vector3,
   totalLength: number,
-  highlight = false
+  highlight = false,
 ): void {
   if (!arrowGroup) return;
 
@@ -164,25 +178,21 @@ function update3DArrowMesh(
 
   const coneRadius = Math.max(4, (tuner.coneRadius ?? 20) * sf);
   const coneLength = Math.max(12, (tuner.coneLength ?? 58) * sf);
-  const tipRadius = Math.max(
-    0,
-    Math.min(coneRadius * 0.85, (tuner.tipRadius ?? 2.5) * sf)
-  );
+  const tipRadius = Math.max(0, Math.min(coneRadius * 0.85, (tuner.tipRadius ?? 2.5) * sf));
   const shaftRadius = Math.max(1.5, (tuner.shaftRadius ?? 7.0) * sf);
   const shadowScale = Math.max(1.02, tuner.shadowScale ?? 1.18);
   const arrowOpacity = THREE.MathUtils.clamp(
     (tuner.arrowOpacity ?? 0.78) * (highlight ? 1.0 : 0.88),
     0.1,
-    1.0
+    1.0,
   );
   const shadowOpacity = THREE.MathUtils.clamp(
     (tuner.shadowOpacity ?? 0.52) * (highlight ? 1.0 : 0.85),
     0.0,
-    1.0
+    1.0,
   );
   const haloScale = Math.max(0, (tuner.haloScale ?? 95) * sf);
 
-  // Rebuild unit cone geometry only if coneRadius or tipRadius changed
   if (
     Math.abs(ud.lastConeRadius - coneRadius) > 0.05 ||
     Math.abs(ud.lastTipRadius - tipRadius) > 0.05
@@ -196,37 +206,25 @@ function update3DArrowMesh(
   }
 
   const normDir = dirThree.clone();
-  if (normDir.lengthSq() < 1e-6) {
-    normDir.set(0, 0, 1);
-  } else {
-    normDir.normalize();
-  }
+  if (normDir.lengthSq() < 1e-6) normDir.set(0, 0, 1);
+  else normDir.normalize();
 
   arrowGroup.position.copy(originThree);
-
-  const upAxis = new THREE.Vector3(0, 1, 0);
-  const quat = new THREE.Quaternion().setFromUnitVectors(upAxis, normDir);
-  arrowGroup.quaternion.copy(quat);
+  arrowGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normDir);
 
   const len = Math.max(coneLength + 24, totalLength);
   const shaftLen = Math.max(18, len - coneLength);
 
-  // Shaft + Silhouette Shadow
   ud.shaftMesh.scale.set(shaftRadius, shaftLen, shaftRadius);
-  ud.shaftShadowMesh.scale.set(
-    shaftRadius * shadowScale,
-    shaftLen,
-    shaftRadius * shadowScale
-  );
+  ud.shaftShadowMesh.scale.set(shaftRadius * shadowScale, shaftLen, shaftRadius * shadowScale);
   ud.shaftShadowMesh.visible = shadowOpacity > 0.01;
 
-  // Cone Head + Rounded Tip + Silhouette Shadow
   ud.headGroup.position.set(0, shaftLen, 0);
   ud.headConeMesh.scale.set(1, coneLength, 1);
   ud.headShadowConeMesh.scale.set(
     shadowScale,
     coneLength * (1 + (shadowScale - 1) * 0.35),
-    shadowScale
+    shadowScale,
   );
   ud.headShadowConeMesh.position.set(0, -coneLength * 0.02, 0);
   ud.headShadowConeMesh.visible = shadowOpacity > 0.01;
@@ -239,7 +237,6 @@ function update3DArrowMesh(
     ud.headTipCapMesh.visible = false;
   }
 
-  // Clarity Halo Backdrop centered near the cone base/junction for strong contrast
   if (haloScale > 1 && shadowOpacity > 0.01) {
     ud.haloSprite.visible = true;
     ud.haloSprite.position.set(0, shaftLen + coneLength * 0.25, 0);
@@ -280,56 +277,11 @@ export class StaticTrainingVisuals {
     this.root.visible = false;
 
     this.carSpeedArrow = create3DArrowMesh(0xf59e0b, 0x78350f, 1.0);
-    this.root.add(this.carSpeedArrow);
-
     this.carHeadingArrow = create3DArrowMesh(0x38bdf8, 0x0c4a6e, 0.84);
-    this.root.add(this.carHeadingArrow);
-
     this.ballSpeedArrow = create3DArrowMesh(0x10b981, 0x064e3b, 1.0);
-    this.root.add(this.ballSpeedArrow);
-
-    const haloGeo = new THREE.RingGeometry(108, 124, 36);
-    haloGeo.rotateX(-Math.PI / 2);
-    const haloMat = new THREE.MeshBasicMaterial({
-      color: 0x22d3ee,
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.85,
-      depthWrite: false,
-    });
-    this.ballKickoffHalo = new THREE.Mesh(haloGeo, haloMat);
-    this.ballKickoffHalo.renderOrder = 14;
-    this.root.add(this.ballKickoffHalo);
-
-    const carRingGeo = new THREE.RingGeometry(68, 80, 32);
-    carRingGeo.rotateX(-Math.PI / 2);
-    this.carGroundRing = new THREE.Mesh(
-      carRingGeo,
-      new THREE.MeshBasicMaterial({
-        color: 0x38bdf8,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.65,
-        depthWrite: false,
-      })
-    );
-    this.carGroundRing.renderOrder = 13;
-    this.root.add(this.carGroundRing);
-
-    const ballRingGeo = new THREE.RingGeometry(82, 96, 32);
-    ballRingGeo.rotateX(-Math.PI / 2);
-    this.ballGroundRing = new THREE.Mesh(
-      ballRingGeo,
-      new THREE.MeshBasicMaterial({
-        color: 0x10b981,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.65,
-        depthWrite: false,
-      })
-    );
-    this.ballGroundRing.renderOrder = 13;
-    this.root.add(this.ballGroundRing);
+    this.ballKickoffHalo = createGroundRingMesh(108, 124, 36, 0x22d3ee, 0.85, 14);
+    this.carGroundRing = createGroundRingMesh(68, 80, 32, 0x38bdf8, 0.65, 13);
+    this.ballGroundRing = createGroundRingMesh(82, 96, 32, 0x10b981, 0.65, 13);
 
     const dropLineMat = new THREE.LineBasicMaterial({
       color: 0xffffff,
@@ -343,7 +295,6 @@ export class StaticTrainingVisuals {
     ]);
     this.carDropLine = new THREE.Line(this.carDropLineGeo, dropLineMat);
     this.carDropLine.renderOrder = 13;
-    this.root.add(this.carDropLine);
 
     this.ballDropLineGeo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(),
@@ -351,17 +302,23 @@ export class StaticTrainingVisuals {
     ]);
     this.ballDropLine = new THREE.Line(this.ballDropLineGeo, dropLineMat);
     this.ballDropLine.renderOrder = 13;
-    this.root.add(this.ballDropLine);
 
-    if (this.scene) {
-      this.scene.add(this.root);
-    }
+    this.root.add(
+      this.carSpeedArrow,
+      this.carHeadingArrow,
+      this.ballSpeedArrow,
+      this.ballKickoffHalo,
+      this.carGroundRing,
+      this.ballGroundRing,
+      this.carDropLine,
+      this.ballDropLine,
+    );
+
+    if (this.scene) this.scene.add(this.root);
   }
 
   public setVisible(visible: boolean): void {
-    if (this.root) {
-      this.root.visible = Boolean(visible);
-    }
+    if (this.root) this.root.visible = Boolean(visible);
   }
 
   public update(shot: any, editSubMode = 'car-heading', isPlayPreLaunch = false): void {
@@ -378,12 +335,7 @@ export class StaticTrainingVisuals {
       return;
     }
 
-    const {
-      isEditMode = false,
-      editSubMode = 'car-heading',
-      showPlayArrows = false,
-    } = options;
-
+    const { isEditMode = false, editSubMode = 'car-heading', showPlayArrows = false } = options;
     if (!isEditMode && !showPlayArrows) {
       this.setVisible(false);
       return;
@@ -405,11 +357,7 @@ export class StaticTrainingVisuals {
     const baseLength = tuner.arrowBaseLength ?? 155;
     const maxExtraLength = tuner.arrowMaxExtraLength ?? 300;
 
-    const carBasePosThree = new THREE.Vector3(
-      carLoc[0],
-      carLoc[2] + heightOffset,
-      carLoc[1]
-    );
+    const carBasePosThree = new THREE.Vector3(carLoc[0], carLoc[2] + heightOffset, carLoc[1]);
     const ballPosThree = new THREE.Vector3(ballLoc[0], ballLoc[2], ballLoc[1]);
 
     const chPitch = car.snapToGround ? 0 : Number(car.headingPitch) || 0;
@@ -417,20 +365,16 @@ export class StaticTrainingVisuals {
     const carHeadingDirThree = new THREE.Vector3(
       Math.cos(chPitch) * Math.cos(chYaw),
       Math.sin(chPitch),
-      Math.cos(chPitch) * Math.sin(chYaw)
+      Math.cos(chPitch) * Math.sin(chYaw),
     );
 
     const followsHeading = car.speedFollowsHeading !== false;
-    const csPitch = followsHeading
-      ? chPitch
-      : Number(car.speedPitch ?? car.headingPitch) || 0;
-    const csYaw = followsHeading
-      ? chYaw
-      : Number(car.speedYaw ?? car.headingYaw) || 0;
+    const csPitch = followsHeading ? chPitch : Number(car.speedPitch ?? car.headingPitch) || 0;
+    const csYaw = followsHeading ? chYaw : Number(car.speedYaw ?? car.headingYaw) || 0;
     const carSpeedDirThree = new THREE.Vector3(
       Math.cos(csPitch) * Math.cos(csYaw),
       Math.sin(csPitch),
-      Math.cos(csPitch) * Math.sin(csYaw)
+      Math.cos(csPitch) * Math.sin(csYaw),
     );
 
     const bsPitch = Number(ball.speedPitch) || 0;
@@ -438,34 +382,28 @@ export class StaticTrainingVisuals {
     const ballSpeedDirThree = new THREE.Vector3(
       Math.cos(bsPitch) * Math.cos(bsYaw),
       Math.sin(bsPitch),
-      Math.cos(bsPitch) * Math.sin(bsYaw)
+      Math.cos(bsPitch) * Math.sin(bsYaw),
     );
 
     const carSpeedVal = Number(car.speed) || 0;
     if (isEditMode) {
       this.carSpeedArrow.visible =
         carSpeedVal > 0 || editSubMode === 'car-speed' || editSubMode === 'free-cam';
-      const speedOrigin = carBasePosThree
-        .clone()
-        .addScaledVector(carSpeedDirThree, forwardOffset);
+      const speedOrigin = carBasePosThree.clone().addScaledVector(carSpeedDirThree, forwardOffset);
       const arrowLen = baseLength + (carSpeedVal / 2300) * maxExtraLength;
       update3DArrowMesh(
         this.carSpeedArrow,
         speedOrigin,
         carSpeedDirThree,
         arrowLen,
-        editSubMode === 'car-speed' || (editSubMode === 'car-heading' && carSpeedVal > 0)
+        editSubMode === 'car-speed' || (editSubMode === 'car-heading' && carSpeedVal > 0),
       );
     } else if (showPlayArrows) {
       this.carSpeedArrow.visible = true;
       const effectiveDir = carSpeedVal > 1 ? carSpeedDirThree : carHeadingDirThree;
-      const speedOrigin = carBasePosThree
-        .clone()
-        .addScaledVector(effectiveDir, forwardOffset);
+      const speedOrigin = carBasePosThree.clone().addScaledVector(effectiveDir, forwardOffset);
       const arrowLen =
-        carSpeedVal > 1
-          ? baseLength + (carSpeedVal / 2300) * maxExtraLength
-          : baseLength + 15;
+        carSpeedVal > 1 ? baseLength + (carSpeedVal / 2300) * maxExtraLength : baseLength + 15;
       update3DArrowMesh(this.carSpeedArrow, speedOrigin, effectiveDir, arrowLen, true);
     } else {
       this.carSpeedArrow.visible = false;
@@ -473,15 +411,13 @@ export class StaticTrainingVisuals {
 
     if (isEditMode) {
       this.carHeadingArrow.visible = true;
-      const headingOrigin = carBasePosThree
-        .clone()
-        .addScaledVector(carHeadingDirThree, forwardOffset);
+      const headingOrigin = carBasePosThree.clone().addScaledVector(carHeadingDirThree, forwardOffset);
       update3DArrowMesh(
         this.carHeadingArrow,
         headingOrigin,
         carHeadingDirThree,
         baseLength + 30,
-        editSubMode === 'car-heading'
+        editSubMode === 'car-heading',
       );
     } else {
       this.carHeadingArrow.visible = false;
@@ -497,16 +433,14 @@ export class StaticTrainingVisuals {
         ballPosThree,
         ballSpeedDirThree,
         bLen,
-        editSubMode === 'ball-speed'
+        editSubMode === 'ball-speed',
       );
     } else {
       this.ballSpeedArrow.visible = false;
     }
 
     this.ballKickoffHalo.visible = Boolean(ball.kickoffState);
-    if (this.ballKickoffHalo.visible) {
-      this.ballKickoffHalo.position.copy(ballPosThree);
-    }
+    if (this.ballKickoffHalo.visible) this.ballKickoffHalo.position.copy(ballPosThree);
 
     const showFootprints = Boolean(isEditMode);
     this.carGroundRing.visible = showFootprints;
@@ -531,8 +465,6 @@ export class StaticTrainingVisuals {
   }
 
   public dispose(): void {
-    if (this.root && this.scene) {
-      this.scene.remove(this.root);
-    }
+    if (this.root && this.scene) this.scene.remove(this.root);
   }
 }

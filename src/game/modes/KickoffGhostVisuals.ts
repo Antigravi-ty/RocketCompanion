@@ -5,31 +5,26 @@
  */
 
 import * as THREE from 'three';
-import {
-  buildVehicleModel,
-  buildVehicleWheels,
-  type VehicleAssetStore,
-  type VehicleLoaderCallbacks,
-} from '../../entities/arena/VehicleFactory.ts';
-import {
-  getWheelSpecsForVisual,
-  updateCarSuspensionAndSteering,
-} from '../../entities/VehicleSuspensionSystem.ts';
+import { type VehicleAssetStore, type VehicleLoaderCallbacks } from '../../entities/arena/VehicleFactory.ts';
+import { updateCarSuspensionAndSteering } from '../../entities/VehicleSuspensionSystem.ts';
 import { unrealToThreeCoords } from '../../entities/arena/ArenaMath.ts';
-import { createGeodesicBallGeometry } from '../../entities/BallVisual.ts';
 import { SpeedTrail } from '../../entities/SpeedTrail.ts';
 import { CarStateView, BallStateView } from '../../physics/RocketSimStateViews.ts';
+import {
+  applyPaletteToGhostMaterials,
+  buildHolographicGhostBallAndRing,
+  buildHolographicGhostCarHierarchy,
+  GHOST_WORLD_PALETTES,
+  interpolateSignedTransform,
+  type GhostSuspensionList,
+  type GhostWheelMountList,
+  type GhostWheelSpecList,
+} from './shared/ghostWorldVisualsPipeline.ts';
 
-const GHOST_CYAN_HEX = 0x38bdf8;
-const GHOST_EMISSIVE_HEX = 0x0284c7;
-const GHOST_OPPOSITE_HEX = 0xfb923c;
-const GHOST_OPPOSITE_EMISSIVE_HEX = 0xea580c;
 const MAX_TRAJECTORY_POINTS = 240;
 
 export type GhostPlacementMode = 'same' | 'opposite';
-export type GhostWheelMountList = ReturnType<typeof buildVehicleWheels>;
-export type GhostWheelSpecList = ReturnType<typeof getWheelSpecsForVisual>;
-export type GhostSuspensionList = Parameters<typeof updateCarSuspensionAndSteering>[2];
+export type { GhostWheelMountList, GhostWheelSpecList, GhostSuspensionList };
 
 export interface KickoffGhostArenaPort {
   scene?: THREE.Scene | null;
@@ -72,16 +67,8 @@ export class KickoffGhostVisuals {
   private readonly _currCarView = new CarStateView();
   private readonly _prevBallView = new BallStateView();
   private readonly _currBallView = new BallStateView();
-
   private readonly _pA = new THREE.Vector3();
-  private readonly _pB = new THREE.Vector3();
-  private readonly _qA = new THREE.Quaternion();
-  private readonly _qB = new THREE.Quaternion();
   private readonly _velVec = new THREE.Vector3();
-  private readonly _basisFwd = new THREE.Vector3();
-  private readonly _basisRight = new THREE.Vector3();
-  private readonly _basisUp = new THREE.Vector3();
-  private readonly _basisMat = new THREE.Matrix4();
 
   constructor(arena: KickoffGhostArenaPort | null) {
     this.arena = arena;
@@ -92,128 +79,38 @@ export class KickoffGhostVisuals {
     if (this.ghostCarRoot || !this.arena?.scene) return;
     const scene = this.arena.scene as THREE.Scene;
     this.scene = scene;
-    const reg = this.arena.vehicleRegistry;
-    const visual = 'fennec';
+    const palette = GHOST_WORLD_PALETTES[0];
 
-    this.ghostCarRoot = new THREE.Group();
-    this.ghostCarRoot.name = 'kickoff-ghost-car';
-
-    const { carModel, carHitbox } = buildVehicleModel(
-      visual,
-      GHOST_CYAN_HEX,
-      true,
-      reg?.assets || {},
-      reg?.carLoaders || {},
-      true,
-    );
-    this.ghostCarRoot.add(carModel);
-    if (carHitbox) {
-      carHitbox.visible = true;
-      this.ghostCarRoot.add(carHitbox);
-    }
-
-    let wheelSpecs = getWheelSpecsForVisual(visual);
-    if (reg?.carLoaders?.wheelSpecs?.game) {
-      wheelSpecs = reg.carLoaders.wheelSpecs.game;
-    }
-    this.ghostCarWheelSpecs = wheelSpecs;
-    this.ghostCarWheels = buildVehicleWheels(
-      this.ghostCarRoot,
-      visual,
-      GHOST_CYAN_HEX,
-      wheelSpecs,
-      reg?.assets || {},
-      reg?.carLoaders || {},
-    );
-
-    this.ghostCarMaterials = [];
-    this.ghostCarLineMaterials = [];
-
-    this.ghostCarRoot.traverse((obj: THREE.Object3D) => {
-      const meshObj = obj as THREE.Mesh;
-      const lineObj = obj as THREE.Line & THREE.LineSegments;
-      if (meshObj.isMesh) {
-        meshObj.castShadow = false;
-        meshObj.receiveShadow = false;
-        meshObj.renderOrder = 11;
-        const mat = new THREE.MeshStandardMaterial({
-          color: GHOST_CYAN_HEX,
-          emissive: GHOST_EMISSIVE_HEX,
-          emissiveIntensity: 0.55,
-          roughness: 0.25,
-          metalness: 0.2,
-          transparent: true,
-          opacity: 0.44,
-          depthWrite: false,
-        });
-        meshObj.material = mat;
-        this.ghostCarMaterials.push(mat);
-      } else if (lineObj.isLineSegments || lineObj.isLine) {
-        lineObj.renderOrder = 12;
-        const lmat = new THREE.LineBasicMaterial({
-          color: 0x7dd3fc,
-          transparent: true,
-          opacity: 0.65,
-          depthWrite: false,
-        });
-        lineObj.material = lmat;
-        this.ghostCarLineMaterials.push(lmat);
-      }
+    const builtCar = buildHolographicGhostCarHierarchy({
+      name: 'kickoff-ghost-car',
+      visual: 'fennec',
+      palette,
+      opacity: 0.44,
+      lineOpacity: 0.65,
+      plumeOpacity: 0.65,
+      registry: this.arena.vehicleRegistry,
     });
-
-    const coneGeo = new THREE.ConeGeometry(10, 48, 12, 1, true);
-    coneGeo.rotateZ(Math.PI / 2);
-    coneGeo.translate(-74, 14, 0);
-    const coneMat = new THREE.MeshBasicMaterial({
-      color: GHOST_CYAN_HEX,
-      transparent: true,
-      opacity: 0.65,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
-    this.ghostBoostPlume = new THREE.Mesh(coneGeo, coneMat);
-    this.ghostBoostPlume.renderOrder = 12;
-    this.ghostBoostPlume.visible = false;
-    this.ghostCarRoot.add(this.ghostBoostPlume);
-
+    this.ghostCarRoot = builtCar.root;
+    this.ghostCarMaterials = builtCar.materials;
+    this.ghostCarLineMaterials = builtCar.lineMaterials;
+    this.ghostCarWheels = builtCar.wheels;
+    this.ghostCarWheelSpecs = builtCar.wheelSpecs;
+    this.ghostBoostPlume = builtCar.boostPlume;
     scene.add(this.ghostCarRoot);
 
-    const ballGeo = createGeodesicBallGeometry(GHOST_EMISSIVE_HEX);
-    const ballMat = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      color: 0x7dd3fc,
-      emissive: GHOST_EMISSIVE_HEX,
-      emissiveIntensity: 0.45,
-      roughness: 0.3,
-      metalness: 0.15,
-      transparent: true,
-      opacity: 0.38,
-      depthWrite: false,
+    const builtBall = buildHolographicGhostBallAndRing({
+      name: 'kickoff-ghost-ball',
+      palette,
+      ballOpacity: 0.38,
+      ringOpacity: 0.42,
     });
-    this.ghostBallMesh = new THREE.Mesh(ballGeo, ballMat);
-    this.ghostBallMesh.name = 'kickoff-ghost-ball';
-    this.ghostBallMesh.castShadow = false;
-    this.ghostBallMesh.receiveShadow = false;
-    this.ghostBallMesh.renderOrder = 11;
-    scene.add(this.ghostBallMesh);
-
-    const ringGeo = new THREE.RingGeometry(82, 96, 36);
-    ringGeo.rotateX(-Math.PI / 2);
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: GHOST_CYAN_HEX,
-      transparent: true,
-      opacity: 0.42,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
-    this.ghostBallRing = new THREE.Mesh(ringGeo, ringMat);
-    this.ghostBallRing.renderOrder = 11;
-    scene.add(this.ghostBallRing);
+    this.ghostBallMesh = builtBall.ballMesh;
+    this.ghostBallRing = builtBall.ballRing;
+    scene.add(this.ghostBallMesh, this.ghostBallRing);
 
     this.ghostBallTrail = new SpeedTrail();
     if (this.ghostBallTrail.material?.uniforms?.uColor) {
-      this.ghostBallTrail.material.uniforms.uColor.value.setHex(GHOST_CYAN_HEX);
+      this.ghostBallTrail.material.uniforms.uColor.value.setHex(palette.mainHex);
     }
     scene.add(this.ghostBallTrail.object);
 
@@ -221,7 +118,7 @@ export class KickoffGhostVisuals {
     lineGeo.setAttribute('position', new THREE.BufferAttribute(this.ghostTrajectoryPositions, 3));
     lineGeo.setDrawRange(0, 0);
     const lineMat = new THREE.LineBasicMaterial({
-      color: GHOST_CYAN_HEX,
+      color: palette.mainHex,
       transparent: true,
       opacity: 0.72,
       depthTest: true,
@@ -239,33 +136,20 @@ export class KickoffGhostVisuals {
   }
 
   private _applyPlacementTint(): void {
-    const isOpposite = this.ghostPlacement === 'opposite';
-    const mainHex = isOpposite ? GHOST_OPPOSITE_HEX : GHOST_CYAN_HEX;
-    const emissiveHex = isOpposite ? GHOST_OPPOSITE_EMISSIVE_HEX : GHOST_EMISSIVE_HEX;
-    const wireHex = isOpposite ? 0xfdba74 : 0x7dd3fc;
-
-    for (const mat of this.ghostCarMaterials) {
-      mat.color.setHex(mainHex);
-      mat.emissive.setHex(emissiveHex);
-    }
-    for (const lmat of this.ghostCarLineMaterials) {
-      lmat.color.setHex(wireHex);
-    }
-    if (this.ghostBoostPlume?.material) {
-      this.ghostBoostPlume.material.color.setHex(mainHex);
-    }
-    if (this.ghostBallMesh?.material) {
-      this.ghostBallMesh.material.color.setHex(wireHex);
-      this.ghostBallMesh.material.emissive.setHex(emissiveHex);
-    }
-    if (this.ghostBallRing?.material) {
-      this.ghostBallRing.material.color.setHex(mainHex);
-    }
+    const palette = this.ghostPlacement === 'opposite' ? GHOST_WORLD_PALETTES[1] : GHOST_WORLD_PALETTES[0];
+    applyPaletteToGhostMaterials(
+      palette,
+      this.ghostCarMaterials,
+      this.ghostCarLineMaterials,
+      this.ghostBoostPlume,
+      this.ghostBallMesh,
+      this.ghostBallRing,
+    );
     if (this.ghostBallTrail?.material?.uniforms?.uColor) {
-      this.ghostBallTrail.material.uniforms.uColor.value.setHex(mainHex);
+      this.ghostBallTrail.material.uniforms.uColor.value.setHex(palette.mainHex);
     }
     if (this.ghostTrajectoryLine?.material) {
-      this.ghostTrajectoryLine.material.color.setHex(mainHex);
+      this.ghostTrajectoryLine.material.color.setHex(palette.mainHex);
     }
   }
 
@@ -326,9 +210,8 @@ export class KickoffGhostVisuals {
   public recordBallTrajectoryPoint(ballStateView: BallStateView | null | undefined): void {
     if (!this.ghostTrajectoryLine || !ballStateView) return;
     const speed = Math.hypot(ballStateView.velX, ballStateView.velY, ballStateView.velZ);
-    if (speed < 5.0) return;
+    if (speed < 5.0 || this.ghostTrajectoryCount >= MAX_TRAJECTORY_POINTS) return;
 
-    if (this.ghostTrajectoryCount >= MAX_TRAJECTORY_POINTS) return;
     const xySign = this.ghostPlacement === 'opposite' ? -1.0 : 1.0;
     unrealToThreeCoords(
       this._pA,
@@ -361,46 +244,6 @@ export class KickoffGhostVisuals {
     this.ghostTrajectoryLine.geometry.setDrawRange(0, this.ghostTrajectoryCount);
   }
 
-  private _viewBasisToQuatSigned(
-    targetQuat: THREE.Quaternion,
-    view: CarStateView | BallStateView,
-    xySign: number,
-  ): THREE.Quaternion {
-    unrealToThreeCoords(this._basisFwd, view.fwdX * xySign, view.fwdY * xySign, view.fwdZ);
-    unrealToThreeCoords(this._basisRight, view.rightX * xySign, view.rightY * xySign, view.rightZ);
-    unrealToThreeCoords(this._basisUp, view.upX * xySign, view.upY * xySign, view.upZ);
-
-    if (
-      this._basisFwd.lengthSq() < 1e-6 ||
-      this._basisUp.lengthSq() < 1e-6 ||
-      this._basisRight.lengthSq() < 1e-6
-    ) {
-      targetQuat.set(0, 0, 0, 1);
-      return targetQuat;
-    }
-
-    this._basisMat.makeBasis(this._basisFwd, this._basisUp, this._basisRight);
-    targetQuat.setFromRotationMatrix(this._basisMat);
-    targetQuat.normalize();
-    return targetQuat;
-  }
-
-  private _interpolateSignedTransform(
-    targetMesh: THREE.Object3D,
-    prevView: CarStateView | BallStateView,
-    currView: CarStateView | BallStateView,
-    alpha: number,
-    xySign: number,
-  ): void {
-    unrealToThreeCoords(this._pA, prevView.posX * xySign, prevView.posY * xySign, prevView.posZ);
-    unrealToThreeCoords(this._pB, currView.posX * xySign, currView.posY * xySign, currView.posZ);
-    targetMesh.position.lerpVectors(this._pA, this._pB, alpha);
-
-    this._viewBasisToQuatSigned(this._qA, prevView, xySign);
-    this._viewBasisToQuatSigned(this._qB, currView, xySign);
-    targetMesh.quaternion.slerpQuaternions(this._qA, this._qB, alpha);
-  }
-
   public update(
     prevState: Float32Array | null | undefined,
     currState: Float32Array | null | undefined,
@@ -418,7 +261,7 @@ export class KickoffGhostVisuals {
     const currBall = this._currBallView.attach(currState);
 
     if (this.ghostCarRoot && this.showCar) {
-      this._interpolateSignedTransform(this.ghostCarRoot, prevCar, currCar, alpha, xySign);
+      interpolateSignedTransform(this.ghostCarRoot, prevCar, currCar, alpha, xySign);
 
       updateCarSuspensionAndSteering(
         this.ghostCarWheels,
@@ -442,7 +285,7 @@ export class KickoffGhostVisuals {
     }
 
     if (this.ghostBallMesh && this.showBall) {
-      this._interpolateSignedTransform(this.ghostBallMesh, prevBall, currBall, alpha, xySign);
+      interpolateSignedTransform(this.ghostBallMesh, prevBall, currBall, alpha, xySign);
 
       const ballSpeed = Math.hypot(currBall.velX, currBall.velY, currBall.velZ);
       if (this.ghostBallMesh.material) {

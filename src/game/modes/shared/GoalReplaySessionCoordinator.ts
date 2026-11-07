@@ -1,7 +1,6 @@
 import { hudStore } from '../../runtimeUiPort.ts';
 import {
   applyReplayFrameToEngine,
-  decodeReplayDirectorTelemetryFromState,
   type ReplayFrameEnginePort,
   type ReplayFrameInterpolatorStatePort,
 } from '../../../replay/ReplayFrameInterpolator.ts';
@@ -17,10 +16,7 @@ import {
   type ReplayEventDispatcherRuntimePort,
   type ReplayStepEventsPayload,
 } from '../../../replay/ReplayFrameEventDispatcher.ts';
-import {
-  captureRuntimeReplayCarEntries,
-  type ReplayCarEntryRuntimePort,
-} from '../../../replay/replayDirectorCarRosterPipeline.ts';
+import type { ReplayCarEntryRuntimePort } from '../../../replay/replayDirectorCarRosterPipeline.ts';
 import type {
   ReplayInterpolatorPort,
   ReplayPhysicsEnginePort,
@@ -30,12 +26,9 @@ import type {
 import type { ReplayPlaybackStepResult } from '../../../replay/ReplayTimelineController.ts';
 import {
   applyGoalReplayCarAudioControls,
-  applyReplayControllerFrameAndDirectorCamera,
   bindGoalReplayHudStateAndCallbacks,
   evaluateGoalReplayCarContext,
-  pauseReplayAndEnterReferenceFreeCam,
   shouldEmitGoalReplayWillEndSignal,
-  syncAndAttachReplayTimelineController,
   type GoalReplayCameraMode,
   type GoalReplayCarStateViewLike,
   type GoalReplayHudControllerPort,
@@ -43,7 +36,7 @@ import {
   type GoalReplayHudSessionOptions as BaseGoalReplayHudSessionOptions,
 } from './goalReplayHudPipeline.ts';
 
-export { applyReplayControllerFrameAndDirectorCamera, pauseReplayAndEnterReferenceFreeCam, syncAndAttachReplayTimelineController, type GoalReplayCameraMode };
+export type { GoalReplayCameraMode };
 
 export interface GoalReplayCameraPort extends DirectorCameraTargetPort {
   setFocusedCarIndex?: (carIndex: number) => void;
@@ -274,15 +267,7 @@ export function stepGoalReplaySessionFrame(
 ): ReplayPlaybackStepResult {
   const { runtime, replayController, context } = options;
   if (!replayController) {
-    return {
-      frame: null,
-      progress: 0,
-      frameIndex: 0,
-      totalFrames: 0,
-      isFinished: false,
-      incidents: [],
-      audioEvents: [],
-    };
+    return { frame: null, progress: 0, frameIndex: 0, totalFrames: 0, isFinished: false, incidents: [], audioEvents: [] };
   }
 
   const dt = options.dt ?? context?.dt ?? 0.016;
@@ -436,21 +421,11 @@ export function endGoalReplaySession(
       hud.clearReplayState();
     } else {
       hud.setReplayState?.({
-        replayProgress: 0,
-        replayFrameIndex: 0,
-        replayPaused: false,
-        replayPersistent: false,
-        replayCameraMode: 'director',
-        replayScorerName: null,
-        replayScorerTeam: null,
-        replayScorerAnthemId: null,
-        replayBallSpeedKph: null,
-        replayAssistName: null,
-        onReplaySeekNormalized: null,
-        onReplayTogglePause: null,
-        onReplayCycleSpeed: null,
-        onReplayToggleCameraMode: null,
-        onReplaySelectPovCar: null,
+        replayProgress: 0, replayFrameIndex: 0, replayPaused: false, replayPersistent: false,
+        replayCameraMode: 'director', replayScorerName: null, replayScorerTeam: null,
+        replayScorerAnthemId: null, replayBallSpeedKph: null, replayAssistName: null,
+        onReplaySeekNormalized: null, onReplayTogglePause: null, onReplayCycleSpeed: null,
+        onReplayToggleCameraMode: null, onReplaySelectPovCar: null,
       });
     }
   } else if (options.resetHudFlags !== false) {
@@ -461,122 +436,4 @@ export function endGoalReplaySession(
       onReplaySelectPovCar: null,
     });
   }
-}
-
-export function stepNetworkStreamedGoalReplayFrame(params: {
-  runtime: GoalReplayRuntimePort | null | undefined;
-  replayController: GoalReplayTimelineControllerPort;
-  context?: GoalReplayFrameContextPort | null;
-  source?: string;
-  isUnlimitedBoost?: boolean;
-  syncCarAudioControls?: boolean;
-  syncBoostToHud?: boolean;
-  getCameraMode: () => GoalReplayCameraMode;
-  setCameraMode: (mode: GoalReplayCameraMode) => void;
-  getScoringTeam: () => number;
-  setScoringTeam?: (team: number) => void;
-  getScorerCarIndex: () => number;
-  setScorerCarIndex?: (carIndex: number) => void;
-  getPovCarIndex?: () => number | null;
-  setPovCarIndex?: (carIndex: number | null) => void;
-}): void {
-  const {
-    runtime,
-    replayController,
-    context,
-    source = 'freeplay-goal-replay',
-    isUnlimitedBoost = false,
-    syncCarAudioControls = true,
-    syncBoostToHud = true,
-    getCameraMode,
-    setCameraMode,
-    getScoringTeam,
-    setScoringTeam,
-    getScorerCarIndex,
-    setScorerCarIndex,
-    getPovCarIndex,
-    setPovCarIndex,
-  } = params;
-  if (!replayController.sessionState?.isActive) {
-    const scoringTeam = runtime?.match?.state?.scorer ?? 0;
-    const scorerCarIndex = runtime?.match?.state?.scorerCarIndex ?? 0;
-    const carEntries = captureRuntimeReplayCarEntries(
-      runtime as unknown as ReplayCarEntryRuntimePort,
-      { defaultTeam: scoringTeam },
-    );
-    const totalFrames = replayController.beginReplaySession({
-      scoringTeam,
-      scorerCarIndex,
-      carEntries,
-      isNetworkStreamed: Boolean(runtime?.networkReconciler ?? true),
-    });
-    setScoringTeam?.(scoringTeam);
-    setScorerCarIndex?.(scorerCarIndex);
-    setCameraMode('director');
-    setPovCarIndex?.(null);
-    if (runtime) runtime.replayPovCarIndex = null;
-    beginGoalReplaySession(runtime, replayController, {
-      cameraMode: 'director',
-      source,
-      syncHud: true,
-      totalFrames,
-      getCameraMode,
-      setCameraMode,
-      getScoringTeam,
-      getScorerCarIndex,
-      getPovCarIndex: () => (getPovCarIndex ? getPovCarIndex() : (runtime?.replayPovCarIndex ?? null)),
-      setPovCarIndex: (carIdx) => {
-        setPovCarIndex?.(carIdx);
-        if (runtime) runtime.replayPovCarIndex = carIdx;
-      },
-    });
-  }
-  if (typeof runtime?.replayPovCarIndex === 'number' && runtime.replayPovCarIndex >= 0) {
-    setCameraMode('pov');
-    setPovCarIndex?.(runtime.replayPovCarIndex);
-  } else if (
-    runtime?.isGoalReplayCameraOverrideActive?.() &&
-    getCameraMode() === 'pov' &&
-    runtime.replayPovCarIndex === null
-  ) {
-    setCameraMode('director');
-    setPovCarIndex?.(null);
-  }
-  const cameraMode = getCameraMode() || 'director';
-  const s = replayController.sessionState;
-  const isCustomScrubbing = Boolean(
-    s?.isScrubbing || s?.isPaused || Math.abs((s?.playbackSpeed ?? 1.0) - 1.0) > 0.01
-  );
-  const networkStreamSnapshot = !isCustomScrubbing
-    ? (runtime?.networkReconciler?.lastParsedPacket?.stateSnapshot ?? null)
-    : null;
-  const embedded = networkStreamSnapshot
-    ? decodeReplayDirectorTelemetryFromState(networkStreamSnapshot)
-    : null;
-  const scorerCarIdx = s?.scorerCarIndex ?? getScorerCarIndex();
-  const resolvedPovCarIdx = getPovCarIndex
-    ? getPovCarIndex()
-    : typeof runtime?.replayPovCarIndex === 'number' && runtime.replayPovCarIndex >= 0
-      ? runtime.replayPovCarIndex
-      : scorerCarIdx;
-  stepGoalReplaySessionFrame({
-    runtime,
-    replayController,
-    context,
-    dt: context?.dt ?? 1 / 120,
-    source,
-    cameraMode,
-    scoringTeam: s?.scoringTeam ?? getScoringTeam(),
-    scorerCarIndex: scorerCarIdx,
-    povCarIndex: cameraMode === 'pov' ? resolvedPovCarIdx : null,
-    applyToEngine: isCustomScrubbing,
-    dispatchEvents: false,
-    syncCarAudioControls,
-    syncBoostToHud,
-    emitWillEndSignal: false,
-    syncHudProgress: true,
-    isUnlimitedBoost,
-    networkStreamSnapshot,
-    overrideProgress: embedded && typeof embedded.progress === 'number' ? embedded.progress : null,
-  });
 }

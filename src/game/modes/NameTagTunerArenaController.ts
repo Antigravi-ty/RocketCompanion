@@ -23,16 +23,8 @@ import {
 } from '../../input/hotkeyInputGuard.ts';
 
 const SIX_CAR_KICKOFF_PERMUTATIONS: readonly (readonly [number, number, number])[] = [
-  [0, 1, 2],
-  [0, 1, 3],
-  [0, 1, 4],
-  [0, 2, 3],
-  [0, 2, 4],
-  [0, 3, 4],
-  [1, 2, 3],
-  [1, 2, 4],
-  [1, 3, 4],
-  [2, 3, 4],
+  [0, 1, 2], [0, 1, 3], [0, 1, 4], [0, 2, 3], [0, 2, 4],
+  [0, 3, 4], [1, 2, 3], [1, 2, 4], [1, 3, 4], [2, 3, 4],
 ];
 
 const TEAM_BLUE_COLORS = [0x0ea5e9, 0x38bdf8, 0x2563eb];
@@ -435,16 +427,7 @@ export class NameTagTunerArenaController {
       angVel: [0, 0, 0],
     });
 
-    const neutralControls = {
-      throttle: 0,
-      steer: 0,
-      pitch: 0,
-      yaw: 0,
-      roll: 0,
-      jump: false,
-      boost: false,
-      handbrake: true,
-    };
+    const neutralControls = { throttle: 0, steer: 0, pitch: 0, yaw: 0, roll: 0, jump: false, boost: false, handbrake: true };
     for (let stepIndex = 0; stepIndex < 30; stepIndex++) {
       for (let carIndex = 0; carIndex < 6; carIndex++) {
         physicsEngine.setControls?.(carIndex, neutralControls);
@@ -459,16 +442,7 @@ export class NameTagTunerArenaController {
     if (!this.isActive) return;
     const physicsEngine = this.runtime?.physics;
     if (!physicsEngine) return;
-    const neutralHold = {
-      throttle: 0,
-      steer: 0,
-      pitch: 0,
-      yaw: 0,
-      roll: 0,
-      jump: false,
-      boost: false,
-      handbrake: true,
-    };
+    const neutralHold = { throttle: 0, steer: 0, pitch: 0, yaw: 0, roll: 0, jump: false, boost: false, handbrake: true };
     const activePlayerIndex = this.runtime?.playerCarIndex ?? 0;
     for (
       let carIndex = 0;

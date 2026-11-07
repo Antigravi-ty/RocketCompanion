@@ -86,7 +86,7 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
 
     if (
       this.lifecycleController.goalResetTicks > 0 &&
-      this.lifecycleController.goalIncidentTick > 0
+      this.lifecycleController.goalTracker.goalIncidentTick > 0
     ) {
       this.replaySession.retainGoalReplayBuffer(
         this.lifecycleController.getGoalIncidentMeta(),

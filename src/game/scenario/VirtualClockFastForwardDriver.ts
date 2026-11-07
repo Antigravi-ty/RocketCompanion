@@ -9,9 +9,15 @@
 import type { CarControlsInput } from '../../network/protocol/InputPacketCodec.ts';
 import {
   buildAllStageTimingDistributions,
+  buildKeyframeRenderSample,
   evaluateCameraSmoothness,
+  extractCameraPoseSample,
   extractTopHitchFrames,
   PIPELINE_STAGE_NAMES,
+  queryCompiledShaderProgramCount,
+  queryWebGlContextAttributesSummary,
+  queryWebGlError,
+  resolveRuntimeCameraMode,
   roundMetric,
   type CameraPoseSample,
   type RawTickTimingSample,
@@ -30,7 +36,7 @@ import type {
 const FIXED_TICK_DT_SEC = 1 / 120;
 const FIXED_TICK_DT_MS = 1000 / 120;
 
-const NEUTRAL_CONTROLS: Readonly<CarControlsInput> = Object.freeze({
+export const NEUTRAL_CONTROLS: Readonly<CarControlsInput> = Object.freeze({
   throttle: 0,
   steer: 0,
   pitch: 0,
@@ -57,25 +63,11 @@ export class VirtualClockFastForwardDriver {
   }
 
   public getCompiledShaderProgramCount(): number {
-    const programs = this.runtime?.renderer?.info?.programs;
-    return Array.isArray(programs) ? programs.length : 0;
+    return queryCompiledShaderProgramCount(this.runtime?.renderer);
   }
 
   public getWebGlContextAttributesSummary(): { renderer: string; vendor: string } {
-    try {
-      const gl = this.runtime?.renderer?.getContext?.() as WebGLRenderingContext | null;
-      if (!gl) return { renderer: 'unavailable', vendor: 'unavailable' };
-      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-      const renderer = dbg
-        ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || gl.getParameter(gl.RENDERER))
-        : String(gl.getParameter(gl.RENDERER) || 'WebGL');
-      const vendor = dbg
-        ? String(gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) || gl.getParameter(gl.VENDOR))
-        : String(gl.getParameter(gl.VENDOR) || 'WebGL');
-      return { renderer, vendor };
-    } catch {
-      return { renderer: 'error', vendor: 'error' };
-    }
+    return queryWebGlContextAttributesSummary(this.runtime?.renderer);
   }
 
   public async runScenario(script: ScenarioScript): Promise<ScenarioRunReport> {
@@ -86,9 +78,7 @@ export class VirtualClockFastForwardDriver {
 
     const r = this.runtime;
     const wasRunning = Boolean(r?.running);
-    if (wasRunning) {
-      r.stop();
-    }
+    if (wasRunning) r.stop();
 
     const origPerfNow = performance.now;
     const origKeyboardRead = r?.keyboard?.read ? r.keyboard.read.bind(r.keyboard) : null;
@@ -159,22 +149,14 @@ export class VirtualClockFastForwardDriver {
         this.pendingKeyframeReason = reason;
       },
       recordAssertion: (label, passed, detail) => {
-        assertions.push({
-          tick: currentTick,
-          label,
-          passed: Boolean(passed),
-          detail,
-        });
+        assertions.push({ tick: currentTick, label, passed: Boolean(passed), detail });
       },
     };
 
     try {
       if (typeof document !== 'undefined') {
         try {
-          Object.defineProperty(document, 'hidden', {
-            configurable: true,
-            get: () => false,
-          });
+          Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
           document.hasFocus = () => true;
         } catch {
           // Ignore if read-only in environment
@@ -182,19 +164,12 @@ export class VirtualClockFastForwardDriver {
       }
 
       if (r?.keyboard && origKeyboardRead) {
-        r.keyboard.read = () => {
-          if (this.overrideLocalControls) {
-            return { ...this.overrideLocalControls };
-          }
-          return origKeyboardRead();
-        };
+        r.keyboard.read = () =>
+          this.overrideLocalControls ? { ...this.overrideLocalControls } : origKeyboardRead();
       }
 
       performance.now = () => this.virtualNowMs;
-
-      if (script.setup) {
-        await script.setup(stepContext);
-      }
+      if (script.setup) await script.setup(stepContext);
 
       const totalTicks = Math.max(1, script.totalTicks);
       const renderStride = Math.max(1, script.renderStride || 15);
@@ -203,7 +178,7 @@ export class VirtualClockFastForwardDriver {
 
       let prevPhase = String(r?.match?.state?.phase || 'freeplay');
       let prevMode = String(r?.match?.state?.mode || 'freeplay');
-      let prevCameraMode = this.resolveCurrentCameraMode();
+      let prevCameraMode = resolveRuntimeCameraMode(r);
       let renderedFramesCount = 0;
       let skippedRenderFramesCount = 0;
 
@@ -220,23 +195,18 @@ export class VirtualClockFastForwardDriver {
             if (st.forceKeyframeRender) {
               this.pendingKeyframeReason = st.keyframeReason || st.description || `step_${tick}`;
             }
-            if (st.action) {
-              await st.action(stepContext);
-            }
+            if (st.action) await st.action(stepContext);
           }
         }
 
-        if (script.perTick) {
-          script.perTick(stepContext);
-        }
-
+        if (script.perTick) script.perTick(stepContext);
         if (this.loopbackSimulator.isActive()) {
           this.loopbackSimulator.stepVirtualPeers(tick, this.virtualNowMs);
         }
 
         const prePhase = String(r?.match?.state?.phase || 'freeplay');
         const preMode = String(r?.match?.state?.mode || 'freeplay');
-        const preCam = this.resolveCurrentCameraMode();
+        const preCam = resolveRuntimeCameraMode(r);
         if (forceKeyframes) {
           if (prePhase !== prevPhase) {
             this.pendingKeyframeReason = `phase_${prevPhase}_to_${prePhase}`;
@@ -252,7 +222,6 @@ export class VirtualClockFastForwardDriver {
         const shouldRenderGpu = isStrideTick || isKeyframeTick;
 
         const tickResult = this.executeSingleVirtualTick(
-          tick,
           this.virtualNowMs,
           shouldRenderGpu,
           isKeyframeTick,
@@ -260,57 +229,49 @@ export class VirtualClockFastForwardDriver {
 
         const postPhase = String(r?.match?.state?.phase || 'freeplay');
         const postMode = String(r?.match?.state?.mode || 'freeplay');
-        const postCam = this.resolveCurrentCameraMode();
+        const postCam = resolveRuntimeCameraMode(r);
 
         if (
           forceKeyframes &&
           !shouldRenderGpu &&
           (postPhase !== prePhase || postMode !== preMode || postCam !== preCam)
         ) {
-          const transitionReason =
+          this.pendingKeyframeReason =
             postPhase !== prePhase
               ? `phase_${prePhase}_to_${postPhase}`
               : postMode !== preMode
                 ? `mode_${preMode}_to_${postMode}`
                 : `camera_${preCam}_to_${postCam}`;
-          this.pendingKeyframeReason = transitionReason;
-          const forcedRenderResult = this.executeForcedKeyframeRenderPass(
-            tickResult.stageDurationsMs,
-          );
+          const forced = this.executeForcedKeyframeRenderPass(tickResult.stageDurationsMs);
           tickResult.didGpuRender = true;
-          tickResult.shaderProgramsBefore = forcedRenderResult.shaderProgramsBefore;
-          tickResult.shaderProgramsAfter = forcedRenderResult.shaderProgramsAfter;
-          tickResult.shaderProgramsDelta = forcedRenderResult.shaderProgramsDelta;
-          tickResult.glError = forcedRenderResult.glError;
-          tickResult.totalFrameWallMs += forcedRenderResult.extraWallMs;
+          tickResult.shaderProgramsBefore = forced.shaderProgramsBefore;
+          tickResult.shaderProgramsAfter = forced.shaderProgramsAfter;
+          tickResult.shaderProgramsDelta = forced.shaderProgramsDelta;
+          tickResult.glError = forced.glError;
+          tickResult.totalFrameWallMs += forced.extraWallMs;
         }
 
-        if (tickResult.didGpuRender) {
-          renderedFramesCount++;
-        } else {
-          skippedRenderFramesCount++;
-        }
+        if (tickResult.didGpuRender) renderedFramesCount++;
+        else skippedRenderFramesCount++;
 
         if (this.pendingKeyframeReason && tickResult.didGpuRender) {
-          const renderInfo = r?.renderer?.info;
-          keyframeSamples.push({
-            tick,
-            virtualTimeMs: roundMetric(this.virtualNowMs - baseVirtualMs, 2),
-            reason: this.pendingKeyframeReason,
-            phase: postPhase,
-            gameMode: postMode,
-            cameraMode: postCam,
-            renderStageWallMs: roundMetric(tickResult.stageDurationsMs.RenderStage, 4),
-            totalFrameWallMs: roundMetric(tickResult.totalFrameWallMs, 4),
-            shaderProgramsBefore: tickResult.shaderProgramsBefore,
-            shaderProgramsAfter: tickResult.shaderProgramsAfter,
-            shaderProgramsDelta: tickResult.shaderProgramsDelta,
-            glError: tickResult.glError,
-            drawCalls: renderInfo?.render?.calls ?? 0,
-            triangles: renderInfo?.render?.triangles ?? 0,
-            geometries: renderInfo?.memory?.geometries ?? 0,
-            textures: renderInfo?.memory?.textures ?? 0,
-          });
+          keyframeSamples.push(
+            buildKeyframeRenderSample(
+              tick,
+              this.virtualNowMs - baseVirtualMs,
+              this.pendingKeyframeReason,
+              postPhase,
+              postMode,
+              postCam,
+              tickResult.stageDurationsMs.RenderStage,
+              tickResult.totalFrameWallMs,
+              tickResult.shaderProgramsBefore,
+              tickResult.shaderProgramsAfter,
+              tickResult.shaderProgramsDelta,
+              tickResult.glError,
+              r?.renderer?.info,
+            ),
+          );
           this.pendingKeyframeReason = null;
         }
 
@@ -329,21 +290,8 @@ export class VirtualClockFastForwardDriver {
           totalFrameWallMs: tickResult.totalFrameWallMs,
         });
 
-        const camObj = r?.camera?.camera;
-        if (camObj?.position && camObj?.quaternion) {
-          cameraPoses.push({
-            tick,
-            phase: postPhase,
-            cameraMode: postCam,
-            px: camObj.position.x,
-            py: camObj.position.y,
-            pz: camObj.position.z,
-            qx: camObj.quaternion.x,
-            qy: camObj.quaternion.y,
-            qz: camObj.quaternion.z,
-            qw: camObj.quaternion.w,
-          });
-        }
+        const pose = extractCameraPoseSample(tick, postPhase, postCam, r?.camera?.camera);
+        if (pose) cameraPoses.push(pose);
 
         if ((tick + 1) % batchYieldTicks === 0) {
           performance.now = origPerfNow;
@@ -357,45 +305,35 @@ export class VirtualClockFastForwardDriver {
         ? this.loopbackSimulator.collectTelemetry()
         : null;
 
-      if (script.teardown) {
-        await script.teardown(stepContext);
-      }
+      if (script.teardown) await script.teardown(stepContext);
 
       const stageTimings = buildAllStageTimingDistributions(tickSamples);
       const topHitchFrames = extractTopHitchFrames(tickSamples, 5);
       const cameraSmoothness = evaluateCameraSmoothness(cameraPoses, keyframeSamples);
 
-      if (cameraSmoothness.nanFrameCount > 0) {
-        assertions.push({
-          tick: totalTicks - 1,
-          label: 'camera_no_nan_poses',
-          passed: false,
-          detail: `Detected ${cameraSmoothness.nanFrameCount} NaN camera pose frames`,
-        });
-      } else {
-        assertions.push({
-          tick: totalTicks - 1,
-          label: 'camera_no_nan_poses',
-          passed: true,
-          detail: `All ${cameraSmoothness.sampleCount} camera poses finite`,
-        });
-      }
+      assertions.push({
+        tick: totalTicks - 1,
+        label: 'camera_no_nan_poses',
+        passed: cameraSmoothness.nanFrameCount === 0,
+        detail:
+          cameraSmoothness.nanFrameCount > 0
+            ? `Detected ${cameraSmoothness.nanFrameCount} NaN camera pose frames`
+            : `All ${cameraSmoothness.sampleCount} camera poses finite`,
+      });
 
       const simulatedDurationSeconds = roundMetric(totalTicks * FIXED_TICK_DT_SEC, 3);
       const effectiveTickRateHz = roundMetric((totalTicks / wallClockDurationMs) * 1000, 1);
-      const speedupFactorVsRealtime = roundMetric(effectiveTickRateHz / 120, 2);
-      const allAssertionsPassed = assertions.every((a) => a.passed);
 
       return {
         scenarioId: script.id,
         title: script.title,
         description: script.description,
-        passed: allAssertionsPassed,
+        passed: assertions.every((a) => a.passed),
         totalTicks,
         simulatedDurationSeconds,
         wallClockDurationMs: roundMetric(wallClockDurationMs, 2),
         effectiveTickRateHz,
-        speedupFactorVsRealtime,
+        speedupFactorVsRealtime: roundMetric(effectiveTickRateHz / 120, 2),
         renderedFramesCount,
         skippedRenderFramesCount,
         stageTimings,
@@ -407,9 +345,7 @@ export class VirtualClockFastForwardDriver {
       };
     } finally {
       performance.now = origPerfNow;
-      if (r?.keyboard && origKeyboardRead) {
-        r.keyboard.read = origKeyboardRead;
-      }
+      if (r?.keyboard && origKeyboardRead) r.keyboard.read = origKeyboardRead;
       if (typeof document !== 'undefined') {
         try {
           if (origHasFocus) document.hasFocus = origHasFocus;
@@ -430,34 +366,11 @@ export class VirtualClockFastForwardDriver {
     }
   }
 
-  private resolveCurrentCameraMode(): string {
-    const r = this.runtime;
-    if (r?.isGoalReplayCameraOverrideActive?.()) {
-      const activeMode = r?.modeManager?.getActiveMode?.();
-      const replayCamMode =
-        activeMode?.directorPreview?.replayCameraMode ||
-        activeMode?.replaySession?.replayCameraMode;
-      if (replayCamMode) return String(replayCamMode);
-      return 'director';
-    }
-    if (r?.camera?.isFreeCam) return 'freecam';
-    return r?.camera?.mode || 'ball';
-  }
-
   private executeSingleVirtualTick(
-    _tick: number,
     virtualTimestamp: number,
     shouldRenderGpu: boolean,
     checkGlErrorOnKeyframe = false,
-  ): {
-    didGpuRender: boolean;
-    shaderProgramsBefore: number;
-    shaderProgramsAfter: number;
-    shaderProgramsDelta: number;
-    glError: number;
-    stageDurationsMs: Record<PipelineStageName, number>;
-    totalFrameWallMs: number;
-  } {
+  ) {
     const r = this.runtime;
     const pipeline = r.pipeline;
     const ctx = pipeline.context;
@@ -494,18 +407,8 @@ export class VirtualClockFastForwardDriver {
       totalFrameWallMs += dur;
     }
 
-    let glError = 0;
-    if (checkGlErrorOnKeyframe && !ctx.shouldSkipGpuRender && r?.renderer) {
-      try {
-        const gl = r.renderer.getContext?.() as WebGLRenderingContext | null;
-        if (gl) {
-          glError = gl.getError();
-        }
-      } catch {
-        glError = 0;
-      }
-    }
-
+    const glError =
+      checkGlErrorOnKeyframe && !ctx.shouldSkipGpuRender ? queryWebGlError(r?.renderer) : 0;
     const shaderProgramsAfter = this.getCompiledShaderProgramCount();
 
     return {
@@ -519,15 +422,7 @@ export class VirtualClockFastForwardDriver {
     };
   }
 
-  private executeForcedKeyframeRenderPass(
-    stageDurationsMs: Record<PipelineStageName, number>,
-  ): {
-    shaderProgramsBefore: number;
-    shaderProgramsAfter: number;
-    shaderProgramsDelta: number;
-    glError: number;
-    extraWallMs: number;
-  } {
+  private executeForcedKeyframeRenderPass(stageDurationsMs: Record<PipelineStageName, number>) {
     const r = this.runtime;
     const ctx = r.pipeline.context;
     ctx.shouldSkipGpuRender = false;
@@ -535,13 +430,7 @@ export class VirtualClockFastForwardDriver {
     const t0 = this.realNow();
     r.renderSubsystem?.update?.(ctx);
     const extraWallMs = this.realNow() - t0;
-    let glError = 0;
-    try {
-      const gl = r?.renderer?.getContext?.() as WebGLRenderingContext | null;
-      if (gl) glError = gl.getError();
-    } catch {
-      glError = 0;
-    }
+    const glError = queryWebGlError(r?.renderer);
     stageDurationsMs.RenderStage += extraWallMs;
     const shaderProgramsAfter = this.getCompiledShaderProgramCount();
     return {
@@ -553,5 +442,3 @@ export class VirtualClockFastForwardDriver {
     };
   }
 }
-
-export { NEUTRAL_CONTROLS };

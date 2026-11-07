@@ -5,12 +5,12 @@ import type {
 } from '../../../physics/RocketSimStateViews.ts';
 import { useSubsystemIsolationLabStore } from '../../runtimeUiPort.ts';
 import type { LabTabContext, LabTabController } from './LabTabTypes.ts';
+import { classifyBallOutcome } from '../../../ai/KickoffV2SafeTensorsAgent.ts';
+import { KICKOFF_DUEL_PAIRINGS } from '../../../ui-core/config/kickoffDuelConfig.ts';
 import {
-  KICKOFF_DUEL_PAIRINGS,
   type KickoffDuelAgentEnsemble,
   type KickoffStepTraceEntry,
   buildCarStepTraceEntry,
-  classifyBallOutcome,
   createKickoffDuelHelpers,
   decideCarControlsForModel,
   ensureKickoffDuelModelsLoaded,

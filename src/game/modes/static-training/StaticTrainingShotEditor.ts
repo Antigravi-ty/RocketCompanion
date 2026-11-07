@@ -10,7 +10,7 @@ import {
 } from '../../runtimeUiPort.ts';
 import { isEditableEventTarget } from '../../../input/hotkeyInputGuard.ts';
 import {
-  CAR_GROUND_MIN_Z,
+  EDITOR_HELD_KEY_CODES,
   type BallCamTunerParams,
   type ShotBallConfig,
   type ShotCarConfig,
@@ -18,6 +18,7 @@ import {
   type StaticTrainingShotConfig,
   computeEditorContinuousDeltas,
   computeContinuousDeltasShotPatch,
+  computeDiscreteEditKeyMutation,
   computeMouseDragShotPatch,
 } from './ShotGizmoMath.ts';
 import {
@@ -32,7 +33,7 @@ export interface StaticTrainingEditorCameraPort {
   setFreeCam: (enabled: boolean) => void;
   setFreeCamPose?: (
     position: [number, number, number] | number[],
-    lookAt: [number, number, number] | number[]
+    lookAt: [number, number, number] | number[],
   ) => void;
   getFreeCamStateSnapshot?: () => {
     eyeUnreal: [number, number, number];
@@ -42,7 +43,7 @@ export interface StaticTrainingEditorCameraPort {
   syncEditorShotCamera?: (
     subMode: StaticTrainingEditSubMode,
     shot: StaticTrainingShotConfig,
-    tuner: BallCamTunerParams
+    tuner: BallCamTunerParams,
   ) => void;
 }
 
@@ -70,8 +71,10 @@ export interface StaticTrainingShotEditorHostCallbacks {
   stopFreeCamTrajectoryTest: () => void;
 }
 
-function hasActiveModalDialogue(): boolean {
-  return typeof document !== 'undefined' && document.querySelector('[role="dialog"]') !== null;
+function isModalBlockingInput(): boolean {
+  const hasDialog = typeof document !== 'undefined' && document.querySelector('[role="dialog"]') !== null;
+  const appState = useAppStore.getState();
+  return Boolean(hasDialog || (appState.isOpen && !appState.isLivePreviewCollapsed));
 }
 
 function isReplayDirectorTunerWindowPresent(): boolean {
@@ -101,14 +104,10 @@ export class StaticTrainingShotEditor {
 
   private applyShotPatch(
     draft: StaticTrainingShotConfig,
-    patch: { carPatch?: Partial<ShotCarConfig>; ballPatch?: Partial<ShotBallConfig> }
+    patch: { carPatch?: Partial<ShotCarConfig>; ballPatch?: Partial<ShotBallConfig> },
   ): void {
-    if (patch.carPatch) {
-      draft.car = { ...draft.car, ...patch.carPatch };
-    }
-    if (patch.ballPatch) {
-      draft.ball = { ...draft.ball, ...patch.ballPatch };
-    }
+    if (patch.carPatch) draft.car = { ...draft.car, ...patch.carPatch };
+    if (patch.ballPatch) draft.ball = { ...draft.ball, ...patch.ballPatch };
   }
 
   resetInputState(): void {
@@ -121,18 +120,14 @@ export class StaticTrainingShotEditor {
     const r = this.host.getRuntime();
     if (!r?.camera) return;
 
-    const testingSingle = this.host.isTestingSingleShot();
-
     if (subMode !== 'free-cam' && this.host.isFreeCamTrajectoryTesting()) {
       this.host.stopFreeCamTrajectoryTest();
     }
 
-    if (testingSingle) {
+    if (this.host.isTestingSingleShot()) {
       r.camera.setEditorOverride?.(false);
       r.releaseGoalReplayCameraOverride();
-      if (r.camera.isFreeCam) {
-        r.camera.setFreeCam(false);
-      }
+      if (r.camera.isFreeCam) r.camera.setFreeCam(false);
       return;
     }
 
@@ -146,28 +141,25 @@ export class StaticTrainingShotEditor {
       } else {
         r.camera.setFreeCam(true);
       }
-    } else {
-      if (r.camera.isFreeCam) {
-        const store = useStaticTrainingPackStore.getState();
-        if (store.isEditingItem && typeof r.camera.getFreeCamStateSnapshot === 'function') {
-          const snap = r.camera.getFreeCamStateSnapshot();
-          if (snap && Array.isArray(snap.eyeUnreal)) {
-            mutateActiveEditItemVariable((draft: StaticTrainingShotConfig) => {
-              draft.editorFreeCam = extractShotEditorFreeCamFromSnapshot(snap);
-            });
-          }
+      return;
+    }
+
+    if (r.camera.isFreeCam) {
+      const store = useStaticTrainingPackStore.getState();
+      if (store.isEditingItem && typeof r.camera.getFreeCamStateSnapshot === 'function') {
+        const snap = r.camera.getFreeCamStateSnapshot();
+        if (snap && Array.isArray(snap.eyeUnreal)) {
+          mutateActiveEditItemVariable((draft: StaticTrainingShotConfig) => {
+            draft.editorFreeCam = extractShotEditorFreeCamFromSnapshot(snap);
+          });
         }
-        r.camera.setFreeCam(false);
       }
-      r.camera.setEditorOverride?.(true);
-      const shot = this.host.getCurrentShotConfig();
-      if (shot) {
-        r.camera.syncEditorShotCamera?.(
-          subMode,
-          shot,
-          useStaticTrainingBallCamTunerStore.getState()
-        );
-      }
+      r.camera.setFreeCam(false);
+    }
+    r.camera.setEditorOverride?.(true);
+    const shot = this.host.getCurrentShotConfig();
+    if (shot) {
+      r.camera.syncEditorShotCamera?.(subMode, shot, useStaticTrainingBallCamTunerStore.getState());
     }
   }
 
@@ -182,18 +174,10 @@ export class StaticTrainingShotEditor {
 
     if (subMode !== 'free-cam' && r?.camera) {
       r.camera.setEditorOverride?.(true);
-      r.camera.syncEditorShotCamera?.(
-        subMode,
-        shot,
-        useStaticTrainingBallCamTunerStore.getState()
-      );
+      r.camera.syncEditorShotCamera?.(subMode, shot, useStaticTrainingBallCamTunerStore.getState());
     }
 
-    const appState = useAppStore.getState();
-    const isModalBlocking =
-      hasActiveModalDialogue() ||
-      (appState.isOpen && !appState.isLivePreviewCollapsed);
-    if (isModalBlocking) {
+    if (isModalBlockingInput()) {
       if (this.heldKeys.size > 0) this.heldKeys.clear();
       return;
     }
@@ -218,279 +202,156 @@ export class StaticTrainingShotEditor {
     if (!deltas.hasAnyChange) return;
 
     mutateActiveEditItemVariable((draft: StaticTrainingShotConfig) => {
-      const res = computeContinuousDeltasShotPatch(
-        draft,
-        subMode,
-        deltas,
-        this.ballSpeedZeroLatch
-      );
+      const res = computeContinuousDeltasShotPatch(draft, subMode, deltas, this.ballSpeedZeroLatch);
       this.applyShotPatch(draft, res);
       this.ballSpeedZeroLatch = res.nextBallSpeedZeroLatch;
     });
+  }
+
+  private tryMirrorOrReloadHotkey(evt: KeyboardEvent, store: any): boolean {
+    const code = evt.code;
+    if ((code === 'KeyR' || evt.key === 'r' || evt.key === 'R') && !evt.repeat) {
+      evt.preventDefault();
+      this.host.reloadCurrentShot();
+      return true;
+    }
+    if ((code === 'KeyF' || evt.key === 'f' || evt.key === 'F') && !evt.repeat) {
+      const enableFToMirror =
+        store.variationToggles?.enableFToMirror !== false &&
+        useAppStore.getState().gameplay?.enableFToMirror !== false;
+      if (enableFToMirror) {
+        evt.preventDefault();
+        store.setShotMirrored?.(!store.isShotMirrored);
+        this.host.reloadCurrentShot();
+      }
+      return true;
+    }
+    return false;
+  }
+
+  private handleKeyDown(evt: KeyboardEvent): void {
+    const r = this.host.getRuntime();
+    if (r?.match?.state?.mode !== 'static-training-pack' || isEditableEventTarget(evt)) return;
+
+    const store = useStaticTrainingPackStore.getState();
+    const code = evt.code;
+
+    if (this.host.isReplayActive() && (code === 'KeyP' || evt.key === 'p' || evt.key === 'P')) {
+      if (isReplayDirectorTunerWindowPresent() && !evt.repeat) {
+        evt.preventDefault();
+        const replayCtrl = this.host.getReplayController();
+        const paused = replayCtrl.togglePause();
+        hudStore.getState().setReplayState({
+          replayPaused: paused,
+          replayPersistent: replayCtrl.sessionState.isPersistent,
+        });
+      }
+      return;
+    }
+
+    if (store.sessionMode === 'edit' && this.host.isTestingSingleShot()) {
+      if ((code === 'KeyG' || evt.key === 'g' || evt.key === 'G') && !evt.repeat) {
+        evt.preventDefault();
+        this.host.toggleSingleShotTest();
+        return;
+      }
+      this.tryMirrorOrReloadHotkey(evt, store);
+      return;
+    }
+
+    if (store.sessionMode === 'play') {
+      if (this.tryMirrorOrReloadHotkey(evt, store)) return;
+      if ((code === 'BracketLeft' || evt.key === '[' || code === 'Digit9') && !evt.repeat) {
+        evt.preventDefault();
+        store.prevShot();
+      } else if ((code === 'BracketRight' || evt.key === ']' || code === 'Digit0') && !evt.repeat) {
+        evt.preventDefault();
+        store.nextShot();
+      }
+      return;
+    }
+
+    if (store.sessionMode !== 'edit' || isModalBlockingInput()) return;
+
+    if ((code === 'Digit9' || code === 'Digit0') && !evt.repeat) {
+      evt.preventDefault();
+      store.cycleEditSubMode(code === 'Digit9' ? -1 : 1);
+      return;
+    }
+
+    if (code === 'ArrowUp' || code === 'ArrowDown') {
+      evt.preventDefault();
+      if (!store.isEditingItem) store.enterItemEditMode(store.currentShotIndex);
+      const delta = code === 'ArrowUp' ? 1 : -1;
+      mutateActiveEditItemVariable((draft: StaticTrainingShotConfig) => {
+        const cur = Math.round(Number(draft.timeoutSeconds) || 10);
+        draft.timeoutSeconds = Math.max(1, Math.min(60, cur + delta));
+      });
+      return;
+    }
+
+    const subMode = store.editSubMode as StaticTrainingEditSubMode;
+
+    if ((code === 'KeyT' || evt.key === 't' || evt.key === 'T') && !evt.repeat) {
+      evt.preventDefault();
+      this.host.toggleFreeCamTrajectoryTest();
+      return;
+    }
+    if ((code === 'KeyG' || evt.key === 'g' || evt.key === 'G') && !evt.repeat) {
+      evt.preventDefault();
+      this.host.toggleSingleShotTest();
+      return;
+    }
+    if ((code === 'KeyF' || evt.key === 'f' || evt.key === 'F') && !evt.shiftKey && !evt.repeat) {
+      evt.preventDefault();
+      useStaticTrainingBallCamTunerStore.getState().switchLateralSide();
+      return;
+    }
+    if (subMode === 'free-cam') return;
+
+    if (!store.isEditingItem) store.enterItemEditMode(store.currentShotIndex);
+    if (EDITOR_HELD_KEY_CODES.has(code)) evt.preventDefault();
+    this.heldKeys.add(code);
+
+    if (!evt.repeat) {
+      if (code === 'BracketLeft' && subMode === 'ball-speed') {
+        this.ballSpeedZeroLatch = false;
+      }
+      const discrete = computeDiscreteEditKeyMutation(code, subMode, getActiveEditItemVariable());
+      if (discrete) {
+        mutateActiveEditItemVariable((draft: StaticTrainingShotConfig) => {
+          this.applyShotPatch(draft, discrete);
+        });
+        if (discrete.removeHeldKey) this.heldKeys.delete(discrete.removeHeldKey);
+        if (discrete.setBallSpeedZeroLatch !== undefined) {
+          this.ballSpeedZeroLatch = discrete.setBallSpeedZeroLatch;
+        }
+      }
+    }
   }
 
   bindSessionEvents(): void {
     if (typeof window === 'undefined') return;
     this.unbindSessionEvents();
 
-    const isInputFocused = (evt: Event) => isEditableEventTarget(evt);
-
-    this.keyDownHandler = (evt: KeyboardEvent) => {
-      const r = this.host.getRuntime();
-      if (r?.match?.state?.mode !== 'static-training-pack') return;
-      if (isInputFocused(evt)) return;
-
-      const store = useStaticTrainingPackStore.getState();
-      const code = evt.code;
-
-      if (this.host.isReplayActive() && (code === 'KeyP' || evt.key === 'p' || evt.key === 'P')) {
-        if (!isReplayDirectorTunerWindowPresent()) {
-          return;
-        }
-        if (!evt.repeat) {
-          evt.preventDefault();
-          const replayCtrl = this.host.getReplayController();
-          const paused = replayCtrl.togglePause();
-          hudStore.getState().setReplayState({
-            replayPaused: paused,
-            replayPersistent: replayCtrl.sessionState.isPersistent,
-          });
-        }
-        return;
-      }
-
-      if (store.sessionMode === 'edit' && this.host.isTestingSingleShot()) {
-        if ((code === 'KeyG' || evt.key === 'g' || evt.key === 'G') && !evt.repeat) {
-          evt.preventDefault();
-          this.host.toggleSingleShotTest();
-          return;
-        }
-        if ((code === 'KeyR' || evt.key === 'r' || evt.key === 'R') && !evt.repeat) {
-          evt.preventDefault();
-          this.host.reloadCurrentShot();
-          return;
-        }
-        if ((code === 'KeyF' || evt.key === 'f' || evt.key === 'F') && !evt.repeat) {
-          const enableFToMirror =
-            store.variationToggles?.enableFToMirror !== false &&
-            useAppStore.getState().gameplay?.enableFToMirror !== false;
-          if (enableFToMirror) {
-            evt.preventDefault();
-            store.setShotMirrored?.(!store.isShotMirrored);
-            this.host.reloadCurrentShot();
-          }
-          return;
-        }
-        return;
-      }
-
-      if (store.sessionMode === 'play') {
-        if ((code === 'KeyR' || evt.key === 'r' || evt.key === 'R') && !evt.repeat) {
-          evt.preventDefault();
-          this.host.reloadCurrentShot();
-          return;
-        }
-        if ((code === 'KeyF' || evt.key === 'f' || evt.key === 'F') && !evt.repeat) {
-          const enableFToMirror =
-            store.variationToggles?.enableFToMirror !== false &&
-            useAppStore.getState().gameplay?.enableFToMirror !== false;
-          if (enableFToMirror) {
-            evt.preventDefault();
-            store.setShotMirrored?.(!store.isShotMirrored);
-            this.host.reloadCurrentShot();
-          }
-          return;
-        }
-        if ((code === 'BracketLeft' || evt.key === '[' || code === 'Digit9') && !evt.repeat) {
-          evt.preventDefault();
-          store.prevShot();
-          return;
-        }
-        if ((code === 'BracketRight' || evt.key === ']' || code === 'Digit0') && !evt.repeat) {
-          evt.preventDefault();
-          store.nextShot();
-          return;
-        }
-        return;
-      }
-
-      if (store.sessionMode === 'edit') {
-        const appState = useAppStore.getState();
-        const isModalBlocking =
-          hasActiveModalDialogue() ||
-          (appState.isOpen && !appState.isLivePreviewCollapsed);
-        if (isModalBlocking) return;
-
-        if (code === 'Digit9' && !evt.repeat) {
-          evt.preventDefault();
-          store.cycleEditSubMode(-1);
-          return;
-        }
-        if (code === 'Digit0' && !evt.repeat) {
-          evt.preventDefault();
-          store.cycleEditSubMode(1);
-          return;
-        }
-
-        if (code === 'ArrowUp' || code === 'ArrowDown') {
-          evt.preventDefault();
-          if (!store.isEditingItem) {
-            store.enterItemEditMode(store.currentShotIndex);
-          }
-          const delta = code === 'ArrowUp' ? 1 : -1;
-          mutateActiveEditItemVariable((draft: StaticTrainingShotConfig) => {
-            const cur = Math.round(Number(draft.timeoutSeconds) || 10);
-            draft.timeoutSeconds = Math.max(1, Math.min(60, cur + delta));
-          });
-          return;
-        }
-
-        const subMode = store.editSubMode as StaticTrainingEditSubMode;
-
-        if ((code === 'KeyT' || evt.key === 't' || evt.key === 'T') && !evt.repeat) {
-          evt.preventDefault();
-          this.host.toggleFreeCamTrajectoryTest();
-          return;
-        }
-        if ((code === 'KeyG' || evt.key === 'g' || evt.key === 'G') && !evt.repeat) {
-          evt.preventDefault();
-          this.host.toggleSingleShotTest();
-          return;
-        }
-        if (
-          (code === 'KeyF' || evt.key === 'f' || evt.key === 'F') &&
-          !evt.shiftKey &&
-          !evt.repeat
-        ) {
-          evt.preventDefault();
-          useStaticTrainingBallCamTunerStore.getState().switchLateralSide();
-          return;
-        }
-
-        if (subMode === 'free-cam') {
-          return;
-        }
-
-        if (!store.isEditingItem) {
-          store.enterItemEditMode(store.currentShotIndex);
-        }
-
-        if (
-          code === 'Space' ||
-          code === 'KeyV' ||
-          code === 'KeyW' ||
-          code === 'KeyA' ||
-          code === 'KeyS' ||
-          code === 'KeyD' ||
-          code === 'KeyQ' ||
-          code === 'KeyE' ||
-          code === 'KeyO' ||
-          code === 'KeyP' ||
-          code === 'BracketLeft' ||
-          code === 'BracketRight' ||
-          code === 'Backslash'
-        ) {
-          evt.preventDefault();
-        }
-
-        this.heldKeys.add(code);
-
-        if (code === 'Backslash' && !evt.repeat) {
-          mutateActiveEditItemVariable((draft: StaticTrainingShotConfig) => {
-            if (subMode === 'car-heading' || subMode === 'car-speed') {
-              draft.car.speed = 0;
-            } else if (subMode === 'ball-speed') {
-              draft.ball.speed = 0;
-              draft.ball.kickoffState = false;
-            }
-          });
-        }
-
-        if (code === 'KeyV' && !evt.repeat && (subMode === 'car-heading' || subMode === 'car-speed')) {
-          const item = getActiveEditItemVariable();
-          if (item && item.car.location[2] <= CAR_GROUND_MIN_Z + 1.5 && !item.car.snapToGround) {
-            mutateActiveEditItemVariable((draft: StaticTrainingShotConfig) => {
-              draft.car.location![2] = CAR_GROUND_MIN_Z;
-              draft.car.snapToGround = true;
-              draft.car.headingPitch = 0;
-              draft.car.airRoll = 0;
-              if (draft.car.speedFollowsHeading !== false) {
-                draft.car.speedPitch = 0;
-              }
-            });
-          }
-        }
-
-        if (code === 'KeyP' && !evt.repeat && (subMode === 'car-heading' || subMode === 'car-speed')) {
-          const item = getActiveEditItemVariable();
-          if (item && item.car.initialBoost >= 100 && !item.car.unlimitedBoost) {
-            mutateActiveEditItemVariable((draft: StaticTrainingShotConfig) => {
-              draft.car.initialBoost = 100;
-              draft.car.unlimitedBoost = true;
-            });
-            this.heldKeys.delete('KeyP');
-          }
-        }
-
-        if (code === 'KeyO' && !evt.repeat && (subMode === 'car-heading' || subMode === 'car-speed')) {
-          const item = getActiveEditItemVariable();
-          if (item && item.car.unlimitedBoost) {
-            mutateActiveEditItemVariable((draft: StaticTrainingShotConfig) => {
-              draft.car.unlimitedBoost = false;
-              draft.car.initialBoost = 100;
-            });
-          }
-        }
-
-        if (code === 'BracketLeft' && !evt.repeat && subMode === 'ball-speed') {
-          this.ballSpeedZeroLatch = false;
-          const item = getActiveEditItemVariable();
-          if (item && item.ball.speed === 0 && !item.ball.kickoffState) {
-            mutateActiveEditItemVariable((draft: StaticTrainingShotConfig) => {
-              draft.ball.kickoffState = true;
-            });
-            this.ballSpeedZeroLatch = true;
-          }
-        }
-
-        if (code === 'BracketRight' && !evt.repeat && subMode === 'ball-speed') {
-          const item = getActiveEditItemVariable();
-          if (item && item.ball.kickoffState) {
-            mutateActiveEditItemVariable((draft: StaticTrainingShotConfig) => {
-              draft.ball.kickoffState = false;
-              draft.ball.speed = 0;
-            });
-            this.heldKeys.delete('BracketRight');
-          }
-        }
-      }
-    };
-
+    this.keyDownHandler = (evt: KeyboardEvent) => this.handleKeyDown(evt);
     this.keyUpHandler = (evt: KeyboardEvent) => {
       this.heldKeys.delete(evt.code);
-      if (evt.code === 'BracketLeft') {
-        this.ballSpeedZeroLatch = false;
-      }
+      if (evt.code === 'BracketLeft') this.ballSpeedZeroLatch = false;
     };
 
     this.mouseDownHandler = (evt: MouseEvent) => {
       const r = this.host.getRuntime();
       if (r?.match?.state?.mode !== 'static-training-pack') return;
       const store = useStaticTrainingPackStore.getState();
-      if (store.sessionMode !== 'edit' || this.host.isTestingSingleShot()) return;
-
-      const appState = useAppStore.getState();
-      const isModalBlocking =
-        hasActiveModalDialogue() ||
-        (appState.isOpen && !appState.isLivePreviewCollapsed);
-      if (isModalBlocking) return;
+      if (store.sessionMode !== 'edit' || this.host.isTestingSingleShot() || isModalBlockingInput()) {
+        return;
+      }
 
       const targetEl = evt.target as HTMLElement | null;
       if (
-        targetEl &&
-        typeof targetEl.closest === 'function' &&
-        targetEl.closest(
-          '[data-panel="container"], [data-ui-element="edge-inspector-drawer"], [data-ui-element="floating-window"], [data-ui-interactive="true"], [role="dialog"], button, input, select, textarea, [style*="pointer-events: auto"]'
+        targetEl?.closest?.(
+          '[data-panel="container"], [data-ui-element="edge-inspector-drawer"], [data-ui-element="floating-window"], [data-ui-interactive="true"], [role="dialog"], button, input, select, textarea, [style*="pointer-events: auto"]',
         )
       ) {
         return;
@@ -503,9 +364,7 @@ export class StaticTrainingShotEditor {
       }
 
       if (evt.button === 0 && store.editSubMode !== 'free-cam') {
-        if (!store.isEditingItem) {
-          store.enterItemEditMode(store.currentShotIndex);
-        }
+        if (!store.isEditingItem) store.enterItemEditMode(store.currentShotIndex);
         this.isLeftMouseDragging = true;
         this.lastMouseX = evt.clientX;
         this.lastMouseY = evt.clientY;
@@ -528,20 +387,16 @@ export class StaticTrainingShotEditor {
       const dy = evt.clientY - this.lastMouseY;
       this.lastMouseX = evt.clientX;
       this.lastMouseY = evt.clientY;
-
       if (dx === 0 && dy === 0) return;
-      const subMode = store.editSubMode as StaticTrainingEditSubMode;
 
+      const subMode = store.editSubMode as StaticTrainingEditSubMode;
       mutateActiveEditItemVariable((draft: StaticTrainingShotConfig) => {
-        const patch = computeMouseDragShotPatch(draft, subMode, dx, dy, 0.0045);
-        this.applyShotPatch(draft, patch);
+        this.applyShotPatch(draft, computeMouseDragShotPatch(draft, subMode, dx, dy, 0.0045));
       });
     };
 
     this.mouseUpHandler = (evt: MouseEvent) => {
-      if (evt.button === 0) {
-        this.isLeftMouseDragging = false;
-      }
+      if (evt.button === 0) this.isLeftMouseDragging = false;
     };
 
     this.contextMenuHandler = (evt: MouseEvent) => {
@@ -564,29 +419,17 @@ export class StaticTrainingShotEditor {
 
   unbindSessionEvents(): void {
     if (typeof window === 'undefined') return;
-    if (this.keyDownHandler) {
-      window.removeEventListener('keydown', this.keyDownHandler, true);
-      this.keyDownHandler = null;
-    }
-    if (this.keyUpHandler) {
-      window.removeEventListener('keyup', this.keyUpHandler, true);
-      this.keyUpHandler = null;
-    }
-    if (this.mouseDownHandler) {
-      window.removeEventListener('mousedown', this.mouseDownHandler);
-      this.mouseDownHandler = null;
-    }
-    if (this.mouseMoveHandler) {
-      window.removeEventListener('mousemove', this.mouseMoveHandler);
-      this.mouseMoveHandler = null;
-    }
-    if (this.mouseUpHandler) {
-      window.removeEventListener('mouseup', this.mouseUpHandler);
-      this.mouseUpHandler = null;
-    }
-    if (this.contextMenuHandler) {
-      window.removeEventListener('contextmenu', this.contextMenuHandler);
-      this.contextMenuHandler = null;
-    }
+    if (this.keyDownHandler) window.removeEventListener('keydown', this.keyDownHandler, true);
+    if (this.keyUpHandler) window.removeEventListener('keyup', this.keyUpHandler, true);
+    if (this.mouseDownHandler) window.removeEventListener('mousedown', this.mouseDownHandler);
+    if (this.mouseMoveHandler) window.removeEventListener('mousemove', this.mouseMoveHandler);
+    if (this.mouseUpHandler) window.removeEventListener('mouseup', this.mouseUpHandler);
+    if (this.contextMenuHandler) window.removeEventListener('contextmenu', this.contextMenuHandler);
+    this.keyDownHandler = null;
+    this.keyUpHandler = null;
+    this.mouseDownHandler = null;
+    this.mouseMoveHandler = null;
+    this.mouseUpHandler = null;
+    this.contextMenuHandler = null;
   }
 }
