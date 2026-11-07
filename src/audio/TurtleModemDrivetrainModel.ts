@@ -7,23 +7,10 @@ import {
   evaluatePowertrainKinetics,
   resolveTouchdownState,
   computeDecelerationTargetRPM,
+  type PowertrainTelemetryInput,
 } from './EnginePhysicsKinematics.ts';
 
-export interface PowertrainTelemetryInput {
-  speedUU?: number;
-  forwardSpeedUU?: number;
-  forwardSpeed?: number;
-  throttleInput?: number;
-  steerInput?: number;
-  handbrakeInput?: boolean;
-  isBoosting?: boolean;
-  isOnGround?: boolean;
-  surfaceUpZ?: number;
-  isAccelerating?: boolean;
-  alive?: boolean;
-  audible?: boolean;
-  dt?: number;
-}
+export type { PowertrainTelemetryInput };
 
 export interface DrivetrainStepResult {
   currentRPM: number;
@@ -125,7 +112,6 @@ export class TurtleModemDrivetrainModel {
     const handbrakeInput = Boolean(extra?.handbrakeInput);
     const isBoosting = Boolean(extra?.isBoosting);
     this.isBoosting = isBoosting;
-    // In RocketSim physics, holding boost automatically engages full forward throttle unless actively reverse-braking
     const throttleInput =
       isBoosting && rawThrottleInput >= -0.05 ? Math.max(rawThrottleInput, 1.0) : rawThrottleInput;
     const surfaceUpZ = extra?.surfaceUpZ ?? 1.0;
@@ -168,7 +154,6 @@ export class TurtleModemDrivetrainModel {
 
     let nextDirection: EngineDriveDirection = this.driveDirection;
     if (!isOnGround) {
-      // Airborne never enters reverse; wheels do not drive the engine in the air
       nextDirection = 'forward';
     } else if (isStationaryOnGround) {
       nextDirection = 'stopped';
@@ -182,14 +167,8 @@ export class TurtleModemDrivetrainModel {
       const crossedDirection =
         (this.driveDirection === 'forward' && nextDirection === 'reverse') ||
         (this.driveDirection === 'reverse' && nextDirection === 'forward');
-      if (isStationaryOnGround) {
-        this.currentGear = 0;
-        this.targetRPM = cfg.idleRPM;
-        this.currentRPM = cfg.idleRPM;
-        this.revLimiterTimer = 0;
-        this.isInOverdrive = false;
-      } else if (crossedDirection) {
-        this.currentGear = 1;
+      if (isStationaryOnGround || crossedDirection) {
+        this.currentGear = isStationaryOnGround ? 0 : 1;
         this.targetRPM = cfg.idleRPM;
         this.currentRPM = cfg.idleRPM;
         this.revLimiterTimer = 0;
@@ -198,7 +177,6 @@ export class TurtleModemDrivetrainModel {
     }
     this.driveDirection = nextDirection;
 
-    // Instant shift from Stationary Neutral (Gear 0) to Gear 1 upon engaging throttle or rolling on ground
     if (isOnGround && !isStationaryOnGround && this.currentGear <= 0) {
       this.currentGear = 1;
     }
@@ -234,37 +212,29 @@ export class TurtleModemDrivetrainModel {
       inAirborneNeutral && absThrottle > 0.05 && this.airborneThrottleQuotaSec > 0;
     const isEngineUnderThrottle = isActivelyDrivingOnGround || isAirborneRevving;
 
-    // 1. Reverse-braking against motion on ground: triggers pop even inside the normal velocity-coupled speed range
     if (
       isOnGround &&
       kinetics.isBrakingAgainstMotion &&
       !this.wasBrakingAgainstMotion &&
       this.currentRPM >= Math.min(cfg.backfireTriggerRPM, 2800)
     ) {
-      if (this._applyBackfireDrop(cfg)) {
-        shouldTriggerBackfire = true;
-      }
+      if (this._applyBackfireDrop(cfg)) shouldTriggerBackfire = true;
       this.revLimiterTimer = 0;
     }
     this.wasBrakingAgainstMotion = kinetics.isBrakingAgainstMotion;
 
-    // 2. Throttle release on ground: ONLY triggers pop if we were in natural overdrive accumulation (never in air, never inside normal speed curve)
     if (this.wasActivelyDrivingOnGround && !isActivelyDrivingOnGround && isOnGround) {
       if (this.wasInOverdrive && this.currentRPM >= cfg.backfireTriggerRPM) {
-        if (this._applyBackfireDrop(cfg)) {
-          shouldTriggerBackfire = true;
-        }
+        if (this._applyBackfireDrop(cfg)) shouldTriggerBackfire = true;
       }
       this.revLimiterTimer = 0;
     } else if (!this.wasActivelyDrivingOnGround && isActivelyDrivingOnGround) {
-      // Seamless resume when re-applying throttle after coasting
       this.targetRPM = Math.max(cfg.idleRPM, this.currentRPM);
     }
     this.wasActivelyDrivingOnGround = isActivelyDrivingOnGround;
     this.wasAccelerating = isEngineUnderThrottle;
 
     if (inAirborneNeutral) {
-      // Airborne: no wheel velocity curve -> never in overdrive and never triggers pop
       this.isInOverdrive = false;
       if (absThrottle > 0.05 && this.airborneThrottleQuotaSec > 0) {
         this.airborneThrottleQuotaSec = Math.max(0, this.airborneThrottleQuotaSec - dt);
@@ -309,37 +279,28 @@ export class TurtleModemDrivetrainModel {
         this.driveDirection
       );
 
-      // Determine whether the powertrain has exceeded the velocity-coupled speed curve and entered natural overdrive accumulation
       const atMaxSpeedCeiling = isRev
         ? absFwd >= cfg.maxThrottleSpeedUU * 0.96
         : absFwd >= cfg.maxThrottleSpeedUU * 0.97;
       const isVelocityFloorGear = cfg.velocityCoupledGearsEnabled && activeGear === 1;
-      const overdriveMarginRPM = 260;
 
       if (kinetics.isSevereSpeedCollapse) {
         this.isInOverdrive = false;
         const speedBaseRPM = computeVelocityCoupledGearRPM(cfg, absFwd, 1, this.driveDirection);
-        if (absFwd < 360 && this.currentGear > 1) {
-          this.currentGear = 1;
-        }
+        if (absFwd < 360 && this.currentGear > 1) this.currentGear = 1;
         this.targetRPM += (speedBaseRPM - this.targetRPM) * Math.min(1, 14 * dt);
       } else if (kinetics.isDeceleratingOnWallOrBevel) {
-        // Octagonal wall bevel transition or steep wall climb deceleration: dip RPM proportionally without dropping to Gear 1
         const dipRate = Math.min(1800, Math.abs(signedAccel) * 2.2);
         const minGearFloorRPM = this.currentGear > 1 ? cfg.downshiftTriggerRPM + 220 : cfg.idleRPM + 300;
         this.targetRPM = Math.max(minGearFloorRPM, this.targetRPM - dipRate * dt);
       } else {
-        // Hybrid Speed-Floor + Virtual Overdrive Accumulation:
-        // Within Gear 1 (0 .. maxThrottleSpeedUU), RPM tracks physical speed (where Boost accelerates 2.82x faster than Throttle).
-        // Once beyond the speed range (Gear 2+ virtual overdrive), natural RPM rise takes over, scaled by boostOverdriveMultiplier when boosting.
         let nextTarget = this.targetRPM + effectiveRiseRate * gearDecay * absThrottle * dt;
         if (isVelocityFloorGear && signedAccel > -20) {
           if (speedCoupledFloorRPM >= nextTarget) {
             nextTarget = speedCoupledFloorRPM;
             this.isInOverdrive = atMaxSpeedCeiling;
           } else {
-            this.isInOverdrive =
-              atMaxSpeedCeiling || nextTarget - speedCoupledFloorRPM > overdriveMarginRPM;
+            this.isInOverdrive = atMaxSpeedCeiling || nextTarget - speedCoupledFloorRPM > 260;
           }
         } else {
           this.isInOverdrive = activeGear >= 2 || atMaxSpeedCeiling;
@@ -349,14 +310,9 @@ export class TurtleModemDrivetrainModel {
 
       if (this.currentRPM >= cfg.revLimitCutoffRPM || this.targetRPM >= cfg.revLimitCutoffRPM) {
         const withinGearCap = cfg.maxGears <= 0 || this.currentGear < cfg.maxGears;
-        // When turning under throttle/boost (kinetics.isShiftLocked), automatic upshifting is inhibited
-        // so the car holds its current gear instead of shifting mid-corner.
         if (cfg.autoUpshiftEnabled && withinGearCap && !kinetics.isShiftLocked) {
-          // Upshifting at redline while in overdrive triggers a pop and drops RPM substantially to upshiftLandingRPM
           if (this.isInOverdrive && this.currentRPM >= cfg.backfireTriggerRPM) {
-            if (this._applyBackfireDrop(cfg)) {
-              shouldTriggerBackfire = true;
-            }
+            if (this._applyBackfireDrop(cfg)) shouldTriggerBackfire = true;
           }
           this.currentGear += 1;
           this.targetRPM = cfg.upshiftLandingRPM;
@@ -396,8 +352,7 @@ export class TurtleModemDrivetrainModel {
     this.wasInOverdrive = this.isInOverdrive;
     this.targetRPM = Math.max(cfg.idleRPM, Math.min(cfg.redlineRPM, this.targetRPM));
 
-    const isInstantBounce = isAirborneRevving;
-    const agility = isInstantBounce
+    const agility = isAirborneRevving
       ? 55
       : isEngineUnderThrottle || this.revLimiterTimer > 0 || this.landingRecoveryTimer > 0
         ? this.landingRecoveryTimer > 0

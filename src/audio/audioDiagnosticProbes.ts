@@ -50,6 +50,19 @@ export interface SlotPoolDiagnosticEntry {
   ageMs: number;
 }
 
+export interface ContinuousLoopsDiagnosticSnapshot {
+  initialized: boolean;
+  isPlaying: boolean;
+  boostLoopSourceActive: boolean;
+  boostGain: number;
+  supersonicLoopSourceActive: boolean;
+  supersonicGain: number;
+  ballRollingSourceActive: boolean;
+  ballRollingGain: number;
+  ballFlyingSourceActive: boolean;
+  ballFlyingGain: number;
+}
+
 export interface AudioDiagnosticReport {
   timestamp: string;
   verdict: {
@@ -95,18 +108,7 @@ export interface AudioDiagnosticReport {
     maxSlots: number;
     slots: SlotPoolDiagnosticEntry[];
   };
-  continuousLoops: {
-    initialized: boolean;
-    isPlaying: boolean;
-    boostLoopSourceActive: boolean;
-    boostGain: number;
-    supersonicLoopSourceActive: boolean;
-    supersonicGain: number;
-    ballRollingSourceActive: boolean;
-    ballRollingGain: number;
-    ballFlyingSourceActive: boolean;
-    ballFlyingGain: number;
-  };
+  continuousLoops: ContinuousLoopsDiagnosticSnapshot;
   vehicleEmitters: VehicleEmitterDiagnosticEntry[];
   engineSynths: EngineSynthDiagnosticEntry[];
   spatialListener: {
@@ -115,6 +117,131 @@ export interface AudioDiagnosticReport {
     positionUU: { x: number; y: number; z: number };
   };
   recentLifecycleEvents: AudioLifecycleEventEntry[];
+}
+
+export interface AudioRootCauseVerdictInput {
+  ctx: AudioContext | null;
+  clockAdvancing: boolean;
+  masterVol: number;
+  masterActive: boolean;
+  masterConnected: boolean;
+  masterOutputGain: number;
+  docHasFocus: boolean;
+  docHidden: boolean;
+  continueOnBlur: boolean;
+  poolMuted: boolean;
+  telemetry: AudioTelemetryState;
+  outputMetrics: AudioMixerOutputMetrics;
+  listenerValid: boolean;
+  hasListener: boolean;
+  listenerPos: { x: number; y: number; z: number };
+  engineSynths: EngineSynthDiagnosticEntry[];
+  stateLoopInfo: ContinuousLoopsDiagnosticSnapshot;
+  activeSlotCount: number;
+}
+
+export function evaluateAudioRootCauseVerdict(
+  input: AudioRootCauseVerdictInput
+): { code: string; summary: string; anomalies: string[] } {
+  const {
+    ctx, clockAdvancing, masterVol, masterActive, masterConnected, masterOutputGain,
+    docHasFocus, docHidden, continueOnBlur, poolMuted, telemetry, outputMetrics,
+    listenerValid, hasListener, listenerPos, engineSynths, stateLoopInfo, activeSlotCount,
+  } = input;
+
+  const anomalies: string[] = [];
+  let code = 'HEALTHY_ACTIVE';
+  let summary = 'Web Audio engine is healthy and actively outputting audio signals (RMS > 0).';
+
+  if (!ctx) {
+    code = 'NO_AUDIO_CONTEXT';
+    summary = 'AudioContext is not yet initialized or Web Audio API is unsupported by the browser.';
+    anomalies.push(summary);
+  } else if ((ctx.state as string) === 'suspended' || (ctx.state as string) === 'interrupted') {
+    code = 'BROWSER_CONTEXT_SUSPENDED';
+    summary = `Browser blocked audio: AudioContext.state is "${ctx.state}" (likely autoplay policy or suspended audio focus; click page or Force Resume to unlock).`;
+    anomalies.push(summary);
+  } else if (ctx.state === 'closed') {
+    code = 'BROWSER_CONTEXT_CLOSED';
+    summary = 'AudioContext is closed and cannot output any sound.';
+    anomalies.push(summary);
+  } else if (!clockAdvancing) {
+    code = 'BROWSER_AUDIO_CLOCK_STALLED';
+    summary = 'Browser/audio driver stall: AudioContext.state is "running", but hardware currentTime stopped advancing.';
+    anomalies.push(summary);
+  }
+
+  if (masterVol <= 0.001) {
+    anomalies.push('Configuration mute: Master Volume is set to 0%.');
+    if (code === 'HEALTHY_ACTIVE') {
+      code = 'CONFIG_MASTER_VOLUME_ZERO';
+      summary = 'Configuration mute: Master Volume is 0%, muting all audio output gain.';
+    }
+  }
+
+  if (subsystemState.masterMixer && (!masterActive || !masterConnected || masterOutputGain <= 0.0001)) {
+    const reason = (!docHasFocus || docHidden) && !continueOnBlur
+      ? 'Window lost focus and Play Audio in Background is disabled'
+      : 'MasterMixer is not in an active connected state';
+    anomalies.push(`MasterMixer muted: master.active=${masterActive}, master.connected=${masterConnected}, gain=${masterOutputGain.toFixed(4)} (${reason}).`);
+    if (code === 'HEALTHY_ACTIVE') {
+      code = 'MASTER_MIXER_DISCONNECTED_OR_MUTED';
+      summary = `MasterMixer muted: gain=${masterOutputGain.toFixed(4)} / connected=${masterConnected} (${reason}).`;
+    }
+  }
+
+  if (poolMuted) {
+    anomalies.push('SlotPool muted: AudioSlotPool.isMuted = true, blocking one-shot collision/signal sounds.');
+    if (code === 'HEALTHY_ACTIVE') {
+      code = 'SLOT_POOL_MUTED';
+      summary = 'AudioSlotPool.isMuted is true (typically triggered by window blur mute).';
+    }
+  }
+
+  if (telemetry.hasBlockingOverlay) {
+    anomalies.push(`UI overlay mute: Blocking overlay open (${(telemetry.blockingOverlays || []).join(', ') || 'Menu Open'}), muting continuous engine synths and loops.`);
+    if (code === 'HEALTHY_ACTIVE' && outputMetrics.silent) {
+      code = 'GAME_STATE_OVERLAY_MUTED';
+      summary = 'Game state mute: Menu/overlay is open (hasBlockingOverlay=true); continuous engine and vehicle loops are paused until returning to match.';
+    }
+  } else if (telemetry.updatedAt > 0 && !telemetry.isAudibleActive) {
+    anomalies.push(`Match not audible: isMatchActive=${telemetry.isMatchActive}, isHidden=${telemetry.isHidden}, continueOnBlur=${telemetry.continueOnBlur} -> isAudibleActive=false.`);
+    if (code === 'HEALTHY_ACTIVE' && outputMetrics.silent) {
+      code = 'GAME_STATE_NOT_AUDIBLE';
+      summary = 'Game state mute: Match is inactive or window is muted on blur (isAudibleActive=false).';
+    }
+  }
+
+  if (!listenerValid) {
+    anomalies.push(`Spatial listener invalid: hasListener=${hasListener}, pos=(${listenerPos.x}, ${listenerPos.y}, ${listenerPos.z}).`);
+  }
+
+  if ((outputMetrics.nanCount ?? 0) > 0) {
+    anomalies.push(`DSP NaN anomaly: Master output detected ${outputMetrics.nanCount} NaN/Infinity samples!`);
+    code = 'DSP_NAN_CORRUPTION';
+    summary = 'DSP pipeline error: MasterMixer output contains NaN/Infinity samples.';
+  }
+
+  if (code === 'HEALTHY_ACTIVE' && outputMetrics.silent) {
+    const anySynthActive = engineSynths.some((s) => s.active && s.outputGain > 0.001);
+    const anyLoopActive =
+      stateLoopInfo.boostGain > 0.001 ||
+      stateLoopInfo.supersonicGain > 0.001 ||
+      stateLoopInfo.ballRollingGain > 0.001 ||
+      stateLoopInfo.ballFlyingGain > 0.001 ||
+      activeSlotCount > 0;
+    if (anySynthActive || anyLoopActive) {
+      code = 'CLIENT_GHOST_PLAYBACK';
+      summary = 'Client/Browser playback anomaly: Audio nodes are active with Gain > 0, but Master bus Analyser reads silence. Click Force Resume / Rebuild to recover.';
+    } else {
+      code = 'HEALTHY_IDLE_SILENT';
+      summary = 'Web Audio pipeline is healthy and ready (AudioContext running, MasterMixer connected), currently idle in silent standby.';
+    }
+  } else if (code === 'HEALTHY_ACTIVE' && !outputMetrics.silent) {
+    summary = `Web Audio is actively outputting sound (Realtime Level: ${outputMetrics.dbfs} dBFS, Peak: ${outputMetrics.peak}). If no sound is heard, check browser tab mute or OS output device.`;
+  }
+
+  return { code, summary, anomalies };
 }
 
 /**

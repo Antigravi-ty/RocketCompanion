@@ -18,6 +18,134 @@ export interface PowertrainKineticState {
   isSevereSpeedCollapse: boolean;
 }
 
+export interface PowertrainTelemetryInput {
+  speedUU?: number;
+  forwardSpeedUU?: number;
+  forwardSpeed?: number;
+  throttleInput?: number;
+  steerInput?: number;
+  handbrakeInput?: boolean;
+  isBoosting?: boolean;
+  isOnGround?: boolean;
+  surfaceUpZ?: number;
+  isAccelerating?: boolean;
+  alive?: boolean;
+  audible?: boolean;
+  dt?: number;
+}
+
+export interface NormalizedPowertrainTelemetry {
+  rawSpeedUU: number;
+  forwardSpeedUU: number;
+  throttleInput: number;
+  steerInput: number;
+  handbrakeInput: boolean;
+  isBoosting: boolean;
+  isOnGround: boolean;
+  surfaceUpZ: number;
+  dt: number;
+  alive?: boolean;
+  audible?: boolean;
+  dormant?: boolean;
+  distanceUU?: number;
+}
+
+export function normalizePowertrainTelemetry(
+  speedOrTelemetry: number | (PowertrainTelemetryInput & { dormant?: boolean; distanceUU?: number }),
+  legacyIsAccelerating: boolean,
+  computedDt: number
+): NormalizedPowertrainTelemetry {
+  const dt = Math.max(0.001, Math.min(0.05, computedDt));
+  if (typeof speedOrTelemetry === 'number') {
+    const rawSpeedUU = Math.max(0, Number.isFinite(speedOrTelemetry) ? speedOrTelemetry : 0);
+    return {
+      rawSpeedUU,
+      forwardSpeedUU: rawSpeedUU,
+      throttleInput: legacyIsAccelerating ? 1 : 0,
+      steerInput: 0,
+      handbrakeInput: false,
+      isBoosting: false,
+      isOnGround: true,
+      surfaceUpZ: 1.0,
+      dt,
+    };
+  }
+  const t = speedOrTelemetry || {};
+  const rawSpeedUU = Math.max(
+    0,
+    Number(t.speedUU ?? Math.abs(t.forwardSpeed ?? t.forwardSpeedUU ?? 0)) || 0
+  );
+  const forwardSpeedUU = Number(t.forwardSpeedUU ?? t.forwardSpeed ?? rawSpeedUU) || 0;
+  const throttleInput =
+    t.throttleInput !== undefined ? Number(t.throttleInput) || 0 : t.isAccelerating ? 1 : 0;
+  return {
+    rawSpeedUU,
+    forwardSpeedUU,
+    throttleInput,
+    steerInput: Number(t.steerInput) || 0,
+    handbrakeInput: Boolean(t.handbrakeInput),
+    isBoosting: Boolean(t.isBoosting),
+    isOnGround: t.isOnGround !== undefined ? Boolean(t.isOnGround) : true,
+    surfaceUpZ: t.surfaceUpZ !== undefined ? Number(t.surfaceUpZ) : 1.0,
+    dt: t.dt !== undefined && t.dt > 0 ? Math.max(0.001, Math.min(0.05, t.dt)) : dt,
+    alive: t.alive !== undefined ? Boolean(t.alive) : undefined,
+    audible: t.audible !== undefined ? Boolean(t.audible) : undefined,
+    dormant: t.dormant !== undefined ? Boolean(t.dormant) : undefined,
+    distanceUU: t.distanceUU !== undefined && Number.isFinite(t.distanceUU) ? t.distanceUU : undefined,
+  };
+}
+
+export function stepManualBenchKinematics(
+  cfg: EngineAudioTuningConfig,
+  prevManualSpeedUU: number,
+  manualThrottle: boolean,
+  manualBoost: boolean,
+  manualReverse: boolean,
+  manualAirborne: boolean,
+  currentDriveDirection: EngineDriveDirection,
+  dt: number
+): {
+  isOnGround: boolean;
+  throttleInput: number;
+  isBoosting: boolean;
+  rawSpeedUU: number;
+  forwardSpeedUU: number;
+  manualSpeedUU: number;
+} {
+  const isOnGround = !manualAirborne;
+  const activeGas = manualThrottle || manualBoost;
+  const throttleInput = activeGas ? (manualReverse ? -1 : 1) : 0;
+  const isBoosting = Boolean(manualBoost && !manualReverse);
+  let manualSpeedUU = prevManualSpeedUU;
+
+  if (!isOnGround) {
+    manualSpeedUU = 0;
+  } else if (activeGas) {
+    const maxBenchSpeed = manualReverse
+      ? cfg.maxThrottleSpeedUU
+      : isBoosting
+        ? 2300
+        : cfg.maxThrottleSpeedUU;
+    const spd = manualSpeedUU;
+    const throttleCurveAccel =
+      spd < 1400 ? 1600 - 1440 * (spd / 1400) : spd < 1410 ? 160 * (1 - (spd - 1400) / 10) : 0;
+    const benchAccel = manualReverse ? 680 : throttleCurveAccel + (isBoosting ? 991.666 : 0);
+    manualSpeedUU = Math.min(maxBenchSpeed, spd + benchAccel * dt);
+  } else {
+    manualSpeedUU = Math.max(0, manualSpeedUU - 650 * dt);
+  }
+
+  const isRev = activeGas ? manualReverse : currentDriveDirection === 'reverse';
+  return {
+    isOnGround,
+    throttleInput,
+    isBoosting,
+    rawSpeedUU: manualSpeedUU,
+    forwardSpeedUU: isRev ? -manualSpeedUU : manualSpeedUU,
+    manualSpeedUU,
+  };
+}
+
 /**
  * Computes the velocity-coupled RPM baseline for Gear 1 (0 .. maxThrottleSpeedUU)
  * and Gear 2 (maxThrottleSpeedUU .. supersonicSpeedUU), or high-gear deceleration ceiling.
@@ -92,8 +220,6 @@ export function evaluatePowertrainKinetics(
   const isDrifting = isOnGround && Boolean(handbrakeInput) && absForwardSpeedUU > 120;
   const isTurningHard = isOnGround && absSteer >= cfg.shiftLockSteerThreshold && absForwardSpeedUU > 180;
 
-  // Turning while continuously accelerating or boosting on the ground:
-  // Locks automatic upshifting (holds current gear) rather than artificially snapping RPM to redline.
   const isTurningUnderPower =
     Boolean(cfg.supersonicTurnRevBounceEnabled) &&
     isOnGround &&
@@ -105,7 +231,6 @@ export function evaluatePowertrainKinetics(
   const isSupersonicTurning =
     isTurningUnderPower && isBoosting && absForwardSpeedUU >= cfg.supersonicSpeedUU * 0.96;
 
-  // Shift-lock holds the current gear during handbrake drift or while turning under continuous throttle/boost
   const isShiftLocked = isDrifting || isTurningUnderPower;
 
   const signedAccelInDriveDir = forwardSpeedUU >= 0 ? smoothForwardAccelUU : -smoothForwardAccelUU;

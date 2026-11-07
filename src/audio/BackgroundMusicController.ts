@@ -7,7 +7,6 @@
 
 import {
   DEFAULT_BGM_SCENE_CONFIG,
-  solveCubicBezier,
   type SpatialAudioTunerConfig,
 } from "../ui-core/config/spatialAudioConfig";
 import {
@@ -15,8 +14,12 @@ import {
   getFilteredBgmTracks,
   type SpatialAudioStorePortState,
 } from "../game/runtimeUiPort.ts";
-import { SpatialAudioBusChain } from "./SpatialAudioBusChain.ts";
-import { type SpatialAudioRuntimeContextSnapshot } from "./GoalAnthemPlayer.ts";
+import {
+  SpatialAudioBusChain,
+  evaluateSpatialBezierBlend,
+  stepSpatialBezierTransition,
+  type SpatialAudioRuntimeContextSnapshot,
+} from "./SpatialAudioBusChain.ts";
 
 export interface BgmTrackEntry {
   id: string;
@@ -139,13 +142,6 @@ export class BackgroundMusicController {
     }
   }
 
-  /**
-   * Maps the current game mode / online room into one of the 4 BGM scene checkboxes:
-   * - `freePlay` (default: true)
-   * - `singlePlayerTraining` (default: true)
-   * - `multiplayerTraining` (default: false)
-   * - `match` (default: false)
-   */
   isCurrentSceneAllowed(
     store: Partial<SpatialAudioStorePortState> = useSpatialAudioStore.getState(),
     appState: Partial<SpatialAudioRuntimeContextSnapshot> = this.host.getRuntimeContext()
@@ -181,9 +177,6 @@ export class BackgroundMusicController {
     return Boolean(scenes.freePlay);
   }
 
-  /**
-   * Determines whether Background Music should currently be audible (target fade = 1.0).
-   */
   shouldBeAudible(): boolean {
     if (this.host.isWindowUnfocusedMuted()) {
       return false;
@@ -215,11 +208,7 @@ export class BackgroundMusicController {
       return false;
     }
 
-    if (isPreviewing) {
-      return false;
-    }
-
-    if (this.host.refreshGoalSequenceBgmGate()) {
+    if (isPreviewing || this.host.refreshGoalSequenceBgmGate()) {
       return false;
     }
 
@@ -413,13 +402,8 @@ export class BackgroundMusicController {
       this.playNextTrack(1);
       return;
     }
-    if (this.userPaused || audioEl.paused || !store.bgmIsPlaying) {
-      this.userPaused = false;
-      this.syncPlaybackState();
-    } else {
-      this.userPaused = true;
-      this.syncPlaybackState();
-    }
+    this.userPaused = !(this.userPaused || audioEl.paused || !store.bgmIsPlaying);
+    this.syncPlaybackState();
   }
 
   computeTargetPhase(cfg: Partial<SpatialAudioTunerConfig>): number {
@@ -434,21 +418,11 @@ export class BackgroundMusicController {
       return 0.0;
     }
 
-    const isMenuOpen = Boolean(this.host.getRuntimeContext()?.isOpen);
-    return isMenuOpen ? 0.0 : 1.0;
+    return Boolean(this.host.getRuntimeContext()?.isOpen) ? 0.0 : 1.0;
   }
 
   applyTunerConfig(cfg: Partial<SpatialAudioTunerConfig>, bgmVolScalar: number): void {
-    this.blend =
-      cfg.overrideMode === 'manual'
-        ? Math.max(0, Math.min(1, Number(cfg.manualBlend) || 0))
-        : solveCubicBezier(
-            this.linearPhase,
-            Number(cfg.bzX1) || 0.22,
-            Number(cfg.bzY1) || 1.0,
-            Number(cfg.bzX2) || 1.0,
-            Number(cfg.bzY2) || 1.0
-          );
+    this.blend = evaluateSpatialBezierBlend(this.linearPhase, cfg);
     this.host
       .getBgmChain()
       ?.applyBlend(this.blend, cfg, this.fadeEnvelope * bgmVolScalar);
@@ -462,27 +436,9 @@ export class BackgroundMusicController {
   ): void {
     const store = useSpatialAudioStore.getState();
     const targetBgmU = this.computeTargetPhase(cfg);
-    if (cfg.overrideMode === 'manual') {
-      this.linearPhase = targetBgmU;
-      this.blend = targetBgmU;
-    } else {
-      if (Math.abs(targetBgmU - this.linearPhase) > 1e-4) {
-        if (targetBgmU > this.linearPhase) {
-          this.linearPhase = Math.min(targetBgmU, this.linearPhase + maxDelta);
-        } else {
-          this.linearPhase = Math.max(targetBgmU, this.linearPhase - maxDelta);
-        }
-      } else {
-        this.linearPhase = targetBgmU;
-      }
-      this.blend = solveCubicBezier(
-        this.linearPhase,
-        Number(cfg.bzX1) || 0.22,
-        Number(cfg.bzY1) || 1.0,
-        Number(cfg.bzX2) || 1.0,
-        Number(cfg.bzY2) || 1.0
-      );
-    }
+    const next = stepSpatialBezierTransition(this.linearPhase, targetBgmU, maxDelta, cfg);
+    this.linearPhase = next.linearPhase;
+    this.blend = next.blend;
 
     const shouldBeAudible = this.shouldBeAudible();
     if (shouldBeAudible !== this.lastShouldBeAudible) {
@@ -490,18 +446,14 @@ export class BackgroundMusicController {
       this.syncPlaybackState();
     }
     const targetFade = shouldBeAudible ? 1.0 : 0.0;
-    const fadeDuration = Math.max(
-      0.1,
-      Math.min(3.0, Number(cfg.bgmFadeDurationSec) || 2.0)
-    );
+    const fadeDuration = Math.max(0.1, Math.min(3.0, Number(cfg.bgmFadeDurationSec) || 2.0));
     const maxFadeDelta = dt / fadeDuration;
 
     if (Math.abs(targetFade - this.fadeEnvelope) > 1e-4) {
-      if (targetFade > this.fadeEnvelope) {
-        this.fadeEnvelope = Math.min(targetFade, this.fadeEnvelope + maxFadeDelta);
-      } else {
-        this.fadeEnvelope = Math.max(targetFade, this.fadeEnvelope - maxFadeDelta);
-      }
+      this.fadeEnvelope =
+        targetFade > this.fadeEnvelope
+          ? Math.min(targetFade, this.fadeEnvelope + maxFadeDelta)
+          : Math.max(targetFade, this.fadeEnvelope - maxFadeDelta);
     } else {
       this.fadeEnvelope = targetFade;
     }
@@ -513,10 +465,7 @@ export class BackgroundMusicController {
       }
     }
 
-    const bgmChain = this.host.getBgmChain();
-    if (bgmChain) {
-      bgmChain.applyBlend(this.blend, cfg, this.fadeEnvelope * bgmVolScalar);
-    }
+    this.host.getBgmChain()?.applyBlend(this.blend, cfg, this.fadeEnvelope * bgmVolScalar);
 
     if (
       Math.abs(store.bgmLinearPhase - this.linearPhase) > 0.005 ||
