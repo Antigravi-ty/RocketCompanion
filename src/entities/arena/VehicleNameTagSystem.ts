@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import {
-  DEFAULT_NAME_TAG_CONFIG,
   formatNameTagDisplayText,
-  resolveNameTagFontFamilyCss,
+  resolveCarSlotCode,
+  shouldUseSingleCharIndicator,
   type NameTagBoostBorderOverride,
   type NameTagCarEntry,
   type NameTagCarTelemetry,
@@ -13,6 +13,7 @@ import {
   createNameTagSprite,
   ensureOverlayCanvas,
   hideOverlayCanvas,
+  projectBallOcclusion2D,
   renderHighDpiOverlay,
   renderPillCardToSprite,
   roundMetric,
@@ -28,7 +29,7 @@ import {
   buildPovActionSimulationIndicator2D,
   resolveCarAerialClimbSimulation,
 } from './VehicleNameTagGroundSimVisual';
-import { REFERENCE_TAN_HALF_FOV, projectBallOcclusion2D, projectCarNameTag, type CarProjectionConfigParams } from './VehicleNameTagProjector';
+import { buildCarProjectionConfigParams, projectCarNameTag } from './VehicleNameTagProjector';
 
 export interface NameTagArenaHost {
   ball?: THREE.Object3D | null;
@@ -144,47 +145,17 @@ export class VehicleNameTagSystem {
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
     const useOverlay = Boolean(ensureOverlayCanvas(this._overlayState) && this._overlayState.overlayCtx);
 
-    const D = DEFAULT_NAME_TAG_CONFIG;
     const fovDeg = Number(activeCam?.fov) || 80;
     const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(fovDeg * 0.5));
-    const numOr = (val: unknown, fb: number) => (Number.isFinite(Number(val)) ? Number(val) : fb);
-
-    const fontFamilyCss = resolveNameTagFontFamilyCss(config.fontFamily || D.fontFamily);
-    const fontWeight = config.fontWeight || D.fontWeight;
-    const cardOpacity = Math.max(0.01, Math.min(1.0, Number(config.opacity) || D.opacity));
-    const rawFontSize = Math.max(1, numOr(config.fontSize, D.fontSize));
-    const maxChars = Math.max(1, Math.round(numOr(config.maxChars, D.maxChars)));
 
     const measureCtx = this._overlayState.overlayCtx || this.sprites[0]?.userData?.canvas?.getContext?.('2d') || null;
-    let measuredMaxRefTextWidthPx: number | undefined;
     if (measureCtx) {
       measureCtx.save();
       measureCtx.setTransform(1, 0, 0, 1, 0, 0);
-      measureCtx.font = `${fontWeight} ${rawFontSize}px ${fontFamilyCss}`;
-      measuredMaxRefTextWidthPx = measureCtx.measureText('M'.repeat(maxChars)).width;
     }
 
-    const projectionParams: CarProjectionConfigParams = {
-      config,
-      viewportWidthPx: vw,
-      viewportHeightPx: vh,
-      tanHalfFov,
-      fovScale: tanHalfFov / REFERENCE_TAN_HALF_FOV,
-      scaleFactor: Math.max(0.001, numOr(config.cameraScaleFactor, D.cameraScaleFactor)),
-      distanceScaleExponent: numOr(config.distanceScaleExponent, D.distanceScaleExponent),
-      nearScaleMultiplier: Math.max(0.01, numOr(config.nearScaleMultiplier, D.nearScaleMultiplier)),
-      farScaleMultiplier: Math.max(0.01, numOr(config.farScaleMultiplier, D.farScaleMultiplier)),
-      pillHeightPx: Math.max(4, numOr(config.pillHeight, D.pillHeight)),
-      globalWorldOffsetUu: numOr(config.verticalOffsetUu, D.verticalOffsetUu),
-      globalScreenOffsetPx: numOr(config.screenVerticalOffsetPx, D.screenVerticalOffsetPx),
-      fontFamilyCss,
-      fontWeight,
-      cardOpacity,
-      effectiveBgOpacity: Math.max(0.0, Math.min(1.0, Number(config.bgOpacity) ?? D.bgOpacity)),
-      rawBorderWidth: Math.max(0, numOr(config.borderWidth, D.borderWidth)),
-      rawFontSize,
-      measuredMaxRefTextWidthPx,
-    };
+    const pillProjectionParams = buildCarProjectionConfigParams(config, false, vw, vh, tanHalfFov, measureCtx);
+    const singleCharProjectionParams = buildCarProjectionConfigParams(config, true, vw, vh, tanHalfFov, measureCtx);
 
     const carEntries: NameTagCarEntry[] = Array.isArray(runtime.carEntries) ? runtime.carEntries : [];
     const resolveCarTeam = (carIdx: number): 0 | 1 => {
@@ -219,7 +190,11 @@ export class VehicleNameTagSystem {
         config.previewNames?.[carIndex % 6] ||
         `Player ${carIndex + 1}`;
       const team = resolveCarTeam(carIndex);
-      const displayText = formatNameTagDisplayText(rawName, maxChars);
+      const isSingleChar = shouldUseSingleCharIndicator(config, team, focusedCarTeam);
+      const projectionParams = isSingleChar ? singleCharProjectionParams : pillProjectionParams;
+      const displayText = isSingleChar
+        ? resolveCarSlotCode(carIndex, team, config.slotCodes)
+        : formatNameTagDisplayText(rawName, projectionParams.maxChars);
       const liveBoost = arena.carBoostAmounts && carIndex < arena.carBoostAmounts.length ? Number(arena.carBoostAmounts[carIndex]) : undefined;
 
       const simClimb = resolveCarAerialClimbSimulation({
@@ -312,6 +287,7 @@ export class VehicleNameTagSystem {
           displayText,
           team,
           config,
+          variant: projectionParams.variant,
           carPillWidthPx: projected.carPillWidthPx,
           effectiveCornerRadiusPx: projected.effectiveCornerRadiusPx,
           boostBorderVisible: boostState.visible,
@@ -319,7 +295,7 @@ export class VehicleNameTagSystem {
           boostBorderColor: boostState.borderColorHex,
           aerialClimbGlowVisible: false,
         });
-        sprite.material.opacity = cardOpacity;
+        sprite.material.opacity = projectionParams.cardOpacity;
         sprite.visible = true;
         this._visibleSprites.push(sprite);
       }

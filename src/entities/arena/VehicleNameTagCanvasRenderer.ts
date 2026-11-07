@@ -9,6 +9,8 @@ import {
   DEFAULT_NAME_TAG_CONFIG,
   resolveNameTagCornerRadiusPx,
   resolveNameTagFontFamilyCss,
+  resolveNameTagVariantParams,
+  type NameTagCardVariantParams,
   type NameTagConfig,
 } from '../../ui-core/config/nameTagConfig';
 import type { NameTagOffscreenIndicatorCard2D } from '../../ui-core/config/nameTagOffscreenRenderer';
@@ -21,6 +23,33 @@ import {
 
 export type { NameTagOffscreenIndicatorCard2D };
 export type VisibleNameTagCard2D = NameTagPillRenderCard2D;
+
+export function projectBallOcclusion2D(
+  ball: THREE.Object3D | null | undefined,
+  ballRadiusUu: number,
+  cam: THREE.PerspectiveCamera | null | undefined,
+  camFwd: THREE.Vector3,
+  proj: THREE.Vector3,
+  vw: number,
+  vh: number,
+  tanHalfFov: number,
+  config: NameTagConfig
+): NameTagBallOcclusionProjection2D | null {
+  if (!config.ballOcclusionEnabled || !ball?.visible || !cam?.position) return null;
+  const opacity = Math.max(0, Math.min(1, Number(config.ballOcclusionOpacity) ?? 1.0));
+  if (opacity <= 0.001) return null;
+  const dx = ball.position.x - cam.position.x;
+  const dy = ball.position.y - cam.position.y;
+  const dz = ball.position.z - cam.position.z;
+  const viewZDepthUu = dx * camFwd.x + dy * camFwd.y + dz * camFwd.z;
+  if (viewZDepthUu <= 10 || !cam.projectionMatrix) return null;
+  proj.set(ball.position.x, ball.position.y, ball.position.z).project(cam);
+  if (proj.z < -1 || proj.z > 1) return null;
+  const screenRadiusPx = (Math.max(10, Number(ballRadiusUu) || 95) / viewZDepthUu) * ((vh * 0.5) / Math.max(1e-4, tanHalfFov));
+  return screenRadiusPx > 1
+    ? { visible: true, screenX: (proj.x * 0.5 + 0.5) * vw, screenY: (-proj.y * 0.5 + 0.5) * vh, screenRadiusPx, viewZDepthUu, opacity }
+    : null;
+}
 
 export const CANVAS_WIDTH = 512;
 export const CANVAS_HEIGHT = 160;
@@ -48,6 +77,7 @@ export interface RenderPillSpriteOptions {
   displayText: string;
   team: 0 | 1;
   config: NameTagConfig;
+  variant?: NameTagCardVariantParams;
   carPillWidthPx: number;
   effectiveCornerRadiusPx: number;
   boostBorderVisible: boolean;
@@ -115,6 +145,7 @@ export function renderPillCardToSprite(options: RenderPillSpriteOptions): void {
     displayText,
     team,
     config,
+    variant = resolveNameTagVariantParams(config, config.cardDisplayMode === 'single-char'),
     carPillWidthPx,
     effectiveCornerRadiusPx,
     boostBorderVisible,
@@ -128,8 +159,8 @@ export function renderPillCardToSprite(options: RenderPillSpriteOptions): void {
   const backgroundColor = isOrangeTeam ? config.orangeBgColor : config.blueBgColor;
   const borderColor = isOrangeTeam ? config.orangeBorderColor : config.blueBorderColor;
   const textColor = isOrangeTeam ? config.orangeTextColor : config.blueTextColor;
-  const fontFamily = config.fontFamily || DEFAULT_NAME_TAG_CONFIG.fontFamily;
-  const fontWeight = config.fontWeight || DEFAULT_NAME_TAG_CONFIG.fontWeight;
+  const fontFamily = variant.fontFamily || DEFAULT_NAME_TAG_CONFIG.fontFamily;
+  const fontWeight = variant.fontWeight || DEFAULT_NAME_TAG_CONFIG.fontWeight;
   const quantizedBoost = boostBorderVisible
     ? Math.max(0, Math.min(200, Math.round(boostFraction * 200)))
     : -1;
@@ -138,13 +169,13 @@ export function renderPillCardToSprite(options: RenderPillSpriteOptions): void {
     displayText,
     team,
     carPillWidthPx,
-    config.pillHeight,
+    variant.pillHeight,
     effectiveCornerRadiusPx,
-    config.borderWidth,
-    config.fontSize,
+    variant.borderWidth,
+    variant.fontSize,
     fontFamily,
     fontWeight,
-    config.bgOpacity,
+    variant.bgOpacity,
     config.boostIndicatorMode,
     config.boostFillOpacity,
     config.boostUnfilledBgOpacity,
@@ -179,7 +210,7 @@ export function renderPillCardToSprite(options: RenderPillSpriteOptions): void {
     28,
     Math.min(
       CANVAS_HEIGHT - 24,
-      Number(config.pillHeight) || DEFAULT_NAME_TAG_CONFIG.pillHeight
+      Number(variant.pillHeight) || DEFAULT_NAME_TAG_CONFIG.pillHeight
     )
   );
   const pillX = (CANVAS_WIDTH - pillWidth) * 0.5;
@@ -191,17 +222,17 @@ export function renderPillCardToSprite(options: RenderPillSpriteOptions): void {
   );
   const borderWidth = Math.max(
     0,
-    Math.min(12, Number(config.borderWidth) ?? DEFAULT_NAME_TAG_CONFIG.borderWidth)
+    Math.min(12, Number(variant.borderWidth) ?? DEFAULT_NAME_TAG_CONFIG.borderWidth)
   );
   const halfBorder = borderWidth * 0.5;
   const fontSize = Math.max(
     12,
-    Math.min(48, Number(config.fontSize) || DEFAULT_NAME_TAG_CONFIG.fontSize)
+    Math.min(48, Number(variant.fontSize) || DEFAULT_NAME_TAG_CONFIG.fontSize)
   );
   const fontFamilyCss = resolveNameTagFontFamilyCss(fontFamily);
   const effectiveBgOpacity = Math.max(
     0.005,
-    Number(config.bgOpacity) ?? DEFAULT_NAME_TAG_CONFIG.bgOpacity
+    Number(variant.bgOpacity) ?? DEFAULT_NAME_TAG_CONFIG.bgOpacity
   );
 
   const spriteCard: NameTagPillRenderCard2D = {
@@ -316,12 +347,16 @@ export function renderHighDpiOverlay(
     canvas.style.display = 'block';
   }
 
+  const activeVariant = resolveNameTagVariantParams(
+    config,
+    config.cardDisplayMode === 'single-char'
+  );
   const cardRenderScalePct = Math.max(
     25,
     Math.min(
       200,
-      Number.isFinite(Number(config.cardRenderScale))
-        ? Number(config.cardRenderScale)
+      Number.isFinite(Number(activeVariant.cardRenderScale))
+        ? Number(activeVariant.cardRenderScale)
         : DEFAULT_NAME_TAG_CONFIG.cardRenderScale
     )
   );

@@ -8,8 +8,11 @@ import {
   computeOffscreenDistanceScale,
   resolveCarSlotCode,
   resolveNameTagCornerRadiusPx,
+  resolveNameTagFontFamilyCss,
+  resolveNameTagVariantParams,
   type NameTagAerialClimbTriggerReason,
   type NameTagCarTelemetry,
+  type NameTagCardVariantParams,
   type NameTagConfig,
 } from '../../ui-core/config/nameTagConfig';
 import {
@@ -18,17 +21,16 @@ import {
   resolveCarColorPalette,
   type NameTagOffscreenIndicatorCard2D,
 } from '../../ui-core/config/nameTagOffscreenRenderer';
-import type { NameTagBallOcclusionProjection2D } from '../../ui-core/config/nameTagPillRenderer';
 import { CANVAS_HEIGHT, CANVAS_WIDTH, roundMetric, type VisibleNameTagCard2D } from './VehicleNameTagCanvasRenderer';
 
 export const REFERENCE_TAN_HALF_FOV = Math.tan(THREE.MathUtils.degToRad(40));
 export const REFERENCE_VIEWPORT_HEIGHT_PX = 1080;
 export const SCREEN_SCALE_MULTIPLIER = 2.4;
-export const ON_SCREEN_CIRCLE_FIXED_UNIT_SCALE = 0.28;
 export const SLOT_CODES = ['B1', 'B2', 'B3', 'O1', 'O2', 'O3', 'P7', 'P8'];
 
 export interface CarProjectionConfigParams {
   config: NameTagConfig;
+  variant: NameTagCardVariantParams;
   viewportWidthPx: number;
   viewportHeightPx: number;
   tanHalfFov: number;
@@ -46,7 +48,56 @@ export interface CarProjectionConfigParams {
   effectiveBgOpacity: number;
   rawBorderWidth: number;
   rawFontSize: number;
+  maxChars: number;
   measuredMaxRefTextWidthPx: number | undefined;
+}
+
+const finiteOr = (val: unknown, fb: number): number => (Number.isFinite(Number(val)) ? Number(val) : fb);
+
+export function buildCarProjectionConfigParams(
+  config: NameTagConfig,
+  isSingleChar: boolean,
+  vw: number,
+  vh: number,
+  tanHalfFov: number,
+  measureCtx: CanvasRenderingContext2D | null
+): CarProjectionConfigParams {
+  const D = DEFAULT_NAME_TAG_CONFIG;
+  const v = resolveNameTagVariantParams(config, isSingleChar);
+  const fontFamilyCss = resolveNameTagFontFamilyCss(v.fontFamily || D.fontFamily);
+  const fontWeight = v.fontWeight || D.fontWeight;
+  const rawFontSize = Math.max(1, finiteOr(v.fontSize, D.fontSize));
+  const maxChars = Math.max(1, Math.round(finiteOr(v.maxChars, D.maxChars)));
+
+  let measuredMaxRefTextWidthPx: number | undefined;
+  if (measureCtx) {
+    measureCtx.font = `${fontWeight} ${rawFontSize}px ${fontFamilyCss}`;
+    measuredMaxRefTextWidthPx = measureCtx.measureText('M'.repeat(maxChars)).width;
+  }
+
+  return {
+    config,
+    variant: v,
+    viewportWidthPx: vw,
+    viewportHeightPx: vh,
+    tanHalfFov,
+    fovScale: tanHalfFov / REFERENCE_TAN_HALF_FOV,
+    scaleFactor: Math.max(0.001, finiteOr(v.cameraScaleFactor, D.cameraScaleFactor)),
+    distanceScaleExponent: finiteOr(v.distanceScaleExponent, D.distanceScaleExponent),
+    nearScaleMultiplier: Math.max(0.01, finiteOr(v.nearScaleMultiplier, D.nearScaleMultiplier)),
+    farScaleMultiplier: Math.max(0.01, finiteOr(v.farScaleMultiplier, D.farScaleMultiplier)),
+    pillHeightPx: Math.max(4, finiteOr(v.pillHeight, D.pillHeight)),
+    globalWorldOffsetUu: finiteOr(v.verticalOffsetUu, D.verticalOffsetUu),
+    globalScreenOffsetPx: finiteOr(v.screenVerticalOffsetPx, D.screenVerticalOffsetPx),
+    fontFamilyCss,
+    fontWeight,
+    cardOpacity: Math.max(0.01, Math.min(1.0, Number(v.opacity) || D.opacity)),
+    effectiveBgOpacity: Math.max(0.0, Math.min(1.0, Number(v.bgOpacity) ?? D.bgOpacity)),
+    rawBorderWidth: Math.max(0, finiteOr(v.borderWidth, D.borderWidth)),
+    rawFontSize,
+    maxChars,
+    measuredMaxRefTextWidthPx,
+  };
 }
 
 export interface ProjectSingleCarInput {
@@ -95,35 +146,6 @@ export interface ProjectedCarResult {
   offscreenIndicator2D: NameTagOffscreenIndicatorCard2D | null;
 }
 
-export function projectBallOcclusion2D(
-  ball: THREE.Object3D | null | undefined,
-  ballRadiusUu: number,
-  cam: THREE.PerspectiveCamera | null | undefined,
-  camFwd: THREE.Vector3,
-  proj: THREE.Vector3,
-  vw: number,
-  vh: number,
-  tanHalfFov: number,
-  config: NameTagConfig
-): NameTagBallOcclusionProjection2D | null {
-  if (!config.ballOcclusionEnabled || !ball?.visible || !cam?.position) return null;
-  const opacity = Math.max(0, Math.min(1, Number(config.ballOcclusionOpacity) ?? 1.0));
-  if (opacity <= 0.001) return null;
-  const dx = ball.position.x - cam.position.x;
-  const dy = ball.position.y - cam.position.y;
-  const dz = ball.position.z - cam.position.z;
-  const viewZDepthUu = dx * camFwd.x + dy * camFwd.y + dz * camFwd.z;
-  if (viewZDepthUu <= 10 || !cam.projectionMatrix) return null;
-  proj.set(ball.position.x, ball.position.y, ball.position.z).project(cam);
-  if (proj.z < -1 || proj.z > 1) return null;
-  const screenRadiusPx = (Math.max(10, Number(ballRadiusUu) || 95) / viewZDepthUu) * ((vh * 0.5) / Math.max(1e-4, tanHalfFov));
-  return screenRadiusPx > 1
-    ? { visible: true, screenX: (proj.x * 0.5 + 0.5) * vw, screenY: (-proj.y * 0.5 + 0.5) * vh, screenRadiusPx, viewZDepthUu, opacity }
-    : null;
-}
-
-const finiteOr = (val: unknown, fb: number): number => (Number.isFinite(Number(val)) ? Number(val) : fb);
-
 export function projectCarNameTag(input: ProjectSingleCarInput): ProjectedCarResult | null {
   const {
     carIndex,
@@ -150,34 +172,14 @@ export function projectCarNameTag(input: ProjectSingleCarInput): ProjectedCarRes
     cameraForwardVector,
     projVector,
     measureCtx,
-    params,
+    params: P,
   } = input;
-  const {
-    config,
-    viewportWidthPx: vw,
-    viewportHeightPx: vh,
-    tanHalfFov,
-    fovScale,
-    scaleFactor,
-    distanceScaleExponent,
-    nearScaleMultiplier,
-    farScaleMultiplier,
-    pillHeightPx,
-    globalWorldOffsetUu,
-    globalScreenOffsetPx,
-    fontFamilyCss,
-    fontWeight,
-    cardOpacity,
-    effectiveBgOpacity,
-    rawBorderWidth,
-    rawFontSize,
-    measuredMaxRefTextWidthPx,
-  } = params;
+  const { config, variant, viewportWidthPx: vw, viewportHeightPx: vh, tanHalfFov, pillHeightPx, fontFamilyCss, fontWeight, cardOpacity, effectiveBgOpacity, rawBorderWidth, rawFontSize } = P;
 
-  const ov = config.carOverrides?.[carIndex];
+  const ov = variant.carOverrides?.[carIndex];
   const ovOn = Boolean(ov?.enabled);
-  const effWorldUu = ovOn ? Number(ov.worldOffsetUu) : globalWorldOffsetUu;
-  const effScreenPx = ovOn ? Number(ov.screenOffsetPx) : globalScreenOffsetPx;
+  const effWorldUu = ovOn ? Number(ov.worldOffsetUu) : P.globalWorldOffsetUu;
+  const effScreenPx = ovOn ? Number(ov.screenOffsetPx) : P.globalScreenOffsetPx;
   const carScaleMult = ovOn ? Number(ov.scaleMultiplier) || 1.0 : 1.0;
 
   const upUu = effWorldUu * 0.45;
@@ -211,26 +213,23 @@ export function projectCarNameTag(input: ProjectSingleCarInput): ProjectedCarRes
     }
   }
 
-  const activeDepthUu = config.depthMetric === 'euclidean' ? euclideanDistanceUu : viewZDepthUu;
+  const activeDepthUu = variant.depthMetric === 'euclidean' ? euclideanDistanceUu : viewZDepthUu;
   const screenOffsetWorldUu = effScreenPx * ((2 * activeDepthUu * tanHalfFov) / REFERENCE_VIEWPORT_HEIGHT_PX);
   const bx = wx + cameraUpVector.x * screenOffsetWorldUu;
   const by = wy + cameraUpVector.y * screenOffsetWorldUu;
   const bz = wz + cameraUpVector.z * screenOffsetWorldUu;
 
-  const curvedDepthUu =
-    NAME_TAG_REFERENCE_DEPTH_UU * Math.pow(Math.max(10, activeDepthUu) / NAME_TAG_REFERENCE_DEPTH_UU, distanceScaleExponent);
-  const lerpT = Math.max(
-    0,
-    Math.min(1, (activeDepthUu - NAME_TAG_NEAR_CALIBRATION_DEPTH_UU) / (NAME_TAG_FAR_CALIBRATION_DEPTH_UU - NAME_TAG_NEAR_CALIBRATION_DEPTH_UU))
-  );
-  const effScaleMult = (nearScaleMultiplier + (farScaleMultiplier - nearScaleMultiplier) * lerpT) * carScaleMult;
-  const baseHeightWorld = curvedDepthUu * fovScale * SCREEN_SCALE_MULTIPLIER * effScaleMult * scaleFactor;
+  const curvedDepthUu = NAME_TAG_REFERENCE_DEPTH_UU * Math.pow(Math.max(10, activeDepthUu) / NAME_TAG_REFERENCE_DEPTH_UU, P.distanceScaleExponent);
+  const lerpT = Math.max(0, Math.min(1, (activeDepthUu - NAME_TAG_NEAR_CALIBRATION_DEPTH_UU) / (NAME_TAG_FAR_CALIBRATION_DEPTH_UU - NAME_TAG_NEAR_CALIBRATION_DEPTH_UU)));
+  const effScaleMult = (P.nearScaleMultiplier + (P.farScaleMultiplier - P.nearScaleMultiplier) * lerpT) * carScaleMult;
+  const baseHeightWorld = curvedDepthUu * P.fovScale * SCREEN_SCALE_MULTIPLIER * effScaleMult * P.scaleFactor;
   const baseWidthWorld = baseHeightWorld * (CANVAS_WIDTH / CANVAS_HEIGHT);
   const halfH = baseHeightWorld * (pillHeightPx / CANVAS_HEIGHT) * 0.5;
 
+  if (measureCtx) measureCtx.font = `${fontWeight} ${rawFontSize}px ${fontFamilyCss}`;
   const measuredTextW = measureCtx ? measureCtx.measureText(displayText).width : undefined;
-  const carPillWidthPx = computeAdaptiveNameTagWidthPx(displayText, config, measuredTextW, measuredMaxRefTextWidthPx);
-  const effectiveCornerRadiusPx = resolveNameTagCornerRadiusPx(carPillWidthPx, pillHeightPx, config.cornerRadius);
+  const carPillWidthPx = computeAdaptiveNameTagWidthPx(displayText, variant, measuredTextW, P.measuredMaxRefTextWidthPx);
+  const effectiveCornerRadiusPx = resolveNameTagCornerRadiusPx(carPillWidthPx, pillHeightPx, variant.cornerRadius);
 
   const screenUnitScale = (vh * (baseHeightWorld / Math.max(1, 2 * viewZDepthUu * tanHalfFov))) / CANVAS_HEIGHT;
   const screenPillHeightPx = pillHeightPx * screenUnitScale;
@@ -244,10 +243,7 @@ export function projectCarNameTag(input: ProjectSingleCarInput): ProjectedCarRes
   let offscreenIndicator2D: NameTagOffscreenIndicatorCard2D | null = null;
   const palette = resolveCarColorPalette(carIndex, team, config, input.liveCarColorHex);
   const effBoostColor = config.circleColorMode === 'car-primary' ? palette.boostColor : boostBorderColorHex;
-  const isCircleCard = config.cardDisplayMode === 'circle';
   const slotCodeText = resolveCarSlotCode(carIndex, team, config.slotCodes);
-  const resolvedLabelText =
-    config.circleLabelMode === 'none' ? '' : config.circleLabelMode === 'slot-code' ? slotCodeText : displayText;
 
   if (!shouldHideFocusedCar && activeCamera?.projectionMatrix) {
     if (!behindCamera) {
@@ -255,19 +251,13 @@ export function projectCarNameTag(input: ProjectSingleCarInput): ProjectedCarRes
       if (projVector.z >= -1 && projVector.z <= 1) {
         const centerX = (projVector.x * 0.5 + 0.5) * vw;
         const centerY = (-projVector.y * 0.5 + 0.5) * vh;
-        const D = DEFAULT_NAME_TAG_CONFIG;
-        const baseCircleR = Math.max(1, finiteOr(config.onscreenCircleRadiusPx, D.onscreenCircleRadiusPx));
-        const circleR = config.onscreenCircleFixedSize ? baseCircleR : baseCircleR * screenUnitScale;
-        const width = isCircleCard ? circleR * 2 : screenPillWidthPx;
-        const height = isCircleCard ? circleR * 2 : screenPillHeightPx;
-        const circleScale = config.onscreenCircleFixedSize ? ON_SCREEN_CIRCLE_FIXED_UNIT_SCALE : screenUnitScale;
-        const rawCircleBorderW = finiteOr(config.onscreenCircleBorderWidthPx, D.onscreenCircleBorderWidthPx);
-        const rawCircleFont = finiteOr(config.onscreenCircleFontSizePx, D.onscreenCircleFontSizePx);
-        const borderW = isCircleCard ? Math.max(0, rawCircleBorderW * circleScale) : Math.max(0, rawBorderWidth * screenUnitScale);
+        const width = screenPillWidthPx;
+        const height = screenPillHeightPx;
+        const borderW = Math.max(0, rawBorderWidth * screenUnitScale);
         const halfB = borderW * 0.5;
         const left = centerX - width * 0.5;
         const top = centerY - height * 0.5;
-        const radius = isCircleCard ? circleR : effectiveCornerRadiusPx * screenUnitScale;
+        const radius = effectiveCornerRadiusPx * screenUnitScale;
 
         if (left + width < 0 || left > vw || top + height < 0 || top > vh) {
           isOffscreen = true;
@@ -276,8 +266,7 @@ export function projectCarNameTag(input: ProjectSingleCarInput): ProjectedCarRes
             carIndex,
             cameraDistanceSq,
             viewZDepthUu,
-            displayText: resolvedLabelText,
-            isCircleCard,
+            displayText,
             centerX,
             centerY,
             left,
@@ -294,7 +283,7 @@ export function projectCarNameTag(input: ProjectSingleCarInput): ProjectedCarRes
             outerWidth: width + borderW,
             outerHeight: height + borderW,
             outerRadius: radius + halfB,
-            fontPx: isCircleCard ? Math.max(1, rawCircleFont * circleScale) : Math.max(1, rawFontSize * screenUnitScale),
+            fontPx: Math.max(1, rawFontSize * screenUnitScale),
             fontWeight,
             fontFamilyCss,
             opacity: cardOpacity,
@@ -314,17 +303,10 @@ export function projectCarNameTag(input: ProjectSingleCarInput): ProjectedCarRes
     }
 
     if (isOffscreen && offscreenAudienceVisible) {
-      let dirX = 0;
-      let dirY = 1;
-      if (!behindCamera) {
-        dirX = (projVector.x * 0.5 + 0.5) * vw - vw * 0.5;
-        dirY = (-projVector.y * 0.5 + 0.5) * vh - vh * 0.5;
-      } else {
-        const rightComp = dx * cameraRightVector.x + dy * cameraRightVector.y + dz * cameraRightVector.z;
-        const upComp = dx * cameraUpVector.x + dy * cameraUpVector.y + dz * cameraUpVector.z;
-        dirX = rightComp;
-        dirY = Math.max(Math.abs(rightComp) * 0.35 + 80, -upComp);
-      }
+      const rightComp = dx * cameraRightVector.x + dy * cameraRightVector.y + dz * cameraRightVector.z;
+      const upComp = dx * cameraUpVector.x + dy * cameraUpVector.y + dz * cameraUpVector.z;
+      const dirX = !behindCamera ? (projVector.x * 0.5 + 0.5) * vw - vw * 0.5 : rightComp;
+      const dirY = !behindCamera ? (-projVector.y * 0.5 + 0.5) * vh - vh * 0.5 : Math.max(Math.abs(rightComp) * 0.35 + 80, -upComp);
 
       const clamped = clampRayToRoiBoundary2D(dirX, dirY, vw, vh, computeOffscreenRoiBounds2D(vw, vh, config));
       const distFromPov = input.povCarPosition ? Math.max(1, carMesh.position.distanceTo(input.povCarPosition)) : euclideanDistanceUu;
