@@ -208,9 +208,14 @@ export class VehicleAudioManager {
       });
 
       if (carState && isAlive && audible) {
-        const wc = carState.getWheelContact;
+        const hasWheelContactMethod = typeof carState.getWheelContact === 'function';
         const isGroundedNow = Boolean(
-          carState.isOnGround || (typeof wc === 'function' && (wc(0) || wc(1) || wc(2) || wc(3)))
+          carState.isOnGround ||
+            (hasWheelContactMethod &&
+              (carState.getWheelContact!(0) ||
+                carState.getWheelContact!(1) ||
+                carState.getWheelContact!(2) ||
+                carState.getWheelContact!(3)))
         );
         let landingSt = this._landingStateByCar.get(i);
         if (!landingSt) {
