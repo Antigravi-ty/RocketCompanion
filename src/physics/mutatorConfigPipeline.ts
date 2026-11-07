@@ -9,13 +9,7 @@ import {
   DEFAULT_STANDARD_MUTATOR_CONFIG,
   MUTATOR_CONFIG_FLOAT_COUNT,
   MUTATOR_OFFSETS,
-} from './RocketSimConstants.ts';
-import {
-  queryWasmBallStateForTime,
-  type PredictedBallStateSlice,
-} from './ballPredictionPipeline.ts';
-
-export { queryWasmBallStateForTime, type PredictedBallStateSlice };
+} from './RocketSimVehicleAndArenaSpecs.ts';
 
 export interface ArenaMutatorConfig {
   gravityX: number;
