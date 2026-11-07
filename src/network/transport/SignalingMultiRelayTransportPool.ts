@@ -4,20 +4,19 @@
  * per-relay bounded auto-reconnect, match-phase relay convergence, and routed E2EE frame dispatch.
  */
 
-import { WebSocketSignalingClient } from './WebSocketSignalingClient.ts';
 import { MqttWebSocketClient } from './MqttWebSocketClient.ts';
-import {
-  SupabaseRealtimeSignalingClient,
-  deriveDefaultEdgeFunctionBridgeUrl,
-} from './SupabaseRealtimeSignalingClient.ts';
+import { SupabaseRealtimeSignalingClient } from './SupabaseRealtimeSignalingClient.ts';
 import {
   getSignalingRelays,
   type SignalingRelaySpec,
 } from './signalingRelayConfig.ts';
 import {
   computeConnectivityMaskFromRelayIds,
+  createSignalingRelayTransport,
   getSlotBitForRelayId,
   resolveCoHostedEdgeBridgeUrlForRelay,
+  type RelayTransportClient,
+  type RelayTransportFactoryContext,
 } from './signalingRelaySlotRegistry.ts';
 import type { DeterministicRoomContext } from './SignalingCryptoSession.ts';
 import {
@@ -27,65 +26,12 @@ import {
   type SignalingRelayMatchPolicy,
 } from './SignalingRelayLifecyclePolicy.ts';
 
-export type RelayTransportClient =
-  | MqttWebSocketClient
-  | WebSocketSignalingClient
-  | SupabaseRealtimeSignalingClient;
-
-export interface RelayTransportFactoryContext {
-  role: string;
-  peerId: string;
-  roomId: string;
-  playerName: string;
-  roomContext: DeterministicRoomContext;
-}
-
-export function createSignalingRelayTransport(
-  relay: SignalingRelaySpec,
-  ctx: RelayTransportFactoryContext
-): RelayTransportClient {
-  if (relay.protocol === 'mqtt') {
-    return new MqttWebSocketClient(relay.url, {
-      relayId: relay.id,
-      relayLabel: relay.label,
-      topic: ctx.roomContext.mqttTopic,
-      bridgeTopic: ctx.roomContext.mqttBridgeTopic,
-      peerId: ctx.peerId,
-      username: relay.username || '',
-      password: relay.password || '',
-      keepAliveSeconds: relay.keepAliveSeconds || 30,
-    });
-  }
-
-  if (relay.protocol === 'supabase') {
-    return new SupabaseRealtimeSignalingClient(relay.url, {
-      relayId: relay.id,
-      relayLabel: relay.label,
-      channelTopic: ctx.roomContext.supabaseChannelTopic,
-      bridgeTopic: ctx.roomContext.supabaseBridgeTopic,
-      topicHash: ctx.roomContext.topicHash,
-      peerId: ctx.peerId,
-      anonKey: relay.authToken || relay.password || '',
-      edgeFunctionBridgeUrl:
-        relay.edgeFunctionBridgeUrl || deriveDefaultEdgeFunctionBridgeUrl(relay.url),
-      keepAliveSeconds: relay.keepAliveSeconds || 25,
-    });
-  }
-
-  return new WebSocketSignalingClient(relay.url, {
-    relayId: relay.id,
-    relayLabel: relay.label,
-    roomId: ctx.roomId,
-    workerRoomKey: ctx.roomContext.workerRoomKey,
-    role: ctx.role,
-    peerId: ctx.peerId,
-    password: '',
-    authToken: relay.authToken || relay.password || '',
-    playerName: ctx.playerName,
-  });
-}
-
-export type { SignalingPoolHealthSnapshot, SignalingRelayMatchPolicy };
+export type {
+  RelayTransportClient,
+  RelayTransportFactoryContext,
+  SignalingPoolHealthSnapshot,
+  SignalingRelayMatchPolicy,
+};
 
 export interface SignalingRelayLaunchHooks {
   role: string;

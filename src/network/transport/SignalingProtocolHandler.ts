@@ -30,19 +30,20 @@ import {
   type SignalingRelayMatchPolicy,
 } from './SignalingRelayLifecyclePolicy.ts';
 import {
-  getSlotBitForRelayId,
-  parseRoomCode,
-  resolveSignalingRouteDecision,
-} from '../../ui-core/config/roomCodeConnectivityCodec.ts';
-import {
   buildHandshakeConfirmPayload,
   buildSignedHelloAckFrame,
   buildSignedHelloFrame,
+  resolveClientHelloDispatchTargets,
   verifySignedHelloAckFrame,
   verifySignedHelloFrame,
 } from './signalingHandshakeFrames.ts';
 
-export type { RelayTransportClient, SignalingPoolHealthSnapshot, SignalingRelayMatchPolicy };
+export type {
+  RelayTransportClient,
+  SignalingPeerMetadata,
+  SignalingPoolHealthSnapshot,
+  SignalingRelayMatchPolicy,
+};
 
 export interface SignalingProtocolOptions {
   roomId: string;
@@ -97,14 +98,9 @@ export class SignalingProtocolHandler {
     this.peerId = this._peerId;
   }
 
-  get transports(): Map<string, RelayTransportClient> { return this.relayPool.transports; }
-  get relayConfigs(): Map<string, any> { return this.relayPool.relayConfigs; }
-  get activeRelayId(): string | null { return this.relayPool.activeRelayId; }
-  set activeRelayId(val: string | null) { this.relayPool.activeRelayId = val; }
-  get peerRelayRoutes(): Map<string, string> { return this.envelopeHandler.peerRelayRoutes; }
-  get peerMetadata(): Map<string, SignalingPeerMetadata> { return this.envelopeHandler.peerMetadata; }
-  get pendingCandidatesOut(): Map<string, any[]> { return this.envelopeHandler.pendingCandidatesOut; }
-  get client(): RelayTransportClient | null { return this.relayPool.activeClient; }
+  get client(): RelayTransportClient | null {
+    return this.relayPool.activeClient;
+  }
 
   getPairingCodeForPeer(peerId: string | null = null): string | null {
     const targetId = peerId || this.remoteHostPeerId;
@@ -112,7 +108,8 @@ export class SignalingProtocolHandler {
   }
 
   getActiveRelayLabel(peerId: string | null = null): string | null {
-    const relayId = (peerId && this.peerRelayRoutes.get(peerId)) || this.relayPool.activeRelayId;
+    const relayId =
+      (peerId && this.envelopeHandler.peerRelayRoutes.get(peerId)) || this.relayPool.activeRelayId;
     return this.relayPool.getRelayLabel(relayId);
   }
 
@@ -202,25 +199,15 @@ export class SignalingProtocolHandler {
     const connectedIds = this.relayPool.getConnectedRelayIds();
     if (connectedIds.length === 0) return;
 
-    const parsedRoom = parseRoomCode(this.roomId);
-    const hostMask = parsedRoom ? parsedRoom.hostMask : 0x0f;
-    const clientMask = this.relayPool.getConnectedConnectivityMask();
-    const route = resolveSignalingRouteDecision(hostMask, clientMask);
+    const targets = resolveClientHelloDispatchTargets(
+      this.roomId,
+      connectedIds,
+      this.relayPool.getConnectedConnectivityMask(),
+      this.relayPool.getBestRelayIdForBridge(connectedIds[0])
+    );
 
-    if (route.routeType === 'direct-shared') {
-      for (const relayId of connectedIds) {
-        const bit = getSlotBitForRelayId(relayId);
-        if (bit === 0 || (route.sharedMask & bit) !== 0) {
-          await this._sendHelloOnRelay(relayId, false);
-        }
-      }
-      return;
-    }
-
-    // Isolated island (sharedMask === 0): dispatch via Edge Function / bridge channel
-    const bestBridgeRelay = this.relayPool.getBestRelayIdForBridge(connectedIds[0]);
-    if (bestBridgeRelay) {
-      await this._sendHelloOnRelay(bestBridgeRelay, true);
+    for (const target of targets) {
+      await this._sendHelloOnRelay(target.relayId, target.useBridge);
     }
   }
 
@@ -264,7 +251,11 @@ export class SignalingProtocolHandler {
 
     if (msg.type === 'sig_encrypted') {
       if (msg.targetPeerId && msg.targetPeerId !== this._peerId) return;
-      await this._onReceiveEncryptedEnvelope(relayId, msg);
+      await this.envelopeHandler.handleEncryptedEnvelope(
+        relayId,
+        msg,
+        this.getEnvelopeDispatchContext()
+      );
       return;
     }
   }
@@ -274,7 +265,7 @@ export class SignalingProtocolHandler {
     if (this.role !== 'host' && msg.targetRelayParentId !== this._peerId) return;
     if (!this.cryptoSession || !this.roomContext) return;
 
-    if (!(await verifySignedHelloFrame(this.roomContext, msg as never))) return;
+    if (!(await verifySignedHelloFrame(this.roomContext, msg))) return;
 
     const isBridgedPeer = Number(msg._brgHop || 0) >= 1;
     const bridgedFromRelayId = msg._brgFrom ? String(msg._brgFrom) : undefined;
@@ -311,7 +302,7 @@ export class SignalingProtocolHandler {
       requireManualApproval: getManualPairingConfirmationEnabled(),
     });
 
-    const peerMeta = this.peerMetadata.get(fromPeerId);
+    const peerMeta = this.envelopeHandler.peerMetadata.get(fromPeerId);
     if (isBridgedPeer || peerMeta?.requiresBridge) {
       await this.relayPool.sendBridgeOnRelay(relayId, ackFrame);
     } else {
@@ -324,7 +315,7 @@ export class SignalingProtocolHandler {
     if (msg.targetPeerId !== this._peerId) return;
     if (!this.cryptoSession || !this.roomContext) return;
 
-    if (!(await verifySignedHelloAckFrame(this.roomContext, this._peerId, msg as never))) return;
+    if (!(await verifySignedHelloAckFrame(this.roomContext, this._peerId, msg))) return;
 
     const fromPeerId = String(msg.fromPeerId || '');
     if (this.remoteHostPeerId && this.remoteHostPeerId !== fromPeerId) {
@@ -386,38 +377,6 @@ export class SignalingProtocolHandler {
     );
   }
 
-  async _onReceiveEncryptedEnvelope(
-    relayId: string,
-    wrapper: Record<string, unknown>
-  ): Promise<void> {
-    return this.envelopeHandler.handleEncryptedEnvelope(
-      relayId,
-      wrapper,
-      this.getEnvelopeDispatchContext()
-    );
-  }
-
-  async _onReceiveHandshakeConfirm(relayId: string, fromPeerId: string): Promise<void> {
-    return this.envelopeHandler.handleHandshakeConfirm(
-      relayId,
-      fromPeerId,
-      this.getEnvelopeDispatchContext()
-    );
-  }
-
-  _startClientPairingKeepAlive(hostPeerId: string, pairingCode: string, hostName?: string): void {
-    this.envelopeHandler.startClientPairingKeepAlive(
-      hostPeerId,
-      pairingCode,
-      hostName,
-      this.getEnvelopeDispatchContext()
-    );
-  }
-
-  _stopPairingKeepAlive(): void {
-    this.envelopeHandler.stopPairingKeepAlive();
-  }
-
   async _sendEncryptedToPeer(
     targetPeerId: string | null,
     payloadObj: Record<string, unknown>,
@@ -438,9 +397,11 @@ export class SignalingProtocolHandler {
     };
 
     const routeRelayId =
-      preferredRelayId || this.peerRelayRoutes.get(resolvedPeerId) || this.relayPool.activeRelayId;
+      preferredRelayId ||
+      this.envelopeHandler.peerRelayRoutes.get(resolvedPeerId) ||
+      this.relayPool.activeRelayId;
 
-    const peerMeta = this.peerMetadata.get(resolvedPeerId);
+    const peerMeta = this.envelopeHandler.peerMetadata.get(resolvedPeerId);
     if (peerMeta?.requiresBridge && routeRelayId) {
       return this.relayPool.sendBridgeOnRelay(routeRelayId, wrapper);
     }
@@ -453,16 +414,6 @@ export class SignalingProtocolHandler {
     this._reconnectTimer = setTimeout(() => {
       if (typeof reconnectFn === 'function') reconnectFn();
     }, delayMs);
-  }
-
-  async send(data: Record<string, unknown> | null | undefined): Promise<boolean> {
-    if (!data) return false;
-    const targetPeerId =
-      (typeof data.targetPeerId === 'string' ? data.targetPeerId : null) || this.remoteHostPeerId;
-    if (targetPeerId && this.cryptoSession?.getPeerSession(targetPeerId)) {
-      return this._sendEncryptedToPeer(targetPeerId, data);
-    }
-    return false;
   }
 
   async sendOffer(peerId: string, token: string): Promise<boolean> {

@@ -1,19 +1,8 @@
 import * as THREE from 'three';
-import {
-  useAppStore,
-  hudStore,
-  pushQuickNotification,
-  dismissQuickNotification,
-  reachabilityStore,
-  ballTrajectoryTunerStore,
-  notifyNetworkTelemetryExportAvailable,
-} from '../runtimeUiPort.ts';
-import {
-  applyVisualMaterialsConfig,
-} from '../../effects/ThemeMaterialPipeline.ts';
-import { BallTrajectoryPredictor } from '../../entities/BallTrajectoryPredictor.ts';
-import { bindBallTrajectoryAnomalyUiBridge } from '../../entities/trajectory/BallTrajectoryAnomalyRecorder.ts';
-import { ReachabilityVisualizer } from '../../entities/ReachabilityVisualizer.ts';
+import { useAppStore, hudStore } from '../runtimeUiPort.ts';
+import { applyVisualMaterialsConfig } from '../../effects/ThemeMaterialPipeline.ts';
+import type { BallTrajectoryPredictor } from '../../entities/BallTrajectoryPredictor.ts';
+import type { ReachabilityVisualizer } from '../../entities/ReachabilityVisualizer.ts';
 import { CameraManager } from '../../camera/CameraManager.ts';
 import { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
 import { getTeamAssignment } from '../../physics/RocketSimMeshLoader.ts';
@@ -23,19 +12,11 @@ import { KeyboardMouseController } from '../../input/KeyboardMouseController.ts'
 import { GamepadController } from '../../input/GamepadController.ts';
 import { loadInputBindings } from '../../ui-core/config/inputBindings';
 import { DEFAULT_GRAPHICS_SETTINGS } from '../../ui-core/config/trainingDefaults';
-import { CAR_COLOR_SLOTS } from '../../ui-core/config/vehicleConstants';
 import {
   garageSettingsStore,
-  getPreferredColorSlot,
   getPreferredFreeplayTeam,
-  loadStoredPlayerName,
 } from '../../ui-core/config/vehiclePresets';
-import { MultiplayerSessionManager } from '../../network/transport/MultiplayerSessionManager.ts';
-import type {
-  HostOnlineServerOptions,
-  JoinOnlineServerOptions,
-  NetworkSessionChannelLike,
-} from './onlineLobbyTransitionPipeline.ts';
+import type { MultiplayerSessionManager } from '../../network/transport/MultiplayerSessionManager.ts';
 import { BoostBloom } from '../../effects/BoostBloom.ts';
 import { SupersonicSpeedLinesPass } from '../../effects/SupersonicSpeedLinesPass.ts';
 import {
@@ -47,43 +28,32 @@ import { EffectComposer } from '../../effects/PostprocessingPipeline.ts';
 import { RoomEnvironment } from '../../effects/RoomEnvironment.ts';
 import { ArenaWorld } from '../../entities/ArenaWorld.ts';
 import { EntityManager } from '../../entities/EntityManager.ts';
+import {
+  createSceneVisualizersAndMultiplayerSession,
+  type HostRoomSettings,
+  type JoinRoomSettings,
+  type MountedGameUIHandle,
+  type PairingApprovalRequest,
+  type RuntimeSceneCallbackHost,
+  type RuntimeSceneOptions,
+  type SceneGraphFactoryConfig,
+  type SceneGraphRuntimeCallbacks,
+  type SessionStatusSnapshot,
+  type TeamAssignmentPair,
+} from './RuntimePostprocessingAndSessionBootstrap.ts';
 
-export type HostRoomSettings = HostOnlineServerOptions & Record<string, unknown>;
-export type JoinRoomSettings = JoinOnlineServerOptions & Record<string, unknown>;
-export interface PairingApprovalRequest {
-  peerId: string;
-  peerName: string;
-  pairingCode: string;
-}
-export type SessionStatusSnapshot = Record<string, unknown>;
-
-declare global {
-  interface Window {
-    __ENABLE_DETERMINISM_HARNESS__?: boolean;
-    __ENABLE_NETWORK_PREDICTION__?: boolean;
-  }
-}
-
-export interface TeamAssignmentPair {
-  playerTeam: number;
-  opponentTeam: number;
-}
-
-export interface MountedGameUIHandle {
-  openMenu(route?: string): void;
-  closeMenu(): void;
-  toggleMenu(): void;
-  attachToRuntime?(runtime: unknown): void;
-  syncVisualMaterials?(): void;
-  destroy(): void;
-}
-
-export interface RuntimeSceneOptions {
-  CameraControllerClass?: new (aspect: number) => CameraManager;
-  gameUI?: MountedGameUIHandle | null;
-  mountUI?: (container: HTMLElement, runtime: unknown) => MountedGameUIHandle;
-  [key: string]: unknown;
-}
+export type {
+  HostRoomSettings,
+  JoinRoomSettings,
+  MountedGameUIHandle,
+  PairingApprovalRequest,
+  RuntimeSceneCallbackHost,
+  RuntimeSceneOptions,
+  SceneGraphFactoryConfig,
+  SceneGraphRuntimeCallbacks,
+  SessionStatusSnapshot,
+  TeamAssignmentPair,
+};
 
 export interface PhysicsBootstrapConfig {
   options?: Record<string, unknown>;
@@ -97,48 +67,6 @@ export interface CorePhysicsBundle {
   selectedPreset: string;
   teamAssignment: TeamAssignmentPair;
   playerCarIndex: number;
-}
-
-export interface SceneGraphRuntimeCallbacks {
-  onResetKickoff(): void;
-  onBallControl(actionId: string): void;
-  onKickoffSpawnSelect(spawnIndex: number): void;
-  onEnsurePlayerFlipResetVisual(carIndex: number): void;
-  onSyncInitialMaterials(
-    arena: ArenaWorld,
-    applyFn: typeof applyVisualMaterialsConfig,
-    materials: Record<string, unknown> | undefined,
-  ): void;
-  onUpdateViewport(
-    renderer: THREE.WebGLRenderer,
-    camera: CameraManager,
-    composer: EffectComposer,
-    boostBloom: BoostBloom,
-    speedLinesPass: SupersonicSpeedLinesPass | null,
-    activeGraphicsSettings: Record<string, unknown>,
-  ): void;
-  onEnableDeterminismHarness(autoOpenPanel: boolean): Promise<unknown>;
-  onEnableNetworkPrediction(enabled: boolean): Promise<unknown>;
-  onHostOnlineServer(opts: HostRoomSettings): Promise<unknown>;
-  onStopOnlineServer(): Promise<void>;
-  onJoinOnlineServer(opts: JoinRoomSettings): Promise<unknown>;
-  onRemotePlayerConnected(channel: NetworkSessionChannelLike, name: string): Promise<number>;
-  onRemoveRemotePlayer(carIndex: number): Promise<void>;
-  onSetCarColor(carIndex: number, hex: string): void;
-  onMountOrAttachGameUI(container: HTMLElement): MountedGameUIHandle | null;
-  onDisposeHeadlessBloomOcclusion(): void;
-}
-
-export interface SceneGraphFactoryConfig {
-  container: HTMLElement | null;
-  physics: RocketSimPhysicsEngine;
-  interpolator: PhysicsStateInterpolator;
-  selectedPreset?: string | null;
-  teamAssignment?: TeamAssignmentPair | null;
-  playerCarIndex: number;
-  options: RuntimeSceneOptions;
-  onProgress?: ((progress: number, message?: string) => void) | null;
-  callbacks: SceneGraphRuntimeCallbacks;
 }
 
 export interface SceneGraphBundle {
@@ -180,10 +108,6 @@ export interface DisposableSceneGraphResources {
   physics: RocketSimPhysicsEngine | null;
 }
 
-/**
- * Pure factory creating the 120Hz WASM physics engine, state interpolator,
- * match state container, and initial freeplay car slot.
- */
 export async function createCorePhysicsBundle(
   config: PhysicsBootstrapConfig = {},
 ): Promise<CorePhysicsBundle> {
@@ -220,11 +144,6 @@ export async function createCorePhysicsBundle(
   };
 }
 
-/**
- * Pure factory building the 3D scene graph, input controllers, postprocessing pipeline,
- * trajectory/reachability visualizers, and multiplayer session coordinator.
- * Returns a strongly-typed SceneGraphBundle assigned by GameRuntime.
- */
 export async function createCoreSceneGraph(
   config: SceneGraphFactoryConfig,
 ): Promise<SceneGraphBundle> {
@@ -341,123 +260,15 @@ export async function createCoreSceneGraph(
     ...DEFAULT_GRAPHICS_SETTINGS,
   };
 
-  let ballTrajectoryPredictor: BallTrajectoryPredictor | null = null;
-  let reachabilityVisualizer: ReachabilityVisualizer | null = null;
-
-  if (!isTouchHeadless && arena) {
-    ballTrajectoryPredictor = new BallTrajectoryPredictor(
-      arena.scene,
-      {},
-      physics?.ballRadius || 91.25,
-      physics,
-      (telemetry) => ballTrajectoryTunerStore.publishTelemetry(telemetry),
-    );
-    bindBallTrajectoryAnomalyUiBridge(
-      ballTrajectoryPredictor.anomalyRecorder,
-      ballTrajectoryTunerStore,
-      pushQuickNotification,
-      dismissQuickNotification,
-    );
-    reachabilityVisualizer = new ReachabilityVisualizer(
-      arena.scene,
-      physics,
-      ballTrajectoryPredictor,
-      {
-        getConfig: () => reachabilityStore.getConfig(),
-        onTelemetry: (telemetry: unknown) => reachabilityStore.publishTelemetry(telemetry),
-      },
-    );
-  }
-
-  const urlParams =
-    typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-  const isDeterminismTest = urlParams && urlParams.get('test') === 'determinism';
-  if (
-    isDeterminismTest ||
-    (typeof window !== 'undefined' && window.__ENABLE_DETERMINISM_HARNESS__)
-  ) {
-    callbacks
-      .onEnableDeterminismHarness(true)
-      .catch((err: unknown) => console.error('[DeterminismHarness] Failed to activate:', err));
-  }
-  const isNetTest =
-    urlParams &&
-    (urlParams.get('test') === 'prediction' || urlParams.get('test') === 'multiplayer');
-  if (isNetTest || (typeof window !== 'undefined' && window.__ENABLE_NETWORK_PREDICTION__)) {
-    callbacks
-      .onEnableNetworkPrediction(true)
-      .catch((err: unknown) => console.error('[NetworkPrediction] Failed to activate:', err));
-  }
-
-  let multiplayerSession: MultiplayerSessionManager | null = null;
-  multiplayerSession = new MultiplayerSessionManager({
-    resolvePlayerName: () => loadStoredPlayerName().substring(0, 16),
-    resolveTeamColor: (assignedTeam) => {
-      const teamSlot = assignedTeam === 0 || assignedTeam === 1 ? assignedTeam : null;
-      const idx = getPreferredColorSlot(null, teamSlot);
-      if (idx >= 0 && idx < CAR_COLOR_SLOTS.length) {
-        return { slot: idx, hex: CAR_COLOR_SLOTS[idx].hex };
-      }
-      return null;
-    },
-    onUnexpectedDisconnect: () => {
-      notifyNetworkTelemetryExportAvailable('disconnected');
-    },
-    onHostServer: async (opts: HostRoomSettings) => {
-      await callbacks.onHostOnlineServer(opts);
-    },
-    onStopServer: async () => {
-      await callbacks.onStopOnlineServer();
-    },
-    onLeaveServer: async () => {
-      await callbacks.onStopOnlineServer();
-    },
-    onJoinServer: async (opts: JoinRoomSettings) => {
-      await callbacks.onJoinOnlineServer(opts);
-    },
-    onPeerConnected: async (channel: NetworkSessionChannelLike, name: string) => {
-      return await callbacks.onRemotePlayerConnected(channel, name);
-    },
-    onRemovePlayer: async (carIndex: number) => {
-      await callbacks.onRemoveRemotePlayer(carIndex);
-    },
-    onColorSelect: (carIndex: number, _slotId: number, hex: string) => {
-      callbacks.onSetCarColor(carIndex, hex);
-    },
-    onSessionStatusChange: (status: SessionStatusSnapshot) => {
-      if (useAppStore && typeof useAppStore.getState === 'function') {
-        useAppStore.getState().setOnlineSession?.(status as unknown as Record<string, unknown>);
-      }
-    },
-    onPairingApprovalRequest: (req: PairingApprovalRequest) => {
-      const notifId = `pair-req-${req.peerId}`;
-      pushQuickNotification({
-        id: notifId,
-        type: 'persistent',
-        tone: 'warning',
-        icon: 'shield-alert',
-        duration: 0,
-        content: `Join Request: "${req.peerName}" — Pair Code [${req.pairingCode}]`,
-        buttons: [
-          {
-            label: 'Accept',
-            color: 'emerald',
-            onClick: () => {
-              multiplayerSession?.approvePendingPeer?.(req.peerId);
-              dismissQuickNotification(notifId);
-            },
-          },
-          {
-            label: 'Decline',
-            color: 'rose',
-            onClick: () => {
-              multiplayerSession?.declinePendingPeer?.(req.peerId);
-              dismissQuickNotification(notifId);
-            },
-          },
-        ],
-      });
-    },
+  const {
+    ballTrajectoryPredictor,
+    reachabilityVisualizer,
+    multiplayerSession,
+  } = createSceneVisualizersAndMultiplayerSession({
+    isTouchHeadless,
+    arena,
+    physics,
+    callbacks,
   });
 
   let gameUI: MountedGameUIHandle | null = null;
@@ -544,7 +355,6 @@ export async function createCoreSceneGraph(
     );
 
     composer.addPass(new RenderPass(arena.scene, camera.camera));
-
     composer.addPass(
       new ShaderPass(
         new THREE.ShaderMaterial({
@@ -602,9 +412,6 @@ export async function createCoreSceneGraph(
   };
 }
 
-/**
- * Pure teardown helper disposing scene graph, input, UI, and physics resources.
- */
 export function disposeCoreSceneGraph(
   resources: DisposableSceneGraphResources,
 ): void {
@@ -637,4 +444,21 @@ export function disposeCoreSceneGraph(
 
   resources.arena?.dispose?.();
   resources.physics?.destroy?.();
+
+  Object.assign(resources, {
+    cursorHintButton: null,
+    keyboard: null,
+    gamepad: null,
+    camera: null,
+    multiplayerSession: null,
+    ballTrajectoryPredictor: null,
+    reachabilityVisualizer: null,
+    gameUI: null,
+    composer: null,
+    boostBloom: null,
+    speedLinesPass: null,
+    renderer: null,
+    arena: null,
+    physics: null,
+  });
 }

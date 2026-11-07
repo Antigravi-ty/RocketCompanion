@@ -5,12 +5,61 @@
 
 import {
   DEFAULT_SPATIAL_AUDIO_TUNER_CONFIG,
+  solveCubicBezier,
   type SpatialAudioTunerConfig,
 } from "../ui-core/config/spatialAudioConfig";
 
 export interface SampleOutputPeakResult {
   peak: number;
   valid: boolean;
+}
+
+export interface SpatialAudioRuntimeContextSnapshot {
+  isOpen: boolean;
+  matchMode: string;
+  onlineSession: Record<string, unknown> | null;
+  matchPhase: string;
+  choreographySignal: string | null;
+  replayScorerAnthemId: string | null;
+  staticTrainingReplayType: string | null;
+}
+
+export function evaluateSpatialBezierBlend(
+  phase: number,
+  cfg: Partial<SpatialAudioTunerConfig>
+): number {
+  if (cfg.overrideMode === 'manual') {
+    return Math.max(0, Math.min(1, Number(cfg.manualBlend) || 0));
+  }
+  return solveCubicBezier(
+    phase,
+    Number(cfg.bzX1) || 0.22,
+    Number(cfg.bzY1) || 1.0,
+    Number(cfg.bzX2) || 1.0,
+    Number(cfg.bzY2) || 1.0
+  );
+}
+
+export function stepSpatialBezierTransition(
+  currentLinearPhase: number,
+  targetU: number,
+  maxDelta: number,
+  cfg: Partial<SpatialAudioTunerConfig>
+): { linearPhase: number; blend: number } {
+  if (cfg.overrideMode === 'manual') {
+    return { linearPhase: targetU, blend: targetU };
+  }
+  let linearPhase = targetU;
+  if (Math.abs(targetU - currentLinearPhase) > 1e-4) {
+    linearPhase =
+      targetU > currentLinearPhase
+        ? Math.min(targetU, currentLinearPhase + maxDelta)
+        : Math.max(targetU, currentLinearPhase - maxDelta);
+  }
+  return {
+    linearPhase,
+    blend: evaluateSpatialBezierBlend(linearPhase, cfg),
+  };
 }
 
 export function buildStadiumImpulseBuffer(
@@ -289,34 +338,19 @@ export class SpatialAudioBusChain {
     const b = Math.max(0, Math.min(1, Number.isFinite(Number(blend)) ? Number(blend) : 0));
     const maxFreq = 20000;
     const rawLpf = Number(cfg.lpfMinFreq);
-    const minLpf = Math.max(
-      100,
-      Math.min(maxFreq, Number.isFinite(rawLpf) ? rawLpf : 3500)
-    );
+    const minLpf = Math.max(100, Math.min(maxFreq, Number.isFinite(rawLpf) ? rawLpf : 3500));
     const rawHpf = Number(cfg.hpfMaxFreq);
-    const maxHpf = Math.max(
-      20,
-      Math.min(5000, Number.isFinite(rawHpf) ? rawHpf : 425)
-    );
+    const maxHpf = Math.max(20, Math.min(5000, Number.isFinite(rawHpf) ? rawHpf : 425));
     const rawWetPct = Number(cfg.wetMaxPct);
-    const targetWet = Math.max(
-      0,
-      Math.min(1, (Number.isFinite(rawWetPct) ? rawWetPct : 69) / 100)
-    );
+    const targetWet = Math.max(0, Math.min(1, (Number.isFinite(rawWetPct) ? rawWetPct : 69) / 100));
     const rawWetBoost = Number(cfg.wetBoost);
-    const wetBoost = Math.max(
-      0.1,
-      Number.isFinite(rawWetBoost) ? rawWetBoost : 1.35
-    );
+    const wetBoost = Math.max(0.1, Number.isFinite(rawWetBoost) ? rawWetBoost : 1.35);
 
     const currentLpf = maxFreq * Math.pow(minLpf / maxFreq, b);
     const currentHpf = 20 + b * Math.max(0, maxHpf - 20);
     const currentWet = b * targetWet * wetBoost;
     const currentDry = Math.max(0, 1.0 - b * (targetWet * 0.6));
-    const currentOut = Math.max(
-      0,
-      Math.min(2, Number.isFinite(Number(outputGain)) ? Number(outputGain) : 1.0)
-    );
+    const currentOut = Math.max(0, Math.min(2, Number.isFinite(Number(outputGain)) ? Number(outputGain) : 1.0));
 
     if (immediate || Math.abs(currentLpf - this._lastLpf) > 0.05) {
       this._lastLpf = currentLpf;

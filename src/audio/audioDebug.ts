@@ -9,130 +9,15 @@ import { listenerManager } from './SpatialAudioSource.ts';
 import {
   playAudioDiagnosticTestTone,
   forceAudioRecovery as runForceAudioRecovery,
+  evaluateAudioRootCauseVerdict,
   AudioDebugMonitorController,
   type AudioDiagnosticReport,
   type VehicleEmitterDiagnosticEntry,
   type EngineSynthDiagnosticEntry,
 } from './audioDiagnosticProbes.ts';
 
-export { playAudioDiagnosticTestTone };
-
 export function forceAudioRecovery() {
   return runForceAudioRecovery(dumpAudioDiagnosticsToConsole);
-}
-
-export interface SurfaceTaxonomyMeshNode {
-  isMesh?: boolean;
-  userData: {
-    _originalMaterial?: unknown;
-    [key: string]: unknown;
-  };
-  material: unknown;
-  geometry?: {
-    attributes: {
-      position?: { count: number; array: ArrayLike<number> };
-      normal?: { array: ArrayLike<number> };
-    };
-    setAttribute: (name: string, attr: unknown) => void;
-    getAttribute: (name: string) => unknown;
-    deleteAttribute: (name: string) => void;
-  };
-}
-
-export interface SurfaceTaxonomyTraversable {
-  traverse: (cb: (child: SurfaceTaxonomyMeshNode) => void) => void;
-}
-
-export interface SurfaceTaxonomyArenaWorld {
-  boundary?: SurfaceTaxonomyTraversable | null;
-  stadium?: SurfaceTaxonomyTraversable | null;
-}
-
-export interface ThreeTaxonomyAdapter {
-  BufferAttribute: new (array: Float32Array, itemSize: number) => unknown;
-  MeshBasicMaterial: new (params: { vertexColors: boolean; wireframe: boolean; side: unknown }) => unknown;
-  DoubleSide: unknown;
-}
-
-export function applySurfaceTaxonomyColoring(
-  arenaWorld: SurfaceTaxonomyArenaWorld | null | undefined,
-  enabled: boolean = true,
-  floorNz: number = 0.8,
-  netNz: number = 0.05,
-  THREE: ThreeTaxonomyAdapter | null = null
-) {
-  if (!arenaWorld) return;
-  const globalWithThree = globalThis as typeof globalThis & { THREE?: ThreeTaxonomyAdapter };
-  const contextThree = THREE || globalWithThree.THREE || null;
-
-  const targetMeshes: SurfaceTaxonomyMeshNode[] = [];
-  if (arenaWorld.boundary) arenaWorld.boundary.traverse(child => { if (child.isMesh) targetMeshes.push(child); });
-  if (arenaWorld.stadium) arenaWorld.stadium.traverse(child => { if (child.isMesh) targetMeshes.push(child); });
-
-  for (const mesh of targetMeshes) {
-    if (enabled) {
-      if (!mesh.userData._originalMaterial) {
-        mesh.userData._originalMaterial = mesh.material;
-      }
-      if (!contextThree) continue;
-
-      const geom = mesh.geometry;
-      if (!geom || !geom.attributes.position || !geom.attributes.normal) continue;
-
-      const count = geom.attributes.position.count;
-      const normals = geom.attributes.normal.array;
-      const positions = geom.attributes.position.array;
-
-      const colors = new Float32Array(count * 3);
-
-      for (let i = 0; i < count; i++) {
-        const ny = normals[i * 3 + 1];
-        const py = positions[i * 3 + 1];
-        const px = positions[i * 3 + 0];
-        const pz = positions[i * 3 + 2];
-
-        const isNearGoal = Math.abs(pz) >= 4950;
-        const isGoalpost = isNearGoal && ((Math.abs(py - 642) < 80 && Math.abs(px) <= 950) || (Math.abs(Math.abs(px) - 893) < 80 && py <= 700));
-
-        if (isGoalpost) {
-          // Crimson Red (#ff4757)
-          colors[i * 3 + 0] = 1.0;
-          colors[i * 3 + 1] = 0.28;
-          colors[i * 3 + 2] = 0.34;
-        } else if (ny >= floorNz) {
-          // Floor: Emerald Green (#2ecc71)
-          colors[i * 3 + 0] = 0.18;
-          colors[i * 3 + 1] = 0.80;
-          colors[i * 3 + 2] = 0.44;
-        } else if (ny <= netNz) {
-          // Field Net / Ceiling / Sidewall: Neon Cyan (#00d2ff)
-          colors[i * 3 + 0] = 0.0;
-          colors[i * 3 + 1] = 0.82;
-          colors[i * 3 + 2] = 1.0;
-        } else {
-          // Ramps / Transition Curves: Warm Orange (#ff9f43)
-          colors[i * 3 + 0] = 1.0;
-          colors[i * 3 + 1] = 0.62;
-          colors[i * 3 + 2] = 0.26;
-        }
-      }
-
-      geom.setAttribute('color', new contextThree.BufferAttribute(colors, 3));
-      mesh.material = new contextThree.MeshBasicMaterial({
-        vertexColors: true,
-        wireframe: false,
-        side: contextThree.DoubleSide
-      });
-    } else {
-      if (mesh.userData._originalMaterial) {
-        mesh.material = mesh.userData._originalMaterial;
-        delete mesh.userData._originalMaterial;
-      }
-      if (mesh.geometry?.getAttribute('color')) {
-        mesh.geometry.deleteAttribute('color');
-      }
-    }
-  }
 }
 
 let _lastSampledContextTime = -1;
@@ -153,29 +38,40 @@ export function collectAudioDiagnosticReport(): AudioDiagnosticReport {
   const nowPerf = typeof performance !== 'undefined' ? performance.now() : Date.now();
   const ctxTime = ctx ? ctx.currentTime : 0;
   let clockAdvancing = true;
-  if (_lastSampledPerfTime > 0 && nowPerf - _lastSampledPerfTime > 150 && ctx && ctx.state === 'running') {
-    clockAdvancing = (ctxTime - _lastSampledContextTime) > 0.001;
+  if (
+    _lastSampledPerfTime > 0 &&
+    nowPerf - _lastSampledPerfTime > 150 &&
+    ctx &&
+    ctx.state === 'running'
+  ) {
+    clockAdvancing = ctxTime - _lastSampledContextTime > 0.001;
   }
   _lastSampledContextTime = ctxTime;
   _lastSampledPerfTime = nowPerf;
 
   const docHidden = typeof document !== 'undefined' ? Boolean(document.hidden) : false;
   const visibilityState = typeof document !== 'undefined' ? document.visibilityState : 'unknown';
-  const docHasFocus = typeof document !== 'undefined' && typeof document.hasFocus === 'function' ? Boolean(document.hasFocus()) : true;
+  const docHasFocus =
+    typeof document !== 'undefined' && typeof document.hasFocus === 'function'
+      ? Boolean(document.hasFocus())
+      : true;
 
-  const outputMetrics = master ? master.sampleOutputMetrics() : { rms: 0, peak: 0, dbfs: -120, silent: true };
+  const outputMetrics = master
+    ? master.sampleOutputMetrics()
+    : { rms: 0, peak: 0, dbfs: -120, silent: true };
 
   // Inspect SlotPool
-  const slotsSummary = pool && Array.isArray(pool.slots)
-    ? pool.slots.map((s) => ({
-        id: s.id,
-        inUse: Boolean(s.inUse),
-        mode: s.currentMode || 'none',
-        priority: s.priority,
-        gain: s.gainNode?.gain?.value !== undefined ? Number(s.gainNode.gain.value.toFixed(4)) : 0,
-        ageMs: s.inUse && s.startTime > 0 ? Math.round(nowPerf - s.startTime) : 0
-      }))
-    : [];
+  const slotsSummary =
+    pool && Array.isArray(pool.slots)
+      ? pool.slots.map((s) => ({
+          id: s.id,
+          inUse: Boolean(s.inUse),
+          mode: s.currentMode || 'none',
+          priority: s.priority,
+          gain: s.gainNode?.gain?.value !== undefined ? Number(s.gainNode.gain.value.toFixed(4)) : 0,
+          ageMs: s.inUse && s.startTime > 0 ? Math.round(nowPerf - s.startTime) : 0,
+        }))
+      : [];
   const activeSlotCount = slotsSummary.filter((s) => s.inUse).length;
 
   // Inspect BallEmitter & Active Vehicle Emitter
@@ -184,15 +80,32 @@ export function collectAudioDiagnosticReport(): AudioDiagnosticReport {
   const activeEmitter = engine?.vehicleManager?.emitters?.get(activeCarIdx);
   const stateLoopInfo = {
     initialized: Boolean(ballEmit?.initialized),
-    isPlaying: Boolean(ballEmit?.rollingSource || ballEmit?.flyingSource || activeEmitter?.boostLoopSource || activeEmitter?.supersonicLoopSource),
+    isPlaying: Boolean(
+      ballEmit?.rollingSource ||
+        ballEmit?.flyingSource ||
+        activeEmitter?.boostLoopSource ||
+        activeEmitter?.supersonicLoopSource
+    ),
     boostLoopSourceActive: Boolean(activeEmitter?.boostLoopSource),
-    boostGain: activeEmitter?.boostLoopGain?.gain?.value !== undefined ? Number(activeEmitter.boostLoopGain.gain.value.toFixed(4)) : 0,
+    boostGain:
+      activeEmitter?.boostLoopGain?.gain?.value !== undefined
+        ? Number(activeEmitter.boostLoopGain.gain.value.toFixed(4))
+        : 0,
     supersonicLoopSourceActive: Boolean(activeEmitter?.supersonicLoopSource),
-    supersonicGain: activeEmitter?.supersonicLoopGain?.gain?.value !== undefined ? Number(activeEmitter.supersonicLoopGain.gain.value.toFixed(4)) : 0,
+    supersonicGain:
+      activeEmitter?.supersonicLoopGain?.gain?.value !== undefined
+        ? Number(activeEmitter.supersonicLoopGain.gain.value.toFixed(4))
+        : 0,
     ballRollingSourceActive: Boolean(ballEmit?.rollingSource),
-    ballRollingGain: ballEmit?.rollingGain?.gain?.value !== undefined ? Number(ballEmit.rollingGain.gain.value.toFixed(4)) : 0,
+    ballRollingGain:
+      ballEmit?.rollingGain?.gain?.value !== undefined
+        ? Number(ballEmit.rollingGain.gain.value.toFixed(4))
+        : 0,
     ballFlyingSourceActive: Boolean(ballEmit?.flyingSource),
-    ballFlyingGain: ballEmit?.flyingGain?.gain?.value !== undefined ? Number(ballEmit.flyingGain.gain.value.toFixed(4)) : 0
+    ballFlyingGain:
+      ballEmit?.flyingGain?.gain?.value !== undefined
+        ? Number(ballEmit.flyingGain.gain.value.toFixed(4))
+        : 0,
   };
 
   // Inspect Vehicle Emitters
@@ -207,10 +120,16 @@ export function collectAudioDiagnosticReport(): AudioDiagnosticReport {
         isBoosting: Boolean(em.isBoosting),
         isSupersonic: Boolean(em.isSupersonic),
         boostLoopActive: Boolean(em.boostLoopSource),
-        boostGain: em.boostLoopGain?.gain?.value !== undefined ? Number(em.boostLoopGain.gain.value.toFixed(4)) : 0,
+        boostGain:
+          em.boostLoopGain?.gain?.value !== undefined
+            ? Number(em.boostLoopGain.gain.value.toFixed(4))
+            : 0,
         supersonicLoopActive: Boolean(em.supersonicLoopSource),
-        supersonicGain: em.supersonicLoopGain?.gain?.value !== undefined ? Number(em.supersonicLoopGain.gain.value.toFixed(4)) : 0,
-        activeOneShots: em.activeSources ? em.activeSources.size : 0
+        supersonicGain:
+          em.supersonicLoopGain?.gain?.value !== undefined
+            ? Number(em.supersonicLoopGain.gain.value.toFixed(4))
+            : 0,
+        activeOneShots: em.activeSources ? em.activeSources.size : 0,
       });
     }
   }
@@ -226,12 +145,18 @@ export function collectAudioDiagnosticReport(): AudioDiagnosticReport {
       packId: s?.packId || 'turtle_modem',
       spatial: Boolean(entry?.spatial),
       spatialEnabled: Boolean(entry?.spatialBus?.enabled),
-      spatialTargetGain: entry?.spatialBus?.targetGain !== undefined ? Number(entry.spatialBus.targetGain.toFixed(4)) : null,
+      spatialTargetGain:
+        entry?.spatialBus?.targetGain !== undefined
+          ? Number(entry.spatialBus.targetGain.toFixed(4))
+          : null,
       active: Boolean(s?.active),
       alive: Boolean(s?.alive),
       audible: Boolean(s?.audible),
       engineVolume: s?.engineVolume !== undefined ? Number(s.engineVolume.toFixed(4)) : 0,
-      outputGain: s?.outputNode?.gain?.value !== undefined ? Number(s.outputNode.gain.value.toFixed(4)) : 0,
+      outputGain:
+        s?.outputNode?.gain?.value !== undefined
+          ? Number(s.outputNode.gain.value.toFixed(4))
+          : 0,
       rpm: s?.currentRPM !== undefined ? Math.round(s.currentRPM) : 0,
       gear: s?.currentGear ?? 1,
       neutral: Boolean(s?.isNeutral),
@@ -255,114 +180,37 @@ export function collectAudioDiagnosticReport(): AudioDiagnosticReport {
     }
   }
 
-  // Automated Root-Cause Verdict Engine
-  const anomalies: string[] = [];
-  let rootCauseCode = 'HEALTHY_ACTIVE';
-  let rootCauseVerdict = 'Web Audio engine is healthy and actively outputting audio signals (RMS > 0).';
-
   const masterVol = Number(audioConfig.get('masterVolume') ?? 1.0);
   const engineVol = Number(audioConfig.get('engineVolume') ?? 0.8);
   const continueOnBlur = Boolean(audioConfig.get('continueAudioOnLostFocus'));
   const masterOutputGain = master?.output?.gain?.value ?? 0;
 
-  if (!ctx) {
-    rootCauseCode = 'NO_AUDIO_CONTEXT';
-    rootCauseVerdict = 'AudioContext is not yet initialized or Web Audio API is unsupported by the browser.';
-    anomalies.push(rootCauseVerdict);
-  } else if ((ctx.state as string) === 'suspended' || (ctx.state as string) === 'interrupted') {
-    rootCauseCode = 'BROWSER_CONTEXT_SUSPENDED';
-    rootCauseVerdict = `Browser blocked audio: AudioContext.state is "${ctx.state}" (likely autoplay policy or suspended audio focus; click page or Force Resume to unlock).`;
-    anomalies.push(rootCauseVerdict);
-  } else if (ctx.state === 'closed') {
-    rootCauseCode = 'BROWSER_CONTEXT_CLOSED';
-    rootCauseVerdict = 'AudioContext is closed and cannot output any sound.';
-    anomalies.push(rootCauseVerdict);
-  } else if (!clockAdvancing) {
-    rootCauseCode = 'BROWSER_AUDIO_CLOCK_STALLED';
-    rootCauseVerdict = 'Browser/audio driver stall: AudioContext.state is "running", but hardware currentTime stopped advancing.';
-    anomalies.push(rootCauseVerdict);
-  }
-
-  if (masterVol <= 0.001) {
-    anomalies.push('Configuration mute: Master Volume is set to 0%.');
-    if (rootCauseCode === 'HEALTHY_ACTIVE') {
-      rootCauseCode = 'CONFIG_MASTER_VOLUME_ZERO';
-      rootCauseVerdict = 'Configuration mute: Master Volume is 0%, muting all audio output gain.';
-    }
-  }
-
-  if (master && (!master.active || !master.connected || masterOutputGain <= 0.0001)) {
-    const reason = (!docHasFocus || docHidden) && !continueOnBlur
-      ? 'Window lost focus and Play Audio in Background is disabled'
-      : 'MasterMixer is not in an active connected state';
-    anomalies.push(`MasterMixer muted: master.active=${master.active}, master.connected=${master.connected}, gain=${masterOutputGain.toFixed(4)} (${reason}).`);
-    if (rootCauseCode === 'HEALTHY_ACTIVE') {
-      rootCauseCode = 'MASTER_MIXER_DISCONNECTED_OR_MUTED';
-      rootCauseVerdict = `MasterMixer muted: gain=${masterOutputGain.toFixed(4)} / connected=${master.connected} (${reason}).`;
-    }
-  }
-
-  if (pool?.isMuted) {
-    anomalies.push('SlotPool muted: AudioSlotPool.isMuted = true, blocking one-shot collision/signal sounds.');
-    if (rootCauseCode === 'HEALTHY_ACTIVE') {
-      rootCauseCode = 'SLOT_POOL_MUTED';
-      rootCauseVerdict = 'AudioSlotPool.isMuted is true (typically triggered by window blur mute).';
-    }
-  }
-
-  if (telemetry.hasBlockingOverlay) {
-    anomalies.push(`UI overlay mute: Blocking overlay open (${(telemetry.blockingOverlays || []).join(', ') || 'Menu Open'}), muting continuous engine synths and loops.`);
-    if (rootCauseCode === 'HEALTHY_ACTIVE' && outputMetrics.silent) {
-      rootCauseCode = 'GAME_STATE_OVERLAY_MUTED';
-      rootCauseVerdict = 'Game state mute: Menu/overlay is open (hasBlockingOverlay=true); continuous engine and vehicle loops are paused until returning to match.';
-    }
-  } else if (telemetry.updatedAt > 0 && !telemetry.isAudibleActive) {
-    anomalies.push(`Match not audible: isMatchActive=${telemetry.isMatchActive}, isHidden=${telemetry.isHidden}, continueOnBlur=${telemetry.continueOnBlur} -> isAudibleActive=false.`);
-    if (rootCauseCode === 'HEALTHY_ACTIVE' && outputMetrics.silent) {
-      rootCauseCode = 'GAME_STATE_NOT_AUDIBLE';
-      rootCauseVerdict = 'Game state mute: Match is inactive or window is muted on blur (isAudibleActive=false).';
-    }
-  }
-
-  if (!listenerValid) {
-    anomalies.push(`Spatial listener invalid: hasListener=${listenerManager?.hasListener}, pos=(${listenerPos.x}, ${listenerPos.y}, ${listenerPos.z}).`);
-  }
-
-  if ((outputMetrics.nanCount ?? 0) > 0) {
-    anomalies.push(`DSP NaN anomaly: Master output detected ${outputMetrics.nanCount} NaN/Infinity samples!`);
-    rootCauseCode = 'DSP_NAN_CORRUPTION';
-    rootCauseVerdict = 'DSP pipeline error: MasterMixer output contains NaN/Infinity samples.';
-  }
-
-  if (rootCauseCode === 'HEALTHY_ACTIVE' && outputMetrics.silent) {
-    const anySynthActive = engineSynths.some((s) => s.active && s.outputGain > 0.001);
-    const anyLoopActive =
-      stateLoopInfo.boostGain > 0.001 ||
-      stateLoopInfo.supersonicGain > 0.001 ||
-      stateLoopInfo.ballRollingGain > 0.001 ||
-      stateLoopInfo.ballFlyingGain > 0.001 ||
-      activeSlotCount > 0;
-
-    if (anySynthActive || anyLoopActive) {
-      rootCauseCode = 'CLIENT_GHOST_PLAYBACK';
-      rootCauseVerdict = 'Client/Browser playback anomaly: Audio nodes are active with Gain > 0, but Master bus Analyser reads silence. Click Force Resume / Rebuild to recover.';
-    } else {
-      rootCauseCode = 'HEALTHY_IDLE_SILENT';
-      rootCauseVerdict = 'Web Audio pipeline is healthy and ready (AudioContext running, MasterMixer connected), currently idle in silent standby.';
-    }
-  } else if (rootCauseCode === 'HEALTHY_ACTIVE' && !outputMetrics.silent) {
-    rootCauseVerdict = `Web Audio is actively outputting sound (Realtime Level: ${outputMetrics.dbfs} dBFS, Peak: ${outputMetrics.peak}). If no sound is heard, check browser tab mute or OS output device.`;
-  }
+  const verdict = evaluateAudioRootCauseVerdict({
+    ctx,
+    clockAdvancing,
+    masterVol,
+    masterActive: Boolean(master?.active),
+    masterConnected: Boolean(master?.connected),
+    masterOutputGain,
+    docHasFocus,
+    docHidden,
+    continueOnBlur,
+    poolMuted: Boolean(pool?.isMuted),
+    telemetry,
+    outputMetrics,
+    listenerValid,
+    hasListener: Boolean(listenerManager?.hasListener),
+    listenerPos,
+    engineSynths,
+    stateLoopInfo,
+    activeSlotCount,
+  });
 
   const ctxWithLatency = ctx as AudioContextWithLatency | null;
 
   return {
     timestamp: new Date().toISOString(),
-    verdict: {
-      code: rootCauseCode,
-      summary: rootCauseVerdict,
-      anomalies
-    },
+    verdict,
     audioContext: {
       exists: Boolean(ctx),
       state: ctx ? ctx.state : 'none',
@@ -371,7 +219,7 @@ export function collectAudioDiagnosticReport(): AudioDiagnosticReport {
       sampleRate: ctx ? ctx.sampleRate : 0,
       baseLatency: ctxWithLatency?.baseLatency ?? null,
       outputLatency: ctxWithLatency?.outputLatency ?? null,
-      destinationMaxChannels: ctx?.destination?.maxChannelCount ?? null
+      destinationMaxChannels: ctx?.destination?.maxChannelCount ?? null,
     },
     masterMixer: {
       active: Boolean(master?.active),
@@ -379,28 +227,28 @@ export function collectAudioDiagnosticReport(): AudioDiagnosticReport {
       configuredVolume: masterVol,
       outputGainValue: Number(masterOutputGain.toFixed(4)),
       realtimeOutput: outputMetrics,
-      acoustics: master ? master.getAcousticSnapshot() : null
+      acoustics: master ? master.getAcousticSnapshot() : null,
     },
     focusAndVisibility: {
       documentHidden: docHidden,
       visibilityState,
       documentHasFocus: docHasFocus,
       runtimeWindowFocused: Boolean(runtime?.isWindowFocused ?? docHasFocus),
-      continueAudioOnLostFocus: continueOnBlur
+      continueAudioOnLostFocus: continueOnBlur,
     },
     gameAudioState: {
       ...telemetry,
       engineVolumeConfig: engineVol,
       boostVolumeConfig: Number(audioConfig.get('boostVolume') ?? 0.8),
       loadedBuffersCount,
-      totalRegisteredBufferKeys: subsystemState.buffers ? subsystemState.buffers.size : 0
+      totalRegisteredBufferKeys: subsystemState.buffers ? subsystemState.buffers.size : 0,
     },
     slotPool: {
       initialized: Boolean(pool?._initialized),
       isMuted: Boolean(pool?.isMuted),
       activeSlots: activeSlotCount,
       maxSlots: pool?.maxSlots ?? 10,
-      slots: slotsSummary
+      slots: slotsSummary,
     },
     continuousLoops: stateLoopInfo,
     vehicleEmitters,
@@ -411,17 +259,19 @@ export function collectAudioDiagnosticReport(): AudioDiagnosticReport {
       positionUU: {
         x: Number((listenerPos.x || 0).toFixed(1)),
         y: Number((listenerPos.y || 0).toFixed(1)),
-        z: Number((listenerPos.z || 0).toFixed(1))
-      }
+        z: Number((listenerPos.z || 0).toFixed(1)),
+      },
     },
-    recentLifecycleEvents: subsystemState.lifecycleHistory.slice(-15)
+    recentLifecycleEvents: subsystemState.lifecycleHistory.slice(-15),
   };
 }
 
 /**
  * Formats and prints the full Audio Diagnostic Report to the browser DevTools Console.
  */
-export function dumpAudioDiagnosticsToConsole(reason: string = 'Manual Diagnostic Trigger'): AudioDiagnosticReport {
+export function dumpAudioDiagnosticsToConsole(
+  reason: string = 'Manual Diagnostic Trigger'
+): AudioDiagnosticReport {
   const report = collectAudioDiagnosticReport();
   const styleHeader = 'color:#38bdf8;font-weight:bold;font-size:12px;';
   const styleVerdict = report.verdict.code.startsWith('HEALTHY')
@@ -448,7 +298,7 @@ export function dumpAudioDiagnosticsToConsole(reason: string = 'Manual Diagnosti
     realtimeRMS: report.masterMixer.realtimeOutput.rms,
     realtimePeak: report.masterMixer.realtimeOutput.peak,
     realtimeDbFS: `${report.masterMixer.realtimeOutput.dbfs} dBFS`,
-    isOutputSilent: report.masterMixer.realtimeOutput.silent
+    isOutputSilent: report.masterMixer.realtimeOutput.silent,
   });
 
   console.log('[2. Focus, Visibility & Game Audibility Gate]:', {
@@ -457,14 +307,14 @@ export function dumpAudioDiagnosticsToConsole(reason: string = 'Manual Diagnosti
     hasBlockingOverlay: report.gameAudioState.hasBlockingOverlay,
     blockingOverlays: report.gameAudioState.blockingOverlays,
     isAudibleActive: report.gameAudioState.isAudibleActive,
-    loadedBuffers: `${report.gameAudioState.loadedBuffersCount}/${report.gameAudioState.totalRegisteredBufferKeys}`
+    loadedBuffers: `${report.gameAudioState.loadedBuffersCount}/${report.gameAudioState.totalRegisteredBufferKeys}`,
   });
 
   console.log('[3. Continuous Loops (Ball / Boost / Supersonic) & Spatial Listener]:', {
     loops: report.continuousLoops,
     listener: report.spatialListener,
     slotPoolMuted: report.slotPool.isMuted,
-    slotPoolActiveVoices: `${report.slotPool.activeSlots}/${report.slotPool.maxSlots}`
+    slotPoolActiveVoices: `${report.slotPool.activeSlots}/${report.slotPool.maxSlots}`,
   });
 
   if (report.engineSynths.length > 0) {
@@ -515,7 +365,7 @@ if (typeof window !== 'undefined') {
     enableMonitor: (on = true) => {
       audioConfig.set('audioDebugMode', Boolean(on));
       audioDebugMonitor.setEnabled(Boolean(on));
-    }
+    },
   };
 }
 

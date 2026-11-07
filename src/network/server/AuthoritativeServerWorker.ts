@@ -3,20 +3,22 @@ import { loadRocketSimWasmModule } from '../../physics/RocketSimWasm.ts';
 import { PhysicsEngineManager } from './PhysicsEngineManager.ts';
 import { NetworkInputBuffer, MAX_INPUT_BUFFER_TICKS } from './NetworkInputBuffer.ts';
 import { EstablishedSessionManager } from './EstablishedSessionManager.ts';
-import { MatchSessionAdmin } from './match/MatchSessionAdmin.ts';
+import { MatchSessionAdmin, type AdminPhysicsManagerPort } from './match/MatchSessionAdmin.ts';
 import { NetworkDataHandler } from './NetworkDataHandler.ts';
 import {
   HOST_WORKER_MSG_TYPES,
   createWorkerEnvelope,
+} from '../protocol/HostWorkerProtocol.ts';
+import {
   routeProtocolMessageInWorker,
   buildWorkerRoomStateSummary,
   type WorkerRouterContext,
   type WorkerProtocolIncomingMessage,
   type HostWorkerInitOptions,
 } from './HostWorkerMessageRouter.ts';
+import { WorkerDirectBotPortBridge } from './workerReplayAndDiagnosticsRouter.ts';
 import type { DiagnosticsTestVehicleController } from '../diagnostics/DiagnosticsTestVehicles.ts';
 import type { AuthoritativePhysicsSimPort } from './authoritativePhysicsStepPipeline.ts';
-import type { AdminPhysicsManagerPort } from './match/MatchSessionAdmin.ts';
 
 export interface AuthoritativeWorkerIncomingEvent extends HostWorkerInitOptions {
   type?: string;
@@ -35,10 +37,7 @@ let sessionManager: EstablishedSessionManager | null = null;
 let matchManager: MatchSessionAdmin | null = null;
 let dataHandler: NetworkDataHandler | null = null;
 let diagnosticsController: DiagnosticsTestVehicleController | null = null;
-let botPort: MessagePort | null = null;
-let botInferenceInFlight = false;
-let botInferenceLastSentAt = 0;
-let sentPadsToBotPort = false;
+const botPortBridge = new WorkerDirectBotPortBridge();
 
 let isRunning = false;
 let loopTimer: ReturnType<typeof setTimeout> | null = null;
@@ -63,10 +62,7 @@ function sendToMain(channelId: string, packet: Uint8Array | ArrayBuffer | string
   let transferBuffer: ArrayBufferLike | null = null;
   let copy: Uint8Array | string = packet as Uint8Array | string;
 
-  if (packet instanceof Uint8Array) {
-    copy = new Uint8Array(packet);
-    transferBuffer = copy.buffer;
-  } else if (packet instanceof ArrayBuffer) {
+  if (packet instanceof Uint8Array || packet instanceof ArrayBuffer) {
     copy = new Uint8Array(packet);
     transferBuffer = copy.buffer;
   }
@@ -140,106 +136,12 @@ function syncWorkerRoomStateIfNeeded(
   }
 }
 
-function attachDirectBotPort(port: MessagePort): void {
-  if (!port) return;
-  if (botPort && botPort !== port) {
-    try {
-      botPort.close?.();
-    } catch (_e) {}
-  }
-  botPort = port;
-  botInferenceInFlight = false;
-  botInferenceLastSentAt = 0;
-  sentPadsToBotPort = false;
-  botPort.onmessage = (ev: MessageEvent) => {
-    const msg = ev?.data;
-    if (!msg) return;
-    if (msg.type === 'bot_tunnel_packets') {
-      botInferenceInFlight = false;
-      if (!dataHandler || !Array.isArray(msg.packets)) return;
-      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      for (let i = 0; i < msg.packets.length; i++) {
-        const item = msg.packets[i];
-        if (!item || !item.sessionId || !item.packetBytes) continue;
-        if (!dataHandler.channels.has(item.sessionId)) {
-          registerWorkerChannel(item.sessionId);
-        }
-        dataHandler.handleIncomingPacket(item.sessionId, item.packetBytes, now);
-      }
-    }
-  };
-  botPort.start?.();
-}
-
-function stepDirectBotPort(): void {
-  if (!botPort || !matchManager || !sim || !sim.state) return;
-  const bots: Array<{
-    sessionId: string;
-    carIndex: number;
-    team: number;
-    botType: string;
-  }> = [];
-  const activeCars: Array<{ carIndex: number; team: number }> = [];
-  for (const [sid, p] of matchManager.roster.players.entries()) {
-    const cIdx = p.entityId;
-    if (typeof cIdx !== 'number' || cIdx < 0 || cIdx >= 6) continue;
-    const team = p.team === 1 ? 1 : 0;
-    activeCars.push({ carIndex: cIdx, team });
-    if (p.isBot || isVirtualBotChannelId(sid)) {
-      if (dataHandler && !dataHandler.channels.has(sid)) {
-        registerWorkerChannel(sid);
-      }
-      bots.push({
-        sessionId: sid,
-        carIndex: cIdx,
-        team,
-        botType: p.botType || 'nexto',
-      });
-    }
-  }
-  if (bots.length === 0) return;
-
-  const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-  if (botInferenceInFlight && now - botInferenceLastSentAt < 150) {
-    return;
-  }
-
-  const serverTick = physicsManager?.currentTick ?? Math.floor(sim.getHeaderView().tickCount);
-  const stateCopy = new Float32Array(sim.state);
-  let pads: unknown = null;
-  if (!sentPadsToBotPort && typeof sim.getPads === 'function') {
-    pads = sim.getPads();
-    sentPadsToBotPort = true;
-  }
-
-  botInferenceInFlight = true;
-  botInferenceLastSentAt = now;
-  try {
-    botPort.postMessage(
-      {
-        type: 'step_bots',
-        stateSnapshot: stateCopy,
-        serverTick,
-        matchState: matchManager.lifecycle.state || 'playing',
-        bots,
-        activeCars,
-        pads,
-        redundantTicks: 10,
-        nowMs: now,
-      },
-      [stateCopy.buffer]
-    );
-  } catch (_err) {
-    botInferenceInFlight = false;
-  }
-}
-
 function tick(): void {
   if (!isRunning || !matchManager) return;
   const globalPayloadBytes = matchManager.lifecycle.stepFrame();
   syncWorkerRoomStateIfNeeded(postWorkerMessage, false);
-  if (botPort && matchManager.domain.externalBotTunnels) {
-    stepDirectBotPort();
+  if (botPortBridge.botPort && matchManager.domain.externalBotTunnels) {
+    botPortBridge.step(matchManager, sim, physicsManager, dataHandler, registerWorkerChannel);
   }
   if (globalPayloadBytes && globalPayloadBytes.length > 0 && dataHandler) {
     dataHandler.dispatchFrameToSessions(globalPayloadBytes);
@@ -358,19 +260,13 @@ export async function handleAuthoritativeWorkerMessage(
         eventOrData && 'ports' in eventOrData ? eventOrData.ports : undefined;
       const port = data.port || raw.port || eventPorts?.[0];
       if (port) {
-        attachDirectBotPort(port);
+        botPortBridge.attach(port, dataHandler, registerWorkerChannel);
       }
       break;
     }
 
     case 'detach_bot_port': {
-      if (botPort) {
-        try {
-          botPort.close?.();
-        } catch (_e) {}
-      }
-      botPort = null;
-      botInferenceInFlight = false;
+      botPortBridge.detach();
       break;
     }
 
@@ -510,14 +406,7 @@ export async function handleAuthoritativeWorkerMessage(
     case 'destroy':
     case HOST_WORKER_MSG_TYPES.WORKER_DESTROY: {
       stopLoop();
-      if (botPort) {
-        try {
-          botPort.close?.();
-        } catch (_e) {}
-      }
-      botPort = null;
-      botInferenceInFlight = false;
-      sentPadsToBotPort = false;
+      botPortBridge.detach();
       matchManager?.destroy();
       sessionManager?.destroy();
       dataHandler?.destroy();

@@ -1,5 +1,4 @@
 import type * as THREE from 'three';
-import type { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RuntimeBloomOcclusion } from './runtime/RuntimeBloomOcclusion.ts';
 import { RuntimeBotCoordinator, type BotAgentLike } from './runtime/RuntimeBotCoordinator.ts';
 import { RuntimeNetworkManager } from './runtime/RuntimeNetworkManager.ts';
@@ -12,7 +11,9 @@ import {
   disposeCoreSceneGraph,
   type CorePhysicsBundle,
   type MountedGameUIHandle,
+  type SceneGraphBundle,
 } from './runtime/RuntimeSceneBootstrap.ts';
+import { buildRuntimeSceneGraphConfig } from './runtime/RuntimePostprocessingAndSessionBootstrap.ts';
 import { createGameRuntimeDomainPorts } from './runtime/runtimeDomainPorts.ts';
 import {
   determinismStore,
@@ -27,13 +28,11 @@ import {
   type RuntimeReplayPort,
   type RuntimeTunerPort,
 } from './runtimeUiPort.ts';
-import { syncMaterialsToGame } from '../effects/ThemeMaterialPipeline.ts';
 import type { CarControlsInput } from '../network/protocol/GlobalPayloadCodec.ts';
 import { RenderClockScheduler } from './RenderClockScheduler.ts';
 import { DEFAULT_TRAINING_SETTINGS } from '../ui-core/config/trainingDefaults';
 import { FlipResetVisual } from '../effects/FlipResetVisual.ts';
 import { PerformanceProfiler } from '../utils/PerformanceProfiler.ts';
-
 import {
   FramePipeline,
   InputStage,
@@ -44,31 +43,14 @@ import {
 import { SimulationStage } from './pipeline/stages/SimulationStage.ts';
 import { PresentationStage } from './pipeline/stages/PresentationStage.ts';
 import { TelemetryStage } from './pipeline/stages/TelemetryStage.ts';
-
 import { GameAudioSubsystem } from './subsystems/GameAudioSubsystem.ts';
 import { GameCameraSubsystem } from './subsystems/GameCameraSubsystem.ts';
 import { GameRenderSubsystem } from './subsystems/GameRenderSubsystem.ts';
 import { GameModeManager } from './modes/GameModeManager.ts';
-import type { RocketSimPhysicsEngine } from '../physics/RocketSimPhysicsEngine.ts';
-import type { PhysicsStateInterpolator } from '../physics/PhysicsStateInterpolator.ts';
-import type { RuntimeMatchState } from './runtime/RuntimeMatchState.ts';
-import type { ArenaWorld } from '../entities/ArenaWorld.ts';
-import type { EntityManager } from '../entities/EntityManager.ts';
-import type { CameraManager } from '../camera/CameraManager.ts';
-import type { BoostBloom } from '../effects/BoostBloom.ts';
-import type { SupersonicSpeedLinesPass } from '../effects/SupersonicSpeedLinesPass.ts';
-import type { BallTrajectoryPredictor } from '../entities/BallTrajectoryPredictor.ts';
-import type { ReachabilityVisualizer } from '../entities/ReachabilityVisualizer.ts';
-import type { KeyboardMouseController } from '../input/KeyboardMouseController.ts';
-import type { GamepadController } from '../input/GamepadController.ts';
-import type { MultiplayerSessionManager } from '../network/transport/MultiplayerSessionManager.ts';
 import type { PodiumCelebrationController } from './modes/PodiumCelebrationController.ts';
 import type { FreeplayRewinderController } from '../replay/FreeplayRewinderController.ts';
 import type { StandaloneReplayViewerController } from '../replay/StandaloneReplayViewerController.ts';
 import type { ReplayTimelineController } from '../replay/ReplayTimelineController.ts';
-import type { AuthoritativeServerHost } from '../network/server/AuthoritativeServerHost.ts';
-import type { PredictionReconciler } from '../network/client/PredictionReconciler.ts';
-import type { DeterminismHarness } from '../physics/DeterminismHarness.ts';
 import type {
   MaterialsConfigLike,
   NetworkSessionChannelLike,
@@ -79,7 +61,7 @@ export const PLAYER_CAR_INDEX = 0;
 export const BOT_CAR_INDEX = 1;
 
 export interface GameRuntimeOptions {
-  CameraControllerClass?: new (aspect: number) => CameraManager;
+  CameraControllerClass?: new (aspect: number) => SceneGraphBundle['camera'];
   gameUI?: MountedGameUIHandle | null;
   mountUI?: (container: HTMLElement, runtime: GameRuntimeUiBridgePort) => MountedGameUIHandle;
   gameAudio?: SignalAudioFacadeLike;
@@ -98,29 +80,29 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
   container: HTMLElement | null;
   options: GameRuntimeOptions;
 
-  physics: RocketSimPhysicsEngine | null = null;
-  interpolator: PhysicsStateInterpolator | null = null;
-  match: RuntimeMatchState | null = null;
+  physics: CorePhysicsBundle['physics'] | null = null;
+  interpolator: CorePhysicsBundle['interpolator'] | null = null;
+  match: CorePhysicsBundle['match'] | null = null;
   bot: BotAgentLike | null = null;
-  arena: ArenaWorld | null = null;
-  entityManager: EntityManager | null = null;
-  camera: CameraManager | null = null;
+  arena: SceneGraphBundle['arena'] = null;
+  entityManager: SceneGraphBundle['entityManager'] = null;
+  camera: SceneGraphBundle['camera'] | null = null;
   renderer: THREE.WebGLRenderer | null = null;
-  composer: EffectComposer | null = null;
-  boostBloom: BoostBloom | null = null;
+  composer: SceneGraphBundle['composer'] = null;
+  boostBloom: SceneGraphBundle['boostBloom'] = null;
   bloomEnabled = false;
-  speedLinesPass: SupersonicSpeedLinesPass | null = null;
+  speedLinesPass: SceneGraphBundle['speedLinesPass'] = null;
   applyVisualMaterialsConfig: unknown = null;
   flipResetVisuals = new Map<number, FlipResetVisual>();
   clockScheduler: RenderClockScheduler | null = null;
 
-  keyboard: KeyboardMouseController | null = null;
-  gamepad: GamepadController | null = null;
+  keyboard: SceneGraphBundle['keyboard'] | null = null;
+  gamepad: SceneGraphBundle['gamepad'] | null = null;
   gameUI: MountedGameUIHandle | null = null;
   profiler = new PerformanceProfiler();
-  ballTrajectoryPredictor: BallTrajectoryPredictor | null = null;
-  reachabilityVisualizer: ReachabilityVisualizer | null = null;
-  multiplayerSession: MultiplayerSessionManager | null = null;
+  ballTrajectoryPredictor: SceneGraphBundle['ballTrajectoryPredictor'] = null;
+  reachabilityVisualizer: SceneGraphBundle['reachabilityVisualizer'] = null;
+  multiplayerSession: SceneGraphBundle['multiplayerSession'] | null = null;
 
   playerCarIndex = PLAYER_CAR_INDEX;
   neutralControls: CarControlsInput = {
@@ -180,7 +162,8 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
 
   constructor(container?: HTMLElement | null, options: GameRuntimeOptions = {}) {
     this.container =
-      container || (typeof document !== 'undefined' ? (document.querySelector('#app') as HTMLElement | null) : null);
+      container ||
+      (typeof document !== 'undefined' ? (document.querySelector('#app') as HTMLElement | null) : null);
     this.options = options;
     this.playerControls = { ...this.neutralControls };
     this.trainingOptions = { ...DEFAULT_TRAINING_SETTINGS };
@@ -214,13 +197,13 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
     this.replayPort = ports.replayPort;
   }
 
-  get authoritativeServer(): AuthoritativeServerHost | null {
+  get authoritativeServer() {
     return this.networkManager.sessionCoordinator.authoritativeServer;
   }
-  get networkChannel(): NetworkSessionChannelLike | null {
+  get networkChannel() {
     return this.networkManager.sessionCoordinator.networkChannel;
   }
-  get networkReconciler(): PredictionReconciler | null {
+  get networkReconciler() {
     return this.networkManager.sessionCoordinator.networkReconciler;
   }
   get botControls(): CarControlsInput {
@@ -245,11 +228,9 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
   isGoalReplayCameraOverrideActive(): boolean {
     return this.cameraSubsystem.isGoalReplayCameraOverrideActive();
   }
-
   acquireGoalReplayCameraOverride(source = 'default'): void {
     this.cameraSubsystem.acquireGoalReplayCameraOverride(source);
   }
-
   releaseGoalReplayCameraOverride(source: string | null = null): void {
     this.cameraSubsystem.releaseGoalReplayCameraOverride(source);
   }
@@ -261,155 +242,59 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
         this.networkManager.diagnosticsProbe.physicsRate = nextRate;
       },
     });
-    this.selectedPreset = bundle.selectedPreset;
-    this.teamAssignment = bundle.teamAssignment;
-    this.physics = bundle.physics;
-    this.playerCarIndex = bundle.playerCarIndex;
-    this.interpolator = bundle.interpolator;
-    this.match = bundle.match;
-    this.bot = null;
+    Object.assign(this, bundle, { bot: null });
     this.audioSubsystem.engineSynths = [];
     this.resetAudio();
     return bundle;
   }
 
   getFlipResetVisual(carIndex: number): FlipResetVisual | null {
-    if (this.flipResetVisuals.has(carIndex)) {
-      return this.flipResetVisuals.get(carIndex) || null;
-    }
+    let visual = this.flipResetVisuals.get(carIndex) ?? null;
     const carRoot = this.arena?.cars?.[carIndex];
-    if (carRoot) {
-      const visual = new FlipResetVisual(carRoot);
+    if (!visual && carRoot) {
+      visual = new FlipResetVisual(carRoot);
       this.flipResetVisuals.set(carIndex, visual);
-      return visual;
     }
-    return null;
+    return visual;
   }
 
   get flipResetVisual(): FlipResetVisual | null {
     return this.getFlipResetVisual(this.playerCarIndex);
   }
 
-  async setupScene(onProgress: ((progress: number, message?: string) => void) | null = null): Promise<void> {
-    if (!this.physics || !this.interpolator) {
-      throw new Error('[GameRuntime] setupPhysics must complete before setupScene.');
-    }
-    const bundle = await createCoreSceneGraph({
-      container: this.container,
-      physics: this.physics,
-      interpolator: this.interpolator,
-      selectedPreset: this.selectedPreset,
-      teamAssignment: this.teamAssignment,
-      playerCarIndex: this.playerCarIndex,
-      options: this.options,
-      onProgress,
-      callbacks: {
-        onResetKickoff: () => this.resetKickoff(),
-        onBallControl: (actionId) => {
-          const activeMode = this.modeManager?.getActiveMode?.() as {
-            nameTagTunerController?: { isActive?: boolean };
-          } | null;
-          const modeName = this.match?.state.mode;
-          if (
-            (modeName === 'freeplay' || modeName === 'online-warmup') &&
-            !activeMode?.nameTagTunerController?.isActive &&
-            this.physics?.controlBall(this.playerCarIndex, actionId)
-          ) {
-            if (this.authoritativeServer) {
-              this.authoritativeServer.sim?.controlBall?.(this.playerCarIndex, actionId);
-              const snap =
-                typeof this.physics.saveCompactState === 'function'
-                  ? this.physics.saveCompactState()
-                  : this.physics.saveState();
-              this.authoritativeServer.sim?.restoreState?.(snap);
-              const curTick = Math.floor(this.physics.getHeaderView?.()?.tickCount ?? 0);
-              this.networkReconciler?.syncTimeline?.(snap, curTick);
-            }
-            this.interpolator?.syncBall();
-            this.arena?.resetBallTrail?.();
-            this.ballTrajectoryPredictor?.notifyBallStateReset?.();
-          }
-        },
-        onKickoffSpawnSelect: (spawnIndex) => {
-          if (this.match?.state?.mode === 'kickoff-training') {
-            const mode = this.modeManager?.getActiveMode?.() as { selectSpawn?(idx: number): void } | null;
-            mode?.selectSpawn?.(spawnIndex);
-          }
-        },
-        onEnsurePlayerFlipResetVisual: (carIndex) => {
-          this.getFlipResetVisual(carIndex);
-        },
-        onSyncInitialMaterials: (arena, applyFn, materials) => {
-          this.arena = arena;
-          this.applyVisualMaterialsConfig = applyFn;
-          syncMaterialsToGame(this, materials);
-        },
-        onUpdateViewport: (renderer, camera, composer, boostBloom, speedLinesPass, gfx) => {
-          this.renderer = renderer;
-          this.camera = camera;
-          this.composer = composer;
-          this.boostBloom = boostBloom;
-          this.speedLinesPass = speedLinesPass;
-          this.activeGraphicsSettings = gfx as GraphicsSettingsPort;
-          this.domEventManager.updateViewport();
-        },
-        onEnableDeterminismHarness: (autoOpenPanel) =>
-          this.networkManager.diagnosticsProbe.enableDeterminismHarness(autoOpenPanel),
-        onEnableNetworkPrediction: (enabled) =>
-          this.networkManager.sessionCoordinator.enableNetworkPrediction(enabled),
-        onHostOnlineServer: (opts) => this.networkManager.sessionCoordinator.hostOnlineServer(opts),
-        onStopOnlineServer: () => this.networkManager.sessionCoordinator.stopOnlineServer(),
-        onJoinOnlineServer: (opts) => this.networkManager.sessionCoordinator.joinOnlineServer(opts),
-        onRemotePlayerConnected: async (channel, name) =>
-          (await this.networkManager.rosterSyncCoordinator.onRemotePlayerConnected(channel, name)) ?? -1,
-        onRemoveRemotePlayer: (carIndex) => this.networkManager.rosterSyncCoordinator.removeRemotePlayer(carIndex),
-        onSetCarColor: (carIndex, hex) => this.setCarColor(carIndex, hex),
-        onMountOrAttachGameUI: (container) => {
-          if (this.options?.gameUI) {
-            this.options.gameUI.attachToRuntime?.(this);
-            return this.options.gameUI;
-          }
-          if (typeof this.options?.mountUI === 'function') {
-            return this.options.mountUI(container, this);
-          }
-          return null;
-        },
-        onDisposeHeadlessBloomOcclusion: () => {
-          this.bloomOcclusion?.dispose?.();
-        },
-      },
+  bindInitialArenaAndMaterials(
+    arena: NonNullable<SceneGraphBundle['arena']>,
+    applyFn: SceneGraphBundle['applyVisualMaterialsConfig'],
+  ): void {
+    this.arena = arena;
+    this.applyVisualMaterialsConfig = applyFn;
+  }
+
+  bindViewportRenderTargets(
+    renderer: THREE.WebGLRenderer,
+    camera: SceneGraphBundle['camera'],
+    composer: NonNullable<SceneGraphBundle['composer']>,
+    boostBloom: NonNullable<SceneGraphBundle['boostBloom']>,
+    speedLinesPass: SceneGraphBundle['speedLinesPass'],
+    gfx: Record<string, unknown>,
+  ): void {
+    Object.assign(this, {
+      renderer, camera, composer, boostBloom, speedLinesPass,
+      activeGraphicsSettings: gfx as GraphicsSettingsPort,
     });
+  }
 
-    this.selectedPreset = bundle.selectedPreset;
-    this.teamAssignment = bundle.teamAssignment;
-    this.keyboard = bundle.keyboard;
-    this.gamepad = bundle.gamepad;
-    this.arena = bundle.arena;
-    this.entityManager = bundle.entityManager;
-    this.speedLinesPass = bundle.speedLinesPass;
-    this.applyVisualMaterialsConfig = bundle.applyVisualMaterialsConfig;
-    this.camera = bundle.camera;
-    this.cursorHintButton = bundle.cursorHintButton;
-    this.activeGraphicsSettings = bundle.activeGraphicsSettings as GraphicsSettingsPort;
-    this.ballTrajectoryPredictor = bundle.ballTrajectoryPredictor;
-    this.reachabilityVisualizer = bundle.reachabilityVisualizer;
-    this.multiplayerSession = bundle.multiplayerSession;
-    this.gameUI = bundle.gameUI;
-    this.renderer = bundle.renderer;
-    this.boostBloom = bundle.boostBloom;
-    this.composer = bundle.composer;
-
+  async setupScene(onProgress: ((progress: number, message?: string) => void) | null = null): Promise<void> {
+    Object.assign(this, await createCoreSceneGraph(buildRuntimeSceneGraphConfig(this, onProgress)));
     this.domEventManager.setupWindowEvents();
   }
 
   async setupAudio(onProgress: ((loaded: number, total?: number, file?: string) => void) | null = null): Promise<void> {
     return this.audioSubsystem.setupAudio(onProgress);
   }
-
   async setupBot(onProgress: ((completed?: number, total?: number, name?: string) => void) | null = null): Promise<void> {
     return this.botCoordinator.setupBot(onProgress);
   }
-
   async setupShaders(onProgress: ((progress: number, label?: string) => void) | null = null): Promise<void> {
     return this.bloomOcclusion.setupShaders(onProgress);
   }
@@ -426,12 +311,11 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
   start(): void {
     if (this.running) return;
     this.running = true;
-    const glContext = this.renderer ? this.renderer.getContext() : null;
     this.clockScheduler = new RenderClockScheduler(
-      glContext,
-      (timestamp) => this.renderFrame(timestamp),
-      (timestamp) => this.profiler && this.profiler.displayFrame(timestamp),
-      (timestamp) => this.stepSimulation(timestamp),
+      this.renderer?.getContext() ?? null,
+      (t) => this.renderFrame(t),
+      (t) => this.profiler?.displayFrame(t),
+      (t) => this.stepSimulation(t),
     );
     if (this.activeGraphicsSettings) {
       this.clockScheduler.setFpsLimit(
@@ -445,50 +329,47 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
   stop(): void {
     if (!this.running) return;
     this.running = false;
-    if (this.clockScheduler) this.clockScheduler.stop();
+    this.clockScheduler?.stop();
   }
 
   renderFrame(timestamp = performance.now()): boolean {
     return this.pipeline.execute(timestamp);
   }
-
   stepSimulation(timestamp = performance.now()): void {
     this.pipeline.executeSimulationOnly(timestamp);
   }
-
   triggerGameAudioEvents(goalScored: boolean, curBoost: number, isSupersonic: boolean, curr: Float32Array): void {
     return this.audioSubsystem.triggerGameAudioEvents(goalScored, curBoost, isSupersonic, curr);
   }
-
   pollInputs(commitPhysicsStep = true): boolean {
     return this.inputPoller.pollInputs(commitPhysicsStep);
   }
-
   changePlayerVehicle(visualId: string, hitboxId: string | null = null): void {
     this.loadoutCoordinator.changePlayerVehicle(visualId, hitboxId);
   }
-
   setCarColor(carIndex: number, colorVal: number | string, broadcast = true): void {
     this.loadoutCoordinator.setCarColor(carIndex, colorVal, broadcast);
   }
-
   syncPlayerMaterialsLoadout(materialsConfig: MaterialsConfigLike | null = null): void {
     this.loadoutCoordinator.syncPlayerMaterialsLoadout(materialsConfig);
   }
-
   restoreLocalPlayerFreeplayLoadout(carIndex = 0): void {
     this.loadoutCoordinator.restoreLocalPlayerFreeplayLoadout(carIndex);
   }
 
-  onSessionReady(reconciler: PredictionReconciler | null, channel: NetworkSessionChannelLike | null): void {
+  onSessionReady(
+    reconciler: RuntimeNetworkManager['sessionCoordinator']['networkReconciler'],
+    channel: NetworkSessionChannelLike | null,
+  ): void {
     networkDiagnosticsStore.setSession(reconciler, channel, this);
   }
-
   onShowNetworkHUD(): void {
     toggleFloatingPreset(NETWORK_MONITOR_PRESET);
   }
-
-  onDeterminismHarnessReady(harness: DeterminismHarness, showHUD = false): void {
+  onDeterminismHarnessReady(
+    harness: NonNullable<RuntimeNetworkManager['diagnosticsProbe']['determinismHarness']>,
+    showHUD = false,
+  ): void {
     determinismStore.setHarness(harness);
     if (showHUD) toggleFloatingPreset(DUAL_ARENA_DETERMINISM_HARNESS_PRESET);
   }
@@ -503,11 +384,9 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
   resetAudio(): void {
     return this.audioSubsystem.resetAudio();
   }
-
   resetBotState(): void {
     return this.botCoordinator.resetBotState();
   }
-
   leaveBotMatch(): void {
     return this.botCoordinator.leaveBotMatch();
   }
@@ -524,37 +403,7 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
     this.networkManager.sessionCoordinator.authoritativeServer = null;
     this.networkManager.sessionCoordinator.networkReconciler = null;
 
-    disposeCoreSceneGraph({
-      cursorHintButton: this.cursorHintButton,
-      keyboard: this.keyboard,
-      gamepad: this.gamepad,
-      camera: this.camera,
-      multiplayerSession: this.multiplayerSession,
-      ballTrajectoryPredictor: this.ballTrajectoryPredictor,
-      reachabilityVisualizer: this.reachabilityVisualizer,
-      gameUI: this.gameUI,
-      composer: this.composer,
-      boostBloom: this.boostBloom,
-      speedLinesPass: this.speedLinesPass,
-      renderer: this.renderer,
-      arena: this.arena,
-      physics: this.physics,
-    });
-
-    this.cursorHintButton = null;
-    this.keyboard = null;
-    this.gamepad = null;
-    this.camera = null;
-    this.multiplayerSession = null;
-    this.ballTrajectoryPredictor = null;
-    this.reachabilityVisualizer = null;
-    this.gameUI = null;
-    this.composer = null;
-    this.boostBloom = null;
-    this.speedLinesPass = null;
-    this.renderer = null;
-    this.arena = null;
-    this.physics = null;
+    disposeCoreSceneGraph(this);
   }
 
   dispose(): void {

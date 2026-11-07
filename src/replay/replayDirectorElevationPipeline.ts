@@ -2,19 +2,14 @@
  * replayDirectorElevationPipeline.ts
  * Pure mathematical solvers for Goal Replay Director Camera:
  * 1. Multi-bounce vertical trajectory envelope & valley bridging (eliminates head-nodding on bouncing balls).
- * 2. Car-grounded action-plane adaptive camera elevation & non-upward-pitch enforcement
- *    (avoids hovering at ceiling height when cars are on the ground while staying strictly inside the arena).
- * 3. Balanced open-interior lateral side-bias resolution (frames off-center plays from the open stadium interior).
+ * 2. Car-grounded action-plane adaptive camera elevation & non-upward-pitch enforcement.
+ * 3. Initial play-corridor basis & balanced open-interior lateral side-bias resolution.
  */
 
 export interface BounceBridgedBallTrajectory {
-  /** Smooth bounce-bridged ball Z (no floor troughs). */
   gazeEnvelopeZ: Float64Array;
-  /** Anticipatory upper envelope Z for camera eye elevation (prevents lag below fast rising balls). */
   eyeEnvelopeZ: Float64Array;
-  /** Additional horizontal pullback (UU) during deep bounce valleys to keep bounce arc in VFOV. */
   bouncePullbackUu: Float64Array;
-  /** Detected bounce trough frame indices. */
   bounceTroughIndices: number[];
 }
 
@@ -28,6 +23,15 @@ export interface BalancedLateralBiasInput {
   sby: Float64Array;
   smScx: Float64Array;
   smScy: Float64Array;
+}
+
+export interface InitialCorridorAndBiasResult {
+  ux: number;
+  uy: number;
+  wxAxis: number;
+  wyAxis: number;
+  openSideX: number;
+  resolvedLateralBias: number;
 }
 
 export function clamp(val: number, min: number, max: number): number {
@@ -46,9 +50,6 @@ export function wrapAngleDeltaDeg(a: number, b: number): number {
   return d;
 }
 
-/**
- * Zero-phase forward-backward exponential smoothing filter on a 1D Float64Array.
- */
 export function smooth1DZeroPhase(
   arr: ArrayLike<number> | null | undefined,
   alpha: number,
@@ -73,10 +74,6 @@ export function smooth1DZeroPhase(
   return cur;
 }
 
-/**
- * Zero-phase 3D camera trajectory smoother with symmetric velocity capping (`maxStepUu` per 120Hz tick)
- * and strict arena interior clamping. Guarantees calm, non-whipping camera motion without phase lag.
- */
 export function smoothTrajectoryWithVelocityCap(
   rawX: Float64Array,
   rawY: Float64Array,
@@ -87,27 +84,17 @@ export function smoothTrajectoryWithVelocityCap(
 ): { eyeX: Float64Array; eyeY: Float64Array; eyeZ: Float64Array } {
   const n = rawX.length;
   if (n === 0) {
-    return {
-      eyeX: new Float64Array(0),
-      eyeY: new Float64Array(0),
-      eyeZ: new Float64Array(0),
-    };
+    return { eyeX: new Float64Array(0), eyeY: new Float64Array(0), eyeZ: new Float64Array(0) };
   }
 
   const sx = smooth1DZeroPhase(rawX, alpha, passes);
   const sy = smooth1DZeroPhase(rawY, alpha, passes);
   const sz = smooth1DZeroPhase(rawZ, alpha, passes);
 
-  const fwdX = new Float64Array(n);
-  const fwdY = new Float64Array(n);
-  const fwdZ = new Float64Array(n);
-  fwdX[0] = sx[0];
-  fwdY[0] = sy[0];
-  fwdZ[0] = sz[0];
+  const fwdX = new Float64Array(n), fwdY = new Float64Array(n), fwdZ = new Float64Array(n);
+  fwdX[0] = sx[0]; fwdY[0] = sy[0]; fwdZ[0] = sz[0];
   for (let i = 1; i < n; i++) {
-    const dx = sx[i] - fwdX[i - 1];
-    const dy = sy[i] - fwdY[i - 1];
-    const dz = sz[i] - fwdZ[i - 1];
+    const dx = sx[i] - fwdX[i - 1], dy = sy[i] - fwdY[i - 1], dz = sz[i] - fwdZ[i - 1];
     const dist = Math.hypot(dx, dy, dz);
     if (dist > maxStepUu && dist > 1e-6) {
       const s = maxStepUu / dist;
@@ -115,22 +102,14 @@ export function smoothTrajectoryWithVelocityCap(
       fwdY[i] = fwdY[i - 1] + dy * s;
       fwdZ[i] = fwdZ[i - 1] + dz * s;
     } else {
-      fwdX[i] = sx[i];
-      fwdY[i] = sy[i];
-      fwdZ[i] = sz[i];
+      fwdX[i] = sx[i]; fwdY[i] = sy[i]; fwdZ[i] = sz[i];
     }
   }
 
-  const bwdX = new Float64Array(n);
-  const bwdY = new Float64Array(n);
-  const bwdZ = new Float64Array(n);
-  bwdX[n - 1] = sx[n - 1];
-  bwdY[n - 1] = sy[n - 1];
-  bwdZ[n - 1] = sz[n - 1];
+  const bwdX = new Float64Array(n), bwdY = new Float64Array(n), bwdZ = new Float64Array(n);
+  bwdX[n - 1] = sx[n - 1]; bwdY[n - 1] = sy[n - 1]; bwdZ[n - 1] = sz[n - 1];
   for (let i = n - 2; i >= 0; i--) {
-    const dx = sx[i] - bwdX[i + 1];
-    const dy = sy[i] - bwdY[i + 1];
-    const dz = sz[i] - bwdZ[i + 1];
+    const dx = sx[i] - bwdX[i + 1], dy = sy[i] - bwdY[i + 1], dz = sz[i] - bwdZ[i + 1];
     const dist = Math.hypot(dx, dy, dz);
     if (dist > maxStepUu && dist > 1e-6) {
       const s = maxStepUu / dist;
@@ -138,67 +117,42 @@ export function smoothTrajectoryWithVelocityCap(
       bwdY[i] = bwdY[i + 1] + dy * s;
       bwdZ[i] = bwdZ[i + 1] + dz * s;
     } else {
-      bwdX[i] = sx[i];
-      bwdY[i] = sy[i];
-      bwdZ[i] = sz[i];
+      bwdX[i] = sx[i]; bwdY[i] = sy[i]; bwdZ[i] = sz[i];
     }
   }
 
-  const midX = new Float64Array(n);
-  const midY = new Float64Array(n);
-  const midZ = new Float64Array(n);
+  const midX = new Float64Array(n), midY = new Float64Array(n), midZ = new Float64Array(n);
   for (let i = 0; i < n; i++) {
     midX[i] = 0.5 * (fwdX[i] + bwdX[i]);
     midY[i] = 0.5 * (fwdY[i] + bwdY[i]);
     midZ[i] = 0.5 * (fwdZ[i] + bwdZ[i]);
   }
 
-  const polX = smooth1DZeroPhase(midX, Math.min(0.16, alpha * 1.15), 2);
-  const polY = smooth1DZeroPhase(midY, Math.min(0.16, alpha * 1.15), 2);
-  const polZ = smooth1DZeroPhase(midZ, Math.min(0.16, alpha * 1.15), 2);
+  const polAlpha = Math.min(0.16, alpha * 1.15);
+  const polX = smooth1DZeroPhase(midX, polAlpha, 2);
+  const polY = smooth1DZeroPhase(midY, polAlpha, 2);
+  const polZ = smooth1DZeroPhase(midZ, polAlpha, 2);
 
-  const eyeX = new Float64Array(n);
-  const eyeY = new Float64Array(n);
-  const eyeZ = new Float64Array(n);
+  const eyeX = new Float64Array(n), eyeY = new Float64Array(n), eyeZ = new Float64Array(n);
   const firstClamped = clampPositionInsideArena(polX[0], polY[0], polZ[0]);
-  eyeX[0] = firstClamped.x;
-  eyeY[0] = firstClamped.y;
-  eyeZ[0] = firstClamped.z;
+  eyeX[0] = firstClamped.x; eyeY[0] = firstClamped.y; eyeZ[0] = firstClamped.z;
 
   for (let i = 1; i < n; i++) {
     const cl = clampPositionInsideArena(polX[i], polY[i], polZ[i]);
-    const dx = cl.x - eyeX[i - 1];
-    const dy = cl.y - eyeY[i - 1];
-    const dz = cl.z - eyeZ[i - 1];
+    const dx = cl.x - eyeX[i - 1], dy = cl.y - eyeY[i - 1], dz = cl.z - eyeZ[i - 1];
     const dist = Math.hypot(dx, dy, dz);
     if (dist > maxStepUu && dist > 1e-6) {
       const s = maxStepUu / dist;
-      const capped = clampPositionInsideArena(
-        eyeX[i - 1] + dx * s,
-        eyeY[i - 1] + dy * s,
-        eyeZ[i - 1] + dz * s
-      );
-      eyeX[i] = capped.x;
-      eyeY[i] = capped.y;
-      eyeZ[i] = capped.z;
+      const capped = clampPositionInsideArena(eyeX[i - 1] + dx * s, eyeY[i - 1] + dy * s, eyeZ[i - 1] + dz * s);
+      eyeX[i] = capped.x; eyeY[i] = capped.y; eyeZ[i] = capped.z;
     } else {
-      eyeX[i] = cl.x;
-      eyeY[i] = cl.y;
-      eyeZ[i] = cl.z;
+      eyeX[i] = cl.x; eyeY[i] = cl.y; eyeZ[i] = cl.z;
     }
   }
 
   return { eyeX, eyeY, eyeZ };
 }
 
-/**
- * Computes Car-Grounded Action-Plane Director Camera elevation (Z in Unreal Units).
- * - When the active striker is on the ground (`carZ < 100 UU`), keeps the camera low (`~220-280 UU`)
- *   so ground plays have strong perspective and speed sensation while high balls are framed in the
- *   upper third of the screen via FOV.
- * - When the active striker climbs for an aerial (`carZ >= 100 UU`), smoothly lifts the camera
- *   alongside the striker (`carZ * 0.78 + ballZ * 0.14 + 75`).
- */
 export function computeAdaptiveDirectorEyeHeight(
   activeCarZ: number,
   baseHeightUu: number = 218.0,
@@ -211,15 +165,9 @@ export function computeAdaptiveDirectorEyeHeight(
   const groundZ = Math.max(195.0, baseHeightUu) + effectiveBallZ * 0.035 + ceilingBallLift;
   const slope = clamp(aerialSlope, 0.45, 0.92);
   const aerialZ = 75.0 + activeCarZ * slope + effectiveBallZ * 0.14;
-  const desiredZ = groundZ * (1.0 - aerialW) + aerialZ * aerialW;
-  return clamp(desiredZ, 195.0, 1240.0);
+  return clamp(groundZ * (1.0 - aerialW) + aerialZ * aerialW, 195.0, 1240.0);
 }
 
-/**
- * Clamps a 3D point in Unreal coordinates (X right, Y forward, Z up) strictly inside
- * the octagonal RocketSim stadium interior, including top-wall ceiling bevel insets and
- * goal-mouth / goalpost backboard clearance so the camera never clips through goalposts.
- */
 export function clampPositionInsideArena(
   rawX: number,
   rawY: number,
@@ -230,12 +178,10 @@ export function clampPositionInsideArena(
   const maxX = 3720.0 - roofBevelInset;
   let x = clamp(rawX, -maxX, maxX);
 
-  // Enforce smooth backboard/goalpost clearance (|X| <= 1150 near goalposts at |X|=893, |Y|=5120)
   const goalPostCorridorW = 1.0 - smoothstep(920.0, 1480.0, Math.abs(x));
   const maxY = (4780.0 - goalPostCorridorW * 120.0) - roofBevelInset;
   let y = clamp(rawY, -maxY, maxY);
 
-  // Enforce 45-degree stadium corner chamfers (|X| + |Y| <= 7450 - roofBevelInset)
   const maxManhattan = 7450.0 - roofBevelInset * 1.2;
   const manhattan = Math.abs(x) + Math.abs(y);
   if (manhattan > maxManhattan) {
@@ -247,11 +193,6 @@ export function clampPositionInsideArena(
   return { x, y, z };
 }
 
-/**
- * Enforces non-upward pitch on a 3D look vector `(dx, dy, dz)` so the camera never tilts
- * upward (`pitch > 0°`). When the ball is at the ceiling above the clamped eye height,
- * the sightline levels out horizontally (`dz <= 0`).
- */
 export function clampNonUpwardDirectorRay(
   dx: number,
   dy: number,
@@ -259,16 +200,11 @@ export function clampNonUpwardDirectorRay(
   maxUpwardSlope: number = 0.0
 ): [number, number, number] {
   const horiz = Math.hypot(dx, dy) || 1e-4;
-  const maxDz = horiz * maxUpwardSlope;
-  const clampedDz = Math.min(dz, maxDz);
+  const clampedDz = Math.min(dz, horiz * maxUpwardSlope);
   const norm = Math.hypot(dx, dy, clampedDz) || 1.0;
   return [dx / norm, dy / norm, clampedDz / norm];
 }
 
-/**
- * Builds a locally smoothed vertical ball trajectory envelope across `[0 .. N-1]`.
- * Bridges short floor-rebound troughs locally without inflating global pre-bounce heights.
- */
 export function computeBounceBridgedBallTrajectory(
   bzArr: Float64Array,
   bvzArr: Float64Array,
@@ -289,41 +225,24 @@ export function computeBounceBridgedBallTrajectory(
 
   const bounceTroughIndices: number[] = [];
   for (let i = 2; i <= limit; i++) {
-    const prevZ = bzArr[i - 1];
-    const currZ = bzArr[i];
-    const nextZ = bzArr[Math.min(n - 1, i + 1)];
-    const isLocalMin = currZ <= prevZ && currZ <= nextZ;
-    if (!isLocalMin) continue;
+    const prevZ = bzArr[i - 1], currZ = bzArr[i], nextZ = bzArr[Math.min(n - 1, i + 1)];
+    if (!(currZ <= prevZ && currZ <= nextZ)) continue;
 
-    const vzBefore =
-      bvzArr[Math.max(0, i - 1)] ||
-      (currZ - bzArr[Math.max(0, i - 2)]) * 60.0;
-    const vzAfter =
-      bvzArr[Math.min(n - 1, i + 1)] ||
-      (bzArr[Math.min(n - 1, i + 2)] - currZ) * 60.0;
-    const dvz = vzAfter - vzBefore;
-
-    const isImpulseBounce = currZ < 320.0 && dvz > 95.0 && vzBefore < -55.0;
-    if (isImpulseBounce) {
-      if (
-        bounceTroughIndices.length === 0 ||
-        i - bounceTroughIndices[bounceTroughIndices.length - 1] > 14
-      ) {
+    const vzBefore = bvzArr[Math.max(0, i - 1)] || (currZ - bzArr[Math.max(0, i - 2)]) * 60.0;
+    const vzAfter = bvzArr[Math.min(n - 1, i + 1)] || (bzArr[Math.min(n - 1, i + 2)] - currZ) * 60.0;
+    if (currZ < 320.0 && vzAfter - vzBefore > 95.0 && vzBefore < -55.0) {
+      if (bounceTroughIndices.length === 0 || i - bounceTroughIndices[bounceTroughIndices.length - 1] > 14) {
         bounceTroughIndices.push(i);
       }
     }
   }
 
-  // Local trough softening (±24 ticks around floor impulse bounce) without global peak bridging
   const bridged = new Float64Array(sbz);
   const bouncePullbackUu = new Float64Array(n);
   for (let tIdx = 0; tIdx < bounceTroughIndices.length; tIdx++) {
     const b = bounceTroughIndices[tIdx];
-    const left = Math.max(0, b - 24);
-    const right = Math.min(limit, b + 24);
-    const zLeft = sbz[left];
-    const zRight = sbz[right];
-    const span = Math.max(1, right - left);
+    const left = Math.max(0, b - 24), right = Math.min(limit, b + 24);
+    const zLeft = sbz[left], zRight = sbz[right], span = Math.max(1, right - left);
     for (let i = left; i <= right; i++) {
       const u = (i - left) / span;
       const chordZ = zLeft + (zRight - zLeft) * u;
@@ -337,22 +256,14 @@ export function computeBounceBridgedBallTrajectory(
   }
 
   const gazeEnvelopeZ = smooth1DZeroPhase(bridged, 0.14, 2);
-  const eyeEnvelopeZ = new Float64Array(gazeEnvelopeZ);
-
   return {
     gazeEnvelopeZ,
-    eyeEnvelopeZ,
+    eyeEnvelopeZ: new Float64Array(gazeEnvelopeZ),
     bouncePullbackUu: smooth1DZeroPhase(bouncePullbackUu, 0.10, 2),
     bounceTroughIndices,
   };
 }
 
-/**
- * Resolves lateral side bias (+1 or -1 along W = (-uy, ux)).
- * Whenever play is off-center (|meanBallX| > 420 UU), strongly prefers the open stadium interior
- * side (-sign(meanBallX) * wxAxis) so the camera looks from the midfield interior across the
- * ball/car toward the goal mouth rather than getting pinned against the near side wall.
- */
 export function resolveBalancedLateralBias({
   goalIdx,
   lastScoreTouchFrame,
@@ -365,15 +276,12 @@ export function resolveBalancedLateralBias({
   smScy,
 }: BalancedLateralBiasInput): number {
   const touchEnd = Math.min(goalIdx, Math.max(0, lastScoreTouchFrame + holdTicks));
-  let sumWeight = 0;
-  let sumBallX = 0;
-  let sumCarRelV = 0;
+  let sumWeight = 0, sumBallX = 0, sumCarRelV = 0;
 
   for (let i = 0; i <= goalIdx; i++) {
     const w = i <= touchEnd ? 4.0 : 1.0;
     sumWeight += w;
     sumBallX += sbx[i] * w;
-
     if (i <= touchEnd) {
       const bv = sbx[i] * wxAxis + sby[i] * wyAxis;
       const sv = smScx[i] * wxAxis + smScy[i] * wyAxis;
@@ -385,13 +293,52 @@ export function resolveBalancedLateralBias({
   const interiorBiasV = -meanBallX * wxAxis;
   const offCenterW = smoothstep(320.0, 950.0, Math.abs(meanBallX));
   const carApproachV = sumWeight > 0 ? sumCarRelV / sumWeight : 0;
-
-  const combinedV =
-    interiorBiasV * (0.35 + 0.65 * offCenterW) + carApproachV * 0.25 * (1.0 - offCenterW);
+  const combinedV = interiorBiasV * (0.35 + 0.65 * offCenterW) + carApproachV * 0.25 * (1.0 - offCenterW);
 
   if (Math.abs(combinedV) > 1e-3) {
     return combinedV >= 0 ? 1.0 : -1.0;
   }
   const openCarV = ((smScx[0] ?? 0) - (sbx[0] ?? 0)) * wxAxis + ((smScy[0] ?? 0) - (sby[0] ?? 0)) * wyAxis;
   return openCarV >= 0 ? 1.0 : -1.0;
+}
+
+export function resolveInitialCorridorAndLateralBias(params: {
+  goalIdx: number;
+  goalY: number;
+  goalSignY: number;
+  lastScoreTouchFrame: number;
+  holdTicks: number;
+  sbx: Float64Array;
+  sby: Float64Array;
+  smScx: Float64Array;
+  smScy: Float64Array;
+}): InitialCorridorAndBiasResult {
+  const { goalIdx, goalY, goalSignY, lastScoreTouchFrame, holdTicks, sbx, sby, smScx, smScy } = params;
+  let sumStartX = 0, sumStartY = 0;
+  const startWindow = Math.min(goalIdx + 1, 90);
+  for (let i = 0; i < startWindow; i++) {
+    sumStartX += 0.5 * (sbx[i] + smScx[i]);
+    sumStartY += 0.5 * (sby[i] + smScy[i]);
+  }
+  const startX = sumStartX / Math.max(1, startWindow);
+  const startY = sumStartY / Math.max(1, startWindow);
+
+  let ux = (0.0 - startX) * 0.36;
+  let uy = goalY - startY;
+  if (uy * goalSignY < 600.0) uy = goalSignY * 1800.0;
+  const uNorm = Math.hypot(ux, uy) || 1.0;
+  ux /= uNorm;
+  uy /= uNorm;
+  const wxAxis = -uy;
+  const wyAxis = ux;
+
+  const resolvedLateralBias = resolveBalancedLateralBias({
+    goalIdx, lastScoreTouchFrame, holdTicks, wxAxis, wyAxis, sbx, sby, smScx, smScy,
+  });
+
+  let sumBallX = 0;
+  for (let i = 0; i <= goalIdx; i++) sumBallX += sbx[i];
+  const openSideX = sumBallX / Math.max(1, goalIdx + 1) >= 0 ? -1.0 : 1.0;
+
+  return { ux, uy, wxAxis, wyAxis, openSideX, resolvedLateralBias };
 }

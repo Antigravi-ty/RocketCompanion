@@ -1,49 +1,33 @@
 import { createBoostPadEdgeTracker, type BoostPadEdgeTracker, type CarControlsInput } from '../protocol/GlobalPayloadCodec.ts';
 import { createHostSimProxy, type HostSimRestoreStateResult } from './HostSimProxy.ts';
-import { createDefaultHostChannel, type HostLoopbackChannelPort } from './HostLoopbackChannel.ts';
 import {
   HOST_WORKER_MSG_TYPES,
   createWorkerEnvelope,
-  type WorkerRoomStateSummary,
-  type HostWorkerInitOptions,
-} from './HostWorkerMessageRouter.ts';
+  type WorkerEnvelope,
+} from '../protocol/HostWorkerProtocol.ts';
+import type { WorkerRoomStateSummary, HostWorkerInitOptions } from './HostWorkerMessageRouter.ts';
 import {
   HostServerFallbackSubController,
-  processHostLoopbackChannelPacket,
   spawnAuthoritativeWorkerWithRetry,
   prewarmAuthoritativeServerWorker,
 } from './HostServerFallbackSubController.ts';
+import {
+  HostClientChannelRegistry,
+  type HostClientChannelPort,
+  type HostWorkerEnvelopeMessage,
+} from './HostClientChannelRegistry.ts';
 import { ReplayRingBuffer, REPLAY_BUFFER_MODES } from '../../replay/ReplayRingBuffer.ts';
 import { BotTunnelManager, prewarmBotInferenceWorker } from '../bot/BotTunnelManager.ts';
 import type { ArenaHeaderView } from '../../physics/RocketSimStateViews.ts';
-import type { WorkerEnvelope } from '../protocol/HostWorkerProtocol.ts';
 import type { ExtraLoadoutConfig } from './match/matchLoadoutAndSpawnPipeline.ts';
 import type { AuthoritativePhysicsSimPort } from './authoritativePhysicsStepPipeline.ts';
 
-export interface HostClientChannelPort extends HostLoopbackChannelPort {
-  peerName?: string;
-  visualId?: string;
-  colorSlot?: number;
-  send?(packet: Uint8Array | ArrayBuffer | string): void;
-  sendServerState?(packet: Uint8Array | ArrayBuffer | string): void;
-  sendClientInput?(packet: Uint8Array | ArrayBuffer | string): void;
-  onPacketReceived?: ((packet: Uint8Array | ArrayBuffer | string) => void) | null;
-}
+export type { HostClientChannelPort, HostWorkerEnvelopeMessage };
 
 export interface AuthoritativeServerHostOptions extends HostWorkerInitOptions {
   forceFallback?: boolean;
   replayCapacityTicks?: number | null;
   fifoDurationSeconds?: number;
-}
-
-export interface HostWorkerEnvelopeMessage {
-  type?: string;
-  seq?: number;
-  payload?: unknown;
-  channelId?: string;
-  packet?: Uint8Array | ArrayBuffer | string;
-  reqId?: number;
-  result?: unknown;
 }
 
 export class AuthoritativeServerHost {
@@ -54,29 +38,23 @@ export class AuthoritativeServerHost {
     ]);
     return { serverWorker, botWorker };
   }
+
   options: AuthoritativeServerHostOptions;
-  channels: HostClientChannelPort[];
-  channelMap: Map<HostClientChannelPort, string>;
-  channelIdToChannel: Map<string, HostClientChannelPort>;
-  nextChannelId: number;
+  channelRegistry: HostClientChannelRegistry;
   isWorker: boolean;
-  worker: Worker | null;
+  worker: Worker | null = null;
   botTunnelManager: BotTunnelManager;
-  fallbackSubController: HostServerFallbackSubController;
-  active: boolean;
-  cachedSnapshot: Float32Array;
-  boostPadEdgeTracker: BoostPadEdgeTracker;
+  fallbackSubController = new HostServerFallbackSubController();
+  active = false;
+  cachedSnapshot = new Float32Array(448);
+  boostPadEdgeTracker: BoostPadEdgeTracker = createBoostPadEdgeTracker();
   hostReplayRingBuffer: ReplayRingBuffer;
-  lastServerTick: number;
-  lastGoal: number;
-  lastRoomState: Partial<WorkerRoomStateSummary> | null;
-  headerViewInstance: ArenaHeaderView | null;
-  pendingRequests: Map<number, { resolve: (val: unknown) => void }>;
-  envelopeListeners: Set<(envelope: HostWorkerEnvelopeMessage) => void>;
-  reqId: number;
+  lastServerTick = 0;
+  lastGoal = 0;
+  lastRoomState: Partial<WorkerRoomStateSummary> | null = null;
+  headerViewInstance: ArenaHeaderView | null = null;
   sim: ReturnType<typeof createHostSimProxy>;
-  hostChannel: HostClientChannelPort;
-  _seenReplaySignalIds: Set<string>;
+  _seenReplaySignalIds = new Set<string>();
   _loggedFallbackSend?: boolean;
 
   constructor(
@@ -94,19 +72,9 @@ export class AuthoritativeServerHost {
       channel = null;
     }
     this.options = { ...options };
-    this.channels = [];
-    this.channelMap = new Map();
-    this.channelIdToChannel = new Map();
-    this.nextChannelId = 1;
-
     this.isWorker = typeof Worker !== 'undefined' && !options.forceFallback;
-    this.worker = null;
     this.botTunnelManager = new BotTunnelManager(this);
-    this.fallbackSubController = new HostServerFallbackSubController();
 
-    this.active = false;
-    this.cachedSnapshot = new Float32Array(448);
-    this.boostPadEdgeTracker = createBoostPadEdgeTracker();
     const initialBufferMode = options.startAsMatch
       ? REPLAY_BUFFER_MODES.COUNTDOWN_MATCH
       : REPLAY_BUFFER_MODES.COUNTUP_FIFO;
@@ -114,20 +82,12 @@ export class AuthoritativeServerHost {
       mode: initialBufferMode,
       capacityTicks: options.replayCapacityTicks ?? undefined,
     });
-    this.lastServerTick = 0;
-    this.lastGoal = 0;
-    this.lastRoomState = null;
-    this._seenReplaySignalIds = new Set();
-
-    this.headerViewInstance = null;
-    this.pendingRequests = new Map();
-    this.envelopeListeners = new Set();
-    this.reqId = 0;
 
     this.sim = createHostSimProxy(this);
-    this.hostChannel = (channel as HostClientChannelPort | null) || this._createDefaultHostChannel();
-    this.channelMap.set(this.hostChannel, 'host');
-    this.channelIdToChannel.set('host', this.hostChannel);
+    this.channelRegistry = new HostClientChannelRegistry(
+      this,
+      channel as HostClientChannelPort | null
+    );
   }
 
   get fallbackSim(): AuthoritativePhysicsSimPort | null {
@@ -138,23 +98,24 @@ export class AuthoritativeServerHost {
   get fallbackManager() { return this.fallbackSubController.matchManager; }
   get fallbackDataHandler() { return this.fallbackSubController.dataHandler; }
 
-  _createDefaultHostChannel(): HostClientChannelPort {
-    return createDefaultHostChannel(this);
-  }
-
-  get channel(): HostClientChannelPort { return this.hostChannel; }
+  get hostChannel(): HostClientChannelPort { return this.channelRegistry.hostChannel; }
+  get channel(): HostClientChannelPort { return this.channelRegistry.hostChannel; }
   set channel(ch: HostClientChannelPort) {
-    if (ch && ch !== this.hostChannel) {
-      this.hostChannel = ch;
+    if (ch && ch !== this.channelRegistry.hostChannel) {
+      this.channelRegistry.hostChannel = ch;
       this.addClientChannel(ch, 'host');
     }
   }
 
+  routeFallbackEnvelope(
+    envelope: WorkerEnvelope,
+    onReply: (replyEnv: HostWorkerEnvelopeMessage) => void
+  ): void {
+    this.fallbackSubController.routeEnvelope(envelope, onReply);
+  }
+
   async init(): Promise<this> {
     if (!this.isWorker) {
-      console.warn(
-        `[HostServerWorker] Initializing in-memory server fallback (Worker available: ${typeof Worker !== 'undefined'}, forceFallback: ${Boolean(this.options.forceFallback)}).`
-      );
       return this._initFallback();
     }
 
@@ -187,7 +148,7 @@ export class AuthoritativeServerHost {
   }
 
   async _initFallback(): Promise<this> {
-    const res = await this.fallbackSubController.init(this.options, this.hostChannel);
+    const res = await this.fallbackSubController.init(this.options, this.channelRegistry.hostChannel);
     this.active = true;
     this.cachedSnapshot.subarray(0, res.snapshot.length).set(res.snapshot);
     this.lastServerTick = res.serverTick;
@@ -198,171 +159,81 @@ export class AuthoritativeServerHost {
   }
 
   addEnvelopeListener(fn: (envelope: HostWorkerEnvelopeMessage) => void): () => void {
-    if (typeof fn === 'function') {
-      this.envelopeListeners.add(fn);
-      return () => this.envelopeListeners.delete(fn);
-    }
-    return () => {};
-  }
-
-  _notifyEnvelopeListeners(envelope: HostWorkerEnvelopeMessage): void {
-    for (const listener of this.envelopeListeners) {
-      try {
-        listener(envelope);
-      } catch (err) {
-        console.warn('[HostServerWorker] Error in envelope listener:', err);
-      }
-    }
+    return this.channelRegistry.addEnvelopeListener(fn);
   }
 
   _handleWorkerMessage(data: HostWorkerEnvelopeMessage | null | undefined): void {
-    if (!data) return;
-    if (data.type && data.payload !== undefined) {
-      if (data.type === HOST_WORKER_MSG_TYPES.ROOM_STATE_SYNC) {
-        this.lastRoomState = data.payload as Partial<WorkerRoomStateSummary>;
-        this.botTunnelManager?.syncFromRoomState?.(this.lastRoomState);
-      }
-      if (data.seq && this.pendingRequests.has(data.seq)) {
-        const req = this.pendingRequests.get(data.seq)!;
-        this.pendingRequests.delete(data.seq);
-        req.resolve(data.payload);
-      }
-      this._notifyEnvelopeListeners(data);
-    }
-
-    switch (data.type) {
-      case 'channel_packet': {
-        const { channelId, packet } = data;
-        if (channelId === 'host') {
-          processHostLoopbackChannelPacket(this, packet);
-        } else if (channelId && packet !== undefined) {
-          const ch = this.channelIdToChannel.get(channelId);
-          if (ch) {
-            if (typeof ch.send === 'function') ch.send(packet);
-            else if (typeof ch.sendServerState === 'function') ch.sendServerState(packet);
-          }
-        }
-        break;
-      }
-      case 'requestResponse': {
-        const { reqId, result } = data;
-        if (typeof reqId === 'number' && this.pendingRequests.has(reqId)) {
-          const req = this.pendingRequests.get(reqId)!;
-          this.pendingRequests.delete(reqId);
-          req.resolve(result);
-        }
-        break;
-      }
-      default:
-        break;
-    }
+    this.channelRegistry.handleWorkerMessage(this, data);
   }
 
   sendEnvelope(
-    type: string, payload: AuthoritativeServerHostOptions = {},
-    transfer: Transferable[] = [], seqOverride: number | null = null
+    type: string,
+    payload: AuthoritativeServerHostOptions = {},
+    transfer: Transferable[] = [],
+    seqOverride: number | null = null
   ): WorkerEnvelope {
-    if (type === HOST_WORKER_MSG_TYPES.MATCH_START_REQUEST) {
-      this.hostReplayRingBuffer?.configureMode?.(REPLAY_BUFFER_MODES.COUNTDOWN_MATCH);
-      this._resetHostReplayTracking();
-    } else if (type === HOST_WORKER_MSG_TYPES.ROOM_CREATE) {
-      this.hostReplayRingBuffer?.configureMode?.(
-        payload.startAsMatch ? REPLAY_BUFFER_MODES.COUNTDOWN_MATCH : REPLAY_BUFFER_MODES.COUNTUP_FIFO,
-        payload.replayCapacityTicks || null
-      );
-      this._resetHostReplayTracking();
-    }
-    const seq = seqOverride ?? ++this.reqId;
-    const envelope = createWorkerEnvelope(type, payload, seq);
-    if (this.isWorker && this.worker) this.worker.postMessage(envelope, transfer);
-    else this.fallbackSubController.routeEnvelope(envelope, (replyEnv) => this._handleWorkerMessage(replyEnv));
-    return envelope;
+    return this.channelRegistry.sendEnvelope(this, type, payload, transfer, seqOverride);
   }
 
   _postCommand(type: string, data: Record<string, unknown> = {}, transfer: Transferable[] = []): void {
-    if (this.isWorker && this.worker) this.worker.postMessage({ type, ...data }, transfer);
+    if (this.isWorker && this.worker) {
+      this.worker.postMessage({ type, ...data }, transfer);
+    } else {
+      this.fallbackSubController.routeEnvelope(
+        createWorkerEnvelope(type, data, 0),
+        (replyEnv) => this._handleWorkerMessage(replyEnv)
+      );
+    }
   }
 
   _sendRequest(type: string, data: Record<string, unknown> = {}): Promise<HostSimRestoreStateResult> {
-    return new Promise((resolve) => {
-      const reqId = ++this.reqId;
-      this.pendingRequests.set(reqId, { resolve: (val) => resolve((val || {}) as HostSimRestoreStateResult) });
-      this._postCommand(type, { reqId, ...data });
-    });
+    return this.channelRegistry.sendRequest(
+      (cmdType, cmdData) => this._postCommand(cmdType, cmdData),
+      type,
+      data
+    );
   }
 
   addClientChannel(channel: HostClientChannelPort | null | undefined, overrideId: string | null = null): string | null {
-    if (!channel) return null;
-    if (this.channelMap.has(channel)) return this.channelMap.get(channel)!;
-    const channelId = overrideId || `peer_${this.nextChannelId++}`;
-    this.channels.push(channel);
-    this.channelMap.set(channel, channelId);
-    this.channelIdToChannel.set(channelId, channel);
-
-    const origPacketReceived = channel.onPacketReceived;
-    channel.onPacketReceived = (packet: Uint8Array | ArrayBuffer | string) => {
-      origPacketReceived?.(packet);
-      if (this.isWorker && this.worker) {
-        this._postCommand('channel_packet', { channelId, packet });
-      } else if (this.fallbackDataHandler && packet instanceof Uint8Array) {
-        this.fallbackDataHandler.handleIncomingPacket(channelId, packet, performance.now());
-      } else if (this.fallbackDataHandler && packet instanceof ArrayBuffer) {
-        this.fallbackDataHandler.handleIncomingPacket(channelId, new Uint8Array(packet), performance.now());
-      }
-    };
-
-    if (this.isWorker && this.worker) {
-      this._postCommand('registerChannel', {
-        channelId, playerName: channel.peerName || 'Player',
-        visualId: channel.visualId || 'octane', colorSlot: channel.colorSlot ?? 0,
-      });
-    } else if (this.fallbackDataHandler) {
-      this.fallbackDataHandler.registerChannel(channelId, {
-        send: (pkt) => { if (typeof channel.send === 'function') channel.send(pkt); },
-      });
-    }
-    return channelId;
+    return this.channelRegistry.addClientChannel(
+      channel,
+      overrideId,
+      this.isWorker,
+      this.worker,
+      (type, data) => this._postCommand(type, data),
+      this.fallbackDataHandler
+    );
   }
 
   removeClientChannel(channel: HostClientChannelPort): void {
-    const channelId = this.channelMap.get(channel);
-    if (!channelId) return;
-    const idx = this.channels.indexOf(channel);
-    if (idx !== -1) this.channels.splice(idx, 1);
-    this.channelMap.delete(channel);
-    this.channelIdToChannel.delete(channelId);
-
-    if (this.isWorker && this.worker) {
-      this._postCommand('removeChannel', { channelId });
-    } else if (this.fallbackDataHandler) {
-      this.fallbackDataHandler.unregisterChannel(channelId);
-      this.fallbackManager?.removePlayerSession(channelId);
-    }
+    this.channelRegistry.removeClientChannel(
+      channel,
+      this.isWorker,
+      this.worker,
+      (type, data) => this._postCommand(type, data),
+      this.fallbackDataHandler,
+      this.fallbackManager
+    );
   }
 
   ensureCar(carIndex: number, team = 1, visualId = 'octane'): void {
-    if (this.isWorker && this.worker) this._postCommand('ensureCar', { carIndex, team, visualId });
-    else this.fallbackPhysics?.registerCarEntity(carIndex, team, visualId);
+    this._postCommand('ensureCar', { carIndex, team, visualId });
   }
 
   removeCar(carIndex: number): void {
-    if (this.isWorker && this.worker) this._postCommand('removeCar', { carIndex });
-    else this.fallbackPhysics?.unregisterCarEntity(carIndex);
+    this._postCommand('removeCar', { carIndex });
   }
 
   setCarControls(carIndex: number, controls: CarControlsInput): void {
-    if (this.isWorker && this.worker) this._postCommand('setCarControls', { carIndex, controls });
-    else this.fallbackPhysics?.setDirectCarControls(carIndex, controls);
+    this._postCommand('setCarControls', { carIndex, controls });
   }
 
   pauseMatch(paused = true): void {
-    if (this.isWorker && this.worker) this._postCommand('pauseMatch', { paused: Boolean(paused) });
-    else this.fallbackManager?.setPaused(Boolean(paused));
+    this._postCommand('pauseMatch', { paused: Boolean(paused) });
   }
 
   requestResumeWithCountdown(countdownSeconds = 5): void {
-    if (this.isWorker && this.worker) this._postCommand('requestResumeWithCountdown', { countdownSeconds });
-    else this.fallbackManager?.lifecycle?.requestResumeWithCountdown?.(countdownSeconds);
+    this._postCommand('requestResumeWithCountdown', { countdownSeconds });
   }
 
   notifyPlayerJoined(
@@ -371,16 +242,9 @@ export class AuthoritativeServerHost {
     paintFinish?: string, boostVisual?: string, boostAudio?: string
   ): void {
     const chId = channelId || (entityId === 0 ? 'host' : `peer_${entityId}`);
-    if (this.isWorker && this.worker) {
-      this._postCommand('notifyPlayerJoined', {
-        entityId, name, role, channelId: chId, visualId, colorSlot, hitboxId, paintFinish, boostVisual, boostAudio,
-      });
-    } else {
-      this.fallbackManager?.assignPlayerSlot(
-        chId, name, role, typeof entityId === 'number' && entityId >= 0 ? entityId % 2 : null,
-        { visualId, hitboxId, colorSlot, paintFinish, boostVisual, boostAudio }, colorSlot
-      );
-    }
+    this._postCommand('notifyPlayerJoined', {
+      entityId, name, role, channelId: chId, visualId, colorSlot, hitboxId, paintFinish, boostVisual, boostAudio,
+    });
   }
 
   private _resetHostReplayTracking(): void {
@@ -391,37 +255,31 @@ export class AuthoritativeServerHost {
   startMatch(durationSeconds?: number): void {
     this.hostReplayRingBuffer?.configureMode?.(REPLAY_BUFFER_MODES.COUNTDOWN_MATCH);
     this._resetHostReplayTracking();
-    if (this.isWorker && this.worker) this._postCommand('startMatch', { durationSeconds });
-    else this.fallbackManager?.startMatch(durationSeconds);
+    this._postCommand('startMatch', { durationSeconds });
   }
 
   forceStartMatch(durationSeconds?: number): void {
     this.hostReplayRingBuffer?.configureMode?.(REPLAY_BUFFER_MODES.COUNTDOWN_MATCH);
     this._resetHostReplayTracking();
-    if (this.isWorker && this.worker) this._postCommand('forceStartMatch', { durationSeconds });
-    else this.fallbackManager?.forceStartMatch(durationSeconds);
+    this._postCommand('forceStartMatch', { durationSeconds });
   }
 
   initiateMatchPrepare(durationSeconds?: number): void {
     this.hostReplayRingBuffer?.configureMode?.(REPLAY_BUFFER_MODES.COUNTDOWN_MATCH);
     this._resetHostReplayTracking();
-    if (this.isWorker && this.worker) this._postCommand('initiateMatchPrepare', { durationSeconds });
-    else this.fallbackManager?.initiateMatchPrepare(durationSeconds);
+    this._postCommand('initiateMatchPrepare', { durationSeconds });
   }
 
   setGameMode(gameMode: string, durationSeconds: number | null = null): void {
-    if (this.isWorker && this.worker) this._postCommand('setGameMode', { gameMode, durationSeconds });
-    else this.fallbackManager?.setGameMode(gameMode, durationSeconds);
+    this._postCommand('setGameMode', { gameMode, durationSeconds });
   }
 
   setBotFillMode(botFillMode: string): void {
-    if (this.isWorker && this.worker) this._postCommand('setBotFillMode', { botFillMode });
-    else this.fallbackManager?.setBotFillMode(botFillMode);
+    this._postCommand('setBotFillMode', { botFillMode });
   }
 
   addBotPlayer(team = 1, botName: string | null = null, visualId = 'octane'): void {
-    if (this.isWorker && this.worker) this._postCommand('addBotPlayer', { team, botName, visualId });
-    else this.fallbackManager?.addBotPlayer(team, botName, visualId);
+    this._postCommand('addBotPlayer', { team, botName, visualId });
   }
 
   setLoadout(
@@ -439,34 +297,24 @@ export class AuthoritativeServerHost {
               boostAudio: boostAudioArg ?? undefined,
             }
           : null;
-    if (this.isWorker && this.worker) {
-      this._postCommand('setLoadout', { sessionId, visualId, colorSlot, hitboxId, extraLoadout });
-    } else {
-      this.fallbackManager?.updatePlayerLoadout(
-        sessionId || 'host', visualId, colorSlot, hitboxId, extraLoadout as never
-      );
-    }
+    this._postCommand('setLoadout', { sessionId, visualId, colorSlot, hitboxId, extraLoadout });
   }
 
   switchRoleTeam(sessionId: string | null, role: string, team: number): void {
-    if (this.isWorker && this.worker) this._postCommand('switchRoleTeam', { sessionId, role, team });
-    else this.fallbackManager?.switchPlayerRoleOrTeam(sessionId || 'host', role, team);
+    this._postCommand('switchRoleTeam', { sessionId, role, team });
   }
 
   setSkipReplayByDefault(enabled: boolean): void {
-    if (this.isWorker && this.worker) this._postCommand('setSkipReplayByDefault', { enabled: Boolean(enabled) });
-    else if (this.fallbackManager) this.fallbackManager.domain.skipReplayByDefault = Boolean(enabled);
+    this._postCommand('setSkipReplayByDefault', { enabled: Boolean(enabled) });
   }
 
   setDisableGoalReset(disabled: boolean): void {
-    if (this.isWorker && this.worker) this._postCommand('setDisableGoalReset', { disabled: Boolean(disabled) });
-    else if (this.fallbackManager) this.fallbackManager.domain.trainingDisableGoalReset = Boolean(disabled);
+    this._postCommand('setDisableGoalReset', { disabled: Boolean(disabled) });
   }
 
   startTrainingMode(options: AuthoritativeServerHostOptions = {}): void {
     this.hostReplayRingBuffer?.configureMode?.(REPLAY_BUFFER_MODES.COUNTUP_FIFO, options.replayCapacityTicks || null);
-    if (this.isWorker && this.worker) this._postCommand('startTrainingMode', options);
-    else this.fallbackManager?.startTrainingMode(options);
+    this._postCommand('startTrainingMode', options);
   }
 
   configureTrainingRuleset(options: AuthoritativeServerHostOptions = {}): void {
@@ -475,26 +323,22 @@ export class AuthoritativeServerHost {
         REPLAY_BUFFER_MODES.COUNTUP_FIFO, Math.round(options.fifoDurationSeconds * 120)
       );
     }
-    if (this.isWorker && this.worker) this._postCommand('configureTrainingRuleset', options);
-    else this.fallbackManager?.configureTrainingRuleset(options);
+    this._postCommand('configureTrainingRuleset', options);
   }
 
   enterStateOnlyMode(stateSnapshot?: Float32Array | number[] | null, cursorTick?: number): void {
     const snapCopy = stateSnapshot ? Array.from<number>(stateSnapshot) : null;
-    if (this.isWorker && this.worker) this._postCommand('enterStateOnlyMode', { stateSnapshot: snapCopy, cursorTick });
-    else this.fallbackManager?.enterStateOnlyMode(stateSnapshot, cursorTick);
+    this._postCommand('enterStateOnlyMode', { stateSnapshot: snapCopy, cursorTick });
   }
 
   beginInterveneCountdown(countdownSeconds = 3, stateSnapshot?: Float32Array | number[] | null): void {
     const snapCopy = stateSnapshot ? Array.from<number>(stateSnapshot) : null;
-    if (this.isWorker && this.worker) this._postCommand('beginInterveneCountdown', { countdownSeconds, stateSnapshot: snapCopy });
-    else this.fallbackManager?.beginInterveneCountdown(countdownSeconds, stateSnapshot);
+    this._postCommand('beginInterveneCountdown', { countdownSeconds, stateSnapshot: snapCopy });
   }
 
   resumePhysicsFromState(stateSnapshot?: Float32Array | number[] | null, resumeTick?: number): void {
     const snapCopy = stateSnapshot ? Array.from<number>(stateSnapshot) : null;
-    if (this.isWorker && this.worker) this._postCommand('resumePhysicsFromState', { stateSnapshot: snapCopy, resumeTick });
-    else this.fallbackManager?.resumePhysicsFromState(stateSnapshot, resumeTick);
+    this._postCommand('resumePhysicsFromState', { stateSnapshot: snapCopy, resumeTick });
   }
 
   setLobbyMode(enabled = true, options: AuthoritativeServerHostOptions = {}): WorkerEnvelope {
@@ -520,16 +364,16 @@ export class AuthoritativeServerHost {
 
   requestReplayWindow(count = 360): Promise<unknown> {
     return new Promise((resolve) => {
-      const seq = ++this.reqId;
-      this.pendingRequests.set(seq, { resolve });
+      const seq = ++this.channelRegistry.reqId;
+      this.channelRegistry.pendingRequests.set(seq, { resolve });
       this.sendEnvelope(HOST_WORKER_MSG_TYPES.REPLAY_WINDOW_REQUEST, { reqId: seq, count }, [], seq);
     });
   }
 
   requestFullReplayExport(): Promise<unknown> {
     return new Promise((resolve) => {
-      const seq = ++this.reqId;
-      this.pendingRequests.set(seq, { resolve });
+      const seq = ++this.channelRegistry.reqId;
+      this.channelRegistry.pendingRequests.set(seq, { resolve });
       this.sendEnvelope(HOST_WORKER_MSG_TYPES.REPLAY_FULL_EXPORT_REQUEST, { reqId: seq }, [], seq);
     });
   }
@@ -567,13 +411,8 @@ export class AuthoritativeServerHost {
       this.worker = null;
     }
     this.fallbackSubController.destroy();
-    this.channels = [];
-    this.channelMap.clear();
-    this.channelIdToChannel.clear();
-    this.pendingRequests.clear();
-    this.envelopeListeners.clear();
+    this.channelRegistry.destroy();
   }
 }
 
 export default AuthoritativeServerHost;
-

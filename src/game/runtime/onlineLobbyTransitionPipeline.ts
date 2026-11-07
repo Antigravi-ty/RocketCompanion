@@ -1,36 +1,21 @@
-/**
- * onlineLobbyTransitionPipeline.ts
- * Pure normalization and dual-world lobby transition helpers for OnlineSessionCoordinator.ts.
- * Encapsulates team-matched vehicle color slot resolution (from fix/team-color-priority)
- * and post-match/post-podium client car slot, loadout, and dual-world lobby state restoration
- * (from fix/post-podium-lobby-sync).
- */
-
-import {
-  CAR_COLOR_SLOTS,
-  normalizeVisualId,
-  resolveVehicleHitboxId,
-} from '../../ui-core/config/vehicleConstants';
-import {
-  getPreferredColorSlot,
-  loadStoredColorPrefs,
-} from '../../ui-core/config/vehiclePresets';
-import { getMaterialsConfig } from '../../ui-core/config/materialsConfig';
+import { CAR_COLOR_SLOTS } from '../../ui-core/config/vehicleConstants';
+import { getPreferredColorSlot, loadStoredColorPrefs } from '../../ui-core/config/vehiclePresets';
 import {
   resolveEffectiveClockPacingParams,
   type ClockPacingMode,
   type ClockPacingPriority,
   type ClockPacingParams,
 } from '../../ui-core/config/clockPacingConfig';
-import { releasePodiumLocksOnEngine } from '../../replay/podiumFormationPipeline.ts';
-import { useAppStore, hudStore, type AppStorePortState, type OnlineSessionPortState } from '../runtimeUiPort.ts';
-import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
+import {
+  useAppStore,
+  type AppStorePortState,
+  type OnlineSessionPortState,
+} from '../runtimeUiPort.ts';
 import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
-import type { PhysicsStateInterpolator } from '../../physics/PhysicsStateInterpolator.ts';
-import type { CameraManager } from '../../camera/CameraManager.ts';
-import type { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
-import type { MatchStateData } from './RuntimeMatchState.ts';
-import type { OnlineRosterSnapshotPayload, RemoteTransportChannelLike } from './OnlineRosterSyncCoordinator.ts';
+import type {
+  OnlineRosterSnapshotPayload,
+  RemoteTransportChannelLike,
+} from './OnlineRosterSyncCoordinator.ts';
 
 export type LocalVehicleLoadoutState = {
   selectedPreset?: string | null;
@@ -103,37 +88,6 @@ export interface HandshakeResponseMessage {
   };
 }
 
-export interface OnlineSessionHostPort {
-  getPhysics(): RocketSimPhysicsEngine | null;
-  getArena(): ArenaWorld | null;
-  getInterpolator(): PhysicsStateInterpolator | null;
-  getCamera(): CameraManager | null;
-  getCameraDynamics(): object | null;
-  getPlayerCarIndex(): number;
-  setPlayerCarIndex(carIndex: number): void;
-  setIsBotMatch(isBotMatch: boolean): void;
-  getLocalVehicleLoadout(): LocalVehicleLoadoutState;
-  setSelectedColorSlot?(slot: number): void;
-  getDefaultFreeplayUnlimitedBoost(): boolean;
-  getDisableGoalReset?(): boolean;
-  getMatchState(): MatchStateData | null;
-  setActiveGameMode(modeId: string): void;
-  resetKickoff(): void;
-  syncPausedAndInputState(): void;
-  teardownActiveReplayAndPodium(): void;
-  resetReconcilerSignalState(): void;
-  bindReconcilerSignals(reconciler: PredictionReconciler): void;
-  applyRosterSnapshot(roster: OnlineRosterSnapshotPayload | null): Promise<void>;
-  ensureFlipResetVisual(carIndex: number): void;
-  applyRemoteCarColor(carIndex: number, hex: string): void;
-  notifySessionReady(
-    reconciler: PredictionReconciler | null,
-    channel: NetworkSessionChannelLike | null,
-  ): void;
-  notifyShowNetworkHUD(): void;
-  syncHostLobbyNotification(): void;
-}
-
 const MID_MATCH_STATES = new Set([
   'kickoff',
   'playing',
@@ -159,7 +113,6 @@ export function resolveLoadoutDefaults(
   };
 }
 
-/** Pure computation of clock pacing parameters from store state. */
 export function resolveSessionClockPacingConfig(
   storeState: Partial<AppStorePortState> | null | undefined = useAppStore?.getState?.(),
 ) {
@@ -177,7 +130,6 @@ export function resolveSessionClockPacingConfig(
   return { mode, priority, target, threshold, params };
 }
 
-/** Pure normalization of host online server launch parameters with team-0 color slot enforcement. */
 export function resolveHostSessionLaunchConfig(
   options: HostOnlineServerOptions,
   localLoadout: LocalVehicleLoadoutState,
@@ -193,7 +145,6 @@ export function resolveHostSessionLaunchConfig(
     typeof rawHostColorSlot === 'number' && CAR_COLOR_SLOTS[rawHostColorSlot]?.team === 0
       ? rawHostColorSlot
       : preferredBlueSlot;
-
   const playerName =
     options.playerName && options.playerName !== 'Host'
       ? options.playerName
@@ -210,22 +161,9 @@ export function resolveHostSessionLaunchConfig(
     options.skipReplayByDefault !== undefined ? Boolean(options.skipReplayByDefault) : false;
 
   return {
-    playerName,
     hostVisualId: ld.visualId,
-    hostHitboxId: ld.hitboxId,
     hostColorSlot,
-    hostBlueColorSlot: preferredBlueSlot,
-    hostOrangeColorSlot: preferredOrangeSlot,
-    hostPaintFinish: ld.paintFinish,
-    hostBoostVisual: ld.boostVisual,
-    hostBoostAudio: ld.boostAudio,
-    roomId,
-    roomType,
     isMatchLobby,
-    gameMode,
-    botFillMode,
-    durationSeconds,
-    skipReplayByDefault,
     serverOptions: {
       snapshotInterval: 1,
       hostPlayerName: playerName,
@@ -258,7 +196,6 @@ export function resolveHostSessionLaunchConfig(
   };
 }
 
-/** Pure normalization of client join parameters with preferredBlueSlot and preferredOrangeSlot. */
 export function resolveClientJoinConfig(
   options: JoinOnlineServerOptions,
   localLoadout: LocalVehicleLoadoutState,
@@ -284,93 +221,87 @@ export function resolveClientJoinConfig(
 
   return {
     playerName,
-    preferredTeam,
     localVisualId: ld.visualId,
-    localHitboxId: ld.hitboxId,
-    localColorSlot,
-    preferredBlueSlot,
-    preferredOrangeSlot,
-    localPaintFinish: ld.paintFinish,
-    localBoostVisual: ld.boostVisual,
-    localBoostAudio: ld.boostAudio,
+    loadout: ld,
     joinPayload: {
       type: 'join',
       playerName,
       role: 'player',
       preferredTeam,
-      visualId: ld.visualId,
-      hitboxId: ld.hitboxId,
+      ...ld,
       colorSlot: localColorSlot,
       blueColorSlot: preferredBlueSlot,
       orangeColorSlot: preferredOrangeSlot,
-      paintFinish: ld.paintFinish,
-      boostVisual: ld.boostVisual,
-      boostAudio: ld.boostAudio,
     },
   };
 }
 
-/** Resolve team-matched vehicle color slot when receiving server handshake response. */
 export function resolveHandshakeTeamColorSlot(
   msg: HandshakeResponseMessage | null | undefined,
-): {
-  assignedTeam: 0 | 1;
-  colorSlot: number;
-  colorHex: string | null;
-} {
+): { assignedTeam: 0 | 1; colorSlot: number; colorHex: string | null } {
   const assignedTeam: 0 | 1 = msg?.team === 1 ? 1 : 0;
-  const handshakePrefs = loadStoredColorPrefs();
-  const teamPreferredSlot = getPreferredColorSlot(handshakePrefs, assignedTeam);
+  const teamPreferredSlot = getPreferredColorSlot(loadStoredColorPrefs(), assignedTeam);
   const resolvedHandshakeSlot =
     typeof msg?.colorSlot === 'number' && CAR_COLOR_SLOTS[msg.colorSlot]?.team === assignedTeam
       ? msg.colorSlot
       : teamPreferredSlot;
-  const colorHex = CAR_COLOR_SLOTS[resolvedHandshakeSlot]?.hex || null;
   return {
     assignedTeam,
     colorSlot: resolvedHandshakeSlot,
-    colorHex,
+    colorHex: CAR_COLOR_SLOTS[resolvedHandshakeSlot]?.hex || null,
   };
 }
 
-/** Restore freeplay vehicle team, visual, hitbox, color, and materials preferences when stopping an online server. */
-export function applyFreeplayTeamAndColorOnStop(sessionHost: OnlineSessionHostPort): void {
-  const physics = sessionHost.getPhysics();
-  const arena = sessionHost.getArena();
-  const loadout = sessionHost.getLocalVehicleLoadout();
-  const visualId = normalizeVisualId(loadout.selectedPreset || 'fennec');
-  const hitboxId = loadout.selectedHitbox || resolveVehicleHitboxId(visualId);
-  const freeplayPrefs = loadStoredColorPrefs();
-  const freeplayTeam: 0 | 1 = freeplayPrefs.primaryTeam === 'orange' ? 1 : 0;
-  const freeplayColorSlot = getPreferredColorSlot(freeplayPrefs, freeplayTeam);
-  const freeplayColorHex = CAR_COLOR_SLOTS[freeplayColorSlot]?.hex || '#ffc107';
-  const matCfg = getMaterialsConfig();
-  const paintFinish = matCfg?.paintFinish || 'metallic';
-  const boostVisual = matCfg?.boostVisual || 'cartoon';
-  const boostAudio = matCfg?.boostAudio || 'standard';
-
-  if (physics && physics.numCars > 1) {
-    physics.configureCars(hitboxId, false, freeplayTeam);
-  } else {
-    physics?.setCarTeam?.(0, freeplayTeam);
-    physics?.setCarHitbox?.(0, hitboxId);
+export function resolveClientHandshakeTransition(
+  msg: HandshakeResponseMessage | null | undefined,
+  currentOnlineSession: OnlineSessionPortState | null | undefined,
+) {
+  const state = msg?.state;
+  const isMidMatchJoin = Boolean(state && MID_MATCH_STATES.has(state));
+  const isLobbyOrWarmup = state === 'lobby' || state === 'freeplay' || !state;
+  const assignedCarIndex =
+    typeof msg?.entityId === 'number' && msg.entityId >= 0 ? msg.entityId : null;
+  const localTeam: 0 | 1 = msg?.team === 1 ? 1 : 0;
+  const resolvedDuration =
+    typeof msg?.durationSeconds === 'number' && Number.isFinite(msg.durationSeconds)
+      ? msg.durationSeconds
+      : (msg?.roster?.durationSeconds ?? 300);
+  const resolvedClock =
+    typeof msg?.clockSeconds === 'number' && Number.isFinite(msg.clockSeconds)
+      ? msg.clockSeconds
+      : (msg?.roster?.clockSeconds ?? resolvedDuration);
+  const resolvedScore = {
+    blue: msg?.score?.blue ?? msg?.roster?.score?.blue ?? 0,
+    orange: msg?.score?.orange ?? msg?.roster?.score?.orange ?? 0,
+  };
+  const resolvedPhase =
+    state === 'goal_scored' ? 'goal' : state === 'prepare' ? 'kickoff' : state || 'lobby';
+  const onlineSessionPatch: Record<string, unknown> = {
+    roomId: msg?.roomId || currentOnlineSession?.roomId || 'online_room',
+    gameMode: msg?.gameMode || currentOnlineSession?.gameMode || '3v3',
+    roomType: state === 'lobby' || isMidMatchJoin ? 'match' : 'warmup',
+  };
+  if (typeof msg?.botFillMode === 'string') onlineSessionPatch.botFillMode = msg.botFillMode;
+  if (typeof msg?.durationSeconds === 'number' && Number.isFinite(msg.durationSeconds)) {
+    onlineSessionPatch.matchDurationSeconds = msg.durationSeconds;
   }
-  arena?.ensureCar?.(0, freeplayTeam, visualId);
-  arena?.swapCarVisual?.(0, visualId);
-  arena?.setCarTeam?.(0, freeplayTeam);
-  arena?.setCarColor?.(0, freeplayColorHex);
-  arena?.setCarLoadout?.(0, {
-    visualId,
-    colorHex: freeplayColorHex,
-    paintFinish,
-    boostVisual,
-    boostAudio,
-  });
-  sessionHost.setSelectedColorSlot?.(freeplayColorSlot);
-  hudStore?.getState?.()?.setMatchState?.({ localTeam: freeplayTeam });
+  if (typeof msg?.team === 'number' && msg.team >= 0) {
+    onlineSessionPatch.localTeam =
+      msg.team === 2 ? 'neutral' : msg.team === 1 ? 'orange' : 'blue';
+  }
+  return {
+    assignedCarIndex,
+    isMidMatchJoin,
+    isLobbyOrWarmup,
+    localTeam,
+    resolvedDuration,
+    resolvedClock,
+    resolvedScore,
+    resolvedPhase,
+    onlineSessionPatch,
+  };
 }
 
-/** Pure geometric evaluation returning a corrected lobby spawn pose when a car is out-of-bounds or underground. */
 export function computeClientLobbyCarSpawnPose(
   view: { posX: number; posY: number; posZ: number } | null | undefined,
   carIndex: number,
@@ -424,151 +355,6 @@ export function ensureValidClientLobbyLocalCarPose(
   if (pose) physics.setCarState(carIndex, pose);
 }
 
-/** Pure evaluation of a server handshake response into a deterministic client state transition plan. */
-export function resolveClientHandshakeTransition(
-  msg: HandshakeResponseMessage | null | undefined,
-  currentOnlineSession: OnlineSessionPortState | null | undefined,
-) {
-  const state = msg?.state;
-  const isMidMatchJoin = Boolean(state && MID_MATCH_STATES.has(state));
-  const isLobbyOrWarmup = state === 'lobby' || state === 'freeplay' || !state;
-  const assignedCarIndex =
-    typeof msg?.entityId === 'number' && msg.entityId >= 0 ? msg.entityId : null;
-  const localTeam: 0 | 1 = msg?.team === 1 ? 1 : 0;
-  const resolvedDuration =
-    typeof msg?.durationSeconds === 'number' && Number.isFinite(msg.durationSeconds)
-      ? msg.durationSeconds
-      : (msg?.roster?.durationSeconds ?? 300);
-  const resolvedClock =
-    typeof msg?.clockSeconds === 'number' && Number.isFinite(msg.clockSeconds)
-      ? msg.clockSeconds
-      : (msg?.roster?.clockSeconds ?? resolvedDuration);
-  const resolvedScore = {
-    blue: msg?.score?.blue ?? msg?.roster?.score?.blue ?? 0,
-    orange: msg?.score?.orange ?? msg?.roster?.score?.orange ?? 0,
-  };
-  const resolvedPhase =
-    state === 'goal_scored' ? 'goal' : state === 'prepare' ? 'kickoff' : state || 'lobby';
-  const onlineSessionPatch: Record<string, unknown> = {
-    roomId: msg?.roomId || currentOnlineSession?.roomId || 'online_room',
-    gameMode: msg?.gameMode || currentOnlineSession?.gameMode || '3v3',
-    roomType: state === 'lobby' || isMidMatchJoin ? 'match' : 'warmup',
-  };
-  if (typeof msg?.botFillMode === 'string') onlineSessionPatch.botFillMode = msg.botFillMode;
-  if (typeof msg?.durationSeconds === 'number' && Number.isFinite(msg.durationSeconds)) {
-    onlineSessionPatch.matchDurationSeconds = msg.durationSeconds;
-  }
-  if (typeof msg?.team === 'number' && msg.team >= 0) {
-    onlineSessionPatch.localTeam =
-      msg.team === 2 ? 'neutral' : msg.team === 1 ? 'orange' : 'blue';
-  }
-  return {
-    assignedCarIndex,
-    isMidMatchJoin,
-    isLobbyOrWarmup,
-    localTeam,
-    resolvedDuration,
-    resolvedClock,
-    resolvedScore,
-    resolvedPhase,
-    onlineSessionPatch,
-  };
-}
-
-/**
- * Restore localCarIndex, vehicle visual/hitbox/loadout, and independent Freeplay ball/car pose
- * when returning an online match to the lobby (port of 1f334d6).
- */
-export async function restoreOnlineLobbyParticipantAndArenaState(
-  sessionHost: OnlineSessionHostPort,
-  reconciler: PredictionReconciler | null,
-  isHost: boolean,
-): Promise<{ resolvedLocalCarIndex: number; localTeam: 0 | 1 }> {
-  const physics = sessionHost.getPhysics();
-  const arena = sessionHost.getArena();
-  const loadout = sessionHost.getLocalVehicleLoadout();
-
-  const resolvedLocalCarIndex = isHost
-    ? 0
-    : typeof reconciler?.localCarIndex === 'number' && reconciler.localCarIndex >= 0
-      ? reconciler.localCarIndex
-      : typeof sessionHost.getPlayerCarIndex() === 'number' && sessionHost.getPlayerCarIndex() > 0
-        ? sessionHost.getPlayerCarIndex()
-        : 1;
-
-  sessionHost.setPlayerCarIndex(resolvedLocalCarIndex);
-  if (reconciler) {
-    reconciler.localCarIndex = resolvedLocalCarIndex;
-  }
-
-  releasePodiumLocksOnEngine(physics);
-
-  const uiOnline = useAppStore?.getState?.()?.onlineSession;
-  const localTeam: 0 | 1 =
-    uiOnline?.localTeam === 'orange'
-      ? 1
-      : uiOnline?.localTeam === 'blue'
-        ? 0
-        : isHost
-          ? 0
-          : ((resolvedLocalCarIndex % 2) as 0 | 1);
-
-  const localVisualId =
-    loadout.selectedPreset ||
-    reconciler?.carVisualPresets?.get?.(resolvedLocalCarIndex) ||
-    'fennec';
-  const localHitboxId = loadout.selectedHitbox || localVisualId;
-  const localColorSlot = loadout.selectedColorSlot ?? (localTeam === 0 ? 3 : 0);
-  const matCfg = getMaterialsConfig();
-
-  if (physics) {
-    if (typeof physics.addCarAtSlot === 'function') {
-      physics.addCarAtSlot(resolvedLocalCarIndex, localTeam, localHitboxId);
-    } else {
-      while (physics.numCars <= resolvedLocalCarIndex) {
-        physics.addCar(physics.numCars % 2, localHitboxId);
-      }
-      physics.setCarHitbox?.(resolvedLocalCarIndex, localHitboxId);
-    }
-    physics.setCarTeam?.(resolvedLocalCarIndex, localTeam);
-    physics.setCarLinearFactorAndGravity?.(resolvedLocalCarIndex, 1, 1, 1, 1);
-  }
-  reconciler?.setCarVisualPreset?.(resolvedLocalCarIndex, localVisualId);
-
-  if (arena) {
-    arena.playerCarIndex = resolvedLocalCarIndex;
-    arena.isLobbyMode = true;
-    arena.isHostLobby = isHost;
-    if (typeof arena.ensureCar === 'function') {
-      await arena.ensureCar(resolvedLocalCarIndex, localTeam, localVisualId);
-    }
-    arena.swapCarVisual?.(resolvedLocalCarIndex, localVisualId);
-    let colorHex: string | null = null;
-    if (
-      typeof localColorSlot === 'number' &&
-      localColorSlot >= 0 &&
-      localColorSlot < CAR_COLOR_SLOTS.length
-    ) {
-      const slotObj =
-        CAR_COLOR_SLOTS[localColorSlot] ||
-        CAR_COLOR_SLOTS.find((s) => s.id === localColorSlot);
-      if (slotObj?.hex) {
-        colorHex = slotObj.hex;
-        arena.setCarColor?.(resolvedLocalCarIndex, slotObj.hex);
-      }
-    }
-    arena.setCarLoadout?.(resolvedLocalCarIndex, {
-      colorHex: colorHex || undefined,
-      paintFinish: matCfg?.paintFinish || 'metallic',
-      boostVisual: matCfg?.boostVisual || 'gold-rush',
-      boostAudio: matCfg?.boostAudio || 'rush',
-    });
-  }
-
-  return { resolvedLocalCarIndex, localTeam };
-}
-
-/** Reset ball and local car physics pose for host or client lobby warmup. */
 export function resetLobbyWorldPhysicsPose(
   physics: RocketSimPhysicsEngine | null | undefined,
   localCarIndex: number,
@@ -576,23 +362,11 @@ export function resetLobbyWorldPhysicsPose(
   isHost: boolean,
 ): void {
   if (!physics) return;
-  if (isHost) {
-    physics.resetKickoff?.(0);
-    physics.setBallState?.({
-      pos: [0, 0, 93.15],
-      vel: [0, 0, 0],
-      angVel: [0, 0, 0],
-    });
-    ensureValidClientLobbyLocalCarPose(physics, 0, localTeam, true);
-  } else {
+  if (!isHost) {
     physics.setCarCollisionMask?.(localCarIndex, true, false);
     physics.setCarLinearFactorAndGravity?.(localCarIndex, 1, 1, 1, 1);
-    physics.resetKickoff?.(-1);
-    physics.setBallState?.({
-      pos: [0, 0, 93.15],
-      vel: [0, 0, 0],
-      angVel: [0, 0, 0],
-    });
-    ensureValidClientLobbyLocalCarPose(physics, localCarIndex, localTeam, true);
   }
+  physics.resetKickoff?.(isHost ? 0 : -1);
+  physics.setBallState?.({ pos: [0, 0, 93.15], vel: [0, 0, 0], angVel: [0, 0, 0] });
+  ensureValidClientLobbyLocalCarPose(physics, isHost ? 0 : localCarIndex, localTeam, true);
 }

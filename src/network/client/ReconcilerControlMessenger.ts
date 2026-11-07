@@ -1,52 +1,67 @@
-import {
-  InputPacketCodec, type PiggybackedSignalAck, type PiggybackedClientCommand, type UnpackedCarControls,
-} from '../protocol/InputPacketCodec.ts';
-import { EstablishedSessionManager, type ParsedClientPacketHeader } from '../server/EstablishedSessionManager.ts';
-import {
-  GlobalPayloadCodec, MATCH_SIGNALS, createBoostPadEdgeTracker, seedBoostPadEdgeTrackerFromSnapshot,
-  applyBoostPadEdgeCooldowns, type BoostPadEdgeTracker, type DecodedGlobalPayload, type MatchSignalDescriptor,
-} from '../protocol/GlobalPayloadCodec.ts';
-import { dumpNetworkPacket, type DumpedNetworkPacket, type InspectablePacketInput } from '../diagnostics/PacketDumpDiagnostics.ts';
-import type { CarControls, LocalClientInputBuffer } from './PredictionHistoryBuffer.ts';
-import type { ReconcilerMetrics, TelemetryChannelPort, TelemetrySimPort } from './NetworkTelemetryCollector.ts';
+/**
+ * ReconcilerControlMessenger.ts
+ * Outbound client input packet encoder, piggybacked signal ACK & client command queue,
+ * and packet diagnostic dump coordinator.
+ */
 
-export interface ParsedReconcilerPacket extends InspectablePacketInput {
-  serverTick: number; activeCarMask?: number; activeCarIndices?: number[];
-  boostPadMaskLow?: number; boostPadMaskHigh?: number; stateSnapshot: Float32Array;
-  acknowledgedControls?: Array<{ carIndex: number; controls: UnpackedCarControls }>;
-  timestamp?: number; clientHeader?: ParsedClientPacketHeader; globalPayload?: DecodedGlobalPayload;
-  rawBytes?: Uint8Array | ArrayBuffer;
+import {
+  InputPacketCodec,
+  type PiggybackedSignalAck,
+  type PiggybackedClientCommand,
+} from '../protocol/InputPacketCodec.ts';
+import type { MatchSignalDescriptor } from '../protocol/GlobalPayloadCodec.ts';
+import {
+  dumpNetworkPacket,
+  type DumpedNetworkPacket,
+  type InspectablePacketInput,
+} from '../diagnostics/PacketDumpDiagnostics.ts';
+import type { CarControls, LocalClientInputBuffer } from './PredictionHistoryBuffer.ts';
+import type {
+  TelemetryChannelPort,
+  TelemetrySimPort,
+} from './ReconcilerMetricsModel.ts';
+import {
+  drainAndParseServerPacketBatch,
+  type DrainServerPacketsContext,
+  type ParsedReconcilerPacket,
+} from './reconcilerInboundPacketParser.ts';
+
+export type { DrainServerPacketsContext, ParsedReconcilerPacket };
+
+export interface PendingSignalAckEntry {
+  signalId: number;
+  signalType: number;
+  remainingSends: number;
 }
 
-export interface PendingSignalAckEntry { signalId: number; signalType: number; remainingSends: number; }
-export interface PendingClientCommandEntry { commandId: number; commandType: number; param1: number; param2: number; remainingSends: number; }
+export interface PendingClientCommandEntry {
+  commandId: number;
+  commandType: number;
+  param1: number;
+  param2: number;
+  remainingSends: number;
+}
 
 export interface OutboundInputContext {
   channel: TelemetryChannelPort | null | undefined;
-  localCarIndex: number; redundantHistoryCount: number; enableRedundantInputs: boolean;
-  redundantHistoryTicks: number; tickDtMs: number; lastServerRecordedInputTick: number;
+  localCarIndex: number;
+  redundantHistoryCount: number;
+  enableRedundantInputs: boolean;
+  redundantHistoryTicks: number;
+  tickDtMs: number;
+  lastServerRecordedInputTick: number;
   clientInputRingBuffer: LocalClientInputBuffer;
   getPreviousCommittedControls: (tick: number, carIndex: number) => CarControls;
 }
 
 export interface FlushPendingControlContext {
-  channel: TelemetryChannelPort | null | undefined; sim: TelemetrySimPort | null | undefined;
-  lastAckedServerTick: number; localCarIndex: number; neutralControls: Readonly<CarControls>;
-  replayPlaybackMode: boolean; localSkipReplayReady: boolean;
-}
-
-export interface DrainServerPacketsContext {
   channel: TelemetryChannelPort | null | undefined;
-  lobbyDualWorldMode: boolean; hostLobbyMode: boolean; replayPlaybackMode: boolean;
-  inputBufferTarget: number; metrics: ReconcilerMetrics; boostPadEdgeTracker: BoostPadEdgeTracker;
-  isTimelineSynchronized: () => boolean;
-  onSignals: ((signals: MatchSignalDescriptor[], packetServerTick: number | null) => void) | null;
-  onRosterUpdate: ((msg: Record<string, unknown>) => void) | null;
-  onHandshakeResponse: ((msg: Record<string, unknown>) => void) | null;
-  setLocalCarIndex: (entityId: number) => void;
-  setLobbyDualWorldMode: (enabled: boolean) => void;
-  setLobbyAuthoritativeSnapshots: (prev: Float32Array, curr: Float32Array) => void;
-  syncTimelineFromHandshake: (snap: Float32Array, frame: number, nowMs: number) => void;
+  sim: TelemetrySimPort | null | undefined;
+  lastAckedServerTick: number;
+  localCarIndex: number;
+  neutralControls: Readonly<CarControls>;
+  replayPlaybackMode: boolean;
+  localSkipReplayReady: boolean;
 }
 
 export class ReconcilerControlMessenger {
@@ -120,7 +135,11 @@ export class ReconcilerControlMessenger {
     prev: Float32Array | null,
     curr: Float32Array | null
   ): { prev: Float32Array | null; curr: Float32Array | null } {
-    if (!lobbyDualWorldMode || !packet?.stateSnapshot || packet.stateSnapshot.length < 410) {
+    if (
+      !lobbyDualWorldMode ||
+      !packet?.stateSnapshot ||
+      packet.stateSnapshot.length < 410
+    ) {
       return { prev, curr };
     }
     if (!curr || curr.length !== packet.stateSnapshot.length) {
@@ -156,7 +175,11 @@ export class ReconcilerControlMessenger {
       if (s.signalType === 0x9f && typeof s.param1 === 'number') {
         this.pendingClientCommands.delete(s.param1);
       }
-      if (typeof s.signalId === 'number' && s.signalId > 0 && typeof s.signalType === 'number') {
+      if (
+        typeof s.signalId === 'number' &&
+        s.signalId > 0 &&
+        typeof s.signalType === 'number'
+      ) {
         this.acknowledgeSignal(s.signalId, s.signalType, 6);
       }
     }
@@ -323,222 +346,42 @@ export class ReconcilerControlMessenger {
     incomingPackets: unknown[],
     nowMs: number
   ): ParsedReconcilerPacket | null {
-    let latestPacket: ParsedReconcilerPacket | null = null;
-    this.drainedReplayPackets.length = 0;
-    const boostPadTracker = ctx.boostPadEdgeTracker || createBoostPadEdgeTracker();
+    return drainAndParseServerPacketBatch(this, ctx, incomingPackets, nowMs);
+  }
 
-    for (const rawItem of incomingPackets) {
-      let packet: ParsedReconcilerPacket | null = null;
-
-      if (rawItem instanceof Uint8Array || rawItem instanceof ArrayBuffer) {
-        this.lastReceivedPacketRaw = rawItem;
-        const clientHeader = EstablishedSessionManager.parseClientPacket(rawItem);
-        if (clientHeader) {
-          if (
-            ctx.lobbyDualWorldMode &&
-            clientHeader.inputBufferSize === 0 &&
-            !this.hasServerReportedBuffer
-          ) {
-            ctx.metrics.inputBufferSize = ctx.inputBufferTarget ?? 3;
-          } else {
-            ctx.metrics.inputBufferSize = clientHeader.inputBufferSize;
-            this.hasServerReportedBuffer = true;
-          }
-
-          const extraUplink = Math.max(
-            0,
-            Number(ctx.channel?.extraUplinkMs ?? ctx.channel?.extraLatencyMs ?? 0) || 0
-          );
-          const extraDownlink = Math.max(
-            0,
-            Number(ctx.channel?.extraDownlinkMs ?? ctx.channel?.extraLatencyMs ?? 0) || 0
-          );
-          const extraRtt = extraUplink + extraDownlink;
-
-          const isLastQueuedItem = rawItem === incomingPackets[incomingPackets.length - 1];
-          if (ctx.channel?.isLoopback) {
-            this.measuredRtt = Math.round(extraRtt);
-            if (
-              clientHeader.clientTimestamp > 0 &&
-              clientHeader.clientTimestamp > this.lastProcessedClientTimestamp
-            ) {
-              this.lastProcessedClientTimestamp = clientHeader.clientTimestamp;
-            }
-          } else {
-            if (
-              isLastQueuedItem &&
-              clientHeader.clientTimestamp > 0 &&
-              clientHeader.clientTimestamp > this.lastProcessedClientTimestamp
-            ) {
-              this.lastProcessedClientTimestamp = clientHeader.clientTimestamp;
-              const sampleRtt = Math.max(0, nowMs - clientHeader.clientTimestamp);
-              const isQueueBurst = incomingPackets.length > 3;
-              if (sampleRtt < 2000 && Number.isFinite(sampleRtt) && !isQueueBurst) {
-                const baseSampleRtt = Math.max(0, sampleRtt - extraRtt);
-                if (!Number.isFinite(this.baseMeasuredRtt) || this.baseMeasuredRtt === 0) {
-                  this.baseMeasuredRtt = baseSampleRtt;
-                } else {
-                  const maxStepUp = Math.max(50, this.baseMeasuredRtt * 2);
-                  const clampedSample = Math.min(baseSampleRtt, this.baseMeasuredRtt + maxStepUp);
-                  this.baseMeasuredRtt = this.baseMeasuredRtt * 0.85 + clampedSample * 0.15;
-                }
-              }
-            }
-            this.measuredRtt = (this.baseMeasuredRtt || 0) + extraRtt;
-            if (ctx.channel && Number.isFinite(this.measuredRtt)) {
-              if (typeof ctx.channel.rttMs !== 'undefined') {
-                ctx.channel.measuredRttMs = this.measuredRtt;
-              }
-            }
-          }
-
-          const globalPayload = GlobalPayloadCodec.decode(clientHeader.globalPayloadSlice);
-          if (globalPayload) {
-            const allSignals =
-              globalPayload.signals && globalPayload.signals.length > 0
-                ? globalPayload.signals
-                : clientHeader.sessionSignals || [];
-            if (allSignals.length > 0) {
-              this.acknowledgeServerSignals(allSignals);
-              let hasTransitionSignal = false;
-              for (const sig of allSignals) {
-                if (!sig) continue;
-                if (sig.signalType === MATCH_SIGNALS.COMMAND_ACK && typeof sig.param1 === 'number') {
-                  this.resolveClientCommandAck(sig.param1);
-                }
-                if (
-                  sig.signalType === MATCH_SIGNALS.MATCH_PREPARE ||
-                  sig.signalType === MATCH_SIGNALS.MATCH_STARTED ||
-                  sig.signalType === MATCH_SIGNALS.KICKOFF_WILL_START
-                ) {
-                  hasTransitionSignal = true;
-                }
-              }
-              const prevLobbyMode = Boolean(ctx.lobbyDualWorldMode);
-              const pktServerTick =
-                globalPayload.hasPhysics &&
-                globalPayload.physics &&
-                typeof globalPayload.physics.tick === 'number'
-                  ? globalPayload.physics.tick
-                  : null;
-              ctx.onSignals?.(allSignals, pktServerTick);
-              if (
-                hasTransitionSignal ||
-                Boolean(ctx.lobbyDualWorldMode) !== prevLobbyMode ||
-                !ctx.isTimelineSynchronized()
-              ) {
-                latestPacket = null;
-              }
-            }
-            if (globalPayload.allUserRtt) {
-              ctx.metrics.allUserRtt = globalPayload.allUserRtt;
-            }
-            if (globalPayload.hasPhysics && globalPayload.physics) {
-              const physMask = globalPayload.physics.activeCarMask;
-              const isStaleLobbyPhysicsInMatch =
-                !ctx.lobbyDualWorldMode &&
-                !ctx.hostLobbyMode &&
-                !ctx.channel?.isLoopback &&
-                typeof physMask === 'number' &&
-                (physMask & 0xc0) !== 0;
-              if (!isStaleLobbyPhysicsInMatch) {
-                const srvTick = globalPayload.physics.tick;
-                if (globalPayload.physics.stateSnapshot) {
-                  applyBoostPadEdgeCooldowns(
-                    globalPayload.physics.stateSnapshot,
-                    srvTick,
-                    boostPadTracker
-                  );
-                }
-                if (this.hasServerReportedBuffer && srvTick > 0) {
-                  const bufDepth = clientHeader.inputBufferSize | 0;
-                  const recordedUpTo = bufDepth > 0 ? srvTick + bufDepth - 1 : srvTick - 1;
-                  if (
-                    typeof this.lastServerRecordedInputTick !== 'number' ||
-                    recordedUpTo > this.lastServerRecordedInputTick
-                  ) {
-                    this.lastServerRecordedInputTick = recordedUpTo;
-                  }
-                }
-                packet = {
-                  serverTick: srvTick,
-                  activeCarMask: globalPayload.physics.activeCarMask,
-                  activeCarIndices: globalPayload.physics.activeCarIndices,
-                  boostPadMaskLow: globalPayload.physics.boostPadMaskLow,
-                  boostPadMaskHigh: globalPayload.physics.boostPadMaskHigh,
-                  stateSnapshot: globalPayload.physics.stateSnapshot,
-                  acknowledgedControls: globalPayload.physics.acknowledgedControls,
-                  timestamp: clientHeader.serverTimestamp,
-                  clientHeader,
-                  globalPayload,
-                  rawBytes: rawItem,
-                };
-              }
-            }
-          }
-        }
-      } else if (rawItem) {
-        let parsedItem: unknown = rawItem;
-        if (typeof rawItem === 'string') {
-          try {
-            parsedItem = JSON.parse(rawItem);
-          } catch (err) {
-            console.warn(
-              '[PredictionReconciler] Failed to parse datagram string as JSON:',
-              err,
-              rawItem
-            );
-          }
-        }
-        if (parsedItem && typeof parsedItem === 'object') {
-          const obj = parsedItem as Record<string, unknown>;
-          if (typeof obj.serverTick === 'number') {
-            packet = obj as unknown as ParsedReconcilerPacket;
-          } else if (obj.type === 'roster_update') {
-            ctx.onRosterUpdate?.(obj);
-            continue;
-          } else if (obj.type === 'handshake_response') {
-            if (typeof obj.entityId === 'number' && obj.entityId >= 0) {
-              ctx.setLocalCarIndex(obj.entityId);
-            }
-            const initSnap = obj.initialSnapshot as ArrayLike<number> | undefined;
-            const frame =
-              (typeof obj.serverFrame === 'number' ? obj.serverFrame : undefined) ??
-              (typeof obj.matchTick === 'number' ? obj.matchTick : 0);
-            if (obj.state === 'lobby') {
-              ctx.setLobbyDualWorldMode(true);
-              if (initSnap) {
-                const snap = new Float32Array(initSnap);
-                seedBoostPadEdgeTrackerFromSnapshot(boostPadTracker, snap, frame);
-                ctx.setLobbyAuthoritativeSnapshots(new Float32Array(snap), new Float32Array(snap));
-              }
-            } else {
-              ctx.setLobbyDualWorldMode(false);
-              if (
-                initSnap &&
-                (obj.serverFrame !== undefined || obj.matchTick !== undefined)
-              ) {
-                const snap = new Float32Array(initSnap);
-                seedBoostPadEdgeTrackerFromSnapshot(boostPadTracker, snap, frame);
-                ctx.syncTimelineFromHandshake(snap, frame, nowMs);
-              }
-            }
-            ctx.onHandshakeResponse?.(obj);
-            continue;
-          }
-        }
-      }
-
-      if (packet) {
-        if (ctx.replayPlaybackMode && packet.stateSnapshot) {
-          this.drainedReplayPackets.push(packet);
-        }
-        if (!latestPacket || packet.serverTick >= latestPacket.serverTick) {
-          latestPacket = packet;
-        }
-      }
-    }
-
-    return latestPacket;
+  sampleAndCommitLocalStep(
+    host: OutboundInputContext & {
+      sim: TelemetrySimPort;
+      historyBuffer: {
+        getCarControls: (t: number, c: number) => CarControls | null;
+        setCarControls: (t: number, c: number, ctrl: CarControls) => CarControls;
+        saveTickSnapshot: (t: number, sim: TelemetrySimPort) => Float32Array | null;
+        lastLocalControls: CarControls;
+        clientInputRingBuffer: LocalClientInputBuffer;
+      };
+      kickoffMaskUntilTick: number;
+      neutralControls: Readonly<CarControls>;
+      metrics: { applyClientPredictionStep: (t: number, rtt: number, lead: number) => void };
+      leadTicks: number;
+      _resolveEffectiveRtt: () => number;
+      notifyMetricsUpdated: () => void;
+    },
+    carIndex: number,
+    controls: CarControls,
+    nowMs = performance.now()
+  ): CarControls {
+    const currentTick = Math.floor(host.sim.getHeaderView!().tickCount);
+    const isKickoffMasked = host.kickoffMaskUntilTick > 0 && currentTick < host.kickoffMaskUntilTick;
+    const committed = isKickoffMasked
+      ? host.historyBuffer.setCarControls(currentTick, carIndex, host.neutralControls)
+      : host.historyBuffer.getCarControls(currentTick, carIndex) || host.historyBuffer.setCarControls(currentTick, carIndex, controls);
+    if (carIndex === host.localCarIndex) host.historyBuffer.lastLocalControls = { ...committed };
+    host.historyBuffer.clientInputRingBuffer.record(currentTick, carIndex, committed);
+    this.sendOutboundInputForTick(host, currentTick, carIndex, committed, nowMs);
+    host.sim.saveStateSlot(currentTick % 256);
+    host.historyBuffer.saveTickSnapshot(currentTick, host.sim);
+    host.metrics.applyClientPredictionStep(currentTick, host._resolveEffectiveRtt(), host.leadTicks);
+    if (currentTick % 2 === 0) host.notifyMetricsUpdated();
+    return committed;
   }
 }

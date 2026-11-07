@@ -10,14 +10,8 @@ const CAR_BASE_OFFSET = 22;
 const CAR_STRIDE = 40;
 
 export interface CarControls {
-  throttle: number;
-  steer: number;
-  pitch: number;
-  yaw: number;
-  roll: number;
-  jump: boolean;
-  boost: boolean;
-  handbrake: boolean;
+  throttle: number; steer: number; pitch: number; yaw: number; roll: number;
+  jump: boolean; boost: boolean; handbrake: boolean;
 }
 
 export const NEUTRAL_CAR_CONTROLS: Readonly<CarControls> = Object.freeze({
@@ -51,13 +45,8 @@ export interface PredictionTickHistoryEntry {
 }
 
 export interface ReconciliationTolerances {
-  posTolerance: number;
-  velTolerance: number;
-  rotTolerance: number;
-  ballPosTolerance: number;
-  ballVelTolerance: number;
-  boostTolerance: number;
-  hardSnapThreshold: number;
+  posTolerance: number; velTolerance: number; rotTolerance: number;
+  ballPosTolerance: number; ballVelTolerance: number; boostTolerance: number; hardSnapThreshold: number;
 }
 
 export interface SnapshotComparisonOptions {

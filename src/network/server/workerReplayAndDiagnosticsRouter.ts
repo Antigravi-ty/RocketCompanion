@@ -14,6 +14,7 @@ import type { PhysicsEngineManager } from './PhysicsEngineManager.ts';
 import type { EstablishedSessionManager } from './EstablishedSessionManager.ts';
 import type { NetworkDataHandler } from './NetworkDataHandler.ts';
 import type { AuthoritativePhysicsSimPort } from './authoritativePhysicsStepPipeline.ts';
+import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
 
 export interface WorkerRouterContext {
   sim?: AuthoritativePhysicsSimPort | null;
@@ -44,6 +45,130 @@ export interface WorkerReplayDiagnosticsPayload {
   count?: number;
   reqId?: number;
   [key: string]: unknown;
+}
+
+function isVirtualBotChannelId(channelId: string): boolean {
+  return channelId === 'bot' || String(channelId || '').startsWith('bot_');
+}
+
+export class WorkerDirectBotPortBridge {
+  botPort: MessagePort | null = null;
+  botInferenceInFlight = false;
+  botInferenceLastSentAt = 0;
+  sentPadsToBotPort = false;
+
+  attach(
+    port: MessagePort,
+    dataHandler: NetworkDataHandler | null,
+    registerChannel: (channelId: string) => void
+  ): void {
+    if (!port) return;
+    if (this.botPort && this.botPort !== port) {
+      try {
+        this.botPort.close?.();
+      } catch (_e) {}
+    }
+    this.botPort = port;
+    this.botInferenceInFlight = false;
+    this.botInferenceLastSentAt = 0;
+    this.sentPadsToBotPort = false;
+    this.botPort.onmessage = (ev: MessageEvent) => {
+      const msg = ev?.data;
+      if (!msg || msg.type !== 'bot_tunnel_packets') return;
+      this.botInferenceInFlight = false;
+      if (!dataHandler || !Array.isArray(msg.packets)) return;
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      for (let i = 0; i < msg.packets.length; i++) {
+        const item = msg.packets[i];
+        if (!item || !item.sessionId || !item.packetBytes) continue;
+        if (!dataHandler.channels.has(item.sessionId)) {
+          registerChannel(item.sessionId);
+        }
+        dataHandler.handleIncomingPacket(item.sessionId, item.packetBytes, now);
+      }
+    };
+    this.botPort.start?.();
+  }
+
+  detach(): void {
+    if (this.botPort) {
+      try {
+        this.botPort.close?.();
+      } catch (_e) {}
+    }
+    this.botPort = null;
+    this.botInferenceInFlight = false;
+    this.sentPadsToBotPort = false;
+  }
+
+  step(
+    matchManager: MatchSessionAdmin | null,
+    sim: RocketSimPhysicsEngine | null,
+    physicsManager: PhysicsEngineManager | null,
+    dataHandler: NetworkDataHandler | null,
+    registerChannel: (channelId: string) => void
+  ): void {
+    if (!this.botPort || !matchManager || !sim || !sim.state) return;
+    const bots: Array<{
+      sessionId: string;
+      carIndex: number;
+      team: number;
+      botType: string;
+    }> = [];
+    const activeCars: Array<{ carIndex: number; team: number }> = [];
+    for (const [sid, p] of matchManager.roster.players.entries()) {
+      const cIdx = p.entityId;
+      if (typeof cIdx !== 'number' || cIdx < 0 || cIdx >= 6) continue;
+      const team = p.team === 1 ? 1 : 0;
+      activeCars.push({ carIndex: cIdx, team });
+      if (p.isBot || isVirtualBotChannelId(sid)) {
+        if (dataHandler && !dataHandler.channels.has(sid)) {
+          registerChannel(sid);
+        }
+        bots.push({
+          sessionId: sid,
+          carIndex: cIdx,
+          team,
+          botType: p.botType || 'nexto',
+        });
+      }
+    }
+    if (bots.length === 0) return;
+
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (this.botInferenceInFlight && now - this.botInferenceLastSentAt < 150) {
+      return;
+    }
+
+    const serverTick = physicsManager?.currentTick ?? Math.floor(sim.getHeaderView().tickCount);
+    const stateCopy = new Float32Array(sim.state);
+    let pads: unknown = null;
+    if (!this.sentPadsToBotPort && typeof sim.getPads === 'function') {
+      pads = sim.getPads();
+      this.sentPadsToBotPort = true;
+    }
+
+    this.botInferenceInFlight = true;
+    this.botInferenceLastSentAt = now;
+    try {
+      this.botPort.postMessage(
+        {
+          type: 'step_bots',
+          stateSnapshot: stateCopy,
+          serverTick,
+          matchState: matchManager.lifecycle.state || 'playing',
+          bots,
+          activeCars,
+          pads,
+          redundantTicks: 10,
+          nowMs: now,
+        },
+        [stateCopy.buffer]
+      );
+    } catch (_err) {
+      this.botInferenceInFlight = false;
+    }
+  }
 }
 
 export function releaseDiagnosticFleetIfEnabled(

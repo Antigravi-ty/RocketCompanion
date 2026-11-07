@@ -18,7 +18,6 @@ import {
 } from '../../ai/experimental/ExperimentalBotAgent.ts';
 import { ensureWasmSimdMatVec } from '../../ai/experimental/wasmSimdMatVec.ts';
 import { AuthoritativeServerHost } from '../../network/server/AuthoritativeServerHost.ts';
-import { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
 import { NEUTRAL_CAR_CONTROLS } from '../../network/client/PredictionHistoryBuffer.ts';
 import { networkDiagnosticsStore, hudStore, useAppStore } from '../runtimeUiPort.ts';
 import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
@@ -104,50 +103,25 @@ export class RuntimeBotCoordinator {
     let completedSteps = 0;
     const report = (label: string) => {
       completedSteps++;
-      if (onProgress) {
-        onProgress(completedSteps, totalSteps, label);
-      }
+      onProgress?.(completedSteps, totalSteps, label);
     };
+    const runTask = (task: Promise<unknown>, label: string, description: string) =>
+      task
+        .then(() => report(label))
+        .catch((err: unknown) => {
+          report(label);
+          console.warn(`[GameRuntime] ${description} preload deferred or failed:`, err);
+        });
 
     await ensureWasmSimdMatVec().catch(() => false);
 
     const coreTasks: Array<Promise<unknown>> = [
-      AuthoritativeServerHost.prewarmWorkers()
-        .then(() => report('server_and_bot_workers'))
-        .catch((err: unknown) => {
-          report('server_and_bot_workers');
-          console.warn('[GameRuntime] Worker prewarm deferred or failed:', err);
-        }),
-      preloadGroundReachabilityLut()
-        .then(() => report('ground_reachability_lut'))
-        .catch((err: unknown) => {
-          report('ground_reachability_lut');
-          console.warn('[GameRuntime] Ground reachability LUT preload deferred or failed:', err);
-        }),
-      preloadKickoffPPOWeights()
-        .then(() => report('ko_v1'))
-        .catch((err: unknown) => {
-          report('ko_v1');
-          console.warn('[GameRuntime] Kickoff v1 PPO weights preload deferred or failed:', err);
-        }),
-      preloadKickoffV1BestWeights()
-        .then(() => report('ko_v2'))
-        .catch((err: unknown) => {
-          report('ko_v2');
-          console.warn('[GameRuntime] Kickoff v2 SafeTensors preload deferred or failed:', err);
-        }),
-      ensureExperimentalEngine('nexto')
-        .then(() => report('nexto'))
-        .catch((err: unknown) => {
-          report('nexto');
-          console.warn('[GameRuntime] Nexto SafeTensors preload deferred or failed:', err);
-        }),
-      ensureExperimentalEngine('necto')
-        .then(() => report('necto'))
-        .catch((err: unknown) => {
-          report('necto');
-          console.warn('[GameRuntime] Necto SafeTensors preload deferred or failed:', err);
-        }),
+      runTask(AuthoritativeServerHost.prewarmWorkers(), 'server_and_bot_workers', 'Worker prewarm'),
+      runTask(preloadGroundReachabilityLut(), 'ground_reachability_lut', 'Ground reachability LUT'),
+      runTask(preloadKickoffPPOWeights(), 'ko_v1', 'Kickoff v1 PPO weights'),
+      runTask(preloadKickoffV1BestWeights(), 'ko_v2', 'Kickoff v2 SafeTensors'),
+      runTask(ensureExperimentalEngine('nexto'), 'nexto', 'Nexto SafeTensors'),
+      runTask(ensureExperimentalEngine('necto'), 'necto', 'Necto SafeTensors'),
     ];
 
     if (r.bot) {
@@ -292,7 +266,6 @@ export class RuntimeBotCoordinator {
     }
 
     const initialSnapshot = r.physics.saveCompactState();
-
     const garagePrefs = garageSettingsStore.get() as { vehiclePreset?: string } | null;
     const presetId =
       useAppStore?.getState?.()?.activeCar || garagePrefs?.vehiclePreset || 'fennec';
@@ -321,74 +294,51 @@ export class RuntimeBotCoordinator {
     });
     session.authoritativeServer = server;
     await server.init();
-
     server.sim.setUnlimitedBoost(false);
 
-    const snapMetrics = networkDiagnosticsStore.getSnapshot()?.metrics;
     const prevChannel = session.networkChannel;
-    const prevExtraUplinkMs =
-      typeof prevChannel?.extraUplinkMs === 'number' &&
-      Number.isFinite(prevChannel.extraUplinkMs)
-        ? prevChannel.extraUplinkMs
-        : (snapMetrics?.extraUplinkMs ?? snapMetrics?.extraLatencyMs ?? 0);
-    const prevExtraDownlinkMs =
-      typeof prevChannel?.extraDownlinkMs === 'number' &&
-      Number.isFinite(prevChannel.extraDownlinkMs)
-        ? prevChannel.extraDownlinkMs
-        : (snapMetrics?.extraDownlinkMs ?? snapMetrics?.extraLatencyMs ?? 0);
     const nextChannel = server.channel as NetworkSessionChannelLike;
     session.networkChannel = nextChannel;
-    if (nextChannel && (prevExtraUplinkMs > 0 || prevExtraDownlinkMs > 0)) {
-      if (typeof nextChannel.setAsymmetricLatency === 'function') {
-        nextChannel.setAsymmetricLatency(prevExtraUplinkMs, prevExtraDownlinkMs);
-      } else {
-        nextChannel.extraUplinkMs = prevExtraUplinkMs;
-        nextChannel.extraDownlinkMs = prevExtraDownlinkMs;
+    if (
+      typeof prevChannel?.extraUplinkMs === 'number' ||
+      typeof prevChannel?.extraDownlinkMs === 'number'
+    ) {
+      const up = prevChannel?.extraUplinkMs ?? 0;
+      const down = prevChannel?.extraDownlinkMs ?? 0;
+      if (up > 0 || down > 0) {
+        if (typeof nextChannel.setAsymmetricLatency === 'function') {
+          nextChannel.setAsymmetricLatency(up, down);
+        } else {
+          nextChannel.extraUplinkMs = up;
+          nextChannel.extraDownlinkMs = down;
+        }
       }
+    } else {
+      session.reconcilerBinder.applyInitialChannelLatency(nextChannel, true);
     }
+
     r.playerCarIndex = 0;
-    if (r.arena) {
-      r.arena.playerCarIndex = 0;
-    }
+    if (r.arena) r.arena.playerCarIndex = 0;
 
     const serverSnap = server.sim.saveCompactState();
     const serverTick = Math.floor(server.sim.getHeaderView().tickCount);
     r.physics.restoreState?.(serverSnap);
     r.interpolator?.sync?.(performance.now());
 
-    const uiState = useAppStore?.getState?.();
-    const initialBufferTarget =
-      typeof uiState?.inputBufferTarget === 'number' ? uiState.inputBufferTarget : 3;
-    const initialBufferThreshold = Array.isArray(uiState?.inputBufferThreshold)
-      ? uiState.inputBufferThreshold
-      : [-2, 2];
-
-    const reconciler = new PredictionReconciler(r.physics, nextChannel, {
-      localCarIndex: 0,
-      redundantHistoryCount: 10,
-      enableRedundantInputs: true,
-      useBitPacking: false,
-      interpolator: r.interpolator,
-      clockPacingMode: uiState?.clockPacingMode || 'legacy',
-      inputBufferTarget: initialBufferTarget,
-      catchupThresholdOffset: initialBufferThreshold[0],
-      skipThresholdOffset: initialBufferThreshold[1],
-    });
+    const reconciler = session.reconcilerBinder.createPredictionReconciler(
+      nextChannel,
+      0,
+      presetId,
+      {},
+      true,
+    );
     session.networkReconciler = reconciler;
-    reconciler.setCarVisualPreset(0, presetId);
     reconciler.setCarVisualPreset(1, 'fennec');
-    net.signalCoordinator.bindReconcilerSignals(reconciler);
-    reconciler.onHardResync = () => {
-      if (r.interpolator) {
-        r.interpolator.sync(performance.now());
-      }
-    };
     reconciler.syncTimeline(serverSnap, serverTick);
     networkDiagnosticsStore.setSession(reconciler, nextChannel, r);
 
     r.matchDurationSeconds = durationSeconds;
     r.audioSubsystem?.resetMatchClockTracking(durationSeconds);
-
     r.match?.start();
 
     hudStore.getState().setMatchState({
@@ -401,10 +351,7 @@ export class RuntimeBotCoordinator {
       winner: null,
       kickoffCountdown: 3,
     });
-
-    if (useAppStore && typeof useAppStore.getState === 'function') {
-      useAppStore.getState().setMatchMode('match');
-    }
+    useAppStore?.getState?.()?.setMatchMode?.('match');
   }
 
   public leaveBotMatch(): void {
@@ -416,27 +363,18 @@ export class RuntimeBotCoordinator {
     r.audioSubsystem?.resetAudio();
     net?.signalCoordinator?.resetSignalState?.();
     net?.diagnosticsProbe.configureLobbyGhostMode(false);
-    if (session?.authoritativeServer) {
-      session.authoritativeServer.destroy?.();
-      session.authoritativeServer = null;
-    }
-    if (session?.networkChannel) {
-      session.networkChannel.destroy?.();
-      session.networkChannel = null;
-    }
     if (session) {
+      session.networkChannel = session.reconcilerBinder.disposeSessionTransports(
+        session.authoritativeServer,
+        session.networkChannel,
+        session.networkReconciler,
+      );
+      session.authoritativeServer = null;
       session.networkReconciler = null;
+      session.lobbyDualWorld.hideNonZeroArenaCars();
     }
     r.playerCarIndex = 0;
-    if (r.arena) {
-      r.arena.playerCarIndex = 0;
-      if (r.arena.cars) {
-        if (r.arena.cars[0]) r.arena.cars[0].visible = true;
-        for (let i = 1; i < r.arena.cars.length; i++) {
-          if (r.arena.cars[i]) r.arena.cars[i].visible = false;
-        }
-      }
-    }
+    if (r.arena) r.arena.playerCarIndex = 0;
     if (r.match) {
       r.match.leave();
       r.match.state.phase = 'freeplay';

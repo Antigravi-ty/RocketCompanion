@@ -1,7 +1,7 @@
 /**
  * src/network/server/LobbyGhostCarCoordinator.ts
- * Pure Worker-safe Coordinator for Lobby Ghost Car Broadphase Filtering
- * and Client Dual-World Warmup Snapshot Synthesis.
+ * Pure Worker-safe Coordinator for Lobby Ghost Car Broadphase Filtering,
+ * Client Dual-World Warmup Snapshot Synthesis, and Authoritative Physics Signal Transitions.
  */
 
 import {
@@ -10,6 +10,11 @@ import {
   CAR_STATE_STRIDE,
   MAX_CARS,
 } from '../../physics/RocketSimConstants.ts';
+import { MATCH_SIGNALS } from '../protocol/GlobalPayloadCodec.ts';
+import {
+  applyPodiumFormationToEngine,
+  releasePodiumLocksOnEngine,
+} from '../../replay/podiumFormationPipeline.ts';
 
 export const DEFAULT_GHOST_OPACITY = 0.7;
 
@@ -19,6 +24,14 @@ export const LOBBY_COLLISION_MODES = Object.freeze({
   HOST_ONLY_BALL: 'host_only_ball',
   DUAL_WORLD_ISOLATED: 'dual_world_isolated',
 });
+
+export interface LobbyGhostCarSimPort {
+  setCarCollisionMask?(carIndex: number, interactWithBall: boolean, interactWithCars: boolean): unknown;
+  setReplayRecordingActive?(active: boolean): void;
+  clearReplayBuffer?(): void;
+  setSimulationFrozen?(frozen: boolean, mode: number, lockCars: boolean): void;
+  setCarHitbox?(carIndex: number, config: string): void;
+}
 
 export interface CarCollisionMaskEntry {
   carIndex: number;
@@ -46,13 +59,134 @@ export interface LobbyModeConfig extends LobbyGhostCoordinatorOptions {
 
 export type LobbyGhostConfigOptions = LobbyModeConfig;
 
+export interface PhysicsSignalData extends LobbyGhostConfigOptions {
+  kickoffWillStartAt?: number; param1?: number; untilFrame?: number;
+  forceReset?: boolean; seed?: number; winner?: number; targetResumeTick?: number;
+  paused?: boolean; masked?: boolean; carIndex?: number;
+  interactWithBall?: boolean; interactWithCars?: boolean; opacity?: number; hitboxType?: string;
+  [key: string]: unknown;
+}
+
+export interface PhysicsSignalTransitionResult {
+  isPaused: boolean; isRecordingFullReplay: boolean; isMasked: boolean; maskUntilFrame: number;
+}
+
 export interface MergeDualWorldOptions {
-  localCarIndex?: number;
-  localSourceCarIndex?: number;
-  hostCarIndex?: number;
-  primaryBallSource?: 'host' | 'local';
-  useLocalBall?: boolean;
-  hostCarIndices?: number[];
+  localCarIndex?: number; localSourceCarIndex?: number; hostCarIndex?: number;
+  primaryBallSource?: 'host' | 'local'; useLocalBall?: boolean; hostCarIndices?: number[];
+}
+
+export function evaluatePhysicsSignalTransition(
+  signalType: number | string,
+  data: PhysicsSignalData,
+  state: PhysicsSignalTransitionResult,
+  actions: {
+    sim: LobbyGhostCarSimPort | null | undefined;
+    lobbyModeActive: boolean;
+    resetGoalLatch(): void;
+    restoreSolidCollisions(): void;
+    resetKickoff(seed: number): void;
+    resetBallToCenter(): void;
+    clearInputBuffer(): void;
+    setCarCollisionMask(carIndex: number, interactWithBall: boolean, interactWithCars: boolean, opacity?: number): void;
+    setLobbyGhostMode(enabled: boolean, config: LobbyGhostConfigOptions): void;
+  }
+): PhysicsSignalTransitionResult {
+  let { isPaused, isRecordingFullReplay, isMasked, maskUntilFrame } = state;
+  const setMask = (masked: boolean, until = -1) => { isMasked = masked; maskUntilFrame = until; };
+  const setReplayAndFreeze = (rec: boolean, frozen: boolean) => {
+    isRecordingFullReplay = rec;
+    actions.sim?.setReplayRecordingActive?.(rec);
+    actions.sim?.setSimulationFrozen?.(frozen, 0, frozen);
+  };
+
+  switch (signalType) {
+    case MATCH_SIGNALS.MATCH_STARTED:
+    case MATCH_SIGNALS.KICKOFF_WILL_START:
+      actions.resetGoalLatch();
+      releasePodiumLocksOnEngine(actions.sim as never);
+      if (actions.lobbyModeActive) actions.restoreSolidCollisions();
+      if (signalType === MATCH_SIGNALS.MATCH_STARTED) actions.sim?.clearReplayBuffer?.();
+      setReplayAndFreeze(true, false);
+      if (signalType === MATCH_SIGNALS.KICKOFF_WILL_START) {
+        setMask(true, data.kickoffWillStartAt ?? data.param1 ?? data.untilFrame ?? -1);
+      }
+      break;
+    case 'KICKOFF_RESET':
+    case MATCH_SIGNALS.KICKOFF_START:
+      actions.resetGoalLatch();
+      releasePodiumLocksOnEngine(actions.sim as never);
+      if (actions.lobbyModeActive) actions.restoreSolidCollisions();
+      setReplayAndFreeze(true, false);
+      setMask(false);
+      if (signalType === 'KICKOFF_RESET' || data.forceReset) actions.resetKickoff(data.seed || 0);
+      break;
+    case MATCH_SIGNALS.MATCH_ENDED:
+      isPaused = false;
+      isRecordingFullReplay = false;
+      actions.sim?.setReplayRecordingActive?.(false);
+      setMask(true);
+      break;
+    case MATCH_SIGNALS.PODIUM_START:
+      isPaused = false;
+      isRecordingFullReplay = false;
+      actions.sim?.setReplayRecordingActive?.(false);
+      setMask(false);
+      applyPodiumFormationToEngine(actions.sim as never, data.winner ?? data.param1 ?? 0);
+      break;
+    case MATCH_SIGNALS.GOAL_REPLAY_START:
+    case MATCH_SIGNALS.SYS_CTRL_STATE_ONLY:
+      actions.resetGoalLatch();
+      setReplayAndFreeze(false, true);
+      if (signalType === MATCH_SIGNALS.SYS_CTRL_STATE_ONLY) { isPaused = true; setMask(true); }
+      break;
+    case MATCH_SIGNALS.SYS_CTRL_INTERVENE_WILL_RESUME:
+      isPaused = true;
+      setReplayAndFreeze(false, true);
+      setMask(true, data.targetResumeTick ?? data.param1 ?? -1);
+      break;
+    case MATCH_SIGNALS.GOAL_REPLAY_END:
+    case MATCH_SIGNALS.SYS_CTRL_PHYSICS_RESUME:
+      actions.resetGoalLatch();
+      isPaused = false;
+      setReplayAndFreeze(true, false);
+      if (signalType === MATCH_SIGNALS.SYS_CTRL_PHYSICS_RESUME) { setMask(false); actions.clearInputBuffer(); }
+      break;
+    case MATCH_SIGNALS.MATCH_PAUSED:
+    case 'PAUSE_SIMULATION': {
+      const paused = signalType === MATCH_SIGNALS.MATCH_PAUSED ? true : Boolean(data.paused);
+      isPaused = paused;
+      actions.sim?.setSimulationFrozen?.(paused, 0, paused);
+      break;
+    }
+    case MATCH_SIGNALS.MATCH_RESUMED:
+      isPaused = false;
+      actions.sim?.setSimulationFrozen?.(false, 0, false);
+      break;
+    case 'BALL_RESET':
+    case MATCH_SIGNALS.BALL_RESET:
+      actions.resetGoalLatch();
+      actions.resetBallToCenter();
+      break;
+    case 'INPUT_MASK':
+      setMask(Boolean(data.masked), data.untilFrame ?? -1);
+      break;
+    case 'GHOST_CAR_CONFIG':
+      if (typeof data.carIndex === 'number') {
+        actions.setCarCollisionMask(data.carIndex, data.interactWithBall ?? false, data.interactWithCars ?? false, data.opacity);
+      } else {
+        actions.setLobbyGhostMode(data.enabled ?? true, data);
+      }
+      break;
+    case MATCH_SIGNALS.PLAYER_LOADOUT_UPDATED:
+    case 'HOTSWAP_HITBOX':
+      if (typeof data.carIndex === 'number' && data.hitboxType) actions.sim?.setCarHitbox?.(data.carIndex, data.hitboxType);
+      break;
+    default:
+      break;
+  }
+
+  return { isPaused, isRecordingFullReplay, isMasked, maskUntilFrame };
 }
 
 export class LobbyGhostCarCoordinator {
@@ -75,7 +209,7 @@ export class LobbyGhostCarCoordinator {
   }
 
   applyCarCollisionMask(
-    sim: any,
+    sim: LobbyGhostCarSimPort | null | undefined,
     carIndex: number,
     interactWithBall = true,
     interactWithCars = true,
@@ -107,7 +241,7 @@ export class LobbyGhostCarCoordinator {
   }
 
   configureLobbyMode(
-    sim: any,
+    sim: LobbyGhostCarSimPort | null | undefined,
     activeCarIndices: Iterable<number> | null | undefined,
     config: LobbyModeConfig = {}
   ) {
@@ -160,7 +294,10 @@ export class LobbyGhostCarCoordinator {
     return this.getSnapshotConfig();
   }
 
-  restoreSolidCollisions(sim: any, activeCarIndices?: Iterable<number> | null) {
+  restoreSolidCollisions(
+    sim: LobbyGhostCarSimPort | null | undefined,
+    activeCarIndices?: Iterable<number> | null
+  ) {
     this.lobbyModeActive = false;
     this.broadcastHostOnly = false;
     const indices = new Set<number>([

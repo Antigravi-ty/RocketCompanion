@@ -8,20 +8,13 @@ import {
   MAX_INPUT_BUFFER_TICKS,
   NetworkInputBuffer,
 } from './NetworkInputBuffer.ts';
-import {
-  MATCH_SIGNALS,
-  type CarControlsInput,
-  type AcknowledgedCarControlEntry,
-  type MatchIncidentPayload,
-} from '../protocol/GlobalPayloadCodec.ts';
+import type { CarControlsInput } from '../protocol/GlobalPayloadCodec.ts';
 import {
   LobbyGhostCarCoordinator,
+  evaluatePhysicsSignalTransition,
   type LobbyGhostConfigOptions,
+  type PhysicsSignalData,
 } from './LobbyGhostCarCoordinator.ts';
-import {
-  applyPodiumFormationToEngine,
-  releasePodiumLocksOnEngine,
-} from '../../replay/podiumFormationPipeline.ts';
 import {
   syncCarSlotWithSim,
   buildPausedPhysicsStepOutput,
@@ -31,23 +24,7 @@ import {
   type AuthoritativePhysicsStepOutput,
 } from './authoritativePhysicsStepPipeline.ts';
 
-export interface PhysicsSignalData extends LobbyGhostConfigOptions {
-  kickoffWillStartAt?: number;
-  param1?: number;
-  untilFrame?: number;
-  forceReset?: boolean;
-  seed?: number;
-  winner?: number;
-  targetResumeTick?: number;
-  paused?: boolean;
-  masked?: boolean;
-  carIndex?: number;
-  interactWithBall?: boolean;
-  interactWithCars?: boolean;
-  opacity?: number;
-  hitboxType?: string;
-  [key: string]: unknown;
-}
+export type { PhysicsSignalData };
 
 export interface PhysicsEngineManagerOptions {
   sim?: AuthoritativePhysicsSimPort;
@@ -305,139 +282,39 @@ export class PhysicsEngineManager {
   }
 
   applySignal(signalType: number | string, data: PhysicsSignalData = {}): void {
-    switch (signalType) {
-      case MATCH_SIGNALS.MATCH_STARTED:
-      case MATCH_SIGNALS.KICKOFF_WILL_START:
-        this.resetGoalLatch();
-        this.isRecordingFullReplay = true;
-        this.sim?.setReplayRecordingActive?.(true);
-        releasePodiumLocksOnEngine(this.sim as never);
-        if (this.lobbyGhostCoordinator.lobbyModeActive) {
+    const next = evaluatePhysicsSignalTransition(
+      signalType,
+      data,
+      {
+        isPaused: this.isPaused,
+        isRecordingFullReplay: this.isRecordingFullReplay,
+        isMasked: this.isMasked,
+        maskUntilFrame: this.maskUntilFrame,
+      },
+      {
+        sim: this.sim,
+        lobbyModeActive: Boolean(this.lobbyGhostCoordinator?.lobbyModeActive),
+        resetGoalLatch: () => this.resetGoalLatch(),
+        restoreSolidCollisions: () => {
           this.restoreSolidCollisions();
-        }
-        if (signalType === MATCH_SIGNALS.MATCH_STARTED) {
-          this.sim?.clearReplayBuffer?.();
-        }
-        this.sim?.setSimulationFrozen?.(false, 0, false);
-        if (signalType === MATCH_SIGNALS.KICKOFF_WILL_START) {
-          this.setInputMask(true, data.kickoffWillStartAt ?? data.param1 ?? data.untilFrame ?? -1);
-        }
-        break;
-
-      case 'KICKOFF_RESET':
-      case MATCH_SIGNALS.KICKOFF_START:
-        this.resetGoalLatch();
-        this.isRecordingFullReplay = true;
-        this.sim?.setReplayRecordingActive?.(true);
-        releasePodiumLocksOnEngine(this.sim as never);
-        if (this.lobbyGhostCoordinator.lobbyModeActive) {
-          this.restoreSolidCollisions();
-        }
-        this.sim?.setSimulationFrozen?.(false, 0, false);
-        this.setInputMask(false);
-        if (signalType === 'KICKOFF_RESET' || data.forceReset) {
-          this.resetKickoff(data.seed || 0);
-        }
-        break;
-
-      case MATCH_SIGNALS.MATCH_ENDED:
-        this.isPaused = false;
-        this.isRecordingFullReplay = false;
-        this.sim?.setReplayRecordingActive?.(false);
-        this.setInputMask(true);
-        break;
-
-      case MATCH_SIGNALS.PODIUM_START:
-        this.isPaused = false;
-        this.isRecordingFullReplay = false;
-        this.sim?.setReplayRecordingActive?.(false);
-        this.setInputMask(false);
-        applyPodiumFormationToEngine(this.sim as never, data.winner ?? data.param1 ?? 0);
-        break;
-
-      case MATCH_SIGNALS.GOAL_REPLAY_WILL_START:
-      case MATCH_SIGNALS.MATCH_WILL_RESUME:
-        break;
-
-      case MATCH_SIGNALS.GOAL_REPLAY_START:
-      case MATCH_SIGNALS.SYS_CTRL_STATE_ONLY:
-        this.resetGoalLatch();
-        this.isRecordingFullReplay = false;
-        this.sim?.setReplayRecordingActive?.(false);
-        this.sim?.setSimulationFrozen?.(true, 0, true);
-        if (signalType === MATCH_SIGNALS.SYS_CTRL_STATE_ONLY) {
-          this.isPaused = true;
-          this.setInputMask(true);
-        }
-        break;
-
-      case MATCH_SIGNALS.SYS_CTRL_INTERVENE_WILL_RESUME:
-        this.isPaused = true;
-        this.isRecordingFullReplay = false;
-        this.sim?.setReplayRecordingActive?.(false);
-        this.sim?.setSimulationFrozen?.(true, 0, true);
-        this.setInputMask(true, data.targetResumeTick ?? data.param1 ?? -1);
-        break;
-
-      case MATCH_SIGNALS.GOAL_REPLAY_END:
-      case MATCH_SIGNALS.SYS_CTRL_PHYSICS_RESUME:
-        this.resetGoalLatch();
-        this.isPaused = false;
-        this.isRecordingFullReplay = true;
-        this.sim?.setReplayRecordingActive?.(true);
-        this.sim?.setSimulationFrozen?.(false, 0, false);
-        if (signalType === MATCH_SIGNALS.SYS_CTRL_PHYSICS_RESUME) {
-          this.setInputMask(false);
+        },
+        resetKickoff: (seed) => this.resetKickoff(seed),
+        resetBallToCenter: () => this.resetBallToCenter(),
+        clearInputBuffer: () => {
           this.inputBuffer?.clear();
-        }
-        break;
-
-      case MATCH_SIGNALS.MATCH_PAUSED:
-      case 'PAUSE_SIMULATION': {
-        const paused = signalType === MATCH_SIGNALS.MATCH_PAUSED ? true : Boolean(data.paused);
-        this.isPaused = paused;
-        this.sim?.setSimulationFrozen?.(paused, 0, paused);
-        break;
+        },
+        setCarCollisionMask: (carIndex, interactWithBall, interactWithCars, opacity) => {
+          this.setCarCollisionMask(carIndex, interactWithBall, interactWithCars, opacity);
+        },
+        setLobbyGhostMode: (enabled, config) => {
+          this.setLobbyGhostMode(enabled, config);
+        },
       }
-
-      case MATCH_SIGNALS.MATCH_RESUMED:
-        this.isPaused = false;
-        this.sim?.setSimulationFrozen?.(false, 0, false);
-        break;
-
-      case 'BALL_RESET':
-      case MATCH_SIGNALS.BALL_RESET:
-        this.resetGoalLatch();
-        this.resetBallToCenter();
-        break;
-
-      case 'INPUT_MASK':
-        this.setInputMask(Boolean(data.masked), data.untilFrame ?? -1);
-        break;
-
-      case 'GHOST_CAR_CONFIG':
-        if (typeof data.carIndex === 'number') {
-          this.setCarCollisionMask(
-            data.carIndex,
-            data.interactWithBall ?? false,
-            data.interactWithCars ?? false,
-            data.opacity
-          );
-        } else {
-          this.setLobbyGhostMode(data.enabled ?? true, data);
-        }
-        break;
-
-      case MATCH_SIGNALS.PLAYER_LOADOUT_UPDATED:
-      case 'HOTSWAP_HITBOX':
-        if (typeof data.carIndex === 'number' && data.hitboxType) {
-          this.sim?.setCarHitbox?.(data.carIndex, data.hitboxType);
-        }
-        break;
-
-      default:
-        break;
-    }
+    );
+    this.isPaused = next.isPaused;
+    this.isRecordingFullReplay = next.isRecordingFullReplay;
+    this.isMasked = next.isMasked;
+    this.maskUntilFrame = next.maskUntilFrame;
   }
 
   stepAuthoritativeTick(): AuthoritativePhysicsStepOutput {

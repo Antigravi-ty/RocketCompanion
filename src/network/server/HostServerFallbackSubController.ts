@@ -2,7 +2,7 @@ import { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts'
 import { PhysicsEngineManager } from './PhysicsEngineManager.ts';
 import { NetworkInputBuffer, MAX_INPUT_BUFFER_TICKS } from './NetworkInputBuffer.ts';
 import { EstablishedSessionManager } from './EstablishedSessionManager.ts';
-import { MatchSessionAdmin } from './match/MatchSessionAdmin.ts';
+import { MatchSessionAdmin, type AdminPhysicsManagerPort } from './match/MatchSessionAdmin.ts';
 import { NetworkDataHandler } from './NetworkDataHandler.ts';
 import {
   deliverToHostLoopback,
@@ -10,6 +10,9 @@ import {
 } from './HostLoopbackChannel.ts';
 import {
   HOST_WORKER_MSG_TYPES,
+  type WorkerEnvelope,
+} from '../protocol/HostWorkerProtocol.ts';
+import {
   buildWorkerRoomStateSummary,
   routeProtocolMessageInWorker,
   type WorkerRoomStateSummary,
@@ -17,25 +20,10 @@ import {
   type WorkerProtocolIncomingMessage,
 } from './HostWorkerMessageRouter.ts';
 import {
-  GlobalPayloadCodec,
-  MATCH_SIGNALS,
-  applyBoostPadEdgeCooldowns,
-  type BoostPadEdgeTracker,
-  type MatchSignalDescriptor,
-  type AcknowledgedCarControlEntry,
-} from '../protocol/GlobalPayloadCodec.ts';
-import type { WorkerEnvelope } from '../protocol/HostWorkerProtocol.ts';
-import {
   retainCompletedMatchReplayAndNotify,
   clearRetainedMatchReplayOnMatchStart,
 } from '../../replay/ReplayFileExporter.ts';
 import type { AuthoritativePhysicsSimPort } from './authoritativePhysicsStepPipeline.ts';
-import type { AdminPhysicsManagerPort } from './match/MatchSessionAdmin.ts';
-import type {
-  ReplayRingBuffer,
-  ReplayAcknowledgedControlEntry,
-  ReplaySignalsOrOptionsArg,
-} from '../../replay/ReplayRingBuffer.ts';
 
 export type { HostWorkerInitOptions };
 
@@ -44,15 +32,6 @@ export interface FallbackStepResult {
   serverTick: number;
   roomState: WorkerRoomStateSummary | null;
   matchState: string;
-}
-
-export interface DecodedHostLoopbackFrame {
-  roomStatePhase: string | null;
-  hasPhysics: boolean;
-  snapshot: Float32Array | null;
-  tick: number;
-  newReplaySignals: MatchSignalDescriptor[];
-  acknowledgedControls: AcknowledgedCarControlEntry[] | null;
 }
 
 export function buildWorkerInitEnvelopePayload(
@@ -156,89 +135,6 @@ export function prewarmAuthoritativeServerWorker(): Promise<boolean> {
   });
 
   return prewarmServerWorkerPromise;
-}
-
-function resolveRoomStatePhaseFromSignal(signalType: number): string | null {
-  if (
-    signalType === MATCH_SIGNALS.KICKOFF_START ||
-    signalType === MATCH_SIGNALS.ROUND_STARTED ||
-    signalType === MATCH_SIGNALS.OVERTIME_START
-  ) {
-    return 'playing';
-  }
-  if (
-    signalType === MATCH_SIGNALS.KICKOFF_WILL_START ||
-    signalType === MATCH_SIGNALS.GOAL_REPLAY_END ||
-    signalType === MATCH_SIGNALS.MATCH_STARTED
-  ) {
-    return 'kickoff';
-  }
-  if (
-    signalType === MATCH_SIGNALS.GOAL_REPLAY_WILL_START ||
-    signalType === MATCH_SIGNALS.GOAL_REPLAY_START
-  ) {
-    return 'replay';
-  }
-  if (signalType === MATCH_SIGNALS.MATCH_PREPARE) return 'prepare';
-  if (signalType === MATCH_SIGNALS.MATCH_ENDED || signalType === MATCH_SIGNALS.PODIUM_START) {
-    return 'ended';
-  }
-  return null;
-}
-
-export function decodeHostLoopbackFramePacket(
-  packet: Uint8Array | ArrayBuffer,
-  boostPadEdgeTracker: BoostPadEdgeTracker,
-  seenReplaySignalIds: Set<string>
-): DecodedHostLoopbackFrame | null {
-  const clientHeader = EstablishedSessionManager.parseClientPacket(packet);
-  if (!clientHeader?.globalPayloadSlice) return null;
-
-  const globalPayload = GlobalPayloadCodec.decode(clientHeader.globalPayloadSlice);
-  let roomStatePhase: string | null = null;
-  const newReplaySignals: MatchSignalDescriptor[] = [];
-
-  if (Array.isArray(globalPayload?.signals)) {
-    for (let s = 0; s < globalPayload.signals.length; s++) {
-      const sig = globalPayload.signals[s];
-      if (!sig) continue;
-      const phase = resolveRoomStatePhaseFromSignal(sig.signalType);
-      if (phase) roomStatePhase = phase;
-      if (
-        sig.signalType === MATCH_SIGNALS.CLOCK_UPDATED_SECONDS ||
-        sig.signalType === MATCH_SIGNALS.COMMAND_ACK
-      ) {
-        continue;
-      }
-      const key = sig.signalId ? `id_${sig.signalId}` : `${sig.signalType}_${sig.frameId}`;
-      if (!seenReplaySignalIds.has(key)) {
-        seenReplaySignalIds.add(key);
-        newReplaySignals.push(sig);
-      }
-    }
-  }
-
-  if (globalPayload?.hasPhysics && globalPayload.physics?.stateSnapshot) {
-    const snap = globalPayload.physics.stateSnapshot;
-    applyBoostPadEdgeCooldowns(snap, globalPayload.physics.tick, boostPadEdgeTracker);
-    return {
-      roomStatePhase,
-      hasPhysics: true,
-      snapshot: snap,
-      tick: globalPayload.physics.tick,
-      newReplaySignals,
-      acknowledgedControls: globalPayload.physics.acknowledgedControls || null,
-    };
-  }
-
-  return {
-    roomStatePhase,
-    hasPhysics: false,
-    snapshot: null,
-    tick: 0,
-    newReplaySignals,
-    acknowledgedControls: null,
-  };
 }
 
 export interface WorkerReadyResult {
@@ -490,89 +386,6 @@ export class HostServerFallbackSubController {
       this.matchManager = null;
       this.dataHandler = null;
       this.sim = null;
-    }
-  }
-}
-
-export interface HostLoopbackPacketConsumerPort {
-  lastRoomState: Partial<WorkerRoomStateSummary> | null;
-  botTunnelManager?: {
-    syncFromRoomState?(state: Partial<WorkerRoomStateSummary> | null): void;
-    onServerPhysicsFrame(snapshot: Float32Array, tick: number, state: string): void;
-  } | null;
-  hostChannel: HostLoopbackChannelPort | null;
-  boostPadEdgeTracker: BoostPadEdgeTracker;
-  _seenReplaySignalIds: Set<string>;
-  cachedSnapshot: Float32Array;
-  lastServerTick: number;
-  isWorker: boolean;
-  hostReplayRingBuffer?: ReplayRingBuffer | null;
-}
-
-export function processHostLoopbackChannelPacket(
-  host: HostLoopbackPacketConsumerPort,
-  packet: Uint8Array | ArrayBuffer | string | undefined
-): void {
-  if (!packet) return;
-  if (typeof packet === 'string') {
-    try {
-      const parsed = JSON.parse(packet);
-      if (parsed?.type === 'roster_update') {
-        host.lastRoomState = {
-          ...(host.lastRoomState || {}),
-          state: parsed.state || host.lastRoomState?.state || 'lobby',
-          roster: parsed.roster || host.lastRoomState?.roster || { players: [], spectators: [] },
-        };
-        host.botTunnelManager?.syncFromRoomState?.(host.lastRoomState);
-      }
-    } catch (_e) {}
-  }
-  if (!deliverToHostLoopback(host.hostChannel, packet)) return;
-  if (packet instanceof Uint8Array || packet instanceof ArrayBuffer) {
-    try {
-      const decoded = decodeHostLoopbackFramePacket(packet, host.boostPadEdgeTracker, host._seenReplaySignalIds);
-      if (decoded) {
-        if (decoded.roomStatePhase) {
-          if (!host.lastRoomState) {
-            host.lastRoomState = {
-              state: decoded.roomStatePhase,
-              roster: {
-                players: [], spectators: [], gameMode: '3v3', botFillMode: 'no_bots',
-                durationSeconds: 300, clockSeconds: 300, score: { blue: 0, orange: 0 },
-              },
-            };
-          } else {
-            host.lastRoomState.state = decoded.roomStatePhase;
-          }
-        }
-        if (decoded.hasPhysics && decoded.snapshot) {
-          if (host.cachedSnapshot.length !== decoded.snapshot.length) {
-            host.cachedSnapshot = new Float32Array(decoded.snapshot.length);
-          }
-          host.cachedSnapshot.set(decoded.snapshot);
-          host.lastServerTick = decoded.tick;
-          if (host.botTunnelManager && host.isWorker) {
-            host.botTunnelManager.onServerPhysicsFrame(
-              host.cachedSnapshot, host.lastServerTick, host.lastRoomState?.state || 'playing'
-            );
-          }
-          const isReplaySliceFrame =
-            Math.abs((host.cachedSnapshot[302] || 0) - 1337.5) <= 0.01 ||
-            host.lastRoomState?.state === 'replay';
-          if (!isReplaySliceFrame) {
-            host.hostReplayRingBuffer?.recordFrame(
-              host.lastServerTick,
-              host.cachedSnapshot,
-              decoded.newReplaySignals as unknown as ReplaySignalsOrOptionsArg,
-              null,
-              null,
-              decoded.acknowledgedControls as unknown as readonly ReplayAcknowledgedControlEntry[] | null
-            );
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('[HostServerWorker] Failed to decode authoritative frame packet:', err);
     }
   }
 }
