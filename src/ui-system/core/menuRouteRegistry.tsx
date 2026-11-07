@@ -221,12 +221,12 @@ export const MENU_ROUTE_RENDERERS: Record<
     <Layer2ManageRoomRecipe
       isLight={ctx.isLight}
       onBack={ctx.goBack}
-      stateOverride={{
-        onCloseRoom: () => {
-          void ctx.bridge.onLeaveOnlineServer?.();
-          ctx.setMatchMode('freeplay');
-          ctx.closeMenu();
-        },
+      onCloseRoom={async () => {
+        if (ctx.bridge.onLeaveOnlineServer) {
+          await ctx.bridge.onLeaveOnlineServer();
+        }
+        ctx.setMatchMode('freeplay');
+        ctx.closeMenu();
       }}
     />
   ),

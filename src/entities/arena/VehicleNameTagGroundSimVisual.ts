@@ -12,8 +12,8 @@ import {
   clampRayToRoiBoundary2D,
   computeOffscreenRoiBounds2D,
   resolveCarColorPalette,
-} from '../../ui-core/config/nameTagColorAndRoiMath';
-import { type NameTagOffscreenIndicatorCard2D } from '../../ui-core/config/nameTagOffscreenRenderer';
+  type NameTagOffscreenIndicatorCard2D,
+} from '../../ui-core/config/nameTagOffscreenRenderer';
 import type { CarAerialClimbStatus } from './VehicleAerialClimbTracker';
 
 const GROUND_Y_UU = 4.0;

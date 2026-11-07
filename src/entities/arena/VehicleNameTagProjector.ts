@@ -19,8 +19,8 @@ import {
   clampRayToRoiBoundary2D,
   computeOffscreenRoiBounds2D,
   resolveCarColorPalette,
-} from '../../ui-core/config/nameTagColorAndRoiMath';
-import { type NameTagOffscreenIndicatorCard2D } from '../../ui-core/config/nameTagOffscreenRenderer';
+  type NameTagOffscreenIndicatorCard2D,
+} from '../../ui-core/config/nameTagOffscreenRenderer';
 import { CANVAS_HEIGHT, CANVAS_WIDTH, roundMetric, type VisibleNameTagCard2D } from './VehicleNameTagCanvasRenderer';
 
 export const REFERENCE_TAN_HALF_FOV = Math.tan(THREE.MathUtils.degToRad(40));
