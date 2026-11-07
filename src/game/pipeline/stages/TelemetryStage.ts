@@ -10,9 +10,9 @@ import {
   useReplayViewerStore,
   globalHudTransientChannel,
 } from '../../runtimeUiPort.ts';
+import { resolveModeRosterEntries } from './hudRosterResolverPipeline.ts';
 import {
   buildHudTransientFramePayload,
-  resolveModeRosterEntries,
   type CarHudTelemetry,
 } from './hudTransientFramePipeline.ts';
 import { buildRuntimeDiagnosticReport } from './runtimeDiagnosticReportBuilder.ts';
