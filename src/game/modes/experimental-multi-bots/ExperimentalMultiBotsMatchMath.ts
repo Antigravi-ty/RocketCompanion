@@ -1,7 +1,5 @@
-import {
-  type ExperimentalBotAgent,
-  getExperimentalBotPolicyMeta,
-} from '../../../ai/experimental/ExperimentalBotAgent.ts';
+import type { ExperimentalBotAgent } from '../../../ai/experimental/ExperimentalBotAgent.ts';
+import { getExperimentalBotPolicyMeta } from '../../../ai/experimental/botpack9700488Specs.ts';
 import type { CarControls } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
 import { KICKOFF_SPAWN_PRESETS } from '../../../physics/RocketSimConstants.ts';
 import { assignTeamSlotKeys } from '../../../replay/container/RCReplayTimelineParser.ts';

@@ -1,51 +1,23 @@
 import {
-  UU_TO_METERS,
   getUuToMeters,
   SPATIAL_CONFIG,
   SPATIAL_AUDIO_CONFIG,
-  INCIDENT_SPATIAL_CONFIG,
   applySpatialConfigPatch,
-  calculateIncidentDistanceGain,
-  toAudioCoordinates,
   calculateDistanceGain,
-  evaluateCategoryDistanceGain,
-  isDistanceCulled,
-  solveIsoGainRadiusUU,
-  spatialAttenuationEvaluator,
-  setArenaAcousticScale,
-  getArenaAcousticScale,
-  getSpatialAttenuationProfile,
-  spatialAttenuationProfiles,
   type AudioAttenuationCategory,
   type SpatialAttenuationProfile,
   type SpatialConfigPatch,
   type SpatialVector3Like,
-  type SpatialPositionInput
+  type SpatialPositionInput,
 } from './spatialAudioMath.ts';
 import { audioConfig } from '../ui-core/config/audioConfig';
 
-export {
-  UU_TO_METERS,
-  getUuToMeters,
-  SPATIAL_CONFIG,
-  SPATIAL_AUDIO_CONFIG,
-  INCIDENT_SPATIAL_CONFIG,
-  calculateIncidentDistanceGain,
-  toAudioCoordinates,
-  calculateDistanceGain,
-  evaluateCategoryDistanceGain,
-  isDistanceCulled,
-  solveIsoGainRadiusUU,
-  spatialAttenuationEvaluator,
-  setArenaAcousticScale,
-  getArenaAcousticScale,
-  getSpatialAttenuationProfile,
-  spatialAttenuationProfiles,
-  type AudioAttenuationCategory,
-  type SpatialAttenuationProfile,
-  type SpatialConfigPatch,
-  type SpatialVector3Like,
-  type SpatialPositionInput
+export type {
+  AudioAttenuationCategory,
+  SpatialAttenuationProfile,
+  SpatialConfigPatch,
+  SpatialVector3Like,
+  SpatialPositionInput,
 };
 
 export interface AudioPositionVector extends SpatialVector3Like {
@@ -72,6 +44,36 @@ export interface CameraTransformLike {
   quaternion?: Partial<AudioQuaternionLike> | null;
 }
 
+function createAudioPositionVector(): AudioPositionVector {
+  return {
+    x: 0,
+    y: 0,
+    z: 0,
+    copy(p) {
+      if (p) {
+        this.x = p.x ?? 0;
+        this.y = p.y ?? 0;
+        this.z = p.z ?? 0;
+      }
+      return this;
+    },
+    set(x, y, z) {
+      this.x = x;
+      this.y = y;
+      this.z = z;
+      return this;
+    },
+    setFromMatrixPosition(m) {
+      if (m && m.elements) {
+        this.x = m.elements[12];
+        this.y = m.elements[13];
+        this.z = m.elements[14];
+      }
+      return this;
+    },
+  };
+}
+
 export function updateSpatialConfig(patch: SpatialConfigPatch | null | undefined): void {
   applySpatialConfigPatch(patch, (panningModel) => {
     if (listenerManager) {
@@ -91,70 +93,34 @@ class AudioListenerManager {
   _lastUx: number | undefined;
   _lastUy: number | undefined;
   _lastUz: number | undefined;
-  context: AudioContext | null;
-  forward: SpatialVector3Like;
-  hasListener: boolean;
-  position: AudioPositionVector;
-  quaternion: AudioQuaternionLike;
-  sources: Set<SpatialAudioSource>;
-  up: SpatialVector3Like;
-
-  constructor() {
-    this.position = {
-      x: 0,
-      y: 0,
-      z: 0,
-      copy(p) {
-        if (p) {
-          this.x = p.x ?? 0;
-          this.y = p.y ?? 0;
-          this.z = p.z ?? 0;
-        }
-        return this;
-      },
-      set(x, y, z) {
-        this.x = x;
-        this.y = y;
-        this.z = z;
-        return this;
-      },
-      setFromMatrixPosition(m) {
-        if (m && m.elements) {
-          this.x = m.elements[12];
-          this.y = m.elements[13];
-          this.z = m.elements[14];
-        }
-        return this;
+  context: AudioContext | null = null;
+  forward: SpatialVector3Like = { x: 0, y: 0, z: -1 };
+  hasListener = false;
+  position: AudioPositionVector = createAudioPositionVector();
+  quaternion: AudioQuaternionLike = {
+    x: 0,
+    y: 0,
+    z: 0,
+    w: 1,
+    copy(q) {
+      if (q) {
+        this.x = q.x ?? 0;
+        this.y = q.y ?? 0;
+        this.z = q.z ?? 0;
+        this.w = q.w ?? 1;
       }
-    };
-    this.forward = { x: 0, y: 0, z: -1 };
-    this.up = { x: 0, y: 1, z: 0 };
-    this.quaternion = {
-      x: 0,
-      y: 0,
-      z: 0,
-      w: 1,
-      copy(q) {
-        if (q) {
-          this.x = q.x ?? 0;
-          this.y = q.y ?? 0;
-          this.z = q.z ?? 0;
-          this.w = q.w ?? 1;
-        }
-        return this;
-      },
-      set(x, y, z, w) {
-        this.x = x;
-        this.y = y;
-        this.z = z;
-        this.w = w ?? 1;
-        return this;
-      }
-    };
-    this.hasListener = false;
-    this.sources = new Set();
-    this.context = null;
-  }
+      return this;
+    },
+    set(x, y, z, w) {
+      this.x = x;
+      this.y = y;
+      this.z = z;
+      this.w = w ?? 1;
+      return this;
+    },
+  };
+  sources: Set<SpatialAudioSource> = new Set();
+  up: SpatialVector3Like = { x: 0, y: 1, z: 0 };
 
   setContext(ctx: AudioContext | null): void {
     if (ctx && ctx !== this.context) {
@@ -358,33 +324,7 @@ export class SpatialAudioSource {
     this.input = null!;
     this.output = null;
     this.panner = null;
-    this.position = {
-      x: 0,
-      y: 0,
-      z: 0,
-      copy(p) {
-        if (p) {
-          this.x = p.x ?? 0;
-          this.y = p.y ?? 0;
-          this.z = p.z ?? 0;
-        }
-        return this;
-      },
-      set(x, y, z) {
-        this.x = x;
-        this.y = y;
-        this.z = z;
-        return this;
-      },
-      setFromMatrixPosition(m) {
-        if (m && m.elements) {
-          this.x = m.elements[12];
-          this.y = m.elements[13];
-          this.z = m.elements[14];
-        }
-        return this;
-      }
-    };
+    this.position = createAudioPositionVector();
 
     if (!context) {
       return;

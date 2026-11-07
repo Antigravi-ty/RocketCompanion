@@ -1,9 +1,9 @@
 import {
-  DEFAULT_CAR_CONTROLS,
   ExperimentalBotAgent,
   ensureExperimentalEngine,
   isExperimentalEngineReady,
 } from '../../../ai/experimental/ExperimentalBotAgent.ts';
+import { DEFAULT_CAR_CONTROLS } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
 import { resetSharedBallPredictionCache } from '../../../ai/experimental/botpackSharedBallPredPipeline.ts';
 import {
   normalizeVisualId,

@@ -26,7 +26,7 @@
  *      emitted CarControls (`265.20f` average due to omitted airborne throttle acceleration).
  */
 
-import { DEFAULT_CAR_CONTROLS } from './experimental/ExperimentalBotAgent.ts';
+import { DEFAULT_CAR_CONTROLS } from './experimental/experimentalMultiCarObsPipeline.ts';
 import {
   getCachedSafeTensors,
   loadExperimentalPolicySafeTensors,

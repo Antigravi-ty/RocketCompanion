@@ -1,15 +1,15 @@
 import { audioConfig } from '../ui-core/config/audioConfig';
+import { listenerManager } from './SpatialAudioSource.ts';
 import {
-  listenerManager,
   toAudioCoordinates,
   calculateIncidentDistanceGain,
-  isDistanceCulled,
   getUuToMeters,
   type AudioAttenuationCategory,
   type SpatialAttenuationProfile,
   type SpatialVector3Like,
-  type SpatialPositionInput
-} from './SpatialAudioSource.ts';
+  type SpatialPositionInput,
+} from './spatialAudioMath.ts';
+import { isDistanceCulled } from './SpatialAttenuationEvaluator.ts';
 
 export interface AudioVoiceSlot {
   id: number;

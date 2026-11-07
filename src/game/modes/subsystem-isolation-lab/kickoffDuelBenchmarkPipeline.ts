@@ -1,4 +1,4 @@
-import { DEFAULT_CAR_CONTROLS } from '../../../ai/experimental/ExperimentalBotAgent.ts';
+import { DEFAULT_CAR_CONTROLS } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
 import { RocketSimPhysicsEngine } from '../../../physics/RocketSimPhysicsEngine.ts';
 import { useSubsystemIsolationLabStore } from '../../runtimeUiPort.ts';
 import { classifyBallOutcome } from '../../../ai/KickoffV2SafeTensorsAgent.ts';

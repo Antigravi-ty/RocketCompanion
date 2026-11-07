@@ -9,13 +9,11 @@ import {
   loadStoredColorPrefs,
 } from '../../ui-core/config/vehiclePresets';
 import { botSettingsStore } from '../../ui-core/config/trainingDefaults';
-import { preloadKickoffPPOWeights } from '../../ai/KickoffPPOAgent.ts';
+import { preloadKickoffPPOWeights } from '../../ai/kickoffPPOWeights.ts';
 import { preloadKickoffV1BestWeights } from '../../ai/KickoffV2SafeTensorsAgent.ts';
 import { preloadGroundReachabilityLut } from '../../entities/reachability/groundReachabilityLut.ts';
-import {
-  BOTPACK_9700488_POLICIES,
-  ensureExperimentalEngine,
-} from '../../ai/experimental/ExperimentalBotAgent.ts';
+import { ensureExperimentalEngine } from '../../ai/experimental/ExperimentalBotAgent.ts';
+import { BOTPACK_9700488_POLICIES } from '../../ai/experimental/botpack9700488Specs.ts';
 import { ensureWasmSimdMatVec } from '../../ai/experimental/wasmSimdMatVec.ts';
 import { AuthoritativeServerHost } from '../../network/server/AuthoritativeServerHost.ts';
 import { NEUTRAL_CAR_CONTROLS } from '../../network/client/PredictionHistoryBuffer.ts';

@@ -1,10 +1,12 @@
 import {
-  DEFAULT_CAR_CONTROLS,
   ExperimentalBotAgent,
   ensureExperimentalEngine,
-  multiCarHeuristicDecide,
 } from '../../../ai/experimental/ExperimentalBotAgent.ts';
-import type { CarControls } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
+import { multiCarHeuristicDecide } from '../../../ai/experimental/multiCarHeuristicPolicy.ts';
+import {
+  DEFAULT_CAR_CONTROLS,
+  type CarControls,
+} from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
 import type { ArenaBoostPadDescriptor } from '../../../physics/RocketSimSnapshotSerializer.ts';
 import { stepKickoffCountdownState } from '../shared/matchClockAndPhasePipeline.ts';
 import type {

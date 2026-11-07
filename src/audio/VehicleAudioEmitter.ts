@@ -1,15 +1,15 @@
 import { audioConfig } from '../ui-core/config/audioConfig';
 import { getAudioContext, getMasterAudioInput } from './audioContext.ts';
+import { listenerManager } from './SpatialAudioSource.ts';
 import {
   toAudioCoordinates,
   getUuToMeters,
-  listenerManager,
   calculateIncidentDistanceGain,
-  isDistanceCulled,
   type AudioAttenuationCategory,
   type SpatialVector3Like,
-  type SpatialPositionInput
-} from './SpatialAudioSource.ts';
+  type SpatialPositionInput,
+} from './spatialAudioMath.ts';
+import { isDistanceCulled } from './SpatialAttenuationEvaluator.ts';
 
 export interface VehicleAudioLoopBuffers {
   boostLoop?: AudioBuffer | null;
@@ -79,43 +79,37 @@ export class VehicleAudioEmitter {
     if (!ctx) return;
     this.context = ctx;
     const dest = this.destinationNode || getMasterAudioInput();
+    const now = ctx.currentTime;
 
-    this.panner3D = ctx.createPanner();
+    const p = ctx.createPanner();
     const panModel = audioConfig.get('spatialPanningModel') || 'equalpower';
     try {
-      this.panner3D.panningModel = panModel;
-    } catch (err) {
-      console.warn(`[PositionalVehicleAudio] Failed to set panningModel="${panModel}", falling back to "equalpower":`, err);
-      this.panner3D.panningModel = 'equalpower';
+      p.panningModel = panModel;
+    } catch {
+      p.panningModel = 'equalpower';
     }
-    this.panner3D.distanceModel = 'inverse';
-    this.panner3D.rolloffFactor = 0;
-    this.panner3D.coneInnerAngle = 360;
-    this.panner3D.coneOuterAngle = 360;
-    this.panner3D.channelCount = 1;
-    this.panner3D.channelCountMode = 'explicit';
-    this.panner3D.channelInterpretation = 'speakers';
+    p.distanceModel = 'inverse';
+    p.rolloffFactor = 0;
+    p.coneInnerAngle = 360;
+    p.coneOuterAngle = 360;
+    p.channelCount = 1;
+    p.channelCountMode = 'explicit';
+    p.channelInterpretation = 'speakers';
+    this.panner3D = p;
 
-    this.distanceGain = ctx.createGain();
-    this.distanceGain.gain.setValueAtTime(1.0, ctx.currentTime);
-    this.panner3D.connect(this.distanceGain);
-    if (dest) this.distanceGain.connect(dest);
+    const makeGain = (val: number, out?: AudioNode | null): GainNode => {
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(val, now);
+      if (out) g.connect(out);
+      return g;
+    };
 
-    this.selfGain = ctx.createGain();
-    this.selfGain.gain.setValueAtTime(1.0, ctx.currentTime);
-    if (dest) this.selfGain.connect(dest);
-
-    this.inputGain = ctx.createGain();
-    this.inputGain.gain.setValueAtTime(1.0, ctx.currentTime);
-    this.inputGain.connect(this.isSelf ? this.selfGain : this.panner3D);
-
-    this.boostLoopGain = ctx.createGain();
-    this.boostLoopGain.gain.setValueAtTime(0, ctx.currentTime);
-    this.boostLoopGain.connect(this.inputGain);
-
-    this.supersonicLoopGain = ctx.createGain();
-    this.supersonicLoopGain.gain.setValueAtTime(0, ctx.currentTime);
-    this.supersonicLoopGain.connect(this.inputGain);
+    this.distanceGain = makeGain(1.0, dest);
+    p.connect(this.distanceGain);
+    this.selfGain = makeGain(1.0, dest);
+    this.inputGain = makeGain(1.0, this.isSelf ? this.selfGain : p);
+    this.boostLoopGain = makeGain(0, this.inputGain);
+    this.supersonicLoopGain = makeGain(0, this.inputGain);
 
     this.initialized = true;
     this._startLoops();
@@ -161,8 +155,7 @@ export class VehicleAudioEmitter {
       src.buffer = buffer;
       src.loop = true;
       if (targetGain) src.connect(targetGain);
-      const offset = buffer.duration > 0.1 ? Math.random() * (buffer.duration * 0.8) : 0;
-      src.start(now, offset);
+      src.start(now, buffer.duration > 0.1 ? Math.random() * (buffer.duration * 0.8) : 0);
       src.onended = () => onEndedClear(src);
       return src;
     } catch {
@@ -176,40 +169,40 @@ export class VehicleAudioEmitter {
   }
 
   private _ensureBoostLoopStarted(ctx: AudioContext, now: number): void {
-    if (!this.boostLoopBuffer || this.boostLoopSource) return;
-    this.boostLoopSource = this._spawnLoopSource(ctx, now, this.boostLoopBuffer, this.boostLoopGain, (src) => {
-      if (this.boostLoopSource === src) this.boostLoopSource = null;
-    });
+    if (this.boostLoopBuffer && !this.boostLoopSource) {
+      this.boostLoopSource = this._spawnLoopSource(ctx, now, this.boostLoopBuffer, this.boostLoopGain, (src) => {
+        if (this.boostLoopSource === src) this.boostLoopSource = null;
+      });
+    }
   }
 
   private _stopBoostLoopSource(): void {
-    const src = this.boostLoopSource;
+    this._teardownLoopSource(this.boostLoopSource);
     this.boostLoopSource = null;
-    this._teardownLoopSource(src);
   }
 
   private _ensureSupersonicLoopStarted(ctx: AudioContext, now: number): void {
-    if (!this.supersonicLoopBuffer || this.supersonicLoopSource) return;
-    this.supersonicLoopSource = this._spawnLoopSource(ctx, now, this.supersonicLoopBuffer, this.supersonicLoopGain, (src) => {
-      if (this.supersonicLoopSource === src) this.supersonicLoopSource = null;
-    });
+    if (this.supersonicLoopBuffer && !this.supersonicLoopSource) {
+      this.supersonicLoopSource = this._spawnLoopSource(ctx, now, this.supersonicLoopBuffer, this.supersonicLoopGain, (src) => {
+        if (this.supersonicLoopSource === src) this.supersonicLoopSource = null;
+      });
+    }
   }
 
   private _stopSupersonicLoopSource(): void {
-    const src = this.supersonicLoopSource;
+    this._teardownLoopSource(this.supersonicLoopSource);
     this.supersonicLoopSource = null;
-    this._teardownLoopSource(src);
   }
 
   _startLoops(): void {
     const ctx = this.context || getAudioContext();
-    if (!this.initialized || !ctx || ctx.state === 'closed') return;
+    if (!this.initialized || !ctx || ctx.state === 'closed' || !this.isAlive || !this.audible) return;
     const now = ctx.currentTime;
     const dist = !this.isSelf && listenerManager.hasListener ? this._lastDist : 0;
-    if (this.isBoosting && this.isAlive && this.audible && (this.isSelf || !isDistanceCulled(dist, 'boost_other'))) {
+    if (this.isBoosting && (this.isSelf || !isDistanceCulled(dist, 'boost_other'))) {
       this._ensureBoostLoopStarted(ctx, now);
     }
-    if (this.isSupersonic && this.isAlive && this.audible && (this.isSelf || !isDistanceCulled(dist, 'supersonic_other'))) {
+    if (this.isSupersonic && (this.isSelf || !isDistanceCulled(dist, 'supersonic_other'))) {
       this._ensureSupersonicLoopStarted(ctx, now);
     }
   }
@@ -218,7 +211,6 @@ export class VehicleAudioEmitter {
     if (!pos) return;
     const audioPos = toAudioCoordinates(this._scratchAudioPos, pos);
     if (!audioPos) return;
-
     this.position.x = audioPos.x;
     this.position.y = audioPos.y;
     this.position.z = audioPos.z;
@@ -230,20 +222,12 @@ export class VehicleAudioEmitter {
     if (!this.isSelf && this.panner3D) {
       try {
         const scale = getUuToMeters();
-        const px = audioPos.x * scale;
-        const py = audioPos.y * scale;
-        const pz = audioPos.z * scale;
+        const px = audioPos.x * scale, py = audioPos.y * scale, pz = audioPos.z * scale;
         if (
-          this._lastPanX === undefined ||
-          this._lastPanY === undefined ||
-          this._lastPanZ === undefined ||
-          Math.abs(px - this._lastPanX) > 1e-4 ||
-          Math.abs(py - this._lastPanY) > 1e-4 ||
-          Math.abs(pz - this._lastPanZ) > 1e-4
+          this._lastPanX === undefined || this._lastPanY === undefined || this._lastPanZ === undefined ||
+          Math.abs(px - this._lastPanX) > 1e-4 || Math.abs(py - this._lastPanY) > 1e-4 || Math.abs(pz - this._lastPanZ) > 1e-4
         ) {
-          this._lastPanX = px;
-          this._lastPanY = py;
-          this._lastPanZ = pz;
+          this._lastPanX = px; this._lastPanY = py; this._lastPanZ = pz;
           if (this.panner3D.positionX) {
             this.panner3D.positionX.setValueAtTime(px, now);
             this.panner3D.positionY.setValueAtTime(py, now);
@@ -252,17 +236,11 @@ export class VehicleAudioEmitter {
             this.panner3D.setPosition(px, py, pz);
           }
         }
-
         if (listenerManager.hasListener) {
-          this._lastDist = Math.hypot(
-            audioPos.x - listenerManager.position.x,
-            audioPos.y - listenerManager.position.y,
-            audioPos.z - listenerManager.position.z
-          );
+          const lp = listenerManager.position;
+          this._lastDist = Math.hypot(audioPos.x - lp.x, audioPos.y - lp.y, audioPos.z - lp.z);
         }
-      } catch (e) {
-        console.warn('[PositionalVehicleAudio] Error updating 3D panner position:', e);
-      }
+      } catch { /* ignore */ }
     } else if (this.isSelf && this.selfGain) {
       this._lastDist = 0;
       const targetSelfGain = audioConfig.get('masterVolume') * audioConfig.get('vehicleSelfVolume');
@@ -274,14 +252,11 @@ export class VehicleAudioEmitter {
   }
 
   private _stepLoopChannel(
-    ctx: AudioContext,
     now: number,
     dist: number,
     active: boolean,
     category: AudioAttenuationCategory,
-    settingVol: number,
-    master: number,
-    selfMult: number,
+    baseVol: number,
     gainNode: GainNode | null,
     hasSource: boolean,
     silentSinceSec: number,
@@ -294,7 +269,7 @@ export class VehicleAudioEmitter {
     if (!gainNode) return [silentSinceSec, lastTargetGain];
     const culled = !this.isSelf && listenerManager.hasListener && isDistanceCulled(dist, category);
     const distAtten = this.isSelf ? 1.0 : culled ? 0 : calculateIncidentDistanceGain(dist, category);
-    const targetGain = active && this.isAlive && this.audible && !culled ? settingVol * master * selfMult * distAtten : 0;
+    const targetGain = active && this.isAlive && this.audible && !culled ? baseVol * distAtten : 0;
 
     let nextSilent = silentSinceSec;
     if (targetGain > 1e-4) {
@@ -324,22 +299,21 @@ export class VehicleAudioEmitter {
     if (!ctx) return;
     const now = ctx.currentTime;
 
-    const master = audioConfig.get('masterVolume');
-    const selfMult = this.isSelf ? audioConfig.get('vehicleSelfVolume') : 1.0;
+    const baseMult = audioConfig.get('masterVolume') * (this.isSelf ? audioConfig.get('vehicleSelfVolume') : 1.0);
     const dist = !this.isSelf && listenerManager.hasListener ? this._lastDist : 0;
 
     [this._boostSilentSinceSec, this._lastTargetBoostGain] = this._stepLoopChannel(
-      ctx, now, dist, this.isBoosting, 'boost_other',
-      audioConfig.get('boostLoopVolume') * audioConfig.get('boostVolume'),
-      master, selfMult, this.boostLoopGain, Boolean(this.boostLoopSource),
+      now, dist, this.isBoosting, 'boost_other',
+      audioConfig.get('boostLoopVolume') * audioConfig.get('boostVolume') * baseMult,
+      this.boostLoopGain, Boolean(this.boostLoopSource),
       this._boostSilentSinceSec, BOOST_LOOP_HIBERNATE_GRACE_SEC, this._lastTargetBoostGain, 0.035,
       () => this._ensureBoostLoopStarted(ctx, now), () => this._stopBoostLoopSource()
     );
 
     [this._superSilentSinceSec, this._lastTargetSuperGain] = this._stepLoopChannel(
-      ctx, now, dist, this.isSupersonic, 'supersonic_other',
-      audioConfig.get('supersonicLoopVolume') ?? audioConfig.get('supersonicVolume') ?? 1.0,
-      master, selfMult, this.supersonicLoopGain, Boolean(this.supersonicLoopSource),
+      now, dist, this.isSupersonic, 'supersonic_other',
+      (audioConfig.get('supersonicLoopVolume') ?? audioConfig.get('supersonicVolume') ?? 1.0) * baseMult,
+      this.supersonicLoopGain, Boolean(this.supersonicLoopSource),
       this._superSilentSinceSec, SUPERSONIC_LOOP_HIBERNATE_GRACE_SEC, this._lastTargetSuperGain, 0.05,
       () => this._ensureSupersonicLoopStarted(ctx, now), () => this._stopSupersonicLoopSource()
     );
@@ -357,9 +331,7 @@ export class VehicleAudioEmitter {
     if (!buffer) return;
     const ctx = this.context || getAudioContext();
     if (!ctx || ctx.state === 'closed') return;
-    if (ctx.state === 'suspended') {
-      ctx.resume().catch((err) => console.warn('[AudioArchitecture] AudioContext resume failed/blocked:', err));
-    }
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
     const now = ctx.currentTime;
     const baseVolume = options.volume ?? 1.0;
     const playbackRate = options.playbackRate ?? 1.0;
@@ -394,12 +366,7 @@ export class VehicleAudioEmitter {
       this.activeSources.add(src);
       src.onended = () => {
         this.activeSources.delete(src);
-        try {
-          src.disconnect();
-          voiceGain.disconnect();
-        } catch (e) {
-          console.warn('[PositionalVehicleAudio] Error disconnecting voice nodes onended:', e);
-        }
+        try { src.disconnect(); voiceGain.disconnect(); } catch { /* ignore */ }
       };
     } catch (e) {
       console.warn('[PositionalVehicleAudio] Error starting playAction source:', e);
@@ -417,18 +384,14 @@ export class VehicleAudioEmitter {
     try {
       this._stopBoostLoopSource();
       this._stopSupersonicLoopSource();
-      if (this.boostLoopGain) {
-        this.boostLoopGain.gain.cancelScheduledValues(now);
-        this.boostLoopGain.gain.setValueAtTime(0, now);
-      }
-      if (this.supersonicLoopGain) {
-        this.supersonicLoopGain.gain.cancelScheduledValues(now);
-        this.supersonicLoopGain.gain.setValueAtTime(0, now);
+      for (const g of [this.boostLoopGain, this.supersonicLoopGain]) {
+        if (g) {
+          g.gain.cancelScheduledValues(now);
+          g.gain.setValueAtTime(0, now);
+        }
       }
       for (const src of this.activeSources) {
-        try { src.stop(now); src.disconnect(); } catch (e) {
-          console.warn('[PositionalVehicleAudio] Error stopping active source on silenceAll:', e);
-        }
+        try { src.stop(now); src.disconnect(); } catch { /* ignore */ }
       }
       this.activeSources.clear();
     } catch (e) {
@@ -443,8 +406,6 @@ export class VehicleAudioEmitter {
       this.panner3D?.disconnect();
       this.distanceGain?.disconnect();
       this.selfGain?.disconnect();
-    } catch (e) {
-      console.warn('[PositionalVehicleAudio] Error disconnecting nodes on dispose:', e);
-    }
+    } catch { /* ignore */ }
   }
 }

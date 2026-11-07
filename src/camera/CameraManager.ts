@@ -12,16 +12,21 @@ import {
   type BallCamTunerSettings, type SceneCameraInputState, type StaticTrainingShotEditorConfig,
 } from './SceneOverrideCameraControllers.ts';
 import {
-  CAMERA_MODES, DEFAULT_REPLAY_DIRECTOR_FOV_DEG, DEFAULT_PODIUM_CAMERA_FOV_DEG, DEFAULT_EDITOR_CAMERA_FOV_DEG,
+  CAMERA_MODES, DEFAULT_PODIUM_CAMERA_FOV_DEG, DEFAULT_EDITOR_CAMERA_FOV_DEG,
   isPovFamilyMode, isCarAttachedCameraMode, clampHorizontalFovDeg, convertHorizontalToVerticalFov,
   resolveModeHorizontalFov, applyCanonicalUpAndHorizontalFov, arbitrateFrameCameraMode,
   resolveSnapshotHorizontalFov, buildCameraPoseStateSnapshot,
   type CameraMode, type CameraFovSources, type FreeCamStateSnapshot,
 } from './cameraFovAndPosePipeline.ts';
-import { getCameraDeterminismHarness, CAMERA_SOURCE_MODES } from './CameraDeterminismHarness.ts';
-import { DEFAULT_CAMERA_SETTINGS, type CameraSettingsConfig } from '../ui-core/config/cameraDefaults';
+import { getCameraDeterminismHarness } from './CameraDeterminismHarness.ts';
+import {
+  CAMERA_SOURCE_MODES,
+  DEFAULT_CAMERA_SETTINGS,
+  type CameraSettingsConfig,
+} from '../ui-core/config/cameraDefaults';
+import { DEFAULT_REPLAY_DIRECTOR_FOV_DEG } from '../ui-core/config/replayDirectorConfig';
 
-export { CAMERA_MODES, type CameraMode, type FreeCamStateSnapshot };
+export type { CameraMode, FreeCamStateSnapshot };
 
 export interface CameraControllerContract {
   onActivate?: () => void;

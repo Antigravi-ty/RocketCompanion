@@ -1,29 +1,15 @@
 import {
   evaluateCategoryDistanceGain,
-  isDistanceCulled,
-  solveIsoGainRadiusUU,
-  spatialAttenuationEvaluator,
   setArenaAcousticScale,
-  getArenaAcousticScale,
 } from './SpatialAttenuationEvaluator.ts';
-import {
-  getSpatialAttenuationProfile,
-  spatialAttenuationProfiles,
-  type AudioAttenuationCategory,
-  type SpatialAttenuationProfile,
+import type {
+  AudioAttenuationCategory,
+  SpatialAttenuationProfile,
 } from '../ui-core/config/spatialAttenuationProfiles';
 
-export {
-  evaluateCategoryDistanceGain,
-  isDistanceCulled,
-  solveIsoGainRadiusUU,
-  spatialAttenuationEvaluator,
-  setArenaAcousticScale,
-  getArenaAcousticScale,
-  getSpatialAttenuationProfile,
-  spatialAttenuationProfiles,
-  type AudioAttenuationCategory,
-  type SpatialAttenuationProfile,
+export type {
+  AudioAttenuationCategory,
+  SpatialAttenuationProfile,
 };
 
 export const UU_TO_METERS = 0.01;

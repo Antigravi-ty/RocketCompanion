@@ -1,15 +1,15 @@
 import {
-  DEFAULT_CAR_CONTROLS,
   ExperimentalBotAgent,
   ensureExperimentalEngine,
 } from '../../../ai/experimental/ExperimentalBotAgent.ts';
-import type { CarControls } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
-import { loadExperimentalPolicySafeTensors } from '../../../ai/experimental/SafeTensorsLoader.ts';
 import {
-  KickoffPPOAgent,
-  multiDiscreteToControls,
-  preloadKickoffPPOWeights,
-} from '../../../ai/KickoffPPOAgent.ts';
+  DEFAULT_CAR_CONTROLS,
+  type CarControls,
+} from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
+import { loadExperimentalPolicySafeTensors } from '../../../ai/experimental/SafeTensorsLoader.ts';
+import { KickoffPPOAgent } from '../../../ai/KickoffPPOAgent.ts';
+import { multiDiscreteToControls } from '../../../ai/kickoffEpisodePrimitives.ts';
+import { preloadKickoffPPOWeights } from '../../../ai/kickoffPPOWeights.ts';
 import {
   KickoffV2SafeTensorsAgent,
   formatDiscreteActionKeys,

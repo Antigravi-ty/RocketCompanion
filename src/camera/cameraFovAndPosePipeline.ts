@@ -252,5 +252,3 @@ export function buildCameraPoseStateSnapshot(
   }
   return null;
 }
-
-export { DEFAULT_REPLAY_DIRECTOR_FOV_DEG };

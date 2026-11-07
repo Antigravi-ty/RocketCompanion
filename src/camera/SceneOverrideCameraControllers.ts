@@ -10,12 +10,6 @@ import {
   convertHorizontalToVerticalFov,
 } from './cameraFovAndPosePipeline.ts';
 
-export {
-  DEFAULT_REPLAY_DIRECTOR_FOV_DEG,
-  DEFAULT_PODIUM_CAMERA_FOV_DEG,
-  DEFAULT_EDITOR_CAMERA_FOV_DEG,
-};
-
 export interface BallCamTunerSettings {
   fov?: number;
   distance: number;

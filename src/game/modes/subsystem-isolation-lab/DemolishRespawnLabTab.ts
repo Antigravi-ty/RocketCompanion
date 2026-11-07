@@ -3,7 +3,7 @@ import {
   RESPAWN_SPAWN_PRESETS,
   SIM_OFFSETS,
 } from '../../../physics/RocketSimConstants.ts';
-import { DEFAULT_CAR_CONTROLS } from '../../../ai/experimental/ExperimentalBotAgent.ts';
+import { DEFAULT_CAR_CONTROLS } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
 import { gameAudio } from '../../../audio/GameAudioEngineFacade.ts';
 import {
   hudStore,

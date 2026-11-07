@@ -31,8 +31,6 @@ import {
 import {
   MLP_BOTPACK_SPECS,
   RIPPLE_BOTPACK_SPECS,
-  EXPERIMENTAL_BOT_POLICIES,
-  BOTPACK_9700488_POLICIES,
   getExperimentalBotPolicyMeta,
   type ExperimentalBotPolicyMeta,
 } from './botpack9700488Specs.ts';
@@ -52,9 +50,6 @@ import { RippleAgentState } from './RippleObsBuilder.ts';
 import { multiCarHeuristicDecide } from './multiCarHeuristicPolicy.ts';
 import {
   DEFAULT_CAR_CONTROLS,
-  NEXTO_ACTION_TABLE,
-  encodeCarControls,
-  decodeCarControls,
   getNextoKickoffControls,
   buildDynamicNextoObs,
   buildDynamicNectoObs,
@@ -64,17 +59,6 @@ import {
 import type { ParsedSafeTensorsModel, SafeTensorEntry } from './SafeTensorsLoader.ts';
 
 export type { ExperimentalBotPolicyMeta };
-export {
-  DEFAULT_CAR_CONTROLS,
-  NEXTO_ACTION_TABLE,
-  encodeCarControls,
-  decodeCarControls,
-  getNextoKickoffControls,
-  multiCarHeuristicDecide,
-  EXPERIMENTAL_BOT_POLICIES,
-  BOTPACK_9700488_POLICIES,
-  getExperimentalBotPolicyMeta,
-};
 
 // Shared zero-GC forward engines (stateless across calls; per-agent state stays on ExperimentalBotAgent)
 const sPerceiverEngine = new EarlPerceiverEngine();

@@ -8,8 +8,8 @@
 
 import { MATCH_SIGNALS } from '../../physics/RocketSimConstants.ts';
 import { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
+import { KICKOFF_SPAWNS } from '../../ui-core/config/trainingDefaults';
 import {
-  KICKOFF_SPAWNS,
   CPP_SPAWN_INDEX_MAP,
   getSameSidePartnerSpawnIndex,
   makeKickoffRawCarState,
@@ -17,7 +17,7 @@ import {
   multiDiscreteToOverlayKeys,
   multiDiscreteToKeyString,
   areMultiDiscreteActionsEqual,
-} from '../../ai/KickoffPPOAgent.ts';
+} from '../../ai/kickoffEpisodePrimitives.ts';
 import {
   KickoffV2SafeTensorsAgent,
   KICKOFF_V1_SETTLE_TICKS,

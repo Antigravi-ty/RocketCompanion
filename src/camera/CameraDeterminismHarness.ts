@@ -12,14 +12,6 @@ import {
   CAMERA_SOURCE_MODES,
 } from '../ui-core/config/cameraDefaults';
 
-export {
-  PRE_TRIGGER_FRAME_LIMIT,
-  POST_TRIGGER_FRAME_LIMIT,
-  MAX_CAPTURED_FRAMES,
-  CAMERA_CAPTURE_STATES,
-  CAMERA_SOURCE_MODES,
-};
-
 const CSV_COLUMNS = [
   'frame_index', 'capture_phase', 'timestamp_ms', 'did_reset',
   'in_dt', 'in_ball_cam', 'in_car_pos_x', 'in_car_pos_y', 'in_car_pos_z',

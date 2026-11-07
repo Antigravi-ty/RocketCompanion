@@ -3,43 +3,18 @@
  * Pure-Web Float32 PPO Actor inference & 75-dim Ego-Frame Observation (obs_v3) builder.
  */
 
-import { preloadKickoffPPOWeights } from './kickoffPPOWeights.ts';
-import { KICKOFF_SPAWNS } from '../ui-core/config/trainingDefaults';
 import {
   KICKOFF_SETTLE_TICKS,
   TICKS_PER_DECISION,
   OBS_V3_DIM,
-  CPP_SPAWN_INDEX_MAP,
-  getSameSidePartnerSpawnIndex,
   getActorWeights,
   CarJumpAirTimeTracker,
-  makeKickoffRawCarState,
   resetEngineToKickoffSpawn,
   multiDiscreteToControls,
-  controlsToMultiDiscrete,
   multiDiscreteToOverlayKeys,
   multiDiscreteToKeyString,
-  areMultiDiscreteActionsEqual,
   buildKickoffTimelineNoteBars,
 } from './kickoffEpisodePrimitives.ts';
-
-export {
-  KICKOFF_SPAWNS,
-  KICKOFF_SETTLE_TICKS,
-  TICKS_PER_DECISION,
-  OBS_V3_DIM,
-  CPP_SPAWN_INDEX_MAP,
-  getSameSidePartnerSpawnIndex,
-  preloadKickoffPPOWeights,
-  CarJumpAirTimeTracker,
-  makeKickoffRawCarState,
-  resetEngineToKickoffSpawn,
-  multiDiscreteToControls,
-  controlsToMultiDiscrete,
-  multiDiscreteToOverlayKeys,
-  multiDiscreteToKeyString,
-  areMultiDiscreteActionsEqual,
-};
 
 const FIELD_X = 4096.0;
 const FIELD_Y = 5120.0;

@@ -1,10 +1,10 @@
 import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
+import { KICKOFF_SPAWNS } from '../../ui-core/config/trainingDefaults';
 import {
-  KICKOFF_SPAWNS,
   TICKS_PER_DECISION,
   multiDiscreteToOverlayKeys,
   multiDiscreteToKeyString,
-} from '../../ai/KickoffPPOAgent.ts';
+} from '../../ai/kickoffEpisodePrimitives.ts';
 import {
   KickoffV2SafeTensorsAgent,
   KICKOFF_V1_SETTLE_TICKS,

@@ -7,11 +7,13 @@ import { getAudioSettings } from '../ui-core/config/audioConfig';
 import {
   SpatialAudioSource,
   listenerManager,
-  isDistanceCulled,
-  getArenaAcousticScale,
-  getSpatialAttenuationProfile,
   type SpatialVector3Like,
 } from './SpatialAudioSource.ts';
+import {
+  isDistanceCulled,
+  getArenaAcousticScale,
+} from './SpatialAttenuationEvaluator.ts';
+import { getSpatialAttenuationProfile } from '../ui-core/config/spatialAttenuationProfiles';
 import type { CarStateView } from '../physics/RocketSimStateViews.ts';
 
 export const MAX_AUDIBLE_REMOTE_ENGINES = 3;

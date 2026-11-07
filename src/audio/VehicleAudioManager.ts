@@ -56,29 +56,21 @@ export interface VehicleAudioUpdateContext {
 }
 
 export class VehicleAudioManager {
-  _lastBoostEdgeMsByCar: Map<number, number> = new Map();
-  _lastFlipResetMsByCar: Map<number, number> | undefined;
-  _lastJumpActionMsByCar: Map<number, number> = new Map();
-  _lastSupersonicEnterMsByCar: Map<number, number> = new Map();
-  _lastWheelLandingMsByCar: Map<number, number> = new Map();
-  _landingStateByCar: Map<number, VehicleLandingTrackingState> = new Map();
+  _lastBoostEdgeMsByCar = new Map<number, number>();
+  _lastFlipResetMsByCar?: Map<number, number>;
+  _lastJumpActionMsByCar = new Map<number, number>();
+  _lastSupersonicEnterMsByCar = new Map<number, number>();
+  _lastWheelLandingMsByCar = new Map<number, number>();
+  _landingStateByCar = new Map<number, VehicleLandingTrackingState>();
   activeCarIndex = 0;
   buffers: VehicleAudioBuffers = {
-    jump: [],
-    doubleJump: [],
-    dodge: [],
-    boostStart: null,
-    boostLoop: null,
-    boostRelease: null,
-    supersonicEnter: [],
-    supersonicLoop: null,
-    reset: null,
-    wheelImpact: [],
-    carCollision: null,
-    vehicleDetail: []
+    jump: [], doubleJump: [], dodge: [],
+    boostStart: null, boostLoop: null, boostRelease: null,
+    supersonicEnter: [], supersonicLoop: null, reset: null,
+    wheelImpact: [], carCollision: null, vehicleDetail: [],
   };
-  carBoostVariations: Map<number, string> = new Map();
-  emitters: Map<number, VehicleAudioEmitter> = new Map();
+  carBoostVariations = new Map<number, string>();
+  emitters = new Map<number, VehicleAudioEmitter>();
   lastDodgeSoundIdx = -1;
   lastDoubleJumpSoundIdx = -1;
   lastJumpSoundIdx = -1;
@@ -90,32 +82,30 @@ export class VehicleAudioManager {
     boostLoop: AudioBuffer | null;
     boostRelease: AudioBuffer | null;
   } {
-    if (carIndex === this.activeCarIndex) {
-      const startVar = audioConfig.get('boostStartVariation');
-      const loopVar = audioConfig.get('boostLoopVariation');
-      const endVar = audioConfig.get('boostEndVariation');
-      const hasCustomPhaseMix = Boolean(startVar && loopVar && endVar && (startVar !== loopVar || loopVar !== endVar));
-      if (hasCustomPhaseMix && subsystemState?.buffers) {
-        return {
-          boostStart: subsystemState.buffers.get(`boost_${startVar}_start`) || this.buffers.boostStart,
-          boostLoop: subsystemState.buffers.get(`boost_${loopVar}_loop`) || this.buffers.boostLoop,
-          boostRelease: subsystemState.buffers.get(`boost_${endVar}_end`) || this.buffers.boostRelease,
-        };
-      }
+    const bufs = subsystemState?.buffers;
+    const resolveKeys = (sKey: string, lKey: string, eKey: string) => ({
+      boostStart: bufs?.get(`boost_${sKey}_start`) || this.buffers.boostStart,
+      boostLoop: bufs?.get(`boost_${lKey}_loop`) || this.buffers.boostLoop,
+      boostRelease: bufs?.get(`boost_${eKey}_end`) || this.buffers.boostRelease,
+    });
+    if (carIndex === this.activeCarIndex && bufs) {
+      const sVar = audioConfig.get('boostStartVariation');
+      const lVar = audioConfig.get('boostLoopVariation');
+      const eVar = audioConfig.get('boostEndVariation');
+      if (sVar && lVar && eVar && (sVar !== lVar || lVar !== eVar)) return resolveKeys(sVar, lVar, eVar);
     }
     const varId = this.carBoostVariations.get(carIndex);
-    if (varId && subsystemState?.buffers) {
-      return {
-        boostStart: subsystemState.buffers.get(`boost_${varId}_start`) || this.buffers.boostStart,
-        boostLoop: subsystemState.buffers.get(`boost_${varId}_loop`) || this.buffers.boostLoop,
-        boostRelease: subsystemState.buffers.get(`boost_${varId}_end`) || this.buffers.boostRelease,
-      };
-    }
+    if (varId && bufs) return resolveKeys(varId, varId, varId);
     return {
       boostStart: this.buffers.boostStart,
       boostLoop: this.buffers.boostLoop,
-      boostRelease: this.buffers.boostRelease
+      boostRelease: this.buffers.boostRelease,
     };
+  }
+
+  private _syncEmitterBuffers(carIndex: number, emitter: VehicleAudioEmitter): void {
+    const { boostLoop } = this._resolveBoostBuffersForCar(carIndex);
+    emitter.setBuffers({ boostLoop, supersonicLoop: this.buffers.supersonicLoop });
   }
 
   setCarBoostAudioVariation(carIndex: number, variationId: string | null = null): void {
@@ -126,10 +116,7 @@ export class VehicleAudioManager {
       this.carBoostVariations.delete(carIndex);
     }
     const emitter = this.emitters.get(carIndex);
-    if (emitter) {
-      const { boostLoop } = this._resolveBoostBuffersForCar(carIndex);
-      emitter.setBuffers({ boostLoop, supersonicLoop: this.buffers.supersonicLoop });
-    }
+    if (emitter) this._syncEmitterBuffers(carIndex, emitter);
   }
 
   getEmitter(carIndex = 0): VehicleAudioEmitter {
@@ -137,8 +124,7 @@ export class VehicleAudioManager {
     if (!emitter) {
       emitter = new VehicleAudioEmitter(carIndex);
       emitter.setSelf(carIndex === this.activeCarIndex);
-      const { boostLoop } = this._resolveBoostBuffersForCar(carIndex);
-      emitter.setBuffers({ boostLoop, supersonicLoop: this.buffers.supersonicLoop });
+      this._syncEmitterBuffers(carIndex, emitter);
       this.emitters.set(carIndex, emitter);
     }
     return emitter;
@@ -146,23 +132,14 @@ export class VehicleAudioManager {
 
   updatePanningModel(model: PanningModelType | null | undefined): void {
     if (!model) return;
-    for (const emitter of this.emitters.values()) {
-      if (emitter && emitter.panner3D) {
-        try {
-          emitter.panner3D.panningModel = model;
-        } catch (err) {
-          console.warn('[VehicleAudioManager] Failed to set panningModel:', err instanceof Error ? err.message : err);
-        }
-      }
+    for (const e of this.emitters.values()) {
+      if (e?.panner3D) try { e.panner3D.panningModel = model; } catch { /* ignore */ }
     }
   }
 
   setBuffers(bufs: Partial<VehicleAudioBuffers> = {}): void {
     Object.assign(this.buffers, bufs);
-    for (const [carIndex, emitter] of this.emitters.entries()) {
-      const { boostLoop } = this._resolveBoostBuffersForCar(carIndex);
-      emitter.setBuffers({ boostLoop, supersonicLoop: this.buffers.supersonicLoop });
-    }
+    for (const [carIdx, e] of this.emitters.entries()) this._syncEmitterBuffers(carIdx, e);
   }
 
   private _checkCarCooldown(map: Map<number, number>, carIndex: number, nowMs: number, cooldownMs: number): boolean {
@@ -208,7 +185,7 @@ export class VehicleAudioManager {
     isMatchActive = true,
     hasBlockingOverlay = false,
     continueOnBlur = false,
-    isHidden = false
+    isHidden = false,
   }: VehicleAudioUpdateContext): void {
     this.activeCarIndex = activeCarIndex;
     const totalCars = Math.max(1, numCars);
@@ -218,26 +195,22 @@ export class VehicleAudioManager {
       const emitter = this.getEmitter(i);
       emitter.setSelf(i === activeCarIndex);
 
-      if (getCarPos) {
-        const pos = getCarPos(i);
-        if (pos) emitter.updatePosition(pos);
-      }
+      const pos = getCarPos ? getCarPos(i) : null;
+      if (pos) emitter.updatePosition(pos);
 
       const carState = getCarState ? getCarState(i) : null;
-      const isBoosting = Boolean(carState?.isBoosting);
-      const isSupersonic = Boolean(carState?.isSupersonic);
       const isAlive = !carState?.isDemoed;
-
-      emitter.updateState({ isBoosting, isSupersonic, isAlive, audible });
+      emitter.updateState({
+        isBoosting: Boolean(carState?.isBoosting),
+        isSupersonic: Boolean(carState?.isSupersonic),
+        isAlive,
+        audible,
+      });
 
       if (carState && isAlive && audible) {
+        const wc = carState.getWheelContact;
         const isGroundedNow = Boolean(
-          carState.isOnGround ||
-          (typeof carState.getWheelContact === 'function' &&
-            (carState.getWheelContact(0) ||
-              carState.getWheelContact(1) ||
-              carState.getWheelContact(2) ||
-              carState.getWheelContact(3)))
+          carState.isOnGround || (typeof wc === 'function' && (wc(0) || wc(1) || wc(2) || wc(3)))
         );
         let landingSt = this._landingStateByCar.get(i);
         if (!landingSt) {
@@ -248,16 +221,10 @@ export class VehicleAudioManager {
           landingSt.wasGrounded = false;
           landingSt.airborneTicks++;
           const downwardVel = Math.max(0, -(carState.velZ ?? 0));
-          if (downwardVel > landingSt.peakDownwardSpeedUU) {
-            landingSt.peakDownwardSpeedUU = downwardVel;
-          }
+          if (downwardVel > landingSt.peakDownwardSpeedUU) landingSt.peakDownwardSpeedUU = downwardVel;
         } else {
           if (!landingSt.wasGrounded && landingSt.airborneTicks >= 6 && landingSt.peakDownwardSpeedUU >= 220) {
-            this.handleCarEvent({
-              type: 'wheel_impact',
-              carIndex: i,
-              speed: landingSt.peakDownwardSpeedUU,
-            });
+            this.handleCarEvent({ type: 'wheel_impact', carIndex: i, speed: landingSt.peakDownwardSpeedUU });
           }
           landingSt.wasGrounded = true;
           landingSt.peakDownwardSpeedUU = 0;
@@ -285,31 +252,24 @@ export class VehicleAudioManager {
     }
 
     const nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    const master = audioConfig.get('masterVolume') ?? 1.0;
-    const selfMult = emitter.isSelf ? (audioConfig.get('vehicleSelfVolume') ?? 1.0) : 1.0;
+    const baseMult = (audioConfig.get('masterVolume') ?? 1.0) * (emitter.isSelf ? (audioConfig.get('vehicleSelfVolume') ?? 1.0) : 1.0);
     const actionSubType = event.actionSubType ?? event.subType ?? 0;
 
     switch (event.type) {
       case INCIDENT_EVENT_TYPES.CAR_JUMP:
-      case 0x06: {
-        const vol = (audioConfig.get('jumpVolume') ?? 1.0) * master * selfMult;
-        this._playJumpFamilyAction(emitter, carIndex, nowMs, vol, this.buffers.jump, 'lastJumpSoundIdx', 1.4);
+      case 0x06:
+        this._playJumpFamilyAction(emitter, carIndex, nowMs, (audioConfig.get('jumpVolume') ?? 1.0) * baseMult, this.buffers.jump, 'lastJumpSoundIdx', 1.4);
         break;
-      }
 
       case INCIDENT_EVENT_TYPES.CAR_DOUBLE_JUMP:
-      case 0x07: {
-        const vol = (audioConfig.get('doubleJumpVolume') ?? 1.0) * master * selfMult;
-        this._playJumpFamilyAction(emitter, carIndex, nowMs, vol, this.buffers.doubleJump, 'lastDoubleJumpSoundIdx', 1.7);
+      case 0x07:
+        this._playJumpFamilyAction(emitter, carIndex, nowMs, (audioConfig.get('doubleJumpVolume') ?? 1.0) * baseMult, this.buffers.doubleJump, 'lastDoubleJumpSoundIdx', 1.7);
         break;
-      }
 
       case INCIDENT_EVENT_TYPES.CAR_DODGE:
-      case 0x08: {
-        const vol = (audioConfig.get('dodgeVolume') ?? 1.0) * master * selfMult;
-        this._playJumpFamilyAction(emitter, carIndex, nowMs, vol, this.buffers.dodge, 'lastDodgeSoundIdx', 1.2);
+      case 0x08:
+        this._playJumpFamilyAction(emitter, carIndex, nowMs, (audioConfig.get('dodgeVolume') ?? 1.0) * baseMult, this.buffers.dodge, 'lastDodgeSoundIdx', 1.2);
         break;
-      }
 
       case PHYSICS_EVENT_TYPES.CAR_ACTION: {
         const subMap: Record<number, number> = {
@@ -325,7 +285,7 @@ export class VehicleAudioManager {
       case 0x0C: {
         if (!this._checkCarCooldown(this._lastBoostEdgeMsByCar, carIndex, nowMs, INCIDENT_COOLDOWN_MS.BOOST_EDGE_PER_CAR)) break;
         const startVol = audioConfig.get('boostStartVolume') ?? audioConfig.get('boostStartStopVolume') ?? 1.0;
-        const vol = (audioConfig.get('boostVolume') ?? 1.0) * startVol * master * selfMult;
+        const vol = (audioConfig.get('boostVolume') ?? 1.0) * startVol * baseMult;
         const { boostStart, boostLoop } = this._resolveBoostBuffersForCar(carIndex);
         const buf = boostStart || boostLoop;
         if (buf) emitter.playAction(buf, { volume: vol, category: 'boost_other' });
@@ -335,7 +295,7 @@ export class VehicleAudioManager {
       case INCIDENT_EVENT_TYPES.CAR_BOOST_STOP:
       case 0x0D: {
         const releaseVol = audioConfig.get('boostReleaseVolume') ?? audioConfig.get('boostStartStopVolume') ?? 1.0;
-        const vol = (audioConfig.get('boostVolume') ?? 1.0) * releaseVol * master * selfMult * 0.8;
+        const vol = (audioConfig.get('boostVolume') ?? 1.0) * releaseVol * baseMult * 0.8;
         const { boostRelease } = this._resolveBoostBuffersForCar(carIndex);
         if (boostRelease) emitter.playAction(boostRelease, { volume: vol, category: 'boost_other', distanceRadiusScale: 0.85 });
         break;
@@ -345,8 +305,7 @@ export class VehicleAudioManager {
       case PHYSICS_EVENT_TYPES.CAR_SUPERSONIC_ENTER:
       case 0x09: {
         if (!this._checkCarCooldown(this._lastSupersonicEnterMsByCar, carIndex, nowMs, INCIDENT_COOLDOWN_MS.SUPERSONIC_ENTER_PER_CAR)) break;
-        const enterVol = audioConfig.get('supersonicEnterVolume') ?? audioConfig.get('supersonicVolume') ?? 1.0;
-        const vol = enterVol * master * selfMult;
+        const vol = (audioConfig.get('supersonicEnterVolume') ?? audioConfig.get('supersonicVolume') ?? 1.0) * baseMult;
         const enterList = this.buffers.supersonicEnter;
         if (enterList && enterList.length > 0) {
           const idx = this._pickNonRepeatingIndex(enterList.length, this.lastSupersonicEnterSoundIdx);
@@ -364,11 +323,11 @@ export class VehicleAudioManager {
         if (!isBallFlipResetEvent(event)) break;
         if (!this._lastFlipResetMsByCar) this._lastFlipResetMsByCar = new Map();
         if (!this._checkCarCooldown(this._lastFlipResetMsByCar, carIndex, nowMs, INCIDENT_COOLDOWN_MS.FLIP_RESET_PER_CAR)) break;
-        const vol = (audioConfig.get('flipResetVolume') ?? 1.0) * master * selfMult;
+        const vol = (audioConfig.get('flipResetVolume') ?? 1.0) * baseMult;
         if (this.buffers.reset) {
           emitter.playAction(this.buffers.reset, { volume: vol, playbackRate: 1.0, category: 'flip_reset_other' });
         } else {
-          console.error('[AudioArchitecture] Missing flip reset audio asset (buffers.reset is null or empty)!', { carIndex, eventType: event.type });
+          console.error('[AudioArchitecture] Missing flip reset audio asset!', { carIndex, eventType: event.type });
         }
         break;
       }
@@ -376,18 +335,15 @@ export class VehicleAudioManager {
       case 'wheel_impact':
       case 0x12: {
         if (!this._checkCarCooldown(this._lastWheelLandingMsByCar, carIndex, nowMs, INCIDENT_COOLDOWN_MS.WHEEL_LANDING_PER_CAR)) break;
-        const downwardSpeed = Math.abs(event.speed ?? event.relSpeed ?? event.normalRelVel ?? event.impulse ?? 500);
-        const mod = calibrateWheelLandingModulation(downwardSpeed, emitter.isSelf);
-        const vol = (audioConfig.get('wheelImpactVolume') ?? 1.0) * master * selfMult * mod.volumeGainMultiplier;
+        const speed = Math.abs(event.speed ?? event.relSpeed ?? event.normalRelVel ?? event.impulse ?? 500);
+        const mod = calibrateWheelLandingModulation(speed, emitter.isSelf);
+        const vol = (audioConfig.get('wheelImpactVolume') ?? 1.0) * baseMult * mod.volumeGainMultiplier;
         const list = this.buffers.wheelImpact;
         if (list && list.length > 0) {
           const idx = this._pickNonRepeatingIndex(list.length, this.lastWheelImpactSoundIdx);
           this.lastWheelImpactSoundIdx = idx;
           emitter.playAction(list[idx], {
-            volume: vol,
-            playbackRate: mod.playbackRate,
-            category: mod.category,
-            distanceRadiusScale: mod.distanceRadiusScale,
+            volume: vol, playbackRate: mod.playbackRate, category: mod.category, distanceRadiusScale: mod.distanceRadiusScale,
           });
         }
         break;
@@ -399,8 +355,6 @@ export class VehicleAudioManager {
   }
 
   silenceAll() {
-    for (const emitter of this.emitters.values()) {
-      emitter.silenceAll();
-    }
+    for (const emitter of this.emitters.values()) emitter.silenceAll();
   }
 }

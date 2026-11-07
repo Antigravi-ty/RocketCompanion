@@ -1,26 +1,17 @@
 import {
-  getEngineAudioTuningConfig,
-  registerEngineAudioRuntimeActions,
-  publishEngineAudioTelemetry,
-  type EngineAudioPackId,
-  type EngineDriveDirection,
+  getEngineAudioTuningConfig, registerEngineAudioRuntimeActions, publishEngineAudioTelemetry,
+  type EngineAudioPackId, type EngineDriveDirection,
 } from '../ui-core/config/engineAudioConfig.ts';
 import {
-  loadEngineAudioPackAssets,
-  getResolvedEngineAudioPackAssets,
-  type LoadedEngineAudioPackAssets,
+  loadEngineAudioPackAssets, getResolvedEngineAudioPackAssets, type LoadedEngineAudioPackAssets,
 } from './EngineAudioLoopConditioner.ts';
 import { EngineAudioEqualizer } from './EngineAudioEqualizer.ts';
 import {
-  normalizePowertrainTelemetry,
-  stepManualBenchKinematics,
-  type PowertrainTelemetryInput,
+  normalizePowertrainTelemetry, stepManualBenchKinematics, type PowertrainTelemetryInput,
 } from './EnginePhysicsKinematics.ts';
 import { TurtleModemDrivetrainModel } from './TurtleModemDrivetrainModel.ts';
 import {
-  TurtleModemGranularVoiceGraph,
-  type EngineSynthLodMode,
-  type GranularSliceChannel,
+  TurtleModemGranularVoiceGraph, type EngineSynthLodMode, type GranularSliceChannel,
 } from './TurtleModemGranularVoiceGraph.ts';
 
 export type { PowertrainTelemetryInput, EngineSynthLodMode, GranularSliceChannel };
@@ -32,11 +23,6 @@ export interface EngineSynthTelemetryInput extends PowertrainTelemetryInput {
 
 const REMOTE_HIBERNATE_GRACE_SEC = 15.0;
 
-/**
- * Turtle Modem Harmonic Granular REV Powertrain Synthesizer.
- * Supports full 40-slice synthesis for the primary listener and lightweight 10-anchor-slice LOD
- * with automatic distance/budget hibernation for remote vehicles.
- */
 export class TurtleModemEngineSynth {
   ctx: AudioContext;
   destination: AudioNode;
@@ -76,11 +62,7 @@ export class TurtleModemEngineSynth {
   lastUpdatePerfMs = 0;
   telemetryPublishCounter = 0;
 
-  constructor(
-    ctx: AudioContext,
-    destination?: AudioNode,
-    options?: { isPrimaryListener?: boolean }
-  ) {
+  constructor(ctx: AudioContext, destination?: AudioNode, options?: { isPrimaryListener?: boolean }) {
     this.ctx = ctx;
     this.destination = destination || ctx.destination;
     this.isPrimaryListener = options?.isPrimaryListener ?? true;
@@ -89,23 +71,20 @@ export class TurtleModemEngineSynth {
     this.packId = cfg.activePackId || 'turtle_modem';
     this.drivetrain = new TurtleModemDrivetrainModel(cfg.idleRPM);
 
-    this.lowpassNode = this.ctx.createBiquadFilter();
-    this.lowpassNode.type = 'lowpass';
-    this.lowpassNode.frequency.value = 18000;
-    this.lowpassNode.Q.value = 0.707;
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 18000;
+    lp.Q.value = 0.707;
+    this.lowpassNode = lp;
 
-    this.equalizer = new EngineAudioEqualizer(this.ctx, this.lowpassNode);
+    this.equalizer = new EngineAudioEqualizer(this.ctx, lp);
     this.outputNode = this.ctx.createGain();
     this.outputNode.gain.value = 0;
-    this.lowpassNode.connect(this.outputNode);
+    lp.connect(this.outputNode);
     this.outputNode.connect(this.destination);
 
-    const initialLodMode: EngineSynthLodMode = this.isPrimaryListener ? 'primary-full' : 'remote-lod';
     this.voiceGraph = new TurtleModemGranularVoiceGraph(
-      this.ctx,
-      this.lowpassNode,
-      this.equalizer,
-      initialLodMode
+      this.ctx, lp, this.equalizer, this.isPrimaryListener ? 'primary-full' : 'remote-lod'
     );
 
     if (this.isPrimaryListener) this._registerRuntimeHooks();
@@ -128,11 +107,9 @@ export class TurtleModemEngineSynth {
 
   private _shouldPlayNow(): boolean {
     return (
-      this.active &&
-      this.alive &&
-      !this.dormant &&
+      this.active && this.alive && !this.dormant &&
       (this.audible || (this.isPrimaryListener && this.manualOverrideActive)) &&
-      this.engineVolume > 0.0001
+      this.engineVolume > 1e-4
     );
   }
 
@@ -141,21 +118,27 @@ export class TurtleModemEngineSynth {
       triggerBackfireTest: () => this.triggerBackfire(true),
       triggerEntitySpawnTest: () => this.playEntitySpawnSfx(true),
       triggerZeroSpeedReset: () => this.resetToZeroSpeedState(),
-      setManualBenchState: (patch) => {
-        if (patch.active !== undefined) this.manualOverrideActive = patch.active;
-        if (patch.throttle !== undefined) this.manualThrottle = patch.throttle;
-        if (patch.boost !== undefined) this.manualBoost = patch.boost;
-        if (patch.reverse !== undefined) this.manualReverse = patch.reverse;
-        if (patch.airborne !== undefined) this.manualAirborne = patch.airborne;
+      setManualBenchState: (p) => {
+        if (p.active !== undefined) this.manualOverrideActive = p.active;
+        if (p.throttle !== undefined) this.manualThrottle = p.throttle;
+        if (p.boost !== undefined) this.manualBoost = p.boost;
+        if (p.reverse !== undefined) this.manualReverse = p.reverse;
+        if (p.airborne !== undefined) this.manualAirborne = p.airborne;
       },
     });
+  }
+
+  private _buildIfReady(): void {
+    if (this.assets && this._shouldPlayNow() && !this.voiceGraph.graphBuilt) {
+      this.voiceGraph.build(this.assets);
+    }
   }
 
   private _ensurePackLoaded(packId: EngineAudioPackId): void {
     const resolved = getResolvedEngineAudioPackAssets(packId);
     if (resolved) {
       this.assets = resolved;
-      if (this._shouldPlayNow() && !this.voiceGraph.graphBuilt) this.voiceGraph.build(this.assets);
+      this._buildIfReady();
       return;
     }
     if (this.loadingPromise) return;
@@ -163,12 +146,9 @@ export class TurtleModemEngineSynth {
       .then((loaded) => {
         this.assets = loaded;
         this.loadingPromise = null;
-        if (this._shouldPlayNow() && !this.voiceGraph.graphBuilt) this.voiceGraph.build(this.assets);
+        this._buildIfReady();
       })
-      .catch((err) => {
-        this.loadingPromise = null;
-        console.warn('[TurtleModemEngineSynth] Failed to load engine audio pack:', err);
-      });
+      .catch(() => { this.loadingPromise = null; });
   }
 
   start(): void {
@@ -177,9 +157,7 @@ export class TurtleModemEngineSynth {
     this.active = true;
     this.lastUpdatePerfMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
     this._ensurePackLoaded(this.packId);
-    if (this.assets && this._shouldPlayNow() && !this.voiceGraph.graphBuilt) {
-      this.voiceGraph.build(this.assets);
-    }
+    this._buildIfReady();
   }
 
   resetToZeroSpeedState(): void {
@@ -193,37 +171,32 @@ export class TurtleModemEngineSynth {
       const src = this.ctx.createBufferSource();
       src.buffer = buffer;
       src.playbackRate.value = rate;
-      const gain = this.ctx.createGain();
-      gain.gain.value = gainVal;
-      src.connect(gain);
-      gain.connect(this.destination);
+      const g = this.ctx.createGain();
+      g.gain.value = gainVal;
+      src.connect(g);
+      g.connect(this.destination);
       src.start(this.ctx.currentTime);
-      src.onended = () => {
-        try { src.disconnect(); gain.disconnect(); } catch { /* ignore */ }
-      };
-    } catch (err) {
-      console.warn('[TurtleModemEngineSynth] One-shot SFX playback error:', err);
-    }
+      src.onended = () => { try { src.disconnect(); g.disconnect(); } catch { /* ignore */ } };
+    } catch { /* ignore */ }
   }
 
   triggerBackfire(forceAudition = false): void {
-    if (!this.assets || this.assets.popBuffers.length === 0) return;
-    if (!forceAudition && (!this.active || !this.alive || !this.audible || this.dormant)) return;
+    const pops = this.assets?.popBuffers;
+    if (!pops?.length || (!forceAudition && (!this.active || !this.alive || !this.audible || this.dormant))) return;
     const cfg = getEngineAudioTuningConfig();
     const now = this.ctx.currentTime;
     if (!forceAudition && now - this.lastBackfireTimeSec < Math.max(0.15, cfg.backfireCooldownSec ?? 0.65)) return;
     this.lastBackfireTimeSec = now;
 
-    const count = this.assets.popBuffers.length;
-    let nextIdx = 0;
-    if (count > 1) {
-      do { nextIdx = Math.floor(Math.random() * count); } while (nextIdx === this.lastPopIndex);
+    let idx = 0;
+    if (pops.length > 1) {
+      do { idx = Math.floor(Math.random() * pops.length); } while (idx === this.lastPopIndex);
     }
-    this.lastPopIndex = nextIdx;
+    this.lastPopIndex = idx;
     this.backfireCount += 1;
 
-    const popGainVal = Math.max(0, Math.min(1.5, cfg.backfireVolume * (forceAudition ? 0.9 : this.engineVolume)));
-    this._playOneShotBuffer(this.assets.popBuffers[nextIdx], popGainVal, 0.94 + Math.random() * 0.12);
+    const gain = Math.max(0, Math.min(1.5, cfg.backfireVolume * (forceAudition ? 0.9 : this.engineVolume)));
+    this._playOneShotBuffer(pops[idx], gain, 0.94 + Math.random() * 0.12);
   }
 
   playEntitySpawnSfx(forceAudition = false): void {
@@ -238,8 +211,8 @@ export class TurtleModemEngineSynth {
     this.lastEntitySpawnTimeSec = now;
     this.entitySpawnCount += 1;
 
-    const gainVal = Math.max(0, Math.min(1.5, cfg.entitySpawnSfxVolume * (forceAudition ? 0.9 : Math.max(0.35, this.engineVolume))));
-    this._playOneShotBuffer(spawnBuf, gainVal, 1.0);
+    const vol = cfg.entitySpawnSfxVolume * (forceAudition ? 0.9 : Math.max(0.35, this.engineVolume));
+    this._playOneShotBuffer(spawnBuf, Math.max(0, Math.min(1.5, vol)), 1.0);
     if (this.isPrimaryListener) publishEngineAudioTelemetry({ entitySpawnCount: this.entitySpawnCount });
   }
 
@@ -258,10 +231,8 @@ export class TurtleModemEngineSynth {
     if (norm.dormant !== undefined) this.dormant = norm.dormant;
     if (norm.distanceUU !== undefined) this.distanceUU = norm.distanceUU;
 
-    const desiredLodMode: EngineSynthLodMode = this.isPrimaryListener ? 'primary-full' : 'remote-lod';
-    if (this.voiceGraph.lodMode !== desiredLodMode) {
-      this.voiceGraph.setLodMode(desiredLodMode, this.assets);
-    }
+    const desiredLod: EngineSynthLodMode = this.isPrimaryListener ? 'primary-full' : 'remote-lod';
+    if (this.voiceGraph.lodMode !== desiredLod) this.voiceGraph.setLodMode(desiredLod, this.assets);
 
     const cfg = getEngineAudioTuningConfig();
     if (cfg.activePackId && cfg.activePackId !== this.packId) {
@@ -281,17 +252,18 @@ export class TurtleModemEngineSynth {
       this.manualSpeedUU = rawSpeedUU;
     }
 
-    const stepResult = this.drivetrain.step(cfg, rawSpeedUU, forwardSpeedUU, throttleInput, isOnGround, dt, {
+    const res = this.drivetrain.step(cfg, rawSpeedUU, forwardSpeedUU, throttleInput, isOnGround, dt, {
       steerInput, handbrakeInput, isBoosting, surfaceUpZ,
     });
-    if (stepResult.shouldTriggerBackfire && !this.dormant) this.triggerBackfire(false);
+    if (res.shouldTriggerBackfire && !this.dormant) this.triggerBackfire(false);
     this._updateAudioGraph(cfg, rawSpeedUU);
   }
 
   private _updateAudioGraph(cfg: ReturnType<typeof getEngineAudioTuningConfig>, rawSpeedUU: number): void {
     const now = this.ctx.currentTime;
     const tau = Math.max(0.003, cfg.gainSmoothingTimeMs / 1000);
-    const { currentRPM, smoothThrottle, isUnderStrain } = this.drivetrain;
+    const dtModel = this.drivetrain;
+    const { currentRPM, smoothThrottle, isUnderStrain } = dtModel;
 
     const shouldPlay = this._shouldPlayNow();
     const targetMasterGain = shouldPlay ? Math.min(1.2, this.engineVolume * 0.42 * (isUnderStrain ? 1.08 : 1.0)) : 0;
@@ -302,9 +274,8 @@ export class TurtleModemEngineSynth {
 
     if (!shouldPlay) {
       if (!this.isPrimaryListener || this.dormant) {
-        if (this._inactiveSinceSec < 0) {
-          this._inactiveSinceSec = now;
-        } else if (this.voiceGraph.graphBuilt && now - this._inactiveSinceSec >= REMOTE_HIBERNATE_GRACE_SEC) {
+        if (this._inactiveSinceSec < 0) this._inactiveSinceSec = now;
+        else if (this.voiceGraph.graphBuilt && now - this._inactiveSinceSec >= REMOTE_HIBERNATE_GRACE_SEC) {
           this.voiceGraph.teardown();
         }
       }
@@ -313,60 +284,50 @@ export class TurtleModemEngineSynth {
       this._inactiveSinceSec = -1;
     }
 
-    if (!this.voiceGraph.graphBuilt || this.voiceGraph.sliceChannels.length === 0) {
+    if (!this.voiceGraph.graphBuilt || !this.voiceGraph.sliceChannels.length) {
       if (this.assets && shouldPlay) this.voiceGraph.build(this.assets);
       if (!this.voiceGraph.graphBuilt) return;
     }
 
     const isStationaryNeutral =
-      this.drivetrain.isOnGround &&
-      this.drivetrain.driveDirection === 'stopped' &&
-      smoothThrottle < 0.01 &&
-      currentRPM <= cfg.idleRPM + 15;
+      dtModel.isOnGround && dtModel.driveDirection === 'stopped' && smoothThrottle < 0.01 && currentRPM <= cfg.idleRPM + 15;
 
-    const graphResult = this.voiceGraph.update({
-      cfg,
-      now,
-      tau,
-      currentRPM,
-      smoothThrottle,
-      isUnderStrain,
-      isStationaryNeutral,
-    });
+    const graphResult = this.voiceGraph.update({ cfg, now, tau, currentRPM, smoothThrottle, isUnderStrain, isStationaryNeutral });
     if (!graphResult) return;
 
     if (this.isPrimaryListener) {
       this.telemetryPublishCounter = (this.telemetryPublishCounter + 1) % 3;
       if (this.telemetryPublishCounter === 0) {
+        const { lowerSliceIndex, upperSliceIndex, lowerSliceFreqHz, upperSliceFreqHz, activeEqCompensationDb, effectiveIdleGain, filterCutoffHz } = graphResult;
         publishEngineAudioTelemetry({
           packId: this.packId,
           loaded: this.voiceGraph.graphBuilt,
           loadedSlicesCount: this.voiceGraph.sliceChannels.length,
           totalSlicesCount: this.assets?.slices.length ?? 40,
           currentRPM,
-          targetRPM: this.drivetrain.targetRPM,
-          currentGear: this.drivetrain.currentGear,
-          isNeutral: this.drivetrain.isNeutral,
-          isOnGround: this.drivetrain.isOnGround,
-          driveDirection: this.drivetrain.driveDirection,
+          targetRPM: dtModel.targetRPM,
+          currentGear: dtModel.currentGear,
+          isNeutral: dtModel.isNeutral,
+          isOnGround: dtModel.isOnGround,
+          driveDirection: dtModel.driveDirection,
           speedUU: rawSpeedUU,
           speedKmh: TurtleModemEngineSynth.speedToKmh(rawSpeedUU),
-          forwardAccelUU: this.drivetrain.smoothForwardAccelUU,
-          airborneRevQuotaRemainingSec: this.drivetrain.airborneThrottleQuotaSec,
-          isShiftLocked: this.drivetrain.isShiftLocked,
+          forwardAccelUU: dtModel.smoothForwardAccelUU,
+          airborneRevQuotaRemainingSec: dtModel.airborneThrottleQuotaSec,
+          isShiftLocked: dtModel.isShiftLocked,
           isUnderStrain,
-          isInOverdrive: this.drivetrain.isInOverdrive,
-          isBoosting: this.drivetrain.isBoosting,
-          throttleLoad: this.drivetrain.wasAccelerating ? 1 : 0,
+          isInOverdrive: dtModel.isInOverdrive,
+          isBoosting: dtModel.isBoosting,
+          throttleLoad: dtModel.wasAccelerating ? 1 : 0,
           smoothThrottle,
-          isRevLimiting: this.drivetrain.revLimiterTimer > 0,
-          lowerSliceIndex: graphResult.lowerSliceIndex,
-          upperSliceIndex: graphResult.upperSliceIndex,
-          lowerSliceFreqHz: graphResult.lowerSliceFreqHz,
-          upperSliceFreqHz: graphResult.upperSliceFreqHz,
-          activeEqCompensationDb: graphResult.activeEqCompensationDb,
-          idleWeight: graphResult.effectiveIdleGain,
-          filterCutoffHz: graphResult.filterCutoffHz,
+          isRevLimiting: dtModel.revLimiterTimer > 0,
+          lowerSliceIndex,
+          upperSliceIndex,
+          lowerSliceFreqHz,
+          upperSliceFreqHz,
+          activeEqCompensationDb,
+          idleWeight: effectiveIdleGain,
+          filterCutoffHz,
           lastBackfireIndex: this.lastPopIndex,
           backfireCount: this.backfireCount,
           entitySpawnCount: this.entitySpawnCount,
@@ -375,13 +336,17 @@ export class TurtleModemEngineSynth {
     }
   }
 
+  private _muteOutput(tau = 0.025): void {
+    this.outputNode.gain.setTargetAtTime(0, this.ctx.currentTime, tau);
+    this.lastOutputGain = 0;
+  }
+
   setDormant(dormant: boolean): void {
     const next = Boolean(dormant);
     if (this.dormant === next) return;
     this.dormant = next;
     if (this.dormant) {
-      this.outputNode.gain.setTargetAtTime(0, this.ctx.currentTime, 0.025);
-      this.lastOutputGain = 0;
+      this._muteOutput();
       if (this._inactiveSinceSec < 0) this._inactiveSinceSec = this.ctx.currentTime;
     } else {
       this._inactiveSinceSec = -1;
@@ -390,18 +355,12 @@ export class TurtleModemEngineSynth {
 
   setAlive(alive: boolean): void {
     this.alive = Boolean(alive);
-    if (!this.alive) {
-      this.outputNode.gain.setTargetAtTime(0, this.ctx.currentTime, 0.02);
-      this.lastOutputGain = 0;
-    }
+    if (!this.alive) this._muteOutput(0.02);
   }
 
   setAudible(audible: boolean): void {
     this.audible = Boolean(audible);
-    if (!this.audible && !(this.isPrimaryListener && this.manualOverrideActive)) {
-      this.outputNode.gain.setTargetAtTime(0, this.ctx.currentTime, 0.025);
-      this.lastOutputGain = 0;
-    }
+    if (!this.audible && !(this.isPrimaryListener && this.manualOverrideActive)) this._muteOutput();
   }
 
   setEngineVolume(vol: number): void {
@@ -412,10 +371,8 @@ export class TurtleModemEngineSynth {
 
   silence(): void {
     if (this.ctx && this.outputNode) {
-      const now = this.ctx.currentTime;
-      this.outputNode.gain.cancelScheduledValues(now);
-      this.outputNode.gain.setTargetAtTime(0, now, 0.02);
-      this.lastOutputGain = 0;
+      this.outputNode.gain.cancelScheduledValues(this.ctx.currentTime);
+      this._muteOutput(0.02);
     }
   }
 
