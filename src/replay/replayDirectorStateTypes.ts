@@ -1,7 +1,7 @@
 /**
  * replayDirectorStateTypes.ts
  * Strongly typed contracts and initial state factories for Goal Replay Director Camera
- * state transitions and ReplayTimelineController session state.
+ * state transitions, diagnostics, and ReplayTimelineController session state.
  */
 
 import type { ReplayRingBuffer, ReplaySignalEntry, ReplayAudioCue } from './ReplayRingBuffer.ts';
@@ -10,6 +10,7 @@ import type { SuffixDirectorTrajectoryPlan } from './ReplayDirectorTrajectoryPla
 import { DEFAULT_GOAL_REPLAY_TICKS, type GoalReplayWindowOptions } from './ReplayPlaybackState.ts';
 import type { ReplayTouchEvent } from './ReplayDirectorGazeSolver.ts';
 import type { ReplayReboundEvent, ResolvedTouchLookahead } from './ReplayTouchTimelineAnalyzer.ts';
+import type { ExtractedBallEntity, ExtractedCarEntity } from './ReplayDirectorSceneAnalysis.ts';
 
 export interface DirectorCameraPose {
   eyeX: number; eyeY: number; eyeZ: number; targetX: number; targetY: number; targetZ: number;
@@ -30,8 +31,7 @@ export interface DirectorRecordedCsvRow {
   focus_car_vx?: number; focus_car_vy?: number; focus_car_vz?: number; focus_car_dist_to_ball?: number;
   focus_car_fx?: number; focus_car_fy?: number; focus_car_fz?: number;
   focus_car_ux?: number; focus_car_uy?: number; focus_car_uz?: number;
-  focus_car_visual_id?: string; focus_car_hitbox_id?: string;
-  cars_pose_compact?: string;
+  focus_car_visual_id?: string; focus_car_hitbox_id?: string; cars_pose_compact?: string;
   eye_step_uu?: number; target_step_uu?: number; yaw_step_deg?: number; pitch_step_deg?: number;
   raw_eye_step_uu?: number; raw_target_step_uu?: number; eye_accel_uu?: number; target_accel_uu?: number;
   car_view_angle_deg?: number; ball_view_angle_deg?: number;
@@ -60,8 +60,7 @@ export interface ReplayIncidentEntry {
 
 export interface ReplayTimelineFrameEntry {
   tick: number; timestamp?: number; snapshot: Float32Array | null;
-  acknowledgedControls?: ReplayFrameCarControlEntry[] | null;
-  controls?: ReplayFrameCarControlEntry[] | null;
+  acknowledgedControls?: ReplayFrameCarControlEntry[] | null; controls?: ReplayFrameCarControlEntry[] | null;
   incidents?: ReplayIncidentEntry[]; events?: ReplayIncidentEntry[];
   signals?: ReplaySignalEntry[]; audioEvents?: ReplayAudioCue[];
   recordedCsvRow?: DirectorRecordedCsvRow | null;
@@ -100,8 +99,7 @@ export interface DirectorCameraState {
   activeTouchCarIndex: number; nextTouchCarIndex: number; nextTouchBlend: number;
   nextTouchBallPos: { x: number; y: number; z: number } | null;
   interceptorCarIndex: number; interceptorBlend: number;
-  plannedPose?: DirectorCameraPose | null;
-  suffixCameraPlan: SuffixDirectorTrajectoryPlan | null;
+  plannedPose?: DirectorCameraPose | null; suffixCameraPlan: SuffixDirectorTrajectoryPlan | null;
   touchEvents: ReplayTouchEvent[]; reboundEvents?: ReplayReboundEvent[];
   lastScoringTouchFrameIdx: number; goalLineFrameIdx: number;
   useRecordedCsvPose?: boolean; recordedPose?: DirectorCameraPose | null;
@@ -114,23 +112,16 @@ export interface DirectorCameraState {
 
 export interface ReplaySessionState {
   activeFrames: ReplayTimelineFrameEntry[];
-  cursorFloat: number; isPaused: boolean; isPersistent: boolean;
-  playbackSpeed: number; isScrubbing: boolean;
-  scoringTeam: number; scorerCarIndex: number;
-  carTeamResolver: ((carIndex: number) => number) | null;
-  isActive: boolean; isNetworkStreamed: boolean;
-  expectedDurationTicks: number; streamedFramesReceived: number;
+  cursorFloat: number; isPaused: boolean; isPersistent: boolean; playbackSpeed: number; isScrubbing: boolean;
+  scoringTeam: number; scorerCarIndex: number; carTeamResolver: ((carIndex: number) => number) | null;
+  isActive: boolean; isNetworkStreamed: boolean; expectedDurationTicks: number; streamedFramesReceived: number;
   hasRetainedReplay: boolean; retainedReplaySeq: number;
   isImportedPreview: boolean; importedFileName: string | null;
-  importedSummary: Record<string, unknown> | null;
-  importedAnomalyPeaks: Record<string, unknown> | null;
-  importedCarEntries: ReplayCarRosterEntry[] | null;
-  carEntries: ReplayCarRosterEntry[] | null;
+  importedSummary: Record<string, unknown> | null; importedAnomalyPeaks: Record<string, unknown> | null;
+  importedCarEntries: ReplayCarRosterEntry[] | null; carEntries: ReplayCarRosterEntry[] | null;
   cachedSuffixCameraPlan: SuffixDirectorTrajectoryPlan | null;
-  cachedSmoothnessSummary: Record<string, unknown> | null;
-  cachedAnomalyPeaks: Record<string, unknown> | null;
-  useRecordedCsvCamera: boolean; isLoopingPreview: boolean;
-  disableSlowMo: boolean; watchAllTouches: boolean;
+  cachedSmoothnessSummary: Record<string, unknown> | null; cachedAnomalyPeaks: Record<string, unknown> | null;
+  useRecordedCsvCamera: boolean; isLoopingPreview: boolean; disableSlowMo: boolean; watchAllTouches: boolean;
   goalLineFrameIdx: number; reboundEvents: ReplayReboundEvent[];
   lateralBias: number; lastDispatchedFrameIndex: number;
   smoothedEye: DirectorCameraPose | null; smoothedTarget: DirectorCameraPose | null;
@@ -190,6 +181,58 @@ export interface TimelineReplaySessionInitInput {
 
 export interface RetainedReplaySnapshotCloneInput {
   currentSessionState: ReplaySessionState; sourceSessionState: ReplaySessionState;
+}
+
+export interface ReplayDirectorDiagnosticInput {
+  totalFrames: number; activeWindowCount: number; currentFrameIndex: number;
+  cursorFloat: number; progress: number; playbackSpeed: number;
+  isPaused: boolean; isPersistent: boolean; isScrubbing: boolean; isActive: boolean;
+  isImportedPreview: boolean; importedFileName: string | null; useRecordedCsvCamera: boolean;
+  cachedSmoothnessSummary: DirectorSmoothnessSummary | null; importedSummary: DirectorSmoothnessSummary | null;
+  cachedAnomalyPeaks: DirectorAnomalyPeaks | null; importedAnomalyPeaks: DirectorAnomalyPeaks | null;
+  scoringTeam: number; scorerCarIndex: number;
+  carTeamResolver: ((carIndex: number) => number) | null;
+  carEntries?: ReadonlyArray<ReplayCarRosterEntry> | null;
+  directorCameraState: DirectorCameraState;
+  getFrameEntryByIndex: (index: number) => ReplayActiveFrameEntry | null;
+  getFrameBufferByIndex: (index: number) => Float32Array | null;
+  ensureSuffixCameraPlan: () => SuffixDirectorTrajectoryPlan | null;
+  resolveTouchLookaheadForFrame: (frameIdx: number, fallbackScorerCarIndex: number) => ResolvedTouchLookahead;
+  computeDramaticSlowMoFactor: (cursorFloat: number, options?: { ignoreScrubState?: boolean }) => number;
+}
+
+export interface DirectorDiagnosticPatternOptions {
+  extraMetadata?: Record<string, unknown>; carEntries?: ReplayCarRosterEntry[];
+}
+
+export interface DirectorDiagnosticFrameLookahead {
+  activeTouchCarIndex: number; nextTouchCarIndex: number; nextTouchBlend: number;
+  nextTouchBallPos: [number, number, number] | null;
+  interceptorCarIndex: number; interceptorBlend: number; postGoalElapsedSec: number;
+  smoothedStrikerPos: [number, number, number]; carSwitchBlend: number; lateralBias: number;
+}
+
+export interface DirectorDiagnosticFrameCameraPose {
+  eyeUnreal: [number, number, number]; targetUnreal: [number, number, number];
+  eyeThreeJs: [number, number, number]; targetThreeJs: [number, number, number];
+  forwardUnreal: [number, number, number]; distanceToTarget: number; yawDeg: number; pitchDeg: number;
+  carViewAngleDeg: number; interceptorViewAngleDeg: number; ballViewAngleDeg: number;
+  rawUndampedEyeUnreal: [number, number, number]; rawUndampedTargetUnreal: [number, number, number];
+  rawDistanceToTarget: number; rawYawDeg: number; rawPitchDeg: number;
+  eyeStepUu: number; targetStepUu: number; yawStepDeg: number; pitchStepDeg: number;
+  rawEyeStepUu: number; rawTargetStepUu: number; eyeAccelUu: number; targetAccelUu: number;
+}
+
+export interface DirectorDiagnosticFrameEntry {
+  frameId: number; replayFrameIndex: number; timestampSec: number; progress: number;
+  slowMoFactor: number; isSelectedCursorFrame: boolean;
+  lookahead: DirectorDiagnosticFrameLookahead; cameraPose: DirectorDiagnosticFrameCameraPose;
+  ball: ExtractedBallEntity; cars: ExtractedCarEntity[]; incidents?: Array<Record<string, unknown>>;
+}
+
+export interface DirectorDiagnosticTouchTimelineEntry {
+  replayFrameIndex: number; frameId: number; timestampSec: number;
+  carIndex: number; team: number; ballPos: [number, number, number];
 }
 
 export function createInitialDirectorCameraState(): DirectorCameraState {
