@@ -262,7 +262,7 @@ export class RuntimeNetworkManager {
           boostAudio: request.boostAudio,
         },
       );
-      reconciler?.queueClientCommand?.(
+      reconciler?.controlMessenger.enqueueClientCommand(
         CLIENT_COMMAND_TYPES.CMD_SET_LOADOUT,
         packLoadoutCommandParam1(request.visualId, request.hitboxId),
         packLoadoutCommandParam2(
@@ -291,7 +291,7 @@ export class RuntimeNetworkManager {
       this.diagnosticsProbe.despawnDiagnosticTestFleet();
       server.forceStartMatch(durationSeconds);
     } else if (reconciler) {
-      reconciler.queueClientCommand(CLIENT_COMMAND_TYPES.CMD_READY_ACK, 1, durationSeconds);
+      reconciler.controlMessenger.enqueueClientCommand(CLIENT_COMMAND_TYPES.CMD_READY_ACK, 1, durationSeconds);
     }
   }
 
@@ -321,7 +321,7 @@ export class RuntimeNetworkManager {
   }
 
   setClientReady(ready = true): void {
-    this.sessionCoordinator.networkReconciler?.queueClientCommand(
+    this.sessionCoordinator.networkReconciler?.controlMessenger.enqueueClientCommand(
       CLIENT_COMMAND_TYPES.CMD_READY_ACK,
       ready ? 1 : 0,
       0,
@@ -329,7 +329,7 @@ export class RuntimeNetworkManager {
   }
 
   voteSkipReplay(): void {
-    this.sessionCoordinator.networkReconciler?.queueClientCommand(
+    this.sessionCoordinator.networkReconciler?.controlMessenger.enqueueClientCommand(
       CLIENT_COMMAND_TYPES.CMD_VOTE_SKIP_REPLAY,
       1,
       0,
@@ -337,7 +337,7 @@ export class RuntimeNetworkManager {
   }
 
   voteRematch(ready = true): void {
-    this.sessionCoordinator.networkReconciler?.queueClientCommand(
+    this.sessionCoordinator.networkReconciler?.controlMessenger.enqueueClientCommand(
       CLIENT_COMMAND_TYPES.CMD_VOTE_REMATCH,
       ready ? 1 : 0,
       0,
@@ -351,7 +351,7 @@ export class RuntimeNetworkManager {
     if (server) {
       server.switchRoleTeam('host', role, team);
     } else if (reconciler) {
-      reconciler.queueClientCommand(CLIENT_COMMAND_TYPES.CMD_SWITCH_ROLE_TEAM, roleCode, team);
+      reconciler.controlMessenger.enqueueClientCommand(CLIENT_COMMAND_TYPES.CMD_SWITCH_ROLE_TEAM, roleCode, team);
     }
   }
 }

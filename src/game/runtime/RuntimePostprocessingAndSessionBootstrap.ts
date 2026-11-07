@@ -8,7 +8,7 @@ import {
   notifyNetworkTelemetryExportAvailable,
 } from '../runtimeUiPort.ts';
 import { BallTrajectoryPredictor } from '../../entities/BallTrajectoryPredictor.ts';
-import { bindBallTrajectoryAnomalyUiBridge } from '../../entities/trajectory/BallTrajectoryAnomalyRecorder.ts';
+import { bindBallTrajectoryAnomalyUiBridge } from '../../entities/trajectory/BallTrajectoryAnomalySnapshotBuilder.ts';
 import { ReachabilityVisualizer } from '../../entities/ReachabilityVisualizer.ts';
 import { CAR_COLOR_SLOTS } from '../../ui-core/config/vehicleConstants';
 import {

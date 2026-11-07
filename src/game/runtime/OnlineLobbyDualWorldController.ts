@@ -143,7 +143,7 @@ export class OnlineLobbyDualWorldController {
     this.world.playerCarIndex = 1;
     physics?.setUnlimitedBoost?.(true);
     diagnosticsProbe.setTestCarAudioEnabled(true, true);
-    await arena?.ensureOpponent?.();
+    await arena?.vehicleRegistry.ensureOpponent();
     this.configureArenaLobbyFlags(true, false, 1);
     this.configureClientLobbyLocalCar(1, 1, localVisualId, true);
     physics?.setBallState?.({ pos: [0, 0, 93.15], vel: [0, 0, 0], angVel: [0, 0, 0] });
@@ -191,11 +191,11 @@ export class OnlineLobbyDualWorldController {
       physics?.setCarTeam?.(0, freeplayTeam);
       physics?.setCarHitbox?.(0, hitboxId);
     }
-    arena?.ensureCar?.(0, freeplayTeam, visualId);
-    arena?.swapCarVisual?.(0, visualId);
-    arena?.setCarTeam?.(0, freeplayTeam);
-    arena?.setCarColor?.(0, freeplayColorHex);
-    arena?.setCarLoadout?.(0, {
+    arena?.vehicleRegistry.ensureCar(0, freeplayTeam, visualId);
+    arena?.vehicleRegistry.swapCarVisual(0, visualId);
+    arena?.vehicleRegistry.setCarTeam(0, freeplayTeam);
+    arena?.vehicleRegistry.setCarColor(0, freeplayColorHex);
+    arena?.vehicleRegistry.setCarLoadout(0, {
       visualId,
       colorHex: freeplayColorHex,
       paintFinish: matCfg?.paintFinish || 'metallic',
@@ -258,10 +258,8 @@ export class OnlineLobbyDualWorldController {
 
     if (arena) {
       this.configureArenaLobbyFlags(true, isHost, resolvedLocalCarIndex);
-      if (typeof arena.ensureCar === 'function') {
-        await arena.ensureCar(resolvedLocalCarIndex, localTeam, localVisualId);
-      }
-      arena.swapCarVisual?.(resolvedLocalCarIndex, localVisualId);
+      arena.vehicleRegistry.ensureCar(resolvedLocalCarIndex, localTeam, localVisualId);
+      arena.vehicleRegistry.swapCarVisual(resolvedLocalCarIndex, localVisualId);
       const slotObj =
         (typeof localColorSlot === 'number' &&
           localColorSlot >= 0 &&
@@ -269,8 +267,8 @@ export class OnlineLobbyDualWorldController {
           (CAR_COLOR_SLOTS[localColorSlot] ||
             CAR_COLOR_SLOTS.find((s) => s.id === localColorSlot))) ||
         null;
-      if (slotObj?.hex) arena.setCarColor?.(resolvedLocalCarIndex, slotObj.hex);
-      arena.setCarLoadout?.(resolvedLocalCarIndex, {
+      if (slotObj?.hex) arena.vehicleRegistry.setCarColor(resolvedLocalCarIndex, slotObj.hex);
+      arena.vehicleRegistry.setCarLoadout(resolvedLocalCarIndex, {
         colorHex: slotObj?.hex || undefined,
         paintFinish: matCfg?.paintFinish || 'metallic',
         boostVisual: matCfg?.boostVisual || 'gold-rush',

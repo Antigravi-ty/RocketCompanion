@@ -184,13 +184,13 @@ export class NetworkDiagnosticsProbe {
 
   dumpNextNetworkPacket(): Promise<unknown> {
     const reconciler = this.host.getNetworkReconciler();
-    if (reconciler?.triggerDumpNextPacket) {
+    if (reconciler?.controlMessenger) {
       console.log(
         '%c[Network Packet Dump]%c Waiting for next incoming datagram...',
         'background:#1f6feb;color:#fff;padding:2px 6px;border-radius:3px;font-weight:bold',
         'color:#58a6ff',
       );
-      return reconciler.triggerDumpNextPacket();
+      return reconciler.controlMessenger.triggerDumpNextPacket();
     }
     console.warn('[Network Packet Dump] No active network prediction reconciler.');
     return Promise.resolve(null);
@@ -246,7 +246,7 @@ export class NetworkDiagnosticsProbe {
     const authoritativeServer = this.host.getAuthoritativeServer();
     const reconciler = this.host.getNetworkReconciler();
 
-    await arena?.ensureOpponent?.();
+    await arena?.vehicleRegistry.ensureOpponent();
     if (arena?.cars?.[1]) arena.cars[1].visible = true;
     if (physics && physics.numCars < 2) physics.addCar(1, 'default');
     if (authoritativeServer) authoritativeServer.ensureCar(1, 1);

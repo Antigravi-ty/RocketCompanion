@@ -29,7 +29,7 @@ export interface ActiveModeCarListPort {
 export interface RuntimeInputPollerHostPort {
   readonly modeManager: { getActiveMode(): ActiveModeCarListPort | null } | null;
   readonly physics: RocketSimPhysicsEngine | null;
-  readonly arena?: { readonly carTeams?: ArrayLike<number> } | null;
+  readonly arena?: { readonly vehicleRegistry?: { readonly carTeams?: ArrayLike<number> }; readonly carTeams?: ArrayLike<number> } | null;
   readonly networkReconciler?: PredictionReconciler | null;
   readonly networkManager?: {
     readonly sessionCoordinator?: {
@@ -78,7 +78,7 @@ function resolveFallbackCarTeam(
   const fromPhysicsSpec = normalizeTeamBit(pollerHost.physics?._carSpecs?.[cIdx]?.team);
   if (fromPhysicsSpec !== null) return fromPhysicsSpec;
 
-  const fromArena = normalizeTeamBit(pollerHost.arena?.carTeams?.[cIdx]);
+  const fromArena = normalizeTeamBit((pollerHost.arena?.vehicleRegistry?.carTeams ?? pollerHost.arena?.carTeams)?.[cIdx]);
   if (fromArena !== null) return fromArena;
 
   if (pollerHost.teamAssignment) {

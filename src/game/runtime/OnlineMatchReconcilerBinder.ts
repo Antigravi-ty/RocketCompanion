@@ -284,13 +284,13 @@ export class OnlineMatchReconcilerBinder {
       localLoadout,
       getMaterialsConfig(),
     );
-    reconciler.queueClientCommand(
+    reconciler.controlMessenger.enqueueClientCommand(
       CLIENT_COMMAND_TYPES.CMD_SET_LOADOUT,
       packLoadoutCommandParam1(ld.visualId, ld.hitboxId),
       packLoadoutCommandParam2(colorSlot, ld.paintFinish, ld.boostVisual, ld.boostAudio),
     );
     if (isMidMatchJoin) {
-      reconciler.queueClientCommand(CLIENT_COMMAND_TYPES.CMD_ARENA_LOADED_ACK, 1, 0);
+      reconciler.controlMessenger.enqueueClientCommand(CLIENT_COMMAND_TYPES.CMD_ARENA_LOADED_ACK, 1, 0);
     }
   }
 
@@ -343,9 +343,7 @@ export class OnlineMatchReconcilerBinder {
       physics?.setUnlimitedBoost?.(true);
       lobbyDualWorld.configureArenaLobbyFlags(true, false);
       lobbyDualWorld.activateClientDualWorld(reconciler, diagnosticsProbe);
-      if (arena?.ensureCar) {
-        await arena.ensureCar(activePlayerCarIndex, transition.localTeam, joinCfg.localVisualId);
-      }
+      arena?.vehicleRegistry.ensureCar(activePlayerCarIndex, transition.localTeam, joinCfg.localVisualId);
       lobbyDualWorld.configureClientLobbyLocalCar(
         activePlayerCarIndex,
         transition.localTeam,
@@ -371,7 +369,7 @@ export class OnlineMatchReconcilerBinder {
     lobbyDualWorld.focusCameraOnCar(activePlayerCarIndex);
     const handshakeColor = resolveHandshakeTeamColorSlot(msg);
     world.selectedColorSlot = handshakeColor.colorSlot;
-    if (handshakeColor.colorHex) arena?.setCarColor?.(activePlayerCarIndex, handshakeColor.colorHex);
+    if (handshakeColor.colorHex) arena?.vehicleRegistry.setCarColor(activePlayerCarIndex, handshakeColor.colorHex);
     this.queueHandshakeLoadoutAndAck(
       reconciler,
       joinCfg,

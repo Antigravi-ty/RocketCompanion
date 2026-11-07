@@ -233,7 +233,7 @@ export class RuntimeWindowHotkeysController {
         runtime._localSkipReplayReady = true;
         if (net?.sessionCoordinator.networkReconciler) {
           net.sessionCoordinator.networkReconciler.localSkipReplayReady = true;
-          net.sessionCoordinator.networkReconciler.flushPendingControlPackets?.(performance.now());
+          net.sessionCoordinator.networkReconciler.controlMessenger.flushPendingControlPackets(net.sessionCoordinator.networkReconciler, performance.now());
         } else {
           const skipFn = hudStore.getState().onReplaySkip;
           const activeMode = runtime?.modeManager?.getActiveMode?.();

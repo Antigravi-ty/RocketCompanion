@@ -252,7 +252,7 @@ export class RuntimeBotCoordinator {
       r.bot.select(botId);
       botSettingsStore.save({ botId });
     }
-    await Promise.all([r.bot?.load(), r.arena?.ensureOpponent?.()]);
+    await Promise.all([r.bot?.load(), r.arena?.vehicleRegistry.ensureOpponent()]);
     if (r.arena?.cars?.[1]) {
       r.arena.cars[1].visible = true;
     }
@@ -274,7 +274,7 @@ export class RuntimeBotCoordinator {
     const preferredOrangeSlot = getPreferredColorSlot(storedPrefs, 1);
     const hostColorSlot = preferredBlueSlot;
     const hostColorHex = CAR_COLOR_SLOTS[hostColorSlot]?.hex || '#42a5f5';
-    r.arena?.setCarColor?.(0, hostColorHex);
+    r.arena?.vehicleRegistry.setCarColor(0, hostColorHex);
 
     const server = new AuthoritativeServerHost(null, {
       snapshotInterval: 1,
@@ -395,8 +395,8 @@ export class RuntimeBotCoordinator {
     } else {
       const freeplayColorSlot = getPreferredColorSlot(freeplayPrefs, freeplayTeam);
       const freeplayColorHex = CAR_COLOR_SLOTS[freeplayColorSlot]?.hex || '#ffc107';
-      r.arena?.setCarTeam?.(0, freeplayTeam);
-      r.arena?.setCarColor?.(0, freeplayColorHex);
+      r.arena?.vehicleRegistry.setCarTeam(0, freeplayTeam);
+      r.arena?.vehicleRegistry.setCarColor(0, freeplayColorHex);
     }
     r.physics?.setUnlimitedBoost(r.trainingOptions?.boostOption === 'unlimited');
     r.resetKickoff();

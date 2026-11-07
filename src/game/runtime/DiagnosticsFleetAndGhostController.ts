@@ -204,10 +204,10 @@ export class DiagnosticsFleetAndGhostController {
     }
 
     if (!enabled) {
-      arena?.clearAllGhostOpacities?.();
+      arena?.vehicleRegistry.clearAllGhostOpacities();
     } else if (arena && Array.isArray(configResult?.cars)) {
       for (const entry of configResult.cars) {
-        arena.setCarGhostOpacity?.(entry.carIndex, entry.isGhost, entry.opacity);
+        arena.vehicleRegistry.setCarGhostOpacity(entry.carIndex, entry.isGhost, entry.opacity);
       }
     }
 
@@ -240,7 +240,7 @@ export class DiagnosticsFleetAndGhostController {
       opacity,
     );
     authoritativeServer?.setGhostCarConfig?.(carIndex, interactWithBall, interactWithCars, opacity);
-    arena?.setCarGhostOpacity?.(carIndex, entry.isGhost, entry.opacity);
+    arena?.vehicleRegistry.setCarGhostOpacity(carIndex, entry.isGhost, entry.opacity);
     return entry;
   }
 
@@ -275,11 +275,8 @@ export class DiagnosticsFleetAndGhostController {
     this.diagnosticsFleetController.enabled = true;
 
     for (const spec of DEFAULT_DIAGNOSTIC_FLEET) {
-      if (arena?.ensureCar) {
-        arena.ensureCar(spec.carIndex, spec.team, 'fennec');
-        if (arena.cars[spec.carIndex]) arena.cars[spec.carIndex].visible = true;
-      } else if (arena) {
-        while (arena.cars.length <= spec.carIndex) arena.addCar(spec.team, 'fennec');
+      if (arena) {
+        arena.vehicleRegistry.ensureCar(spec.carIndex, spec.team, 'fennec');
         if (arena.cars[spec.carIndex]) arena.cars[spec.carIndex].visible = true;
       }
     }
@@ -346,8 +343,9 @@ export class DiagnosticsFleetAndGhostController {
       }
     }
 
-    if (arena && typeof arena.ensureCar === 'function') {
-      await Promise.all([arena.ensureCar(6, 0, 'fennec'), arena.ensureCar(7, 1, 'fennec')]);
+    if (arena?.vehicleRegistry) {
+      arena.vehicleRegistry.ensureCar(6, 0, 'fennec');
+      arena.vehicleRegistry.ensureCar(7, 1, 'fennec');
       for (const definition of DEFAULT_DIAGNOSTIC_FLEET as readonly (DiagnosticVehicleSpec & {
         colorHex?: string;
       })[]) {

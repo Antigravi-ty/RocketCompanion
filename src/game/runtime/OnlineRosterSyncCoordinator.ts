@@ -137,7 +137,7 @@ export class OnlineRosterSyncCoordinator {
     const isLobbyDualWorld = session.isLobbyDualWorldActive();
     const isHostLobby = Boolean(session.authoritativeServer && isLobbyDualWorld);
 
-    await world.arena?.ensureOpponent?.();
+    await world.arena?.vehicleRegistry.ensureOpponent();
     const connectedPeers: OnlinePeerEntryPort[] = [];
     const nameTagEntries: Array<{
       carIndex: number;

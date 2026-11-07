@@ -10,7 +10,7 @@ import type { DriftwoodsTunerConfig } from '../../ui-core/config/driftwoodsConfi
 import type { SkyboxConfig } from '../../ui-core/config/skyboxConfig';
 import type { GoalBarrierDecomposition, GoalBarrierTargetGoal } from '../../ui-core/config/goalBarrierConfig';
 import { updateBallVisualConfig, type BallVisualConfig } from '../../ui-core/config/ballVisualConfig';
-import { updateBallGoalEffect } from '../BallVisual.ts';
+import { updateBallGoalEffect } from './BallGoalRimShader.ts';
 import {
   loadThrowbackStadiumField,
   loadThrowbackCollisionOverlay,
