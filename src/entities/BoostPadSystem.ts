@@ -78,52 +78,38 @@ export interface BoostPadSimulatedRefill {
  */
 export class BoostPadSystem {
   public _bezierSolver: (t: number) => number;
-  public _edgeStatesInitialized: boolean;
+  public _edgeStatesInitialized = false;
   public _glowBezierSolver: (t: number) => number;
   public _orbBezierSolver: (t: number) => number;
-  public _padView: BoostPadStateView;
-  public bigOrbs: THREE.Mesh[];
-  public bigShadows: THREE.Mesh[];
-  public collectAnimations: Map<number, BoostPadCollectAnimation>;
-  public padCooldownTimers: Float32Array;
-  public padPeakY: number;
-  public padTemplates: BoostPadTemplates | null;
-  public pads: BoostPadInstance[];
-  public prevActiveStates: Uint8Array;
-  public prevBufferCooldowns: Float32Array;
+  public _padView = new BoostPadStateView();
+  public bigOrbs: THREE.Mesh[] = [];
+  public bigShadows: THREE.Mesh[] = [];
+  public collectAnimations = new Map<number, BoostPadCollectAnimation>();
+  public padCooldownTimers = new Float32Array(34);
+  public padPeakY = 6.6614;
+  public padTemplates: BoostPadTemplates | null = null;
+  public pads: BoostPadInstance[] = [];
+  public prevActiveStates = new Uint8Array(34);
+  public prevBufferCooldowns = new Float32Array(34);
   public sharedOrbMaterial: THREE.MeshStandardMaterial;
-  public simulatedRefills: Map<number, BoostPadSimulatedRefill>;
+  public simulatedRefills = new Map<number, BoostPadSimulatedRefill>();
   public tunerConfig: typeof DEFAULT_BOOST_PAD_TUNER & Record<string, number | string | boolean | undefined>;
 
   constructor() {
-    this.pads = [];
-    this._padView = new BoostPadStateView();
     this.tunerConfig = { ...DEFAULT_BOOST_PAD_TUNER };
-    this.padPeakY = 6.6614;
-    this.bigOrbs = [];
-    this.bigShadows = [];
-    this.padTemplates = null;
-
     this._glowBezierSolver = createCubicBezier(
       this.tunerConfig.bezierP1X,
       this.tunerConfig.bezierP1Y,
       this.tunerConfig.bezierP2X,
-      this.tunerConfig.bezierP2Y
+      this.tunerConfig.bezierP2Y,
     );
     this._orbBezierSolver = createCubicBezier(
-      this.tunerConfig.orbBezierP1X !== undefined ? this.tunerConfig.orbBezierP1X : 0,
-      this.tunerConfig.orbBezierP1Y !== undefined ? this.tunerConfig.orbBezierP1Y : -1.15,
-      this.tunerConfig.orbBezierP2X !== undefined ? this.tunerConfig.orbBezierP2X : 0,
-      this.tunerConfig.orbBezierP2Y !== undefined ? this.tunerConfig.orbBezierP2Y : 1
+      Number(this.tunerConfig.orbBezierP1X ?? 0),
+      Number(this.tunerConfig.orbBezierP1Y ?? -1.15),
+      Number(this.tunerConfig.orbBezierP2X ?? 0),
+      Number(this.tunerConfig.orbBezierP2Y ?? 1),
     );
     this._bezierSolver = this._glowBezierSolver;
-
-    this.collectAnimations = new Map();
-    this.simulatedRefills = new Map();
-    this.prevActiveStates = new Uint8Array(34);
-    this.prevBufferCooldowns = new Float32Array(34);
-    this.padCooldownTimers = new Float32Array(34);
-    this._edgeStatesInitialized = false;
 
     this.sharedOrbMaterial = new THREE.MeshStandardMaterial({
       color: new THREE.Color(this.tunerConfig.orbColor),
@@ -142,7 +128,7 @@ export class BoostPadSystem {
     padsData: Array<{ isBig: boolean; pos: number[] | Float32Array }>,
     padTemplates: BoostPadTemplates | null = null,
     scene: THREE.Scene | THREE.Object3D | null = null,
-    onPadMeshAdded: ((padGroup: THREE.Group) => void) | null = null
+    onPadMeshAdded: ((padGroup: THREE.Group) => void) | null = null,
   ) {
     for (const oldPad of this.pads) {
       oldPad?.group?.removeFromParent?.();
@@ -174,7 +160,7 @@ export class BoostPadSystem {
         this.tunerConfig.bezierP1X,
         this.tunerConfig.bezierP1Y,
         this.tunerConfig.bezierP2X,
-        this.tunerConfig.bezierP2Y
+        this.tunerConfig.bezierP2Y,
       );
       this._bezierSolver = this._glowBezierSolver;
     }
@@ -186,10 +172,10 @@ export class BoostPadSystem {
       config.orbBezierP2Y !== undefined
     ) {
       this._orbBezierSolver = createCubicBezier(
-        this.tunerConfig.orbBezierP1X !== undefined ? Number(this.tunerConfig.orbBezierP1X) : 0,
-        this.tunerConfig.orbBezierP1Y !== undefined ? Number(this.tunerConfig.orbBezierP1Y) : -1.15,
-        this.tunerConfig.orbBezierP2X !== undefined ? Number(this.tunerConfig.orbBezierP2X) : 0,
-        this.tunerConfig.orbBezierP2Y !== undefined ? Number(this.tunerConfig.orbBezierP2Y) : 1
+        Number(this.tunerConfig.orbBezierP1X ?? 0),
+        Number(this.tunerConfig.orbBezierP1Y ?? -1.15),
+        Number(this.tunerConfig.orbBezierP2X ?? 0),
+        Number(this.tunerConfig.orbBezierP2Y ?? 1),
       );
     }
 
@@ -213,7 +199,10 @@ export class BoostPadSystem {
   simulateRefill(padIndex = 0, duration: number | null = null) {
     const pad = this.pads[padIndex];
     if (!pad) return;
-    const dur = duration || (pad.isBig ? (Number(this.tunerConfig.bigRefillThreshold) || 3) : (Number(this.tunerConfig.smallRefillThreshold) || 1));
+    const defaultDur = pad.isBig
+      ? Number(this.tunerConfig.bigRefillThreshold) || 3
+      : Number(this.tunerConfig.smallRefillThreshold) || 1;
+    const dur = duration || defaultDur;
     this.simulatedRefills.set(padIndex, {
       startTime: performance.now(),
       duration: Math.max(0.1, dur * 1000),
@@ -232,18 +221,18 @@ export class BoostPadSystem {
     if (!pad) return;
 
     const rawGlowDur = Number(this.tunerConfig.collectDuration);
-    const glowDurMs = (!Number.isNaN(rawGlowDur) && rawGlowDur > 10) ? rawGlowDur : (rawGlowDur || 0.3) * 1000;
+    const glowDurMs = !Number.isNaN(rawGlowDur) && rawGlowDur > 10 ? rawGlowDur : (rawGlowDur || 0.3) * 1000;
 
-    const rawOrbDur = this.tunerConfig.orbCollectDuration !== undefined ? Number(this.tunerConfig.orbCollectDuration) : undefined;
-    const orbDurMs = (rawOrbDur !== undefined && rawOrbDur > 10) ? rawOrbDur : (rawOrbDur !== undefined ? rawOrbDur * 1000 : 200);
-
-    const overallDuration = Math.max(glowDurMs, orbDurMs);
+    const rawOrbDur =
+      this.tunerConfig.orbCollectDuration !== undefined ? Number(this.tunerConfig.orbCollectDuration) : undefined;
+    const orbDurMs =
+      rawOrbDur !== undefined && rawOrbDur > 10 ? rawOrbDur : rawOrbDur !== undefined ? rawOrbDur * 1000 : 200;
 
     this.collectAnimations.set(padIndex, {
       startTime: performance.now(),
       glowDuration: Math.max(50, glowDurMs),
       orbDuration: Math.max(50, orbDurMs),
-      duration: Math.max(50, overallDuration),
+      duration: Math.max(50, glowDurMs, orbDurMs),
       isBig: pad.isBig,
     });
 

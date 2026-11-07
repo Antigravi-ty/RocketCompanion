@@ -13,9 +13,7 @@
 import * as THREE from 'three';
 import { FIXED_TIMESTEP, MAX_PHYSICS_SUBSTEPS } from '../../physics/RocketSimConstants.ts';
 import {
-  PODIUM_FORMATION_SPOTS,
   PODIUM_CAMERA_POSE,
-  computePodiumFormationSpots,
   applyPodiumFormationToEngine,
   releasePodiumLocksOnEngine,
   type PodiumCapablePhysicsEngine,
@@ -23,14 +21,7 @@ import {
 } from '../../replay/podiumFormationPipeline.ts';
 import type { CameraManager } from '../../camera/CameraManager.ts';
 
-export {
-  PODIUM_FORMATION_SPOTS,
-  PODIUM_CAMERA_POSE,
-  computePodiumFormationSpots,
-  applyPodiumFormationToEngine,
-  releasePodiumLocksOnEngine,
-  type PodiumFormationSpot,
-};
+export type { PodiumFormationSpot };
 
 export type PodiumCelebrationControls = {
   throttle: number;

@@ -1,31 +1,15 @@
 import * as THREE from 'three';
 import {
   CopyShader,
-  Pass,
-  FullScreenGeometry,
-  FullScreenQuad,
   ShaderPass,
-  MaskPass,
-  ClearMaskPass,
-  OutputShader,
-  OutputPass,
-  RenderPass,
-  type EffectPassLike
+  type EffectPassLike,
 } from './PostprocessingPasses.ts';
-
-export {
-  CopyShader,
-  Pass,
-  FullScreenGeometry,
-  FullScreenQuad,
-  ShaderPass,
+import {
   MaskPass,
   ClearMaskPass,
-  OutputShader,
-  OutputPass,
-  RenderPass,
-  type EffectPassLike
-};
+} from './PostprocessingMaskAndOutputPasses.ts';
+
+export type { EffectPassLike };
 
 // Tone mapping mode constants
 export const LinearToneMapping = 1;

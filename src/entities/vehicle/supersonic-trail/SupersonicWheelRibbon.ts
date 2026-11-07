@@ -16,7 +16,7 @@ import {
   type RibbonGeometryBuffers,
 } from './SupersonicWheelTrailGeometry.ts';
 
-export { MAX_WHEEL_TRAIL_SAMPLES, type WheelTrailSample };
+export type { WheelTrailSample };
 
 export class SupersonicWheelRibbon {
   public readonly geometry: THREE.BufferGeometry;
