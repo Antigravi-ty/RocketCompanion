@@ -161,35 +161,17 @@ export class MultiClientLoopbackSimulator {
     this.peakVisibleArenaCars = 0;
   }
 
-  public async startSixCarLoopbackSession(durationSeconds = 300): Promise<void> {
+  public async connectVirtualPeers(specs: readonly VirtualPeerLoadoutSpec[]): Promise<void> {
     this.resetMetrics();
     this.peers.length = 0;
 
-    const hostSpec = SIX_CAR_STRESS_LOADOUTS[0];
     const netMgr = this.runtime?.networkManager;
     if (!netMgr) {
       throw new Error('[MultiClientLoopbackSimulator] runtime.networkManager is unavailable');
     }
 
-    await netMgr.sessionCoordinator.hostOnlineServer({
-      playerName: hostSpec.playerName,
-      visualId: hostSpec.visualId,
-      hitboxId: hostSpec.hitboxId,
-      colorSlot: hostSpec.colorSlot,
-      paintFinish: hostSpec.paintFinish,
-      boostVisual: hostSpec.boostVisual,
-      boostAudio: hostSpec.boostAudio,
-      gameMode: '3v3',
-      botFillMode: 'no_bots',
-      durationSeconds,
-      lobbyMode: true,
-      skipReplayByDefault: false,
-      forceFallback: true,
-      roomId: 'scenario_6car_stress',
-    });
-
-    for (let i = 1; i < SIX_CAR_STRESS_LOADOUTS.length; i++) {
-      const spec = SIX_CAR_STRESS_LOADOUTS[i];
+    for (let i = 0; i < specs.length; i++) {
+      const spec = { ...specs[i] };
       const peerState = this.createVirtualPeerState(spec);
       this.peers.push(peerState);
 
@@ -214,6 +196,45 @@ export class MultiClientLoopbackSimulator {
     }
 
     this.active = true;
+  }
+
+  public async startSixCarLoopbackSession(durationSeconds = 300): Promise<void> {
+    const hostSpec = SIX_CAR_STRESS_LOADOUTS[0];
+    const netMgr = this.runtime?.networkManager;
+    if (!netMgr) {
+      throw new Error('[MultiClientLoopbackSimulator] runtime.networkManager is unavailable');
+    }
+
+    await netMgr.sessionCoordinator.hostOnlineServer({
+      playerName: hostSpec.playerName,
+      visualId: hostSpec.visualId,
+      hitboxId: hostSpec.hitboxId,
+      colorSlot: hostSpec.colorSlot,
+      paintFinish: hostSpec.paintFinish,
+      boostVisual: hostSpec.boostVisual,
+      boostAudio: hostSpec.boostAudio,
+      gameMode: '3v3',
+      botFillMode: 'no_bots',
+      durationSeconds,
+      lobbyMode: true,
+      skipReplayByDefault: false,
+      forceFallback: true,
+      roomId: 'scenario_6car_stress',
+    });
+
+    await this.connectVirtualPeers(SIX_CAR_STRESS_LOADOUTS.slice(1));
+  }
+
+  public broadcastClientCommand(commandType: number, param1 = 1, param2 = 0): void {
+    for (let i = 0; i < this.peers.length; i++) {
+      const peer = this.peers[i];
+      peer.pendingCommands.push({
+        commandId: peer.nextCommandId++,
+        commandType,
+        param1,
+        param2,
+      });
+    }
   }
 
   public triggerForceStartMatch(durationSeconds = 300): void {
@@ -259,6 +280,20 @@ export class MultiClientLoopbackSimulator {
     if (typeof payload === 'string') {
       this.totalServerFramePacketsReceived++;
       this.totalServerFrameBytesReceived += payload.length;
+      try {
+        const parsed = JSON.parse(payload);
+        if (
+          parsed &&
+          parsed.type === 'handshake_ack' &&
+          typeof parsed.assignedCarIndex === 'number' &&
+          parsed.assignedCarIndex >= 0
+        ) {
+          peer.channel.carIndex = parsed.assignedCarIndex;
+          (peer.spec as { carIndex: number }).carIndex = parsed.assignedCarIndex;
+        }
+      } catch {
+        // Ignore non-JSON string
+      }
       return;
     }
 

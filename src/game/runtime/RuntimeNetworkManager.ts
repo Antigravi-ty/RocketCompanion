@@ -316,8 +316,18 @@ export class RuntimeNetworkManager {
     useAppStore?.getState?.()?.setOnlineSession({ botFillMode });
   }
 
-  addOnlineBot(team: number | null = 1, botName: string | null = null): void {
-    this.sessionCoordinator.authoritativeServer?.addBotPlayer?.(team ?? 1, botName);
+  addOnlineBot(
+    team: number | null = 1,
+    botName: string | null = null,
+    visualId: string | null = null,
+    botType?: string,
+  ): void {
+    this.sessionCoordinator.authoritativeServer?.addBotPlayer?.(
+      team ?? 1,
+      botName,
+      visualId ?? undefined,
+      botType,
+    );
   }
 
   setClientReady(ready = true): void {

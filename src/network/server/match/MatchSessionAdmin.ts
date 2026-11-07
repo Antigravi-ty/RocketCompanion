@@ -282,9 +282,10 @@ export class MatchSessionAdmin {
   addBotPlayer(
     preferredTeam = 1,
     botName: string | null = null,
-    visualId: string | PlayerLoadoutOptions | null = null
+    visualId: string | PlayerLoadoutOptions | null = null,
+    botType?: string
   ): MatchPlayerSlot | MatchSpectatorSlot | { entityId: number; team: number; role: string; spawnSlot: number } | null {
-    return this.roster.addBotPlayer(preferredTeam, botName, visualId);
+    return this.roster.addBotPlayer(preferredTeam, botName, visualId, botType);
   }
 
   initiateMatchPrepare(durationSeconds: number | null = null, timeoutTicks = 240): void {

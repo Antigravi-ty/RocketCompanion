@@ -109,7 +109,10 @@ export class BotTunnelManager {
   constructor(hostServer: any, options: BotTunnelManagerOptions = {}) {
     this.hostServer = hostServer;
     this.options = options;
-    this.isWorker = typeof Worker !== 'undefined' && !options.forceInProcess;
+    this.isWorker =
+      typeof Worker !== 'undefined' &&
+      !options.forceInProcess &&
+      Boolean(hostServer?.isWorker);
   }
 
   init(): void {
@@ -239,11 +242,15 @@ export class BotTunnelManager {
       if (!isBot || !sid) continue;
       const carIndex = p.carIndex ?? p.entityId ?? -1;
       if (carIndex < 0 || carIndex >= 8) continue;
+      const botType = p.botType || 'nexto';
+      if (!this.isWorker && botType !== 'heuristic') {
+        void ensureExperimentalEngine(botType);
+      }
       activeBotMap.set(sid, {
         sessionId: sid,
         carIndex,
         team: p.team === 1 ? 1 : 0,
-        botType: p.botType || 'nexto',
+        botType,
       });
     }
 

@@ -18,14 +18,20 @@ const TIMEOUT_MS = 180_000;
 function parseCliArgs(argv) {
   let scenario = 'all';
   let outPath = DEFAULT_OUT_PATH;
+  let speed = '20x';
+  let headlessPhysics = false;
   for (const arg of argv.slice(2)) {
     if (arg.startsWith('--scenario=')) {
       scenario = arg.slice('--scenario='.length).trim() || 'all';
     } else if (arg.startsWith('--out=')) {
       outPath = arg.slice('--out='.length).trim() || DEFAULT_OUT_PATH;
+    } else if (arg.startsWith('--speed=')) {
+      speed = arg.slice('--speed='.length).trim() || '20x';
+    } else if (arg === '--headless-physics' || arg === '--touch=2') {
+      headlessPhysics = true;
     }
   }
-  return { scenario, outPath };
+  return { scenario, outPath, speed, headlessPhysics };
 }
 
 function padRight(str, width) {
@@ -64,7 +70,7 @@ function printFormattedBaselineReport(report, outPath) {
   for (const sc of report.scenarios || []) {
     console.log(`\n${hr}`);
     console.log(
-      ` SCENARIO: ${sc.scenarioId} [${sc.passed ? 'PASSED' : 'FAILED'}]`,
+      ` SCENARIO: ${sc.scenarioId} [${sc.passed ? 'PASSED' : 'FAILED'}] (speedPreset=${sc.fastForwardSpeedPreset || '20x'})`,
     );
     console.log(` Title   : ${sc.title}`);
     console.log(
@@ -134,6 +140,24 @@ function printFormattedBaselineReport(report, outPath) {
       console.log(` SIGNALS OBSERVED  : [${mp.distinctSignalNames.join(', ')}]`);
     }
 
+    if (Array.isArray(sc.vehicleRigProbes) && sc.vehicleRigProbes.length > 0) {
+      console.log(thinHr);
+      console.log(' VEHICLE RIG GEOMETRY PROBES:');
+      for (const rp of sc.vehicleRigProbes) {
+        console.log(
+          `   car=${rp.carIndex} (${padRight(rp.visualId, 14)}) | wheels=${rp.wheelCount} | frontX=${rp.frontAxleX} rearX=${rp.rearAxleX} trackZ=${rp.wheelTrackWidthZ} | suspY=[${rp.frontSuspensionHeightY}, ${rp.rearSuspensionHeightY}] | descSusp=[${rp.descriptorSuspensionHeights.join(', ')}] | finite=${rp.isFiniteGeometry}`,
+        );
+      }
+    }
+
+    if (Array.isArray(sc.capturedRuntimeErrors) && sc.capturedRuntimeErrors.length > 0) {
+      console.log(thinHr);
+      console.log(` CAPTURED RUNTIME / CONSOLE ERRORS (${sc.capturedRuntimeErrors.length}):`);
+      for (const err of sc.capturedRuntimeErrors) {
+        console.log(`   [tick ${err.tick}] (${err.source}) ${err.message}`);
+      }
+    }
+
     console.log(thinHr);
     console.log(' ASSERTIONS:');
     for (const a of sc.assertions || []) {
@@ -152,7 +176,7 @@ function printFormattedBaselineReport(report, outPath) {
 }
 
 async function main() {
-  const { scenario, outPath } = parseCliArgs(process.argv);
+  const { scenario, outPath, speed, headlessPhysics } = parseCliArgs(process.argv);
   let resolveReport;
   let rejectReport;
   const reportPromise = new Promise((resolve, reject) => {
@@ -205,7 +229,8 @@ async function main() {
   const address = server.httpServer?.address();
   const port = typeof address === 'object' && address ? address.port : 5173;
   const protocol = server.config.server.https ? 'https' : 'http';
-  const targetUrl = `${protocol}://127.0.0.1:${port}/?autorunScenario=${encodeURIComponent(scenario)}&nokey=1`;
+  const extraParams = `${speed ? `&scenarioSpeed=${encodeURIComponent(speed)}` : ''}${headlessPhysics ? '&touch=2' : ''}`;
+  const targetUrl = `${protocol}://127.0.0.1:${port}/?autorunScenario=${encodeURIComponent(scenario)}&nokey=1${extraParams}`;
 
   console.log(`[ScenarioRunner] Vite server listening at ${protocol}://127.0.0.1:${port}`);
   console.log(`[ScenarioRunner] Launching headless Chrome with WebGL2 (SwiftShader/ANGLE)...`);
@@ -214,6 +239,7 @@ async function main() {
   const chromeBin = process.env.CHROME_BIN || '/usr/bin/google-chrome';
   const chromeArgs = [
     '--headless=new',
+    '--no-proxy-server',
     '--use-gl=angle',
     '--use-angle=swiftshader',
     '--enable-unsafe-swiftshader',

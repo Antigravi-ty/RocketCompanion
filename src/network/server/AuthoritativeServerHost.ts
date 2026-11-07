@@ -217,8 +217,13 @@ export class AuthoritativeServerHost {
     this._postCommand("setGameMode", { gameMode, durationSeconds });
   }
   setBotFillMode(botFillMode: string): void { this._postCommand("setBotFillMode", { botFillMode }); }
-  addBotPlayer(team = 1, botName: string | null = null, visualId = "octane"): void {
-    this._postCommand("addBotPlayer", { team, botName, visualId });
+  addBotPlayer(
+    team = 1,
+    botName: string | null = null,
+    visualId: string | ExtraLoadoutConfig = "octane",
+    botType?: string
+  ): void {
+    this._postCommand("addBotPlayer", { team, botName, visualId, botType });
   }
 
   setLoadout(
@@ -304,9 +309,7 @@ export class AuthoritativeServerHost {
   }
 
   configureDiagnosticFleet(enabled = true, anchorMode = "z_hover"): void {
-    if (this.isWorker && this.worker) {
-      this._postCommand("configureDiagnosticFleet", { enabled: Boolean(enabled), anchorMode });
-    }
+    this._postCommand("configureDiagnosticFleet", { enabled: Boolean(enabled), anchorMode });
   }
 
   update(): void {

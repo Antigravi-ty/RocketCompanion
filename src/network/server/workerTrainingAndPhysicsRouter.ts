@@ -199,8 +199,10 @@ export function routeTrainingAndPhysicsMessage(
       matchManager?.roster.addBotPlayer(
         payload?.team ?? 1,
         payload?.botName ?? null,
-        payload?.visualId || 'octane'
+        (payload?.visualId as string | ExtraLoadoutConfig) || 'octane',
+        payload?.botType as string | undefined
       );
+      syncRoomState();
       return true;
 
     case 'setLoadout':

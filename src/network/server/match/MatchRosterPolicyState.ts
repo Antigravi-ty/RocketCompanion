@@ -46,7 +46,7 @@ export function buildMatchRosterMetadata(players: Iterable<MatchPlayerSlot>): Ma
     roster.push({
       carIndex: p.entityId, entityId: p.entityId, sessionId: p.sessionId,
       name: p.name || `Car ${p.entityId}`, team: p.team ?? 0, role: p.role || 'player',
-      isBot: Boolean(p.isBot), visualId: p.visualId || 'octane',
+      isBot: Boolean(p.isBot), botType: p.botType, visualId: p.visualId || 'octane',
       visualIndex: p.visualIndex ?? encodeVisualIdIndex(p.visualId || 'octane'),
       hitboxId: p.hitboxId || 'hitbox-octane',
       hitboxIndex: p.hitboxIndex ?? encodeHitboxIdIndex(p.hitboxId || 'hitbox-octane'),
@@ -70,7 +70,7 @@ export function buildRosterSnapshot(source: RosterSnapshotSource): RosterSnapsho
       hitboxId: p.hitboxId, hitboxIndex: p.hitboxIndex, colorSlot: p.colorSlot,
       colorHex: p.colorHex || null, paintFinish: p.paintFinish || 'metallic',
       boostVisual: p.boostVisual || 'cartoon', boostAudio: p.boostAudio || 'standard',
-      anthemId: p.anthemId || 'none', isBot: Boolean(p.isBot),
+      anthemId: p.anthemId || 'none', isBot: Boolean(p.isBot), botType: p.botType,
       ready: Boolean(p.ready), arenaLoaded: Boolean(p.arenaLoaded),
       pingMs: p.isBot ? 0 : Math.round(sess?.rttMs ?? p.pingMs ?? 0),
     });

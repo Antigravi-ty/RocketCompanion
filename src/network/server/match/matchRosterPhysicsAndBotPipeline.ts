@@ -81,6 +81,7 @@ export function createNewPlayerSlotInfo(
     paintFinish: r.requestedPaintFinish, boostVisual: r.requestedBoostVisual,
     boostAudio: r.requestedBoostAudio, anthemId: r.requestedAnthemId,
     ready, arenaLoaded: ready, isBot: isBotSession,
+    botType: nl.botType || (isBotSession ? 'nexto' : undefined),
   };
 }
 

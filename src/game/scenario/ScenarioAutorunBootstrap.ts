@@ -133,6 +133,24 @@ export class ScenarioAutorunController {
     this.initialShaderPrograms = this.driver.getCompiledShaderProgramCount();
   }
 
+  public setFastForwardSpeed(speedPreset: '1x' | '10x' | '20x' | '50x'): void {
+    if (typeof window !== 'undefined') {
+      window.__rcScenarioSpeed = speedPreset;
+    }
+  }
+
+  public probeVehicleRig(carIndex = 0) {
+    return this.driver.probeVehicleRig(carIndex);
+  }
+
+  public listScenarioIds(): string[] {
+    return resolveRequestedScenarios('all').map((s) => s.id);
+  }
+
+  public async runScenarioById(scenarioId: string): Promise<BaselineSuiteTelemetryReport> {
+    return this.runBaselineSuite(scenarioId);
+  }
+
   public async runBaselineSuite(queryValue = 'all'): Promise<BaselineSuiteTelemetryReport> {
     const scripts = resolveRequestedScenarios(queryValue);
     const scenarioReports: ScenarioRunReport[] = [];

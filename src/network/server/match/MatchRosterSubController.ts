@@ -108,16 +108,21 @@ export class MatchRosterSubController {
   }
 
   addBotPlayer(
-    preferredTeam = 1, botName: string | null = null, visualId: string | PlayerLoadoutOptions | null = null
+    preferredTeam = 1,
+    botName: string | null = null,
+    visualId: string | PlayerLoadoutOptions | null = null,
+    botType?: string
   ): MatchPlayerSlot | MatchSpectatorSlot | { entityId: number; team: number; role: string; spawnSlot: number } | null {
     if (this.players.size >= 6) return null;
+    if (this.host.domain.botFillMode === 'no_bots') this.host.domain.botFillMode = 'custom';
     let botIdx = 1;
     while (this.players.has(`bot_${botIdx}`)) botIdx++;
     const sid = `bot_${botIdx}`, resolvedName = botName || `Nexto #${botIdx}`;
     const rolled = this.rollBotLoadoutForTeam(preferredTeam ?? 1);
     const loadout: PlayerLoadoutOptions =
       visualId && typeof visualId === 'object' ? { ...rolled, ...visualId }
-      : visualId ? { ...rolled, visualId } : rolled;
+      : visualId ? { ...rolled, visualId } : { ...rolled };
+    if (botType) loadout.botType = botType;
     return this.assignPlayerSlot(sid, resolvedName, 'player', preferredTeam, loadout, loadout.colorSlot ?? null);
   }
 

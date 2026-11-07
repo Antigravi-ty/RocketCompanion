@@ -193,6 +193,86 @@ export interface ScenarioActiveModePort {
   } | null;
 }
 
+export interface ScenarioServerPlayerEntry {
+  sessionId: string;
+  entityId: number;
+  team: number;
+  spawnSlot: number;
+  name: string;
+  isBot?: boolean;
+  botType?: string;
+}
+
+export interface ScenarioAuthoritativeServerPort {
+  setGameMode?(gameMode: string, durationSeconds?: number | null): void;
+  setBotFillMode?(botFillMode: string): void;
+  addBotPlayer?(
+    preferredTeam?: number,
+    botName?: string | null,
+    visualId?: string | null,
+    botType?: string,
+  ): unknown;
+  startTrainingMode?(options?: Record<string, unknown>): void;
+  configureTrainingRuleset?(options?: Record<string, unknown>): void;
+  requestFullReplayExport?(): Promise<{
+    frameCount?: number;
+    frames?: unknown[];
+    ringBuffer?: { size?: number };
+  } | null>;
+  onRoomStateChange?(rosterSnap: unknown): void;
+  enterStateOnlyMode?(snap: Float32Array | null, tick: number): void;
+  beginInterveneCountdown?(seconds: number, snap: Float32Array | null): void;
+  resumePhysicsFromState?(snap: Float32Array | null, tick: number): void;
+  botTunnelManager?: {
+    getActiveBotCount?(): number;
+    registeredTunnels?: Map<string, { sessionId: string; carIndex: number; team: number; botType: string }>;
+    tunnels?: Map<number, { botType?: string; agent?: { isReady?: boolean } }>;
+  } | null;
+  fallbackManager?: {
+    removePlayerSession(sessionId: string): void;
+    buildRosterSnapshot(): unknown;
+    roster: {
+      players: Map<string, ScenarioServerPlayerEntry>;
+      applyBotFillPolicy(): void;
+      syncRosterPhysicsEntities(): void;
+      applyRosterKickoffSpawns(): void;
+    };
+    domain?: {
+      state?: string;
+      isOvertime?: boolean;
+      winner?: number | null;
+      players: Map<string, ScenarioServerPlayerEntry>;
+      clockStarted?: boolean;
+      isTrainingMode?: boolean;
+      stateOnlyMode?: boolean;
+      interveneTargetTick?: number;
+      trainingDisableGoalReset?: boolean;
+      pendingMatchEndAfterGoal?: boolean;
+    } | null;
+    replayBuffer?: {
+      capacity?: number;
+      mode?: string;
+      size?: number;
+    } | null;
+    goalReplay?: {
+      finishGoalReplay?(): void;
+    } | null;
+    physicsManager?: {
+      sim?: {
+        getCarStateView?(carIndex: number): {
+          posX: number;
+          posY: number;
+          posZ: number;
+        } | null;
+      } | null;
+    } | null;
+    systemControl?: {
+      isStateOnlyMode?: boolean;
+      lastSystemControlSignal?: number;
+    } | null;
+  } | null;
+}
+
 export interface ScenarioRuntimePort {
   playerCarIndex?: number;
   arena?: {
@@ -209,26 +289,41 @@ export interface ScenarioRuntimePort {
       hasAirJumped?: boolean;
     };
   } | null;
-  authoritativeServer?: {
-    enterStateOnlyMode?(snap: Float32Array | null, tick: number): void;
-    beginInterveneCountdown?(seconds: number, snap: Float32Array | null): void;
-    resumePhysicsFromState?(snap: Float32Array | null, tick: number): void;
-    fallbackManager?: {
-      systemControl?: {
-        isStateOnlyMode?: boolean;
-        lastSystemControlSignal?: number;
-      } | null;
-    } | null;
-  } | null;
+  authoritativeServer?: ScenarioAuthoritativeServerPort | null;
   networkReconciler?: object | null;
   networkManager?: {
+    isLobbyDualWorldActive?(): boolean;
+    addOnlineBot?(
+      team?: number | null,
+      botName?: string | null,
+      visualId?: string | null,
+      botType?: string,
+    ): void;
+    diagnosticsProbe?: {
+      diagnosticsFleetController?: { enabled?: boolean } | null;
+      spawnDiagnosticTestFleet?(opts?: Record<string, unknown>): Promise<{ enabled?: boolean } | null>;
+      despawnDiagnosticTestFleet?(): void;
+      sampleDiagnosticFleetTelemetry?(): {
+        enabled?: boolean;
+        car6?: { active?: boolean };
+        car7?: { active?: boolean };
+      } | null;
+      dumpLatestNetworkPacket?(): unknown;
+    } | null;
     sessionCoordinator?: {
+      hostOnlineServer?(opts: Record<string, unknown>): Promise<unknown>;
       stopOnlineServer?(opts?: { rebindLoopback?: boolean }): Promise<void> | void;
       enableNetworkPrediction?(
         enabled: boolean,
         opts?: { forceFallback?: boolean },
       ): Promise<unknown> | unknown;
     } | null;
+  } | null;
+  replayTimelineController?: {
+    setCameraMode?(mode: string): void;
+  } | null;
+  podiumController?: {
+    isActive?: boolean;
   } | null;
   modeManager: {
     setActiveMode(mode: string): void;
@@ -238,6 +333,7 @@ export interface ScenarioRuntimePort {
     state?: {
       phase?: string;
       mode?: string;
+      isOvertime?: boolean;
       blueScore?: number;
       score?: { blue?: number; orange?: number };
     } | null;
@@ -266,8 +362,41 @@ export interface ScenarioRuntimePort {
   isGoalReplayCameraOverrideActive?(): boolean;
 }
 
+export type ScenarioFastForwardSpeedPreset = '1x' | '10x' | '20x' | '50x';
+
+export interface ScenarioSpeedMultiplierConfig {
+  speedPreset: ScenarioFastForwardSpeedPreset;
+  renderStride: number;
+  batchYieldTicks: number;
+}
+
+export interface ScenarioCapturedError {
+  tick: number;
+  source: 'window_error' | 'unhandled_rejection' | 'console_error';
+  message: string;
+  stack?: string;
+}
+
+export interface VehicleRigGeometryProbe {
+  carIndex: number;
+  visualId: string;
+  wheelCount: number;
+  wheelSteerPositions: Array<[number, number, number]>;
+  frontAxleX: number;
+  rearAxleX: number;
+  wheelTrackWidthZ: number;
+  frontSuspensionHeightY: number;
+  rearSuspensionHeightY: number;
+  descriptorWheelAnchors: Array<[number, number, number]>;
+  descriptorSuspensionHeights: [number, number, number, number];
+  boostEmitterCount: number;
+  isFiniteGeometry: boolean;
+}
+
 export interface ScenarioLoopbackSimulatorPort {
   startSixCarLoopbackSession(durationSeconds?: number): Promise<void>;
+  connectVirtualPeers?(specs: readonly VirtualPeerLoadoutSpec[]): Promise<void>;
+  broadcastClientCommand?(commandType: number, param1?: number, param2?: number): void;
   triggerForceStartMatch(durationSeconds?: number): void;
   collectTelemetry(): MultiplayerLoopbackTelemetry;
   stop(): Promise<void> | void;
@@ -329,6 +458,7 @@ export interface ScenarioRunReport {
   wallClockDurationMs: number;
   effectiveTickRateHz: number;
   speedupFactorVsRealtime: number;
+  fastForwardSpeedPreset?: ScenarioFastForwardSpeedPreset;
   renderedFramesCount: number;
   skippedRenderFramesCount: number;
   stageTimings: Record<PipelineStageName | 'TotalFrame', StageTimingDistribution>;
@@ -336,6 +466,8 @@ export interface ScenarioRunReport {
   keyframeRenders: KeyframeRenderSample[];
   cameraSmoothness: CameraSmoothnessTelemetry;
   multiplayerLoopback: MultiplayerLoopbackTelemetry | null;
+  capturedRuntimeErrors?: ScenarioCapturedError[];
+  vehicleRigProbes?: VehicleRigGeometryProbe[];
   assertions: ScenarioAssertionResult[];
 }
 
