@@ -3,7 +3,7 @@ import { BotMatchMode } from './BotMatchMode.ts';
 import { KickoffTrainingMode } from './KickoffTrainingMode.ts';
 import { SubsystemIsolationLabMode } from './SubsystemIsolationLabMode.ts';
 import { ExperimentalMultiBotsMode } from './ExperimentalMultiBotsMode.ts';
-import { StaticTrainingPackMode } from './StaticTrainingPackMode.ts';
+import { StaticTrainingPackMode } from './static-training/StaticTrainingPackMode.ts';
 import type { BaseGameMode } from './BaseGameMode.ts';
 import type { FrameContext } from '../pipeline/FramePipeline.ts';
 

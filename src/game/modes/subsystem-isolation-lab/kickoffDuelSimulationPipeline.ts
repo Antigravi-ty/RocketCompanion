@@ -12,7 +12,6 @@ import {
 } from '../../../ai/KickoffPPOAgent.ts';
 import {
   KickoffV2SafeTensorsAgent,
-  classifyBallOutcome,
   formatDiscreteActionKeys,
 } from '../../../ai/KickoffV2SafeTensorsAgent.ts';
 import type {
@@ -23,18 +22,7 @@ import type {
   BallStateView,
   CarStateView,
 } from '../../../physics/RocketSimStateViews.ts';
-import {
-  KICKOFF_DUEL_MODELS,
-  KICKOFF_DUEL_PAIRINGS,
-  KICKOFF_DUEL_SLOTS,
-} from '../../../ui-core/config/kickoffDuelConfig.ts';
-
-export {
-  KICKOFF_DUEL_MODELS,
-  KICKOFF_DUEL_PAIRINGS,
-  KICKOFF_DUEL_SLOTS,
-  classifyBallOutcome,
-};
+import { KICKOFF_DUEL_SLOTS } from '../../../ui-core/config/kickoffDuelConfig.ts';
 
 export const DUEL_ACTIVE_CARS: Array<{ carIndex: number; team: number }> = [
   { carIndex: 0, team: 0 },
@@ -367,4 +355,52 @@ export function buildCarStepTraceEntry(
     },
     prevAct0,
   };
+}
+
+export function triggerBrowserDownload(filename: string, content: string, mimeType: string): void {
+  if (typeof document === 'undefined') return;
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+export function convertStepTracesToCsv(
+  seriesList: Array<{
+    modelId: string;
+    role: string;
+    slotCode: string;
+    channelMode: string;
+    steps: KickoffStepTraceEntry[];
+  }>
+): string {
+  const header = [
+    'model', 'role', 'slot', 'channel_mode', 'tick', 'time_sec', 'on_ground',
+    'has_flip', 'is_flipping', 'boost_amt', 'car_x', 'car_y', 'car_z',
+    'car_speed', 'dist_to_ball', 'keys', 'throttle', 'steer', 'pitch', 'yaw',
+    'roll', 'jump', 'boost', 'handbrake', 'prev_act_0',
+  ].join(',');
+  const rows = [header];
+  for (const series of seriesList) {
+    for (const s of series.steps || []) {
+      rows.push(
+        [
+          series.modelId, series.role, series.slotCode, series.channelMode,
+          s.tick, s.timeSec, s.onGround ? 1 : 0, s.hasFlip ? 1 : 0, s.isFlipping ? 1 : 0,
+          s.boostAmount, s.carPos?.[0] ?? 0, s.carPos?.[1] ?? 0, s.carPos?.[2] ?? 0,
+          s.carSpeed, s.distToBall, `"${s.keysLabel || ''}"`,
+          s.controls?.throttle ?? 0, s.controls?.steer ?? 0, s.controls?.pitch ?? 0,
+          s.controls?.yaw ?? 0, s.controls?.roll ?? 0,
+          s.controls?.jump ? 1 : 0, s.controls?.boost ? 1 : 0, s.controls?.handbrake ? 1 : 0,
+          s.prevAct0 ?? 0,
+        ].join(',')
+      );
+    }
+  }
+  return rows.join('\n');
 }

@@ -1,11 +1,22 @@
 import { DEFAULT_CAR_CONTROLS } from '../../../ai/experimental/ExperimentalBotAgent.ts';
 import { RocketSimPhysicsEngine } from '../../../physics/RocketSimPhysicsEngine.ts';
 import { useSubsystemIsolationLabStore } from '../../runtimeUiPort.ts';
+import { classifyBallOutcome } from '../../../ai/KickoffV2SafeTensorsAgent.ts';
 import {
-  KICKOFF_DUEL_MODELS, KICKOFF_DUEL_PAIRINGS, KICKOFF_DUEL_SLOTS,
-  type KickoffStepTraceEntry, buildCarStepTraceEntry, classifyBallOutcome,
-  createKickoffDuelHelpers, decideCarControlsForModel, ensureKickoffDuelModelsLoaded,
-  resetKickoffDuelEnsemble, resetSimToKickoffSlotAndSettle,
+  KICKOFF_DUEL_MODELS,
+  KICKOFF_DUEL_PAIRINGS,
+  KICKOFF_DUEL_SLOTS,
+} from '../../../ui-core/config/kickoffDuelConfig.ts';
+import {
+  type KickoffStepTraceEntry,
+  buildCarStepTraceEntry,
+  convertStepTracesToCsv,
+  createKickoffDuelHelpers,
+  decideCarControlsForModel,
+  ensureKickoffDuelModelsLoaded,
+  resetKickoffDuelEnsemble,
+  resetSimToKickoffSlotAndSettle,
+  triggerBrowserDownload,
 } from './kickoffDuelSimulationPipeline.ts';
 
 export interface KickoffDuelSoloBenchmarkResult {
@@ -50,69 +61,6 @@ function yieldToBrowser(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function triggerBrowserDownload(filename: string, content: string, mimeType: string): void {
-  if (typeof document === 'undefined') return;
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
-}
-
-export function convertStepTracesToCsv(
-  seriesList: Array<{
-    modelId: string; role: string; slotCode: string; channelMode: string;
-    steps: KickoffStepTraceEntry[];
-  }>
-): string {
-  const header = [
-    'model', 'role', 'slot', 'channel_mode', 'tick', 'time_sec', 'on_ground',
-    'has_flip', 'is_flipping', 'boost_amt', 'car_x', 'car_y', 'car_z',
-    'car_speed', 'dist_to_ball', 'keys', 'throttle', 'steer', 'pitch', 'yaw',
-    'roll', 'jump', 'boost', 'handbrake', 'prev_act_0',
-  ].join(',');
-
-  const rows = [header];
-  for (const series of seriesList) {
-    for (const s of series.steps || []) {
-      rows.push(
-        [
-          series.modelId,
-          series.role,
-          series.slotCode,
-          series.channelMode,
-          s.tick,
-          s.timeSec,
-          s.onGround ? 1 : 0,
-          s.hasFlip ? 1 : 0,
-          s.isFlipping ? 1 : 0,
-          s.boostAmount,
-          s.carPos?.[0] ?? 0,
-          s.carPos?.[1] ?? 0,
-          s.carPos?.[2] ?? 0,
-          s.carSpeed,
-          s.distToBall,
-          `"${s.keysLabel || ''}"`,
-          s.controls?.throttle ?? 0,
-          s.controls?.steer ?? 0,
-          s.controls?.pitch ?? 0,
-          s.controls?.yaw ?? 0,
-          s.controls?.roll ?? 0,
-          s.controls?.jump ? 1 : 0,
-          s.controls?.boost ? 1 : 0,
-          s.controls?.handbrake ? 1 : 0,
-          s.prevAct0 ?? 0,
-        ].join(',')
-      );
-    }
-  }
-  return rows.join('\n');
-}
-
 export async function runFullKickoffDuelMatrixBenchmark(): Promise<void> {
   const store = useSubsystemIsolationLabStore.getState();
   if (store.kickoffDuelBenchmarkRunning) return;
@@ -141,13 +89,7 @@ export async function runFullKickoffDuelMatrixBenchmark(): Promise<void> {
       const slotTicks: number[] = [];
       for (let s = 0; s < 5; s++) {
         resetSimToKickoffSlotAndSettle(sim, s);
-        sim.setCarState(1, {
-          pos: [0, 4800, 17.05],
-          vel: [0, 0, 0],
-          angVel: [0, 0, 0],
-          rot: [0, -Math.PI / 2, 0],
-          boost: 0,
-        });
+        sim.setCarState(1, { pos: [0, 4800, 17.05], vel: [0, 0, 0], angVel: [0, 0, 0], rot: [0, -Math.PI / 2, 0], boost: 0 });
         helpers.expBlue.setBotType(modelMeta.id === 'necto' ? 'necto' : 'nexto');
         helpers = resetKickoffDuelEnsemble(helpers);
 
@@ -216,25 +158,9 @@ export async function runFullKickoffDuelMatrixBenchmark(): Promise<void> {
             sim.setControls(0, DEFAULT_CAR_CONTROLS);
             sim.setControls(1, DEFAULT_CAR_CONTROLS);
           } else {
-            const dec0 = decideCarControlsForModel(
-              sim,
-              pair.blue,
-              0,
-              0,
-              t,
-              helpers,
-              decideOpts
-            );
+            const dec0 = decideCarControlsForModel(sim, pair.blue, 0, 0, t, helpers, decideOpts);
             helpers = dec0.nextHelpers;
-            const dec1 = decideCarControlsForModel(
-              sim,
-              pair.orange,
-              1,
-              1,
-              t,
-              helpers,
-              decideOpts
-            );
+            const dec1 = decideCarControlsForModel(sim, pair.orange, 1, 1, t, helpers, decideOpts);
             helpers = dec1.nextHelpers;
             sim.setControls(0, dec0.controls);
             sim.setControls(1, dec1.controls);
@@ -394,31 +320,11 @@ export async function exportKickoffDuelDiagnosticsData(
     await yieldToBrowser();
 
     const configs = [
-      {
-        modelId: 'ko_v2',
-        channelMode: 'keyboard_coupled',
-        label: 'KO_v2 (Keyboard Coupled · Optimal 257.8f)',
-      },
-      {
-        modelId: 'ko_v2',
-        channelMode: 'ground_air_separated',
-        label: 'KO_v2 (Ground/Air Separated · 265.2f)',
-      },
-      {
-        modelId: 'ko_v1',
-        channelMode: 'keyboard_coupled',
-        label: 'KO_v1 (Legacy 75D · 259.2f)',
-      },
-      {
-        modelId: 'nexto',
-        channelMode: 'keyboard_coupled',
-        label: 'Nexto (EARL Perceiver GC · 303.8f)',
-      },
-      {
-        modelId: 'necto',
-        channelMode: 'keyboard_coupled',
-        label: 'Necto (EARL Perceiver Diamond · 307.0f)',
-      },
+      { modelId: 'ko_v2', channelMode: 'keyboard_coupled', label: 'KO_v2 (Keyboard Coupled · Optimal 257.8f)' },
+      { modelId: 'ko_v2', channelMode: 'ground_air_separated', label: 'KO_v2 (Ground/Air Separated · 265.2f)' },
+      { modelId: 'ko_v1', channelMode: 'keyboard_coupled', label: 'KO_v1 (Legacy 75D · 259.2f)' },
+      { modelId: 'nexto', channelMode: 'keyboard_coupled', label: 'Nexto (EARL Perceiver GC · 303.8f)' },
+      { modelId: 'necto', channelMode: 'keyboard_coupled', label: 'Necto (EARL Perceiver Diamond · 307.0f)' },
     ];
 
     const traces: KickoffDiagnosticTrajectoryTrace[] = [];
@@ -426,13 +332,7 @@ export async function exportKickoffDuelDiagnosticsData(
       let helpers = createKickoffDuelHelpers(cfg.channelMode);
       for (let s = 0; s < 5; s++) {
         resetSimToKickoffSlotAndSettle(sim, s);
-        sim.setCarState(1, {
-          pos: [0, 4800, 17.05],
-          vel: [0, 0, 0],
-          angVel: [0, 0, 0],
-          rot: [0, -Math.PI / 2, 0],
-          boost: 0,
-        });
+        sim.setCarState(1, { pos: [0, 4800, 17.05], vel: [0, 0, 0], angVel: [0, 0, 0], rot: [0, -Math.PI / 2, 0], boost: 0 });
         helpers.expBlue.setBotType(cfg.modelId === 'necto' ? 'necto' : 'nexto');
         helpers = resetKickoffDuelEnsemble(helpers);
 

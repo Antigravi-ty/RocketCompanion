@@ -266,3 +266,128 @@ export function evaluateCameraSmoothness(
       : null,
   };
 }
+
+export interface WebGlRendererPort {
+  info?: {
+    programs?: unknown[] | null;
+    render?: { calls?: number; triangles?: number };
+    memory?: { geometries?: number; textures?: number };
+  } | null;
+  getContext?: () => WebGLRenderingContext | null;
+}
+
+export function queryCompiledShaderProgramCount(renderer: WebGlRendererPort | null | undefined): number {
+  const programs = renderer?.info?.programs;
+  return Array.isArray(programs) ? programs.length : 0;
+}
+
+export function queryWebGlContextAttributesSummary(
+  renderer: WebGlRendererPort | null | undefined,
+): { renderer: string; vendor: string } {
+  try {
+    const gl = renderer?.getContext?.() as WebGLRenderingContext | null;
+    if (!gl) return { renderer: 'unavailable', vendor: 'unavailable' };
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const gpuRenderer = dbg
+      ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || gl.getParameter(gl.RENDERER))
+      : String(gl.getParameter(gl.RENDERER) || 'WebGL');
+    const vendor = dbg
+      ? String(gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) || gl.getParameter(gl.VENDOR))
+      : String(gl.getParameter(gl.VENDOR) || 'WebGL');
+    return { renderer: gpuRenderer, vendor };
+  } catch {
+    return { renderer: 'error', vendor: 'error' };
+  }
+}
+
+export function queryWebGlError(renderer: WebGlRendererPort | null | undefined): number {
+  try {
+    const gl = renderer?.getContext?.() as WebGLRenderingContext | null;
+    return gl ? gl.getError() : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function resolveRuntimeCameraMode(
+  runtime: {
+    isGoalReplayCameraOverrideActive?: () => boolean;
+    modeManager?: {
+      getActiveMode?: () => {
+        directorPreview?: { replayCameraMode?: string };
+        replaySession?: { replayCameraMode?: string };
+      } | null;
+    } | null;
+    camera?: { isFreeCam?: boolean; mode?: string } | null;
+  } | null | undefined
+): string {
+  if (runtime?.isGoalReplayCameraOverrideActive?.()) {
+    const activeMode = runtime?.modeManager?.getActiveMode?.();
+    const replayCamMode =
+      activeMode?.directorPreview?.replayCameraMode ||
+      activeMode?.replaySession?.replayCameraMode;
+    if (replayCamMode) return String(replayCamMode);
+    return 'director';
+  }
+  if (runtime?.camera?.isFreeCam) return 'freecam';
+  return runtime?.camera?.mode || 'ball';
+}
+
+export function buildKeyframeRenderSample(
+  tick: number,
+  virtualTimeOffsetMs: number,
+  reason: string,
+  phase: string,
+  gameMode: string,
+  cameraMode: string,
+  renderStageWallMs: number,
+  totalFrameWallMs: number,
+  shaderProgramsBefore: number,
+  shaderProgramsAfter: number,
+  shaderProgramsDelta: number,
+  glError: number,
+  renderInfo: WebGlRendererPort['info'],
+): KeyframeRenderSample {
+  return {
+    tick,
+    virtualTimeMs: roundMetric(virtualTimeOffsetMs, 2),
+    reason,
+    phase,
+    gameMode,
+    cameraMode,
+    renderStageWallMs: roundMetric(renderStageWallMs, 4),
+    totalFrameWallMs: roundMetric(totalFrameWallMs, 4),
+    shaderProgramsBefore,
+    shaderProgramsAfter,
+    shaderProgramsDelta,
+    glError,
+    drawCalls: renderInfo?.render?.calls ?? 0,
+    triangles: renderInfo?.render?.triangles ?? 0,
+    geometries: renderInfo?.memory?.geometries ?? 0,
+    textures: renderInfo?.memory?.textures ?? 0,
+  };
+}
+
+export function extractCameraPoseSample(
+  tick: number,
+  phase: string,
+  cameraMode: string,
+  camObj: {
+    position?: { x: number; y: number; z: number } | null;
+    quaternion?: { x: number; y: number; z: number; w: number } | null;
+  } | null | undefined,
+): CameraPoseSample | null {
+  if (!camObj?.position || !camObj?.quaternion) return null;
+  return {
+    tick,
+    phase,
+    cameraMode,
+    px: camObj.position.x,
+    py: camObj.position.y,
+    pz: camObj.position.z,
+    qx: camObj.quaternion.x,
+    qy: camObj.quaternion.y,
+    qz: camObj.quaternion.z,
+    qw: camObj.quaternion.w,
+  };
+}

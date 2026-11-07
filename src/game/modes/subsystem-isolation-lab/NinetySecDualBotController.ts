@@ -6,7 +6,9 @@ import {
 } from '../../../ai/experimental/ExperimentalBotAgent.ts';
 import type { CarControls } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
 import type { ArenaBoostPadDescriptor } from '../../../physics/RocketSimSnapshotSerializer.ts';
+import { stepKickoffCountdownState } from '../shared/matchClockAndPhasePipeline.ts';
 import type {
+  LabAudioPort,
   LabPhysicsEnginePort,
   LabRuntimePort,
 } from './LabTabTypes.ts';
@@ -137,4 +139,58 @@ export function setupTwoCarIncidentArena(
       if (r.arena.cars[i]) r.arena.cars[i].visible = false;
     }
   }
+}
+
+export function initializeTwoCarIncidentPhysics(r: LabRuntimePort | null | undefined): void {
+  if (!r?.physics) return;
+  setupTwoCarIncidentArena(r);
+  r.physics.setUnlimitedBoost(false);
+  r.physics.setPossessionReportingEnabled?.(true);
+  r.physics.resetPossessionStats?.();
+  r.physics.resetGoalLatch?.();
+  r.physics.resetKickoff(0, false);
+  r.physics.clearEvents?.();
+  r.simulationStage?.resetActionStates?.();
+  r.arena?.resetAllCarEffects?.();
+  r.resetAudio?.();
+  r.interpolator?.sync?.();
+}
+
+export function resetIncidentKickoffPhysics(r: LabRuntimePort | null | undefined): void {
+  if (!r?.physics) return;
+  r.physics.resetGoalLatch?.();
+  r.physics.resetKickoff(0, true);
+  r.interpolator?.sync?.();
+}
+
+export function stepIncidentCountdownTick(params: {
+  sim: LabPhysicsEnginePort;
+  neutralControls: unknown;
+  countdownTicks: number;
+  isOvertime: boolean;
+  currentPhase: string;
+  matchState?: { phase?: string; countdown?: number } | null;
+  audio?: LabAudioPort | null;
+  onSyncCountdown: (sec: number, phase: string, matchPhase: 'kickoff' | 'playing' | 'overtime') => void;
+}): { nextCountdownTicks: number; nextPhase: string } {
+  const { sim, neutralControls, countdownTicks, isOvertime, currentPhase, matchState, audio, onSyncCountdown } = params;
+  sim.setControls(0, neutralControls as never);
+  sim.setControls(1, neutralControls as never);
+  const stepRes = stepKickoffCountdownState(countdownTicks, isOvertime);
+  let nextPhase = currentPhase;
+  if (stepRes.transitionedSecond === 2 || stepRes.transitionedSecond === 1) {
+    const sec = stepRes.transitionedSecond;
+    nextPhase = `kickoff (${sec})`;
+    if (stepRes.audioCue) audio?.play?.(stepRes.audioCue, 1.0);
+    onSyncCountdown(sec, nextPhase, 'kickoff');
+  } else if (stepRes.transitionedSecond === 0) {
+    nextPhase = isOvertime ? 'overtime' : 'playing';
+    if (matchState) {
+      matchState.phase = 'playing';
+      matchState.countdown = 0;
+    }
+    if (stepRes.audioCue) audio?.play?.(stepRes.audioCue, 1.0);
+    onSyncCountdown(0, nextPhase, isOvertime ? 'overtime' : 'playing');
+  }
+  return { nextCountdownTicks: stepRes.nextCountdownTicks, nextPhase };
 }

@@ -6,12 +6,17 @@
  * - Dual-car (same-side partner / opposite opponent) and single-car kickoff spawn reset
  */
 
+import { MATCH_SIGNALS } from '../../physics/RocketSimConstants.ts';
 import { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
 import {
   KICKOFF_SPAWNS,
   CPP_SPAWN_INDEX_MAP,
   getSameSidePartnerSpawnIndex,
   makeKickoffRawCarState,
+  controlsToMultiDiscrete,
+  multiDiscreteToOverlayKeys,
+  multiDiscreteToKeyString,
+  areMultiDiscreteActionsEqual,
 } from '../../ai/KickoffPPOAgent.ts';
 import {
   KickoffV2SafeTensorsAgent,
@@ -301,5 +306,125 @@ export function resetKickoffSpawnInPhysics(
     aiTeamSign,
     preSettleCar0State,
     preSettleCar1State,
+  };
+}
+
+export interface KickoffDecisionRequirement {
+  stepIdx: number;
+  requiredAction: number[];
+  requiredKeys: ReturnType<typeof multiDiscreteToOverlayKeys>;
+  requiredKeyStr: string;
+}
+
+export function evaluateKickoffDecisionRequirement(
+  episodeTick: number,
+  ticksPerDecision: number,
+  timeline: KickoffGhostPrecomputeResult['timeline'] | null
+): KickoffDecisionRequirement {
+  const stepIdx = Math.floor(episodeTick / ticksPerDecision);
+  const steps = timeline?.steps;
+  const stepData = steps?.[stepIdx] || (steps && steps.length > 0 ? steps[steps.length - 1] : undefined);
+  const requiredAction = stepData ? stepData.action : [1, 1, 1, 0, 0, 0];
+  const requiredKeys = (stepData ? stepData.keys : multiDiscreteToOverlayKeys(requiredAction)) as ReturnType<typeof multiDiscreteToOverlayKeys>;
+  const requiredKeyStr = stepData ? stepData.keyStr : multiDiscreteToKeyString(requiredAction);
+  return { stepIdx, requiredAction, requiredKeys, requiredKeyStr };
+}
+
+export function stepKickoffAgentControls(
+  agent: KickoffV2SafeTensorsAgent,
+  sim: RocketSimPhysicsEngine,
+  carIndex: number,
+  invertTeam: boolean,
+  episodeTick: number,
+  ticksPerDecision: number,
+  prevRawControls: KickoffCarControls
+): { rawControls: KickoffCarControls; sanitizedControls: KickoffCarControls } {
+  const rawControls =
+    episodeTick % ticksPerDecision === 0
+      ? (agent.actDeterministic(sim, carIndex, invertTeam) as KickoffCarControls)
+      : prevRawControls;
+  const sanitizedControls = agent.sanitizeAndRecordTickControls(
+    sim,
+    carIndex,
+    rawControls
+  ) as KickoffCarControls;
+  sim.setControls(carIndex, sanitizedControls);
+  return { rawControls, sanitizedControls };
+}
+
+export function detectKickoffPlayerFirstTouch(
+  physics: {
+    readonly numCars: number;
+    getBallStateView(): { posX: number; posY: number; posZ: number; velX: number; velY: number; velZ: number };
+    getCarStateView(carIndex: number): { posX: number; posY: number; posZ: number };
+  },
+  ghostModeEnabled: boolean
+): boolean {
+  const pBall = physics.getBallStateView();
+  if (Math.hypot(pBall.velX, pBall.velY, pBall.velZ) <= 1.0) return false;
+  if (!ghostModeEnabled && physics.numCars >= 2) {
+    const pCar = physics.getCarStateView(0);
+    return Math.hypot(pCar.posX - pBall.posX, pCar.posY - pBall.posY, pCar.posZ - pBall.posZ) <= 235.0;
+  }
+  return true;
+}
+
+export function scheduleKickoffCountdownSignal(
+  physics: {
+    getHeaderView?(): { tickCount?: number } | null;
+    pushSignalEvent?(signal: number, ...args: number[]): void;
+    setSimulationFrozen?(frozen: boolean, carIdx?: number, freezeBall?: boolean): void;
+  } | null | undefined,
+  waitTicks: number
+): number {
+  physics?.setSimulationFrozen?.(false, 0, true);
+  const curTick = Math.floor(physics?.getHeaderView?.()?.tickCount ?? 0);
+  physics?.pushSignalEvent?.(
+    MATCH_SIGNALS.KICKOFF_WILL_START,
+    curTick, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, curTick + waitTicks
+  );
+  return Math.min(4, Math.ceil(waitTicks / 120));
+}
+
+export function stepKickoffGhostSimTick(
+  ghostSim: RocketSimPhysicsEngine,
+  ghostAgent: KickoffV2SafeTensorsAgent,
+  episodeTick: number,
+  ticksPerDecision: number,
+  prevRawControls: KickoffCarControls,
+  ghostPrevState: Float32Array,
+  ghostCurrState: Float32Array
+): { rawControls: KickoffCarControls; sanitizedControls: KickoffCarControls; ballView: unknown } {
+  const step = stepKickoffAgentControls(
+    ghostAgent, ghostSim, 0, false, episodeTick, ticksPerDecision, prevRawControls
+  );
+  ghostPrevState.set(ghostCurrState);
+  ghostSim.stepSilent(1);
+  ghostCurrState.set(ghostSim.state);
+  return { ...step, ballView: ghostSim.getBallStateView() };
+}
+
+export interface KickoffPreTickEvaluation extends KickoffDecisionRequirement {
+  playerAction: number[];
+  playerKeys: ReturnType<typeof multiDiscreteToOverlayKeys>;
+  isMatching: boolean;
+  isAnyKeyPressed: boolean;
+}
+
+export function evaluateKickoffPreTickInput(
+  playerControls: unknown,
+  episodeTick: number,
+  ticksPerDecision: number,
+  timeline: KickoffGhostPrecomputeResult['timeline'] | null
+): KickoffPreTickEvaluation {
+  const playerAction = controlsToMultiDiscrete(playerControls as never);
+  const playerKeys = multiDiscreteToOverlayKeys(playerAction);
+  const req = evaluateKickoffDecisionRequirement(episodeTick, ticksPerDecision, timeline);
+  return {
+    ...req,
+    playerAction,
+    playerKeys,
+    isMatching: areMultiDiscreteActionsEqual(playerAction, req.requiredAction),
+    isAnyKeyPressed: !areMultiDiscreteActionsEqual(playerAction, [1, 1, 1, 0, 0, 0]),
   };
 }

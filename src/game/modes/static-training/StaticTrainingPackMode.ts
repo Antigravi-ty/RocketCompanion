@@ -1,21 +1,45 @@
-import { BaseGameMode } from './BaseGameMode.ts';
+import { BaseGameMode } from '../BaseGameMode.ts';
 import { StaticTrainingVisuals } from './StaticTrainingVisuals.ts';
 import {
   useAppStore,
   useStaticTrainingPackStore,
   getActiveEditItemVariable,
   hudStore,
-} from '../runtimeUiPort.ts';
-import { getPreferredFreeplayTeam } from '../../ui-core/config/vehiclePresets';
+} from '../../runtimeUiPort.ts';
+import { getPreferredFreeplayTeam } from '../../../ui-core/config/vehiclePresets';
 import {
-  StaticTrainingEditSubMode,
-  StaticTrainingShotConfig,
-} from './static-training/ShotGizmoMath.ts';
-import { StaticTrainingArenaController } from './static-training/StaticTrainingArenaController.ts';
-import { StaticTrainingReplayController } from './static-training/StaticTrainingReplayController.ts';
-import { StaticTrainingShotEditor } from './static-training/StaticTrainingShotEditor.ts';
-import { StaticTrainingSimulationController } from './static-training/StaticTrainingSimulationController.ts';
-import { applyTrainingVariationsToShot } from './static-training/staticTrainingVariationMath.ts';
+  type StaticTrainingEditSubMode,
+  type StaticTrainingShotConfig,
+} from './ShotGizmoMath.ts';
+import { StaticTrainingArenaController } from './StaticTrainingArenaController.ts';
+import { StaticTrainingReplayController } from './StaticTrainingReplayController.ts';
+import { StaticTrainingShotEditor } from './StaticTrainingShotEditor.ts';
+import { StaticTrainingSimulationController } from './StaticTrainingSimulationController.ts';
+import { applyTrainingVariationsToShot } from './staticTrainingVariationMath.ts';
+
+const DEFAULT_VARIATION_TOGGLES = {
+  enableCustomVariationOverride: false,
+  moreBoostAmount: 0,
+  disableBallVariance: false,
+  disableVehicleVariance: false,
+  disableAllRandomAngularVelocity: false,
+  disableRLRCSPackAngularVelocity: true,
+  enableFToMirror: true,
+};
+
+const DEFAULT_CUSTOM_VARIATION = {
+  ballSpeedModifierPct: [0, 0] as [number, number],
+  ballLocationModifierXY: [0, 0] as [number, number],
+  ballHeightModifierZ: [0, 0] as [number, number],
+  ballRotationModifierDeg: [0, 0] as [number, number],
+  ballSpinModifier: [0, 0] as [number, number],
+  vehicleSpeedRange: null,
+  vehicleLocationModifier: [0, 0] as [number, number],
+  vehicleRotationModifierDeg: [0, 0] as [number, number],
+  boostLimitOverride: null,
+  forceSpawnVehicleOnGround: false,
+  forceUnlimitedBoost: false,
+};
 
 export class StaticTrainingPackMode extends BaseGameMode {
   public readonly arenaController: StaticTrainingArenaController;
@@ -47,37 +71,14 @@ export class StaticTrainingPackMode extends BaseGameMode {
     });
   }
 
-  get replayRingBuffer() {
-    return this.replaySession.replayRingBuffer;
-  }
-
-  get replayController() {
-    return this.replaySession.replayController;
-  }
-
-  get isReplayActive(): boolean {
-    return this.replaySession.isReplayActive;
-  }
-
-  set isReplayActive(val: boolean) {
-    this.replaySession.isReplayActive = val;
-  }
-
-  get replayCameraMode() {
-    return this.replaySession.replayCameraMode;
-  }
-
-  set replayCameraMode(val: 'director' | 'pov') {
-    this.replaySession.replayCameraMode = val;
-  }
-
-  get playPhase() {
-    return this.simulationController.playPhase;
-  }
-
-  get stagedShot(): StaticTrainingShotConfig | null {
-    return this.arenaController.stagedShot;
-  }
+  get replayRingBuffer() { return this.replaySession.replayRingBuffer; }
+  get replayController() { return this.replaySession.replayController; }
+  get isReplayActive(): boolean { return this.replaySession.isReplayActive; }
+  set isReplayActive(val: boolean) { this.replaySession.isReplayActive = val; }
+  get replayCameraMode() { return this.replaySession.replayCameraMode; }
+  set replayCameraMode(val: 'director' | 'pov') { this.replaySession.replayCameraMode = val; }
+  get playPhase() { return this.simulationController.playPhase; }
+  get stagedShot(): StaticTrainingShotConfig | null { return this.arenaController.stagedShot; }
 
   onEnter(): void {
     const r = this.runtime;
@@ -89,9 +90,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
       r.networkReconciler.dispose?.();
       r.networkReconciler = null;
     }
-    if (r?.keyboard) {
-      r.keyboard.ballControlEnabled = false;
-    }
+    if (r?.keyboard) r.keyboard.ballControlEnabled = false;
     this.replaySession.attachPhysicsIfNeeded();
     if (!this.visuals && r?.arena?.scene) {
       this.visuals = new StaticTrainingVisuals(r.arena.scene);
@@ -116,39 +115,14 @@ export class StaticTrainingPackMode extends BaseGameMode {
   }
 
   onLeave(): void {
-    const r = this.runtime;
     this.editor.unbindSessionEvents();
     this.editor.resetInputState();
-    this.arenaController.clearEditBallOpacityOverride();
-
     this.replaySession.abortSession();
     this.replaySession.clearBuffer();
     this.visuals?.setVisible(false);
+    this.arenaController.teardownRuntimeModeExit();
 
-    if (r) {
-      r.camera?.setEditorOverride?.(false);
-      r.releaseGoalReplayCameraOverride();
-      if (r.ballTrajectoryPredictor) {
-        r.ballTrajectoryPredictor.forcePredictAnyMovement = false;
-        r.ballTrajectoryPredictor.clearStaticPreview?.();
-        r.ballTrajectoryPredictor.clear?.();
-      }
-      if (r.camera?.isFreeCam) {
-        r.camera.setFreeCam(false);
-      }
-      if (r.keyboard) {
-        r.keyboard.ballControlEnabled = true;
-      }
-      const innerBallMesh = r.arena?.ball?.children?.[0];
-      if (innerBallMesh) {
-        innerBallMesh.quaternion.identity();
-      }
-    }
-
-    hudStore.getState().setReplayState({
-      replayPaused: false,
-      replayPersistent: false,
-    });
+    hudStore.getState().setReplayState({ replayPaused: false, replayPersistent: false });
     hudStore.getState().setMatchState({
       matchPhase: 'playing',
       kickoffCountdown: 0,
@@ -163,38 +137,33 @@ export class StaticTrainingPackMode extends BaseGameMode {
     const activeMode = this.runtime?.match?.state?.mode;
     if (activeMode !== 'static-training-pack') {
       console.warn(
-        `[StaticTrainingPackMode] ${actionName} ignored: active mode is "${activeMode ?? 'none'}", requires "static-training-pack".`
+        `[StaticTrainingPackMode] ${actionName} ignored: active mode is "${activeMode ?? 'none'}", requires "static-training-pack".`,
       );
       return false;
     }
     return true;
   }
 
+  private _resetTestFlagsAndReload(): void {
+    this.isFreeCamTrajectoryTesting = false;
+    this.isTestingSingleShot = false;
+    const s = useStaticTrainingPackStore.getState();
+    s.setFreeCamTrajectoryTesting(false);
+    s.setTestingSingleShot(false);
+    this.reloadCurrentShot();
+  }
+
   private _bindStoreRuntimeHandlers(): void {
     useStaticTrainingPackStore.getState().setRuntimeHandlers({
       onShotChanged: () => {
-        if (!this._ensureActiveMode('onShotChanged')) return;
-        this.isFreeCamTrajectoryTesting = false;
-        this.isTestingSingleShot = false;
-        const s = useStaticTrainingPackStore.getState();
-        s.setFreeCamTrajectoryTesting(false);
-        s.setTestingSingleShot(false);
-        this.reloadCurrentShot();
+        if (this._ensureActiveMode('onShotChanged')) this._resetTestFlagsAndReload();
       },
       onSessionModeChanged: () => {
-        if (!this._ensureActiveMode('onSessionModeChanged')) return;
-        this.isFreeCamTrajectoryTesting = false;
-        this.isTestingSingleShot = false;
-        const s = useStaticTrainingPackStore.getState();
-        s.setFreeCamTrajectoryTesting(false);
-        s.setTestingSingleShot(false);
-        this.reloadCurrentShot();
+        if (this._ensureActiveMode('onSessionModeChanged')) this._resetTestFlagsAndReload();
       },
       onEditSubModeChanged: (subMode: StaticTrainingEditSubMode) => {
         if (!this._ensureActiveMode('onEditSubModeChanged')) return;
-        if (this.isFreeCamTrajectoryTesting) {
-          this.stopFreeCamTrajectoryTest();
-        }
+        if (this.isFreeCamTrajectoryTesting) this.stopFreeCamTrajectoryTest();
         this.editor.applyEditSubModeCamera(subMode);
       },
       onEditVariableMutated: (item: StaticTrainingShotConfig) => {
@@ -213,7 +182,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
           item,
           true,
           this.editor.isLeftMouseDragging,
-          this.replaySession.replayRingBuffer
+          this.replaySession.replayRingBuffer,
         );
       },
       onResetShotRequested: () => {
@@ -235,7 +204,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
     useStaticTrainingPackStore.getState().setFreeCamTrajectoryTesting(true);
     this.arenaController.launchFreeCamTrajectoryPreview(
       this.editor.isLeftMouseDragging,
-      this.replaySession.replayRingBuffer
+      this.replaySession.replayRingBuffer,
     );
   }
 
@@ -249,7 +218,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
         shot,
         true,
         this.editor.isLeftMouseDragging,
-        this.replaySession.replayRingBuffer
+        this.replaySession.replayRingBuffer,
       );
     }
   }
@@ -259,7 +228,6 @@ export class StaticTrainingPackMode extends BaseGameMode {
     if (this.isTestingSingleShot) {
       this.isTestingSingleShot = false;
       store.setTestingSingleShot(false);
-      this.reloadCurrentShot();
     } else {
       if (this.isFreeCamTrajectoryTesting) {
         this.isFreeCamTrajectoryTesting = false;
@@ -267,8 +235,8 @@ export class StaticTrainingPackMode extends BaseGameMode {
       }
       this.isTestingSingleShot = true;
       store.setTestingSingleShot(true);
-      this.reloadCurrentShot();
     }
+    this.reloadCurrentShot();
   }
 
   _getCurrentShotConfig(): StaticTrainingShotConfig | null {
@@ -277,20 +245,15 @@ export class StaticTrainingPackMode extends BaseGameMode {
       const editVar = getActiveEditItemVariable();
       if (editVar) return editVar;
     }
-    const pack = store.activePack;
-    if (!pack || !Array.isArray(pack.items) || pack.items.length === 0) {
-      return null;
-    }
-    const idx = Math.max(0, Math.min(pack.items.length - 1, store.currentShotIndex));
-    return pack.items[idx] || pack.items[0];
+    const items = store.activePack?.items;
+    if (!Array.isArray(items) || items.length === 0) return null;
+    const idx = Math.max(0, Math.min(items.length - 1, store.currentShotIndex));
+    return items[idx] || items[0];
   }
 
   reloadCurrentShot(): void {
     const r = this.runtime;
-    if (!r?.physics) {
-      console.warn('[StaticTrainingPackMode] reloadCurrentShot ignored: physics engine is not initialized.');
-      return;
-    }
+    if (!r?.physics) return;
 
     this.replaySession.abortSession();
     this.isFreeCamTrajectoryTesting = false;
@@ -303,13 +266,10 @@ export class StaticTrainingPackMode extends BaseGameMode {
     this.arenaController.syncEditBallOpacityOverride(
       this.isTestingSingleShot,
       this.replaySession.isReplayActive,
-      true
+      true,
     );
     const shot = this._getCurrentShotConfig();
-    if (!shot) {
-      console.warn('[StaticTrainingPackMode] reloadCurrentShot ignored: no active training shot configuration found.');
-      return;
-    }
+    if (!shot) return;
 
     const isPlayableSession = store.sessionMode === 'play' || this.isTestingSingleShot;
     this.arenaController.ensureSinglePlayerCar();
@@ -320,28 +280,8 @@ export class StaticTrainingPackMode extends BaseGameMode {
     const activeMeta = store.activePack?.metadata;
     const effectiveShot = applyTrainingVariationsToShot({
       shot,
-      toggles: store.variationToggles || {
-        enableCustomVariationOverride: false,
-        moreBoostAmount: 0,
-        disableBallVariance: false,
-        disableVehicleVariance: false,
-        disableAllRandomAngularVelocity: false,
-        disableRLRCSPackAngularVelocity: true,
-        enableFToMirror: true,
-      },
-      customVariation: store.customVariation || {
-        ballSpeedModifierPct: [0, 0],
-        ballLocationModifierXY: [0, 0],
-        ballHeightModifierZ: [0, 0],
-        ballRotationModifierDeg: [0, 0],
-        ballSpinModifier: [0, 0],
-        vehicleSpeedRange: null,
-        vehicleLocationModifier: [0, 0],
-        vehicleRotationModifierDeg: [0, 0],
-        boostLimitOverride: null,
-        forceSpawnVehicleOnGround: false,
-        forceUnlimitedBoost: false,
-      },
+      toggles: store.variationToggles || DEFAULT_VARIATION_TOGGLES,
+      customVariation: store.customVariation || DEFAULT_CUSTOM_VARIATION,
       recommendedVariation: activeMeta?.recommendedVariation,
       sourcePackType: activeMeta?.sourcePackType,
       isPlayOrTestSession: isPlayableSession,
@@ -353,47 +293,34 @@ export class StaticTrainingPackMode extends BaseGameMode {
       effectiveShot,
       false,
       this.editor.isLeftMouseDragging,
-      this.replaySession.replayRingBuffer
+      this.replaySession.replayRingBuffer,
     );
 
     const timeoutSec = Math.max(1, Math.min(60, Number(effectiveShot.timeoutSeconds) || 10));
-
     this.simulationController.configureShotSession(
       timeoutSec,
       isPlayableSession,
       Boolean(store.downCounterEnabled),
-      Number(store.downCounterValue) || 1
+      Number(store.downCounterValue) || 1,
     );
 
     if (!isPlayableSession) {
       this.editor.applyEditSubModeCamera(store.editSubMode as StaticTrainingEditSubMode);
-      store.updateLiveTelemetry({
-        remainingTimeoutSec: timeoutSec,
-        activeCountdownSec: 0,
-        isShotLaunched: false,
-        isOvertimeWaitGround: false,
-        isReplayActive: false,
-        replayType: null,
-      });
     } else {
-      if (r.camera?.isFreeCam) {
-        r.camera.setFreeCam(false);
-      }
+      if (r.camera?.isFreeCam) r.camera.setFreeCam(false);
       r.camera?.resetView?.();
-
-      store.updateLiveTelemetry({
-        remainingTimeoutSec: timeoutSec,
-        activeCountdownSec: store.downCounterEnabled ? store.downCounterValue : 0,
-        isShotLaunched: false,
-        isOvertimeWaitGround: false,
-        isReplayActive: false,
-        replayType: null,
-      });
     }
 
-    if (r.match?.state) {
-      r.match.state.phase = 'playing';
-    }
+    store.updateLiveTelemetry({
+      remainingTimeoutSec: timeoutSec,
+      activeCountdownSec: isPlayableSession && store.downCounterEnabled ? store.downCounterValue : 0,
+      isShotLaunched: false,
+      isOvertimeWaitGround: false,
+      isReplayActive: false,
+      replayType: null,
+    });
+
+    if (r.match?.state) r.match.state.phase = 'playing';
     hudStore.getState().setMatchState({
       matchPhase: 'playing',
       kickoffCountdown: 0,
@@ -402,18 +329,11 @@ export class StaticTrainingPackMode extends BaseGameMode {
       replayBallSpeedKph: null,
       replayAssistName: null,
     });
-    hudStore.getState().setReplayState({
-      replayPaused: false,
-      replayPersistent: false,
-    });
+    hudStore.getState().setReplayState({ replayPaused: false, replayPersistent: false });
   }
 
   onPhysicsEvent(event: any): void {
-    this.simulationController.onPhysicsEvent(
-      event,
-      this.arenaController,
-      this.replaySession
-    );
+    this.simulationController.onPhysicsEvent(event, this.arenaController, this.replaySession);
   }
 
   onBeforePhysicsTick(): boolean {
@@ -421,7 +341,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
       this.arenaController,
       this.replaySession,
       this.isTestingSingleShot,
-      this.isFreeCamTrajectoryTesting
+      this.isFreeCamTrajectoryTesting,
     );
   }
 
@@ -431,20 +351,14 @@ export class StaticTrainingPackMode extends BaseGameMode {
       this.replaySession,
       this.isTestingSingleShot,
       this.isFreeCamTrajectoryTesting,
-      () => this.replaySession.completeSessionAndAdvance(
-        this.isTestingSingleShot,
-        () => this.reloadCurrentShot()
-      )
+      () => this.replaySession.completeSessionAndAdvance(this.isTestingSingleShot, () => this.reloadCurrentShot()),
     );
   }
 
   skipGoalReplay(): void {
     if (!this.replaySession.isReplayActive && this.simulationController.goalResetTicks <= 0) return;
     this.simulationController.goalResetTicks = 0;
-    this.replaySession.completeSessionAndAdvance(
-      this.isTestingSingleShot,
-      () => this.reloadCurrentShot()
-    );
+    this.replaySession.completeSessionAndAdvance(this.isTestingSingleShot, () => this.reloadCurrentShot());
   }
 
   update(context: any): void {
@@ -452,7 +366,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
     const store = useStaticTrainingPackStore.getState();
     this.arenaController.syncEditBallOpacityOverride(
       this.isTestingSingleShot,
-      this.replaySession.isReplayActive
+      this.replaySession.isReplayActive,
     );
 
     if (this.replaySession.isReplayActive && this.replaySession.replayController.sessionState.isActive) {
@@ -461,10 +375,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
         dt,
         this.arenaController.stagedShot,
         this.visuals,
-        () => this.replaySession.completeSessionAndAdvance(
-          this.isTestingSingleShot,
-          () => this.reloadCurrentShot()
-        )
+        () => this.replaySession.completeSessionAndAdvance(this.isTestingSingleShot, () => this.reloadCurrentShot()),
       );
       return;
     }
@@ -473,20 +384,9 @@ export class StaticTrainingPackMode extends BaseGameMode {
       this.editor.updateCameraAndContinuousInputs(dt);
       const shot = this._getCurrentShotConfig();
       if (!this.isFreeCamTrajectoryTesting) {
-        this.arenaController.spinBallMeshInPlace(dt);
-        if (shot) {
-          const configuredCarSpeed = Math.max(0, Number(shot.car?.speed) || 0);
-          context.overrideCarSpeed = configuredCarSpeed;
-          context.isSupersonic = configuredCarSpeed >= 2200;
-          const boostVal = shot.car?.unlimitedBoost
-            ? 100
-            : Math.max(0, Math.min(100, Number(shot.car?.initialBoost) || 0));
-          hudStore.getState().setBoost(boostVal, false, Boolean(shot.car?.unlimitedBoost));
-        }
+        this.arenaController.applyPreLaunchCarHudOverride(context, shot, dt, true);
       }
-      if (this.visuals && shot) {
-        this.visuals.update(shot, store.editSubMode, false);
-      }
+      if (this.visuals && shot) this.visuals.update(shot, store.editSubMode, false);
       return;
     }
 
@@ -494,23 +394,12 @@ export class StaticTrainingPackMode extends BaseGameMode {
       this.simulationController.playPhase === 'countdown' ||
       this.simulationController.playPhase === 'waiting-input';
     if (isPreLaunch) {
-      this.arenaController.spinBallMeshInPlace(dt);
-      if (this.arenaController.stagedShot) {
-        const configuredCarSpeed = Math.max(
-          0,
-          Number(this.arenaController.stagedShot.car?.speed) || 0
-        );
-        context.overrideCarSpeed = configuredCarSpeed;
-        context.isSupersonic = configuredCarSpeed >= 2200;
-      }
+      this.arenaController.applyPreLaunchCarHudOverride(context, this.arenaController.stagedShot, dt, false);
     }
 
     if (this.visuals && this.arenaController.stagedShot) {
-      if (isPreLaunch) {
-        this.visuals.update(this.arenaController.stagedShot, 'play', true);
-      } else {
-        this.visuals.setVisible(false);
-      }
+      if (isPreLaunch) this.visuals.update(this.arenaController.stagedShot, 'play', true);
+      else this.visuals.setVisible(false);
     }
 
     const { playerCarView } = context;
@@ -518,7 +407,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
       hudStore.getState().setBoost(
         playerCarView.boost,
         playerCarView.isBoosting,
-        Boolean(this.arenaController.stagedShot?.car?.unlimitedBoost)
+        Boolean(this.arenaController.stagedShot?.car?.unlimitedBoost),
       );
     }
   }

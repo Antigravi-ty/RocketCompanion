@@ -5,9 +5,9 @@ import { ReplayTimelineController } from '../../replay/ReplayTimelineController.
 import { PodiumCelebrationController } from './PodiumCelebrationController.ts';
 import {
   endGoalReplaySession,
-  stepNetworkStreamedGoalReplayFrame,
   type GoalReplayCameraMode,
 } from './shared/GoalReplaySessionCoordinator.ts';
+import { stepNetworkStreamedGoalReplayFrame } from './shared/goalAndBallTouchPipeline.ts';
 import type { FrameContext } from '../pipeline/FramePipeline.ts';
 
 /**

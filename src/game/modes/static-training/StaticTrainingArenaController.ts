@@ -23,7 +23,7 @@ const _spinAxis = new THREE.Vector3();
 const _spinDeltaQuat = new THREE.Quaternion();
 
 export class StaticTrainingArenaController {
-  private readonly runtime: any;
+  private readonly runtime: Record<string, any> | null;
   public stagedShot: StaticTrainingShotConfig | null = null;
   public effectiveBallAngVel: [number, number, number] = [0, 0, 0];
   public kickoffBallFrozen = false;
@@ -36,7 +36,7 @@ export class StaticTrainingArenaController {
   private lastBallPreviewKey: string | null = null;
   private lastAppliedEditBallOpacityOverride: number | null | undefined = undefined;
 
-  constructor(runtime: any) {
+  constructor(runtime: Record<string, any> | null) {
     this.runtime = runtime;
   }
 
@@ -57,7 +57,7 @@ export class StaticTrainingArenaController {
       sim.removeCar(sim.numCars - 1);
     }
     if (sim.numCars < 1 && typeof sim.addCar === 'function') {
-      sim.addCar(preferredTeam, r.selectedHitbox || 'octane');
+      sim.addCar(preferredTeam, r.arena?.carVisual || 'octane');
     }
     sim.setCarTeam?.(0, preferredTeam);
     r.playerCarIndex = 0;
@@ -117,7 +117,7 @@ export class StaticTrainingArenaController {
     shot: StaticTrainingShotConfig,
     isLiveEditUpdate: boolean,
     isLeftMouseDragging: boolean,
-    replayRingBuffer: any
+    replayRingBuffer: { clear?: () => void; currentRecordTick?: number; recordFrame?: (tick: number, state: Float32Array) => { snapshot?: Float32Array | null } | null | undefined } | null
   ): void {
     const r = this.runtime;
     const sim = r?.physics;
@@ -240,7 +240,7 @@ export class StaticTrainingArenaController {
       r.audioSubsystem?.resetAudio?.();
       replayRingBuffer?.clear?.();
       if (replayRingBuffer) {
-        (replayRingBuffer as any).currentRecordTick = 1;
+        replayRingBuffer.currentRecordTick = 1;
       }
       const initSlot = replayRingBuffer?.recordFrame?.(1, sim.state);
       if (initSlot?.snapshot) {
@@ -349,7 +349,7 @@ export class StaticTrainingArenaController {
 
   launchFreeCamTrajectoryPreview(
     isLeftMouseDragging: boolean,
-    replayRingBuffer: any
+    replayRingBuffer: { clear?: () => void; currentRecordTick?: number; recordFrame?: (tick: number, state: Float32Array) => { snapshot?: Float32Array | null } | null | undefined } | null
   ): void {
     if (!this.runtime?.physics || !this.stagedShot) return;
     this.applyStagedShot(this.stagedShot, true, isLeftMouseDragging, replayRingBuffer);
@@ -366,6 +366,41 @@ export class StaticTrainingArenaController {
       _spinAxis.set(spin.axis[0], spin.axis[1], spin.axis[2]);
       _spinDeltaQuat.setFromAxisAngle(_spinAxis, spin.angle);
       targetMesh.quaternion.premultiply(_spinDeltaQuat);
+    }
+  }
+
+  teardownRuntimeModeExit(): void {
+    const r = this.runtime;
+    this.clearEditBallOpacityOverride();
+    if (!r) return;
+    r.camera?.setEditorOverride?.(false);
+    r.releaseGoalReplayCameraOverride();
+    if (r.ballTrajectoryPredictor) {
+      r.ballTrajectoryPredictor.forcePredictAnyMovement = false;
+      r.ballTrajectoryPredictor.clearStaticPreview?.();
+      r.ballTrajectoryPredictor.clear?.();
+    }
+    if (r.camera?.isFreeCam) r.camera.setFreeCam(false);
+    if (r.keyboard) r.keyboard.ballControlEnabled = true;
+    r.arena?.ball?.children?.[0]?.quaternion?.identity?.();
+  }
+
+  applyPreLaunchCarHudOverride(
+    context: { overrideCarSpeed?: number; isSupersonic?: boolean },
+    shot: StaticTrainingShotConfig | null,
+    dt: number,
+    syncBoostToHud = false,
+  ): void {
+    this.spinBallMeshInPlace(dt);
+    if (!shot) return;
+    const configuredCarSpeed = Math.max(0, Number(shot.car?.speed) || 0);
+    context.overrideCarSpeed = configuredCarSpeed;
+    context.isSupersonic = configuredCarSpeed >= 2200;
+    if (syncBoostToHud) {
+      const boostVal = shot.car?.unlimitedBoost
+        ? 100
+        : Math.max(0, Math.min(100, Number(shot.car?.initialBoost) || 0));
+      hudStore.getState().setBoost(boostVal, false, Boolean(shot.car?.unlimitedBoost));
     }
   }
 }

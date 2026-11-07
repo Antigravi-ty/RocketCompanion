@@ -151,7 +151,7 @@ export class ExperimentalMultiBotsSimulationController {
         sim,
         bView,
         entries: rosterCtrl.spawnedCars,
-        tracker: lifecycleCtrl,
+        tracker: lifecycleCtrl.goalTracker,
       });
       if (touchingCarIdx >= 0) {
         lifecycleCtrl.recordCarBallTouch(

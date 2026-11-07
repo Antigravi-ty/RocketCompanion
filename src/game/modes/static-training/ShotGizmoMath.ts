@@ -459,3 +459,80 @@ export function hasPlayerDrivingInput(controls: PlayerDrivingControlsInput | nul
     Boolean(controls.handbrake)
   );
 }
+
+export const EDITOR_HELD_KEY_CODES: ReadonlySet<string> = new Set([
+  'Space', 'KeyV', 'KeyW', 'KeyA', 'KeyS', 'KeyD',
+  'KeyQ', 'KeyE', 'KeyO', 'KeyP', 'BracketLeft', 'BracketRight', 'Backslash',
+]);
+
+export function computeDiscreteEditKeyMutation(
+  code: string,
+  subMode: StaticTrainingEditSubMode,
+  item: StaticTrainingShotConfig | null,
+): {
+  carPatch?: Partial<ShotCarConfig>;
+  ballPatch?: Partial<ShotBallConfig>;
+  removeHeldKey?: string;
+  setBallSpeedZeroLatch?: boolean;
+} | null {
+  if (code === 'Backslash') {
+    if (subMode === 'car-heading' || subMode === 'car-speed') {
+      return { carPatch: { speed: 0 } };
+    }
+    if (subMode === 'ball-speed') {
+      return { ballPatch: { speed: 0, kickoffState: false } };
+    }
+  }
+  if (!item) return null;
+
+  if (code === 'KeyV' && (subMode === 'car-heading' || subMode === 'car-speed')) {
+    const loc = item.car?.location || item.car?.pos || [0, -2400, CAR_GROUND_MIN_Z];
+    if (loc[2] <= CAR_GROUND_MIN_Z + 1.5 && !item.car.snapToGround) {
+      const carPatch: Partial<ShotCarConfig> = {
+        location: [loc[0], loc[1], CAR_GROUND_MIN_Z],
+        snapToGround: true,
+        headingPitch: 0,
+        airRoll: 0,
+      };
+      if (item.car.speedFollowsHeading !== false) {
+        carPatch.speedPitch = 0;
+      }
+      return { carPatch };
+    }
+  }
+
+  if (code === 'KeyP' && (subMode === 'car-heading' || subMode === 'car-speed')) {
+    if (item.car.initialBoost >= 100 && !item.car.unlimitedBoost) {
+      return {
+        carPatch: { initialBoost: 100, unlimitedBoost: true },
+        removeHeldKey: 'KeyP',
+      };
+    }
+  }
+
+  if (code === 'KeyO' && (subMode === 'car-heading' || subMode === 'car-speed')) {
+    if (item.car.unlimitedBoost) {
+      return { carPatch: { unlimitedBoost: false, initialBoost: 100 } };
+    }
+  }
+
+  if (code === 'BracketLeft' && subMode === 'ball-speed') {
+    if (item.ball.speed === 0 && !item.ball.kickoffState) {
+      return {
+        ballPatch: { kickoffState: true },
+        setBallSpeedZeroLatch: true,
+      };
+    }
+  }
+
+  if (code === 'BracketRight' && subMode === 'ball-speed') {
+    if (item.ball.kickoffState) {
+      return {
+        ballPatch: { kickoffState: false, speed: 0 },
+        removeHeldKey: 'BracketRight',
+      };
+    }
+  }
+
+  return null;
+}

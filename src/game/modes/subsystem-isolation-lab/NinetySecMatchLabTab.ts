@@ -9,7 +9,6 @@ import {
 } from '../shared/goalAndBallTouchPipeline.ts';
 import {
   KICKOFF_COUNTDOWN_TICKS,
-  stepKickoffCountdownState,
   stepMatchClockState,
 } from '../shared/matchClockAndPhasePipeline.ts';
 import type {
@@ -20,7 +19,9 @@ import type {
 } from './LabTabTypes.ts';
 import {
   NinetySecDualBotController,
-  setupTwoCarIncidentArena,
+  initializeTwoCarIncidentPhysics,
+  resetIncidentKickoffPhysics,
+  stepIncidentCountdownTick,
 } from './NinetySecDualBotController.ts';
 
 type IsolationLabStoreState = ReturnType<typeof useSubsystemIsolationLabStore.getState>;
@@ -78,9 +79,7 @@ export class NinetySecMatchLabTab implements LabTabController {
   onPhysicsTick(_dt: number): boolean {
     const store = useSubsystemIsolationLabStore.getState();
     const runtime = this.ctx?.runtime;
-    if (!store.incidentMatchActive || !runtime?.physics) {
-      return true;
-    }
+    if (!store.incidentMatchActive || !runtime?.physics) return true;
 
     if (this.incidentPauseResumeTicks > 0) {
       this.incidentPauseResumeTicks--;
@@ -104,9 +103,7 @@ export class NinetySecMatchLabTab implements LabTabController {
     return runtime?.options?.gameAudio || (gameAudio as unknown as LabAudioPort);
   }
 
-  private resetIncidentBotEpoch(): void {
-    this.botCtrl.resetEpoch();
-  }
+  private resetIncidentBotEpoch(): void { this.botCtrl.resetEpoch(); }
 
   applyControlledCar(carIdx = 0): void {
     const r = this.ctx?.runtime;
@@ -136,15 +133,10 @@ export class NinetySecMatchLabTab implements LabTabController {
       r.match.state.countdown = 3;
     }
     store.updateLiveTelemetry({
-      incidentClockStarted: false,
-      incidentTicksSinceKickoff: 0,
-      incidentKickoffCountdownSec: 3,
-      incidentPhase: this.incidentPhase,
+      incidentClockStarted: false, incidentTicksSinceKickoff: 0,
+      incidentKickoffCountdownSec: 3, incidentPhase: this.incidentPhase,
     });
-    hudStore.getState().setMatchState({
-      matchPhase: 'kickoff',
-      kickoffCountdown: 3,
-    });
+    hudStore.getState().setMatchState({ matchPhase: 'kickoff', kickoffCountdown: 3 });
     audio?.play?.('match_countdown_321', 1.0);
   }
 
@@ -154,9 +146,7 @@ export class NinetySecMatchLabTab implements LabTabController {
     if (!r?.physics) return;
     const epoch = this.ctx.getSwitchEpoch();
 
-    if (this.ctx.isPodiumActive()) {
-      this.ctx.exitPodiumShowcase();
-    }
+    if (this.ctx.isPodiumActive()) this.ctx.exitPodiumShowcase();
 
     await r.arena?.ensureOpponent?.();
     if (
@@ -168,26 +158,12 @@ export class NinetySecMatchLabTab implements LabTabController {
 
     const store = useSubsystemIsolationLabStore.getState();
 
-    setupTwoCarIncidentArena(r);
-
+    initializeTwoCarIncidentPhysics(r);
     this.applyControlledCar(store.incidentControlledCar ?? 0);
     this.applySpeedMultiplier(store.incidentSpeedMultiplier ?? 100);
 
-    r.physics.setUnlimitedBoost(false);
-    r.physics.setPossessionReportingEnabled?.(true);
-    r.physics.resetPossessionStats?.();
-    r.physics.resetGoalLatch?.();
-    r.physics.resetKickoff(0, false);
-    r.physics.clearEvents?.();
-    r.simulationStage?.resetActionStates?.();
-    r.arena?.resetAllCarEffects?.();
-    r.resetAudio?.();
-    r.interpolator?.sync?.();
-
     this.resetIncidentBotEpoch();
-    if (opponentMode === 'nexto') {
-      void this.botCtrl.ensureLoaded();
-    }
+    if (opponentMode === 'nexto') void this.botCtrl.ensureLoaded();
 
     this.incidentPauseResumeTicks = 0;
     this.incidentGoalResetTicks = 0;
@@ -209,11 +185,7 @@ export class NinetySecMatchLabTab implements LabTabController {
     });
 
     hudStore.getState().setMatchState({
-      blueScore: 0,
-      orangeScore: 0,
-      remainingSeconds: 90,
-      isOvertime: false,
-      overtimeSeconds: 0,
+      blueScore: 0, orangeScore: 0, remainingSeconds: 90, isOvertime: false, overtimeSeconds: 0,
     });
 
     this.beginIncidentKickoffCountdown(store);
@@ -226,9 +198,7 @@ export class NinetySecMatchLabTab implements LabTabController {
       return;
     }
     this.resetIncidentBotEpoch();
-    if (nextOpponentMode === 'nexto') {
-      void this.botCtrl.ensureLoaded();
-    }
+    if (nextOpponentMode === 'nexto') void this.botCtrl.ensureLoaded();
     store.updateLiveTelemetry({ incidentOpponentMode: nextOpponentMode });
   }
 
@@ -238,9 +208,7 @@ export class NinetySecMatchLabTab implements LabTabController {
     const audio = this.getAudio();
     if (!r?.physics) return;
 
-    if (!store.incidentMatchActive) {
-      void this.startMatchSession(store.incidentOpponentMode);
-    }
+    if (!store.incidentMatchActive) void this.startMatchSession(store.incidentOpponentMode);
 
     switch (action) {
       case 'score_blue':
@@ -251,26 +219,17 @@ export class NinetySecMatchLabTab implements LabTabController {
         break;
       case 'force_overtime': {
         const tiedScore = Math.max(this.incidentBlueScore, this.incidentOrangeScore, 1);
-        r.physics.resetKickoff(0, true);
-        r.interpolator?.sync?.();
+        resetIncidentKickoffPhysics(r);
         this.resetIncidentBotEpoch();
         this.incidentBlueScore = tiedScore;
         this.incidentOrangeScore = tiedScore;
         this.incidentRemainingSec = 0;
         this.incidentOvertime = true;
         store.updateLiveTelemetry({
-          incidentBlueScore: tiedScore,
-          incidentOrangeScore: tiedScore,
-          incidentRemainingSec: 0,
-          incidentOvertime: true,
+          incidentBlueScore: tiedScore, incidentOrangeScore: tiedScore, incidentRemainingSec: 0, incidentOvertime: true,
         });
         hudStore.getState().setMatchState({
-          matchPhase: 'kickoff',
-          blueScore: tiedScore,
-          orangeScore: tiedScore,
-          remainingSeconds: 0,
-          isOvertime: true,
-          overtimeSeconds: 0,
+          matchPhase: 'kickoff', blueScore: tiedScore, orangeScore: tiedScore, remainingSeconds: 0, isOvertime: true, overtimeSeconds: 0,
         });
         audio?.play?.('match_entering_overtime', 1.0, 10000);
         this.beginIncidentKickoffCountdown(store);
@@ -282,26 +241,19 @@ export class NinetySecMatchLabTab implements LabTabController {
         store.updateLiveTelemetry({ incidentPhase: this.incidentPhase });
         break;
       case 'reset_kickoff':
-        r.physics.resetKickoff(0, true);
-        r.interpolator?.sync?.();
+        resetIncidentKickoffPhysics(r);
         this.resetIncidentBotEpoch();
         this.beginIncidentKickoffCountdown(store);
         break;
       case 'podium_blue':
-        this.ctx?.enterPodiumShowcase(0);
-        this.incidentPhase = 'PODIUM (BLUE WINS)';
-        store.updateLiveTelemetry({ incidentPhase: this.incidentPhase });
-        break;
       case 'podium_orange':
-        this.ctx?.enterPodiumShowcase(1);
-        this.incidentPhase = 'PODIUM (ORANGE WINS)';
+      case 'podium_draw': {
+        const team = action === 'podium_blue' ? 0 : action === 'podium_orange' ? 1 : 2;
+        this.ctx?.enterPodiumShowcase(team);
+        this.incidentPhase = team === 0 ? 'PODIUM (BLUE WINS)' : team === 1 ? 'PODIUM (ORANGE WINS)' : 'PODIUM (DRAW)';
         store.updateLiveTelemetry({ incidentPhase: this.incidentPhase });
         break;
-      case 'podium_draw':
-        this.ctx?.enterPodiumShowcase(2);
-        this.incidentPhase = 'PODIUM (DRAW)';
-        store.updateLiveTelemetry({ incidentPhase: this.incidentPhase });
-        break;
+      }
       case 'exit_podium':
         this.ctx?.exitPodiumShowcase();
         this.beginIncidentKickoffCountdown(store);
@@ -311,9 +263,7 @@ export class NinetySecMatchLabTab implements LabTabController {
     }
   }
 
-  private stepDualNextoBots(sim: LabPhysicsEnginePort): void {
-    this.botCtrl.stepDualNextoBots(sim);
-  }
+  private stepDualNextoBots(sim: LabPhysicsEnginePort): void { this.botCtrl.stepDualNextoBots(sim); }
 
   private stepIncidentMatchTick(store: IsolationLabStoreState): void {
     const r = this.ctx?.runtime;
@@ -322,43 +272,17 @@ export class NinetySecMatchLabTab implements LabTabController {
     const audio = this.getAudio();
 
     if (this.incidentCountdownTicks > 0) {
-      sim.setControls(0, r.neutralControls);
-      sim.setControls(1, r.neutralControls);
-      const stepRes = stepKickoffCountdownState(
-        this.incidentCountdownTicks,
-        this.incidentOvertime
-      );
-      this.incidentCountdownTicks = stepRes.nextCountdownTicks;
-
-      if (stepRes.transitionedSecond === 2 || stepRes.transitionedSecond === 1) {
-        const sec = stepRes.transitionedSecond;
-        this.incidentPhase = `kickoff (${sec})`;
-        if (stepRes.audioCue) {
-          audio?.play?.(stepRes.audioCue, 1.0);
-        }
-        store.updateLiveTelemetry({
-          incidentKickoffCountdownSec: sec,
-          incidentPhase: this.incidentPhase,
-        });
-        hudStore.getState().setMatchState({ matchPhase: 'kickoff', kickoffCountdown: sec });
-      } else if (stepRes.transitionedSecond === 0) {
-        this.incidentPhase = this.incidentOvertime ? 'overtime' : 'playing';
-        if (r?.match?.state) {
-          r.match.state.phase = 'playing';
-          r.match.state.countdown = 0;
-        }
-        if (stepRes.audioCue) {
-          audio?.play?.(stepRes.audioCue, 1.0);
-        }
-        store.updateLiveTelemetry({
-          incidentKickoffCountdownSec: 0,
-          incidentPhase: this.incidentPhase,
-        });
-        hudStore.getState().setMatchState({
-          matchPhase: this.incidentOvertime ? 'overtime' : 'playing',
-          kickoffCountdown: 0,
-        });
-      }
+      const cd = stepIncidentCountdownTick({
+        sim, neutralControls: r.neutralControls, countdownTicks: this.incidentCountdownTicks,
+        isOvertime: this.incidentOvertime, currentPhase: this.incidentPhase,
+        matchState: r?.match?.state, audio,
+        onSyncCountdown: (sec, phase, matchPhase) => {
+          store.updateLiveTelemetry({ incidentKickoffCountdownSec: sec, incidentPhase: phase });
+          hudStore.getState().setMatchState({ matchPhase, kickoffCountdown: sec });
+        },
+      });
+      this.incidentCountdownTicks = cd.nextCountdownTicks;
+      this.incidentPhase = cd.nextPhase;
       return;
     }
 
@@ -401,9 +325,7 @@ export class NinetySecMatchLabTab implements LabTabController {
             return;
           }
         }
-        sim.resetGoalLatch?.();
-        sim.resetKickoff(0, true);
-        r.interpolator?.sync?.();
+        resetIncidentKickoffPhysics(r);
         this.resetIncidentBotEpoch();
         this.beginIncidentKickoffCountdown(store);
       }
@@ -440,10 +362,7 @@ export class NinetySecMatchLabTab implements LabTabController {
         incidentPossessionBluePts: poss.bluePoints,
         incidentPossessionOrangePts: poss.orangePoints,
       });
-      hudStore.getState().setMatchState({
-        blueScore: this.incidentBlueScore,
-        orangeScore: this.incidentOrangeScore,
-      });
+      hudStore.getState().setMatchState({ blueScore: this.incidentBlueScore, orangeScore: this.incidentOrangeScore });
       return;
     }
 
@@ -478,9 +397,7 @@ export class NinetySecMatchLabTab implements LabTabController {
         this.incidentOvertime = true;
         this.incidentPhase = 'overtime';
         audio?.play?.('match_entering_overtime', 1.0, 10000);
-        sim.resetGoalLatch?.();
-        sim.resetKickoff(0, true);
-        r.interpolator?.sync?.();
+        resetIncidentKickoffPhysics(r);
         this.resetIncidentBotEpoch();
         this.beginIncidentKickoffCountdown(store);
       } else if (

@@ -8,33 +8,27 @@ import { beginGoalReplaySession, endGoalReplaySession, stepGoalReplaySessionFram
 import type { LabAudioPort, LabFrameUpdateContext, LabTabContext, LabTabController } from './LabTabTypes.ts';
 import {
   type GoalReplayBenchScenario, type ReplayExportPayload,
-  applyInstantKickoffGoalScenario, applyNormalPlayGoalScenario,
+  applyInstantKickoffGoalScenario, applyNormalPlayGoalScenario, isGoalBallScoredInLab,
 } from './goalReplayScenariosPipeline.ts';
-import { GoalReplayPodiumSubController } from './GoalReplayPodiumSubController.ts';
-
-const DEFAULT_OPPONENT_STATE = {
-  pos: [1400, 3200, 17.05] as [number, number, number],
-  vel: [0, 0, 0] as [number, number, number],
-  angVel: [0, 0, 0] as [number, number, number],
-  rot: [0, -Math.PI / 2, 0] as [number, number, number],
-  boost: 100,
-};
+import {
+  GoalReplayPodiumSubController,
+  resetGoalReplayBenchArenaAndPhysics,
+  resetGoalReplayLiveKickoff,
+} from './GoalReplayPodiumSubController.ts';
 
 export class GoalReplayLabTab implements LabTabController {
   readonly tabId = 'goal-replay' as const;
   private ctx: LabTabContext | null = null;
-  private goalReplayRingBuffer: ReplayRingBuffer | null = null;
-  private goalReplayTimelineController: ReplayTimelineController | null = null;
+  private ringBuffer: ReplayRingBuffer | null = null;
+  private timelineCtrl: ReplayTimelineController | null = null;
   private readonly podiumSubController = new GoalReplayPodiumSubController();
-  private goalReplayLastKickoffFrame = 0;
-  private goalReplayIncidentFrame = 0;
-  private goalReplayPostGoalCountdownTicks = 0;
-  private goalReplayScoringTeam = 0;
-  private goalReplayPhase = 'live';
+  private lastKickoffFrame = 0;
+  private incidentFrame = 0;
+  private postGoalCountdownTicks = 0;
+  private scoringTeam = 0;
+  private phase = 'live';
 
-  attachToHost(ctx: LabTabContext): void {
-    this.ctx = ctx;
-  }
+  attachToHost(ctx: LabTabContext): void { this.ctx = ctx; }
 
   onActivate(ctx: LabTabContext): void {
     this.ctx = ctx;
@@ -44,42 +38,33 @@ export class GoalReplayLabTab implements LabTabController {
 
   onDeactivate(): void {
     this.podiumSubController.exitIfActive();
-    if (this.goalReplayTimelineController?.sessionState?.isActive) {
-      this.goalReplayTimelineController.endReplaySession();
-    }
-    this.goalReplayPhase = 'live';
-    this.goalReplayPostGoalCountdownTicks = 0;
+    if (this.timelineCtrl?.sessionState?.isActive) this.timelineCtrl.endReplaySession();
+    this.phase = 'live';
+    this.postGoalCountdownTicks = 0;
   }
 
-  isPodiumActive(): boolean {
-    return this.podiumSubController.isActive;
-  }
+  isPodiumActive(): boolean { return this.podiumSubController.isActive; }
 
   private getAudio(): LabAudioPort | null {
-    const runtime = this.ctx?.runtime;
-    return runtime?.options?.gameAudio || (gameAudio as unknown as LabAudioPort);
+    return this.ctx?.runtime?.options?.gameAudio || (gameAudio as unknown as LabAudioPort);
   }
 
   ensureBenchState(): void {
     const r = this.ctx?.runtime;
-    if (!this.goalReplayRingBuffer) {
-      this.goalReplayRingBuffer = new ReplayRingBuffer({
-        mode: REPLAY_BUFFER_MODES.COUNTDOWN_MATCH,
-      });
+    if (!this.ringBuffer) {
+      this.ringBuffer = new ReplayRingBuffer({ mode: REPLAY_BUFFER_MODES.COUNTDOWN_MATCH });
     }
-    if (!this.goalReplayTimelineController) {
-      this.goalReplayTimelineController = new ReplayTimelineController({
+    if (!this.timelineCtrl) {
+      this.timelineCtrl = new ReplayTimelineController({
         engine: r?.physics || null,
-        ringBuffer: this.goalReplayRingBuffer,
+        ringBuffer: this.ringBuffer,
       });
-    } else if (r?.physics && this.goalReplayTimelineController.engine !== r.physics) {
-      this.goalReplayTimelineController.attach(r.physics, this.goalReplayRingBuffer);
+    } else if (r?.physics && this.timelineCtrl.engine !== r.physics) {
+      this.timelineCtrl.attach(r.physics, this.ringBuffer);
     }
     if (r) {
       this.podiumSubController.ensureController(r);
-      if (!r.replayTimelineController) {
-        r.replayTimelineController = this.goalReplayTimelineController;
-      }
+      if (!r.replayTimelineController) r.replayTimelineController = this.timelineCtrl;
     }
   }
 
@@ -90,62 +75,20 @@ export class GoalReplayLabTab implements LabTabController {
 
     this.ensureBenchState();
     this.podiumSubController.exitIfActive();
-    r.releaseGoalReplayCameraOverride();
+    const currentTick = resetGoalReplayBenchArenaAndPhysics(r);
 
-    while (r.physics.numCars > 2 && typeof r.physics.removeCar === 'function') {
-      r.physics.removeCar(r.physics.numCars - 1);
-    }
-    while (r.physics.numCars < 2) {
-      r.physics.addCar(r.physics.numCars % 2, 'octane');
-    }
-    void r.arena?.ensureOpponent?.();
-    if (r.arena?.cars) {
-      if (r.arena.cars[0]) {
-        r.arena.cars[0].visible = true;
-        r.arena.setCarTeam?.(0, 0);
-      }
-      if (r.arena.cars[1]) {
-        r.arena.cars[1].visible = true;
-        r.arena.setCarTeam?.(1, 1);
-        r.physics.setCarState(1, DEFAULT_OPPONENT_STATE);
-      }
-      for (let i = 2; i < r.arena.cars.length; i++) {
-        if (r.arena.cars[i]) r.arena.cars[i].visible = false;
-      }
-    }
+    this.ringBuffer!.configureMode(REPLAY_BUFFER_MODES.COUNTDOWN_MATCH);
+    this.timelineCtrl!.endReplaySession();
 
-    r.playerCarIndex = 0;
-    if (r.arena) r.arena.playerCarIndex = 0;
-    r.isBotMatch = false;
-    r.physics.setUnlimitedBoost(true);
-    r.physics.resetGoalLatch?.();
-    r.physics.resetKickoff(0, false);
-    r.physics.setCarState(1, DEFAULT_OPPONENT_STATE);
-    r.physics.clearEvents?.();
-    r.simulationStage?.resetActionStates?.();
-    r.arena?.resetAllCarEffects?.();
-    r.resetAudio?.();
+    this.lastKickoffFrame = currentTick;
+    this.incidentFrame = 0;
+    this.postGoalCountdownTicks = 0;
+    this.scoringTeam = 0;
+    this.phase = 'live';
 
-    this.goalReplayRingBuffer!.configureMode(REPLAY_BUFFER_MODES.COUNTDOWN_MATCH);
-    r.physics.clearReplayBuffer?.();
-    this.goalReplayTimelineController!.endReplaySession();
-
-    const currentTick = Math.floor(r.physics.getHeaderView?.()?.tickCount || 0);
-    this.goalReplayLastKickoffFrame = currentTick;
-    this.goalReplayIncidentFrame = 0;
-    this.goalReplayPostGoalCountdownTicks = 0;
-    this.goalReplayScoringTeam = 0;
-    this.goalReplayPhase = 'live';
-
-    this.goalReplayRingBuffer!.recordFrame(currentTick, r.physics.state, [
-      {
-        signalType: MATCH_SIGNALS.KICKOFF_WILL_START,
-        frameId: currentTick,
-        param1: 0,
-        param2: 0,
-      },
+    this.ringBuffer!.recordFrame(currentTick, r.physics.state, [
+      { signalType: MATCH_SIGNALS.KICKOFF_WILL_START, frameId: currentTick, param1: 0, param2: 0 },
     ]);
-
     r.interpolator?.sync?.();
 
     store.updateLiveTelemetry({
@@ -161,7 +104,7 @@ export class GoalReplayLabTab implements LabTabController {
       goalReplayPlaybackTotal: 1,
       goalReplayPaused: false,
       goalReplaySpeed: 1.0,
-      goalReplayRecordedBufferCount: this.goalReplayRingBuffer!.size,
+      goalReplayRecordedBufferCount: this.ringBuffer!.size,
       podiumActive: false,
     });
   }
@@ -170,18 +113,14 @@ export class GoalReplayLabTab implements LabTabController {
     const r = this.ctx?.runtime;
     if (!r?.physics) return;
     const store = useSubsystemIsolationLabStore.getState();
-    const audio = this.getAudio();
-
     const currentTick = Math.floor(r.physics.getHeaderView?.()?.tickCount || 0);
-    this.goalReplayIncidentFrame = currentTick;
-    this.goalReplayScoringTeam = scoringTeam;
+    this.incidentFrame = currentTick;
+    this.scoringTeam = scoringTeam;
 
-    const postGoalSec = Number.isFinite(store.goalReplayPostGoalSec)
-      ? store.goalReplayPostGoalSec
-      : 3.0;
+    const postGoalSec = Number.isFinite(store.goalReplayPostGoalSec) ? store.goalReplayPostGoalSec : 3.0;
     const postGoalTicks = Math.max(0, Math.round(postGoalSec * 120));
 
-    this.goalReplayRingBuffer?.recordFrame(currentTick, r.physics.state, [
+    this.ringBuffer?.recordFrame(currentTick, r.physics.state, [
       {
         signalType: MATCH_SIGNALS.SCORE_UPDATED,
         frameId: currentTick,
@@ -198,30 +137,30 @@ export class GoalReplayLabTab implements LabTabController {
 
     const bounds = resolveGoalReplayWindowBounds({
       goalIncidentTick: currentTick,
-      lastKickoffWillStartTick: this.goalReplayLastKickoffFrame,
+      lastKickoffWillStartTick: this.lastKickoffFrame,
       lookbackSeconds: store.goalReplayLookbackSec,
       postGoalSeconds: postGoalSec,
-      ringBuffer: this.goalReplayRingBuffer,
+      ringBuffer: this.ringBuffer,
     });
 
-    audio?.play?.('sfx_goal_poof', 1.0);
+    this.getAudio()?.play?.('sfx_goal_poof', 1.0);
 
     if (postGoalTicks > 0) {
-      this.goalReplayPhase = 'post-goal-delay';
-      this.goalReplayPostGoalCountdownTicks = postGoalTicks;
+      this.phase = 'post-goal-delay';
+      this.postGoalCountdownTicks = postGoalTicks;
     } else {
       this.beginPlayback();
     }
 
     store.updateLiveTelemetry({
-      goalReplayPhase: this.goalReplayPhase,
+      goalReplayPhase: this.phase,
       goalReplayCurrentFrameId: currentTick,
       goalReplayIncidentFrameId: currentTick,
       goalReplayRequestedStartFrameId: bounds.requestedStartFrame,
       goalReplayEffectiveStartFrameId: bounds.effectiveStartFrame,
       goalReplayEffectiveEndFrameId: bounds.effectiveEndFrame,
       goalReplayClampedByKickoff: bounds.clampedByKickoff,
-      goalReplayRecordedBufferCount: this.goalReplayRingBuffer?.size || 0,
+      goalReplayRecordedBufferCount: this.ringBuffer?.size || 0,
     });
   }
 
@@ -232,34 +171,33 @@ export class GoalReplayLabTab implements LabTabController {
     this.ensureBenchState();
 
     const currentTick = Math.floor(r.physics.getHeaderView?.()?.tickCount || 0);
-    const incidentTick =
-      this.goalReplayIncidentFrame > 0 ? this.goalReplayIncidentFrame : currentTick;
+    const incidentTick = this.incidentFrame > 0 ? this.incidentFrame : currentTick;
 
     const bounds = resolveGoalReplayWindowBounds({
       goalIncidentTick: incidentTick,
-      lastKickoffWillStartTick: this.goalReplayLastKickoffFrame,
+      lastKickoffWillStartTick: this.lastKickoffFrame,
       lookbackSeconds: store.goalReplayLookbackSec,
       postGoalSeconds: store.goalReplayPostGoalSec,
-      ringBuffer: this.goalReplayRingBuffer,
+      ringBuffer: this.ringBuffer,
     });
 
     const extracted = extractGoalReplayFrames({
-      ringBuffer: this.goalReplayRingBuffer,
+      ringBuffer: this.ringBuffer,
       engine: r.physics,
       goalIncidentTick: incidentTick,
-      lastKickoffWillStartTick: this.goalReplayLastKickoffFrame,
+      lastKickoffWillStartTick: this.lastKickoffFrame,
       lookbackSeconds: store.goalReplayLookbackSec,
       postGoalSeconds: store.goalReplayPostGoalSec,
     });
 
-    const totalFrames = this.goalReplayTimelineController!.beginReplaySession({
-      scoringTeam: this.goalReplayScoringTeam || 0,
+    const totalFrames = this.timelineCtrl!.beginReplaySession({
+      scoringTeam: this.scoringTeam || 0,
       frames: extracted,
     });
 
-    this.goalReplayPhase = 'replaying';
-    this.goalReplayPostGoalCountdownTicks = 0;
-    beginGoalReplaySession(r, this.goalReplayTimelineController, {
+    this.phase = 'replaying';
+    this.postGoalCountdownTicks = 0;
+    beginGoalReplaySession(r, this.timelineCtrl, {
       cameraMode: 'director',
       source: 'subsystem-lab-goal-replay',
       syncHud: false,
@@ -283,28 +221,17 @@ export class GoalReplayLabTab implements LabTabController {
     if (!r?.physics) return;
     const store = useSubsystemIsolationLabStore.getState();
 
-    endGoalReplaySession(r, this.goalReplayTimelineController, {
+    endGoalReplaySession(r, this.timelineCtrl, {
       source: 'subsystem-lab-goal-replay',
       clearHud: false,
     });
-    this.goalReplayPhase = 'live';
-    this.goalReplayPostGoalCountdownTicks = 0;
+    this.phase = 'live';
+    this.postGoalCountdownTicks = 0;
 
-    r.physics.resetGoalLatch?.();
-    r.physics.resetKickoff(0, false);
-    if (r.physics.numCars > 1) {
-      r.physics.setCarState(1, DEFAULT_OPPONENT_STATE);
-    }
-
-    const currentTick = Math.floor(r.physics.getHeaderView?.()?.tickCount || 0);
-    this.goalReplayLastKickoffFrame = currentTick;
-    this.goalReplayRingBuffer?.recordFrame(currentTick, r.physics.state, [
-      {
-        signalType: MATCH_SIGNALS.KICKOFF_WILL_START,
-        frameId: currentTick,
-        param1: 0,
-        param2: 0,
-      },
+    const currentTick = resetGoalReplayLiveKickoff(r);
+    this.lastKickoffFrame = currentTick;
+    this.ringBuffer?.recordFrame(currentTick, r.physics.state, [
+      { signalType: MATCH_SIGNALS.KICKOFF_WILL_START, frameId: currentTick, param1: 0, param2: 0 },
     ]);
     r.interpolator?.sync?.();
 
@@ -313,38 +240,26 @@ export class GoalReplayLabTab implements LabTabController {
       goalReplayCurrentFrameId: currentTick,
       goalReplayLastKickoffFrameId: currentTick,
       goalReplayPaused: false,
-      goalReplayRecordedBufferCount: this.goalReplayRingBuffer?.size || 0,
+      goalReplayRecordedBufferCount: this.ringBuffer?.size || 0,
     });
   }
 
   onPhysicsTick(_dt: number): boolean {
-    const r = this.ctx?.runtime;
-    const sim = r?.physics;
+    const sim = this.ctx?.runtime?.physics;
     if (!sim) return true;
 
     this.ensureBenchState();
-    if (this.podiumSubController.isActive || this.goalReplayPhase === 'replaying') {
-      return false;
-    }
+    if (this.podiumSubController.isActive || this.phase === 'replaying') return false;
 
-    if (this.goalReplayPhase === 'live') {
+    if (this.phase === 'live') {
       const bView = sim.getBallStateView();
-      const goalScored =
-        typeof sim.isBallScored === 'function'
-          ? sim.isBallScored(bView)
-          : Math.abs(bView.posY) > 5120 + 91.25 &&
-            Math.abs(bView.posX) < 892.755 &&
-            bView.posZ < 642.775;
-      if (goalScored) {
+      if (isGoalBallScoredInLab(sim, bView)) {
         this.triggerGoalIncident(bView.posY > 0 ? 0 : 1);
       }
-    } else if (this.goalReplayPhase === 'post-goal-delay') {
-      if (this.goalReplayPostGoalCountdownTicks > 0) {
-        this.goalReplayPostGoalCountdownTicks--;
-        if (this.goalReplayPostGoalCountdownTicks <= 0) {
-          this.beginPlayback();
-          return false;
-        }
+    } else if (this.phase === 'post-goal-delay' && this.postGoalCountdownTicks > 0) {
+      if (--this.postGoalCountdownTicks <= 0) {
+        this.beginPlayback();
+        return false;
       }
     }
     return true;
@@ -355,61 +270,50 @@ export class GoalReplayLabTab implements LabTabController {
     const store = useSubsystemIsolationLabStore.getState();
     const sim = r?.physics;
     if (!sim || store.activeTab !== 'goal-replay') return;
-    if (this.goalReplayPhase !== 'live' && this.goalReplayPhase !== 'post-goal-delay') {
-      return;
-    }
+    if (this.phase !== 'live' && this.phase !== 'post-goal-delay') return;
 
     const currentTick = Math.floor(sim.getHeaderView?.()?.tickCount || 0);
-    this.goalReplayRingBuffer?.recordFrame(currentTick, sim.state);
+    this.ringBuffer?.recordFrame(currentTick, sim.state);
     sim.recordReplayFrame?.();
 
     if (currentTick % 6 === 0) {
-      const incidentRef =
-        this.goalReplayIncidentFrame > 0 ? this.goalReplayIncidentFrame : currentTick;
       const bounds = resolveGoalReplayWindowBounds({
-        goalIncidentTick: incidentRef,
-        lastKickoffWillStartTick: this.goalReplayLastKickoffFrame,
+        goalIncidentTick: this.incidentFrame > 0 ? this.incidentFrame : currentTick,
+        lastKickoffWillStartTick: this.lastKickoffFrame,
         lookbackSeconds: store.goalReplayLookbackSec,
         postGoalSeconds: store.goalReplayPostGoalSec,
-        ringBuffer: this.goalReplayRingBuffer,
+        ringBuffer: this.ringBuffer,
       });
 
       store.updateLiveTelemetry({
         goalReplayCurrentFrameId: currentTick,
-        goalReplayLastKickoffFrameId: this.goalReplayLastKickoffFrame || 0,
+        goalReplayLastKickoffFrameId: this.lastKickoffFrame || 0,
         goalReplayRequestedStartFrameId: bounds.requestedStartFrame,
         goalReplayEffectiveStartFrameId: bounds.effectiveStartFrame,
         goalReplayEffectiveEndFrameId: bounds.effectiveEndFrame,
         goalReplayClampedByKickoff: bounds.clampedByKickoff,
-        goalReplayRecordedBufferCount: this.goalReplayRingBuffer?.size || 0,
+        goalReplayRecordedBufferCount: this.ringBuffer?.size || 0,
       });
     }
   }
 
-  onRenderFrame(frameCtx: LabFrameUpdateContext): void {
-    this.updatePresentation(frameCtx);
-  }
+  onRenderFrame(frameCtx: LabFrameUpdateContext): void { this.updatePresentation(frameCtx); }
 
   updatePresentation(context: LabFrameUpdateContext): void {
     const r = this.ctx?.runtime;
     const store = useSubsystemIsolationLabStore.getState();
-    const dt = context?.dt ?? 0.016;
-
     if (this.podiumSubController.update(context)) return;
     if (store.activeTab !== 'goal-replay') return;
 
-    if (
-      this.goalReplayPhase === 'replaying' &&
-      this.goalReplayTimelineController?.sessionState?.isActive
-    ) {
+    if (this.phase === 'replaying' && this.timelineCtrl?.sessionState?.isActive) {
       const stepRes = stepGoalReplaySessionFrame({
         runtime: r,
-        replayController: this.goalReplayTimelineController,
+        replayController: this.timelineCtrl,
         context,
-        dt,
+        dt: context?.dt ?? 0.016,
         source: 'subsystem-lab-goal-replay',
         cameraMode: 'director',
-        scoringTeam: this.goalReplayScoringTeam || 0,
+        scoringTeam: this.scoringTeam || 0,
         scorerCarIndex: 0,
         eventDispatchOptions: { isGoalReplay: true },
         syncCarAudioControls: false,
@@ -418,7 +322,7 @@ export class GoalReplayLabTab implements LabTabController {
         syncHudProgress: false,
       });
 
-      const s = this.goalReplayTimelineController.sessionState;
+      const s = this.timelineCtrl.sessionState;
       store.updateLiveTelemetry({
         goalReplayPlaybackCursor: stepRes.frameIndex,
         goalReplayPlaybackTotal: stepRes.totalFrames,
@@ -428,36 +332,27 @@ export class GoalReplayLabTab implements LabTabController {
 
       if (stepRes.isFinished && !s.isPaused) {
         this.getAudio()?.resetIncidentDebounceState?.();
-        this.goalReplayTimelineController.seekToIndex(0, r?.interpolator ?? null);
+        this.timelineCtrl.seekToIndex(0, r?.interpolator ?? null);
         s.isScrubbing = false;
-        this.goalReplayTimelineController.directorCameraState.initialized = false;
+        this.timelineCtrl.directorCameraState.initialized = false;
       }
     }
   }
 
   exportReplayBufferAsJson(): ReplayExportPayload {
     this.ensureBenchState();
-    return this.podiumSubController.exportReplayBufferAsJson(
-      this.ctx?.runtime,
-      this.goalReplayRingBuffer
-    );
+    return this.podiumSubController.exportReplayBufferAsJson(this.ctx?.runtime, this.ringBuffer);
   }
 
   enterPodiumShowcase(winningTeam = 0): void {
     this.ensureBenchState();
-    const entered = this.podiumSubController.enterShowcase(
-      this.ctx?.runtime,
-      winningTeam,
-      this.goalReplayTimelineController,
-      this.goalReplayPhase === 'replaying'
-    );
-    if (entered) this.goalReplayPhase = 'podium';
+    if (this.podiumSubController.enterShowcase(this.ctx?.runtime, winningTeam, this.timelineCtrl, this.phase === 'replaying')) {
+      this.phase = 'podium';
+    }
   }
 
   exitPodiumShowcase(): void {
-    if (this.podiumSubController.exitShowcase(this.ctx?.runtime)) {
-      this.goalReplayPhase = 'live';
-    }
+    if (this.podiumSubController.exitShowcase(this.ctx?.runtime)) this.phase = 'live';
   }
 
   triggerScenario(scenario: GoalReplayBenchScenario): void {
@@ -468,13 +363,10 @@ export class GoalReplayLabTab implements LabTabController {
 
     switch (scenario) {
       case 'instant_kickoff_goal': {
-        if (this.goalReplayPhase === 'replaying') this.stopPlayback();
+        if (this.phase === 'replaying') this.stopPlayback();
         if (this.podiumSubController.isActive) this.exitPodiumShowcase();
-        const currentTick = applyInstantKickoffGoalScenario(
-          r.physics,
-          this.goalReplayRingBuffer
-        );
-        this.goalReplayLastKickoffFrame = currentTick;
+        const currentTick = applyInstantKickoffGoalScenario(r.physics, this.ringBuffer);
+        this.lastKickoffFrame = currentTick;
         r.interpolator?.sync?.();
         store.updateLiveTelemetry({
           goalReplayPhase: 'live',
@@ -484,13 +376,9 @@ export class GoalReplayLabTab implements LabTabController {
         break;
       }
       case 'normal_play_goal': {
-        if (this.goalReplayPhase === 'replaying') this.stopPlayback();
+        if (this.phase === 'replaying') this.stopPlayback();
         if (this.podiumSubController.isActive) this.exitPodiumShowcase();
-        applyNormalPlayGoalScenario(
-          r.physics,
-          this.goalReplayRingBuffer,
-          this.goalReplayLastKickoffFrame
-        );
+        applyNormalPlayGoalScenario(r.physics, this.ringBuffer, this.lastKickoffFrame);
         r.interpolator?.sync?.();
         break;
       }
@@ -499,27 +387,20 @@ export class GoalReplayLabTab implements LabTabController {
         break;
       case 'emit_kickoff_signal': {
         const currentTick = Math.floor(r.physics.getHeaderView?.()?.tickCount || 0);
-        this.goalReplayLastKickoffFrame = currentTick;
-        this.goalReplayRingBuffer!.recordFrame(currentTick, r.physics.state, [
-          {
-            signalType: MATCH_SIGNALS.KICKOFF_WILL_START,
-            frameId: currentTick,
-            param1: 0,
-            param2: 0,
-          },
+        this.lastKickoffFrame = currentTick;
+        this.ringBuffer!.recordFrame(currentTick, r.physics.state, [
+          { signalType: MATCH_SIGNALS.KICKOFF_WILL_START, frameId: currentTick, param1: 0, param2: 0 },
         ]);
         store.updateLiveTelemetry({
           goalReplayLastKickoffFrameId: currentTick,
           goalReplayCurrentFrameId: currentTick,
-          goalReplayRecordedBufferCount: this.goalReplayRingBuffer!.size,
+          goalReplayRecordedBufferCount: this.ringBuffer!.size,
         });
         break;
       }
       case 'start_replay_now':
-        if (this.goalReplayIncidentFrame <= 0) {
-          this.goalReplayIncidentFrame = Math.floor(
-            r.physics.getHeaderView?.()?.tickCount || 0
-          );
+        if (this.incidentFrame <= 0) {
+          this.incidentFrame = Math.floor(r.physics.getHeaderView?.()?.tickCount || 0);
         }
         this.beginPlayback();
         break;
@@ -538,29 +419,25 @@ export class GoalReplayLabTab implements LabTabController {
   }
 
   togglePause(): void {
-    if (!this.goalReplayTimelineController) return;
-    const paused = this.goalReplayTimelineController.togglePause();
+    if (!this.timelineCtrl) return;
     useSubsystemIsolationLabStore.getState().updateLiveTelemetry({
-      goalReplayPaused: paused,
+      goalReplayPaused: this.timelineCtrl.togglePause(),
     });
   }
 
   cycleSpeed(): void {
-    if (!this.goalReplayTimelineController) return;
-    const speed = this.goalReplayTimelineController.cyclePlaybackSpeed();
+    if (!this.timelineCtrl) return;
     useSubsystemIsolationLabStore.getState().updateLiveTelemetry({
-      goalReplaySpeed: speed,
+      goalReplaySpeed: this.timelineCtrl.cyclePlaybackSpeed(),
     });
   }
 
   seekNormalized(progress01: number): void {
-    const r = this.ctx?.runtime;
-    if (!this.goalReplayTimelineController) return;
-    this.goalReplayTimelineController.seekToNormalized(progress01, r?.interpolator);
+    if (!this.timelineCtrl) return;
+    this.timelineCtrl.seekToNormalized(progress01, this.ctx?.runtime?.interpolator);
     useSubsystemIsolationLabStore.getState().updateLiveTelemetry({
-      goalReplayPlaybackCursor: this.goalReplayTimelineController.currentFrameIndex,
-      goalReplayPlaybackTotal:
-        this.goalReplayTimelineController.getTotalRecordedFrames(),
+      goalReplayPlaybackCursor: this.timelineCtrl.currentFrameIndex,
+      goalReplayPlaybackTotal: this.timelineCtrl.getTotalRecordedFrames(),
     });
   }
 }

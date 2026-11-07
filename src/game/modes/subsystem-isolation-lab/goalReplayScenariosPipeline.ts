@@ -1,3 +1,11 @@
+import { DEFAULT_CAR_CONTROLS } from '../../../ai/experimental/ExperimentalBotAgent.ts';
+import type { CarControlsInput, RestoreSnapshotOptions } from '../../../physics/RocketSimSnapshotSerializer.ts';
+import type {
+  DecodedIncidentEvent,
+  DecodedSignalEvent,
+  ReplaySnapshotFloat32Array,
+} from '../../../replay/container/RCReplayBinarySchema.ts';
+import type { ReplayAudioCue } from '../../../replay/ReplayRingBuffer.ts';
 import { MATCH_SIGNALS } from '../../../physics/RocketSimConstants.ts';
 import type {
   ReplayRingBuffer,
@@ -207,4 +215,113 @@ export function applyNormalPlayGoalScenario(
     vel: [0, 2100, 30],
     angVel: [0, 0, 0],
   });
+}
+
+export interface RewinderFrameEntry {
+  [key: string]: unknown;
+  compactSnap: Float32Array;
+  renderState: Float32Array;
+  arenaSnap?: Float32Array;
+  controls: CarControlsInput;
+  acknowledgedControls?: CarControlsInput[];
+  incidents?: DecodedIncidentEvent[];
+  signals?: DecodedSignalEvent[];
+  audioEvents?: ReplayAudioCue[];
+}
+
+export interface PrerollCalculationOutput {
+  startIdx: number;
+  targetIdx: number;
+  remFrames: number;
+  remSec: number;
+}
+
+export function computeRewinderPrerollWindow(
+  totalFrames: number,
+  rawCursor: number,
+  rawTargetFrame: number,
+  downCounterSec: number,
+  currentRewinderState: string
+): PrerollCalculationOutput {
+  const minRequiredFrames = downCounterSec === 0 ? 120 : 240;
+  const lastFrame = Math.max(0, totalFrames - 1);
+  const effectiveCursor = currentRewinderState === 'recording' ? lastFrame : rawCursor;
+  const effectiveTarget = currentRewinderState === 'recording' ? lastFrame : rawTargetFrame;
+  const baseTarget =
+    currentRewinderState === 'preroll-countdown' || currentRewinderState === 'stopped'
+      ? effectiveTarget || effectiveCursor
+      : effectiveCursor;
+  const targetIdx = Math.max(minRequiredFrames - 1, Math.min(lastFrame, Math.round(baseTarget)));
+  const lookbackFrames = (downCounterSec === 0 ? 1 : downCounterSec + 1) * 120;
+  const startIdx = Math.max(0, targetIdx - lookbackFrames);
+  const remFrames = Math.max(0, targetIdx - startIdx);
+  const remSec = Math.ceil(remFrames / 120);
+  return { startIdx, targetIdx, remFrames, remSec };
+}
+
+export function mapParsedReplayToRewinderFrames(
+  parsed: {
+    frames: ReplaySnapshotFloat32Array[];
+    frameSlots?: Array<{
+      acknowledgedControls?: CarControlsInput[];
+      incidents?: DecodedIncidentEvent[];
+      signals?: DecodedSignalEvent[];
+      audioEvents?: ReplayAudioCue[];
+    } | null>;
+  },
+  fallbackControls?: CarControlsInput | null
+): RewinderFrameEntry[] {
+  return parsed.frames.map((snap: ReplaySnapshotFloat32Array, idx: number): RewinderFrameEntry => {
+    const slot = parsed.frameSlots?.[idx] || null;
+    const car0Ctrl: CarControlsInput =
+      slot?.acknowledgedControls?.[0] ||
+      snap?.controls?.[0] ||
+      fallbackControls ||
+      DEFAULT_CAR_CONTROLS;
+    return {
+      compactSnap: snap,
+      renderState: snap,
+      controls: { ...car0Ctrl },
+      acknowledgedControls: slot?.acknowledgedControls || snap?.controls || [{ ...car0Ctrl }],
+      incidents: slot?.incidents || snap?.incidents || [],
+      signals: slot?.signals || snap?.signals || [],
+      audioEvents: slot?.audioEvents || snap?.audioEvents || [],
+    };
+  });
+}
+
+export function restoreRewinderFrameToPhysicsAndInterpolator(
+  physics: { state: Float32Array; restoreState: (snap: Float32Array, opts?: RestoreSnapshotOptions) => void } | null | undefined,
+  interpolator: { prevState: Float32Array; currState: Float32Array; alpha: number } | null | undefined,
+  frames: RewinderFrameEntry[],
+  cursor: number,
+  smoothStep = false,
+  restoreOptions: RestoreSnapshotOptions = { preserveEngineTick: true }
+): void {
+  if (!physics || frames.length === 0) return;
+  const idx = Math.max(0, Math.min(frames.length - 1, Math.floor(cursor)));
+  const entry = frames[idx];
+  if (!entry) return;
+  if (smoothStep && interpolator) {
+    interpolator.prevState.set(interpolator.currState);
+  }
+  const compactSnap = entry.compactSnap || entry.renderState || entry.arenaSnap;
+  if (compactSnap) {
+    physics.restoreState(compactSnap, restoreOptions);
+  }
+  if (interpolator) {
+    if (!smoothStep) {
+      interpolator.prevState.set(physics.state);
+      interpolator.alpha = 0;
+    }
+    interpolator.currState.set(physics.state);
+  }
+}
+
+export function isGoalBallScoredInLab(
+  sim: { isBallScored?: (b: unknown) => boolean },
+  bView: { posX: number; posY: number; posZ: number }
+): boolean {
+  if (typeof sim.isBallScored === 'function') return sim.isBallScored(bView);
+  return Math.abs(bView.posY) > 5120 + 91.25 && Math.abs(bView.posX) < 892.755 && bView.posZ < 642.775;
 }

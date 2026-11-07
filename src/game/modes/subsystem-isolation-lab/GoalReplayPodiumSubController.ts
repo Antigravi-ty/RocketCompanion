@@ -130,3 +130,60 @@ export class GoalReplayPodiumSubController {
     return payload;
   }
 }
+
+const DEFAULT_OPPONENT_STATE = {
+  pos: [1400, 3200, 17.05] as [number, number, number],
+  vel: [0, 0, 0] as [number, number, number],
+  angVel: [0, 0, 0] as [number, number, number],
+  rot: [0, -Math.PI / 2, 0] as [number, number, number],
+  boost: 100,
+};
+
+export function resetGoalReplayBenchArenaAndPhysics(r: LabRuntimePort | null | undefined): number {
+  if (!r?.physics) return 0;
+  r.releaseGoalReplayCameraOverride();
+  while (r.physics.numCars > 2 && typeof r.physics.removeCar === 'function') {
+    r.physics.removeCar(r.physics.numCars - 1);
+  }
+  while (r.physics.numCars < 2) {
+    r.physics.addCar(r.physics.numCars % 2, 'octane');
+  }
+  void r.arena?.ensureOpponent?.();
+  if (r.arena?.cars) {
+    if (r.arena.cars[0]) {
+      r.arena.cars[0].visible = true;
+      r.arena.setCarTeam?.(0, 0);
+    }
+    if (r.arena.cars[1]) {
+      r.arena.cars[1].visible = true;
+      r.arena.setCarTeam?.(1, 1);
+      r.physics.setCarState(1, DEFAULT_OPPONENT_STATE);
+    }
+    for (let i = 2; i < r.arena.cars.length; i++) {
+      if (r.arena.cars[i]) r.arena.cars[i].visible = false;
+    }
+  }
+  r.playerCarIndex = 0;
+  if (r.arena) r.arena.playerCarIndex = 0;
+  r.isBotMatch = false;
+  r.physics.setUnlimitedBoost(true);
+  r.physics.resetGoalLatch?.();
+  r.physics.resetKickoff(0, false);
+  r.physics.setCarState(1, DEFAULT_OPPONENT_STATE);
+  r.physics.clearEvents?.();
+  r.simulationStage?.resetActionStates?.();
+  r.arena?.resetAllCarEffects?.();
+  r.resetAudio?.();
+  r.physics.clearReplayBuffer?.();
+  return Math.floor(r.physics.getHeaderView?.()?.tickCount || 0);
+}
+
+export function resetGoalReplayLiveKickoff(r: LabRuntimePort | null | undefined): number {
+  if (!r?.physics) return 0;
+  r.physics.resetGoalLatch?.();
+  r.physics.resetKickoff(0, false);
+  if (r.physics.numCars > 1) {
+    r.physics.setCarState(1, DEFAULT_OPPONENT_STATE);
+  }
+  return Math.floor(r.physics.getHeaderView?.()?.tickCount || 0);
+}

@@ -164,6 +164,52 @@ export class ExperimentalMultiBotsReplayController {
     this.replayRingBuffer?.appendAudioEvent?.(tick, audioEvt);
   }
 
+  emitRosterJoinAndLoadoutSignals(
+    configuredDuration: number,
+    spawnedCars: ReadonlyArray<ExpSpawnedCarEntry>,
+    packLoadoutFn: (
+      visualId: string,
+      colorSlot: number,
+      hitboxId: string,
+      opts: { paintFinish?: string; boostVisual?: string; boostAudio?: string },
+    ) => number,
+  ): void {
+    const carCount = spawnedCars.length;
+    this.emitReplaySignal(MATCH_SIGNALS.MATCH_INITIALIZED, configuredDuration, carCount);
+    for (const c of spawnedCars) {
+      this.emitReplaySignal(MATCH_SIGNALS.PLAYER_JOINED, c.carIndex, c.team & 0xff);
+      const packed = packLoadoutFn(c.visualId, c.colorSlot, c.hitboxId, {
+        paintFinish: c.paintFinish,
+        boostVisual: c.boostVisual,
+        boostAudio: c.boostAudio,
+      });
+      this.emitReplaySignal(MATCH_SIGNALS.PLAYER_LOADOUT_UPDATED, c.carIndex, packed);
+    }
+    this.emitReplaySignal(MATCH_SIGNALS.MATCH_STARTED, configuredDuration, carCount);
+  }
+
+  emitClockSecondAndAlertSignals(
+    currentTick: number,
+    remainingSec: number,
+    isOvertime: boolean,
+    timeAlertSecond: number | null,
+  ): void {
+    this.emitReplaySignal(
+      MATCH_SIGNALS.CLOCK_UPDATED_SECONDS,
+      remainingSec,
+      isOvertime ? 1 : 0,
+      currentTick,
+    );
+    if (timeAlertSecond === 60) {
+      this.emitReplaySignal(MATCH_SIGNALS.TIME_ALERT_60S, 60, 0, currentTick);
+    } else if (timeAlertSecond === 30) {
+      this.emitReplaySignal(MATCH_SIGNALS.TIME_ALERT_30S, 30, 0, currentTick);
+    } else if (timeAlertSecond !== null) {
+      this.emitReplaySignal(MATCH_SIGNALS.COUNTDOWN_10S, timeAlertSecond, 0, currentTick);
+    }
+  }
+
+
   retainGoalReplayBuffer(
     goalMeta: ExpGoalIncidentMeta,
     spawnedCars: ReadonlyArray<ExpSpawnedCarEntry>
