@@ -2,9 +2,10 @@
 /**
  * scripts/runScenarioBaseline.mjs
  * Launches a local Vite server and headless Chrome with WebGL2 (ANGLE / SwiftShader),
- * executes the Phase 1 deterministic fast-forward scenario baseline suite
- * (?autorunScenario=all), writes the full JSON telemetry report, and prints
- * a formatted calibration summary table.
+ * executes the deterministic fast-forward scenario baseline suite
+ * (?autorunScenario=all&autorunSpeed=20x&diffBaseline=1), intercepts unhandled runtime
+ * exceptions & console.error, runs SceneGraph vehicle rig geometry probes against the
+ * 65f1538d Golden Baseline, writes the JSON report, and prints a summary table.
  */
 
 import { spawn } from 'node:child_process';
@@ -13,19 +14,31 @@ import path from 'node:path';
 import { createServer } from 'vite';
 
 const DEFAULT_OUT_PATH = '/tmp/telemetry-baseline-report.json';
-const TIMEOUT_MS = 180_000;
+const TIMEOUT_MS = 210_000;
 
 function parseCliArgs(argv) {
   let scenario = 'all';
+  let speed = '20x';
+  let diffBaseline = true;
+  let allowConsoleError = false;
   let outPath = DEFAULT_OUT_PATH;
+
   for (const arg of argv.slice(2)) {
     if (arg.startsWith('--scenario=')) {
       scenario = arg.slice('--scenario='.length).trim() || 'all';
+    } else if (arg.startsWith('--speed=')) {
+      speed = arg.slice('--speed='.length).trim() || '20x';
+    } else if (arg === '--diff-baseline' || arg === '--diff-baseline=true' || arg === '--diff-baseline=1') {
+      diffBaseline = true;
+    } else if (arg === '--no-diff-baseline' || arg === '--diff-baseline=false' || arg === '--diff-baseline=0') {
+      diffBaseline = false;
+    } else if (arg === '--allow-console-error' || arg === '--allow-console-error=true') {
+      allowConsoleError = true;
     } else if (arg.startsWith('--out=')) {
       outPath = arg.slice('--out='.length).trim() || DEFAULT_OUT_PATH;
     }
   }
-  return { scenario, outPath };
+  return { scenario, speed, diffBaseline, allowConsoleError, outPath };
 }
 
 function padRight(str, width) {
@@ -39,12 +52,13 @@ function padLeft(str, width) {
 }
 
 function printFormattedBaselineReport(report, outPath) {
-  const hr = '═'.repeat(94);
-  const thinHr = '─'.repeat(94);
+  const hr = '='.repeat(96);
+  const thinHr = '-'.repeat(96);
   console.log(`\n${hr}`);
-  console.log(' ROCKET COMPANION — PHASE 1 DETERMINISTIC SCENARIO & TELEMETRY BASELINE REPORT');
+  console.log(' ROCKET COMPANION -- DETERMINISTIC SCENARIO, SCENEGRAPH PROBE & 65F1538D GOLDEN DIFF REPORT');
   console.log(hr);
-  console.log(` Generated At     : ${report.generatedAtIso}`);
+  console.log(` Generated At     : ${report.generatedAtIso} (schema v${report.schemaVersion || '1.1.0'})`);
+  console.log(` Speed Preset     : ${report.configuredSpeedPreset || '20x'}`);
   console.log(` WebGL Renderer   : ${report.webglRenderer}`);
   console.log(` WebGL Vendor     : ${report.webglVendor}`);
   console.log(
@@ -64,7 +78,7 @@ function printFormattedBaselineReport(report, outPath) {
   for (const sc of report.scenarios || []) {
     console.log(`\n${hr}`);
     console.log(
-      ` SCENARIO: ${sc.scenarioId} [${sc.passed ? 'PASSED' : 'FAILED'}]`,
+      ` SCENARIO: ${sc.scenarioId} [${sc.passed ? 'PASSED' : 'FAILED'}] (speed=${sc.configuredSpeedPreset || '20x'})`,
     );
     console.log(` Title   : ${sc.title}`);
     console.log(
@@ -134,25 +148,79 @@ function printFormattedBaselineReport(report, outPath) {
       console.log(` SIGNALS OBSERVED  : [${mp.distinctSignalNames.join(', ')}]`);
     }
 
+    const re = sc.runtimeErrors;
+    if (re) {
+      console.log(thinHr);
+      console.log(
+        ` RUNTIME ERROR INTERCEPTION : total=${re.totalErrorCount} (window.onerror=${re.windowErrorCount}, unhandledrejection=${re.unhandledRejectionCount}, console.error=${re.consoleErrorCount})`,
+      );
+      for (const entry of (re.entries || []).slice(0, 8)) {
+        const loc = entry.fileName ? ` @ ${entry.fileName}:${entry.lineNumber ?? 0}:${entry.columnNumber ?? 0}` : '';
+        console.log(
+          `   [ERROR] (tick ${padLeft(entry.tick, 4)}) [${entry.source}] ${entry.message}${loc}`,
+        );
+      }
+    }
+
+    if (sc.vehicleRigProbes && sc.vehicleRigProbes.length > 0) {
+      console.log(thinHr);
+      console.log(' SCENEGRAPH VEHICLE RIG GEOMETRY PROBES:');
+      for (const p of sc.vehicleRigProbes) {
+        console.log(
+          `   car[${p.carIndex}] preset=${padRight(p.visualId, 14)} hitbox=${padRight(p.hitboxPresetId, 16)} | wheelbaseX=${padLeft(p.wheelbaseX, 7)}uu | frontTrackZ=${padLeft(p.frontTrackWidthZ, 7)}uu | rearTrackZ=${padLeft(p.rearTrackWidthZ, 7)}uu | wheelHeightsY=[${p.wheelHeightsY.join(', ')}] | boosts=${p.boostOutlets.length}`,
+        );
+      }
+    }
+
     console.log(thinHr);
     console.log(' ASSERTIONS:');
     for (const a of sc.assertions || []) {
       console.log(
-        `   [${a.passed ? 'PASS' : 'FAIL'}] (tick ${padLeft(a.tick, 4)}) ${padRight(a.label, 42)} -> ${a.detail}`,
+        `   [${a.passed ? 'PASS' : 'FAIL'}] (tick ${padLeft(a.tick, 4)}) ${padRight(a.label, 44)} -> ${a.detail}`,
       );
+    }
+  }
+
+  const gd = report.goldenBaselineDiff;
+  if (gd) {
+    console.log(`\n${hr}`);
+    console.log(
+      ` 65F1538D GOLDEN BASELINE DIFF SUMMARY (ref=${gd.referenceCommit.slice(0, 8)}, ui-core=${gd.referenceUiCoreCommit.slice(0, 8)}) [${gd.passed ? 'MATCHED' : 'DRIFT DETECTED'}]`,
+    );
+    console.log(thinHr);
+    const failedStatic = (gd.staticDescriptorDiffs || []).filter((d) => !d.passed);
+    console.log(
+      ` Static Descriptors & Hitboxes : ${(gd.staticDescriptorDiffs || []).length - failedStatic.length}/${(gd.staticDescriptorDiffs || []).length} checks matched`,
+    );
+    for (const item of gd.staticDescriptorDiffs || []) {
+      if (!item.passed) {
+        console.log(
+          `   [DRIFT] ${padRight(item.field, 38)} | maxDelta=${padLeft(item.maxAbsDelta, 9)} | expected=${JSON.stringify(item.expected)} | actual=${JSON.stringify(item.actual)}`,
+        );
+      }
+    }
+    for (const rigDiff of gd.vehicleRigDiffs || []) {
+      console.log(
+        ` Live SceneGraph Rig car[${rigDiff.carIndex}] (${rigDiff.visualId} vs ${rigDiff.goldenReferenceId}) : ${rigDiff.passed ? 'MATCHED' : 'DRIFT'} (maxDelta=${rigDiff.maxCoordinateDeltaUu}uu)`,
+      );
+      for (const m of rigDiff.mismatches || []) {
+        console.log(
+          `   [RIG DRIFT] ${padRight(m.field, 34)} | maxDelta=${padLeft(m.maxAbsDelta, 9)} | expected=${JSON.stringify(m.expected)} | actual=${JSON.stringify(m.actual)}`,
+        );
+      }
     }
   }
 
   console.log(`\n${hr}`);
   console.log(
-    ` OVERALL SUITE STATUS : ${report.overallPassed ? 'GREEN (ALL SCENARIOS PASSED)' : 'RED (ASSERTION FAILURES DETECTED)'}`,
+    ` OVERALL SUITE STATUS : ${report.overallPassed ? 'GREEN (ALL SCENARIOS PASSED)' : 'RED (ASSERTION OR RUNTIME ERRORS DETECTED)'}`,
   );
   console.log(` JSON REPORT SAVED TO : ${outPath}`);
   console.log(`${hr}\n`);
 }
 
 async function main() {
-  const { scenario, outPath } = parseCliArgs(process.argv);
+  const { scenario, speed, diffBaseline, allowConsoleError, outPath } = parseCliArgs(process.argv);
   let resolveReport;
   let rejectReport;
   const reportPromise = new Promise((resolve, reject) => {
@@ -205,7 +273,16 @@ async function main() {
   const address = server.httpServer?.address();
   const port = typeof address === 'object' && address ? address.port : 5173;
   const protocol = server.config.server.https ? 'https' : 'http';
-  const targetUrl = `${protocol}://127.0.0.1:${port}/?autorunScenario=${encodeURIComponent(scenario)}&nokey=1`;
+  const queryParams = new URLSearchParams({
+    autorunScenario: scenario,
+    autorunSpeed: speed,
+    diffBaseline: diffBaseline ? '1' : '0',
+    nokey: '1',
+  });
+  if (allowConsoleError) {
+    queryParams.set('allowConsoleError', '1');
+  }
+  const targetUrl = `${protocol}://127.0.0.1:${port}/?${queryParams.toString()}`;
 
   console.log(`[ScenarioRunner] Vite server listening at ${protocol}://127.0.0.1:${port}`);
   console.log(`[ScenarioRunner] Launching headless Chrome with WebGL2 (SwiftShader/ANGLE)...`);

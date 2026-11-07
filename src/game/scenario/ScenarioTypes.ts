@@ -2,7 +2,8 @@
  * ScenarioTypes.ts
  * Declarative scenario script format, tick-scheduled action/assertion descriptors,
  * per-stage wall-clock timing distributions, keyframe GPU/shader telemetry,
- * and baseline report schemas for Phase 1 calibration.
+ * SceneGraph vehicle rig geometry calibration probes, runtime error interception,
+ * speed presets, and Golden 65f1538d diff report schemas.
  */
 
 import type { CarControlsInput } from '../../network/protocol/InputPacketCodec.ts';
@@ -15,6 +16,89 @@ export type PipelineStageName =
   | 'AudioStage'
   | 'RenderStage'
   | 'TelemetryStage';
+
+export type ScenarioSpeedPreset = '1x' | '10x' | '20x' | '50x' | 'max';
+
+export interface ScenarioDriverRunOptions {
+  speed?: ScenarioSpeedPreset | string | number;
+  renderStrideOverride?: number;
+  batchYieldTicksOverride?: number;
+  failOnConsoleError?: boolean;
+  includeGoldenDiff?: boolean;
+}
+
+export interface CapturedRuntimeErrorEntry {
+  tick: number;
+  virtualTimeMs: number;
+  source: 'window.onerror' | 'unhandledrejection' | 'console.error';
+  message: string;
+  stack?: string;
+  fileName?: string;
+  lineNumber?: number;
+  columnNumber?: number;
+}
+
+export interface RuntimeErrorInterceptionSummary {
+  windowErrorCount: number;
+  unhandledRejectionCount: number;
+  consoleErrorCount: number;
+  totalErrorCount: number;
+  entries: CapturedRuntimeErrorEntry[];
+}
+
+export interface VehicleWheelGeometrySample {
+  wheelIndex: number;
+  steerPosition: [number, number, number];
+  steerRotationY: number;
+  spinRotationZ: number;
+  specAnchor: [number, number, number];
+}
+
+export interface VehicleRigGeometryProbeSnapshot {
+  carIndex: number;
+  visualId: string;
+  hitboxPresetId: string;
+  carVisible: boolean;
+  carPosition: [number, number, number];
+  frontAxleX: number;
+  rearAxleX: number;
+  wheelbaseX: number;
+  frontTrackWidthZ: number;
+  rearTrackWidthZ: number;
+  wheelHeightsY: [number, number, number, number];
+  wheels: VehicleWheelGeometrySample[];
+  wheelSpecs: Array<[number, number, number]>;
+  boostOutlets: Array<[number, number, number]>;
+  hitboxDimensions: [number, number, number] | null;
+  hitboxOffset: [number, number, number] | null;
+}
+
+export interface GoldenFieldDiffItem {
+  field: string;
+  expected: unknown;
+  actual: unknown;
+  maxAbsDelta: number;
+  passed: boolean;
+}
+
+export interface VehicleRigGoldenDiffReport {
+  carIndex: number;
+  visualId: string;
+  goldenReferenceId: string;
+  passed: boolean;
+  maxCoordinateDeltaUu: number;
+  mismatches: GoldenFieldDiffItem[];
+  probe: VehicleRigGeometryProbeSnapshot;
+}
+
+export interface GoldenBaselineDiffSummary {
+  referenceCommit: string;
+  referenceUiCoreCommit: string;
+  passed: boolean;
+  staticDescriptorChecksPassed: boolean;
+  staticDescriptorDiffs: GoldenFieldDiffItem[];
+  vehicleRigDiffs: VehicleRigGoldenDiffReport[];
+}
 
 export interface BootstrapTaskTelemetry {
   stageIndex: number;
@@ -196,8 +280,27 @@ export interface ScenarioActiveModePort {
 export interface ScenarioRuntimePort {
   playerCarIndex?: number;
   arena?: {
-    cars?: Array<({ visible: boolean } & Record<string, unknown>) | null>;
+    cars?: Array<({ visible: boolean; position?: { x: number; y: number; z: number } } & Record<string, unknown>) | null>;
+    vehiclePresets?: Array<string | null>;
+    carWheels?: Array<Array<{
+      steer?: { position?: { x: number; y: number; z: number }; rotation?: { y: number } };
+      spin?: { rotation?: { z: number } };
+    }> | null>;
+    carWheelSpecs?: Array<Array<[number, number, number]> | null>;
+    carHitboxes?: Array<{
+      position?: { x: number; y: number; z: number };
+      geometry?: { parameters?: { width?: number; height?: number; depth?: number } };
+    } | null>;
+    vehicleRegistry?: {
+      carWheelSpecs?: Array<Array<[number, number, number]> | null>;
+      carHitboxes?: Array<{
+        position?: { x: number; y: number; z: number };
+        geometry?: { parameters?: { width?: number; height?: number; depth?: number } };
+      } | null>;
+    } | null;
     carBoosts?: Array<Array<{
+      nozzleLocal?: { x: number; y: number; z: number };
+      offset?: { x: number; y: number; z: number };
       physics?: { driveParticlesActive?: boolean; trailParticlesActive?: boolean };
       goldRush?: { driveParticlesActive?: boolean; trailParticlesActive?: boolean };
     }>>;
@@ -293,6 +396,8 @@ export interface ScenarioStepContext {
       boost?: number;
     },
   ): void;
+  captureVehicleRigProbe(carIndex?: number): VehicleRigGeometryProbeSnapshot | null;
+  diffVehicleRigAgainstGolden(carIndex?: number, toleranceUu?: number): VehicleRigGoldenDiffReport | null;
   markKeyframe(reason: string): void;
   recordAssertion(label: string, passed: boolean, detail: string): void;
 }
@@ -324,6 +429,7 @@ export interface ScenarioRunReport {
   title: string;
   description: string;
   passed: boolean;
+  configuredSpeedPreset: string;
   totalTicks: number;
   simulatedDurationSeconds: number;
   wallClockDurationMs: number;
@@ -336,17 +442,22 @@ export interface ScenarioRunReport {
   keyframeRenders: KeyframeRenderSample[];
   cameraSmoothness: CameraSmoothnessTelemetry;
   multiplayerLoopback: MultiplayerLoopbackTelemetry | null;
+  runtimeErrors: RuntimeErrorInterceptionSummary;
+  vehicleRigProbes: VehicleRigGeometryProbeSnapshot[];
+  goldenDiff: GoldenBaselineDiffSummary | null;
   assertions: ScenarioAssertionResult[];
 }
 
 export interface BaselineSuiteTelemetryReport {
-  schemaVersion: '1.0.0';
+  schemaVersion: '1.0.0' | '1.1.0';
   generatedAtIso: string;
   gitCommitShort?: string;
+  configuredSpeedPreset: string;
   userAgent: string;
   webglRenderer: string;
   webglVendor: string;
   bootstrap: BootstrapTelemetrySnapshot;
+  goldenBaselineDiff: GoldenBaselineDiffSummary | null;
   scenarios: ScenarioRunReport[];
   overallPassed: boolean;
 }

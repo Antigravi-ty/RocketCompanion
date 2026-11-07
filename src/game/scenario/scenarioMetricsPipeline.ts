@@ -1,7 +1,7 @@
 /**
  * scenarioMetricsPipeline.ts
  * Pure statistical and geometric evaluation functions for scenario stage timings,
- * hitch frame attribution, and camera smoothness telemetry.
+ * hitch frame attribution, camera smoothness telemetry, and speed pacing presets.
  */
 
 import type {
@@ -390,4 +390,104 @@ export function extractCameraPoseSample(
     qz: camObj.quaternion.z,
     qw: camObj.quaternion.w,
   };
+}
+
+export interface SpeedPacingConfig {
+  presetLabel: string;
+  renderStride: number;
+  batchYieldTicks: number;
+  failOnConsoleError: boolean;
+  includeGoldenDiff: boolean;
+}
+
+export function resolveSpeedPacingConfig(
+  scriptRenderStride = 15,
+  scriptBatchYieldTicks = 60,
+  options?: {
+    speed?: string | number;
+    renderStrideOverride?: number;
+    batchYieldTicksOverride?: number;
+    failOnConsoleError?: boolean;
+    includeGoldenDiff?: boolean;
+  },
+): SpeedPacingConfig {
+  const rawSpeed = String(options?.speed ?? '20x').trim().toLowerCase();
+  let presetLabel = rawSpeed || '20x';
+  let renderStride = Math.max(1, scriptRenderStride || 15);
+  let batchYieldTicks = Math.max(10, scriptBatchYieldTicks || 60);
+
+  if (rawSpeed === '1x' || rawSpeed === '1') {
+    presetLabel = '1x';
+    renderStride = 1;
+    batchYieldTicks = 15;
+  } else if (rawSpeed === '10x' || rawSpeed === '10') {
+    presetLabel = '10x';
+    renderStride = 10;
+    batchYieldTicks = 40;
+  } else if (rawSpeed === '20x' || rawSpeed === '20') {
+    presetLabel = '20x';
+    renderStride = Math.max(15, scriptRenderStride || 20);
+    batchYieldTicks = 60;
+  } else if (rawSpeed === '50x' || rawSpeed === '50' || rawSpeed === 'max') {
+    presetLabel = rawSpeed === 'max' ? 'max' : '50x';
+    renderStride = 50;
+    batchYieldTicks = 150;
+  } else {
+    const numeric = Number.parseFloat(rawSpeed.replace(/x$/, ''));
+    if (Number.isFinite(numeric) && numeric > 0) {
+      presetLabel = `${numeric}x`;
+      renderStride = Math.max(1, Math.round(numeric));
+      batchYieldTicks = Math.max(15, Math.round(numeric * 3));
+    }
+  }
+
+  if (typeof options?.renderStrideOverride === 'number' && options.renderStrideOverride >= 1) {
+    renderStride = Math.round(options.renderStrideOverride);
+  }
+  if (typeof options?.batchYieldTicksOverride === 'number' && options.batchYieldTicksOverride >= 1) {
+    batchYieldTicks = Math.round(options.batchYieldTicksOverride);
+  }
+
+  return {
+    presetLabel,
+    renderStride,
+    batchYieldTicks,
+    failOnConsoleError: options?.failOnConsoleError !== false,
+    includeGoldenDiff: options?.includeGoldenDiff !== false,
+  };
+}
+
+export function normalizeCarControls<T extends {
+  throttle?: number;
+  steer?: number;
+  pitch?: number;
+  yaw?: number;
+  roll?: number;
+  jump?: boolean | number;
+  boost?: boolean | number;
+  handbrake?: boolean | number;
+}>(controls: Partial<T> | null): T | null {
+  if (!controls) return null;
+  return {
+    throttle: controls.throttle ?? 0,
+    steer: controls.steer ?? 0,
+    pitch: controls.pitch ?? 0,
+    yaw: controls.yaw ?? 0,
+    roll: controls.roll ?? 0,
+    jump: Boolean(controls.jump),
+    boost: Boolean(controls.boost),
+    handbrake: Boolean(controls.handbrake),
+  } as T;
+}
+
+export function buildStepsByTickMap<T extends { tick: number }>(
+  steps: readonly T[],
+): Map<number, T[]> {
+  const map = new Map<number, T[]>();
+  for (const step of steps) {
+    const list = map.get(step.tick) || [];
+    list.push(step);
+    map.set(step.tick, list);
+  }
+  return map;
 }

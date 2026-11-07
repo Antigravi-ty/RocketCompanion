@@ -67,6 +67,19 @@ export const BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO: ScenarioScript = {
             ringMode === 'countup_fifo',
           `capacityTicks=${ringCap}, mode=${ringMode}`,
         );
+        const rigProbe = ctx.captureVehicleRigProbe(0);
+        ctx.recordAssertion(
+          'freeplay_car0_scenegraph_rig_probe_valid',
+          Boolean(
+            rigProbe &&
+              rigProbe.carVisible &&
+              rigProbe.wheels.length === 4 &&
+              rigProbe.wheelbaseX > 40 &&
+              rigProbe.frontTrackWidthZ > 30 &&
+              rigProbe.rearTrackWidthZ > 30,
+          ),
+          `visualId=${rigProbe?.visualId}, wheelbaseX=${rigProbe?.wheelbaseX}, frontTrackZ=${rigProbe?.frontTrackWidthZ}, rearTrackZ=${rigProbe?.rearTrackWidthZ}`,
+        );
       },
     },
     {

@@ -1,7 +1,9 @@
 /**
  * ScenarioAutorunBootstrap.ts
  * Stateful SubController capturing Stage 1~6 engine bootstrap telemetry via
- * LoadingProgressObserver and orchestrating ?autorunScenario=... baseline suites.
+ * LoadingProgressObserver and orchestrating ?autorunScenario=... baseline suites,
+ * configurable speed presets (?autorunSpeed=10x|20x|50x), 65f1538d Golden Baseline
+ * diffs (?diffBaseline=1), and real-device Self-Test diagnostic APIs.
  */
 
 import {
@@ -14,13 +16,20 @@ import {
 } from '../../loader/types.ts';
 import { resolveRequestedScenarios } from './builtinBaselineScenarios.ts';
 import { roundMetric } from './scenarioMetricsPipeline.ts';
+import {
+  buildGoldenBaselineDiffSummary,
+  captureVehicleRigGeometryProbe,
+} from './scenarioRigProbeAndGoldenDiffPipeline.ts';
 import type {
   BaselineSuiteTelemetryReport,
   BootstrapStageSummary,
   BootstrapTaskTelemetry,
   BootstrapTelemetrySnapshot,
+  GoldenBaselineDiffSummary,
+  ScenarioDriverRunOptions,
   ScenarioRunReport,
   ScenarioRuntimePort,
+  VehicleRigGeometryProbeSnapshot,
 } from './ScenarioTypes.ts';
 import { VirtualClockFastForwardDriver } from './VirtualClockFastForwardDriver.ts';
 
@@ -32,13 +41,38 @@ declare global {
   }
 }
 
+export interface AutorunUrlQueryConfig {
+  scenarioQuery: string | null;
+  runOptions: ScenarioDriverRunOptions;
+}
+
 export function getAutorunScenarioParam(): string | null {
-  if (typeof window === 'undefined' || !window.location?.search) return null;
+  return parseAutorunUrlQueryConfig().scenarioQuery;
+}
+
+export function parseAutorunUrlQueryConfig(): AutorunUrlQueryConfig {
+  if (typeof window === 'undefined' || !window.location?.search) {
+    return { scenarioQuery: null, runOptions: {} };
+  }
   try {
     const params = new URLSearchParams(window.location.search);
-    return params.get('autorunScenario');
+    const scenarioQuery = params.get('autorunScenario');
+    const speed = params.get('autorunSpeed') || params.get('speed') || undefined;
+    const diffParam = params.get('diffBaseline') ?? params.get('includeGoldenDiff');
+    const allowConsoleErr = params.get('allowConsoleError');
+
+    const runOptions: ScenarioDriverRunOptions = {};
+    if (speed) runOptions.speed = speed;
+    if (diffParam !== null) {
+      runOptions.includeGoldenDiff = diffParam !== '0' && diffParam !== 'false';
+    }
+    if (allowConsoleErr === '1' || allowConsoleErr === 'true') {
+      runOptions.failOnConsoleError = false;
+    }
+
+    return { scenarioQuery, runOptions };
   } catch {
-    return null;
+    return { scenarioQuery: null, runOptions: {} };
   }
 }
 
@@ -133,32 +167,64 @@ export class ScenarioAutorunController {
     this.initialShaderPrograms = this.driver.getCompiledShaderProgramCount();
   }
 
-  public async runBaselineSuite(queryValue = 'all'): Promise<BaselineSuiteTelemetryReport> {
+  public captureVehicleRigProbe(carIndex = 0): VehicleRigGeometryProbeSnapshot | null {
+    return captureVehicleRigGeometryProbe(this.runtime?.arena, carIndex);
+  }
+
+  public runGoldenDiffAudit(
+    probes: readonly VehicleRigGeometryProbeSnapshot[] = [],
+  ): GoldenBaselineDiffSummary {
+    return buildGoldenBaselineDiffSummary(this.runtime?.arena, probes);
+  }
+
+  public async runSelfTest(
+    options: ScenarioDriverRunOptions = { speed: '20x', includeGoldenDiff: true },
+  ): Promise<BaselineSuiteTelemetryReport> {
+    return this.runBaselineSuite('all', options);
+  }
+
+  public async runBaselineSuite(
+    queryValue = 'all',
+    options?: ScenarioDriverRunOptions,
+  ): Promise<BaselineSuiteTelemetryReport> {
     const scripts = resolveRequestedScenarios(queryValue);
     const scenarioReports: ScenarioRunReport[] = [];
+    const collectedProbes: VehicleRigGeometryProbeSnapshot[] = [];
 
     for (let i = 0; i < scripts.length; i++) {
       const script = scripts[i];
       console.info(
-        `[ScenarioBaseline] Starting scenario (${i + 1}/${scripts.length}): ${script.id} (${script.totalTicks} ticks)...`,
+        `[ScenarioBaseline] Starting scenario (${i + 1}/${scripts.length}): ${script.id} (${script.totalTicks} ticks, speed=${options?.speed ?? '20x'})...`,
       );
-      const report = await this.driver.runScenario(script);
+      const report = await this.driver.runScenario(script, options);
       scenarioReports.push(report);
+      for (const p of report.vehicleRigProbes) {
+        if (!collectedProbes.some((existing) => existing.visualId === p.visualId)) {
+          collectedProbes.push(p);
+        }
+      }
       console.info(
-        `[ScenarioBaseline] Completed ${script.id}: passed=${report.passed}, wall=${report.wallClockDurationMs}ms, rate=${report.effectiveTickRateHz}Hz (${report.speedupFactorVsRealtime}x realtime)`,
+        `[ScenarioBaseline] Completed ${script.id}: passed=${report.passed}, wall=${report.wallClockDurationMs}ms, rate=${report.effectiveTickRateHz}Hz (${report.speedupFactorVsRealtime}x realtime), errors=${report.runtimeErrors.totalErrorCount}`,
       );
     }
 
     const glSummary = this.driver.getWebGlContextAttributesSummary();
     const overallPassed = scenarioReports.every((r) => r.passed);
+    const includeDiff = options?.includeGoldenDiff !== false;
+    const goldenBaselineDiff = includeDiff
+      ? buildGoldenBaselineDiffSummary(this.runtime?.arena, collectedProbes)
+      : null;
+
     const suiteReport: BaselineSuiteTelemetryReport = {
-      schemaVersion: '1.0.0',
+      schemaVersion: '1.1.0',
       generatedAtIso: new Date().toISOString(),
       userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'headless',
       webglRenderer: glSummary.renderer,
       webglVendor: glSummary.vendor,
+      configuredSpeedPreset: scenarioReports[0]?.configuredSpeedPreset || String(options?.speed ?? '20x'),
       bootstrap: this.bootstrapObserver.buildSnapshot(this.initialShaderPrograms),
       scenarios: scenarioReports,
+      goldenBaselineDiff,
       overallPassed,
     };
 
@@ -194,8 +260,8 @@ export function attachScenarioAutorunController(
     window.__rcScenarioDriver = controller;
   }
 
-  const autorunQuery = getAutorunScenarioParam();
-  if (autorunQuery) {
+  const { scenarioQuery, runOptions } = parseAutorunUrlQueryConfig();
+  if (scenarioQuery) {
     const bgStart = performance.now();
     void backgroundAssetsPromise
       .then(() => {
@@ -204,7 +270,7 @@ export function attachScenarioAutorunController(
       .catch(() => {
         bootstrapObserver.setBackgroundAssetsDurationMs(performance.now() - bgStart);
       })
-      .then(() => controller.runBaselineSuite(autorunQuery))
+      .then(() => controller.runBaselineSuite(scenarioQuery, runOptions))
       .catch(async (err) => {
         const msg = err instanceof Error ? `${err.message}\n${err.stack || ''}` : String(err);
         if (typeof window !== 'undefined') {

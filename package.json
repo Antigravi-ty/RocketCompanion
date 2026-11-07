@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "radar": "node --experimental-strip-types scripts/radar.ts",
     "check": "pnpm run radar && pnpm run typecheck",
+    "extract:golden": "node scripts/extractGoldenBaseline65f1538d.mjs",
     "test:baseline": "node scripts/runScenarioBaseline.mjs"
   },
   "dependencies": {
