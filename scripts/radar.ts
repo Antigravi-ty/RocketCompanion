@@ -688,15 +688,9 @@ function runRadarChecks(allFiles: string[]): RadarScanResult {
     }
 
     if (byteSize > HARD_BYTE_LIMIT) {
-      if (rel.startsWith('src/ui-core/')) {
-        warnings.push(
-          `[BYTE WATERLINE ALERT] ${rel} is ${kbFormatted} KB (${byteSize} bytes, ${lineCount} lines; exceeds ${(HARD_BYTE_LIMIT / 1024).toFixed(0)} KB ceiling, tracked under UI Phase 1 decomposition).`
-        );
-      } else {
-        errors.push(
-          `[BYTE VOLUME OVERFLOW] ${rel} is ${kbFormatted} KB (${byteSize} bytes, ${lineCount} lines; exceeds hard ceiling of ${(HARD_BYTE_LIMIT / 1024).toFixed(0)} KB). Decompose into focused vertical modules.`
-        );
-      }
+      errors.push(
+        `[BYTE VOLUME OVERFLOW] ${rel} is ${kbFormatted} KB (${byteSize} bytes, ${lineCount} lines; exceeds hard ceiling of ${(HARD_BYTE_LIMIT / 1024).toFixed(0)} KB). Decompose into focused vertical modules.`
+      );
     } else if (byteSize > SOFT_BYTE_LIMIT) {
       warnings.push(
         `[BYTE WATERLINE ALERT] ${rel} is at ${kbFormatted} KB (${byteSize} bytes, ${lineCount} lines; exceeds soft limit of ${(SOFT_BYTE_LIMIT / 1024).toFixed(0)} KB, approaching ${(HARD_BYTE_LIMIT / 1024).toFixed(0)} KB).`
