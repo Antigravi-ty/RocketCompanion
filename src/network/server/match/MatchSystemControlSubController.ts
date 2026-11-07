@@ -11,10 +11,10 @@ import {
   interpolateReplaySnapshots, encodeReplayDirectorTelemetryIntoState,
 } from '../../../replay/ReplayFrameInterpolator.ts';
 import type { ReplayDirectorCameraSubController } from '../../../replay/ReplayDirectorCameraSubController.ts';
+import { analyzeReplayTouchTimeline } from '../../../replay/ReplayTouchTimelineAnalyzer.ts';
 import {
-  analyzeReplayTouchTimeline, ensureSuffixCameraPlan,
-  resolveTouchLookaheadForFrame, computeDramaticSlowMoFactor,
-} from '../../../replay/ReplayTouchTimelineAnalyzer.ts';
+  ensureSuffixCameraPlan, resolveTouchLookaheadForFrame, computeDramaticSlowMoFactor,
+} from '../../../replay/replayTouchLookaheadPipeline.ts';
 import type { SuffixDirectorTrajectoryPlan } from '../../../replay/ReplayDirectorTrajectoryPlanner.ts';
 import type { DirectorCameraState, ReplaySessionState, ReplayTimelineFrameEntry } from '../../../replay/replayDirectorStateTypes.ts';
 import { normalizeReplayDirectorCarEntry } from '../../../replay/replayDirectorCarRosterPipeline.ts';
