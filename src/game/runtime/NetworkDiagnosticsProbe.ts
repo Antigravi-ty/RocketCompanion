@@ -1,8 +1,8 @@
 import { DeterminismHarness } from '../../physics/DeterminismHarness.ts';
 import type {
   DiagnosticsTestVehicleController,
-  sampleDiagnosticFleetTelemetry,
 } from '../../network/diagnostics/DiagnosticsTestVehicles.ts';
+import type { sampleDiagnosticFleetTelemetry } from '../../network/diagnostics/ZeroGDiagnosticLab.ts';
 import {
   DEFAULT_GHOST_OPACITY,
   type CarCollisionMaskEntry,

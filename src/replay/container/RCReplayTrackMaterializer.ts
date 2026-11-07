@@ -24,8 +24,8 @@ import {
 import {
   StateInputTimeline,
   IncidentTimeline,
-  SignalTimeline,
 } from './RCReplayTimelineParser.ts';
+import { SignalTimeline } from './RCReplaySignalTimeline.ts';
 import {
   enrichLegacyFlipResetIncidentFromFrames,
   synthesizeFallbackSignalsFromIncidents,

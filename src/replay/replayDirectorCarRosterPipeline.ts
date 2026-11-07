@@ -68,20 +68,13 @@ export interface ReplayDirectorRosterRuntimePort {
   } | null;
   options?: { gameAudio?: { setCarBoostAudioVariation?: (carIndex: number, variation: string) => void } | null } | null;
   audioSubsystem?: { gameAudio?: { setCarBoostAudioVariation?: (carIndex: number, variation: string) => void } | null; resetAudio?: () => void } | null;
-  networkManager?: {
-    rosterSyncCoordinator?: {
-      lastRosterSnapshot?: { players?: RawReplayCarEntryLike[] } | null;
-    } | null;
-  } | null;
+  networkManager?: { rosterSyncCoordinator?: { lastRosterSnapshot?: { players?: RawReplayCarEntryLike[] } | null } | null } | null;
   authoritativeServer?: {
     lastRoomState?: { roster?: { players?: RawReplayCarEntryLike[] } | RawReplayCarEntryLike[] | null } | Record<string, unknown> | null;
     fallbackManager?: { domain?: { players?: Map<unknown, RawReplayCarEntryLike> } | null } | null;
   } | null;
   replayTimelineController?: {
-    sessionState?: {
-      carEntries?: RawReplayCarEntryLike[] | null;
-      importedCarEntries?: RawReplayCarEntryLike[] | null;
-    } | null;
+    sessionState?: { carEntries?: RawReplayCarEntryLike[] | null; importedCarEntries?: RawReplayCarEntryLike[] | null } | null;
   } | null;
 }
 
@@ -103,6 +96,17 @@ function toHexColorString(colorVal: unknown): string | null {
     return `#${(Math.trunc(colorVal) & 0xffffff).toString(16).padStart(6, '0')}`;
   }
   return null;
+}
+
+function indexEntriesByCar(list: ReadonlyArray<RawReplayCarEntryLike> | unknown): Map<number, RawReplayCarEntryLike> {
+  const map = new Map<number, RawReplayCarEntryLike>();
+  if (!Array.isArray(list)) return map;
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const cIdx = typeof item.carIndex === 'number' ? item.carIndex : item.entityId;
+    if (typeof cIdx === 'number' && cIdx >= 0 && cIdx < MAX_CARS) map.set(cIdx, item);
+  }
+  return map;
 }
 
 export function normalizeReplayDirectorCarEntry(
@@ -131,11 +135,8 @@ export function normalizeReplayDirectorCarEntry(
     typeof raw?.hitboxId === 'string' && raw.hitboxId.length > 0 ? resolveVehicleHitboxId(raw.hitboxId)
     : typeof raw?.hitboxIndex === 'number' ? decodeHitboxIndex(raw.hitboxIndex) : resolveVehicleHitboxId(visualId);
 
-  const defaultColorSlot = team === 0 ? 3 : 0;
-  const colorSlot =
-    typeof raw?.colorSlot === 'number' && Number.isFinite(raw.colorSlot) ? raw.colorSlot : defaultColorSlot;
-  const swatch = getCarColorSlotById(colorSlot);
-  const colorHex = toHexColorString(raw?.colorHex) || swatch?.hex || null;
+  const colorSlot = typeof raw?.colorSlot === 'number' && Number.isFinite(raw.colorSlot) ? raw.colorSlot : team === 0 ? 3 : 0;
+  const colorHex = toHexColorString(raw?.colorHex) || getCarColorSlotById(colorSlot)?.hex || null;
   const paintFinish = raw?.paintFinish === 'matte' || raw?.paintFinish === 'metallic' ? raw.paintFinish : 'metallic';
   const boostVisual = raw?.boostVisual === 'cartoon' || raw?.boostVisual === 'gold-rush' ? raw.boostVisual : 'cartoon';
   const boostAudio = typeof raw?.boostAudio === 'string' && raw.boostAudio.length > 0 ? raw.boostAudio : 'standard';
@@ -170,28 +171,13 @@ export function captureRuntimeReplayCarEntries(
     )
   );
 
-  const explicitByCar = new Map<number, RawReplayCarEntryLike>();
-  if (Array.isArray(options.explicitEntries)) {
-    for (const item of options.explicitEntries) {
-      if (!item || typeof item !== 'object') continue;
-      const cIdx = typeof item.carIndex === 'number' ? item.carIndex : item.entityId;
-      if (typeof cIdx === 'number' && cIdx >= 0 && cIdx < MAX_CARS) explicitByCar.set(cIdx, item);
-    }
-  }
-
-  const rosterByCar = new Map<number, RawReplayCarEntryLike>();
+  const explicitByCar = indexEntriesByCar(options.explicitEntries);
   const rawRoster =
     runtime?.networkManager?.rosterSyncCoordinator?.lastRosterSnapshot?.players ||
     runtime?.networkManager?.rosterSyncCoordinator?.lastRosterSnapshot ||
     (runtime?.authoritativeServer?.lastRoomState as { roster?: { players?: RawReplayCarEntryLike[] } | RawReplayCarEntryLike[] } | null | undefined)?.roster ||
     null;
-  if (Array.isArray(rawRoster)) {
-    for (const p of rawRoster) {
-      if (!p || typeof p !== 'object') continue;
-      const cIdx = typeof p.carIndex === 'number' ? p.carIndex : p.entityId;
-      if (typeof cIdx === 'number' && cIdx >= 0 && cIdx < MAX_CARS) rosterByCar.set(cIdx, p);
-    }
-  }
+  const rosterByCar = indexEntriesByCar(rawRoster);
   const serverPlayers = runtime?.authoritativeServer?.fallbackManager?.domain?.players;
   if (serverPlayers instanceof Map) {
     for (const p of serverPlayers.values()) {
@@ -201,17 +187,10 @@ export function captureRuntimeReplayCarEntries(
     }
   }
 
-  const ntByCar = new Map<number, RawReplayCarEntryLike>();
-  const sessionEntries =
+  const ntByCar = indexEntriesByCar(
     runtime?.replayTimelineController?.sessionState?.carEntries ||
-    runtime?.replayTimelineController?.sessionState?.importedCarEntries ||
-    null;
-  if (Array.isArray(sessionEntries)) {
-    for (const e of sessionEntries) {
-      if (e && typeof e.carIndex === 'number' && e.carIndex >= 0) ntByCar.set(e.carIndex, e);
-    }
-  }
-
+      runtime?.replayTimelineController?.sessionState?.importedCarEntries
+  );
   const playerCarIndex = typeof runtime?.playerCarIndex === 'number' ? runtime.playerCarIndex : 0;
   const entries: NormalizedReplayDirectorCarEntry[] = [];
 
@@ -220,17 +199,12 @@ export function captureRuntimeReplayCarEntries(
     const ros = rosterByCar.get(c) || null;
     const nt = ntByCar.get(c) || null;
     const spec = runtime?.physics?._carSpecs?.[c] || null;
-    const arenaPreset = runtime?.arena?.vehiclePresets?.[c] || null;
-    const arenaTeam = runtime?.arena?.carTeams?.[c];
-    const arenaColor = runtime?.arena?.carColors?.[c];
-    const arenaFinish = runtime?.arena?.carPaintFinishes?.[c] || null;
-    const arenaBoostVis = runtime?.arena?.carBoostVisuals?.[c] || null;
-    const arenaBoostAud = runtime?.arena?.carBoostAudios?.[c] || null;
-
-    let initY = 0;
-    if (frameBuffer && frameBuffer.length >= SIM_OFFSETS.CARS + c * CAR_STATE_STRIDE + 3) {
-      initY = frameBuffer[SIM_OFFSETS.CARS + c * CAR_STATE_STRIDE + 1] || 0;
-    }
+    const arena = runtime?.arena;
+    const arenaTeam = arena?.carTeams?.[c];
+    const initY =
+      frameBuffer && frameBuffer.length >= SIM_OFFSETS.CARS + c * CAR_STATE_STRIDE + 3
+        ? frameBuffer[SIM_OFFSETS.CARS + c * CAR_STATE_STRIDE + 1] || 0
+        : 0;
 
     const fallbackTeam: 0 | 1 =
       typeof arenaTeam === 'number' ? (arenaTeam === 1 ? 1 : 0)
@@ -239,15 +213,13 @@ export function captureRuntimeReplayCarEntries(
       : Math.abs(initY) > 50 ? (initY > 0 ? 1 : 0) : ((c % 2) as 0 | 1);
 
     const isLocal = c === playerCarIndex;
+    const specHitbox = typeof spec?.hitboxIndex === 'number' ? decodeHitboxIndex(spec.hitboxIndex) : null;
     const rawVisual =
-      exp?.visualId || ros?.visualId || nt?.visualId || arenaPreset ||
-      (isLocal ? runtime?.selectedPreset || runtime?.arena?.carVisual : null) ||
-      (typeof spec?.hitboxIndex === 'number' ? decodeHitboxIndex(spec.hitboxIndex) : null) || 'fennec';
+      exp?.visualId || ros?.visualId || nt?.visualId || arena?.vehiclePresets?.[c] ||
+      (isLocal ? runtime?.selectedPreset || arena?.carVisual : null) || specHitbox || 'fennec';
     const rawHitbox =
-      exp?.hitboxId || ros?.hitboxId || nt?.hitboxId ||
-      (typeof spec?.hitboxIndex === 'number' ? decodeHitboxIndex(spec.hitboxIndex) : null) ||
-      (isLocal && runtime?.selectedHitbox ? runtime.selectedHitbox : null) ||
-      resolveVehicleHitboxId(rawVisual);
+      exp?.hitboxId || ros?.hitboxId || nt?.hitboxId || specHitbox ||
+      (isLocal && runtime?.selectedHitbox ? runtime.selectedHitbox : null) || resolveVehicleHitboxId(rawVisual);
 
     const merged: RawReplayCarEntryLike = {
       ...nt, ...ros, ...exp,
@@ -263,10 +235,10 @@ export function captureRuntimeReplayCarEntries(
       colorSlot:
         exp?.colorSlot ?? ros?.colorSlot ?? nt?.colorSlot ??
         (isLocal && typeof runtime?.selectedColorSlot === 'number' ? runtime.selectedColorSlot : undefined),
-      colorHex: exp?.colorHex || ros?.colorHex || nt?.colorHex || toHexColorString(arenaColor),
-      paintFinish: exp?.paintFinish || ros?.paintFinish || nt?.paintFinish || arenaFinish || 'metallic',
-      boostVisual: exp?.boostVisual || ros?.boostVisual || nt?.boostVisual || arenaBoostVis || 'cartoon',
-      boostAudio: exp?.boostAudio || ros?.boostAudio || nt?.boostAudio || arenaBoostAud || 'standard',
+      colorHex: exp?.colorHex || ros?.colorHex || nt?.colorHex || toHexColorString(arena?.carColors?.[c]),
+      paintFinish: exp?.paintFinish || ros?.paintFinish || nt?.paintFinish || arena?.carPaintFinishes?.[c] || 'metallic',
+      boostVisual: exp?.boostVisual || ros?.boostVisual || nt?.boostVisual || arena?.carBoostVisuals?.[c] || 'cartoon',
+      boostAudio: exp?.boostAudio || ros?.boostAudio || nt?.boostAudio || arena?.carBoostAudios?.[c] || 'standard',
       anthemId: exp?.anthemId || ros?.anthemId || nt?.anthemId || 'none',
     };
 
@@ -283,16 +255,9 @@ export function applyReplayCarEntriesToRuntime(
   frameBuffer?: ArrayLike<number> | null
 ): NormalizedReplayDirectorCarEntry[] {
   const safeNumCars = Math.min(MAX_CARS, Math.max(1, numCars || 1));
-  const entryMap = new Map<number, ReplayCarRosterEntry>();
-  if (Array.isArray(carEntries)) {
-    for (const e of carEntries) {
-      if (e && typeof e.carIndex === 'number' && e.carIndex >= 0 && e.carIndex < MAX_CARS) {
-        entryMap.set(e.carIndex, e);
-      }
-    }
-  }
-
+  const entryMap = indexEntriesByCar(carEntries);
   const normalizedEntries: NormalizedReplayDirectorCarEntry[] = [];
+
   for (let c = 0; c < safeNumCars; c++) {
     let fallbackTeam = c % 2;
     if (frameBuffer && frameBuffer.length >= SIM_OFFSETS.CARS + c * CAR_STATE_STRIDE + 3) {
@@ -326,9 +291,7 @@ export function applyReplayCarEntriesToRuntime(
     if (safeNumCars > 1) arena.ensureOpponent?.();
     for (const e of normalizedEntries) {
       arena.ensureCar?.(e.carIndex, e.team, e.visualId);
-      if (arena.vehiclePresets?.[e.carIndex] !== e.visualId) {
-        arena.swapCarVisual?.(e.carIndex, e.visualId);
-      }
+      if (arena.vehiclePresets?.[e.carIndex] !== e.visualId) arena.swapCarVisual?.(e.carIndex, e.visualId);
       arena.setCarTeam?.(e.carIndex, e.team);
       if (e.colorHex) arena.setCarColor?.(e.carIndex, e.colorHex);
       arena.setCarLoadout?.(e.carIndex, {

@@ -1,6 +1,6 @@
 import { AuthoritativeServerHost } from '../../network/server/AuthoritativeServerHost.ts';
 import { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
-import { CLIENT_COMMAND_TYPES } from '../../network/protocol/GlobalPayloadCodec.ts';
+import { CLIENT_COMMAND_TYPES } from '../../physics/RocketSimConstants.ts';
 import {
   packLoadoutCommandParam1,
   packLoadoutCommandParam2,

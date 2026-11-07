@@ -10,7 +10,7 @@
  *    plus match-phase relay convergence (`smart-prune` vs `keep-all-probed`).
  */
 
-import { getSlotBitForRelayId } from './signalingRelaySlotRegistry.ts';
+import { getSlotBitForRelayId } from '../../ui-core/config/roomCodeConnectivityCodec.ts';
 
 export type SignalingRelayMatchPolicy = 'smart-prune' | 'keep-all-probed';
 

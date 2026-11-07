@@ -18,23 +18,15 @@ import {
 import type { SignalingRelaySpec } from './signalingRelayConfig.ts';
 import type { DeterministicRoomContext } from './SignalingCryptoSession.ts';
 import {
-  CANONICAL_RELAY_ORDER,
   RELAY_SLOT_BITS,
-  computeConnectivityMaskFromRelayIds,
-  getSlotBitForRelayId,
   normalizeCanonicalRelayId,
   type CanonicalEdgeNodeId,
   type CanonicalRelayId,
 } from '../../ui-core/config/roomCodeConnectivityCodec.ts';
 
-export {
-  CANONICAL_RELAY_ORDER,
-  RELAY_SLOT_BITS,
-  computeConnectivityMaskFromRelayIds,
-  getSlotBitForRelayId,
-  normalizeCanonicalRelayId,
-  type CanonicalEdgeNodeId,
-  type CanonicalRelayId,
+export type {
+  CanonicalEdgeNodeId,
+  CanonicalRelayId,
 };
 
 export type RelayTransportClient =

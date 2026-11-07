@@ -5,7 +5,7 @@
  * homologous Training / Freeplay ruleset configuration, and server replay timeline stepping.
  */
 
-import { SYSTEM_CONTROL_SIGNALS } from '../../protocol/GlobalPayloadCodec.ts';
+import { SYSTEM_CONTROL_SIGNALS } from '../../../physics/RocketSimConstants.ts';
 import { REPLAY_BUFFER_MODES } from '../../../replay/ReplayRingBuffer.ts';
 import {
   interpolateReplaySnapshots, encodeReplayDirectorTelemetryIntoState,

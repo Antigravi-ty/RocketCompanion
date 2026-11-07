@@ -22,8 +22,8 @@ import { SupersonicSpeedLinesPass } from '../../effects/SupersonicSpeedLinesPass
 import {
   RenderPass,
   ShaderPass,
-  OutputPass,
 } from '../../effects/PostprocessingPasses.ts';
+import { OutputPass } from '../../effects/PostprocessingMaskAndOutputPasses.ts';
 import { EffectComposer } from '../../effects/PostprocessingPipeline.ts';
 import { RoomEnvironment } from '../../effects/RoomEnvironment.ts';
 import { ArenaWorld } from '../../entities/ArenaWorld.ts';

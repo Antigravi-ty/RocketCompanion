@@ -16,9 +16,9 @@ import {
 import {
   executeLiveFreeplayHandoff,
   emitSystemControlTransition,
-  SYSTEM_CONTROL_SIGNALS,
   type ReplayTakeoverSubController,
 } from './ReplayTakeoverSubController.ts';
+import { SYSTEM_CONTROL_SIGNALS } from '../physics/RocketSimConstants.ts';
 import type {
   ReplayScoreboardRuntimePort,
   ReplayScoreboardModePort,

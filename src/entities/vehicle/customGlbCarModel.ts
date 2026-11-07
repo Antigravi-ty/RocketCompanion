@@ -225,7 +225,6 @@ export async function loadCustomGlbCarAsset(vehicleId: string): Promise<CustomGl
 }
 
 import { applyCustomGlbVehicleMaterials } from './customGlbVehicleMaterials.ts';
-export { applyCustomGlbVehicleMaterials };
 
 /**
  * Updates boost nozzle gizmo positions on a custom vehicle model.

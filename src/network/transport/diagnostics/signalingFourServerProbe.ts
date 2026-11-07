@@ -7,14 +7,17 @@
 
 import { MqttWebSocketClient } from '../MqttWebSocketClient.ts';
 import { SupabaseRealtimeSignalingClient } from '../SupabaseRealtimeSignalingClient.ts';
-import { formatCustomRoomCode, generateRandomRoomCode } from '../../../ui-core/config/roomCodeConnectivityCodec.ts';
 import {
   CANONICAL_RELAY_ORDER,
   RELAY_SLOT_BITS,
+  formatCustomRoomCode,
+  generateRandomRoomCode,
   type CanonicalEdgeNodeId,
   type CanonicalRelayId,
-  type CanonicalRelaySlotEndpoint,
-  type FourServerHarnessEndpointConfig,
+} from '../../../ui-core/config/roomCodeConnectivityCodec.ts';
+import type {
+  CanonicalRelaySlotEndpoint,
+  FourServerHarnessEndpointConfig,
 } from '../signalingRelaySlotRegistry.ts';
 
 export interface HarnessPacketTraceEntry {

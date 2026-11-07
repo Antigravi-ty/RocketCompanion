@@ -15,8 +15,6 @@ import { reconstructAndRestoreReplayFrame } from '../physics/CarTransientStateRe
 import { gameAudio } from '../audio/GameAudioEngineFacade.ts';
 import type { NormalizedReplayFrameSlot } from './ReplayCausalHybridEngine.ts';
 
-export { SYSTEM_CONTROL_SIGNALS };
-
 export interface ReplayTakeoverAudioPort {
   play?: (soundId: string, volume?: number, cooldownMs?: number) => void;
 }

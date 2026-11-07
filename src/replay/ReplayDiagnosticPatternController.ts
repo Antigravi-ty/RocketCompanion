@@ -17,12 +17,12 @@ import {
 import { parseDirectorDiagnosticInput } from './ReplayDirectorPatternParser.ts';
 import type { ReplayDirectorCameraSubController } from './ReplayDirectorCameraSubController.ts';
 import {
-  buildCurrentFrameDiagnosticSnapshot,
   evaluateDirectorDiagnosticPatternPayload,
   type ReplayDirectorDiagnosticInput,
   type DirectorDiagnosticPatternOptions,
   type DirectorDiagnosticPatternPayload,
 } from './ReplayDirectorDiagnostics.ts';
+import { buildCurrentFrameDiagnosticSnapshot } from './replayDirectorSingleFramePipeline.ts';
 import { resolveGoalExplosionFrameIndex, type ReplayTouchEvent } from './ReplayDirectorGazeSolver.ts';
 import {
   buildDirectorDiagnosticPatternCsv,

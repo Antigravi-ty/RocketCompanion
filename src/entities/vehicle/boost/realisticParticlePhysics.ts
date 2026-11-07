@@ -27,67 +27,42 @@ import type { RealisticBoostParticleMesh } from './RealisticBoostParticleMesh.ts
  * Gold Rush Boost particle state machine, distance-based spawning, and physics updates.
  */
 export class RealisticParticlePhysics {
-  public _scratchB: THREE.Vector3;
-  public _scratchC: THREE.Vector3;
-  public _scratchD: THREE.Vector3;
-  public currentNozzle: THREE.Vector3;
+  public _scratchB = new THREE.Vector3();
+  public _scratchC = new THREE.Vector3();
+  public _scratchD = new THREE.Vector3();
+  public currentNozzle = new THREE.Vector3();
   public drive: RealisticBoostParticleMesh;
-  public driveAge: Float32Array;
-  public driveBaseSize: Float32Array;
-  public driveHead: number;
-  public driveParticlesActive: boolean;
-  public driveSpawnAccumulator: number;
-  public driveVelocity: Float32Array;
-  public hasPreviousNozzle: boolean;
-  public longSpawnRemainder: number;
+  public driveAge = new Float32Array(REALISTIC_DRIVE_COUNT).fill(Infinity);
+  public driveBaseSize = new Float32Array(REALISTIC_DRIVE_COUNT * 2);
+  public driveHead = 0;
+  public driveParticlesActive = false;
+  public driveSpawnAccumulator = 0;
+  public driveVelocity = new Float32Array(REALISTIC_DRIVE_COUNT * 3);
+  public hasPreviousNozzle = false;
+  public longSpawnRemainder = 0;
   public nozzleLocal: THREE.Vector3;
-  public previousNozzle: THREE.Vector3;
-  public shortSpawnRemainder: number;
-  public spawnRemainder: number;
+  public previousNozzle = new THREE.Vector3();
+  public shortSpawnRemainder = 0;
+  public spawnRemainder = 0;
   public trail: RealisticBoostParticleMesh;
-  public trailAcceleration: Float32Array;
-  public trailAge: Float32Array;
-  public trailBaseSize: Float32Array;
-  public trailHead: number;
-  public trailMaxLife: Float32Array;
-  public trailOpacityWeight: Float32Array;
-  public trailParticlesActive: boolean;
-  public trailScaleRefLife: Float32Array;
-  public trailVelocity: Float32Array;
+  public trailAcceleration = new Float32Array(REALISTIC_TRAIL_COUNT);
+  public trailAge = new Float32Array(REALISTIC_TRAIL_COUNT).fill(Infinity);
+  public trailBaseSize = new Float32Array(REALISTIC_TRAIL_COUNT * 2);
+  public trailHead = 0;
+  public trailMaxLife = new Float32Array(REALISTIC_TRAIL_COUNT).fill(REALISTIC_TRAIL_LIFE);
+  public trailOpacityWeight = new Float32Array(REALISTIC_TRAIL_COUNT).fill(1.0);
+  public trailParticlesActive = false;
+  public trailScaleRefLife = new Float32Array(REALISTIC_TRAIL_COUNT).fill(0.6);
+  public trailVelocity = new Float32Array(REALISTIC_TRAIL_COUNT * 3);
 
-  constructor(driveMesh: RealisticBoostParticleMesh, trailMesh: RealisticBoostParticleMesh, nozzleLocal: THREE.Vector3) {
-    const { Vector3 } = THREE;
+  constructor(
+    driveMesh: RealisticBoostParticleMesh,
+    trailMesh: RealisticBoostParticleMesh,
+    nozzleLocal: THREE.Vector3,
+  ) {
     this.drive = driveMesh;
     this.trail = trailMesh;
     this.nozzleLocal = nozzleLocal;
-
-    this.driveAge = new Float32Array(REALISTIC_DRIVE_COUNT).fill(Infinity);
-    this.driveBaseSize = new Float32Array(REALISTIC_DRIVE_COUNT * 2);
-    this.driveVelocity = new Float32Array(REALISTIC_DRIVE_COUNT * 3);
-    this.driveHead = 0;
-    this.driveSpawnAccumulator = 0;
-    this.driveParticlesActive = false;
-
-    this.trailAge = new Float32Array(REALISTIC_TRAIL_COUNT).fill(Infinity);
-    this.trailMaxLife = new Float32Array(REALISTIC_TRAIL_COUNT).fill(REALISTIC_TRAIL_LIFE);
-    this.trailScaleRefLife = new Float32Array(REALISTIC_TRAIL_COUNT).fill(0.6);
-    this.trailOpacityWeight = new Float32Array(REALISTIC_TRAIL_COUNT).fill(1.0);
-    this.trailBaseSize = new Float32Array(REALISTIC_TRAIL_COUNT * 2);
-    this.trailAcceleration = new Float32Array(REALISTIC_TRAIL_COUNT);
-    this.trailVelocity = new Float32Array(REALISTIC_TRAIL_COUNT * 3);
-    this.trailHead = 0;
-    this.trailParticlesActive = false;
-
-    this.previousNozzle = new Vector3();
-    this.currentNozzle = new Vector3();
-    this.hasPreviousNozzle = false;
-    this.spawnRemainder = 0;
-    this.shortSpawnRemainder = 0;
-    this.longSpawnRemainder = 0;
-
-    this._scratchB = new Vector3();
-    this._scratchC = new Vector3();
-    this._scratchD = new Vector3();
   }
 
   reset() {
@@ -123,9 +98,10 @@ export class RealisticParticlePhysics {
     this.driveSpawnAccumulator = 0;
   }
 
-  spawnDrive(dt) {
+  spawnDrive(dt: number) {
     this.driveSpawnAccumulator += dt * REALISTIC_DRIVE_RATE;
-    if (!Number.isFinite(this.driveAge[(this.driveHead + REALISTIC_DRIVE_COUNT - 1) % REALISTIC_DRIVE_COUNT])) {
+    const prevIdx = (this.driveHead + REALISTIC_DRIVE_COUNT - 1) % REALISTIC_DRIVE_COUNT;
+    if (!Number.isFinite(this.driveAge[prevIdx])) {
       this.driveSpawnAccumulator = Math.max(this.driveSpawnAccumulator, 1);
     }
     let spawned = 0;
@@ -154,7 +130,7 @@ export class RealisticParticlePhysics {
     }
   }
 
-  spawnTrailByDistance(pos, dt) {
+  spawnTrailByDistance(pos: THREE.Vector3, _dt?: number) {
     const { MathUtils } = THREE;
     this.currentNozzle.copy(pos);
 
@@ -163,7 +139,7 @@ export class RealisticParticlePhysics {
     const shortMul = Math.max(0, boostParticleRuntimeConfig.shortTrailSpawnMultiplier ?? 1.0);
     const longMul = Math.max(0, boostParticleRuntimeConfig.longTrailSpawnMultiplier ?? 0.1);
 
-    if (dualStream ? (shortMul <= 0.01 && longMul <= 0.01) : (baseSpawnMul <= 0.01)) {
+    if (dualStream ? shortMul <= 0.01 && longMul <= 0.01 : baseSpawnMul <= 0.01) {
       return;
     }
 
@@ -187,14 +163,13 @@ export class RealisticParticlePhysics {
       return;
     }
 
+    const scaleRefLife = Math.max(0.1, Number(boostParticleRuntimeConfig.shortTrailScaleRefLife) || 0.6);
+
     if (dualStream) {
       const shortLife = Math.max(0.05, Number(boostParticleRuntimeConfig.shortTrailLifetime) || 0.1);
-      const scaleRefLife = Math.max(0.1, Number(boostParticleRuntimeConfig.shortTrailScaleRefLife) || 0.6);
       const longLife = Math.max(shortLife + 0.05, Number(boostParticleRuntimeConfig.longTrailLifetime) || 2.0);
       const smoothBridge = boostParticleRuntimeConfig.smoothStreamTransition !== false;
 
-      // 1. Short-range cone stream (truncated at shortLife, expanding along scaleRefLife curve,
-      //    with smooth power-law bridge lifetimes when smoothStreamTransition is enabled)
       if (shortMul > 0.01) {
         const remS = this.shortSpawnRemainder;
         const stepS = ((Math.random() * 4) / REALISTIC_TRAIL_INTERVAL) * shortMul;
@@ -203,18 +178,20 @@ export class RealisticParticlePhysics {
         const cappedS = Math.min(countS, REALISTIC_MAX_PARTICLES_PER_FRAME);
         this.shortSpawnRemainder = progS - countS;
         if (stepS > 0) {
+          const bridgeSpan = Math.min(longLife, shortLife * 4.5);
           for (let i = 0; i < cappedS; i++) {
             const t = (i + 1 - remS) / stepS;
             this._scratchD.copy(this._scratchB).addScaledVector(this._scratchC, MathUtils.clamp(t, 0, dist));
             let particleLife = shortLife;
             let opacityWeight = 1.0;
             if (smoothBridge) {
-              // Smoothly bridge particle lifetimes from shortLife into the mid-tail zone
-              // so there is no abrupt thickness cliff right behind the car at t = shortLife.
               const u = Math.random();
-              const bridgeSpan = Math.min(longLife, shortLife * 4.5);
               particleLife = shortLife * (0.85 + 0.3 * u) + (bridgeSpan - shortLife) * Math.pow(u, 2.8);
-              const bridgeRatio = MathUtils.clamp((particleLife - shortLife) / Math.max(0.05, bridgeSpan - shortLife), 0, 1);
+              const bridgeRatio = MathUtils.clamp(
+                (particleLife - shortLife) / Math.max(0.05, bridgeSpan - shortLife),
+                0,
+                1,
+              );
               opacityWeight = 1.0 - 0.55 * Math.sqrt(bridgeRatio);
             }
             this.spawnTrailParticle(this._scratchD, particleLife, scaleRefLife, opacityWeight);
@@ -222,7 +199,6 @@ export class RealisticParticlePhysics {
         }
       }
 
-      // 2. Long-range lingering plume stream
       if (longMul > 0.01) {
         const remL = this.longSpawnRemainder;
         const stepL = ((Math.random() * 4) / REALISTIC_TRAIL_INTERVAL) * longMul;
@@ -234,9 +210,7 @@ export class RealisticParticlePhysics {
           for (let i = 0; i < cappedL; i++) {
             const t = (i + 1 - remL) / stepL;
             this._scratchD.copy(this._scratchB).addScaledVector(this._scratchC, MathUtils.clamp(t, 0, dist));
-            const jitteredLongLife = smoothBridge
-              ? longLife * (0.7 + 0.45 * Math.random())
-              : longLife;
+            const jitteredLongLife = smoothBridge ? longLife * (0.7 + 0.45 * Math.random()) : longLife;
             const farRefLife = Math.max(scaleRefLife, jitteredLongLife * 0.65);
             this.spawnTrailParticle(this._scratchD, jitteredLongLife, farRefLife, smoothBridge ? 0.78 : 1.0);
           }
@@ -244,13 +218,11 @@ export class RealisticParticlePhysics {
       }
     } else {
       const singleLife = Math.max(0.08, REALISTIC_TRAIL_LIFE * (boostParticleRuntimeConfig.trailLifeMultiplier ?? 1.0));
-      const scaleRefLife = Math.max(0.1, Number(boostParticleRuntimeConfig.shortTrailScaleRefLife) || 0.6);
       const rem = this.spawnRemainder;
       const step = ((Math.random() * 4) / REALISTIC_TRAIL_INTERVAL) * baseSpawnMul;
       const progress = rem + dist * step;
       const count = Math.floor(progress);
       const capped = Math.min(count, REALISTIC_MAX_PARTICLES_PER_FRAME);
-
       this.spawnRemainder = progress - count;
 
       if (step > 0) {
@@ -268,7 +240,7 @@ export class RealisticParticlePhysics {
     pos: THREE.Vector3,
     customLifetime: number | null = null,
     customScaleRefLife: number | null = null,
-    opacityWeight = 1.0
+    opacityWeight = 1.0,
   ) {
     const head = this.trailHead;
     this.trailHead = (head + 1) % REALISTIC_TRAIL_COUNT;
@@ -289,18 +261,19 @@ export class RealisticParticlePhysics {
 
     this.trail.rotations[head] = Math.random() * Math.PI * 2;
     this.trailAge[head] = 0;
-    const life = customLifetime !== null
-      ? customLifetime
-      : Math.max(0.08, REALISTIC_TRAIL_LIFE * (boostParticleRuntimeConfig.trailLifeMultiplier ?? 1.0));
-    this.trailMaxLife[head] = life;
-    this.trailScaleRefLife[head] = customScaleRefLife !== null
-      ? customScaleRefLife
-      : Math.max(0.1, Number(boostParticleRuntimeConfig.shortTrailScaleRefLife) || 0.6);
+    this.trailMaxLife[head] =
+      customLifetime !== null
+        ? customLifetime
+        : Math.max(0.08, REALISTIC_TRAIL_LIFE * (boostParticleRuntimeConfig.trailLifeMultiplier ?? 1.0));
+    this.trailScaleRefLife[head] =
+      customScaleRefLife !== null
+        ? customScaleRefLife
+        : Math.max(0.1, Number(boostParticleRuntimeConfig.shortTrailScaleRefLife) || 0.6);
     this.trailOpacityWeight[head] = opacityWeight;
     this.trailParticlesActive = true;
   }
 
-  updateDrive(dt) {
+  updateDrive(dt: number) {
     let active = false;
     for (let i = 0; i < REALISTIC_DRIVE_COUNT; i++) {
       this.driveAge[i] += dt;
@@ -336,7 +309,7 @@ export class RealisticParticlePhysics {
     return active;
   }
 
-  updateTrail(dt) {
+  updateTrail(dt: number) {
     const { MathUtils } = THREE;
     let active = false;
     const useDistDecay = Boolean(boostParticleRuntimeConfig.distanceDecayEnabled);
@@ -360,9 +333,6 @@ export class RealisticParticlePhysics {
       }
 
       active = true;
-      // Decouple cone expansion trajectory from cutoff lifetime:
-      // Particles expand along the reference duration (e.g. 0.6s) so a 0.15s cutoff
-      // preserves the exact 0.6s cone geometry near the nozzle and cleanly truncates after 0.15s.
       const scaleRefLife = Math.max(0.1, this.trailScaleRefLife[i] || 0.6);
       const scaleProgress = Math.min(1.0, age / scaleRefLife);
 
@@ -384,7 +354,6 @@ export class RealisticParticlePhysics {
       this.trail.sizes[sIdx] = this.trailBaseSize[sIdx] * evalCurveLut(CURVE_SCALE, scaleProgress);
       this.trail.sizes[sIdx + 1] = this.trailBaseSize[sIdx + 1];
 
-      // Ramp in along the reference curve, and smoothly fade out as lifeProgress -> 1.0
       const rampInProgress = Math.max(scaleProgress, Math.min(0.35, lifeProgress * 0.7));
       const baseOpacity = evalCurveLut(CURVE_OPACITY, rampInProgress);
       const cutoffFade = 1.0 - MathUtils.smoothstep(lifeProgress, 0.45, 1.0);

@@ -1,15 +1,21 @@
+/**
+ * src/ui-system/index.tsx
+ * Root mount entry point for the RocketCompanion React UI system overlay.
+ * Binds GameUIRoot, runtime store bridges, and material/signaling synchronization
+ * without exposing indirect value re-exports.
+ */
+
 import React from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { GameUIRoot } from './GameUIRoot';
 import { useAppStore } from '../ui-core/stores/appStore';
 import { type ActiveMenuRoute } from '../ui-core/config/uiConfig';
 import { perfTelemetryStore } from '../ui-core/stores/perfTelemetryStore';
-import { attachGameRuntimeBridge, syncMaterialsToGame } from './core/runtimeBridgeAdapter';
+import { attachGameRuntimeBridge } from './core/runtimeBridgeAdapter';
+import { syncMaterialsToGame } from './core/runtimeTunerBridgeHandlers';
 import { ensureSignalingProfileBridge } from './core/runtimeOnlineBridgeHandlers';
 import type { GameRuntimeUiBridgePort } from '../game/runtimeUiPort.ts';
 import '../styles/ui-system.css';
-
-export { syncMaterialsToGame };
 
 export interface GameUIRuntimeHandle {
   openMenu: (route?: ActiveMenuRoute) => void;

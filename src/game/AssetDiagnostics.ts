@@ -24,8 +24,6 @@ import {
 import { BOOST_PAD_ASSET_URLS } from '../entities/arena/BoostPadTemplateLoader.ts';
 import { validateAssetResponse, resolveAssetPath } from '../utils/AssetResponseValidator.ts';
 
-export { validateAssetResponse, resolveAssetPath };
-
 export interface AssetInventoryItem {
   path: string;
   desc: string;

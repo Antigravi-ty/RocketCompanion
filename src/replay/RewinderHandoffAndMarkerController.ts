@@ -13,9 +13,9 @@ import {
 import {
   executeLiveFreeplayHandoff,
   emitSystemControlTransition,
-  SYSTEM_CONTROL_SIGNALS,
   type ReplayTakeoverSubController,
 } from './ReplayTakeoverSubController.ts';
+import { SYSTEM_CONTROL_SIGNALS } from '../physics/RocketSimConstants.ts';
 import {
   buildRewinderFramesFromParsedReplay,
   applyRewinderFrameToPhysics,
@@ -27,7 +27,7 @@ import {
   type RewinderRuntimePort,
   type RewinderModePort,
 } from './replayDataPayloadPipeline.ts';
-import { DEFAULT_CAR_CONTROLS } from '../ai/experimental/ExperimentalBotAgent.ts';
+import { DEFAULT_CAR_CONTROLS } from '../ai/experimental/experimentalMultiCarObsPipeline.ts';
 import { dispatchReplayFrameEvents } from './ReplayFrameEventDispatcher.ts';
 import { gameAudio } from '../audio/GameAudioEngineFacade.ts';
 

@@ -43,7 +43,6 @@ import {
   type TrajectoryPhysicsPort,
 } from './trajectory/BallTrajectorySamplingController.ts';
 
-export { DEFAULT_TRAJECTORY_SETTINGS };
 export type {
   BallTrajectoryOverride,
   BallTrajectoryTelemetrySnapshot,

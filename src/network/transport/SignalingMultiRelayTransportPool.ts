@@ -12,8 +12,10 @@ import {
 } from './signalingRelayConfig.ts';
 import {
   computeConnectivityMaskFromRelayIds,
-  createSignalingRelayTransport,
   getSlotBitForRelayId,
+} from '../../ui-core/config/roomCodeConnectivityCodec.ts';
+import {
+  createSignalingRelayTransport,
   resolveCoHostedEdgeBridgeUrlForRelay,
   type RelayTransportClient,
   type RelayTransportFactoryContext,

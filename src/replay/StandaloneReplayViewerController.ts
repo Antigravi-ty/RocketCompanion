@@ -16,9 +16,9 @@ import {
 import type { ReplayFrameSlotLike } from './ReplayCausalHybridEngine.ts';
 import {
   emitSystemControlTransition,
-  SYSTEM_CONTROL_SIGNALS,
   ReplayTakeoverSubController,
 } from './ReplayTakeoverSubController.ts';
+import { SYSTEM_CONTROL_SIGNALS } from '../physics/RocketSimConstants.ts';
 import {
   ReplayScoreboardSynchronizer,
   type ReplayScoreboardRuntimePort,

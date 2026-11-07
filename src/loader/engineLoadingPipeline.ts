@@ -1,24 +1,10 @@
-import {
-  isVerboseLogEnabled,
-  ConsoleProgressObserver
-} from './ConsoleProgressObserver.ts';
-import { MinimumProgressLoader } from './MinimumProgressLoader.ts';
-import { DualProgressUIAdapter } from './DualProgressUIAdapter.ts';
+import { isVerboseLogEnabled } from './ConsoleProgressObserver.ts';
 import { LoadingOrchestrator } from './LoadingOrchestrator.ts';
 import { LoadingTask } from './LoadingTask.ts';
 import type { LoadingBootstrapError } from './types.ts';
 import { verifyCameraMicrokernelIntegrity } from '../camera/exempt_pov_microkernel/CameraMicrokernel.ts';
 import { auditRequiredAssets, formatMissingAssetsHtml } from '../game/AssetDiagnostics.ts';
 import { fetchArenaCollisionManifest, fetchArenaCollisionChunks } from '../physics/RocketSimMeshLoader.ts';
-
-export {
-  isVerboseLogEnabled,
-  ConsoleProgressObserver,
-  MinimumProgressLoader,
-  DualProgressUIAdapter,
-  LoadingOrchestrator,
-  LoadingTask
-};
 
 export interface EngineLoadingRuntimePort {
   setupPhysics: (options: { collisionData?: unknown }) => Promise<unknown> | unknown;

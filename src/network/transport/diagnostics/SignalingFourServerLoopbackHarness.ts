@@ -10,12 +10,14 @@ import {
   SignalingCryptoSession,
   deriveDeterministicRoomContext,
 } from '../SignalingCryptoSession.ts';
-import { parseRoomCode } from '../../../ui-core/config/roomCodeConnectivityCodec.ts';
 import {
   CANONICAL_RELAY_ORDER,
-  resolveFourServerHarnessConfig,
+  parseRoomCode,
   type CanonicalEdgeNodeId,
   type CanonicalRelayId,
+} from '../../../ui-core/config/roomCodeConnectivityCodec.ts';
+import {
+  resolveFourServerHarnessConfig,
   type FourServerHarnessEndpointConfig,
 } from '../signalingRelaySlotRegistry.ts';
 import {

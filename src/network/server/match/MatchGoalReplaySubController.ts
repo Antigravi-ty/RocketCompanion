@@ -13,8 +13,10 @@ import {
   type DirectorCameraState, type ReplaySessionState, type ReplayTimelineFrameEntry,
 } from '../../../replay/replayDirectorStateTypes.ts';
 import {
-  ExperimentalBotAgent, ensureExperimentalEngine, DEFAULT_CAR_CONTROLS,
+  ExperimentalBotAgent,
+  ensureExperimentalEngine,
 } from '../../../ai/experimental/ExperimentalBotAgent.ts';
+import { DEFAULT_CAR_CONTROLS } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
 import {
   MATCH_STATES, GOAL_REPLAY_DURATION_TICKS, KICKOFF_TOTAL_TICKS,
 } from './matchLoadoutAndSpawnPipeline.ts';
