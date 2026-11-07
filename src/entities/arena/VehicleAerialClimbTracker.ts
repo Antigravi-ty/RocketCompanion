@@ -79,17 +79,80 @@ function createInitialSlot(): InternalCarClimbSlot {
   };
 }
 
+export interface CarAerialViewLike {
+  boost?: number;
+  isOnGround?: boolean;
+  isDemoed?: boolean;
+  isJumping?: boolean;
+  isFlipping?: boolean;
+  hasFlipOrJump?: boolean;
+  jumpTime?: number;
+  airTimeSinceJump?: number;
+  posZ?: number;
+  velZ?: number;
+  fwdZ?: number;
+}
+
 export class VehicleAerialClimbTracker {
   private readonly slots: InternalCarClimbSlot[];
+  public readonly carBoostAmounts: Float32Array;
+  public readonly carVerticalVelZUu: Float32Array;
+  public readonly carAirborneFlipExhausted: Uint8Array;
+  public readonly carAerialClimbStatuses: CarAerialClimbStatus[];
 
   constructor(maxCars = 8) {
     this.slots = Array.from({ length: maxCars }, () => createInitialSlot());
+    this.carBoostAmounts = new Float32Array(maxCars);
+    this.carVerticalVelZUu = new Float32Array(maxCars);
+    this.carAirborneFlipExhausted = new Uint8Array(maxCars);
+    this.carAerialClimbStatuses = Array.from({ length: maxCars }, (_, idx) =>
+      this.getStatus(idx)
+    );
   }
 
   public reset(): void {
     for (let i = 0; i < this.slots.length; i++) {
       this.slots[i] = createInitialSlot();
+      this.carAerialClimbStatuses[i] = this.getStatus(i);
     }
+    this.carBoostAmounts.fill(0);
+    this.carVerticalVelZUu.fill(0);
+    this.carAirborneFlipExhausted.fill(0);
+  }
+
+  public stepCarFromView(
+    carIndex: number,
+    currCar: CarAerialViewLike,
+    config: Pick<
+      NameTagConfig,
+      | 'aerialClimbTriggerMode'
+      | 'aerialClimbMinAltitudeUu'
+      | 'aerialClimbMinVelZUu'
+      | 'aerialClimbHoldJumpMinMs'
+      | 'aerialClimbMinPitchFwdZ'
+    >
+  ): void {
+    if (carIndex < 0 || carIndex >= this.slots.length) return;
+    this.carBoostAmounts[carIndex] = Number(currCar.boost) || 0;
+    this.carVerticalVelZUu[carIndex] = Number(currCar.velZ) || 0;
+    this.carAirborneFlipExhausted[carIndex] =
+      !currCar.isOnGround && !currCar.isDemoed && !currCar.hasFlipOrJump ? 1 : 0;
+    this.carAerialClimbStatuses[carIndex] = this.stepCar(
+      carIndex,
+      {
+        isOnGround: Boolean(currCar.isOnGround),
+        isDemoed: Boolean(currCar.isDemoed),
+        isJumping: Boolean(currCar.isJumping),
+        isFlipping: Boolean(currCar.isFlipping),
+        hasFlipOrJump: Boolean(currCar.hasFlipOrJump),
+        jumpTimeSec: Number(currCar.jumpTime) || 0,
+        airTimeSinceJumpSec: Number(currCar.airTimeSinceJump) || 0,
+        posZUu: Number(currCar.posZ) || 0,
+        velZUu: Number(currCar.velZ) || 0,
+        fwdZ: Number(currCar.fwdZ) || 0,
+      },
+      config
+    );
   }
 
   public stepCar(

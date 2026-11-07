@@ -1,42 +1,47 @@
 import * as THREE from 'three';
-import { BoostPadSystem, DEFAULT_BOOST_PAD_TUNER } from './BoostPadSystem.ts';
+import { BoostPadSystem } from './BoostPadSystem.ts';
+import {
+  type BoostPadDefinition,
+  type BoostPadInstance,
+  type BoostPadTemplates,
+  type BoostPadTunerConfig,
+} from './arena/BoostPadTemplateLoader.ts';
 import { BallLocatorArrow } from './BallLocatorArrow.ts';
 import { SpeedTrail } from './SpeedTrail.ts';
 import { onThemeChange } from '../ui-core/config/themeConfig';
 import { ArenaHeaderView, CarStateView, BallStateView, type NumericStateBuffer } from '../physics/RocketSimStateViews.ts';
-import { BOT_CAR_INDEX } from './arena/ArenaConstants.ts';
-import { unrealToThreeCoords, interpolatePhysicsTransform } from './arena/ArenaMath.ts';
-import { createStadiumDomeSky, updateSkyboxConfig, updateSkyboxFrame } from './arena/ArenaSky.ts';
+import { createStadiumDomeSky, updateSkyboxFrame } from './arena/ArenaSky.ts';
 import { ArenaLightingManager } from './arena/ArenaLighting.ts';
 import {
   ArenaVehicleRegistry,
-  updateBoostVisuals,
-  type CarControlInput,
-  type CarControlsResolver,
   type CarLoadoutConfig,
   type VehicleVisualInput,
   type VehicleWheelSet,
 } from './arena/ArenaVehicleRegistry.ts';
-import type { TraversableMaterialNode } from './arena/VehiclePaint.ts';
-import { loadBallAssetInto, loadCarAndPadAssets, loadArenaStadiumMeshes, preloadRemainingVehicleAssets, runParallelArenaAssetSteps } from './arena/ArenaAssetLoader.ts';
-import { updateBallVisualConfig, type BallVisualConfig } from '../ui-core/config/ballVisualConfig';
-import { updateBallGoalEffect } from './BallVisual.ts';
-import { updateCarSuspensionAndSteering } from './VehicleSuspensionSystem.ts';
-import { updateVehicleBrakeLamps } from './vehicle/vehicleWheelsAndLamps.ts';
+import {
+  stepArenaVehiclesFrame,
+  updateBoostVisuals,
+  type CarControlInput,
+  type CarControlsResolver,
+} from './arena/ArenaVehicleFrameStepper.ts';
+import {
+  loadBallAssetInto,
+  loadCarAndPadAssets,
+  prepareAllArenaWarmupAssets,
+  runParallelArenaAssetSteps,
+} from './arena/ArenaAssetLoader.ts';
+import {
+  ArenaEnvironmentManager,
+  createBallGroundIndicatorRings,
+} from './arena/ArenaEnvironmentManager.ts';
+import type { BallVisualConfig } from '../ui-core/config/ballVisualConfig';
 import { VehicleNameTagSystem } from './arena/VehicleNameTagSystem.ts';
 import { VehicleAerialClimbTracker, type CarAerialClimbStatus } from './arena/VehicleAerialClimbTracker.ts';
-import { getNameTagConfig } from '../game/runtimeUiPort.ts';
-import { createDriftwoodsManager, type DriftwoodsMaterialManager } from './stadium/driftwoods/DriftwoodsMaterialManager.ts';
-import { setExperimentalWallFxRuntimeConfig, updateShadowRuntimeConfig, type ExperimentalWallFxConfig, type ShadowConfig } from '../ui-core/config/atmosphereFxConfig';
+import type { DriftwoodsMaterialManager } from './stadium/driftwoods/DriftwoodsMaterialManager.ts';
+import type { ExperimentalWallFxConfig, ShadowConfig } from '../ui-core/config/atmosphereFxConfig';
 import type { DriftwoodsTunerConfig } from '../ui-core/config/driftwoodsConfig';
 import type { SkyboxConfig } from '../ui-core/config/skyboxConfig';
 import type { GoalBarrierDecomposition, GoalBarrierTargetGoal } from '../ui-core/config/goalBarrierConfig';
-import {
-  loadThrowbackStadiumField,
-  loadThrowbackCollisionOverlay,
-  preloadThrowbackStadiumAssets,
-} from './stadium/ThrowbackStadiumLoader.ts';
-import { preloadThrowbackCollisionMeshes } from '../physics/RocketSimMeshLoader.ts';
 import { GoalBarrierVisual } from './arena/GoalBarrierVisual.ts';
 import { GoalVolumeHitboxVisual } from './arena/GoalVolumeHitboxVisual.ts';
 import { RespawnGhostPreview } from './arena/RespawnGhostPreview.ts';
@@ -45,23 +50,7 @@ import { SupersonicWheelTrailSystem } from './vehicle/supersonic-trail/Supersoni
 import type { VehicleBoostEmitter } from './vehicle/boost/vehicleBoostEmitter.ts';
 import type { DemolitionEffect } from './DemolitionEffect.ts';
 
-export interface BoostPadDefinition { isBig: boolean; pos: [number, number] | number[]; }
-export interface BoostPadTemplates {
-  bigFull: THREE.Group; bigBase: THREE.Group; bigGlow: THREE.Group;
-  smallFull: THREE.Group; smallBase: THREE.Group; smallGlow: THREE.Group;
-}
-export interface BoostPadInstance {
-  id: number; full: THREE.Object3D; base: THREE.Object3D;
-  glowMesh: THREE.Mesh | null; glowMaterial: THREE.Material;
-  orbMesh: THREE.Mesh | null; shadowMesh: THREE.Mesh | null;
-  group: THREE.Group; isBig: boolean; pos: [number, number] | number[] | Float32Array; angleDeg: number;
-}
-export type BoostPadTunerConfig = typeof DEFAULT_BOOST_PAD_TUNER;
-
-function disposeMaterialSlot(material: THREE.Material | THREE.Material[] | null | undefined): void {
-  if (!material) return;
-  for (const mat of Array.isArray(material) ? material : [material]) mat?.dispose?.();
-}
+export type { BoostPadDefinition, BoostPadInstance, BoostPadTemplates, BoostPadTunerConfig };
 
 export class ArenaWorld {
   public scene: THREE.Scene;
@@ -88,11 +77,13 @@ export class ArenaWorld {
   public indicatorRing: THREE.Mesh;
   public indicatorHeightRing: THREE.Mesh;
   public vehicleRegistry: ArenaVehicleRegistry;
+  public environment: ArenaEnvironmentManager;
   public cars: Array<THREE.Group | null>;
   public vehiclePresets: Array<string | null>;
   public carWheels: Array<VehicleWheelSet | null>;
   public carBoosts: Array<VehicleBoostEmitter[] | null>;
   public carDemolitions: Array<DemolitionEffect | null>;
+  public carColors: Array<number | null | undefined>;
   public carBoostAmounts: Float32Array;
   public carVerticalVelZUu: Float32Array;
   public carAirborneFlipExhausted: Uint8Array;
@@ -102,15 +93,6 @@ export class ArenaWorld {
   public respawnGhostPreview: RespawnGhostPreview;
   public spatialAudioVisualizer: SpatialAudioDebugVisualizer;
   public supersonicWheelTrailSystem: SupersonicWheelTrailSystem;
-  public stadiumVisible: boolean;
-  public driftwoodsStadiumVisible: boolean;
-  public driftwoodsStadium: THREE.Group | null;
-  public driftwoodsManager: DriftwoodsMaterialManager | null;
-  public pendingDriftwoodsConfig: Partial<DriftwoodsTunerConfig> | null;
-  public throwbackStadium: THREE.Group | null;
-  public throwbackCollisionOverlay: THREE.Group | null;
-  public isThrowbackStadiumActive: boolean;
-  public collisionOverlayRequested: boolean;
   public _headerView: ArenaHeaderView;
   public _currCarView: CarStateView;
   public _prevCarView: CarStateView;
@@ -157,16 +139,9 @@ export class ArenaWorld {
     if (this.ballLocatorArrow?.object) this.scene.add(this.ballLocatorArrow.object);
     if (this.ballSpeedTrail?.object) this.scene.add(this.ballSpeedTrail.object);
 
-    const ringRadius = ballRadius * 1.15;
-    const ringGeom = new THREE.RingGeometry(ringRadius * 0.92, ringRadius, 48);
-    const ringMat = new THREE.MeshBasicMaterial({ color: 16777215, transparent: true, opacity: 0.2, depthWrite: false });
-    this.indicatorRing = new THREE.Mesh(ringGeom, ringMat);
-    this.indicatorHeightRing = new THREE.Mesh(ringGeom, ringMat);
-    for (const r of [this.indicatorRing, this.indicatorHeightRing]) {
-      r.rotation.x = -Math.PI / 2;
-      r.renderOrder = 2;
-      this.scene.add(r);
-    }
+    const rings = createBallGroundIndicatorRings(this.scene, ballRadius);
+    this.indicatorRing = rings.indicatorRing;
+    this.indicatorHeightRing = rings.indicatorHeightRing;
 
     const vr = this.vehicleRegistry = new ArenaVehicleRegistry(this.scene, () => this.markRenderTreeChanged());
     this.cars = vr.cars;
@@ -174,27 +149,17 @@ export class ArenaWorld {
     this.carWheels = vr.carWheels;
     this.carBoosts = vr.carBoosts;
     this.carDemolitions = vr.carDemolitions;
-    this.carBoostAmounts = new Float32Array(8);
-    this.carVerticalVelZUu = new Float32Array(8);
-    this.carAirborneFlipExhausted = new Uint8Array(8);
+    this.carColors = vr.carColors;
     this.aerialClimbTracker = new VehicleAerialClimbTracker(8);
-    this.carAerialClimbStatuses = Array.from({ length: 8 }, (_, idx) =>
-      this.aerialClimbTracker.getStatus(idx)
-    );
+    this.carBoostAmounts = this.aerialClimbTracker.carBoostAmounts;
+    this.carVerticalVelZUu = this.aerialClimbTracker.carVerticalVelZUu;
+    this.carAirborneFlipExhausted = this.aerialClimbTracker.carAirborneFlipExhausted;
+    this.carAerialClimbStatuses = this.aerialClimbTracker.carAerialClimbStatuses;
     this.nameTagSystem = new VehicleNameTagSystem(this.scene);
     this.respawnGhostPreview = new RespawnGhostPreview(this);
     this.spatialAudioVisualizer = new SpatialAudioDebugVisualizer(this.scene, () => this.markRenderTreeChanged());
     this.supersonicWheelTrailSystem = new SupersonicWheelTrailSystem(this.scene);
-
-    this.stadiumVisible = true;
-    this.driftwoodsStadiumVisible = true;
-    this.driftwoodsStadium = null;
-    this.driftwoodsManager = null;
-    this.pendingDriftwoodsConfig = null;
-    this.throwbackStadium = null;
-    this.throwbackCollisionOverlay = null;
-    this.isThrowbackStadiumActive = false;
-    this.collisionOverlayRequested = false;
+    this.environment = new ArenaEnvironmentManager(this);
 
     this._headerView = new ArenaHeaderView();
     this._currCarView = new CarStateView();
@@ -209,10 +174,9 @@ export class ArenaWorld {
     }
   }
 
-  get carHitboxesVisible() { return this.vehicleRegistry.carHitboxesVisible; }
-  set carHitboxesVisible(v) { this.vehicleRegistry.carHitboxesVisible = v; }
-  get carColors() { return this.vehicleRegistry.carColors; }
-  set carColors(v) { this.vehicleRegistry.carColors = v; }
+  get driftwoodsStadium(): THREE.Group | null { return this.environment.driftwoodsStadium; }
+  get driftwoodsManager(): DriftwoodsMaterialManager | null { return this.environment.driftwoodsManager; }
+  get isThrowbackStadiumActive(): boolean { return this.environment.isThrowbackStadiumActive; }
 
   resetBallTrail() { this.ballSpeedTrail?.reset(); }
   resetCarBoosts(carIndex: number | null = null) {
@@ -226,14 +190,7 @@ export class ArenaWorld {
   }
   get renderTreeVersion() { return this._renderTreeVersion; }
   markRenderTreeChanged() { this._renderTreeVersion++; }
-
-  get boostBloomActive() {
-    if (!Array.isArray(this.carBoosts)) return false;
-    for (const group of this.carBoosts) {
-      if (Array.isArray(group) && group.some((emitter: VehicleBoostEmitter) => emitter?.bloomActive)) return true;
-    }
-    return false;
-  }
+  get boostBloomActive() { return this.vehicleRegistry.hasActiveBoostBloom(); }
 
   async loadBall() {
     await loadBallAssetInto(this.ball);
@@ -261,119 +218,24 @@ export class ArenaWorld {
     this.markRenderTreeChanged();
   }
 
-  async loadArena() {
-    const meshes = await loadArenaStadiumMeshes();
-    if (meshes.driftwoodsStadium) {
-      this.driftwoodsStadium = meshes.driftwoodsStadium;
-      this.driftwoodsManager = createDriftwoodsManager(this.driftwoodsStadium);
-      if (this.pendingDriftwoodsConfig) this.driftwoodsManager.applyConfig(this.pendingDriftwoodsConfig);
-      const teamCols = this.driftwoodsManager.getResolvedTeamColors?.();
-      if (teamCols) this.goalBarrierVisual?.setTeamColors?.(teamCols.blue, teamCols.orange);
-      this.driftwoodsStadiumVisible = true;
-      if (!this.driftwoodsStadium.parent) {
-        this.scene.add(this.driftwoodsStadium);
-      }
-      this.driftwoodsStadium.visible = Boolean(this.stadiumVisible && !this.isThrowbackStadiumActive);
-    }
-    this.markRenderTreeChanged();
-  }
-
+  async loadArena() { await this.environment.loadArena(); }
   async setThrowbackStadiumActive(enabled: boolean, showCollisionOverlay = false) {
-    const next = Boolean(enabled);
-    this.isThrowbackStadiumActive = next;
-    this.goalVolumeHitboxVisual?.setArenaPreset(next);
-    if (next) {
-      if (!this.throwbackStadium) this.throwbackStadium = await loadThrowbackStadiumField();
-      if (this.throwbackStadium && !this.throwbackStadium.parent) this.scene.add(this.throwbackStadium);
-      if (this.throwbackStadium) this.throwbackStadium.visible = Boolean(this.stadiumVisible);
-      if (this.driftwoodsStadium) this.driftwoodsStadium.visible = false;
-      await this.setThrowbackCollisionVisible(showCollisionOverlay);
-    } else {
-      if (this.throwbackStadium) this.throwbackStadium.visible = false;
-      if (this.throwbackCollisionOverlay) this.throwbackCollisionOverlay.visible = false;
-      if (this.driftwoodsStadium) this.driftwoodsStadium.visible = Boolean(this.stadiumVisible);
-      this.collisionOverlayRequested = Boolean(showCollisionOverlay);
-    }
-    this.markRenderTreeChanged();
+    await this.environment.setThrowbackStadiumActive(enabled, showCollisionOverlay);
   }
-
   async setThrowbackCollisionVisible(visible: boolean) {
-    const next = Boolean(visible);
-    this.collisionOverlayRequested = next;
-    if (next && this.isThrowbackStadiumActive) {
-      if (!this.throwbackCollisionOverlay) this.throwbackCollisionOverlay = await loadThrowbackCollisionOverlay();
-      if (this.throwbackCollisionOverlay && !this.throwbackCollisionOverlay.parent) this.scene.add(this.throwbackCollisionOverlay);
-    }
-    if (this.throwbackCollisionOverlay) {
-      this.throwbackCollisionOverlay.visible = Boolean(next && this.isThrowbackStadiumActive);
-    }
-    this.markRenderTreeChanged();
+    await this.environment.setThrowbackCollisionVisible(visible);
   }
-
   updateDriftwoodsTuner(config: Partial<DriftwoodsTunerConfig> | null | undefined) {
-    if (!config) return;
-    this.pendingDriftwoodsConfig = config;
-    this.driftwoodsManager?.applyConfig(config);
-    const teamCols = this.driftwoodsManager?.getResolvedTeamColors?.();
-    if (teamCols) this.goalBarrierVisual?.setTeamColors?.(teamCols.blue, teamCols.orange);
+    this.environment.updateDriftwoodsTuner(config);
   }
+  setStadiumVisible(visible: boolean) { this.environment.setStadiumVisible(visible); }
 
-  setStadiumVisible(visible: boolean) {
-    if (this.stadiumVisible !== visible) {
-      this.stadiumVisible = visible;
-      if (this.sky) {
-        visible ? this.scene.add(this.sky) : this.sky.removeFromParent?.();
-      }
-      const activeStadium = this.isThrowbackStadiumActive ? this.throwbackStadium : this.driftwoodsStadium;
-      if (activeStadium) {
-        activeStadium.visible = Boolean(visible);
-      }
-      this.scene.background = new THREE.Color(visible ? 4679561 : 0);
-      this.markRenderTreeChanged();
-    }
-    if (this.isThrowbackStadiumActive && this.driftwoodsStadium) {
-      this.driftwoodsStadium.visible = false;
-    }
-  }
   setCarColor(carIndex: number, colorVal: string | number | null | undefined) { this.vehicleRegistry.setCarColor(carIndex, colorVal); }
-  setCarPaintFinish(carIndex: number, paintFinish: string | null) { this.vehicleRegistry.setCarPaintFinish?.(carIndex, paintFinish); }
-  setCarBoostVisual(carIndex: number, boostVisual: string | null) { this.vehicleRegistry.setCarBoostVisual?.(carIndex, boostVisual); }
   setCarLoadout(carIndex: number, loadout: CarLoadoutConfig | null | undefined) { this.vehicleRegistry.setCarLoadout?.(carIndex, loadout); }
   async ensureOpponent() { await this.vehicleRegistry.ensureOpponent(() => this.lighting.ensureOpponentSun()); }
 
   async prepareAssets(onProgress: ((loaded: number, total: number, label: string) => void) | null = null) {
-    let completed = 0;
-    const total = 4;
-    const report = (label: string) => {
-      completed++;
-      if (typeof onProgress === 'function') {
-        onProgress(completed, total, label);
-      }
-    };
-    await Promise.all([
-      this.ensureOpponent().then(() => {
-        if (this.cars[BOT_CAR_INDEX]) this.cars[BOT_CAR_INDEX]!.visible = false;
-        report('Opponent Vehicle Rig');
-      }),
-      preloadRemainingVehicleAssets(this.vehicleRegistry).then(() => {
-        report('Additional Vehicle GLB Models');
-      }),
-      Promise.all(
-        this.carBoosts.flatMap(list => Array.isArray(list) ? list.map((emitter: VehicleBoostEmitter) => emitter?.preload?.()) : [])
-      ).then(() => {
-        report('Boost Emitter Textures');
-      }),
-      Promise.all([
-        preloadThrowbackStadiumAssets().catch((err) => {
-          console.warn('[ArenaWorld] Throwback stadium GLB preload warning:', err);
-        }),
-        preloadThrowbackCollisionMeshes().catch((err) => {
-          console.warn('[ArenaWorld] Throwback collision mesh preload warning:', err);
-        }),
-      ]).then(() => {
-        report('Throwback Stadium & Collision Meshes');
-      }),
-    ]);
+    await prepareAllArenaWarmupAssets(() => this.ensureOpponent(), this.vehicleRegistry, onProgress);
   }
 
   addCar(teamIndex: number, visual: VehicleVisualInput = this.carVisual, targetIndex: number | null = null) { return this.vehicleRegistry.addCar(teamIndex, visual, targetIndex); }
@@ -400,50 +262,23 @@ export class ArenaWorld {
   }
 
   updateExperimentalWallConfig(patch: Partial<ExperimentalWallFxConfig>) {
-    setExperimentalWallFxRuntimeConfig(patch);
-    this.driftwoodsManager?.updateExperimentalWallConfig?.(patch);
+    this.environment.updateExperimentalWallConfig(patch);
   }
-
   updateSkyboxConfig(patch: Partial<SkyboxConfig>) {
-    updateSkyboxConfig(patch);
-    if (patch && typeof patch.enabled === 'boolean' && this.sky) {
-      this.sky.visible = Boolean(patch.enabled);
-    }
+    this.environment.updateSkyboxConfig(patch);
   }
-
   updateShadowConfig(patch: Partial<ShadowConfig>, renderer: THREE.WebGLRenderer | null = null) {
-    updateShadowRuntimeConfig(patch);
-    this.lighting?.updateShadowConfig?.(patch, renderer);
-    if (patch && typeof patch.carsReceiveShadows === 'boolean' && Array.isArray(this.cars)) {
-      const receive = Boolean(patch.carsReceiveShadows);
-      for (const carRoot of this.cars) {
-        if (!carRoot) continue;
-        carRoot.traverse?.((node: TraversableMaterialNode) => {
-          if (node.isMesh && node.castShadow) {
-            node.receiveShadow = receive;
-            if (node.material) {
-              for (const m of Array.isArray(node.material) ? node.material : [node.material]) {
-                if (m) m.needsUpdate = true;
-              }
-            }
-          }
-        });
-      }
-    }
+    this.environment.updateShadowConfig(patch, renderer);
   }
-
   updateBallVisualConfig(patch: Partial<BallVisualConfig>) {
-    updateBallVisualConfig(patch, this.ball, [this.indicatorRing, this.indicatorHeightRing]);
-    this.markRenderTreeChanged();
+    this.environment.updateBallVisualConfig(patch);
   }
-
-  updateBoostPadTuner(config: Partial<BoostPadTunerConfig> | null | undefined) { this.boostPadSystem?.updateVisualTuningParams?.(config); }
-
+  updateBoostPadTuner(config: Partial<BoostPadTunerConfig> | null | undefined) {
+    this.boostPadSystem?.updateVisualTuningParams?.(config);
+  }
   updateGoalBarrier(decomposition: GoalBarrierDecomposition | null | undefined, targetGoal: GoalBarrierTargetGoal = 'both', enabled = false, opacity = 0.55) {
-    this.goalBarrierVisual?.updateConfig(decomposition, targetGoal, enabled, opacity);
-    this.markRenderTreeChanged();
+    this.environment.updateGoalBarrier(decomposition, targetGoal, enabled, opacity);
   }
-
   triggerGoalBarrierImpact(xUu: number, yUu: number, zUu: number) {
     this.goalBarrierVisual?.triggerImpact(xUu, yUu, zUu);
   }
@@ -467,136 +302,12 @@ export class ArenaWorld {
     }
 
     const header = this._headerView.attach(currState);
-    const currBall = this._currBallView.attach(currState);
-    const prevBall = this._prevBallView.attach(prevState);
-    interpolatePhysicsTransform(this.ball, prevBall, currBall, alpha, undefined, this.pA, this.pB, this.qA, this.qB);
-    unrealToThreeCoords(this.ballVelocity, currBall.velX, currBall.velY, currBall.velZ);
-    this.ballSpeedTrail?.update(this.ball.position, this.ballVelocity, actualDelta);
+    this.environment.stepBallAndEnvironmentVisuals(prevState, currState, alpha, actualDelta);
 
-    const ballPos = this.ball.position;
-    updateBallGoalEffect(this.ball, Boolean(this.isThrowbackStadiumActive), actualDelta);
-    this.driftwoodsManager?.updateBallProximity?.(ballPos, this.ballVelocity, actualDelta);
-    this.goalBarrierVisual?.update?.(actualDelta);
-    this.indicatorRing.position.set(ballPos.x, 2, ballPos.z);
-    this.indicatorHeightRing.position.set(ballPos.x, 2, ballPos.z);
-    const height = Math.max(0, ballPos.y - this.ballRadius);
-    const scale = 0.86 - 0.68 * Math.min(1, height / 1600);
-    this.indicatorHeightRing.scale.set(scale, scale, 1);
-
-    const nameTagConfig = getNameTagConfig();
-    const vr = this.vehicleRegistry;
-    const maxCars = Math.max(this.cars.length, Math.min(8, header.numCars || 0));
-    vr.syncCarHitboxesVisibility(this.playerCarIndex ?? 0);
-    for (let carIndex = 0; carIndex < maxCars; carIndex++) {
-      if (carIndex >= header.numCars) {
-        if (this.cars[carIndex]) {
-          this.cars[carIndex]!.visible = false;
-          this.carDemolitions[carIndex]?.update(actualDelta, false, this.cars[carIndex]!.position, false);
-        }
-        this.supersonicWheelTrailSystem?.updateCar(carIndex, null, null, null, null, null, actualDelta, false);
-        continue;
-      }
-
-      const currCar = this._currCarView.attachCar(currState, carIndex);
-      const prevCar = this._prevCarView.attachCar(prevState, carIndex);
-      if (this.carBoostAmounts && carIndex < this.carBoostAmounts.length) {
-        this.carBoostAmounts[carIndex] = currCar.boost;
-      }
-      if (this.carVerticalVelZUu && carIndex < this.carVerticalVelZUu.length) {
-        this.carVerticalVelZUu[carIndex] = currCar.velZ;
-      }
-      if (this.carAirborneFlipExhausted && carIndex < this.carAirborneFlipExhausted.length) {
-        this.carAirborneFlipExhausted[carIndex] =
-          !currCar.isOnGround && !currCar.isDemoed && !currCar.hasFlipOrJump ? 1 : 0;
-      }
-      if (this.aerialClimbTracker && carIndex < this.carAerialClimbStatuses.length) {
-        this.carAerialClimbStatuses[carIndex] = this.aerialClimbTracker.stepCar(
-          carIndex,
-          {
-            isOnGround: Boolean(currCar.isOnGround),
-            isDemoed: Boolean(currCar.isDemoed),
-            isJumping: Boolean(currCar.isJumping),
-            isFlipping: Boolean(currCar.isFlipping),
-            hasFlipOrJump: Boolean(currCar.hasFlipOrJump),
-            jumpTimeSec: Number(currCar.jumpTime) || 0,
-            airTimeSinceJumpSec: Number(currCar.airTimeSinceJump) || 0,
-            posZUu: Number(currCar.posZ) || 0,
-            velZUu: Number(currCar.velZ) || 0,
-            fwdZ: Number(currCar.fwdZ) || 0,
-          },
-          nameTagConfig
-        );
-      }
-
-      const isZeroedSlot = (currCar.fwdX * currCar.fwdX + currCar.fwdY * currCar.fwdY + currCar.fwdZ * currCar.fwdZ) < 0.01;
-      const isParkedInactive = isZeroedSlot || (currCar.posX < -5000 && currCar.posZ < -200);
-      if (isParkedInactive) {
-        if (this.cars[carIndex]) {
-          this.cars[carIndex]!.visible = false;
-          this.carDemolitions[carIndex]?.update(actualDelta, false, this.cars[carIndex]!.position, false);
-        }
-        this.supersonicWheelTrailSystem?.updateCar(carIndex, null, null, null, null, null, actualDelta, false);
-        continue;
-      }
-
-      if (!this.cars[carIndex] && typeof this.ensureCar === 'function') {
-        const defaultTeam = carIndex === 6 ? 0 : (carIndex === 7 ? 1 : (carIndex % 2));
-        this.ensureCar(carIndex, defaultTeam, this.carVisual || "fennec");
-      }
-      if (!this.cars[carIndex]) continue;
-
-      const isLocalCar = carIndex === (this.playerCarIndex ?? 0);
-      if (this.isLobbyMode) {
-        const isLobbyDiagCar = carIndex === 6 || carIndex === 7;
-        if (!isLocalCar && !isLobbyDiagCar) {
-          if (this.cars[carIndex]) this.cars[carIndex]!.visible = false;
-          this.supersonicWheelTrailSystem?.updateCar(carIndex, null, null, null, null, null, actualDelta, false);
-          continue;
-        }
-      }
-
-      const carControls = typeof carControlsResolver === 'function'
-        ? carControlsResolver(carIndex)
-        : (carIndex === 0 ? controls : opponentControls);
-      const carThrottle = isLocalCar ? actualThrottle : (carControls?.throttle ?? 0);
-
-      const isRespawning = prevCar.isDemoed && !currCar.isDemoed;
-      if (isRespawning) {
-        this.supersonicWheelTrailSystem?.resetCar(carIndex);
-      }
-      interpolatePhysicsTransform(
-        this.cars[carIndex]!, isRespawning ? currCar : prevCar, currCar, alpha, undefined, this.pA, this.pB, this.qA, this.qB
-      );
-
-      const isAlive = !currCar.isDemoed;
-      this.carDemolitions[carIndex]?.update(actualDelta, !isAlive, this.cars[carIndex]!.position, activeVisuals);
-      this.cars[carIndex]!.visible = isAlive;
-
-      const forwardSpeed = currCar.forwardSpeed ?? 0;
-      const isOnGround = Boolean(currCar.isOnGround);
-      const isPowersliding = Boolean(carControls?.handbrake);
-      updateVehicleBrakeLamps(
-        this.cars[carIndex]!, this.vehiclePresets[carIndex]!, forwardSpeed, carThrottle, isOnGround, isPowersliding, actualDelta
-      );
-
-      updateCarSuspensionAndSteering(
-        this.carWheels[carIndex], vr.carWheelSpecs[carIndex], vr.carSuspension[carIndex],
-        vr.wheelSpin[carIndex], currCar, this.vehiclePresets[carIndex]!, actualDelta, carThrottle
-      );
-
-      this.supersonicWheelTrailSystem?.updateCar(
-        carIndex,
-        this.cars[carIndex],
-        this.carWheels[carIndex],
-        vr.carWheelSpecs[carIndex],
-        currCar,
-        this.vehiclePresets[carIndex],
-        actualDelta,
-        activeVisuals,
-        isRespawning ? currCar : prevCar,
-        alpha
-      );
-    }
+    stepArenaVehiclesFrame(
+      this, prevState, currState, header.numCars, alpha, actualDelta, actualThrottle,
+      controls, opponentControls, activeVisuals, carControlsResolver
+    );
 
     this.lighting.updateSunIntensities(header.numCars);
     updateSkyboxFrame(actualDelta, this.lighting?._shadowDir);
@@ -632,16 +343,6 @@ export class ArenaWorld {
     this.supersonicWheelTrailSystem?.dispose?.();
     this.lighting?.dispose?.();
     this.vehicleRegistry?.dispose?.();
-    for (const item of [this.sky, this.indicatorRing, this.indicatorHeightRing]) {
-      item?.geometry?.dispose?.();
-      disposeMaterialSlot(item?.material);
-    }
-    for (const obj of [this.ball, this.driftwoodsStadium]) {
-      obj?.traverse?.((node: TraversableMaterialNode) => {
-        node.geometry?.dispose?.();
-        disposeMaterialSlot(node.material);
-      });
-    }
-    if (this.scene) while (this.scene.children?.length > 0) this.scene.remove(this.scene.children[0]);
+    this.environment?.disposeEnvironmentMeshes?.();
   }
 }

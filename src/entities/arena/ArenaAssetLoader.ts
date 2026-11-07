@@ -1,18 +1,16 @@
 import * as THREE from 'three';
 import { loadBallAsset } from '../BallVisual.ts';
 import { loadDriftwoodsStadium } from '../stadium/driftwoods/DriftwoodsStadiumLoader.ts';
+import { preloadThrowbackStadiumAssets } from '../stadium/ThrowbackStadiumLoader.ts';
+import { preloadThrowbackCollisionMeshes } from '../../physics/RocketSimMeshLoader.ts';
 import { getAllVehicleDescriptors, hasVehicleDescriptor } from '../../ui-core/config/vehicleTunerConfig';
+import { BOT_CAR_INDEX } from './ArenaConstants.ts';
 import type { ArenaVehicleRegistry } from './ArenaVehicleRegistry.ts';
 import type { BoostPadSystem } from '../BoostPadSystem.ts';
+import type { BoostPadTemplates } from './BoostPadTemplateLoader.ts';
+import type { VehicleBoostEmitter } from '../vehicle/boost/vehicleBoostEmitter.ts';
 
-export interface BoostPadTemplates {
-  bigFull: THREE.Group;
-  bigBase: THREE.Group;
-  bigGlow: THREE.Group;
-  smallFull: THREE.Group;
-  smallBase: THREE.Group;
-  smallGlow: THREE.Group;
-}
+export type { BoostPadTemplates };
 
 export interface ArenaStadiumMeshesResult {
   driftwoodsStadium?: THREE.Group | null;
@@ -135,6 +133,49 @@ export async function preloadRemainingVehicleAssets(
       onProgress(loaded, total, desc.id);
     }
   }
+}
+
+export async function prepareAllArenaWarmupAssets(
+  ensureOpponentFn: () => Promise<void>,
+  vehicleRegistry: ArenaVehicleRegistry,
+  onProgress: ((loaded: number, total: number, label: string) => void) | null = null
+): Promise<void> {
+  let completed = 0;
+  const total = 4;
+  const report = (label: string) => {
+    completed++;
+    if (typeof onProgress === 'function') {
+      onProgress(completed, total, label);
+    }
+  };
+  await Promise.all([
+    ensureOpponentFn().then(() => {
+      if (vehicleRegistry.cars[BOT_CAR_INDEX]) {
+        vehicleRegistry.cars[BOT_CAR_INDEX]!.visible = false;
+      }
+      report('Opponent Vehicle Rig');
+    }),
+    preloadRemainingVehicleAssets(vehicleRegistry).then(() => {
+      report('Additional Vehicle GLB Models');
+    }),
+    Promise.all(
+      vehicleRegistry.carBoosts.flatMap((list) =>
+        Array.isArray(list) ? list.map((emitter: VehicleBoostEmitter) => emitter?.preload?.()) : []
+      )
+    ).then(() => {
+      report('Boost Emitter Textures');
+    }),
+    Promise.all([
+      preloadThrowbackStadiumAssets().catch((err) => {
+        console.warn('[ArenaWorld] Throwback stadium GLB preload warning:', err);
+      }),
+      preloadThrowbackCollisionMeshes().catch((err) => {
+        console.warn('[ArenaWorld] Throwback collision mesh preload warning:', err);
+      }),
+    ]).then(() => {
+      report('Throwback Stadium & Collision Meshes');
+    }),
+  ]);
 }
 
 export async function loadArenaStadiumMeshes(): Promise<ArenaStadiumMeshesResult> {

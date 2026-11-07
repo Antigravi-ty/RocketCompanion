@@ -147,3 +147,132 @@ export const SKYBOX_COMMON_GLSL_HEADER = /* glsl */ `
     return lowerCol;
   }
 `;
+
+import * as THREE from 'three';
+import {
+  SKYBOX_TEXTURE_PATH,
+  CORONA_TEXTURE_PATH,
+  SUN_GLOW_TEXTURE_PATH,
+  CLOUD_OVERLAY_TEXTURE_PATH,
+  OOB_NORMAL_TEXTURE_PATH,
+  type SkyboxConfig,
+} from '../../../ui-core/config/skyboxConfig';
+import { resolveAssetPath } from '../../../utils/AssetResponseValidator.ts';
+
+const cachedSkyTexturesByPath = new Map<string, THREE.Texture>();
+let cachedCoronaTexture: THREE.Texture | null = null;
+let cachedSunGlowTexture: THREE.Texture | null = null;
+let cachedCloudOverlayTexture: THREE.Texture | null = null;
+let cachedOobNormalTexture: THREE.Texture | null = null;
+
+export function loadSkyboxTexture(path = SKYBOX_TEXTURE_PATH): THREE.Texture {
+  const resolvedPath = resolveAssetPath(path || SKYBOX_TEXTURE_PATH);
+  const existing = cachedSkyTexturesByPath.get(resolvedPath);
+  if (existing) return existing;
+  const loader = new THREE.TextureLoader();
+  const tex = loader.load(
+    resolvedPath,
+    (loaded) => {
+      loaded.needsUpdate = true;
+    },
+    undefined,
+    (err) => {
+      console.warn(`[ArenaSky] Failed to load skybox texture (${resolvedPath}):`, err);
+    }
+  );
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  cachedSkyTexturesByPath.set(resolvedPath, tex);
+  return tex;
+}
+
+export function loadCoronaTexture(): THREE.Texture {
+  if (cachedCoronaTexture) return cachedCoronaTexture;
+  const loader = new THREE.TextureLoader();
+  const tex = loader.load(resolveAssetPath(CORONA_TEXTURE_PATH));
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  cachedCoronaTexture = tex;
+  return tex;
+}
+
+export function loadSunGlowTexture(): THREE.Texture {
+  if (cachedSunGlowTexture) return cachedSunGlowTexture;
+  const loader = new THREE.TextureLoader();
+  const tex = loader.load(resolveAssetPath(SUN_GLOW_TEXTURE_PATH));
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  cachedSunGlowTexture = tex;
+  return tex;
+}
+
+export function loadCloudOverlayTexture(): THREE.Texture {
+  if (cachedCloudOverlayTexture) return cachedCloudOverlayTexture;
+  cachedCloudOverlayTexture = loadSkyboxTexture(CLOUD_OVERLAY_TEXTURE_PATH);
+  return cachedCloudOverlayTexture;
+}
+
+export function loadOobNormalTexture(): THREE.Texture {
+  if (cachedOobNormalTexture) return cachedOobNormalTexture;
+  const loader = new THREE.TextureLoader();
+  const tex = loader.load(resolveAssetPath(OOB_NORMAL_TEXTURE_PATH));
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  cachedOobNormalTexture = tex;
+  return tex;
+}
+
+export function updateCoronaSunBasisUniforms(
+  uniforms: {
+    uSunDir: { value: THREE.Vector3 };
+    uSunRight: { value: THREE.Vector3 };
+    uSunUp: { value: THREE.Vector3 };
+  } | null,
+  c: Partial<SkyboxConfig> & { textureRotationDeg?: number },
+  sceneSunDir: THREE.Vector3
+): void {
+  if (!uniforms) return;
+  const sunDir = uniforms.uSunDir.value;
+  if (c.coronaFollowSceneSun) {
+    sunDir.copy(sceneSunDir).normalize();
+  } else {
+    const rotDeg = Number(c.rotationDeg ?? c.textureRotationDeg ?? 0) || 0;
+    const azDeg = (Number(c.coronaAzimuthDeg) || 0) - rotDeg;
+    const elDeg = Number(c.coronaElevationDeg) ?? 3.5;
+    const azRad = (azDeg * Math.PI) / 180;
+    const elRad = (elDeg * Math.PI) / 180;
+    const cosEl = Math.cos(elRad);
+    sunDir.set(cosEl * Math.cos(azRad), Math.sin(elRad), cosEl * Math.sin(azRad)).normalize();
+  }
+  const worldUp = Math.abs(sunDir.y) < 0.98 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+  const sunRight = uniforms.uSunRight.value.crossVectors(worldUp, sunDir).normalize();
+  const sunUp = uniforms.uSunUp.value.crossVectors(sunDir, sunRight).normalize();
+
+  const rotRad = ((Number(c.coronaRotationDeg) || 0) * Math.PI) / 180;
+  if (Math.abs(rotRad) > 1e-4) {
+    const cosR = Math.cos(rotRad);
+    const sinR = Math.sin(rotRad);
+    const rx = sunRight.x * cosR + sunUp.x * sinR;
+    const ry = sunRight.y * cosR + sunUp.y * sinR;
+    const rz = sunRight.z * cosR + sunUp.z * sinR;
+    const ux = -sunRight.x * sinR + sunUp.x * cosR;
+    const uy = -sunRight.y * sinR + sunUp.y * cosR;
+    const uz = -sunRight.z * sinR + sunUp.z * cosR;
+    sunRight.set(rx, ry, rz).normalize();
+    sunUp.set(ux, uy, uz).normalize();
+  }
+}

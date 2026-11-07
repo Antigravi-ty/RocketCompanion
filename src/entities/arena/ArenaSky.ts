@@ -2,149 +2,44 @@
  * ArenaSky.ts
  * Modular skybox orchestrator supporting two primary rendering categories:
  * 1. 'hemisphere': Upper-hemisphere equirectangular textures (Woods_Sky_D, CHN_Sky3, Farmstead_Sky_T7, ForbiddenTemple)
- *    with multi-tap horizon-ring lower hemisphere gradient synthesis (`HemisphereSkyShader.js`).
- * 2. 'full-sphere': 25 CC0 360°×180° full-sphere equirectangular panoramas by Screaming Brain Studios (WebP)
- *    with lower-hemisphere V-offset cropping, smooth ground cutoff fade, and dimming (`FullSphereSkyShader.js`).
+ *    with multi-tap horizon-ring lower hemisphere gradient synthesis (`HemisphereSkyShader.ts`).
+ * 2. 'full-sphere': 25 CC0 360x180 full-sphere equirectangular panoramas by Screaming Brain Studios (WebP)
+ *    with lower-hemisphere V-offset cropping, smooth ground cutoff fade, and dimming (`FullSphereSkyShader.ts`).
  */
 
 import * as THREE from 'three';
 import {
-  SKYBOX_TEXTURE_PATH,
-  CORONA_TEXTURE_PATH,
-  SUN_GLOW_TEXTURE_PATH,
-  CLOUD_OVERLAY_TEXTURE_PATH,
-  OOB_NORMAL_TEXTURE_PATH,
   resolveSkyboxPreset,
   skyboxRuntimeConfig,
   updateSkyboxConfig as updateSkyboxConfigState,
   subscribeSkyboxConfig,
+  type SkyboxConfig,
 } from '../../ui-core/config/skyboxConfig';
-import { SKYBOX_VERTEX_SHADER, SKYBOX_COMMON_GLSL_HEADER } from './skybox/SkyboxCommonShader.ts';
+import {
+  SKYBOX_VERTEX_SHADER,
+  SKYBOX_COMMON_GLSL_HEADER,
+  loadSkyboxTexture,
+  loadCoronaTexture,
+  loadSunGlowTexture,
+  loadCloudOverlayTexture,
+  loadOobNormalTexture,
+  updateCoronaSunBasisUniforms,
+} from './skybox/SkyboxCommonShader.ts';
 import { HEMISPHERE_SKY_GLSL } from './skybox/HemisphereSkyShader.ts';
 import { FULL_SPHERE_SKY_GLSL } from './skybox/FullSphereSkyShader.ts';
-import { resolveAssetPath } from '../../utils/AssetResponseValidator.ts';
+
+type SkyboxRuntimeParams = SkyboxConfig & {
+  useTexture?: boolean;
+  textureRotationDeg?: number;
+  textureExposure?: number;
+};
 
 type SkyboxUniformMap = ReturnType<typeof createSkyUniformMap>;
 let activeSkyUniforms: SkyboxUniformMap | null = null;
-const cachedSkyTexturesByPath = new Map<string, THREE.Texture>();
-let cachedCoronaTexture: THREE.Texture | null = null;
-let cachedSunGlowTexture: THREE.Texture | null = null;
-let cachedCloudOverlayTexture: THREE.Texture | null = null;
-let cachedOobNormalTexture: THREE.Texture | null = null;
 let skyAccumulatedTime = 0;
 const latestSceneSunDir = new THREE.Vector3(2500, 4000, 1500).normalize();
 
-export function loadSkyboxTexture(path = SKYBOX_TEXTURE_PATH) {
-  const resolvedPath = resolveAssetPath(path || SKYBOX_TEXTURE_PATH);
-  if (cachedSkyTexturesByPath.has(resolvedPath)) {
-    return cachedSkyTexturesByPath.get(resolvedPath);
-  }
-  const loader = new THREE.TextureLoader();
-  const tex = loader.load(
-    resolvedPath,
-    (loaded) => {
-      loaded.needsUpdate = true;
-    },
-    undefined,
-    (err) => {
-      console.warn(`[ArenaSky] Failed to load skybox texture (${resolvedPath}):`, err);
-    }
-  );
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.generateMipmaps = false;
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  cachedSkyTexturesByPath.set(resolvedPath, tex);
-  return tex;
-}
-
-function loadCoronaTexture() {
-  if (cachedCoronaTexture) return cachedCoronaTexture;
-  const loader = new THREE.TextureLoader();
-  const tex = loader.load(resolveAssetPath(CORONA_TEXTURE_PATH));
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = THREE.ClampToEdgeWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  cachedCoronaTexture = tex;
-  return tex;
-}
-
-function loadSunGlowTexture() {
-  if (cachedSunGlowTexture) return cachedSunGlowTexture;
-  const loader = new THREE.TextureLoader();
-  const tex = loader.load(resolveAssetPath(SUN_GLOW_TEXTURE_PATH));
-  tex.colorSpace = THREE.NoColorSpace;
-  tex.wrapS = THREE.ClampToEdgeWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  cachedSunGlowTexture = tex;
-  return tex;
-}
-
-function loadCloudOverlayTexture() {
-  if (cachedCloudOverlayTexture) return cachedCloudOverlayTexture;
-  cachedCloudOverlayTexture = loadSkyboxTexture(CLOUD_OVERLAY_TEXTURE_PATH);
-  return cachedCloudOverlayTexture;
-}
-
-function loadOobNormalTexture() {
-  if (cachedOobNormalTexture) return cachedOobNormalTexture;
-  const loader = new THREE.TextureLoader();
-  const tex = loader.load(resolveAssetPath(OOB_NORMAL_TEXTURE_PATH));
-  tex.colorSpace = THREE.NoColorSpace;
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.generateMipmaps = true;
-  tex.minFilter = THREE.LinearMipmapLinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  cachedOobNormalTexture = tex;
-  return tex;
-}
-
-function computeDirectionFromAngles(azimuthDeg, elevationDeg, target = new THREE.Vector3()) {
-  const azRad = ((Number(azimuthDeg) || 0) * Math.PI) / 180;
-  const elRad = ((Number(elevationDeg) || 0) * Math.PI) / 180;
-  const cosEl = Math.cos(elRad);
-  target.set(cosEl * Math.cos(azRad), Math.sin(elRad), cosEl * Math.sin(azRad)).normalize();
-  return target;
-}
-
-function updateCoronaSunBasisUniforms(uniforms, c) {
-  if (!uniforms) return;
-  const sunDir = uniforms.uSunDir.value;
-  if (c.coronaFollowSceneSun) {
-    sunDir.copy(latestSceneSunDir).normalize();
-  } else {
-    const rotDeg = Number(c.rotationDeg ?? c.textureRotationDeg ?? 0) || 0;
-    const azDeg = (Number(c.coronaAzimuthDeg) || 0) - rotDeg;
-    const elDeg = Number(c.coronaElevationDeg) ?? 3.5;
-    computeDirectionFromAngles(azDeg, elDeg, sunDir);
-  }
-  const worldUp = Math.abs(sunDir.y) < 0.98 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
-  const sunRight = uniforms.uSunRight.value.crossVectors(worldUp, sunDir).normalize();
-  const sunUp = uniforms.uSunUp.value.crossVectors(sunDir, sunRight).normalize();
-
-  const rotRad = ((Number(c.coronaRotationDeg) || 0) * Math.PI) / 180;
-  if (Math.abs(rotRad) > 1e-4) {
-    const cosR = Math.cos(rotRad);
-    const sinR = Math.sin(rotRad);
-    const rx = sunRight.x * cosR + sunUp.x * sinR;
-    const ry = sunRight.y * cosR + sunUp.y * sinR;
-    const rz = sunRight.z * cosR + sunUp.z * sinR;
-    const ux = -sunRight.x * sinR + sunUp.x * cosR;
-    const uy = -sunRight.y * sinR + sunUp.y * cosR;
-    const uz = -sunRight.z * sinR + sunUp.z * cosR;
-    sunRight.set(rx, ry, rz).normalize();
-    sunUp.set(ux, uy, uz).normalize();
-  }
-}
-
-function syncActiveSkyUniforms(c = skyboxRuntimeConfig) {
+function syncActiveSkyUniforms(c: SkyboxRuntimeParams = skyboxRuntimeConfig) {
   if (!activeSkyUniforms) return;
   const useTex = c.useTexture !== undefined ? Boolean(c.useTexture) : c.mode === 'texture';
   const rotDeg = c.rotationDeg ?? c.textureRotationDeg ?? 0;
@@ -192,7 +87,7 @@ function syncActiveSkyUniforms(c = skyboxRuntimeConfig) {
   activeSkyUniforms.uSunGlowSize.value = Math.max(0.04, Number(c.sunGlowSize) || 0.42);
   activeSkyUniforms.uSunGlowIntensity.value = Math.max(0.0, Number(c.sunGlowIntensity) ?? 0.65);
   if (c.sunGlowColor) activeSkyUniforms.uSunGlowColor.value.set(c.sunGlowColor);
-  updateCoronaSunBasisUniforms(activeSkyUniforms, c);
+  updateCoronaSunBasisUniforms(activeSkyUniforms, c, latestSceneSunDir);
 
   const cloudOn = Boolean(c.cloudOverlayEnabled);
   activeSkyUniforms.uCloudOverlayEnabled.value = cloudOn ? 1.0 : 0.0;
@@ -234,11 +129,11 @@ export function updateSkyboxFrame(delta = 0, sceneSunDir: THREE.Vector3 | null =
     activeSkyUniforms.uOobScrollOffset.value = skyAccumulatedTime * (Number(c.oobNormalScrollSpeed) || 0);
   }
   if (c.coronaEnabled && c.coronaFollowSceneSun) {
-    updateCoronaSunBasisUniforms(activeSkyUniforms, c);
+    updateCoronaSunBasisUniforms(activeSkyUniforms, c, latestSceneSunDir);
   }
 }
 
-function createSkyUniformMap(c = skyboxRuntimeConfig) {
+function createSkyUniformMap(c: SkyboxRuntimeParams = skyboxRuntimeConfig) {
   const activePreset = resolveSkyboxPreset(c.presetId || c.texturePath, c.skyCategory);
   const isFullSphere = (c.skyCategory || activePreset.category) === 'full-sphere';
   const targetPath = c.texturePath || activePreset.path;
@@ -317,7 +212,7 @@ export function createStadiumDomeSky() {
   const c = skyboxRuntimeConfig;
   const uniforms = createSkyUniformMap(c);
 
-  updateCoronaSunBasisUniforms(uniforms, c);
+  updateCoronaSunBasisUniforms(uniforms, c, latestSceneSunDir);
   activeSkyUniforms = uniforms;
 
   const fragmentShader = /* glsl */ `

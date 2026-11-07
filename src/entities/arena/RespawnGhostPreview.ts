@@ -58,6 +58,7 @@ export interface RespawnGhostArenaPort {
     };
     customVehicleAssets?: Map<string, unknown>;
     carWheels?: Array<{ threeWheels?: boolean } | null>;
+    carHitboxesVisible?: boolean;
   } | null;
   playerCarIndex?: number;
   carHitboxesVisible?: boolean;
@@ -146,7 +147,7 @@ export class RespawnGhostPreview {
     );
     this.root.add(carModel);
     if (carHitbox) {
-      carHitbox.visible = Boolean(this.arena.carHitboxesVisible);
+      carHitbox.visible = Boolean(reg?.carHitboxesVisible ?? this.arena.carHitboxesVisible);
       this.root.add(carHitbox);
     }
 

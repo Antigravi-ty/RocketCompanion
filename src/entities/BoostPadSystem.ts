@@ -1,62 +1,23 @@
-import { registerThemeSubtree } from '../effects/ThemeMaterialPipeline.ts';
 import * as THREE from 'three';
 import { BoostPadStateView } from '../physics/RocketSimStateViews.ts';
 import {
   computeAllPadRotations,
-  exportRotationsAsCode
+  exportRotationsAsCode,
 } from '../ui-core/config/boostPadGeometry';
 import {
-  BOOST_PAD_BIG_HEIGHT,
-  BOOST_PAD_SMALL_HEIGHT,
-  BOOST_PAD_BIG_RADIUS,
-  BOOST_PAD_SMALL_RADIUS,
-  BOOST_PAD_BASE_HEIGHT,
   DEFAULT_BOOST_PAD_TUNER,
-  prepareGlowGeometry,
-  createUpwardGlowMaterial,
-  createBigOrbShadowMesh,
-  createFallbackPadMeshes,
-  cloneModelWithMaterials,
-  applyBoostPadVisualTuning
+  applyBoostPadVisualTuning,
 } from './arena/BoostPadShadersAndMeshes.ts';
 import {
   loadBoostPadTemplates,
-  disposeBoostPadSystem
+  buildBoostPadInstances,
+  disposeBoostPadSystem,
+  type BoostPadTemplates,
+  type BoostPadInstance,
 } from './arena/BoostPadTemplateLoader.ts';
 import { createCubicBezier } from '../utils/CubicBezier.ts';
 
-export {
-  BOOST_PAD_BIG_HEIGHT,
-  BOOST_PAD_SMALL_HEIGHT,
-  BOOST_PAD_BIG_RADIUS,
-  BOOST_PAD_SMALL_RADIUS,
-  BOOST_PAD_BASE_HEIGHT,
-  DEFAULT_BOOST_PAD_TUNER,
-  prepareGlowGeometry,
-  createUpwardGlowMaterial,
-  createFallbackPadMeshes
-};
-
-export interface BoostPadTemplates {
-  bigFull: THREE.Object3D;
-  bigBase: THREE.Object3D;
-  smallFull: THREE.Object3D;
-  smallBase: THREE.Object3D;
-}
-
-export interface BoostPadInstance {
-  id: number;
-  full: THREE.Object3D;
-  base: THREE.Object3D;
-  glowMesh: THREE.Mesh | null;
-  glowMaterial: THREE.ShaderMaterial;
-  orbMesh: THREE.Mesh | null;
-  shadowMesh: THREE.Mesh | null;
-  group: THREE.Group;
-  isBig: boolean;
-  pos: number[] | Float32Array;
-  angleDeg: number;
-}
+export type { BoostPadTemplates, BoostPadInstance };
 
 export interface BoostPadCollectAnimation {
   startTime: number;
@@ -73,8 +34,8 @@ export interface BoostPadSimulatedRefill {
 }
 
 /**
- * BoostPadSystem.js
- * Advanced manager for Rocket League's 34 boost pads (6 Large + 28 Small).
+ * BoostPadSystem.ts
+ * Manager for the arena's 34 boost pads (6 Large + 28 Small).
  */
 export class BoostPadSystem {
   public _bezierSolver: (t: number) => number;
@@ -130,7 +91,7 @@ export class BoostPadSystem {
       emissive: new THREE.Color(this.tunerConfig.orbColor),
       emissiveIntensity: this.tunerConfig.orbEmissiveIntensity,
       roughness: 0.2,
-      metalness: 0.1
+      metalness: 0.1,
     });
   }
 
@@ -144,7 +105,6 @@ export class BoostPadSystem {
     scene: THREE.Scene | THREE.Object3D | null = null,
     onPadMeshAdded: ((padGroup: THREE.Group) => void) | null = null
   ) {
-    const { Group } = THREE;
     for (const oldPad of this.pads) {
       oldPad?.group?.removeFromParent?.();
     }
@@ -157,88 +117,7 @@ export class BoostPadSystem {
     this.padCooldownTimers.fill(0);
     this._edgeStatesInitialized = false;
 
-    const templates = padTemplates || this.padTemplates;
-    if (!templates && padsData.length > 0) {
-      console.warn(
-        `[BoostPadSystem] GLB boost pad templates are unavailable; falling back to procedural whitebox pad meshes for ${padsData.length} pads.`
-      );
-    }
-    const computedAngles = computeAllPadRotations(this.tunerConfig);
-
-    for (let padIndex = 0; padIndex < padsData.length; padIndex++) {
-      const data = padsData[padIndex];
-      let fullMesh: THREE.Object3D;
-      let baseMesh: THREE.Object3D;
-      let glowMesh: THREE.Mesh | null = null;
-      let orbMesh: THREE.Mesh | null = null;
-
-      if (templates) {
-        const srcFull = data.isBig ? templates.bigFull : templates.smallFull;
-        const srcBase = data.isBig ? templates.bigBase : templates.smallBase;
-        fullMesh = cloneModelWithMaterials(srcFull);
-        baseMesh = cloneModelWithMaterials(srcBase);
-      } else {
-        const fallbacks = createFallbackPadMeshes(data.isBig);
-        fullMesh = fallbacks.full;
-        baseMesh = fallbacks.base;
-      }
-
-      const padGlowMaterial = createUpwardGlowMaterial(this.tunerConfig);
-
-      fullMesh.traverse((child: THREE.Object3D & { isMesh?: boolean; material?: THREE.Material }) => {
-        if (child.isMesh) {
-          if (child.name.includes('Glow') || child.name === 'Active_Glow_Overlay' || child.name.includes('02_SM')) {
-            prepareGlowGeometry(child as THREE.Mesh);
-            child.material = padGlowMaterial;
-            child.castShadow = false;
-            child.receiveShadow = false;
-            glowMesh = child as THREE.Mesh;
-          } else if (child.name === 'BoostFloatingOrb') {
-            orbMesh = child as THREE.Mesh;
-            this.bigOrbs.push(child as THREE.Mesh);
-          }
-        }
-      });
-
-      let shadowMesh: THREE.Mesh | null = null;
-      if (data.isBig) {
-        shadowMesh = createBigOrbShadowMesh(this.tunerConfig);
-        shadowMesh.position.set(0, this.padPeakY + (Number(this.tunerConfig.orbHeightOffset) || 70), 0);
-        this.bigShadows.push(shadowMesh);
-      }
-
-      const padGroup = new Group();
-      padGroup.position.set(data.pos[0], Number(this.tunerConfig.padHeightOffset) || 0, data.pos[1]);
-      padGroup.rotation.y = (computedAngles[padIndex] || 0) * (Math.PI / 180);
-      padGroup.add(fullMesh, baseMesh);
-      if (shadowMesh) {
-        padGroup.add(shadowMesh);
-      }
-      baseMesh.visible = false;
-
-      if (typeof onPadMeshAdded === 'function') {
-        onPadMeshAdded(padGroup);
-      }
-
-      this.pads.push({
-        id: padIndex,
-        full: fullMesh,
-        base: baseMesh,
-        glowMesh,
-        glowMaterial: padGlowMaterial,
-        orbMesh,
-        shadowMesh,
-        group: padGroup,
-        isBig: data.isBig,
-        pos: data.pos,
-        angleDeg: computedAngles[padIndex] || 0
-      });
-
-      if (scene && typeof scene.add === 'function') {
-        scene.add(padGroup);
-      }
-    }
-
+    buildBoostPadInstances(this, padsData, padTemplates, scene, onPadMeshAdded);
     this.applyCurrentTuning();
   }
 
@@ -299,7 +178,7 @@ export class BoostPadSystem {
     this.simulatedRefills.set(padIndex, {
       startTime: performance.now(),
       duration: Math.max(0.1, dur * 1000),
-      isBig: pad.isBig
+      isBig: pad.isBig,
     });
   }
 
@@ -326,7 +205,7 @@ export class BoostPadSystem {
       glowDuration: Math.max(50, glowDurMs),
       orbDuration: Math.max(50, orbDurMs),
       duration: Math.max(50, overallDuration),
-      isBig: pad.isBig
+      isBig: pad.isBig,
     });
 
     if (pad.shadowMesh) {

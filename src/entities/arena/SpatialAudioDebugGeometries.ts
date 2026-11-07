@@ -1,6 +1,6 @@
 /**
  * SpatialAudioDebugGeometries.ts
- * Pure Three.js wireframe geometry builders and 2D Canvas billboard renderer
+ * Pure Three.js wireframe geometry builders, scene rig assembly, and 2D Canvas billboard renderer
  * for SpatialAudioDebugVisualizer.
  */
 
@@ -21,6 +21,27 @@ export interface SpatialAudioBillboardResources {
   ctx: CanvasRenderingContext2D | null;
   texture: THREE.CanvasTexture;
   lastSignature: string;
+}
+
+export interface SpatialAudioDebugRig {
+  innerSphereGroup: THREE.Group;
+  innerSphereWire: THREE.LineSegments;
+  innerSphereShell: THREE.Mesh;
+  innerGroundRing: THREE.LineSegments;
+  outerSphereGroup: THREE.Group;
+  outerSphereWire: THREE.LineSegments;
+  outerSphereShell: THREE.Mesh;
+  outerGroundRing: THREE.LineSegments;
+  iso50GroundRing: THREE.LineSegments;
+  iso50EquatorRing: THREE.LineSegments;
+  iso75GroundRing: THREE.LineSegments;
+  iso25GroundRing: THREE.LineSegments;
+  rulerGroup: THREE.Group;
+  rulerLine3D: THREE.Line;
+  rulerGroundLine: THREE.Line;
+  emitterBeacon: THREE.Mesh;
+  listenerBeacon: THREE.Mesh;
+  billboard: SpatialAudioBillboardResources | null;
 }
 
 export function createUnitSphereWireframeGeometry(segments = 64): THREE.BufferGeometry {
@@ -90,6 +111,144 @@ export function createSpatialAudioBillboard(): SpatialAudioBillboardResources | 
     ctx,
     texture,
     lastSignature: '',
+  };
+}
+
+export function buildSpatialAudioDebugRig(rootGroup: THREE.Group): SpatialAudioDebugRig {
+  const unitSphereWireGeo = createUnitSphereWireframeGeometry(64);
+  const unitSphereShellGeo = new THREE.SphereGeometry(1, 28, 18);
+  const solidCircleGeo = createUnitCircleLineGeometry(96, false);
+  const dashedCircleGeo = createUnitCircleLineGeometry(96, true);
+
+  const innerSphereGroup = new THREE.Group();
+  const innerSphereWire = new THREE.LineSegments(
+    unitSphereWireGeo,
+    new THREE.LineBasicMaterial({ color: INNER_COLOR_HEX, transparent: true, opacity: 0.65, depthWrite: false })
+  );
+  const innerSphereShell = new THREE.Mesh(
+    unitSphereShellGeo,
+    new THREE.MeshBasicMaterial({ color: INNER_COLOR_HEX, transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false })
+  );
+  innerSphereGroup.add(innerSphereWire, innerSphereShell);
+  innerSphereGroup.renderOrder = 990;
+
+  const innerGroundRing = new THREE.LineSegments(
+    solidCircleGeo,
+    new THREE.LineBasicMaterial({ color: INNER_COLOR_HEX, transparent: true, opacity: 0.9, depthWrite: false })
+  );
+  innerGroundRing.renderOrder = 992;
+
+  const outerSphereGroup = new THREE.Group();
+  const outerSphereWire = new THREE.LineSegments(
+    unitSphereWireGeo,
+    new THREE.LineBasicMaterial({ color: OUTER_CULL_HEX, transparent: true, opacity: 0.45, depthWrite: false })
+  );
+  const outerSphereShell = new THREE.Mesh(
+    unitSphereShellGeo,
+    new THREE.MeshBasicMaterial({ color: OUTER_CULL_HEX, transparent: true, opacity: 0.025, side: THREE.DoubleSide, depthWrite: false })
+  );
+  outerSphereGroup.add(outerSphereWire, outerSphereShell);
+  outerSphereGroup.renderOrder = 988;
+
+  const outerGroundRing = new THREE.LineSegments(
+    solidCircleGeo,
+    new THREE.LineBasicMaterial({ color: OUTER_CULL_HEX, transparent: true, opacity: 0.85, depthWrite: false })
+  );
+  outerGroundRing.renderOrder = 991;
+
+  const iso50GroundRing = new THREE.LineSegments(
+    dashedCircleGeo,
+    new THREE.LineBasicMaterial({ color: ISO50_COLOR_HEX, transparent: true, opacity: 0.95, depthWrite: false })
+  );
+  iso50GroundRing.renderOrder = 993;
+
+  const iso50EquatorRing = new THREE.LineSegments(
+    dashedCircleGeo,
+    new THREE.LineBasicMaterial({ color: ISO50_COLOR_HEX, transparent: true, opacity: 0.5, depthWrite: false })
+  );
+  iso50EquatorRing.renderOrder = 991;
+
+  const iso75GroundRing = new THREE.LineSegments(
+    dashedCircleGeo,
+    new THREE.LineBasicMaterial({ color: ISO75_COLOR_HEX, transparent: true, opacity: 0.45, depthWrite: false })
+  );
+  iso75GroundRing.renderOrder = 991;
+
+  const iso25GroundRing = new THREE.LineSegments(
+    dashedCircleGeo,
+    new THREE.LineBasicMaterial({ color: ISO25_COLOR_HEX, transparent: true, opacity: 0.45, depthWrite: false })
+  );
+  iso25GroundRing.renderOrder = 991;
+
+  const rulerGroup = new THREE.Group();
+  const rulerGeo3D = new THREE.BufferGeometry();
+  rulerGeo3D.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+  const rulerLine3D = new THREE.Line(
+    rulerGeo3D,
+    new THREE.LineBasicMaterial({ color: ISO50_COLOR_HEX, transparent: true, opacity: 0.95, depthWrite: false })
+  );
+  rulerLine3D.frustumCulled = false;
+  rulerLine3D.renderOrder = 996;
+
+  const rulerGeoGround = new THREE.BufferGeometry();
+  rulerGeoGround.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+  const rulerGroundLine = new THREE.Line(
+    rulerGeoGround,
+    new THREE.LineBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.45, depthWrite: false })
+  );
+  rulerGroundLine.frustumCulled = false;
+  rulerGroundLine.renderOrder = 994;
+
+  const beaconGeo = new THREE.SphereGeometry(28, 14, 10);
+  const emitterBeacon = new THREE.Mesh(
+    beaconGeo,
+    new THREE.MeshBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.95, depthWrite: false })
+  );
+  emitterBeacon.renderOrder = 998;
+
+  const listenerBeacon = new THREE.Mesh(
+    beaconGeo,
+    new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.9, depthWrite: false })
+  );
+  listenerBeacon.renderOrder = 998;
+
+  const billboard = createSpatialAudioBillboard();
+  if (billboard) {
+    rulerGroup.add(billboard.sprite);
+  }
+  rulerGroup.add(rulerLine3D, rulerGroundLine, emitterBeacon, listenerBeacon);
+
+  rootGroup.add(
+    innerSphereGroup,
+    innerGroundRing,
+    outerSphereGroup,
+    outerGroundRing,
+    iso50GroundRing,
+    iso50EquatorRing,
+    iso75GroundRing,
+    iso25GroundRing,
+    rulerGroup
+  );
+
+  return {
+    innerSphereGroup,
+    innerSphereWire,
+    innerSphereShell,
+    innerGroundRing,
+    outerSphereGroup,
+    outerSphereWire,
+    outerSphereShell,
+    outerGroundRing,
+    iso50GroundRing,
+    iso50EquatorRing,
+    iso75GroundRing,
+    iso25GroundRing,
+    rulerGroup,
+    rulerLine3D,
+    rulerGroundLine,
+    emitterBeacon,
+    listenerBeacon,
+    billboard,
   };
 }
 

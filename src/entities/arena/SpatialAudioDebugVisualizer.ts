@@ -22,16 +22,12 @@ import {
 } from '../../ui-core/config/spatialAudioVisualizerConfig';
 import {
   INNER_COLOR_HEX,
-  ISO25_COLOR_HEX,
   ISO50_COLOR_HEX,
-  ISO75_COLOR_HEX,
   OUTER_CULL_HEX,
   OUTER_FLOOR_HEX,
-  createSpatialAudioBillboard,
-  createUnitCircleLineGeometry,
-  createUnitSphereWireframeGeometry,
+  buildSpatialAudioDebugRig,
   renderSpatialAudioBillboardLabel,
-  type SpatialAudioBillboardResources,
+  type SpatialAudioDebugRig,
 } from './SpatialAudioDebugGeometries.ts';
 
 export interface SpatialAudioArenaHost {
@@ -47,28 +43,7 @@ export class SpatialAudioDebugVisualizer {
   public readonly scene: THREE.Scene;
   public readonly rootGroup: THREE.Group;
 
-  private _innerSphereGroup: THREE.Group | null = null;
-  private _innerSphereWire: THREE.LineSegments | null = null;
-  private _innerSphereShell: THREE.Mesh | null = null;
-  private _innerGroundRing: THREE.LineSegments | null = null;
-
-  private _outerSphereGroup: THREE.Group | null = null;
-  private _outerSphereWire: THREE.LineSegments | null = null;
-  private _outerSphereShell: THREE.Mesh | null = null;
-  private _outerGroundRing: THREE.LineSegments | null = null;
-
-  private _iso50GroundRing: THREE.LineSegments | null = null;
-  private _iso50EquatorRing: THREE.LineSegments | null = null;
-  private _iso75GroundRing: THREE.LineSegments | null = null;
-  private _iso25GroundRing: THREE.LineSegments | null = null;
-
-  private _rulerGroup: THREE.Group | null = null;
-  private _rulerLine3D: THREE.Line | null = null;
-  private _rulerGroundLine: THREE.Line | null = null;
-  private _emitterBeacon: THREE.Mesh | null = null;
-  private _listenerBeacon: THREE.Mesh | null = null;
-  private _billboard: SpatialAudioBillboardResources | null = null;
-
+  private _rig: SpatialAudioDebugRig | null = null;
   private readonly _emitterPos = new THREE.Vector3();
   private readonly _listenerPos = new THREE.Vector3();
   private readonly _anchorPos = new THREE.Vector3();
@@ -97,205 +72,11 @@ export class SpatialAudioDebugVisualizer {
     });
   }
 
-  private _ensureMeshes(): void {
-    if (this._innerSphereGroup) return;
-
-    const unitSphereWireGeo = createUnitSphereWireframeGeometry(64);
-    const unitSphereShellGeo = new THREE.SphereGeometry(1, 28, 18);
-    const solidCircleGeo = createUnitCircleLineGeometry(96, false);
-    const dashedCircleGeo = createUnitCircleLineGeometry(96, true);
-
-    // 1. Inner Sphere (R_min)
-    this._innerSphereGroup = new THREE.Group();
-    this._innerSphereWire = new THREE.LineSegments(
-      unitSphereWireGeo,
-      new THREE.LineBasicMaterial({
-        color: INNER_COLOR_HEX,
-        transparent: true,
-        opacity: 0.65,
-        depthWrite: false,
-      })
-    );
-    this._innerSphereShell = new THREE.Mesh(
-      unitSphereShellGeo,
-      new THREE.MeshBasicMaterial({
-        color: INNER_COLOR_HEX,
-        transparent: true,
-        opacity: 0.05,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      })
-    );
-    this._innerSphereGroup.add(this._innerSphereWire, this._innerSphereShell);
-    this._innerSphereGroup.renderOrder = 990;
-
-    this._innerGroundRing = new THREE.LineSegments(
-      solidCircleGeo,
-      new THREE.LineBasicMaterial({
-        color: INNER_COLOR_HEX,
-        transparent: true,
-        opacity: 0.9,
-        depthWrite: false,
-      })
-    );
-    this._innerGroundRing.renderOrder = 992;
-
-    // 2. Outer Sphere (R_max)
-    this._outerSphereGroup = new THREE.Group();
-    this._outerSphereWire = new THREE.LineSegments(
-      unitSphereWireGeo,
-      new THREE.LineBasicMaterial({
-        color: OUTER_CULL_HEX,
-        transparent: true,
-        opacity: 0.45,
-        depthWrite: false,
-      })
-    );
-    this._outerSphereShell = new THREE.Mesh(
-      unitSphereShellGeo,
-      new THREE.MeshBasicMaterial({
-        color: OUTER_CULL_HEX,
-        transparent: true,
-        opacity: 0.025,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      })
-    );
-    this._outerSphereGroup.add(this._outerSphereWire, this._outerSphereShell);
-    this._outerSphereGroup.renderOrder = 988;
-
-    this._outerGroundRing = new THREE.LineSegments(
-      solidCircleGeo,
-      new THREE.LineBasicMaterial({
-        color: OUTER_CULL_HEX,
-        transparent: true,
-        opacity: 0.85,
-        depthWrite: false,
-      })
-    );
-    this._outerGroundRing.renderOrder = 991;
-
-    // 3. Iso-Gain Contour Rings (50% Half-Power + 75% / 25% contours)
-    this._iso50GroundRing = new THREE.LineSegments(
-      dashedCircleGeo,
-      new THREE.LineBasicMaterial({
-        color: ISO50_COLOR_HEX,
-        transparent: true,
-        opacity: 0.95,
-        depthWrite: false,
-      })
-    );
-    this._iso50GroundRing.renderOrder = 993;
-
-    this._iso50EquatorRing = new THREE.LineSegments(
-      dashedCircleGeo,
-      new THREE.LineBasicMaterial({
-        color: ISO50_COLOR_HEX,
-        transparent: true,
-        opacity: 0.5,
-        depthWrite: false,
-      })
-    );
-    this._iso50EquatorRing.renderOrder = 991;
-
-    this._iso75GroundRing = new THREE.LineSegments(
-      dashedCircleGeo,
-      new THREE.LineBasicMaterial({
-        color: ISO75_COLOR_HEX,
-        transparent: true,
-        opacity: 0.45,
-        depthWrite: false,
-      })
-    );
-    this._iso75GroundRing.renderOrder = 991;
-
-    this._iso25GroundRing = new THREE.LineSegments(
-      dashedCircleGeo,
-      new THREE.LineBasicMaterial({
-        color: ISO25_COLOR_HEX,
-        transparent: true,
-        opacity: 0.45,
-        depthWrite: false,
-      })
-    );
-    this._iso25GroundRing.renderOrder = 991;
-
-    // 4. Radial Attenuation Ruler & Beacons
-    this._rulerGroup = new THREE.Group();
-    const rulerGeo3D = new THREE.BufferGeometry();
-    rulerGeo3D.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
-    this._rulerLine3D = new THREE.Line(
-      rulerGeo3D,
-      new THREE.LineBasicMaterial({
-        color: ISO50_COLOR_HEX,
-        transparent: true,
-        opacity: 0.95,
-        depthWrite: false,
-      })
-    );
-    this._rulerLine3D.frustumCulled = false;
-    this._rulerLine3D.renderOrder = 996;
-
-    const rulerGeoGround = new THREE.BufferGeometry();
-    rulerGeoGround.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
-    this._rulerGroundLine = new THREE.Line(
-      rulerGeoGround,
-      new THREE.LineBasicMaterial({
-        color: 0x94a3b8,
-        transparent: true,
-        opacity: 0.45,
-        depthWrite: false,
-      })
-    );
-    this._rulerGroundLine.frustumCulled = false;
-    this._rulerGroundLine.renderOrder = 994;
-
-    const beaconGeo = new THREE.SphereGeometry(28, 14, 10);
-    this._emitterBeacon = new THREE.Mesh(
-      beaconGeo,
-      new THREE.MeshBasicMaterial({
-        color: 0xf59e0b,
-        transparent: true,
-        opacity: 0.95,
-        depthWrite: false,
-      })
-    );
-    this._emitterBeacon.renderOrder = 998;
-
-    this._listenerBeacon = new THREE.Mesh(
-      beaconGeo,
-      new THREE.MeshBasicMaterial({
-        color: 0x38bdf8,
-        transparent: true,
-        opacity: 0.9,
-        depthWrite: false,
-      })
-    );
-    this._listenerBeacon.renderOrder = 998;
-
-    this._billboard = createSpatialAudioBillboard();
-    if (this._billboard) {
-      this._rulerGroup.add(this._billboard.sprite);
+  private _ensureMeshes(): SpatialAudioDebugRig {
+    if (!this._rig) {
+      this._rig = buildSpatialAudioDebugRig(this.rootGroup);
     }
-
-    this._rulerGroup.add(
-      this._rulerLine3D,
-      this._rulerGroundLine,
-      this._emitterBeacon,
-      this._listenerBeacon
-    );
-
-    this.rootGroup.add(
-      this._innerSphereGroup,
-      this._innerGroundRing,
-      this._outerSphereGroup,
-      this._outerGroundRing,
-      this._iso50GroundRing,
-      this._iso50EquatorRing,
-      this._iso75GroundRing,
-      this._iso25GroundRing,
-      this._rulerGroup
-    );
+    return this._rig;
   }
 
   private _resolveEntityPositions(
@@ -363,7 +144,7 @@ export class SpatialAudioDebugVisualizer {
       return;
     }
 
-    this._ensureMeshes();
+    const rig = this._ensureMeshes();
     this.rootGroup.visible = true;
 
     const activeCamera = camera || arena.camera || null;
@@ -385,113 +166,105 @@ export class SpatialAudioDebugVisualizer {
     const depthTest = cfg.depthTest;
     const groundY = 5.0;
 
-    if (this._innerSphereGroup && this._innerGroundRing && this._innerSphereWire && this._innerSphereShell) {
-      this._innerSphereGroup.visible = cfg.showInnerSphere;
-      this._innerGroundRing.visible = cfg.showInnerSphere;
-      if (cfg.showInnerSphere) {
-        this._innerSphereGroup.position.copy(this._anchorPos);
-        this._innerSphereGroup.scale.setScalar(rMin);
-        this._innerGroundRing.position.set(this._anchorPos.x, groundY, this._anchorPos.z);
-        this._innerGroundRing.scale.setScalar(rMin);
+    rig.innerSphereGroup.visible = cfg.showInnerSphere;
+    rig.innerGroundRing.visible = cfg.showInnerSphere;
+    if (cfg.showInnerSphere) {
+      rig.innerSphereGroup.position.copy(this._anchorPos);
+      rig.innerSphereGroup.scale.setScalar(rMin);
+      rig.innerGroundRing.position.set(this._anchorPos.x, groundY, this._anchorPos.z);
+      rig.innerGroundRing.scale.setScalar(rMin);
 
-        const wireMat = this._innerSphereWire.material as THREE.LineBasicMaterial;
-        wireMat.opacity = 0.7 * opacityScale;
-        wireMat.depthTest = depthTest;
-        const shellMat = this._innerSphereShell.material as THREE.MeshBasicMaterial;
-        shellMat.opacity = 0.06 * opacityScale;
-        shellMat.depthTest = depthTest;
-      }
+      const wireMat = rig.innerSphereWire.material as THREE.LineBasicMaterial;
+      wireMat.opacity = 0.7 * opacityScale;
+      wireMat.depthTest = depthTest;
+      const shellMat = rig.innerSphereShell.material as THREE.MeshBasicMaterial;
+      shellMat.opacity = 0.06 * opacityScale;
+      shellMat.depthTest = depthTest;
     }
 
     const outerColor =
       profile.cullBeyondMax && profile.minGainFloor <= 1e-5 ? OUTER_CULL_HEX : OUTER_FLOOR_HEX;
-    if (this._outerSphereGroup && this._outerGroundRing && this._outerSphereWire && this._outerSphereShell) {
-      this._outerSphereGroup.visible = cfg.showOuterSphere;
-      this._outerGroundRing.visible = cfg.showOuterSphere;
-      if (cfg.showOuterSphere) {
-        this._outerSphereGroup.position.copy(this._anchorPos);
-        this._outerSphereGroup.scale.setScalar(rMax);
-        this._outerGroundRing.position.set(this._anchorPos.x, groundY, this._anchorPos.z);
-        this._outerGroundRing.scale.setScalar(rMax);
+    rig.outerSphereGroup.visible = cfg.showOuterSphere;
+    rig.outerGroundRing.visible = cfg.showOuterSphere;
+    if (cfg.showOuterSphere) {
+      rig.outerSphereGroup.position.copy(this._anchorPos);
+      rig.outerSphereGroup.scale.setScalar(rMax);
+      rig.outerGroundRing.position.set(this._anchorPos.x, groundY, this._anchorPos.z);
+      rig.outerGroundRing.scale.setScalar(rMax);
 
-        const wireMat = this._outerSphereWire.material as THREE.LineBasicMaterial;
-        wireMat.color.setHex(outerColor);
-        wireMat.opacity = 0.5 * opacityScale;
-        wireMat.depthTest = depthTest;
-        const shellMat = this._outerSphereShell.material as THREE.MeshBasicMaterial;
-        shellMat.color.setHex(outerColor);
-        shellMat.opacity = 0.025 * opacityScale;
-        shellMat.depthTest = depthTest;
-        const ringMat = this._outerGroundRing.material as THREE.LineBasicMaterial;
-        ringMat.color.setHex(outerColor);
-      }
+      const wireMat = rig.outerSphereWire.material as THREE.LineBasicMaterial;
+      wireMat.color.setHex(outerColor);
+      wireMat.opacity = 0.5 * opacityScale;
+      wireMat.depthTest = depthTest;
+      const shellMat = rig.outerSphereShell.material as THREE.MeshBasicMaterial;
+      shellMat.color.setHex(outerColor);
+      shellMat.opacity = 0.025 * opacityScale;
+      shellMat.depthTest = depthTest;
+      const ringMat = rig.outerGroundRing.material as THREE.LineBasicMaterial;
+      ringMat.color.setHex(outerColor);
     }
 
-    if (this._iso50GroundRing && this._iso50EquatorRing && this._iso75GroundRing && this._iso25GroundRing) {
-      this._iso50GroundRing.visible = cfg.showIsoRing50;
-      this._iso50EquatorRing.visible = cfg.showIsoRing50;
-      this._iso75GroundRing.visible = cfg.showIsoRing50 && r75 > rMin + 10 && r75 < rMax - 10;
-      this._iso25GroundRing.visible = cfg.showIsoRing50 && r25 > rMin + 10 && r25 < rMax - 10;
+    rig.iso50GroundRing.visible = cfg.showIsoRing50;
+    rig.iso50EquatorRing.visible = cfg.showIsoRing50;
+    rig.iso75GroundRing.visible = cfg.showIsoRing50 && r75 > rMin + 10 && r75 < rMax - 10;
+    rig.iso25GroundRing.visible = cfg.showIsoRing50 && r25 > rMin + 10 && r25 < rMax - 10;
 
-      if (cfg.showIsoRing50) {
-        this._iso50GroundRing.position.set(this._anchorPos.x, groundY + 1, this._anchorPos.z);
-        this._iso50GroundRing.scale.setScalar(r50);
+    if (cfg.showIsoRing50) {
+      rig.iso50GroundRing.position.set(this._anchorPos.x, groundY + 1, this._anchorPos.z);
+      rig.iso50GroundRing.scale.setScalar(r50);
 
-        this._iso50EquatorRing.position.copy(this._anchorPos);
-        this._iso50EquatorRing.scale.setScalar(r50);
+      rig.iso50EquatorRing.position.copy(this._anchorPos);
+      rig.iso50EquatorRing.scale.setScalar(r50);
 
-        this._iso75GroundRing.position.set(this._anchorPos.x, groundY + 0.5, this._anchorPos.z);
-        this._iso75GroundRing.scale.setScalar(r75);
+      rig.iso75GroundRing.position.set(this._anchorPos.x, groundY + 0.5, this._anchorPos.z);
+      rig.iso75GroundRing.scale.setScalar(r75);
 
-        this._iso25GroundRing.position.set(this._anchorPos.x, groundY + 0.5, this._anchorPos.z);
-        this._iso25GroundRing.scale.setScalar(r25);
-      }
+      rig.iso25GroundRing.position.set(this._anchorPos.x, groundY + 0.5, this._anchorPos.z);
+      rig.iso25GroundRing.scale.setScalar(r25);
     }
 
-    if (this._rulerGroup && this._rulerLine3D && this._rulerGroundLine && this._emitterBeacon && this._listenerBeacon) {
-      this._rulerGroup.visible = cfg.showRadialRuler;
-      if (cfg.showRadialRuler) {
-        const pos3D = this._rulerLine3D.geometry.getAttribute('position') as THREE.BufferAttribute;
-        pos3D.setXYZ(0, this._emitterPos.x, this._emitterPos.y, this._emitterPos.z);
-        pos3D.setXYZ(1, this._listenerPos.x, this._listenerPos.y, this._listenerPos.z);
-        pos3D.needsUpdate = true;
+    rig.rulerGroup.visible = cfg.showRadialRuler;
+    if (cfg.showRadialRuler) {
+      const pos3D = rig.rulerLine3D.geometry.getAttribute('position') as THREE.BufferAttribute;
+      pos3D.setXYZ(0, this._emitterPos.x, this._emitterPos.y, this._emitterPos.z);
+      pos3D.setXYZ(1, this._listenerPos.x, this._listenerPos.y, this._listenerPos.z);
+      pos3D.needsUpdate = true;
 
-        const posGround = this._rulerGroundLine.geometry.getAttribute('position') as THREE.BufferAttribute;
-        posGround.setXYZ(0, this._emitterPos.x, groundY + 2, this._emitterPos.z);
-        posGround.setXYZ(1, this._listenerPos.x, groundY + 2, this._listenerPos.z);
-        posGround.needsUpdate = true;
+      const posGround = rig.rulerGroundLine.geometry.getAttribute('position') as THREE.BufferAttribute;
+      posGround.setXYZ(0, this._emitterPos.x, groundY + 2, this._emitterPos.z);
+      posGround.setXYZ(1, this._listenerPos.x, groundY + 2, this._listenerPos.z);
+      posGround.needsUpdate = true;
 
-        const rulerMat = this._rulerLine3D.material as THREE.LineBasicMaterial;
-        rulerMat.color.setHex(
-          culled ? 0xf43f5e : gain >= 0.999 ? INNER_COLOR_HEX : ISO50_COLOR_HEX
+      const rulerMat = rig.rulerLine3D.material as THREE.LineBasicMaterial;
+      rulerMat.color.setHex(
+        culled ? 0xf43f5e : gain >= 0.999 ? INNER_COLOR_HEX : ISO50_COLOR_HEX
+      );
+
+      rig.emitterBeacon.position.copy(this._emitterPos);
+      rig.listenerBeacon.position.copy(this._listenerPos);
+
+      if (rig.billboard) {
+        this._midPos.lerpVectors(this._emitterPos, this._listenerPos, 0.35);
+        this._midPos.y = Math.max(this._emitterPos.y, this._listenerPos.y, 120) + 140;
+        rig.billboard.sprite.position.copy(this._midPos);
+
+        const camDist = activeCamera
+          ? Math.max(400, activeCamera.position.distanceTo(this._midPos))
+          : 1800;
+        const spriteScale = Math.min(1800, Math.max(260, camDist * 0.28));
+        rig.billboard.sprite.scale.set(spriteScale, spriteScale * (144 / 512), 1);
+
+        renderSpatialAudioBillboardLabel(
+          rig.billboard,
+          profile,
+          cfg,
+          distUU,
+          gain,
+          culled,
+          r50,
+          rMin,
+          rMax
         );
-
-        this._emitterBeacon.position.copy(this._emitterPos);
-        this._listenerBeacon.position.copy(this._listenerPos);
-
-        if (this._billboard) {
-          this._midPos.lerpVectors(this._emitterPos, this._listenerPos, 0.35);
-          this._midPos.y = Math.max(this._emitterPos.y, this._listenerPos.y, 120) + 140;
-          this._billboard.sprite.position.copy(this._midPos);
-
-          const camDist = activeCamera
-            ? Math.max(400, activeCamera.position.distanceTo(this._midPos))
-            : 1800;
-          const spriteScale = Math.min(1800, Math.max(260, camDist * 0.28));
-          this._billboard.sprite.scale.set(spriteScale, spriteScale * (144 / 512), 1);
-
-          renderSpatialAudioBillboardLabel(
-            this._billboard,
-            profile,
-            cfg,
-            distUU,
-            gain,
-            culled,
-            r50,
-            rMin,
-            rMax
-          );
-        }
       }
     }
 
@@ -525,8 +298,8 @@ export class SpatialAudioDebugVisualizer {
     this._unsubConfig = null;
     this._unsubProfiles?.();
     this._unsubProfiles = null;
-    this._billboard?.texture.dispose();
-    this._billboard = null;
+    this._rig?.billboard?.texture.dispose();
+    this._rig = null;
     this.rootGroup.traverse((node: THREE.Object3D & { geometry?: THREE.BufferGeometry; material?: THREE.Material | THREE.Material[] }) => {
       node.geometry?.dispose?.();
       if (node.material) {
