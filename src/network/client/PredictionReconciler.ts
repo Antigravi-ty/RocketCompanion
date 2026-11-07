@@ -20,10 +20,8 @@ import {
   ClientClockPacingController,
   type ClockPacingInterpolatorPort as InterpolatorPort,
 } from './ClientClockPacingController.ts';
-import {
-  createBoostPadEdgeTracker,
-  type MatchSignalDescriptor as ServerSignalEntry,
-} from '../protocol/GlobalPayloadCodec.ts';
+import { createBoostPadEdgeTracker } from '../protocol/boostPadBitmaskPipeline.ts';
+import type { MatchSignalDescriptor as ServerSignalEntry } from '../protocol/GlobalPayloadCodec.ts';
 import {
   ReconcilerControlMessenger,
   type ParsedReconcilerPacket as ParsedServerPacketSnapshot,

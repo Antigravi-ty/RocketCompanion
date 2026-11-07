@@ -6,27 +6,14 @@
 
 import {
   ZERO_G_ANCHOR_MODES,
-  DIAGNOSTIC_OBSERVATION_TARGETS,
   getProbeAltitudeControllerState,
   configureZeroGVehiclePhysics,
   releaseZeroGVehiclePhysics,
-  setLobbyGhostCarIsolation,
   enforceZeroGFleetConstraints,
-  sampleDiagnosticFleetTelemetry,
   type DiagnosticVehicleSpec,
 } from './ZeroGDiagnosticLab.ts';
 
-export {
-  ZERO_G_ANCHOR_MODES,
-  DIAGNOSTIC_OBSERVATION_TARGETS,
-  getProbeAltitudeControllerState,
-  configureZeroGVehiclePhysics,
-  releaseZeroGVehiclePhysics,
-  setLobbyGhostCarIsolation,
-  enforceZeroGFleetConstraints,
-  sampleDiagnosticFleetTelemetry,
-  type DiagnosticVehicleSpec,
-};
+export type { DiagnosticVehicleSpec };
 
 export type DiagnosticFleetEntry = DiagnosticVehicleSpec;
 

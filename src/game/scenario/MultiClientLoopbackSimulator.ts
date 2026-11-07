@@ -9,10 +9,10 @@
  */
 
 import {
-  CLIENT_COMMAND_TYPES,
   GlobalPayloadCodec,
   MATCH_SIGNALS,
 } from '../../network/protocol/GlobalPayloadCodec.ts';
+import { CLIENT_COMMAND_TYPES } from '../../physics/RocketSimConstants.ts';
 import {
   InputPacketCodec,
   type CarControlsInput,

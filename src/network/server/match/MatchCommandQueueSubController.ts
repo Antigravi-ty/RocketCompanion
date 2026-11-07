@@ -5,9 +5,11 @@
  * and JSON control packet evaluation.
  */
 
+import { MATCH_SIGNALS } from '../../protocol/GlobalPayloadCodec.ts';
 import {
-  MATCH_SIGNALS, SYSTEM_CONTROL_SIGNALS, CLIENT_COMMAND_TYPES,
-} from '../../protocol/GlobalPayloadCodec.ts';
+  SYSTEM_CONTROL_SIGNALS,
+  CLIENT_COMMAND_TYPES,
+} from '../../../physics/RocketSimConstants.ts';
 import {
   MATCH_STATES, collectSessionUserRtt,
   type ActiveMatchSignal, type ReplaySignalLogEntry, type UserRttSummary,

@@ -37,8 +37,6 @@ import {
   type TurnIceServerSpec,
 } from './credentialBundleTypes.ts';
 
-export { PUBLIC_FALLBACK_RELAY_SPEC, isNoKeySimulationEnabled, resolvePublicFallbackBrokerUrl };
-
 export class CredentialBundleManager {
   private importedProfile: SignalingProfilePayload | null = null;
   private devPrivateProfile: SignalingProfilePayload | null = null;

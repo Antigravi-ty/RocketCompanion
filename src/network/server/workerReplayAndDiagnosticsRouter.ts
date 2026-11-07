@@ -3,11 +3,13 @@ import { MATCH_STATES } from './match/matchLoadoutAndSpawnPipeline.ts';
 import {
   DiagnosticsTestVehicleController,
   DEFAULT_DIAGNOSTIC_FLEET,
+  type DiagnosticFleetEntry,
+} from '../diagnostics/DiagnosticsTestVehicles.ts';
+import {
   ZERO_G_ANCHOR_MODES,
   configureZeroGVehiclePhysics,
   releaseZeroGVehiclePhysics,
-  type DiagnosticFleetEntry,
-} from '../diagnostics/DiagnosticsTestVehicles.ts';
+} from '../diagnostics/ZeroGDiagnosticLab.ts';
 import type { WorkerEnvelope } from '../protocol/HostWorkerProtocol.ts';
 import type { MatchSessionAdmin } from './match/MatchSessionAdmin.ts';
 import type { PhysicsEngineManager } from './PhysicsEngineManager.ts';

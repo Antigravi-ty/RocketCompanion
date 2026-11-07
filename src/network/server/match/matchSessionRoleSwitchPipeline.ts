@@ -4,7 +4,8 @@
  * role/team switching, and JSON control packet evaluation.
  */
 
-import { MATCH_SIGNALS, CLIENT_COMMAND_TYPES } from '../../protocol/GlobalPayloadCodec.ts';
+import { MATCH_SIGNALS } from '../../protocol/GlobalPayloadCodec.ts';
+import { CLIENT_COMMAND_TYPES } from '../../../physics/RocketSimConstants.ts';
 import { PLAYER_ROLE_CODES, packLoadoutSignalParam2 } from '../../../ui-core/config/vehicleConstants';
 import {
   MATCH_STATES, resolveDefaultColorSlotForTeam,

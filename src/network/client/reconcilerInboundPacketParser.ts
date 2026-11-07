@@ -12,13 +12,15 @@ import {
 import {
   GlobalPayloadCodec,
   MATCH_SIGNALS,
+  type DecodedGlobalPayload,
+  type MatchSignalDescriptor,
+} from '../protocol/GlobalPayloadCodec.ts';
+import {
   createBoostPadEdgeTracker,
   seedBoostPadEdgeTrackerFromSnapshot,
   applyBoostPadEdgeCooldowns,
   type BoostPadEdgeTracker,
-  type DecodedGlobalPayload,
-  type MatchSignalDescriptor,
-} from '../protocol/GlobalPayloadCodec.ts';
+} from '../protocol/boostPadBitmaskPipeline.ts';
 import type { InspectablePacketInput } from '../diagnostics/PacketDumpDiagnostics.ts';
 import type {
   ReconcilerMetrics,

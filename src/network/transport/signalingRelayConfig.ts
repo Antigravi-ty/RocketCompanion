@@ -9,10 +9,8 @@
  *   - When neither is set (or `?nokey=1` is active without custom/imported bundle), falls back to parameter-supplied Public Fallback Broker (default empty, No SLA).
  */
 
-import {
-  credentialBundleManager,
-  PUBLIC_FALLBACK_RELAY_SPEC,
-} from './CredentialBundleManager.ts';
+import { credentialBundleManager } from './CredentialBundleManager.ts';
+import { PUBLIC_FALLBACK_RELAY_SPEC } from './credentialBundlePersistence.ts';
 import {
   PUBLIC_FALLBACK_BROKER_URL,
   type SignalingProtocolType,

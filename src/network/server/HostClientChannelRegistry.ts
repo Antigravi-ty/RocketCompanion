@@ -6,11 +6,13 @@ import {
 import {
   GlobalPayloadCodec,
   MATCH_SIGNALS,
-  applyBoostPadEdgeCooldowns,
-  type BoostPadEdgeTracker,
   type MatchSignalDescriptor,
   type AcknowledgedCarControlEntry,
 } from '../protocol/GlobalPayloadCodec.ts';
+import {
+  applyBoostPadEdgeCooldowns,
+  type BoostPadEdgeTracker,
+} from '../protocol/boostPadBitmaskPipeline.ts';
 import { EstablishedSessionManager } from './EstablishedSessionManager.ts';
 import {
   HOST_WORKER_MSG_TYPES,

@@ -1,7 +1,5 @@
-import {
-  MATCH_SIGNALS,
-  CLIENT_COMMAND_TYPES,
-} from '../../network/protocol/GlobalPayloadCodec.ts';
+import { MATCH_SIGNALS } from '../../network/protocol/GlobalPayloadCodec.ts';
+import { CLIENT_COMMAND_TYPES } from '../../physics/RocketSimConstants.ts';
 import { isSignalAudioMutedInGoalReplay } from '../../audio/SignalAudioEngine.ts';
 import { useAppStore, hudStore } from '../runtimeUiPort.ts';
 import { dismissHostLobbyOngoingNotification } from './OnlineRosterSyncCoordinator.ts';

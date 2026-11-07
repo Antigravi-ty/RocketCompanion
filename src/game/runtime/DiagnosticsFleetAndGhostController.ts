@@ -1,12 +1,14 @@
 import {
   DiagnosticsTestVehicleController,
   DEFAULT_DIAGNOSTIC_FLEET,
+} from '../../network/diagnostics/DiagnosticsTestVehicles.ts';
+import {
   ZERO_G_ANCHOR_MODES,
   configureZeroGVehiclePhysics,
   setLobbyGhostCarIsolation,
   sampleDiagnosticFleetTelemetry,
   type DiagnosticVehicleSpec,
-} from '../../network/diagnostics/DiagnosticsTestVehicles.ts';
+} from '../../network/diagnostics/ZeroGDiagnosticLab.ts';
 import {
   LobbyGhostCarCoordinator,
   DEFAULT_GHOST_OPACITY,

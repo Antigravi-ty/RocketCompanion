@@ -1,7 +1,5 @@
-import {
-  MATCH_SIGNALS,
-  isSystemControlSignal,
-} from '../../network/protocol/GlobalPayloadCodec.ts';
+import { MATCH_SIGNALS } from '../../network/protocol/GlobalPayloadCodec.ts';
+import { isSystemControlSignal } from '../../physics/RocketSimConstants.ts';
 import { gameAudio } from '../../audio/GameAudioEngineFacade.ts';
 import { eventStreamStore } from '../runtimeUiPort.ts';
 import { RuntimeSignalDomainSubController } from './RuntimeSignalDomainSubController.ts';
