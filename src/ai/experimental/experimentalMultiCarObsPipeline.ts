@@ -145,18 +145,10 @@ export function getNextoKickoffControls(
   const normX = team === 0 ? cv.posX : -cv.posX;
   const sign = normX < -10 ? -1 : 1;
 
-  if (kickoffTick < 44) {
-    return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true };
-  }
-  if (kickoffTick < 60) {
-    return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true, steer: -1 * sign };
-  }
-  if (kickoffTick < 68) {
-    return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true, jump: true };
-  }
-  if (kickoffTick < 72) {
-    return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true };
-  }
+  if (kickoffTick < 44) return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true };
+  if (kickoffTick < 60) return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true, steer: -1 * sign };
+  if (kickoffTick < 68) return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true, jump: true };
+  if (kickoffTick < 72) return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true };
   if (kickoffTick < 76) {
     return {
       ...DEFAULT_CAR_CONTROLS,
@@ -167,17 +159,12 @@ export function getNextoKickoffControls(
       pitch: -0.7,
     };
   }
-  if (kickoffTick < 128) {
-    return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true, pitch: 1 };
-  }
+  if (kickoffTick < 128) return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true, pitch: 1 };
   return { ...DEFAULT_CAR_CONTROLS, throttle: 1, roll: 1 * sign, pitch: 0.5 };
 }
 
 /**
  * Normalizes activeCars list or derives it from simState if not explicitly passed.
- * @param {Float32Array} simState
- * @param {Array<{carIndex: number, team: number}>} [activeCars]
- * @returns {Array<{carIndex: number, team: number}>}
  */
 export function resolveActiveCars(
   simState: Float32Array,
@@ -193,91 +180,59 @@ export function resolveActiveCars(
   const count = Math.max(1, Math.min(8, sHeaderView.numCars || 2));
   const list: ActiveCarEntry[] = [];
   for (let i = 0; i < count; i++) {
-    list.push({
-      carIndex: i,
-      team: i % 2,
-    });
+    list.push({ carIndex: i, team: i % 2 });
   }
   return list;
 }
 
-/**
- * Builds the dynamic N-car observation tensors for Nexto.
- * Entity order: [selfCar, ...otherActiveCars, ball, ...34 boostPads]
- *
- * @param {Float32Array} simState
- * @param {Array<{pos: number[], isBig: boolean}>} boostPads
- * @param {Object} currentControls
- * @param {number} selfCarIndex
- * @param {number} selfTeam - 0 for Blue, 1 for Orange
- * @param {Array<{carIndex: number, team: number}>} [activeCars]
- * @returns {{ query: Float32Array, entities: Float32Array, numEntities: number }}
- */
-export function buildDynamicNextoObs(
+function buildOrderedRoster(
   simState: Float32Array,
-  boostPads: ReadonlyArray<BoostPadDescriptor> | null | undefined,
-  currentControls: Partial<CarControls>,
   selfCarIndex: number,
-  selfTeam: number,
-  activeCars: ActiveCarEntry[] | null = null
-): DynamicPerceiverObs {
-  const normSelfTeam = selfTeam === 1 ? 1 : selfTeam === 0 ? 0 : selfCarIndex % 2;
+  normSelfTeam: number,
+  activeCars: ActiveCarEntry[] | null
+): ActiveCarEntry[] {
   const roster = resolveActiveCars(simState, activeCars);
-  const orderedCars: ActiveCarEntry[] = [];
-
-  const foundSelf = roster.find((c) => c.carIndex === selfCarIndex);
-  const selfEntry = foundSelf
-    ? { carIndex: selfCarIndex, team: normSelfTeam }
-    : { carIndex: selfCarIndex, team: normSelfTeam };
-  orderedCars.push(selfEntry);
-
+  const ordered: ActiveCarEntry[] = [{ carIndex: selfCarIndex, team: normSelfTeam }];
   for (let i = 0; i < roster.length; i++) {
     if (roster[i].carIndex !== selfCarIndex) {
-      orderedCars.push(roster[i]);
+      ordered.push(roster[i]);
     }
   }
+  return ordered;
+}
 
-  const numCars = orderedCars.length;
-  const numPads = Math.min(NUM_BOOST_PADS, boostPads?.length || 0);
-  const numEntities = numCars + 1 + numPads;
-  const entities = new Float64Array(numEntities * ENTITY_DIMS);
+function writeCarEntityBase(
+  entities: Float64Array,
+  eOff: number,
+  carView: CarStateView,
+  isSelf: boolean,
+  isMate: boolean
+): void {
+  entities[eOff + 0] = isSelf ? 1 : 0;
+  entities[eOff + 1] = isMate ? 1 : 0;
+  entities[eOff + 2] = isMate ? 0 : 1;
+  entities[eOff + 5] = carView.posX;
+  entities[eOff + 6] = carView.posY;
+  entities[eOff + 7] = carView.posZ;
+  entities[eOff + 8] = carView.velX;
+  entities[eOff + 9] = carView.velY;
+  entities[eOff + 10] = carView.velZ;
+  entities[eOff + 11] = carView.fwdX;
+  entities[eOff + 12] = carView.fwdY;
+  entities[eOff + 13] = carView.fwdZ;
+  entities[eOff + 14] = carView.upX;
+  entities[eOff + 15] = carView.upY;
+  entities[eOff + 16] = carView.upZ;
+  entities[eOff + 17] = carView.angVelX;
+  entities[eOff + 18] = carView.angVelY;
+  entities[eOff + 19] = carView.angVelZ;
+  entities[eOff + 20] = carView.boost / 100;
+  entities[eOff + 22] = carView.isOnGround ? 1 : 0;
+  entities[eOff + 23] = carView.hasFlipOrJump ? 1 : 0;
+}
 
-  // 1. Cars (self first at index 0, followed by teammates and opponents)
-  for (let i = 0; i < numCars; i++) {
-    const entry = orderedCars[i];
-    const cIdx = entry.carIndex;
-    const isSelf = i === 0;
-    const isMate = entry.team === normSelfTeam;
-    const carView = (sCarViews[cIdx] || new CarStateView()).attachCar(simState, cIdx);
-    const eOff = i * ENTITY_DIMS;
-
-    entities[eOff + 0] = isSelf ? 1 : 0; // IS_SELF
-    entities[eOff + 1] = isMate ? 1 : 0; // IS_MATE (true for self and allied teammates)
-    entities[eOff + 2] = isMate ? 0 : 1; // IS_OPP
-    entities[eOff + 5] = carView.posX;
-    entities[eOff + 6] = carView.posY;
-    entities[eOff + 7] = carView.posZ;
-    entities[eOff + 8] = carView.velX;
-    entities[eOff + 9] = carView.velY;
-    entities[eOff + 10] = carView.velZ;
-    entities[eOff + 11] = carView.fwdX;
-    entities[eOff + 12] = carView.fwdY;
-    entities[eOff + 13] = carView.fwdZ;
-    entities[eOff + 14] = carView.upX;
-    entities[eOff + 15] = carView.upY;
-    entities[eOff + 16] = carView.upZ;
-    entities[eOff + 17] = carView.angVelX;
-    entities[eOff + 18] = carView.angVelY;
-    entities[eOff + 19] = carView.angVelZ;
-    entities[eOff + 20] = carView.boost / 100;
-    entities[eOff + 21] = carView.isDemoed ? 1 : 0;
-    entities[eOff + 22] = carView.isOnGround ? 1 : 0;
-    entities[eOff + 23] = carView.hasFlipOrJump ? 1 : 0;
-  }
-
-  // 2. Ball entity
+function writeBallEntity(entities: Float64Array, bOff: number, simState: Float32Array): void {
   sBallView.attach(simState);
-  const bOff = numCars * ENTITY_DIMS;
   entities[bOff + 3] = 1; // IS_BALL
   entities[bOff + 5] = sBallView.posX;
   entities[bOff + 6] = sBallView.posY;
@@ -288,6 +243,60 @@ export function buildDynamicNextoObs(
   entities[bOff + 17] = sBallView.angVelX;
   entities[bOff + 18] = sBallView.angVelY;
   entities[bOff + 19] = sBallView.angVelZ;
+}
+
+function normalizeAndReflectEntities(
+  entities: Float64Array,
+  numEntities: number,
+  normSelfTeam: number
+): void {
+  for (let u = 0; u < numEntities; u++) {
+    const p = u * ENTITY_DIMS;
+    for (let v = 5; v < 20; v++) {
+      if (normSelfTeam === 1 && (v - 5) % 3 !== 2) {
+        entities[p + v] *= -1;
+      }
+      if (v < 11) {
+        entities[p + v] /= 2300;
+      }
+      if (v >= 17) {
+        entities[p + v] /= 5.5;
+      }
+    }
+  }
+}
+
+/**
+ * Builds the dynamic N-car observation tensors for Nexto.
+ * Entity order: [selfCar, ...otherActiveCars, ball, ...34 boostPads]
+ */
+export function buildDynamicNextoObs(
+  simState: Float32Array,
+  boostPads: ReadonlyArray<BoostPadDescriptor> | null | undefined,
+  currentControls: Partial<CarControls>,
+  selfCarIndex: number,
+  selfTeam: number,
+  activeCars: ActiveCarEntry[] | null = null
+): DynamicPerceiverObs {
+  const normSelfTeam = selfTeam === 1 ? 1 : selfTeam === 0 ? 0 : selfCarIndex % 2;
+  const orderedCars = buildOrderedRoster(simState, selfCarIndex, normSelfTeam, activeCars);
+
+  const numCars = orderedCars.length;
+  const numPads = Math.min(NUM_BOOST_PADS, boostPads?.length || 0);
+  const numEntities = numCars + 1 + numPads;
+  const entities = new Float64Array(numEntities * ENTITY_DIMS);
+
+  // 1. Cars (self first at index 0, followed by teammates and opponents)
+  for (let i = 0; i < numCars; i++) {
+    const entry = orderedCars[i];
+    const carView = (sCarViews[entry.carIndex] || new CarStateView()).attachCar(simState, entry.carIndex);
+    const eOff = i * ENTITY_DIMS;
+    writeCarEntityBase(entities, eOff, carView, i === 0, entry.team === normSelfTeam);
+    entities[eOff + 21] = carView.isDemoed ? 1 : 0;
+  }
+
+  // 2. Ball entity
+  writeBallEntity(entities, numCars * ENTITY_DIMS, simState);
 
   // 3. Boost pad entities
   for (let p = 0; p < numPads; p++) {
@@ -303,20 +312,7 @@ export function buildDynamicNextoObs(
   }
 
   // 4. Normalization and Orange team coordinate reflection
-  for (let u = 0; u < numEntities; u++) {
-    const p = u * ENTITY_DIMS;
-    for (let v = 5; v < 20; v++) {
-      if (normSelfTeam === 1 && (v - 5) % 3 !== 2) {
-        entities[p + v] *= -1;
-      }
-      if (v < 11) {
-        entities[p + v] /= 2300;
-      }
-      if (v >= 17) {
-        entities[p + v] /= 5.5;
-      }
-    }
-  }
+  normalizeAndReflectEntities(entities, numEntities, normSelfTeam);
 
   // 5. Query vector [32] = selfCar features [0..23] + previous action controls [24..31]
   const query = new Float32Array(32);
@@ -357,16 +353,6 @@ export function buildDynamicNextoObs(
 /**
  * Builds the dynamic N-car observation tensors for Necto.
  * Entity order: [ball, selfCar, ...otherActiveCars, ...34 boostPads]
- *
- * @param {Float32Array} simState
- * @param {Array<{pos: number[], isBig: boolean}>} boostPads
- * @param {Object} currentControls
- * @param {number} selfCarIndex
- * @param {number} selfTeam - 0 for Blue, 1 for Orange
- * @param {Array<{carIndex: number, team: number}>} [activeCars]
- * @param {Float64Array} [demoTimers] - length 8
- * @param {Float64Array} [boostTimers] - length 34
- * @returns {{ query: Float32Array, entities: Float32Array, numEntities: number }}
  */
 export function buildDynamicNectoObs(
   simState: Float32Array,
@@ -379,20 +365,7 @@ export function buildDynamicNectoObs(
   boostTimers: Float64Array | Float32Array | null = null
 ): DynamicPerceiverObs {
   const normSelfTeam = selfTeam === 1 ? 1 : selfTeam === 0 ? 0 : selfCarIndex % 2;
-  const roster = resolveActiveCars(simState, activeCars);
-  const orderedCars: Array<{ carIndex: number; team: number }> = [];
-
-  const selfEntry = {
-    carIndex: selfCarIndex,
-    team: normSelfTeam,
-  };
-  orderedCars.push(selfEntry);
-
-  for (let i = 0; i < roster.length; i++) {
-    if (roster[i].carIndex !== selfCarIndex) {
-      orderedCars.push(roster[i]);
-    }
-  }
+  const orderedCars = buildOrderedRoster(simState, selfCarIndex, normSelfTeam, activeCars);
 
   const numCars = orderedCars.length;
   const numPads = Math.min(NUM_BOOST_PADS, boostPads?.length || 0);
@@ -400,46 +373,16 @@ export function buildDynamicNectoObs(
   const entities = new Float64Array(numEntities * ENTITY_DIMS);
 
   // 1. Ball at entity 0
-  sBallView.attach(simState);
-  entities[3] = 1; // IS_BALL
-  entities[5] = sBallView.posX;
-  entities[6] = sBallView.posY;
-  entities[7] = sBallView.posZ;
-  entities[8] = sBallView.velX;
-  entities[9] = sBallView.velY;
-  entities[10] = sBallView.velZ;
-  entities[17] = sBallView.angVelX;
-  entities[18] = sBallView.angVelY;
-  entities[19] = sBallView.angVelZ;
+  writeBallEntity(entities, 0, simState);
 
   // 2. Cars at entities 1 .. numCars (entity 1 is always selfCar)
   for (let c = 0; c < numCars; c++) {
     const entry = orderedCars[c];
     const cIdx = entry.carIndex;
-    const isSelf = c === 0;
-    const isMate = entry.team === normSelfTeam;
     const carView = (sCarViews[cIdx] || new CarStateView()).attachCar(simState, cIdx);
     const d = (c + 1) * ENTITY_DIMS;
 
-    entities[d + 0] = isSelf ? 1 : 0; // IS_SELF
-    entities[d + 1] = isMate ? 1 : 0; // IS_MATE
-    entities[d + 2] = isMate ? 0 : 1; // IS_OPP
-    entities[d + 5] = carView.posX;
-    entities[d + 6] = carView.posY;
-    entities[d + 7] = carView.posZ;
-    entities[d + 8] = carView.velX;
-    entities[d + 9] = carView.velY;
-    entities[d + 10] = carView.velZ;
-    entities[d + 11] = carView.fwdX;
-    entities[d + 12] = carView.fwdY;
-    entities[d + 13] = carView.fwdZ;
-    entities[d + 14] = carView.upX;
-    entities[d + 15] = carView.upY;
-    entities[d + 16] = carView.upZ;
-    entities[d + 17] = carView.angVelX;
-    entities[d + 18] = carView.angVelY;
-    entities[d + 19] = carView.angVelZ;
-    entities[d + 20] = carView.boost / 100;
+    writeCarEntityBase(entities, d, carView, c === 0, entry.team === normSelfTeam);
 
     if (carView.isDemoed) {
       const nativeTimer = carView.demoRespawnTimer;
@@ -461,9 +404,6 @@ export function buildDynamicNectoObs(
       }
       entities[d + 21] = 0;
     }
-
-    entities[d + 22] = carView.isOnGround ? 1 : 0;
-    entities[d + 23] = carView.hasFlipOrJump ? 1 : 0;
   }
 
   // 3. Boost Pads at entities (1 + numCars) .. (numEntities - 1)
@@ -492,14 +432,7 @@ export function buildDynamicNectoObs(
   }
 
   // 4. Normalization and Orange team coordinate reflection
-  for (let l = 0; l < numEntities; l++) {
-    const c = l * ENTITY_DIMS;
-    for (let h = 5; h < 20; h++) {
-      if (h < 11) entities[c + h] /= 2300;
-      if (h >= 17) entities[c + h] /= 5.5;
-      if (normSelfTeam === 1 && (h - 5) % 3 !== 2) entities[c + h] *= -1;
-    }
-  }
+  normalizeAndReflectEntities(entities, numEntities, normSelfTeam);
 
   // 5. Query vector [32] = selfCar entity (at index 1) + previous action controls
   const selfEntity = entities.slice(ENTITY_DIMS, 2 * ENTITY_DIMS);

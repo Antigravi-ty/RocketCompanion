@@ -1,7 +1,9 @@
 /**
  * RippleObsBuilder.ts
- * Self-contained per-agent observation builder and 6-step delayed action queue for
- * Ripple v1.1 (`rolv/ripple/1.1`).
+ * Self-contained per-agent observation builder for Ripple v1.1 (`rolv/ripple/1.1`).
+ *
+ * BoostPad state encoding, player timers, and the 6-step delayed action ring buffer
+ * are encapsulated in `RippleHistoryAndPadTracker` (`./rippleObsHistoryAndPadEncoder.ts`).
  *
  * Matches `src/obs.py` (`RippleObs`) and `src/act.py` (`DelayedAction` + `RippleLookupAction`):
  * - 5 observation inputs:
@@ -10,30 +12,26 @@
  *   3. `ball` [6 * 9]: 6 ball prediction slices at 0s, 1s, 2s, 3s, 4s, 5s in local car frame
  *   4. `actions` [6 * 8]: 6-step delayed action queue (newest at index 0, oldest executed at index 5)
  *   5. `boosts` [34 * 5]: 34 boost pads in local car frame (`[rx, ry, rz, amount, timer/10]`)
- * - 4-tick decision cadence (`tickSkip = 4`) with 6-step `actionQueue` (~200ms human-like reaction delay).
  */
 
 import {
   CarStateView,
   BallStateView,
-  BoostPadStateView,
 } from '../../physics/RocketSimStateViews.ts';
-import {
-  DEFAULT_CAR_CONTROLS,
-  encodeCarControls,
-  decodeCarControls,
-  resolveActiveCars,
-} from './experimentalMultiCarObsPipeline.ts';
-import { RIPPLE_276_ACTIONS, type CarControls } from './botpack9700488Actions.ts';
-import {
-  CANONICAL_BOOST_LOCATIONS,
-  CANONICAL_TO_WASM_PAD_INDEX,
-} from './botpack9700488Specs.ts';
+import { resolveActiveCars } from './experimentalMultiCarObsPipeline.ts';
+import type { CarControls } from './botpack9700488Actions.ts';
 import {
   ensureSharedBallPrediction,
   type ActiveCarSlot,
   type BallPredictionEnginePort,
 } from './botpackSharedBallPredPipeline.ts';
+import {
+  ACTION_QUEUE_LEN,
+  NUM_BOOST_PADS,
+  INVERT_SIDE_ACTIONS_8,
+  matMulRot3,
+  RippleHistoryAndPadTracker,
+} from './rippleObsHistoryAndPadEncoder.ts';
 
 export interface RippleObservationTensors {
   main: Float32Array;
@@ -44,12 +42,8 @@ export interface RippleObservationTensors {
   isKickoff: boolean;
 }
 
-const TICK_SKIP = 4;
-const TICKS_PER_SECOND = 120;
 const NUM_OTHER_SLOTS = 5;
 const NUM_BALL_SLICES = 6; // t = 0, 1s, 2s, 3s, 4s, 5s
-const ACTION_QUEUE_LEN = 6;
-const NUM_BOOST_PADS = 34;
 
 // Normalization constants from src/obs.py:
 // NORM = [2300]*6 + [6]*3 + [1]*6 + [1, 3, 1, 1, 1, 1, 12, 24, 150, 120, 1, 1, 1, 1, 1, 1, 1]
@@ -87,219 +81,47 @@ const INVERT_SIDE_RELATIVE_32 = new Float32Array([
   1, 1, 1, 1,
 ]);
 
-const INVERT_SIDE_ACTIONS_8 = new Float32Array([1, -1, 1, -1, -1, 1, 1, 1]);
-
 const sBallView = new BallStateView();
-const sPadView = new BoostPadStateView();
 const sCarViews: CarStateView[] = Array.from({ length: 8 }, () => new CarStateView());
-
-/**
- * Multiplies a 3D world vector `[vx, vy, vz]` by the car's rotation matrix `[fwd, right, up]`:
- *   `[vx*fwdX + vy*fwdY + vz*fwdZ, vx*rightX + vy*rightY + vz*rightZ, vx*upX + vy*upY + vz*upZ]`
- */
-function matMulRot3(vx: number, vy: number, vz: number, cv: CarStateView): [number, number, number] {
-  return [
-    vx * cv.fwdX + vy * cv.fwdY + vz * cv.fwdZ,
-    vx * cv.rightX + vy * cv.rightY + vz * cv.rightZ,
-    vx * cv.upX + vy * cv.upY + vz * cv.upZ,
-  ];
-}
 
 export class RippleAgentState {
   public readonly main = new Float32Array(32);
   public readonly others = new Float32Array(NUM_OTHER_SLOTS * 21);
   public readonly ball = new Float32Array(NUM_BALL_SLICES * 9);
-  public readonly actions = new Float32Array(ACTION_QUEUE_LEN * 8);
-  public readonly boosts = new Float32Array(NUM_BOOST_PADS * 5);
-
-  // 6-step action queue [6, 8], newest action at row 0, oldest at row 5
-  public readonly actionQueue = new Float32Array(ACTION_QUEUE_LEN * 8);
-  public isQueueReset = true;
-  public readonly prevExecutedAction = new Float32Array(8);
-  public readonly prevPrevAction = new Float32Array(8);
-
-  // Per-car timers tracked across steps
-  private readonly demoTimers = new Float32Array(8);
-  private readonly boostTimers = new Float32Array(NUM_BOOST_PADS);
-  private readonly boostTimes = new Float32Array(8);
-  private readonly prevOnGrounds = new Uint8Array(8);
-  private readonly isJumpings = new Uint8Array(8);
-  private readonly hasJumpeds = new Uint8Array(8);
-  private readonly jumpTimes = new Float32Array(8);
-  private readonly airTimes = new Float32Array(8);
-  private readonly hasDoubleJumpeds = new Uint8Array(8);
-  private readonly hasFlippeds = new Uint8Array(8);
-  private readonly flipTimes = new Float32Array(8);
-  private readonly flipDirs = new Float32Array(8 * 2);
-  private readonly handbrakes = new Float32Array(8);
+  public readonly historyTracker = new RippleHistoryAndPadTracker();
   private lastBallX = 0;
   private lastBallY = 0;
 
-  reset(isKickoff = true): void {
-    this.actionQueue.fill(0);
-    // On kickoff, Ripple starts with 6 zero actions in queue (`action_queue[:] = 0`).
-    // Mid-play resets set `isQueueReset = true` so the first chosen action fills all 6 slots.
-    this.isQueueReset = !isKickoff;
-    this.prevExecutedAction.fill(0);
-    this.prevPrevAction.fill(0);
-
-    this.demoTimers.fill(0);
-    this.boostTimers.fill(0);
-    this.boostTimes.fill(0);
-    this.prevOnGrounds.fill(1);
-    this.isJumpings.fill(0);
-    this.hasJumpeds.fill(0);
-    this.jumpTimes.fill(0);
-    this.airTimes.fill(0);
-    this.hasDoubleJumpeds.fill(0);
-    this.hasFlippeds.fill(0);
-    this.flipTimes.fill(0);
-    this.flipDirs.fill(0);
-    this.handbrakes.fill(0);
+  get actions(): Float32Array {
+    return this.historyTracker.actions;
   }
 
-  /**
-   * Updates boost pad timers, demo timers, and self player timers for one 4-tick step.
-   */
-  private _updateTimers(
-    simState: Float32Array,
-    selfCarIndex: number,
-    roster: ActiveCarSlot[]
-  ): void {
-    const dtSec = TICK_SKIP / TICKS_PER_SECOND;
+  get boosts(): Float32Array {
+    return this.historyTracker.boosts;
+  }
 
-    // 1. Boost pad timers
-    for (let p = 0; p < NUM_BOOST_PADS; p++) {
-      sPadView.attach(simState, CANONICAL_TO_WASM_PAD_INDEX[p]);
-      if (sPadView.isActive) {
-        this.boostTimers[p] = 0.0;
-      } else {
-        const cooldown = sPadView.cooldown;
-        if (cooldown > 0) {
-          this.boostTimers[p] = Math.min(10.0, cooldown);
-        } else {
-          let t = this.boostTimers[p] - dtSec;
-          if (t <= 0) {
-            t = CANONICAL_BOOST_LOCATIONS[p][2] > 72.0 ? 10.0 : 4.0;
-          }
-          this.boostTimers[p] = Math.max(0.0, Math.min(10.0, t));
-        }
-      }
-    }
+  get actionQueue(): Float32Array {
+    return this.historyTracker.actionQueue;
+  }
 
-    // 2. Demo timers for all cars in roster
-    for (let i = 0; i < roster.length; i++) {
-      const cIdx = roster[i].carIndex;
-      const cv = (sCarViews[cIdx] || new CarStateView()).attachCar(simState, cIdx);
-      if (cv.isDemoed) {
-        const rem = cv.demoRespawnTimer;
-        if (rem > 0) {
-          this.demoTimers[cIdx] = rem;
-        } else if (this.demoTimers[cIdx] <= 0) {
-          this.demoTimers[cIdx] = 3.0;
-        } else {
-          this.demoTimers[cIdx] = Math.max(0.0, this.demoTimers[cIdx] - dtSec);
-        }
-      } else {
-        this.demoTimers[cIdx] = 0.0;
-      }
-    }
+  get isQueueReset(): boolean {
+    return this.historyTracker.isQueueReset;
+  }
 
-    // 3. Self player action-driven timers (exact match to RippleObs.update_player_timers)
-    const cIdx = selfCarIndex;
-    const cv = (sCarViews[cIdx] || new CarStateView()).attachCar(simState, cIdx);
-    const onGround = cv.isOnGround;
-    const lastActOff = (ACTION_QUEUE_LEN - 1) * 8;
-    const lastPitch = this.isQueueReset ? 0 : this.actionQueue[lastActOff + 2];
-    const lastYaw = this.isQueueReset ? 0 : this.actionQueue[lastActOff + 3];
-    const lastRoll = this.isQueueReset ? 0 : this.actionQueue[lastActOff + 4];
-    const lastJump = this.isQueueReset ? 0 : this.actionQueue[lastActOff + 5];
-    const lastBoost = this.isQueueReset ? 0 : this.actionQueue[lastActOff + 6];
-    const lastHandbrake = this.isQueueReset ? 0 : this.actionQueue[lastActOff + 7];
-    const prevJump = this.prevPrevAction[5];
+  set isQueueReset(val: boolean) {
+    this.historyTracker.isQueueReset = val;
+  }
 
-    // Boost time (0..12 ticks)
-    if (!lastBoost && this.boostTimes[cIdx] === 12.0) {
-      this.boostTimes[cIdx] = 0.0;
-    } else if (this.boostTimes[cIdx] !== 0.0 || lastBoost) {
-      this.boostTimes[cIdx] = Math.min(12.0, this.boostTimes[cIdx] + TICK_SKIP);
-    } else {
-      this.boostTimes[cIdx] = 0.0;
-    }
+  get prevExecutedAction(): Float32Array {
+    return this.historyTracker.prevExecutedAction;
+  }
 
-    // Jump time (0..24 ticks)
-    if (this.prevOnGrounds[cIdx] && !this.isJumpings[cIdx]) {
-      this.hasJumpeds[cIdx] = 0;
-    }
-    if (this.isJumpings[cIdx]) {
-      this.isJumpings[cIdx] =
-        this.jumpTimes[cIdx] < 3.0 || (lastJump > 0 && this.jumpTimes[cIdx] < 24.0) ? 1 : 0;
-    } else if (lastJump > 0 && !(prevJump > 0) && this.prevOnGrounds[cIdx]) {
-      this.isJumpings[cIdx] = 1;
-      this.jumpTimes[cIdx] = 0.0;
-    }
+  get prevPrevAction(): Float32Array {
+    return this.historyTracker.prevPrevAction;
+  }
 
-    if (this.isJumpings[cIdx]) {
-      this.hasJumpeds[cIdx] = 1;
-      this.jumpTimes[cIdx] = Math.min(24.0, this.jumpTimes[cIdx] + TICK_SKIP);
-    } else {
-      this.jumpTimes[cIdx] = 0.0;
-    }
-
-    // Air time (0..150 ticks) and flip time (0..120 ticks)
-    if (onGround) {
-      this.hasDoubleJumpeds[cIdx] = 0;
-      this.hasFlippeds[cIdx] = 0;
-      this.airTimes[cIdx] = 0.0;
-      this.flipTimes[cIdx] = 0.0;
-      this.flipDirs[cIdx * 2 + 0] = 0.0;
-      this.flipDirs[cIdx * 2 + 1] = 0.0;
-    } else {
-      if (this.hasJumpeds[cIdx] && !this.isJumpings[cIdx]) {
-        this.airTimes[cIdx] = Math.min(150.0, this.airTimes[cIdx] + TICK_SKIP);
-      } else {
-        this.airTimes[cIdx] = 0.0;
-      }
-
-      if (
-        this.hasJumpeds[cIdx] &&
-        lastJump > 0 &&
-        !(prevJump > 0) &&
-        this.airTimes[cIdx] < 150.0 &&
-        !this.hasDoubleJumpeds[cIdx] &&
-        !this.hasFlippeds[cIdx]
-      ) {
-        const mag = Math.abs(lastPitch) + Math.abs(lastYaw) + Math.abs(lastRoll);
-        if (mag >= 0.5) {
-          this.flipTimes[cIdx] = 0.0;
-          this.hasFlippeds[cIdx] = 1;
-          let fx = -lastPitch;
-          let fy = lastYaw + lastRoll;
-          const flen = Math.hypot(fx, fy);
-          if (flen > 1e-6) {
-            fx /= flen;
-            fy /= flen;
-          }
-          this.flipDirs[cIdx * 2 + 0] = fx;
-          this.flipDirs[cIdx * 2 + 1] = fy;
-        } else {
-          this.hasDoubleJumpeds[cIdx] = 1;
-        }
-      }
-    }
-
-    if (this.hasFlippeds[cIdx]) {
-      this.flipTimes[cIdx] = Math.min(120.0, this.flipTimes[cIdx] + TICK_SKIP);
-    }
-
-    // Handbrake (0..1)
-    if (lastHandbrake > 0) {
-      this.handbrakes[cIdx] = Math.min(1.0, this.handbrakes[cIdx] + 5.0 * dtSec);
-    } else {
-      this.handbrakes[cIdx] = Math.max(0.0, this.handbrakes[cIdx] - 2.0 * dtSec);
-    }
-
-    this.prevOnGrounds[cIdx] = onGround ? 1 : 0;
+  reset(isKickoff = true): void {
+    this.historyTracker.reset(isKickoff);
   }
 
   /**
@@ -329,8 +151,9 @@ export class RippleAgentState {
     this.lastBallX = sBallView.posX;
     this.lastBallY = sBallView.posY;
 
-    this._updateTimers(simState, selfCarIndex, roster);
-    this.prevPrevAction.set(this.prevExecutedAction);
+    const tracker = this.historyTracker;
+    tracker.updateTimers(simState, selfCarIndex, roster);
+    tracker.prevPrevAction.set(tracker.prevExecutedAction);
 
     const selfCv = (sCarViews[selfCarIndex] || new CarStateView()).attachCar(simState, selfCarIndex);
 
@@ -353,21 +176,19 @@ export class RippleAgentState {
     main[13] = selfCv.upY;
     main[14] = selfCv.upZ;
     main[15] = 2 * normSelfTeam - 1;
-    main[16] = this.demoTimers[selfCarIndex];
+    main[16] = tracker.demoTimers[selfCarIndex];
     main[17] = selfCv.isOnGround ? 1.0 : 0.0;
-    const selfHasJump = selfCv.isOnGround ? 1.0 : 0.0;
-    const selfHasFlip = selfCv.hasFlipOrJump ? 1.0 : 0.0;
-    main[18] = selfHasJump;
-    main[19] = selfHasFlip;
+    main[18] = selfCv.isOnGround ? 1.0 : 0.0;
+    main[19] = selfCv.hasFlipOrJump ? 1.0 : 0.0;
     main[20] = Math.min(selfCv.boost / 100.0, 2.0);
-    main[21] = this.boostTimes[selfCarIndex];
-    main[22] = this.jumpTimes[selfCarIndex];
-    main[23] = this.airTimes[selfCarIndex];
-    main[24] = this.flipTimes[selfCarIndex];
-    main[25] = this.handbrakes[selfCarIndex];
-    main[26] = this.flipDirs[selfCarIndex * 2 + 0];
-    main[27] = this.flipDirs[selfCarIndex * 2 + 1];
-    main[28] = this.isQueueReset ? 1.0 : 0.0;
+    main[21] = tracker.boostTimes[selfCarIndex];
+    main[22] = tracker.jumpTimes[selfCarIndex];
+    main[23] = tracker.airTimes[selfCarIndex];
+    main[24] = tracker.flipTimes[selfCarIndex];
+    main[25] = tracker.handbrakes[selfCarIndex];
+    main[26] = tracker.flipDirs[selfCarIndex * 2 + 0];
+    main[27] = tracker.flipDirs[selfCarIndex * 2 + 1];
+    main[28] = tracker.isQueueReset ? 1.0 : 0.0;
     main[29] = isKickoff ? 1.0 : 0.0;
     main[30] = 0.0; // is_flipped (set below if main[0] < 0)
     main[31] = 0.0; // is_swapped
@@ -430,7 +251,7 @@ export class RippleAgentState {
       others[base + 13] = relUp[1];
       others[base + 14] = relUp[2];
       others[base + 15] = 2 * o.team - 1;
-      others[base + 16] = this.demoTimers[o.carIndex];
+      others[base + 16] = tracker.demoTimers[o.carIndex];
       others[base + 17] = ocv.isOnGround ? 1.0 : 0.0;
       others[base + 18] = ocv.isOnGround ? 1.0 : 0.0;
       others[base + 19] = ocv.hasFlipOrJump ? 1.0 : 0.0;
@@ -476,30 +297,10 @@ export class RippleAgentState {
       ball[dst + 8] = relAng[2];
     }
 
-    // 4. Populate action queue [6 * 8]
-    if (this.isQueueReset) {
-      this.actions.fill(0);
-    } else {
-      this.actions.set(this.actionQueue);
-    }
-
-    // 5. Populate boost pads [34 * 5] in local self frame
-    const boosts = this.boosts;
-    for (let p = 0; p < NUM_BOOST_PADS; p++) {
-      const loc = CANONICAL_BOOST_LOCATIONS[p];
-      const relPos = matMulRot3(
-        loc[0] - selfCv.posX,
-        loc[1] - selfCv.posY,
-        loc[2] - selfCv.posZ,
-        selfCv
-      );
-      const dst = p * 5;
-      boosts[dst + 0] = relPos[0];
-      boosts[dst + 1] = relPos[1];
-      boosts[dst + 2] = relPos[2];
-      boosts[dst + 3] = loc[2] > 72.0 ? 1.0 : 0.12;
-      boosts[dst + 4] = this.boostTimers[p] / 10.0;
-    }
+    // 4 & 5. Populate action queue [6 * 8] and boost pads [34 * 5]
+    tracker.encodeActionsAndBoostPads(selfCv);
+    const actions = tracker.actions;
+    const boosts = tracker.boosts;
 
     // 6. Orange team inversion
     if (normSelfTeam === 1) {
@@ -541,7 +342,7 @@ export class RippleAgentState {
       for (let q = 0; q < ACTION_QUEUE_LEN; q++) {
         const dst = q * 8;
         for (let d = 0; d < 8; d++) {
-          this.actions[dst + d] *= INVERT_SIDE_ACTIONS_8[d];
+          actions[dst + d] *= INVERT_SIDE_ACTIONS_8[d];
         }
       }
       main[29] *= -1.0;
@@ -575,7 +376,7 @@ export class RippleAgentState {
       main,
       others,
       ball,
-      actions: this.actions,
+      actions,
       boosts,
       isKickoff,
     };
@@ -584,39 +385,8 @@ export class RippleAgentState {
   /**
    * Pushes the newly selected action index (0..275) into the 6-step delayed queue
    * and returns the action at the tail of the queue (`actionQueue[5]`) as `CarControls`.
-   * Matches `DelayedAction.parse_actions` in `src/act.py`.
    */
   stepDelayedActionQueue(actionIdx: number): CarControls {
-    const newControls = RIPPLE_276_ACTIONS[actionIdx] || DEFAULT_CAR_CONTROLS;
-    const newArr = encodeCarControls(newControls);
-
-    if (this.isQueueReset) {
-      for (let q = 0; q < ACTION_QUEUE_LEN; q++) {
-        this.actionQueue.set(newArr, q * 8);
-      }
-      this.isQueueReset = false;
-    }
-
-    // Extract oldest action at index 5 before shifting
-    const tailOff = (ACTION_QUEUE_LEN - 1) * 8;
-    for (let d = 0; d < 8; d++) {
-      this.prevExecutedAction[d] = this.actionQueue[tailOff + d];
-    }
-
-    // Shift queue down: actionQueue[1..5] = actionQueue[0..4]
-    for (let q = ACTION_QUEUE_LEN - 1; q >= 1; q--) {
-      const dst = q * 8;
-      const src = (q - 1) * 8;
-      for (let d = 0; d < 8; d++) {
-        this.actionQueue[dst + d] = this.actionQueue[src + d];
-      }
-    }
-
-    // Insert newest action at index 0
-    for (let d = 0; d < 8; d++) {
-      this.actionQueue[d] = newArr[d];
-    }
-
-    return decodeCarControls(this.prevExecutedAction);
+    return this.historyTracker.stepDelayedActionQueue(actionIdx);
   }
 }
