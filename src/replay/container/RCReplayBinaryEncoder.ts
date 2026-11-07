@@ -82,23 +82,12 @@ function resolveFrameIndexFromTrackBytes(
   hintFrameIndex = 0
 ): number {
   if (frameCount <= 0) return 0;
-  const readTick = (idx: number) => {
-    const f32 = new Float32Array(
-      stateInputBytes.buffer,
-      stateInputBytes.byteOffset + idx * stride,
-      1
-    );
-    return Math.floor(f32[0] || idx);
-  };
-  if (
-    hintFrameIndex >= 0 &&
-    hintFrameIndex < frameCount &&
-    readTick(hintFrameIndex) === targetTick
-  ) {
+  const readTick = (idx: number) =>
+    Math.floor(new Float32Array(stateInputBytes.buffer, stateInputBytes.byteOffset + idx * stride, 1)[0] || idx);
+  if (hintFrameIndex >= 0 && hintFrameIndex < frameCount && readTick(hintFrameIndex) === targetTick) {
     return hintFrameIndex;
   }
-  let lo = 0;
-  let hi = frameCount - 1;
+  let lo = 0, hi = frameCount - 1;
   while (lo <= hi) {
     const mid = (lo + hi) >>> 1;
     const midTick = readTick(mid);
@@ -119,10 +108,7 @@ export function normalizeReplayTracksPayload(
   const stride = RC_REPLAY_STATE_INPUT_STRIDE;
 
   // Case 1: Already has raw binary tracks (e.g., extracted directly from WASM or V2 container)
-  if (
-    replayObj.stateInputBytes instanceof Uint8Array &&
-    replayObj.stateInputBytes.byteLength >= stride
-  ) {
+  if (replayObj.stateInputBytes instanceof Uint8Array && replayObj.stateInputBytes.byteLength >= stride) {
     const frameCount = Math.floor(replayObj.stateInputBytes.byteLength / stride);
     const stateInputSlice = replayObj.stateInputBytes.subarray(0, frameCount * stride);
     let incidentBytes =
@@ -133,32 +119,13 @@ export function normalizeReplayTracksPayload(
       const filteredIncidents = new Uint8Array(rawIncidentCount * RC_REPLAY_EVENT_STRIDE);
       for (let i = 0; i < rawIncidentCount; i++) {
         const byteOff = i * RC_REPLAY_EVENT_STRIDE;
-        const evtType = incidentBytes[byteOff];
-        if (!isIncidentEvent(evtType)) {
-          continue;
-        }
+        if (!isIncidentEvent(incidentBytes[byteOff])) continue;
         const dstByteOff = incidentCount * RC_REPLAY_EVENT_STRIDE;
-        filteredIncidents.set(
-          incidentBytes.subarray(byteOff, byteOff + RC_REPLAY_EVENT_STRIDE),
-          dstByteOff
-        );
+        filteredIncidents.set(incidentBytes.subarray(byteOff, byteOff + RC_REPLAY_EVENT_STRIDE), dstByteOff);
         if (frameCount > 0) {
-          const dstU32 = new Uint32Array(
-            filteredIncidents.buffer,
-            filteredIncidents.byteOffset + dstByteOff,
-            16
-          );
-          const tick = dstU32[1];
-          const rawFrameIdx = dstU32[15];
-          if (tick > 0) {
-            const resolvedIdx = resolveFrameIndexFromTrackBytes(
-              stateInputSlice,
-              frameCount,
-              stride,
-              tick,
-              rawFrameIdx
-            );
-            dstU32[15] = resolvedIdx >>> 0;
+          const dstU32 = new Uint32Array(filteredIncidents.buffer, filteredIncidents.byteOffset + dstByteOff, 16);
+          if (dstU32[1] > 0) {
+            dstU32[15] = resolveFrameIndexFromTrackBytes(stateInputSlice, frameCount, stride, dstU32[1], dstU32[15]) >>> 0;
           }
         }
         incidentCount++;
@@ -168,22 +135,16 @@ export function normalizeReplayTracksPayload(
     const signalBytes =
       replayObj.signalBytes instanceof Uint8Array ? replayObj.signalBytes : new Uint8Array(0);
     return {
-      frameCount,
-      stateStride: stride,
-      incidentCount,
+      frameCount, stateStride: stride, incidentCount,
       signalCount: Math.floor(signalBytes.byteLength / RC_REPLAY_EVENT_STRIDE),
-      stateInputBytes: stateInputSlice,
-      incidentBytes,
-      signalBytes,
+      stateInputBytes: stateInputSlice, incidentBytes, signalBytes,
     };
   }
 
   // Case 2: Normalize from slots/frames + incidents/signals arrays
   const rawSlots = Array.isArray(replayObj.slots) && replayObj.slots.length > 0
     ? replayObj.slots
-    : Array.isArray(replayObj.frames)
-    ? replayObj.frames
-    : [];
+    : Array.isArray(replayObj.frames) ? replayObj.frames : [];
 
   const frameCount = rawSlots.length;
   const stateInputBytes = new Uint8Array(frameCount * stride);
@@ -194,25 +155,15 @@ export function normalizeReplayTracksPayload(
   for (let i = 0; i < frameCount; i++) {
     const item = rawSlots[i];
     const snap =
-      item instanceof Float32Array
-        ? item
-        : item?.snapshot instanceof Float32Array
-        ? item.snapshot
-        : item?.compactSnap instanceof Float32Array
-        ? item.compactSnap
-        : item?.state instanceof Float32Array
-        ? item.state
-        : item?.renderState instanceof Float32Array
-        ? item.renderState
-        : null;
+      item instanceof Float32Array ? item
+      : item?.snapshot instanceof Float32Array ? item.snapshot
+      : item?.compactSnap instanceof Float32Array ? item.compactSnap
+      : item?.state instanceof Float32Array ? item.state
+      : item?.renderState instanceof Float32Array ? item.renderState : null;
 
     const frameByteOff = i * stride;
     if (snap) {
-      const dstF32 = new Float32Array(
-        stateInputBytes.buffer,
-        stateInputBytes.byteOffset + frameByteOff,
-        STATE_BUFFER_FLOATS
-      );
+      const dstF32 = new Float32Array(stateInputBytes.buffer, stateInputBytes.byteOffset + frameByteOff, STATE_BUFFER_FLOATS);
       dstF32.set(snap.subarray(0, Math.min(snap.length, STATE_BUFFER_FLOATS)));
     }
 
@@ -366,9 +317,8 @@ export function serializeRCReplayBinaryContainer(
     : Array.isArray(replayObj.roster?.players)
       ? replayObj.roster.players
       : [];
-  const normalizedLoadouts = Array.isArray(replayObj.loadouts)
-    ? replayObj.loadouts
-    : normalizedRoster;
+  const normalizedLoadouts = Array.isArray(replayObj.loadouts) ? replayObj.loadouts : normalizedRoster;
+  const tickRate = replayObj.tickRate || 120;
   const buildMetaJson = (trackAOffset: number, trackBOffset: number, trackCOffset: number) => ({
     magic: RC_REPLAY_MAGIC_V2,
     version: RC_REPLAY_VERSION_V2,
@@ -376,9 +326,9 @@ export function serializeRCReplayBinaryContainer(
     matchInfo: {
       mode: replayObj.mode || replayObj.gameMode || 'match',
       arenaPreset: replayObj.arenaPreset ?? 0,
-      tickRate: replayObj.tickRate || 120,
+      tickRate,
       frameCount: tracks.frameCount,
-      durationSec: Number((tracks.frameCount / (replayObj.tickRate || 120)).toFixed(2)),
+      durationSec: Number((tracks.frameCount / tickRate).toFixed(2)),
       durationSeconds: replayObj.durationSeconds ?? 300,
       winner: replayObj.winner || 'blue',
       blueScore: replayObj.blueScore ?? 0,
@@ -391,27 +341,17 @@ export function serializeRCReplayBinaryContainer(
     },
     tracks: {
       stateInput: {
-        offset: trackAOffset,
-        byteLength: encodedTrackA.byteLength,
-        count: tracks.frameCount,
-        stride: tracks.stateStride,
-        stateFloats: STATE_BUFFER_FLOATS,
-        controlsBytes: RC_REPLAY_CONTROLS_BYTES,
+        offset: trackAOffset, byteLength: encodedTrackA.byteLength, count: tracks.frameCount,
+        stride: tracks.stateStride, stateFloats: STATE_BUFFER_FLOATS, controlsBytes: RC_REPLAY_CONTROLS_BYTES,
         encoding: useDeltaTranspose ? 'xor-delta-bytetran-v1' : 'raw',
       },
       incidents: {
-        offset: trackBOffset,
-        byteLength: encodedTrackB.byteLength,
-        count: tracks.incidentCount,
-        stride: RC_REPLAY_EVENT_STRIDE,
-        encoding: 'physics-event-64b',
+        offset: trackBOffset, byteLength: encodedTrackB.byteLength, count: tracks.incidentCount,
+        stride: RC_REPLAY_EVENT_STRIDE, encoding: 'physics-event-64b',
       },
       signals: {
-        offset: trackCOffset,
-        byteLength: encodedTrackC.byteLength,
-        count: tracks.signalCount,
-        stride: RC_REPLAY_EVENT_STRIDE,
-        encoding: 'signal-event-64b-dedup',
+        offset: trackCOffset, byteLength: encodedTrackC.byteLength, count: tracks.signalCount,
+        stride: RC_REPLAY_EVENT_STRIDE, encoding: 'signal-event-64b-dedup',
       },
     },
   });

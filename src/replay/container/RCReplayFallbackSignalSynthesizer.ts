@@ -5,13 +5,114 @@
  */
 
 import {
+  SIM_OFFSETS,
+  CAR_STATE_STRIDE,
+  CAR_STATE_OFFSETS,
   INCIDENT_EVENT_TYPES,
+  FLIP_RESET_OBJECT_TYPES,
+  FLIP_RESET_SUBTYPES,
+  FLIP_RESET_SUBTYPE_LABELS,
   MATCH_SIGNALS,
 } from '../../physics/RocketSimConstants.ts';
 import type {
   DecodedIncidentEvent,
   DecodedSignalEvent,
+  ReplaySnapshotFloat32Array,
 } from './RCReplayBinarySchema.ts';
+
+function classifyLegacyFlipResetWorldSubType(
+  x: number,
+  y: number,
+  z: number,
+  nx: number,
+  ny: number,
+  nz: number
+): number {
+  const absX = Math.abs(x);
+  const absY = Math.abs(y);
+  const absNx = Math.abs(nx);
+  const absNy = Math.abs(ny);
+  if (absY >= 5040 && absX <= 960 && z <= 720) {
+    if (Math.abs(z - 642) < 100 && absX <= 920) return FLIP_RESET_SUBTYPES.CROSSBAR;
+    if (absX >= 800 || absY > 5120) return FLIP_RESET_SUBTYPES.GOALPOST;
+  }
+  if (nz <= -0.85 || (z >= 1950 && nz <= -0.5)) return FLIP_RESET_SUBTYPES.CEILING;
+  if (nz >= 0.85) return FLIP_RESET_SUBTYPES.FLOOR;
+  if (nz < -0.15) return FLIP_RESET_SUBTYPES.RAMP_CEILING;
+  if (nz > 0.15) return FLIP_RESET_SUBTYPES.RAMP_GROUND;
+  if (absNx >= 0.35 && absNy >= 0.35) return FLIP_RESET_SUBTYPES.CORNER_45;
+  if (absNy >= absNx) return FLIP_RESET_SUBTYPES.BACKBOARD;
+  return FLIP_RESET_SUBTYPES.SIDE_WALL;
+}
+
+export function enrichLegacyFlipResetIncidentFromFrames(
+  inc: DecodedIncidentEvent,
+  frames: ReplaySnapshotFloat32Array[]
+): void {
+  if (!inc || inc.type !== INCIDENT_EVENT_TYPES.FLIP_RESET_GAINED) return;
+  const flagObj = (Number(inc.flags ?? 0) >>> 4) & 0xF;
+  if (flagObj !== 0) return;
+
+  const fIdx = Math.max(0, Math.min(frames.length - 1, inc.frameIndex ?? 0));
+  const prevSnap = frames[Math.max(0, fIdx - 1)] || frames[fIdx];
+  const carIdx = Math.max(0, Math.min(7, Number(inc.carIndex ?? inc.primaryId ?? 0)));
+  const carBase = SIM_OFFSETS.CARS + carIdx * CAR_STATE_STRIDE;
+
+  const cx = prevSnap ? prevSnap[carBase + 0] : Number(inc.carPosX ?? inc.x ?? 0);
+  const cy = prevSnap ? prevSnap[carBase + 1] : Number(inc.carPosY ?? inc.y ?? 0);
+  const cz = prevSnap ? prevSnap[carBase + 2] : Number(inc.carPosZ ?? inc.z ?? 0);
+  const upX = prevSnap ? prevSnap[carBase + CAR_STATE_OFFSETS.UP + 0] : 0;
+  const upY = prevSnap ? prevSnap[carBase + CAR_STATE_OFFSETS.UP + 1] : 0;
+  const upZ = prevSnap ? prevSnap[carBase + CAR_STATE_OFFSETS.UP + 2] : 1;
+  let gnx = prevSnap ? prevSnap[carBase + CAR_STATE_OFFSETS.GROUND_NORMAL + 0] : 0;
+  let gny = prevSnap ? prevSnap[carBase + CAR_STATE_OFFSETS.GROUND_NORMAL + 1] : 0;
+  let gnz = prevSnap ? prevSnap[carBase + CAR_STATE_OFFSETS.GROUND_NORMAL + 2] : 0;
+  if (gnx * gnx + gny * gny + gnz * gnz < 0.1) {
+    gnx = upX;
+    gny = upY;
+    gnz = upZ;
+  }
+
+  const bx = prevSnap ? prevSnap[SIM_OFFSETS.BALL + 0] : Number(inc.ballPosX ?? inc.normalX ?? 0);
+  const by = prevSnap ? prevSnap[SIM_OFFSETS.BALL + 1] : Number(inc.ballPosY ?? inc.normalY ?? 0);
+  const bz = prevSnap ? prevSnap[SIM_OFFSETS.BALL + 2] : Number(inc.ballPosZ ?? inc.normalZ ?? 0);
+
+  const dx = cx - bx;
+  const dy = cy - by;
+  const dz = cz - bz;
+  const distToBall = Math.hypot(dx, dy, dz);
+  const invDist = distToBall > 1e-4 ? 1.0 / distToBall : 0;
+  const ballToCarDotUp = (dx * invDist) * upX + (dy * invDist) * upY + (dz * invDist) * upZ;
+
+  const isNearWorldBoundary =
+    Math.abs(cy) >= 4980 ||
+    Math.abs(cx) >= 3960 ||
+    cz <= 65 ||
+    cz >= 1960;
+
+  const isBallReset = distToBall <= 170.0 && ballToCarDotUp >= 0.45 && !isNearWorldBoundary;
+  if (isBallReset) {
+    Object.assign(inc, {
+      subType: FLIP_RESET_SUBTYPES.BALL,
+      resetSubType: FLIP_RESET_SUBTYPES.BALL,
+      resetSubTypeName: FLIP_RESET_SUBTYPE_LABELS[FLIP_RESET_SUBTYPES.BALL],
+      resetObjectCode: FLIP_RESET_OBJECT_TYPES.BALL,
+      resetObjectType: 'ball',
+      isBallFlipReset: true,
+    });
+  } else {
+    const worldSub = classifyLegacyFlipResetWorldSubType(cx, cy, cz, gnx, gny, gnz);
+    Object.assign(inc, {
+      subType: worldSub,
+      resetSubType: worldSub,
+      resetSubTypeName:
+        (FLIP_RESET_SUBTYPE_LABELS as Record<number, string>)[worldSub] || 'other_world',
+      resetObjectCode: FLIP_RESET_OBJECT_TYPES.WORLD,
+      resetObjectType: 'world',
+      isBallFlipReset: false,
+    });
+  }
+}
 
 export interface FallbackSignalFrameSlotLike {
   tick?: number;

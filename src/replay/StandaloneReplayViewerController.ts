@@ -2,24 +2,19 @@
  * StandaloneReplayViewerController.ts
  * Drives the standalone Replay Viewer floating window (accessible from Self-Training -> Replay Viewer).
  * Delegates roster/POV/loadout state to ReplayViewerRosterSubController, causal hybrid physics
- * stepping to ReplayCausalHybridEngine, and 3-2-1-GO takeover countdowns to ReplayTakeoverSubController.
+ * and Freeplay handoff to ReplayViewerCausalSyncController, and takeover countdowns to ReplayTakeoverSubController.
  */
 
-import { getRetainedMatchReplay, parseRCReplayFile } from './ReplayFileExporter.ts';
+import {
+  getRetainedMatchReplay,
+  parseUploadedReplayFileWithFeedback,
+} from './ReplayFileExporter.ts';
 import {
   ReplayViewerRosterSubController,
-  type ReplayRosterExtractionInput,
   type ReplayRosterMetadataLike,
 } from './ReplayViewerRosterSubController.ts';
+import type { ReplayFrameSlotLike } from './ReplayCausalHybridEngine.ts';
 import {
-  getNormalizedReplayFrameSlot,
-  ReplayCausalHybridEngine,
-  type ReplayCausalTimelineSource,
-  type NormalizedReplayFrameSlot,
-  type ReplayFrameSlotLike,
-} from './ReplayCausalHybridEngine.ts';
-import {
-  executeLiveFreeplayHandoff,
   emitSystemControlTransition,
   SYSTEM_CONTROL_SIGNALS,
   ReplayTakeoverSubController,
@@ -33,12 +28,13 @@ import {
   type ReplayScoreboardIncidentTimelinePort,
   type ReplayScoreboardSignalTimelinePort,
 } from './ReplayScoreboardSynchronizer.ts';
+import { ReplayViewerCausalSyncController } from './ReplayViewerCausalSyncController.ts';
 import { ReplayHotkeySubController } from './ReplayHotkeySubController.ts';
-import { cloneRetainedMatchReplayPayload, type ReplayAnnotatedFloat32Frame } from './replayDataPayloadPipeline.ts';
 import {
-  useReplayViewerStore, quickNotification, pushOngoingNotification,
-  completeOngoingNotification, dismissOngoingNotification,
-} from '../game/runtimeUiPort.ts';
+  cloneRetainedMatchReplayPayload,
+  type ReplayAnnotatedFloat32Frame,
+} from './replayDataPayloadPipeline.ts';
+import { useReplayViewerStore } from '../game/runtimeUiPort.ts';
 import { gameAudio } from '../audio/GameAudioEngineFacade.ts';
 
 export type { ReplayAnnotatedFloat32Frame };
@@ -57,7 +53,7 @@ export class StandaloneReplayViewerController {
   public signalTimeline: ReplayScoreboardSignalTimelinePort | null = null;
   public metadata: ReplayRosterMetadataLike | null = null;
   public readonly rosterSubController = new ReplayViewerRosterSubController();
-  public readonly causalHybridEngine = new ReplayCausalHybridEngine();
+  public readonly causalSyncController = new ReplayViewerCausalSyncController();
   public readonly takeoverSubController = new ReplayTakeoverSubController();
   public readonly scoreboardSynchronizer = new ReplayScoreboardSynchronizer();
   public readonly hotkeySubController = new ReplayHotkeySubController();
@@ -90,7 +86,11 @@ export class StandaloneReplayViewerController {
     this._bindHotkeys();
     this._unsubscribeFloating?.();
     this._unsubscribeFloating = useReplayViewerStore.subscribe(() => {
-      this._isViewerWindowOpen();
+      const st = useReplayViewerStore.getState();
+      this.hotkeySubController.checkWindowOpenAndPriority(
+        { isWindowOpen: Boolean(st.isWindowOpen), hasHotkeyPriority: Boolean(st.hasHotkeyPriority) },
+        VIEWER_HOTKEY_CONFLICT_MSG
+      );
     });
   }
 
@@ -100,7 +100,9 @@ export class StandaloneReplayViewerController {
     this.hotkeySubController.unbind();
   }
 
-  public getViewerState(): string { return useReplayViewerStore.getState().viewerState; }
+  public getViewerState(): string {
+    return useReplayViewerStore.getState().viewerState;
+  }
 
   public _silenceContinuousAudio(): void {
     this.runtime?.audioSubsystem?.resetAudio?.();
@@ -116,14 +118,6 @@ export class StandaloneReplayViewerController {
   public get isActive(): boolean {
     const state = useReplayViewerStore.getState().viewerState;
     return state !== 'idle' && state !== 'intervening' && this.frames.length > 0;
-  }
-
-  private _isViewerWindowOpen(): boolean {
-    const st = useReplayViewerStore.getState();
-    return this.hotkeySubController.checkWindowOpenAndPriority(
-      { isWindowOpen: Boolean(st.isWindowOpen), hasHotkeyPriority: Boolean(st.hasHotkeyPriority) },
-      VIEWER_HOTKEY_CONFLICT_MSG
-    );
   }
 
   private _bindHotkeys(): void {
@@ -145,22 +139,6 @@ export class StandaloneReplayViewerController {
     });
   }
 
-  private _buildRosterInput(frameOverride: Float32Array | null = null): ReplayRosterExtractionInput {
-    return {
-      metadata: this.metadata,
-      recordedSignals: this.signalTimeline?.getRecordedSignals?.() || null,
-      firstFrame: frameOverride || this.frames[0] || null,
-    };
-  }
-
-  public _resolveReplayRosterAndApplyArena(): void {
-    this.rosterSubController.resolveAndApplyToArena(this._buildRosterInput(), this.runtime);
-  }
-
-  public _restoreRecordedReplayLoadoutsIfNeeded(): void {
-    this.rosterSubController.restoreRecordedLoadoutsIfNeeded(this.runtime);
-  }
-
   public _applyUserLoadoutToTakenOverCar(
     carIndex: number = this.rosterSubController.activePovCarIndex
   ): void {
@@ -176,14 +154,6 @@ export class StandaloneReplayViewerController {
     if (result) useReplayViewerStore.getState().updateLiveTelemetry(result);
   }
 
-  public _syncArenaCarCountForFrame(frame: Float32Array): void {
-    this.scoreboardSynchronizer.syncArenaCarCountForFrame(
-      this.runtime,
-      this.rosterSubController.resolvedRoster.length,
-      frame
-    );
-  }
-
   private _bindTimelines(
     timelines: ReplayScoreboardTimelinesBundle | null,
     metadata: ReplayRosterMetadataLike | null = null,
@@ -195,19 +165,6 @@ export class StandaloneReplayViewerController {
     this.metadata = metadata || null;
   }
 
-  private _buildTimelineStorePatch(): Record<string, unknown> {
-    return this.scoreboardSynchronizer.buildTimelineStorePatch(this);
-  }
-
-  public _syncScoreboardAndClockAtFrame(idx: number): void {
-    this.scoreboardSynchronizer.syncScoreboardAndClockAtFrame(
-      this.signalTimeline,
-      this.metadata,
-      this.rosterSubController.activePovTeam,
-      idx
-    );
-  }
-
   public _applyFrameAtCursor(
     smoothStep: boolean = false,
     dispatchEvents: boolean = false,
@@ -216,72 +173,26 @@ export class StandaloneReplayViewerController {
     this.scoreboardSynchronizer.applyFrameAtCursor(this, smoothStep, dispatchEvents, restoreOptions);
   }
 
-  private _buildCausalDataSource(): ReplayCausalTimelineSource {
-    return {
-      frames: this.frames, frameSlots: this.frameSlots,
-      stateInputTimeline: this.stateInputTimeline, incidentTimeline: this.incidentTimeline,
-    };
-  }
-
-  public _getNormalizedFrameSlotAt(frameIndex: number): NormalizedReplayFrameSlot | null {
-    return getNormalizedReplayFrameSlot(this._buildCausalDataSource(), frameIndex);
-  }
-
-  private _initCausalHybridSync(): void {
-    this.causalHybridEngine.beginIntervention(this.rosterSubController.activePovCarIndex);
-  }
-
-  private _updateCausalHybridSyncBeforeStep(currentReplayFrameIndex: number): void {
-    this.causalHybridEngine.stepBeforePhysics({
-      source: this._buildCausalDataSource(),
-      physics: this.runtime?.physics,
-      currentReplayFrameIndex,
-      activePovCarIndex: this.rosterSubController.activePovCarIndex,
-      rosterCount: this.rosterSubController.resolvedRoster.length,
-    });
-  }
-
-  public _prepareRuntimeForReplayViewer(): void {
-    this.mode = this.scoreboardSynchronizer.prepareRuntimeForSession(
-      this.runtime, this.mode, () => this._restoreRecordedReplayLoadoutsIfNeeded(),
+  private _prepareRuntimeForReplayViewer(): void {
+    this.mode = this.causalSyncController.prepareRuntimeForSession(
+      this.runtime,
+      this.mode,
+      () => this.rosterSubController.restoreRecordedLoadoutsIfNeeded(this.runtime),
     );
   }
 
-  private _applyNonPovRecordedControlsAtFrame(frameIndex: number): void {
-    this.causalHybridEngine.applyNonPovRecordedControls({
-      source: this._buildCausalDataSource(),
-      physics: this.runtime?.physics,
-      frameIndex,
-      activePovCarIndex: this.rosterSubController.activePovCarIndex,
-      rosterCount: this.rosterSubController.resolvedRoster.length,
-      neutralControls: this.runtime?.neutralControls || {},
-    });
+  private _emitStateTransition(frameIdx: number): void {
+    emitSystemControlTransition(
+      this.runtime,
+      SYSTEM_CONTROL_SIGNALS.SYS_CTRL_STATE_ONLY,
+      frameIdx,
+      0,
+      this.runtime?.physics?.saveCompactState?.()
+    );
   }
 
   public _handoffToLiveFreeplay(targetIdx: number): void {
-    const r = this.runtime;
-    if (!r?.physics || this.frames.length === 0) return;
-    const freeplayMode = this.mode || r.modeManager?.modes?.get?.('freeplay') || null;
-    executeLiveFreeplayHandoff({
-      runtime: r, freeplayMode, targetIdx, fallbackLastTouchTick: 'baseTick',
-      getHistorySlotAt: (idx: number) => this._getNormalizedFrameSlotAt(idx),
-      onBeforeReconstruct: (liveTick: number) => {
-        this._applyUserLoadoutToTakenOverCar(this.rosterSubController.activePovCarIndex);
-        this.takeoverSubController.beginIntervention(targetIdx);
-        this._initCausalHybridSync();
-        r.physics?.setUnlimitedBoost?.(false);
-        this._applyFrameAtCursor(false, false, { overrideTick: liveTick });
-      },
-      onAfterReconstruct: () => {
-        this.scoreboardSynchronizer.configureLiveFreeplayViewerHandoff(
-          r,
-          this.rosterSubController.resolvedRoster,
-          this.rosterSubController.activePovCarIndex,
-          this.rosterSubController.activePovTeam
-        );
-        this._applyNonPovRecordedControlsAtFrame(targetIdx + 1);
-      },
-    });
+    this.causalSyncController.executeHandoffToLiveFreeplay(this, targetIdx);
   }
 
   private _initializeLoadedReplaySession(
@@ -293,21 +204,22 @@ export class StandaloneReplayViewerController {
     resetCameraView: boolean
   ): void {
     this._prepareRuntimeForReplayViewer();
-    this.causalHybridEngine.clear();
+    this.causalSyncController.clear();
     this.frames = frames;
     this.frameSlots = frameSlots;
     this._bindTimelines(timelines, metadata);
-    this._resolveReplayRosterAndApplyArena();
+    this.rosterSubController.resolveAndApplyToArena(
+      {
+        metadata: this.metadata,
+        recordedSignals: this.signalTimeline?.getRecordedSignals?.() || null,
+        firstFrame: this.frames[0] || null,
+      },
+      this.runtime,
+    );
     this.takeoverSubController.reset(0, Math.max(0, this.frames.length - 1));
     this.scoreboardSynchronizer.lastDispatchedCursorFrame = -1;
     this._applyFrameAtCursor(false, false);
-    emitSystemControlTransition(
-      this.runtime,
-      SYSTEM_CONTROL_SIGNALS.SYS_CTRL_STATE_ONLY,
-      0,
-      0,
-      this.runtime?.physics?.saveCompactState?.()
-    );
+    this._emitStateTransition(0);
     this._silenceContinuousAudio();
     if (resetCameraView) this.runtime?.camera?.resetView?.();
 
@@ -320,13 +232,12 @@ export class StandaloneReplayViewerController {
       targetFrame: this.takeoverSubController.targetFrame,
       prerollRemainingSec: 0,
       errorMessage: null,
-      ...this._buildTimelineStorePatch(),
+      ...this.scoreboardSynchronizer.buildTimelineStorePatch(this),
     });
   }
 
   public returnToReplay(): void {
     if (this.frames.length === 0) return;
-    const r = this.runtime;
     this._prepareRuntimeForReplayViewer();
     const restoreIdx = this.takeoverSubController.seekToFrame(
       this.takeoverSubController.targetFrame || this.takeoverSubController.cursor || 0,
@@ -334,15 +245,9 @@ export class StandaloneReplayViewerController {
     );
     this.scoreboardSynchronizer.lastDispatchedCursorFrame = restoreIdx;
     this._applyFrameAtCursor(false, false);
-    emitSystemControlTransition(
-      r,
-      SYSTEM_CONTROL_SIGNALS.SYS_CTRL_STATE_ONLY,
-      restoreIdx,
-      0,
-      r?.physics?.saveCompactState?.()
-    );
+    this._emitStateTransition(restoreIdx);
     this._silenceContinuousAudio();
-    r?.camera?.resetView?.();
+    this.runtime?.camera?.resetView?.();
 
     useReplayViewerStore.getState().updateLiveTelemetry({
       viewerState: 'paused', cursorFrame: restoreIdx, targetFrame: restoreIdx, prerollRemainingSec: 0,
@@ -351,19 +256,7 @@ export class StandaloneReplayViewerController {
 
   public async handleUploadFile(file: File | null | undefined): Promise<void> {
     if (!file) return;
-    const store = useReplayViewerStore.getState();
-    store.setErrorMessage(null);
-    store.updateLiveTelemetry({ isLoadingReplay: true });
-    const ongoingId = 'replay-viewer-load';
-    pushOngoingNotification({
-      id: ongoingId, content: `Loading replay "${file.name}"...`, icon: 'loader-2', isSpinningIcon: true,
-    });
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      const result = await parseRCReplayFile(file);
-      if (!result.frames || result.frames.length === 0) {
-        throw new Error('Replay file contains 0 frames.');
-      }
+    await parseUploadedReplayFileWithFeedback(file, (result) => {
       this._initializeLoadedReplaySession(
         result.frames,
         result.frameSlots || [],
@@ -372,18 +265,7 @@ export class StandaloneReplayViewerController {
         file.name,
         true
       );
-      completeOngoingNotification(ongoingId, {
-        content: `Loaded replay "${file.name}" (${this.frames.length} frames).`,
-        tone: 'info', duration: 2400,
-      });
-    } catch (err: unknown) {
-      console.error('[StandaloneReplayViewerController] Failed to parse uploaded replay file:', err);
-      const msg = err instanceof Error ? err.message : 'Failed to parse replay file.';
-      dismissOngoingNotification(ongoingId);
-      store.updateLiveTelemetry({ isLoadingReplay: false });
-      store.setErrorMessage(msg);
-      quickNotification.error(msg);
-    }
+    });
   }
 
   public handleLoadRetainedMatchReplay(): void {
@@ -415,13 +297,7 @@ export class StandaloneReplayViewerController {
       this.takeoverSubController.cursor,
       this.frames.length
     );
-    emitSystemControlTransition(
-      this.runtime,
-      SYSTEM_CONTROL_SIGNALS.SYS_CTRL_STATE_ONLY,
-      clamped,
-      0,
-      this.runtime?.physics?.saveCompactState?.()
-    );
+    this._emitStateTransition(clamped);
     useReplayViewerStore.getState().updateLiveTelemetry({
       viewerState: 'playing', cursorFrame: clamped, targetFrame: clamped, prerollRemainingSec: 0,
     });
@@ -435,13 +311,7 @@ export class StandaloneReplayViewerController {
       this.frames.length
     );
     this._applyFrameAtCursor(false, false);
-    emitSystemControlTransition(
-      this.runtime,
-      SYSTEM_CONTROL_SIGNALS.SYS_CTRL_STATE_ONLY,
-      clamped,
-      0,
-      this.runtime?.physics?.saveCompactState?.()
-    );
+    this._emitStateTransition(clamped);
     this._silenceContinuousAudio();
     useReplayViewerStore.getState().updateLiveTelemetry({
       viewerState: 'paused', cursorFrame: clamped, targetFrame: clamped, prerollRemainingSec: 0,
@@ -453,13 +323,7 @@ export class StandaloneReplayViewerController {
     this._prepareRuntimeForReplayViewer();
     const clamped = this.takeoverSubController.seekToFrame(frameIndex, this.frames.length);
     this._applyFrameAtCursor(false, false);
-    emitSystemControlTransition(
-      this.runtime,
-      SYSTEM_CONTROL_SIGNALS.SYS_CTRL_STATE_ONLY,
-      clamped,
-      0,
-      this.runtime?.physics?.saveCompactState?.()
-    );
+    this._emitStateTransition(clamped);
     const curState = useReplayViewerStore.getState().viewerState;
     const nextState = curState === 'playing' ? 'playing' : 'paused';
     if (nextState === 'paused') this._silenceContinuousAudio();
@@ -480,13 +344,7 @@ export class StandaloneReplayViewerController {
       direction, this.frames.length, store.effectiveFlowPct || 100
     );
     this._applyFrameAtCursor(false, direction === 'forwarding', { preserveEngineTick: true });
-    emitSystemControlTransition(
-      this.runtime,
-      SYSTEM_CONTROL_SIGNALS.SYS_CTRL_STATE_ONLY,
-      nextIdx,
-      0,
-      this.runtime?.physics?.saveCompactState?.()
-    );
+    this._emitStateTransition(nextIdx);
     store.updateLiveTelemetry({
       viewerState: direction, cursorFrame: nextIdx, targetFrame: nextIdx, prerollRemainingSec: 0,
     });
@@ -500,36 +358,13 @@ export class StandaloneReplayViewerController {
   }
 
   public resumeFromCursor(): void {
-    const r = this.runtime;
-    const store = useReplayViewerStore.getState();
-    const downSec = store.downCounterSec ?? 0;
-    const minRequiredFrames = downSec === 0 ? 120 : 240;
-    if (!r?.physics || this.frames.length < minRequiredFrames) return;
-
-    this._prepareRuntimeForReplayViewer();
-    const baseCursor =
-      store.viewerState === 'intervening' || store.viewerState === 'preroll-countdown'
-        ? this.takeoverSubController.targetFrame
-        : Math.round(this.takeoverSubController.cursor);
-    const audio = r?.options?.gameAudio || gameAudio;
-    const { targetIdx, startIdx, remSec } = this.takeoverSubController.beginPrerollCountdown(
-      this.frames.length, baseCursor, downSec, audio
+    this.causalSyncController.beginPrerollFromCursor(
+      this,
+      () => this._prepareRuntimeForReplayViewer(),
+      (startIdx: number) => {
+        this.scoreboardSynchronizer.lastDispatchedCursorFrame = startIdx;
+      },
     );
-    this.scoreboardSynchronizer.lastDispatchedCursorFrame = startIdx;
-    r.physics.setUnlimitedBoost?.(false);
-    this._applyFrameAtCursor(false, false);
-    r.simulationStage?.resetActionStates?.();
-    emitSystemControlTransition(
-      r,
-      SYSTEM_CONTROL_SIGNALS.SYS_CTRL_INTERVENE_WILL_RESUME,
-      targetIdx,
-      remSec,
-      r.physics?.saveCompactState?.()
-    );
-
-    store.updateLiveTelemetry({
-      viewerState: 'preroll-countdown', cursorFrame: startIdx, targetFrame: targetIdx, prerollRemainingSec: remSec,
-    });
   }
 
   public clearReplay(): void {
@@ -537,11 +372,11 @@ export class StandaloneReplayViewerController {
     this.frames = [];
     this.frameSlots = [];
     this.rosterSubController.clear();
-    this.causalHybridEngine.clear();
+    this.causalSyncController.clear();
     this.takeoverSubController.reset(0, 0);
     this._bindTimelines(null, null);
     this.scoreboardSynchronizer.reset();
-    this.scoreboardSynchronizer.resetArenaAfterClear(this.runtime);
+    this.causalSyncController.resetArenaAfterClear(this.runtime);
     useReplayViewerStore.getState().updateLiveTelemetry({
       viewerState: 'idle', loadedFileName: null, totalFrames: 0, cursorFrame: 0, targetFrame: 0,
       stateTrackCount: 0, incidentTrackCount: 0, signalTrackCount: 0, recordedSignalCount: 0,
@@ -551,81 +386,6 @@ export class StandaloneReplayViewerController {
   }
 
   public onBeforePhysicsTick(): boolean {
-    const r = this.runtime;
-    const store = useReplayViewerStore.getState();
-    const state = store.viewerState;
-    if (state === 'idle' || this.frames.length === 0) return true;
-
-    if (state === 'intervening') {
-      if (r?.keyboard && r.keyboard.ballControlEnabled) r.keyboard.ballControlEnabled = false;
-      if (r?.physics) {
-        const replayFrameIdx = this.takeoverSubController.consumeInterventionReplayFrameIndex();
-        this._updateCausalHybridSyncBeforeStep(replayFrameIdx);
-        this._applyNonPovRecordedControlsAtFrame(replayFrameIdx + 1);
-      }
-      return true;
-    }
-
-    if (state === 'paused') return false;
-
-    if (state === 'playing') {
-      return this.takeoverSubController.stepPlaying({
-        totalFrames: this.frames.length,
-        effectiveFlowPct: store.effectiveFlowPct || 100,
-        onApplyFrameAtCursor: () => {
-          this._applyFrameAtCursor(true, true, { preserveEngineTick: true });
-          if (r?.authoritativeServer?.sim?.restoreState) {
-            const snap = r?.physics?.saveCompactState?.();
-            if (snap) void r.authoritativeServer.sim.restoreState(snap);
-          }
-        },
-        onPlaybackFinished: (finalFrame: number) => {
-          this._silenceContinuousAudio();
-          store.updateLiveTelemetry({ viewerState: 'paused', cursorFrame: finalFrame, targetFrame: finalFrame });
-        },
-        onUpdatePlayTelemetry: (cursorFrame: number) =>
-          store.updateLiveTelemetry({ cursorFrame, targetFrame: cursorFrame }),
-      });
-    }
-    if (state === 'rewinding' || state === 'forwarding') {
-      return this.takeoverSubController.stepScrub({
-        direction: state,
-        totalFrames: this.frames.length,
-        effectiveFlowPct: store.effectiveFlowPct || 100,
-        throttleUiSync: true,
-        onApplyFrameAtCursor: (_cursorIdx: number, isForwarding: boolean) => {
-          this._applyFrameAtCursor(false, isForwarding, { preserveEngineTick: true });
-          if (r?.authoritativeServer?.sim?.restoreState) {
-            const snap = r?.physics?.saveCompactState?.();
-            if (snap) void r.authoritativeServer.sim.restoreState(snap);
-          }
-        },
-        onUpdateScrubTelemetry: (cursorFrame: number) =>
-          store.updateLiveTelemetry({ cursorFrame, targetFrame: cursorFrame }),
-      });
-    }
-    if (state === 'preroll-countdown') {
-      return this.takeoverSubController.stepPrerollCountdown({
-        totalFrames: this.frames.length,
-        downCounterSec: store.downCounterSec ?? 0,
-        displayedRemainingSec: store.prerollRemainingSec ?? 0,
-        audio: r?.options?.gameAudio || gameAudio,
-        onApplyFrameAtCursor: () => {
-          this._applyFrameAtCursor(true, true, { preserveEngineTick: true });
-          const snap = r?.physics?.saveCompactState?.();
-          if (snap) void r?.authoritativeServer?.sim?.restoreState?.(snap);
-        },
-        onHandoffToLiveFreeplay: (targetIdx: number) => {
-          this._handoffToLiveFreeplay(targetIdx);
-          store.updateLiveTelemetry({
-            viewerState: 'intervening', cursorFrame: targetIdx, targetFrame: targetIdx, prerollRemainingSec: 0,
-          });
-        },
-        onUpdateCountdownTelemetry: (cursorFrame: number, remainingSec: number) =>
-          store.updateLiveTelemetry({ cursorFrame, prerollRemainingSec: remainingSec }),
-      });
-    }
-
-    return true;
+    return this.causalSyncController.stepBeforePhysicsTick(this);
   }
 }
