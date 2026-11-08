@@ -36,6 +36,7 @@ export class ArenaHeaderView {
   }
 
   get tickCount() { return this.buffer ? this.buffer[SIM_OFFSETS.TICK] : 0; }
+  set tickCount(v: number) { if (this.buffer) this.buffer[SIM_OFFSETS.TICK] = v; }
   get goalScoredFlag() { return this.buffer ? this.buffer[SIM_OFFSETS.GOAL] : 0; }
   get numCars() { return this.buffer ? this.buffer[SIM_OFFSETS.NUM_CARS] : 0; }
   get numPads() { return this.buffer ? this.buffer[SIM_OFFSETS.NUM_PADS] : 0; }

@@ -111,15 +111,17 @@ function verifyGoldenDescriptorsAndRig(ctx: ScenarioStepContext): void {
   );
 }
 
+const kfStep = (
+  tick: number, keyframeReason: string, description: string,
+  action: (ctx: ScenarioStepContext) => void | Promise<void>,
+) => ({ tick, forceKeyframeRender: true, keyframeReason, description, action });
+
 export const ISOLATION_LAB_AND_TUNER_SCENARIO: ScenarioScript = {
   id: 'isolation_lab_and_tuner_baseline',
   title: 'Vehicle Tuner Golden Calibration + 7 Isolation Lab Tabs + Experimental Multi-Bots',
   description:
     'Verifies 65f1538d golden calibration for Fennec/Insidio/Ryza/Hitboxes and live ArenaWorld rig geometry, steps through all 7 SubsystemIsolationLabMode tabs, and exercises ExperimentalMultiBotsMode.',
-  totalTicks: 900,
-  renderStride: 20,
-  batchYieldTicks: 60,
-  forceRenderOnKeyframes: true,
+  totalTicks: 900, renderStride: 20, batchYieldTicks: 60, forceRenderOnKeyframes: true,
   setup: async (ctx) => {
     const r = ctx.runtime;
     if (r?.authoritativeServer || r?.networkReconciler) {
@@ -129,59 +131,36 @@ export const ISOLATION_LAB_AND_TUNER_SCENARIO: ScenarioScript = {
     (r as unknown as ScenarioMatchPortHost)?.matchPort?.startDevTestLab?.();
   },
   steps: [
+    kfStep(5, 'tuner_and_rig_calibration_check', 'Verify golden descriptors, Arena rig geometry, and Throwback toggle', async (ctx) => {
+      verifyGoldenDescriptorsAndRig(ctx);
+      const arena = ctx.runtime.arena as unknown as ScenarioArenaExtendedPort | null;
+      if (arena?.environment?.setThrowbackStadiumActive) {
+        await arena.environment.setThrowbackStadiumActive(true, false);
+        const on = Boolean(arena.isThrowbackStadiumActive);
+        await arena.environment.setThrowbackStadiumActive(false, false);
+        const off = !arena.isThrowbackStadiumActive;
+        ctx.recordAssertion('arena_throwback_and_driftwoods_toggle', on && off, `on=${on}, off=${off}`);
+      }
+    }),
+    kfStep(80, 'isolation_lab_tab1_probes', 'Tab 1 (Probes): Verify Car 6 Boost Hover and Car 7 Q/E Air Roll kinematics', (ctx) => {
+      const s = useSubsystemIsolationLabStore.getState();
+      const c6 = ctx.runtime.physics?.getCarStateView?.(6);
+      const c7 = ctx.runtime.physics?.getCarStateView?.(7);
+      const validPhase = ['CLIMB_TO_PEAK', 'FALL_BELOW_BASE', 'RECOVER_AND_HOLD'].includes(s.probeBoostPhase);
+      const coordsOk =
+        Boolean(c6 && c7) && eq(c6?.posX, -2500, 15) && eq(c6?.posY, -400, 15) &&
+        eq(c7?.posX, -2500, 15) && eq(c7?.posY, 400, 15) && (c6?.posZ ?? 0) > 500;
+      ctx.recordAssertion('lab_tab1_probes_kinematics_active', Boolean(s.activeTab === 'probes' && validPhase && coordsOk), `tab=${s.activeTab}, phase=${s.probeBoostPhase}, c6Z=${c6?.posZ?.toFixed?.(1)}`);
+    }),
+    { tick: 90, description: 'Tab 2 (Multi-Ghost): Activate multi-ghost tab', action: () => useSubsystemIsolationLabStore.getState().setActiveTab('multi-ghost') },
+    kfStep(150, 'isolation_lab_tab2_multi_ghost', 'Tab 2 (Multi-Ghost): Verify parallel ghost worlds and switchActiveWorld', (ctx) => {
+      const store = useSubsystemIsolationLabStore.getState();
+      store.switchActiveWorld();
+      const idx = useSubsystemIsolationLabStore.getState().activeWorldIndex;
+      ctx.recordAssertion('lab_tab2_multi_ghost_world_switch', store.activeTab === 'multi-ghost' && idx === 1, `tab=${store.activeTab}, idx=${idx}`);
+    }),
     {
-      tick: 5,
-      description: 'Verify golden descriptors, Arena rig geometry, and Throwback toggle',
-      forceKeyframeRender: true,
-      keyframeReason: 'tuner_and_rig_calibration_check',
-      action: async (ctx) => {
-        verifyGoldenDescriptorsAndRig(ctx);
-        const arena = ctx.runtime.arena as unknown as ScenarioArenaExtendedPort | null;
-        if (arena?.environment?.setThrowbackStadiumActive) {
-          await arena.environment.setThrowbackStadiumActive(true, false);
-          const on = Boolean(arena.isThrowbackStadiumActive);
-          await arena.environment.setThrowbackStadiumActive(false, false);
-          const off = !arena.isThrowbackStadiumActive;
-          ctx.recordAssertion('arena_throwback_and_driftwoods_toggle', on && off, `on=${on}, off=${off}`);
-        }
-      },
-    },
-    {
-      tick: 80,
-      description: 'Tab 1 (Probes): Verify Car 6 Boost Hover and Car 7 Q/E Air Roll kinematics',
-      forceKeyframeRender: true,
-      keyframeReason: 'isolation_lab_tab1_probes',
-      action: (ctx) => {
-        const s = useSubsystemIsolationLabStore.getState();
-        const c6 = ctx.runtime.physics?.getCarStateView?.(6);
-        const c7 = ctx.runtime.physics?.getCarStateView?.(7);
-        const validPhase = ['CLIMB_TO_PEAK', 'FALL_BELOW_BASE', 'RECOVER_AND_HOLD'].includes(s.probeBoostPhase);
-        const coordsOk =
-          Boolean(c6 && c7) && eq(c6?.posX, -2500, 15) && eq(c6?.posY, -400, 15) &&
-          eq(c7?.posX, -2500, 15) && eq(c7?.posY, 400, 15) && (c6?.posZ ?? 0) > 500;
-        ctx.recordAssertion('lab_tab1_probes_kinematics_active', Boolean(s.activeTab === 'probes' && validPhase && coordsOk), `tab=${s.activeTab}, phase=${s.probeBoostPhase}, c6Z=${c6?.posZ?.toFixed?.(1)}`);
-      },
-    },
-    {
-      tick: 90,
-      description: 'Tab 2 (Multi-Ghost): Activate multi-ghost tab',
-      action: () => useSubsystemIsolationLabStore.getState().setActiveTab('multi-ghost'),
-    },
-    {
-      tick: 150,
-      description: 'Tab 2 (Multi-Ghost): Verify parallel ghost worlds and switchActiveWorld',
-      forceKeyframeRender: true,
-      keyframeReason: 'isolation_lab_tab2_multi_ghost',
-      action: (ctx) => {
-        const store = useSubsystemIsolationLabStore.getState();
-        store.switchActiveWorld();
-        const idx = useSubsystemIsolationLabStore.getState().activeWorldIndex;
-        ctx.recordAssertion('lab_tab2_multi_ghost_world_switch', store.activeTab === 'multi-ghost' && idx === 1, `tab=${store.activeTab}, idx=${idx}`);
-      },
-    },
-    {
-      tick: 160,
-      description: 'Tab 3 (State-Replay): Activate state-replay tab and start recording',
+      tick: 160, description: 'Tab 3 (State-Replay): Activate state-replay tab and start recording',
       action: (ctx) => {
         useSubsystemIsolationLabStore.getState().setActiveTab('state-replay');
         useRewinderStore.getState().setRewinderDownCounterSec(0);
@@ -189,47 +168,33 @@ export const ISOLATION_LAB_AND_TUNER_SCENARIO: ScenarioScript = {
         ctx.setLocalCarControls({ throttle: 1.0, boost: true });
       },
     },
+    kfStep(300, 'isolation_lab_tab3_state_replay_scrub', 'Tab 3 (State-Replay): Pause recording, seek frame, and trigger preroll', (ctx) => {
+      const rw = useRewinderStore.getState();
+      rw.runtimeHandlers.onRewinderStopRecording?.();
+      const rec = useRewinderStore.getState().rewinderRecordedFrames;
+      rw.runtimeHandlers.onRewinderSeekFrame?.(130);
+      const seek = useRewinderStore.getState().rewinderState;
+      rw.runtimeHandlers.onRewinderResumeFromHere?.();
+      const pre = useRewinderStore.getState().rewinderState;
+      ctx.recordAssertion('lab_tab3_state_replay_record_seek_preroll', rec >= 130 && seek === 'paused-scrub' && pre === 'preroll-countdown', `rec=${rec}, seek=${seek}, preroll=${pre}`);
+    }),
     {
-      tick: 300,
-      description: 'Tab 3 (State-Replay): Pause recording, seek frame, and trigger preroll',
-      forceKeyframeRender: true,
-      keyframeReason: 'isolation_lab_tab3_state_replay_scrub',
-      action: (ctx) => {
-        const rw = useRewinderStore.getState();
-        rw.runtimeHandlers.onRewinderStopRecording?.();
-        const rec = useRewinderStore.getState().rewinderRecordedFrames;
-        rw.runtimeHandlers.onRewinderSeekFrame?.(130);
-        const seek = useRewinderStore.getState().rewinderState;
-        rw.runtimeHandlers.onRewinderResumeFromHere?.();
-        const pre = useRewinderStore.getState().rewinderState;
-        ctx.recordAssertion('lab_tab3_state_replay_record_seek_preroll', rec >= 130 && seek === 'paused-scrub' && pre === 'preroll-countdown', `rec=${rec}, seek=${seek}, preroll=${pre}`);
-      },
-    },
-    {
-      tick: 320,
-      description: 'Tab 4 (90s-Match): Activate 90s-match tab and start stationary match',
+      tick: 320, description: 'Tab 4 (90s-Match): Activate 90s-match tab and start stationary match',
       action: () => {
         const s = useSubsystemIsolationLabStore.getState();
         s.setActiveTab('90s-match');
         s.runtimeHandlers.onStartIncidentMatch?.('stationary');
       },
     },
+    kfStep(360, 'isolation_lab_tab4_90s_match', 'Tab 4 (90s-Match): Trigger score_blue action and verify incident state', (ctx) => {
+      const store = useSubsystemIsolationLabStore.getState();
+      store.runtimeHandlers.onTriggerIncidentAction?.('score_blue');
+      const phys = ctx.runtime.physics as unknown as { getBallStateView?: () => { posY: number } | null } | null;
+      const bView = phys?.getBallStateView?.();
+      ctx.recordAssertion('lab_tab4_90s_match_active_and_shot_launched', Boolean(store.incidentMatchActive && bView && bView.posY > 4500), `active=${store.incidentMatchActive}, ballY=${bView?.posY?.toFixed?.(1)}`);
+    }),
     {
-      tick: 360,
-      description: 'Tab 4 (90s-Match): Trigger score_blue action and verify incident state',
-      forceKeyframeRender: true,
-      keyframeReason: 'isolation_lab_tab4_90s_match',
-      action: (ctx) => {
-        const store = useSubsystemIsolationLabStore.getState();
-        store.runtimeHandlers.onTriggerIncidentAction?.('score_blue');
-        const phys = ctx.runtime.physics as unknown as { getBallStateView?: () => { posY: number } | null } | null;
-        const bView = phys?.getBallStateView?.();
-        ctx.recordAssertion('lab_tab4_90s_match_active_and_shot_launched', Boolean(store.incidentMatchActive && bView && bView.posY > 4500), `active=${store.incidentMatchActive}, ballY=${bView?.posY?.toFixed?.(1)}`);
-      },
-    },
-    {
-      tick: 390,
-      description: 'Tab 5 (Goal-Replay): Activate goal-replay tab and trigger instant_kickoff_goal',
+      tick: 390, description: 'Tab 5 (Goal-Replay): Activate goal-replay tab and trigger instant_kickoff_goal',
       action: () => {
         const store = useSubsystemIsolationLabStore.getState();
         store.setGoalReplayPostGoalSec(0);
@@ -237,44 +202,30 @@ export const ISOLATION_LAB_AND_TUNER_SCENARIO: ScenarioScript = {
         store.runtimeHandlers.onGoalReplayTriggerScenario?.('instant_kickoff_goal');
       },
     },
+    kfStep(435, 'isolation_lab_tab5_goal_replay_and_podium', 'Tab 5 (Goal-Replay): Verify goal replay playback active and Podium entry/exit', (ctx) => {
+      const store = useSubsystemIsolationLabStore.getState();
+      const phase = store.goalReplayPhase;
+      store.runtimeHandlers.onEnterPodiumTest?.(0);
+      const podiumIn = useSubsystemIsolationLabStore.getState().podiumActive;
+      store.runtimeHandlers.onExitPodiumTest?.();
+      const podiumOut = !useSubsystemIsolationLabStore.getState().podiumActive;
+      ctx.recordAssertion('lab_tab5_goal_replay_and_podium_verified', (phase === 'replaying' || phase === 'post-goal-delay') && podiumIn && podiumOut, `phase=${phase}, in=${podiumIn}, out=${podiumOut}`);
+    }),
     {
-      tick: 435,
-      description: 'Tab 5 (Goal-Replay): Verify goal replay playback active and Podium entry/exit',
-      forceKeyframeRender: true,
-      keyframeReason: 'isolation_lab_tab5_goal_replay_and_podium',
-      action: (ctx) => {
-        const store = useSubsystemIsolationLabStore.getState();
-        const phase = store.goalReplayPhase;
-        store.runtimeHandlers.onEnterPodiumTest?.(0);
-        const podiumIn = useSubsystemIsolationLabStore.getState().podiumActive;
-        store.runtimeHandlers.onExitPodiumTest?.();
-        const podiumOut = !useSubsystemIsolationLabStore.getState().podiumActive;
-        ctx.recordAssertion('lab_tab5_goal_replay_and_podium_verified', (phase === 'replaying' || phase === 'post-goal-delay') && podiumIn && podiumOut, `phase=${phase}, in=${podiumIn}, out=${podiumOut}`);
-      },
-    },
-    {
-      tick: 450,
-      description: 'Tab 6 (Kickoff-Duel): Activate kickoff-duel tab and start episode on Slot 0',
+      tick: 450, description: 'Tab 6 (Kickoff-Duel): Activate kickoff-duel tab and start episode on Slot 0',
       action: () => {
         const store = useSubsystemIsolationLabStore.getState();
         store.setActiveTab('kickoff-duel');
         store.runtimeHandlers.onKickoffDuelRestart?.(0);
       },
     },
+    kfStep(530, 'isolation_lab_tab6_kickoff_duel', 'Tab 6 (Kickoff-Duel): Verify dual kickoff agents step and approach the ball', (ctx) => {
+      const s = useSubsystemIsolationLabStore.getState();
+      const ok = s.kickoffDuelCurrentTick >= 40 && s.kickoffDuelBlueDist < 4600;
+      ctx.recordAssertion('lab_tab6_kickoff_duel_progression', s.activeTab === 'kickoff-duel' && ok, `tick=${s.kickoffDuelCurrentTick}, dist=${s.kickoffDuelBlueDist}`);
+    }),
     {
-      tick: 530,
-      description: 'Tab 6 (Kickoff-Duel): Verify dual kickoff agents step and approach the ball',
-      forceKeyframeRender: true,
-      keyframeReason: 'isolation_lab_tab6_kickoff_duel',
-      action: (ctx) => {
-        const s = useSubsystemIsolationLabStore.getState();
-        const ok = s.kickoffDuelCurrentTick >= 40 && s.kickoffDuelBlueDist < 4600;
-        ctx.recordAssertion('lab_tab6_kickoff_duel_progression', s.activeTab === 'kickoff-duel' && ok, `tick=${s.kickoffDuelCurrentTick}, dist=${s.kickoffDuelBlueDist}`);
-      },
-    },
-    {
-      tick: 540,
-      description: 'Tab 7 (Demolish-Respawn): Activate demolish-respawn, demolish, and select Slot 2',
+      tick: 540, description: 'Tab 7 (Demolish-Respawn): Activate demolish-respawn, demolish, and select Slot 2',
       action: () => {
         const store = useSubsystemIsolationLabStore.getState();
         store.setActiveTab('demolish-respawn');
@@ -282,74 +233,42 @@ export const ISOLATION_LAB_AND_TUNER_SCENARIO: ScenarioScript = {
         store.selectDemolishRespawnSlot(2);
       },
     },
+    kfStep(575, 'isolation_lab_tab7_demolish_respawn', 'Tab 7 (Demolish-Respawn): Verify demolished state, ghost wheel Y, and respawn', (ctx) => {
+      const store = useSubsystemIsolationLabStore.getState();
+      const demo = store.demolishRespawnIsDemolished;
+      const slot = store.demolishRespawnSelectedSlot;
+      const wheelYs = store.demolishRespawnWheelLocalY;
+      store.forceRespawnNow();
+      ctx.recordAssertion('lab_tab7_demolish_respawn_and_ghost_wheels', demo && slot === 2 && Array.isArray(wheelYs) && wheelYs.length === 4, `demo=${demo}, slot=${slot}, wheels=[${wheelYs.join(',')}]`);
+    }),
     {
-      tick: 575,
-      description: 'Tab 7 (Demolish-Respawn): Verify demolished state, ghost wheel Y, and respawn',
-      forceKeyframeRender: true,
-      keyframeReason: 'isolation_lab_tab7_demolish_respawn',
-      action: (ctx) => {
-        const store = useSubsystemIsolationLabStore.getState();
-        const demo = store.demolishRespawnIsDemolished;
-        const slot = store.demolishRespawnSelectedSlot;
-        const wheelYs = store.demolishRespawnWheelLocalY;
-        store.forceRespawnNow();
-        ctx.recordAssertion('lab_tab7_demolish_respawn_and_ghost_wheels', demo && slot === 2 && Array.isArray(wheelYs) && wheelYs.length === 4, `demo=${demo}, slot=${slot}, wheels=[${wheelYs.join(',')}]`);
-      },
-    },
-    {
-      tick: 600,
-      description: 'Switch to ExperimentalMultiBotsMode (exp-multi-bots) with 2v2 bots roster',
+      tick: 600, description: 'Switch to ExperimentalMultiBotsMode (exp-multi-bots) with 2v2 bots roster',
       action: async (ctx) => {
         const expStore = useExperimentalMultiBotsStore.getState();
         expStore.setDisableGoalReplay(true);
         expStore.applyPresetRoster('2v2-bots');
-        expStore.setSlotBotType(0, 0, 'heuristic');
-        expStore.setSlotBotType(0, 1, 'heuristic');
-        expStore.setSlotBotType(1, 0, 'heuristic');
-        expStore.setSlotBotType(1, 1, 'heuristic');
+        for (const [t, s] of [[0, 0], [0, 1], [1, 0], [1, 1]] as const) expStore.setSlotBotType(t, s, 'heuristic');
         (ctx.runtime as unknown as ScenarioMatchPortHost)?.matchPort?.startExpMultiBots?.();
-        const activeMode = ctx.runtime.modeManager.getActiveMode() as unknown as {
-          applyRosterAndStartMatch?: () => Promise<void>;
-        };
+        const activeMode = ctx.runtime.modeManager.getActiveMode() as unknown as { applyRosterAndStartMatch?: () => Promise<void> };
         await activeMode?.applyRosterAndStartMatch?.();
       },
     },
-    {
-      tick: 640,
-      description: 'Verify ExperimentalMultiBotsMode roster spawned 4 cars and trigger score_blue',
-      forceKeyframeRender: true,
-      keyframeReason: 'exp_multi_bots_active_roster',
-      action: (ctx) => {
-        const expStore = useExperimentalMultiBotsStore.getState();
-        const n = expStore.spawnedCars.length;
-        const active = expStore.matchActive;
-        expStore.triggerSandboxAction('score_blue');
-        ctx.recordAssertion('exp_multi_bots_roster_and_match_active', active && n === 4 && (ctx.runtime.physics?.numCars ?? 0) >= 4, `active=${active}, spawned=${n}, physCars=${ctx.runtime.physics?.numCars}`);
-      },
-    },
-    {
-      tick: 710,
-      description: 'Verify ExperimentalMultiBotsMode scored Blue goal and updated score telemetry',
-      forceKeyframeRender: true,
-      keyframeReason: 'exp_multi_bots_goal_scored',
-      action: (ctx) => {
-        const expStore = useExperimentalMultiBotsStore.getState();
-        ctx.recordAssertion('exp_multi_bots_blue_goal_recorded', expStore.blueScore >= 1, `blue=${expStore.blueScore}, orange=${expStore.orangeScore}`);
-      },
-    },
-    {
-      tick: 880,
-      description: 'Return cleanly from ExperimentalMultiBotsMode to Freeplay baseline',
-      forceKeyframeRender: true,
-      keyframeReason: 'return_to_freeplay_after_sandboxes',
-      action: (ctx) => {
-        (ctx.runtime as unknown as ScenarioMatchPortHost)?.matchPort?.returnToFreeplay?.(true);
-        const mode = ctx.runtime.match?.state?.mode;
-        ctx.recordAssertion('sandbox_return_to_freeplay_clean', mode === 'freeplay', `mode=${mode}`);
-      },
-    },
+    kfStep(640, 'exp_multi_bots_active_roster', 'Verify ExperimentalMultiBotsMode roster spawned 4 cars and trigger score_blue', (ctx) => {
+      const expStore = useExperimentalMultiBotsStore.getState();
+      const n = expStore.spawnedCars.length;
+      const active = expStore.matchActive;
+      expStore.triggerSandboxAction('score_blue');
+      ctx.recordAssertion('exp_multi_bots_roster_and_match_active', active && n === 4 && (ctx.runtime.physics?.numCars ?? 0) >= 4, `active=${active}, spawned=${n}, physCars=${ctx.runtime.physics?.numCars}`);
+    }),
+    kfStep(710, 'exp_multi_bots_goal_scored', 'Verify ExperimentalMultiBotsMode scored Blue goal and updated score telemetry', (ctx) => {
+      const expStore = useExperimentalMultiBotsStore.getState();
+      ctx.recordAssertion('exp_multi_bots_blue_goal_recorded', expStore.blueScore >= 1, `blue=${expStore.blueScore}, orange=${expStore.orangeScore}`);
+    }),
+    kfStep(880, 'return_to_freeplay_after_sandboxes', 'Return cleanly from ExperimentalMultiBotsMode to Freeplay baseline', (ctx) => {
+      (ctx.runtime as unknown as ScenarioMatchPortHost)?.matchPort?.returnToFreeplay?.(true);
+      const mode = ctx.runtime.match?.state?.mode;
+      ctx.recordAssertion('sandbox_return_to_freeplay_clean', mode === 'freeplay', `mode=${mode}`);
+    }),
   ],
-  teardown: async (ctx) => {
-    ctx.setLocalCarControls(null);
-  },
+  teardown: async (ctx) => { ctx.setLocalCarControls(null); },
 };

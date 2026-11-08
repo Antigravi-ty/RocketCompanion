@@ -361,11 +361,15 @@ export class RewinderHandoffAndMarkerController {
   public async exportReplay(
     rewinderFrames: RewinderFrameEntry[],
     mode: FreeplayRewinderModePort | null,
+    runtime?: FreeplayRewinderRuntimePort | null,
   ): Promise<boolean> {
     if (rewinderFrames.length > 0) {
       return exportStateReplayFile(rewinderFrames);
     }
-    const ringFrames = mode?.replayRingBuffer?.getRecentFrames?.();
+    const serverRing = (
+      runtime as { authoritativeServer?: { hostReplayRingBuffer?: { getRecentFrames?(): Array<RewinderFrameEntry | null> } | null } | null } | null | undefined
+    )?.authoritativeServer?.hostReplayRingBuffer;
+    const ringFrames = serverRing?.getRecentFrames?.() ?? mode?.replayRingBuffer?.getRecentFrames?.();
     if (Array.isArray(ringFrames) && ringFrames.length > 0) {
       return exportStateReplayFile(
         ringFrames.filter((f): f is NonNullable<typeof f> => f !== null),

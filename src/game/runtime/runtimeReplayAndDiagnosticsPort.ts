@@ -325,7 +325,7 @@ export function createRuntimeReplayPort(owner: RuntimeDomainPortOwner): RuntimeR
         mode: isLobby ? 'online-lobby-dump' : 'online-match-dump',
         blueScore: owner.match?.state?.blueScore ?? 0,
         orangeScore: owner.match?.state?.orangeScore ?? 0,
-        durationSeconds: owner.match?.state?.durationSeconds ?? 30,
+        durationSeconds: owner.match?.state?.durationSeconds ?? 60,
         arenaPreset: owner.physics?.getArenaPreset?.() ?? 0,
         roster: rosterList,
         loadouts: rosterList,

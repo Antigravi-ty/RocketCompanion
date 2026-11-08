@@ -38,6 +38,10 @@ interface FreeplayModeProbe {
 }
 
 const getMode = (ctx: ScenarioStepContext) => ctx.runtime?.modeManager?.getActiveMode?.() as FreeplayModeProbe | undefined;
+const kfStep = (
+  tick: number, keyframeReason: string, description: string,
+  action: (ctx: ScenarioStepContext) => void | Promise<void>,
+) => ({ tick, forceKeyframeRender: true, keyframeReason, description, action });
 
 function isPoseFinite(p: DirectorPoseProbe | null | undefined): boolean {
   return Boolean(
@@ -68,79 +72,59 @@ export const REPLAY_DIRECTOR_AND_EXPORT_SCENARIO: ScenarioScript = {
         ctx.setBallState({ pos: [0, 4650, 95], vel: [0, 2800, 60], angVel: [0, 0, 0] });
       },
     },
-    {
-      tick: 65, forceKeyframeRender: true, keyframeReason: 'director_goal_celebration',
-      description: 'Verify Goal Scored celebration active',
-      action: (ctx) => {
-        const mode = getMode(ctx);
-        const ticks = mode?.goalAndTouch?.getEffectiveGoalResetTicks?.() ?? mode?.goalAndTouch?.goalResetTicks ?? 0;
-        const phase = ctx.runtime?.match?.state?.phase;
-        ctx.recordAssertion('director_bench_goal_celebration_active', phase === 'goal' || ticks > 0, `phase=${phase}, ticks=${ticks}`);
-        ctx.setLocalCarControls({ throttle: 0, boost: false });
-      },
-    },
-    {
-      tick: 220, forceKeyframeRender: true, keyframeReason: 'director_cinematic_replay',
-      description: 'Verify Director Camera Goal Replay with suffix plan and finite pose',
-      action: (ctx) => {
-        const r = ctx.runtime;
-        const mode = getMode(ctx);
-        const active = Boolean(mode?.isGoalReplayActive?.() || mode?.directorPreview?.isReplayActive);
-        const ovr = Boolean(r?.isGoalReplayCameraOverrideActive?.());
-        const cam = mode?.directorPreview?.replayCameraMode;
-        const plan = Boolean(mode?.replayController?.ensureSuffixCameraPlan?.());
-        const poseOk = isPoseFinite(mode?.replayController?.directorCameraState);
-        ctx.recordAssertion(
-          'director_bench_replay_and_pose_valid',
-          r?.match?.state?.phase === 'replay' && active && ovr && cam === 'director' && plan && poseOk,
-          `phase=${r?.match?.state?.phase}, active=${active}, ovr=${ovr}, cam=${cam}, plan=${plan}, poseOk=${poseOk}`,
-        );
-      },
-    },
-    {
-      tick: 260, forceKeyframeRender: true, keyframeReason: 'director_pov_camera',
-      description: 'Switch Goal Replay camera to POV mode via HUD callback',
-      action: (ctx) => {
-        hudStore.getState().onReplayToggleCameraMode?.();
-        const cam = getMode(ctx)?.directorPreview?.replayCameraMode;
-        const ovr = Boolean(ctx.runtime?.isGoalReplayCameraOverrideActive?.());
-        ctx.recordAssertion('director_bench_pov_switch_verified', cam === 'pov' && !ovr, `cam=${cam}, ovr=${ovr}`);
-      },
-    },
-    {
-      tick: 290, forceKeyframeRender: true, keyframeReason: 'director_reference_freecam',
-      description: 'Enter Reference FreeCam and exit back to Director mode',
-      action: (ctx) => {
-        const mode = getMode(ctx);
-        hudStore.getState().onReplayToggleCameraMode?.();
-        const entered = Boolean(mode?.enterDirectorReferenceFreeCamFromHere?.());
-        const freeDuring = Boolean(useAppStore.getState().isFreeCam);
-        const paused = Boolean(mode?.replayController?.sessionState?.isPaused);
-        const exited = Boolean(mode?.exitDirectorReferenceFreeCam?.());
-        mode?.replayController?.setPaused?.(false);
-        const freeAfter = Boolean(useAppStore.getState().isFreeCam);
-        const ovrAfter = Boolean(ctx.runtime?.isGoalReplayCameraOverrideActive?.());
-        ctx.recordAssertion(
-          'director_bench_reference_freecam_roundtrip',
-          entered && freeDuring && paused && exited && !freeAfter && ovrAfter,
-          `entered=${entered}, freeDuring=${freeDuring}, paused=${paused}, exited=${exited}, freeAfter=${freeAfter}, ovrAfter=${ovrAfter}`,
-        );
-      },
-    },
+    kfStep(65, 'director_goal_celebration', 'Verify Goal Scored celebration active', (ctx) => {
+      const mode = getMode(ctx);
+      const ticks = mode?.goalAndTouch?.getEffectiveGoalResetTicks?.() ?? mode?.goalAndTouch?.goalResetTicks ?? 0;
+      const phase = ctx.runtime?.match?.state?.phase;
+      ctx.recordAssertion('director_bench_goal_celebration_active', phase === 'goal' || ticks > 0, `phase=${phase}, ticks=${ticks}`);
+      ctx.setLocalCarControls({ throttle: 0, boost: false });
+    }),
+    kfStep(220, 'director_cinematic_replay', 'Verify Director Camera Goal Replay with suffix plan and finite pose', (ctx) => {
+      const r = ctx.runtime;
+      const mode = getMode(ctx);
+      const active = Boolean(mode?.isGoalReplayActive?.() || mode?.directorPreview?.isReplayActive);
+      const ovr = Boolean(r?.isGoalReplayCameraOverrideActive?.());
+      const cam = mode?.directorPreview?.replayCameraMode;
+      const plan = Boolean(mode?.replayController?.ensureSuffixCameraPlan?.());
+      const poseOk = isPoseFinite(mode?.replayController?.directorCameraState);
+      ctx.recordAssertion(
+        'director_bench_replay_and_pose_valid',
+        r?.match?.state?.phase === 'replay' && active && ovr && cam === 'director' && plan && poseOk,
+        `phase=${r?.match?.state?.phase}, active=${active}, ovr=${ovr}, cam=${cam}, plan=${plan}, poseOk=${poseOk}`,
+      );
+    }),
+    kfStep(260, 'director_pov_camera', 'Switch Goal Replay camera to POV mode via HUD callback', (ctx) => {
+      hudStore.getState().onReplayToggleCameraMode?.();
+      const cam = getMode(ctx)?.directorPreview?.replayCameraMode;
+      const ovr = Boolean(ctx.runtime?.isGoalReplayCameraOverrideActive?.());
+      ctx.recordAssertion('director_bench_pov_switch_verified', cam === 'pov' && !ovr, `cam=${cam}, ovr=${ovr}`);
+    }),
+    kfStep(290, 'director_reference_freecam', 'Enter Reference FreeCam and exit back to Director mode', (ctx) => {
+      const mode = getMode(ctx);
+      hudStore.getState().onReplayToggleCameraMode?.();
+      const entered = Boolean(mode?.enterDirectorReferenceFreeCamFromHere?.());
+      const freeDuring = Boolean(useAppStore.getState().isFreeCam);
+      const paused = Boolean(mode?.replayController?.sessionState?.isPaused);
+      const exited = Boolean(mode?.exitDirectorReferenceFreeCam?.());
+      mode?.replayController?.setPaused?.(false);
+      const freeAfter = Boolean(useAppStore.getState().isFreeCam);
+      const ovrAfter = Boolean(ctx.runtime?.isGoalReplayCameraOverrideActive?.());
+      ctx.recordAssertion(
+        'director_bench_reference_freecam_roundtrip',
+        entered && freeDuring && paused && exited && !freeAfter && ovrAfter,
+        `entered=${entered}, freeDuring=${freeDuring}, paused=${paused}, exited=${exited}, freeAfter=${freeAfter}, ovrAfter=${ovrAfter}`,
+      );
+    }),
     {
       tick: 330, description: 'Hold Jump during active Goal Replay',
       action: (ctx) => { ctx.setLocalCarControls({ throttle: 1.0, boost: true, jump: true }); },
     },
-    {
-      tick: 340, forceKeyframeRender: true, keyframeReason: 'director_skip_replay',
-      description: 'Skip Goal Replay while holding Jump',
-      action: (ctx) => {
-        getMode(ctx)?.skipGoalReplay?.();
-        const phase = ctx.runtime?.match?.state?.phase;
-        const ovr = Boolean(ctx.runtime?.isGoalReplayCameraOverrideActive?.());
-        ctx.recordAssertion('director_bench_skip_replay_restored_playing', phase === 'playing' && !ovr, `phase=${phase}, ovr=${ovr}`);
-      },
-    },
+    kfStep(340, 'director_skip_replay', 'Skip Goal Replay while holding Jump', (ctx) => {
+      getMode(ctx)?.skipGoalReplay?.();
+      const phase = ctx.runtime?.match?.state?.phase;
+      const ovr = Boolean(ctx.runtime?.isGoalReplayCameraOverrideActive?.());
+      ctx.recordAssertion('director_bench_skip_replay_restored_playing', phase === 'playing' && !ovr, `phase=${phase}, ovr=${ovr}`);
+    }),
     {
       tick: 350, description: 'Verify no spontaneous jump after replay skip',
       action: (ctx) => {

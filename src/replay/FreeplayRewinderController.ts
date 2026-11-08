@@ -300,7 +300,7 @@ export class FreeplayRewinderController {
   }
 
   public async exportReplay(): Promise<boolean> {
-    return this.handoffAndMarkerController.exportReplay(this.rewinderFrames, this.mode);
+    return this.handoffAndMarkerController.exportReplay(this.rewinderFrames, this.mode, this.runtime);
   }
 
   public async importReplay(fileOrBuffer: unknown): Promise<boolean> {

@@ -14,11 +14,11 @@ import path from 'node:path';
 import { createServer } from 'vite';
 
 const DEFAULT_OUT_PATH = '/tmp/telemetry-baseline-report.json';
-const TIMEOUT_MS = 210_000;
+const TIMEOUT_MS = 270_000;
 
 function parseCliArgs(argv) {
   let scenario = 'all';
-  let speed = '20x';
+  let speed = 'max';
   let diffBaseline = true;
   let allowConsoleError = false;
   let outPath = DEFAULT_OUT_PATH;
@@ -27,7 +27,7 @@ function parseCliArgs(argv) {
     if (arg.startsWith('--scenario=')) {
       scenario = arg.slice('--scenario='.length).trim() || 'all';
     } else if (arg.startsWith('--speed=')) {
-      speed = arg.slice('--speed='.length).trim() || '20x';
+      speed = arg.slice('--speed='.length).trim() || 'max';
     } else if (arg === '--diff-baseline' || arg === '--diff-baseline=true' || arg === '--diff-baseline=1') {
       diffBaseline = true;
     } else if (arg === '--no-diff-baseline' || arg === '--diff-baseline=false' || arg === '--diff-baseline=0') {

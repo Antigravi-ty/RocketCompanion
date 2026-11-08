@@ -9,8 +9,23 @@ import {
 } from '../../ui-core/stores/devFloatingPresets';
 import { dialogue } from '../../ui-core/compounds/dialogue/dialogueStore';
 import { useExperimentalMultiBotsStore } from '../../ui-core/stores/experimentalMultiBotsStore';
+import {
+  exportRetainedMatchReplayFile,
+  type RetainedMatchReplay,
+} from '../../replay/ReplayFileExporter.ts';
 import type { AppState } from '../../ui-core/stores/appStoreTypes';
 import type { GameRuntimeUiBridgePort } from '../../game/runtimeUiPort.ts';
+
+interface RuntimeWithExportableActiveMode {
+  modeManager?: {
+    getActiveMode?: () => {
+      exportRecentHighlightReplay?: (
+        durationSeconds?: number,
+        suppressNotification?: boolean,
+      ) => RetainedMatchReplay | null;
+    } | null;
+  };
+}
 
 export function createModeBridgeHandlers(
   runtimePort: GameRuntimeUiBridgePort,
@@ -172,6 +187,31 @@ export function createModeBridgeHandlers(
         roomType: 'warmup',
         isReady: false,
       });
+    },
+    onExportRecentTrainingReplay: async (durationSeconds = 60): Promise<boolean> => {
+      try {
+        const driverRuntime =
+          typeof window !== 'undefined'
+            ? (
+                window as unknown as {
+                  __rcScenarioDriver?: { runtime?: RuntimeWithExportableActiveMode };
+                }
+              ).__rcScenarioDriver?.runtime
+            : undefined;
+        const activeMode = driverRuntime?.modeManager?.getActiveMode?.();
+        if (typeof activeMode?.exportRecentHighlightReplay === 'function') {
+          const retained = activeMode.exportRecentHighlightReplay(durationSeconds, false);
+          if (retained) {
+            await exportRetainedMatchReplayFile(retained);
+            return true;
+          }
+        }
+        const exportedFrames = replayPort.retainAndExportStandaloneClientReplay(false);
+        return exportedFrames > 0;
+      } catch (err) {
+        console.error('[runtimeModeBridgeHandlers] Failed to export training replay:', err);
+        return false;
+      }
     },
   };
 }

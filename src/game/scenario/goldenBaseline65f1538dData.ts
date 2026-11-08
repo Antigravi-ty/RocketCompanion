@@ -61,19 +61,6 @@ export interface GoldenHitboxPresetSpec {
   wheelSpecs: ReadonlyArray<readonly [number, number, number]>;
 }
 
-export interface CapturedRuntimeErrorEntry {
-  tick: number; virtualTimeMs: number;
-  source: 'window.onerror' | 'unhandledrejection' | 'console.error';
-  message: string; stack?: string;
-  fileName?: string; lineNumber?: number; columnNumber?: number;
-}
-
-export interface RuntimeErrorInterceptionSummary {
-  windowErrorCount: number; unhandledRejectionCount: number;
-  consoleErrorCount: number; totalErrorCount: number;
-  entries: CapturedRuntimeErrorEntry[];
-}
-
 export interface VehicleWheelGeometrySample {
   wheelIndex: number;
   steerPosition: [number, number, number];

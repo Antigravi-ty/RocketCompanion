@@ -7,14 +7,16 @@
 
 import type { CarControlsInput } from '../../network/protocol/InputPacketCodec.ts';
 import type {
-  CapturedRuntimeErrorEntry,
   GoldenBaselineDiffSummary,
   GoldenFieldDiffItem,
-  RuntimeErrorInterceptionSummary,
   VehicleRigGeometryProbeSnapshot,
   VehicleRigGoldenDiffReport,
   VehicleWheelGeometrySample,
 } from './goldenBaseline65f1538dData.ts';
+import type {
+  CapturedRuntimeErrorEntry,
+  RuntimeErrorInterceptionSummary,
+} from './scenarioRuntimeErrorInterceptor.ts';
 import type {
   KinematicPatch,
   MultiplayerLoopbackTelemetry,

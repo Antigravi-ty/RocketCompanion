@@ -428,10 +428,14 @@ export function resolveSpeedPacingConfig(
     presetLabel = '20x';
     renderStride = Math.max(15, scriptRenderStride || 20);
     batchYieldTicks = 60;
-  } else if (rawSpeed === '50x' || rawSpeed === '50' || rawSpeed === 'max') {
-    presetLabel = rawSpeed === 'max' ? 'max' : '50x';
+  } else if (rawSpeed === '50x' || rawSpeed === '50') {
+    presetLabel = '50x';
     renderStride = 50;
     batchYieldTicks = 150;
+  } else if (rawSpeed === 'max') {
+    presetLabel = 'max';
+    renderStride = 240;
+    batchYieldTicks = 240;
   } else {
     const numeric = Number.parseFloat(rawSpeed.replace(/x$/, ''));
     if (Number.isFinite(numeric) && numeric > 0) {

@@ -135,6 +135,8 @@ export interface SystemControlPhysicsManagerPort {
   currentTick: number;
   sim?: {
     setUnlimitedBoost?: (enabled: boolean) => void;
+    restoreCompactState?: (snapshot: Float32Array | number[], opts?: { overrideTick?: number }) => void;
+    restoreState?: (snapshot: Float32Array | number[], opts?: { overrideTick?: number }) => void;
     loadCompactState?: (snapshot: Float32Array | number[]) => void;
     loadState?: (snapshot: Float32Array | number[]) => void;
     syncToStateObject?: () => void;
@@ -176,7 +178,7 @@ export class MatchSystemControlSubController {
   constructor(host: MatchSystemControlHostPort) { this.host = host; }
 
   private emitSysSignal(sig: number, frameId: number, p1 = 0, p2 = 0, retire: number[] = []): void {
-    this.host.commandQueue.retireSignalTypes(retire);
+    this.host.commandQueue.retireSignalTypes(retire, true);
     this.lastSystemControlSignal = sig;
     this.systemControlSignalHistory.push({ signalType: sig, frameId, param1: p1, param2: p2 });
     if (this.systemControlSignalHistory.length > 64) this.systemControlSignalHistory.shift();
@@ -187,7 +189,10 @@ export class MatchSystemControlSubController {
     const pm = this.host.physicsManager;
     if (!pm) return;
     if (snap && pm.sim) {
-      if (typeof pm.sim.loadCompactState === 'function') pm.sim.loadCompactState(snap);
+      const opts = typeof tick === 'number' && tick >= 0 ? { overrideTick: tick } : undefined;
+      if (typeof pm.sim.restoreCompactState === 'function') pm.sim.restoreCompactState(snap, opts);
+      else if (typeof pm.sim.restoreState === 'function') pm.sim.restoreState(snap, opts);
+      else if (typeof pm.sim.loadCompactState === 'function') pm.sim.loadCompactState(snap);
       else if (typeof pm.sim.loadState === 'function') pm.sim.loadState(snap);
       pm.sim.syncToStateObject?.();
     }
@@ -224,7 +229,7 @@ export class MatchSystemControlSubController {
     this.interveneCountdownSeconds = Math.ceil(clampedSec);
     this.interveneRemainingTicks = ticks;
     this.interveneTargetTick = domain.applySystemControlState('intervene', ticks);
-    this.loadSimSnapshot(snap);
+    this.loadSimSnapshot(snap, domain.matchTick);
     physicsManager?.applySignal(SYSTEM_CONTROL_SIGNALS.SYS_CTRL_INTERVENE_WILL_RESUME, {
       targetResumeTick: this.interveneTargetTick, countdownSeconds: this.interveneCountdownSeconds,
     });
