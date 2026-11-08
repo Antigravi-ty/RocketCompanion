@@ -297,7 +297,7 @@ export async function handleAuthoritativeWorkerMessage(
           maxOvertimeSeconds: data.maxOvertimeSeconds || 360,
           lobbyMode: Boolean(data.lobbyMode),
           skipReplayByDefault:
-            data.skipReplayByDefault !== undefined ? Boolean(data.skipReplayByDefault) : true,
+            data.skipReplayByDefault !== undefined ? Boolean(data.skipReplayByDefault) : false,
         });
         dataHandler = new NetworkDataHandler({
           matchManager,

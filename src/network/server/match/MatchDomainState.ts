@@ -177,7 +177,7 @@ export class MatchDomainState extends MatchRosterPolicyState {
     }
     if (st === MATCH_STATES.ENDED || st === MATCH_STATES.PODIUM) return ret('ended_or_podium');
     if (st === MATCH_STATES.PREPARE || st === MATCH_STATES.COUNTDOWN) {
-      this.matchTick = typeof pt === 'number' ? pt : this.matchTick + 1;
+      this.matchTick++;
       return st === MATCH_STATES.PREPARE
         ? ret(--this.prepareTimeoutTicks <= 0 ? 'start_from_prepare' : 'encode_null')
         : ret(--this.startCountdownTicks <= 0 ? 'initiate_prepare_from_countdown' : 'encode_null');
@@ -185,7 +185,8 @@ export class MatchDomainState extends MatchRosterPolicyState {
     if (st === MATCH_STATES.LOBBY) return ret('lobby');
     if (st === MATCH_STATES.PAUSED && this.willResumeUntilTick > 0) return ret(++this.matchTick >= this.willResumeUntilTick ? 'resume_from_pause' : 'encode_null');
     if (st === MATCH_STATES.GOAL_SCORED && --this.goalBufferTicks <= 0) return ret(this.isTrainingMode && !this.trainingGoalReplayEnabled ? 'reset_training_play' : 'begin_goal_replay');
-    return ret(st === MATCH_STATES.REPLAY ? 'replay' : 'none');
+    if (st === MATCH_STATES.REPLAY) { this.matchTick++; return ret('replay'); }
+    return ret('none');
   }
 
   advanceClockTickSecond(): { mode: 'none' | 'training' | 'regulation' | 'overtime'; seconds: number; overtimeExpired: boolean } {

@@ -231,7 +231,7 @@ export class FreeplayGoalAndTouchSubController {
     r.authoritativeServer.startTrainingMode?.({
       unlimitedBoost: Boolean(r.physics.isUnlimitedBoost),
       disableGoalReset: Boolean(r.trainingOptions?.disableGoalReset),
-      goalReplayEnabled: true, fifoDurationSeconds: 30,
+      goalReplayEnabled: true, fifoDurationSeconds: 60,
       initialState: Array.from(snap), resetKickoff: false,
     });
     void r.authoritativeServer.sim?.restoreState?.(snap);

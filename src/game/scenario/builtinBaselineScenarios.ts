@@ -23,7 +23,6 @@ import {
   TRAINING_SESSION_FIFO_AND_SYS_CTRL_E2E_SCENARIO,
 } from './autonomousTrainingAndMatrixScenario.ts';
 import { ISOLATION_LAB_AND_TUNER_SCENARIO } from './isolationLabAndTunerScenario.ts';
-import { ONLINE_3V3_FULL_LIFECYCLE_SCENARIO } from './online3v3FullLifecycleScenario.ts';
 import {
   MULTIPLAYER_6CAR_LOADOUT_STRESS_SCENARIO,
   REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO,
@@ -34,9 +33,9 @@ import type { ScenarioScript } from './ScenarioTypes.ts';
 
 export const BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO: ScenarioScript = {
   id: 'boot_and_freeplay_goal_replay',
-  title: 'Freeplay Goal -> Celebration -> Director Camera Replay + 30s FIFO & SYS_CTRL Baseline',
+  title: 'Freeplay Goal -> Celebration -> Director Camera Replay + 60s FIFO & SYS_CTRL Baseline',
   description:
-    'Validates single-engine Freeplay physics, 30s (3600 ticks) COUNTUP_FIFO ring buffer, goal explosion trigger, 150-tick celebration, transition to Director Camera Goal Replay, POV camera toggle, kickoff restoration without spontaneous jump when holding jump across replay skip, and Rewinder SYS_CTRL_STATE_ONLY -> SYS_CTRL_INTERVENE_WILL_RESUME -> SYS_CTRL_PHYSICS_RESUME transitions.',
+    'Validates single-engine Freeplay physics, 60s (7200 ticks) COUNTUP_FIFO ring buffer, goal explosion trigger, 150-tick celebration, transition to Director Camera Goal Replay, POV camera toggle, kickoff restoration without spontaneous jump when holding jump across replay skip, and Rewinder SYS_CTRL_STATE_ONLY -> SYS_CTRL_INTERVENE_WILL_RESUME -> SYS_CTRL_PHYSICS_RESUME transitions.',
   totalTicks: 960,
   renderStride: 15,
   batchYieldTicks: 60,
@@ -53,7 +52,7 @@ export const BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO: ScenarioScript = {
   steps: [
     {
       tick: 1,
-      description: 'Verify Freeplay initial playing state, single local physics engine, active car 0, and 30s (3600-tick) FIFO RingBuffer',
+      description: 'Verify Freeplay initial playing state, single local physics engine, active car 0, and 60s (7200-tick) FIFO RingBuffer',
       forceKeyframeRender: true,
       keyframeReason: 'freeplay_kickoff_initial_render',
       action: (ctx) => {
@@ -70,9 +69,9 @@ export const BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO: ScenarioScript = {
           `mode=${mode}, phase=${phase}, isSingleEngine=${isSingleEngine}`,
         );
         ctx.recordAssertion(
-          'freeplay_fifo_ringbuffer_30s_capacity',
-          ringCap === 3600 &&
-            COUNTUP_REPLAY_CAPACITY_TICKS === 3600 &&
+          'freeplay_fifo_ringbuffer_60s_capacity',
+          ringCap === 7200 &&
+            COUNTUP_REPLAY_CAPACITY_TICKS === 7200 &&
             ringMode === 'countup_fifo',
           `capacityTicks=${ringCap}, mode=${ringMode}`,
         );
@@ -260,7 +259,6 @@ export const ALL_BASELINE_SCENARIO_LIST: readonly ScenarioScript[] = Object.free
   REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO,
   ISOLATION_LAB_AND_TUNER_SCENARIO,
   TRAINING_AND_KICKOFF_SCENARIO,
-  ONLINE_3V3_FULL_LIFECYCLE_SCENARIO,
   REPLAY_DIRECTOR_AND_EXPORT_SCENARIO,
   ONLINE_3V3_DUCKY_FULL_LIFECYCLE_SCENARIO,
   TRAINING_SESSION_FIFO_AND_SYS_CTRL_E2E_SCENARIO,
@@ -273,7 +271,6 @@ export const BUILTIN_BASELINE_SCENARIOS: Readonly<Record<string, ScenarioScript>
   [REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO.id]: REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO,
   [ISOLATION_LAB_AND_TUNER_SCENARIO.id]: ISOLATION_LAB_AND_TUNER_SCENARIO,
   [TRAINING_AND_KICKOFF_SCENARIO.id]: TRAINING_AND_KICKOFF_SCENARIO,
-  [ONLINE_3V3_FULL_LIFECYCLE_SCENARIO.id]: ONLINE_3V3_FULL_LIFECYCLE_SCENARIO,
   [REPLAY_DIRECTOR_AND_EXPORT_SCENARIO.id]: REPLAY_DIRECTOR_AND_EXPORT_SCENARIO,
   [ONLINE_3V3_DUCKY_FULL_LIFECYCLE_SCENARIO.id]: ONLINE_3V3_DUCKY_FULL_LIFECYCLE_SCENARIO,
   [TRAINING_SESSION_FIFO_AND_SYS_CTRL_E2E_SCENARIO.id]: TRAINING_SESSION_FIFO_AND_SYS_CTRL_E2E_SCENARIO,
@@ -299,7 +296,7 @@ export function resolveRequestedScenarios(queryValue: string | null | undefined)
       REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO,
       ISOLATION_LAB_AND_TUNER_SCENARIO,
       TRAINING_AND_KICKOFF_SCENARIO,
-      ONLINE_3V3_FULL_LIFECYCLE_SCENARIO,
+      ONLINE_3V3_DUCKY_FULL_LIFECYCLE_SCENARIO,
       REPLAY_DIRECTOR_AND_EXPORT_SCENARIO,
     ];
   }

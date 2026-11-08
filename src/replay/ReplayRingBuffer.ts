@@ -4,7 +4,7 @@
  *
  * Design Specifications:
  * - Positive Count-Up Mode (Free Play / Online Warmup / Training):
- *   Uses a 30-second (30s @ 120Hz = 3,600 ticks, ~6.45 MB) FIFO circular buffer by default
+ *   Uses a 60-second (60s @ 120Hz = 7,200 ticks, ~12.9 MB) FIFO circular buffer by default
  *   (configurable to 30s / 60s / 90s / 120s). Only the most recent rolling window is kept in FIFO order,
  *   and countdown-specific audio alerts (30s / 10s countdown) are suppressed.
  * - Countdown Match Mode (Standard / Bot / Online Match):
@@ -52,9 +52,9 @@ export const CLOCK_MODES = Object.freeze({
 
 export const REPLAY_TICK_RATE = 120;
 
-/** 30 seconds @ 120Hz = 3,600 ticks (~6.45 MB @ 448 floats/tick) default for positive count-up FIFO mode */
-export const COUNTUP_REPLAY_DURATION_SECONDS = 30;
-export const COUNTUP_REPLAY_CAPACITY_TICKS = COUNTUP_REPLAY_DURATION_SECONDS * REPLAY_TICK_RATE; // 3,600
+/** 60 seconds @ 120Hz = 7,200 ticks (~12.9 MB @ 448 floats/tick) default for positive count-up FIFO mode */
+export const COUNTUP_REPLAY_DURATION_SECONDS = 60;
+export const COUNTUP_REPLAY_CAPACITY_TICKS = COUNTUP_REPLAY_DURATION_SECONDS * REPLAY_TICK_RATE; // 7,200
 
 /** 7 + 7 = 14 minutes (840 seconds) @ 120Hz = 100,800 ticks for countdown match mode */
 export const REGULATION_MAX_WALL_SECONDS = 420; // 7 minutes (5 min clock + kickoffs/celebrations)

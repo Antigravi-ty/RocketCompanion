@@ -136,7 +136,7 @@ export class OnlineMatchReconcilerBinder {
     const compactState = physics.saveCompactState();
     const trainingOptions = {
       unlimitedBoost: physics.isUnlimitedBoost,
-      fifoDurationSeconds: 30,
+      fifoDurationSeconds: 60,
       goalReplayEnabled: !disableGoalReset,
     };
     const server = new AuthoritativeServerHost(null, {

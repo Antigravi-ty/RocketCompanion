@@ -61,6 +61,58 @@ export interface GoldenHitboxPresetSpec {
   wheelSpecs: ReadonlyArray<readonly [number, number, number]>;
 }
 
+export interface CapturedRuntimeErrorEntry {
+  tick: number; virtualTimeMs: number;
+  source: 'window.onerror' | 'unhandledrejection' | 'console.error';
+  message: string; stack?: string;
+  fileName?: string; lineNumber?: number; columnNumber?: number;
+}
+
+export interface RuntimeErrorInterceptionSummary {
+  windowErrorCount: number; unhandledRejectionCount: number;
+  consoleErrorCount: number; totalErrorCount: number;
+  entries: CapturedRuntimeErrorEntry[];
+}
+
+export interface VehicleWheelGeometrySample {
+  wheelIndex: number;
+  steerPosition: [number, number, number];
+  steerRotationY: number; spinRotationZ: number;
+  specAnchor: [number, number, number];
+}
+
+export interface VehicleRigGeometryProbeSnapshot {
+  carIndex: number; visualId: string; hitboxPresetId: string;
+  carVisible: boolean; carPosition: [number, number, number];
+  frontAxleX: number; rearAxleX: number; wheelbaseX: number;
+  frontTrackWidthZ: number; rearTrackWidthZ: number;
+  wheelHeightsY: [number, number, number, number];
+  wheels: VehicleWheelGeometrySample[];
+  wheelSpecs: Array<[number, number, number]>;
+  boostOutlets: Array<[number, number, number]>;
+  hitboxDimensions: [number, number, number] | null;
+  hitboxOffset: [number, number, number] | null;
+}
+
+export interface GoldenFieldDiffItem {
+  field: string; expected: unknown; actual: unknown;
+  maxAbsDelta: number; passed: boolean;
+}
+
+export interface VehicleRigGoldenDiffReport {
+  carIndex: number; visualId: string; goldenReferenceId: string;
+  passed: boolean; maxCoordinateDeltaUu: number;
+  mismatches: GoldenFieldDiffItem[];
+  probe: VehicleRigGeometryProbeSnapshot;
+}
+
+export interface GoldenBaselineDiffSummary {
+  referenceCommit: string; referenceUiCoreCommit: string;
+  passed: boolean; staticDescriptorChecksPassed: boolean;
+  staticDescriptorDiffs: GoldenFieldDiffItem[];
+  vehicleRigDiffs: VehicleRigGoldenDiffReport[];
+}
+
 export const GOLDEN_65F1538D_COMMIT = "65f1538d" as const;
 export const GOLDEN_65F1538D_UICORE_COMMIT = "8d71a71f2795020b739e8f8380a155b8b8c5f557" as const;
 

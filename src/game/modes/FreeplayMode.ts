@@ -37,7 +37,7 @@ import {
   type NameTagTunerRuntimeHost,
 } from './NameTagTunerArenaController.ts';
 
-export const DEFAULT_FREEPLAY_REPLAY_DURATION_SECONDS = 30;
+export const DEFAULT_FREEPLAY_REPLAY_DURATION_SECONDS = 60;
 
 export type FreeplayRuntimePort = GameModeRuntimePort &
   ReplayScoreboardRuntimePort &

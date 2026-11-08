@@ -114,7 +114,7 @@ export class MatchRosterPolicyState {
     this.lobbyMode = Boolean(opts.lobbyMode); this.isTrainingMode = opts.isTrainingMode ?? this.lobbyMode;
     this.maxPlayers = resolveMaxPlayersForGameMode(this.gameMode);
     this.autoStartWhenFull = opts.autoStartWhenFull ?? !this.lobbyMode;
-    this.skipReplayByDefault = opts.skipReplayByDefault !== undefined ? Boolean(opts.skipReplayByDefault) : true;
+    this.skipReplayByDefault = opts.skipReplayByDefault !== undefined ? Boolean(opts.skipReplayByDefault) : false;
     this.clockDuration = opts.matchDurationSeconds ?? opts.durationSeconds ?? opts.clockDuration ?? DEFAULT_MATCH_DURATION_SECONDS;
     this.clockSecondsRemaining = this.clockDuration; this.clockDirection = this.isTrainingMode ? 'up' : 'down';
     this.maxOvertimeSeconds = opts.maxOvertimeSeconds ?? DEFAULT_MAX_OVERTIME_SECONDS;

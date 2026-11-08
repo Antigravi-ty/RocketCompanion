@@ -123,7 +123,10 @@ export class MatchGoalReplaySubController {
       if (!p || p.role === 'spectator' || typeof p.entityId !== 'number' || p.entityId < 0) continue;
       out.push({
         carIndex: p.entityId,
-        controls: { ...DEFAULT_CAR_CONTROLS, jump: Boolean(p.isBot || commandQueue.skipReplayVotes.has(sid)) },
+        controls: {
+          ...DEFAULT_CAR_CONTROLS,
+          jump: Boolean(commandQueue.skipReplayVotes.has(sid) || (!domain.externalBotTunnels && p.isBot)),
+        },
       });
     }
     return out;

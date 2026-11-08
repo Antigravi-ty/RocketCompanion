@@ -70,7 +70,7 @@ export function buildWorkerInitEnvelopePayload(
     lobbyOptions: options.lobbyOptions || null,
     durationSeconds: options.durationSeconds ?? 300,
     skipReplayByDefault:
-      options.skipReplayByDefault !== undefined ? Boolean(options.skipReplayByDefault) : true,
+      options.skipReplayByDefault !== undefined ? Boolean(options.skipReplayByDefault) : false,
     trainingOptions: options.trainingOptions || null,
   };
 }
@@ -283,7 +283,7 @@ export class HostServerFallbackSubController {
       matchDurationSeconds: options.durationSeconds ?? 300,
       lobbyMode: Boolean(options.lobbyMode),
       skipReplayByDefault:
-        options.skipReplayByDefault !== undefined ? Boolean(options.skipReplayByDefault) : true,
+        options.skipReplayByDefault !== undefined ? Boolean(options.skipReplayByDefault) : false,
       onClearRetainedReplay: clearRetainedMatchReplayOnMatchStart,
       onRetainCompletedReplay: retainCompletedMatchReplayAndNotify,
     });

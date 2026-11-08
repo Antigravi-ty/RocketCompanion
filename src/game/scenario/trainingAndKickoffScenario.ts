@@ -16,9 +16,7 @@ interface TrainingRuntimeView extends ScenarioRuntimePort {
     startKickoffTraining?(): void;
     returnToFreeplay?(unlimitedBoost?: boolean): void;
   };
-  camera?: { isEditorOverrideActive?: boolean; currentMode?: string; isFreeCam?: boolean } | null;
   modeManager: ScenarioRuntimePort['modeManager'] & { setMode?(mode: string): void };
-  match?: { state?: { phase?: string; mode?: string } | null } | null;
 }
 
 const asRuntime = (ctx: ScenarioStepContext) => ctx.runtime as unknown as TrainingRuntimeView;
@@ -203,7 +201,7 @@ export const TRAINING_AND_KICKOFF_SCENARIO: ScenarioScript = {
     },
     kfStep(470, 'kickoff_easy_learning_mismatch_pause', 'Verify Easy-Learning pauses on mismatch, then feed required PPO action for step 0', (ctx) => {
       const ks = getKickoffStore();
-      ctx.recordAssertion('kickoff_easy_learning_pauses_on_mismatch', ks.phase === 'paused-mismatch' && !ks.isInputMatching, `phase=${ks.phase}, match=${ks.isInputMatching}, req=${ks.requiredKeyStr}`);
+      ctx.recordAssertion('kickoff_easy_learning_pauses_on_mismatch', String(ks.phase) === 'paused-mismatch' && !ks.isInputMatching, `phase=${ks.phase}, match=${ks.isInputMatching}, req=${ks.requiredKeyStr}`);
       const act = ks.timeline?.steps?.[0]?.action;
       ctx.setLocalCarControls(act ? multiDiscreteToControls(act) : { throttle: 1.0, boost: true });
     }),
@@ -232,7 +230,7 @@ export const TRAINING_AND_KICKOFF_SCENARIO: ScenarioScript = {
       ks.setGhostModeEnabled(true);
       ks.setGhostPlacement('same');
       ks.setRealisticWaitTicks(120);
-      ks.setSubMode('realistic');
+      ks.setSubMode('realistic' as never);
     }),
     {
       tick: 630, description: 'Verify Realistic kickoff mode enters countdown phase',

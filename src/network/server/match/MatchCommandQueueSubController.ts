@@ -51,6 +51,7 @@ export interface MatchCommandLifecycleActionsPort {
 }
 
 export interface CommandQueuePhysicsPort {
+  jumpSuppressedCarIndices?: Set<number>;
   sim?: {
     getReplayFrameCount?: () => number;
     pushSignalEvent?: (...args: number[]) => void;
@@ -223,7 +224,15 @@ export class MatchCommandQueueSubController {
     if (this.skipReplayVotes.has(sessionId)) return true;
     for (let i = 0; i < inputHistory.length; i++) {
       const ctrl = inputHistory[i]?.controls || inputHistory[i];
-      if (ctrl?.jump) { this.skipReplayVotes.add(sessionId); this.checkSkipReplayVotes(); return true; }
+      if (ctrl?.jump) {
+        const player = this.host.domain.players.get(sessionId);
+        if (typeof player?.entityId === 'number' && player.entityId >= 0) {
+          this.host.physicsManager?.jumpSuppressedCarIndices?.add(player.entityId);
+        }
+        this.skipReplayVotes.add(sessionId);
+        this.checkSkipReplayVotes();
+        return true;
+      }
     }
     return false;
   }

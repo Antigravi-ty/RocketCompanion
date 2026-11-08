@@ -214,10 +214,10 @@ export function sampleAuthoritativeCarControlsForTick(params: {
         : (last ? { ...last } : { ...NEUTRAL_CONTROLS });
 
     if (jumpSuppressedCarIndices) {
-      if (!rawCandidate.jump) {
-        jumpSuppressedCarIndices.delete(carIndex);
-      } else if (mask || isLobbyRemoteMasked) {
+      if (rawCandidate.jump && (mask || isLobbyRemoteMasked)) {
         jumpSuppressedCarIndices.add(carIndex);
+      } else if (!rawCandidate.jump && !mask && !isLobbyRemoteMasked) {
+        jumpSuppressedCarIndices.delete(carIndex);
       }
     }
 

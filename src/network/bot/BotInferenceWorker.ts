@@ -115,7 +115,7 @@ class BotAgentRuntimeRecord {
       this.kickoffStep = 0;
       this.staggered = false;
       this.agent.reset();
-      ctrl = DEFAULT_CAR_CONTROLS;
+      ctrl = matchState === 'replay' ? { ...DEFAULT_CAR_CONTROLS, jump: true } : DEFAULT_CAR_CONTROLS;
     } else {
       const ko = this.agent.getKickoffControls(
         stateSnapshot,

@@ -100,6 +100,7 @@ export class BotTunnelManager {
   isWorker: boolean;
   registeredTunnels = new Map<string, RegisteredBotTunnelInfo>();
   lastSteppedServerTick = -1;
+  lastSteppedMatchState = '';
   inferenceInFlight = false;
   inferenceStartedAtMs = 0;
   cachedPads: any[] | null = null;
@@ -281,8 +282,9 @@ export class BotTunnelManager {
   ): void {
     if (this.hasDirectPort) return;
     if (!stateSnapshot || this.registeredTunnels.size === 0) return;
-    if (serverTick === this.lastSteppedServerTick) return;
+    if (serverTick === this.lastSteppedServerTick && matchState === this.lastSteppedMatchState) return;
     this.lastSteppedServerTick = serverTick;
+    this.lastSteppedMatchState = matchState;
 
     const nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const bots: BotSessionStepSpec[] = Array.from(this.registeredTunnels.values());
