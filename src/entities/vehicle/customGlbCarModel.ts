@@ -117,32 +117,52 @@ export function normalizeCustomVehicleScene(
   return { unscaledBounds, appliedGeometryScale: targetUnitScale };
 }
 
+const inflightCustomAssetLoads = new Map<string, Promise<CustomGlbVehicleAsset>>();
+
 /**
- * Loads a custom GLB vehicle asset registered in vehicleDescriptors.
+ * Loads a custom GLB vehicle asset registered in vehicleDescriptors,
+ * deduplicating concurrent in-flight requests for the same vehicle ID.
  */
 export async function loadCustomGlbCarAsset(vehicleId: string): Promise<CustomGlbVehicleAsset> {
   const id = String(vehicleId || '').toLowerCase();
   if (cachedCustomAssets.has(id)) {
     return cachedCustomAssets.get(id)!;
   }
+  const existingInflight = inflightCustomAssetLoads.get(id);
+  if (existingInflight) {
+    return existingInflight;
+  }
   const descriptor = getVehicleDescriptor(id);
   if (!descriptor || !descriptor.modelUrl) {
     throw new Error(`Unknown custom GLB vehicle descriptor for "${vehicleId}"`);
   }
 
-  const loader = new GLTFLoader();
-  const gltf = await loader.loadAsync(resolveAssetPath(descriptor.modelUrl));
-  gltf.scene.updateMatrixWorld?.(true);
-  const { unscaledBounds, appliedGeometryScale } = normalizeCustomVehicleScene(gltf.scene, id, descriptor.unitScale);
+  const loadPromise = (async (): Promise<CustomGlbVehicleAsset> => {
+    const loader = new GLTFLoader();
+    const gltf = await loader.loadAsync(resolveAssetPath(descriptor.modelUrl));
+    gltf.scene.updateMatrixWorld?.(true);
+    const { unscaledBounds, appliedGeometryScale } = normalizeCustomVehicleScene(
+      gltf.scene,
+      id,
+      descriptor.unitScale
+    );
 
-  const asset: CustomGlbVehicleAsset = {
-    id,
-    scene: gltf.scene,
-    appliedGeometryScale,
-    unscaledBounds,
-  };
-  cachedCustomAssets.set(id, asset);
-  return asset;
+    const asset: CustomGlbVehicleAsset = {
+      id,
+      scene: gltf.scene,
+      appliedGeometryScale,
+      unscaledBounds,
+    };
+    cachedCustomAssets.set(id, asset);
+    return asset;
+  })();
+
+  inflightCustomAssetLoads.set(id, loadPromise);
+  try {
+    return await loadPromise;
+  } finally {
+    inflightCustomAssetLoads.delete(id);
+  }
 }
 
 import { applyCustomGlbVehicleMaterials } from './customGlbVehicleMaterials.ts';

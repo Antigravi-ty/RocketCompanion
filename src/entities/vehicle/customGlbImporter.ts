@@ -156,19 +156,24 @@ export function applyVehicleAlignPresetToDescriptor(
   const presetKey = String(alignPreset || 'auto').toLowerCase().trim();
   const template = presetKey !== 'auto' ? getCanonicalVehiclePresetTemplate(presetKey) : null;
 
-  let targetGeometryScale = 1;
-  const isImportedCustomGlb = !descriptor.modelUrl;
+  const canonicalSelfTemplate = getCanonicalVehiclePresetTemplate(targetId);
+  const isImportedCustomGlb = !descriptor.modelUrl && !canonicalSelfTemplate;
+  const nativeUnitScale = canonicalSelfTemplate?.unitScale ?? descriptor.unitScale ?? 1;
   const unscaledLen = asset?.unscaledBounds?.length || descriptor.rawBounds.length || 140;
 
-  if (presetKey === 'auto') {
-    targetGeometryScale = unscaledLen > 0.0001 ? Number((140.0 / unscaledLen).toFixed(6)) : 1;
-  } else if (template) {
-    if (isImportedCustomGlb && unscaledLen > 0.0001) {
+  let targetGeometryScale = nativeUnitScale;
+  if (isImportedCustomGlb) {
+    if (presetKey === 'auto') {
+      targetGeometryScale = unscaledLen > 0.0001 ? Number((140.0 / unscaledLen).toFixed(6)) : 1;
+    } else if (template && unscaledLen > 0.0001) {
       const targetLen = template.rawBounds.length || 140.0;
       targetGeometryScale = Number((targetLen / unscaledLen).toFixed(6));
-    } else {
-      targetGeometryScale = template.unitScale ?? 1;
     }
+  } else {
+    // Built-in GLB models have a fixed authoring export scale (1 for UU exports like Fennec/Insidio/Sentinel,
+    // 100 for meter exports like Octane/Merc/Dominus/Breakout/Ryza/TriOctane).
+    // Never overwrite a built-in vehicle's geometry scale with another vehicle's export unitScale.
+    targetGeometryScale = nativeUnitScale;
   }
 
   if (asset && asset.scene) {
@@ -200,6 +205,7 @@ export function applyVehicleAlignPresetToDescriptor(
     const hitboxSpec = HITBOX_PRESETS[activeHitboxKey] || HITBOX_PRESETS['hitbox-octane'];
     const rlTopY = Number((hitboxSpec.up + hitboxSpec.height * 0.5).toFixed(4));
     Object.assign(descriptor, {
+      unitScale: targetGeometryScale,
       rawBounds: {
         ...scaledBounds,
         rlHitboxTopY: rlTopY,
@@ -222,7 +228,8 @@ export function applyVehicleAlignPresetToDescriptor(
 
   const hitboxSpec = HITBOX_PRESETS[template.hitboxPreset] || HITBOX_PRESETS['hitbox-octane'];
   const rlTopY = Number((hitboxSpec.up + hitboxSpec.height * 0.5).toFixed(4));
-  const resolvedCenterOffset: [number, number, number] = isImportedCustomGlb
+  const isCrossTemplate = isImportedCustomGlb || presetKey !== targetId;
+  const resolvedCenterOffset: [number, number, number] = isCrossTemplate
     ? [
         r2(template.rawBounds.center[0] - scaledBounds.center[0] + template.alignment.centerOffset[0]),
         r2(template.rawBounds.center[1] - scaledBounds.center[1] + template.alignment.centerOffset[1]),
@@ -231,6 +238,7 @@ export function applyVehicleAlignPresetToDescriptor(
     : ([...template.alignment.centerOffset] as [number, number, number]);
 
   Object.assign(descriptor, {
+    unitScale: targetGeometryScale,
     hitboxPreset: template.hitboxPreset,
     threeWheels: Boolean(template.threeWheels),
     rawBounds: {

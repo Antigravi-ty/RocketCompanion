@@ -92,8 +92,17 @@ export class ArenaVehicleRegistry {
   }
 
   setCustomVehicleAsset(vehicleId: string, asset: unknown): void {
-    if (vehicleId && asset) {
-      this.customVehicleAssets.set(String(vehicleId).toLowerCase(), asset);
+    if (!vehicleId || !asset) return;
+    const id = String(vehicleId).toLowerCase();
+    this.customVehicleAssets.set(id, asset);
+    for (let i = 0; i < this.cars.length; i++) {
+      const carRoot = this.cars[i];
+      if (carRoot && this.vehiclePresets[i] === id) {
+        const body = carRoot.children?.find((c) => c.name === 'car-body-mesh');
+        if (!body?.getObjectByName?.(`${id}-shell`)) {
+          this.swapCarVisual(i, id);
+        }
+      }
     }
   }
 
@@ -102,10 +111,7 @@ export class ArenaVehicleRegistry {
     const desc = hasVehicleDescriptor(id) ? getVehicleDescriptor(id) : null;
     if (desc?.modelUrl && !this.customVehicleAssets.has(id) && this.carLoaders.loadCustomGlbCarAsset) {
       this.carLoaders.loadCustomGlbCarAsset(id).then((asset: unknown) => {
-        this.customVehicleAssets.set(id, asset);
-        if (this.vehiclePresets[slot] === id) {
-          this.swapCarVisual(slot, id);
-        }
+        this.setCustomVehicleAsset(id, asset);
       }).catch((err: unknown) => console.warn(`Lazy "${id}" asset load failed:`, err));
     }
   }
