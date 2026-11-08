@@ -16,6 +16,7 @@ import {
 import type { ReplayCarRosterEntry } from './replayDirectorStateTypes.ts';
 
 export interface NormalizedReplayDirectorCarEntry extends ReplayCarRosterEntry {
+  [key: string]: unknown;
   carIndex: number; name: string; username: string; team: 0 | 1;
   isBot: boolean; isLocalPlayer: boolean; botType: string | null;
   visualId: string; hitboxId: string; colorSlot: number; colorHex: string | null;

@@ -9,7 +9,9 @@ import { HITBOX_PRESETS } from '../../ui-core/config/vehiclePresets';
 import {
   FENNEC_DESCRIPTOR,
   getVehicleDescriptor,
+  hasVehicleDescriptor,
   recomputeDescriptorBoostOutlets,
+  registerVehicleDescriptor,
   type VehicleDescriptor,
 } from '../../ui-core/config/vehicleTunerConfig';
 import {
@@ -47,6 +49,7 @@ export interface CustomGlbMaterialBindingEntry {
 
 export interface CustomGlbImportResult {
   vehicleId: string;
+  label: string;
   fileName: string;
   alignPreset: string;
   appliedGeometryScale: number;
@@ -232,10 +235,73 @@ export function applyVehicleAlignPresetToDescriptor(
   return { appliedGeometryScale: targetGeometryScale, scaledBounds };
 }
 
+function allocateImportedGlbDescriptor(
+  requestedId: string,
+  fileName: string,
+  alignPreset: string
+): VehicleDescriptor {
+  const rawBase =
+    String(fileName || 'Custom')
+      .replace(/\.(glb|gltf)$/i, '')
+      .trim() || 'Custom';
+  const slug =
+    rawBase
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'model';
+
+  const normalizedReq = String(requestedId || '').toLowerCase().trim();
+  const isCanonicalPreset = Boolean(CANONICAL_VEHICLE_PRESET_TEMPLATES[normalizedReq]);
+
+  let resolvedId: string;
+  let resolvedLabel = rawBase;
+
+  if (
+    normalizedReq &&
+    normalizedReq !== 'new' &&
+    !isCanonicalPreset &&
+    !hasVehicleDescriptor(normalizedReq)
+  ) {
+    resolvedId = normalizedReq;
+  } else {
+    const baseCandidate = slug.startsWith('custom-') ? slug : `custom-${slug}`;
+    if (!hasVehicleDescriptor(baseCandidate) && !CANONICAL_VEHICLE_PRESET_TEMPLATES[baseCandidate]) {
+      resolvedId = baseCandidate;
+    } else {
+      let suffix = 2;
+      while (
+        hasVehicleDescriptor(`${baseCandidate}-${suffix}`) ||
+        CANONICAL_VEHICLE_PRESET_TEMPLATES[`${baseCandidate}-${suffix}`]
+      ) {
+        suffix++;
+      }
+      resolvedId = `${baseCandidate}-${suffix}`;
+      resolvedLabel = `${rawBase} #${suffix}`;
+    }
+  }
+
+  const presetKey = String(alignPreset || 'auto').toLowerCase().trim();
+  const baseTemplate =
+    (presetKey !== 'auto' ? getCanonicalVehiclePresetTemplate(presetKey) : null) ||
+    getCanonicalVehiclePresetTemplate(normalizedReq) ||
+    getVehicleDescriptor(normalizedReq) ||
+    FENNEC_DESCRIPTOR;
+
+  const newDescriptor: VehicleDescriptor = {
+    ...cloneDescriptorSnapshot(baseTemplate),
+    id: resolvedId,
+    name: resolvedLabel,
+    aliases: [],
+    modelUrl: '',
+  };
+  registerVehicleDescriptor(newDescriptor);
+  return newDescriptor;
+}
+
 /**
- * Parses an uploaded `.glb` ArrayBuffer, normalizes its lamp meshes, logs any unrecognized
- * material names to `console.warn` (falling back to `body`), caches the asset for `targetVehicleId`,
- * and applies the requested `alignPreset` (`'auto'` by default).
+ * Parses an uploaded `.glb` ArrayBuffer, registers a new selectable custom vehicle descriptor,
+ * normalizes its lamp meshes, logs any unrecognized material names to `console.warn`
+ * (falling back to `body`), caches the asset, and applies the requested `alignPreset` (`'auto'` by default).
  */
 export async function importCustomVehicleGlbBuffer(
   targetVehicleId: string,
@@ -243,7 +309,8 @@ export async function importCustomVehicleGlbBuffer(
   fileName = 'custom.glb',
   alignPreset = 'auto'
 ): Promise<CustomGlbImportResult> {
-  const targetId = String(targetVehicleId || 'fennec').toLowerCase().trim();
+  const descriptor = allocateImportedGlbDescriptor(targetVehicleId, fileName, alignPreset);
+  const targetId = descriptor.id;
   const loader = new GLTFLoader();
   const gltf = await loader.parseAsync(arrayBuffer, '');
   gltf.scene.updateMatrixWorld?.(true);
@@ -271,6 +338,7 @@ export async function importCustomVehicleGlbBuffer(
 
   return {
     vehicleId: targetId,
+    label: descriptor.name,
     fileName,
     alignPreset,
     appliedGeometryScale,

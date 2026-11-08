@@ -16,6 +16,7 @@ import {
   garageSettingsStore,
 } from '../../ui-core/config/vehiclePresets';
 import { getMaterialsConfig } from '../../ui-core/config/materialsConfig';
+import { getVehicleDescriptor } from '../../ui-core/config/vehicleTunerConfig';
 import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
 import type { MaterialsConfigLike } from './onlineLobbyTransitionPipeline.ts';
 import {
@@ -228,8 +229,10 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
     },
     applyCustomVehicleTuner: (vehicleId, hitboxPreset) => {
       owner.arena?.vehicleRegistry.refreshCustomVehicle(vehicleId);
-      if (owner.selectedPreset === vehicleId && (hitboxPreset || vehicleId === 'trioctane-threewheel')) {
-        const hb = vehicleId === 'trioctane-threewheel' ? 'hitbox-psyclops' : (hitboxPreset || owner.selectedHitbox || 'hitbox-octane');
+      const desc = getVehicleDescriptor(vehicleId);
+      if (owner.selectedPreset === vehicleId && (hitboxPreset || desc?.threeWheels || vehicleId === 'trioctane-threewheel')) {
+        const isThreeWheels = Boolean(desc?.threeWheels || vehicleId === 'trioctane-threewheel' || hitboxPreset === 'hitbox-psyclops');
+        const hb = isThreeWheels ? 'hitbox-psyclops' : (hitboxPreset || desc?.hitboxPreset || owner.selectedHitbox || 'hitbox-octane');
         owner.selectedHitbox = hb;
         owner.physics?.setCarHitbox?.(owner.playerCarIndex ?? 0, hb);
       }
