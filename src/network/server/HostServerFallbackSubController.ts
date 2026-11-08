@@ -45,6 +45,7 @@ export function buildWorkerInitEnvelopePayload(
     roomId: options.roomId || 'local_room',
     gameMode: options.gameMode || '3v3',
     botFillMode: options.botFillMode || 'no_bots',
+    defaultBotType: (options.defaultBotType || options.botType) as string | undefined,
     externalBotTunnels: true,
     initialState: options.initialState,
     wasmInitOptions: cachedCollision
@@ -278,6 +279,7 @@ export class HostServerFallbackSubController {
       roomId: options.roomId || 'local_room',
       gameMode: options.gameMode || '3v3',
       botFillMode: options.botFillMode || 'no_bots',
+      defaultBotType: (options.defaultBotType || options.botType || 'nexto') as string,
       matchDurationSeconds: options.durationSeconds ?? 300,
       lobbyMode: Boolean(options.lobbyMode),
       skipReplayByDefault:

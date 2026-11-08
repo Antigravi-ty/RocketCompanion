@@ -246,17 +246,17 @@ export class DirectorPreviewSubController {
     return true;
   }
 
-  public enterReferenceFreeCamFromHere(options: ReferenceFreeCamOptions = {}): boolean {
+  public enterReferenceFreeCamFromHere(opt: ReferenceFreeCamOptions = {}): boolean {
     const r = this.deps.getRuntime();
     if (!r) return false;
     const { replayController } = this.deps;
-    const savedCursor = (getActiveReplayTimelineController() || replayController)?.sessionState?.cursorFloat ?? 0;
+    const saved = (getActiveReplayTimelineController() || replayController)?.sessionState?.cursorFloat ?? 0;
     let seekCursorFloat: number | null = null;
     if (!this.isReplayActive || !replayController.sessionState.isActive) {
       if (!this.startPatternPreview(null, { startPaused: true, restart: false })) return false;
-      seekCursorFloat = savedCursor;
+      seekCursorFloat = saved;
     }
-    return pauseReplayAndEnterReferenceFreeCam(r, replayController, { seekCursorFloat, fov: options.fov });
+    return pauseReplayAndEnterReferenceFreeCam(r, replayController, { seekCursorFloat, fov: opt.fov });
   }
 
   public exitReferenceFreeCam(): boolean {
@@ -264,7 +264,7 @@ export class DirectorPreviewSubController {
     const { replayController } = this.deps;
     useAppStore.getState().setFreeCam(false);
     if (this.isReplayActive && replayController.sessionState.isActive && r) {
-      r.acquireGoalReplayCameraOverride?.();
+      r.acquireGoalReplayCameraOverride?.('freeplay-goal-replay');
       applyReplayControllerFrameAndDirectorCamera(r, replayController, this.goalScoringTeam, this.goalScorerCarIndex, {
         snapshot: null, refreshDirectorPose: true,
       });

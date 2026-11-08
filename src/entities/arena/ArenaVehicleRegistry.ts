@@ -49,7 +49,7 @@ export class ArenaVehicleRegistry {
   public carPaintFinishes: Array<string | null>;
   public carBoostVisuals: Array<string | null>;
   public carBoostAudios: Array<string | null>;
-  public carTeams?: number[];
+  public carTeams: number[];
   public customVehicleAssets: Map<string, unknown>;
   public carLoaders: ReturnType<typeof createDefaultVehicleLoaders>;
 
@@ -70,6 +70,7 @@ export class ArenaVehicleRegistry {
     this.wheelSpin = [];
     this.carBoosts = [];
     this.carDemolitions = [];
+    this.carTeams = [];
 
     this.customVehicleAssets = new Map<string, unknown>();
     this.carLoaders = createDefaultVehicleLoaders();

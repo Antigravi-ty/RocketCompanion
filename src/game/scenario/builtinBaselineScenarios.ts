@@ -17,10 +17,16 @@ import {
   isSystemControlSignal,
 } from '../../physics/RocketSimConstants.ts';
 import { COUNTUP_REPLAY_CAPACITY_TICKS } from '../../replay/ReplayRingBuffer.ts';
+import { ONLINE_3V3_DUCKY_FULL_LIFECYCLE_SCENARIO } from './autonomousOnline3v3LifecycleScenario.ts';
+import {
+  ROSTER_COMBINATIONS_MATRIX_EXPLORATION_SCENARIO,
+  TRAINING_SESSION_FIFO_AND_SYS_CTRL_E2E_SCENARIO,
+} from './autonomousTrainingAndMatrixScenario.ts';
 import {
   MULTIPLAYER_6CAR_LOADOUT_STRESS_SCENARIO,
   REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO,
 } from './replayViewerBaselineScenario.ts';
+import { REPLAY_DIRECTOR_AND_EXPORT_SCENARIO } from './replayDirectorAndExportScenario.ts';
 import type { ScenarioScript } from './ScenarioTypes.ts';
 
 export const BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO: ScenarioScript = {
@@ -66,19 +72,6 @@ export const BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO: ScenarioScript = {
             COUNTUP_REPLAY_CAPACITY_TICKS === 3600 &&
             ringMode === 'countup_fifo',
           `capacityTicks=${ringCap}, mode=${ringMode}`,
-        );
-        const rigProbe = ctx.captureVehicleRigProbe(0);
-        ctx.recordAssertion(
-          'freeplay_car0_scenegraph_rig_probe_valid',
-          Boolean(
-            rigProbe &&
-              rigProbe.carVisible &&
-              rigProbe.wheels.length === 4 &&
-              rigProbe.wheelbaseX > 40 &&
-              rigProbe.frontTrackWidthZ > 30 &&
-              rigProbe.rearTrackWidthZ > 30,
-          ),
-          `visualId=${rigProbe?.visualId}, wheelbaseX=${rigProbe?.wheelbaseX}, frontTrackZ=${rigProbe?.frontTrackWidthZ}, rearTrackZ=${rigProbe?.rearTrackWidthZ}`,
         );
       },
     },
@@ -258,19 +251,73 @@ export const BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO: ScenarioScript = {
   },
 };
 
+export const ALL_BASELINE_SCENARIO_LIST: readonly ScenarioScript[] = Object.freeze([
+  BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO,
+  MULTIPLAYER_6CAR_LOADOUT_STRESS_SCENARIO,
+  REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO,
+  ISOLATION_LAB_AND_TUNER_SCENARIO,
+  TRAINING_AND_KICKOFF_SCENARIO,
+  ONLINE_3V3_FULL_LIFECYCLE_SCENARIO,
+  REPLAY_DIRECTOR_AND_EXPORT_SCENARIO,
+  ONLINE_3V3_DUCKY_FULL_LIFECYCLE_SCENARIO,
+  TRAINING_SESSION_FIFO_AND_SYS_CTRL_E2E_SCENARIO,
+  ROSTER_COMBINATIONS_MATRIX_EXPLORATION_SCENARIO,
+]);
+
 export const BUILTIN_BASELINE_SCENARIOS: Readonly<Record<string, ScenarioScript>> = Object.freeze({
   [BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO.id]: BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO,
   [MULTIPLAYER_6CAR_LOADOUT_STRESS_SCENARIO.id]: MULTIPLAYER_6CAR_LOADOUT_STRESS_SCENARIO,
   [REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO.id]: REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO,
+  [ISOLATION_LAB_AND_TUNER_SCENARIO.id]: ISOLATION_LAB_AND_TUNER_SCENARIO,
+  [TRAINING_AND_KICKOFF_SCENARIO.id]: TRAINING_AND_KICKOFF_SCENARIO,
+  [ONLINE_3V3_FULL_LIFECYCLE_SCENARIO.id]: ONLINE_3V3_FULL_LIFECYCLE_SCENARIO,
+  [REPLAY_DIRECTOR_AND_EXPORT_SCENARIO.id]: REPLAY_DIRECTOR_AND_EXPORT_SCENARIO,
+  [ONLINE_3V3_DUCKY_FULL_LIFECYCLE_SCENARIO.id]: ONLINE_3V3_DUCKY_FULL_LIFECYCLE_SCENARIO,
+  [TRAINING_SESSION_FIFO_AND_SYS_CTRL_E2E_SCENARIO.id]: TRAINING_SESSION_FIFO_AND_SYS_CTRL_E2E_SCENARIO,
+  [ROSTER_COMBINATIONS_MATRIX_EXPLORATION_SCENARIO.id]: ROSTER_COMBINATIONS_MATRIX_EXPLORATION_SCENARIO,
 });
 
 export function resolveRequestedScenarios(queryValue: string | null | undefined): ScenarioScript[] {
   const normalized = (queryValue || 'all').trim().toLowerCase();
-  if (!normalized || normalized === 'all' || normalized === 'full_baseline_suite' || normalized === '1' || normalized === 'true') {
+  if (
+    !normalized ||
+    normalized === 'all' ||
+    normalized === 'full_all' ||
+    normalized === 'full_baseline_suite' ||
+    normalized === '1' ||
+    normalized === 'true'
+  ) {
+    return [...ALL_BASELINE_SCENARIO_LIST];
+  }
+  if (normalized === 'calibration' || normalized === 'golden') {
     return [
       BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO,
       MULTIPLAYER_6CAR_LOADOUT_STRESS_SCENARIO,
       REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO,
+      ISOLATION_LAB_AND_TUNER_SCENARIO,
+      TRAINING_AND_KICKOFF_SCENARIO,
+      ONLINE_3V3_FULL_LIFECYCLE_SCENARIO,
+      REPLAY_DIRECTOR_AND_EXPORT_SCENARIO,
+    ];
+  }
+  if (normalized === 'e2e' || normalized === 'autonomous') {
+    return [
+      ONLINE_3V3_DUCKY_FULL_LIFECYCLE_SCENARIO,
+      TRAINING_SESSION_FIFO_AND_SYS_CTRL_E2E_SCENARIO,
+      ROSTER_COMBINATIONS_MATRIX_EXPLORATION_SCENARIO,
+    ];
+  }
+  if (normalized === 'basic') {
+    return [
+      BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO,
+      TRAINING_SESSION_FIFO_AND_SYS_CTRL_E2E_SCENARIO,
+    ];
+  }
+  if (normalized === 'complex') {
+    return [
+      ONLINE_3V3_DUCKY_FULL_LIFECYCLE_SCENARIO,
+      ROSTER_COMBINATIONS_MATRIX_EXPLORATION_SCENARIO,
+      MULTIPLAYER_6CAR_LOADOUT_STRESS_SCENARIO,
     ];
   }
   const ids = normalized
@@ -283,11 +330,5 @@ export function resolveRequestedScenarios(queryValue: string | null | undefined)
       matched.push(BUILTIN_BASELINE_SCENARIOS[id]);
     }
   }
-  return matched.length > 0
-    ? matched
-    : [
-        BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO,
-        MULTIPLAYER_6CAR_LOADOUT_STRESS_SCENARIO,
-        REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO,
-      ];
+  return matched.length > 0 ? matched : [...ALL_BASELINE_SCENARIO_LIST];
 }

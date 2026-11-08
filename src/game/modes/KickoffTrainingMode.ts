@@ -204,6 +204,12 @@ export class KickoffTrainingMode extends BaseGameMode {
     return this.episodeController.step();
   }
 
+  public override getCarControls(carIndex: number): Record<string, unknown> | null {
+    return carIndex === 1
+      ? (this.episodeController.getOpponentControls() as unknown as Record<string, unknown> | null)
+      : null;
+  }
+
   public override update(context: KickoffFrameUpdateContext): void {
     this.episodeController.updateFrame(context);
   }

@@ -311,13 +311,13 @@ export class RuntimeNetworkManager {
     this.rosterSyncCoordinator.syncHostLobbyOngoingNotification();
   }
 
-  setOnlineBotFillMode(botFillMode = 'no_bots'): void {
-    this.sessionCoordinator.authoritativeServer?.setBotFillMode?.(botFillMode);
+  setOnlineBotFillMode(botFillMode = 'no_bots', botType?: string): void {
+    this.sessionCoordinator.authoritativeServer?.setBotFillMode?.(botFillMode, botType);
     useAppStore?.getState?.()?.setOnlineSession({ botFillMode });
   }
 
-  addOnlineBot(team: number | null = 1, botName: string | null = null): void {
-    this.sessionCoordinator.authoritativeServer?.addBotPlayer?.(team ?? 1, botName);
+  addOnlineBot(team: number | null = 1, botName: string | null = null, visualId: string | null = 'octane', botType?: string): void {
+    this.sessionCoordinator.authoritativeServer?.addBotPlayer?.(team ?? 1, botName, visualId ?? 'octane', botType);
   }
 
   setClientReady(ready = true): void {

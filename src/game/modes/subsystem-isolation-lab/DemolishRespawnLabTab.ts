@@ -9,7 +9,7 @@ import {
   hudStore,
   useSubsystemIsolationLabStore,
 } from '../../runtimeUiPort.ts';
-import type { LabTabContext, LabTabController } from './LabTabTypes.ts';
+import type { LabRuntimePort, LabTabContext, LabTabController } from './LabTabTypes.ts';
 
 export interface RespawnSlotPresetCoords {
   slotIndex: number;
@@ -66,6 +66,72 @@ export class DemolishRespawnLabTab implements LabTabController {
   private ctx: LabTabContext | null = null;
   private demolishRespawnRuntime: DemolishRespawnRuntimeState | null = null;
 
+  private isCarDemolished(r: LabRuntimePort, carIdx = 0): boolean {
+    if (typeof r.physics?.isCarDemolished === 'function') {
+      return Boolean(r.physics.isCarDemolished(carIdx));
+    }
+    const timer = r.physics?.carMutators?.getCarDemoRespawnTimer?.(carIdx) ?? 0;
+    return Boolean(r.physics?.getCarStateView?.(carIdx)?.isDemoed) || timer > 0;
+  }
+
+  private getCarDemoTimer(r: LabRuntimePort, carIdx = 0): number {
+    if (typeof r.physics?.getCarDemolishTimer === 'function') {
+      return Number(r.physics.getCarDemolishTimer(carIdx) || 0);
+    }
+    return Number(
+      r.physics?.carMutators?.getCarDemoRespawnTimer?.(carIdx) ??
+        r.physics?.getCarStateView?.(carIdx)?.demoRespawnTimer ??
+        0
+    );
+  }
+
+  private getCarRespawnSlot(r: LabRuntimePort, carIdx = 0): number {
+    if (typeof r.physics?.getCarRespawnSelection === 'function') {
+      return Number(r.physics.getCarRespawnSelection(carIdx));
+    }
+    return Number(
+      r.physics?.carMutators?.getCarDemoSpawnSelection?.(carIdx) ??
+        r.physics?.getCarStateView?.(carIdx)?.demoSpawnSelection ??
+        -1
+    );
+  }
+
+  private setCarRespawnSlot(r: LabRuntimePort, carIdx: number, slot: number): void {
+    if (typeof r.physics?.setCarRespawnSelection === 'function') {
+      r.physics.setCarRespawnSelection(carIdx, slot);
+    } else {
+      r.physics?.carMutators?.setCarDemoSpawnSelection?.(carIdx, slot);
+    }
+  }
+
+  private respawnCarAtPreset(
+    r: LabRuntimePort,
+    carIdx: number,
+    team: number,
+    slotIndex: number
+  ): void {
+    if (typeof r.physics?.respawnCarAtPreset === 'function') {
+      r.physics.respawnCarAtPreset(carIdx, team, slotIndex);
+      return;
+    }
+    const coords = resolveRespawnSlotPresetCoords(team, slotIndex);
+    const cy = Math.cos(coords.yaw);
+    const sy = Math.sin(coords.yaw);
+    if (this.isCarDemolished(r, carIdx)) {
+      this.setCarRespawnSlot(r, carIdx, coords.slotIndex);
+      r.physics?.carMutators?.respawnCar?.(carIdx, coords.slotIndex, 33.33);
+    }
+    r.physics?.setCarState?.(carIdx, {
+      pos: [coords.x, coords.y, coords.z],
+      vel: [0, 0, 0],
+      angVel: [0, 0, 0],
+      forward: [cy, sy, 0],
+      right: [-sy, cy, 0],
+      up: [0, 0, 1],
+      boost: 33.33,
+    });
+  }
+
   onActivate(ctx: LabTabContext): void {
     this.ctx = ctx;
     this.setupBench();
@@ -98,7 +164,7 @@ export class DemolishRespawnLabTab implements LabTabController {
     if (r.arena) {
       r.arena.playerCarIndex = 0;
       r.arena.setCarTeam?.(0, team);
-      r.arena.setCarVisual?.(0, visualId);
+      r.arena.swapCarVisual?.(0, visualId);
       if (r.arena.cars?.[0]) r.arena.cars[0].visible = true;
       if (r.arena.cars?.[1]) {
         r.arena.setCarTeam?.(1, team === 0 ? 1 : 0);
@@ -107,7 +173,7 @@ export class DemolishRespawnLabTab implements LabTabController {
     }
 
     r.physics.setBallState?.({ pos: [0, 0, 93.15], vel: [0, 0, 0], angVel: [0, 0, 0] });
-    r.physics.respawnCarAtPreset?.(0, team, 1);
+    this.respawnCarAtPreset(r, 0, team, 1);
     this.syncDummyObstacleCar(store);
 
     this.demolishRespawnRuntime = {
@@ -142,25 +208,24 @@ export class DemolishRespawnLabTab implements LabTabController {
 
     if (enabled) {
       const coords = resolveRespawnSlotPresetCoords(team, obstacleSlot);
-      r.physics.setCarState?.(
-        1,
-        coords.x,
-        coords.y,
-        coords.z,
-        0,
-        0,
-        0,
-        0,
-        coords.yaw,
-        0,
-        0,
-        0,
-        0
-      );
+      const cy = Math.cos(coords.yaw);
+      const sy = Math.sin(coords.yaw);
+      r.physics.setCarState?.(1, {
+        pos: [coords.x, coords.y, coords.z],
+        vel: [0, 0, 0],
+        angVel: [0, 0, 0],
+        forward: [cy, sy, 0],
+        right: [-sy, cy, 0],
+        up: [0, 0, 1],
+      });
       r.physics.setControls?.(1, { ...DEFAULT_CAR_CONTROLS, handbrake: true });
     } else {
       const oppY = team === 0 ? 3800 : -3800;
-      r.physics.setCarState?.(1, 3200, oppY, 17.01, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+      r.physics.setCarState?.(1, {
+        pos: [3200, oppY, 17.01],
+        vel: [0, 0, 0],
+        angVel: [0, 0, 0],
+      });
       r.physics.setControls?.(1, DEFAULT_CAR_CONTROLS);
     }
   }
@@ -174,7 +239,7 @@ export class DemolishRespawnLabTab implements LabTabController {
     if (r.arena) {
       r.arena.setCarTeam?.(0, team);
       if (store.demolishRespawnVisualId) {
-        r.arena.setCarVisual?.(0, store.demolishRespawnVisualId);
+        r.arena.swapCarVisual?.(0, store.demolishRespawnVisualId);
       }
     }
 
@@ -205,9 +270,9 @@ export class DemolishRespawnLabTab implements LabTabController {
     }
 
     if (store.demolishRespawnSelectedSlot >= 0 && store.demolishRespawnSelectedSlot <= 3) {
-      r.physics.setCarRespawnSelection?.(0, store.demolishRespawnSelectedSlot);
+      this.setCarRespawnSlot(r, 0, store.demolishRespawnSelectedSlot);
     } else {
-      r.physics.setCarRespawnSelection?.(0, -1);
+      this.setCarRespawnSlot(r, 0, -1);
     }
 
     this.syncDummyObstacleCar(store);
@@ -221,17 +286,12 @@ export class DemolishRespawnLabTab implements LabTabController {
     const store = useSubsystemIsolationLabStore.getState();
     const team = store.demolishRespawnTeam ?? 0;
     const selectedSlot =
-      r.physics.getCarRespawnSelection?.(0) ??
-      store.demolishRespawnSelectedSlot ??
-      -1;
+      this.getCarRespawnSlot(r, 0) >= 0
+        ? this.getCarRespawnSlot(r, 0)
+        : (store.demolishRespawnSelectedSlot ?? -1);
 
-    if (r.physics.isCarDemolished?.(0)) {
-      r.physics.demolishCar?.(0, 1 / 120);
-      r.physics.setCarRespawnSelection?.(0, selectedSlot);
-    } else {
-      const slotToUse = selectedSlot >= 0 ? selectedSlot : 0;
-      r.physics.respawnCarAtPreset?.(0, team, slotToUse);
-    }
+    const slotToUse = selectedSlot >= 0 ? selectedSlot : 0;
+    this.respawnCarAtPreset(r, 0, team, slotToUse);
 
     r.interpolator?.sync?.();
     this.syncTelemetry();
@@ -242,14 +302,14 @@ export class DemolishRespawnLabTab implements LabTabController {
     if (!r?.physics) return;
     const store = useSubsystemIsolationLabStore.getState();
 
-    if (!r.physics.isCarDemolished?.(0)) {
+    if (!this.isCarDemolished(r, 0)) {
       this.triggerDemolish();
     }
 
-    const currentSel = r.physics.getCarRespawnSelection?.(0) ?? -1;
+    const currentSel = this.getCarRespawnSlot(r, 0);
     const nextSlot = computeNextSteerSelectionSlot(currentSel, direction);
 
-    r.physics.setCarRespawnSelection?.(0, nextSlot);
+    this.setCarRespawnSlot(r, 0, nextSlot);
     store.updateLiveTelemetry({
       demolishRespawnSelectedSlot: nextSlot,
       demolishRespawnLastInputEdge:
@@ -270,11 +330,11 @@ export class DemolishRespawnLabTab implements LabTabController {
     const clamped =
       slotIndex < 0 ? -1 : Math.max(0, Math.min(3, Math.round(slotIndex)));
 
-    if (!r.physics.isCarDemolished?.(0)) {
+    if (!this.isCarDemolished(r, 0)) {
       this.triggerDemolish();
     }
 
-    r.physics.setCarRespawnSelection?.(0, clamped);
+    this.setCarRespawnSlot(r, 0, clamped);
     store.updateLiveTelemetry({
       demolishRespawnSelectedSlot: clamped,
       demolishRespawnLastInputEdge:
@@ -297,12 +357,12 @@ export class DemolishRespawnLabTab implements LabTabController {
     }
     if (r.arena) {
       r.arena.setCarTeam?.(0, team);
-      r.arena.setCarVisual?.(0, visualId);
+      r.arena.swapCarVisual?.(0, visualId);
     }
 
     this.syncDummyObstacleCar(store);
 
-    if (!r.physics.isCarDemolished?.(0)) {
+    if (!this.isCarDemolished(r, 0)) {
       if (store.demolishRespawnAutoHoldDemo) {
         this.triggerDemolish();
       } else {
@@ -310,7 +370,7 @@ export class DemolishRespawnLabTab implements LabTabController {
           store.demolishRespawnSelectedSlot >= 0
             ? store.demolishRespawnSelectedSlot
             : 1;
-        r.physics.respawnCarAtPreset?.(0, team, slot);
+        this.respawnCarAtPreset(r, 0, team, slot);
         r.interpolator?.sync?.();
       }
     }
@@ -331,18 +391,18 @@ export class DemolishRespawnLabTab implements LabTabController {
       };
     }
 
-    const isDemo = Boolean(r.physics.isCarDemolished?.(0));
-    let demoTimer = Number(r.physics.getCarDemolishTimer?.(0) || 0);
+    const isDemo = this.isCarDemolished(r, 0);
+    let demoTimer = this.getCarDemoTimer(r, 0);
 
     if (isDemo && store.demolishRespawnFreezeTimer && demoTimer > 0.05) {
       const holdSec = Math.max(0.5, store.demolishRespawnTimerDurationSec ?? 2.5);
-      const currentSel = r.physics.getCarRespawnSelection?.(0) ?? -1;
+      const currentSel = this.getCarRespawnSlot(r, 0);
       r.physics.demolishCar?.(0, holdSec);
-      r.physics.setCarRespawnSelection?.(0, currentSel);
+      this.setCarRespawnSlot(r, 0, currentSel);
       demoTimer = holdSec;
     }
 
-    const currentSel = r.physics.getCarRespawnSelection?.(0) ?? -1;
+    const currentSel = this.getCarRespawnSlot(r, 0);
     if (isDemo && currentSel !== store.demolishRespawnSelectedSlot) {
       store.updateLiveTelemetry({
         demolishRespawnSelectedSlot: currentSel,
@@ -360,12 +420,16 @@ export class DemolishRespawnLabTab implements LabTabController {
     if (!r?.physics) return;
     const store = useSubsystemIsolationLabStore.getState();
 
-    const isDemo = Boolean(r.physics.isCarDemolished?.(0));
-    const demoTimer = Number(r.physics.getCarDemolishTimer?.(0) || 0);
-    const selectedSlot = r.physics.getCarRespawnSelection?.(0) ?? -1;
+    const isDemo = this.isCarDemolished(r, 0);
+    const demoTimer = this.getCarDemoTimer(r, 0);
+    const selectedSlot = this.getCarRespawnSlot(r, 0);
     const team = store.demolishRespawnTeam ?? 0;
     const effectiveSlot = selectedSlot >= 0 && selectedSlot <= 3 ? selectedSlot : 0;
     const coords = resolveRespawnSlotPresetCoords(team, effectiveSlot);
+
+    if (isDemo && r.physics.state) {
+      r.arena?.respawnGhostPreview?.update?.(r.physics.state, 0);
+    }
 
     const carView = r.interpolator?.getCarView?.(0, r.arena);
     const carPos = carView
@@ -377,10 +441,10 @@ export class DemolishRespawnLabTab implements LabTabController {
       : [coords.x, coords.y, coords.z];
 
     let wheelLocalYs: number[] = [];
-    const ghost = r.arena?.respawnGhostPreview;
-    if (ghost?.wheels?.threeWheels && ghost.wheels.threeWheels.length > 0) {
-      wheelLocalYs = ghost.wheels.threeWheels.map((w) =>
-        Number((w?.position?.y ?? 0).toFixed(2))
+    const ghostWheels = r.arena?.respawnGhostPreview?.wheels;
+    if (Array.isArray(ghostWheels) && ghostWheels.length > 0) {
+      wheelLocalYs = ghostWheels.map((w) =>
+        Number((w?.steer?.position?.y ?? w?.position?.y ?? 0).toFixed(2))
       );
     }
 

@@ -375,17 +375,19 @@ export class RuntimeParticipantAndCombatSignalSubController {
       const carIndex =
         typeof sig.param1 === 'number' && sig.param1 >= 0 ? sig.param1 : h.playerCarIndex;
       const cv = h.physics?.getCarStateView?.(carIndex);
-      audio?.handleEvent?.(
-        {
-          type: INCIDENT_EVENT_TYPES.CAR_CAR_DEMO,
-          carIndex,
-          primaryId: carIndex,
-          x: cv?.posX ?? 0,
-          y: cv?.posY ?? 0,
-          z: cv?.posZ ?? 0,
-        },
-        h.camera,
-      );
+      const demoEvt = {
+        type: INCIDENT_EVENT_TYPES.CAR_CAR_DEMO,
+        carIndex,
+        primaryId: sig.param2 ?? 0,
+        secondaryId: carIndex,
+        x: cv?.posX ?? 0,
+        y: cv?.posY ?? 0,
+        z: cv?.posZ ?? 0,
+        tick: sig.frameId || 0,
+      };
+      eventStreamStore.addEvent(demoEvt);
+      h.modeManager?.getActiveMode?.()?.onPhysicsEvent?.(demoEvt);
+      audio?.handleEvent?.(demoEvt, h.camera);
       return true;
     }
 

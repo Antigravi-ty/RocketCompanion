@@ -356,10 +356,15 @@ export function stepGoalReplaySessionFrame(
     }
   }
 
+  const postStepState = replayController.sessionState ?? s;
   const shouldEmitWillEnd = options.emitWillEndChoreography ?? options.emitWillEndSignal ?? true;
   if (
     shouldEmitWillEnd &&
-    shouldEmitGoalReplayWillEndSignal(stepRes, Boolean(s?.isPaused), Boolean(s?.isPersistent))
+    shouldEmitGoalReplayWillEndSignal(
+      stepRes,
+      Boolean(postStepState?.isPaused),
+      Boolean(postStepState?.isPersistent)
+    )
   ) {
     hudStore.getState().setChoreographySignal('goal-replay-will-end');
   }
@@ -369,13 +374,13 @@ export function stepGoalReplaySessionFrame(
       replayProgress: effectiveProgress,
       replayFrameIndex: stepRes.frameIndex,
       replayTotalFrames: stepRes.totalFrames,
-      replayPaused: s?.isPaused,
-      replayPersistent: s?.isPersistent,
+      replayPaused: postStepState?.isPaused,
+      replayPersistent: postStepState?.isPersistent,
       replayCameraMode: cameraMode,
-      replaySpeed: s?.playbackSpeed,
+      replaySpeed: postStepState?.playbackSpeed,
     });
   }
-  if (stepRes.isFinished && !s?.isPaused && !s?.isPersistent) {
+  if (stepRes.isFinished && !postStepState?.isPaused && !postStepState?.isPersistent) {
     options.onComplete?.(stepRes);
   }
   return stepRes;

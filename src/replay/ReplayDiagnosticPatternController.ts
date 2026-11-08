@@ -254,8 +254,7 @@ export class ReplayDiagnosticPatternController {
       this.timeline.sessionState.carTeamResolver,
       options
     );
-    this.timeline.sessionState = fields.sessionState;
-    const s = this.timeline.sessionState;
+    const s = Object.assign(this.timeline.sessionState, fields.sessionState);
 
     this.timeline._analyzeReplayTouchTimeline({
       scorerCarIndex: s.scorerCarIndex,

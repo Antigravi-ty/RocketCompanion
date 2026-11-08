@@ -183,8 +183,7 @@ export function buildEndedReplaySessionState(
 ): ReplaySessionState {
   const wasNetworkStreamed = Boolean(currentState.isNetworkStreamed);
   const hasRetained = Array.isArray(currentState.activeFrames) && currentState.activeFrames.length > 0;
-  const nextState: ReplaySessionState = {
-    ...currentState,
+  Object.assign(currentState, {
     isActive: false, isPaused: false, isPersistent: false, isScrubbing: false,
     isLoopingPreview: false, disableSlowMo: false, isNetworkStreamed: false,
     hasRetainedReplay: hasRetained, lastDispatchedFrameIndex: -1,
@@ -192,16 +191,16 @@ export function buildEndedReplaySessionState(
     cursorFloat: hasRetained
       ? Math.max(0, Math.min(currentState.activeFrames.length - 1, Math.floor(currentState.cursorFloat)))
       : 0,
-  };
+  });
   if (hasRetained && wasNetworkStreamed) {
-    analyzeAndSyncReplayTouchTimelineState(nextState, directorCamera, {
-      carTeamResolver: nextState.carTeamResolver,
-      scorerCarIndex: nextState.scorerCarIndex,
+    analyzeAndSyncReplayTouchTimelineState(currentState, directorCamera, {
+      carTeamResolver: currentState.carTeamResolver,
+      scorerCarIndex: currentState.scorerCarIndex,
     });
   }
   directorCamera.resetSmoothing();
   directorCamera.setPauseAndScrubState(false, false);
-  return nextState;
+  return currentState;
 }
 
 export function buildClearedRetainedReplaySessionState(
@@ -209,13 +208,12 @@ export function buildClearedRetainedReplaySessionState(
   directorCamera: ReplayDirectorCameraSubController
 ): ReplaySessionState {
   directorCamera.clearRetained();
-  return {
-    ...currentState,
+  return Object.assign(currentState, {
     activeFrames: [], hasRetainedReplay: false, retainedReplaySeq: 0,
     isImportedPreview: false, importedFileName: null, importedSummary: null,
     cachedSuffixCameraPlan: null, useRecordedCsvCamera: false, isLoopingPreview: false,
     streamedFramesReceived: 0, cursorFloat: 0,
-  };
+  });
 }
 
 export function executeReplayPlaybackStep(input: ExecuteReplayPlaybackStepInput): ReplayPlaybackStepResult {
@@ -290,12 +288,11 @@ export function executeReplayPlaybackStep(input: ExecuteReplayPlaybackStepInput)
     directorCamera.setPauseAndScrubState(true, isScrubbing);
   }
 
-  const nextSessionState: ReplaySessionState = {
-    ...sessionState,
+  const nextSessionState = Object.assign(sessionState, {
     cursorFloat, isPaused, isScrubbing,
     scorerCarIndex: resolvedScorerCarIndex,
     lastDispatchedFrameIndex,
-  };
+  });
 
   const progress =
     embedded && typeof embedded.progress === 'number' && embedded.progress > 0

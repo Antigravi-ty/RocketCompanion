@@ -167,6 +167,12 @@ export class ScenarioAutorunController {
     this.initialShaderPrograms = this.driver.getCompiledShaderProgramCount();
   }
 
+  public setFastForwardSpeed(speedPreset: '1x' | '10x' | '20x' | '50x'): void {
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __rcScenarioSpeed?: string }).__rcScenarioSpeed = speedPreset;
+    }
+  }
+
   public captureVehicleRigProbe(carIndex = 0): VehicleRigGeometryProbeSnapshot | null {
     return captureVehicleRigGeometryProbe(this.runtime?.arena, carIndex);
   }
@@ -175,6 +181,17 @@ export class ScenarioAutorunController {
     probes: readonly VehicleRigGeometryProbeSnapshot[] = [],
   ): GoldenBaselineDiffSummary {
     return buildGoldenBaselineDiffSummary(this.runtime?.arena, probes);
+  }
+
+  public listScenarioIds(): string[] {
+    return resolveRequestedScenarios('all').map((s) => s.id);
+  }
+
+  public async runScenarioById(
+    scenarioId: string,
+    options?: ScenarioDriverRunOptions,
+  ): Promise<BaselineSuiteTelemetryReport> {
+    return this.runBaselineSuite(scenarioId, options);
   }
 
   public async runSelfTest(

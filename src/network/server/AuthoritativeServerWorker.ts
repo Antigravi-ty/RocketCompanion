@@ -117,9 +117,9 @@ function computeRoomSyncSignature(): string {
   const { domain } = matchManager;
   let rosterSig = '';
   for (const [sid, p] of domain.players.entries()) {
-    rosterSig += `${sid}:${p?.entityId ?? -1}:${p?.team ?? 0}:${p?.isBot ? 1 : 0}:${p?.visualId ?? ''}:${p?.hitboxId ?? ''}:${p?.colorSlot ?? 0}:${p?.paintFinish ?? ''}:${p?.boostVisual ?? ''}:${p?.boostAudio ?? ''}:${p?.ready ? 1 : 0}:${p?.arenaLoaded ? 1 : 0};`;
+    rosterSig += `${sid}:${p?.entityId ?? -1}:${p?.team ?? 0}:${p?.isBot ? 1 : 0}:${p?.botType ?? ''}:${p?.visualId ?? ''}:${p?.hitboxId ?? ''}:${p?.colorSlot ?? 0}:${p?.paintFinish ?? ''}:${p?.boostVisual ?? ''}:${p?.boostAudio ?? ''}:${p?.ready ? 1 : 0}:${p?.arenaLoaded ? 1 : 0};`;
   }
-  return `${domain.state}|${domain.botFillMode}|${domain.gameMode}|${domain.clockDuration}|${rosterSig}`;
+  return `${domain.state}|${domain.botFillMode}|${domain.defaultBotType}|${domain.gameMode}|${domain.clockDuration}|${rosterSig}`;
 }
 
 function syncWorkerRoomStateIfNeeded(

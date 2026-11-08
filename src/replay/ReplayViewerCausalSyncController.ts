@@ -424,6 +424,12 @@ export class ReplayViewerCausalSyncController {
       r.setCarColor?.(0, getPreferredColorHex(null, playerTeam), false);
       r.syncPlayerMaterialsLoadout?.();
     }
+    if (r.match?.state?.mode === 'replay-viewer') {
+      r.match.state.mode = 'freeplay';
+      r.match.state.phase = 'playing';
+      useAppStore.getState().setMatchMode?.('freeplay');
+      r.modeManager?.setMode?.('freeplay');
+    }
     if (r.keyboard) {
       r.keyboard.ballControlEnabled = r.match?.state?.mode === 'freeplay';
     }
