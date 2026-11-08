@@ -937,12 +937,17 @@ function runRadarChecks(allFiles: string[]): RadarScanResult {
     }
   }
 
-  const lockfiles = ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lockb'].filter((lf) =>
-    fs.existsSync(path.join(ROOT_DIR, lf))
+  const forbiddenLockfiles = ['package-lock.json', 'yarn.lock', 'bun.lockb', 'bun.lock'].filter(
+    (lf) => fs.existsSync(path.join(ROOT_DIR, lf))
   );
-  if (lockfiles.length > 1) {
+  if (forbiddenLockfiles.length > 0) {
     errors.push(
-      `[DUPLICATE LOCKFILE VIOLATION] Multiple package manager lockfiles detected in repository root: ${lockfiles.join(', ')}. Keep a single canonical lockfile.`
+      `[LOCKFILE HYGIENE VIOLATION] Non-pnpm lockfile(s) detected in repository root: ${forbiddenLockfiles.join(', ')}. Use pnpm and maintain pnpm-lock.yaml only.`
+    );
+  }
+  if (!fs.existsSync(path.join(ROOT_DIR, 'pnpm-lock.yaml'))) {
+    errors.push(
+      '[LOCKFILE HYGIENE VIOLATION] Missing pnpm-lock.yaml in repository root. Maintain canonical pnpm lockfile hygiene.'
     );
   }
 
