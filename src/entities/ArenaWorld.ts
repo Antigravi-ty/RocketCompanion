@@ -40,7 +40,7 @@ import { RespawnGhostPreview } from './arena/RespawnGhostPreview.ts';
 import { SpatialAudioDebugVisualizer } from './arena/SpatialAudioDebugVisualizer.ts';
 import { SupersonicWheelTrailSystem } from './vehicle/supersonic-trail/SupersonicWheelTrailSystem.ts';
 import type { VehicleBoostEmitter } from './vehicle/boost/vehicleBoostEmitter.ts';
-import type { DemolitionEffect } from './DemolitionEffect.ts';
+import { DemolitionSimPreviewController, type DemolitionEffect } from './DemolitionEffect.ts';
 
 export type { BoostPadDefinition, BoostPadInstance, BoostPadTemplates, BoostPadTunerConfig };
 
@@ -86,6 +86,7 @@ export class ArenaWorld {
   public respawnGhostPreview: RespawnGhostPreview;
   public spatialAudioVisualizer: SpatialAudioDebugVisualizer;
   public supersonicWheelTrailSystem: SupersonicWheelTrailSystem;
+  public demolitionSimPreview: DemolitionSimPreviewController;
   public _headerView: ArenaHeaderView;
   public _currCarView: CarStateView;
   public _prevCarView: CarStateView;
@@ -157,6 +158,7 @@ export class ArenaWorld {
     this.respawnGhostPreview = new RespawnGhostPreview(this);
     this.spatialAudioVisualizer = new SpatialAudioDebugVisualizer(this.scene, () => this.markRenderTreeChanged());
     this.supersonicWheelTrailSystem = new SupersonicWheelTrailSystem(this.scene);
+    this.demolitionSimPreview = new DemolitionSimPreviewController(this.scene, () => this.markRenderTreeChanged());
     this.environment = new ArenaEnvironmentManager(this);
 
     this._headerView = new ArenaHeaderView();
@@ -318,6 +320,7 @@ export class ArenaWorld {
     updateSkyboxFrame(actualDelta, this.lighting?._shadowDir);
     this.boostPadSystem?.update(currState as Float32Array | null, undefined, actualDelta, this.camera);
     this.respawnGhostPreview?.update?.(currState, actualDelta);
+    this.demolitionSimPreview?.stepFrame();
     updateBoostVisuals(
       this.cars, this.carBoosts, currState, actualThrottle, actualDelta, opponentControls?.throttle ?? 0,
       activeVisuals, controls, opponentControls, this.playerCarIndex, this._headerView, this._currCarView, carControlsResolver
@@ -346,6 +349,7 @@ export class ArenaWorld {
     this.respawnGhostPreview?.dispose?.();
     this.spatialAudioVisualizer?.dispose?.();
     this.supersonicWheelTrailSystem?.dispose?.();
+    this.demolitionSimPreview?.dispose?.();
     this.lighting?.dispose?.();
     this.vehicleRegistry?.dispose?.();
     this.environment?.disposeEnvironmentMeshes?.();

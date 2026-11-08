@@ -9,6 +9,11 @@ import { updateCarSuspensionAndSteering } from '../VehicleSuspensionSystem.ts';
 import { updateVehicleBrakeLamps } from '../vehicle/vehicleWheelsAndLamps.ts';
 import { getNameTagConfig } from '../../game/runtimeUiPort.ts';
 import { vehicleTunerRuntimeFlags } from '../../ui-core/config/vehicleTunerConfig';
+import {
+  getDemolishShockwaveConfig,
+  getDemolishShockwaveSimState,
+  updateDemolishLiveAnchors,
+} from '../../ui-core/config/demolishShockwaveConfig';
 import type { VehicleBoostEmitter } from '../vehicle/boost/vehicleBoostEmitter.ts';
 import type { DemolitionEffect } from '../DemolitionEffect.ts';
 import type { SupersonicWheelTrailSystem } from '../vehicle/supersonic-trail/SupersonicWheelTrailSystem.ts';
@@ -30,6 +35,7 @@ export interface CarControlInput {
 export type CarControlsResolver = (carIndex: number) => CarControlInput | null | undefined;
 
 export interface ArenaVehicleStepTarget {
+  ball?: THREE.Group;
   cars: Array<THREE.Group | null>;
   vehiclePresets: Array<string | null>;
   carWheels: Array<VehicleWheelSet | null>;
@@ -186,9 +192,31 @@ export function stepArenaVehiclesFrame(
       arena.qB
     );
 
+    if (isLocalCar) {
+      const carPos = arena.cars[carIndex]!.position;
+      const ballPos = arena.ball?.position;
+      updateDemolishLiveAnchors(
+        carPos.x,
+        carPos.z,
+        carPos.y,
+        currCar.fwdX || 0,
+        currCar.fwdY || 1,
+        ballPos?.x ?? 0,
+        ballPos?.z ?? 0,
+        ballPos?.y ?? 93
+      );
+    }
+
     const isAlive = !currCar.isDemoed;
     arena.carDemolitions[carIndex]?.update(actualDelta, !isAlive, arena.cars[carIndex]!.position, activeVisuals);
-    arena.cars[carIndex]!.visible = isAlive;
+    const demoSimCfg = isLocalCar ? getDemolishShockwaveConfig() : null;
+    const hideForSim = Boolean(
+      demoSimCfg &&
+      demoSimCfg.simHideTargetCar &&
+      demoSimCfg.simAnchorMode === 'local-car' &&
+      getDemolishShockwaveSimState().activeIn3d
+    );
+    arena.cars[carIndex]!.visible = isAlive && !hideForSim;
 
     const forwardSpeed = currCar.forwardSpeed ?? 0;
     const isOnGround = Boolean(currCar.isOnGround);
