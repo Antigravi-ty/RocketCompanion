@@ -22,11 +22,14 @@ import {
   ROSTER_COMBINATIONS_MATRIX_EXPLORATION_SCENARIO,
   TRAINING_SESSION_FIFO_AND_SYS_CTRL_E2E_SCENARIO,
 } from './autonomousTrainingAndMatrixScenario.ts';
+import { ISOLATION_LAB_AND_TUNER_SCENARIO } from './isolationLabAndTunerScenario.ts';
+import { ONLINE_3V3_FULL_LIFECYCLE_SCENARIO } from './online3v3FullLifecycleScenario.ts';
 import {
   MULTIPLAYER_6CAR_LOADOUT_STRESS_SCENARIO,
   REPLAY_VIEWER_6CAR_PLAYBACK_AND_EXIT_SCENARIO,
 } from './replayViewerBaselineScenario.ts';
 import { REPLAY_DIRECTOR_AND_EXPORT_SCENARIO } from './replayDirectorAndExportScenario.ts';
+import { TRAINING_AND_KICKOFF_SCENARIO } from './trainingAndKickoffScenario.ts';
 import type { ScenarioScript } from './ScenarioTypes.ts';
 
 export const BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO: ScenarioScript = {
