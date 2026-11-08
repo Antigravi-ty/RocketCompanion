@@ -68,6 +68,15 @@ export class RLRCInterveneTakeoverSubController {
   private lastBeepSecond = -1;
   private slotActiveTracker = new Uint8Array(RLRC_MAX_PLAYER_SLOTS);
   private latestControlSnapshot = new Map<number, RLRCSynthesizedCarControls>();
+  private prevStepStateBuffer: Float32Array | null = null;
+
+  public get _povSlot(): number {
+    return this.povSlotIndex;
+  }
+
+  public set _povSlot(slot: number) {
+    this.povSlotIndex = slot;
+  }
 
   constructor(env: RLRCInterveneEnvironmentPort) {
     this.env = env;
@@ -198,6 +207,10 @@ export class RLRCInterveneTakeoverSubController {
       if (sim.state) {
         sim.state[SIM_OFFSETS.TICK] = this.prerollInjection?.finalPrerollTick ?? 1;
         sim.state[SIM_OFFSETS.GOAL] = 0;
+        if (!this.prevStepStateBuffer || this.prevStepStateBuffer.length !== sim.state.length) {
+          this.prevStepStateBuffer = new Float32Array(sim.state.length);
+        }
+        this.prevStepStateBuffer.set(sim.state);
         arena?.syncInterpolatorToState?.(sim.state);
       }
     }
@@ -269,14 +282,25 @@ export class RLRCInterveneTakeoverSubController {
       };
     }
 
-    this.latestControlSnapshot.clear();
-    sim.setCarControls?.(this.povSlotIndex, playerControls);
-    this.latestControlSnapshot.set(this.povSlotIndex, playerControls);
-
     const frames = this.env.getFrames120Hz();
     const roster = this.env.getRoster();
     const arena = this.env.getArena?.();
     const followIdx = this.targetFrame120Hz + this.postTakeoverFrameOffset;
+
+    if (sim.state) {
+      if (!this.prevStepStateBuffer || this.prevStepStateBuffer.length !== sim.state.length) {
+        this.prevStepStateBuffer = new Float32Array(sim.state.length);
+      }
+      this.prevStepStateBuffer.set(sim.state);
+    }
+
+    this.latestControlSnapshot.clear();
+    if (typeof sim.setControls === 'function') {
+      sim.setControls(this._povSlot, playerControls);
+    } else {
+      sim.setCarControls?.(this._povSlot, playerControls);
+    }
+    this.latestControlSnapshot.set(this._povSlot, playerControls);
 
     stepNonPovCarsBeforePhysics({
       sim,
@@ -284,14 +308,14 @@ export class RLRCInterveneTakeoverSubController {
       botPort: this.env.getBotPort?.(),
       roster,
       followFrame: followIdx >= 0 && followIdx < frames.length ? frames[followIdx] : null,
-      povSlotIndex: this.povSlotIndex,
+      povSlotIndex: this._povSlot,
       nonPovMode: this.nonPovMode,
       slotActiveTracker: this.slotActiveTracker,
       latestControlSnapshot: this.latestControlSnapshot,
       dt,
     });
 
-    sim.step?.(dt, playerControls);
+    sim.step?.(1);
 
     if (this.nonPovMode === 'follow-state') {
       const nextIdx = followIdx + 1;
@@ -300,8 +324,9 @@ export class RLRCInterveneTakeoverSubController {
         arena,
         roster,
         nextFrame: nextIdx >= 0 && nextIdx < frames.length ? frames[nextIdx] : null,
-        povSlotIndex: this.povSlotIndex,
+        povSlotIndex: this._povSlot,
         slotActiveTracker: this.slotActiveTracker,
+        latestControlSnapshot: this.latestControlSnapshot,
       });
     }
 
@@ -310,6 +335,12 @@ export class RLRCInterveneTakeoverSubController {
 
     if (sim.state) {
       sim.state[SIM_OFFSETS.TICK] = recordedTick;
+      if (arena?.interpolator) {
+        arena.interpolator.prevState.set(this.prevStepStateBuffer ?? arena.interpolator.currState);
+        arena.interpolator.currState.set(sim.state);
+      } else {
+        arena?.syncInterpolatorToState?.(sim.state, this.prevStepStateBuffer ?? undefined);
+      }
       const acknowledgedControls = this.collectLiveAcknowledgedControls();
       const slot = this.env
         .getRingBuffer?.()
