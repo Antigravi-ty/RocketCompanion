@@ -11,7 +11,7 @@ import { buildVehicleModel, buildVehicleWheels, type VehicleAssetStore } from '.
 import { getWheelSpecsForVisual, updateCarSuspensionAndSteering } from '../VehicleSuspensionSystem.ts';
 import { getDesiredRespawnPose } from '../../physics/RocketSimConstants.ts';
 import { hasVehicleDescriptor } from '../../ui-core/config/vehicleTunerConfig';
-import { normalizeVisualId } from '../../ui-core/config/vehiclePresets';
+import { normalizeVisualId } from '../../ui-core/config/vehicleConstants';
 
 const BLUE_GHOST_HEX = 0x38bdf8;
 const BLUE_EMISSIVE_HEX = 0x0284c7;

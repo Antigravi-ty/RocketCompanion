@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { VehicleBoostEmitter } from '../vehicle/boost/vehicleBoostEmitter.ts';
 import { DemolitionEffect } from '../DemolitionEffect.ts';
 import { getWheelSpecsForVisual } from '../VehicleSuspensionSystem.ts';
-import { normalizeVisualId } from '../../ui-core/config/vehiclePresets';
-import { hasVehicleDescriptor } from '../../ui-core/config/vehicleTunerConfig';
+import { normalizeVisualId } from '../../ui-core/config/vehicleConstants';
+import { getVehicleDescriptor, hasVehicleDescriptor } from '../../ui-core/config/vehicleTunerConfig';
 import { DEFAULT_TEAM_COLORS, OCTANE_BOOST_OUTLETS } from './ArenaConstants.ts';
 import { buildVehicleModel, buildVehicleWheels, removeCarMeshes, createDefaultVehicleLoaders } from './VehicleFactory.ts';
 import { applyVehiclePaint } from './VehiclePaint.ts';
@@ -99,7 +99,8 @@ export class ArenaVehicleRegistry {
 
   _ensureAsyncCustomAsset(visual: string, slot: number): void {
     const id = normalizeVisualId(visual);
-    if (hasVehicleDescriptor(id) && !this.customVehicleAssets.has(id) && this.carLoaders.loadCustomGlbCarAsset) {
+    const desc = hasVehicleDescriptor(id) ? getVehicleDescriptor(id) : null;
+    if (desc?.modelUrl && !this.customVehicleAssets.has(id) && this.carLoaders.loadCustomGlbCarAsset) {
       this.carLoaders.loadCustomGlbCarAsset(id).then((asset: unknown) => {
         this.customVehicleAssets.set(id, asset);
         if (this.vehiclePresets[slot] === id) {
@@ -392,7 +393,8 @@ export class ArenaVehicleRegistry {
   async ensureOpponent(ensureOpponentSunFn?: () => void, defaultVisual = 'fennec'): Promise<void> {
     if (!this.cars[1]) {
       const id = String(defaultVisual || 'fennec').toLowerCase();
-      if (hasVehicleDescriptor(id) && !this.customVehicleAssets.has(id) && this.carLoaders.loadCustomGlbCarAsset) {
+      const desc = hasVehicleDescriptor(id) ? getVehicleDescriptor(id) : null;
+      if (desc?.modelUrl && !this.customVehicleAssets.has(id) && this.carLoaders.loadCustomGlbCarAsset) {
         try {
           this.customVehicleAssets.set(id, await this.carLoaders.loadCustomGlbCarAsset(id));
         } catch (err) {

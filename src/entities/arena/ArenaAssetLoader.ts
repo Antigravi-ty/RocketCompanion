@@ -35,10 +35,10 @@ export async function loadCarAndPadAssets(
 
   const vehicleLoadPromise = (async () => {
     if (loaders.loadCustomGlbCarAsset) {
-      const descriptors = getAllVehicleDescriptors();
+      const descriptors = getAllVehicleDescriptors().filter((d) => Boolean(d.modelUrl));
       const activeDescriptor =
         descriptors.find((d) => d.id.toLowerCase() === activeId) || descriptors[0] || null;
-      if (activeDescriptor) {
+      if (activeDescriptor && activeDescriptor.modelUrl) {
         try {
           const asset = await loaders.loadCustomGlbCarAsset(activeDescriptor.id);
           vehicleRegistry.setCustomVehicleAsset?.(activeDescriptor.id, asset);
@@ -114,12 +114,12 @@ export async function preloadRemainingVehicleAssets(
 ): Promise<void> {
   const loaders = vehicleRegistry?.carLoaders;
   if (!vehicleRegistry || !loaders?.loadCustomGlbCarAsset) return;
-  const descriptors = getAllVehicleDescriptors();
+  const descriptors = getAllVehicleDescriptors().filter((d) => Boolean(d.modelUrl));
   const total = descriptors.length;
   let loaded = 0;
   for (const desc of descriptors) {
     const id = desc.id.toLowerCase();
-    if (!vehicleRegistry.customVehicleAssets?.has?.(id)) {
+    if (desc.modelUrl && !vehicleRegistry.customVehicleAssets?.has?.(id)) {
       await new Promise((r) => setTimeout(r, 8));
       try {
         const asset = await loaders.loadCustomGlbCarAsset(desc.id);

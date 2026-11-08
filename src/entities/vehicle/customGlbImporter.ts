@@ -155,11 +155,18 @@ export function applyVehicleAlignPresetToDescriptor(
   const template = presetKey !== 'auto' ? getCanonicalVehiclePresetTemplate(presetKey) : null;
 
   let targetGeometryScale = 1;
+  const isImportedCustomGlb = !descriptor.modelUrl;
+  const unscaledLen = asset?.unscaledBounds?.length || descriptor.rawBounds.length || 140;
+
   if (presetKey === 'auto') {
-    const unscaledLen = asset?.unscaledBounds?.length || descriptor.rawBounds.length || 140;
     targetGeometryScale = unscaledLen > 0.0001 ? Number((140.0 / unscaledLen).toFixed(6)) : 1;
   } else if (template) {
-    targetGeometryScale = template.unitScale ?? 1;
+    if (isImportedCustomGlb && unscaledLen > 0.0001) {
+      const targetLen = template.rawBounds.length || 140.0;
+      targetGeometryScale = Number((targetLen / unscaledLen).toFixed(6));
+    } else {
+      targetGeometryScale = template.unitScale ?? 1;
+    }
   }
 
   if (asset && asset.scene) {
@@ -184,11 +191,12 @@ export function applyVehicleAlignPresetToDescriptor(
         roofTopY: descriptor.rawBounds.roofTopY,
       };
 
+  const r2 = (n: number) => Number(n.toFixed(2));
+
   if (presetKey === 'auto' || !template) {
     const activeHitboxKey = descriptor.hitboxPreset || 'hitbox-octane';
     const hitboxSpec = HITBOX_PRESETS[activeHitboxKey] || HITBOX_PRESETS['hitbox-octane'];
     const rlTopY = Number((hitboxSpec.up + hitboxSpec.height * 0.5).toFixed(4));
-    const r2 = (n: number) => Number(n.toFixed(2));
     Object.assign(descriptor, {
       rawBounds: {
         ...scaledBounds,
@@ -212,6 +220,14 @@ export function applyVehicleAlignPresetToDescriptor(
 
   const hitboxSpec = HITBOX_PRESETS[template.hitboxPreset] || HITBOX_PRESETS['hitbox-octane'];
   const rlTopY = Number((hitboxSpec.up + hitboxSpec.height * 0.5).toFixed(4));
+  const resolvedCenterOffset: [number, number, number] = isImportedCustomGlb
+    ? [
+        r2(template.rawBounds.center[0] - scaledBounds.center[0] + template.alignment.centerOffset[0]),
+        r2(template.rawBounds.center[1] - scaledBounds.center[1] + template.alignment.centerOffset[1]),
+        r2(template.rawBounds.center[2] - scaledBounds.center[2] + template.alignment.centerOffset[2]),
+      ]
+    : ([...template.alignment.centerOffset] as [number, number, number]);
+
   Object.assign(descriptor, {
     hitboxPreset: template.hitboxPreset,
     threeWheels: Boolean(template.threeWheels),
@@ -224,7 +240,7 @@ export function applyVehicleAlignPresetToDescriptor(
       scaleX: template.alignment.scaleX,
       scaleY: template.alignment.scaleY,
       scaleZ: template.alignment.scaleZ,
-      centerOffset: [...template.alignment.centerOffset] as [number, number, number],
+      centerOffset: resolvedCenterOffset,
     },
     wheelAnchors: template.wheelAnchors.map((w) => [...w] as [number, number, number]),
     suspensionHeights: [...template.suspensionHeights] as [number, number, number, number],

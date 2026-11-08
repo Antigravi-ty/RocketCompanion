@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { HITBOX_PRESETS, normalizeVisualId } from '../../ui-core/config/vehiclePresets';
+import { HITBOX_PRESETS } from '../../ui-core/config/vehiclePresets';
+import { normalizeVisualId } from '../../ui-core/config/vehicleConstants';
 import {
   FENNEC_DESCRIPTOR,
   getVehicleDescriptor,
@@ -10,6 +11,7 @@ import {
 import {
   loadCustomGlbCarAsset,
   createCustomGlbCarModel,
+  getCachedCustomVehicleAsset,
 } from '../vehicle/customGlbCarModel.ts';
 import {
   createProceduralSportWheel,
@@ -87,7 +89,16 @@ export function buildVehicleModel(
     }
     const hitboxKey = descriptor?.hitboxPreset || 'hitbox-octane';
     const hitboxPreset = HITBOX_PRESETS[hitboxKey as keyof typeof HITBOX_PRESETS] || OCTANE_HITBOX_PRESET;
-    const customAsset = assets instanceof Map ? assets.get(visual) : assets?.[visual];
+    let customAsset = assets instanceof Map ? assets.get(visual) : assets?.[visual];
+    if (!customAsset) {
+      const cached = getCachedCustomVehicleAsset(visual);
+      if (cached) {
+        customAsset = cached;
+        if (assets instanceof Map) {
+          assets.set(visual, cached);
+        }
+      }
+    }
     if (customAsset && loaders.createCustomGlbCarModel) {
       carModel = loaders.createCustomGlbCarModel(visual, customAsset, teamColor);
     } else {

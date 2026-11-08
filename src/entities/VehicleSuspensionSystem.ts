@@ -222,7 +222,9 @@ export function updateCarSuspensionAndSteering(
     // Default resting height places wheels resting on the ground (-6.0 UU under chassis origin)
     const effectiveSusLength = susLength > 0 ? susLength : (restHeight + 6.0);
     const extraY = Number(wheelModifierRuntimeConfig.verticalOffsetY) || 0;
-    const mountY = restHeight - effectiveSusLength + extraY;
+    const customRestY = desc?.suspensionHeights?.[wheelIndex];
+    const restYDelta = typeof customRestY === 'number' ? customRestY - (wheelRadius - 17) : 0;
+    const mountY = restHeight - effectiveSusLength + extraY + restYDelta;
 
     if (wheels[wheelIndex].steer) {
       wheels[wheelIndex].steer.position.set(specX, mountY, specZ);

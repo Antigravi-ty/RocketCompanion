@@ -240,9 +240,23 @@ export class ArenaVehicleLoadoutManager {
       const teamIndex = h.carTeams?.[i] ?? (i % 2);
       const teamColor = this.carColors[i] ?? h.carLoaders.teamColors?.[teamIndex] ?? DEFAULT_TEAM_COLORS[teamIndex % 2];
       const carDesc = hasVehicleDescriptor(preset || '') ? getVehicleDescriptor(preset || '') : (preset === vehicleId ? targetDescriptor : null);
-      const hasLoadedCustomAsset = Boolean(carDesc && h.customVehicleAssets.has(String(carDesc.id).toLowerCase()));
+      const descIdLower = carDesc ? String(carDesc.id).toLowerCase() : '';
+      let hasLoadedCustomAsset = Boolean(carDesc && h.customVehicleAssets.has(descIdLower));
+      if (carDesc && !hasLoadedCustomAsset) {
+        const cachedAsset = getCachedCustomVehicleAsset(descIdLower);
+        if (cachedAsset) {
+          h.customVehicleAssets.set(descIdLower, cachedAsset);
+          hasLoadedCustomAsset = true;
+        }
+      }
 
       if (carDesc && hasLoadedCustomAsset) {
+        const currentThreeWheels = Boolean(h.carWheels[i]?.threeWheels);
+        const desiredThreeWheels = Boolean(carDesc.threeWheels || carDesc.id === 'trioctane-threewheel' || carDesc.hitboxPreset === 'hitbox-psyclops');
+        if (currentThreeWheels !== desiredThreeWheels && preset) {
+          h.swapCarVisual(i, preset);
+          continue;
+        }
         h.carWheelSpecs[i] = getWheelSpecsForVisual(preset) as WheelSpecTuple[];
         applyLiveVehicleDescriptorUpdate(
           carRoot,

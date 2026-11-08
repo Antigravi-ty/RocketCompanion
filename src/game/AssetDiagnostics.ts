@@ -49,12 +49,14 @@ export const ASSET_INVENTORY: AssetInventoryItem[] = [
   // 2. 3D Models & Geometry (derived from stadium & vehicle descriptor registry)
   { path: DRIFTWOODS_GLB_URL, desc: 'Driftwoods arena 3D model', category: '3D Models', critical: true },
   { path: DRIFTWOODS_Q1_GROUND_TEXTURE_URL, desc: 'Driftwoods Q1 7-layer ground mask texture', category: 'Visual Effects', critical: false },
-  ...getAllVehicleDescriptors().map((desc: { modelUrl: string; name: string }, idx: number) => ({
-    path: desc.modelUrl,
-    desc: `${desc.name} vehicle 3D model`,
-    category: '3D Models',
-    critical: idx === 0,
-  })),
+  ...getAllVehicleDescriptors()
+    .filter((desc: { modelUrl: string }) => Boolean(desc.modelUrl))
+    .map((desc: { modelUrl: string; name: string }, idx: number) => ({
+      path: desc.modelUrl,
+      desc: `${desc.name} vehicle 3D model`,
+      category: '3D Models',
+      critical: idx === 0,
+    })),
 
   // 3. Visual Effects Textures (Gold Rush Boost)
   { path: '/assets/boost/rush-mono/plume.webp', desc: 'Gold Rush boost plume particle texture', category: 'Visual Effects', critical: false },
