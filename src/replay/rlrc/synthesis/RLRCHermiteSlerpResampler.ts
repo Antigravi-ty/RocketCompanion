@@ -113,12 +113,18 @@ export function interpolateRigidBodyHermiteSlerp(
   const tau = clamp(alpha, 0, 1);
   if (tau <= 0 || dtSeconds <= 1e-6) return s0;
   if (tau >= 1) return s1;
-  if (s0.sleeping && s1.sleeping) return { ...SLEEP_RB, position: s0.position, rotation: s0.rotation };
+  const r0 = isRest(s0), r1 = isRest(s1);
+  if ((s0.sleeping && s1.sleeping) || isDupRb(s0, s1)) {
+    return {
+      sleeping: s0.sleeping && s1.sleeping, position: s0.position, rotation: s0.rotation,
+      linearVelocity: r0 ? ZERO_VEC : s0.linearVelocity, angularVelocity: r0 ? ZERO_VEC : s0.angularVelocity,
+    };
+  }
 
   const dt = Math.max(RLRC_FIXED_DT, dtSeconds), p0 = s0.position, p1 = s1.position;
-  const v0 = s0.sleeping ? ZERO_VEC : s0.linearVelocity, v1 = s1.sleeping ? ZERO_VEC : s1.linearVelocity;
+  const v0 = r0 ? ZERO_VEC : s0.linearVelocity, v1 = r1 ? ZERO_VEC : s1.linearVelocity;
   const rotation = slerpShortestArcQuat(s0.rotation, s1.rotation, tau);
-  const angularVelocity = vLerp(s0.sleeping ? ZERO_VEC : s0.angularVelocity, s1.sleeping ? ZERO_VEC : s1.angularVelocity, tau);
+  const angularVelocity = vLerp(r0 ? ZERO_VEC : s0.angularVelocity, r1 ? ZERO_VEC : s1.angularVelocity, tau);
   const vLin = vLerp(v0, v1, tau);
   if (method === 'linear') return { sleeping: false, position: vLerp(p0, p1, tau), rotation, linearVelocity: vLin, angularVelocity };
 
@@ -141,67 +147,114 @@ const getCar = (nf: RLRCSourceNetworkFrame, s: number): RLRCCarFrameState120Hz |
   nf.cars.find((c) => c.slotIndex === s) ?? nf.cars[s];
 const getRb = (nf: RLRCSourceNetworkFrame, s: number | 'ball'): RLRCRigidBodySample =>
   s === 'ball' ? nf.ball.rigidBody : getCar(nf, s)?.rigidBody ?? SLEEP_RB;
+function isRest(rb: RLRCRigidBodySample): boolean {
+  return rb.sleeping || (vLen(rb.linearVelocity) <= 15 && vLen(rb.angularVelocity) <= 0.2);
+}
+function toRest(rb: RLRCRigidBodySample): RLRCRigidBodySample {
+  return rb.sleeping ? rb : { ...rb, sleeping: true, linearVelocity: ZERO_VEC, angularVelocity: ZERO_VEC };
+}
 
 function isDupRb(a: RLRCRigidBodySample, b: RLRCRigidBodySample): boolean {
   const qd = a.rotation.x * b.rotation.x + a.rotation.y * b.rotation.y + a.rotation.z * b.rotation.z + a.rotation.w * b.rotation.w;
   return a.sleeping === b.sleeping && vDist(a.position, b.position) <= 1e-2 && vDist(a.linearVelocity, b.linearVelocity) <= 1e-2 && Math.abs(qd) > 0.99999;
 }
 
+function isRbUpd(nf: RLRCSourceNetworkFrame, s: number | 'ball'): boolean | undefined {
+  const e = (s === 'ball' ? nf.ball : getCar(nf, s)) as { readonly rbUpdated?: boolean } | undefined;
+  if (typeof e?.rbUpdated === 'boolean') return e.rbUpdated;
+  const rb = getRb(nf, s) as { readonly rbUpdated?: boolean };
+  if (typeof rb.rbUpdated === 'boolean') return rb.rbUpdated;
+  const f = nf as { readonly ballRbUpdated?: boolean; readonly carRbUpdatedMask?: number; readonly rbUpdatedMask?: number; readonly rbUpdated?: number };
+  if (s === 'ball' && typeof f.ballRbUpdated === 'boolean') return f.ballRbUpdated;
+  if (typeof s === 'number' && typeof f.carRbUpdatedMask === 'number') return ((f.carRbUpdatedMask >>> s) & 1) === 1;
+  const m = typeof f.rbUpdatedMask === 'number' ? f.rbUpdatedMask : typeof f.rbUpdated === 'number' ? f.rbUpdated : undefined;
+  return m !== undefined ? (((m >>> (s === 'ball' ? 6 : s)) & 1) === 1) : undefined;
+}
+
 function buildSpan(nfs: readonly RLRCSourceNetworkFrame[], raw: readonly number[], slot: number | 'ball'): RLRCEntitySpan {
   const kf: number[] = [];
-  for (const idx of raw) {
-    const p = kf[kf.length - 1];
-    if (p === undefined || (nfs[idx].timeSeconds > nfs[p].timeSeconds + 1e-5 && !isDupRb(getRb(nfs[p], slot), getRb(nfs[idx], slot)))) kf.push(idx);
+  for (let r = 0; r < raw.length; r++) {
+    const idx = raw[r], p = kf[kf.length - 1];
+    if (p === undefined) { kf.push(idx); continue; }
+    const rbP = getRb(nfs[p], slot), rbC = getRb(nfs[idx], slot), dt = nfs[idx].timeSeconds - nfs[p].timeSeconds;
+    if (dt <= 1e-5) { if (!isDupRb(rbP, rbC)) kf[kf.length - 1] = idx; continue; }
+    if (!isDupRb(rbP, rbC)) {
+      const prev = raw[r - 1], hDt = nfs[prev].timeSeconds - nfs[p].timeSeconds;
+      if (prev > p && hDt > 1e-5 && (isRest(rbP) || hDt >= 0.095 || isRbUpd(nfs[prev], slot) === true)) kf.push(prev);
+      kf.push(idx);
+    }
   }
-  return { startNetIdx: raw[0], endNetIdx: raw[raw.length - 1], keyframeIndices: kf };
+  const end = raw[raw.length - 1], last = kf[kf.length - 1];
+  if (last !== undefined && end > last && nfs[end].timeSeconds > nfs[last].timeSeconds + 1e-5) {
+    const rbL = getRb(nfs[last], slot), hDt = nfs[end].timeSeconds - nfs[last].timeSeconds;
+    if (isRest(rbL) || hDt >= 0.095 || isRbUpd(nfs[end], slot) === true) kf.push(end);
+  }
+  return { startNetIdx: raw[0], endNetIdx: end, keyframeIndices: kf };
 }
 
 export function extractEntityLifeSpans(nfs: readonly RLRCSourceNetworkFrame[], slot: number | 'ball', segsAll: readonly RLRCSourceEntityLifeSegment[], maxTel = 450): RLRCEntitySpan[] {
-  const segs = slot === 'ball' ? [] : segsAll.filter((s) => s.slotIndex === slot);
-  const spans: RLRCEntitySpan[] = [];
-  let raw: number[] = [], curSeg = -1;
+  const segs = slot === 'ball' ? [] : segsAll.filter((s) => s.slotIndex === slot), spans: RLRCEntitySpan[] = [];
+  let raw: number[] = [], curSeg = -1, lastRb = -1;
 
   for (let i = 0; i < nfs.length; i++) {
     const nf = nfs[i];
     if (!(slot === 'ball' ? nf.ball.entityActive : Boolean(getCar(nf, slot)?.entityActive))) {
       if (raw.length) { spans.push(buildSpan(nfs, raw, slot)); raw = []; }
-      curSeg = -1;
-      continue;
+      curSeg = -1; lastRb = -1; continue;
     }
     const si = segs.findIndex((s) => nf.sourceFrame30Hz >= s.startFrame30Hz && nf.sourceFrame30Hz <= s.endFrame30Hz);
     const segId = si >= 0 ? segs[si].carActorId * 100000 + si : -1, prev = raw.length ? raw[raw.length - 1] : -1;
-    const kickoff = i > 0 && nf.roundCountdownNumber > 0 && nfs[i - 1].roundCountdownNumber === 0;
-    let tel = false;
-    if (prev >= 0) {
-      const pNf = nfs[prev], pRb = getRb(pNf, slot), cRb = getRb(nf, slot), dt = Math.max(0, nf.timeSeconds - pNf.timeSeconds);
-      tel = vDist(cRb.position, pRb.position) > maxTel && vDist(cRb.position, vAdd(pRb.position, vScale(pRb.linearVelocity, dt))) > maxTel;
+    const ko = i > 0 && nf.roundCountdownNumber > 0 && nfs[i - 1].roundCountdownNumber === 0;
+    const ref = lastRb >= 0 ? lastRb : prev, cRb = getRb(nf, slot);
+    let tel = false, jmp = false;
+    if (prev >= 0 && ref >= 0) {
+      const rNf = nfs[ref], rRb = getRb(rNf, slot), dt = clamp(nf.timeSeconds - rNf.timeSeconds, nf.deltaSeconds || (1 / 30), 0.12);
+      const dist = vDist(cRb.position, rRb.position);
+      const e0 = vDist(cRb.position, vAdd(rRb.position, vScale(rRb.linearVelocity, dt)));
+      const e1 = vDist(rRb.position, vSub(cRb.position, vScale(cRb.linearVelocity, dt)));
+      const e2 = vDist(cRb.position, vAdd(rRb.position, vScale(vAdd(rRb.linearVelocity, cRb.linearVelocity), 0.5 * dt)));
+      const err = Math.min(e0, e1, e2);
+      tel = dist > maxTel && err > maxTel;
+      jmp = tel || (dist > 25 && err > 40);
     }
-    if (prev >= 0 && ((segs.length > 0 && segId !== curSeg) || kickoff || tel)) {
-      spans.push(buildSpan(nfs, raw, slot));
-      raw = [];
+    if (prev >= 0 && ((segs.length > 0 && segId !== curSeg) || ko || tel)) {
+      if (!jmp) {
+        const rRb = getRb(nfs[ref], slot), pRef = raw.indexOf(ref);
+        if (pRef > 0 && ref < i && isDupRb(rRb, cRb) && !isRest(rRb)) {
+          spans.push(buildSpan(nfs, raw.slice(0, pRef + 1), slot)); raw = raw.slice(pRef);
+        } else {
+          raw.push(i); spans.push(buildSpan(nfs, raw, slot)); raw = [];
+        }
+      } else {
+        spans.push(buildSpan(nfs, raw, slot)); raw = [];
+      }
     }
-    raw.push(i);
-    curSeg = segId;
+    if (!raw.length || isRbUpd(nf, slot) === true || (ref >= 0 && !isDupRb(getRb(nfs[ref], slot), cRb))) lastRb = i;
+    raw.push(i); curSeg = segId;
   }
   if (raw.length) spans.push(buildSpan(nfs, raw, slot));
   return spans;
 }
 
-function locateBracket(nfs: readonly RLRCSourceNetworkFrame[], spans: readonly RLRCEntitySpan[], t: number, near: number) {
-  const sp = spans.find((s) => near >= s.startNetIdx && near <= s.endNetIdx && t >= nfs[s.startNetIdx].timeSeconds - 1e-4 && t <= nfs[s.endNetIdx].timeSeconds + 1e-4);
+function locateBracket(nfs: readonly RLRCSourceNetworkFrame[], spans: readonly RLRCEntitySpan[], t: number, near: number, slot: number | 'ball') {
+  const sp =
+    spans.find((s) => near >= s.startNetIdx && near <= s.endNetIdx && t >= nfs[s.startNetIdx].timeSeconds && t <= nfs[s.endNetIdx].timeSeconds) ??
+    spans.find((s) => t >= nfs[s.startNetIdx].timeSeconds - 1e-4 && t <= nfs[s.endNetIdx].timeSeconds + 1e-4) ??
+    spans.find((s) => near >= s.startNetIdx && near <= s.endNetIdx);
   if (!sp || !sp.keyframeIndices.length) return null;
   const kf = sp.keyframeIndices, last = kf[kf.length - 1];
-  if (kf.length === 1 || t <= nfs[kf[0]].timeSeconds) return { k0Idx: kf[0], k1Idx: kf[0], alpha: 0, dt: 0 };
-  if (t >= nfs[last].timeSeconds) return { k0Idx: last, k1Idx: last, alpha: 0, dt: 0 };
+  if (kf.length === 1 || t <= nfs[kf[0]].timeSeconds) return { k0Idx: kf[0], k1Idx: kf[0], alpha: 0, dt: 0, rest0: false, rest1: false };
+  if (t >= nfs[last].timeSeconds) return { k0Idx: last, k1Idx: last, alpha: 0, dt: 0, rest0: false, rest1: false };
 
   let lo = 0, hi = kf.length - 1;
-  while (lo + 1 < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (nfs[kf[mid]].timeSeconds <= t) lo = mid;
-    else hi = mid;
-  }
+  while (lo + 1 < hi) { const mid = (lo + hi) >>> 1; if (nfs[kf[mid]].timeSeconds <= t) lo = mid; else hi = mid; }
   const k0Idx = kf[lo], k1Idx = kf[hi], t0 = nfs[k0Idx].timeSeconds, dt = nfs[k1Idx].timeSeconds - t0;
-  return { k0Idx, k1Idx, alpha: dt > 1e-6 ? clamp((t - t0) / dt, 0, 1) : 0, dt };
+  const rb0 = getRb(nfs[k0Idx], slot), rb1 = getRb(nfs[k1Idx], slot);
+  return {
+    k0Idx, k1Idx, alpha: dt > 1e-6 ? clamp((t - t0) / dt, 0, 1) : 0, dt,
+    rest0: lo > 0 && isDupRb(getRb(nfs[kf[lo - 1]], slot), rb0),
+    rest1: hi + 1 < kf.length && isDupRb(rb1, getRb(nfs[kf[hi + 1]], slot)),
+  };
 }
 
 export function alignBookmarksTo120Hz(bms: readonly RLRCBookmarkRecord[], nfs: readonly RLRCSourceNetworkFrame[], frames: readonly RLRCFrame120Hz[], fps = 30): RLRCBookmarkRecord[] {
@@ -278,17 +331,18 @@ export function resampleRLRCReplayTo120Hz(parsed: RLRCParserOutput, opts: RLRCRe
     const t = Math.min(tEnd, t0 + f * RLRC_FIXED_DT);
     while (cur + 1 < nfs.length && nfs[cur + 1].timeSeconds <= t) cur++;
     const nxt = nfs[cur + 1] ?? nfs[cur], near = Math.abs(nxt.timeSeconds - t) < Math.abs(t - nfs[cur].timeSeconds) ? cur + 1 : cur;
-    const ref = nfs[near], bb = locateBracket(nfs, bSpans, t, near);
+    const ref = nfs[near], bb = locateBracket(nfs, bSpans, t, near, 'ball');
+    const b0 = bb ? nfs[bb.k0Idx].ball.rigidBody : ref.ball.rigidBody, b1 = bb ? nfs[bb.k1Idx].ball.rigidBody : ref.ball.rigidBody;
     const ball: RLRCBallFrameState120Hz = bb
-      ? { entityActive: true, rigidBody: interpolateRigidBodyHermiteSlerp(nfs[bb.k0Idx].ball.rigidBody, nfs[bb.k1Idx].ball.rigidBody, bb.alpha, bb.dt, method, 4500) }
+      ? { entityActive: true, rigidBody: interpolateRigidBodyHermiteSlerp(bb.rest0 ? toRest(b0) : b0, bb.rest1 ? toRest(b1) : b1, bb.alpha, bb.dt, method, 4500) }
       : { entityActive: false, rigidBody: ref.ball.rigidBody };
 
     const cars: RLRCCarFrameState120Hz[] = new Array(slots);
     for (let s = 0; s < slots; s++) {
-      const rCar = getCar(ref, s), cb = locateBracket(nfs, cSpans[s], t, near);
+      const rCar = getCar(ref, s), cb = locateBracket(nfs, cSpans[s], t, near, s);
       if (cb && rCar) {
         const c0 = getCar(nfs[cb.k0Idx], s) ?? rCar, c1 = getCar(nfs[cb.k1Idx], s) ?? rCar, nCar = cb.alpha < 0.5 ? c0 : c1;
-        const rb = interpolateRigidBodyHermiteSlerp(c0.rigidBody, c1.rigidBody, cb.alpha, cb.dt, method, 2300);
+        const rb = interpolateRigidBodyHermiteSlerp(cb.rest0 ? toRest(c0.rigidBody) : c0.rigidBody, cb.rest1 ? toRest(c1.rigidBody) : c1.rigidBody, cb.alpha, cb.dt, method, 2300);
         cars[s] = {
           slotIndex: s, entityActive: true, rigidBody: rb,
           boostAmount: clamp(lerp(c0.boostAmount, c1.boostAmount, cb.alpha), 0, 100),
