@@ -54,6 +54,7 @@ export interface GoalReplayHudControllerPort {
 export interface GoalReplayHudRuntimePort {
   interpolator?: ReplayInterpolatorPort | null; playerThrottle?: number;
   playerControls?: object | null; neutralControls?: object | null;
+  arena?: { resetBallTrail?: () => void } | null;
 }
 
 export interface GoalReplayHudSessionOptions<
@@ -188,6 +189,7 @@ export function bindGoalReplayHudStateAndCallbacks<
       if (!replayController.sessionState?.isActive) return;
       replayController.sessionState.isPersistent = true;
       replayController.seekToNormalized(norm, runtime?.interpolator);
+      runtime?.arena?.resetBallTrail?.();
       if (getCameraMode() === 'director') {
         cameraCallbacks.onRefreshDirectorCamera(resolveScoringTeam(), resolveScorerCarIndex());
       }
@@ -250,6 +252,7 @@ export function applyReplayControllerFrameAndDirectorCamera(
     physics?: ReplayFrameEnginePort | null;
     interpolator?: (ReplayFrameInterpolatorStatePort & DirectorInterpolatorSnapshot) | null;
     camera?: DirectorCameraTargetPort | null;
+    arena?: { resetBallTrail?: () => void } | null;
   } | null | undefined,
   replayController: ReplayTimelineController, scoringTeam: number, scorerCarIndex: number,
   options: { snapshot?: Float32Array | null; progress?: number; refreshDirectorPose?: boolean } = {}
@@ -257,6 +260,7 @@ export function applyReplayControllerFrameAndDirectorCamera(
   if (options.refreshDirectorPose) replayController.refreshCurrentFrameDirectorPose();
   const snap = options.snapshot !== undefined ? options.snapshot : replayController.getFrameBufferByIndex(replayController.currentFrameIndex);
   if (snap && runtime?.physics) applyReplayFrameToEngine(runtime.physics, snap, runtime.interpolator ?? null, snap, 1.0);
+  runtime?.arena?.resetBallTrail?.();
   applyDirectorReplayCamera(
     runtime?.camera, runtime?.interpolator, options.progress ?? replayController.progress,
     scoringTeam, 0.016, scorerCarIndex, replayController.directorCameraState

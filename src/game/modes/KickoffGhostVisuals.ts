@@ -28,6 +28,7 @@ export type { GhostWheelMountList, GhostWheelSpecList, GhostSuspensionList };
 
 export interface KickoffGhostArenaPort {
   scene?: THREE.Scene | null;
+  camera?: THREE.Camera | null;
   vehicleRegistry?: {
     assets?: VehicleAssetStore;
     carLoaders?: VehicleLoaderCallbacks & {
@@ -305,6 +306,7 @@ export class KickoffGhostVisuals {
         currBall.velZ,
       );
       this.ghostBallTrail?.update(this.ghostBallMesh.position, this._velVec, dt);
+      this.ghostBallTrail?.prepare(this.arena?.camera);
     }
   }
 

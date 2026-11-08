@@ -74,6 +74,7 @@ export interface GoalReplayRuntimePort
     isGoalReplayActive?: boolean;
     cars?: Array<{ visible?: boolean } | null | undefined>;
     setCarLoadout?: (carIndex: number, loadout: Record<string, unknown>) => void;
+    resetBallTrail?: () => void;
   }) | null;
   ballTrajectoryPredictor?: {
     clear?: () => void;
@@ -235,6 +236,7 @@ export function beginGoalReplaySession(
   const scorerCarIndex = options.scorerCarIndex ?? replayController?.sessionState?.scorerCarIndex ?? 0;
 
   runtime?.ballTrajectoryPredictor?.acquireTemporarySuppression?.(source);
+  runtime?.arena?.resetBallTrail?.();
   applyGoalReplayCameraModeSelection(runtime, cameraMode, source);
 
   if (options.initialSnapshot && runtime?.physics) {
@@ -283,11 +285,15 @@ export function stepGoalReplaySessionFrame(
 
   runtime?.ballTrajectoryPredictor?.acquireTemporarySuppression?.(source);
 
+  const prevFrameIdx = replayController.currentFrameIndex;
   const stepRes = replayController.stepPlayback(
     dt,
     runtime?.interpolator ?? null,
     options.applyToEngine ?? true
   );
+  if (prevFrameIdx > 0 && replayController.currentFrameIndex === 0) {
+    runtime?.arena?.resetBallTrail?.();
+  }
 
   if (options.networkStreamSnapshot && runtime?.physics) {
     applyReplayFrameToEngine(
@@ -399,6 +405,7 @@ export function endGoalReplaySession(
     runtime.ballTrajectoryPredictor?.setSceneContext?.({ isGoalReplayActive: false });
     if (runtime.arena) {
       runtime.arena.isGoalReplayActive = false;
+      runtime.arena.resetBallTrail?.();
     }
     runtime.replayPovCarIndex = null;
     runtime.camera?.up?.set?.(0, 1, 0);
