@@ -98,9 +98,15 @@ export class FreeplayMode extends BaseGameMode<FreeplayRuntimePort> {
   }
 
   private _resolveEffectivePlayerTeam(): 0 | 1 {
-    return this.standaloneReplayViewer?.hasLoadedReplay
-      ? (this.standaloneReplayViewer.rosterSubController.activePovTeam === 1 ? 1 : 0)
-      : getPreferredFreeplayTeam();
+    if (this.standaloneReplayViewer?.hasLoadedReplay) {
+      return this.standaloneReplayViewer.rosterSubController.activePovTeam === 1 ? 1 : 0;
+    }
+    if (this.rlrcReplaySession?.hasLoadedReplay) {
+      const povIdx = this.rlrcReplaySession.activePovSlotIndex;
+      const meta = this.rlrcReplaySession.session?.roster.find((r) => r.slotIndex === povIdx);
+      return meta?.team === 1 ? 1 : 0;
+    }
+    return getPreferredFreeplayTeam();
   }
 
   private _syncPlayerPreferredFreeplayTeam(options: { resetPlayerCarIndex?: boolean; restoreLoadout?: boolean } = {}): 0 | 1 {
@@ -224,10 +230,28 @@ export class FreeplayMode extends BaseGameMode<FreeplayRuntimePort> {
     });
   }
 
+  public override getCarControls(carIndex: number): Record<string, unknown> | null {
+    const rlrc = this.rlrcReplaySession;
+    if (rlrc?.isActive && !rlrc.isIntervening && rlrc.session) {
+      const frame = rlrc.session.frames120Hz[rlrc.cursorFrame120Hz];
+      const carFrame =
+        carIndex >= 0 && carIndex < (frame?.cars.length ?? 0) && frame?.cars[carIndex]?.slotIndex === carIndex
+          ? frame.cars[carIndex]
+          : frame?.cars.find((c) => c.slotIndex === carIndex) || null;
+      if (carFrame?.controls) return carFrame.controls as unknown as Record<string, unknown>;
+    }
+    return null;
+  }
+
   public override update(context: DirectorPreviewStepContext): void {
     const r = this.runtime, activeCarIdx = context.activeCar ?? r?.playerCarIndex ?? 0;
     const isUnlimited =
-      Boolean(this.standaloneReplayViewer?.isActive || this.rewinderController?.isBlockingLivePhysics)
+      Boolean(
+        this.standaloneReplayViewer?.isActive ||
+          this.rlrcReplaySession?.isActive ||
+          this.rlrcReplaySession?.isIntervening ||
+          this.rewinderController?.isBlockingLivePhysics
+      )
         ? false
         : (r?.physics?.getCarUnlimitedBoost?.(activeCarIdx) ??
             Boolean(r?.physics?.isUnlimitedBoost ?? r?.trainingOptions?.boostOption === 'unlimited'));
@@ -241,6 +265,9 @@ export class FreeplayMode extends BaseGameMode<FreeplayRuntimePort> {
   public override resetToCleanFreeplay(): void {
     const r = this.runtime;
     this.id = 'freeplay';
+    if (this.rlrcReplaySession?.hasLoadedReplay || this.rlrcReplaySession?.isActive) {
+      this.rlrcReplaySession.clearReplay();
+    }
     this.goalAndTouch.applyCleanFreeplayReset({
       standaloneReplayViewer: this.standaloneReplayViewer,
       isGoalReplayActive: this.isGoalReplayActive(),
@@ -268,6 +295,20 @@ export class FreeplayMode extends BaseGameMode<FreeplayRuntimePort> {
     this.rewinderController?.onResetKickoff?.();
     this.goalAndTouch.goalResetTicks = 0;
     this._resetPlayTouchAndGoalState();
+
+    if (this.rlrcReplaySession?.hasLoadedReplay && this.rlrcReplaySession?.isActive) {
+      if (this.rlrcReplaySession.isIntervening) {
+        this.rlrcReplaySession.resumeFromCursor();
+      } else {
+        this.rlrcReplaySession.seekFrame(this.rlrcReplaySession.cursorFrame120Hz);
+      }
+      this.resetKickoffPresentationAndAudio({ resetCamera: true, resetBots: false });
+      if (r?.match?.state) r.match.state.phase = 'playing';
+      hudStore.getState().setMatchState({
+        matchPhase: 'playing', replayScorerName: null, replayScorerTeam: null, replayBallSpeedKph: null, replayAssistName: null,
+      });
+      return;
+    }
 
     if (
       this.goalAndTouch.tryApplyStandaloneViewerKickoffReset(this.standaloneReplayViewer, () =>
