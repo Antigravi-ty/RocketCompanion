@@ -65,7 +65,8 @@ export interface RLRCIntervenePhysicsPort extends ReconstructablePhysicsEngine {
   setCarState?: (slotIndex: number, payload: RLRCInterveneCarStateWritePayload) => void;
   setBallState?: (payload: RLRCInterveneBallStateWritePayload) => void;
   setCarControls?: (slotIndex: number, controls: RLRCSynthesizedCarControls) => void;
-  step?: (dt: number, controls?: RLRCSynthesizedCarControls) => void;
+  setUnlimitedBoost?: (enabled: boolean) => void;
+  step?: (ticksOrDt: number, controls?: RLRCSynthesizedCarControls) => void;
   clearEvents?: () => void;
   resetGoalLatch?: () => void;
 }
@@ -79,8 +80,11 @@ export interface RLRCInterveneArenaPort {
     colorHex?: string
   ) => void;
   setSlotEntityVisible?: (slotIndex: number, visible: boolean) => void;
+  setBallVisible?: (visible: boolean) => void;
   spinBallInPlace?: (angularVelocity: RLRCVec3, dt: number) => void;
   syncInterpolatorToState?: (state: Float32Array) => void;
+  advanceInterpolatorBeforeStep?: () => void;
+  commitInterpolatorAfterStep?: (state: Float32Array) => void;
   focusCameraOnSlot?: (slotIndex: number, exitDirectorMode: boolean) => void;
 }
 
@@ -189,6 +193,9 @@ export function applyTargetFrameToPhysicsAndArena(params: {
   readonly rebuildMeshes: boolean;
 }): void {
   const { frame, roster, config, sim, arena, slotActiveTracker, rebuildMeshes } = params;
+
+  sim.setUnlimitedBoost?.(false);
+  arena?.setBallVisible?.(true);
 
   const bRb = frame.ball.rigidBody;
   sim.setBallState?.({

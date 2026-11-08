@@ -291,7 +291,8 @@ export class RLRCInterveneTakeoverSubController {
       dt,
     });
 
-    sim.step?.(dt, playerControls);
+    arena?.advanceInterpolatorBeforeStep?.();
+    sim.step?.(1);
 
     if (this.nonPovMode === 'follow-state') {
       const nextIdx = followIdx + 1;
@@ -310,6 +311,7 @@ export class RLRCInterveneTakeoverSubController {
 
     if (sim.state) {
       sim.state[SIM_OFFSETS.TICK] = recordedTick;
+      arena?.commitInterpolatorAfterStep?.(sim.state);
       const acknowledgedControls = this.collectLiveAcknowledgedControls();
       const slot = this.env
         .getRingBuffer?.()

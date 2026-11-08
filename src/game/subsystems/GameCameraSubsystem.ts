@@ -39,6 +39,7 @@ interface ActiveModeCameraPort {
   isGoalReplayActive?(): boolean;
   directorPreview?: { isReplayActive?: boolean } | null;
   standaloneReplayViewer?: { isActive?: boolean; isIntervening?: boolean } | null;
+  rlrcReplaySession?: { isActive?: boolean; isIntervening?: boolean } | null;
   rewinderController?: { isBlockingLivePhysics?: boolean } | null;
   replaySession?: {
     isReplayActive?: boolean;
@@ -147,12 +148,14 @@ export class GameCameraSubsystem {
     if (!r) return false;
     const activeMode = r.modeManager?.getActiveMode?.() as ActiveModeCameraPort | null;
     const activeReplayViewer = activeMode?.standaloneReplayViewer;
+    const activeRlrcSession = activeMode?.rlrcReplaySession;
     return Boolean(
       r.match?.state?.phase === 'replay' ||
         hudStore.getState().matchPhase === 'replay' ||
         activeMode?.isGoalReplayActive?.() ||
         activeMode?.directorPreview?.isReplayActive ||
         (activeReplayViewer?.isActive && !activeReplayViewer?.isIntervening) ||
+        (activeRlrcSession?.isActive && !activeRlrcSession?.isIntervening) ||
         activeMode?.rewinderController?.isBlockingLivePhysics ||
         activeMode?.replaySession?.isReplayActive ||
         activeMode?.goalReplayPhase === 'replaying' ||

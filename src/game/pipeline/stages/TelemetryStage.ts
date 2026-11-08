@@ -7,6 +7,7 @@ import {
   hudStore,
   useAppStore,
   useExperimentalMultiBotsStore,
+  useReplayToRcsImporterStore,
   useReplayViewerStore,
   globalHudTransientChannel,
 } from '../../runtimeUiPort.ts';
@@ -64,9 +65,14 @@ export class TelemetryStage implements PipelineStage {
     const matchMode = r?.match?.state?.mode || appState?.matchMode || 'freeplay';
     const freeplayMode = r?.modeManager?.modes?.get?.('freeplay') || null;
     const replayViewer = freeplayMode?.standaloneReplayViewer || null;
-    const isReplayViewerLoaded =
+    const rlrcSession = freeplayMode?.rlrcReplaySession || null;
+    const isStandaloneViewerLoaded =
       (matchMode === 'freeplay' || matchMode === 'replay-viewer') &&
       Boolean(replayViewer?.hasLoadedReplay);
+    const isRlrcLoaded =
+      (matchMode === 'freeplay' || matchMode === 'replay-viewer') &&
+      Boolean(rlrcSession?.hasLoadedReplay && rlrcSession?.isActive);
+    const isReplayViewerLoaded = isStandaloneViewerLoaded || isRlrcLoaded;
 
     if (
       !isReplayViewerLoaded &&
@@ -85,17 +91,24 @@ export class TelemetryStage implements PipelineStage {
       r.replayPovCarIndex >= 0;
 
     const viewerRoster = replayViewer?.rosterSubController;
-    const activeCameraCar: number = isReplayViewerLoaded
-      ? typeof viewerRoster?.activePovCarIndex === 'number'
-        ? viewerRoster.activePovCarIndex
-        : r?.playerCarIndex ?? 0
-      : isReplayPov
-        ? r.replayPovCarIndex
-        : typeof context?.activeCar === 'number'
-          ? context.activeCar
-          : typeof r?.playerCarIndex === 'number'
-            ? r.playerCarIndex
-            : 0;
+    const rlrcPovIdx: number = rlrcSession?.activePovSlotIndex ?? 0;
+    const rlrcRosterMeta = rlrcSession?.session?.roster ?? [];
+    const rlrcPovTeam: number =
+      rlrcRosterMeta.find((m: { slotIndex: number; team: number }) => m.slotIndex === rlrcPovIdx)?.team ?? 0;
+
+    const activeCameraCar: number = isRlrcLoaded
+      ? rlrcPovIdx
+      : isStandaloneViewerLoaded
+        ? typeof viewerRoster?.activePovCarIndex === 'number'
+          ? viewerRoster.activePovCarIndex
+          : r?.playerCarIndex ?? 0
+        : isReplayPov
+          ? r.replayPovCarIndex
+          : typeof context?.activeCar === 'number'
+            ? context.activeCar
+            : typeof r?.playerCarIndex === 'number'
+              ? r.playerCarIndex
+              : 0;
 
     const expStore = matchMode === 'exp-multi-bots' ? useExperimentalMultiBotsStore.getState() : null;
     const activeMode = r?.modeManager?.getActiveMode?.();
@@ -119,13 +132,24 @@ export class TelemetryStage implements PipelineStage {
       resolveModeRosterEntries({
         matchMode,
         isReplayViewerLoaded,
-        replayViewerState: isReplayViewerLoaded
-          ? useReplayViewerStore.getState().viewerState
-          : undefined,
-        replayViewerActivePovTeam: viewerRoster?.activePovTeam,
-        replayViewerLocalTeam: viewerRoster?.localTeam,
-        replayViewerActivePovCarIndex: viewerRoster?.activePovCarIndex,
-        replayViewerResolvedRoster: viewerRoster?.resolvedRoster,
+        replayViewerState: isRlrcLoaded
+          ? useReplayToRcsImporterStore.getState().viewerState
+          : isStandaloneViewerLoaded
+            ? useReplayViewerStore.getState().viewerState
+            : undefined,
+        replayViewerActivePovTeam: isRlrcLoaded ? rlrcPovTeam : viewerRoster?.activePovTeam,
+        replayViewerLocalTeam: isRlrcLoaded ? rlrcPovTeam : viewerRoster?.localTeam,
+        replayViewerActivePovCarIndex: isRlrcLoaded
+          ? rlrcPovIdx
+          : viewerRoster?.activePovCarIndex,
+        replayViewerResolvedRoster: isRlrcLoaded
+          ? rlrcRosterMeta.map((m: { slotIndex: number; userName: string; team: number }) => ({
+              carIndex: m.slotIndex,
+              name: m.userName,
+              team: m.team,
+              isSelf: m.slotIndex === rlrcPovIdx,
+            }))
+          : viewerRoster?.resolvedRoster,
         expPlayerParticipation: expStore?.playerParticipation,
         expSpawnedCars,
         rawRosterSnapshot:

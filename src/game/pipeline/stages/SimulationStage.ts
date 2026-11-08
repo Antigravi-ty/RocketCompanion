@@ -1,5 +1,6 @@
 import { applyReplayFrameToEngine } from '../../../replay/ReplayFrameInterpolator.ts';
 import { captureRuntimeReplayCarEntries } from '../../../replay/replayDirectorCarRosterPipeline.ts';
+import { useReplayToRcsImporterStore } from '../../runtimeUiPort.ts';
 import type { CameraManager } from '../../../camera/CameraManager.ts';
 import type { AuthoritativeServerHost } from '../../../network/server/AuthoritativeServerHost.ts';
 import type { PredictionReconciler } from '../../../network/client/PredictionReconciler.ts';
@@ -28,6 +29,7 @@ interface ActiveModeSimulationPort {
   } | null;
   rlrcReplaySession?: {
     isActive?: boolean;
+    isIntervening?: boolean;
     hasLoadedReplay?: boolean;
   } | null;
   replayController?: { sessionState?: { isPaused?: boolean } | null } | null;
@@ -147,7 +149,8 @@ export class SimulationStage implements PipelineStage {
     const isLocalReplayControllerStepping = Boolean(
       isLocalDirectorPreview ||
         activeMode?.rewinderController?.isBlockingLivePhysics ||
-        activeMode?.standaloneReplayViewer?.isActive,
+        activeMode?.standaloneReplayViewer?.isActive ||
+        activeMode?.rlrcReplaySession?.isActive,
     );
 
     if (
@@ -370,12 +373,20 @@ export class SimulationStage implements PipelineStage {
       activeMode?.standaloneReplayViewer?.hasLoadedReplay &&
         activeMode.standaloneReplayViewer.getViewerState?.() === 'paused',
     );
+    const isRlrcViewerPaused = Boolean(
+      activeMode?.rlrcReplaySession?.isActive &&
+        !activeMode.rlrcReplaySession.isIntervening &&
+        useReplayToRcsImporterStore.getState().viewerState === 'paused',
+    );
     const isRewinderPausedScrub = Boolean(
       activeMode?.rewinderController &&
         activeMode.rewinderController.getRewinderState?.() === 'paused-scrub',
     );
     const isReplayPaused =
-      isGoalReplayPaused || isStandaloneViewerPaused || isRewinderPausedScrub;
+      isGoalReplayPaused ||
+      isStandaloneViewerPaused ||
+      isRlrcViewerPaused ||
+      isRewinderPausedScrub;
     const isMatchPhaseEndedOrPodium =
       r.match.state.phase === 'ended' || r.match.state.phase === 'podium';
     context.isMatchActive =

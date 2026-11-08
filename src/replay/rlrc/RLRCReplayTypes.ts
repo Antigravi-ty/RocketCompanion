@@ -145,6 +145,7 @@ export interface RLRCCarFrameState120Hz {
   readonly slotIndex: number;
   readonly entityActive: boolean;
   readonly rigidBody: RLRCRigidBodySample;
+  readonly rbUpdated?: boolean;
   readonly boostAmount: number;
   readonly isOnGround: boolean;
   readonly isSupersonic: boolean;
@@ -157,6 +158,7 @@ export interface RLRCCarFrameState120Hz {
 export interface RLRCBallFrameState120Hz {
   readonly entityActive: boolean;
   readonly rigidBody: RLRCRigidBodySample;
+  readonly rbUpdated?: boolean;
 }
 
 export interface RLRCBoostPadPickupEvent {
