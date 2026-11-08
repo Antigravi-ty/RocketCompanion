@@ -181,10 +181,13 @@ export function updateCarSuspensionAndSteering(
   const forwardSpeed = currCar.forwardSpeed !== undefined ? currCar.forwardSpeed : 0;
   const restHeight = getCarRestHeight(vehiclePreset);
 
-  // Detect 3-wheel mode from WASM state (in 3-wheel mode, WASM has 3 wheels [0=front-center, 1=back-L, 2=back-R] and slot 3 is 0)
+  // Detect 3-wheel mode from descriptor or WASM state (in 3-wheel mode, WASM has 3 wheels [0=front-center, 1=back-L, 2=back-R] and slot 3 is 0)
+  const desc = hasVehicleDescriptor(vehiclePreset) ? getVehicleDescriptor(vehiclePreset) : null;
   const isThreeWheels = Boolean(
     wheels.threeWheels ||
+    desc?.threeWheels ||
     vehiclePreset === 'hitbox-psyclops' ||
+    vehiclePreset === 'trioctane-threewheel' ||
     (currCar.getWheelSusLength(3) === 0 && currCar.getWheelSusLength(0) > 0 && currCar.getWheelSusLength(1) > 0)
   );
 
@@ -201,11 +204,12 @@ export function updateCarSuspensionAndSteering(
     }
 
     const wasmWheelIdx = isThreeWheels
-      ? (wheelIndex === 0 ? 0 : wheelIndex - 1)
+      ? (wheelIndex === 0 ? 0 : wheelIndex === 2 ? 2 : 1)
       : wheelIndex;
 
     let susLength = currCar.getWheelSusLength(wasmWheelIdx);
-    const steerAngle = currCar.getWheelSteerAngle(wasmWheelIdx);
+    const isSteerableWheel = isThreeWheels ? wheelIndex === 0 : wheelIndex < 2;
+    const steerAngle = isSteerableWheel ? currCar.getWheelSteerAngle(wasmWheelIdx) : 0;
     const hasContact = currCar.getWheelContact(wasmWheelIdx);
     const [specX, rawSpecZ, wheelRadius] = wheelSpecs[wheelIndex];
     const specZ = (isThreeWheels && wheelIndex === 0) ? 0.0 : rawSpecZ;

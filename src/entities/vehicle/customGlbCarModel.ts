@@ -4,40 +4,43 @@ import {
   FENNEC_DESCRIPTOR,
   getVehicleDescriptor,
   vehicleTunerRuntimeFlags,
-  getVehicleTunerRuntimeFlags,
-  setVehicleTunerRuntimeFlags,
-  DEFAULT_WHEEL_MODIFIER_CONFIG,
   wheelModifierRuntimeConfig,
-  getWheelModifierConfig,
-  setWheelModifierConfig,
   recomputeDescriptorBoostOutlets,
 } from '../../ui-core/config/vehicleTunerConfig';
-import {
-  createCarPaintMaterial,
-} from './vehiclePaintMaterial.ts';
-import {
-  createMultiThemeMaterial,
-  createCelShadedToonMaterial,
-  registerThemeSubtree
-} from '../../effects/ThemeMaterialPipeline.ts';
-import { getMaterialsConfig } from '../../ui-core/config/materialsConfig';
 import { resolveAssetPath } from '../../utils/AssetResponseValidator.ts';
+import { createProceduralSportWheel } from './vehicleWheelsAndLamps.ts';
+
+export interface UnscaledGlbBounds {
+  min: [number, number, number];
+  max: [number, number, number];
+  length: number;
+  height: number;
+  width: number;
+  center: [number, number, number];
+  roofTopY: number;
+}
 
 export interface CustomGlbVehicleAsset {
   id: string;
   scene: THREE.Group;
+  fileName?: string;
+  alignPreset?: string;
+  appliedGeometryScale?: number;
+  unscaledBounds?: UnscaledGlbBounds;
 }
 
 const cachedCustomAssets = new Map<string, CustomGlbVehicleAsset>();
 
-import {
-  buildCustomToonRampTexture
-} from './vehiclePaintMaterial.ts';
+export function getCachedCustomVehicleAsset(vehicleId: string): CustomGlbVehicleAsset | undefined {
+  return cachedCustomAssets.get(String(vehicleId || '').toLowerCase());
+}
 
-import {
-  createProceduralSportWheel,
-  updateVehicleBrakeLamps
-} from './vehicleWheelsAndLamps.ts';
+export function setCachedCustomVehicleAsset(vehicleId: string, asset: CustomGlbVehicleAsset): void {
+  const id = String(vehicleId || '').toLowerCase();
+  if (id && asset) {
+    cachedCustomAssets.set(id, asset);
+  }
+}
 
 /**
  * Splits a single geometry primitive containing both front (X >= 0) and rear (X < 0)
@@ -127,26 +130,68 @@ function splitLampGeometryByX(geometry: THREE.BufferGeometry) {
   };
 }
 
+export function computeObject3DBounds(object: THREE.Object3D): UnscaledGlbBounds {
+  const box = new THREE.Box3().setFromObject(object);
+  if (box.isEmpty()) {
+    return {
+      min: [-60, -15, -35],
+      max: [80, 35, 35],
+      length: 140,
+      height: 50,
+      width: 70,
+      center: [10, 10, 0],
+      roofTopY: 35,
+    };
+  }
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+  const r = (n: number) => Number(n.toFixed(4));
+  return {
+    min: [r(box.min.x), r(box.min.y), r(box.min.z)],
+    max: [r(box.max.x), r(box.max.y), r(box.max.z)],
+    length: r(size.x),
+    height: r(size.y),
+    width: r(size.z),
+    center: [r(center.x), r(center.y), r(center.z)],
+    roofTopY: r(box.max.y),
+  };
+}
+
+export function scaleSceneGeometries(scene: THREE.Object3D, factor: number): void {
+  if (!Number.isFinite(factor) || factor <= 0 || Math.abs(factor - 1) < 1e-6) return;
+  const scaledGeometries = new Set<THREE.BufferGeometry>();
+  scene.traverse?.((node: THREE.Object3D & { isMesh?: boolean; geometry?: THREE.BufferGeometry }) => {
+    if (node.isMesh && node.geometry && !scaledGeometries.has(node.geometry)) {
+      scaledGeometries.add(node.geometry);
+      node.geometry.scale(factor, factor, factor);
+      node.geometry.computeBoundingBox?.();
+      node.geometry.computeBoundingSphere?.();
+    }
+  });
+}
+
 /**
  * Normalizes a loaded GLTF scene for custom vehicles:
  * - Preserves original material slot names on every Mesh.
  * - Automatically splits combined `lamps` / `lamps.001` meshes into `FrontBulb` and `BackBulb`.
  */
-function normalizeCustomVehicleScene(scene: THREE.Object3D, vehicleId: string) {
-  const rawBox = new THREE.Box3().setFromObject(scene);
-  const rawSize = new THREE.Vector3();
-  rawBox.getSize(rawSize);
-  if (rawSize.length() > 0 && rawSize.length() < 10) {
-    const scaledGeometries = new Set<THREE.BufferGeometry>();
-    scene.traverse?.((node: THREE.Object3D & { isMesh?: boolean; geometry?: THREE.BufferGeometry }) => {
-      if (node.isMesh && node.geometry && !scaledGeometries.has(node.geometry)) {
-        scaledGeometries.add(node.geometry);
-        node.geometry.scale(100, 100, 100);
-        node.geometry.computeBoundingBox?.();
-        node.geometry.computeBoundingSphere?.();
-      }
-    });
+export function normalizeCustomVehicleScene(
+  scene: THREE.Object3D,
+  vehicleId: string,
+  explicitUnitScale?: number
+): { unscaledBounds: UnscaledGlbBounds; appliedGeometryScale: number } {
+  const unscaledBounds = computeObject3DBounds(scene);
+  const descriptor = getVehicleDescriptor(vehicleId);
+  let targetUnitScale = explicitUnitScale ?? descriptor?.unitScale ?? 1;
+  if (explicitUnitScale === undefined && descriptor?.unitScale === undefined) {
+    const diag = Math.hypot(unscaledBounds.length, unscaledBounds.height, unscaledBounds.width);
+    if (diag > 0 && diag < 10) {
+      targetUnitScale = 100;
+    }
   }
+  scaleSceneGeometries(scene, targetUnitScale);
 
   const meshesToSplit: THREE.Mesh[] = [];
   scene.traverse?.((node: THREE.Object3D & { isMesh?: boolean; material?: THREE.Material | THREE.Material[] }) => {
@@ -158,7 +203,7 @@ function normalizeCustomVehicleScene(scene: THREE.Object3D, vehicleId: string) {
     node.userData.vehicleId = vehicleId;
 
     const lowerMat = matName.toLowerCase();
-    if (matName === 'lamps.001' || (lowerMat.includes('lamp') && lowerMat !== 'frontbulb' && lowerMat !== 'backbulb')) {
+    if (matName === 'lamps.001' || (lowerMat.includes('lamp') && !lowerMat.includes('front') && !lowerMat.includes('back'))) {
       meshesToSplit.push(node as THREE.Mesh);
     }
   });
@@ -195,7 +240,7 @@ function normalizeCustomVehicleScene(scene: THREE.Object3D, vehicleId: string) {
     parent.remove(lampMesh);
   }
 
-  return scene;
+  return { unscaledBounds, appliedGeometryScale: targetUnitScale };
 }
 
 /**
@@ -214,11 +259,13 @@ export async function loadCustomGlbCarAsset(vehicleId: string): Promise<CustomGl
   const loader = new GLTFLoader();
   const gltf = await loader.loadAsync(resolveAssetPath(descriptor.modelUrl));
   gltf.scene.updateMatrixWorld?.(true);
-  normalizeCustomVehicleScene(gltf.scene, id);
+  const { unscaledBounds, appliedGeometryScale } = normalizeCustomVehicleScene(gltf.scene, id, descriptor.unitScale);
 
   const asset: CustomGlbVehicleAsset = {
     id,
-    scene: gltf.scene
+    scene: gltf.scene,
+    appliedGeometryScale,
+    unscaledBounds,
   };
   cachedCustomAssets.set(id, asset);
   return asset;

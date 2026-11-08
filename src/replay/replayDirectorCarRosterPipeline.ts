@@ -214,17 +214,21 @@ export function captureRuntimeReplayCarEntries(
 
     const isLocal = c === playerCarIndex;
     const specHitbox = typeof spec?.hitboxIndex === 'number' ? decodeHitboxIndex(spec.hitboxIndex) : null;
+    const liveVisual =
+      arena?.vehiclePresets?.[c] || (isLocal ? runtime?.selectedPreset || arena?.carVisual : null) || null;
     const rawVisual =
-      exp?.visualId || ros?.visualId || nt?.visualId || arena?.vehiclePresets?.[c] ||
-      (isLocal ? runtime?.selectedPreset || arena?.carVisual : null) || specHitbox || 'fennec';
+      exp?.visualId || ros?.visualId || liveVisual || nt?.visualId || specHitbox || 'fennec';
+    const liveHitbox =
+      (isLocal && runtime?.selectedHitbox ? runtime.selectedHitbox : null) ||
+      specHitbox ||
+      (liveVisual ? resolveVehicleHitboxId(liveVisual) : null);
     const rawHitbox =
-      exp?.hitboxId || ros?.hitboxId || nt?.hitboxId || specHitbox ||
-      (isLocal && runtime?.selectedHitbox ? runtime.selectedHitbox : null) || resolveVehicleHitboxId(rawVisual);
+      exp?.hitboxId || ros?.hitboxId || liveHitbox || nt?.hitboxId || resolveVehicleHitboxId(rawVisual);
 
     const merged: RawReplayCarEntryLike = {
       ...nt, ...ros, ...exp,
       carIndex: c,
-      team: exp?.team ?? ros?.team ?? nt?.team ?? fallbackTeam,
+      team: exp?.team ?? ros?.team ?? fallbackTeam ?? nt?.team,
       name:
         exp?.name || ros?.name || ros?.username || nt?.name || nt?.username ||
         (isLocal ? 'Player' : c === 1 && runtime?.activeBotName ? runtime.activeBotName : `Car ${c}`),
@@ -233,12 +237,13 @@ export function captureRuntimeReplayCarEntries(
       visualId: rawVisual,
       hitboxId: rawHitbox,
       colorSlot:
-        exp?.colorSlot ?? ros?.colorSlot ?? nt?.colorSlot ??
-        (isLocal && typeof runtime?.selectedColorSlot === 'number' ? runtime.selectedColorSlot : undefined),
-      colorHex: exp?.colorHex || ros?.colorHex || nt?.colorHex || toHexColorString(arena?.carColors?.[c]),
-      paintFinish: exp?.paintFinish || ros?.paintFinish || nt?.paintFinish || arena?.carPaintFinishes?.[c] || 'metallic',
-      boostVisual: exp?.boostVisual || ros?.boostVisual || nt?.boostVisual || arena?.carBoostVisuals?.[c] || 'cartoon',
-      boostAudio: exp?.boostAudio || ros?.boostAudio || nt?.boostAudio || arena?.carBoostAudios?.[c] || 'standard',
+        exp?.colorSlot ?? ros?.colorSlot ??
+        (isLocal && typeof runtime?.selectedColorSlot === 'number' ? runtime.selectedColorSlot : undefined) ??
+        nt?.colorSlot,
+      colorHex: exp?.colorHex || ros?.colorHex || toHexColorString(arena?.carColors?.[c]) || nt?.colorHex,
+      paintFinish: exp?.paintFinish || ros?.paintFinish || arena?.carPaintFinishes?.[c] || nt?.paintFinish || 'metallic',
+      boostVisual: exp?.boostVisual || ros?.boostVisual || arena?.carBoostVisuals?.[c] || nt?.boostVisual || 'cartoon',
+      boostAudio: exp?.boostAudio || ros?.boostAudio || arena?.carBoostAudios?.[c] || nt?.boostAudio || 'standard',
       anthemId: exp?.anthemId || ros?.anthemId || nt?.anthemId || 'none',
     };
 

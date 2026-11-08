@@ -145,6 +145,7 @@ export class SupersonicWheelTrailSystem {
     const isThreeWheels = Boolean(
       wheels?.threeWheels ||
         resolvedPreset === 'hitbox-psyclops' ||
+        resolvedPreset === 'trioctane-threewheel' ||
         (currCar.getWheelSusLength(3) === 0 &&
           currCar.getWheelSusLength(0) > 0 &&
           currCar.getWheelSusLength(1) > 0)

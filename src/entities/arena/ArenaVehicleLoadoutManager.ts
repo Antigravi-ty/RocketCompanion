@@ -7,7 +7,15 @@ import {
   getVehicleDescriptor,
   hasVehicleDescriptor,
 } from '../../ui-core/config/vehicleTunerConfig';
-import { applyLiveVehicleDescriptorUpdate } from '../vehicle/customGlbCarModel.ts';
+import {
+  applyLiveVehicleDescriptorUpdate,
+  getCachedCustomVehicleAsset,
+} from '../vehicle/customGlbCarModel.ts';
+import {
+  applyVehicleAlignPresetToDescriptor,
+  importCustomVehicleGlbBuffer,
+  type CustomGlbImportResult,
+} from '../vehicle/customGlbImporter.ts';
 import { createCarHitboxWireframe } from './ArenaMath.ts';
 import type { VehicleBoostEmitter } from '../vehicle/boost/vehicleBoostEmitter.ts';
 
@@ -280,5 +288,42 @@ export class ArenaVehicleLoadoutManager {
       }
     }
     h.onRenderTreeChanged?.();
+  }
+
+  public async importCustomVehicleGlb(
+    vehicleId: string,
+    arrayBuffer: ArrayBuffer,
+    fileName = 'custom.glb',
+    alignPreset = 'auto'
+  ): Promise<CustomGlbImportResult> {
+    const result = await importCustomVehicleGlbBuffer(vehicleId, arrayBuffer, fileName, alignPreset);
+    const asset = getCachedCustomVehicleAsset(result.vehicleId);
+    if (asset) {
+      this.registry.customVehicleAssets.set(result.vehicleId, asset);
+    }
+    for (let i = 0; i < this.registry.cars.length; i++) {
+      if (this.registry.cars[i] && this.registry.vehiclePresets[i] === result.vehicleId) {
+        this.registry.swapCarVisual(i, result.vehicleId);
+      }
+    }
+    this.refreshCustomVehicle(result.vehicleId);
+    return result;
+  }
+
+  public applyVehicleAlignPreset(vehicleId: string, alignPreset: string): boolean {
+    const targetId = String(vehicleId || '').toLowerCase().trim();
+    const res = applyVehicleAlignPresetToDescriptor(targetId, alignPreset);
+    if (!res) return false;
+    const asset = getCachedCustomVehicleAsset(targetId);
+    if (asset) {
+      this.registry.customVehicleAssets.set(targetId, asset);
+    }
+    for (let i = 0; i < this.registry.cars.length; i++) {
+      if (this.registry.cars[i] && this.registry.vehiclePresets[i] === targetId) {
+        this.registry.swapCarVisual(i, targetId);
+      }
+    }
+    this.refreshCustomVehicle(targetId);
+    return true;
   }
 }

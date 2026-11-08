@@ -13,7 +13,11 @@ import {
 import { getMaterialsConfig } from '../../ui-core/config/materialsConfig';
 import { gameAudio } from '../../audio/GameAudioEngineFacade.ts';
 import { FlipResetVisual } from '../../effects/FlipResetVisual.ts';
-import { useAppStore } from '../runtimeUiPort.ts';
+import {
+  useAppStore,
+  getNameTagRuntimeState,
+  setNameTagRuntimeState,
+} from '../runtimeUiPort.ts';
 import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
 import type { EntityManager } from '../../entities/EntityManager.ts';
 import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
@@ -139,6 +143,24 @@ export class RuntimeLoadoutCoordinator {
         entry.boostAudio = boostAudio;
         expMode._publishSpawnedCarsTelemetry?.();
       }
+    }
+
+    const ntState = getNameTagRuntimeState();
+    if (Array.isArray(ntState?.carEntries) && ntState.carEntries.length > 0) {
+      setNameTagRuntimeState({
+        carEntries: ntState.carEntries.map((c) =>
+          c.carIndex === targetCarIdx
+            ? {
+                ...c,
+                visualId: normalizedVisual,
+                hitboxId: resolvedHitboxId,
+                paintFinish,
+                boostVisual,
+                boostAudio,
+              }
+            : c,
+        ),
+      });
     }
 
     h.networkManager?.syncLocalPlayerLoadout({

@@ -174,6 +174,39 @@ function updateExistingSurfaceSlotMaterial(
   return false;
 }
 
+export type StandardVehicleMaterialSlot =
+  | 'body'
+  | 'window'
+  | 'border'
+  | 'bottom'
+  | 'metal'
+  | 'FrontBulb'
+  | 'BackBulb';
+
+export interface MaterialSlotClassification {
+  slot: StandardVehicleMaterialSlot;
+  isFallback: boolean;
+}
+
+const warnedFallbackMaterials = new Set<string>();
+
+/**
+ * Classifies a GLB material name into one of the 7 standard vehicle material slots
+ * (`body`, `window`, `border`, `bottom`, `metal`, `FrontBulb`, `BackBulb`) via
+ * case-insensitive substring matching. Unrecognized names fall back to `body`.
+ */
+export function classifyCustomVehicleMaterialSlot(rawMaterialName: string): MaterialSlotClassification {
+  const lower = String(rawMaterialName || '').trim().toLowerCase();
+  if (lower.includes('front')) return { slot: 'FrontBulb', isFallback: false };
+  if (lower.includes('back')) return { slot: 'BackBulb', isFallback: false };
+  if (lower.includes('body')) return { slot: 'body', isFallback: false };
+  if (lower.includes('window')) return { slot: 'window', isFallback: false };
+  if (lower.includes('border')) return { slot: 'border', isFallback: false };
+  if (lower.includes('bottom')) return { slot: 'bottom', isFallback: false };
+  if (lower.includes('metal')) return { slot: 'metal', isFallback: false };
+  return { slot: 'body', isFallback: true };
+}
+
 export function applyCustomGlbVehicleMaterials(
   root: THREE.Object3D,
   vehicleId: string,
@@ -191,7 +224,7 @@ export function applyCustomGlbVehicleMaterials(
     palette.body.metalness = finishPreset.metalness;
     palette.body.roughness = finishPreset.roughness;
   }
-  const surfaceConfigs = descriptor.surfaceMaterials || {};
+  const surfaceConfigs = descriptor.surfaceMaterials || FENNEC_DESCRIPTOR.surfaceMaterials || {};
   const lampsCfg = descriptor.lampsConfig || FENNEC_DESCRIPTOR.lampsConfig;
 
   const frontBaseColor = new THREE.Color(lampsCfg.frontColor || '#d8eeff')
@@ -247,16 +280,11 @@ export function applyCustomGlbVehicleMaterials(
       );
     }
   }
-  if (!slotMaterialMap.has('body-shell') && slotMaterialMap.has('body')) {
-    slotMaterialMap.set('body-shell', slotMaterialMap.get('body')!);
-  }
-  if (slotMaterialMap.has('border')) {
-    if (!slotMaterialMap.has('chassis')) {
-      slotMaterialMap.set('chassis', slotMaterialMap.get('border')!);
-    }
-    if (!slotMaterialMap.has('bottom')) {
-      slotMaterialMap.set('bottom', slotMaterialMap.get('border')!);
-    }
+  if (!slotMaterialMap.has('bottom') && FENNEC_DESCRIPTOR.surfaceMaterials?.bottom) {
+    slotMaterialMap.set(
+      'bottom',
+      buildSurfaceSlotMaterial(FENNEC_DESCRIPTOR.surfaceMaterials.bottom, teamColor)
+    );
   }
 
   const tailLampMaterials: THREE.MeshBasicMaterial[] = [];
@@ -273,27 +301,26 @@ export function applyCustomGlbVehicleMaterials(
       ''
     ).trim();
     node.userData.originalMaterialName = origMatName;
-    const lowerName = origMatName.toLowerCase();
 
-    if (
-      lowerName === 'frontbulb' ||
-      lowerName === 'frontlight' ||
-      lowerName === 'front-lamps' ||
-      lowerName === 'lamps-front'
-    ) {
+    const classification = classifyCustomVehicleMaterialSlot(origMatName);
+    if (classification.isFallback) {
+      const warnKey = `${descriptor.id}::${node.name || 'mesh'}::${origMatName || '<unnamed>'}`;
+      if (!warnedFallbackMaterials.has(warnKey)) {
+        warnedFallbackMaterials.add(warnKey);
+        console.warn(
+          `[CustomGlbMaterial] Unrecognized material "${origMatName || '<unnamed>'}" on mesh "${node.name || 'unnamed'}" in vehicle "${descriptor.id}"; falling back to default "body" slot.`
+        );
+      }
+    }
+
+    if (classification.slot === 'FrontBulb') {
       node.material = frontLampMaterial;
       node.castShadow = false;
       node.receiveShadow = false;
       return;
     }
 
-    if (
-      lowerName === 'backbulb' ||
-      lowerName === 'backlight' ||
-      lowerName === 'rearlight' ||
-      lowerName === 'tail-lamps' ||
-      lowerName === 'lamps-rear'
-    ) {
+    if (classification.slot === 'BackBulb') {
       node.material = tailLampMaterial;
       node.castShadow = false;
       node.receiveShadow = false;
@@ -303,14 +330,8 @@ export function applyCustomGlbVehicleMaterials(
       return;
     }
 
-    if (slotMaterialMap.has(lowerName)) {
-      node.material = slotMaterialMap.get(lowerName)!;
-    } else if (lowerName.includes('body') || lowerName.includes('shell')) {
-      node.material = palette.body;
-    } else {
-      node.material = palette.lowerDetail;
-    }
-
+    const slotMat = slotMaterialMap.get(classification.slot);
+    node.material = slotMat || slotMaterialMap.get('body') || palette.body;
     node.castShadow = true;
     node.receiveShadow = getVehicleReceiveShadows();
   });

@@ -94,6 +94,10 @@ export function createTunerBridgeHandlers(
     onCustomVehicleTunerChange: (vehicleId, hitboxPreset) => {
       tunerPort.applyCustomVehicleTuner(vehicleId, hitboxPreset);
     },
+    onImportCustomVehicleGlb: async (vehicleId, arrayBuffer, fileName, alignPreset) =>
+      tunerPort.importCustomVehicleGlb?.(vehicleId, arrayBuffer, fileName, alignPreset),
+    onApplyVehicleAlignPreset: (vehicleId, alignPreset) =>
+      Boolean(tunerPort.applyVehicleAlignPreset?.(vehicleId, alignPreset)),
     onUnderDevelopmentChange: async (config, patch) => {
       await tunerPort.applyUnderDevelopmentConfig(config, patch);
     },

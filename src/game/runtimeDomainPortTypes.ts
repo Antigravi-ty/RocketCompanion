@@ -182,6 +182,13 @@ export interface RuntimeTunerPort {
   applySkyboxConfig(skyboxConfig: Record<string, unknown>): void;
   applyBallVisualConfig(ballConfig: Record<string, unknown>): void;
   applyCustomVehicleTuner(vehicleId: string, hitboxPreset?: string | null): void;
+  importCustomVehicleGlb?(
+    vehicleId: string,
+    arrayBuffer: ArrayBuffer,
+    fileName?: string,
+    alignPreset?: string,
+  ): Promise<unknown>;
+  applyVehicleAlignPreset?(vehicleId: string, alignPreset: string): boolean;
   applyUnderDevelopmentConfig(
     config: UnderDevelopmentConfigPort,
     patch: Partial<UnderDevelopmentConfigPort>,

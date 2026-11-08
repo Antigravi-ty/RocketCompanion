@@ -167,16 +167,21 @@ export function buildVehicleWheels(
   }
 
   const descriptor = getVehicleDescriptor(visual);
+  const isThreeWheels = Boolean(descriptor?.threeWheels || visual === 'trioctane-threewheel' || visual === 'hitbox-psyclops');
   if (!loaders.createProceduralSportWheel) {
     console.warn(`[VehicleFactory] createProceduralSportWheel loader unavailable for custom vehicle "${visual}"; using empty wheel groups.`);
   }
 
   for (let i = 0; i < wheelSpecs.length; i++) {
-    const [specX, specZ, specRadius] = wheelSpecs[i];
+    const [specX, rawSpecZ, specRadius] = wheelSpecs[i];
+    const specZ = isThreeWheels && i === 0 ? 0.0 : rawSpecZ;
     const steerGroup = new THREE.Group();
     steerGroup.name = "car-wheel-steer";
     const restY = descriptor?.suspensionHeights?.[i] ?? (specRadius - 17);
     steerGroup.position.set(specX, restY, specZ);
+    if (isThreeWheels && i === 1) {
+      steerGroup.visible = false;
+    }
     const spinGroup = new THREE.Group();
 
     let wheelMesh: THREE.Object3D;
@@ -190,6 +195,10 @@ export function buildVehicleWheels(
     steerGroup.add(spinGroup);
     carRoot.add(steerGroup);
     wheels.push({ steer: steerGroup, spin: spinGroup });
+  }
+
+  if (isThreeWheels) {
+    (wheels as Array<{ steer: THREE.Group; spin: THREE.Group }> & { threeWheels?: boolean }).threeWheels = true;
   }
 
   return wheels;

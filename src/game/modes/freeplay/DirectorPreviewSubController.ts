@@ -147,7 +147,7 @@ export class DirectorPreviewSubController {
     const prepared = prepareFreeplayGoalReplaySessionData({
       runtime: r, ringBuffer: replayRingBuffer, playerTeam,
       isStandaloneReplayLoaded: this.deps.isStandaloneReplayLoaded(),
-      explicitCarEntries: getNameTagRuntimeState()?.carEntries,
+      explicitCarEntries: this.deps.isNameTagTunerActive() ? getNameTagRuntimeState()?.carEntries : undefined,
       incident, currentTick, ballPosY: sim.getBallStateView?.()?.posY,
     });
     if (!prepared) return this.completeReplaySession();

@@ -33,6 +33,10 @@ import {
   type RetainedMatchReplay,
 } from '../../replay/ReplayFileExporter.ts';
 import {
+  captureRuntimeReplayCarEntries,
+  type ReplayCarEntryRuntimePort,
+} from '../../replay/replayDirectorCarRosterPipeline.ts';
+import {
   NameTagTunerArenaController,
   type NameTagTunerRuntimeHost,
 } from './NameTagTunerArenaController.ts';
@@ -115,12 +119,9 @@ export class FreeplayMode extends BaseGameMode<FreeplayRuntimePort> {
     if (this.directorPreview) this.directorPreview.replayCameraMode = nextMode;
     const r = this.runtime;
     if (r?.match?.state?.phase === 'replay' && r?.networkReconciler) {
-      r.replayPovCarIndex =
-        nextMode === 'pov'
-          ? (typeof r.replayPovCarIndex === 'number' && r.replayPovCarIndex >= 0
-              ? r.replayPovCarIndex
-              : (this.directorPreview?.goalScorerCarIndex ?? 0))
-          : null;
+      r.replayPovCarIndex = nextMode === 'pov'
+        ? (typeof r.replayPovCarIndex === 'number' && r.replayPovCarIndex >= 0 ? r.replayPovCarIndex : (this.directorPreview?.goalScorerCarIndex ?? 0))
+        : null;
     }
   }
 
@@ -269,9 +270,13 @@ export class FreeplayMode extends BaseGameMode<FreeplayRuntimePort> {
       .getRecentFrames(Math.max(120, Math.round(durationSeconds * 120)))
       .filter((slot): slot is NonNullable<typeof slot> => Boolean(slot?.snapshot));
     if (recentSlots.length === 0) return null;
+    const roster = captureRuntimeReplayCarEntries(this.runtime as unknown as ReplayCarEntryRuntimePort, {
+      frameBuffer: recentSlots[0].snapshot,
+      defaultTeam: this._resolveEffectivePlayerTeam(),
+    });
     return retainCompletedMatchReplayAndNotify({
       frames: recentSlots, mode: 'freeplay_highlight', gameMode: 'freeplay',
-      durationSeconds: Number((recentSlots.length / 120).toFixed(2)), suppressNotification,
+      durationSeconds: Number((recentSlots.length / 120).toFixed(2)), roster, suppressNotification,
     });
   }
 

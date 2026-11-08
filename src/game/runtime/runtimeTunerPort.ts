@@ -79,30 +79,22 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
       const garagePrefs = garageSettingsStore?.get?.() as { vehiclePreset?: string } | null;
       return garagePrefs?.vehiclePreset || owner.selectedPreset || null;
     },
-    changePlayerVehicle: (carId) => {
-      owner.changePlayerVehicle(carId);
-    },
+    changePlayerVehicle: (carId) => owner.changePlayerVehicle(carId),
     applyPlayerColorChoice: (hex) => {
       const playerIdx = owner.playerCarIndex ?? 0;
       const replayViewer = owner.modeManager?.activeMode?.standaloneReplayViewer;
       if (replayViewer?.hasLoadedReplay) {
-        if (!replayViewer.isActive) {
-          replayViewer._applyUserLoadoutToTakenOverCar?.(playerIdx);
-        }
+        if (!replayViewer.isActive) replayViewer._applyUserLoadoutToTakenOverCar?.(playerIdx);
         return;
       }
       let effectiveHex = hex;
       const onlineSession = useAppStore.getState().onlineSession;
       const isActiveOnlineRoom = isOnlineSessionActive();
       const currentMode = owner.match?.state?.mode;
-      const isTrainingOrFreeplay =
-        currentMode === 'freeplay' || currentMode === 'static-training-pack';
-      if (isTrainingOrFreeplay && !isActiveOnlineRoom) {
+      if ((currentMode === 'freeplay' || currentMode === 'static-training-pack') && !isActiveOnlineRoom) {
         const freeplayTeam = getPreferredFreeplayTeam();
         const prevTeam = owner.teamAssignment?.playerTeam;
-        if (owner.teamAssignment) {
-          owner.teamAssignment.playerTeam = freeplayTeam;
-        }
+        if (owner.teamAssignment) owner.teamAssignment.playerTeam = freeplayTeam;
         owner.arena?.vehicleRegistry.setCarTeam(playerIdx, freeplayTeam);
         owner.physics?.setCarTeam?.(playerIdx, freeplayTeam);
         owner.networkManager.sessionCoordinator.authoritativeServer?.fallbackSim?.setCarTeam?.(playerIdx, freeplayTeam);
@@ -110,9 +102,7 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
         const ntState = getNameTagRuntimeState();
         if (Array.isArray(ntState?.carEntries) && ntState.carEntries.length > 0) {
           setNameTagRuntimeState({
-            carEntries: ntState.carEntries.map((c) =>
-              c.carIndex === playerIdx ? { ...c, team: freeplayTeam } : c,
-            ),
+            carEntries: ntState.carEntries.map((c) => (c.carIndex === playerIdx ? { ...c, team: freeplayTeam } : c)),
           });
         }
         owner.setCarColor(playerIdx, effectiveHex);
@@ -123,24 +113,14 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
       } else if (isActiveOnlineRoom) {
         const localTeamStr = onlineSession?.localTeam;
         const assignedTeam: 0 | 1 | null =
-          localTeamStr === 'orange'
-            ? 1
-            : localTeamStr === 'blue'
-              ? 0
-              : owner.botCoordinator.isBotMatch
-                ? 0
-                : null;
-        if (assignedTeam === 0 || assignedTeam === 1) {
-          effectiveHex = getPreferredColorHex(null, assignedTeam);
-        }
+          localTeamStr === 'orange' ? 1 : localTeamStr === 'blue' ? 0 : owner.botCoordinator.isBotMatch ? 0 : null;
+        if (assignedTeam === 0 || assignedTeam === 1) effectiveHex = getPreferredColorHex(null, assignedTeam);
       }
       owner.setCarColor(playerIdx, effectiveHex);
     },
     syncInitialFreeplayTeamAndColor: (targetHex, freeplayTeam) => {
       const playerIdx = owner.playerCarIndex ?? 0;
-      if (targetHex) {
-        owner.setCarColor(playerIdx, targetHex);
-      }
+      if (targetHex) owner.setCarColor(playerIdx, targetHex);
       const currentMode = owner.match?.state?.mode || useAppStore.getState().matchMode;
       if (!currentMode || currentMode === 'freeplay') {
         if (owner.teamAssignment) {
@@ -248,49 +228,37 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
     },
     applyCustomVehicleTuner: (vehicleId, hitboxPreset) => {
       owner.arena?.vehicleRegistry.refreshCustomVehicle(vehicleId);
-      if (hitboxPreset && owner.selectedPreset === vehicleId) {
-        owner.selectedHitbox = hitboxPreset;
-        owner.physics?.setCarHitbox?.(owner.playerCarIndex ?? 0, hitboxPreset);
+      if (owner.selectedPreset === vehicleId && (hitboxPreset || vehicleId === 'trioctane-threewheel')) {
+        const hb = vehicleId === 'trioctane-threewheel' ? 'hitbox-psyclops' : (hitboxPreset || owner.selectedHitbox || 'hitbox-octane');
+        owner.selectedHitbox = hb;
+        owner.physics?.setCarHitbox?.(owner.playerCarIndex ?? 0, hb);
       }
       owner.arena?.markRenderTreeChanged?.();
     },
+    importCustomVehicleGlb: async (vehicleId, arrayBuffer, fileName, alignPreset) =>
+      owner.arena?.vehicleRegistry.loadout.importCustomVehicleGlb(vehicleId, arrayBuffer, fileName, alignPreset),
+    applyVehicleAlignPreset: (vehicleId, alignPreset) =>
+      Boolean(owner.arena?.vehicleRegistry.loadout.applyVehicleAlignPreset(vehicleId, alignPreset)),
     applyUnderDevelopmentConfig: async (config, patch) => {
       const playerIdx = owner.playerCarIndex ?? 0;
-
       if (patch.stadiumPreset !== undefined) {
         const isThrowback = config.stadiumPreset === 'throwback';
-        const manifestUrl = isThrowback
-          ? '/arenamesh/throwback_stadium/manifest.json'
-          : '/arenamesh/manifest.json';
-        const presetId = isThrowback ? 1 : 0;
-
+        const manifestUrl = isThrowback ? '/arenamesh/throwback_stadium/manifest.json' : '/arenamesh/manifest.json';
         if (owner.physics) {
           const prevCars = Math.max(1, owner.physics.numCars || 1);
-          const hitbox = owner.selectedHitbox || 'octane';
           await owner.physics.reloadMeshes?.(manifestUrl);
-          owner.physics.setArenaPreset?.(presetId);
-          owner.physics.configureCars?.(hitbox, prevCars > 1, Math.max(0, prevCars - 2));
-          const allowFreeplayBoost = isFreeplayConfigScopeActive(
-            resolveActiveMode(),
-            isOnlineSessionActive(),
-          );
+          owner.physics.setArenaPreset?.(isThrowback ? 1 : 0);
+          owner.physics.configureCars?.(owner.selectedHitbox || 'octane', prevCars > 1, Math.max(0, prevCars - 2));
           owner.physics.setUnlimitedBoost?.(
-            allowFreeplayBoost && Boolean(useAppStore.getState().gameplay?.unlimitedBoost),
+            isFreeplayConfigScopeActive(resolveActiveMode(), isOnlineSessionActive()) &&
+              Boolean(useAppStore.getState().gameplay?.unlimitedBoost),
           );
-          if (config.threeWheelsEnabled) {
-            owner.physics.setCarThreeWheels?.(playerIdx, true);
-          }
+          if (config.threeWheelsEnabled) owner.physics.setCarThreeWheels?.(playerIdx, true);
           owner.resetKickoff();
-          if (owner.arena && typeof owner.physics.getPads === 'function') {
-            owner.arena.addPads(owner.physics.getPads());
-          }
+          if (owner.arena && typeof owner.physics.getPads === 'function') owner.arena.addPads(owner.physics.getPads());
         }
-
         if (owner.arena) {
-          await owner.arena.environment.setThrowbackStadiumActive(
-            isThrowback,
-            Boolean(config.showThrowbackCollisionOverlay),
-          );
+          await owner.arena.environment.setThrowbackStadiumActive(isThrowback, Boolean(config.showThrowbackCollisionOverlay));
         }
       }
 
