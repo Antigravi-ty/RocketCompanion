@@ -6,6 +6,7 @@ import {
   EXPERIMENTAL_MULTI_BOTS_PRESET,
   EXPERIMENTAL_BOT_PACK_PRESET,
   KICKOFF_TRAINING_TUNER_PRESET,
+  REPLAY_TO_RCS_IMPORTER_PRESET,
 } from '../../ui-core/stores/devFloatingPresets';
 import { dialogue } from '../../ui-core/compounds/dialogue/dialogueStore';
 import { useExperimentalMultiBotsStore } from '../../ui-core/stores/experimentalMultiBotsStore';
@@ -108,11 +109,33 @@ export function createModeBridgeHandlers(
       floatingStore.closeWindow(EXPERIMENTAL_MULTI_BOTS_PRESET.id);
       floatingStore.closeWindow(EXPERIMENTAL_BOT_PACK_PRESET.id);
       floatingStore.closeWindow(KICKOFF_TRAINING_TUNER_PRESET.id);
+      floatingStore.closeWindow(REPLAY_TO_RCS_IMPORTER_PRESET.id);
       replayPort.prepareForReplayViewerEntry();
       floatingStore.spawnWindow({
         ...REPLAY_VIEWER_PRESET,
         startMinimized: false,
       });
+      matchPort.startReplayViewer();
+      useAppStore.setState({ matchMode: 'replay-viewer' });
+    },
+    onStartReplayToRcsImporter: () => {
+      useAppStore.getState().closeMenu();
+      floatingStore.closeWindow(SUBSYSTEM_ISOLATION_LAB_PRESET.id);
+      floatingStore.closeWindow(EXPERIMENTAL_MULTI_BOTS_PRESET.id);
+      floatingStore.closeWindow(EXPERIMENTAL_BOT_PACK_PRESET.id);
+      floatingStore.closeWindow(KICKOFF_TRAINING_TUNER_PRESET.id);
+      floatingStore.closeWindow(REPLAY_VIEWER_PRESET.id);
+      replayPort.prepareForReplayViewerEntry();
+      const snap = floatingStore.getSnapshot();
+      const exists =
+        snap.windows.some((w) => w.id === REPLAY_TO_RCS_IMPORTER_PRESET.id) ||
+        snap.activeFlight?.preset?.id === REPLAY_TO_RCS_IMPORTER_PRESET.id;
+      if (!exists) {
+        floatingStore.spawnWindow({
+          ...REPLAY_TO_RCS_IMPORTER_PRESET,
+          startMinimized: false,
+        });
+      }
       matchPort.startReplayViewer();
       useAppStore.setState({ matchMode: 'replay-viewer' });
     },

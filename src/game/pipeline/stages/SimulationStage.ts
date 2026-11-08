@@ -26,6 +26,10 @@ interface ActiveModeSimulationPort {
     hasLoadedReplay?: boolean;
     getViewerState?(): string;
   } | null;
+  rlrcReplaySession?: {
+    isActive?: boolean;
+    hasLoadedReplay?: boolean;
+  } | null;
   replayController?: { sessionState?: { isPaused?: boolean } | null } | null;
   replaySession?: {
     replayController?: { sessionState?: { isPaused?: boolean } | null } | null;

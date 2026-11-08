@@ -8,6 +8,7 @@ import {
 import { useSubsystemIsolationLabStore } from '../../ui-core/stores/subsystemIsolationLabStore';
 import { useRewinderStore } from '../../ui-core/stores/rewinderStore';
 import { useReplayViewerStore } from '../../ui-core/stores/replayViewerStore';
+import { useReplayToRcsImporterStore } from '../../ui-core/stores/replayToRcsImporterStore';
 import { networkDiagnosticsStore } from '../../ui-core/stores/networkDiagnosticsStore';
 import { determinismStore } from '../../ui-core/stores/determinismStore';
 import { eventStreamStore } from '../../ui-core/stores/eventStreamStore';
@@ -77,6 +78,7 @@ export function ensureRuntimeEngineUiPortBound(): void {
     useSubsystemIsolationLabStore,
     useRewinderStore,
     useReplayViewerStore,
+    useReplayToRcsImporterStore,
     useExperimentalMultiBotsStore,
     useStaticTrainingPackStore,
     useStaticTrainingBallCamTunerStore,

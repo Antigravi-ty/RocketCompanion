@@ -37,6 +37,7 @@ export const {
   useSubsystemIsolationLabStore,
   useRewinderStore,
   useReplayViewerStore,
+  useReplayToRcsImporterStore,
   useExperimentalMultiBotsStore,
   useStaticTrainingPackStore,
   useStaticTrainingBallCamTunerStore,

@@ -10,6 +10,7 @@ import type {
   PendingSubscriberEntry,
   QuickNotificationStorePortState,
   ReferenceOverlayStorePortState,
+  ReplayToRcsImporterStorePortState,
   ReplayViewerStorePortState,
   RewinderStorePortState,
   SpatialAudioStorePortState,
@@ -279,6 +280,12 @@ export function createRuntimeUiStoreProxies() {
     totalFrames: 0,
   });
 
+  const useReplayToRcsImporterStore = createStoreProxy<ReplayToRcsImporterStorePortState>({
+    viewerState: 'idle',
+    currentFrameIndex: 0,
+    totalFrames: 0,
+  });
+
   const useExperimentalMultiBotsStore =
     createStoreProxy<ExperimentalMultiBotsStorePortState>({});
   const useStaticTrainingPackStore = createStoreProxy<StaticTrainingPackStorePortState>({
@@ -363,6 +370,7 @@ export function createRuntimeUiStoreProxies() {
     useSubsystemIsolationLabStore,
     useRewinderStore,
     useReplayViewerStore,
+    useReplayToRcsImporterStore,
     useExperimentalMultiBotsStore,
     useStaticTrainingPackStore,
     useStaticTrainingBallCamTunerStore,

@@ -6,6 +6,7 @@ import { hudStore } from '../../ui-core/stores/hudStore';
 import { floatingStore } from '../../ui-core/stores/floatingStore';
 import { useRewinderStore } from '../../ui-core/stores/rewinderStore';
 import { useReplayViewerStore } from '../../ui-core/stores/replayViewerStore';
+import { useReplayToRcsImporterStore } from '../../ui-core/stores/replayToRcsImporterStore';
 import { loadInputBindings } from '../../ui-core/config/inputBindings';
 import {
   getPreferredColorHex,
@@ -36,12 +37,19 @@ function syncFloatingWindowFlags(): void {
   const snap = floatingStore.getSnapshot();
   const rewinderWin = snap.windows.find((w) => w.id === 'rewinder-configurator');
   const viewerWin = snap.windows.find((w) => w.id === 'replay-viewer');
+  const importerWin = snap.windows.find((w) => w.id === 'replay-to-rcs-importer');
   const rewinderIdx = rewinderWin ? snap.windows.indexOf(rewinderWin) : -1;
   const viewerIdx = viewerWin ? snap.windows.indexOf(viewerWin) : -1;
+  const importerIdx = importerWin ? snap.windows.indexOf(importerWin) : -1;
   const rewinderOpen = Boolean(rewinderWin);
   const viewerOpen = Boolean(viewerWin);
+  const importerOpen = Boolean(importerWin);
   const rewinderHasPriority = rewinderOpen && (!viewerOpen || rewinderIdx < viewerIdx);
   const viewerHasPriority = viewerOpen && (!rewinderOpen || viewerIdx < rewinderIdx);
+  const importerHasPriority =
+    importerOpen &&
+    (!rewinderOpen || importerIdx < rewinderIdx) &&
+    (!viewerOpen || importerIdx < viewerIdx);
 
   const rewinderState = useRewinderStore.getState();
   if (
@@ -58,6 +66,13 @@ function syncFloatingWindowFlags(): void {
     useReplayViewerStore.setState({
       isWindowOpen: viewerOpen,
       hasHotkeyPriority: viewerHasPriority,
+    });
+  }
+  const impState = useReplayToRcsImporterStore.getState();
+  if (impState.isWindowOpen !== importerOpen || impState.hasHotkeyPriority !== importerHasPriority) {
+    useReplayToRcsImporterStore.setState({
+      isWindowOpen: importerOpen,
+      hasHotkeyPriority: importerHasPriority,
     });
   }
 

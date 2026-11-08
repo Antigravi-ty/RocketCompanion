@@ -24,6 +24,7 @@ import type {
 import type { SubsystemIsolationLabState } from '../ui-core/stores/subsystemIsolationLabTypes';
 import type { RewinderState } from '../ui-core/stores/rewinderStore';
 import type { ReplayViewerStoreState } from '../ui-core/stores/replayViewerStore';
+import type { ReplayToRcsImporterStoreState } from '../ui-core/stores/replayToRcsImporterStore';
 import type { ExperimentalMultiBotsState } from '../ui-core/stores/experimentalMultiBotsStore';
 import type { ExperimentalMultiBotsSlotConfig } from '../ui-core/stores/experimentalMultiBotsRosterUtils';
 import type {
@@ -224,6 +225,16 @@ export type ReplayViewerStorePortState = PortOverride<
   {
     viewerState: string;
     downCounterSec: number;
+    updateLiveTelemetry: (patch?: Record<string, unknown>) => void;
+    setRuntimeHandlers: (handlers: Record<string, unknown>) => void;
+  }
+>;
+
+export type ReplayToRcsImporterStorePortState = PortOverride<
+  ReplayToRcsImporterStoreState,
+  {
+    viewerState: string;
+    downCounterSec: 0 | 1 | 2 | 3;
     updateLiveTelemetry: (patch?: Record<string, unknown>) => void;
     setRuntimeHandlers: (handlers: Record<string, unknown>) => void;
   }

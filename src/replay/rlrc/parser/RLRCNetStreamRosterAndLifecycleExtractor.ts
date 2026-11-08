@@ -111,7 +111,7 @@ function parseCam(v: Record<string, unknown>): RLRCPlayerCameraSettings | undefi
 function parseSample(v: Record<string, unknown>): RLRCRigidBodySample | null {
   const rb = (v.RigidBody ?? v) as Record<string, unknown> | undefined;
   const loc = rb?.location as Record<string, unknown> | undefined, rot = rb?.rotation as Record<string, unknown> | undefined;
-  if (!loc || !rot) return null;
+  if (!rb || !loc || !rot) return null;
   const x = Number(loc.x ?? 0), y = Number(loc.y ?? 0), z = Number(loc.z ?? 0);
   if (Math.abs(x) > 2500 || Math.abs(y) > 3500 || z < 15.5 || z > 20.5) return null;
   const lin = (rb.linear_velocity ?? rb.linearVelocity) as Record<string, unknown> | undefined, vz = lin ? Number(lin.z ?? 0) : 0;

@@ -244,7 +244,7 @@ export function packRLRCFramesToTrack0Bytes(frames120Hz: readonly RLRCFrame120Hz
       f32[419 + car.slotIndex * 4] = car.airTimeSinceJump;
       if (car.entityActive) {
         f32.set([car.isOnGround ? 1 : 0, car.isSupersonic ? 1 : 0, 0, car.hasFlipOrJump ? 1 : 0, fl.boostActive ? 1 : 0, fl.dodgeActive ? 1 : 0], base + 19);
-        packCarControlsToTrack64(ctrlSlice, car.slotIndex, car.controls);
+        packCarControlsToTrack64(ctrlSlice, car.slotIndex, { ...car.controls });
       } else {
         f32[base + 21] = 1;
       }
