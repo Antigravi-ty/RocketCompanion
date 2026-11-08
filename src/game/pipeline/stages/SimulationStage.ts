@@ -29,6 +29,7 @@ interface ActiveModeSimulationPort {
   rlrcReplaySession?: {
     isActive?: boolean;
     hasLoadedReplay?: boolean;
+    getPhase?(): string;
   } | null;
   replayController?: { sessionState?: { isPaused?: boolean } | null } | null;
   replaySession?: {
@@ -147,7 +148,8 @@ export class SimulationStage implements PipelineStage {
     const isLocalReplayControllerStepping = Boolean(
       isLocalDirectorPreview ||
         activeMode?.rewinderController?.isBlockingLivePhysics ||
-        activeMode?.standaloneReplayViewer?.isActive,
+        activeMode?.standaloneReplayViewer?.isActive ||
+        activeMode?.rlrcReplaySession?.isActive,
     );
 
     if (
@@ -370,12 +372,19 @@ export class SimulationStage implements PipelineStage {
       activeMode?.standaloneReplayViewer?.hasLoadedReplay &&
         activeMode.standaloneReplayViewer.getViewerState?.() === 'paused',
     );
+    const isRlrcViewerPaused = Boolean(
+      activeMode?.rlrcReplaySession?.hasLoadedReplay &&
+        activeMode.rlrcReplaySession.getPhase?.() === 'paused-viewer',
+    );
     const isRewinderPausedScrub = Boolean(
       activeMode?.rewinderController &&
         activeMode.rewinderController.getRewinderState?.() === 'paused-scrub',
     );
     const isReplayPaused =
-      isGoalReplayPaused || isStandaloneViewerPaused || isRewinderPausedScrub;
+      isGoalReplayPaused ||
+      isStandaloneViewerPaused ||
+      isRlrcViewerPaused ||
+      isRewinderPausedScrub;
     const isMatchPhaseEndedOrPodium =
       r.match.state.phase === 'ended' || r.match.state.phase === 'podium';
     context.isMatchActive =

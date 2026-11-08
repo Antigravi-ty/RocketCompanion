@@ -8,6 +8,7 @@ import {
   ExperimentalBotAgent,
   ensureExperimentalEngine,
 } from '../../../ai/experimental/ExperimentalBotAgent.ts';
+import type { BallPredictionEnginePort } from '../../../ai/experimental/botpack9700488ObsExtendedPipeline.ts';
 import type { BoostPadDescriptor } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
 import { gameAudio } from '../../../audio/GameAudioEngineFacade.ts';
 import {
@@ -15,6 +16,7 @@ import {
   useReplayToRcsImporterStore,
 } from '../../../game/runtimeUiPort.ts';
 import type { ReplayScoreboardModePort, ReplayScoreboardRuntimePort } from '../../ReplayScoreboardSynchronizer.ts';
+import { STANDARD_BOOST_PADS_34 } from '../catalog/RLRCBoostPadSpatialCatalog.ts';
 import {
   exportRLRCSessionToBinaryBytes,
   type RLRCConvertedReplaySession,
@@ -111,6 +113,11 @@ export function mapUiNonPovMode(raw: string): RLRCNonPovInterventionMode {
   return 'follow-state';
 }
 
+const _botPadDescriptors: ReadonlyArray<BoostPadDescriptor> = STANDARD_BOOST_PADS_34.map((p) => ({
+  pos: [p.position.x, p.position.y, p.position.z],
+  isBig: p.isBigPad,
+}));
+
 export function syncRLRCNameTagRoster(
   roster: readonly RLRCPlayerSlotMeta[],
   activePovSlotIndex: number = roster[0]?.slotIndex ?? 0
@@ -123,7 +130,7 @@ export function syncRLRCNameTagRoster(
       name: r.userName,
       username: r.userName,
       team: r.team,
-      isBot: r.slotIndex !== activePovSlotIndex,
+      isBot: false,
       isLocalPlayer: r.slotIndex === activePovSlotIndex,
     })),
   });
@@ -297,7 +304,8 @@ export function createRLRCInterveneEnvPort(host: {
           const slotMeta = roster.find((r) => r.slotIndex === c);
           activeCars.push({ carIndex: c, team: c === slotIndex ? team : (slotMeta?.team ?? (c < 3 ? 0 : 1)) });
         }
-        const decided = agent.decideSync(state, sim?.getPads?.() ?? [], activeCars);
+        const pads = sim?.getPads?.() ?? _botPadDescriptors;
+        const decided = agent.decideSync(state, pads, activeCars, sim as unknown as BallPredictionEnginePort);
         agent.tickSkipCounter = agent._staggered ? agent.tickSkip - 1 : (slotIndex % agent.tickSkip) + 1;
         agent._staggered = true;
         return normalizeSynthesizedControls(decided);
@@ -343,6 +351,13 @@ export function createRLRCInterveneEnvPort(host: {
         setSlotEntityVisible: (slotIndex, visible) => {
           const cars = arena.cars as Array<{ visible?: boolean } | null> | undefined;
           if (cars?.[slotIndex]) cars[slotIndex]!.visible = visible;
+        },
+        setBallVisible: (visible) => {
+          const ball = arena.ball as { visible?: boolean; group?: { visible?: boolean } } | undefined;
+          if (ball) {
+            ball.visible = visible;
+            if (ball.group) ball.group.visible = visible;
+          }
         },
         syncInterpolatorToState: (state) => {
           if (runtime?.interpolator) {
