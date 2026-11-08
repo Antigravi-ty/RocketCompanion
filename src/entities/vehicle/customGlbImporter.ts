@@ -19,6 +19,7 @@ import {
   RYZA_DESCRIPTOR,
 } from '../../ui-core/config/vehicleDescriptorsConfig';
 import {
+  OCTANE_DESCRIPTOR,
   DOMINUS_DESCRIPTOR,
   BREAKOUT_MINI_DESCRIPTOR,
   SENTINEL_DESCRIPTOR,
@@ -82,6 +83,7 @@ function cloneDescriptorSnapshot(desc: VehicleDescriptor): VehicleDescriptor {
 
 export const CANONICAL_VEHICLE_PRESET_TEMPLATES: Readonly<Record<string, VehicleDescriptor>> = Object.freeze({
   fennec: cloneDescriptorSnapshot(FENNEC_DESCRIPTOR),
+  octane: cloneDescriptorSnapshot(OCTANE_DESCRIPTOR),
   insidio: cloneDescriptorSnapshot(INSIDIO_DESCRIPTOR),
   ryza: cloneDescriptorSnapshot(RYZA_DESCRIPTOR),
   dominus: cloneDescriptorSnapshot(DOMINUS_DESCRIPTOR),

@@ -6,7 +6,10 @@
 
 import * as THREE from 'three';
 import {
+  DEFAULT_BORDER_OVERRIDE_COLOR,
   FENNEC_DESCRIPTOR,
+  GLOBAL_VEHICLE_LAMPS_CONFIG,
+  GLOBAL_VEHICLE_SURFACE_MATERIALS,
   getVehicleDescriptor,
   vehicleTunerRuntimeFlags,
 } from '../../ui-core/config/vehicleTunerConfig';
@@ -18,17 +21,26 @@ import {
   buildCustomToonRampTexture,
 } from './vehiclePaintMaterial.ts';
 
+function resolveSurfaceSlotColor(
+  slotConfig: { slotName?: string; color?: string | number },
+  teamColor: number | string | null | undefined
+): string | number {
+  const slotLower = String(slotConfig.slotName || '').toLowerCase();
+  if (slotLower === 'border' && vehicleTunerRuntimeFlags.borderColorOverride) {
+    return vehicleTunerRuntimeFlags.borderOverrideColor || DEFAULT_BORDER_OVERRIDE_COLOR;
+  }
+  const isBodySlot = slotLower === 'body' || slotLower === 'body-shell';
+  const useDirectColor = Boolean(vehicleTunerRuntimeFlags.colorOverride) || !isBodySlot || typeof teamColor !== 'number';
+  return useDirectColor ? (slotConfig.color || '#42a5f5') : teamColor;
+}
+
 export function buildSurfaceSlotMaterial(slotConfig, teamColor) {
   const rawMode = slotConfig.mode || 'standard';
   const mode = (rawMode === 'standard' || rawMode === 'toon' || rawMode === 'pbr')
     ? rawMode
     : 'standard';
 
-  const isBodySlot = slotConfig.slotName === 'body' || slotConfig.slotName === 'body-shell';
-  const useDirectColor = Boolean(vehicleTunerRuntimeFlags.colorOverride) || !isBodySlot || typeof teamColor !== 'number';
-  const resolvedColor = useDirectColor
-    ? new THREE.Color(slotConfig.color || '#42a5f5')
-    : new THREE.Color(teamColor);
+  const resolvedColor = new THREE.Color(resolveSurfaceSlotColor(slotConfig, teamColor));
 
   if (mode === 'toon') {
     const rampTex = buildCustomToonRampTexture(
@@ -146,9 +158,7 @@ function updateExistingSurfaceSlotMaterial(
   const mode = rawMode === 'standard' || rawMode === 'toon' || rawMode === 'pbr' ? rawMode : 'standard';
   if (existingMat.userData?._slotMode !== mode) return false;
 
-  const isBodySlot = slotConfig.slotName === 'body' || slotConfig.slotName === 'body-shell';
-  const useDirectColor = Boolean(vehicleTunerRuntimeFlags.colorOverride) || !isBodySlot || typeof teamColor !== 'number';
-  existingMat.color?.set?.(useDirectColor ? (slotConfig.color || '#42a5f5') : teamColor);
+  existingMat.color?.set?.(resolveSurfaceSlotColor(slotConfig, teamColor));
 
   if (mode === 'pbr') {
     const pearlHex = slotConfig.pearlColor || slotConfig.color || '#ffffff';
@@ -199,10 +209,10 @@ export function classifyCustomVehicleMaterialSlot(rawMaterialName: string): Mate
   const lower = String(rawMaterialName || '').trim().toLowerCase();
   if (lower.includes('front')) return { slot: 'FrontBulb', isFallback: false };
   if (lower.includes('back')) return { slot: 'BackBulb', isFallback: false };
-  if (lower.includes('body')) return { slot: 'body', isFallback: false };
+  if (lower.includes('body') || lower.includes('dummy')) return { slot: 'body', isFallback: false };
   if (lower.includes('window')) return { slot: 'window', isFallback: false };
   if (lower.includes('border')) return { slot: 'border', isFallback: false };
-  if (lower.includes('bottom')) return { slot: 'bottom', isFallback: false };
+  if (lower.includes('bottom') || lower.includes('chassis')) return { slot: 'bottom', isFallback: false };
   if (lower.includes('metal')) return { slot: 'metal', isFallback: false };
   return { slot: 'body', isFallback: true };
 }
@@ -224,8 +234,8 @@ export function applyCustomGlbVehicleMaterials(
     palette.body.metalness = finishPreset.metalness;
     palette.body.roughness = finishPreset.roughness;
   }
-  const surfaceConfigs = descriptor.surfaceMaterials || FENNEC_DESCRIPTOR.surfaceMaterials || {};
-  const lampsCfg = descriptor.lampsConfig || FENNEC_DESCRIPTOR.lampsConfig;
+  const surfaceConfigs = GLOBAL_VEHICLE_SURFACE_MATERIALS || descriptor.surfaceMaterials || {};
+  const lampsCfg = GLOBAL_VEHICLE_LAMPS_CONFIG || descriptor.lampsConfig || FENNEC_DESCRIPTOR.lampsConfig;
 
   const frontBaseColor = new THREE.Color(lampsCfg.frontColor || '#d8eeff')
     .multiplyScalar(lampsCfg.frontIntensity ?? 2.5);

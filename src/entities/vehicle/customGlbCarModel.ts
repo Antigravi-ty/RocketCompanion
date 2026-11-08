@@ -42,94 +42,6 @@ export function setCachedCustomVehicleAsset(vehicleId: string, asset: CustomGlbV
   }
 }
 
-/**
- * Splits a single geometry primitive containing both front (X >= 0) and rear (X < 0)
- * lamp triangles into two separate BufferGeometries.
- */
-function splitLampGeometryByX(geometry: THREE.BufferGeometry) {
-  const posAttr = geometry.getAttribute('position');
-  if (!posAttr) return null;
-
-  const normAttr = geometry.getAttribute('normal');
-  const uvAttr = geometry.getAttribute('uv');
-  const indexAttr = geometry.index;
-
-  const frontIndices: number[] = [];
-  const rearIndices: number[] = [];
-
-  const getX = (vertIdx: number) => (
-    posAttr.getX ? posAttr.getX(vertIdx) : posAttr.array[vertIdx * 3]
-  );
-
-  if (indexAttr) {
-    const count = indexAttr.count;
-    for (let i = 0; i < count; i += 3) {
-      const a = indexAttr.getX ? indexAttr.getX(i) : indexAttr.array[i];
-      const b = indexAttr.getX ? indexAttr.getX(i + 1) : indexAttr.array[i + 1];
-      const c = indexAttr.getX ? indexAttr.getX(i + 2) : indexAttr.array[i + 2];
-      const cx = (getX(a) + getX(b) + getX(c)) / 3;
-      if (cx >= 0) {
-        frontIndices.push(a, b, c);
-      } else {
-        rearIndices.push(a, b, c);
-      }
-    }
-  } else {
-    const count = posAttr.count;
-    for (let i = 0; i < count; i += 3) {
-      const cx = (getX(i) + getX(i + 1) + getX(i + 2)) / 3;
-      if (cx >= 0) {
-        frontIndices.push(i, i + 1, i + 2);
-      } else {
-        rearIndices.push(i, i + 1, i + 2);
-      }
-    }
-  }
-
-  const buildSubGeometry = (indices: number[]) => {
-    if (indices.length === 0) return null;
-    const subGeom = new THREE.BufferGeometry();
-    const posOut = new Float32Array(indices.length * 3);
-    const normOut = normAttr ? new Float32Array(indices.length * 3) : null;
-    const uvOut = uvAttr ? new Float32Array(indices.length * 2) : null;
-
-    for (let i = 0; i < indices.length; i++) {
-      const vIdx = indices[i];
-      posOut[i * 3] = posAttr.getX ? posAttr.getX(vIdx) : posAttr.array[vIdx * 3];
-      posOut[i * 3 + 1] = posAttr.getY ? posAttr.getY(vIdx) : posAttr.array[vIdx * 3 + 1];
-      posOut[i * 3 + 2] = posAttr.getZ ? posAttr.getZ(vIdx) : posAttr.array[vIdx * 3 + 2];
-
-      if (normOut && normAttr) {
-        normOut[i * 3] = normAttr.getX ? normAttr.getX(vIdx) : normAttr.array[vIdx * 3];
-        normOut[i * 3 + 1] = normAttr.getY ? normAttr.getY(vIdx) : normAttr.array[vIdx * 3 + 1];
-        normOut[i * 3 + 2] = normAttr.getZ ? normAttr.getZ(vIdx) : normAttr.array[vIdx * 3 + 2];
-      }
-      if (uvOut && uvAttr) {
-        uvOut[i * 2] = uvAttr.getX ? uvAttr.getX(vIdx) : uvAttr.array[vIdx * 2];
-        uvOut[i * 2 + 1] = uvAttr.getY ? uvAttr.getY(vIdx) : uvAttr.array[vIdx * 2 + 1];
-      }
-    }
-
-    subGeom.setAttribute('position', new THREE.BufferAttribute(posOut, 3));
-    if (normOut) {
-      subGeom.setAttribute('normal', new THREE.BufferAttribute(normOut, 3));
-    } else {
-      subGeom.computeVertexNormals?.();
-    }
-    if (uvOut) {
-      subGeom.setAttribute('uv', new THREE.BufferAttribute(uvOut, 2));
-    }
-    subGeom.computeBoundingBox?.();
-    subGeom.computeBoundingSphere?.();
-    return subGeom;
-  };
-
-  return {
-    frontGeometry: buildSubGeometry(frontIndices),
-    rearGeometry: buildSubGeometry(rearIndices)
-  };
-}
-
 export function computeObject3DBounds(object: THREE.Object3D): UnscaledGlbBounds {
   const box = new THREE.Box3().setFromObject(object);
   if (box.isEmpty()) {
@@ -174,8 +86,8 @@ export function scaleSceneGeometries(scene: THREE.Object3D, factor: number): voi
 
 /**
  * Normalizes a loaded GLTF scene for custom vehicles:
+ * - Scales scene geometries to match target vehicle units.
  * - Preserves original material slot names on every Mesh.
- * - Automatically splits combined `lamps` / `lamps.001` meshes into `FrontBulb` and `BackBulb`.
  */
 export function normalizeCustomVehicleScene(
   scene: THREE.Object3D,
@@ -193,7 +105,6 @@ export function normalizeCustomVehicleScene(
   }
   scaleSceneGeometries(scene, targetUnitScale);
 
-  const meshesToSplit: THREE.Mesh[] = [];
   scene.traverse?.((node: THREE.Object3D & { isMesh?: boolean; material?: THREE.Material | THREE.Material[] }) => {
     if (!node.isMesh) return;
     const matName = Array.isArray(node.material)
@@ -201,44 +112,7 @@ export function normalizeCustomVehicleScene(
       : (node.material?.name || '');
     node.userData.originalMaterialName = matName;
     node.userData.vehicleId = vehicleId;
-
-    const lowerMat = matName.toLowerCase();
-    if (matName === 'lamps.001' || (lowerMat.includes('lamp') && !lowerMat.includes('front') && !lowerMat.includes('back'))) {
-      meshesToSplit.push(node as THREE.Mesh);
-    }
   });
-
-  for (const lampMesh of meshesToSplit) {
-    const split = splitLampGeometryByX(lampMesh.geometry);
-    if (!split) continue;
-    const parent = lampMesh.parent || scene;
-
-    if (split.frontGeometry) {
-      const frontMat = new THREE.MeshBasicMaterial({ name: 'FrontBulb', toneMapped: false });
-      const frontMesh = new THREE.Mesh(split.frontGeometry, frontMat);
-      frontMesh.name = `${vehicleId}-front-lamps`;
-      frontMesh.userData.originalMaterialName = 'FrontBulb';
-      frontMesh.userData.vehicleId = vehicleId;
-      frontMesh.position.copy(lampMesh.position);
-      frontMesh.quaternion.copy(lampMesh.quaternion);
-      frontMesh.scale.copy(lampMesh.scale);
-      parent.add(frontMesh);
-    }
-
-    if (split.rearGeometry) {
-      const rearMat = new THREE.MeshBasicMaterial({ name: 'BackBulb', toneMapped: false });
-      const rearMesh = new THREE.Mesh(split.rearGeometry, rearMat);
-      rearMesh.name = `${vehicleId}-tail-lamps`;
-      rearMesh.userData.originalMaterialName = 'BackBulb';
-      rearMesh.userData.vehicleId = vehicleId;
-      rearMesh.position.copy(lampMesh.position);
-      rearMesh.quaternion.copy(lampMesh.quaternion);
-      rearMesh.scale.copy(lampMesh.scale);
-      parent.add(rearMesh);
-    }
-
-    parent.remove(lampMesh);
-  }
 
   return { unscaledBounds, appliedGeometryScale: targetUnitScale };
 }
