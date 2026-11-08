@@ -8,6 +8,13 @@ import type {
   GraphicsSettingsPort,
   PacingTelemetryRecorderPort,
 } from './runtimeUiStorePortTypes.ts';
+import type {
+  RLRCBookmarkRecord,
+  RLRCNonPovInterventionMode,
+  RLRCPlayerSlotMeta,
+} from '../replay/rlrc/RLRCReplayTypes.ts';
+
+export type { RLRCBookmarkRecord, RLRCNonPovInterventionMode, RLRCPlayerSlotMeta };
 
 export interface HostOnlineWarmupPortOptions {
   roomId: string;
