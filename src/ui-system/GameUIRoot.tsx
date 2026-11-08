@@ -123,6 +123,23 @@ export const GameUIRoot: React.FC<GameUIRootProps> = () => {
         } else {
           state.openMenu('main-menu');
         }
+        return;
+      }
+
+      // 3. F8 hotkey: Manual 60s FIFO Training Replay Export in Solo Free Play & Online Warmup
+      if (
+        e.key === 'F8' &&
+        !e.repeat &&
+        !state.isOpen &&
+        (state.matchMode === 'freeplay' || state.matchMode === 'online-warmup')
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (state.matchMode === 'online-warmup') {
+          void state.bridge?.onExportOnlineTrainingReplay?.(60);
+        } else {
+          void state.bridge?.onExportRecentTrainingReplay?.(60);
+        }
       }
     };
 

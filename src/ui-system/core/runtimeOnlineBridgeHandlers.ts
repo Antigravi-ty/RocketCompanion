@@ -6,6 +6,11 @@ import { testAllSignalingRelays } from '../../network/transport/diagnostics/sign
 import { setSignalingRelayMatchPolicy } from '../../network/transport/SignalingRelayLifecyclePolicy.ts';
 import { ensureCloudProfileSyncBridge } from './runtimeProfileSyncBridge.ts';
 import { ensureDevSignalingLabBridge } from './runtimeSignalingLabBridge.ts';
+import {
+  retainCompletedMatchReplayAndNotify,
+  exportRetainedMatchReplayFile,
+  type ReplayRawFrameSlotItem,
+} from '../../replay/ReplayFileExporter.ts';
 import type {
   GameRuntimeUiBridgePort,
   HostOnlineWarmupPortOptions,
@@ -16,6 +21,35 @@ import type {
   ClockPacingParams,
   ClockPacingPriority,
 } from '../../ui-core/config/clockPacingConfig';
+
+interface AuthoritativeReplayExportPayload {
+  stateInputBytes?: Uint8Array | null;
+  incidentBytes?: Uint8Array | null;
+  signalBytes?: Uint8Array | null;
+  gameMode?: string;
+  durationSeconds?: number;
+  blueScore?: number;
+  orangeScore?: number;
+  roster?: Array<Record<string, unknown>> | { players?: Array<Record<string, unknown>> };
+  loadouts?: Array<Record<string, unknown>>;
+}
+
+interface AuthoritativeServerReplayHandle {
+  requestFullReplayExport?: () => Promise<AuthoritativeReplayExportPayload | null>;
+  hostReplayRingBuffer?: {
+    getRecentFrames: (maxFrames?: number) => ReplayRawFrameSlotItem[];
+  } | null;
+  cachedSnapshot?: Float32Array | null;
+}
+
+interface RuntimeWithAuthoritativeServer {
+  authoritativeServer?: AuthoritativeServerReplayHandle | null;
+  networkManager?: {
+    sessionCoordinator?: {
+      authoritativeServer?: AuthoritativeServerReplayHandle | null;
+    } | null;
+  } | null;
+}
 
 let signalingProfileUnsubscribe: (() => void) | null = null;
 
@@ -108,9 +142,15 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
   });
 
   return {
-    onHostOnlineWarmup: async (opts: HostOnlineWarmupPortOptions) => {
+    onHostOnlineWarmup: async (
+      opts: HostOnlineWarmupPortOptions & { ghostMode?: 'automatically-enable' | 'manual' },
+    ) => {
       try {
-        return await matchPort.hostOnlineWarmup(opts);
+        const ok = await matchPort.hostOnlineWarmup(opts);
+        if (ok && opts.ghostMode !== undefined) {
+          replayPort.setLobbyGhostModeEnabled(opts.ghostMode === 'automatically-enable');
+        }
+        return ok;
       } catch (e) {
         console.error('[mountGameUI] Error hosting online warmup', e);
         return false;
@@ -176,6 +216,55 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
     },
     onResetBall: () => {
       matchPort.resetKickoff();
+    },
+    onExportOnlineTrainingReplay: async (durationSeconds = 60): Promise<boolean> => {
+      try {
+        const driverRuntime =
+          typeof window !== 'undefined'
+            ? (
+                window as unknown as {
+                  __rcScenarioDriver?: { runtime?: RuntimeWithAuthoritativeServer };
+                }
+              ).__rcScenarioDriver?.runtime
+            : undefined;
+        const server =
+          driverRuntime?.authoritativeServer ??
+          driverRuntime?.networkManager?.sessionCoordinator?.authoritativeServer ??
+          null;
+        if (typeof server?.requestFullReplayExport === 'function') {
+          const exportData = await server.requestFullReplayExport();
+          const exportedRoster = Array.isArray(exportData?.loadouts)
+            ? exportData.loadouts
+            : !Array.isArray(exportData?.roster) && Array.isArray(exportData?.roster?.players)
+              ? exportData.roster.players
+              : Array.isArray(exportData?.roster)
+                ? exportData.roster
+                : [];
+          const retained = retainCompletedMatchReplayAndNotify({
+            stateInputBytes: exportData?.stateInputBytes || undefined,
+            incidentBytes: exportData?.incidentBytes || undefined,
+            signalBytes: exportData?.signalBytes || undefined,
+            ringBuffer: server.hostReplayRingBuffer || undefined,
+            fallbackState: server.cachedSnapshot || undefined,
+            mode: 'Online Training',
+            gameMode: exportData?.gameMode || '3v3',
+            durationSeconds: exportData?.durationSeconds ?? durationSeconds,
+            roster: exportedRoster,
+            loadouts: exportedRoster,
+            blueScore: exportData?.blueScore ?? 0,
+            orangeScore: exportData?.orangeScore ?? 0,
+          });
+          if (retained) {
+            await exportRetainedMatchReplayFile(retained);
+            return true;
+          }
+        }
+        const exportedFrames = replayPort.retainAndExportStandaloneClientReplay(true);
+        return exportedFrames > 0;
+      } catch (err) {
+        console.error('[runtimeOnlineBridgeHandlers] Failed to export online training replay:', err);
+        return false;
+      }
     },
     onForceStartOnlineMatch: (durationSeconds = 90) => {
       useAppStore.getState().closeMenu();
