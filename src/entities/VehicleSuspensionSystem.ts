@@ -181,10 +181,13 @@ export function updateCarSuspensionAndSteering(
   const forwardSpeed = currCar.forwardSpeed !== undefined ? currCar.forwardSpeed : 0;
   const restHeight = getCarRestHeight(vehiclePreset);
 
-  // Detect 3-wheel mode from WASM state (in 3-wheel mode, WASM has 3 wheels [0=front-center, 1=back-L, 2=back-R] and slot 3 is 0)
+  // Detect 3-wheel mode from descriptor or WASM state (in 3-wheel mode, WASM has 3 wheels [0=front-center, 1=back-L, 2=back-R] and slot 3 is 0)
+  const desc = hasVehicleDescriptor(vehiclePreset) ? getVehicleDescriptor(vehiclePreset) : null;
   const isThreeWheels = Boolean(
     wheels.threeWheels ||
+    desc?.threeWheels ||
     vehiclePreset === 'hitbox-psyclops' ||
+    vehiclePreset === 'trioctane-threewheel' ||
     (currCar.getWheelSusLength(3) === 0 && currCar.getWheelSusLength(0) > 0 && currCar.getWheelSusLength(1) > 0)
   );
 

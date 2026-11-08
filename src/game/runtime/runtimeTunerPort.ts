@@ -79,30 +79,22 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
       const garagePrefs = garageSettingsStore?.get?.() as { vehiclePreset?: string } | null;
       return garagePrefs?.vehiclePreset || owner.selectedPreset || null;
     },
-    changePlayerVehicle: (carId) => {
-      owner.changePlayerVehicle(carId);
-    },
+    changePlayerVehicle: (carId) => owner.changePlayerVehicle(carId),
     applyPlayerColorChoice: (hex) => {
       const playerIdx = owner.playerCarIndex ?? 0;
       const replayViewer = owner.modeManager?.activeMode?.standaloneReplayViewer;
       if (replayViewer?.hasLoadedReplay) {
-        if (!replayViewer.isActive) {
-          replayViewer._applyUserLoadoutToTakenOverCar?.(playerIdx);
-        }
+        if (!replayViewer.isActive) replayViewer._applyUserLoadoutToTakenOverCar?.(playerIdx);
         return;
       }
       let effectiveHex = hex;
       const onlineSession = useAppStore.getState().onlineSession;
       const isActiveOnlineRoom = isOnlineSessionActive();
       const currentMode = owner.match?.state?.mode;
-      const isTrainingOrFreeplay =
-        currentMode === 'freeplay' || currentMode === 'static-training-pack';
-      if (isTrainingOrFreeplay && !isActiveOnlineRoom) {
+      if ((currentMode === 'freeplay' || currentMode === 'static-training-pack') && !isActiveOnlineRoom) {
         const freeplayTeam = getPreferredFreeplayTeam();
         const prevTeam = owner.teamAssignment?.playerTeam;
-        if (owner.teamAssignment) {
-          owner.teamAssignment.playerTeam = freeplayTeam;
-        }
+        if (owner.teamAssignment) owner.teamAssignment.playerTeam = freeplayTeam;
         owner.arena?.vehicleRegistry.setCarTeam(playerIdx, freeplayTeam);
         owner.physics?.setCarTeam?.(playerIdx, freeplayTeam);
         owner.networkManager.sessionCoordinator.authoritativeServer?.fallbackSim?.setCarTeam?.(playerIdx, freeplayTeam);
@@ -110,9 +102,7 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
         const ntState = getNameTagRuntimeState();
         if (Array.isArray(ntState?.carEntries) && ntState.carEntries.length > 0) {
           setNameTagRuntimeState({
-            carEntries: ntState.carEntries.map((c) =>
-              c.carIndex === playerIdx ? { ...c, team: freeplayTeam } : c,
-            ),
+            carEntries: ntState.carEntries.map((c) => (c.carIndex === playerIdx ? { ...c, team: freeplayTeam } : c)),
           });
         }
         owner.setCarColor(playerIdx, effectiveHex);
@@ -123,24 +113,14 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
       } else if (isActiveOnlineRoom) {
         const localTeamStr = onlineSession?.localTeam;
         const assignedTeam: 0 | 1 | null =
-          localTeamStr === 'orange'
-            ? 1
-            : localTeamStr === 'blue'
-              ? 0
-              : owner.botCoordinator.isBotMatch
-                ? 0
-                : null;
-        if (assignedTeam === 0 || assignedTeam === 1) {
-          effectiveHex = getPreferredColorHex(null, assignedTeam);
-        }
+          localTeamStr === 'orange' ? 1 : localTeamStr === 'blue' ? 0 : owner.botCoordinator.isBotMatch ? 0 : null;
+        if (assignedTeam === 0 || assignedTeam === 1) effectiveHex = getPreferredColorHex(null, assignedTeam);
       }
       owner.setCarColor(playerIdx, effectiveHex);
     },
     syncInitialFreeplayTeamAndColor: (targetHex, freeplayTeam) => {
       const playerIdx = owner.playerCarIndex ?? 0;
-      if (targetHex) {
-        owner.setCarColor(playerIdx, targetHex);
-      }
+      if (targetHex) owner.setCarColor(playerIdx, targetHex);
       const currentMode = owner.match?.state?.mode || useAppStore.getState().matchMode;
       if (!currentMode || currentMode === 'freeplay') {
         if (owner.teamAssignment) {
@@ -250,10 +230,14 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
       owner.arena?.vehicleRegistry.refreshCustomVehicle(vehicleId);
       if (hitboxPreset && owner.selectedPreset === vehicleId) {
         owner.selectedHitbox = hitboxPreset;
-        owner.physics?.setCarHitbox?.(owner.playerCarIndex ?? 0, hitboxPreset);
+        owner.physics?.setCarHitbox?.(owner.playerCarIndex ?? 0, vehicleId === 'trioctane-threewheel' ? 'hitbox-psyclops' : hitboxPreset);
       }
       owner.arena?.markRenderTreeChanged?.();
     },
+    importCustomVehicleGlb: async (vehicleId, arrayBuffer, fileName, alignPreset) =>
+      owner.arena?.vehicleRegistry.loadout.importCustomVehicleGlb(vehicleId, arrayBuffer, fileName, alignPreset),
+    applyVehicleAlignPreset: (vehicleId, alignPreset) =>
+      Boolean(owner.arena?.vehicleRegistry.loadout.applyVehicleAlignPreset(vehicleId, alignPreset)),
     applyUnderDevelopmentConfig: async (config, patch) => {
       const playerIdx = owner.playerCarIndex ?? 0;
 

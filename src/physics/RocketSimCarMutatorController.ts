@@ -46,9 +46,13 @@ export class RocketSimCarMutatorController {
 
   public addCar(team: number, hitboxType: string | number = 'octane'): number {
     const hitboxIdx = getHitboxIndex(hitboxType);
+    const isThreeWheels = hitboxIdx === 6;
     const idx = this.host.module!._physics_addCar(team, hitboxIdx);
     if (idx >= 0) {
-      this.host._carSpecs[idx] = { team: team ? 1 : 0, hitboxIndex: hitboxIdx, threeWheels: false };
+      this.host._carSpecs[idx] = { team: team ? 1 : 0, hitboxIndex: hitboxIdx, threeWheels: isThreeWheels };
+      if (isThreeWheels) {
+        this.setCarThreeWheels(idx, true);
+      }
     }
     return idx;
   }
@@ -57,17 +61,23 @@ export class RocketSimCarMutatorController {
     const slot = Number(carIndex) | 0;
     if (slot < 0 || slot >= 8) return -1;
     const hitboxIdx = getHitboxIndex(hitboxType);
+    const isThreeWheels = hitboxIdx === 6;
     if (this.isCarSlotActive(slot)) {
       const prevSpec = this.host._carSpecs[slot];
       const nextTeam = team ? 1 : 0;
       if (!prevSpec || prevSpec.team !== nextTeam) this.setCarTeam(slot, nextTeam);
       if (!prevSpec || prevSpec.hitboxIndex !== hitboxIdx) this.setCarHitbox(slot, hitboxType);
-      this.host._carSpecs[slot] = { team: nextTeam, hitboxIndex: hitboxIdx, threeWheels: prevSpec?.threeWheels ?? false };
+      this.host._carSpecs[slot] = { team: nextTeam, hitboxIndex: hitboxIdx, threeWheels: isThreeWheels || (prevSpec?.threeWheels ?? false) };
       return slot;
     }
     if (typeof this.host.module?._physics_addCarAtSlot === 'function') {
       const idx = this.host.module._physics_addCarAtSlot(slot, team, hitboxIdx);
-      if (idx >= 0) this.host._carSpecs[idx] = { team: team ? 1 : 0, hitboxIndex: hitboxIdx, threeWheels: false };
+      if (idx >= 0) {
+        this.host._carSpecs[idx] = { team: team ? 1 : 0, hitboxIndex: hitboxIdx, threeWheels: isThreeWheels };
+        if (isThreeWheels) {
+          this.setCarThreeWheels(idx, true);
+        }
+      }
       return idx;
     }
     return this.addCar(team, hitboxType);
@@ -103,8 +113,13 @@ export class RocketSimCarMutatorController {
 
   public setCarHitbox(carIndex: number, hitboxType: string | number): boolean {
     const hitboxIdx = getHitboxIndex(hitboxType);
+    const isThreeWheels = hitboxIdx === 6;
     const ok = this.host.module?._physics_setCarHitbox?.(carIndex, hitboxIdx) === 1;
-    if (ok && this.host._carSpecs[carIndex]) this.host._carSpecs[carIndex]!.hitboxIndex = hitboxIdx;
+    if (ok && this.host._carSpecs[carIndex]) {
+      this.host._carSpecs[carIndex]!.hitboxIndex = hitboxIdx;
+      this.host._carSpecs[carIndex]!.threeWheels = isThreeWheels;
+    }
+    this.setCarThreeWheels(carIndex, isThreeWheels);
     return ok;
   }
 
