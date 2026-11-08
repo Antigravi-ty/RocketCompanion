@@ -27,6 +27,10 @@ import {
   captureRuntimeReplayCarEntries,
   type NormalizedReplayDirectorCarEntry,
 } from '../../../replay/replayDirectorCarRosterPipeline.ts';
+import {
+  warmupArenaTrailsFromReplayWindow,
+  type ReplayTrailWarmupArenaPort,
+} from '../../../entities/vehicle/supersonic-trail/SupersonicWheelTrailReplaySync.ts';
 import { DEFAULT_REPLAY_DIRECTOR_FOV_DEG } from '../../../ui-core/config/replayDirectorConfig.ts';
 
 export type GoalReplayCameraMode = 'director' | 'pov';
@@ -40,13 +44,14 @@ export interface GoalReplayCarStateViewLike {
 
 export interface GoalReplayHudSessionStateLike {
   isActive?: boolean; scoringTeam?: number; scorerCarIndex?: number;
-  durationSeconds?: number; focalCarIndex?: number;
+  durationSeconds?: number; focalCarIndex?: number; cursorFloat?: number;
   isPaused?: boolean; isPersistent?: boolean; goalMarkerRatio?: number; playbackSpeed?: number;
 }
 
 export interface GoalReplayHudControllerPort {
   progress?: number; currentFrameIndex?: number; sessionState?: GoalReplayHudSessionStateLike | null;
   getTotalRecordedFrames?: () => number;
+  getFrameBufferByIndex?: (index: number) => Float32Array | null;
   seekToNormalized: (norm: number, interpolator?: ReplayInterpolatorPort | null) => unknown;
   togglePause: () => boolean; cyclePlaybackSpeed: () => number;
 }
@@ -54,6 +59,7 @@ export interface GoalReplayHudControllerPort {
 export interface GoalReplayHudRuntimePort {
   interpolator?: ReplayInterpolatorPort | null; playerThrottle?: number;
   playerControls?: object | null; neutralControls?: object | null;
+  arena?: ReplayTrailWarmupArenaPort | null;
 }
 
 export interface GoalReplayHudSessionOptions<
@@ -188,6 +194,11 @@ export function bindGoalReplayHudStateAndCallbacks<
       if (!replayController.sessionState?.isActive) return;
       replayController.sessionState.isPersistent = true;
       replayController.seekToNormalized(norm, runtime?.interpolator);
+      warmupArenaTrailsFromReplayWindow(
+        runtime?.arena,
+        (idx) => replayController.getFrameBufferByIndex?.(idx) ?? null,
+        replayController.sessionState?.cursorFloat ?? replayController.currentFrameIndex ?? 0
+      );
       if (getCameraMode() === 'director') {
         cameraCallbacks.onRefreshDirectorCamera(resolveScoringTeam(), resolveScorerCarIndex());
       }
@@ -250,6 +261,7 @@ export function applyReplayControllerFrameAndDirectorCamera(
     physics?: ReplayFrameEnginePort | null;
     interpolator?: (ReplayFrameInterpolatorStatePort & DirectorInterpolatorSnapshot) | null;
     camera?: DirectorCameraTargetPort | null;
+    arena?: ReplayTrailWarmupArenaPort | null;
   } | null | undefined,
   replayController: ReplayTimelineController, scoringTeam: number, scorerCarIndex: number,
   options: { snapshot?: Float32Array | null; progress?: number; refreshDirectorPose?: boolean } = {}
@@ -257,6 +269,11 @@ export function applyReplayControllerFrameAndDirectorCamera(
   if (options.refreshDirectorPose) replayController.refreshCurrentFrameDirectorPose();
   const snap = options.snapshot !== undefined ? options.snapshot : replayController.getFrameBufferByIndex(replayController.currentFrameIndex);
   if (snap && runtime?.physics) applyReplayFrameToEngine(runtime.physics, snap, runtime.interpolator ?? null, snap, 1.0);
+  warmupArenaTrailsFromReplayWindow(
+    runtime?.arena,
+    (idx) => replayController.getFrameBufferByIndex(idx),
+    replayController.sessionState?.cursorFloat ?? replayController.currentFrameIndex
+  );
   applyDirectorReplayCamera(
     runtime?.camera, runtime?.interpolator, options.progress ?? replayController.progress,
     scoringTeam, 0.016, scorerCarIndex, replayController.directorCameraState
@@ -266,6 +283,7 @@ export function applyReplayControllerFrameAndDirectorCamera(
 export function pauseReplayAndEnterReferenceFreeCam(
   runtime: {
     interpolator?: ReplayInterpolatorPort | null;
+    arena?: ReplayTrailWarmupArenaPort | null;
     camera?: { getDirectorFov?: () => number; getFreeCamFov?: () => number; setFreeCamFov?: (fov: number) => void; setFreeCamPose?: (eye: number[], target: number[]) => void } | null;
   } | null | undefined,
   replayController: ReplayTimelineController, options: { seekCursorFloat?: number | null; fov?: number } = {}
@@ -273,6 +291,11 @@ export function pauseReplayAndEnterReferenceFreeCam(
   if (!runtime) return false;
   if (typeof options.seekCursorFloat === 'number') replayController.seekToIndex(options.seekCursorFloat, runtime.interpolator ?? null);
   replayController.setPaused(true);
+  warmupArenaTrailsFromReplayWindow(
+    runtime.arena,
+    (idx) => replayController.getFrameBufferByIndex(idx),
+    replayController.sessionState?.cursorFloat ?? replayController.currentFrameIndex
+  );
   hudStore.getState().setReplayState({
     replayPaused: true, replayPersistent: true,
     replayProgress: replayController.progress, replayFrameIndex: replayController.currentFrameIndex,

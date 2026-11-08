@@ -35,6 +35,7 @@ import {
   type GoalReplayHudRuntimePort,
   type GoalReplayHudSessionOptions as BaseGoalReplayHudSessionOptions,
 } from './goalReplayHudPipeline.ts';
+import { warmupArenaTrailsFromReplayWindow } from '../../../entities/vehicle/supersonic-trail/SupersonicWheelTrailReplaySync.ts';
 
 export type { GoalReplayCameraMode };
 
@@ -107,6 +108,7 @@ export interface GoalReplayTimelineControllerPort extends GoalReplayHudControlle
     isPersistent?: boolean;
     isScrubbing?: boolean;
     playbackSpeed?: number;
+    _lastTrailWarmupCursor?: number;
   };
   beginReplaySession: (options?: ReplaySessionInitOptions) => number;
   endReplaySession?: () => void;
@@ -288,6 +290,24 @@ export function stepGoalReplaySessionFrame(
     runtime?.interpolator ?? null,
     options.applyToEngine ?? true
   );
+
+  const postState = replayController.sessionState ?? s;
+  const curFloat = postState?.cursorFloat ?? stepRes.frameIndex;
+  if (postState?.isPaused || postState?.isScrubbing) {
+    if (
+      typeof replayController.getFrameBufferByIndex === 'function' &&
+      postState._lastTrailWarmupCursor !== curFloat
+    ) {
+      postState._lastTrailWarmupCursor = curFloat;
+      warmupArenaTrailsFromReplayWindow(
+        runtime?.arena,
+        (idx) => replayController.getFrameBufferByIndex?.(idx) ?? null,
+        curFloat
+      );
+    }
+  } else if (postState) {
+    postState._lastTrailWarmupCursor = -1;
+  }
 
   if (options.networkStreamSnapshot && runtime?.physics) {
     applyReplayFrameToEngine(

@@ -252,6 +252,16 @@ export class SpeedTrail {
       this.sourcePosition.copy(sourcePos);
       this.previousSourcePosition.copy(sourcePos);
       this.hasSourcePosition = true;
+    } else if (sourcePos.distanceToSquared(this.previousSourcePosition) < 1e-4 && speed > 5) {
+      if (isSupersonic && this.points.length > 0 && this.opacity < targetOpacity) {
+        this.opacity = targetOpacity;
+        if (this.material?.uniforms?.uOpacity) {
+          this.material.uniforms.uOpacity.value = this.opacity * SPEED_TRAIL_MAX_OPACITY;
+        }
+      }
+      this.ribbon.visible = this.opacity > 0.002 && this.points.length > 0;
+      this.geometryDirty = true;
+      return;
     }
 
     if (sourcePos.distanceTo(this.previousSourcePosition) > SPEED_TRAIL_TELEPORT_RESET_DISTANCE) {
