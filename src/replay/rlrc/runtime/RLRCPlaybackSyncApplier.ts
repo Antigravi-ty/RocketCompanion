@@ -1,32 +1,12 @@
-/**
- * RLRCPlaybackSyncApplier.ts
- * Pure 120Hz state and slot lifecycle synchronizer for RLRC Replay playback.
- */
-
 import {
-  SIM_OFFSETS,
-  BALL_STATE_OFFSETS,
-  BALL_STATE_STRIDE,
-  CAR_STATE_OFFSETS,
-  CAR_STATE_STRIDE,
-  BOOST_PAD_STATES_OFFSET,
-  BOOST_PAD_STATE_STRIDE,
-  BOOST_PAD_OFFSETS,
-  EXTENDED_STATE_OFFSETS,
-  MAX_CARS,
-  NUM_BOOST_PADS,
+  SIM_OFFSETS, BALL_STATE_OFFSETS, BALL_STATE_STRIDE, CAR_STATE_OFFSETS, CAR_STATE_STRIDE,
+  BOOST_PAD_STATES_OFFSET, BOOST_PAD_STATE_STRIDE, BOOST_PAD_OFFSETS, EXTENDED_STATE_OFFSETS,
+  MAX_CARS, NUM_BOOST_PADS,
 } from '../../../physics/RocketSimConstants.ts';
 import {
-  RLRC_BOOST_PAD_COUNT,
-  RLRC_MAX_PLAYER_SLOTS,
-  RLRC_STATE_FLOATS_PER_FRAME,
-  type RLRCBallFrameState120Hz,
-  type RLRCCarFrameState120Hz,
-  type RLRCFrame120Hz,
-  type RLRCPlayerSlotMeta,
-  type RLRCQuat,
-  type RLRCSynthesizedCarControls,
-  type RLRCVec3,
+  RLRC_BOOST_PAD_COUNT, RLRC_MAX_PLAYER_SLOTS, RLRC_STATE_FLOATS_PER_FRAME,
+  type RLRCBallFrameState120Hz, type RLRCCarFrameState120Hz, type RLRCFrame120Hz,
+  type RLRCPlayerSlotMeta, type RLRCQuat, type RLRCSynthesizedCarControls, type RLRCVec3,
 } from '../RLRCReplayTypes.ts';
 
 export interface RLRCPlaybackPhysicsPort {
@@ -44,6 +24,10 @@ export interface RLRCPlaybackPhysicsPort {
 
 export interface RLRCPlaybackArenaPort {
   playerCarIndex?: number;
+  ball?: { visible?: boolean } | null;
+  indicatorRing?: { visible?: boolean } | null;
+  indicatorHeightRing?: { visible?: boolean } | null;
+  ballSpeedTrail?: { reset?: () => void } | null;
   cars?: Array<{ visible?: boolean } | null | undefined>;
   ensureOpponent?: () => Promise<void> | void;
   ensureCar?: (slot: number, team: number, visualId: string) => unknown;
@@ -59,6 +43,8 @@ export interface RLRCPlaybackArenaPort {
 
 export interface RLRCPlaybackRuntimePort {
   playerCarIndex?: number;
+  playerControls?: RLRCSynthesizedCarControls | Record<string, unknown> | null;
+  playerThrottle?: number;
   physics?: RLRCPlaybackPhysicsPort | null;
   arena?: RLRCPlaybackArenaPort | null;
   interpolator?: { prevState: Float32Array; currState: Float32Array; alpha: number } | null;
@@ -81,115 +67,92 @@ export interface RLRCFrameSyncSummary {
   readonly activeCarCount: number;
 }
 
-const NEUTRAL_CONTROLS: RLRCSynthesizedCarControls = Object.freeze({
+const NEUTRAL_CTRL: RLRCSynthesizedCarControls = Object.freeze({
   throttle: 0, steer: 0, pitch: 0, yaw: 0, roll: 0, jump: false, boost: false, handbrake: false,
 });
+const TEAM_HEX: readonly [string, string] = ['#38bdf8', '#fb923c'];
 
-const DEFAULT_TEAM_HEX: readonly [string, string] = ['#38bdf8', '#fb923c'];
-
-export function writeQuaternionBasisToSlice(
-  q: RLRCQuat,
-  target: Float32Array,
-  base: number
-): void {
-  const qx = Number.isFinite(q.x) ? q.x : 0;
-  const qy = Number.isFinite(q.y) ? q.y : 0;
-  const qz = Number.isFinite(q.z) ? q.z : 0;
-  const qw = Number.isFinite(q.w) ? q.w : 1;
-  const normSq = qx * qx + qy * qy + qz * qz + qw * qw;
-  if (normSq < 1e-8) {
-    target[base] = 1; target[base + 1] = 0; target[base + 2] = 0;
-    target[base + 3] = 0; target[base + 4] = 1; target[base + 5] = 0;
-    target[base + 6] = 0; target[base + 7] = 0; target[base + 8] = 1;
+export function writeQuaternionBasisToSlice(q: RLRCQuat, d: Float32Array, b: number): void {
+  const qx = Number.isFinite(q.x) ? q.x : 0, qy = Number.isFinite(q.y) ? q.y : 0;
+  const qz = Number.isFinite(q.z) ? q.z : 0, qw = Number.isFinite(q.w) ? q.w : 1;
+  const nSq = qx * qx + qy * qy + qz * qz + qw * qw;
+  if (nSq < 1e-8) {
+    d[b] = 1; d[b + 1] = 0; d[b + 2] = 0; d[b + 3] = 0; d[b + 4] = 1; d[b + 5] = 0; d[b + 6] = 0; d[b + 7] = 0; d[b + 8] = 1;
     return;
   }
-  const inv = 1.0 / Math.sqrt(normSq);
-  const x = qx * inv, y = qy * inv, z = qz * inv, w = qw * inv;
-  const x2 = x + x, y2 = y + y, z2 = z + z;
-  const xx = x * x2, xy = x * y2, xz = x * z2;
-  const yy = y * y2, yz = y * z2, zz = z * z2;
-  const wx = w * x2, wy = w * y2, wz = w * z2;
-
-  target[base] = 1 - (yy + zz);
-  target[base + 1] = xy + wz;
-  target[base + 2] = xz - wy;
-  target[base + 3] = xy - wz;
-  target[base + 4] = 1 - (xx + zz);
-  target[base + 5] = yz + wx;
-  target[base + 6] = xz + wy;
-  target[base + 7] = yz - wx;
-  target[base + 8] = 1 - (xx + yy);
+  const k = 1.0 / Math.sqrt(nSq);
+  const x = qx * k, y = qy * k, z = qz * k, w = qw * k, x2 = x + x, y2 = y + y, z2 = z + z;
+  const xx = x * x2, xy = x * y2, xz = x * z2, yy = y * y2, yz = y * z2, zz = z * z2, wx = w * x2, wy = w * y2, wz = w * z2;
+  d[b] = 1 - (yy + zz); d[b + 1] = xy + wz; d[b + 2] = xz - wy;
+  d[b + 3] = xy - wz; d[b + 4] = 1 - (xx + zz); d[b + 5] = yz + wx;
+  d[b + 6] = xz + wy; d[b + 7] = yz - wx; d[b + 8] = 1 - (xx + yy);
 }
 
-function writeVec3(v: RLRCVec3, dst: Float32Array, off: number, fallbackZ = 0): void {
-  dst[off] = Number.isFinite(v.x) ? v.x : 0;
-  dst[off + 1] = Number.isFinite(v.y) ? v.y : 0;
-  dst[off + 2] = Number.isFinite(v.z) ? v.z : fallbackZ;
+function writeVec3(v: RLRCVec3, d: Float32Array, o: number, fz = 0): void {
+  d[o] = Number.isFinite(v.x) ? v.x : 0;
+  d[o + 1] = Number.isFinite(v.y) ? v.y : 0;
+  d[o + 2] = Number.isFinite(v.z) ? v.z : fz;
 }
 
-export function writeBallFrameToSlice(
-  ball: RLRCBallFrameState120Hz,
-  dst18: Float32Array
-): void {
-  dst18.fill(0);
+export function writeBallFrameToSlice(ball: RLRCBallFrameState120Hz, d: Float32Array): void {
+  d.fill(0);
   if (!ball.entityActive) {
-    dst18[BALL_STATE_OFFSETS.POS + 2] = 93.15;
-    dst18[BALL_STATE_OFFSETS.FWD] = 1;
-    dst18[BALL_STATE_OFFSETS.RIGHT + 1] = 1;
-    dst18[BALL_STATE_OFFSETS.UP + 2] = 1;
+    d[BALL_STATE_OFFSETS.POS + 2] = -5000;
+    d[BALL_STATE_OFFSETS.FWD] = 1; d[BALL_STATE_OFFSETS.RIGHT + 1] = 1; d[BALL_STATE_OFFSETS.UP + 2] = 1;
     return;
   }
   const rb = ball.rigidBody;
-  writeVec3(rb.position, dst18, BALL_STATE_OFFSETS.POS, 93.15);
-  writeQuaternionBasisToSlice(rb.rotation, dst18, BALL_STATE_OFFSETS.ROT_MAT);
+  writeVec3(rb.position, d, BALL_STATE_OFFSETS.POS, 93.15);
+  writeQuaternionBasisToSlice(rb.rotation, d, BALL_STATE_OFFSETS.ROT_MAT);
   if (!rb.sleeping) {
-    writeVec3(rb.linearVelocity, dst18, BALL_STATE_OFFSETS.VEL, 0);
-    writeVec3(rb.angularVelocity, dst18, BALL_STATE_OFFSETS.ANG_VEL, 0);
+    writeVec3(rb.linearVelocity, d, BALL_STATE_OFFSETS.VEL);
+    writeVec3(rb.angularVelocity, d, BALL_STATE_OFFSETS.ANG_VEL);
   }
 }
 
-function writeParkedCarSlice(slot: number, dst40: Float32Array): void {
-  dst40.fill(0);
-  dst40[CAR_STATE_OFFSETS.POS] = -5500;
-  dst40[CAR_STATE_OFFSETS.POS + 1] = slot * 300;
-  dst40[CAR_STATE_OFFSETS.POS + 2] = -500;
-  dst40[CAR_STATE_OFFSETS.FWD] = 1;
-  dst40[CAR_STATE_OFFSETS.RIGHT + 1] = 1;
-  dst40[CAR_STATE_OFFSETS.UP + 2] = 1;
+function writeParkedCarSlice(slot: number, d: Float32Array): void {
+  d.fill(0);
+  d[CAR_STATE_OFFSETS.POS] = -5500; d[CAR_STATE_OFFSETS.POS + 1] = slot * 300; d[CAR_STATE_OFFSETS.POS + 2] = -500;
+  d[CAR_STATE_OFFSETS.FWD] = 1; d[CAR_STATE_OFFSETS.RIGHT + 1] = 1; d[CAR_STATE_OFFSETS.UP + 2] = 1;
 }
 
-export function writeCarFrameToSlice(
-  car: RLRCCarFrameState120Hz,
-  dst40: Float32Array
-): void {
-  if (!car.entityActive) {
-    writeParkedCarSlice(car.slotIndex, dst40);
-    return;
-  }
-  dst40.fill(0);
+export function writeCarFrameToSlice(car: RLRCCarFrameState120Hz, d: Float32Array): void {
+  if (!car.entityActive) { writeParkedCarSlice(car.slotIndex, d); return; }
+  d.fill(0);
   const rb = car.rigidBody;
-  writeVec3(rb.position, dst40, CAR_STATE_OFFSETS.POS, 17.01);
-  writeQuaternionBasisToSlice(rb.rotation, dst40, CAR_STATE_OFFSETS.FWD);
+  writeVec3(rb.position, d, CAR_STATE_OFFSETS.POS, 17.01);
+  writeQuaternionBasisToSlice(rb.rotation, d, CAR_STATE_OFFSETS.FWD);
   if (!rb.sleeping) {
-    writeVec3(rb.linearVelocity, dst40, CAR_STATE_OFFSETS.VEL, 0);
-    writeVec3(rb.angularVelocity, dst40, CAR_STATE_OFFSETS.ANG_VEL, 0);
+    writeVec3(rb.linearVelocity, d, CAR_STATE_OFFSETS.VEL);
+    writeVec3(rb.angularVelocity, d, CAR_STATE_OFFSETS.ANG_VEL);
   }
-  dst40[CAR_STATE_OFFSETS.BOOST] = Math.max(0, Math.min(100, Number(car.boostAmount) || 0));
-  dst40[CAR_STATE_OFFSETS.ON_GROUND] = car.isOnGround ? 1 : 0;
-  dst40[CAR_STATE_OFFSETS.SUPERSONIC] = car.isSupersonic ? 1 : 0;
-  dst40[CAR_STATE_OFFSETS.HAS_FLIP_OR_JUMP] = car.hasFlipOrJump ? 1 : 0;
-  dst40[CAR_STATE_OFFSETS.IS_BOOSTING] =
-    car.activeFlags.boostActive || car.controls.boost ? 1 : 0;
-  dst40[CAR_STATE_OFFSETS.IS_FLIPPING] = car.activeFlags.dodgeActive ? 1 : 0;
-
-  const steerRad = (Number(car.controls.steer) || 0) * 0.5235988;
+  d[CAR_STATE_OFFSETS.BOOST] = Math.max(0, Math.min(100, Number(car.boostAmount) || 0));
+  d[CAR_STATE_OFFSETS.ON_GROUND] = car.isOnGround ? 1 : 0;
+  d[CAR_STATE_OFFSETS.SUPERSONIC] = car.isSupersonic ? 1 : 0;
+  d[CAR_STATE_OFFSETS.HAS_FLIP_OR_JUMP] = car.hasFlipOrJump ? 1 : 0;
+  d[CAR_STATE_OFFSETS.IS_BOOSTING] = car.activeFlags.boostActive || car.controls.boost ? 1 : 0;
+  d[CAR_STATE_OFFSETS.IS_FLIPPING] = car.activeFlags.dodgeActive ? 1 : 0;
+  const steer = (Number(car.controls.steer) || 0) * 0.5235988;
   for (let w = 0; w < 4; w++) {
-    const wBase = CAR_STATE_OFFSETS.WHEELS + w * 3;
-    dst40[wBase] = car.isOnGround ? 18.0 : 35.0;
-    dst40[wBase + 1] = w < 2 ? steerRad : 0;
-    dst40[wBase + 2] = car.isOnGround ? 1 : 0;
+    const wb = CAR_STATE_OFFSETS.WHEELS + w * 3;
+    d[wb] = car.isOnGround ? 18.0 : 35.0; d[wb + 1] = w < 2 ? steer : 0; d[wb + 2] = car.isOnGround ? 1 : 0;
   }
-  dst40[CAR_STATE_OFFSETS.GROUND_NORMAL + 2] = 1;
+  d[CAR_STATE_OFFSETS.GROUND_NORMAL + 2] = 1;
+}
+
+function findCar(cars: readonly RLRCCarFrameState120Hz[], s: number): RLRCCarFrameState120Hz | null {
+  return (s < cars.length && cars[s]?.slotIndex === s ? cars[s] : cars.find((c) => c.slotIndex === s)) || null;
+}
+
+function writeBoostPads(cds: Float32Array | ArrayLike<number> | undefined, buf: Float32Array): void {
+  const n = Math.min(RLRC_BOOST_PAD_COUNT, cds?.length || 0);
+  for (let i = 0; i < RLRC_BOOST_PAD_COUNT; i++) {
+    const off = BOOST_PAD_STATES_OFFSET + i * BOOST_PAD_STATE_STRIDE;
+    if (off + 1 >= buf.length) break;
+    const cd = i < n ? Math.max(0, Number(cds![i]) || 0) : 0;
+    buf[off + BOOST_PAD_OFFSETS.IS_ACTIVE] = cd <= 1e-4 ? 1 : 0;
+    buf[off + BOOST_PAD_OFFSETS.COOLDOWN] = cd;
+  }
 }
 
 export function buildCompactSnapshotFromRLRCFrame(
@@ -197,137 +160,95 @@ export function buildCompactSnapshotFromRLRCFrame(
   out: Float32Array = new Float32Array(RLRC_STATE_FLOATS_PER_FRAME)
 ): Float32Array {
   out.fill(0);
-  let maxSlotPlusOne = 1;
-  for (let i = 0; i < frame.cars.length; i++) {
-    const c = frame.cars[i];
-    if (c?.entityActive && c.slotIndex >= 0 && c.slotIndex < MAX_CARS) {
-      maxSlotPlusOne = Math.max(maxSlotPlusOne, c.slotIndex + 1);
-    }
+  let maxSlot = 1;
+  for (const c of frame.cars) {
+    if (c?.entityActive && c.slotIndex >= 0 && c.slotIndex < MAX_CARS) maxSlot = Math.max(maxSlot, c.slotIndex + 1);
   }
   out[SIM_OFFSETS.TICK] = Math.max(16, frame.frameIndex120Hz + 16);
-  out[SIM_OFFSETS.NUM_CARS] = maxSlotPlusOne;
+  out[SIM_OFFSETS.NUM_CARS] = maxSlot;
   out[SIM_OFFSETS.NUM_PADS] = NUM_BOOST_PADS;
-
-  writeBallFrameToSlice(
-    frame.ball,
-    out.subarray(SIM_OFFSETS.BALL, SIM_OFFSETS.BALL + BALL_STATE_STRIDE)
-  );
-
-  for (let slot = 0; slot < MAX_CARS; slot++) {
-    const carOff = SIM_OFFSETS.CARS + slot * CAR_STATE_STRIDE;
-    const carSlice = out.subarray(carOff, carOff + CAR_STATE_STRIDE);
-    const carFrame =
-      slot < frame.cars.length && frame.cars[slot]?.slotIndex === slot
-        ? frame.cars[slot]
-        : frame.cars.find((c) => c.slotIndex === slot) || null;
-    if (carFrame) writeCarFrameToSlice(carFrame, carSlice);
-    else writeParkedCarSlice(slot, carSlice);
+  writeBallFrameToSlice(frame.ball, out.subarray(SIM_OFFSETS.BALL, SIM_OFFSETS.BALL + BALL_STATE_STRIDE));
+  for (let s = 0; s < MAX_CARS; s++) {
+    const off = SIM_OFFSETS.CARS + s * CAR_STATE_STRIDE;
+    const slice = out.subarray(off, off + CAR_STATE_STRIDE);
+    const cf = findCar(frame.cars, s);
+    if (cf) writeCarFrameToSlice(cf, slice);
+    else writeParkedCarSlice(s, slice);
   }
-
-  const padLen = Math.min(NUM_BOOST_PADS, frame.boostPadCooldowns?.length || 0);
-  for (let p = 0; p < NUM_BOOST_PADS; p++) {
-    const padOff = BOOST_PAD_STATES_OFFSET + p * BOOST_PAD_STATE_STRIDE;
-    const cd = p < padLen ? Math.max(0, frame.boostPadCooldowns[p] || 0) : 0;
-    out[padOff + BOOST_PAD_OFFSETS.IS_ACTIVE] = cd <= 1e-4 ? 1 : 0;
-    out[padOff + BOOST_PAD_OFFSETS.COOLDOWN] = cd;
-  }
-  out[EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING] = frame.ball.rigidBody.sleeping ? 1 : 0;
+  writeBoostPads(frame.boostPadCooldowns, out);
+  out[EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING] = !frame.ball.entityActive || frame.ball.rigidBody.sleeping ? 1 : 0;
   return out;
 }
 
 export class RLRCPlaybackSyncApplier {
-  private readonly _rosterBySlot = new Map<number, RLRCPlayerSlotMeta>();
-  private readonly _activeSlotFlags = new Uint8Array(MAX_CARS);
-  private readonly _scratchBallSlice = new Float32Array(BALL_STATE_STRIDE);
-  private readonly _scratchCarSlice = new Float32Array(CAR_STATE_STRIDE);
-  private _lastAppliedFrameIndex = -1;
+  private readonly _roster = new Map<number, RLRCPlayerSlotMeta>();
+  private readonly _active = new Uint8Array(MAX_CARS);
+  private readonly _ballBuf = new Float32Array(BALL_STATE_STRIDE);
+  private readonly _carBuf = new Float32Array(CAR_STATE_STRIDE);
+  private _prevBuf: Float32Array | null = null;
+  private _currBuf: Float32Array | null = null;
+  private _lastBallAct: boolean | null = null;
+  private _lastFrame = -1;
 
-  public configureRoster(
-    roster: readonly RLRCPlayerSlotMeta[],
-    runtime: RLRCPlaybackRuntimePort | null
-  ): void {
-    this._rosterBySlot.clear();
-    this._activeSlotFlags.fill(0);
-    this._lastAppliedFrameIndex = -1;
-    for (const meta of roster) {
-      if (meta.slotIndex >= 0 && meta.slotIndex < RLRC_MAX_PLAYER_SLOTS) {
-        this._rosterBySlot.set(meta.slotIndex, meta);
-      }
+  public configureRoster(roster: readonly RLRCPlayerSlotMeta[], runtime: RLRCPlaybackRuntimePort | null): void {
+    this._roster.clear();
+    this.resetLifecycleTracking();
+    for (const m of roster) {
+      if (m.slotIndex >= 0 && m.slotIndex < RLRC_MAX_PLAYER_SLOTS) this._roster.set(m.slotIndex, m);
     }
-    const sim = runtime?.physics;
-    const arena = runtime?.arena;
-    if (sim) {
-      for (let slot = MAX_CARS - 1; slot >= 0; slot--) {
-        if (sim.isCarSlotActive?.(slot)) sim.removeCar?.(slot);
-      }
-    }
-    if (arena?.cars) {
-      for (let slot = 0; slot < arena.cars.length; slot++) {
-        if (arena.cars[slot]) arena.cars[slot]!.visible = false;
-        arena.resetCarBoosts?.(slot);
-        arena.carDemolitions?.[slot]?.stop?.();
-        arena.supersonicWheelTrailSystem?.resetCar?.(slot);
-      }
-    }
-    arena?.resetBoostPads?.();
+    const sim = runtime?.physics, a = runtime?.arena;
+    if (sim) for (let s = MAX_CARS - 1; s >= 0; s--) if (sim.isCarSlotActive?.(s)) sim.removeCar?.(s);
+    if (a?.cars) for (let s = 0; s < a.cars.length; s++) this._resetCarVis(a, s, false);
+    this._syncBallVis(a, true, true);
+    a?.resetBoostPads?.();
   }
 
   public resetLifecycleTracking(): void {
-    this._activeSlotFlags.fill(0);
-    this._lastAppliedFrameIndex = -1;
+    this._active.fill(0); this._lastBallAct = null; this._lastFrame = -1;
+    this._prevBuf?.fill(0); this._currBuf?.fill(0);
   }
 
-  public getLastAppliedFrameIndex(): number {
-    return this._lastAppliedFrameIndex;
+  public getLastAppliedFrameIndex(): number { return this._lastFrame; }
+  public isSlotCurrentlyActive(s: number): boolean { return s >= 0 && s < MAX_CARS && this._active[s] === 1; }
+
+  private _syncBallVis(a: RLRCPlaybackArenaPort | null | undefined, vis: boolean, resetTrail: boolean): void {
+    if (!a) return;
+    if (a.ball) a.ball.visible = vis;
+    if (a.indicatorRing) a.indicatorRing.visible = vis;
+    if (a.indicatorHeightRing) a.indicatorHeightRing.visible = vis;
+    if (resetTrail) a.ballSpeedTrail?.reset?.();
   }
 
-  public isSlotCurrentlyActive(slotIndex: number): boolean {
-    return slotIndex >= 0 && slotIndex < MAX_CARS && this._activeSlotFlags[slotIndex] === 1;
+  private _resetCarVis(a: RLRCPlaybackArenaPort | null | undefined, s: number, vis: boolean): void {
+    if (!a) return;
+    if (a.cars?.[s]) a.cars[s]!.visible = vis;
+    if (!vis) a.resetCarBoosts?.(s);
+    a.carDemolitions?.[s]?.stop?.();
+    a.supersonicWheelTrailSystem?.resetCar?.(s);
   }
 
-  private _spawnSlotEntity(
-    slot: number,
-    runtime: RLRCPlaybackRuntimePort,
-    meta: RLRCPlayerSlotMeta | undefined
-  ): void {
-    const team = meta?.team === 1 ? 1 : 0;
-    const hitboxId = meta?.hitboxId || 'hitbox-octane';
-    const visualId = meta?.visualId || 'fennec';
-    const colorHex = meta?.primaryColorHex || DEFAULT_TEAM_HEX[team];
+  private _spawnSlot(s: number, rt: RLRCPlaybackRuntimePort, m: RLRCPlayerSlotMeta | undefined): void {
+    const team = m?.team === 1 ? 1 : 0, hb = m?.hitboxId || 'hitbox-octane';
+    const vis = m?.visualId || 'fennec', col = m?.primaryColorHex || TEAM_HEX[team];
+    rt.physics?.addCarAtSlot?.(s, team, hb);
+    rt.physics?.setCarTeam?.(s, team);
+    rt.physics?.setCarHitbox?.(s, hb);
+    const a = rt.arena;
+    if (!a) return;
+    if (s === 1) void a.ensureOpponent?.();
+    a.ensureCar?.(s, team, vis); a.setCarTeam?.(s, team); a.setCarColor?.(s, col);
+    a.setCarLoadout?.(s, { name: m?.userName || `Player ${s + 1}`, colorHex: col });
+    this._resetCarVis(a, s, true);
+  }
 
-    runtime.physics?.addCarAtSlot?.(slot, team, hitboxId);
-    runtime.physics?.setCarTeam?.(slot, team);
-    runtime.physics?.setCarHitbox?.(slot, hitboxId);
-
-    const arena = runtime.arena;
-    if (arena) {
-      if (slot === 1) void arena.ensureOpponent?.();
-      arena.ensureCar?.(slot, team, visualId);
-      arena.setCarTeam?.(slot, team);
-      arena.setCarColor?.(slot, colorHex);
-      arena.setCarLoadout?.(slot, { name: meta?.userName || `Player ${slot + 1}`, colorHex });
-      if (arena.cars?.[slot]) arena.cars[slot]!.visible = true;
-      arena.carDemolitions?.[slot]?.stop?.();
-      arena.supersonicWheelTrailSystem?.resetCar?.(slot);
+  private _despawnSlot(s: number, rt: RLRCPlaybackRuntimePort): void {
+    const sim = rt.physics, off = SIM_OFFSETS.CARS + s * CAR_STATE_STRIDE;
+    if (sim?.isCarSlotActive?.(s)) sim.removeCar?.(s);
+    if (sim?.state && off + CAR_STATE_STRIDE <= sim.state.length) {
+      writeParkedCarSlice(s, sim.state.subarray(off, off + CAR_STATE_STRIDE));
     }
-  }
-
-  private _despawnSlotEntity(slot: number, runtime: RLRCPlaybackRuntimePort): void {
-    const sim = runtime.physics;
-    if (sim?.isCarSlotActive?.(slot)) sim.removeCar?.(slot);
-    const offset = SIM_OFFSETS.CARS + slot * CAR_STATE_STRIDE;
-    if (sim?.state && offset + CAR_STATE_STRIDE <= sim.state.length) {
-      writeParkedCarSlice(slot, sim.state.subarray(offset, offset + CAR_STATE_STRIDE));
-    }
-    sim?.setControls?.(slot, NEUTRAL_CONTROLS);
-
-    const arena = runtime.arena;
-    if (arena) {
-      if (arena.cars?.[slot]) arena.cars[slot]!.visible = false;
-      arena.resetCarBoosts?.(slot);
-      arena.carDemolitions?.[slot]?.stop?.();
-      arena.supersonicWheelTrailSystem?.resetCar?.(slot);
-    }
+    sim?.setControls?.(s, NEUTRAL_CTRL);
+    this._resetCarVis(rt.arena, s, false);
   }
 
   public applyFrame120Hz(
@@ -339,96 +260,106 @@ export class RLRCPlaybackSyncApplier {
     if (!runtime?.physics) {
       return { frameIndex120Hz: frame.frameIndex120Hz, activeSlotMask, spawnedSlotMask, removedSlotMask, activeCarCount };
     }
-
-    const sim = runtime.physics;
-    const arena = runtime.arena;
-    const smoothStep = Boolean(options.smoothStep);
-    const excludedMask = options.excludedSlotMask ?? 0;
-
-    if (typeof options.activePovSlotIndex === 'number' && options.activePovSlotIndex >= 0) {
-      runtime.playerCarIndex = options.activePovSlotIndex;
-      if (arena) arena.playerCarIndex = options.activePovSlotIndex;
+    const sim = runtime.physics, arena = runtime.arena, exMask = options.excludedSlotMask ?? 0;
+    const optPov = options.activePovSlotIndex;
+    const povSlot = typeof optPov === 'number' && optPov >= 0 ? optPov : Math.max(0, runtime.playerCarIndex ?? 0);
+    if (typeof optPov === 'number' && optPov >= 0) {
+      runtime.playerCarIndex = optPov;
+      if (arena) arena.playerCarIndex = optPov;
     }
     if (runtime.keyboard?.ballControlEnabled) runtime.keyboard.ballControlEnabled = false;
-    if (smoothStep && runtime.interpolator) {
-      runtime.interpolator.prevState.set(runtime.interpolator.currState);
-    }
+
+    const ballAct = Boolean(frame.ball.entityActive);
+    const ballChanged = this._lastBallAct !== null && this._lastBallAct !== ballAct;
+    this._lastBallAct = ballAct;
 
     if (options.syncBall !== false) {
-      writeBallFrameToSlice(frame.ball, this._scratchBallSlice);
-      sim.setBallState?.(this._scratchBallSlice);
+      writeBallFrameToSlice(frame.ball, this._ballBuf);
+      sim.setBallState?.(this._ballBuf);
+      if (sim.state.length >= SIM_OFFSETS.BALL + BALL_STATE_STRIDE) sim.state.set(this._ballBuf, SIM_OFFSETS.BALL);
       if (sim.state.length > EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING) {
-        sim.state[EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING] = frame.ball.rigidBody.sleeping ? 1 : 0;
+        sim.state[EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING] = !ballAct || frame.ball.rigidBody.sleeping ? 1 : 0;
       }
+      this._syncBallVis(arena, ballAct, !ballAct || ballChanged);
     }
 
-    let maxSlotPlusOne = 1;
-    for (let slot = 0; slot < RLRC_MAX_PLAYER_SLOTS; slot++) {
-      if ((excludedMask & (1 << slot)) !== 0) {
-        if (sim.isCarSlotActive?.(slot)) {
-          activeSlotMask |= 1 << slot;
-          activeCarCount++;
-          maxSlotPlusOne = Math.max(maxSlotPlusOne, slot + 1);
+    let maxSlot = 1, povCtrl: RLRCSynthesizedCarControls = NEUTRAL_CTRL;
+    for (let s = 0; s < RLRC_MAX_PLAYER_SLOTS; s++) {
+      if ((exMask & (1 << s)) !== 0) {
+        if (sim.isCarSlotActive?.(s)) {
+          activeSlotMask |= 1 << s; activeCarCount++; maxSlot = Math.max(maxSlot, s + 1);
         }
         continue;
       }
-      const carFrame =
-        slot < frame.cars.length && frame.cars[slot]?.slotIndex === slot
-          ? frame.cars[slot]
-          : frame.cars.find((c) => c.slotIndex === slot) || null;
-      const shouldBeActive = Boolean(carFrame?.entityActive);
-      const wasActive = this._activeSlotFlags[slot] === 1 && (sim.isCarSlotActive?.(slot) ?? true);
+      const cf = findCar(frame.cars, s);
+      const wantAct = Boolean(cf?.entityActive);
+      const wasAct = this._active[s] === 1 && (sim.isCarSlotActive?.(s) ?? true);
 
-      if (shouldBeActive && !wasActive) {
-        this._spawnSlotEntity(slot, runtime, this._rosterBySlot.get(slot));
-        this._activeSlotFlags[slot] = 1;
-        spawnedSlotMask |= 1 << slot;
-      } else if (!shouldBeActive && (wasActive || (sim.isCarSlotActive?.(slot) ?? false))) {
-        this._despawnSlotEntity(slot, runtime);
-        this._activeSlotFlags[slot] = 0;
-        removedSlotMask |= 1 << slot;
+      if (wantAct && !wasAct) {
+        this._spawnSlot(s, runtime, this._roster.get(s));
+        this._active[s] = 1; spawnedSlotMask |= 1 << s;
+      } else if (!wantAct && (wasAct || (sim.isCarSlotActive?.(s) ?? false))) {
+        this._despawnSlot(s, runtime);
+        this._active[s] = 0; removedSlotMask |= 1 << s;
       }
 
-      if (shouldBeActive && carFrame) {
-        writeCarFrameToSlice(carFrame, this._scratchCarSlice);
-        sim.setCarState?.(slot, this._scratchCarSlice);
-        sim.setControls?.(slot, carFrame.controls || NEUTRAL_CONTROLS);
-        if (arena?.cars?.[slot]) arena.cars[slot]!.visible = true;
-        activeSlotMask |= 1 << slot;
-        activeCarCount++;
-        maxSlotPlusOne = Math.max(maxSlotPlusOne, slot + 1);
+      if (wantAct && cf) {
+        const ctrl = cf.controls || NEUTRAL_CTRL;
+        writeCarFrameToSlice(cf, this._carBuf);
+        sim.setCarState?.(s, this._carBuf);
+        const off = SIM_OFFSETS.CARS + s * CAR_STATE_STRIDE;
+        if (sim.state.length >= off + CAR_STATE_STRIDE) sim.state.set(this._carBuf, off);
+        sim.setControls?.(s, ctrl);
+        if (s === povSlot) povCtrl = ctrl;
+        if (arena?.cars?.[s]) arena.cars[s]!.visible = true;
+        activeSlotMask |= 1 << s; activeCarCount++; maxSlot = Math.max(maxSlot, s + 1);
       }
+    }
+
+    if ((exMask & (1 << povSlot)) === 0) {
+      if (runtime.playerControls && typeof runtime.playerControls === 'object') Object.assign(runtime.playerControls, povCtrl);
+      else runtime.playerControls = { ...povCtrl };
+      runtime.playerThrottle = Number(povCtrl.throttle) || 0;
     }
 
     sim.state[SIM_OFFSETS.TICK] = Math.max(16, frame.frameIndex120Hz + 16);
-    sim.state[SIM_OFFSETS.NUM_CARS] = maxSlotPlusOne;
+    sim.state[SIM_OFFSETS.NUM_CARS] = maxSlot;
     sim.state[SIM_OFFSETS.NUM_PADS] = NUM_BOOST_PADS;
-
     if (options.syncBoostPads !== false && frame.boostPadCooldowns) {
       this.applyBoostPadCooldowns(frame.boostPadCooldowns, sim.state);
     }
-    if (runtime.interpolator) {
-      if (!smoothStep || spawnedSlotMask !== 0 || removedSlotMask !== 0) {
-        runtime.interpolator.prevState.set(sim.state);
-        runtime.interpolator.alpha = 0;
-      }
-      runtime.interpolator.currState.set(sim.state);
+
+    const len = sim.state.length;
+    if (!this._prevBuf || this._prevBuf.length !== len) {
+      this._prevBuf = new Float32Array(len); this._currBuf = new Float32Array(len);
     }
-    this._lastAppliedFrameIndex = frame.frameIndex120Hz;
+    const prev = this._prevBuf, curr = this._currBuf!;
+    const canInterp =
+      Boolean(options.smoothStep) &&
+      this._lastFrame >= 0 &&
+      Math.abs(frame.frameIndex120Hz - this._lastFrame) <= 4 &&
+      spawnedSlotMask === 0 &&
+      removedSlotMask === 0 &&
+      !ballChanged;
+
+    if (canInterp) {
+      if (frame.frameIndex120Hz !== this._lastFrame) prev.set(curr);
+      curr.set(sim.state);
+    } else {
+      prev.set(sim.state); curr.set(sim.state);
+    }
+
+    const interp = runtime.interpolator;
+    if (interp) {
+      interp.prevState.set(prev.subarray(0, Math.min(interp.prevState.length, prev.length)));
+      interp.currState.set(curr.subarray(0, Math.min(interp.currState.length, curr.length)));
+      if (!canInterp) interp.alpha = 0;
+    }
+    this._lastFrame = frame.frameIndex120Hz;
     return { frameIndex120Hz: frame.frameIndex120Hz, activeSlotMask, spawnedSlotMask, removedSlotMask, activeCarCount };
   }
 
-  public applyBoostPadCooldowns(
-    cooldowns: Float32Array | ArrayLike<number>,
-    stateBuffer: Float32Array
-  ): void {
-    const count = Math.min(RLRC_BOOST_PAD_COUNT, cooldowns.length);
-    for (let i = 0; i < RLRC_BOOST_PAD_COUNT; i++) {
-      const padOff = BOOST_PAD_STATES_OFFSET + i * BOOST_PAD_STATE_STRIDE;
-      if (padOff + 1 >= stateBuffer.length) break;
-      const cd = i < count ? Math.max(0, Number(cooldowns[i]) || 0) : 0;
-      stateBuffer[padOff + BOOST_PAD_OFFSETS.IS_ACTIVE] = cd <= 1e-4 ? 1 : 0;
-      stateBuffer[padOff + BOOST_PAD_OFFSETS.COOLDOWN] = cd;
-    }
+  public applyBoostPadCooldowns(cooldowns: Float32Array | ArrayLike<number>, stateBuffer: Float32Array): void {
+    writeBoostPads(cooldowns, stateBuffer);
   }
 }

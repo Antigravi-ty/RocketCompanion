@@ -7,6 +7,7 @@ import {
   hudStore,
   useAppStore,
   useExperimentalMultiBotsStore,
+  useReplayToRcsImporterStore,
   useReplayViewerStore,
   globalHudTransientChannel,
 } from '../../runtimeUiPort.ts';
@@ -30,15 +31,38 @@ export class TelemetryStage implements PipelineStage {
     }
   }
 
-  private _resolveCarHudTelemetry(carIndex: number): CarHudTelemetry {
+  private _resolveCarHudTelemetry(
+    carIndex: number,
+    rlrcCurrentFrame?: {
+      cars?: ReadonlyArray<{
+        slotIndex: number;
+        boostAmount?: number;
+        entityActive?: boolean;
+      }>;
+    } | null,
+  ): CarHudTelemetry {
     const r = this.runtime;
     const cv =
       r?.interpolator?.getCurrCarStateView?.(carIndex) ||
       r?.physics?.getCarStateView?.(carIndex);
-    const boostAmount = cv ? Math.max(0, Math.min(100, Math.round(cv.boost || 0))) : 33;
-    const isDemolished = Boolean(cv && (cv.isDemoed || cv.demoRespawnTimer > 0));
+    const rlrcCar = rlrcCurrentFrame
+      ? (carIndex < (rlrcCurrentFrame.cars?.length ?? 0) &&
+        rlrcCurrentFrame.cars?.[carIndex]?.slotIndex === carIndex
+          ? rlrcCurrentFrame.cars[carIndex]
+          : rlrcCurrentFrame.cars?.find?.((c) => c.slotIndex === carIndex))
+      : null;
+    const rawBoost =
+      rlrcCar && typeof rlrcCar.boostAmount === 'number'
+        ? rlrcCar.boostAmount
+        : cv
+          ? cv.boost || 0
+          : 33;
+    const boostAmount = Math.max(0, Math.min(100, Math.round(rawBoost)));
+    const isDemolished =
+      Boolean(cv && (cv.isDemoed || cv.demoRespawnTimer > 0)) ||
+      Boolean(rlrcCar && !rlrcCar.entityActive);
     const demoRespawnRemainingSec = isDemolished
-      ? Math.max(0, Number((cv.demoRespawnTimer || 0).toFixed(2)))
+      ? Math.max(0, Number((cv?.demoRespawnTimer || 0).toFixed(2)))
       : 0;
 
     if (isDemolished) {
@@ -64,9 +88,16 @@ export class TelemetryStage implements PipelineStage {
     const matchMode = r?.match?.state?.mode || appState?.matchMode || 'freeplay';
     const freeplayMode = r?.modeManager?.modes?.get?.('freeplay') || null;
     const replayViewer = freeplayMode?.standaloneReplayViewer || null;
-    const isReplayViewerLoaded =
+    const rlrcSession = freeplayMode?.rlrcReplaySession || null;
+    const isStandaloneLoaded =
       (matchMode === 'freeplay' || matchMode === 'replay-viewer') &&
       Boolean(replayViewer?.hasLoadedReplay);
+    const isRlrcLoaded =
+      (matchMode === 'freeplay' || matchMode === 'replay-viewer') &&
+      Boolean(rlrcSession?.hasLoadedReplay);
+    const useRlrcSession =
+      isRlrcLoaded && Boolean(rlrcSession?.isActive || !isStandaloneLoaded);
+    const isReplayViewerLoaded = isStandaloneLoaded || isRlrcLoaded;
 
     if (
       !isReplayViewerLoaded &&
@@ -85,10 +116,40 @@ export class TelemetryStage implements PipelineStage {
       r.replayPovCarIndex >= 0;
 
     const viewerRoster = replayViewer?.rosterSubController;
+    const rlrcStoreState = useRlrcSession ? useReplayToRcsImporterStore.getState() : null;
+    const rlrcRosterMeta = useRlrcSession ? (rlrcSession?.session?.roster ?? []) : [];
+    const rlrcActivePovIdx = useRlrcSession
+      ? typeof rlrcSession?.activePovSlotIndex === 'number'
+        ? rlrcSession.activePovSlotIndex
+        : (rlrcStoreState?.activePovCarIndex ?? 0)
+      : 0;
+    const rlrcActivePovTeam = useRlrcSession
+      ? (rlrcRosterMeta.find((m: { slotIndex: number }) => m.slotIndex === rlrcActivePovIdx)
+          ?.team ??
+        rlrcStoreState?.activePovTeam ??
+        0)
+      : 0;
+    const rlrcResolvedRoster = useRlrcSession
+      ? rlrcRosterMeta.map(
+          (m: { slotIndex: number; userName: string; team: number }) => ({
+            carIndex: m.slotIndex,
+            name: m.userName || `Player ${m.slotIndex + 1}`,
+            team: m.team === 1 ? 1 : 0,
+            isSelf: m.slotIndex === rlrcActivePovIdx,
+          }),
+        )
+      : undefined;
+    const rlrcCurrentFrame =
+      useRlrcSession && !rlrcSession?.isIntervening
+        ? (rlrcSession?.session?.frames120Hz?.[rlrcSession?.cursorFrame120Hz ?? 0] ?? null)
+        : null;
+
     const activeCameraCar: number = isReplayViewerLoaded
-      ? typeof viewerRoster?.activePovCarIndex === 'number'
-        ? viewerRoster.activePovCarIndex
-        : r?.playerCarIndex ?? 0
+      ? useRlrcSession
+        ? rlrcActivePovIdx
+        : typeof viewerRoster?.activePovCarIndex === 'number'
+          ? viewerRoster.activePovCarIndex
+          : r?.playerCarIndex ?? 0
       : isReplayPov
         ? r.replayPovCarIndex
         : typeof context?.activeCar === 'number'
@@ -120,12 +181,20 @@ export class TelemetryStage implements PipelineStage {
         matchMode,
         isReplayViewerLoaded,
         replayViewerState: isReplayViewerLoaded
-          ? useReplayViewerStore.getState().viewerState
+          ? useRlrcSession
+            ? rlrcStoreState?.viewerState
+            : useReplayViewerStore.getState().viewerState
           : undefined,
-        replayViewerActivePovTeam: viewerRoster?.activePovTeam,
-        replayViewerLocalTeam: viewerRoster?.localTeam,
-        replayViewerActivePovCarIndex: viewerRoster?.activePovCarIndex,
-        replayViewerResolvedRoster: viewerRoster?.resolvedRoster,
+        replayViewerActivePovTeam: useRlrcSession
+          ? rlrcActivePovTeam
+          : viewerRoster?.activePovTeam,
+        replayViewerLocalTeam: useRlrcSession ? rlrcActivePovTeam : viewerRoster?.localTeam,
+        replayViewerActivePovCarIndex: useRlrcSession
+          ? rlrcActivePovIdx
+          : viewerRoster?.activePovCarIndex,
+        replayViewerResolvedRoster: useRlrcSession
+          ? rlrcResolvedRoster
+          : viewerRoster?.resolvedRoster,
         expPlayerParticipation: expStore?.playerParticipation,
         expSpawnedCars,
         rawRosterSnapshot:
@@ -167,7 +236,8 @@ export class TelemetryStage implements PipelineStage {
         ballVelX: ballView?.velX ?? 0,
         ballVelY: ballView?.velY ?? 0,
         ballVelZ: ballView?.velZ ?? 0,
-        resolveCarTelemetry: (carIdx) => this._resolveCarHudTelemetry(carIdx),
+        resolveCarTelemetry: (carIdx) =>
+          this._resolveCarHudTelemetry(carIdx, rlrcCurrentFrame),
       },
       {
         activeCameraCar,
