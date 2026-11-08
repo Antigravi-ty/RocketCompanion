@@ -87,16 +87,16 @@ export class ArenaVehicleLoadoutManager {
   public applySlotPaintOrColor(slot: number, fallbackTeamColor: number): void {
     const carRoot = this.registry.cars[slot];
     if (!carRoot) return;
-    if (this.carColors[slot] !== undefined && this.carColors[slot] !== null) {
-      this.setCarColor(slot, this.carColors[slot]);
-    } else if (this.carPaintFinishes[slot]) {
-      applyVehiclePaint(
-        carRoot,
-        this.registry.vehiclePresets[slot],
-        fallbackTeamColor,
-        this.carPaintFinishes[slot]
-      );
-    }
+    const activeColor =
+      this.carColors[slot] !== undefined && this.carColors[slot] !== null
+        ? this.carColors[slot]
+        : fallbackTeamColor;
+    applyVehiclePaint(
+      carRoot,
+      this.registry.vehiclePresets[slot],
+      activeColor,
+      this.carPaintFinishes[slot] || null
+    );
   }
 
   public setCarColor(carIndex: number, colorVal: string | number | null | undefined): void {

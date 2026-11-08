@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   FENNEC_DESCRIPTOR,
+  GLOBAL_VEHICLE_LAMPS_CONFIG,
   getVehicleDescriptor,
   vehicleTunerRuntimeFlags,
   wheelModifierRuntimeConfig,
@@ -292,7 +293,8 @@ export function updateVehicleBrakeLamps(
   if (!tailMats || tailMats.length === 0) return;
 
   const descriptor = getVehicleDescriptor(presetId) || FENNEC_DESCRIPTOR;
-  const lampsCfg = descriptor.lampsConfig || FENNEC_DESCRIPTOR.lampsConfig;
+  const lampsCfg =
+    GLOBAL_VEHICLE_LAMPS_CONFIG || descriptor.lampsConfig || FENNEC_DESCRIPTOR.lampsConfig;
 
   const minSpeed = Math.max(0, Number(lampsCfg.brakeMinSpeed ?? 30));
   const vFwd = Number(forwardSpeed) || 0;
