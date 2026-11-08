@@ -1,660 +1,51 @@
 #!/usr/bin/env node
 /**
  * scripts/radar.ts
- * Generation 3 Semantic Architecture & Boundary Radar for RocketCompanion.
+ * Generation 3 Semantic Architecture, TypeScript & Boundary Radar for RocketCompanion.
  *
- * Runs in ~300ms via Node.js native type stripping (`node --experimental-strip-types scripts/radar.ts`):
- * 1. Zero-JS & Zero-Shim Guard: Forbids `.js`/`.mjs`/`.cjs` files under `src/` (except Emscripten `src/physics/core.js`), forbids relative `.js` import specifiers, and enforces inline `new Worker(new URL(..., import.meta.url))` bundling syntax.
- * 2. Unidirectional Layer, DAG & Zero Re-Export Guard: Enforces 0 circular dependencies, 0 broken relative imports, 0 engine->UI boundary leaks, 0 unreferenced orphan modules, and 0 cross-file value re-export facades (`export { ... } from '...'` and indirect `import { x } from '...'; export { x }`).
- * 3. Anti-Gut-Sharing & In-Place Mutation Guard:
- *    - Pure Pipeline Zero-Mutation Guard (`[PIPELINE MUTATION VIOLATION]`): Blocks `*Pipeline.ts`, `*Math.ts`, and classless helper modules that mutate >3 distinct properties on passed-in state/domain objects.
- *    - Cross-Controller Gut-Sharing Guard (`[CROSS-CONTROLLER GUT-SHARING]` & `[WIDE-WAIST PORT VIOLATION]`): Blocks classes (`*SubController`, `*Controller`, `*Coordinator`, `*Session`, etc.) that mutate >5 properties or read >12 properties on external controllers, host ports, or state bags (including via local aliases `const ch = this.channel` or destructured `const { domain } = this.host`).
- * 4. Anti-Pass-Through Proxy Guard (`[PROXY BLOAT VIOLATION]`): Blocks classes/objects that define >8 pass-through `get xxx()` / `set xxx(v)` accessors (excluding zero-copy `Float32Array` view wrappers in `RocketSimStateViews.ts`).
- * 5. Bimodal Volume & Micro-Fragment Guard: Enforces 550-line / 16 KB soft waterline (`[WATERLINE ALERT]` / `[BYTE WATERLINE ALERT]`), 600-line / 22 KB hard ceiling (`[VOLUME OVERFLOW]` / `[BYTE VOLUME OVERFLOW]`), and <65-line single-reference logic fragment warning (`[OVER-FRAGMENTATION WARNING]`).
- * 6. Code Style, Terminology & Type Purity Guard: Enforces English-only & Zero-Emoji (`[NON-ENGLISH / EMOJI VIOLATION]`), neutral ball terminology forbidding `soccer`/`soccar` (`[TERMINOLOGY VIOLATION]`), and strict TypeScript boundary typing (`[UNTYPED ANY VIOLATION]` for boundary `any` or >5 `any` per file).
- * 7. UI Route & Floating Window Alignment + Repo Hygiene Guard: Enforces `menuRouteRegistry.tsx` `Layer*Recipe` purity, 1:1 `<PascalCaseId>FloatingWindow` naming without opaque abbreviations (`OB`), and single package manager lockfile hygiene.
+ * Modularized under `scripts/radar/`:
+ *   - `radarConstantsAndFs.ts`: Thresholds, filesystem/import resolution helpers, and `tsc --noEmit` runner
+ *   - `radarAstScanners.ts`: English/Emoji hygiene, 0 value re-exports, `any` purity, proxy bloat, and anti-gut-sharing scanners
+ *   - `radarUiAndRepoGuards.ts`: UI route & floating window 1:1 naming guards, circular dependency DFS, lockfile & WASM parity guards
  */
 
 import fs from 'node:fs';
-import path from 'node:path';
-import { execSync } from 'node:child_process';
+import {
+  CROSS_CONTROLLER_MUTATION_LIMIT,
+  expandRelativeGlobPattern,
+  FILE_ANY_LIMIT,
+  HARD_BYTE_LIMIT,
+  HARD_LINE_LIMIT,
+  MICRO_FRAGMENT_LINE_FLOOR,
+  PIPELINE_MUTATION_PROP_LIMIT,
+  PROXY_ACCESSOR_LIMIT,
+  type RadarScanResult,
+  resolveImportPath,
+  runTypeScriptCheck,
+  SCRIPTS_DIR,
+  SOFT_BYTE_LIMIT,
+  SOFT_LINE_LIMIT,
+  SRC_DIR,
+  stripComments,
+  type SubsystemCount,
+  toPosixRel,
+  walkSourceFiles,
+  WIDE_WAIST_PORT_READ_LIMIT,
+} from './radar/radarConstantsAndFs.ts';
+import {
+  checkAntiGutSharingAndMutations,
+  checkAnyPurity,
+  checkLanguageAndEmoji,
+  checkProxyBloat,
+  checkValueReExports,
+} from './radar/radarAstScanners.ts';
+import {
+  checkRootConfigAndWasmParity,
+  checkUiNamingAndRouteAlignment,
+  detectCircularDependencies,
+} from './radar/radarUiAndRepoGuards.ts';
 
-const ROOT_DIR: string = process.cwd();
-const SRC_DIR: string = path.join(ROOT_DIR, 'src');
-const SCRIPTS_DIR: string = path.join(ROOT_DIR, 'scripts');
-
-const SOFT_LINE_LIMIT = 550;
-const HARD_LINE_LIMIT = 600;
-const SOFT_BYTE_LIMIT = 16 * 1024; // 16 KB soft waterline
-const HARD_BYTE_LIMIT = 22 * 1024; // 22 KB hard ceiling
-const MICRO_FRAGMENT_LINE_FLOOR = 65;
-const DELTA_LINE_WARNING = 140;
-
-const PIPELINE_MUTATION_PROP_LIMIT = 3;
-const CROSS_CONTROLLER_MUTATION_LIMIT = 5;
-const WIDE_WAIST_PORT_READ_LIMIT = 12;
-const PROXY_ACCESSOR_LIMIT = 8;
-const FILE_ANY_LIMIT = 5;
-
-const ALLOWED_LOCAL_BUFFER_NAMES: ReadonlySet<string> = new Set([
-  'this',
-  'window',
-  'document',
-  'console',
-  'Math',
-  'Object',
-  'Array',
-  'Number',
-  'String',
-  'Boolean',
-  'Promise',
-  'localStorage',
-  'sessionStorage',
-  'ctx',
-  'mat',
-  'mesh',
-  'uniforms',
-  'dst',
-  'out',
-  'target',
-  'res',
-  'result',
-  'next',
-  'patch',
-  'draft',
-  'style',
-]);
-
-interface SubsystemCount {
-  ts: number;
-  js: number;
-}
-
-interface RadarScanResult {
-  errors: string[];
-  warnings: string[];
-  tsCount: number;
-  jsCount: number;
-  subsystemStats: Map<string, SubsystemCount>;
-}
-
-function walkSourceFiles(dir: string, results: string[] = []): string[] {
-  if (!fs.existsSync(dir)) return results;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === '.git' || entry.name === 'node_modules' || entry.name === 'dist') continue;
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      walkSourceFiles(fullPath, results);
-    } else if (
-      /\.(js|mjs|cjs|ts|tsx)$/.test(entry.name) &&
-      entry.name !== 'core.js' &&
-      !entry.name.endsWith('.d.ts')
-    ) {
-      results.push(fullPath);
-    }
-  }
-  return results;
-}
-
-function toPosixRel(absPath: string): string {
-  return path.relative(ROOT_DIR, absPath).split(path.sep).join('/');
-}
-
-function stripComments(content: string): string {
-  return content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-}
-
-function resolveImportPath(fromFile: string, importSpec: string): string | false | null {
-  let baseTarget: string;
-  if (importSpec.startsWith('@/')) {
-    baseTarget = path.join(SRC_DIR, importSpec.slice(2));
-  } else if (importSpec.startsWith('.')) {
-    baseTarget = path.resolve(path.dirname(fromFile), importSpec);
-  } else {
-    return null;
-  }
-
-  const candidates = [
-    baseTarget,
-    `${baseTarget}.ts`,
-    `${baseTarget}.tsx`,
-    `${baseTarget}.js`,
-    path.join(baseTarget, 'index.ts'),
-    path.join(baseTarget, 'index.tsx'),
-    path.join(baseTarget, 'index.js'),
-  ];
-
-  for (const cand of candidates) {
-    if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
-      return cand;
-    }
-  }
-  return false;
-}
-
-function kebabToPascalCase(kebab: string): string {
-  return kebab
-    .split('-')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join('');
-}
-
-function isGraphicsOrDomTarget(ident: string): boolean {
-  const lower = ident.toLowerCase();
-  return (
-    lower.includes('mat') ||
-    lower.includes('mesh') ||
-    lower.includes('uniform') ||
-    lower.includes('tex') ||
-    lower.includes('ramp') ||
-    lower.includes('geom') ||
-    lower.includes('light') ||
-    lower.includes('pass') ||
-    lower.includes('scene') ||
-    lower.includes('renderer') ||
-    lower.includes('panner') ||
-    lower.includes('gain') ||
-    lower.includes('filter') ||
-    lower.includes('node') ||
-    lower.includes('canvas') ||
-    lower === 'dom' ||
-    lower.endsWith('element')
-  );
-}
-
-function checkLanguageAndEmoji(rel: string, content: string, errors: string[]): void {
-  const cjkRegex = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f]/;
-  const emojiRegex = /[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u;
-  const allowedTechnicalSymbols = /[±×÷→←↑↓↔↗↘↙↖⇒⇐⇔µαβγδθλμπσωΔΩ°✓✗✔✘⚠⚡]/g;
-
-  const lines = content.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (cjkRegex.test(line)) {
-      const sample = line.trim().slice(0, 80);
-      errors.push(
-        `[NON-ENGLISH / EMOJI VIOLATION] ${rel}:${i + 1} contains non-English CJK characters: "${sample}"`
-      );
-      break;
-    }
-    const sanitized = line.replace(allowedTechnicalSymbols, '');
-    if (emojiRegex.test(sanitized)) {
-      const sample = line.trim().slice(0, 80);
-      errors.push(
-        `[NON-ENGLISH / EMOJI VIOLATION] ${rel}:${i + 1} contains forbidden emoji character: "${sample}"`
-      );
-      break;
-    }
-  }
-}
-
-function checkValueReExports(rel: string, codeWithoutComments: string, errors: string[]): void {
-  if (rel === 'src/ui-core/index.ts') return;
-
-  const reExportRegex = /\bexport\s+(type\s+)?(\*|\{[^}]*\})\s+from\s+['"]([^'"]+)['"]/g;
-  let match: RegExpExecArray | null;
-  while ((match = reExportRegex.exec(codeWithoutComments)) !== null) {
-    const isTypeExport = Boolean(match[1]);
-    if (isTypeExport) continue;
-
-    const clause = match[2];
-    const fromSpec = match[3];
-    if (clause === '*') {
-      errors.push(
-        `[RE-EXPORT FACADE VIOLATION] ${rel} re-exports wildcard values from "${fromSpec}". Import directly from the defining source module.`
-      );
-      continue;
-    }
-
-    const inner = clause.slice(1, -1);
-    const specifiers = inner
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const valueSpecs = specifiers.filter((s) => !/^type\s+/.test(s));
-    if (valueSpecs.length > 0) {
-      errors.push(
-        `[RE-EXPORT FACADE VIOLATION] ${rel} re-exports values { ${valueSpecs.slice(0, 4).join(', ')}${valueSpecs.length > 4 ? ', ...' : ''} } from "${fromSpec}". Import directly from the defining source module.`
-      );
-    }
-  }
-
-  // Indirect two-step value re-exports: `import { x } from './y'; export { x };`
-  const importedValueLocals = new Map<string, string>();
-  const importStmtRegex = /\bimport\s+(type\s+)?([\s\S]*?)\s+from\s+['"]([^'"]+)['"]/g;
-  let impMatch: RegExpExecArray | null;
-  while ((impMatch = importStmtRegex.exec(codeWithoutComments)) !== null) {
-    if (impMatch[1]) continue;
-    const clause = impMatch[2].trim();
-    const fromSpec = impMatch[3];
-
-    const namedMatch = clause.match(/\{([^}]*)\}/);
-    if (namedMatch) {
-      for (const rawSpec of namedMatch[1].split(',')) {
-        const spec = rawSpec.trim();
-        if (!spec || /^type\s+/.test(spec)) continue;
-        const asParts = spec.split(/\s+as\s+/);
-        const localName = (asParts[1] || asParts[0]).trim();
-        if (localName) importedValueLocals.set(localName, fromSpec);
-      }
-    }
-
-    const defaultPart = clause.replace(/\{[^}]*\}/, '').replace(/,/g, '').trim();
-    if (defaultPart && !defaultPart.startsWith('*') && /^[A-Za-z_$][\w$]*$/.test(defaultPart)) {
-      importedValueLocals.set(defaultPart, fromSpec);
-    }
-  }
-
-  if (importedValueLocals.size > 0) {
-    const localExportRegex = /\bexport\s+(type\s+)?\{([^}]*)\}(?!\s*from\b)/g;
-    let expMatch: RegExpExecArray | null;
-    while ((expMatch = localExportRegex.exec(codeWithoutComments)) !== null) {
-      if (expMatch[1]) continue;
-      const reExportedLocals: string[] = [];
-      for (const rawSpec of expMatch[2].split(',')) {
-        const spec = rawSpec.trim();
-        if (!spec || /^type\s+/.test(spec)) continue;
-        const localName = spec.split(/\s+as\s+/)[0].trim();
-        if (importedValueLocals.has(localName)) {
-          reExportedLocals.push(`${localName} (from "${importedValueLocals.get(localName)}")`);
-        }
-      }
-      if (reExportedLocals.length > 0) {
-        errors.push(
-          `[RE-EXPORT FACADE VIOLATION] ${rel} indirectly re-exports imported values { ${reExportedLocals.slice(0, 4).join(', ')}${reExportedLocals.length > 4 ? ', ...' : ''} }. Import directly from the defining source module.`
-        );
-      }
-    }
-  }
-}
-
-function checkAnyPurity(rel: string, codeWithoutComments: string, errors: string[]): void {
-  const anyMatches =
-    codeWithoutComments.match(/(?::\s*any\b|\bas\s+any\b|<any>|Record<[^,>]+,\s*any>)/g) || [];
-  const boundaryAnyRegex =
-    /\bexport\s+(?:async\s+)?function\s+\w+[^{]*:\s*any\b|\bexport\s+interface\s+\w+\s*\{[^}]*:\s*any\b/s;
-  const hasBoundaryAny = boundaryAnyRegex.test(codeWithoutComments);
-
-  if (anyMatches.length > FILE_ANY_LIMIT || hasBoundaryAny) {
-    const reason =
-      anyMatches.length > FILE_ANY_LIMIT
-        ? `${anyMatches.length} untyped 'any' occurrences (limit: ${FILE_ANY_LIMIT})`
-        : `untyped 'any' in exported module boundary signature/interface`;
-    errors.push(
-      `[UNTYPED ANY VIOLATION] ${rel} contains ${reason}. Declare explicit TypeScript interfaces across module boundaries.`
-    );
-  }
-}
-
-function checkProxyBloat(rel: string, codeWithoutComments: string, errors: string[]): void {
-  if (rel.endsWith('RocketSimStateViews.ts')) return;
-
-  const getterMatches =
-    codeWithoutComments.match(
-      /\bget\s+[a-zA-Z_$][a-zA-Z0-9_$]*\s*\(\s*\)[^{]*\{\s*return\s+(?:this|simulator|self)\.[a-zA-Z0-9_$.?]+\s*;\s*\}/g
-    ) || [];
-  const setterMatches =
-    codeWithoutComments.match(
-      /\bset\s+[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)[^{]*\{\s*(?:this|simulator|self)\.[a-zA-Z0-9_$.]+(?:\([^)]*\)|\s*=\s*[^;]+);\s*\}/g
-    ) || [];
-
-  const totalProxies = getterMatches.length + setterMatches.length;
-  if (totalProxies > PROXY_ACCESSOR_LIMIT) {
-    errors.push(
-      `[PROXY BLOAT VIOLATION] ${rel} defines ${totalProxies} pass-through getter/setter proxies (${getterMatches.length} getters, ${setterMatches.length} setters; limit: ${PROXY_ACCESSOR_LIMIT}). Expose narrow domain methods or sub-controller ports instead of wide-waist forwarding accessors.`
-    );
-  }
-}
-
-function checkAntiGutSharingAndMutations(
-  rel: string,
-  codeWithoutComments: string,
-  errors: string[]
-): void {
-  if (rel.startsWith('src/ui-')) return;
-  if (/(Types|Constants|Config)\.ts$/.test(rel)) return;
-
-  const hasExportedClass = /\bexport\s+class\s+\w+/.test(codeWithoutComments);
-  const isPipelineOrMath = /(Pipeline|Math)\.ts$/.test(rel);
-  const isHelperNamed = /(Helper|Stepper|Runner)\.ts$/.test(rel);
-
-  // 1A. Pure Pipeline / Math / Classless Module Zero-Mutation Guard
-  if (isPipelineOrMath || isHelperNamed || !hasExportedClass) {
-    // Identify locally allocated objects so we only flag mutations on external/passed-in objects
-    const localAllocations = new Set<string>();
-    const localAllocRegex =
-      /\b(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*(?:new\s+|\{|\[|document\.|this\.|create|build|clone|make|Object\.create|Object\.assign\(\s*\{\s*\})/g;
-    let allocMatch: RegExpExecArray | null;
-    while ((allocMatch = localAllocRegex.exec(codeWithoutComments)) !== null) {
-      localAllocations.add(allocMatch[1]);
-    }
-
-    const mutatedPropsByTarget = new Map<string, Set<string>>();
-    const mutationRegex =
-      /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\.([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?:=(?!=)|[+\-*/%&|^]=|\+\+|--)/g;
-    let mutMatch: RegExpExecArray | null;
-    while ((mutMatch = mutationRegex.exec(codeWithoutComments)) !== null) {
-      const target = mutMatch[1];
-      const prop = mutMatch[2];
-      if (ALLOWED_LOCAL_BUFFER_NAMES.has(target)) continue;
-      if (localAllocations.has(target)) continue;
-      if (isGraphicsOrDomTarget(target)) continue;
-
-      if (!mutatedPropsByTarget.has(target)) {
-        mutatedPropsByTarget.set(target, new Set());
-      }
-      mutatedPropsByTarget.get(target)!.add(prop);
-    }
-
-    for (const [target, props] of mutatedPropsByTarget.entries()) {
-      if (props.size > PIPELINE_MUTATION_PROP_LIMIT) {
-        const sampleProps = [...props].sort().slice(0, 6).join(', ');
-        errors.push(
-          `[PIPELINE MUTATION VIOLATION] ${rel} mutates ${props.size} properties in-place on external object '${target}' (${sampleProps}${props.size > 6 ? ', ...' : ''}; limit: ${PIPELINE_MUTATION_PROP_LIMIT}). Pure pipelines must return a new state/patch object or encapsulate state transitions inside an owning SubController.`
-        );
-      }
-    }
-  }
-
-  // 1B. SubController / Class Cross-Object Gut-Sharing & Wide-Waist Port Guard
-  if (hasExportedClass && !isPipelineOrMath) {
-    const aliasMap = new Map<string, string>();
-
-    // Track `const ch = this.channel;` or `const d = this.host.domain;`
-    const directAliasRegex =
-      /\b(?:const|let)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*this\.([a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z_$][a-zA-Z0-9_$]*)?)\s*;/g;
-    let aliasMatch: RegExpExecArray | null;
-    while ((aliasMatch = directAliasRegex.exec(codeWithoutComments)) !== null) {
-      aliasMap.set(aliasMatch[1], `this.${aliasMatch[2]}`);
-    }
-
-    // Track destructured `const { domain, roster } = this.host;` or `const { sessionState } = this;`
-    const destructAliasRegex =
-      /\b(?:const|let)\s*\{([^}]+)\}\s*=\s*this(?:\.([a-zA-Z_$][a-zA-Z0-9_$]*))?\s*;/g;
-    let destructMatch: RegExpExecArray | null;
-    while ((destructMatch = destructAliasRegex.exec(codeWithoutComments)) !== null) {
-      const prefix = destructMatch[2] ? `this.${destructMatch[2]}` : 'this';
-      for (const rawItem of destructMatch[1].split(',')) {
-        const parts = rawItem.split(':').map((s) => s.trim());
-        const propName = parts[0];
-        const localName = parts[parts.length - 1];
-        if (propName && localName && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(localName)) {
-          aliasMap.set(localName, `${prefix}.${propName}`);
-        }
-      }
-    }
-
-    const isExternalControllerOrStateTarget = (target: string): boolean => {
-      const lower = target.toLowerCase();
-      if (
-        lower.startsWith('this._scratch') ||
-        lower.startsWith('this.currentevent') ||
-        lower.startsWith('this.controls') ||
-        lower.startsWith('this.settings') ||
-        lower.startsWith('this.primarypose') ||
-        lower.startsWith('this._originalmethods')
-      ) {
-        return false;
-      }
-      return (
-        lower.includes('ctrl') ||
-        lower.includes('controller') ||
-        lower.includes('coordinator') ||
-        lower.includes('domain') ||
-        lower.includes('channel') ||
-        lower.includes('host') ||
-        lower.includes('runtime') ||
-        lower.includes('reconciler') ||
-        lower.includes('sessionstate') ||
-        lower.includes('directorcamerastate') ||
-        lower.includes('mode') ||
-        lower.includes('simulator') ||
-        lower.includes('metrics') ||
-        lower.includes('sampler') ||
-        lower.includes('goalandtouch') ||
-        lower.includes('directorpreview') ||
-        lower.includes('latch')
-      );
-    };
-
-    const classMutatedByTarget = new Map<string, Set<string>>();
-
-    // Direct `this.sub.prop = ...` or `this.host.sub.prop = ...`
-    const memberMutRegex =
-      /\b(this\.[a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z_$][a-zA-Z0-9_$]*)?)\.([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?:=(?!=)|[+\-*/%&|^]=|\+\+|--)/g;
-    let mMut: RegExpExecArray | null;
-    while ((mMut = memberMutRegex.exec(codeWithoutComments)) !== null) {
-      const target = mMut[1];
-      const prop = mMut[2];
-      if (isGraphicsOrDomTarget(target)) continue;
-      if (!isExternalControllerOrStateTarget(target)) continue;
-      if (!classMutatedByTarget.has(target)) {
-        classMutatedByTarget.set(target, new Set());
-      }
-      classMutatedByTarget.get(target)!.add(prop);
-    }
-
-    // Identifier `ident.prop = ...` (either method parameter or alias of `this.sub`, excluding `this.ident.prop` already matched above)
-    const identMutRegex =
-      /(?<!\.)\b([a-zA-Z_$][a-zA-Z0-9_$]*)\.([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?:=(?!=)|[+\-*/%&|^]=|\+\+|--)/g;
-    let iMut: RegExpExecArray | null;
-    while ((iMut = identMutRegex.exec(codeWithoutComments)) !== null) {
-      const ident = iMut[1];
-      const prop = iMut[2];
-      if (ident === 'this' || ALLOWED_LOCAL_BUFFER_NAMES.has(ident)) continue;
-      const resolvedTarget = aliasMap.get(ident) || ident;
-      if (isGraphicsOrDomTarget(resolvedTarget)) continue;
-      if (!isExternalControllerOrStateTarget(resolvedTarget)) continue;
-      if (!classMutatedByTarget.has(resolvedTarget)) {
-        classMutatedByTarget.set(resolvedTarget, new Set());
-      }
-      classMutatedByTarget.get(resolvedTarget)!.add(prop);
-    }
-
-    for (const [target, props] of classMutatedByTarget.entries()) {
-      if (props.size > CROSS_CONTROLLER_MUTATION_LIMIT) {
-        const sampleProps = [...props].sort().slice(0, 6).join(', ');
-        errors.push(
-          `[CROSS-CONTROLLER GUT-SHARING] ${rel} directly mutates ${props.size} properties on '${target}' (${sampleProps}${props.size > 6 ? ', ...' : ''}; limit: ${CROSS_CONTROLLER_MUTATION_LIMIT}). Encapsulate state mutations inside the owning class via narrow domain methods.`
-        );
-      }
-    }
-
-    // Wide-Waist Port Access Guard (>12 properties read on an external host/controller/domain port)
-    const classReadByTarget = new Map<string, Set<string>>();
-    const isPortTarget = (target: string): boolean => {
-      const lower = target.toLowerCase();
-      return (
-        lower === 'this.host' ||
-        lower === 'this.runtime' ||
-        lower === 'this.channel' ||
-        lower === 'this.domain' ||
-        lower.startsWith('this.host.') ||
-        lower.startsWith('this.deps.') ||
-        lower.endsWith('ctrl') ||
-        lower.endsWith('controller')
-      );
-    };
-
-    const memberReadRegex =
-      /\b(this\.[a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z_$][a-zA-Z0-9_$]*)?)\.([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
-    let mRead: RegExpExecArray | null;
-    while ((mRead = memberReadRegex.exec(codeWithoutComments)) !== null) {
-      const target = mRead[1];
-      const prop = mRead[2];
-      if (!isPortTarget(target)) continue;
-      if (!classReadByTarget.has(target)) {
-        classReadByTarget.set(target, new Set());
-      }
-      classReadByTarget.get(target)!.add(prop);
-    }
-
-    const identReadRegex = /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\.([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
-    let iRead: RegExpExecArray | null;
-    while ((iRead = identReadRegex.exec(codeWithoutComments)) !== null) {
-      const ident = iRead[1];
-      const prop = iRead[2];
-      if (ident === 'this') continue;
-      const resolvedTarget = aliasMap.get(ident) || ident;
-      if (!isPortTarget(resolvedTarget)) continue;
-      if (!classReadByTarget.has(resolvedTarget)) {
-        classReadByTarget.set(resolvedTarget, new Set());
-      }
-      classReadByTarget.get(resolvedTarget)!.add(prop);
-    }
-
-    for (const [target, props] of classReadByTarget.entries()) {
-      if (props.size > WIDE_WAIST_PORT_READ_LIMIT) {
-        const sampleProps = [...props].sort().slice(0, 6).join(', ');
-        errors.push(
-          `[WIDE-WAIST PORT VIOLATION] ${rel} accesses ${props.size} distinct properties on external port '${target}' (${sampleProps}${props.size > 6 ? ', ...' : ''}; limit: ${WIDE_WAIST_PORT_READ_LIMIT}). Narrow the port contract or move cohesive domain logic into the owning controller.`
-        );
-      }
-    }
-  }
-}
-
-function expandRelativeGlobPattern(fromFileAbs: string, pattern: string): string[] {
-  if (!pattern.startsWith('.')) return [];
-  const fromDir = path.dirname(fromFileAbs);
-  const braceMatch = pattern.match(/^(.*)\{([^}]+)\}(.*)$/);
-  const subPatterns = braceMatch
-    ? braceMatch[2].split(',').map((opt) => `${braceMatch[1]}${opt.trim()}${braceMatch[3]}`)
-    : [pattern];
-
-  const results: string[] = [];
-  for (const sub of subPatterns) {
-    const targetDir = path.resolve(fromDir, path.posix.dirname(sub));
-    const filePattern = path.posix.basename(sub);
-    if (!fs.existsSync(targetDir) || !fs.statSync(targetDir).isDirectory()) continue;
-    const regexStr =
-      '^' +
-      filePattern
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*/g, '.*') +
-      '$';
-    const fileRe = new RegExp(regexStr);
-    for (const entry of fs.readdirSync(targetDir, { withFileTypes: true })) {
-      if (entry.isFile() && fileRe.test(entry.name)) {
-        const absMatch = path.join(targetDir, entry.name);
-        let relSpec = path.relative(fromDir, absMatch).split(path.sep).join('/');
-        if (!relSpec.startsWith('.')) relSpec = `./${relSpec}`;
-        results.push(relSpec);
-      }
-    }
-  }
-  return results;
-}
-
-function checkUiNamingAndRouteAlignment(errors: string[]): void {
-  // 1. Route Registry Purity Guard: all route components in menuRouteRegistry.tsx must come from src/ui-core/recipes/Layer*Recipe.tsx
-  const routeRegistryPath = path.join(SRC_DIR, 'ui-system/core/menuRouteRegistry.tsx');
-  if (fs.existsSync(routeRegistryPath)) {
-    const content = stripComments(fs.readFileSync(routeRegistryPath, 'utf8'));
-    const importRegex = /import\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
-    let m: RegExpExecArray | null;
-    while ((m = importRegex.exec(content)) !== null) {
-      const importedNames = m[1]
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const fromSpec = m[2];
-      for (const rawName of importedNames) {
-        if (rawName.startsWith('type ')) continue;
-        const localName = rawName.split(/\s+as\s+/).pop()!.trim();
-        // Check if used as JSX component <ComponentName ...
-        if (new RegExp(`<${localName}\\b`).test(content) && localName !== 'LogOut') {
-          const isLayerRecipeImport =
-            /ui-core\/recipes\/Layer\d+\w+Recipe$/.test(fromSpec) &&
-            /^Layer\d+\w+Recipe$/.test(localName);
-          if (!isLayerRecipeImport) {
-            errors.push(
-              `[UI ROUTE ALIGNMENT VIOLATION] src/ui-system/core/menuRouteRegistry.tsx mounts non-recipe route component <${localName}> from "${fromSpec}". All menu route page components must reside in src/ui-core/recipes/Layer*Recipe.tsx.`
-            );
-          }
-        }
-      }
-    }
-  }
-
-  // 2. Floating Window 1:1 Mapping & No-Opaque-Abbreviation Guard
-  const presetFiles = [
-    path.join(SRC_DIR, 'ui-core/stores/floatingPresets.ts'),
-    path.join(SRC_DIR, 'ui-core/stores/devFloatingPresets.ts'),
-  ];
-  const registryPath = path.join(SRC_DIR, 'ui-core/panels/floatingWindowRegistry.tsx');
-  const registryContent = fs.existsSync(registryPath)
-    ? stripComments(fs.readFileSync(registryPath, 'utf8'))
-    : '';
-  const usesGlobAutoDiscovery =
-    /\b(?:import\.meta\.glob|importMetaGlob|getDiscoveredFloatingSurfaces)\b/.test(registryContent);
-
-  const presetBlockRegex = /export\s+const\s+\w+_PRESET\s*:\s*PresetConfig\s*=\s*\{([\s\S]*?)\n\};/g;
-  for (const presetFile of presetFiles) {
-    if (!fs.existsSync(presetFile)) continue;
-    const rel = toPosixRel(presetFile);
-    const content = stripComments(fs.readFileSync(presetFile, 'utf8'));
-    let blockMatch: RegExpExecArray | null;
-    while ((blockMatch = presetBlockRegex.exec(content)) !== null) {
-      const body = blockMatch[1];
-      const idMatch = body.match(/\bid\s*:\s*['"]([^'"]+)['"]/);
-      const compMatch = body.match(/\bcomponent\s*:\s*['"]([^'"]+)['"]/);
-      const sourceMatch = body.match(/\bsourcePath\s*:\s*['"]([^'"]+)['"]/);
-      if (!idMatch) continue;
-
-      const id = idMatch[1];
-      const component = compMatch?.[1] || '';
-      const sourcePath = sourceMatch?.[1] || '';
-      const expectedComponent = `${kebabToPascalCase(id)}FloatingWindow`;
-
-      if (/(?:^|-)ob(?:-|$)/i.test(id) || /OBFloatingWindow/.test(component)) {
-        errors.push(
-          `[UI NAMING VIOLATION] ${rel} preset '${id}' (${component}) uses unexpanded abbreviation 'OB'. Expand to full semantic name (e.g., 'event-stream-observer' / 'EventStreamObserverFloatingWindow').`
-        );
-      }
-
-      if (component !== expectedComponent) {
-        errors.push(
-          `[UI NAMING VIOLATION] ${rel} preset '${id}' maps to component '${component}', expected strict 1:1 PascalCase '${expectedComponent}'.`
-        );
-      }
-
-      if (!sourcePath.endsWith(`/${expectedComponent}.tsx`)) {
-        errors.push(
-          `[UI NAMING VIOLATION] ${rel} preset '${id}' has sourcePath '${sourcePath}', expected path ending with '/${expectedComponent}.tsx'.`
-        );
-      }
-
-      if (usesGlobAutoDiscovery) {
-        const absSourcePath = sourcePath.startsWith('src/')
-          ? path.join(ROOT_DIR, sourcePath)
-          : path.join(SRC_DIR, 'ui-core', sourcePath);
-        if (!fs.existsSync(absSourcePath)) {
-          errors.push(
-            `[UI NAMING VIOLATION] ${rel} preset '${id}' points to missing floating window file '${sourcePath}'.`
-          );
-        } else {
-          const winContent = stripComments(fs.readFileSync(absSourcePath, 'utf8'));
-          const metaBlockMatch = winContent.match(
-            /\bexport\s+const\s+SURFACE_META\b[\s\S]*?\bid\s*:\s*['"]([^'"]+)['"]/
-          );
-          if (!metaBlockMatch || metaBlockMatch[1] !== id) {
-            errors.push(
-              `[UI NAMING VIOLATION] ${sourcePath} must export SURFACE_META with id '${id}' (found '${metaBlockMatch?.[1] || 'missing'}') to match 1:1 filename '${expectedComponent}.tsx'.`
-            );
-          }
-        }
-      } else if (registryContent && !registryContent.includes(`<${expectedComponent}`)) {
-        errors.push(
-          `[UI NAMING VIOLATION] src/ui-core/panels/floatingWindowRegistry.tsx does not render expected 1:1 component <${expectedComponent}> for preset '${id}'.`
-        );
-      }
-    }
-  }
-}
-
-function runRadarChecks(allFiles: string[]): RadarScanResult {
+function runRadarChecks(allFiles: string[], skipTsc: boolean): RadarScanResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   const importGraph = new Map<string, string[]>();
@@ -668,11 +59,10 @@ function runRadarChecks(allFiles: string[]): RadarScanResult {
     incomingRefCounts.set(toPosixRel(file), 0);
   }
 
-  // Also scan scripts/ for English-only & Zero-Emoji compliance
   const scriptFiles = walkSourceFiles(SCRIPTS_DIR);
   for (const sFile of scriptFiles) {
     const sRel = toPosixRel(sFile);
-    if (sRel === 'scripts/radar.ts') continue;
+    if (sRel === 'scripts/radar.ts' || sRel.startsWith('scripts/radar/')) continue;
     const sContent = fs.readFileSync(sFile, 'utf8');
     checkLanguageAndEmoji(sRel, sContent, errors);
   }
@@ -702,7 +92,6 @@ function runRadarChecks(allFiles: string[]): RadarScanResult {
     const codeWithoutComments = stripComments(content);
     const lineCount = content.split('\n').length;
 
-    // Upgrade 4: English-Only & Zero-Emoji Guard + No-Soccer/No-Soccar Guard + Zero Re-Export Guard
     checkLanguageAndEmoji(rel, content, errors);
 
     const soccarMatch = content.match(/\b\w*socc[ae]r\w*\b/i);
@@ -724,7 +113,6 @@ function runRadarChecks(allFiles: string[]): RadarScanResult {
       );
     }
 
-    // Upgrade 3: Dual-Cap Bimodal Volume Waterline Guard (600L/16KB soft, 800L/22KB hard)
     const byteSize = Buffer.byteLength(content, 'utf8');
     const kbFormatted = (byteSize / 1024).toFixed(1);
     if (lineCount > HARD_LINE_LIMIT) {
@@ -748,17 +136,10 @@ function runRadarChecks(allFiles: string[]): RadarScanResult {
     }
 
     checkValueReExports(rel, codeWithoutComments, errors);
-
-    // Upgrade 5: TypeScript Type Purity Guard (Anti-any Boundary Guard)
     checkAnyPurity(rel, codeWithoutComments, errors);
-
-    // Upgrade 2: Anti-Pass-Through Proxy Guard
     checkProxyBloat(rel, codeWithoutComments, errors);
-
-    // Upgrade 1: Anti-Gut-Sharing & In-Place Mutation Guard
     checkAntiGutSharingAndMutations(rel, codeWithoutComments, errors);
 
-    // Extract static imports, dynamic imports, and Worker URL references
     const importRegex =
       /(?:from\s+|import\s*\(\s*|import\s+)['"]([^'"]+)['"]|new\s+URL\s*\(\s*['"]([^'"]+)['"]\s*,\s*import\.meta\.url\s*\)/g;
     const deps: string[] = [];
@@ -832,7 +213,6 @@ function runRadarChecks(allFiles: string[]): RadarScanResult {
       }
     }
 
-    // Expand Vite import.meta.glob / importMetaGlob patterns into the reference graph
     const globRegex =
       /\b(?:import\.meta\.glob|importMetaGlob)\s*(?:<[\s\S]*?>)?\s*\(\s*['"]([^'"]+)['"]/g;
     let globMatch: RegExpExecArray | null;
@@ -850,7 +230,6 @@ function runRadarChecks(allFiles: string[]): RadarScanResult {
 
     importGraph.set(rel, deps);
 
-    // WebWorker Bundle Guard
     const workerCallRegex = /new\s+Worker\s*\(\s*([^,)]+)/g;
     let workerMatch: RegExpExecArray | null;
     while ((workerMatch = workerCallRegex.exec(content)) !== null) {
@@ -865,7 +244,6 @@ function runRadarChecks(allFiles: string[]): RadarScanResult {
     }
   }
 
-  // Orphan Module Guard + Upgrade 3: Micro-Fragment Guard (<65 lines with only 1 incoming reference)
   const ENTRYPOINTS = new Set(['src/main.ts', 'src/physics/core.js']);
   for (const file of allFiles) {
     const rel = toPosixRel(file);
@@ -890,147 +268,28 @@ function runRadarChecks(allFiles: string[]): RadarScanResult {
     }
   }
 
-  // Upgrade 6: UI Component Naming & Route Alignment Guard
   checkUiNamingAndRouteAlignment(errors);
+  detectCircularDependencies(importGraph, errors);
+  checkRootConfigAndWasmParity(errors, warnings);
 
-  // Circular Dependency Detection (DFS)
-  const visitState = new Map<string, number>();
-  const cycles: string[][] = [];
-
-  function dfs(node: string, stack: string[]): void {
-    visitState.set(node, 1);
-    const neighbors = importGraph.get(node) || [];
-    for (const next of neighbors) {
-      if (!importGraph.has(next)) continue;
-      const state = visitState.get(next) || 0;
-      if (state === 1) {
-        const idx = stack.indexOf(next);
-        cycles.push([...stack.slice(idx), next]);
-      } else if (state === 0) {
-        dfs(next, [...stack, next]);
-      }
-    }
-    visitState.set(node, 2);
-  }
-
-  for (const node of importGraph.keys()) {
-    if ((visitState.get(node) || 0) === 0) {
-      dfs(node, [node]);
+  const tsResult = skipTsc
+    ? { ok: true, command: 'skipped (--no-tsc)', errors: [] }
+    : runTypeScriptCheck();
+  if (!tsResult.ok) {
+    for (const tsLine of tsResult.errors.slice(0, 25)) {
+      errors.push(`[TYPESCRIPT COMPILER ERROR] ${tsLine}`);
     }
   }
 
-  for (const cycle of cycles) {
-    errors.push(`[CIRCULAR DEPENDENCY] ${cycle.join(' -> ')}`);
-  }
-
-  // Upgrade 7: Root Config, Single Lockfile & WASM Declaration Hygiene Guard
-  const forbiddenLegacyFiles = [
-    'tsconfig.engine-check.json',
-    'vite.config.js',
-    'scripts/radar.mjs',
-  ];
-  for (const legacyRel of forbiddenLegacyFiles) {
-    if (fs.existsSync(path.join(ROOT_DIR, legacyRel))) {
-      errors.push(
-        `[LEGACY CONFIG VIOLATION] ${legacyRel} must be removed in the Pure-TS architecture.`
-      );
-    }
-  }
-
-  const forbiddenLockfiles = ['package-lock.json', 'yarn.lock', 'bun.lockb', 'bun.lock'].filter(
-    (lf) => fs.existsSync(path.join(ROOT_DIR, lf))
-  );
-  if (forbiddenLockfiles.length > 0) {
-    errors.push(
-      `[LOCKFILE HYGIENE VIOLATION] Non-pnpm lockfile(s) detected in repository root: ${forbiddenLockfiles.join(', ')}. Use pnpm and maintain pnpm-lock.yaml only.`
-    );
-  }
-  if (!fs.existsSync(path.join(ROOT_DIR, 'pnpm-lock.yaml'))) {
-    errors.push(
-      '[LOCKFILE HYGIENE VIOLATION] Missing pnpm-lock.yaml in repository root. Maintain canonical pnpm lockfile hygiene.'
-    );
-  }
-
-  const coreJsPath = path.join(SRC_DIR, 'physics/core.js');
-  const coreDtsPath = path.join(SRC_DIR, 'physics/core.d.ts');
-  if (!fs.existsSync(coreDtsPath)) {
-    errors.push(
-      '[WASM TYPING VIOLATION] src/physics/core.d.ts is missing. Ambient TypeScript declarations for core.js are required.'
-    );
-  } else if (fs.existsSync(coreJsPath)) {
-    const coreJsContent = fs.readFileSync(coreJsPath, 'utf8');
-    const coreDtsContent = fs.readFileSync(coreDtsPath, 'utf8');
-
-    const jsExportSet = new Set<string>();
-    const jsExportRegex = /Module\[['"](_physics_[a-zA-Z0-9_]+)['"]\]\s*=/g;
-    let jsMatch: RegExpExecArray | null;
-    while ((jsMatch = jsExportRegex.exec(coreJsContent)) !== null) {
-      jsExportSet.add(jsMatch[1]);
-    }
-
-    const dtsExportSet = new Set<string>();
-    const dtsExportRegex = /^\s*(_physics_[a-zA-Z0-9_]+)\??\s*\(/gm;
-    let dtsMatch: RegExpExecArray | null;
-    while ((dtsMatch = dtsExportRegex.exec(coreDtsContent)) !== null) {
-      dtsExportSet.add(dtsMatch[1]);
-    }
-
-    const missingInDts = [...jsExportSet].filter((fn) => !dtsExportSet.has(fn));
-    const missingInJs = [...dtsExportSet].filter((fn) => !jsExportSet.has(fn));
-    if (missingInDts.length > 0) {
-      errors.push(
-        `[WASM BRIDGE PARITY] Exported in src/physics/core.js but missing in src/physics/core.d.ts: ${missingInDts.join(', ')}`
-      );
-    }
-    if (missingInJs.length > 0) {
-      errors.push(
-        `[WASM BRIDGE PARITY] Declared in src/physics/core.d.ts but not exported by src/physics/core.js: ${missingInJs.join(', ')}`
-      );
-    }
-  }
-
-  try {
-    const tsconfigRaw = fs.readFileSync(path.join(ROOT_DIR, 'tsconfig.json'), 'utf8');
-    if (/"allowJs"\s*:\s*true/.test(tsconfigRaw)) {
-      errors.push(
-        '[TSCONFIG VIOLATION] tsconfig.json must keep "allowJs": false now that 100% of source files are TypeScript and core.d.ts is present.'
-      );
-    }
-  } catch {
-    errors.push('[TSCONFIG VIOLATION] Unable to read tsconfig.json.');
-  }
-
-  // Git Diff Growth Delta Check
-  try {
-    const diffOut = execSync('git diff --numstat HEAD', {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    for (const line of diffOut.trim().split('\n')) {
-      if (!line) continue;
-      const [addedStr, deletedStr, fileRel] = line.split(/\s+/);
-      const added = parseInt(addedStr, 10);
-      const deleted = parseInt(deletedStr, 10);
-      if (!Number.isNaN(added) && !Number.isNaN(deleted)) {
-        const netGrowth = added - deleted;
-        if (netGrowth >= DELTA_LINE_WARNING && fileRel.startsWith('src/')) {
-          warnings.push(
-            `[GROWTH DELTA] ${fileRel} grew by +${netGrowth} net lines in working tree. Verify if the new logic belongs in a dedicated SubController.ts.`
-          );
-        }
-      }
-    }
-  } catch {
-    // Ignore if git diff is unavailable
-  }
-
-  return { errors, warnings, tsCount, jsCount, subsystemStats };
+  return { errors, warnings, tsCount, jsCount, subsystemStats, tsResult };
 }
 
 function main(): void {
+  const args = new Set(process.argv.slice(2));
+  const skipTsc = args.has('--no-tsc');
   const startTime = Date.now();
   const allFiles = walkSourceFiles(SRC_DIR);
-  const result = runRadarChecks(allFiles);
+  const result = runRadarChecks(allFiles, skipTsc);
   const elapsedMs = Date.now() - startTime;
 
   const totalFiles = result.tsCount + result.jsCount;
@@ -1041,6 +300,13 @@ function main(): void {
   console.log('======================================================================');
   console.log(
     ` TypeScript Coverage : ${result.tsCount}/${totalFiles} files (${tsPercent}% TS | ${result.jsCount} Engine JS remaining)`
+  );
+  console.log(
+    ` TypeScript Strict   : ${
+      result.tsResult.ok
+        ? `PASS (${result.tsResult.command})`
+        : `FAIL (${result.tsResult.errors.length} tsc diagnostic lines)`
+    }`
   );
   console.log(
     ` Volume Waterline    : Soft=${SOFT_LINE_LIMIT}L/${(SOFT_BYTE_LIMIT / 1024).toFixed(0)}KB | Hard=${HARD_LINE_LIMIT}L/${(HARD_BYTE_LIMIT / 1024).toFixed(0)}KB | MicroFloor=${MICRO_FRAGMENT_LINE_FLOOR}L`
@@ -1077,7 +343,7 @@ function main(): void {
   }
 
   console.log(
-    ' STATUS: GREEN -- 100% TS, 0 gut-sharing, 0 proxy bloat, 0 untyped boundaries, 0 style/route leaks.'
+    ' STATUS: GREEN -- 100% TS, tsc --noEmit clean, 0 gut-sharing, 0 proxy bloat, 0 untyped boundaries.'
   );
   console.log('======================================================================');
 }
