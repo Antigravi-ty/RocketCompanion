@@ -127,16 +127,17 @@ export class TelemetryStage implements PipelineStage {
         rlrcStoreState?.activePovTeam ??
         0)
       : 0;
+    const isRlrcIntervening = Boolean(rlrcSession?.isIntervening);
     const rlrcResolvedRoster = useRlrcSession
       ? rlrcRosterMeta.map((m: { slotIndex: number; userName: string; team: number }) => ({
           carIndex: m.slotIndex,
           name: m.userName || `Player ${m.slotIndex + 1}`,
           team: m.team === 1 ? 1 : 0,
-          isSelf: m.slotIndex === rlrcActivePovIdx,
+          isSelf: isRlrcIntervening && m.slotIndex === rlrcActivePovIdx,
         }))
       : undefined;
     const rlrcCurrentFrame =
-      useRlrcSession && !rlrcSession?.isIntervening
+      useRlrcSession && !isRlrcIntervening
         ? (rlrcSession?.session?.frames120Hz?.[rlrcSession?.cursorFrame120Hz ?? 0] ?? null)
         : null;
 
@@ -183,7 +184,11 @@ export class TelemetryStage implements PipelineStage {
             : useReplayViewerStore.getState().viewerState
           : undefined,
         replayViewerActivePovTeam: useRlrcSession ? rlrcActivePovTeam : viewerRoster?.activePovTeam,
-        replayViewerLocalTeam: useRlrcSession ? rlrcActivePovTeam : viewerRoster?.localTeam,
+        replayViewerLocalTeam: useRlrcSession
+          ? isRlrcIntervening
+            ? rlrcActivePovTeam
+            : 0
+          : viewerRoster?.localTeam,
         replayViewerActivePovCarIndex: useRlrcSession
           ? rlrcActivePovIdx
           : viewerRoster?.activePovCarIndex,

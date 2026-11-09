@@ -1,30 +1,23 @@
 /**
  * RLRCHermiteSlerpMathPipeline.ts
- * Pure quaternion SLERP, NetStream velocity calibration, Clamped Cubic Hermite
- * rigid-body interpolation, and binary Track 0 frame packing for RLRC replays.
+ * NetStream velocity calibration and Clamped Cubic Hermite rigid-body interpolation
+ * for 120Hz RLRC replays.
  */
 
-import { packCarControlsToTrack64 } from '../../container/RCReplayBinarySchema.ts';
 import {
-  RLRC_BOOST_PAD_COUNT,
   RLRC_FIXED_DT,
-  RLRC_MAX_PLAYER_SLOTS,
-  RLRC_STATE_BYTES_PER_FRAME,
-  RLRC_STATE_FLOATS_PER_FRAME,
-  RLRC_TRACK0_FRAME_STRIDE_BYTES,
-  type RLRCFrame120Hz,
   type RLRCInterpolationMethod,
-  type RLRCQuat,
   type RLRCRigidBodySample,
   type RLRCSynthesizedCarControls,
   type RLRCVec3,
 } from '../RLRCReplayTypes.ts';
+import {
+  ID_QUAT,
+  interpolateQuatHermiteWithAngularVelocity,
+  type RLRCOrthonormalBasis,
+} from './RLRCQuaternionTrajectoryInterpolator.ts';
 
-export interface RLRCOrthonormalBasis {
-  readonly fwd: RLRCVec3;
-  readonly right: RLRCVec3;
-  readonly up: RLRCVec3;
-}
+export type { RLRCOrthonormalBasis };
 
 export const clamp = (v: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, v));
@@ -40,7 +33,6 @@ export const vDist = (a: RLRCVec3, b: RLRCVec3): number => vLen(vSub(a, b));
 export const vLerp = (a: RLRCVec3, b: RLRCVec3, t: number): RLRCVec3 =>
   vAxis((k) => lerp(a[k], b[k], t));
 
-export const ID_QUAT: RLRCQuat = Object.freeze({ x: 0, y: 0, z: 0, w: 1 });
 export const ZERO_VEC: RLRCVec3 = Object.freeze(v3(0, 0, 0));
 export const SLEEP_RB: RLRCRigidBodySample = Object.freeze({
   sleeping: true,
@@ -90,58 +82,6 @@ export function isDupRb(a: RLRCRigidBodySample, b: RLRCRigidBodySample): boolean
   );
 }
 
-export function normalizeQuat(q: RLRCQuat): RLRCQuat {
-  const l = Math.hypot(q.x, q.y, q.z, q.w);
-  return Number.isFinite(l) && l >= 1e-7
-    ? { x: q.x / l, y: q.y / l, z: q.z / l, w: q.w / l }
-    : ID_QUAT;
-}
-
-export function slerpShortestArcQuat(q0: RLRCQuat, q1: RLRCQuat, alpha: number): RLRCQuat {
-  const t = clamp(alpha, 0, 1);
-  const a = normalizeQuat(q0);
-  const b = normalizeQuat(q1);
-  if (t <= 0) return a;
-  if (t >= 1) return b;
-  const raw = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
-  const sgn = raw < 0 ? -1 : 1;
-  const dot = Math.abs(raw);
-  let s0 = 1 - t;
-  let s1 = t * sgn;
-  if (dot <= 0.9995) {
-    const th = Math.acos(clamp(dot, -1, 1));
-    const sin = Math.sin(th);
-    if (Math.abs(sin) < 1e-6) return a;
-    const w1 = Math.sin(th * t) / sin;
-    s0 = Math.cos(th * t) - dot * w1;
-    s1 = w1 * sgn;
-  }
-  return normalizeQuat({
-    x: s0 * a.x + s1 * b.x,
-    y: s0 * a.y + s1 * b.y,
-    z: s0 * a.z + s1 * b.z,
-    w: s0 * a.w + s1 * b.w,
-  });
-}
-
-export function quatToBasisVectors(rotation: RLRCQuat): RLRCOrthonormalBasis {
-  const { x, y, z, w } = normalizeQuat(rotation);
-  const xx = x * x,
-    yy = y * y,
-    zz = z * z;
-  const xy = x * y,
-    xz = x * z,
-    yz = y * z;
-  const wx = w * x,
-    wy = w * y,
-    wz = w * z;
-  return {
-    fwd: v3(1 - 2 * (yy + zz), 2 * (xy + wz), 2 * (xz - wy)),
-    right: v3(2 * (xy - wz), 1 - 2 * (xx + zz), 2 * (yz + wx)),
-    up: v3(2 * (xz + wy), 2 * (yz - wx), 1 - 2 * (xx + yy)),
-  };
-}
-
 export function calibrateNetStreamVel(v: RLRCVec3, secantSpeed: number): RLRCVec3 {
   const vs = vLen(v);
   return secantSpeed > 60 && vs > 2 && secantSpeed / vs > 5.0 && secantSpeed / vs < 16.0
@@ -149,8 +89,22 @@ export function calibrateNetStreamVel(v: RLRCVec3, secantSpeed: number): RLRCVec
     : v;
 }
 
+/**
+ * Normalizes UE3 NetStream angular velocity into rad/s.
+ * Note: UE3 NetStream version >= 7 stores `angular_velocity` scaled by 10x (0.1 rad/s per unit)
+ * when uncalibrated, OR already in rad/s (~0..6.0 rad/s). Only values above the physical
+ * Rocket League maximum (~7.5 rad/s for ball/car) are 10x-encoded or corrupted spikes.
+ */
 export function sanitizeAngularVel(av: RLRCVec3): RLRCVec3 {
-  return vLen(av) > 9.0 ? vScale(av, 0.1) : av;
+  const mag = vLen(av);
+  if (!Number.isFinite(mag) || mag < 1e-6) return ZERO_VEC;
+  if (mag > 12.0 && mag <= 85.0) {
+    return vScale(av, 0.1);
+  }
+  if (mag > 8.5) {
+    return vScale(av, 8.5 / mag);
+  }
+  return av;
 }
 
 function clampTan(vel: RLRCVec3, sec: RLRCVec3, maxSpd: number): RLRCVec3 {
@@ -193,12 +147,18 @@ export function interpolateRigidBodyHermiteSlerp(
   const secSpeed = vLen(sec);
   const v0 = r0 ? ZERO_VEC : calibrateNetStreamVel(s0.linearVelocity, secSpeed);
   const v1 = r1 ? ZERO_VEC : calibrateNetStreamVel(s1.linearVelocity, secSpeed);
-  const rotation = slerpShortestArcQuat(s0.rotation, s1.rotation, tau);
-  const angularVelocity = vLerp(
-    r0 ? ZERO_VEC : sanitizeAngularVel(s0.angularVelocity),
-    r1 ? ZERO_VEC : sanitizeAngularVel(s1.angularVelocity),
-    tau
+  const w0 = r0 ? ZERO_VEC : sanitizeAngularVel(s0.angularVelocity);
+  const w1 = r1 ? ZERO_VEC : sanitizeAngularVel(s1.angularVelocity);
+  const rotation = interpolateQuatHermiteWithAngularVelocity(
+    s0.rotation,
+    s1.rotation,
+    w0,
+    w1,
+    tau,
+    dt,
+    method
   );
+  const angularVelocity = vLerp(w0, w1, tau);
   const vLin = vLerp(v0, v1, tau);
   if (method === 'linear') {
     return {
@@ -234,71 +194,4 @@ export function interpolateRigidBodyHermiteSlerp(
     ),
     angularVelocity,
   };
-}
-
-function writeRb18(
-  dst: Float32Array,
-  base: number,
-  { position: p, rotation: r, linearVelocity: v, angularVelocity: w }: RLRCRigidBodySample
-): void {
-  const { fwd: f, right: rt, up: u } = quatToBasisVectors(r);
-  dst.set(
-    [p.x, p.y, p.z, f.x, f.y, f.z, rt.x, rt.y, rt.z, u.x, u.y, u.z, v.x, v.y, v.z, w.x, w.y, w.z],
-    base
-  );
-}
-
-export function packRLRCFramesToTrack0Bytes(frames120Hz: readonly RLRCFrame120Hz[]): Uint8Array {
-  const out = new Uint8Array(frames120Hz.length * RLRC_TRACK0_FRAME_STRIDE_BYTES);
-  const f32 = new Float32Array(RLRC_STATE_FLOATS_PER_FRAME);
-  const f32Bytes = new Uint8Array(f32.buffer, 0, RLRC_STATE_BYTES_PER_FRAME);
-
-  for (let f = 0; f < frames120Hz.length; f++) {
-    const fr = frames120Hz[f];
-    const off = f * RLRC_TRACK0_FRAME_STRIDE_BYTES;
-    f32.fill(0);
-    f32[0] = fr.frameIndex120Hz;
-    f32[2] = Math.min(RLRC_MAX_PLAYER_SLOTS, fr.cars.length);
-    f32[3] = RLRC_BOOST_PAD_COUNT;
-    writeRb18(f32, 4, fr.ball.rigidBody);
-    const ctrlSlice = out.subarray(
-      off + RLRC_STATE_BYTES_PER_FRAME,
-      off + RLRC_TRACK0_FRAME_STRIDE_BYTES
-    );
-
-    for (let c = 0; c < fr.cars.length && c < RLRC_MAX_PLAYER_SLOTS; c++) {
-      const car = fr.cars[c];
-      const base = 22 + car.slotIndex * 40;
-      const fl = car.activeFlags;
-      writeRb18(f32, base, car.rigidBody);
-      f32[base + 18] = car.boostAmount;
-      f32[base + 39] = 1;
-      f32[416 + car.slotIndex * 4] = fl.jumpActive ? 1 : 0;
-      f32[419 + car.slotIndex * 4] = car.airTimeSinceJump;
-      if (car.entityActive) {
-        f32.set(
-          [
-            car.isOnGround ? 1 : 0,
-            car.isSupersonic ? 1 : 0,
-            0,
-            car.hasFlipOrJump ? 1 : 0,
-            fl.boostActive ? 1 : 0,
-            fl.dodgeActive ? 1 : 0,
-          ],
-          base + 19
-        );
-        packCarControlsToTrack64(ctrlSlice, car.slotIndex, { ...car.controls });
-      } else {
-        f32[base + 21] = 1;
-      }
-    }
-    for (let p = 0; p < RLRC_BOOST_PAD_COUNT; p++) {
-      const cd = fr.boostPadCooldowns[p] ?? 0;
-      f32[342 + p * 2] = cd <= 0 ? 1 : 0;
-      f32[343 + p * 2] = Math.max(0, cd);
-    }
-    f32[410] = fr.ball.rigidBody.sleeping ? 1 : 0;
-    out.set(f32Bytes, off);
-  }
-  return out;
 }

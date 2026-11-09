@@ -219,10 +219,13 @@ export class FreeplayMode extends BaseGameMode<FreeplayRuntimePort> {
     )
       return;
     const cur = Math.floor(this.runtime?.physics?.getHeaderView?.()?.tickCount ?? 0);
-    this.goalAndTouch.recordIncidentEvent(
-      typeof ev.tick === 'number' && ev.tick > 0 ? ev.tick : cur,
-      ev
-    );
+    const evTick =
+      this.rlrcReplaySession?.isIntervening && cur > 0
+        ? cur
+        : typeof ev.tick === 'number' && ev.tick > 0
+          ? ev.tick
+          : cur;
+    this.goalAndTouch.recordIncidentEvent(evTick, ev);
     this.rewinderController?.onPhysicsEvent?.(ev);
   }
   public override onBeforePhysicsTick(): boolean {
@@ -242,6 +245,7 @@ export class FreeplayMode extends BaseGameMode<FreeplayRuntimePort> {
       this.rewinderController?.isBlockingLivePhysics
     )
       return;
+    this.rlrcReplaySession?.onAfterPhysicsTick?.();
     this.goalAndTouch.stepAfterPhysicsTick();
   }
   private _beginGoalReplay(): void {
@@ -384,9 +388,12 @@ export class FreeplayMode extends BaseGameMode<FreeplayRuntimePort> {
     this.rewinderController?.onResetKickoff?.();
     this.goalAndTouch.goalResetTicks = 0;
     this._resetPlayTouchAndGoalState();
-    if (this.rlrcReplaySession?.hasLoadedReplay && this.rlrcReplaySession?.isActive) {
-      if (this.rlrcReplaySession.isIntervening) this.rlrcReplaySession.resumeFromCursor();
-      else this.rlrcReplaySession.seekFrame(this.rlrcReplaySession.cursorFrame120Hz);
+    if (this.rlrcReplaySession?.hasLoadedReplay) {
+      if (this.rlrcReplaySession.isIntervening || !this.rlrcReplaySession.isActive) {
+        this.rlrcReplaySession.resumeFromCursor();
+      } else {
+        this.rlrcReplaySession.seekFrame(this.rlrcReplaySession.cursorFrame120Hz);
+      }
       this.resetKickoffPresentationAndAudio({ resetCamera: true, resetBots: false });
       this._syncPlayingHud('playing');
       return;

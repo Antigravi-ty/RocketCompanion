@@ -13,12 +13,8 @@ import {
   convertRLReplayBufferToRLRC,
   type RLRCConvertedReplaySession,
 } from '../RLReplayToRLRCConverter.ts';
-import {
-  RLRC_FIXED_DT,
-  type RLRCFrame120Hz,
-  type RLRCPlayerSlotMeta,
-  type RLRCTeamIndex,
-} from '../RLRCReplayTypes.ts';
+import { RLRC_FIXED_DT, type RLRCPlayerSlotMeta } from '../RLRCReplayTypes.ts';
+import { createRLRCInterveneEnvPort } from './RLRCInterveneEnvPortBuilder.ts';
 import { RLRCInterveneTakeoverSubController } from './RLRCInterveneTakeoverSubController.ts';
 import {
   RLRCPlaybackAudioEdgeSynthesizer,
@@ -29,12 +25,13 @@ import {
   type RLRCPlaybackRuntimePort,
 } from './RLRCPlaybackSyncApplier.ts';
 import {
-  createRLRCInterveneEnvPort,
   downloadRcsReplayPack,
   mapUiInterpolationMethod,
   mapUiNonPovMode,
   publishConvertedSessionTelemetry,
   readLiveRuntimePlayerControls,
+  resolveRLRCPovSlotSelection,
+  syncRLRCFrameHudMatchState,
   syncRLRCNameTagRoster,
 } from './RLRCReplaySessionBridgePipeline.ts';
 
@@ -91,7 +88,8 @@ export class RLRCReplaySessionController {
       st.isWindowOpen &&
       this.session &&
       this.session.frames120Hz.length > 0 &&
-      st.viewerState !== 'idle'
+      st.viewerState !== 'idle' &&
+      st.viewerState !== 'intervening'
     );
   }
 
@@ -285,19 +283,25 @@ export class RLRCReplaySessionController {
   public selectPovSlot(slotKey: number): void {
     const s = this.session;
     if (!s) return;
-    const idx = Math.max(0, Math.min(5, Math.round(slotKey) - 1));
-    const meta = s.roster.find((r) => r.slotIndex === idx) ?? s.roster[0];
-    if (!meta) return;
-    const slot = meta.slotIndex,
-      localTeam: RLRCTeamIndex = meta.team === 1 ? 1 : 0;
+    const resolved = resolveRLRCPovSlotSelection(s.roster, slotKey, this.runtime);
+    if (!resolved) return;
+    const { key, slot, povTeam } = resolved;
     this.activePovSlotIndex = slot;
+    if (this.isIntervening) this.interveneController.povSlotIndex = slot;
     this._syncPov(slot);
     syncRLRCNameTagRoster(s.roster, slot);
     this._hudKey = '';
-    hudStore.getState().setMatchState({ localTeam });
-    if (!this.isIntervening) this._applyFrame(this.cursorFrame120Hz, false);
+    hudStore.getState().setMatchState({ localTeam: this.isIntervening ? povTeam : 0 });
+    if (this.mode?.directorPreview?.isReplayActive || this.mode?.isGoalReplayActive?.()) {
+      if (this.mode.directorPreview) this.mode.directorPreview.goalScorerCarIndex = slot;
+      this.mode.setReplayCameraMode?.('pov');
+      this.runtime?.releaseGoalReplayCameraOverride?.();
+      hudStore.getState().setReplayState({ replayCameraMode: 'pov' });
+    } else if (!this.isIntervening) {
+      this._applyFrame(this.cursorFrame120Hz, false);
+    }
     this.runtime?.camera?.resetView?.();
-    setTelem({ activePovCarIndex: slot, activePovSlotKey: slot + 1, activePovTeam: localTeam });
+    setTelem({ activePovCarIndex: slot, activePovSlotKey: key, activePovTeam: povTeam });
   }
 
   public resumeFromCursor(): void {
@@ -364,16 +368,35 @@ export class RLRCReplaySessionController {
   }
 
   public onBeforePhysicsTick(dt = RLRC_FIXED_DT): boolean {
+    if (!this.hasLoadedReplay) return true;
+    const state = getSt().viewerState;
+    if (state === 'intervening') {
+      if (this.runtime?.keyboard && this.runtime.keyboard.ballControlEnabled) {
+        this.runtime.keyboard.ballControlEnabled = false;
+      }
+      this.interveneController.stepBeforePhysicsTick(
+        readLiveRuntimePlayerControls(this.runtime, this.activePovSlotIndex),
+        dt
+      );
+      return true;
+    }
     if (!this.isActive) return true;
     this.stepPlaybackTick(dt);
     return false;
   }
 
+  public onAfterPhysicsTick(): void {
+    if (!this.hasLoadedReplay) return;
+    if (getSt().viewerState === 'intervening') {
+      this.interveneController.stepAfterPhysicsTick(false);
+    }
+  }
+
   public stepPlaybackTick(dt = RLRC_FIXED_DT): boolean {
     const frames = this.session?.frames120Hz;
     if (!frames || frames.length === 0) return false;
-    const st = getSt(),
-      state = st.viewerState;
+    const st = getSt();
+    const state = st.viewerState;
     if (state === 'preroll-countdown' || state === 'intervening') {
       this.interveneController.stepTick(
         readLiveRuntimePlayerControls(this.runtime, this.activePovSlotIndex),
@@ -381,8 +404,8 @@ export class RLRCReplaySessionController {
       );
       return true;
     }
-    const maxF = frames.length - 1,
-      spd = Math.max(0.01, (Number(st.effectiveFlowPct) || 100) / 100);
+    const maxF = frames.length - 1;
+    const spd = Math.max(0.01, (Number(st.effectiveFlowPct) || 100) / 100);
     if (state === 'playing' || state === 'forwarding' || state === 'rewinding') {
       const dir = state === 'rewinding' ? -1 : 1;
       this._frac = Math.max(
@@ -394,8 +417,9 @@ export class RLRCReplaySessionController {
         this.cursorFrame120Hz = next;
         this._applyFrame(next, dir > 0);
         const done = (dir > 0 && next >= maxF) || (dir < 0 && next <= 0);
-        if (done || (this._tick = (this._tick + 1) & 3) === 0)
+        if (done || (this._tick = (this._tick + 1) & 3) === 0) {
           setTelem({ cursorFrame: next, targetFrame: next });
+        }
         if (done) this.pausePlaying();
       }
       return true;
@@ -430,41 +454,12 @@ export class RLRCReplaySessionController {
       runtime: this.runtime as unknown as RLRCPlaybackAudioRuntimePort,
       bookmarks: this.session?.bookmarks ?? [],
     });
-    this._syncHud(f);
-  }
-
-  private _syncHud(f: RLRCFrame120Hz): void {
-    const meta =
-      this.session?.roster.find((r) => r.slotIndex === this.activePovSlotIndex) ??
-      this.session?.roster[0];
-    const localTeam: RLRCTeamIndex = meta?.team === 1 ? 1 : 0,
-      isOvertime = Boolean(f.isOvertime);
-    const blueScore = Math.max(0, f.blueScore | 0),
-      orangeScore = Math.max(0, f.orangeScore | 0);
-    const sec = Math.max(0, Math.round(f.secondsRemaining || 0)),
-      kickoffCountdown = Math.max(0, Math.min(3, f.roundCountdownNumber | 0));
-    const remainingSeconds = isOvertime ? 0 : sec,
-      overtimeSeconds = isOvertime ? sec : 0;
-    const key = [
-      localTeam,
-      blueScore,
-      orangeScore,
-      remainingSeconds,
-      overtimeSeconds,
-      isOvertime,
-      kickoffCountdown,
-    ].join('|');
-    if (key === this._hudKey) return;
-    this._hudKey = key;
-    hudStore.getState().setMatchState({
-      localTeam,
-      blueScore,
-      orangeScore,
-      remainingSeconds,
-      overtimeSeconds,
-      isOvertime,
-      kickoffCountdown,
-      matchPhase: kickoffCountdown > 0 ? 'kickoff' : 'playing',
-    });
+    this._hudKey = syncRLRCFrameHudMatchState(
+      f,
+      this.session?.roster ?? [],
+      this.activePovSlotIndex,
+      this.isIntervening,
+      this._hudKey
+    );
   }
 }

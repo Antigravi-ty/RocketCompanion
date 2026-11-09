@@ -157,32 +157,39 @@ export function packRLRCFrameToTrack0Slot(
 
   for (let s = 0; s < RLRC_MAX_PLAYER_SLOTS; s++) {
     const car = frame.cars[s];
-    const carBase = SIM_OFFSETS.CARS + s * CAR_STATE_STRIDE;
+    const slot =
+      car && car.slotIndex >= 0 && car.slotIndex < RLRC_MAX_PLAYER_SLOTS ? car.slotIndex : s;
+    const carBase = SIM_OFFSETS.CARS + slot * CAR_STATE_STRIDE;
     const jumpAirBase =
-      EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE + s * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;
+      EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE + slot * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;
+
+    if (car?.rigidBody) {
+      const rb = car.rigidBody;
+      dstF32[carBase + CAR_STATE_OFFSETS.POS + 0] = rb.position.x;
+      dstF32[carBase + CAR_STATE_OFFSETS.POS + 1] = rb.position.y;
+      dstF32[carBase + CAR_STATE_OFFSETS.POS + 2] = rb.position.z;
+      writeQuatBasisToStateBuffer(rb.rotation, dstF32, carBase + CAR_STATE_OFFSETS.FWD);
+      dstF32[carBase + CAR_STATE_OFFSETS.VEL + 0] = rb.linearVelocity.x;
+      dstF32[carBase + CAR_STATE_OFFSETS.VEL + 1] = rb.linearVelocity.y;
+      dstF32[carBase + CAR_STATE_OFFSETS.VEL + 2] = rb.linearVelocity.z;
+      dstF32[carBase + CAR_STATE_OFFSETS.ANG_VEL + 0] = rb.angularVelocity.x;
+      dstF32[carBase + CAR_STATE_OFFSETS.ANG_VEL + 1] = rb.angularVelocity.y;
+      dstF32[carBase + CAR_STATE_OFFSETS.ANG_VEL + 2] = rb.angularVelocity.z;
+    }
 
     if (!car || !car.entityActive) {
       dstF32[carBase + CAR_STATE_OFFSETS.DEMOED] = 1;
+      dstF32[carBase + CAR_STATE_OFFSETS.GROUND_NORMAL + 2] = 1;
       continue;
     }
 
-    const rb = car.rigidBody;
-    dstF32[carBase + CAR_STATE_OFFSETS.POS + 0] = rb.position.x;
-    dstF32[carBase + CAR_STATE_OFFSETS.POS + 1] = rb.position.y;
-    dstF32[carBase + CAR_STATE_OFFSETS.POS + 2] = rb.position.z;
-    writeQuatBasisToStateBuffer(rb.rotation, dstF32, carBase + CAR_STATE_OFFSETS.FWD);
-    dstF32[carBase + CAR_STATE_OFFSETS.VEL + 0] = rb.linearVelocity.x;
-    dstF32[carBase + CAR_STATE_OFFSETS.VEL + 1] = rb.linearVelocity.y;
-    dstF32[carBase + CAR_STATE_OFFSETS.VEL + 2] = rb.linearVelocity.z;
-    dstF32[carBase + CAR_STATE_OFFSETS.ANG_VEL + 0] = rb.angularVelocity.x;
-    dstF32[carBase + CAR_STATE_OFFSETS.ANG_VEL + 1] = rb.angularVelocity.y;
-    dstF32[carBase + CAR_STATE_OFFSETS.ANG_VEL + 2] = rb.angularVelocity.z;
     dstF32[carBase + CAR_STATE_OFFSETS.BOOST] = car.boostAmount;
     dstF32[carBase + CAR_STATE_OFFSETS.ON_GROUND] = car.isOnGround ? 1 : 0;
     dstF32[carBase + CAR_STATE_OFFSETS.SUPERSONIC] = car.isSupersonic ? 1 : 0;
     dstF32[carBase + CAR_STATE_OFFSETS.DEMOED] = 0;
     dstF32[carBase + CAR_STATE_OFFSETS.HAS_FLIP_OR_JUMP] = car.hasFlipOrJump ? 1 : 0;
-    dstF32[carBase + CAR_STATE_OFFSETS.IS_BOOSTING] = car.activeFlags.boostActive ? 1 : 0;
+    dstF32[carBase + CAR_STATE_OFFSETS.IS_BOOSTING] =
+      car.activeFlags.boostActive || car.controls.boost ? 1 : 0;
     dstF32[carBase + CAR_STATE_OFFSETS.IS_FLIPPING] =
       car.activeFlags.dodgeActive || car.activeFlags.doubleJumpActive ? 1 : 0;
     dstF32[carBase + CAR_STATE_OFFSETS.GROUND_NORMAL + 2] = 1;
@@ -200,7 +207,7 @@ export function packRLRCFrameToTrack0Slot(
     dstF32[jumpAirBase + EXTENDED_STATE_OFFSETS.CAR_AIR_TIME_SINCE_JUMP_OFFSET] =
       car.airTimeSinceJump;
 
-    packCarControlsToTrack64(ctrlSlice, s, {
+    packCarControlsToTrack64(ctrlSlice, slot, {
       throttle: car.controls.throttle,
       steer: car.controls.steer,
       pitch: car.controls.pitch,

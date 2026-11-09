@@ -7,7 +7,7 @@ import {
   INCIDENT_EVENT_TYPES as EV,
   STANDARD_GOAL_VOLUME_BOX,
 } from '../../../physics/RocketSimConstants.ts';
-import { STANDARD_BOOST_PADS_34 as PADS } from '../catalog/RLRCBoostPadSpatialCatalog.ts';
+import { STANDARD_BOOST_PADS_34 as PADS } from '../catalog/RLRCBoostPadLocationsTable.ts';
 import type { RLRCConvertedReplaySession } from '../RLReplayToRLRCConverter.ts';
 import type {
   RLRCBookmarkRecord,
