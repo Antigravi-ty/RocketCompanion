@@ -35,13 +35,28 @@ export class GameAudioEngineFacade {
   vehicleManager: VehicleAudioManager;
 
   constructor() {
-    this.ballEngine = new BallAudioEmitter();
-    this.vehicleManager = new VehicleAudioManager();
-    this.incidentEngine = new IncidentAudioEngine(this.vehicleManager);
-    this.signalEngine = new SignalAudioEngine();
-    this.stadiumSpatialEngine = stadiumSpatialAudioEngine;
+    const ballEngine = new BallAudioEmitter();
+    const vehicleManager = new VehicleAudioManager();
+    const incidentEngine = new IncidentAudioEngine(vehicleManager);
+    const signalEngine = new SignalAudioEngine();
+    const stadiumSpatialEngine = stadiumSpatialAudioEngine;
+
+    this.ballEngine = ballEngine;
+    this.vehicleManager = vehicleManager;
+    this.incidentEngine = incidentEngine;
+    this.signalEngine = signalEngine;
+    this.stadiumSpatialEngine = stadiumSpatialEngine;
     this.stadiumSpatialEngine.init();
-    this.previewPlayer = new AudioMenuPreviewPlayer(this);
+    this.previewPlayer = new AudioMenuPreviewPlayer({
+      isLoaded: () => this.loaded,
+      isLoading: () => this.loading,
+      preload: () => this.preload(),
+      stadiumSpatialEngine,
+      incidentEngine,
+      vehicleManager,
+      signalEngine,
+      ballEngine,
+    });
 
     this.loading = false;
     this.loaded = false;
@@ -49,9 +64,10 @@ export class GameAudioEngineFacade {
 
     registerAudioEngine(this);
     registerAudioDiagnosticsProvider({
-      previewBoostVariation: (variationId, phase) => this.previewBoostVariation(variationId, phase),
-      previewAudioDetail: (detailKey) => this.previewAudioDetail(detailKey),
-      stopAudioDetailPreview: () => this.stopAudioDetailPreview(),
+      previewBoostVariation: (variationId, phase) =>
+        this.previewPlayer.previewBoostVariation(variationId, phase),
+      previewAudioDetail: (detailKey) => this.previewPlayer.previewAudioDetail(detailKey),
+      stopAudioDetailPreview: () => this.previewPlayer.stopAudioDetailPreview(),
     });
 
     audioConfig.subscribe(() => {
@@ -85,16 +101,8 @@ export class GameAudioEngineFacade {
     });
   }
 
-  stopAudioDetailPreview(): void {
-    this.previewPlayer.stopAudioDetailPreview();
-  }
-
-  previewAudioDetail(detailKey: string): void {
-    this.previewPlayer.previewAudioDetail(detailKey);
-  }
-
   previewBoostVariation(variationId = 'rush', phase = 'start'): void {
-    this.previewPlayer.previewBoostVariation(variationId, phase);
+    this.previewPlayer?.previewBoostVariation?.(variationId, phase);
   }
 
   async preload(
@@ -115,6 +123,7 @@ export class GameAudioEngineFacade {
     event: PhysicsImpactAudioEvent | null | undefined,
     camera: CameraTransformLike | null = null
   ) {
+    if (!event) return;
     this.incidentEngine.handleEvent(event, camera);
   }
 
@@ -157,19 +166,13 @@ export class GameAudioEngineFacade {
   }
 
   handleSignal(signalType: string) {
+    if (!signalType) return;
     this.signalEngine.handleSignal(signalType);
   }
 
   play(key: string, volMult: number = 1.0, minInterval: number = 0) {
+    if (!key) return;
     this.signalEngine.play(key, volMult, minInterval);
-  }
-
-  playDirect(key: string, volMult: number = 1.0, minInterval: number = 0) {
-    this.signalEngine.play(key, volMult, minInterval);
-  }
-
-  playClick(volume: number = 1.0): void {
-    this.signalEngine.playClick(volume);
   }
 
   silenceAll() {

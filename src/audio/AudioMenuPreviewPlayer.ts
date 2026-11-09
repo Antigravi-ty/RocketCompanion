@@ -12,10 +12,10 @@ export interface PreviewAudioBufferOptions {
   maxDurationSec?: number;
 }
 
-export interface AudioMenuPreviewHostPort {
-  readonly loaded: boolean;
-  readonly loading: boolean;
-  preload(): Promise<void>;
+export interface AudioMenuPreviewDeps {
+  readonly isLoaded: () => boolean;
+  readonly isLoading: () => boolean;
+  readonly preload: () => Promise<void>;
   readonly stadiumSpatialEngine: StadiumSpatialAudioEngine;
   readonly incidentEngine: { buffers: IncidentAudioBuffers };
   readonly vehicleManager: { buffers: VehicleAudioBuffers };
@@ -44,7 +44,7 @@ const SIGNAL_PREVIEW_KEY_MAP: Record<
 };
 
 export class AudioMenuPreviewPlayer {
-  private readonly host: AudioMenuPreviewHostPort;
+  private readonly deps: AudioMenuPreviewDeps;
   _previewGain: GainNode | null = null;
   _previewSource: AudioBufferSourceNode | null = null;
   _previewSynth: TurtleModemEngineSynth | null = null;
@@ -52,8 +52,8 @@ export class AudioMenuPreviewPlayer {
   _previewSynthTimeout: ReturnType<typeof setTimeout> | null = null;
   _previewVariantCounters: Record<string, number> = {};
 
-  constructor(host: AudioMenuPreviewHostPort) {
-    this.host = host;
+  constructor(deps: AudioMenuPreviewDeps) {
+    this.deps = deps;
   }
 
   stopAudioDetailPreview(): void {
@@ -217,13 +217,13 @@ export class AudioMenuPreviewPlayer {
   }
 
   private async _previewAnthemSuite(): Promise<void> {
-    await this.host.stadiumSpatialEngine?.previewAnthemVolumeSample?.((buf, vol, opts) =>
+    await this.deps.stadiumSpatialEngine?.previewAnthemVolumeSample?.((buf, vol, opts) =>
       this._playPreviewBuffer(buf, vol, opts)
     );
   }
 
   private async _previewBgmSuite(): Promise<void> {
-    await this.host.stadiumSpatialEngine?.previewBgmVolumeSample?.((buf, vol, opts) =>
+    await this.deps.stadiumSpatialEngine?.previewBgmVolumeSample?.((buf, vol, opts) =>
       this._playPreviewBuffer(buf, vol, opts)
     );
   }
@@ -251,9 +251,9 @@ export class AudioMenuPreviewPlayer {
       return;
     }
 
-    if (!this.host.loaded) {
-      if (!this.host.loading) {
-        this.host
+    if (!this.deps.isLoaded()) {
+      if (!this.deps.isLoading()) {
+        this.deps
           .preload()
           .then(() => {
             this.previewAudioDetail(detailKey);
@@ -267,9 +267,9 @@ export class AudioMenuPreviewPlayer {
     const ballBus = v('ballCollisionVolume');
     const selfBus = v('vehicleSelfVolume');
     const boostBus = v('boostVolume');
-    const inc = this.host.incidentEngine?.buffers;
-    const veh = this.host.vehicleManager?.buffers;
-    const sigMap = this.host.signalEngine?.signalBuffers;
+    const inc = this.deps.incidentEngine?.buffers;
+    const veh = this.deps.vehicleManager?.buffers;
+    const sigMap = this.deps.signalEngine?.signalBuffers;
 
     const sigSpec = SIGNAL_PREVIEW_KEY_MAP[detailKey];
     if (sigSpec) {
@@ -419,14 +419,14 @@ export class AudioMenuPreviewPlayer {
         break;
       case 'ballRollingVolume':
         this._playPreviewBuffer(
-          subsystemState.buffers.get('ballrolling') || this.host.ballEngine?.ballRollingBuffer,
+          subsystemState.buffers.get('ballrolling') || this.deps.ballEngine?.ballRollingBuffer,
           v('ballRollingVolume'),
           { loop: true, maxDurationSec: 1.25 }
         );
         break;
       case 'ballFlyingVolume':
         this._playPreviewBuffer(
-          subsystemState.buffers.get('ballflying') || this.host.ballEngine?.ballFlyingBuffer,
+          subsystemState.buffers.get('ballflying') || this.deps.ballEngine?.ballFlyingBuffer,
           v('ballFlyingVolume'),
           { loop: true, maxDurationSec: 1.25 }
         );
@@ -464,8 +464,8 @@ export class AudioMenuPreviewPlayer {
     const normalizedPhase = phase === 'release' ? 'end' : phase;
     const buf = subsystemState.buffers.get(`boost_${variationId}_${normalizedPhase}`);
     if (!buf) {
-      if (!this.host.loaded && !this.host.loading) {
-        this.host
+      if (!this.deps.isLoaded() && !this.deps.isLoading()) {
+        this.deps
           .preload()
           .then(() => {
             this.previewBoostVariation(variationId, phase);

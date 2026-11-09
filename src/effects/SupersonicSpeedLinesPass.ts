@@ -242,7 +242,8 @@ export class SupersonicSpeedLinesPass {
       side: DoubleSide,
     });
 
-    this.pass = new SpeedLinesEffectPass(this.material);
+    const effectMaterial = this.material;
+    this.pass = new SpeedLinesEffectPass(effectMaterial);
   }
 
   update(
@@ -272,40 +273,26 @@ export class SupersonicSpeedLinesPass {
     uniforms.strength.value = this.strength;
     uniforms.aspect.value = camera.aspect ?? 1;
 
-    if (camera.projectionMatrix && uniforms.cameraProjection.value?.copy) {
-      uniforms.cameraProjection.value.copy(camera.projectionMatrix);
+    if (camera.projectionMatrix) {
+      uniforms.cameraProjection.value?.copy?.(camera.projectionMatrix);
     }
 
     if (camera.quaternion && this.inverseCamera?.copy) {
       this.inverseCamera.copy(camera.quaternion);
-      if (typeof this.inverseCamera.invert === 'function') {
-        this.inverseCamera.invert();
-      }
+      this.inverseCamera.invert?.();
     }
 
     if (velocity && this.viewVelocity?.copy) {
       this.viewVelocity.copy(velocity);
-      if (typeof this.viewVelocity.applyQuaternion === 'function') {
-        this.viewVelocity.applyQuaternion(this.inverseCamera);
-      }
+      this.viewVelocity.applyQuaternion?.(this.inverseCamera);
       if (typeof this.viewVelocity.lengthSq === 'function' && this.viewVelocity.lengthSq() > 1) {
         uniforms.travel.value.copy(this.viewVelocity).normalize();
       }
     }
   }
 
-  setSize(width: number, height: number): void {
-    if (this.pass && typeof this.pass.setSize === 'function') {
-      this.pass.setSize(width, height);
-    }
-  }
-
   dispose(): void {
-    if (this.pass && typeof this.pass.dispose === 'function') {
-      this.pass.dispose();
-    }
-    if (this.material && typeof this.material.dispose === 'function') {
-      this.material.dispose();
-    }
+    this.pass?.dispose?.();
+    this.material?.dispose?.();
   }
 }

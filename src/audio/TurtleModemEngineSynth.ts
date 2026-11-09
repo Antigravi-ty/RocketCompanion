@@ -78,32 +78,34 @@ export class TurtleModemEngineSynth {
   ) {
     this.ctx = ctx;
     this.destination = destination || ctx.destination;
-    this.isPrimaryListener = options?.isPrimaryListener ?? true;
+    const isPrimary = options?.isPrimaryListener ?? true;
+    this.isPrimaryListener = isPrimary;
 
     const cfg = getEngineAudioTuningConfig();
     this.packId = cfg.activePackId || 'turtle_modem';
     this.drivetrain = new TurtleModemDrivetrainModel(cfg.idleRPM);
 
-    const lp = this.ctx.createBiquadFilter();
+    const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
     lp.frequency.value = 18000;
     lp.Q.value = 0.707;
     this.lowpassNode = lp;
 
-    this.equalizer = new EngineAudioEqualizer(this.ctx, lp);
-    this.outputNode = this.ctx.createGain();
+    const equalizer = new EngineAudioEqualizer(ctx, lp);
+    this.equalizer = equalizer;
+    this.outputNode = ctx.createGain();
     this.outputNode.gain.value = 0;
     lp.connect(this.outputNode);
     this.outputNode.connect(this.destination);
 
     this.voiceGraph = new TurtleModemGranularVoiceGraph(
-      this.ctx,
+      ctx,
       lp,
-      this.equalizer,
-      this.isPrimaryListener ? 'primary-full' : 'remote-lod'
+      equalizer,
+      isPrimary ? 'primary-full' : 'remote-lod'
     );
 
-    if (this.isPrimaryListener) this._registerRuntimeHooks();
+    if (isPrimary) this._registerRuntimeHooks();
     this._ensurePackLoaded(this.packId);
   }
 

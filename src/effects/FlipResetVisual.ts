@@ -112,7 +112,8 @@ export class FlipResetVisual {
     }
 
     this.viewportRect = new Vector4();
-    this.sparkPositions = new Float32Array(RESET_SPARKS_COUNT * 3);
+    const sparkPositions = new Float32Array(RESET_SPARKS_COUNT * 3);
+    this.sparkPositions = sparkPositions;
     this.sparkOrigins = new Float32Array(RESET_SPARKS_COUNT * 3);
     this.sparkVelocities = new Float32Array(RESET_SPARKS_COUNT * 3);
     this.elapsed = Infinity;
@@ -146,10 +147,12 @@ export class FlipResetVisual {
     outlineMesh.renderOrder = 8;
     this.ring.add(outlineMesh);
 
-    this.sparksGeometry = new BufferGeometry();
-    this.sparksGeometry.setAttribute('position', new BufferAttribute(this.sparkPositions, 3));
-    this.sparksMaterial = createSparksMaterial();
-    this.sparks = new Points(this.sparksGeometry, this.sparksMaterial);
+    const sparksGeometry = new BufferGeometry();
+    sparksGeometry.setAttribute('position', new BufferAttribute(sparkPositions, 3));
+    const sparksMaterial = createSparksMaterial();
+    this.sparksGeometry = sparksGeometry;
+    this.sparksMaterial = sparksMaterial;
+    this.sparks = new Points(sparksGeometry, sparksMaterial);
     this.sparks.onBeforeRender = (renderer) => {
       if (renderer?.getCurrentViewport) {
         renderer.getCurrentViewport(this.viewportRect);

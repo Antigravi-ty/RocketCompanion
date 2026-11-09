@@ -45,15 +45,16 @@ export class DualProgressUIAdapter implements LoadingProgressObserver {
     container: Element | null = null,
     existingLoader: MinimumProgressLoader | null = null
   ) {
-    this.container = (container ||
+    const resolvedContainer = (container ||
       (typeof document !== 'undefined'
         ? document.querySelector('#app')
         : null)) as MinimumLoaderDomContainer | null;
+    this.container = resolvedContainer;
     this.customUI = null;
     this.loader =
       existingLoader ||
-      this.container?.__minimumProgressLoader ||
-      new MinimumProgressLoader(this.container);
+      resolvedContainer?.__minimumProgressLoader ||
+      new MinimumProgressLoader(resolvedContainer);
     this.loader.mount();
   }
 
@@ -66,50 +67,36 @@ export class DualProgressUIAdapter implements LoadingProgressObserver {
   }
 
   onStageChange(data: LoadingStageChangeEvent): void {
-    if (this.customUI?.onStageChange) {
-      this.customUI.onStageChange(data);
-    }
+    this.customUI?.onStageChange?.(data);
     this.loader?.onStageChange(data);
   }
 
   onTaskStart(data: LoadingTaskStartEvent): void {
-    if (this.customUI?.onTaskStart) {
-      this.customUI.onTaskStart(data);
-    }
+    this.customUI?.onTaskStart?.(data);
     this.loader?.onTaskStart(data);
   }
 
   onTaskProgress(data: LoadingTaskProgressEvent): void {
-    if (this.customUI?.onProgress) {
-      this.customUI.onProgress(data);
-    }
+    this.customUI?.onProgress?.(data);
     this.loader?.onTaskProgress(data);
   }
 
   onByteStreamProgress(data: StreamDownloadProgressInfo): void {
-    if (this.customUI?.onByteStream) {
-      this.customUI.onByteStream(data);
-    }
+    this.customUI?.onByteStream?.(data);
     this.loader?.onByteStreamProgress(data);
   }
 
   onTaskComplete(data: LoadingTaskCompleteEvent): void {
-    if (this.customUI?.onTaskComplete) {
-      this.customUI.onTaskComplete(data);
-    }
+    this.customUI?.onTaskComplete?.(data);
   }
 
   onError(data: LoadingErrorEvent): void {
-    if (this.customUI?.onError) {
-      this.customUI.onError(data);
-    }
+    this.customUI?.onError?.(data);
     this.loader?.onError(data);
   }
 
   onComplete(data: LoadingCompleteEvent): void {
-    if (this.customUI?.onComplete) {
-      this.customUI.onComplete(data);
-    }
+    this.customUI?.onComplete?.(data);
     this.loader?.onComplete(data);
   }
 }
