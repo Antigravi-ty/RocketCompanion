@@ -40,12 +40,12 @@ export interface SignalingRelayLaunchHooks {
   roomContext: DeterministicRoomContext;
   allowedMask?: number;
   isSkipLaunch?: () => boolean;
-  onFirstRelayOpen: (info: { relayId: string; relayLabel: string; topicHash: string }) => void;
-  onRelayConnected?: (relayId: string) => void;
-  onRelayHealthChanged?: (snapshot: SignalingPoolHealthSnapshot) => void;
-  onFrameReceived: (relayId: string, frame: Record<string, unknown>) => void;
-  onAllRelaysClosed: (lastClosedRelayId: string) => void;
-  onAllRelaysFailed: (finalError: Error) => void;
+  handleFirstRelayOpen: (info: { relayId: string; relayLabel: string; topicHash: string }) => void;
+  handleRelayConnected?: (relayId: string) => void;
+  handleRelayHealthChanged?: (snapshot: SignalingPoolHealthSnapshot) => void;
+  handleFrameReceived: (relayId: string, frame: Record<string, unknown>) => void;
+  handleAllRelaysClosed: (lastClosedRelayId: string) => void;
+  handleAllRelaysFailed: (finalError: Error) => void;
 }
 
 export class SignalingMultiRelayTransportPool {
@@ -103,7 +103,7 @@ export class SignalingMultiRelayTransportPool {
   }
 
   private emitHealthSnapshot(): void {
-    this.lastHooks?.onRelayHealthChanged?.(this.getHealthSnapshot());
+    this.lastHooks?.handleRelayHealthChanged?.(this.getHealthSnapshot());
   }
 
   getBestRelayIdForBridge(preferredRelayId: string | null = null): string | null {
@@ -261,7 +261,7 @@ export class SignalingMultiRelayTransportPool {
       const noProfileErr = new Error(
         'No signaling profile loaded. Please import a .rctbnspib credential bundle in Settings → Advanced.'
       );
-      hooks.onAllRelaysFailed(noProfileErr);
+      hooks.handleAllRelaysFailed(noProfileErr);
       throw noProfileErr;
     }
 
@@ -302,7 +302,7 @@ export class SignalingMultiRelayTransportPool {
         if (!this.activeRelayId) {
           this.activeRelayId = relayId;
         }
-        hooks.onFirstRelayOpen({
+        hooks.handleFirstRelayOpen({
           relayId,
           relayLabel: this.relayConfigs.get(relayId)?.label || relayId,
           topicHash: hooks.roomContext.topicHash,
@@ -319,7 +319,7 @@ export class SignalingMultiRelayTransportPool {
           }
           const finalErr =
             err instanceof Error ? err : new Error('All signaling relays failed to connect');
-          hooks.onAllRelaysFailed(finalErr);
+          hooks.handleAllRelaysFailed(finalErr);
           reject(finalErr);
         }
       };
@@ -330,7 +330,7 @@ export class SignalingMultiRelayTransportPool {
             const timeoutErr = new Error(
               `Signaling connection timed out after ${timeoutMs}ms across all relays`
             );
-            hooks.onAllRelaysFailed(timeoutErr);
+            hooks.handleAllRelaysFailed(timeoutErr);
             reject(timeoutErr);
           }
         }, timeoutMs);
@@ -386,7 +386,7 @@ export class SignalingMultiRelayTransportPool {
 
     transport.on('message', (msg?: Record<string, unknown>) => {
       if (!this.isCleanedUp && msg) {
-        hooks.onFrameReceived(relay.id, msg);
+        hooks.handleFrameReceived(relay.id, msg);
       }
     });
 
@@ -403,7 +403,7 @@ export class SignalingMultiRelayTransportPool {
         }
         this.healthSupervisor.markConnected(relay.id);
         onSuccess?.();
-        hooks.onRelayConnected?.(relay.id);
+        hooks.handleRelayConnected?.(relay.id);
         this.emitHealthSnapshot();
       })
       .catch((err: unknown) => {
@@ -443,7 +443,7 @@ export class SignalingMultiRelayTransportPool {
 
     if (!anyStillOpen && !this.isCleanedUp) {
       this.emitHealthSnapshot();
-      hooks.onAllRelaysClosed(relayId);
+      hooks.handleAllRelaysClosed(relayId);
     }
   }
 

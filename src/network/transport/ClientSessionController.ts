@@ -81,7 +81,7 @@ export class ClientSessionController {
       extraLatencyMs: 0,
     });
 
-    this.channel._initRoomChannel(this.roomId);
+    this.channel.initRoomChannel(this.roomId);
 
     this.channel.onConnected = async () => {
       const active = this.getActiveChannel();
@@ -100,7 +100,7 @@ export class ClientSessionController {
       this.callbacks.onIceCandidate?.(cand);
     };
 
-    this.channel._sendRoomMessage({
+    this.channel.sendRoomMessage({
       type: 'cross_tab_join',
       clientName: this.playerName,
       clientColorSlot: this.colorSlot,
@@ -124,7 +124,7 @@ export class ClientSessionController {
           })
           .then((answer) => {
             this.answerToken = answer;
-            this.getActiveChannel()?._sendRoomMessage({
+            this.getActiveChannel()?.sendRoomMessage({
               type: 'room_answer',
               sdp: answer,
               roomId: this.roomId,

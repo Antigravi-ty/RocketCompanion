@@ -17,10 +17,10 @@ export interface SdpHandshakePayload {
 }
 
 export interface WebRTCConnectionOptions {
-  onIceCandidate?: ((cand: IceCandidateDescriptor) => void) | null;
-  onConnectionStateChange?: ((state: RTCPeerConnectionState) => void) | null;
-  onIceConnectionStateChange?: ((state: RTCIceConnectionState) => void) | null;
-  onDataChannel?: ((event: RTCDataChannelEvent) => void) | null;
+  emitIceCandidate?: ((cand: IceCandidateDescriptor) => void) | null;
+  handleConnectionStateChange?: ((state: RTCPeerConnectionState) => void) | null;
+  handleIceConnectionStateChange?: ((state: RTCIceConnectionState) => void) | null;
+  handleDataChannel?: ((event: RTCDataChannelEvent) => void) | null;
   broadcastSignal?: ((type: string, payload: Record<string, unknown>) => void) | null;
 }
 
@@ -97,11 +97,11 @@ export class WebRTCConnection {
           `[P2PWebRTCChannel] Candidate #${this.localCandidates.length} gathered (type: ${typ})`
         );
         this.options.broadcastSignal?.('ice_candidate', { candidate: candJson });
-        if (typeof this.options.onIceCandidate === 'function') {
+        if (typeof this.options.emitIceCandidate === 'function') {
           try {
-            this.options.onIceCandidate(candJson);
+            this.options.emitIceCandidate(candJson);
           } catch (err) {
-            console.error('[P2PWebRTCChannel] Error in onIceCandidate callback:', err);
+            console.error('[P2PWebRTCChannel] Error in emitIceCandidate callback:', err);
           }
         }
       } else {
@@ -117,15 +117,15 @@ export class WebRTCConnection {
     };
 
     this.pc.onconnectionstatechange = () => {
-      if (this.pc) this.options.onConnectionStateChange?.(this.pc.connectionState);
+      if (this.pc) this.options.handleConnectionStateChange?.(this.pc.connectionState);
     };
 
     this.pc.oniceconnectionstatechange = () => {
-      if (this.pc) this.options.onIceConnectionStateChange?.(this.pc.iceConnectionState);
+      if (this.pc) this.options.handleIceConnectionStateChange?.(this.pc.iceConnectionState);
     };
 
-    if (this.options.onDataChannel) {
-      this.pc.ondatachannel = this.options.onDataChannel;
+    if (this.options.handleDataChannel) {
+      this.pc.ondatachannel = this.options.handleDataChannel;
     }
 
     return this.pc;

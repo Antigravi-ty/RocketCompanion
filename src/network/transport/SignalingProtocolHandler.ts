@@ -129,39 +129,41 @@ export class SignalingProtocolHandler {
     this._isCleanedUp = false;
     this.status = 'connecting';
 
-    this.roomContext = await deriveDeterministicRoomContext(this.roomId, this.password);
-    this.cryptoSession = new SignalingCryptoSession(this.roomContext, this._peerId);
+    const roomCtx = await deriveDeterministicRoomContext(this.roomId, this.password);
+    this.roomContext = roomCtx;
+    const peerId = this._peerId;
+    this.cryptoSession = new SignalingCryptoSession(roomCtx, peerId);
     await this.cryptoSession.initializeLocalIdentity();
 
     return this.relayPool.connectStaggered(timeoutMs, {
       role: this.role,
-      peerId: this._peerId,
+      peerId,
       roomId: this.roomId,
       playerName: this.playerName,
-      roomContext: this.roomContext,
+      roomContext: roomCtx,
       allowedMask: this.probedHostMask,
       isSkipLaunch: () =>
         this._isCleanedUp ||
         (this.role !== 'host' && !this.allowSpectatorRelay && Boolean(this.remoteHostPeerId)),
-      onFirstRelayOpen: ({ relayId, relayLabel, topicHash }) => {
+      handleFirstRelayOpen: ({ relayId, relayLabel, topicHash }) => {
         this.status = 'connected';
-        this.callbacks.onOpen?.({ relayId, relayLabel, topicHash });
+        this.callbacks.handleOpen?.({ relayId, relayLabel, topicHash });
         if (this.role !== 'host') this._startClientHelloLoop();
       },
-      onRelayConnected: () => {
+      handleRelayConnected: () => {
         if (this.role !== 'host' && !this.remoteHostPeerId) void this._broadcastClientHello();
       },
-      onRelayHealthChanged: (snap) => this.callbacks.onRelayHealthChanged?.(snap),
-      onFrameReceived: (relayId, msg) => {
+      handleRelayHealthChanged: (snap) => this.callbacks.handleRelayHealthChanged?.(snap),
+      handleFrameReceived: (relayId, msg) => {
         void this._handleIncomingSignalingFrame(relayId, msg);
       },
-      onAllRelaysClosed: (relayId) => {
+      handleAllRelaysClosed: (relayId) => {
         this.status = 'error';
-        this.callbacks.onClose?.({ relayId });
+        this.callbacks.handleClose?.({ relayId });
       },
-      onAllRelaysFailed: (err) => {
+      handleAllRelaysFailed: (err) => {
         this.status = 'error';
-        this.callbacks.onError?.(err);
+        this.callbacks.handleError?.(err);
       },
     });
   }
@@ -319,7 +321,7 @@ export class SignalingProtocolHandler {
     if (isFirstLock) {
       if (!this.allowSpectatorRelay) this.relayPool.closeRedundantRelays(relayId);
       const relayLabel = this.relayPool.getRelayLabel(relayId) || relayId;
-      this.callbacks.onRendezvousEstablished?.({
+      this.callbacks.handleRendezvousEstablished?.({
         relayId,
         relayLabel,
         pairingCode: session.pairingCode,
@@ -366,10 +368,10 @@ export class SignalingProtocolHandler {
       this.relayPool.activeRelayId;
 
     const peerMeta = this.envelopeHandler.peerMetadata.get(resolvedPeerId);
-    if (peerMeta?.requiresBridge && routeRelayId) {
-      return this.relayPool.sendBridgeOnRelay(routeRelayId, wrapper);
-    }
-    return this.relayPool.sendRoutedFrame(wrapper, routeRelayId, 1);
+    const useBridge = Boolean(peerMeta?.requiresBridge && routeRelayId);
+    return useBridge
+      ? this.relayPool.sendBridgeOnRelay(routeRelayId!, wrapper)
+      : this.relayPool.sendRoutedFrame(wrapper, routeRelayId, 1);
   }
 
   scheduleReconnect(delayMs = 3000, reconnectFn?: () => void): void {
@@ -430,14 +432,8 @@ export class SignalingProtocolHandler {
   }
 
   applyMatchPhaseRelayConvergence(policy?: SignalingRelayMatchPolicy): void {
-    this.relayPool.applyMatchPhaseRelayConvergence(
-      this.relayUsageTracker.getActiveRelayIds(),
-      policy
-    );
-  }
-
-  restoreLobbyRelays(): void {
-    this.relayPool.restoreLobbyRelays();
+    const activeRelayIds = this.relayUsageTracker.getActiveRelayIds();
+    this.relayPool.applyMatchPhaseRelayConvergence(activeRelayIds, policy);
   }
 
   cleanup(): void {
