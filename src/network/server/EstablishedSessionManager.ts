@@ -1,10 +1,6 @@
-import {
-  GlobalPayloadCodec,
-  PAYLOAD_FLAGS,
-  MATCH_SIGNALS,
-  type MatchSignalDescriptor,
-} from '../protocol/GlobalPayloadCodec.ts';
+import { MATCH_SIGNALS, type MatchSignalDescriptor } from '../protocol/GlobalPayloadCodec.ts';
 import { SignalEventBuffer } from '../protocol/SignalEventBuffer.ts';
+import { extractAndIngestGlobalPayloadSignals } from '../protocol/sessionSignalWireCodec.ts';
 import {
   PeerSession,
   INPUT_STALE_NEUTRAL_TIMEOUT_MS,
@@ -166,8 +162,7 @@ export class EstablishedSessionManager {
   }
 
   enqueueSignal(signalObj: MatchSignalDescriptor) {
-    const activeIds = this._getHumanAckSessionIds();
-    return this.signalBuffer.pushSignal(signalObj, activeIds);
+    return this.signalBuffer.pushSignal(signalObj, this._getHumanAckSessionIds());
   }
 
   recordClientSignalAcks(sessionId: string, acks: PiggybackedSignalAck[]): number {
@@ -270,47 +265,12 @@ export class EstablishedSessionManager {
     statelessPayloadBytes: Uint8Array;
     serverTick: number | null;
   } {
-    if (!globalPayloadBytes || globalPayloadBytes.length === 0) {
-      return { statelessPayloadBytes: globalPayloadBytes, serverTick: null };
-    }
-
-    const flagByte = globalPayloadBytes[0];
-    const hasSignalsInGlobal = Boolean(flagByte & PAYLOAD_FLAGS.SIGNAL);
-    const humanAckSessionIds = this._getHumanAckSessionIds();
-    const sigBuf = this.signalBuffer;
-
-    if (!hasSignalsInGlobal) {
-      let serverTick: number | null = null;
-      if (flagByte & PAYLOAD_FLAGS.PHYSICS && globalPayloadBytes.length >= 5) {
-        const view = new DataView(
-          globalPayloadBytes.buffer,
-          globalPayloadBytes.byteOffset,
-          globalPayloadBytes.byteLength
-        );
-        serverTick = view.getUint32(1, false);
-      }
-      if (serverTick !== null) sigBuf.pruneExpired(serverTick, humanAckSessionIds);
-      return { statelessPayloadBytes: globalPayloadBytes, serverTick };
-    }
-
-    const decoded = GlobalPayloadCodec.decode(globalPayloadBytes);
-    if (!decoded) {
-      return { statelessPayloadBytes: globalPayloadBytes, serverTick: null };
-    }
-
-    const serverTick = decoded.physics?.tick ?? this.physicsManager?.currentTick ?? null;
-
-    if (decoded.signals && decoded.signals.length > 0)
-      sigBuf.ingestSignals(decoded.signals, humanAckSessionIds);
-    if (serverTick !== null) sigBuf.pruneExpired(serverTick, humanAckSessionIds);
-
-    const statelessPayloadBytes = GlobalPayloadCodec.encode({
-      physics: decoded.physics ?? undefined,
-      signals: [],
-      allUserRtt: decoded.allUserRtt ?? undefined,
-    });
-
-    return { statelessPayloadBytes, serverTick };
+    return extractAndIngestGlobalPayloadSignals(
+      globalPayloadBytes,
+      this.signalBuffer,
+      this._getHumanAckSessionIds(),
+      this.physicsManager?.currentTick ?? null
+    );
   }
 
   buildClientPacket(

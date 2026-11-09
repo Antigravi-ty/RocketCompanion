@@ -10,7 +10,7 @@ import {
   createWorkerEnvelope,
   type WorkerEnvelope,
 } from '../protocol/HostWorkerProtocol.ts';
-import type { WorkerRoomStateSummary, HostWorkerInitOptions } from './HostWorkerMessageRouter.ts';
+import type { WorkerRoomStateSummary } from './HostWorkerMessageRouter.ts';
 import {
   HostServerFallbackSubController,
   spawnAuthoritativeWorkerWithRetry,
@@ -18,22 +18,23 @@ import {
 } from './HostServerFallbackSubController.ts';
 import {
   HostClientChannelRegistry,
+  applyAuthoritativeHostSyncedSnapshot,
+  buildNotifyPlayerJoinedPayload,
+  normalizeHostLoadoutCommandPayload,
+  resolveAuthoritativeHostConstructorArgs,
+  syncHostReplayBufferBeforeEnvelope,
+  type AuthoritativeServerHostOptions,
   type HostClientChannelPort,
   type HostWorkerEnvelopeMessage,
 } from './HostClientChannelRegistry.ts';
+import { createBotTunnelHostPort } from './hostLoopbackFrameDecodePipeline.ts';
 import { ReplayRingBuffer, REPLAY_BUFFER_MODES as RBM } from '../../replay/ReplayRingBuffer.ts';
 import { BotTunnelManager, prewarmBotInferenceWorker } from '../bot/BotTunnelManager.ts';
 import type { ArenaHeaderView } from '../../physics/RocketSimStateViews.ts';
 import type { ExtraLoadoutConfig } from './match/matchLoadoutAndSpawnPipeline.ts';
 import type { AuthoritativePhysicsSimPort } from './authoritativePhysicsStepPipeline.ts';
 
-export type { HostClientChannelPort, HostWorkerEnvelopeMessage };
-
-export interface AuthoritativeServerHostOptions extends HostWorkerInitOptions {
-  forceFallback?: boolean;
-  replayCapacityTicks?: number | null;
-  fifoDurationSeconds?: number;
-}
+export type { AuthoritativeServerHostOptions, HostClientChannelPort, HostWorkerEnvelopeMessage };
 
 export class AuthoritativeServerHost {
   static async prewarmWorkers(): Promise<{ serverWorker: boolean; botWorker: boolean }> {
@@ -66,28 +67,18 @@ export class AuthoritativeServerHost {
     ch: HostClientChannelPort | AuthoritativeServerHostOptions | null = null,
     opts: AuthoritativeServerHostOptions = {}
   ) {
-    if (
-      ch &&
-      typeof ch === 'object' &&
-      !('send' in ch && typeof ch.send === 'function') &&
-      !('sendClientInput' in ch && typeof ch.sendClientInput === 'function') &&
-      !('inboundQueue' in ch && Array.isArray(ch.inboundQueue))
-    ) {
-      opts = ch as AuthoritativeServerHostOptions;
-      ch = null;
-    }
-    this.options = { ...opts };
-    this.isWorker = typeof Worker !== 'undefined' && !opts.forceFallback;
-    const serverRef = this;
-    this.botTunnelManager = new BotTunnelManager(serverRef, {
-      forceInProcess: Boolean(opts.forceFallback),
+    const resolved = resolveAuthoritativeHostConstructorArgs(ch, opts);
+    this.options = resolved.options;
+    this.isWorker = typeof Worker !== 'undefined' && !this.options.forceFallback;
+    this.botTunnelManager = new BotTunnelManager(createBotTunnelHostPort(this), {
+      forceInProcess: Boolean(this.options.forceFallback),
     });
     this.hostReplayRingBuffer = new ReplayRingBuffer({
-      mode: opts.startAsMatch ? RBM.COUNTDOWN_MATCH : RBM.COUNTUP_FIFO,
-      capacityTicks: opts.replayCapacityTicks ?? undefined,
+      mode: this.options.startAsMatch ? RBM.COUNTDOWN_MATCH : RBM.COUNTUP_FIFO,
+      capacityTicks: this.options.replayCapacityTicks ?? undefined,
     });
     this.sim = createHostSimProxy(this);
-    const initialChannel = (ch as HostClientChannelPort | null) || createDefaultHostChannel(this);
+    const initialChannel = resolved.channel || createDefaultHostChannel(this);
     this.channelRegistry = new HostClientChannelRegistry(initialChannel);
   }
 
@@ -96,9 +87,6 @@ export class AuthoritativeServerHost {
   }
   get fallbackPhysics() {
     return this.fallbackSubController.physicsManager;
-  }
-  get fallbackSession() {
-    return this.fallbackSubController.sessionManager;
   }
   get fallbackManager() {
     return this.fallbackSubController.matchManager;
@@ -119,47 +107,25 @@ export class AuthoritativeServerHost {
     }
   }
 
-  private _applySyncedSnapshot(
-    snap: Float32Array | number[] | null | undefined,
-    tick: number | undefined,
-    roomState: Partial<WorkerRoomStateSummary> | null | undefined
-  ): void {
-    this.active = true;
-    if (snap) {
-      const arr = snap instanceof Float32Array ? snap : new Float32Array(snap);
-      const len = Math.min(this.cachedSnapshot.length, arr.length);
-      this.cachedSnapshot.subarray(0, len).set(arr.subarray(0, len));
-    }
-    if (tick !== undefined) this.lastServerTick = tick;
-    if (roomState) {
-      this.lastRoomState = roomState;
-      this.botTunnelManager?.init?.();
-      this.botTunnelManager?.syncFromRoomState?.(roomState);
-    }
-  }
-
   async init(): Promise<this> {
-    if (!this.isWorker) return this._initFallback();
-    const onMessage = (d: unknown) => this._handleWorkerMessage(d as HostWorkerEnvelopeMessage);
-    const onWorkerReady = (r: {
-      snapshot?: Float32Array | number[] | null;
-      tickCount?: number;
-      roomState?: Partial<WorkerRoomStateSummary> | null;
-    }) => this._applySyncedSnapshot(r.snapshot, r.tickCount, r.roomState);
-    const onFallbackToMainThread = async () => {
-      this.isWorker = false;
-      await this._initFallback();
-    };
+    if (!this.isWorker) {
+      return this._initFallback();
+    }
     await spawnAuthoritativeWorkerWithRetry({
       options: this.options,
       getWorker: () => this.worker,
       setWorker: (w) => {
         this.worker = w;
       },
-      onMessage,
+      onMessage: (d) =>
+        this.channelRegistry.handleWorkerMessage(this, d as HostWorkerEnvelopeMessage),
       sendInitEnvelope: (p) => this.sendEnvelope(MSG.WORKER_INIT, p),
-      onWorkerReady,
-      onFallbackToMainThread,
+      onWorkerReady: (r) =>
+        applyAuthoritativeHostSyncedSnapshot(this, r.snapshot, r.tickCount, r.roomState),
+      onFallbackToMainThread: async () => {
+        this.isWorker = false;
+        await this._initFallback();
+      },
     });
     return this;
   }
@@ -169,28 +135,27 @@ export class AuthoritativeServerHost {
       this.options,
       this.channelRegistry.hostChannel
     );
-    this._applySyncedSnapshot(res.snapshot, res.serverTick, res.roomState);
+    applyAuthoritativeHostSyncedSnapshot(this, res.snapshot, res.serverTick, res.roomState);
     return this;
-  }
-
-  addEnvelopeListener(fn: (env: HostWorkerEnvelopeMessage) => void): () => void {
-    const reg = this.channelRegistry;
-    return reg.addEnvelopeListener(fn);
-  }
-
-  _handleWorkerMessage(data: HostWorkerEnvelopeMessage | null | undefined): void {
-    const reg = this.channelRegistry;
-    reg.handleWorkerMessage(this, data);
   }
 
   sendEnvelope(
     type: string,
     payload: AuthoritativeServerHostOptions = {},
     transfer: Transferable[] = [],
-    seq: number | null = null
+    seqOverride: number | null = null
   ): WorkerEnvelope {
-    const reg = this.channelRegistry;
-    return reg.sendEnvelope(this, type, payload, transfer, seq);
+    syncHostReplayBufferBeforeEnvelope(this, type, payload);
+    const seq = seqOverride ?? ++this.channelRegistry.reqId;
+    const envelope = createWorkerEnvelope(type, payload, seq);
+    if (this.isWorker && this.worker) {
+      this.worker.postMessage(envelope, transfer);
+    } else {
+      this.fallbackSubController.routeEnvelope(envelope, (replyEnv) =>
+        this.channelRegistry.handleWorkerMessage(this, replyEnv)
+      );
+    }
+    return envelope;
   }
 
   _postCommand(
@@ -198,19 +163,24 @@ export class AuthoritativeServerHost {
     data: Record<string, unknown> = {},
     transfer: Transferable[] = []
   ): void {
-    if (this.isWorker && this.worker) this.worker.postMessage({ type, ...data }, transfer);
-    else
+    if (this.isWorker && this.worker) {
+      this.worker.postMessage({ type, ...data }, transfer);
+    } else {
       this.fallbackSubController.routeEnvelope(createWorkerEnvelope(type, data, 0), (r) =>
-        this._handleWorkerMessage(r)
+        this.channelRegistry.handleWorkerMessage(this, r)
       );
+    }
   }
 
   _sendRequest(
     type: string,
     data: Record<string, unknown> = {}
   ): Promise<HostSimRestoreStateResult> {
-    const reg = this.channelRegistry;
-    return reg.sendRequest((t, d) => this._postCommand(t, d), type, data);
+    const { reqId, promise } = this.channelRegistry.allocatePendingRequest(
+      (val) => (val || {}) as HostSimRestoreStateResult
+    );
+    this._postCommand(type, { reqId, ...data });
+    return promise;
   }
 
   addClientChannel(
@@ -227,17 +197,6 @@ export class AuthoritativeServerHost {
     );
   }
 
-  removeClientChannel(ch: HostClientChannelPort): void {
-    this.channelRegistry.removeClientChannel(
-      ch,
-      this.isWorker,
-      this.worker,
-      (t, d) => this._postCommand(t, d),
-      this.fallbackDataHandler,
-      this.fallbackManager
-    );
-  }
-
   ensureCar(carIndex: number, team = 1, visualId = 'octane'): void {
     this._postCommand('ensureCar', { carIndex, team, visualId });
   }
@@ -250,54 +209,12 @@ export class AuthoritativeServerHost {
   pauseMatch(paused = true): void {
     this._postCommand('pauseMatch', { paused: Boolean(paused) });
   }
-  requestResumeWithCountdown(countdownSeconds = 5): void {
-    this._postCommand('requestResumeWithCountdown', { countdownSeconds });
-  }
-
-  notifyPlayerJoined(
-    entityId: number,
-    name: string,
-    role = 'player',
-    channelId: string | null = null,
-    visualId = 'octane',
-    colorSlot = 0,
-    hitboxId: string | null = null,
-    paintFinish?: string,
-    boostVisual?: string,
-    boostAudio?: string
-  ): void {
-    const chId = channelId || (entityId === 0 ? 'host' : `peer_${entityId}`);
-    this._postCommand('notifyPlayerJoined', {
-      entityId,
-      name,
-      role,
-      channelId: chId,
-      visualId,
-      colorSlot,
-      hitboxId,
-      paintFinish,
-      boostVisual,
-      boostAudio,
-    });
-  }
-
-  private _resetHostReplayTracking(): void {
-    this.hostReplayRingBuffer?.configureMode?.(RBM.COUNTDOWN_MATCH);
-    this.hostReplayRingBuffer?.clear();
-    this._seenReplaySignalIds?.clear();
-  }
-
-  startMatch(durationSeconds?: number): void {
-    this._resetHostReplayTracking();
-    this._postCommand('startMatch', { durationSeconds });
+  notifyPlayerJoined(...args: Parameters<typeof buildNotifyPlayerJoinedPayload>): void {
+    this._postCommand('notifyPlayerJoined', buildNotifyPlayerJoinedPayload(...args));
   }
   forceStartMatch(durationSeconds?: number): void {
-    this._resetHostReplayTracking();
+    syncHostReplayBufferBeforeEnvelope(this, MSG.MATCH_START_REQUEST, {});
     this._postCommand('forceStartMatch', { durationSeconds });
-  }
-  initiateMatchPrepare(durationSeconds?: number): void {
-    this._resetHostReplayTracking();
-    this._postCommand('initiateMatchPrepare', { durationSeconds });
   }
   setGameMode(gameMode: string, durationSeconds: number | null = null): void {
     this._postCommand('setGameMode', { gameMode, durationSeconds });
@@ -313,37 +230,11 @@ export class AuthoritativeServerHost {
   ): void {
     this._postCommand('addBotPlayer', { team, botName, visualId, botType });
   }
-
-  setLoadout(
-    sessionId: string | null,
-    visualId: string,
-    colorSlot = 0,
-    hitboxId: string | null = null,
-    extra: ExtraLoadoutConfig | string | null = null,
-    boostVisual: string | null = null,
-    boostAudio: string | null = null
-  ): void {
-    const extraLoadout: ExtraLoadoutConfig | null =
-      extra && typeof extra === 'object'
-        ? extra
-        : extra !== null || boostVisual !== null || boostAudio !== null
-          ? {
-              paintFinish: typeof extra === 'string' ? extra : undefined,
-              boostVisual: boostVisual ?? undefined,
-              boostAudio: boostAudio ?? undefined,
-            }
-          : null;
-    this._postCommand('setLoadout', { sessionId, visualId, colorSlot, hitboxId, extraLoadout });
+  setLoadout(...args: Parameters<typeof normalizeHostLoadoutCommandPayload>): void {
+    this._postCommand('setLoadout', normalizeHostLoadoutCommandPayload(...args));
   }
-
   switchRoleTeam(sessionId: string | null, role: string, team: number): void {
     this._postCommand('switchRoleTeam', { sessionId, role, team });
-  }
-  setSkipReplayByDefault(enabled: boolean): void {
-    this._postCommand('setSkipReplayByDefault', { enabled: Boolean(enabled) });
-  }
-  setDisableGoalReset(disabled: boolean): void {
-    this._postCommand('setDisableGoalReset', { disabled: Boolean(disabled) });
   }
 
   startTrainingMode(opts: AuthoritativeServerHostOptions = {}): void {
@@ -381,11 +272,12 @@ export class AuthoritativeServerHost {
   }
 
   setLobbyMode(enabled = true, opts: AuthoritativeServerHostOptions = {}): WorkerEnvelope {
-    if (enabled)
+    if (enabled) {
       this.hostReplayRingBuffer?.configureMode?.(
         RBM.COUNTUP_FIFO,
         opts.replayCapacityTicks || null
       );
+    }
     return this.sendEnvelope(MSG.LOBBY_MODE_SET, { enabled: Boolean(enabled), ...opts });
   }
 
@@ -407,26 +299,10 @@ export class AuthoritativeServerHost {
     });
   }
 
-  enterPodiumMode(winner = 0): WorkerEnvelope {
-    return this.sendEnvelope(MSG.PODIUM_ENTER, { winner });
-  }
-
-  private _sendPendingReq(
-    type: string,
-    extra: AuthoritativeServerHostOptions = {}
-  ): Promise<unknown> {
-    return new Promise((resolve) => {
-      const seq = ++this.channelRegistry.reqId;
-      this.channelRegistry.pendingRequests.set(seq, { resolve });
-      this.sendEnvelope(type, { reqId: seq, ...extra }, [], seq);
-    });
-  }
-
-  requestReplayWindow(count = 360): Promise<unknown> {
-    return this._sendPendingReq(MSG.REPLAY_WINDOW_REQUEST, { count });
-  }
   requestFullReplayExport(): Promise<unknown> {
-    return this._sendPendingReq(MSG.REPLAY_FULL_EXPORT_REQUEST);
+    const { reqId, promise } = this.channelRegistry.allocatePendingRequest();
+    this.sendEnvelope(MSG.REPLAY_FULL_EXPORT_REQUEST, { reqId }, [], reqId);
+    return promise;
   }
 
   configureDiagnosticFleet(enabled = true, anchorMode = 'z_hover'): void {
@@ -437,13 +313,13 @@ export class AuthoritativeServerHost {
     if (!this.isWorker) {
       const res = this.fallbackSubController.step();
       if (res) {
-        this._applySyncedSnapshot(res.snapshot, res.serverTick, res.roomState);
-        this.botTunnelManager?.onServerPhysicsFrame?.(
-          this.cachedSnapshot,
-          this.lastServerTick,
+        applyAuthoritativeHostSyncedSnapshot(
+          this,
+          res.snapshot,
+          res.serverTick,
+          res.roomState,
           res.matchState
         );
-        this.hostReplayRingBuffer?.recordFrame(this.lastServerTick, this.cachedSnapshot);
       }
     }
   }
