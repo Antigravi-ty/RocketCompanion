@@ -3,36 +3,105 @@
  * RTCPeerConnection lifecycle, SDP negotiation, and ICE candidate handling.
  */
 
-import {
-  injectLoopbackCandidate,
-  injectLoopbackIntoSdp,
-  ensureValidSdp,
-  type IceCandidateDescriptor,
-} from './SdpUtils.ts';
+import { injectLoopbackCandidate, type IceCandidateDescriptor } from './SdpUtils.ts';
 import { credentialBundleManager } from '../CredentialBundleManager.ts';
+import {
+  prioritizeLoopbackCandidates,
+  prepareRemoteSdpWithLoopback,
+  finalizeLocalSdpWithLoopback,
+  normalizeGatheredCandidate,
+  type SdpHandshakePayload,
+} from './dataChannelFramingPipeline.ts';
 
-export interface SdpHandshakePayload {
-  sdp?: string;
-  candidates?: IceCandidateDescriptor[];
-}
+export type { SdpHandshakePayload };
+
+export type WebRTCConnectionEvent =
+  | { readonly type: 'ice_candidate'; readonly candidate: IceCandidateDescriptor }
+  | { readonly type: 'connection_state'; readonly state: RTCPeerConnectionState }
+  | { readonly type: 'ice_connection_state'; readonly state: RTCIceConnectionState }
+  | { readonly type: 'data_channel'; readonly channel: RTCDataChannel };
+
+export type IceCandidateListener = (cand: IceCandidateDescriptor) => void;
+export type PeerConnectionStateListener = (state: RTCPeerConnectionState) => void;
+export type IceConnectionStateListener = (state: RTCIceConnectionState) => void;
+export type DataChannelEventListener = (event: RTCDataChannelEvent) => void;
+export type BroadcastSignalEmitter = (type: string, payload: Record<string, unknown>) => void;
 
 export interface WebRTCConnectionOptions {
-  emitIceCandidate?: ((cand: IceCandidateDescriptor) => void) | null;
-  handleConnectionStateChange?: ((state: RTCPeerConnectionState) => void) | null;
-  handleIceConnectionStateChange?: ((state: RTCIceConnectionState) => void) | null;
-  handleDataChannel?: ((event: RTCDataChannelEvent) => void) | null;
-  broadcastSignal?: ((type: string, payload: Record<string, unknown>) => void) | null;
+  onIceCandidate?: IceCandidateListener | null;
+  onConnectionStateChange?: PeerConnectionStateListener | null;
+  onIceConnectionStateChange?: IceConnectionStateListener | null;
+  onDataChannel?: DataChannelEventListener | null;
+  onBroadcastSignal?: BroadcastSignalEmitter | null;
+  emitIceCandidate?: IceCandidateListener | null;
+  handleConnectionStateChange?: PeerConnectionStateListener | null;
+  handleIceConnectionStateChange?: IceConnectionStateListener | null;
+  handleDataChannel?: DataChannelEventListener | null;
+  broadcastSignal?: BroadcastSignalEmitter | null;
 }
 
+const DEFAULT_STUN_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+  { urls: 'stun:stun.services.mozilla.com:3478' },
+];
+
 export class WebRTCConnection {
-  options: WebRTCConnectionOptions;
   pc: RTCPeerConnection | null = null;
   localCandidates: IceCandidateDescriptor[] = [];
   pendingRemoteCandidates: IceCandidateDescriptor[] = [];
   gatheringPromise: Promise<void> | null = null;
+  connectionState: RTCPeerConnectionState = 'new';
+  iceConnectionState: RTCIceConnectionState = 'new';
+
+  onIceCandidate: IceCandidateListener | null;
+  onConnectionStateChange: PeerConnectionStateListener | null;
+  onIceConnectionStateChange: IceConnectionStateListener | null;
+  onDataChannel: DataChannelEventListener | null;
+  onBroadcastSignal: BroadcastSignalEmitter | null;
+
+  private readonly eventQueue: WebRTCConnectionEvent[] = [];
 
   constructor(options: WebRTCConnectionOptions = {}) {
-    this.options = options;
+    this.onIceCandidate = options.onIceCandidate ?? options.emitIceCandidate ?? null;
+    this.onConnectionStateChange =
+      options.onConnectionStateChange ?? options.handleConnectionStateChange ?? null;
+    this.onIceConnectionStateChange =
+      options.onIceConnectionStateChange ?? options.handleIceConnectionStateChange ?? null;
+    this.onDataChannel = options.onDataChannel ?? options.handleDataChannel ?? null;
+    this.onBroadcastSignal = options.onBroadcastSignal ?? options.broadcastSignal ?? null;
+  }
+
+  setDataChannelHandler(handler: ((event: RTCDataChannelEvent) => void) | null): void {
+    this.onDataChannel = handler;
+    const activePc = this.pc;
+    if (activePc && handler) {
+      activePc.ondatachannel = handler;
+    }
+  }
+
+  drainConnectionEvents(): WebRTCConnectionEvent[] {
+    if (this.eventQueue.length === 0) return [];
+    return this.eventQueue.splice(0, this.eventQueue.length);
+  }
+
+  private dispatchBroadcastSignal(type: string, payload: Record<string, unknown>): void {
+    if (this.onBroadcastSignal) {
+      this.onBroadcastSignal(type, payload);
+    }
+  }
+
+  private dispatchIceCandidate(candJson: IceCandidateDescriptor): void {
+    this.eventQueue.push({ type: 'ice_candidate', candidate: candJson });
+    if (typeof this.onIceCandidate === 'function') {
+      try {
+        this.onIceCandidate(candJson);
+      } catch (err) {
+        console.error('[P2PWebRTCChannel] Error in onIceCandidate callback:', err);
+      }
+    }
   }
 
   createPeerConnection(): RTCPeerConnection | null {
@@ -45,107 +114,85 @@ export class WebRTCConnection {
 
     const customTurnServers = credentialBundleManager.getTurnIceServers();
     const config: RTCConfiguration = {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-        { urls: 'stun:stun.cloudflare.com:3478' },
-        { urls: 'stun:stun.services.mozilla.com:3478' },
-        ...customTurnServers,
-      ],
+      iceServers: [...DEFAULT_STUN_SERVERS, ...customTurnServers],
       iceCandidatePoolSize: 2,
     };
 
-    this.pc = new RTCPeerConnection(config);
+    const pc = new RTCPeerConnection(config);
+    this.pc = pc;
     this.localCandidates = [];
     this.pendingRemoteCandidates = [];
 
-    this.pc.onicecandidate = (event) => {
+    pc.onicecandidate = (event) => {
+      const localSdp = pc.localDescription ? pc.localDescription.sdp : '';
       if (event.candidate) {
-        const candJson: IceCandidateDescriptor = event.candidate.toJSON
-          ? (event.candidate.toJSON() as IceCandidateDescriptor)
-          : {
-              candidate: event.candidate.candidate,
-              sdpMid: event.candidate.sdpMid,
-              sdpMLineIndex: event.candidate.sdpMLineIndex,
-            };
-        this.localCandidates.push(candJson);
+        const extracted = normalizeGatheredCandidate(event.candidate);
+        const primaryCand = extracted[0];
+        const nextCandidates = [...this.localCandidates, ...extracted];
+        const withLoopback = injectLoopbackCandidate(nextCandidates, localSdp);
+        this.localCandidates = withLoopback;
 
-        if (candJson.candidate && candJson.candidate.includes('.local')) {
-          const clonedCandStr = candJson.candidate.replace(/\S+\.local/, '127.0.0.1');
-          const clonedCand = {
-            ...candJson,
-            candidate: clonedCandStr,
-            address: '127.0.0.1',
-            ip: '127.0.0.1',
-          };
-          this.localCandidates.push(clonedCand);
-        }
-
-        this.localCandidates = injectLoopbackCandidate(
-          this.localCandidates,
-          this.pc?.localDescription?.sdp || ''
-        );
-        const loopbackCand = this.localCandidates[0];
-        if (loopbackCand && this.localCandidates.length === 2) {
-          this.options.broadcastSignal?.('ice_candidate', { candidate: loopbackCand });
+        const loopbackCand = withLoopback[0];
+        if (loopbackCand && withLoopback.length === 2) {
+          this.dispatchBroadcastSignal('ice_candidate', { candidate: loopbackCand });
         }
 
         const typ =
-          candJson.type || (candJson.candidate ? candJson.candidate.split(' ')[7] : 'unknown');
-        console.log(
-          `[P2PWebRTCChannel] Candidate #${this.localCandidates.length} gathered (type: ${typ})`
-        );
-        this.options.broadcastSignal?.('ice_candidate', { candidate: candJson });
-        if (typeof this.options.emitIceCandidate === 'function') {
-          try {
-            this.options.emitIceCandidate(candJson);
-          } catch (err) {
-            console.error('[P2PWebRTCChannel] Error in emitIceCandidate callback:', err);
-          }
-        }
+          primaryCand.type ||
+          (primaryCand.candidate ? primaryCand.candidate.split(' ')[7] : 'unknown');
+        console.log(`[P2PWebRTCChannel] Candidate #${withLoopback.length} gathered (type: ${typ})`);
+        this.dispatchBroadcastSignal('ice_candidate', { candidate: primaryCand });
+        this.dispatchIceCandidate(primaryCand);
       } else {
-        this.localCandidates = injectLoopbackCandidate(
-          this.localCandidates,
-          this.pc?.localDescription?.sdp || ''
-        );
+        const withLoopback = injectLoopbackCandidate(this.localCandidates, localSdp);
+        this.localCandidates = withLoopback;
+        const firstCand = withLoopback[0];
         console.log(
-          `[P2PWebRTCChannel] ICE candidate gathering complete (${this.localCandidates.length} total). Prioritized loopback candidate #0:`,
-          this.localCandidates[0]?.candidate
+          `[P2PWebRTCChannel] ICE candidate gathering complete (${withLoopback.length} total). Prioritized loopback candidate #0:`,
+          firstCand ? firstCand.candidate : undefined
         );
       }
     };
 
-    this.pc.onconnectionstatechange = () => {
-      if (this.pc) this.options.handleConnectionStateChange?.(this.pc.connectionState);
+    pc.onconnectionstatechange = () => {
+      const state = pc.connectionState;
+      this.connectionState = state;
+      this.eventQueue.push({ type: 'connection_state', state });
+      if (this.onConnectionStateChange) {
+        this.onConnectionStateChange(state);
+      }
     };
 
-    this.pc.oniceconnectionstatechange = () => {
-      if (this.pc) this.options.handleIceConnectionStateChange?.(this.pc.iceConnectionState);
+    pc.oniceconnectionstatechange = () => {
+      const state = pc.iceConnectionState;
+      this.iceConnectionState = state;
+      this.eventQueue.push({ type: 'ice_connection_state', state });
+      if (this.onIceConnectionStateChange) {
+        this.onIceConnectionStateChange(state);
+      }
     };
 
-    if (this.options.handleDataChannel) {
-      this.pc.ondatachannel = this.options.handleDataChannel;
+    if (this.onDataChannel) {
+      pc.ondatachannel = this.onDataChannel;
     }
 
-    return this.pc;
+    return pc;
   }
 
   waitForIceGathering(timeoutMs = 1200): Promise<void> {
-    if (!this.pc || this.pc.iceGatheringState === 'complete') {
+    const pc = this.pc;
+    if (!pc || pc.iceGatheringState === 'complete') {
       return Promise.resolve();
     }
     return new Promise((resolve) => {
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
       const cleanup = () => {
         if (timeoutId) clearTimeout(timeoutId);
-        if (this.pc) {
-          this.pc.removeEventListener('icegatheringstatechange', onStateChange);
-          this.pc.removeEventListener('icecandidate', onCandidate);
-        }
+        pc.removeEventListener('icegatheringstatechange', onStateChange);
+        pc.removeEventListener('icecandidate', onCandidate);
       };
       const onStateChange = () => {
-        if (this.pc && this.pc.iceGatheringState === 'complete') {
+        if (pc.iceGatheringState === 'complete') {
           cleanup();
           resolve();
         }
@@ -156,8 +203,8 @@ export class WebRTCConnection {
           resolve();
         }
       };
-      this.pc!.addEventListener('icegatheringstatechange', onStateChange);
-      this.pc!.addEventListener('icecandidate', onCandidate);
+      pc.addEventListener('icegatheringstatechange', onStateChange);
+      pc.addEventListener('icecandidate', onCandidate);
 
       timeoutId = setTimeout(() => {
         cleanup();
@@ -168,27 +215,29 @@ export class WebRTCConnection {
 
   async addRemoteCandidate(candJson: IceCandidateDescriptor | null | undefined): Promise<void> {
     if (!candJson) return;
-    if (this.pc && this.pc.remoteDescription && this.pc.remoteDescription.type) {
+    const pc = this.pc;
+    if (pc && pc.remoteDescription && pc.remoteDescription.type) {
       try {
         const c =
           typeof RTCIceCandidate !== 'undefined'
             ? new RTCIceCandidate(candJson as RTCIceCandidateInit)
             : (candJson as RTCIceCandidateInit);
-        await this.pc.addIceCandidate(c);
+        await pc.addIceCandidate(c);
       } catch (err) {
         console.warn('[P2PWebRTCChannel] Failed to add ICE candidate:', err);
       }
     } else {
-      if (!this.pendingRemoteCandidates) this.pendingRemoteCandidates = [];
-      this.pendingRemoteCandidates.push(candJson);
+      const pending = this.pendingRemoteCandidates;
+      pending.push(candJson);
     }
   }
 
   async flushPendingCandidates(): Promise<void> {
-    if (!this.pc || !this.pendingRemoteCandidates || this.pendingRemoteCandidates.length === 0) {
+    const pc = this.pc;
+    const queued = this.pendingRemoteCandidates;
+    if (!pc || queued.length === 0) {
       return;
     }
-    const queued = this.pendingRemoteCandidates;
     this.pendingRemoteCandidates = [];
     for (const cand of queued) {
       try {
@@ -196,126 +245,69 @@ export class WebRTCConnection {
           typeof RTCIceCandidate !== 'undefined'
             ? new RTCIceCandidate(cand as RTCIceCandidateInit)
             : (cand as RTCIceCandidateInit);
-        await this.pc.addIceCandidate(c);
+        await pc.addIceCandidate(c);
       } catch (err) {
         console.warn('[P2PWebRTCChannel] Failed to add queued ICE candidate:', err);
       }
     }
   }
 
-  async createOfferDescription(): Promise<string> {
-    if (!this.pc) return '';
-    const offer = await this.pc.createOffer();
-    await this.pc.setLocalDescription(offer);
-    await this.waitForIceGathering(1200);
+  private async applyRemoteDescriptionAndCandidates(
+    pc: RTCPeerConnection,
+    type: 'offer' | 'answer',
+    payload: SdpHandshakePayload
+  ): Promise<void> {
+    const remoteSdp = prepareRemoteSdpWithLoopback(payload);
+    await pc.setRemoteDescription(new RTCSessionDescription({ type, sdp: remoteSdp }));
+    await this.flushPendingCandidates();
 
-    let sdp = this.pc.localDescription?.sdp || '';
-    this.localCandidates = injectLoopbackCandidate(this.localCandidates, sdp);
-    const loopbackCand = (this.localCandidates || []).find((c) =>
-      (c.candidate || '').includes('127.0.0.1')
-    );
-    if (loopbackCand && sdp) {
-      sdp = injectLoopbackIntoSdp(sdp, loopbackCand);
+    if (Array.isArray(payload.candidates)) {
+      for (const cand of prioritizeLoopbackCandidates(payload.candidates)) {
+        await this.addRemoteCandidate(cand);
+      }
     }
-    return ensureValidSdp(sdp);
+    await this.flushPendingCandidates();
+  }
+
+  private async gatherAndFinalizeLocalSdp(pc: RTCPeerConnection): Promise<string> {
+    await this.waitForIceGathering(1200);
+    const rawSdp = pc.localDescription ? pc.localDescription.sdp : '';
+    const finalized = finalizeLocalSdpWithLoopback(rawSdp, this.localCandidates);
+    this.localCandidates = finalized.candidates;
+    return finalized.sdp;
+  }
+
+  async createOfferDescription(): Promise<string> {
+    const pc = this.pc;
+    if (!pc) return '';
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    return this.gatherAndFinalizeLocalSdp(pc);
   }
 
   async applyRemoteOfferAndCreateAnswer(offerData: SdpHandshakePayload): Promise<string> {
-    if (!this.pc || !offerData?.sdp) return '';
+    const pc = this.pc;
+    if (!pc || !offerData.sdp) return '';
 
-    let remoteSdp = ensureValidSdp(offerData.sdp);
-    const remoteLoopback = Array.isArray(offerData.candidates)
-      ? offerData.candidates.find((c: IceCandidateDescriptor) =>
-          (c?.candidate || c?.address || c?.ip || '').includes('127.0.0.1')
-        )
-      : null;
-    if (remoteLoopback) {
-      remoteSdp = injectLoopbackIntoSdp(remoteSdp, remoteLoopback);
-    }
-    remoteSdp = ensureValidSdp(remoteSdp);
-
-    await this.pc.setRemoteDescription(
-      new RTCSessionDescription({
-        type: 'offer',
-        sdp: remoteSdp,
-      })
-    );
-    await this.flushPendingCandidates();
-
-    if (Array.isArray(offerData.candidates)) {
-      const sortedCandidates = [...offerData.candidates].sort((a, b) => {
-        const aIs127 = (a?.candidate || a?.address || a?.ip || '').includes('127.0.0.1');
-        const bIs127 = (b?.candidate || b?.address || b?.ip || '').includes('127.0.0.1');
-        if (aIs127 && !bIs127) return -1;
-        if (!aIs127 && bIs127) return 1;
-        return 0;
-      });
-      for (const cand of sortedCandidates) {
-        await this.addRemoteCandidate(cand);
-      }
-    }
-
-    await this.flushPendingCandidates();
-
-    const answer = await this.pc.createAnswer();
-    await this.pc.setLocalDescription(answer);
-    await this.waitForIceGathering(1200);
-
-    let sdp = this.pc.localDescription?.sdp || '';
-    this.localCandidates = injectLoopbackCandidate(this.localCandidates, sdp);
-    const loopbackCand = (this.localCandidates || []).find((c) =>
-      (c.candidate || '').includes('127.0.0.1')
-    );
-    if (loopbackCand && sdp) {
-      sdp = injectLoopbackIntoSdp(sdp, loopbackCand);
-    }
-    return ensureValidSdp(sdp);
+    await this.applyRemoteDescriptionAndCandidates(pc, 'offer', offerData);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    return this.gatherAndFinalizeLocalSdp(pc);
   }
 
   async applyRemoteAnswer(answerData: SdpHandshakePayload): Promise<void> {
-    if (!this.pc || this.pc.signalingState === 'stable') {
+    const pc = this.pc;
+    if (!pc || pc.signalingState === 'stable' || !answerData.sdp) {
       return;
     }
-    if (!answerData?.sdp) return;
-
-    let remoteSdp = ensureValidSdp(answerData.sdp);
-    const remoteLoopback = Array.isArray(answerData.candidates)
-      ? answerData.candidates.find((c: IceCandidateDescriptor) =>
-          (c?.candidate || c?.address || c?.ip || '').includes('127.0.0.1')
-        )
-      : null;
-    if (remoteLoopback) {
-      remoteSdp = injectLoopbackIntoSdp(remoteSdp, remoteLoopback);
-    }
-    remoteSdp = ensureValidSdp(remoteSdp);
-
-    await this.pc.setRemoteDescription(
-      new RTCSessionDescription({
-        type: 'answer',
-        sdp: remoteSdp,
-      })
-    );
-    await this.flushPendingCandidates();
-
-    if (Array.isArray(answerData.candidates)) {
-      const sortedCandidates = [...answerData.candidates].sort((a, b) => {
-        const aIs127 = (a?.candidate || a?.address || a?.ip || '').includes('127.0.0.1');
-        const bIs127 = (b?.candidate || b?.address || b?.ip || '').includes('127.0.0.1');
-        if (aIs127 && !bIs127) return -1;
-        if (!aIs127 && bIs127) return 1;
-        return 0;
-      });
-      for (const cand of sortedCandidates) {
-        await this.addRemoteCandidate(cand);
-      }
-    }
-    await this.flushPendingCandidates();
+    await this.applyRemoteDescriptionAndCandidates(pc, 'answer', answerData);
   }
 
   destroy(): void {
-    if (this.pc) {
+    const pc = this.pc;
+    if (pc) {
       try {
-        this.pc.close();
+        pc.close();
       } catch (err) {
         console.warn('[P2PWebRTCChannel] Error closing peerConnection:', err);
       }
@@ -323,5 +315,6 @@ export class WebRTCConnection {
     }
     this.localCandidates = [];
     this.pendingRemoteCandidates = [];
+    this.eventQueue.length = 0;
   }
 }
