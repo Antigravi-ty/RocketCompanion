@@ -43,10 +43,11 @@ export class VehicleBoostEmitter {
 
     this.scene = scene;
     this.car = carRoot;
-    this.nozzleLocal = nozzleLocal.clone
+    const localNozzle = nozzleLocal.clone
       ? nozzleLocal.clone()
       : new Vector3(nozzleLocal.x, nozzleLocal.y, nozzleLocal.z);
-    this.offset = this.nozzleLocal;
+    this.nozzleLocal = localNozzle;
+    this.offset = localNozzle;
     this.cone = new Group();
     this.coneMaterials = [];
     this.nozzleFlash = null;
@@ -58,27 +59,29 @@ export class VehicleBoostEmitter {
     this.coneOpacity = 0;
 
     // Build cartoon drive puffs
-    this.drive = new ArcadeBoostParticleMesh(ARCADE_DRIVE_COUNT, true, 5);
-    this.drive.mesh.name = 'cartoon-drive-puffs';
-    this.drive.mesh.castShadow = false;
-    this.drive.mesh.receiveShadow = false;
-    this.drive.mesh.layers?.enable?.(1);
-    this.drive.mesh.visible = false;
-    carRoot.add(this.drive.mesh);
+    const driveMesh = new ArcadeBoostParticleMesh(ARCADE_DRIVE_COUNT, true, 5);
+    this.drive = driveMesh;
+    driveMesh.mesh.name = 'cartoon-drive-puffs';
+    driveMesh.mesh.castShadow = false;
+    driveMesh.mesh.receiveShadow = false;
+    driveMesh.mesh.layers?.enable?.(1);
+    driveMesh.mesh.visible = false;
+    carRoot.add(driveMesh.mesh);
 
     // Build cartoon boost trail puffs
-    this.trail = new ArcadeBoostParticleMesh(ARCADE_TRAIL_COUNT, false, 4);
-    this.trail.mesh.name = 'cartoon-boost-trail';
-    this.trail.mesh.castShadow = false;
-    this.trail.mesh.receiveShadow = false;
-    this.trail.mesh.layers?.enable?.(1);
-    this.trail.mesh.visible = false;
-    scene.add(this.trail.mesh);
+    const trailMesh = new ArcadeBoostParticleMesh(ARCADE_TRAIL_COUNT, false, 4);
+    this.trail = trailMesh;
+    trailMesh.mesh.name = 'cartoon-boost-trail';
+    trailMesh.mesh.castShadow = false;
+    trailMesh.mesh.receiveShadow = false;
+    trailMesh.mesh.layers?.enable?.(1);
+    trailMesh.mesh.visible = false;
+    scene.add(trailMesh.mesh);
 
-    this.physics = new ArcadeParticlePhysics(this.drive, this.trail, this.nozzleLocal);
+    this.physics = new ArcadeParticlePhysics(driveMesh, trailMesh, localNozzle);
 
     // Build cartoon flame cone
-    this.cone.position.copy(this.nozzleLocal);
+    this.cone.position.copy(localNozzle);
     this.cone.layers?.enable?.(1);
     this.cone.visible = false;
     this.cone.name = 'boost-flame';
@@ -95,9 +98,7 @@ export class VehicleBoostEmitter {
     this.cone.add(flameMesh);
 
     // Build nozzle flash
-    const flashPos = this.nozzleLocal.clone
-      ? this.nozzleLocal.clone()
-      : new Vector3(this.nozzleLocal.x, this.nozzleLocal.y, this.nozzleLocal.z);
+    const flashPos = localNozzle.clone();
     flashPos.x -= 2;
     this.nozzleFlash = createNozzleFlash(flashPos);
     this.nozzleFlash.name = 'boost-nozzle-flash';
@@ -112,16 +113,14 @@ export class VehicleBoostEmitter {
       const flameColor = new Color(ARCADE_BOOST_COLOR_HEX);
       this.light = new PointLight(flameColor, 0, 300, 2);
       this.light.castShadow = false;
-      const lightPos = this.nozzleLocal.clone
-        ? this.nozzleLocal.clone()
-        : new Vector3(this.nozzleLocal.x, this.nozzleLocal.y, this.nozzleLocal.z);
+      const lightPos = localNozzle.clone();
       lightPos.x -= 10;
       this.light.position.copy(lightPos);
       scene.add(this.light);
     }
 
     // Gold Rush branch
-    this.goldRush = new RealisticBoostEmitter(scene, carRoot, this.nozzleLocal, this.light);
+    this.goldRush = new RealisticBoostEmitter(scene, carRoot, localNozzle, this.light);
 
     this._scratchWorldNozzle = new Vector3();
   }

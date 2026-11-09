@@ -52,20 +52,18 @@ export class ReachabilityVisualizer {
     this.getConfig = options.getConfig || null;
     this.onTelemetry = options.onTelemetry || null;
 
-    this.rootGroup = new THREE.Group();
-    this.rootGroup.name = 'reachability-visualizer-root';
-    this.rootGroup.visible = false;
+    const rootGroup = new THREE.Group();
+    rootGroup.name = 'reachability-visualizer-root';
+    rootGroup.visible = false;
+    this.rootGroup = rootGroup;
 
-    if (this.scene) {
-      this.scene.add(this.rootGroup);
+    if (scene) {
+      scene.add(rootGroup);
     }
 
-    this.groundRenderer = new GroundReachabilityRenderer(this.rootGroup);
-    this.aerialRenderer = new AerialReachabilityRenderer(this.rootGroup);
-    this.interceptRenderer = new InterceptCrossRenderer(
-      this.rootGroup,
-      this.ballTrajectoryPredictor
-    );
+    this.groundRenderer = new GroundReachabilityRenderer(rootGroup);
+    this.aerialRenderer = new AerialReachabilityRenderer(rootGroup);
+    this.interceptRenderer = new InterceptCrossRenderer(rootGroup, ballTrajectoryPredictor);
 
     this.groundGroup = this.groundRenderer.group;
     this.aerialGroup = this.aerialRenderer.group;

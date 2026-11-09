@@ -77,14 +77,15 @@ export class VehicleNameTagSystem {
 
   constructor(scene: THREE.Scene | null | undefined) {
     this.scene = scene;
-    this.root.name = 'vehicle-name-tags';
+    const rootGroup = this.root;
+    rootGroup.name = 'vehicle-name-tags';
     for (let i = 0; i < 8; i++) {
       const s = createNameTagSprite();
       this.sprites.push(s);
-      this.root.add(s);
+      rootGroup.add(s);
     }
-    this._groundSimVisual = new VehicleNameTagGroundSimVisual(this.root);
-    if (this.scene) this.scene.add(this.root);
+    this._groundSimVisual = new VehicleNameTagGroundSimVisual(rootGroup);
+    if (scene) scene.add(rootGroup);
   }
 
   public setBoostBorderOverride(override: NameTagBoostBorderOverride): void {
@@ -98,20 +99,20 @@ export class VehicleNameTagSystem {
   ): void {
     if (!arena || !this.root) return;
     const config = getNameTagConfig();
-    const runtime = getNameTagRuntimeState();
+    const runtimeState = getNameTagRuntimeState();
     const isGoalReplay = Boolean(arena.isGoalReplayActive);
     const shouldShow =
       Boolean(config.enabled) &&
       Boolean(
-        runtime.isTunerArenaActive ||
-        runtime.isMultiplayerOrMultiCarMode ||
+        runtimeState.isTunerArenaActive ||
+        runtimeState.isMultiplayerOrMultiCarMode ||
         arena.isLobbyMode ||
         config.aerialClimbSimulatePovInTuner ||
         config.offscreenDistanceSimEnabled ||
         config.showOnLocalCar ||
         isGoalReplay ||
         arena.cameraMode === 'director' ||
-        runtime.activeCameraMode === 'director' ||
+        runtimeState.activeCameraMode === 'director' ||
         numCars > 1
       );
 
@@ -127,7 +128,7 @@ export class VehicleNameTagSystem {
 
     const maxSlots = Math.min(this.sprites.length, Math.max(arena.cars?.length || 0, numCars));
     const camMode =
-      arena.cameraMode || runtime.activeCameraMode || (arena.isFreeCam ? 'free' : 'pov');
+      arena.cameraMode || runtimeState.activeCameraMode || (arena.isFreeCam ? 'free' : 'pov');
     const isPovCam =
       camMode === 'director' || camMode === 'free' || camMode === 'podium'
         ? false
@@ -137,8 +138,8 @@ export class VehicleNameTagSystem {
     const focusedIdx =
       typeof arena.focusedCarIndex === 'number'
         ? arena.focusedCarIndex
-        : typeof runtime.focusedCarIndex === 'number'
-          ? runtime.focusedCarIndex
+        : typeof runtimeState.focusedCarIndex === 'number'
+          ? runtimeState.focusedCarIndex
           : (arena.playerCarIndex ?? 0);
 
     if (activeCam?.quaternion) {
@@ -188,8 +189,8 @@ export class VehicleNameTagSystem {
       measureCtx
     );
 
-    const carEntries: NameTagCarEntry[] = Array.isArray(runtime.carEntries)
-      ? runtime.carEntries
+    const carEntries: NameTagCarEntry[] = Array.isArray(runtimeState.carEntries)
+      ? runtimeState.carEntries
       : [];
     const resolveCarTeam = (carIdx: number): 0 | 1 => {
       const entry = carEntries.find((item) => item.carIndex === carIdx);
@@ -247,7 +248,7 @@ export class VehicleNameTagSystem {
         config,
         carIndex,
         focusedCarIndex: focusedIdx,
-        isTunerArenaActive: Boolean(runtime.isTunerArenaActive),
+        isTunerArenaActive: Boolean(runtimeState.isTunerArenaActive),
         carEntry,
         carAerialClimbStatuses: arena.carAerialClimbStatuses,
         carAirborneFlipExhausted: arena.carAirborneFlipExhausted,
@@ -263,10 +264,10 @@ export class VehicleNameTagSystem {
         focusedCarTeam,
         isGoalReplayActive: isGoalReplay,
         isCinematicCamera: camMode === 'director',
-        isTunerFreeCamOverview: Boolean(runtime.isTunerArenaActive && camMode === 'free'),
+        isTunerFreeCamOverview: Boolean(runtimeState.isTunerArenaActive && camMode === 'free'),
         liveCarBoostAmount: liveBoost,
         liveCarDoubleJumpedAndClimbing: simClimb.liveCarDoubleJumpedAndClimbing,
-        runtimeOverride: runtime.boostBorderOverride,
+        runtimeOverride: runtimeState.boostBorderOverride,
         systemOverride: sysOverride,
       });
 

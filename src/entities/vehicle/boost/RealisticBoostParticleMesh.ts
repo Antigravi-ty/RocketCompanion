@@ -39,12 +39,19 @@ export class RealisticBoostParticleMesh {
       NormalBlending,
     } = THREE;
 
-    this.offsets = new Float32Array(count * 3);
-    this.sizes = new Float32Array(count * 2);
-    this.opacity = new Float32Array(count);
-    this.colorScale = new Float32Array(count).fill(1);
-    this.dynamic = new Float32Array(count * 4);
-    this.rotations = new Float32Array(count);
+    const offsets = new Float32Array(count * 3);
+    const sizes = new Float32Array(count * 2);
+    const opacity = new Float32Array(count);
+    const colorScale = new Float32Array(count).fill(1);
+    const dynamic = new Float32Array(count * 4);
+    const rotations = new Float32Array(count);
+
+    this.offsets = offsets;
+    this.sizes = sizes;
+    this.opacity = opacity;
+    this.colorScale = colorScale;
+    this.dynamic = dynamic;
+    this.rotations = rotations;
 
     const geom = new InstancedBufferGeometry();
     geom.setAttribute(
@@ -57,12 +64,12 @@ export class RealisticBoostParticleMesh {
     geom.setAttribute('uv', new BufferAttribute(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), 2));
     geom.setIndex([0, 1, 2, 0, 2, 3]);
 
-    geom.setAttribute('aOffset', new InstancedBufferAttribute(this.offsets, 3));
-    geom.setAttribute('aSize', new InstancedBufferAttribute(this.sizes, 2));
-    geom.setAttribute('aOpacity', new InstancedBufferAttribute(this.opacity, 1));
-    geom.setAttribute('aColorScale', new InstancedBufferAttribute(this.colorScale, 1));
-    geom.setAttribute('aDynamic', new InstancedBufferAttribute(this.dynamic, 4));
-    geom.setAttribute('aRotation', new InstancedBufferAttribute(this.rotations, 1));
+    geom.setAttribute('aOffset', new InstancedBufferAttribute(offsets, 3));
+    geom.setAttribute('aSize', new InstancedBufferAttribute(sizes, 2));
+    geom.setAttribute('aOpacity', new InstancedBufferAttribute(opacity, 1));
+    geom.setAttribute('aColorScale', new InstancedBufferAttribute(colorScale, 1));
+    geom.setAttribute('aDynamic', new InstancedBufferAttribute(dynamic, 4));
+    geom.setAttribute('aRotation', new InstancedBufferAttribute(rotations, 1));
 
     for (let i = 0; i < REALISTIC_PARTICLE_ATTRS.length; i++) {
       geom.attributes[REALISTIC_PARTICLE_ATTRS[i]].setUsage(DynamicDrawUsage);

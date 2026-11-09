@@ -93,10 +93,11 @@ export class BallTrajectoryPredictor {
       ...initialSettings,
     };
 
-    this.maxTicks = 600;
+    const maxPredictionTicks = 600;
+    this.maxTicks = maxPredictionTicks;
     this.forcePredictAnyMovement = false;
-    this.sampler = new BallTrajectorySamplingController(this.maxTicks);
-    this.tubeRenderer = new BallTrajectoryTubeRenderer(this.scene);
+    this.sampler = new BallTrajectorySamplingController(maxPredictionTicks);
+    this.tubeRenderer = new BallTrajectoryTubeRenderer(scene);
     this.syncMaterialProperties();
   }
 

@@ -40,12 +40,13 @@ export class RealisticBoostEmitter {
 
     this.scene = scene;
     this.car = carRoot;
-    this.nozzleLocal = (nozzleLocal as THREE.Vector3 & { isVector3?: boolean })?.isVector3
+    const localNozzle = (nozzleLocal as THREE.Vector3 & { isVector3?: boolean })?.isVector3
       ? nozzleLocal
       : nozzleLocal?.clone
         ? nozzleLocal.clone()
         : new Vector3(nozzleLocal?.x ?? 0, nozzleLocal?.y ?? 0, nozzleLocal?.z ?? 0);
-    this.offset = this.nozzleLocal;
+    this.nozzleLocal = localNozzle;
+    this.offset = localNozzle;
     this.cone = new Group();
     this.coneMaterials = [];
     this.lensFlare = null;
@@ -56,31 +57,33 @@ export class RealisticBoostEmitter {
 
     const { textures, water, particleSheet } = loadGoldenBoostTextures();
 
-    this.drive = new RealisticBoostParticleMesh(REALISTIC_DRIVE_COUNT, textures, 5);
-    this.drive.mesh.castShadow = false;
-    this.drive.mesh.receiveShadow = false;
-    this.drive.mesh.layers?.enable?.(1);
-    this.drive.mesh.visible = false;
-    carRoot.add(this.drive.mesh);
+    const driveMesh = new RealisticBoostParticleMesh(REALISTIC_DRIVE_COUNT, textures, 5);
+    this.drive = driveMesh;
+    driveMesh.mesh.castShadow = false;
+    driveMesh.mesh.receiveShadow = false;
+    driveMesh.mesh.layers?.enable?.(1);
+    driveMesh.mesh.visible = false;
+    carRoot.add(driveMesh.mesh);
 
-    this.trail = new RealisticBoostParticleMesh(REALISTIC_TRAIL_COUNT, textures, 4);
-    this.trail.mesh.castShadow = false;
-    this.trail.mesh.receiveShadow = false;
-    this.trail.mesh.layers?.enable?.(1);
-    this.trail.mesh.visible = false;
-    scene.add(this.trail.mesh);
+    const trailMesh = new RealisticBoostParticleMesh(REALISTIC_TRAIL_COUNT, textures, 4);
+    this.trail = trailMesh;
+    trailMesh.mesh.castShadow = false;
+    trailMesh.mesh.receiveShadow = false;
+    trailMesh.mesh.layers?.enable?.(1);
+    trailMesh.mesh.visible = false;
+    scene.add(trailMesh.mesh);
 
-    this.physics = new RealisticParticlePhysics(this.drive, this.trail, this.nozzleLocal);
+    this.physics = new RealisticParticlePhysics(driveMesh, trailMesh, localNozzle);
 
     this.cone.name = 'gold-rush-boost-flame';
-    this.drive.mesh.name = 'gold-rush-drive-puffs';
-    this.trail.mesh.name = 'gold-rush-boost-trail';
-    this.cone.position.copy(this.nozzleLocal);
+    driveMesh.mesh.name = 'gold-rush-drive-puffs';
+    trailMesh.mesh.name = 'gold-rush-boost-trail';
+    this.cone.position.copy(localNozzle);
     this.cone.layers?.enable?.(1);
     this.cone.visible = false;
     carRoot.add(this.cone);
 
-    const addConeLayer = (radius, length, layerIdx) => {
+    const addConeLayer = (radius: number, length: number, layerIdx: number) => {
       const mat = createRealisticBoostConeMaterial(water, particleSheet, layerIdx);
       const mesh = new Mesh(createRealisticBoostConeGeometry(radius, length, 28, 18), mat);
       mesh.name = `gold-rush-cone-${layerIdx}`;
@@ -95,9 +98,7 @@ export class RealisticBoostEmitter {
     addConeLayer(3.4, 24, 1);
     addConeLayer(7.2, 48, 0);
 
-    const flarePos = this.nozzleLocal.clone
-      ? this.nozzleLocal.clone()
-      : new Vector3(this.nozzleLocal.x, this.nozzleLocal.y, this.nozzleLocal.z);
+    const flarePos = localNozzle.clone();
     flarePos.x -= 2;
     this.lensFlare = createBoostFlare(flarePos);
     this.lensFlare.name = 'gold-rush-flare';
