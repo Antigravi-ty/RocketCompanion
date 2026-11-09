@@ -261,3 +261,82 @@ export function resolvePatternElapsedTicks(
     ? Math.max(0, Math.floor(currentTick - patternAnchorTick))
     : elapsedTicks;
 }
+
+export interface TrajectoryTubeRenderTarget {
+  readonly preOcclusionMesh: { visible: boolean };
+  readonly foregroundMesh: { visible: boolean };
+  hideAll(): void;
+  updateBounceAndGroundAnchors(
+    predictedPoints: Float32Array,
+    predictionCount: number,
+    startIndex: number,
+    bounceMarkersBuffer: Float32Array,
+    bounceCount: number,
+    params: TubeRenderParams
+  ): void;
+  updateTubeGeometry(
+    predictedPoints: Float32Array,
+    predictionCount: number,
+    startIndex: number,
+    solidTicks: number,
+    transparentTicks: number,
+    phaseOffset: number,
+    liveBallPosition: { x: number; y: number; z: number } | Float32Array | null | undefined,
+    params: TubeRenderParams
+  ): number;
+}
+
+export interface TrajectorySamplerPointsView {
+  readonly predictedPoints: Float32Array;
+  readonly predictionCount: number;
+  readonly bounceMarkersBuffer: Float32Array;
+  readonly bounceCount: number;
+}
+
+export function isTubeRendererVisible(tubeRenderer: TrajectoryTubeRenderTarget | null): boolean {
+  if (!tubeRenderer) return false;
+  return Boolean(tubeRenderer.preOcclusionMesh.visible || tubeRenderer.foregroundMesh.visible);
+}
+
+export function hideTubeRenderer(tubeRenderer: TrajectoryTubeRenderTarget | null): void {
+  if (tubeRenderer) {
+    tubeRenderer.hideAll();
+  }
+}
+
+export function renderTrajectoryTubeFrame(
+  tubeRenderer: TrajectoryTubeRenderTarget | null,
+  sampler: TrajectorySamplerPointsView,
+  ballRadius: number,
+  settings: TrajectorySettingsConfig,
+  elapsedTicks: number,
+  patternElapsedTicks: number,
+  dynamicMode: boolean,
+  liveBallPosition: { x: number; y: number; z: number } | Float32Array | null | undefined
+): number {
+  if (!tubeRenderer) return 0;
+
+  const tubeParams = buildTubeRenderParams(ballRadius, settings);
+  const startIndex = Math.max(0, elapsedTicks);
+
+  tubeRenderer.updateBounceAndGroundAnchors(
+    sampler.predictedPoints,
+    sampler.predictionCount,
+    startIndex,
+    sampler.bounceMarkersBuffer,
+    sampler.bounceCount,
+    tubeParams
+  );
+
+  const phaseOffset = dynamicMode ? 0 : patternElapsedTicks;
+  return tubeRenderer.updateTubeGeometry(
+    sampler.predictedPoints,
+    sampler.predictionCount,
+    startIndex,
+    settings.solidTicks,
+    settings.transparentTicks,
+    phaseOffset,
+    liveBallPosition,
+    tubeParams
+  );
+}

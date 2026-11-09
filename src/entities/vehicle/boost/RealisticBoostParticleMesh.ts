@@ -16,6 +16,43 @@ export interface RealisticBoostParticleTextureSet {
   smoke: THREE.Texture | null;
 }
 
+function createRealisticParticleGeometry(
+  count: number,
+  offsets: Float32Array,
+  sizes: Float32Array,
+  opacity: Float32Array,
+  colorScale: Float32Array,
+  dynamic: Float32Array,
+  rotations: Float32Array
+): THREE.InstancedBufferGeometry {
+  const { InstancedBufferGeometry, BufferAttribute, InstancedBufferAttribute, DynamicDrawUsage } =
+    THREE;
+
+  const geom = new InstancedBufferGeometry();
+  geom.setAttribute(
+    'position',
+    new BufferAttribute(
+      new Float32Array([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0]),
+      3
+    )
+  );
+  geom.setAttribute('uv', new BufferAttribute(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), 2));
+  geom.setIndex([0, 1, 2, 0, 2, 3]);
+
+  geom.setAttribute('aOffset', new InstancedBufferAttribute(offsets, 3));
+  geom.setAttribute('aSize', new InstancedBufferAttribute(sizes, 2));
+  geom.setAttribute('aOpacity', new InstancedBufferAttribute(opacity, 1));
+  geom.setAttribute('aColorScale', new InstancedBufferAttribute(colorScale, 1));
+  geom.setAttribute('aDynamic', new InstancedBufferAttribute(dynamic, 4));
+  geom.setAttribute('aRotation', new InstancedBufferAttribute(rotations, 1));
+
+  for (let i = 0; i < REALISTIC_PARTICLE_ATTRS.length; i++) {
+    geom.attributes[REALISTIC_PARTICLE_ATTRS[i]].setUsage(DynamicDrawUsage);
+  }
+  geom.instanceCount = count;
+  return geom;
+}
+
 /**
  * Realistic Boost Instanced Particle Mesh
  */
@@ -29,52 +66,24 @@ export class RealisticBoostParticleMesh {
   public sizes: Float32Array;
 
   constructor(count: number, textures: RealisticBoostParticleTextureSet, renderOrder: number) {
-    const {
-      Mesh,
-      InstancedBufferGeometry,
-      BufferAttribute,
-      InstancedBufferAttribute,
-      ShaderMaterial,
-      DynamicDrawUsage,
-      NormalBlending,
-    } = THREE;
+    const { Mesh, ShaderMaterial, NormalBlending } = THREE;
 
-    const offsets = new Float32Array(count * 3);
-    const sizes = new Float32Array(count * 2);
-    const opacity = new Float32Array(count);
-    const colorScale = new Float32Array(count).fill(1);
-    const dynamic = new Float32Array(count * 4);
-    const rotations = new Float32Array(count);
+    this.offsets = new Float32Array(count * 3);
+    this.sizes = new Float32Array(count * 2);
+    this.opacity = new Float32Array(count);
+    this.colorScale = new Float32Array(count).fill(1);
+    this.dynamic = new Float32Array(count * 4);
+    this.rotations = new Float32Array(count);
 
-    this.offsets = offsets;
-    this.sizes = sizes;
-    this.opacity = opacity;
-    this.colorScale = colorScale;
-    this.dynamic = dynamic;
-    this.rotations = rotations;
-
-    const geom = new InstancedBufferGeometry();
-    geom.setAttribute(
-      'position',
-      new BufferAttribute(
-        new Float32Array([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0]),
-        3
-      )
+    const geom = createRealisticParticleGeometry(
+      count,
+      this.offsets,
+      this.sizes,
+      this.opacity,
+      this.colorScale,
+      this.dynamic,
+      this.rotations
     );
-    geom.setAttribute('uv', new BufferAttribute(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), 2));
-    geom.setIndex([0, 1, 2, 0, 2, 3]);
-
-    geom.setAttribute('aOffset', new InstancedBufferAttribute(offsets, 3));
-    geom.setAttribute('aSize', new InstancedBufferAttribute(sizes, 2));
-    geom.setAttribute('aOpacity', new InstancedBufferAttribute(opacity, 1));
-    geom.setAttribute('aColorScale', new InstancedBufferAttribute(colorScale, 1));
-    geom.setAttribute('aDynamic', new InstancedBufferAttribute(dynamic, 4));
-    geom.setAttribute('aRotation', new InstancedBufferAttribute(rotations, 1));
-
-    for (let i = 0; i < REALISTIC_PARTICLE_ATTRS.length; i++) {
-      geom.attributes[REALISTIC_PARTICLE_ATTRS[i]].setUsage(DynamicDrawUsage);
-    }
-    geom.instanceCount = count;
 
     const mat = new ShaderMaterial({
       uniforms: {
@@ -171,23 +180,57 @@ export class RealisticBoostParticleMesh {
     this.mesh.renderOrder = renderOrder;
   }
 
+  attachTo(targetGroup: THREE.Object3D, name: string): void {
+    const mesh = this.mesh;
+    mesh.name = name;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.layers.enable(1);
+    mesh.visible = false;
+    targetGroup.add(mesh);
+  }
+
+  setVisible(visible: boolean): void {
+    this.mesh.visible = visible;
+  }
+
+  resetParticles(): void {
+    this.opacity.fill(0);
+    this.markDirty();
+    this.mesh.visible = false;
+  }
+
   setPlumeLuminance(val: number): void {
-    if (this.mesh?.material?.uniforms?.plumeLuminance) {
-      this.mesh.material.uniforms.plumeLuminance.value = val;
+    const uniform = this.mesh.material.uniforms.plumeLuminance;
+    if (uniform) {
+      uniform.value = val;
     }
   }
 
   setTime(t: number): void {
-    if (this.mesh?.material?.uniforms?.time) {
-      this.mesh.material.uniforms.time.value = t;
+    const uniform = this.mesh.material.uniforms.time;
+    if (uniform) {
+      uniform.value = t;
     }
   }
 
   markDirty(): void {
-    if (!this.mesh?.geometry?.attributes) return;
+    const attributes = this.mesh.geometry.attributes;
     for (let i = 0; i < REALISTIC_PARTICLE_ATTRS.length; i++) {
-      const attr = this.mesh.geometry.attributes[REALISTIC_PARTICLE_ATTRS[i]];
+      const attr = attributes[REALISTIC_PARTICLE_ATTRS[i]];
       if (attr) attr.needsUpdate = true;
     }
+  }
+
+  dispose(fallbackGroup: THREE.Object3D | null = null): void {
+    const mesh = this.mesh;
+    const parentGroup = mesh.parent;
+    if (parentGroup) {
+      parentGroup.remove(mesh);
+    } else if (fallbackGroup) {
+      fallbackGroup.remove(mesh);
+    }
+    mesh.geometry.dispose();
+    mesh.material.dispose();
   }
 }
