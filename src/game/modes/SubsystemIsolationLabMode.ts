@@ -1,7 +1,7 @@
 import { BaseGameMode } from './BaseGameMode.ts';
 import type { FrameContext } from '../pipeline/FramePipeline.ts';
 import type { GhostWorldUpdateOptions } from './MultiWorldGhostRenderer.ts';
-import { hudStore, useRewinderStore, useSubsystemIsolationLabStore } from '../runtimeUiPort.ts';
+import { hudStore, useSubsystemIsolationLabStore } from '../runtimeUiPort.ts';
 import type {
   IsolationLabTabId,
   LabFrameUpdateContext,
@@ -9,17 +9,17 @@ import type {
   LabTabContext,
   LabTabController,
 } from './subsystem-isolation-lab/LabTabTypes.ts';
-import { type ProbeCameraTarget, ProbesLabTab } from './subsystem-isolation-lab/ProbesLabTab.ts';
-import { resetSinglePlayerLabBaseline } from './subsystem-isolation-lab/probeKinematicsPipeline.ts';
+import {
+  bindIsolationLabStoreHandlers,
+  resetIsolationLabRuntimeBaseline,
+  resetIsolationLabTelemetryAndHud,
+} from './subsystem-isolation-lab/isolationLabSessionPipeline.ts';
+import { resetSinglePlayerLabBaseline } from './subsystem-isolation-lab/probeArenaSetupPipeline.ts';
+import { ProbesLabTab } from './subsystem-isolation-lab/ProbesLabTab.ts';
 import { MultiGhostLabTab } from './subsystem-isolation-lab/MultiGhostLabTab.ts';
 import { StateReplayLabTab } from './subsystem-isolation-lab/StateReplayLabTab.ts';
-import {
-  type IncidentOpponentMode,
-  type IncidentSandboxAction,
-  NinetySecMatchLabTab,
-} from './subsystem-isolation-lab/NinetySecMatchLabTab.ts';
+import { NinetySecMatchLabTab } from './subsystem-isolation-lab/NinetySecMatchLabTab.ts';
 import { GoalReplayLabTab } from './subsystem-isolation-lab/GoalReplayLabTab.ts';
-import type { GoalReplayBenchScenario } from './subsystem-isolation-lab/goalReplayScenariosPipeline.ts';
 import { KickoffDuelLabTab } from './subsystem-isolation-lab/KickoffDuelLabTab.ts';
 import { DemolishRespawnLabTab } from './subsystem-isolation-lab/DemolishRespawnLabTab.ts';
 
@@ -56,7 +56,7 @@ export class SubsystemIsolationLabMode extends BaseGameMode {
       },
       getSwitchEpoch: () => this.tabSwitchEpoch,
       ensureSinglePlayerCarOnly: (resetKickoffState = true) =>
-        this.ensureSinglePlayerCarOnly(resetKickoffState),
+        resetSinglePlayerLabBaseline(this.runtime, resetKickoffState),
       enterPodiumShowcase: (winningTeam = 0) => this.goalReplayTab.enterPodiumShowcase(winningTeam),
       exitPodiumShowcase: () => this.goalReplayTab.exitPodiumShowcase(),
       isPodiumActive: () => this.goalReplayTab.isPodiumActive(),
@@ -75,65 +75,16 @@ export class SubsystemIsolationLabMode extends BaseGameMode {
     this.multiGhostTab.syncExternalGhostWorld(worldId, prevState, currState, options);
   }
 
-  private ensureSinglePlayerCarOnly(resetKickoffState = true): void {
-    resetSinglePlayerLabBaseline(this.runtime, resetKickoffState);
-  }
-
   private resetLabArenaBaseline(): void {
-    const r = this.runtime;
-    const store = useSubsystemIsolationLabStore.getState();
     this.tabSwitchEpoch++;
-
     if (this.activeTabCtrl) {
       this.activeTabCtrl.onDeactivate();
       this.activeTabCtrl = null;
     }
     this.goalReplayTab.exitPodiumShowcase();
     this.stateReplayTab.clearBuffer();
-
-    if (r) {
-      r.isBotMatch = false;
-      r.releaseGoalReplayCameraOverride?.();
-      if (r.keyboard) r.keyboard.ballControlEnabled = true;
-      if (r.match?.state) {
-        r.match.state.phase = 'playing';
-        r.match.state.paused = false;
-        r.match.state.countdown = 0;
-      }
-    }
-
-    r?.interpolator?.setTrainingPhysicsRate?.(120);
-    r?.resetAudio?.();
-    this.ensureSinglePlayerCarOnly(true);
-    r?.camera?.resetView?.();
-
-    store.updateLiveTelemetry({
-      probeCameraTarget: 'player',
-      rewinderState: 'idle',
-      rewinderRecordedFrames: 0,
-      rewinderCursorFrame: 0,
-      rewinderTargetFrame: 0,
-      rewinderPrerollRemainingSec: 0,
-      podiumActive: false,
-      goalReplayPhase: 'live',
-      goalReplayPaused: false,
-    });
-
-    hudStore.getState().setMatchState({
-      matchPhase: 'playing',
-      kickoffCountdown: 0,
-      isOvertime: false,
-      overtimeSeconds: 0,
-      winner: null,
-      replayScorerName: null,
-      replayScorerTeam: null,
-      replayBallSpeedKph: null,
-      replayAssistName: null,
-    });
-    hudStore.getState().setReplayState({
-      replayPaused: false,
-      replayPersistent: false,
-    });
+    resetIsolationLabRuntimeBaseline(this.runtime);
+    resetIsolationLabTelemetryAndHud();
   }
 
   private ensureTabActive(tab: IsolationLabTabId): boolean {
@@ -146,143 +97,21 @@ export class SubsystemIsolationLabMode extends BaseGameMode {
   }
 
   private bindStoreHandlers(): void {
-    const stateReplay = this.stateReplayTab;
-    const handleStartRecording = () => stateReplay.startRecording();
-    const handleStopRecording = () => stateReplay.pauseRecording();
-    const handlePushBackwardStart = () => stateReplay.beginScrub('rewinding');
-    const handlePushForwardStart = () => stateReplay.beginScrub('forwarding');
-    const handlePauseScrub = () => stateReplay.pauseScrub();
-    const handleResumeFromCursor = () => stateReplay.resumeFromCursor();
-    const handleClearBuffer = () => stateReplay.clearBuffer();
-    const handleExportReplay = () => stateReplay.exportReplay();
-    const handleImportReplay = (file: File | Blob | ArrayBuffer | Uint8Array) =>
-      stateReplay.importReplay(file);
-    const handleSeekFrame = (idx: number) => stateReplay.seekFrame(idx);
-
-    const rewinderHandlers = {
-      onRewinderStartRecording: handleStartRecording,
-      onRewinderStopRecording: handleStopRecording,
-      onRewinderPushBackwardStart: handlePushBackwardStart,
-      onRewinderPushBackwardStop: handlePauseScrub,
-      onRewinderPushForwardStart: handlePushForwardStart,
-      onRewinderPushForwardStop: handlePauseScrub,
-      onRewinderResumeFromHere: handleResumeFromCursor,
-      onRewinderClearBuffer: handleClearBuffer,
-      onRewinderCancelToFreeplay: handleClearBuffer,
-      onRewinderExportReplay: handleExportReplay,
-      onRewinderImportReplay: handleImportReplay,
-      onRewinderSeekFrame: handleSeekFrame,
-    };
-
-    useRewinderStore.getState().setRuntimeHandlers(rewinderHandlers);
-
-    const handleTabChange = (tab: IsolationLabTabId) => this.handleTabSwitch(tab);
-    const handleProbesConfigChange = () => this.probesTab.syncConfiguration(false);
-    const handleProbeCameraChange = (target: ProbeCameraTarget) => {
-      if (useSubsystemIsolationLabStore.getState().activeTab === 'probes') {
-        this.probesTab.applyCameraTarget(target);
-      }
-    };
-    const handleDualWorldConfigChange = () => this.multiGhostTab.syncDualWorldConfiguration(false);
-    const handleSwitchWorld = () => {
-      this.ensureTabActive('multi-ghost');
-      this.multiGhostTab.handleSwitchWorld();
-    };
-    const handleStartIncidentMatch = (oppMode: IncidentOpponentMode) => {
-      if (!this.ensureTabActive('90s-match')) {
-        void this.ninetySecMatchTab.startMatchSession(oppMode);
-      }
-    };
-    const handleIncidentControlModeChange = (oppMode: IncidentOpponentMode) =>
-      this.ninetySecMatchTab.handleControlModeSwitch(oppMode);
-    const handleIncidentControlledCarChange = (carIdx: number) =>
-      this.ninetySecMatchTab.applyControlledCar(carIdx);
-    const handleIncidentSpeedMultiplierChange = (mult: number) =>
-      this.ninetySecMatchTab.applySpeedMultiplier(mult);
-    const handleTriggerIncidentAction = (action: IncidentSandboxAction) => {
-      this.ensureTabActive('90s-match');
-      this.ninetySecMatchTab.triggerSandboxAction(action);
-    };
-    const handleGoalReplayTriggerScenario = (scenario: GoalReplayBenchScenario) => {
-      this.ensureTabActive('goal-replay');
-      this.goalReplayTab.triggerScenario(scenario);
-    };
-    const handleGoalReplayTogglePause = () => this.goalReplayTab.togglePause();
-    const handleGoalReplayCycleSpeed = () => this.goalReplayTab.cycleSpeed();
-    const handleGoalReplaySeekNormalized = (progress01: number) =>
-      this.goalReplayTab.seekNormalized(progress01);
-    const handleEnterPodiumTest = (winningTeam: number) => {
-      this.ensureTabActive('goal-replay');
-      this.goalReplayTab.enterPodiumShowcase(winningTeam);
-    };
-    const handleExitPodiumTest = () => this.goalReplayTab.exitPodiumShowcase();
-    const handleKickoffDuelRestart = (slotIdx?: number) => {
-      if (!this.ensureTabActive('kickoff-duel')) {
-        this.kickoffDuelTab.startEpisode(slotIdx ?? null);
-      }
-    };
-    const handleKickoffDuelSpeedChange = (mult: number) => {
-      if (useSubsystemIsolationLabStore.getState().activeTab === 'kickoff-duel') {
-        this.kickoffDuelTab.applySpeedMultiplier(mult);
-      }
-    };
-    const handleKickoffDuelRunBenchmark = () => this.kickoffDuelTab.runMatrixBenchmark();
-    const handleKickoffDuelExportDiagnostics = (format: string, scope: string) =>
-      this.kickoffDuelTab.exportDiagnostics(format, scope);
-    const handleDemolishTriggerDemo = () => {
-      this.ensureTabActive('demolish-respawn');
-      this.demolishRespawnTab.triggerDemolish();
-    };
-    const handleDemolishForceRespawn = () => {
-      this.ensureTabActive('demolish-respawn');
-      this.demolishRespawnTab.forceRespawnNow();
-    };
-    const handleDemolishSimulateSteer = (direction: string) => {
-      this.ensureTabActive('demolish-respawn');
-      this.demolishRespawnTab.simulateSteerEdge(direction);
-    };
-    const handleDemolishSelectSlot = (slotIndex: number) => {
-      this.ensureTabActive('demolish-respawn');
-      this.demolishRespawnTab.selectSlotDirect(slotIndex);
-    };
-    const handleDemolishConfigChange = () => {
-      if (useSubsystemIsolationLabStore.getState().activeTab === 'demolish-respawn') {
-        this.demolishRespawnTab.applyConfigChange();
-      }
-    };
-
-    useSubsystemIsolationLabStore.getState().setRuntimeHandlers({
-      onTabChange: handleTabChange,
-      onProbesConfigChange: handleProbesConfigChange,
-      onProbeCameraChange: handleProbeCameraChange,
-      onDualWorldConfigChange: handleDualWorldConfigChange,
-      onSwitchWorld: handleSwitchWorld,
-      ...rewinderHandlers,
-      onStartIncidentMatch: handleStartIncidentMatch,
-      onIncidentControlModeChange: handleIncidentControlModeChange,
-      onIncidentControlledCarChange: handleIncidentControlledCarChange,
-      onIncidentSpeedMultiplierChange: handleIncidentSpeedMultiplierChange,
-      onTriggerIncidentAction: handleTriggerIncidentAction,
-      onGoalReplayTriggerScenario: handleGoalReplayTriggerScenario,
-      onGoalReplayTogglePause: handleGoalReplayTogglePause,
-      onGoalReplayCycleSpeed: handleGoalReplayCycleSpeed,
-      onGoalReplaySeekNormalized: handleGoalReplaySeekNormalized,
-      onEnterPodiumTest: handleEnterPodiumTest,
-      onExitPodiumTest: handleExitPodiumTest,
-      onKickoffDuelRestart: handleKickoffDuelRestart,
-      onKickoffDuelSpeedChange: handleKickoffDuelSpeedChange,
-      onKickoffDuelRunBenchmark: handleKickoffDuelRunBenchmark,
-      onKickoffDuelExportDiagnostics: handleKickoffDuelExportDiagnostics,
-      onDemolishRespawnTriggerDemo: handleDemolishTriggerDemo,
-      onDemolishRespawnForceRespawn: handleDemolishForceRespawn,
-      onDemolishRespawnSimulateSteer: handleDemolishSimulateSteer,
-      onDemolishRespawnSelectSlot: handleDemolishSelectSlot,
-      onDemolishRespawnConfigChange: handleDemolishConfigChange,
+    bindIsolationLabStoreHandlers({
+      probesTab: this.probesTab,
+      multiGhostTab: this.multiGhostTab,
+      stateReplayTab: this.stateReplayTab,
+      ninetySecMatchTab: this.ninetySecMatchTab,
+      goalReplayTab: this.goalReplayTab,
+      kickoffDuelTab: this.kickoffDuelTab,
+      demolishRespawnTab: this.demolishRespawnTab,
+      switchTab: (tab) => this.handleTabSwitch(tab),
+      ensureTabActive: (tab) => this.ensureTabActive(tab),
     });
   }
 
   onEnter(): void {
-    const r = this.runtime;
+    const { keyboard, physics } = this.runtime;
     const store = useSubsystemIsolationLabStore.getState();
 
     const targetTab: IsolationLabTabId =
@@ -305,8 +134,10 @@ export class SubsystemIsolationLabMode extends BaseGameMode {
 
     this.bindStoreHandlers();
     this.stateReplayTab.bindHotkeys();
-    if (r?.keyboard) r.keyboard.ballControlEnabled = true;
-    r?.physics?.setUnlimitedBoost?.(true);
+    if (keyboard) {
+      keyboard.ballControlEnabled = true;
+    }
+    physics?.setUnlimitedBoost(true);
     this.handleTabSwitch(targetTab);
   }
 
@@ -323,16 +154,18 @@ export class SubsystemIsolationLabMode extends BaseGameMode {
       podiumActive: false,
       goalReplayPhase: 'live',
     });
-    (this.runtime?.modeManager ?? this.runtime?.gameModeManager)?.modes
-      ?.get?.('freeplay')
-      ?.rewinderController?.attach?.();
+    const modeManager = this.runtime.modeManager ?? this.runtime.gameModeManager;
+    const freeplayMode = modeManager?.modes?.get('freeplay');
+    freeplayMode?.rewinderController?.attach?.();
   }
 
   private handleTabSwitch(tab: IsolationLabTabId): void {
     this.resetLabArenaBaseline();
     const nextController = this.tabControllers.get(tab) ?? null;
     this.activeTabCtrl = nextController;
-    this.activeTabCtrl?.onActivate(this.tabContext);
+    if (this.activeTabCtrl) {
+      this.activeTabCtrl.onActivate(this.tabContext);
+    }
   }
 
   onBeforePhysicsTick(): boolean {
@@ -364,26 +197,26 @@ export class SubsystemIsolationLabMode extends BaseGameMode {
     this.activeTabCtrl?.onRenderFrame?.(ctx);
 
     if (playerCarView) {
-      const r = this.runtime;
+      const { physics } = this.runtime;
       const activeCarIdx = ctx.activeCar ?? ctx.activeCarIndex ?? 0;
       const isRewinderScrubOrPreroll = this.stateReplayTab.isScrubOrPrerollActive();
       const defaultUnlimited =
         store.activeTab !== '90s-match' && store.activeTab !== 'kickoff-duel';
       const unlimitedHud = isRewinderScrubOrPreroll
         ? false
-        : (r?.physics?.getCarUnlimitedBoost?.(activeCarIdx) ?? defaultUnlimited);
+        : (physics?.getCarUnlimitedBoost?.(activeCarIdx) ?? defaultUnlimited);
       hudStore.getState().setBoost(playerCarView.boost, playerCarView.isBoosting, unlimitedHud);
     }
   }
 
   onResetKickoff(seed = -1): void {
-    const r = this.runtime;
+    const { physics, interpolator, arena, camera } = this.runtime;
     const store = useSubsystemIsolationLabStore.getState();
     const defaultUnlimited = store.activeTab !== '90s-match' && store.activeTab !== 'kickoff-duel';
-    r?.physics?.setUnlimitedBoost?.(defaultUnlimited);
-    r?.physics?.resetKickoff?.(seed);
-    r?.interpolator?.sync?.();
-    r?.arena?.resetBallTrail?.();
-    r?.camera?.resetView?.();
+    physics?.setUnlimitedBoost(defaultUnlimited);
+    physics?.resetKickoff(seed);
+    interpolator?.sync();
+    arena?.resetBallTrail?.();
+    camera?.resetView();
   }
 }
