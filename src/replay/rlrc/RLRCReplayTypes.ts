@@ -284,6 +284,15 @@ export interface RLRCNetStreamExtractorInput {
   readonly keyframeIndices?: ReadonlySet<number>;
   readonly roster?: readonly RLRCPlayerSlotMeta[];
   readonly slotByPriActorId?: ReadonlyMap<number, number>;
+  readonly boostPadEvents?: readonly RLRCBoostPadPickupEvent[];
+}
+
+export interface RLRCBoostAnchorMapBySlot {
+  readonly anchorsBySlot: ReadonlyArray<ReadonlyMap<number, number>>;
+  readonly spawnFramesBySlot: ReadonlyArray<ReadonlySet<number>>;
+  readonly grantChangedBySlot?: ReadonlyArray<ReadonlySet<number>>;
+  readonly rawFrames?: readonly RLRCNetStreamRawFrame[];
+  readonly objects?: readonly string[];
 }
 
 export interface RLRCNetStreamExtractorOutput {

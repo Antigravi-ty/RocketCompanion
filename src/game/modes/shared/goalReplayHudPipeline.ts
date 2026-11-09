@@ -105,69 +105,33 @@ export interface GoalReplayHudCameraCallbacks {
   ): void;
 }
 
-export interface GoalReplayCarViewEvaluation {
-  activeCar: number;
-  activeCarMesh: unknown;
-  playerCarView: GoalReplayCarStateViewLike | null | undefined;
-  isSupersonic: boolean;
-  curBoost: number;
-  playerThrottle: number;
-  jump: boolean;
-  boost: boolean;
-}
-
-export function evaluateGoalReplayCarContext(
-  v: GoalReplayCarStateViewLike | null | undefined,
-  activeCarMesh: unknown,
-  povCarIdx: number
-): GoalReplayCarViewEvaluation {
-  const isSupersonic = Boolean(v?.isSupersonic && !v?.isDemoed);
-  const curBoost = v?.boost ?? 0;
-  let playerThrottle = 0,
-    jump = false,
-    boost = false;
-  if (v) {
-    const fwdSpeed =
-      (v.velX ?? 0) * (v.fwdX ?? 0) + (v.velY ?? 0) * (v.fwdY ?? 0) + (v.velZ ?? 0) * (v.fwdZ ?? 0);
-    playerThrottle = Math.abs(fwdSpeed) > 25 ? (fwdSpeed > 0 ? 1 : -1) : 0;
-    jump = Boolean(v.isJumping);
-    boost = Boolean(v.isBoosting);
-  }
-  return {
-    activeCar: povCarIdx,
-    activeCarMesh,
-    playerCarView: v,
-    isSupersonic,
-    curBoost,
-    playerThrottle,
-    jump,
-    boost,
-  };
-}
-
-export function applyGoalReplayCarAudioControls(
-  audioTarget: GoalReplayHudRuntimePort | null | undefined,
-  ev: GoalReplayCarViewEvaluation
+function seekGoalReplayAndSyncHud(
+  norm: number,
+  replayController: GoalReplayHudControllerPort,
+  scenePort: GoalReplayHudRuntimePort | null | undefined,
+  currentMode: GoalReplayCameraMode,
+  scoringTeam: number,
+  scorerCarIndex: number,
+  cameraCallbacks: GoalReplayHudCameraCallbacks
 ): void {
-  if (!audioTarget || !ev.playerCarView) return;
-  audioTarget.playerThrottle = ev.playerThrottle;
-  audioTarget.playerControls = {
-    ...(audioTarget.neutralControls || {}),
-    throttle: ev.playerThrottle,
-    jump: ev.jump,
-    boost: ev.boost,
-  };
-}
-
-export function shouldEmitGoalReplayWillEndSignal(
-  stepRes: { totalFrames?: number; frameIndex?: number },
-  isPaused: boolean,
-  isPersistent: boolean
-): boolean {
-  const total = stepRes.totalFrames || 0;
-  return (
-    !isPaused && !isPersistent && total > 0 && Math.max(0, total - (stepRes.frameIndex || 0)) <= 78
+  if (!replayController.sessionState?.isActive) return;
+  replayController.sessionState.isPersistent = true;
+  replayController.seekToNormalized(norm, scenePort?.interpolator);
+  scenePort?.arena?.resetBallTrail?.();
+  warmupArenaTrailsFromReplayWindow(
+    scenePort?.arena,
+    (idx) => replayController.getFrameBufferByIndex?.(idx) ?? null,
+    replayController.sessionState?.cursorFloat ?? replayController.currentFrameIndex ?? 0
   );
+  if (currentMode === 'director') {
+    cameraCallbacks.refreshDirectorCamera(scoringTeam, scorerCarIndex);
+  }
+  hudStore.getState().setReplayState({
+    replayProgress: replayController.progress,
+    replayFrameIndex: replayController.currentFrameIndex,
+    replayPaused: replayController.sessionState.isPaused,
+    replayPersistent: true,
+  });
 }
 
 export function bindGoalReplayHudStateAndCallbacks<
@@ -225,63 +189,13 @@ export function bindGoalReplayHudStateAndCallbacks<
     });
   }
 
-  const handleSeekNormalized = (norm: number): void => {
-    if (!replayController.sessionState?.isActive) return;
-    replayController.sessionState.isPersistent = true;
-    replayController.seekToNormalized(norm, scenePort?.interpolator);
-    scenePort?.arena?.resetBallTrail?.();
-    warmupArenaTrailsFromReplayWindow(
-      scenePort?.arena,
-      (idx) => replayController.getFrameBufferByIndex?.(idx) ?? null,
-      replayController.sessionState?.cursorFloat ?? replayController.currentFrameIndex ?? 0
-    );
-    if (getCameraMode() === 'director') {
-      cameraCallbacks.refreshDirectorCamera(resolveScoringTeam(), resolveScorerCarIndex());
-    }
-    hudStore.getState().setReplayState({
-      replayProgress: replayController.progress,
-      replayFrameIndex: replayController.currentFrameIndex,
-      replayPaused: replayController.sessionState.isPaused,
-      replayPersistent: true,
-    });
-  };
-
-  const handleTogglePause = (): void => {
-    if (!replayController.sessionState?.isActive) return;
-    const paused = replayController.togglePause();
-    hudStore.getState().setReplayState({
-      replayPaused: paused,
-      replayPersistent: replayController.sessionState.isPersistent,
-    });
-  };
-
-  const handleCycleSpeed = (): void => {
-    if (!replayController.sessionState?.isActive) return;
-    hudStore.getState().setReplayState({ replaySpeed: replayController.cyclePlaybackSpeed() });
-  };
-
-  const handleSelectPovCar = (carIdx: number | null): void => {
-    if (!replayController.sessionState?.isActive) return;
-    const nextMode: GoalReplayCameraMode =
-      typeof carIdx === 'number' && carIdx >= 0 ? 'pov' : 'director';
-    const nextPov = nextMode === 'pov' ? carIdx : null;
+  const applyCameraModeAndSyncHud = (
+    nextMode: GoalReplayCameraMode,
+    nextPov: number | null,
+    updatePovState: boolean
+  ): void => {
     setCameraMode(nextMode);
-    setPovCarIndex(nextPov);
-    cameraCallbacks.selectCameraMode(
-      nextMode,
-      nextPov,
-      resolveScoringTeam(),
-      resolveScorerCarIndex()
-    );
-    hudStore.getState().setReplayState({ replayCameraMode: nextMode });
-  };
-
-  const handleToggleCameraMode = (): void => {
-    if (!replayController.sessionState?.isActive) return;
-    const nextMode: GoalReplayCameraMode = getCameraMode() === 'director' ? 'pov' : 'director';
-    const nextPov = nextMode === 'director' ? null : getPovCarIndex();
-    setCameraMode(nextMode);
-    if (nextMode === 'pov') setPovCarIndex(nextPov);
+    if (updatePovState) setPovCarIndex(nextPov);
     cameraCallbacks.selectCameraMode(
       nextMode,
       nextPov,
@@ -313,11 +227,44 @@ export function bindGoalReplayHudStateAndCallbacks<
     replayBallSpeedKph: ballSpeedKph,
     replayGoalSpeedKph: ballSpeedKph ?? 0,
     replayAssistName: assistName,
-    onReplaySeekNormalized: handleSeekNormalized,
-    onReplayTogglePause: handleTogglePause,
-    onReplayCycleSpeed: handleCycleSpeed,
-    onReplaySelectPovCar: handleSelectPovCar,
-    onReplayToggleCameraMode: handleToggleCameraMode,
+    onReplaySeekNormalized: (norm: number): void => {
+      seekGoalReplayAndSyncHud(
+        norm,
+        replayController,
+        scenePort,
+        getCameraMode(),
+        resolveScoringTeam(),
+        resolveScorerCarIndex(),
+        cameraCallbacks
+      );
+    },
+    onReplayTogglePause: (): void => {
+      if (!replayController.sessionState?.isActive) return;
+      const paused = replayController.togglePause();
+      hudStore.getState().setReplayState({
+        replayPaused: paused,
+        replayPersistent: replayController.sessionState.isPersistent,
+      });
+    },
+    onReplayCycleSpeed: (): void => {
+      if (!replayController.sessionState?.isActive) return;
+      hudStore.getState().setReplayState({ replaySpeed: replayController.cyclePlaybackSpeed() });
+    },
+    onReplaySelectPovCar: (carIdx: number | null): void => {
+      if (!replayController.sessionState?.isActive) return;
+      const nextMode: GoalReplayCameraMode =
+        typeof carIdx === 'number' && carIdx >= 0 ? 'pov' : 'director';
+      applyCameraModeAndSyncHud(nextMode, nextMode === 'pov' ? carIdx : null, true);
+    },
+    onReplayToggleCameraMode: (): void => {
+      if (!replayController.sessionState?.isActive) return;
+      const nextMode: GoalReplayCameraMode = getCameraMode() === 'director' ? 'pov' : 'director';
+      applyCameraModeAndSyncHud(
+        nextMode,
+        nextMode === 'director' ? null : getPovCarIndex(),
+        nextMode === 'pov'
+      );
+    },
   });
 }
 

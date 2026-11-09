@@ -10,7 +10,9 @@ import type { NetworkDiagnosticsProbe } from './NetworkDiagnosticsProbe.ts';
 import type { OnlineSessionCoordinator } from './OnlineSessionCoordinator.ts';
 import {
   assembleNetworkCoordinators,
+  createRuntimeNetworkWorldSnapshotReader,
   type RuntimeNetworkHostPort,
+  type RuntimeNetworkWorldSnapshot,
 } from './RuntimeNetworkPortAssembler.ts';
 import type { LocalPlayerLoadoutSyncRequest } from './RuntimeLoadoutCoordinator.ts';
 import type { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
@@ -18,42 +20,48 @@ import type { PredictionReconciler } from '../../network/client/PredictionReconc
 export type { RuntimeNetworkHostPort };
 
 export class RuntimeNetworkManager {
-  readonly context: RuntimeNetworkHostPort;
-  readonly diagnosticsProbe!: NetworkDiagnosticsProbe;
-  readonly sessionCoordinator!: OnlineSessionCoordinator;
-  readonly rosterSyncCoordinator!: OnlineRosterSyncCoordinator;
-  readonly signalCoordinator!: ReconcilerSignalCoordinator;
+  private readonly readWorldSnapshot: () => RuntimeNetworkWorldSnapshot;
+  readonly diagnosticsProbe: NetworkDiagnosticsProbe;
+  readonly sessionCoordinator: OnlineSessionCoordinator;
+  readonly rosterSyncCoordinator: OnlineRosterSyncCoordinator;
+  readonly signalCoordinator: ReconcilerSignalCoordinator;
   diagnosticDumpMaxFrames = 36000;
   diagnosticDumpPauseOnOverflow = true;
 
-  constructor(context: RuntimeNetworkHostPort) {
-    this.context = context;
-    Object.assign(this, assembleNetworkCoordinators(this, context));
+  constructor(hostPort: RuntimeNetworkHostPort) {
+    this.readWorldSnapshot = createRuntimeNetworkWorldSnapshotReader(hostPort);
+    const coordinators = assembleNetworkCoordinators(hostPort, (reconciler) =>
+      this.isLobbyDualWorldActive(reconciler)
+    );
+    this.diagnosticsProbe = coordinators.diagnosticsProbe;
+    this.sessionCoordinator = coordinators.sessionCoordinator;
+    this.rosterSyncCoordinator = coordinators.rosterSyncCoordinator;
+    this.signalCoordinator = coordinators.signalCoordinator;
   }
 
   isLobbyDualWorldActive(
     reconciler: PredictionReconciler | null = this.sessionCoordinator.networkReconciler
   ): boolean {
-    const ctx = this.context;
+    const snapshot = this.readWorldSnapshot();
     return Boolean(
       reconciler?.lobbyDualWorldMode ||
-      ctx.arena?.isLobbyMode ||
-      (ctx.match?.state?.mode !== 'match' && ctx.match?.state?.phase === 'lobby')
+      snapshot.isArenaLobbyMode ||
+      (snapshot.matchMode !== 'match' && snapshot.matchPhase === 'lobby')
     );
   }
 
   syncLocalPlayerLoadout(request: LocalPlayerLoadoutSyncRequest): void {
-    const playerCarIndex = this.context.playerCarIndex ?? 0;
+    const { playerCarIndex } = this.readWorldSnapshot();
     const server = this.sessionCoordinator.authoritativeServer;
     const reconciler = this.sessionCoordinator.networkReconciler;
     const channel = this.sessionCoordinator.networkChannel;
 
     if (request.updateVisualPreset && reconciler) {
-      reconciler.setCarVisualPreset?.(playerCarIndex, request.visualId);
+      reconciler.setCarVisualPreset(playerCarIndex, request.visualId);
     }
 
     if (request.carIndex === playerCarIndex) {
-      server?.setLoadout?.('host', request.visualId, request.colorSlotId, request.hitboxId, {
+      server?.setLoadout('host', request.visualId, request.colorSlotId, request.hitboxId, {
         paintFinish: request.paintFinish,
         boostVisual: request.boostVisual,
         boostAudio: request.boostAudio,
@@ -96,24 +104,26 @@ export class RuntimeNetworkManager {
   }
 
   setOnlineGameMode(gameMode = '3v3', durationSeconds: number | null = null): void {
+    const storeState = useAppStore.getState();
     const resolvedDuration =
-      durationSeconds ?? useAppStore?.getState?.()?.onlineSession?.matchDurationSeconds ?? 300;
+      durationSeconds ?? storeState.onlineSession?.matchDurationSeconds ?? 300;
     this.sessionCoordinator.authoritativeServer?.setGameMode(gameMode, resolvedDuration);
-    useAppStore?.getState?.()?.setOnlineSession({ gameMode });
+    storeState.setOnlineSession({ gameMode });
     this.rosterSyncCoordinator.syncHostLobbyOngoingNotification();
   }
 
   setOnlineMatchDuration(durationSeconds = 300): void {
     const cleanDuration = Math.max(0, Number(durationSeconds) || 0);
-    const currentGameMode = useAppStore?.getState?.()?.onlineSession?.gameMode || '1v1';
+    const storeState = useAppStore.getState();
+    const currentGameMode = storeState.onlineSession?.gameMode || '1v1';
     this.sessionCoordinator.authoritativeServer?.setGameMode(currentGameMode, cleanDuration);
-    useAppStore?.getState?.()?.setOnlineSession({ matchDurationSeconds: cleanDuration });
+    storeState.setOnlineSession({ matchDurationSeconds: cleanDuration });
     this.rosterSyncCoordinator.syncHostLobbyOngoingNotification();
   }
 
   setOnlineBotFillMode(botFillMode = 'no_bots', botType?: string): void {
-    this.sessionCoordinator.authoritativeServer?.setBotFillMode?.(botFillMode, botType);
-    useAppStore?.getState?.()?.setOnlineSession({ botFillMode });
+    this.sessionCoordinator.authoritativeServer?.setBotFillMode(botFillMode, botType);
+    useAppStore.getState().setOnlineSession({ botFillMode });
   }
 
   addOnlineBot(
@@ -122,7 +132,7 @@ export class RuntimeNetworkManager {
     visualId: string | null = 'octane',
     botType?: string
   ): void {
-    this.sessionCoordinator.authoritativeServer?.addBotPlayer?.(
+    this.sessionCoordinator.authoritativeServer?.addBotPlayer(
       team ?? 1,
       botName,
       visualId ?? 'octane',

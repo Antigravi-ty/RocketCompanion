@@ -1,313 +1,329 @@
 /**
  * RLRCBoostTimelineReconstructor.ts
- * Reconstructs continuous 30Hz/120Hz per-slot boost timelines from sparse Rocket League
- * `.replay` NetStream `ReplicatedBoost` anchors, `ReplicatedActive` boost component edges
- * (33.3333%/s consumption rate), `grant_count` resets, and 34-pad pickup events.
+ * Reconstructs continuous 30Hz vehicle boost trajectories by integrating
+ * boost consumption (`33.3333%/s` while `boostActive` is true), boost pad pickups
+ * (`+100` big / `+12` small) from `boostPadEvents30Hz`, `grant_count` edge changes,
+ * and spawn/kickoff resets (`33.333%`), anchored to discrete server `:ReplicatedBoost`
+ * updates via `RLRCBoostSegmentSolverPipeline`.
  */
 
-import { RAW_STANDARD_BOOST_PADS_34 } from '../catalog/RLRCBoostPadLocationsTable.ts';
+import { STANDARD_BOOST_PADS_34 } from '../catalog/RLRCBoostPadLocationsTable.ts';
 import {
-  RLRC_MAX_PLAYER_SLOTS as MAX_SLOTS,
+  RLRC_MAX_PLAYER_SLOTS,
+  type RLRCBoostPadPickupEvent,
   type RLRCCarFrameState120Hz,
-  type RLRCRigidBodySample,
+  type RLRCNetStreamRawFrame,
   type RLRCSourceNetworkFrame,
   type RLRCVec3,
 } from '../RLRCReplayTypes.ts';
 import {
+  clampBoostAmount,
   reconstructSlotBoostTimeline,
   RLRC_BIG_PAD_GRANT_AMOUNT,
+  RLRC_BOOST_DRAIN_RATE_PCT_PER_SEC as SOLVER_BOOST_DRAIN_RATE_PCT_PER_SEC,
+  RLRC_DEFAULT_SPAWN_BOOST_PCT as SOLVER_DEFAULT_SPAWN_BOOST_PCT,
   RLRC_SMALL_PAD_GRANT_AMOUNT,
   type RLRCSlotFrameBoostSample,
 } from './RLRCBoostSegmentSolverPipeline.ts';
-import type { PlayerSlotTrackingState } from './rlrcFrameSnapshotAndBookmarkBuilder.ts';
-import {
-  decodeReplicatedBoostAttribute,
-  decodeReplicatedPickupAttribute,
-  type RLRCDecodedBoostAttribute,
-  type RLRCDecodedPickupAttribute,
-} from './rlrcRigidBodyAttributePrimitives.ts';
 
-export type { RLRCDecodedBoostAttribute, RLRCDecodedPickupAttribute };
+export const RLRC_BOOST_DRAIN_RATE_PCT_PER_SEC = SOLVER_BOOST_DRAIN_RATE_PCT_PER_SEC;
+export const RLRC_DEFAULT_SPAWN_BOOST_PCT = SOLVER_DEFAULT_SPAWN_BOOST_PCT;
 
-const MAX_PAD_MATCH_SQ = 450 * 450;
-const CAR_PAD_PROX_SQ = 280 * 280;
-const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
-
-export function applyComponentActiveFlag(
-  slot: PlayerSlotTrackingState,
-  compType: string,
-  act: boolean,
-  t: number
-): void {
-  if (compType.includes('Boost')) slot.boostActive = act;
-  else if (compType.includes('DoubleJump')) {
-    slot.doubleJumpActive = act;
-    if (act) slot.flippedInAir = true;
-  } else if (compType.includes('Dodge')) {
-    slot.dodgeActive = act;
-    if (act) slot.flippedInAir = true;
-  } else if (compType.includes('Jump')) {
-    slot.jumpActive = act;
-    if (act) slot.lastJumpTimeSeconds = t;
-  }
+export interface RLRCBoostAnchorMapBySlot {
+  readonly anchorsBySlot: ReadonlyArray<ReadonlyMap<number, number>>;
+  readonly spawnFramesBySlot: ReadonlyArray<ReadonlySet<number>>;
+  readonly grantChangedBySlot?: ReadonlyArray<ReadonlySet<number>>;
+  readonly rawFrames?: readonly RLRCNetStreamRawFrame[];
+  readonly objects?: readonly string[];
 }
 
-export class RLRCBoostTimelineReconstructor {
-  private readonly samples: RLRCSlotFrameBoostSample[][] = Array.from(
-    { length: MAX_SLOTS },
-    () => []
-  );
-  private readonly lastGrant = new Int32Array(MAX_SLOTS).fill(-1);
-  private readonly pendAnchor: Array<number | null> = new Array(MAX_SLOTS).fill(null);
-  private readonly pendGrantChg: boolean[] = new Array(MAX_SLOTS).fill(false);
-  private readonly pendPadGrant = new Float64Array(MAX_SLOTS);
-  private readonly pendSpawn: boolean[] = new Array(MAX_SLOTS).fill(false);
-  private readonly compCar = new Map<number, number>();
-  private readonly compBoost = new Map<
+export interface RLRCDecodedBoostAttribute {
+  readonly boostAmount: number;
+  readonly grantCount: number | null;
+}
+
+function asRecord(v: unknown): Record<string, unknown> | null {
+  return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null;
+}
+
+function distXY(a: RLRCVec3, b: RLRCVec3): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function extractActorId(raw: unknown): number {
+  const outer = asRecord(raw);
+  const activeActor = asRecord(outer?.ActiveActor) ?? outer;
+  if (!activeActor || activeActor.active === false) return -1;
+  const actor = activeActor.actor;
+  return typeof actor === 'number' && Number.isFinite(actor) ? Math.trunc(actor) : -1;
+}
+
+export function decodeReplicatedBoostAttribute(raw: unknown): RLRCDecodedBoostAttribute | null {
+  const outer = asRecord(raw);
+  const boostObj = asRecord(outer?.ReplicatedBoost) ?? outer;
+  const byteRaw =
+    typeof raw === 'number'
+      ? raw
+      : (boostObj?.boost_amount ?? boostObj?.boostAmount ?? outer?.Byte);
+  if (typeof byteRaw !== 'number' || !Number.isFinite(byteRaw)) return null;
+  const boostAmount = (clampBoostAmount(byteRaw, 0, 255) / 255) * 100;
+  const grantRaw = boostObj?.grant_count ?? boostObj?.grantCount;
+  return {
+    boostAmount,
+    grantCount:
+      typeof grantRaw === 'number' && Number.isFinite(grantRaw) ? Math.trunc(grantRaw) : null,
+  };
+}
+
+/**
+ * Extracts per-slot `grant_count` edge changes, out-of-order component-to-car
+ * `:ReplicatedBoost` anchors, and pawn re-binding spawn frames from raw NetStream frames.
+ */
+export function extractRawFrameBoostGrantEdges(
+  nfs: readonly RLRCSourceNetworkFrame[],
+  rawFrames: readonly RLRCNetStreamRawFrame[] | undefined,
+  objects: readonly string[] | undefined,
+  baseAnchorsBySlot: ReadonlyArray<ReadonlyMap<number, number>>,
+  baseSpawnsBySlot: ReadonlyArray<ReadonlySet<number>>
+): {
+  readonly mergedAnchorsBySlot: ReadonlyArray<ReadonlyMap<number, number>>;
+  readonly mergedSpawnsBySlot: ReadonlyArray<ReadonlySet<number>>;
+  readonly grantChangedBySlot: ReadonlyArray<ReadonlySet<number>>;
+} {
+  const grantChangedBySlot = Array.from({ length: RLRC_MAX_PLAYER_SLOTS }, () => new Set<number>());
+  if (!rawFrames || !objects || rawFrames.length === 0 || nfs.length === 0) {
+    return {
+      mergedAnchorsBySlot: baseAnchorsBySlot,
+      mergedSpawnsBySlot: baseSpawnsBySlot,
+      grantChangedBySlot,
+    };
+  }
+
+  const mergedAnchors = Array.from({ length: RLRC_MAX_PLAYER_SLOTS }, (_, s) => {
+    const map = new Map<number, number>();
+    const src = baseAnchorsBySlot[s];
+    if (src) {
+      for (const [k, v] of src.entries()) map.set(k, v);
+    }
+    return map;
+  });
+
+  const mergedSpawns = Array.from({ length: RLRC_MAX_PLAYER_SLOTS }, (_, s) => {
+    const set = new Set<number>();
+    const src = baseSpawnsBySlot[s];
+    if (src) {
+      for (const k of src.values()) set.add(k);
+    }
+    return set;
+  });
+
+  const compCarById = new Map<number, number>();
+  const pendingCompBoost = new Map<
     number,
-    { decoded: RLRCDecodedBoostAttribute; fi: number }
+    { decoded: RLRCDecodedBoostAttribute; frameIndex: number }
   >();
-  private readonly compAct = new Map<number, { act: boolean; fi: number }>();
-  private readonly actorToPad = new Map<number, number>();
-  private readonly padToActor = new Map<number, number>();
-  private readonly boundPads = new Set<number>();
+  const lastGrantBySlot = new Int32Array(RLRC_MAX_PLAYER_SLOTS).fill(-1);
+  const lastCarIdBySlot = new Int32Array(RLRC_MAX_PLAYER_SLOTS).fill(-1);
+  const frameCount = Math.min(nfs.length, rawFrames.length);
 
-  public beginFrame(): void {
-    this.pendAnchor.fill(null);
-    this.pendGrantChg.fill(false);
-    this.pendPadGrant.fill(0);
-    this.pendSpawn.fill(false);
-  }
-
-  public deleteActor(id: number): void {
-    this.compCar.delete(id);
-    this.compBoost.delete(id);
-    this.compAct.delete(id);
-    const padIdx = this.actorToPad.get(id);
-    if (padIdx !== undefined) {
-      this.actorToPad.delete(id);
-      if (this.padToActor.get(padIdx) === id) {
-        this.padToActor.delete(padIdx);
-        this.boundPads.delete(padIdx);
+  const resolveSlotAtFrame = (fi: number, carActorId: number): number => {
+    if (carActorId < 0) return -1;
+    const cars = nfs[fi].cars;
+    for (let s = 0; s < cars.length; s++) {
+      if (cars[s].entityActive && cars[s].actorId === carActorId) return s;
+    }
+    if (fi + 1 < nfs.length) {
+      const nextCars = nfs[fi + 1].cars;
+      for (let s = 0; s < nextCars.length; s++) {
+        if (nextCars[s].entityActive && nextCars[s].actorId === carActorId) return s;
       }
     }
-  }
+    return -1;
+  };
 
-  public bindComponentCar(
-    compId: number,
-    carId: number,
-    fi: number,
-    t: number,
-    compType: string,
-    cSlot: (cid: number) => number,
-    slots: readonly PlayerSlotTrackingState[]
-  ): void {
-    if (carId < 0) {
-      this.compCar.delete(compId);
-      return;
-    }
-    this.compCar.set(compId, carId);
-    const idx = cSlot(carId);
-    if (idx < 0 || idx >= MAX_SLOTS) return;
-    const cb = this.compBoost.get(compId);
-    if (cb && fi - cb.fi <= 1) slots[idx].boostAmount = this.recordBoostForSlot(idx, cb.decoded);
-    const ca = this.compAct.get(compId);
-    if (ca && fi - ca.fi <= 1) applyComponentActiveFlag(slots[idx], compType, ca.act, t);
-  }
-
-  public resolveOwnerCarId(actorId: number): number {
-    return this.compCar.get(actorId) ?? actorId;
-  }
-
-  public onSlotCarSpawn(
-    idx: number,
-    carId: number,
-    fi: number,
-    t: number,
-    slot: PlayerSlotTrackingState,
-    aType: ReadonlyMap<number, string>
-  ): void {
-    if (idx < 0 || idx >= MAX_SLOTS) return;
-    this.pendSpawn[idx] = true;
-    this.lastGrant[idx] = -1;
-    const direct = this.compBoost.get(carId);
-    if (direct && fi - direct.fi <= 1) {
-      slot.boostAmount = this.recordBoostForSlot(idx, direct.decoded);
-    }
-    for (const [compId, vId] of this.compCar.entries()) {
-      if (vId !== carId) continue;
-      const cb = this.compBoost.get(compId);
-      if (cb && fi - cb.fi <= 1) slot.boostAmount = this.recordBoostForSlot(idx, cb.decoded);
-      const ca = this.compAct.get(compId);
-      if (ca && fi - ca.fi <= 1) applyComponentActiveFlag(slot, aType.get(compId) ?? '', ca.act, t);
-    }
-  }
-
-  public recordBoostAttribute(
-    actorId: number,
-    raw: unknown,
-    fi: number,
-    idx: number
-  ): number | null {
-    const decoded = decodeReplicatedBoostAttribute(raw);
-    if (!decoded) return null;
-    this.compBoost.set(actorId, { decoded, fi });
-    return idx >= 0 ? this.recordBoostForSlot(idx, decoded) : null;
-  }
-
-  public recordActiveAttribute(
-    actorId: number,
-    compType: string,
-    act: boolean,
-    fi: number,
-    t: number,
-    idx: number,
-    slot?: PlayerSlotTrackingState
-  ): void {
-    this.compAct.set(actorId, { act, fi });
-    if (idx >= 0 && slot) applyComponentActiveFlag(slot, compType, act, t);
-  }
-
-  public recordBoostForSlot(idx: number, decoded: RLRCDecodedBoostAttribute): number {
-    if (idx < 0 || idx >= MAX_SLOTS) return decoded.boostAmount;
-    this.pendAnchor[idx] = decoded.boostAmount;
+  const applyBoostToSlot = (slot: number, fi: number, decoded: RLRCDecodedBoostAttribute): void => {
+    if (slot < 0 || slot >= RLRC_MAX_PLAYER_SLOTS) return;
+    mergedAnchors[slot].set(fi, decoded.boostAmount);
     if (decoded.grantCount !== null) {
-      const prev = this.lastGrant[idx];
-      if (prev >= 0 && decoded.grantCount !== prev) this.pendGrantChg[idx] = true;
-      this.lastGrant[idx] = decoded.grantCount;
+      const prevGrant = lastGrantBySlot[slot];
+      if (prevGrant >= 0 && decoded.grantCount !== prevGrant) {
+        grantChangedBySlot[slot].add(fi);
+      }
+      lastGrantBySlot[slot] = decoded.grantCount;
     }
-    return decoded.boostAmount;
-  }
+  };
 
-  public recordPickupForTrackedSlots(
-    pickupActorId: number,
-    raw: unknown,
-    cSlot: (carId: number) => number,
-    slots: readonly PlayerSlotTrackingState[],
-    carRigidBodyById: ReadonlyMap<number, RLRCRigidBodySample>
-  ): void {
-    const slotPos = slots.map((s) =>
-      s.entityActive ? (carRigidBodyById.get(s.carId)?.position ?? s.rigidBody.position) : null
-    );
-    const slotAct = slots.map((s) => s.entityActive);
-    const { slotIndex, grant } = this.recordPickupAttribute(
-      pickupActorId,
-      raw,
-      cSlot,
-      slotPos,
-      slotAct
-    );
-    if (grant > 0 && slotIndex >= 0) {
-      slots[slotIndex].boostAmount = Math.min(100, slots[slotIndex].boostAmount + grant);
+  for (let fi = 0; fi < frameCount; fi++) {
+    const rf = rawFrames[fi];
+    const nf = nfs[fi];
+    for (let s = 0; s < RLRC_MAX_PLAYER_SLOTS; s++) {
+      const car = nf.cars[s];
+      const carId = car?.entityActive ? (car.actorId ?? -1) : -1;
+      if (carId !== lastCarIdBySlot[s]) {
+        if (carId >= 0) mergedSpawns[s].add(fi);
+        lastGrantBySlot[s] = -1;
+        lastCarIdBySlot[s] = carId;
+      }
     }
-  }
 
-  public recordPickupAttribute(
-    pickupActorId: number,
-    raw: unknown,
-    cSlot: (carId: number) => number,
-    slotPositions: ReadonlyArray<RLRCVec3 | null>,
-    slotActive: ReadonlyArray<boolean>
-  ): { slotIndex: number; grant: number } {
-    const dec = decodeReplicatedPickupAttribute(raw);
-    if (!dec) return { slotIndex: -1, grant: 0 };
-    const instSlot = dec.instigatorCarActorId >= 0 ? cSlot(dec.instigatorCarActorId) : -1;
-    let padIdx = this.actorToPad.get(pickupActorId) ?? -1;
-    const instPos = instSlot >= 0 ? slotPositions[instSlot] : null;
-    if (padIdx < 0 && instPos) padIdx = this.bindPad(pickupActorId, instPos.x, instPos.y);
-    if (!dec.pickedUp) return { slotIndex: instSlot, grant: 0 };
+    for (const delId of rf.deleted_actors ?? []) {
+      compCarById.delete(delId);
+      pendingCompBoost.delete(delId);
+    }
 
-    let targetSlot = instSlot;
-    if (targetSlot < 0 && padIdx >= 0) {
-      const pad = RAW_STANDARD_BOOST_PADS_34[padIdx];
-      let bestSq = CAR_PAD_PROX_SQ;
-      for (let s = 0; s < MAX_SLOTS; s++) {
-        const pos = slotPositions[s];
-        if (!slotActive[s] || !pos) continue;
-        const dSq = (pos.x - pad[0]) ** 2 + (pos.y - pad[1]) ** 2;
-        if (dSq < bestSq) {
-          bestSq = dSq;
-          targetSlot = s;
+    for (const ua of rf.updated_actors ?? []) {
+      const prop = objects[ua.object_id] ?? '';
+      const actorId = ua.actor_id;
+      if (prop === 'TAGame.CarComponent_TA:Vehicle') {
+        const carId = extractActorId(ua.attribute);
+        if (carId >= 0) {
+          compCarById.set(actorId, carId);
+          const pending = pendingCompBoost.get(actorId);
+          if (pending && fi - pending.frameIndex <= 1) {
+            const slot = resolveSlotAtFrame(fi, carId);
+            applyBoostToSlot(slot, fi, pending.decoded);
+          }
+        } else {
+          compCarById.delete(actorId);
         }
-      }
-    }
-    if (targetSlot < 0 || targetSlot >= MAX_SLOTS) return { slotIndex: -1, grant: 0 };
-    if (padIdx < 0 && slotPositions[targetSlot]) {
-      const p = slotPositions[targetSlot]!;
-      padIdx = this.bindPad(pickupActorId, p.x, p.y);
-    }
-    const grant =
-      padIdx >= 0 && RAW_STANDARD_BOOST_PADS_34[padIdx][3]
-        ? RLRC_BIG_PAD_GRANT_AMOUNT
-        : RLRC_SMALL_PAD_GRANT_AMOUNT;
-    this.pendPadGrant[targetSlot] = Math.max(this.pendPadGrant[targetSlot], grant);
-    return { slotIndex: targetSlot, grant };
-  }
-
-  public commitFrame(
-    t: number,
-    dt: number,
-    cdNum: number,
-    slots: readonly PlayerSlotTrackingState[]
-  ): void {
-    for (let s = 0; s < MAX_SLOTS; s++) {
-      const st = slots[s];
-      const on = Boolean(st?.entityActive);
-      this.samples[s].push({
-        t,
-        dt,
-        on,
-        carId: on ? (st?.carId ?? -1) : -1,
-        spawned: this.pendSpawn[s],
-        cdNum,
-        bOn: on && Boolean(st?.boostActive),
-        anchor: on ? this.pendAnchor[s] : null,
-        grantChg: on && this.pendGrantChg[s],
-        padGrant: on ? this.pendPadGrant[s] : 0,
-      });
-    }
-  }
-
-  public applyReconstructedBoostToTimeline(nfs: RLRCSourceNetworkFrame[]): void {
-    const n = nfs.length;
-    if (!n) return;
-    for (let s = 0; s < MAX_SLOTS; s++) {
-      const timeline = reconstructSlotBoostTimeline(this.samples[s], n);
-      for (let fi = 0; fi < n; fi++) {
-        const cars = nfs[fi].cars as RLRCCarFrameState120Hz[];
-        const car = cars[s];
-        if (!car) continue;
-        const boostAmount = car.entityActive ? clamp(timeline[fi], 0, 100) : 0;
-        if (Math.abs(car.boostAmount - boostAmount) > 1e-4) cars[s] = { ...car, boostAmount };
+      } else if (prop.includes(':ReplicatedBoost')) {
+        const decoded = decodeReplicatedBoostAttribute(ua.attribute);
+        if (!decoded) continue;
+        pendingCompBoost.set(actorId, { decoded, frameIndex: fi });
+        const ownerCarId = compCarById.get(actorId) ?? actorId;
+        const slot = resolveSlotAtFrame(fi, ownerCarId);
+        applyBoostToSlot(slot, fi, decoded);
       }
     }
   }
 
-  private bindPad(actorId: number, x: number, y: number): number {
-    const ex = this.actorToPad.get(actorId);
-    if (ex !== undefined) return ex;
-    let bestUnb = -1;
-    let bestUnbSq = Number.POSITIVE_INFINITY;
-    let bestAll = 0;
-    let bestAllSq = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < RAW_STANDARD_BOOST_PADS_34.length; i++) {
-      const pad = RAW_STANDARD_BOOST_PADS_34[i];
-      const dSq = (x - pad[0]) ** 2 + (y - pad[1]) ** 2;
-      if (dSq < bestAllSq) {
-        bestAllSq = dSq;
-        bestAll = i;
-      }
-      if (!this.boundPads.has(i) && dSq < bestUnbSq) {
-        bestUnbSq = dSq;
-        bestUnb = i;
+  return {
+    mergedAnchorsBySlot: mergedAnchors,
+    mergedSpawnsBySlot: mergedSpawns,
+    grantChangedBySlot,
+  };
+}
+
+export function buildPadPickupGrantsByFrameAndSlot(
+  nfs: readonly RLRCSourceNetworkFrame[],
+  boostPadEvents: readonly RLRCBoostPadPickupEvent[] | undefined
+): Map<number, number[]> {
+  const grantsByFrame = new Map<number, number[]>();
+  if (!boostPadEvents || boostPadEvents.length === 0 || nfs.length === 0) {
+    return grantsByFrame;
+  }
+
+  for (let i = 0; i < boostPadEvents.length; i++) {
+    const ev = boostPadEvents[i];
+    if (ev.pickedUpState !== 'picked-up') continue;
+    const fi = ev.sourceFrame30Hz;
+    if (fi < 0 || fi >= nfs.length) continue;
+
+    let slot = ev.instigatorSlotIndex;
+    if (slot < 0 || slot >= RLRC_MAX_PLAYER_SLOTS) {
+      const padSpec =
+        ev.padIndex >= 0 && ev.padIndex < STANDARD_BOOST_PADS_34.length
+          ? STANDARD_BOOST_PADS_34[ev.padIndex]
+          : null;
+      if (padSpec) {
+        const cars = nfs[fi].cars;
+        let bestSlot = -1;
+        let bestDist = 420.0;
+        for (let s = 0; s < cars.length; s++) {
+          const car = cars[s];
+          if (!car.entityActive) continue;
+          const d = distXY(car.rigidBody.position, padSpec.position);
+          if (d < bestDist) {
+            bestDist = d;
+            bestSlot = s;
+          }
+        }
+        slot = bestSlot;
       }
     }
-    const idx = bestUnb >= 0 && bestUnbSq <= MAX_PAD_MATCH_SQ ? bestUnb : bestAll;
-    const prev = this.padToActor.get(idx);
-    if (prev !== undefined && prev !== actorId) this.actorToPad.delete(prev);
-    this.actorToPad.set(actorId, idx);
-    this.padToActor.set(idx, actorId);
-    this.boundPads.add(idx);
-    return idx;
+
+    if (slot < 0 || slot >= RLRC_MAX_PLAYER_SLOTS) continue;
+    let frameGrants = grantsByFrame.get(fi);
+    if (!frameGrants) {
+      frameGrants = new Array<number>(RLRC_MAX_PLAYER_SLOTS).fill(0);
+      grantsByFrame.set(fi, frameGrants);
+    }
+    const grant = ev.isBigPad ? RLRC_BIG_PAD_GRANT_AMOUNT : RLRC_SMALL_PAD_GRANT_AMOUNT;
+    frameGrants[slot] = Math.min(100, frameGrants[slot] + grant);
+  }
+
+  return grantsByFrame;
+}
+
+/**
+ * Applies continuous edge-integrated boost amounts across all 30Hz source frames in place
+ * using `RLRCBoostSegmentSolverPipeline`, fusing `boostPadEvents30Hz` pickup grants,
+ * `grant_count` edges, kickoff/spawn resets, and server `:ReplicatedBoost` anchors.
+ */
+export function reconstructContinuousBoostTimeline30Hz(
+  nfs: readonly RLRCSourceNetworkFrame[],
+  anchorInfo: RLRCBoostAnchorMapBySlot,
+  boostPadEvents?: readonly RLRCBoostPadPickupEvent[]
+): void {
+  const numFrames = nfs.length;
+  if (numFrames === 0) return;
+
+  const grantsByFrame = buildPadPickupGrantsByFrameAndSlot(nfs, boostPadEvents);
+  const { mergedAnchorsBySlot, mergedSpawnsBySlot, grantChangedBySlot } =
+    extractRawFrameBoostGrantEdges(
+      nfs,
+      anchorInfo.rawFrames,
+      anchorInfo.objects,
+      anchorInfo.anchorsBySlot,
+      anchorInfo.spawnFramesBySlot
+    );
+
+  for (let slot = 0; slot < RLRC_MAX_PLAYER_SLOTS; slot++) {
+    const anchors = mergedAnchorsBySlot[slot];
+    const spawns = mergedSpawnsBySlot[slot];
+    const explicitGrantChanges = anchorInfo.grantChangedBySlot?.[slot];
+    const rawGrantChanges = grantChangedBySlot[slot];
+    const samples = new Array<RLRCSlotFrameBoostSample>(numFrames);
+
+    let prevActive = false;
+    for (let fi = 0; fi < numFrames; fi++) {
+      const nf = nfs[fi];
+      const car = nf.cars[slot];
+      const entityActive = Boolean(car?.entityActive);
+      const spawned = entityActive && (!prevActive || (spawns?.has(fi) ?? false));
+      const anchorVal = entityActive ? anchors?.get(fi) : undefined;
+      const padGrant = entityActive ? (grantsByFrame.get(fi)?.[slot] ?? 0) : 0;
+      const grantChanged =
+        entityActive &&
+        ((explicitGrantChanges?.has(fi) ?? false) || (rawGrantChanges?.has(fi) ?? false));
+
+      samples[fi] = {
+        timeSeconds: nf.timeSeconds,
+        deltaSeconds: nf.deltaSeconds,
+        entityActive,
+        carActorId: entityActive ? (car?.actorId ?? -1) : -1,
+        spawned,
+        roundCountdownNumber: nf.roundCountdownNumber,
+        boostActive: entityActive && Boolean(car?.activeFlags.boostActive),
+        anchorBoost: anchorVal !== undefined ? anchorVal : null,
+        grantChanged,
+        padGrant,
+      };
+      prevActive = entityActive;
+    }
+
+    const solvedTimeline = reconstructSlotBoostTimeline(samples, numFrames);
+    for (let fi = 0; fi < numFrames; fi++) {
+      const cars = nfs[fi].cars as RLRCCarFrameState120Hz[];
+      const car = cars[slot];
+      if (!car) continue;
+      const newBoost = car.entityActive ? clampBoostAmount(solvedTimeline[fi]) : 0;
+      if (Math.abs(car.boostAmount - newBoost) > 1e-4) {
+        cars[slot] = {
+          ...car,
+          boostAmount: newBoost,
+        };
+      }
+    }
   }
 }

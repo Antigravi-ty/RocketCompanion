@@ -1,5 +1,4 @@
-import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
-import { CopyShader } from 'three/addons/shaders/CopyShader.js';
+import { Pass, FullScreenQuad, CopyShader } from './PostprocessingPasses.ts';
 import * as THREE from 'three';
 /**
  * SupersonicSpeedLinesPass.ts
@@ -98,17 +97,14 @@ export interface SpeedLinesCameraLike {
   quaternion?: THREE.Quaternion;
 }
 
-export class SpeedLinesEffectPass {
+export class SpeedLinesEffectPass extends Pass {
   camera: THREE.OrthographicCamera;
-  clear: boolean;
   copy: FullScreenQuad;
-  enabled: boolean;
-  isPass: boolean;
-  needsSwap: boolean;
-  renderToScreen: boolean;
   scene: THREE.Scene;
 
   constructor(material: THREE.Material) {
+    super();
+
     const {
       ShaderMaterial,
       Scene,
@@ -119,12 +115,6 @@ export class SpeedLinesEffectPass {
       Mesh,
     } = THREE;
 
-    // Inherit from Pass instance & fulfill Pass contract
-    if (Pass) {
-      Object.assign(this, new Pass());
-    }
-
-    this.isPass = true;
     this.enabled = false;
     this.needsSwap = true;
     this.clear = false;
@@ -170,39 +160,26 @@ export class SpeedLinesEffectPass {
     this.scene.add(mesh);
   }
 
-  /**
-   * Called by EffectComposer on pass addition and viewport resize.
-   * @param {number} width
-   * @param {number} height
-   */
-  setSize(_width: number, _height: number): void {
-    // Pass contract method required by EffectComposer.addPass / EffectComposer.setSize
-  }
-
-  render(
+  override render(
     renderer: THREE.WebGLRenderer | null,
     writeBuffer: THREE.WebGLRenderTarget | null,
     readBuffer: THREE.WebGLRenderTarget | null
   ): void {
     if (!renderer) return;
-    const copyMaterial = this.copy?.material as THREE.ShaderMaterial | undefined;
-    if (copyMaterial?.uniforms?.tDiffuse) {
+    const copyMaterial = this.copy.material as THREE.ShaderMaterial | null;
+    if (copyMaterial && copyMaterial.uniforms.tDiffuse) {
       copyMaterial.uniforms.tDiffuse.value = readBuffer ? readBuffer.texture : null;
     }
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
-    this.copy?.render?.(renderer);
+    this.copy.render(renderer);
     const autoClear = renderer.autoClear;
     renderer.autoClear = false;
-    if (this.scene && this.camera) {
-      renderer.render(this.scene, this.camera);
-    }
+    renderer.render(this.scene, this.camera);
     renderer.autoClear = autoClear;
   }
 
-  dispose(): void {
-    if (this.copy && typeof this.copy.dispose === 'function') {
-      this.copy.dispose();
-    }
+  override dispose(): void {
+    this.copy.dispose();
   }
 }
 
@@ -242,8 +219,7 @@ export class SupersonicSpeedLinesPass {
       side: DoubleSide,
     });
 
-    const effectMaterial = this.material;
-    this.pass = new SpeedLinesEffectPass(effectMaterial);
+    this.pass = new SpeedLinesEffectPass(this.material);
   }
 
   update(
@@ -274,25 +250,25 @@ export class SupersonicSpeedLinesPass {
     uniforms.aspect.value = camera.aspect ?? 1;
 
     if (camera.projectionMatrix) {
-      uniforms.cameraProjection.value?.copy?.(camera.projectionMatrix);
+      (uniforms.cameraProjection.value as THREE.Matrix4).copy(camera.projectionMatrix);
     }
 
-    if (camera.quaternion && this.inverseCamera?.copy) {
+    if (camera.quaternion) {
       this.inverseCamera.copy(camera.quaternion);
-      this.inverseCamera.invert?.();
+      this.inverseCamera.invert();
     }
 
-    if (velocity && this.viewVelocity?.copy) {
+    if (velocity) {
       this.viewVelocity.copy(velocity);
-      this.viewVelocity.applyQuaternion?.(this.inverseCamera);
-      if (typeof this.viewVelocity.lengthSq === 'function' && this.viewVelocity.lengthSq() > 1) {
-        uniforms.travel.value.copy(this.viewVelocity).normalize();
+      this.viewVelocity.applyQuaternion(this.inverseCamera);
+      if (this.viewVelocity.lengthSq() > 1) {
+        (uniforms.travel.value as THREE.Vector3).copy(this.viewVelocity).normalize();
       }
     }
   }
 
   dispose(): void {
-    this.pass?.dispose?.();
-    this.material?.dispose?.();
+    this.pass.dispose();
+    this.material.dispose();
   }
 }

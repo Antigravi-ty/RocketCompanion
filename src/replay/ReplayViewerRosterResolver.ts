@@ -81,19 +81,27 @@ export interface ReplayRosterResolutionResult {
 }
 
 export function extractActiveCarIndicesFromReplayFrame(
-  input: ReplayRosterExtractionInput
+  input: ReplayRosterExtractionInput | Float32Array | null | undefined
 ): number[] {
-  const { firstFrame, metadata, recordedSignals } = input;
+  const normalizedInput: ReplayRosterExtractionInput =
+    input instanceof Float32Array ? { firstFrame: input } : input || {};
+  const { firstFrame, metadata, recordedSignals } = normalizedInput;
   const indices = new Set<number>();
 
-  if (Array.isArray(metadata?.roster)) {
-    for (const r of metadata.roster) {
+  const rawRoster = Array.isArray(metadata?.roster)
+    ? metadata.roster
+    : Array.isArray(metadata?.loadouts)
+      ? metadata.loadouts
+      : null;
+  if (rawRoster) {
+    for (const r of rawRoster) {
       const cIdx = typeof r?.carIndex === 'number' ? r.carIndex : r?.entityId;
       if (typeof cIdx === 'number' && cIdx >= 0 && cIdx < MAX_CARS) {
         indices.add(cIdx);
       }
     }
   }
+  const hasExplicitRoster = indices.size > 0;
 
   if (Array.isArray(recordedSignals)) {
     for (const ev of recordedSignals) {
@@ -109,15 +117,21 @@ export function extractActiveCarIndicesFromReplayFrame(
     }
   }
 
-  if (firstFrame) {
+  if (firstFrame && !hasExplicitRoster) {
     for (let c = 0; c < MAX_CARS; c++) {
       const base = SIM_OFFSETS.CARS + c * 40;
+      const posX = firstFrame[base + 0] || 0;
+      const posY = firstFrame[base + 1] || 0;
+      const posZ = firstFrame[base + 2] || 0;
+      const demoed = firstFrame[base + 29] || 0;
       const fwdLen = Math.hypot(
         firstFrame[base + 3] || 0,
         firstFrame[base + 4] || 0,
         firstFrame[base + 5] || 0
       );
-      if (fwdLen > 0.5) {
+      const isParkedOrUnspawned =
+        posZ < -100 || posX <= -5000 || (demoed >= 0.5 && Math.hypot(posX, posY, posZ) < 1e-3);
+      if (fwdLen > 0.5 && !isParkedOrUnspawned) {
         indices.add(c);
       }
     }

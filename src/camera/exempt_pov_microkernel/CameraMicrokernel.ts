@@ -196,17 +196,6 @@ export class CameraMicrokernel {
     return this;
   }
 
-  private _ensureViewArray(): Float64Array {
-    if (!this.memory) {
-      throw createMicrokernelError('CameraMicrokernel memory is uninitialized');
-    }
-    const memBuffer = this.memory.buffer;
-    if (!this.viewView || this.viewView.buffer !== memBuffer) {
-      this.viewView = new Float64Array(memBuffer, this.viewPtr, CAMERA_VIEW_BUFFER_FLOATS);
-    }
-    return this.viewView;
-  }
-
   /**
    * Reset internal camera history, swivel, and tracking filters
    */
@@ -214,8 +203,8 @@ export class CameraMicrokernel {
     if (typeof this._fnResetView === 'function') {
       this._fnResetView();
     }
-    if (this.memory && this.viewPtr) {
-      this._ensureViewArray();
+    if (this.memory && this.viewPtr > 0) {
+      this.viewView = new Float64Array(this.memory.buffer, this.viewPtr, CAMERA_VIEW_BUFFER_FLOATS);
     }
     getCameraDeterminismHarness()?.onResetView();
   }
@@ -224,7 +213,7 @@ export class CameraMicrokernel {
    * Advance camera perspective one frame using 42-Float64 view buffer
    */
   stepView(inputView?: ArrayLike<number>): Float64Array {
-    const view = this._ensureViewArray();
+    const view = this.getViewArray();
     if (inputView) {
       view.set(inputView, 0);
     }
@@ -234,16 +223,15 @@ export class CameraMicrokernel {
     return view;
   }
 
-  getViewPtr(): number {
-    return this.viewPtr;
-  }
-
-  getBuffer(): ArrayBuffer | undefined {
-    return this.memory?.buffer;
-  }
-
   getViewArray(): Float64Array {
-    return this._ensureViewArray();
+    if (!this.memory) {
+      throw createMicrokernelError('CameraMicrokernel memory is uninitialized');
+    }
+    const memBuffer = this.memory.buffer;
+    if (!this.viewView || this.viewView.buffer !== memBuffer) {
+      this.viewView = new Float64Array(memBuffer, this.viewPtr, CAMERA_VIEW_BUFFER_FLOATS);
+    }
+    return this.viewView;
   }
 }
 
@@ -285,7 +273,15 @@ export function clearCachedCameraMicrokernel(): void {
 export async function verifyCameraMicrokernelIntegrity(
   options: CameraMicrokernelOptions = {}
 ): Promise<CameraMicrokernel> {
-  return await loadCameraMicrokernel(options);
+  const kernel = await loadCameraMicrokernel(options);
+  if (
+    !kernel.instance ||
+    !kernel.memory ||
+    kernel.getViewArray().length < CAMERA_VIEW_BUFFER_FLOATS
+  ) {
+    throw createMicrokernelError('CameraMicrokernel post-load ABI integrity verification failed');
+  }
+  return kernel;
 }
 
 export default loadCameraMicrokernel;

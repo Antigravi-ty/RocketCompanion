@@ -10,7 +10,7 @@ import {
   INCIDENT_EVENT_TYPES as EV,
   STANDARD_GOAL_VOLUME_BOX,
 } from '../../../physics/RocketSimConstants.ts';
-import { STANDARD_BOOST_PADS_34 as PADS } from '../catalog/RLRCBoostPadSpatialCatalog.ts';
+import { STANDARD_BOOST_PADS_34 as PADS } from '../catalog/RLRCBoostPadLocationsTable.ts';
 import type {
   RLRCBookmarkRecord,
   RLRCCarFrameState120Hz,
@@ -19,7 +19,11 @@ import type {
 } from '../RLRCReplayTypes.ts';
 
 export type SoundCueId =
-  'match_countdown_321' | 'match_start_go' | 'match_entering_overtime' | 'sfx_goal_poof' | string;
+  | 'match_countdown_321'
+  | 'match_start_go'
+  | 'match_entering_overtime'
+  | 'sfx_goal_poof'
+  | string;
 
 export type AudioVec3Tuple = [number, number, number];
 

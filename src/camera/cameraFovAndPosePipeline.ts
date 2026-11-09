@@ -63,6 +63,29 @@ export interface CameraFovSources extends CameraOverrideFlags {
   settings: CameraSettingsConfig | null;
 }
 
+export interface CameraControllerContract {
+  onActivate?: () => void;
+  onDeactivate?: () => void;
+  resetView: () => void;
+  resize: (width: number, height: number) => void;
+  update: (
+    carObject?: unknown,
+    ballObject?: unknown,
+    dt?: number,
+    extraInfo?: unknown,
+    inputState?: {
+      isRearViewHeld?: boolean;
+      podiumController?: {
+        isActive?: boolean;
+        updateCamera?: (cameraManager: unknown, dt: number) => void;
+      } | null;
+    } | null
+  ) => void;
+  dispose: () => void;
+  fov?: number;
+  ballCam?: boolean;
+}
+
 export interface FrameArbitrationInput {
   isFreeCam: boolean;
   isPodiumActive: boolean;
@@ -70,6 +93,71 @@ export interface FrameArbitrationInput {
   isDirectorOverrideActive: boolean;
   isRearViewHeld: boolean;
   preferredPovMode: CameraMode;
+}
+
+export function resolveOverrideTargetCameraMode(
+  nextActive: boolean,
+  isFreeCam: boolean,
+  activeMode: CameraMode,
+  overrideMode: CameraMode,
+  preferredPovMode: CameraMode
+): CameraMode | null {
+  if (nextActive && !isFreeCam) return overrideMode;
+  if (!nextActive && activeMode === overrideMode) {
+    return isFreeCam ? CAMERA_MODES.FREE : preferredPovMode;
+  }
+  return null;
+}
+
+export function transitionCameraControllerMode(
+  controllers: ReadonlyMap<CameraMode, CameraControllerContract>,
+  prevMode: CameraMode,
+  newMode: CameraMode,
+  syncUpAndFov: () => void,
+  harness: { activeSource: string; setActiveSource: (source: string) => void },
+  cleanJsSource: string,
+  wasmSource: string
+): void {
+  const previous = controllers.get(prevMode);
+  if (previous && typeof previous.onDeactivate === 'function') {
+    previous.onDeactivate();
+  }
+  syncUpAndFov();
+
+  if (newMode === CAMERA_MODES.POV && harness.activeSource !== cleanJsSource) {
+    harness.setActiveSource(cleanJsSource);
+  } else if (newMode === CAMERA_MODES.WASM_POV && harness.activeSource !== wasmSource) {
+    harness.setActiveSource(wasmSource);
+  }
+
+  const activated = controllers.get(newMode);
+  if (!activated) return;
+  if (typeof activated.onActivate === 'function') {
+    activated.onActivate();
+  } else if (!isPovFamilyMode(prevMode) || !isPovFamilyMode(newMode)) {
+    activated.resetView();
+  }
+}
+
+export function applyPovCameraConfigToSharedCamera(
+  sharedCamera: THREE.PerspectiveCamera | null,
+  currentSettings: CameraSettingsConfig | null,
+  fallbackDefaults: CameraSettingsConfig,
+  cameraConfig: Partial<CameraSettingsConfig> | null | undefined,
+  isPovMode: boolean
+): CameraSettingsConfig {
+  const settings = currentSettings || { ...fallbackDefaults };
+  if (!cameraConfig) return settings;
+  Object.assign(settings, cameraConfig);
+  if (sharedCamera && isPovMode) {
+    const hFov = Number(settings.fov) || DEFAULT_HORIZONTAL_FOV_DEG;
+    const targetVFov = convertHorizontalToVerticalFov(hFov, sharedCamera.aspect || 16 / 9);
+    if (Math.abs(sharedCamera.fov - targetVFov) > 0.001) {
+      sharedCamera.fov = targetVFov;
+    }
+    sharedCamera.updateProjectionMatrix();
+  }
+  return settings;
 }
 
 export function isPovFamilyMode(mode: CameraMode): boolean {

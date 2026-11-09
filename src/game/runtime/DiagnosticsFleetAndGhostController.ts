@@ -8,12 +8,6 @@ import {
   sampleDiagnosticFleetTelemetry,
   type DiagnosticVehicleSpec,
 } from '../../network/diagnostics/ZeroGDiagnosticLab.ts';
-import {
-  DEFAULT_GHOST_OPACITY,
-  type CarCollisionMaskEntry,
-  type LobbyGhostCarCoordinator,
-} from '../../network/server/LobbyGhostCarCoordinator.ts';
-import type { MultiWorldGhostRenderer } from '../modes/MultiWorldGhostRenderer.ts';
 import { configureClientLobbyDiagnosticProbes } from '../../network/client/NetworkTelemetryCollector.ts';
 import {
   networkDiagnosticsStore,
@@ -49,83 +43,95 @@ export function mergeDiagnosticProbeNameTagEntries(
   return mergedEntries;
 }
 
-export class DiagnosticsFleetAndGhostController {
-  private readonly context: NetworkDiagnosticsHostPort;
+export interface DiagnosticFleetWorldSnapshot {
+  readonly isBlockedByMatchPhase: boolean;
+  readonly physics: ReturnType<NetworkDiagnosticsHostPort['getPhysics']>;
+  readonly arena: ReturnType<NetworkDiagnosticsHostPort['getArena']>;
+  readonly interpolator: ReturnType<NetworkDiagnosticsHostPort['getInterpolator']>;
+  readonly channel: ReturnType<NetworkDiagnosticsHostPort['getNetworkChannel']>;
+  readonly authoritativeServer: ReturnType<NetworkDiagnosticsHostPort['getAuthoritativeServer']>;
+  readonly reconciler: ReturnType<NetworkDiagnosticsHostPort['getNetworkReconciler']>;
+}
+
+export type DiagnosticFleetSpawnDecision =
+  | { readonly kind: 'blocked' }
+  | { readonly kind: 'delegate-remote-channel'; readonly anchorMode: string }
+  | {
+      readonly kind: 'spawn-local';
+      readonly anchorMode: string;
+      readonly configureAuthoritativePhysics: boolean;
+      readonly syncTimelineWithServer: boolean;
+    };
+
+export function resolveDiagnosticFleetSpawnDecision(
+  snapshot: DiagnosticFleetWorldSnapshot,
+  requestedAnchorMode: string | null | undefined,
+  existingAnchorMode: string | null | undefined
+): DiagnosticFleetSpawnDecision {
+  if (snapshot.isBlockedByMatchPhase) {
+    return { kind: 'blocked' };
+  }
+  const anchorMode = requestedAnchorMode || existingAnchorMode || ZERO_G_ANCHOR_MODES.Z_HOVER;
+  if (snapshot.channel && !snapshot.authoritativeServer) {
+    return { kind: 'delegate-remote-channel', anchorMode };
+  }
+  const isLocalServerSim = Boolean(
+    snapshot.authoritativeServer && !snapshot.authoritativeServer.isWorker
+  );
+  return {
+    kind: 'spawn-local',
+    anchorMode,
+    configureAuthoritativePhysics: isLocalServerSim,
+    syncTimelineWithServer: Boolean(isLocalServerSim && snapshot.reconciler),
+  };
+}
+
+export class DiagnosticsFleetAndGhostController extends LobbyGhostIsolationController {
+  private readonly readPort: () => NetworkDiagnosticsHostPort;
   public readonly ghostIsolation: LobbyGhostIsolationController;
   public diagnosticsFleetController: DiagnosticsTestVehicleController | null = null;
 
-  readonly ensureMultiWorldGhostRenderer: () => MultiWorldGhostRenderer | null;
-  readonly ensureLobbyRemoteGhostWorld: () => MultiWorldGhostRenderer | null;
-  readonly setLobbyGhostIsolationMode: (enabled?: boolean, interactWithBall?: boolean) => boolean;
-  readonly configureLobbyGhostMode: (
-    enabled?: boolean,
-    optionsOrInteractWithBall?: boolean | LobbyGhostModeOptions
-  ) => LobbyGhostModeConfigResult;
-  readonly applyCarGhostCollision: (
-    carIndex: number,
-    interactWithBall?: boolean,
-    interactWithCars?: boolean,
-    opacity?: number
-  ) => CarCollisionMaskEntry;
-
-  constructor(context: NetworkDiagnosticsHostPort) {
-    this.context = context;
-    const gi = new LobbyGhostIsolationController(context);
-    this.ghostIsolation = gi;
-    this.ensureMultiWorldGhostRenderer = () => gi.ensureMultiWorldGhostRenderer();
-    this.ensureLobbyRemoteGhostWorld = () => gi.ensureLobbyRemoteGhostWorld();
-    this.setLobbyGhostIsolationMode = (enabled = true, interactWithBall = false) =>
-      gi.setLobbyGhostIsolationMode(enabled, interactWithBall);
-    this.configureLobbyGhostMode = (enabled = true, optionsOrInteractWithBall = {}) =>
-      gi.configureLobbyGhostMode(enabled, optionsOrInteractWithBall);
-    this.applyCarGhostCollision = (
-      carIndex: number,
-      interactWithBall = false,
-      interactWithCars = false,
-      opacity = DEFAULT_GHOST_OPACITY
-    ) => gi.applyCarGhostCollision(carIndex, interactWithBall, interactWithCars, opacity);
+  constructor(portOrProvider: NetworkDiagnosticsHostPort | (() => NetworkDiagnosticsHostPort)) {
+    const port = typeof portOrProvider === 'function' ? portOrProvider() : portOrProvider;
+    super(port);
+    this.readPort = typeof portOrProvider === 'function' ? portOrProvider : () => portOrProvider;
+    this.ghostIsolation = this;
   }
 
-  get lobbyGhostCoordinator(): LobbyGhostCarCoordinator {
-    return this.ghostIsolation.lobbyGhostCoordinator;
-  }
-
-  get multiWorldGhostRenderer(): MultiWorldGhostRenderer | null {
-    return this.ghostIsolation.multiWorldGhostRenderer;
-  }
-
-  set multiWorldGhostRenderer(renderer: MultiWorldGhostRenderer | null) {
-    this.ghostIsolation.multiWorldGhostRenderer = renderer;
-  }
-
-  get lobbyGhostMode(): boolean {
-    return this.ghostIsolation.lobbyGhostMode;
-  }
-
-  set lobbyGhostMode(enabled: boolean) {
-    this.ghostIsolation.lobbyGhostMode = enabled;
+  public captureWorldSnapshot(
+    portOverride?: NetworkDiagnosticsHostPort
+  ): DiagnosticFleetWorldSnapshot {
+    const port = portOverride ?? this.readPort();
+    return {
+      isBlockedByMatchPhase: port.isMatchPhaseBlockingDiagnosticsFleet(),
+      physics: port.getPhysics(),
+      arena: port.getArena(),
+      interpolator: port.getInterpolator(),
+      channel: port.getNetworkChannel(),
+      authoritativeServer: port.getAuthoritativeServer(),
+      reconciler: port.getNetworkReconciler(),
+    };
   }
 
   public async spawnDiagnosticTestFleet(
-    options: DiagnosticFleetSpawnOptions = {}
+    options: DiagnosticFleetSpawnOptions = {},
+    portOverride?: NetworkDiagnosticsHostPort
   ): Promise<DiagnosticsTestVehicleController | null> {
-    if (this.context.isMatchPhaseBlockingDiagnosticsFleet()) return null;
+    const snapshot = this.captureWorldSnapshot(portOverride);
+    const decision = resolveDiagnosticFleetSpawnDecision(
+      snapshot,
+      options.anchorMode,
+      this.diagnosticsFleetController?.anchorMode
+    );
 
-    const anchorMode =
-      options.anchorMode ||
-      this.diagnosticsFleetController?.anchorMode ||
-      ZERO_G_ANCHOR_MODES.Z_HOVER;
-
-    const channel = this.context.getNetworkChannel();
-    const authoritativeServer = this.context.getAuthoritativeServer();
-    const physics = this.context.getPhysics();
-    const arena = this.context.getArena();
-    const reconciler = this.context.getNetworkReconciler();
-
-    if (channel && !authoritativeServer) {
-      channel.sendDiagnosticFleetToggle?.(true, anchorMode);
+    if (decision.kind === 'blocked') return null;
+    if (decision.kind === 'delegate-remote-channel') {
+      snapshot.channel?.sendDiagnosticFleetToggle?.(true, decision.anchorMode);
       return null;
     }
+
+    const { anchorMode } = decision;
+    const { physics, arena, authoritativeServer, reconciler, interpolator } = snapshot;
 
     if (!this.diagnosticsFleetController) {
       this.diagnosticsFleetController = new DiagnosticsTestVehicleController(
@@ -136,33 +142,33 @@ export class DiagnosticsFleetAndGhostController {
     this.diagnosticsFleetController.anchorMode = anchorMode;
     this.diagnosticsFleetController.enabled = true;
 
-    for (const spec of DEFAULT_DIAGNOSTIC_FLEET) {
-      if (arena) {
+    if (arena) {
+      for (const spec of DEFAULT_DIAGNOSTIC_FLEET) {
         arena.vehicleRegistry.ensureCar(spec.carIndex, spec.team, 'fennec');
         if (arena.cars[spec.carIndex]) arena.cars[spec.carIndex].visible = true;
       }
     }
 
-    if (physics) this.diagnosticsFleetController.configurePhysics(physics, anchorMode);
+    if (physics) {
+      this.diagnosticsFleetController.configurePhysics(physics, anchorMode);
+    }
     if (authoritativeServer) {
-      if (!authoritativeServer.isWorker) {
+      if (decision.configureAuthoritativePhysics) {
         this.diagnosticsFleetController.configurePhysics(authoritativeServer, anchorMode);
       }
       authoritativeServer.configureDiagnosticFleet?.(true, anchorMode);
     }
-    if (authoritativeServer && reconciler && !authoritativeServer.isWorker) {
-      const snapshot = authoritativeServer.sim.saveCompactState();
+    if (decision.syncTimelineWithServer && authoritativeServer && reconciler) {
+      const compactState = authoritativeServer.sim.saveCompactState();
       const serverTick = Math.floor(authoritativeServer.sim.getHeaderView().tickCount);
-      reconciler.syncTimeline(snapshot, serverTick);
+      reconciler.syncTimeline(compactState, serverTick);
     }
-    this.context.getInterpolator()?.sync?.();
+    interpolator?.sync?.();
     return this.diagnosticsFleetController;
   }
 
-  public despawnDiagnosticTestFleet(): void {
-    const physics = this.context.getPhysics();
-    const authoritativeServer = this.context.getAuthoritativeServer();
-    const arena = this.context.getArena();
+  public despawnDiagnosticTestFleet(portOverride?: NetworkDiagnosticsHostPort): void {
+    const { physics, authoritativeServer, arena } = this.captureWorldSnapshot(portOverride);
 
     if (this.diagnosticsFleetController) {
       this.diagnosticsFleetController.enabled = false;
@@ -186,10 +192,11 @@ export class DiagnosticsFleetAndGhostController {
     }
   }
 
-  public async ensureClientLobbyDiagnosticProbes(): Promise<void> {
-    const physics = this.context.getPhysics();
-    const reconciler = this.context.getNetworkReconciler();
-    const arena = this.context.getArena();
+  public async ensureClientLobbyDiagnosticProbes(
+    portOverride?: NetworkDiagnosticsHostPort
+  ): Promise<void> {
+    const port = portOverride ?? this.readPort();
+    const { physics, reconciler, arena } = this.captureWorldSnapshot(port);
 
     if (physics) {
       const alreadySyncedProbes = Boolean(
@@ -217,7 +224,7 @@ export class DiagnosticsFleetAndGhostController {
           carMesh.visible = true;
           if (definition.colorHex) carMesh.setCustomBodyColor?.(definition.colorHex);
         }
-        this.context.ensureFlipResetVisual(carIndex);
+        port.ensureFlipResetVisual(carIndex);
       }
     }
 
@@ -235,11 +242,11 @@ export class DiagnosticsFleetAndGhostController {
     networkDiagnosticsStore?.syncZeroGFleetState?.(true);
   }
 
-  public sampleDiagnosticFleetTelemetry(): ReturnType<typeof sampleDiagnosticFleetTelemetry> {
-    const physics = this.context.getPhysics();
+  public sampleDiagnosticFleetTelemetry(
+    portOverride?: NetworkDiagnosticsHostPort
+  ): ReturnType<typeof sampleDiagnosticFleetTelemetry> {
+    const { physics, authoritativeServer, reconciler } = this.captureWorldSnapshot(portOverride);
     if (!physics) return [];
-    const authoritativeServer = this.context.getAuthoritativeServer();
-    const reconciler = this.context.getNetworkReconciler();
     const serverStateBuffer =
       authoritativeServer?.fallbackSim?.state ||
       (authoritativeServer?.isWorker ? authoritativeServer?.cachedSnapshot : null) ||

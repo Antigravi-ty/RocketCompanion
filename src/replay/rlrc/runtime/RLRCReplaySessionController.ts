@@ -10,6 +10,7 @@ import {
   type RLRCConvertedReplaySession,
 } from '../RLReplayToRLRCConverter.ts';
 import { RLRC_FIXED_DT, type RLRCPlayerSlotMeta } from '../RLRCReplayTypes.ts';
+import { createRLRCInterveneEnvPort } from './RLRCInterveneEnvPortBuilder.ts';
 import { RLRCInterveneTakeoverSubController } from './RLRCInterveneTakeoverSubController.ts';
 import {
   RLRCPlaybackAudioEdgeSynthesizer,
@@ -20,21 +21,20 @@ import {
   type RLRCPlaybackRuntimePort,
 } from './RLRCPlaybackSyncApplier.ts';
 import {
-  createRLRCInterveneEnvPort,
   mapUiInterpolationMethod,
   mapUiNonPovMode,
   publishConvertedSessionTelemetry,
   readLiveRuntimePlayerControls,
+  stepRLRCPlaybackCursor,
   syncRLRCNameTagRoster,
 } from './RLRCReplaySessionBridgePipeline.ts';
 import {
   applyRLRCFrameToSubsystems,
+  applySelectedPovSlotToHudAndCamera,
   bindRLRCSessionUiAndHotkeys,
   executeRLRCExportPack,
   executeRLRCFileUpload,
   resetClearedReplayTelemetry,
-  resolveSelectedPovSlotState,
-  stepRLRCPlaybackCursor,
   triggerRLRCInterveneFromCursor,
 } from './RLRCReplayUiAndHudBinder.ts';
 
@@ -43,49 +43,33 @@ const setTelem: ReturnType<typeof getSt>['updateLiveTelemetry'] = (p) =>
   getSt().updateLiveTelemetry(p);
 
 export class RLRCReplaySessionController {
-  private _simPort: ReplayScoreboardRuntimePort | null;
-  private _modePort: ReplayScoreboardModePort | null;
+  public runtime: ReplayScoreboardRuntimePort | null;
+  public mode: ReplayScoreboardModePort | null;
   public session: RLRCConvertedReplaySession | null = null;
-  public readonly playbackApplier = new RLRCPlaybackSyncApplier();
-  public readonly audioEdgeSynthesizer = new RLRCPlaybackAudioEdgeSynthesizer();
-  public readonly interveneController: RLRCInterveneTakeoverSubController;
-  public readonly hotkeySubController = new ReplayHotkeySubController();
   public cursorFrame120Hz = 0;
   public activePovSlotIndex = 0;
+  public readonly playbackApplier = new RLRCPlaybackSyncApplier();
+  public readonly interveneController: RLRCInterveneTakeoverSubController;
+  public readonly hotkeySubController = new ReplayHotkeySubController();
+  public readonly audioEdgeSynthesizer = new RLRCPlaybackAudioEdgeSynthesizer();
   private _frac = 0;
   private _tick = 0;
   private _hudKey = '';
   private _unsub: (() => void) | null = null;
 
   public constructor(
-    simPort: ReplayScoreboardRuntimePort | null,
-    modePort: ReplayScoreboardModePort | null = null
+    runtime: ReplayScoreboardRuntimePort | null,
+    mode: ReplayScoreboardModePort | null = null
   ) {
-    this._simPort = simPort;
-    this._modePort = modePort;
+    this.runtime = runtime;
+    this.mode = mode;
     this.interveneController = new RLRCInterveneTakeoverSubController(
       createRLRCInterveneEnvPort({
         getSession: () => this.session,
-        getSimPort: () => this._simPort,
-        getModePort: () => this._modePort,
+        getRuntime: () => this.runtime,
+        getMode: () => this.mode,
       })
     );
-  }
-
-  public get runtime(): ReplayScoreboardRuntimePort | null {
-    return this._simPort;
-  }
-
-  public set runtime(nextPort: ReplayScoreboardRuntimePort | null) {
-    this._simPort = nextPort;
-  }
-
-  public get mode(): ReplayScoreboardModePort | null {
-    return this._modePort;
-  }
-
-  public set mode(nextMode: ReplayScoreboardModePort | null) {
-    this._modePort = nextMode;
   }
 
   public get hasLoadedReplay(): boolean {
@@ -96,15 +80,17 @@ export class RLRCReplaySessionController {
 
   public get isIntervening(): boolean {
     const v = getSt().viewerState;
-    return v === 'intervening' || v === 'preroll-countdown';
+    return v === 'preroll-countdown' || v === 'intervening';
   }
 
   public get isActive(): boolean {
-    const state = getSt().viewerState;
-    return (
-      state !== 'idle' &&
-      state !== 'intervening' &&
-      Boolean(this.session && this.session.frames120Hz.length > 0)
+    const st = getSt();
+    return Boolean(
+      st.isWindowOpen &&
+      this.session &&
+      this.session.frames120Hz.length > 0 &&
+      st.viewerState !== 'idle' &&
+      st.viewerState !== 'intervening'
     );
   }
 
@@ -126,7 +112,7 @@ export class RLRCReplaySessionController {
       this.audioEdgeSynthesizer.reset();
       this._syncRoster(this.session.roster);
       this._applyFrame(this.cursorFrame120Hz, false);
-      this._simPort?.camera?.resetView?.();
+      this.runtime?.camera?.resetView?.();
     }
   }
 
@@ -168,11 +154,11 @@ export class RLRCReplaySessionController {
     this._syncPov(this.activePovSlotIndex);
     this.audioEdgeSynthesizer.configureSession(
       c,
-      this._simPort as unknown as RLRCPlaybackAudioRuntimePort
+      this.runtime as unknown as RLRCPlaybackAudioRuntimePort
     );
     this._syncRoster(c.roster);
     this._applyFrame(clamped, false);
-    this._simPort?.camera?.resetView?.();
+    this.runtime?.camera?.resetView?.();
     publishConvertedSessionTelemetry(c, fileName, clamped, this.activePovSlotIndex);
   }
 
@@ -195,7 +181,7 @@ export class RLRCReplaySessionController {
 
   public pausePlaying(): void {
     if (!this.session || this.isIntervening) return;
-    this._simPort?.audioSubsystem?.resetAudio?.();
+    this.runtime?.audioSubsystem?.resetAudio?.();
     this.audioEdgeSynthesizer.reset();
     setTelem({
       viewerState: 'paused',
@@ -234,18 +220,21 @@ export class RLRCReplaySessionController {
   public selectPovSlot(slotKey: number): void {
     const s = this.session;
     if (!s) return;
-    const resolved = resolveSelectedPovSlotState(
-      this.playbackApplier,
-      s.roster,
-      this._simPort as unknown as RLRCPlaybackRuntimePort,
-      slotKey
-    );
-    if (!resolved) return;
-    this.activePovSlotIndex = resolved.slot;
-    this._syncPov(resolved.slot);
     this._hudKey = '';
-    if (!this.isIntervening) this._applyFrame(this.cursorFrame120Hz, false);
-    this._simPort?.camera?.resetView?.();
+    const resolved = applySelectedPovSlotToHudAndCamera({
+      roster: s.roster,
+      slotKey,
+      isIntervening: this.isIntervening,
+      sessionPort: this.runtime,
+      sessionMode: this.mode,
+      interveneController: this.interveneController,
+      syncPovToArena: (slot) => {
+        this.activePovSlotIndex = slot;
+        this._syncPov(slot);
+      },
+      applyCurrentFrame: () => this._applyFrame(this.cursorFrame120Hz, false),
+    });
+    if (!resolved) return;
   }
 
   public resumeFromCursor(): void {
@@ -264,7 +253,7 @@ export class RLRCReplaySessionController {
     const t0Frame = this.interveneController.exitInterveneToViewing();
     this._syncRoster(this.session.roster);
     this.seekFrame(t0Frame);
-    this._simPort?.camera?.resetView?.();
+    this.runtime?.camera?.resetView?.();
   }
 
   public handleInterpolationMethodChange(uiMethod: string): void {
@@ -281,7 +270,7 @@ export class RLRCReplaySessionController {
 
   public clearReplay(): void {
     if (this.isIntervening) this.interveneController.exitInterveneToViewing();
-    this._simPort?.audioSubsystem?.resetAudio?.();
+    this.runtime?.audioSubsystem?.resetAudio?.();
     this.audioEdgeSynthesizer.reset();
     this.session = null;
     this.cursorFrame120Hz = 0;
@@ -303,10 +292,13 @@ export class RLRCReplaySessionController {
 
   public onBeforePhysicsTick(dt = RLRC_FIXED_DT): boolean {
     if (!this.hasLoadedReplay) return true;
-    if (getSt().viewerState === 'intervening') {
-      if (this._simPort?.keyboard) this._simPort.keyboard.ballControlEnabled = false;
-      this.interveneController.stepBeforeLivePhysics(
-        readLiveRuntimePlayerControls(this._simPort, this.activePovSlotIndex),
+    const state = getSt().viewerState;
+    if (state === 'intervening') {
+      if (this.runtime?.keyboard && this.runtime.keyboard.ballControlEnabled) {
+        this.runtime.keyboard.ballControlEnabled = false;
+      }
+      this.interveneController.stepBeforePhysicsTick(
+        readLiveRuntimePlayerControls(this.runtime, this.activePovSlotIndex),
         dt
       );
       return true;
@@ -316,6 +308,13 @@ export class RLRCReplaySessionController {
     return false;
   }
 
+  public onAfterPhysicsTick(): void {
+    if (!this.hasLoadedReplay) return;
+    if (getSt().viewerState === 'intervening') {
+      this.interveneController.stepAfterPhysicsTick(false);
+    }
+  }
+
   public stepPlaybackTick(dt = RLRC_FIXED_DT): boolean {
     const frames = this.session?.frames120Hz;
     if (!frames || frames.length === 0) return false;
@@ -323,7 +322,7 @@ export class RLRCReplaySessionController {
     const state = st.viewerState;
     if (state === 'preroll-countdown' || state === 'intervening') {
       this.interveneController.stepTick(
-        readLiveRuntimePlayerControls(this._simPort, this.activePovSlotIndex),
+        readLiveRuntimePlayerControls(this.runtime, this.activePovSlotIndex),
         dt
       );
       return true;
@@ -345,15 +344,15 @@ export class RLRCReplaySessionController {
   }
 
   private _syncPov(slot: number): void {
-    if (!this._simPort) return;
-    this._simPort.playerCarIndex = slot;
-    if (this._simPort.arena) this._simPort.arena.playerCarIndex = slot;
+    if (!this.runtime) return;
+    this.runtime.playerCarIndex = slot;
+    if (this.runtime.arena) this.runtime.arena.playerCarIndex = slot;
   }
 
   private _syncRoster(roster: readonly RLRCPlayerSlotMeta[]): void {
     this.playbackApplier.configureRoster(
       roster,
-      this._simPort as unknown as RLRCPlaybackRuntimePort
+      this.runtime as unknown as RLRCPlaybackRuntimePort
     );
     syncRLRCNameTagRoster(roster, this.activePovSlotIndex);
   }
@@ -364,7 +363,8 @@ export class RLRCReplaySessionController {
       idx,
       smoothStep,
       activePovSlotIndex: this.activePovSlotIndex,
-      simPort: this._simPort,
+      isIntervening: this.isIntervening,
+      sessionPort: this.runtime,
       playbackApplier: this.playbackApplier,
       audioEdgeSynthesizer: this.audioEdgeSynthesizer,
       prevHudKey: this._hudKey,

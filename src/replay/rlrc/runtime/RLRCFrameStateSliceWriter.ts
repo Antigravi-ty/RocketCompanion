@@ -136,17 +136,10 @@ export function writeBallFrameToSlice(
   destination: Float32Array
 ): void {
   destination.fill(0);
-  if (!ball.entityActive) {
-    destination[BALL_STATE_OFFSETS.POS + 2] = -5000;
-    destination[BALL_STATE_OFFSETS.FWD] = 1;
-    destination[BALL_STATE_OFFSETS.RIGHT + 1] = 1;
-    destination[BALL_STATE_OFFSETS.UP + 2] = 1;
-    return;
-  }
   const rigidBody = ball.rigidBody;
   writeVec3ToSlice(rigidBody.position, destination, BALL_STATE_OFFSETS.POS, 93.15);
   writeQuaternionBasisToSlice(rigidBody.rotation, destination, BALL_STATE_OFFSETS.ROT_MAT);
-  if (!rigidBody.sleeping) {
+  if (ball.entityActive && !rigidBody.sleeping) {
     writeVec3ToSlice(rigidBody.linearVelocity, destination, BALL_STATE_OFFSETS.VEL);
     writeVec3ToSlice(rigidBody.angularVelocity, destination, BALL_STATE_OFFSETS.ANG_VEL);
   }
@@ -250,6 +243,6 @@ export function buildCompactSnapshotFromRLRCFrame(
 
   writeBoostPadCooldownsToStateBuffer(frame.boostPadCooldowns, out);
   out[EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING] =
-    !frame.ball.entityActive || frame.ball.rigidBody.sleeping ? 1 : 0;
+    (frame.ball.entityActive ? 0 : 2) | (frame.ball.rigidBody.sleeping ? 1 : 0);
   return out;
 }

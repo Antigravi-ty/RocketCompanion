@@ -27,6 +27,7 @@ import {
 import { loadArenaStadiumMeshes } from './ArenaAssetLoader.ts';
 import { interpolatePhysicsTransform, unrealToThreeCoords } from './ArenaMath.ts';
 import { updateSkyboxConfig } from './ArenaSky.ts';
+import { EXTENDED_STATE_OFFSETS } from '../../physics/RocketSimConstants.ts';
 import type { BallStateView, NumericStateBuffer } from '../../physics/RocketSimStateViews.ts';
 import type { SpeedTrail } from '../SpeedTrail.ts';
 import type { GoalBarrierVisual } from './GoalBarrierVisual.ts';
@@ -268,11 +269,33 @@ export class ArenaEnvironmentManager {
     const h = this.arena;
     const currBall = h._currBallView.attach(currState);
     const prevBall = h._prevBallView.attach(prevState);
+    const isHidden = (s: NumericStateBuffer | null, bv: BallStateView): boolean => {
+      if (!s) return false;
+      const flags =
+        s.length > EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING
+          ? Math.round(Number(s[EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING]) || 0)
+          : 0;
+      return (flags & 2) !== 0 || bv.posZ < -100;
+    };
+
+    const currHidden = isHidden(currState, currBall);
+    const isRespawning = !currHidden && (!h.ball.visible || isHidden(prevState, prevBall));
+    h.ball.visible = !currHidden;
+    h.indicatorRing.visible = !currHidden;
+    h.indicatorHeightRing.visible = !currHidden;
+    if (currHidden) {
+      h.ballVelocity.set(0, 0, 0);
+      h.ballSpeedTrail?.reset?.();
+      h.goalBarrierVisual?.update?.(actualDelta);
+      return;
+    }
+
+    if (isRespawning) h.ballSpeedTrail?.reset?.();
     interpolatePhysicsTransform(
       h.ball,
-      prevBall,
+      isRespawning ? currBall : prevBall,
       currBall,
-      alpha,
+      isRespawning ? 1 : alpha,
       undefined,
       h.pA,
       h.pB,

@@ -11,6 +11,7 @@ import type {
   RLRCVehicleLoadoutResolution,
   RLRCVisualId,
 } from '../RLRCReplayTypes.ts';
+
 import {
   BODY_PRODUCT_ID_MAP,
   DEFAULT_HITBOX_ID,
@@ -98,7 +99,12 @@ export function extractRestingKinematicsStats(
 
 /**
  * Classifies unknown DLC vehicle bodies into the 5 distinct resting suspension buckets
- * using flat-ground `(median_rest_Z, signed_fwd_z)` measurements.
+ * using flat-ground `(median_rest_Z, signed_fwd_z)` measurements:
+ * - Merc: `signed_fwd_z > +0.002` (unique nose-up pitch ~ +0.00485, rest_Z ~ 18.79 uu)
+ * - Plank: `median_rest_Z > 18.50` (rest_Z ~ 18.65 uu, signed_fwd_z ~ -0.00602)
+ * - Breakout: `median_rest_Z > 18.00` (rest_Z ~ 18.34 uu, signed_fwd_z ~ -0.01701)
+ * - Dominus: `|signed_fwd_z| > 0.013` (rest_Z ~ 17.01..17.06 uu, steep pitch ~ -0.01672)
+ * - Octane: default standard bucket (rest_Z ~ 17.01 uu, mild pitch ~ -0.00954)
  */
 export function classifyHitboxByRestingKinematics(
   samplesOrStats:

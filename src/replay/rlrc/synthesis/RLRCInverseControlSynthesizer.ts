@@ -39,6 +39,7 @@ function synthesizeSlotTimeline120Hz(
   const n = frames.length;
   const dt = Math.max(1e-4, options?.dtSeconds ?? RLRC_FIXED_DT);
   const radius: 0 | 1 | 2 = options?.smoothWindowRadius ?? 1;
+  const allowZeroDrainBoost = options?.allowZeroDrainKinematicBoost ?? false;
 
   const act = new Array<boolean>(n).fill(false);
   const kins = new Array<FrameKinematicsSample | null>(n).fill(null);
@@ -72,7 +73,6 @@ function synthesizeSlotTimeline120Hz(
     const synthesizedControls = synthesizeCarControlsBetweenFrames(prv, cur, nxt, options);
     baseCtrl[f] = synthesizedControls;
 
-    let boostOn = inferBoostStateFromKinematics(prv, cur, nxt, kin, dt);
     const f0 = Math.max(0, f - 2);
     const f1 = Math.min(n - 1, f + 2);
     const c0 = frames[f0].cars[slot];
@@ -81,9 +81,13 @@ function synthesizeSlotTimeline120Hz(
       c0?.entityActive && c1?.entityActive && f1 > f0
         ? (c0.boostAmount - c1.boostAmount) / ((f1 - f0) * dt)
         : 0;
+    const hasWindowDrain =
+      drainRate >= 8.5 && drainRate <= 120.0 && c0.boostAmount - c1.boostAmount <= 12.0;
     const hasExplicitOrDrain =
-      Boolean(cur.activeFlags.boostActive && cur.boostAmount > 0.05) ||
-      (drainRate >= 8.5 && drainRate <= 120.0 && c0.boostAmount - c1.boostAmount <= 12.0);
+      Boolean(cur.activeFlags.boostActive && cur.boostAmount > 0.05) || hasWindowDrain;
+
+    let boostOn =
+      hasWindowDrain || inferBoostStateFromKinematics(prv, cur, nxt, kin, dt, allowZeroDrainBoost);
 
     if (boostOn && cur.activeFlags.boostActive && cur.boostAmount < 99.5) {
       const lo = Math.max(0, f - 18);

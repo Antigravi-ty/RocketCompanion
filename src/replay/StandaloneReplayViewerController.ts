@@ -68,47 +68,34 @@ export class StandaloneReplayViewerController {
   }
 
   public attach(): void {
-    const viewer = this;
+    const uploadReplayFileHandler = (file: File): Promise<void> => this.handleUploadFile(file);
+    const loadRetainedMatchReplayHandler = (): void => this.handleLoadRetainedMatchReplay();
+    const startPlayingHandler = (): void => this.startPlaying();
+    const pausePlayingHandler = (): void => this.pausePlaying();
+    const seekFrameHandler = (frameIndex: number): void => this.seekFrame(frameIndex);
+    const pushBackwardStartHandler = (): void => this.beginScrub('rewinding');
+    const pushBackwardStopHandler = (): void => this.pauseScrub();
+    const pushForwardStartHandler = (): void => this.beginScrub('forwarding');
+    const pushForwardStopHandler = (): void => this.pauseScrub();
+    const resumeFromHereHandler = (): void => this.resumeFromCursor();
+    const returnToReplayHandler = (): void => this.returnToReplay();
+    const selectPovSlotHandler = (slotKey: number): void => this.selectPovSlot(slotKey);
+    const clearReplayHandler = (): void => this.clearReplay();
+
     useReplayViewerStore.getState().setRuntimeHandlers({
-      onUploadReplayFile(file: File) {
-        return viewer.handleUploadFile(file);
-      },
-      onLoadRetainedMatchReplay() {
-        viewer.handleLoadRetainedMatchReplay();
-      },
-      onStartPlaying() {
-        viewer.startPlaying();
-      },
-      onPausePlaying() {
-        viewer.pausePlaying();
-      },
-      onSeekFrame(frameIndex: number) {
-        viewer.seekFrame(frameIndex);
-      },
-      onPushBackwardStart() {
-        viewer.beginScrub('rewinding');
-      },
-      onPushBackwardStop() {
-        viewer.pauseScrub();
-      },
-      onPushForwardStart() {
-        viewer.beginScrub('forwarding');
-      },
-      onPushForwardStop() {
-        viewer.pauseScrub();
-      },
-      onResumeFromHere() {
-        viewer.resumeFromCursor();
-      },
-      onReturnToReplay() {
-        viewer.returnToReplay();
-      },
-      onSelectPovSlot(slotKey: number) {
-        viewer.selectPovSlot(slotKey);
-      },
-      onClearReplay() {
-        viewer.clearReplay();
-      },
+      onUploadReplayFile: uploadReplayFileHandler,
+      onLoadRetainedMatchReplay: loadRetainedMatchReplayHandler,
+      onStartPlaying: startPlayingHandler,
+      onPausePlaying: pausePlayingHandler,
+      onSeekFrame: seekFrameHandler,
+      onPushBackwardStart: pushBackwardStartHandler,
+      onPushBackwardStop: pushBackwardStopHandler,
+      onPushForwardStart: pushForwardStartHandler,
+      onPushForwardStop: pushForwardStopHandler,
+      onResumeFromHere: resumeFromHereHandler,
+      onReturnToReplay: returnToReplayHandler,
+      onSelectPovSlot: selectPovSlotHandler,
+      onClearReplay: clearReplayHandler,
     });
     this._bindHotkeys();
     this._unsubscribeFloating?.();
@@ -135,8 +122,9 @@ export class StandaloneReplayViewerController {
   }
 
   public _silenceContinuousAudio(): void {
-    this.runtime?.audioSubsystem?.resetAudio?.();
-    const audio = this.runtime?.options?.gameAudio || gameAudio;
+    const { audioSubsystem, options } = this.runtime ?? {};
+    audioSubsystem?.resetAudio?.();
+    const audio = options?.gameAudio || gameAudio;
     audio?.silenceAll?.();
   }
 
@@ -151,18 +139,17 @@ export class StandaloneReplayViewerController {
   }
 
   private _bindHotkeys(): void {
-    const viewer = this;
+    const selectPovSlot = (slotKey: number): void => this.selectPovSlot(slotKey);
+    const startPlaying = (): void => this.startPlaying();
+    const pausePlaying = (): void => this.pausePlaying();
+    const resumeFromCursor = (): void => this.resumeFromCursor();
+    const beginScrub = (direction: 'rewinding' | 'forwarding'): void => this.beginScrub(direction);
+    const pauseScrub = (): void => this.pauseScrub();
     this.hotkeySubController.bindReplayViewerHotkeys({
-      getRuntime() {
-        return viewer.runtime;
-      },
-      hasLoadedReplay() {
-        return viewer.hasLoadedReplay;
-      },
-      hasFrames() {
-        return viewer.frames.length > 0;
-      },
-      getWindowStatus() {
+      getRuntime: () => this.runtime,
+      hasLoadedReplay: () => this.hasLoadedReplay,
+      hasFrames: () => this.frames.length > 0,
+      getWindowStatus: () => {
         const st = useReplayViewerStore.getState();
         return {
           isWindowOpen: Boolean(st.isWindowOpen),
@@ -170,13 +157,19 @@ export class StandaloneReplayViewerController {
         };
       },
       conflictErrorMessage: VIEWER_HOTKEY_CONFLICT_MSG,
-      commandTarget: viewer,
+      onSelectPovSlot: selectPovSlot,
+      onStartPlaying: startPlaying,
+      onPausePlaying: pausePlaying,
+      onResumeFromCursor: resumeFromCursor,
+      onBeginScrub: beginScrub,
+      onPauseScrub: pauseScrub,
     });
   }
 
   public _applyUserLoadoutToTakenOverCar(
     carIndex: number = this.rosterSubController.activePovCarIndex
   ): void {
+    if (!this.runtime) return;
     this.rosterSubController.applyUserLoadoutToTakenOverCar(this.runtime, carIndex);
   }
 
@@ -207,6 +200,7 @@ export class StandaloneReplayViewerController {
       preserveEngineTick: true,
     }
   ): void {
+    if (this.frames.length === 0) return;
     this.scoreboardSynchronizer.applyFrameAtCursor(
       this,
       smoothStep,
@@ -222,16 +216,18 @@ export class StandaloneReplayViewerController {
   }
 
   private _emitStateTransition(frameIdx: number): void {
+    const physics = this.runtime?.physics ?? null;
     emitSystemControlTransition(
       this.runtime,
       SYSTEM_CONTROL_SIGNALS.SYS_CTRL_STATE_ONLY,
       frameIdx,
       0,
-      this.runtime?.physics?.saveCompactState?.()
+      physics?.saveCompactState?.()
     );
   }
 
   public _handoffToLiveFreeplay(targetIdx: number): void {
+    if (this.frames.length === 0) return;
     this.causalSyncController.executeHandoffToLiveFreeplay(this, targetIdx);
   }
 
@@ -261,7 +257,8 @@ export class StandaloneReplayViewerController {
     this._applyFrameAtCursor(false, false);
     this._emitStateTransition(0);
     this._silenceContinuousAudio();
-    if (resetCameraView) this.runtime?.camera?.resetView?.();
+    const camera = this.runtime?.camera ?? null;
+    if (resetCameraView) camera?.resetView?.();
 
     useReplayViewerStore.getState().updateLiveTelemetry({
       isLoadingReplay: false,
@@ -287,7 +284,8 @@ export class StandaloneReplayViewerController {
     this._applyFrameAtCursor(false, false);
     this._emitStateTransition(restoreIdx);
     this._silenceContinuousAudio();
-    this.runtime?.camera?.resetView?.();
+    const camera = this.runtime?.camera ?? null;
+    camera?.resetView?.();
 
     useReplayViewerStore.getState().updateLiveTelemetry({
       viewerState: 'paused',
@@ -462,6 +460,7 @@ export class StandaloneReplayViewerController {
   }
 
   public onBeforePhysicsTick(): boolean {
+    if (this.frames.length === 0) return true;
     return this.causalSyncController.stepBeforePhysicsTick(this);
   }
 }

@@ -131,9 +131,20 @@ export class SignalTimeline {
     incidentTimeline = null,
   }: SignalTimelineOptions) {
     this.bytes = bytes || new Uint8Array(0);
-    this.recordedEvents = recordedEvents
+    const sortedRecorded = recordedEvents
       .slice()
       .sort((a, b) => (a.frameIndex ?? 0) - (b.frameIndex ?? 0) || (a.tick ?? 0) - (b.tick ?? 0));
+    const hasReplayEndOrKickoff = sortedRecorded.some(
+      (s) =>
+        s &&
+        (s.signalType === MATCH_SIGNALS.GOAL_REPLAY_END ||
+          s.signalType === MATCH_SIGNALS.KICKOFF_START ||
+          s.signalType === MATCH_SIGNALS.KICKOFF_WILL_START ||
+          s.signalType === MATCH_SIGNALS.MATCH_STARTED)
+    );
+    this.recordedEvents = hasReplayEndOrKickoff
+      ? sortedRecorded
+      : sortedRecorded.filter((s) => s && s.signalType !== MATCH_SIGNALS.GOAL_REPLAY_WILL_START);
     this.synthesizedEvents = synthesizedEvents
       .slice()
       .sort((a, b) => (a.frameIndex ?? 0) - (b.frameIndex ?? 0) || (a.tick ?? 0) - (b.tick ?? 0));
@@ -251,10 +262,12 @@ export class SignalTimeline {
   evaluateMatchStateAtFrame(frameIndex: number, matchInfo: Record<string, any> = {}) {
     let blueScore = 0;
     let orangeScore = 0;
-    let initialDuration =
+    const rawDuration =
       typeof matchInfo.durationSeconds === 'number' && matchInfo.durationSeconds >= 0
         ? matchInfo.durationSeconds
         : 300;
+    let initialDuration =
+      matchInfo.directorReplayMeta && rawDuration > 300 ? 300 : rawDuration;
 
     for (let i = 0; i < Math.min(16, this.events.length); i++) {
       const s = this.events[i];
@@ -355,6 +368,14 @@ export class SignalTimeline {
           kickoffWillStartFrame = null;
           kickoffCountdown = 0;
           matchPhase = 'replay';
+          break;
+        case MATCH_SIGNALS.GOAL_REPLAY_WILL_END:
+        case MATCH_SIGNALS.GOAL_REPLAY_END:
+        case MATCH_SIGNALS.BALL_RESET:
+        case MATCH_SIGNALS.ROUND_STARTED:
+          kickoffWillStartFrame = null;
+          kickoffCountdown = 0;
+          matchPhase = isOvertime ? 'overtime' : 'playing';
           break;
         case MATCH_SIGNALS.CLOCK_UPDATED_SECONDS:
           if (sig.param2 === 1) {

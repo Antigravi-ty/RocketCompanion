@@ -2,11 +2,62 @@ import { PodiumCelebrationController } from '../PodiumCelebrationController.ts';
 import type { ReplayRingBuffer } from '../../../replay/ReplayRingBuffer.ts';
 import type { ReplayTimelineController } from '../../../replay/ReplayTimelineController.ts';
 import { hudStore, useSubsystemIsolationLabStore } from '../../runtimeUiPort.ts';
-import type { LabFrameUpdateContext, LabRuntimePort } from './LabTabTypes.ts';
+import type {
+  LabArenaPort,
+  LabFrameUpdateContext,
+  LabPhysicsEnginePort,
+  LabRuntimePort,
+} from './LabTabTypes.ts';
 import {
   type ReplayExportPayload,
   buildMatchReplayExportPayload,
 } from './goalReplayScenariosPipeline.ts';
+
+const DEFAULT_OPPONENT_STATE = {
+  pos: [1400, 3200, 17.05] as [number, number, number],
+  vel: [0, 0, 0] as [number, number, number],
+  angVel: [0, 0, 0] as [number, number, number],
+  rot: [0, -Math.PI / 2, 0] as [number, number, number],
+  boost: 100,
+};
+
+function configureTwoCarBenchArena(
+  physics: LabPhysicsEnginePort,
+  arena: LabArenaPort | null,
+  assignTeamsAndOpponentState: boolean
+): void {
+  if (assignTeamsAndOpponentState) {
+    while (physics.numCars > 2 && typeof physics.removeCar === 'function') {
+      physics.removeCar(physics.numCars - 1);
+    }
+  }
+  while (physics.numCars < 2) {
+    physics.addCar(physics.numCars % 2, 'octane');
+  }
+  void arena?.ensureOpponent?.();
+  if (!arena?.cars) return;
+
+  if (arena.cars[0]) {
+    arena.cars[0].visible = true;
+    if (assignTeamsAndOpponentState) {
+      arena.setCarTeam?.(0, 0);
+    }
+  }
+  if (arena.cars[1]) {
+    arena.cars[1].visible = true;
+    if (assignTeamsAndOpponentState) {
+      arena.setCarTeam?.(1, 1);
+      physics.setCarState(1, DEFAULT_OPPONENT_STATE);
+    }
+  }
+  if (assignTeamsAndOpponentState) {
+    for (let i = 2; i < arena.cars.length; i++) {
+      if (arena.cars[i]) {
+        arena.cars[i].visible = false;
+      }
+    }
+  }
+}
 
 export class GoalReplayPodiumSubController {
   public podiumController: PodiumCelebrationController | null = null;
@@ -15,13 +66,11 @@ export class GoalReplayPodiumSubController {
     return Boolean(this.podiumController?.isActive);
   }
 
-  ensureController(
-    sceneTarget: LabRuntimePort | null | undefined
-  ): PodiumCelebrationController | null {
-    if (!this.podiumController && sceneTarget) {
-      this.podiumController =
-        sceneTarget.podiumController || new PodiumCelebrationController(sceneTarget);
-      sceneTarget.podiumController = this.podiumController;
+  ensureController(runtime: LabRuntimePort | null | undefined): PodiumCelebrationController | null {
+    if (!this.podiumController && runtime) {
+      const existing = runtime.podiumController;
+      this.podiumController = existing || new PodiumCelebrationController(runtime);
+      runtime.podiumController = this.podiumController;
     }
     return this.podiumController;
   }
@@ -39,33 +88,24 @@ export class GoalReplayPodiumSubController {
   }
 
   enterShowcase(
-    sceneTarget: LabRuntimePort | null | undefined,
+    runtime: LabRuntimePort | null | undefined,
     winningTeam = 0,
     timelineController?: ReplayTimelineController | null,
     isReplaying = false
   ): boolean {
-    const sim = sceneTarget?.physics;
-    if (!sim || !sceneTarget) return false;
+    if (!runtime?.physics) return false;
+    const { physics, arena } = runtime;
     const store = useSubsystemIsolationLabStore.getState();
 
-    this.ensureController(sceneTarget);
-    if (isReplaying) {
-      timelineController?.endReplaySession?.();
+    const controller = this.ensureController(runtime);
+    if (isReplaying && timelineController) {
+      timelineController.endReplaySession();
     }
-    sceneTarget.releaseGoalReplayCameraOverride();
+    runtime.releaseGoalReplayCameraOverride();
+    configureTwoCarBenchArena(physics, arena, false);
 
-    while (sim.numCars < 2) {
-      sim.addCar(sim.numCars % 2, 'octane');
-    }
-    const arena = sceneTarget.arena;
-    void arena?.ensureOpponent?.();
-    if (arena?.cars) {
-      if (arena.cars[0]) arena.cars[0].visible = true;
-      if (arena.cars[1]) arena.cars[1].visible = true;
-    }
-
-    sceneTarget.isBotMatch = true;
-    this.podiumController!.enterPodium(winningTeam, 'DEV_TEST_PODIUM');
+    runtime.isBotMatch = true;
+    controller?.enterPodium(winningTeam, 'DEV_TEST_PODIUM');
 
     store.updateLiveTelemetry({
       goalReplayPhase: 'podium',
@@ -79,17 +119,17 @@ export class GoalReplayPodiumSubController {
     return true;
   }
 
-  exitShowcase(sceneTarget: LabRuntimePort | null | undefined): boolean {
-    const sim = sceneTarget?.physics;
-    if (!sim || !sceneTarget) return false;
+  exitShowcase(runtime: LabRuntimePort | null | undefined): boolean {
+    if (!runtime?.physics) return false;
+    const { physics, interpolator } = runtime;
     const store = useSubsystemIsolationLabStore.getState();
 
     this.exitIfActive();
-    sceneTarget.isBotMatch = false;
+    runtime.isBotMatch = false;
 
-    sim.resetGoalLatch?.();
-    sim.resetKickoff(0, false);
-    sceneTarget.interpolator?.sync?.();
+    physics.resetGoalLatch?.();
+    physics.resetKickoff(0, false);
+    interpolator?.sync();
 
     store.updateLiveTelemetry({
       goalReplayPhase: 'live',
@@ -102,12 +142,13 @@ export class GoalReplayPodiumSubController {
   }
 
   exportReplayBufferAsJson(
-    sceneTarget: LabRuntimePort | null | undefined,
+    runtime: LabRuntimePort | null | undefined,
     fallbackRingBuffer: ReplayRingBuffer | null
   ): ReplayExportPayload {
-    const ringBuffer =
-      sceneTarget?.authoritativeServer?.matchAdmin?.replayBuffer || fallbackRingBuffer;
-    const wasmFramesCount = sceneTarget?.physics?.getReplayFrameCount?.() || 0;
+    const serverAdmin = runtime?.authoritativeServer?.matchAdmin;
+    const physics = runtime?.physics;
+    const ringBuffer = serverAdmin?.replayBuffer || fallbackRingBuffer;
+    const wasmFramesCount = physics?.getReplayFrameCount?.() || 0;
     const store = useSubsystemIsolationLabStore.getState();
     const payload = buildMatchReplayExportPayload(ringBuffer, wasmFramesCount, store);
 
@@ -128,64 +169,37 @@ export class GoalReplayPodiumSubController {
   }
 }
 
-const DEFAULT_OPPONENT_STATE = {
-  pos: [1400, 3200, 17.05] as [number, number, number],
-  vel: [0, 0, 0] as [number, number, number],
-  angVel: [0, 0, 0] as [number, number, number],
-  rot: [0, -Math.PI / 2, 0] as [number, number, number],
-  boost: 100,
-};
-
 export function resetGoalReplayBenchArenaAndPhysics(
-  sceneTarget: LabRuntimePort | null | undefined
+  runtime: LabRuntimePort | null | undefined
 ): number {
-  const sim = sceneTarget?.physics;
-  if (!sim || !sceneTarget) return 0;
-  sceneTarget.releaseGoalReplayCameraOverride();
-  while (sim.numCars > 2 && typeof sim.removeCar === 'function') {
-    sim.removeCar(sim.numCars - 1);
+  if (!runtime?.physics) return 0;
+  const { physics, arena, simulationStage } = runtime;
+  runtime.releaseGoalReplayCameraOverride();
+  configureTwoCarBenchArena(physics, arena, true);
+  runtime.playerCarIndex = 0;
+  if (arena) {
+    arena.playerCarIndex = 0;
+    arena.resetAllCarEffects?.();
   }
-  while (sim.numCars < 2) {
-    sim.addCar(sim.numCars % 2, 'octane');
-  }
-  const arena = sceneTarget.arena;
-  void arena?.ensureOpponent?.();
-  if (arena?.cars) {
-    if (arena.cars[0]) {
-      arena.cars[0].visible = true;
-      arena.setCarTeam?.(0, 0);
-    }
-    if (arena.cars[1]) {
-      arena.cars[1].visible = true;
-      arena.setCarTeam?.(1, 1);
-      sim.setCarState(1, DEFAULT_OPPONENT_STATE);
-    }
-    for (let i = 2; i < arena.cars.length; i++) {
-      if (arena.cars[i]) arena.cars[i].visible = false;
-    }
-  }
-  sceneTarget.playerCarIndex = 0;
-  if (arena) arena.playerCarIndex = 0;
-  sceneTarget.isBotMatch = false;
-  sim.setUnlimitedBoost(true);
-  sim.resetGoalLatch?.();
-  sim.resetKickoff(0, false);
-  sim.setCarState(1, DEFAULT_OPPONENT_STATE);
-  sim.clearEvents?.();
-  sceneTarget.simulationStage?.resetActionStates?.();
-  arena?.resetAllCarEffects?.();
-  sceneTarget.resetAudio?.();
-  sim.clearReplayBuffer?.();
-  return Math.floor(sim.getHeaderView?.()?.tickCount || 0);
+  runtime.isBotMatch = false;
+  physics.setUnlimitedBoost(true);
+  physics.resetGoalLatch?.();
+  physics.resetKickoff(0, false);
+  physics.setCarState(1, DEFAULT_OPPONENT_STATE);
+  physics.clearEvents?.();
+  simulationStage?.resetActionStates?.();
+  runtime.resetAudio?.();
+  physics.clearReplayBuffer?.();
+  return Math.floor(physics.getHeaderView?.()?.tickCount || 0);
 }
 
-export function resetGoalReplayLiveKickoff(sceneTarget: LabRuntimePort | null | undefined): number {
-  const sim = sceneTarget?.physics;
-  if (!sim) return 0;
-  sim.resetGoalLatch?.();
-  sim.resetKickoff(0, false);
-  if (sim.numCars > 1) {
-    sim.setCarState(1, DEFAULT_OPPONENT_STATE);
+export function resetGoalReplayLiveKickoff(runtime: LabRuntimePort | null | undefined): number {
+  const physics = runtime?.physics;
+  if (!physics) return 0;
+  physics.resetGoalLatch?.();
+  physics.resetKickoff(0, false);
+  if (physics.numCars > 1) {
+    physics.setCarState(1, DEFAULT_OPPONENT_STATE);
   }
-  return Math.floor(sim.getHeaderView?.()?.tickCount || 0);
+  return Math.floor(physics.getHeaderView?.()?.tickCount || 0);
 }

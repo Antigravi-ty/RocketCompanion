@@ -66,16 +66,20 @@ export function isEventWithinUI(target: EventTarget | null | undefined): boolean
   );
 }
 
+export type VoidInputCallback = () => void;
+export type BallControlInputCallback = (mode: string) => void;
+export type KickoffSpawnInputCallback = (spawnIndex: number) => void;
+
 export class KeyboardMouseController {
   _onAuxClick: (e: MouseEvent) => void;
-  _onBlur: () => void;
+  _onBlur: VoidInputCallback;
   _onContextMenu: (e: MouseEvent) => void;
   _onKeyDown: (e: KeyboardEvent) => void;
   _onKeyUp: (e: KeyboardEvent) => void;
   _onMouseDown: (e: MouseEvent) => void;
   _onMouseUp: (e: MouseEvent) => void;
-  _unsubKeyDown: (() => void) | null;
-  _unsubKeyUp: (() => void) | null;
+  _unsubKeyDown: VoidInputCallback | null;
+  _unsubKeyUp: VoidInputCallback | null;
   ballControlEnabled: boolean;
   bindings: KeyboardInputBindingsMap | null | undefined;
   cameraLook: InputCameraLookVector;
@@ -85,12 +89,12 @@ export class KeyboardMouseController {
   keys: Set<string>;
   look: InputCameraLookVector;
   mouse: Set<number>;
-  onBallCamToggle: (() => void) | null;
-  onBallControl: ((mode: string) => void) | null;
-  onFreeCamToggle: (() => void) | null;
-  onKickoffSpawnSelect: ((spawnIndex: number) => void) | null;
-  onReset: (() => void) | null;
-  onSettingsToggle: (() => void) | null;
+  onBallCamToggle: VoidInputCallback | null;
+  onBallControl: BallControlInputCallback | null;
+  onFreeCamToggle: VoidInputCallback | null;
+  onKickoffSpawnSelect: KickoffSpawnInputCallback | null;
+  onReset: VoidInputCallback | null;
+  onSettingsToggle: VoidInputCallback | null;
 
   constructor(bindings?: KeyboardInputBindingsMap | null) {
     this.keys = new Set<string>();

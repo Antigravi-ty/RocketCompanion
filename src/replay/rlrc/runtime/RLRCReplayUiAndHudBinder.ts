@@ -1,17 +1,23 @@
 /**
  * RLRCReplayUiAndHudBinder.ts
- * UI store handler binding, ReplayHotkeySubController wiring, upload notification helper,
- * POV slot selection resolver, and HUD match state synchronization for RLRCReplaySessionController.
+ * Vertical UI store handler binding, ReplayHotkeySubController wiring, upload/export orchestration,
+ * POV slot selection with Goal Replay camera override, and frame subsystem sync
+ * for RLRCReplaySessionController.
  */
 
 import {
   hudStore,
   useQuickNotificationStore,
   useReplayToRcsImporterStore,
+  useReplayViewerStore,
 } from '../../../game/runtimeUiPort.ts';
 import type { ReplayHotkeySubController } from '../../ReplayHotkeySubController.ts';
+import type {
+  ReplayScoreboardModePort,
+  ReplayScoreboardRuntimePort,
+} from '../../ReplayScoreboardSynchronizer.ts';
 import type { RLRCConvertedReplaySession } from '../RLReplayToRLRCConverter.ts';
-import type { RLRCFrame120Hz, RLRCPlayerSlotMeta, RLRCTeamIndex } from '../RLRCReplayTypes.ts';
+import type { RLRCPlayerSlotMeta, RLRCTeamIndex } from '../RLRCReplayTypes.ts';
 import type { RLRCInterveneTakeoverSubController } from './RLRCInterveneTakeoverSubController.ts';
 import type {
   RLRCPlaybackAudioEdgeSynthesizer,
@@ -24,6 +30,8 @@ import type {
 import {
   downloadRcsReplayPack,
   mapUiNonPovMode,
+  resolveRLRCPovSlotSelection,
+  syncRLRCFrameHudMatchState,
   syncRLRCNameTagRoster,
 } from './RLRCReplaySessionBridgePipeline.ts';
 
@@ -34,9 +42,11 @@ const setTelem: ReturnType<typeof getSt>['updateLiveTelemetry'] = (p) =>
   getSt().updateLiveTelemetry(p);
 
 export interface RLRCSessionUiActionTarget {
-  readonly runtime: unknown;
+  readonly runtime: ReplayScoreboardRuntimePort | null;
   readonly hasLoadedReplay: boolean;
+  readonly isIntervening: boolean;
   readonly session: RLRCConvertedReplaySession | null;
+  deactivateMode: () => void;
   handleUploadFile: (file: File) => Promise<void> | void;
   exportRcsReplayPack: () => Promise<void> | void;
   startPlaying: () => void;
@@ -116,9 +126,34 @@ export function bindRLRCSessionUiAndHotkeys(
     onPauseScrub,
   });
 
-  return useReplayToRcsImporterStore.subscribe(() => {
+  const unsubImporter = useReplayToRcsImporterStore.subscribe(() => {
     hotkeySubController.checkWindowOpenAndPriority(getWindowStatus(), CONFLICT_MSG);
   });
+
+  let prevViewerOpen = Boolean(useReplayViewerStore.getState().isWindowOpen);
+  let prevViewerLoading = Boolean(useReplayViewerStore.getState().isLoadingReplay);
+  let prevViewerState = useReplayViewerStore.getState().viewerState;
+  const unsubStandardViewer = useReplayViewerStore.subscribe(() => {
+    const vSt = useReplayViewerStore.getState();
+    const openedNow = !prevViewerOpen && Boolean(vSt.isWindowOpen);
+    const loadingNow = !prevViewerLoading && Boolean(vSt.isLoadingReplay);
+    const playingNow =
+      prevViewerState !== vSt.viewerState &&
+      (vSt.viewerState === 'playing' ||
+        vSt.viewerState === 'forwarding' ||
+        vSt.viewerState === 'rewinding');
+    prevViewerOpen = Boolean(vSt.isWindowOpen);
+    prevViewerLoading = Boolean(vSt.isLoadingReplay);
+    prevViewerState = vSt.viewerState;
+    if ((openedNow || loadingNow || playingNow) && (getSt().isWindowOpen || target.isIntervening)) {
+      target.deactivateMode();
+    }
+  });
+
+  return () => {
+    unsubImporter();
+    unsubStandardViewer();
+  };
 }
 
 export function pushRLRCUploadNotification(
@@ -175,34 +210,44 @@ export async function executeRLRCExportPack(
   }
 }
 
-export function resolveSelectedPovSlotState(
-  playbackApplier: RLRCPlaybackSyncApplier,
-  roster: readonly RLRCPlayerSlotMeta[],
-  simPort: RLRCPlaybackRuntimePort | null,
-  slotKey: number
-): {
-  readonly slot: number;
-  readonly localTeam: RLRCTeamIndex;
-  readonly activePovSlotKey: 1 | 2 | 3 | 4 | 5 | 6;
-} | null {
-  const resolved = playbackApplier.resolvePovSlotForHudKey(slotKey, simPort);
-  const idx = Math.max(0, Math.min(5, Math.round(slotKey) - 1));
-  const meta =
-    (resolved ? roster.find((r) => r.slotIndex === resolved.slotIndex) : undefined) ??
-    roster.find((r) => r.slotIndex === idx) ??
-    roster[0];
-  if (!meta) return null;
-  const slot = meta.slotIndex;
-  const localTeam: RLRCTeamIndex = meta.team === 1 ? 1 : 0;
-  const activePovSlotKey = resolved?.slotKey ?? playbackApplier.getSlotKeyForCarIndex(slot);
+export function applySelectedPovSlotToHudAndCamera(params: {
+  readonly roster: readonly RLRCPlayerSlotMeta[];
+  readonly slotKey: number;
+  readonly isIntervening: boolean;
+  readonly sessionPort: ReplayScoreboardRuntimePort | null;
+  readonly sessionMode: ReplayScoreboardModePort | null;
+  readonly interveneController: RLRCInterveneTakeoverSubController;
+  readonly syncPovToArena: (slot: number) => void;
+  readonly applyCurrentFrame: () => void;
+}): { readonly slot: number; readonly key: number; readonly povTeam: RLRCTeamIndex } | null {
+  const {
+    roster,
+    slotKey,
+    isIntervening,
+    sessionPort,
+    sessionMode,
+    interveneController,
+    syncPovToArena,
+    applyCurrentFrame,
+  } = params;
+  const resolved = resolveRLRCPovSlotSelection(roster, slotKey, sessionPort);
+  if (!resolved) return null;
+  const { key, slot, povTeam } = resolved;
+  if (isIntervening) interveneController.povSlotIndex = slot;
+  syncPovToArena(slot);
   syncRLRCNameTagRoster(roster, slot);
-  hudStore.getState().setMatchState({ localTeam });
-  setTelem({
-    activePovCarIndex: slot,
-    activePovSlotKey,
-    activePovTeam: localTeam,
-  });
-  return { slot, localTeam, activePovSlotKey };
+  hudStore.getState().setMatchState({ localTeam: isIntervening ? povTeam : 0 });
+  if (sessionMode?.directorPreview?.isReplayActive || sessionMode?.isGoalReplayActive?.()) {
+    if (sessionMode.directorPreview) sessionMode.directorPreview.goalScorerCarIndex = slot;
+    sessionMode.setReplayCameraMode?.('pov');
+    sessionPort?.releaseGoalReplayCameraOverride?.();
+    hudStore.getState().setReplayState({ replayCameraMode: 'pov' });
+  } else if (!isIntervening) {
+    applyCurrentFrame();
+  }
+  sessionPort?.camera?.resetView?.();
+  setTelem({ activePovCarIndex: slot, activePovSlotKey: key, activePovTeam: povTeam });
+  return { slot, key, povTeam };
 }
 
 export function triggerRLRCInterveneFromCursor(
@@ -239,51 +284,13 @@ export function resetClearedReplayTelemetry(): void {
   });
 }
 
-export function syncRLRCHudMatchState(
-  f: RLRCFrame120Hz,
-  roster: readonly RLRCPlayerSlotMeta[],
-  activePovSlotIndex: number,
-  prevHudKey: string
-): string {
-  const meta = roster.find((r) => r.slotIndex === activePovSlotIndex) ?? roster[0];
-  const localTeam: RLRCTeamIndex = meta?.team === 1 ? 1 : 0;
-  const isOvertime = Boolean(f.isOvertime);
-  const blueScore = Math.max(0, f.blueScore | 0);
-  const orangeScore = Math.max(0, f.orangeScore | 0);
-  const sec = Math.max(0, Math.round(f.secondsRemaining || 0));
-  const kickoffCountdown = Math.max(0, Math.min(3, f.roundCountdownNumber | 0));
-  const remainingSeconds = isOvertime ? 0 : sec;
-  const overtimeSeconds = isOvertime ? sec : 0;
-  const key = [
-    localTeam,
-    blueScore,
-    orangeScore,
-    remainingSeconds,
-    overtimeSeconds,
-    isOvertime,
-    kickoffCountdown,
-  ].join('|');
-  if (key === prevHudKey) return prevHudKey;
-
-  hudStore.getState().setMatchState({
-    localTeam,
-    blueScore,
-    orangeScore,
-    remainingSeconds,
-    overtimeSeconds,
-    isOvertime,
-    kickoffCountdown,
-    matchPhase: kickoffCountdown > 0 ? 'kickoff' : 'playing',
-  });
-  return key;
-}
-
 export function applyRLRCFrameToSubsystems(params: {
   readonly session: RLRCConvertedReplaySession | null;
   readonly idx: number;
   readonly smoothStep: boolean;
   readonly activePovSlotIndex: number;
-  readonly simPort: unknown;
+  readonly isIntervening: boolean;
+  readonly sessionPort: ReplayScoreboardRuntimePort | null;
   readonly playbackApplier: RLRCPlaybackSyncApplier;
   readonly audioEdgeSynthesizer: RLRCPlaybackAudioEdgeSynthesizer;
   readonly prevHudKey: string;
@@ -293,68 +300,29 @@ export function applyRLRCFrameToSubsystems(params: {
     idx,
     smoothStep,
     activePovSlotIndex,
-    simPort,
+    isIntervening,
+    sessionPort,
     playbackApplier,
     audioEdgeSynthesizer,
     prevHudKey,
   } = params;
   const f = session?.frames120Hz[idx];
   if (!f) return prevHudKey;
-  playbackApplier.applyFrame120Hz(f, simPort as RLRCPlaybackRuntimePort, {
+  playbackApplier.applyFrame120Hz(f, sessionPort as unknown as RLRCPlaybackRuntimePort, {
     smoothStep,
     activePovSlotIndex,
   });
   audioEdgeSynthesizer.stepFrame(f, {
     smoothStep,
     activePovSlotIndex,
-    runtime: simPort as RLRCPlaybackAudioRuntimePort,
+    runtime: sessionPort as unknown as RLRCPlaybackAudioRuntimePort,
     bookmarks: session?.bookmarks ?? [],
   });
-  return syncRLRCHudMatchState(f, session?.roster ?? [], activePovSlotIndex, prevHudKey);
-}
-
-export function stepRLRCPlaybackCursor(params: {
-  readonly state: string;
-  readonly effectiveFlowPct: number;
-  readonly maxF: number;
-  readonly prevFrac: number;
-  readonly prevCursor: number;
-  readonly prevTick: number;
-  readonly applyFrame: (idx: number, smoothStep: boolean) => void;
-  readonly pausePlaying: () => void;
-}): {
-  readonly stepped: boolean;
-  readonly frac: number;
-  readonly cursorFrame120Hz: number;
-  readonly tick: number;
-} {
-  const {
-    state,
-    effectiveFlowPct,
-    maxF,
-    prevFrac,
-    prevCursor,
-    prevTick,
-    applyFrame,
-    pausePlaying,
-  } = params;
-  if (state !== 'playing' && state !== 'forwarding' && state !== 'rewinding') {
-    return { stepped: false, frac: prevFrac, cursorFrame120Hz: prevCursor, tick: prevTick };
-  }
-  const spd = Math.max(0.01, (Number(effectiveFlowPct) || 100) / 100);
-  const dir = state === 'rewinding' ? -1 : 1;
-  const frac = Math.max(
-    0,
-    Math.min(maxF, prevFrac + dir * (state === 'playing' ? spd : Math.max(1.5, spd * 2)))
+  return syncRLRCFrameHudMatchState(
+    f,
+    session?.roster ?? [],
+    activePovSlotIndex,
+    isIntervening,
+    prevHudKey
   );
-  const next = Math.round(frac);
-  let tick = prevTick;
-  if (next !== prevCursor) {
-    applyFrame(next, dir > 0);
-    const done = (dir > 0 && next >= maxF) || (dir < 0 && next <= 0);
-    tick = (prevTick + 1) & 3;
-    if (done || tick === 0) setTelem({ cursorFrame: next, targetFrame: next });
-    if (done) pausePlaying();
-  }
-  return { stepped: true, frac, cursorFrame120Hz: next, tick };
 }
