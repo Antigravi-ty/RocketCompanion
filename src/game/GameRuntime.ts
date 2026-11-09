@@ -1,10 +1,4 @@
 import type * as THREE from 'three';
-import type { RuntimeBloomOcclusion } from './runtime/RuntimeBloomOcclusion.ts';
-import type { RuntimeBotCoordinator, BotAgentLike } from './runtime/RuntimeBotCoordinator.ts';
-import type { RuntimeNetworkManager } from './runtime/RuntimeNetworkManager.ts';
-import type { RuntimeDOMEventManager } from './runtime/RuntimeDOMEventManager.ts';
-import type { RuntimeInputPoller } from './runtime/RuntimeInputPoller.ts';
-import type { RuntimeLoadoutCoordinator } from './runtime/RuntimeLoadoutCoordinator.ts';
 import {
   createCorePhysicsBundle,
   createCoreSceneGraph,
@@ -12,17 +6,44 @@ import {
   type MountedGameUIHandle,
   type SceneGraphBundle,
 } from './runtime/RuntimeSceneBootstrap.ts';
-import { buildRuntimeSceneGraphConfig } from './runtime/RuntimeSceneGraphConfigBuilder.ts';
+import {
+  applyPhysicsBundleToRuntime,
+  applySceneGraphBundleToRuntime,
+  buildRuntimeSceneGraphConfig,
+  ensureRuntimeFlipResetVisual,
+  resolveRuntimeContainer,
+} from './runtime/RuntimeSceneGraphConfigBuilder.ts';
 import { createGameRuntimeDomainPorts } from './runtime/DiagnosticReplayBufferBridge.ts';
 import {
+  acquireRuntimeGoalReplayCameraOverride,
   assembleRuntimeSubsystemsAndPipeline,
+  changeRuntimePlayerVehicle,
+  createNeutralCarControls,
+  createRuntimeClockScheduler,
   destroyRuntimeSubsystems,
+  isRuntimeGoalReplayCameraOverrideActive,
+  notifyRuntimeDeterminismHarnessReady,
+  notifyRuntimeNetworkHud,
+  notifyRuntimeSessionReady,
+  releaseRuntimeGoalReplayCameraOverride,
+  setRuntimeCarColor,
+  syncRuntimePlayerMaterialsLoadout,
   type AudioSetupProgressFn,
+  type BotAgentLike,
   type BotSetupProgressFn,
-  type DeterminismHarnessReadyHandler,
-  type SessionReadyHandler,
+  type FramePipeline,
+  type GameAudioSubsystem,
+  type GameCameraSubsystem,
+  type GameModeManager,
+  type GameRenderSubsystem,
+  type RuntimeBloomOcclusion,
+  type RuntimeBotCoordinator,
+  type RuntimeDOMEventManager,
+  type RuntimeInputPoller,
+  type RuntimeLoadoutCoordinator,
+  type RuntimeNetworkManager,
   type ShaderSetupProgressFn,
-  type ShowNetworkHudHandler,
+  type SimulationStage,
 } from './runtime/RuntimeSubsystemAssembler.ts';
 import type {
   GameRuntimeUiBridgePort,
@@ -33,21 +54,18 @@ import type {
   RuntimeTunerPort,
 } from './runtimeUiPort.ts';
 import type { CarControlsInput } from '../network/protocol/GlobalPayloadCodec.ts';
-import { RenderClockScheduler } from './RenderClockScheduler.ts';
+import type { RenderClockScheduler } from './RenderClockScheduler.ts';
 import { DEFAULT_TRAINING_SETTINGS } from '../ui-core/config/trainingDefaults.ts';
-import { FlipResetVisual } from '../effects/FlipResetVisual.ts';
+import type { FlipResetVisual } from '../effects/FlipResetVisual.ts';
 import { PerformanceProfiler } from '../utils/PerformanceProfiler.ts';
-import type { FramePipeline } from './pipeline/FramePipeline.ts';
-import type { SimulationStage } from './pipeline/stages/SimulationStage.ts';
-import type { GameAudioSubsystem } from './subsystems/GameAudioSubsystem.ts';
-import type { GameCameraSubsystem } from './subsystems/GameCameraSubsystem.ts';
-import type { GameRenderSubsystem } from './subsystems/GameRenderSubsystem.ts';
-import type { GameModeManager } from './modes/GameModeManager.ts';
 import type { PodiumCelebrationController } from './modes/PodiumCelebrationController.ts';
 import type { FreeplayRewinderController } from '../replay/FreeplayRewinderController.ts';
 import type { StandaloneReplayViewerController } from '../replay/StandaloneReplayViewerController.ts';
 import type { ReplayTimelineController } from '../replay/ReplayTimelineController.ts';
-import type { MaterialsConfigLike } from './runtime/onlineLobbyTransitionPipeline.ts';
+import type {
+  MaterialsConfigLike,
+  NetworkSessionChannelLike,
+} from './runtime/onlineLobbyTransitionPipeline.ts';
 import type { SignalAudioFacadeLike } from './runtime/RuntimeGoalReplaySignalSubController.ts';
 
 export const PLAYER_CAR_INDEX = 0;
@@ -98,28 +116,19 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
   multiplayerSession: SceneGraphBundle['multiplayerSession'] | null = null;
 
   playerCarIndex = PLAYER_CAR_INDEX;
-  neutralControls: CarControlsInput = {
-    throttle: 0,
-    steer: 0,
-    pitch: 0,
-    yaw: 0,
-    roll: 0,
-    jump: false,
-    boost: false,
-    handbrake: false,
-  };
+  neutralControls: CarControlsInput = createNeutralCarControls();
   playerControls: CarControlsInput;
   playerThrottle = 0;
   lastKickoffCountdownSec = -1;
 
   openOverlays = new Set<string>();
   isCursorBrowsing = false;
-  bloomOcclusion!: RuntimeBloomOcclusion;
-  botCoordinator!: RuntimeBotCoordinator;
-  inputPoller!: RuntimeInputPoller;
-  networkManager!: RuntimeNetworkManager;
-  domEventManager!: RuntimeDOMEventManager;
-  loadoutCoordinator!: RuntimeLoadoutCoordinator;
+  bloomOcclusion: RuntimeBloomOcclusion;
+  botCoordinator: RuntimeBotCoordinator;
+  inputPoller: RuntimeInputPoller;
+  networkManager: RuntimeNetworkManager;
+  domEventManager: RuntimeDOMEventManager;
+  loadoutCoordinator: RuntimeLoadoutCoordinator;
   trainingOptions: TrainingOptionsState;
 
   lastBloomActive = true;
@@ -148,47 +157,37 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
   selectedColorSlot: number | null = null;
   _lastTouchStateActive?: boolean;
 
-  audioSubsystem!: GameAudioSubsystem;
-  cameraSubsystem!: GameCameraSubsystem;
-  renderSubsystem!: GameRenderSubsystem;
-  modeManager!: GameModeManager;
-  simulationStage!: SimulationStage;
-  pipeline!: FramePipeline;
+  audioSubsystem: GameAudioSubsystem;
+  cameraSubsystem: GameCameraSubsystem;
+  renderSubsystem: GameRenderSubsystem;
+  modeManager: GameModeManager;
+  simulationStage: SimulationStage;
+  pipeline: FramePipeline;
 
   readonly cameraPort: RuntimeCameraPort;
   readonly matchPort: RuntimeMatchPort;
   readonly tunerPort: RuntimeTunerPort;
   readonly replayPort: RuntimeReplayPort;
 
-  readonly isGoalReplayCameraOverrideActive!: () => boolean;
-  readonly acquireGoalReplayCameraOverride!: (source?: string) => void;
-  readonly releaseGoalReplayCameraOverride!: (source?: string | null) => void;
-  readonly setupAudio!: (progressFn?: AudioSetupProgressFn | null) => Promise<void>;
-  readonly setupBot!: (progressFn?: BotSetupProgressFn | null) => Promise<void>;
-  readonly setupShaders!: (progressFn?: ShaderSetupProgressFn | null) => Promise<void>;
-  readonly pollInputs!: (commitPhysicsStep?: boolean) => boolean;
-  readonly changePlayerVehicle!: (visualId: string, hitboxId?: string | null) => void;
-  readonly setCarColor!: (carIndex: number, colorVal: number | string, broadcast?: boolean) => void;
-  readonly syncPlayerMaterialsLoadout!: (materialsConfig?: MaterialsConfigLike | null) => void;
-  readonly restoreLocalPlayerFreeplayLoadout!: (carIndex?: number) => void;
-  readonly resetAudio!: () => void;
-  readonly resetBotState!: () => void;
-  readonly leaveBotMatch!: () => void;
-  readonly onSessionReady!: SessionReadyHandler;
-  readonly onShowNetworkHUD!: ShowNetworkHudHandler;
-  readonly onDeterminismHarnessReady!: DeterminismHarnessReadyHandler;
-
   constructor(container?: HTMLElement | null, options: GameRuntimeOptions = {}) {
-    this.container =
-      container ||
-      (typeof document !== 'undefined'
-        ? (document.querySelector('#app') as HTMLElement | null)
-        : null);
+    this.container = resolveRuntimeContainer(container);
     this.options = options;
     this.playerControls = { ...this.neutralControls };
     this.trainingOptions = { ...DEFAULT_TRAINING_SETTINGS };
 
-    Object.assign(this, assembleRuntimeSubsystemsAndPipeline(this));
+    const subsystems = assembleRuntimeSubsystemsAndPipeline(this);
+    this.bloomOcclusion = subsystems.bloomOcclusion;
+    this.botCoordinator = subsystems.botCoordinator;
+    this.inputPoller = subsystems.inputPoller;
+    this.networkManager = subsystems.networkManager;
+    this.domEventManager = subsystems.domEventManager;
+    this.loadoutCoordinator = subsystems.loadoutCoordinator;
+    this.audioSubsystem = subsystems.audioSubsystem;
+    this.cameraSubsystem = subsystems.cameraSubsystem;
+    this.renderSubsystem = subsystems.renderSubsystem;
+    this.modeManager = subsystems.modeManager;
+    this.simulationStage = subsystems.simulationStage;
+    this.pipeline = subsystems.pipeline;
 
     const ports = createGameRuntimeDomainPorts(this);
     this.cameraPort = ports.cameraPort;
@@ -207,7 +206,7 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
     return this.networkManager.sessionCoordinator.networkReconciler;
   }
   get botControls(): CarControlsInput {
-    return this.botCoordinator?.botControls ?? this.neutralControls;
+    return this.botCoordinator.botControls;
   }
   set botControls(v: CarControlsInput) {
     this.botCoordinator.botControls = v;
@@ -222,8 +221,58 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
     this.botCoordinator.isBotMatch = v;
   }
   get engineSynths() {
-    return this.audioSubsystem?.engineSynths ?? [];
+    return this.audioSubsystem.engineSynths;
   }
+
+  setupShaders(progressFn: ShaderSetupProgressFn | null = null): Promise<void> {
+    return this.bloomOcclusion.setupShaders(progressFn);
+  }
+
+  setupAudio(progressFn: AudioSetupProgressFn | null = null): Promise<void> {
+    return this.audioSubsystem.setupAudio(progressFn);
+  }
+
+  setupBot(progressFn: BotSetupProgressFn | null = null): Promise<void> {
+    return this.botCoordinator.setupBot(progressFn);
+  }
+
+  pollInputs(commitPhysicsStep = true): boolean {
+    return this.inputPoller.pollInputs(commitPhysicsStep);
+  }
+
+  isGoalReplayCameraOverrideActive(): boolean {
+    return isRuntimeGoalReplayCameraOverrideActive(this.cameraSubsystem);
+  }
+
+  acquireGoalReplayCameraOverride(source = 'default'): void {
+    acquireRuntimeGoalReplayCameraOverride(this.cameraSubsystem, source);
+  }
+
+  releaseGoalReplayCameraOverride(source: string | null = null): void {
+    releaseRuntimeGoalReplayCameraOverride(this.cameraSubsystem, source);
+  }
+
+  changePlayerVehicle(visualId: string, hitboxId: string | null = null): void {
+    changeRuntimePlayerVehicle(this.loadoutCoordinator, visualId, hitboxId);
+  }
+
+  setCarColor(carIndex: number, colorVal: number | string, broadcast = true): void {
+    setRuntimeCarColor(this.loadoutCoordinator, carIndex, colorVal, broadcast);
+  }
+
+  syncPlayerMaterialsLoadout(materialsConfig: MaterialsConfigLike | null = null): void {
+    syncRuntimePlayerMaterialsLoadout(this.loadoutCoordinator, materialsConfig);
+  }
+
+  onSessionReady(
+    reconciler: RuntimeNetworkManager['sessionCoordinator']['networkReconciler'],
+    channel: NetworkSessionChannelLike | null
+  ): void {
+    notifyRuntimeSessionReady(this, reconciler, channel);
+  }
+
+  onShowNetworkHUD = notifyRuntimeNetworkHud;
+  onDeterminismHarnessReady = notifyRuntimeDeterminismHarnessReady;
 
   async setupPhysics(options: Record<string, unknown> = {}): Promise<CorePhysicsBundle> {
     const bundle = await createCorePhysicsBundle({
@@ -232,20 +281,14 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
         this.networkManager.diagnosticsProbe.physicsRate = nextRate;
       },
     });
-    Object.assign(this, bundle, { bot: null });
+    applyPhysicsBundleToRuntime(this, bundle);
     this.audioSubsystem.engineSynths = [];
     this.audioSubsystem.resetAudio();
     return bundle;
   }
 
   getFlipResetVisual(carIndex: number): FlipResetVisual | null {
-    let visual = this.flipResetVisuals.get(carIndex) ?? null;
-    const carRoot = this.arena?.cars?.[carIndex];
-    if (!visual && carRoot) {
-      visual = new FlipResetVisual(carRoot);
-      this.flipResetVisuals.set(carIndex, visual);
-    }
-    return visual;
+    return ensureRuntimeFlipResetVisual(this.flipResetVisuals, this.arena, carIndex);
   }
 
   get flipResetVisual(): FlipResetVisual | null {
@@ -255,7 +298,8 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
   async setupScene(
     onProgress: ((progress: number, message?: string) => void) | null = null
   ): Promise<void> {
-    Object.assign(this, await createCoreSceneGraph(buildRuntimeSceneGraphConfig(this, onProgress)));
+    const sceneGraph = await createCoreSceneGraph(buildRuntimeSceneGraphConfig(this, onProgress));
+    applySceneGraphBundleToRuntime(this, sceneGraph);
     this.domEventManager.setupWindowEvents();
   }
 
@@ -271,17 +315,7 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
   start(): void {
     if (this.running) return;
     this.running = true;
-    this.clockScheduler = new RenderClockScheduler(
-      this.renderer?.getContext() ?? null,
-      (t) => this.renderFrame(t),
-      (t) => this.profiler?.displayFrame(t),
-      (t) => this.pipeline.executeSimulationOnly(t)
-    );
-    if (this.activeGraphicsSettings) {
-      this.clockScheduler.setFpsLimit(
-        this.activeGraphicsSettings.limitFps ? (this.activeGraphicsSettings.maxFps ?? null) : null
-      );
-    }
+    this.clockScheduler = createRuntimeClockScheduler(this);
     this.domEventManager.updateInteractionState();
     this.clockScheduler.start();
   }
