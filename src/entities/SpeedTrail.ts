@@ -8,15 +8,16 @@ import * as THREE from 'three';
 export const SPEED_TRAIL_THRESHOLD_SPEED = 2000;
 export const SPEED_TRAIL_OPACITY_LERP_RATE = 3;
 export const SPEED_TRAIL_MAX_TIME_DILATION = 4;
-export const SPEED_TRAIL_EMISSION_RATE = 15;
+export const SPEED_TRAIL_EMISSION_RATE = 45;
 export const SPEED_TRAIL_MAX_POINT_AGE = 1.0;
 export const SPEED_TRAIL_RIBBON_WIDTH = 64;
 export const SPEED_TRAIL_MAX_OPACITY = 0.2;
 export const SPEED_TRAIL_MAX_POINTS = 60;
 export const SPEED_TRAIL_MAX_VERTICES = SPEED_TRAIL_MAX_POINTS + 1; // 61
-export const SPEED_TRAIL_TELEPORT_RESET_DISTANCE = 1024;
+export const SPEED_TRAIL_TELEPORT_RESET_DISTANCE = 512;
 export const SPEED_TRAIL_ACTIVATION_GLOW_DURATION = 0.25;
 export const SPEED_TRAIL_ACTIVATION_GLOW_SCALE = 256;
+export const SPEED_TRAIL_VISIBLE_OPACITY_THRESHOLD = 0.015;
 
 export const SPEED_TRAIL_VERTEX_SHADER = `
   attribute float aAcross;
@@ -46,8 +47,6 @@ export const SPEED_TRAIL_FRAGMENT_SHADER = `
   }
 `;
 
-
-
 export function createSpeedTrailGlowTexture() {
   if (typeof document === 'undefined') return null;
   const canvas = document.createElement("canvas");
@@ -75,40 +74,42 @@ export interface SpeedTrailPoint {
 }
 
 export class SpeedTrail {
-  public side: THREE.Vector3;
-  public opacity: number;
-  public across: Float32Array;
+  public side = new THREE.Vector3();
+  public opacity = 0;
+  public across = new Float32Array(SPEED_TRAIL_MAX_VERTICES * 2);
   public activationGlow: THREE.Sprite;
-  public activationGlowAge: number;
-  public cameraPosition: THREE.Vector3;
-  public emissionClock: number;
-  public fallbackAxis: THREE.Vector3;
-  public geometry: THREE.BufferGeometry;
-  public geometryDirty: boolean;
+  public activationGlowAge = SPEED_TRAIL_ACTIVATION_GLOW_DURATION;
+  public cameraPosition = new THREE.Vector3();
+  public emissionClock = 0;
+  public fallbackAxis = new THREE.Vector3(0, 1, 0);
+  public geometry = new THREE.BufferGeometry();
+  public geometryDirty = true;
   public glowGeometry: THREE.BufferGeometry | undefined;
   public glowMaterial: THREE.SpriteMaterial | undefined;
-  public hasSourcePosition: boolean;
-  public hasSpawnedStartupGlow: boolean;
-  public indices: Uint16Array;
-  public lifeAlpha: Float32Array;
+  public hasSourcePosition = false;
+  public hasSpawnedStartupGlow = false;
+  public indices = new Uint16Array((SPEED_TRAIL_MAX_VERTICES - 1) * 6);
+  public isEmitting = false;
+  public lastEmitting = false;
+  public lifeAlpha = new Float32Array(SPEED_TRAIL_MAX_VERTICES * 2);
   public lifeAlphaAttribute: THREE.BufferAttribute;
   public material: THREE.ShaderMaterial;
-  public object: THREE.Group;
+  public object = new THREE.Group();
   public pointPool: SpeedTrailPoint[];
-  public points: SpeedTrailPoint[];
+  public points: SpeedTrailPoint[] = [];
   public positionAttribute: THREE.BufferAttribute;
-  public positions: Float32Array;
-  public previousSourcePosition: THREE.Vector3;
+  public positions = new Float32Array(SPEED_TRAIL_MAX_VERTICES * 2 * 3);
+  public previousSourcePosition = new THREE.Vector3();
+  public previousSpeed = 0;
   public ribbon: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
-  public sourcePosition: THREE.Vector3;
-  public tangent: THREE.Vector3;
-  public timeDilation: number;
-  public viewDirection: THREE.Vector3;
+  public sourcePosition = new THREE.Vector3();
+  public tangent = new THREE.Vector3();
+  public timeDilation = 1;
+  public viewDirection = new THREE.Vector3();
+  private readonly _lastCameraPosition = new THREE.Vector3(NaN, NaN, NaN);
 
   constructor() {
     const {
-      Group,
-      BufferGeometry,
       BufferAttribute,
       ShaderMaterial,
       Mesh,
@@ -122,37 +123,13 @@ export class SpeedTrail {
       NormalBlending
     } = THREE;
 
-    this.object = new Group();
-    this.geometry = new BufferGeometry();
-    this.points = [];
     this.pointPool = Array.from({ length: SPEED_TRAIL_MAX_POINTS }, () => ({
       position: new Vector3(),
       age: 0
     }));
 
-    this.positions = new Float32Array(SPEED_TRAIL_MAX_VERTICES * 2 * 3);
-    this.across = new Float32Array(SPEED_TRAIL_MAX_VERTICES * 2);
-    this.lifeAlpha = new Float32Array(SPEED_TRAIL_MAX_VERTICES * 2);
-    this.indices = new Uint16Array((SPEED_TRAIL_MAX_VERTICES - 1) * 6);
-
     this.positionAttribute = new BufferAttribute(this.positions, 3);
     this.lifeAlphaAttribute = new BufferAttribute(this.lifeAlpha, 1);
-
-    this.sourcePosition = new Vector3();
-    this.previousSourcePosition = new Vector3();
-    this.cameraPosition = new Vector3();
-    this.tangent = new Vector3();
-    this.viewDirection = new Vector3();
-    this.side = new Vector3();
-    this.fallbackAxis = new Vector3(0, 1, 0);
-
-    this.hasSourcePosition = false;
-    this.emissionClock = 0;
-    this.opacity = 0;
-    this.hasSpawnedStartupGlow = false;
-    this.activationGlowAge = SPEED_TRAIL_ACTIVATION_GLOW_DURATION;
-    this.timeDilation = 1;
-    this.geometryDirty = true;
 
     this.object.name = "ball-speed-trail";
     this.material = new ShaderMaterial({
@@ -199,9 +176,8 @@ export class SpeedTrail {
     this.ribbon.frustumCulled = false;
     this.ribbon.renderOrder = 1;
 
-    const glowTexture = createSpeedTrailGlowTexture();
     const glowMaterial = new SpriteMaterial({
-      map: glowTexture,
+      map: createSpeedTrailGlowTexture(),
       color: 15332863,
       transparent: true,
       opacity: 0,
@@ -212,54 +188,93 @@ export class SpeedTrail {
 
     this.activationGlow = new Sprite(glowMaterial);
     this.activationGlow.name = "SpeedTrail_PS-activation-glow";
-    if (this.activationGlow.scale?.setScalar) {
-      this.activationGlow.scale.setScalar(SPEED_TRAIL_ACTIVATION_GLOW_SCALE);
-    }
+    this.activationGlow.scale?.setScalar?.(SPEED_TRAIL_ACTIVATION_GLOW_SCALE);
     this.activationGlow.visible = false;
     this.activationGlow.renderOrder = 2;
 
     this.object.add(this.ribbon, this.activationGlow);
   }
 
-  reset() {
+  private _acquirePoint(): SpeedTrailPoint {
+    return (this.points.length >= SPEED_TRAIL_MAX_POINTS ? this.points.pop() : this.pointPool.pop())!;
+  }
+
+  private _clearPoints() {
     while (this.points.length > 0) {
       this.pointPool.push(this.points.pop()!);
     }
     this.emissionClock = 0;
+    this.isEmitting = false;
+    this.lastEmitting = false;
+  }
+
+  reset() {
+    this._clearPoints();
     this.hasSourcePosition = false;
+    this.previousSpeed = 0;
+    this.hasSpawnedStartupGlow = false;
+    this.activationGlowAge = SPEED_TRAIL_ACTIVATION_GLOW_DURATION;
     this.opacity = 0;
+    if (this.material?.uniforms?.uOpacity) {
+      this.material.uniforms.uOpacity.value = 0;
+    }
+    this.ribbon.visible = false;
+    this.activationGlow.visible = false;
     this.geometry.setDrawRange(0, 0);
     this.geometryDirty = true;
   }
 
-  update(sourcePos, velocity, dt) {
+  update(sourcePos: THREE.Vector3, velocity: THREE.Vector3, dt: number) {
     const clampedDt = Math.max(0, Math.min(dt, 0.1));
     const speed = velocity.length();
     const isSupersonic = speed >= SPEED_TRAIL_THRESHOLD_SPEED;
 
+    if (!this.hasSourcePosition) {
+      this.sourcePosition.copy(sourcePos);
+      this.previousSourcePosition.copy(sourcePos);
+      this.previousSpeed = speed;
+      this.hasSourcePosition = true;
+    }
+
+    const stepDist = sourcePos.distanceTo(this.previousSourcePosition);
+
+    // Freeze trail state in place when replay or simulation is paused mid-flight.
+    if (stepDist < 1e-2 && speed > 5 && clampedDt > 0) {
+      if (isSupersonic && this.points.length > 0 && this.opacity < 1) {
+        this.opacity = 1;
+        if (this.material?.uniforms?.uOpacity) {
+          this.material.uniforms.uOpacity.value = this.opacity * SPEED_TRAIL_MAX_OPACITY;
+        }
+      }
+      this.ribbon.visible =
+        this.opacity >= SPEED_TRAIL_VISIBLE_OPACITY_THRESHOLD && this.points.length > 0;
+      this.geometryDirty = true;
+      return;
+    }
+
+    const maxStepSpeed = Math.max(speed, this.previousSpeed, SPEED_TRAIL_THRESHOLD_SPEED);
+    const maxPlausibleStepDist = Math.max(320, maxStepSpeed * Math.max(clampedDt, 1 / 30) * 2.5 + 120);
+    if (
+      stepDist > SPEED_TRAIL_TELEPORT_RESET_DISTANCE ||
+      (this.points.length > 0 && stepDist > maxPlausibleStepDist)
+    ) {
+      this._clearPoints();
+      this.opacity = isSupersonic ? this.opacity : 0;
+      this.previousSourcePosition.copy(sourcePos);
+    }
+
     this.timeDilation = THREE.MathUtils.clamp(speed / SPEED_TRAIL_THRESHOLD_SPEED, 1, SPEED_TRAIL_MAX_TIME_DILATION);
     const targetOpacity = isSupersonic ? 1 : 0;
+    const opacityLerpRate = isSupersonic || speed >= 1700 ? SPEED_TRAIL_OPACITY_LERP_RATE : 7.5;
 
-    this.opacity += (targetOpacity - this.opacity) * Math.min(1, clampedDt * SPEED_TRAIL_OPACITY_LERP_RATE);
-    if (Math.abs(this.opacity - targetOpacity) < 5e-4) {
+    this.opacity += (targetOpacity - this.opacity) * Math.min(1, clampedDt * opacityLerpRate);
+    if (!isSupersonic && this.opacity < SPEED_TRAIL_VISIBLE_OPACITY_THRESHOLD) {
+      this.opacity = 0;
+    } else if (Math.abs(this.opacity - targetOpacity) < 5e-4) {
       this.opacity = targetOpacity;
     }
     if (this.material?.uniforms?.uOpacity) {
       this.material.uniforms.uOpacity.value = this.opacity * SPEED_TRAIL_MAX_OPACITY;
-    }
-
-    if (!this.hasSourcePosition) {
-      this.sourcePosition.copy(sourcePos);
-      this.previousSourcePosition.copy(sourcePos);
-      this.hasSourcePosition = true;
-    }
-
-    if (sourcePos.distanceTo(this.previousSourcePosition) > SPEED_TRAIL_TELEPORT_RESET_DISTANCE) {
-      while (this.points.length > 0) {
-        this.pointPool.push(this.points.pop()!);
-      }
-      this.emissionClock = 0;
-      this.previousSourcePosition.copy(sourcePos);
     }
 
     const scaledDeltaTime = clampedDt * this.timeDilation;
@@ -270,30 +285,54 @@ export class SpeedTrail {
       this.pointPool.push(this.points.pop()!);
     }
 
-    if (isSupersonic) {
-      this.emissionClock += scaledDeltaTime;
+    const shouldEmit = isSupersonic || (this.lastEmitting && this.opacity >= SPEED_TRAIL_VISIBLE_OPACITY_THRESHOLD);
+    this.isEmitting = shouldEmit;
+
+    if (shouldEmit) {
       const interval = 1 / SPEED_TRAIL_EMISSION_RATE;
-      while (this.emissionClock >= interval) {
-        this.emissionClock -= interval;
-        const subTime = this.emissionClock / this.timeDilation;
-        const factor = clampedDt > 0 ? THREE.MathUtils.clamp(1 - subTime / clampedDt, 0, 1) : 1;
-        const pt = (this.points.length >= SPEED_TRAIL_MAX_POINTS ? this.points.pop() : this.pointPool.pop())!;
-        pt.position.lerpVectors(this.previousSourcePosition, sourcePos, factor);
-        pt.age = this.emissionClock;
-        this.points.unshift(pt);
+      if (!this.lastEmitting) {
+        const anchor = this._acquirePoint();
+        anchor.position.copy(this.previousSourcePosition);
+        anchor.age = scaledDeltaTime;
+        this.points.unshift(anchor);
+        this.emissionClock = 0;
       }
+
+      if (stepDist >= 0.5) {
+        this.emissionClock += scaledDeltaTime;
+        while (this.emissionClock >= interval) {
+          this.emissionClock -= interval;
+          const subTime = this.emissionClock / this.timeDilation;
+          const factor = clampedDt > 0 ? THREE.MathUtils.clamp(1 - subTime / clampedDt, 0, 1) : 1;
+          if (this.points.length > 0) {
+            const headPos = this.points[0].position;
+            const dx = THREE.MathUtils.lerp(this.previousSourcePosition.x, sourcePos.x, factor) - headPos.x;
+            const dy = THREE.MathUtils.lerp(this.previousSourcePosition.y, sourcePos.y, factor) - headPos.y;
+            const dz = THREE.MathUtils.lerp(this.previousSourcePosition.z, sourcePos.z, factor) - headPos.z;
+            if (dx * dx + dy * dy + dz * dz < 4.0) continue;
+          }
+          const pt = this._acquirePoint();
+          pt.position.lerpVectors(this.previousSourcePosition, sourcePos, factor);
+          pt.age = this.emissionClock;
+          this.points.unshift(pt);
+        }
+      }
+      this.lastEmitting = true;
+    } else if (this.lastEmitting || this.points.length > 0) {
+      this._clearPoints();
     }
 
     this.sourcePosition.copy(sourcePos);
     this.previousSourcePosition.copy(sourcePos);
+    this.previousSpeed = speed;
 
-    if (!this.hasSpawnedStartupGlow) {
+    if (isSupersonic && !this.hasSpawnedStartupGlow) {
       this.hasSpawnedStartupGlow = true;
       this.activationGlowAge = 0;
-      if (this.activationGlow.position?.copy) {
-        this.activationGlow.position.copy(sourcePos);
-      }
+      this.activationGlow.position?.copy?.(sourcePos);
       this.activationGlow.visible = true;
+    } else if (!isSupersonic) {
+      this.hasSpawnedStartupGlow = false;
     }
 
     if (this.activationGlowAge < SPEED_TRAIL_ACTIVATION_GLOW_DURATION) {
@@ -302,43 +341,74 @@ export class SpeedTrail {
       if (this.activationGlow.material) {
         this.activationGlow.material.opacity = (1 - progress) * (1 - progress);
       }
+      this.activationGlow.position?.copy?.(sourcePos);
       this.activationGlow.visible = progress < 1;
     } else {
       this.activationGlow.visible = false;
     }
 
-    this.ribbon.visible = this.opacity > 0.002 && this.points.length > 0;
+    this.ribbon.visible = this.opacity >= SPEED_TRAIL_VISIBLE_OPACITY_THRESHOLD && this.points.length > 0;
     this.geometryDirty = true;
   }
 
-  prepare(camera) {
+  prepare(camera: THREE.Camera | null | undefined) {
     this.rebuildGeometry(camera);
   }
 
-  rebuildGeometry(camera) {
-    if (!this.geometryDirty || !this.ribbon.visible) return;
+  rebuildGeometry(camera: THREE.Camera | null | undefined) {
+    if (!this.ribbon.visible) return;
+    if (camera?.getWorldPosition) {
+      camera.getWorldPosition(this.cameraPosition);
+      if (this.cameraPosition.distanceToSquared(this._lastCameraPosition) > 1e-2) {
+        this._lastCameraPosition.copy(this.cameraPosition);
+        this.geometryDirty = true;
+      }
+    }
+    if (!this.geometryDirty) return;
     this.geometryDirty = false;
 
-    const count = this.points.length + 1;
-    if (count < 2) {
+    if (this.points.length === 0) {
       this.geometry.setDrawRange(0, 0);
       return;
     }
 
-    if (camera?.getWorldPosition) {
-      camera.getWorldPosition(this.cameraPosition);
+    const firstPointSkip =
+      this.points.length >= 2 &&
+      this.sourcePosition.distanceToSquared(this.points[0].position) < 4.0
+        ? 1
+        : 0;
+    const activePointCount = this.points.length - firstPointSkip;
+    if (
+      activePointCount <= 0 ||
+      (activePointCount === 1 &&
+        this.sourcePosition.distanceToSquared(this.points[firstPointSkip].position) < 1.0)
+    ) {
+      this.geometry.setDrawRange(0, 0);
+      return;
     }
+
+    const totalVertices = Math.min(SPEED_TRAIL_MAX_VERTICES, activePointCount + 1);
     const halfWidth = SPEED_TRAIL_RIBBON_WIDTH * 0.5;
 
-    for (let i = 0; i < count; i++) {
-      const prevPt = i === 0 ? null : this.points[i - 1];
-      const pos = (prevPt?.position) || this.sourcePosition;
-      const prevIdx = Math.max(0, i - 1);
-      const nextIdx = Math.min(count - 1, i + 1);
-      const prevPos = prevIdx === 0 ? this.sourcePosition : this.points[prevIdx - 1].position;
-      const nextPos = nextIdx === 0 ? this.sourcePosition : this.points[nextIdx - 1].position;
+    const getPointPosition = (idx: number): THREE.Vector3 =>
+      idx === 0 ? this.sourcePosition : this.points[firstPointSkip + idx - 1].position;
+    const getPointAge = (idx: number): number =>
+      idx === 0 ? 0 : this.points[firstPointSkip + idx - 1].age;
 
-      this.tangent.subVectors(nextPos, prevPos).normalize();
+    for (let i = 0; i < totalVertices; i++) {
+      const pos = getPointPosition(i);
+      const prevPos = getPointPosition(Math.max(0, i - 1));
+      const nextPos = getPointPosition(Math.min(totalVertices - 1, i + 1));
+
+      this.tangent.subVectors(nextPos, prevPos);
+      if (this.tangent.lengthSq() < 1e-4) {
+        this.tangent.subVectors(pos, prevPos);
+        if (this.tangent.lengthSq() < 1e-4) {
+          this.tangent.set(1, 0, 0);
+        }
+      }
+      this.tangent.normalize();
+
       this.viewDirection.subVectors(this.cameraPosition, pos).normalize();
       this.side.crossVectors(this.tangent, this.viewDirection);
       if (this.side.lengthSq() < 1e-6) {
@@ -349,7 +419,7 @@ export class SpeedTrail {
       }
       this.side.normalize().multiplyScalar(halfWidth);
 
-      const age = prevPt?.age || 0;
+      const age = getPointAge(i);
       const lifeFade = Math.pow(1 - THREE.MathUtils.clamp(age / SPEED_TRAIL_MAX_POINT_AGE, 0, 1), 1.35);
 
       for (let sideIdx = 0; sideIdx < 2; sideIdx++) {
@@ -364,14 +434,15 @@ export class SpeedTrail {
 
     this.positionAttribute.needsUpdate = true;
     this.lifeAlphaAttribute.needsUpdate = true;
-    this.geometry.setDrawRange(0, (count - 1) * 6);
+    this.geometry.setDrawRange(0, (totalVertices - 1) * 6);
   }
 
   dispose() {
-    if (this.geometry?.dispose) this.geometry.dispose();
-    if (this.material?.dispose) this.material.dispose();
-    if (this.glowGeometry?.dispose) this.glowGeometry.dispose();
-    if (this.glowMaterial?.dispose) this.glowMaterial.dispose();
-    if (this.object?.parent) this.object.parent.remove(this.object);
+    this.geometry?.dispose?.();
+    this.material?.dispose?.();
+    this.glowGeometry?.dispose?.();
+    this.glowMaterial?.dispose?.();
+    this.object?.parent?.remove(this.object);
   }
 }
+

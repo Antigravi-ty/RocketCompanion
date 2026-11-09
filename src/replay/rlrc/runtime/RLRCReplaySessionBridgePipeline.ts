@@ -4,22 +4,31 @@
  * for RLRCReplaySessionController.
  */
 
+import {
+  ExperimentalBotAgent,
+  ensureExperimentalEngine,
+} from '../../../ai/experimental/ExperimentalBotAgent.ts';
+import type { BallPredictionEnginePort } from '../../../ai/experimental/botpack9700488ObsExtendedPipeline.ts';
+import type { BoostPadDescriptor } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
 import { gameAudio } from '../../../audio/GameAudioEngineFacade.ts';
 import {
   setNameTagRuntimeState,
   useReplayToRcsImporterStore,
 } from '../../../game/runtimeUiPort.ts';
 import type { ReplayScoreboardModePort, ReplayScoreboardRuntimePort } from '../../ReplayScoreboardSynchronizer.ts';
+import { STANDARD_BOOST_PADS_34 } from '../catalog/RLRCBoostPadSpatialCatalog.ts';
 import {
   exportRLRCSessionToBinaryBytes,
   type RLRCConvertedReplaySession,
 } from '../RLReplayToRLRCConverter.ts';
-import type {
-  RLRCInterpolationMethod,
-  RLRCNonPovInterventionMode,
-  RLRCPlayerSlotMeta,
-  RLRCSessionPhase,
-  RLRCSynthesizedCarControls,
+import {
+  RLRC_MAX_PLAYER_SLOTS,
+  type RLRCInterpolationMethod,
+  type RLRCNonPovInterventionMode,
+  type RLRCPlayerSlotMeta,
+  type RLRCSessionPhase,
+  type RLRCSynthesizedCarControls,
+  type RLRCTeamIndex,
 } from '../RLRCReplayTypes.ts';
 import {
   DEFAULT_NEUTRAL_CAR_CONTROLS,
@@ -33,33 +42,36 @@ import type {
   RLRCIntervenePhysicsPort,
 } from './RLRCInterveneNonPovSyncPipeline.ts';
 
-export function mapUiInterpolationMethod(raw: string): RLRCInterpolationMethod {
-  return raw === 'linear' || raw === 'linear-slerp' ? 'linear' : 'hermite-clamped';
+interface RLRCBridgeInputDevicePort {
+  readonly controls?: Partial<RLRCSynthesizedCarControls>;
+  readonly active?: () => boolean;
+  readonly read?: () => Partial<RLRCSynthesizedCarControls> | null | undefined;
+  readonly getControls?: (carIdx?: number) => Partial<RLRCSynthesizedCarControls> | null | undefined;
 }
 
-export function mapUiNonPovMode(raw: string): RLRCNonPovInterventionMode {
-  if (raw === 'disappear') return 'disappear';
-  if (raw === 'no-input') return 'no-input';
-  if (raw === 'nexto' || raw === 'necto' || raw === 'bot-takeover') return 'bot-takeover';
-  return 'follow-state';
+interface RLRCBridgeBotCoordinatorPort {
+  readonly runtime?: { readonly bot?: { readonly id?: string } | null } | null;
+  readonly resetBotState?: () => void;
+  readonly resetAllBots?: () => void;
+  readonly decideControlsForSlot?: (
+    slotIndex: number, team: RLRCTeamIndex, state: Float32Array, dt: number
+  ) => Partial<RLRCSynthesizedCarControls> | null | undefined;
 }
 
-export function syncRLRCNameTagRoster(roster: readonly RLRCPlayerSlotMeta[]): void {
-  const namesBySlot: Record<number, string> = {};
-  for (const r of roster) namesBySlot[r.slotIndex] = r.userName;
-  setNameTagRuntimeState({
-    carNamesBySlot: namesBySlot,
-  } as unknown as Parameters<typeof setNameTagRuntimeState>[0]);
+interface RLRCBridgeRuntimePort {
+  readonly playerControls?: Partial<RLRCSynthesizedCarControls> | null;
+  readonly keyboard?: RLRCBridgeInputDevicePort | null;
+  readonly gamepad?: RLRCBridgeInputDevicePort | null;
+  readonly botCoordinator?: RLRCBridgeBotCoordinatorPort | null;
+  readonly physics?: {
+    readonly isCarSlotActive?: (slotIndex: number) => boolean;
+    readonly getPads?: () => ReadonlyArray<BoostPadDescriptor>;
+  } | null;
 }
 
-export function readLiveRuntimePlayerControls(
-  runtime: ReplayScoreboardRuntimePort | null,
-  activePovSlotIndex: number
+function normalizeSynthesizedControls(
+  raw: Partial<RLRCSynthesizedCarControls> | null | undefined
 ): RLRCSynthesizedCarControls {
-  const kb = (runtime as unknown as {
-    keyboard?: { getControls?: (carIdx: number) => Partial<RLRCSynthesizedCarControls> };
-  })?.keyboard;
-  const raw = kb?.getControls?.(activePovSlotIndex);
   if (!raw) return DEFAULT_NEUTRAL_CAR_CONTROLS;
   return {
     throttle: Number(raw.throttle) || 0,
@@ -73,12 +85,85 @@ export function readLiveRuntimePlayerControls(
   };
 }
 
+function isNonNeutralControls(raw: Partial<RLRCSynthesizedCarControls> | null | undefined): boolean {
+  return Boolean(
+    raw && (
+      Number(raw.throttle) || Number(raw.steer) || Number(raw.pitch) ||
+      Number(raw.yaw) || Number(raw.roll) || raw.jump || raw.boost || raw.handbrake
+    )
+  );
+}
+
+function resolveSelectedBotPolicyId(
+  botCoordinator: RLRCBridgeBotCoordinatorPort | null | undefined
+): 'nexto' | 'necto' {
+  const uiMode = useReplayToRcsImporterStore.getState().nonPovInterventionMode;
+  if (uiMode === 'necto' || uiMode === 'nexto') return uiMode;
+  return botCoordinator?.runtime?.bot?.id === 'necto' ? 'necto' : 'nexto';
+}
+
+export function mapUiInterpolationMethod(raw: string): RLRCInterpolationMethod {
+  return raw === 'linear' || raw === 'linear-slerp' ? 'linear' : 'hermite-clamped';
+}
+
+export function mapUiNonPovMode(raw: string): RLRCNonPovInterventionMode {
+  if (raw === 'disappear') return 'disappear';
+  if (raw === 'no-input') return 'no-input';
+  if (raw === 'nexto' || raw === 'necto' || raw === 'bot-takeover') return 'bot-takeover';
+  return 'follow-state';
+}
+
+const _botPadDescriptors: ReadonlyArray<BoostPadDescriptor> = STANDARD_BOOST_PADS_34.map((p) => ({
+  pos: [p.position.x, p.position.y, p.position.z],
+  isBig: p.isBigPad,
+}));
+
+export function syncRLRCNameTagRoster(
+  roster: readonly RLRCPlayerSlotMeta[],
+  activePovSlotIndex: number = roster[0]?.slotIndex ?? 0
+): void {
+  setNameTagRuntimeState({
+    isMultiplayerOrMultiCarMode: roster.length > 1,
+    focusedCarIndex: activePovSlotIndex,
+    carEntries: roster.map((r) => ({
+      carIndex: r.slotIndex,
+      name: r.userName,
+      username: r.userName,
+      team: r.team,
+      isBot: false,
+      isLocalPlayer: r.slotIndex === activePovSlotIndex,
+    })),
+  });
+}
+
+export function readLiveRuntimePlayerControls(
+  runtime: ReplayScoreboardRuntimePort | null,
+  activePovSlotIndex: number
+): RLRCSynthesizedCarControls {
+  if (!runtime) return DEFAULT_NEUTRAL_CAR_CONTROLS;
+  const bridgeRuntime = runtime as unknown as RLRCBridgeRuntimePort;
+  const livePlayerControls = bridgeRuntime.playerControls;
+  if (isNonNeutralControls(livePlayerControls)) return normalizeSynthesizedControls(livePlayerControls);
+
+  const pad = bridgeRuntime.gamepad;
+  const padCandidate =
+    pad?.getControls?.(activePovSlotIndex) ?? (pad?.active?.() ? (pad.controls ?? pad.read?.()) : undefined);
+  if (isNonNeutralControls(padCandidate)) return normalizeSynthesizedControls(padCandidate);
+
+  const kb = bridgeRuntime.keyboard;
+  const kbCandidate = kb?.getControls?.(activePovSlotIndex) ?? kb?.read?.() ?? kb?.controls;
+  if (isNonNeutralControls(kbCandidate)) return normalizeSynthesizedControls(kbCandidate);
+
+  return normalizeSynthesizedControls(livePlayerControls);
+}
+
 export function publishConvertedSessionTelemetry(
   converted: RLRCConvertedReplaySession,
   fileName: string,
   clampedCursor: number,
   activePovSlotIndex: number
 ): void {
+  syncRLRCNameTagRoster(converted.roster, activePovSlotIndex);
   const totalFrames = Math.max(0, converted.frames120Hz.length - 1);
   const incidentMarkers = converted.bookmarks
     .filter((b) => b.kind === 'goal' || b.kind === 'demolish')
@@ -177,6 +262,60 @@ export function createRLRCInterveneEnvPort(host: {
   getRuntime: () => ReplayScoreboardRuntimePort | null;
   getMode: () => ReplayScoreboardModePort | null;
 }): RLRCInterveneEnvironmentPort {
+  const slotBotAgents = new Map<number, ExperimentalBotAgent>();
+
+  const botDecisionPort: RLRCInterveneBotDecisionPort = {
+    resetAllBots: () => {
+      const bridgeRuntime = host.getRuntime() as unknown as RLRCBridgeRuntimePort | null;
+      const botCoord = bridgeRuntime?.botCoordinator;
+      const policyId = resolveSelectedBotPolicyId(botCoord);
+      void ensureExperimentalEngine(policyId);
+      botCoord?.resetAllBots?.();
+      botCoord?.resetBotState?.();
+      for (const agent of slotBotAgents.values()) {
+        agent.setBotType(policyId);
+        agent.reset();
+      }
+    },
+    decideControlsForSlot: (slotIndex, team, state, dt) => {
+      const bridgeRuntime = host.getRuntime() as unknown as RLRCBridgeRuntimePort | null;
+      const botCoord = bridgeRuntime?.botCoordinator;
+      const customDecision = botCoord?.decideControlsForSlot?.(slotIndex, team, state, dt);
+      if (customDecision) return normalizeSynthesizedControls(customDecision);
+
+      const policyId = resolveSelectedBotPolicyId(botCoord);
+      let agent = slotBotAgents.get(slotIndex);
+      if (!agent || agent.team !== team) {
+        agent = new ExperimentalBotAgent(policyId, slotIndex, team);
+        slotBotAgents.set(slotIndex, agent);
+      } else if (agent.botType !== policyId) {
+        agent.setBotType(policyId);
+      }
+
+      if (agent.tickSkipCounter <= 0) {
+        const roster = host.getSession()?.roster ?? [];
+        const sim = bridgeRuntime?.physics;
+        const activeCars: Array<{ carIndex: number; team: number }> = [];
+        for (let c = 0; c < RLRC_MAX_PLAYER_SLOTS; c++) {
+          const isActive =
+            c === slotIndex ||
+            (typeof sim?.isCarSlotActive === 'function' ? sim.isCarSlotActive(c) : roster.some((r) => r.slotIndex === c));
+          if (!isActive) continue;
+          const slotMeta = roster.find((r) => r.slotIndex === c);
+          activeCars.push({ carIndex: c, team: c === slotIndex ? team : (slotMeta?.team ?? (c < 3 ? 0 : 1)) });
+        }
+        const pads = sim?.getPads?.() ?? _botPadDescriptors;
+        const decided = agent.decideSync(state, pads, activeCars, sim as unknown as BallPredictionEnginePort);
+        agent.tickSkipCounter = agent._staggered ? agent.tickSkip - 1 : (slotIndex % agent.tickSkip) + 1;
+        agent._staggered = true;
+        return normalizeSynthesizedControls(decided);
+      }
+
+      agent.tickSkipCounter--;
+      return normalizeSynthesizedControls(agent.action);
+    },
+  };
+
   return {
     getFrames120Hz: () => host.getSession()?.frames120Hz ?? [],
     getRoster: () => host.getSession()?.roster ?? [],
@@ -213,6 +352,13 @@ export function createRLRCInterveneEnvPort(host: {
           const cars = arena.cars as Array<{ visible?: boolean } | null> | undefined;
           if (cars?.[slotIndex]) cars[slotIndex]!.visible = visible;
         },
+        setBallVisible: (visible) => {
+          const ball = arena.ball as { visible?: boolean; group?: { visible?: boolean } } | undefined;
+          if (ball) {
+            ball.visible = visible;
+            if (ball.group) ball.group.visible = visible;
+          }
+        },
         syncInterpolatorToState: (state) => {
           if (runtime?.interpolator) {
             runtime.interpolator.prevState.set(state);
@@ -223,6 +369,10 @@ export function createRLRCInterveneEnvPort(host: {
         focusCameraOnSlot: (slotIndex) => {
           if (runtime) runtime.playerCarIndex = slotIndex;
           arena.playerCarIndex = slotIndex;
+          const currentRoster = host.getSession()?.roster;
+          if (currentRoster && currentRoster.length > 0) {
+            syncRLRCNameTagRoster(currentRoster, slotIndex);
+          }
         },
       };
     },
@@ -230,7 +380,7 @@ export function createRLRCInterveneEnvPort(host: {
       (host.getMode() as unknown as { replayRingBuffer?: RLRCPrerollRingBufferPort })?.replayRingBuffer ?? null,
     getGoalAndTouch: (): RLRCGoalAndTouchTrackerPort | null =>
       (host.getMode() as unknown as { goalAndTouch?: RLRCGoalAndTouchTrackerPort })?.goalAndTouch ?? null,
-    getBotPort: (): RLRCInterveneBotDecisionPort | null => null,
+    getBotPort: (): RLRCInterveneBotDecisionPort | null => botDecisionPort,
     playSound: (soundId, volume = 1.0) => {
       const audio = (host.getRuntime()?.options?.gameAudio || gameAudio) as {
         play?: (cue: string, vol?: number) => void;

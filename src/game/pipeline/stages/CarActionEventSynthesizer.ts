@@ -67,6 +67,7 @@ export interface CarActionSynthesizerRuntimePort {
   modeManager?: {
     getActiveMode?(): {
       standaloneReplayViewer?: { isActive?: boolean; isIntervening?: boolean } | null;
+      rlrcReplaySession?: { isActive?: boolean; isIntervening?: boolean } | null;
       onPhysicsEvent?(event: CarActionPhysicsEventPayload): void;
     } | null;
   } | null;
@@ -108,8 +109,10 @@ export class CarActionEventSynthesizer {
     }
     const activeMode = runtime.modeManager?.getActiveMode?.();
     if (
-      activeMode?.standaloneReplayViewer?.isActive &&
-      !activeMode.standaloneReplayViewer.isIntervening
+      (activeMode?.standaloneReplayViewer?.isActive &&
+        !activeMode.standaloneReplayViewer.isIntervening) ||
+      (activeMode?.rlrcReplaySession?.isActive &&
+        !activeMode.rlrcReplaySession.isIntervening)
     ) {
       return;
     }

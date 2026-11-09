@@ -121,6 +121,7 @@ export interface RLRCRigidBodySample {
   readonly rotation: RLRCQuat;
   readonly linearVelocity: RLRCVec3;
   readonly angularVelocity: RLRCVec3;
+  readonly rbUpdated?: boolean;
 }
 
 export interface RLRCSynthesizedCarControls {
@@ -145,6 +146,8 @@ export interface RLRCCarFrameState120Hz {
   readonly slotIndex: number;
   readonly entityActive: boolean;
   readonly rigidBody: RLRCRigidBodySample;
+  readonly rbUpdated?: boolean;
+  readonly actorId?: number;
   readonly boostAmount: number;
   readonly isOnGround: boolean;
   readonly isSupersonic: boolean;
@@ -157,6 +160,9 @@ export interface RLRCCarFrameState120Hz {
 export interface RLRCBallFrameState120Hz {
   readonly entityActive: boolean;
   readonly rigidBody: RLRCRigidBodySample;
+  readonly rbUpdated?: boolean;
+  readonly activeBallActorId?: number;
+  readonly actorId?: number;
 }
 
 export interface RLRCBoostPadPickupEvent {
@@ -220,6 +226,10 @@ export interface RLRCSourceNetworkFrame {
   readonly orangeScore: number;
   readonly ball: RLRCBallFrameState120Hz;
   readonly cars: readonly RLRCCarFrameState120Hz[];
+  readonly ballRbUpdated?: boolean;
+  readonly carRbUpdatedMask?: number;
+  readonly rbUpdatedMask?: number;
+  readonly activeBallActorId?: number;
 }
 
 export interface RLRCParserOutput {
@@ -256,4 +266,42 @@ export interface RLRCInterveneLaunchConfig {
   readonly downCounterSeconds: 0 | 1 | 2 | 3;
   readonly nonPovMode: RLRCNonPovInterventionMode;
   readonly prerollHistoryFrames: number;
+}
+
+export interface RLRCBasis3x3 {
+  readonly fwd: RLRCVec3;
+  readonly right: RLRCVec3;
+  readonly up: RLRCVec3;
+}
+
+export interface RLRCNetStreamRawFrame {
+  readonly time: number;
+  readonly delta: number;
+  readonly new_actors?: readonly {
+    readonly actor_id: number;
+    readonly object_id: number;
+    readonly initial_trajectory?: { readonly location?: unknown } | null;
+  }[];
+  readonly deleted_actors?: readonly number[];
+  readonly updated_actors?: readonly {
+    readonly actor_id: number;
+    readonly object_id: number;
+    readonly attribute?: Record<string, unknown> | null;
+  }[];
+}
+
+export interface RLRCNetStreamExtractorInput {
+  readonly frames: readonly RLRCNetStreamRawFrame[];
+  readonly objects: readonly string[];
+  readonly names?: readonly string[];
+  readonly keyframeIndices?: ReadonlySet<number>;
+  readonly roster?: readonly RLRCPlayerSlotMeta[];
+  readonly slotByPriActorId?: ReadonlyMap<number, number>;
+}
+
+export interface RLRCNetStreamExtractorOutput {
+  readonly networkFrames: readonly RLRCSourceNetworkFrame[];
+  readonly demolishBookmarks: readonly RLRCBookmarkRecord[];
+  readonly goalExplosionFrames: readonly number[];
+  readonly restingSamplesBySlot: ReadonlyMap<number, readonly RLRCRigidBodySample[]>;
 }

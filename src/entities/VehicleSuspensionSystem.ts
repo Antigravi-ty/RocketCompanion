@@ -36,19 +36,21 @@ export function getCarRestHeight(vehiclePreset) {
 }
 
 /**
- * Standard wheel physical placement specifications [x, z, radius] for each vehicle preset.
- * Values precisely match RocketSim CarConfig.cpp FRONT_WHEELS_OFFSET / BACK_WHEELS_OFFSET.
- * @param {string} vehiclePreset
- * @returns {Array<[number, number, number]>}
+ * Standard RocketSim CarConfig.cpp physics wheel placement specifications [x, z, radius] per hitbox preset.
  */
-export function getWheelSpecsForVisual(vehiclePreset) {
-  const canonical = normalizeVisualId(vehiclePreset);
-  const desc = hasVehicleDescriptor(canonical) ? getVehicleDescriptor(canonical) : null;
-  if (desc?.wheelAnchors) {
-    return desc.wheelAnchors.map((w) => [...w]);
+export function getPhysicsWheelSpecsForHitbox(
+  hitboxPreset: string,
+  threeWheels = false
+): Array<[number, number, number]> {
+  if (threeWheels || hitboxPreset === "hitbox-psyclops") {
+    return [
+      [51.25, 0.0, 12.5],
+      [51.25, 0.0, 12.5],
+      [-33.75, 29.50, 15.0],
+      [-33.75, -29.50, 15.0]
+    ];
   }
-  const preset = desc?.hitboxPreset || canonical;
-  switch (preset) {
+  switch (hitboxPreset) {
     case "hitbox-octane":
       return [
         [51.25, 25.90, 12.5],
@@ -91,16 +93,25 @@ export function getWheelSpecsForVisual(vehiclePreset) {
         [-33.75, 29.50, 15.0],
         [-33.75, -29.50, 15.0]
       ];
-    case "hitbox-psyclops":
-      return [
-        [51.25, 0.0, 12.5],
-        [51.25, 0.0, 12.5],
-        [-33.75, 29.50, 15.0],
-        [-33.75, -29.50, 15.0]
-      ];
     default:
-      return DEFAULT_WHEEL_SPECS.game;
+      return DEFAULT_WHEEL_SPECS.game.map((w) => [...w] as [number, number, number]);
   }
+}
+
+/**
+ * Standard wheel physical placement specifications [x, z, radius] for each vehicle preset.
+ * Values precisely match RocketSim CarConfig.cpp FRONT_WHEELS_OFFSET / BACK_WHEELS_OFFSET.
+ * @param {string} vehiclePreset
+ * @returns {Array<[number, number, number]>}
+ */
+export function getWheelSpecsForVisual(vehiclePreset) {
+  const canonical = normalizeVisualId(vehiclePreset);
+  const desc = hasVehicleDescriptor(canonical) ? getVehicleDescriptor(canonical) : null;
+  if (desc?.wheelAnchors) {
+    return desc.wheelAnchors.map((w) => [...w]);
+  }
+  const preset = desc?.hitboxPreset || canonical;
+  return getPhysicsWheelSpecsForHitbox(preset, Boolean(desc?.threeWheels));
 }
 
 export const DEFAULT_WHEEL_SPECS = Object.freeze({

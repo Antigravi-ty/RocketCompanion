@@ -117,35 +117,56 @@ export function normalizeCustomVehicleScene(
   return { unscaledBounds, appliedGeometryScale: targetUnitScale };
 }
 
+const inflightCustomAssetLoads = new Map<string, Promise<CustomGlbVehicleAsset>>();
+
 /**
- * Loads a custom GLB vehicle asset registered in vehicleDescriptors.
+ * Loads a custom GLB vehicle asset registered in vehicleDescriptors,
+ * deduplicating concurrent in-flight requests for the same vehicle ID.
  */
 export async function loadCustomGlbCarAsset(vehicleId: string): Promise<CustomGlbVehicleAsset> {
   const id = String(vehicleId || '').toLowerCase();
   if (cachedCustomAssets.has(id)) {
     return cachedCustomAssets.get(id)!;
   }
+  const existingInflight = inflightCustomAssetLoads.get(id);
+  if (existingInflight) {
+    return existingInflight;
+  }
   const descriptor = getVehicleDescriptor(id);
   if (!descriptor || !descriptor.modelUrl) {
     throw new Error(`Unknown custom GLB vehicle descriptor for "${vehicleId}"`);
   }
 
-  const loader = new GLTFLoader();
-  const gltf = await loader.loadAsync(resolveAssetPath(descriptor.modelUrl));
-  gltf.scene.updateMatrixWorld?.(true);
-  const { unscaledBounds, appliedGeometryScale } = normalizeCustomVehicleScene(gltf.scene, id, descriptor.unitScale);
+  const loadPromise = (async (): Promise<CustomGlbVehicleAsset> => {
+    const loader = new GLTFLoader();
+    const gltf = await loader.loadAsync(resolveAssetPath(descriptor.modelUrl));
+    gltf.scene.updateMatrixWorld?.(true);
+    const { unscaledBounds, appliedGeometryScale } = normalizeCustomVehicleScene(
+      gltf.scene,
+      id,
+      descriptor.unitScale
+    );
 
-  const asset: CustomGlbVehicleAsset = {
-    id,
-    scene: gltf.scene,
-    appliedGeometryScale,
-    unscaledBounds,
-  };
-  cachedCustomAssets.set(id, asset);
-  return asset;
+    const asset: CustomGlbVehicleAsset = {
+      id,
+      scene: gltf.scene,
+      appliedGeometryScale,
+      unscaledBounds,
+    };
+    cachedCustomAssets.set(id, asset);
+    return asset;
+  })();
+
+  inflightCustomAssetLoads.set(id, loadPromise);
+  try {
+    return await loadPromise;
+  } finally {
+    inflightCustomAssetLoads.delete(id);
+  }
 }
 
 import { applyCustomGlbVehicleMaterials } from './customGlbVehicleMaterials.ts';
+import { getPhysicsWheelSpecsForHitbox } from '../VehicleSuspensionSystem.ts';
 
 /**
  * Updates boost nozzle gizmo positions on a custom vehicle model.
@@ -180,6 +201,58 @@ export function syncCustomVehicleNozzleGizmos(carModelRoot, descriptor) {
     if (coord) {
       child.position.set(coord[0], coord[1], coord[2]);
       child.visible = Boolean(vehicleTunerRuntimeFlags.showNozzleGizmos);
+    } else {
+      child.visible = false;
+    }
+  }
+}
+
+/**
+ * Updates physics engine wheel wireframe circles on a custom vehicle model.
+ * Uses the actual RocketSim physics wheel offsets and radii for the active hitbox preset.
+ */
+export function syncCustomVehicleWheelWireGizmos(carModelRoot, descriptor) {
+  if (!carModelRoot || !descriptor) return;
+  let wireGroup = carModelRoot.getObjectByName?.('wheel-wire-gizmos');
+  if (!wireGroup) {
+    wireGroup = new THREE.Group();
+    wireGroup.name = 'wheel-wire-gizmos';
+    const segments = 36;
+    const pts: THREE.Vector3[] = [];
+    for (let s = 0; s < segments; s++) {
+      const theta = (s / segments) * Math.PI * 2;
+      pts.push(new THREE.Vector3(Math.cos(theta), Math.sin(theta), 0));
+    }
+    const circleGeom = new THREE.BufferGeometry().setFromPoints(pts);
+    const circleMat = new THREE.LineBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.95,
+      toneMapped: false,
+      depthTest: false,
+      depthWrite: false,
+    });
+    for (let i = 0; i < 4; i++) {
+      const loop = new THREE.LineLoop(circleGeom, circleMat);
+      loop.name = `wheel-wire-gizmo-${i}`;
+      loop.renderOrder = 115;
+      wireGroup.add(loop);
+    }
+    carModelRoot.add(wireGroup);
+  }
+
+  const showWire = Boolean(vehicleTunerRuntimeFlags.showWheelWire);
+  wireGroup.visible = showWire;
+  const isThreeWheels = Boolean(descriptor.threeWheels || descriptor.hitboxPreset === 'hitbox-psyclops');
+  const physicsSpecs = getPhysicsWheelSpecsForHitbox(descriptor.hitboxPreset || 'hitbox-octane', isThreeWheels);
+  for (let i = 0; i < wireGroup.children.length; i++) {
+    const child = wireGroup.children[i];
+    const spec = physicsSpecs[i];
+    if (spec && !(isThreeWheels && i === 1)) {
+      const [wx, wz, wr] = spec;
+      child.position.set(wx, wr - 17, wz);
+      child.scale.set(wr, wr, 1);
+      child.visible = showWire;
     } else {
       child.visible = false;
     }
@@ -224,6 +297,7 @@ export function createCustomGlbCarModel(vehicleId, asset, teamColor) {
   root.add(shell);
   recomputeDescriptorBoostOutlets(descriptor);
   syncCustomVehicleNozzleGizmos(root, descriptor);
+  syncCustomVehicleWheelWireGizmos(root, descriptor);
   applyCustomGlbVehicleMaterials(root, descriptor.id, teamColor);
   return root;
 }
@@ -258,6 +332,7 @@ export function applyLiveVehicleDescriptorUpdate(
     }
     recomputeDescriptorBoostOutlets(descriptor);
     syncCustomVehicleNozzleGizmos(bodyMesh, descriptor);
+    syncCustomVehicleWheelWireGizmos(bodyMesh, descriptor);
     applyCustomGlbVehicleMaterials(bodyMesh, descriptor.id, resolvedColor, paintFinish);
   }
 

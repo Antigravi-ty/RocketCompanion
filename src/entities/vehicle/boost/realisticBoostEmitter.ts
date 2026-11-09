@@ -222,11 +222,20 @@ export class RealisticBoostEmitter {
       ? ((boostParticleRuntimeConfig.shortTrailSpawnMultiplier ?? 1.0) > 0.01 || (boostParticleRuntimeConfig.longTrailSpawnMultiplier ?? 0.1) > 0.01)
       : ((boostParticleRuntimeConfig.trailSpawnMultiplier ?? 1.0) > 0.01);
 
+    let isPausedBoost = false;
     if (isBoosting && canSpawnTrail) {
       this.car.updateMatrixWorld?.();
       this._scratchA.copy(this.nozzleLocal);
       this.car.localToWorld?.(this._scratchA);
-      this.physics.spawnTrailByDistance(this._scratchA, dt);
+      if (
+        this.physics.hasPreviousNozzle &&
+        this.physics.trailParticlesActive &&
+        this._scratchA.distanceToSquared(this.physics.previousNozzle) < 1e-4
+      ) {
+        isPausedBoost = true;
+      } else {
+        this.physics.spawnTrailByDistance(this._scratchA, dt);
+      }
     } else {
       if (this.car && this.physics.currentNozzle) {
         this.car.updateMatrixWorld?.();
@@ -241,14 +250,14 @@ export class RealisticBoostEmitter {
     }
 
     if (this.physics.driveParticlesActive) {
-      const active = this.physics.updateDrive(dt);
+      const active = isPausedBoost ? true : this.physics.updateDrive(dt);
       this.drive.mesh.visible = active;
       this.drive.setTime(this.elapsed);
       this.drive.markDirty();
     }
 
     if (this.physics.trailParticlesActive) {
-      const active = this.physics.updateTrail(dt);
+      const active = isPausedBoost ? true : this.physics.updateTrail(dt);
       this.trail.mesh.visible = active;
       this.trail.setTime(this.elapsed);
       this.trail.markDirty();

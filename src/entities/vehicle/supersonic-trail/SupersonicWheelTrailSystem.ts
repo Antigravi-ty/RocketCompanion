@@ -8,13 +8,15 @@ import {
   SupersonicWheelRibbon,
   registerSupersonicWheelRibbonConfigSync,
 } from './SupersonicWheelRibbon.ts';
+import {
+  resolveCarStepTicks,
+  type CarPoseKinematicState,
+  type VehicleWheelRigLike,
+  type VehicleWheelSetLike,
+  type WheelSpecTupleLike,
+} from './SupersonicWheelTrailReplaySync.ts';
 
-export interface VehicleWheelRigLike {
-  steer: THREE.Object3D;
-  spin?: THREE.Object3D;
-}
-export type VehicleWheelSetLike = VehicleWheelRigLike[] & { threeWheels?: boolean };
-export type WheelSpecTupleLike = [number, number, number] | number[];
+export type { VehicleWheelRigLike, VehicleWheelSetLike, WheelSpecTupleLike };
 export interface SupersonicTrailCameraContext {
   isPovCamera?: boolean;
   cameraMode?: string;
@@ -51,6 +53,7 @@ interface CarRearTrailPair {
   right: SupersonicWheelRibbon;
   leftContactGraceTicks: number;
   rightContactGraceTicks: number;
+  poseState: CarPoseKinematicState;
 }
 
 const CONTACT_DEBOUNCE_GRACE_TICKS = 2.5;
@@ -85,12 +88,23 @@ export class SupersonicWheelTrailSystem {
         right,
         leftContactGraceTicks: 0,
         rightContactGraceTicks: 0,
+        poseState: {
+          lastPos: new THREE.Vector3(),
+          lastQuat: new THREE.Quaternion(),
+          hasLastPose: false,
+        },
       });
       allRibbons.push(left, right);
     }
 
     scene.add(this.group);
     this._unsubConfig = registerSupersonicWheelRibbonConfigSync(allRibbons);
+  }
+
+  public hasActiveTrail(carIndex: number): boolean {
+    if (carIndex < 0 || carIndex >= this.carTrails.length) return false;
+    const pair = this.carTrails[carIndex];
+    return pair.left.hasActiveTrail() || pair.right.hasActiveTrail();
   }
 
   public resetCar(carIndex: number | null = null): void {
@@ -100,6 +114,7 @@ export class SupersonicWheelTrailSystem {
       pair.right.reset();
       pair.leftContactGraceTicks = 0;
       pair.rightContactGraceTicks = 0;
+      pair.poseState.hasLastPose = false;
       return;
     }
     for (const pair of this.carTrails) {
@@ -107,6 +122,7 @@ export class SupersonicWheelTrailSystem {
       pair.right.reset();
       pair.leftContactGraceTicks = 0;
       pair.rightContactGraceTicks = 0;
+      pair.poseState.hasLastPose = false;
     }
   }
 
@@ -125,17 +141,26 @@ export class SupersonicWheelTrailSystem {
     if (carIndex < 0 || carIndex >= this.carTrails.length) return;
     const pair = this.carTrails[carIndex];
     const cfg = supersonicTrailRuntimeConfig;
-    const dtTicks = Math.max(0.15, Math.min(12, (dt || 0.008333) * 120));
+    const rawDtTicks = Math.max(0.15, Math.min(12, (dt || 0.008333) * 120));
 
     if (!cfg.enabled || !carRoot || !carRoot.visible || !currCar || currCar.isDemoed || !activeVisuals) {
       pair.leftContactGraceTicks = 0;
       pair.rightContactGraceTicks = 0;
-      pair.left.stepSample(dtTicks, false, 0, 0, 0, 0, 1, 0, cfg);
-      pair.right.stepSample(dtTicks, false, 0, 0, 0, 0, 1, 0, cfg);
+      pair.poseState.hasLastPose = false;
+      pair.left.stepSample(rawDtTicks, false, 0, 0, 0, 0, 1, 0, cfg);
+      pair.right.stepSample(rawDtTicks, false, 0, 0, 0, 0, 1, 0, cfg);
       return;
     }
 
     const isSupersonicOrForced = Boolean(currCar.isSupersonic || cfg.forceActive);
+    const { dtTicks, isPausedFreeze } = resolveCarStepTicks(
+      pair.poseState,
+      carRoot,
+      currCar,
+      dt,
+      isSupersonicOrForced,
+      cfg.maxStepBreakDistUu
+    );
     const interpAlpha = THREE.MathUtils.clamp(Number.isFinite(alpha) ? alpha : 1.0, 0, 1);
     const hasPrev = Boolean(prevCar && !prevCar.isDemoed);
 
@@ -243,6 +268,21 @@ export class SupersonicWheelTrailSystem {
         .applyQuaternion(carRoot.quaternion)
         .add(carRoot.position);
       this._wheelWorldPos.addScaledVector(this._carUpWorld, -wheelRadius);
+
+      if (isPausedFreeze && !ribbon.hasActiveTrail()) {
+        ribbon.seedFromStationaryVelocity(
+          this._wheelWorldPos.x,
+          this._wheelWorldPos.y,
+          this._wheelWorldPos.z,
+          this._contactNormal.x,
+          this._contactNormal.y,
+          this._contactNormal.z,
+          currCar.velX,
+          currCar.velZ,
+          currCar.velY,
+          cfg
+        );
+      }
 
       ribbon.stepSample(
         dtTicks,

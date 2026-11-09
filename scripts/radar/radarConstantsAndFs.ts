@@ -192,7 +192,7 @@ export function expandRelativeGlobPattern(fromFileAbs: string, pattern: string):
   return results;
 }
 
-function resolveTscCommand(): string {
+function resolveTscCommand(): string | null {
   const binName = process.platform === 'win32' ? 'tsc.cmd' : 'tsc';
   const localTsc = path.join(ROOT_DIR, 'node_modules', '.bin', binName);
   if (fs.existsSync(localTsc)) {
@@ -210,11 +210,20 @@ function resolveTscCommand(): string {
   } catch {
     // Fall through
   }
-  return 'npx --no-install tsc --noEmit';
+  return null;
 }
 
 export function runTypeScriptCheck(): TypeScriptCheckResult {
   const cmd = resolveTscCommand();
+  if (!cmd) {
+    return {
+      ok: false,
+      command: 'tsc --noEmit (missing local node_modules/.bin/tsc)',
+      errors: [
+        'Local TypeScript 5.x compiler not found in node_modules/.bin/tsc. Run "npm install -g pnpm --force && pnpm install" first.',
+      ],
+    };
+  }
   try {
     execSync(cmd, {
       cwd: ROOT_DIR,

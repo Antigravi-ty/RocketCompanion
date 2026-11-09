@@ -55,7 +55,18 @@ export interface VehicleLoadoutTarget {
 
 export function disposeObjectGeometryAndMaterials(root: THREE.Object3D): void {
   root.traverse?.((node: TraversableMaterialNode) => {
-    node.geometry?.dispose?.();
+    let inSharedGlbShell = false;
+    let p: THREE.Object3D | null = node;
+    while (p) {
+      if (p.name?.endsWith?.('-shell')) {
+        inSharedGlbShell = true;
+        break;
+      }
+      p = p.parent;
+    }
+    if (!inSharedGlbShell) {
+      node.geometry?.dispose?.();
+    }
     if (node.material) {
       const mats = Array.isArray(node.material) ? node.material : [node.material];
       for (const m of mats) m?.dispose?.();
@@ -251,9 +262,11 @@ export class ArenaVehicleLoadoutManager {
       }
 
       if (carDesc && hasLoadedCustomAsset) {
+        const bodyMesh = carRoot.children?.find((c) => c.name === 'car-body-mesh');
+        const hasInstantiatedShell = Boolean(bodyMesh?.getObjectByName?.(`${carDesc.id}-shell`));
         const currentThreeWheels = Boolean(h.carWheels[i]?.threeWheels);
         const desiredThreeWheels = Boolean(carDesc.threeWheels || carDesc.id === 'trioctane-threewheel' || carDesc.hitboxPreset === 'hitbox-psyclops');
-        if (currentThreeWheels !== desiredThreeWheels && preset) {
+        if ((!hasInstantiatedShell || currentThreeWheels !== desiredThreeWheels) && preset) {
           h.swapCarVisual(i, preset);
           continue;
         }

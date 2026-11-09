@@ -168,6 +168,7 @@ export interface BaseGameMode {
   onAfterPhysicsTick?(): void;
   onPhysicsEvent?(_event: GameModePhysicsEvent | null | undefined): void;
   skipGoalReplay?(): void;
+  expireBall?(): boolean;
   applyRosterAndStartMatch?(): Promise<void> | void;
   _applyCameraCarIndex?(_carIdx?: number): void;
   _publishSpawnedCarsTelemetry?(): void;

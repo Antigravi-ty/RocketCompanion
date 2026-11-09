@@ -15,6 +15,10 @@ import type {
 } from './ReplayViewerRosterSubController.ts';
 import type { ReplayFrameSlotLike, ReplaySnapshotBuffer } from './ReplayCausalHybridEngine.ts';
 import type { ReplayTakeoverRuntimePort } from './ReplayTakeoverSubController.ts';
+import {
+  warmupArenaTrailsFromReplayWindow,
+  type ReplayTrailWarmupArenaPort,
+} from '../entities/vehicle/supersonic-trail/SupersonicWheelTrailReplaySync.ts';
 
 /**
  * ReplayScoreboardSynchronizer.ts
@@ -79,6 +83,7 @@ export interface ReplayScoreboardRuntimePort extends ReplayViewerRosterRuntimePo
     carDemolitions?: Array<{ stop?: () => void } | null | undefined>;
     syncCarsCount?: (numCars: number) => void;
     resetCarBoosts?: (carIndex: number) => void;
+    resetBallTrail?: () => void;
     supersonicWheelTrailSystem?: { clear?: () => void; resetCar?: (carIndex: number) => void } | null;
     lighting?: { updateSunIntensities?: (scale?: number) => void; update?: (carPos: unknown, ballPos: unknown, dt: number, isGoalReplay?: boolean, allowShadows?: boolean) => void } | null;
   } | null;
@@ -286,12 +291,26 @@ export class ReplayScoreboardSynchronizer {
       }
     }
 
+    if (!smoothStep) {
+      r.arena?.resetBallTrail?.();
+    }
     if (r.interpolator) {
       if (!smoothStep) {
         r.interpolator.prevState.set(r.physics.state);
         r.interpolator.alpha = 0;
       }
       r.interpolator.currState.set(r.physics.state);
+    }
+
+    if (!smoothStep && r.arena) {
+      warmupArenaTrailsFromReplayWindow(
+        r.arena as ReplayTrailWarmupArenaPort,
+        (fIdx) =>
+          (source.stateInputTimeline?.getFrameAt?.(fIdx)?.snapshot ||
+            source.frameSlots?.[fIdx]?.snapshot ||
+            source.frames[fIdx]) as Float32Array | null | undefined,
+        idx
+      );
     }
 
     // 2. Track B (Incident Timeline) & Track C (Signal Timeline)

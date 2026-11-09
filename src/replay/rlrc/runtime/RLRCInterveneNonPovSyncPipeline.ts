@@ -7,6 +7,11 @@
  */
 
 import {
+  SIM_OFFSETS,
+  BALL_STATE_OFFSETS,
+  BALL_STATE_STRIDE,
+  CAR_STATE_OFFSETS,
+  CAR_STATE_STRIDE,
   BOOST_PAD_STATES_OFFSET,
   BOOST_PAD_STATE_STRIDE,
   BOOST_PAD_OFFSETS,
@@ -36,6 +41,7 @@ import {
 import {
   DEFAULT_NEUTRAL_CAR_CONTROLS,
   clampCarPositionZForHitbox,
+  quatToBasisAxes,
   type RLRCGoalAndTouchTrackerPort,
   type RLRCPrerollRingBufferPort,
 } from './RLRCInterveneFrameStateBuilder.ts';
@@ -45,9 +51,15 @@ export interface RLRCInterveneCarStateWritePayload {
   readonly vel: [number, number, number];
   readonly angVel: [number, number, number];
   readonly rotQuat: [number, number, number, number];
+  readonly fwd?: [number, number, number];
+  readonly right?: [number, number, number];
+  readonly up?: [number, number, number];
   readonly boost: number;
   readonly isOnGround?: boolean;
+  readonly isSupersonic?: boolean;
   readonly hasFlipOrJump?: boolean;
+  readonly isBoosting?: boolean;
+  readonly isFlipping?: boolean;
 }
 
 export interface RLRCInterveneBallStateWritePayload {
@@ -55,6 +67,9 @@ export interface RLRCInterveneBallStateWritePayload {
   readonly vel: [number, number, number];
   readonly angVel: [number, number, number];
   readonly rotQuat: [number, number, number, number];
+  readonly fwd?: [number, number, number];
+  readonly right?: [number, number, number];
+  readonly up?: [number, number, number];
 }
 
 export interface RLRCIntervenePhysicsPort extends ReconstructablePhysicsEngine {
@@ -62,15 +77,29 @@ export interface RLRCIntervenePhysicsPort extends ReconstructablePhysicsEngine {
   isCarSlotActive?: (slotIndex: number) => boolean;
   addCarAtSlot?: (slotIndex: number, team: number, hitboxPreset?: string) => number | void;
   removeCar?: (slotIndex: number) => boolean | void;
-  setCarState?: (slotIndex: number, payload: RLRCInterveneCarStateWritePayload) => void;
-  setBallState?: (payload: RLRCInterveneBallStateWritePayload) => void;
+  setCarState?: (
+    slotIndex: number,
+    payload: RLRCInterveneCarStateWritePayload | Float32Array
+  ) => boolean | void;
+  setBallState?: (
+    payload: RLRCInterveneBallStateWritePayload | Float32Array
+  ) => boolean | void;
+  setControls?: (slotIndex: number, controls: RLRCSynthesizedCarControls) => void;
   setCarControls?: (slotIndex: number, controls: RLRCSynthesizedCarControls) => void;
-  step?: (dt: number, controls?: RLRCSynthesizedCarControls) => void;
+  setUnlimitedBoost?: (enabled: boolean) => void;
+  step?: (ticks?: number, controls?: RLRCSynthesizedCarControls) => void;
   clearEvents?: () => void;
   resetGoalLatch?: () => void;
 }
 
+export interface RLRCInterveneInterpolatorPort {
+  prevState: Float32Array;
+  currState: Float32Array;
+  alpha?: number;
+}
+
 export interface RLRCInterveneArenaPort {
+  interpolator?: RLRCInterveneInterpolatorPort | null;
   rebuildSlotVehicle?: (
     slotIndex: number,
     team: RLRCTeamIndex,
@@ -79,8 +108,9 @@ export interface RLRCInterveneArenaPort {
     colorHex?: string
   ) => void;
   setSlotEntityVisible?: (slotIndex: number, visible: boolean) => void;
+  setBallVisible?: (visible: boolean) => void;
   spinBallInPlace?: (angularVelocity: RLRCVec3, dt: number) => void;
-  syncInterpolatorToState?: (state: Float32Array) => void;
+  syncInterpolatorToState?: (state: Float32Array, prevState?: Float32Array) => void;
   focusCameraOnSlot?: (slotIndex: number, exitDirectorMode: boolean) => void;
 }
 
@@ -110,6 +140,50 @@ export interface RLRCInterveneEnvironmentPort {
 
 const vec3Tuple = (v: RLRCVec3): [number, number, number] => [v.x, v.y, v.z];
 const quatTuple = (q: RLRCQuat): [number, number, number, number] => [q.x, q.y, q.z, q.w];
+
+function applySlotControls(
+  sim: RLRCIntervenePhysicsPort,
+  slot: number,
+  controls: RLRCSynthesizedCarControls
+): void {
+  if (typeof sim.setControls === 'function') sim.setControls(slot, controls);
+  else sim.setCarControls?.(slot, controls);
+}
+
+function writeCarRigidBodyState(
+  sim: RLRCIntervenePhysicsPort,
+  slot: number,
+  car: RLRCCarFrameState120Hz,
+  pos: RLRCVec3
+): void {
+  const axes = quatToBasisAxes(car.rigidBody.rotation);
+  const cOff = SIM_OFFSETS.CARS + slot * CAR_STATE_STRIDE;
+  if (sim.state && cOff + CAR_STATE_STRIDE <= sim.state.length) {
+    const steerRad = (Number(car.controls.steer) || 0) * 0.5235988;
+    for (let w = 0; w < 4; w++) {
+      const wBase = cOff + CAR_STATE_OFFSETS.WHEELS + w * 3;
+      sim.state[wBase] = car.isOnGround ? 18.0 : 35.0;
+      sim.state[wBase + 1] = w < 2 ? steerRad : 0;
+      sim.state[wBase + 2] = car.isOnGround ? 1 : 0;
+    }
+    sim.state[cOff + CAR_STATE_OFFSETS.GROUND_NORMAL + 2] = 1;
+  }
+  sim.setCarState?.(slot, {
+    pos: vec3Tuple(pos),
+    vel: vec3Tuple(car.rigidBody.linearVelocity),
+    angVel: vec3Tuple(car.rigidBody.angularVelocity),
+    rotQuat: quatTuple(car.rigidBody.rotation),
+    fwd: axes.fwd,
+    right: axes.right,
+    up: axes.up,
+    boost: car.boostAmount,
+    isOnGround: car.isOnGround,
+    isSupersonic: car.isSupersonic,
+    hasFlipOrJump: car.hasFlipOrJump,
+    isBoosting: car.activeFlags.boostActive || car.controls.boost,
+    isFlipping: car.activeFlags.dodgeActive || car.activeFlags.doubleJumpActive,
+  });
+}
 
 export function buildReconstructedCarTransientState(
   car: RLRCCarFrameState120Hz
@@ -189,13 +263,24 @@ export function applyTargetFrameToPhysicsAndArena(params: {
   readonly rebuildMeshes: boolean;
 }): void {
   const { frame, roster, config, sim, arena, slotActiveTracker, rebuildMeshes } = params;
+  sim.setUnlimitedBoost?.(false);
+  arena?.setBallVisible?.(true);
 
   const bRb = frame.ball.rigidBody;
+  const bAxes = quatToBasisAxes(bRb.rotation);
+  if (sim.state && sim.state.length >= SIM_OFFSETS.BALL + BALL_STATE_STRIDE) {
+    sim.state.set(bAxes.fwd, SIM_OFFSETS.BALL + BALL_STATE_OFFSETS.FWD);
+    sim.state.set(bAxes.right, SIM_OFFSETS.BALL + BALL_STATE_OFFSETS.RIGHT);
+    sim.state.set(bAxes.up, SIM_OFFSETS.BALL + BALL_STATE_OFFSETS.UP);
+  }
   sim.setBallState?.({
     pos: vec3Tuple(bRb.position),
     vel: vec3Tuple(bRb.linearVelocity),
     angVel: vec3Tuple(bRb.angularVelocity),
     rotQuat: quatTuple(bRb.rotation),
+    fwd: bAxes.fwd,
+    right: bAxes.right,
+    up: bAxes.up,
   });
 
   if (sim.state && frame.boostPadCooldowns) {
@@ -230,20 +315,21 @@ export function applyTargetFrameToPhysicsAndArena(params: {
     ensureInterveneSlotEntityActive(sim, arena, slotActiveTracker, slot, team, hitboxId);
 
     const safePos = clampCarPositionZForHitbox(car.rigidBody.position, car.isOnGround, hitboxId);
-    sim.setCarState?.(slot, {
-      pos: vec3Tuple(safePos),
-      vel: vec3Tuple(car.rigidBody.linearVelocity),
-      angVel: vec3Tuple(car.rigidBody.angularVelocity),
-      rotQuat: quatTuple(car.rigidBody.rotation),
-      boost: car.boostAmount,
-      isOnGround: car.isOnGround,
-      hasFlipOrJump: car.hasFlipOrJump,
-    });
+    writeCarRigidBodyState(sim, slot, car, safePos);
+    applySlotControls(sim, slot, car.controls || DEFAULT_NEUTRAL_CAR_CONTROLS);
     patchWasmCarTransientState(sim, slot, buildReconstructedCarTransientState(car), true);
   }
 
   arena?.focusCameraOnSlot?.(config.povSlotIndex, true);
-  if (sim.state) arena?.syncInterpolatorToState?.(sim.state);
+  if (sim.state) {
+    if (arena?.interpolator) {
+      arena.interpolator.prevState.set(sim.state);
+      arena.interpolator.currState.set(sim.state);
+      arena.interpolator.alpha = 0;
+    } else {
+      arena?.syncInterpolatorToState?.(sim.state, sim.state);
+    }
+  }
 }
 
 export function stepNonPovCarsBeforePhysics(params: {
@@ -259,16 +345,8 @@ export function stepNonPovCarsBeforePhysics(params: {
   readonly dt: number;
 }): void {
   const {
-    sim,
-    arena,
-    botPort,
-    roster,
-    followFrame,
-    povSlotIndex,
-    nonPovMode,
-    slotActiveTracker,
-    latestControlSnapshot,
-    dt,
+    sim, arena, botPort, roster, followFrame, povSlotIndex, nonPovMode,
+    slotActiveTracker, latestControlSnapshot, dt,
   } = params;
 
   for (let slot = 0; slot < RLRC_MAX_PLAYER_SLOTS; slot++) {
@@ -283,17 +361,21 @@ export function stepNonPovCarsBeforePhysics(params: {
 
     if (nonPovMode === 'no-input') {
       if (slotActiveTracker[slot] !== 0) {
-        sim.setCarControls?.(slot, DEFAULT_NEUTRAL_CAR_CONTROLS);
+        applySlotControls(sim, slot, DEFAULT_NEUTRAL_CAR_CONTROLS);
         latestControlSnapshot.set(slot, DEFAULT_NEUTRAL_CAR_CONTROLS);
       }
       continue;
     }
 
+    const carFrame = followFrame?.cars[slot];
+    const meta = roster.find((r) => r.slotIndex === slot);
+    const team: RLRCTeamIndex = meta?.team ?? (slot < 3 ? 0 : 1);
+    const hitboxId = meta?.hitboxId ?? 'hitbox-octane';
+
     if (nonPovMode === 'follow-state') {
-      const carFrame = followFrame?.cars[slot];
       if (!carFrame) {
         if (slotActiveTracker[slot] !== 0) {
-          sim.setCarControls?.(slot, DEFAULT_NEUTRAL_CAR_CONTROLS);
+          applySlotControls(sim, slot, DEFAULT_NEUTRAL_CAR_CONTROLS);
           latestControlSnapshot.set(slot, DEFAULT_NEUTRAL_CAR_CONTROLS);
         }
         continue;
@@ -302,29 +384,24 @@ export function stepNonPovCarsBeforePhysics(params: {
         deactivateInterveneSlotEntity(sim, arena, slotActiveTracker, slot);
         continue;
       }
-      const meta = roster.find((r) => r.slotIndex === slot);
-      const team: RLRCTeamIndex = meta?.team ?? (slot < 3 ? 0 : 1);
-      ensureInterveneSlotEntityActive(
-        sim,
-        arena,
-        slotActiveTracker,
-        slot,
-        team,
-        meta?.hitboxId ?? 'hitbox-octane'
-      );
-      sim.setCarControls?.(slot, carFrame.controls);
-      latestControlSnapshot.set(slot, carFrame.controls);
+      ensureInterveneSlotEntityActive(sim, arena, slotActiveTracker, slot, team, hitboxId);
+      const ctrl = carFrame.controls || DEFAULT_NEUTRAL_CAR_CONTROLS;
+      applySlotControls(sim, slot, ctrl);
+      latestControlSnapshot.set(slot, ctrl);
       continue;
     }
 
-    if (nonPovMode === 'bot-takeover' && slotActiveTracker[slot] !== 0) {
-      const meta = roster.find((r) => r.slotIndex === slot);
-      const team: RLRCTeamIndex = meta?.team ?? (slot < 3 ? 0 : 1);
-      const botCtrl =
-        botPort?.decideControlsForSlot?.(slot, team, sim.state, dt) ??
-        DEFAULT_NEUTRAL_CAR_CONTROLS;
-      sim.setCarControls?.(slot, botCtrl);
-      latestControlSnapshot.set(slot, botCtrl);
+    if (nonPovMode === 'bot-takeover') {
+      if (slotActiveTracker[slot] === 0 && carFrame?.entityActive) {
+        ensureInterveneSlotEntityActive(sim, arena, slotActiveTracker, slot, team, hitboxId);
+      }
+      if (slotActiveTracker[slot] !== 0) {
+        const botCtrl =
+          botPort?.decideControlsForSlot?.(slot, team, sim.state, dt) ??
+          DEFAULT_NEUTRAL_CAR_CONTROLS;
+        applySlotControls(sim, slot, botCtrl);
+        latestControlSnapshot.set(slot, botCtrl);
+      }
     }
   }
 }
@@ -336,8 +413,10 @@ export function syncFollowStateNonPovAfterStep(params: {
   readonly nextFrame: RLRCFrame120Hz | null;
   readonly povSlotIndex: number;
   readonly slotActiveTracker: Uint8Array;
+  readonly latestControlSnapshot?: Map<number, RLRCSynthesizedCarControls>;
 }): void {
-  const { sim, arena, roster, nextFrame, povSlotIndex, slotActiveTracker } = params;
+  const { sim, arena, roster, nextFrame, povSlotIndex, slotActiveTracker, latestControlSnapshot } =
+    params;
   if (!nextFrame) return;
 
   for (let slot = 0; slot < RLRC_MAX_PLAYER_SLOTS; slot++) {
@@ -349,22 +428,13 @@ export function syncFollowStateNonPovAfterStep(params: {
     }
     const meta = roster.find((r) => r.slotIndex === slot);
     const team: RLRCTeamIndex = meta?.team ?? (slot < 3 ? 0 : 1);
-    ensureInterveneSlotEntityActive(
-      sim,
-      arena,
-      slotActiveTracker,
-      slot,
-      team,
-      meta?.hitboxId ?? 'hitbox-octane'
-    );
-    sim.setCarState?.(slot, {
-      pos: vec3Tuple(car.rigidBody.position),
-      vel: vec3Tuple(car.rigidBody.linearVelocity),
-      angVel: vec3Tuple(car.rigidBody.angularVelocity),
-      rotQuat: quatTuple(car.rigidBody.rotation),
-      boost: car.boostAmount,
-      isOnGround: car.isOnGround,
-      hasFlipOrJump: car.hasFlipOrJump,
-    });
+    const hitboxId = meta?.hitboxId ?? 'hitbox-octane';
+    ensureInterveneSlotEntityActive(sim, arena, slotActiveTracker, slot, team, hitboxId);
+    const safePos = clampCarPositionZForHitbox(car.rigidBody.position, car.isOnGround, hitboxId);
+    writeCarRigidBodyState(sim, slot, car, safePos);
+    const ctrl = car.controls || DEFAULT_NEUTRAL_CAR_CONTROLS;
+    applySlotControls(sim, slot, ctrl);
+    latestControlSnapshot?.set(slot, ctrl);
+    patchWasmCarTransientState(sim, slot, buildReconstructedCarTransientState(car), false);
   }
 }

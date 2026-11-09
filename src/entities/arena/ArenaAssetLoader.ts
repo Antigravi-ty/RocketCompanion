@@ -117,22 +117,30 @@ export async function preloadRemainingVehicleAssets(
   const descriptors = getAllVehicleDescriptors().filter((d) => Boolean(d.modelUrl));
   const total = descriptors.length;
   let loaded = 0;
-  for (const desc of descriptors) {
-    const id = desc.id.toLowerCase();
-    if (desc.modelUrl && !vehicleRegistry.customVehicleAssets?.has?.(id)) {
-      await new Promise((r) => setTimeout(r, 8));
-      try {
-        const asset = await loaders.loadCustomGlbCarAsset(desc.id);
-        vehicleRegistry.setCustomVehicleAsset?.(desc.id, asset);
-      } catch (e) {
-        console.warn(`Custom vehicle asset "${desc.id}" failed to load:`, e);
+  let cursor = 0;
+  const concurrency = Math.min(3, total);
+
+  const worker = async () => {
+    while (cursor < total) {
+      const desc = descriptors[cursor++];
+      if (!desc) break;
+      const id = desc.id.toLowerCase();
+      if (desc.modelUrl && !vehicleRegistry.customVehicleAssets?.has?.(id)) {
+        try {
+          const asset = await loaders.loadCustomGlbCarAsset(desc.id);
+          vehicleRegistry.setCustomVehicleAsset?.(desc.id, asset);
+        } catch (e) {
+          console.warn(`Custom vehicle asset "${desc.id}" failed to load:`, e);
+        }
+      }
+      loaded++;
+      if (typeof onProgress === 'function') {
+        onProgress(loaded, total, desc.id);
       }
     }
-    loaded++;
-    if (typeof onProgress === 'function') {
-      onProgress(loaded, total, desc.id);
-    }
-  }
+  };
+
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
 }
 
 export async function prepareAllArenaWarmupAssets(

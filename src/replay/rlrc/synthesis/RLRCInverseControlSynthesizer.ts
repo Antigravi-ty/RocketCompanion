@@ -1,384 +1,335 @@
 /**
  * RLRCInverseControlSynthesizer.ts
- * Synthesizes 120Hz per-car control inputs (throttle, steer, pitch, yaw, roll,
- * jump, boost, handbrake) from adjacent 120Hz rigid-body states, boost reserves,
- * and replicated component flags for controller HUD display and takeover handoff.
+ * 120Hz timeline slot state-machine and Track 0 control packer for RLRC replays.
  */
 
+import {
+  CAR_STATE_OFFSETS,
+  CAR_STATE_STRIDE,
+  EXTENDED_STATE_OFFSETS,
+  SIM_OFFSETS,
+} from '../../../physics/RocketSimConstants.ts';
 import { packCarControlsToTrack64 } from '../../container/RCReplayBinarySchema.ts';
 import {
   RLRC_CONTROLS_BYTES_PER_FRAME,
   RLRC_FIXED_DT,
   RLRC_MAX_PLAYER_SLOTS,
   RLRC_STATE_BYTES_PER_FRAME,
+  RLRC_STATE_FLOATS_PER_FRAME,
   RLRC_TRACK0_FRAME_STRIDE_BYTES,
   type RLRCCarComponentActiveFlags,
   type RLRCCarFrameState120Hz,
   type RLRCFrame120Hz,
-  type RLRCQuat,
   type RLRCSynthesizedCarControls,
-  type RLRCVec3,
 } from '../RLRCReplayTypes.ts';
+import {
+  BOOST_ACCEL_AIR_UU,
+  clampUnit,
+  computeFrameKinematics,
+  distVec3,
+  GRAVITY_Z_UU,
+  inferBoostStateFromKinematics,
+  inferHandbrakeFromKinematics,
+  NEUTRAL_ACTIVE_FLAGS,
+  NEUTRAL_SYNTHESIZED_CONTROLS,
+  synthesizeCarControlsBetweenFrames,
+  type FrameKinematicsSample,
+  type RLRCControlSynthesisOptions,
+  type RLRCLocalCarBasis,
+} from './RLRCInverseControlKinematicsPipeline.ts';
 
-export interface RLRCControlSynthesisOptions {
-  readonly dtSeconds?: number;
-  readonly preferReplicatedGroundControls?: boolean;
-  readonly smoothWindowRadius?: 0 | 1 | 2;
-  readonly deadzone?: number;
-}
+export type { RLRCControlSynthesisOptions, RLRCLocalCarBasis };
 
-export interface RLRCLocalCarBasis {
-  readonly forward: RLRCVec3;
-  readonly right: RLRCVec3;
-  readonly up: RLRCVec3;
-}
+const JUMP_MIN_HOLD = 3;
+const JUMP_MAX_HOLD = 24;
+const DJ_PULSE_FRAMES = 18;
+const DODGE_MAX_FRAMES = 78;
+const DODGE_MIN_FRAMES = 18;
+const SECOND_JUMP_BTN_FRAMES = 6;
+const FLIP_EXPIRY_SEC = 1.25;
+const MAX_PACKED_SLOTS = 8;
 
-const GRAVITY_Z_UU = -650.0;
-const BOOST_ACCEL_GROUND_UU = 991.666;
-const BOOST_ACCEL_AIR_UU = 1058.333;
-const THROTTLE_AIR_ACCEL_UU = 66.667;
-const BRAKE_DECEL_GROUND_UU = 3500.0;
-const COAST_DECEL_GROUND_UU = 525.0;
-
-const AERIAL_TORQUE_ROLL = -36.07956616966136;
-const AERIAL_TORQUE_PITCH = -12.1459978190807;
-const AERIAL_TORQUE_YAW = 8.91962804287785;
-
-const AERIAL_DAMPING_ROLL = -4.47166302201591;
-const AERIAL_DAMPING_PITCH = -2.798194258050845;
-const AERIAL_DAMPING_YAW = -1.886491900437232;
-
-const MAX_PACKED_CAR_SLOTS = 8;
-
-export const NEUTRAL_SYNTHESIZED_CONTROLS: RLRCSynthesizedCarControls = Object.freeze({
-  throttle: 0,
-  steer: 0,
-  pitch: 0,
-  yaw: 0,
-  roll: 0,
-  jump: false,
-  boost: false,
-  handbrake: false,
-});
-
-function clampUnit(v: number): number {
-  if (!Number.isFinite(v)) return 0;
-  return v <= -1 ? -1 : v >= 1 ? 1 : v;
-}
-
-function applyDeadzone(v: number, deadzone: number): number {
-  const c = clampUnit(v);
-  return Math.abs(c) < deadzone ? 0 : c;
-}
-
-function dotVec3(a: RLRCVec3, b: RLRCVec3): number {
-  return a.x * b.x + a.y * b.y + a.z * b.z;
-}
-
-export function decodeReplicatedThrottleByte(byteValue: number | null | undefined): number {
-  if (typeof byteValue !== 'number' || !Number.isFinite(byteValue)) return 0;
-  const b = Math.max(0, Math.min(255, Math.round(byteValue)));
-  return b === 128 ? 0 : clampUnit((b - 128) / 127);
-}
-
-export function decodeReplicatedSteerByte(byteValue: number | null | undefined): number {
-  if (typeof byteValue !== 'number' || !Number.isFinite(byteValue)) return 0;
-  const b = Math.max(0, Math.min(255, Math.round(byteValue)));
-  return b === 128 ? 0 : clampUnit((b - 128) / 127);
-}
-
-export function decodeReplicatedActiveFlagByte(byteValue: number | null | undefined): boolean {
-  if (typeof byteValue !== 'number' || !Number.isFinite(byteValue)) return false;
-  return (Math.trunc(byteValue) & 1) === 1;
-}
-
-export function computeLocalCarBasisFromQuat(rotation: RLRCQuat): RLRCLocalCarBasis {
-  const { x, y, z, w } = rotation;
-  const xx = x * x, yy = y * y, zz = z * z;
-  const xy = x * y, xz = x * z, yz = y * z;
-  const wx = w * x, wy = w * y, wz = w * z;
-  return {
-    forward: { x: 1 - 2 * (yy + zz), y: 2 * (xy + wz), z: 2 * (xz - wy) },
-    right: { x: 2 * (xy - wz), y: 1 - 2 * (xx + zz), z: 2 * (yz + wx) },
-    up: { x: 2 * (xz + wy), y: 2 * (yz - wx), z: 1 - 2 * (xx + yy) },
-  };
-}
-
-export function evaluateGroundThrottleMaxAccel(forwardSpeedAbs: number): number {
-  const s = Math.max(0, forwardSpeedAbs);
-  if (s >= 1410) return 0;
-  if (s >= 1400) return 160 * (1 - (s - 1400) / 10);
-  return 1600 - (1440 * s) / 1400;
-}
-
-export function evaluateGroundSteerCurvature(speedAbs: number): number {
-  const s = Math.max(0, speedAbs);
-  if (s < 500) return 0.0069 - (s / 500) * (0.0069 - 0.00398);
-  if (s < 1000) return 0.00398 - ((s - 500) / 500) * (0.00398 - 0.00235);
-  if (s < 1500) return 0.00235 - ((s - 1000) / 500) * (0.00235 - 0.001375);
-  if (s < 1750) return 0.001375 - ((s - 1500) / 250) * (0.001375 - 0.0011);
-  if (s < 3000) return 0.0011 - ((s - 1750) / 1250) * (0.0011 - 0.00088);
-  return 0.00088;
-}
-
-function solveAerialAxisWithDamping(
-  angularAccel: number,
-  angularVel: number,
-  torqueScale: number,
-  dampingScale: number
-): number {
-  const netTorque = angularAccel - dampingScale * angularVel;
-  const rawControl = netTorque / torqueScale;
-  const sign = rawControl >= 0 ? 1 : -1;
-  const denom = torqueScale - sign * dampingScale * angularVel;
-  if (Math.abs(denom) < Math.abs(torqueScale) * 0.35) return clampUnit(rawControl);
-  return clampUnit(netTorque / denom);
-}
-
-function inferBoostState(
-  prevCar: RLRCCarFrameState120Hz | null,
-  currCar: RLRCCarFrameState120Hz,
-  nonGravityForwardAccel: number,
-  dt: number
-): boolean {
-  if (currCar.activeFlags.boostActive || currCar.controls.boost) return true;
-  if (prevCar && prevCar.entityActive && currCar.boostAmount > 0) {
-    const dropRate = (prevCar.boostAmount - currCar.boostAmount) / Math.max(dt, 1e-4);
-    if (dropRate > 8.0) return true;
+function debounceTrack(
+  flags: boolean[],
+  act: readonly boolean[],
+  explicitPulse: readonly boolean[],
+  maxGap = 2,
+  minRun = 1
+): void {
+  const n = flags.length;
+  for (let i = 1; i + 1 < n; i++) {
+    if (!act[i]) continue;
+    if (!flags[i] && flags[i - 1] && flags[i + 1]) flags[i] = true;
+    else if (maxGap >= 2 && i + 2 < n && !flags[i] && !flags[i + 1] && flags[i - 1] && flags[i + 2] && act[i + 1]) {
+      flags[i] = true;
+      flags[i + 1] = true;
+    }
   }
-  return !currCar.isOnGround && currCar.boostAmount > 0.5 && nonGravityForwardAccel > 520;
-}
-
-function inferJumpState(
-  prevCar: RLRCCarFrameState120Hz | null,
-  currCar: RLRCCarFrameState120Hz,
-  localUpVel: number,
-  nonGravityUpAccel: number
-): boolean {
-  const flags: RLRCCarComponentActiveFlags = currCar.activeFlags;
-  if (flags.jumpActive || flags.doubleJumpActive || flags.dodgeActive || currCar.controls.jump) {
-    return true;
+  if (minRun <= 1) {
+    for (let i = 1; i + 1 < n; i++) {
+      if (flags[i] && !flags[i - 1] && !flags[i + 1] && !explicitPulse[i]) flags[i] = false;
+    }
+    return;
   }
-  if (!prevCar || !prevCar.entityActive) return false;
-  if (prevCar.isOnGround && !currCar.isOnGround && localUpVel > 180) return true;
-  return !currCar.isOnGround && nonGravityUpAccel > 900 && currCar.airTimeSinceJump < 0.25;
+  let f = 0;
+  while (f < n) {
+    if (!flags[f]) { f++; continue; }
+    let end = f, hasExplicit = false;
+    while (end < n && flags[end]) {
+      if (explicitPulse[end]) hasExplicit = true;
+      end++;
+    }
+    if (!hasExplicit && end - f < minRun) {
+      for (let k = f; k < end; k++) flags[k] = false;
+    }
+    f = end;
+  }
 }
 
-/**
- * Synthesizes a single car's control state at `currCar` using kinematics differences
- * from `prevCar` (and optional `nextCar` for centered differences).
- */
-export function synthesizeCarControlsBetweenFrames(
-  prevCar: RLRCCarFrameState120Hz | null | undefined,
-  currCar: RLRCCarFrameState120Hz,
-  nextCar?: RLRCCarFrameState120Hz | null,
-  options?: RLRCControlSynthesisOptions
-): RLRCSynthesizedCarControls {
-  if (!currCar.entityActive) return NEUTRAL_SYNTHESIZED_CONTROLS;
-
+function synthesizeSlotTimeline120Hz(frames: readonly RLRCFrame120Hz[], slot: number, options?: RLRCControlSynthesisOptions) {
+  const n = frames.length;
   const dt = Math.max(1e-4, options?.dtSeconds ?? RLRC_FIXED_DT);
-  const preferReplicated = options?.preferReplicatedGroundControls ?? true;
-  const deadzone = options?.deadzone ?? 0.04;
+  const radius: 0 | 1 | 2 = options?.smoothWindowRadius ?? 1;
 
-  const refStart = prevCar && prevCar.entityActive ? prevCar : currCar;
-  const refEnd = nextCar && nextCar.entityActive ? nextCar : currCar;
-  const spanTicks =
-    (prevCar && prevCar.entityActive ? 1 : 0) + (nextCar && nextCar.entityActive ? 1 : 0);
-  const invSpanDt = spanTicks > 0 ? 1 / (spanTicks * dt) : 0;
+  const act = new Array<boolean>(n).fill(false);
+  const kins = new Array<FrameKinematicsSample | null>(n).fill(null);
+  const baseCtrl = new Array<RLRCSynthesizedCarControls>(n).fill(NEUTRAL_SYNTHESIZED_CONTROLS);
+  const boostTrk = new Array<boolean>(n).fill(false);
+  const repBoost = new Array<boolean>(n).fill(false);
+  const hbTrk = new Array<boolean>(n).fill(false);
+  const repHb = new Array<boolean>(n).fill(false);
 
-  const basis = computeLocalCarBasisFromQuat(currCar.rigidBody.rotation);
-  const linVel = currCar.rigidBody.linearVelocity;
-  const angVel = currCar.rigidBody.angularVelocity;
+  let sinceLand = 999;
+  for (let f = 0; f < n; f++) {
+    const cur = frames[f].cars[slot];
+    if (!cur || !cur.entityActive) { sinceLand = 999; continue; }
+    const prv = f > 0 ? frames[f - 1].cars[slot] : null;
+    const nxt = f + 1 < n ? frames[f + 1].cars[slot] : null;
+    act[f] = true;
 
-  const linAccel: RLRCVec3 = {
-    x: (refEnd.rigidBody.linearVelocity.x - refStart.rigidBody.linearVelocity.x) * invSpanDt,
-    y: (refEnd.rigidBody.linearVelocity.y - refStart.rigidBody.linearVelocity.y) * invSpanDt,
-    z: (refEnd.rigidBody.linearVelocity.z - refStart.rigidBody.linearVelocity.z) * invSpanDt,
-  };
-  const angAccel: RLRCVec3 = {
-    x: (refEnd.rigidBody.angularVelocity.x - refStart.rigidBody.angularVelocity.x) * invSpanDt,
-    y: (refEnd.rigidBody.angularVelocity.y - refStart.rigidBody.angularVelocity.y) * invSpanDt,
-    z: (refEnd.rigidBody.angularVelocity.z - refStart.rigidBody.angularVelocity.z) * invSpanDt,
-  };
+    const kin = computeFrameKinematics(prv, cur, nxt, dt);
+    kins[f] = kin;
+    if (kin.teleported) sinceLand = 999;
+    else if (cur.isOnGround) sinceLand = prv?.entityActive && !prv.isOnGround ? 0 : sinceLand + 1;
+    else sinceLand = 999;
 
-  const localForwardVel = dotVec3(linVel, basis.forward);
-  const localRightVel = dotVec3(linVel, basis.right);
-  const localUpVel = dotVec3(linVel, basis.up);
+    const ctrl = synthesizeCarControlsBetweenFrames(prv, cur, nxt, options);
+    baseCtrl[f] = ctrl;
 
-  const nonGravityForwardAccel = dotVec3(linAccel, basis.forward) - GRAVITY_Z_UU * basis.forward.z;
-  const nonGravityUpAccel = dotVec3(linAccel, basis.up) - GRAVITY_Z_UU * basis.up.z;
+    let boostOn = inferBoostStateFromKinematics(prv, cur, nxt, kin, dt);
+    const f0 = Math.max(0, f - 2), f1 = Math.min(n - 1, f + 2);
+    const c0 = frames[f0].cars[slot], c1 = frames[f1].cars[slot];
+    const drainRate = c0?.entityActive && c1?.entityActive && f1 > f0 ? (c0.boostAmount - c1.boostAmount) / ((f1 - f0) * dt) : 0;
+    const hasExplicitOrDrain =
+      Boolean(cur.activeFlags.boostActive && cur.boostAmount > 0.05) ||
+      (drainRate >= 8.5 && drainRate <= 120.0 && c0.boostAmount - c1.boostAmount <= 12.0);
 
-  const omegaRoll = dotVec3(angVel, basis.forward);
-  const omegaPitch = dotVec3(angVel, basis.right);
-  const omegaYaw = dotVec3(angVel, basis.up);
-
-  const alphaRoll = dotVec3(angAccel, basis.forward);
-  const alphaPitch = dotVec3(angAccel, basis.right);
-  const alphaYaw = dotVec3(angAccel, basis.up);
-
-  const boost = inferBoostState(prevCar ?? null, currCar, nonGravityForwardAccel, dt);
-  const jump = inferJumpState(prevCar ?? null, currCar, localUpVel, nonGravityUpAccel);
-
-  let throttle = 0, steer = 0, pitch = 0, yaw = 0, roll = 0;
-  let handbrake = Boolean(currCar.controls.handbrake);
-
-  if (currCar.isOnGround) {
-    const netDriveAccel = nonGravityForwardAccel - (boost ? BOOST_ACCEL_GROUND_UU : 0);
-    const hasRepThrottle = preferReplicated && Math.abs(currCar.controls.throttle) > 0.01;
-    const hasRepSteer = preferReplicated && Math.abs(currCar.controls.steer) > 0.01;
-
-    if (hasRepThrottle) {
-      throttle = clampUnit(currCar.controls.throttle);
-    } else if (boost) {
-      throttle = 1;
-    } else if (
-      Math.abs(localForwardVel) > 40 &&
-      localForwardVel * netDriveAccel < 0 &&
-      Math.abs(netDriveAccel) > COAST_DECEL_GROUND_UU * 1.65
-    ) {
-      throttle = -Math.sign(localForwardVel) * Math.min(1, Math.abs(netDriveAccel) / BRAKE_DECEL_GROUND_UU);
-    } else {
-      const maxDriveAccel = evaluateGroundThrottleMaxAccel(Math.abs(localForwardVel));
-      if (maxDriveAccel > 60) {
-        throttle = applyDeadzone(netDriveAccel / maxDriveAccel, deadzone);
-      } else if (Math.abs(localForwardVel) > 1380 && netDriveAccel > -200) {
-        throttle = Math.sign(localForwardVel);
+    if (boostOn && cur.activeFlags.boostActive && cur.boostAmount < 99.5) {
+      const lo = Math.max(0, f - 18), hi = Math.min(n - 1, f + 18);
+      const cLo = frames[lo].cars[slot], cHi = frames[hi].cars[slot];
+      if (hi - lo >= 24 && cLo?.entityActive && cHi?.entityActive && Math.abs(cLo.boostAmount - cHi.boostAmount) < 0.05 && kin.nonGravityForwardAccel < 220) {
+        boostOn = false;
       }
     }
-
-    const planarSpeed = Math.hypot(localForwardVel, localRightVel);
-    if (hasRepSteer) {
-      steer = clampUnit(currCar.controls.steer);
-    } else if (Math.abs(localForwardVel) > 25) {
-      const curvature = evaluateGroundSteerCurvature(planarSpeed);
-      const expectedMaxYawRate = Math.max(0.15, curvature * Math.abs(localForwardVel));
-      const directionSign = localForwardVel >= 0 ? 1 : -1;
-      steer = applyDeadzone((omegaYaw * directionSign) / expectedMaxYawRate, deadzone);
-    }
-
-    if (!handbrake && planarSpeed > 220) {
-      const slipRatio = Math.abs(localRightVel) / planarSpeed;
-      if (slipRatio > 0.28 && (Math.abs(omegaYaw) > 1.15 || Math.abs(localRightVel) > 200)) {
-        handbrake = true;
-      }
-    }
-  } else {
-    pitch = applyDeadzone(
-      solveAerialAxisWithDamping(alphaPitch, omegaPitch, AERIAL_TORQUE_PITCH, AERIAL_DAMPING_PITCH),
-      deadzone
-    );
-    yaw = applyDeadzone(
-      solveAerialAxisWithDamping(alphaYaw, omegaYaw, AERIAL_TORQUE_YAW, AERIAL_DAMPING_YAW),
-      deadzone
-    );
-    roll = applyDeadzone(
-      solveAerialAxisWithDamping(alphaRoll, omegaRoll, AERIAL_TORQUE_ROLL, AERIAL_DAMPING_ROLL),
-      deadzone
-    );
-
-    if (preferReplicated && Math.abs(currCar.controls.throttle) > 0.01) {
-      throttle = clampUnit(currCar.controls.throttle);
-    } else if (boost) {
-      throttle = 1;
-    } else {
-      const airDriveAccel = nonGravityForwardAccel - (boost ? BOOST_ACCEL_AIR_UU : 0);
-      throttle = applyDeadzone(airDriveAccel / THROTTLE_AIR_ACCEL_UU, 0.15);
-    }
-
-    steer =
-      preferReplicated && Math.abs(currCar.controls.steer) > 0.01
-        ? clampUnit(currCar.controls.steer)
-        : yaw;
+    boostTrk[f] = boostOn;
+    repBoost[f] = hasExplicitOrDrain;
+    hbTrk[f] = inferHandbrakeFromKinematics(prv, cur, kin, ctrl.roll, sinceLand);
+    repHb[f] = Boolean(cur.controls.handbrake);
   }
 
-  return { throttle, steer, pitch, yaw, roll, jump, boost, handbrake };
-}
+  debounceTrack(boostTrk, act, repBoost, 2, 5);
+  debounceTrack(hbTrk, act, repHb, 2, 2);
 
-function smoothSlotControlsWindow(
-  rawByFrame: readonly RLRCSynthesizedCarControls[],
-  activeByFrame: readonly boolean[],
-  radius: 0 | 1 | 2
-): RLRCSynthesizedCarControls[] {
-  if (radius === 0 || rawByFrame.length <= 2) return [...rawByFrame];
-  const count = rawByFrame.length;
-  const result: RLRCSynthesizedCarControls[] = new Array(count);
+  const jmpTrk = new Array<boolean>(n).fill(false);
+  const djTrk = new Array<boolean>(n).fill(false);
+  const dgTrk = new Array<boolean>(n).fill(false);
+  const jmpBtn = new Array<boolean>(n).fill(false);
+  const flipTrk = new Array<boolean>(n).fill(false);
+  const airTrk = new Array<number>(n).fill(0);
 
-  for (let i = 0; i < count; i++) {
-    if (!activeByFrame[i]) {
-      result[i] = NEUTRAL_SYNTHESIZED_CONTROLS;
+  let gndStreak = 0, jL = false, djL = false, dgL = false;
+  let jRem = 0, jTot = 0, djRem = 0, dgRem = 0, dgElap = 0, b2Rem = 0;
+  let used2 = false, airF = 0, jmpGnd = false;
+
+  for (let f = 0; f < n; f++) {
+    const cur = frames[f].cars[slot], kin = kins[f];
+    if (!cur || !cur.entityActive || !kin) {
+      gndStreak = 0; jL = djL = dgL = false;
+      jRem = jTot = djRem = dgRem = dgElap = b2Rem = 0;
+      used2 = jmpGnd = false; airF = 0;
       continue;
     }
-    let sThr = 0, sStr = 0, sPit = 0, sYaw = 0, sRol = 0, wSum = 0;
+    if (kin.teleported || frames[f].roundCountdownNumber > 0) {
+      jRem = jTot = djRem = dgRem = dgElap = b2Rem = 0;
+      used2 = jmpGnd = false; airF = 0;
+    }
+
+    const rf = cur.activeFlags;
+    if (!rf.jumpActive) jL = false;
+    if (!rf.doubleJumpActive) djL = false;
+    if (!rf.dodgeActive) dgL = false;
+
+    const jRise = rf.jumpActive && !jL, djRise = rf.doubleJumpActive && !djL, dgRise = rf.dodgeActive && !dgL;
+    const prv = f > 0 ? frames[f - 1].cars[slot] : null;
+    const wasGnd = Boolean(prv?.entityActive && prv.isOnGround);
+
+    if (cur.isOnGround) {
+      gndStreak = rf.jumpActive ? gndStreak + 1 : 0;
+      djRem = dgRem = dgElap = b2Rem = 0;
+      used2 = jmpGnd = false; airF = 0;
+
+      let lifts = false;
+      for (let k = 1; k <= 4 && f + k < n; k++) {
+        const fc = frames[f + k].cars[slot], fk = kins[f + k];
+        if (!fc?.entityActive || !fk || fk.teleported) break;
+        if (!fc.isOnGround && (fk.localUpVel > 130 || fk.nonGravityUpAccel > 500)) { lifts = true; break; }
+      }
+      if (jRise && lifts && kin.basis.up.z > 0.25) {
+        jL = true; jRem = JUMP_MAX_HOLD; jTot = 1; jmpGnd = true; jmpTrk[f] = jmpBtn[f] = true;
+      } else if (jRem > 0 && jTot <= 3 && lifts) {
+        jRem--; jTot++; jmpTrk[f] = jmpBtn[f] = true;
+      } else {
+        jRem = jTot = 0;
+        if (gndStreak > 6 && rf.jumpActive) jL = true;
+      }
+      flipTrk[f] = true; airTrk[f] = 0;
+      continue;
+    }
+
+    airF++;
+    const airSec = airF * dt;
+    if (wasGnd && jTot === 0) {
+      let pkUp = kin.localUpVel;
+      for (let k = 1; k <= 4 && f + k < n; k++) {
+        const fk = kins[f + k], fc = frames[f + k].cars[slot];
+        if (!fc?.entityActive || !fk || fk.teleported || fc.isOnGround) break;
+        if (fk.localUpVel > pkUp) pkUp = fk.localUpVel;
+      }
+      if ((rf.jumpActive && gndStreak <= 6) || (kin.basis.up.z > 0.25 && pkUp > 145 && (kin.localUpVel > 110 || kin.nonGravityUpAccel > 520))) {
+        jL = rf.jumpActive; jRem = JUMP_MAX_HOLD; jTot = 0; jmpGnd = true;
+      }
+    } else if (jRise && airF <= 8 && jTot === 0 && !used2) {
+      jL = true; jRem = Math.max(JUMP_MIN_HOLD, JUMP_MAX_HOLD - airF); jTot = 0; jmpGnd = true;
+    }
+
+    const ball = frames[f].ball;
+    const nearBall = ball.entityActive && distVec3(cur.rigidBody.position, ball.rigidBody.position) < 205;
+    const inWin = !jmpGnd || airSec <= FLIP_EXPIRY_SEC + Math.min(0.2, jTot * dt) + 0.05;
+
+    let trigDg = false, trigDj = false;
+    if (airF >= 3 && dgRem === 0 && djRem === 0) {
+      if (dgRise) { trigDg = dgL = true; }
+      else if (djRise) { trigDj = djL = true; }
+      else if (!used2 && inWin && !nearBall) {
+        let pkOmg = kin.flipOmegaMag, sumOmg = 0, cnt = 0;
+        for (let k = 1; k <= 8 && f + k < n; k++) {
+          const fc = frames[f + k].cars[slot], fk = kins[f + k];
+          if (!fc?.entityActive || !fk || fk.teleported || fc.isOnGround) break;
+          if (fk.flipOmegaMag > pkOmg) pkOmg = fk.flipOmegaMag;
+          sumOmg += fk.flipOmegaMag; cnt++;
+        }
+        const meanOmg = cnt > 0 ? sumOmg / cnt : kin.flipOmegaMag;
+        const prvVz = prv?.entityActive ? prv.rigidBody.linearVelocity.z : 0;
+        const vzDamp = Math.abs(prvVz) > 130 && Math.abs(cur.rigidBody.linearVelocity.z) < Math.abs(prvVz) * 0.82;
+
+        if (airF >= 4 && kin.angAccelMag > 18.0 && pkOmg >= 3.7 && meanOmg >= 2.6 && (kin.planarAccelMag > 1350 || vzDamp || kin.angAccelMag > 26.0)) {
+          trigDg = true; dgL = rf.dodgeActive;
+        } else if (airF >= 5 && jRem <= 16) {
+          const bstUp = boostTrk[f] ? BOOST_ACCEL_AIR_UU * Math.max(0, kin.basis.forward.z) : 0;
+          const netUp = kin.nonGravityUpAccel - bstUp;
+          const fP = Math.max(0, f - 1), fN = Math.min(n - 1, f + 3);
+          const kP = kins[fP], kN = kins[fN], spSec = Math.max(dt, (fN - fP) * dt);
+          const upGain = kP && kN ? kN.localUpVel - kP.localUpVel - (GRAVITY_Z_UU * kin.basis.up.z + bstUp) * spSec : 0;
+          if (netUp > 1050 && upGain > 155 && pkOmg < 3.4) { trigDj = true; djL = rf.doubleJumpActive; }
+        }
+      }
+    }
+
+    if (trigDg) {
+      jRem = 0; dgRem = DODGE_MAX_FRAMES; dgElap = 0; b2Rem = SECOND_JUMP_BTN_FRAMES; used2 = true;
+      if (f > 0) jmpBtn[f - 1] = false;
+    } else if (trigDj) {
+      jRem = 0; djRem = DJ_PULSE_FRAMES; b2Rem = SECOND_JUMP_BTN_FRAMES; used2 = true;
+      if (f > 0) jmpBtn[f - 1] = false;
+    }
+
+    if (dgRem > 0) {
+      dgElap++; dgRem--; dgTrk[f] = true;
+      if (!repBoost[f]) boostTrk[f] = false;
+      if (dgElap >= DODGE_MIN_FRAMES && kin.flipOmegaMag < 1.0 && !rf.dodgeActive) dgRem = 0;
+    } else if (djRem > 0) {
+      djRem--; djTrk[f] = true;
+    } else if (jRem > 0) {
+      jTot++; jRem--;
+      const netUpHold = kin.nonGravityUpAccel - (boostTrk[f] ? BOOST_ACCEL_AIR_UU * Math.max(0, kin.basis.forward.z) : 0);
+      if (jTot <= JUMP_MIN_HOLD || (rf.jumpActive && gndStreak <= 6) || netUpHold > 450) jmpTrk[f] = jmpBtn[f] = true;
+      else jRem = 0;
+    }
+
+    if (b2Rem > 0) { b2Rem--; jmpBtn[f] = true; }
+    airTrk[f] = Math.min(FLIP_EXPIRY_SEC, airSec);
+    flipTrk[f] = !used2 && inWin;
+  }
+
+  debounceTrack(boostTrk, act, repBoost, 2, 5);
+  for (let f = 0; f < n; f++) {
+    if (!act[f]) continue;
+    const c = baseCtrl[f];
+    baseCtrl[f] = { throttle: c.throttle, steer: c.steer, pitch: c.pitch, yaw: c.yaw, roll: c.roll, jump: jmpBtn[f], boost: boostTrk[f], handbrake: hbTrk[f] };
+  }
+
+  const controls = smoothControlsWindow(baseCtrl, act, radius);
+  const activeFlags: RLRCCarComponentActiveFlags[] = new Array(n);
+  for (let f = 0; f < n; f++) {
+    activeFlags[f] = !act[f]
+      ? NEUTRAL_ACTIVE_FLAGS
+      : { boostActive: boostTrk[f], jumpActive: jmpTrk[f], doubleJumpActive: djTrk[f], dodgeActive: dgTrk[f] };
+  }
+  return { controls, activeFlags, hasFlipOrJump: flipTrk, airTimeSinceJump: airTrk };
+}
+
+function smoothControlsWindow(
+  raw: readonly RLRCSynthesizedCarControls[],
+  act: readonly boolean[],
+  radius: 0 | 1 | 2
+): RLRCSynthesizedCarControls[] {
+  if (radius === 0 || raw.length <= 2) return [...raw];
+  const n = raw.length;
+  const out: RLRCSynthesizedCarControls[] = new Array(n);
+
+  for (let i = 0; i < n; i++) {
+    if (!act[i]) { out[i] = NEUTRAL_SYNTHESIZED_CONTROLS; continue; }
+    let sT = 0, sS = 0, sP = 0, sY = 0, sR = 0, wSum = 0;
     for (let d = -radius; d <= radius; d++) {
       const idx = i + d;
-      if (idx < 0 || idx >= count || !activeByFrame[idx]) continue;
-      const w = radius + 1 - Math.abs(d);
-      const c = rawByFrame[idx];
-      sThr += c.throttle * w;
-      sStr += c.steer * w;
-      sPit += c.pitch * w;
-      sYaw += c.yaw * w;
-      sRol += c.roll * w;
-      wSum += w;
+      if (idx < 0 || idx >= n || !act[idx]) continue;
+      const w = radius + 1 - Math.abs(d), c = raw[idx];
+      sT += c.throttle * w; sS += c.steer * w; sP += c.pitch * w; sY += c.yaw * w; sR += c.roll * w; wSum += w;
     }
-    const base = rawByFrame[i];
-    result[i] =
-      wSum <= 0
-        ? base
-        : {
-            throttle: clampUnit(sThr / wSum),
-            steer: clampUnit(sStr / wSum),
-            pitch: clampUnit(sPit / wSum),
-            yaw: clampUnit(sYaw / wSum),
-            roll: clampUnit(sRol / wSum),
-            jump: base.jump,
-            boost: base.boost,
-            handbrake: base.handbrake,
-          };
+    const b = raw[i];
+    out[i] = wSum <= 0 ? b : {
+      throttle: clampUnit(sT / wSum), steer: clampUnit(sS / wSum), pitch: clampUnit(sP / wSum),
+      yaw: clampUnit(sY / wSum), roll: clampUnit(sR / wSum), jump: b.jump, boost: b.boost, handbrake: b.handbrake,
+    };
   }
-  return result;
+  return out;
 }
 
 export function synthesizeControlsForTimeline120Hz(
   frames: readonly RLRCFrame120Hz[],
   options?: RLRCControlSynthesisOptions
 ): RLRCFrame120Hz[] {
-  const frameCount = frames.length;
-  if (frameCount === 0) return [];
-
-  const smoothRadius: 0 | 1 | 2 = options?.smoothWindowRadius ?? 1;
-  const synthesizedBySlot: RLRCSynthesizedCarControls[][] = Array.from(
-    { length: RLRC_MAX_PLAYER_SLOTS },
-    () => new Array<RLRCSynthesizedCarControls>(frameCount).fill(NEUTRAL_SYNTHESIZED_CONTROLS)
-  );
-  const activeBySlot: boolean[][] = Array.from(
-    { length: RLRC_MAX_PLAYER_SLOTS },
-    () => new Array<boolean>(frameCount).fill(false)
-  );
-
-  for (let slot = 0; slot < RLRC_MAX_PLAYER_SLOTS; slot++) {
-    for (let f = 0; f < frameCount; f++) {
-      const currCar = frames[f].cars[slot];
-      if (!currCar || !currCar.entityActive) continue;
-      const prevCar = f > 0 ? frames[f - 1].cars[slot] : null;
-      const nextCar = f + 1 < frameCount ? frames[f + 1].cars[slot] : null;
-      activeBySlot[slot][f] = true;
-      synthesizedBySlot[slot][f] = synthesizeCarControlsBetweenFrames(prevCar, currCar, nextCar, options);
-    }
-    synthesizedBySlot[slot] = smoothSlotControlsWindow(
-      synthesizedBySlot[slot],
-      activeBySlot[slot],
-      smoothRadius
-    );
-  }
-
-  return frames.map((srcFrame, f) => ({
-    ...srcFrame,
-    cars: srcFrame.cars.map((car, idx) => {
-      const slot = car.slotIndex >= 0 && car.slotIndex < RLRC_MAX_PLAYER_SLOTS ? car.slotIndex : idx;
-      const controls =
-        slot >= 0 && slot < RLRC_MAX_PLAYER_SLOTS ? synthesizedBySlot[slot][f] : NEUTRAL_SYNTHESIZED_CONTROLS;
-      return { ...car, controls };
+  if (!frames.length) return [];
+  const tls = Array.from({ length: RLRC_MAX_PLAYER_SLOTS }, (_, s) => synthesizeSlotTimeline120Hz(frames, s, options));
+  return frames.map((fr, f) => ({
+    ...fr,
+    cars: fr.cars.map((car, i) => {
+      const s = car.slotIndex >= 0 && car.slotIndex < RLRC_MAX_PLAYER_SLOTS ? car.slotIndex : i;
+      if (!car.entityActive || s < 0 || s >= RLRC_MAX_PLAYER_SLOTS) {
+        return { ...car, activeFlags: NEUTRAL_ACTIVE_FLAGS, controls: NEUTRAL_SYNTHESIZED_CONTROLS };
+      }
+      const tl = tls[s];
+      return { ...car, hasFlipOrJump: tl.hasFlipOrJump[f], airTimeSinceJump: tl.airTimeSinceJump[f], activeFlags: tl.activeFlags[f], controls: tl.controls[f] };
     }),
   }));
 }
@@ -386,35 +337,47 @@ export function synthesizeControlsForTimeline120Hz(
 export function packRLRCFrameControlsTo64Bytes(
   cars: readonly RLRCCarFrameState120Hz[],
   targetU8?: Uint8Array,
-  byteOffset = 0
+  off = 0
 ): Uint8Array {
   const out =
-    targetU8 && targetU8.byteLength >= byteOffset + RLRC_CONTROLS_BYTES_PER_FRAME
-      ? targetU8.subarray(byteOffset, byteOffset + RLRC_CONTROLS_BYTES_PER_FRAME)
+    targetU8 && targetU8.byteLength >= off + RLRC_CONTROLS_BYTES_PER_FRAME
+      ? targetU8.subarray(off, off + RLRC_CONTROLS_BYTES_PER_FRAME)
       : new Uint8Array(RLRC_CONTROLS_BYTES_PER_FRAME);
-
   out.fill(0);
   for (let i = 0; i < cars.length; i++) {
     const car = cars[i];
-    if (!car || !car.entityActive) continue;
-    const carIndex = car.slotIndex >= 0 && car.slotIndex < MAX_PACKED_CAR_SLOTS ? car.slotIndex : i;
-    if (carIndex >= 0 && carIndex < MAX_PACKED_CAR_SLOTS) {
-      packCarControlsToTrack64(out, carIndex, { ...car.controls });
-    }
+    if (!car?.entityActive) continue;
+    const idx = car.slotIndex >= 0 && car.slotIndex < MAX_PACKED_SLOTS ? car.slotIndex : i;
+    if (idx >= 0 && idx < MAX_PACKED_SLOTS) packCarControlsToTrack64(out, idx, { ...car.controls });
   }
   return out;
 }
 
 export function writeSynthesizedControlsToTrack0Buffer(
   frames: readonly RLRCFrame120Hz[],
-  stateInputTrackBytes: Uint8Array
+  trackBytes: Uint8Array
 ): void {
-  const maxFrames = Math.min(
-    frames.length,
-    Math.floor(stateInputTrackBytes.byteLength / RLRC_TRACK0_FRAME_STRIDE_BYTES)
-  );
-  for (let f = 0; f < maxFrames; f++) {
-    const controlOffset = f * RLRC_TRACK0_FRAME_STRIDE_BYTES + RLRC_STATE_BYTES_PER_FRAME;
-    packRLRCFrameControlsTo64Bytes(frames[f].cars, stateInputTrackBytes, controlOffset);
+  const maxF = Math.min(frames.length, Math.floor(trackBytes.byteLength / RLRC_TRACK0_FRAME_STRIDE_BYTES));
+  const { CAR_JUMP_AIR_BASE: j0, CAR_JUMP_AIR_STRIDE: jS, CAR_IS_JUMPING_OFFSET: oJ, CAR_AIR_TIME_OFFSET: oDj, CAR_JUMP_TIME_OFFSET: oDg, CAR_AIR_TIME_SINCE_JUMP_OFFSET: oAt } = EXTENDED_STATE_OFFSETS;
+  const { HAS_FLIP_OR_JUMP: oFlp, IS_BOOSTING: oBst, IS_FLIPPING: oFl } = CAR_STATE_OFFSETS;
+  for (let f = 0; f < maxF; f++) {
+    const off = f * RLRC_TRACK0_FRAME_STRIDE_BYTES;
+    const dst = new Float32Array(trackBytes.buffer, trackBytes.byteOffset + off, RLRC_STATE_FLOATS_PER_FRAME);
+    const cars = frames[f].cars;
+    for (let i = 0; i < cars.length; i++) {
+      const car = cars[i];
+      if (!car) continue;
+      const slot = car.slotIndex >= 0 && car.slotIndex < RLRC_MAX_PLAYER_SLOTS ? car.slotIndex : i;
+      if (slot < 0 || slot >= RLRC_MAX_PLAYER_SLOTS) continue;
+      const cB = SIM_OFFSETS.CARS + slot * CAR_STATE_STRIDE, jB = j0 + slot * jS, act = car.entityActive, fl = car.activeFlags;
+      dst[cB + oFlp] = act && car.hasFlipOrJump ? 1 : 0;
+      dst[cB + oBst] = act && (fl.boostActive || car.controls.boost) ? 1 : 0;
+      dst[cB + oFl] = act && (fl.dodgeActive || fl.doubleJumpActive) ? 1 : 0;
+      dst[jB + oJ] = act && fl.jumpActive ? 1 : 0;
+      dst[jB + oDj] = act && fl.doubleJumpActive ? 1 : 0;
+      dst[jB + oDg] = act && fl.dodgeActive ? 1 : 0;
+      dst[jB + oAt] = act ? car.airTimeSinceJump : 0;
+    }
+    packRLRCFrameControlsTo64Bytes(cars, trackBytes, off + RLRC_STATE_BYTES_PER_FRAME);
   }
 }

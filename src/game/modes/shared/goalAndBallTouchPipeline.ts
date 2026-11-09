@@ -10,6 +10,8 @@ import {
   type ReplayCarEntryRuntimePort,
 } from '../../../replay/replayDirectorCarRosterPipeline.ts';
 import { decodeReplayDirectorTelemetryFromState } from '../../../replay/ReplayFrameInterpolator.ts';
+import { extractGoalReplayFrames } from '../../../replay/ReplayPlaybackState.ts';
+import type { ReplayRingBuffer, ReplayRingBufferSlot } from '../../../replay/ReplayRingBuffer.ts';
 import {
   beginGoalReplaySession,
   stepGoalReplaySessionFrame,
@@ -20,6 +22,7 @@ import {
 import type { GoalReplayCameraMode } from './goalReplayHudPipeline.ts';
 
 export const POST_GOAL_FREEZE_DELAY_TICKS = 30;
+export const EXPIRE_REPLAY_LOOKBACK_TICKS = 1200;
 export const UU_TO_KPH = 0.036;
 export const TOUCH_DIRECT_DISTANCE_UU = 168.0;
 export const TOUCH_IMPULSE_DISTANCE_UU = 198.0;
@@ -294,4 +297,63 @@ export async function resolveImportedDiagnosticPatternInput(
             fileName
           );
   return parsed && Array.isArray(parsed.activeFrames) && parsed.activeFrames.length > 0 ? parsed : null;
+}
+
+export function prepareFreeplayGoalReplaySessionData(params: {
+  runtime: GoalReplayRuntimePort | null | undefined;
+  ringBuffer: ReplayRingBuffer;
+  playerTeam: number;
+  isStandaloneReplayLoaded: boolean;
+  explicitCarEntries?: unknown[] | null;
+  incident: {
+    goalIncidentTick: number; lastTouchTick: number; lastKickoffStartTick: number;
+    scoringTeam?: number; scorerCarIndex: number; scorerName: string; ballSpeedKph: number | null;
+    replayType?: 'goal' | 'expire';
+  };
+  currentTick: number;
+  ballPosY?: number;
+}): {
+  scoringTeam: number; scorerCarIndex: number; scorerName: string; ballSpeedKph: number | null;
+  extractedFrames: Array<ReplayRingBufferSlot | ReturnType<typeof extractGoalReplayFrames>[number]>;
+  carEntries: NormalizedReplayDirectorCarEntry[];
+} | null {
+  const { runtime, ringBuffer, playerTeam, isStandaloneReplayLoaded, explicitCarEntries, incident, currentTick, ballPosY } = params;
+  const scoringTeam =
+    incident.scoringTeam === 0 || incident.scoringTeam === 1
+      ? incident.scoringTeam
+      : typeof ballPosY === 'number' && Math.abs(ballPosY) > 100
+        ? (ballPosY >= 0 ? 0 : 1)
+        : playerTeam;
+  const scorerCarIndex = incident.scorerCarIndex;
+  const scorerName = incident.scorerName || 'Player';
+  const goalTick = incident.goalIncidentTick > 0 ? incident.goalIncidentTick : currentTick;
+  const extractedFrames =
+    incident.replayType === 'expire'
+      ? ringBuffer.getFramesInTickRange(
+          Math.max(incident.lastKickoffStartTick, goalTick - EXPIRE_REPLAY_LOOKBACK_TICKS),
+          currentTick
+        )
+      : extractGoalReplayFrames({
+          ringBuffer, engine: null, goalIncidentTick: goalTick, scorerTouchTick: incident.lastTouchTick,
+          lookbackSeconds: 10.0, touchLookbackSeconds: 7.0, postGoalTicks: Math.max(0, currentTick - goalTick),
+          lastKickoffWillStartTick: incident.lastKickoffStartTick,
+        });
+  if (!Array.isArray(extractedFrames) || extractedFrames.length === 0) return null;
+
+  const resolvedPlayerTeam: 0 | 1 = playerTeam === 1 ? 1 : 0;
+  const fallbackCarName = incident.replayType === 'expire' ? 'Player' : scorerName;
+  const capturedEntries = captureRuntimeReplayCarEntries(runtime as unknown as ReplayCarEntryRuntimePort, {
+    frameBuffer: extractedFrames[0].snapshot,
+    explicitEntries: (explicitCarEntries as NormalizedReplayDirectorCarEntry[] | undefined) ?? undefined,
+    defaultTeam: resolvedPlayerTeam,
+  });
+  const carEntries = capturedEntries.map((c) =>
+    c.carIndex === scorerCarIndex
+      ? {
+          ...c, name: c.name || fallbackCarName, username: c.username || fallbackCarName,
+          team: isStandaloneReplayLoaded ? c.team : resolvedPlayerTeam,
+        }
+      : c
+  );
+  return { scoringTeam, scorerCarIndex, scorerName, ballSpeedKph: incident.ballSpeedKph, extractedFrames, carEntries };
 }

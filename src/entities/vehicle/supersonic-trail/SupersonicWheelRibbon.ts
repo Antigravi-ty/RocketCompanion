@@ -120,6 +120,64 @@ export class SupersonicWheelRibbon {
     this.foregroundMesh.visible = false;
   }
 
+  public hasActiveTrail(): boolean {
+    return (
+      this.activeSampleCount >= 2 &&
+      Boolean(this.samples[0]?.valid || this.samples[1]?.valid)
+    );
+  }
+
+  public seedFromStationaryVelocity(
+    x: number,
+    y: number,
+    z: number,
+    nx: number,
+    ny: number,
+    nz: number,
+    velX: number,
+    velY: number,
+    velZ: number,
+    cfg: SupersonicTrailConfig
+  ): void {
+    const speed = Math.hypot(velX, velY, velZ);
+    if (!cfg.enabled || speed < 100) return;
+
+    // Project velocity onto contact surface plane so seeded ribbon hugs the ground/wall
+    const vDotN = velX * nx + velY * ny + velZ * nz;
+    let tx = velX - nx * vDotN;
+    let ty = velY - ny * vDotN;
+    let tz = velZ - nz * vDotN;
+    const tLen = Math.hypot(tx, ty, tz);
+    if (tLen > 1e-3) {
+      tx /= tLen;
+      ty /= tLen;
+      tz /= tLen;
+    } else {
+      tx = velX / speed;
+      ty = velY / speed;
+      tz = velZ / speed;
+    }
+
+    this.activeSampleCount = 0;
+    const endTicks = Math.max(4, Math.min(60, Math.ceil(cfg.endAgeTicks + 4)));
+    const stepUuPerTick = speed / 120;
+    for (let age = endTicks; age >= 0; age--) {
+      const distBack = age * stepUuPerTick;
+      this._unshiftSample(
+        x - tx * distBack,
+        y - ty * distBack,
+        z - tz * distBack,
+        nx,
+        ny,
+        nz,
+        age,
+        true
+      );
+    }
+    this._unshiftSample(x, y, z, nx, ny, nz, 0, true);
+    this.lastSampleValid = true;
+  }
+
   /**
    * Advances sample ages by dtTicks and maintains a continuous Live Head (samples[0], age=0)
    * paired with committed historical knots (samples[1..]) so sub-tick interpolation at
@@ -142,6 +200,21 @@ export class SupersonicWheelRibbon {
     }
 
     if (!isEmitting && this.activeSampleCount === 0 && !this.lastSampleValid) {
+      return;
+    }
+
+    // When paused (dtTicks <= 0), preserve all committed sample ages so the trail does not vanish
+    if (dtTicks <= 0) {
+      if (isEmitting && this.lastSampleValid && this.activeSampleCount > 0 && this.samples[0].valid) {
+        const liveHead = this.samples[0];
+        liveHead.x = x;
+        liveHead.y = y;
+        liveHead.z = z;
+        liveHead.nx = nx;
+        liveHead.ny = ny;
+        liveHead.nz = nz;
+        liveHead.ageTicks = 0;
+      }
       return;
     }
 

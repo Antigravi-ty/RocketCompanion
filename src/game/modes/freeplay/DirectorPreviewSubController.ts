@@ -3,33 +3,18 @@ import type { ReplayRingBuffer } from '../../../replay/ReplayRingBuffer.ts';
 import type { ReplayTimelineController } from '../../../replay/ReplayTimelineController.ts';
 import type { NormalizedReplayDirectorCarEntry } from '../../../replay/replayDirectorCarRosterPipeline.ts';
 import {
-  getActiveReplayTimelineController,
-  setActiveReplayTimelineController,
-  registerReplayDirectorPreviewHandlers,
-  getNameTagRuntimeState,
-  setNameTagRuntimeState,
-  hudStore,
-  useAppStore,
+  getActiveReplayTimelineController, setActiveReplayTimelineController, registerReplayDirectorPreviewHandlers,
+  getNameTagRuntimeState, setNameTagRuntimeState, hudStore, useAppStore,
 } from '../../runtimeUiPort.ts';
 import {
-  beginGoalReplaySession,
-  bindGoalReplayHudCallbacks,
-  endGoalReplaySession,
-  stepGoalReplaySessionFrame,
-  type GoalReplayRuntimePort,
+  beginGoalReplaySession, bindGoalReplayHudCallbacks, endGoalReplaySession, stepGoalReplaySessionFrame, type GoalReplayRuntimePort,
 } from '../shared/GoalReplaySessionCoordinator.ts';
 import {
-  resolveImportedDiagnosticPatternInput,
-  restoreSingleCarAfterPreview,
-  stepNetworkStreamedGoalReplayFrame,
+  prepareFreeplayGoalReplaySessionData, resolveImportedDiagnosticPatternInput, restoreSingleCarAfterPreview, stepNetworkStreamedGoalReplayFrame,
 } from '../shared/goalAndBallTouchPipeline.ts';
-import { prepareFreeplayGoalReplaySessionData } from './FreeplayGoalAndTouchSubController.ts';
 import {
-  applyReplayControllerFrameAndDirectorCamera,
-  pauseReplayAndEnterReferenceFreeCam,
-  prepareDirectorPatternPreviewRoster,
-  syncAndAttachReplayTimelineController,
-  type GoalReplayCarStateViewLike,
+  applyReplayControllerFrameAndDirectorCamera, pauseReplayAndEnterReferenceFreeCam, prepareDirectorPatternPreviewRoster,
+  syncAndAttachReplayTimelineController, type GoalReplayCarStateViewLike,
 } from '../shared/goalReplayHudPipeline.ts';
 
 export type ReplayCameraMode = 'director' | 'pov';
@@ -40,6 +25,7 @@ export interface ReferenceFreeCamOptions { fov?: number; }
 export interface GoalReplayIncidentInput {
   goalIncidentTick: number; lastTouchTick: number; lastKickoffStartTick: number;
   scoringTeam?: number; scorerCarIndex: number; scorerName: string; ballSpeedKph: number | null;
+  replayType?: 'goal' | 'expire';
 }
 export interface DirectorPreviewStepContext {
   dt?: number; activeCar?: number; activeCarMesh?: unknown;
@@ -48,39 +34,26 @@ export interface DirectorPreviewStepContext {
 
 export interface DirectorPreviewRuntimePort extends GoalReplayRuntimePort {
   physics?: (NonNullable<GoalReplayRuntimePort['physics']> & {
-    numCars: number;
-    getBallStateView?: () => { posY: number } | null;
+    numCars: number; getBallStateView?: () => { posY: number } | null;
     getHeaderView?: () => { tickCount: number } | null;
-    removeCar?: (carIndex: number) => void;
-    addCar?: (team: number, preset: string) => number | void;
+    removeCar?: (carIndex: number) => void; addCar?: (team: number, preset: string) => number | void;
   }) | null;
   arena?: (NonNullable<GoalReplayRuntimePort['arena']> & {
-    carTeams?: ArrayLike<number>;
-    carVisual?: string;
-    cars?: Array<{ visible: boolean } | null | undefined>;
-    setCarTeam?: (carIndex: number, team: number) => void;
-    ensureCar?: (carIndex: number, team: number, preset: string) => void;
+    carTeams?: ArrayLike<number>; carVisual?: string; cars?: Array<{ visible: boolean } | null | undefined>;
+    setCarTeam?: (carIndex: number, team: number) => void; ensureCar?: (carIndex: number, team: number, preset: string) => void;
   }) | null;
-  camera?: (NonNullable<GoalReplayRuntimePort['camera']> & {
-    getFreeCamStateSnapshot?: () => object | null;
-  }) | null;
+  camera?: (NonNullable<GoalReplayRuntimePort['camera']> & { getFreeCamStateSnapshot?: () => object | null }) | null;
   keyboard?: { ballControlEnabled?: boolean } | null;
-  match?: {
-    state?: { mode?: string; phase?: string; scorer?: number; scorerCarIndex?: number } | null;
-  } | null;
+  match?: { state?: { mode?: string; phase?: string; scorer?: number; scorerCarIndex?: number } | null } | null;
   modeManager?: { setMode?: (modeId: string) => void } | null;
 }
 
 export interface DirectorPreviewSubControllerDeps {
   getRuntime: () => DirectorPreviewRuntimePort | null;
-  replayController: ReplayTimelineController;
-  replayRingBuffer: ReplayRingBuffer;
-  resolveEffectivePlayerTeam: () => number;
-  isStandaloneReplayLoaded: () => boolean;
-  isStandaloneReplayActive: () => boolean;
-  pauseStandaloneReplay: () => void;
-  isNameTagTunerActive: () => boolean;
-  onReplaySessionCompleted: () => void;
+  replayController: ReplayTimelineController; replayRingBuffer: ReplayRingBuffer;
+  resolveEffectivePlayerTeam: () => number; isStandaloneReplayLoaded: () => boolean;
+  isStandaloneReplayActive: () => boolean; pauseStandaloneReplay: () => void;
+  isNameTagTunerActive: () => boolean; onReplaySessionCompleted: () => void;
 }
 
 export class DirectorPreviewSubController {
@@ -113,8 +86,12 @@ export class DirectorPreviewSubController {
   }
 
   public resetGoalMetadata(scoringTeam = this.deps.resolveEffectivePlayerTeam()): void {
-    this.goalScoringTeam = scoringTeam; this.goalScorerCarIndex = 0;
-    this.goalScorerName = 'Player'; this.goalBallSpeedKph = null;
+    this.setGoalMetadata({ scoringTeam, scorerCarIndex: 0, scorerName: 'Player', ballSpeedKph: null });
+  }
+
+  public setGoalMetadata(meta: { scoringTeam: number; scorerCarIndex: number; scorerName: string; ballSpeedKph: number | null }): void {
+    this.goalScoringTeam = meta.scoringTeam; this.goalScorerCarIndex = meta.scorerCarIndex;
+    this.goalScorerName = meta.scorerName; this.goalBallSpeedKph = meta.ballSpeedKph;
   }
 
   public onEnter(freeplayTeam: number): void {
@@ -156,10 +133,13 @@ export class DirectorPreviewSubController {
     this.goalScorerName = prepared.scorerName; this.goalBallSpeedKph = prepared.ballSpeedKph;
     if (!this.deps.isStandaloneReplayLoaded()) r?.arena?.setCarTeam?.(this.goalScorerCarIndex, playerTeam);
 
+    const isExpireReplay = incident.replayType === 'expire';
     const totalFrames = replayController.beginReplaySession({
       scoringTeam: this.goalScoringTeam, scorerCarIndex: this.goalScorerCarIndex, carEntries: prepared.carEntries,
       carTeamResolver: (carIdx: number) => carIdx === this.goalScorerCarIndex ? playerTeam : (r?.arena?.carTeams?.[carIdx] ?? carIdx % 2),
       frames: prepared.extractedFrames,
+      disableSlowMo: isExpireReplay,
+      watchAllTouches: isExpireReplay,
     });
 
     this.isReplayActive = true;
