@@ -18,87 +18,89 @@ export function createTunerBridgeHandlers(
 ): Partial<AppState['bridge']> {
   const { cameraPort, tunerPort } = runtimePort;
   return {
-    onVehicleChange: (carId: string) => {
+    onVehicleChange(carId: string) {
       tunerPort.changePlayerVehicle(carId);
     },
-    onColorChange: (hex: string) => {
+    onColorChange(hex: string) {
       tunerPort.applyPlayerColorChoice(hex);
     },
-    onCameraChange: (cameraConfig) => {
+    onCameraChange(cameraConfig) {
       cameraPort.applyPovSettings(cameraConfig as unknown as Record<string, unknown>);
     },
-    onGraphicsChange: (graphicsConfig) => {
+    onGraphicsChange(graphicsConfig) {
       tunerPort.applyGraphicsSettings(graphicsConfig);
     },
-    onGameplayChange: (gameplayConfig) => {
+    onGameplayChange(gameplayConfig) {
       tunerPort.applyGameplaySettings(gameplayConfig);
     },
-    onTrajectoryChange: (trajectoryConfig) => {
+    onTrajectoryChange(trajectoryConfig) {
       tunerPort.applyTrajectorySettings(trajectoryConfig as unknown as Record<string, unknown>);
     },
-    onMaterialsChange: (materialsConfig) => {
+    onMaterialsChange(materialsConfig) {
       syncMaterialsToGame(runtimePort, materialsConfig);
     },
-    onBoostPadTunerChange: (boostPadConfig) => {
+    onBoostPadTunerChange(boostPadConfig) {
       tunerPort.applyBoostPadTuner(boostPadConfig as unknown as Record<string, unknown>);
     },
-    onDriftwoodsTunerChange: (driftwoodsConfig) => {
+    onDriftwoodsTunerChange(driftwoodsConfig) {
       tunerPort.applyDriftwoodsTuner(driftwoodsConfig as unknown as Record<string, unknown>);
     },
-    onFreeCamToggle: (enabled) => {
+    onFreeCamToggle(enabled) {
       cameraPort.setFreeCam(enabled);
     },
-    onFreeCamFovChange: (fov) => {
+    onFreeCamFovChange(fov) {
       cameraPort.setFreeCamFov(fov);
     },
-    onResetFreeCam: () => {
+    onResetFreeCam() {
       cameraPort.resetFreeCamOverview();
     },
-    onBindingsChange: (bindings) => {
+    onBindingsChange(bindings) {
       tunerPort.applyInputBindings(bindings as unknown as Record<string, unknown>);
       hudStore.getState().syncBindings(bindings);
     },
-    onEnsureDeterminism: async () => {
+    async onEnsureDeterminism() {
       const harness = await tunerPort.ensureDeterminismHarness();
       if (harness) {
         determinismStore.setHarness(harness);
       }
     },
-    onEnsureNetworkDiagnostics: async () => {
+    async onEnsureNetworkDiagnostics() {
       syncRuntimeNetworkDiagnostics(runtimePort);
     },
-    onSimulateBoostPadCollect: (padIndex) => {
+    onSimulateBoostPadCollect(padIndex) {
       tunerPort.simulateBoostPadCollect(padIndex);
     },
-    onSimulateBoostPadRefill: (padIndex, duration) => {
+    onSimulateBoostPadRefill(padIndex, duration) {
       tunerPort.simulateBoostPadRefill(padIndex, duration);
     },
-    onExperimentalWallConfigChange: (wallConfig) => {
+    onExperimentalWallConfigChange(wallConfig) {
       tunerPort.applyExperimentalWallConfig(wallConfig as unknown as Record<string, unknown>);
     },
-    onShadowConfigChange: (shadowConfig) => {
+    onShadowConfigChange(shadowConfig) {
       tunerPort.applyShadowConfig(shadowConfig as unknown as Record<string, unknown>);
     },
-    onAnodizedPaintChange: () => {
+    onAnodizedPaintChange() {
       tunerPort.markArenaRenderTreeChanged();
     },
-    onBoostParticleConfigChange: (particleConfig) => {
+    onBoostParticleConfigChange(particleConfig) {
       tunerPort.applyBoostParticleConfig(particleConfig as unknown as Record<string, unknown>);
     },
-    onSkyboxConfigChange: (skyboxConfig) => {
+    onSkyboxConfigChange(skyboxConfig) {
       tunerPort.applySkyboxConfig(skyboxConfig as unknown as Record<string, unknown>);
     },
-    onBallVisualConfigChange: (ballConfig) => {
+    onBallVisualConfigChange(ballConfig) {
       tunerPort.applyBallVisualConfig(ballConfig as unknown as Record<string, unknown>);
     },
-    onCustomVehicleTunerChange: (vehicleId, hitboxPreset) => {
+    onCustomVehicleTunerChange(vehicleId, hitboxPreset) {
       tunerPort.applyCustomVehicleTuner(vehicleId, hitboxPreset);
     },
-    onImportCustomVehicleGlb: async (vehicleId, arrayBuffer, fileName, alignPreset) =>
-      tunerPort.importCustomVehicleGlb?.(vehicleId, arrayBuffer, fileName, alignPreset),
-    onApplyVehicleAlignPreset: (vehicleId, alignPreset) =>
-      Boolean(tunerPort.applyVehicleAlignPreset?.(vehicleId, alignPreset)),
-    onUnderDevelopmentChange: async (config, patch) => {
+    async onImportCustomVehicleGlb(vehicleId, arrayBuffer, fileName, alignPreset) {
+      return tunerPort.importCustomVehicleGlb?.(vehicleId, arrayBuffer, fileName, alignPreset);
+    },
+    onApplyVehicleAlignPreset(vehicleId, alignPreset) {
+      return Boolean(tunerPort.applyVehicleAlignPreset?.(vehicleId, alignPreset));
+    },
+    async onUnderDevelopmentChange(config, patch) {
       await tunerPort.applyUnderDevelopmentConfig(config, patch);
     },
   };

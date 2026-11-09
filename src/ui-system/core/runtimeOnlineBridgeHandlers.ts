@@ -1,11 +1,6 @@
 import { useAppStore } from '../../ui-core/stores/appStore.ts';
 import { hudStore } from '../../ui-core/stores/hudStore.ts';
-import { signalingProfileStore } from '../../ui-core/stores/signalingProfileStore.ts';
-import { credentialBundleManager } from '../../network/transport/CredentialBundleManager.ts';
-import { testAllSignalingRelays } from '../../network/transport/diagnostics/signalingDiagnosticsProbe.ts';
-import { setSignalingRelayMatchPolicy } from '../../network/transport/SignalingRelayLifecyclePolicy.ts';
-import { ensureCloudProfileSyncBridge } from './runtimeProfileSyncBridge.ts';
-import { ensureDevSignalingLabBridge } from './runtimeSignalingLabBridge.ts';
+import { ensureSignalingProfileBridge } from './runtimeSignalingProfileBridge.ts';
 import {
   retainCompletedMatchReplayAndNotify,
   exportRetainedMatchReplayFile,
@@ -51,68 +46,10 @@ interface RuntimeWithAuthoritativeServer {
   } | null;
 }
 
-let signalingProfileUnsubscribe: (() => void) | null = null;
-
-export function ensureSignalingProfileBridge(): void {
-  ensureCloudProfileSyncBridge();
-  ensureDevSignalingLabBridge();
-  if (!signalingProfileUnsubscribe) {
-    signalingProfileUnsubscribe = credentialBundleManager.subscribe((status) => {
-      signalingProfileStore.getState().syncStatus(status);
-    });
-  }
-
-  signalingProfileStore.getState().registerBridge({
-    onImportBundle: async (rawContent: string, pinCode: string) => {
-      await credentialBundleManager.importEncryptedBundle(rawContent, pinCode);
-    },
-    onExportBundle: async (options) => {
-      const exported = await credentialBundleManager.exportActiveBundle(options);
-      return {
-        suggestedFileName: exported.suggestedFileName,
-        serializedJson: exported.serializedJson,
-        pinCode: exported.pinCode,
-        windowMinutes: exported.windowMinutes,
-        expiresAtMs: Date.now() + exported.expiresInSeconds * 1000,
-      };
-    },
-    onClearBundle: () => {
-      credentialBundleManager.clearImportedProfile();
-    },
-    onSaveCustomRelay: (payload) => {
-      if (!payload || !payload.url.trim()) {
-        credentialBundleManager.setCustomRelayConfig(null);
-      } else {
-        credentialBundleManager.setCustomRelayConfig({
-          url: payload.url,
-          username: payload.username,
-          password: payload.password,
-        });
-      }
-    },
-    onSetRelayMatchPolicy: (policy) => {
-      setSignalingRelayMatchPolicy(policy);
-    },
-    onVerifyRelays: async () => {
-      const results = await testAllSignalingRelays(4000);
-      return results.map((r) => ({
-        id: r.id,
-        label: r.label,
-        protocol: (r.protocol === 'ws' ? 'ws' : r.protocol === 'supabase' ? 'supabase' : 'mqtt') as
-          'mqtt' | 'ws' | 'supabase',
-        ok: r.ok,
-        rttMs: r.rttMs,
-        error: r.error ?? undefined,
-      }));
-    },
-  });
-}
-
-export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort) {
-  const { matchPort, replayPort } = runtimePort;
-  ensureSignalingProfileBridge();
+function bindHudReplayTransportHandlers(runtimePort: GameRuntimeUiBridgePort): void {
+  const { replayPort } = runtimePort;
   hudStore.getState().setReplayState?.({
-    onReplaySeekNormalized: (progress01: number) => {
+    onReplaySeekNormalized(progress01: number) {
       const sought = replayPort.seekReplayNormalized(progress01);
       if (!sought) return;
       hudStore.getState().setReplayState({
@@ -123,7 +60,7 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
         replayPersistent: true,
       });
     },
-    onReplayTogglePause: () => {
+    onReplayTogglePause() {
       const toggled = replayPort.toggleReplayPause();
       if (!toggled) return;
       hudStore.getState().setReplayState({
@@ -131,17 +68,76 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
         replayPersistent: toggled.isPersistent,
       });
     },
-    onReplayCycleSpeed: () => {
+    onReplayCycleSpeed() {
       const speed = replayPort.cycleReplaySpeed();
       if (speed === null) return;
       hudStore.getState().setReplayState({ replaySpeed: speed });
     },
   });
+}
+
+async function exportOnlineTrainingReplayFromRuntime(
+  runtimePort: GameRuntimeUiBridgePort,
+  durationSeconds = 60
+): Promise<boolean> {
+  try {
+    const driverRuntime =
+      typeof window !== 'undefined'
+        ? (
+            window as unknown as {
+              __rcScenarioDriver?: { runtime?: RuntimeWithAuthoritativeServer };
+            }
+          ).__rcScenarioDriver?.runtime
+        : undefined;
+    const server =
+      driverRuntime?.authoritativeServer ??
+      driverRuntime?.networkManager?.sessionCoordinator?.authoritativeServer ??
+      null;
+    if (typeof server?.requestFullReplayExport === 'function') {
+      const exportData = await server.requestFullReplayExport();
+      const exportedRoster = Array.isArray(exportData?.loadouts)
+        ? exportData.loadouts
+        : !Array.isArray(exportData?.roster) && Array.isArray(exportData?.roster?.players)
+          ? exportData.roster.players
+          : Array.isArray(exportData?.roster)
+            ? exportData.roster
+            : [];
+      const retained = retainCompletedMatchReplayAndNotify({
+        stateInputBytes: exportData?.stateInputBytes || undefined,
+        incidentBytes: exportData?.incidentBytes || undefined,
+        signalBytes: exportData?.signalBytes || undefined,
+        ringBuffer: server.hostReplayRingBuffer || undefined,
+        fallbackState: server.cachedSnapshot || undefined,
+        mode: 'Online Training',
+        gameMode: exportData?.gameMode || '3v3',
+        durationSeconds: exportData?.durationSeconds ?? durationSeconds,
+        roster: exportedRoster,
+        loadouts: exportedRoster,
+        blueScore: exportData?.blueScore ?? 0,
+        orangeScore: exportData?.orangeScore ?? 0,
+      });
+      if (retained) {
+        await exportRetainedMatchReplayFile(retained);
+        return true;
+      }
+    }
+    const exportedFrames = runtimePort.replayPort.retainAndExportStandaloneClientReplay(true);
+    return exportedFrames > 0;
+  } catch (err) {
+    console.error('[runtimeOnlineBridgeHandlers] Failed to export online training replay:', err);
+    return false;
+  }
+}
+
+export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort) {
+  const { matchPort, replayPort } = runtimePort;
+  ensureSignalingProfileBridge();
+  bindHudReplayTransportHandlers(runtimePort);
 
   return {
-    onHostOnlineWarmup: async (
+    async onHostOnlineWarmup(
       opts: HostOnlineWarmupPortOptions & { ghostMode?: 'automatically-enable' | 'manual' }
-    ) => {
+    ) {
       try {
         const ok = await matchPort.hostOnlineWarmup(opts);
         if (ok && opts.ghostMode !== undefined) {
@@ -153,7 +149,7 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
         return false;
       }
     },
-    onJoinOnlineWarmup: async (opts: JoinOnlineWarmupPortOptions) => {
+    async onJoinOnlineWarmup(opts: JoinOnlineWarmupPortOptions) {
       try {
         return await matchPort.joinOnlineWarmup(opts);
       } catch (e) {
@@ -161,13 +157,13 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
         return false;
       }
     },
-    onApprovePendingPeer: (peerId: string) => {
+    onApprovePendingPeer(peerId: string) {
       matchPort.approvePendingPeer(peerId);
     },
-    onDeclinePendingPeer: (peerId: string) => {
+    onDeclinePendingPeer(peerId: string) {
       matchPort.declinePendingPeer(peerId);
     },
-    onLeaveOnlineServer: async () => {
+    async onLeaveOnlineServer() {
       try {
         await matchPort.leaveOnlineServer();
         useAppStore.getState().setMatchMode('freeplay');
@@ -191,127 +187,76 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
         console.error('[mountGameUI] Error stopping online server', e);
       }
     },
-    onReturnToOnlineLobby: async () => {
+    async onReturnToOnlineLobby() {
       try {
         await matchPort.returnToOnlineLobby();
       } catch (e) {
         console.error('[mountGameUI] Error returning online match to lobby', e);
       }
     },
-    onPauseOnlineMatch: (pause: boolean, resumeCountdownSeconds = 3) => {
+    onPauseOnlineMatch(pause: boolean, resumeCountdownSeconds = 3) {
       matchPort.pauseOnlineMatch(pause, resumeCountdownSeconds);
     },
-    onRemovePlayer: async (carIndex: number) => {
+    async onRemovePlayer(carIndex: number) {
       await matchPort.removeRemotePlayer(carIndex);
     },
-    onReconnectSignaling: async () => {
+    async onReconnectSignaling() {
       try {
         await matchPort.reconnectSignaling();
       } catch (e) {
         console.error('[mountGameUI] Error reconnecting signaling', e);
       }
     },
-    onResetBall: () => {
+    onResetBall() {
       matchPort.resetKickoff();
     },
-    onExportOnlineTrainingReplay: async (durationSeconds = 60): Promise<boolean> => {
-      try {
-        const driverRuntime =
-          typeof window !== 'undefined'
-            ? (
-                window as unknown as {
-                  __rcScenarioDriver?: { runtime?: RuntimeWithAuthoritativeServer };
-                }
-              ).__rcScenarioDriver?.runtime
-            : undefined;
-        const server =
-          driverRuntime?.authoritativeServer ??
-          driverRuntime?.networkManager?.sessionCoordinator?.authoritativeServer ??
-          null;
-        if (typeof server?.requestFullReplayExport === 'function') {
-          const exportData = await server.requestFullReplayExport();
-          const exportedRoster = Array.isArray(exportData?.loadouts)
-            ? exportData.loadouts
-            : !Array.isArray(exportData?.roster) && Array.isArray(exportData?.roster?.players)
-              ? exportData.roster.players
-              : Array.isArray(exportData?.roster)
-                ? exportData.roster
-                : [];
-          const retained = retainCompletedMatchReplayAndNotify({
-            stateInputBytes: exportData?.stateInputBytes || undefined,
-            incidentBytes: exportData?.incidentBytes || undefined,
-            signalBytes: exportData?.signalBytes || undefined,
-            ringBuffer: server.hostReplayRingBuffer || undefined,
-            fallbackState: server.cachedSnapshot || undefined,
-            mode: 'Online Training',
-            gameMode: exportData?.gameMode || '3v3',
-            durationSeconds: exportData?.durationSeconds ?? durationSeconds,
-            roster: exportedRoster,
-            loadouts: exportedRoster,
-            blueScore: exportData?.blueScore ?? 0,
-            orangeScore: exportData?.orangeScore ?? 0,
-          });
-          if (retained) {
-            await exportRetainedMatchReplayFile(retained);
-            return true;
-          }
-        }
-        const exportedFrames = replayPort.retainAndExportStandaloneClientReplay(true);
-        return exportedFrames > 0;
-      } catch (err) {
-        console.error(
-          '[runtimeOnlineBridgeHandlers] Failed to export online training replay:',
-          err
-        );
-        return false;
-      }
+    onExportOnlineTrainingReplay(durationSeconds = 60): Promise<boolean> {
+      return exportOnlineTrainingReplayFromRuntime(runtimePort, durationSeconds);
     },
-    onForceStartOnlineMatch: (durationSeconds = 90) => {
+    onForceStartOnlineMatch(durationSeconds = 90) {
       useAppStore.getState().closeMenu();
       matchPort.forceStartOnlineMatch(durationSeconds);
     },
-    onSetOnlineGameMode: (gameMode: '1v1' | '2v2' | '3v3') => {
+    onSetOnlineGameMode(gameMode: '1v1' | '2v2' | '3v3') {
       matchPort.setOnlineGameMode(gameMode);
     },
-    onSetOnlineMatchDuration: (durationSeconds: number) => {
+    onSetOnlineMatchDuration(durationSeconds: number) {
       useAppStore.getState().setOnlineSession({ matchDurationSeconds: durationSeconds });
       matchPort.setOnlineMatchDuration(durationSeconds);
     },
-    onSetOnlineBotFillMode: (
-      botFillMode: 'no_bots' | 'auto_fill' | 'bots_vs_humans' | 'custom'
-    ) => {
+    onSetOnlineBotFillMode(botFillMode: 'no_bots' | 'auto_fill' | 'bots_vs_humans' | 'custom') {
       useAppStore.getState().setOnlineSession({ botFillMode });
       matchPort.setOnlineBotFillMode(botFillMode);
     },
-    onAddOnlineBot: (team?: number) => {
+    onAddOnlineBot(team?: number) {
       matchPort.addOnlineBot(team ?? null);
     },
-    onSetClientReady: (ready: boolean) => {
+    onSetClientReady(ready: boolean) {
       useAppStore.getState().setOnlineSession({ isReady: ready });
       matchPort.setClientReady(ready);
     },
-    onVoteSkipReplay: () => {
+    onVoteSkipReplay() {
       replayPort.voteOrSkipReplay();
     },
-    onVoteRematch: (ready: boolean) => {
+    onVoteRematch(ready: boolean) {
       matchPort.voteRematch(ready);
     },
-    onSwitchOnlineRoleTeam: (role: 'player' | 'spectator', team: number) => {
+    onSwitchOnlineRoleTeam(role: 'player' | 'spectator', team: number) {
       matchPort.switchOnlineRoleOrTeam(role, team);
     },
-    onClockPacingModeChange: (mode: ClockPacingMode) => {
+    onClockPacingModeChange(mode: ClockPacingMode) {
       matchPort.setClockPacingMode(mode);
     },
-    onClockPacingPriorityChange: (priority: ClockPacingPriority) => {
+    onClockPacingPriorityChange(priority: ClockPacingPriority) {
       matchPort.setClockPacingPriority(priority);
     },
-    onClockPacingParamsChange: (params: ClockPacingParams) => {
+    onClockPacingParamsChange(params: ClockPacingParams) {
       matchPort.setClockPacingParams(params as unknown as Record<string, unknown>);
     },
-    onInputBufferTargetChange: (target: number) => {
+    onInputBufferTargetChange(target: number) {
       matchPort.setInputBufferTarget(target);
     },
-    onInputBufferThresholdChange: (range: [number, number]) => {
+    onInputBufferThresholdChange(range: [number, number]) {
       matchPort.setInputBufferThresholds(range[0], range[1]);
     },
   };
