@@ -26,6 +26,7 @@ import {
   type RLRCContainerPacket,
   type RLRCReplayHeaderMeta,
 } from '../RLRCReplayTypes.ts';
+import { RLRC_TRACK0_META_OFFSETS as M } from './RLRCTrack0FrameSlotPacker.ts';
 
 export interface SanitizedRLRCV2TracksResult {
   readonly sanitizedStateInputBytes: Uint8Array;
@@ -58,13 +59,18 @@ export function sanitizeRLRCTrack0AndSynthesizeSignals(
       srcBytes.byteOffset + f * RLRC_TRACK0_FRAME_STRIDE_BYTES,
       RLRC_STATE_FLOATS_PER_FRAME
     );
-    const sec = Math.round(f32[EXTENDED_STATE_OFFSETS.IS_SIMULATION_FROZEN]);
+    const hasMeta = Math.round(f32[M.MAGIC_TAG]) === M.MAGIC_VALUE;
+    const sec = Math.round(
+      f32[hasMeta ? M.SECONDS_REMAINING : EXTENDED_STATE_OFFSETS.IS_SIMULATION_FROZEN]
+    );
     if (sec > 0 && sec <= 600) {
       initialClockSec = sec;
       break;
     }
   }
-  const rawHeaderDur = Math.round(packet.header.durationSeconds || frameCount / RLRC_TICK_RATE || 300);
+  const rawHeaderDur = Math.round(
+    packet.header.durationSeconds || frameCount / RLRC_TICK_RATE || 300
+  );
   const regulationDurationSeconds =
     initialClockSec > 0 ? initialClockSec : rawHeaderDur > 300 ? 300 : Math.max(1, rawHeaderDur);
 
@@ -116,13 +122,21 @@ export function sanitizeRLRCTrack0AndSynthesizeSignals(
       RLRC_STATE_FLOATS_PER_FRAME
     );
 
-    const rawSec = Math.round(f32[EXTENDED_STATE_OFFSETS.IS_SIMULATION_FROZEN]);
-    const packedFlags = Math.round(f32[EXTENDED_STATE_OFFSETS.POSSESSION_STATE]);
+    const hasMeta = Math.round(f32[M.MAGIC_TAG]) === M.MAGIC_VALUE;
+    const rawSec = Math.round(
+      f32[hasMeta ? M.SECONDS_REMAINING : EXTENDED_STATE_OFFSETS.IS_SIMULATION_FROZEN]
+    );
+    const packedFlags = Math.round(
+      f32[hasMeta ? M.MATCH_FLAGS : EXTENDED_STATE_OFFSETS.POSSESSION_STATE]
+    );
     const isOt = (packedFlags & 1) !== 0;
-    const blue = Math.max(prevBlue, Math.round(f32[EXTENDED_STATE_OFFSETS.POSSESSION_BLUE_POINTS]));
+    const blue = Math.max(
+      prevBlue,
+      Math.round(f32[hasMeta ? M.BLUE_SCORE : EXTENDED_STATE_OFFSETS.POSSESSION_BLUE_POINTS])
+    );
     const orange = Math.max(
       prevOrange,
-      Math.round(f32[EXTENDED_STATE_OFFSETS.POSSESSION_ORANGE_POINTS])
+      Math.round(f32[hasMeta ? M.ORANGE_SCORE : EXTENDED_STATE_OFFSETS.POSSESSION_ORANGE_POINTS])
     );
 
     const goalBm = goalBookmarksByFrame.get(f);
@@ -273,14 +287,17 @@ export function restoreRLRCTrack0FromSanitizedStateInput(
       stateInputTrackBytes.byteOffset + f * RLRC_TRACK0_FRAME_STRIDE_BYTES,
       RLRC_STATE_FLOATS_PER_FRAME
     );
-    if (f32[SIM_OFFSETS.GOAL] === 0 && f > 0) {
-      f32[SIM_OFFSETS.GOAL] = Math.floor((f * recordFps) / RLRC_TICK_RATE);
-    }
-    if (f32[EXTENDED_STATE_OFFSETS.IS_SIMULATION_FROZEN] === 0) {
-      f32[EXTENDED_STATE_OFFSETS.IS_SIMULATION_FROZEN] = clockByFrame[f];
-    }
-    if (f32[EXTENDED_STATE_OFFSETS.POSSESSION_STATE] === 0 && otByFrame[f]) {
-      f32[EXTENDED_STATE_OFFSETS.POSSESSION_STATE] = 1;
+    const hasMeta = Math.round(f32[M.MAGIC_TAG]) === M.MAGIC_VALUE;
+    if (!hasMeta) {
+      if (f32[SIM_OFFSETS.GOAL] === 0 && f > 0) {
+        f32[SIM_OFFSETS.GOAL] = Math.floor((f * recordFps) / RLRC_TICK_RATE);
+      }
+      if (f32[EXTENDED_STATE_OFFSETS.IS_SIMULATION_FROZEN] === 0) {
+        f32[EXTENDED_STATE_OFFSETS.IS_SIMULATION_FROZEN] = clockByFrame[f];
+      }
+      if (f32[EXTENDED_STATE_OFFSETS.POSSESSION_STATE] === 0 && otByFrame[f]) {
+        f32[EXTENDED_STATE_OFFSETS.POSSESSION_STATE] = 1;
+      }
     }
     for (let s = 0; s < RLRC_MAX_PLAYER_SLOTS; s++) {
       const carBase = SIM_OFFSETS.CARS + s * CAR_STATE_STRIDE;
@@ -291,9 +308,11 @@ export function restoreRLRCTrack0FromSanitizedStateInput(
       );
       if ((rosterLength > 0 && s >= rosterLength) || fwdLen < 0.5) {
         f32[carBase + CAR_STATE_OFFSETS.DEMOED] = 1;
-        f32[carBase + CAR_STATE_OFFSETS.FWD + 0] = 1;
-        f32[carBase + CAR_STATE_OFFSETS.RIGHT + 1] = 1;
-        f32[carBase + CAR_STATE_OFFSETS.UP + 2] = 1;
+        if (!hasMeta) {
+          f32[carBase + CAR_STATE_OFFSETS.FWD + 0] = 1;
+          f32[carBase + CAR_STATE_OFFSETS.RIGHT + 1] = 1;
+          f32[carBase + CAR_STATE_OFFSETS.UP + 2] = 1;
+        }
       }
     }
   }

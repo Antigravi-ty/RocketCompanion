@@ -1,7 +1,7 @@
 /**
- * RLRCLoadoutKinematicFallback.ts
- * Parses network actor attributes for active actor links, player camera settings,
- * flat-ground resting rigid-body samples, and final team-grouped roster/lifecycle assembly.
+ * RLRCNetStreamRosterConsolidatorPipeline.ts
+ * Pure attribute parsers, catalog-backed loadout resolver, and final team-grouped
+ * (Blue 0..2, Orange 3..5) roster/segment/frame-lifecycle consolidation pipeline.
  */
 
 import { resolveRLRCVehicleLoadout } from '../catalog/RLRCVehicleLoadoutCatalog.ts';
@@ -78,6 +78,48 @@ export function extractActiveActorId(attr: Record<string, unknown>): number {
       ? Number(activeActor.actor)
       : -1;
   return Number.isFinite(actorId) && actorId >= 0 ? Math.trunc(actorId) : -1;
+}
+
+function resolveBodyProductIdFromTeamSlot(slotValue: unknown): number {
+  if (typeof slotValue === 'number' && Number.isFinite(slotValue) && slotValue > 0) {
+    return Math.trunc(slotValue);
+  }
+  if (Array.isArray(slotValue)) {
+    const first = Number(slotValue[0]);
+    return Number.isFinite(first) && first > 0 ? Math.trunc(first) : 0;
+  }
+  if (slotValue && typeof slotValue === 'object') {
+    const rec = slotValue as Record<string, unknown>;
+    const body = Number(rec.body ?? rec.Body ?? rec.productId ?? 0);
+    return Number.isFinite(body) && body > 0 ? Math.trunc(body) : 0;
+  }
+  return 0;
+}
+
+/**
+ * Extracts Blue (`b0`) and Orange (`b1`) body product IDs from `TAGame.PRI_TA:ClientLoadouts`
+ * or `ClientLoadout` attributes across both native `TeamLoadout` object structures
+ * (`{ TeamLoadout: { blue: { body }, orange: { body } } }`) and array-based `Loadouts` formats.
+ */
+export function extractClientLoadoutBodyIds(
+  attr: Record<string, unknown>,
+  prevBlueBodyId: number,
+  prevOrangeBodyId: number
+): { readonly b0: number; readonly b1: number } {
+  const container = (attr.TeamLoadout ?? attr.Loadouts ?? attr.Loadout ?? attr) as Record<
+    string,
+    unknown
+  >;
+  const blueBody = resolveBodyProductIdFromTeamSlot(
+    container.blue ?? container.loadout ?? container.body
+  );
+  const orangeBody = resolveBodyProductIdFromTeamSlot(
+    container.orange ?? container.loadout ?? container.body
+  );
+  return {
+    b0: blueBody > 0 ? blueBody : prevBlueBodyId,
+    b1: orangeBody > 0 ? orangeBody : prevOrangeBodyId,
+  };
 }
 
 export function parseRLRCCameraSettingsAttr(

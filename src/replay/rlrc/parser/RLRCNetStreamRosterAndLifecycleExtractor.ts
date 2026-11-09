@@ -9,6 +9,7 @@ import {
   assembleRLRCRosterAndLifecycleResult,
   defaultResolveRLRCLoadout,
   extractActiveActorId,
+  extractClientLoadoutBodyIds,
   parseRLRCCameraSettingsAttr,
   parseRLRCRestingRigidBodySample,
   type RLRCFrameLifecycleSnapshot,
@@ -16,7 +17,7 @@ import {
   type RLRCPriCandidateRecord,
   type RLRCRosterAndLifecycleExtractionResult,
   type RLRCVehicleLoadoutResolverFn,
-} from './RLRCLoadoutKinematicFallback.ts';
+} from './RLRCNetStreamRosterConsolidatorPipeline.ts';
 
 export type {
   RLRCFrameLifecycleSnapshot,
@@ -165,12 +166,8 @@ export class RLRCNetStreamRosterAndLifecycleExtractor {
         } else if (prop.endsWith(':bIsSpectator')) {
           pris.set(aid, { ...getPri(aid, fi), spec: Boolean(attr.Boolean) });
         } else if (prop.endsWith(':ClientLoadouts') || prop.endsWith(':ClientLoadout')) {
-          const lo = (attr.Loadouts ?? attr.Loadout ?? attr) as Record<string, unknown>;
-          const bArr = (lo.blue ?? lo.loadout) as unknown[] | undefined;
-          const oArr = lo.orange as unknown[] | undefined;
           const p = getPri(aid, fi);
-          const b0 = Array.isArray(bArr) && Number(bArr[0]) > 0 ? Number(bArr[0]) : p.b0;
-          const b1 = Array.isArray(oArr) && Number(oArr[0]) > 0 ? Number(oArr[0]) : p.b1;
+          const { b0, b1 } = extractClientLoadoutBodyIds(attr, p.b0, p.b1);
           pris.set(aid, { ...p, b0, b1 });
         } else if (prop.endsWith(':PersistentCamera')) {
           const cid = extractActiveActorId(attr);

@@ -1,358 +1,160 @@
 /**
  * RLRCTrack0FrameSlotPacker.ts
- * Zero-GC fixed-stride (1856 bytes/frame) packer and unpacker between RLRCFrame120Hz
- * and Track 0 (448-float physics state + 64-byte synthesized controls).
+ * Fixed-stride (1856B/frame) single-frame Track 0 binary slot packer and unpacker.
  */
 
 import {
-  SIM_OFFSETS,
-  CAR_STATE_OFFSETS,
-  CAR_STATE_STRIDE,
-  BALL_STATE_OFFSETS,
-  BOOST_PAD_STATES_OFFSET,
-  BOOST_PAD_STATE_STRIDE,
-  BOOST_PAD_OFFSETS,
-  EXTENDED_STATE_OFFSETS,
+  BALL_STATE_OFFSETS as B_OFF, BOOST_PAD_OFFSETS as P_OFF, BOOST_PAD_STATE_STRIDE as P_STRIDE,
+  BOOST_PAD_STATES_OFFSET as P_BASE, CAR_STATE_OFFSETS as C_OFF, CAR_STATE_STRIDE as C_STRIDE,
+  EXTENDED_STATE_OFFSETS as EXT, SIM_OFFSETS as SIM,
 } from '../../../physics/RocketSimConstants.ts';
+import { packCarControlsToTrack64, unpackTrack64ToCarControls } from '../../container/RCReplayBinarySchema.ts';
 import {
-  packCarControlsToTrack64,
-  unpackTrack64ToCarControls,
-  type ReplayCarControlState,
-} from '../../container/RCReplayBinarySchema.ts';
-import {
-  RLRC_FIXED_DT,
-  RLRC_MAX_PLAYER_SLOTS,
-  RLRC_BOOST_PAD_COUNT,
-  RLRC_STATE_FLOATS_PER_FRAME,
-  RLRC_STATE_BYTES_PER_FRAME,
-  RLRC_TRACK0_FRAME_STRIDE_BYTES,
-  type RLRCBallFrameState120Hz,
-  type RLRCCarComponentActiveFlags,
-  type RLRCCarFrameState120Hz,
-  type RLRCFrame120Hz,
-  type RLRCQuat,
-  type RLRCRigidBodySample,
-  type RLRCSynthesizedCarControls,
+  RLRC_BOOST_PAD_COUNT as N_PADS, RLRC_FIXED_DT as DT, RLRC_MAX_PLAYER_SLOTS as MAX_SLOTS,
+  RLRC_STATE_BYTES_PER_FRAME as STATE_BYTES, RLRC_STATE_FLOATS_PER_FRAME as STATE_FLOATS,
+  RLRC_TRACK0_FRAME_STRIDE_BYTES as STRIDE, type RLRCCarFrameState120Hz, type RLRCFrame120Hz,
+  type RLRCQuat, type RLRCRigidBodySample,
 } from '../RLRCReplayTypes.ts';
 
+export const RLRC_TRACK0_META_OFFSETS = Object.freeze({
+  SOURCE_FRAME_30HZ: 440, SECONDS_REMAINING: 441, MATCH_FLAGS: 442, TIME_SECONDS: 443,
+  BLUE_SCORE: 444, ORANGE_SCORE: 445, SLOT_ACTION_MASK: 446, MAGIC_TAG: 447, MAGIC_VALUE: 1205,
+});
+
+const SLEEP_RB: RLRCRigidBodySample = Object.freeze({
+  sleeping: true, position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 },
+  linearVelocity: { x: 0, y: 0, z: 0 }, angularVelocity: { x: 0, y: 0, z: 0 },
+});
+const ZERO_CTRL = Object.freeze({
+  throttle: 0, steer: 0, pitch: 0, yaw: 0, roll: 0, jump: false, boost: false, handbrake: false,
+});
+
 export function resolveRLRCTrack0FrameByteOffset(frameIndex120Hz: number): number {
-  return Math.max(0, Math.trunc(frameIndex120Hz)) * RLRC_TRACK0_FRAME_STRIDE_BYTES;
+  return Math.max(0, Math.trunc(frameIndex120Hz)) * STRIDE;
 }
 
-function writeQuatBasisToStateBuffer(q: RLRCQuat, dstF32: Float32Array, fwdOffset: number): void {
-  const { x, y, z, w } = q;
-  const x2 = x + x;
-  const y2 = y + y;
-  const z2 = z + z;
-  const xx = x * x2;
-  const xy = x * y2;
-  const xz = x * z2;
-  const yy = y * y2;
-  const yz = y * z2;
-  const zz = z * z2;
-  const wx = w * x2;
-  const wy = w * y2;
-  const wz = w * z2;
-
-  dstF32[fwdOffset + 0] = 1 - (yy + zz);
-  dstF32[fwdOffset + 1] = xy + wz;
-  dstF32[fwdOffset + 2] = xz - wy;
-  dstF32[fwdOffset + 3] = xy - wz;
-  dstF32[fwdOffset + 4] = 1 - (xx + zz);
-  dstF32[fwdOffset + 5] = yz + wx;
-  dstF32[fwdOffset + 6] = xz + wy;
-  dstF32[fwdOffset + 7] = yz - wx;
-  dstF32[fwdOffset + 8] = 1 - (xx + yy);
+function writeRb(d: Float32Array, p: number, r: number, rb: RLRCRigidBodySample): void {
+  const { x, y, z, w } = rb.rotation;
+  const [xx, yy, zz, xy, xz, yz, wx, wy, wz] = [x * x * 2, y * y * 2, z * z * 2, x * y * 2, x * z * 2, y * z * 2, w * x * 2, w * y * 2, w * z * 2];
+  const { position: q, linearVelocity: lv, angularVelocity: av } = rb;
+  d.set([q.x, q.y, q.z], p);
+  d.set([1 - yy - zz, xy + wz, xz - wy, xy - wz, 1 - xx - zz, yz + wx, xz + wy, yz - wx, 1 - xx - yy], r);
+  d.set([lv.x, lv.y, lv.z, av.x, av.y, av.z], p + 12);
 }
 
-function readQuatFromBasisInStateBuffer(srcF32: Float32Array, fwdOffset: number): RLRCQuat {
-  const m00 = srcF32[fwdOffset + 0];
-  const m10 = srcF32[fwdOffset + 1];
-  const m20 = srcF32[fwdOffset + 2];
-  const m01 = srcF32[fwdOffset + 3];
-  const m11 = srcF32[fwdOffset + 4];
-  const m21 = srcF32[fwdOffset + 5];
-  const m02 = srcF32[fwdOffset + 6];
-  const m12 = srcF32[fwdOffset + 7];
-  const m22 = srcF32[fwdOffset + 8];
+function readQuat(s: Float32Array, o: number): RLRCQuat {
+  const [m00, m10, m20, m01, m11, m21, m02, m12, m22] = s.subarray(o, o + 9);
+  if (m00 * m00 + m10 * m10 + m20 * m20 <= 1e-8) return SLEEP_RB.rotation;
+  const [x, y, z, w] = m00 + m11 + m22 > 0
+    ? [m21 - m12, m02 - m20, m10 - m01, 1 + m00 + m11 + m22]
+    : m00 > m11 && m00 > m22
+      ? [1 + m00 - m11 - m22, m01 + m10, m02 + m20, m21 - m12]
+      : m11 > m22 ? [m01 + m10, 1 + m11 - m00 - m22, m12 + m21, m02 - m20] : [m02 + m20, m12 + m21, 1 + m22 - m00 - m11, m10 - m01];
+  const l = Math.hypot(x, y, z, w);
+  return l <= 1e-8 ? SLEEP_RB.rotation : { x: x / l, y: y / l, z: z / l, w: w / l };
+}
 
-  const trace = m00 + m11 + m22;
-  let x = 0;
-  let y = 0;
-  let z = 0;
-  let w = 1;
-
-  if (trace > 0) {
-    const s = Math.sqrt(trace + 1.0) * 2;
-    w = 0.25 * s;
-    x = (m21 - m12) / s;
-    y = (m02 - m20) / s;
-    z = (m10 - m01) / s;
-  } else if (m00 > m11 && m00 > m22) {
-    const s = Math.sqrt(1.0 + m00 - m11 - m22) * 2;
-    w = (m21 - m12) / s;
-    x = 0.25 * s;
-    y = (m01 + m10) / s;
-    z = (m02 + m20) / s;
-  } else if (m11 > m22) {
-    const s = Math.sqrt(1.0 + m11 - m00 - m22) * 2;
-    w = (m02 - m20) / s;
-    x = (m01 + m10) / s;
-    y = 0.25 * s;
-    z = (m12 + m21) / s;
-  } else {
-    const s = Math.sqrt(1.0 + m22 - m00 - m11) * 2;
-    w = (m10 - m01) / s;
-    x = (m02 + m20) / s;
-    y = (m12 + m21) / s;
-    z = 0.25 * s;
-  }
-
-  const len = Math.hypot(x, y, z, w);
-  if (len <= 1e-8) return { x: 0, y: 0, z: 0, w: 1 };
-  return { x: x / len, y: y / len, z: z / len, w: w / len };
+function readRb(s: Float32Array, p: number, r: number, sleeping: boolean): RLRCRigidBodySample {
+  return {
+    sleeping, position: { x: s[p], y: s[p + 1], z: s[p + 2] }, rotation: readQuat(s, r),
+    linearVelocity: { x: s[p + 12], y: s[p + 13], z: s[p + 14] }, angularVelocity: { x: s[p + 15], y: s[p + 16], z: s[p + 17] },
+  };
 }
 
 export function packRLRCFrameToTrack0Slot(
-  frame: RLRCFrame120Hz,
-  targetTrackBytes: Uint8Array,
-  frameByteOffset = 0
+  f: RLRCFrame120Hz,
+  buf: Uint8Array,
+  off = resolveRLRCTrack0FrameByteOffset(f.frameIndex120Hz)
 ): void {
-  const dstF32 = new Float32Array(
-    targetTrackBytes.buffer,
-    targetTrackBytes.byteOffset + frameByteOffset,
-    RLRC_STATE_FLOATS_PER_FRAME
-  );
-  dstF32.fill(0);
+  const dst = new Float32Array(buf.buffer, buf.byteOffset + off, STATE_FLOATS);
+  dst.fill(0);
+  let active = 0;
+  for (let i = 0; i < Math.min(MAX_SLOTS, f.cars.length); i++) if (f.cars[i]?.entityActive) active++;
+  dst.set([f.frameIndex120Hz, 0, active, N_PADS], SIM.TICK);
+  writeRb(dst, SIM.BALL + B_OFF.POS, SIM.BALL + B_OFF.ROT_MAT, f.ball.rigidBody);
 
-  let activeCarCount = 0;
-  const carCount = Math.min(RLRC_MAX_PLAYER_SLOTS, frame.cars.length);
-  for (let i = 0; i < carCount; i++) {
-    if (frame.cars[i].entityActive) activeCarCount++;
-  }
-
-  dstF32[SIM_OFFSETS.TICK] = frame.frameIndex120Hz;
-  dstF32[SIM_OFFSETS.GOAL] = frame.sourceFrame30Hz;
-  dstF32[SIM_OFFSETS.NUM_CARS] = activeCarCount;
-  dstF32[SIM_OFFSETS.NUM_PADS] = RLRC_BOOST_PAD_COUNT;
-
-  const ballBase = SIM_OFFSETS.BALL;
-  const ballRb = frame.ball.rigidBody;
-  dstF32[ballBase + BALL_STATE_OFFSETS.POS + 0] = ballRb.position.x;
-  dstF32[ballBase + BALL_STATE_OFFSETS.POS + 1] = ballRb.position.y;
-  dstF32[ballBase + BALL_STATE_OFFSETS.POS + 2] = ballRb.position.z;
-  writeQuatBasisToStateBuffer(ballRb.rotation, dstF32, ballBase + BALL_STATE_OFFSETS.ROT_MAT);
-  dstF32[ballBase + BALL_STATE_OFFSETS.VEL + 0] = ballRb.linearVelocity.x;
-  dstF32[ballBase + BALL_STATE_OFFSETS.VEL + 1] = ballRb.linearVelocity.y;
-  dstF32[ballBase + BALL_STATE_OFFSETS.VEL + 2] = ballRb.linearVelocity.z;
-  dstF32[ballBase + BALL_STATE_OFFSETS.ANG_VEL + 0] = ballRb.angularVelocity.x;
-  dstF32[ballBase + BALL_STATE_OFFSETS.ANG_VEL + 1] = ballRb.angularVelocity.y;
-  dstF32[ballBase + BALL_STATE_OFFSETS.ANG_VEL + 2] = ballRb.angularVelocity.z;
-
-  const ctrlSlice = targetTrackBytes.subarray(
-    frameByteOffset + RLRC_STATE_BYTES_PER_FRAME,
-    frameByteOffset + RLRC_TRACK0_FRAME_STRIDE_BYTES
-  );
+  const ctrlSlice = buf.subarray(off + STATE_BYTES, off + STRIDE);
   ctrlSlice.fill(0);
+  let mask = 0;
 
-  for (let s = 0; s < RLRC_MAX_PLAYER_SLOTS; s++) {
-    const car = frame.cars[s];
-    const slot =
-      car && car.slotIndex >= 0 && car.slotIndex < RLRC_MAX_PLAYER_SLOTS ? car.slotIndex : s;
-    const carBase = SIM_OFFSETS.CARS + slot * CAR_STATE_STRIDE;
-    const jumpAirBase =
-      EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE + slot * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;
-
-    if (car?.rigidBody) {
-      const rb = car.rigidBody;
-      dstF32[carBase + CAR_STATE_OFFSETS.POS + 0] = rb.position.x;
-      dstF32[carBase + CAR_STATE_OFFSETS.POS + 1] = rb.position.y;
-      dstF32[carBase + CAR_STATE_OFFSETS.POS + 2] = rb.position.z;
-      writeQuatBasisToStateBuffer(rb.rotation, dstF32, carBase + CAR_STATE_OFFSETS.FWD);
-      dstF32[carBase + CAR_STATE_OFFSETS.VEL + 0] = rb.linearVelocity.x;
-      dstF32[carBase + CAR_STATE_OFFSETS.VEL + 1] = rb.linearVelocity.y;
-      dstF32[carBase + CAR_STATE_OFFSETS.VEL + 2] = rb.linearVelocity.z;
-      dstF32[carBase + CAR_STATE_OFFSETS.ANG_VEL + 0] = rb.angularVelocity.x;
-      dstF32[carBase + CAR_STATE_OFFSETS.ANG_VEL + 1] = rb.angularVelocity.y;
-      dstF32[carBase + CAR_STATE_OFFSETS.ANG_VEL + 2] = rb.angularVelocity.z;
-    }
-
+  for (let s = 0; s < MAX_SLOTS; s++) {
+    const car = f.cars[s];
+    const slot = car && car.slotIndex >= 0 && car.slotIndex < MAX_SLOTS ? car.slotIndex : s;
+    const c = SIM.CARS + slot * C_STRIDE;
     if (!car || !car.entityActive) {
-      dstF32[carBase + CAR_STATE_OFFSETS.DEMOED] = 1;
-      dstF32[carBase + CAR_STATE_OFFSETS.GROUND_NORMAL + 2] = 1;
+      dst.set([-5500, slot * 300, -2000], c + C_OFF.POS);
+      dst[c + C_OFF.DEMOED] = 1;
+      dst[c + C_OFF.GROUND_NORMAL + 2] = 1;
       continue;
     }
 
-    dstF32[carBase + CAR_STATE_OFFSETS.BOOST] = car.boostAmount;
-    dstF32[carBase + CAR_STATE_OFFSETS.ON_GROUND] = car.isOnGround ? 1 : 0;
-    dstF32[carBase + CAR_STATE_OFFSETS.SUPERSONIC] = car.isSupersonic ? 1 : 0;
-    dstF32[carBase + CAR_STATE_OFFSETS.DEMOED] = 0;
-    dstF32[carBase + CAR_STATE_OFFSETS.HAS_FLIP_OR_JUMP] = car.hasFlipOrJump ? 1 : 0;
-    dstF32[carBase + CAR_STATE_OFFSETS.IS_BOOSTING] =
-      car.activeFlags.boostActive || car.controls.boost ? 1 : 0;
-    dstF32[carBase + CAR_STATE_OFFSETS.IS_FLIPPING] =
-      car.activeFlags.dodgeActive || car.activeFlags.doubleJumpActive ? 1 : 0;
-    dstF32[carBase + CAR_STATE_OFFSETS.GROUND_NORMAL + 2] = 1;
-
-    dstF32[jumpAirBase + EXTENDED_STATE_OFFSETS.CAR_IS_JUMPING_OFFSET] = car.activeFlags.jumpActive
-      ? 1
-      : 0;
-    dstF32[jumpAirBase + EXTENDED_STATE_OFFSETS.CAR_AIR_TIME_OFFSET] = car.activeFlags
-      .doubleJumpActive
-      ? 1
-      : 0;
-    dstF32[jumpAirBase + EXTENDED_STATE_OFFSETS.CAR_JUMP_TIME_OFFSET] = car.activeFlags.dodgeActive
-      ? 1
-      : 0;
-    dstF32[jumpAirBase + EXTENDED_STATE_OFFSETS.CAR_AIR_TIME_SINCE_JUMP_OFFSET] =
-      car.airTimeSinceJump;
-
-    packCarControlsToTrack64(ctrlSlice, slot, {
-      throttle: car.controls.throttle,
-      steer: car.controls.steer,
-      pitch: car.controls.pitch,
-      yaw: car.controls.yaw,
-      roll: car.controls.roll,
-      jump: car.controls.jump,
-      boost: car.controls.boost,
-      handbrake: car.controls.handbrake,
-    });
+    writeRb(dst, c + C_OFF.POS, c + C_OFF.FWD, car.rigidBody);
+    const fl = car.activeFlags;
+    const air = car.isOnGround ? 0 : Math.max(0, car.airTimeSinceJump);
+    mask |= (1 << slot) | (fl.doubleJumpActive ? 1 << (slot + 6) : 0) | (fl.dodgeActive ? 1 << (slot + 12) : 0);
+    const isBoost = fl.boostActive || car.controls.boost ? 1 : 0;
+    const isFlip = fl.dodgeActive || fl.doubleJumpActive ? 1 : 0;
+    dst.set([car.boostAmount, +car.isOnGround, +car.isSupersonic, 0, +car.hasFlipOrJump, isBoost, isFlip], c + C_OFF.BOOST);
+    dst[c + C_OFF.GROUND_NORMAL + 2] = 1;
+    dst.set([+fl.jumpActive, air, fl.jumpActive ? Math.min(0.2, air) : 0, car.airTimeSinceJump], EXT.CAR_JUMP_AIR_BASE + slot * EXT.CAR_JUMP_AIR_STRIDE);
+    packCarControlsToTrack64(ctrlSlice, slot, { ...car.controls });
   }
 
-  for (let p = 0; p < RLRC_BOOST_PAD_COUNT; p++) {
-    const padBase = BOOST_PAD_STATES_OFFSET + p * BOOST_PAD_STATE_STRIDE;
-    const cooldown = frame.boostPadCooldowns[p] ?? 0;
-    dstF32[padBase + BOOST_PAD_OFFSETS.IS_ACTIVE] = cooldown <= 1e-4 ? 1 : 0;
-    dstF32[padBase + BOOST_PAD_OFFSETS.COOLDOWN] = Math.max(0, cooldown);
+  for (let p = 0; p < N_PADS; p++) {
+    const cd = Math.max(0, f.boostPadCooldowns[p] ?? 0);
+    dst.set([cd <= 1e-4 ? 1 : 0, cd], P_BASE + p * P_STRIDE);
   }
 
-  dstF32[EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING] =
-    (frame.ball.entityActive ? 0 : 2) | (ballRb.sleeping ? 1 : 0);
-  dstF32[EXTENDED_STATE_OFFSETS.IS_SIMULATION_FROZEN] = frame.secondsRemaining;
-  dstF32[EXTENDED_STATE_OFFSETS.POSSESSION_STATE] =
-    (frame.isOvertime ? 1 : 0) | ((frame.roundCountdownNumber & 0xff) << 1);
-  dstF32[EXTENDED_STATE_OFFSETS.POSSESSION_BLUE_POINTS] = frame.blueScore;
-  dstF32[EXTENDED_STATE_OFFSETS.POSSESSION_ORANGE_POINTS] = frame.orangeScore;
-  dstF32[EXTENDED_STATE_OFFSETS.POSSESSION_DURATION] = frame.timeSeconds;
+  const M = RLRC_TRACK0_META_OFFSETS;
+  const mFlags = (f.isOvertime ? 1 : 0) | ((f.roundCountdownNumber & 0xff) << 1);
+  dst[EXT.IS_BALL_SLEEPING] = (f.ball.entityActive ? 0 : 2) | (f.ball.rigidBody.sleeping ? 1 : 0);
+  dst.set([f.sourceFrame30Hz, f.secondsRemaining, mFlags, f.timeSeconds, f.blueScore, f.orangeScore, mask, M.MAGIC_VALUE], M.SOURCE_FRAME_30HZ);
 }
 
-export function unpackRLRCFrameFromTrack0Slot(
-  sourceTrackBytes: Uint8Array,
-  frameIndex120Hz: number
-): RLRCFrame120Hz {
-  const frameByteOffset = resolveRLRCTrack0FrameByteOffset(frameIndex120Hz);
-  const srcF32 = new Float32Array(
-    sourceTrackBytes.buffer,
-    sourceTrackBytes.byteOffset + frameByteOffset,
-    RLRC_STATE_FLOATS_PER_FRAME
-  );
-  const ctrlSlice = sourceTrackBytes.subarray(
-    frameByteOffset + RLRC_STATE_BYTES_PER_FRAME,
-    frameByteOffset + RLRC_TRACK0_FRAME_STRIDE_BYTES
-  );
-  const unpackedControls: ReplayCarControlState[] = unpackTrack64ToCarControls(ctrlSlice);
+export function unpackRLRCFrameFromTrack0Slot(buf: Uint8Array, frameIndex120Hz: number): RLRCFrame120Hz {
+  const off = resolveRLRCTrack0FrameByteOffset(frameIndex120Hz);
+  const s = new Float32Array(buf.buffer, buf.byteOffset + off, STATE_FLOATS);
+  const ctrls = unpackTrack64ToCarControls(buf.subarray(off + STATE_BYTES, off + STRIDE));
+  const M = RLRC_TRACK0_META_OFFSETS;
+  const meta = Math.round(s[M.MAGIC_TAG]) === M.MAGIC_VALUE;
+  const mask = meta ? Math.round(s[M.SLOT_ACTION_MASK]) : 0;
+  const bFl = Math.round(s[EXT.IS_BALL_SLEEPING]);
 
-  const ballBase = SIM_OFFSETS.BALL;
-  const ballFlags = Math.round(srcF32[EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING]);
-  const ball: RLRCBallFrameState120Hz = {
-    entityActive: (ballFlags & 2) === 0,
-    rigidBody: {
-      sleeping: (ballFlags & 1) !== 0,
-      position: {
-        x: srcF32[ballBase + BALL_STATE_OFFSETS.POS + 0],
-        y: srcF32[ballBase + BALL_STATE_OFFSETS.POS + 1],
-        z: srcF32[ballBase + BALL_STATE_OFFSETS.POS + 2],
+  const cars: RLRCCarFrameState120Hz[] = new Array(MAX_SLOTS);
+  for (let i = 0; i < MAX_SLOTS; i++) {
+    const c = SIM.CARS + i * C_STRIDE;
+    const j = EXT.CAR_JUMP_AIR_BASE + i * EXT.CAR_JUMP_AIR_STRIDE;
+    const entityActive = meta ? (mask & (1 << i)) !== 0 : s[c + C_OFF.DEMOED] < 0.5;
+    cars[i] = {
+      slotIndex: i, entityActive,
+      rigidBody: entityActive ? readRb(s, c + C_OFF.POS, c + C_OFF.FWD, false) : SLEEP_RB,
+      boostAmount: s[c + C_OFF.BOOST], isOnGround: s[c + C_OFF.ON_GROUND] >= 0.5,
+      isSupersonic: s[c + C_OFF.SUPERSONIC] >= 0.5, hasFlipOrJump: s[c + C_OFF.HAS_FLIP_OR_JUMP] >= 0.5,
+      airTimeSinceJump: s[j + EXT.CAR_AIR_TIME_SINCE_JUMP_OFFSET],
+      activeFlags: {
+        boostActive: s[c + C_OFF.IS_BOOSTING] >= 0.5, jumpActive: s[j + EXT.CAR_IS_JUMPING_OFFSET] >= 0.5,
+        doubleJumpActive: meta ? (mask & (1 << (i + 6))) !== 0 : s[j + EXT.CAR_AIR_TIME_OFFSET] >= 0.5,
+        dodgeActive: meta ? (mask & (1 << (i + 12))) !== 0 : s[j + EXT.CAR_JUMP_TIME_OFFSET] >= 0.5,
       },
-      rotation: readQuatFromBasisInStateBuffer(srcF32, ballBase + BALL_STATE_OFFSETS.ROT_MAT),
-      linearVelocity: {
-        x: srcF32[ballBase + BALL_STATE_OFFSETS.VEL + 0],
-        y: srcF32[ballBase + BALL_STATE_OFFSETS.VEL + 1],
-        z: srcF32[ballBase + BALL_STATE_OFFSETS.VEL + 2],
-      },
-      angularVelocity: {
-        x: srcF32[ballBase + BALL_STATE_OFFSETS.ANG_VEL + 0],
-        y: srcF32[ballBase + BALL_STATE_OFFSETS.ANG_VEL + 1],
-        z: srcF32[ballBase + BALL_STATE_OFFSETS.ANG_VEL + 2],
-      },
-    },
-  };
-
-  const cars: RLRCCarFrameState120Hz[] = new Array(RLRC_MAX_PLAYER_SLOTS);
-  for (let s = 0; s < RLRC_MAX_PLAYER_SLOTS; s++) {
-    const carBase = SIM_OFFSETS.CARS + s * CAR_STATE_STRIDE;
-    const jumpAirBase =
-      EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE + s * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;
-    const entityActive = srcF32[carBase + CAR_STATE_OFFSETS.DEMOED] < 0.5;
-    const rawCtrl = unpackedControls[s];
-    const controls: RLRCSynthesizedCarControls = {
-      throttle: rawCtrl ? rawCtrl.throttle : 0,
-      steer: rawCtrl ? rawCtrl.steer : 0,
-      pitch: rawCtrl ? rawCtrl.pitch : 0,
-      yaw: rawCtrl ? rawCtrl.yaw : 0,
-      roll: rawCtrl ? rawCtrl.roll : 0,
-      jump: rawCtrl ? rawCtrl.jump : false,
-      boost: rawCtrl ? rawCtrl.boost : false,
-      handbrake: rawCtrl ? rawCtrl.handbrake : false,
-    };
-    const activeFlags: RLRCCarComponentActiveFlags = {
-      boostActive: srcF32[carBase + CAR_STATE_OFFSETS.IS_BOOSTING] >= 0.5,
-      jumpActive: srcF32[jumpAirBase + EXTENDED_STATE_OFFSETS.CAR_IS_JUMPING_OFFSET] >= 0.5,
-      doubleJumpActive: srcF32[jumpAirBase + EXTENDED_STATE_OFFSETS.CAR_AIR_TIME_OFFSET] >= 0.5,
-      dodgeActive: srcF32[jumpAirBase + EXTENDED_STATE_OFFSETS.CAR_JUMP_TIME_OFFSET] >= 0.5,
-    };
-    const rigidBody: RLRCRigidBodySample = {
-      sleeping: false,
-      position: {
-        x: srcF32[carBase + CAR_STATE_OFFSETS.POS + 0],
-        y: srcF32[carBase + CAR_STATE_OFFSETS.POS + 1],
-        z: srcF32[carBase + CAR_STATE_OFFSETS.POS + 2],
-      },
-      rotation: readQuatFromBasisInStateBuffer(srcF32, carBase + CAR_STATE_OFFSETS.FWD),
-      linearVelocity: {
-        x: srcF32[carBase + CAR_STATE_OFFSETS.VEL + 0],
-        y: srcF32[carBase + CAR_STATE_OFFSETS.VEL + 1],
-        z: srcF32[carBase + CAR_STATE_OFFSETS.VEL + 2],
-      },
-      angularVelocity: {
-        x: srcF32[carBase + CAR_STATE_OFFSETS.ANG_VEL + 0],
-        y: srcF32[carBase + CAR_STATE_OFFSETS.ANG_VEL + 1],
-        z: srcF32[carBase + CAR_STATE_OFFSETS.ANG_VEL + 2],
-      },
-    };
-    cars[s] = {
-      slotIndex: s,
-      entityActive,
-      rigidBody,
-      boostAmount: srcF32[carBase + CAR_STATE_OFFSETS.BOOST],
-      isOnGround: srcF32[carBase + CAR_STATE_OFFSETS.ON_GROUND] >= 0.5,
-      isSupersonic: srcF32[carBase + CAR_STATE_OFFSETS.SUPERSONIC] >= 0.5,
-      hasFlipOrJump: srcF32[carBase + CAR_STATE_OFFSETS.HAS_FLIP_OR_JUMP] >= 0.5,
-      airTimeSinceJump: srcF32[jumpAirBase + EXTENDED_STATE_OFFSETS.CAR_AIR_TIME_SINCE_JUMP_OFFSET],
-      activeFlags,
-      controls,
+      controls: { ...(ctrls[i] ?? ZERO_CTRL) },
     };
   }
 
-  const boostPadCooldowns = new Float32Array(RLRC_BOOST_PAD_COUNT);
-  for (let p = 0; p < RLRC_BOOST_PAD_COUNT; p++) {
-    const padBase = BOOST_PAD_STATES_OFFSET + p * BOOST_PAD_STATE_STRIDE;
-    boostPadCooldowns[p] = srcF32[padBase + BOOST_PAD_OFFSETS.COOLDOWN];
-  }
+  const boostPadCooldowns = new Float32Array(N_PADS);
+  for (let p = 0; p < N_PADS; p++) boostPadCooldowns[p] = s[P_BASE + p * P_STRIDE + P_OFF.COOLDOWN];
 
-  const packedMatchFlags = Math.round(srcF32[EXTENDED_STATE_OFFSETS.POSSESSION_STATE]);
-  const storedTime = srcF32[EXTENDED_STATE_OFFSETS.POSSESSION_DURATION];
-
+  const mFl = Math.round(s[meta ? M.MATCH_FLAGS : EXT.POSSESSION_STATE]);
+  const tSec = s[meta ? M.TIME_SECONDS : EXT.POSSESSION_DURATION];
   return {
     frameIndex120Hz,
-    sourceFrame30Hz: Math.round(srcF32[SIM_OFFSETS.GOAL]),
-    timeSeconds: storedTime > 0 ? storedTime : frameIndex120Hz * RLRC_FIXED_DT,
-    secondsRemaining: Math.round(srcF32[EXTENDED_STATE_OFFSETS.IS_SIMULATION_FROZEN]),
-    isOvertime: (packedMatchFlags & 1) !== 0,
-    roundCountdownNumber: (packedMatchFlags >>> 1) & 0xff,
-    blueScore: Math.round(srcF32[EXTENDED_STATE_OFFSETS.POSSESSION_BLUE_POINTS]),
-    orangeScore: Math.round(srcF32[EXTENDED_STATE_OFFSETS.POSSESSION_ORANGE_POINTS]),
-    ball,
-    cars,
-    boostPadCooldowns,
+    sourceFrame30Hz: Math.round(s[meta ? M.SOURCE_FRAME_30HZ : SIM.GOAL]),
+    timeSeconds: tSec > 0 ? tSec : frameIndex120Hz * DT,
+    secondsRemaining: Math.round(s[meta ? M.SECONDS_REMAINING : EXT.IS_SIMULATION_FROZEN]),
+    isOvertime: (mFl & 1) !== 0, roundCountdownNumber: (mFl >>> 1) & 0xff,
+    blueScore: Math.round(s[meta ? M.BLUE_SCORE : EXT.POSSESSION_BLUE_POINTS]),
+    orangeScore: Math.round(s[meta ? M.ORANGE_SCORE : EXT.POSSESSION_ORANGE_POINTS]),
+    ball: { entityActive: (bFl & 2) === 0, rigidBody: readRb(s, SIM.BALL + B_OFF.POS, SIM.BALL + B_OFF.ROT_MAT, (bFl & 1) !== 0) },
+    cars, boostPadCooldowns,
   };
 }
+

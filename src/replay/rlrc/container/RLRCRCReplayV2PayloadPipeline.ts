@@ -1,7 +1,6 @@
 /**
  * RLRCRCReplayV2PayloadPipeline.ts
- * Pure data pipeline mapping between RLRC 120Hz container packets (Header, Roster, Bookmarks, Track 0)
- * and standard RCREPLAY V2 multi-track binary container payloads (Track A State+Input, Track B Incidents, Track C Signals).
+ * Maps RLRC 120Hz container packets to/from RCREPLAY V2 binary payloads.
  */
 
 import { INCIDENT_EVENT_TYPES, MATCH_SIGNALS } from '../../../physics/RocketSimConstants.ts';
@@ -14,7 +13,7 @@ import {
 } from '../../container/RCReplayBinarySchema.ts';
 import {
   RLRC_TICK_RATE,
-  RLRC_TRACK0_FRAME_STRIDE_BYTES,
+  RLRC_TRACK0_FRAME_STRIDE_BYTES as STRIDE,
   type RLRCBookmarkRecord,
   type RLRCContainerPacket,
   type RLRCPlayerSlotMeta,
@@ -61,34 +60,26 @@ export interface DecodedRCREPLAYV2TracksForRLRC {
 export function mapRLRCPacketToRCReplayV2Payload(
   packet: RLRCContainerPacket
 ): RLRCReplayV2ExportPayload {
-  const frameCount = Math.floor(
-    packet.stateInputTrackBytes.byteLength / RLRC_TRACK0_FRAME_STRIDE_BYTES
-  );
-
-  const incidentBookmarks = packet.bookmarks.filter(
-    (b) => b.kind === 'goal' || b.kind === 'demolish'
-  );
-  const incidentBytes = new Uint8Array(incidentBookmarks.length * RC_REPLAY_EVENT_STRIDE);
-  for (let i = 0; i < incidentBookmarks.length; i++) {
-    const bm = incidentBookmarks[i];
-    const fIdx = Math.max(0, Math.trunc(bm.frameIndex120Hz));
-    const carIdx = Math.max(0, bm.slotIndex);
-    const teamIdx = bm.team === 1 ? 1 : 0;
-    encodeIncidentTo64Bytes(
-      {
-        type:
-          bm.kind === 'goal' ? INCIDENT_EVENT_TYPES.GOAL_SCORED : INCIDENT_EVENT_TYPES.CAR_CAR_DEMO,
-        tick: fIdx,
-        frameIndex: fIdx,
-        carIndex: carIdx,
-        primaryId: carIdx,
-        team: teamIdx,
-        secondaryId: teamIdx,
-      },
-      incidentBytes,
-      i * RC_REPLAY_EVENT_STRIDE,
-      fIdx
-    );
+  const frameCount = Math.floor(packet.stateInputTrackBytes.byteLength / STRIDE);
+  const incBms = packet.bookmarks.filter((b) => b.kind === 'goal' || b.kind === 'demolish');
+  const incidentBytes = new Uint8Array(incBms.length * RC_REPLAY_EVENT_STRIDE);
+  for (let i = 0; i < incBms.length; i++) {
+    const bm = incBms[i];
+    const f = Math.max(0, Math.trunc(bm.frameIndex120Hz));
+    const c = Math.max(0, bm.slotIndex);
+    const t = bm.team === 1 ? 1 : 0;
+    const type =
+      bm.kind === 'goal' ? INCIDENT_EVENT_TYPES.GOAL_SCORED : INCIDENT_EVENT_TYPES.CAR_CAR_DEMO;
+    const inc = {
+      type,
+      tick: f,
+      frameIndex: f,
+      carIndex: c,
+      primaryId: c,
+      team: t,
+      secondaryId: t,
+    };
+    encodeIncidentTo64Bytes(inc, incidentBytes, i * RC_REPLAY_EVENT_STRIDE, f);
   }
 
   const {
@@ -145,97 +136,79 @@ export function extractRLRCTracksFromRCReplayV2Bytes(
   u8: Uint8Array
 ): DecodedRCREPLAYV2TracksForRLRC {
   const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
-  const metaLength = dv.getUint32(12, true);
-  if (16 + metaLength > u8.byteLength) {
-    throw new Error('Corrupt RCREPLAY V2 metadata JSON length.');
-  }
+  const metaLen = dv.getUint32(12, true);
+  if (16 + metaLen > u8.byteLength) throw new Error('Corrupt RCREPLAY V2 metadata JSON length.');
 
-  const envelope = JSON.parse(new TextDecoder().decode(u8.subarray(16, 16 + metaLength))) as {
+  const env = JSON.parse(new TextDecoder().decode(u8.subarray(16, 16 + metaLen))) as {
     matchInfo?: Record<string, unknown>;
-    tracks?: {
-      stateInput?: {
-        offset: number;
-        byteLength: number;
-        count: number;
-        stride?: number;
-        encoding?: string;
-      };
-      incidents?: { offset: number; byteLength: number; count: number };
-      signals?: { offset: number; byteLength: number; count: number };
-    };
+    tracks?: Record<
+      string,
+      { offset: number; byteLength: number; count: number; stride?: number; encoding?: string }
+    >;
   };
 
-  const matchInfo = envelope.matchInfo ?? {};
-  const tracks = envelope.tracks ?? {};
-  const stateToc = tracks.stateInput ?? { offset: 0, byteLength: 0, count: 0 };
-  const frameCount = Number(stateToc.count ?? matchInfo.frameCount ?? 0);
-  const stateStride = Number(stateToc.stride || RLRC_TRACK0_FRAME_STRIDE_BYTES);
+  const m = env.matchInfo ?? {};
+  const tracks = env.tracks ?? {};
+  const st = tracks.stateInput ?? { offset: 0, byteLength: 0, count: 0 };
+  const frameCount = Number(st.count ?? m.frameCount ?? 0);
+  const stride = Number(st.stride || STRIDE);
   const rawTrackA =
-    frameCount > 0 && stateToc.byteLength > 0
-      ? u8.subarray(stateToc.offset, stateToc.offset + stateToc.byteLength)
+    frameCount > 0 && st.byteLength > 0
+      ? u8.subarray(st.offset, st.offset + st.byteLength)
       : new Uint8Array(0);
-
   const stateInputTrackBytes =
-    stateToc.encoding === 'xor-delta-bytetran-v1'
-      ? unfilterAndUntransposeStateInputTrack(rawTrackA, frameCount, stateStride)
-      : u8.slice(stateToc.offset, stateToc.offset + stateToc.byteLength);
+    st.encoding === 'xor-delta-bytetran-v1'
+      ? unfilterAndUntransposeStateInputTrack(rawTrackA, frameCount, stride)
+      : u8.slice(st.offset, st.offset + st.byteLength);
 
-  const directorMeta = (matchInfo.directorReplayMeta ?? {}) as {
+  const dirMeta = (m.directorReplayMeta ?? {}) as {
     rlrcHeader?: RLRCReplayHeaderMeta;
     rlrcBookmarks?: readonly RLRCBookmarkRecord[];
   };
 
-  const rawRoster = Array.isArray(matchInfo.roster) ? matchInfo.roster : [];
-  const roster: RLRCPlayerSlotMeta[] = rawRoster.map(
-    (entry: Record<string, unknown>, idx: number) => {
-      const slotIndex =
-        typeof entry.slotIndex === 'number'
-          ? entry.slotIndex
-          : typeof entry.carIndex === 'number'
-            ? entry.carIndex
-            : idx;
-      const team: RLRCTeamIndex = entry.team === 1 || entry.team === 'orange' ? 1 : 0;
-      const primaryColor = entry.primaryColorHex ?? entry.colorHex;
-      return {
-        slotIndex,
-        userName: String(
-          entry.userName ?? entry.name ?? entry.username ?? `Player ${slotIndex + 1}`
-        ),
-        team,
-        priActorId: typeof entry.priActorId === 'number' ? entry.priActorId : slotIndex + 1,
-        bodyProductId: typeof entry.bodyProductId === 'number' ? entry.bodyProductId : 23,
-        hitboxId: (typeof entry.hitboxId === 'string'
-          ? entry.hitboxId
-          : 'hitbox-octane') as RLRCPlayerSlotMeta['hitboxId'],
-        visualId: (typeof entry.visualId === 'string'
-          ? entry.visualId
-          : 'fennec') as RLRCPlayerSlotMeta['visualId'],
-        ...(typeof primaryColor === 'string' ? { primaryColorHex: primaryColor } : {}),
-        ...(typeof entry.accentColorHex === 'string'
-          ? { accentColorHex: entry.accentColorHex }
-          : {}),
-        ...(entry.cameraSettings && typeof entry.cameraSettings === 'object'
-          ? { cameraSettings: entry.cameraSettings as RLRCPlayerSlotMeta['cameraSettings'] }
-          : {}),
-      };
-    }
-  );
+  const rawRoster = Array.isArray(m.roster) ? m.roster : [];
+  const roster: RLRCPlayerSlotMeta[] = rawRoster.map((e: Record<string, unknown>, idx: number) => {
+    const slotIndex =
+      typeof e.slotIndex === 'number'
+        ? e.slotIndex
+        : typeof e.carIndex === 'number'
+          ? e.carIndex
+          : idx;
+    const team: RLRCTeamIndex = e.team === 1 || e.team === 'orange' ? 1 : 0;
+    const pColor = e.primaryColorHex ?? e.colorHex;
+    return {
+      slotIndex,
+      userName: String(e.userName ?? e.name ?? e.username ?? `Player ${slotIndex + 1}`),
+      team,
+      priActorId: typeof e.priActorId === 'number' ? e.priActorId : slotIndex + 1,
+      bodyProductId: typeof e.bodyProductId === 'number' ? e.bodyProductId : 23,
+      hitboxId: (typeof e.hitboxId === 'string'
+        ? e.hitboxId
+        : 'hitbox-octane') as RLRCPlayerSlotMeta['hitboxId'],
+      visualId: (typeof e.visualId === 'string'
+        ? e.visualId
+        : 'fennec') as RLRCPlayerSlotMeta['visualId'],
+      ...(typeof pColor === 'string' ? { primaryColorHex: pColor } : {}),
+      ...(typeof e.accentColorHex === 'string' ? { accentColorHex: e.accentColorHex } : {}),
+      ...(e.cameraSettings && typeof e.cameraSettings === 'object'
+        ? { cameraSettings: e.cameraSettings as RLRCPlayerSlotMeta['cameraSettings'] }
+        : {}),
+    };
+  });
 
-  const header: RLRCReplayHeaderMeta = directorMeta.rlrcHeader ?? {
-    replayId: String(matchInfo.replayId ?? 'RCREPLAY-V2'),
-    replayName: String(matchInfo.mode ?? 'match'),
+  const header: RLRCReplayHeaderMeta = dirMeta.rlrcHeader ?? {
+    replayId: String(m.replayId ?? 'RCREPLAY-V2'),
+    replayName: String(m.mode ?? 'match'),
     mapName: 'Stadium_P',
-    matchType: String(matchInfo.mode ?? 'match'),
+    matchType: String(m.mode ?? 'match'),
     teamSize: Math.max(1, Math.ceil(Math.max(2, roster.length) / 2)),
     recordFps: 30,
     sourceFrameCount: Math.ceil(frameCount / 4),
     frameCount120Hz: frameCount,
-    durationSeconds: Number(
-      matchInfo.durationSeconds ?? matchInfo.durationSec ?? frameCount / RLRC_TICK_RATE
-    ),
-    date: String(matchInfo.createdAtIso ?? ''),
-    blueScore: Number(matchInfo.blueScore ?? 0),
-    orangeScore: Number(matchInfo.orangeScore ?? 0),
+    durationSeconds: Number(m.durationSeconds ?? m.durationSec ?? frameCount / RLRC_TICK_RATE),
+    date: String(m.createdAtIso ?? ''),
+    blueScore: Number(m.blueScore ?? 0),
+    orangeScore: Number(m.orangeScore ?? 0),
     part1CrcValid: true,
     part2CrcValid: true,
   };
@@ -247,10 +220,10 @@ export function extractRLRCTracksFromRCReplayV2Bytes(
       : undefined;
   restoreRLRCTrack0FromSanitizedStateInput(stateInputTrackBytes, roster.length, header, sigSlice);
 
-  const bookmarks: RLRCBookmarkRecord[] = Array.isArray(directorMeta.rlrcBookmarks)
-    ? [...directorMeta.rlrcBookmarks]
+  const bookmarks: RLRCBookmarkRecord[] = Array.isArray(dirMeta.rlrcBookmarks)
+    ? [...dirMeta.rlrcBookmarks]
     : [];
-  if (!Array.isArray(directorMeta.rlrcBookmarks)) {
+  if (!Array.isArray(dirMeta.rlrcBookmarks)) {
     const incToc = tracks.incidents;
     if (incToc && incToc.count > 0 && incToc.byteLength > 0) {
       const incSlice = u8.subarray(incToc.offset, incToc.offset + incToc.byteLength);
@@ -260,15 +233,16 @@ export function extractRLRCTracksFromRCReplayV2Bytes(
           inc.type === INCIDENT_EVENT_TYPES.GOAL_SCORED ||
           inc.type === INCIDENT_EVENT_TYPES.CAR_CAR_DEMO
         ) {
-          const fIdx = Math.max(0, inc.frameIndex || inc.tick || 0);
+          const f = Math.max(0, inc.frameIndex || inc.tick || 0);
+          const isGoal = inc.type === INCIDENT_EVENT_TYPES.GOAL_SCORED;
           bookmarks.push({
-            kind: inc.type === INCIDENT_EVENT_TYPES.GOAL_SCORED ? 'goal' : 'demolish',
-            frameIndex120Hz: fIdx,
-            sourceFrame30Hz: Math.floor(fIdx / 4),
-            timeSeconds: fIdx / RLRC_TICK_RATE,
+            kind: isGoal ? 'goal' : 'demolish',
+            frameIndex120Hz: f,
+            sourceFrame30Hz: Math.floor(f / 4),
+            timeSeconds: f / RLRC_TICK_RATE,
             slotIndex: inc.carIndex ?? 0,
             team: inc.team === 1 ? 1 : 0,
-            label: inc.type === INCIDENT_EVENT_TYPES.GOAL_SCORED ? 'Goal' : 'Demolish',
+            label: isGoal ? 'Goal' : 'Demolish',
           });
         }
       }
@@ -282,12 +256,12 @@ export function extractRLRCTracksFromRCReplayV2Bytes(
         ) {
           continue;
         }
-        const fIdx = Math.max(0, sig.frameIndex || sig.tick || 0);
+        const f = Math.max(0, sig.frameIndex || sig.tick || 0);
         bookmarks.push({
           kind: 'kickoff',
-          frameIndex120Hz: fIdx,
-          sourceFrame30Hz: sig.param1 || Math.floor(fIdx / 4),
-          timeSeconds: fIdx / RLRC_TICK_RATE,
+          frameIndex120Hz: f,
+          sourceFrame30Hz: sig.param1 || Math.floor(f / 4),
+          timeSeconds: f / RLRC_TICK_RATE,
           slotIndex: sig.param2 ?? -1,
           team: -1,
           label: 'Kickoff',
@@ -296,10 +270,5 @@ export function extractRLRCTracksFromRCReplayV2Bytes(
     }
   }
 
-  return {
-    header,
-    roster,
-    bookmarks,
-    stateInputTrackBytes,
-  };
+  return { header, roster, bookmarks, stateInputTrackBytes };
 }

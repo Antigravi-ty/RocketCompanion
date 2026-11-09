@@ -287,6 +287,14 @@ export interface RLRCNetStreamExtractorInput {
   readonly boostPadEvents?: readonly RLRCBoostPadPickupEvent[];
 }
 
+export interface RLRCBoostAnchorMapBySlot {
+  readonly anchorsBySlot: ReadonlyArray<ReadonlyMap<number, number>>;
+  readonly spawnFramesBySlot: ReadonlyArray<ReadonlySet<number>>;
+  readonly grantChangedBySlot?: ReadonlyArray<ReadonlySet<number>>;
+  readonly rawFrames?: readonly RLRCNetStreamRawFrame[];
+  readonly objects?: readonly string[];
+}
+
 export interface RLRCNetStreamExtractorOutput {
   readonly networkFrames: readonly RLRCSourceNetworkFrame[];
   readonly demolishBookmarks: readonly RLRCBookmarkRecord[];

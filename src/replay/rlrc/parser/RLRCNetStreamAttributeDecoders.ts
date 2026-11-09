@@ -3,20 +3,20 @@
  * Pure attribute decoders and per-frame car state builders for 30Hz NetStream extraction.
  */
 
-import {
-  RLRC_MAX_PLAYER_SLOTS,
-  type RLRCBasis3x3,
-  type RLRCCarComponentActiveFlags,
-  type RLRCCarFrameState120Hz,
-  type RLRCQuat,
-  type RLRCRigidBodySample,
-  type RLRCSourceNetworkFrame,
-  type RLRCSynthesizedCarControls,
-  type RLRCVec3,
+import type {
+  RLRCBasis3x3,
+  RLRCCarComponentActiveFlags,
+  RLRCCarFrameState120Hz,
+  RLRCQuat,
+  RLRCRigidBodySample,
+  RLRCSourceNetworkFrame,
+  RLRCSynthesizedCarControls,
+  RLRCVec3,
 } from '../RLRCReplayTypes.ts';
-import { RLRC_DEFAULT_SPAWN_BOOST_PCT } from './RLRCBoostTimelineReconstructor.ts';
 
-export const RLRC_DEFAULT_SPAWN_BOOST: number = RLRC_DEFAULT_SPAWN_BOOST_PCT;
+const RLRC_MAX_PLAYER_SLOTS = 6;
+
+export const RLRC_DEFAULT_SPAWN_BOOST = (85 / 255) * 100;
 export const RLRC_DEFAULT_BALL_REST_Z = 93.15;
 export const RLRC_SUPERSONIC_SPEED_UU_S = 2200;
 export const RLRC_FLIP_EXPIRATION_SECONDS = 1.25;

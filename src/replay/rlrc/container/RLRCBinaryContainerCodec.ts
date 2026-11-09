@@ -27,10 +27,10 @@ import {
   type RLRCReplayV2ExportPayload,
 } from './RLRCRCReplayV2PayloadPipeline.ts';
 import {
-  packRLRCFrameToTrack0Slot,
   resolveRLRCTrack0FrameByteOffset,
   unpackRLRCFrameFromTrack0Slot,
 } from './RLRCTrack0FrameSlotPacker.ts';
+import { packRLRCFramesToTrack0Bytes } from './RLRCTrack0TimelineBatchPacker.ts';
 
 export type { RLRCReplayV2ExportPayload };
 
@@ -68,11 +68,7 @@ export function getRLRCTrack0FrameByteOffset(frameIndex120Hz: number): number {
 }
 
 export function encodeRLRCFramesToTrack0Bytes(frames120Hz: readonly RLRCFrame120Hz[]): Uint8Array {
-  const trackBytes = new Uint8Array(frames120Hz.length * RLRC_TRACK0_FRAME_STRIDE_BYTES);
-  for (let i = 0; i < frames120Hz.length; i++) {
-    packRLRCFrameToTrack0Slot(frames120Hz[i], trackBytes, i * RLRC_TRACK0_FRAME_STRIDE_BYTES);
-  }
-  return trackBytes;
+  return packRLRCFramesToTrack0Bytes(frames120Hz);
 }
 
 export function decodeRLRCFramesFromTrack0Bytes(

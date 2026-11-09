@@ -68,64 +68,69 @@ export interface ReplayFrameInterpolatorStatePort {
  * directly to a RocketSimPhysicsEngine instance and optional PhysicsStateInterpolator.
  */
 export function applyReplayFrameToEngine(
-  engine: ReplayFrameEnginePort | null | undefined,
+  targetPort: ReplayFrameEnginePort | null | undefined,
   frameBuffer: Float32Array | null | undefined,
   interpolator: ReplayFrameInterpolatorStatePort | null = null,
   prevFrameBuffer: Float32Array | null = null,
   alpha = 1.0
 ): boolean {
-  if (!engine || !frameBuffer || frameBuffer.length < 410) return false;
+  if (!targetPort || !frameBuffer || frameBuffer.length < 410) return false;
 
   const headerCars = Math.min(
     MAX_CARS,
     Math.max(0, Math.round(frameBuffer[SIM_OFFSETS.NUM_CARS] || 0))
   );
-  if (typeof engine.isCarSlotActive === 'function' && typeof engine.addCarAtSlot === 'function') {
+  if (
+    typeof targetPort.isCarSlotActive === 'function' &&
+    typeof targetPort.addCarAtSlot === 'function'
+  ) {
     for (let c = 0; c < headerCars; c++) {
-      if (!engine.isCarSlotActive(c)) {
-        engine.addCarAtSlot(c, c % 2, 'octane');
+      if (!targetPort.isCarSlotActive(c)) {
+        targetPort.addCarAtSlot(c, c % 2, 'octane');
       }
     }
   } else {
-    while ((engine.numCars ?? 0) < headerCars && typeof engine.addCar === 'function') {
-      engine.addCar((engine.numCars ?? 0) % 2, 'octane');
+    while ((targetPort.numCars ?? 0) < headerCars && typeof targetPort.addCar === 'function') {
+      targetPort.addCar((targetPort.numCars ?? 0) % 2, 'octane');
     }
   }
-  if (typeof engine.restoreState === 'function') {
-    engine.restoreState(frameBuffer, { preserveEngineTick: true });
+
+  const targetState = targetPort.state ?? null;
+  if (typeof targetPort.restoreState === 'function') {
+    targetPort.restoreState(frameBuffer, { preserveEngineTick: true });
   } else {
-    if (typeof engine.setBallState === 'function') {
-      engine.setBallState(
+    if (typeof targetPort.setBallState === 'function') {
+      targetPort.setBallState(
         frameBuffer.subarray(SIM_OFFSETS.BALL, SIM_OFFSETS.BALL + BALL_STATE_STRIDE)
       );
     }
-    const engineCars = engine.numCars ?? 0;
-    const numCars = Math.min(engineCars, headerCars || engineCars, MAX_CARS);
+    const currentCarCount = targetPort.numCars ?? 0;
+    const numCars = Math.min(currentCarCount, headerCars || currentCarCount, MAX_CARS);
     for (let c = 0; c < numCars; c++) {
       const carOffset = SIM_OFFSETS.CARS + c * CAR_STATE_STRIDE;
-      if (typeof engine.setCarState === 'function') {
-        engine.setCarState(c, frameBuffer.subarray(carOffset, carOffset + CAR_STATE_STRIDE));
+      if (typeof targetPort.setCarState === 'function') {
+        targetPort.setCarState(c, frameBuffer.subarray(carOffset, carOffset + CAR_STATE_STRIDE));
       }
     }
-    if (engine.state) {
-      const copyLen = Math.min(frameBuffer.length, engine.state.length);
-      engine.state.subarray(0, copyLen).set(frameBuffer.subarray(0, copyLen));
+    if (targetState) {
+      const copyLen = Math.min(frameBuffer.length, targetState.length);
+      targetState.subarray(0, copyLen).set(frameBuffer.subarray(0, copyLen));
     }
   }
 
   if (
-    engine.state &&
+    targetState &&
     headerCars <= 7 &&
     frameBuffer.length >= REPLAY_DIRECTOR_TELEMETRY_OFFSET + 10 &&
-    engine.state.length >= REPLAY_DIRECTOR_TELEMETRY_OFFSET + 10 &&
+    targetState.length >= REPLAY_DIRECTOR_TELEMETRY_OFFSET + 10 &&
     Math.abs(frameBuffer[REPLAY_DIRECTOR_TELEMETRY_OFFSET] - REPLAY_DIRECTOR_MAGIC) <= 0.01
   ) {
     const telemetryLen = Math.min(
       28,
       frameBuffer.length - REPLAY_DIRECTOR_TELEMETRY_OFFSET,
-      engine.state.length - REPLAY_DIRECTOR_TELEMETRY_OFFSET
+      targetState.length - REPLAY_DIRECTOR_TELEMETRY_OFFSET
     );
-    engine.state
+    targetState
       .subarray(REPLAY_DIRECTOR_TELEMETRY_OFFSET, REPLAY_DIRECTOR_TELEMETRY_OFFSET + telemetryLen)
       .set(
         frameBuffer.subarray(
@@ -135,15 +140,15 @@ export function applyReplayFrameToEngine(
       );
   }
 
-  if (interpolator && engine.state) {
-    const currLen = Math.min(interpolator.currState.length, engine.state.length);
-    interpolator.currState.subarray(0, currLen).set(engine.state.subarray(0, currLen));
+  if (interpolator && targetState) {
+    const currLen = Math.min(interpolator.currState.length, targetState.length);
+    interpolator.currState.subarray(0, currLen).set(targetState.subarray(0, currLen));
     if (prevFrameBuffer && prevFrameBuffer.length >= 410 && prevFrameBuffer.length <= 512) {
       const prevLen = Math.min(interpolator.prevState.length, prevFrameBuffer.length);
       interpolator.prevState.subarray(0, prevLen).set(prevFrameBuffer.subarray(0, prevLen));
       interpolator.alpha = Math.max(0, Math.min(1, alpha));
     } else {
-      interpolator.prevState.subarray(0, currLen).set(engine.state.subarray(0, currLen));
+      interpolator.prevState.subarray(0, currLen).set(targetState.subarray(0, currLen));
       interpolator.alpha = 0;
     }
   }

@@ -1,7 +1,7 @@
 /**
  * RLRCReplaySessionBridgePipeline.ts
  * Pure telemetry formatting, background Worker .rcreplay.gz download helper,
- * POV slot resolver, and HUD match-state synchronization for RLRCReplaySessionController.
+ * POV slot resolver, HUD match-state diffing, and playback cursor stepping pipeline.
  */
 
 import {
@@ -59,10 +59,10 @@ export function syncRLRCNameTagRoster(
 export function resolveRLRCPovSlotSelection(
   roster: readonly RLRCPlayerSlotMeta[],
   slotKey: number,
-  runtime: ReplayScoreboardRuntimePort | null
+  sessionPort: ReplayScoreboardRuntimePort | null
 ): { key: number; meta: RLRCPlayerSlotMeta; slot: number; povTeam: RLRCTeamIndex } | null {
   const key = Math.max(1, Math.min(6, Math.round(slotKey)));
-  const mappedSlot = (runtime as { _lastHudSlotCarMap?: Record<number, number> } | null)
+  const mappedSlot = (sessionPort as { _lastHudSlotCarMap?: Record<number, number> } | null)
     ?._lastHudSlotCarMap?.[key];
   const teamTarget: RLRCTeamIndex = key <= 3 ? 0 : 1;
   const teamOffset = key <= 3 ? key - 1 : key - 4;
@@ -120,12 +120,62 @@ export function syncRLRCFrameHudMatchState(
   return key;
 }
 
+export function stepRLRCPlaybackCursor(params: {
+  readonly state: string;
+  readonly effectiveFlowPct: number;
+  readonly maxF: number;
+  readonly prevFrac: number;
+  readonly prevCursor: number;
+  readonly prevTick: number;
+  readonly applyFrame: (idx: number, smoothStep: boolean) => void;
+  readonly pausePlaying: () => void;
+}): {
+  readonly stepped: boolean;
+  readonly frac: number;
+  readonly cursorFrame120Hz: number;
+  readonly tick: number;
+} {
+  const {
+    state,
+    effectiveFlowPct,
+    maxF,
+    prevFrac,
+    prevCursor,
+    prevTick,
+    applyFrame,
+    pausePlaying,
+  } = params;
+  if (state !== 'playing' && state !== 'forwarding' && state !== 'rewinding') {
+    return { stepped: false, frac: prevFrac, cursorFrame120Hz: prevCursor, tick: prevTick };
+  }
+  const spd = Math.max(0.01, (Number(effectiveFlowPct) || 100) / 100);
+  const dir = state === 'rewinding' ? -1 : 1;
+  const frac = Math.max(
+    0,
+    Math.min(maxF, prevFrac + dir * (state === 'playing' ? spd : Math.max(1.5, spd * 2)))
+  );
+  const next = Math.round(frac);
+  let tick = prevTick;
+  if (next !== prevCursor) {
+    applyFrame(next, dir > 0);
+    const done = (dir > 0 && next >= maxF) || (dir < 0 && next <= 0);
+    tick = (prevTick + 1) & 3;
+    if (done || tick === 0) {
+      useReplayToRcsImporterStore
+        .getState()
+        .updateLiveTelemetry({ cursorFrame: next, targetFrame: next });
+    }
+    if (done) pausePlaying();
+  }
+  return { stepped: true, frac, cursorFrame120Hz: next, tick };
+}
+
 export function readLiveRuntimePlayerControls(
-  runtime: ReplayScoreboardRuntimePort | null,
+  sessionPort: ReplayScoreboardRuntimePort | null,
   activePovSlotIndex: number
 ): RLRCSynthesizedCarControls {
-  if (!runtime) return DEFAULT_NEUTRAL_CAR_CONTROLS;
-  const bridgeRuntime = runtime as unknown as RLRCBridgeRuntimePort;
+  if (!sessionPort) return DEFAULT_NEUTRAL_CAR_CONTROLS;
+  const bridgeRuntime = sessionPort as unknown as RLRCBridgeRuntimePort;
   const livePlayerControls = bridgeRuntime.playerControls;
   if (isNonNeutralControls(livePlayerControls))
     return normalizeSynthesizedControls(livePlayerControls);
@@ -165,7 +215,7 @@ export function publishConvertedSessionTelemetry(
     .filter((b) => b.kind === 'user-mark' || b.kind === 'kickoff' || b.kind === 'ue-keyframe')
     .map((b) => ({
       frameIndex: b.frameIndex120Hz,
-      type: b.kind === 'user-mark' ? 0x91 : 0x87,
+      type: b.kind === 'user-mark' ? 0x91 : b.kind === 'kickoff' ? 0x82 : 0xa0,
       param1: b.sourceFrame30Hz,
       param2: b.slotIndex,
       synthesized: false,
