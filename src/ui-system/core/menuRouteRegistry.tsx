@@ -1,42 +1,42 @@
 import React from 'react';
-import { useAppStore } from '../../ui-core/stores/appStore';
-import { type AppState } from '../../ui-core/stores/appStoreTypes';
-import { type ActiveMenuRoute } from '../../ui-core/config/uiConfig';
-import { type MenuPanelId } from '../../ui-core/tokens/menuLayoutTokens';
-import { useExperimentalMultiBotsStore } from '../../ui-core/stores/experimentalMultiBotsStore';
-import { useStaticTrainingPackStore } from '../../ui-core/stores/staticTrainingPackStore';
-import { Layer1MainMenuRecipe } from '../../ui-core/recipes/Layer1MainMenuRecipe';
-import { Layer2PlayRecipe } from '../../ui-core/recipes/Layer2PlayRecipe';
-import { Layer2GarageRecipe } from '../../ui-core/recipes/Layer2GarageRecipe';
-import { Layer2SettingsRecipe } from '../../ui-core/recipes/Layer2SettingsRecipe';
-import { Layer2ManageRoomRecipe } from '../../ui-core/recipes/Layer2ManageRoomRecipe';
-import { Layer3AcousticsEqualizerRecipe } from '../../ui-core/recipes/Layer3AcousticsEqualizerRecipe';
-import { Layer3BallTrajectoryRecipe } from '../../ui-core/recipes/Layer3BallTrajectoryRecipe';
-import { Layer3ExhibitionRecipe } from '../../ui-core/recipes/Layer3ExhibitionRecipe';
-import { Layer3CameraRecipe } from '../../ui-core/recipes/Layer3CameraRecipe';
-import { Layer3KeybindingsRecipe } from '../../ui-core/recipes/Layer3KeybindingsRecipe';
-import { Layer3TrainingConfigRecipe } from '../../ui-core/recipes/Layer3TrainingConfigRecipe';
-import { Layer3HostMatchRecipe } from '../../ui-core/recipes/Layer3HostMatchRecipe';
-import { Layer3JoinRoomRecipe } from '../../ui-core/recipes/Layer3JoinRoomRecipe';
-import { Layer3HostTrainingRecipe } from '../../ui-core/recipes/Layer3HostTrainingRecipe';
-import { Layer3CustomPlayRecipe } from '../../ui-core/recipes/Layer3CustomPlayRecipe';
-import { Layer3KickoffTrainingRecipe } from '../../ui-core/recipes/Layer3KickoffTrainingRecipe';
-import { Layer3SelfTrainingRecipe } from '../../ui-core/recipes/Layer3SelfTrainingRecipe';
-import { Layer3ExpMultiBotsRecipe } from '../../ui-core/recipes/Layer3ExpMultiBotsRecipe';
-import { Layer3ExpBotPackRecipe } from '../../ui-core/recipes/Layer3ExpBotPackRecipe';
-import { Layer3DevSandboxesRecipe } from '../../ui-core/recipes/Layer3DevSandboxesRecipe';
-import { Layer3DevActiveTunersRecipe } from '../../ui-core/recipes/Layer3DevActiveTunersRecipe';
-import { Layer3DevCalibratedPresetsRecipe } from '../../ui-core/recipes/Layer3DevCalibratedPresetsRecipe';
-import { Layer3DevQuickActionsRecipe } from '../../ui-core/recipes/Layer3DevQuickActionsRecipe';
-import { Layer3DevSelfTestRecipe } from '../../ui-core/recipes/Layer3DevSelfTestRecipe';
-import { Layer3DevUnderDevelopmentRecipe } from '../../ui-core/recipes/Layer3DevUnderDevelopmentRecipe';
-import { Layer3DevRemoteProfileRecipe } from '../../ui-core/recipes/Layer3DevRemoteProfileRecipe';
-import { Layer4ControllerSettingsRecipe } from '../../ui-core/recipes/Layer4ControllerSettingsRecipe';
-import { Layer4AdvancedAudioRecipe } from '../../ui-core/recipes/Layer4AdvancedAudioRecipe';
-import { Layer4EventTriggerRulesRecipe } from '../../ui-core/recipes/Layer4EventTriggerRulesRecipe';
-import { Layer4StaticTrainingPackBrowseRecipe } from '../../ui-core/recipes/Layer4StaticTrainingPackBrowseRecipe';
-import { Layer4DevSignalingLabRecipe } from '../../ui-core/recipes/Layer4DevSignalingLabRecipe';
-import { openStaticTrainingExitConfirmDialogue as openPureStaticTrainingExitConfirmDialogue } from '../../ui-core/recipes/StaticTrainingShotInspectorDrawer';
+import { useAppStore } from '../../ui-core/stores/appStore.ts';
+import { type AppState } from '../../ui-core/stores/appStoreTypes.ts';
+import { type ActiveMenuRoute } from '../../ui-core/config/uiConfig.ts';
+import { type MenuPanelId } from '../../ui-core/tokens/menuLayoutTokens.ts';
+import { useExperimentalMultiBotsStore } from '../../ui-core/stores/experimentalMultiBotsStore.ts';
+import { useStaticTrainingPackStore } from '../../ui-core/stores/staticTrainingPackStore.ts';
+import { Layer1MainMenuRecipe } from '../../ui-core/recipes/Layer1MainMenuRecipe.tsx';
+import { Layer2PlayRecipe } from '../../ui-core/recipes/Layer2PlayRecipe.tsx';
+import { Layer2GarageRecipe } from '../../ui-core/recipes/Layer2GarageRecipe.tsx';
+import { Layer2SettingsRecipe } from '../../ui-core/recipes/Layer2SettingsRecipe.tsx';
+import { Layer2ManageRoomRecipe } from '../../ui-core/recipes/Layer2ManageRoomRecipe.tsx';
+import { Layer3AcousticsEqualizerRecipe } from '../../ui-core/recipes/Layer3AcousticsEqualizerRecipe.tsx';
+import { Layer3BallTrajectoryRecipe } from '../../ui-core/recipes/Layer3BallTrajectoryRecipe.tsx';
+import { Layer3ExhibitionRecipe } from '../../ui-core/recipes/Layer3ExhibitionRecipe.tsx';
+import { Layer3CameraRecipe } from '../../ui-core/recipes/Layer3CameraRecipe.tsx';
+import { Layer3KeybindingsRecipe } from '../../ui-core/recipes/Layer3KeybindingsRecipe.tsx';
+import { Layer3TrainingConfigRecipe } from '../../ui-core/recipes/Layer3TrainingConfigRecipe.tsx';
+import { Layer3HostMatchRecipe } from '../../ui-core/recipes/Layer3HostMatchRecipe.tsx';
+import { Layer3JoinRoomRecipe } from '../../ui-core/recipes/Layer3JoinRoomRecipe.tsx';
+import { Layer3HostTrainingRecipe } from '../../ui-core/recipes/Layer3HostTrainingRecipe.tsx';
+import { Layer3CustomPlayRecipe } from '../../ui-core/recipes/Layer3CustomPlayRecipe.tsx';
+import { Layer3KickoffTrainingRecipe } from '../../ui-core/recipes/Layer3KickoffTrainingRecipe.tsx';
+import { Layer3SelfTrainingRecipe } from '../../ui-core/recipes/Layer3SelfTrainingRecipe.tsx';
+import { Layer3ExpMultiBotsRecipe } from '../../ui-core/recipes/Layer3ExpMultiBotsRecipe.tsx';
+import { Layer3ExpBotPackRecipe } from '../../ui-core/recipes/Layer3ExpBotPackRecipe.tsx';
+import { Layer3DevSandboxesRecipe } from '../../ui-core/recipes/Layer3DevSandboxesRecipe.tsx';
+import { Layer3DevActiveTunersRecipe } from '../../ui-core/recipes/Layer3DevActiveTunersRecipe.tsx';
+import { Layer3DevCalibratedPresetsRecipe } from '../../ui-core/recipes/Layer3DevCalibratedPresetsRecipe.tsx';
+import { Layer3DevQuickActionsRecipe } from '../../ui-core/recipes/Layer3DevQuickActionsRecipe.tsx';
+import { Layer3DevSelfTestRecipe } from '../../ui-core/recipes/Layer3DevSelfTestRecipe.tsx';
+import { Layer3DevUnderDevelopmentRecipe } from '../../ui-core/recipes/Layer3DevUnderDevelopmentRecipe.tsx';
+import { Layer3DevRemoteProfileRecipe } from '../../ui-core/recipes/Layer3DevRemoteProfileRecipe.tsx';
+import { Layer4ControllerSettingsRecipe } from '../../ui-core/recipes/Layer4ControllerSettingsRecipe.tsx';
+import { Layer4AdvancedAudioRecipe } from '../../ui-core/recipes/Layer4AdvancedAudioRecipe.tsx';
+import { Layer4EventTriggerRulesRecipe } from '../../ui-core/recipes/Layer4EventTriggerRulesRecipe.tsx';
+import { Layer4StaticTrainingPackBrowseRecipe } from '../../ui-core/recipes/Layer4StaticTrainingPackBrowseRecipe.tsx';
+import { Layer4DevSignalingLabRecipe } from '../../ui-core/recipes/Layer4DevSignalingLabRecipe.tsx';
+import { openStaticTrainingExitConfirmDialogue as openPureStaticTrainingExitConfirmDialogue } from '../../ui-core/recipes/StaticTrainingShotInspectorDrawer.tsx';
 
 function openStaticTrainingExitConfirmDialogue(
   onExitConfirmed?: (action: 'save' | 'ignore') => void | Promise<void>
@@ -53,8 +53,8 @@ function openStaticTrainingExitConfirmDialogue(
 
 export const ROUTE_TO_PANEL_ID: Record<ActiveMenuRoute, MenuPanelId> = {
   'main-menu': 'layer1-main',
-  'play': 'layer2-play',
-  'exhibition': 'layer3-exhibition',
+  play: 'layer2-play',
+  exhibition: 'layer3-exhibition',
   'self-training': 'layer3-self-training',
   'kickoff-training': 'layer3-kickoff-training',
   'static-training-pack': 'layer4-static-training-pack',
@@ -63,13 +63,13 @@ export const ROUTE_TO_PANEL_ID: Record<ActiveMenuRoute, MenuPanelId> = {
   'host-training': 'layer3-host-training',
   'custom-play': 'layer3-custom-play',
   'manage-room': 'layer2-manage-room',
-  'garage': 'layer2-garage',
-  'settings': 'layer2-settings',
+  garage: 'layer2-garage',
+  settings: 'layer2-settings',
   'acoustics-equalizer': 'layer3-acoustics-equalizer',
-  'trajectory': 'layer3-ball-trajectory',
-  'camera': 'layer3-camera',
+  trajectory: 'layer3-ball-trajectory',
+  camera: 'layer3-camera',
   'training-config': 'layer3-training-config',
-  'keybindings': 'layer3-keybindings',
+  keybindings: 'layer3-keybindings',
   'controller-settings': 'layer4-controller-settings',
   'advanced-audio': 'layer4-advanced-audio',
   'event-trigger-rules': 'layer4-event-trigger-rules',
@@ -160,7 +160,7 @@ export const MENU_ROUTE_RENDERERS: Record<
     />
   ),
 
-  'play': (ctx) => (
+  play: (ctx) => (
     <Layer2PlayRecipe
       isLight={ctx.isLight}
       onBack={ctx.goBack}
@@ -185,9 +185,7 @@ export const MENU_ROUTE_RENDERERS: Record<
     />
   ),
 
-  'self-training': (ctx) => (
-    <Layer3SelfTrainingRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
+  'self-training': (ctx) => <Layer3SelfTrainingRecipe isLight={ctx.isLight} onBack={ctx.goBack} />,
 
   'static-training-pack': (ctx) => (
     <Layer4StaticTrainingPackBrowseRecipe
@@ -205,17 +203,11 @@ export const MENU_ROUTE_RENDERERS: Record<
     <Layer3HostMatchRecipe isLight={ctx.isLight} roomType="match" onBack={ctx.goBack} />
   ),
 
-  'join-room': (ctx) => (
-    <Layer3JoinRoomRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
+  'join-room': (ctx) => <Layer3JoinRoomRecipe isLight={ctx.isLight} onBack={ctx.goBack} />,
 
-  'host-training': (ctx) => (
-    <Layer3HostTrainingRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
+  'host-training': (ctx) => <Layer3HostTrainingRecipe isLight={ctx.isLight} onBack={ctx.goBack} />,
 
-  'custom-play': (ctx) => (
-    <Layer3CustomPlayRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
+  'custom-play': (ctx) => <Layer3CustomPlayRecipe isLight={ctx.isLight} onBack={ctx.goBack} />,
 
   'manage-room': (ctx) => (
     <Layer2ManageRoomRecipe
@@ -231,18 +223,16 @@ export const MENU_ROUTE_RENDERERS: Record<
     />
   ),
 
-  'exhibition': (ctx) => (
+  exhibition: (ctx) => (
     <Layer3ExhibitionRecipe
       isLight={ctx.isLight}
       onBack={() => ctx.navigate(ctx.exhibitionParentRef.current)}
     />
   ),
 
-  'garage': (ctx) => (
-    <Layer2GarageRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
+  garage: (ctx) => <Layer2GarageRecipe isLight={ctx.isLight} onBack={ctx.goBack} />,
 
-  'settings': (ctx) => (
+  settings: (ctx) => (
     <Layer2SettingsRecipe
       isLight={ctx.isLight}
       activeTab={ctx.settingsTargetTab}
@@ -251,9 +241,7 @@ export const MENU_ROUTE_RENDERERS: Record<
     />
   ),
 
-  'dev-sandboxes': (ctx) => (
-    <Layer3DevSandboxesRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
+  'dev-sandboxes': (ctx) => <Layer3DevSandboxesRecipe isLight={ctx.isLight} onBack={ctx.goBack} />,
 
   'dev-tem-pack-converter': (ctx) => (
     <Layer4StaticTrainingPackBrowseRecipe
@@ -275,9 +263,7 @@ export const MENU_ROUTE_RENDERERS: Record<
     <Layer3DevQuickActionsRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
   ),
 
-  'dev-self-test': (ctx) => (
-    <Layer3DevSelfTestRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
+  'dev-self-test': (ctx) => <Layer3DevSelfTestRecipe isLight={ctx.isLight} onBack={ctx.goBack} />,
 
   'dev-under-development': (ctx) => (
     <Layer3DevUnderDevelopmentRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
@@ -309,7 +295,7 @@ export const MENU_ROUTE_RENDERERS: Record<
     <Layer3TrainingConfigRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
   ),
 
-  'trajectory': (ctx) => (
+  trajectory: (ctx) => (
     <Layer3BallTrajectoryRecipe
       isLight={ctx.isLight}
       onBack={() => {
@@ -319,7 +305,7 @@ export const MENU_ROUTE_RENDERERS: Record<
     />
   ),
 
-  'camera': (ctx) => (
+  camera: (ctx) => (
     <Layer3CameraRecipe
       isLight={ctx.isLight}
       onBack={() => {
@@ -333,9 +319,7 @@ export const MENU_ROUTE_RENDERERS: Record<
     <Layer3AcousticsEqualizerRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
   ),
 
-  'keybindings': (ctx) => (
-    <Layer3KeybindingsRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
+  keybindings: (ctx) => <Layer3KeybindingsRecipe isLight={ctx.isLight} onBack={ctx.goBack} />,
 
   'controller-settings': (ctx) => (
     <Layer4ControllerSettingsRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
@@ -354,4 +338,3 @@ export function renderActiveMenuRoute(ctx: MenuRouteRenderContext): React.ReactN
   const renderer = MENU_ROUTE_RENDERERS[ctx.activeRoute];
   return renderer ? renderer(ctx) : null;
 }
-

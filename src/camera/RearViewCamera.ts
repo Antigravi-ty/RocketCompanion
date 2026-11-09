@@ -19,10 +19,13 @@
  */
 
 import * as THREE from 'three';
-import { DEFAULT_CAMERA_SETTINGS, type CameraSettingsConfig } from '../ui-core/config/cameraDefaults';
+import {
+  DEFAULT_CAMERA_SETTINGS,
+  type CameraSettingsConfig,
+} from '../ui-core/config/cameraDefaults.ts';
 import {
   DEFAULT_HORIZONTAL_FOV_DEG,
-   convertHorizontalToVerticalFov,
+  convertHorizontalToVerticalFov,
 } from './cameraFovAndPosePipeline.ts';
 
 export interface RearViewExtraInfo {
@@ -59,14 +62,19 @@ export class RearViewCamera {
   public velocityHorizontal: THREE.Vector3;
 
   constructor(
-    aspect: number = typeof window !== 'undefined' ? window.innerWidth / window.innerHeight : 16 / 9,
+    aspect: number = typeof window !== 'undefined'
+      ? window.innerWidth / window.innerHeight
+      : 16 / 9,
     settings: CameraSettingsConfig | null = null,
     existingCamera: THREE.PerspectiveCamera | null = null
   ) {
     this.settings = settings || { ...DEFAULT_CAMERA_SETTINGS };
 
     // Use shared camera if provided, else create standalone with converted vertical FOV
-    const initialVFov = convertHorizontalToVerticalFov(this.settings.fov ?? DEFAULT_HORIZONTAL_FOV_DEG, aspect);
+    const initialVFov = convertHorizontalToVerticalFov(
+      this.settings.fov ?? DEFAULT_HORIZONTAL_FOV_DEG,
+      aspect
+    );
     this.camera = existingCamera || new THREE.PerspectiveCamera(initialVFov, aspect, 4, 40000);
 
     // Dynamic vectors for calculations
@@ -95,7 +103,10 @@ export class RearViewCamera {
   resize(width: number, height: number): void {
     if (this.camera && height > 0) {
       this.camera.aspect = width / height;
-      const targetVFov = convertHorizontalToVerticalFov(this.settings?.fov ?? 110, this.camera.aspect);
+      const targetVFov = convertHorizontalToVerticalFov(
+        this.settings?.fov ?? 110,
+        this.camera.aspect
+      );
       this.camera.fov = targetVFov;
       this.camera.updateProjectionMatrix();
     }
@@ -138,7 +149,10 @@ export class RearViewCamera {
 
     // 1. Resolve car forward direction in Three.js world coordinates
     // In Three.js vehicle coordinate system, local +X is vehicle forward
-    const qx = carQuat.x, qy = carQuat.y, qz = carQuat.z, qw = carQuat.w;
+    const qx = carQuat.x,
+      qy = carQuat.y,
+      qz = carQuat.z,
+      qw = carQuat.w;
     const fwdX = 1 - 2 * (qy * qy + qz * qz);
     const fwdY = 2 * (qx * qy + qw * qz);
     const fwdZ = 2 * (qx * qz - qw * qy);

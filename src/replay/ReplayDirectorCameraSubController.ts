@@ -9,7 +9,10 @@ import { decodeReplayDirectorTelemetryFromState } from './ReplayFrameInterpolato
 import type { SuffixDirectorTrajectoryPlan } from './ReplayDirectorTrajectoryPlanner.ts';
 import { ensureSuffixCameraPlan } from './replayTouchLookaheadPipeline.ts';
 import type { ReplayTouchEvent } from './ReplayDirectorGazeSolver.ts';
-import type { ReplayTouchAnalysisResult, ResolvedTouchLookahead } from './ReplayTouchTimelineAnalyzer.ts';
+import type {
+  ReplayTouchAnalysisResult,
+  ResolvedTouchLookahead,
+} from './ReplayTouchTimelineAnalyzer.ts';
 import {
   createInitialDirectorCameraState,
   type DirectorCameraPose,
@@ -30,7 +33,10 @@ export class ReplayDirectorCameraSubController {
 
   private _applyLookahead(
     la: Omit<Partial<ResolvedTouchLookahead>, 'plannedPose'> & {
-      primaryCarIndex: number; nextCarIndex: number; nextTouchBlend: number; plannedPose?: DirectorCameraPose | null;
+      primaryCarIndex: number;
+      nextCarIndex: number;
+      nextTouchBlend: number;
+      plannedPose?: DirectorCameraPose | null;
     }
   ): void {
     const d = this.state;
@@ -69,7 +75,9 @@ export class ReplayDirectorCameraSubController {
     }
   }
 
-  ensureSuffixCameraPlanForSession(sessionState: ReplaySessionState): SuffixDirectorTrajectoryPlan | null {
+  ensureSuffixCameraPlanForSession(
+    sessionState: ReplaySessionState
+  ): SuffixDirectorTrajectoryPlan | null {
     const d = this.state;
     const plan = ensureSuffixCameraPlan(sessionState.activeFrames, {
       isNetworkStreamed: sessionState.isNetworkStreamed,
@@ -96,7 +104,11 @@ export class ReplayDirectorCameraSubController {
     d.lastScoringTouchFrameIdx = res.lastScoringTouchFrameIdx;
     d.goalLineFrameIdx = res.goalLineFrameIdx;
     d.scorerCarIndex = res.resolvedScorerCarIndex;
-    this._applyLookahead({ primaryCarIndex: res.openingCarIndex, nextCarIndex: -1, nextTouchBlend: 0 });
+    this._applyLookahead({
+      primaryCarIndex: res.openingCarIndex,
+      nextCarIndex: -1,
+      nextTouchBlend: 0,
+    });
     d.lateralBias = res.resolvedLateralBias;
     d.hasResolvedInitialLateralBias = true;
     d.initialSettledCarPos = res.initialSettledCarPos;
@@ -119,19 +131,36 @@ export class ReplayDirectorCameraSubController {
     const d = this.state;
     const saved = {
       initialized: d.initialized,
-      eyeX: d.eyeX, eyeY: d.eyeY, eyeZ: d.eyeZ,
-      targetX: d.targetX, targetY: d.targetY, targetZ: d.targetZ,
+      eyeX: d.eyeX,
+      eyeY: d.eyeY,
+      eyeZ: d.eyeZ,
+      targetX: d.targetX,
+      targetY: d.targetY,
+      targetZ: d.targetZ,
       ...(typeof d.smoothedCarX === 'number'
-        ? { smoothedCarX: d.smoothedCarX, smoothedCarY: d.smoothedCarY, smoothedCarZ: d.smoothedCarZ, carSwitchBlend: d.carSwitchBlend }
+        ? {
+            smoothedCarX: d.smoothedCarX,
+            smoothedCarY: d.smoothedCarY,
+            smoothedCarZ: d.smoothedCarZ,
+            carSwitchBlend: d.carSwitchBlend,
+          }
         : {}),
-      ...(typeof d.smoothedUgX === 'number' ? { smoothedUgX: d.smoothedUgX, smoothedUgY: d.smoothedUgY } : {}),
-      ...(typeof d.smoothedLateralBias === 'number' ? { smoothedLateralBias: d.smoothedLateralBias } : {}),
+      ...(typeof d.smoothedUgX === 'number'
+        ? { smoothedUgX: d.smoothedUgX, smoothedUgY: d.smoothedUgY }
+        : {}),
+      ...(typeof d.smoothedLateralBias === 'number'
+        ? { smoothedLateralBias: d.smoothedLateralBias }
+        : {}),
     };
     runTouchAnalysis();
     Object.assign(d, saved);
   }
 
-  applyStreamedTelemetry(snap: Float32Array, isFollowingLiveStream: boolean, currentScorerCarIndex: number): number {
+  applyStreamedTelemetry(
+    snap: Float32Array,
+    isFollowingLiveStream: boolean,
+    currentScorerCarIndex: number
+  ): number {
     const d = this.state;
     let resolvedScorer = currentScorerCarIndex;
     const em = decodeReplayDirectorTelemetryFromState(snap);
@@ -146,10 +175,14 @@ export class ReplayDirectorCameraSubController {
       }
       if (isFollowingLiveStream) {
         this._applyLookahead({
-          primaryCarIndex: em.activeTouchCarIndex, nextCarIndex: em.nextTouchCarIndex,
-          nextTouchBlend: em.nextTouchBlend, nextTouchBallPos: em.nextTouchBallPos,
-          interceptorCarIndex: em.interceptorCarIndex, interceptorBlend: em.interceptorBlend,
-          plannedPose: em.plannedPose ?? d.plannedPose, postGoalElapsedSec: em.postGoalElapsedSec,
+          primaryCarIndex: em.activeTouchCarIndex,
+          nextCarIndex: em.nextTouchCarIndex,
+          nextTouchBlend: em.nextTouchBlend,
+          nextTouchBallPos: em.nextTouchBallPos,
+          interceptorCarIndex: em.interceptorCarIndex,
+          interceptorBlend: em.interceptorBlend,
+          plannedPose: em.plannedPose ?? d.plannedPose,
+          postGoalElapsedSec: em.postGoalElapsedSec,
         });
       }
     }
@@ -182,9 +215,18 @@ export class ReplayDirectorCameraSubController {
 
   refreshPoseAtCursor(input: RefreshDirectorPoseInput): DirectorCameraPose | null {
     const {
-      totalFrames: total, cursorFloat, isPaused, isScrubbing, isImportedPreview,
-      useRecordedCsvCamera, scoringTeam, scorerCarIndex,
-      getFrameEntryByIndex, getFrameBufferByIndex, ensureSuffixCameraPlan, resolveTouchLookaheadForFrame,
+      totalFrames: total,
+      cursorFloat,
+      isPaused,
+      isScrubbing,
+      isImportedPreview,
+      useRecordedCsvCamera,
+      scoringTeam,
+      scorerCarIndex,
+      getFrameEntryByIndex,
+      getFrameBufferByIndex,
+      ensureSuffixCameraPlan,
+      resolveTouchLookaheadForFrame,
     } = input;
     const d = this.state;
     if (total <= 0 || !d) return null;
@@ -198,12 +240,20 @@ export class ReplayDirectorCameraSubController {
     if (useCsvPose && entry?.recordedCsvRow) {
       const r = entry.recordedCsvRow;
       const recordedPose: DirectorCameraPose = {
-        eyeX: r.cam_eye_x ?? 0, eyeY: r.cam_eye_y ?? 0, eyeZ: r.cam_eye_z ?? 0,
-        targetX: r.cam_target_x ?? 0, targetY: r.cam_target_y ?? 0, targetZ: r.cam_target_z ?? 0,
+        eyeX: r.cam_eye_x ?? 0,
+        eyeY: r.cam_eye_y ?? 0,
+        eyeZ: r.cam_eye_z ?? 0,
+        targetX: r.cam_target_x ?? 0,
+        targetY: r.cam_target_y ?? 0,
+        targetZ: r.cam_target_z ?? 0,
       };
       d.recordedPose = recordedPose;
-      d.eyeX = recordedPose.eyeX; d.eyeY = recordedPose.eyeY; d.eyeZ = recordedPose.eyeZ;
-      d.targetX = recordedPose.targetX; d.targetY = recordedPose.targetY; d.targetZ = recordedPose.targetZ;
+      d.eyeX = recordedPose.eyeX;
+      d.eyeY = recordedPose.eyeY;
+      d.eyeZ = recordedPose.eyeZ;
+      d.targetX = recordedPose.targetX;
+      d.targetY = recordedPose.targetY;
+      d.targetZ = recordedPose.targetZ;
       d.initialized = true;
       return recordedPose;
     }
@@ -237,7 +287,8 @@ export class ReplayDirectorCameraSubController {
       this._applyLookahead(
         em
           ? {
-              primaryCarIndex: em.activeTouchCarIndex >= 0 ? em.activeTouchCarIndex : (scorerCarIndex ?? 0),
+              primaryCarIndex:
+                em.activeTouchCarIndex >= 0 ? em.activeTouchCarIndex : (scorerCarIndex ?? 0),
               nextCarIndex: em.nextTouchCarIndex,
               nextTouchBlend: em.nextTouchBlend,
               nextTouchBallPos: em.nextTouchBallPos,
@@ -262,8 +313,19 @@ export class ReplayDirectorCameraSubController {
 
   syncForPlaybackStep(input: StepDirectorCameraSyncInput): StepDirectorCameraSyncResult {
     const {
-      baseIdx, nextIdx, alpha, useCsvPose, cursorFloat, isPaused, isScrubbing,
-      prevEntry, nextEntry, currFrame, suffixPlan, scorerCarIndex, resolveTouchLookaheadForFrame,
+      baseIdx,
+      nextIdx,
+      alpha,
+      useCsvPose,
+      cursorFloat,
+      isPaused,
+      isScrubbing,
+      prevEntry,
+      nextEntry,
+      currFrame,
+      suffixPlan,
+      scorerCarIndex,
+      resolveTouchLookaheadForFrame,
     } = input;
     const d = this.state;
     d.isPaused = isPaused;
@@ -278,36 +340,59 @@ export class ReplayDirectorCameraSubController {
       const r0 = prevEntry.recordedCsvRow;
       const r1 = nextEntry?.recordedCsvRow || r0;
       d.recordedPose = {
-        eyeX: lerp(r0.cam_eye_x ?? 0, r1.cam_eye_x ?? 0), eyeY: lerp(r0.cam_eye_y ?? 0, r1.cam_eye_y ?? 0),
-        eyeZ: lerp(r0.cam_eye_z ?? 0, r1.cam_eye_z ?? 0), targetX: lerp(r0.cam_target_x ?? 0, r1.cam_target_x ?? 0),
-        targetY: lerp(r0.cam_target_y ?? 0, r1.cam_target_y ?? 0), targetZ: lerp(r0.cam_target_z ?? 0, r1.cam_target_z ?? 0),
+        eyeX: lerp(r0.cam_eye_x ?? 0, r1.cam_eye_x ?? 0),
+        eyeY: lerp(r0.cam_eye_y ?? 0, r1.cam_eye_y ?? 0),
+        eyeZ: lerp(r0.cam_eye_z ?? 0, r1.cam_eye_z ?? 0),
+        targetX: lerp(r0.cam_target_x ?? 0, r1.cam_target_x ?? 0),
+        targetY: lerp(r0.cam_target_y ?? 0, r1.cam_target_y ?? 0),
+        targetZ: lerp(r0.cam_target_z ?? 0, r1.cam_target_z ?? 0),
       };
     } else {
       d.recordedPose = null;
     }
 
-    if (!useCsvPose && suffixPlan && Array.isArray(suffixPlan.poses) && suffixPlan.poses.length > 0) {
+    if (
+      !useCsvPose &&
+      suffixPlan &&
+      Array.isArray(suffixPlan.poses) &&
+      suffixPlan.poses.length > 0
+    ) {
       const p0 = suffixPlan.poses[baseIdx];
       const p1 = suffixPlan.poses[nextIdx] || p0;
       d.lateralBias = p0.lateralBias;
       this._applyLookahead({
-        primaryCarIndex: p0.activeTouchCarIndex, nextCarIndex: p0.nextTouchCarIndex,
-        nextTouchBlend: lerp(p0.nextTouchBlend, p1.nextTouchBlend), nextTouchBallPos: p0.nextTouchBallPos,
-        interceptorCarIndex: p0.interceptorCarIndex, interceptorBlend: lerp(p0.interceptorBlend ?? 0, p1.interceptorBlend ?? 0),
+        primaryCarIndex: p0.activeTouchCarIndex,
+        nextCarIndex: p0.nextTouchCarIndex,
+        nextTouchBlend: lerp(p0.nextTouchBlend, p1.nextTouchBlend),
+        nextTouchBallPos: p0.nextTouchBallPos,
+        interceptorCarIndex: p0.interceptorCarIndex,
+        interceptorBlend: lerp(p0.interceptorBlend ?? 0, p1.interceptorBlend ?? 0),
         postGoalElapsedSec: lerp(p0.postGoalElapsedSec ?? 0, p1.postGoalElapsedSec ?? 0),
         plannedPose: {
-          eyeX: lerp(p0.eyeX, p1.eyeX), eyeY: lerp(p0.eyeY, p1.eyeY), eyeZ: lerp(p0.eyeZ, p1.eyeZ),
-          targetX: lerp(p0.targetX, p1.targetX), targetY: lerp(p0.targetY, p1.targetY), targetZ: lerp(p0.targetZ, p1.targetZ),
-          rawEyeX: lerp(p0.rawEyeX, p1.rawEyeX), rawEyeY: lerp(p0.rawEyeY, p1.rawEyeY), rawEyeZ: lerp(p0.rawEyeZ, p1.rawEyeZ),
-          rawTargetX: lerp(p0.rawTargetX, p1.rawTargetX), rawTargetY: lerp(p0.rawTargetY, p1.rawTargetY), rawTargetZ: lerp(p0.rawTargetZ, p1.rawTargetZ),
+          eyeX: lerp(p0.eyeX, p1.eyeX),
+          eyeY: lerp(p0.eyeY, p1.eyeY),
+          eyeZ: lerp(p0.eyeZ, p1.eyeZ),
+          targetX: lerp(p0.targetX, p1.targetX),
+          targetY: lerp(p0.targetY, p1.targetY),
+          targetZ: lerp(p0.targetZ, p1.targetZ),
+          rawEyeX: lerp(p0.rawEyeX, p1.rawEyeX),
+          rawEyeY: lerp(p0.rawEyeY, p1.rawEyeY),
+          rawEyeZ: lerp(p0.rawEyeZ, p1.rawEyeZ),
+          rawTargetX: lerp(p0.rawTargetX, p1.rawTargetX),
+          rawTargetY: lerp(p0.rawTargetY, p1.rawTargetY),
+          rawTargetZ: lerp(p0.rawTargetZ, p1.rawTargetZ),
         },
       });
     } else if (!useCsvPose && em) {
       this._applyLookahead({
-        primaryCarIndex: em.activeTouchCarIndex >= 0 ? em.activeTouchCarIndex : (scorerCarIndex ?? 0),
-        nextCarIndex: em.nextTouchCarIndex, nextTouchBlend: em.nextTouchBlend,
-        nextTouchBallPos: em.nextTouchBallPos, interceptorCarIndex: em.interceptorCarIndex,
-        interceptorBlend: em.interceptorBlend, plannedPose: em.plannedPose,
+        primaryCarIndex:
+          em.activeTouchCarIndex >= 0 ? em.activeTouchCarIndex : (scorerCarIndex ?? 0),
+        nextCarIndex: em.nextTouchCarIndex,
+        nextTouchBlend: em.nextTouchBlend,
+        nextTouchBallPos: em.nextTouchBallPos,
+        interceptorCarIndex: em.interceptorCarIndex,
+        interceptorBlend: em.interceptorBlend,
+        plannedPose: em.plannedPose,
         postGoalElapsedSec: em.postGoalElapsedSec,
       });
       if (typeof em.lateralBias === 'number' && em.lateralBias !== 0) {
@@ -327,8 +412,12 @@ export class ReplayDirectorCameraSubController {
 
   clearRetained(): void {
     const d = this.state;
-    d.initialized = false; d.useRecordedCsvPose = false; d.recordedPose = null;
-    d.suffixCameraPlan = null; d.plannedPose = null; d.touchEvents = [];
+    d.initialized = false;
+    d.useRecordedCsvPose = false;
+    d.recordedPose = null;
+    d.suffixCameraPlan = null;
+    d.plannedPose = null;
+    d.touchEvents = [];
   }
 
   cloneFrom(sourceState: Partial<DirectorCameraState> | null | undefined): void {
@@ -342,4 +431,3 @@ export class ReplayDirectorCameraSubController {
     };
   }
 }
-

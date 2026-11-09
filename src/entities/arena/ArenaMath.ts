@@ -27,12 +27,7 @@ export interface PhysicsBasisView extends OrientationBasisSource {
 
 export type PhysicsTransformSource = PhysicsBasisView | Float32Array | ArrayLike<number>;
 
-export function unrealToThreeCoords(
-  target: THREE.Vector3,
-  x = 0,
-  y = 0,
-  z = 0
-): THREE.Vector3 {
+export function unrealToThreeCoords(target: THREE.Vector3, x = 0, y = 0, z = 0): THREE.Vector3 {
   return target.set(x || 0, z || 0, y || 0);
 }
 
@@ -102,7 +97,11 @@ export function unpackBufferQuaternion(
   offset: number
 ): THREE.Quaternion {
   if (!buffer || buffer.length < offset + 9) {
-    if (buffer && buffer.length >= offset + 4 && (buffer[offset] || buffer[offset + 1] || buffer[offset + 2] || buffer[offset + 3])) {
+    if (
+      buffer &&
+      buffer.length >= offset + 4 &&
+      (buffer[offset] || buffer[offset + 1] || buffer[offset + 2] || buffer[offset + 3])
+    ) {
       targetQuat.set(buffer[offset], buffer[offset + 2], buffer[offset + 1], buffer[offset + 3]);
       return targetQuat;
     }
@@ -125,10 +124,10 @@ export function createCarHitboxWireframe(
     transparent: true,
     opacity: 0.9,
     depthTest: true,
-    depthWrite: false
+    depthWrite: false,
   });
   const hitboxMesh = new THREE.LineSegments(edgesGeom, lineMat);
-  hitboxMesh.name = "car-hitbox";
+  hitboxMesh.name = 'car-hitbox';
   hitboxMesh.position.set(preset.forward, preset.up, 0);
   hitboxMesh.renderOrder = 100;
   hitboxMesh.visible = false;
@@ -149,7 +148,7 @@ export function interpolatePhysicsTransform(
   qA: THREE.Quaternion,
   qB?: THREE.Quaternion
 ): void {
-  if (typeof offsetOrAlpha === "number" && typeof alphaParam === "number") {
+  if (typeof offsetOrAlpha === 'number' && typeof alphaParam === 'number') {
     const prevState = prevViewOrState as ArrayLike<number>;
     const currState = currViewOrState as ArrayLike<number>;
     const offset = offsetOrAlpha;

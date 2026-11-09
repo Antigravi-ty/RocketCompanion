@@ -1,4 +1,4 @@
-import { audioConfig, registerAudioDiagnosticsProvider } from '../ui-core/config/audioConfig';
+import { audioConfig, registerAudioDiagnosticsProvider } from '../ui-core/config/audioConfig.ts';
 import {
   subsystemState,
   getAudioContext,
@@ -68,7 +68,8 @@ export function collectAudioDiagnosticReport(): AudioDiagnosticReport {
           inUse: Boolean(s.inUse),
           mode: s.currentMode || 'none',
           priority: s.priority,
-          gain: s.gainNode?.gain?.value !== undefined ? Number(s.gainNode.gain.value.toFixed(4)) : 0,
+          gain:
+            s.gainNode?.gain?.value !== undefined ? Number(s.gainNode.gain.value.toFixed(4)) : 0,
           ageMs: s.inUse && s.startTime > 0 ? Math.round(nowPerf - s.startTime) : 0,
         }))
       : [];
@@ -82,9 +83,9 @@ export function collectAudioDiagnosticReport(): AudioDiagnosticReport {
     initialized: Boolean(ballEmit?.initialized),
     isPlaying: Boolean(
       ballEmit?.rollingSource ||
-        ballEmit?.flyingSource ||
-        activeEmitter?.boostLoopSource ||
-        activeEmitter?.supersonicLoopSource
+      ballEmit?.flyingSource ||
+      activeEmitter?.boostLoopSource ||
+      activeEmitter?.supersonicLoopSource
     ),
     boostLoopSourceActive: Boolean(activeEmitter?.boostLoopSource),
     boostGain:
@@ -154,9 +155,7 @@ export function collectAudioDiagnosticReport(): AudioDiagnosticReport {
       audible: Boolean(s?.audible),
       engineVolume: s?.engineVolume !== undefined ? Number(s.engineVolume.toFixed(4)) : 0,
       outputGain:
-        s?.outputNode?.gain?.value !== undefined
-          ? Number(s.outputNode.gain.value.toFixed(4))
-          : 0,
+        s?.outputNode?.gain?.value !== undefined ? Number(s.outputNode.gain.value.toFixed(4)) : 0,
       rpm: s?.currentRPM !== undefined ? Math.round(s.currentRPM) : 0,
       gear: s?.currentGear ?? 1,
       neutral: Boolean(s?.isNeutral),
@@ -278,7 +277,10 @@ export function dumpAudioDiagnosticsToConsole(
     ? 'color:#10b981;font-weight:bold;'
     : 'color:#f59e0b;font-weight:bold;';
 
-  console.group(`%c[AudioDebug] Diagnostic Snapshot — ${reason} (${report.timestamp})`, styleHeader);
+  console.group(
+    `%c[AudioDebug] Diagnostic Snapshot — ${reason} (${report.timestamp})`,
+    styleHeader
+  );
   console.log(`%c[Verdict] (${report.verdict.code}): ${report.verdict.summary}`, styleVerdict);
 
   if (report.verdict.anomalies.length > 0) {

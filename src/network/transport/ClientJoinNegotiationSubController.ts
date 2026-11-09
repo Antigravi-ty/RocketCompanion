@@ -200,11 +200,7 @@ export class ClientJoinNegotiationSubController {
               activeRelayLabel: relayLabel,
             });
           },
-          onRendezvousEstablished: ({
-            relayLabel,
-            pairingCode,
-            requireManualApproval,
-          }) => {
+          onRendezvousEstablished: ({ relayLabel, pairingCode, requireManualApproval }) => {
             this.lastKeepAliveAt = Date.now();
             callbacks.onSessionStatusChange({
               pairingCode,

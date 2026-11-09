@@ -185,7 +185,10 @@ export interface RuntimeTunerPort {
   applyExperimentalWallConfig(wallConfig: Record<string, unknown>): void;
   applyShadowConfig(shadowConfig: Record<string, unknown>): void;
   markArenaRenderTreeChanged(): void;
-  applyBoostParticleConfig(particleConfig: { bloomEnabled?: boolean; [key: string]: unknown }): void;
+  applyBoostParticleConfig(particleConfig: {
+    bloomEnabled?: boolean;
+    [key: string]: unknown;
+  }): void;
   applySkyboxConfig(skyboxConfig: Record<string, unknown>): void;
   applyBallVisualConfig(ballConfig: Record<string, unknown>): void;
   applyCustomVehicleTuner(vehicleId: string, hitboxPreset?: string | null): void;
@@ -193,12 +196,12 @@ export interface RuntimeTunerPort {
     vehicleId: string,
     arrayBuffer: ArrayBuffer,
     fileName?: string,
-    alignPreset?: string,
+    alignPreset?: string
   ): Promise<unknown>;
   applyVehicleAlignPreset?(vehicleId: string, alignPreset: string): boolean;
   applyUnderDevelopmentConfig(
     config: UnderDevelopmentConfigPort,
-    patch: Partial<UnderDevelopmentConfigPort>,
+    patch: Partial<UnderDevelopmentConfigPort>
   ): Promise<void>;
   syncGoalBarrier(
     decomposition: GoalBarrierDecompositionPort,
@@ -206,7 +209,7 @@ export interface RuntimeTunerPort {
     enabled: boolean,
     opacity: number,
     chunks: unknown,
-    updatePhysicsChunks: boolean,
+    updatePhysicsChunks: boolean
   ): void;
   reconcileTrainingScopeForMode?(modeId?: string): void;
   createPerfTelemetrySampler(): PerfTelemetrySamplerPort;

@@ -15,10 +15,7 @@ import {
   type PendingPairingRequest,
 } from './HostSignalingNegotiationSubController.ts';
 import type { P2PWebRTCChannel } from './P2PWebRTCChannel.ts';
-import {
-  saveActiveHostOffer,
-  clearActiveHostOffer,
-} from './signalingRelayConfig.ts';
+import { saveActiveHostOffer, clearActiveHostOffer } from './signalingRelayConfig.ts';
 import {
   generateRandomRoomCode,
   parseRoomCode,
@@ -145,8 +142,7 @@ export class MultiplayerSessionManager {
 
   get signalingHandler(): SignalingProtocolHandler | null {
     return (
-      this.hostSignalingNegotiator.signalingHandler ||
-      this.clientJoinNegotiator.signalingHandler
+      this.hostSignalingNegotiator.signalingHandler || this.clientJoinNegotiator.signalingHandler
     );
   }
 
@@ -274,10 +270,7 @@ export class MultiplayerSessionManager {
   }
 
   initHostSignaling(probedMask?: number): void {
-    this.hostSignalingNegotiator.initHostSignaling(
-      this.getHostSignalingCallbacks(),
-      probedMask
-    );
+    this.hostSignalingNegotiator.initHostSignaling(this.getHostSignalingCallbacks(), probedMask);
   }
 
   async reprobeAndRefreshHostSignaling(): Promise<void> {

@@ -143,10 +143,7 @@ export function syncSupersonicWheelTrailMaterial(
   u.uHeadColor.value.set(cfg.headColor || '#ffffff');
   u.uMidColor.value.set(cfg.midColor || '#ff4fd8');
   u.uTailColor.value.set(cfg.tailColor || '#8300ff');
-  u.uMidColorPos.value = Math.max(
-    0.01,
-    Math.min(0.99, (Number(cfg.midColorPosPct) || 24.1) / 100)
-  );
+  u.uMidColorPos.value = Math.max(0.01, Math.min(0.99, (Number(cfg.midColorPosPct) || 24.1) / 100));
   u.uHeadToMidBezier.value.set(
     cfg.headToMidBezierP1X ?? 0.6,
     cfg.headToMidBezierP1Y ?? 0.25,

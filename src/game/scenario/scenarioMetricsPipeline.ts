@@ -68,7 +68,7 @@ export function roundMetric(val: number, decimals = 4): number {
 export function summarizeStageTimingSeries(
   stage: PipelineStageName | 'TotalFrame',
   values: readonly number[],
-  ticks: readonly number[],
+  ticks: readonly number[]
 ): StageTimingDistribution {
   const n = values.length;
   if (n === 0) {
@@ -116,7 +116,7 @@ export function summarizeStageTimingSeries(
 }
 
 export function buildAllStageTimingDistributions(
-  samples: readonly RawTickTimingSample[],
+  samples: readonly RawTickTimingSample[]
 ): Record<PipelineStageName | 'TotalFrame', StageTimingDistribution> {
   const ticks = samples.map((s) => s.tick);
   const result = {} as Record<PipelineStageName | 'TotalFrame', StageTimingDistribution>;
@@ -133,7 +133,7 @@ export function buildAllStageTimingDistributions(
 
 export function extractTopHitchFrames(
   samples: readonly RawTickTimingSample[],
-  topN = 5,
+  topN = 5
 ): HitchFrameAttribution[] {
   if (samples.length === 0) return [];
   const sorted = [...samples].sort((a, b) => b.totalFrameWallMs - a.totalFrameWallMs);
@@ -174,7 +174,7 @@ export function extractTopHitchFrames(
 
 export function evaluateCameraSmoothness(
   poses: readonly CameraPoseSample[],
-  keyframes: readonly KeyframeRenderSample[],
+  keyframes: readonly KeyframeRenderSample[]
 ): CameraSmoothnessTelemetry {
   if (poses.length === 0) {
     return {
@@ -225,7 +225,7 @@ export function evaluateCameraSmoothness(
 
         const dot = Math.min(
           1,
-          Math.abs(prev.qx * p.qx + prev.qy * p.qy + prev.qz * p.qz + prev.qw * p.qw),
+          Math.abs(prev.qx * p.qx + prev.qy * p.qy + prev.qz * p.qz + prev.qw * p.qw)
         );
         const angleRad = 2 * Math.acos(dot);
         const angleDeg = (angleRad * 180) / Math.PI;
@@ -238,10 +238,7 @@ export function evaluateCameraSmoothness(
   angSteps.sort((a, b) => a - b);
 
   const firstReplayKeyframe = keyframes.find(
-    (k) =>
-      k.phase === 'replay' ||
-      k.reason.includes('replay') ||
-      k.reason.includes('director'),
+    (k) => k.phase === 'replay' || k.reason.includes('replay') || k.reason.includes('director')
   );
 
   return {
@@ -249,13 +246,10 @@ export function evaluateCameraSmoothness(
     nanFrameCount,
     maxPositionStepDistance: roundMetric(
       posSteps.length > 0 ? posSteps[posSteps.length - 1] : 0,
-      3,
+      3
     ),
     p95PositionStepDistance: roundMetric(computeQuantile(posSteps, 0.95), 3),
-    maxAngularStepDeg: roundMetric(
-      angSteps.length > 0 ? angSteps[angSteps.length - 1] : 0,
-      3,
-    ),
+    maxAngularStepDeg: roundMetric(angSteps.length > 0 ? angSteps[angSteps.length - 1] : 0, 3),
     p95AngularStepDeg: roundMetric(computeQuantile(angSteps, 0.95), 3),
     directorReplaySamples,
     directorReplayFirstFrameRenderMs: firstReplayKeyframe
@@ -276,13 +270,15 @@ export interface WebGlRendererPort {
   getContext?: () => WebGLRenderingContext | null;
 }
 
-export function queryCompiledShaderProgramCount(renderer: WebGlRendererPort | null | undefined): number {
+export function queryCompiledShaderProgramCount(
+  renderer: WebGlRendererPort | null | undefined
+): number {
   const programs = renderer?.info?.programs;
   return Array.isArray(programs) ? programs.length : 0;
 }
 
 export function queryWebGlContextAttributesSummary(
-  renderer: WebGlRendererPort | null | undefined,
+  renderer: WebGlRendererPort | null | undefined
 ): { renderer: string; vendor: string } {
   try {
     const gl = renderer?.getContext?.() as WebGLRenderingContext | null;
@@ -310,22 +306,24 @@ export function queryWebGlError(renderer: WebGlRendererPort | null | undefined):
 }
 
 export function resolveRuntimeCameraMode(
-  runtime: {
-    isGoalReplayCameraOverrideActive?: () => boolean;
-    modeManager?: {
-      getActiveMode?: () => {
-        directorPreview?: { replayCameraMode?: string };
-        replaySession?: { replayCameraMode?: string };
-      } | null;
-    } | null;
-    camera?: { isFreeCam?: boolean; mode?: string } | null;
-  } | null | undefined
+  runtime:
+    | {
+        isGoalReplayCameraOverrideActive?: () => boolean;
+        modeManager?: {
+          getActiveMode?: () => {
+            directorPreview?: { replayCameraMode?: string };
+            replaySession?: { replayCameraMode?: string };
+          } | null;
+        } | null;
+        camera?: { isFreeCam?: boolean; mode?: string } | null;
+      }
+    | null
+    | undefined
 ): string {
   if (runtime?.isGoalReplayCameraOverrideActive?.()) {
     const activeMode = runtime?.modeManager?.getActiveMode?.();
     const replayCamMode =
-      activeMode?.directorPreview?.replayCameraMode ||
-      activeMode?.replaySession?.replayCameraMode;
+      activeMode?.directorPreview?.replayCameraMode || activeMode?.replaySession?.replayCameraMode;
     if (replayCamMode) return String(replayCamMode);
     return 'director';
   }
@@ -346,7 +344,7 @@ export function buildKeyframeRenderSample(
   shaderProgramsAfter: number,
   shaderProgramsDelta: number,
   glError: number,
-  renderInfo: WebGlRendererPort['info'],
+  renderInfo: WebGlRendererPort['info']
 ): KeyframeRenderSample {
   return {
     tick,
@@ -372,10 +370,13 @@ export function extractCameraPoseSample(
   tick: number,
   phase: string,
   cameraMode: string,
-  camObj: {
-    position?: { x: number; y: number; z: number } | null;
-    quaternion?: { x: number; y: number; z: number; w: number } | null;
-  } | null | undefined,
+  camObj:
+    | {
+        position?: { x: number; y: number; z: number } | null;
+        quaternion?: { x: number; y: number; z: number; w: number } | null;
+      }
+    | null
+    | undefined
 ): CameraPoseSample | null {
   if (!camObj?.position || !camObj?.quaternion) return null;
   return {
@@ -409,9 +410,11 @@ export function resolveSpeedPacingConfig(
     batchYieldTicksOverride?: number;
     failOnConsoleError?: boolean;
     includeGoldenDiff?: boolean;
-  },
+  }
 ): SpeedPacingConfig {
-  const rawSpeed = String(options?.speed ?? '20x').trim().toLowerCase();
+  const rawSpeed = String(options?.speed ?? '20x')
+    .trim()
+    .toLowerCase();
   let presetLabel = rawSpeed || '20x';
   let renderStride = Math.max(1, scriptRenderStride || 15);
   let batchYieldTicks = Math.max(10, scriptBatchYieldTicks || 60);
@@ -448,7 +451,10 @@ export function resolveSpeedPacingConfig(
   if (typeof options?.renderStrideOverride === 'number' && options.renderStrideOverride >= 1) {
     renderStride = Math.round(options.renderStrideOverride);
   }
-  if (typeof options?.batchYieldTicksOverride === 'number' && options.batchYieldTicksOverride >= 1) {
+  if (
+    typeof options?.batchYieldTicksOverride === 'number' &&
+    options.batchYieldTicksOverride >= 1
+  ) {
     batchYieldTicks = Math.round(options.batchYieldTicksOverride);
   }
 
@@ -461,16 +467,18 @@ export function resolveSpeedPacingConfig(
   };
 }
 
-export function normalizeCarControls<T extends {
-  throttle?: number;
-  steer?: number;
-  pitch?: number;
-  yaw?: number;
-  roll?: number;
-  jump?: boolean | number;
-  boost?: boolean | number;
-  handbrake?: boolean | number;
-}>(controls: Partial<T> | null): T | null {
+export function normalizeCarControls<
+  T extends {
+    throttle?: number;
+    steer?: number;
+    pitch?: number;
+    yaw?: number;
+    roll?: number;
+    jump?: boolean | number;
+    boost?: boolean | number;
+    handbrake?: boolean | number;
+  },
+>(controls: Partial<T> | null): T | null {
   if (!controls) return null;
   return {
     throttle: controls.throttle ?? 0,
@@ -485,7 +493,7 @@ export function normalizeCarControls<T extends {
 }
 
 export function buildStepsByTickMap<T extends { tick: number }>(
-  steps: readonly T[],
+  steps: readonly T[]
 ): Map<number, T[]> {
   const map = new Map<number, T[]>();
   for (const step of steps) {

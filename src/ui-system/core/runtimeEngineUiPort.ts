@@ -1,29 +1,29 @@
 import { bindRuntimeUiPort } from '../../game/runtimeUiPort.ts';
-import { useAppStore } from '../../ui-core/stores/appStore';
-import { hudStore, useHudStore } from '../../ui-core/stores/hudStore';
+import { useAppStore } from '../../ui-core/stores/appStore.ts';
+import { hudStore, useHudStore } from '../../ui-core/stores/hudStore.ts';
 import {
   useSpatialAudioStore,
   getFilteredBgmTracks,
-} from '../../ui-core/stores/spatialAudioStore';
-import { useSubsystemIsolationLabStore } from '../../ui-core/stores/subsystemIsolationLabStore';
-import { useRewinderStore } from '../../ui-core/stores/rewinderStore';
-import { useReplayViewerStore } from '../../ui-core/stores/replayViewerStore';
-import { useReplayToRcsImporterStore } from '../../ui-core/stores/replayToRcsImporterStore';
-import { networkDiagnosticsStore } from '../../ui-core/stores/networkDiagnosticsStore';
-import { determinismStore } from '../../ui-core/stores/determinismStore';
-import { eventStreamStore } from '../../ui-core/stores/eventStreamStore';
-import { reachabilityStore } from '../../ui-core/stores/reachabilityStore';
-import { ballTrajectoryTunerStore } from '../../ui-core/stores/ballTrajectoryTunerStore';
+} from '../../ui-core/stores/spatialAudioStore.ts';
+import { useSubsystemIsolationLabStore } from '../../ui-core/stores/subsystemIsolationLabStore.ts';
+import { useRewinderStore } from '../../ui-core/stores/rewinderStore.ts';
+import { useReplayViewerStore } from '../../ui-core/stores/replayViewerStore.ts';
+import { useReplayToRcsImporterStore } from '../../ui-core/stores/replayToRcsImporterStore.ts';
+import { networkDiagnosticsStore } from '../../ui-core/stores/networkDiagnosticsStore.ts';
+import { determinismStore } from '../../ui-core/stores/determinismStore.ts';
+import { eventStreamStore } from '../../ui-core/stores/eventStreamStore.ts';
+import { reachabilityStore } from '../../ui-core/stores/reachabilityStore.ts';
+import { ballTrajectoryTunerStore } from '../../ui-core/stores/ballTrajectoryTunerStore.ts';
 import {
   useStaticTrainingPackStore,
   getActiveEditItemVariable,
   mutateActiveEditItemVariable,
-} from '../../ui-core/stores/staticTrainingPackStore';
-import { useStaticTrainingBallCamTunerStore } from '../../ui-core/stores/staticTrainingBallCamTunerStore';
-import { useKickoffTrainingStore } from '../../ui-core/stores/kickoffTrainingStore';
-import { useReferenceOverlayStore } from '../../ui-core/stores/referenceOverlayStore';
-import { useExperimentalMultiBotsStore } from '../../ui-core/stores/experimentalMultiBotsStore';
-import { getExpColorSwatch } from '../../ui-core/stores/experimentalMultiBotsRosterUtils';
+} from '../../ui-core/stores/staticTrainingPackStore.ts';
+import { useStaticTrainingBallCamTunerStore } from '../../ui-core/stores/staticTrainingBallCamTunerStore.ts';
+import { useKickoffTrainingStore } from '../../ui-core/stores/kickoffTrainingStore.ts';
+import { useReferenceOverlayStore } from '../../ui-core/stores/referenceOverlayStore.ts';
+import { useExperimentalMultiBotsStore } from '../../ui-core/stores/experimentalMultiBotsStore.ts';
+import { getExpColorSwatch } from '../../ui-core/stores/experimentalMultiBotsRosterUtils.ts';
 import {
   useQuickNotificationStore,
   quickNotification,
@@ -32,7 +32,7 @@ import {
   pushOngoingNotification,
   dismissOngoingNotification,
   completeOngoingNotification,
-} from '../../ui-core/stores/quickNotificationStore';
+} from '../../ui-core/stores/quickNotificationStore.ts';
 import {
   useNameTagTunerStore,
   getNameTagConfig,
@@ -41,19 +41,16 @@ import {
   setNameTagRuntimeState,
   setNameTagTelemetrySnapshot,
   getNameTagTelemetrySnapshot,
-} from '../../ui-core/stores/nameTagTunerStore';
-import {
-  floatingStore,
-  toggleFloatingPreset,
-} from '../../ui-core/stores/floatingStore';
-import { NETWORK_MONITOR_PRESET } from '../../ui-core/stores/floatingPresets';
-import { DUAL_ARENA_DETERMINISM_HARNESS_PRESET } from '../../ui-core/stores/devFloatingPresets';
+} from '../../ui-core/stores/nameTagTunerStore.ts';
+import { floatingStore, toggleFloatingPreset } from '../../ui-core/stores/floatingStore.ts';
+import { NETWORK_MONITOR_PRESET } from '../../ui-core/stores/floatingPresets.ts';
+import { DUAL_ARENA_DETERMINISM_HARNESS_PRESET } from '../../ui-core/stores/devFloatingPresets.ts';
 import {
   snapshotCurrentTelemetryPayload,
   notifyNetworkTelemetryExportAvailable,
-} from '../../ui-core/stores/pacingTelemetryExporter';
-import { globalPacingTelemetryRecorder } from '../../ui-core/stores/pacingTelemetryRecorder';
-import { globalHudTransientChannel } from '../../ui-core/stores/hudTransientChannel';
+} from '../../ui-core/stores/pacingTelemetryExporter.ts';
+import { globalPacingTelemetryRecorder } from '../../ui-core/stores/pacingTelemetryRecorder.ts';
+import { globalHudTransientChannel } from '../../ui-core/stores/hudTransientChannel.ts';
 import {
   markReplayTimelineControllerRetained,
   getLatestRetainedReplayTimelineController,
@@ -63,7 +60,7 @@ import {
   subscribeActiveReplayTimelineController,
   registerReplayDirectorDiagnosticExporter,
   registerReplayDirectorPreviewHandlers,
-} from '../../ui-core/stores/replayDirectorStore';
+} from '../../ui-core/stores/replayDirectorStore.ts';
 
 let initialized = false;
 

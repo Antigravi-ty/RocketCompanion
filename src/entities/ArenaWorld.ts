@@ -7,10 +7,18 @@ import {
   type BoostPadTunerConfig,
 } from './arena/BoostPadTemplateLoader.ts';
 import { BallLocatorArrow } from './BallLocatorArrow.ts';
-import { ArenaEnvironmentManager, createBallGroundIndicatorRings } from './arena/ArenaEnvironmentManager.ts';
+import {
+  ArenaEnvironmentManager,
+  createBallGroundIndicatorRings,
+} from './arena/ArenaEnvironmentManager.ts';
 import { SpeedTrail } from './SpeedTrail.ts';
-import { onThemeChange } from '../ui-core/config/themeConfig';
-import { ArenaHeaderView, CarStateView, BallStateView, type NumericStateBuffer } from '../physics/RocketSimStateViews.ts';
+import { onThemeChange } from '../ui-core/config/themeConfig.ts';
+import {
+  ArenaHeaderView,
+  CarStateView,
+  BallStateView,
+  type NumericStateBuffer,
+} from '../physics/RocketSimStateViews.ts';
 import { createStadiumDomeSky, updateSkyboxFrame } from './arena/ArenaSky.ts';
 import { ArenaLightingManager } from './arena/ArenaLighting.ts';
 import {
@@ -32,7 +40,10 @@ import {
   runParallelArenaAssetSteps,
 } from './arena/ArenaAssetLoader.ts';
 import { VehicleNameTagSystem } from './arena/VehicleNameTagSystem.ts';
-import { VehicleAerialClimbTracker, type CarAerialClimbStatus } from './arena/VehicleAerialClimbTracker.ts';
+import {
+  VehicleAerialClimbTracker,
+  type CarAerialClimbStatus,
+} from './arena/VehicleAerialClimbTracker.ts';
 import type { DriftwoodsMaterialManager } from './stadium/driftwoods/DriftwoodsMaterialManager.ts';
 import { GoalBarrierVisual } from './arena/GoalBarrierVisual.ts';
 import { GoalVolumeHitboxVisual } from './arena/GoalVolumeHitboxVisual.ts';
@@ -129,7 +140,12 @@ export class ArenaWorld {
     this.sky = createStadiumDomeSky();
     this.goalBarrierVisual = new GoalBarrierVisual();
     this.goalVolumeHitboxVisual = new GoalVolumeHitboxVisual();
-    this.scene.add(this.sky, this.ball, this.goalBarrierVisual.group, this.goalVolumeHitboxVisual.group);
+    this.scene.add(
+      this.sky,
+      this.ball,
+      this.goalBarrierVisual.group,
+      this.goalVolumeHitboxVisual.group
+    );
     if (this.ballLocatorArrow?.object) this.scene.add(this.ballLocatorArrow.object);
     if (this.ballSpeedTrail?.object) this.scene.add(this.ballSpeedTrail.object);
 
@@ -156,9 +172,13 @@ export class ArenaWorld {
     this.carAerialClimbStatuses = this.aerialClimbTracker.carAerialClimbStatuses;
     this.nameTagSystem = new VehicleNameTagSystem(this.scene);
     this.respawnGhostPreview = new RespawnGhostPreview(this);
-    this.spatialAudioVisualizer = new SpatialAudioDebugVisualizer(this.scene, () => this.markRenderTreeChanged());
+    this.spatialAudioVisualizer = new SpatialAudioDebugVisualizer(this.scene, () =>
+      this.markRenderTreeChanged()
+    );
     this.supersonicWheelTrailSystem = new SupersonicWheelTrailSystem(this.scene);
-    this.demolitionSimPreview = new DemolitionSimPreviewController(this.scene, () => this.markRenderTreeChanged());
+    this.demolitionSimPreview = new DemolitionSimPreviewController(this.scene, () =>
+      this.markRenderTreeChanged()
+    );
     this.environment = new ArenaEnvironmentManager(this);
 
     this._headerView = new ArenaHeaderView();
@@ -174,11 +194,19 @@ export class ArenaWorld {
     }
   }
 
-  get driftwoodsStadium(): THREE.Group | null { return this.environment.driftwoodsStadium; }
-  get driftwoodsManager(): DriftwoodsMaterialManager | null { return this.environment.driftwoodsManager; }
-  get isThrowbackStadiumActive(): boolean { return this.environment.isThrowbackStadiumActive; }
+  get driftwoodsStadium(): THREE.Group | null {
+    return this.environment.driftwoodsStadium;
+  }
+  get driftwoodsManager(): DriftwoodsMaterialManager | null {
+    return this.environment.driftwoodsManager;
+  }
+  get isThrowbackStadiumActive(): boolean {
+    return this.environment.isThrowbackStadiumActive;
+  }
 
-  resetBallTrail() { this.ballSpeedTrail?.reset(); }
+  resetBallTrail() {
+    this.ballSpeedTrail?.reset();
+  }
   resetCarBoosts(carIndex: number | null = null) {
     this.vehicleRegistry?.resetCarBoosts?.(carIndex);
     this.supersonicWheelTrailSystem?.resetCar(carIndex);
@@ -188,9 +216,15 @@ export class ArenaWorld {
     this.supersonicWheelTrailSystem?.resetCar(null);
     this.ballSpeedTrail?.reset?.();
   }
-  get renderTreeVersion() { return this._renderTreeVersion; }
-  markRenderTreeChanged() { this._renderTreeVersion++; }
-  get boostBloomActive() { return this.vehicleRegistry.hasActiveBoostBloom(); }
+  get renderTreeVersion() {
+    return this._renderTreeVersion;
+  }
+  markRenderTreeChanged() {
+    this._renderTreeVersion++;
+  }
+  get boostBloomActive() {
+    return this.vehicleRegistry.hasActiveBoostBloom();
+  }
 
   async loadBall() {
     await loadBallAssetInto(this.ball);
@@ -231,7 +265,9 @@ export class ArenaWorld {
     this.markRenderTreeChanged();
   }
 
-  async prepareAssets(onProgress: ((loaded: number, total: number, label: string) => void) | null = null) {
+  async prepareAssets(
+    onProgress: ((loaded: number, total: number, label: string) => void) | null = null
+  ) {
     await prepareAllArenaWarmupAssets(
       () => this.vehicleRegistry.ensureOpponent(),
       this.vehicleRegistry,
@@ -246,7 +282,11 @@ export class ArenaWorld {
   setCarLoadout(carIndex: number, loadout: CarLoadoutConfig | null | undefined) {
     this.vehicleRegistry.setCarLoadout?.(carIndex, loadout);
   }
-  addCar(teamIndex = 0, visualOrOptions: VehicleVisualInput = this.carVisual, targetIndex: number | null = null) {
+  addCar(
+    teamIndex = 0,
+    visualOrOptions: VehicleVisualInput = this.carVisual,
+    targetIndex: number | null = null
+  ) {
     return this.vehicleRegistry.addCar(teamIndex, visualOrOptions, targetIndex);
   }
   removeCar(carIndex: number) {
@@ -255,7 +295,11 @@ export class ArenaWorld {
   async ensureOpponent() {
     await this.vehicleRegistry.ensureOpponent();
   }
-  ensureCar(carIndex: number, teamIndex: number | null = null, visual: VehicleVisualInput = this.carVisual) {
+  ensureCar(
+    carIndex: number,
+    teamIndex: number | null = null,
+    visual: VehicleVisualInput = this.carVisual
+  ) {
     return this.vehicleRegistry.ensureCar(carIndex, teamIndex, visual);
   }
   setCarTeam(carIndex: number, teamIndex: number) {
@@ -312,18 +356,43 @@ export class ArenaWorld {
     this.environment.stepBallAndEnvironmentVisuals(prevState, currState, alpha, actualDelta);
 
     stepArenaVehiclesFrame(
-      this, prevState, currState, header.numCars, alpha, actualDelta, actualThrottle,
-      controls, opponentControls, activeVisuals, carControlsResolver
+      this,
+      prevState,
+      currState,
+      header.numCars,
+      alpha,
+      actualDelta,
+      actualThrottle,
+      controls,
+      opponentControls,
+      activeVisuals,
+      carControlsResolver
     );
 
     this.lighting.updateSunIntensities(header.numCars);
     updateSkyboxFrame(actualDelta, this.lighting?._shadowDir);
-    this.boostPadSystem?.update(currState as Float32Array | null, undefined, actualDelta, this.camera);
+    this.boostPadSystem?.update(
+      currState as Float32Array | null,
+      undefined,
+      actualDelta,
+      this.camera
+    );
     this.respawnGhostPreview?.update?.(currState, actualDelta);
     this.demolitionSimPreview?.stepFrame();
     updateBoostVisuals(
-      this.cars, this.carBoosts, currState, actualThrottle, actualDelta, opponentControls?.throttle ?? 0,
-      activeVisuals, controls, opponentControls, this.playerCarIndex, this._headerView, this._currCarView, carControlsResolver
+      this.cars,
+      this.carBoosts,
+      currState,
+      actualThrottle,
+      actualDelta,
+      opponentControls?.throttle ?? 0,
+      activeVisuals,
+      controls,
+      opponentControls,
+      this.playerCarIndex,
+      this._headerView,
+      this._currCarView,
+      carControlsResolver
     );
   }
 

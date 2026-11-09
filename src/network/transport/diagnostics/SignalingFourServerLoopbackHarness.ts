@@ -256,7 +256,9 @@ export class SignalingFourServerLoopbackHarness {
     onStepProgress?: (stepBanner: string) => void
   ): Promise<{ ok: boolean; summary: string; latencyMs: number }> {
     const startAt = performance.now();
-    onStepProgress?.('Step 1/5: Probing all 4 canonical relays (emqx_cn, emqx_gb, supabase_jp, supabase_sg)...');
+    onStepProgress?.(
+      'Step 1/5: Probing all 4 canonical relays (emqx_cn, emqx_gb, supabase_jp, supabase_sg)...'
+    );
     const probe = await this.probeAllRelaysAndDualBridges(4500);
     for (const id of CANONICAL_RELAY_ORDER) {
       const slot = probe.slots[id];
@@ -269,7 +271,9 @@ export class SignalingFourServerLoopbackHarness {
       }
     }
 
-    onStepProgress?.('Step 2/5: Running Dual Cloud Edge Self-Test (JP + SG Edge Functions -> 4 Relays)...');
+    onStepProgress?.(
+      'Step 2/5: Running Dual Cloud Edge Self-Test (JP + SG Edge Functions -> 4 Relays)...'
+    );
     const selfTest = await this.runCloudSelfTest(rawRoomCode);
     if (!selfTest.ok) {
       return {
@@ -309,8 +313,16 @@ export class SignalingFourServerLoopbackHarness {
       };
     }
 
-    onStepProgress?.('Step 4/5: Testing Outbound Edge Bridge (supabase_jp -> emqx_cn & supabase_sg -> emqx_gb)...');
-    const jpToCn = await this.runPairScenario('supabase_jp', 'emqx_cn', false, rawRoomCode, password);
+    onStepProgress?.(
+      'Step 4/5: Testing Outbound Edge Bridge (supabase_jp -> emqx_cn & supabase_sg -> emqx_gb)...'
+    );
+    const jpToCn = await this.runPairScenario(
+      'supabase_jp',
+      'emqx_cn',
+      false,
+      rawRoomCode,
+      password
+    );
     if (!jpToCn.ok) {
       return {
         ok: false,
@@ -318,7 +330,13 @@ export class SignalingFourServerLoopbackHarness {
         latencyMs: Math.round(performance.now() - startAt),
       };
     }
-    const sgToGb = await this.runPairScenario('supabase_sg', 'emqx_gb', false, rawRoomCode, password);
+    const sgToGb = await this.runPairScenario(
+      'supabase_sg',
+      'emqx_gb',
+      false,
+      rawRoomCode,
+      password
+    );
     if (!sgToGb.ok) {
       return {
         ok: false,
@@ -327,8 +345,16 @@ export class SignalingFourServerLoopbackHarness {
       };
     }
 
-    onStepProgress?.('Step 5/5: Testing EMQX Rule Engine Webhooks (emqx_cn -> supabase_jp & emqx_gb -> supabase_sg)...');
-    const cnToJp = await this.runPairScenario('emqx_cn', 'supabase_jp', false, rawRoomCode, password);
+    onStepProgress?.(
+      'Step 5/5: Testing EMQX Rule Engine Webhooks (emqx_cn -> supabase_jp & emqx_gb -> supabase_sg)...'
+    );
+    const cnToJp = await this.runPairScenario(
+      'emqx_cn',
+      'supabase_jp',
+      false,
+      rawRoomCode,
+      password
+    );
     if (!cnToJp.ok) {
       return {
         ok: false,
@@ -336,7 +362,13 @@ export class SignalingFourServerLoopbackHarness {
         latencyMs: Math.round(performance.now() - startAt),
       };
     }
-    const gbToSg = await this.runPairScenario('emqx_gb', 'supabase_sg', false, rawRoomCode, password);
+    const gbToSg = await this.runPairScenario(
+      'emqx_gb',
+      'supabase_sg',
+      false,
+      rawRoomCode,
+      password
+    );
     if (!gbToSg.ok) {
       return {
         ok: false,

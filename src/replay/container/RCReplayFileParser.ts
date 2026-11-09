@@ -146,7 +146,10 @@ export function extractReplayTracksFromMatchOptions(
     return options.engine.extractWasmReplayTracks();
   }
 
-  if (options.packedFrames instanceof Float32Array && options.packedFrames.length >= floatsPerFrame) {
+  if (
+    options.packedFrames instanceof Float32Array &&
+    options.packedFrames.length >= floatsPerFrame
+  ) {
     const count = Math.floor(options.packedFrames.length / floatsPerFrame);
     const rawSlots = new Array(count);
     for (let i = 0; i < count; i++) {
@@ -166,7 +169,9 @@ export function extractReplayTracksFromMatchOptions(
   if (Array.isArray(options.frames) && options.frames.length > 0) {
     rawFrames = options.frames.filter((f): f is ReplayRawFrameSlotItem => f !== null);
   } else if (options.ringBuffer && typeof options.ringBuffer.getRecentFrames === 'function') {
-    rawFrames = options.ringBuffer.getRecentFrames().filter((f): f is ReplayRawFrameSlotItem => f !== null);
+    rawFrames = options.ringBuffer
+      .getRecentFrames()
+      .filter((f): f is ReplayRawFrameSlotItem => f !== null);
   } else if (Array.isArray(options.ringBuffer?._slots) && (options.ringBuffer.size ?? 0) > 0) {
     for (let i = 0; i < (options.ringBuffer.size ?? 0); i++) {
       const slot = options.ringBuffer.getFrameAt?.(i);
@@ -179,7 +184,9 @@ export function extractReplayTracksFromMatchOptions(
       '[ReplayFileExporter] Replay ring buffer and frame tracks were empty; falling back to single-frame fallbackState snapshot.'
     );
     const snap = new Float32Array(STATE_BUFFER_FLOATS);
-    snap.set(options.fallbackState.subarray(0, Math.min(options.fallbackState.length, STATE_BUFFER_FLOATS)));
+    snap.set(
+      options.fallbackState.subarray(0, Math.min(options.fallbackState.length, STATE_BUFFER_FLOATS))
+    );
     rawFrames.push({ tick: Math.floor(snap[0] || 0), snapshot: snap });
   }
 
@@ -195,19 +202,21 @@ export function extractReplayTracksFromMatchOptions(
 }
 
 export async function decompressAndParseRCReplayFile(
-  fileOrBuffer: ArrayBuffer | Uint8Array | Blob | { arrayBuffer?: () => Promise<ArrayBuffer> } | unknown,
+  fileOrBuffer:
+    ArrayBuffer | Uint8Array | Blob | { arrayBuffer?: () => Promise<ArrayBuffer> } | unknown
 ): Promise<ParsedRCReplayResult> {
   const buf: ArrayBuffer | null =
     fileOrBuffer instanceof ArrayBuffer
       ? fileOrBuffer
       : fileOrBuffer instanceof Uint8Array
-      ? (fileOrBuffer.buffer.slice(
-          fileOrBuffer.byteOffset,
-          fileOrBuffer.byteOffset + fileOrBuffer.byteLength
-        ) as ArrayBuffer)
-      : typeof (fileOrBuffer as { arrayBuffer?: () => Promise<ArrayBuffer> })?.arrayBuffer === 'function'
-      ? await (fileOrBuffer as { arrayBuffer: () => Promise<ArrayBuffer> }).arrayBuffer()
-      : null;
+        ? (fileOrBuffer.buffer.slice(
+            fileOrBuffer.byteOffset,
+            fileOrBuffer.byteOffset + fileOrBuffer.byteLength
+          ) as ArrayBuffer)
+        : typeof (fileOrBuffer as { arrayBuffer?: () => Promise<ArrayBuffer> })?.arrayBuffer ===
+            'function'
+          ? await (fileOrBuffer as { arrayBuffer: () => Promise<ArrayBuffer> }).arrayBuffer()
+          : null;
 
   if (!buf || buf.byteLength === 0) {
     throw new Error('Empty replay file.');
@@ -235,10 +244,14 @@ export async function decompressAndParseRCReplayFile(
   }
 
   if (isBinaryRCReplayContainer(rawBuffer)) {
-    return (await deserializeRCReplayBinaryContainerAsync(rawBuffer)) as unknown as ParsedRCReplayResult;
+    return (await deserializeRCReplayBinaryContainerAsync(
+      rawBuffer
+    )) as unknown as ParsedRCReplayResult;
   }
 
-  console.warn('[ReplayFileExporter] Input is not a binary RCREPLAY v2 container; attempting JSON fixture fallback parse.');
+  console.warn(
+    '[ReplayFileExporter] Input is not a binary RCREPLAY v2 container; attempting JSON fixture fallback parse.'
+  );
   const jsonText = new TextDecoder().decode(rawBuffer);
   const parsed = JSON.parse(jsonText) as Record<string, unknown>;
   if (parsed && Array.isArray(parsed.frames)) {
@@ -278,8 +291,8 @@ export async function decompressAndParseRCReplayFile(
         loadouts: Array.isArray(parsed.loadouts)
           ? parsed.loadouts
           : Array.isArray(parsed.roster)
-          ? parsed.roster
-          : [],
+            ? parsed.roster
+            : [],
         createdAtIso: (parsed.createdAtIso as string) || '',
       },
       frames,
@@ -305,10 +318,10 @@ export function buildStateReplayExportPayload(
       item instanceof Float32Array
         ? item
         : objItem?.compactSnap instanceof Float32Array
-        ? objItem.compactSnap
-        : objItem?.renderState instanceof Float32Array
-        ? objItem.renderState
-        : null;
+          ? objItem.compactSnap
+          : objItem?.renderState instanceof Float32Array
+            ? objItem.renderState
+            : null;
     const snap = new Float32Array(STATE_BUFFER_FLOATS) as ReplaySnapshotFloat32Array;
     if (src) {
       snap.set(src.subarray(0, Math.min(src.length, STATE_BUFFER_FLOATS)));

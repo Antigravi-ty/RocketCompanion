@@ -3,15 +3,9 @@
  * Ultra-fast Binary Serialization & Deserialization for Shared Global Payloads.
  */
 
-import type {
-  CarControlsInput,
-  UnpackedCarControls,
-} from './InputPacketCodec.ts';
+import type { CarControlsInput, UnpackedCarControls } from './InputPacketCodec.ts';
 import { SIGNAL_EVENT_TYPES } from '../../physics/RocketSimConstants.ts';
-import type {
-  BoostPadBitmask,
-  BoostPadEdgeTracker,
-} from './boostPadBitmaskPipeline.ts';
+import type { BoostPadBitmask, BoostPadEdgeTracker } from './boostPadBitmaskPipeline.ts';
 import {
   computePhysicsSectionBytePlan,
   readPhysicsSectionFromView,
@@ -132,8 +126,7 @@ export class GlobalPayloadCodec {
     if (hasAllUserRtt) flagByte |= PAYLOAD_FLAGS.ALL_RTT;
 
     let totalSize = 1;
-    const physicsPlan =
-      hasPhysics && physics ? computePhysicsSectionBytePlan(physics) : null;
+    const physicsPlan = hasPhysics && physics ? computePhysicsSectionBytePlan(physics) : null;
     if (physicsPlan) {
       totalSize += physicsPlan.byteSize;
     }
@@ -170,8 +163,7 @@ export class GlobalPayloadCodec {
       const players = payload.allUserRtt.players || [];
       for (let i = 0; i < 6; i++) {
         const rtt = players[i];
-        const val =
-          typeof rtt === 'number' && rtt >= 0 ? Math.min(65534, Math.round(rtt)) : 0xffff;
+        const val = typeof rtt === 'number' && rtt >= 0 ? Math.min(65534, Math.round(rtt)) : 0xffff;
         view.setUint16(offset, val, false);
         offset += 2;
       }

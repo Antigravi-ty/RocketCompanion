@@ -11,13 +11,13 @@ import * as THREE from 'three';
  * - Microkernel output failure triggers immediate fail-fast termination.
  */
 
-import { DEFAULT_CAMERA_SETTINGS } from '../../ui-core/config/cameraDefaults';
+import { DEFAULT_CAMERA_SETTINGS } from '../../ui-core/config/cameraDefaults.ts';
 import { convertHorizontalToVerticalFov } from '../cameraFovAndPosePipeline.ts';
 import {
   CameraMicrokernel,
   loadCameraMicrokernel,
   getCachedCameraMicrokernel,
-  TOTAL_VIEW_BUFFER_SIZE as KERNEL_VIEW_SIZE
+  TOTAL_VIEW_BUFFER_SIZE as KERNEL_VIEW_SIZE,
 } from './CameraMicrokernel.ts';
 import { getCameraDeterminismHarness } from '../CameraDeterminismHarness.ts';
 
@@ -68,7 +68,7 @@ export const CAMERA_INPUT_INDICES = {
   LOOK_X: 28,
   LOOK_Y: 29,
   SWIVEL_SPEED: 30,
-  INVERT_SWIVEL: 31
+  INVERT_SWIVEL: 31,
 };
 
 export interface PovCameraSettings {
@@ -117,7 +117,7 @@ export class PovCameraController {
   target: THREE.Vector3 | null;
 
   constructor(
-    aspect = (typeof window !== 'undefined' ? window.innerWidth / window.innerHeight : 16 / 9),
+    aspect = typeof window !== 'undefined' ? window.innerWidth / window.innerHeight : 16 / 9,
     kernel: PovCameraKernelLike | null = null,
     existingCamera: THREE.PerspectiveCamera | null = null,
     sourceMode: string | null = null
@@ -130,9 +130,8 @@ export class PovCameraController {
     this.target = new THREE.Vector3();
 
     // Prefer dedicated camera microkernel instance or cached singleton
-    this.kernel = (kernel && typeof kernel.stepView === 'function')
-      ? kernel
-      : getCachedCameraMicrokernel();
+    this.kernel =
+      kernel && typeof kernel.stepView === 'function' ? kernel : getCachedCameraMicrokernel();
 
     const initialVFov = convertHorizontalToVerticalFov(this.settings.fov, aspect);
     this.camera = existingCamera || new THREE.PerspectiveCamera(initialVFov, aspect, 4, 40000);
@@ -158,7 +157,11 @@ export class PovCameraController {
     if (this.kernel && typeof this.kernel.stepView === 'function') {
       return this.kernel;
     }
-    if (this.kernel && this.kernel.cameraKernel && typeof this.kernel.cameraKernel.stepView === 'function') {
+    if (
+      this.kernel &&
+      this.kernel.cameraKernel &&
+      typeof this.kernel.cameraKernel.stepView === 'function'
+    ) {
       return this.kernel.cameraKernel;
     }
     const cached = getCachedCameraMicrokernel();
@@ -225,7 +228,7 @@ export class PovCameraController {
       Number.isFinite(rawQy) &&
       Number.isFinite(rawQz) &&
       Number.isFinite(rawQw) &&
-      (rawQx * rawQx + rawQy * rawQy + rawQz * rawQz + rawQw * rawQw) > 1e-8;
+      rawQx * rawQx + rawQy * rawQy + rawQz * rawQz + rawQw * rawQw > 1e-8;
 
     s[CAMERA_INPUT_INDICES.DT] = Number.isFinite(dt) ? dt : 0;
     s[CAMERA_INPUT_INDICES.BALL_CAM] = this._ballCam ? 1 : 0;
@@ -237,9 +240,15 @@ export class PovCameraController {
     s[CAMERA_INPUT_INDICES.CAR_QUAT_Z] = quatOk ? rawQz : 0;
     s[CAMERA_INPUT_INDICES.CAR_QUAT_W] = quatOk ? rawQw : 1;
 
-    s[CAMERA_INPUT_INDICES.BALL_POS_X] = Number.isFinite(ballObject?.position?.x) ? ballObject!.position!.x : 0;
-    s[CAMERA_INPUT_INDICES.BALL_POS_Y] = Number.isFinite(ballObject?.position?.y) ? ballObject!.position!.y : 93.15;
-    s[CAMERA_INPUT_INDICES.BALL_POS_Z] = Number.isFinite(ballObject?.position?.z) ? ballObject!.position!.z : 0;
+    s[CAMERA_INPUT_INDICES.BALL_POS_X] = Number.isFinite(ballObject?.position?.x)
+      ? ballObject!.position!.x
+      : 0;
+    s[CAMERA_INPUT_INDICES.BALL_POS_Y] = Number.isFinite(ballObject?.position?.y)
+      ? ballObject!.position!.y
+      : 93.15;
+    s[CAMERA_INPUT_INDICES.BALL_POS_Z] = Number.isFinite(ballObject?.position?.z)
+      ? ballObject!.position!.z
+      : 0;
 
     let flags = 0;
     if (extraInfo?.onGround !== undefined) flags |= CAMERA_FLAG_ON_GROUND;
@@ -248,14 +257,26 @@ export class PovCameraController {
     if (extraInfo?.supersonic !== undefined) flags |= CAMERA_FLAG_SUPERSONIC;
     s[CAMERA_INPUT_INDICES.FLAGS] = flags;
 
-    s[CAMERA_INPUT_INDICES.ON_GROUND] = (extraInfo && extraInfo.onGround) ? 1 : 0;
-    s[CAMERA_INPUT_INDICES.GROUND_NORMAL_X] = Number.isFinite(extraInfo?.groundNormal?.x) ? extraInfo!.groundNormal!.x : 0;
-    s[CAMERA_INPUT_INDICES.GROUND_NORMAL_Y] = Number.isFinite(extraInfo?.groundNormal?.y) ? extraInfo!.groundNormal!.y : 1;
-    s[CAMERA_INPUT_INDICES.GROUND_NORMAL_Z] = Number.isFinite(extraInfo?.groundNormal?.z) ? extraInfo!.groundNormal!.z : 0;
-    s[CAMERA_INPUT_INDICES.VELOCITY_X] = Number.isFinite(extraInfo?.velocity?.x) ? extraInfo!.velocity!.x : 0;
-    s[CAMERA_INPUT_INDICES.VELOCITY_Y] = Number.isFinite(extraInfo?.velocity?.y) ? extraInfo!.velocity!.y : 0;
-    s[CAMERA_INPUT_INDICES.VELOCITY_Z] = Number.isFinite(extraInfo?.velocity?.z) ? extraInfo!.velocity!.z : 0;
-    s[CAMERA_INPUT_INDICES.SUPERSONIC] = (extraInfo && extraInfo.supersonic) ? 1 : 0;
+    s[CAMERA_INPUT_INDICES.ON_GROUND] = extraInfo && extraInfo.onGround ? 1 : 0;
+    s[CAMERA_INPUT_INDICES.GROUND_NORMAL_X] = Number.isFinite(extraInfo?.groundNormal?.x)
+      ? extraInfo!.groundNormal!.x
+      : 0;
+    s[CAMERA_INPUT_INDICES.GROUND_NORMAL_Y] = Number.isFinite(extraInfo?.groundNormal?.y)
+      ? extraInfo!.groundNormal!.y
+      : 1;
+    s[CAMERA_INPUT_INDICES.GROUND_NORMAL_Z] = Number.isFinite(extraInfo?.groundNormal?.z)
+      ? extraInfo!.groundNormal!.z
+      : 0;
+    s[CAMERA_INPUT_INDICES.VELOCITY_X] = Number.isFinite(extraInfo?.velocity?.x)
+      ? extraInfo!.velocity!.x
+      : 0;
+    s[CAMERA_INPUT_INDICES.VELOCITY_Y] = Number.isFinite(extraInfo?.velocity?.y)
+      ? extraInfo!.velocity!.y
+      : 0;
+    s[CAMERA_INPUT_INDICES.VELOCITY_Z] = Number.isFinite(extraInfo?.velocity?.z)
+      ? extraInfo!.velocity!.z
+      : 0;
+    s[CAMERA_INPUT_INDICES.SUPERSONIC] = extraInfo && extraInfo.supersonic ? 1 : 0;
 
     s[CAMERA_INPUT_INDICES.FOV] = this.settings.fov;
     s[CAMERA_INPUT_INDICES.DISTANCE] = this.settings.distance;
@@ -263,7 +284,7 @@ export class PovCameraController {
     s[CAMERA_INPUT_INDICES.ANGLE_DEG] = this.settings.angleDeg;
     s[CAMERA_INPUT_INDICES.STIFFNESS] = this.settings.stiffness;
     s[CAMERA_INPUT_INDICES.TRANSITION_SPEED] = this.settings.transitionSpeed;
-    s[CAMERA_INPUT_INDICES.ASPECT] = this.camera?.aspect ?? (16 / 9);
+    s[CAMERA_INPUT_INDICES.ASPECT] = this.camera?.aspect ?? 16 / 9;
     s[CAMERA_INPUT_INDICES.LOOK_X] = Number.isFinite(extraInfo?.lookX) ? extraInfo!.lookX! : 0;
     s[CAMERA_INPUT_INDICES.LOOK_Y] = Number.isFinite(extraInfo?.lookY) ? extraInfo!.lookY! : 0;
     s[CAMERA_INPUT_INDICES.SWIVEL_SPEED] = this.settings.swivelSpeed;
@@ -271,13 +292,21 @@ export class PovCameraController {
 
     const viewKernel = this._resolveKernel();
     if (!viewKernel || typeof viewKernel.stepView !== 'function') {
-      throw new Error('[FATAL] POV Camera Microkernel required: missing microkernel instance. Pure JS fallback is permanently removed.');
+      throw new Error(
+        '[FATAL] POV Camera Microkernel required: missing microkernel instance. Pure JS fallback is permanently removed.'
+      );
     }
 
     const harness = getCameraDeterminismHarness();
-    let output = harness.stepAndCompare({ stepView: (inp) => viewKernel.stepView!(inp) }, s, this.sourceMode);
+    let output = harness.stepAndCompare(
+      { stepView: (inp) => viewKernel.stepView!(inp) },
+      s,
+      this.sourceMode
+    );
     if (!output || output.length < TOTAL_VIEW_BUFFER_SIZE) {
-      throw new Error('[FATAL] POV Camera Microkernel output missing or invalid. Pure JS fallback (stepFallbackView) is permanently removed.');
+      throw new Error(
+        '[FATAL] POV Camera Microkernel output missing or invalid. Pure JS fallback (stepFallbackView) is permanently removed.'
+      );
     }
     if (
       !Number.isFinite(output[CAMERA_POS_OFFSET]) ||
@@ -288,7 +317,11 @@ export class PovCameraController {
       !Number.isFinite(output[CAMERA_DIR_OFFSET + 2])
     ) {
       this.resetView();
-      output = harness.stepAndCompare({ stepView: (inp) => viewKernel.stepView!(inp) }, s, this.sourceMode);
+      output = harness.stepAndCompare(
+        { stepView: (inp) => viewKernel.stepView!(inp) },
+        s,
+        this.sourceMode
+      );
     }
 
     // 1. Position from camera microkernel

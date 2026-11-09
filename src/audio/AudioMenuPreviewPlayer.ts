@@ -1,4 +1,4 @@
-import { audioConfig } from '../ui-core/config/audioConfig';
+import { audioConfig } from '../ui-core/config/audioConfig.ts';
 import { getAudioContext, getMasterAudioInput, subsystemState } from './audioContext.ts';
 import { TurtleModemEngineSynth } from './TurtleModemEngineSynth.ts';
 import type { VehicleAudioBuffers } from './VehicleAudioManager.ts';
@@ -281,19 +281,34 @@ export class AudioMenuPreviewPlayer {
     switch (detailKey) {
       case 'ballCollisionVolume':
       case 'carBallHitVolume':
-        this._playPreviewBuffer(this._nextPoolBuffer('carBallHit', inc?.ballHit), v('carBallHitVolume') * ballBus);
+        this._playPreviewBuffer(
+          this._nextPoolBuffer('carBallHit', inc?.ballHit),
+          v('carBallHitVolume') * ballBus
+        );
         break;
       case 'carBallAccentVolume':
-        this._playPreviewBuffer(inc?.vehicleAccent || subsystemState.buffers.get('vehicle_accent'), v('carBallAccentVolume') * v('carBallHitVolume') * ballBus);
+        this._playPreviewBuffer(
+          inc?.vehicleAccent || subsystemState.buffers.get('vehicle_accent'),
+          v('carBallAccentVolume') * v('carBallHitVolume') * ballBus
+        );
         break;
       case 'carCarCollisionVolume':
-        this._playPreviewBuffer(this._nextPoolBuffer('carCarDetail', inc?.vehicleDetail), v('carCarCollisionVolume'));
+        this._playPreviewBuffer(
+          this._nextPoolBuffer('carCarDetail', inc?.vehicleDetail),
+          v('carCarCollisionVolume')
+        );
         break;
       case 'carCarSfxCollisionVolume':
-        this._playPreviewBuffer(inc?.carCollision || subsystemState.buffers.get('car_collision'), v('carCarSfxCollisionVolume') * v('carCarCollisionVolume'));
+        this._playPreviewBuffer(
+          inc?.carCollision || subsystemState.buffers.get('car_collision'),
+          v('carCarSfxCollisionVolume') * v('carCarCollisionVolume')
+        );
         break;
       case 'carDemoVolume':
-        this._playPreviewBuffer(this._nextPoolBuffer('carDemo', inc?.carDemo) || inc?.carCollision, v('carDemoVolume'));
+        this._playPreviewBuffer(
+          this._nextPoolBuffer('carDemo', inc?.carDemo) || inc?.carCollision,
+          v('carDemoVolume')
+        );
         break;
       case 'ballFloorHitVolume':
       case 'ballRampHitVolume': {
@@ -303,65 +318,131 @@ export class AudioMenuPreviewPlayer {
         break;
       }
       case 'ballNetHitVolume':
-        this._playPreviewBuffer(this._nextPoolBuffer('ballNet', inc?.sidewallHit), v('ballNetHitVolume') * ballBus);
+        this._playPreviewBuffer(
+          this._nextPoolBuffer('ballNet', inc?.sidewallHit),
+          v('ballNetHitVolume') * ballBus
+        );
         break;
       case 'goalpostHitVolume':
-        this._playPreviewBuffer(this._nextPoolBuffer('goalpostLarge', inc?.crossbarPing), v('goalpostHitVolume') * ballBus);
+        this._playPreviewBuffer(
+          this._nextPoolBuffer('goalpostLarge', inc?.crossbarPing),
+          v('goalpostHitVolume') * ballBus
+        );
         break;
       case 'goalpostSmallHitVolume':
-        this._playPreviewBuffer(this._nextPoolBuffer('goalpostSmall', inc?.crossbarPingSmall), v('goalpostSmallHitVolume') * ballBus);
+        this._playPreviewBuffer(
+          this._nextPoolBuffer('goalpostSmall', inc?.crossbarPingSmall),
+          v('goalpostSmallHitVolume') * ballBus
+        );
         break;
       case 'boostCollectVolume':
-        this._playPreviewBuffer(inc?.boostCollect || subsystemState.buffers.get('boost_collect'), v('boostCollectVolume') * boostBus);
+        this._playPreviewBuffer(
+          inc?.boostCollect || subsystemState.buffers.get('boost_collect'),
+          v('boostCollectVolume') * boostBus
+        );
         break;
       case 'goalScoredVolume':
-        this._playPreviewBuffer(inc?.goalScored || subsystemState.buffers.get('sfx_goal_poof'), v('goalScoredVolume'));
+        this._playPreviewBuffer(
+          inc?.goalScored || subsystemState.buffers.get('sfx_goal_poof'),
+          v('goalScoredVolume')
+        );
         break;
       case 'flipResetVolume':
-        this._playPreviewBuffer(veh?.reset || inc?.reset || subsystemState.buffers.get('reset'), v('flipResetVolume') * selfBus);
+        this._playPreviewBuffer(
+          veh?.reset || inc?.reset || subsystemState.buffers.get('reset'),
+          v('flipResetVolume') * selfBus
+        );
         break;
       case 'wheelImpactVolume':
-        this._playPreviewBuffer(this._nextPoolBuffer('wheelImpact', veh?.wheelImpact?.length ? veh.wheelImpact : inc?.wheelImpact), v('wheelImpactVolume') * selfBus);
+        this._playPreviewBuffer(
+          this._nextPoolBuffer(
+            'wheelImpact',
+            veh?.wheelImpact?.length ? veh.wheelImpact : inc?.wheelImpact
+          ),
+          v('wheelImpactVolume') * selfBus
+        );
         break;
       case 'boostVolume':
       case 'boostStartVolume':
-        this._playPreviewBuffer(veh?.boostStart || subsystemState.buffers.get('boost_start'), boostBus * v('boostStartVolume') * selfBus);
+        this._playPreviewBuffer(
+          veh?.boostStart || subsystemState.buffers.get('boost_start'),
+          boostBus * v('boostStartVolume') * selfBus
+        );
         break;
       case 'boostLoopVolume':
-        this._playPreviewBuffer(veh?.boostLoop || subsystemState.buffers.get('boost_loop'), boostBus * v('boostLoopVolume') * selfBus, { loop: true, maxDurationSec: 1.2 });
+        this._playPreviewBuffer(
+          veh?.boostLoop || subsystemState.buffers.get('boost_loop'),
+          boostBus * v('boostLoopVolume') * selfBus,
+          { loop: true, maxDurationSec: 1.2 }
+        );
         break;
       case 'boostReleaseVolume':
-        this._playPreviewBuffer(veh?.boostRelease || subsystemState.buffers.get('boost_release'), boostBus * v('boostReleaseVolume') * selfBus * 0.8);
+        this._playPreviewBuffer(
+          veh?.boostRelease || subsystemState.buffers.get('boost_release'),
+          boostBus * v('boostReleaseVolume') * selfBus * 0.8
+        );
         break;
       case 'jumpVolume':
         this._playPreviewBuffer(this._nextPoolBuffer('jump', veh?.jump), v('jumpVolume') * selfBus);
         break;
       case 'doubleJumpVolume':
-        this._playPreviewBuffer(this._nextPoolBuffer('doubleJump', veh?.doubleJump), v('doubleJumpVolume') * selfBus);
+        this._playPreviewBuffer(
+          this._nextPoolBuffer('doubleJump', veh?.doubleJump),
+          v('doubleJumpVolume') * selfBus
+        );
         break;
       case 'dodgeVolume':
-        this._playPreviewBuffer(this._nextPoolBuffer('dodge', veh?.dodge), v('dodgeVolume') * selfBus);
+        this._playPreviewBuffer(
+          this._nextPoolBuffer('dodge', veh?.dodge),
+          v('dodgeVolume') * selfBus
+        );
         break;
       case 'supersonicEnterVolume':
-        this._playPreviewBuffer(this._nextPoolBuffer('supersonicEnter', veh?.supersonicEnter), v('supersonicEnterVolume') * selfBus);
+        this._playPreviewBuffer(
+          this._nextPoolBuffer('supersonicEnter', veh?.supersonicEnter),
+          v('supersonicEnterVolume') * selfBus
+        );
         break;
       case 'supersonicLoopVolume':
-        this._playPreviewBuffer(veh?.supersonicLoop || subsystemState.buffers.get('supersonic_loop'), v('supersonicLoopVolume') * selfBus, { loop: true, maxDurationSec: 1.25 });
+        this._playPreviewBuffer(
+          veh?.supersonicLoop || subsystemState.buffers.get('supersonic_loop'),
+          v('supersonicLoopVolume') * selfBus,
+          { loop: true, maxDurationSec: 1.25 }
+        );
         break;
       case 'supersonicStateVolume':
-        this._playPreviewBuffer(subsystemState.buffers.get('sfx_state_supersonic') || veh?.supersonicLoop, v('supersonicStateVolume') * 0.75, { loop: true, maxDurationSec: 1.25 });
+        this._playPreviewBuffer(
+          subsystemState.buffers.get('sfx_state_supersonic') || veh?.supersonicLoop,
+          v('supersonicStateVolume') * 0.75,
+          { loop: true, maxDurationSec: 1.25 }
+        );
         break;
       case 'ballRollingVolume':
-        this._playPreviewBuffer(subsystemState.buffers.get('ballrolling') || this.host.ballEngine?.ballRollingBuffer, v('ballRollingVolume'), { loop: true, maxDurationSec: 1.25 });
+        this._playPreviewBuffer(
+          subsystemState.buffers.get('ballrolling') || this.host.ballEngine?.ballRollingBuffer,
+          v('ballRollingVolume'),
+          { loop: true, maxDurationSec: 1.25 }
+        );
         break;
       case 'ballFlyingVolume':
-        this._playPreviewBuffer(subsystemState.buffers.get('ballflying') || this.host.ballEngine?.ballFlyingBuffer, v('ballFlyingVolume'), { loop: true, maxDurationSec: 1.25 });
+        this._playPreviewBuffer(
+          subsystemState.buffers.get('ballflying') || this.host.ballEngine?.ballFlyingBuffer,
+          v('ballFlyingVolume'),
+          { loop: true, maxDurationSec: 1.25 }
+        );
         break;
       case 'errorNoBoostVolume':
-        this._playPreviewBuffer(subsystemState.buffers.get('sfx_error_no_boost'), v('errorNoBoostVolume') * sig * 0.85);
+        this._playPreviewBuffer(
+          subsystemState.buffers.get('sfx_error_no_boost'),
+          v('errorNoBoostVolume') * sig * 0.85
+        );
         break;
       case 'uiClickVolume':
-        this._playPreviewBuffer(subsystemState.buffers.get('sfx_error_no_boost'), v('uiClickVolume') * 0.3, { playbackRate: 2.0 });
+        this._playPreviewBuffer(
+          subsystemState.buffers.get('sfx_error_no_boost'),
+          v('uiClickVolume') * 0.3,
+          { playbackRate: 2.0 }
+        );
         break;
       default:
         break;

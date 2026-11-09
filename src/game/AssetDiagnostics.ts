@@ -13,8 +13,8 @@ import {
   SFX_CAR_COLLISION_FILE,
   SUPERSONIC_STATE_FILE,
   BOOST_COLLECT_FILE,
-} from '../ui-core/config/audioConstants';
-import { getAllVehicleDescriptors } from '../ui-core/config/vehicleTunerConfig';
+} from '../ui-core/config/audioConstants.ts';
+import { getAllVehicleDescriptors } from '../ui-core/config/vehicleTunerConfig.ts';
 import { EXPERIMENTAL_MODEL_URLS } from '../ai/experimental/SafeTensorsLoader.ts';
 import { GROUND_REACHABILITY_LUT_URL } from '../entities/reachability/groundReachabilityLut.ts';
 import {
@@ -43,12 +43,32 @@ export interface AssetAuditResult {
 
 export const ASSET_INVENTORY: AssetInventoryItem[] = [
   // 1. RocketSim Physics Arena Collision Meshes
-  { path: '/arenamesh/manifest.json', desc: 'RocketSim collision manifest', category: 'Physics', critical: true },
-  { path: '/arenamesh/mesh_0.cmf', desc: 'RocketSim stadium collision mesh chunk 0', category: 'Physics', critical: true },
+  {
+    path: '/arenamesh/manifest.json',
+    desc: 'RocketSim collision manifest',
+    category: 'Physics',
+    critical: true,
+  },
+  {
+    path: '/arenamesh/mesh_0.cmf',
+    desc: 'RocketSim stadium collision mesh chunk 0',
+    category: 'Physics',
+    critical: true,
+  },
 
   // 2. 3D Models & Geometry (derived from stadium & vehicle descriptor registry)
-  { path: DRIFTWOODS_GLB_URL, desc: 'Driftwoods arena 3D model', category: '3D Models', critical: true },
-  { path: DRIFTWOODS_Q1_GROUND_TEXTURE_URL, desc: 'Driftwoods Q1 7-layer ground mask texture', category: 'Visual Effects', critical: false },
+  {
+    path: DRIFTWOODS_GLB_URL,
+    desc: 'Driftwoods arena 3D model',
+    category: '3D Models',
+    critical: true,
+  },
+  {
+    path: DRIFTWOODS_Q1_GROUND_TEXTURE_URL,
+    desc: 'Driftwoods Q1 7-layer ground mask texture',
+    category: 'Visual Effects',
+    critical: false,
+  },
   ...getAllVehicleDescriptors()
     .filter((desc: { modelUrl: string }) => Boolean(desc.modelUrl))
     .map((desc: { modelUrl: string; name: string }, idx: number) => ({
@@ -59,28 +79,103 @@ export const ASSET_INVENTORY: AssetInventoryItem[] = [
     })),
 
   // 3. Visual Effects Textures (Gold Rush Boost)
-  { path: '/assets/boost/rush-mono/plume.webp', desc: 'Gold Rush boost plume particle texture', category: 'Visual Effects', critical: false },
-  { path: '/assets/boost/rush-mono/turbulence.webp', desc: 'Gold Rush boost turbulence particle texture', category: 'Visual Effects', critical: false },
-  { path: '/assets/boost/rush-mono/sparks.webp', desc: 'Gold Rush boost sparks particle texture', category: 'Visual Effects', critical: false },
+  {
+    path: '/assets/boost/rush-mono/plume.webp',
+    desc: 'Gold Rush boost plume particle texture',
+    category: 'Visual Effects',
+    critical: false,
+  },
+  {
+    path: '/assets/boost/rush-mono/turbulence.webp',
+    desc: 'Gold Rush boost turbulence particle texture',
+    category: 'Visual Effects',
+    critical: false,
+  },
+  {
+    path: '/assets/boost/rush-mono/sparks.webp',
+    desc: 'Gold Rush boost sparks particle texture',
+    category: 'Visual Effects',
+    critical: false,
+  },
 
   // 4. Vehicle & Boost Audio
-  { path: BALL_HIT_AUDIO_FILES[0], desc: 'Ball hit impact sound', category: 'Audio', critical: false },
-  { path: SIDEWALL_HIT_AUDIO_FILES[0], desc: 'Sidewall net impact sound', category: 'Audio', critical: false },
-  { path: CAR_DEMO_AUDIO_FILES[0], desc: 'Vehicle demolition explosion sound', category: 'Audio', critical: false },
-  { path: SFX_CAR_COLLISION_FILE, desc: 'Vehicle collision sound', category: 'Audio', critical: false },
+  {
+    path: BALL_HIT_AUDIO_FILES[0],
+    desc: 'Ball hit impact sound',
+    category: 'Audio',
+    critical: false,
+  },
+  {
+    path: SIDEWALL_HIT_AUDIO_FILES[0],
+    desc: 'Sidewall net impact sound',
+    category: 'Audio',
+    critical: false,
+  },
+  {
+    path: CAR_DEMO_AUDIO_FILES[0],
+    desc: 'Vehicle demolition explosion sound',
+    category: 'Audio',
+    critical: false,
+  },
+  {
+    path: SFX_CAR_COLLISION_FILE,
+    desc: 'Vehicle collision sound',
+    category: 'Audio',
+    critical: false,
+  },
   { path: SUPERSONIC_STATE_FILE, desc: 'Supersonic audio', category: 'Audio', critical: false },
-  { path: BOOST_COLLECT_FILE, desc: 'Boost pad collection sound', category: 'Audio', critical: false },
+  {
+    path: BOOST_COLLECT_FILE,
+    desc: 'Boost pad collection sound',
+    category: 'Audio',
+    critical: false,
+  },
 
   // 5. Bot AI SafeTensors Policies & Reachability Lookup Tables
-  { path: EXPERIMENTAL_MODEL_URLS.ko_v1, desc: 'Kickoff v1 policy SafeTensors', category: 'Bot AI', critical: false },
-  { path: EXPERIMENTAL_MODEL_URLS.ko_v2, desc: 'Kickoff v2 policy SafeTensors', category: 'Bot AI', critical: false },
-  { path: EXPERIMENTAL_MODEL_URLS.necto, desc: 'Necto policy SafeTensors', category: 'Bot AI', critical: false },
-  { path: EXPERIMENTAL_MODEL_URLS.nexto, desc: 'Nexto policy SafeTensors', category: 'Bot AI', critical: false },
-  { path: GROUND_REACHABILITY_LUT_URL, desc: 'Ground Reachability 3D Isochrone LUT binary', category: 'Physics', critical: false },
+  {
+    path: EXPERIMENTAL_MODEL_URLS.ko_v1,
+    desc: 'Kickoff v1 policy SafeTensors',
+    category: 'Bot AI',
+    critical: false,
+  },
+  {
+    path: EXPERIMENTAL_MODEL_URLS.ko_v2,
+    desc: 'Kickoff v2 policy SafeTensors',
+    category: 'Bot AI',
+    critical: false,
+  },
+  {
+    path: EXPERIMENTAL_MODEL_URLS.necto,
+    desc: 'Necto policy SafeTensors',
+    category: 'Bot AI',
+    critical: false,
+  },
+  {
+    path: EXPERIMENTAL_MODEL_URLS.nexto,
+    desc: 'Nexto policy SafeTensors',
+    category: 'Bot AI',
+    critical: false,
+  },
+  {
+    path: GROUND_REACHABILITY_LUT_URL,
+    desc: 'Ground Reachability 3D Isochrone LUT binary',
+    category: 'Physics',
+    critical: false,
+  },
 
   // 6. Authentic GLB Boost Pad Assets
-  { path: BOOST_PAD_ASSET_URLS.largeBase, desc: 'Boost pad (large) base GLB model', category: '3D Models', critical: false },
-  { path: BOOST_PAD_ASSET_URLS.smallBase, desc: 'Boost pad (small) base GLB model', category: '3D Models', critical: false },
+  {
+    path: BOOST_PAD_ASSET_URLS.largeBase,
+    desc: 'Boost pad (large) base GLB model',
+    category: '3D Models',
+    critical: false,
+  },
+  {
+    path: BOOST_PAD_ASSET_URLS.smallBase,
+    desc: 'Boost pad (small) base GLB model',
+    category: '3D Models',
+    critical: false,
+  },
 ];
 
 export interface AuditRequiredAssetsOptions {

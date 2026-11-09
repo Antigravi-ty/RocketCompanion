@@ -8,7 +8,7 @@ import {
   subscribeDemolishShockwaveConfig,
   subscribeDemolishShockwaveSim,
   type DemolishShockwaveConfig,
-} from '../ui-core/config/demolishShockwaveConfig';
+} from '../ui-core/config/demolishShockwaveConfig.ts';
 
 export const DEMOLITION_SHOCKWAVE_VERTEX_SHADER = `
   uniform float uQuadSize;
@@ -255,9 +255,7 @@ export class DemolitionSimPreviewController {
     ringMesh.renderOrder = 5;
 
     const crossPts = new Float32Array([
-      -75, 0, 0, 75, 0, 0,
-      0, 0, -75, 0, 0, 75,
-      0, -35, 0, 0, 95, 0,
+      -75, 0, 0, 75, 0, 0, 0, 0, -75, 0, 0, 75, 0, -35, 0, 0, 95, 0,
     ]);
     const crossGeo = new THREE.BufferGeometry();
     crossGeo.setAttribute('position', new THREE.BufferAttribute(crossPts, 3));
@@ -301,7 +299,9 @@ export class DemolitionSimPreviewController {
       this.reticleGroup.position.set(targetUu.x, targetUu.z, targetUu.y);
     }
     if (sim.isPlaying) {
-      advanceDemolishShockwaveSimClock(typeof performance !== 'undefined' ? performance.now() : Date.now());
+      advanceDemolishShockwaveSimClock(
+        typeof performance !== 'undefined' ? performance.now() : Date.now()
+      );
     }
   }
 

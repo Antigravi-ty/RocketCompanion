@@ -239,7 +239,10 @@ export class HostSessionController {
     const effectiveRole =
       role === 'spectator' || currentPlayerCount >= this.maxInputChannels ? 'spectator' : 'player';
 
-    if (effectiveRole === 'spectator' && typeof signalingClient.sendRelayAssignment === 'function') {
+    if (
+      effectiveRole === 'spectator' &&
+      typeof signalingClient.sendRelayAssignment === 'function'
+    ) {
       const relayPlan = this.daisyChainCoordinator.selectUpstreamRelayForSpectator(
         peerId,
         currentPlayerCount,
@@ -258,8 +261,7 @@ export class HostSessionController {
         prewarmed &&
         !prewarmed.connected &&
         !prewarmed.isOpen &&
-        (!prewarmed.connection.pc ||
-          prewarmed.connection.pc.signalingState === 'have-local-offer')
+        (!prewarmed.connection.pc || prewarmed.connection.pc.signalingState === 'have-local-offer')
       ) {
         this.peerChannels.delete('peer_1');
         const prevRole = effectiveRole || this.peerRoles.get('peer_1') || role;

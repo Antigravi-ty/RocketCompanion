@@ -2,22 +2,18 @@ import {
   CAR_COLOR_SLOTS,
   normalizeVisualId,
   resolveVehicleHitboxId,
-} from '../../ui-core/config/vehicleConstants';
+} from '../../ui-core/config/vehicleConstants.ts';
 import {
   garageSettingsStore,
   getPreferredColorHex,
   getPreferredColorSlot,
   getPreferredFreeplayTeam,
   loadStoredColorPrefs,
-} from '../../ui-core/config/vehiclePresets';
-import { getMaterialsConfig } from '../../ui-core/config/materialsConfig';
+} from '../../ui-core/config/vehiclePresets.ts';
+import { getMaterialsConfig } from '../../ui-core/config/materialsConfig.ts';
 import { gameAudio } from '../../audio/GameAudioEngineFacade.ts';
 import { FlipResetVisual } from '../../effects/FlipResetVisual.ts';
-import {
-  useAppStore,
-  getNameTagRuntimeState,
-  setNameTagRuntimeState,
-} from '../runtimeUiPort.ts';
+import { useAppStore, getNameTagRuntimeState, setNameTagRuntimeState } from '../runtimeUiPort.ts';
 import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
 import type { EntityManager } from '../../entities/EntityManager.ts';
 import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
@@ -158,7 +154,7 @@ export class RuntimeLoadoutCoordinator {
                 boostVisual,
                 boostAudio,
               }
-            : c,
+            : c
         ),
       });
     }
@@ -188,8 +184,7 @@ export class RuntimeLoadoutCoordinator {
         ? '#' + colorVal.toString(16).padStart(6, '0')
         : String(colorVal);
     const slot =
-      CAR_COLOR_SLOTS.find((s) => s.hex.toLowerCase() === hex.toLowerCase()) ||
-      CAR_COLOR_SLOTS[0];
+      CAR_COLOR_SLOTS.find((s) => s.hex.toLowerCase() === hex.toLowerCase()) || CAR_COLOR_SLOTS[0];
     h.selectedColorSlot = slot.id;
 
     const activeVisual = h.selectedPreset || 'fennec';
@@ -226,9 +221,7 @@ export class RuntimeLoadoutCoordinator {
     const expMode = activeMode?.id === 'exp-multi-bots' ? activeMode : null;
     const expHumanCarIdx = expMode?.rosterController?.humanPlayerCarIndex;
     const targetCarIdx =
-      typeof expHumanCarIdx === 'number' && expHumanCarIdx >= 0
-        ? expHumanCarIdx
-        : h.playerCarIndex;
+      typeof expHumanCarIdx === 'number' && expHumanCarIdx >= 0 ? expHumanCarIdx : h.playerCarIndex;
 
     h.arena?.vehicleRegistry.setCarLoadout(targetCarIdx, {
       paintFinish,
@@ -275,7 +268,7 @@ export class RuntimeLoadoutCoordinator {
     const appCar = useAppStore?.getState?.()?.activeCar;
     const garagePrefs = garageSettingsStore?.get?.() as { vehiclePreset?: string } | null;
     const visualId = normalizeVisualId(
-      h.selectedPreset || appCar || garagePrefs?.vehiclePreset || 'fennec',
+      h.selectedPreset || appCar || garagePrefs?.vehiclePreset || 'fennec'
     );
     const hitboxId = h.selectedHitbox || resolveVehicleHitboxId(visualId);
     h.selectedPreset = visualId;

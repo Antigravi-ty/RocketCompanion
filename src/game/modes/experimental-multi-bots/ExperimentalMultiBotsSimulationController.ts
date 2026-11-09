@@ -1,8 +1,5 @@
 import { DEFAULT_CAR_CONTROLS } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
-import {
-  INCIDENT_EVENT_TYPES,
-  isIncidentEvent,
-} from '../../../physics/RocketSimConstants.ts';
+import { INCIDENT_EVENT_TYPES, isIncidentEvent } from '../../../physics/RocketSimConstants.ts';
 import type {
   ReplayAcknowledgedControlEntry,
   ReplayRecordedIncident,
@@ -130,17 +127,12 @@ export class ExperimentalMultiBotsSimulationController {
     const acknowledgedControls: ReplayAcknowledgedControlEntry[] = [];
     for (let i = 0; i < rosterCtrl.spawnedCars.length; i++) {
       const cIdx = rosterCtrl.spawnedCars[i].carIndex;
-      const ctrl =
-        rosterCtrl.carControlsMap.get(cIdx) || r.neutralControls || DEFAULT_CAR_CONTROLS;
+      const ctrl = rosterCtrl.carControlsMap.get(cIdx) || r.neutralControls || DEFAULT_CAR_CONTROLS;
       acknowledgedControls.push({ carIndex: cIdx, controls: { ...ctrl } });
     }
 
     if (lifecycleCtrl.countdownTicks > 0) {
-      replayCtrl.flushPendingSignalsAndRecordFrame(
-        currentTick,
-        sim.state,
-        acknowledgedControls
-      );
+      replayCtrl.flushPendingSignalsAndRecordFrame(currentTick, sim.state, acknowledgedControls);
       return;
     }
 
@@ -165,11 +157,7 @@ export class ExperimentalMultiBotsSimulationController {
 
     lifecycleCtrl.stepPostGoalFreeze(sim, currentTick);
 
-    replayCtrl.flushPendingSignalsAndRecordFrame(
-      currentTick,
-      sim.state,
-      acknowledgedControls
-    );
+    replayCtrl.flushPendingSignalsAndRecordFrame(currentTick, sim.state, acknowledgedControls);
 
     const goalEval = evaluateGoalScoredFromBallView(sim, bView);
     lifecycleCtrl.stepPostFrameLifecycle(

@@ -21,9 +21,13 @@ import {
   type LoadingErrorEvent,
   type LoadingCompleteEvent,
   type LoadingProgressObserver,
-  type StreamDownloadProgressInfo
+  type StreamDownloadProgressInfo,
 } from './types.ts';
-import { LoadingTask, type LoadingTaskConfig, type LoadingTaskOrchestratorContext } from './LoadingTask.ts';
+import {
+  LoadingTask,
+  type LoadingTaskConfig,
+  type LoadingTaskOrchestratorContext,
+} from './LoadingTask.ts';
 import { StreamDownloadTracker } from './StreamDownloadTracker.ts';
 
 export class LoadingOrchestrator {
@@ -50,7 +54,9 @@ export class LoadingOrchestrator {
     this.taskMap = new Map<string, LoadingTask>();
     this.observers = new Set<LoadingProgressObserver>();
     this.sharedData = new Map<string, unknown>();
-    this.downloadTracker = new StreamDownloadTracker(update => this._handleDownloadProgress(update));
+    this.downloadTracker = new StreamDownloadTracker((update) =>
+      this._handleDownloadProgress(update)
+    );
 
     this.currentStep = 0;
     this.totalSteps = 0;
@@ -145,7 +151,7 @@ export class LoadingOrchestrator {
         }
       }
 
-      const stageRatio = totalStageTaskWeight > 0 ? (stageCompletedWeight / totalStageTaskWeight) : 0;
+      const stageRatio = totalStageTaskWeight > 0 ? stageCompletedWeight / totalStageTaskWeight : 0;
       accumulated += stageMeta.weight * stageRatio;
     }
 
@@ -175,9 +181,10 @@ export class LoadingOrchestrator {
 
     const triggerFatalException = (rawErr: unknown, fallbackMessage: string) => {
       if (!this.isRunning || this.isCompleted || this.fatalError) return;
-      const err = rawErr instanceof Error
-        ? rawErr
-        : new Error(typeof rawErr === 'string' && rawErr.length > 0 ? rawErr : fallbackMessage);
+      const err =
+        rawErr instanceof Error
+          ? rawErr
+          : new Error(typeof rawErr === 'string' && rawErr.length > 0 ? rawErr : fallbackMessage);
       this.fatalError = err;
       if (rejectRuntimeException) {
         rejectRuntimeException(err);
@@ -186,13 +193,19 @@ export class LoadingOrchestrator {
 
     const onWindowError = (event: ErrorEvent | Event) => {
       if (!event) return;
-      if (event.target && typeof window !== 'undefined' && event.target !== window && !(event instanceof ErrorEvent)) {
+      if (
+        event.target &&
+        typeof window !== 'undefined' &&
+        event.target !== window &&
+        !(event instanceof ErrorEvent)
+      ) {
         return;
       }
       const errEvent = event instanceof ErrorEvent ? event : null;
-      const err = errEvent?.error instanceof Error
-        ? errEvent.error
-        : new Error(errEvent?.message || 'Uncaught runtime exception during bootstrap');
+      const err =
+        errEvent?.error instanceof Error
+          ? errEvent.error
+          : new Error(errEvent?.message || 'Uncaught runtime exception during bootstrap');
       if (!err.stack && errEvent?.filename) {
         err.stack = `${err.message}\n    at ${errEvent.filename}:${errEvent.lineno || 0}:${errEvent.colno || 0}`;
       }
@@ -202,9 +215,12 @@ export class LoadingOrchestrator {
     const onUnhandledRejection = (event: PromiseRejectionEvent) => {
       if (!event) return;
       const reason: unknown = event.reason;
-      const err = reason instanceof Error
-        ? reason
-        : new Error(typeof reason === 'string' ? reason : 'Unhandled promise rejection during bootstrap');
+      const err =
+        reason instanceof Error
+          ? reason
+          : new Error(
+              typeof reason === 'string' ? reason : 'Unhandled promise rejection during bootstrap'
+            );
       triggerFatalException(err, 'Unhandled promise rejection during bootstrap');
     };
 
@@ -226,7 +242,7 @@ export class LoadingOrchestrator {
           stageIndex,
           totalStages: LOADING_STAGES.length,
           stageTitle: stageMeta.title,
-          stageDescription: stageMeta.description
+          stageDescription: stageMeta.description,
         });
 
         await this._executeStageTasks(stageTasks);
@@ -239,7 +255,7 @@ export class LoadingOrchestrator {
 
       this._emitComplete({
         totalDurationMs,
-        totalSteps: this.totalSteps
+        totalSteps: this.totalSteps,
       });
 
       return this;
@@ -269,22 +285,29 @@ export class LoadingOrchestrator {
       }
 
       // Find tasks whose dependencies are satisfied
-      const readyTasks = Array.from(pending).filter(task => {
-        return task.dependencies.every(depId => {
+      const readyTasks = Array.from(pending).filter((task) => {
+        return task.dependencies.every((depId) => {
           const depTask = this.taskMap.get(depId);
-          return depTask && (depTask.status === TaskStatus.COMPLETED || depTask.status === TaskStatus.SKIPPED);
+          return (
+            depTask &&
+            (depTask.status === TaskStatus.COMPLETED || depTask.status === TaskStatus.SKIPPED)
+          );
         });
       });
 
       if (readyTasks.length === 0) {
         // Dependency cycle or unfulfilled external dependency
-        const unresolved = Array.from(pending).map(t => `${t.id} -> [${t.dependencies.join(', ')}]`);
-        throw new Error(`[LoadingOrchestrator] Unresolved task dependencies in Stage ${this.currentStageIndex}: ${unresolved.join('; ')}`);
+        const unresolved = Array.from(pending).map(
+          (t) => `${t.id} -> [${t.dependencies.join(', ')}]`
+        );
+        throw new Error(
+          `[LoadingOrchestrator] Unresolved task dependencies in Stage ${this.currentStageIndex}: ${unresolved.join('; ')}`
+        );
       }
 
       // Execute ready tasks in parallel
       await Promise.all(
-        readyTasks.map(async task => {
+        readyTasks.map(async (task) => {
           pending.delete(task);
           this.currentStep++;
           this.activeTask = task;
@@ -299,7 +322,7 @@ export class LoadingOrchestrator {
             overallPercent: this.calculateOverallProgress() * 100,
             taskType: task.type,
             category: task.category,
-            hint: task.hint
+            hint: task.hint,
           };
 
           this._emitTaskStart(stepInfo);
@@ -311,15 +334,12 @@ export class LoadingOrchestrator {
             hasShared: (key: string) => this.hasShared(key),
             reportTaskProgress: (taskId: string, progress: number, detail: string) => {
               this._handleTaskProgress(taskId, progress, detail);
-            }
+            },
           };
 
           try {
             if (this._runtimeExceptionPromise) {
-              await Promise.race([
-                task.execute(context),
-                this._runtimeExceptionPromise
-              ]);
+              await Promise.race([task.execute(context), this._runtimeExceptionPromise]);
             } else {
               await task.execute(context);
             }
@@ -329,7 +349,7 @@ export class LoadingOrchestrator {
               ...stepInfo,
               overallPercent: this.calculateOverallProgress() * 100,
               durationMs: task.durationMs,
-              status: task.status
+              status: task.status,
             };
             this._emitTaskComplete(completeInfo);
           } catch (err) {
@@ -340,7 +360,7 @@ export class LoadingOrchestrator {
               taskId: task.id,
               taskName: task.name,
               error: err,
-              isCritical: isCriticalFailure
+              isCritical: isCriticalFailure,
             });
             if (isCriticalFailure) {
               throw err;
@@ -382,8 +402,8 @@ export class LoadingOrchestrator {
       overallPercent,
       bytes: {
         loadedBytes: this.downloadTracker.loadedBytes,
-        totalBytes: this.downloadTracker.totalBytes
-      }
+        totalBytes: this.downloadTracker.totalBytes,
+      },
     };
 
     for (const obs of this.observers) {
@@ -396,7 +416,7 @@ export class LoadingOrchestrator {
           currentStep: this.currentStep,
           totalSteps: this.totalSteps,
           activeTaskName: task.name,
-          stageTitle: getStageMeta(this.currentStageIndex).title
+          stageTitle: getStageMeta(this.currentStageIndex).title,
         });
       }
     }

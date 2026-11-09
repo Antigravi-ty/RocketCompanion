@@ -1,6 +1,6 @@
-import { useAppStore } from '../../ui-core/stores/appStore';
-import { hudStore } from '../../ui-core/stores/hudStore';
-import { signalingProfileStore } from '../../ui-core/stores/signalingProfileStore';
+import { useAppStore } from '../../ui-core/stores/appStore.ts';
+import { hudStore } from '../../ui-core/stores/hudStore.ts';
+import { signalingProfileStore } from '../../ui-core/stores/signalingProfileStore.ts';
 import { credentialBundleManager } from '../../network/transport/CredentialBundleManager.ts';
 import { testAllSignalingRelays } from '../../network/transport/diagnostics/signalingDiagnosticsProbe.ts';
 import { setSignalingRelayMatchPolicy } from '../../network/transport/SignalingRelayLifecyclePolicy.ts';
@@ -20,7 +20,7 @@ import type {
   ClockPacingMode,
   ClockPacingParams,
   ClockPacingPriority,
-} from '../../ui-core/config/clockPacingConfig';
+} from '../../ui-core/config/clockPacingConfig.ts';
 
 interface AuthoritativeReplayExportPayload {
   stateInputBytes?: Uint8Array | null;
@@ -98,11 +98,8 @@ export function ensureSignalingProfileBridge(): void {
       return results.map((r) => ({
         id: r.id,
         label: r.label,
-        protocol: (r.protocol === 'ws'
-          ? 'ws'
-          : r.protocol === 'supabase'
-          ? 'supabase'
-          : 'mqtt') as 'mqtt' | 'ws' | 'supabase',
+        protocol: (r.protocol === 'ws' ? 'ws' : r.protocol === 'supabase' ? 'supabase' : 'mqtt') as
+          'mqtt' | 'ws' | 'supabase',
         ok: r.ok,
         rttMs: r.rttMs,
         error: r.error ?? undefined,
@@ -143,7 +140,7 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
 
   return {
     onHostOnlineWarmup: async (
-      opts: HostOnlineWarmupPortOptions & { ghostMode?: 'automatically-enable' | 'manual' },
+      opts: HostOnlineWarmupPortOptions & { ghostMode?: 'automatically-enable' | 'manual' }
     ) => {
       try {
         const ok = await matchPort.hostOnlineWarmup(opts);
@@ -262,7 +259,10 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
         const exportedFrames = replayPort.retainAndExportStandaloneClientReplay(true);
         return exportedFrames > 0;
       } catch (err) {
-        console.error('[runtimeOnlineBridgeHandlers] Failed to export online training replay:', err);
+        console.error(
+          '[runtimeOnlineBridgeHandlers] Failed to export online training replay:',
+          err
+        );
         return false;
       }
     },
@@ -278,7 +278,7 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
       matchPort.setOnlineMatchDuration(durationSeconds);
     },
     onSetOnlineBotFillMode: (
-      botFillMode: 'no_bots' | 'auto_fill' | 'bots_vs_humans' | 'custom',
+      botFillMode: 'no_bots' | 'auto_fill' | 'bots_vs_humans' | 'custom'
     ) => {
       useAppStore.getState().setOnlineSession({ botFillMode });
       matchPort.setOnlineBotFillMode(botFillMode);

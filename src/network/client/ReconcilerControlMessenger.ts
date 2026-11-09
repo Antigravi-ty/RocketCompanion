@@ -16,10 +16,7 @@ import {
   type InspectablePacketInput,
 } from '../diagnostics/PacketDumpDiagnostics.ts';
 import type { CarControls, LocalClientInputBuffer } from './PredictionHistoryBuffer.ts';
-import type {
-  TelemetryChannelPort,
-  TelemetrySimPort,
-} from './ReconcilerMetricsModel.ts';
+import type { TelemetryChannelPort, TelemetrySimPort } from './ReconcilerMetricsModel.ts';
 import {
   drainAndParseServerPacketBatch,
   type DrainServerPacketsContext,
@@ -112,9 +109,7 @@ export class ReconcilerControlMessenger {
   dumpPacket(
     packetOrRaw: InspectablePacketInput | Uint8Array | ArrayBuffer | null = null
   ): DumpedNetworkPacket | null {
-    return dumpNetworkPacket(
-      packetOrRaw || this.lastParsedPacket || this.lastReceivedPacketRaw
-    );
+    return dumpNetworkPacket(packetOrRaw || this.lastParsedPacket || this.lastReceivedPacketRaw);
   }
 
   recordLatestParsedPacket(packet: ParsedReconcilerPacket): void {
@@ -135,11 +130,7 @@ export class ReconcilerControlMessenger {
     prev: Float32Array | null,
     curr: Float32Array | null
   ): { prev: Float32Array | null; curr: Float32Array | null } {
-    if (
-      !lobbyDualWorldMode ||
-      !packet?.stateSnapshot ||
-      packet.stateSnapshot.length < 410
-    ) {
+    if (!lobbyDualWorldMode || !packet?.stateSnapshot || packet.stateSnapshot.length < 410) {
       return { prev, curr };
     }
     if (!curr || curr.length !== packet.stateSnapshot.length) {
@@ -175,22 +166,13 @@ export class ReconcilerControlMessenger {
       if (s.signalType === 0x9f && typeof s.param1 === 'number') {
         this.pendingClientCommands.delete(s.param1);
       }
-      if (
-        typeof s.signalId === 'number' &&
-        s.signalId > 0 &&
-        typeof s.signalType === 'number'
-      ) {
+      if (typeof s.signalId === 'number' && s.signalId > 0 && typeof s.signalType === 'number') {
         this.acknowledgeSignal(s.signalId, s.signalType, 6);
       }
     }
   }
 
-  enqueueClientCommand(
-    commandType: number,
-    param1 = 0,
-    param2 = 0,
-    maxSends = 60
-  ): number {
+  enqueueClientCommand(commandType: number, param1 = 0, param2 = 0, maxSends = 60): number {
     this.nextClientCommandId = ((this.nextClientCommandId || 0) % 65535) + 1;
     const commandId = this.nextClientCommandId;
     this.pendingClientCommands.set(commandId, {
@@ -252,8 +234,7 @@ export class ReconcilerControlMessenger {
     controls: CarControls | null = null,
     nowMs = performance.now()
   ): void {
-    const isRedundantEnabled =
-      ctx.redundantHistoryCount > 1 || Boolean(ctx.enableRedundantInputs);
+    const isRedundantEnabled = ctx.redundantHistoryCount > 1 || Boolean(ctx.enableRedundantInputs);
     const { acks, commands } = this.collectPiggybackAcksAndCommands();
     let outboundPacket: Uint8Array;
     if (isRedundantEnabled) {
@@ -286,14 +267,7 @@ export class ReconcilerControlMessenger {
     } else {
       const ctrl = controls || ctx.getPreviousCommittedControls(tick + 1, carIndex);
       const singleWindow = [{ tick, carIndex, controls: { ...ctrl } }];
-      outboundPacket = InputPacketCodec.encode(
-        carIndex,
-        tick,
-        singleWindow,
-        nowMs,
-        acks,
-        commands
-      );
+      outboundPacket = InputPacketCodec.encode(carIndex, tick, singleWindow, nowMs, acks, commands);
     }
 
     if (typeof ctx.channel?.sendClientInput === 'function') {
@@ -303,10 +277,7 @@ export class ReconcilerControlMessenger {
     }
   }
 
-  flushPendingControlPackets(
-    ctx: FlushPendingControlContext,
-    nowMs = performance.now()
-  ): void {
+  flushPendingControlPackets(ctx: FlushPendingControlContext, nowMs = performance.now()): void {
     const hasAcks = this.pendingSignalAcks.size > 0;
     const hasCommands = this.pendingClientCommands.size > 0;
     const wantSkipReplayJump = Boolean(ctx.replayPlaybackMode && ctx.localSkipReplayReady);
@@ -371,16 +342,22 @@ export class ReconcilerControlMessenger {
     nowMs = performance.now()
   ): CarControls {
     const currentTick = Math.floor(host.sim.getHeaderView!().tickCount);
-    const isKickoffMasked = host.kickoffMaskUntilTick > 0 && currentTick < host.kickoffMaskUntilTick;
+    const isKickoffMasked =
+      host.kickoffMaskUntilTick > 0 && currentTick < host.kickoffMaskUntilTick;
     const committed = isKickoffMasked
       ? host.historyBuffer.setCarControls(currentTick, carIndex, host.neutralControls)
-      : host.historyBuffer.getCarControls(currentTick, carIndex) || host.historyBuffer.setCarControls(currentTick, carIndex, controls);
+      : host.historyBuffer.getCarControls(currentTick, carIndex) ||
+        host.historyBuffer.setCarControls(currentTick, carIndex, controls);
     if (carIndex === host.localCarIndex) host.historyBuffer.lastLocalControls = { ...committed };
     host.historyBuffer.clientInputRingBuffer.record(currentTick, carIndex, committed);
     this.sendOutboundInputForTick(host, currentTick, carIndex, committed, nowMs);
     host.sim.saveStateSlot(currentTick % 256);
     host.historyBuffer.saveTickSnapshot(currentTick, host.sim);
-    host.metrics.applyClientPredictionStep(currentTick, host._resolveEffectiveRtt(), host.leadTicks);
+    host.metrics.applyClientPredictionStep(
+      currentTick,
+      host._resolveEffectiveRtt(),
+      host.leadTicks
+    );
     if (currentTick % 2 === 0) host.notifyMetricsUpdated();
     return committed;
   }

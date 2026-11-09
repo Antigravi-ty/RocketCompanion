@@ -82,9 +82,12 @@ export class LoadingTask<TResult = unknown> {
     this.weight = typeof config.weight === 'number' && config.weight > 0 ? config.weight : 1.0;
     this.dependencies = Array.isArray(config.dependencies) ? [...config.dependencies] : [];
     this.critical = config.critical !== false;
-    this.timeoutMs = typeof config.timeoutMs === 'number'
-      ? config.timeoutMs
-      : (this.type === 'indeterminate' ? 30000 : 60000);
+    this.timeoutMs =
+      typeof config.timeoutMs === 'number'
+        ? config.timeoutMs
+        : this.type === 'indeterminate'
+          ? 30000
+          : 60000;
     this.runFn = config.run || (async () => undefined as unknown as TResult);
 
     this.status = TaskStatus.IDLE;
@@ -114,7 +117,7 @@ export class LoadingTask<TResult = unknown> {
         this.progress = Math.max(0.0, Math.min(1.0, ratio));
         if (detail) this.detail = detail;
         context.reportTaskProgress(this.id, this.progress, this.detail);
-      }
+      },
     };
 
     try {
@@ -122,14 +125,15 @@ export class LoadingTask<TResult = unknown> {
         let timer: ReturnType<typeof setTimeout> | null = null;
         const timeoutPromise = new Promise<never>((_, reject) => {
           timer = setTimeout(() => {
-            reject(new Error(`[LoadingTask] Task "${this.name}" (${this.id}) timed out after ${this.timeoutMs}ms`));
+            reject(
+              new Error(
+                `[LoadingTask] Task "${this.name}" (${this.id}) timed out after ${this.timeoutMs}ms`
+              )
+            );
           }, this.timeoutMs);
         });
 
-        this.result = await Promise.race([
-          Promise.resolve(this.runFn(taskCtx)),
-          timeoutPromise
-        ]);
+        this.result = await Promise.race([Promise.resolve(this.runFn(taskCtx)), timeoutPromise]);
         if (timer !== null) clearTimeout(timer);
       } else {
         this.result = await this.runFn(taskCtx);
@@ -145,7 +149,10 @@ export class LoadingTask<TResult = unknown> {
       if (!this.critical) {
         this.status = TaskStatus.SKIPPED;
         const message = err instanceof Error ? err.message : err;
-        console.warn(`[LoadingTask] Non-critical task "${this.name}" skipped or degraded:`, message);
+        console.warn(
+          `[LoadingTask] Non-critical task "${this.name}" skipped or degraded:`,
+          message
+        );
         return null;
       }
       this.status = TaskStatus.FAILED;

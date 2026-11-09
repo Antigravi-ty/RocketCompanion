@@ -1,6 +1,6 @@
 import type * as THREE from 'three';
 import { useAppStore } from '../runtimeUiPort.ts';
-import { audioConfig } from '../../ui-core/config/audioConfig';
+import { audioConfig } from '../../ui-core/config/audioConfig.ts';
 import type { CarStateView } from '../../physics/RocketSimStateViews.ts';
 
 /**
@@ -158,8 +158,7 @@ export class AudioStage implements PipelineStage {
     const r = this.runtime;
 
     const continueOnBlur = Boolean(audioConfig.get('continueAudioOnLostFocus'));
-    const isHidden =
-      typeof document !== 'undefined' && (!document.hasFocus() || document.hidden);
+    const isHidden = typeof document !== 'undefined' && (!document.hasFocus() || document.hidden);
     let hasBlockingOverlay = false;
     if (r.openOverlays && r.openOverlays.size > 0) {
       for (const n of r.openOverlays) {

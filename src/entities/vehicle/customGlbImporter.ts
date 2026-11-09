@@ -5,7 +5,7 @@
  */
 
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { HITBOX_PRESETS } from '../../ui-core/config/vehiclePresets';
+import { HITBOX_PRESETS } from '../../ui-core/config/vehiclePresets.ts';
 import {
   FENNEC_DESCRIPTOR,
   getVehicleDescriptor,
@@ -13,11 +13,11 @@ import {
   recomputeDescriptorBoostOutlets,
   registerVehicleDescriptor,
   type VehicleDescriptor,
-} from '../../ui-core/config/vehicleTunerConfig';
+} from '../../ui-core/config/vehicleTunerConfig.ts';
 import {
   INSIDIO_DESCRIPTOR,
   RYZA_DESCRIPTOR,
-} from '../../ui-core/config/vehicleDescriptorsConfig';
+} from '../../ui-core/config/vehicleDescriptorsConfig.ts';
 import {
   OCTANE_DESCRIPTOR,
   DOMINUS_DESCRIPTOR,
@@ -26,7 +26,7 @@ import {
   MERC_DESCRIPTOR,
   TRIOCTANE_DESCRIPTOR,
   TRIOCTANE_THREEWHEEL_DESCRIPTOR,
-} from '../../ui-core/config/vehicleExtendedDescriptorsConfig';
+} from '../../ui-core/config/vehicleExtendedDescriptorsConfig.ts';
 import {
   computeObject3DBounds,
   getCachedCustomVehicleAsset,
@@ -81,21 +81,24 @@ function cloneDescriptorSnapshot(desc: VehicleDescriptor): VehicleDescriptor {
   };
 }
 
-export const CANONICAL_VEHICLE_PRESET_TEMPLATES: Readonly<Record<string, VehicleDescriptor>> = Object.freeze({
-  fennec: cloneDescriptorSnapshot(FENNEC_DESCRIPTOR),
-  octane: cloneDescriptorSnapshot(OCTANE_DESCRIPTOR),
-  insidio: cloneDescriptorSnapshot(INSIDIO_DESCRIPTOR),
-  ryza: cloneDescriptorSnapshot(RYZA_DESCRIPTOR),
-  dominus: cloneDescriptorSnapshot(DOMINUS_DESCRIPTOR),
-  'breakout-mini': cloneDescriptorSnapshot(BREAKOUT_MINI_DESCRIPTOR),
-  sentinel: cloneDescriptorSnapshot(SENTINEL_DESCRIPTOR),
-  merc: cloneDescriptorSnapshot(MERC_DESCRIPTOR),
-  trioctane: cloneDescriptorSnapshot(TRIOCTANE_DESCRIPTOR),
-  'trioctane-threewheel': cloneDescriptorSnapshot(TRIOCTANE_THREEWHEEL_DESCRIPTOR),
-});
+export const CANONICAL_VEHICLE_PRESET_TEMPLATES: Readonly<Record<string, VehicleDescriptor>> =
+  Object.freeze({
+    fennec: cloneDescriptorSnapshot(FENNEC_DESCRIPTOR),
+    octane: cloneDescriptorSnapshot(OCTANE_DESCRIPTOR),
+    insidio: cloneDescriptorSnapshot(INSIDIO_DESCRIPTOR),
+    ryza: cloneDescriptorSnapshot(RYZA_DESCRIPTOR),
+    dominus: cloneDescriptorSnapshot(DOMINUS_DESCRIPTOR),
+    'breakout-mini': cloneDescriptorSnapshot(BREAKOUT_MINI_DESCRIPTOR),
+    sentinel: cloneDescriptorSnapshot(SENTINEL_DESCRIPTOR),
+    merc: cloneDescriptorSnapshot(MERC_DESCRIPTOR),
+    trioctane: cloneDescriptorSnapshot(TRIOCTANE_DESCRIPTOR),
+    'trioctane-threewheel': cloneDescriptorSnapshot(TRIOCTANE_THREEWHEEL_DESCRIPTOR),
+  });
 
 export function getCanonicalVehiclePresetTemplate(presetId: string): VehicleDescriptor | null {
-  const key = String(presetId || '').toLowerCase().trim();
+  const key = String(presetId || '')
+    .toLowerCase()
+    .trim();
   return CANONICAL_VEHICLE_PRESET_TEMPLATES[key] || null;
 }
 
@@ -107,30 +110,41 @@ export function inspectGlbMaterialsAndLogFallbacks(
   const bindings: CustomGlbMaterialBindingEntry[] = [];
   const fallbackSet = new Set<string>();
 
-  scene.traverse?.((node: { isMesh?: boolean; name?: string; userData?: Record<string, unknown>; material?: { name?: string } | Array<{ name?: string }> }) => {
-    if (!node.isMesh) return;
-    if (node.name === 'boost-nozzle-gizmo' || node.name === 'car-hitbox' || node.name === 'car-hitbox-wireframe') {
-      return;
+  scene.traverse?.(
+    (node: {
+      isMesh?: boolean;
+      name?: string;
+      userData?: Record<string, unknown>;
+      material?: { name?: string } | Array<{ name?: string }>;
+    }) => {
+      if (!node.isMesh) return;
+      if (
+        node.name === 'boost-nozzle-gizmo' ||
+        node.name === 'car-hitbox' ||
+        node.name === 'car-hitbox-wireframe'
+      ) {
+        return;
+      }
+      const rawMatName = String(
+        node.userData?.originalMaterialName ||
+          (Array.isArray(node.material) ? node.material[0]?.name : node.material?.name) ||
+          ''
+      ).trim();
+      const { slot, isFallback } = classifyCustomVehicleMaterialSlot(rawMatName);
+      bindings.push({
+        meshName: node.name || 'unnamed-mesh',
+        materialName: rawMatName || '<unnamed>',
+        boundSlot: slot,
+        isFallback,
+      });
+      if (isFallback) {
+        fallbackSet.add(rawMatName || '<unnamed>');
+        console.warn(
+          `[CustomGlbImport] Unrecognized material "${rawMatName || '<unnamed>'}" on mesh "${node.name || 'unnamed-mesh'}" in "${fileName}" (target "${vehicleId}"); falling back to default "body" slot.`
+        );
+      }
     }
-    const rawMatName = String(
-      node.userData?.originalMaterialName ||
-      (Array.isArray(node.material) ? node.material[0]?.name : node.material?.name) ||
-      ''
-    ).trim();
-    const { slot, isFallback } = classifyCustomVehicleMaterialSlot(rawMatName);
-    bindings.push({
-      meshName: node.name || 'unnamed-mesh',
-      materialName: rawMatName || '<unnamed>',
-      boundSlot: slot,
-      isFallback,
-    });
-    if (isFallback) {
-      fallbackSet.add(rawMatName || '<unnamed>');
-      console.warn(
-        `[CustomGlbImport] Unrecognized material "${rawMatName || '<unnamed>'}" on mesh "${node.name || 'unnamed-mesh'}" in "${fileName}" (target "${vehicleId}"); falling back to default "body" slot.`
-      );
-    }
-  });
+  );
 
   return {
     bindings,
@@ -148,12 +162,16 @@ export function applyVehicleAlignPresetToDescriptor(
   targetVehicleId: string,
   alignPreset: string
 ): { appliedGeometryScale: number; scaledBounds: UnscaledGlbBounds } | null {
-  const targetId = String(targetVehicleId || '').toLowerCase().trim();
+  const targetId = String(targetVehicleId || '')
+    .toLowerCase()
+    .trim();
   const descriptor = getVehicleDescriptor(targetId);
   if (!descriptor) return null;
 
   const asset = getCachedCustomVehicleAsset(targetId);
-  const presetKey = String(alignPreset || 'auto').toLowerCase().trim();
+  const presetKey = String(alignPreset || 'auto')
+    .toLowerCase()
+    .trim();
   const template = presetKey !== 'auto' ? getCanonicalVehiclePresetTemplate(presetKey) : null;
 
   const canonicalSelfTemplate = getCanonicalVehiclePresetTemplate(targetId);
@@ -177,7 +195,8 @@ export function applyVehicleAlignPresetToDescriptor(
   }
 
   if (asset && asset.scene) {
-    const prevScale = asset.appliedGeometryScale && asset.appliedGeometryScale > 0 ? asset.appliedGeometryScale : 1;
+    const prevScale =
+      asset.appliedGeometryScale && asset.appliedGeometryScale > 0 ? asset.appliedGeometryScale : 1;
     const deltaFactor = targetGeometryScale / prevScale;
     scaleSceneGeometries(asset.scene, deltaFactor);
     Object.assign(asset, {
@@ -231,9 +250,15 @@ export function applyVehicleAlignPresetToDescriptor(
   const isCrossTemplate = isImportedCustomGlb || presetKey !== targetId;
   const resolvedCenterOffset: [number, number, number] = isCrossTemplate
     ? [
-        r2(template.rawBounds.center[0] - scaledBounds.center[0] + template.alignment.centerOffset[0]),
-        r2(template.rawBounds.center[1] - scaledBounds.center[1] + template.alignment.centerOffset[1]),
-        r2(template.rawBounds.center[2] - scaledBounds.center[2] + template.alignment.centerOffset[2]),
+        r2(
+          template.rawBounds.center[0] - scaledBounds.center[0] + template.alignment.centerOffset[0]
+        ),
+        r2(
+          template.rawBounds.center[1] - scaledBounds.center[1] + template.alignment.centerOffset[1]
+        ),
+        r2(
+          template.rawBounds.center[2] - scaledBounds.center[2] + template.alignment.centerOffset[2]
+        ),
       ]
     : ([...template.alignment.centerOffset] as [number, number, number]);
 
@@ -276,7 +301,9 @@ function allocateImportedGlbDescriptor(
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '') || 'model';
 
-  const normalizedReq = String(requestedId || '').toLowerCase().trim();
+  const normalizedReq = String(requestedId || '')
+    .toLowerCase()
+    .trim();
   const isCanonicalPreset = Boolean(CANONICAL_VEHICLE_PRESET_TEMPLATES[normalizedReq]);
 
   let resolvedId: string;
@@ -291,7 +318,10 @@ function allocateImportedGlbDescriptor(
     resolvedId = normalizedReq;
   } else {
     const baseCandidate = slug.startsWith('custom-') ? slug : `custom-${slug}`;
-    if (!hasVehicleDescriptor(baseCandidate) && !CANONICAL_VEHICLE_PRESET_TEMPLATES[baseCandidate]) {
+    if (
+      !hasVehicleDescriptor(baseCandidate) &&
+      !CANONICAL_VEHICLE_PRESET_TEMPLATES[baseCandidate]
+    ) {
       resolvedId = baseCandidate;
     } else {
       let suffix = 2;
@@ -306,7 +336,9 @@ function allocateImportedGlbDescriptor(
     }
   }
 
-  const presetKey = String(alignPreset || 'auto').toLowerCase().trim();
+  const presetKey = String(alignPreset || 'auto')
+    .toLowerCase()
+    .trim();
   const baseTemplate =
     (presetKey !== 'auto' ? getCanonicalVehiclePresetTemplate(presetKey) : null) ||
     getCanonicalVehiclePresetTemplate(normalizedReq) ||

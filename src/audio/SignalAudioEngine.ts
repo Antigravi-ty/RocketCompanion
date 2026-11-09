@@ -1,6 +1,6 @@
-import { audioConfig } from '../ui-core/config/audioConfig';
-import { REPLAY_DIRECTOR_CONFIG } from '../ui-core/config/replayDirectorConfig';
-import { hudStore } from "../game/runtimeUiPort.ts";
+import { audioConfig } from '../ui-core/config/audioConfig.ts';
+import { REPLAY_DIRECTOR_CONFIG } from '../ui-core/config/replayDirectorConfig.ts';
+import { hudStore } from '../game/runtimeUiPort.ts';
 import {
   getAudioSlotPool,
   subsystemState,
@@ -11,7 +11,9 @@ import { SIGNAL_EVENT_TYPES } from '../physics/RocketSimConstants.ts';
 
 export type { SignalAudioActiveModePort, SignalAudioRuntimePort };
 
-export function isSignalAudioMutedInGoalReplay(runtimeOverride: SignalAudioRuntimePort | null = null): boolean {
+export function isSignalAudioMutedInGoalReplay(
+  runtimeOverride: SignalAudioRuntimePort | null = null
+): boolean {
   const muteCfg =
     REPLAY_DIRECTOR_CONFIG.muteSignalAudioInGoalReplay !== false &&
     audioConfig.get('muteSignalAudioInGoalReplay') !== false;
@@ -25,8 +27,8 @@ export function isSignalAudioMutedInGoalReplay(runtimeOverride: SignalAudioRunti
   const activeMode = r?.modeManager?.getActiveMode?.();
   const isModeReplayActive = Boolean(
     activeMode?.isGoalReplayActive?.() ||
-      activeMode?.directorPreview?.isReplayActive ||
-      activeMode?.replaySession?.isReplayActive
+    activeMode?.directorPreview?.isReplayActive ||
+    activeMode?.replaySession?.isReplayActive
   );
   if (activeMode?.rewinderController?.isScrubbing && !isModeReplayActive) {
     return false;
@@ -39,11 +41,11 @@ export function isSignalAudioMutedInGoalReplay(runtimeOverride: SignalAudioRunti
 
   return Boolean(
     hudState?.matchPhase === 'replay' ||
-      r?.match?.state?.phase === 'replay' ||
-      cameraOverrideActive ||
-      r?.networkReconciler?.replayPlaybackMode ||
-      isModeReplayActive ||
-      activeMode?.goalReplayPhase === 'replaying'
+    r?.match?.state?.phase === 'replay' ||
+    cameraOverrideActive ||
+    r?.networkReconciler?.replayPlaybackMode ||
+    isModeReplayActive ||
+    activeMode?.goalReplayPhase === 'replaying'
   );
 }
 
@@ -159,13 +161,15 @@ export class SignalAudioEngine {
 
     pool.playBuffer(buf, {
       volume,
-      priority: 8
+      priority: 8,
     });
   }
 
   playClick(volume = 1.0): void {
     const pool = getAudioSlotPool();
-    const buf = this.signalBuffers.get('sfx_error_no_boost') || subsystemState.buffers.get('sfx_error_no_boost');
+    const buf =
+      this.signalBuffers.get('sfx_error_no_boost') ||
+      subsystemState.buffers.get('sfx_error_no_boost');
     if (!pool || !buf) return;
     const master = audioConfig.get('masterVolume') ?? 1.0;
     const uiClickVol = audioConfig.get('uiClickVolume') ?? 1.0;

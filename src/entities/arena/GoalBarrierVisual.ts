@@ -6,7 +6,7 @@ import {
   GOAL_BARRIER_CORNER_RADIUS_UU,
   normalizedUtoWorldX,
   normalizedVtoWorldZ,
-} from '../../ui-core/config/goalBarrierConfig';
+} from '../../ui-core/config/goalBarrierConfig.ts';
 
 const SURFACE_VERTEX_SHADER = /* glsl */ `
   attribute vec4 aRectBounds;
@@ -224,16 +224,22 @@ export class GoalBarrierVisual {
     this.group.add(this.surfaceMesh, this.contourLines);
   }
 
-  setTeamColors(blueHex: THREE.ColorRepresentation | null | undefined, orangeHex: THREE.ColorRepresentation | null | undefined) {
+  setTeamColors(
+    blueHex: THREE.ColorRepresentation | null | undefined,
+    orangeHex: THREE.ColorRepresentation | null | undefined
+  ) {
     if (blueHex) this.uniforms.uBlueColor.value.set(blueHex);
     if (orangeHex) this.uniforms.uOrangeColor.value.set(orangeHex);
   }
 
   updateConfig(
-    decomposition: {
-      mergedRects?: Array<{ u0: number; u1: number; v0: number; v1: number }>;
-      contourSegments?: Array<{ u0: number; u1: number; v0: number; v1: number }>;
-    } | null | undefined,
+    decomposition:
+      | {
+          mergedRects?: Array<{ u0: number; u1: number; v0: number; v1: number }>;
+          contourSegments?: Array<{ u0: number; u1: number; v0: number; v1: number }>;
+        }
+      | null
+      | undefined,
     targetGoal = 'both',
     enabled = false,
     opacity = 0.55

@@ -49,15 +49,13 @@ export interface ReplayTouchAnalysisResult {
 
 export function analyzeReplayTouchTimeline(
   frames: ReadonlyArray<any>,
-  config: ReplayTouchAnalysisConfig = {},
+  config: ReplayTouchAnalysisConfig = {}
 ): ReplayTouchAnalysisResult {
   const total = Array.isArray(frames) ? frames.length : 0;
   const scoringTeam = config.scoringTeam ?? 0;
   const goalSignY = scoringTeam === 0 ? 1.0 : -1.0;
   const carTeamResolver =
-    typeof config.carTeamResolver === 'function'
-      ? config.carTeamResolver
-      : (c: number) => c % 2;
+    typeof config.carTeamResolver === 'function' ? config.carTeamResolver : (c: number) => c % 2;
   const fallbackScorer =
     typeof config.scorerCarIndex === 'number' && config.scorerCarIndex >= 0
       ? config.scorerCarIndex
@@ -77,7 +75,7 @@ export function analyzeReplayTouchTimeline(
     team: number,
     ballX: number,
     ballY: number,
-    ballZ: number,
+    ballZ: number
   ) => {
     const prevTouch = touchEvents[touchEvents.length - 1];
     if (!prevTouch || prevTouch.carIndex !== carIndex || idx - prevTouch.frameIndex > 10) {
@@ -100,7 +98,7 @@ export function analyzeReplayTouchTimeline(
     ballY: number,
     ballZ: number,
     normX = 0,
-    normY = 0,
+    normY = 0
   ) => {
     const prevRebound = reboundEvents[reboundEvents.length - 1];
     if (!prevRebound || idx - prevRebound.frameIndex > 14) {
@@ -123,8 +121,8 @@ export function analyzeReplayTouchTimeline(
     if (snap && snap.length > 6) {
       const ballX = snap[4] || 0;
       const ballY = snap[5] || 0;
-      const bvx = snap.length > 17 ? (snap[16] || 0) : 0;
-      const bvy = snap.length > 17 ? (snap[17] || 0) : 0;
+      const bvx = snap.length > 17 ? snap[16] || 0 : 0;
+      const bvy = snap.length > 17 ? snap[17] || 0 : 0;
 
       if (goalLineFrameIdx >= 0 && ballY * goalSignY < 5020) {
         goalLineFrameIdx = -1;
@@ -160,7 +158,7 @@ export function analyzeReplayTouchTimeline(
         ) {
           const numCars = Math.min(
             MAX_CARS,
-            Math.max(1, Math.round(snap?.[SIM_OFFSETS.NUM_CARS] || 1)),
+            Math.max(1, Math.round(snap?.[SIM_OFFSETS.NUM_CARS] || 1))
           );
           const rawCarIndex = inc.carIndex ?? inc.primaryId ?? -1;
           const carIndex = rawCarIndex >= 0 && rawCarIndex < numCars ? rawCarIndex : 0;
@@ -190,7 +188,7 @@ export function analyzeReplayTouchTimeline(
               ballY,
               ballZ,
               inc.normX ?? inc.nx ?? 0,
-              inc.normY ?? inc.ny ?? 0,
+              inc.normY ?? inc.ny ?? 0
             );
             recordedIncidentRebound = true;
           }
@@ -214,7 +212,10 @@ export function analyzeReplayTouchTimeline(
           const ballX = snap[4] || 0;
           const ballY = snap[5] || 0;
           const ballZ = snap[6] || 93;
-          const numCars = Math.min(MAX_CARS, Math.max(0, Math.round(snap[SIM_OFFSETS.NUM_CARS] || 0)));
+          const numCars = Math.min(
+            MAX_CARS,
+            Math.max(0, Math.round(snap[SIM_OFFSETS.NUM_CARS] || 0))
+          );
           let bestCar = -1;
           let bestDist = 265.0;
           for (let c = 0; c < numCars; c++) {
@@ -223,7 +224,7 @@ export function analyzeReplayTouchTimeline(
             const dist = Math.hypot(
               (snap[cBase] || 0) - ballX,
               (snap[cBase + 1] || 0) - ballY,
-              (snap[cBase + 2] || 0) - ballZ,
+              (snap[cBase + 2] || 0) - ballZ
             );
             if (dist < bestDist) {
               bestDist = dist;
@@ -237,10 +238,20 @@ export function analyzeReplayTouchTimeline(
             bestCar < 0 &&
             !recordedIncidentRebound &&
             Math.hypot(dvx, dvy) > 240.0 &&
-            (Math.abs(ballX) > 3820 || Math.abs(ballY) > 4820 || Math.abs(ballX) + Math.abs(ballY) > 7480)
+            (Math.abs(ballX) > 3820 ||
+              Math.abs(ballY) > 4820 ||
+              Math.abs(ballX) + Math.abs(ballY) > 7480)
           ) {
             const horizNorm = Math.hypot(dvx, dvy) || 1.0;
-            pushReboundCandidate(idx, entry.tick ?? idx, ballX, ballY, ballZ, dvx / horizNorm, dvy / horizNorm);
+            pushReboundCandidate(
+              idx,
+              entry.tick ?? idx,
+              ballX,
+              ballY,
+              ballZ,
+              dvx / horizNorm,
+              dvy / horizNorm
+            );
           }
         }
       }
@@ -256,10 +267,7 @@ export function analyzeReplayTouchTimeline(
   const maxTouchSearchFrame = goalLineFrameIdx >= 0 ? goalLineFrameIdx + 12 : total;
   for (let i = touchEvents.length - 1; i >= 0; i--) {
     const t = touchEvents[i];
-    if (
-      t.frameIndex <= maxTouchSearchFrame &&
-      (config.watchAllTouches || t.team === scoringTeam)
-    ) {
+    if (t.frameIndex <= maxTouchSearchFrame && (config.watchAllTouches || t.team === scoringTeam)) {
       lastScoringTouchFrameIdx = t.frameIndex;
       resolvedScorerCarIndex = t.carIndex;
       break;
@@ -280,7 +288,7 @@ export function analyzeReplayTouchTimeline(
   for (let i = 0; i < reboundEvents.length; i++) {
     const rb = reboundEvents[i];
     if (goalLineFrameIdx >= 0 && rb.frameIndex > goalLineFrameIdx) continue;
-    reboundSideScore += (-rb.ballX * 0.9 + rb.normX * 450.0);
+    reboundSideScore += -rb.ballX * 0.9 + rb.normX * 450.0;
   }
 
   const openSnap = frames[Math.min(Math.max(0, total - 1), 6)]?.snapshot;
@@ -292,11 +300,12 @@ export function analyzeReplayTouchTimeline(
   const meanBallX = countPreGoalBallX > 0 ? sumPreGoalBallX / countPreGoalBallX : 0;
   const wallBlend = Math.max(0, Math.min(1, (Math.abs(meanBallX) - 1800.0) / 1300.0));
   const combinedInteriorMetric =
-    (-meanBallX * 0.65 + (reboundEvents.length > 0 ? reboundSideScore / reboundEvents.length : 0) * 0.35) *
+    (-meanBallX * 0.65 +
+      (reboundEvents.length > 0 ? reboundSideScore / reboundEvents.length : 0) * 0.35) *
       wallBlend +
     openCarRelX * (1.0 - wallBlend * 0.85);
   const interiorSign = combinedInteriorMetric >= 0 ? 1.0 : -1.0;
-  const resolvedLateralBias = (-goalSignY * interiorSign) >= 0 ? 1.0 : -1.0;
+  const resolvedLateralBias = -goalSignY * interiorSign >= 0 ? 1.0 : -1.0;
 
   let initialSettledCarPos: { carIndex: number; x: number; y: number; z: number } | null = null;
   const maxCheckIdx = Math.min(total - 1, 3);
@@ -307,14 +316,14 @@ export function analyzeReplayTouchTimeline(
     const numCars = Math.min(
       Math.round(prevSnap[SIM_OFFSETS.NUM_CARS] || 0),
       Math.round(currSnap[SIM_OFFSETS.NUM_CARS] || 0),
-      MAX_CARS,
+      MAX_CARS
     );
     if (openingCarIndex >= 0 && openingCarIndex < numCars) {
       const base = SIM_OFFSETS.CARS + openingCarIndex * CAR_STATE_STRIDE;
       const stepDist = Math.hypot(
         currSnap[base + 0] - prevSnap[base + 0],
         currSnap[base + 1] - prevSnap[base + 1],
-        currSnap[base + 2] - prevSnap[base + 2],
+        currSnap[base + 2] - prevSnap[base + 2]
       );
       if (stepDist > 180.0) {
         initialSettledCarPos = {
@@ -388,7 +397,11 @@ export function appendStreamedReplayFrameToState(
   directorCamera: {
     onTimelineAnalyzed: (res: ReplayTouchAnalysisResult) => void;
     preserveSmoothingAround: (fn: () => void) => void;
-    applyStreamedTelemetry: (snap: Float32Array, isFollowingLive: boolean, scorerCarIndex: number) => number;
+    applyStreamedTelemetry: (
+      snap: Float32Array,
+      isFollowingLive: boolean,
+      scorerCarIndex: number
+    ) => number;
   },
   stateSnapshot: Float32Array | number[],
   serverTick = 0,
@@ -405,11 +418,17 @@ export function appendStreamedReplayFrameToState(
 
   if (!lastEntry || lastEntry.tick !== tick) {
     nextFrames.push({
-      tick, snapshot: snap, acknowledgedControls: acknowledgedControls || null,
-      incidents: [], signals: [], audioEvents: [],
+      tick,
+      snapshot: snap,
+      acknowledgedControls: acknowledgedControls || null,
+      incidents: [],
+      signals: [],
+      audioEvents: [],
     });
     Object.assign(sessionState, {
-      activeFrames: nextFrames, streamedFramesReceived: nextCount, hasRetainedReplay: true,
+      activeFrames: nextFrames,
+      streamedFramesReceived: nextCount,
+      hasRetainedReplay: true,
     });
     directorCamera.preserveSmoothingAround(() => {
       analyzeAndSyncReplayTouchTimelineState(sessionState, directorCamera, {
@@ -425,7 +444,11 @@ export function appendStreamedReplayFrameToState(
   }
 
   const isFollowingLive = !sessionState.isPaused && !sessionState.isScrubbing;
-  const resolvedScorer = directorCamera.applyStreamedTelemetry(snap, isFollowingLive, sessionState.scorerCarIndex);
+  const resolvedScorer = directorCamera.applyStreamedTelemetry(
+    snap,
+    isFollowingLive,
+    sessionState.scorerCarIndex
+  );
   Object.assign(sessionState, {
     scorerCarIndex: resolvedScorer,
     ...(isFollowingLive ? { cursorFloat: Math.max(0, sessionState.activeFrames.length - 1) } : {}),

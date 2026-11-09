@@ -73,7 +73,7 @@ export interface NetworkDiagnosticsHostPort {
 export function resolveLobbyGhostActiveCarIndices(
   enabled: boolean,
   numCars: number,
-  isCarSlotActive?: ((slotIndex: number) => boolean) | null,
+  isCarSlotActive?: ((slotIndex: number) => boolean) | null
 ): number[] {
   const activeIndices: number[] = [];
   if (!enabled) {
@@ -99,7 +99,7 @@ export function resolveLobbyGhostActiveCarIndices(
  * Pure transformation ensuring diagnostic probe vehicles (Car 6 Boost, Car 7 Roll) exist in name tag entries.
  */
 export function mergeDiagnosticProbeNameTagEntries(
-  existingEntries: readonly NameTagCarEntry[] | null | undefined,
+  existingEntries: readonly NameTagCarEntry[] | null | undefined
 ): NameTagCarEntry[] {
   const mergedEntries: NameTagCarEntry[] = Array.isArray(existingEntries)
     ? [...existingEntries]
@@ -164,7 +164,7 @@ export class DiagnosticsFleetAndGhostController {
 
   public configureLobbyGhostMode(
     enabled = true,
-    optionsOrInteractWithBall: boolean | LobbyGhostModeOptions = {},
+    optionsOrInteractWithBall: boolean | LobbyGhostModeOptions = {}
   ): LobbyGhostModeConfigResult {
     const physics = this.host.getPhysics();
     const arena = this.host.getArena();
@@ -185,7 +185,7 @@ export class DiagnosticsFleetAndGhostController {
       physics?.numCars || 1,
       typeof physics?.isCarSlotActive === 'function'
         ? (slotIndex: number) => physics.isCarSlotActive(slotIndex)
-        : null,
+        : null
     );
 
     this.lobbyGhostMode = Boolean(enabled);
@@ -229,7 +229,7 @@ export class DiagnosticsFleetAndGhostController {
     carIndex: number,
     interactWithBall = false,
     interactWithCars = false,
-    opacity = DEFAULT_GHOST_OPACITY,
+    opacity = DEFAULT_GHOST_OPACITY
   ): CarCollisionMaskEntry {
     const physics = this.host.getPhysics();
     const authoritativeServer = this.host.getAuthoritativeServer();
@@ -239,7 +239,7 @@ export class DiagnosticsFleetAndGhostController {
       carIndex,
       interactWithBall,
       interactWithCars,
-      opacity,
+      opacity
     );
     authoritativeServer?.setGhostCarConfig?.(carIndex, interactWithBall, interactWithCars, opacity);
     arena?.vehicleRegistry.setCarGhostOpacity(carIndex, entry.isGhost, entry.opacity);
@@ -247,7 +247,7 @@ export class DiagnosticsFleetAndGhostController {
   }
 
   public async spawnDiagnosticTestFleet(
-    options: DiagnosticFleetSpawnOptions = {},
+    options: DiagnosticFleetSpawnOptions = {}
   ): Promise<DiagnosticsTestVehicleController | null> {
     if (this.host.isMatchPhaseBlockingDiagnosticsFleet()) return null;
 
@@ -270,7 +270,7 @@ export class DiagnosticsFleetAndGhostController {
     if (!this.diagnosticsFleetController) {
       this.diagnosticsFleetController = new DiagnosticsTestVehicleController(
         [...DEFAULT_DIAGNOSTIC_FLEET],
-        { anchorMode },
+        { anchorMode }
       );
     }
     this.diagnosticsFleetController.anchorMode = anchorMode;
@@ -334,9 +334,9 @@ export class DiagnosticsFleetAndGhostController {
     if (physics) {
       const alreadySyncedProbes = Boolean(
         reconciler?.isTimelineSynchronized &&
-          typeof physics.isCarSlotActive === 'function' &&
-          physics.isCarSlotActive(6) &&
-          physics.isCarSlotActive(7),
+        typeof physics.isCarSlotActive === 'function' &&
+        physics.isCarSlotActive(6) &&
+        physics.isCarSlotActive(7)
       );
       if (alreadySyncedProbes) {
         configureClientLobbyDiagnosticProbes(physics);

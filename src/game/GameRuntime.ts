@@ -30,7 +30,7 @@ import {
 } from './runtimeUiPort.ts';
 import type { CarControlsInput } from '../network/protocol/GlobalPayloadCodec.ts';
 import { RenderClockScheduler } from './RenderClockScheduler.ts';
-import { DEFAULT_TRAINING_SETTINGS } from '../ui-core/config/trainingDefaults';
+import { DEFAULT_TRAINING_SETTINGS } from '../ui-core/config/trainingDefaults.ts';
 import { FlipResetVisual } from '../effects/FlipResetVisual.ts';
 import { PerformanceProfiler } from '../utils/PerformanceProfiler.ts';
 import {
@@ -106,7 +106,14 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
 
   playerCarIndex = PLAYER_CAR_INDEX;
   neutralControls: CarControlsInput = {
-    throttle: 0, steer: 0, pitch: 0, yaw: 0, roll: 0, jump: false, boost: false, handbrake: false,
+    throttle: 0,
+    steer: 0,
+    pitch: 0,
+    yaw: 0,
+    roll: 0,
+    jump: false,
+    boost: false,
+    handbrake: false,
   };
   playerControls: CarControlsInput;
   playerThrottle = 0;
@@ -163,7 +170,9 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
   constructor(container?: HTMLElement | null, options: GameRuntimeOptions = {}) {
     this.container =
       container ||
-      (typeof document !== 'undefined' ? (document.querySelector('#app') as HTMLElement | null) : null);
+      (typeof document !== 'undefined'
+        ? (document.querySelector('#app') as HTMLElement | null)
+        : null);
     this.options = options;
     this.playerControls = { ...this.neutralControls };
     this.trainingOptions = { ...DEFAULT_TRAINING_SETTINGS };
@@ -264,7 +273,7 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
 
   bindInitialArenaAndMaterials(
     arena: NonNullable<SceneGraphBundle['arena']>,
-    applyFn: SceneGraphBundle['applyVisualMaterialsConfig'],
+    applyFn: SceneGraphBundle['applyVisualMaterialsConfig']
   ): void {
     this.arena = arena;
     this.applyVisualMaterialsConfig = applyFn;
@@ -276,26 +285,38 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
     composer: NonNullable<SceneGraphBundle['composer']>,
     boostBloom: NonNullable<SceneGraphBundle['boostBloom']>,
     speedLinesPass: SceneGraphBundle['speedLinesPass'],
-    gfx: Record<string, unknown>,
+    gfx: Record<string, unknown>
   ): void {
     Object.assign(this, {
-      renderer, camera, composer, boostBloom, speedLinesPass,
+      renderer,
+      camera,
+      composer,
+      boostBloom,
+      speedLinesPass,
       activeGraphicsSettings: gfx as GraphicsSettingsPort,
     });
   }
 
-  async setupScene(onProgress: ((progress: number, message?: string) => void) | null = null): Promise<void> {
+  async setupScene(
+    onProgress: ((progress: number, message?: string) => void) | null = null
+  ): Promise<void> {
     Object.assign(this, await createCoreSceneGraph(buildRuntimeSceneGraphConfig(this, onProgress)));
     this.domEventManager.setupWindowEvents();
   }
 
-  async setupAudio(onProgress: ((loaded: number, total?: number, file?: string) => void) | null = null): Promise<void> {
+  async setupAudio(
+    onProgress: ((loaded: number, total?: number, file?: string) => void) | null = null
+  ): Promise<void> {
     return this.audioSubsystem.setupAudio(onProgress);
   }
-  async setupBot(onProgress: ((completed?: number, total?: number, name?: string) => void) | null = null): Promise<void> {
+  async setupBot(
+    onProgress: ((completed?: number, total?: number, name?: string) => void) | null = null
+  ): Promise<void> {
     return this.botCoordinator.setupBot(onProgress);
   }
-  async setupShaders(onProgress: ((progress: number, label?: string) => void) | null = null): Promise<void> {
+  async setupShaders(
+    onProgress: ((progress: number, label?: string) => void) | null = null
+  ): Promise<void> {
     return this.bloomOcclusion.setupShaders(onProgress);
   }
 
@@ -315,11 +336,11 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
       this.renderer?.getContext() ?? null,
       (t) => this.renderFrame(t),
       (t) => this.profiler?.displayFrame(t),
-      (t) => this.stepSimulation(t),
+      (t) => this.stepSimulation(t)
     );
     if (this.activeGraphicsSettings) {
       this.clockScheduler.setFpsLimit(
-        this.activeGraphicsSettings.limitFps ? (this.activeGraphicsSettings.maxFps ?? null) : null,
+        this.activeGraphicsSettings.limitFps ? (this.activeGraphicsSettings.maxFps ?? null) : null
       );
     }
     this.domEventManager.updateInteractionState();
@@ -338,7 +359,12 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
   stepSimulation(timestamp = performance.now()): void {
     this.pipeline.executeSimulationOnly(timestamp);
   }
-  triggerGameAudioEvents(goalScored: boolean, curBoost: number, isSupersonic: boolean, curr: Float32Array): void {
+  triggerGameAudioEvents(
+    goalScored: boolean,
+    curBoost: number,
+    isSupersonic: boolean,
+    curr: Float32Array
+  ): void {
     return this.audioSubsystem.triggerGameAudioEvents(goalScored, curBoost, isSupersonic, curr);
   }
   pollInputs(commitPhysicsStep = true): boolean {
@@ -359,7 +385,7 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
 
   onSessionReady(
     reconciler: RuntimeNetworkManager['sessionCoordinator']['networkReconciler'],
-    channel: NetworkSessionChannelLike | null,
+    channel: NetworkSessionChannelLike | null
   ): void {
     networkDiagnosticsStore.setSession(reconciler, channel, this);
   }
@@ -368,7 +394,7 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
   }
   onDeterminismHarnessReady(
     harness: NonNullable<RuntimeNetworkManager['diagnosticsProbe']['determinismHarness']>,
-    showHUD = false,
+    showHUD = false
   ): void {
     determinismStore.setHarness(harness);
     if (showHUD) toggleFloatingPreset(DUAL_ARENA_DETERMINISM_HARNESS_PRESET);

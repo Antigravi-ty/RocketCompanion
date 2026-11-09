@@ -5,15 +5,15 @@
  */
 
 import * as THREE from 'three';
-import type { SpatialAttenuationProfile } from '../../ui-core/config/spatialAttenuationProfiles';
-import type { SpatialAudioVisualizerConfig } from '../../ui-core/config/spatialAudioVisualizerConfig';
+import type { SpatialAttenuationProfile } from '../../ui-core/config/spatialAttenuationProfiles.ts';
+import type { SpatialAudioVisualizerConfig } from '../../ui-core/config/spatialAudioVisualizerConfig.ts';
 
 export const INNER_COLOR_HEX = 0x10b981; // Emerald 500 (100% Core)
 export const ISO75_COLOR_HEX = 0x34d399; // Emerald 400 (75% Contour)
 export const ISO50_COLOR_HEX = 0x38bdf8; // Sky 400 (50% / -6dB Iso-Ring)
 export const ISO25_COLOR_HEX = 0xfbbf24; // Amber 400 (25% Contour)
 export const OUTER_FLOOR_HEX = 0xf59e0b; // Amber 500 (Soft Floor > 0)
-export const OUTER_CULL_HEX = 0xf43f5e;  // Rose 500 (Hard Cull = 0)
+export const OUTER_CULL_HEX = 0xf43f5e; // Rose 500 (Hard Cull = 0)
 
 export interface SpatialAudioBillboardResources {
   sprite: THREE.Sprite;
@@ -123,60 +123,112 @@ export function buildSpatialAudioDebugRig(rootGroup: THREE.Group): SpatialAudioD
   const innerSphereGroup = new THREE.Group();
   const innerSphereWire = new THREE.LineSegments(
     unitSphereWireGeo,
-    new THREE.LineBasicMaterial({ color: INNER_COLOR_HEX, transparent: true, opacity: 0.65, depthWrite: false })
+    new THREE.LineBasicMaterial({
+      color: INNER_COLOR_HEX,
+      transparent: true,
+      opacity: 0.65,
+      depthWrite: false,
+    })
   );
   const innerSphereShell = new THREE.Mesh(
     unitSphereShellGeo,
-    new THREE.MeshBasicMaterial({ color: INNER_COLOR_HEX, transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false })
+    new THREE.MeshBasicMaterial({
+      color: INNER_COLOR_HEX,
+      transparent: true,
+      opacity: 0.05,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
   );
   innerSphereGroup.add(innerSphereWire, innerSphereShell);
   innerSphereGroup.renderOrder = 990;
 
   const innerGroundRing = new THREE.LineSegments(
     solidCircleGeo,
-    new THREE.LineBasicMaterial({ color: INNER_COLOR_HEX, transparent: true, opacity: 0.9, depthWrite: false })
+    new THREE.LineBasicMaterial({
+      color: INNER_COLOR_HEX,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+    })
   );
   innerGroundRing.renderOrder = 992;
 
   const outerSphereGroup = new THREE.Group();
   const outerSphereWire = new THREE.LineSegments(
     unitSphereWireGeo,
-    new THREE.LineBasicMaterial({ color: OUTER_CULL_HEX, transparent: true, opacity: 0.45, depthWrite: false })
+    new THREE.LineBasicMaterial({
+      color: OUTER_CULL_HEX,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+    })
   );
   const outerSphereShell = new THREE.Mesh(
     unitSphereShellGeo,
-    new THREE.MeshBasicMaterial({ color: OUTER_CULL_HEX, transparent: true, opacity: 0.025, side: THREE.DoubleSide, depthWrite: false })
+    new THREE.MeshBasicMaterial({
+      color: OUTER_CULL_HEX,
+      transparent: true,
+      opacity: 0.025,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
   );
   outerSphereGroup.add(outerSphereWire, outerSphereShell);
   outerSphereGroup.renderOrder = 988;
 
   const outerGroundRing = new THREE.LineSegments(
     solidCircleGeo,
-    new THREE.LineBasicMaterial({ color: OUTER_CULL_HEX, transparent: true, opacity: 0.85, depthWrite: false })
+    new THREE.LineBasicMaterial({
+      color: OUTER_CULL_HEX,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+    })
   );
   outerGroundRing.renderOrder = 991;
 
   const iso50GroundRing = new THREE.LineSegments(
     dashedCircleGeo,
-    new THREE.LineBasicMaterial({ color: ISO50_COLOR_HEX, transparent: true, opacity: 0.95, depthWrite: false })
+    new THREE.LineBasicMaterial({
+      color: ISO50_COLOR_HEX,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+    })
   );
   iso50GroundRing.renderOrder = 993;
 
   const iso50EquatorRing = new THREE.LineSegments(
     dashedCircleGeo,
-    new THREE.LineBasicMaterial({ color: ISO50_COLOR_HEX, transparent: true, opacity: 0.5, depthWrite: false })
+    new THREE.LineBasicMaterial({
+      color: ISO50_COLOR_HEX,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+    })
   );
   iso50EquatorRing.renderOrder = 991;
 
   const iso75GroundRing = new THREE.LineSegments(
     dashedCircleGeo,
-    new THREE.LineBasicMaterial({ color: ISO75_COLOR_HEX, transparent: true, opacity: 0.45, depthWrite: false })
+    new THREE.LineBasicMaterial({
+      color: ISO75_COLOR_HEX,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+    })
   );
   iso75GroundRing.renderOrder = 991;
 
   const iso25GroundRing = new THREE.LineSegments(
     dashedCircleGeo,
-    new THREE.LineBasicMaterial({ color: ISO25_COLOR_HEX, transparent: true, opacity: 0.45, depthWrite: false })
+    new THREE.LineBasicMaterial({
+      color: ISO25_COLOR_HEX,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+    })
   );
   iso25GroundRing.renderOrder = 991;
 
@@ -185,7 +237,12 @@ export function buildSpatialAudioDebugRig(rootGroup: THREE.Group): SpatialAudioD
   rulerGeo3D.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
   const rulerLine3D = new THREE.Line(
     rulerGeo3D,
-    new THREE.LineBasicMaterial({ color: ISO50_COLOR_HEX, transparent: true, opacity: 0.95, depthWrite: false })
+    new THREE.LineBasicMaterial({
+      color: ISO50_COLOR_HEX,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+    })
   );
   rulerLine3D.frustumCulled = false;
   rulerLine3D.renderOrder = 996;
@@ -194,7 +251,12 @@ export function buildSpatialAudioDebugRig(rootGroup: THREE.Group): SpatialAudioD
   rulerGeoGround.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
   const rulerGroundLine = new THREE.Line(
     rulerGeoGround,
-    new THREE.LineBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.45, depthWrite: false })
+    new THREE.LineBasicMaterial({
+      color: 0x94a3b8,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+    })
   );
   rulerGroundLine.frustumCulled = false;
   rulerGroundLine.renderOrder = 994;
@@ -202,13 +264,23 @@ export function buildSpatialAudioDebugRig(rootGroup: THREE.Group): SpatialAudioD
   const beaconGeo = new THREE.SphereGeometry(28, 14, 10);
   const emitterBeacon = new THREE.Mesh(
     beaconGeo,
-    new THREE.MeshBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.95, depthWrite: false })
+    new THREE.MeshBasicMaterial({
+      color: 0xf59e0b,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+    })
   );
   emitterBeacon.renderOrder = 998;
 
   const listenerBeacon = new THREE.Mesh(
     beaconGeo,
-    new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.9, depthWrite: false })
+    new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+    })
   );
   listenerBeacon.renderOrder = 998;
 

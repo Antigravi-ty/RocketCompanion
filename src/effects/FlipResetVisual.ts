@@ -5,7 +5,7 @@ import * as THREE from 'three';
  * Displays an arcade starburst ring or realistic shockwave pulse along with spark particles.
  */
 
-import { getTheme } from '../ui-core/config/themeConfig';
+import { getTheme } from '../ui-core/config/themeConfig.ts';
 
 export const RESET_INDICATOR_HEIGHT = -12;
 export const RESET_PULSE_DURATION = 0.24;
@@ -30,11 +30,11 @@ export function createStarShapeGeometry() {
 
 export function createSparksMaterial() {
   return new THREE.ShaderMaterial({
-    name: "Arcade / reset sparkles",
+    name: 'Arcade / reset sparkles',
     uniforms: {
       opacity: { value: 0 },
       size: { value: 20 },
-      viewportHeight: { value: 1 }
+      viewportHeight: { value: 1 },
     },
     vertexShader: `
       #include <common>
@@ -64,13 +64,13 @@ export function createSparksMaterial() {
     `,
     transparent: true,
     depthWrite: false,
-    toneMapped: true
+    toneMapped: true,
   });
 }
 
 export function enableLayerOne(object: THREE.Object3D | null | undefined): void {
   if (object && typeof object.traverse === 'function') {
-    object.traverse(child => child.layers?.enable?.(1));
+    object.traverse((child) => child.layers?.enable?.(1));
   }
 }
 
@@ -100,11 +100,11 @@ export class FlipResetVisual {
       Points,
       Color,
       Vector4,
-      DoubleSide
+      DoubleSide,
     } = THREE;
 
     this.root = new Group();
-    this.root.name = "flip-reset-indicator";
+    this.root.name = 'flip-reset-indicator';
     this.root.position.y = RESET_INDICATOR_HEIGHT;
     this.root.visible = false;
     if (parentObject && typeof parentObject.add === 'function') {
@@ -118,13 +118,13 @@ export class FlipResetVisual {
     this.elapsed = Infinity;
 
     const baseMaterial = new MeshBasicMaterial({
-      name: "Arcade / reset ring",
+      name: 'Arcade / reset ring',
       color: new Color(RESET_ARCADE_COLOR_HEX),
       transparent: true,
       opacity: 0,
       depthWrite: false,
       side: DoubleSide,
-      toneMapped: true
+      toneMapped: true,
     });
 
     this.ring = new Mesh(new RingGeometry(0.83, 1, 48), baseMaterial);
@@ -147,7 +147,7 @@ export class FlipResetVisual {
     this.ring.add(outlineMesh);
 
     this.sparksGeometry = new BufferGeometry();
-    this.sparksGeometry.setAttribute("position", new BufferAttribute(this.sparkPositions, 3));
+    this.sparksGeometry.setAttribute('position', new BufferAttribute(this.sparkPositions, 3));
     this.sparksMaterial = createSparksMaterial();
     this.sparks = new Points(this.sparksGeometry, this.sparksMaterial);
     this.sparks.onBeforeRender = (renderer) => {
@@ -250,9 +250,12 @@ export class FlipResetVisual {
       const gravity = -280 * sparkElapsed * sparkElapsed;
       for (let i = 0; i < RESET_SPARKS_COUNT; i += 1) {
         const idx = i * 3;
-        this.sparkPositions[idx] = this.sparkOrigins[idx] + this.sparkVelocities[idx] * sparkElapsed;
-        this.sparkPositions[idx + 1] = this.sparkOrigins[idx + 1] + this.sparkVelocities[idx + 1] * sparkElapsed + gravity;
-        this.sparkPositions[idx + 2] = this.sparkOrigins[idx + 2] + this.sparkVelocities[idx + 2] * sparkElapsed;
+        this.sparkPositions[idx] =
+          this.sparkOrigins[idx] + this.sparkVelocities[idx] * sparkElapsed;
+        this.sparkPositions[idx + 1] =
+          this.sparkOrigins[idx + 1] + this.sparkVelocities[idx + 1] * sparkElapsed + gravity;
+        this.sparkPositions[idx + 2] =
+          this.sparkOrigins[idx + 2] + this.sparkVelocities[idx + 2] * sparkElapsed;
       }
       if (this.sparksMaterial?.uniforms?.opacity) {
         this.sparksMaterial.uniforms.opacity.value = 1 - sparkAlpha * sparkAlpha;

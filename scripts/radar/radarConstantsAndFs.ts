@@ -139,11 +139,7 @@ export function expandRelativeGlobPattern(fromFileAbs: string, pattern: string):
     const filePattern = path.posix.basename(sub);
     if (!fs.existsSync(targetDir) || !fs.statSync(targetDir).isDirectory()) continue;
     const regexStr =
-      '^' +
-      filePattern
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*/g, '.*') +
-      '$';
+      '^' + filePattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$';
     const fileRe = new RegExp(regexStr);
     for (const entry of fs.readdirSync(targetDir, { withFileTypes: true })) {
       if (entry.isFile() && fileRe.test(entry.name)) {

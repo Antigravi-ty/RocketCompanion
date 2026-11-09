@@ -26,7 +26,11 @@ export const LOBBY_COLLISION_MODES = Object.freeze({
 });
 
 export interface LobbyGhostCarSimPort {
-  setCarCollisionMask?(carIndex: number, interactWithBall: boolean, interactWithCars: boolean): unknown;
+  setCarCollisionMask?(
+    carIndex: number,
+    interactWithBall: boolean,
+    interactWithCars: boolean
+  ): unknown;
   setReplayRecordingActive?(active: boolean): void;
   clearReplayBuffer?(): void;
   setSimulationFrozen?(frozen: boolean, mode: number, lockCars: boolean): void;
@@ -60,20 +64,37 @@ export interface LobbyModeConfig extends LobbyGhostCoordinatorOptions {
 export type LobbyGhostConfigOptions = LobbyModeConfig;
 
 export interface PhysicsSignalData extends LobbyGhostConfigOptions {
-  kickoffWillStartAt?: number; param1?: number; untilFrame?: number;
-  forceReset?: boolean; seed?: number; winner?: number; targetResumeTick?: number;
-  paused?: boolean; masked?: boolean; carIndex?: number;
-  interactWithBall?: boolean; interactWithCars?: boolean; opacity?: number; hitboxType?: string;
+  kickoffWillStartAt?: number;
+  param1?: number;
+  untilFrame?: number;
+  forceReset?: boolean;
+  seed?: number;
+  winner?: number;
+  targetResumeTick?: number;
+  paused?: boolean;
+  masked?: boolean;
+  carIndex?: number;
+  interactWithBall?: boolean;
+  interactWithCars?: boolean;
+  opacity?: number;
+  hitboxType?: string;
   [key: string]: unknown;
 }
 
 export interface PhysicsSignalTransitionResult {
-  isPaused: boolean; isRecordingFullReplay: boolean; isMasked: boolean; maskUntilFrame: number;
+  isPaused: boolean;
+  isRecordingFullReplay: boolean;
+  isMasked: boolean;
+  maskUntilFrame: number;
 }
 
 export interface MergeDualWorldOptions {
-  localCarIndex?: number; localSourceCarIndex?: number; hostCarIndex?: number;
-  primaryBallSource?: 'host' | 'local'; useLocalBall?: boolean; hostCarIndices?: number[];
+  localCarIndex?: number;
+  localSourceCarIndex?: number;
+  hostCarIndex?: number;
+  primaryBallSource?: 'host' | 'local';
+  useLocalBall?: boolean;
+  hostCarIndices?: number[];
 }
 
 export function evaluatePhysicsSignalTransition(
@@ -88,12 +109,20 @@ export function evaluatePhysicsSignalTransition(
     resetKickoff(seed: number): void;
     resetBallToCenter(): void;
     clearInputBuffer(): void;
-    setCarCollisionMask(carIndex: number, interactWithBall: boolean, interactWithCars: boolean, opacity?: number): void;
+    setCarCollisionMask(
+      carIndex: number,
+      interactWithBall: boolean,
+      interactWithCars: boolean,
+      opacity?: number
+    ): void;
     setLobbyGhostMode(enabled: boolean, config: LobbyGhostConfigOptions): void;
   }
 ): PhysicsSignalTransitionResult {
   let { isPaused, isRecordingFullReplay, isMasked, maskUntilFrame } = state;
-  const setMask = (masked: boolean, until = -1) => { isMasked = masked; maskUntilFrame = until; };
+  const setMask = (masked: boolean, until = -1) => {
+    isMasked = masked;
+    maskUntilFrame = until;
+  };
   const setReplayAndFreeze = (rec: boolean, frozen: boolean) => {
     isRecordingFullReplay = rec;
     actions.sim?.setReplayRecordingActive?.(rec);
@@ -138,7 +167,10 @@ export function evaluatePhysicsSignalTransition(
     case MATCH_SIGNALS.SYS_CTRL_STATE_ONLY:
       actions.resetGoalLatch();
       setReplayAndFreeze(false, true);
-      if (signalType === MATCH_SIGNALS.SYS_CTRL_STATE_ONLY) { isPaused = true; setMask(true); }
+      if (signalType === MATCH_SIGNALS.SYS_CTRL_STATE_ONLY) {
+        isPaused = true;
+        setMask(true);
+      }
       break;
     case MATCH_SIGNALS.SYS_CTRL_INTERVENE_WILL_RESUME:
       isPaused = true;
@@ -150,7 +182,10 @@ export function evaluatePhysicsSignalTransition(
       actions.resetGoalLatch();
       isPaused = false;
       setReplayAndFreeze(true, false);
-      if (signalType === MATCH_SIGNALS.SYS_CTRL_PHYSICS_RESUME) { setMask(false); actions.clearInputBuffer(); }
+      if (signalType === MATCH_SIGNALS.SYS_CTRL_PHYSICS_RESUME) {
+        setMask(false);
+        actions.clearInputBuffer();
+      }
       break;
     case MATCH_SIGNALS.MATCH_PAUSED:
     case 'PAUSE_SIMULATION': {
@@ -173,14 +208,20 @@ export function evaluatePhysicsSignalTransition(
       break;
     case 'GHOST_CAR_CONFIG':
       if (typeof data.carIndex === 'number') {
-        actions.setCarCollisionMask(data.carIndex, data.interactWithBall ?? false, data.interactWithCars ?? false, data.opacity);
+        actions.setCarCollisionMask(
+          data.carIndex,
+          data.interactWithBall ?? false,
+          data.interactWithCars ?? false,
+          data.opacity
+        );
       } else {
         actions.setLobbyGhostMode(data.enabled ?? true, data);
       }
       break;
     case MATCH_SIGNALS.PLAYER_LOADOUT_UPDATED:
     case 'HOTSWAP_HITBOX':
-      if (typeof data.carIndex === 'number' && data.hitboxType) actions.sim?.setCarHitbox?.(data.carIndex, data.hitboxType);
+      if (typeof data.carIndex === 'number' && data.hitboxType)
+        actions.sim?.setCarHitbox?.(data.carIndex, data.hitboxType);
       break;
     default:
       break;

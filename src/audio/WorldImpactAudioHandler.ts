@@ -1,4 +1,4 @@
-import { audioConfig } from '../ui-core/config/audioConfig';
+import { audioConfig } from '../ui-core/config/audioConfig.ts';
 import { getAudioSlotPool } from './audioContext.ts';
 import { SURFACE_SUBTYPES } from '../physics/RocketSimConstants.ts';
 import {
@@ -41,10 +41,17 @@ export class WorldImpactAudioHandler {
     this.buffers = bufs;
   }
 
-  handleBallWorldHit(event: PhysicsImpactAudioEvent | null | undefined, camera: unknown = null): void {
+  handleBallWorldHit(
+    event: PhysicsImpactAudioEvent | null | undefined,
+    camera: unknown = null
+  ): void {
     if (!event) return;
 
-    if (event.isCrossbar || event.surfaceTag === SURFACE_SUBTYPES.GOALPOST || event.surfaceTag === SURFACE_SUBTYPES.CROSSBAR) {
+    if (
+      event.isCrossbar ||
+      event.surfaceTag === SURFACE_SUBTYPES.GOALPOST ||
+      event.surfaceTag === SURFACE_SUBTYPES.CROSSBAR
+    ) {
       this.handleBallGoalpostHit(event, camera);
       return;
     }
@@ -58,7 +65,10 @@ export class WorldImpactAudioHandler {
     const wallThreshold = audioConfig.get('ballWallHitThreshold');
     const isFloorSurface = event.surfaceTag === 1 || event.surfaceTag === SURFACE_SUBTYPES.FLOOR;
     const threshold = isFloorSurface ? floorThreshold : wallThreshold;
-    const impactVal = typeof event.normalRelVel === 'number' && Number.isFinite(event.normalRelVel) ? event.normalRelVel : null;
+    const impactVal =
+      typeof event.normalRelVel === 'number' && Number.isFinite(event.normalRelVel)
+        ? event.normalRelVel
+        : null;
     if (impactVal !== null && impactVal < threshold) return;
 
     this.lastBallWorldHitTimestamp = now;
@@ -70,9 +80,12 @@ export class WorldImpactAudioHandler {
 
     // 1. Floor / Ground pitch: Normal collision using custom 1, 2, 3 (strictly NEVER vehicle-body-04)
     if (isFloorSurface) {
-      const groundList = (this.buffers.groundHit && this.buffers.groundHit.length > 0)
-        ? this.buffers.groundHit
-        : (this.buffers.ballHit ? this.buffers.ballHit.slice(0, 3) : []);
+      const groundList =
+        this.buffers.groundHit && this.buffers.groundHit.length > 0
+          ? this.buffers.groundHit
+          : this.buffers.ballHit
+            ? this.buffers.ballHit.slice(0, 3)
+            : [];
       if (!groundList || groundList.length === 0) return;
       let idx = Math.floor(Math.random() * groundList.length);
       if (groundList.length > 1 && idx === this.lastGroundHitSoundIdx) {
@@ -81,7 +94,10 @@ export class WorldImpactAudioHandler {
       this.lastGroundHitSoundIdx = idx;
       const mod = calibrateWorldSurfaceModulation(event, 'floor', floorThreshold);
       const floorVol = audioConfig.get('ballFloorHitVolume');
-      const volume = Math.max(0, Math.min(5.0, floorVol * layerVol * master * mod.volumeGainMultiplier));
+      const volume = Math.max(
+        0,
+        Math.min(5.0, floorVol * layerVol * master * mod.volumeGainMultiplier)
+      );
       pool.playBuffer(groundList[idx], {
         volume,
         position: event,
@@ -94,16 +110,23 @@ export class WorldImpactAudioHandler {
     }
 
     // 2. Field Net / Sidewalls / Ceiling / Backboard / Corner 45
-    const isNetSurface = (event.surfaceTag === SURFACE_SUBTYPES.SIDE_WALL ||
-                          event.surfaceTag === SURFACE_SUBTYPES.CEILING ||
-                          event.surfaceTag === SURFACE_SUBTYPES.BACKBOARD ||
-                          event.surfaceTag === SURFACE_SUBTYPES.CORNER_45 ||
-                          event.surfaceTag === 3 || event.surfaceTag === 2 || event.surfaceTag === 4 || event.surfaceTag === 5);
+    const isNetSurface =
+      event.surfaceTag === SURFACE_SUBTYPES.SIDE_WALL ||
+      event.surfaceTag === SURFACE_SUBTYPES.CEILING ||
+      event.surfaceTag === SURFACE_SUBTYPES.BACKBOARD ||
+      event.surfaceTag === SURFACE_SUBTYPES.CORNER_45 ||
+      event.surfaceTag === 3 ||
+      event.surfaceTag === 2 ||
+      event.surfaceTag === 4 ||
+      event.surfaceTag === 5;
 
     if (isNetSurface) {
-      const sidewallList = (this.buffers.sidewallHit && this.buffers.sidewallHit.length > 0)
-        ? this.buffers.sidewallHit
-        : (this.buffers.groundHit && this.buffers.groundHit.length > 0 ? this.buffers.groundHit : this.buffers.ballHit?.slice(0, 3));
+      const sidewallList =
+        this.buffers.sidewallHit && this.buffers.sidewallHit.length > 0
+          ? this.buffers.sidewallHit
+          : this.buffers.groundHit && this.buffers.groundHit.length > 0
+            ? this.buffers.groundHit
+            : this.buffers.ballHit?.slice(0, 3);
       if (sidewallList && sidewallList.length > 0) {
         let netIdx = Math.floor(Math.random() * sidewallList.length);
         if (sidewallList.length > 1 && netIdx === this.lastSidewallHitSoundIdx) {
@@ -112,7 +135,10 @@ export class WorldImpactAudioHandler {
         this.lastSidewallHitSoundIdx = netIdx;
         const mod = calibrateWorldSurfaceModulation(event, 'net', wallThreshold);
         const netVol = audioConfig.get('ballNetHitVolume');
-        const netVolume = Math.max(0, Math.min(5.0, netVol * layerVol * master * mod.volumeGainMultiplier));
+        const netVolume = Math.max(
+          0,
+          Math.min(5.0, netVol * layerVol * master * mod.volumeGainMultiplier)
+        );
         pool.playBuffer(sidewallList[netIdx], {
           volume: netVolume,
           position: event,
@@ -128,10 +154,16 @@ export class WorldImpactAudioHandler {
     // 3. Ramps & Transition Curves
     const mod = calibrateWorldSurfaceModulation(event, 'ramp', wallThreshold);
     const rampVol = audioConfig.get('ballRampHitVolume');
-    const volume = Math.max(0, Math.min(5.0, rampVol * layerVol * master * mod.volumeGainMultiplier));
-    const bufList = (this.buffers.groundHit && this.buffers.groundHit.length > 0)
-      ? this.buffers.groundHit
-      : (this.buffers.ballHit ? this.buffers.ballHit.slice(0, 3) : this.buffers.sidewallHit);
+    const volume = Math.max(
+      0,
+      Math.min(5.0, rampVol * layerVol * master * mod.volumeGainMultiplier)
+    );
+    const bufList =
+      this.buffers.groundHit && this.buffers.groundHit.length > 0
+        ? this.buffers.groundHit
+        : this.buffers.ballHit
+          ? this.buffers.ballHit.slice(0, 3)
+          : this.buffers.sidewallHit;
     if (bufList && bufList.length > 0) {
       const idx = Math.floor(Math.random() * bufList.length);
       pool.playBuffer(bufList[idx], {
@@ -189,7 +221,10 @@ export class WorldImpactAudioHandler {
       ? (audioConfig.get('goalpostHitVolume') ?? 1.0)
       : (audioConfig.get('goalpostSmallHitVolume') ?? audioConfig.get('goalpostHitVolume') ?? 1.0);
     const layerVol = audioConfig.get('ballCollisionVolume') ?? 1.0;
-    const volume = Math.max(0, Math.min(5.0, postVol * layerVol * master * mod.volumeGainMultiplier));
+    const volume = Math.max(
+      0,
+      Math.min(5.0, postVol * layerVol * master * mod.volumeGainMultiplier)
+    );
 
     pool.playBuffer(postBuf, {
       volume,

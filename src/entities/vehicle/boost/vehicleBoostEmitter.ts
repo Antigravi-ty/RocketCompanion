@@ -1,16 +1,12 @@
-import { getMaterialsConfig } from '../../../ui-core/config/materialsConfig';
-import { boostParticleRuntimeConfig } from '../../../ui-core/config/vehicleTunerConfig';
-import {
-  ARCADE_DRIVE_COUNT,
-  ARCADE_TRAIL_COUNT,
-  ARCADE_BOOST_COLOR_HEX,
-} from './boostCurves.ts';
+import { getMaterialsConfig } from '../../../ui-core/config/materialsConfig.ts';
+import { boostParticleRuntimeConfig } from '../../../ui-core/config/vehicleTunerConfig.ts';
+import { ARCADE_DRIVE_COUNT, ARCADE_TRAIL_COUNT, ARCADE_BOOST_COLOR_HEX } from './boostCurves.ts';
 import * as THREE from 'three';
 import { ArcadeBoostParticleMesh } from './ArcadeBoostParticleMesh.ts';
 import {
   createArcadeBoostFlameConeGeometry,
   createArcadeBoostFlameConeMaterial,
-  createNozzleFlash
+  createNozzleFlash,
 } from './arcadeConeVisual.ts';
 import { RealisticBoostEmitter } from './realisticBoostEmitter.ts';
 import { ArcadeParticlePhysics } from './arcadeParticlePhysics.ts';
@@ -47,21 +43,23 @@ export class VehicleBoostEmitter {
 
     this.scene = scene;
     this.car = carRoot;
-    this.nozzleLocal = nozzleLocal.clone ? nozzleLocal.clone() : new Vector3(nozzleLocal.x, nozzleLocal.y, nozzleLocal.z);
+    this.nozzleLocal = nozzleLocal.clone
+      ? nozzleLocal.clone()
+      : new Vector3(nozzleLocal.x, nozzleLocal.y, nozzleLocal.z);
     this.offset = this.nozzleLocal;
     this.cone = new Group();
     this.coneMaterials = [];
     this.nozzleFlash = null;
     this.light = null;
 
-    this.theme = "gold-rush";
+    this.theme = 'gold-rush';
     this.boostVisualOverride = null;
     this.elapsed = 0;
     this.coneOpacity = 0;
 
     // Build cartoon drive puffs
     this.drive = new ArcadeBoostParticleMesh(ARCADE_DRIVE_COUNT, true, 5);
-    this.drive.mesh.name = "cartoon-drive-puffs";
+    this.drive.mesh.name = 'cartoon-drive-puffs';
     this.drive.mesh.castShadow = false;
     this.drive.mesh.receiveShadow = false;
     this.drive.mesh.layers?.enable?.(1);
@@ -70,7 +68,7 @@ export class VehicleBoostEmitter {
 
     // Build cartoon boost trail puffs
     this.trail = new ArcadeBoostParticleMesh(ARCADE_TRAIL_COUNT, false, 4);
-    this.trail.mesh.name = "cartoon-boost-trail";
+    this.trail.mesh.name = 'cartoon-boost-trail';
     this.trail.mesh.castShadow = false;
     this.trail.mesh.receiveShadow = false;
     this.trail.mesh.layers?.enable?.(1);
@@ -83,12 +81,12 @@ export class VehicleBoostEmitter {
     this.cone.position.copy(this.nozzleLocal);
     this.cone.layers?.enable?.(1);
     this.cone.visible = false;
-    this.cone.name = "boost-flame";
+    this.cone.name = 'boost-flame';
     carRoot.add(this.cone);
 
     const flameMat = createArcadeBoostFlameConeMaterial();
     const flameMesh = new Mesh(createArcadeBoostFlameConeGeometry(11), flameMat);
-    flameMesh.name = "boost-flame-mesh";
+    flameMesh.name = 'boost-flame-mesh';
     flameMesh.castShadow = false;
     flameMesh.receiveShadow = false;
     flameMesh.layers?.enable?.(1);
@@ -97,10 +95,12 @@ export class VehicleBoostEmitter {
     this.cone.add(flameMesh);
 
     // Build nozzle flash
-    const flashPos = this.nozzleLocal.clone ? this.nozzleLocal.clone() : new Vector3(this.nozzleLocal.x, this.nozzleLocal.y, this.nozzleLocal.z);
+    const flashPos = this.nozzleLocal.clone
+      ? this.nozzleLocal.clone()
+      : new Vector3(this.nozzleLocal.x, this.nozzleLocal.y, this.nozzleLocal.z);
     flashPos.x -= 2;
     this.nozzleFlash = createNozzleFlash(flashPos);
-    this.nozzleFlash.name = "boost-nozzle-flash";
+    this.nozzleFlash.name = 'boost-nozzle-flash';
     this.nozzleFlash.castShadow = false;
     this.nozzleFlash.receiveShadow = false;
     this.nozzleFlash.layers?.enable?.(1);
@@ -112,7 +112,9 @@ export class VehicleBoostEmitter {
       const flameColor = new Color(ARCADE_BOOST_COLOR_HEX);
       this.light = new PointLight(flameColor, 0, 300, 2);
       this.light.castShadow = false;
-      const lightPos = this.nozzleLocal.clone ? this.nozzleLocal.clone() : new Vector3(this.nozzleLocal.x, this.nozzleLocal.y, this.nozzleLocal.z);
+      const lightPos = this.nozzleLocal.clone
+        ? this.nozzleLocal.clone()
+        : new Vector3(this.nozzleLocal.x, this.nozzleLocal.y, this.nozzleLocal.z);
       lightPos.x -= 10;
       this.light.position.copy(lightPos);
       scene.add(this.light);
@@ -147,7 +149,11 @@ export class VehicleBoostEmitter {
   setNozzleOffset(xOrVec, y, z) {
     if (xOrVec && typeof xOrVec === 'object') {
       if (Array.isArray(xOrVec)) {
-        this.nozzleLocal.set(Number(xOrVec[0]) || 0, Number(xOrVec[1]) || 0, Number(xOrVec[2]) || 0);
+        this.nozzleLocal.set(
+          Number(xOrVec[0]) || 0,
+          Number(xOrVec[1]) || 0,
+          Number(xOrVec[2]) || 0
+        );
       } else if (xOrVec !== this.nozzleLocal) {
         this.nozzleLocal.set(Number(xOrVec.x) || 0, Number(xOrVec.y) || 0, Number(xOrVec.z) || 0);
       }
@@ -162,21 +168,23 @@ export class VehicleBoostEmitter {
   }
 
   setBoostVisual(theme) {
-    this.boostVisualOverride = (theme === "cartoon" || theme === "gold-rush") ? theme : null;
+    this.boostVisualOverride = theme === 'cartoon' || theme === 'gold-rush' ? theme : null;
   }
 
   get bloomActive() {
     if (!boostParticleRuntimeConfig.bloomEnabled) return false;
-    if (this.theme === "gold-rush") {
+    if (this.theme === 'gold-rush') {
       return this.goldRush.bloomActive;
     }
-    return this.coneOpacity > 0.002 || this.physics.driveParticlesActive || this.physics.trailParticlesActive;
+    return (
+      this.coneOpacity > 0.002 ||
+      this.physics.driveParticlesActive ||
+      this.physics.trailParticlesActive
+    );
   }
 
   async preload() {
-    await Promise.all([
-      this.goldRush?.preload?.()
-    ]);
+    await Promise.all([this.goldRush?.preload?.()]);
   }
 
   disposeAudio() {}
@@ -188,7 +196,7 @@ export class VehicleBoostEmitter {
     const isDriving = driving && !boosting && visible;
     this.elapsed += dt;
 
-    let currentTheme = this.boostVisualOverride || "gold-rush";
+    let currentTheme = this.boostVisualOverride || 'gold-rush';
     if (!this.boostVisualOverride) {
       try {
         const mats = getMaterialsConfig();
@@ -196,7 +204,10 @@ export class VehicleBoostEmitter {
           currentTheme = mats.boostVisual;
         }
       } catch (err) {
-        console.warn('[VehicleBoostEmitter] Error accessing materials configuration for boostVisual:', err);
+        console.warn(
+          '[VehicleBoostEmitter] Error accessing materials configuration for boostVisual:',
+          err
+        );
       }
     }
 
@@ -205,7 +216,7 @@ export class VehicleBoostEmitter {
       this.theme = currentTheme;
     }
 
-    if (currentTheme === "gold-rush") {
+    if (currentTheme === 'gold-rush') {
       this.goldRush.update(boosting, driving, visible, dt);
       return;
     }
@@ -245,8 +256,9 @@ export class VehicleBoostEmitter {
     }
 
     const canSpawnTrail = boostParticleRuntimeConfig.dualStreamEnabled
-      ? ((boostParticleRuntimeConfig.shortTrailSpawnMultiplier ?? 1.0) > 0.01 || (boostParticleRuntimeConfig.longTrailSpawnMultiplier ?? 0.1) > 0.01)
-      : ((boostParticleRuntimeConfig.trailSpawnMultiplier ?? 1.0) > 0.01);
+      ? (boostParticleRuntimeConfig.shortTrailSpawnMultiplier ?? 1.0) > 0.01 ||
+        (boostParticleRuntimeConfig.longTrailSpawnMultiplier ?? 0.1) > 0.01
+      : (boostParticleRuntimeConfig.trailSpawnMultiplier ?? 1.0) > 0.01;
 
     let isPausedBoost = false;
     if (isBoosting && canSpawnTrail) {

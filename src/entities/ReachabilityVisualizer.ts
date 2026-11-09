@@ -62,7 +62,10 @@ export class ReachabilityVisualizer {
 
     this.groundRenderer = new GroundReachabilityRenderer(this.rootGroup);
     this.aerialRenderer = new AerialReachabilityRenderer(this.rootGroup);
-    this.interceptRenderer = new InterceptCrossRenderer(this.rootGroup, this.ballTrajectoryPredictor);
+    this.interceptRenderer = new InterceptCrossRenderer(
+      this.rootGroup,
+      this.ballTrajectoryPredictor
+    );
 
     this.groundGroup = this.groundRenderer.group;
     this.aerialGroup = this.aerialRenderer.group;
@@ -88,11 +91,11 @@ export class ReachabilityVisualizer {
     const phys = runtime?.physics || this.physics;
     if (!phys) return;
 
-    const targetIdx = (config.targetCarIndex ?? -1) >= 0
-      ? config.targetCarIndex!
-      : (runtime?.playerCarIndex ?? 0);
+    const targetIdx =
+      (config.targetCarIndex ?? -1) >= 0 ? config.targetCarIndex! : (runtime?.playerCarIndex ?? 0);
 
-    const carView = runtime?.interpolator?.getCurrCarStateView?.(targetIdx) || phys.getCarStateView?.(targetIdx);
+    const carView =
+      runtime?.interpolator?.getCurrCarStateView?.(targetIdx) || phys.getCarStateView?.(targetIdx);
     if (!carView || carView.isDemoed) {
       this.rootGroup.visible = false;
       return;

@@ -5,10 +5,7 @@
  */
 
 import { P2PWebRTCChannel } from './P2PWebRTCChannel.ts';
-import {
-  loadActiveHostOffer,
-  getAllowSpectatorDaisyChain,
-} from './signalingRelayConfig.ts';
+import { loadActiveHostOffer, getAllowSpectatorDaisyChain } from './signalingRelayConfig.ts';
 import {
   CommittedFrameDaisyChainBuffer,
   DEFAULT_COMMITTED_ROLLBACK_WINDOW_MS,
@@ -135,7 +132,10 @@ export class ClientSessionController {
             });
           })
           .catch((err) => {
-            console.warn('[ClientSessionController] Failed to ingest local active host offer:', err);
+            console.warn(
+              '[ClientSessionController] Failed to ingest local active host offer:',
+              err
+            );
           });
       }
     } catch (e) {
@@ -183,7 +183,9 @@ export class ClientSessionController {
     }
   }
 
-  handleRemoteCandidate(candidate: RTCIceCandidateInit | Record<string, unknown> | null | undefined): void {
+  handleRemoteCandidate(
+    candidate: RTCIceCandidateInit | Record<string, unknown> | null | undefined
+  ): void {
     const active = this.getActiveChannel();
     if (candidate && active) {
       active.addIceCandidate(candidate);

@@ -28,9 +28,17 @@ function parseCliArgs(argv) {
       scenario = arg.slice('--scenario='.length).trim() || 'all';
     } else if (arg.startsWith('--speed=')) {
       speed = arg.slice('--speed='.length).trim() || 'max';
-    } else if (arg === '--diff-baseline' || arg === '--diff-baseline=true' || arg === '--diff-baseline=1') {
+    } else if (
+      arg === '--diff-baseline' ||
+      arg === '--diff-baseline=true' ||
+      arg === '--diff-baseline=1'
+    ) {
       diffBaseline = true;
-    } else if (arg === '--no-diff-baseline' || arg === '--diff-baseline=false' || arg === '--diff-baseline=0') {
+    } else if (
+      arg === '--no-diff-baseline' ||
+      arg === '--diff-baseline=false' ||
+      arg === '--diff-baseline=0'
+    ) {
       diffBaseline = false;
     } else if (arg === '--allow-console-error' || arg === '--allow-console-error=true') {
       allowConsoleError = true;
@@ -55,41 +63,45 @@ function printFormattedBaselineReport(report, outPath) {
   const hr = '='.repeat(96);
   const thinHr = '-'.repeat(96);
   console.log(`\n${hr}`);
-  console.log(' ROCKET COMPANION -- DETERMINISTIC SCENARIO, SCENEGRAPH PROBE & 65F1538D GOLDEN DIFF REPORT');
+  console.log(
+    ' ROCKET COMPANION -- DETERMINISTIC SCENARIO, SCENEGRAPH PROBE & 65F1538D GOLDEN DIFF REPORT'
+  );
   console.log(hr);
-  console.log(` Generated At     : ${report.generatedAtIso} (schema v${report.schemaVersion || '1.1.0'})`);
+  console.log(
+    ` Generated At     : ${report.generatedAtIso} (schema v${report.schemaVersion || '1.1.0'})`
+  );
   console.log(` Speed Preset     : ${report.configuredSpeedPreset || '20x'}`);
   console.log(` WebGL Renderer   : ${report.webglRenderer}`);
   console.log(` WebGL Vendor     : ${report.webglVendor}`);
   console.log(
-    ` Bootstrap Time   : ${report.bootstrap.totalDurationMs} ms (${report.bootstrap.totalSteps} steps) | Bg Assets: ${report.bootstrap.backgroundAssetsDurationMs} ms`,
+    ` Bootstrap Time   : ${report.bootstrap.totalDurationMs} ms (${report.bootstrap.totalSteps} steps) | Bg Assets: ${report.bootstrap.backgroundAssetsDurationMs} ms`
   );
   console.log(
-    ` Initial Shaders  : ${report.bootstrap.initialCompiledShaderPrograms} compiled WebGL programs`,
+    ` Initial Shaders  : ${report.bootstrap.initialCompiledShaderPrograms} compiled WebGL programs`
   );
   console.log(thinHr);
   console.log(' BOOTSTRAP STAGES (1~6):');
   for (const st of report.bootstrap.stages || []) {
     console.log(
-      `   [Stage ${st.stageIndex}] ${padRight(st.stageTitle, 28)} : ${padLeft(st.totalDurationMs.toFixed(1), 7)} ms (${st.taskCount} tasks)`,
+      `   [Stage ${st.stageIndex}] ${padRight(st.stageTitle, 28)} : ${padLeft(st.totalDurationMs.toFixed(1), 7)} ms (${st.taskCount} tasks)`
     );
   }
 
   for (const sc of report.scenarios || []) {
     console.log(`\n${hr}`);
     console.log(
-      ` SCENARIO: ${sc.scenarioId} [${sc.passed ? 'PASSED' : 'FAILED'}] (speed=${sc.configuredSpeedPreset || '20x'})`,
+      ` SCENARIO: ${sc.scenarioId} [${sc.passed ? 'PASSED' : 'FAILED'}] (speed=${sc.configuredSpeedPreset || '20x'})`
     );
     console.log(` Title   : ${sc.title}`);
     console.log(
-      ` Pacing  : ${sc.totalTicks} ticks (${sc.simulatedDurationSeconds}s sim) in ${sc.wallClockDurationMs} ms wall -> ${sc.effectiveTickRateHz} Hz (${sc.speedupFactorVsRealtime}x realtime)`,
+      ` Pacing  : ${sc.totalTicks} ticks (${sc.simulatedDurationSeconds}s sim) in ${sc.wallClockDurationMs} ms wall -> ${sc.effectiveTickRateHz} Hz (${sc.speedupFactorVsRealtime}x realtime)`
     );
     console.log(
-      ` Renders : ${sc.renderedFramesCount} GPU frames rendered, ${sc.skippedRenderFramesCount} intermediate frames fast-forwarded`,
+      ` Renders : ${sc.renderedFramesCount} GPU frames rendered, ${sc.skippedRenderFramesCount} intermediate frames fast-forwarded`
     );
     console.log(thinHr);
     console.log(
-      ` ${padRight('Pipeline Stage', 20)} | ${padLeft('Mean ms', 9)} | ${padLeft('P50 ms', 9)} | ${padLeft('P95 ms', 9)} | ${padLeft('P99 ms', 9)} | ${padLeft('Max ms', 9)} | ${padLeft('MaxTick', 7)} | ${padLeft('Total ms', 9)}`,
+      ` ${padRight('Pipeline Stage', 20)} | ${padLeft('Mean ms', 9)} | ${padLeft('P50 ms', 9)} | ${padLeft('P95 ms', 9)} | ${padLeft('P99 ms', 9)} | ${padLeft('Max ms', 9)} | ${padLeft('MaxTick', 7)} | ${padLeft('Total ms', 9)}`
     );
     console.log(thinHr);
     for (const stageKey of [
@@ -105,7 +117,7 @@ function printFormattedBaselineReport(report, outPath) {
       const st = sc.stageTimings?.[stageKey];
       if (!st) continue;
       console.log(
-        ` ${padRight(st.stage, 20)} | ${padLeft(st.meanMs.toFixed(4), 9)} | ${padLeft(st.p50Ms.toFixed(4), 9)} | ${padLeft(st.p95Ms.toFixed(4), 9)} | ${padLeft(st.p99Ms.toFixed(4), 9)} | ${padLeft(st.maxMs.toFixed(4), 9)} | ${padLeft(st.maxTick, 7)} | ${padLeft(st.totalWallMs.toFixed(2), 9)}`,
+        ` ${padRight(st.stage, 20)} | ${padLeft(st.meanMs.toFixed(4), 9)} | ${padLeft(st.p50Ms.toFixed(4), 9)} | ${padLeft(st.p95Ms.toFixed(4), 9)} | ${padLeft(st.p99Ms.toFixed(4), 9)} | ${padLeft(st.maxMs.toFixed(4), 9)} | ${padLeft(st.maxTick, 7)} | ${padLeft(st.totalWallMs.toFixed(2), 9)}`
       );
     }
 
@@ -113,7 +125,7 @@ function printFormattedBaselineReport(report, outPath) {
     console.log(' KEYFRAME GPU RENDERS & SHADER COMPILATION DELTAS:');
     for (const kf of sc.keyframeRenders || []) {
       console.log(
-        `   tick=${padLeft(kf.tick, 4)} | ${padRight(kf.reason, 42)} | phase=${padRight(kf.phase, 11)} | cam=${padRight(kf.cameraMode, 8)} | render=${padLeft(kf.renderStageWallMs.toFixed(2), 6)}ms | shaders=${kf.shaderProgramsBefore}->${kf.shaderProgramsAfter} (+${kf.shaderProgramsDelta}) | calls=${kf.drawCalls} tris=${kf.triangles}`,
+        `   tick=${padLeft(kf.tick, 4)} | ${padRight(kf.reason, 42)} | phase=${padRight(kf.phase, 11)} | cam=${padRight(kf.cameraMode, 8)} | render=${padLeft(kf.renderStageWallMs.toFixed(2), 6)}ms | shaders=${kf.shaderProgramsBefore}->${kf.shaderProgramsAfter} (+${kf.shaderProgramsDelta}) | calls=${kf.drawCalls} tris=${kf.triangles}`
       );
     }
 
@@ -121,7 +133,7 @@ function printFormattedBaselineReport(report, outPath) {
     console.log(' TOP HITCH FRAMES ATTRIBUTION:');
     for (const hf of sc.topHitchFrames || []) {
       console.log(
-        `   tick=${padLeft(hf.tick, 4)} | total=${padLeft(hf.totalFrameWallMs.toFixed(2), 6)}ms | dominant=${padRight(hf.dominantStage, 18)} (${padLeft(hf.dominantStageWallMs.toFixed(2), 6)}ms) | phase=${padRight(hf.phase, 11)} | gpuRender=${hf.didGpuRender} | shaderDelta=+${hf.shaderProgramsDelta}`,
+        `   tick=${padLeft(hf.tick, 4)} | total=${padLeft(hf.totalFrameWallMs.toFixed(2), 6)}ms | dominant=${padRight(hf.dominantStage, 18)} (${padLeft(hf.dominantStageWallMs.toFixed(2), 6)}ms) | phase=${padRight(hf.phase, 11)} | gpuRender=${hf.didGpuRender} | shaderDelta=+${hf.shaderProgramsDelta}`
       );
     }
 
@@ -129,7 +141,7 @@ function printFormattedBaselineReport(report, outPath) {
     if (cs) {
       console.log(thinHr);
       console.log(
-        ` CAMERA SMOOTHNESS : samples=${cs.sampleCount}, NaN=${cs.nanFrameCount}, P95_posStep=${cs.p95PositionStepDistance}uu (max=${cs.maxPositionStepDistance}uu), P95_angStep=${cs.p95AngularStepDeg}deg | DirectorReplaySamples=${cs.directorReplaySamples}, FirstReplayRender=${cs.directorReplayFirstFrameRenderMs ?? 'n/a'}ms (shaderDelta=+${cs.directorReplayFirstFrameShaderDelta ?? 0})`,
+        ` CAMERA SMOOTHNESS : samples=${cs.sampleCount}, NaN=${cs.nanFrameCount}, P95_posStep=${cs.p95PositionStepDistance}uu (max=${cs.maxPositionStepDistance}uu), P95_angStep=${cs.p95AngularStepDeg}deg | DirectorReplaySamples=${cs.directorReplaySamples}, FirstReplayRender=${cs.directorReplayFirstFrameRenderMs ?? 'n/a'}ms (shaderDelta=+${cs.directorReplayFirstFrameShaderDelta ?? 0})`
       );
     }
 
@@ -137,13 +149,13 @@ function printFormattedBaselineReport(report, outPath) {
     if (mp) {
       console.log(thinHr);
       console.log(
-        ` 6-CAR MULTIPLAYER : physicalCars=${mp.activePhysicalCars}/${mp.configuredCarCount}, visibleCars=${mp.visibleArenaCars}, virtualPeers=${mp.virtualPeersConnected}`,
+        ` 6-CAR MULTIPLAYER : physicalCars=${mp.activePhysicalCars}/${mp.configuredCarCount}, visibleCars=${mp.visibleArenaCars}, virtualPeers=${mp.virtualPeersConnected}`
       );
       console.log(
-        ` PACKET THROUGHPUT : clientSent=${mp.totalClientInputPacketsSent} pkts (${mp.totalClientInputBytesSent} B) | serverRecv=${mp.totalServerFramePacketsReceived} pkts (${mp.totalServerFrameBytesReceived} B)`,
+        ` PACKET THROUGHPUT : clientSent=${mp.totalClientInputPacketsSent} pkts (${mp.totalClientInputBytesSent} B) | serverRecv=${mp.totalServerFramePacketsReceived} pkts (${mp.totalServerFrameBytesReceived} B)`
       );
       console.log(
-        ` RECONCILER STATS  : corrections=${mp.reconcilerCorrections}, skippedTier1=${mp.reconcilerSkippedCorrections}, hardSnaps=${mp.reconcilerHardSnaps}, maxDelta=${mp.reconcilerMaxCorrectionDelta}`,
+        ` RECONCILER STATS  : corrections=${mp.reconcilerCorrections}, skippedTier1=${mp.reconcilerSkippedCorrections}, hardSnaps=${mp.reconcilerHardSnaps}, maxDelta=${mp.reconcilerMaxCorrectionDelta}`
       );
       console.log(` SIGNALS OBSERVED  : [${mp.distinctSignalNames.join(', ')}]`);
     }
@@ -152,12 +164,14 @@ function printFormattedBaselineReport(report, outPath) {
     if (re) {
       console.log(thinHr);
       console.log(
-        ` RUNTIME ERROR INTERCEPTION : total=${re.totalErrorCount} (window.onerror=${re.windowErrorCount}, unhandledrejection=${re.unhandledRejectionCount}, console.error=${re.consoleErrorCount})`,
+        ` RUNTIME ERROR INTERCEPTION : total=${re.totalErrorCount} (window.onerror=${re.windowErrorCount}, unhandledrejection=${re.unhandledRejectionCount}, console.error=${re.consoleErrorCount})`
       );
       for (const entry of (re.entries || []).slice(0, 8)) {
-        const loc = entry.fileName ? ` @ ${entry.fileName}:${entry.lineNumber ?? 0}:${entry.columnNumber ?? 0}` : '';
+        const loc = entry.fileName
+          ? ` @ ${entry.fileName}:${entry.lineNumber ?? 0}:${entry.columnNumber ?? 0}`
+          : '';
         console.log(
-          `   [ERROR] (tick ${padLeft(entry.tick, 4)}) [${entry.source}] ${entry.message}${loc}`,
+          `   [ERROR] (tick ${padLeft(entry.tick, 4)}) [${entry.source}] ${entry.message}${loc}`
         );
       }
     }
@@ -167,7 +181,7 @@ function printFormattedBaselineReport(report, outPath) {
       console.log(' SCENEGRAPH VEHICLE RIG GEOMETRY PROBES:');
       for (const p of sc.vehicleRigProbes) {
         console.log(
-          `   car[${p.carIndex}] preset=${padRight(p.visualId, 14)} hitbox=${padRight(p.hitboxPresetId, 16)} | wheelbaseX=${padLeft(p.wheelbaseX, 7)}uu | frontTrackZ=${padLeft(p.frontTrackWidthZ, 7)}uu | rearTrackZ=${padLeft(p.rearTrackWidthZ, 7)}uu | wheelHeightsY=[${p.wheelHeightsY.join(', ')}] | boosts=${p.boostOutlets.length}`,
+          `   car[${p.carIndex}] preset=${padRight(p.visualId, 14)} hitbox=${padRight(p.hitboxPresetId, 16)} | wheelbaseX=${padLeft(p.wheelbaseX, 7)}uu | frontTrackZ=${padLeft(p.frontTrackWidthZ, 7)}uu | rearTrackZ=${padLeft(p.rearTrackWidthZ, 7)}uu | wheelHeightsY=[${p.wheelHeightsY.join(', ')}] | boosts=${p.boostOutlets.length}`
         );
       }
     }
@@ -176,7 +190,7 @@ function printFormattedBaselineReport(report, outPath) {
     console.log(' ASSERTIONS:');
     for (const a of sc.assertions || []) {
       console.log(
-        `   [${a.passed ? 'PASS' : 'FAIL'}] (tick ${padLeft(a.tick, 4)}) ${padRight(a.label, 44)} -> ${a.detail}`,
+        `   [${a.passed ? 'PASS' : 'FAIL'}] (tick ${padLeft(a.tick, 4)}) ${padRight(a.label, 44)} -> ${a.detail}`
       );
     }
   }
@@ -185,27 +199,27 @@ function printFormattedBaselineReport(report, outPath) {
   if (gd) {
     console.log(`\n${hr}`);
     console.log(
-      ` 65F1538D GOLDEN BASELINE DIFF SUMMARY (ref=${gd.referenceCommit.slice(0, 8)}, ui-core=${gd.referenceUiCoreCommit.slice(0, 8)}) [${gd.passed ? 'MATCHED' : 'DRIFT DETECTED'}]`,
+      ` 65F1538D GOLDEN BASELINE DIFF SUMMARY (ref=${gd.referenceCommit.slice(0, 8)}, ui-core=${gd.referenceUiCoreCommit.slice(0, 8)}) [${gd.passed ? 'MATCHED' : 'DRIFT DETECTED'}]`
     );
     console.log(thinHr);
     const failedStatic = (gd.staticDescriptorDiffs || []).filter((d) => !d.passed);
     console.log(
-      ` Static Descriptors & Hitboxes : ${(gd.staticDescriptorDiffs || []).length - failedStatic.length}/${(gd.staticDescriptorDiffs || []).length} checks matched`,
+      ` Static Descriptors & Hitboxes : ${(gd.staticDescriptorDiffs || []).length - failedStatic.length}/${(gd.staticDescriptorDiffs || []).length} checks matched`
     );
     for (const item of gd.staticDescriptorDiffs || []) {
       if (!item.passed) {
         console.log(
-          `   [DRIFT] ${padRight(item.field, 38)} | maxDelta=${padLeft(item.maxAbsDelta, 9)} | expected=${JSON.stringify(item.expected)} | actual=${JSON.stringify(item.actual)}`,
+          `   [DRIFT] ${padRight(item.field, 38)} | maxDelta=${padLeft(item.maxAbsDelta, 9)} | expected=${JSON.stringify(item.expected)} | actual=${JSON.stringify(item.actual)}`
         );
       }
     }
     for (const rigDiff of gd.vehicleRigDiffs || []) {
       console.log(
-        ` Live SceneGraph Rig car[${rigDiff.carIndex}] (${rigDiff.visualId} vs ${rigDiff.goldenReferenceId}) : ${rigDiff.passed ? 'MATCHED' : 'DRIFT'} (maxDelta=${rigDiff.maxCoordinateDeltaUu}uu)`,
+        ` Live SceneGraph Rig car[${rigDiff.carIndex}] (${rigDiff.visualId} vs ${rigDiff.goldenReferenceId}) : ${rigDiff.passed ? 'MATCHED' : 'DRIFT'} (maxDelta=${rigDiff.maxCoordinateDeltaUu}uu)`
       );
       for (const m of rigDiff.mismatches || []) {
         console.log(
-          `   [RIG DRIFT] ${padRight(m.field, 34)} | maxDelta=${padLeft(m.maxAbsDelta, 9)} | expected=${JSON.stringify(m.expected)} | actual=${JSON.stringify(m.actual)}`,
+          `   [RIG DRIFT] ${padRight(m.field, 34)} | maxDelta=${padLeft(m.maxAbsDelta, 9)} | expected=${JSON.stringify(m.expected)} | actual=${JSON.stringify(m.actual)}`
         );
       }
     }
@@ -213,7 +227,7 @@ function printFormattedBaselineReport(report, outPath) {
 
   console.log(`\n${hr}`);
   console.log(
-    ` OVERALL SUITE STATUS : ${report.overallPassed ? 'GREEN (ALL SCENARIOS PASSED)' : 'RED (ASSERTION OR RUNTIME ERRORS DETECTED)'}`,
+    ` OVERALL SUITE STATUS : ${report.overallPassed ? 'GREEN (ALL SCENARIOS PASSED)' : 'RED (ASSERTION OR RUNTIME ERRORS DETECTED)'}`
   );
   console.log(` JSON REPORT SAVED TO : ${outPath}`);
   console.log(`${hr}\n`);

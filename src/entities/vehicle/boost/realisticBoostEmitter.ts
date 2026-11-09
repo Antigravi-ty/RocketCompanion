@@ -1,15 +1,12 @@
-import { getMaterialsConfig } from '../../../ui-core/config/materialsConfig';
-import { boostParticleRuntimeConfig } from '../../../ui-core/config/vehicleTunerConfig';
-import {
-  REALISTIC_DRIVE_COUNT,
-  REALISTIC_TRAIL_COUNT,
-} from './boostCurves.ts';
+import { getMaterialsConfig } from '../../../ui-core/config/materialsConfig.ts';
+import { boostParticleRuntimeConfig } from '../../../ui-core/config/vehicleTunerConfig.ts';
+import { REALISTIC_DRIVE_COUNT, REALISTIC_TRAIL_COUNT } from './boostCurves.ts';
 import * as THREE from 'three';
 import { RealisticBoostParticleMesh } from './RealisticBoostParticleMesh.ts';
 import {
   loadGoldenBoostTextures,
   createRealisticBoostConeGeometry,
-  createRealisticBoostConeMaterial
+  createRealisticBoostConeMaterial,
 } from './realisticConeVisual.ts';
 import { createBoostFlare } from './arcadeConeVisual.ts';
 import { RealisticParticlePhysics } from './realisticParticlePhysics.ts';
@@ -45,7 +42,9 @@ export class RealisticBoostEmitter {
     this.car = carRoot;
     this.nozzleLocal = (nozzleLocal as THREE.Vector3 & { isVector3?: boolean })?.isVector3
       ? nozzleLocal
-      : (nozzleLocal?.clone ? nozzleLocal.clone() : new Vector3(nozzleLocal?.x ?? 0, nozzleLocal?.y ?? 0, nozzleLocal?.z ?? 0));
+      : nozzleLocal?.clone
+        ? nozzleLocal.clone()
+        : new Vector3(nozzleLocal?.x ?? 0, nozzleLocal?.y ?? 0, nozzleLocal?.z ?? 0);
     this.offset = this.nozzleLocal;
     this.cone = new Group();
     this.coneMaterials = [];
@@ -73,9 +72,9 @@ export class RealisticBoostEmitter {
 
     this.physics = new RealisticParticlePhysics(this.drive, this.trail, this.nozzleLocal);
 
-    this.cone.name = "gold-rush-boost-flame";
-    this.drive.mesh.name = "gold-rush-drive-puffs";
-    this.trail.mesh.name = "gold-rush-boost-trail";
+    this.cone.name = 'gold-rush-boost-flame';
+    this.drive.mesh.name = 'gold-rush-drive-puffs';
+    this.trail.mesh.name = 'gold-rush-boost-trail';
     this.cone.position.copy(this.nozzleLocal);
     this.cone.layers?.enable?.(1);
     this.cone.visible = false;
@@ -96,10 +95,12 @@ export class RealisticBoostEmitter {
     addConeLayer(3.4, 24, 1);
     addConeLayer(7.2, 48, 0);
 
-    const flarePos = this.nozzleLocal.clone ? this.nozzleLocal.clone() : new Vector3(this.nozzleLocal.x, this.nozzleLocal.y, this.nozzleLocal.z);
+    const flarePos = this.nozzleLocal.clone
+      ? this.nozzleLocal.clone()
+      : new Vector3(this.nozzleLocal.x, this.nozzleLocal.y, this.nozzleLocal.z);
     flarePos.x -= 2;
     this.lensFlare = createBoostFlare(flarePos);
-    this.lensFlare.name = "gold-rush-flare";
+    this.lensFlare.name = 'gold-rush-flare';
     this.lensFlare.castShadow = false;
     this.lensFlare.receiveShadow = false;
     this.lensFlare.layers?.enable?.(1);
@@ -135,7 +136,11 @@ export class RealisticBoostEmitter {
   ) {
     if (xOrVec && typeof xOrVec === 'object') {
       if (Array.isArray(xOrVec)) {
-        this.nozzleLocal.set(Number(xOrVec[0]) || 0, Number(xOrVec[1]) || 0, Number(xOrVec[2]) || 0);
+        this.nozzleLocal.set(
+          Number(xOrVec[0]) || 0,
+          Number(xOrVec[1]) || 0,
+          Number(xOrVec[2]) || 0
+        );
       } else if (xOrVec !== this.nozzleLocal) {
         this.nozzleLocal.set(Number(xOrVec.x) || 0, Number(xOrVec.y) || 0, Number(xOrVec.z) || 0);
       }
@@ -150,7 +155,11 @@ export class RealisticBoostEmitter {
 
   get bloomActive() {
     if (!boostParticleRuntimeConfig.bloomEnabled) return false;
-    return this.coneOpacity > 0.002 || this.physics.driveParticlesActive || this.physics.trailParticlesActive;
+    return (
+      this.coneOpacity > 0.002 ||
+      this.physics.driveParticlesActive ||
+      this.physics.trailParticlesActive
+    );
   }
 
   async preload() {
@@ -175,11 +184,15 @@ export class RealisticBoostEmitter {
       flameMode = mats?.boostFlameLuminance === 'dynamic' ? 1 : 0;
       const plumeMode = mats?.boostPlumeLuminance || 'balanced';
       if (plumeMode === 'min') plumeScale = 0.35;
-      else if (plumeMode === 'dynamic') plumeScale = Math.max(0.4, Math.min(1.8, this.coneOpacity * 1.5 + 0.3));
+      else if (plumeMode === 'dynamic')
+        plumeScale = Math.max(0.4, Math.min(1.8, this.coneOpacity * 1.5 + 0.3));
       else if (plumeMode === 'hdr') plumeScale = 2.4;
       else plumeScale = 1.0;
     } catch (err) {
-      console.warn('[VehicleBoostEmitter] Error accessing materials configuration for plume luminance:', err);
+      console.warn(
+        '[VehicleBoostEmitter] Error accessing materials configuration for plume luminance:',
+        err
+      );
     }
 
     for (const mat of this.coneMaterials) {
@@ -219,8 +232,9 @@ export class RealisticBoostEmitter {
     }
 
     const canSpawnTrail = boostParticleRuntimeConfig.dualStreamEnabled
-      ? ((boostParticleRuntimeConfig.shortTrailSpawnMultiplier ?? 1.0) > 0.01 || (boostParticleRuntimeConfig.longTrailSpawnMultiplier ?? 0.1) > 0.01)
-      : ((boostParticleRuntimeConfig.trailSpawnMultiplier ?? 1.0) > 0.01);
+      ? (boostParticleRuntimeConfig.shortTrailSpawnMultiplier ?? 1.0) > 0.01 ||
+        (boostParticleRuntimeConfig.longTrailSpawnMultiplier ?? 0.1) > 0.01
+      : (boostParticleRuntimeConfig.trailSpawnMultiplier ?? 1.0) > 0.01;
 
     let isPausedBoost = false;
     if (isBoosting && canSpawnTrail) {

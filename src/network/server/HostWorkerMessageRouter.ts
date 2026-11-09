@@ -1,61 +1,120 @@
 import {
-  HOST_WORKER_MSG_TYPES as MSG, createWorkerEnvelope, type WorkerEnvelope,
-} from "../protocol/HostWorkerProtocol.ts";
-import { MATCH_STATES, type RosterSnapshot } from "./match/matchLoadoutAndSpawnPipeline.ts";
+  HOST_WORKER_MSG_TYPES as MSG,
+  createWorkerEnvelope,
+  type WorkerEnvelope,
+} from '../protocol/HostWorkerProtocol.ts';
+import { MATCH_STATES, type RosterSnapshot } from './match/matchLoadoutAndSpawnPipeline.ts';
 import {
-  releaseDiagnosticFleetIfEnabled, routeReplayAndDiagnosticsMessage,
-  type WorkerRouterContext, type WorkerReplayDiagnosticsPayload,
-} from "./workerReplayAndDiagnosticsRouter.ts";
+  releaseDiagnosticFleetIfEnabled,
+  routeReplayAndDiagnosticsMessage,
+  type WorkerRouterContext,
+  type WorkerReplayDiagnosticsPayload,
+} from './workerReplayAndDiagnosticsRouter.ts';
 import {
-  routeTrainingAndPhysicsMessage, type WorkerTrainingAndPhysicsPayload,
-} from "./workerTrainingAndPhysicsRouter.ts";
-import type { MatchSessionAdmin } from "./match/MatchSessionAdmin.ts";
-import type { PhysicsEngineManager } from "./PhysicsEngineManager.ts";
-import type { EstablishedSessionManager } from "./EstablishedSessionManager.ts";
-import type { NetworkDataHandler } from "./NetworkDataHandler.ts";
-import type { AuthoritativePhysicsSimPort } from "./authoritativePhysicsStepPipeline.ts";
-import type { LobbyGhostConfigOptions } from "./LobbyGhostCarCoordinator.ts";
-import type { CarControlsInput } from "../protocol/GlobalPayloadCodec.ts";
-import type { ClientReliableCommand } from "./match/MatchCommandQueueSubController.ts";
+  routeTrainingAndPhysicsMessage,
+  type WorkerTrainingAndPhysicsPayload,
+} from './workerTrainingAndPhysicsRouter.ts';
+import type { MatchSessionAdmin } from './match/MatchSessionAdmin.ts';
+import type { PhysicsEngineManager } from './PhysicsEngineManager.ts';
+import type { EstablishedSessionManager } from './EstablishedSessionManager.ts';
+import type { NetworkDataHandler } from './NetworkDataHandler.ts';
+import type { AuthoritativePhysicsSimPort } from './authoritativePhysicsStepPipeline.ts';
+import type { LobbyGhostConfigOptions } from './LobbyGhostCarCoordinator.ts';
+import type { CarControlsInput } from '../protocol/GlobalPayloadCodec.ts';
+import type { ClientReliableCommand } from './match/MatchCommandQueueSubController.ts';
 
 export type { WorkerRouterContext };
 
 export interface WorkerRoomStateSummary {
-  roomId: string; gameMode: string; botFillMode: string; state: string; matchTick: number;
-  clockSecondsRemaining: number; isOvertime: boolean; overtimeSeconds: number;
-  blueScore: number; orangeScore: number; winner: string | number | null; winReason: string | number | null;
-  lobbyPhysicsActive: boolean; ghostConfig: LobbyGhostConfigOptions | null; pads: unknown; roster: RosterSnapshot;
+  roomId: string;
+  gameMode: string;
+  botFillMode: string;
+  state: string;
+  matchTick: number;
+  clockSecondsRemaining: number;
+  isOvertime: boolean;
+  overtimeSeconds: number;
+  blueScore: number;
+  orangeScore: number;
+  winner: string | number | null;
+  winReason: string | number | null;
+  lobbyPhysicsActive: boolean;
+  ghostConfig: LobbyGhostConfigOptions | null;
+  pads: unknown;
+  roster: RosterSnapshot;
 }
 
 export interface HostWorkerInitOptions {
-  roomId?: string; gameMode?: string; botFillMode?: string; externalBotTunnels?: boolean;
+  roomId?: string;
+  gameMode?: string;
+  botFillMode?: string;
+  externalBotTunnels?: boolean;
   initialState?: Float32Array | number[] | null;
-  wasmInitOptions?: { collisionData?: Uint8Array[] | null; isolated?: boolean; [key: string]: unknown };
-  hostPlayerName?: string; hostVisualId?: string; hostHitboxId?: string | null; hostColorSlot?: number;
-  hostBlueColorSlot?: number | null; hostOrangeColorSlot?: number | null; hostPaintFinish?: string;
-  hostBoostVisual?: string; hostBoostAudio?: string; isBotMatch?: boolean; botPlayerName?: string;
-  botVisualId?: string; numCars?: number; startAsMatch?: boolean; lobbyMode?: boolean;
-  lobbyOptions?: Record<string, unknown> | null; durationSeconds?: number; maxOvertimeSeconds?: number;
-  skipReplayByDefault?: boolean; trainingOptions?: WorkerTrainingAndPhysicsPayload | null;
-  resetKickoff?: boolean; autoStartLoop?: boolean;
+  wasmInitOptions?: {
+    collisionData?: Uint8Array[] | null;
+    isolated?: boolean;
+    [key: string]: unknown;
+  };
+  hostPlayerName?: string;
+  hostVisualId?: string;
+  hostHitboxId?: string | null;
+  hostColorSlot?: number;
+  hostBlueColorSlot?: number | null;
+  hostOrangeColorSlot?: number | null;
+  hostPaintFinish?: string;
+  hostBoostVisual?: string;
+  hostBoostAudio?: string;
+  isBotMatch?: boolean;
+  botPlayerName?: string;
+  botVisualId?: string;
+  numCars?: number;
+  startAsMatch?: boolean;
+  lobbyMode?: boolean;
+  lobbyOptions?: Record<string, unknown> | null;
+  durationSeconds?: number;
+  maxOvertimeSeconds?: number;
+  skipReplayByDefault?: boolean;
+  trainingOptions?: WorkerTrainingAndPhysicsPayload | null;
+  resetKickoff?: boolean;
+  autoStartLoop?: boolean;
   [key: string]: unknown;
 }
 
 export interface WorkerProtocolPayload
-  extends WorkerReplayDiagnosticsPayload,
-    WorkerTrainingAndPhysicsPayload,
-    HostWorkerInitOptions {
-  channelId?: string; playerName?: string; name?: string; preferredTeam?: number | null;
-  paintFinish?: string; boostVisual?: string; boostAudio?: string; packet?: Uint8Array | ArrayBuffer;
-  timestamp?: number; targetTick?: number; commands?: ClientReliableCommand[]; command?: ClientReliableCommand;
-  commandType?: number; acks?: Array<{ signalId: number; signalType?: number }>; signalId?: number;
-  signalType?: number; forceEnterLobby?: boolean; ghostCars?: boolean; ghostMode?: string;
-  hostCarIndex?: number; hostInteractsWithBall?: boolean; broadcastHostOnly?: boolean;
-  ghostOpacity?: number; force?: boolean; prepareOnly?: boolean; entityId?: number; controls?: CarControlsInput;
+  extends WorkerReplayDiagnosticsPayload, WorkerTrainingAndPhysicsPayload, HostWorkerInitOptions {
+  channelId?: string;
+  playerName?: string;
+  name?: string;
+  preferredTeam?: number | null;
+  paintFinish?: string;
+  boostVisual?: string;
+  boostAudio?: string;
+  packet?: Uint8Array | ArrayBuffer;
+  timestamp?: number;
+  targetTick?: number;
+  commands?: ClientReliableCommand[];
+  command?: ClientReliableCommand;
+  commandType?: number;
+  acks?: Array<{ signalId: number; signalType?: number }>;
+  signalId?: number;
+  signalType?: number;
+  forceEnterLobby?: boolean;
+  ghostCars?: boolean;
+  ghostMode?: string;
+  hostCarIndex?: number;
+  hostInteractsWithBall?: boolean;
+  broadcastHostOnly?: boolean;
+  ghostOpacity?: number;
+  force?: boolean;
+  prepareOnly?: boolean;
+  entityId?: number;
+  controls?: CarControlsInput;
 }
 
 export interface WorkerProtocolIncomingMessage extends WorkerProtocolPayload {
-  type?: string; seq?: number; payload?: WorkerProtocolPayload | Uint8Array;
+  type?: string;
+  seq?: number;
+  payload?: WorkerProtocolPayload | Uint8Array;
 }
 
 export interface HostWorkerMessageRouterOptions extends WorkerRouterContext {
@@ -69,13 +128,22 @@ export function buildWorkerRoomStateSummary(
   if (!matchManager) return null;
   const s = matchManager.getSnapshot();
   return {
-    roomId: s.roomId, gameMode: s.gameMode, botFillMode: s.botFillMode, state: s.state,
-    matchTick: s.matchTick, clockSecondsRemaining: s.clockSecondsRemaining,
-    isOvertime: s.isOvertime, overtimeSeconds: s.overtimeSeconds,
-    blueScore: s.blueScore, orangeScore: s.orangeScore, winner: s.winner, winReason: s.winReason,
+    roomId: s.roomId,
+    gameMode: s.gameMode,
+    botFillMode: s.botFillMode,
+    state: s.state,
+    matchTick: s.matchTick,
+    clockSecondsRemaining: s.clockSecondsRemaining,
+    isOvertime: s.isOvertime,
+    overtimeSeconds: s.overtimeSeconds,
+    blueScore: s.blueScore,
+    orangeScore: s.orangeScore,
+    winner: s.winner,
+    winReason: s.winReason,
     lobbyPhysicsActive: s.lobbyPhysicsActive,
     ghostConfig: physicsManager?.lobbyGhostCoordinator?.getSnapshotConfig?.() || null,
-    pads: physicsManager?.sim?.getPads?.() || null, roster: s.roster,
+    pads: physicsManager?.sim?.getPads?.() || null,
+    roster: s.roster,
   };
 }
 
@@ -83,10 +151,10 @@ export function routeProtocolMessageInWorker(
   workerCtx: WorkerRouterContext,
   msg: WorkerProtocolIncomingMessage | null | undefined
 ): boolean {
-  if (!msg || typeof msg.type !== "string") return false;
+  if (!msg || typeof msg.type !== 'string') return false;
   const { type, ...rest } = msg;
   const p: WorkerProtocolPayload =
-    msg.payload && typeof msg.payload === "object" && !(msg.payload instanceof Uint8Array)
+    msg.payload && typeof msg.payload === 'object' && !(msg.payload instanceof Uint8Array)
       ? { ...rest, ...msg.payload }
       : (rest as WorkerProtocolPayload);
   const seq = msg.seq ?? p?.reqId ?? 0;
@@ -105,7 +173,8 @@ export function routeProtocolMessageInWorker(
     );
   };
   const syncRoomState = () => {
-    if (matchManager) reply(MSG.ROOM_STATE_SYNC, buildWorkerRoomStateSummary(matchManager, physicsManager));
+    if (matchManager)
+      reply(MSG.ROOM_STATE_SYNC, buildWorkerRoomStateSummary(matchManager, physicsManager));
   };
 
   if (routeReplayAndDiagnosticsMessage(workerCtx, type, p, seq, reply)) return true;
@@ -130,11 +199,17 @@ export function routeProtocolMessageInWorker(
       workerCtx.registerWorkerChannel?.(chId);
       if (matchManager) {
         matchManager.roster.assignPlayerSlot(
-          chId, p.playerName || "Player", p.role || "player", p.preferredTeam ?? null,
+          chId,
+          p.playerName || 'Player',
+          p.role || 'player',
+          p.preferredTeam ?? null,
           {
-            visualId: p.visualId || "octane", hitboxId: p.hitboxId || null,
-            colorSlot: p.colorSlot ?? null, paintFinish: p.paintFinish,
-            boostVisual: p.boostVisual, boostAudio: p.boostAudio,
+            visualId: p.visualId || 'octane',
+            hitboxId: p.hitboxId || null,
+            colorSlot: p.colorSlot ?? null,
+            paintFinish: p.paintFinish,
+            boostVisual: p.boostVisual,
+            boostAudio: p.boostAudio,
           },
           p.colorSlot ?? null
         );
@@ -161,23 +236,25 @@ export function routeProtocolMessageInWorker(
       return true;
 
     case MSG.LOCAL_INPUT_FRAME: {
-      const chId = p.channelId || "host";
+      const chId = p.channelId || 'host';
       if (p.packet && dataHandler) {
         dataHandler.handleIncomingPacket(chId, p.packet, p.timestamp || performance.now());
       } else if (p.controls && physicsManager) {
         const carIdx = p.carIndex ?? 0;
-        if (typeof p.targetTick === "number") physicsManager.pushInput(carIdx, p.targetTick, p.controls);
+        if (typeof p.targetTick === 'number')
+          physicsManager.pushInput(carIdx, p.targetTick, p.controls);
         else physicsManager.setDirectCarControls(carIdx, p.controls);
       }
       return true;
     }
 
     case MSG.RELIABLE_COMMAND: {
-      const sid = p.sessionId || p.channelId || "host";
+      const sid = p.sessionId || p.channelId || 'host';
       if (matchManager) {
-        if (Array.isArray(p.commands)) matchManager.commandQueue.handleClientCommands(sid, p.commands);
+        if (Array.isArray(p.commands))
+          matchManager.commandQueue.handleClientCommands(sid, p.commands);
         else if (p.command) matchManager.commandQueue.handleClientCommand(sid, p.command);
-        else if (typeof p.commandType === "number") {
+        else if (typeof p.commandType === 'number') {
           matchManager.commandQueue.handleClientCommand(sid, p as unknown as ClientReliableCommand);
         }
       }
@@ -185,10 +262,10 @@ export function routeProtocolMessageInWorker(
     }
 
     case MSG.SIGNAL_ACK: {
-      const sid = p.sessionId || p.channelId || "host";
+      const sid = p.sessionId || p.channelId || 'host';
       const acks = Array.isArray(p.acks)
         ? p.acks
-        : typeof p.signalId === "number"
+        : typeof p.signalId === 'number'
           ? [{ signalId: p.signalId, signalType: p.signalType }]
           : [];
       if (acks.length > 0) {
@@ -206,7 +283,7 @@ export function routeProtocolMessageInWorker(
             matchManager.lifecycle.enterLobbyMode(p);
           } else if (physicsManager) {
             physicsManager.setLobbyGhostMode(p.ghostCars !== false, {
-              mode: String(p.mode || p.ghostMode || "ghost_passthrough"),
+              mode: String(p.mode || p.ghostMode || 'ghost_passthrough'),
               hostCarIndex: p.hostCarIndex ?? 0,
               hostInteractsWithBall: p.hostInteractsWithBall ?? true,
               broadcastHostOnly: p.broadcastHostOnly ?? false,
@@ -223,15 +300,20 @@ export function routeProtocolMessageInWorker(
 
     case MSG.GHOST_CAR_CONFIG: {
       if (physicsManager) {
-        if (typeof p.carIndex === "number") {
+        if (typeof p.carIndex === 'number') {
           physicsManager.setCarCollisionMask(
-            p.carIndex, p.interactWithBall ?? false, p.interactWithCars ?? false, p.opacity
+            p.carIndex,
+            p.interactWithBall ?? false,
+            p.interactWithCars ?? false,
+            p.opacity
           );
         } else {
           physicsManager.setLobbyGhostMode(p.enabled ?? true, {
-            mode: typeof p.mode === "string" ? p.mode : undefined,
-            hostCarIndex: p.hostCarIndex, hostInteractsWithBall: p.hostInteractsWithBall,
-            broadcastHostOnly: p.broadcastHostOnly, ghostOpacity: p.ghostOpacity ?? p.opacity,
+            mode: typeof p.mode === 'string' ? p.mode : undefined,
+            hostCarIndex: p.hostCarIndex,
+            hostInteractsWithBall: p.hostInteractsWithBall,
+            broadcastHostOnly: p.broadcastHostOnly,
+            ghostOpacity: p.ghostOpacity ?? p.opacity,
           });
         }
         syncRoomState();
@@ -254,7 +336,7 @@ export function routeProtocolMessageInWorker(
       if (matchManager) matchManager.lifecycle.state = MATCH_STATES.PODIUM;
       if (physicsManager && sim) {
         const w: unknown = matchManager?.lifecycle.winner;
-        const winTeam = w === "blue" || w === 1 ? 0 : w === "orange" || w === 2 ? 1 : -1;
+        const winTeam = w === 'blue' || w === 1 ? 0 : w === 'orange' || w === 2 ? 1 : -1;
         for (const cIdx of physicsManager.activeCarIndices) {
           let isWinner = winTeam < 0;
           if (!isWinner && matchManager?.roster.players) {
@@ -272,30 +354,35 @@ export function routeProtocolMessageInWorker(
       return true;
     }
 
-    case "registerChannel":
+    case 'registerChannel':
       if (p.channelId) workerCtx.registerWorkerChannel?.(p.channelId);
       return true;
 
-    case "removeChannel":
+    case 'removeChannel':
       if (p.channelId) workerCtx.unregisterWorkerChannel?.(p.channelId);
       return true;
 
-    case "channel_packet":
-    case "clientInput":
+    case 'channel_packet':
+    case 'clientInput':
       if (p.channelId && p.packet) {
         dataHandler?.handleIncomingPacket(p.channelId, p.packet, p.timestamp || performance.now());
       }
       return true;
 
-    case "notifyPlayerJoined": {
-      const chId = p.channelId || (p.entityId === 0 ? "host" : `peer_${p.entityId}`);
+    case 'notifyPlayerJoined': {
+      const chId = p.channelId || (p.entityId === 0 ? 'host' : `peer_${p.entityId}`);
       matchManager?.roster.assignPlayerSlot(
-        chId, p.name || `Player ${p.entityId}`, p.role || "player",
-        typeof p.entityId === "number" && p.entityId >= 0 ? p.entityId % 2 : null,
+        chId,
+        p.name || `Player ${p.entityId}`,
+        p.role || 'player',
+        typeof p.entityId === 'number' && p.entityId >= 0 ? p.entityId % 2 : null,
         {
-          visualId: p.visualId || "octane", hitboxId: p.hitboxId || null,
-          colorSlot: p.colorSlot ?? 0, paintFinish: p.paintFinish,
-          boostVisual: p.boostVisual, boostAudio: p.boostAudio,
+          visualId: p.visualId || 'octane',
+          hitboxId: p.hitboxId || null,
+          colorSlot: p.colorSlot ?? 0,
+          paintFinish: p.paintFinish,
+          boostVisual: p.boostVisual,
+          boostAudio: p.boostAudio,
         },
         p.colorSlot ?? 0
       );
@@ -321,9 +408,13 @@ export class HostWorkerMessageRouter {
     this.sim = options.sim || options.physicsManager?.sim || null;
     this.matchManager = options.matchManager || options.admin || null;
     this.physicsManager =
-      options.physicsManager || (this.matchManager?.physicsManager as PhysicsEngineManager | null) || null;
+      options.physicsManager ||
+      (this.matchManager?.physicsManager as PhysicsEngineManager | null) ||
+      null;
     this.sessionManager =
-      options.sessionManager || (this.matchManager?.sessionManager as EstablishedSessionManager | null) || null;
+      options.sessionManager ||
+      (this.matchManager?.sessionManager as EstablishedSessionManager | null) ||
+      null;
     this.dataHandler = options.dataHandler || null;
     this.registerWorkerChannel = options.registerWorkerChannel || null;
     this.unregisterWorkerChannel = options.unregisterWorkerChannel || null;

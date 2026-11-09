@@ -175,7 +175,13 @@ export class ArenaLightingDebugGizmo {
     if (this.sunMarkerSphere) this.sunMarkerSphere.visible = showSun;
     if (this.skyDomeBeaconRing) this.skyDomeBeaconRing.visible = showSun;
 
-    if (showSun && this.sunRayLine && this.sunMarkerSphere && this.sunMarkerRing && this.skyDomeBeaconRing) {
+    if (
+      showSun &&
+      this.sunRayLine &&
+      this.sunMarkerSphere &&
+      this.sunMarkerRing &&
+      this.skyDomeBeaconRing
+    ) {
       const sunPos = carSunPos;
       const farSkyPosX = origin.x + shadowDir.x * 18000;
       const farSkyPosY = origin.y + shadowDir.y * 18000;
@@ -201,7 +207,9 @@ export class ArenaLightingDebugGizmo {
     if (this.keyLightMarkerSphere) this.keyLightMarkerSphere.visible = showKey;
     if (showKey && keyLight && this.keyLightRayLine && this.keyLightMarkerSphere) {
       const keyPos = keyLight.position;
-      const keyAttr = this.keyLightRayLine.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const keyAttr = this.keyLightRayLine.geometry.getAttribute(
+        'position'
+      ) as THREE.BufferAttribute;
       keyAttr.setXYZ(0, origin.x, origin.y, origin.z);
       keyAttr.setXYZ(1, keyPos.x, keyPos.y, keyPos.z);
       keyAttr.needsUpdate = true;

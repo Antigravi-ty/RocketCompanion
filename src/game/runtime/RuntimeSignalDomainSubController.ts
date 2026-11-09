@@ -1,9 +1,6 @@
 import { MATCH_SIGNALS } from '../../network/protocol/GlobalPayloadCodec.ts';
 import { isSignalAudioMutedInGoalReplay } from '../../audio/SignalAudioEngine.ts';
-import {
-  hudStore,
-  notifyNetworkTelemetryExportAvailable,
-} from '../runtimeUiPort.ts';
+import { hudStore, notifyNetworkTelemetryExportAvailable } from '../runtimeUiPort.ts';
 import { retainCompletedMatchReplayAndNotify } from '../../replay/ReplayFileExporter.ts';
 import type { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
 import {
@@ -42,7 +39,7 @@ function enterPodiumAndResetEndgameAudio(
   reconciler: PredictionReconciler,
   isPodiumStart: boolean,
   winningTeam: number,
-  winReason: string,
+  winReason: string
 ): void {
   if (isPodiumStart) {
     reconciler.setMatchTelemetryActive?.(false, false);
@@ -50,10 +47,7 @@ function enterPodiumAndResetEndgameAudio(
   }
   if (!host.isNetworkTelemetryNotified()) {
     host.markNetworkTelemetryNotified(true);
-    notifyNetworkTelemetryExportAvailable(
-      'match-complete',
-      reconciler.telemetryCollector.recorder,
-    );
+    notifyNetworkTelemetryExportAvailable('match-complete', reconciler.telemetryCollector.recorder);
   }
   host.resetAudio?.();
   host.audioSubsystem?.resetAudio?.();
@@ -77,7 +71,7 @@ export class RuntimeSignalDomainSubController {
     this.goalReplaySubController = new RuntimeGoalReplaySignalSubController(
       host,
       latch,
-      this.participantAndCombat,
+      this.participantAndCombat
     );
   }
 
@@ -144,7 +138,7 @@ export class RuntimeSignalDomainSubController {
       .catch((err: unknown) => {
         console.warn(
           '[RuntimeSignalDomainSubController] requestFullReplayExport failed; falling back:',
-          err,
+          err
         );
         notifyFallback();
       });
@@ -158,7 +152,7 @@ export class RuntimeSignalDomainSubController {
     sig: RuntimeSignalPacket,
     currentTick: number,
     audio: SignalAudioFacadeLike | null | undefined,
-    reconciler?: PredictionReconciler | null,
+    reconciler?: PredictionReconciler | null
   ): boolean {
     const h = this.host;
     const matchState = h.match?.state;
@@ -244,11 +238,7 @@ export class RuntimeSignalDomainSubController {
       case MATCH_SIGNALS.CLOCK_UPDATED_SECONDS: {
         const seconds = sig.param1 ?? 0;
         const isOt = (sig.param2 || 0) === 1;
-        if (
-          !isOt &&
-          matchState?.overtime &&
-          (matchState.phase === 'kickoff' || seconds === 0)
-        ) {
+        if (!isOt && matchState?.overtime && (matchState.phase === 'kickoff' || seconds === 0)) {
           return true;
         }
         const remSec = isOt ? 0 : seconds;
@@ -309,7 +299,7 @@ export class RuntimeSignalDomainSubController {
     sig: RuntimeSignalPacket,
     isFirstSeenSignalId: boolean,
     audio: SignalAudioFacadeLike | null | undefined,
-    onResetSignalState?: () => void,
+    onResetSignalState?: () => void
   ): boolean {
     if (this.goalReplaySubController.handleSignal(reconciler, sig, isFirstSeenSignalId, audio)) {
       return true;
@@ -345,11 +335,7 @@ export class RuntimeSignalDomainSubController {
 
       case MATCH_SIGNALS.MATCH_ENDED:
       case MATCH_SIGNALS.PODIUM_START: {
-        if (
-          arena?.isLobbyMode ||
-          matchState?.phase === 'lobby' ||
-          reconciler.lobbyDualWorldMode
-        ) {
+        if (arena?.isLobbyMode || matchState?.phase === 'lobby' || reconciler.lobbyDualWorldMode) {
           return true;
         }
         resetGoalReplayIncidentFlags(h);
@@ -359,8 +345,7 @@ export class RuntimeSignalDomainSubController {
         const winReason = WIN_REASON_LABELS[winReasonCode] || 'SCORE';
         const isPodiumStart = sig.signalType === MATCH_SIGNALS.PODIUM_START;
         const targetPhase = isPodiumStart ? 'podium' : 'ended';
-        const wasNotEnded =
-          matchState?.phase !== 'ended' && matchState?.phase !== 'podium';
+        const wasNotEnded = matchState?.phase !== 'ended' && matchState?.phase !== 'podium';
 
         reconciler.setReplayPlaybackMode?.(false);
         reconciler.setKickoffMaskUntilTick?.(-1);

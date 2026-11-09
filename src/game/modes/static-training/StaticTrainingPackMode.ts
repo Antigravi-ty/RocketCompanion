@@ -6,11 +6,8 @@ import {
   getActiveEditItemVariable,
   hudStore,
 } from '../../runtimeUiPort.ts';
-import { getPreferredFreeplayTeam } from '../../../ui-core/config/vehiclePresets';
-import {
-  type StaticTrainingEditSubMode,
-  type StaticTrainingShotConfig,
-} from './ShotGizmoMath.ts';
+import { getPreferredFreeplayTeam } from '../../../ui-core/config/vehiclePresets.ts';
+import { type StaticTrainingEditSubMode, type StaticTrainingShotConfig } from './ShotGizmoMath.ts';
 import { StaticTrainingArenaController } from './StaticTrainingArenaController.ts';
 import { StaticTrainingReplayController } from './StaticTrainingReplayController.ts';
 import { StaticTrainingShotEditor } from './StaticTrainingShotEditor.ts';
@@ -71,14 +68,30 @@ export class StaticTrainingPackMode extends BaseGameMode {
     });
   }
 
-  get replayRingBuffer() { return this.replaySession.replayRingBuffer; }
-  get replayController() { return this.replaySession.replayController; }
-  get isReplayActive(): boolean { return this.replaySession.isReplayActive; }
-  set isReplayActive(val: boolean) { this.replaySession.isReplayActive = val; }
-  get replayCameraMode() { return this.replaySession.replayCameraMode; }
-  set replayCameraMode(val: 'director' | 'pov') { this.replaySession.replayCameraMode = val; }
-  get playPhase() { return this.simulationController.playPhase; }
-  get stagedShot(): StaticTrainingShotConfig | null { return this.arenaController.stagedShot; }
+  get replayRingBuffer() {
+    return this.replaySession.replayRingBuffer;
+  }
+  get replayController() {
+    return this.replaySession.replayController;
+  }
+  get isReplayActive(): boolean {
+    return this.replaySession.isReplayActive;
+  }
+  set isReplayActive(val: boolean) {
+    this.replaySession.isReplayActive = val;
+  }
+  get replayCameraMode() {
+    return this.replaySession.replayCameraMode;
+  }
+  set replayCameraMode(val: 'director' | 'pov') {
+    this.replaySession.replayCameraMode = val;
+  }
+  get playPhase() {
+    return this.simulationController.playPhase;
+  }
+  get stagedShot(): StaticTrainingShotConfig | null {
+    return this.arenaController.stagedShot;
+  }
 
   onEnter(): void {
     const r = this.runtime;
@@ -137,7 +150,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
     const activeMode = this.runtime?.match?.state?.mode;
     if (activeMode !== 'static-training-pack') {
       console.warn(
-        `[StaticTrainingPackMode] ${actionName} ignored: active mode is "${activeMode ?? 'none'}", requires "static-training-pack".`,
+        `[StaticTrainingPackMode] ${actionName} ignored: active mode is "${activeMode ?? 'none'}", requires "static-training-pack".`
       );
       return false;
     }
@@ -182,7 +195,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
           item,
           true,
           this.editor.isLeftMouseDragging,
-          this.replaySession.replayRingBuffer,
+          this.replaySession.replayRingBuffer
         );
       },
       onResetShotRequested: () => {
@@ -204,7 +217,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
     useStaticTrainingPackStore.getState().setFreeCamTrajectoryTesting(true);
     this.arenaController.launchFreeCamTrajectoryPreview(
       this.editor.isLeftMouseDragging,
-      this.replaySession.replayRingBuffer,
+      this.replaySession.replayRingBuffer
     );
   }
 
@@ -218,7 +231,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
         shot,
         true,
         this.editor.isLeftMouseDragging,
-        this.replaySession.replayRingBuffer,
+        this.replaySession.replayRingBuffer
       );
     }
   }
@@ -266,7 +279,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
     this.arenaController.syncEditBallOpacityOverride(
       this.isTestingSingleShot,
       this.replaySession.isReplayActive,
-      true,
+      true
     );
     const shot = this._getCurrentShotConfig();
     if (!shot) return;
@@ -293,7 +306,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
       effectiveShot,
       false,
       this.editor.isLeftMouseDragging,
-      this.replaySession.replayRingBuffer,
+      this.replaySession.replayRingBuffer
     );
 
     const timeoutSec = Math.max(1, Math.min(60, Number(effectiveShot.timeoutSeconds) || 10));
@@ -301,7 +314,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
       timeoutSec,
       isPlayableSession,
       Boolean(store.downCounterEnabled),
-      Number(store.downCounterValue) || 1,
+      Number(store.downCounterValue) || 1
     );
 
     if (!isPlayableSession) {
@@ -313,7 +326,8 @@ export class StaticTrainingPackMode extends BaseGameMode {
 
     store.updateLiveTelemetry({
       remainingTimeoutSec: timeoutSec,
-      activeCountdownSec: isPlayableSession && store.downCounterEnabled ? store.downCounterValue : 0,
+      activeCountdownSec:
+        isPlayableSession && store.downCounterEnabled ? store.downCounterValue : 0,
       isShotLaunched: false,
       isOvertimeWaitGround: false,
       isReplayActive: false,
@@ -341,7 +355,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
       this.arenaController,
       this.replaySession,
       this.isTestingSingleShot,
-      this.isFreeCamTrajectoryTesting,
+      this.isFreeCamTrajectoryTesting
     );
   }
 
@@ -351,14 +365,19 @@ export class StaticTrainingPackMode extends BaseGameMode {
       this.replaySession,
       this.isTestingSingleShot,
       this.isFreeCamTrajectoryTesting,
-      () => this.replaySession.completeSessionAndAdvance(this.isTestingSingleShot, () => this.reloadCurrentShot()),
+      () =>
+        this.replaySession.completeSessionAndAdvance(this.isTestingSingleShot, () =>
+          this.reloadCurrentShot()
+        )
     );
   }
 
   skipGoalReplay(): void {
     if (!this.replaySession.isReplayActive && this.simulationController.goalResetTicks <= 0) return;
     this.simulationController.goalResetTicks = 0;
-    this.replaySession.completeSessionAndAdvance(this.isTestingSingleShot, () => this.reloadCurrentShot());
+    this.replaySession.completeSessionAndAdvance(this.isTestingSingleShot, () =>
+      this.reloadCurrentShot()
+    );
   }
 
   update(context: any): void {
@@ -366,16 +385,22 @@ export class StaticTrainingPackMode extends BaseGameMode {
     const store = useStaticTrainingPackStore.getState();
     this.arenaController.syncEditBallOpacityOverride(
       this.isTestingSingleShot,
-      this.replaySession.isReplayActive,
+      this.replaySession.isReplayActive
     );
 
-    if (this.replaySession.isReplayActive && this.replaySession.replayController.sessionState.isActive) {
+    if (
+      this.replaySession.isReplayActive &&
+      this.replaySession.replayController.sessionState.isActive
+    ) {
       this.replaySession.stepUpdate(
         context,
         dt,
         this.arenaController.stagedShot,
         this.visuals,
-        () => this.replaySession.completeSessionAndAdvance(this.isTestingSingleShot, () => this.reloadCurrentShot()),
+        () =>
+          this.replaySession.completeSessionAndAdvance(this.isTestingSingleShot, () =>
+            this.reloadCurrentShot()
+          )
       );
       return;
     }
@@ -394,7 +419,12 @@ export class StaticTrainingPackMode extends BaseGameMode {
       this.simulationController.playPhase === 'countdown' ||
       this.simulationController.playPhase === 'waiting-input';
     if (isPreLaunch) {
-      this.arenaController.applyPreLaunchCarHudOverride(context, this.arenaController.stagedShot, dt, false);
+      this.arenaController.applyPreLaunchCarHudOverride(
+        context,
+        this.arenaController.stagedShot,
+        dt,
+        false
+      );
     }
 
     if (this.visuals && this.arenaController.stagedShot) {
@@ -404,11 +434,13 @@ export class StaticTrainingPackMode extends BaseGameMode {
 
     const { playerCarView } = context;
     if (playerCarView) {
-      hudStore.getState().setBoost(
-        playerCarView.boost,
-        playerCarView.isBoosting,
-        Boolean(this.arenaController.stagedShot?.car?.unlimitedBoost),
-      );
+      hudStore
+        .getState()
+        .setBoost(
+          playerCarView.boost,
+          playerCarView.isBoosting,
+          Boolean(this.arenaController.stagedShot?.car?.unlimitedBoost)
+        );
     }
   }
 

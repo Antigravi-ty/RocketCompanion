@@ -63,7 +63,9 @@ export interface ReplayHistoryFrameSlot {
   controls?: ReplayHistoryControlItem[] | null;
 }
 
-export type ReplayFrameSlotAccessor = (frameIndex: number) => ReplayHistoryFrameSlot | null | undefined;
+export type ReplayFrameSlotAccessor = (
+  frameIndex: number
+) => ReplayHistoryFrameSlot | null | undefined;
 
 export interface ReconstructedCarTransientState {
   lastGroundFrame: number;
@@ -186,8 +188,12 @@ export function reconstructCarTransientStateFromHistory(
       hasFlipped = 1;
       const elapsedFlipTicks = targetFrameIndex - flipStartFrame + 1;
       flipTime = isFlipping ? Math.min(0.65, elapsedFlipTicks * dt) : 0.65;
-      const flipCtrl = extractCarControlsFromFrameList(getFrameSlotAt(flipStartFrame)?.controls, carIndex);
-      if (flipCtrl) flipRelTorque = computeDodgeRelTorque(flipCtrl.pitch, flipCtrl.yaw, flipCtrl.roll);
+      const flipCtrl = extractCarControlsFromFrameList(
+        getFrameSlotAt(flipStartFrame)?.controls,
+        carIndex
+      );
+      if (flipCtrl)
+        flipRelTorque = computeDodgeRelTorque(flipCtrl.pitch, flipCtrl.yaw, flipCtrl.roll);
     } else if (isFlipping) {
       hasFlipped = 1;
       const ctrl = extractCarControlsFromFrameList(targetSlot?.controls, carIndex);
@@ -341,7 +347,10 @@ export function reconstructAndRestoreReplayFrame(
   if (!targetSnap) return false;
   const memViews = engine as RocketSimSnapshotMemoryViews;
 
-  const numCars = Math.min(MAX_CARS, Math.max(1, Math.round(targetSnap[SIM_OFFSETS.NUM_CARS] || engine.numCars || 1)));
+  const numCars = Math.min(
+    MAX_CARS,
+    Math.max(1, Math.round(targetSnap[SIM_OFFSETS.NUM_CARS] || engine.numCars || 1))
+  );
   const byCar = new Map<number, ReconstructedCarTransientState>();
   for (let c = 0; c < numCars; c++) {
     if (engine.isCarSlotActive && !engine.isCarSlotActive(c)) continue;
@@ -358,7 +367,9 @@ export function reconstructAndRestoreReplayFrame(
       const nextSlot = getFrameSlotAt(wIdx + 1) || wSlot;
       if (wSlot?.snapshot) {
         const cBase = SIM_OFFSETS.CARS + c * CAR_STATE_STRIDE;
-        wSnap.subarray(cBase, cBase + CAR_STATE_STRIDE).set(wSlot.snapshot.subarray(cBase, cBase + CAR_STATE_STRIDE));
+        wSnap
+          .subarray(cBase, cBase + CAR_STATE_STRIDE)
+          .set(wSlot.snapshot.subarray(cBase, cBase + CAR_STATE_STRIDE));
         const eBase = 416 + c * 4;
         if (wSlot.snapshot.length >= eBase + 4 && wSnap.length >= eBase + 4) {
           wSnap.subarray(eBase, eBase + 4).set(wSlot.snapshot.subarray(eBase, eBase + 4));
@@ -397,9 +408,9 @@ export function reconstructAndRestoreReplayFrame(
       const wStart = 169 + c * 508 + 124;
       if (wStart + 384 <= curSnap.length) {
         if (rec.isOnGround) {
-          curSnap.subarray(wStart, wStart + 384).set(
-            warmedSnap.subarray(wStart, Math.min(warmedSnap.length, wStart + 384))
-          );
+          curSnap
+            .subarray(wStart, wStart + 384)
+            .set(warmedSnap.subarray(wStart, Math.min(warmedSnap.length, wStart + 384)));
         } else {
           for (let w = 0; w < 4; w++) {
             const wOff = wStart + w * 96;

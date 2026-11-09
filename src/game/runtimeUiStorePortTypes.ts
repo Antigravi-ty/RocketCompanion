@@ -1,43 +1,43 @@
-import type { SpatialAudioTunerConfig } from '../ui-core/config/spatialAudioConfig';
+import type { SpatialAudioTunerConfig } from '../ui-core/config/spatialAudioConfig.ts';
 import type {
   NameTagBoostBorderOverride,
   NameTagCarEntry,
   NameTagConfig,
   NameTagRuntimeState,
   NameTagTelemetrySnapshot,
-} from '../ui-core/config/nameTagConfig';
+} from '../ui-core/config/nameTagConfig.ts';
 import type {
   EditSubMode,
   StaticTrainingPackMetadata,
   StaticTrainingShotItem,
-} from '../ui-core/config/staticTrainingPackTypes';
+} from '../ui-core/config/staticTrainingPackTypes.ts';
 import type {
   DirectorCameraState,
   ReplaySessionState,
-} from '../replay/replayDirectorStateTypes';
-import type { AppState } from '../ui-core/stores/appStoreTypes';
-import type { HudStoreState } from '../ui-core/stores/hudStore';
+} from '../replay/replayDirectorStateTypes.ts';
+import type { AppState } from '../ui-core/stores/appStoreTypes.ts';
+import type { HudStoreState } from '../ui-core/stores/hudStore.ts';
 import type {
   BgmUploadedTrack,
   SpatialAudioStoreState,
-} from '../ui-core/stores/spatialAudioStore';
-import type { SubsystemIsolationLabState } from '../ui-core/stores/subsystemIsolationLabTypes';
-import type { RewinderState } from '../ui-core/stores/rewinderStore';
-import type { ReplayViewerStoreState } from '../ui-core/stores/replayViewerStore';
-import type { ReplayToRcsImporterStoreState } from '../ui-core/stores/replayToRcsImporterStore';
-import type { ExperimentalMultiBotsState } from '../ui-core/stores/experimentalMultiBotsStore';
-import type { ExperimentalMultiBotsSlotConfig } from '../ui-core/stores/experimentalMultiBotsRosterUtils';
+} from '../ui-core/stores/spatialAudioStore.ts';
+import type { SubsystemIsolationLabState } from '../ui-core/stores/subsystemIsolationLabTypes.ts';
+import type { RewinderState } from '../ui-core/stores/rewinderStore.ts';
+import type { ReplayViewerStoreState } from '../ui-core/stores/replayViewerStore.ts';
+import type { ReplayToRcsImporterStoreState } from '../ui-core/stores/replayToRcsImporterStore.ts';
+import type { ExperimentalMultiBotsState } from '../ui-core/stores/experimentalMultiBotsStore.ts';
+import type { ExperimentalMultiBotsSlotConfig } from '../ui-core/stores/experimentalMultiBotsRosterUtils.ts';
 import type {
   ActiveStaticTrainingPackBundle,
   StaticTrainingPackStoreState,
-} from '../ui-core/stores/staticTrainingPackStore';
-import type { StaticTrainingBallCamTunerState } from '../ui-core/stores/staticTrainingBallCamTunerStore';
-import type { KickoffTrainingState } from '../ui-core/stores/kickoffTrainingStore';
-import type { ReferenceOverlayState } from '../ui-core/stores/referenceOverlayStore';
+} from '../ui-core/stores/staticTrainingPackStore.ts';
+import type { StaticTrainingBallCamTunerState } from '../ui-core/stores/staticTrainingBallCamTunerStore.ts';
+import type { KickoffTrainingState } from '../ui-core/stores/kickoffTrainingStore.ts';
+import type { ReferenceOverlayState } from '../ui-core/stores/referenceOverlayStore.ts';
 import type {
   QuickNotificationItem,
   QuickNotificationStore,
-} from '../ui-core/stores/notificationTypes';
+} from '../ui-core/stores/notificationTypes.ts';
 
 export type {
   NameTagBoostBorderOverride,
@@ -157,12 +157,12 @@ export type HudStorePortState = PortOverride<
       hasFlip: boolean,
       flipStatus?: string,
       flipRemainingSeconds?: number,
-      flipsRemaining?: number,
+      flipsRemaining?: number
     ) => void;
     setDemoRespawnState: (
       isDemolished: boolean,
       remainingSeconds: number,
-      durationSeconds?: number,
+      durationSeconds?: number
     ) => void;
     syncBindings: (bindings: Record<string, unknown>) => void;
   }
@@ -306,7 +306,7 @@ export type QuickNotificationStorePortState = PortOverride<
     pushOngoingNotification: (config?: Record<string, unknown>) => string;
     updateOngoingNotification: (
       idOrUpdates: string | Record<string, unknown>,
-      updates?: Record<string, unknown>,
+      updates?: Record<string, unknown>
     ) => void;
     dismissOngoingNotification: (id?: string) => void;
     completeOngoingNotification: (id?: string, summary?: unknown) => void;
@@ -376,8 +376,9 @@ export interface StoreBoundTarget<T> {
   getState?: () => T;
   getSnapshot?: () => T;
   setState?: (
-    partial: Partial<T> | Record<string, unknown> | ((state: T) => Partial<T> | Record<string, unknown>),
-    replace?: boolean,
+    partial:
+      Partial<T> | Record<string, unknown> | ((state: T) => Partial<T> | Record<string, unknown>),
+    replace?: boolean
   ) => T;
   subscribe?: (listener: StoreListener<T>) => () => boolean | void;
   [key: string]: unknown;
@@ -387,8 +388,9 @@ export type StoreProxy<T extends object, M extends object = Record<string, never
   _bind(store: unknown): void;
   getState(): T;
   setState(
-    partial: Partial<T> | Record<string, unknown> | ((state: T) => Partial<T> | Record<string, unknown>),
-    replace?: boolean,
+    partial:
+      Partial<T> | Record<string, unknown> | ((state: T) => Partial<T> | Record<string, unknown>),
+    replace?: boolean
   ): T;
   subscribe(listener: StoreListener<T>): () => boolean | void;
   getSnapshot(): T;
@@ -435,7 +437,11 @@ export interface PacingTelemetryRecorderPort {
   count: number;
   reset?(config?: Record<string, unknown>): void;
   recordTick?(sample: Record<string, unknown>): void;
-  getSummaryStats?(): { starvationCount?: number; hardResyncCount?: number; [key: string]: unknown };
+  getSummaryStats?(): {
+    starvationCount?: number;
+    hardResyncCount?: number;
+    [key: string]: unknown;
+  };
   toMetadataObject?(): Record<string, unknown>;
   toCsvString?(): string;
   [key: string]: unknown;

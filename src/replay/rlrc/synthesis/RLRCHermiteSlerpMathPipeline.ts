@@ -26,16 +26,19 @@ export interface RLRCOrthonormalBasis {
   readonly up: RLRCVec3;
 }
 
-export const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(max, v));
+export const clamp = (v: number, min: number, max: number): number =>
+  Math.max(min, Math.min(max, v));
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 export const v3 = (x: number, y: number, z: number): RLRCVec3 => ({ x, y, z });
-export const vAxis = (fn: (k: 'x' | 'y' | 'z') => number): RLRCVec3 => v3(fn('x'), fn('y'), fn('z'));
+export const vAxis = (fn: (k: 'x' | 'y' | 'z') => number): RLRCVec3 =>
+  v3(fn('x'), fn('y'), fn('z'));
 export const vLen = (a: RLRCVec3): number => Math.hypot(a.x, a.y, a.z);
 export const vAdd = (a: RLRCVec3, b: RLRCVec3): RLRCVec3 => v3(a.x + b.x, a.y + b.y, a.z + b.z);
 export const vSub = (a: RLRCVec3, b: RLRCVec3): RLRCVec3 => v3(a.x - b.x, a.y - b.y, a.z - b.z);
 export const vScale = (a: RLRCVec3, s: number): RLRCVec3 => v3(a.x * s, a.y * s, a.z * s);
 export const vDist = (a: RLRCVec3, b: RLRCVec3): number => vLen(vSub(a, b));
-export const vLerp = (a: RLRCVec3, b: RLRCVec3, t: number): RLRCVec3 => vAxis((k) => lerp(a[k], b[k], t));
+export const vLerp = (a: RLRCVec3, b: RLRCVec3, t: number): RLRCVec3 =>
+  vAxis((k) => lerp(a[k], b[k], t));
 
 export const ID_QUAT: RLRCQuat = Object.freeze({ x: 0, y: 0, z: 0, w: 1 });
 export const ZERO_VEC: RLRCVec3 = Object.freeze(v3(0, 0, 0));
@@ -68,11 +71,17 @@ export function isRest(rb: RLRCRigidBodySample): boolean {
 }
 
 export function toRest(rb: RLRCRigidBodySample): RLRCRigidBodySample {
-  return rb.sleeping ? rb : { ...rb, sleeping: true, linearVelocity: ZERO_VEC, angularVelocity: ZERO_VEC };
+  return rb.sleeping
+    ? rb
+    : { ...rb, sleeping: true, linearVelocity: ZERO_VEC, angularVelocity: ZERO_VEC };
 }
 
 export function isDupRb(a: RLRCRigidBodySample, b: RLRCRigidBodySample): boolean {
-  const qd = a.rotation.x * b.rotation.x + a.rotation.y * b.rotation.y + a.rotation.z * b.rotation.z + a.rotation.w * b.rotation.w;
+  const qd =
+    a.rotation.x * b.rotation.x +
+    a.rotation.y * b.rotation.y +
+    a.rotation.z * b.rotation.z +
+    a.rotation.w * b.rotation.w;
   return (
     a.sleeping === b.sleeping &&
     vDist(a.position, b.position) <= 1e-2 &&
@@ -83,7 +92,9 @@ export function isDupRb(a: RLRCRigidBodySample, b: RLRCRigidBodySample): boolean
 
 export function normalizeQuat(q: RLRCQuat): RLRCQuat {
   const l = Math.hypot(q.x, q.y, q.z, q.w);
-  return Number.isFinite(l) && l >= 1e-7 ? { x: q.x / l, y: q.y / l, z: q.z / l, w: q.w / l } : ID_QUAT;
+  return Number.isFinite(l) && l >= 1e-7
+    ? { x: q.x / l, y: q.y / l, z: q.z / l, w: q.w / l }
+    : ID_QUAT;
 }
 
 export function slerpShortestArcQuat(q0: RLRCQuat, q1: RLRCQuat, alpha: number): RLRCQuat {
@@ -115,9 +126,15 @@ export function slerpShortestArcQuat(q0: RLRCQuat, q1: RLRCQuat, alpha: number):
 
 export function quatToBasisVectors(rotation: RLRCQuat): RLRCOrthonormalBasis {
   const { x, y, z, w } = normalizeQuat(rotation);
-  const xx = x * x, yy = y * y, zz = z * z;
-  const xy = x * y, xz = x * z, yz = y * z;
-  const wx = w * x, wy = w * y, wz = w * z;
+  const xx = x * x,
+    yy = y * y,
+    zz = z * z;
+  const xy = x * y,
+    xz = x * z,
+    yz = y * z;
+  const wx = w * x,
+    wy = w * y,
+    wz = w * z;
   return {
     fwd: v3(1 - 2 * (yy + zz), 2 * (xy + wz), 2 * (xz - wy)),
     right: v3(2 * (xy - wz), 1 - 2 * (xx + zz), 2 * (yz + wx)),
@@ -127,7 +144,9 @@ export function quatToBasisVectors(rotation: RLRCQuat): RLRCOrthonormalBasis {
 
 export function calibrateNetStreamVel(v: RLRCVec3, secantSpeed: number): RLRCVec3 {
   const vs = vLen(v);
-  return secantSpeed > 60 && vs > 2 && secantSpeed / vs > 5.0 && secantSpeed / vs < 16.0 ? vScale(v, 10) : v;
+  return secantSpeed > 60 && vs > 2 && secantSpeed / vs > 5.0 && secantSpeed / vs < 16.0
+    ? vScale(v, 10)
+    : v;
 }
 
 export function sanitizeAngularVel(av: RLRCVec3): RLRCVec3 {
@@ -182,7 +201,13 @@ export function interpolateRigidBodyHermiteSlerp(
   );
   const vLin = vLerp(v0, v1, tau);
   if (method === 'linear') {
-    return { sleeping: false, position: vLerp(p0, p1, tau), rotation, linearVelocity: sec, angularVelocity };
+    return {
+      sleeping: false,
+      position: vLerp(p0, p1, tau),
+      rotation,
+      linearVelocity: sec,
+      angularVelocity,
+    };
   }
 
   const t0 = clampTan(v0, sec, maxSpeedUu);
@@ -200,16 +225,27 @@ export function interpolateRigidBodyHermiteSlerp(
 
   return {
     sleeping: false,
-    position: vAxis((k) => Math.max(k === 'z' ? minZ : -Infinity, h00 * p0[k] + h10 * t0[k] + h01 * p1[k] + h11 * t1[k])),
+    position: vAxis((k) =>
+      Math.max(k === 'z' ? minZ : -Infinity, h00 * p0[k] + h10 * t0[k] + h01 * p1[k] + h11 * t1[k])
+    ),
     rotation,
-    linearVelocity: vAxis((k) => 0.5 * (vLin[k] + dh00 * (p0[k] - p1[k]) + dh10 * t0[k] + dh11 * t1[k])),
+    linearVelocity: vAxis(
+      (k) => 0.5 * (vLin[k] + dh00 * (p0[k] - p1[k]) + dh10 * t0[k] + dh11 * t1[k])
+    ),
     angularVelocity,
   };
 }
 
-function writeRb18(dst: Float32Array, base: number, { position: p, rotation: r, linearVelocity: v, angularVelocity: w }: RLRCRigidBodySample): void {
+function writeRb18(
+  dst: Float32Array,
+  base: number,
+  { position: p, rotation: r, linearVelocity: v, angularVelocity: w }: RLRCRigidBodySample
+): void {
   const { fwd: f, right: rt, up: u } = quatToBasisVectors(r);
-  dst.set([p.x, p.y, p.z, f.x, f.y, f.z, rt.x, rt.y, rt.z, u.x, u.y, u.z, v.x, v.y, v.z, w.x, w.y, w.z], base);
+  dst.set(
+    [p.x, p.y, p.z, f.x, f.y, f.z, rt.x, rt.y, rt.z, u.x, u.y, u.z, v.x, v.y, v.z, w.x, w.y, w.z],
+    base
+  );
 }
 
 export function packRLRCFramesToTrack0Bytes(frames120Hz: readonly RLRCFrame120Hz[]): Uint8Array {
@@ -225,7 +261,10 @@ export function packRLRCFramesToTrack0Bytes(frames120Hz: readonly RLRCFrame120Hz
     f32[2] = Math.min(RLRC_MAX_PLAYER_SLOTS, fr.cars.length);
     f32[3] = RLRC_BOOST_PAD_COUNT;
     writeRb18(f32, 4, fr.ball.rigidBody);
-    const ctrlSlice = out.subarray(off + RLRC_STATE_BYTES_PER_FRAME, off + RLRC_TRACK0_FRAME_STRIDE_BYTES);
+    const ctrlSlice = out.subarray(
+      off + RLRC_STATE_BYTES_PER_FRAME,
+      off + RLRC_TRACK0_FRAME_STRIDE_BYTES
+    );
 
     for (let c = 0; c < fr.cars.length && c < RLRC_MAX_PLAYER_SLOTS; c++) {
       const car = fr.cars[c];
@@ -237,7 +276,17 @@ export function packRLRCFramesToTrack0Bytes(frames120Hz: readonly RLRCFrame120Hz
       f32[416 + car.slotIndex * 4] = fl.jumpActive ? 1 : 0;
       f32[419 + car.slotIndex * 4] = car.airTimeSinceJump;
       if (car.entityActive) {
-        f32.set([car.isOnGround ? 1 : 0, car.isSupersonic ? 1 : 0, 0, car.hasFlipOrJump ? 1 : 0, fl.boostActive ? 1 : 0, fl.dodgeActive ? 1 : 0], base + 19);
+        f32.set(
+          [
+            car.isOnGround ? 1 : 0,
+            car.isSupersonic ? 1 : 0,
+            0,
+            car.hasFlipOrJump ? 1 : 0,
+            fl.boostActive ? 1 : 0,
+            fl.dodgeActive ? 1 : 0,
+          ],
+          base + 19
+        );
         packCarControlsToTrack64(ctrlSlice, car.slotIndex, { ...car.controls });
       } else {
         f32[base + 21] = 1;

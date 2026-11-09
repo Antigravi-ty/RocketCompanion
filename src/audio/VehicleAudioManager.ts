@@ -1,10 +1,10 @@
 import { VehicleAudioEmitter } from './VehicleAudioEmitter.ts';
-import { audioConfig } from '../ui-core/config/audioConfig';
+import { audioConfig } from '../ui-core/config/audioConfig.ts';
 import { subsystemState } from './audioContext.ts';
 import {
   INCIDENT_EVENT_TYPES,
   PHYSICS_EVENT_TYPES,
-  isBallFlipResetEvent
+  isBallFlipResetEvent,
 } from '../physics/RocketSimConstants.ts';
 import { type AudioAttenuationCategory, type SpatialPositionInput } from './SpatialAudioSource.ts';
 import { type PhysicsImpactAudioEvent } from './WorldImpactAudioHandler.ts';
@@ -64,10 +64,18 @@ export class VehicleAudioManager {
   _landingStateByCar = new Map<number, VehicleLandingTrackingState>();
   activeCarIndex = 0;
   buffers: VehicleAudioBuffers = {
-    jump: [], doubleJump: [], dodge: [],
-    boostStart: null, boostLoop: null, boostRelease: null,
-    supersonicEnter: [], supersonicLoop: null, reset: null,
-    wheelImpact: [], carCollision: null, vehicleDetail: [],
+    jump: [],
+    doubleJump: [],
+    dodge: [],
+    boostStart: null,
+    boostLoop: null,
+    boostRelease: null,
+    supersonicEnter: [],
+    supersonicLoop: null,
+    reset: null,
+    wheelImpact: [],
+    carCollision: null,
+    vehicleDetail: [],
   };
   carBoostVariations = new Map<number, string>();
   emitters = new Map<number, VehicleAudioEmitter>();
@@ -92,7 +100,8 @@ export class VehicleAudioManager {
       const sVar = audioConfig.get('boostStartVariation');
       const lVar = audioConfig.get('boostLoopVariation');
       const eVar = audioConfig.get('boostEndVariation');
-      if (sVar && lVar && eVar && (sVar !== lVar || lVar !== eVar)) return resolveKeys(sVar, lVar, eVar);
+      if (sVar && lVar && eVar && (sVar !== lVar || lVar !== eVar))
+        return resolveKeys(sVar, lVar, eVar);
     }
     const varId = this.carBoostVariations.get(carIndex);
     if (varId && bufs) return resolveKeys(varId, varId, varId);
@@ -133,7 +142,12 @@ export class VehicleAudioManager {
   updatePanningModel(model: PanningModelType | null | undefined): void {
     if (!model) return;
     for (const e of this.emitters.values()) {
-      if (e?.panner3D) try { e.panner3D.panningModel = model; } catch { /* ignore */ }
+      if (e?.panner3D)
+        try {
+          e.panner3D.panningModel = model;
+        } catch {
+          /* ignore */
+        }
     }
   }
 
@@ -142,7 +156,12 @@ export class VehicleAudioManager {
     for (const [carIdx, e] of this.emitters.entries()) this._syncEmitterBuffers(carIdx, e);
   }
 
-  private _checkCarCooldown(map: Map<number, number>, carIndex: number, nowMs: number, cooldownMs: number): boolean {
+  private _checkCarCooldown(
+    map: Map<number, number>,
+    carIndex: number,
+    nowMs: number,
+    cooldownMs: number
+  ): boolean {
     const prevMs = map.get(carIndex) || -Infinity;
     if (nowMs - prevMs < cooldownMs) return false;
     map.set(carIndex, nowMs);
@@ -165,7 +184,14 @@ export class VehicleAudioManager {
     fallbackRate: number,
     category: AudioAttenuationCategory = 'jump_dodge_other'
   ): void {
-    if (!this._checkCarCooldown(this._lastJumpActionMsByCar, carIndex, nowMs, INCIDENT_COOLDOWN_MS.JUMP_ACTION_PER_CAR)) {
+    if (
+      !this._checkCarCooldown(
+        this._lastJumpActionMsByCar,
+        carIndex,
+        nowMs,
+        INCIDENT_COOLDOWN_MS.JUMP_ACTION_PER_CAR
+      )
+    ) {
       return;
     }
     if (list && list.length > 0) {
@@ -173,7 +199,11 @@ export class VehicleAudioManager {
       this[lastIdxKey] = idx;
       emitter.playAction(list[idx], { volume: vol, category });
     } else if (this.buffers.carCollision) {
-      emitter.playAction(this.buffers.carCollision, { volume: vol * 0.4, playbackRate: fallbackRate, category });
+      emitter.playAction(this.buffers.carCollision, {
+        volume: vol * 0.4,
+        playbackRate: fallbackRate,
+        category,
+      });
     }
   }
 
@@ -189,7 +219,8 @@ export class VehicleAudioManager {
   }: VehicleAudioUpdateContext): void {
     this.activeCarIndex = activeCarIndex;
     const totalCars = Math.max(1, numCars);
-    const audible = !hasBlockingOverlay && Boolean(isMatchActive) && (!isHidden || Boolean(continueOnBlur));
+    const audible =
+      !hasBlockingOverlay && Boolean(isMatchActive) && (!isHidden || Boolean(continueOnBlur));
 
     for (let i = 0; i < totalCars; i++) {
       const emitter = this.getEmitter(i);
@@ -211,11 +242,11 @@ export class VehicleAudioManager {
         const hasWheelContactMethod = typeof carState.getWheelContact === 'function';
         const isGroundedNow = Boolean(
           carState.isOnGround ||
-            (hasWheelContactMethod &&
-              (carState.getWheelContact!(0) ||
-                carState.getWheelContact!(1) ||
-                carState.getWheelContact!(2) ||
-                carState.getWheelContact!(3)))
+          (hasWheelContactMethod &&
+            (carState.getWheelContact!(0) ||
+              carState.getWheelContact!(1) ||
+              carState.getWheelContact!(2) ||
+              carState.getWheelContact!(3)))
         );
         let landingSt = this._landingStateByCar.get(i);
         if (!landingSt) {
@@ -226,10 +257,19 @@ export class VehicleAudioManager {
           landingSt.wasGrounded = false;
           landingSt.airborneTicks++;
           const downwardVel = Math.max(0, -(carState.velZ ?? 0));
-          if (downwardVel > landingSt.peakDownwardSpeedUU) landingSt.peakDownwardSpeedUU = downwardVel;
+          if (downwardVel > landingSt.peakDownwardSpeedUU)
+            landingSt.peakDownwardSpeedUU = downwardVel;
         } else {
-          if (!landingSt.wasGrounded && landingSt.airborneTicks >= 6 && landingSt.peakDownwardSpeedUU >= 220) {
-            this.handleCarEvent({ type: 'wheel_impact', carIndex: i, speed: landingSt.peakDownwardSpeedUU });
+          if (
+            !landingSt.wasGrounded &&
+            landingSt.airborneTicks >= 6 &&
+            landingSt.peakDownwardSpeedUU >= 220
+          ) {
+            this.handleCarEvent({
+              type: 'wheel_impact',
+              carIndex: i,
+              speed: landingSt.peakDownwardSpeedUU,
+            });
           }
           landingSt.wasGrounded = true;
           landingSt.peakDownwardSpeedUU = 0;
@@ -249,31 +289,57 @@ export class VehicleAudioManager {
     } else if (
       (event.posX !== undefined || event.x !== undefined) &&
       event.type !== INCIDENT_EVENT_TYPES.BOOST_PICKUP &&
-      event.type !== 0x0A &&
+      event.type !== 0x0a &&
       event.type !== INCIDENT_EVENT_TYPES.BOOST_SPAWN &&
-      event.type !== 0x0B
+      event.type !== 0x0b
     ) {
       emitter.updatePosition(event);
     }
 
     const nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    const baseMult = (audioConfig.get('masterVolume') ?? 1.0) * (emitter.isSelf ? (audioConfig.get('vehicleSelfVolume') ?? 1.0) : 1.0);
+    const baseMult =
+      (audioConfig.get('masterVolume') ?? 1.0) *
+      (emitter.isSelf ? (audioConfig.get('vehicleSelfVolume') ?? 1.0) : 1.0);
     const actionSubType = event.actionSubType ?? event.subType ?? 0;
 
     switch (event.type) {
       case INCIDENT_EVENT_TYPES.CAR_JUMP:
       case 0x06:
-        this._playJumpFamilyAction(emitter, carIndex, nowMs, (audioConfig.get('jumpVolume') ?? 1.0) * baseMult, this.buffers.jump, 'lastJumpSoundIdx', 1.4);
+        this._playJumpFamilyAction(
+          emitter,
+          carIndex,
+          nowMs,
+          (audioConfig.get('jumpVolume') ?? 1.0) * baseMult,
+          this.buffers.jump,
+          'lastJumpSoundIdx',
+          1.4
+        );
         break;
 
       case INCIDENT_EVENT_TYPES.CAR_DOUBLE_JUMP:
       case 0x07:
-        this._playJumpFamilyAction(emitter, carIndex, nowMs, (audioConfig.get('doubleJumpVolume') ?? 1.0) * baseMult, this.buffers.doubleJump, 'lastDoubleJumpSoundIdx', 1.7);
+        this._playJumpFamilyAction(
+          emitter,
+          carIndex,
+          nowMs,
+          (audioConfig.get('doubleJumpVolume') ?? 1.0) * baseMult,
+          this.buffers.doubleJump,
+          'lastDoubleJumpSoundIdx',
+          1.7
+        );
         break;
 
       case INCIDENT_EVENT_TYPES.CAR_DODGE:
       case 0x08:
-        this._playJumpFamilyAction(emitter, carIndex, nowMs, (audioConfig.get('dodgeVolume') ?? 1.0) * baseMult, this.buffers.dodge, 'lastDodgeSoundIdx', 1.2);
+        this._playJumpFamilyAction(
+          emitter,
+          carIndex,
+          nowMs,
+          (audioConfig.get('dodgeVolume') ?? 1.0) * baseMult,
+          this.buffers.dodge,
+          'lastDodgeSoundIdx',
+          1.2
+        );
         break;
 
       case PHYSICS_EVENT_TYPES.CAR_ACTION: {
@@ -282,14 +348,24 @@ export class VehicleAudioManager {
           2: INCIDENT_EVENT_TYPES.CAR_DOUBLE_JUMP,
           3: INCIDENT_EVENT_TYPES.CAR_DODGE,
         };
-        if (subMap[actionSubType as number]) this.handleCarEvent({ ...event, type: subMap[actionSubType as number] });
+        if (subMap[actionSubType as number])
+          this.handleCarEvent({ ...event, type: subMap[actionSubType as number] });
         break;
       }
 
       case INCIDENT_EVENT_TYPES.CAR_BOOST_START:
-      case 0x0C: {
-        if (!this._checkCarCooldown(this._lastBoostEdgeMsByCar, carIndex, nowMs, INCIDENT_COOLDOWN_MS.BOOST_EDGE_PER_CAR)) break;
-        const startVol = audioConfig.get('boostStartVolume') ?? audioConfig.get('boostStartStopVolume') ?? 1.0;
+      case 0x0c: {
+        if (
+          !this._checkCarCooldown(
+            this._lastBoostEdgeMsByCar,
+            carIndex,
+            nowMs,
+            INCIDENT_COOLDOWN_MS.BOOST_EDGE_PER_CAR
+          )
+        )
+          break;
+        const startVol =
+          audioConfig.get('boostStartVolume') ?? audioConfig.get('boostStartStopVolume') ?? 1.0;
         const vol = (audioConfig.get('boostVolume') ?? 1.0) * startVol * baseMult;
         const { boostStart, boostLoop } = this._resolveBoostBuffersForCar(carIndex);
         const buf = boostStart || boostLoop;
@@ -298,57 +374,109 @@ export class VehicleAudioManager {
       }
 
       case INCIDENT_EVENT_TYPES.CAR_BOOST_STOP:
-      case 0x0D: {
-        const releaseVol = audioConfig.get('boostReleaseVolume') ?? audioConfig.get('boostStartStopVolume') ?? 1.0;
+      case 0x0d: {
+        const releaseVol =
+          audioConfig.get('boostReleaseVolume') ?? audioConfig.get('boostStartStopVolume') ?? 1.0;
         const vol = (audioConfig.get('boostVolume') ?? 1.0) * releaseVol * baseMult * 0.8;
         const { boostRelease } = this._resolveBoostBuffersForCar(carIndex);
-        if (boostRelease) emitter.playAction(boostRelease, { volume: vol, category: 'boost_other', distanceRadiusScale: 0.85 });
+        if (boostRelease)
+          emitter.playAction(boostRelease, {
+            volume: vol,
+            category: 'boost_other',
+            distanceRadiusScale: 0.85,
+          });
         break;
       }
 
       case INCIDENT_EVENT_TYPES.CAR_SUPERSONIC_ENTER:
       case PHYSICS_EVENT_TYPES.CAR_SUPERSONIC_ENTER:
       case 0x09: {
-        if (!this._checkCarCooldown(this._lastSupersonicEnterMsByCar, carIndex, nowMs, INCIDENT_COOLDOWN_MS.SUPERSONIC_ENTER_PER_CAR)) break;
-        const vol = (audioConfig.get('supersonicEnterVolume') ?? audioConfig.get('supersonicVolume') ?? 1.0) * baseMult;
+        if (
+          !this._checkCarCooldown(
+            this._lastSupersonicEnterMsByCar,
+            carIndex,
+            nowMs,
+            INCIDENT_COOLDOWN_MS.SUPERSONIC_ENTER_PER_CAR
+          )
+        )
+          break;
+        const vol =
+          (audioConfig.get('supersonicEnterVolume') ?? audioConfig.get('supersonicVolume') ?? 1.0) *
+          baseMult;
         const enterList = this.buffers.supersonicEnter;
         if (enterList && enterList.length > 0) {
-          const idx = this._pickNonRepeatingIndex(enterList.length, this.lastSupersonicEnterSoundIdx);
+          const idx = this._pickNonRepeatingIndex(
+            enterList.length,
+            this.lastSupersonicEnterSoundIdx
+          );
           this.lastSupersonicEnterSoundIdx = idx;
           emitter.playAction(enterList[idx], { volume: vol, category: 'supersonic_other' });
         } else if (this.buffers.supersonicLoop) {
-          emitter.playAction(this.buffers.supersonicLoop, { volume: vol, playbackRate: 1.1, category: 'supersonic_other' });
+          emitter.playAction(this.buffers.supersonicLoop, {
+            volume: vol,
+            playbackRate: 1.1,
+            category: 'supersonic_other',
+          });
         }
         break;
       }
 
       case INCIDENT_EVENT_TYPES.FLIP_RESET_GAINED:
       case PHYSICS_EVENT_TYPES.FLIP_RESET_GAINED:
-      case 0x0F: {
+      case 0x0f: {
         if (!isBallFlipResetEvent(event)) break;
         if (!this._lastFlipResetMsByCar) this._lastFlipResetMsByCar = new Map();
-        if (!this._checkCarCooldown(this._lastFlipResetMsByCar, carIndex, nowMs, INCIDENT_COOLDOWN_MS.FLIP_RESET_PER_CAR)) break;
+        if (
+          !this._checkCarCooldown(
+            this._lastFlipResetMsByCar,
+            carIndex,
+            nowMs,
+            INCIDENT_COOLDOWN_MS.FLIP_RESET_PER_CAR
+          )
+        )
+          break;
         const vol = (audioConfig.get('flipResetVolume') ?? 1.0) * baseMult;
         if (this.buffers.reset) {
-          emitter.playAction(this.buffers.reset, { volume: vol, playbackRate: 1.0, category: 'flip_reset_other' });
+          emitter.playAction(this.buffers.reset, {
+            volume: vol,
+            playbackRate: 1.0,
+            category: 'flip_reset_other',
+          });
         } else {
-          console.error('[AudioArchitecture] Missing flip reset audio asset!', { carIndex, eventType: event.type });
+          console.error('[AudioArchitecture] Missing flip reset audio asset!', {
+            carIndex,
+            eventType: event.type,
+          });
         }
         break;
       }
 
       case 'wheel_impact':
       case 0x12: {
-        if (!this._checkCarCooldown(this._lastWheelLandingMsByCar, carIndex, nowMs, INCIDENT_COOLDOWN_MS.WHEEL_LANDING_PER_CAR)) break;
-        const speed = Math.abs(event.speed ?? event.relSpeed ?? event.normalRelVel ?? event.impulse ?? 500);
+        if (
+          !this._checkCarCooldown(
+            this._lastWheelLandingMsByCar,
+            carIndex,
+            nowMs,
+            INCIDENT_COOLDOWN_MS.WHEEL_LANDING_PER_CAR
+          )
+        )
+          break;
+        const speed = Math.abs(
+          event.speed ?? event.relSpeed ?? event.normalRelVel ?? event.impulse ?? 500
+        );
         const mod = calibrateWheelLandingModulation(speed, emitter.isSelf);
-        const vol = (audioConfig.get('wheelImpactVolume') ?? 1.0) * baseMult * mod.volumeGainMultiplier;
+        const vol =
+          (audioConfig.get('wheelImpactVolume') ?? 1.0) * baseMult * mod.volumeGainMultiplier;
         const list = this.buffers.wheelImpact;
         if (list && list.length > 0) {
           const idx = this._pickNonRepeatingIndex(list.length, this.lastWheelImpactSoundIdx);
           this.lastWheelImpactSoundIdx = idx;
           emitter.playAction(list[idx], {
-            volume: vol, playbackRate: mod.playbackRate, category: mod.category, distanceRadiusScale: mod.distanceRadiusScale,
+            volume: vol,
+            playbackRate: mod.playbackRate,
+            category: mod.category,
+            distanceRadiusScale: mod.distanceRadiusScale,
           });
         }
         break;

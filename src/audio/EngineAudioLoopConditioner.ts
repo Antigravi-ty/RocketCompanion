@@ -105,10 +105,7 @@ export function createReversedLoopBuffer(
   return revBuffer;
 }
 
-async function fetchAndDecodeBuffer(
-  ctx: AudioContext,
-  url: string
-): Promise<AudioBuffer> {
+async function fetchAndDecodeBuffer(ctx: AudioContext, url: string): Promise<AudioBuffer> {
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`HTTP ${res.status} fetching ${url}`);
@@ -223,10 +220,7 @@ export function loadEngineAudioPackAssets(
 
     // Compute median RMS across all slices to derive per-slice loudness normalization offset in dB
     const sortedRms = rawConditionedSlices.map((s) => s.rms).sort((a, b) => a - b);
-    const medianRms =
-      sortedRms.length > 0
-        ? sortedRms[Math.floor(sortedRms.length / 2)]
-        : 0.2;
+    const medianRms = sortedRms.length > 0 ? sortedRms[Math.floor(sortedRms.length / 2)] : 0.2;
 
     const slices: ConditionedEngineSliceBuffers[] = rawConditionedSlices.map((s) => {
       const rawOffsetDb = 20 * Math.log10(medianRms / Math.max(1e-4, s.rms));

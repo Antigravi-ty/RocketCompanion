@@ -22,10 +22,13 @@ export function checkUiNamingAndRouteAlignment(errors: string[]): void {
       const fromSpec = m[2];
       for (const rawName of importedNames) {
         if (rawName.startsWith('type ')) continue;
-        const localName = rawName.split(/\s+as\s+/).pop()!.trim();
+        const localName = rawName
+          .split(/\s+as\s+/)
+          .pop()!
+          .trim();
         if (new RegExp(`<${localName}\\b`).test(content) && localName !== 'LogOut') {
           const isLayerRecipeImport =
-            /ui-core\/recipes\/Layer\d+\w+Recipe$/.test(fromSpec) &&
+            /ui-core\/recipes\/Layer\d+\w+Recipe(?:\.tsx)?$/.test(fromSpec) &&
             /^Layer\d+\w+Recipe$/.test(localName);
           if (!isLayerRecipeImport) {
             errors.push(
@@ -48,7 +51,8 @@ export function checkUiNamingAndRouteAlignment(errors: string[]): void {
   const usesGlobAutoDiscovery =
     /\b(?:import\.meta\.glob|importMetaGlob|getDiscoveredFloatingSurfaces)\b/.test(registryContent);
 
-  const presetBlockRegex = /export\s+const\s+\w+_PRESET\s*:\s*PresetConfig\s*=\s*\{([\s\S]*?)\n\};/g;
+  const presetBlockRegex =
+    /export\s+const\s+\w+_PRESET\s*:\s*PresetConfig\s*=\s*\{([\s\S]*?)\n\};/g;
   for (const presetFile of presetFiles) {
     if (!fs.existsSync(presetFile)) continue;
     const rel = toPosixRel(presetFile);
@@ -112,7 +116,10 @@ export function checkUiNamingAndRouteAlignment(errors: string[]): void {
   }
 }
 
-export function detectCircularDependencies(importGraph: Map<string, string[]>, errors: string[]): void {
+export function detectCircularDependencies(
+  importGraph: Map<string, string[]>,
+  errors: string[]
+): void {
   const visitState = new Map<string, number>();
   const cycles: string[][] = [];
 

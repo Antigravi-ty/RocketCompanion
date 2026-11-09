@@ -12,14 +12,14 @@ import {
   resolveNameTagVariantParams,
   type NameTagCardVariantParams,
   type NameTagConfig,
-} from '../../ui-core/config/nameTagConfig';
-import type { NameTagOffscreenIndicatorCard2D } from '../../ui-core/config/nameTagOffscreenRenderer';
+} from '../../ui-core/config/nameTagConfig.ts';
+import type { NameTagOffscreenIndicatorCard2D } from '../../ui-core/config/nameTagOffscreenRenderer.ts';
 import {
   drawNameTagPillCard2D,
   renderNameTagOverlayPass2D,
   type NameTagBallOcclusionProjection2D,
   type NameTagPillRenderCard2D,
-} from '../../ui-core/config/nameTagPillRenderer';
+} from '../../ui-core/config/nameTagPillRenderer.ts';
 
 export type { NameTagOffscreenIndicatorCard2D };
 export type VisibleNameTagCard2D = NameTagPillRenderCard2D;
@@ -45,9 +45,18 @@ export function projectBallOcclusion2D(
   if (viewZDepthUu <= 10 || !cam.projectionMatrix) return null;
   proj.set(ball.position.x, ball.position.y, ball.position.z).project(cam);
   if (proj.z < -1 || proj.z > 1) return null;
-  const screenRadiusPx = (Math.max(10, Number(ballRadiusUu) || 95) / viewZDepthUu) * ((vh * 0.5) / Math.max(1e-4, tanHalfFov));
+  const screenRadiusPx =
+    (Math.max(10, Number(ballRadiusUu) || 95) / viewZDepthUu) *
+    ((vh * 0.5) / Math.max(1e-4, tanHalfFov));
   return screenRadiusPx > 1
-    ? { visible: true, screenX: (proj.x * 0.5 + 0.5) * vw, screenY: (-proj.y * 0.5 + 0.5) * vh, screenRadiusPx, viewZDepthUu, opacity }
+    ? {
+        visible: true,
+        screenX: (proj.x * 0.5 + 0.5) * vw,
+        screenY: (-proj.y * 0.5 + 0.5) * vh,
+        screenRadiusPx,
+        viewZDepthUu,
+        opacity,
+      }
     : null;
 }
 
@@ -94,8 +103,7 @@ export function roundMetric(value: number, decimals = 2): number {
 }
 
 export function createNameTagSprite(): NameTagSprite {
-  const canvas =
-    typeof document !== 'undefined' ? document.createElement('canvas') : null;
+  const canvas = typeof document !== 'undefined' ? document.createElement('canvas') : null;
   if (canvas) {
     canvas.width = CANVAS_WIDTH * SPRITE_SUPERSAMPLE;
     canvas.height = CANVAS_HEIGHT * SPRITE_SUPERSAMPLE;
@@ -185,7 +193,9 @@ export function renderPillCardToSprite(options: RenderPillSpriteOptions): void {
     textColor,
     quantizedBoost,
     boostBorderVisible ? boostBorderColor : 'off',
-    aerialClimbGlowVisible ? `${config.aerialClimbGlowColor}:${config.aerialClimbGlowRadiusPx}:${config.aerialClimbGlowOpacity}` : 'noglow',
+    aerialClimbGlowVisible
+      ? `${config.aerialClimbGlowColor}:${config.aerialClimbGlowRadiusPx}:${config.aerialClimbGlowOpacity}`
+      : 'noglow',
   ].join('|');
 
   if (sprite.userData.cacheKey === cacheKey) return;
@@ -201,25 +211,15 @@ export function renderPillCardToSprite(options: RenderPillSpriteOptions): void {
 
   const pillWidth = Math.max(
     40,
-    Math.min(
-      CANVAS_WIDTH - 24,
-      Number(carPillWidthPx) || DEFAULT_NAME_TAG_CONFIG.pillMaxWidth
-    )
+    Math.min(CANVAS_WIDTH - 24, Number(carPillWidthPx) || DEFAULT_NAME_TAG_CONFIG.pillMaxWidth)
   );
   const pillHeight = Math.max(
     28,
-    Math.min(
-      CANVAS_HEIGHT - 24,
-      Number(variant.pillHeight) || DEFAULT_NAME_TAG_CONFIG.pillHeight
-    )
+    Math.min(CANVAS_HEIGHT - 24, Number(variant.pillHeight) || DEFAULT_NAME_TAG_CONFIG.pillHeight)
   );
   const pillX = (CANVAS_WIDTH - pillWidth) * 0.5;
   const pillY = (CANVAS_HEIGHT - pillHeight) * 0.5;
-  const cornerRadius = resolveNameTagCornerRadiusPx(
-    pillWidth,
-    pillHeight,
-    effectiveCornerRadiusPx
-  );
+  const cornerRadius = resolveNameTagCornerRadiusPx(pillWidth, pillHeight, effectiveCornerRadiusPx);
   const borderWidth = Math.max(
     0,
     Math.min(12, Number(variant.borderWidth) ?? DEFAULT_NAME_TAG_CONFIG.borderWidth)
@@ -279,9 +279,7 @@ export function renderPillCardToSprite(options: RenderPillSpriteOptions): void {
   }
 }
 
-export function ensureOverlayCanvas(
-  state: NameTagOverlayCanvasState
-): HTMLCanvasElement | null {
+export function ensureOverlayCanvas(state: NameTagOverlayCanvasState): HTMLCanvasElement | null {
   if (typeof document === 'undefined') return null;
   if (state.overlayCanvas && state.overlayCanvas.isConnected && state.overlayCtx) {
     return state.overlayCanvas;
@@ -313,12 +311,7 @@ export function hideOverlayCanvas(state: NameTagOverlayCanvasState): void {
   if (state.overlayCanvas) {
     if (state.overlayCtx) {
       state.overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
-      state.overlayCtx.clearRect(
-        0,
-        0,
-        state.overlayCanvas.width,
-        state.overlayCanvas.height
-      );
+      state.overlayCtx.clearRect(0, 0, state.overlayCanvas.width, state.overlayCanvas.height);
     }
     state.overlayCanvas.style.display = 'none';
   }
@@ -360,23 +353,11 @@ export function renderHighDpiOverlay(
         : DEFAULT_NAME_TAG_CONFIG.cardRenderScale
     )
   );
-  const effectiveCardPixelRatio = Math.max(
-    0.5,
-    devicePixelRatio * (cardRenderScalePct / 100)
-  );
-  const targetBackingWidth = Math.max(
-    1,
-    Math.round(viewportWidthPx * effectiveCardPixelRatio)
-  );
-  const targetBackingHeight = Math.max(
-    1,
-    Math.round(viewportHeightPx * effectiveCardPixelRatio)
-  );
+  const effectiveCardPixelRatio = Math.max(0.5, devicePixelRatio * (cardRenderScalePct / 100));
+  const targetBackingWidth = Math.max(1, Math.round(viewportWidthPx * effectiveCardPixelRatio));
+  const targetBackingHeight = Math.max(1, Math.round(viewportHeightPx * effectiveCardPixelRatio));
 
-  if (
-    canvas.width !== targetBackingWidth ||
-    canvas.height !== targetBackingHeight
-  ) {
+  if (canvas.width !== targetBackingWidth || canvas.height !== targetBackingHeight) {
     canvas.width = targetBackingWidth;
     canvas.height = targetBackingHeight;
   }

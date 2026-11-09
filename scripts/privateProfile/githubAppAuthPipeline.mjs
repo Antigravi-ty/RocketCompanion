@@ -171,8 +171,7 @@ export function discoverLocalGithubCredentials(rootDir) {
     (storedCreds?.githubInstallationId || '').trim() ||
     (derivedMeta?.installationId || '').trim();
   const pinnedRef =
-    (process.env.RC_PRIVATE_PROFILE_REF || '').trim() ||
-    (derivedMeta?.pinnedRef || '').trim();
+    (process.env.RC_PRIVATE_PROFILE_REF || '').trim() || (derivedMeta?.pinnedRef || '').trim();
 
   if (!appId) {
     return null;

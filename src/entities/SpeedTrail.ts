@@ -89,18 +89,18 @@ export class SpeedTrail {
       Color,
       DynamicDrawUsage,
       DoubleSide,
-      NormalBlending
+      NormalBlending,
     } = THREE;
 
     this.pointPool = Array.from({ length: SPEED_TRAIL_MAX_POINTS }, () => ({
       position: new Vector3(),
-      age: 0
+      age: 0,
     }));
 
     this.positionAttribute = new BufferAttribute(this.positions, 3);
     this.lifeAlphaAttribute = new BufferAttribute(this.lifeAlpha, 1);
 
-    this.object.name = "ball-speed-trail";
+    this.object.name = 'ball-speed-trail';
     this.material = new ShaderMaterial({
       transparent: true,
       depthWrite: false,
@@ -108,10 +108,10 @@ export class SpeedTrail {
       blending: NormalBlending,
       uniforms: {
         uOpacity: { value: 0 },
-        uColor: { value: new Color(15398399) }
+        uColor: { value: new Color(15398399) },
       },
       vertexShader: SPEED_TRAIL_VERTEX_SHADER,
-      fragmentShader: SPEED_TRAIL_FRAGMENT_SHADER
+      fragmentShader: SPEED_TRAIL_FRAGMENT_SHADER,
     });
     this.material.toneMapped = true;
 
@@ -133,14 +133,14 @@ export class SpeedTrail {
     this.positionAttribute.setUsage(DynamicDrawUsage);
     this.lifeAlphaAttribute.setUsage(DynamicDrawUsage);
 
-    this.geometry.setAttribute("position", this.positionAttribute);
-    this.geometry.setAttribute("aAcross", new BufferAttribute(this.across, 1));
-    this.geometry.setAttribute("aLifeAlpha", this.lifeAlphaAttribute);
+    this.geometry.setAttribute('position', this.positionAttribute);
+    this.geometry.setAttribute('aAcross', new BufferAttribute(this.across, 1));
+    this.geometry.setAttribute('aLifeAlpha', this.lifeAlphaAttribute);
     this.geometry.setIndex(new BufferAttribute(this.indices, 1));
     this.geometry.setDrawRange(0, 0);
 
     this.ribbon = new Mesh(this.geometry, this.material);
-    this.ribbon.name = "SpeedTrail_PS-ribbon";
+    this.ribbon.name = 'SpeedTrail_PS-ribbon';
     this.ribbon.visible = false;
     this.ribbon.frustumCulled = false;
     this.ribbon.renderOrder = 1;
@@ -149,7 +149,9 @@ export class SpeedTrail {
   }
 
   private _acquirePoint(): SpeedTrailPoint {
-    return (this.points.length >= SPEED_TRAIL_MAX_POINTS ? this.points.pop() : this.pointPool.pop())!;
+    return (
+      this.points.length >= SPEED_TRAIL_MAX_POINTS ? this.points.pop() : this.pointPool.pop()
+    )!;
   }
 
   private _clearPoints() {
@@ -203,7 +205,10 @@ export class SpeedTrail {
     }
 
     const maxStepSpeed = Math.max(speed, this.previousSpeed, SPEED_TRAIL_THRESHOLD_SPEED);
-    const maxPlausibleStepDist = Math.max(320, maxStepSpeed * Math.max(clampedDt, 1 / 30) * 2.5 + 120);
+    const maxPlausibleStepDist = Math.max(
+      320,
+      maxStepSpeed * Math.max(clampedDt, 1 / 30) * 2.5 + 120
+    );
     if (
       stepDist > SPEED_TRAIL_TELEPORT_RESET_DISTANCE ||
       (this.points.length > 0 && stepDist > maxPlausibleStepDist)
@@ -213,7 +218,11 @@ export class SpeedTrail {
       this.previousSourcePosition.copy(sourcePos);
     }
 
-    this.timeDilation = THREE.MathUtils.clamp(speed / SPEED_TRAIL_THRESHOLD_SPEED, 1, SPEED_TRAIL_MAX_TIME_DILATION);
+    this.timeDilation = THREE.MathUtils.clamp(
+      speed / SPEED_TRAIL_THRESHOLD_SPEED,
+      1,
+      SPEED_TRAIL_MAX_TIME_DILATION
+    );
     const targetOpacity = isSupersonic ? 1 : 0;
     const opacityLerpRate = isSupersonic || speed >= 1700 ? SPEED_TRAIL_OPACITY_LERP_RATE : 7.5;
 
@@ -231,11 +240,15 @@ export class SpeedTrail {
     for (let i = 0; i < this.points.length; i++) {
       this.points[i].age += scaledDeltaTime;
     }
-    while (this.points.length && this.points[this.points.length - 1].age >= SPEED_TRAIL_MAX_POINT_AGE) {
+    while (
+      this.points.length &&
+      this.points[this.points.length - 1].age >= SPEED_TRAIL_MAX_POINT_AGE
+    ) {
       this.pointPool.push(this.points.pop()!);
     }
 
-    const shouldEmit = isSupersonic || (this.lastEmitting && this.opacity >= SPEED_TRAIL_VISIBLE_OPACITY_THRESHOLD);
+    const shouldEmit =
+      isSupersonic || (this.lastEmitting && this.opacity >= SPEED_TRAIL_VISIBLE_OPACITY_THRESHOLD);
     this.isEmitting = shouldEmit;
 
     if (shouldEmit) {
@@ -256,9 +269,12 @@ export class SpeedTrail {
           const factor = clampedDt > 0 ? THREE.MathUtils.clamp(1 - subTime / clampedDt, 0, 1) : 1;
           if (this.points.length > 0) {
             const headPos = this.points[0].position;
-            const dx = THREE.MathUtils.lerp(this.previousSourcePosition.x, sourcePos.x, factor) - headPos.x;
-            const dy = THREE.MathUtils.lerp(this.previousSourcePosition.y, sourcePos.y, factor) - headPos.y;
-            const dz = THREE.MathUtils.lerp(this.previousSourcePosition.z, sourcePos.z, factor) - headPos.z;
+            const dx =
+              THREE.MathUtils.lerp(this.previousSourcePosition.x, sourcePos.x, factor) - headPos.x;
+            const dy =
+              THREE.MathUtils.lerp(this.previousSourcePosition.y, sourcePos.y, factor) - headPos.y;
+            const dz =
+              THREE.MathUtils.lerp(this.previousSourcePosition.z, sourcePos.z, factor) - headPos.z;
             if (dx * dx + dy * dy + dz * dz < 4.0) continue;
           }
           const pt = this._acquirePoint();
@@ -276,7 +292,8 @@ export class SpeedTrail {
     this.previousSourcePosition.copy(sourcePos);
     this.previousSpeed = speed;
 
-    this.ribbon.visible = this.opacity >= SPEED_TRAIL_VISIBLE_OPACITY_THRESHOLD && this.points.length > 0;
+    this.ribbon.visible =
+      this.opacity >= SPEED_TRAIL_VISIBLE_OPACITY_THRESHOLD && this.points.length > 0;
     this.geometryDirty = true;
   }
 
@@ -349,7 +366,10 @@ export class SpeedTrail {
       this.side.normalize().multiplyScalar(halfWidth);
 
       const age = getPointAge(i);
-      const lifeFade = Math.pow(1 - THREE.MathUtils.clamp(age / SPEED_TRAIL_MAX_POINT_AGE, 0, 1), 1.35);
+      const lifeFade = Math.pow(
+        1 - THREE.MathUtils.clamp(age / SPEED_TRAIL_MAX_POINT_AGE, 0, 1),
+        1.35
+      );
 
       for (let sideIdx = 0; sideIdx < 2; sideIdx++) {
         const vertexIndex = i * 2 + sideIdx;
@@ -372,4 +392,3 @@ export class SpeedTrail {
     this.object?.parent?.remove(this.object);
   }
 }
-

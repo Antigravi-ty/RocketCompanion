@@ -17,11 +17,7 @@ import {
 } from './RewinderHandoffAndMarkerController.ts';
 import { gameAudio } from '../audio/GameAudioEngineFacade.ts';
 
-export type {
-  RewinderFrameEntry,
-  FreeplayRewinderRuntimePort,
-  FreeplayRewinderModePort,
-};
+export type { RewinderFrameEntry, FreeplayRewinderRuntimePort, FreeplayRewinderModePort };
 
 const REWINDER_HOTKEY_CONFLICT_MSG =
   '[FreeplayRewinderController] Cannot bind Rewinder Configurator hotkeys (O/P/[/]/G): Replay Viewer window is already open and claimed the hotkeys first.';
@@ -38,16 +34,24 @@ export class FreeplayRewinderController {
 
   constructor(
     runtime: FreeplayRewinderRuntimePort | null,
-    mode: FreeplayRewinderModePort | null = null,
+    mode: FreeplayRewinderModePort | null = null
   ) {
     this.runtime = runtime;
     this.mode = mode;
   }
 
-  public get rewinderCursor(): number { return this.takeoverSubController.cursor; }
-  public set rewinderCursor(v: number) { this.takeoverSubController.cursor = v; }
-  public get rewinderTargetFrame(): number { return this.takeoverSubController.targetFrame; }
-  public set rewinderTargetFrame(v: number) { this.takeoverSubController.targetFrame = v; }
+  public get rewinderCursor(): number {
+    return this.takeoverSubController.cursor;
+  }
+  public set rewinderCursor(v: number) {
+    this.takeoverSubController.cursor = v;
+  }
+  public get rewinderTargetFrame(): number {
+    return this.takeoverSubController.targetFrame;
+  }
+  public set rewinderTargetFrame(v: number) {
+    this.takeoverSubController.targetFrame = v;
+  }
 
   public attach(): void {
     const store = useRewinderStore.getState();
@@ -89,10 +93,10 @@ export class FreeplayRewinderController {
     const online = useAppStore.getState().onlineSession;
     const isOnlineActive = Boolean(
       online?.isHosting ||
-        online?.signalingConnected ||
-        online?.roomId ||
-        this.runtime?.isBotMatch ||
-        this.runtime?.botCoordinator?.isBotMatch
+      online?.signalingConnected ||
+      online?.roomId ||
+      this.runtime?.isBotMatch ||
+      this.runtime?.botCoordinator?.isBotMatch
     );
     if (isOnlineActive || (currentMode !== 'freeplay' && currentMode !== 'dev-test-lab')) {
       console.warn(
@@ -114,7 +118,12 @@ export class FreeplayRewinderController {
 
   public get isBlockingLivePhysics(): boolean {
     const st = useRewinderStore.getState().rewinderState;
-    return st === 'rewinding' || st === 'forwarding' || st === 'paused-scrub' || st === 'preroll-countdown';
+    return (
+      st === 'rewinding' ||
+      st === 'forwarding' ||
+      st === 'paused-scrub' ||
+      st === 'preroll-countdown'
+    );
   }
 
   private _bindHotkeys(): void {
@@ -138,25 +147,30 @@ export class FreeplayRewinderController {
 
   public applyFrameAtCursor(
     smoothStep: boolean = false,
-    restoreOptions: { preserveEngineTick?: boolean; overrideTick?: number } = { preserveEngineTick: true }
+    restoreOptions: { preserveEngineTick?: boolean; overrideTick?: number } = {
+      preserveEngineTick: true,
+    }
   ): RewinderFrameEntry | null {
     return this.handoffAndMarkerController.applyFrameAtCursor(
       this.runtime,
       this.rewinderFrames,
       this.rewinderCursor,
       smoothStep,
-      restoreOptions,
+      restoreOptions
     );
   }
 
   public _returnToLivePlayFromScrub(): void {
-    const idx = Math.max(0, Math.min(this.rewinderFrames.length - 1, Math.round(this.rewinderCursor)));
+    const idx = Math.max(
+      0,
+      Math.min(this.rewinderFrames.length - 1, Math.round(this.rewinderCursor))
+    );
     this.handoffAndMarkerController.executeHandoffToLiveFreeplay(
       this.runtime,
       this.mode,
       this.rewinderFrames,
       idx,
-      this.rewinderCursor,
+      this.rewinderCursor
     );
     useRewinderStore.getState().updateLiveTelemetry({
       rewinderState: this.rewinderFrames.length > 0 ? 'stopped' : 'idle',
@@ -171,13 +185,16 @@ export class FreeplayRewinderController {
 
     this.handoffAndMarkerController.exitGoalOrReplayIfNeeded(r, this.mode);
     if (this.isBlockingLivePhysics && this.rewinderFrames.length > 0) {
-      const idx = Math.max(0, Math.min(this.rewinderFrames.length - 1, Math.round(this.rewinderCursor)));
+      const idx = Math.max(
+        0,
+        Math.min(this.rewinderFrames.length - 1, Math.round(this.rewinderCursor))
+      );
       this.handoffAndMarkerController.executeHandoffToLiveFreeplay(
         r,
         this.mode,
         this.rewinderFrames,
         idx,
-        this.rewinderCursor,
+        this.rewinderCursor
       );
     }
 
@@ -220,7 +237,8 @@ export class FreeplayRewinderController {
   }
 
   public beginScrub(direction: 'rewinding' | 'forwarding' = 'rewinding'): void {
-    if (!this._ensureFreeplayMode(`beginScrub(${direction})`) || this.rewinderFrames.length === 0) return;
+    if (!this._ensureFreeplayMode(`beginScrub(${direction})`) || this.rewinderFrames.length === 0)
+      return;
     const store = useRewinderStore.getState();
     if (store.rewinderState === 'recording') {
       const lastIdx = this.rewinderFrames.length - 1;
@@ -239,7 +257,7 @@ export class FreeplayRewinderController {
       this.mode,
       this.rewinderFrames,
       nextIdx,
-      true,
+      true
     );
     store.updateLiveTelemetry({
       rewinderState: direction,
@@ -253,13 +271,16 @@ export class FreeplayRewinderController {
   public pauseScrub(): void {
     const store = useRewinderStore.getState();
     if (store.rewinderState === 'rewinding' || store.rewinderState === 'forwarding') {
-      const clamped = this.takeoverSubController.seekToFrame(this.rewinderCursor, this.rewinderFrames.length);
+      const clamped = this.takeoverSubController.seekToFrame(
+        this.rewinderCursor,
+        this.rewinderFrames.length
+      );
       this.handoffAndMarkerController.applyFrameAndEmitStateOnly(
         this.runtime,
         this.mode,
         this.rewinderFrames,
         clamped,
-        false,
+        false
       );
       this._silenceContinuousAudio();
       store.updateLiveTelemetry({
@@ -278,7 +299,7 @@ export class FreeplayRewinderController {
       this.mode,
       this.rewinderFrames,
       clamped,
-      true,
+      true
     );
     this._silenceContinuousAudio();
     useRewinderStore.getState().updateLiveTelemetry({
@@ -295,12 +316,16 @@ export class FreeplayRewinderController {
       this.runtime,
       this.mode,
       this.rewinderFrames,
-      this.takeoverSubController,
+      this.takeoverSubController
     );
   }
 
   public async exportReplay(): Promise<boolean> {
-    return this.handoffAndMarkerController.exportReplay(this.rewinderFrames, this.mode, this.runtime);
+    return this.handoffAndMarkerController.exportReplay(
+      this.rewinderFrames,
+      this.mode,
+      this.runtime
+    );
   }
 
   public async importReplay(fileOrBuffer: unknown): Promise<boolean> {
@@ -309,7 +334,7 @@ export class FreeplayRewinderController {
       fileOrBuffer,
       this.runtime,
       this.mode,
-      this.takeoverSubController,
+      this.takeoverSubController
     );
     if (!loaded) return false;
     this.rewinderFrames = loaded.frames;
@@ -325,7 +350,11 @@ export class FreeplayRewinderController {
     this.takeoverSubController.reset(0, 0);
     this.handoffAndMarkerController.clearPendingIncidents();
     r?.physics?.clearReplayBuffer?.();
-    const canResetArena = this.handoffAndMarkerController.resetArenaCarsIfAllowed(r, this.mode, wasBlocking);
+    const canResetArena = this.handoffAndMarkerController.resetArenaCarsIfAllowed(
+      r,
+      this.mode,
+      wasBlocking
+    );
     if (r?.keyboard) r.keyboard.ballControlEnabled = canResetArena;
     useRewinderStore.getState().updateLiveTelemetry({
       rewinderState: 'idle',
@@ -338,7 +367,11 @@ export class FreeplayRewinderController {
 
   public onResetKickoff(): void {
     const r = this.runtime;
-    const canResetArena = this.handoffAndMarkerController.resetArenaCarsIfAllowed(r, this.mode, false);
+    const canResetArena = this.handoffAndMarkerController.resetArenaCarsIfAllowed(
+      r,
+      this.mode,
+      false
+    );
     if (this.isBlockingLivePhysics) {
       if (r?.keyboard) r.keyboard.ballControlEnabled = canResetArena;
       useRewinderStore.getState().updateLiveTelemetry({
@@ -355,7 +388,12 @@ export class FreeplayRewinderController {
   public onBeforePhysicsTick(): boolean {
     const store = useRewinderStore.getState();
     const state = store.rewinderState;
-    if (state === 'idle' || state === 'recording' || state === 'stopped' || this.rewinderFrames.length === 0) {
+    if (
+      state === 'idle' ||
+      state === 'recording' ||
+      state === 'stopped' ||
+      this.rewinderFrames.length === 0
+    ) {
       return true;
     }
     if (state === 'paused-scrub') return false;
@@ -367,7 +405,10 @@ export class FreeplayRewinderController {
         effectiveFlowPct: store.rewinderEffectiveFlowPct || 100,
         onApplyFrameAtCursor: () => this.applyFrameAtCursor(false, { preserveEngineTick: true }),
         onUpdateScrubTelemetry: (cursorFrame: number) =>
-          store.updateLiveTelemetry({ rewinderCursorFrame: cursorFrame, rewinderTargetFrame: cursorFrame }),
+          store.updateLiveTelemetry({
+            rewinderCursorFrame: cursorFrame,
+            rewinderTargetFrame: cursorFrame,
+          }),
       });
     }
     if (state === 'preroll-countdown') {
@@ -375,7 +416,7 @@ export class FreeplayRewinderController {
         this.runtime,
         this.mode,
         this.rewinderFrames,
-        this.takeoverSubController,
+        this.takeoverSubController
       );
     }
     return true;
@@ -386,7 +427,7 @@ export class FreeplayRewinderController {
       this.runtime,
       this.mode,
       this.rewinderFrames,
-      this.takeoverSubController,
+      this.takeoverSubController
     );
   }
 }

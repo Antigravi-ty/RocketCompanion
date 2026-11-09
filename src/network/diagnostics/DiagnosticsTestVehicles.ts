@@ -88,8 +88,10 @@ export function computeDiagnosticVehicleControls(
       const z0 = options.baseAltitudeZ ?? 500;
       const z1 = options.peakAltitudeZ ?? 600;
       const st = getProbeAltitudeControllerState(options.carIndex ?? 6);
-      const posZ = typeof options.posZ === 'number' && Number.isFinite(options.posZ) ? options.posZ : st.posZ;
-      const velZ = typeof options.velZ === 'number' && Number.isFinite(options.velZ) ? options.velZ : st.velZ;
+      const posZ =
+        typeof options.posZ === 'number' && Number.isFinite(options.posZ) ? options.posZ : st.posZ;
+      const velZ =
+        typeof options.velZ === 'number' && Number.isFinite(options.velZ) ? options.velZ : st.velZ;
       const mode = options.climbMode || st.mode;
 
       let isBoosting = false;

@@ -76,21 +76,26 @@ export async function loadThrowbackCollisionOverlay(): Promise<THREE.Group | nul
           wireframe: true,
           transparent: true,
           opacity: 0.35,
-          depthWrite: false
+          depthWrite: false,
         });
 
-        collisionRoot.traverse((node: THREE.Object3D & { isMesh?: boolean; material?: THREE.Material }) => {
-          if (node.isMesh) {
-            node.material = wireMat;
-            node.castShadow = false;
-            node.receiveShadow = false;
-            node.renderOrder = 3;
+        collisionRoot.traverse(
+          (node: THREE.Object3D & { isMesh?: boolean; material?: THREE.Material }) => {
+            if (node.isMesh) {
+              node.material = wireMat;
+              node.castShadow = false;
+              node.receiveShadow = false;
+              node.renderOrder = 3;
+            }
           }
-        });
+        );
         cachedCollisionTemplate = collisionRoot;
         return collisionRoot;
       } catch (err) {
-        console.error('[ThrowbackStadiumLoader] Failed to load ThrowbackStadium_Collision.glb:', err);
+        console.error(
+          '[ThrowbackStadiumLoader] Failed to load ThrowbackStadium_Collision.glb:',
+          err
+        );
         return null;
       } finally {
         cachedCollisionPromise = null;
@@ -103,8 +108,5 @@ export async function loadThrowbackCollisionOverlay(): Promise<THREE.Group | nul
 }
 
 export async function preloadThrowbackStadiumAssets(): Promise<void> {
-  await Promise.all([
-    loadThrowbackStadiumField(),
-    loadThrowbackCollisionOverlay(),
-  ]);
+  await Promise.all([loadThrowbackStadiumField(), loadThrowbackCollisionOverlay()]);
 }

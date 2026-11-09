@@ -58,10 +58,11 @@ const getCar = (nf: RLRCSourceNetworkFrame, s: number): RLRCCarFrameState120Hz |
   nf.cars[s]?.slotIndex === s ? nf.cars[s] : nf.cars.find((c) => c.slotIndex === s);
 
 const getRb = (nf: RLRCSourceNetworkFrame, s: number | 'ball'): RLRCRigidBodySample =>
-  s === 'ball' ? nf.ball.rigidBody : getCar(nf, s)?.rigidBody ?? SLEEP_RB;
+  s === 'ball' ? nf.ball.rigidBody : (getCar(nf, s)?.rigidBody ?? SLEEP_RB);
 
 function isRbUpd(nf: RLRCSourceNetworkFrame, s: number | 'ball'): boolean | undefined {
-  const e = (s === 'ball' ? nf.ball : getCar(nf, s)) as { readonly rbUpdated?: boolean } | undefined;
+  const e = (s === 'ball' ? nf.ball : getCar(nf, s)) as
+    { readonly rbUpdated?: boolean } | undefined;
   if (typeof e?.rbUpdated === 'boolean') return e.rbUpdated;
   const rb = getRb(nf, s) as { readonly rbUpdated?: boolean };
   if (typeof rb.rbUpdated === 'boolean') return rb.rbUpdated;
@@ -72,12 +73,22 @@ function isRbUpd(nf: RLRCSourceNetworkFrame, s: number | 'ball'): boolean | unde
     readonly rbUpdated?: number;
   };
   if (s === 'ball' && typeof f.ballRbUpdated === 'boolean') return f.ballRbUpdated;
-  if (typeof s === 'number' && typeof f.carRbUpdatedMask === 'number') return ((f.carRbUpdatedMask >>> s) & 1) === 1;
-  const m = typeof f.rbUpdatedMask === 'number' ? f.rbUpdatedMask : typeof f.rbUpdated === 'number' ? f.rbUpdated : undefined;
-  return m !== undefined ? (((m >>> (s === 'ball' ? 6 : s)) & 1) === 1) : undefined;
+  if (typeof s === 'number' && typeof f.carRbUpdatedMask === 'number')
+    return ((f.carRbUpdatedMask >>> s) & 1) === 1;
+  const m =
+    typeof f.rbUpdatedMask === 'number'
+      ? f.rbUpdatedMask
+      : typeof f.rbUpdated === 'number'
+        ? f.rbUpdated
+        : undefined;
+  return m !== undefined ? ((m >>> (s === 'ball' ? 6 : s)) & 1) === 1 : undefined;
 }
 
-function buildSpan(nfs: readonly RLRCSourceNetworkFrame[], raw: readonly number[], slot: number | 'ball'): RLRCEntitySpan {
+function buildSpan(
+  nfs: readonly RLRCSourceNetworkFrame[],
+  raw: readonly number[],
+  slot: number | 'ball'
+): RLRCEntitySpan {
   const kf: number[] = [];
   for (let r = 0; r < raw.length; r++) {
     const idx = raw[r];
@@ -96,7 +107,11 @@ function buildSpan(nfs: readonly RLRCSourceNetworkFrame[], raw: readonly number[
     if (!isDupRb(rbP, rbC)) {
       const prev = raw[r - 1];
       const hDt = nfs[prev].timeSeconds - nfs[p].timeSeconds;
-      if (prev > p && hDt > 1e-5 && (isRest(rbP) || hDt >= 0.095 || isRbUpd(nfs[prev], slot) === true)) {
+      if (
+        prev > p &&
+        hDt > 1e-5 &&
+        (isRest(rbP) || hDt >= 0.095 || isRbUpd(nfs[prev], slot) === true)
+      ) {
         kf.push(prev);
       }
       kf.push(idx);
@@ -135,7 +150,9 @@ export function extractEntityLifeSpans(
       lastRb = -1;
       continue;
     }
-    const si = segs.findIndex((s) => nf.sourceFrame30Hz >= s.startFrame30Hz && nf.sourceFrame30Hz <= s.endFrame30Hz);
+    const si = segs.findIndex(
+      (s) => nf.sourceFrame30Hz >= s.startFrame30Hz && nf.sourceFrame30Hz <= s.endFrame30Hz
+    );
     const segId = si >= 0 ? segs[si].carActorId * 100000 + si : -1;
     const prev = raw.length ? raw[raw.length - 1] : -1;
     const ko = i > 0 && nf.roundCountdownNumber > 0 && nfs[i - 1].roundCountdownNumber === 0;
@@ -175,7 +192,11 @@ export function extractEntityLifeSpans(
         raw = [];
       }
     }
-    if (!raw.length || isRbUpd(nf, slot) === true || (ref >= 0 && !isDupRb(getRb(nfs[ref], slot), cRb))) {
+    if (
+      !raw.length ||
+      isRbUpd(nf, slot) === true ||
+      (ref >= 0 && !isDupRb(getRb(nfs[ref], slot), cRb))
+    ) {
       lastRb = i;
     }
     raw.push(i);
@@ -194,8 +215,16 @@ function locateBracket(
   slot: number | 'ball'
 ) {
   let sp =
-    spans.find((s) => near >= s.startNetIdx && near <= s.endNetIdx && t >= nfs[s.startNetIdx].timeSeconds && t <= nfs[s.endNetIdx].timeSeconds) ??
-    spans.find((s) => t >= nfs[s.startNetIdx].timeSeconds - 1e-4 && t <= nfs[s.endNetIdx].timeSeconds + 1e-4) ??
+    spans.find(
+      (s) =>
+        near >= s.startNetIdx &&
+        near <= s.endNetIdx &&
+        t >= nfs[s.startNetIdx].timeSeconds &&
+        t <= nfs[s.endNetIdx].timeSeconds
+    ) ??
+    spans.find(
+      (s) => t >= nfs[s.startNetIdx].timeSeconds - 1e-4 && t <= nfs[s.endNetIdx].timeSeconds + 1e-4
+    ) ??
     spans.find((s) => near >= s.startNetIdx && near <= s.endNetIdx);
   if (!sp) {
     const spP = spans.find((s) => s.endNetIdx === cur);
@@ -250,11 +279,17 @@ export function alignBookmarksTo120Hz(
     let t = bm.timeSeconds;
     let best = nfs[0];
     for (const nf of nfs) {
-      if (Math.abs(nf.sourceFrame30Hz - bm.sourceFrame30Hz) < Math.abs(best.sourceFrame30Hz - bm.sourceFrame30Hz)) {
+      if (
+        Math.abs(nf.sourceFrame30Hz - bm.sourceFrame30Hz) <
+        Math.abs(best.sourceFrame30Hz - bm.sourceFrame30Hz)
+      ) {
         best = nf;
       }
     }
-    if (best && (Math.abs(best.sourceFrame30Hz - bm.sourceFrame30Hz) <= 2 || !Number.isFinite(t) || t <= 0)) {
+    if (
+      best &&
+      (Math.abs(best.sourceFrame30Hz - bm.sourceFrame30Hz) <= 2 || !Number.isFinite(t) || t <= 0)
+    ) {
       t = best.timeSeconds;
     } else if (!Number.isFinite(t) || t <= 0) {
       t = t0 + bm.sourceFrame30Hz / rFps;
@@ -264,11 +299,17 @@ export function alignBookmarksTo120Hz(
   });
 }
 
-export function resampleRLRCReplayTo120Hz(parsed: RLRCParserOutput, opts: RLRCResamplerOptions = {}): RLRCResamplerOutput {
+export function resampleRLRCReplayTo120Hz(
+  parsed: RLRCParserOutput,
+  opts: RLRCResamplerOptions = {}
+): RLRCResamplerOutput {
   const method = opts.method ?? 'hermite-clamped';
   const maxTel = opts.maxTeleportDistanceUu ?? 450;
   const nfs = parsed.networkFrames;
-  const slots = Math.min(RLRC_MAX_PLAYER_SLOTS, Math.max(parsed.roster.length, nfs[0]?.cars.length ?? 0));
+  const slots = Math.min(
+    RLRC_MAX_PLAYER_SLOTS,
+    Math.max(parsed.roster.length, nfs[0]?.cars.length ?? 0)
+  );
   if (!nfs.length) {
     return {
       header: { ...parsed.header, frameCount120Hz: 0, durationSeconds: 0 },
@@ -284,7 +325,9 @@ export function resampleRLRCReplayTo120Hz(parsed: RLRCParserOutput, opts: RLRCRe
   const dur = Math.max(0, tEnd - t0);
   const count = Math.max(1, Math.round(dur * RLRC_TICK_RATE) + 1);
   const bSpans = extractEntityLifeSpans(nfs, 'ball', parsed.lifeSegments, maxTel);
-  const cSpans = Array.from({ length: slots }, (_, s) => extractEntityLifeSpans(nfs, s, parsed.lifeSegments, maxTel));
+  const cSpans = Array.from({ length: slots }, (_, s) =>
+    extractEntityLifeSpans(nfs, s, parsed.lifeSegments, maxTel)
+  );
   const frames120Hz: RLRCFrame120Hz[] = new Array(count);
 
   for (let f = 0, cur = 0; f < count; f++) {
@@ -297,7 +340,17 @@ export function resampleRLRCReplayTo120Hz(parsed: RLRCParserOutput, opts: RLRCRe
     const b0 = bb ? nfs[bb.k0Idx].ball.rigidBody : ref.ball.rigidBody;
     const b1 = bb ? nfs[bb.k1Idx].ball.rigidBody : ref.ball.rigidBody;
     const ball: RLRCBallFrameState120Hz = bb
-      ? { entityActive: true, rigidBody: interpolateRigidBodyHermiteSlerp(bb.rest0 ? toRest(b0) : b0, bb.rest1 ? toRest(b1) : b1, bb.alpha, bb.dt, method, 4500) }
+      ? {
+          entityActive: true,
+          rigidBody: interpolateRigidBodyHermiteSlerp(
+            bb.rest0 ? toRest(b0) : b0,
+            bb.rest1 ? toRest(b1) : b1,
+            bb.alpha,
+            bb.dt,
+            method,
+            4500
+          ),
+        }
       : { entityActive: false, rigidBody: ref.ball.rigidBody };
 
     const cars: RLRCCarFrameState120Hz[] = new Array(slots);
@@ -346,8 +399,17 @@ export function resampleRLRCReplayTo120Hz(parsed: RLRCParserOutput, opts: RLRCRe
 
     const pads = opts.boostPadCooldownsByFrame120Hz?.[f];
     const boostPadCooldowns =
-      pads && pads.length >= RLRC_BOOST_PAD_COUNT ? pads.slice(0, RLRC_BOOST_PAD_COUNT) : new Float32Array(RLRC_BOOST_PAD_COUNT);
-    const { sourceFrame30Hz, secondsRemaining, isOvertime, roundCountdownNumber, blueScore, orangeScore } = ref;
+      pads && pads.length >= RLRC_BOOST_PAD_COUNT
+        ? pads.slice(0, RLRC_BOOST_PAD_COUNT)
+        : new Float32Array(RLRC_BOOST_PAD_COUNT);
+    const {
+      sourceFrame30Hz,
+      secondsRemaining,
+      isOvertime,
+      roundCountdownNumber,
+      blueScore,
+      orangeScore,
+    } = ref;
     frames120Hz[f] = {
       frameIndex120Hz: f,
       sourceFrame30Hz,

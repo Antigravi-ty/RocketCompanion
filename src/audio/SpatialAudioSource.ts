@@ -10,7 +10,7 @@ import {
   type SpatialVector3Like,
   type SpatialPositionInput,
 } from './spatialAudioMath.ts';
-import { audioConfig } from '../ui-core/config/audioConfig';
+import { audioConfig } from '../ui-core/config/audioConfig.ts';
 
 export type {
   AudioAttenuationCategory,
@@ -143,15 +143,23 @@ class AudioListenerManager {
           source.panner.panningModel = model;
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          console.warn("[SpatialAudioSource] Failed to set panningModel:", errMsg);
+          console.warn('[SpatialAudioSource] Failed to set panningModel:', errMsg);
         }
       }
     }
   }
 
-  rotateVector(v: SpatialVector3Like, q: { x: number; y: number; z: number; w?: number }): SpatialVector3Like {
-    const x = v.x, y = v.y, z = v.z;
-    const qx = q.x, qy = q.y, qz = q.z, qw = q.w ?? 1;
+  rotateVector(
+    v: SpatialVector3Like,
+    q: { x: number; y: number; z: number; w?: number }
+  ): SpatialVector3Like {
+    const x = v.x,
+      y = v.y,
+      z = v.z;
+    const qx = q.x,
+      qy = q.y,
+      qz = q.z,
+      qw = q.w ?? 1;
     const ix = qw * x + qy * z - qz * y;
     const iy = qw * y + qz * x - qx * z;
     const iz = qw * z + qx * y - qy * x;
@@ -159,7 +167,7 @@ class AudioListenerManager {
     return {
       x: ix * qw + iw * -qx + iy * -qz - iz * -qy,
       y: iy * qw + iw * -qy + iz * -qx - ix * -qz,
-      z: iz * qw + iw * -qz + ix * -qy - iy * -qx
+      z: iz * qw + iw * -qz + ix * -qy - iy * -qx,
     };
   }
 
@@ -181,13 +189,17 @@ class AudioListenerManager {
         this.position.y = te[13];
         this.position.z = te[14];
 
-        const fx = -te[8], fy = -te[9], fz = -te[10];
+        const fx = -te[8],
+          fy = -te[9],
+          fz = -te[10];
         const flen = Math.hypot(fx, fy, fz) || 1;
         this.forward.x = fx / flen;
         this.forward.y = fy / flen;
         this.forward.z = fz / flen;
 
-        const ux = te[4], uy = te[5], uz = te[6];
+        const ux = te[4],
+          uy = te[5],
+          uz = te[6];
         const ulen = Math.hypot(ux, uy, uz) || 1;
         this.up.x = ux / ulen;
         this.up.y = uy / ulen;

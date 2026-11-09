@@ -45,10 +45,10 @@ export const DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG = {
   arrowForwardOffset: 18,
 };
 
-export function createStoreProxy<
-  T extends object,
-  M extends object = Record<string, never>,
->(initialFallback: Partial<T> = {}, extraMethods: M = {} as M): StoreProxy<T, M> {
+export function createStoreProxy<T extends object, M extends object = Record<string, never>>(
+  initialFallback: Partial<T> = {},
+  extraMethods: M = {} as M
+): StoreProxy<T, M> {
   let boundStore: StoreBoundTarget<T> | null = null;
   const pendingSubscribers = new Set<PendingSubscriberEntry<T>>();
   const pendingMethodCalls: Array<[string, unknown[]]> = [];
@@ -72,7 +72,9 @@ export function createStoreProxy<
           if (typeof v === 'function' && !(k in proxyRecord)) {
             proxyRecord[k] = (...args: unknown[]) => {
               const fn = boundStore?.[k];
-              return typeof fn === 'function' ? (fn as (...a: unknown[]) => unknown)(...args) : undefined;
+              return typeof fn === 'function'
+                ? (fn as (...a: unknown[]) => unknown)(...args)
+                : undefined;
             };
           }
         }
@@ -80,7 +82,9 @@ export function createStoreProxy<
           if (typeof boundStore[k] === 'function') {
             proxyRecord[k] = (...args: unknown[]) => {
               const fn = boundStore?.[k];
-              return typeof fn === 'function' ? (fn as (...a: unknown[]) => unknown)(...args) : undefined;
+              return typeof fn === 'function'
+                ? (fn as (...a: unknown[]) => unknown)(...args)
+                : undefined;
             };
           }
         }
@@ -120,8 +124,9 @@ export function createStoreProxy<
       return fallbackState as unknown as T;
     },
     setState(
-      partial: Partial<T> | Record<string, unknown> | ((state: T) => Partial<T> | Record<string, unknown>),
-      replace?: boolean,
+      partial:
+        Partial<T> | Record<string, unknown> | ((state: T) => Partial<T> | Record<string, unknown>),
+      replace?: boolean
     ): T {
       if (boundStore && typeof boundStore.setState === 'function') {
         return boundStore.setState(partial, replace);
@@ -163,7 +168,11 @@ export function createFloatingStoreProxy(): FloatingStorePort {
     _pendingSubscribers: new Set(),
     _bind(store: unknown) {
       this._bound = (store as FloatingStorePort['_bound']) ?? null;
-      if (this._bound && typeof this._bound.subscribe === 'function' && this._pendingSubscribers.size > 0) {
+      if (
+        this._bound &&
+        typeof this._bound.subscribe === 'function' &&
+        this._pendingSubscribers.size > 0
+      ) {
         for (const entry of this._pendingSubscribers) {
           entry.unsub = this._bound.subscribe(entry.listener);
         }
@@ -286,14 +295,13 @@ export function createRuntimeUiStoreProxies() {
     totalFrames: 0,
   });
 
-  const useExperimentalMultiBotsStore =
-    createStoreProxy<ExperimentalMultiBotsStorePortState>({});
+  const useExperimentalMultiBotsStore = createStoreProxy<ExperimentalMultiBotsStorePortState>({});
   const useStaticTrainingPackStore = createStoreProxy<StaticTrainingPackStorePortState>({
     liveTelemetry: {},
   });
   const useStaticTrainingBallCamTunerStore =
     createStoreProxy<StaticTrainingBallCamTunerStorePortState>(
-      DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG,
+      DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG
     );
   const useKickoffTrainingStore = createStoreProxy<KickoffTrainingStorePortState>({});
   const useReferenceOverlayStore = createStoreProxy<ReferenceOverlayStorePortState>({});
@@ -317,7 +325,7 @@ export function createRuntimeUiStoreProxies() {
       syncZeroGFleetState: () => {},
       registerBridge: () => {},
       updateDiagnosticBuffers: () => {},
-    },
+    }
   );
 
   const determinismStore = createStoreProxy<
@@ -347,7 +355,7 @@ export function createRuntimeUiStoreProxies() {
           copyJson: (includeAll?: boolean) => Promise<boolean>;
           resetAndArmNext: () => void;
           clearSamples: () => void;
-        } | null,
+        } | null
       ): void;
     }
   >(
@@ -357,7 +365,7 @@ export function createRuntimeUiStoreProxies() {
       resetTelemetryCounters: () => {},
       getNotifyAnomalyAlerts: () => true,
       registerAnomalyHandlers: () => {},
-    },
+    }
   );
 
   const floatingStore = createFloatingStoreProxy();

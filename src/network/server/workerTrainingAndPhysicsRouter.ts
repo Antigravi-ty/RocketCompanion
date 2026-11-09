@@ -191,7 +191,11 @@ export function routeTrainingAndPhysicsMessage(
       return true;
 
     case 'setBotFillMode':
-      if (payload?.botFillMode) matchManager?.roster.setBotFillMode(payload.botFillMode, payload.botType as string | undefined);
+      if (payload?.botFillMode)
+        matchManager?.roster.setBotFillMode(
+          payload.botFillMode,
+          payload.botType as string | undefined
+        );
       syncRoomState();
       return true;
 
@@ -267,7 +271,11 @@ export function routeTrainingAndPhysicsMessage(
         sim.restoreState?.(state as Float32Array | number[]);
         physicsManager?.inputBuffer?.clear?.();
       }
-      const snap = sim ? (sim.saveCompactState ? sim.saveCompactState() : sim.saveState?.() ?? null) : null;
+      const snap = sim
+        ? sim.saveCompactState
+          ? sim.saveCompactState()
+          : (sim.saveState?.() ?? null)
+        : null;
       const tickCount = sim?.getHeaderView ? Math.floor(sim.getHeaderView().tickCount) : 0;
       if (matchManager && sim) {
         matchManager.domain.matchTick = tickCount;
@@ -282,7 +290,11 @@ export function routeTrainingAndPhysicsMessage(
 
     case 'saveState': {
       const { reqId } = payload;
-      const snap = sim ? (sim.saveCompactState ? sim.saveCompactState() : sim.saveState?.() ?? null) : null;
+      const snap = sim
+        ? sim.saveCompactState
+          ? sim.saveCompactState()
+          : (sim.saveState?.() ?? null)
+        : null;
       const tickCount = sim?.getHeaderView ? Math.floor(sim.getHeaderView().tickCount) : 0;
       emitRaw?.({
         type: 'requestResponse',

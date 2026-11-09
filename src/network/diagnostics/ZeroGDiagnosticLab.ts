@@ -43,13 +43,7 @@ export class ProbeAltitudeControllerState {
   velZ: number;
   shouldBoost: boolean;
 
-  constructor(
-    mode = 'CLIMB_TO_PEAK',
-    holdTicks = 0,
-    posZ = 500,
-    velZ = 0,
-    shouldBoost = true
-  ) {
+  constructor(mode = 'CLIMB_TO_PEAK', holdTicks = 0, posZ = 500, velZ = 0, shouldBoost = true) {
     this.mode = mode;
     this.holdTicks = holdTicks;
     this.posZ = posZ;
@@ -133,7 +127,8 @@ export function resolvePhysicsEngine(
 ): ZeroGPhysicsEnginePort | null {
   if (!target) return null;
   if (typeof target.setCarLinearFactorAndGravity === 'function') return target;
-  if (target.sim && typeof target.sim.setCarLinearFactorAndGravity === 'function') return target.sim;
+  if (target.sim && typeof target.sim.setCarLinearFactorAndGravity === 'function')
+    return target.sim;
   if (target.fallbackSim && typeof target.fallbackSim.setCarLinearFactorAndGravity === 'function') {
     return target.fallbackSim;
   }

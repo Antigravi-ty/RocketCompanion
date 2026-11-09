@@ -7,7 +7,7 @@
  * to clipboard and printing clean human-readable diagnostic text to console.
  */
 
-import { ViewportMetrics } from '../../ui-core/stores/viewportStore';
+import { ViewportMetrics } from '../../ui-core/stores/viewportStore.ts';
 
 export interface InspectorSnapshotOptions {
   route: string;
@@ -48,13 +48,31 @@ export function generateLayoutReport(routeLabel = 'ACTIVE_MENU'): string {
     document.querySelector<HTMLElement>(
       '[data-ui-element="edge-inspector-drawer"], [data-panel="container"]'
     );
-  const headerEl = shellEl ? shellEl.querySelector<HTMLElement>('[data-ui-element="panel-header"]') : null;
+  const headerEl = shellEl
+    ? shellEl.querySelector<HTMLElement>('[data-ui-element="panel-header"]')
+    : null;
   const tabsEl = shellEl ? shellEl.querySelector<HTMLElement>('[role="tablist"]') : null;
   const tabButtons = tabsEl ? Array.from(tabsEl.querySelectorAll<HTMLElement>('[role="tab"]')) : [];
-  const contentEl = shellEl ? shellEl.querySelector<HTMLElement>('[data-ui-element="panel-content"]') : null;
-  const footerEl = shellEl ? shellEl.querySelector<HTMLElement>('[data-ui-element="panel-footer"]') : null;
-  const cards = shellEl ? Array.from(shellEl.querySelectorAll<HTMLElement>('button[data-ui-element="car-card"], [data-ui-element="car-card"], [data-ui-element="card"], .grid button')) : [];
-  const colorItems = shellEl ? Array.from(shellEl.querySelectorAll<HTMLElement>('[data-ui-element="color-order-item"], .grid .rounded-lg')) : [];
+  const contentEl = shellEl
+    ? shellEl.querySelector<HTMLElement>('[data-ui-element="panel-content"]')
+    : null;
+  const footerEl = shellEl
+    ? shellEl.querySelector<HTMLElement>('[data-ui-element="panel-footer"]')
+    : null;
+  const cards = shellEl
+    ? Array.from(
+        shellEl.querySelectorAll<HTMLElement>(
+          'button[data-ui-element="car-card"], [data-ui-element="car-card"], [data-ui-element="card"], .grid button'
+        )
+      )
+    : [];
+  const colorItems = shellEl
+    ? Array.from(
+        shellEl.querySelectorAll<HTMLElement>(
+          '[data-ui-element="color-order-item"], .grid .rounded-lg'
+        )
+      )
+    : [];
 
   const lines: string[] = [];
   lines.push('========================================================================');
@@ -100,7 +118,9 @@ export function generateLayoutReport(routeLabel = 'ACTIVE_MENU'): string {
       const isSelected = btn.getAttribute('aria-selected') === 'true';
       const label = btn.textContent?.trim() || `Tab ${idx + 1}`;
       lines.push(`    [Tab #${idx + 1}] "${label}" (Active: ${isSelected})`);
-      lines.push(`      Size: ${getRectStr(bRect)} | Padding: ${getPadStr(bCs)} | Margin: ${getMarginStr(bCs)}`);
+      lines.push(
+        `      Size: ${getRectStr(bRect)} | Padding: ${getPadStr(bCs)} | Margin: ${getMarginStr(bCs)}`
+      );
     });
   }
 
@@ -109,7 +129,9 @@ export function generateLayoutReport(routeLabel = 'ACTIVE_MENU'): string {
     const cCs = window.getComputedStyle(contentEl);
     lines.push('\n[4. PANEL CONTENT (BODY)]');
     lines.push(`  • Size:         ${getRectStr(cRect)}`);
-    lines.push(`  • Scroll Size:  scrollWidth=${contentEl.scrollWidth}px, scrollHeight=${contentEl.scrollHeight}px`);
+    lines.push(
+      `  • Scroll Size:  scrollWidth=${contentEl.scrollWidth}px, scrollHeight=${contentEl.scrollHeight}px`
+    );
     lines.push(`  • Padding:      ${getPadStr(cCs)}`);
     lines.push(`  • Overflow:     X=${cCs.overflowX}, Y=${cCs.overflowY}`);
     lines.push(`  • Max-Height:   ${cCs.maxHeight}`);
@@ -121,7 +143,9 @@ export function generateLayoutReport(routeLabel = 'ACTIVE_MENU'): string {
       const cdRect = card.getBoundingClientRect();
       const cdCs = window.getComputedStyle(card);
       const title = card.querySelector('span')?.textContent?.trim() || `Card ${idx + 1}`;
-      lines.push(`    [Card #${idx + 1}] "${title}": ${getRectStr(cdRect)} | Pad: ${getPadStr(cdCs)}`);
+      lines.push(
+        `    [Card #${idx + 1}] "${title}": ${getRectStr(cdRect)} | Pad: ${getPadStr(cdCs)}`
+      );
     });
   }
 
@@ -131,7 +155,9 @@ export function generateLayoutReport(routeLabel = 'ACTIVE_MENU'): string {
       const itemRect = item.getBoundingClientRect();
       const itemCs = window.getComputedStyle(item);
       const text = item.textContent?.replace(/\s+/g, ' ').trim() || `Color ${idx + 1}`;
-      lines.push(`    [Color #${idx + 1}] "${text}": ${getRectStr(itemRect)} | Pad: ${getPadStr(itemCs)}`);
+      lines.push(
+        `    [Color #${idx + 1}] "${text}": ${getRectStr(itemRect)} | Pad: ${getPadStr(itemCs)}`
+      );
     });
   }
 
@@ -199,4 +225,3 @@ if (typeof window !== 'undefined') {
   (window as any).exportLayoutSnapshot = (routeLabel?: string) =>
     copyAndLogLayoutSnapshot(routeLabel);
 }
-

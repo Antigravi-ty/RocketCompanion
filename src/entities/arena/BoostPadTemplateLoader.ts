@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { resolveAssetPath } from '../../utils/AssetResponseValidator.ts';
-import { computeAllPadRotations } from '../../ui-core/config/boostPadGeometry';
+import { computeAllPadRotations } from '../../ui-core/config/boostPadGeometry.ts';
 import {
   DEFAULT_BOOST_PAD_TUNER,
   prepareGlowGeometry,
@@ -97,18 +97,20 @@ export async function loadBoostPadTemplates(system: {
     }
 
     let measuredPeakY = 6.6614;
-    bigBase.traverse((child: THREE.Object3D & { isMesh?: boolean; geometry?: THREE.BufferGeometry }) => {
-      if (child.isMesh) {
-        child.castShadow = false;
-        child.receiveShadow = true;
-        if (child.name === 'BoostPad_Large' && child.geometry) {
-          child.geometry.computeBoundingBox();
-          if (child.geometry.boundingBox) {
-            measuredPeakY = child.geometry.boundingBox.max.y * 100;
+    bigBase.traverse(
+      (child: THREE.Object3D & { isMesh?: boolean; geometry?: THREE.BufferGeometry }) => {
+        if (child.isMesh) {
+          child.castShadow = false;
+          child.receiveShadow = true;
+          if (child.name === 'BoostPad_Large' && child.geometry) {
+            child.geometry.computeBoundingBox();
+            if (child.geometry.boundingBox) {
+              measuredPeakY = child.geometry.boundingBox.max.y * 100;
+            }
           }
         }
       }
-    });
+    );
     system.padPeakY = measuredPeakY;
 
     const orbGeo = new THREE.SphereGeometry(1, 32, 24);
@@ -183,7 +185,11 @@ export function buildBoostPadInstances(
 
     fullMesh.traverse((child: THREE.Object3D & { isMesh?: boolean; material?: THREE.Material }) => {
       if (child.isMesh) {
-        if (child.name.includes('Glow') || child.name === 'Active_Glow_Overlay' || child.name.includes('02_SM')) {
+        if (
+          child.name.includes('Glow') ||
+          child.name === 'Active_Glow_Overlay' ||
+          child.name.includes('02_SM')
+        ) {
           prepareGlowGeometry(child as THREE.Mesh);
           child.material = padGlowMaterial;
           child.castShadow = false;
@@ -199,12 +205,20 @@ export function buildBoostPadInstances(
     let shadowMesh: THREE.Mesh | null = null;
     if (data.isBig) {
       shadowMesh = createBigOrbShadowMesh(system.tunerConfig);
-      shadowMesh.position.set(0, system.padPeakY + (Number(system.tunerConfig.orbHeightOffset) || 70), 0);
+      shadowMesh.position.set(
+        0,
+        system.padPeakY + (Number(system.tunerConfig.orbHeightOffset) || 70),
+        0
+      );
       system.bigShadows.push(shadowMesh);
     }
 
     const padGroup = new THREE.Group();
-    padGroup.position.set(data.pos[0], Number(system.tunerConfig.padHeightOffset) || 0, data.pos[1]);
+    padGroup.position.set(
+      data.pos[0],
+      Number(system.tunerConfig.padHeightOffset) || 0,
+      data.pos[1]
+    );
     padGroup.rotation.y = (computedAngles[padIndex] || 0) * (Math.PI / 180);
     padGroup.add(fullMesh, baseMesh);
     if (shadowMesh) {
@@ -247,20 +261,34 @@ export function disposeBoostPadSystem(system: {
     if (pad.group?.parent) {
       pad.group.parent.remove(pad.group);
     }
-    pad.full?.traverse?.((obj: THREE.Object3D & { geometry?: THREE.BufferGeometry; material?: THREE.Material | THREE.Material[] }) => {
-      if (obj.geometry?.dispose) obj.geometry.dispose();
-      if (obj.material) {
-        if (Array.isArray(obj.material)) obj.material.forEach(m => m?.dispose?.());
-        else obj.material.dispose?.();
+    pad.full?.traverse?.(
+      (
+        obj: THREE.Object3D & {
+          geometry?: THREE.BufferGeometry;
+          material?: THREE.Material | THREE.Material[];
+        }
+      ) => {
+        if (obj.geometry?.dispose) obj.geometry.dispose();
+        if (obj.material) {
+          if (Array.isArray(obj.material)) obj.material.forEach((m) => m?.dispose?.());
+          else obj.material.dispose?.();
+        }
       }
-    });
-    pad.base?.traverse?.((obj: THREE.Object3D & { geometry?: THREE.BufferGeometry; material?: THREE.Material | THREE.Material[] }) => {
-      if (obj.geometry?.dispose) obj.geometry.dispose();
-      if (obj.material) {
-        if (Array.isArray(obj.material)) obj.material.forEach(m => m?.dispose?.());
-        else obj.material.dispose?.();
+    );
+    pad.base?.traverse?.(
+      (
+        obj: THREE.Object3D & {
+          geometry?: THREE.BufferGeometry;
+          material?: THREE.Material | THREE.Material[];
+        }
+      ) => {
+        if (obj.geometry?.dispose) obj.geometry.dispose();
+        if (obj.material) {
+          if (Array.isArray(obj.material)) obj.material.forEach((m) => m?.dispose?.());
+          else obj.material.dispose?.();
+        }
       }
-    });
+    );
     if (pad.glowMaterial?.dispose) pad.glowMaterial.dispose();
   }
   system.pads.length = 0;

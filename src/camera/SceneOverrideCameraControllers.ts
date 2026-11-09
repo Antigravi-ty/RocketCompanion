@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {
   REPLAY_DIRECTOR_CONFIG,
   DEFAULT_REPLAY_DIRECTOR_FOV_DEG,
-} from '../ui-core/config/replayDirectorConfig';
+} from '../ui-core/config/replayDirectorConfig.ts';
 import {
   DEFAULT_PODIUM_CAMERA_FOV_DEG,
   DEFAULT_EDITOR_CAMERA_FOV_DEG,
@@ -369,7 +369,8 @@ export class EditorCameraController {
     );
 
     if (subMode === 'car-heading') {
-      const carLocation = shot.car?.location || shot.car?.pos || [0, -2400, DEFAULT_CAR_GROUND_MIN_Z];
+      const carLocation = shot.car?.location ||
+        shot.car?.pos || [0, -2400, DEFAULT_CAR_GROUND_MIN_Z];
       const targetX = carLocation[0] ?? 0;
       const targetY = (carLocation[2] ?? DEFAULT_CAR_GROUND_MIN_Z) + 35;
       const targetZ = carLocation[1] ?? -2400;
@@ -396,7 +397,8 @@ export class EditorCameraController {
       );
       this.hasPose = true;
     } else if (subMode === 'car-speed') {
-      const carLocation = shot.car?.location || shot.car?.pos || [0, -2400, DEFAULT_CAR_GROUND_MIN_Z];
+      const carLocation = shot.car?.location ||
+        shot.car?.pos || [0, -2400, DEFAULT_CAR_GROUND_MIN_Z];
       const targetX = carLocation[0] ?? 0;
       const targetY = (carLocation[2] ?? DEFAULT_CAR_GROUND_MIN_Z) + 35;
       const targetZ = carLocation[1] ?? -2400;
@@ -423,7 +425,8 @@ export class EditorCameraController {
       );
       this.hasPose = true;
     } else if (subMode === 'ball-speed') {
-      const ballLocation = shot.ball?.location || shot.ball?.pos || [0, 0, DEFAULT_BALL_GROUND_MIN_Z];
+      const ballLocation = shot.ball?.location ||
+        shot.ball?.pos || [0, 0, DEFAULT_BALL_GROUND_MIN_Z];
       const ballX = ballLocation[0] ?? 0;
       const ballY = ballLocation[2] ?? DEFAULT_BALL_GROUND_MIN_Z;
       const ballZ = ballLocation[1] ?? 0;
@@ -466,11 +469,7 @@ export class EditorCameraController {
         cosEffectivePitch,
         -Math.sin(lookYaw) * sinEffectivePitch
       );
-      this.lookTarget.set(
-        camX + lookDirX * 800,
-        camY + lookDirY * 800,
-        camZ + lookDirZ * 800
-      );
+      this.lookTarget.set(camX + lookDirX * 800, camY + lookDirY * 800, camZ + lookDirZ * 800);
       this.hasPose = true;
     }
 

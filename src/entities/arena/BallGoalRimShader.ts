@@ -4,11 +4,11 @@ import {
   getBallGoalRimFxConfig,
   getGoalVolumeBoxForPreset,
   registerGoalVolumeTunerApplier,
-} from '../../ui-core/config/goalVolumeTunerConfig';
+} from '../../ui-core/config/goalVolumeTunerConfig.ts';
 import {
   ballVisualRuntimeConfig,
   type BallVisualConfig,
-} from '../../ui-core/config/ballVisualConfig';
+} from '../../ui-core/config/ballVisualConfig.ts';
 
 export const CLASSIC_BALL_RADIUS = 95;
 
@@ -21,7 +21,7 @@ export const ballGoalUniforms = {
   uGoalTime: { value: 0.0 },
   uGoalPenetration: { value: 0.0 },
   uGoalJitterWorldOffset: { value: new THREE.Vector3(0, 0, 0) },
-  uGoalRimRange: { value: new THREE.Vector2(0.60, 1.00) },
+  uGoalRimRange: { value: new THREE.Vector2(0.6, 1.0) },
   uGoalRimBezier: { value: new THREE.Vector4(0.75, 0.01, 1.0, 0.24) },
   uGoalRimColor: { value: new THREE.Color('#989898') },
   uGoalRimIntensity: { value: 1.0 },
@@ -34,7 +34,10 @@ export function syncBallGoalRimUniforms(): void {
   const rimCfg = getBallGoalRimFxConfig();
   if (!rimCfg) return;
   const innerFrac = Math.max(0.0, Math.min(0.999, (Number(rimCfg.innerStartPct) ?? 60) / 100));
-  const outerFrac = Math.max(innerFrac + 0.001, Math.min(1.0, (Number(rimCfg.outerEndPct) ?? 100) / 100));
+  const outerFrac = Math.max(
+    innerFrac + 0.001,
+    Math.min(1.0, (Number(rimCfg.outerEndPct) ?? 100) / 100)
+  );
   ballGoalUniforms.uGoalRimRange.value.set(innerFrac, outerFrac);
   ballGoalUniforms.uGoalRimBezier.value.set(
     Math.max(0.0, Math.min(1.0, Number(rimCfg.bezierP1X) ?? 0.75)),
@@ -203,8 +206,7 @@ export function updateBallGoalEffect(
   const rimCfg = getBallGoalRimFxConfig();
 
   const enabled =
-    ballVisualRuntimeConfig.goalDarkenJitterEnabled !== false &&
-    rimCfg?.enabled !== false;
+    ballVisualRuntimeConfig.goalDarkenJitterEnabled !== false && rimCfg?.enabled !== false;
   ballGoalUniforms.uGoalEffectEnabled.value = enabled ? 1.0 : 0.0;
   if (!enabled) {
     ballGoalUniforms.uGoalPenetration.value = 0.0;

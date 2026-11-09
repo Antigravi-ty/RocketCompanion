@@ -21,13 +21,17 @@ export const GROUND_REACHABILITY_LUT_URL = '/assets/models/ground_reachability_l
 
 export const N_GROUND_BINS = 72;
 export const GROUND_HORIZONS = Object.freeze([1.0, 2.0, 3.0]);
-export const VF_GRID = Object.freeze([-1400, -1000, -600, -250, 0, 250, 600, 1000, 1400, 1850, 2300]);
+export const VF_GRID = Object.freeze([
+  -1400, -1000, -600, -250, 0, 250, 600, 1000, 1400, 1850, 2300,
+]);
 export const VR_GRID = Object.freeze([0, 250, 600, 1000, 1500]);
 export const WZ_GRID = Object.freeze([-3.0, 0.0, 3.0]);
 
 export const GROUND_REACHABILITY_LUT_META = Object.freeze({
-  totalElements: VF_GRID.length * VR_GRID.length * WZ_GRID.length * GROUND_HORIZONS.length * N_GROUND_BINS,
-  byteLength: VF_GRID.length * VR_GRID.length * WZ_GRID.length * GROUND_HORIZONS.length * N_GROUND_BINS * 2,
+  totalElements:
+    VF_GRID.length * VR_GRID.length * WZ_GRID.length * GROUND_HORIZONS.length * N_GROUND_BINS,
+  byteLength:
+    VF_GRID.length * VR_GRID.length * WZ_GRID.length * GROUND_HORIZONS.length * N_GROUND_BINS * 2,
   unitScaleUU: 0.1,
 });
 

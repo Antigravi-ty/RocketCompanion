@@ -1,7 +1,7 @@
 import type {
   AudioConfigSettings,
   DynamicRangeProfileId,
-} from '../ui-core/config/audioConstants';
+} from '../ui-core/config/audioConstants.ts';
 
 export interface DynamicRangePresetSpec {
   id: DynamicRangeProfileId;
@@ -85,7 +85,11 @@ function setAudioParamSmooth(
     if (typeof param.cancelScheduledValues === 'function') {
       param.cancelScheduledValues(now);
     }
-    if (!immediate && context.state === 'running' && typeof param.linearRampToValueAtTime === 'function') {
+    if (
+      !immediate &&
+      context.state === 'running' &&
+      typeof param.linearRampToValueAtTime === 'function'
+    ) {
       const current = Number.isFinite(param.value) ? param.value : targetValue;
       param.setValueAtTime(current, now);
       param.linearRampToValueAtTime(targetValue, now + rampSec);
@@ -204,7 +208,10 @@ export class MasterAcousticProcessor {
         this._compressorConnected = true;
       }
     } catch (err) {
-      console.warn('[MasterAcousticProcessor] DynamicsCompressor unavailable, bypassing dynamics:', err);
+      console.warn(
+        '[MasterAcousticProcessor] DynamicsCompressor unavailable, bypassing dynamics:',
+        err
+      );
     }
 
     this.output.gain.value = this._makeupGain;
@@ -212,12 +219,15 @@ export class MasterAcousticProcessor {
   }
 
   applyConfig(
-    cfg: Partial<
-      Pick<
-        AudioConfigSettings,
-        'dynamicRangeProfile' | 'eqBass' | 'eqMid' | 'eqTreble' | 'farFieldHighShelfDb'
-      >
-    > | null | undefined,
+    cfg:
+      | Partial<
+          Pick<
+            AudioConfigSettings,
+            'dynamicRangeProfile' | 'eqBass' | 'eqMid' | 'eqTreble' | 'farFieldHighShelfDb'
+          >
+        >
+      | null
+      | undefined,
     immediate = false
   ): void {
     if (!cfg || typeof cfg !== 'object') return;
@@ -250,11 +260,29 @@ export class MasterAcousticProcessor {
       this._makeupGain = preset.makeupGain;
 
       if (this.compressor) {
-        setAudioParamSmooth(this.compressor.threshold, this.context, preset.thresholdDb, immediate, 0.035);
+        setAudioParamSmooth(
+          this.compressor.threshold,
+          this.context,
+          preset.thresholdDb,
+          immediate,
+          0.035
+        );
         setAudioParamSmooth(this.compressor.knee, this.context, preset.kneeDb, immediate, 0.035);
         setAudioParamSmooth(this.compressor.ratio, this.context, preset.ratio, immediate, 0.035);
-        setAudioParamSmooth(this.compressor.attack, this.context, preset.attackSec, immediate, 0.02);
-        setAudioParamSmooth(this.compressor.release, this.context, preset.releaseSec, immediate, 0.035);
+        setAudioParamSmooth(
+          this.compressor.attack,
+          this.context,
+          preset.attackSec,
+          immediate,
+          0.02
+        );
+        setAudioParamSmooth(
+          this.compressor.release,
+          this.context,
+          preset.releaseSec,
+          immediate,
+          0.035
+        );
       }
       setAudioParamSmooth(this.output.gain, this.context, preset.makeupGain, immediate, 0.035);
     }

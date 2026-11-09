@@ -5,7 +5,7 @@
  * (`cameraPort`, `matchPort`, `tunerPort`, `replayPort`).
  */
 
-import { DEFAULT_NAME_TAG_CONFIG } from '../ui-core/config/nameTagConfig';
+import { DEFAULT_NAME_TAG_CONFIG } from '../ui-core/config/nameTagConfig.ts';
 import {
   createRuntimeUiStoreProxies,
   DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG as _DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG,
@@ -24,8 +24,7 @@ import type {
 export type * from './runtimeUiStorePortTypes.ts';
 export type * from './runtimeDomainPortTypes.ts';
 
-export const DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG =
-  _DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG;
+export const DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG = _DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG;
 
 const _runtimeUiStores = createRuntimeUiStoreProxies();
 
@@ -113,8 +112,10 @@ export function bindRuntimeUiPort(port: Record<string, unknown> = {}): void {
     if (port[key]) target._bind(port[key]);
   }
   if (port.DUAL_ARENA_DETERMINISM_HARNESS_PRESET) {
-    DUAL_ARENA_DETERMINISM_HARNESS_PRESET =
-      port.DUAL_ARENA_DETERMINISM_HARNESS_PRESET as Record<string, unknown>;
+    DUAL_ARENA_DETERMINISM_HARNESS_PRESET = port.DUAL_ARENA_DETERMINISM_HARNESS_PRESET as Record<
+      string,
+      unknown
+    >;
   }
   if (port.NETWORK_MONITOR_PRESET) {
     NETWORK_MONITOR_PRESET = port.NETWORK_MONITOR_PRESET as Record<string, unknown>;
@@ -139,7 +140,7 @@ export function bindRuntimeUiPort(port: Record<string, unknown> = {}): void {
     typeof _handlers.registerReplayDirectorDiagnosticExporter === 'function'
   ) {
     _handlers.registerReplayDirectorDiagnosticExporter(
-      ..._pendingHandlerRegistrations.registerReplayDirectorDiagnosticExporter,
+      ..._pendingHandlerRegistrations.registerReplayDirectorDiagnosticExporter
     );
     _pendingHandlerRegistrations.registerReplayDirectorDiagnosticExporter = null;
   }
@@ -148,7 +149,7 @@ export function bindRuntimeUiPort(port: Record<string, unknown> = {}): void {
     typeof _handlers.registerReplayDirectorPreviewHandlers === 'function'
   ) {
     _handlers.registerReplayDirectorPreviewHandlers(
-      _pendingHandlerRegistrations.registerReplayDirectorPreviewHandlers,
+      _pendingHandlerRegistrations.registerReplayDirectorPreviewHandlers
     );
     _pendingHandlerRegistrations.registerReplayDirectorPreviewHandlers = null;
   }
@@ -171,17 +172,15 @@ export function setActiveReplayTimelineController(ctrl: unknown): void {
 }
 export function getActiveReplayTimelineController(): ReplayTimelineControllerPort | null {
   return (
-    (_handlers.getActiveReplayTimelineController?.() as ReplayTimelineControllerPort | null) ??
-    null
+    (_handlers.getActiveReplayTimelineController?.() as ReplayTimelineControllerPort | null) ?? null
   );
 }
 export function subscribeActiveReplayTimelineController(
-  listener: (...args: unknown[]) => void,
+  listener: (...args: unknown[]) => void
 ): () => boolean | void {
   return (
     (_handlers.subscribeActiveReplayTimelineController?.(listener) as
-      | (() => boolean | void)
-      | undefined) ?? (() => false)
+      (() => boolean | void) | undefined) ?? (() => false)
   );
 }
 
@@ -189,14 +188,14 @@ export function registerReplayDirectorDiagnosticExporter(
   exporterFn: unknown,
   parserFn: unknown = null,
   windowBuilderFn: unknown = null,
-  referenceKeyframeExporterFn: unknown = null,
+  referenceKeyframeExporterFn: unknown = null
 ): void {
   if (typeof _handlers.registerReplayDirectorDiagnosticExporter === 'function') {
     _handlers.registerReplayDirectorDiagnosticExporter(
       exporterFn,
       parserFn,
       windowBuilderFn,
-      referenceKeyframeExporterFn,
+      referenceKeyframeExporterFn
     );
   } else {
     _pendingHandlerRegistrations.registerReplayDirectorDiagnosticExporter = [
@@ -209,7 +208,7 @@ export function registerReplayDirectorDiagnosticExporter(
 }
 
 export function registerReplayDirectorPreviewHandlers(
-  handlers: Record<string, unknown> = {},
+  handlers: Record<string, unknown> = {}
 ): void {
   if (typeof _handlers.registerReplayDirectorPreviewHandlers === 'function') {
     _handlers.registerReplayDirectorPreviewHandlers(handlers);
@@ -223,9 +222,7 @@ export function getNameTagConfig(): NameTagConfig {
 }
 
 export function subscribeNameTagConfig(listener: () => void): () => void {
-  return (
-    (_handlers.subscribeNameTagConfig?.(listener) as (() => void) | undefined) ?? (() => {})
-  );
+  return (_handlers.subscribeNameTagConfig?.(listener) as (() => void) | undefined) ?? (() => {});
 }
 
 export function getNameTagRuntimeState(): NameTagRuntimeStatePort {
@@ -249,12 +246,12 @@ export function getNameTagRuntimeState(): NameTagRuntimeStatePort {
 }
 
 export function setNameTagRuntimeState(
-  patch: Partial<NameTagRuntimeStatePort> | Record<string, unknown>,
+  patch: Partial<NameTagRuntimeStatePort> | Record<string, unknown>
 ): unknown {
   return _handlers.setNameTagRuntimeState?.(patch);
 }
 export function setNameTagTelemetrySnapshot(
-  snapshot: NameTagTelemetrySnapshot | Record<string, unknown>,
+  snapshot: NameTagTelemetrySnapshot | Record<string, unknown>
 ): void {
   _handlers.setNameTagTelemetrySnapshot?.(snapshot);
 }
@@ -272,13 +269,19 @@ export function mutateActiveEditItemVariable(...args: unknown[]): StaticTraining
 export function getFilteredBgmTracks(state?: unknown): BgmTrackEntryPort[] {
   return (_handlers.getFilteredBgmTracks?.(state) as BgmTrackEntryPort[] | undefined) ?? [];
 }
-export function getExpColorSwatch(
-  slot: number,
-): { id: number; hex: string; name: string; [key: string]: unknown } {
+export function getExpColorSwatch(slot: number): {
+  id: number;
+  hex: string;
+  name: string;
+  [key: string]: unknown;
+} {
   return (
     (_handlers.getExpColorSwatch?.(slot) as
-      | { id: number; hex: string; name: string; [key: string]: unknown }
-      | undefined) ?? { id: slot, hex: '#38bdf8', name: 'Blue' }
+      { id: number; hex: string; name: string; [key: string]: unknown } | undefined) ?? {
+      id: slot,
+      hex: '#38bdf8',
+      name: 'Blue',
+    }
   );
 }
 export function toggleFloatingPreset(preset: unknown): unknown {
@@ -288,8 +291,7 @@ export function snapshotCurrentTelemetryPayload(
   ...args: unknown[]
 ): Record<string, unknown> | null {
   return (
-    (_handlers.snapshotCurrentTelemetryPayload?.(...args) as Record<string, unknown> | null) ??
-    null
+    (_handlers.snapshotCurrentTelemetryPayload?.(...args) as Record<string, unknown> | null) ?? null
   );
 }
 export function notifyNetworkTelemetryExportAvailable(...args: unknown[]): unknown {

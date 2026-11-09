@@ -4,8 +4,8 @@ import { CLIENT_COMMAND_TYPES } from '../../physics/RocketSimConstants.ts';
 import {
   packLoadoutCommandParam1,
   packLoadoutCommandParam2,
-} from '../../ui-core/config/vehicleConstants';
-import { getMaterialsConfig } from '../../ui-core/config/materialsConfig';
+} from '../../ui-core/config/vehicleConstants.ts';
+import { getMaterialsConfig } from '../../ui-core/config/materialsConfig.ts';
 import {
   useAppStore,
   hudStore,
@@ -48,7 +48,7 @@ export class OnlineMatchReconcilerBinder {
 
   public applyInitialChannelLatency(
     channel: NetworkSessionChannelLike | null,
-    asymmetric: boolean,
+    asymmetric: boolean
   ): void {
     if (!channel) return;
     const metrics = networkDiagnosticsStore?.getSnapshot?.()?.metrics;
@@ -77,7 +77,7 @@ export class OnlineMatchReconcilerBinder {
     localCarIndex: number,
     visualId: string,
     extraOptions: Record<string, unknown> = {},
-    bindHardResync = true,
+    bindHardResync = true
   ): PredictionReconciler {
     const pacing = resolveSessionClockPacingConfig();
     const reconciler = new PredictionReconciler(this.host.physics, channel, {
@@ -111,7 +111,7 @@ export class OnlineMatchReconcilerBinder {
   public syncServerTimelineIfReady(
     authoritativeServer: AuthoritativeServerHost | null,
     reconciler: PredictionReconciler | null,
-    requireActiveCar: boolean,
+    requireActiveCar: boolean
   ): void {
     if (!authoritativeServer || !reconciler) return;
     const serverSnapshot = authoritativeServer.sim.saveCompactState();
@@ -124,7 +124,7 @@ export class OnlineMatchReconcilerBinder {
   public async bootstrapLoopbackPredictionServer(
     localLoadout: LocalVehicleLoadoutState,
     disableGoalReset: boolean,
-    forceFallback: boolean,
+    forceFallback: boolean
   ): Promise<{
     server: AuthoritativeServerHost;
     channel: NetworkSessionChannelLike;
@@ -163,7 +163,7 @@ export class OnlineMatchReconcilerBinder {
   public async bootstrapHostAuthoritativeServer(
     serverOptions: Record<string, unknown>,
     hostVisualId: string,
-    isMatchLobby: boolean,
+    isMatchLobby: boolean
   ): Promise<{
     server: AuthoritativeServerHost;
     channel: NetworkSessionChannelLike;
@@ -194,12 +194,12 @@ export class OnlineMatchReconcilerBinder {
 
   public exportSessionTelemetryOnCleanup(
     reconciler: PredictionReconciler | null,
-    telemetryNotified: boolean,
+    telemetryNotified: boolean
   ): boolean {
     const telemetryRecorder = reconciler?.telemetryCollector.recorder;
     if (!telemetryRecorder || telemetryRecorder.count <= 0) return telemetryNotified;
     const wasEvicted = Boolean(
-      networkDiagnosticsStore?.getSnapshot?.()?.metrics?.disconnectEvicted,
+      networkDiagnosticsStore?.getSnapshot?.()?.metrics?.disconnectEvicted
     );
     if (wasEvicted && !telemetryNotified) {
       notifyNetworkTelemetryExportAvailable('disconnected', telemetryRecorder);
@@ -213,7 +213,7 @@ export class OnlineMatchReconcilerBinder {
     authoritativeServer: AuthoritativeServerHost | null,
     networkChannel: NetworkSessionChannelLike | null,
     networkReconciler: PredictionReconciler | null,
-    preserveChannel: NetworkSessionChannelLike | null = null,
+    preserveChannel: NetworkSessionChannelLike | null = null
   ): NetworkSessionChannelLike | null {
     if (authoritativeServer) {
       try {
@@ -277,21 +277,25 @@ export class OnlineMatchReconcilerBinder {
     joinCfg: ReturnType<typeof resolveClientJoinConfig>,
     colorSlot: number,
     localLoadout: LocalVehicleLoadoutState,
-    isMidMatchJoin: boolean,
+    isMidMatchJoin: boolean
   ): void {
     if (!reconciler) return;
     const ld = resolveLoadoutDefaults(
       { ...joinCfg.loadout, colorSlot },
       localLoadout,
-      getMaterialsConfig(),
+      getMaterialsConfig()
     );
     reconciler.controlMessenger.enqueueClientCommand(
       CLIENT_COMMAND_TYPES.CMD_SET_LOADOUT,
       packLoadoutCommandParam1(ld.visualId, ld.hitboxId),
-      packLoadoutCommandParam2(colorSlot, ld.paintFinish, ld.boostVisual, ld.boostAudio),
+      packLoadoutCommandParam2(colorSlot, ld.paintFinish, ld.boostVisual, ld.boostAudio)
     );
     if (isMidMatchJoin) {
-      reconciler.controlMessenger.enqueueClientCommand(CLIENT_COMMAND_TYPES.CMD_ARENA_LOADED_ACK, 1, 0);
+      reconciler.controlMessenger.enqueueClientCommand(
+        CLIENT_COMMAND_TYPES.CMD_ARENA_LOADED_ACK,
+        1,
+        0
+      );
     }
   }
 
@@ -330,7 +334,7 @@ export class OnlineMatchReconcilerBinder {
     if (msg?.state) onUpdateRosterState(msg.state);
     const transition = resolveClientHandshakeTransition(
       msg,
-      useAppStore?.getState?.()?.onlineSession,
+      useAppStore?.getState?.()?.onlineSession
     );
     const { physics, arena, interpolator } = world;
     if (transition.assignedCarIndex !== null) {
@@ -344,12 +348,16 @@ export class OnlineMatchReconcilerBinder {
       physics?.setUnlimitedBoost?.(true);
       lobbyDualWorld.configureArenaLobbyFlags(true, false);
       lobbyDualWorld.activateClientDualWorld(reconciler, diagnosticsProbe);
-      arena?.vehicleRegistry.ensureCar(activePlayerCarIndex, transition.localTeam, joinCfg.localVisualId);
+      arena?.vehicleRegistry.ensureCar(
+        activePlayerCarIndex,
+        transition.localTeam,
+        joinCfg.localVisualId
+      );
       lobbyDualWorld.configureClientLobbyLocalCar(
         activePlayerCarIndex,
         transition.localTeam,
         joinCfg.localVisualId,
-        false,
+        false
       );
       if (msg?.state === 'lobby' || !msg?.state) {
         await diagnosticsProbe.ensureClientLobbyDiagnosticProbes();
@@ -370,13 +378,14 @@ export class OnlineMatchReconcilerBinder {
     lobbyDualWorld.focusCameraOnCar(activePlayerCarIndex);
     const handshakeColor = resolveHandshakeTeamColorSlot(msg);
     world.selectedColorSlot = handshakeColor.colorSlot;
-    if (handshakeColor.colorHex) arena?.vehicleRegistry.setCarColor(activePlayerCarIndex, handshakeColor.colorHex);
+    if (handshakeColor.colorHex)
+      arena?.vehicleRegistry.setCarColor(activePlayerCarIndex, handshakeColor.colorHex);
     this.queueHandshakeLoadoutAndAck(
       reconciler,
       joinCfg,
       handshakeColor.colorSlot,
       lobbyDualWorld.getLocalLoadout(),
-      transition.isMidMatchJoin,
+      transition.isMidMatchJoin
     );
   }
 }

@@ -28,7 +28,10 @@ export class InterceptCrossRenderer {
   public crossMesh: LineSegments2;
   public group: THREE.Group;
 
-  constructor(parentGroup: THREE.Object3D | null | undefined, ballTrajectoryPredictor: BallTrajectoryPredictor | null = null) {
+  constructor(
+    parentGroup: THREE.Object3D | null | undefined,
+    ballTrajectoryPredictor: BallTrajectoryPredictor | null = null
+  ) {
     this.ballTrajectoryPredictor = ballTrajectoryPredictor;
     this.group = new THREE.Group();
     this.group.name = 'reachability-intercept-group';
@@ -144,14 +147,17 @@ export class InterceptCrossRenderer {
       if (bv) {
         const bSpd = Math.hypot(bv.velX, bv.velY, bv.velZ);
         if (bSpd > 15.0 && typeof phys.updateBallPrediction === 'function') {
-          const cnt = typeof phys.updateBallPredictionIncremental === 'function'
-            ? phys.updateBallPredictionIncremental(5.0)
-            : phys.updateBallPrediction(5.0);
+          const cnt =
+            typeof phys.updateBallPredictionIncremental === 'function'
+              ? phys.updateBallPredictionIncremental(5.0)
+              : phys.updateBallPrediction(5.0);
           const wasmPred = phys.getBallPrediction?.();
           if (wasmPred && cnt > 1) {
             if (this._lastPredSource !== 'wasm-fallback') {
               this._lastPredSource = 'wasm-fallback';
-              console.info('[InterceptCrossRenderer] BallTrajectoryPredictor buffer inactive; using WASM ball prediction fallback.');
+              console.info(
+                '[InterceptCrossRenderer] BallTrajectoryPredictor buffer inactive; using WASM ball prediction fallback.'
+              );
             }
             const actual = Math.min(cnt, 360);
             for (let i = 0; i < actual; i++) {
@@ -169,10 +175,14 @@ export class InterceptCrossRenderer {
         if (!rawPoints) {
           if (this._lastPredSource !== 'stationary-fallback') {
             this._lastPredSource = 'stationary-fallback';
-            console.info('[InterceptCrossRenderer] Ball is stationary or prediction unavailable; using constant-position trajectory fallback.');
+            console.info(
+              '[InterceptCrossRenderer] Ball is stationary or prediction unavailable; using constant-position trajectory fallback.'
+            );
           }
           // Ball is resting/stationary: fill constant position across 360 ticks
-          const bx = bv.posX, by = bv.posY, bz = bv.posZ;
+          const bx = bv.posX,
+            by = bv.posY,
+            bz = bv.posZ;
           for (let i = 0; i < 360; i++) {
             const dOff = i * 3;
             this._fallbackBallPred[dOff + 0] = bx;

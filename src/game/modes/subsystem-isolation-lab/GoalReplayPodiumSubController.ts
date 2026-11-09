@@ -1,14 +1,8 @@
 import { PodiumCelebrationController } from '../PodiumCelebrationController.ts';
 import type { ReplayRingBuffer } from '../../../replay/ReplayRingBuffer.ts';
 import type { ReplayTimelineController } from '../../../replay/ReplayTimelineController.ts';
-import {
-  hudStore,
-  useSubsystemIsolationLabStore,
-} from '../../runtimeUiPort.ts';
-import type {
-  LabFrameUpdateContext,
-  LabRuntimePort,
-} from './LabTabTypes.ts';
+import { hudStore, useSubsystemIsolationLabStore } from '../../runtimeUiPort.ts';
+import type { LabFrameUpdateContext, LabRuntimePort } from './LabTabTypes.ts';
 import {
   type ReplayExportPayload,
   buildMatchReplayExportPayload,
@@ -21,12 +15,9 @@ export class GoalReplayPodiumSubController {
     return Boolean(this.podiumController?.isActive);
   }
 
-  ensureController(
-    runtime: LabRuntimePort | null | undefined
-  ): PodiumCelebrationController | null {
+  ensureController(runtime: LabRuntimePort | null | undefined): PodiumCelebrationController | null {
     if (!this.podiumController && runtime) {
-      this.podiumController =
-        runtime.podiumController || new PodiumCelebrationController(runtime);
+      this.podiumController = runtime.podiumController || new PodiumCelebrationController(runtime);
       runtime.podiumController = this.podiumController;
     }
     return this.podiumController;
@@ -108,8 +99,7 @@ export class GoalReplayPodiumSubController {
     runtime: LabRuntimePort | null | undefined,
     fallbackRingBuffer: ReplayRingBuffer | null
   ): ReplayExportPayload {
-    const ringBuffer =
-      runtime?.authoritativeServer?.matchAdmin?.replayBuffer || fallbackRingBuffer;
+    const ringBuffer = runtime?.authoritativeServer?.matchAdmin?.replayBuffer || fallbackRingBuffer;
     const wasmFramesCount = runtime?.physics?.getReplayFrameCount?.() || 0;
     const store = useSubsystemIsolationLabStore.getState();
     const payload = buildMatchReplayExportPayload(ringBuffer, wasmFramesCount, store);

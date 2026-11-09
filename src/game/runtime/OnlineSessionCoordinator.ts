@@ -1,10 +1,7 @@
 import type { AuthoritativeServerHost } from '../../network/server/AuthoritativeServerHost.ts';
 import type { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
-import { getMaterialsConfig } from '../../ui-core/config/materialsConfig';
-import {
-  useAppStore,
-  hudStore,
-} from '../runtimeUiPort.ts';
+import { getMaterialsConfig } from '../../ui-core/config/materialsConfig.ts';
+import { useAppStore, hudStore } from '../runtimeUiPort.ts';
 import {
   dismissHostLobbyOngoingNotification,
   type OnlineRosterSnapshotPayload,
@@ -43,7 +40,11 @@ export interface OnlineSessionWorldPort extends OnlineLobbyWorldHostPort {
 
 export interface OnlineSessionLifecyclePort {
   readonly match: RuntimeMatchState | null;
-  readonly trainingOptions: { boostOption?: string; disableGoalReset?: boolean; [key: string]: unknown };
+  readonly trainingOptions: {
+    boostOption?: string;
+    disableGoalReset?: boolean;
+    [key: string]: unknown;
+  };
   readonly modeManager: { setMode?(modeName: string): void } | null;
   readonly domEventManager?: { syncPausedAndInputState(): void } | null;
   readonly podiumController: { exitPodium?(): void } | null;
@@ -51,7 +52,10 @@ export interface OnlineSessionLifecyclePort {
   isBotMatch: boolean;
   resetKickoff?(): void;
   releaseGoalReplayCameraOverride(): void;
-  onSessionReady?(reconciler: PredictionReconciler | null, channel: NetworkSessionChannelLike | null): void;
+  onSessionReady?(
+    reconciler: PredictionReconciler | null,
+    channel: NetworkSessionChannelLike | null
+  ): void;
   onShowNetworkHUD?(): void;
 }
 
@@ -87,9 +91,15 @@ export class OnlineSessionCoordinator {
     const { world, coordinators } = this.host;
     this.lobbyDualWorld = new OnlineLobbyDualWorldController(world);
     this.reconcilerBinder = new OnlineMatchReconcilerBinder({
-      get physics() { return world.physics; },
-      get interpolator() { return world.interpolator; },
-      get camera() { return world.camera; },
+      get physics() {
+        return world.physics;
+      },
+      get interpolator() {
+        return world.interpolator;
+      },
+      get camera() {
+        return world.camera;
+      },
       bindReconcilerSignals: (reconciler) => coordinators.bindReconcilerSignals(reconciler),
     });
   }
@@ -109,7 +119,10 @@ export class OnlineSessionCoordinator {
     this.clientReplayOverflowPaused = false;
   }
 
-  private syncStoreOnlineState(matchMode: string | null, sessionPatch?: Record<string, unknown>): void {
+  private syncStoreOnlineState(
+    matchMode: string | null,
+    sessionPatch?: Record<string, unknown>
+  ): void {
     const store = useAppStore?.getState?.();
     if (matchMode) store?.setMatchMode?.(matchMode);
     if (sessionPatch) store?.setOnlineSession?.(sessionPatch);
@@ -119,10 +132,14 @@ export class OnlineSessionCoordinator {
     localCarIndex: number,
     visualId: string,
     extraOptions: Record<string, unknown> = {},
-    bindHardResync = true,
+    bindHardResync = true
   ): PredictionReconciler {
     const reconciler = this.reconcilerBinder.createPredictionReconciler(
-      this.networkChannel, localCarIndex, visualId, extraOptions, bindHardResync,
+      this.networkChannel,
+      localCarIndex,
+      visualId,
+      extraOptions,
+      bindHardResync
     );
     this.networkReconciler = reconciler;
     return reconciler;
@@ -151,38 +168,60 @@ export class OnlineSessionCoordinator {
     const match = this.host.lifecycle.match;
     if (!match?.state) return;
     match.state = {
-      ...match.state, mode: 'freeplay', paused: false, phase,
-      overtime: false, winner: null, winReason: null, countdown: 0,
+      ...match.state,
+      mode: 'freeplay',
+      paused: false,
+      phase,
+      overtime: false,
+      winner: null,
+      winReason: null,
+      countdown: 0,
     };
   }
 
-  private disposeActiveSessionTransports(preserveChannel: NetworkSessionChannelLike | null = null): void {
+  private disposeActiveSessionTransports(
+    preserveChannel: NetworkSessionChannelLike | null = null
+  ): void {
     this.networkChannel = this.reconcilerBinder.disposeSessionTransports(
       this.authoritativeServer,
       this.networkChannel,
       this.networkReconciler,
-      preserveChannel,
+      preserveChannel
     );
     this.authoritativeServer = null;
     this.networkReconciler = null;
   }
 
-  async enableNetworkPrediction(showHUD = true, options: NetworkPredictionOptions = {}): Promise<PredictionReconciler | null> {
+  async enableNetworkPrediction(
+    showHUD = true,
+    options: NetworkPredictionOptions = {}
+  ): Promise<PredictionReconciler | null> {
     const { world, lifecycle } = this.host;
     if (!this.networkReconciler) {
       const gameplay = useAppStore?.getState?.()?.gameplay;
       const disableGoalReset = Boolean(
-        lifecycle.trainingOptions?.disableGoalReset ?? (gameplay?.goalRestart === false),
+        lifecycle.trainingOptions?.disableGoalReset ?? gameplay?.goalRestart === false
       );
       const loopback = await this.reconcilerBinder.bootstrapLoopbackPredictionServer(
-        this.lobbyDualWorld.getLocalLoadout(), disableGoalReset, Boolean(options.forceFallback),
+        this.lobbyDualWorld.getLocalLoadout(),
+        disableGoalReset,
+        Boolean(options.forceFallback)
       );
       if (!loopback) return null;
       this.authoritativeServer = loopback.server;
       this.networkChannel = loopback.channel;
       this.resetOnlineReplayRecording(true);
-      this.createPredictionReconciler(world.playerCarIndex ?? 0, loopback.visualId, { ...options }, true);
-      this.reconcilerBinder.syncServerTimelineIfReady(this.authoritativeServer, this.networkReconciler, false);
+      this.createPredictionReconciler(
+        world.playerCarIndex ?? 0,
+        loopback.visualId,
+        { ...options },
+        true
+      );
+      this.reconcilerBinder.syncServerTimelineIfReady(
+        this.authoritativeServer,
+        this.networkReconciler,
+        false
+      );
       world.interpolator?.sync?.(performance.now());
       lifecycle.onSessionReady?.(this.networkReconciler, this.networkChannel);
     }
@@ -194,7 +233,7 @@ export class OnlineSessionCoordinator {
     const { world, lifecycle, coordinators } = this.host;
     this.telemetryNotified = this.reconcilerBinder.exportSessionTelemetryOnCleanup(
       this.networkReconciler,
-      this.telemetryNotified,
+      this.telemetryNotified
     );
     lifecycle.isBotMatch = false;
     this.remotePeerCarMap?.clear?.();
@@ -217,27 +256,37 @@ export class OnlineSessionCoordinator {
     this.lobbyDualWorld.hideNonZeroArenaCars();
     this.lobbyDualWorld.applyFreeplayTeamAndColorOnStop();
     const unlimitedBoost =
-      useAppStore?.getState?.()?.gameplay?.unlimitedBoost ?? (lifecycle.trainingOptions?.boostOption === 'unlimited');
+      useAppStore?.getState?.()?.gameplay?.unlimitedBoost ??
+      lifecycle.trainingOptions?.boostOption === 'unlimited';
     physics?.setUnlimitedBoost?.(unlimitedBoost);
     this.resetMatchStateToFreeplay('freeplay');
     lifecycle.modeManager?.setMode?.('freeplay');
     lifecycle.resetKickoff?.();
     world.interpolator?.sync?.(performance.now());
     this.syncStoreOnlineState('freeplay', {
-      isHosting: false, roomId: '', signalingConnected: false,
-      connectedPeers: [], roomType: 'warmup', isReady: false,
+      isHosting: false,
+      roomId: '',
+      signalingConnected: false,
+      connectedPeers: [],
+      roomType: 'warmup',
+      isReady: false,
     });
     lifecycle.domEventManager?.syncPausedAndInputState?.();
     if (options.rebindLoopback === true) await this.enableNetworkPrediction(false);
   }
 
-  async hostOnlineServer(options: HostOnlineServerOptions = {}): Promise<AuthoritativeServerHost | null> {
+  async hostOnlineServer(
+    options: HostOnlineServerOptions = {}
+  ): Promise<AuthoritativeServerHost | null> {
     const { world, lifecycle, coordinators } = this.host;
     if (this.authoritativeServer) await this.stopOnlineServer({ rebindLoopback: false });
     lifecycle.isBotMatch = false;
     this.remotePeerCarMap = new Map();
     const cfg = resolveHostSessionLaunchConfig(
-      options, this.lobbyDualWorld.getLocalLoadout(), useAppStore?.getState?.()?.onlineSession, getMaterialsConfig(),
+      options,
+      this.lobbyDualWorld.getLocalLoadout(),
+      useAppStore?.getState?.()?.onlineSession,
+      getMaterialsConfig()
     );
     world.selectedColorSlot = cfg.hostColorSlot;
     world.playerCarIndex = 0;
@@ -245,7 +294,9 @@ export class OnlineSessionCoordinator {
     this.lobbyDualWorld.hideNonZeroArenaCars();
     this.resetOnlineReplayRecording(true);
     const bootstrapped = await this.reconcilerBinder.bootstrapHostAuthoritativeServer(
-      cfg.serverOptions, cfg.hostVisualId, cfg.isMatchLobby,
+      cfg.serverOptions,
+      cfg.hostVisualId,
+      cfg.isMatchLobby
     );
     if (!bootstrapped) return null;
     this.authoritativeServer = bootstrapped.server;
@@ -257,9 +308,13 @@ export class OnlineSessionCoordinator {
       cfg.isMatchLobby,
       this.authoritativeServer,
       this.diagnosticsProbe,
-      (roster) => coordinators.applyRosterSnapshot(roster),
+      (roster) => coordinators.applyRosterSnapshot(roster)
     );
-    this.reconcilerBinder.syncServerTimelineIfReady(this.authoritativeServer, this.networkReconciler, cfg.isMatchLobby);
+    this.reconcilerBinder.syncServerTimelineIfReady(
+      this.authoritativeServer,
+      this.networkReconciler,
+      cfg.isMatchLobby
+    );
     lifecycle.onSessionReady?.(this.networkReconciler, this.networkChannel);
     this.syncStoreOnlineState('online-warmup', cfg.onlineSessionPatch);
     coordinators.syncHostLobbyNotification();
@@ -267,10 +322,16 @@ export class OnlineSessionCoordinator {
     return this.authoritativeServer;
   }
 
-  async joinOnlineServer(options: JoinOnlineServerOptions = {}): Promise<NetworkSessionChannelLike | null> {
+  async joinOnlineServer(
+    options: JoinOnlineServerOptions = {}
+  ): Promise<NetworkSessionChannelLike | null> {
     const { world, lifecycle, coordinators } = this.host;
     const channel = options.channel ?? null;
-    const joinCfg = resolveClientJoinConfig(options, this.lobbyDualWorld.getLocalLoadout(), getMaterialsConfig());
+    const joinCfg = resolveClientJoinConfig(
+      options,
+      this.lobbyDualWorld.getLocalLoadout(),
+      getMaterialsConfig()
+    );
     this.disposeActiveSessionTransports(channel);
     this.teardownActiveReplayAndPodium();
     coordinators.resetReconcilerSignalState();
@@ -279,7 +340,10 @@ export class OnlineSessionCoordinator {
     lifecycle.isBotMatch = false;
     this.networkChannel = channel;
     this.reconcilerBinder.applyInitialChannelLatency(this.networkChannel, false);
-    await this.lobbyDualWorld.prepareClientJoinLobbyWorld(joinCfg.localVisualId, this.diagnosticsProbe);
+    await this.lobbyDualWorld.prepareClientJoinLobbyWorld(
+      joinCfg.localVisualId,
+      this.diagnosticsProbe
+    );
     this.resetOnlineReplayRecording(true);
     this.createPredictionReconciler(1, joinCfg.localVisualId, { isMatchTelemetryActive: true });
     this.lobbyDualWorld.activateClientDualWorld(this.networkReconciler, this.diagnosticsProbe);
@@ -298,7 +362,9 @@ export class OnlineSessionCoordinator {
           modeManager: lifecycle.modeManager,
           applyRosterSnapshot: (roster) => coordinators.applyRosterSnapshot(roster),
           onResetReplayRecording: () => this.resetOnlineReplayRecording(false),
-          onUpdateRosterState: (state) => { this.latestServerRosterState = state; },
+          onUpdateRosterState: (state) => {
+            this.latestServerRosterState = state;
+          },
         });
     }
     lifecycle.onSessionReady?.(this.networkReconciler, this.networkChannel);
@@ -310,14 +376,21 @@ export class OnlineSessionCoordinator {
       this.networkChannel.send?.(JSON.stringify(joinCfg.joinPayload));
     }
     this.syncStoreOnlineState('online-warmup', {
-      isHosting: false, playerName: joinCfg.playerName, signalingConnected: true,
+      isHosting: false,
+      playerName: joinCfg.playerName,
+      signalingConnected: true,
     });
     lifecycle.domEventManager?.syncPausedAndInputState?.();
     return this.networkChannel;
   }
 
   async returnOnlineMatchToLobby(options: ReturnToLobbyOptions = {}): Promise<void> {
-    if (options.fromServerRoster && this.latestServerRosterState && this.latestServerRosterState !== 'lobby') return;
+    if (
+      options.fromServerRoster &&
+      this.latestServerRosterState &&
+      this.latestServerRosterState !== 'lobby'
+    )
+      return;
     this.latestServerRosterState = 'lobby';
     const isHost = Boolean(this.authoritativeServer);
     const { world, lifecycle, coordinators } = this.host;
@@ -329,15 +402,24 @@ export class OnlineSessionCoordinator {
     physics?.setUnlimitedBoost?.(true);
     this.resetMatchStateToFreeplay('lobby');
     const matchState = lifecycle.match?.state;
-    hudStore?.getState?.()?.setMatchState?.({ matchPhase: 'lobby', kickoffCountdown: 0, winner: null, winReason: null });
-    const { resolvedLocalCarIndex, localTeam } = await this.lobbyDualWorld.restoreParticipantAndArenaState(
-      this.networkReconciler, isHost,
-    );
+    hudStore?.getState?.()?.setMatchState?.({
+      matchPhase: 'lobby',
+      kickoffCountdown: 0,
+      winner: null,
+      winReason: null,
+    });
+    const { resolvedLocalCarIndex, localTeam } =
+      await this.lobbyDualWorld.restoreParticipantAndArenaState(this.networkReconciler, isHost);
     const completed = await this.lobbyDualWorld.finalizeLobbyReturnWorldAndProbes({
-      isHost, localCarIndex: resolvedLocalCarIndex, localTeam, fromServerRoster: options.fromServerRoster,
-      reconciler: this.networkReconciler, authoritativeServer: this.authoritativeServer,
+      isHost,
+      localCarIndex: resolvedLocalCarIndex,
+      localTeam,
+      fromServerRoster: options.fromServerRoster,
+      reconciler: this.networkReconciler,
+      authoritativeServer: this.authoritativeServer,
       diagnosticsProbe: this.diagnosticsProbe,
-      isStillInLobby: () => this.latestServerRosterState === 'lobby' && matchState?.mode !== 'match',
+      isStillInLobby: () =>
+        this.latestServerRosterState === 'lobby' && matchState?.mode !== 'match',
       syncHostLobbyNotification: () => coordinators.syncHostLobbyNotification(),
     });
     if (!completed) return;

@@ -104,9 +104,7 @@ for (let i = 0; i < 90; i++) {
   DEFAULT_90_GROUND_MASK[i] = isGroundIdx ? 1 : 0;
   DEFAULT_90_AIR_MASK[i] =
     (!isGroundIdx && !a.jump) ||
-    (isGroundIdx &&
-      a.throttle === (a.boost ? 1 : 0) &&
-      (a.yaw !== 0) === Boolean(a.handbrake))
+    (isGroundIdx && a.throttle === (a.boost ? 1 : 0) && (a.yaw !== 0) === Boolean(a.handbrake))
       ? 1
       : 0;
   DEFAULT_90_JUMP_MASK[i] = a.jump ? 1 : 0;
@@ -461,16 +459,7 @@ export const RIPPLE_276_ACTIONS: ReadonlyArray<Readonly<CarControls>> = (() => {
       const throttle = boost;
       actions.push(
         Object.freeze(
-          decodeCarControls([
-            round3(throttle),
-            0,
-            round3(pitch),
-            0,
-            round3(roll),
-            1,
-            boost,
-            1,
-          ])
+          decodeCarControls([round3(throttle), 0, round3(pitch), 0, round3(roll), 1, boost, 1])
         )
       );
     }

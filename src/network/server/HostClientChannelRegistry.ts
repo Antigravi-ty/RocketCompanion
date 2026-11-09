@@ -19,11 +19,13 @@ import {
   createWorkerEnvelope,
   type WorkerEnvelope,
 } from '../protocol/HostWorkerProtocol.ts';
-import type {
-  WorkerRoomStateSummary,
-  HostWorkerInitOptions,
-} from './HostWorkerMessageRouter.ts';
-import { REPLAY_BUFFER_MODES, type ReplayRingBuffer, type ReplayAcknowledgedControlEntry, type ReplaySignalsOrOptionsArg } from '../../replay/ReplayRingBuffer.ts';
+import type { WorkerRoomStateSummary, HostWorkerInitOptions } from './HostWorkerMessageRouter.ts';
+import {
+  REPLAY_BUFFER_MODES,
+  type ReplayRingBuffer,
+  type ReplayAcknowledgedControlEntry,
+  type ReplaySignalsOrOptionsArg,
+} from '../../replay/ReplayRingBuffer.ts';
 import type { HostSimProxyPort, HostSimRestoreStateResult } from './HostSimProxy.ts';
 import type { NetworkDataHandler } from './NetworkDataHandler.ts';
 import type { MatchSessionAdmin } from './match/MatchSessionAdmin.ts';
@@ -72,7 +74,8 @@ export interface HostLoopbackPacketConsumerPort {
   hostReplayRingBuffer?: ReplayRingBuffer | null;
 }
 
-export interface HostChannelRegistryBridgePort extends HostSimProxyPort, HostLoopbackPacketConsumerPort {
+export interface HostChannelRegistryBridgePort
+  extends HostSimProxyPort, HostLoopbackPacketConsumerPort {
   fallbackManager: MatchSessionAdmin | null;
   routeFallbackEnvelope(
     envelope: WorkerEnvelope,
@@ -231,7 +234,8 @@ export function processHostLoopbackChannelPacket(
               decoded.newReplaySignals as unknown as ReplaySignalsOrOptionsArg,
               null,
               null,
-              decoded.acknowledgedControls as unknown as readonly ReplayAcknowledgedControlEntry[] | null
+              decoded.acknowledgedControls as unknown as
+                readonly ReplayAcknowledgedControlEntry[] | null
             );
           }
         }
@@ -252,10 +256,7 @@ export class HostClientChannelRegistry {
   envelopeListeners = new Set<(envelope: HostWorkerEnvelopeMessage) => void>();
   reqId = 0;
 
-  constructor(
-    hostBridge: HostSimProxyPort,
-    initialChannel: HostClientChannelPort | null = null
-  ) {
+  constructor(hostBridge: HostSimProxyPort, initialChannel: HostClientChannelPort | null = null) {
     this.hostChannel = initialChannel || createDefaultHostChannel(hostBridge);
     this.channelMap.set(this.hostChannel, 'host');
     this.channelIdToChannel.set('host', this.hostChannel);
@@ -342,7 +343,9 @@ export class HostClientChannelRegistry {
       bridge._seenReplaySignalIds?.clear();
     } else if (type === HOST_WORKER_MSG_TYPES.ROOM_CREATE) {
       bridge.hostReplayRingBuffer?.configureMode?.(
-        payload.startAsMatch ? REPLAY_BUFFER_MODES.COUNTDOWN_MATCH : REPLAY_BUFFER_MODES.COUNTUP_FIFO,
+        payload.startAsMatch
+          ? REPLAY_BUFFER_MODES.COUNTDOWN_MATCH
+          : REPLAY_BUFFER_MODES.COUNTUP_FIFO,
         payload.replayCapacityTicks || null
       );
       bridge.hostReplayRingBuffer?.clear();
@@ -353,7 +356,9 @@ export class HostClientChannelRegistry {
     if (bridge.isWorker && bridge.worker) {
       bridge.worker.postMessage(envelope, transfer);
     } else {
-      bridge.routeFallbackEnvelope(envelope, (replyEnv) => this.handleWorkerMessage(bridge, replyEnv));
+      bridge.routeFallbackEnvelope(envelope, (replyEnv) =>
+        this.handleWorkerMessage(bridge, replyEnv)
+      );
     }
     return envelope;
   }

@@ -27,9 +27,18 @@ import {
 } from './ExperimentalMultiBotsMatchMath.ts';
 export interface ExpSandboxLifecyclePort {
   beginKickoffCountdown(replayCtrl: ExperimentalMultiBotsReplayController): void;
-  prepareDirectGoalShot(rosterCtrl: ExperimentalMultiBotsRosterController, replayCtrl: ExperimentalMultiBotsReplayController): void;
-  forceOvertimeReset(rosterCtrl: ExperimentalMultiBotsRosterController, replayCtrl: ExperimentalMultiBotsReplayController): void;
-  forceEndMatchNow(rosterCtrl: ExperimentalMultiBotsRosterController, replayCtrl: ExperimentalMultiBotsReplayController): void;
+  prepareDirectGoalShot(
+    rosterCtrl: ExperimentalMultiBotsRosterController,
+    replayCtrl: ExperimentalMultiBotsReplayController
+  ): void;
+  forceOvertimeReset(
+    rosterCtrl: ExperimentalMultiBotsRosterController,
+    replayCtrl: ExperimentalMultiBotsReplayController
+  ): void;
+  forceEndMatchNow(
+    rosterCtrl: ExperimentalMultiBotsRosterController,
+    replayCtrl: ExperimentalMultiBotsReplayController
+  ): void;
 }
 import { ExperimentalMultiBotsReplayController } from './ExperimentalMultiBotsReplayController.ts';
 import { ExperimentalMultiBotsRosterController } from './ExperimentalMultiBotsRosterController.ts';
@@ -108,7 +117,7 @@ export class ExperimentalMultiBotsGoalIncidentTracker {
     tick: number,
     spawnedCars: ReadonlyArray<ExpSpawnedCarEntry>,
     isReplayActive: boolean,
-    isMatchEnded: boolean,
+    isMatchEnded: boolean
   ): void {
     if (isReplayActive || isMatchEnded) return;
     if (this.goalIncidentTick >= 0 && tick > this.goalIncidentTick) return;
@@ -139,7 +148,7 @@ export class ExperimentalMultiBotsGoalIncidentTracker {
     rosterCtrl: ExperimentalMultiBotsRosterController,
     replayCtrl: ExperimentalMultiBotsReplayController,
     onCompleteTransition: () => void,
-    onEnterReplayPhase: () => void,
+    onEnterReplayPhase: () => void
   ): boolean {
     if (this.goalResetTicks <= 0) return false;
     if (--this.goalResetTicks <= 0) {
@@ -162,7 +171,7 @@ export class ExperimentalMultiBotsGoalIncidentTracker {
     currentTick: number,
     scoreCtx: ExpGoalScoreContext,
     rosterCtrl: ExperimentalMultiBotsRosterController,
-    replayCtrl: ExperimentalMultiBotsReplayController,
+    replayCtrl: ExperimentalMultiBotsReplayController
   ): ExpGoalScoreOutcome {
     const r = this.runtime;
     const store = useExperimentalMultiBotsStore.getState();
@@ -175,7 +184,7 @@ export class ExperimentalMultiBotsGoalIncidentTracker {
       scoringTeam,
       this.lastTouchByTeam,
       this.prevTouchByTeam,
-      rosterCtrl.spawnedCars,
+      rosterCtrl.spawnedCars
     );
     this.goalScorerCarIndex = attr.scorerCarIndex;
     this.goalScorerName = attr.scorerName;
@@ -254,7 +263,7 @@ export class ExperimentalMultiBotsGoalIncidentTracker {
     action: string,
     lifecycle: ExpSandboxLifecyclePort,
     rosterCtrl: ExperimentalMultiBotsRosterController,
-    replayCtrl: ExperimentalMultiBotsReplayController,
+    replayCtrl: ExperimentalMultiBotsReplayController
   ): void {
     const r = this.runtime;
     if (!r?.physics) return;
@@ -296,7 +305,7 @@ export class ExperimentalMultiBotsGoalIncidentTracker {
     localTeam: 0 | 1,
     remainingSec: number,
     isOvertime: boolean,
-    targetCamIdx: number,
+    targetCamIdx: number
   ): void {
     syncLocalMatchStateToRuntimeAndHud(runtime?.match?.state, {
       matchPhase: 'kickoff',
@@ -331,7 +340,7 @@ export class ExperimentalMultiBotsGoalIncidentTracker {
     orangeScore: number,
     isOvertime: boolean,
     remainingSec: number,
-    enteringOvertimeNow: boolean,
+    enteringOvertimeNow: boolean
   ): void {
     useExperimentalMultiBotsStore.getState().updateLiveTelemetry({
       kickoffCountdownSec: 3,
@@ -363,7 +372,7 @@ export class ExperimentalMultiBotsGoalIncidentTracker {
     blueScore: number,
     orangeScore: number,
     remainingSec: number,
-    winnerTeam: 0 | 1,
+    winnerTeam: 0 | 1
   ): void {
     useExperimentalMultiBotsStore.getState().updateLiveTelemetry({
       matchPhase,
@@ -387,7 +396,7 @@ export class ExperimentalMultiBotsGoalIncidentTracker {
   syncPodiumEntryHudAndAudio(
     runtime: ExpModeRuntimePort | null,
     podiumController: { enterPodium?: (winner: 0 | 1, reason: string) => void } | null,
-    winnerTeam: 0 | 1,
+    winnerTeam: 0 | 1
   ): void {
     runtime?.resetAudio?.();
     runtime?.audioSubsystem?.resetAudio?.();
@@ -406,7 +415,7 @@ export class ExperimentalMultiBotsGoalIncidentTracker {
     remainingSec: number,
     isOvertime: boolean,
     matchPhase: string,
-    totalInferenceMs: number,
+    totalInferenceMs: number
   ): void {
     const store = useExperimentalMultiBotsStore.getState();
     store.updateLiveTelemetry({
@@ -430,7 +439,7 @@ export class ExperimentalMultiBotsGoalIncidentTracker {
     runtime: ExpModeRuntimePort | null,
     sec: number,
     matchPhase: string,
-    audioCue: string | null,
+    audioCue: string | null
   ): void {
     if (audioCue) getExpModeAudio(runtime)?.play?.(audioCue, 1.0);
     useExperimentalMultiBotsStore.getState().updateLiveTelemetry({

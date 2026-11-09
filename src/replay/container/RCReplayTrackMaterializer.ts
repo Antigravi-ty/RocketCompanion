@@ -5,10 +5,7 @@
  * frame slots, and the 3 parallel timelines (StateInputTimeline, IncidentTimeline, SignalTimeline).
  */
 
-import {
-  STATE_BUFFER_FLOATS,
-  isIncidentEvent,
-} from '../../physics/RocketSimConstants.ts';
+import { STATE_BUFFER_FLOATS, isIncidentEvent } from '../../physics/RocketSimConstants.ts';
 import { resolveReplayAudioCueForSignal } from '../ReplayBufferSliceExtractor.ts';
 import {
   RC_REPLAY_STATE_BYTES,
@@ -21,10 +18,7 @@ import {
   type ReplaySnapshotFloat32Array,
   type DecodedReplayFrameSlot,
 } from './RCReplayBinarySchema.ts';
-import {
-  StateInputTimeline,
-  IncidentTimeline,
-} from './RCReplayTimelineParser.ts';
+import { StateInputTimeline, IncidentTimeline } from './RCReplayTimelineParser.ts';
 import { SignalTimeline } from './RCReplaySignalTimeline.ts';
 import {
   enrichLegacyFlipResetIncidentFromFrames,

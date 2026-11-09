@@ -27,11 +27,7 @@ export type {
   TrajectoryUpdateKind,
 };
 
-export type TrajectorySceneContext =
-  | 'matchPlaying'
-  | 'goalReplay'
-  | 'podium'
-  | 'staticPreview';
+export type TrajectorySceneContext = 'matchPlaying' | 'goalReplay' | 'podium' | 'staticPreview';
 
 export interface TrajectorySceneFlags {
   matchPlaying?: boolean;

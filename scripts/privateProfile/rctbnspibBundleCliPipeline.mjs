@@ -37,20 +37,22 @@ export function minimizeProfileForBundleExport(profile, credentialOverrides = {}
     ? profile.signaling.relays.slice(0, 4)
     : [];
   const minimizedRelays = relays.map((relay) => {
-    const id = String(relay.id || '').trim().toLowerCase();
+    const id = String(relay.id || '')
+      .trim()
+      .toLowerCase();
     if (relay.protocol === 'mqtt') {
       const username =
         id === 'emqx_cn' && credentialOverrides.emqxCnUsername?.trim()
           ? credentialOverrides.emqxCnUsername.trim()
           : id === 'emqx_gb' && credentialOverrides.emqxGbUsername?.trim()
-          ? credentialOverrides.emqxGbUsername.trim()
-          : relay.username || '';
+            ? credentialOverrides.emqxGbUsername.trim()
+            : relay.username || '';
       const password =
         id === 'emqx_cn' && credentialOverrides.emqxCnPassword
           ? credentialOverrides.emqxCnPassword
           : id === 'emqx_gb' && credentialOverrides.emqxGbPassword
-          ? credentialOverrides.emqxGbPassword
-          : relay.password || '';
+            ? credentialOverrides.emqxGbPassword
+            : relay.password || '';
       return {
         id: relay.id,
         label: relay.label,
@@ -85,9 +87,7 @@ export function minimizeProfileForBundleExport(profile, credentialOverrides = {}
       topicNamespace: profile?.signaling?.topicNamespace || 'rc/sig',
       relays: minimizedRelays,
     },
-    ...(profile?.turn?.iceServers?.length
-      ? { turn: { iceServers: profile.turn.iceServers } }
-      : {}),
+    ...(profile?.turn?.iceServers?.length ? { turn: { iceServers: profile.turn.iceServers } } : {}),
     ...(profile?.configSync?.brokerUrl && profile?.configSync?.clientUsername
       ? {
           configSync: {

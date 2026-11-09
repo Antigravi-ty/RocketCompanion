@@ -52,7 +52,7 @@ function createGroundRingMesh(
   segments: number,
   color: number,
   opacity: number,
-  renderOrder: number,
+  renderOrder: number
 ): THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> {
   const geo = new THREE.RingGeometry(innerR, outerR, segments);
   geo.rotateX(-Math.PI / 2);
@@ -64,17 +64,13 @@ function createGroundRingMesh(
       transparent: true,
       opacity,
       depthWrite: false,
-    }),
+    })
   );
   mesh.renderOrder = renderOrder;
   return mesh;
 }
 
-function create3DArrowMesh(
-  colorHex: number,
-  emissiveHex: number,
-  scaleFactor = 1.0,
-): THREE.Group {
+function create3DArrowMesh(colorHex: number, emissiveHex: number, scaleFactor = 1.0): THREE.Group {
   const group = new THREE.Group();
   const d = DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG;
 
@@ -165,13 +161,12 @@ function update3DArrowMesh(
   originThree: THREE.Vector3,
   dirThree: THREE.Vector3,
   totalLength: number,
-  highlight = false,
+  highlight = false
 ): void {
   if (!arrowGroup) return;
 
   const tuner =
-    useStaticTrainingBallCamTunerStore?.getState?.() ??
-    DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG;
+    useStaticTrainingBallCamTunerStore?.getState?.() ?? DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG;
 
   const ud = arrowGroup.userData as ArrowUserData;
   const sf = ud.scaleFactor * (highlight ? 1.08 : 1.0);
@@ -184,12 +179,12 @@ function update3DArrowMesh(
   const arrowOpacity = THREE.MathUtils.clamp(
     (tuner.arrowOpacity ?? 0.78) * (highlight ? 1.0 : 0.88),
     0.1,
-    1.0,
+    1.0
   );
   const shadowOpacity = THREE.MathUtils.clamp(
     (tuner.shadowOpacity ?? 0.52) * (highlight ? 1.0 : 0.85),
     0.0,
-    1.0,
+    1.0
   );
   const haloScale = Math.max(0, (tuner.haloScale ?? 95) * sf);
 
@@ -224,7 +219,7 @@ function update3DArrowMesh(
   ud.headShadowConeMesh.scale.set(
     shadowScale,
     coneLength * (1 + (shadowScale - 1) * 0.35),
-    shadowScale,
+    shadowScale
   );
   ud.headShadowConeMesh.position.set(0, -coneLength * 0.02, 0);
   ud.headShadowConeMesh.visible = shadowOpacity > 0.01;
@@ -311,7 +306,7 @@ export class StaticTrainingVisuals {
       this.carGroundRing,
       this.ballGroundRing,
       this.carDropLine,
-      this.ballDropLine,
+      this.ballDropLine
     );
 
     if (this.scene) this.scene.add(this.root);
@@ -344,8 +339,7 @@ export class StaticTrainingVisuals {
     this.setVisible(true);
 
     const tuner =
-      useStaticTrainingBallCamTunerStore?.getState?.() ??
-      DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG;
+      useStaticTrainingBallCamTunerStore?.getState?.() ?? DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG;
 
     const car = shot.car || {};
     const ball = shot.ball || {};
@@ -365,7 +359,7 @@ export class StaticTrainingVisuals {
     const carHeadingDirThree = new THREE.Vector3(
       Math.cos(chPitch) * Math.cos(chYaw),
       Math.sin(chPitch),
-      Math.cos(chPitch) * Math.sin(chYaw),
+      Math.cos(chPitch) * Math.sin(chYaw)
     );
 
     const followsHeading = car.speedFollowsHeading !== false;
@@ -374,7 +368,7 @@ export class StaticTrainingVisuals {
     const carSpeedDirThree = new THREE.Vector3(
       Math.cos(csPitch) * Math.cos(csYaw),
       Math.sin(csPitch),
-      Math.cos(csPitch) * Math.sin(csYaw),
+      Math.cos(csPitch) * Math.sin(csYaw)
     );
 
     const bsPitch = Number(ball.speedPitch) || 0;
@@ -382,7 +376,7 @@ export class StaticTrainingVisuals {
     const ballSpeedDirThree = new THREE.Vector3(
       Math.cos(bsPitch) * Math.cos(bsYaw),
       Math.sin(bsPitch),
-      Math.cos(bsPitch) * Math.sin(bsYaw),
+      Math.cos(bsPitch) * Math.sin(bsYaw)
     );
 
     const carSpeedVal = Number(car.speed) || 0;
@@ -396,7 +390,7 @@ export class StaticTrainingVisuals {
         speedOrigin,
         carSpeedDirThree,
         arrowLen,
-        editSubMode === 'car-speed' || (editSubMode === 'car-heading' && carSpeedVal > 0),
+        editSubMode === 'car-speed' || (editSubMode === 'car-heading' && carSpeedVal > 0)
       );
     } else if (showPlayArrows) {
       this.carSpeedArrow.visible = true;
@@ -411,13 +405,15 @@ export class StaticTrainingVisuals {
 
     if (isEditMode) {
       this.carHeadingArrow.visible = true;
-      const headingOrigin = carBasePosThree.clone().addScaledVector(carHeadingDirThree, forwardOffset);
+      const headingOrigin = carBasePosThree
+        .clone()
+        .addScaledVector(carHeadingDirThree, forwardOffset);
       update3DArrowMesh(
         this.carHeadingArrow,
         headingOrigin,
         carHeadingDirThree,
         baseLength + 30,
-        editSubMode === 'car-heading',
+        editSubMode === 'car-heading'
       );
     } else {
       this.carHeadingArrow.visible = false;
@@ -433,7 +429,7 @@ export class StaticTrainingVisuals {
         ballPosThree,
         ballSpeedDirThree,
         bLen,
-        editSubMode === 'ball-speed',
+        editSubMode === 'ball-speed'
       );
     } else {
       this.ballSpeedArrow.visible = false;

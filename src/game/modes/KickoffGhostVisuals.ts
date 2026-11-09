@@ -5,7 +5,10 @@
  */
 
 import * as THREE from 'three';
-import { type VehicleAssetStore, type VehicleLoaderCallbacks } from '../../entities/arena/VehicleFactory.ts';
+import {
+  type VehicleAssetStore,
+  type VehicleLoaderCallbacks,
+} from '../../entities/arena/VehicleFactory.ts';
 import { updateCarSuspensionAndSteering } from '../../entities/VehicleSuspensionSystem.ts';
 import { unrealToThreeCoords } from '../../entities/arena/ArenaMath.ts';
 import { SpeedTrail } from '../../entities/SpeedTrail.ts';
@@ -54,7 +57,8 @@ export class KickoffGhostVisuals {
   public ghostBallMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> | null = null;
   public ghostBallRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> | null = null;
   public ghostBallTrail: SpeedTrail | null = null;
-  public ghostTrajectoryLine: THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial> | null = null;
+  public ghostTrajectoryLine: THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial> | null =
+    null;
   public ghostTrajectoryPositions = new Float32Array(MAX_TRAJECTORY_POINTS * 3);
   public ghostTrajectoryCount = 0;
   public rawBallTrajectoryPoints: Array<[number, number, number]> = [];
@@ -137,14 +141,15 @@ export class KickoffGhostVisuals {
   }
 
   private _applyPlacementTint(): void {
-    const palette = this.ghostPlacement === 'opposite' ? GHOST_WORLD_PALETTES[1] : GHOST_WORLD_PALETTES[0];
+    const palette =
+      this.ghostPlacement === 'opposite' ? GHOST_WORLD_PALETTES[1] : GHOST_WORLD_PALETTES[0];
     applyPaletteToGhostMaterials(
       palette,
       this.ghostCarMaterials,
       this.ghostCarLineMaterials,
       this.ghostBoostPlume,
       this.ghostBallMesh,
-      this.ghostBallRing,
+      this.ghostBallRing
     );
     if (this.ghostBallTrail?.material?.uniforms?.uColor) {
       this.ghostBallTrail.material.uniforms.uColor.value.setHex(palette.mainHex);
@@ -218,7 +223,7 @@ export class KickoffGhostVisuals {
       this._pA,
       ballStateView.posX * xySign,
       ballStateView.posY * xySign,
-      ballStateView.posZ,
+      ballStateView.posZ
     );
 
     const idx = this.ghostTrajectoryCount * 3;
@@ -230,11 +235,7 @@ export class KickoffGhostVisuals {
       if (dx * dx + dy * dy + dz * dz < 900) return;
     }
 
-    this.rawBallTrajectoryPoints.push([
-      ballStateView.posX,
-      ballStateView.posY,
-      ballStateView.posZ,
-    ]);
+    this.rawBallTrajectoryPoints.push([ballStateView.posX, ballStateView.posY, ballStateView.posZ]);
     this.ghostTrajectoryPositions[idx] = this._pA.x;
     this.ghostTrajectoryPositions[idx + 1] = this._pA.y;
     this.ghostTrajectoryPositions[idx + 2] = this._pA.z;
@@ -250,7 +251,7 @@ export class KickoffGhostVisuals {
     currState: Float32Array | null | undefined,
     alpha: number,
     dt: number,
-    ghostControls?: { throttle?: number } | null,
+    ghostControls?: { throttle?: number } | null
   ): void {
     this.ensureBuilt();
     if (!this.visible || !prevState || !currState) return;
@@ -272,7 +273,7 @@ export class KickoffGhostVisuals {
         currCar,
         'fennec',
         dt,
-        ghostControls?.throttle ?? 0,
+        ghostControls?.throttle ?? 0
       );
 
       if (this.ghostBoostPlume) {
@@ -303,7 +304,7 @@ export class KickoffGhostVisuals {
         this._velVec,
         currBall.velX * xySign,
         currBall.velY * xySign,
-        currBall.velZ,
+        currBall.velZ
       );
       this.ghostBallTrail?.update(this.ghostBallMesh.position, this._velVec, dt);
       this.ghostBallTrail?.prepare(this.arena?.camera);

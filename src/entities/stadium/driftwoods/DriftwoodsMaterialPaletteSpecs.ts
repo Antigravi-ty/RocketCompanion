@@ -19,7 +19,7 @@ import {
   DEFAULT_Q1_LAYER_COLORS,
   type DriftwoodsLayerConfig,
   type DriftwoodsTunerConfig,
-} from '../../../ui-core/config/driftwoodsConfig';
+} from '../../../ui-core/config/driftwoodsConfig.ts';
 
 export type DriftwoodsShaderUniforms = ReturnType<typeof createDriftwoodsShaderUniforms>;
 export type DriftwoodsGroundUniforms = DriftwoodsShaderUniforms['groundUniforms'];
@@ -79,16 +79,10 @@ export function createDriftwoodsShaderUniforms(
     uBakedOrangeGroundMap: { value: bakedOrangeGroundTexture },
     uQ1GroundMap: { value: q1GroundTexture },
     uQ1UvScale: {
-      value: new Vector2(
-        config.ground?.q1ScaleX ?? 1.0,
-        config.ground?.q1ScaleY ?? 1.0
-      ),
+      value: new Vector2(config.ground?.q1ScaleX ?? 1.0, config.ground?.q1ScaleY ?? 1.0),
     },
     uQ1UvOffset: {
-      value: new Vector2(
-        config.ground?.q1OffsetX ?? 0.0,
-        config.ground?.q1OffsetY ?? 0.0
-      ),
+      value: new Vector2(config.ground?.q1OffsetX ?? 0.0, config.ground?.q1OffsetY ?? 0.0),
     },
     uGroundColor: { value: new Color(config.ground?.groundColor || '#18441c') },
     uLineColor: { value: new Color(config.ground?.lineColor || '#e1e6eb') },
@@ -113,8 +107,7 @@ export function createDriftwoodsShaderUniforms(
 
   const specularAAUniforms = {
     uSpecularAAStrength: {
-      value:
-        config.specularAA !== false ? Number(config.specularAAStrength ?? 1.0) : 0.0,
+      value: config.specularAA !== false ? Number(config.specularAAStrength ?? 1.0) : 0.0,
     },
   };
 

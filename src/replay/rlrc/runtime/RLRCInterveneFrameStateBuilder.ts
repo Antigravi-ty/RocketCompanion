@@ -85,7 +85,9 @@ export interface RLRCPrerollRingBufferPort {
     tick: number,
     stateSnapshot: Float32Array,
     options?: {
-      acknowledgedControls?: ReadonlyArray<ReplayAcknowledgedControlEntry | null | undefined> | null;
+      acknowledgedControls?: ReadonlyArray<
+        ReplayAcknowledgedControlEntry | null | undefined
+      > | null;
     }
   ) => { snapshot?: Float32Array | null } | null;
   appendIncident?: (tick: number, incident: ReplayRecordedIncident) => boolean | void;
@@ -294,8 +296,7 @@ export function packRLRCFrameToGameStateBuffer(
     const car = frame.cars[slot];
     const cBase = SIM_OFFSETS.CARS + slot * CAR_STATE_STRIDE;
     const extBase =
-      EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE +
-      slot * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;
+      EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE + slot * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;
 
     if (!car || !car.entityActive) {
       buf[cBase + CAR_STATE_OFFSETS.POS + 2] = -5000;
@@ -330,7 +331,9 @@ export function packRLRCFrameToGameStateBuffer(
     buf[cBase + CAR_STATE_OFFSETS.GROUND_NORMAL + 2] = 1;
 
     const airTime = car.isOnGround ? 0 : Math.max(0, car.airTimeSinceJump);
-    buf[extBase + EXTENDED_STATE_OFFSETS.CAR_IS_JUMPING_OFFSET] = car.activeFlags.jumpActive ? 1 : 0;
+    buf[extBase + EXTENDED_STATE_OFFSETS.CAR_IS_JUMPING_OFFSET] = car.activeFlags.jumpActive
+      ? 1
+      : 0;
     buf[extBase + EXTENDED_STATE_OFFSETS.CAR_AIR_TIME_OFFSET] = airTime;
     buf[extBase + EXTENDED_STATE_OFFSETS.CAR_JUMP_TIME_OFFSET] = car.activeFlags.jumpActive
       ? Math.min(0.2, Math.max(RLRC_FIXED_DT, airTime))

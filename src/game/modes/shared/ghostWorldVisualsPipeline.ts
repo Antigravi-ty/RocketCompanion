@@ -72,7 +72,7 @@ const _basisMat = new THREE.Matrix4();
 
 export function resolveGhostWorldPalette(
   worldIndex = 0,
-  placement: 'same' | 'opposite' | string = 'same',
+  placement: 'same' | 'opposite' | string = 'same'
 ): GhostWorldPalette {
   if (placement === 'opposite' && worldIndex === 0) return GHOST_WORLD_PALETTES[1];
   return GHOST_WORLD_PALETTES[Math.abs(worldIndex) % GHOST_WORLD_PALETTES.length];
@@ -101,7 +101,7 @@ export function buildHolographicGhostCarHierarchy(params: {
     true,
     registry?.assets || {},
     registry?.carLoaders || {},
-    true,
+    true
   );
   root.add(carModel);
   if (carHitbox) {
@@ -116,7 +116,7 @@ export function buildHolographicGhostCarHierarchy(params: {
     palette.mainHex,
     wheelSpecs,
     registry?.assets || {},
-    registry?.carLoaders || {},
+    registry?.carLoaders || {}
   );
 
   const materials: THREE.MeshStandardMaterial[] = [];
@@ -219,7 +219,7 @@ export function applyPaletteToGhostMaterials(
   lineMaterials: readonly THREE.LineBasicMaterial[],
   boostPlume?: THREE.Mesh<THREE.ConeGeometry, THREE.MeshBasicMaterial> | null,
   ballMesh?: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> | null,
-  ballRing?: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> | null,
+  ballRing?: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> | null
 ): void {
   for (const mat of carMaterials) {
     mat.color.setHex(palette.mainHex);
@@ -243,17 +243,13 @@ export function applyPaletteToGhostMaterials(
 export function viewBasisToQuatSigned(
   targetQuat: THREE.Quaternion,
   view: CarStateView | BallStateView,
-  xySign: number,
+  xySign: number
 ): THREE.Quaternion {
   unrealToThreeCoords(_basisFwd, view.fwdX * xySign, view.fwdY * xySign, view.fwdZ);
   unrealToThreeCoords(_basisRight, view.rightX * xySign, view.rightY * xySign, view.rightZ);
   unrealToThreeCoords(_basisUp, view.upX * xySign, view.upY * xySign, view.upZ);
 
-  if (
-    _basisFwd.lengthSq() < 1e-6 ||
-    _basisUp.lengthSq() < 1e-6 ||
-    _basisRight.lengthSq() < 1e-6
-  ) {
+  if (_basisFwd.lengthSq() < 1e-6 || _basisUp.lengthSq() < 1e-6 || _basisRight.lengthSq() < 1e-6) {
     targetQuat.set(0, 0, 0, 1);
     return targetQuat;
   }
@@ -269,7 +265,7 @@ export function interpolateSignedTransform(
   prevView: CarStateView | BallStateView,
   currView: CarStateView | BallStateView,
   alpha: number,
-  xySign: number,
+  xySign: number
 ): void {
   unrealToThreeCoords(_pA, prevView.posX * xySign, prevView.posY * xySign, prevView.posZ);
   unrealToThreeCoords(_pB, currView.posX * xySign, currView.posY * xySign, currView.posZ);

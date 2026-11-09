@@ -1,25 +1,23 @@
 import * as THREE from 'three';
-import { HITBOX_PRESETS } from '../../ui-core/config/vehiclePresets';
-import { normalizeVisualId } from '../../ui-core/config/vehicleConstants';
+import { HITBOX_PRESETS } from '../../ui-core/config/vehiclePresets.ts';
+import { normalizeVisualId } from '../../ui-core/config/vehicleConstants.ts';
 import {
   FENNEC_DESCRIPTOR,
   getVehicleDescriptor,
   hasVehicleDescriptor,
   recomputeDescriptorBoostOutlets,
   GLOBAL_VEHICLE_SURFACE_MATERIALS,
-} from '../../ui-core/config/vehicleTunerConfig';
+} from '../../ui-core/config/vehicleTunerConfig.ts';
 import {
   loadCustomGlbCarAsset,
   createCustomGlbCarModel,
   getCachedCustomVehicleAsset,
 } from '../vehicle/customGlbCarModel.ts';
-import {
-  createProceduralSportWheel,
-} from '../vehicle/vehicleWheelsAndLamps.ts';
+import { createProceduralSportWheel } from '../vehicle/vehicleWheelsAndLamps.ts';
 import {
   DEFAULT_TEAM_COLORS,
   OCTANE_BOOST_OUTLETS,
-  OCTANE_HITBOX_PRESET
+  OCTANE_HITBOX_PRESET,
 } from './ArenaConstants.ts';
 import { createCarHitboxWireframe } from './ArenaMath.ts';
 
@@ -41,8 +39,16 @@ export function createDefaultVehicleLoaders() {
 export type VehicleAssetStore = Map<string, unknown> | Record<string, unknown> | null | undefined;
 
 export interface VehicleLoaderCallbacks {
-  createCustomGlbCarModel?: (visualId: string, customAsset: unknown, teamColor: number) => THREE.Object3D;
-  createProceduralSportWheel?: (radius: number, teamColor: number, wheelIndex: number) => THREE.Object3D;
+  createCustomGlbCarModel?: (
+    visualId: string,
+    customAsset: unknown,
+    teamColor: number
+  ) => THREE.Object3D;
+  createProceduralSportWheel?: (
+    radius: number,
+    teamColor: number,
+    wheelIndex: number
+  ) => THREE.Object3D;
   [key: string]: unknown;
 }
 
@@ -55,7 +61,7 @@ export function buildVehicleModel(
   carHitboxesVisible: boolean
 ) {
   const visual = normalizeVisualId(rawVisual);
-  const isHitbox = visual.startsWith("hitbox-");
+  const isHitbox = visual.startsWith('hitbox-');
   const isCustomGlb = hasVehicleDescriptor(visual);
 
   let carModel: THREE.Object3D | null = null;
@@ -65,18 +71,23 @@ export function buildVehicleModel(
   if (isHitbox) {
     let preset = HITBOX_PRESETS[visual];
     if (!preset) {
-      console.warn(`[VehicleFactory] Unrecognized hitbox preset "${visual}"; falling back to "hitbox-octane".`);
-      preset = HITBOX_PRESETS["hitbox-octane"];
+      console.warn(
+        `[VehicleFactory] Unrecognized hitbox preset "${visual}"; falling back to "hitbox-octane".`
+      );
+      preset = HITBOX_PRESETS['hitbox-octane'];
     }
     try {
       carModel = createWhiteboxCarModel(visual, teamColor);
     } catch (err) {
-      console.error('[VehicleFactory] Failed to instantiate car model:', err, { visual, teamColor });
+      console.error('[VehicleFactory] Failed to instantiate car model:', err, {
+        visual,
+        teamColor,
+      });
       carModel = new THREE.Group();
     }
-    carModel.name = "car-body-mesh";
+    carModel.name = 'car-body-mesh';
     carHitbox = createCarHitboxWireframe(preset);
-    carHitbox.name = "car-hitbox-wireframe";
+    carHitbox.name = 'car-hitbox-wireframe';
     carHitbox.visible = carHitboxesVisible;
     boostOutlets = OCTANE_BOOST_OUTLETS.map(([x, y, z]) => new THREE.Vector3(x, y, z));
     return { carModel, carHitbox, boostOutlets };
@@ -88,7 +99,8 @@ export function buildVehicleModel(
       recomputeDescriptorBoostOutlets(descriptor);
     }
     const hitboxKey = descriptor?.hitboxPreset || 'hitbox-octane';
-    const hitboxPreset = HITBOX_PRESETS[hitboxKey as keyof typeof HITBOX_PRESETS] || OCTANE_HITBOX_PRESET;
+    const hitboxPreset =
+      HITBOX_PRESETS[hitboxKey as keyof typeof HITBOX_PRESETS] || OCTANE_HITBOX_PRESET;
     let customAsset = assets instanceof Map ? assets.get(visual) : assets?.[visual];
     if (!customAsset) {
       const cached = getCachedCustomVehicleAsset(visual);
@@ -106,24 +118,29 @@ export function buildVehicleModel(
         `[VehicleFactory] Custom GLB asset or loader unavailable for "${visual}"; falling back to whitebox model "${descriptor?.hitboxPreset || 'hitbox-octane'}".`
       );
       try {
-        carModel = createWhiteboxCarModel(descriptor?.hitboxPreset || "hitbox-octane", teamColor);
+        carModel = createWhiteboxCarModel(descriptor?.hitboxPreset || 'hitbox-octane', teamColor);
       } catch (err) {
-        console.warn(`[VehicleFactory] Failed to create whitebox fallback for "${visual}"; using empty Group:`, err);
+        console.warn(
+          `[VehicleFactory] Failed to create whitebox fallback for "${visual}"; using empty Group:`,
+          err
+        );
         carModel = new THREE.Group();
       }
     }
-    carModel.name = "car-body-mesh";
+    carModel.name = 'car-body-mesh';
     carHitbox = createCarHitboxWireframe(hitboxPreset);
-    carHitbox.name = "car-hitbox-wireframe";
+    carHitbox.name = 'car-hitbox-wireframe';
     carHitbox.visible = carHitboxesVisible;
     const rawOutlets = descriptor?.boostOutlets || OCTANE_BOOST_OUTLETS;
     boostOutlets = rawOutlets.map(([x, y, z]: number[]) => new THREE.Vector3(x, y, z));
     return { carModel, carHitbox, boostOutlets };
   }
 
-  console.warn(`[VehicleFactory] Visual preset "${visual}" has no custom GLB descriptor; falling back to "hitbox-octane" whitebox model.`);
+  console.warn(
+    `[VehicleFactory] Visual preset "${visual}" has no custom GLB descriptor; falling back to "hitbox-octane" whitebox model.`
+  );
   try {
-    carModel = createWhiteboxCarModel("hitbox-octane", teamColor);
+    carModel = createWhiteboxCarModel('hitbox-octane', teamColor);
   } catch (err) {
     console.error('[VehicleFactory] Failed to instantiate fallback model:', err, { teamColor });
     carModel = new THREE.Group();
@@ -131,8 +148,8 @@ export function buildVehicleModel(
   carHitbox = createCarHitboxWireframe(OCTANE_HITBOX_PRESET);
   boostOutlets = OCTANE_BOOST_OUTLETS.map(([x, y, z]) => new THREE.Vector3(x, y, z));
 
-  carModel.name = "car-body-mesh";
-  carHitbox.name = "car-hitbox-wireframe";
+  carModel.name = 'car-body-mesh';
+  carHitbox.name = 'car-hitbox-wireframe';
   carHitbox.visible = carHitboxesVisible;
   return { carModel, carHitbox, boostOutlets };
 }
@@ -146,21 +163,27 @@ export function buildVehicleWheels(
   loaders: VehicleLoaderCallbacks
 ) {
   const visual = normalizeVisualId(rawVisual);
-  const isHitbox = visual.startsWith("hitbox-");
+  const isHitbox = visual.startsWith('hitbox-');
   const isCustomGlb = hasVehicleDescriptor(visual);
   const wheels: Array<{ steer: THREE.Group; spin: THREE.Group }> = [];
 
   if (isHitbox || !isCustomGlb) {
     if (!loaders.createProceduralSportWheel) {
-      console.warn(`[VehicleFactory] createProceduralSportWheel loader unavailable for "${visual}"; falling back to cylinder wheel geometry.`);
+      console.warn(
+        `[VehicleFactory] createProceduralSportWheel loader unavailable for "${visual}"; falling back to cylinder wheel geometry.`
+      );
     }
     const wheelGeom = new THREE.CylinderGeometry(13.5, 13.5, 9, 16);
     wheelGeom.rotateX(Math.PI / 2);
-    const wheelMat = new THREE.MeshStandardMaterial({ color: 2171169, roughness: 0.9, metalness: 0.1 });
+    const wheelMat = new THREE.MeshStandardMaterial({
+      color: 2171169,
+      roughness: 0.9,
+      metalness: 0.1,
+    });
     for (let i = 0; i < 4; i++) {
       const [specX, specZ, specRadius] = wheelSpecs[i] || [0, 0, 13.5];
       const steerGroup = new THREE.Group();
-      steerGroup.name = "car-wheel-steer";
+      steerGroup.name = 'car-wheel-steer';
       steerGroup.position.set(specX, -6.0, specZ);
       const spinGroup = new THREE.Group();
       if (loaders.createProceduralSportWheel) {
@@ -178,17 +201,21 @@ export function buildVehicleWheels(
   }
 
   const descriptor = getVehicleDescriptor(visual);
-  const isThreeWheels = Boolean(descriptor?.threeWheels || visual === 'trioctane-threewheel' || visual === 'hitbox-psyclops');
+  const isThreeWheels = Boolean(
+    descriptor?.threeWheels || visual === 'trioctane-threewheel' || visual === 'hitbox-psyclops'
+  );
   if (!loaders.createProceduralSportWheel) {
-    console.warn(`[VehicleFactory] createProceduralSportWheel loader unavailable for custom vehicle "${visual}"; using empty wheel groups.`);
+    console.warn(
+      `[VehicleFactory] createProceduralSportWheel loader unavailable for custom vehicle "${visual}"; using empty wheel groups.`
+    );
   }
 
   for (let i = 0; i < wheelSpecs.length; i++) {
     const [specX, rawSpecZ, specRadius] = wheelSpecs[i];
     const specZ = isThreeWheels && i === 0 ? 0.0 : rawSpecZ;
     const steerGroup = new THREE.Group();
-    steerGroup.name = "car-wheel-steer";
-    const restY = descriptor?.suspensionHeights?.[i] ?? (specRadius - 17);
+    steerGroup.name = 'car-wheel-steer';
+    const restY = descriptor?.suspensionHeights?.[i] ?? specRadius - 17;
     steerGroup.position.set(specX, restY, specZ);
     if (isThreeWheels && i === 1) {
       steerGroup.visible = false;
@@ -209,7 +236,9 @@ export function buildVehicleWheels(
   }
 
   if (isThreeWheels) {
-    (wheels as Array<{ steer: THREE.Group; spin: THREE.Group }> & { threeWheels?: boolean }).threeWheels = true;
+    (
+      wheels as Array<{ steer: THREE.Group; spin: THREE.Group }> & { threeWheels?: boolean }
+    ).threeWheels = true;
   }
 
   return wheels;
@@ -219,32 +248,43 @@ export function removeCarMeshes(carRoot: THREE.Object3D, removeWheels = false) {
   const toRemove: THREE.Object3D[] = [];
   for (const child of carRoot.children) {
     if (
-      child.name === "car-body-mesh" ||
-      child.name === "car-hitbox-wireframe" ||
-      child.name === "car-hitbox" ||
-      child.name?.startsWith("whitebox-") ||
-      (removeWheels && child.name === "car-wheel-steer")
+      child.name === 'car-body-mesh' ||
+      child.name === 'car-hitbox-wireframe' ||
+      child.name === 'car-hitbox' ||
+      child.name?.startsWith('whitebox-') ||
+      (removeWheels && child.name === 'car-wheel-steer')
     ) {
       toRemove.push(child);
     }
   }
   for (const child of toRemove) {
     carRoot.remove(child);
-    const preserveSharedGlbGeometry = child.name === "car-body-mesh";
-    child.traverse?.((node: THREE.Object3D & { geometry?: THREE.BufferGeometry; material?: THREE.Material | THREE.Material[] }) => {
-      if (!preserveSharedGlbGeometry && node.geometry) node.geometry.dispose?.();
-      if (node.material) {
-        const mats = Array.isArray(node.material) ? node.material : [node.material];
-        mats.forEach((m) => m?.dispose?.());
+    const preserveSharedGlbGeometry = child.name === 'car-body-mesh';
+    child.traverse?.(
+      (
+        node: THREE.Object3D & {
+          geometry?: THREE.BufferGeometry;
+          material?: THREE.Material | THREE.Material[];
+        }
+      ) => {
+        if (!preserveSharedGlbGeometry && node.geometry) node.geometry.dispose?.();
+        if (node.material) {
+          const mats = Array.isArray(node.material) ? node.material : [node.material];
+          mats.forEach((m) => m?.dispose?.());
+        }
       }
-    });
+    );
   }
 }
 
-export function createWhiteboxCarModel(presetId: string, teamColor = 0x0088ff, three: typeof THREE = THREE) {
-  const cfg = HITBOX_PRESETS[presetId] || HITBOX_PRESETS["hitbox-octane"];
+export function createWhiteboxCarModel(
+  presetId: string,
+  teamColor = 0x0088ff,
+  three: typeof THREE = THREE
+) {
+  const cfg = HITBOX_PRESETS[presetId] || HITBOX_PRESETS['hitbox-octane'];
   if (!three || !three.Group || !three.BoxGeometry || !three.MeshStandardMaterial || !three.Mesh) {
-    throw new Error("[Garage] Three.js context required to build procedural car model.");
+    throw new Error('[Garage] Three.js context required to build procedural car model.');
   }
 
   const root = new three.Group();
@@ -255,30 +295,23 @@ export function createWhiteboxCarModel(presetId: string, teamColor = 0x0088ff, t
   const bodyMat = new three.MeshStandardMaterial({
     color: teamColor,
     roughness: bodySlot?.roughness ?? 0.85,
-    metalness: bodySlot?.metalness ?? 0.5
+    metalness: bodySlot?.metalness ?? 0.5,
   });
-  bodyMat.name = "paint";
+  bodyMat.name = 'paint';
   const rearMat = new three.MeshStandardMaterial({
     color: 0xffffff,
     roughness: bodySlot?.roughness ?? 0.85,
-    metalness: bodySlot?.metalness ?? 0.5
+    metalness: bodySlot?.metalness ?? 0.5,
   });
-  rearMat.name = "whitebox-rear";
+  rearMat.name = 'whitebox-rear';
   const bottomMat = new three.MeshStandardMaterial({
     color: 0x1f2328,
     roughness: 0.85,
-    metalness: 0.1
+    metalness: 0.1,
   });
-  bottomMat.name = "lower-detail";
+  bottomMat.name = 'lower-detail';
 
-  const materials = [
-    bodyMat,
-    rearMat,
-    bodyMat,
-    bottomMat,
-    bodyMat,
-    bodyMat
-  ];
+  const materials = [bodyMat, rearMat, bodyMat, bottomMat, bodyMat, bodyMat];
 
   const bodyMesh = new three.Mesh(bodyGeom, materials);
   bodyMesh.position.set(cfg.forward, cfg.up, 0);
@@ -290,7 +323,7 @@ export function createWhiteboxCarModel(presetId: string, teamColor = 0x0088ff, t
     const wireMat = new three.LineBasicMaterial({
       color: 0xffffff,
       transparent: true,
-      opacity: 0.85
+      opacity: 0.85,
     });
     const wireMesh = new three.LineSegments(edgesGeom, wireMat);
     bodyMesh.add(wireMesh);

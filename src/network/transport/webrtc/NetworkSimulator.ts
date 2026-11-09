@@ -26,7 +26,8 @@ export interface NetworkSimulatorStats {
   pongsReceived: number;
 }
 
-export type SimulatedPayload = Uint8Array | ArrayBuffer | string | Record<string, unknown> | unknown;
+export type SimulatedPayload =
+  Uint8Array | ArrayBuffer | string | Record<string, unknown> | unknown;
 
 export class NetworkSimulator {
   extraUplinkMs: number;
@@ -229,10 +230,7 @@ export class NetworkSimulator {
     enabled = this.burstDropEnabled
   ): void {
     const safePeriod = Math.max(1, Math.floor(Number(periodMs) || 2000));
-    const safeDuration = Math.max(
-      0,
-      Math.min(safePeriod - 1, Math.floor(Number(durationMs) || 0))
-    );
+    const safeDuration = Math.max(0, Math.min(safePeriod - 1, Math.floor(Number(durationMs) || 0)));
     this.burstPeriodMs = safePeriod;
     this.burstDurationMs = safeDuration;
     if (enabled !== undefined) {

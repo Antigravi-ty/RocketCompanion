@@ -44,7 +44,10 @@ export function createDefaultHostChannel(
     onMessage: ((payload: SimulatedPayload) => void) | null;
     onColorChange: ((msg: Record<string, unknown>) => void) | null;
     send: (packet: SimulatedPayload, nowMs?: number) => boolean;
-    sendClientInput: (packet: SimulatedPayload | ClientInputCommandPayload, nowMs?: number) => boolean;
+    sendClientInput: (
+      packet: SimulatedPayload | ClientInputCommandPayload,
+      nowMs?: number
+    ) => boolean;
     sendServerState: (packet: SimulatedPayload, nowMs?: number) => boolean;
     receiveClientPackets: (nowMs?: number) => SimulatedPayload[];
     receiveServerPackets: (nowMs?: number) => SimulatedPayload[];

@@ -9,7 +9,7 @@ import { KICKOFF_SPAWN_PRESETS } from '../../physics/RocketSimConstants.ts';
 import {
   type NameTagCameraMode,
   type NameTagCarEntry,
-} from '../../ui-core/config/nameTagConfig';
+} from '../../ui-core/config/nameTagConfig.ts';
 import {
   getNameTagConfig,
   hudStore,
@@ -17,14 +17,19 @@ import {
   subscribeNameTagConfig,
   useAppStore,
 } from '../runtimeUiPort.ts';
-import {
-  isEditableEventTarget,
-  subscribeGlobalKeyDown,
-} from '../../input/hotkeyInputGuard.ts';
+import { isEditableEventTarget, subscribeGlobalKeyDown } from '../../input/hotkeyInputGuard.ts';
 
 const SIX_CAR_KICKOFF_PERMUTATIONS: readonly (readonly [number, number, number])[] = [
-  [0, 1, 2], [0, 1, 3], [0, 1, 4], [0, 2, 3], [0, 2, 4],
-  [0, 3, 4], [1, 2, 3], [1, 2, 4], [1, 3, 4], [2, 3, 4],
+  [0, 1, 2],
+  [0, 1, 3],
+  [0, 1, 4],
+  [0, 2, 3],
+  [0, 2, 4],
+  [0, 3, 4],
+  [1, 2, 3],
+  [1, 2, 4],
+  [1, 3, 4],
+  [2, 3, 4],
 ];
 
 const TEAM_BLUE_COLORS = [0x0ea5e9, 0x38bdf8, 0x2563eb];
@@ -46,15 +51,9 @@ function isEditableTarget(target: unknown): boolean {
   if (tagName === 'TEXTAREA' || tagName === 'SELECT') return true;
   if (tagName === 'INPUT') {
     const inputType = String(el.type || 'text').toLowerCase();
-    return ![
-      'range',
-      'checkbox',
-      'radio',
-      'button',
-      'submit',
-      'reset',
-      'color',
-    ].includes(inputType);
+    return !['range', 'checkbox', 'radio', 'button', 'submit', 'reset', 'color'].includes(
+      inputType
+    );
   }
   return false;
 }
@@ -92,10 +91,7 @@ export interface NameTagTunerRuntimeHost {
     isFreeCam?: boolean;
     currentMode?: NameTagCameraMode;
     ballCam?: boolean;
-    setFreeCamPose?: (
-      pos: [number, number, number],
-      target: [number, number, number]
-    ) => void;
+    setFreeCamPose?: (pos: [number, number, number], target: [number, number, number]) => void;
     setFreeCam?: (enabled: boolean) => void;
     setFocusedCarIndex?: (carIndex: number) => void;
     resetView?: () => void;
@@ -114,11 +110,7 @@ export interface NameTagTunerRuntimeHost {
     setCarTeam?: (carIndex: number, team: number) => void;
     setCarColor?: (carIndex: number, colorHex: number) => void;
     nameTagSystem?: {
-      update?: (
-        arena: unknown,
-        numCars?: number,
-        camera?: THREE.PerspectiveCamera | null
-      ) => void;
+      update?: (arena: unknown, numCars?: number, camera?: THREE.PerspectiveCamera | null) => void;
     };
   };
 }
@@ -174,8 +166,7 @@ export class NameTagTunerArenaController {
       if (this.runtime?.match?.state?.mode !== 'freeplay') return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (isEditableEventTarget(event)) return;
-      const activeElement =
-        typeof document !== 'undefined' ? document.activeElement : null;
+      const activeElement = typeof document !== 'undefined' ? document.activeElement : null;
       if (isEditableTarget(event.target) || isEditableTarget(activeElement)) return;
 
       let keyNumber = -1;
@@ -192,11 +183,7 @@ export class NameTagTunerArenaController {
         return;
       }
 
-      if (
-        event.code === 'Digit0' ||
-        event.code === 'Numpad0' ||
-        event.code === 'Backquote'
-      ) {
+      if (event.code === 'Digit0' || event.code === 'Numpad0' || event.code === 'Backquote') {
         event.preventDefault();
         event.stopPropagation();
         this.focusFreeCamOverview();
@@ -275,10 +262,7 @@ export class NameTagTunerArenaController {
     const appState = useAppStore.getState();
     if (runtime.camera) {
       if (typeof runtime.camera.setFreeCamPose === 'function') {
-        runtime.camera.setFreeCamPose(
-          OVERVIEW_FREECAM_POSITION,
-          OVERVIEW_FREECAM_TARGET
-        );
+        runtime.camera.setFreeCamPose(OVERVIEW_FREECAM_POSITION, OVERVIEW_FREECAM_TARGET);
       } else {
         runtime.camera.setFreeCam?.(true);
       }
@@ -337,8 +321,7 @@ export class NameTagTunerArenaController {
       void this.enterTunerArena();
       return;
     }
-    this.permutationIndex =
-      (this.permutationIndex + 1) % SIX_CAR_KICKOFF_PERMUTATIONS.length;
+    this.permutationIndex = (this.permutationIndex + 1) % SIX_CAR_KICKOFF_PERMUTATIONS.length;
     this._spawnSixKickoffCars();
     if (!this.runtime?.camera?.isFreeCam) {
       this.runtime?.camera?.resetView?.();
@@ -367,9 +350,7 @@ export class NameTagTunerArenaController {
 
     const config = getNameTagConfig();
     const slotTriple =
-      SIX_CAR_KICKOFF_PERMUTATIONS[
-        this.permutationIndex % SIX_CAR_KICKOFF_PERMUTATIONS.length
-      ];
+      SIX_CAR_KICKOFF_PERMUTATIONS[this.permutationIndex % SIX_CAR_KICKOFF_PERMUTATIONS.length];
 
     for (let carIndex = 0; carIndex < 6; carIndex++) {
       const team = carIndex < 3 ? 0 : 1;
@@ -400,11 +381,7 @@ export class NameTagTunerArenaController {
       });
 
       if (runtime.arena) {
-        runtime.arena.ensureCar?.(
-          carIndex,
-          team,
-          runtime.arena.carVisual || 'fennec'
-        );
+        runtime.arena.ensureCar?.(carIndex, team, runtime.arena.carVisual || 'fennec');
         runtime.arena.setCarTeam?.(carIndex, team);
         const colorHex =
           team === 0
@@ -427,7 +404,16 @@ export class NameTagTunerArenaController {
       angVel: [0, 0, 0],
     });
 
-    const neutralControls = { throttle: 0, steer: 0, pitch: 0, yaw: 0, roll: 0, jump: false, boost: false, handbrake: true };
+    const neutralControls = {
+      throttle: 0,
+      steer: 0,
+      pitch: 0,
+      yaw: 0,
+      roll: 0,
+      jump: false,
+      boost: false,
+      handbrake: true,
+    };
     for (let stepIndex = 0; stepIndex < 30; stepIndex++) {
       for (let carIndex = 0; carIndex < 6; carIndex++) {
         physicsEngine.setControls?.(carIndex, neutralControls);
@@ -442,13 +428,18 @@ export class NameTagTunerArenaController {
     if (!this.isActive) return;
     const physicsEngine = this.runtime?.physics;
     if (!physicsEngine) return;
-    const neutralHold = { throttle: 0, steer: 0, pitch: 0, yaw: 0, roll: 0, jump: false, boost: false, handbrake: true };
+    const neutralHold = {
+      throttle: 0,
+      steer: 0,
+      pitch: 0,
+      yaw: 0,
+      roll: 0,
+      jump: false,
+      boost: false,
+      handbrake: true,
+    };
     const activePlayerIndex = this.runtime?.playerCarIndex ?? 0;
-    for (
-      let carIndex = 0;
-      carIndex < Math.min(6, physicsEngine.numCars || 0);
-      carIndex++
-    ) {
+    for (let carIndex = 0; carIndex < Math.min(6, physicsEngine.numCars || 0); carIndex++) {
       if (carIndex !== activePlayerIndex) {
         physicsEngine.setControls?.(carIndex, neutralHold);
       }

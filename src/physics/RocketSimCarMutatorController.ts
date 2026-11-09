@@ -9,7 +9,11 @@ import type { CarStateView } from './RocketSimStateViews.ts';
 import type { CarSpecEntry } from './goalBarrierVolumePipeline.ts';
 import { getHitboxIndex } from './RocketSimMeshLoader.ts';
 import { computeFreeplayBallControlState } from './ballPredictionPipeline.ts';
-import { setCarTeamInWasm, type RocketSimSnapshotMemoryViews, type BallStateObjectInput } from './RocketSimEntityStateMutator.ts';
+import {
+  setCarTeamInWasm,
+  type RocketSimSnapshotMemoryViews,
+  type BallStateObjectInput,
+} from './RocketSimEntityStateMutator.ts';
 import {
   readWasmMutatorConfig,
   writeWasmMutatorConfig,
@@ -49,7 +53,11 @@ export class RocketSimCarMutatorController {
     const isThreeWheels = hitboxIdx === 6;
     const idx = this.host.module!._physics_addCar(team, hitboxIdx);
     if (idx >= 0) {
-      this.host._carSpecs[idx] = { team: team ? 1 : 0, hitboxIndex: hitboxIdx, threeWheels: isThreeWheels };
+      this.host._carSpecs[idx] = {
+        team: team ? 1 : 0,
+        hitboxIndex: hitboxIdx,
+        threeWheels: isThreeWheels,
+      };
       if (isThreeWheels) {
         this.setCarThreeWheels(idx, true);
       }
@@ -57,7 +65,11 @@ export class RocketSimCarMutatorController {
     return idx;
   }
 
-  public addCarAtSlot(carIndex: number, team: number, hitboxType: string | number = 'octane'): number {
+  public addCarAtSlot(
+    carIndex: number,
+    team: number,
+    hitboxType: string | number = 'octane'
+  ): number {
     const slot = Number(carIndex) | 0;
     if (slot < 0 || slot >= 8) return -1;
     const hitboxIdx = getHitboxIndex(hitboxType);
@@ -67,13 +79,21 @@ export class RocketSimCarMutatorController {
       const nextTeam = team ? 1 : 0;
       if (!prevSpec || prevSpec.team !== nextTeam) this.setCarTeam(slot, nextTeam);
       if (!prevSpec || prevSpec.hitboxIndex !== hitboxIdx) this.setCarHitbox(slot, hitboxType);
-      this.host._carSpecs[slot] = { team: nextTeam, hitboxIndex: hitboxIdx, threeWheels: isThreeWheels || (prevSpec?.threeWheels ?? false) };
+      this.host._carSpecs[slot] = {
+        team: nextTeam,
+        hitboxIndex: hitboxIdx,
+        threeWheels: isThreeWheels || (prevSpec?.threeWheels ?? false),
+      };
       return slot;
     }
     if (typeof this.host.module?._physics_addCarAtSlot === 'function') {
       const idx = this.host.module._physics_addCarAtSlot(slot, team, hitboxIdx);
       if (idx >= 0) {
-        this.host._carSpecs[idx] = { team: team ? 1 : 0, hitboxIndex: hitboxIdx, threeWheels: isThreeWheels };
+        this.host._carSpecs[idx] = {
+          team: team ? 1 : 0,
+          hitboxIndex: hitboxIdx,
+          threeWheels: isThreeWheels,
+        };
         if (isThreeWheels) {
           this.setCarThreeWheels(idx, true);
         }
@@ -131,7 +151,11 @@ export class RocketSimCarMutatorController {
     const hitboxIdx = spec?.hitboxIndex ?? 0;
     const ok = setCarTeamInWasm(this.host.module, slot, normalizedTeam, hitboxIdx, this.host);
     if (ok && slot >= 0 && slot < 8) {
-      this.host._carSpecs[slot] = { team: normalizedTeam, hitboxIndex: hitboxIdx, threeWheels: spec?.threeWheels ?? false };
+      this.host._carSpecs[slot] = {
+        team: normalizedTeam,
+        hitboxIndex: hitboxIdx,
+        threeWheels: spec?.threeWheels ?? false,
+      };
     }
     return ok;
   }
@@ -318,7 +342,10 @@ export class RocketSimCarMutatorController {
   }
 
   public setCarMaxFlipCount(carIndex = 0, maxFlipCount = 1): boolean {
-    return (this.host.module?._physics_setCarMaxFlipCount?.(carIndex, Math.trunc(maxFlipCount)) ?? 0) === 1;
+    return (
+      (this.host.module?._physics_setCarMaxFlipCount?.(carIndex, Math.trunc(maxFlipCount)) ?? 0) ===
+      1
+    );
   }
 
   public getCarMaxFlipCount(carIndex = 0): number {
@@ -345,7 +372,10 @@ export class RocketSimCarMutatorController {
   }
 
   public setCarDemoSpawnSelection(carIndex = 0, slotIndex = -1): boolean {
-    return (this.host.module?._physics_setCarDemoSpawnSelection?.(carIndex, Math.trunc(slotIndex)) ?? 0) === 1;
+    return (
+      (this.host.module?._physics_setCarDemoSpawnSelection?.(carIndex, Math.trunc(slotIndex)) ??
+        0) === 1
+    );
   }
 
   public getCarDemoSpawnSelection(carIndex = 0): number {

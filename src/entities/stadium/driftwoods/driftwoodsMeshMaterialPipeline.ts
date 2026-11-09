@@ -22,7 +22,7 @@ import {
 import type {
   DriftwoodsGroundConfig,
   DriftwoodsTunerConfig,
-} from '../../../ui-core/config/driftwoodsConfig';
+} from '../../../ui-core/config/driftwoodsConfig.ts';
 import {
   createDriftwoodsOcclusionOverlayPass,
   attachDriftwoodsOcclusionOverlayMesh,
@@ -31,19 +31,13 @@ import {
   type DriftwoodsOcclusionUniforms,
   type DriftwoodsGoalTeamUniforms,
 } from './DriftwoodsMaterialPaletteSpecs.ts';
-import {
-  injectSpecularAAShader,
-  injectGroundDetailShader,
-} from './DriftwoodsGroundShader.ts';
+import { injectSpecularAAShader, injectGroundDetailShader } from './DriftwoodsGroundShader.ts';
 import {
   injectGoalTeamShader,
   injectWallPostTrimOcclusionShader,
   injectRampsIndicatorRingShader,
 } from './DriftwoodsGoalAndRampShader.ts';
-import {
-  injectWallFxShader,
-  type WallFxUniforms,
-} from './WallFxShaderInjector.ts';
+import { injectWallFxShader, type WallFxUniforms } from './WallFxShaderInjector.ts';
 
 export type DriftwoodsWallFxUniforms = WallFxUniforms;
 
@@ -176,8 +170,7 @@ export function setupDriftwoodsMeshMaterials(
     return;
   }
 
-  const isTransparentEnclosure =
-    name === 'Woods_Field_Walls' || name === 'Woods_Field_Walls_Hexes';
+  const isTransparentEnclosure = name === 'Woods_Field_Walls' || name === 'Woods_Field_Walls_Hexes';
   const isGoalPostsMain =
     name === 'Woods_Field_Goal_Posts' ||
     name === 'Woods_Field_Goal_Posts_1' ||
@@ -417,8 +410,7 @@ export function syncDriftwoodsGlobalShaderUniforms(
     );
     occlusionUniforms.uWallExteriorOcclusionEnabled.value =
       c.wallExteriorOcclusion !== false ? 1.0 : 0.0;
-    occlusionUniforms.uGoalDepthMaskEnabled.value =
-      c.goalDepthMaskEnabled !== false ? 1.0 : 0.0;
+    occlusionUniforms.uGoalDepthMaskEnabled.value = c.goalDepthMaskEnabled !== false ? 1.0 : 0.0;
     occlusionUniforms.uGoalMaskOffsetUu.value = Number(c.goalMaskOffsetUu ?? 250);
     occlusionUniforms.uGoalMaskGradientDistanceUu.value = Math.max(
       1.0,

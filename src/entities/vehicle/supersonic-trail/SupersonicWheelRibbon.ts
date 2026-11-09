@@ -121,10 +121,7 @@ export class SupersonicWheelRibbon {
   }
 
   public hasActiveTrail(): boolean {
-    return (
-      this.activeSampleCount >= 2 &&
-      Boolean(this.samples[0]?.valid || this.samples[1]?.valid)
-    );
+    return this.activeSampleCount >= 2 && Boolean(this.samples[0]?.valid || this.samples[1]?.valid);
   }
 
   public seedFromStationaryVelocity(
@@ -205,7 +202,12 @@ export class SupersonicWheelRibbon {
 
     // When paused (dtTicks <= 0), preserve all committed sample ages so the trail does not vanish
     if (dtTicks <= 0) {
-      if (isEmitting && this.lastSampleValid && this.activeSampleCount > 0 && this.samples[0].valid) {
+      if (
+        isEmitting &&
+        this.lastSampleValid &&
+        this.activeSampleCount > 0 &&
+        this.samples[0].valid
+      ) {
         const liveHead = this.samples[0];
         liveHead.x = x;
         liveHead.y = y;
@@ -221,7 +223,8 @@ export class SupersonicWheelRibbon {
     const maxAge = Math.max(cfg.endAgeTicks + 12, cfg.maxHistoryTicks || 120);
 
     // Age all existing samples; if we have an active live head at samples[0], keep samples[0] at age 0 while aging samples[1..]
-    const startAgingIdx = this.lastSampleValid && this.activeSampleCount > 0 && this.samples[0].valid ? 1 : 0;
+    const startAgingIdx =
+      this.lastSampleValid && this.activeSampleCount > 0 && this.samples[0].valid ? 1 : 0;
     for (let i = startAgingIdx; i < this.activeSampleCount; i++) {
       this.samples[i].ageTicks += dtTicks;
     }
@@ -253,7 +256,8 @@ export class SupersonicWheelRibbon {
     }
 
     const liveHead = this.samples[0];
-    const lastCommitted = this.activeSampleCount > 1 && this.samples[1].valid ? this.samples[1] : liveHead;
+    const lastCommitted =
+      this.activeSampleCount > 1 && this.samples[1].valid ? this.samples[1] : liveHead;
 
     const dx = x - lastCommitted.x;
     const dy = y - lastCommitted.y;

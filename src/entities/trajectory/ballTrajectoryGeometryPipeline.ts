@@ -110,8 +110,7 @@ export function tryIncrementalShiftTrajectoryBuffers(
     const day = rawData[7] - rawSlicesBuffer[shiftedSliceOffset + 7];
     const daz = rawData[8] - rawSlicesBuffer[shiftedSliceOffset + 8];
     headVelAndSpinMatch =
-      dvx * dvx + dvy * dvy + dvz * dvz < 0.16 &&
-      dax * dax + day * day + daz * daz < 0.0004;
+      dvx * dvx + dvy * dvy + dvz * dvz < 0.16 && dax * dax + day * day + daz * daz < 0.0004;
   }
 
   // WASM performed a pure incremental tail shift only if slice 0 (pos, vel, angVel) AND
@@ -127,11 +126,7 @@ export function tryIncrementalShiftTrajectoryBuffers(
     rawPredictedPoints.copyWithin(0, shiftedPrevOffset, totalFloats);
 
     if (rawSlicesBuffer && rawData.length >= actualCount * BALL_PRED_STRIDE) {
-      rawSlicesBuffer.copyWithin(
-        0,
-        deltaTicks * BALL_PRED_STRIDE,
-        actualCount * BALL_PRED_STRIDE
-      );
+      rawSlicesBuffer.copyWithin(0, deltaTicks * BALL_PRED_STRIDE, actualCount * BALL_PRED_STRIDE);
       rawSlicesBuffer.set(
         rawData.subarray(tailStart * BALL_PRED_STRIDE, actualCount * BALL_PRED_STRIDE),
         tailStart * BALL_PRED_STRIDE
@@ -177,7 +172,7 @@ export function tryIncrementalShiftTrajectoryBuffers(
 export function shouldRefreshTailSeamContact(
   rawData: Float32Array,
   actualCount: number,
-  incStepsSinceFullBatch: number,
+  incStepsSinceFullBatch: number
 ): boolean {
   if (actualCount < 2 || incStepsSinceFullBatch < 16) {
     return false;
@@ -189,10 +184,7 @@ export function shouldRefreshTailSeamContact(
   const bPrev = (actualCount - 2) * BALL_PRED_STRIDE;
   const dvx = (rawData[bLast + 3] ?? 0) - (rawData[bPrev + 3] ?? 0);
   const dvy = (rawData[bLast + 4] ?? 0) - (rawData[bPrev + 4] ?? 0);
-  const dvz =
-    (rawData[bLast + 5] ?? 0) -
-    (rawData[bPrev + 5] ?? 0) -
-    GRAVITY_Z * FIXED_TIMESTEP;
+  const dvz = (rawData[bLast + 5] ?? 0) - (rawData[bPrev + 5] ?? 0) - GRAVITY_Z * FIXED_TIMESTEP;
   const dwx = (rawData[bLast + 6] ?? 0) - (rawData[bPrev + 6] ?? 0);
   const dwy = (rawData[bLast + 7] ?? 0) - (rawData[bPrev + 7] ?? 0);
   const dwz = (rawData[bLast + 8] ?? 0) - (rawData[bPrev + 8] ?? 0);

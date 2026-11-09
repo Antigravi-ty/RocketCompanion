@@ -18,7 +18,7 @@ export interface KickoffCountdownStepResult {
 
 export function stepKickoffCountdownState(
   countdownTicks: number,
-  isOvertime: boolean,
+  isOvertime: boolean
 ): KickoffCountdownStepResult {
   const nextCountdownTicks = Math.max(0, countdownTicks - 1);
 
@@ -153,14 +153,7 @@ export function stepMatchClockState(input: MatchClockStepInput): MatchClockStepR
 
 export interface LocalAuthoritativeMatchStatePatch {
   matchPhase?:
-    | 'kickoff'
-    | 'playing'
-    | 'goal'
-    | 'replay'
-    | 'ended'
-    | 'podium'
-    | 'freeplay'
-    | 'paused';
+    'kickoff' | 'playing' | 'goal' | 'replay' | 'ended' | 'podium' | 'freeplay' | 'paused';
   kickoffCountdown?: number;
   blueScore?: number;
   orangeScore?: number;
@@ -185,7 +178,7 @@ export interface LocalAuthoritativeMatchStatePatch {
 
 export function syncLocalMatchStateToRuntimeAndHud(
   matchState: MatchStateData | null | undefined,
-  patch: LocalAuthoritativeMatchStatePatch,
+  patch: LocalAuthoritativeMatchStatePatch
 ): void {
   if (matchState) {
     if (patch.matchPhase !== undefined) {
@@ -222,5 +215,9 @@ export function syncLocalMatchStateToRuntimeAndHud(
     }
   }
 
-  useHudStore.getState().setMatchState(patch as Parameters<ReturnType<typeof useHudStore.getState>['setMatchState']>[0]);
+  useHudStore
+    .getState()
+    .setMatchState(
+      patch as Parameters<ReturnType<typeof useHudStore.getState>['setMatchState']>[0]
+    );
 }

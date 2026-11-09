@@ -30,16 +30,29 @@ export const TOUCH_IMPULSE_MIN_DELTA_V_UU = 25.0;
 export const DEFAULT_GRAVITY_Z_PER_TICK = -650.0 / 120.0;
 
 export interface BallStateViewLike {
-  posX: number; posY: number; posZ: number; velX: number; velY: number; velZ: number;
+  posX: number;
+  posY: number;
+  posZ: number;
+  velX: number;
+  velY: number;
+  velZ: number;
 }
 export interface CarStateViewLike {
-  posX: number; posY: number; posZ: number; isDemoed?: boolean;
+  posX: number;
+  posY: number;
+  posZ: number;
+  isDemoed?: boolean;
 }
 export interface BallVelocityTrackerState {
-  prevBallVelX: number; prevBallVelY: number; prevBallVelZ: number;
+  prevBallVelX: number;
+  prevBallVelY: number;
+  prevBallVelZ: number;
 }
 export interface GoalScoredEvaluation {
-  scored: boolean; scoringTeam: 0 | 1; ballSpeedUu: number; ballSpeedKph: number;
+  scored: boolean;
+  scoringTeam: 0 | 1;
+  ballSpeedUu: number;
+  ballSpeedKph: number;
 }
 
 export interface GoalScoredEvaluationOptions {
@@ -56,13 +69,15 @@ export interface GoalScoredEvaluationOptions {
 export function evaluateGoalScoredFromBallView(
   sim: { isBallScored?: (bView: BallStateViewLike) => boolean } | null | undefined,
   bView: BallStateViewLike | null | undefined,
-  options?: GoalScoredEvaluationOptions,
+  options?: GoalScoredEvaluationOptions
 ): GoalScoredEvaluation {
   if (!bView) return { scored: false, scoringTeam: 0, ballSpeedUu: 0, ballSpeedKph: 0 };
   const scored =
     typeof sim?.isBallScored === 'function'
       ? Boolean(sim.isBallScored(bView))
-      : Math.abs(bView.posY) > 5120 + 91.25 && Math.abs(bView.posX) < 892.755 && bView.posZ < 642.775;
+      : Math.abs(bView.posY) > 5120 + 91.25 &&
+        Math.abs(bView.posX) < 892.755 &&
+        bView.posZ < 642.775;
   if (!scored) return { scored: false, scoringTeam: 0, ballSpeedUu: 0, ballSpeedKph: 0 };
 
   if (options?.requireInwardGoalVelocity) {
@@ -83,7 +98,7 @@ export function evaluateGoalScoredFromBallView(
 export function computeGravityCompensatedBallImpulse(
   bView: BallStateViewLike,
   tracker: BallVelocityTrackerState,
-  gravityZPerTick = DEFAULT_GRAVITY_Z_PER_TICK,
+  gravityZPerTick = DEFAULT_GRAVITY_Z_PER_TICK
 ): number {
   const dvX = bView.velX - tracker.prevBallVelX;
   const dvY = bView.velY - tracker.prevBallVelY;
@@ -97,11 +112,15 @@ export function computeGravityCompensatedBallImpulse(
 export function detectSingleCarBallTouch(
   bView: BallStateViewLike | null | undefined,
   carView: CarStateViewLike | null | undefined,
-  tracker: BallVelocityTrackerState,
+  tracker: BallVelocityTrackerState
 ): boolean {
   if (!bView || !carView || carView.isDemoed) return false;
   const impulseMag = computeGravityCompensatedBallImpulse(bView, tracker);
-  const dist = Math.hypot(carView.posX - bView.posX, carView.posY - bView.posY, carView.posZ - bView.posZ);
+  const dist = Math.hypot(
+    carView.posX - bView.posX,
+    carView.posY - bView.posY,
+    carView.posZ - bView.posZ
+  );
   return (
     dist <= TOUCH_DIRECT_DISTANCE_UU ||
     (dist <= TOUCH_IMPULSE_DISTANCE_UU && impulseMag > TOUCH_IMPULSE_MIN_DELTA_V_UU)
@@ -142,7 +161,13 @@ export function findClosestTouchingCarIndex<T extends { carIndex: number }>(para
 }
 
 export function stepPostGoalBallFreeze(params: {
-  sim: { getBallState?: () => Float32Array | ArrayLike<number>; setBallState?: (state: Float32Array) => void } | null | undefined;
+  sim:
+    | {
+        getBallState?: () => Float32Array | ArrayLike<number>;
+        setBallState?: (state: Float32Array) => void;
+      }
+    | null
+    | undefined;
   goalResetTicks: number;
   currentTick: number;
   goalIncidentTick: number;
@@ -150,10 +175,18 @@ export function stepPostGoalBallFreeze(params: {
   freezeDelayTicks?: number;
 }): Float32Array | null {
   const {
-    sim, goalResetTicks, currentTick, goalIncidentTick, frozenBallState,
+    sim,
+    goalResetTicks,
+    currentTick,
+    goalIncidentTick,
+    frozenBallState,
     freezeDelayTicks = POST_GOAL_FREEZE_DELAY_TICKS,
   } = params;
-  if (goalResetTicks <= 0 || goalIncidentTick < 0 || currentTick < goalIncidentTick + freezeDelayTicks) {
+  if (
+    goalResetTicks <= 0 ||
+    goalIncidentTick < 0 ||
+    currentTick < goalIncidentTick + freezeDelayTicks
+  ) {
     return frozenBallState;
   }
   let nextFrozen = frozenBallState;
@@ -168,7 +201,9 @@ export function stepPostGoalBallFreeze(params: {
 
 export function hasKickoffBallMoved(bView: BallStateViewLike | null | undefined): boolean {
   if (!bView) return false;
-  return Math.abs(bView.posX) + Math.abs(bView.posY) > 2.0 || Math.hypot(bView.velX, bView.velY) > 5.0;
+  return (
+    Math.abs(bView.posX) + Math.abs(bView.posY) > 2.0 || Math.hypot(bView.velX, bView.velY) > 5.0
+  );
 }
 
 export function stepNetworkStreamedGoalReplayFrame(params: {
@@ -189,10 +224,21 @@ export function stepNetworkStreamedGoalReplayFrame(params: {
   setPovCarIndex?: (carIndex: number | null) => void;
 }): void {
   const {
-    runtime, replayController, context, source = 'freeplay-goal-replay',
-    isUnlimitedBoost = false, syncCarAudioControls = true, syncBoostToHud = true,
-    getCameraMode, setCameraMode, getScoringTeam, setScoringTeam,
-    getScorerCarIndex, setScorerCarIndex, getPovCarIndex, setPovCarIndex,
+    runtime,
+    replayController,
+    context,
+    source = 'freeplay-goal-replay',
+    isUnlimitedBoost = false,
+    syncCarAudioControls = true,
+    syncBoostToHud = true,
+    getCameraMode,
+    setCameraMode,
+    getScoringTeam,
+    setScoringTeam,
+    getScorerCarIndex,
+    setScorerCarIndex,
+    getPovCarIndex,
+    setPovCarIndex,
   } = params;
   if (!replayController.sessionState?.isActive) {
     const scoringTeam = runtime?.match?.state?.scorer ?? 0;
@@ -202,7 +248,9 @@ export function stepNetworkStreamedGoalReplayFrame(params: {
       { defaultTeam: scoringTeam }
     );
     const totalFrames = replayController.beginReplaySession({
-      scoringTeam, scorerCarIndex, carEntries,
+      scoringTeam,
+      scorerCarIndex,
+      carEntries,
       isNetworkStreamed: Boolean(runtime?.networkReconciler ?? true),
     });
     setScoringTeam?.(scoringTeam);
@@ -211,9 +259,16 @@ export function stepNetworkStreamedGoalReplayFrame(params: {
     setPovCarIndex?.(null);
     if (runtime) runtime.replayPovCarIndex = null;
     beginGoalReplaySession(runtime, replayController, {
-      cameraMode: 'director', source, syncHud: true, totalFrames,
-      getCameraMode, setCameraMode, getScoringTeam, getScorerCarIndex,
-      getPovCarIndex: () => (getPovCarIndex ? getPovCarIndex() : (runtime?.replayPovCarIndex ?? null)),
+      cameraMode: 'director',
+      source,
+      syncHud: true,
+      totalFrames,
+      getCameraMode,
+      setCameraMode,
+      getScoringTeam,
+      getScorerCarIndex,
+      getPovCarIndex: () =>
+        getPovCarIndex ? getPovCarIndex() : (runtime?.replayPovCarIndex ?? null),
       setPovCarIndex: (carIdx) => {
         setPovCarIndex?.(carIdx);
         if (runtime) runtime.replayPovCarIndex = carIdx;
@@ -249,21 +304,35 @@ export function stepNetworkStreamedGoalReplayFrame(params: {
       ? runtime.replayPovCarIndex
       : scorerCarIdx;
   stepGoalReplaySessionFrame({
-    runtime, replayController, context, dt: context?.dt ?? 1 / 120, source, cameraMode,
-    scoringTeam: s?.scoringTeam ?? getScoringTeam(), scorerCarIndex: scorerCarIdx,
+    runtime,
+    replayController,
+    context,
+    dt: context?.dt ?? 1 / 120,
+    source,
+    cameraMode,
+    scoringTeam: s?.scoringTeam ?? getScoringTeam(),
+    scorerCarIndex: scorerCarIdx,
     povCarIndex: cameraMode === 'pov' ? resolvedPovCarIdx : null,
-    applyToEngine: isCustomScrubbing, dispatchEvents: false,
-    syncCarAudioControls, syncBoostToHud, emitWillEndSignal: false, syncHudProgress: true,
-    isUnlimitedBoost, networkStreamSnapshot,
+    applyToEngine: isCustomScrubbing,
+    dispatchEvents: false,
+    syncCarAudioControls,
+    syncBoostToHud,
+    emitWillEndSignal: false,
+    syncHudProgress: true,
+    isUnlimitedBoost,
+    networkStreamSnapshot,
     overrideProgress: embedded && typeof embedded.progress === 'number' ? embedded.progress : null,
   });
 }
 
 export function restoreSingleCarAfterPreview(
-  runtime: {
-    physics?: { numCars: number; removeCar?: (idx: number) => void } | null;
-    arena?: { cars?: Array<{ visible?: boolean } | null | undefined> } | null;
-  } | null | undefined,
+  runtime:
+    | {
+        physics?: { numCars: number; removeCar?: (idx: number) => void } | null;
+        arena?: { cars?: Array<{ visible?: boolean } | null | undefined> } | null;
+      }
+    | null
+    | undefined,
   savedPrePreviewCar0: NormalizedReplayDirectorCarEntry | null
 ): void {
   if (savedPrePreviewCar0 && runtime) {
@@ -293,10 +362,13 @@ export async function resolveImportedDiagnosticPatternInput(
       : typeof fileOrInput === 'string'
         ? parseDirectorDiagnosticPatternText(fileOrInput, fileName)
         : await parseDirectorDiagnosticInput(
-            fileOrInput as File | Blob | ArrayBuffer | Uint8Array | string | ImportedDiagnosticPatternInput,
+            fileOrInput as
+              File | Blob | ArrayBuffer | Uint8Array | string | ImportedDiagnosticPatternInput,
             fileName
           );
-  return parsed && Array.isArray(parsed.activeFrames) && parsed.activeFrames.length > 0 ? parsed : null;
+  return parsed && Array.isArray(parsed.activeFrames) && parsed.activeFrames.length > 0
+    ? parsed
+    : null;
 }
 
 export function prepareFreeplayGoalReplaySessionData(params: {
@@ -306,23 +378,42 @@ export function prepareFreeplayGoalReplaySessionData(params: {
   isStandaloneReplayLoaded: boolean;
   explicitCarEntries?: unknown[] | null;
   incident: {
-    goalIncidentTick: number; lastTouchTick: number; lastKickoffStartTick: number;
-    scoringTeam?: number; scorerCarIndex: number; scorerName: string; ballSpeedKph: number | null;
+    goalIncidentTick: number;
+    lastTouchTick: number;
+    lastKickoffStartTick: number;
+    scoringTeam?: number;
+    scorerCarIndex: number;
+    scorerName: string;
+    ballSpeedKph: number | null;
     replayType?: 'goal' | 'expire';
   };
   currentTick: number;
   ballPosY?: number;
 }): {
-  scoringTeam: number; scorerCarIndex: number; scorerName: string; ballSpeedKph: number | null;
+  scoringTeam: number;
+  scorerCarIndex: number;
+  scorerName: string;
+  ballSpeedKph: number | null;
   extractedFrames: Array<ReplayRingBufferSlot | ReturnType<typeof extractGoalReplayFrames>[number]>;
   carEntries: NormalizedReplayDirectorCarEntry[];
 } | null {
-  const { runtime, ringBuffer, playerTeam, isStandaloneReplayLoaded, explicitCarEntries, incident, currentTick, ballPosY } = params;
+  const {
+    runtime,
+    ringBuffer,
+    playerTeam,
+    isStandaloneReplayLoaded,
+    explicitCarEntries,
+    incident,
+    currentTick,
+    ballPosY,
+  } = params;
   const scoringTeam =
     incident.scoringTeam === 0 || incident.scoringTeam === 1
       ? incident.scoringTeam
       : typeof ballPosY === 'number' && Math.abs(ballPosY) > 100
-        ? (ballPosY >= 0 ? 0 : 1)
+        ? ballPosY >= 0
+          ? 0
+          : 1
         : playerTeam;
   const scorerCarIndex = incident.scorerCarIndex;
   const scorerName = incident.scorerName || 'Player';
@@ -334,26 +425,44 @@ export function prepareFreeplayGoalReplaySessionData(params: {
           currentTick
         )
       : extractGoalReplayFrames({
-          ringBuffer, engine: null, goalIncidentTick: goalTick, scorerTouchTick: incident.lastTouchTick,
-          lookbackSeconds: 10.0, touchLookbackSeconds: 7.0, postGoalTicks: Math.max(0, currentTick - goalTick),
+          ringBuffer,
+          engine: null,
+          goalIncidentTick: goalTick,
+          scorerTouchTick: incident.lastTouchTick,
+          lookbackSeconds: 10.0,
+          touchLookbackSeconds: 7.0,
+          postGoalTicks: Math.max(0, currentTick - goalTick),
           lastKickoffWillStartTick: incident.lastKickoffStartTick,
         });
   if (!Array.isArray(extractedFrames) || extractedFrames.length === 0) return null;
 
   const resolvedPlayerTeam: 0 | 1 = playerTeam === 1 ? 1 : 0;
   const fallbackCarName = incident.replayType === 'expire' ? 'Player' : scorerName;
-  const capturedEntries = captureRuntimeReplayCarEntries(runtime as unknown as ReplayCarEntryRuntimePort, {
-    frameBuffer: extractedFrames[0].snapshot,
-    explicitEntries: (explicitCarEntries as NormalizedReplayDirectorCarEntry[] | undefined) ?? undefined,
-    defaultTeam: resolvedPlayerTeam,
-  });
+  const capturedEntries = captureRuntimeReplayCarEntries(
+    runtime as unknown as ReplayCarEntryRuntimePort,
+    {
+      frameBuffer: extractedFrames[0].snapshot,
+      explicitEntries:
+        (explicitCarEntries as NormalizedReplayDirectorCarEntry[] | undefined) ?? undefined,
+      defaultTeam: resolvedPlayerTeam,
+    }
+  );
   const carEntries = capturedEntries.map((c) =>
     c.carIndex === scorerCarIndex
       ? {
-          ...c, name: c.name || fallbackCarName, username: c.username || fallbackCarName,
+          ...c,
+          name: c.name || fallbackCarName,
+          username: c.username || fallbackCarName,
           team: isStandaloneReplayLoaded ? c.team : resolvedPlayerTeam,
         }
       : c
   );
-  return { scoringTeam, scorerCarIndex, scorerName, ballSpeedKph: incident.ballSpeedKph, extractedFrames, carEntries };
+  return {
+    scoringTeam,
+    scorerCarIndex,
+    scorerName,
+    ballSpeedKph: incident.ballSpeedKph,
+    extractedFrames,
+    carEntries,
+  };
 }

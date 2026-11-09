@@ -4,14 +4,8 @@ import { NetworkInputBuffer, MAX_INPUT_BUFFER_TICKS } from './NetworkInputBuffer
 import { EstablishedSessionManager } from './EstablishedSessionManager.ts';
 import { MatchSessionAdmin, type AdminPhysicsManagerPort } from './match/MatchSessionAdmin.ts';
 import { NetworkDataHandler } from './NetworkDataHandler.ts';
-import {
-  deliverToHostLoopback,
-  type HostLoopbackChannelPort,
-} from './HostLoopbackChannel.ts';
-import {
-  HOST_WORKER_MSG_TYPES,
-  type WorkerEnvelope,
-} from '../protocol/HostWorkerProtocol.ts';
+import { deliverToHostLoopback, type HostLoopbackChannelPort } from './HostLoopbackChannel.ts';
+import { HOST_WORKER_MSG_TYPES, type WorkerEnvelope } from '../protocol/HostWorkerProtocol.ts';
 import {
   buildWorkerRoomStateSummary,
   routeProtocolMessageInWorker,
@@ -96,7 +90,9 @@ export function prewarmAuthoritativeServerWorker(): Promise<boolean> {
       prewarmServerWorkerPromise = null;
       if (ok && worker) prewarmedServerWorker = worker;
       else {
-        try { worker?.terminate(); } catch (_e) {}
+        try {
+          worker?.terminate();
+        } catch (_e) {}
       }
       resolve(ok);
     };
@@ -168,7 +164,9 @@ export function spawnAuthoritativeWorkerWithRetry(cb: WorkerSpawnCallbacks): Pro
         '[HostServerWorker] Worker initialization failed after retries, falling back to in-memory:',
         err
       );
-      try { cb.getWorker()?.terminate(); } catch (_e) {}
+      try {
+        cb.getWorker()?.terminate();
+      } catch (_e) {}
       cb.setWorker(null);
       cb.onFallbackToMainThread(err).then(resolve).catch(reject);
     };
@@ -177,7 +175,9 @@ export function spawnAuthoritativeWorkerWithRetry(cb: WorkerSpawnCallbacks): Pro
       if (settled) return;
       attempt++;
       try {
-        try { cb.getWorker()?.terminate(); } catch (_e) {}
+        try {
+          cb.getWorker()?.terminate();
+        } catch (_e) {}
         cb.setWorker(null);
 
         let workerInstance: Worker;
@@ -303,9 +303,13 @@ export class HostServerFallbackSubController {
       'player',
       0,
       {
-        visualId: hostVisualId, hitboxId: options.hostHitboxId || null, colorSlot: hostColorSlot,
-        blueColorSlot: options.hostBlueColorSlot ?? null, orangeColorSlot: options.hostOrangeColorSlot ?? null,
-        paintFinish: options.hostPaintFinish || 'metallic', boostVisual: options.hostBoostVisual || 'cartoon',
+        visualId: hostVisualId,
+        hitboxId: options.hostHitboxId || null,
+        colorSlot: hostColorSlot,
+        blueColorSlot: options.hostBlueColorSlot ?? null,
+        orangeColorSlot: options.hostOrangeColorSlot ?? null,
+        paintFinish: options.hostPaintFinish || 'metallic',
+        boostVisual: options.hostBoostVisual || 'cartoon',
         boostAudio: options.hostBoostAudio || 'rush',
       },
       hostColorSlot
@@ -317,12 +321,23 @@ export class HostServerFallbackSubController {
       this.physicsManager.registerCarEntity(1, 1, String(rolledBot.hitboxId || botVisualId));
       if (options.isBotMatch) {
         this.physicsManager.setDirectCarControls(1, {
-          throttle: 0, steer: 0, pitch: 0, yaw: 0, roll: 0, jump: false, boost: false, handbrake: false,
+          throttle: 0,
+          steer: 0,
+          pitch: 0,
+          yaw: 0,
+          roll: 0,
+          jump: false,
+          boost: false,
+          handbrake: false,
         });
       }
       this.matchManager.roster.assignPlayerSlot(
-        'bot', options.botPlayerName || 'AI Bot', 'player', 1,
-        { ...rolledBot, visualId: botVisualId }, rolledBot.colorSlot
+        'bot',
+        options.botPlayerName || 'AI Bot',
+        'player',
+        1,
+        { ...rolledBot, visualId: botVisualId },
+        rolledBot.colorSlot
       );
     }
 
@@ -344,7 +359,10 @@ export class HostServerFallbackSubController {
       });
     }
 
-    const snap = typeof this.sim.saveCompactState === 'function' ? this.sim.saveCompactState() : this.sim.saveState();
+    const snap =
+      typeof this.sim.saveCompactState === 'function'
+        ? this.sim.saveCompactState()
+        : this.sim.saveState();
     const serverTick = Math.floor(this.sim.getHeaderView().tickCount);
     const roomState = buildWorkerRoomStateSummary(this.matchManager, this.physicsManager);
     return { snapshot: snap, serverTick, roomState, matchState: this.matchManager.lifecycle.state };
@@ -356,13 +374,19 @@ export class HostServerFallbackSubController {
     if (globalPayloadBytes && globalPayloadBytes.length > 0) {
       this.dataHandler.dispatchFrameToSessions(globalPayloadBytes);
     }
-    const snap = typeof this.sim.saveCompactState === 'function' ? this.sim.saveCompactState() : this.sim.saveState();
+    const snap =
+      typeof this.sim.saveCompactState === 'function'
+        ? this.sim.saveCompactState()
+        : this.sim.saveState();
     const serverTick = Math.floor(this.sim.getHeaderView().tickCount);
     const roomState = buildWorkerRoomStateSummary(this.matchManager, this.physicsManager);
     return { snapshot: snap, serverTick, roomState, matchState: this.matchManager.lifecycle.state };
   }
 
-  routeEnvelope(envelope: WorkerEnvelope, onReplyEnvelope: (replyEnv: WorkerEnvelope) => void): boolean {
+  routeEnvelope(
+    envelope: WorkerEnvelope,
+    onReplyEnvelope: (replyEnv: WorkerEnvelope) => void
+  ): boolean {
     if (!this.matchManager) return false;
     return routeProtocolMessageInWorker(
       {

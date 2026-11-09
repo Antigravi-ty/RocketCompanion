@@ -13,13 +13,13 @@ import {
 import {
   getSpatialAttenuationProfile,
   spatialAttenuationProfiles,
-} from '../../ui-core/config/spatialAttenuationProfiles';
+} from '../../ui-core/config/spatialAttenuationProfiles.ts';
 import {
   getSpatialAudioVisualizerConfig,
   publishSpatialAudioVisualizerTelemetry,
   registerSpatialAudioVisualizerApplier,
   type SpatialAudioVisualizerConfig,
-} from '../../ui-core/config/spatialAudioVisualizerConfig';
+} from '../../ui-core/config/spatialAudioVisualizerConfig.ts';
 import {
   INNER_COLOR_HEX,
   ISO50_COLOR_HEX,
@@ -108,11 +108,7 @@ export class SpatialAudioDebugVisualizer {
         this._emitterPos.set(0, 93, 0);
       }
     } else {
-      this._emitterPos.set(
-        cfg.fixedPointUU.x,
-        cfg.fixedPointUU.z,
-        cfg.fixedPointUU.y
-      );
+      this._emitterPos.set(cfg.fixedPointUU.x, cfg.fixedPointUU.z, cfg.fixedPointUU.y);
     }
 
     if (cfg.listenerTarget === 'local_car' && localCar) {
@@ -134,7 +130,10 @@ export class SpatialAudioDebugVisualizer {
     }
   }
 
-  public update(arena: SpatialAudioArenaHost | null | undefined, camera: THREE.Camera | null = null): void {
+  public update(
+    arena: SpatialAudioArenaHost | null | undefined,
+    camera: THREE.Camera | null = null
+  ): void {
     if (!arena) return;
     const cfg = getSpatialAudioVisualizerConfig();
     if (!cfg.enabled) {
@@ -230,15 +229,15 @@ export class SpatialAudioDebugVisualizer {
       pos3D.setXYZ(1, this._listenerPos.x, this._listenerPos.y, this._listenerPos.z);
       pos3D.needsUpdate = true;
 
-      const posGround = rig.rulerGroundLine.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const posGround = rig.rulerGroundLine.geometry.getAttribute(
+        'position'
+      ) as THREE.BufferAttribute;
       posGround.setXYZ(0, this._emitterPos.x, groundY + 2, this._emitterPos.z);
       posGround.setXYZ(1, this._listenerPos.x, groundY + 2, this._listenerPos.z);
       posGround.needsUpdate = true;
 
       const rulerMat = rig.rulerLine3D.material as THREE.LineBasicMaterial;
-      rulerMat.color.setHex(
-        culled ? 0xf43f5e : gain >= 0.999 ? INNER_COLOR_HEX : ISO50_COLOR_HEX
-      );
+      rulerMat.color.setHex(culled ? 0xf43f5e : gain >= 0.999 ? INNER_COLOR_HEX : ISO50_COLOR_HEX);
 
       rig.emitterBeacon.position.copy(this._emitterPos);
       rig.listenerBeacon.position.copy(this._listenerPos);
@@ -300,14 +299,21 @@ export class SpatialAudioDebugVisualizer {
     this._unsubProfiles = null;
     this._rig?.billboard?.texture.dispose();
     this._rig = null;
-    this.rootGroup.traverse((node: THREE.Object3D & { geometry?: THREE.BufferGeometry; material?: THREE.Material | THREE.Material[] }) => {
-      node.geometry?.dispose?.();
-      if (node.material) {
-        for (const m of Array.isArray(node.material) ? node.material : [node.material]) {
-          m?.dispose?.();
+    this.rootGroup.traverse(
+      (
+        node: THREE.Object3D & {
+          geometry?: THREE.BufferGeometry;
+          material?: THREE.Material | THREE.Material[];
+        }
+      ) => {
+        node.geometry?.dispose?.();
+        if (node.material) {
+          for (const m of Array.isArray(node.material) ? node.material : [node.material]) {
+            m?.dispose?.();
+          }
         }
       }
-    });
+    );
     this.scene?.remove?.(this.rootGroup);
   }
 }

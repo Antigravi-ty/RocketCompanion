@@ -7,12 +7,12 @@
  * for 3D in-arena visualization.
  */
 
-import { solveCubicBezier } from '../ui-core/config/spatialAudioConfig';
+import { solveCubicBezier } from '../ui-core/config/spatialAudioConfig.ts';
 import {
   getSpatialAttenuationProfile,
   type AudioAttenuationCategory,
   type SpatialAttenuationProfile,
-} from '../ui-core/config/spatialAttenuationProfiles';
+} from '../ui-core/config/spatialAttenuationProfiles.ts';
 
 /**
  * Evaluates normalized rolloff factor in [0, 1] at normalized distance `t` in [0, 1],
@@ -82,9 +82,10 @@ export function evaluateProfileDistanceGain(
 ): number {
   const minDist = profile.minDistanceUU * _arenaAcousticScale;
   const maxDist = profile.maxDistanceUU * _arenaAcousticScale;
-  const scale = Number.isFinite(distanceRadiusScale) && distanceRadiusScale > 0
-    ? Math.max(0.25, Math.min(3.0, distanceRadiusScale))
-    : 1.0;
+  const scale =
+    Number.isFinite(distanceRadiusScale) && distanceRadiusScale > 0
+      ? Math.max(0.25, Math.min(3.0, distanceRadiusScale))
+      : 1.0;
   const effectiveDistanceUU = distanceUU / scale;
 
   if (!Number.isFinite(effectiveDistanceUU) || effectiveDistanceUU <= minDist) {
@@ -109,7 +110,8 @@ export function evaluateProfileDistanceGain(
  */
 export function evaluateCategoryDistanceGain(
   distanceUU: number,
-  categoryOrProfile: AudioAttenuationCategory | SpatialAttenuationProfile | string | null | undefined,
+  categoryOrProfile:
+    AudioAttenuationCategory | SpatialAttenuationProfile | string | null | undefined,
   distanceRadiusScale = 1.0
 ): number {
   const profile =
@@ -125,34 +127,29 @@ export function evaluateCategoryDistanceGain(
  */
 export function isDistanceCulled(
   distanceUU: number,
-  categoryOrProfile: AudioAttenuationCategory | SpatialAttenuationProfile | string | null | undefined,
+  categoryOrProfile:
+    AudioAttenuationCategory | SpatialAttenuationProfile | string | null | undefined,
   distanceRadiusScale = 1.0
 ): boolean {
   if (!Number.isFinite(distanceUU)) return false;
-  const scale = Number.isFinite(distanceRadiusScale) && distanceRadiusScale > 0
-    ? Math.max(0.25, Math.min(3.0, distanceRadiusScale))
-    : 1.0;
+  const scale =
+    Number.isFinite(distanceRadiusScale) && distanceRadiusScale > 0
+      ? Math.max(0.25, Math.min(3.0, distanceRadiusScale))
+      : 1.0;
   const effectiveDistanceUU = distanceUU / scale;
   const profile =
     typeof categoryOrProfile === 'object' && categoryOrProfile !== null
       ? categoryOrProfile
       : getSpatialAttenuationProfile(categoryOrProfile);
   const maxDist = profile.maxDistanceUU * _arenaAcousticScale;
-  return (
-    profile.cullBeyondMax &&
-    profile.minGainFloor <= 1e-5 &&
-    effectiveDistanceUU >= maxDist
-  );
+  return profile.cullBeyondMax && profile.minGainFloor <= 1e-5 && effectiveDistanceUU >= maxDist;
 }
 
 /**
  * Solves the exact radius in Unreal Units where the profile's gain equals `targetGain` (e.g. 0.5 for -6dB iso-ring)
  * using binary search over the monotonic attenuation curve.
  */
-export function solveIsoGainRadiusUU(
-  profile: SpatialAttenuationProfile,
-  targetGain = 0.5
-): number {
+export function solveIsoGainRadiusUU(profile: SpatialAttenuationProfile, targetGain = 0.5): number {
   const minDist = profile.minDistanceUU * _arenaAcousticScale;
   const maxDist = profile.maxDistanceUU * _arenaAcousticScale;
   if (targetGain >= 1.0) return minDist;

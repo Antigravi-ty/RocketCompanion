@@ -351,7 +351,7 @@ export function isBallFlipResetEvent(ev: FlipResetEventLike | null | undefined):
   if (typeof ev.isBallFlipReset === 'boolean') return ev.isBallFlipReset;
   const subType = Number(ev.resetSubType ?? ev.subType ?? 0);
   if (subType > 0) return subType === FLIP_RESET_SUBTYPES.BALL;
-  const objCode = Number(ev.resetObjectCode ?? ((Number(ev.flags ?? 0) >>> 4) & 0xf));
+  const objCode = Number(ev.resetObjectCode ?? (Number(ev.flags ?? 0) >>> 4) & 0xf);
   if (objCode > 0) return objCode === FLIP_RESET_OBJECT_TYPES.BALL;
   if (typeof ev.resetObjectType === 'string') return ev.resetObjectType === 'ball';
   return false;
@@ -369,7 +369,8 @@ export const EVENT_SIZE_BYTES = 64;
 export const EVENT_SIZE_WORDS = 16;
 export const EVENT_HEADER_BYTES = 16;
 export const EVENT_HEADER_WORDS = 4;
-export const EVENT_TOTAL_BUFFER_BYTES = EVENT_HEADER_BYTES + EVENT_BUFFER_CAPACITY * EVENT_SIZE_BYTES;
+export const EVENT_TOTAL_BUFFER_BYTES =
+  EVENT_HEADER_BYTES + EVENT_BUFFER_CAPACITY * EVENT_SIZE_BYTES;
 
 export const BALL_PRED_MAX_SECONDS = 5.0;
 export const BALL_PRED_MAX_TICKS = 600;
@@ -382,18 +383,61 @@ export function isDiagnosticProbeSlot(carIndex: number): boolean {
 }
 
 export const KICKOFF_SPAWN_PRESETS = Object.freeze([
-  { team0: { x: 2048, y: -2560, z: 17, yaw: 2.35619449 }, team1: { x: -2048, y: 2560, z: 17, yaw: -0.78539816 } },
-  { team0: { x: -2048, y: -2560, z: 17, yaw: 0.78539816 }, team1: { x: 2048, y: 2560, z: 17, yaw: -2.35619449 } },
-  { team0: { x: 256, y: -3840, z: 17, yaw: 1.57079633 }, team1: { x: -256, y: 3840, z: 17, yaw: -1.57079633 } },
-  { team0: { x: -256, y: -3840, z: 17, yaw: 1.57079633 }, team1: { x: 256, y: 3840, z: 17, yaw: -1.57079633 } },
-  { team0: { x: 0, y: -4608, z: 17, yaw: 1.57079633 }, team1: { x: 0, y: 4608, z: 17, yaw: -1.57079633 } },
+  {
+    team0: { x: 2048, y: -2560, z: 17, yaw: 2.35619449 },
+    team1: { x: -2048, y: 2560, z: 17, yaw: -0.78539816 },
+  },
+  {
+    team0: { x: -2048, y: -2560, z: 17, yaw: 0.78539816 },
+    team1: { x: 2048, y: 2560, z: 17, yaw: -2.35619449 },
+  },
+  {
+    team0: { x: 256, y: -3840, z: 17, yaw: 1.57079633 },
+    team1: { x: -256, y: 3840, z: 17, yaw: -1.57079633 },
+  },
+  {
+    team0: { x: -256, y: -3840, z: 17, yaw: 1.57079633 },
+    team1: { x: 256, y: 3840, z: 17, yaw: -1.57079633 },
+  },
+  {
+    team0: { x: 0, y: -4608, z: 17, yaw: 1.57079633 },
+    team1: { x: 0, y: 4608, z: 17, yaw: -1.57079633 },
+  },
 ]);
 
 export const RESPAWN_SPAWN_PRESETS = Object.freeze([
-  { id: 'far-left', slotIndex: 0, name: 'Far Left', label: 'Far Left', team0: { x: 2688, y: -4608, z: 17, yaw: Math.PI / 2 }, team1: { x: -2688, y: 4608, z: 17, yaw: -Math.PI / 2 } },
-  { id: 'inner-left', slotIndex: 1, name: 'Inner Left', label: 'Inner Left', team0: { x: 2304, y: -4608, z: 17, yaw: Math.PI / 2 }, team1: { x: -2304, y: 4608, z: 17, yaw: -Math.PI / 2 } },
-  { id: 'inner-right', slotIndex: 2, name: 'Inner Right', label: 'Inner Right', team0: { x: -2304, y: -4608, z: 17, yaw: Math.PI / 2 }, team1: { x: 2304, y: 4608, z: 17, yaw: -Math.PI / 2 } },
-  { id: 'far-right', slotIndex: 3, name: 'Far Right', label: 'Far Right', team0: { x: -2688, y: -4608, z: 17, yaw: Math.PI / 2 }, team1: { x: 2688, y: 4608, z: 17, yaw: -Math.PI / 2 } },
+  {
+    id: 'far-left',
+    slotIndex: 0,
+    name: 'Far Left',
+    label: 'Far Left',
+    team0: { x: 2688, y: -4608, z: 17, yaw: Math.PI / 2 },
+    team1: { x: -2688, y: 4608, z: 17, yaw: -Math.PI / 2 },
+  },
+  {
+    id: 'inner-left',
+    slotIndex: 1,
+    name: 'Inner Left',
+    label: 'Inner Left',
+    team0: { x: 2304, y: -4608, z: 17, yaw: Math.PI / 2 },
+    team1: { x: -2304, y: 4608, z: 17, yaw: -Math.PI / 2 },
+  },
+  {
+    id: 'inner-right',
+    slotIndex: 2,
+    name: 'Inner Right',
+    label: 'Inner Right',
+    team0: { x: -2304, y: -4608, z: 17, yaw: Math.PI / 2 },
+    team1: { x: 2304, y: 4608, z: 17, yaw: -Math.PI / 2 },
+  },
+  {
+    id: 'far-right',
+    slotIndex: 3,
+    name: 'Far Right',
+    label: 'Far Right',
+    team0: { x: -2688, y: -4608, z: 17, yaw: Math.PI / 2 },
+    team1: { x: 2688, y: 4608, z: 17, yaw: -Math.PI / 2 },
+  },
 ]);
 
 export function getDesiredRespawnPose(team = 0, slotIndex = 0) {

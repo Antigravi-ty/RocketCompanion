@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { computeAllPadRotations } from '../../ui-core/config/boostPadGeometry';
+import { computeAllPadRotations } from '../../ui-core/config/boostPadGeometry.ts';
 
 export const BOOST_PAD_BIG_HEIGHT = 30;
 export const BOOST_PAD_SMALL_HEIGHT = 15;
@@ -77,7 +77,7 @@ export const DEFAULT_BOOST_PAD_TUNER = {
   rotSmallQuadB: 30,
   rotSmallQuadC: -30,
   rotSmallQuadD: 30,
-  rotSmallQuadE: 30
+  rotSmallQuadE: 30,
 };
 
 export function prepareGlowGeometry(mesh) {
@@ -127,7 +127,7 @@ export function createUpwardGlowMaterial(tunerConfig = DEFAULT_BOOST_PAD_TUNER) 
       // Polar Shrinking Refill Glow Uniforms
       uRefillActive: { value: 0.0 },
       uRefillProgress: { value: 0.0 },
-      uRefillMaxRadius: { value: 0.8 }
+      uRefillMaxRadius: { value: 0.8 },
     },
     vertexShader: `
       attribute float aNormHeight;
@@ -199,7 +199,7 @@ export function createUpwardGlowMaterial(tunerConfig = DEFAULT_BOOST_PAD_TUNER) 
     `,
     transparent: true,
     depthWrite: false,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
   });
 }
 
@@ -210,7 +210,9 @@ export function createBigOrbShadowMesh(tunerConfig) {
   const geo = new THREE.PlaneGeometry(1, 1);
   const mat = new THREE.ShaderMaterial({
     uniforms: {
-      uIntensity: { value: tunerConfig.shadowIntensity !== undefined ? tunerConfig.shadowIntensity : 1.0 }
+      uIntensity: {
+        value: tunerConfig.shadowIntensity !== undefined ? tunerConfig.shadowIntensity : 1.0,
+      },
     },
     vertexShader: `
       varying vec2 vUv;
@@ -239,7 +241,7 @@ export function createBigOrbShadowMesh(tunerConfig) {
     transparent: true,
     depthWrite: false,
     depthTest: true,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
   });
 
   const mesh = new THREE.Mesh(geo, mat);
@@ -257,19 +259,16 @@ export function createFallbackPadMeshes(isBig) {
     color: 16750126,
     emissive: 5579776,
     roughness: 0.55,
-    metalness: 0.25
+    metalness: 0.25,
   });
 
-  const fullMesh = new Mesh(
-    new CylinderGeometry(radius, radius, height, 12),
-    fullMat
-  );
+  const fullMesh = new Mesh(new CylinderGeometry(radius, radius, height, 12), fullMat);
   fullMesh.position.y = height / 2;
 
   const baseMat = new MeshStandardMaterial({
     color: 2111056,
     roughness: 0.5,
-    metalness: 0.5
+    metalness: 0.5,
   });
 
   const baseMesh = new Mesh(
@@ -303,14 +302,17 @@ export function applyBoostPadVisualTuning(system) {
   const topActiveColor = new THREE.Color(c.topColor || '#000000');
   const topInactiveColor = new THREE.Color(c.topInactiveColor || '#1c2026');
   const baseColor = new THREE.Color(c.baseColor || '#4f4f4f');
-  const sideColor = c.sideFollowsBase
-    ? baseColor
-    : new THREE.Color(c.sideColor || '#2b313a');
+  const sideColor = c.sideFollowsBase ? baseColor : new THREE.Color(c.sideColor || '#2b313a');
 
   for (const pad of system.pads) {
     const applyMatProps = (model, isFull) => {
       model?.traverse?.((child) => {
-        if (child.isMesh && child.name !== 'BoostFloatingOrb' && !child.name.includes('Glow') && !child.name.includes('Billboard')) {
+        if (
+          child.isMesh &&
+          child.name !== 'BoostFloatingOrb' &&
+          !child.name.includes('Glow') &&
+          !child.name.includes('Billboard')
+        ) {
           const mats = Array.isArray(child.material) ? child.material : [child.material];
           for (const m of mats) {
             if (!m) continue;
@@ -352,8 +354,16 @@ export function applyBoostPadVisualTuning(system) {
     }
     if (pad.glowMesh) {
       const glowOffset = pad.isBig
-        ? (c.glowHeightOffsetBig !== undefined ? c.glowHeightOffsetBig : (c.glowOffsetBig !== undefined ? c.glowOffsetBig : 0.0))
-        : (c.glowHeightOffsetSmall !== undefined ? c.glowHeightOffsetSmall : (c.glowOffsetSmall !== undefined ? c.glowOffsetSmall : 0.0));
+        ? c.glowHeightOffsetBig !== undefined
+          ? c.glowHeightOffsetBig
+          : c.glowOffsetBig !== undefined
+            ? c.glowOffsetBig
+            : 0.0
+        : c.glowHeightOffsetSmall !== undefined
+          ? c.glowHeightOffsetSmall
+          : c.glowOffsetSmall !== undefined
+            ? c.glowOffsetSmall
+            : 0.0;
       pad.glowMesh.position.y = glowOffset;
     }
   }
@@ -371,7 +381,9 @@ export function applyBoostPadVisualTuning(system) {
 
   // 4. Update Big Pad Orb transforms
   const targetRadius = c.orbRadius !== undefined ? c.orbRadius : DEFAULT_BOOST_PAD_TUNER.orbRadius;
-  const targetY = system.padPeakY + (c.orbHeightOffset !== undefined ? c.orbHeightOffset : DEFAULT_BOOST_PAD_TUNER.orbHeightOffset);
+  const targetY =
+    system.padPeakY +
+    (c.orbHeightOffset !== undefined ? c.orbHeightOffset : DEFAULT_BOOST_PAD_TUNER.orbHeightOffset);
 
   for (const orb of system.bigOrbs) {
     orb.position.y = targetY;
@@ -384,9 +396,10 @@ export function applyBoostPadVisualTuning(system) {
     shadow.visible = c.shadowEnabled !== false;
     shadow.position.y = targetY;
     if (shadow.material?.uniforms?.uIntensity) {
-      shadow.material.uniforms.uIntensity.value = c.shadowIntensity !== undefined ? c.shadowIntensity : 1.0;
+      shadow.material.uniforms.uIntensity.value =
+        c.shadowIntensity !== undefined ? c.shadowIntensity : 1.0;
     }
-    const shadowScale = (c.shadowRadius || 100.0);
+    const shadowScale = c.shadowRadius || 100.0;
     shadow.scale.set(shadowScale, shadowScale, 1.0);
   }
 
@@ -395,7 +408,7 @@ export function applyBoostPadVisualTuning(system) {
   const padHeight = c.padHeightOffset !== undefined ? c.padHeightOffset : 7.5;
   for (let i = 0; i < system.pads.length; i++) {
     if (system.pads[i]?.group) {
-      const deg = angles[i] !== undefined ? angles[i] : (system.pads[i].angleDeg || 0);
+      const deg = angles[i] !== undefined ? angles[i] : system.pads[i].angleDeg || 0;
       system.pads[i].angleDeg = deg;
       system.pads[i].group.rotation.y = deg * (Math.PI / 180);
       system.pads[i].group.position.y = padHeight;

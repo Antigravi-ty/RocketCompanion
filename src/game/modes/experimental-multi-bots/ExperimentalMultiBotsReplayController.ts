@@ -143,8 +143,7 @@ export class ExperimentalMultiBotsReplayController {
     state: Float32Array,
     acknowledgedControls: ReplayAcknowledgedControlEntry[]
   ): void {
-    const pending =
-      this.pendingFrameSignals.length > 0 ? this.pendingFrameSignals.slice() : [];
+    const pending = this.pendingFrameSignals.length > 0 ? this.pendingFrameSignals.slice() : [];
     this.pendingFrameSignals.length = 0;
     for (let s = 0; s < pending.length; s++) {
       pending[s].frameId = currentTick;
@@ -171,8 +170,8 @@ export class ExperimentalMultiBotsReplayController {
       visualId: string,
       colorSlot: number,
       hitboxId: string,
-      opts: { paintFinish?: string; boostVisual?: string; boostAudio?: string },
-    ) => number,
+      opts: { paintFinish?: string; boostVisual?: string; boostAudio?: string }
+    ) => number
   ): void {
     const carCount = spawnedCars.length;
     this.emitReplaySignal(MATCH_SIGNALS.MATCH_INITIALIZED, configuredDuration, carCount);
@@ -192,13 +191,13 @@ export class ExperimentalMultiBotsReplayController {
     currentTick: number,
     remainingSec: number,
     isOvertime: boolean,
-    timeAlertSecond: number | null,
+    timeAlertSecond: number | null
   ): void {
     this.emitReplaySignal(
       MATCH_SIGNALS.CLOCK_UPDATED_SECONDS,
       remainingSec,
       isOvertime ? 1 : 0,
-      currentTick,
+      currentTick
     );
     if (timeAlertSecond === 60) {
       this.emitReplaySignal(MATCH_SIGNALS.TIME_ALERT_60S, 60, 0, currentTick);
@@ -209,7 +208,6 @@ export class ExperimentalMultiBotsReplayController {
     }
   }
 
-
   retainGoalReplayBuffer(
     goalMeta: ExpGoalIncidentMeta,
     spawnedCars: ReadonlyArray<ExpSpawnedCarEntry>
@@ -217,12 +215,9 @@ export class ExperimentalMultiBotsReplayController {
     const sim = this.runtime?.physics;
     if (!this.replayRingBuffer || this.replayRingBuffer.size === 0) return 0;
     const currentTick = Math.floor(
-      sim?.getHeaderView?.()?.tickCount ??
-        this.replayRingBuffer.getNewestFrame?.()?.tick ??
-        0
+      sim?.getHeaderView?.()?.tickCount ?? this.replayRingBuffer.getNewestFrame?.()?.tick ?? 0
     );
-    const goalTick =
-      goalMeta.goalIncidentTick > 0 ? goalMeta.goalIncidentTick : currentTick;
+    const goalTick = goalMeta.goalIncidentTick > 0 ? goalMeta.goalIncidentTick : currentTick;
     const postGoalTicks = Math.max(0, currentTick - goalTick);
     this.attachPhysicsIfNeeded();
 
@@ -302,8 +297,7 @@ export class ExperimentalMultiBotsReplayController {
 
     this.activeGoalMeta = { ...goalMeta };
     const currentTick = Math.floor(sim.getHeaderView?.()?.tickCount ?? 0);
-    const goalTick =
-      goalMeta.goalIncidentTick > 0 ? goalMeta.goalIncidentTick : currentTick;
+    const goalTick = goalMeta.goalIncidentTick > 0 ? goalMeta.goalIncidentTick : currentTick;
     const postGoalTicks = Math.max(0, currentTick - goalTick);
     this.emitReplaySignal(
       MATCH_SIGNALS.GOAL_REPLAY_WILL_START,

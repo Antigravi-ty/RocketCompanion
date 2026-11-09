@@ -8,8 +8,8 @@ import { cloudProfileSyncClient } from '../../network/transport/CloudProfileSync
 import { computePassphraseHash } from '../../network/transport/cloudProfileRecordPipeline.ts';
 import { credentialBundleManager } from '../../network/transport/CredentialBundleManager.ts';
 import { formatCloudCommitHash } from '../../ui-core/config/cloudProfileMergePipeline.ts';
-import { useCloudProfileSyncStore } from '../../ui-core/stores/cloudProfileSyncStore';
-import type { SignalingProfileSource } from '../../ui-core/stores/signalingProfileStore';
+import { useCloudProfileSyncStore } from '../../ui-core/stores/cloudProfileSyncStore.ts';
+import type { SignalingProfileSource } from '../../ui-core/stores/signalingProfileStore.ts';
 
 let profileSyncUnsubscribe: (() => void) | null = null;
 let initialAutoPullTriggered = false;
@@ -35,10 +35,7 @@ function syncProfileCapabilitiesFromCredentialManager(): void {
 export function ensureCloudProfileSyncBridge(): void {
   useCloudProfileSyncStore.getState().setBridgeCallbacks({
     fetchUserCompleteRecord: async (userIdOrUsername, role) => {
-      const record = await cloudProfileSyncClient.fetchUserCompleteRecord(
-        userIdOrUsername,
-        role
-      );
+      const record = await cloudProfileSyncClient.fetchUserCompleteRecord(userIdOrUsername, role);
       return {
         index: record.index
           ? {
@@ -54,24 +51,15 @@ export function ensureCloudProfileSyncBridge(): void {
               passphraseHash: record.index.passphraseHash || '',
               updatedAt: record.index.updatedAt || 0,
               userRev: record.index.userRev || 0,
-              userRevHash: formatCloudCommitHash(
-                record.index.userRevHash,
-                record.index.userRev
-              ),
+              userRevHash: formatCloudCommitHash(record.index.userRevHash, record.index.userRev),
               devRev: record.index.devRev || 0,
-              devRevHash: formatCloudCommitHash(
-                record.index.devRevHash,
-                record.index.devRev
-              ),
+              devRevHash: formatCloudCommitHash(record.index.devRevHash, record.index.devRev),
             }
           : null,
         userSlot: record.userSlot
           ? {
               rev: record.userSlot.rev,
-              revHash: formatCloudCommitHash(
-                record.userSlot.revHash,
-                record.userSlot.rev
-              ),
+              revHash: formatCloudCommitHash(record.userSlot.revHash, record.userSlot.rev),
               updatedAt: record.userSlot.updatedAt,
               passphraseHash: record.userSlot.passphraseHash,
               snapshot: record.userSlot.snapshot,
@@ -82,10 +70,7 @@ export function ensureCloudProfileSyncBridge(): void {
         devSlot: record.devSlot
           ? {
               rev: record.devSlot.rev,
-              revHash: formatCloudCommitHash(
-                record.devSlot.revHash,
-                record.devSlot.rev
-              ),
+              revHash: formatCloudCommitHash(record.devSlot.revHash, record.devSlot.rev),
               updatedAt: record.devSlot.updatedAt,
               snapshot: record.devSlot.snapshot,
               baseSnapshot: record.devSlot.baseSnapshot,
@@ -244,8 +229,7 @@ export function ensureCloudProfileSyncBridge(): void {
         }
       };
     },
-    computePassphraseHash: async (userId, password) =>
-      computePassphraseHash(userId, password),
+    computePassphraseHash: async (userId, password) => computePassphraseHash(userId, password),
   });
 
   syncProfileCapabilitiesFromCredentialManager();

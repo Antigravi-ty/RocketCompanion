@@ -49,9 +49,7 @@ export function deriveDefaultEdgeFunctionBridgeUrl(rawUrl: string): string {
   const clean = String(rawUrl || '').trim();
   if (!clean) return '';
   try {
-    const asHttp = clean
-      .replace(/^wss:\/\//i, 'https://')
-      .replace(/^ws:\/\//i, 'http://');
+    const asHttp = clean.replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://');
     const parsed = new URL(asHttp);
     return `${parsed.origin}/functions/v1/signaling-bridge`;
   } catch {
@@ -166,7 +164,9 @@ export class SupabaseRealtimeSignalingClient {
       if (timeoutMs > 0) {
         timeoutHandle = setTimeout(() => {
           finishFailure(
-            new Error(`Supabase Realtime connection timed out after ${timeoutMs}ms (${this.relayLabel})`)
+            new Error(
+              `Supabase Realtime connection timed out after ${timeoutMs}ms (${this.relayLabel})`
+            )
           );
         }, timeoutMs);
       }
@@ -209,7 +209,11 @@ export class SupabaseRealtimeSignalingClient {
           const msg = typeof ev.data === 'string' ? JSON.parse(ev.data) : null;
           if (!msg || typeof msg !== 'object') return;
 
-          if (msg.topic === this.phoenixTopic && msg.event === 'phx_reply' && msg.ref === this._joinRef) {
+          if (
+            msg.topic === this.phoenixTopic &&
+            msg.event === 'phx_reply' &&
+            msg.ref === this._joinRef
+          ) {
             if (msg.payload?.status === 'ok') {
               this.isSubscribed = true;
               this._sendLoopbackSelfProbe();
@@ -303,7 +307,10 @@ export class SupabaseRealtimeSignalingClient {
       this.ws.send(JSON.stringify(frame));
       return true;
     } catch (err) {
-      console.warn(`[SupabaseRealtimeSignalingClient] Failed to broadcast on ${this.relayLabel}:`, err);
+      console.warn(
+        `[SupabaseRealtimeSignalingClient] Failed to broadcast on ${this.relayLabel}:`,
+        err
+      );
       return false;
     }
   }
@@ -312,7 +319,12 @@ export class SupabaseRealtimeSignalingClient {
     data: Record<string, unknown> | string,
     customBridgeTopic?: string,
     customEdgeFunctionUrl?: string
-  ): Promise<{ ok: boolean; latencyMs: number; response?: Record<string, unknown>; error?: string }> {
+  ): Promise<{
+    ok: boolean;
+    latencyMs: number;
+    response?: Record<string, unknown>;
+    error?: string;
+  }> {
     const bridgeUrl = (customEdgeFunctionUrl || this.edgeFunctionBridgeUrl || '').trim();
     if (!bridgeUrl) {
       return { ok: false, latencyMs: 0, error: 'No Edge Function bridge URL configured' };

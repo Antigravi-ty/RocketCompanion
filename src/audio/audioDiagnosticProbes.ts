@@ -1,4 +1,4 @@
-import { audioConfig } from '../ui-core/config/audioConfig';
+import { audioConfig } from '../ui-core/config/audioConfig.ts';
 import {
   subsystemState,
   getAudioContext,
@@ -140,13 +140,30 @@ export interface AudioRootCauseVerdictInput {
   activeSlotCount: number;
 }
 
-export function evaluateAudioRootCauseVerdict(
-  input: AudioRootCauseVerdictInput
-): { code: string; summary: string; anomalies: string[] } {
+export function evaluateAudioRootCauseVerdict(input: AudioRootCauseVerdictInput): {
+  code: string;
+  summary: string;
+  anomalies: string[];
+} {
   const {
-    ctx, clockAdvancing, masterVol, masterActive, masterConnected, masterOutputGain,
-    docHasFocus, docHidden, continueOnBlur, poolMuted, telemetry, outputMetrics,
-    listenerValid, hasListener, listenerPos, engineSynths, stateLoopInfo, activeSlotCount,
+    ctx,
+    clockAdvancing,
+    masterVol,
+    masterActive,
+    masterConnected,
+    masterOutputGain,
+    docHasFocus,
+    docHidden,
+    continueOnBlur,
+    poolMuted,
+    telemetry,
+    outputMetrics,
+    listenerValid,
+    hasListener,
+    listenerPos,
+    engineSynths,
+    stateLoopInfo,
+    activeSlotCount,
   } = input;
 
   const anomalies: string[] = [];
@@ -167,7 +184,8 @@ export function evaluateAudioRootCauseVerdict(
     anomalies.push(summary);
   } else if (!clockAdvancing) {
     code = 'BROWSER_AUDIO_CLOCK_STALLED';
-    summary = 'Browser/audio driver stall: AudioContext.state is "running", but hardware currentTime stopped advancing.';
+    summary =
+      'Browser/audio driver stall: AudioContext.state is "running", but hardware currentTime stopped advancing.';
     anomalies.push(summary);
   }
 
@@ -179,11 +197,17 @@ export function evaluateAudioRootCauseVerdict(
     }
   }
 
-  if (subsystemState.masterMixer && (!masterActive || !masterConnected || masterOutputGain <= 0.0001)) {
-    const reason = (!docHasFocus || docHidden) && !continueOnBlur
-      ? 'Window lost focus and Play Audio in Background is disabled'
-      : 'MasterMixer is not in an active connected state';
-    anomalies.push(`MasterMixer muted: master.active=${masterActive}, master.connected=${masterConnected}, gain=${masterOutputGain.toFixed(4)} (${reason}).`);
+  if (
+    subsystemState.masterMixer &&
+    (!masterActive || !masterConnected || masterOutputGain <= 0.0001)
+  ) {
+    const reason =
+      (!docHasFocus || docHidden) && !continueOnBlur
+        ? 'Window lost focus and Play Audio in Background is disabled'
+        : 'MasterMixer is not in an active connected state';
+    anomalies.push(
+      `MasterMixer muted: master.active=${masterActive}, master.connected=${masterConnected}, gain=${masterOutputGain.toFixed(4)} (${reason}).`
+    );
     if (code === 'HEALTHY_ACTIVE') {
       code = 'MASTER_MIXER_DISCONNECTED_OR_MUTED';
       summary = `MasterMixer muted: gain=${masterOutputGain.toFixed(4)} / connected=${masterConnected} (${reason}).`;
@@ -191,7 +215,9 @@ export function evaluateAudioRootCauseVerdict(
   }
 
   if (poolMuted) {
-    anomalies.push('SlotPool muted: AudioSlotPool.isMuted = true, blocking one-shot collision/signal sounds.');
+    anomalies.push(
+      'SlotPool muted: AudioSlotPool.isMuted = true, blocking one-shot collision/signal sounds.'
+    );
     if (code === 'HEALTHY_ACTIVE') {
       code = 'SLOT_POOL_MUTED';
       summary = 'AudioSlotPool.isMuted is true (typically triggered by window blur mute).';
@@ -199,25 +225,35 @@ export function evaluateAudioRootCauseVerdict(
   }
 
   if (telemetry.hasBlockingOverlay) {
-    anomalies.push(`UI overlay mute: Blocking overlay open (${(telemetry.blockingOverlays || []).join(', ') || 'Menu Open'}), muting continuous engine synths and loops.`);
+    anomalies.push(
+      `UI overlay mute: Blocking overlay open (${(telemetry.blockingOverlays || []).join(', ') || 'Menu Open'}), muting continuous engine synths and loops.`
+    );
     if (code === 'HEALTHY_ACTIVE' && outputMetrics.silent) {
       code = 'GAME_STATE_OVERLAY_MUTED';
-      summary = 'Game state mute: Menu/overlay is open (hasBlockingOverlay=true); continuous engine and vehicle loops are paused until returning to match.';
+      summary =
+        'Game state mute: Menu/overlay is open (hasBlockingOverlay=true); continuous engine and vehicle loops are paused until returning to match.';
     }
   } else if (telemetry.updatedAt > 0 && !telemetry.isAudibleActive) {
-    anomalies.push(`Match not audible: isMatchActive=${telemetry.isMatchActive}, isHidden=${telemetry.isHidden}, continueOnBlur=${telemetry.continueOnBlur} -> isAudibleActive=false.`);
+    anomalies.push(
+      `Match not audible: isMatchActive=${telemetry.isMatchActive}, isHidden=${telemetry.isHidden}, continueOnBlur=${telemetry.continueOnBlur} -> isAudibleActive=false.`
+    );
     if (code === 'HEALTHY_ACTIVE' && outputMetrics.silent) {
       code = 'GAME_STATE_NOT_AUDIBLE';
-      summary = 'Game state mute: Match is inactive or window is muted on blur (isAudibleActive=false).';
+      summary =
+        'Game state mute: Match is inactive or window is muted on blur (isAudibleActive=false).';
     }
   }
 
   if (!listenerValid) {
-    anomalies.push(`Spatial listener invalid: hasListener=${hasListener}, pos=(${listenerPos.x}, ${listenerPos.y}, ${listenerPos.z}).`);
+    anomalies.push(
+      `Spatial listener invalid: hasListener=${hasListener}, pos=(${listenerPos.x}, ${listenerPos.y}, ${listenerPos.z}).`
+    );
   }
 
   if ((outputMetrics.nanCount ?? 0) > 0) {
-    anomalies.push(`DSP NaN anomaly: Master output detected ${outputMetrics.nanCount} NaN/Infinity samples!`);
+    anomalies.push(
+      `DSP NaN anomaly: Master output detected ${outputMetrics.nanCount} NaN/Infinity samples!`
+    );
     code = 'DSP_NAN_CORRUPTION';
     summary = 'DSP pipeline error: MasterMixer output contains NaN/Infinity samples.';
   }
@@ -232,10 +268,12 @@ export function evaluateAudioRootCauseVerdict(
       activeSlotCount > 0;
     if (anySynthActive || anyLoopActive) {
       code = 'CLIENT_GHOST_PLAYBACK';
-      summary = 'Client/Browser playback anomaly: Audio nodes are active with Gain > 0, but Master bus Analyser reads silence. Click Force Resume / Rebuild to recover.';
+      summary =
+        'Client/Browser playback anomaly: Audio nodes are active with Gain > 0, but Master bus Analyser reads silence. Click Force Resume / Rebuild to recover.';
     } else {
       code = 'HEALTHY_IDLE_SILENT';
-      summary = 'Web Audio pipeline is healthy and ready (AudioContext running, MasterMixer connected), currently idle in silent standby.';
+      summary =
+        'Web Audio pipeline is healthy and ready (AudioContext running, MasterMixer connected), currently idle in silent standby.';
     }
   } else if (code === 'HEALTHY_ACTIVE' && !outputMetrics.silent) {
     summary = `Web Audio is actively outputting sound (Realtime Level: ${outputMetrics.dbfs} dBFS, Peak: ${outputMetrics.peak}). If no sound is heard, check browser tab mute or OS output device.`;
@@ -248,7 +286,9 @@ export function evaluateAudioRootCauseVerdict(
  * Plays a clean 440Hz -> 660Hz two-tone diagnostic beep through the MasterMixer
  * (and optionally directly to ctx.destination if master is muted) and measures actual RMS output.
  */
-export async function playAudioDiagnosticTestTone({ bypassMixer = false }: { bypassMixer?: boolean } = {}) {
+export async function playAudioDiagnosticTestTone({
+  bypassMixer = false,
+}: { bypassMixer?: boolean } = {}) {
   const ctx = getAudioContext();
   if (!ctx) {
     console.error('[AudioDebug:TestTone] Cannot play test tone: AudioContext unavailable.');
@@ -282,7 +322,7 @@ export async function playAudioDiagnosticTestTone({ bypassMixer = false }: { byp
   gain.gain.setValueAtTime(0.0001, now);
   gain.gain.linearRampToValueAtTime(0.25, now + 0.02);
   gain.gain.setValueAtTime(0.25, now + 0.22);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.30);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
 
   osc.connect(gain);
   const targetDest = !bypassMixer && master?.input ? master.input : ctx.destination;
@@ -347,9 +387,8 @@ export async function forceAudioRecovery(
     }
   }
 
-  const report = typeof dumpToConsole === 'function'
-    ? dumpToConsole('After Force Audio Recovery')
-    : null;
+  const report =
+    typeof dumpToConsole === 'function' ? dumpToConsole('After Force Audio Recovery') : null;
   return {
     ok: ctx.state === 'running' && Boolean(master?.connected),
     report,

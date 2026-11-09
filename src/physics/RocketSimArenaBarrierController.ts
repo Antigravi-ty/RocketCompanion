@@ -4,18 +4,29 @@
  * goal volume box synchronization, dynamic goal barrier collision mesh reloading, and scoring checks.
  */
 
-import { loadRocketSimWasmModule, type RocketSimWasmModule, type RocketSimWasmModuleOptions } from './RocketSimWasm.ts';
 import {
-  PLAYER_CAR_INDEX, BOT_CAR_INDEX, getTeamAssignment,
-  fetchArenaCollisionMeshes, initWasmCollisionMeshes,
+  loadRocketSimWasmModule,
+  type RocketSimWasmModule,
+  type RocketSimWasmModuleOptions,
+} from './RocketSimWasm.ts';
+import {
+  PLAYER_CAR_INDEX,
+  BOT_CAR_INDEX,
+  getTeamAssignment,
+  fetchArenaCollisionMeshes,
+  initWasmCollisionMeshes,
 } from './RocketSimMeshLoader.ts';
-import { SIM_OFFSETS, EVENT_TOTAL_BUFFER_BYTES, THROWBACK_GOAL_VOLUME_BOX } from './RocketSimConstants.ts';
+import {
+  SIM_OFFSETS,
+  EVENT_TOTAL_BUFFER_BYTES,
+  THROWBACK_GOAL_VOLUME_BOX,
+} from './RocketSimConstants.ts';
 import { initWasmBallPrediction } from './ballPredictionPipeline.ts';
 import { PhysicsEventReader } from './PhysicsEventReader.ts';
 import {
   getGoalVolumeBoxForPreset,
   registerGoalVolumeTunerApplier,
-} from '../ui-core/config/goalVolumeTunerConfig';
+} from '../ui-core/config/goalVolumeTunerConfig.ts';
 import {
   syncGoalVolumeBoxToWasm,
   resolveGoalVolumeConfig,
@@ -30,12 +41,7 @@ import {
   type CarSpecEntry,
 } from './goalBarrierVolumePipeline.ts';
 
-export type {
-  GoalVolumeBoxConfig,
-  GoalVolumeResolvedConfig,
-  GoalBarrierMetadata,
-  CarSpecEntry,
-};
+export type { GoalVolumeBoxConfig, GoalVolumeResolvedConfig, GoalBarrierMetadata, CarSpecEntry };
 
 export interface ArenaEngineBootstrapOptions extends RocketSimWasmModuleOptions {
   collisionData?: Uint8Array[] | null;
@@ -62,7 +68,10 @@ export interface ArenaBarrierEngineTarget {
   readonly eventDispatcher: { resetFloorTouchLatch(): void };
   readonly possessionTracker: {
     preserveBeforeKickoff(state: Float32Array | null, preserveScore: boolean): void;
-    applyAccumulatedPossessionToState(mod: RocketSimWasmModule | null, state: Float32Array | null): void;
+    applyAccumulatedPossessionToState(
+      mod: RocketSimWasmModule | null,
+      state: Float32Array | null
+    ): void;
   };
   getCachedCollisionData(): Uint8Array[] | null;
   setCachedCollisionData(data: Uint8Array[] | null): void;
@@ -132,7 +141,11 @@ export class RocketSimArenaBarrierController {
   public clearEvents(): void {
     const eng = this.engine;
     eng.module?._physics_clearEvents?.();
-    if (eng.eventReader && eng.module?.HEAPU8?.buffer && eng.eventReader.buffer !== eng.module.HEAPU8.buffer) {
+    if (
+      eng.eventReader &&
+      eng.module?.HEAPU8?.buffer &&
+      eng.eventReader.buffer !== eng.module.HEAPU8.buffer
+    ) {
       eng.eventReader.attach(eng.module, eng.eventBufferPtr);
     }
     eng.eventReader?.reset();
@@ -167,7 +180,10 @@ export class RocketSimArenaBarrierController {
     const state = eng.module ? eng.state : null;
     eng.possessionTracker.preserveBeforeKickoff(state, preservePossessionScore);
     eng.module!._physics_resetKickoff(seed);
-    eng.possessionTracker.applyAccumulatedPossessionToState(eng.module, eng.module ? eng.state : null);
+    eng.possessionTracker.applyAccumulatedPossessionToState(
+      eng.module,
+      eng.module ? eng.state : null
+    );
     this.clearEvents();
   }
 
@@ -208,8 +224,15 @@ export class RocketSimArenaBarrierController {
     return resolveGoalVolumeConfig(this.getArenaPreset(), this.goalVolumeBox);
   }
 
-  public isBallScored(ballView: { posX: number; posY: number; posZ: number } | null | undefined): boolean {
-    return evaluateBallScored(ballView, this.getArenaPreset(), this.goalVolumeBox, this.goalBarrierMeta);
+  public isBallScored(
+    ballView: { posX: number; posY: number; posZ: number } | null | undefined
+  ): boolean {
+    return evaluateBallScored(
+      ballView,
+      this.getArenaPreset(),
+      this.goalVolumeBox,
+      this.goalBarrierMeta
+    );
   }
 
   public async reloadMeshes(manifestPath = '/arenamesh/manifest.json'): Promise<boolean> {
@@ -296,7 +319,8 @@ export class RocketSimArenaBarrierController {
 
   public isBallSleeping(bv: { velX: number; velY: number; velZ: number }): boolean {
     const mod = this.engine.module;
-    if (typeof mod?._physics_isBallSleeping === 'function') return mod._physics_isBallSleeping() !== 0;
+    if (typeof mod?._physics_isBallSleeping === 'function')
+      return mod._physics_isBallSleeping() !== 0;
     return bv.velX === 0 && bv.velY === 0 && bv.velZ === 0;
   }
 

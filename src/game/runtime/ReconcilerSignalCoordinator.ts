@@ -111,7 +111,7 @@ export class ReconcilerSignalCoordinator {
 
     reconciler.onSignals = (
       signals: Array<RuntimeSignalPacket | null | undefined>,
-      packetServerTick: number | null = null,
+      packetServerTick: number | null = null
     ) => {
       const audio = h.options?.gameAudio || gameAudio;
       let currentTick =
@@ -122,7 +122,7 @@ export class ReconcilerSignalCoordinator {
             : 0;
 
       const hasKickoffStartInBatch = signals.some(
-        (s) => s && s.signalType === MATCH_SIGNALS.KICKOFF_START,
+        (s) => s && s.signalType === MATCH_SIGNALS.KICKOFF_START
       );
 
       for (const s of signals) {
@@ -188,7 +188,7 @@ export class ReconcilerSignalCoordinator {
                 p2,
                 (sig.signalId || 0) >>> 0,
                 0,
-                wasmFrameIdx >>> 0,
+                wasmFrameIdx >>> 0
               );
             }
           }
@@ -227,7 +227,7 @@ export class ReconcilerSignalCoordinator {
           sig,
           isFirstSeenSignalId,
           audio,
-          () => this.resetSignalState(),
+          () => this.resetSignalState()
         );
       }
     };

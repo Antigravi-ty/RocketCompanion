@@ -9,14 +9,14 @@ export const PROFILER_HISTORY_LENGTH = 10000;
 export const DISPLAY_SAMPLE_COUNT = 120;
 export const MAX_FRAME_GAP_MS = 1000;
 export const KNOWN_REFRESH_RATES = [
-  30, 48, 50, 60, 72, 75, 90, 100, 120, 144, 165, 175, 200, 240, 360, 480, 500, 540, 600
+  30, 48, 50, 60, 72, 75, 90, 100, 120, 144, 165, 175, 200, 240, 360, 480, 500, 540, 600,
 ];
 
 export const STATUS_CHART_CONFIG = {
   WIDTH: 260,
   HEIGHT: 54,
   UPDATE_RATE_HZ: 6,
-  HISTORY_SECONDS: 10
+  HISTORY_SECONDS: 10,
 };
 
 /**
@@ -228,7 +228,10 @@ export class PerformanceProfiler {
   }
 
   at(offset) {
-    return ((this.write - this.count + PROFILER_HISTORY_LENGTH) % PROFILER_HISTORY_LENGTH + offset) % PROFILER_HISTORY_LENGTH;
+    return (
+      (((this.write - this.count + PROFILER_HISTORY_LENGTH) % PROFILER_HISTORY_LENGTH) + offset) %
+      PROFILER_HISTORY_LENGTH
+    );
   }
 
   percentile(sortedArr, len, p) {
@@ -253,7 +256,7 @@ export class PerformanceProfiler {
       p95: this.percentile(sorted, len, 0.95),
       p99: this.percentile(sorted, len, 0.99),
       worstMs: sorted[len - 1],
-      fps: avg > 0 ? 1000 / avg : 0
+      fps: avg > 0 ? 1000 / avg : 0,
     };
   }
 
@@ -285,7 +288,7 @@ export class PerformanceProfiler {
         phases: [],
         sim: { ticksPerFrame: 0, droppedTicks: 0, clampedFrames: 0, stalls: 0 },
         history: new Float32Array(0),
-        historySeconds: 0
+        historySeconds: 0,
       };
     }
 
@@ -381,10 +384,10 @@ export class PerformanceProfiler {
         ticksPerFrame: totalTicks / n,
         droppedTicks: this.droppedTicks,
         clampedFrames: this.clampedFrames,
-        stalls: this.stalls
+        stalls: this.stalls,
       },
       history,
-      historySeconds: Math.min(historySeconds, (newestStamp - oldestStamp) / 1000)
+      historySeconds: Math.min(historySeconds, (newestStamp - oldestStamp) / 1000),
     };
   }
 }

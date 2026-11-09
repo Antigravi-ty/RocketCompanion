@@ -6,7 +6,7 @@ import {
   vehicleTunerRuntimeFlags,
   wheelModifierRuntimeConfig,
   recomputeDescriptorBoostOutlets,
-} from '../../ui-core/config/vehicleTunerConfig';
+} from '../../ui-core/config/vehicleTunerConfig.ts';
 import { resolveAssetPath } from '../../utils/AssetResponseValidator.ts';
 import { createProceduralSportWheel } from './vehicleWheelsAndLamps.ts';
 
@@ -74,14 +74,16 @@ export function computeObject3DBounds(object: THREE.Object3D): UnscaledGlbBounds
 export function scaleSceneGeometries(scene: THREE.Object3D, factor: number): void {
   if (!Number.isFinite(factor) || factor <= 0 || Math.abs(factor - 1) < 1e-6) return;
   const scaledGeometries = new Set<THREE.BufferGeometry>();
-  scene.traverse?.((node: THREE.Object3D & { isMesh?: boolean; geometry?: THREE.BufferGeometry }) => {
-    if (node.isMesh && node.geometry && !scaledGeometries.has(node.geometry)) {
-      scaledGeometries.add(node.geometry);
-      node.geometry.scale(factor, factor, factor);
-      node.geometry.computeBoundingBox?.();
-      node.geometry.computeBoundingSphere?.();
+  scene.traverse?.(
+    (node: THREE.Object3D & { isMesh?: boolean; geometry?: THREE.BufferGeometry }) => {
+      if (node.isMesh && node.geometry && !scaledGeometries.has(node.geometry)) {
+        scaledGeometries.add(node.geometry);
+        node.geometry.scale(factor, factor, factor);
+        node.geometry.computeBoundingBox?.();
+        node.geometry.computeBoundingSphere?.();
+      }
     }
-  });
+  );
 }
 
 /**
@@ -105,14 +107,16 @@ export function normalizeCustomVehicleScene(
   }
   scaleSceneGeometries(scene, targetUnitScale);
 
-  scene.traverse?.((node: THREE.Object3D & { isMesh?: boolean; material?: THREE.Material | THREE.Material[] }) => {
-    if (!node.isMesh) return;
-    const matName = Array.isArray(node.material)
-      ? (node.material[0]?.name || '')
-      : (node.material?.name || '');
-    node.userData.originalMaterialName = matName;
-    node.userData.vehicleId = vehicleId;
-  });
+  scene.traverse?.(
+    (node: THREE.Object3D & { isMesh?: boolean; material?: THREE.Material | THREE.Material[] }) => {
+      if (!node.isMesh) return;
+      const matName = Array.isArray(node.material)
+        ? node.material[0]?.name || ''
+        : node.material?.name || '';
+      node.userData.originalMaterialName = matName;
+      node.userData.vehicleId = vehicleId;
+    }
+  );
 
   return { unscaledBounds, appliedGeometryScale: targetUnitScale };
 }
@@ -182,7 +186,7 @@ export function syncCustomVehicleNozzleGizmos(carModelRoot, descriptor) {
       color: 0x00ffcc,
       wireframe: true,
       toneMapped: false,
-      depthTest: false
+      depthTest: false,
     });
     for (let i = 0; i < 2; i++) {
       const m = new THREE.Mesh(sphereGeom, sphereMat);
@@ -243,8 +247,13 @@ export function syncCustomVehicleWheelWireGizmos(carModelRoot, descriptor) {
 
   const showWire = Boolean(vehicleTunerRuntimeFlags.showWheelWire);
   wireGroup.visible = showWire;
-  const isThreeWheels = Boolean(descriptor.threeWheels || descriptor.hitboxPreset === 'hitbox-psyclops');
-  const physicsSpecs = getPhysicsWheelSpecsForHitbox(descriptor.hitboxPreset || 'hitbox-octane', isThreeWheels);
+  const isThreeWheels = Boolean(
+    descriptor.threeWheels || descriptor.hitboxPreset === 'hitbox-psyclops'
+  );
+  const physicsSpecs = getPhysicsWheelSpecsForHitbox(
+    descriptor.hitboxPreset || 'hitbox-octane',
+    isThreeWheels
+  );
   for (let i = 0; i < wireGroup.children.length; i++) {
     const child = wireGroup.children[i];
     const spec = physicsSpecs[i];
@@ -271,13 +280,15 @@ export function createCustomGlbCarModel(vehicleId, asset, teamColor) {
   const shell = new THREE.Group();
   shell.name = `${descriptor.id}-shell`;
 
-  const align = descriptor.alignment || { scale: 1, scaleX: 1, scaleY: 1, scaleZ: 1, centerOffset: [0, 0, 0] };
+  const align = descriptor.alignment || {
+    scale: 1,
+    scaleX: 1,
+    scaleY: 1,
+    scaleZ: 1,
+    centerOffset: [0, 0, 0],
+  };
   const s = align.scale ?? 1;
-  shell.scale.set(
-    s * (align.scaleX ?? 1),
-    s * (align.scaleY ?? 1),
-    s * (align.scaleZ ?? 1)
-  );
+  shell.scale.set(s * (align.scaleX ?? 1), s * (align.scaleY ?? 1), s * (align.scaleZ ?? 1));
   const [ox = 0, oy = 0, oz = 0] = align.centerOffset || [0, 0, 0];
   shell.position.set(ox, oy, oz);
 
@@ -286,8 +297,12 @@ export function createCustomGlbCarModel(vehicleId, asset, teamColor) {
     // Preserve userData across clone
     const srcMeshes: THREE.Object3D[] = [];
     const dstMeshes: THREE.Object3D[] = [];
-    asset.scene.traverse?.((n: THREE.Object3D & { isMesh?: boolean }) => { if (n.isMesh) srcMeshes.push(n); });
-    clonedScene.traverse?.((n: THREE.Object3D & { isMesh?: boolean }) => { if (n.isMesh) dstMeshes.push(n); });
+    asset.scene.traverse?.((n: THREE.Object3D & { isMesh?: boolean }) => {
+      if (n.isMesh) srcMeshes.push(n);
+    });
+    clonedScene.traverse?.((n: THREE.Object3D & { isMesh?: boolean }) => {
+      if (n.isMesh) dstMeshes.push(n);
+    });
     for (let i = 0; i < dstMeshes.length && i < srcMeshes.length; i++) {
       dstMeshes[i].userData = { ...srcMeshes[i].userData };
     }
@@ -351,7 +366,7 @@ export function applyLiveVehicleDescriptorUpdate(
     const extraY = Number(wheelModifierRuntimeConfig.verticalOffsetY) || 0;
     for (let i = 0; i < carWheels.length && i < descriptor.wheelAnchors.length; i++) {
       const [wx, wz, wr] = descriptor.wheelAnchors[i];
-      const restY = (descriptor.suspensionHeights?.[i] ?? (wr - 17)) + extraY;
+      const restY = (descriptor.suspensionHeights?.[i] ?? wr - 17) + extraY;
       if (carWheels[i]?.steer) {
         carWheels[i].steer.position.set(wx, restY, wz);
       }

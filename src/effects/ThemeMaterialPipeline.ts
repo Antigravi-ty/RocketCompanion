@@ -18,10 +18,8 @@ import * as THREE from 'three';
  * - applyArcadeCelShading
  */
 
-import { getTheme, onThemeChange } from '../ui-core/config/themeConfig';
-import { getMaterialsConfig } from '../ui-core/config/materialsConfig';
-
-
+import { getTheme, onThemeChange } from '../ui-core/config/themeConfig.ts';
+import { getMaterialsConfig } from '../ui-core/config/materialsConfig.ts';
 
 export type ThemeVariantKey = 'arcade' | 'cartoon' | 'realistic' | 'anodized' | string;
 
@@ -72,10 +70,11 @@ export function createMultiThemeMaterial(
     arcade: arcadeMat,
     cartoon: arcadeMat,
     realistic: realisticMat,
-    anodized: realisticMat
+    anodized: realisticMat,
   };
   if (arcadeMat && typeof arcadeMat === 'object') multiThemeMaterialMap.set(arcadeMat, pair);
-  if (realisticMat && typeof realisticMat === 'object') multiThemeMaterialMap.set(realisticMat, pair);
+  if (realisticMat && typeof realisticMat === 'object')
+    multiThemeMaterialMap.set(realisticMat, pair);
 
   const activeTheme = getTheme();
   return pair[activeTheme] || realisticMat || arcadeMat;
@@ -95,7 +94,7 @@ export function getThemeMaterial<TMat extends THREE.Material | null | undefined>
 ): TMat {
   if (!material || typeof material !== 'object') return material;
   const pair = multiThemeMaterialMap.get(material);
-  return (pair && pair[themeName] ? (pair[themeName] as TMat) : material);
+  return pair && pair[themeName] ? (pair[themeName] as TMat) : material;
 }
 
 /**
@@ -158,7 +157,7 @@ export function registerThemeSubtree(rootObject: THREE.Object3D | null | undefin
     }
 
     const meshNode = node as THREE.Mesh;
-    const isMeshNode = (node instanceof Mesh) || meshNode.isMesh;
+    const isMeshNode = node instanceof Mesh || meshNode.isMesh;
     if (!isMeshNode || visitedMeshes.has(meshNode)) return;
 
     const materials = Array.isArray(meshNode.material) ? meshNode.material : [meshNode.material];
@@ -217,7 +216,7 @@ export function createCelShadedToonMaterial(
 ): THREE.MeshToonMaterial {
   return new THREE.MeshToonMaterial({
     ...params,
-    gradientMap: getArcadeLightRampTexture()
+    gradientMap: getArcadeLightRampTexture(),
   });
 }
 
@@ -240,13 +239,16 @@ export function applyArcadeCelShading(rootObject: THREE.Object3D | null | undefi
 
     const stdMat = mat as THREE.MeshStandardMaterial & { isMeshStandardMaterial?: boolean };
     const physMat = mat as THREE.MeshPhysicalMaterial & { isMeshPhysicalMaterial?: boolean };
-    const isStandard = (mat instanceof MeshStandardMaterial) || Boolean(stdMat.isMeshStandardMaterial);
-    const isPhysical = (mat instanceof MeshPhysicalMaterial) || Boolean(physMat.isMeshPhysicalMaterial);
+    const isStandard =
+      mat instanceof MeshStandardMaterial || Boolean(stdMat.isMeshStandardMaterial);
+    const isPhysical =
+      mat instanceof MeshPhysicalMaterial || Boolean(physMat.isMeshPhysicalMaterial);
 
     // Do not convert transparent, transmission glass, or custom shader materials
     if (!isStandard || mat.transparent) return mat;
     if (isPhysical && physMat.transmission > 0) return mat;
-    if (Material.prototype && mat.onBeforeCompile !== Material.prototype.onBeforeCompile) return mat;
+    if (Material.prototype && mat.onBeforeCompile !== Material.prototype.onBeforeCompile)
+      return mat;
 
     const toonMat = createCelShadedToonMaterial({});
 
@@ -257,8 +259,10 @@ export function applyArcadeCelShading(rootObject: THREE.Object3D | null | undefi
       toonMat.copy(mat);
     }
 
-    if (stdMat.color && toonMat.color && typeof toonMat.color.copy === 'function') toonMat.color.copy(stdMat.color);
-    if (stdMat.emissive && toonMat.emissive && typeof toonMat.emissive.copy === 'function') toonMat.emissive.copy(stdMat.emissive);
+    if (stdMat.color && toonMat.color && typeof toonMat.color.copy === 'function')
+      toonMat.color.copy(stdMat.color);
+    if (stdMat.emissive && toonMat.emissive && typeof toonMat.emissive.copy === 'function')
+      toonMat.emissive.copy(stdMat.emissive);
     toonMat.emissiveIntensity = stdMat.emissiveIntensity;
     toonMat.map = stdMat.map;
     toonMat.alphaMap = stdMat.alphaMap;
@@ -269,13 +273,18 @@ export function applyArcadeCelShading(rootObject: THREE.Object3D | null | undefi
     toonMat.emissiveMap = stdMat.emissiveMap;
     toonMat.normalMap = stdMat.normalMap;
     toonMat.normalMapType = stdMat.normalMapType;
-    if (stdMat.normalScale && toonMat.normalScale && typeof toonMat.normalScale.copy === 'function') {
+    if (
+      stdMat.normalScale &&
+      toonMat.normalScale &&
+      typeof toonMat.normalScale.copy === 'function'
+    ) {
       toonMat.normalScale.copy(stdMat.normalScale);
       if (typeof toonMat.normalScale.multiplyScalar === 'function') {
         toonMat.normalScale.multiplyScalar(0.2);
       }
     }
-    (toonMat as THREE.MeshToonMaterial & { flatShading?: boolean }).flatShading = stdMat.flatShading;
+    (toonMat as THREE.MeshToonMaterial & { flatShading?: boolean }).flatShading =
+      stdMat.flatShading;
     toonMat.fog = stdMat.fog;
     toonMat.wireframe = stdMat.wireframe;
     toonMat.wireframeLinewidth = stdMat.wireframeLinewidth;
@@ -299,7 +308,7 @@ export function applyArcadeCelShading(rootObject: THREE.Object3D | null | undefi
     }
 
     const meshNode = node as THREE.Mesh;
-    const isMeshNode = (node instanceof Mesh) || meshNode.isMesh;
+    const isMeshNode = node instanceof Mesh || meshNode.isMesh;
     if (isMeshNode && meshNode.material) {
       meshNode.material = Array.isArray(meshNode.material)
         ? meshNode.material.map(convertMaterial)
@@ -311,7 +320,8 @@ export function applyArcadeCelShading(rootObject: THREE.Object3D | null | undefi
 }
 
 export function cloneMaterial(
-  params: (THREE.MeshToonMaterialParameters & { clone?: () => THREE.Material }) | THREE.Material = {}
+  params:
+    (THREE.MeshToonMaterialParameters & { clone?: () => THREE.Material }) | THREE.Material = {}
 ): THREE.Material {
   if (params && typeof (params as THREE.Material).clone === 'function') {
     return (params as THREE.Material).clone();
@@ -352,7 +362,9 @@ function isVehicleMesh(mesh: THREE.Object3D | null | undefined): boolean {
  * Updates tracked meshes according to fine-grained visual materials configuration
  * (carPaint: 'cartoon' | 'anodized'; wheels fixed to cartoon).
  */
-export function applyVisualMaterialsConfig(materialsConfig: VisualMaterialsConfigLike | null | undefined): void {
+export function applyVisualMaterialsConfig(
+  materialsConfig: VisualMaterialsConfigLike | null | undefined
+): void {
   if (!materialsConfig) return;
   for (const weakRef of trackedThemeMeshes) {
     const mesh = weakRef.deref();

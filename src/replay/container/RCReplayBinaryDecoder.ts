@@ -20,11 +20,7 @@ import {
   type DeserializedRCReplayContainer,
 } from './RCReplayTrackMaterializer.ts';
 
-export type {
-  ReplaySnapshotFloat32Array,
-  DecodedReplayFrameSlot,
-  DeserializedRCReplayContainer,
-};
+export type { ReplaySnapshotFloat32Array, DecodedReplayFrameSlot, DeserializedRCReplayContainer };
 
 /**
  * Reverses the 4-byte column transposition + XOR-delta filter back into the contiguous Track A buffer.
@@ -70,10 +66,7 @@ function parseContainerHeaderAndEventTracks(
     encoding: string | undefined
   ) => Uint8Array
 ) {
-  const u8 =
-    bytesOrBuffer instanceof Uint8Array
-      ? bytesOrBuffer
-      : new Uint8Array(bytesOrBuffer);
+  const u8 = bytesOrBuffer instanceof Uint8Array ? bytesOrBuffer : new Uint8Array(bytesOrBuffer);
 
   if (!isBinaryRCReplayContainer(u8)) {
     throw new Error('Invalid RCREPLAY V2 binary header.');
@@ -217,21 +210,12 @@ function decodeIncidentsAndSignalsFromBytes(
 export function deserializeRCReplayBinaryContainer(
   bytesOrBuffer: Uint8Array | ArrayBuffer
 ): DeserializedRCReplayContainer {
-  const {
-    u8,
-    version,
-    matchInfo,
-    tracksToc,
-    frameCount,
-    stateStride,
-    stateInputBytes,
-  } = parseContainerHeaderAndEventTracks(
-    bytesOrBuffer,
-    (rawTrackASlice, count, stride, encoding) =>
+  const { u8, version, matchInfo, tracksToc, frameCount, stateStride, stateInputBytes } =
+    parseContainerHeaderAndEventTracks(bytesOrBuffer, (rawTrackASlice, count, stride, encoding) =>
       encoding === 'xor-delta-bytetran-v1'
         ? unfilterAndUntransposeStateInputTrack(rawTrackASlice, count, stride)
         : new Uint8Array(rawTrackASlice)
-  );
+    );
 
   const decodedTracks = decodeIncidentsAndSignalsFromBytes(
     u8,
@@ -323,10 +307,7 @@ async function unfilterAndUntransposeStateInputTrackAsync(
 export async function deserializeRCReplayBinaryContainerAsync(
   bytesOrBuffer: Uint8Array | ArrayBuffer
 ): Promise<DeserializedRCReplayContainer> {
-  const u8 =
-    bytesOrBuffer instanceof Uint8Array
-      ? bytesOrBuffer
-      : new Uint8Array(bytesOrBuffer);
+  const u8 = bytesOrBuffer instanceof Uint8Array ? bytesOrBuffer : new Uint8Array(bytesOrBuffer);
 
   if (!isBinaryRCReplayContainer(u8)) {
     throw new Error('Invalid RCREPLAY V2 binary header.');
@@ -404,4 +385,3 @@ export async function deserializeRCReplayBinaryContainerAsync(
     isCountUp,
   });
 }
-

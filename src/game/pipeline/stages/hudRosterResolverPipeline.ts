@@ -68,9 +68,7 @@ export interface HudRosterSourceContext {
   expPlayerParticipation?: string;
   expSpawnedCars?: ReadonlyArray<ExpSpawnedCarRosterInput>;
   rawRosterSnapshot?:
-    | ReadonlyArray<RawRosterPlayerInput>
-    | { players?: ReadonlyArray<RawRosterPlayerInput> }
-    | null;
+    ReadonlyArray<RawRosterPlayerInput> | { players?: ReadonlyArray<RawRosterPlayerInput> } | null;
   replayTimelineCarEntries?: ReadonlyArray<RawRosterPlayerInput>;
   connectedPeers?: ReadonlyArray<ConnectedPeerRosterInput>;
   localPeerId?: string | null;
@@ -84,7 +82,7 @@ export interface HudRosterSourceContext {
 }
 
 export function resolveModeRosterEntries(
-  source: HudRosterSourceContext,
+  source: HudRosterSourceContext
 ): ResolvedModeRosterEntries {
   const blueEntries: RosterTeamEntry[] = [];
   const orangeEntries: RosterTeamEntry[] = [];
@@ -169,7 +167,7 @@ export function resolveModeRosterEntries(
           const ca = typeof a?.carIndex === 'number' ? a.carIndex : (a?.entityId ?? 0);
           const cb = typeof b?.carIndex === 'number' ? b.carIndex : (b?.entityId ?? 0);
           return ca - cb;
-        },
+        }
       );
       for (const p of sortedRoster) {
         const cIdx =
@@ -182,15 +180,13 @@ export function resolveModeRosterEntries(
         const isOrange = p.team === 1 || p.team === 'orange';
         const isSelf = Boolean(
           p.isLocal ||
-            p.isLocalPlayer ||
-            (localPeerId && (p.peerId === localPeerId || p.sessionId === localPeerId)) ||
-            cIdx === localCarIdx,
+          p.isLocalPlayer ||
+          (localPeerId && (p.peerId === localPeerId || p.sessionId === localPeerId)) ||
+          cIdx === localCarIdx
         );
         if (isSelf) detectedLocalTeam = isOrange ? 1 : 0;
         const isBot = Boolean(
-          p.isBot ||
-            p.botType ||
-            String(p.peerId || p.sessionId || '').startsWith('bot'),
+          p.isBot || p.botType || String(p.peerId || p.sessionId || '').startsWith('bot')
         );
         const item: RosterTeamEntry = {
           carIndex: cIdx,
@@ -232,7 +228,7 @@ export function resolveModeRosterEntries(
               ? p.entityId
               : fallbackIdx++;
         const isSelf = Boolean(
-          p.isSelf || (localPeerId && p.id === localPeerId) || cIdx === localCarIdx,
+          p.isSelf || (localPeerId && p.id === localPeerId) || cIdx === localCarIdx
         );
         const isOrange =
           p.team === 1 ||
@@ -240,11 +236,7 @@ export function resolveModeRosterEntries(
           (p.team === undefined && (source.participantTeams?.get?.(cIdx) ?? cIdx % 2) === 1);
         combinedByCar.set(cIdx, {
           carIndex: cIdx,
-          name:
-            p.name ||
-            p.username ||
-            source.carNamesByIndex?.get?.(cIdx) ||
-            `Player ${cIdx + 1}`,
+          name: p.name || p.username || source.carNamesByIndex?.get?.(cIdx) || `Player ${cIdx + 1}`,
           team: isOrange ? 1 : 0,
           isSelf,
           isBot: Boolean(p.isBot || p.botType),
@@ -267,7 +259,7 @@ export function resolveModeRosterEntries(
       }
 
       const orderedEntries = Array.from(combinedByCar.values()).sort(
-        (a, b) => a.carIndex - b.carIndex,
+        (a, b) => a.carIndex - b.carIndex
       );
       for (const entry of orderedEntries) {
         if (entry.isSelf) detectedLocalTeam = entry.team === 1 ? 1 : 0;

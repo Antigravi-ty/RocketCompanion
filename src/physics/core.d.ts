@@ -22,12 +22,7 @@ export interface RocketSimWasmModule {
   HEAPF32: Float32Array;
   HEAPF64: Float64Array;
 
-  ccall: (
-    ident: string,
-    returnType: string | null,
-    argTypes: string[],
-    args: unknown[]
-  ) => unknown;
+  ccall: (ident: string, returnType: string | null, argTypes: string[], args: unknown[]) => unknown;
   cwrap: (
     ident: string,
     returnType: string | null,
@@ -50,7 +45,12 @@ export interface RocketSimWasmModule {
   _physics_restoreCompactState(inBuffer: number, floatCount: number): number;
   _physics_resetKickoff(seed: number): void;
   _physics_resetGoalLatch(): void;
-  _physics_setImpactThresholds(ballGround: number, ballWall: number, carBall: number, cooldownTicks: number): void;
+  _physics_setImpactThresholds(
+    ballGround: number,
+    ballWall: number,
+    carBall: number,
+    cooldownTicks: number
+  ): void;
   _physics_setSurfaceTaxonomyThresholds(floorNz: number, netNz: number): void;
   _physics_setDirectionDotThreshold(minDirDot: number): void;
   _physics_getDirectionDotThreshold(): number;
@@ -64,8 +64,28 @@ export interface RocketSimWasmModule {
   _physics_isBallSleeping(): number;
   _physics_setSimulationFrozen(frozen: number, targetResumeTick: number, maskInputs: number): void;
   _physics_setPossessionReportingEnabled(enabled: number): void;
-  _physics_getPossessionStats(outTeam: number, outBluePoints: number, outOrangePoints: number, outTime: number): void;
-  _physics_pushSignalEvent(type: number, tick: number, posX: number, posY: number, posZ: number, normX: number, normY: number, normZ: number, primaryId: number, secondaryId: number, subType: number, flags: number, customFloat: number, customInt: number): void;
+  _physics_getPossessionStats(
+    outTeam: number,
+    outBluePoints: number,
+    outOrangePoints: number,
+    outTime: number
+  ): void;
+  _physics_pushSignalEvent(
+    type: number,
+    tick: number,
+    posX: number,
+    posY: number,
+    posZ: number,
+    normX: number,
+    normY: number,
+    normZ: number,
+    primaryId: number,
+    secondaryId: number,
+    subType: number,
+    flags: number,
+    customFloat: number,
+    customInt: number
+  ): void;
   _physics_initReplayBuffer(): void;
   _physics_clearReplayBuffer(): void;
   _physics_getReplayBufferPtr(): number;
@@ -98,7 +118,12 @@ export interface RocketSimWasmModule {
   _physics_getCarUnlimitedBoost(carIndex: number): number;
   _physics_setCarBoostCollectable(carIndex: number, collectable: number): number;
   _physics_getCarBoostCollectable(carIndex: number): number;
-  _physics_setCarBoostRecharge(carIndex: number, enabled: number, rechargePerSecond: number, rechargeDelay: number): number;
+  _physics_setCarBoostRecharge(
+    carIndex: number,
+    enabled: number,
+    rechargePerSecond: number,
+    rechargeDelay: number
+  ): number;
   _physics_getCarBoostRechargeEnabled(carIndex: number): number;
   _physics_getCarBoostRechargePerSecond(carIndex: number): number;
   _physics_getCarBoostRechargeDelay(carIndex: number): number;
@@ -118,9 +143,25 @@ export interface RocketSimWasmModule {
   _physics_getCarJumpTime(carIndex: number): number;
   _physics_getCarAirTimeSinceJump(carIndex: number): number;
   _physics_resetKickoffAtSpawn(spawnIndex: number, settleTicks: number): number;
-  _physics_setCarLinearFactorAndGravity(carIndex: number, fx: number, fy: number, fz: number, gravityScale: number): number;
-  _physics_setCarCollisionMask(carIndex: number, interactWithBall: number, interactWithCars: number): number;
-  _physics_setArenaMutators(gravityZ: number, boostAccelGround: number, boostAccelAir: number, ballMaxSpeed: number, ballBounciness: number): number;
+  _physics_setCarLinearFactorAndGravity(
+    carIndex: number,
+    fx: number,
+    fy: number,
+    fz: number,
+    gravityScale: number
+  ): number;
+  _physics_setCarCollisionMask(
+    carIndex: number,
+    interactWithBall: number,
+    interactWithCars: number
+  ): number;
+  _physics_setArenaMutators(
+    gravityZ: number,
+    boostAccelGround: number,
+    boostAccelAir: number,
+    ballMaxSpeed: number,
+    ballBounciness: number
+  ): number;
   _physics_getMutatorConfigSize(): number;
   _physics_getMutatorConfig(outBuffer: number): number;
   _physics_setMutatorConfig(inBuffer: number): number;
@@ -141,7 +182,13 @@ export interface RocketSimWasmModule {
   _physics_getCarThreeWheels(carIndex: number): number;
   _physics_setArenaPreset(presetIndex: number): void;
   _physics_getArenaPreset(): number;
-  _physics_setGoalVolumeBox(enabled: number, halfWidthX: number, minY: number, maxY: number, maxZ: number): void;
+  _physics_setGoalVolumeBox(
+    enabled: number,
+    halfWidthX: number,
+    minY: number,
+    maxY: number,
+    maxZ: number
+  ): void;
   _physics_setCarMaxFlipCount(carIndex: number, maxFlipCount: number): number;
   _physics_getCarMaxFlipCount(carIndex: number): number;
   _physics_setCarFlipTimerMode(carIndex: number, mode: number): number;

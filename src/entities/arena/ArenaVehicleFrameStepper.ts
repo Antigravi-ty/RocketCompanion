@@ -8,12 +8,12 @@ import { interpolatePhysicsTransform } from './ArenaMath.ts';
 import { updateCarSuspensionAndSteering } from '../VehicleSuspensionSystem.ts';
 import { updateVehicleBrakeLamps } from '../vehicle/vehicleWheelsAndLamps.ts';
 import { getNameTagConfig } from '../../game/runtimeUiPort.ts';
-import { vehicleTunerRuntimeFlags } from '../../ui-core/config/vehicleTunerConfig';
+import { vehicleTunerRuntimeFlags } from '../../ui-core/config/vehicleTunerConfig.ts';
 import {
   getDemolishShockwaveConfig,
   getDemolishShockwaveSimState,
   updateDemolishLiveAnchors,
-} from '../../ui-core/config/demolishShockwaveConfig';
+} from '../../ui-core/config/demolishShockwaveConfig.ts';
 import type { VehicleBoostEmitter } from '../vehicle/boost/vehicleBoostEmitter.ts';
 import type { DemolitionEffect } from '../DemolitionEffect.ts';
 import type { SupersonicWheelTrailSystem } from '../vehicle/supersonic-trail/SupersonicWheelTrailSystem.ts';
@@ -88,15 +88,18 @@ export function updateBoostVisuals(
     }
     const carView = currCarView?.attachCar(currState, carIndex);
     const isLocalCar = carIndex === localCarIdx;
-    const carCtrl = typeof carControlsResolver === 'function'
-      ? carControlsResolver(carIndex)
-      : (carIndex === 0 ? controls : opponentControls);
+    const carCtrl =
+      typeof carControlsResolver === 'function'
+        ? carControlsResolver(carIndex)
+        : carIndex === 0
+          ? controls
+          : opponentControls;
     const forcePreview = isLocalCar && Boolean(vehicleTunerRuntimeFlags.forceBoostPreview);
-    const isBoosting = activeVisuals && (
-      forcePreview ||
-      Boolean(carView && carView.isBoosting) ||
-      Boolean(carCtrl?.boost && carView && carView.boost > 0)
-    );
+    const isBoosting =
+      activeVisuals &&
+      (forcePreview ||
+        Boolean(carView && carView.isBoosting) ||
+        Boolean(carCtrl?.boost && carView && carView.boost > 0));
     const isAudibleActive = isLocalCar;
     const currentThrottle = isLocalCar ? throttle : (carCtrl?.throttle ?? opponentThrottle);
     for (const emitter of carBoosts[carIndex] ?? []) {
@@ -134,9 +137,23 @@ export function stepArenaVehiclesFrame(
     if (carIndex >= numCars) {
       if (arena.cars[carIndex]) {
         arena.cars[carIndex]!.visible = false;
-        arena.carDemolitions[carIndex]?.update(actualDelta, false, arena.cars[carIndex]!.position, false);
+        arena.carDemolitions[carIndex]?.update(
+          actualDelta,
+          false,
+          arena.cars[carIndex]!.position,
+          false
+        );
       }
-      arena.supersonicWheelTrailSystem?.updateCar(carIndex, null, null, null, null, null, actualDelta, false);
+      arena.supersonicWheelTrailSystem?.updateCar(
+        carIndex,
+        null,
+        null,
+        null,
+        null,
+        null,
+        actualDelta,
+        false
+      );
       continue;
     }
 
@@ -144,19 +161,35 @@ export function stepArenaVehiclesFrame(
     const prevCar = arena._prevCarView.attachCar(prevState, carIndex);
     arena.aerialClimbTracker?.stepCarFromView(carIndex, currCar, nameTagConfig);
 
-    const isZeroedSlot = (currCar.fwdX * currCar.fwdX + currCar.fwdY * currCar.fwdY + currCar.fwdZ * currCar.fwdZ) < 0.01;
+    const isZeroedSlot =
+      currCar.fwdX * currCar.fwdX + currCar.fwdY * currCar.fwdY + currCar.fwdZ * currCar.fwdZ <
+      0.01;
     const isParkedInactive = isZeroedSlot || (currCar.posX < -5000 && currCar.posZ < -200);
     if (isParkedInactive) {
       if (arena.cars[carIndex]) {
         arena.cars[carIndex]!.visible = false;
-        arena.carDemolitions[carIndex]?.update(actualDelta, false, arena.cars[carIndex]!.position, false);
+        arena.carDemolitions[carIndex]?.update(
+          actualDelta,
+          false,
+          arena.cars[carIndex]!.position,
+          false
+        );
       }
-      arena.supersonicWheelTrailSystem?.updateCar(carIndex, null, null, null, null, null, actualDelta, false);
+      arena.supersonicWheelTrailSystem?.updateCar(
+        carIndex,
+        null,
+        null,
+        null,
+        null,
+        null,
+        actualDelta,
+        false
+      );
       continue;
     }
 
     if (!arena.cars[carIndex]) {
-      const defaultTeam = carIndex === 6 ? 0 : (carIndex === 7 ? 1 : (carIndex % 2));
+      const defaultTeam = carIndex === 6 ? 0 : carIndex === 7 ? 1 : carIndex % 2;
       vr.ensureCar(carIndex, defaultTeam, arena.carVisual || 'fennec');
     }
     if (!arena.cars[carIndex]) continue;
@@ -166,14 +199,26 @@ export function stepArenaVehiclesFrame(
       const isLobbyDiagCar = carIndex === 6 || carIndex === 7;
       if (!isLocalCar && !isLobbyDiagCar) {
         if (arena.cars[carIndex]) arena.cars[carIndex]!.visible = false;
-        arena.supersonicWheelTrailSystem?.updateCar(carIndex, null, null, null, null, null, actualDelta, false);
+        arena.supersonicWheelTrailSystem?.updateCar(
+          carIndex,
+          null,
+          null,
+          null,
+          null,
+          null,
+          actualDelta,
+          false
+        );
         continue;
       }
     }
 
-    const carControls = typeof carControlsResolver === 'function'
-      ? carControlsResolver(carIndex)
-      : (carIndex === 0 ? controls : opponentControls);
+    const carControls =
+      typeof carControlsResolver === 'function'
+        ? carControlsResolver(carIndex)
+        : carIndex === 0
+          ? controls
+          : opponentControls;
     const carThrottle = isLocalCar ? actualThrottle : (carControls?.throttle ?? 0);
 
     const isRespawning = prevCar.isDemoed && !currCar.isDemoed;
@@ -208,7 +253,12 @@ export function stepArenaVehiclesFrame(
     }
 
     const isAlive = !currCar.isDemoed;
-    arena.carDemolitions[carIndex]?.update(actualDelta, !isAlive, arena.cars[carIndex]!.position, activeVisuals);
+    arena.carDemolitions[carIndex]?.update(
+      actualDelta,
+      !isAlive,
+      arena.cars[carIndex]!.position,
+      activeVisuals
+    );
     const demoSimCfg = isLocalCar ? getDemolishShockwaveConfig() : null;
     const hideForSim = Boolean(
       demoSimCfg &&

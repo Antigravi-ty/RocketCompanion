@@ -1,12 +1,10 @@
 import * as THREE from 'three';
-import {
-  BALL_COLLISION_RADIUS
-} from '../../physics/RocketSimConstants.ts';
+import { BALL_COLLISION_RADIUS } from '../../physics/RocketSimConstants.ts';
 import {
   getGoalVolumeTunerConfig,
   getGoalVolumeBoxForPreset,
-  registerGoalVolumeTunerApplier
-} from '../../ui-core/config/goalVolumeTunerConfig';
+  registerGoalVolumeTunerApplier,
+} from '../../ui-core/config/goalVolumeTunerConfig.ts';
 
 const BLUE_OUTER_COLOR = 0x38bdf8;
 const BLUE_INNER_COLOR = 0x22d3ee;
@@ -24,13 +22,13 @@ function createGoalBoxObjects(signY, outerHex, innerHex) {
     transparent: true,
     opacity: 0.08,
     depthWrite: false,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
   });
   const outerWireMat = new THREE.LineBasicMaterial({
     color: outerHex,
     transparent: true,
     opacity: 0.85,
-    depthWrite: false
+    depthWrite: false,
   });
 
   const innerVolumeMat = new THREE.MeshBasicMaterial({
@@ -38,13 +36,13 @@ function createGoalBoxObjects(signY, outerHex, innerHex) {
     transparent: true,
     opacity: 0.14,
     depthWrite: false,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
   });
   const innerWireMat = new THREE.LineBasicMaterial({
     color: innerHex,
     transparent: true,
     opacity: 0.95,
-    depthWrite: false
+    depthWrite: false,
   });
 
   const outerMesh = new THREE.Mesh(unitBoxGeom, outerVolumeMat);
@@ -71,14 +69,14 @@ function createGoalBoxObjects(signY, outerHex, innerHex) {
     outerMesh,
     outerLines,
     innerMesh,
-    innerLines
+    innerLines,
   };
 }
 
 function updateGoalBoxTransform(goalObj, cfg) {
   const { signY, outerMesh, outerLines, innerMesh, innerLines } = goalObj;
   const r = cfg.ballRadius ?? BALL_COLLISION_RADIUS;
-  const margin = (cfg.isThrowback || cfg.enabled) ? 0.25 * r : 0.0;
+  const margin = cfg.isThrowback || cfg.enabled ? 0.25 * r : 0.0;
 
   const outerWidthX = cfg.halfWidthX * 2.0;
   const outerHeightY = Math.max(1.0, cfg.maxZ - cfg.minZ);
@@ -161,7 +159,7 @@ export class GoalVolumeHitboxVisual {
       maxY: base.maxY,
       minZ: base.minZ ?? 0.0,
       maxZ: base.maxZ,
-      ballRadius: BALL_COLLISION_RADIUS
+      ballRadius: BALL_COLLISION_RADIUS,
     };
     updateGoalBoxTransform(this.blueGoal, cfg);
     updateGoalBoxTransform(this.orangeGoal, cfg);

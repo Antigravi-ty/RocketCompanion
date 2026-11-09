@@ -45,10 +45,19 @@ export interface ReplayTakeoverRuntimePort {
   } | null;
   networkReconciler?: {
     replayPlaybackMode?: boolean;
-    syncTimeline?: (snap: Float32Array | number[] | null, tick: number, timestampMs?: number) => void;
+    syncTimeline?: (
+      snap: Float32Array | number[] | null,
+      tick: number,
+      timestampMs?: number
+    ) => void;
   } | null;
   lastSystemControlSignal?: number;
-  systemControlSignalHistory?: Array<{ signalType: number; tick: number; param1: number; param2: number }>;
+  systemControlSignalHistory?: Array<{
+    signalType: number;
+    tick: number;
+    param1: number;
+    param2: number;
+  }>;
   _clientGoalIncidentLatched?: boolean;
 }
 
@@ -70,7 +79,9 @@ export interface ReplayTakeoverFreeplayModePort {
     recordFrame?: (
       tick: number,
       snap: Float32Array,
-      options?: { acknowledgedControls?: ReadonlyArray<Record<string, unknown> | null | undefined> | null }
+      options?: {
+        acknowledgedControls?: ReadonlyArray<Record<string, unknown> | null | undefined> | null;
+      }
     ) => { snapshot?: Float32Array | null } | null;
     appendIncident?: (tick: number, incident: Record<string, unknown>) => void;
   } | null;
@@ -161,7 +172,10 @@ export function computePrerollWindowBounds(
 ): PrerollWindowBounds {
   const downSec = Number(downCounterSec) || 0;
   const minRequiredFrames = downSec === 0 ? 120 : 240;
-  const targetIdx = Math.max(minRequiredFrames - 1, Math.min(totalFrames - 1, Math.round(baseCursor)));
+  const targetIdx = Math.max(
+    minRequiredFrames - 1,
+    Math.min(totalFrames - 1, Math.round(baseCursor))
+  );
   const startIdx = Math.max(0, targetIdx - (downSec === 0 ? 1 : downSec + 1) * 120);
   const remFrames = Math.max(0, targetIdx - startIdx);
   return {
@@ -190,10 +204,15 @@ export function executeLiveFreeplayHandoff(params: LiveFreeplayHandoffParams): n
   const maxHistory = Math.min(targetIdx + 1, freeplayMode?.replayRingBuffer?.capacityTicks || 3600);
   const firstIdx = Math.max(0, targetIdx + 1 - maxHistory);
   const historySpan = Math.max(0, targetIdx - firstIdx);
-  const liveTick = Math.max(Math.floor(sim.getHeaderView?.()?.tickCount ?? 0) + 16, historySpan + 16);
+  const liveTick = Math.max(
+    Math.floor(sim.getHeaderView?.()?.tickCount ?? 0) + 16,
+    historySpan + 16
+  );
 
   onBeforeReconstruct?.(liveTick);
-  reconstructAndRestoreReplayFrame(sim, (f: number) => getHistorySlotAt(f), targetIdx, { overrideTick: liveTick });
+  reconstructAndRestoreReplayFrame(sim, (f: number) => getHistorySlotAt(f), targetIdx, {
+    overrideTick: liveTick,
+  });
 
   if (r.interpolator) {
     r.interpolator.prevState.set(sim.state);
@@ -212,7 +231,13 @@ export function executeLiveFreeplayHandoff(params: LiveFreeplayHandoffParams): n
   onAfterReconstruct?.(liveTick);
 
   const resumedSnap = sim.saveCompactState?.() ?? null;
-  emitSystemControlTransition(r, SYSTEM_CONTROL_SIGNALS.SYS_CTRL_PHYSICS_RESUME, liveTick, 1, resumedSnap);
+  emitSystemControlTransition(
+    r,
+    SYSTEM_CONTROL_SIGNALS.SYS_CTRL_PHYSICS_RESUME,
+    liveTick,
+    1,
+    resumedSnap
+  );
   if (r.networkReconciler) {
     r.networkReconciler.replayPlaybackMode = false;
     if (resumedSnap) r.networkReconciler.syncTimeline?.(resumedSnap, liveTick, performance.now());
@@ -243,11 +268,14 @@ export function executeLiveFreeplayHandoff(params: LiveFreeplayHandoffParams): n
         const slot = getHistorySlotAt(i);
         if (!slot?.snapshot) continue;
         const syntheticTick = baseTick + (i - firstIdx);
-        const rec = ringBuf.recordFrame?.(syntheticTick, slot.snapshot, { acknowledgedControls: slot.controls || [] });
+        const rec = ringBuf.recordFrame?.(syntheticTick, slot.snapshot, {
+          acknowledgedControls: slot.controls || [],
+        });
         if (rec?.snapshot) rec.snapshot[SIM_OFFSETS.TICK] = syntheticTick;
         for (const inc of slot.incidents || []) {
           ringBuf.appendIncident?.(syntheticTick, { ...inc, tick: syntheticTick });
-          if (inc.type === INCIDENT_EVENT_TYPES.CAR_BALL_HIT || inc.type === 0x01) latestTouchTick = syntheticTick;
+          if (inc.type === INCIDENT_EVENT_TYPES.CAR_BALL_HIT || inc.type === 0x01)
+            latestTouchTick = syntheticTick;
         }
         if (slot.hadTouch) latestTouchTick = syntheticTick;
       }
@@ -256,7 +284,11 @@ export function executeLiveFreeplayHandoff(params: LiveFreeplayHandoffParams): n
         Object.assign(goalAndTouch, {
           lastKickoffStartTick: baseTick,
           lastTouchTick:
-            latestTouchTick >= 0 ? latestTouchTick : fallbackLastTouchTick === 'baseTick' ? baseTick : -1,
+            latestTouchTick >= 0
+              ? latestTouchTick
+              : fallbackLastTouchTick === 'baseTick'
+                ? baseTick
+                : -1,
         });
       }
     }
@@ -330,7 +362,15 @@ export class ReplayTakeoverSubController {
   }
 
   stepPrerollCountdown(params: TakeoverPrerollStepParams): boolean {
-    const { totalFrames, downCounterSec, displayedRemainingSec, audio = gameAudio, onApplyFrameAtCursor, onHandoffToLiveFreeplay, onUpdateCountdownTelemetry } = params;
+    const {
+      totalFrames,
+      downCounterSec,
+      displayedRemainingSec,
+      audio = gameAudio,
+      onApplyFrameAtCursor,
+      onHandoffToLiveFreeplay,
+      onUpdateCountdownTelemetry,
+    } = params;
     const targetIdx = Math.max(0, Math.min(totalFrames - 1, Math.round(this.targetFrame)));
     const nextCursor = Math.min(targetIdx, Math.round(this.cursor) + 1);
     this.cursor = nextCursor;
@@ -345,7 +385,10 @@ export class ReplayTakeoverSubController {
     }
 
     const countdownSec = Math.max(1, Math.ceil(remFrames / 120));
-    if (countdownSec <= Math.max(1, downCounterSec ?? 0) && countdownSec !== this.lastCountdownSecBeep) {
+    if (
+      countdownSec <= Math.max(1, downCounterSec ?? 0) &&
+      countdownSec !== this.lastCountdownSecBeep
+    ) {
       this.lastCountdownSecBeep = countdownSec;
       audio?.play?.('training_countdown', 1.0, 200);
     }
@@ -357,18 +400,32 @@ export class ReplayTakeoverSubController {
   }
 
   stepScrub(params: TakeoverScrubStepParams): boolean {
-    const { direction, totalFrames, effectiveFlowPct, throttleUiSync = false, onApplyFrameAtCursor, onUpdateScrubTelemetry } = params;
+    const {
+      direction,
+      totalFrames,
+      effectiveFlowPct,
+      throttleUiSync = false,
+      onApplyFrameAtCursor,
+      onUpdateScrubTelemetry,
+    } = params;
     const stepPerTick = (effectiveFlowPct || 100) / 100;
     this.scrubAccumulator += direction === 'rewinding' ? -stepPerTick : stepPerTick;
     const wholeSteps = Math.trunc(this.scrubAccumulator);
     if (wholeSteps !== 0) {
       this.scrubAccumulator -= wholeSteps;
-      const nextIdx = Math.max(0, Math.min(Math.max(0, totalFrames - 1), Math.round(this.cursor) + wholeSteps));
+      const nextIdx = Math.max(
+        0,
+        Math.min(Math.max(0, totalFrames - 1), Math.round(this.cursor) + wholeSteps)
+      );
       this.cursor = nextIdx;
       this.targetFrame = nextIdx;
       onApplyFrameAtCursor(nextIdx, direction === 'forwarding');
 
-      if (!throttleUiSync || (this.uiSyncTick = (this.uiSyncTick + 1) & 3) === 0 || Math.abs(wholeSteps) === 1) {
+      if (
+        !throttleUiSync ||
+        (this.uiSyncTick = (this.uiSyncTick + 1) & 3) === 0 ||
+        Math.abs(wholeSteps) === 1
+      ) {
         onUpdateScrubTelemetry(nextIdx);
       }
     }
@@ -376,7 +433,13 @@ export class ReplayTakeoverSubController {
   }
 
   stepPlaying(params: TakeoverPlayStepParams): boolean {
-    const { totalFrames, effectiveFlowPct, onApplyFrameAtCursor, onPlaybackFinished, onUpdatePlayTelemetry } = params;
+    const {
+      totalFrames,
+      effectiveFlowPct,
+      onApplyFrameAtCursor,
+      onPlaybackFinished,
+      onUpdatePlayTelemetry,
+    } = params;
     const maxIdx = Math.max(0, totalFrames - 1);
     this.cursor = Math.min(maxIdx, this.cursor + (effectiveFlowPct || 100) / 100);
     const rounded = Math.round(this.cursor);

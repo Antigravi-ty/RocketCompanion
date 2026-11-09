@@ -7,13 +7,9 @@ import {
 import {
   CAR_COLOR_SLOTS,
   unpackLoadoutSignalParam2,
-} from '../../ui-core/config/vehicleConstants';
+} from '../../ui-core/config/vehicleConstants.ts';
 import { gameAudio } from '../../audio/GameAudioEngineFacade.ts';
-import {
-  useAppStore,
-  useSpatialAudioStore,
-  eventStreamStore,
-} from '../runtimeUiPort.ts';
+import { useAppStore, useSpatialAudioStore, eventStreamStore } from '../runtimeUiPort.ts';
 import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
 import type { EntityManager } from '../../entities/EntityManager.ts';
 import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
@@ -110,7 +106,10 @@ export interface RuntimeSignalHostPort {
   syncHostLobbyOngoingNotification(): void;
   isLobbyDualWorldActive(reconciler?: PredictionReconciler | null): boolean;
   despawnDiagnosticTestFleet(): void;
-  setLobbyGhostMode(enabled: boolean, options?: { syncServerLobby?: boolean }): Promise<boolean> | boolean;
+  setLobbyGhostMode(
+    enabled: boolean,
+    options?: { syncServerLobby?: boolean }
+  ): Promise<boolean> | boolean;
   setLatestServerRosterState(state: string): void;
   isNetworkTelemetryNotified(): boolean;
   markNetworkTelemetryNotified(notified: boolean): void;
@@ -133,7 +132,7 @@ export interface RosterPlayerEntryLike {
 }
 
 function extractRosterPlayers(
-  lastRosterSnapshot: OnlineRosterSnapshotPayload | RosterPlayerEntryLike[] | null | undefined,
+  lastRosterSnapshot: OnlineRosterSnapshotPayload | RosterPlayerEntryLike[] | null | undefined
 ): RosterPlayerEntryLike[] {
   if (!lastRosterSnapshot) return [];
   if (Array.isArray(lastRosterSnapshot)) return lastRosterSnapshot;
@@ -146,10 +145,12 @@ export function resolveParticipantDisplayName(
   lastRosterSnapshot: OnlineRosterSnapshotPayload | RosterPlayerEntryLike[] | null | undefined,
   playerCarIndex: number,
   carIndex: number,
-  scoringTeam = 0,
+  scoringTeam = 0
 ): string {
   const rosterPlayers = extractRosterPlayers(lastRosterSnapshot);
-  const found = rosterPlayers.find((p) => p && (p.carIndex === carIndex || p.entityId === carIndex));
+  const found = rosterPlayers.find(
+    (p) => p && (p.carIndex === carIndex || p.entityId === carIndex)
+  );
   if (found && (found.name || found.username)) return found.name || found.username || 'Player';
   const peers = useAppStore?.getState?.()?.onlineSession?.connectedPeers || [];
   const peer = peers.find((p) => p && p.carIndex === carIndex);
@@ -163,14 +164,16 @@ export function resolveParticipantDisplayName(
 export function resolveParticipantAnthemId(
   lastRosterSnapshot: OnlineRosterSnapshotPayload | RosterPlayerEntryLike[] | null | undefined,
   playerCarIndex: number,
-  carIndex: number,
+  carIndex: number
 ): string | null {
   if (carIndex === playerCarIndex) {
     const localAnthem = useSpatialAudioStore?.getState?.()?.selectedAnthem;
     if (localAnthem) return localAnthem;
   }
   const rosterPlayers = extractRosterPlayers(lastRosterSnapshot);
-  const found = rosterPlayers.find((p) => p && (p.carIndex === carIndex || p.entityId === carIndex));
+  const found = rosterPlayers.find(
+    (p) => p && (p.carIndex === carIndex || p.entityId === carIndex)
+  );
   return found?.anthemId || null;
 }
 
@@ -185,7 +188,7 @@ export class RuntimeParticipantAndCombatSignalSubController {
     carIdx: number,
     team: number,
     preset: string,
-    isLobbyDualWorld: boolean,
+    isLobbyDualWorld: boolean
   ): void {
     const { physics, arena, playerCarIndex } = this.host;
     if (isLobbyDualWorld && carIdx !== playerCarIndex) {
@@ -209,7 +212,7 @@ export class RuntimeParticipantAndCombatSignalSubController {
   private applyParticipantLoadoutToWorld(
     carIdx: number,
     loadout: ReturnType<typeof unpackLoadoutSignalParam2>,
-    isLobbyDualWorld: boolean,
+    isLobbyDualWorld: boolean
   ): void {
     const {
       visualId,
@@ -313,7 +316,7 @@ export class RuntimeParticipantAndCombatSignalSubController {
   public handleCombatIncidentSignal(
     sig: RuntimeSignalPacket,
     isFirstSeenSignalId: boolean,
-    audio: SignalAudioFacadeLike | null | undefined,
+    audio: SignalAudioFacadeLike | null | undefined
   ): boolean {
     if (sig.signalType === MATCH_SIGNALS.FLIP_RESET_GAINED) {
       if (!isFirstSeenSignalId) return true;

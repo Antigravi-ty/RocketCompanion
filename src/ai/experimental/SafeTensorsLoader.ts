@@ -147,7 +147,10 @@ export function parseSafeTensorsBuffer(buffer: ArrayBuffer): ParsedSafeTensorsMo
  * @param {string} modelId
  * @param {string|null} [customUrl]
  */
-export async function loadExperimentalPolicySafeTensors(modelId: string, customUrl: string | null = null) {
+export async function loadExperimentalPolicySafeTensors(
+  modelId: string,
+  customUrl: string | null = null
+) {
   const rawUrl = customUrl || (EXPERIMENTAL_MODEL_URLS as Record<string, string>)[modelId];
   if (!rawUrl) {
     throw new Error(`[SafeTensorsLoader] Unknown experimental modelId "${modelId}".`);

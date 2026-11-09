@@ -6,7 +6,10 @@
  */
 
 import * as THREE from 'three';
-import { type VehicleAssetStore, type VehicleLoaderCallbacks } from '../../entities/arena/VehicleFactory.ts';
+import {
+  type VehicleAssetStore,
+  type VehicleLoaderCallbacks,
+} from '../../entities/arena/VehicleFactory.ts';
 import { updateCarSuspensionAndSteering } from '../../entities/VehicleSuspensionSystem.ts';
 import { CarStateView, BallStateView } from '../../physics/RocketSimStateViews.ts';
 import { SIM_OFFSETS, MAX_CARS } from '../../physics/RocketSimConstants.ts';
@@ -107,7 +110,7 @@ export class MultiWorldGhostRenderer {
   private _buildGhostCarSlot(
     worldEntry: GhostWorldEntry,
     slotIndex: number,
-    visual = 'fennec',
+    visual = 'fennec'
   ): GhostCarSlotEntry | null {
     if (!this.arena?.scene) return null;
     const scene = this.arena.scene as THREE.Scene;
@@ -145,7 +148,7 @@ export class MultiWorldGhostRenderer {
 
   public ensureWorld(
     worldId: string | number = 'world-1',
-    options: GhostWorldUpdateOptions = {},
+    options: GhostWorldUpdateOptions = {}
   ): GhostWorldEntry | null {
     const existing = this.worlds.get(worldId);
     if (existing) return existing;
@@ -153,7 +156,8 @@ export class MultiWorldGhostRenderer {
     const scene = this.arena.scene as THREE.Scene;
     this.scene = scene;
 
-    const worldIndex = typeof options.paletteIndex === 'number' ? options.paletteIndex : this.worlds.size;
+    const worldIndex =
+      typeof options.paletteIndex === 'number' ? options.paletteIndex : this.worlds.size;
     const placement = options.placement || this.ghostPlacement;
     const palette = options.palette || resolveGhostWorldPalette(worldIndex, placement);
     const opacity = typeof options.opacity === 'number' ? options.opacity : this.defaultOpacity;
@@ -226,7 +230,7 @@ export class MultiWorldGhostRenderer {
 
   public setGhostPlacement(
     placement: string = 'same',
-    worldId: string | number | null = null,
+    worldId: string | number | null = null
   ): void {
     const next: 'same' | 'opposite' = placement === 'opposite' ? 'opposite' : 'same';
     if (worldId === null) this.ghostPlacement = next;
@@ -244,7 +248,7 @@ export class MultiWorldGhostRenderer {
   public setEntityVisibility(
     showCar: boolean,
     showBall: boolean,
-    worldId: string | number | null = null,
+    worldId: string | number | null = null
   ): void {
     if (worldId === null) {
       this.showCar = Boolean(showCar);
@@ -278,7 +282,7 @@ export class MultiWorldGhostRenderer {
     currState: Float32Array | null | undefined,
     alpha = 1.0,
     dt = 0.016,
-    options: GhostWorldUpdateOptions = {},
+    options: GhostWorldUpdateOptions = {}
   ): void {
     if (!prevState || !currState) return;
     const worldEntry = this.ensureWorld(worldId, options);
@@ -310,7 +314,8 @@ export class MultiWorldGhostRenderer {
         const currCar = slotObj.currCarView.attachCar(currState, c);
 
         const isZeroedSlot =
-          currCar.fwdX * currCar.fwdX + currCar.fwdY * currCar.fwdY + currCar.fwdZ * currCar.fwdZ < 0.01;
+          currCar.fwdX * currCar.fwdX + currCar.fwdY * currCar.fwdY + currCar.fwdZ * currCar.fwdZ <
+          0.01;
         if (isZeroedSlot || currCar.posZ <= -200 || currCar.posX < -5000 || currCar.isDemoed) {
           slotObj.root.visible = false;
           continue;
@@ -327,8 +332,14 @@ export class MultiWorldGhostRenderer {
               : options.controls;
 
         updateCarSuspensionAndSteering(
-          slotObj.wheels, slotObj.wheelSpecs, slotObj.suspension, slotObj.wheelSpin,
-          currCar, slotObj.visual || 'fennec', dt, ctrlForCar?.throttle ?? 0,
+          slotObj.wheels,
+          slotObj.wheelSpecs,
+          slotObj.suspension,
+          slotObj.wheelSpin,
+          currCar,
+          slotObj.visual || 'fennec',
+          dt,
+          ctrlForCar?.throttle ?? 0
         );
 
         if (slotObj.boostPlume) {
@@ -347,7 +358,8 @@ export class MultiWorldGhostRenderer {
       }
     }
 
-    const showWorldBall = options.showBall !== undefined ? Boolean(options.showBall) : worldEntry.showBall;
+    const showWorldBall =
+      options.showBall !== undefined ? Boolean(options.showBall) : worldEntry.showBall;
     if (worldEntry.ballMesh && showWorldBall) {
       const prevBall = worldEntry.prevBallView.attach(prevState);
       const currBall = worldEntry.currBallView.attach(currState);
@@ -357,7 +369,9 @@ export class MultiWorldGhostRenderer {
       const ballSpeed = Math.hypot(currBall.velX, currBall.velY, currBall.velZ);
       if (worldEntry.ballMesh.material) {
         worldEntry.ballMesh.material.opacity =
-          ballSpeed > 10 ? Math.min(0.85, worldEntry.opacity * 0.9) : Math.max(0.15, worldEntry.opacity * 0.45);
+          ballSpeed > 10
+            ? Math.min(0.85, worldEntry.opacity * 0.9)
+            : Math.max(0.15, worldEntry.opacity * 0.45);
       }
 
       if (worldEntry.ballRing) {
@@ -377,9 +391,12 @@ export class MultiWorldGhostRenderer {
     alpha = 1.0,
     dt = 0.016,
     ghostControls: { throttle?: number } | null = null,
-    showBall?: boolean,
+    showBall?: boolean
   ): void {
-    this.updateWorld('world-1', prevState, currState, alpha, dt, { controls: ghostControls, showBall });
+    this.updateWorld('world-1', prevState, currState, alpha, dt, {
+      controls: ghostControls,
+      showBall,
+    });
   }
 
   public removeWorld(worldId: string | number): void {

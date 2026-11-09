@@ -11,18 +11,38 @@ import { CarStateView } from '../../physics/RocketSimStateViews.ts';
 import { encodeCarControls } from './experimentalMultiCarObsPipeline.ts';
 import type { CarControls } from './botpack9700488Actions.ts';
 import {
-  POS_COEF, VEL_COEF, ANG_VEL_COEF,
-  FURY_POS_COEF_X, FURY_POS_COEF_Y, FURY_POS_COEF_Z, FURY_VEL_COEF, FURY_ANG_VEL_COEF,
-  BIG_BOOST_PAD_INDICES, CANONICAL_BOOST_LOCATIONS, CANONICAL_TO_WASM_PAD_INDEX,
+  POS_COEF,
+  VEL_COEF,
+  ANG_VEL_COEF,
+  FURY_POS_COEF_X,
+  FURY_POS_COEF_Y,
+  FURY_POS_COEF_Z,
+  FURY_VEL_COEF,
+  FURY_ANG_VEL_COEF,
+  BIG_BOOST_PAD_INDICES,
+  CANONICAL_BOOST_LOCATIONS,
+  CANONICAL_TO_WASM_PAD_INDEX,
 } from './botpack9700488Specs.ts';
 import {
-  sBallView, sPadView, sCarViews,
-  ensureSharedBallPrediction, getCarPhys, getBallPhys, rotDot, collectTeammatesAndOpponents,
-  type ActiveCarSlot, type BallPredictionEnginePort, type BallPhysSnapshot, type BuiltBotpackObs,
+  sBallView,
+  sPadView,
+  sCarViews,
+  ensureSharedBallPrediction,
+  getCarPhys,
+  getBallPhys,
+  rotDot,
+  collectTeammatesAndOpponents,
+  type ActiveCarSlot,
+  type BallPredictionEnginePort,
+  type BallPhysSnapshot,
+  type BuiltBotpackObs,
 } from './botpackSharedBallPredPipeline.ts';
 import { writeStandardPlayer29, writeBoostPads34 } from './botpack9700488ObsCorePipeline.ts';
 import {
-  writeDuckyPlayerFeatures, writeFuryKickoffContext4, writeFuryGoalScalars5, writeFuryPlayer39,
+  writeDuckyPlayerFeatures,
+  writeFuryKickoffContext4,
+  writeFuryGoalScalars5,
+  writeFuryPlayer39,
 } from './botpack9700488RelativeCarFeatures.ts';
 
 export type { BallPredictionEnginePort };
@@ -72,20 +92,52 @@ export function buildDuckyObs(
   const selfPhys = getCarPhys(selfCv, inv, false);
   const obs = new Float32Array(295);
 
-  let ptr = writeBallHeaderAndPrevAct(obs, ball, prevControls, POS_COEF, POS_COEF, POS_COEF, VEL_COEF, ANG_VEL_COEF);
+  let ptr = writeBallHeaderAndPrevAct(
+    obs,
+    ball,
+    prevControls,
+    POS_COEF,
+    POS_COEF,
+    POS_COEF,
+    VEL_COEF,
+    ANG_VEL_COEF
+  );
   ptr = writeBoostPads34(obs, ptr, simState, inv, false, 1.0);
   ptr = writeDuckyPlayerFeatures(obs, ptr, selfPhys, selfPhys, ball, false);
 
-  const { teammates, opponents } = collectTeammatesAndOpponents(simState, selfCarIndex, normSelfTeam, activeCars, 2, 3);
+  const { teammates, opponents } = collectTeammatesAndOpponents(
+    simState,
+    selfCarIndex,
+    normSelfTeam,
+    activeCars,
+    2,
+    3
+  );
   for (let i = 0; i < 2; i++) {
-    ptr = i < teammates.length
-      ? writeDuckyPlayerFeatures(obs, ptr, getCarPhys(teammates[i].cv, inv, false), selfPhys, ball, true)
-      : ptr + 35;
+    ptr =
+      i < teammates.length
+        ? writeDuckyPlayerFeatures(
+            obs,
+            ptr,
+            getCarPhys(teammates[i].cv, inv, false),
+            selfPhys,
+            ball,
+            true
+          )
+        : ptr + 35;
   }
   for (let i = 0; i < 3; i++) {
-    ptr = i < opponents.length
-      ? writeDuckyPlayerFeatures(obs, ptr, getCarPhys(opponents[i].cv, inv, false), selfPhys, ball, true)
-      : ptr + 35;
+    ptr =
+      i < opponents.length
+        ? writeDuckyPlayerFeatures(
+            obs,
+            ptr,
+            getCarPhys(opponents[i].cv, inv, false),
+            selfPhys,
+            ball,
+            true
+          )
+        : ptr + 35;
   }
 
   // Ball prediction trajectory sampling at 0.3s (36 ticks), 1.0s (120 ticks), 3.0s (360 ticks)
@@ -133,7 +185,7 @@ export function buildDuckyObs(
 
     for (let i = 0; i < 34; i++) {
       const loc = CANONICAL_BOOST_LOCATIONS[i];
-      if ((loc[2] > 71.0) !== wantBig) continue;
+      if (loc[2] > 71.0 !== wantBig) continue;
 
       const dx = loc[0] - selfPhys.posX;
       const dy = loc[1] - selfPhys.posY;
@@ -156,7 +208,12 @@ export function buildDuckyObs(
     }
 
     const chosen = bestCost < Infinity ? bestLoc : closestLoc;
-    const locPad = rotDot(selfPhys, chosen[0] - selfPhys.posX, chosen[1] - selfPhys.posY, chosen[2] - selfPhys.posZ);
+    const locPad = rotDot(
+      selfPhys,
+      chosen[0] - selfPhys.posX,
+      chosen[1] - selfPhys.posY,
+      chosen[2] - selfPhys.posZ
+    );
     obs[ptr++] = locPad[0] * POS_COEF;
     obs[ptr++] = locPad[1] * POS_COEF;
   }
@@ -233,17 +290,47 @@ export function buildFuryObs(
   }
 
   ptr = writeFuryGoalScalars5(obs, ptr, selfPhys, ball);
-  ptr = writeFuryPlayer39(obs, ptr, simState, selfCarIndex, normSelfTeam, selfCv, inv, ball, roster);
+  ptr = writeFuryPlayer39(
+    obs,
+    ptr,
+    simState,
+    selfCarIndex,
+    normSelfTeam,
+    selfCv,
+    inv,
+    ball,
+    roster
+  );
   for (let i = 0; i < 2; i++) {
     if (i < teammates.length) {
-      ptr = writeFuryPlayer39(obs, ptr, simState, teammates[i].carIndex, teammates[i].team, teammates[i].cv, inv, ball, roster);
+      ptr = writeFuryPlayer39(
+        obs,
+        ptr,
+        simState,
+        teammates[i].carIndex,
+        teammates[i].team,
+        teammates[i].cv,
+        inv,
+        ball,
+        roster
+      );
     } else {
       ptr += 39;
     }
   }
   for (let i = 0; i < 3; i++) {
     if (i < opponents.length) {
-      ptr = writeFuryPlayer39(obs, ptr, simState, opponents[i].carIndex, opponents[i].team, opponents[i].cv, inv, ball, roster);
+      ptr = writeFuryPlayer39(
+        obs,
+        ptr,
+        simState,
+        opponents[i].carIndex,
+        opponents[i].team,
+        opponents[i].cv,
+        inv,
+        ball,
+        roster
+      );
     } else {
       ptr += 39;
     }
@@ -272,7 +359,16 @@ export function buildGalactusObs(
   const selfPhys = getCarPhys(selfCv, inv, false);
   const obs = new Float32Array(258);
 
-  let ptr = writeBallHeaderAndPrevAct(obs, ball, prevControls, POS_COEF, POS_COEF, POS_COEF, VEL_COEF, ANG_VEL_COEF);
+  let ptr = writeBallHeaderAndPrevAct(
+    obs,
+    ball,
+    prevControls,
+    POS_COEF,
+    POS_COEF,
+    POS_COEF,
+    VEL_COEF,
+    ANG_VEL_COEF
+  );
   ptr = writeBoostPads34(obs, ptr, simState, inv, false, 1.0);
 
   let nearestRelX = 0.0;

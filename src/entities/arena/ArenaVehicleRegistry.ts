@@ -2,10 +2,18 @@ import * as THREE from 'three';
 import { VehicleBoostEmitter } from '../vehicle/boost/vehicleBoostEmitter.ts';
 import { DemolitionEffect } from '../DemolitionEffect.ts';
 import { getWheelSpecsForVisual } from '../VehicleSuspensionSystem.ts';
-import { normalizeVisualId } from '../../ui-core/config/vehicleConstants';
-import { getVehicleDescriptor, hasVehicleDescriptor } from '../../ui-core/config/vehicleTunerConfig';
+import { normalizeVisualId } from '../../ui-core/config/vehicleConstants.ts';
+import {
+  getVehicleDescriptor,
+  hasVehicleDescriptor,
+} from '../../ui-core/config/vehicleTunerConfig.ts';
 import { DEFAULT_TEAM_COLORS, OCTANE_BOOST_OUTLETS } from './ArenaConstants.ts';
-import { buildVehicleModel, buildVehicleWheels, removeCarMeshes, createDefaultVehicleLoaders } from './VehicleFactory.ts';
+import {
+  buildVehicleModel,
+  buildVehicleWheels,
+  removeCarMeshes,
+  createDefaultVehicleLoaders,
+} from './VehicleFactory.ts';
 import { applyVehiclePaint } from './VehiclePaint.ts';
 import {
   ArenaVehicleLoadoutManager,
@@ -19,13 +27,26 @@ import {
 export type { CarLoadoutConfig, VehicleWheelRig, VehicleWheelSet, WheelSpecTuple };
 
 export interface SuspensionUnitVisual {
-  group?: THREE.Group; top?: THREE.Vector3; botZ?: number; spring?: THREE.Object3D;
-  built?: number; bodyLen?: number; shaft?: THREE.Object3D; body?: THREE.Object3D;
-  innerZ: number; armFore?: THREE.Object3D; foreRoot?: THREE.Object3D | THREE.Vector3;
-  armAft?: THREE.Object3D; aftRoot?: THREE.Object3D | THREE.Vector3;
+  group?: THREE.Group;
+  top?: THREE.Vector3;
+  botZ?: number;
+  spring?: THREE.Object3D;
+  built?: number;
+  bodyLen?: number;
+  shaft?: THREE.Object3D;
+  body?: THREE.Object3D;
+  innerZ: number;
+  armFore?: THREE.Object3D;
+  foreRoot?: THREE.Object3D | THREE.Vector3;
+  armAft?: THREE.Object3D;
+  aftRoot?: THREE.Object3D | THREE.Vector3;
 }
 
-export interface VehicleVisualOptions { visual?: string; preset?: string; targetIndex?: number; }
+export interface VehicleVisualOptions {
+  visual?: string;
+  preset?: string;
+  targetIndex?: number;
+}
 export type VehicleVisualInput = string | VehicleVisualOptions;
 
 export class ArenaVehicleRegistry {
@@ -53,7 +74,11 @@ export class ArenaVehicleRegistry {
   public customVehicleAssets: Map<string, unknown>;
   public carLoaders: ReturnType<typeof createDefaultVehicleLoaders>;
 
-  constructor(arenaScene: THREE.Scene, onRenderTreeChanged?: () => void, onEnsureOpponentSun?: () => void) {
+  constructor(
+    arenaScene: THREE.Scene,
+    onRenderTreeChanged?: () => void,
+    onEnsureOpponentSun?: () => void
+  ) {
     this.scene = arenaScene;
     this.onRenderTreeChanged = onRenderTreeChanged;
     this.onEnsureOpponentSun = onEnsureOpponentSun;
@@ -109,10 +134,17 @@ export class ArenaVehicleRegistry {
   _ensureAsyncCustomAsset(visual: string, slot: number): void {
     const id = normalizeVisualId(visual);
     const desc = hasVehicleDescriptor(id) ? getVehicleDescriptor(id) : null;
-    if (desc?.modelUrl && !this.customVehicleAssets.has(id) && this.carLoaders.loadCustomGlbCarAsset) {
-      this.carLoaders.loadCustomGlbCarAsset(id).then((asset: unknown) => {
-        this.setCustomVehicleAsset(id, asset);
-      }).catch((err: unknown) => console.warn(`Lazy "${id}" asset load failed:`, err));
+    if (
+      desc?.modelUrl &&
+      !this.customVehicleAssets.has(id) &&
+      this.carLoaders.loadCustomGlbCarAsset
+    ) {
+      this.carLoaders
+        .loadCustomGlbCarAsset(id)
+        .then((asset: unknown) => {
+          this.setCustomVehicleAsset(id, asset);
+        })
+        .catch((err: unknown) => console.warn(`Lazy "${id}" asset load failed:`, err));
     }
   }
 
@@ -134,9 +166,10 @@ export class ArenaVehicleRegistry {
     visual = normalizeVisualId(visual);
 
     const carRoot = new THREE.Group();
-    const slot = (typeof resolvedTargetIndex === 'number' && resolvedTargetIndex >= 0)
-      ? resolvedTargetIndex
-      : this.cars.length;
+    const slot =
+      typeof resolvedTargetIndex === 'number' && resolvedTargetIndex >= 0
+        ? resolvedTargetIndex
+        : this.cars.length;
 
     while (this.cars.length < slot) {
       const idx = this.cars.length;
@@ -156,27 +189,43 @@ export class ArenaVehicleRegistry {
     }
 
     const isBot = slot !== 0;
-    const resolvedTeam = typeof teamIndex === 'number' ? teamIndex : (slot % 2);
-    const teamColor = this.carLoaders.teamColors?.[resolvedTeam] ?? DEFAULT_TEAM_COLORS[resolvedTeam % 2];
+    const resolvedTeam = typeof teamIndex === 'number' ? teamIndex : slot % 2;
+    const teamColor =
+      this.carLoaders.teamColors?.[resolvedTeam] ?? DEFAULT_TEAM_COLORS[resolvedTeam % 2];
 
     this._ensureAsyncCustomAsset(visual, slot);
 
     const { carModel, carHitbox, boostOutlets } = buildVehicleModel(
-      visual, teamColor, isBot, this.assets, this.carLoaders, this.isCarHitboxVisibleForSlot(slot)
+      visual,
+      teamColor,
+      isBot,
+      this.assets,
+      this.carLoaders,
+      this.isCarHitboxVisibleForSlot(slot)
     );
     carRoot.add(carModel, carHitbox);
 
     let wheelSpecs = getWheelSpecsForVisual(visual) as WheelSpecTuple[];
-    if (!visual.startsWith('hitbox-') && !hasVehicleDescriptor(visual) && this.carLoaders.wheelSpecs?.game) {
+    if (
+      !visual.startsWith('hitbox-') &&
+      !hasVehicleDescriptor(visual) &&
+      this.carLoaders.wheelSpecs?.game
+    ) {
       wheelSpecs = this.carLoaders.wheelSpecs.game as WheelSpecTuple[];
     }
 
     const wheels = buildVehicleWheels(
-      carRoot, visual, teamColor, wheelSpecs, this.assets, this.carLoaders
+      carRoot,
+      visual,
+      teamColor,
+      wheelSpecs,
+      this.assets,
+      this.carLoaders
     ) as VehicleWheelSet;
     const defaultOutlets = OCTANE_BOOST_OUTLETS.map(([x, y, z]) => new THREE.Vector3(x, y, z));
     const emitters = (boostOutlets || defaultOutlets).map(
-      (pos: THREE.Vector3, p: number) => new VehicleBoostEmitter(this.scene, carRoot, pos, p === 0, isBot)
+      (pos: THREE.Vector3, p: number) =>
+        new VehicleBoostEmitter(this.scene, carRoot, pos, p === 0, isBot)
     );
     const activeBoostVisual = this.carBoostVisuals?.[slot] || null;
     if (activeBoostVisual) {
@@ -212,10 +261,15 @@ export class ArenaVehicleRegistry {
     visualOrOptions: VehicleVisualInput = 'fennec'
   ): THREE.Group | null {
     if (typeof carIndex !== 'number' || carIndex < 0) return null;
-    const resolvedTeam = typeof teamIndex === 'number' ? teamIndex : (this.carTeams?.[carIndex] ?? (carIndex % 2));
+    const resolvedTeam =
+      typeof teamIndex === 'number' ? teamIndex : (this.carTeams?.[carIndex] ?? carIndex % 2);
     let visual = 'fennec';
     if (visualOrOptions && typeof visualOrOptions === 'object') {
-      visual = visualOrOptions.visual || visualOrOptions.preset || this.vehiclePresets?.[carIndex] || 'fennec';
+      visual =
+        visualOrOptions.visual ||
+        visualOrOptions.preset ||
+        this.vehiclePresets?.[carIndex] ||
+        'fennec';
     } else if (typeof visualOrOptions === 'string' && visualOrOptions.length > 0) {
       visual = visualOrOptions;
     } else if (this.vehiclePresets?.[carIndex]) {
@@ -246,8 +300,16 @@ export class ArenaVehicleRegistry {
     this.carTeams[carIndex] = teamIndex;
     if (prevTeam === teamIndex) return;
     const teamColor = this.carLoaders.teamColors?.[teamIndex] ?? DEFAULT_TEAM_COLORS[teamIndex % 2];
-    if (this.cars?.[carIndex] && (this.carColors?.[carIndex] === undefined || this.carColors?.[carIndex] === null)) {
-      applyVehiclePaint(this.cars[carIndex], this.vehiclePresets?.[carIndex], teamColor, this.carPaintFinishes?.[carIndex] || null);
+    if (
+      this.cars?.[carIndex] &&
+      (this.carColors?.[carIndex] === undefined || this.carColors?.[carIndex] === null)
+    ) {
+      applyVehiclePaint(
+        this.cars[carIndex],
+        this.vehiclePresets?.[carIndex],
+        teamColor,
+        this.carPaintFinishes?.[carIndex] || null
+      );
       this.onRenderTreeChanged?.();
     }
   }
@@ -256,35 +318,51 @@ export class ArenaVehicleRegistry {
     if (!this.cars || carIndex < 0 || carIndex >= this.cars.length) return false;
     const carRoot = this.cars[carIndex];
     if (!carRoot) return false;
-    const rawVisual = (newVisual && typeof newVisual === 'object')
-      ? (newVisual.visual || newVisual.preset || 'fennec')
-      : String(newVisual || 'fennec');
+    const rawVisual =
+      newVisual && typeof newVisual === 'object'
+        ? newVisual.visual || newVisual.preset || 'fennec'
+        : String(newVisual || 'fennec');
     const resolvedVisual = normalizeVisualId(rawVisual);
 
     const isBot = carIndex !== 0;
-    const teamIndex = this.carTeams?.[carIndex] ?? (carIndex % 2);
+    const teamIndex = this.carTeams?.[carIndex] ?? carIndex % 2;
     const activeCustomColor = this.carColors?.[carIndex];
-    const teamColor = (activeCustomColor !== undefined && activeCustomColor !== null)
-      ? activeCustomColor
-      : (this.carLoaders.teamColors?.[teamIndex] ?? DEFAULT_TEAM_COLORS[teamIndex % 2]);
+    const teamColor =
+      activeCustomColor !== undefined && activeCustomColor !== null
+        ? activeCustomColor
+        : (this.carLoaders.teamColors?.[teamIndex] ?? DEFAULT_TEAM_COLORS[teamIndex % 2]);
 
     this._ensureAsyncCustomAsset(resolvedVisual, carIndex);
 
     removeCarMeshes(carRoot, true);
 
     const { carModel, carHitbox, boostOutlets } = buildVehicleModel(
-      resolvedVisual, teamColor, isBot, this.assets, this.carLoaders, this.isCarHitboxVisibleForSlot(carIndex)
+      resolvedVisual,
+      teamColor,
+      isBot,
+      this.assets,
+      this.carLoaders,
+      this.isCarHitboxVisibleForSlot(carIndex)
     );
     carRoot.add(carModel, carHitbox);
     this.carHitboxes[carIndex] = carHitbox;
 
     let wheelSpecs = getWheelSpecsForVisual(resolvedVisual) as WheelSpecTuple[];
-    if (!resolvedVisual.startsWith('hitbox-') && !hasVehicleDescriptor(resolvedVisual) && this.carLoaders.wheelSpecs?.game) {
+    if (
+      !resolvedVisual.startsWith('hitbox-') &&
+      !hasVehicleDescriptor(resolvedVisual) &&
+      this.carLoaders.wheelSpecs?.game
+    ) {
       wheelSpecs = this.carLoaders.wheelSpecs.game as WheelSpecTuple[];
     }
     this.carWheelSpecs[carIndex] = wheelSpecs;
     this.carWheels[carIndex] = buildVehicleWheels(
-      carRoot, resolvedVisual, teamColor, wheelSpecs, this.assets, this.carLoaders
+      carRoot,
+      resolvedVisual,
+      teamColor,
+      wheelSpecs,
+      this.assets,
+      this.carLoaders
     ) as VehicleWheelSet;
 
     const emitterList = this.carBoosts[carIndex];
@@ -400,7 +478,11 @@ export class ArenaVehicleRegistry {
     if (!this.cars[1]) {
       const id = String(defaultVisual || 'fennec').toLowerCase();
       const desc = hasVehicleDescriptor(id) ? getVehicleDescriptor(id) : null;
-      if (desc?.modelUrl && !this.customVehicleAssets.has(id) && this.carLoaders.loadCustomGlbCarAsset) {
+      if (
+        desc?.modelUrl &&
+        !this.customVehicleAssets.has(id) &&
+        this.carLoaders.loadCustomGlbCarAsset
+      ) {
         try {
           this.customVehicleAssets.set(id, await this.carLoaders.loadCustomGlbCarAsset(id));
         } catch (err) {

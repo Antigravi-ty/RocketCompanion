@@ -6,9 +6,13 @@ import {
   type NameTagBoostBorderOverride,
   type NameTagCarEntry,
   type NameTagCarTelemetry,
-} from '../../ui-core/config/nameTagConfig';
-import type { CarAerialClimbStatus } from './VehicleAerialClimbTracker';
-import { getNameTagConfig, getNameTagRuntimeState, setNameTagTelemetrySnapshot } from '../../game/runtimeUiPort.ts';
+} from '../../ui-core/config/nameTagConfig.ts';
+import type { CarAerialClimbStatus } from './VehicleAerialClimbTracker.ts';
+import {
+  getNameTagConfig,
+  getNameTagRuntimeState,
+  setNameTagTelemetrySnapshot,
+} from '../../game/runtimeUiPort.ts';
 import {
   createNameTagSprite,
   ensureOverlayCanvas,
@@ -21,15 +25,15 @@ import {
   type NameTagOverlayCanvasState,
   type NameTagSprite,
   type VisibleNameTagCard2D,
-} from './VehicleNameTagCanvasRenderer';
-import { resolveCarBoostBorderState } from './VehicleNameTagBoostBorderPolicy';
+} from './VehicleNameTagCanvasRenderer.ts';
+import { resolveCarBoostBorderState } from './VehicleNameTagBoostBorderPolicy.ts';
 import {
   VehicleNameTagGroundSimVisual,
   buildDistanceSimOffscreenIndicator2D,
   buildPovActionSimulationIndicator2D,
   resolveCarAerialClimbSimulation,
-} from './VehicleNameTagGroundSimVisual';
-import { buildCarProjectionConfigParams, projectCarNameTag } from './VehicleNameTagProjector';
+} from './VehicleNameTagGroundSimVisual.ts';
+import { buildCarProjectionConfigParams, projectCarNameTag } from './VehicleNameTagProjector.ts';
 
 export interface NameTagArenaHost {
   ball?: THREE.Object3D | null;
@@ -66,7 +70,10 @@ export class VehicleNameTagSystem {
   private readonly cameraForwardVector = new THREE.Vector3(0, 0, -1);
   private readonly cameraRightVector = new THREE.Vector3(1, 0, 0);
   private readonly _projVector = new THREE.Vector3();
-  private readonly _overlayState: NameTagOverlayCanvasState = { overlayCanvas: null, overlayCtx: null };
+  private readonly _overlayState: NameTagOverlayCanvasState = {
+    overlayCanvas: null,
+    overlayCtx: null,
+  };
 
   constructor(scene: THREE.Scene | null | undefined) {
     this.scene = scene;
@@ -84,7 +91,11 @@ export class VehicleNameTagSystem {
     this.boostBorderOverride = override;
   }
 
-  public update(arena: NameTagArenaHost | null | undefined, numCars = 0, camera: THREE.PerspectiveCamera | null = null): void {
+  public update(
+    arena: NameTagArenaHost | null | undefined,
+    numCars = 0,
+    camera: THREE.PerspectiveCamera | null = null
+  ): void {
     if (!arena || !this.root) return;
     const config = getNameTagConfig();
     const runtime = getNameTagRuntimeState();
@@ -93,15 +104,15 @@ export class VehicleNameTagSystem {
       Boolean(config.enabled) &&
       Boolean(
         runtime.isTunerArenaActive ||
-          runtime.isMultiplayerOrMultiCarMode ||
-          arena.isLobbyMode ||
-          config.aerialClimbSimulatePovInTuner ||
-          config.offscreenDistanceSimEnabled ||
-          config.showOnLocalCar ||
-          isGoalReplay ||
-          arena.cameraMode === 'director' ||
-          runtime.activeCameraMode === 'director' ||
-          numCars > 1
+        runtime.isMultiplayerOrMultiCarMode ||
+        arena.isLobbyMode ||
+        config.aerialClimbSimulatePovInTuner ||
+        config.offscreenDistanceSimEnabled ||
+        config.showOnLocalCar ||
+        isGoalReplay ||
+        arena.cameraMode === 'director' ||
+        runtime.activeCameraMode === 'director' ||
+        numCars > 1
       );
 
     if (!shouldShow) {
@@ -115,7 +126,8 @@ export class VehicleNameTagSystem {
     activeCam?.updateMatrixWorld?.();
 
     const maxSlots = Math.min(this.sprites.length, Math.max(arena.cars?.length || 0, numCars));
-    const camMode = arena.cameraMode || runtime.activeCameraMode || (arena.isFreeCam ? 'free' : 'pov');
+    const camMode =
+      arena.cameraMode || runtime.activeCameraMode || (arena.isFreeCam ? 'free' : 'pov');
     const isPovCam =
       camMode === 'director' || camMode === 'free' || camMode === 'podium'
         ? false
@@ -143,30 +155,61 @@ export class VehicleNameTagSystem {
     const vw = typeof window !== 'undefined' ? window.innerWidth || 1920 : 1920;
     const vh = typeof window !== 'undefined' ? window.innerHeight || 1080 : 1080;
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-    const useOverlay = Boolean(ensureOverlayCanvas(this._overlayState) && this._overlayState.overlayCtx);
+    const useOverlay = Boolean(
+      ensureOverlayCanvas(this._overlayState) && this._overlayState.overlayCtx
+    );
 
     const fovDeg = Number(activeCam?.fov) || 80;
     const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(fovDeg * 0.5));
 
-    const measureCtx = this._overlayState.overlayCtx || this.sprites[0]?.userData?.canvas?.getContext?.('2d') || null;
+    const measureCtx =
+      this._overlayState.overlayCtx ||
+      this.sprites[0]?.userData?.canvas?.getContext?.('2d') ||
+      null;
     if (measureCtx) {
       measureCtx.save();
       measureCtx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
-    const pillProjectionParams = buildCarProjectionConfigParams(config, false, vw, vh, tanHalfFov, measureCtx);
-    const singleCharProjectionParams = buildCarProjectionConfigParams(config, true, vw, vh, tanHalfFov, measureCtx);
+    const pillProjectionParams = buildCarProjectionConfigParams(
+      config,
+      false,
+      vw,
+      vh,
+      tanHalfFov,
+      measureCtx
+    );
+    const singleCharProjectionParams = buildCarProjectionConfigParams(
+      config,
+      true,
+      vw,
+      vh,
+      tanHalfFov,
+      measureCtx
+    );
 
-    const carEntries: NameTagCarEntry[] = Array.isArray(runtime.carEntries) ? runtime.carEntries : [];
+    const carEntries: NameTagCarEntry[] = Array.isArray(runtime.carEntries)
+      ? runtime.carEntries
+      : [];
     const resolveCarTeam = (carIdx: number): 0 | 1 => {
       const entry = carEntries.find((item) => item.carIndex === carIdx);
       const t = entry?.team as unknown;
-      const raw = typeof t === 'number' ? t : t === 'orange' ? 1 : t === 'blue' ? 0 : (arena.carTeams?.[carIdx] ?? (carIdx < 3 ? 0 : 1));
+      const raw =
+        typeof t === 'number'
+          ? t
+          : t === 'orange'
+            ? 1
+            : t === 'blue'
+              ? 0
+              : (arena.carTeams?.[carIdx] ?? (carIdx < 3 ? 0 : 1));
       return Number(raw) === 1 ? 1 : 0;
     };
 
     const focusedCarTeam = resolveCarTeam(focusedIdx);
-    const sysOverride = this.boostBorderOverride !== null ? this.boostBorderOverride : (arena.boostBorderOverride ?? null);
+    const sysOverride =
+      this.boostBorderOverride !== null
+        ? this.boostBorderOverride
+        : (arena.boostBorderOverride ?? null);
 
     this._visibleSprites.length = 0;
     this._visibleCards2D.length = 0;
@@ -195,7 +238,10 @@ export class VehicleNameTagSystem {
       const displayText = isSingleChar
         ? resolveCarSlotCode(carIndex, team, config.slotCodes)
         : formatNameTagDisplayText(rawName, projectionParams.maxChars);
-      const liveBoost = arena.carBoostAmounts && carIndex < arena.carBoostAmounts.length ? Number(arena.carBoostAmounts[carIndex]) : undefined;
+      const liveBoost =
+        arena.carBoostAmounts && carIndex < arena.carBoostAmounts.length
+          ? Number(arena.carBoostAmounts[carIndex])
+          : undefined;
 
       const simClimb = resolveCarAerialClimbSimulation({
         config,
@@ -270,7 +316,8 @@ export class VehicleNameTagSystem {
       }
       if (projected.isOffscreen) {
         sprite.visible = false;
-        if (projected.offscreenIndicator2D) this._offscreenIndicators2D.push(projected.offscreenIndicator2D);
+        if (projected.offscreenIndicator2D)
+          this._offscreenIndicators2D.push(projected.offscreenIndicator2D);
         continue;
       }
 
@@ -305,9 +352,17 @@ export class VehicleNameTagSystem {
 
     const povCarMesh = arena.cars?.[focusedIdx] ?? null;
     const povClimb = arena.carAerialClimbStatuses?.[focusedIdx];
-    const povBoost = arena.carBoostAmounts && focusedIdx >= 0 && focusedIdx < arena.carBoostAmounts.length ? Number(arena.carBoostAmounts[focusedIdx]) : undefined;
+    const povBoost =
+      arena.carBoostAmounts && focusedIdx >= 0 && focusedIdx < arena.carBoostAmounts.length
+        ? Number(arena.carBoostAmounts[focusedIdx])
+        : undefined;
 
-    this._groundSimVisual.update(config, povCarMesh, this.cameraForwardVector, this.cameraRightVector);
+    this._groundSimVisual.update(
+      config,
+      povCarMesh,
+      this.cameraForwardVector,
+      this.cameraRightVector
+    );
     const povSim = buildPovActionSimulationIndicator2D({
       config,
       povCarMesh,
@@ -323,7 +378,12 @@ export class VehicleNameTagSystem {
     });
     if (povSim) this._offscreenIndicators2D.push(povSim);
 
-    const distSim = buildDistanceSimOffscreenIndicator2D({ config, viewportWidthPx: vw, viewportHeightPx: vh, povClimbStatus: povClimb });
+    const distSim = buildDistanceSimOffscreenIndicator2D({
+      config,
+      viewportWidthPx: vw,
+      viewportHeightPx: vh,
+      povClimbStatus: povClimb,
+    });
     if (distSim) this._offscreenIndicators2D.push(distSim);
 
     const r1 = (n: number) => roundMetric(n, 1);
@@ -337,18 +397,46 @@ export class VehicleNameTagSystem {
       cameraMode: camMode,
       focusedCarIndex: focusedIdx,
       cameraFovDeg: fovDeg,
-      cameraPosition: activeCam?.position ? [r1(activeCam.position.x), r1(activeCam.position.y), r1(activeCam.position.z)] : [0, 0, 0],
-      cameraForward: [r4(this.cameraForwardVector.x), r4(this.cameraForwardVector.y), r4(this.cameraForwardVector.z)],
+      cameraPosition: activeCam?.position
+        ? [r1(activeCam.position.x), r1(activeCam.position.y), r1(activeCam.position.z)]
+        : [0, 0, 0],
+      cameraForward: [
+        r4(this.cameraForwardVector.x),
+        r4(this.cameraForwardVector.y),
+        r4(this.cameraForwardVector.z),
+      ],
       cameraUp: [r4(this.cameraUpVector.x), r4(this.cameraUpVector.y), r4(this.cameraUpVector.z)],
       cars: telemetryCars,
     });
 
     if (useOverlay) {
-      const occ = projectBallOcclusion2D(arena.ball, arena.ballRadius ?? 95, activeCam, this.cameraForwardVector, this._projVector, vw, vh, tanHalfFov, config);
-      renderHighDpiOverlay(this._overlayState, this._visibleCards2D, vw, vh, dpr, config, occ, this._offscreenIndicators2D);
+      const occ = projectBallOcclusion2D(
+        arena.ball,
+        arena.ballRadius ?? 95,
+        activeCam,
+        this.cameraForwardVector,
+        this._projVector,
+        vw,
+        vh,
+        tanHalfFov,
+        config
+      );
+      renderHighDpiOverlay(
+        this._overlayState,
+        this._visibleCards2D,
+        vw,
+        vh,
+        dpr,
+        config,
+        occ,
+        this._offscreenIndicators2D
+      );
     } else {
-      this._visibleSprites.sort((a, b) => (a.userData.cameraDistanceSq || 0) - (b.userData.cameraDistanceSq || 0));
-      for (let i = 0; i < this._visibleSprites.length; i++) this._visibleSprites[i].renderOrder = 950 + i;
+      this._visibleSprites.sort(
+        (a, b) => (a.userData.cameraDistanceSq || 0) - (b.userData.cameraDistanceSq || 0)
+      );
+      for (let i = 0; i < this._visibleSprites.length; i++)
+        this._visibleSprites[i].renderOrder = 950 + i;
     }
   }
 

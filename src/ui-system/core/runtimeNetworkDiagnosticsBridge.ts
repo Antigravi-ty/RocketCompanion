@@ -3,9 +3,9 @@ import {
   type DiagnosticBufferSnapshot,
   type DiagnosticDumpExportOptions,
   type DiagnosticProbeTelemetry,
-} from '../../ui-core/stores/networkDiagnosticsStore';
-import { MAX_TELEMETRY_TICKS } from '../../ui-core/stores/pacingTelemetryRecorder';
-import { buildZipArchiveBytes } from '../../ui-core/stores/pacingTelemetryExporter';
+} from '../../ui-core/stores/networkDiagnosticsStore.ts';
+import { MAX_TELEMETRY_TICKS } from '../../ui-core/stores/pacingTelemetryRecorder.ts';
+import { buildZipArchiveBytes } from '../../ui-core/stores/pacingTelemetryExporter.ts';
 import { serializeRCReplayBinaryContainer } from '../../replay/container/RCReplayBinaryEncoder.ts';
 import { RC_REPLAY_STATE_INPUT_STRIDE } from '../../replay/container/RCReplayBinarySchema.ts';
 import type { GameRuntimeUiBridgePort } from '../../game/runtimeUiPort.ts';
@@ -25,7 +25,7 @@ function triggerZipDownload(bytes: Uint8Array, filename: string): boolean {
 }
 
 export function buildDiagnosticBufferSnapshot(
-  runtimePort: GameRuntimeUiBridgePort | null | undefined,
+  runtimePort: GameRuntimeUiBridgePort | null | undefined
 ): Partial<DiagnosticBufferSnapshot> {
   if (!runtimePort) return {};
   const ctx = runtimePort.replayPort.getDiagnosticBufferContext();
@@ -53,7 +53,7 @@ export function buildDiagnosticBufferSnapshot(
 }
 
 export function syncRuntimeNetworkDiagnostics(
-  runtimePort: GameRuntimeUiBridgePort | null | undefined,
+  runtimePort: GameRuntimeUiBridgePort | null | undefined
 ): void {
   if (!runtimePort) return;
   const { cameraPort, replayPort } = runtimePort;

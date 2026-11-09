@@ -1,7 +1,4 @@
-import {
-  type Color,
-  type DataTexture,
-} from 'three';
+import { type Color, type DataTexture } from 'three';
 import {
   DEFAULT_Q1_LAYER_COLORS,
   DEFAULT_Q1_LAYER_OPACITIES,
@@ -10,8 +7,8 @@ import {
   mixDecalOverBaseOklab,
   oklchToHex,
   setHexOklchLightness,
-} from '../../../ui-core/config/driftwoodsConfig';
-import type { ExperimentalWallFxConfig } from '../../../ui-core/config/atmosphereFxConfig';
+} from '../../../ui-core/config/driftwoodsConfig.ts';
+import type { ExperimentalWallFxConfig } from '../../../ui-core/config/atmosphereFxConfig.ts';
 import {
   Q1_TOTAL_PIXELS,
   getPrecomputedQ1Mask,
@@ -87,9 +84,7 @@ export function bakeQ1GroundTexturesIntoManager(
     : orangeH;
 
   const rampsUpperOuterC =
-    g.oklchRampsUpperOuterIndependentCH !== false
-      ? (g.oklchRampsUpperOuterChroma ?? 0.1)
-      : teamC;
+    g.oklchRampsUpperOuterIndependentCH !== false ? (g.oklchRampsUpperOuterChroma ?? 0.1) : teamC;
   const rampsUpperOuterBlueH =
     g.oklchRampsUpperOuterIndependentCH !== false
       ? (g.oklchRampsUpperOuterBlueHue ?? blueH)
@@ -159,7 +154,14 @@ export function bakeQ1GroundTexturesIntoManager(
   const l5Team = g.l5UseTeamColor !== false;
   const l6Team = g.l6UseTeamColor !== false;
 
-  const layerIds: ReadonlyArray<Exclude<DriftwoodsQ1LayerId, 'L0'>> = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6'];
+  const layerIds: ReadonlyArray<Exclude<DriftwoodsQ1LayerId, 'L0'>> = [
+    'L1',
+    'L2',
+    'L3',
+    'L4',
+    'L5',
+    'L6',
+  ];
   const blueRgbLut = new Uint32Array(7);
   const orangeRgbLut = new Uint32Array(7);
   const baseBlend = mixDecalOverBaseOklab(baseTurfHex, baseTurfHex, 0);
@@ -181,8 +183,7 @@ export function bakeQ1GroundTexturesIntoManager(
     const id = layerIds[i];
     const idx = i + 1;
     const op = Math.max(0, Math.min(1, Number(opacities[id] ?? 0.85)));
-    const useTeam =
-      (id === 'L4' && l4Team) || (id === 'L5' && l5Team) || (id === 'L6' && l6Team);
+    const useTeam = (id === 'L4' && l4Team) || (id === 'L5' && l5Team) || (id === 'L6' && l6Team);
 
     const blueTargetHex = useTeam ? blueTeamHex : effColors[id];
     const orangeTargetHex = useTeam ? orangeTeamHex : effColors[id];
@@ -191,13 +192,9 @@ export function bakeQ1GroundTexturesIntoManager(
     const orangeMixed = mixDecalOverBaseOklab(baseTurfHex, orangeTargetHex, op);
 
     blueRgbLut[idx] =
-      blueMixed.srgbBytes[0] |
-      (blueMixed.srgbBytes[1] << 8) |
-      (blueMixed.srgbBytes[2] << 16);
+      blueMixed.srgbBytes[0] | (blueMixed.srgbBytes[1] << 8) | (blueMixed.srgbBytes[2] << 16);
     orangeRgbLut[idx] =
-      orangeMixed.srgbBytes[0] |
-      (orangeMixed.srgbBytes[1] << 8) |
-      (orangeMixed.srgbBytes[2] << 16);
+      orangeMixed.srgbBytes[0] | (orangeMixed.srgbBytes[1] << 8) | (orangeMixed.srgbBytes[2] << 16);
 
     const uCol = layerColorUniforms[id];
     if (uCol) {
@@ -228,7 +225,10 @@ export function bakeQ1GroundTexturesIntoManager(
     b: Array.from(blueRgbLut),
     o: Array.from(orangeRgbLut),
   });
-  if (sig === manager._lastBakedPaletteSignature && manager.groundUniforms.uQ1BakedReady.value > 0.5) {
+  if (
+    sig === manager._lastBakedPaletteSignature &&
+    manager.groundUniforms.uQ1BakedReady.value > 0.5
+  ) {
     return;
   }
   manager._lastBakedPaletteSignature = sig;

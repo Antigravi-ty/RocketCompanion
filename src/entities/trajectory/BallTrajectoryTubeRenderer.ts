@@ -198,10 +198,7 @@ export class BallTrajectoryTubeRenderer {
       depthTest: true,
       depthWrite: false,
     });
-    this.groundDropLines = new THREE.LineSegments(
-      this.groundDropGeometry,
-      this.groundDropMaterial
-    );
+    this.groundDropLines = new THREE.LineSegments(this.groundDropGeometry, this.groundDropMaterial);
     this.groundDropLines.name = 'ball-trajectory-ground-drop-lines';
     this.groundDropLines.renderOrder = 0.05;
     this.groundDropLines.frustumCulled = false;

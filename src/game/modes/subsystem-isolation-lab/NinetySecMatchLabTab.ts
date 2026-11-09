@@ -1,8 +1,5 @@
 import { gameAudio } from '../../../audio/GameAudioEngineFacade.ts';
-import {
-  hudStore,
-  useSubsystemIsolationLabStore,
-} from '../../runtimeUiPort.ts';
+import { hudStore, useSubsystemIsolationLabStore } from '../../runtimeUiPort.ts';
 import {
   evaluateGoalScoredFromBallView,
   hasKickoffBallMoved,
@@ -103,7 +100,9 @@ export class NinetySecMatchLabTab implements LabTabController {
     return runtime?.options?.gameAudio || (gameAudio as unknown as LabAudioPort);
   }
 
-  private resetIncidentBotEpoch(): void { this.botCtrl.resetEpoch(); }
+  private resetIncidentBotEpoch(): void {
+    this.botCtrl.resetEpoch();
+  }
 
   applyControlledCar(carIdx = 0): void {
     const r = this.ctx?.runtime;
@@ -133,8 +132,10 @@ export class NinetySecMatchLabTab implements LabTabController {
       r.match.state.countdown = 3;
     }
     store.updateLiveTelemetry({
-      incidentClockStarted: false, incidentTicksSinceKickoff: 0,
-      incidentKickoffCountdownSec: 3, incidentPhase: this.incidentPhase,
+      incidentClockStarted: false,
+      incidentTicksSinceKickoff: 0,
+      incidentKickoffCountdownSec: 3,
+      incidentPhase: this.incidentPhase,
     });
     hudStore.getState().setMatchState({ matchPhase: 'kickoff', kickoffCountdown: 3 });
     audio?.play?.('match_countdown_321', 1.0);
@@ -185,7 +186,11 @@ export class NinetySecMatchLabTab implements LabTabController {
     });
 
     hudStore.getState().setMatchState({
-      blueScore: 0, orangeScore: 0, remainingSeconds: 90, isOvertime: false, overtimeSeconds: 0,
+      blueScore: 0,
+      orangeScore: 0,
+      remainingSeconds: 90,
+      isOvertime: false,
+      overtimeSeconds: 0,
     });
 
     this.beginIncidentKickoffCountdown(store);
@@ -226,10 +231,18 @@ export class NinetySecMatchLabTab implements LabTabController {
         this.incidentRemainingSec = 0;
         this.incidentOvertime = true;
         store.updateLiveTelemetry({
-          incidentBlueScore: tiedScore, incidentOrangeScore: tiedScore, incidentRemainingSec: 0, incidentOvertime: true,
+          incidentBlueScore: tiedScore,
+          incidentOrangeScore: tiedScore,
+          incidentRemainingSec: 0,
+          incidentOvertime: true,
         });
         hudStore.getState().setMatchState({
-          matchPhase: 'kickoff', blueScore: tiedScore, orangeScore: tiedScore, remainingSeconds: 0, isOvertime: true, overtimeSeconds: 0,
+          matchPhase: 'kickoff',
+          blueScore: tiedScore,
+          orangeScore: tiedScore,
+          remainingSeconds: 0,
+          isOvertime: true,
+          overtimeSeconds: 0,
         });
         audio?.play?.('match_entering_overtime', 1.0, 10000);
         this.beginIncidentKickoffCountdown(store);
@@ -250,7 +263,8 @@ export class NinetySecMatchLabTab implements LabTabController {
       case 'podium_draw': {
         const team = action === 'podium_blue' ? 0 : action === 'podium_orange' ? 1 : 2;
         this.ctx?.enterPodiumShowcase(team);
-        this.incidentPhase = team === 0 ? 'PODIUM (BLUE WINS)' : team === 1 ? 'PODIUM (ORANGE WINS)' : 'PODIUM (DRAW)';
+        this.incidentPhase =
+          team === 0 ? 'PODIUM (BLUE WINS)' : team === 1 ? 'PODIUM (ORANGE WINS)' : 'PODIUM (DRAW)';
         store.updateLiveTelemetry({ incidentPhase: this.incidentPhase });
         break;
       }
@@ -263,7 +277,9 @@ export class NinetySecMatchLabTab implements LabTabController {
     }
   }
 
-  private stepDualNextoBots(sim: LabPhysicsEnginePort): void { this.botCtrl.stepDualNextoBots(sim); }
+  private stepDualNextoBots(sim: LabPhysicsEnginePort): void {
+    this.botCtrl.stepDualNextoBots(sim);
+  }
 
   private stepIncidentMatchTick(store: IsolationLabStoreState): void {
     const r = this.ctx?.runtime;
@@ -273,9 +289,13 @@ export class NinetySecMatchLabTab implements LabTabController {
 
     if (this.incidentCountdownTicks > 0) {
       const cd = stepIncidentCountdownTick({
-        sim, neutralControls: r.neutralControls, countdownTicks: this.incidentCountdownTicks,
-        isOvertime: this.incidentOvertime, currentPhase: this.incidentPhase,
-        matchState: r?.match?.state, audio,
+        sim,
+        neutralControls: r.neutralControls,
+        countdownTicks: this.incidentCountdownTicks,
+        isOvertime: this.incidentOvertime,
+        currentPhase: this.incidentPhase,
+        matchState: r?.match?.state,
+        audio,
         onSyncCountdown: (sec, phase, matchPhase) => {
           store.updateLiveTelemetry({ incidentKickoffCountdownSec: sec, incidentPhase: phase });
           hudStore.getState().setMatchState({ matchPhase, kickoffCountdown: sec });
@@ -362,7 +382,10 @@ export class NinetySecMatchLabTab implements LabTabController {
         incidentPossessionBluePts: poss.bluePoints,
         incidentPossessionOrangePts: poss.orangePoints,
       });
-      hudStore.getState().setMatchState({ blueScore: this.incidentBlueScore, orangeScore: this.incidentOrangeScore });
+      hudStore.getState().setMatchState({
+        blueScore: this.incidentBlueScore,
+        orangeScore: this.incidentOrangeScore,
+      });
       return;
     }
 

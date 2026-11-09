@@ -110,8 +110,8 @@ export class RuntimeWindowHotkeysController {
     const activeMode = runtime.modeManager?.getActiveMode?.();
     const isModeReplayActive = Boolean(
       activeMode?.isGoalReplayActive?.() ||
-        activeMode?.directorPreview?.isReplayActive ||
-        activeMode?.replaySession?.isReplayActive
+      activeMode?.directorPreview?.isReplayActive ||
+      activeMode?.replaySession?.isReplayActive
     );
     const isGoalReplay =
       runtime.match?.state?.phase === 'replay' ||
@@ -213,8 +213,8 @@ export class RuntimeWindowHotkeysController {
     const matchesSkipReplayBinding = hasCustomSkipReplayBinding
       ? Boolean(
           runtime?.keyboard?.matches?.('skipReplay', { kind: 'key', code: evt.code }) ||
-            (evt.code === 'NumpadEnter' &&
-              runtime?.keyboard?.matches?.('skipReplay', { kind: 'key', code: 'Enter' })),
+          (evt.code === 'NumpadEnter' &&
+            runtime?.keyboard?.matches?.('skipReplay', { kind: 'key', code: 'Enter' }))
         )
       : evt.code === 'Enter' || evt.code === 'NumpadEnter' || evt.key === 'Enter';
 
@@ -233,7 +233,10 @@ export class RuntimeWindowHotkeysController {
         runtime._localSkipReplayReady = true;
         if (net?.sessionCoordinator.networkReconciler) {
           net.sessionCoordinator.networkReconciler.localSkipReplayReady = true;
-          net.sessionCoordinator.networkReconciler.controlMessenger.flushPendingControlPackets(net.sessionCoordinator.networkReconciler, performance.now());
+          net.sessionCoordinator.networkReconciler.controlMessenger.flushPendingControlPackets(
+            net.sessionCoordinator.networkReconciler,
+            performance.now()
+          );
         } else {
           const skipFn = hudStore.getState().onReplaySkip;
           const activeMode = runtime?.modeManager?.getActiveMode?.();
@@ -336,7 +339,7 @@ export class RuntimeWindowHotkeysController {
               networkDiagnosticsStore.setSession(
                 net.sessionCoordinator.networkReconciler,
                 net.sessionCoordinator.networkChannel,
-                runtime,
+                runtime
               );
               networkDiagnosticsStore.toggleBurstDrop();
             });

@@ -2,18 +2,14 @@ import {
   CAR_COLOR_SLOTS,
   normalizeVisualId,
   resolveVehicleHitboxId,
-} from '../../ui-core/config/vehicleConstants';
+} from '../../ui-core/config/vehicleConstants.ts';
 import {
   getPreferredColorSlot,
   loadStoredColorPrefs,
-} from '../../ui-core/config/vehiclePresets';
-import { getMaterialsConfig } from '../../ui-core/config/materialsConfig';
+} from '../../ui-core/config/vehiclePresets.ts';
+import { getMaterialsConfig } from '../../ui-core/config/materialsConfig.ts';
 import { releasePodiumLocksOnEngine } from '../../replay/podiumFormationPipeline.ts';
-import {
-  useAppStore,
-  hudStore,
-  networkDiagnosticsStore,
-} from '../runtimeUiPort.ts';
+import { useAppStore, hudStore, networkDiagnosticsStore } from '../runtimeUiPort.ts';
 import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
 import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
 import type { PhysicsStateInterpolator } from '../../physics/PhysicsStateInterpolator.ts';
@@ -57,7 +53,7 @@ export class OnlineLobbyDualWorldController {
   public configureArenaLobbyFlags(
     isLobbyMode: boolean,
     isHostLobby: boolean,
-    playerCarIndex?: number,
+    playerCarIndex?: number
   ): void {
     const arena = this.world.arena;
     if (!arena) return;
@@ -68,7 +64,7 @@ export class OnlineLobbyDualWorldController {
 
   public activateClientDualWorld(
     reconciler: PredictionReconciler | null,
-    diagnosticsProbe: NetworkDiagnosticsProbe,
+    diagnosticsProbe: NetworkDiagnosticsProbe
   ): void {
     if (!reconciler) return;
     reconciler.hostLobbyMode = false;
@@ -107,7 +103,7 @@ export class OnlineLobbyDualWorldController {
       targetCarMesh,
       this.world.arena.ball,
       0,
-      this.world.cameraSubsystem?.cameraDynamics ?? {},
+      this.world.cameraSubsystem?.cameraDynamics ?? {}
     );
   }
 
@@ -115,7 +111,7 @@ export class OnlineLobbyDualWorldController {
     carIndex: number,
     team: number,
     visualId: string,
-    forceReset: boolean,
+    forceReset: boolean
   ): void {
     const physics = this.world.physics;
     if (!physics) return;
@@ -137,7 +133,7 @@ export class OnlineLobbyDualWorldController {
 
   public async prepareClientJoinLobbyWorld(
     localVisualId: string,
-    diagnosticsProbe: NetworkDiagnosticsProbe,
+    diagnosticsProbe: NetworkDiagnosticsProbe
   ): Promise<void> {
     const { physics, arena, interpolator } = this.world;
     this.world.playerCarIndex = 1;
@@ -156,7 +152,7 @@ export class OnlineLobbyDualWorldController {
     isMatchLobby: boolean,
     authoritativeServer: AuthoritativeServerHost | null,
     diagnosticsProbe: NetworkDiagnosticsProbe,
-    applyRosterSnapshot: (roster: OnlineRosterSnapshotPayload | null) => Promise<void>,
+    applyRosterSnapshot: (roster: OnlineRosterSnapshotPayload | null) => Promise<void>
   ): Promise<void> {
     this.configureArenaLobbyFlags(isMatchLobby, isMatchLobby);
     if (isMatchLobby) {
@@ -208,7 +204,7 @@ export class OnlineLobbyDualWorldController {
 
   public async restoreParticipantAndArenaState(
     reconciler: PredictionReconciler | null,
-    isHost: boolean,
+    isHost: boolean
   ): Promise<{ resolvedLocalCarIndex: number; localTeam: 0 | 1 }> {
     const { physics, arena } = this.world;
     const loadout = this.getLocalLoadout();

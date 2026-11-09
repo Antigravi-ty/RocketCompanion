@@ -192,16 +192,15 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
       return;
     }
 
-    if (this.replaySession.isReplayActive && this.replaySession.replayController.sessionState.isActive) {
-      this.replaySession.stepUpdate(
-        context,
-        unlimited,
-        this.rosterController,
-        () =>
-          this.lifecycleController.completePostGoalOrReplayTransition(
-            this.rosterController,
-            this.replaySession
-          )
+    if (
+      this.replaySession.isReplayActive &&
+      this.replaySession.replayController.sessionState.isActive
+    ) {
+      this.replaySession.stepUpdate(context, unlimited, this.rosterController, () =>
+        this.lifecycleController.completePostGoalOrReplayTransition(
+          this.rosterController,
+          this.replaySession
+        )
       );
       return;
     }
@@ -210,9 +209,7 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
     if (playerCarView) {
       const activeCarIdx = context.activeCar ?? r?.playerCarIndex ?? 0;
       const carUnlimited = r?.physics?.getCarUnlimitedBoost?.(activeCarIdx) ?? unlimited;
-      hudStore
-        .getState()
-        .setBoost(playerCarView.boost, playerCarView.isBoosting, carUnlimited);
+      hudStore.getState().setBoost(playerCarView.boost, playerCarView.isBoosting, carUnlimited);
     }
   }
 

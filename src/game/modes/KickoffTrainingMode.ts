@@ -14,7 +14,7 @@ import {
 } from './KickoffEpisodeSubController.ts';
 import { KickoffGhostVisuals } from './KickoffGhostVisuals.ts';
 import { useKickoffTrainingStore, hudStore } from '../runtimeUiPort.ts';
-import { getPreferredFreeplayTeam } from '../../ui-core/config/vehiclePresets';
+import { getPreferredFreeplayTeam } from '../../ui-core/config/vehiclePresets.ts';
 
 export class KickoffTrainingMode extends BaseGameMode {
   public ghostVisuals: KickoffGhostVisuals | null = null;

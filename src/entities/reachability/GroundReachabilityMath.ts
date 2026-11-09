@@ -51,18 +51,18 @@ export function predictGroundRadiiAnalytical(vf, vr, wz, outRadii) {
       driftV = vr * 0.45 + wz * 35.0;
       rFwd = 585.0 + Math.max(0.0, vf) * 0.35;
       rBwd = 440.0 - Math.min(0.0, vf) * 0.25;
-      rLat = 440.0 + absVfClamped * 0.30;
+      rLat = 440.0 + absVfClamped * 0.3;
     } else if (hIdx === 1) {
       driftU = vf * 0.85;
       driftV = vr * 0.65 + wz * 85.0;
-      rFwd = 1800.0 + Math.max(0.0, vf) * 0.40;
+      rFwd = 1800.0 + Math.max(0.0, vf) * 0.4;
       rBwd = 1420.0 - Math.min(0.0, vf) * 0.35;
       rLat = 1420.0 + absVfClamped * 0.35;
     } else {
       driftU = vf * 0.95;
       driftV = vr * 0.75 + wz * 125.0;
       rFwd = 3200.0 + Math.max(0.0, vf) * 0.45;
-      rBwd = 1950.0 - Math.min(0.0, vf) * 0.40;
+      rBwd = 1950.0 - Math.min(0.0, vf) * 0.4;
       rLat = 1950.0 + absVfClamped * 0.38;
     }
 
@@ -142,9 +142,12 @@ export function predictGroundRadiiLUT(vf, vr, wz, outRadii) {
   const segV = findGridSegment(VR_GRID, vrAbs);
   const segW = findGridSegment(WZ_GRID, wzSym);
 
-  const i0 = segU.idx, du = segU.t;
-  const j0 = segV.idx, dv = segV.t;
-  const k0 = segW.idx, dw = segW.t;
+  const i0 = segU.idx,
+    du = segU.t;
+  const j0 = segV.idx,
+    dv = segV.t;
+  const k0 = segW.idx,
+    dw = segW.t;
 
   const w000 = (1.0 - du) * (1.0 - dv) * (1.0 - dw);
   const w100 = du * (1.0 - dv) * (1.0 - dw);

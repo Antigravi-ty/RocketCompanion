@@ -1,6 +1,6 @@
 import { AudioMixer } from './AudioMixer.ts';
 import { AudioSlotPool } from './AudioSlotPool.ts';
-import { audioConfig } from '../ui-core/config/audioConfig';
+import { audioConfig } from '../ui-core/config/audioConfig.ts';
 import { listenerManager } from './SpatialAudioSource.ts';
 
 export interface AudioTelemetryState {
@@ -44,7 +44,10 @@ export interface SignalAudioActiveModePort {
 
 export interface SignalAudioRuntimePort {
   replayViewerController?: { isActive?: boolean } | null;
-  modeManager?: { getActiveMode?: () => SignalAudioActiveModePort | null; [key: string]: unknown } | null;
+  modeManager?: {
+    getActiveMode?: () => SignalAudioActiveModePort | null;
+    [key: string]: unknown;
+  } | null;
   match?: { state?: { phase?: string } | null } | null;
   isGoalReplayCameraOverrideActive?: (() => boolean) | unknown;
   networkReconciler?: { replayPlaybackMode?: boolean } | null;
@@ -158,13 +161,17 @@ export function recordAudioLifecycleEvent(
     ctxTime: ctx ? Number(ctx.currentTime.toFixed(3)) : 0,
     masterActive: Boolean(subsystemState.masterMixer?.active),
     masterConnected: Boolean(subsystemState.masterMixer?.connected),
-    masterGain: subsystemState.masterMixer?.output?.gain?.value !== undefined
-      ? Number(subsystemState.masterMixer.output.gain.value.toFixed(4))
-      : null,
+    masterGain:
+      subsystemState.masterMixer?.output?.gain?.value !== undefined
+        ? Number(subsystemState.masterMixer.output.gain.value.toFixed(4))
+        : null,
     poolMuted: Boolean(subsystemState.slotPool?.isMuted),
     docHidden: typeof document !== 'undefined' ? Boolean(document.hidden) : false,
-    docFocus: typeof document !== 'undefined' && typeof document.hasFocus === 'function' ? Boolean(document.hasFocus()) : true,
-    ...details
+    docFocus:
+      typeof document !== 'undefined' && typeof document.hasFocus === 'function'
+        ? Boolean(document.hasFocus())
+        : true,
+    ...details,
   };
   subsystemState.lifecycleHistory.push(entry);
   if (subsystemState.lifecycleHistory.length > 40) {
@@ -185,7 +192,7 @@ export function registerAudioRuntime(runtime: AudioRuntimePort | null): void {
 }
 
 export function getAudioContext(): AudioContext | null {
-  if (typeof window === "undefined") return null;
+  if (typeof window === 'undefined') return null;
   if (!subsystemState.context) {
     const win = window as WindowWithWebkitAudioContext;
     const AudioContextClass = window.AudioContext || win.webkitAudioContext;
@@ -194,11 +201,17 @@ export function getAudioContext(): AudioContext | null {
     try {
       ctx = new AudioContextClass({ latencyHint: 0 });
     } catch (_) {
-      console.warn('[AudioArchitecture:getAudioContext] Failed latencyHint 0, fallback to interactive:', _);
+      console.warn(
+        '[AudioArchitecture:getAudioContext] Failed latencyHint 0, fallback to interactive:',
+        _
+      );
       try {
-        ctx = new AudioContextClass({ latencyHint: "interactive" });
+        ctx = new AudioContextClass({ latencyHint: 'interactive' });
       } catch (__) {
-        console.warn('[AudioArchitecture:getAudioContext] Failed latencyHint interactive, fallback to default:', __);
+        console.warn(
+          '[AudioArchitecture:getAudioContext] Failed latencyHint interactive, fallback to default:',
+          __
+        );
         ctx = new AudioContextClass();
       }
     }
@@ -217,11 +230,11 @@ export function getAudioContext(): AudioContext | null {
     const ctxWithLatency = ctx as AudioContextWithLatency;
     recordAudioLifecycleEvent('context_created', {
       sampleRate: ctx.sampleRate,
-      baseLatency: ctxWithLatency.baseLatency ?? null
+      baseLatency: ctxWithLatency.baseLatency ?? null,
     });
 
     const onAudioReady = () => {
-      if (ctx.state === "running") {
+      if (ctx.state === 'running') {
         master.setActive(true);
         master.apply();
         subsystemState.audioEngine?.ballEngine?._startLoops?.();
@@ -231,43 +244,54 @@ export function getAudioContext(): AudioContext | null {
 
     // User interaction audio unlock
     const unlock = (evt?: Event) => {
-      if ((ctx.state as string) === "suspended" || (ctx.state as string) === "interrupted") {
+      if ((ctx.state as string) === 'suspended' || (ctx.state as string) === 'interrupted') {
         recordAudioLifecycleEvent('user_unlock_attempt', { trigger: evt?.type || 'gesture' });
-        ctx.resume().then(onAudioReady).catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          recordAudioLifecycleEvent('user_unlock_failed', { error: message });
-          console.warn('[AudioArchitecture] AudioContext unlock resume failed/blocked:', err);
-        });
-      } else if (ctx.state === "running") {
+        ctx
+          .resume()
+          .then(onAudioReady)
+          .catch((err: unknown) => {
+            const message = err instanceof Error ? err.message : String(err);
+            recordAudioLifecycleEvent('user_unlock_failed', { error: message });
+            console.warn('[AudioArchitecture] AudioContext unlock resume failed/blocked:', err);
+          });
+      } else if (ctx.state === 'running') {
         if (!master.active || !master.connected) {
           onAudioReady();
         }
       }
     };
-    window.addEventListener("pointerdown", unlock, { passive: true, capture: true });
-    window.addEventListener("keydown", unlock, { passive: true, capture: true });
-    window.addEventListener("touchstart", unlock, { passive: true, capture: true });
-    window.addEventListener("click", unlock, { passive: true, capture: true });
+    window.addEventListener('pointerdown', unlock, { passive: true, capture: true });
+    window.addEventListener('keydown', unlock, { passive: true, capture: true });
+    window.addEventListener('touchstart', unlock, { passive: true, capture: true });
+    window.addEventListener('click', unlock, { passive: true, capture: true });
 
-    if (typeof document !== "undefined") {
-      document.addEventListener("pointerdown", unlock, { passive: true, capture: true });
-      document.addEventListener("keydown", unlock, { passive: true, capture: true });
-      document.addEventListener("touchstart", unlock, { passive: true, capture: true });
-      document.addEventListener("click", unlock, { passive: true, capture: true });
+    if (typeof document !== 'undefined') {
+      document.addEventListener('pointerdown', unlock, { passive: true, capture: true });
+      document.addEventListener('keydown', unlock, { passive: true, capture: true });
+      document.addEventListener('touchstart', unlock, { passive: true, capture: true });
+      document.addEventListener('click', unlock, { passive: true, capture: true });
     }
 
-    if (typeof ctx.addEventListener === "function") {
-      ctx.addEventListener("statechange", () => {
+    if (typeof ctx.addEventListener === 'function') {
+      ctx.addEventListener('statechange', () => {
         recordAudioLifecycleEvent('ctx_statechange', { newState: ctx.state });
-        if (ctx.state === "running") {
+        if (ctx.state === 'running') {
           onAudioReady();
-        } else if (((ctx.state as string) === "suspended" || (ctx.state as string) === "interrupted") && typeof document !== "undefined" && !document.hidden && (document.hasFocus?.() ?? true)) {
+        } else if (
+          ((ctx.state as string) === 'suspended' || (ctx.state as string) === 'interrupted') &&
+          typeof document !== 'undefined' &&
+          !document.hidden &&
+          (document.hasFocus?.() ?? true)
+        ) {
           const continueOnBlur = audioConfig.get('continueAudioOnLostFocus');
           if (continueOnBlur || !document.hidden) {
-            ctx.resume().then(onAudioReady).catch((err: unknown) => {
-              const message = err instanceof Error ? err.message : String(err);
-              recordAudioLifecycleEvent('statechange_auto_resume_failed', { error: message });
-            });
+            ctx
+              .resume()
+              .then(onAudioReady)
+              .catch((err: unknown) => {
+                const message = err instanceof Error ? err.message : String(err);
+                recordAudioLifecycleEvent('statechange_auto_resume_failed', { error: message });
+              });
           }
         }
       });
@@ -275,13 +299,13 @@ export function getAudioContext(): AudioContext | null {
 
     // Focus / Visibility shielding
     let isWindowCurrentlyFocused =
-      typeof document !== "undefined"
-        ? !document.hidden && (typeof document.hasFocus === "function" ? document.hasFocus() : true)
+      typeof document !== 'undefined'
+        ? !document.hidden && (typeof document.hasFocus === 'function' ? document.hasFocus() : true)
         : true;
 
     const handleFocus = (hasFocus: boolean, source: string = 'focus') => {
       const effectiveFocus =
-        Boolean(hasFocus) && (typeof document === "undefined" || !document.hidden);
+        Boolean(hasFocus) && (typeof document === 'undefined' || !document.hidden);
       const wasFocused = isWindowCurrentlyFocused;
       isWindowCurrentlyFocused = effectiveFocus;
 
@@ -300,10 +324,15 @@ export function getAudioContext(): AudioContext | null {
       if (continueOnBlur) {
         if (subsystemState.slotPool) subsystemState.slotPool.isMuted = false;
         master.setActive(true);
-        if ((ctx.state as string) === "suspended" || (ctx.state as string) === "interrupted") {
-          ctx.resume().then(onAudioReady).catch((err) => {
-            recordAudioLifecycleEvent('focus_resume_failed', { error: err?.message || String(err) });
-          });
+        if ((ctx.state as string) === 'suspended' || (ctx.state as string) === 'interrupted') {
+          ctx
+            .resume()
+            .then(onAudioReady)
+            .catch((err) => {
+              recordAudioLifecycleEvent('focus_resume_failed', {
+                error: err?.message || String(err),
+              });
+            });
         }
       } else {
         if (!effectiveFocus) {
@@ -316,7 +345,7 @@ export function getAudioContext(): AudioContext | null {
         } else {
           // Avoid redundant flush/pop if a duplicate focus event (e.g. visibilitychange + window.focus)
           // fires when the audio output is already active and running.
-          if (wasFocused && master.active && master.connected && ctx.state === "running") {
+          if (wasFocused && master.active && master.connected && ctx.state === 'running') {
             return;
           }
           // Regaining focus without background audio permitted:
@@ -328,23 +357,28 @@ export function getAudioContext(): AudioContext | null {
           }
           subsystemState.audioEngine?.silenceAll?.();
           master.setActive(true);
-          if ((ctx.state as string) === "suspended" || (ctx.state as string) === "interrupted") {
-            ctx.resume().then(onAudioReady).catch((err) => {
-              recordAudioLifecycleEvent('regain_focus_resume_failed', { error: err?.message || String(err) });
-            });
+          if ((ctx.state as string) === 'suspended' || (ctx.state as string) === 'interrupted') {
+            ctx
+              .resume()
+              .then(onAudioReady)
+              .catch((err) => {
+                recordAudioLifecycleEvent('regain_focus_resume_failed', {
+                  error: err?.message || String(err),
+                });
+              });
           } else {
             onAudioReady();
           }
         }
       }
     };
-    window.addEventListener("focus", () => handleFocus(true, 'window.focus'));
-    window.addEventListener("blur", () => handleFocus(false, 'window.blur'));
-    document.addEventListener("visibilitychange", () => {
+    window.addEventListener('focus', () => handleFocus(true, 'window.focus'));
+    window.addEventListener('blur', () => handleFocus(false, 'window.blur'));
+    document.addEventListener('visibilitychange', () => {
       handleFocus(!document.hidden, 'document.visibilitychange');
     });
-    window.addEventListener("pageshow", () => {
-      if (typeof document === "undefined" || !document.hidden) {
+    window.addEventListener('pageshow', () => {
+      if (typeof document === 'undefined' || !document.hidden) {
         handleFocus(true, 'window.pageshow');
       }
     });

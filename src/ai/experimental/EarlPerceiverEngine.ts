@@ -267,33 +267,49 @@ export class EarlPerceiverEngine {
     tensors: Record<string, SafeTensorEntry>
   ): void {
     if (numEntities > MAX_ENTITIES) {
-      throw new Error(`[EarlPerceiverEngine] numEntities (${numEntities}) exceeds MAX_ENTITIES (${MAX_ENTITIES}).`);
+      throw new Error(
+        `[EarlPerceiverEngine] numEntities (${numEntities}) exceeds MAX_ENTITIES (${MAX_ENTITIES}).`
+      );
     }
 
     linearVec(
-      query, 32, 128,
+      query,
+      32,
+      128,
       f32(tensors['net.earl.query_preprocess.0.weight']),
       f32(tensors['net.earl.query_preprocess.0.bias']),
-      this.qH1, true
+      this.qH1,
+      true
     );
     linearVec(
-      this.qH1, 128, 128,
+      this.qH1,
+      128,
+      128,
       f32(tensors['net.earl.query_preprocess.2.weight']),
       f32(tensors['net.earl.query_preprocess.2.bias']),
-      this.qEmbed, true
+      this.qEmbed,
+      true
     );
 
     linearBatch(
-      entities, numEntities, 24, 128,
+      entities,
+      numEntities,
+      24,
+      128,
       f32(tensors['net.earl.key_value_preprocess.0.weight']),
       f32(tensors['net.earl.key_value_preprocess.0.bias']),
-      this.kvH1, true
+      this.kvH1,
+      true
     );
     linearBatch(
-      this.kvH1, numEntities, 128, 128,
+      this.kvH1,
+      numEntities,
+      128,
+      128,
       f32(tensors['net.earl.key_value_preprocess.2.weight']),
       f32(tensors['net.earl.key_value_preprocess.2.bias']),
-      this.kvEmbed, true
+      this.kvEmbed,
+      true
     );
   }
 
@@ -308,13 +324,15 @@ export class EarlPerceiverEngine {
   ): void {
     const pfx = `net.earl.blocks.${blockIdx}`;
     layerNorm128(
-      qInput, 1,
+      qInput,
+      1,
       f32(tensors[`${pfx}.norm1.weight`]),
       f32(tensors[`${pfx}.norm1.bias`]),
       this.qNorm
     );
     layerNorm128(
-      this.kvEmbed, numEntities,
+      this.kvEmbed,
+      numEntities,
       f32(tensors[`${pfx}.norm2.weight`]),
       f32(tensors[`${pfx}.norm2.bias`]),
       this.kvNorm
@@ -339,22 +357,29 @@ export class EarlPerceiverEngine {
       this.res1[d] = qInput[d] + this.attnOut[d];
     }
     layerNorm128(
-      this.res1, 1,
+      this.res1,
+      1,
       f32(tensors[`${pfx}.norm3.weight`]),
       f32(tensors[`${pfx}.norm3.bias`]),
       this.res1Norm
     );
     linearVec(
-      this.res1Norm, 128, 512,
+      this.res1Norm,
+      128,
+      512,
       f32(tensors[`${pfx}.linear1.weight`]),
       f32(tensors[`${pfx}.linear1.bias`]),
-      this.ffnHidden, true
+      this.ffnHidden,
+      true
     );
     linearVec(
-      this.ffnHidden, 512, 128,
+      this.ffnHidden,
+      512,
+      128,
       f32(tensors[`${pfx}.linear2.weight`]),
       f32(tensors[`${pfx}.linear2.bias`]),
-      this.ffnOut, false
+      this.ffnOut,
+      false
     );
     for (let d = 0; d < EMBED_DIM; d++) {
       const v = this.res1[d] + this.ffnOut[d];
@@ -393,16 +418,22 @@ export class EarlPerceiverEngine {
     }
 
     linearVec(
-      this.res1, 128, 256,
+      this.res1,
+      128,
+      256,
       f32(tensors['net.earl.blocks.0.linear1.weight']),
       f32(tensors['net.earl.blocks.0.linear1.bias']),
-      this.ffnHidden, true
+      this.ffnHidden,
+      true
     );
     linearVec(
-      this.ffnHidden, 256, 128,
+      this.ffnHidden,
+      256,
+      128,
       f32(tensors['net.earl.blocks.0.linear2.weight']),
       f32(tensors['net.earl.blocks.0.linear2.bias']),
-      this.ffnOut, false
+      this.ffnOut,
+      false
     );
 
     for (let d = 0; d < EMBED_DIM; d++) {
@@ -411,10 +442,13 @@ export class EarlPerceiverEngine {
     }
 
     linearVec(
-      this.postReLU, 128, 12,
+      this.postReLU,
+      128,
+      12,
       f32(tensors['net.output.linear.weight']),
       f32(tensors['net.output.linear.bias']),
-      this.nectoLogits, false
+      this.nectoLogits,
+      false
     );
 
     return this.nectoLogits;
@@ -435,10 +469,13 @@ export class EarlPerceiverEngine {
     this._runPreLnBlock(1, this.blockOut, numEntities, tensors, mask, this.postReLU, true);
 
     linearVec(
-      this.postReLU, 128, 32,
+      this.postReLU,
+      128,
+      32,
       f32(tensors['net.output.emb_convertor.weight']),
       f32(tensors['net.output.emb_convertor.bias']),
-      this.nextoEmb32, false
+      this.nextoEmb32,
+      false
     );
 
     const actEmb = f32(tensors['precomputed.action_embeddings']);

@@ -48,11 +48,7 @@ export function computeFreeplayBallControlState(
   switch (modeIndex) {
     case 0: // takePossession
       return {
-        pos: [
-          carPose.posX + carPose.fwdX * 215.39,
-          carPose.posY + carPose.fwdY * 215.39,
-          93.25,
-        ],
+        pos: [carPose.posX + carPose.fwdX * 215.39, carPose.posY + carPose.fwdY * 215.39, 93.25],
         vel: [0, 0, 0],
         angVel: [0, 0, 0],
       };
@@ -99,9 +95,7 @@ export function initWasmBallPrediction(
   return true;
 }
 
-export function getWasmBallPredictionStride(
-  wasmModule: RocketSimWasmModule | null
-): number {
+export function getWasmBallPredictionStride(wasmModule: RocketSimWasmModule | null): number {
   if (wasmModule && typeof wasmModule._physics_getBallPredictionStride === 'function') {
     const stride = wasmModule._physics_getBallPredictionStride();
     if (stride > 0) return stride;
@@ -109,9 +103,7 @@ export function getWasmBallPredictionStride(
   return BALL_PRED_STRIDE;
 }
 
-export function getWasmBallPredictionCount(
-  wasmModule: RocketSimWasmModule | null
-): number {
+export function getWasmBallPredictionCount(wasmModule: RocketSimWasmModule | null): number {
   return wasmModule?._physics_getBallPredictionCount?.() ?? 0;
 }
 

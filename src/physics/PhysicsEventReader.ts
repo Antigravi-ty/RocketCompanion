@@ -138,11 +138,16 @@ export class PhysicsEventReader {
     arrayBufferOrHeap: ArrayBufferLike | PhysicsEventBufferSource | null | undefined,
     byteOffset = 0
   ): this {
-    if (arrayBufferOrHeap && typeof arrayBufferOrHeap === 'object' && 'HEAPU8' in arrayBufferOrHeap) {
+    if (
+      arrayBufferOrHeap &&
+      typeof arrayBufferOrHeap === 'object' &&
+      'HEAPU8' in arrayBufferOrHeap
+    ) {
       this.module = arrayBufferOrHeap;
     }
     const src = arrayBufferOrHeap as PhysicsEventBufferSource | null | undefined;
-    const rawBuffer = src?.HEAPU8?.buffer || src?.buffer || (arrayBufferOrHeap as ArrayBufferLike | null);
+    const rawBuffer =
+      src?.HEAPU8?.buffer || src?.buffer || (arrayBufferOrHeap as ArrayBufferLike | null);
     if (!rawBuffer) {
       this.buffer = null;
       this.u32View = null;
@@ -213,7 +218,8 @@ export class PhysicsEventReader {
     ev.directionDotNormal =
       ev.speed > 1e-4 ? Math.max(0, Math.min(1, Math.max(0, ev.normalRelVel) / ev.speed)) : 0;
     ev.dirDot = ev.directionDotNormal;
-    ev.impactAngleDeg = Math.asin(Math.max(0, Math.min(1, ev.directionDotNormal))) * (180 / Math.PI);
+    ev.impactAngleDeg =
+      Math.asin(Math.max(0, Math.min(1, ev.directionDotNormal))) * (180 / Math.PI);
   }
 
   decodeSlot(wordOffset: number): PhysicsEventRecord {
@@ -293,7 +299,12 @@ export class PhysicsEventReader {
       if (type === T.BALL_WORLD_HIT || type === T.BALL_GOALPOST_HIT) {
         if (ev.subType === 0) {
           ev.subType = classifyBallHitSurface(
-            ev.x, ev.y, ev.z, ev.normalX, ev.normalY, ev.normalZ,
+            ev.x,
+            ev.y,
+            ev.z,
+            ev.normalX,
+            ev.normalY,
+            ev.normalZ,
             type === T.BALL_GOALPOST_HIT
           );
         }
@@ -324,9 +335,12 @@ export class PhysicsEventReader {
       ev.directionDotNormal =
         customFloat > 0 && customFloat <= 1.0
           ? customFloat
-          : ev.speed > 1e-4 ? Math.max(0, Math.min(1, ev.normalRelVel / ev.speed)) : 0;
+          : ev.speed > 1e-4
+            ? Math.max(0, Math.min(1, ev.normalRelVel / ev.speed))
+            : 0;
       ev.dirDot = ev.directionDotNormal;
-      ev.impactAngleDeg = Math.asin(Math.max(0, Math.min(1, ev.directionDotNormal))) * (180 / Math.PI);
+      ev.impactAngleDeg =
+        Math.asin(Math.max(0, Math.min(1, ev.directionDotNormal))) * (180 / Math.PI);
 
       ev.isInitialTouch = (flags & PHYSICS_EVENT_FLAGS.INITIAL_TOUCH) !== 0;
       ev.isSupersonic = (flags & PHYSICS_EVENT_FLAGS.SUPERSONIC) !== 0;
@@ -334,8 +348,12 @@ export class PhysicsEventReader {
       ev.isOnGround = (flags & PHYSICS_EVENT_FLAGS.ON_GROUND) !== 0;
       ev.isDemo = type === T.CAR_CAR_DEMO;
       if (type === T.FLIP_RESET_GAINED) {
-        ev.carPosX = ev.x; ev.carPosY = ev.y; ev.carPosZ = ev.z;
-        ev.ballPosX = ev.normalX; ev.ballPosY = ev.normalY; ev.ballPosZ = ev.normalZ;
+        ev.carPosX = ev.x;
+        ev.carPosY = ev.y;
+        ev.carPosZ = ev.z;
+        ev.ballPosX = ev.normalX;
+        ev.ballPosY = ev.normalY;
+        ev.ballPosZ = ev.normalZ;
         ev.carPos = { x: ev.x, y: ev.y, z: ev.z };
         ev.ballPos = { x: ev.normalX, y: ev.normalY, z: ev.normalZ };
         ev.resetSubType = ev.subType;
@@ -389,9 +407,18 @@ export class PhysicsEventReader {
       ev.normalX = f32[wordOffset + 6];
       ev.normalY = f32[wordOffset + 7];
       ev.normalZ = f32[wordOffset + 8];
-      ev.subType = classifyBallHitSurface(ev.x, ev.y, ev.z, ev.normalX, ev.normalY, ev.normalZ, isGoalpost);
+      ev.subType = classifyBallHitSurface(
+        ev.x,
+        ev.y,
+        ev.z,
+        ev.normalX,
+        ev.normalY,
+        ev.normalZ,
+        isGoalpost
+      );
       ev.surfaceTag = ev.subType;
-      if (isGoalpost) ev.isCrossbar = ev.subType === SURFACE_SUBTYPES.CROSSBAR || u32[wordOffset + 9] !== 0;
+      if (isGoalpost)
+        ev.isCrossbar = ev.subType === SURFACE_SUBTYPES.CROSSBAR || u32[wordOffset + 9] !== 0;
       this._computeLegacyWorldHitAngle(ev);
     } else if (type === 5) {
       const carAndTeam = u32[wordOffset + 5];
@@ -427,8 +454,12 @@ export class PhysicsEventReader {
       ev.type = T.GOAL_SCORED;
     } else if (type === T.FLIP_RESET_GAINED) {
       ev.type = T.FLIP_RESET_GAINED;
-      ev.carPosX = ev.x; ev.carPosY = ev.y; ev.carPosZ = ev.z;
-      ev.ballPosX = ev.normalX; ev.ballPosY = ev.normalY; ev.ballPosZ = ev.normalZ;
+      ev.carPosX = ev.x;
+      ev.carPosY = ev.y;
+      ev.carPosZ = ev.z;
+      ev.ballPosX = ev.normalX;
+      ev.ballPosY = ev.normalY;
+      ev.ballPosZ = ev.normalZ;
       ev.carPos = { x: ev.x, y: ev.y, z: ev.z };
       ev.ballPos = { x: ev.normalX, y: ev.normalY, z: ev.normalZ };
     }
@@ -443,7 +474,11 @@ export class PhysicsEventReader {
     const capacity = this.bufferCapacity || EVENT_BUFFER_CAPACITY;
     const stride = this.strideWords || EVENT_SIZE_BYTES / 4;
 
-    if (!Number.isFinite(this.lastReadSeq) || this.lastReadSeq < 0 || this.lastReadSeq > currentWriteSeq) {
+    if (
+      !Number.isFinite(this.lastReadSeq) ||
+      this.lastReadSeq < 0 ||
+      this.lastReadSeq > currentWriteSeq
+    ) {
       this.lastReadSeq = 0;
     }
 

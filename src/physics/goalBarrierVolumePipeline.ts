@@ -9,8 +9,8 @@ import {
   initWasmCollisionMeshes,
   type RocketSimCollisionWasmModule,
 } from './RocketSimMeshLoader.ts';
-import { isPointInGoalBarrier } from '../ui-core/config/goalBarrierConfig';
-import { getGoalVolumeBoxForPreset } from '../ui-core/config/goalVolumeTunerConfig';
+import { isPointInGoalBarrier } from '../ui-core/config/goalBarrierConfig.ts';
+import { getGoalVolumeBoxForPreset } from '../ui-core/config/goalVolumeTunerConfig.ts';
 
 export interface GoalVolumeBoxConfig {
   enabled?: boolean;

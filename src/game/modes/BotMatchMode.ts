@@ -1,6 +1,6 @@
 import { BaseGameMode, type GameModeRuntimePort } from './BaseGameMode.ts';
 import { hudStore, useAppStore } from '../runtimeUiPort.ts';
-import { audioConfig } from '../../ui-core/config/audioConfig';
+import { audioConfig } from '../../ui-core/config/audioConfig.ts';
 import { ReplayTimelineController } from '../../replay/ReplayTimelineController.ts';
 import { PodiumCelebrationController } from './PodiumCelebrationController.ts';
 import {
@@ -53,12 +53,9 @@ export class BotMatchMode extends BaseGameMode<GameModeRuntimePort> {
     const phase = r.match?.state?.phase || 'playing';
 
     const continueOnBlur = audioConfig.get('continueAudioOnLostFocus');
-    const isHidden =
-      typeof document !== 'undefined' && (!document.hasFocus() || document.hidden);
+    const isHidden = typeof document !== 'undefined' && (!document.hasFocus() || document.hidden);
     const shouldPauseOnHidden = !continueOnBlur && isHidden;
-    const blockingOverlays = Array.from(r.openOverlays ?? []).filter(
-      (n) => n !== 'trajectory',
-    );
+    const blockingOverlays = Array.from(r.openOverlays ?? []).filter((n) => n !== 'trajectory');
     const hasBlockingOverlay = blockingOverlays.length > 0;
     const isTrajectoryOnly = Boolean(r.openOverlays?.has('trajectory')) && !hasBlockingOverlay;
 
@@ -67,11 +64,11 @@ export class BotMatchMode extends BaseGameMode<GameModeRuntimePort> {
     const isBotPaused = Boolean(r.botCoordinator?.isBotPaused ?? r.isBotPaused);
     const shouldPauseMatch = Boolean(
       !isOnlineSession &&
-        ((r.isCursorBrowsing && !isTrajectoryOnly) ||
-          hasBlockingOverlay ||
-          shouldPauseOnHidden ||
-          isBotPaused ||
-          isMenuOpen),
+      ((r.isCursorBrowsing && !isTrajectoryOnly) ||
+        hasBlockingOverlay ||
+        shouldPauseOnHidden ||
+        isBotPaused ||
+        isMenuOpen)
     );
 
     if (!isOnlineSession && r.match?.state && shouldPauseMatch !== r.match.state.paused) {
@@ -101,7 +98,10 @@ export class BotMatchMode extends BaseGameMode<GameModeRuntimePort> {
           this.replayPovCarIndex = carIdx;
         },
       });
-    } else if (this.replayController.sessionState.isActive || r.isGoalReplayCameraOverrideActive?.()) {
+    } else if (
+      this.replayController.sessionState.isActive ||
+      r.isGoalReplayCameraOverrideActive?.()
+    ) {
       endGoalReplaySession(r, this.replayController, {
         source: 'bot-match-goal-replay',
         clearHud: true,
@@ -117,7 +117,7 @@ export class BotMatchMode extends BaseGameMode<GameModeRuntimePort> {
       if (!this.podiumController.isActive) {
         this.podiumController.enterPodium(
           r.match?.state?.winner ?? 0,
-          r.match?.state?.winReason || 'SCORE',
+          r.match?.state?.winReason || 'SCORE'
         );
       }
       this.podiumController.update(context);

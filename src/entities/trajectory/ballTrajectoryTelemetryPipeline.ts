@@ -10,7 +10,7 @@ import type {
   TrajectoryDashCapStyle,
   TrajectoryRenderStyle,
   TrajectoryUpdateMode,
-} from '../../ui-core/config/trainingDefaults';
+} from '../../ui-core/config/trainingDefaults.ts';
 import type { TubeRenderParams } from './ballTrajectoryTubeMeshPipeline.ts';
 import type { BallTrajectoryAnomalySummary } from './ballTrajectoryAnomalyPipeline.ts';
 
@@ -176,10 +176,7 @@ export const DEFAULT_TRAJECTORY_SETTINGS: Readonly<TrajectorySettingsConfig> = O
   allowUserDashEdit: true,
 });
 
-export function resolveTrajectoryWorldLinewidth(
-  ballRadius: number,
-  thicknessPct: number,
-): number {
+export function resolveTrajectoryWorldLinewidth(ballRadius: number, thicknessPct: number): number {
   const ballDiameter = (ballRadius || 91.25) * 2;
   const clampedPct = Math.min(75, Math.max(1, Number(thicknessPct) || 20));
   return (clampedPct / 100) * ballDiameter;
@@ -187,7 +184,7 @@ export function resolveTrajectoryWorldLinewidth(
 
 export function buildTubeRenderParams(
   ballRadius: number,
-  settings: TrajectorySettingsConfig,
+  settings: TrajectorySettingsConfig
 ): TubeRenderParams {
   const worldLinewidth = resolveTrajectoryWorldLinewidth(ballRadius, settings.thickness);
   return {
@@ -195,10 +192,7 @@ export function buildTubeRenderParams(
     opacity: Number(settings.opacity) || 0.5,
     worldRadius: worldLinewidth * 0.5,
     sampleStride: Math.max(1, Math.min(8, Math.round(Number(settings.sampleStride) || 1))),
-    radialSegments: Math.max(
-      4,
-      Math.min(8, Math.round(Number(settings.tubeRadialSegments) || 6)),
-    ),
+    radialSegments: Math.max(4, Math.min(8, Math.round(Number(settings.tubeRadialSegments) || 6))),
     dashCapStyle: settings.dashCapStyle === 'chamfer' ? 'chamfer' : 'round',
     shadingStrength: Number.isFinite(Number(settings.shadingStrength))
       ? Number(settings.shadingStrength)
@@ -206,9 +200,7 @@ export function buildTubeRenderParams(
     radiusTaper: Number.isFinite(Number(settings.radiusTaper))
       ? Number(settings.radiusTaper)
       : 0.35,
-    horizonFade: Number.isFinite(Number(settings.horizonFade))
-      ? Number(settings.horizonFade)
-      : 0.3,
+    horizonFade: Number.isFinite(Number(settings.horizonFade)) ? Number(settings.horizonFade) : 0.3,
     showBounceMarkers: Boolean(settings.showBounceMarkers),
     showGroundProjection: Boolean(settings.showGroundProjection),
     dropLineIntervalTicks: Number(settings.dropLineIntervalTicks) || 104,
@@ -218,13 +210,13 @@ export function buildTubeRenderParams(
 export function shouldPublishTrajectoryTelemetry(
   nowMs: number,
   lastPublishMs: number,
-  intervalMs: number = TELEMETRY_PUBLISH_INTERVAL_MS,
+  intervalMs: number = TELEMETRY_PUBLISH_INTERVAL_MS
 ): boolean {
   return nowMs - lastPublishMs >= intervalMs;
 }
 
 export function buildBallTrajectoryTelemetrySnapshot(
-  input: BuildBallTrajectoryTelemetryInput,
+  input: BuildBallTrajectoryTelemetryInput
 ): BallTrajectoryTelemetrySnapshot {
   const {
     frameStartMs,
@@ -263,7 +255,7 @@ export function computeStaticPreviewScrollOffset(nowMs: number): number {
 export function resolvePatternElapsedTicks(
   currentTick: number,
   patternAnchorTick: number,
-  elapsedTicks: number,
+  elapsedTicks: number
 ): number {
   return patternAnchorTick >= 0
     ? Math.max(0, Math.floor(currentTick - patternAnchorTick))

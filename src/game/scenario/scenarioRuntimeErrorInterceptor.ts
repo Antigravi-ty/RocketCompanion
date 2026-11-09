@@ -71,7 +71,8 @@ export function formatConsoleErrorArgs(args: readonly unknown[]): {
 
   if (stack) {
     for (const l of stack.split('\n').slice(1)) {
-      if (l.includes('VirtualClockFastForwardDriver') || l.includes('scenarioRuntimeError')) continue;
+      if (l.includes('VirtualClockFastForwardDriver') || l.includes('scenarioRuntimeError'))
+        continue;
       const m = l.match(/(?:https?:\/\/[^/\s]+)?(\/[^\s:)]+):(\d+):(\d+)/);
       if (m) {
         fileName = m[1];
@@ -86,7 +87,7 @@ export function formatConsoleErrorArgs(args: readonly unknown[]): {
 }
 
 export function attachRuntimeErrorInterceptors(
-  getTickAndVirtualOffsetMs: () => { tick: number; virtualOffsetMs: number },
+  getTickAndVirtualOffsetMs: () => { tick: number; virtualOffsetMs: number }
 ): RuntimeErrorInterceptorHandle {
   const entries: CapturedRuntimeErrorEntry[] = [];
   let windowErrorCount = 0;

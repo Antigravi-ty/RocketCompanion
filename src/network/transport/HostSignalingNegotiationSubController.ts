@@ -76,9 +76,7 @@ export class HostSignalingNegotiationSubController {
     }
   }
 
-  syncPendingPairingStatus(
-    updateSessionStatus: (status: Record<string, unknown>) => void
-  ): void {
+  syncPendingPairingStatus(updateSessionStatus: (status: Record<string, unknown>) => void): void {
     const list = Array.from(this.pendingPairingRequests.values()).map((r) => ({
       peerId: r.peerId,
       peerName: r.peerName,
@@ -89,10 +87,7 @@ export class HostSignalingNegotiationSubController {
     updateSessionStatus({ pendingPairingRequests: list });
   }
 
-  initHostSignaling(
-    callbacks: HostSignalingNegotiationCallbacks,
-    probedMask?: number
-  ): void {
+  initHostSignaling(callbacks: HostSignalingNegotiationCallbacks, probedMask?: number): void {
     if (!callbacks.isHosting()) return;
     if (this.signalingHandler) {
       this.signalingHandler.cleanup();
@@ -164,35 +159,41 @@ export class HostSignalingNegotiationSubController {
         onPeerJoined: ({ peerId, name, peerName, role, allowSpectatorRelay, pairingCode }) => {
           this.pendingPairingRequests.delete(peerId);
           this.syncPendingPairingStatus(callbacks.updateSessionStatus);
-          void callbacks.getHostController()?.dispatchOfferToPeer(
-            peerId,
-            name || peerName,
-            this.signalingHandler,
-            role || 'player',
-            { allowSpectatorRelay, pairingCode }
-          );
+          void callbacks
+            .getHostController()
+            ?.dispatchOfferToPeer(
+              peerId,
+              name || peerName,
+              this.signalingHandler,
+              role || 'player',
+              { allowSpectatorRelay, pairingCode }
+            );
         },
         onRoomInfo: ({ participants }) => {
           if (!Array.isArray(participants) || !callbacks.isHosting()) return;
           for (const p of participants) {
             if (p?.peerId && p.peerId !== this.signalingHandler?.peerId) {
-              void callbacks.getHostController()?.dispatchOfferToPeer(
-                p.peerId,
-                p.peerName || p.name,
-                this.signalingHandler,
-                p.role || 'player'
-              );
+              void callbacks
+                .getHostController()
+                ?.dispatchOfferToPeer(
+                  p.peerId,
+                  p.peerName || p.name,
+                  this.signalingHandler,
+                  p.role || 'player'
+                );
             }
           }
         },
         onRequestOffer: ({ fromPeerId, name, senderName, role, pairingCode }) => {
-          void callbacks.getHostController()?.dispatchOfferToPeer(
-            fromPeerId,
-            name || senderName,
-            this.signalingHandler,
-            role || 'player',
-            { pairingCode }
-          );
+          void callbacks
+            .getHostController()
+            ?.dispatchOfferToPeer(
+              fromPeerId,
+              name || senderName,
+              this.signalingHandler,
+              role || 'player',
+              { pairingCode }
+            );
         },
         onAnswer: async ({ sdp, fromPeerId, pairingCode }) => {
           try {
@@ -211,10 +212,7 @@ export class HostSignalingNegotiationSubController {
     );
 
     this.signalingHandler.connect().catch((err) => {
-      console.warn(
-        '[MultiplayerSessionManager] Signaling connection notice:',
-        err?.message || err
-      );
+      console.warn('[MultiplayerSessionManager] Signaling connection notice:', err?.message || err);
       if (callbacks.isHosting()) {
         this.signalingHandler?.scheduleReconnect(3000, () =>
           this.initHostSignaling(callbacks, effectiveProbedMask)
@@ -236,7 +234,7 @@ export class HostSignalingNegotiationSubController {
     } catch (err) {
       console.warn('[MultiplayerSessionManager] Relay re-probe failed:', err);
     }
-    const cleanMask = (probedMask & 0x0f) || 0x0f;
+    const cleanMask = probedMask & 0x0f || 0x0f;
     const nextRoomId = applyConnectivityMaskToRoomCode(callbacks.getRoomId(), cleanMask);
     callbacks.setRoomId(nextRoomId);
     callbacks.updateSessionStatus({

@@ -3,7 +3,7 @@ import { Color, type Material, Vector3, Vector4 } from 'three';
 import {
   experimentalWallFxRuntimeConfig,
   type ExperimentalWallFxConfig,
-} from '../../../ui-core/config/atmosphereFxConfig';
+} from '../../../ui-core/config/atmosphereFxConfig.ts';
 
 export const PULSE_STEADY_MODE_MAP: Record<string, number> = {
   wave: 0,

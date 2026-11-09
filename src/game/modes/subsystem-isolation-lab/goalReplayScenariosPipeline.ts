@@ -1,5 +1,8 @@
 import { DEFAULT_CAR_CONTROLS } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
-import type { CarControlsInput, RestoreSnapshotOptions } from '../../../physics/RocketSimSnapshotSerializer.ts';
+import type {
+  CarControlsInput,
+  RestoreSnapshotOptions,
+} from '../../../physics/RocketSimSnapshotSerializer.ts';
 import type {
   DecodedIncidentEvent,
   DecodedSignalEvent,
@@ -7,10 +10,7 @@ import type {
 } from '../../../replay/container/RCReplayBinarySchema.ts';
 import type { ReplayAudioCue } from '../../../replay/ReplayRingBuffer.ts';
 import { MATCH_SIGNALS } from '../../../physics/RocketSimConstants.ts';
-import type {
-  ReplayRingBuffer,
-  ReplaySignalEntry,
-} from '../../../replay/ReplayRingBuffer.ts';
+import type { ReplayRingBuffer, ReplaySignalEntry } from '../../../replay/ReplayRingBuffer.ts';
 import type { LabPhysicsEnginePort } from './LabTabTypes.ts';
 
 export type GoalReplayBenchScenario =
@@ -291,8 +291,15 @@ export function mapParsedReplayToRewinderFrames(
 }
 
 export function restoreRewinderFrameToPhysicsAndInterpolator(
-  physics: { state: Float32Array; restoreState: (snap: Float32Array, opts?: RestoreSnapshotOptions) => void } | null | undefined,
-  interpolator: { prevState: Float32Array; currState: Float32Array; alpha: number } | null | undefined,
+  physics:
+    | {
+        state: Float32Array;
+        restoreState: (snap: Float32Array, opts?: RestoreSnapshotOptions) => void;
+      }
+    | null
+    | undefined,
+  interpolator:
+    { prevState: Float32Array; currState: Float32Array; alpha: number } | null | undefined,
   frames: RewinderFrameEntry[],
   cursor: number,
   smoothStep = false,
@@ -323,5 +330,7 @@ export function isGoalBallScoredInLab(
   bView: { posX: number; posY: number; posZ: number }
 ): boolean {
   if (typeof sim.isBallScored === 'function') return sim.isBallScored(bView);
-  return Math.abs(bView.posY) > 5120 + 91.25 && Math.abs(bView.posX) < 892.755 && bView.posZ < 642.775;
+  return (
+    Math.abs(bView.posY) > 5120 + 91.25 && Math.abs(bView.posX) < 892.755 && bView.posZ < 642.775
+  );
 }

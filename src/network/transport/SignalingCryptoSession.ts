@@ -4,10 +4,7 @@
  * HKDF-SHA256 session key & 4-digit SAS pairing code derivation, and AES-256-GCM envelope encryption.
  */
 
-import {
-  getSignalingRoomPrefix,
-  getSignalingTopicNamespace,
-} from './signalingRelayConfig.ts';
+import { getSignalingRoomPrefix, getSignalingTopicNamespace } from './signalingRelayConfig.ts';
 import { parseRoomCode } from '../../ui-core/config/roomCodeConnectivityCodec.ts';
 
 const textEncoder = new TextEncoder();

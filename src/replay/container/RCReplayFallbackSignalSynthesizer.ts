@@ -50,7 +50,7 @@ export function enrichLegacyFlipResetIncidentFromFrames(
   frames: ReplaySnapshotFloat32Array[]
 ): void {
   if (!inc || inc.type !== INCIDENT_EVENT_TYPES.FLIP_RESET_GAINED) return;
-  const flagObj = (Number(inc.flags ?? 0) >>> 4) & 0xF;
+  const flagObj = (Number(inc.flags ?? 0) >>> 4) & 0xf;
   if (flagObj !== 0) return;
 
   const fIdx = Math.max(0, Math.min(frames.length - 1, inc.frameIndex ?? 0));
@@ -82,13 +82,10 @@ export function enrichLegacyFlipResetIncidentFromFrames(
   const dz = cz - bz;
   const distToBall = Math.hypot(dx, dy, dz);
   const invDist = distToBall > 1e-4 ? 1.0 / distToBall : 0;
-  const ballToCarDotUp = (dx * invDist) * upX + (dy * invDist) * upY + (dz * invDist) * upZ;
+  const ballToCarDotUp = dx * invDist * upX + dy * invDist * upY + dz * invDist * upZ;
 
   const isNearWorldBoundary =
-    Math.abs(cy) >= 4980 ||
-    Math.abs(cx) >= 3960 ||
-    cz <= 65 ||
-    cz >= 1960;
+    Math.abs(cy) >= 4980 || Math.abs(cx) >= 3960 || cz <= 65 || cz >= 1960;
 
   const isBallReset = distToBall <= 170.0 && ballToCarDotUp >= 0.45 && !isNearWorldBoundary;
   if (isBallReset) {
@@ -256,8 +253,7 @@ export function synthesizeFallbackSignalsFromIncidents(
   // 3. Match End signal at final frame if matchInfo has a score or non-freeplay mode
   if (frameCount > 1 && matchInfo.mode !== 'freeplay' && matchInfo.mode !== 'training') {
     const lastIdx = frameCount - 1;
-    const winnerCode =
-      matchInfo.winner === 'blue' ? 0 : matchInfo.winner === 'orange' ? 1 : 2;
+    const winnerCode = matchInfo.winner === 'blue' ? 0 : matchInfo.winner === 'orange' ? 1 : 2;
     synthesized.push({
       signalId: nextSignalId++,
       signalType: MATCH_SIGNALS.MATCH_ENDED,

@@ -5,12 +5,9 @@ import {
 import type {
   AudioAttenuationCategory,
   SpatialAttenuationProfile,
-} from '../ui-core/config/spatialAttenuationProfiles';
+} from '../ui-core/config/spatialAttenuationProfiles.ts';
 
-export type {
-  AudioAttenuationCategory,
-  SpatialAttenuationProfile,
-};
+export type { AudioAttenuationCategory, SpatialAttenuationProfile };
 
 export const UU_TO_METERS = 0.01;
 
@@ -93,10 +90,11 @@ export function applySpatialConfigPatch(
         SPATIAL_CONFIG.spatialAudio ? SPATIAL_CONFIG.panningModel : 'equalpower'
       );
     }
-  } else if (typeof patch.spatialAudio === 'boolean' && typeof onPanningModelChange === 'function') {
-    onPanningModelChange(
-      SPATIAL_CONFIG.spatialAudio ? SPATIAL_CONFIG.panningModel : 'equalpower'
-    );
+  } else if (
+    typeof patch.spatialAudio === 'boolean' &&
+    typeof onPanningModelChange === 'function'
+  ) {
+    onPanningModelChange(SPATIAL_CONFIG.spatialAudio ? SPATIAL_CONFIG.panningModel : 'equalpower');
   }
   if (typeof patch.distanceModel === 'string') {
     SPATIAL_CONFIG.distanceModel = patch.distanceModel;

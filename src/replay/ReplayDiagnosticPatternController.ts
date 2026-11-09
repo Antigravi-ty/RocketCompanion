@@ -23,14 +23,20 @@ import {
   type DirectorDiagnosticPatternPayload,
 } from './ReplayDirectorDiagnostics.ts';
 import { buildCurrentFrameDiagnosticSnapshot } from './replayDirectorSingleFramePipeline.ts';
-import { resolveGoalExplosionFrameIndex, type ReplayTouchEvent } from './ReplayDirectorGazeSolver.ts';
+import {
+  resolveGoalExplosionFrameIndex,
+  type ReplayTouchEvent,
+} from './ReplayDirectorGazeSolver.ts';
 import {
   buildDirectorDiagnosticPatternCsv,
   buildDirectorFrameWindowDiagnostic,
   type DirectorPatternSerializerOptions,
 } from './ReplayDirectorPatternSerializer.ts';
 import type { SuffixDirectorTrajectoryPlan } from './ReplayDirectorTrajectoryPlanner.ts';
-import type { ReplayTouchAnalysisConfig, ResolvedTouchLookahead } from './ReplayTouchTimelineAnalyzer.ts';
+import type {
+  ReplayTouchAnalysisConfig,
+  ResolvedTouchLookahead,
+} from './ReplayTouchTimelineAnalyzer.ts';
 import type {
   DirectorCameraState,
   ImportedDiagnosticLoadOptions,
@@ -51,8 +57,14 @@ export interface ReplayDiagnosticTimelinePort {
   getFrameEntryByIndex(index: number): ReplayTimelineFrameEntry | null;
   getFrameBufferByIndex(index: number): Float32Array | null;
   ensureSuffixCameraPlan(): SuffixDirectorTrajectoryPlan | null;
-  resolveTouchLookaheadForFrame(frameIdx: number, fallbackScorerCarIndex?: number): ResolvedTouchLookahead;
-  computeDramaticSlowMoFactor(cursorFloat: number, options?: { ignoreScrubState?: boolean }): number;
+  resolveTouchLookaheadForFrame(
+    frameIdx: number,
+    fallbackScorerCarIndex?: number
+  ): ResolvedTouchLookahead;
+  computeDramaticSlowMoFactor(
+    cursorFloat: number,
+    options?: { ignoreScrubState?: boolean }
+  ): number;
   refreshCurrentFrameDirectorPose(): unknown;
   _analyzeReplayTouchTimeline(options?: ReplayTouchAnalysisConfig): void;
 }
@@ -63,7 +75,8 @@ export function buildImportedCarTeamResolver(
   if (!Array.isArray(importedCarEntries) || importedCarEntries.length === 0) return null;
   const teamMap = new Map<number, number>();
   for (const c of importedCarEntries) {
-    if (typeof c?.carIndex === 'number' && typeof c?.team === 'number') teamMap.set(c.carIndex, c.team);
+    if (typeof c?.carIndex === 'number' && typeof c?.team === 'number')
+      teamMap.set(c.carIndex, c.team);
   }
   return teamMap.size > 0 ? (cIdx: number) => teamMap.get(cIdx) ?? cIdx % 2 : null;
 }
@@ -74,11 +87,13 @@ export function buildImportedDiagnosticPatternSessionState(
   fallbackCarTeamResolver: ((carIndex: number) => number) | null,
   options: ImportedDiagnosticLoadOptions = {}
 ): { sessionState: ReplaySessionState; initialCursorFloat: number } {
-  const importedCarEntries = Array.isArray(parsedPattern.carEntries) ? parsedPattern.carEntries : null;
+  const importedCarEntries = Array.isArray(parsedPattern.carEntries)
+    ? parsedPattern.carEntries
+    : null;
   const resolvedTeamResolver = buildImportedCarTeamResolver(importedCarEntries);
   const hasRecordedRows = Boolean(
     parsedPattern.hasRecordedCsvRows ||
-      parsedPattern.activeFrames.some((f: ReplayTimelineFrameEntry) => Boolean(f?.recordedCsvRow))
+    parsedPattern.activeFrames.some((f: ReplayTimelineFrameEntry) => Boolean(f?.recordedCsvRow))
   );
   const useRecordedCsvCamera =
     typeof options.useRecordedCsvCamera === 'boolean'
@@ -123,7 +138,10 @@ export function applyImportedPatternOverridesToDirectorState(
   if (Array.isArray(parsedPattern.touchEvents) && parsedPattern.touchEvents.length > 0) {
     state.touchEvents = parsedPattern.touchEvents.map((t: ReplayTouchEvent) => ({ ...t }));
   }
-  if (typeof parsedPattern.lastScoringTouchFrameIdx === 'number' && parsedPattern.lastScoringTouchFrameIdx >= 0) {
+  if (
+    typeof parsedPattern.lastScoringTouchFrameIdx === 'number' &&
+    parsedPattern.lastScoringTouchFrameIdx >= 0
+  ) {
     state.lastScoringTouchFrameIdx = parsedPattern.lastScoringTouchFrameIdx;
   }
   if (typeof parsedPattern.goalLineFrameIdx === 'number' && parsedPattern.goalLineFrameIdx >= 0) {
@@ -134,7 +152,10 @@ export function applyImportedPatternOverridesToDirectorState(
     );
     state.goalLineFrameIdx = resolvedGoalLineFrameIdx;
   }
-  if (parsedPattern.initialSettledCarPos && typeof parsedPattern.initialSettledCarPos === 'object') {
+  if (
+    parsedPattern.initialSettledCarPos &&
+    typeof parsedPattern.initialSettledCarPos === 'object'
+  ) {
     state.initialSettledCarPos = { ...parsedPattern.initialSettledCarPos };
   }
   if (typeof parsedPattern.lateralBias === 'number' && parsedPattern.lateralBias !== 0) {
@@ -175,7 +196,8 @@ export function buildReplayDiagnosticInput(
     getFrameBufferByIndex: (idx) => timeline.getFrameBufferByIndex(idx),
     ensureSuffixCameraPlan: () => timeline.ensureSuffixCameraPlan(),
     resolveTouchLookaheadForFrame: (idx, fb) => timeline.resolveTouchLookaheadForFrame(idx, fb),
-    computeDramaticSlowMoFactor: (cursor, opts) => timeline.computeDramaticSlowMoFactor(cursor, opts),
+    computeDramaticSlowMoFactor: (cursor, opts) =>
+      timeline.computeDramaticSlowMoFactor(cursor, opts),
   };
 }
 
@@ -223,19 +245,23 @@ export class ReplayDiagnosticPatternController {
         currentFrameIndex: this.timeline.currentFrameIndex,
         sessionState: this.timeline.sessionState,
         directorCameraState: this.timeline.directorCameraState,
-        buildDirectorDiagnosticPatternPayload: (opts) => this.buildDirectorDiagnosticPatternPayload(opts),
+        buildDirectorDiagnosticPatternPayload: (opts) =>
+          this.buildDirectorDiagnosticPatternPayload(opts),
       },
       options
     );
   }
 
-  buildDirectorFrameWindowDiagnostic(windowRadius = 15): ReturnType<typeof buildDirectorFrameWindowDiagnostic> {
+  buildDirectorFrameWindowDiagnostic(
+    windowRadius = 15
+  ): ReturnType<typeof buildDirectorFrameWindowDiagnostic> {
     return buildDirectorFrameWindowDiagnostic(
       {
         currentFrameIndex: this.timeline.currentFrameIndex,
         sessionState: this.timeline.sessionState,
         directorCameraState: this.timeline.directorCameraState,
-        buildDirectorDiagnosticPatternPayload: (opts) => this.buildDirectorDiagnosticPatternPayload(opts),
+        buildDirectorDiagnosticPatternPayload: (opts) =>
+          this.buildDirectorDiagnosticPatternPayload(opts),
       },
       windowRadius
     );
@@ -245,7 +271,11 @@ export class ReplayDiagnosticPatternController {
     parsedPattern: ImportedDiagnosticPatternInput | null | undefined,
     options: ImportedDiagnosticLoadOptions = {}
   ): number {
-    if (!parsedPattern || !Array.isArray(parsedPattern.activeFrames) || parsedPattern.activeFrames.length === 0) {
+    if (
+      !parsedPattern ||
+      !Array.isArray(parsedPattern.activeFrames) ||
+      parsedPattern.activeFrames.length === 0
+    ) {
       return 0;
     }
     const fields = buildImportedDiagnosticPatternSessionState(

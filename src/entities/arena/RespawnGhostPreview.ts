@@ -8,10 +8,13 @@
 
 import * as THREE from 'three';
 import { buildVehicleModel, buildVehicleWheels, type VehicleAssetStore } from './VehicleFactory.ts';
-import { getWheelSpecsForVisual, updateCarSuspensionAndSteering } from '../VehicleSuspensionSystem.ts';
+import {
+  getWheelSpecsForVisual,
+  updateCarSuspensionAndSteering,
+} from '../VehicleSuspensionSystem.ts';
 import { getDesiredRespawnPose } from '../../physics/RocketSimConstants.ts';
-import { hasVehicleDescriptor } from '../../ui-core/config/vehicleTunerConfig';
-import { normalizeVisualId } from '../../ui-core/config/vehicleConstants';
+import { hasVehicleDescriptor } from '../../ui-core/config/vehicleTunerConfig.ts';
+import { normalizeVisualId } from '../../ui-core/config/vehicleConstants.ts';
 
 const BLUE_GHOST_HEX = 0x38bdf8;
 const BLUE_EMISSIVE_HEX = 0x0284c7;
@@ -21,7 +24,14 @@ const ORANGE_GHOST_HEX = 0xfb923c;
 const ORANGE_EMISSIVE_HEX = 0xea580c;
 const ORANGE_WIRE_HEX = 0xfdba74;
 
-export function applyRespawnPoseToObject3D(targetObj, pose, basisFwd, basisRight, basisUp, basisMatrix) {
+export function applyRespawnPoseToObject3D(
+  targetObj,
+  pose,
+  basisFwd,
+  basisRight,
+  basisUp,
+  basisMatrix
+) {
   if (!targetObj || !pose) return;
   targetObj.position.set(pose.x, pose.z, pose.y);
   const cy = Math.cos(pose.yaw);
@@ -43,7 +53,10 @@ export interface DummyGroundCarView {
   getWheelSteerYaw: () => number;
 }
 
-export interface RespawnGhostWheelGroupList extends Array<{ steer: THREE.Group; spin: THREE.Group }> {
+export interface RespawnGhostWheelGroupList extends Array<{
+  steer: THREE.Group;
+  spin: THREE.Group;
+}> {
   threeWheels?: boolean;
 }
 
@@ -65,7 +78,12 @@ export interface RespawnGhostArenaPort {
   markRenderTreeChanged?: () => void;
   isGoalReplayActive?: boolean;
   _headerView: { attach: (state: Float32Array) => { numCars: number } };
-  _currCarView: { attachCar: (state: Float32Array, index: number) => { demoSpawnSelection: number; isDemoed: boolean } };
+  _currCarView: {
+    attachCar: (
+      state: Float32Array,
+      index: number
+    ) => { demoSpawnSelection: number; isDemoed: boolean };
+  };
   vehiclePresets?: Array<string | null>;
   carVisual?: string;
   vehiclePreset?: string;
@@ -118,7 +136,7 @@ export class RespawnGhostPreview {
       // instead of 5.5 * 3.9 - 6.2 = +15.255 UU (which mounted wheels on the car roof).
       getWheelSusLength: () => 0,
       getWheelSteerAngle: () => 0,
-      getWheelSteerYaw: () => 0
+      getWheelSteerYaw: () => 0,
     };
   }
 
@@ -186,7 +204,7 @@ export class RespawnGhostPreview {
           metalness: 0.2,
           transparent: true,
           opacity: 0.42,
-          depthWrite: false
+          depthWrite: false,
         });
         obj.material = mat;
         this.materials.push(mat);
@@ -196,7 +214,7 @@ export class RespawnGhostPreview {
           color: BLUE_WIRE_HEX,
           transparent: true,
           opacity: 0.65,
-          depthWrite: false
+          depthWrite: false,
         });
         obj.material = lmat;
         this.lineMaterials.push(lmat);
@@ -256,12 +274,16 @@ export class RespawnGhostPreview {
     const desiredVisual = normalizeVisualId(rawVisual);
     const hasCustomAsset = Boolean(reg?.customVehicleAssets?.has?.(desiredVisual));
 
-    if (!this.root || this.builtVisual !== desiredVisual || this.builtHasCustomAsset !== hasCustomAsset) {
+    if (
+      !this.root ||
+      this.builtVisual !== desiredVisual ||
+      this.builtHasCustomAsset !== hasCustomAsset
+    ) {
       this._buildForVisual(desiredVisual);
     }
     if (!this.root) return;
 
-    const team = this.arena.carTeams?.[localCarIndex] ?? (localCarIndex % 2);
+    const team = this.arena.carTeams?.[localCarIndex] ?? localCarIndex % 2;
     this._applyTeamTint(team);
 
     const pose = getDesiredRespawnPose(team, selectedSlot);

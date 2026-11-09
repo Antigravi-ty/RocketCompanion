@@ -1,7 +1,11 @@
 import { getAudioDescriptors } from './audioAssetManifest.ts';
 import { getAudioContext, subsystemState } from './audioContext.ts';
 import { resolveAssetPath } from '../utils/AssetResponseValidator.ts';
-import { audioConfig, BOOST_AUDIO_VARIATIONS, DEFAULT_BOOST_VARIATION } from '../ui-core/config/audioConfig';
+import {
+  audioConfig,
+  BOOST_AUDIO_VARIATIONS,
+  DEFAULT_BOOST_VARIATION,
+} from '../ui-core/config/audioConfig.ts';
 import type { VehicleAudioBuffers } from './VehicleAudioManager.ts';
 import type { IncidentAudioBuffers } from './IncidentAudioEngine.ts';
 import type { BallAudioBuffers } from './BallAudioEmitter.ts';
@@ -45,7 +49,9 @@ export function resolveBoostVariationBuffers() {
   return { boostStart, boostLoop, boostRelease };
 }
 
-export function applyBoostVariationBuffers(facade: AudioAssetTargetFacade | null | undefined): void {
+export function applyBoostVariationBuffers(
+  facade: AudioAssetTargetFacade | null | undefined
+): void {
   if (!facade) return;
   const { boostStart, boostLoop, boostRelease } = resolveBoostVariationBuffers();
   if (boostStart) subsystemState.buffers.set('boost_start', boostStart);
@@ -63,13 +69,20 @@ export function applyBoostVariationBuffers(facade: AudioAssetTargetFacade | null
   });
 }
 
-export async function fetchAudioBuffer(ctx: AudioContext, url: string, fallbackUrl: string | null = null): Promise<AudioBuffer | null> {
+export async function fetchAudioBuffer(
+  ctx: AudioContext,
+  url: string,
+  fallbackUrl: string | null = null
+): Promise<AudioBuffer | null> {
   const resolvedUrl = resolveAssetPath(url);
   const resolvedFallback = fallbackUrl ? resolveAssetPath(fallbackUrl) : null;
   try {
     let res = await fetch(resolvedUrl);
     if (!res.ok && resolvedFallback) {
-      console.warn('[Audio:Fallback] Primary audio missing (404), falling back:', { primary: resolvedUrl, fallback: resolvedFallback });
+      console.warn('[Audio:Fallback] Primary audio missing (404), falling back:', {
+        primary: resolvedUrl,
+        fallback: resolvedFallback,
+      });
       res = await fetch(resolvedFallback);
     }
     if (!res.ok) return null;
@@ -78,13 +91,21 @@ export async function fetchAudioBuffer(ctx: AudioContext, url: string, fallbackU
     console.warn('[AudioArchitecture] Failed to load/decode primary audio url:', resolvedUrl, e);
     if (resolvedFallback) {
       try {
-        console.warn('[Audio:Fallback] Primary audio missing, falling back:', { primary: resolvedUrl, fallback: resolvedFallback, error: e });
+        console.warn('[Audio:Fallback] Primary audio missing, falling back:', {
+          primary: resolvedUrl,
+          fallback: resolvedFallback,
+          error: e,
+        });
         const res = await fetch(resolvedFallback);
         if (res.ok) {
           return await ctx.decodeAudioData(await res.arrayBuffer());
         }
       } catch (e2) {
-        console.error('[AudioArchitecture] Failed to load/decode fallback audio url:', resolvedFallback, e2);
+        console.error(
+          '[AudioArchitecture] Failed to load/decode fallback audio url:',
+          resolvedFallback,
+          e2
+        );
       }
     }
     return null;
@@ -113,15 +134,13 @@ export async function loadAudioAssets(
       const desc = audioDescriptors[idx];
       results[idx] = await fetchAudioBuffer(ctx, desc.url, desc.fallback);
       completedCount++;
-      if (typeof onProgress === "function") {
+      if (typeof onProgress === 'function') {
         onProgress(completedCount, totalCount, desc.url);
       }
     }
   };
 
-  await Promise.all(
-    Array.from({ length: Math.min(poolLimit, totalCount) }, () => worker())
-  );
+  await Promise.all(Array.from({ length: Math.min(poolLimit, totalCount) }, () => worker()));
 
   const bufferMap = new Map<string, AudioBuffer>();
   for (let idx = 0; idx < totalCount; idx++) {
@@ -132,19 +151,37 @@ export async function loadAudioAssets(
     }
   }
 
-  const ballHitBuffers = [0, 1, 2, 3].map(i => bufferMap.get(`ball_hit_${i}`)).filter(isAudioBuffer);
+  const ballHitBuffers = [0, 1, 2, 3]
+    .map((i) => bufferMap.get(`ball_hit_${i}`))
+    .filter(isAudioBuffer);
   const groundHitBuffers = ballHitBuffers.slice(0, 3);
   const vehicleAccent = bufferMap.get('vehicle_accent') || null;
-  const vehicleDetailBuffers = [0, 1, 2, 3, 4, 5].map(i => bufferMap.get(`vehicle_detail_${i}`)).filter(isAudioBuffer);
-  const sidewallHitBuffers = [0, 1, 2, 3, 4].map(i => bufferMap.get(`side_${i}`)).filter(isAudioBuffer);
-  const carDemoBuffers = [0, 1, 2, 3, 4].map(i => bufferMap.get(`car_demo_${i}`)).filter(isAudioBuffer);
-  const jumpBuffers = [0, 1, 2, 3].map(i => bufferMap.get(`jump_${i}`)).filter(isAudioBuffer);
-  const doubleJumpBuffers = [0, 1, 2, 3].map(i => bufferMap.get(`double_jump_${i}`)).filter(isAudioBuffer);
-  const dodgeBuffers = [0, 1, 2, 3].map(i => bufferMap.get(`dodge_${i}`)).filter(isAudioBuffer);
-  const wheelImpactBuffers = [0, 1, 2, 3].map(i => bufferMap.get(`wheel_impact_${i}`)).filter(isAudioBuffer);
-  const supersonicEnterBuffers = [0, 1, 2].map(i => bufferMap.get(`supersonic_enter_${i}`)).filter(isAudioBuffer);
-  const crossbarPingBuffers = [0, 1, 2, 3, 4, 5].map(i => bufferMap.get(`crossbar_ping_${i}`)).filter(isAudioBuffer);
-  const crossbarPingSmallBuffers = [0, 1, 2, 3, 4, 5].map(i => bufferMap.get(`crossbar_ping_small_${i}`)).filter(isAudioBuffer);
+  const vehicleDetailBuffers = [0, 1, 2, 3, 4, 5]
+    .map((i) => bufferMap.get(`vehicle_detail_${i}`))
+    .filter(isAudioBuffer);
+  const sidewallHitBuffers = [0, 1, 2, 3, 4]
+    .map((i) => bufferMap.get(`side_${i}`))
+    .filter(isAudioBuffer);
+  const carDemoBuffers = [0, 1, 2, 3, 4]
+    .map((i) => bufferMap.get(`car_demo_${i}`))
+    .filter(isAudioBuffer);
+  const jumpBuffers = [0, 1, 2, 3].map((i) => bufferMap.get(`jump_${i}`)).filter(isAudioBuffer);
+  const doubleJumpBuffers = [0, 1, 2, 3]
+    .map((i) => bufferMap.get(`double_jump_${i}`))
+    .filter(isAudioBuffer);
+  const dodgeBuffers = [0, 1, 2, 3].map((i) => bufferMap.get(`dodge_${i}`)).filter(isAudioBuffer);
+  const wheelImpactBuffers = [0, 1, 2, 3]
+    .map((i) => bufferMap.get(`wheel_impact_${i}`))
+    .filter(isAudioBuffer);
+  const supersonicEnterBuffers = [0, 1, 2]
+    .map((i) => bufferMap.get(`supersonic_enter_${i}`))
+    .filter(isAudioBuffer);
+  const crossbarPingBuffers = [0, 1, 2, 3, 4, 5]
+    .map((i) => bufferMap.get(`crossbar_ping_${i}`))
+    .filter(isAudioBuffer);
+  const crossbarPingSmallBuffers = [0, 1, 2, 3, 4, 5]
+    .map((i) => bufferMap.get(`crossbar_ping_small_${i}`))
+    .filter(isAudioBuffer);
 
   const carCollision = bufferMap.get('car_collision') || null;
   const boostCollect = bufferMap.get('boost_collect') || null;
@@ -185,32 +222,32 @@ export async function loadAudioAssets(
   const { boostStart, boostLoop, boostRelease } = resolveBoostVariationBuffers();
 
   // Save into global buffer registry
-  subsystemState.buffers.set("car_collision", carCollision);
-  subsystemState.buffers.set("vehicle_accent", vehicleAccent);
+  subsystemState.buffers.set('car_collision', carCollision);
+  subsystemState.buffers.set('vehicle_accent', vehicleAccent);
   vehicleDetailBuffers.forEach((b, i) => subsystemState.buffers.set(`vehicle_detail_${i}`, b));
   carDemoBuffers.forEach((b, i) => subsystemState.buffers.set(`car_demo_${i}`, b));
-  if (carDemoBuffers[0]) subsystemState.buffers.set("car_demo", carDemoBuffers[0]);
-  subsystemState.buffers.set("boost_collect", boostCollect);
-  subsystemState.buffers.set("sfx_goal_poof", goalPoof);
-  subsystemState.buffers.set("ballrolling", ballRolling);
-  subsystemState.buffers.set("ballflying", ballFlying);
-  subsystemState.buffers.set("sfx_state_supersonic", supersonic);
-  subsystemState.buffers.set("sfx_error_no_boost", errorNoBoost);
-  subsystemState.buffers.set("match_60_seconds_left", match60s);
-  subsystemState.buffers.set("match_30_seconds_left", match30s);
-  subsystemState.buffers.set("match_countdown_321", matchCountdown);
-  subsystemState.buffers.set("training_countdown", trainingCountdown);
-  if (trainingBallExpire) subsystemState.buffers.set("training_ball_expire", trainingBallExpire);
-  subsystemState.buffers.set("match_countdown_10s", matchCountdown10s);
-  subsystemState.buffers.set("match_entering_overtime", matchOvertime);
-  subsystemState.buffers.set("match_start_go", matchStartGo);
-  if (endgameBuf) subsystemState.buffers.set("endgame", endgameBuf);
-  if (resetBuf) subsystemState.buffers.set("reset", resetBuf);
-  if (goalpostBuf) subsystemState.buffers.set("goalpost", goalpostBuf);
-  if (boostStart) subsystemState.buffers.set("boost_start", boostStart);
-  if (boostLoop) subsystemState.buffers.set("boost_loop", boostLoop);
-  if (boostRelease) subsystemState.buffers.set("boost_release", boostRelease);
-  if (supersonicLoop) subsystemState.buffers.set("supersonic_loop", supersonicLoop);
+  if (carDemoBuffers[0]) subsystemState.buffers.set('car_demo', carDemoBuffers[0]);
+  subsystemState.buffers.set('boost_collect', boostCollect);
+  subsystemState.buffers.set('sfx_goal_poof', goalPoof);
+  subsystemState.buffers.set('ballrolling', ballRolling);
+  subsystemState.buffers.set('ballflying', ballFlying);
+  subsystemState.buffers.set('sfx_state_supersonic', supersonic);
+  subsystemState.buffers.set('sfx_error_no_boost', errorNoBoost);
+  subsystemState.buffers.set('match_60_seconds_left', match60s);
+  subsystemState.buffers.set('match_30_seconds_left', match30s);
+  subsystemState.buffers.set('match_countdown_321', matchCountdown);
+  subsystemState.buffers.set('training_countdown', trainingCountdown);
+  if (trainingBallExpire) subsystemState.buffers.set('training_ball_expire', trainingBallExpire);
+  subsystemState.buffers.set('match_countdown_10s', matchCountdown10s);
+  subsystemState.buffers.set('match_entering_overtime', matchOvertime);
+  subsystemState.buffers.set('match_start_go', matchStartGo);
+  if (endgameBuf) subsystemState.buffers.set('endgame', endgameBuf);
+  if (resetBuf) subsystemState.buffers.set('reset', resetBuf);
+  if (goalpostBuf) subsystemState.buffers.set('goalpost', goalpostBuf);
+  if (boostStart) subsystemState.buffers.set('boost_start', boostStart);
+  if (boostLoop) subsystemState.buffers.set('boost_loop', boostLoop);
+  if (boostRelease) subsystemState.buffers.set('boost_release', boostRelease);
+  if (supersonicLoop) subsystemState.buffers.set('supersonic_loop', supersonicLoop);
   jumpBuffers.forEach((b, i) => subsystemState.buffers.set(`jump_${i}`, b));
   doubleJumpBuffers.forEach((b, i) => subsystemState.buffers.set(`double_jump_${i}`, b));
   dodgeBuffers.forEach((b, i) => subsystemState.buffers.set(`dodge_${i}`, b));
@@ -230,7 +267,7 @@ export async function loadAudioAssets(
     supersonicEnter: supersonicEnterBuffers,
     supersonicLoop: supersonicLoop || supersonic,
     carCollision,
-    vehicleDetail: vehicleDetailBuffers
+    vehicleDetail: vehicleDetailBuffers,
   });
 
   // Distribute to Incident Engine (World Incidents)
@@ -255,26 +292,26 @@ export async function loadAudioAssets(
     wheelImpact: wheelImpactBuffers,
     boostStart,
     boostRelease,
-    supersonicEnter: supersonicEnterBuffers
+    supersonicEnter: supersonicEnterBuffers,
   });
 
   // Distribute to Ball Audio Emitter
   facade.ballEngine.init({
     ballRolling,
-    ballFlying
+    ballFlying,
   });
 
   // Distribute to Signal Engine
-  facade.signalEngine.setBuffer("match_countdown_321", matchCountdown);
-  facade.signalEngine.setBuffer("training_countdown", trainingCountdown);
-  if (trainingBallExpire) facade.signalEngine.setBuffer("training_ball_expire", trainingBallExpire);
-  facade.signalEngine.setBuffer("match_countdown_10s", matchCountdown10s);
-  facade.signalEngine.setBuffer("match_start_go", matchStartGo);
-  facade.signalEngine.setBuffer("match_60_seconds_left", match60s);
-  facade.signalEngine.setBuffer("match_30_seconds_left", match30s);
-  facade.signalEngine.setBuffer("match_entering_overtime", matchOvertime);
-  if (endgameBuf) facade.signalEngine.setBuffer("endgame", endgameBuf);
-  facade.signalEngine.setBuffer("sfx_goal_poof", goalPoof);
-  facade.signalEngine.setBuffer("sfx_error_no_boost", errorNoBoost);
-  facade.signalEngine.setBuffer("boost_collect", boostCollect);
+  facade.signalEngine.setBuffer('match_countdown_321', matchCountdown);
+  facade.signalEngine.setBuffer('training_countdown', trainingCountdown);
+  if (trainingBallExpire) facade.signalEngine.setBuffer('training_ball_expire', trainingBallExpire);
+  facade.signalEngine.setBuffer('match_countdown_10s', matchCountdown10s);
+  facade.signalEngine.setBuffer('match_start_go', matchStartGo);
+  facade.signalEngine.setBuffer('match_60_seconds_left', match60s);
+  facade.signalEngine.setBuffer('match_30_seconds_left', match30s);
+  facade.signalEngine.setBuffer('match_entering_overtime', matchOvertime);
+  if (endgameBuf) facade.signalEngine.setBuffer('endgame', endgameBuf);
+  facade.signalEngine.setBuffer('sfx_goal_poof', goalPoof);
+  facade.signalEngine.setBuffer('sfx_error_no_boost', errorNoBoost);
+  facade.signalEngine.setBuffer('boost_collect', boostCollect);
 }

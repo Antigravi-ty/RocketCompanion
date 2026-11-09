@@ -1,7 +1,4 @@
-import {
-  MAX_STEPS,
-  RAW_STRIDE,
-} from './ballTrajectoryGeometryPipeline.ts';
+import { MAX_STEPS, RAW_STRIDE } from './ballTrajectoryGeometryPipeline.ts';
 import {
   type AnomalyPhysicsCarTeamPort,
   type BallState18Snapshot,
@@ -95,13 +92,10 @@ export class BallTrajectoryAnomalyDetector {
     sliceCount: number,
     predictedPoints: Float32Array,
     predictionCount: number,
-    deltaTicks: number,
+    deltaTicks: number
   ): void {
     const count = Math.max(0, Math.min(MAX_STEPS, sliceCount));
-    const expectedSliceIdx = Math.max(
-      0,
-      Math.min(Math.max(0, count - 1), Math.max(0, deltaTicks)),
-    );
+    const expectedSliceIdx = Math.max(0, Math.min(Math.max(0, count - 1), Math.max(0, deltaTicks)));
     const expBase = expectedSliceIdx * RAW_STRIDE;
     this.expectedBeforeStepPos = [
       rawSlices[expBase] ?? 0,
@@ -120,9 +114,7 @@ export class BallTrajectoryAnomalyDetector {
     ];
     this.prevPredictionCount = Math.max(0, Math.min(MAX_STEPS, predictionCount));
     if (this.prevPredictionCount > 0) {
-      this.prevPredictedPoints.set(
-        predictedPoints.subarray(0, this.prevPredictionCount * 3),
-      );
+      this.prevPredictedPoints.set(predictedPoints.subarray(0, this.prevPredictionCount * 3));
     }
     if (count <= 0) return;
     this.prevTick = tick;
@@ -137,7 +129,7 @@ export class BallTrajectoryAnomalyDetector {
     updateKind: string,
     ballState: BallState18Snapshot,
     rawSlices: Float32Array,
-    sliceCount: number,
+    sliceCount: number
   ): void {
     const count = Math.max(0, Math.min(MAX_STEPS, sliceCount));
     this.spaceATick = tick;
@@ -151,10 +143,20 @@ export class BallTrajectoryAnomalyDetector {
 
   public recordTick(input: RecordTrajectoryTickInput): TrajectoryAnomalySample | null {
     const {
-      phys, statePtr, currentTick, deltaTicks, lastCarBallHitTick,
-      updateKind, needFull, wasIncrementalShift, carBallHitEvent,
-      worldBounceEvent, intentionalReset, deviationThresholdUu,
-      rawSlices, actualSliceCount,
+      phys,
+      statePtr,
+      currentTick,
+      deltaTicks,
+      lastCarBallHitTick,
+      updateKind,
+      needFull,
+      wasIncrementalShift,
+      carBallHitEvent,
+      worldBounceEvent,
+      intentionalReset,
+      deviationThresholdUu,
+      rawSlices,
+      actualSliceCount,
     } = input;
 
     const liveBall = extractBallState18Snapshot(statePtr);
@@ -166,21 +168,42 @@ export class BallTrajectoryAnomalyDetector {
       round4(Math.hypot(a[0] - bx, a[1] - by, a[2] - bz));
 
     const posErrorUu = hasExpected
-      ? dist3(liveBall.pos, this.expectedBeforeStepPos[0], this.expectedBeforeStepPos[1], this.expectedBeforeStepPos[2])
+      ? dist3(
+          liveBall.pos,
+          this.expectedBeforeStepPos[0],
+          this.expectedBeforeStepPos[1],
+          this.expectedBeforeStepPos[2]
+        )
       : 0;
     const velErrorUuPerSec = hasExpected
-      ? dist3(liveBall.vel, this.expectedBeforeStepVel[0], this.expectedBeforeStepVel[1], this.expectedBeforeStepVel[2])
+      ? dist3(
+          liveBall.vel,
+          this.expectedBeforeStepVel[0],
+          this.expectedBeforeStepVel[1],
+          this.expectedBeforeStepVel[2]
+        )
       : 0;
     const angVelErrorRadPerSec = hasExpected
-      ? dist3(liveBall.angVel, this.expectedBeforeStepAngVel[0], this.expectedBeforeStepAngVel[1], this.expectedBeforeStepAngVel[2])
+      ? dist3(
+          liveBall.angVel,
+          this.expectedBeforeStepAngVel[0],
+          this.expectedBeforeStepAngVel[1],
+          this.expectedBeforeStepAngVel[2]
+        )
       : 0;
 
     const wasmSlice0PosErrorUu =
-      actualSliceCount > 0 ? dist3(liveBall.pos, rawSlices[0] ?? 0, rawSlices[1] ?? 0, rawSlices[2] ?? 0) : 0;
+      actualSliceCount > 0
+        ? dist3(liveBall.pos, rawSlices[0] ?? 0, rawSlices[1] ?? 0, rawSlices[2] ?? 0)
+        : 0;
     const wasmSlice0VelErrorUuPerSec =
-      actualSliceCount > 0 ? dist3(liveBall.vel, rawSlices[3] ?? 0, rawSlices[4] ?? 0, rawSlices[5] ?? 0) : 0;
+      actualSliceCount > 0
+        ? dist3(liveBall.vel, rawSlices[3] ?? 0, rawSlices[4] ?? 0, rawSlices[5] ?? 0)
+        : 0;
     const wasmSlice0AngVelErrorRadPerSec =
-      actualSliceCount > 0 ? dist3(liveBall.angVel, rawSlices[6] ?? 0, rawSlices[7] ?? 0, rawSlices[8] ?? 0) : 0;
+      actualSliceCount > 0
+        ? dist3(liveBall.angVel, rawSlices[6] ?? 0, rawSlices[7] ?? 0, rawSlices[8] ?? 0)
+        : 0;
 
     const tailContinuityErrorUu = hasExpected
       ? computeTailContinuityErrorUu(
@@ -188,7 +211,7 @@ export class BallTrajectoryAnomalyDetector {
           this.prevPredictionCount,
           rawSlices,
           actualSliceCount,
-          deltaTicks,
+          deltaTicks
         )
       : 0;
 
@@ -246,8 +269,7 @@ export class BallTrajectoryAnomalyDetector {
     const ticksSinceLastCarHit =
       lastCarBallHitTick >= 0 ? Math.max(0, currentTick - lastCarBallHitTick) : 99999;
     const isMultiTickCarFollowThrough =
-      closestSurfaceGapUu <= 24.0 ||
-      (ticksSinceLastCarHit <= 10 && closestSurfaceGapUu <= 32.0);
+      closestSurfaceGapUu <= 24.0 || (ticksSinceLastCarHit <= 10 && closestSurfaceGapUu <= 32.0);
 
     if (isMultiTickCarFollowThrough) {
       this.overwriteSpaceA(
@@ -255,7 +277,7 @@ export class BallTrajectoryAnomalyDetector {
         'full-car-hit-followthrough',
         liveBall,
         rawSlices,
-        actualSliceCount,
+        actualSliceCount
       );
       return null;
     }

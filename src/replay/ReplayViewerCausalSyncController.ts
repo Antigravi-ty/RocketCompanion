@@ -32,7 +32,7 @@ import {
   useReplayViewerStore,
   setNameTagRuntimeState,
 } from '../game/runtimeUiPort.ts';
-import { getPreferredColorHex } from '../ui-core/config/vehiclePresets';
+import { getPreferredColorHex } from '../ui-core/config/vehiclePresets.ts';
 import { gameAudio } from '../audio/GameAudioEngineFacade.ts';
 
 export interface ReplayViewerCausalSyncSessionPort {
@@ -156,7 +156,7 @@ export class ReplayViewerCausalSyncController {
   public beginPrerollFromCursor(
     session: ReplayViewerCausalSyncSessionPort,
     onPrepareRuntime: () => void,
-    onResetDispatchedCursor: (startIdx: number) => void,
+    onResetDispatchedCursor: (startIdx: number) => void
   ): void {
     const r = session.runtime;
     const store = useReplayViewerStore.getState();
@@ -297,7 +297,7 @@ export class ReplayViewerCausalSyncController {
   public prepareRuntimeForSession(
     runtime: ReplayScoreboardRuntimePort | null,
     currentMode: ReplayScoreboardModePort | null,
-    onRestoreRecordedLoadouts: () => void,
+    onRestoreRecordedLoadouts: () => void
   ): ReplayScoreboardModePort | null {
     const r = runtime;
     if (!r) return currentMode;

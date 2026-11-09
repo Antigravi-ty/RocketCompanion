@@ -1,8 +1,5 @@
 import { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
-import {
-  BALL_REST_Z,
-  BALL_GROUND_CONTACT_MAX_Z,
-} from '../../physics/RocketSimConstants.ts';
+import { BALL_REST_Z, BALL_GROUND_CONTACT_MAX_Z } from '../../physics/RocketSimConstants.ts';
 import {
   NEUTRAL_CONTROLS,
   MAX_INPUT_BUFFER_TICKS,

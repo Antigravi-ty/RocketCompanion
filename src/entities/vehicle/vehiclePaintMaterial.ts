@@ -1,19 +1,28 @@
-import { FENNEC_DESCRIPTOR } from '../../ui-core/config/vehicleTunerConfig';
+import { FENNEC_DESCRIPTOR } from '../../ui-core/config/vehicleTunerConfig.ts';
 const DEFAULT_CAR_COLORS = FENNEC_DESCRIPTOR.colors.default;
 import * as THREE from 'three';
-import { createMultiThemeMaterial, registerThemeSubtree, createCelShadedToonMaterial } from '../../effects/ThemeMaterialPipeline.ts';
+import {
+  createMultiThemeMaterial,
+  registerThemeSubtree,
+  createCelShadedToonMaterial,
+} from '../../effects/ThemeMaterialPipeline.ts';
 
 import {
   anodizedPaintTuning,
   subscribeAnodizedPaintTuning,
-} from '../../ui-core/config/vehicleTunerConfig';
+} from '../../ui-core/config/vehicleTunerConfig.ts';
 
 const customToonRampCache = new Map();
 
 /**
  * Generates a customizable 1D cel-shading gradient DataTexture for Toon surfaces.
  */
-export function buildCustomToonRampTexture(steps = 4, shadowMin = 0.11, highlightMax = 1.0, smooth = false) {
+export function buildCustomToonRampTexture(
+  steps = 4,
+  shadowMin = 0.11,
+  highlightMax = 1.0,
+  smooth = false
+) {
   const clampedSteps = Math.max(2, Math.min(8, Math.round(steps || 4)));
   const minVal = Math.max(0, Math.min(1, Number(shadowMin ?? 0.11)));
   const maxVal = Math.max(minVal, Math.min(1.5, Number(highlightMax ?? 1.0)));
@@ -75,9 +84,13 @@ export function createCarPaintMaterial(teamColor, options = DEFAULT_CAR_COLORS) 
   let opts = options;
   let color = teamColor;
 
-  if (typeof color === "number" && (!opts || opts === DEFAULT_CAR_COLORS)) {
+  if (typeof color === 'number' && (!opts || opts === DEFAULT_CAR_COLORS)) {
     opts = { primary: color, realisticPrimary: color, pearl: color };
-  } else if (typeof color === "object" && color !== null && (!opts || opts === DEFAULT_CAR_COLORS)) {
+  } else if (
+    typeof color === 'object' &&
+    color !== null &&
+    (!opts || opts === DEFAULT_CAR_COLORS)
+  ) {
     opts = color;
   }
   if (!opts) opts = DEFAULT_CAR_COLORS;
@@ -96,7 +109,7 @@ export function createCarPaintMaterial(teamColor, options = DEFAULT_CAR_COLORS) 
 
   const pearlColor = new Color(pearl);
   const anodizedPearlPaint = new MeshPhysicalMaterial({
-    name: "Anodized / pearl paint",
+    name: 'Anodized / pearl paint',
     color: realisticPrimary,
     roughness: anodizedPaintTuning.roughness,
     metalness: anodizedPaintTuning.metalness,
@@ -105,13 +118,13 @@ export function createCarPaintMaterial(teamColor, options = DEFAULT_CAR_COLORS) 
     sheen: anodizedPaintTuning.sheen,
     sheenColor: pearlColor,
     sheenRoughness: anodizedPaintTuning.sheenRoughness,
-    envMapIntensity: anodizedPaintTuning.envMapIntensity
+    envMapIntensity: anodizedPaintTuning.envMapIntensity,
   });
 
   const pearlUniforms = {
     pearlColor: { value: pearlColor },
     uPearlFresnelPower: { value: anodizedPaintTuning.pearlFresnelPower },
-    uPearlBlendStrength: { value: anodizedPaintTuning.pearlBlendStrength }
+    uPearlBlendStrength: { value: anodizedPaintTuning.pearlBlendStrength },
   };
 
   anodizedPearlPaint.onBeforeCompile = (shader) => {
@@ -120,7 +133,7 @@ export function createCarPaintMaterial(teamColor, options = DEFAULT_CAR_COLORS) 
     shader.uniforms.uPearlBlendStrength = pearlUniforms.uPearlBlendStrength;
     shader.fragmentShader = shader.fragmentShader
       .replace(
-        "#include <normal_fragment_maps>",
+        '#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>
         float pearlFresnel = pow(
           1.0 - clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0), max(0.1, uPearlFresnelPower)
@@ -129,55 +142,73 @@ export function createCarPaintMaterial(teamColor, options = DEFAULT_CAR_COLORS) 
         diffuseColor.rgb = mix(diffuseColor.rgb, pearlColor, pearlBlend);`
       )
       .replace(
-        "uniform vec3 diffuse;",
+        'uniform vec3 diffuse;',
         `uniform vec3 diffuse;\nuniform vec3 pearlColor;\nuniform float uPearlFresnelPower;\nuniform float uPearlBlendStrength;`
       );
   };
-  anodizedPearlPaint.customProgramCacheKey = () => "game-car-anodized-pearl-v2";
+  anodizedPearlPaint.customProgramCacheKey = () => 'game-car-anodized-pearl-v2';
   activeAnodizedMaterials.add({ mat: anodizedPearlPaint, uniforms: pearlUniforms });
 
-  const cartoonPaint = cloneMaterial ? cloneMaterial({
-    name: "Cartoon / body paint",
-    color: primary
-  }) : new MeshStandardMaterial({
-    name: "Cartoon / body paint",
-    color: primary
-  });
+  const cartoonPaint = cloneMaterial
+    ? cloneMaterial({
+        name: 'Cartoon / body paint',
+        color: primary,
+      })
+    : new MeshStandardMaterial({
+        name: 'Cartoon / body paint',
+        color: primary,
+      });
 
-  const bodyMaterial = (typeof multiThemeMaterial === "function")
-    ? multiThemeMaterial(cartoonPaint, anodizedPearlPaint)
-    : anodizedPearlPaint;
+  const bodyMaterial =
+    typeof multiThemeMaterial === 'function'
+      ? multiThemeMaterial(cartoonPaint, anodizedPearlPaint)
+      : anodizedPearlPaint;
 
-  const cartoonWheelMetal = cloneMaterial ? cloneMaterial({ color: 3754339 }) : new MeshStandardMaterial({ color: 3754339 });
+  const cartoonWheelMetal = cloneMaterial
+    ? cloneMaterial({ color: 3754339 })
+    : new MeshStandardMaterial({ color: 3754339 });
   const anodizedWheelMetal = new MeshPhysicalMaterial({
     color: 2435633,
     roughness: 0.24,
     metalness: 0.94,
     clearcoat: 0.32,
-    clearcoatRoughness: 0.18
+    clearcoatRoughness: 0.18,
   });
 
-  const cartoonTire = cloneMaterial ? cloneMaterial({ color: 1119000 }) : new MeshStandardMaterial({ color: 1119000 });
+  const cartoonTire = cloneMaterial
+    ? cloneMaterial({ color: 1119000 })
+    : new MeshStandardMaterial({ color: 1119000 });
   const anodizedTire = new MeshStandardMaterial({
     color: 1119000,
     roughness: 0.92,
-    metalness: 0.02
+    metalness: 0.02,
   });
 
-  const cartoonLowerDetail = cloneMaterial ? cloneMaterial({ color: 1514274 }) : new MeshStandardMaterial({ color: 1514274 });
+  const cartoonLowerDetail = cloneMaterial
+    ? cloneMaterial({ color: 1514274 })
+    : new MeshStandardMaterial({ color: 1514274 });
   const anodizedLowerDetail = new MeshStandardMaterial({
     color: 1514274,
     roughness: 0.4,
-    metalness: 0.78
+    metalness: 0.78,
   });
 
   const palette = {
-    wheelMetal: (typeof multiThemeMaterial === "function") ? multiThemeMaterial(cartoonWheelMetal, anodizedWheelMetal) : anodizedWheelMetal,
-    tire: (typeof multiThemeMaterial === "function") ? multiThemeMaterial(cartoonTire, anodizedTire) : anodizedTire,
-    lowerDetail: (typeof multiThemeMaterial === "function") ? multiThemeMaterial(cartoonLowerDetail, anodizedLowerDetail) : anodizedLowerDetail,
+    wheelMetal:
+      typeof multiThemeMaterial === 'function'
+        ? multiThemeMaterial(cartoonWheelMetal, anodizedWheelMetal)
+        : anodizedWheelMetal,
+    tire:
+      typeof multiThemeMaterial === 'function'
+        ? multiThemeMaterial(cartoonTire, anodizedTire)
+        : anodizedTire,
+    lowerDetail:
+      typeof multiThemeMaterial === 'function'
+        ? multiThemeMaterial(cartoonLowerDetail, anodizedLowerDetail)
+        : anodizedLowerDetail,
     lamps: new MeshBasicMaterial({ color: 14153727, toneMapped: false }),
     tailLamps: new MeshBasicMaterial({ color: 13970226, toneMapped: false }),
-    body: bodyMaterial
+    body: bodyMaterial,
   };
 
   carPaintCache.set(cacheKey, palette);
@@ -188,38 +219,45 @@ export function createCarPaintMaterial(teamColor, options = DEFAULT_CAR_COLORS) 
  * Maps original submesh material name to the themed vehicle palette.
  */
 export function mapVehicleMaterial(mat, palette, mesh) {
-  const name = (mesh?.userData?.originalMaterialName) || (mat?.name) || "";
+  const name = mesh?.userData?.originalMaterialName || mat?.name || '';
   switch (name) {
-    case "wheel-metal":
-    case "Arcade / wheel metal":
-    case "Realistic / wheel metal":
+    case 'wheel-metal':
+    case 'Arcade / wheel metal':
+    case 'Realistic / wheel metal':
       return palette.wheelMetal;
-    case "tire":
-    case "Arcade / tire":
-    case "Realistic / tire":
+    case 'tire':
+    case 'Arcade / tire':
+    case 'Realistic / tire':
       return palette.tire;
-    case "lower-detail":
-    case "Arcade / lower detail":
-    case "Realistic / lower detail":
-    case "glass":
+    case 'lower-detail':
+    case 'Arcade / lower detail':
+    case 'Realistic / lower detail':
+    case 'glass':
       return palette.lowerDetail;
-    case "lamps":
+    case 'lamps':
       return palette.lamps;
-    case "tail-lamps":
+    case 'tail-lamps':
       return palette.tailLamps;
-    case "body-shell":
-    case "body-fill":
-    case "paint":
-    case "Arcade / body paint":
-    case "Cartoon / body paint":
-    case "Realistic / anodized pearl paint":
-    case "Anodized / pearl paint":
+    case 'body-shell':
+    case 'body-fill':
+    case 'paint':
+    case 'Arcade / body paint':
+    case 'Cartoon / body paint':
+    case 'Realistic / anodized pearl paint':
+    case 'Anodized / pearl paint':
       return palette.body;
     default:
-      if (mesh?.name && (mesh.name.includes("body") || mesh.name.includes("shell") || mesh.name.includes("paint"))) {
+      if (
+        mesh?.name &&
+        (mesh.name.includes('body') || mesh.name.includes('shell') || mesh.name.includes('paint'))
+      ) {
         return palette.body;
       }
-      if (name.startsWith("Arcade / reset") || name.startsWith("Realistic / reset") || mat?.uniforms) {
+      if (
+        name.startsWith('Arcade / reset') ||
+        name.startsWith('Realistic / reset') ||
+        mat?.uniforms
+      ) {
         return mat;
       }
       return palette.lowerDetail;
@@ -243,22 +281,22 @@ export function setVehicleReceiveShadows(enabled) {
 export function applyVehicleMaterials(root, palette) {
   const { Mesh } = THREE;
   const markMatrixDirty = registerThemeSubtree;
-  root.traverse?.(node => {
+  root.traverse?.((node) => {
     let parent = node;
     while (parent) {
-      const pname = parent.name || "";
+      const pname = parent.name || '';
       if (
-        pname === "flip-reset-indicator" ||
-        pname === "realistic-reset-pulse" ||
-        pname === "car-hitbox" ||
-        pname === "car-hitbox-wireframe" ||
-        pname === "solid-cylinder-wheel" ||
-        pname.includes("boost") ||
-        pname.includes("flame") ||
-        pname.includes("puff") ||
-        pname.includes("flare") ||
-        pname.includes("flash") ||
-        pname.startsWith("whitebox-")
+        pname === 'flip-reset-indicator' ||
+        pname === 'realistic-reset-pulse' ||
+        pname === 'car-hitbox' ||
+        pname === 'car-hitbox-wireframe' ||
+        pname === 'solid-cylinder-wheel' ||
+        pname.includes('boost') ||
+        pname.includes('flame') ||
+        pname.includes('puff') ||
+        pname.includes('flare') ||
+        pname.includes('flash') ||
+        pname.startsWith('whitebox-')
       ) {
         return;
       }
@@ -268,22 +306,22 @@ export function applyVehicleMaterials(root, palette) {
       if (node.layers && node.layers.isEnabled(1) && !node.layers.isEnabled(0)) {
         return;
       }
-      if (Array.isArray(node.material) && node.material.some(m => m?.name === "whitebox-rear")) {
+      if (Array.isArray(node.material) && node.material.some((m) => m?.name === 'whitebox-rear')) {
         return;
       }
       if (!node.userData.originalMaterialName && node.material) {
         node.userData.originalMaterialName = Array.isArray(node.material)
-          ? (node.material[0]?.name || "")
-          : (node.material.name || "");
+          ? node.material[0]?.name || ''
+          : node.material.name || '';
       }
       node.material = Array.isArray(node.material)
-        ? node.material.map(mat => mapVehicleMaterial(mat, palette, node))
+        ? node.material.map((mat) => mapVehicleMaterial(mat, palette, node))
         : mapVehicleMaterial(node.material, palette, node);
       node.castShadow = true;
       node.receiveShadow = _vehicleReceiveShadows;
     }
   });
-  if (typeof markMatrixDirty === "function") {
+  if (typeof markMatrixDirty === 'function') {
     markMatrixDirty(root);
   }
 }

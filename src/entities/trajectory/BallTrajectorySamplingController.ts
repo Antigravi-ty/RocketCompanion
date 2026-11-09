@@ -37,7 +37,7 @@ export interface TrajectoryPhysicsPort {
   getHeaderView?(): { readonly tickCount: number };
   getBallState(): Float32Array;
   setBallState(
-    state: Float32Array | TrajectoryBallLaunchState | number | null | undefined,
+    state: Float32Array | TrajectoryBallLaunchState | number | null | undefined
   ): boolean;
   isBallSleeping?(): boolean;
   updateBallPrediction(maxSeconds?: number): number;
@@ -132,7 +132,7 @@ export class BallTrajectorySamplingController {
       this.predictedPoints,
       visibleSlices,
       0,
-      this.bounceMarkersBuffer,
+      this.bounceMarkersBuffer
     );
     this.bounceCount = bounceRes.bounceCount;
     this.maxHeightUu = bounceRes.maxHeightUu;
@@ -141,7 +141,7 @@ export class BallTrajectorySamplingController {
   public setStaticPreviewTrajectory(
     phys: TrajectoryPhysicsPort,
     ballLaunchState: TrajectoryBallLaunchState | null,
-    predictionTicks: number,
+    predictionTicks: number
   ): number {
     if (ballLaunchState?.kickoffState) {
       this.clear();
@@ -195,7 +195,7 @@ export class BallTrajectorySamplingController {
         actualCount,
         this.predictedPoints,
         this.rawPredictedPoints,
-        this.rawSlicesBuffer,
+        this.rawSlicesBuffer
       );
       this._updateBounceMetrics(this.rawSlicesBuffer, actualCount);
 
@@ -222,13 +222,13 @@ export class BallTrajectorySamplingController {
       reason?: TrajectoryUpdateKind;
       carBallHitEvent?: boolean;
       intentionalReset?: boolean;
-    } = {},
+    } = {}
   ): number {
     const distanceTicks = Math.min(600, Math.max(60, cfg.predictionTicks || 600));
     const updateMode = cfg.updateMode || 'continuous-incremental';
     const catchupBudget = Math.min(
       distanceTicks,
-      Math.max(2, Math.round(Number(cfg.catchupTicksPerFrame) || 5)),
+      Math.max(2, Math.round(Number(cfg.catchupTicksPerFrame) || 5))
     );
 
     const resolvedTick =
@@ -246,7 +246,7 @@ export class BallTrajectorySamplingController {
         this.validCachedCount,
         this.predictedPoints,
         this.predictionCount,
-        deltaTicks,
+        deltaTicks
       );
     }
 
@@ -287,7 +287,7 @@ export class BallTrajectorySamplingController {
         shouldRefreshTailSeamContact(
           rawData,
           Math.min(count, distanceTicks, this.maxTicks),
-          this._incStepsSinceFullBatch,
+          this._incStepsSinceFullBatch
         )
       ) {
         count = phys.updateBallPrediction(wasmHorizonSeconds);
@@ -319,7 +319,7 @@ export class BallTrajectorySamplingController {
         deltaTicks,
         this.predictedPoints,
         this.rawPredictedPoints,
-        this.rawSlicesBuffer,
+        this.rawSlicesBuffer
       );
       if (!wasIncrementalShift) {
         this._incStepsSinceFullBatch = 0;
@@ -330,7 +330,7 @@ export class BallTrajectorySamplingController {
         actualCount,
         this.predictedPoints,
         this.rawPredictedPoints,
-        this.rawSlicesBuffer,
+        this.rawSlicesBuffer
       );
       if (refreshedTailSeam) {
         wasIncrementalShift = true;
@@ -355,7 +355,9 @@ export class BallTrajectorySamplingController {
       this.fullRecomputeCount++;
       this.lastUpdateKind = 'wasm-seam-resync';
     } else {
-      this.predictionCount = isIncWindow ? Math.min(actualCount, Math.max(2, catchupBudget)) : actualCount;
+      this.predictionCount = isIncWindow
+        ? Math.min(actualCount, Math.max(2, catchupBudget))
+        : actualCount;
       this.fullRecomputeCount++;
       this.patternAnchorTick = resolvedTick;
       this.lastUpdateKind = options.reason || 'full-initial';
@@ -371,9 +373,7 @@ export class BallTrajectorySamplingController {
         updateKind: this.lastUpdateKind,
         needFull,
         wasIncrementalShift,
-        carBallHitEvent: Boolean(
-          options.carBallHitEvent || this.lastUpdateKind === 'full-car-hit',
-        ),
+        carBallHitEvent: Boolean(options.carBallHitEvent || this.lastUpdateKind === 'full-car-hit'),
         worldBounceEvent: this.lastUpdateKind === 'full-world-bounce',
         intentionalReset: Boolean(options.intentionalReset),
         deviationThresholdUu: Math.max(0.5, Number(cfg.deviationThresholdUu) || 5.0),
@@ -396,7 +396,7 @@ export class BallTrajectorySamplingController {
     stateBuf: Float32Array,
     currentTick: number,
     forcePredictAnyMovement: boolean,
-    cfg: TrajectorySamplingConfig,
+    cfg: TrajectorySamplingConfig
   ): boolean {
     const rawVelX = stateBuf[16];
     const rawVelY = stateBuf[17];

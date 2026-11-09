@@ -48,7 +48,12 @@ const BODY_PRODUCT_CATALOG_ENTRIES: readonly RLRCVehicleCatalogEntry[] = Object.
   // Octane hitbox -> Fennec visual (including Octane 23 and Fennec 4284)
   { bodyProductId: 23, name: 'Octane', hitboxId: 'hitbox-octane', visualId: 'fennec' },
   { bodyProductId: 4284, name: 'Fennec', hitboxId: 'hitbox-octane', visualId: 'fennec' },
-  { bodyProductId: 7948, name: 'Octane Preset Variant', hitboxId: 'hitbox-octane', visualId: 'fennec' },
+  {
+    bodyProductId: 7948,
+    name: 'Octane Preset Variant',
+    hitboxId: 'hitbox-octane',
+    visualId: 'fennec',
+  },
   { bodyProductId: 24, name: 'Takumi', hitboxId: 'hitbox-octane', visualId: 'fennec' },
   { bodyProductId: 26, name: 'Road Hog', hitboxId: 'hitbox-octane', visualId: 'fennec' },
   { bodyProductId: 27, name: 'Gizmo', hitboxId: 'hitbox-octane', visualId: 'fennec' },
@@ -87,13 +92,23 @@ const BODY_PRODUCT_CATALOG_ENTRIES: readonly RLRCVehicleCatalogEntry[] = Object.
   // Dominus hitbox -> Dominus visual (403 is Dominus, along with 1568 and 12262)
   { bodyProductId: 403, name: 'Dominus', hitboxId: 'hitbox-dominus', visualId: 'dominus' },
   { bodyProductId: 1568, name: 'Dominus GT', hitboxId: 'hitbox-dominus', visualId: 'dominus' },
-  { bodyProductId: 12262, name: 'Dominus Variant', hitboxId: 'hitbox-dominus', visualId: 'dominus' },
+  {
+    bodyProductId: 12262,
+    name: 'Dominus Variant',
+    hitboxId: 'hitbox-dominus',
+    visualId: 'dominus',
+  },
   { bodyProductId: 21, name: 'Hotshot', hitboxId: 'hitbox-dominus', visualId: 'dominus' },
   { bodyProductId: 600, name: 'Ripper', hitboxId: 'hitbox-dominus', visualId: 'dominus' },
   { bodyProductId: 1172, name: 'Aftershock', hitboxId: 'hitbox-dominus', visualId: 'dominus' },
   { bodyProductId: 1173, name: 'Masamune', hitboxId: 'hitbox-dominus', visualId: 'dominus' },
   { bodyProductId: 1796, name: 'Imperator DT5', hitboxId: 'hitbox-dominus', visualId: 'dominus' },
-  { bodyProductId: 2069, name: 'Dodge Charger R/T', hitboxId: 'hitbox-dominus', visualId: 'dominus' },
+  {
+    bodyProductId: 2069,
+    name: 'Dodge Charger R/T',
+    hitboxId: 'hitbox-dominus',
+    visualId: 'dominus',
+  },
   { bodyProductId: 2665, name: 'Maverick GXT', hitboxId: 'hitbox-dominus', visualId: 'dominus' },
   { bodyProductId: 3624, name: 'Guardian GXT', hitboxId: 'hitbox-dominus', visualId: 'dominus' },
   { bodyProductId: 4291, name: 'Ronin GXT', hitboxId: 'hitbox-dominus', visualId: 'dominus' },
@@ -101,9 +116,24 @@ const BODY_PRODUCT_CATALOG_ENTRIES: readonly RLRCVehicleCatalogEntry[] = Object.
 
   // Breakout hitbox -> Breakout-Mini visual
   { bodyProductId: 22, name: 'Breakout', hitboxId: 'hitbox-breakout', visualId: 'breakout-mini' },
-  { bodyProductId: 1894, name: 'Breakout Type-S', hitboxId: 'hitbox-breakout', visualId: 'breakout-mini' },
-  { bodyProductId: 12658, name: 'Breakout Variant', hitboxId: 'hitbox-breakout', visualId: 'breakout-mini' },
-  { bodyProductId: 1478, name: 'Animus GP', hitboxId: 'hitbox-breakout', visualId: 'breakout-mini' },
+  {
+    bodyProductId: 1894,
+    name: 'Breakout Type-S',
+    hitboxId: 'hitbox-breakout',
+    visualId: 'breakout-mini',
+  },
+  {
+    bodyProductId: 12658,
+    name: 'Breakout Variant',
+    hitboxId: 'hitbox-breakout',
+    visualId: 'breakout-mini',
+  },
+  {
+    bodyProductId: 1478,
+    name: 'Animus GP',
+    hitboxId: 'hitbox-breakout',
+    visualId: 'breakout-mini',
+  },
   { bodyProductId: 2268, name: 'Samurai', hitboxId: 'hitbox-breakout', visualId: 'breakout-mini' },
   { bodyProductId: 3032, name: 'Cyclone', hitboxId: 'hitbox-breakout', visualId: 'breakout-mini' },
   { bodyProductId: 4014, name: 'Komodo', hitboxId: 'hitbox-breakout', visualId: 'breakout-mini' },
@@ -139,9 +169,7 @@ function computeMedian(values: readonly number[]): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
   const mid = sorted.length >>> 1;
-  return (sorted.length & 1) === 1
-    ? sorted[mid]
-    : 0.5 * (sorted[mid - 1] + sorted[mid]);
+  return (sorted.length & 1) === 1 ? sorted[mid] : 0.5 * (sorted[mid - 1] + sorted[mid]);
 }
 
 /**
@@ -161,7 +189,8 @@ export function extractRestingKinematicsStats(
       if (z < 15.5 || z > 20.5) continue;
       const vz = Math.abs(sample.linearVelocity.z);
       if (vz > 5.0) continue;
-      const upZ = 1 - 2 * (sample.rotation.x * sample.rotation.x + sample.rotation.y * sample.rotation.y);
+      const upZ =
+        1 - 2 * (sample.rotation.x * sample.rotation.x + sample.rotation.y * sample.rotation.y);
       if (upZ < 0.98) continue;
       zValues.push(z);
       fzValues.push(computeSignedForwardZFromQuat(sample.rotation));
@@ -243,9 +272,7 @@ export function classifyHitboxByRestingKinematics(
 export function resolveRLRCVehicleLoadout(
   bodyProductId: number | null | undefined,
   restingSamplesOrStats?:
-    | readonly (RLRCRigidBodySample | RLRCRestingSampleInput)[]
-    | RLRCRestingKinematicsStats
-    | null,
+    readonly (RLRCRigidBodySample | RLRCRestingSampleInput)[] | RLRCRestingKinematicsStats | null,
   customVisualHint?: string | null
 ): RLRCVehicleLoadoutResolution {
   const safeProductId =

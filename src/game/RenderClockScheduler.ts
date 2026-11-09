@@ -150,7 +150,11 @@ export class RenderClockScheduler {
             renderErr instanceof Error
               ? `${renderErr.name}: ${renderErr.message}\n${renderErr.stack || ''}`
               : String(renderErr);
-          console.error('[RenderClockScheduler] Uncaught error during render tick:', errMsg, renderErr);
+          console.error(
+            '[RenderClockScheduler] Uncaught error during render tick:',
+            errMsg,
+            renderErr
+          );
         }
         this.lastRenderResult = rendered;
 
@@ -209,8 +213,7 @@ export class RenderClockScheduler {
   }
 
   setFpsLimit(maxFps: number | null): void {
-    const interval =
-      maxFps !== null && Number.isFinite(maxFps) && maxFps > 0 ? 1000 / maxFps : 0;
+    const interval = maxFps !== null && Number.isFinite(maxFps) && maxFps > 0 ? 1000 / maxFps : 0;
 
     if (interval !== this.frameInterval) {
       this.frameInterval = interval;
@@ -221,8 +224,7 @@ export class RenderClockScheduler {
   }
 
   setUnfocusedFpsLimit(maxFps: number | null): void {
-    const interval =
-      maxFps !== null && Number.isFinite(maxFps) && maxFps > 0 ? 1000 / maxFps : 0;
+    const interval = maxFps !== null && Number.isFinite(maxFps) && maxFps > 0 ? 1000 / maxFps : 0;
 
     if (interval !== this.unfocusedFrameInterval) {
       this.unfocusedFrameInterval = interval;

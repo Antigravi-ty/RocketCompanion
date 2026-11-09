@@ -19,7 +19,7 @@ import {
   BOOST_PAD_STATE_STRIDE,
   SIM_OFFSETS,
   EXTENDED_STATE_OFFSETS,
-  SURFACE_SUBTYPES
+  SURFACE_SUBTYPES,
 } from './RocketSimConstants.ts';
 
 export type NumericStateBuffer = Float32Array | Float64Array | number[];
@@ -35,11 +35,21 @@ export class ArenaHeaderView {
     return this;
   }
 
-  get tickCount() { return this.buffer ? this.buffer[SIM_OFFSETS.TICK] : 0; }
-  set tickCount(v: number) { if (this.buffer) this.buffer[SIM_OFFSETS.TICK] = v; }
-  get goalScoredFlag() { return this.buffer ? this.buffer[SIM_OFFSETS.GOAL] : 0; }
-  get numCars() { return this.buffer ? this.buffer[SIM_OFFSETS.NUM_CARS] : 0; }
-  get numPads() { return this.buffer ? this.buffer[SIM_OFFSETS.NUM_PADS] : 0; }
+  get tickCount() {
+    return this.buffer ? this.buffer[SIM_OFFSETS.TICK] : 0;
+  }
+  set tickCount(v: number) {
+    if (this.buffer) this.buffer[SIM_OFFSETS.TICK] = v;
+  }
+  get goalScoredFlag() {
+    return this.buffer ? this.buffer[SIM_OFFSETS.GOAL] : 0;
+  }
+  get numCars() {
+    return this.buffer ? this.buffer[SIM_OFFSETS.NUM_CARS] : 0;
+  }
+  get numPads() {
+    return this.buffer ? this.buffer[SIM_OFFSETS.NUM_PADS] : 0;
+  }
 }
 
 export class CarStateView {
@@ -52,9 +62,10 @@ export class CarStateView {
 
   attach(buffer, baseOffsetOrCarIndex = 0) {
     this.buffer = buffer;
-    this.baseOffset = (baseOffsetOrCarIndex >= 0 && baseOffsetOrCarIndex < MAX_CARS)
-      ? SIM_OFFSETS.CARS + baseOffsetOrCarIndex * CAR_STATE_STRIDE
-      : baseOffsetOrCarIndex;
+    this.baseOffset =
+      baseOffsetOrCarIndex >= 0 && baseOffsetOrCarIndex < MAX_CARS
+        ? SIM_OFFSETS.CARS + baseOffsetOrCarIndex * CAR_STATE_STRIDE
+        : baseOffsetOrCarIndex;
     return this;
   }
 
@@ -64,48 +75,100 @@ export class CarStateView {
     return this;
   }
 
-  get posX() { return this.buffer ? this.buffer[this.baseOffset + 0] : 0; }
-  get posY() { return this.buffer ? this.buffer[this.baseOffset + 1] : 0; }
-  get posZ() { return this.buffer ? this.buffer[this.baseOffset + 2] : 0; }
+  get posX() {
+    return this.buffer ? this.buffer[this.baseOffset + 0] : 0;
+  }
+  get posY() {
+    return this.buffer ? this.buffer[this.baseOffset + 1] : 0;
+  }
+  get posZ() {
+    return this.buffer ? this.buffer[this.baseOffset + 2] : 0;
+  }
 
-  get fwdX() { return this.buffer ? this.buffer[this.baseOffset + 3] : 0; }
-  get fwdY() { return this.buffer ? this.buffer[this.baseOffset + 4] : 0; }
-  get fwdZ() { return this.buffer ? this.buffer[this.baseOffset + 5] : 0; }
+  get fwdX() {
+    return this.buffer ? this.buffer[this.baseOffset + 3] : 0;
+  }
+  get fwdY() {
+    return this.buffer ? this.buffer[this.baseOffset + 4] : 0;
+  }
+  get fwdZ() {
+    return this.buffer ? this.buffer[this.baseOffset + 5] : 0;
+  }
 
-  get rightX() { return this.buffer ? this.buffer[this.baseOffset + 6] : 0; }
-  get rightY() { return this.buffer ? this.buffer[this.baseOffset + 7] : 0; }
-  get rightZ() { return this.buffer ? this.buffer[this.baseOffset + 8] : 0; }
+  get rightX() {
+    return this.buffer ? this.buffer[this.baseOffset + 6] : 0;
+  }
+  get rightY() {
+    return this.buffer ? this.buffer[this.baseOffset + 7] : 0;
+  }
+  get rightZ() {
+    return this.buffer ? this.buffer[this.baseOffset + 8] : 0;
+  }
 
-  get upX() { return this.buffer ? this.buffer[this.baseOffset + 9] : 0; }
-  get upY() { return this.buffer ? this.buffer[this.baseOffset + 10] : 0; }
-  get upZ() { return this.buffer ? this.buffer[this.baseOffset + 11] : 0; }
+  get upX() {
+    return this.buffer ? this.buffer[this.baseOffset + 9] : 0;
+  }
+  get upY() {
+    return this.buffer ? this.buffer[this.baseOffset + 10] : 0;
+  }
+  get upZ() {
+    return this.buffer ? this.buffer[this.baseOffset + 11] : 0;
+  }
 
-  get velX() { return this.buffer ? this.buffer[this.baseOffset + 12] : 0; }
-  get velY() { return this.buffer ? this.buffer[this.baseOffset + 13] : 0; }
-  get velZ() { return this.buffer ? this.buffer[this.baseOffset + 14] : 0; }
+  get velX() {
+    return this.buffer ? this.buffer[this.baseOffset + 12] : 0;
+  }
+  get velY() {
+    return this.buffer ? this.buffer[this.baseOffset + 13] : 0;
+  }
+  get velZ() {
+    return this.buffer ? this.buffer[this.baseOffset + 14] : 0;
+  }
 
-  get angVelX() { return this.buffer ? this.buffer[this.baseOffset + 15] : 0; }
-  get angVelY() { return this.buffer ? this.buffer[this.baseOffset + 16] : 0; }
-  get angVelZ() { return this.buffer ? this.buffer[this.baseOffset + 17] : 0; }
+  get angVelX() {
+    return this.buffer ? this.buffer[this.baseOffset + 15] : 0;
+  }
+  get angVelY() {
+    return this.buffer ? this.buffer[this.baseOffset + 16] : 0;
+  }
+  get angVelZ() {
+    return this.buffer ? this.buffer[this.baseOffset + 17] : 0;
+  }
 
-  get boost() { return this.buffer ? this.buffer[this.baseOffset + 18] : 0; }
+  get boost() {
+    return this.buffer ? this.buffer[this.baseOffset + 18] : 0;
+  }
   set boost(val) {
     if (this.buffer) {
       this.buffer[this.baseOffset + 18] = Number(val) || 0;
     }
   }
-  get isOnGround() { return this.buffer ? this.buffer[this.baseOffset + 19] >= 0.5 : false; }
-  get isSupersonic() { return this.buffer ? this.buffer[this.baseOffset + 20] >= 0.5 : false; }
-  get isDemoed() { return this.buffer ? this.buffer[this.baseOffset + 21] > 0 : false; }
+  get isOnGround() {
+    return this.buffer ? this.buffer[this.baseOffset + 19] >= 0.5 : false;
+  }
+  get isSupersonic() {
+    return this.buffer ? this.buffer[this.baseOffset + 20] >= 0.5 : false;
+  }
+  get isDemoed() {
+    return this.buffer ? this.buffer[this.baseOffset + 21] > 0 : false;
+  }
   get demoRespawnTimer() {
     if (!this.buffer) return 0;
     const val = this.buffer[this.baseOffset + 21];
     return val > 0 ? val : 0;
   }
-  get hasFlipOrJump() { return this.buffer ? Math.round(this.buffer[this.baseOffset + 22]) !== 0 : false; }
-  get flipsRemaining() { return this.buffer ? Math.round(this.buffer[this.baseOffset + 22]) : 0; }
-  get isBoosting() { return this.buffer ? this.buffer[this.baseOffset + 23] >= 0.5 : false; }
-  get isFlipping() { return this.buffer ? this.buffer[this.baseOffset + 24] >= 0.5 : false; }
+  get hasFlipOrJump() {
+    return this.buffer ? Math.round(this.buffer[this.baseOffset + 22]) !== 0 : false;
+  }
+  get flipsRemaining() {
+    return this.buffer ? Math.round(this.buffer[this.baseOffset + 22]) : 0;
+  }
+  get isBoosting() {
+    return this.buffer ? this.buffer[this.baseOffset + 23] >= 0.5 : false;
+  }
+  get isFlipping() {
+    return this.buffer ? this.buffer[this.baseOffset + 24] >= 0.5 : false;
+  }
 
   getWheelSusLength(wheelIndex) {
     return this.buffer ? this.buffer[this.baseOffset + 25 + wheelIndex * 3 + 0] : 0;
@@ -117,9 +180,15 @@ export class CarStateView {
     return this.buffer ? this.buffer[this.baseOffset + 25 + wheelIndex * 3 + 2] >= 0.5 : false;
   }
 
-  get groundNormalX() { return this.buffer ? this.buffer[this.baseOffset + 37] : 0; }
-  get groundNormalY() { return this.buffer ? this.buffer[this.baseOffset + 38] : 0; }
-  get groundNormalZ() { return this.buffer ? this.buffer[this.baseOffset + 39] : 0; }
+  get groundNormalX() {
+    return this.buffer ? this.buffer[this.baseOffset + 37] : 0;
+  }
+  get groundNormalY() {
+    return this.buffer ? this.buffer[this.baseOffset + 38] : 0;
+  }
+  get groundNormalZ() {
+    return this.buffer ? this.buffer[this.baseOffset + 39] : 0;
+  }
 
   get forwardSpeed() {
     return this.velX * this.fwdX + this.velY * this.fwdY + this.velZ * this.fwdZ;
@@ -132,7 +201,8 @@ export class CarStateView {
   get isJumping() {
     const idx = this.carIndex;
     if (idx < 0 || idx >= MAX_CARS) return false;
-    const base = EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE + idx * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;
+    const base =
+      EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE + idx * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;
     if (!this.buffer || this.buffer.length < base + 4) return false;
     return this.buffer[base + EXTENDED_STATE_OFFSETS.CAR_IS_JUMPING_OFFSET] > 0.5;
   }
@@ -140,7 +210,8 @@ export class CarStateView {
   get airTime() {
     const idx = this.carIndex;
     if (idx < 0 || idx >= MAX_CARS) return 0;
-    const base = EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE + idx * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;
+    const base =
+      EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE + idx * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;
     if (!this.buffer || this.buffer.length < base + 4) return 0;
     return this.buffer[base + EXTENDED_STATE_OFFSETS.CAR_AIR_TIME_OFFSET];
   }
@@ -149,7 +220,8 @@ export class CarStateView {
     if (this.isDemoed) return 0;
     const idx = this.carIndex;
     if (idx < 0 || idx >= MAX_CARS) return 0;
-    const base = EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE + idx * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;
+    const base =
+      EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE + idx * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;
     if (!this.buffer || this.buffer.length < base + 4) return 0;
     return this.buffer[base + EXTENDED_STATE_OFFSETS.CAR_JUMP_TIME_OFFSET];
   }
@@ -158,16 +230,18 @@ export class CarStateView {
     if (!this.isDemoed) return -1;
     const idx = this.carIndex;
     if (idx < 0 || idx >= MAX_CARS) return -1;
-    const base = EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE + idx * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;
+    const base =
+      EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE + idx * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;
     if (!this.buffer || this.buffer.length < base + 4) return -1;
     const raw = Math.round(this.buffer[base + EXTENDED_STATE_OFFSETS.CAR_JUMP_TIME_OFFSET]);
-    return (raw >= 0 && raw <= 3) ? raw : -1;
+    return raw >= 0 && raw <= 3 ? raw : -1;
   }
 
   get airTimeSinceJump() {
     const idx = this.carIndex;
     if (idx < 0 || idx >= MAX_CARS) return 0;
-    const base = EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE + idx * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;
+    const base =
+      EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE + idx * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;
     if (!this.buffer || this.buffer.length < base + 4) return 0;
     return this.buffer[base + EXTENDED_STATE_OFFSETS.CAR_AIR_TIME_SINCE_JUMP_OFFSET];
   }
@@ -202,29 +276,65 @@ export class BallStateView {
     return this;
   }
 
-  get posX() { return this.buffer ? this.buffer[this.baseOffset + 0] : 0; }
-  get posY() { return this.buffer ? this.buffer[this.baseOffset + 1] : 0; }
-  get posZ() { return this.buffer ? this.buffer[this.baseOffset + 2] : 0; }
+  get posX() {
+    return this.buffer ? this.buffer[this.baseOffset + 0] : 0;
+  }
+  get posY() {
+    return this.buffer ? this.buffer[this.baseOffset + 1] : 0;
+  }
+  get posZ() {
+    return this.buffer ? this.buffer[this.baseOffset + 2] : 0;
+  }
 
-  get fwdX() { return this.buffer ? this.buffer[this.baseOffset + 3] : 0; }
-  get fwdY() { return this.buffer ? this.buffer[this.baseOffset + 4] : 0; }
-  get fwdZ() { return this.buffer ? this.buffer[this.baseOffset + 5] : 0; }
+  get fwdX() {
+    return this.buffer ? this.buffer[this.baseOffset + 3] : 0;
+  }
+  get fwdY() {
+    return this.buffer ? this.buffer[this.baseOffset + 4] : 0;
+  }
+  get fwdZ() {
+    return this.buffer ? this.buffer[this.baseOffset + 5] : 0;
+  }
 
-  get rightX() { return this.buffer ? this.buffer[this.baseOffset + 6] : 0; }
-  get rightY() { return this.buffer ? this.buffer[this.baseOffset + 7] : 0; }
-  get rightZ() { return this.buffer ? this.buffer[this.baseOffset + 8] : 0; }
+  get rightX() {
+    return this.buffer ? this.buffer[this.baseOffset + 6] : 0;
+  }
+  get rightY() {
+    return this.buffer ? this.buffer[this.baseOffset + 7] : 0;
+  }
+  get rightZ() {
+    return this.buffer ? this.buffer[this.baseOffset + 8] : 0;
+  }
 
-  get upX() { return this.buffer ? this.buffer[this.baseOffset + 9] : 0; }
-  get upY() { return this.buffer ? this.buffer[this.baseOffset + 10] : 0; }
-  get upZ() { return this.buffer ? this.buffer[this.baseOffset + 11] : 0; }
+  get upX() {
+    return this.buffer ? this.buffer[this.baseOffset + 9] : 0;
+  }
+  get upY() {
+    return this.buffer ? this.buffer[this.baseOffset + 10] : 0;
+  }
+  get upZ() {
+    return this.buffer ? this.buffer[this.baseOffset + 11] : 0;
+  }
 
-  get velX() { return this.buffer ? this.buffer[this.baseOffset + 12] : 0; }
-  get velY() { return this.buffer ? this.buffer[this.baseOffset + 13] : 0; }
-  get velZ() { return this.buffer ? this.buffer[this.baseOffset + 14] : 0; }
+  get velX() {
+    return this.buffer ? this.buffer[this.baseOffset + 12] : 0;
+  }
+  get velY() {
+    return this.buffer ? this.buffer[this.baseOffset + 13] : 0;
+  }
+  get velZ() {
+    return this.buffer ? this.buffer[this.baseOffset + 14] : 0;
+  }
 
-  get angVelX() { return this.buffer ? this.buffer[this.baseOffset + 15] : 0; }
-  get angVelY() { return this.buffer ? this.buffer[this.baseOffset + 16] : 0; }
-  get angVelZ() { return this.buffer ? this.buffer[this.baseOffset + 17] : 0; }
+  get angVelX() {
+    return this.buffer ? this.buffer[this.baseOffset + 15] : 0;
+  }
+  get angVelY() {
+    return this.buffer ? this.buffer[this.baseOffset + 16] : 0;
+  }
+  get angVelZ() {
+    return this.buffer ? this.buffer[this.baseOffset + 17] : 0;
+  }
 }
 
 export class BoostPadStateView {
@@ -241,8 +351,12 @@ export class BoostPadStateView {
     return this;
   }
 
-  get isActive() { return this.buffer ? this.buffer[this.baseOffset] > 0.5 : false; }
-  get cooldown() { return this.buffer ? this.buffer[this.baseOffset + 1] : 0; }
+  get isActive() {
+    return this.buffer ? this.buffer[this.baseOffset] > 0.5 : false;
+  }
+  get cooldown() {
+    return this.buffer ? this.buffer[this.baseOffset + 1] : 0;
+  }
 }
 
 export class GameStateView {
@@ -255,7 +369,10 @@ export class GameStateView {
     this.buffer = buffer;
     this.header = new ArenaHeaderView(buffer);
     this.ball = new BallStateView(buffer);
-    this.cars = Array.from({ length: MAX_CARS }, (_, i) => new CarStateView(buffer, SIM_OFFSETS.CARS + i * CAR_STATE_STRIDE));
+    this.cars = Array.from(
+      { length: MAX_CARS },
+      (_, i) => new CarStateView(buffer, SIM_OFFSETS.CARS + i * CAR_STATE_STRIDE)
+    );
     this.pads = Array.from({ length: NUM_BOOST_PADS }, (_, i) => new BoostPadStateView(buffer, i));
   }
 
@@ -281,10 +398,20 @@ export class GameStateView {
   }
 }
 
-export function classifyBallHitSurface(x, y, z, nx, ny, nz, isGoalpost = false, floorNz = 0.8, netNz = 0.05) {
+export function classifyBallHitSurface(
+  x,
+  y,
+  z,
+  nx,
+  ny,
+  nz,
+  isGoalpost = false,
+  floorNz = 0.8,
+  netNz = 0.05
+) {
   const isNearGoal = Math.abs(y) >= 4950.0;
-  const isCrossbar = (Math.abs(z - 642.78) < 95.0) && (Math.abs(x) <= 960.0);
-  const isUprightPost = (Math.abs(Math.abs(x) - 892.755) < 95.0) && (z <= 720.0);
+  const isCrossbar = Math.abs(z - 642.78) < 95.0 && Math.abs(x) <= 960.0;
+  const isUprightPost = Math.abs(Math.abs(x) - 892.755) < 95.0 && z <= 720.0;
 
   if (isGoalpost || (isNearGoal && (isCrossbar || isUprightPost))) {
     return isCrossbar ? SURFACE_SUBTYPES.CROSSBAR : SURFACE_SUBTYPES.GOALPOST;

@@ -61,7 +61,7 @@ export class StandaloneReplayViewerController {
 
   constructor(
     runtime: ReplayScoreboardRuntimePort | null,
-    mode: ReplayScoreboardModePort | null = null,
+    mode: ReplayScoreboardModePort | null = null
   ) {
     this.runtime = runtime;
     this.mode = mode;
@@ -88,7 +88,10 @@ export class StandaloneReplayViewerController {
     this._unsubscribeFloating = useReplayViewerStore.subscribe(() => {
       const st = useReplayViewerStore.getState();
       this.hotkeySubController.checkWindowOpenAndPriority(
-        { isWindowOpen: Boolean(st.isWindowOpen), hasHotkeyPriority: Boolean(st.hasHotkeyPriority) },
+        {
+          isWindowOpen: Boolean(st.isWindowOpen),
+          hasHotkeyPriority: Boolean(st.hasHotkeyPriority),
+        },
         VIEWER_HOTKEY_CONFLICT_MSG
       );
     });
@@ -127,7 +130,10 @@ export class StandaloneReplayViewerController {
       hasFrames: () => this.frames.length > 0,
       getWindowStatus: () => {
         const st = useReplayViewerStore.getState();
-        return { isWindowOpen: Boolean(st.isWindowOpen), hasHotkeyPriority: Boolean(st.hasHotkeyPriority) };
+        return {
+          isWindowOpen: Boolean(st.isWindowOpen),
+          hasHotkeyPriority: Boolean(st.hasHotkeyPriority),
+        };
       },
       conflictErrorMessage: VIEWER_HOTKEY_CONFLICT_MSG,
       onSelectPovSlot: (slotKey: number) => this.selectPovSlot(slotKey),
@@ -156,7 +162,7 @@ export class StandaloneReplayViewerController {
 
   private _bindTimelines(
     timelines: ReplayScoreboardTimelinesBundle | null,
-    metadata: ReplayRosterMetadataLike | null = null,
+    metadata: ReplayRosterMetadataLike | null = null
   ): void {
     this.timelines = timelines || null;
     this.stateInputTimeline = timelines?.stateInputTimeline || timelines?.stateInput || null;
@@ -168,16 +174,21 @@ export class StandaloneReplayViewerController {
   public _applyFrameAtCursor(
     smoothStep: boolean = false,
     dispatchEvents: boolean = false,
-    restoreOptions: { preserveEngineTick?: boolean; overrideTick?: number } = { preserveEngineTick: true }
+    restoreOptions: { preserveEngineTick?: boolean; overrideTick?: number } = {
+      preserveEngineTick: true,
+    }
   ): void {
-    this.scoreboardSynchronizer.applyFrameAtCursor(this, smoothStep, dispatchEvents, restoreOptions);
+    this.scoreboardSynchronizer.applyFrameAtCursor(
+      this,
+      smoothStep,
+      dispatchEvents,
+      restoreOptions
+    );
   }
 
   private _prepareRuntimeForReplayViewer(): void {
-    this.mode = this.causalSyncController.prepareRuntimeForSession(
-      this.runtime,
-      this.mode,
-      () => this.rosterSubController.restoreRecordedLoadoutsIfNeeded(this.runtime),
+    this.mode = this.causalSyncController.prepareRuntimeForSession(this.runtime, this.mode, () =>
+      this.rosterSubController.restoreRecordedLoadoutsIfNeeded(this.runtime)
     );
   }
 
@@ -214,7 +225,7 @@ export class StandaloneReplayViewerController {
         recordedSignals: this.signalTimeline?.getRecordedSignals?.() || null,
         firstFrame: this.frames[0] || null,
       },
-      this.runtime,
+      this.runtime
     );
     this.takeoverSubController.reset(0, Math.max(0, this.frames.length - 1));
     this.scoreboardSynchronizer.lastDispatchedCursorFrame = -1;
@@ -250,7 +261,10 @@ export class StandaloneReplayViewerController {
     this.runtime?.camera?.resetView?.();
 
     useReplayViewerStore.getState().updateLiveTelemetry({
-      viewerState: 'paused', cursorFrame: restoreIdx, targetFrame: restoreIdx, prerollRemainingSec: 0,
+      viewerState: 'paused',
+      cursorFrame: restoreIdx,
+      targetFrame: restoreIdx,
+      prerollRemainingSec: 0,
     });
   }
 
@@ -272,13 +286,20 @@ export class StandaloneReplayViewerController {
     const retained = getRetainedMatchReplay();
     const store = useReplayViewerStore.getState();
     if (!retained || !retained.frames || retained.frames.length === 0) {
-      console.warn('[StandaloneReplayViewerController] Cannot load retained match replay: no recent match replay in memory.');
+      console.warn(
+        '[StandaloneReplayViewerController] Cannot load retained match replay: no recent match replay in memory.'
+      );
       store.setErrorMessage('No recent match replay in memory.');
       return;
     }
     const cloned = cloneRetainedMatchReplayPayload(retained);
     this._initializeLoadedReplaySession(
-      cloned.frames, cloned.frameSlots, cloned.timelines, cloned.metadata, cloned.loadedFileName, false
+      cloned.frames,
+      cloned.frameSlots,
+      cloned.timelines,
+      cloned.metadata,
+      cloned.loadedFileName,
+      false
     );
   }
 
@@ -299,7 +320,10 @@ export class StandaloneReplayViewerController {
     );
     this._emitStateTransition(clamped);
     useReplayViewerStore.getState().updateLiveTelemetry({
-      viewerState: 'playing', cursorFrame: clamped, targetFrame: clamped, prerollRemainingSec: 0,
+      viewerState: 'playing',
+      cursorFrame: clamped,
+      targetFrame: clamped,
+      prerollRemainingSec: 0,
     });
   }
 
@@ -314,7 +338,10 @@ export class StandaloneReplayViewerController {
     this._emitStateTransition(clamped);
     this._silenceContinuousAudio();
     useReplayViewerStore.getState().updateLiveTelemetry({
-      viewerState: 'paused', cursorFrame: clamped, targetFrame: clamped, prerollRemainingSec: 0,
+      viewerState: 'paused',
+      cursorFrame: clamped,
+      targetFrame: clamped,
+      prerollRemainingSec: 0,
     });
   }
 
@@ -328,7 +355,9 @@ export class StandaloneReplayViewerController {
     const nextState = curState === 'playing' ? 'playing' : 'paused';
     if (nextState === 'paused') this._silenceContinuousAudio();
     useReplayViewerStore.getState().updateLiveTelemetry({
-      viewerState: nextState, cursorFrame: clamped, targetFrame: clamped,
+      viewerState: nextState,
+      cursorFrame: clamped,
+      targetFrame: clamped,
     });
   }
 
@@ -341,12 +370,17 @@ export class StandaloneReplayViewerController {
     }
     const store = useReplayViewerStore.getState();
     const nextIdx = this.takeoverSubController.beginScrub(
-      direction, this.frames.length, store.effectiveFlowPct || 100
+      direction,
+      this.frames.length,
+      store.effectiveFlowPct || 100
     );
     this._applyFrameAtCursor(false, direction === 'forwarding', { preserveEngineTick: true });
     this._emitStateTransition(nextIdx);
     store.updateLiveTelemetry({
-      viewerState: direction, cursorFrame: nextIdx, targetFrame: nextIdx, prerollRemainingSec: 0,
+      viewerState: direction,
+      cursorFrame: nextIdx,
+      targetFrame: nextIdx,
+      prerollRemainingSec: 0,
     });
   }
 
@@ -363,7 +397,7 @@ export class StandaloneReplayViewerController {
       () => this._prepareRuntimeForReplayViewer(),
       (startIdx: number) => {
         this.scoreboardSynchronizer.lastDispatchedCursorFrame = startIdx;
-      },
+      }
     );
   }
 
@@ -378,10 +412,23 @@ export class StandaloneReplayViewerController {
     this.scoreboardSynchronizer.reset();
     this.causalSyncController.resetArenaAfterClear(this.runtime);
     useReplayViewerStore.getState().updateLiveTelemetry({
-      viewerState: 'idle', loadedFileName: null, totalFrames: 0, cursorFrame: 0, targetFrame: 0,
-      stateTrackCount: 0, incidentTrackCount: 0, signalTrackCount: 0, recordedSignalCount: 0,
-      synthesizedSignalCount: 0, incidentMarkers: [], signalMarkers: [], prerollRemainingSec: 0,
-      activePovCarIndex: 0, activePovSlotKey: 1, activePovTeam: 0, errorMessage: null,
+      viewerState: 'idle',
+      loadedFileName: null,
+      totalFrames: 0,
+      cursorFrame: 0,
+      targetFrame: 0,
+      stateTrackCount: 0,
+      incidentTrackCount: 0,
+      signalTrackCount: 0,
+      recordedSignalCount: 0,
+      synthesizedSignalCount: 0,
+      incidentMarkers: [],
+      signalMarkers: [],
+      prerollRemainingSec: 0,
+      activePovCarIndex: 0,
+      activePovSlotKey: 1,
+      activePovTeam: 0,
+      errorMessage: null,
     });
   }
 

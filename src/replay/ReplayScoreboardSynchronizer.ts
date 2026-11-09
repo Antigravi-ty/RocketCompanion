@@ -40,21 +40,33 @@ export interface ReplayScoreboardIncidentTimelinePort {
 }
 
 export interface ReplayScoreboardSignalEvaluationResult {
-  blueScore: number; orangeScore: number; matchPhase?: string; kickoffCountdown?: number;
-  remainingSeconds: number | null; isOvertime?: boolean; overtimeSeconds?: number;
+  blueScore: number;
+  orangeScore: number;
+  matchPhase?: string;
+  kickoffCountdown?: number;
+  remainingSeconds: number | null;
+  isOvertime?: boolean;
+  overtimeSeconds?: number;
 }
 
 export interface ReplayScoreboardSignalTimelinePort {
-  count?: number; recordedCount?: number; synthesizedCount?: number;
+  count?: number;
+  recordedCount?: number;
+  synthesizedCount?: number;
   getRecordedSignals?: () => ReplayRosterSignalItem[];
   getEventsInFrameRange: (startIdx: number, endIdx: number) => ReplayDispatchSignalItem[];
   getTimelineMarkers?: (maxMarkers: number) => Array<Record<string, unknown>>;
-  evaluateMatchStateAtFrame: (idx: number, metadata: ReplayRosterMetadataLike) => ReplayScoreboardSignalEvaluationResult;
+  evaluateMatchStateAtFrame: (
+    idx: number,
+    metadata: ReplayRosterMetadataLike
+  ) => ReplayScoreboardSignalEvaluationResult;
 }
 
 export interface ReplayScoreboardTimelinesBundle {
-  incidents?: ReplayDispatchIncidentItem[]; recordedSignals?: ReplayDispatchSignalItem[];
-  synthesizedSignals?: ReplayDispatchSignalItem[]; signals?: ReplayDispatchSignalItem[];
+  incidents?: ReplayDispatchIncidentItem[];
+  recordedSignals?: ReplayDispatchSignalItem[];
+  synthesizedSignals?: ReplayDispatchSignalItem[];
+  signals?: ReplayDispatchSignalItem[];
   stateInputTimeline?: ReplayScoreboardStateInputTimelinePort | null;
   stateInput?: ReplayScoreboardStateInputTimelinePort | null;
   incidentTimeline?: ReplayScoreboardIncidentTimelinePort | null;
@@ -65,30 +77,63 @@ export interface ReplayScoreboardTimelinesBundle {
 export interface ReplayScoreboardModePort extends ReplayViewerRosterModePort {
   id?: string;
   replayController?: { endReplaySession?: () => void } | null;
-  goalAndTouch?: { goalResetTicks?: number; goalIncidentTick?: number; frozenGoalBallState?: unknown } | null;
-  rewinderController?: { isScrubbing?: boolean; isBlockingLivePhysics?: boolean; exitRewindMode?: () => void; stopRecording?: () => void } | null;
+  goalAndTouch?: {
+    goalResetTicks?: number;
+    goalIncidentTick?: number;
+    frozenGoalBallState?: unknown;
+  } | null;
+  rewinderController?: {
+    isScrubbing?: boolean;
+    isBlockingLivePhysics?: boolean;
+    exitRewindMode?: () => void;
+    stopRecording?: () => void;
+  } | null;
 }
 
-export interface ReplayScoreboardRuntimePort extends ReplayViewerRosterRuntimePort, ReplayTakeoverRuntimePort {
-  physics?: NonNullable<ReplayViewerRosterRuntimePort['physics']> & NonNullable<ReplayTakeoverRuntimePort['physics']> & {
-    state: Float32Array;
-    restoreState: (snap: Float32Array, restoreOptions?: { preserveEngineTick?: boolean; overrideTick?: number }) => void;
-    setControls?: (carIndex: number, controls: Record<string, unknown>) => void;
-    setUnlimitedBoost?: (enabled: boolean) => void;
-    saveCompactState?: () => Float32Array;
-    setBallState?: (ballSlice: Float32Array) => void;
-    setCarState?: (carIndex: number, carSlice: Float32Array) => void;
-  } | null;
-  arena?: NonNullable<ReplayViewerRosterRuntimePort['arena']> & {
-    carDemolitions?: Array<{ stop?: () => void } | null | undefined>;
-    syncCarsCount?: (numCars: number) => void;
-    resetCarBoosts?: (carIndex: number) => void;
-    resetBallTrail?: () => void;
-    supersonicWheelTrailSystem?: { clear?: () => void; resetCar?: (carIndex: number) => void } | null;
-    lighting?: { updateSunIntensities?: (scale?: number) => void; update?: (carPos: unknown, ballPos: unknown, dt: number, isGoalReplay?: boolean, allowShadows?: boolean) => void } | null;
-  } | null;
+export interface ReplayScoreboardRuntimePort
+  extends ReplayViewerRosterRuntimePort, ReplayTakeoverRuntimePort {
+  physics?:
+    | (NonNullable<ReplayViewerRosterRuntimePort['physics']> &
+        NonNullable<ReplayTakeoverRuntimePort['physics']> & {
+          state: Float32Array;
+          restoreState: (
+            snap: Float32Array,
+            restoreOptions?: { preserveEngineTick?: boolean; overrideTick?: number }
+          ) => void;
+          setControls?: (carIndex: number, controls: Record<string, unknown>) => void;
+          setUnlimitedBoost?: (enabled: boolean) => void;
+          saveCompactState?: () => Float32Array;
+          setBallState?: (ballSlice: Float32Array) => void;
+          setCarState?: (carIndex: number, carSlice: Float32Array) => void;
+        })
+    | null;
+  arena?:
+    | (NonNullable<ReplayViewerRosterRuntimePort['arena']> & {
+        carDemolitions?: Array<{ stop?: () => void } | null | undefined>;
+        syncCarsCount?: (numCars: number) => void;
+        resetCarBoosts?: (carIndex: number) => void;
+        resetBallTrail?: () => void;
+        supersonicWheelTrailSystem?: {
+          clear?: () => void;
+          resetCar?: (carIndex: number) => void;
+        } | null;
+        lighting?: {
+          updateSunIntensities?: (scale?: number) => void;
+          update?: (
+            carPos: unknown,
+            ballPos: unknown,
+            dt: number,
+            isGoalReplay?: boolean,
+            allowShadows?: boolean
+          ) => void;
+        } | null;
+      })
+    | null;
   interpolator?: { prevState: Float32Array; currState: Float32Array; alpha: number } | null;
-  match?: { state?: { mode?: string; phase?: string; paused?: boolean; [key: string]: unknown }; [key: string]: unknown } | null;
+  match?: {
+    state?: { mode?: string; phase?: string; paused?: boolean; [key: string]: unknown };
+    [key: string]: unknown;
+  } | null;
   modeManager?: {
     getActiveMode?: () => ReplayScoreboardModePort | null;
     setMode?: (mode: string) => void;
@@ -143,7 +188,7 @@ export class ReplayScoreboardSynchronizer {
   public syncArenaCarCountForFrame(
     runtime: ReplayScoreboardRuntimePort | null,
     resolvedRosterLength: number,
-    frame: Float32Array | ArrayLike<number> | null | undefined,
+    frame: Float32Array | ArrayLike<number> | null | undefined
   ): void {
     if (!runtime?.physics || !frame) return;
     if (resolvedRosterLength > 0) {
@@ -170,7 +215,9 @@ export class ReplayScoreboardSynchronizer {
       (Array.isArray(source.timelines?.incidents) ? source.timelines.incidents.length : 0);
     const recordedSignalCount =
       source.signalTimeline?.recordedCount ??
-      (Array.isArray(source.timelines?.recordedSignals) ? source.timelines.recordedSignals.length : 0);
+      (Array.isArray(source.timelines?.recordedSignals)
+        ? source.timelines.recordedSignals.length
+        : 0);
     const synthesizedSignalCount =
       source.signalTimeline?.synthesizedCount ??
       (Array.isArray(source.timelines?.synthesizedSignals)
@@ -200,7 +247,7 @@ export class ReplayScoreboardSynchronizer {
     signalTimeline: ReplayScoreboardSignalTimelinePort | null,
     metadata: ReplayRosterMetadataLike | null,
     activePovTeam: number,
-    idx: number,
+    idx: number
   ): void {
     if (!signalTimeline) return;
     const evalState = signalTimeline.evaluateMatchStateAtFrame(idx, metadata || {});
@@ -233,20 +280,19 @@ export class ReplayScoreboardSynchronizer {
     source: ReplayScoreboardFrameSource,
     smoothStep = false,
     dispatchEvents = false,
-    restoreOptions: { preserveEngineTick?: boolean; overrideTick?: number } = { preserveEngineTick: true },
+    restoreOptions: { preserveEngineTick?: boolean; overrideTick?: number } = {
+      preserveEngineTick: true,
+    }
   ): void {
     const r = source.runtime;
     if (!r?.physics || source.frames.length === 0) return;
     const idx = Math.max(
       0,
-      Math.min(source.frames.length - 1, Math.floor(source.takeoverSubController.cursor)),
+      Math.min(source.frames.length - 1, Math.floor(source.takeoverSubController.cursor))
     );
 
     // 1. Track A (State + Input Timeline)
-    const slot =
-      source.stateInputTimeline?.getFrameAt?.(idx) ||
-      source.frameSlots?.[idx] ||
-      null;
+    const slot = source.stateInputTimeline?.getFrameAt?.(idx) || source.frameSlots?.[idx] || null;
     const snap = (slot?.snapshot || source.frames[idx]) as ReplaySnapshotBuffer | undefined;
     if (!snap) return;
 
@@ -353,7 +399,7 @@ export class ReplayScoreboardSynchronizer {
             audioEvents,
             syncHudFromSignals: true,
           },
-          r,
+          r
         );
       }
     }
@@ -361,9 +407,8 @@ export class ReplayScoreboardSynchronizer {
       source.signalTimeline,
       source.metadata,
       source.rosterSubController.activePovTeam,
-      idx,
+      idx
     );
     this.lastDispatchedCursorFrame = idx;
   }
 }
-

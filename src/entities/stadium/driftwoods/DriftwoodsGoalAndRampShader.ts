@@ -93,10 +93,7 @@ export function injectGoalTeamShader(
     }
 
     shader.vertexShader = shader.vertexShader
-      .replace(
-        '#include <common>',
-        '#include <common>\nvarying vec3 vGoalWorldPos;'
-      )
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGoalWorldPos;')
       .replace(
         '#include <worldpos_vertex>',
         `#include <worldpos_vertex>
@@ -147,8 +144,8 @@ export function injectGoalTeamShader(
           applyGoalOcclusion && occlusionPassMode === 'opaque'
             ? 'if (goalEffectiveOpacity < 0.999) discard;'
             : applyGoalOcclusion && occlusionPassMode === 'transparent'
-            ? 'if (goalEffectiveOpacity >= 0.999 || goalEffectiveOpacity <= 0.001) discard;'
-            : ''
+              ? 'if (goalEffectiveOpacity >= 0.999 || goalEffectiveOpacity <= 0.001) discard;'
+              : ''
         }
         vec4 diffuseColor = vec4( goalBaseCol, goalEffectiveOpacity );`
       );
@@ -186,8 +183,7 @@ export function injectWallPostTrimOcclusionShader(
 ): void {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uOcclusionOpacity = occlusionUniforms.uOcclusionOpacity;
-    shader.uniforms.uWallExteriorOcclusionEnabled =
-      occlusionUniforms.uWallExteriorOcclusionEnabled;
+    shader.uniforms.uWallExteriorOcclusionEnabled = occlusionUniforms.uWallExteriorOcclusionEnabled;
     shader.uniforms.uGoalDepthMaskEnabled = occlusionUniforms.uGoalDepthMaskEnabled;
     shader.uniforms.uGoalMaskOffsetUu = occlusionUniforms.uGoalMaskOffsetUu;
     shader.uniforms.uGoalMaskGradientDistanceUu = occlusionUniforms.uGoalMaskGradientDistanceUu;
@@ -197,10 +193,7 @@ export function injectWallPostTrimOcclusionShader(
     }
 
     shader.vertexShader = shader.vertexShader
-      .replace(
-        '#include <common>',
-        '#include <common>\nvarying vec3 vOcclusionWorldPos;'
-      )
+      .replace('#include <common>', '#include <common>\nvarying vec3 vOcclusionWorldPos;')
       .replace(
         '#include <worldpos_vertex>',
         `#include <worldpos_vertex>
@@ -276,8 +269,8 @@ export function injectWallPostTrimOcclusionShader(
           occlusionPassMode === 'opaque'
             ? 'if (effectiveOpacity < 0.999) discard;'
             : occlusionPassMode === 'transparent'
-            ? 'if (effectiveOpacity >= 0.999 || effectiveOpacity <= 0.001) discard;'
-            : ''
+              ? 'if (effectiveOpacity >= 0.999 || effectiveOpacity <= 0.001) discard;'
+              : ''
         }
         vec4 diffuseColor = vec4( diffuse, effectiveOpacity );`
       );
@@ -311,10 +304,7 @@ export function injectRampsIndicatorRingShader(
     }
 
     shader.vertexShader = shader.vertexShader
-      .replace(
-        '#include <common>',
-        '#include <common>\nvarying vec3 vRampWorldPos;'
-      )
+      .replace('#include <common>', '#include <common>\nvarying vec3 vRampWorldPos;')
       .replace(
         '#include <worldpos_vertex>',
         `#include <worldpos_vertex>

@@ -36,7 +36,10 @@ export class WebSocketSignalingClient {
   gameMode: string;
   ws: WebSocket | null = null;
   isConnected = false;
-  eventListeners = new Map<string, Array<(data?: Record<string, unknown> | Error | Event | CloseEvent) => void>>();
+  eventListeners = new Map<
+    string,
+    Array<(data?: Record<string, unknown> | Error | Event | CloseEvent) => void>
+  >();
   _heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(workerUrl: string, options: WebSocketSignalingClientOptions = {}) {
@@ -254,7 +257,9 @@ export class WebSocketSignalingClient {
         this.ws.readyState === (typeof WebSocket !== 'undefined' ? WebSocket.OPEN : 1)
       ) {
         try {
-          this.ws.send(JSON.stringify({ type: 'ping', peerId: this.peerId, timestamp: Date.now() }));
+          this.ws.send(
+            JSON.stringify({ type: 'ping', peerId: this.peerId, timestamp: Date.now() })
+          );
         } catch (_) {
           // Ignore ping error
         }
@@ -301,7 +306,10 @@ export class WebSocketSignalingClient {
     });
   }
 
-  sendCandidate(targetPeerId: string | null, candidate: RTCIceCandidateInit | Record<string, unknown>): boolean {
+  sendCandidate(
+    targetPeerId: string | null,
+    candidate: RTCIceCandidateInit | Record<string, unknown>
+  ): boolean {
     return this.send({
       type: 'candidate',
       targetPeerId,

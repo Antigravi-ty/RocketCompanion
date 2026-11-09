@@ -7,8 +7,8 @@ import {
   NETWORK_MONITOR_PRESET,
   type GraphicsSettingsPort,
 } from '../runtimeUiPort.ts';
-import { loadInputBindings } from '../../ui-core/config/inputBindings';
-import { audioConfig } from '../../ui-core/config/audioConfig';
+import { loadInputBindings } from '../../ui-core/config/inputBindings.ts';
+import { audioConfig } from '../../ui-core/config/audioConfig.ts';
 import { gameAudio } from '../../audio/GameAudioEngineFacade.ts';
 import { getAudioSlotPool, subsystemState } from '../../audio/audioContext.ts';
 import type { GamepadController } from '../../input/GamepadController.ts';
@@ -65,9 +65,7 @@ export class RuntimeDOMEventManager {
   public updateViewport(graphics: GraphicsSettingsPort | null = null): void {
     const r = this.runtime;
     const renderer = r.boostBloom?.renderer;
-    const renderPass = r.composer?.passes?.[0] as
-      | { camera?: THREE.PerspectiveCamera }
-      | undefined;
+    const renderPass = r.composer?.passes?.[0] as { camera?: THREE.PerspectiveCamera } | undefined;
     const perspectiveCamera = renderPass?.camera;
     if (typeof window === 'undefined' || !renderer || !perspectiveCamera) return;
 
@@ -122,13 +120,12 @@ export class RuntimeDOMEventManager {
       (appState.activeRoute === 'trajectory' || appState.activeRoute === 'camera');
     const isUiOpen = Boolean(
       (r.container && appState.isOpen && !isLivePreviewDockCollapsed) ||
-        (r.openOverlays.size > 0 && !isLivePreviewDockCollapsed),
+      (r.openOverlays.size > 0 && !isLivePreviewDockCollapsed)
     );
     const isMinimized = typeof document !== 'undefined' && Boolean(document.hidden);
     const hasFocus =
       typeof document !== 'undefined'
-        ? !isMinimized &&
-          (typeof document.hasFocus === 'function' ? document.hasFocus() : true)
+        ? !isMinimized && (typeof document.hasFocus === 'function' ? document.hasFocus() : true)
         : true;
     if (subsystemState.runtime) {
       subsystemState.runtime.isWindowFocused = hasFocus;
@@ -137,7 +134,7 @@ export class RuntimeDOMEventManager {
     const isPaused = isUiOpen;
 
     const isOnlineSession = Boolean(
-      net?.sessionCoordinator.networkReconciler || net?.sessionCoordinator.authoritativeServer,
+      net?.sessionCoordinator.networkReconciler || net?.sessionCoordinator.authoritativeServer
     );
     r.isPaused = isOnlineSession ? Boolean(r.match?.state?.paused) : isPaused;
     if (!isOnlineSession) {
@@ -266,7 +263,7 @@ export class RuntimeDOMEventManager {
           evt.pointerType !== 'mouse' ||
           !(evt.target instanceof Element) ||
           evt.target.closest(
-            '#settings-button, #car-button, #match-button, #online-button, #trajectory-button, .online-tab-btn, .online-overlay, .online-modal, .net-hud, .hud-tools, .trajectory-overlay, .trajectory-panel, #game-ui-root, #game-ui-viewport-host, #game-root',
+            '#settings-button, #car-button, #match-button, #online-button, #trajectory-button, .online-tab-btn, .online-overlay, .online-modal, .net-hud, .hud-tools, .trajectory-overlay, .trajectory-panel, #game-ui-root, #game-ui-viewport-host, #game-root'
           )
         ) {
           r.isCursorBrowsing = true;
@@ -294,7 +291,7 @@ export class RuntimeDOMEventManager {
       networkDiagnosticsStore.setSession(
         net.sessionCoordinator.networkReconciler,
         net.sessionCoordinator.networkChannel,
-        r,
+        r
       );
       await net.diagnosticsProbe.spawnHeadlessCarEntity();
       toggleFloatingPreset(NETWORK_MONITOR_PRESET);
@@ -324,13 +321,11 @@ export class RuntimeDOMEventManager {
       if (!audioConfig.get('continueAudioOnLostFocus')) {
         if (!hasFocus) {
           gameAudio.silenceAll?.();
-          const audioRuntime = subsystemState.runtime as
-            | {
-                audioSubsystem?: {
-                  engineSynths?: Array<{ synth?: { silence?(): void } | null }>;
-                };
-              }
-            | null;
+          const audioRuntime = subsystemState.runtime as {
+            audioSubsystem?: {
+              engineSynths?: Array<{ synth?: { silence?(): void } | null }>;
+            };
+          } | null;
           const synths = audioRuntime?.audioSubsystem?.engineSynths;
           if (synths) {
             for (const entry of synths) entry.synth?.silence?.();
@@ -372,8 +367,7 @@ export class RuntimeDOMEventManager {
           r.isCursorBrowsing &&
           r.openOverlays.size === 0 &&
           bindings.keyboard.toggleSettings.some(
-            (b: { kind?: string; button?: number }) =>
-              b.kind === 'mouse' && b.button === evt.button,
+            (b: { kind?: string; button?: number }) => b.kind === 'mouse' && b.button === evt.button
           )
         ) {
           evt.preventDefault();

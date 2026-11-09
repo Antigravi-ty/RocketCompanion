@@ -2,10 +2,7 @@ import {
   EstablishedSessionManager,
   type ParsedClientPacketHeader,
 } from '../server/EstablishedSessionManager.ts';
-import {
-  GlobalPayloadCodec,
-  type DecodedGlobalPayload,
-} from '../protocol/GlobalPayloadCodec.ts';
+import { GlobalPayloadCodec, type DecodedGlobalPayload } from '../protocol/GlobalPayloadCodec.ts';
 import { GameStateView } from '../../physics/RocketSimStateViews.ts';
 
 export interface DumpedPhysicsSnapshot {
@@ -160,12 +157,10 @@ export function dumpNetworkPacket(
       console.log('Authoritative Physics Tick:', output.physics.tick);
       if (output.physics.acknowledgedControls?.length) {
         console.table(
-          output.physics.acknowledgedControls.map(
-            (a: { carIndex: number; controls: unknown }) => ({
-              carIndex: a.carIndex,
-              ...((a.controls as Record<string, unknown>) || {}),
-            })
-          )
+          output.physics.acknowledgedControls.map((a: { carIndex: number; controls: unknown }) => ({
+            carIndex: a.carIndex,
+            ...((a.controls as Record<string, unknown>) || {}),
+          }))
         );
       }
       if (output.physics.cars?.length) {

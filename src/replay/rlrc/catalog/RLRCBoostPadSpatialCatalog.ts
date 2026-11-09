@@ -41,7 +41,11 @@ export interface RLRCBoostPadPickupInput {
   readonly pickupActorId: number;
   readonly pickedUpByte: number | boolean;
   readonly instigatorSlotIndex?: number;
-  readonly instigatorPosition?: { readonly x: number; readonly y: number; readonly z?: number } | null;
+  readonly instigatorPosition?: {
+    readonly x: number;
+    readonly y: number;
+    readonly z?: number;
+  } | null;
 }
 
 export const RLRC_BIG_BOOST_PAD_COUNT = 6;
@@ -50,53 +54,54 @@ export const RLRC_BIG_BOOST_COOLDOWN_SECONDS: number = BOOST_PAD_TIMEOUT_BIG;
 export const RLRC_SMALL_BOOST_COOLDOWN_SECONDS: number = BOOST_PAD_TIMEOUT_SMALL;
 export const RLRC_MAX_PICKUP_MATCH_DISTANCE_UU = 450.0;
 
-const RAW_STANDARD_BOOST_PADS_34: ReadonlyArray<
-  readonly [number, number, number, boolean]
-> = Object.freeze([
-  // 0..5: 6 Big Boost Pads (100 boost, 10.0s cooldown)
-  [-3584, 0, 73, true],
-  [3584, 0, 73, true],
-  [-3072, 4096, 73, true],
-  [3072, 4096, 73, true],
-  [-3072, -4096, 73, true],
-  [3072, -4096, 73, true],
-  // 6..33: 28 Small Boost Pads (12 boost, 4.0s cooldown)
-  [0, -4240, 70, false],
-  [-1792, -4184, 70, false],
-  [1792, -4184, 70, false],
-  [-940, -3308, 70, false],
-  [940, -3308, 70, false],
-  [0, -2816, 70, false],
-  [-3584, -2484, 70, false],
-  [3584, -2484, 70, false],
-  [-1788, -2300, 70, false],
-  [1788, -2300, 70, false],
-  [-2048, -1036, 70, false],
-  [0, -1024, 70, false],
-  [2048, -1036, 70, false],
-  [-1024, 0, 70, false],
-  [1024, 0, 70, false],
-  [-2048, 1036, 70, false],
-  [0, 1024, 70, false],
-  [2048, 1036, 70, false],
-  [-1788, 2300, 70, false],
-  [1788, 2300, 70, false],
-  [-3584, 2484, 70, false],
-  [3584, 2484, 70, false],
-  [0, 2816, 70, false],
-  [-940, 3308, 70, false],
-  [940, 3308, 70, false],
-  [-1792, 4184, 70, false],
-  [1792, 4184, 70, false],
-  [0, 4240, 70, false],
-]);
+const RAW_STANDARD_BOOST_PADS_34: ReadonlyArray<readonly [number, number, number, boolean]> =
+  Object.freeze([
+    // 0..5: 6 Big Boost Pads (100 boost, 10.0s cooldown)
+    [-3584, 0, 73, true],
+    [3584, 0, 73, true],
+    [-3072, 4096, 73, true],
+    [3072, 4096, 73, true],
+    [-3072, -4096, 73, true],
+    [3072, -4096, 73, true],
+    // 6..33: 28 Small Boost Pads (12 boost, 4.0s cooldown)
+    [0, -4240, 70, false],
+    [-1792, -4184, 70, false],
+    [1792, -4184, 70, false],
+    [-940, -3308, 70, false],
+    [940, -3308, 70, false],
+    [0, -2816, 70, false],
+    [-3584, -2484, 70, false],
+    [3584, -2484, 70, false],
+    [-1788, -2300, 70, false],
+    [1788, -2300, 70, false],
+    [-2048, -1036, 70, false],
+    [0, -1024, 70, false],
+    [2048, -1036, 70, false],
+    [-1024, 0, 70, false],
+    [1024, 0, 70, false],
+    [-2048, 1036, 70, false],
+    [0, 1024, 70, false],
+    [2048, 1036, 70, false],
+    [-1788, 2300, 70, false],
+    [1788, 2300, 70, false],
+    [-3584, 2484, 70, false],
+    [3584, 2484, 70, false],
+    [0, 2816, 70, false],
+    [-940, 3308, 70, false],
+    [940, 3308, 70, false],
+    [-1792, 4184, 70, false],
+    [1792, 4184, 70, false],
+    [0, 4240, 70, false],
+  ]);
 
 export const STANDARD_BOOST_PADS_34: readonly RLRCBoostPadSpec[] = Object.freeze(
   RAW_STANDARD_BOOST_PADS_34.map(([x, y, z, isBigPad], padIndex) =>
     Object.freeze({
       padIndex,
       isBigPad,
-      cooldownSeconds: isBigPad ? RLRC_BIG_BOOST_COOLDOWN_SECONDS : RLRC_SMALL_BOOST_COOLDOWN_SECONDS,
+      cooldownSeconds: isBigPad
+        ? RLRC_BIG_BOOST_COOLDOWN_SECONDS
+        : RLRC_SMALL_BOOST_COOLDOWN_SECONDS,
       boostGrantAmount: isBigPad ? 100 : 12,
       position: Object.freeze({ x, y, z }),
     })
@@ -154,11 +159,8 @@ export function findNearestBoostPad(
 
   const maxDistSq = RLRC_MAX_PICKUP_MATCH_DISTANCE_UU * RLRC_MAX_PICKUP_MATCH_DISTANCE_UU;
   const chosenIndex =
-    bestUnboundIndex >= 0 && bestUnboundDistSq <= maxDistSq
-      ? bestUnboundIndex
-      : bestOverallIndex;
-  const chosenDistSq =
-    chosenIndex === bestUnboundIndex ? bestUnboundDistSq : bestOverallDistSq;
+    bestUnboundIndex >= 0 && bestUnboundDistSq <= maxDistSq ? bestUnboundIndex : bestOverallIndex;
+  const chosenDistSq = chosenIndex === bestUnboundIndex ? bestUnboundDistSq : bestOverallDistSq;
   const chosenPad = STANDARD_BOOST_PADS_34[chosenIndex];
 
   return {
@@ -321,7 +323,8 @@ export class RLRCBoostPadSpatialTracker {
   }
 
   public getCooldownsSnapshot(out?: Float32Array): Float32Array {
-    const dst = out && out.length >= RLRC_BOOST_PAD_COUNT ? out : new Float32Array(RLRC_BOOST_PAD_COUNT);
+    const dst =
+      out && out.length >= RLRC_BOOST_PAD_COUNT ? out : new Float32Array(RLRC_BOOST_PAD_COUNT);
     for (let i = 0; i < RLRC_BOOST_PAD_COUNT; i++) {
       dst[i] = this.cooldowns[i];
     }
@@ -342,7 +345,8 @@ export function evaluateBoostPadCooldownsAtTime(
   timeSeconds: number,
   out?: Float32Array
 ): Float32Array {
-  const dst = out && out.length >= RLRC_BOOST_PAD_COUNT ? out : new Float32Array(RLRC_BOOST_PAD_COUNT);
+  const dst =
+    out && out.length >= RLRC_BOOST_PAD_COUNT ? out : new Float32Array(RLRC_BOOST_PAD_COUNT);
   dst.fill(0);
 
   const lastPickTime = new Float64Array(RLRC_BOOST_PAD_COUNT).fill(Number.NEGATIVE_INFINITY);
@@ -448,7 +452,8 @@ export function extractBoostPadCooldownsFromSimStateBuffer(
   stateBuffer: ArrayLike<number>,
   out?: Float32Array
 ): Float32Array {
-  const dst = out && out.length >= RLRC_BOOST_PAD_COUNT ? out : new Float32Array(RLRC_BOOST_PAD_COUNT);
+  const dst =
+    out && out.length >= RLRC_BOOST_PAD_COUNT ? out : new Float32Array(RLRC_BOOST_PAD_COUNT);
   if (stateBuffer.length < BOOST_PAD_STATES_OFFSET + NUM_BOOST_PADS * BOOST_PAD_STATE_STRIDE) {
     dst.fill(0);
     return dst;

@@ -19,7 +19,17 @@ import {
  * with a target unit direction (dx, dy, dz), accounting for current angular velocity.
  * Grounded in RocketSim aerial angular acceleration (~10.8 rad/s^2 average pitch/yaw).
  */
-export function computeAerialTurnLatency(fwdX, fwdY, fwdZ, dx, dy, dz, angVelX = 0, angVelY = 0, angVelZ = 0) {
+export function computeAerialTurnLatency(
+  fwdX,
+  fwdY,
+  fwdZ,
+  dx,
+  dy,
+  dz,
+  angVelX = 0,
+  angVelY = 0,
+  angVelZ = 0
+) {
   const cosAlpha = Math.max(-1.0, Math.min(1.0, fwdX * dx + fwdY * dy + fwdZ * dz));
   const alpha = Math.acos(cosAlpha); // [0, pi]
   if (alpha < 0.08) return 0.0;
@@ -49,14 +59,20 @@ export function computeAerialTurnLatency(fwdX, fwdY, fwdZ, dx, dy, dz, angVelX =
  * when on the ground, while clamping Z to the stadium floor (>= 17.0 UU).
  */
 export function computeBallisticCenter(
-  px, py, pz,
-  vx, vy, vz,
-  upX, upY, upZ,
+  px,
+  py,
+  pz,
+  vx,
+  vy,
+  vz,
+  upX,
+  upY,
+  upZ,
   t,
   includeJumpImpulse = true,
   isOnGround = false
 ) {
-  const jumpVel = (includeJumpImpulse && isOnGround) ? JUMP_MIN_VELOCITY : 0.0;
+  const jumpVel = includeJumpImpulse && isOnGround ? JUMP_MIN_VELOCITY : 0.0;
   const ivx = vx + jumpVel * upX;
   const ivy = vy + jumpVel * upY;
   const ivz = vz + jumpVel * upZ;

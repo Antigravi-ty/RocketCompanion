@@ -51,7 +51,8 @@ export interface NormalizedPowertrainTelemetry {
 }
 
 export function normalizePowertrainTelemetry(
-  speedOrTelemetry: number | (PowertrainTelemetryInput & { dormant?: boolean; distanceUU?: number }),
+  speedOrTelemetry:
+    number | (PowertrainTelemetryInput & { dormant?: boolean; distanceUU?: number }),
   legacyIsAccelerating: boolean,
   computedDt: number
 ): NormalizedPowertrainTelemetry {
@@ -91,7 +92,8 @@ export function normalizePowertrainTelemetry(
     alive: t.alive !== undefined ? Boolean(t.alive) : undefined,
     audible: t.audible !== undefined ? Boolean(t.audible) : undefined,
     dormant: t.dormant !== undefined ? Boolean(t.dormant) : undefined,
-    distanceUU: t.distanceUU !== undefined && Number.isFinite(t.distanceUU) ? t.distanceUU : undefined,
+    distanceUU:
+      t.distanceUU !== undefined && Number.isFinite(t.distanceUU) ? t.distanceUU : undefined,
   };
 }
 
@@ -171,7 +173,10 @@ export function computeVelocityCoupledGearRPM(
   if (gear === 2) {
     if (driveDirection === 'reverse') {
       const r2Start = v1 * 0.65;
-      const norm = Math.max(0, Math.min(1.02, (absForwardSpeedUU - r2Start) / Math.max(100, v1 - r2Start)));
+      const norm = Math.max(
+        0,
+        Math.min(1.02, (absForwardSpeedUU - r2Start) / Math.max(100, v1 - r2Start))
+      );
       return land + norm * (cutoff - land);
     }
     if (absForwardSpeedUU >= v1) {
@@ -179,13 +184,22 @@ export function computeVelocityCoupledGearRPM(
       return land + norm * (cutoff - land);
     }
     const downshiftFloorUU = v1 * 0.68;
-    const alpha = Math.max(0, Math.min(1, (absForwardSpeedUU - downshiftFloorUU) / Math.max(100, v1 - downshiftFloorUU)));
+    const alpha = Math.max(
+      0,
+      Math.min(1, (absForwardSpeedUU - downshiftFloorUU) / Math.max(100, v1 - downshiftFloorUU))
+    );
     return cfg.downshiftTriggerRPM + alpha * (land - cfg.downshiftTriggerRPM);
   }
 
   const highGearFloorUU = driveDirection === 'reverse' ? v1 * 0.68 : v2 * 0.72;
   const highGearCeilUU = driveDirection === 'reverse' ? v1 : 2300;
-  const norm = Math.max(0, Math.min(1, (absForwardSpeedUU - highGearFloorUU) / Math.max(100, highGearCeilUU - highGearFloorUU)));
+  const norm = Math.max(
+    0,
+    Math.min(
+      1,
+      (absForwardSpeedUU - highGearFloorUU) / Math.max(100, highGearCeilUU - highGearFloorUU)
+    )
+  );
   return cfg.downshiftTriggerRPM + norm * (cutoff - cfg.downshiftTriggerRPM);
 }
 
@@ -210,7 +224,8 @@ export function evaluatePowertrainKinetics(
   const rawForwardAccelUU = dt > 1e-4 ? (forwardSpeedUU - prevForwardSpeedUU) / dt : 0;
   const clampedRawAccel = Math.max(-6000, Math.min(6000, rawForwardAccelUU));
   const accelAlpha = 1 - Math.exp(-16 * dt);
-  const smoothForwardAccelUU = prevSmoothAccelUU + (clampedRawAccel - prevSmoothAccelUU) * accelAlpha;
+  const smoothForwardAccelUU =
+    prevSmoothAccelUU + (clampedRawAccel - prevSmoothAccelUU) * accelAlpha;
 
   const isBrakingAgainstMotion =
     (forwardSpeedUU > cfg.zeroSpeedThresholdUU && throttleInput < -0.05) ||
@@ -218,7 +233,8 @@ export function evaluatePowertrainKinetics(
 
   const absSteer = Math.abs(steerInput);
   const isDrifting = isOnGround && Boolean(handbrakeInput) && absForwardSpeedUU > 120;
-  const isTurningHard = isOnGround && absSteer >= cfg.shiftLockSteerThreshold && absForwardSpeedUU > 180;
+  const isTurningHard =
+    isOnGround && absSteer >= cfg.shiftLockSteerThreshold && absForwardSpeedUU > 180;
 
   const isTurningUnderPower =
     Boolean(cfg.supersonicTurnRevBounceEnabled) &&

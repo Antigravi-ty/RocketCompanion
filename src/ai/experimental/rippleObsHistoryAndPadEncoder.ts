@@ -4,20 +4,14 @@
  * action ring buffer for Ripple v1.1 (`rolv/ripple/1.1`).
  */
 
-import {
-  CarStateView,
-  BoostPadStateView,
-} from '../../physics/RocketSimStateViews.ts';
+import { CarStateView, BoostPadStateView } from '../../physics/RocketSimStateViews.ts';
 import {
   DEFAULT_CAR_CONTROLS,
   encodeCarControls,
   decodeCarControls,
 } from './experimentalMultiCarObsPipeline.ts';
 import { RIPPLE_276_ACTIONS, type CarControls } from './botpack9700488Actions.ts';
-import {
-  CANONICAL_BOOST_LOCATIONS,
-  CANONICAL_TO_WASM_PAD_INDEX,
-} from './botpack9700488Specs.ts';
+import { CANONICAL_BOOST_LOCATIONS, CANONICAL_TO_WASM_PAD_INDEX } from './botpack9700488Specs.ts';
 import type { ActiveCarSlot } from './botpackSharedBallPredPipeline.ts';
 
 export const TICK_SKIP = 4;
@@ -102,11 +96,7 @@ export class RippleHistoryAndPadTracker {
   /**
    * Updates boost pad timers, demo timers, and self player timers for one 4-tick step.
    */
-  updateTimers(
-    simState: Float32Array,
-    selfCarIndex: number,
-    roster: ActiveCarSlot[]
-  ): void {
+  updateTimers(simState: Float32Array, selfCarIndex: number, roster: ActiveCarSlot[]): void {
     const dtSec = TICK_SKIP / TICKS_PER_SECOND;
 
     // 1. Boost pad timers

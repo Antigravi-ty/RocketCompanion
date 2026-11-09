@@ -1,20 +1,20 @@
-import { hudStore } from '../../ui-core/stores/hudStore';
-import { determinismStore } from '../../ui-core/stores/determinismStore';
-import type { AppState } from '../../ui-core/stores/appStoreTypes';
-import type { VisualMaterialsConfig } from '../../ui-core/config/uiConfig';
+import { hudStore } from '../../ui-core/stores/hudStore.ts';
+import { determinismStore } from '../../ui-core/stores/determinismStore.ts';
+import type { AppState } from '../../ui-core/stores/appStoreTypes.ts';
+import type { VisualMaterialsConfig } from '../../ui-core/config/uiConfig.ts';
 import type { GameRuntimeUiBridgePort } from '../../game/runtimeUiPort.ts';
-import { syncRuntimeNetworkDiagnostics } from './runtimeNetworkDiagnosticsBridge';
+import { syncRuntimeNetworkDiagnostics } from './runtimeNetworkDiagnosticsBridge.ts';
 
 export function syncMaterialsToGame(
   runtimePort: GameRuntimeUiBridgePort | null | undefined,
-  materialsConfig?: Partial<VisualMaterialsConfig> | null,
+  materialsConfig?: Partial<VisualMaterialsConfig> | null
 ): void {
   if (!runtimePort) return;
   runtimePort.tunerPort.syncMaterialsConfig(materialsConfig);
 }
 
 export function createTunerBridgeHandlers(
-  runtimePort: GameRuntimeUiBridgePort,
+  runtimePort: GameRuntimeUiBridgePort
 ): Partial<AppState['bridge']> {
   const { cameraPort, tunerPort } = runtimePort;
   return {

@@ -52,7 +52,7 @@ export interface DeserializedRLRCContainer extends RLRCContainerPacket {
 }
 
 export function isBinaryRLRCContainer(
-  bytesOrBuffer: Uint8Array | ArrayBuffer | null | undefined,
+  bytesOrBuffer: Uint8Array | ArrayBuffer | null | undefined
 ): boolean {
   const u8 =
     bytesOrBuffer instanceof Uint8Array
@@ -80,10 +80,10 @@ export function encodeRLRCFramesToTrack0Bytes(frames120Hz: readonly RLRCFrame120
 }
 
 export function decodeRLRCFramesFromTrack0Bytes(
-  stateInputTrackBytes: Uint8Array,
+  stateInputTrackBytes: Uint8Array
 ): RLRCFrame120Hz[] {
   const frameCount120Hz = Math.floor(
-    stateInputTrackBytes.byteLength / RLRC_TRACK0_FRAME_STRIDE_BYTES,
+    stateInputTrackBytes.byteLength / RLRC_TRACK0_FRAME_STRIDE_BYTES
   );
   const frames120Hz: RLRCFrame120Hz[] = new Array(frameCount120Hz);
   for (let i = 0; i < frameCount120Hz; i++) {
@@ -93,7 +93,7 @@ export function decodeRLRCFramesFromTrack0Bytes(
 }
 
 export function encodeRLRCBookmarksToTrack1Bytes(
-  bookmarks: readonly RLRCBookmarkRecord[],
+  bookmarks: readonly RLRCBookmarkRecord[]
 ): Uint8Array {
   const trackBytes = new Uint8Array(bookmarks.length * RLRC_BOOKMARK_RECORD_STRIDE_BYTES);
   const encoder = new TextEncoder();
@@ -118,7 +118,7 @@ export function encodeRLRCBookmarksToTrack1Bytes(
 }
 
 export function decodeRLRCBookmarksFromTrack1Bytes(
-  bookmarkTrackBytes: Uint8Array,
+  bookmarkTrackBytes: Uint8Array
 ): RLRCBookmarkRecord[] {
   const count = Math.floor(bookmarkTrackBytes.byteLength / RLRC_BOOKMARK_RECORD_STRIDE_BYTES);
   const records: RLRCBookmarkRecord[] = new Array(count);
@@ -126,7 +126,7 @@ export function decodeRLRCBookmarksFromTrack1Bytes(
   const dv = new DataView(
     bookmarkTrackBytes.buffer,
     bookmarkTrackBytes.byteOffset,
-    bookmarkTrackBytes.byteLength,
+    bookmarkTrackBytes.byteLength
   );
 
   for (let i = 0; i < count; i++) {
@@ -166,15 +166,15 @@ export function buildRLRCContainerPacket(source: RLRCResamplerOutput): RLRCConta
 }
 
 export function serializeRLRCBinaryContainer(
-  source: RLRCResamplerOutput | RLRCContainerPacket,
+  source: RLRCResamplerOutput | RLRCContainerPacket
 ): Uint8Array {
   const packet: RLRCContainerPacket =
     'bookmarkTrackBytes' in source ? source : buildRLRCContainerPacket(source);
   const frameCount = Math.floor(
-    packet.stateInputTrackBytes.byteLength / RLRC_TRACK0_FRAME_STRIDE_BYTES,
+    packet.stateInputTrackBytes.byteLength / RLRC_TRACK0_FRAME_STRIDE_BYTES
   );
   const bookmarkCount = Math.floor(
-    packet.bookmarkTrackBytes.byteLength / RLRC_BOOKMARK_RECORD_STRIDE_BYTES,
+    packet.bookmarkTrackBytes.byteLength / RLRC_BOOKMARK_RECORD_STRIDE_BYTES
   );
 
   const buildEnvelope = (track0Offset: number, track1Offset: number) => ({
@@ -234,10 +234,9 @@ export function serializeRLRCBinaryContainer(
 }
 
 export function deserializeRLRCBinaryContainer(
-  bytesOrBuffer: Uint8Array | ArrayBuffer,
+  bytesOrBuffer: Uint8Array | ArrayBuffer
 ): DeserializedRLRCContainer {
-  const u8 =
-    bytesOrBuffer instanceof Uint8Array ? bytesOrBuffer : new Uint8Array(bytesOrBuffer);
+  const u8 = bytesOrBuffer instanceof Uint8Array ? bytesOrBuffer : new Uint8Array(bytesOrBuffer);
   if (!isBinaryRLRCContainer(u8)) {
     throw new Error('Invalid RLRCREP1 binary container header.');
   }
@@ -252,9 +251,7 @@ export function deserializeRLRCBinaryContainer(
     throw new Error('Corrupt RLRCREP1 metadata JSON length.');
   }
 
-  const envelope = JSON.parse(
-    new TextDecoder().decode(u8.subarray(16, 16 + metaLength)),
-  ) as {
+  const envelope = JSON.parse(new TextDecoder().decode(u8.subarray(16, 16 + metaLength))) as {
     header: RLRCReplayHeaderMeta;
     roster: readonly RLRCPlayerSlotMeta[];
     tracks: {

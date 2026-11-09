@@ -4,10 +4,10 @@ import * as THREE from 'three';
  * Standard passthrough copy shader
  */
 export const CopyShader = {
-  name: "CopyShader",
+  name: 'CopyShader',
   uniforms: {
     tDiffuse: { value: null },
-    opacity: { value: 1.0 }
+    opacity: { value: 1.0 },
   },
   vertexShader: `
 		varying vec2 vUv;
@@ -22,7 +22,7 @@ export const CopyShader = {
 		void main() {
 			vec4 texel = texture2D( tDiffuse, vUv );
 			gl_FragColor = opacity * texel;
-		}`
+		}`,
 };
 
 export interface ShaderDefinitionLike {
@@ -76,7 +76,7 @@ export class Pass implements EffectPassLike {
     _deltaTime?: number,
     _maskActive?: boolean
   ): void {
-    console.error("THREE.Pass: .render() must be implemented in derived pass.");
+    console.error('THREE.Pass: .render() must be implemented in derived pass.');
   }
   dispose(): void {}
 }
@@ -91,8 +91,8 @@ export class FullScreenGeometry extends THREE.BufferGeometry {
   constructor() {
     super();
     const { Float32BufferAttribute } = THREE;
-    this.setAttribute("position", new Float32BufferAttribute([-1, 3, 0, -1, -1, 0, 3, -1, 0], 3));
-    this.setAttribute("uv", new Float32BufferAttribute([0, 2, 0, 0, 2, 0], 2));
+    this.setAttribute('position', new Float32BufferAttribute([-1, 3, 0, -1, -1, 0, 3, -1, 0], 3));
+    this.setAttribute('uv', new Float32BufferAttribute([0, 2, 0, 0, 2, 0], 2));
   }
 }
 
@@ -157,7 +157,7 @@ export class ShaderPass extends Pass {
   material: THREE.ShaderMaterial | null;
   _fsQuad: FullScreenQuad;
 
-  constructor(shader?: THREE.ShaderMaterial | ShaderDefinitionLike | null, textureID = "tDiffuse") {
+  constructor(shader?: THREE.ShaderMaterial | ShaderDefinitionLike | null, textureID = 'tDiffuse') {
     super();
     this.textureID = textureID;
     this.uniforms = null;
@@ -177,11 +177,11 @@ export class ShaderPass extends Pass {
       const shaderDef = shader as ShaderDefinitionLike;
       this.uniforms = UniformsUtils.clone(shaderDef.uniforms);
       this.material = new ShaderMaterial({
-        name: shaderDef.name !== undefined ? shaderDef.name : "unspecified",
+        name: shaderDef.name !== undefined ? shaderDef.name : 'unspecified',
         defines: Object.assign({}, shaderDef.defines),
         uniforms: this.uniforms,
         vertexShader: shaderDef.vertexShader,
-        fragmentShader: shaderDef.fragmentShader
+        fragmentShader: shaderDef.fragmentShader,
       });
     }
 
@@ -221,7 +221,6 @@ export class ShaderPass extends Pass {
     }
   }
 }
-
 
 /**
  * RenderPass

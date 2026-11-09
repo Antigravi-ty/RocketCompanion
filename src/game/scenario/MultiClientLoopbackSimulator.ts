@@ -29,47 +29,97 @@ export type { MultiplayerLoopbackTelemetry, PeerReplaySkipPolicy, VirtualPeerLoa
 
 export const SIX_CAR_STRESS_LOADOUTS: readonly VirtualPeerLoadoutSpec[] = Object.freeze([
   {
-    peerId: 'host', playerName: 'Host_Fennec_Octane', carIndex: 0, team: 0,
-    visualId: 'fennec', hitboxId: 'hitbox-octane', colorSlot: 0,
-    paintFinish: 'metallic', boostVisual: 'gold-rush', boostAudio: 'rush',
+    peerId: 'host',
+    playerName: 'Host_Fennec_Octane',
+    carIndex: 0,
+    team: 0,
+    visualId: 'fennec',
+    hitboxId: 'hitbox-octane',
+    colorSlot: 0,
+    paintFinish: 'metallic',
+    boostVisual: 'gold-rush',
+    boostAudio: 'rush',
   },
   {
-    peerId: 'peer_1', playerName: 'Peer1_Insidio_Hybrid', carIndex: 1, team: 1,
-    visualId: 'insidio', hitboxId: 'hitbox-hybrid', colorSlot: 5,
-    paintFinish: 'matte', boostVisual: 'cartoon', boostAudio: 'standard',
+    peerId: 'peer_1',
+    playerName: 'Peer1_Insidio_Hybrid',
+    carIndex: 1,
+    team: 1,
+    visualId: 'insidio',
+    hitboxId: 'hitbox-hybrid',
+    colorSlot: 5,
+    paintFinish: 'matte',
+    boostVisual: 'cartoon',
+    boostAudio: 'standard',
   },
   {
-    peerId: 'peer_2', playerName: 'Peer2_Ryza_Dominus', carIndex: 2, team: 0,
-    visualId: 'ryza', hitboxId: 'hitbox-dominus', colorSlot: 1,
-    paintFinish: 'metallic', boostVisual: 'cartoon', boostAudio: 'flamethrower',
+    peerId: 'peer_2',
+    playerName: 'Peer2_Ryza_Dominus',
+    carIndex: 2,
+    team: 0,
+    visualId: 'ryza',
+    hitboxId: 'hitbox-dominus',
+    colorSlot: 1,
+    paintFinish: 'metallic',
+    boostVisual: 'cartoon',
+    boostAudio: 'flamethrower',
   },
   {
-    peerId: 'peer_3', playerName: 'Peer3_Plank_Batmobile', carIndex: 3, team: 1,
-    visualId: 'hitbox-plank', hitboxId: 'hitbox-plank', colorSlot: 6,
-    paintFinish: 'matte', boostVisual: 'gold-rush', boostAudio: 'plasma',
+    peerId: 'peer_3',
+    playerName: 'Peer3_Plank_Batmobile',
+    carIndex: 3,
+    team: 1,
+    visualId: 'hitbox-plank',
+    hitboxId: 'hitbox-plank',
+    colorSlot: 6,
+    paintFinish: 'matte',
+    boostVisual: 'gold-rush',
+    boostAudio: 'plasma',
   },
   {
-    peerId: 'peer_4', playerName: 'Peer4_Breakout_Blade', carIndex: 4, team: 0,
-    visualId: 'hitbox-breakout', hitboxId: 'hitbox-breakout', colorSlot: 2,
-    paintFinish: 'metallic', boostVisual: 'gold-rush', boostAudio: 'standard',
+    peerId: 'peer_4',
+    playerName: 'Peer4_Breakout_Blade',
+    carIndex: 4,
+    team: 0,
+    visualId: 'hitbox-breakout',
+    hitboxId: 'hitbox-breakout',
+    colorSlot: 2,
+    paintFinish: 'metallic',
+    boostVisual: 'gold-rush',
+    boostAudio: 'standard',
   },
   {
-    peerId: 'peer_5', playerName: 'Peer5_Merc_Heavy', carIndex: 5, team: 1,
-    visualId: 'hitbox-merc', hitboxId: 'hitbox-merc', colorSlot: 7,
-    paintFinish: 'matte', boostVisual: 'cartoon', boostAudio: 'rush',
+    peerId: 'peer_5',
+    playerName: 'Peer5_Merc_Heavy',
+    carIndex: 5,
+    team: 1,
+    visualId: 'hitbox-merc',
+    hitboxId: 'hitbox-merc',
+    colorSlot: 7,
+    paintFinish: 'matte',
+    boostVisual: 'cartoon',
+    boostAudio: 'rush',
   },
 ]);
 
 interface VirtualPeerChannelState {
   readonly spec: VirtualPeerLoadoutSpec;
   readonly channel: {
-    peerId: string; peerName: string; carIndex: number;
-    visualId: string; hitboxId: string; colorSlot: number;
-    paintFinish: string; boostVisual: string; boostAudio: string;
-    measuredRttMs: number; rttMs: number;
+    peerId: string;
+    peerName: string;
+    carIndex: number;
+    visualId: string;
+    hitboxId: string;
+    colorSlot: number;
+    paintFinish: string;
+    boostVisual: string;
+    boostAudio: string;
+    measuredRttMs: number;
+    rttMs: number;
     onPacketReceived?: ((packet: Uint8Array | ArrayBuffer | string) => void) | null;
     send: (payload: string | Uint8Array | ArrayBuffer) => void;
-    close: () => void; destroy: () => void;
+    close: () => void;
+    destroy: () => void;
   };
   readonly recentInputs: InputHistoryEntry[];
   readonly pendingAcks: SignalAckWireItem[];
@@ -119,20 +169,31 @@ export class MultiClientLoopbackSimulator {
     this.resetMetrics();
     this.peers.length = 0;
     const netMgr = this.runtime?.networkManager;
-    if (!netMgr) throw new Error('[MultiClientLoopbackSimulator] runtime.networkManager is unavailable');
+    if (!netMgr)
+      throw new Error('[MultiClientLoopbackSimulator] runtime.networkManager is unavailable');
 
     for (let i = 0; i < specs.length; i++) {
       const spec = { ...specs[i] };
       const peerState = this.createVirtualPeerState(spec);
       this.peers.push(peerState);
       await netMgr.rosterSyncCoordinator.onRemotePlayerConnected(
-        peerState.channel, spec.playerName, spec.carIndex,
+        peerState.channel,
+        spec.playerName,
+        spec.carIndex
       );
-      peerState.channel.onPacketReceived?.(JSON.stringify({
-        type: 'join', name: spec.playerName, visualId: spec.visualId, hitboxId: spec.hitboxId,
-        colorSlot: spec.colorSlot, paintFinish: spec.paintFinish,
-        boostVisual: spec.boostVisual, boostAudio: spec.boostAudio, preferredTeam: spec.team,
-      }));
+      peerState.channel.onPacketReceived?.(
+        JSON.stringify({
+          type: 'join',
+          name: spec.playerName,
+          visualId: spec.visualId,
+          hitboxId: spec.hitboxId,
+          colorSlot: spec.colorSlot,
+          paintFinish: spec.paintFinish,
+          boostVisual: spec.boostVisual,
+          boostAudio: spec.boostAudio,
+          preferredTeam: spec.team,
+        })
+      );
     }
     this.active = true;
   }
@@ -140,14 +201,24 @@ export class MultiClientLoopbackSimulator {
   public async startSixCarLoopbackSession(durationSeconds = 300): Promise<void> {
     const h = SIX_CAR_STRESS_LOADOUTS[0];
     const netMgr = this.runtime?.networkManager;
-    if (!netMgr) throw new Error('[MultiClientLoopbackSimulator] runtime.networkManager is unavailable');
+    if (!netMgr)
+      throw new Error('[MultiClientLoopbackSimulator] runtime.networkManager is unavailable');
 
     await netMgr.sessionCoordinator.hostOnlineServer({
-      playerName: h.playerName, visualId: h.visualId, hitboxId: h.hitboxId,
-      colorSlot: h.colorSlot, paintFinish: h.paintFinish, boostVisual: h.boostVisual,
-      boostAudio: h.boostAudio, gameMode: '3v3', botFillMode: 'no_bots',
-      durationSeconds, lobbyMode: true, skipReplayByDefault: false,
-      forceFallback: true, roomId: 'scenario_6car_stress',
+      playerName: h.playerName,
+      visualId: h.visualId,
+      hitboxId: h.hitboxId,
+      colorSlot: h.colorSlot,
+      paintFinish: h.paintFinish,
+      boostVisual: h.boostVisual,
+      boostAudio: h.boostAudio,
+      gameMode: '3v3',
+      botFillMode: 'no_bots',
+      durationSeconds,
+      lobbyMode: true,
+      skipReplayByDefault: false,
+      forceFallback: true,
+      roomId: 'scenario_6car_stress',
     });
     await this.connectVirtualPeers(SIX_CAR_STRESS_LOADOUTS.slice(1));
   }
@@ -159,7 +230,10 @@ export class MultiClientLoopbackSimulator {
     }
   }
 
-  public setPeerControlsOverride(peerIdOrAll: string, controls: Partial<CarControlsInput> | null): void {
+  public setPeerControlsOverride(
+    peerIdOrAll: string,
+    controls: Partial<CarControlsInput> | null
+  ): void {
     for (let i = 0; i < this.peers.length; i++) {
       const p = this.peers[i];
       if (peerIdOrAll === 'all' || p.spec.peerId === peerIdOrAll) {
@@ -181,18 +255,33 @@ export class MultiClientLoopbackSimulator {
 
   private createVirtualPeerState(spec: VirtualPeerLoadoutSpec): VirtualPeerChannelState {
     const state: VirtualPeerChannelState = {
-      spec, recentInputs: [], pendingAcks: [], pendingCommands: [],
+      spec,
+      recentInputs: [],
+      pendingAcks: [],
+      pendingCommands: [],
       seenSignalIds: new Set<number>(),
       replaySkipPolicy: spec.replaySkipPolicy ?? 'never',
-      controlsOverride: null, replayTicksElapsed: 0, votedInCurrentReplay: false,
-      nextCommandId: 1, lastServerTick: 0,
+      controlsOverride: null,
+      replayTicksElapsed: 0,
+      votedInCurrentReplay: false,
+      nextCommandId: 1,
+      lastServerTick: 0,
       channel: {
-        peerId: spec.peerId, peerName: spec.playerName, carIndex: spec.carIndex,
-        visualId: spec.visualId, hitboxId: spec.hitboxId, colorSlot: spec.colorSlot,
-        paintFinish: spec.paintFinish, boostVisual: spec.boostVisual, boostAudio: spec.boostAudio,
-        measuredRttMs: 10, rttMs: 10, onPacketReceived: null,
+        peerId: spec.peerId,
+        peerName: spec.playerName,
+        carIndex: spec.carIndex,
+        visualId: spec.visualId,
+        hitboxId: spec.hitboxId,
+        colorSlot: spec.colorSlot,
+        paintFinish: spec.paintFinish,
+        boostVisual: spec.boostVisual,
+        boostAudio: spec.boostAudio,
+        measuredRttMs: 10,
+        rttMs: 10,
+        onPacketReceived: null,
         send: (payload) => this.handleServerPacketToVirtualPeer(state, payload),
-        close: () => {}, destroy: () => {},
+        close: () => {},
+        destroy: () => {},
       },
     };
     return state;
@@ -200,7 +289,7 @@ export class MultiClientLoopbackSimulator {
 
   private handleServerPacketToVirtualPeer(
     peer: VirtualPeerChannelState,
-    payload: string | Uint8Array | ArrayBuffer,
+    payload: string | Uint8Array | ArrayBuffer
   ): void {
     if (typeof payload === 'string') {
       this.totalServerFramePacketsReceived++;
@@ -208,13 +297,17 @@ export class MultiClientLoopbackSimulator {
       try {
         const parsed = JSON.parse(payload);
         if (
-          parsed && parsed.type === 'handshake_response' &&
-          typeof parsed.assignedCarIndex === 'number' && parsed.assignedCarIndex >= 0
+          parsed &&
+          parsed.type === 'handshake_response' &&
+          typeof parsed.assignedCarIndex === 'number' &&
+          parsed.assignedCarIndex >= 0
         ) {
           peer.channel.carIndex = parsed.assignedCarIndex;
           (peer.spec as { carIndex: number }).carIndex = parsed.assignedCarIndex;
         }
-      } catch { /* ignore non-JSON */ }
+      } catch {
+        /* ignore non-JSON */
+      }
       return;
     }
 
@@ -233,14 +326,19 @@ export class MultiClientLoopbackSimulator {
         if (!sig) continue;
         this.totalSignalsDecoded++;
         if (sig.name) this.distinctSignalNames.add(sig.name);
-        if (typeof sig.signalId === 'number' && sig.signalId > 0 && !peer.seenSignalIds.has(sig.signalId)) {
+        if (
+          typeof sig.signalId === 'number' &&
+          sig.signalId > 0 &&
+          !peer.seenSignalIds.has(sig.signalId)
+        ) {
           peer.seenSignalIds.add(sig.signalId);
           peer.pendingAcks.push({ signalId: sig.signalId, signalType: sig.signalType });
           if (sig.signalType === MATCH_SIGNALS.MATCH_PREPARE) {
             peer.pendingCommands.push({
               commandId: peer.nextCommandId++,
               commandType: CLIENT_COMMAND_TYPES.CMD_ARENA_LOADED_ACK,
-              param1: 1, param2: 0,
+              param1: 1,
+              param2: 0,
             });
           }
         }
@@ -252,8 +350,12 @@ export class MultiClientLoopbackSimulator {
     const phase = ((tick + carIndex * 37) % 240) / 240;
     const steerWave = Math.sin(phase * Math.PI * 2);
     return {
-      throttle: 1.0, steer: roundMetric(steerWave * 0.45, 3),
-      pitch: 0, yaw: roundMetric(steerWave * 0.25, 3), roll: 0, jump: false,
+      throttle: 1.0,
+      steer: roundMetric(steerWave * 0.45, 3),
+      pitch: 0,
+      yaw: roundMetric(steerWave * 0.25, 3),
+      roll: 0,
+      jump: false,
       boost: (tick + carIndex * 19) % 40 < 24,
       handbrake: (tick + carIndex * 53) % 180 === 0,
     };
@@ -262,7 +364,7 @@ export class MultiClientLoopbackSimulator {
   private resolvePeerControlsForTick(
     peer: VirtualPeerChannelState,
     tick: number,
-    serverState: string,
+    serverState: string
   ): CarControlsInput {
     const base = this.computeDeterministicPeerControls(peer.spec.carIndex, tick);
     if (peer.controlsOverride) return { ...base, ...peer.controlsOverride };
@@ -281,8 +383,11 @@ export class MultiClientLoopbackSimulator {
     }
     peer.replayTicksElapsed = 0;
     if (
-      isKickoff && peer.votedInCurrentReplay &&
-      typeof policy === 'object' && policy.mode === 'delayed_tick' && policy.holdIntoKickoff
+      isKickoff &&
+      peer.votedInCurrentReplay &&
+      typeof policy === 'object' &&
+      policy.mode === 'delayed_tick' &&
+      policy.holdIntoKickoff
     ) {
       return { ...base, jump: true };
     }
@@ -297,7 +402,8 @@ export class MultiClientLoopbackSimulator {
       Math.floor(this.runtime?.physics?.getHeaderView?.()?.tickCount ?? tick);
     const serverState = String(
       this.runtime?.authoritativeServer?.fallbackManager?.domain?.state ??
-        this.runtime?.match?.state?.phase ?? 'playing',
+        this.runtime?.match?.state?.phase ??
+        'playing'
     );
 
     for (let i = 0; i < this.peers.length; i++) {
@@ -308,7 +414,14 @@ export class MultiClientLoopbackSimulator {
       if (peer.recentInputs.length > 6) peer.recentInputs.length = 6;
       const acks = peer.pendingAcks.length > 0 ? peer.pendingAcks.splice(0, 8) : [];
       const cmds = peer.pendingCommands.length > 0 ? peer.pendingCommands.splice(0, 4) : [];
-      const pkt = InputPacketCodec.encode(peer.spec.carIndex, targetTick, peer.recentInputs, virtualTimeMs, acks, cmds);
+      const pkt = InputPacketCodec.encode(
+        peer.spec.carIndex,
+        targetTick,
+        peer.recentInputs,
+        virtualTimeMs,
+        acks,
+        cmds
+      );
       this.totalClientInputPacketsSent++;
       this.totalClientInputBytesSent += pkt.byteLength;
       peer.channel.onPacketReceived?.(pkt);

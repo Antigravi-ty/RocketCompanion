@@ -1,34 +1,31 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useAppStore } from '../../ui-core/stores/appStore';
-import { useViewportStore } from '../../ui-core/stores/viewportStore';
-import { type ActiveMenuRoute } from '../../ui-core/config/uiConfig';
-import { MorphingShell } from '../../ui-core/navigation/MorphingShell';
-import { FloatingStackIcon } from '../../ui-core/navigation/FloatingStackIcon';
-import { FloatingWindowManager } from '../../ui-core/navigation/FloatingWindowManager';
+import { useAppStore } from '../../ui-core/stores/appStore.ts';
+import { useViewportStore } from '../../ui-core/stores/viewportStore.ts';
+import { type ActiveMenuRoute } from '../../ui-core/config/uiConfig.ts';
+import { MorphingShell } from '../../ui-core/navigation/MorphingShell.tsx';
+import { FloatingStackIcon } from '../../ui-core/navigation/FloatingStackIcon.tsx';
+import { FloatingWindowManager } from '../../ui-core/navigation/FloatingWindowManager.tsx';
 import {
   renderFloatingWindowContent,
   handleFloatingStackCloseWindow,
-} from './runtimeFloatingWindowLifecycle';
+} from './runtimeFloatingWindowLifecycle.tsx';
 import {
   useReferenceOverlayStore,
   DEFAULT_REFERENCE_RESOLUTION,
   createDefaultResolutionProfile,
-} from '../../ui-core/stores/referenceOverlayStore';
-import { QuickNotificationSystem } from '../../ui-core/navigation/QuickNotificationSystem';
-import { DialogueStackContainer } from '../../ui-core/compounds/Dialogue';
-import { useQuickNotificationStore } from '../../ui-core/stores/quickNotificationStore';
-import '../../ui-core/stores/cameraDeterminismStore';
-import { useMenuLayoutStore } from '../../ui-core/stores/menuLayoutStore';
-import { DEFAULT_PANEL_SIZING } from '../../ui-core/tokens/menuLayoutTokens';
-import { StaticTrainingShotInspectorDrawer } from '../../ui-core/recipes/StaticTrainingShotInspectorDrawer';
-import { EdgeInspectorDrawer } from '../../ui-core/navigation/EdgeInspectorDrawer';
-import { useStaticTrainingPackStore } from '../../ui-core/stores/staticTrainingPackStore';
-import { StaticTrainingPackHUD } from '../../ui-core/hud/StaticTrainingPackHUD';
-import { useLivePreviewDockTransition } from './useLivePreviewDockTransition';
-import {
-  ROUTE_TO_PANEL_ID,
-  renderActiveMenuRoute,
-} from './menuRouteRegistry';
+} from '../../ui-core/stores/referenceOverlayStore.ts';
+import { QuickNotificationSystem } from '../../ui-core/navigation/QuickNotificationSystem.tsx';
+import { DialogueStackContainer } from '../../ui-core/compounds/Dialogue.tsx';
+import { useQuickNotificationStore } from '../../ui-core/stores/quickNotificationStore.ts';
+import '../../ui-core/stores/cameraDeterminismStore.ts';
+import { useMenuLayoutStore } from '../../ui-core/stores/menuLayoutStore.ts';
+import { DEFAULT_PANEL_SIZING } from '../../ui-core/tokens/menuLayoutTokens.ts';
+import { StaticTrainingShotInspectorDrawer } from '../../ui-core/recipes/StaticTrainingShotInspectorDrawer.tsx';
+import { EdgeInspectorDrawer } from '../../ui-core/navigation/EdgeInspectorDrawer.tsx';
+import { useStaticTrainingPackStore } from '../../ui-core/stores/staticTrainingPackStore.ts';
+import { StaticTrainingPackHUD } from '../../ui-core/hud/StaticTrainingPackHUD.tsx';
+import { useLivePreviewDockTransition } from './useLivePreviewDockTransition.ts';
+import { ROUTE_TO_PANEL_ID, renderActiveMenuRoute } from './menuRouteRegistry.tsx';
 
 const HitboxReferenceOverlayLayer: React.FC = () => {
   const enabled = useReferenceOverlayStore((s) => s.enabled);
@@ -42,11 +39,10 @@ const HitboxReferenceOverlayLayer: React.FC = () => {
     activeResolutionKey !== 'ALL'
       ? activeResolutionKey
       : activeImage
-      ? `${activeImage.width}x${activeImage.height}`
-      : DEFAULT_REFERENCE_RESOLUTION;
+        ? `${activeImage.width}x${activeImage.height}`
+        : DEFAULT_REFERENCE_RESOLUTION;
 
-  const profile =
-    profiles[effectiveResKey] || createDefaultResolutionProfile(effectiveResKey);
+  const profile = profiles[effectiveResKey] || createDefaultResolutionProfile(effectiveResKey);
 
   if (!enabled || !activeImage) {
     return null;
@@ -107,9 +103,7 @@ export const MenuShell: React.FC<MenuShellProps> = ({ inspectorSlot }) => {
   const isStaticTrainingEditActive =
     matchMode === 'static-training-pack' && staticSessionMode === 'edit';
   const hasExtraMainMenuItem =
-    matchMode === 'match' ||
-    matchMode === 'online-warmup' ||
-    Boolean(onlineSession?.roomId);
+    matchMode === 'match' || matchMode === 'online-warmup' || Boolean(onlineSession?.roomId);
 
   const isLight = theme === 'light';
   const developerMode = useAppStore((s) => s.developerMode);
@@ -181,10 +175,7 @@ export const MenuShell: React.FC<MenuShellProps> = ({ inspectorSlot }) => {
     <>
       <QuickNotificationSystem isLight={isLight} placement="bottom-right" />
       <HitboxReferenceOverlayLayer />
-      <FloatingWindowManager
-        isLight={isLight}
-        renderWindowContent={renderFloatingWindowContent}
-      />
+      <FloatingWindowManager isLight={isLight} renderWindowContent={renderFloatingWindowContent} />
       {matchMode === 'static-training-pack' && <StaticTrainingPackHUD isLight={isLight} />}
       <FloatingStackIcon
         isLight={isLight}

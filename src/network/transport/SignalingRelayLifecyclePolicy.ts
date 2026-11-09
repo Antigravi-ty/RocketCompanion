@@ -15,12 +15,7 @@ import { getSlotBitForRelayId } from '../../ui-core/config/roomCodeConnectivityC
 export type SignalingRelayMatchPolicy = 'smart-prune' | 'keep-all-probed';
 
 export type RelaySlotHealthState =
-  | 'idle'
-  | 'connecting'
-  | 'connected'
-  | 'reconnecting'
-  | 'degraded'
-  | 'paused-in-match';
+  'idle' | 'connecting' | 'connected' | 'reconnecting' | 'degraded' | 'paused-in-match';
 
 export interface RelaySlotHealthEntry {
   relayId: string;
@@ -215,8 +210,8 @@ export class SignalingRelayHealthSupervisor {
     const healthLevel: 'healthy' | 'degraded' | 'offline' = !hasAnyConnected
       ? 'offline'
       : isDegraded
-      ? 'degraded'
-      : 'healthy';
+        ? 'degraded'
+        : 'healthy';
 
     return {
       connectedMask,

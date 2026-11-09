@@ -111,7 +111,7 @@ export function computeMiniMapCoordinates(
   ballVelX = 0,
   ballVelY = 0,
   ballVelZ = 0,
-  localTeam: 0 | 1 = 0,
+  localTeam: 0 | 1 = 0
 ): HudTransientMiniMapPayload {
   const clampedX = Math.max(-PITCH_HALF_WIDTH_UU, Math.min(PITCH_HALF_WIDTH_UU, ballPosX));
   const clampedY = Math.max(-PITCH_HALF_LENGTH_UU, Math.min(PITCH_HALF_LENGTH_UU, ballPosY));
@@ -132,11 +132,10 @@ export function computeMiniMapCoordinates(
 
 export function projectNameTagScreenPositions(
   carPositions:
-    | ReadonlyArray<{ carIndex: number; posX: number; posY: number; posZ: number }>
-    | undefined,
+    ReadonlyArray<{ carIndex: number; posX: number; posY: number; posZ: number }> | undefined,
   perspectiveCamera: THREE.Camera | null | undefined,
   viewportWidthPx = 1920,
-  viewportHeightPx = 1080,
+  viewportHeightPx = 1080
 ): HudTransientNameTagProjection2D[] {
   if (!carPositions || carPositions.length === 0 || !perspectiveCamera) return [];
   const projections: HudTransientNameTagProjection2D[] = [];
@@ -157,7 +156,7 @@ export function projectNameTagScreenPositions(
 export function buildHudTransientFramePayload(
   physicsState: HudTransientPhysicsStateInput,
   camera: HudTransientCameraInput,
-  roster: HudTransientRosterInput,
+  roster: HudTransientRosterInput
 ): HudTransientFramePayload {
   const { blueEntries, orangeEntries, detectedLocalTeam, isSpectatingNoHuman } = roster;
   const localInOrange = orangeEntries.some((e) => e.isSelf);
@@ -170,8 +169,10 @@ export function buildHudTransientFramePayload(
   const leftLabelPrefix = localTeam === 1 ? 'Orange' : 'Blue';
   const rightLabelPrefix = localTeam === 1 ? 'Blue' : 'Orange';
 
-  const { rightStartKey, leftSlotKeys, rightSlotKeys, slotKeyToCarIndex } =
-    assignTeamSlotKeys([...leftEntries], [...rightEntries]);
+  const { rightStartKey, leftSlotKeys, rightSlotKeys, slotKeyToCarIndex } = assignTeamSlotKeys(
+    [...leftEntries],
+    [...rightEntries]
+  );
 
   const sig = roster.choreographySignal || 'kickoff-will-start';
   const isGoalReplayView =
@@ -193,7 +194,7 @@ export function buildHudTransientFramePayload(
     side: 'left' | 'right',
     slotKeyRaw: number,
     labelPrefix: string,
-    entry: RosterTeamEntry | undefined,
+    entry: RosterTeamEntry | undefined
   ): HudTransientPlayerSlotPayload => {
     const slotKey = Math.min(6, Math.max(1, slotKeyRaw));
     if (!entry) {
@@ -225,8 +226,8 @@ export function buildHudTransientFramePayload(
     const replaySkipReady = isGoalReplayView
       ? Boolean(
           entry.isBot ||
-            (entry.isSelf && roster.localSkipReplayReady) ||
-            roster.acknowledgedJumpByCar?.get(entry.carIndex),
+          (entry.isSelf && roster.localSkipReplayReady) ||
+          roster.acknowledgedJumpByCar?.get(entry.carIndex)
         )
       : false;
 
@@ -248,7 +249,7 @@ export function buildHudTransientFramePayload(
   };
 
   const leftPlayers = [0, 1, 2, 3, 4].map((idx) =>
-    buildSideSlot(idx, 'left', leftSlotKeys[idx] ?? idx + 1, leftLabelPrefix, leftEntries[idx]),
+    buildSideSlot(idx, 'left', leftSlotKeys[idx] ?? idx + 1, leftLabelPrefix, leftEntries[idx])
   );
 
   const rightPlayers = [0, 1, 2, 3, 4].map((idx) =>
@@ -257,8 +258,8 @@ export function buildHudTransientFramePayload(
       'right',
       rightSlotKeys[idx] ?? rightStartKey + idx,
       rightLabelPrefix,
-      rightEntries[idx],
-    ),
+      rightEntries[idx]
+    )
   );
 
   const miniMap = computeMiniMapCoordinates(
@@ -267,14 +268,14 @@ export function buildHudTransientFramePayload(
     physicsState.ballVelX ?? 0,
     physicsState.ballVelY ?? 0,
     physicsState.ballVelZ ?? 0,
-    localTeam,
+    localTeam
   );
 
   const nameTagProjections = projectNameTagScreenPositions(
     physicsState.carPositions,
     camera.perspectiveCamera,
     camera.viewportWidthPx,
-    camera.viewportHeightPx,
+    camera.viewportHeightPx
   );
 
   return {

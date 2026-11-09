@@ -6,7 +6,7 @@
 import {
   REPLAY_DIRECTOR_CONFIG,
   DEFAULT_REPLAY_DIRECTOR_FOV_DEG,
-} from '../ui-core/config/replayDirectorConfig';
+} from '../ui-core/config/replayDirectorConfig.ts';
 import { serializeRCReplayBinaryContainer } from './container/RCReplayBinaryEncoder.ts';
 import { packAndCompressReplayInBackground } from './container/RCReplayCompressionWorkerClient.ts';
 import {
@@ -87,7 +87,9 @@ export function exportReplayDirectorDiagnosticPattern(
   options: DirectorPatternSerializerOptions = {}
 ) {
   const totalFrames = ctrl
-    ? (ctrl.ActiveWindowCount > 0 ? ctrl.ActiveWindowCount : ctrl.getTotalRecordedFrames())
+    ? ctrl.ActiveWindowCount > 0
+      ? ctrl.ActiveWindowCount
+      : ctrl.getTotalRecordedFrames()
     : 0;
   if (!ctrl || totalFrames <= 0) {
     return null;
@@ -336,13 +338,13 @@ export function exportReplayDirectorReferenceKeyframe(
   const fIdx = payload.frameContext.replayFrameIndex;
   const filename = `director-ref-keyframe-frame-${fId}-idx-${fIdx}-${stamp}.json`;
 
-  if (options.download !== false && typeof document !== 'undefined' && typeof Blob !== 'undefined') {
+  if (
+    options.download !== false &&
+    typeof document !== 'undefined' &&
+    typeof Blob !== 'undefined'
+  ) {
     const blob = new Blob([json], { type: 'application/json' });
     triggerBrowserBlobDownload(blob, filename);
   }
   return { filename, payload, content: json };
 }
-
-
-
-

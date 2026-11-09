@@ -1,8 +1,4 @@
-import {
-  PLUME_TEXTURE,
-  TURBULENCE_TEXTURE,
-  SPARKS_TEXTURE
-} from './boostCurves.ts';
+import { PLUME_TEXTURE, TURBULENCE_TEXTURE, SPARKS_TEXTURE } from './boostCurves.ts';
 import * as THREE from 'three';
 
 let cachedGoldenBoostTextures: any = null;
@@ -27,9 +23,14 @@ export function loadGoldenBoostTextures() {
 
   const loadTex = (url, repeat) => {
     let t;
-    promises.push(new Promise<void>((resolve, reject) => {
-      t = setupBoostTexture(loader.load(url, () => resolve(), undefined, reject), repeat);
-    }));
+    promises.push(
+      new Promise<void>((resolve, reject) => {
+        t = setupBoostTexture(
+          loader.load(url, () => resolve(), undefined, reject),
+          repeat
+        );
+      })
+    );
     return t;
   };
 
@@ -37,15 +38,17 @@ export function loadGoldenBoostTextures() {
   const turb = loadTex(TURBULENCE_TEXTURE, true);
   const sparks = loadTex(SPARKS_TEXTURE, true);
 
-  const readyPromise = Promise.all(promises).then(() => {}).catch((err) => {
-    console.warn('[VehicleBoostEmitter] Boost textures failed to preload:', err);
-  });
+  const readyPromise = Promise.all(promises)
+    .then(() => {})
+    .catch((err) => {
+      console.warn('[VehicleBoostEmitter] Boost textures failed to preload:', err);
+    });
 
   cachedGoldenBoostTextures = {
     textures: { cloud: plume, dust: turb, grain: turb, smoke: turb },
     water: turb,
     particleSheet: sparks,
-    ready: readyPromise
+    ready: readyPromise,
   };
 
   return cachedGoldenBoostTextures;
@@ -62,7 +65,10 @@ export function createRealisticBoostConeGeometry(radius, length, radialSegs = 28
 
   for (let heightStep = 0; heightStep <= heightSegs; heightStep++) {
     const fraction = heightStep / heightSegs;
-    const profile = Math.max(0.012, (0.12 + 0.88 * (1 - Math.exp(-fraction * 13))) * Math.pow(1 - fraction, 0.62));
+    const profile = Math.max(
+      0.012,
+      (0.12 + 0.88 * (1 - Math.exp(-fraction * 13))) * Math.pow(1 - fraction, 0.62)
+    );
     const currentRadius = radius * profile;
     const posX = -length * fraction;
 
@@ -84,8 +90,8 @@ export function createRealisticBoostConeGeometry(radius, length, radialSegs = 28
   }
 
   const geom = new BufferGeometry();
-  geom.setAttribute("position", new BufferAttribute(new Float32Array(positions), 3));
-  geom.setAttribute("uv", new BufferAttribute(new Float32Array(uvs), 2));
+  geom.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
+  geom.setAttribute('uv', new BufferAttribute(new Float32Array(uvs), 2));
   geom.setIndex(indices);
   geom.computeVertexNormals();
   geom.computeBoundingSphere();
@@ -103,7 +109,7 @@ export function createRealisticBoostConeMaterial(waterMap, particleSheetMap, lay
       particleSheetMap: { value: particleSheetMap },
       time: { value: 0 },
       opacity: { value: 0 },
-      luminanceMode: { value: 0 }
+      luminanceMode: { value: 0 },
     },
     vertexShader: `
       varying vec2 vUv;
@@ -190,6 +196,6 @@ export function createRealisticBoostConeMaterial(waterMap, particleSheetMap, lay
     blending: NormalBlending,
     depthWrite: false,
     side: DoubleSide,
-    toneMapped: true
+    toneMapped: true,
   });
 }

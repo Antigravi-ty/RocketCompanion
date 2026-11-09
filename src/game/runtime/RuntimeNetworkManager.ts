@@ -2,7 +2,7 @@ import { CLIENT_COMMAND_TYPES } from '../../physics/RocketSimConstants.ts';
 import {
   packLoadoutCommandParam1,
   packLoadoutCommandParam2,
-} from '../../ui-core/config/vehicleConstants';
+} from '../../ui-core/config/vehicleConstants.ts';
 import { useAppStore } from '../runtimeUiPort.ts';
 import { ReconcilerSignalCoordinator } from './ReconcilerSignalCoordinator.ts';
 import {
@@ -96,7 +96,7 @@ export class RuntimeNetworkManager {
     this.diagnosticsProbe = new NetworkDiagnosticsProbe(this.createDiagnosticsHostPort());
     this.sessionCoordinator = new OnlineSessionCoordinator(
       this.createSessionHostPort(),
-      this.diagnosticsProbe,
+      this.diagnosticsProbe
     );
     this.rosterSyncCoordinator = new OnlineRosterSyncCoordinator(this.createRosterSyncHostPort());
     this.signalCoordinator = new ReconcilerSignalCoordinator(this.createSignalHostPort());
@@ -148,13 +148,13 @@ export class RuntimeNetworkManager {
   }
 
   isLobbyDualWorldActive(
-    reconciler: PredictionReconciler | null = this.sessionCoordinator.networkReconciler,
+    reconciler: PredictionReconciler | null = this.sessionCoordinator.networkReconciler
   ): boolean {
     const r = this.runtime;
     return Boolean(
       reconciler?.lobbyDualWorldMode ||
-        r.arena?.isLobbyMode ||
-        (r.match?.state?.mode !== 'match' && r.match?.state?.phase === 'lobby'),
+      r.arena?.isLobbyMode ||
+      (r.match?.state?.mode !== 'match' && r.match?.state?.phase === 'lobby')
     );
   }
 
@@ -251,17 +251,11 @@ export class RuntimeNetworkManager {
     }
 
     if (request.carIndex === playerCarIndex) {
-      server?.setLoadout?.(
-        'host',
-        request.visualId,
-        request.colorSlotId,
-        request.hitboxId,
-        {
-          paintFinish: request.paintFinish,
-          boostVisual: request.boostVisual,
-          boostAudio: request.boostAudio,
-        },
-      );
+      server?.setLoadout?.('host', request.visualId, request.colorSlotId, request.hitboxId, {
+        paintFinish: request.paintFinish,
+        boostVisual: request.boostVisual,
+        boostAudio: request.boostAudio,
+      });
       reconciler?.controlMessenger.enqueueClientCommand(
         CLIENT_COMMAND_TYPES.CMD_SET_LOADOUT,
         packLoadoutCommandParam1(request.visualId, request.hitboxId),
@@ -269,8 +263,8 @@ export class RuntimeNetworkManager {
           request.colorSlotId,
           request.paintFinish,
           request.boostVisual,
-          request.boostAudio,
-        ),
+          request.boostAudio
+        )
       );
     }
 
@@ -291,7 +285,11 @@ export class RuntimeNetworkManager {
       this.diagnosticsProbe.despawnDiagnosticTestFleet();
       server.forceStartMatch(durationSeconds);
     } else if (reconciler) {
-      reconciler.controlMessenger.enqueueClientCommand(CLIENT_COMMAND_TYPES.CMD_READY_ACK, 1, durationSeconds);
+      reconciler.controlMessenger.enqueueClientCommand(
+        CLIENT_COMMAND_TYPES.CMD_READY_ACK,
+        1,
+        durationSeconds
+      );
     }
   }
 
@@ -316,15 +314,25 @@ export class RuntimeNetworkManager {
     useAppStore?.getState?.()?.setOnlineSession({ botFillMode });
   }
 
-  addOnlineBot(team: number | null = 1, botName: string | null = null, visualId: string | null = 'octane', botType?: string): void {
-    this.sessionCoordinator.authoritativeServer?.addBotPlayer?.(team ?? 1, botName, visualId ?? 'octane', botType);
+  addOnlineBot(
+    team: number | null = 1,
+    botName: string | null = null,
+    visualId: string | null = 'octane',
+    botType?: string
+  ): void {
+    this.sessionCoordinator.authoritativeServer?.addBotPlayer?.(
+      team ?? 1,
+      botName,
+      visualId ?? 'octane',
+      botType
+    );
   }
 
   setClientReady(ready = true): void {
     this.sessionCoordinator.networkReconciler?.controlMessenger.enqueueClientCommand(
       CLIENT_COMMAND_TYPES.CMD_READY_ACK,
       ready ? 1 : 0,
-      0,
+      0
     );
   }
 
@@ -332,7 +340,7 @@ export class RuntimeNetworkManager {
     this.sessionCoordinator.networkReconciler?.controlMessenger.enqueueClientCommand(
       CLIENT_COMMAND_TYPES.CMD_VOTE_SKIP_REPLAY,
       1,
-      0,
+      0
     );
   }
 
@@ -340,7 +348,7 @@ export class RuntimeNetworkManager {
     this.sessionCoordinator.networkReconciler?.controlMessenger.enqueueClientCommand(
       CLIENT_COMMAND_TYPES.CMD_VOTE_REMATCH,
       ready ? 1 : 0,
-      0,
+      0
     );
   }
 
@@ -351,7 +359,11 @@ export class RuntimeNetworkManager {
     if (server) {
       server.switchRoleTeam('host', role, team);
     } else if (reconciler) {
-      reconciler.controlMessenger.enqueueClientCommand(CLIENT_COMMAND_TYPES.CMD_SWITCH_ROLE_TEAM, roleCode, team);
+      reconciler.controlMessenger.enqueueClientCommand(
+        CLIENT_COMMAND_TYPES.CMD_SWITCH_ROLE_TEAM,
+        roleCode,
+        team
+      );
     }
   }
 }

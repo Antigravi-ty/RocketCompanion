@@ -141,7 +141,10 @@ export function injectLoopbackCandidate(
   const port = getLoopbackPortFromCandidates(list, sdp);
   const loopback = createLoopbackCandidate(sourceCand, port);
 
-  return [loopback, ...list.map((c) => (typeof c === 'string' ? { candidate: c } : (c as IceCandidateDescriptor)))];
+  return [
+    loopback,
+    ...list.map((c) => (typeof c === 'string' ? { candidate: c } : (c as IceCandidateDescriptor))),
+  ];
 }
 
 export function ensureValidSdp(sdp: string): string {

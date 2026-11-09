@@ -8,8 +8,8 @@
  */
 
 import * as THREE from 'three';
-import { DEFAULT_REPLAY_DIRECTOR_FOV_DEG } from '../ui-core/config/replayDirectorConfig';
-import type { CameraSettingsConfig } from '../ui-core/config/cameraDefaults';
+import { DEFAULT_REPLAY_DIRECTOR_FOV_DEG } from '../ui-core/config/replayDirectorConfig.ts';
+import type { CameraSettingsConfig } from '../ui-core/config/cameraDefaults.ts';
 
 export const MIN_HORIZONTAL_FOV_DEG = 10;
 export const MAX_HORIZONTAL_FOV_DEG = 150;
@@ -94,20 +94,14 @@ export function clampHorizontalFovDeg(
   return Math.max(MIN_HORIZONTAL_FOV_DEG, Math.min(MAX_HORIZONTAL_FOV_DEG, num));
 }
 
-export function convertHorizontalToVerticalFov(
-  hFovDeg: number,
-  aspect: number = 16 / 9
-): number {
+export function convertHorizontalToVerticalFov(hFovDeg: number, aspect: number = 16 / 9): number {
   const safeHFov = clampHorizontalFovDeg(hFovDeg);
   const safeAspect = aspect > 0 ? aspect : 16 / 9;
   const halfAngleRad = (safeHFov * Math.PI) / 360;
   return 2 * Math.atan(Math.tan(halfAngleRad) / safeAspect) * (180 / Math.PI);
 }
 
-export function convertVerticalToHorizontalFov(
-  vFovDeg: number,
-  aspect: number = 16 / 9
-): number {
+export function convertVerticalToHorizontalFov(vFovDeg: number, aspect: number = 16 / 9): number {
   const safeVFov = Math.max(5, Math.min(165, Number(vFovDeg) || 70));
   const safeAspect = aspect > 0 ? aspect : 16 / 9;
   const halfAngleRad = (safeVFov * Math.PI) / 360;
@@ -175,15 +169,17 @@ export function resolveSnapshotHorizontalFov(
 
 export function buildCameraPoseStateSnapshot(
   cam: THREE.PerspectiveCamera | null,
-  free: {
-    fov?: number;
-    camPosition?: THREE.Vector3;
-    forward?: THREE.Vector3;
-    right?: THREE.Vector3;
-    yaw?: number;
-    pitch?: number;
-    syncOrientationVectors?: () => void;
-  } | undefined,
+  free:
+    | {
+        fov?: number;
+        camPosition?: THREE.Vector3;
+        forward?: THREE.Vector3;
+        right?: THREE.Vector3;
+        yaw?: number;
+        pitch?: number;
+        syncOrientationVectors?: () => void;
+      }
+    | undefined,
   isFreeCam: boolean,
   fallbackHFov: number
 ): FreeCamStateSnapshot | null {

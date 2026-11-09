@@ -220,14 +220,8 @@ export class DataChannelTransport {
     const dc = this.port.getDataChannel();
     const roomChannel = this.port.signaling.roomBroadcastChannel;
     const isClosed =
-      !this.port.isChannelOpen() &&
-      (!dc || dc.readyState !== 'open') &&
-      !roomChannel;
-    this.port.onLocalColorUpdated(
-      slotId,
-      hex,
-      isClosed ? { slotId, hex, carIndex } : undefined
-    );
+      !this.port.isChannelOpen() && (!dc || dc.readyState !== 'open') && !roomChannel;
+    this.port.onLocalColorUpdated(slotId, hex, isClosed ? { slotId, hex, carIndex } : undefined);
     const payload = JSON.stringify({ type: 'color_change', slotId, hex, carIndex });
     if (dc && dc.readyState === 'open') {
       try {

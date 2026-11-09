@@ -4,11 +4,8 @@
  * for KickoffPPOAgent and KickoffTrainingMode.
  */
 
-import {
-  KICKOFF_PPO_META,
-  getKickoffPPOActorWeights,
-} from './kickoffPPOWeights.ts';
-import { KICKOFF_SPAWNS } from '../ui-core/config/trainingDefaults';
+import { KICKOFF_PPO_META, getKickoffPPOActorWeights } from './kickoffPPOWeights.ts';
+import { KICKOFF_SPAWNS } from '../ui-core/config/trainingDefaults.ts';
 
 export const KICKOFF_SETTLE_TICKS: number = KICKOFF_PPO_META.settleTicks || 30;
 export const TICKS_PER_DECISION: number = KICKOFF_PPO_META.actionRepeat || 4;
@@ -108,7 +105,8 @@ export class CarJumpAirTimeTracker {
 
     if (this.isJumping) {
       this.isJumping =
-        this.jumpTime < JUMP_MIN_TIME || (Boolean(jumpControlBool) && this.jumpTime < JUMP_MAX_TIME);
+        this.jumpTime < JUMP_MIN_TIME ||
+        (Boolean(jumpControlBool) && this.jumpTime < JUMP_MAX_TIME);
     } else if (isOnGround && jumpPressed) {
       this.isJumping = true;
       this.jumpTime = 0.0;
@@ -142,15 +140,27 @@ export function makeKickoffRawCarState(
   outArray[2] = 17.0;
 
   if (Math.abs(sx) < 500.0) {
-    outArray[3] = 0.0; outArray[4] = 1.0; outArray[5] = 0.0;
-    outArray[6] = -1.0; outArray[7] = 0.0; outArray[8] = 0.0;
-    outArray[9] = 0.0; outArray[10] = 0.0; outArray[11] = 1.0;
+    outArray[3] = 0.0;
+    outArray[4] = 1.0;
+    outArray[5] = 0.0;
+    outArray[6] = -1.0;
+    outArray[7] = 0.0;
+    outArray[8] = 0.0;
+    outArray[9] = 0.0;
+    outArray[10] = 0.0;
+    outArray[11] = 1.0;
   } else {
     const s2 = Math.fround(Math.SQRT1_2);
     const sgn = sx > 0 ? -1.0 : 1.0;
-    outArray[3] = sgn * s2; outArray[4] = s2; outArray[5] = 0.0;
-    outArray[6] = -s2; outArray[7] = sgn * s2; outArray[8] = 0.0;
-    outArray[9] = 0.0; outArray[10] = 0.0; outArray[11] = 1.0;
+    outArray[3] = sgn * s2;
+    outArray[4] = s2;
+    outArray[5] = 0.0;
+    outArray[6] = -s2;
+    outArray[7] = sgn * s2;
+    outArray[8] = 0.0;
+    outArray[9] = 0.0;
+    outArray[10] = 0.0;
+    outArray[11] = 1.0;
   }
 
   outArray[18] = Math.fround(100.0 / 3.0);
@@ -193,7 +203,11 @@ export function resetEngineToKickoffSpawn(
     return;
   }
 
-  if (recreateArena && simTarget.module && typeof simTarget.module._physics_createArena === 'function') {
+  if (
+    recreateArena &&
+    simTarget.module &&
+    typeof simTarget.module._physics_createArena === 'function'
+  ) {
     simTarget.module._physics_createArena();
     simTarget.clearEvents();
     simTarget.addCar?.(0, hitboxType);
@@ -203,8 +217,14 @@ export function resetEngineToKickoffSpawn(
   const preState = makeKickoffRawCarState(spawn.x, spawn.y);
   simTarget.setCarState(carIndex, preState);
   simTarget.setControls(carIndex, {
-    throttle: 0, steer: 0, pitch: 0, yaw: 0, roll: 0,
-    jump: false, boost: false, handbrake: false,
+    throttle: 0,
+    steer: 0,
+    pitch: 0,
+    yaw: 0,
+    roll: 0,
+    jump: false,
+    boost: false,
+    handbrake: false,
   });
 
   if (settleTicks > 0) {
@@ -255,7 +275,14 @@ export function controlsToMultiDiscrete(
   if (rl > 0.3) ch2 = 2;
   else if (rl < -0.3) ch2 = 0;
 
-  return [ch0, ch1, ch2, controls?.jump ? 1 : 0, controls?.boost ? 1 : 0, controls?.handbrake ? 1 : 0];
+  return [
+    ch0,
+    ch1,
+    ch2,
+    controls?.jump ? 1 : 0,
+    controls?.boost ? 1 : 0,
+    controls?.handbrake ? 1 : 0,
+  ];
 }
 
 export function multiDiscreteToOverlayKeys(act: ArrayLike<number>): KickoffOverlayKeys {
@@ -305,7 +332,17 @@ export interface KickoffTimelineNoteBar {
   endStep: number;
 }
 
-const KICKOFF_TIMELINE_LANE_KEYS = ['Shift', 'Q', 'A', 'W', 'S', 'D', 'E', 'Boost', 'Jump'] as const;
+const KICKOFF_TIMELINE_LANE_KEYS = [
+  'Shift',
+  'Q',
+  'A',
+  'W',
+  'S',
+  'D',
+  'E',
+  'Boost',
+  'Jump',
+] as const;
 
 export function buildKickoffTimelineNoteBars(
   steps: ReadonlyArray<{

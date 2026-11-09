@@ -13,6 +13,9 @@
     "sync:profile": "node scripts/syncPrivateProfile.mjs --force",
     "typecheck": "tsc --noEmit",
     "radar": "node --experimental-strip-types scripts/radar.ts",
+    "radar:audit": "node --experimental-strip-types scripts/radar.ts --audit",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\" \"scripts/**/*.{ts,mjs}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\" \"scripts/**/*.{ts,mjs}\"",
     "check": "pnpm run radar && pnpm run typecheck",
     "extract:golden": "node scripts/extractGoldenBaseline65f1538d.mjs",
     "test:baseline": "node scripts/runScenarioBaseline.mjs"
@@ -39,6 +42,7 @@
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.6.1",
     "postcss": "^8.5.28",
+    "prettier": "^3.9.10",
     "tailwindcss": "^4.3.3",
     "typescript": "7.0.2",
     "vite": "^5.0.0"

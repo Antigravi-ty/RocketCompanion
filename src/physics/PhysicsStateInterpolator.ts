@@ -12,13 +12,13 @@ import {
   CAR_STATE_STRIDE,
   BALL_STATE_STRIDE,
   FIXED_TIMESTEP,
-  MAX_PHYSICS_SUBSTEPS
+  MAX_PHYSICS_SUBSTEPS,
 } from './RocketSimConstants.ts';
 import {
   ArenaHeaderView,
   CarStateView,
   BallStateView,
-  BoostPadStateView
+  BoostPadStateView,
 } from './RocketSimStateViews.ts';
 
 export class PhysicsStateInterpolator {

@@ -1,17 +1,26 @@
 import {
-  getEngineAudioTuningConfig, registerEngineAudioRuntimeActions, publishEngineAudioTelemetry,
-  type EngineAudioPackId, type EngineDriveDirection,
+  getEngineAudioTuningConfig,
+  registerEngineAudioRuntimeActions,
+  publishEngineAudioTelemetry,
+  type EngineAudioPackId,
+  type EngineDriveDirection,
 } from '../ui-core/config/engineAudioConfig.ts';
 import {
-  loadEngineAudioPackAssets, getResolvedEngineAudioPackAssets, type LoadedEngineAudioPackAssets,
+  loadEngineAudioPackAssets,
+  getResolvedEngineAudioPackAssets,
+  type LoadedEngineAudioPackAssets,
 } from './EngineAudioLoopConditioner.ts';
 import { EngineAudioEqualizer } from './EngineAudioEqualizer.ts';
 import {
-  normalizePowertrainTelemetry, stepManualBenchKinematics, type PowertrainTelemetryInput,
+  normalizePowertrainTelemetry,
+  stepManualBenchKinematics,
+  type PowertrainTelemetryInput,
 } from './EnginePhysicsKinematics.ts';
 import { TurtleModemDrivetrainModel } from './TurtleModemDrivetrainModel.ts';
 import {
-  TurtleModemGranularVoiceGraph, type EngineSynthLodMode, type GranularSliceChannel,
+  TurtleModemGranularVoiceGraph,
+  type EngineSynthLodMode,
+  type GranularSliceChannel,
 } from './TurtleModemGranularVoiceGraph.ts';
 
 export type { PowertrainTelemetryInput, EngineSynthLodMode, GranularSliceChannel };
@@ -62,7 +71,11 @@ export class TurtleModemEngineSynth {
   lastUpdatePerfMs = 0;
   telemetryPublishCounter = 0;
 
-  constructor(ctx: AudioContext, destination?: AudioNode, options?: { isPrimaryListener?: boolean }) {
+  constructor(
+    ctx: AudioContext,
+    destination?: AudioNode,
+    options?: { isPrimaryListener?: boolean }
+  ) {
     this.ctx = ctx;
     this.destination = destination || ctx.destination;
     this.isPrimaryListener = options?.isPrimaryListener ?? true;
@@ -84,22 +97,43 @@ export class TurtleModemEngineSynth {
     this.outputNode.connect(this.destination);
 
     this.voiceGraph = new TurtleModemGranularVoiceGraph(
-      this.ctx, lp, this.equalizer, this.isPrimaryListener ? 'primary-full' : 'remote-lod'
+      this.ctx,
+      lp,
+      this.equalizer,
+      this.isPrimaryListener ? 'primary-full' : 'remote-lod'
     );
 
     if (this.isPrimaryListener) this._registerRuntimeHooks();
     this._ensurePackLoaded(this.packId);
   }
 
-  get graphBuilt(): boolean { return this.voiceGraph.graphBuilt; }
-  set graphBuilt(val: boolean) { if (!val) this.voiceGraph.teardown(); }
-  get sliceChannels(): GranularSliceChannel[] { return this.voiceGraph.sliceChannels; }
-  get idleSource(): AudioBufferSourceNode | null { return this.voiceGraph.idleSource; }
-  get idleGain(): GainNode | null { return this.voiceGraph.idleGain; }
-  get currentRPM(): number { return this.drivetrain.currentRPM; }
-  get currentGear(): number { return this.drivetrain.currentGear; }
-  get isNeutral(): boolean { return this.drivetrain.isNeutral; }
-  get driveDirection(): EngineDriveDirection { return this.drivetrain.driveDirection; }
+  get graphBuilt(): boolean {
+    return this.voiceGraph.graphBuilt;
+  }
+  set graphBuilt(val: boolean) {
+    if (!val) this.voiceGraph.teardown();
+  }
+  get sliceChannels(): GranularSliceChannel[] {
+    return this.voiceGraph.sliceChannels;
+  }
+  get idleSource(): AudioBufferSourceNode | null {
+    return this.voiceGraph.idleSource;
+  }
+  get idleGain(): GainNode | null {
+    return this.voiceGraph.idleGain;
+  }
+  get currentRPM(): number {
+    return this.drivetrain.currentRPM;
+  }
+  get currentGear(): number {
+    return this.drivetrain.currentGear;
+  }
+  get isNeutral(): boolean {
+    return this.drivetrain.isNeutral;
+  }
+  get driveDirection(): EngineDriveDirection {
+    return this.drivetrain.driveDirection;
+  }
 
   static speedToKmh(rawSpeed: number): number {
     return Number.isFinite(rawSpeed) && rawSpeed > 0 ? rawSpeed * 0.036 : 0;
@@ -107,7 +141,9 @@ export class TurtleModemEngineSynth {
 
   private _shouldPlayNow(): boolean {
     return (
-      this.active && this.alive && !this.dormant &&
+      this.active &&
+      this.alive &&
+      !this.dormant &&
       (this.audible || (this.isPrimaryListener && this.manualOverrideActive)) &&
       this.engineVolume > 1e-4
     );
@@ -148,7 +184,9 @@ export class TurtleModemEngineSynth {
         this.loadingPromise = null;
         this._buildIfReady();
       })
-      .catch(() => { this.loadingPromise = null; });
+      .catch(() => {
+        this.loadingPromise = null;
+      });
   }
 
   start(): void {
@@ -176,26 +214,48 @@ export class TurtleModemEngineSynth {
       src.connect(g);
       g.connect(this.destination);
       src.start(this.ctx.currentTime);
-      src.onended = () => { try { src.disconnect(); g.disconnect(); } catch { /* ignore */ } };
-    } catch { /* ignore */ }
+      src.onended = () => {
+        try {
+          src.disconnect();
+          g.disconnect();
+        } catch {
+          /* ignore */
+        }
+      };
+    } catch {
+      /* ignore */
+    }
   }
 
   triggerBackfire(forceAudition = false): void {
     const pops = this.assets?.popBuffers;
-    if (!pops?.length || (!forceAudition && (!this.active || !this.alive || !this.audible || this.dormant))) return;
+    if (
+      !pops?.length ||
+      (!forceAudition && (!this.active || !this.alive || !this.audible || this.dormant))
+    )
+      return;
     const cfg = getEngineAudioTuningConfig();
     const now = this.ctx.currentTime;
-    if (!forceAudition && now - this.lastBackfireTimeSec < Math.max(0.15, cfg.backfireCooldownSec ?? 0.65)) return;
+    if (
+      !forceAudition &&
+      now - this.lastBackfireTimeSec < Math.max(0.15, cfg.backfireCooldownSec ?? 0.65)
+    )
+      return;
     this.lastBackfireTimeSec = now;
 
     let idx = 0;
     if (pops.length > 1) {
-      do { idx = Math.floor(Math.random() * pops.length); } while (idx === this.lastPopIndex);
+      do {
+        idx = Math.floor(Math.random() * pops.length);
+      } while (idx === this.lastPopIndex);
     }
     this.lastPopIndex = idx;
     this.backfireCount += 1;
 
-    const gain = Math.max(0, Math.min(1.5, cfg.backfireVolume * (forceAudition ? 0.9 : this.engineVolume)));
+    const gain = Math.max(
+      0,
+      Math.min(1.5, cfg.backfireVolume * (forceAudition ? 0.9 : this.engineVolume))
+    );
     this._playOneShotBuffer(pops[idx], gain, 0.94 + Math.random() * 0.12);
   }
 
@@ -211,15 +271,21 @@ export class TurtleModemEngineSynth {
     this.lastEntitySpawnTimeSec = now;
     this.entitySpawnCount += 1;
 
-    const vol = cfg.entitySpawnSfxVolume * (forceAudition ? 0.9 : Math.max(0.35, this.engineVolume));
+    const vol =
+      cfg.entitySpawnSfxVolume * (forceAudition ? 0.9 : Math.max(0.35, this.engineVolume));
     this._playOneShotBuffer(spawnBuf, Math.max(0, Math.min(1.5, vol)), 1.0);
-    if (this.isPrimaryListener) publishEngineAudioTelemetry({ entitySpawnCount: this.entitySpawnCount });
+    if (this.isPrimaryListener)
+      publishEngineAudioTelemetry({ entitySpawnCount: this.entitySpawnCount });
   }
 
-  update(speedOrTelemetry: number | EngineSynthTelemetryInput = 0, legacyIsAccelerating = false): void {
+  update(
+    speedOrTelemetry: number | EngineSynthTelemetryInput = 0,
+    legacyIsAccelerating = false
+  ): void {
     if (!this.active) this.start();
     const nowPerf = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    const computedDt = this.lastUpdatePerfMs > 0 ? (nowPerf - this.lastUpdatePerfMs) / 1000 : 1 / 60;
+    const computedDt =
+      this.lastUpdatePerfMs > 0 ? (nowPerf - this.lastUpdatePerfMs) / 1000 : 1 / 60;
     this.lastUpdatePerfMs = nowPerf;
 
     const norm = normalizePowertrainTelemetry(speedOrTelemetry, legacyIsAccelerating, computedDt);
@@ -243,8 +309,14 @@ export class TurtleModemEngineSynth {
 
     if (this.isPrimaryListener && this.manualOverrideActive) {
       const bench = stepManualBenchKinematics(
-        cfg, this.manualSpeedUU, this.manualThrottle, this.manualBoost,
-        this.manualReverse, this.manualAirborne, this.drivetrain.driveDirection, dt
+        cfg,
+        this.manualSpeedUU,
+        this.manualThrottle,
+        this.manualBoost,
+        this.manualReverse,
+        this.manualAirborne,
+        this.drivetrain.driveDirection,
+        dt
       );
       this.manualSpeedUU = bench.manualSpeedUU;
       ({ isOnGround, throttleInput, isBoosting, rawSpeedUU, forwardSpeedUU } = bench);
@@ -252,21 +324,37 @@ export class TurtleModemEngineSynth {
       this.manualSpeedUU = rawSpeedUU;
     }
 
-    const res = this.drivetrain.step(cfg, rawSpeedUU, forwardSpeedUU, throttleInput, isOnGround, dt, {
-      steerInput, handbrakeInput, isBoosting, surfaceUpZ,
-    });
+    const res = this.drivetrain.step(
+      cfg,
+      rawSpeedUU,
+      forwardSpeedUU,
+      throttleInput,
+      isOnGround,
+      dt,
+      {
+        steerInput,
+        handbrakeInput,
+        isBoosting,
+        surfaceUpZ,
+      }
+    );
     if (res.shouldTriggerBackfire && !this.dormant) this.triggerBackfire(false);
     this._updateAudioGraph(cfg, rawSpeedUU);
   }
 
-  private _updateAudioGraph(cfg: ReturnType<typeof getEngineAudioTuningConfig>, rawSpeedUU: number): void {
+  private _updateAudioGraph(
+    cfg: ReturnType<typeof getEngineAudioTuningConfig>,
+    rawSpeedUU: number
+  ): void {
     const now = this.ctx.currentTime;
     const tau = Math.max(0.003, cfg.gainSmoothingTimeMs / 1000);
     const dtModel = this.drivetrain;
     const { currentRPM, smoothThrottle, isUnderStrain } = dtModel;
 
     const shouldPlay = this._shouldPlayNow();
-    const targetMasterGain = shouldPlay ? Math.min(1.2, this.engineVolume * 0.42 * (isUnderStrain ? 1.08 : 1.0)) : 0;
+    const targetMasterGain = shouldPlay
+      ? Math.min(1.2, this.engineVolume * 0.42 * (isUnderStrain ? 1.08 : 1.0))
+      : 0;
     if (Math.abs(targetMasterGain - this.lastOutputGain) > 1e-4) {
       this.outputNode.gain.setTargetAtTime(targetMasterGain, now, 0.025);
       this.lastOutputGain = targetMasterGain;
@@ -275,7 +363,10 @@ export class TurtleModemEngineSynth {
     if (!shouldPlay) {
       if (!this.isPrimaryListener || this.dormant) {
         if (this._inactiveSinceSec < 0) this._inactiveSinceSec = now;
-        else if (this.voiceGraph.graphBuilt && now - this._inactiveSinceSec >= REMOTE_HIBERNATE_GRACE_SEC) {
+        else if (
+          this.voiceGraph.graphBuilt &&
+          now - this._inactiveSinceSec >= REMOTE_HIBERNATE_GRACE_SEC
+        ) {
           this.voiceGraph.teardown();
         }
       }
@@ -290,15 +381,34 @@ export class TurtleModemEngineSynth {
     }
 
     const isStationaryNeutral =
-      dtModel.isOnGround && dtModel.driveDirection === 'stopped' && smoothThrottle < 0.01 && currentRPM <= cfg.idleRPM + 15;
+      dtModel.isOnGround &&
+      dtModel.driveDirection === 'stopped' &&
+      smoothThrottle < 0.01 &&
+      currentRPM <= cfg.idleRPM + 15;
 
-    const graphResult = this.voiceGraph.update({ cfg, now, tau, currentRPM, smoothThrottle, isUnderStrain, isStationaryNeutral });
+    const graphResult = this.voiceGraph.update({
+      cfg,
+      now,
+      tau,
+      currentRPM,
+      smoothThrottle,
+      isUnderStrain,
+      isStationaryNeutral,
+    });
     if (!graphResult) return;
 
     if (this.isPrimaryListener) {
       this.telemetryPublishCounter = (this.telemetryPublishCounter + 1) % 3;
       if (this.telemetryPublishCounter === 0) {
-        const { lowerSliceIndex, upperSliceIndex, lowerSliceFreqHz, upperSliceFreqHz, activeEqCompensationDb, effectiveIdleGain, filterCutoffHz } = graphResult;
+        const {
+          lowerSliceIndex,
+          upperSliceIndex,
+          lowerSliceFreqHz,
+          upperSliceFreqHz,
+          activeEqCompensationDb,
+          effectiveIdleGain,
+          filterCutoffHz,
+        } = graphResult;
         publishEngineAudioTelemetry({
           packId: this.packId,
           loaded: this.voiceGraph.graphBuilt,
@@ -364,10 +474,13 @@ export class TurtleModemEngineSynth {
   }
 
   setEngineVolume(vol: number): void {
-    if (typeof vol === 'number' && Number.isFinite(vol)) this.engineVolume = Math.max(0, Math.min(2.0, vol));
+    if (typeof vol === 'number' && Number.isFinite(vol))
+      this.engineVolume = Math.max(0, Math.min(2.0, vol));
   }
 
-  setVolume(vol: number): void { this.setEngineVolume(vol); }
+  setVolume(vol: number): void {
+    this.setEngineVolume(vol);
+  }
 
   silence(): void {
     if (this.ctx && this.outputNode) {
@@ -385,6 +498,11 @@ export class TurtleModemEngineSynth {
     this.active = false;
     this.voiceGraph.teardown();
     this.equalizer.dispose();
-    try { this.lowpassNode.disconnect(); this.outputNode.disconnect(); } catch { /* ignore */ }
+    try {
+      this.lowpassNode.disconnect();
+      this.outputNode.disconnect();
+    } catch {
+      /* ignore */
+    }
   }
 }

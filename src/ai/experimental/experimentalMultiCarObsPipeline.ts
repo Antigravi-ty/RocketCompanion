@@ -96,7 +96,9 @@ export const NEXTO_ACTION_TABLE: ReadonlyArray<Readonly<CarControls>> = (() => {
       for (const boost of [0, 1]) {
         for (const handbrake of [0, 1]) {
           if (boost === 1 && throttle !== 1) continue;
-          actions.push(decodeCarControls([throttle || boost, steer, 0, steer, 0, 0, boost, handbrake]));
+          actions.push(
+            decodeCarControls([throttle || boost, steer, 0, steer, 0, 0, boost, handbrake])
+          );
         }
       }
     }
@@ -108,7 +110,9 @@ export const NEXTO_ACTION_TABLE: ReadonlyArray<Readonly<CarControls>> = (() => {
           for (const boost of [0, 1]) {
             if ((jump === 1 && yaw !== 0) || (pitch === 0 && roll === 0 && jump === 0)) continue;
             const handbrake = jump === 1 && (pitch !== 0 || yaw !== 0 || roll !== 0);
-            actions.push(decodeCarControls([boost, yaw, pitch, yaw, roll, jump, boost, +handbrake]));
+            actions.push(
+              decodeCarControls([boost, yaw, pitch, yaw, roll, jump, boost, +handbrake])
+            );
           }
         }
       }
@@ -146,7 +150,8 @@ export function getNextoKickoffControls(
   const sign = normX < -10 ? -1 : 1;
 
   if (kickoffTick < 44) return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true };
-  if (kickoffTick < 60) return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true, steer: -1 * sign };
+  if (kickoffTick < 60)
+    return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true, steer: -1 * sign };
   if (kickoffTick < 68) return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true, jump: true };
   if (kickoffTick < 72) return { ...DEFAULT_CAR_CONTROLS, throttle: 1, boost: true };
   if (kickoffTick < 76) {
@@ -289,7 +294,10 @@ export function buildDynamicNextoObs(
   // 1. Cars (self first at index 0, followed by teammates and opponents)
   for (let i = 0; i < numCars; i++) {
     const entry = orderedCars[i];
-    const carView = (sCarViews[entry.carIndex] || new CarStateView()).attachCar(simState, entry.carIndex);
+    const carView = (sCarViews[entry.carIndex] || new CarStateView()).attachCar(
+      simState,
+      entry.carIndex
+    );
     const eOff = i * ENTITY_DIMS;
     writeCarEntityBase(entities, eOff, carView, i === 0, entry.team === normSelfTeam);
     entities[eOff + 21] = carView.isDemoed ? 1 : 0;

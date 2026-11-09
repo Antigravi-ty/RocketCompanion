@@ -1,12 +1,12 @@
 /**
  * src/physics/DeterminismHarness.ts
  * Dual-Arena Side-by-Side Determinism Verification Harness.
- * 
+ *
  * Runs two independent RocketSim physics engines simultaneously:
  * - Arena A (Ground Truth): Standard 120Hz continuous forward stepping.
  * - Arena B (Reconciliation): Applies identical inputs, but continuously triggers periodic
  *   or manual rollbacks (10-60 ticks) and resimulates via stepSilent() to catch up to present.
- * 
+ *
  * Compares Float-by-Float / Vector positions & velocities every frame to guarantee 100% bit-exact determinism.
  */
 
@@ -61,7 +61,7 @@ export class DeterminismHarness {
     this.active = false;
     this.periodicRollback = true;
     this.rollbackInterval = 30; // Every 30 ticks (4 times per second at 120Hz)
-    this.rollbackDepth = 15;    // Roll back 15 ticks (125ms)
+    this.rollbackDepth = 15; // Roll back 15 ticks (125ms)
     this.totalRollbacks = 0;
     this.historyCapacity = 2048;
     this.historyMask = this.historyCapacity - 1;
@@ -85,7 +85,7 @@ export class DeterminismHarness {
       maxDeltaPos: 0,
       maxDeltaVel: 0,
       maxDeltaBall: 0,
-      isBitExact: true
+      isBitExact: true,
     };
 
     this.onMetricsUpdated = null;
@@ -173,7 +173,9 @@ export class DeterminismHarness {
     };
 
     const origSetUnlimitedBoost = this.simA.setUnlimitedBoost.bind(this.simA);
-    this._originalMethods.setUnlimitedBoost = origSetUnlimitedBoost as (...args: never[]) => unknown;
+    this._originalMethods.setUnlimitedBoost = origSetUnlimitedBoost as (
+      ...args: never[]
+    ) => unknown;
     this.simA.setUnlimitedBoost = (unlimited) => {
       origSetUnlimitedBoost(unlimited);
       if (this.simB) {
@@ -225,7 +227,9 @@ export class DeterminismHarness {
 
     if (typeof this.simA.setCarLinearFactorAndGravity === 'function') {
       const origSetLinear = this.simA.setCarLinearFactorAndGravity.bind(this.simA);
-      this._originalMethods.setCarLinearFactorAndGravity = origSetLinear as (...args: never[]) => unknown;
+      this._originalMethods.setCarLinearFactorAndGravity = origSetLinear as (
+        ...args: never[]
+      ) => unknown;
       this.simA.setCarLinearFactorAndGravity = (carIndex, fx, fy, fz, gravityScale) => {
         const res = origSetLinear(carIndex, fx, fy, fz, gravityScale);
         if (this.simB && typeof this.simB.setCarLinearFactorAndGravity === 'function') {
@@ -294,7 +298,11 @@ export class DeterminismHarness {
     this.simB.step(1);
 
     const postTick = preTick + 1;
-    if (this.periodicRollback && postTick > this.rollbackDepth && postTick % this.rollbackInterval === 0) {
+    if (
+      this.periodicRollback &&
+      postTick > this.rollbackDepth &&
+      postTick % this.rollbackInterval === 0
+    ) {
       this.executeRollback(this.rollbackDepth);
     }
   }
@@ -316,7 +324,7 @@ export class DeterminismHarness {
     for (let t = rollbackTick; t < currentTick; t++) {
       const slot = t & this.historyMask;
       const entry = this.controlsHistory[slot];
-      const controlsMap = (entry && entry.tick === t) ? entry.controls : {};
+      const controlsMap = entry && entry.tick === t ? entry.controls : {};
       for (const [carIdxStr, ctrl] of Object.entries(controlsMap)) {
         this.simB.setControls(Number(carIdxStr), ctrl);
       }
@@ -401,7 +409,11 @@ export class DeterminismHarness {
 
       const dPos = Math.hypot(carA.posX - carB.posX, carA.posY - carB.posY, carA.posZ - carB.posZ);
       const dVel = Math.hypot(carA.velX - carB.velX, carA.velY - carB.velY, carA.velZ - carB.velZ);
-      const dAng = Math.hypot(carA.angVelX - carB.angVelX, carA.angVelY - carB.angVelY, carA.angVelZ - carB.angVelZ);
+      const dAng = Math.hypot(
+        carA.angVelX - carB.angVelX,
+        carA.angVelY - carB.angVelY,
+        carA.angVelZ - carB.angVelZ
+      );
       if (dPos > carDeltaPos) carDeltaPos = dPos;
       if (dVel > carDeltaVel) carDeltaVel = dVel;
       if (dAng > carDeltaAngVel) carDeltaAngVel = dAng;
@@ -409,7 +421,11 @@ export class DeterminismHarness {
 
     const ballA = this.simA.getBallStateView();
     const ballB = this.simB.getBallStateView();
-    const ballDeltaPos = Math.hypot(ballA.posX - ballB.posX, ballA.posY - ballB.posY, ballA.posZ - ballB.posZ);
+    const ballDeltaPos = Math.hypot(
+      ballA.posX - ballB.posX,
+      ballA.posY - ballB.posY,
+      ballA.posZ - ballB.posZ
+    );
 
     this._patchMetrics({
       tickA,

@@ -162,9 +162,7 @@ export class SupersonicWheelTrailGeometryBuilder {
 
         // Build orthonormal frame (surfSide, normalPerp, tangent)
         const nDotT = this._normal.dot(this._tangent);
-        this._normalPerp
-          .copy(this._normal)
-          .addScaledVector(this._tangent, -nDotT);
+        this._normalPerp.copy(this._normal).addScaledVector(this._tangent, -nDotT);
         if (this._normalPerp.lengthSq() < 1e-5) {
           this._normalPerp.copy(this._fallbackUp);
         } else {
@@ -231,8 +229,7 @@ export class SupersonicWheelTrailGeometryBuilder {
         // Ground-hinge lift: when rotated upright, shift the ribbon center upward along the surface normal
         // by effectiveHalfWidth * |sinTheta| * uprightHingeLift so the bottom edge hugs the surface
         // and the full vertical height extends upward past the wheel axle instead of sinking underground.
-        const hingeLift =
-          baseLift + effectiveHalfWidth * uprightBlend * uprightHingeLift;
+        const hingeLift = baseLift + effectiveHalfWidth * uprightBlend * uprightHingeLift;
         const px = this._ptCurr.x + this._normalPerp.x * hingeLift;
         const py = this._ptCurr.y + this._normalPerp.y * hingeLift;
         const pz = this._ptCurr.z + this._normalPerp.z * hingeLift;

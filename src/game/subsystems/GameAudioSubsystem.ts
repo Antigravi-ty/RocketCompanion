@@ -3,11 +3,7 @@ import {
   type EngineSynthSlotEntry,
 } from '../../audio/RemoteEngineAudioLodController.ts';
 import { loadEngineAudioPackAssets } from '../../audio/EngineAudioLoopConditioner.ts';
-import {
-  getAudioContext,
-  subsystemState,
-  registerAudioRuntime,
-} from '../../audio/audioContext.ts';
+import { getAudioContext, subsystemState, registerAudioRuntime } from '../../audio/audioContext.ts';
 import { gameAudio } from '../../audio/GameAudioEngineFacade.ts';
 import { isSignalAudioMutedInGoalReplay } from '../../audio/SignalAudioEngine.ts';
 import { updateAudioListener } from '../../audio/SpatialAudioSource.ts';
@@ -58,7 +54,7 @@ export class GameAudioSubsystem {
   }
 
   public async setupAudio(
-    onProgress: ((loaded: number, total?: number, file?: string) => void) | null = null,
+    onProgress: ((loaded: number, total?: number, file?: string) => void) | null = null
   ): Promise<void> {
     const r = this.runtime;
     const ctx = getAudioContext();
@@ -97,7 +93,7 @@ export class GameAudioSubsystem {
     goalScored: boolean,
     curBoost: number,
     _isSupersonic: boolean,
-    _curr?: Float32Array | null,
+    _curr?: Float32Array | null
   ): void {
     const r = this.runtime;
     const audio = r.options?.gameAudio || gameAudio;
@@ -105,7 +101,7 @@ export class GameAudioSubsystem {
 
     if (isSignalAudioMutedInGoalReplay(r)) {
       this.lastGoalScored = Boolean(
-        goalScored || (r.match.state.mode === 'match' && r.match.state.phase === 'goal'),
+        goalScored || (r.match.state.mode === 'match' && r.match.state.phase === 'goal')
       );
       this.lastRemainingSec = r.match.state.remainingSeconds;
       this.lastOvertime = r.match.state.overtime;
@@ -115,7 +111,7 @@ export class GameAudioSubsystem {
     }
 
     const isGoalNow = Boolean(
-      goalScored || (r.match.state.mode === 'match' && r.match.state.phase === 'goal'),
+      goalScored || (r.match.state.mode === 'match' && r.match.state.phase === 'goal')
     );
     if (
       isGoalNow &&
@@ -180,7 +176,7 @@ export class GameAudioSubsystem {
           audio.play('match_countdown_321', 1.0);
         } else if (currentTick >= sigLatch.lastKickoffTargetFrame + 12) {
           console.warn(
-            `[GameAudioSubsystem:Fallback] Authoritative KICKOFF_START signal not observed by tick ${currentTick} (target=${sigLatch.lastKickoffTargetFrame}); releasing local kickoff lock.`,
+            `[GameAudioSubsystem:Fallback] Authoritative KICKOFF_START signal not observed by tick ${currentTick} (target=${sigLatch.lastKickoffTargetFrame}); releasing local kickoff lock.`
           );
           r.networkReconciler.setKickoffMaskUntilTick?.(-1);
           sigLatch.lastKickoffTargetFrame = -1;
@@ -240,9 +236,7 @@ export class GameAudioSubsystem {
     const testCarAudioEnabled = Boolean(r.networkManager?.diagnosticsProbe?.testCarAudioEnabled);
     const isLobbyDualWorld = Boolean(r.networkReconciler?.lobbyDualWorldMode);
     const lobbyState = isLobbyDualWorld ? r.networkReconciler.lobbyCurrAuthoritativeState : null;
-    const lobbyNumCars = lobbyState
-      ? Math.min(8, Math.max(0, Math.round(lobbyState[1] || 0)))
-      : 0;
+    const lobbyNumCars = lobbyState ? Math.min(8, Math.max(0, Math.round(lobbyState[1] || 0))) : 0;
     const effectiveNumCars = Math.max(numCarsInArena, testCarAudioEnabled ? lobbyNumCars : 0);
 
     const resolveCarView = (i: number): CarStateView | null => {
@@ -290,7 +284,7 @@ export class GameAudioSubsystem {
                 y: view.posY,
                 z: view.posZ,
               },
-              r.camera,
+              r.camera
             );
           }
         }

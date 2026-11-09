@@ -6,10 +6,7 @@
 
 import { MqttWebSocketClient } from './MqttWebSocketClient.ts';
 import { SupabaseRealtimeSignalingClient } from './SupabaseRealtimeSignalingClient.ts';
-import {
-  getSignalingRelays,
-  type SignalingRelaySpec,
-} from './signalingRelayConfig.ts';
+import { getSignalingRelays, type SignalingRelaySpec } from './signalingRelayConfig.ts';
 import {
   computeConnectivityMaskFromRelayIds,
   getSlotBitForRelayId,
@@ -119,8 +116,8 @@ export class SignalingMultiRelayTransportPool {
     for (const [id, transport] of this.transports.entries()) {
       if (!transport.isConnected) continue;
       const rtt =
-        typeof (transport as MqttWebSocketClient | SupabaseRealtimeSignalingClient).loopbackRttMs ===
-          'number' &&
+        typeof (transport as MqttWebSocketClient | SupabaseRealtimeSignalingClient)
+          .loopbackRttMs === 'number' &&
         (transport as MqttWebSocketClient | SupabaseRealtimeSignalingClient).loopbackRttMs > 0
           ? (transport as MqttWebSocketClient | SupabaseRealtimeSignalingClient).loopbackRttMs
           : 500;
@@ -147,8 +144,7 @@ export class SignalingMultiRelayTransportPool {
     const frameWithMsgId = {
       ...payload,
       _brgMsgId:
-        payload._brgMsgId ||
-        `${targetId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        payload._brgMsgId || `${targetId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     };
 
     if (transport instanceof SupabaseRealtimeSignalingClient) {
@@ -270,7 +266,9 @@ export class SignalingMultiRelayTransportPool {
     }
 
     const effectiveMask =
-      hooks.role === 'host' && typeof hooks.allowedMask === 'number' && (hooks.allowedMask & 0x0f) !== 0
+      hooks.role === 'host' &&
+      typeof hooks.allowedMask === 'number' &&
+      (hooks.allowedMask & 0x0f) !== 0
         ? hooks.allowedMask & 0x0f
         : 0x0f;
     this.healthSupervisor.setProbedMask(effectiveMask);

@@ -39,11 +39,7 @@ export function resolveRLRCTrack0FrameByteOffset(frameIndex120Hz: number): numbe
   return Math.max(0, Math.trunc(frameIndex120Hz)) * RLRC_TRACK0_FRAME_STRIDE_BYTES;
 }
 
-function writeQuatBasisToStateBuffer(
-  q: RLRCQuat,
-  dstF32: Float32Array,
-  fwdOffset: number,
-): void {
+function writeQuatBasisToStateBuffer(q: RLRCQuat, dstF32: Float32Array, fwdOffset: number): void {
   const { x, y, z, w } = q;
   const x2 = x + x;
   const y2 = y + y;
@@ -69,10 +65,7 @@ function writeQuatBasisToStateBuffer(
   dstF32[fwdOffset + 8] = 1 - (xx + yy);
 }
 
-function readQuatFromBasisInStateBuffer(
-  srcF32: Float32Array,
-  fwdOffset: number,
-): RLRCQuat {
+function readQuatFromBasisInStateBuffer(srcF32: Float32Array, fwdOffset: number): RLRCQuat {
   const m00 = srcF32[fwdOffset + 0];
   const m10 = srcF32[fwdOffset + 1];
   const m20 = srcF32[fwdOffset + 2];
@@ -123,12 +116,12 @@ function readQuatFromBasisInStateBuffer(
 export function packRLRCFrameToTrack0Slot(
   frame: RLRCFrame120Hz,
   targetTrackBytes: Uint8Array,
-  frameByteOffset = 0,
+  frameByteOffset = 0
 ): void {
   const dstF32 = new Float32Array(
     targetTrackBytes.buffer,
     targetTrackBytes.byteOffset + frameByteOffset,
-    RLRC_STATE_FLOATS_PER_FRAME,
+    RLRC_STATE_FLOATS_PER_FRAME
   );
   dstF32.fill(0);
 
@@ -158,7 +151,7 @@ export function packRLRCFrameToTrack0Slot(
 
   const ctrlSlice = targetTrackBytes.subarray(
     frameByteOffset + RLRC_STATE_BYTES_PER_FRAME,
-    frameByteOffset + RLRC_TRACK0_FRAME_STRIDE_BYTES,
+    frameByteOffset + RLRC_TRACK0_FRAME_STRIDE_BYTES
   );
   ctrlSlice.fill(0);
 
@@ -194,12 +187,16 @@ export function packRLRCFrameToTrack0Slot(
       car.activeFlags.dodgeActive || car.activeFlags.doubleJumpActive ? 1 : 0;
     dstF32[carBase + CAR_STATE_OFFSETS.GROUND_NORMAL + 2] = 1;
 
-    dstF32[jumpAirBase + EXTENDED_STATE_OFFSETS.CAR_IS_JUMPING_OFFSET] =
-      car.activeFlags.jumpActive ? 1 : 0;
-    dstF32[jumpAirBase + EXTENDED_STATE_OFFSETS.CAR_AIR_TIME_OFFSET] =
-      car.activeFlags.doubleJumpActive ? 1 : 0;
-    dstF32[jumpAirBase + EXTENDED_STATE_OFFSETS.CAR_JUMP_TIME_OFFSET] =
-      car.activeFlags.dodgeActive ? 1 : 0;
+    dstF32[jumpAirBase + EXTENDED_STATE_OFFSETS.CAR_IS_JUMPING_OFFSET] = car.activeFlags.jumpActive
+      ? 1
+      : 0;
+    dstF32[jumpAirBase + EXTENDED_STATE_OFFSETS.CAR_AIR_TIME_OFFSET] = car.activeFlags
+      .doubleJumpActive
+      ? 1
+      : 0;
+    dstF32[jumpAirBase + EXTENDED_STATE_OFFSETS.CAR_JUMP_TIME_OFFSET] = car.activeFlags.dodgeActive
+      ? 1
+      : 0;
     dstF32[jumpAirBase + EXTENDED_STATE_OFFSETS.CAR_AIR_TIME_SINCE_JUMP_OFFSET] =
       car.airTimeSinceJump;
 
@@ -234,17 +231,17 @@ export function packRLRCFrameToTrack0Slot(
 
 export function unpackRLRCFrameFromTrack0Slot(
   sourceTrackBytes: Uint8Array,
-  frameIndex120Hz: number,
+  frameIndex120Hz: number
 ): RLRCFrame120Hz {
   const frameByteOffset = resolveRLRCTrack0FrameByteOffset(frameIndex120Hz);
   const srcF32 = new Float32Array(
     sourceTrackBytes.buffer,
     sourceTrackBytes.byteOffset + frameByteOffset,
-    RLRC_STATE_FLOATS_PER_FRAME,
+    RLRC_STATE_FLOATS_PER_FRAME
   );
   const ctrlSlice = sourceTrackBytes.subarray(
     frameByteOffset + RLRC_STATE_BYTES_PER_FRAME,
-    frameByteOffset + RLRC_TRACK0_FRAME_STRIDE_BYTES,
+    frameByteOffset + RLRC_TRACK0_FRAME_STRIDE_BYTES
   );
   const unpackedControls: ReplayCarControlState[] = unpackTrack64ToCarControls(ctrlSlice);
 

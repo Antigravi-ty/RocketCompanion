@@ -206,7 +206,9 @@ export class CredentialBundleManager {
       {
         ...PUBLIC_FALLBACK_RELAY_SPEC,
         url: fallbackUrl,
-        protocol: fallbackUrl ? inferProtocolFromUrl(fallbackUrl) : PUBLIC_FALLBACK_RELAY_SPEC.protocol,
+        protocol: fallbackUrl
+          ? inferProtocolFromUrl(fallbackUrl)
+          : PUBLIC_FALLBACK_RELAY_SPEC.protocol,
       },
     ];
   }
@@ -325,11 +327,13 @@ export class CredentialBundleManager {
     return this.getStatusSummary();
   }
 
-  async exportActiveBundle(options: {
-    pinCode?: string;
-    windowMinutes?: number;
-    credentialOverrides?: RelayCredentialOverrideOptions;
-  } = {}): Promise<RctbnspibExportResult> {
+  async exportActiveBundle(
+    options: {
+      pinCode?: string;
+      windowMinutes?: number;
+      credentialOverrides?: RelayCredentialOverrideOptions;
+    } = {}
+  ): Promise<RctbnspibExportResult> {
     const exportTarget = this.devPrivateProfile || this.importedProfile;
     if (!exportTarget || exportTarget.signaling.relays.length === 0) {
       throw new Error(
@@ -346,14 +350,14 @@ export class CredentialBundleManager {
             id === 'emqx_cn' && ov?.emqxCnUsername?.trim()
               ? ov.emqxCnUsername.trim()
               : id === 'emqx_gb' && ov?.emqxGbUsername?.trim()
-              ? ov.emqxGbUsername.trim()
-              : relay.username || '';
+                ? ov.emqxGbUsername.trim()
+                : relay.username || '';
           const password =
             id === 'emqx_cn' && ov?.emqxCnPassword
               ? ov.emqxCnPassword
               : id === 'emqx_gb' && ov?.emqxGbPassword
-              ? ov.emqxGbPassword
-              : relay.password || '';
+                ? ov.emqxGbPassword
+                : relay.password || '';
           return {
             id: relay.id,
             label: relay.label,

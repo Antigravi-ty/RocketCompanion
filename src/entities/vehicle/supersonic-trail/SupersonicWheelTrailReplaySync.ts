@@ -44,11 +44,8 @@ export function resolveCarStepTicks(
   const posDeltaSq = poseState.hasLastPose
     ? poseState.lastPos.distanceToSquared(carRoot.position)
     : Infinity;
-  const quatDot = poseState.hasLastPose
-    ? Math.abs(poseState.lastQuat.dot(carRoot.quaternion))
-    : 0;
-  const isPoseStationary =
-    poseState.hasLastPose && posDeltaSq < 1e-4 && quatDot > 0.999999;
+  const quatDot = poseState.hasLastPose ? Math.abs(poseState.lastQuat.dot(carRoot.quaternion)) : 0;
+  const isPoseStationary = poseState.hasLastPose && posDeltaSq < 1e-4 && quatDot > 0.999999;
 
   poseState.lastPos.copy(carRoot.position);
   poseState.lastQuat.copy(carRoot.quaternion);
@@ -121,7 +118,8 @@ const _qB = new THREE.Quaternion();
  */
 export function warmupArenaTrailsFromReplayWindow(
   arena: ReplayTrailWarmupArenaPort | null | undefined,
-  getFrameBufferByIndex: ((index: number) => NumericStateBuffer | null | undefined) | null | undefined,
+  getFrameBufferByIndex:
+    ((index: number) => NumericStateBuffer | null | undefined) | null | undefined,
   targetCursorFloat: number,
   lookbackTicks?: number
 ): void {

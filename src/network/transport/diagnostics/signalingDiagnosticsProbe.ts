@@ -37,7 +37,8 @@ export async function testSignalingConnectivity(
     return {
       ok: false,
       rttMs: 0,
-      error: 'No signaling endpoint configured. Import a .rctbnspib profile in Settings → Advanced.',
+      error:
+        'No signaling endpoint configured. Import a .rctbnspib profile in Settings → Advanced.',
     };
   }
   const protocol = detectSignalingProtocol(rawUrl);
@@ -59,7 +60,9 @@ export async function testSignalingConnectivity(
         client.loopbackRttMs ||
         Math.max(
           1,
-          Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startTime)
+          Math.round(
+            (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startTime
+          )
         );
       client.close();
       return { ok: true, rttMs, error: null };
@@ -67,7 +70,9 @@ export async function testSignalingConnectivity(
       client.close();
       const rttMs = Math.max(
         1,
-        Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startTime)
+        Math.round(
+          (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startTime
+        )
       );
       return { ok: false, rttMs, error: err?.message || String(err) };
     }
@@ -176,7 +181,8 @@ export async function testSignalingConnectivity(
         };
       } else {
         const separator = rawUrl.includes('?') ? '&' : '?';
-        const authQuery = authToken && !rawUrl.includes('key=') ? `&key=${encodeURIComponent(authToken)}` : '';
+        const authQuery =
+          authToken && !rawUrl.includes('key=') ? `&key=${encodeURIComponent(authToken)}` : '';
         const testUrl = `${rawUrl}${separator}ping_test=1&t=${Date.now()}${authQuery}`;
         const wsSock = new WebSocketConstructor(testUrl);
         sock = wsSock;

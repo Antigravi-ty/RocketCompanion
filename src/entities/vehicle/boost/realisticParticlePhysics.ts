@@ -1,4 +1,4 @@
-import { boostParticleRuntimeConfig } from '../../../ui-core/config/vehicleTunerConfig';
+import { boostParticleRuntimeConfig } from '../../../ui-core/config/vehicleTunerConfig.ts';
 import {
   REALISTIC_DRIVE_COUNT,
   REALISTIC_DRIVE_LIFE,
@@ -58,7 +58,7 @@ export class RealisticParticlePhysics {
   constructor(
     driveMesh: RealisticBoostParticleMesh,
     trailMesh: RealisticBoostParticleMesh,
-    nozzleLocal: THREE.Vector3,
+    nozzleLocal: THREE.Vector3
   ) {
     this.drive = driveMesh;
     this.trail = trailMesh;
@@ -163,11 +163,20 @@ export class RealisticParticlePhysics {
       return;
     }
 
-    const scaleRefLife = Math.max(0.1, Number(boostParticleRuntimeConfig.shortTrailScaleRefLife) || 0.6);
+    const scaleRefLife = Math.max(
+      0.1,
+      Number(boostParticleRuntimeConfig.shortTrailScaleRefLife) || 0.6
+    );
 
     if (dualStream) {
-      const shortLife = Math.max(0.05, Number(boostParticleRuntimeConfig.shortTrailLifetime) || 0.1);
-      const longLife = Math.max(shortLife + 0.05, Number(boostParticleRuntimeConfig.longTrailLifetime) || 2.0);
+      const shortLife = Math.max(
+        0.05,
+        Number(boostParticleRuntimeConfig.shortTrailLifetime) || 0.1
+      );
+      const longLife = Math.max(
+        shortLife + 0.05,
+        Number(boostParticleRuntimeConfig.longTrailLifetime) || 2.0
+      );
       const smoothBridge = boostParticleRuntimeConfig.smoothStreamTransition !== false;
 
       if (shortMul > 0.01) {
@@ -181,16 +190,19 @@ export class RealisticParticlePhysics {
           const bridgeSpan = Math.min(longLife, shortLife * 4.5);
           for (let i = 0; i < cappedS; i++) {
             const t = (i + 1 - remS) / stepS;
-            this._scratchD.copy(this._scratchB).addScaledVector(this._scratchC, MathUtils.clamp(t, 0, dist));
+            this._scratchD
+              .copy(this._scratchB)
+              .addScaledVector(this._scratchC, MathUtils.clamp(t, 0, dist));
             let particleLife = shortLife;
             let opacityWeight = 1.0;
             if (smoothBridge) {
               const u = Math.random();
-              particleLife = shortLife * (0.85 + 0.3 * u) + (bridgeSpan - shortLife) * Math.pow(u, 2.8);
+              particleLife =
+                shortLife * (0.85 + 0.3 * u) + (bridgeSpan - shortLife) * Math.pow(u, 2.8);
               const bridgeRatio = MathUtils.clamp(
                 (particleLife - shortLife) / Math.max(0.05, bridgeSpan - shortLife),
                 0,
-                1,
+                1
               );
               opacityWeight = 1.0 - 0.55 * Math.sqrt(bridgeRatio);
             }
@@ -209,15 +221,27 @@ export class RealisticParticlePhysics {
         if (stepL > 0) {
           for (let i = 0; i < cappedL; i++) {
             const t = (i + 1 - remL) / stepL;
-            this._scratchD.copy(this._scratchB).addScaledVector(this._scratchC, MathUtils.clamp(t, 0, dist));
-            const jitteredLongLife = smoothBridge ? longLife * (0.7 + 0.45 * Math.random()) : longLife;
+            this._scratchD
+              .copy(this._scratchB)
+              .addScaledVector(this._scratchC, MathUtils.clamp(t, 0, dist));
+            const jitteredLongLife = smoothBridge
+              ? longLife * (0.7 + 0.45 * Math.random())
+              : longLife;
             const farRefLife = Math.max(scaleRefLife, jitteredLongLife * 0.65);
-            this.spawnTrailParticle(this._scratchD, jitteredLongLife, farRefLife, smoothBridge ? 0.78 : 1.0);
+            this.spawnTrailParticle(
+              this._scratchD,
+              jitteredLongLife,
+              farRefLife,
+              smoothBridge ? 0.78 : 1.0
+            );
           }
         }
       }
     } else {
-      const singleLife = Math.max(0.08, REALISTIC_TRAIL_LIFE * (boostParticleRuntimeConfig.trailLifeMultiplier ?? 1.0));
+      const singleLife = Math.max(
+        0.08,
+        REALISTIC_TRAIL_LIFE * (boostParticleRuntimeConfig.trailLifeMultiplier ?? 1.0)
+      );
       const rem = this.spawnRemainder;
       const step = ((Math.random() * 4) / REALISTIC_TRAIL_INTERVAL) * baseSpawnMul;
       const progress = rem + dist * step;
@@ -228,7 +252,9 @@ export class RealisticParticlePhysics {
       if (step > 0) {
         for (let i = 0; i < capped; i++) {
           const t = (i + 1 - rem) / step;
-          this._scratchD.copy(this._scratchB).addScaledVector(this._scratchC, MathUtils.clamp(t, 0, dist));
+          this._scratchD
+            .copy(this._scratchB)
+            .addScaledVector(this._scratchC, MathUtils.clamp(t, 0, dist));
           this.spawnTrailParticle(this._scratchD, singleLife, scaleRefLife, 1.0);
         }
       }
@@ -240,7 +266,7 @@ export class RealisticParticlePhysics {
     pos: THREE.Vector3,
     customLifetime: number | null = null,
     customScaleRefLife: number | null = null,
-    opacityWeight = 1.0,
+    opacityWeight = 1.0
   ) {
     const head = this.trailHead;
     this.trailHead = (head + 1) % REALISTIC_TRAIL_COUNT;
@@ -264,7 +290,10 @@ export class RealisticParticlePhysics {
     this.trailMaxLife[head] =
       customLifetime !== null
         ? customLifetime
-        : Math.max(0.08, REALISTIC_TRAIL_LIFE * (boostParticleRuntimeConfig.trailLifeMultiplier ?? 1.0));
+        : Math.max(
+            0.08,
+            REALISTIC_TRAIL_LIFE * (boostParticleRuntimeConfig.trailLifeMultiplier ?? 1.0)
+          );
     this.trailScaleRefLife[head] =
       customScaleRefLife !== null
         ? customScaleRefLife
@@ -313,7 +342,10 @@ export class RealisticParticlePhysics {
     const { MathUtils } = THREE;
     let active = false;
     const useDistDecay = Boolean(boostParticleRuntimeConfig.distanceDecayEnabled);
-    const falloffDist = Math.max(100, Number(boostParticleRuntimeConfig.distanceDecayFalloff) || 1200);
+    const falloffDist = Math.max(
+      100,
+      Number(boostParticleRuntimeConfig.distanceDecayFalloff) || 1200
+    );
     const nozX = this.currentNozzle.x;
     const nozY = this.currentNozzle.y;
     const nozZ = this.currentNozzle.z;

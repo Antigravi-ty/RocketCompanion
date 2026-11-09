@@ -5,10 +5,7 @@ import {
 } from '../../../physics/RocketSimConstants.ts';
 import { DEFAULT_CAR_CONTROLS } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
 import { gameAudio } from '../../../audio/GameAudioEngineFacade.ts';
-import {
-  hudStore,
-  useSubsystemIsolationLabStore,
-} from '../../runtimeUiPort.ts';
+import { hudStore, useSubsystemIsolationLabStore } from '../../runtimeUiPort.ts';
 import type { LabRuntimePort, LabTabContext, LabTabController } from './LabTabTypes.ts';
 
 export interface RespawnSlotPresetCoords {
@@ -24,8 +21,7 @@ export function resolveRespawnSlotPresetCoords(
   team: number,
   slotIndex: number
 ): RespawnSlotPresetCoords {
-  const safeSlot =
-    slotIndex >= 0 && slotIndex < RESPAWN_SPAWN_PRESETS.length ? slotIndex : 0;
+  const safeSlot = slotIndex >= 0 && slotIndex < RESPAWN_SPAWN_PRESETS.length ? slotIndex : 0;
   const preset = RESPAWN_SPAWN_PRESETS[safeSlot] || RESPAWN_SPAWN_PRESETS[0];
   const coords = team === 1 ? preset.team1 : preset.team0;
   return {
@@ -248,10 +244,7 @@ export class DemolishRespawnLabTab implements LabTabController {
     const demoY = cv?.posY ?? 0;
     const demoZ = cv?.posZ ?? 17.01;
 
-    const timerSec = Math.max(
-      0.5,
-      Math.min(10.0, store.demolishRespawnTimerDurationSec ?? 3.0)
-    );
+    const timerSec = Math.max(0.5, Math.min(10.0, store.demolishRespawnTimerDurationSec ?? 3.0));
     r.physics.demolishCar?.(0, timerSec);
 
     if (playAudio) {
@@ -327,8 +320,7 @@ export class DemolishRespawnLabTab implements LabTabController {
     const r = this.ctx?.runtime;
     if (!r?.physics) return;
     const store = useSubsystemIsolationLabStore.getState();
-    const clamped =
-      slotIndex < 0 ? -1 : Math.max(0, Math.min(3, Math.round(slotIndex)));
+    const clamped = slotIndex < 0 ? -1 : Math.max(0, Math.min(3, Math.round(slotIndex)));
 
     if (!this.isCarDemolished(r, 0)) {
       this.triggerDemolish();
@@ -337,8 +329,7 @@ export class DemolishRespawnLabTab implements LabTabController {
     this.setCarRespawnSlot(r, 0, clamped);
     store.updateLiveTelemetry({
       demolishRespawnSelectedSlot: clamped,
-      demolishRespawnLastInputEdge:
-        clamped < 0 ? 'Direct: Random (-1)' : `Direct: Slot ${clamped}`,
+      demolishRespawnLastInputEdge: clamped < 0 ? 'Direct: Random (-1)' : `Direct: Slot ${clamped}`,
     });
 
     this.syncTelemetry();
@@ -366,10 +357,7 @@ export class DemolishRespawnLabTab implements LabTabController {
       if (store.demolishRespawnAutoHoldDemo) {
         this.triggerDemolish();
       } else {
-        const slot =
-          store.demolishRespawnSelectedSlot >= 0
-            ? store.demolishRespawnSelectedSlot
-            : 1;
+        const slot = store.demolishRespawnSelectedSlot >= 0 ? store.demolishRespawnSelectedSlot : 1;
         this.respawnCarAtPreset(r, 0, team, slot);
         r.interpolator?.sync?.();
       }
@@ -448,11 +436,9 @@ export class DemolishRespawnLabTab implements LabTabController {
       );
     }
 
-    hudStore.getState().setDemoRespawnState?.(
-      isDemo,
-      isDemo ? Math.max(0.1, demoTimer) : 0,
-      selectedSlot
-    );
+    hudStore
+      .getState()
+      .setDemoRespawnState?.(isDemo, isDemo ? Math.max(0.1, demoTimer) : 0, selectedSlot);
 
     store.updateLiveTelemetry({
       demolishRespawnIsDemolished: isDemo,

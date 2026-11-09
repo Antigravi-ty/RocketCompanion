@@ -160,10 +160,7 @@ export class ReplayHotkeySubController {
       const runtime = bindings.getRuntime();
       if (isGlobalHotkeyBlockedByUi(evt, runtime)) return;
       if (
-        !this.checkWindowOpenAndPriority(
-          bindings.getWindowStatus(),
-          bindings.conflictErrorMessage
-        )
+        !this.checkWindowOpenAndPriority(bindings.getWindowStatus(), bindings.conflictErrorMessage)
       ) {
         return;
       }
@@ -222,10 +219,7 @@ export class ReplayHotkeySubController {
       const runtime = bindings.getRuntime();
       if (runtime?.match?.state?.mode !== 'freeplay') return;
       if (
-        !this.checkWindowOpenAndPriority(
-          bindings.getWindowStatus(),
-          bindings.conflictErrorMessage
-        )
+        !this.checkWindowOpenAndPriority(bindings.getWindowStatus(), bindings.conflictErrorMessage)
       ) {
         return;
       }

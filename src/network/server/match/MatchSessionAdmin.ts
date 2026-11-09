@@ -9,10 +9,7 @@
  */
 
 import { MATCH_SIGNALS } from '../../protocol/GlobalPayloadCodec.ts';
-import {
-  ReplayRingBuffer,
-  REPLAY_BUFFER_MODES,
-} from '../../../replay/ReplayRingBuffer.ts';
+import { ReplayRingBuffer, REPLAY_BUFFER_MODES } from '../../../replay/ReplayRingBuffer.ts';
 import {
   DiagnosticsTestVehicleController,
   DEFAULT_DIAGNOSTIC_FLEET,
@@ -124,7 +121,9 @@ export class MatchSessionAdmin {
     this.dataHandler = options.dataHandler || null;
     this.diagnosticsController =
       options.diagnosticsController ||
-      (new DiagnosticsTestVehicleController(DEFAULT_DIAGNOSTIC_FLEET) as unknown as PhaseLifecycleDiagnosticsPort);
+      (new DiagnosticsTestVehicleController(
+        DEFAULT_DIAGNOSTIC_FLEET
+      ) as unknown as PhaseLifecycleDiagnosticsPort);
     this.onClearRetainedReplay = options.onClearRetainedReplay || null;
     this.onRetainCompletedReplay = options.onRetainCompletedReplay || null;
 
@@ -232,7 +231,11 @@ export class MatchSessionAdmin {
     preferredTeam: number | null = null,
     loadoutOptions: PlayerLoadoutOptions | string | number = {},
     colorSlot: number | null = null
-  ): MatchPlayerSlot | MatchSpectatorSlot | { entityId: number; team: number; role: string; spawnSlot: number } | null {
+  ):
+    | MatchPlayerSlot
+    | MatchSpectatorSlot
+    | { entityId: number; team: number; role: string; spawnSlot: number }
+    | null {
     return this.roster.assignPlayerSlot(
       sessionId,
       playerName,
@@ -284,7 +287,11 @@ export class MatchSessionAdmin {
     botName: string | null = null,
     visualId: string | PlayerLoadoutOptions | null = null,
     botType?: string
-  ): MatchPlayerSlot | MatchSpectatorSlot | { entityId: number; team: number; role: string; spawnSlot: number } | null {
+  ):
+    | MatchPlayerSlot
+    | MatchSpectatorSlot
+    | { entityId: number; team: number; role: string; spawnSlot: number }
+    | null {
     return this.roster.addBotPlayer(preferredTeam, botName, visualId, botType);
   }
 

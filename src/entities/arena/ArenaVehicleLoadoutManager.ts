@@ -2,11 +2,11 @@ import * as THREE from 'three';
 import { applyVehiclePaint, type TraversableMaterialNode } from './VehiclePaint.ts';
 import { DEFAULT_TEAM_COLORS, OCTANE_HITBOX_PRESET } from './ArenaConstants.ts';
 import { getWheelSpecsForVisual } from '../VehicleSuspensionSystem.ts';
-import { HITBOX_PRESETS } from '../../ui-core/config/vehiclePresets';
+import { HITBOX_PRESETS } from '../../ui-core/config/vehiclePresets.ts';
 import {
   getVehicleDescriptor,
   hasVehicleDescriptor,
-} from '../../ui-core/config/vehicleTunerConfig';
+} from '../../ui-core/config/vehicleTunerConfig.ts';
 import {
   applyLiveVehicleDescriptorUpdate,
   getCachedCustomVehicleAsset,
@@ -46,7 +46,11 @@ export interface VehicleLoadoutTarget {
   customVehicleAssets: Map<string, unknown>;
   carLoaders: {
     teamColors?: number[];
-    createProceduralSportWheel?: (radius: number, teamColor: number, wheelIndex: number) => THREE.Object3D;
+    createProceduralSportWheel?: (
+      radius: number,
+      teamColor: number,
+      wheelIndex: number
+    ) => THREE.Object3D;
   };
   onRenderTreeChanged?: () => void;
   isCarHitboxVisibleForSlot(slot: number): boolean;
@@ -128,13 +132,12 @@ export class ArenaVehicleLoadoutManager {
 
   public setCarPaintFinish(carIndex: number, paintFinish: string | null): void {
     if (typeof carIndex !== 'number' || carIndex < 0) return;
-    const normalized =
-      paintFinish === 'metallic' || paintFinish === 'matte' ? paintFinish : null;
+    const normalized = paintFinish === 'metallic' || paintFinish === 'matte' ? paintFinish : null;
     if (this.carPaintFinishes[carIndex] === normalized) return;
     this.carPaintFinishes[carIndex] = normalized;
     const carRoot = this.registry.cars?.[carIndex];
     if (!carRoot) return;
-    const teamIndex = this.registry.carTeams?.[carIndex] ?? (carIndex % 2);
+    const teamIndex = this.registry.carTeams?.[carIndex] ?? carIndex % 2;
     const activeColor =
       this.carColors?.[carIndex] !== undefined && this.carColors?.[carIndex] !== null
         ? this.carColors[carIndex]
@@ -160,7 +163,10 @@ export class ArenaVehicleLoadoutManager {
     if (typeof carIndex !== 'number' || carIndex < 0 || !loadout) return;
     if (loadout.visualId || loadout.visual) {
       const targetVisual = (loadout.visualId || loadout.visual)!;
-      if (this.registry.cars?.[carIndex] && this.registry.vehiclePresets?.[carIndex] !== targetVisual) {
+      if (
+        this.registry.cars?.[carIndex] &&
+        this.registry.vehiclePresets?.[carIndex] !== targetVisual
+      ) {
         this.registry.swapCarVisual(carIndex, targetVisual);
       }
     }
@@ -233,7 +239,10 @@ export class ArenaVehicleLoadoutManager {
     const boosts = this.registry.carBoosts;
     if (!Array.isArray(boosts)) return false;
     for (const group of boosts) {
-      if (Array.isArray(group) && group.some((emitter: VehicleBoostEmitter) => emitter?.bloomActive)) {
+      if (
+        Array.isArray(group) &&
+        group.some((emitter: VehicleBoostEmitter) => emitter?.bloomActive)
+      ) {
         return true;
       }
     }
@@ -248,9 +257,16 @@ export class ArenaVehicleLoadoutManager {
       const carRoot = h.cars[i];
       if (!carRoot) continue;
       const preset = h.vehiclePresets[i];
-      const teamIndex = h.carTeams?.[i] ?? (i % 2);
-      const teamColor = this.carColors[i] ?? h.carLoaders.teamColors?.[teamIndex] ?? DEFAULT_TEAM_COLORS[teamIndex % 2];
-      const carDesc = hasVehicleDescriptor(preset || '') ? getVehicleDescriptor(preset || '') : (preset === vehicleId ? targetDescriptor : null);
+      const teamIndex = h.carTeams?.[i] ?? i % 2;
+      const teamColor =
+        this.carColors[i] ??
+        h.carLoaders.teamColors?.[teamIndex] ??
+        DEFAULT_TEAM_COLORS[teamIndex % 2];
+      const carDesc = hasVehicleDescriptor(preset || '')
+        ? getVehicleDescriptor(preset || '')
+        : preset === vehicleId
+          ? targetDescriptor
+          : null;
       const descIdLower = carDesc ? String(carDesc.id).toLowerCase() : '';
       let hasLoadedCustomAsset = Boolean(carDesc && h.customVehicleAssets.has(descIdLower));
       if (carDesc && !hasLoadedCustomAsset) {
@@ -265,7 +281,11 @@ export class ArenaVehicleLoadoutManager {
         const bodyMesh = carRoot.children?.find((c) => c.name === 'car-body-mesh');
         const hasInstantiatedShell = Boolean(bodyMesh?.getObjectByName?.(`${carDesc.id}-shell`));
         const currentThreeWheels = Boolean(h.carWheels[i]?.threeWheels);
-        const desiredThreeWheels = Boolean(carDesc.threeWheels || carDesc.id === 'trioctane-threewheel' || carDesc.hitboxPreset === 'hitbox-psyclops');
+        const desiredThreeWheels = Boolean(
+          carDesc.threeWheels ||
+          carDesc.id === 'trioctane-threewheel' ||
+          carDesc.hitboxPreset === 'hitbox-psyclops'
+        );
         if ((!hasInstantiatedShell || currentThreeWheels !== desiredThreeWheels) && preset) {
           h.swapCarVisual(i, preset);
           continue;
@@ -286,11 +306,15 @@ export class ArenaVehicleLoadoutManager {
           carRoot.remove(oldHitbox);
           oldHitbox.geometry?.dispose?.();
           if (oldHitbox.material) {
-            for (const m of Array.isArray(oldHitbox.material) ? oldHitbox.material : [oldHitbox.material]) {
+            for (const m of Array.isArray(oldHitbox.material)
+              ? oldHitbox.material
+              : [oldHitbox.material]) {
               m?.dispose?.();
             }
           }
-          const hbPreset = (HITBOX_PRESETS as Record<string, typeof OCTANE_HITBOX_PRESET>)[carDesc.hitboxPreset] || OCTANE_HITBOX_PRESET;
+          const hbPreset =
+            (HITBOX_PRESETS as Record<string, typeof OCTANE_HITBOX_PRESET>)[carDesc.hitboxPreset] ||
+            OCTANE_HITBOX_PRESET;
           const nextHitbox = createCarHitboxWireframe(hbPreset);
           nextHitbox.name = 'car-hitbox-wireframe';
           nextHitbox.visible = h.isCarHitboxVisibleForSlot(i);
@@ -323,7 +347,12 @@ export class ArenaVehicleLoadoutManager {
     fileName = 'custom.glb',
     alignPreset = 'auto'
   ): Promise<CustomGlbImportResult> {
-    const result = await importCustomVehicleGlbBuffer(vehicleId, arrayBuffer, fileName, alignPreset);
+    const result = await importCustomVehicleGlbBuffer(
+      vehicleId,
+      arrayBuffer,
+      fileName,
+      alignPreset
+    );
     const asset = getCachedCustomVehicleAsset(result.vehicleId);
     if (asset) {
       this.registry.customVehicleAssets.set(result.vehicleId, asset);
@@ -338,7 +367,9 @@ export class ArenaVehicleLoadoutManager {
   }
 
   public applyVehicleAlignPreset(vehicleId: string, alignPreset: string): boolean {
-    const targetId = String(vehicleId || '').toLowerCase().trim();
+    const targetId = String(vehicleId || '')
+      .toLowerCase()
+      .trim();
     const res = applyVehicleAlignPresetToDescriptor(targetId, alignPreset);
     if (!res) return false;
     const asset = getCachedCustomVehicleAsset(targetId);

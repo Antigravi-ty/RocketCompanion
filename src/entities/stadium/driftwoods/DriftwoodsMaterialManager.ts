@@ -14,14 +14,12 @@ import {
   type DriftwoodsGroundConfig,
   type DriftwoodsLayerConfig,
   type DriftwoodsTunerConfig,
-} from '../../../ui-core/config/driftwoodsConfig';
+} from '../../../ui-core/config/driftwoodsConfig.ts';
 import {
   experimentalWallFxRuntimeConfig,
   type ExperimentalWallFxConfig,
-} from '../../../ui-core/config/atmosphereFxConfig';
-import {
-  createWallFxUniforms,
-} from './WallFxShaderInjector.ts';
+} from '../../../ui-core/config/atmosphereFxConfig.ts';
+import { createWallFxUniforms } from './WallFxShaderInjector.ts';
 import {
   createSpherePreviewMeshes,
   syncManagerSpherePreviewMeshes,
@@ -87,7 +85,10 @@ export class DriftwoodsMaterialManager {
   public wallFxConfig: ExperimentalWallFxConfig;
   public wallFxUniforms: DriftwoodsWallFxUniforms;
 
-  constructor(stadiumScene: Group, initialConfig: Partial<DriftwoodsTunerConfig> = DEFAULT_DRIFTWOODS_CONFIG) {
+  constructor(
+    stadiumScene: Group,
+    initialConfig: Partial<DriftwoodsTunerConfig> = DEFAULT_DRIFTWOODS_CONFIG
+  ) {
     this.scene = stadiumScene;
     this.config = cloneDriftwoodsConfig(initialConfig as DriftwoodsTunerConfig);
     this.wallFxConfig = { ...experimentalWallFxRuntimeConfig };
@@ -114,17 +115,13 @@ export class DriftwoodsMaterialManager {
       this.bakeQ1GroundTextures(this.config.ground);
     });
 
-    const {
-      groundUniforms,
-      specularAAUniforms,
-      occlusionUniforms,
-      goalTeamUniforms,
-    } = createDriftwoodsShaderUniforms(
-      this.config,
-      this.bakedBlueGroundTexture,
-      this.bakedOrangeGroundTexture,
-      this.q1GroundTexture
-    );
+    const { groundUniforms, specularAAUniforms, occlusionUniforms, goalTeamUniforms } =
+      createDriftwoodsShaderUniforms(
+        this.config,
+        this.bakedBlueGroundTexture,
+        this.bakedOrangeGroundTexture,
+        this.q1GroundTexture
+      );
 
     this.groundUniforms = groundUniforms;
     this.wallFxUniforms = createWallFxUniforms(this.wallFxConfig);
@@ -204,10 +201,7 @@ export class DriftwoodsMaterialManager {
     if (groundMesh && c.ground) {
       this.groundUniforms.uGroundMode.value = c.ground.textureMode === 'original' ? 0.0 : 1.0;
 
-      this.groundUniforms.uQ1UvScale.value.set(
-        c.ground.q1ScaleX ?? 1.0,
-        c.ground.q1ScaleY ?? 1.0
-      );
+      this.groundUniforms.uQ1UvScale.value.set(c.ground.q1ScaleX ?? 1.0, c.ground.q1ScaleY ?? 1.0);
       this.groundUniforms.uQ1UvOffset.value.set(
         c.ground.q1OffsetX ?? 0.0,
         c.ground.q1OffsetY ?? 0.0
@@ -231,7 +225,9 @@ export class DriftwoodsMaterialManager {
       applyGroundMaterialCommon(this.standardMaterials['Woods_Field_Ground'], c.ground);
       applyGroundMaterialCommon(this.lambertMaterials['Woods_Field_Ground'], c.ground);
 
-      const { targetMag, targetMinMipmap, targetAnisotropy } = resolveGroundTextureFiltering(c.ground);
+      const { targetMag, targetMinMipmap, targetAnisotropy } = resolveGroundTextureFiltering(
+        c.ground
+      );
 
       for (const bakedTex of [this.bakedBlueGroundTexture, this.bakedOrangeGroundTexture]) {
         if (
@@ -273,17 +269,11 @@ export class DriftwoodsMaterialManager {
     }
 
     this.applyLayerConfig(['Woods_Field_Ramps', 'Woods_Field_Ramps_1'], c.ramps);
-    this.applyLayerConfig(
-      ['Woods_Field_Ramps_2', 'Woods_Field_Goal_Net_2'],
-      c.rampsUpperOuter
-    );
+    this.applyLayerConfig(['Woods_Field_Ramps_2', 'Woods_Field_Goal_Net_2'], c.rampsUpperOuter);
     this.applyLayerConfig('Woods_Field_Ramps_Trim', c.rampsTrim);
     this.applyLayerConfig('Woods_Field_Wall_Posts', c.wallPosts);
     this.applyLayerConfig('Woods_Field_Goal', c.goalFrame);
-    this.applyLayerConfig(
-      ['Woods_Field_Goal_Posts', 'Woods_Field_Goal_Posts_1'],
-      c.goalPosts
-    );
+    this.applyLayerConfig(['Woods_Field_Goal_Posts', 'Woods_Field_Goal_Posts_1'], c.goalPosts);
     this.applyLayerConfig('Woods_Field_Goal_Posts_2', c.goalPostsGlow);
     this.applyLayerConfig('Woods_Field_Walls', c.walls);
     this.applyLayerConfig(['Woods_Field_Goal_Net', 'Woods_Field_Goal_Net_1'], c.goalNet);

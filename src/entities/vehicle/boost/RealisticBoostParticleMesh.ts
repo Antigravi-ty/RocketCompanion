@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 
 const REALISTIC_PARTICLE_ATTRS: ReadonlyArray<string> = [
-  "aOffset",
-  "aSize",
-  "aOpacity",
-  "aColorScale",
-  "aDynamic",
-  "aRotation"
+  'aOffset',
+  'aSize',
+  'aOpacity',
+  'aColorScale',
+  'aDynamic',
+  'aRotation',
 ];
 
 export interface RealisticBoostParticleTextureSet {
@@ -36,7 +36,7 @@ export class RealisticBoostParticleMesh {
       InstancedBufferAttribute,
       ShaderMaterial,
       DynamicDrawUsage,
-      NormalBlending
+      NormalBlending,
     } = THREE;
 
     this.offsets = new Float32Array(count * 3);
@@ -47,21 +47,22 @@ export class RealisticBoostParticleMesh {
     this.rotations = new Float32Array(count);
 
     const geom = new InstancedBufferGeometry();
-    geom.setAttribute("position", new BufferAttribute(new Float32Array([
-      -0.5, -0.5, 0,
-       0.5, -0.5, 0,
-       0.5,  0.5, 0,
-      -0.5,  0.5, 0
-    ]), 3));
-    geom.setAttribute("uv", new BufferAttribute(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), 2));
+    geom.setAttribute(
+      'position',
+      new BufferAttribute(
+        new Float32Array([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0]),
+        3
+      )
+    );
+    geom.setAttribute('uv', new BufferAttribute(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), 2));
     geom.setIndex([0, 1, 2, 0, 2, 3]);
 
-    geom.setAttribute("aOffset", new InstancedBufferAttribute(this.offsets, 3));
-    geom.setAttribute("aSize", new InstancedBufferAttribute(this.sizes, 2));
-    geom.setAttribute("aOpacity", new InstancedBufferAttribute(this.opacity, 1));
-    geom.setAttribute("aColorScale", new InstancedBufferAttribute(this.colorScale, 1));
-    geom.setAttribute("aDynamic", new InstancedBufferAttribute(this.dynamic, 4));
-    geom.setAttribute("aRotation", new InstancedBufferAttribute(this.rotations, 1));
+    geom.setAttribute('aOffset', new InstancedBufferAttribute(this.offsets, 3));
+    geom.setAttribute('aSize', new InstancedBufferAttribute(this.sizes, 2));
+    geom.setAttribute('aOpacity', new InstancedBufferAttribute(this.opacity, 1));
+    geom.setAttribute('aColorScale', new InstancedBufferAttribute(this.colorScale, 1));
+    geom.setAttribute('aDynamic', new InstancedBufferAttribute(this.dynamic, 4));
+    geom.setAttribute('aRotation', new InstancedBufferAttribute(this.rotations, 1));
 
     for (let i = 0; i < REALISTIC_PARTICLE_ATTRS.length; i++) {
       geom.attributes[REALISTIC_PARTICLE_ATTRS[i]].setUsage(DynamicDrawUsage);
@@ -75,7 +76,7 @@ export class RealisticBoostParticleMesh {
         grainMap: { value: textures.grain },
         smokeMap: { value: textures.smoke },
         time: { value: 0 },
-        plumeLuminance: { value: 1.0 }
+        plumeLuminance: { value: 1.0 },
       },
       vertexShader: `
         attribute vec3 aOffset;
@@ -154,9 +155,9 @@ export class RealisticBoostParticleMesh {
       transparent: true,
       blending: NormalBlending,
       depthWrite: false,
-      toneMapped: true
+      toneMapped: true,
     });
-    mat.name = "Realistic / textured exhaust particles";
+    mat.name = 'Realistic / textured exhaust particles';
 
     this.mesh = new Mesh(geom, mat);
     this.mesh.frustumCulled = false;

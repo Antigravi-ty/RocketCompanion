@@ -39,12 +39,30 @@ let _loadingPromise: Promise<any> | null = null;
 function sliceFlatWeights(flat: Float32Array, isFallback = false) {
   const l = KICKOFF_PPO_META.layers;
   return {
-    w0: flat.subarray(l['actor.0.weight'].offset, l['actor.0.weight'].offset + l['actor.0.weight'].length),
-    b0: flat.subarray(l['actor.0.bias'].offset, l['actor.0.bias'].offset + l['actor.0.bias'].length),
-    w2: flat.subarray(l['actor.2.weight'].offset, l['actor.2.weight'].offset + l['actor.2.weight'].length),
-    b2: flat.subarray(l['actor.2.bias'].offset, l['actor.2.bias'].offset + l['actor.2.bias'].length),
-    w4: flat.subarray(l['actor.4.weight'].offset, l['actor.4.weight'].offset + l['actor.4.weight'].length),
-    b4: flat.subarray(l['actor.4.bias'].offset, l['actor.4.bias'].offset + l['actor.4.bias'].length),
+    w0: flat.subarray(
+      l['actor.0.weight'].offset,
+      l['actor.0.weight'].offset + l['actor.0.weight'].length
+    ),
+    b0: flat.subarray(
+      l['actor.0.bias'].offset,
+      l['actor.0.bias'].offset + l['actor.0.bias'].length
+    ),
+    w2: flat.subarray(
+      l['actor.2.weight'].offset,
+      l['actor.2.weight'].offset + l['actor.2.weight'].length
+    ),
+    b2: flat.subarray(
+      l['actor.2.bias'].offset,
+      l['actor.2.bias'].offset + l['actor.2.bias'].length
+    ),
+    w4: flat.subarray(
+      l['actor.4.weight'].offset,
+      l['actor.4.weight'].offset + l['actor.4.weight'].length
+    ),
+    b4: flat.subarray(
+      l['actor.4.bias'].offset,
+      l['actor.4.bias'].offset + l['actor.4.bias'].length
+    ),
     isFallback,
   };
 }
@@ -84,10 +102,15 @@ export async function preloadKickoffPPOWeights(rawUrl = KICKOFF_PPO_WEIGHTS_URL)
         };
         return _cachedSlices;
       } else {
-        console.warn('[KickoffPPOWeights] Global fetch is unavailable; using zero-initialized fallback weights.');
+        console.warn(
+          '[KickoffPPOWeights] Global fetch is unavailable; using zero-initialized fallback weights.'
+        );
       }
     } catch (err) {
-      console.warn('[KickoffPPOWeights] Failed to fetch SafeTensors weights, using fallback until loaded:', err);
+      console.warn(
+        '[KickoffPPOWeights] Failed to fetch SafeTensors weights, using fallback until loaded:',
+        err
+      );
     } finally {
       _loadingPromise = null;
     }

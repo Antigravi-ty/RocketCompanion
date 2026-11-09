@@ -51,13 +51,19 @@ async function bootApplication(): Promise<void> {
   let isBootstrapping = true;
   const onBootstrapError = (event: ErrorEvent | Event) => {
     if (!isBootstrapping || loader.isCompleted) return;
-    if (event?.target && typeof window !== 'undefined' && event.target !== window && !(event instanceof ErrorEvent)) {
+    if (
+      event?.target &&
+      typeof window !== 'undefined' &&
+      event.target !== window &&
+      !(event instanceof ErrorEvent)
+    ) {
       return;
     }
     const errEvent = event as ErrorEvent;
-    const err = errEvent?.error instanceof Error
-      ? errEvent.error
-      : new Error(errEvent?.message || 'Uncaught exception during engine bootstrap');
+    const err =
+      errEvent?.error instanceof Error
+        ? errEvent.error
+        : new Error(errEvent?.message || 'Uncaught exception during engine bootstrap');
     if (!err.stack && errEvent?.filename) {
       err.stack = `${err.message}\n    at ${errEvent.filename}:${errEvent.lineno || 0}:${errEvent.colno || 0}`;
     }
@@ -65,21 +71,26 @@ async function bootApplication(): Promise<void> {
       taskId: loader.activeTaskId || 'bootstrap',
       taskName: loader.activeTaskName || 'Engine Bootstrap',
       error: err,
-      isCritical: true
+      isCritical: true,
     });
   };
 
   const onBootstrapUnhandledRejection = (event: PromiseRejectionEvent) => {
     if (!isBootstrapping || loader.isCompleted) return;
     const reason = event?.reason;
-    const err = reason instanceof Error
-      ? reason
-      : new Error(typeof reason === 'string' ? reason : 'Unhandled promise rejection during engine bootstrap');
+    const err =
+      reason instanceof Error
+        ? reason
+        : new Error(
+            typeof reason === 'string'
+              ? reason
+              : 'Unhandled promise rejection during engine bootstrap'
+          );
     loader.onError({
       taskId: loader.activeTaskId || 'bootstrap',
       taskName: loader.activeTaskName || 'Engine Bootstrap',
       error: err,
-      isCritical: true
+      isCritical: true,
     });
   };
 
@@ -111,7 +122,7 @@ async function bootApplication(): Promise<void> {
       overallPercent: 2,
       taskType: 'indeterminate',
       category: 'Bootstrap Core',
-      hint: 'Streaming and linking core runtime & 3D subsystems...'
+      hint: 'Streaming and linking core runtime & 3D subsystems...',
     });
 
     // Stagger engine and UI module trees so cold-start HTTP/2 stream breadth stays low
@@ -144,7 +155,9 @@ async function bootApplication(): Promise<void> {
         const lastReload = Number(sessionStorage.getItem(MODULE_RETRY_SESSION_KEY) || 0);
         if (!lastReload || now - lastReload > 15000) {
           sessionStorage.setItem(MODULE_RETRY_SESSION_KEY, String(now));
-          console.warn('[Engine] Cold-start module transport interrupted; performing automatic recovery reload...');
+          console.warn(
+            '[Engine] Cold-start module transport interrupted; performing automatic recovery reload...'
+          );
           window.location.reload();
           return;
         }
@@ -156,7 +169,7 @@ async function bootApplication(): Promise<void> {
       taskId: loader.activeTaskId || 'bootstrap',
       taskName: loader.activeTaskName || 'Engine Bootstrap',
       error: err,
-      isCritical: true
+      isCritical: true,
     });
   } finally {
     isBootstrapping = false;

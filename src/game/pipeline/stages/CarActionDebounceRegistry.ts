@@ -100,7 +100,7 @@ export class CarActionDebounceRegistry {
 
   public syncPreTickCarStatesAndRemoteEdges(
     ctx: CarEdgeSynthesisContext,
-    currentTick: number,
+    currentTick: number
   ): void {
     const {
       physics,
@@ -204,7 +204,7 @@ export class CarActionDebounceRegistry {
     event: PhysicsEventRecord,
     evtCarIdx: number,
     currentTick: number,
-    ctx: CarEdgeSynthesisContext,
+    ctx: CarEdgeSynthesisContext
   ): boolean {
     const { physics, playerCarIndex, playerControls, networkReconciler } = ctx;
     const isLocal = evtCarIdx === playerCarIndex;
@@ -298,7 +298,7 @@ export class CarActionDebounceRegistry {
     event: PhysicsEventRecord,
     targetCarIdx: number,
     physics: RocketSimPhysicsEngine,
-    onModePhysicsEvent: (event: CarActionPhysicsEventPayload) => void,
+    onModePhysicsEvent: (event: CarActionPhysicsEventPayload) => void
   ): boolean {
     const st = this.getCarActionState(targetCarIdx);
     const cv = physics.getCarStateView?.(targetCarIdx);
@@ -332,7 +332,7 @@ export class CarActionDebounceRegistry {
 
   public synthesizePostTickLocalFallbackEdges(
     ctx: CarEdgeSynthesisContext,
-    currentTick: number,
+    currentTick: number
   ): void {
     const {
       physics,
@@ -358,12 +358,8 @@ export class CarActionDebounceRegistry {
 
     const curJumping = Boolean(cv.isJumping);
     const curFlipping = Boolean(cv.isFlipping);
-    const risingJump = st.localEdgeInitialized
-      ? !st.prevLocalJumping && curJumping
-      : curJumping;
-    const risingFlip = st.localEdgeInitialized
-      ? !st.prevLocalFlipping && curFlipping
-      : curFlipping;
+    const risingJump = st.localEdgeInitialized ? !st.prevLocalJumping && curJumping : curJumping;
+    const risingFlip = st.localEdgeInitialized ? !st.prevLocalFlipping && curFlipping : curFlipping;
     st.localEdgeInitialized = true;
     st.prevLocalJumping = curJumping;
     st.prevLocalFlipping = curFlipping;

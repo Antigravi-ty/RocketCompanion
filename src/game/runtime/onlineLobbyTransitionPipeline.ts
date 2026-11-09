@@ -1,11 +1,14 @@
-import { CAR_COLOR_SLOTS } from '../../ui-core/config/vehicleConstants';
-import { getPreferredColorSlot, loadStoredColorPrefs } from '../../ui-core/config/vehiclePresets';
+import { CAR_COLOR_SLOTS } from '../../ui-core/config/vehicleConstants.ts';
+import {
+  getPreferredColorSlot,
+  loadStoredColorPrefs,
+} from '../../ui-core/config/vehiclePresets.ts';
 import {
   resolveEffectiveClockPacingParams,
   type ClockPacingMode,
   type ClockPacingPriority,
   type ClockPacingParams,
-} from '../../ui-core/config/clockPacingConfig';
+} from '../../ui-core/config/clockPacingConfig.ts';
 import {
   useAppStore,
   type AppStorePortState,
@@ -102,7 +105,7 @@ const MID_MATCH_STATES = new Set([
 export function resolveLoadoutDefaults(
   options: OnlineLoadoutOptions,
   localLoadout: LocalVehicleLoadoutState,
-  materials: MaterialsConfigLike | null | undefined,
+  materials: MaterialsConfigLike | null | undefined
 ) {
   return {
     visualId: options.visualId || localLoadout.selectedPreset || 'fennec',
@@ -115,7 +118,7 @@ export function resolveLoadoutDefaults(
 }
 
 export function resolveSessionClockPacingConfig(
-  storeState: Partial<AppStorePortState> | null | undefined = useAppStore?.getState?.(),
+  storeState: Partial<AppStorePortState> | null | undefined = useAppStore?.getState?.()
 ) {
   const mode = (storeState?.clockPacingMode || 'legacy') as ClockPacingMode;
   const priority = (storeState?.clockPacingPriority || 'balanced') as ClockPacingPriority;
@@ -135,7 +138,7 @@ export function resolveHostSessionLaunchConfig(
   options: HostOnlineServerOptions,
   localLoadout: LocalVehicleLoadoutState,
   onlineSession: OnlineSessionPortState | null | undefined,
-  materials: MaterialsConfigLike | null | undefined,
+  materials: MaterialsConfigLike | null | undefined
 ) {
   const ld = resolveLoadoutDefaults(options, localLoadout, materials);
   const storedPrefs = loadStoredColorPrefs();
@@ -201,7 +204,7 @@ export function resolveHostSessionLaunchConfig(
 export function resolveClientJoinConfig(
   options: JoinOnlineServerOptions,
   localLoadout: LocalVehicleLoadoutState,
-  materials: MaterialsConfigLike | null | undefined,
+  materials: MaterialsConfigLike | null | undefined
 ) {
   const ld = resolveLoadoutDefaults(options, localLoadout, materials);
   const initialColorPrefs = loadStoredColorPrefs();
@@ -217,7 +220,7 @@ export function resolveClientJoinConfig(
     options.colorSlot ??
     getPreferredColorSlot(
       initialColorPrefs,
-      preferredTeam === 0 || preferredTeam === 1 ? preferredTeam : null,
+      preferredTeam === 0 || preferredTeam === 1 ? preferredTeam : null
     );
   const playerName = options.playerName || 'Player 2';
 
@@ -238,9 +241,11 @@ export function resolveClientJoinConfig(
   };
 }
 
-export function resolveHandshakeTeamColorSlot(
-  msg: HandshakeResponseMessage | null | undefined,
-): { assignedTeam: 0 | 1; colorSlot: number; colorHex: string | null } {
+export function resolveHandshakeTeamColorSlot(msg: HandshakeResponseMessage | null | undefined): {
+  assignedTeam: 0 | 1;
+  colorSlot: number;
+  colorHex: string | null;
+} {
   const assignedTeam: 0 | 1 = msg?.team === 1 ? 1 : 0;
   const teamPreferredSlot = getPreferredColorSlot(loadStoredColorPrefs(), assignedTeam);
   const resolvedHandshakeSlot =
@@ -256,7 +261,7 @@ export function resolveHandshakeTeamColorSlot(
 
 export function resolveClientHandshakeTransition(
   msg: HandshakeResponseMessage | null | undefined,
-  currentOnlineSession: OnlineSessionPortState | null | undefined,
+  currentOnlineSession: OnlineSessionPortState | null | undefined
 ) {
   const state = msg?.state;
   const isMidMatchJoin = Boolean(state && MID_MATCH_STATES.has(state));
@@ -288,8 +293,7 @@ export function resolveClientHandshakeTransition(
     onlineSessionPatch.matchDurationSeconds = msg.durationSeconds;
   }
   if (typeof msg?.team === 'number' && msg.team >= 0) {
-    onlineSessionPatch.localTeam =
-      msg.team === 2 ? 'neutral' : msg.team === 1 ? 'orange' : 'blue';
+    onlineSessionPatch.localTeam = msg.team === 2 ? 'neutral' : msg.team === 1 ? 'orange' : 'blue';
   }
   return {
     assignedCarIndex,
@@ -308,7 +312,7 @@ export function computeClientLobbyCarSpawnPose(
   view: { posX: number; posY: number; posZ: number } | null | undefined,
   carIndex: number,
   team = 1,
-  forceReset = false,
+  forceReset = false
 ) {
   const isInvalid =
     forceReset ||
@@ -345,14 +349,14 @@ export function ensureValidClientLobbyLocalCarPose(
   physics: RocketSimPhysicsEngine | null | undefined,
   carIndex: number,
   team = 1,
-  forceReset = false,
+  forceReset = false
 ): void {
   if (!physics || typeof physics.setCarState !== 'function') return;
   const pose = computeClientLobbyCarSpawnPose(
     physics.getCarStateView?.(carIndex),
     carIndex,
     team,
-    forceReset,
+    forceReset
   );
   if (pose) physics.setCarState(carIndex, pose);
 }
@@ -361,7 +365,7 @@ export function resetLobbyWorldPhysicsPose(
   physics: RocketSimPhysicsEngine | null | undefined,
   localCarIndex: number,
   localTeam: number,
-  isHost: boolean,
+  isHost: boolean
 ): void {
   if (!physics) return;
   if (!isHost) {

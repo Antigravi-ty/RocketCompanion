@@ -82,14 +82,14 @@ export class EntityManager {
       hitbox = visual,
       isPlayer = false,
       isBot = false,
-      controller = null
+      controller = null,
     } = options;
 
     // 1. Ensure physics entity exists
     if (this.physics) {
       if (this.physics.numCars <= slot) {
         while (this.physics.numCars <= slot) {
-          const t = this.physics.numCars === slot ? team : (slot === 0 ? 0 : 1);
+          const t = this.physics.numCars === slot ? team : slot === 0 ? 0 : 1;
           this.physics.addCar(t, hitbox);
         }
       }
@@ -109,7 +109,7 @@ export class EntityManager {
       hitbox,
       isPlayer,
       isBot,
-      controller
+      controller,
     };
 
     this.entities.set(slot, entity);
@@ -169,7 +169,7 @@ export class EntityManager {
         hitbox: newHitbox,
         isPlayer: slot === 0,
         isBot: slot > 0,
-        controller: null
+        controller: null,
       });
     }
 

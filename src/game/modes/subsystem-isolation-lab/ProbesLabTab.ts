@@ -108,11 +108,7 @@ export class ProbesLabTab implements LabTabController {
     const runtime = this.ctx?.runtime;
     if (!runtime) return;
     runtime.playerCarIndex =
-      target === 'boost_probe'
-        ? PROBE_BOOST_SLOT
-        : target === 'qe_probe'
-          ? PROBE_QE_SLOT
-          : 0;
+      target === 'boost_probe' ? PROBE_BOOST_SLOT : target === 'qe_probe' ? PROBE_QE_SLOT : 0;
     if (runtime.arena) {
       runtime.arena.playerCarIndex = runtime.playerCarIndex;
     }

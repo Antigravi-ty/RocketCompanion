@@ -12,21 +12,19 @@ export const BALL_LOCATOR_MAX_OFFSET = 120;
 export const BALL_LOCATOR_HEIGHT_OFFSET = 20;
 export const BALL_LOCATOR_HALO_SCALE = 48;
 
-
-
 export function createBallLocatorHaloTexture() {
   if (typeof document === 'undefined') return null;
-  const canvas = document.createElement("canvas");
+  const canvas = document.createElement('canvas');
   canvas.width = 128;
   canvas.height = 128;
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext('2d');
   if (!ctx) return null;
   const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-  gradient.addColorStop(0, "rgba(0, 0, 0, 0.38)");
-  gradient.addColorStop(0.28, "rgba(0, 0, 0, 0.31)");
-  gradient.addColorStop(0.58, "rgba(0, 0, 0, 0.16)");
-  gradient.addColorStop(0.82, "rgba(0, 0, 0, 0.045)");
-  gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+  gradient.addColorStop(0, 'rgba(0, 0, 0, 0.38)');
+  gradient.addColorStop(0.28, 'rgba(0, 0, 0, 0.31)');
+  gradient.addColorStop(0.58, 'rgba(0, 0, 0, 0.16)');
+  gradient.addColorStop(0.82, 'rgba(0, 0, 0, 0.045)');
+  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, 128, 128);
 
@@ -47,10 +45,10 @@ export function createBallLocatorHaloSprite() {
       transparent: true,
       depthTest: false,
       depthWrite: false,
-      toneMapped: false
+      toneMapped: false,
     })
   );
-  sprite.name = "ball-locator-clarity-halo";
+  sprite.name = 'ball-locator-clarity-halo';
   if (sprite.scale?.setScalar) sprite.scale.setScalar(BALL_LOCATOR_HALO_SCALE);
   sprite.renderOrder = 9;
   return sprite;
@@ -66,7 +64,7 @@ export function createBallLocatorMaterial() {
     transparent: true,
     opacity: 0.92,
     depthTest: false,
-    depthWrite: false
+    depthWrite: false,
   });
 }
 
@@ -88,14 +86,14 @@ export function createBallLocatorArrowMesh() {
     bevelSegments: 2,
     bevelSize: 0.7,
     bevelThickness: 0.7,
-    curveSegments: 2
+    curveSegments: 2,
   });
   if (typeof geometry.translate === 'function') {
     geometry.translate(0, 0, -2);
   }
 
   const mesh = new Mesh(geometry, createBallLocatorMaterial());
-  mesh.name = "ball-locator-arrow";
+  mesh.name = 'ball-locator-arrow';
   mesh.renderOrder = 10;
   return mesh;
 }
@@ -110,7 +108,7 @@ export class BallLocatorArrow {
   constructor() {
     const { Group, Vector3 } = THREE;
     this.object = new Group();
-    this.object.name = "ball-locator";
+    this.object.name = 'ball-locator';
     this.object.visible = false;
 
     this.clarityHalo = createBallLocatorHaloSprite();
@@ -137,7 +135,8 @@ export class BallLocatorArrow {
 
     this.direction.multiplyScalar(1 / distance);
     const progress = THREE.MathUtils.clamp(
-      (distance - BALL_LOCATOR_MIN_DISTANCE) / (BALL_LOCATOR_MAX_DISTANCE - BALL_LOCATOR_MIN_DISTANCE),
+      (distance - BALL_LOCATOR_MIN_DISTANCE) /
+        (BALL_LOCATOR_MAX_DISTANCE - BALL_LOCATOR_MIN_DISTANCE),
       0,
       1
     );
@@ -161,10 +160,11 @@ export class BallLocatorArrow {
     if (this.object?.parent) {
       this.object.parent.remove(this.object);
     }
-    this.object?.traverse?.(child => {
+    this.object?.traverse?.((child) => {
       if (child.geometry?.dispose) child.geometry.dispose();
       if (child.material) {
-        if (Array.isArray(child.material)) child.material.forEach(material => material?.dispose?.());
+        if (Array.isArray(child.material))
+          child.material.forEach((material) => material?.dispose?.());
         else child.material.dispose?.();
       }
     });

@@ -125,18 +125,11 @@ export class MultiGhostLabTab implements LabTabController {
     for (let i = 0; i < Math.min(ghostCount, this.ghostWorlds.length); i++) {
       const gw = this.ghostWorlds[i];
       if (!gw?.sim?.isInitialized) continue;
-      this.ghostVisuals.updateWorld(
-        gw.worldId,
-        gw.prevState,
-        gw.currState,
-        alpha,
-        frameDt,
-        {
-          paletteIndex: i + 1,
-          controls: runtime?.neutralControls ?? null,
-          showBall: true,
-        }
-      );
+      this.ghostVisuals.updateWorld(gw.worldId, gw.prevState, gw.currState, alpha, frameDt, {
+        paletteIndex: i + 1,
+        controls: runtime?.neutralControls ?? null,
+        showBall: true,
+      });
     }
 
     for (const ext of this.externalGhostWorlds.values()) {
@@ -305,34 +298,32 @@ export class MultiGhostLabTab implements LabTabController {
         runtime.interpolator?.sync?.();
       }
 
-      this.ensureGhostWorldEngines(ghostCount, carsPerWorld, forceRestart).then(
-        (ghostList) => {
-          const latestStore = useSubsystemIsolationLabStore.getState();
-          if (
-            this.ctx?.getSwitchEpoch() !== epoch ||
-            latestStore.activeTab !== 'multi-ghost' ||
-            !latestStore.dualWorldEnabled ||
-            !this.ghostVisuals
-          ) {
-            return;
-          }
-          const opacity = latestStore.ghostOpacity;
-
-          for (let i = 0; i < this.ghostWorlds.length; i++) {
-            const gw = this.ghostWorlds[i];
-            const isActiveGhost = i < ghostList.length;
-            this.ghostVisuals.ensureWorld(gw.worldId, {
-              paletteIndex: i + 1,
-              opacity,
-              showCar: true,
-              showBall: true,
-            });
-            this.ghostVisuals.setVisible(isActiveGhost, gw.worldId);
-          }
-          this.ghostVisuals.setVisible(true);
-          this.ghostVisuals.setOpacity(opacity);
+      this.ensureGhostWorldEngines(ghostCount, carsPerWorld, forceRestart).then((ghostList) => {
+        const latestStore = useSubsystemIsolationLabStore.getState();
+        if (
+          this.ctx?.getSwitchEpoch() !== epoch ||
+          latestStore.activeTab !== 'multi-ghost' ||
+          !latestStore.dualWorldEnabled ||
+          !this.ghostVisuals
+        ) {
+          return;
         }
-      );
+        const opacity = latestStore.ghostOpacity;
+
+        for (let i = 0; i < this.ghostWorlds.length; i++) {
+          const gw = this.ghostWorlds[i];
+          const isActiveGhost = i < ghostList.length;
+          this.ghostVisuals.ensureWorld(gw.worldId, {
+            paletteIndex: i + 1,
+            opacity,
+            showCar: true,
+            showBall: true,
+          });
+          this.ghostVisuals.setVisible(isActiveGhost, gw.worldId);
+        }
+        this.ghostVisuals.setVisible(true);
+        this.ghostVisuals.setOpacity(opacity);
+      });
     } else if (this.ghostVisuals) {
       this.ghostVisuals.setVisible(false);
     }

@@ -1,9 +1,9 @@
 import React, { useRef } from 'react';
-import { useAppStore } from '../../ui-core/stores/appStore';
-import { calculateSettingsSafeScale } from '../../ui-core/config/uiConfig';
-import { useViewportStore, viewportStore } from '../../ui-core/stores/viewportStore';
-import { SafeAreaHud } from '../../ui-core/viewport/SafeAreaHud';
-import { InGameHUD } from '../../ui-core/hud/InGameHUD';
+import { useAppStore } from '../../ui-core/stores/appStore.ts';
+import { calculateSettingsSafeScale } from '../../ui-core/config/uiConfig.ts';
+import { useViewportStore, viewportStore } from '../../ui-core/stores/viewportStore.ts';
+import { SafeAreaHud } from '../../ui-core/viewport/SafeAreaHud.tsx';
+import { InGameHUD } from '../../ui-core/hud/InGameHUD.tsx';
 import { AlertTriangle, ChevronRight, Bot, Menu, Router } from 'lucide-react';
 
 interface RuntimeViewportHostProps {

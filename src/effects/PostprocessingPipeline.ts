@@ -1,13 +1,6 @@
 import * as THREE from 'three';
-import {
-  CopyShader,
-  ShaderPass,
-  type EffectPassLike,
-} from './PostprocessingPasses.ts';
-import {
-  MaskPass,
-  ClearMaskPass,
-} from './PostprocessingMaskAndOutputPasses.ts';
+import { CopyShader, ShaderPass, type EffectPassLike } from './PostprocessingPasses.ts';
+import { MaskPass, ClearMaskPass } from './PostprocessingMaskAndOutputPasses.ts';
 
 export type { EffectPassLike };
 
@@ -48,18 +41,22 @@ export class EffectComposer {
 
   constructor(renderer: THREE.WebGLRenderer, renderTarget?: THREE.WebGLRenderTarget) {
     this.renderer = renderer;
-    this._pixelRatio = (renderer && typeof renderer.getPixelRatio === 'function' ? renderer.getPixelRatio() : 1);
+    this._pixelRatio =
+      renderer && typeof renderer.getPixelRatio === 'function' ? renderer.getPixelRatio() : 1;
 
     const {
       Vector2,
       WebGLRenderTarget,
       HalfFloatType: HalfFloatConst,
       NoBlending: NoBlendConst,
-      Timer
+      Timer,
     } = resolvePostprocessingContext();
 
     if (renderTarget === undefined) {
-      const size = (renderer && typeof renderer.getSize === 'function' ? renderer.getSize(new Vector2()) : new Vector2(800, 600));
+      const size =
+        renderer && typeof renderer.getSize === 'function'
+          ? renderer.getSize(new Vector2())
+          : new Vector2(800, 600);
       this._width = size.width;
       this._height = size.height;
       renderTarget = new WebGLRenderTarget(
@@ -67,7 +64,7 @@ export class EffectComposer {
         this._height * this._pixelRatio,
         { type: HalfFloatConst, stencilBuffer: true }
       );
-      renderTarget.texture.name = "EffectComposer.rt1";
+      renderTarget.texture.name = 'EffectComposer.rt1';
     } else {
       this._width = renderTarget.width;
       this._height = renderTarget.height;
@@ -76,7 +73,7 @@ export class EffectComposer {
     this.renderTarget1 = renderTarget;
     this.renderTarget2 = renderTarget.clone();
     if (this.renderTarget2.texture) {
-      this.renderTarget2.texture.name = "EffectComposer.rt2";
+      this.renderTarget2.texture.name = 'EffectComposer.rt2';
     }
 
     this.writeBuffer = this.renderTarget1;
@@ -134,7 +131,10 @@ export class EffectComposer {
       deltaTime = this.timer.getDelta();
     }
 
-    const currentRenderTarget = (this.renderer && typeof this.renderer.getRenderTarget === 'function' ? this.renderer.getRenderTarget() : null);
+    const currentRenderTarget =
+      this.renderer && typeof this.renderer.getRenderTarget === 'function'
+        ? this.renderer.getRenderTarget()
+        : null;
     let maskActive = false;
 
     for (let i = 0, len = this.passes.length; i < len; i++) {
@@ -170,8 +170,14 @@ export class EffectComposer {
   reset(renderTarget?: THREE.WebGLRenderTarget): void {
     if (renderTarget === undefined) {
       const { Vector2 } = resolvePostprocessingContext();
-      const size = (this.renderer && typeof this.renderer.getSize === 'function' ? this.renderer.getSize(new Vector2()) : new Vector2(800, 600));
-      this._pixelRatio = (this.renderer && typeof this.renderer.getPixelRatio === 'function' ? this.renderer.getPixelRatio() : 1);
+      const size =
+        this.renderer && typeof this.renderer.getSize === 'function'
+          ? this.renderer.getSize(new Vector2())
+          : new Vector2(800, 600);
+      this._pixelRatio =
+        this.renderer && typeof this.renderer.getPixelRatio === 'function'
+          ? this.renderer.getPixelRatio()
+          : 1;
       this._width = size.width;
       this._height = size.height;
       renderTarget = this.renderTarget1.clone();

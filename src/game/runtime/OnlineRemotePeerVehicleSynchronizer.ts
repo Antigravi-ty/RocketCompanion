@@ -1,8 +1,5 @@
-import { CAR_COLOR_SLOTS } from '../../ui-core/config/vehicleConstants';
-import {
-  useAppStore,
-  type OnlinePeerEntryPort,
-} from '../runtimeUiPort.ts';
+import { CAR_COLOR_SLOTS } from '../../ui-core/config/vehicleConstants.ts';
+import { useAppStore, type OnlinePeerEntryPort } from '../runtimeUiPort.ts';
 import { gameAudio } from '../../audio/GameAudioEngineFacade.ts';
 import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
 import type { EntityManager } from '../../entities/EntityManager.ts';
@@ -108,7 +105,7 @@ export class OnlineRemotePeerVehicleSynchronizer {
     cIdx: number,
     displayName: string,
     rawTeam: number,
-    physicsTeam: 0 | 1,
+    physicsTeam: 0 | 1
   ): OnlinePeerEntryPort {
     const { session, world } = this.host;
     const prevPeers = useAppStore?.getState?.()?.onlineSession?.connectedPeers || [];
@@ -117,11 +114,9 @@ export class OnlineRemotePeerVehicleSynchronizer {
         | Array<{ id?: string; carIndex?: number; pairingCode?: string; pingMs?: number }>
         | undefined) || [];
     const matchedHostPeer = hostPeerList.find(
-      (hp) => hp.carIndex === cIdx || hp.id === p.sessionId,
+      (hp) => hp.carIndex === cIdx || hp.id === p.sessionId
     );
-    const matchedPrevPeer = prevPeers.find(
-      (pp) => pp.carIndex === cIdx || pp.id === p.sessionId,
-    );
+    const matchedPrevPeer = prevPeers.find((pp) => pp.carIndex === cIdx || pp.id === p.sessionId);
     const resolvedPairingCode =
       matchedHostPeer?.pairingCode ||
       (matchedPrevPeer?.pairingCode as string | undefined) ||
@@ -130,11 +125,9 @@ export class OnlineRemotePeerVehicleSynchronizer {
         : undefined);
 
     const lastParsed = session.networkReconciler?.lastParsedPacket as
-      | { allUserRtt?: { players?: Array<{ carIndex?: number; rtt?: number }> } }
-      | null
-      | undefined;
+      { allUserRtt?: { players?: Array<{ carIndex?: number; rtt?: number }> } } | null | undefined;
     const packetRttObj = lastParsed?.allUserRtt?.players?.find?.(
-      (entry) => entry && entry.carIndex === cIdx,
+      (entry) => entry && entry.carIndex === cIdx
     );
     const resolvedPingMs = p.isBot
       ? 0
@@ -149,7 +142,7 @@ export class OnlineRemotePeerVehicleSynchronizer {
             (typeof matchedPrevPeer?.pingMs === 'number' && matchedPrevPeer.pingMs > 0
               ? matchedPrevPeer.pingMs
               : null) ??
-            (!session.authoritativeServer ? session.networkReconciler?.metrics?.rttMs || 15 : 15),
+            (!session.authoritativeServer ? session.networkReconciler?.metrics?.rttMs || 15 : 15)
         );
 
     return {
@@ -171,7 +164,7 @@ export class OnlineRemotePeerVehicleSynchronizer {
     physicsTeam: 0 | 1,
     preset: string,
     hitbox: string,
-    isLobbyDualWorld: boolean,
+    isLobbyDualWorld: boolean
   ): void {
     const { session, world } = this.host;
     session.networkReconciler?.setCarVisualPreset?.(cIdx, preset);
@@ -191,7 +184,7 @@ export class OnlineRemotePeerVehicleSynchronizer {
           const nextIdx = world.physics.numCars;
           world.physics.addCar(
             nextIdx === cIdx ? physicsTeam : nextIdx % 2,
-            session.networkReconciler?.carVisualPresets?.get(nextIdx) || 'octane',
+            session.networkReconciler?.carVisualPresets?.get(nextIdx) || 'octane'
           );
         }
       }
@@ -239,7 +232,7 @@ export class OnlineRemotePeerVehicleSynchronizer {
     channel: RemotePeerChannel | null | undefined,
     remotePlayerName: string,
     assignedCarIndex: number | null,
-    onSyncLobbyNotification: () => void,
+    onSyncLobbyNotification: () => void
   ): Promise<number | null> {
     const { session, world, diagnostics } = this.host;
     if (!session.authoritativeServer || !channel) return assignedCarIndex;
@@ -275,8 +268,8 @@ export class OnlineRemotePeerVehicleSynchronizer {
     const peerBoostAudio = channel.boostAudio || 'rush';
     const isLobby = Boolean(
       session.isLobbyDualWorldActive() ||
-        world.match?.state?.mode !== 'match' ||
-        world.match?.state?.phase === 'lobby',
+      world.match?.state?.mode !== 'match' ||
+      world.match?.state?.phase === 'lobby'
     );
 
     if (!isLobby) {
@@ -292,7 +285,7 @@ export class OnlineRemotePeerVehicleSynchronizer {
       peerHitboxId,
       peerPaintFinish,
       peerBoostVisual,
-      peerBoostAudio,
+      peerBoostAudio
     );
 
     if (!isLobby) {
@@ -329,9 +322,9 @@ export class OnlineRemotePeerVehicleSynchronizer {
     };
 
     if (useAppStore && typeof useAppStore.getState === 'function') {
-      const existingPeers = (
-        useAppStore.getState().onlineSession?.connectedPeers || []
-      ).filter((p) => p.carIndex !== targetCarIndex);
+      const existingPeers = (useAppStore.getState().onlineSession?.connectedPeers || []).filter(
+        (p) => p.carIndex !== targetCarIndex
+      );
       const ping = Math.round(channel.measuredRttMs || 15);
       useAppStore.getState().setOnlineSession({
         connectedPeers: [

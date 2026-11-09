@@ -43,7 +43,15 @@ interface ActiveModeSimulationPort {
 
 export interface SimulationStageRuntimePort extends CarActionSynthesizerRuntimePort {
   interpolator: PhysicsStateInterpolator | null;
-  match: { state: { mode: string; phase: string; paused?: boolean; scorer?: number | null; scorerCarIndex?: number | null } } | null;
+  match: {
+    state: {
+      mode: string;
+      phase: string;
+      paused?: boolean;
+      scorer?: number | null;
+      scorerCarIndex?: number | null;
+    };
+  } | null;
   camera: CameraManager | null;
   podiumController: { isActive: boolean } | null;
   replayTimelineController: ReplayTimelineController | null;
@@ -118,7 +126,7 @@ export class SimulationStage implements PipelineStage {
     const server = session?.authoritativeServer ?? null;
 
     context.isPodiumActive = Boolean(
-      r.podiumController?.isActive || r.match.state.phase === 'podium',
+      r.podiumController?.isActive || r.match.state.phase === 'podium'
     );
 
     const isExpPodiumDelayActive =
@@ -140,16 +148,13 @@ export class SimulationStage implements PipelineStage {
         r.match.state.phase === 'replay');
 
     const isMinimizedOffline =
-      typeof document !== 'undefined' &&
-      Boolean(document.hidden) &&
-      !reconciler &&
-      !server;
+      typeof document !== 'undefined' && Boolean(document.hidden) && !reconciler && !server;
 
     const isLocalReplayControllerStepping = Boolean(
       isLocalDirectorPreview ||
-        activeMode?.rewinderController?.isBlockingLivePhysics ||
-        activeMode?.standaloneReplayViewer?.isActive ||
-        activeMode?.rlrcReplaySession?.isActive,
+      activeMode?.rewinderController?.isBlockingLivePhysics ||
+      activeMode?.standaloneReplayViewer?.isActive ||
+      activeMode?.rlrcReplaySession?.isActive
     );
 
     if (
@@ -198,7 +203,7 @@ export class SimulationStage implements PipelineStage {
                 r.modeManager?.getActiveMode()?.onAfterPhysicsTick?.();
                 return true;
               }
-            : undefined,
+            : undefined
       );
     }
 
@@ -218,15 +223,9 @@ export class SimulationStage implements PipelineStage {
     if (reconciler && !isLocalDirectorPreview) {
       const now = performance.now();
       if (server) {
-        if (
-          net?.diagnosticsProbe?.diagnosticsFleetController?.enabled &&
-          !server.isWorker
-        ) {
+        if (net?.diagnosticsProbe?.diagnosticsFleetController?.enabled && !server.isWorker) {
           const sTick = Math.floor(server.sim?.getHeaderView?.()?.tickCount ?? 0);
-          net.diagnosticsProbe.diagnosticsFleetController.applyToAuthority(
-            server,
-            sTick,
-          );
+          net.diagnosticsProbe.diagnosticsFleetController.applyToAuthority(server, sTick);
         }
         server.update();
       }
@@ -242,12 +241,7 @@ export class SimulationStage implements PipelineStage {
         reconciler.flushPendingControlPackets?.(now);
       }
       const tickAfterReconcile = Math.floor(r.physics.getHeaderView().tickCount);
-      if (
-        r.interpolator &&
-        !isGoalReplay &&
-        !reconciler.replayPlaybackMode &&
-        r.physics?.state
-      ) {
+      if (r.interpolator && !isGoalReplay && !reconciler.replayPlaybackMode && r.physics?.state) {
         let hadStateNaN = false;
         const st = r.physics.state;
         if (!Number.isFinite(st[4]) || !Number.isFinite(st[5]) || !Number.isFinite(st[6])) {
@@ -255,10 +249,7 @@ export class SimulationStage implements PipelineStage {
         }
         const nCars = Math.min(r.physics.numCars || 1, 8);
         for (let c = 0; c < nCars; c++) {
-          if (
-            typeof r.physics.isCarSlotActive === 'function' &&
-            !r.physics.isCarSlotActive(c)
-          ) {
+          if (typeof r.physics.isCarSlotActive === 'function' && !r.physics.isCarSlotActive(c)) {
             continue;
           }
           const cOff = 22 + c * 40;
@@ -279,8 +270,7 @@ export class SimulationStage implements PipelineStage {
           r.interpolator.currState.set(st);
           if (
             tickAfterReconcile !== tickBeforeReconcile ||
-            (reconciler.metrics.lastCorrectionDelta > 0.05 &&
-              !reconciler.enableSmoothing)
+            (reconciler.metrics.lastCorrectionDelta > 0.05 && !reconciler.enableSmoothing)
           ) {
             r.interpolator.prevState.set(st);
           }
@@ -294,10 +284,7 @@ export class SimulationStage implements PipelineStage {
         const ctrl = r.replayTimelineController;
         const s = ctrl?.sessionState;
         const isCustomScrubbing = Boolean(
-          s &&
-            (s.isScrubbing ||
-              s.isPaused ||
-              Math.abs((s.playbackSpeed ?? 1.0) - 1.0) > 0.01),
+          s && (s.isScrubbing || s.isPaused || Math.abs((s.playbackSpeed ?? 1.0) - 1.0) > 0.01)
         );
         for (let i = 0; i < reconciler.drainedReplayPackets.length; i++) {
           const pkt = reconciler.drainedReplayPackets[i];
@@ -316,15 +303,19 @@ export class SimulationStage implements PipelineStage {
               });
             }
             const recordedReplayTick = Math.floor(
-              Number(pkt.stateSnapshot[0]) > 0 ? pkt.stateSnapshot[0] : (pkt.serverTick || 0),
+              Number(pkt.stateSnapshot[0]) > 0 ? pkt.stateSnapshot[0] : pkt.serverTick || 0
             );
             ctrl.appendStreamedReplayFrame?.(
               pkt.stateSnapshot,
               recordedReplayTick,
-              pkt.acknowledgedControls,
+              pkt.acknowledgedControls
             );
           }
-          if (r.physics && (!isCustomScrubbing || !isGoalReplay) && !isLocalReplayControllerStepping) {
+          if (
+            r.physics &&
+            (!isCustomScrubbing || !isGoalReplay) &&
+            !isLocalReplayControllerStepping
+          ) {
             applyReplayFrameToEngine(r.physics, pkt.stateSnapshot, r.interpolator);
             if (!r.match.state.paused && !isMatchEnded && net && session) {
               const maxFrames = net.diagnosticDumpMaxFrames || 36000;
@@ -365,26 +356,21 @@ export class SimulationStage implements PipelineStage {
 
     const modeReplayCtrl =
       activeMode?.replayController ?? activeMode?.replaySession?.replayController;
-    const isGoalReplayPaused = Boolean(
-      isGoalReplay && modeReplayCtrl?.sessionState?.isPaused,
-    );
+    const isGoalReplayPaused = Boolean(isGoalReplay && modeReplayCtrl?.sessionState?.isPaused);
     const isStandaloneViewerPaused = Boolean(
       activeMode?.standaloneReplayViewer?.hasLoadedReplay &&
-        activeMode.standaloneReplayViewer.getViewerState?.() === 'paused',
+      activeMode.standaloneReplayViewer.getViewerState?.() === 'paused'
     );
     const isRlrcViewerPaused = Boolean(
       activeMode?.rlrcReplaySession?.hasLoadedReplay &&
-        activeMode.rlrcReplaySession.getPhase?.() === 'paused-viewer',
+      activeMode.rlrcReplaySession.getPhase?.() === 'paused-viewer'
     );
     const isRewinderPausedScrub = Boolean(
       activeMode?.rewinderController &&
-        activeMode.rewinderController.getRewinderState?.() === 'paused-scrub',
+      activeMode.rewinderController.getRewinderState?.() === 'paused-scrub'
     );
     const isReplayPaused =
-      isGoalReplayPaused ||
-      isStandaloneViewerPaused ||
-      isRlrcViewerPaused ||
-      isRewinderPausedScrub;
+      isGoalReplayPaused || isStandaloneViewerPaused || isRlrcViewerPaused || isRewinderPausedScrub;
     const isMatchPhaseEndedOrPodium =
       r.match.state.phase === 'ended' || r.match.state.phase === 'podium';
     context.isMatchActive =

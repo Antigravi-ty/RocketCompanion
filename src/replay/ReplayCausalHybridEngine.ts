@@ -7,11 +7,7 @@
  * reconstructing transient RocketSim::CarState fields.
  */
 
-import {
-  SIM_OFFSETS,
-  MAX_CARS,
-  CAR_STATE_STRIDE,
-} from '../physics/RocketSimConstants.ts';
+import { SIM_OFFSETS, MAX_CARS, CAR_STATE_STRIDE } from '../physics/RocketSimConstants.ts';
 import {
   reconstructCarTransientStateFromHistory,
   patchWasmCarTransientState,
@@ -28,8 +24,7 @@ export type CausalControlSlotItem =
   | ({ carIndex?: number; controls?: Record<string, unknown> } & Record<string, unknown>);
 
 export type CausalIncidentItem =
-  | DecodedIncidentEvent
-  | ({ type?: number; carIndex?: number } & Record<string, unknown>);
+  DecodedIncidentEvent | ({ type?: number; carIndex?: number } & Record<string, unknown>);
 
 export type ReplayControlRecord = Record<string, unknown>;
 export type ReplayEventRecord = Record<string, unknown>;
@@ -105,9 +100,7 @@ export function getNormalizedReplayFrameSlot(
   if (!source || source.frames.length === 0) return null;
   const clampedIdx = Math.max(0, Math.min(source.frames.length - 1, Math.floor(frameIndex)));
   const slot =
-    source.stateInputTimeline?.getFrameAt?.(clampedIdx) ||
-    source.frameSlots?.[clampedIdx] ||
-    null;
+    source.stateInputTimeline?.getFrameAt?.(clampedIdx) || source.frameSlots?.[clampedIdx] || null;
   const rawFrame = source.frames[clampedIdx] as ReplaySnapshotBuffer | undefined;
   const snapshot = slot?.snapshot || rawFrame;
   if (!snapshot) return null;
@@ -153,11 +146,7 @@ export class ReplayCausalHybridEngine {
 
     const totalCars = Math.min(
       MAX_CARS,
-      Math.max(
-        sim.numCars || 1,
-        rosterCount,
-        Math.round(snap[SIM_OFFSETS.NUM_CARS] || 1)
-      )
+      Math.max(sim.numCars || 1, rosterCount, Math.round(snap[SIM_OFFSETS.NUM_CARS] || 1))
     );
 
     const st = sim.state;

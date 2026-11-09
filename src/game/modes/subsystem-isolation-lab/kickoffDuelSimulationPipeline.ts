@@ -18,10 +18,7 @@ import type {
   ArenaBoostPadDescriptor,
   CarControlsInput,
 } from '../../../physics/RocketSimSnapshotSerializer.ts';
-import type {
-  BallStateView,
-  CarStateView,
-} from '../../../physics/RocketSimStateViews.ts';
+import type { BallStateView, CarStateView } from '../../../physics/RocketSimStateViews.ts';
 import { KICKOFF_DUEL_SLOTS } from '../../../ui-core/config/kickoffDuelConfig.ts';
 
 export const DUEL_ACTIVE_CARS: Array<{ carIndex: number; team: number }> = [
@@ -274,12 +271,7 @@ export function decideCarControlsForModel(
     }
     const kickoffStepArg = modelId === 'nexto' && nextoScriptedKickoff ? tick : 999;
     if (tick % 8 === 0) {
-      const ctrl = bot.decideSync(
-        sim.state,
-        sim.getPads(),
-        DUEL_ACTIVE_CARS,
-        kickoffStepArg
-      );
+      const ctrl = bot.decideSync(sim.state, sim.getPads(), DUEL_ACTIVE_CARS, kickoffStepArg);
       if (carIndex === 0) {
         blueCtrl = ctrl;
         blueAct = null;
@@ -380,23 +372,61 @@ export function convertStepTracesToCsv(
   }>
 ): string {
   const header = [
-    'model', 'role', 'slot', 'channel_mode', 'tick', 'time_sec', 'on_ground',
-    'has_flip', 'is_flipping', 'boost_amt', 'car_x', 'car_y', 'car_z',
-    'car_speed', 'dist_to_ball', 'keys', 'throttle', 'steer', 'pitch', 'yaw',
-    'roll', 'jump', 'boost', 'handbrake', 'prev_act_0',
+    'model',
+    'role',
+    'slot',
+    'channel_mode',
+    'tick',
+    'time_sec',
+    'on_ground',
+    'has_flip',
+    'is_flipping',
+    'boost_amt',
+    'car_x',
+    'car_y',
+    'car_z',
+    'car_speed',
+    'dist_to_ball',
+    'keys',
+    'throttle',
+    'steer',
+    'pitch',
+    'yaw',
+    'roll',
+    'jump',
+    'boost',
+    'handbrake',
+    'prev_act_0',
   ].join(',');
   const rows = [header];
   for (const series of seriesList) {
     for (const s of series.steps || []) {
       rows.push(
         [
-          series.modelId, series.role, series.slotCode, series.channelMode,
-          s.tick, s.timeSec, s.onGround ? 1 : 0, s.hasFlip ? 1 : 0, s.isFlipping ? 1 : 0,
-          s.boostAmount, s.carPos?.[0] ?? 0, s.carPos?.[1] ?? 0, s.carPos?.[2] ?? 0,
-          s.carSpeed, s.distToBall, `"${s.keysLabel || ''}"`,
-          s.controls?.throttle ?? 0, s.controls?.steer ?? 0, s.controls?.pitch ?? 0,
-          s.controls?.yaw ?? 0, s.controls?.roll ?? 0,
-          s.controls?.jump ? 1 : 0, s.controls?.boost ? 1 : 0, s.controls?.handbrake ? 1 : 0,
+          series.modelId,
+          series.role,
+          series.slotCode,
+          series.channelMode,
+          s.tick,
+          s.timeSec,
+          s.onGround ? 1 : 0,
+          s.hasFlip ? 1 : 0,
+          s.isFlipping ? 1 : 0,
+          s.boostAmount,
+          s.carPos?.[0] ?? 0,
+          s.carPos?.[1] ?? 0,
+          s.carPos?.[2] ?? 0,
+          s.carSpeed,
+          s.distToBall,
+          `"${s.keysLabel || ''}"`,
+          s.controls?.throttle ?? 0,
+          s.controls?.steer ?? 0,
+          s.controls?.pitch ?? 0,
+          s.controls?.yaw ?? 0,
+          s.controls?.roll ?? 0,
+          s.controls?.jump ? 1 : 0,
+          s.controls?.boost ? 1 : 0,
+          s.controls?.handbrake ? 1 : 0,
           s.prevAct0 ?? 0,
         ].join(',')
       );

@@ -7,7 +7,7 @@
  */
 
 import * as THREE from 'three';
-import type { ShadowConfig } from '../../ui-core/config/atmosphereFxConfig';
+import type { ShadowConfig } from '../../ui-core/config/atmosphereFxConfig.ts';
 
 export interface BlobShadowLightRigState {
   shadowConfig: ShadowConfig;

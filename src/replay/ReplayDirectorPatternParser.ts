@@ -26,13 +26,8 @@ import {
 
 export type { ParsedDirectorDiagnosticPattern };
 
-async function decompressBytesIfGzip(
-  bytesOrBuffer: Uint8Array | ArrayBuffer
-): Promise<Uint8Array> {
-  const u8 =
-    bytesOrBuffer instanceof Uint8Array
-      ? bytesOrBuffer
-      : new Uint8Array(bytesOrBuffer);
+async function decompressBytesIfGzip(bytesOrBuffer: Uint8Array | ArrayBuffer): Promise<Uint8Array> {
+  const u8 = bytesOrBuffer instanceof Uint8Array ? bytesOrBuffer : new Uint8Array(bytesOrBuffer);
   if (u8.byteLength >= 2 && u8[0] === 0x1f && u8[1] === 0x8b) {
     if (typeof DecompressionStream !== 'undefined') {
       const ds = new DecompressionStream('gzip');
@@ -60,10 +55,7 @@ export function parseDirectorDiagnosticContainerBytes(
   bytesOrBuffer: Uint8Array | ArrayBuffer,
   fileName: string = 'imported.rcgr.gz'
 ): ParsedDirectorDiagnosticPattern | null {
-  const u8 =
-    bytesOrBuffer instanceof Uint8Array
-      ? bytesOrBuffer
-      : new Uint8Array(bytesOrBuffer);
+  const u8 = bytesOrBuffer instanceof Uint8Array ? bytesOrBuffer : new Uint8Array(bytesOrBuffer);
   if (!isBinaryRCReplayContainer(u8)) return null;
 
   const decoded = deserializeRCReplayBinaryContainer(u8);
@@ -132,8 +124,7 @@ export function parseDirectorDiagnosticContainerBytes(
       : decoded.metadata?.winner === 'orange'
         ? 1
         : 0;
-  let inferredScorerCarIndex =
-    typeof dMeta?.scorerCarIndex === 'number' ? dMeta.scorerCarIndex : 0;
+  let inferredScorerCarIndex = typeof dMeta?.scorerCarIndex === 'number' ? dMeta.scorerCarIndex : 0;
 
   let sourceFrameSlots = decoded.frameSlots;
 
@@ -233,11 +224,7 @@ export function parseDirectorDiagnosticContainerBytes(
         ) {
           const hitCar = inc.carIndex ?? inc.primaryId ?? -1;
           const hitTeam =
-            typeof inc.team === 'number'
-              ? inc.team
-              : hitCar >= 0
-                ? resolveCarTeam(hitCar)
-                : -1;
+            typeof inc.team === 'number' ? inc.team : hitCar >= 0 ? resolveCarTeam(hitCar) : -1;
           if (hitTeam === inferredScoringTeam) {
             if (!hasExplicitScorer && hitCar >= 0) {
               inferredScorerCarIndex = hitCar;
@@ -265,8 +252,7 @@ export function parseDirectorDiagnosticContainerBytes(
         }
       }
 
-      const newestTick =
-        decoded.frameSlots[decoded.frameSlots.length - 1]?.tick ?? goalTick + 180;
+      const newestTick = decoded.frameSlots[decoded.frameSlots.length - 1]?.tick ?? goalTick + 180;
       const postGoalTicks = Math.min(360, Math.max(60, newestTick - goalTick));
       const bounds = resolveGoalReplayWindowBounds({
         goalIncidentTick: goalTick,
@@ -416,5 +402,3 @@ export async function parseDirectorDiagnosticInput(
   const text = new TextDecoder().decode(decompressed);
   return parseDirectorDiagnosticPatternText(text, resolvedName);
 }
-
-

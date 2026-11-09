@@ -58,8 +58,9 @@ export const COUNTUP_REPLAY_CAPACITY_TICKS = COUNTUP_REPLAY_DURATION_SECONDS * R
 
 /** 7 + 7 = 14 minutes (840 seconds) @ 120Hz = 100,800 ticks for countdown match mode */
 export const REGULATION_MAX_WALL_SECONDS = 420; // 7 minutes (5 min clock + kickoffs/celebrations)
-export const OVERTIME_MAX_WALL_SECONDS = 420;   // 7 minutes cap before possession tie-breaker
-export const COUNTDOWN_REPLAY_DURATION_SECONDS = REGULATION_MAX_WALL_SECONDS + OVERTIME_MAX_WALL_SECONDS; // 840s
+export const OVERTIME_MAX_WALL_SECONDS = 420; // 7 minutes cap before possession tie-breaker
+export const COUNTDOWN_REPLAY_DURATION_SECONDS =
+  REGULATION_MAX_WALL_SECONDS + OVERTIME_MAX_WALL_SECONDS; // 840s
 export const COUNTDOWN_REPLAY_CAPACITY_TICKS = COUNTDOWN_REPLAY_DURATION_SECONDS * REPLAY_TICK_RATE; // 100,800
 
 /** Compact per-frame float count: Header (4) + Ball (18) + 8 Cars (320) + 34 Boost Pads (68) = 410 floats */
@@ -92,10 +93,15 @@ export class ReplayRingBuffer {
   _totalRecordedFrames: number;
 
   constructor(options: ReplayRingBufferOptions = {}) {
-    const mode = options.mode || (options.isCountUp ? REPLAY_BUFFER_MODES.COUNTUP_FIFO : REPLAY_BUFFER_MODES.COUNTDOWN_MATCH);
+    const mode =
+      options.mode ||
+      (options.isCountUp ? REPLAY_BUFFER_MODES.COUNTUP_FIFO : REPLAY_BUFFER_MODES.COUNTDOWN_MATCH);
     this.mode = mode;
-    this._hasExplicitFloatLimit = typeof options.snapshotFloatLimit === 'number' && options.snapshotFloatLimit > 0;
-    this.snapshotFloatLimit = this._hasExplicitFloatLimit ? options.snapshotFloatLimit! : GAME_STATE_BUFFER_FLOATS;
+    this._hasExplicitFloatLimit =
+      typeof options.snapshotFloatLimit === 'number' && options.snapshotFloatLimit > 0;
+    this.snapshotFloatLimit = this._hasExplicitFloatLimit
+      ? options.snapshotFloatLimit!
+      : GAME_STATE_BUFFER_FLOATS;
     this.capacityTicks = this._resolveCapacityTicks(mode, options.capacityTicks);
     this.includeSystemControlSignals = Boolean(options.includeSystemControlSignals);
 
@@ -106,7 +112,11 @@ export class ReplayRingBuffer {
   }
 
   _resolveCapacityTicks(mode: string, explicitCapacity?: number | null): number {
-    if (typeof explicitCapacity === 'number' && Number.isFinite(explicitCapacity) && explicitCapacity > 0) {
+    if (
+      typeof explicitCapacity === 'number' &&
+      Number.isFinite(explicitCapacity) &&
+      explicitCapacity > 0
+    ) {
       return Math.floor(explicitCapacity);
     }
     if (mode === REPLAY_BUFFER_MODES.COUNTUP_FIFO) {
@@ -115,7 +125,9 @@ export class ReplayRingBuffer {
     if (mode === REPLAY_BUFFER_MODES.COUNTDOWN_MATCH) {
       return COUNTDOWN_REPLAY_CAPACITY_TICKS;
     }
-    console.warn(`[ReplayRingBuffer:Fallback] Unknown mode "${mode}", falling back to COUNTDOWN_MATCH capacity (${COUNTDOWN_REPLAY_CAPACITY_TICKS} ticks).`);
+    console.warn(
+      `[ReplayRingBuffer:Fallback] Unknown mode "${mode}", falling back to COUNTDOWN_MATCH capacity (${COUNTDOWN_REPLAY_CAPACITY_TICKS} ticks).`
+    );
     return COUNTDOWN_REPLAY_CAPACITY_TICKS;
   }
 
@@ -153,7 +165,7 @@ export class ReplayRingBuffer {
 
   private _resolveTargetSlotForEvent(tick: number): ReplayRingBufferSlot | null {
     if (this._size <= 0) return null;
-    const targetTick = typeof tick === 'number' && tick > 0 ? (tick >>> 0) : -1;
+    const targetTick = typeof tick === 'number' && tick > 0 ? tick >>> 0 : -1;
     let slot = targetTick >= 0 ? this.findFrameByTick(targetTick) : this.getNewestFrame();
     if (!slot || (targetTick >= 0 && Math.abs(slot.tick - targetTick) > 8)) {
       slot = this.getNewestFrame();
@@ -167,7 +179,9 @@ export class ReplayRingBuffer {
     signals: ReplaySignalsOrOptionsArg = [],
     audioEvents: ReadonlyArray<ReplayAudioCue | null | undefined> | null = null,
     incidents: ReadonlyArray<ReplayRecordedIncident | null | undefined> | null = null,
-    acknowledgedControls: ReadonlyArray<ReplayAcknowledgedControlEntry | null | undefined> | null = null
+    acknowledgedControls: ReadonlyArray<
+      ReplayAcknowledgedControlEntry | null | undefined
+    > | null = null
   ): ReplayRingBufferSlot {
     const writeIdx = this._head;
     const slot = populateRingBufferSlot({
@@ -264,15 +278,30 @@ export class ReplayRingBuffer {
   }
 
   getAudioEventsInRange(startTick: number, endTick: number): ReplayAudioCue[] {
-    return collectBufferAudioEventsInRange(this._size, (idx) => this.getFrameAt(idx), startTick, endTick);
+    return collectBufferAudioEventsInRange(
+      this._size,
+      (idx) => this.getFrameAt(idx),
+      startTick,
+      endTick
+    );
   }
 
   findLatestSignalTick(signalType: number, maxTick = Infinity): number {
-    return findLatestBufferSignalTick(this._size, (idx) => this.getFrameAt(idx), signalType, maxTick);
+    return findLatestBufferSignalTick(
+      this._size,
+      (idx) => this.getFrameAt(idx),
+      signalType,
+      maxTick
+    );
   }
 
   getFramesInTickRange(startTick: number, endTick: number): ReplayRingBufferSlot[] {
-    return extractBufferFramesInTickRange(this._size, (idx) => this.getFrameAt(idx), startTick, endTick);
+    return extractBufferFramesInTickRange(
+      this._size,
+      (idx) => this.getFrameAt(idx),
+      startTick,
+      endTick
+    );
   }
 
   extractRange(startTick: number, endTick: number): ReplayRingBufferSlot[] {

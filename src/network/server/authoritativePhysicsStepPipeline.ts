@@ -5,10 +5,7 @@
  * incident collection, goal detection, and post-goal ball freeze latching.
  */
 
-import {
-  NEUTRAL_CONTROLS,
-  type NetworkInputBuffer,
-} from './NetworkInputBuffer.ts';
+import { NEUTRAL_CONTROLS, type NetworkInputBuffer } from './NetworkInputBuffer.ts';
 import type {
   CarControlsInput,
   AcknowledgedCarControlEntry,
@@ -211,7 +208,9 @@ export function sampleAuthoritativeCarControlsForTick(params: {
       ? directControls.get(carIndex)!
       : inputBuffer
         ? inputBuffer.getControlsForTick(carIndex, tick, last)
-        : (last ? { ...last } : { ...NEUTRAL_CONTROLS });
+        : last
+          ? { ...last }
+          : { ...NEUTRAL_CONTROLS };
 
     if (jumpSuppressedCarIndices) {
       if (rawCandidate.jump && (mask || isLobbyRemoteMasked)) {
@@ -371,8 +370,7 @@ export function evaluatePostStepIncidentsAndGoalLatch(params: {
 
   if (typeof sim?.getBallStateView === 'function') {
     const b = sim.getBallStateView();
-    kickoffTouched =
-      Math.abs(b.posX) + Math.abs(b.posY) > 1.0 || Math.hypot(b.velX, b.velY) > 1.0;
+    kickoffTouched = Math.abs(b.posX) + Math.abs(b.posY) > 1.0 || Math.hypot(b.velX, b.velY) > 1.0;
   }
 
   return {

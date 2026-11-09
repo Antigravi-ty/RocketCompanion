@@ -54,18 +54,39 @@ export function buildCapturedAnomalySample(params: {
   recentTickHistory: LiveTrajectoryTickRecord[];
 }): TrajectoryAnomalySample {
   const {
-    sequenceNumber, triggerKind, seamRegion, currentTick, ticksSinceLastCarHit,
-    closestSurfaceGapUu, deviationThresholdUu, updateKind, liveBall, cars, evalMetrics,
-    expectedBeforeStepPos, expectedBeforeStepVel, expectedBeforeStepAngVel,
-    spaceATick, spaceAUpdateKind, spaceABallState, spaceARawSlices, spaceASliceCount,
-    prevTick, prevUpdateKind, prevBallState, prevRawSlices, prevSliceCount,
-    rawSlices, actualSliceCount, recentTickHistory,
+    sequenceNumber,
+    triggerKind,
+    seamRegion,
+    currentTick,
+    ticksSinceLastCarHit,
+    closestSurfaceGapUu,
+    deviationThresholdUu,
+    updateKind,
+    liveBall,
+    cars,
+    evalMetrics,
+    expectedBeforeStepPos,
+    expectedBeforeStepVel,
+    expectedBeforeStepAngVel,
+    spaceATick,
+    spaceAUpdateKind,
+    spaceABallState,
+    spaceARawSlices,
+    spaceASliceCount,
+    prevTick,
+    prevUpdateKind,
+    prevBallState,
+    prevRawSlices,
+    prevSliceCount,
+    rawSlices,
+    actualSliceCount,
+    recentTickHistory,
   } = params;
 
   const ticksSinceSpaceAAnchor = spaceATick >= 0 ? Math.max(0, currentTick - spaceATick) : 0;
   const spaceADirectIdx = Math.max(
     0,
-    Math.min(Math.max(0, spaceASliceCount - 1), ticksSinceSpaceAAnchor),
+    Math.min(Math.max(0, spaceASliceCount - 1), ticksSinceSpaceAAnchor)
   );
   let spaceADirectPosErrorUu = 0;
   let spaceADirectVelErrorUuPerSec = 0;
@@ -76,22 +97,22 @@ export function buildCapturedAnomalySample(params: {
       Math.hypot(
         liveBall.pos[0] - (spaceARawSlices[aBase] ?? 0),
         liveBall.pos[1] - (spaceARawSlices[aBase + 1] ?? 0),
-        liveBall.pos[2] - (spaceARawSlices[aBase + 2] ?? 0),
-      ),
+        liveBall.pos[2] - (spaceARawSlices[aBase + 2] ?? 0)
+      )
     );
     spaceADirectVelErrorUuPerSec = round4(
       Math.hypot(
         liveBall.vel[0] - (spaceARawSlices[aBase + 3] ?? 0),
         liveBall.vel[1] - (spaceARawSlices[aBase + 4] ?? 0),
-        liveBall.vel[2] - (spaceARawSlices[aBase + 5] ?? 0),
-      ),
+        liveBall.vel[2] - (spaceARawSlices[aBase + 5] ?? 0)
+      )
     );
     spaceADirectAngVelErrorRadPerSec = round4(
       Math.hypot(
         liveBall.angVel[0] - (spaceARawSlices[aBase + 6] ?? 0),
         liveBall.angVel[1] - (spaceARawSlices[aBase + 7] ?? 0),
-        liveBall.angVel[2] - (spaceARawSlices[aBase + 8] ?? 0),
-      ),
+        liveBall.angVel[2] - (spaceARawSlices[aBase + 8] ?? 0)
+      )
     );
   }
 
@@ -143,7 +164,7 @@ export function buildCapturedAnomalySample(params: {
       spaceABallState ?? liveBall,
       spaceARawSlices,
       spaceASliceCount,
-      spaceADirectIdx,
+      spaceADirectIdx
     ),
     previousTickSpace: buildPredictionSpaceSnapshot(
       'prev-tick-expected',
@@ -152,7 +173,7 @@ export function buildCapturedAnomalySample(params: {
       prevBallState ?? liveBall,
       prevRawSlices,
       prevSliceCount,
-      0,
+      0
     ),
     spaceB: buildPredictionSpaceSnapshot(
       'space-b-recomputed',
@@ -161,7 +182,7 @@ export function buildCapturedAnomalySample(params: {
       liveBall,
       rawSlices,
       actualSliceCount,
-      0,
+      0
     ),
     recentTickHistory,
   };
@@ -176,8 +197,12 @@ export function buildTrajectoryAnomalySummary(params: {
   spaceAUpdateKind: string;
 }): BallTrajectoryAnomalySummary {
   const {
-    latchedSample, samples, totalNonCarRecomputes, totalWasmSeamResyncs,
-    spaceATick, spaceAUpdateKind,
+    latchedSample,
+    samples,
+    totalNonCarRecomputes,
+    totalWasmSeamResyncs,
+    spaceATick,
+    spaceAUpdateKind,
   } = params;
   const active = latchedSample ?? samples[samples.length - 1] ?? null;
   return {
@@ -249,7 +274,7 @@ export interface TrajectoryAnomalyUiBridgeTunerStore {
       copyJson: (includeAll?: boolean) => Promise<boolean>;
       resetAndArmNext: () => void;
       clearSamples: () => void;
-    } | null,
+    } | null
   ): void;
 }
 
@@ -257,7 +282,7 @@ export function bindBallTrajectoryAnomalyUiBridge(
   recorder: TrajectoryAnomalyUiBridgeRecorderPort,
   tunerStore: TrajectoryAnomalyUiBridgeTunerStore,
   pushNotification?: (config: Record<string, unknown>) => unknown,
-  dismissNotification?: (id: string) => unknown,
+  dismissNotification?: (id: string) => unknown
 ): void {
   const notifId = 'traj-anomaly-captured';
 

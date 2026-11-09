@@ -1,9 +1,6 @@
 import { MATCH_SIGNALS } from '../../network/protocol/GlobalPayloadCodec.ts';
 import { isSignalAudioMutedInGoalReplay } from '../../audio/SignalAudioEngine.ts';
-import {
-  hudStore,
-  setNameTagRuntimeState,
-} from '../runtimeUiPort.ts';
+import { hudStore, setNameTagRuntimeState } from '../runtimeUiPort.ts';
 import { captureRuntimeReplayCarEntries } from '../../replay/replayDirectorCarRosterPipeline.ts';
 import type { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
 import {
@@ -28,19 +25,19 @@ export type {
 };
 
 export function isLocalReplayOrRewinderBlockingLivePhysics(
-  modeManager: RuntimeSignalHostPort['modeManager'],
+  modeManager: RuntimeSignalHostPort['modeManager']
 ): boolean {
   const activeMode = modeManager?.getActiveMode?.();
   return Boolean(
     activeMode?.rewinderController?.isBlockingLivePhysics ||
-      activeMode?.standaloneReplayViewer?.isActive,
+    activeMode?.standaloneReplayViewer?.isActive
   );
 }
 
 export function focusLocalPlayerCarInArenaAndCamera(
   reconciler: PredictionReconciler | null | undefined,
   host: RuntimeSignalHostPort,
-  options: { resetView?: boolean; syncInterpolator?: boolean; alwaysAssign?: boolean } = {},
+  options: { resetView?: boolean; syncInterpolator?: boolean; alwaysAssign?: boolean } = {}
 ): number {
   const hasLocalCar =
     typeof reconciler?.localCarIndex === 'number' && reconciler.localCarIndex >= 0;
@@ -67,10 +64,10 @@ export function focusLocalPlayerCarInArenaAndCamera(
 
 export function teardownSignalReplayAndPodiumSession(
   host: RuntimeSignalHostPort,
-  options: { exitPodium?: boolean; resetCameraIfWasInReplay?: boolean } = {},
+  options: { exitPodium?: boolean; resetCameraIfWasInReplay?: boolean } = {}
 ): void {
   const wasOverrideActive = Boolean(
-    options.resetCameraIfWasInReplay && host.isGoalReplayCameraOverrideActive(),
+    options.resetCameraIfWasInReplay && host.isGoalReplayCameraOverrideActive()
   );
   host.replayPovCarIndex = null;
   host.releaseGoalReplayCameraOverride();
@@ -103,7 +100,7 @@ export function teardownSignalReplayAndPodiumSession(
 
 export function toggleGoalReplayCameraViewMode(
   host: RuntimeSignalHostPort,
-  scorerCarIdx: number,
+  scorerCarIdx: number
 ): void {
   const curMode = hudStore.getState().replayCameraMode === 'pov' ? 'pov' : 'director';
   const nextMode = curMode === 'director' ? 'pov' : 'director';
@@ -125,7 +122,7 @@ export function toggleGoalReplayCameraViewMode(
 
 export function startGoalReplayDirectorSession(
   host: RuntimeSignalHostPort,
-  options: { durationTicks: number; scoringTeam: number; scorerCarIndex: number },
+  options: { durationTicks: number; scoringTeam: number; scorerCarIndex: number }
 ): void {
   host.replayPovCarIndex = null;
   host.acquireGoalReplayCameraOverride?.('goal-replay');
@@ -144,7 +141,7 @@ export function startGoalReplayDirectorSession(
 
 export function resetGoalReplayIncidentFlags(
   host: RuntimeSignalHostPort,
-  clearIncidentLatch = false,
+  clearIncidentLatch = false
 ): void {
   if (clearIncidentLatch) {
     host._clientGoalIncidentLatched = false;
@@ -165,7 +162,7 @@ export class RuntimeGoalReplaySignalSubController {
   constructor(
     host: RuntimeSignalHostPort,
     latch: RuntimeSignalLatchState,
-    participantAndCombat = new RuntimeParticipantAndCombatSignalSubController(host),
+    participantAndCombat = new RuntimeParticipantAndCombatSignalSubController(host)
   ) {
     this.host = host;
     this.latch = latch;
@@ -179,7 +176,7 @@ export class RuntimeGoalReplaySignalSubController {
 
   private resolveScorerPresentation(
     scoringTeam: number,
-    scorerCarIdx: number,
+    scorerCarIdx: number
   ): { scorerName: string; scorerAnthemId: string | null } {
     const h = this.host;
     const playerCarIdx = h.playerCarIndex ?? 0;
@@ -189,7 +186,7 @@ export class RuntimeGoalReplaySignalSubController {
         lastRosterSnapshot,
         playerCarIdx,
         scorerCarIdx,
-        scoringTeam,
+        scoringTeam
       ),
       scorerAnthemId: resolveParticipantAnthemId(lastRosterSnapshot, playerCarIdx, scorerCarIdx),
     };
@@ -197,7 +194,7 @@ export class RuntimeGoalReplaySignalSubController {
 
   private handleScoreUpdated(
     sig: RuntimeSignalPacket,
-    audio: SignalAudioFacadeLike | null | undefined,
+    audio: SignalAudioFacadeLike | null | undefined
   ): void {
     const h = this.host;
     const matchState = h.match?.state;
@@ -239,7 +236,7 @@ export class RuntimeGoalReplaySignalSubController {
     const speedKph = (rawParam1 >>> 16) & 0xffff;
     const { scorerName, scorerAnthemId } = this.resolveScorerPresentation(
       scoringTeam,
-      scorerCarIdx,
+      scorerCarIdx
     );
     if (matchState) {
       if (matchState.phase !== 'replay') matchState.phase = 'goal';
@@ -258,7 +255,7 @@ export class RuntimeGoalReplaySignalSubController {
   private handleGoalReplayStart(
     reconciler: PredictionReconciler,
     sig: RuntimeSignalPacket,
-    audio: SignalAudioFacadeLike | null | undefined,
+    audio: SignalAudioFacadeLike | null | undefined
   ): void {
     const h = this.host;
     const matchState = h.match?.state;
@@ -273,12 +270,11 @@ export class RuntimeGoalReplaySignalSubController {
     const replayTicks = (sig.param1 ?? 0) > 0 ? sig.param1! : 360;
     const rawMeta = sig.param2 ?? 0;
     const scoringTeam = rawMeta > 0 ? rawMeta & 0x1 : (matchState?.scorer ?? 0);
-    const scorerCarIdx =
-      rawMeta > 0 ? (rawMeta >>> 1) & 0xff : (matchState?.scorerCarIndex ?? 0);
+    const scorerCarIdx = rawMeta > 0 ? (rawMeta >>> 1) & 0xff : (matchState?.scorerCarIndex ?? 0);
     const speedKph = (rawMeta >>> 16) & 0xffff;
     const { scorerName, scorerAnthemId } = this.resolveScorerPresentation(
       scoringTeam,
-      scorerCarIdx,
+      scorerCarIdx
     );
     if (matchState) {
       matchState.phase = 'replay';
@@ -362,11 +358,9 @@ export class RuntimeGoalReplaySignalSubController {
     reconciler: PredictionReconciler,
     sig: RuntimeSignalPacket,
     isFirstSeenSignalId: boolean,
-    audio: SignalAudioFacadeLike | null | undefined,
+    audio: SignalAudioFacadeLike | null | undefined
   ): boolean {
-    if (
-      this.participantAndCombat.handleCombatIncidentSignal(sig, isFirstSeenSignalId, audio)
-    ) {
+    if (this.participantAndCombat.handleCombatIncidentSignal(sig, isFirstSeenSignalId, audio)) {
       return true;
     }
     switch (sig.signalType) {

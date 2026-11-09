@@ -20,15 +20,30 @@ import type {
   TopologyPacketPort,
 } from './ReconcilerMetricsModel.ts';
 
-export interface Vector3Like { x: number; y: number; z: number }
-export interface PreResimPositions { cars: Array<Vector3Like | undefined>; ball: Vector3Like | null }
+export interface Vector3Like {
+  x: number;
+  y: number;
+  z: number;
+}
+export interface PreResimPositions {
+  cars: Array<Vector3Like | undefined>;
+  ball: Vector3Like | null;
+}
 export interface PostResimDiscrepancyInput {
-  numCars: number; localCarIndex: number; isLobbyDualWorld: boolean;
-  hardSnapThreshold: number; isTier3HistoricalHardSnap: boolean;
+  numCars: number;
+  localCarIndex: number;
+  isLobbyDualWorld: boolean;
+  hardSnapThreshold: number;
+  isTier3HistoricalHardSnap: boolean;
 }
 export interface PostResimDiscrepancyResult {
-  localDelta: number; ballDelta: number; remoteMaxDelta: number; probeMaxDelta: number;
-  primaryDelta: number; effectiveDelta: number; isTier3HardSnap: boolean;
+  localDelta: number;
+  ballDelta: number;
+  remoteMaxDelta: number;
+  probeMaxDelta: number;
+  primaryDelta: number;
+  effectiveDelta: number;
+  isTier3HardSnap: boolean;
 }
 
 export function computeVector3Magnitude(vec: Vector3Like): number {
@@ -73,7 +88,10 @@ export function stepVisualSmoothingDecay(
   let z = currentOffset.z * decay;
   let mag = Math.hypot(x, y, z);
   if (mag < snapZeroEpsilon) {
-    x = 0; y = 0; z = 0; mag = 0;
+    x = 0;
+    y = 0;
+    z = 0;
+    mag = 0;
   }
   return { offset: { x, y, z }, magnitude: mag };
 }
@@ -103,7 +121,12 @@ export function capturePreResimPositions(
   let ball: Vector3Like | null = null;
   if (!hasNaN && typeof sim?.getBallStateView === 'function') {
     const ballView = sim.getBallStateView();
-    if (ballView && !Number.isNaN(ballView.posX) && !Number.isNaN(ballView.posY) && !Number.isNaN(ballView.posZ)) {
+    if (
+      ballView &&
+      !Number.isNaN(ballView.posX) &&
+      !Number.isNaN(ballView.posY) &&
+      !Number.isNaN(ballView.posZ)
+    ) {
       ball = { x: ballView.posX, y: ballView.posY, z: ballView.posZ };
     }
   }
@@ -115,13 +138,19 @@ export function evaluatePostResimDiscrepancy(
   prePositions: PreResimPositions,
   input: PostResimDiscrepancyInput
 ): PostResimDiscrepancyResult {
-  const { numCars, localCarIndex, isLobbyDualWorld, hardSnapThreshold, isTier3HistoricalHardSnap } = input;
+  const { numCars, localCarIndex, isLobbyDualWorld, hardSnapThreshold, isTier3HistoricalHardSnap } =
+    input;
   const hasSlotCheck = typeof sim?.isCarSlotActive === 'function';
   const postLocalCar = sim.getCarStateView(localCarIndex);
   const preLocalPos = prePositions.cars[localCarIndex];
-  const localDelta = postLocalCar && preLocalPos
-    ? Math.hypot(postLocalCar.posX - preLocalPos.x, postLocalCar.posY - preLocalPos.y, postLocalCar.posZ - preLocalPos.z)
-    : 0;
+  const localDelta =
+    postLocalCar && preLocalPos
+      ? Math.hypot(
+          postLocalCar.posX - preLocalPos.x,
+          postLocalCar.posY - preLocalPos.y,
+          postLocalCar.posZ - preLocalPos.z
+        )
+      : 0;
 
   let ballDelta = 0;
   if (prePositions.ball && typeof sim?.getBallStateView === 'function') {
@@ -158,12 +187,22 @@ export function evaluatePostResimDiscrepancy(
   const primaryDelta = isLobbyDualWorld ? probeMaxDelta : localDelta;
   const isTier3HardSnap = isLobbyDualWorld
     ? isTier3HistoricalHardSnap || probeMaxDelta >= hardSnapThreshold
-    : isTier3HistoricalHardSnap || localDelta >= hardSnapThreshold || ballDelta >= hardSnapThreshold;
+    : isTier3HistoricalHardSnap ||
+      localDelta >= hardSnapThreshold ||
+      ballDelta >= hardSnapThreshold;
   const effectiveDelta = isLobbyDualWorld
     ? probeMaxDelta
     : Math.max(localDelta, ballDelta, remoteMaxDelta, probeMaxDelta);
 
-  return { localDelta, ballDelta, remoteMaxDelta, probeMaxDelta, primaryDelta, effectiveDelta, isTier3HardSnap };
+  return {
+    localDelta,
+    ballDelta,
+    remoteMaxDelta,
+    probeMaxDelta,
+    primaryDelta,
+    effectiveDelta,
+    isTier3HardSnap,
+  };
 }
 
 export class VisualErrorSmoother {
@@ -207,7 +246,10 @@ export class VisualErrorSmoother {
       return this.getMagnitude();
     }
     const { offset, magnitude } = accumulateSmoothingCorrectionOffset(
-      this.offset, preLocalPos, postLocalPos, this.maxOffsetMagnitude
+      this.offset,
+      preLocalPos,
+      postLocalPos,
+      this.maxOffsetMagnitude
     );
     this.offset.x = offset.x;
     this.offset.y = offset.y;
@@ -240,7 +282,9 @@ export class VisualErrorSmoother {
         const postLocalCar = sim.getCarStateView(input.localCarIndex);
         this.applyCorrection(
           prePositions.cars[input.localCarIndex],
-          postLocalCar ? { x: postLocalCar.posX, y: postLocalCar.posY, z: postLocalCar.posZ } : undefined,
+          postLocalCar
+            ? { x: postLocalCar.posX, y: postLocalCar.posY, z: postLocalCar.posZ }
+            : undefined,
           discrepancy.isTier3HardSnap,
           input.isLobbyDualWorld
         );
@@ -274,9 +318,18 @@ export class VisualErrorSmoother {
     maxCorrectionDelta: number;
   } {
     const {
-      sim, historyBuffer, packet, serverTick, currentClientTick,
-      prePositions, numCars, localCarIndex, lobbyDualWorldMode,
-      kickoffMaskUntilTick, tolerances, metrics,
+      sim,
+      historyBuffer,
+      packet,
+      serverTick,
+      currentClientTick,
+      prePositions,
+      numCars,
+      localCarIndex,
+      lobbyDualWorldMode,
+      kickoffMaskUntilTick,
+      tolerances,
+      metrics,
     } = params;
     let { skippedCorrections, hardSnapCount, totalCorrections, maxCorrectionDelta } = params;
 
@@ -288,7 +341,10 @@ export class VisualErrorSmoother {
       localCarIndex,
       isLobbyDualWorld: lobbyDualWorldMode,
       tolerances,
-      isCarSlotActive: typeof sim?.isCarSlotActive === 'function' ? (c: number) => sim.isCarSlotActive!(c) : undefined,
+      isCarSlotActive:
+        typeof sim?.isCarSlotActive === 'function'
+          ? (c: number) => sim.isCarSlotActive!(c)
+          : undefined,
     });
     if (evalResult.canCompare) {
       if (evalResult.withinTier1) {
@@ -311,20 +367,48 @@ export class VisualErrorSmoother {
     if (slotFullStateAtServerTick) {
       preserveCarTransientTimersAcrossCompactRestore(sim, slotFullStateAtServerTick, numCars);
     }
-    if (lobbyDualWorldMode || (typeof sim?.isCarSlotActive === 'function' && (sim.isCarSlotActive(6) || sim.isCarSlotActive(7)))) {
+    if (
+      lobbyDualWorldMode ||
+      (typeof sim?.isCarSlotActive === 'function' &&
+        (sim.isCarSlotActive(6) || sim.isCarSlotActive(7)))
+    ) {
       configureClientLobbyDiagnosticProbes(sim);
     }
-    historyBuffer.backfillMissingLocalInputs(serverTick - 16, serverTick, localCarIndex, kickoffMaskUntilTick);
-    historyBuffer.resimulateSilentRange(sim, serverTick, currentClientTick, numCars, localCarIndex, kickoffMaskUntilTick);
+    historyBuffer.backfillMissingLocalInputs(
+      serverTick - 16,
+      serverTick,
+      localCarIndex,
+      kickoffMaskUntilTick
+    );
+    historyBuffer.resimulateSilentRange(
+      sim,
+      serverTick,
+      currentClientTick,
+      numCars,
+      localCarIndex,
+      kickoffMaskUntilTick
+    );
     if (savedLobbyEntities) {
-      restoreClientLobbyLocalEntities(sim, lobbyDualWorldMode, localCarIndex, historyBuffer.lastLocalControls, savedLobbyEntities);
+      restoreClientLobbyLocalEntities(
+        sim,
+        lobbyDualWorldMode,
+        localCarIndex,
+        historyBuffer.lastLocalControls,
+        savedLobbyEntities
+      );
     }
     sim.saveStateSlot(currentClientTick % 256);
     historyBuffer.saveTickSnapshot(currentClientTick, sim);
     const discrepancy = this.applyPostResimDiscrepancy(
       sim,
       prePositions,
-      { numCars, localCarIndex, isLobbyDualWorld: lobbyDualWorldMode, hardSnapThreshold: tolerances.hardSnapThreshold ?? 500.0, isTier3HistoricalHardSnap },
+      {
+        numCars,
+        localCarIndex,
+        isLobbyDualWorld: lobbyDualWorldMode,
+        hardSnapThreshold: tolerances.hardSnapThreshold ?? 500.0,
+        isTier3HistoricalHardSnap,
+      },
       metrics
     );
     let nextHardSnap: number | undefined;
@@ -356,17 +440,31 @@ export function preserveCarTransientTimersAcrossCompactRestore(
   slotFullState: Float32Array | null | undefined,
   numCars: number
 ): void {
-  if (!sim || !slotFullState || slotFullState.length < FULL_SNAPSHOT_MIN_FLOATS || typeof sim.saveState !== 'function') {
+  if (
+    !sim ||
+    !slotFullState ||
+    slotFullState.length < FULL_SNAPSHOT_MIN_FLOATS ||
+    typeof sim.saveState !== 'function'
+  ) {
     return;
   }
   const mergedFullState: Float32Array | null = sim.saveState();
   if (!mergedFullState || mergedFullState.length < slotFullState.length) {
     return;
   }
-  const slotBytes = new Uint8Array(slotFullState.buffer, slotFullState.byteOffset, slotFullState.byteLength);
-  const mergedBytes = new Uint8Array(mergedFullState.buffer, mergedFullState.byteOffset, mergedFullState.byteLength);
+  const slotBytes = new Uint8Array(
+    slotFullState.buffer,
+    slotFullState.byteOffset,
+    slotFullState.byteLength
+  );
+  const mergedBytes = new Uint8Array(
+    mergedFullState.buffer,
+    mergedFullState.byteOffset,
+    mergedFullState.byteLength
+  );
   const maxCars = Math.min(numCars, 8);
-  const isSlotActive = typeof sim.isCarSlotActive === 'function' ? sim.isCarSlotActive.bind(sim) : null;
+  const isSlotActive =
+    typeof sim.isCarSlotActive === 'function' ? sim.isCarSlotActive.bind(sim) : null;
   let modified = false;
 
   for (let c = 0; c < maxCars; c++) {

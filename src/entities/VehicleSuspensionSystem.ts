@@ -1,6 +1,10 @@
 import * as THREE from 'three';
-import { getVehicleDescriptor, hasVehicleDescriptor, wheelModifierRuntimeConfig } from '../ui-core/config/vehicleTunerConfig';
-import { normalizeVisualId } from '../ui-core/config/vehicleConstants';
+import {
+  getVehicleDescriptor,
+  hasVehicleDescriptor,
+  wheelModifierRuntimeConfig,
+} from '../ui-core/config/vehicleTunerConfig.ts';
+import { normalizeVisualId } from '../ui-core/config/vehicleConstants.ts';
 /**
  * src/entities/VehicleSuspensionSystem.ts
  * High-performance Vehicle Suspension, Steering & Reaction Control Thruster Subsystem.
@@ -18,17 +22,17 @@ export function getCarRestHeight(vehiclePreset) {
   const desc = hasVehicleDescriptor(canonical) ? getVehicleDescriptor(canonical) : null;
   const preset = desc?.hitboxPreset || canonical;
   switch (preset) {
-    case "hitbox-octane":
+    case 'hitbox-octane':
       return 20.755;
-    case "hitbox-dominus":
+    case 'hitbox-dominus':
       return 15.75;
-    case "hitbox-plank":
+    case 'hitbox-plank':
       return 12.0942;
-    case "hitbox-breakout":
+    case 'hitbox-breakout':
       return 11.75;
-    case "hitbox-hybrid":
+    case 'hitbox-hybrid':
       return 20.755;
-    case "hitbox-merc":
+    case 'hitbox-merc':
       return 21.505;
     default:
       return 20.755;
@@ -42,56 +46,56 @@ export function getPhysicsWheelSpecsForHitbox(
   hitboxPreset: string,
   threeWheels = false
 ): Array<[number, number, number]> {
-  if (threeWheels || hitboxPreset === "hitbox-psyclops") {
+  if (threeWheels || hitboxPreset === 'hitbox-psyclops') {
     return [
       [51.25, 0.0, 12.5],
       [51.25, 0.0, 12.5],
-      [-33.75, 29.50, 15.0],
-      [-33.75, -29.50, 15.0]
+      [-33.75, 29.5, 15.0],
+      [-33.75, -29.5, 15.0],
     ];
   }
   switch (hitboxPreset) {
-    case "hitbox-octane":
+    case 'hitbox-octane':
       return [
-        [51.25, 25.90, 12.5],
-        [51.25, -25.90, 12.5],
-        [-33.75, 29.50, 15.0],
-        [-33.75, -29.50, 15.0]
+        [51.25, 25.9, 12.5],
+        [51.25, -25.9, 12.5],
+        [-33.75, 29.5, 15.0],
+        [-33.75, -29.5, 15.0],
       ];
-    case "hitbox-dominus":
+    case 'hitbox-dominus':
       return [
-        [50.30, 31.10, 12.0],
-        [50.30, -31.10, 12.0],
-        [-34.75, 33.00, 13.5],
-        [-34.75, -33.00, 13.5]
+        [50.3, 31.1, 12.0],
+        [50.3, -31.1, 12.0],
+        [-34.75, 33.0, 13.5],
+        [-34.75, -33.0, 13.5],
       ];
-    case "hitbox-plank":
+    case 'hitbox-plank':
       return [
-        [49.97, 27.80, 12.5],
-        [49.97, -27.80, 12.5],
+        [49.97, 27.8, 12.5],
+        [49.97, -27.8, 12.5],
         [-35.43, 20.28, 17.0],
-        [-35.43, -20.28, 17.0]
+        [-35.43, -20.28, 17.0],
       ];
-    case "hitbox-breakout":
+    case 'hitbox-breakout':
       return [
-        [51.50, 26.67, 13.5],
-        [51.50, -26.67, 13.5],
-        [-35.75, 35.00, 15.0],
-        [-35.75, -35.00, 15.0]
+        [51.5, 26.67, 13.5],
+        [51.5, -26.67, 13.5],
+        [-35.75, 35.0, 15.0],
+        [-35.75, -35.0, 15.0],
       ];
-    case "hitbox-hybrid":
+    case 'hitbox-hybrid':
       return [
-        [51.25, 25.90, 12.5],
-        [51.25, -25.90, 12.5],
-        [-34.00, 29.50, 15.0],
-        [-34.00, -29.50, 15.0]
+        [51.25, 25.9, 12.5],
+        [51.25, -25.9, 12.5],
+        [-34.0, 29.5, 15.0],
+        [-34.0, -29.5, 15.0],
       ];
-    case "hitbox-merc":
+    case 'hitbox-merc':
       return [
-        [51.25, 25.90, 15.0],
-        [51.25, -25.90, 15.0],
-        [-33.75, 29.50, 15.0],
-        [-33.75, -29.50, 15.0]
+        [51.25, 25.9, 15.0],
+        [51.25, -25.9, 15.0],
+        [-33.75, 29.5, 15.0],
+        [-33.75, -29.5, 15.0],
       ];
     default:
       return DEFAULT_WHEEL_SPECS.game.map((w) => [...w] as [number, number, number]);
@@ -119,8 +123,8 @@ export const DEFAULT_WHEEL_SPECS = Object.freeze({
     [45.5, 30.5, 13.5],
     [45.5, -30.5, 13.5],
     [-35.5, 30.5, 13.5],
-    [-35.5, -30.5, 13.5]
-  ]
+    [-35.5, -30.5, 13.5],
+  ],
 });
 
 const _scratchMid = new THREE.Vector3();
@@ -157,7 +161,7 @@ export function updateSuspensionUnitSpring(susUnit, knucklePos) {
   const top = susUnit.top || susUnit.group.position;
   const isScalarY = typeof knucklePos === 'number';
   const knuckleY = isScalarY ? knucklePos : knucklePos.y;
-  const knuckleX = isScalarY ? (susUnit.group.position.x || 0) : knucklePos.x;
+  const knuckleX = isScalarY ? susUnit.group.position.x || 0 : knucklePos.x;
   const knuckleZ = isScalarY ? (susUnit.botZ !== undefined ? susUnit.botZ : top.z) : knucklePos.z;
 
   _scratchSpringDir.set(knuckleX - top.x, knuckleY - top.y, knuckleZ - top.z);
@@ -199,7 +203,9 @@ export function updateCarSuspensionAndSteering(
     desc?.threeWheels ||
     vehiclePreset === 'hitbox-psyclops' ||
     vehiclePreset === 'trioctane-threewheel' ||
-    (currCar.getWheelSusLength(3) === 0 && currCar.getWheelSusLength(0) > 0 && currCar.getWheelSusLength(1) > 0)
+    (currCar.getWheelSusLength(3) === 0 &&
+      currCar.getWheelSusLength(0) > 0 &&
+      currCar.getWheelSusLength(1) > 0)
   );
 
   for (let wheelIndex = 0; wheelIndex < 4; wheelIndex++) {
@@ -215,7 +221,11 @@ export function updateCarSuspensionAndSteering(
     }
 
     const wasmWheelIdx = isThreeWheels
-      ? (wheelIndex === 0 ? 0 : wheelIndex === 2 ? 2 : 1)
+      ? wheelIndex === 0
+        ? 0
+        : wheelIndex === 2
+          ? 2
+          : 1
       : wheelIndex;
 
     let susLength = currCar.getWheelSusLength(wasmWheelIdx);
@@ -223,7 +233,7 @@ export function updateCarSuspensionAndSteering(
     const steerAngle = isSteerableWheel ? currCar.getWheelSteerAngle(wasmWheelIdx) : 0;
     const hasContact = currCar.getWheelContact(wasmWheelIdx);
     const [specX, rawSpecZ, wheelRadius] = wheelSpecs[wheelIndex];
-    const specZ = (isThreeWheels && wheelIndex === 0) ? 0.0 : rawSpecZ;
+    const specZ = isThreeWheels && wheelIndex === 0 ? 0.0 : rawSpecZ;
 
     // Scale guard: if susLength is in Bullet units (meters, < 2.0), scale to UU (50.0)
     if (susLength > 0 && susLength < 2.0) {
@@ -231,7 +241,7 @@ export function updateCarSuspensionAndSteering(
     }
 
     // Default resting height places wheels resting on the ground (-6.0 UU under chassis origin)
-    const effectiveSusLength = susLength > 0 ? susLength : (restHeight + 6.0);
+    const effectiveSusLength = susLength > 0 ? susLength : restHeight + 6.0;
     const extraY = Number(wheelModifierRuntimeConfig.verticalOffsetY) || 0;
     const customRestY = desc?.suspensionHeights?.[wheelIndex];
     const restYDelta = typeof customRestY === 'number' ? customRestY - (wheelRadius - 17) : 0;
@@ -251,13 +261,13 @@ export function updateCarSuspensionAndSteering(
         .add(_scratchWheelMount);
 
       updateSuspensionUnitSpring(sus, _scratchKnucklePos);
-      if (sus.armFore && sus.foreRoot) updateSuspensionArm(sus.armFore, sus.foreRoot, _scratchKnucklePos);
-      if (sus.armAft && sus.aftRoot) updateSuspensionArm(sus.armAft, sus.aftRoot, _scratchKnucklePos);
+      if (sus.armFore && sus.foreRoot)
+        updateSuspensionArm(sus.armFore, sus.foreRoot, _scratchKnucklePos);
+      if (sus.armAft && sus.aftRoot)
+        updateSuspensionArm(sus.armAft, sus.aftRoot, _scratchKnucklePos);
     }
 
-    const spinDelta = hasContact
-      ? (forwardSpeed / wheelRadius)
-      : (carThrottle * 1410 / wheelRadius);
+    const spinDelta = hasContact ? forwardSpeed / wheelRadius : (carThrottle * 1410) / wheelRadius;
 
     spin[wheelIndex] += spinDelta * actualDelta;
     if (wheels[wheelIndex].spin) {

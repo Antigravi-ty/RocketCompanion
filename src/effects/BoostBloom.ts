@@ -79,8 +79,6 @@ export const BLOOM_UPSAMPLE_FRAGMENT_SHADER = `
   }
 `;
 
-
-
 export interface BloomRenderTargetTextureLike {
   name: string;
   generateMipmaps: boolean;
@@ -123,12 +121,18 @@ export interface BloomMaterialLike<TUniforms> {
 }
 
 export interface BloomQuadLike {
-  material: THREE.Material | BloomMaterialLike<BloomDownsampleUniforms> | BloomMaterialLike<BloomUpsampleUniforms>;
+  material:
+    | THREE.Material
+    | BloomMaterialLike<BloomDownsampleUniforms>
+    | BloomMaterialLike<BloomUpsampleUniforms>;
   render(renderer: THREE.WebGLRenderer): void;
   dispose(): void;
 }
 
-export function createBloomRenderTarget(name: string, hasDepth: boolean): THREE.WebGLRenderTarget | BloomRenderTargetLike {
+export function createBloomRenderTarget(
+  name: string,
+  hasDepth: boolean
+): THREE.WebGLRenderTarget | BloomRenderTargetLike {
   const RenderTarget = THREE.WebGLRenderTarget;
   if (!RenderTarget) {
     // Mock target for headless testing
@@ -136,8 +140,11 @@ export function createBloomRenderTarget(name: string, hasDepth: boolean): THREE.
       texture: { name, generateMipmaps: false },
       width: 1,
       height: 1,
-      setSize(w: number, h: number) { this.width = w; this.height = h; },
-      dispose() {}
+      setSize(w: number, h: number) {
+        this.width = w;
+        this.height = h;
+      },
+      dispose() {},
     };
   }
   const target = new RenderTarget(1, 1, {
@@ -145,7 +152,7 @@ export function createBloomRenderTarget(name: string, hasDepth: boolean): THREE.
     minFilter: THREE.LinearFilter,
     magFilter: THREE.LinearFilter,
     depthBuffer: hasDepth,
-    stencilBuffer: false
+    stencilBuffer: false,
   });
   target.texture.name = name;
   target.texture.generateMipmaps = false;
@@ -174,7 +181,7 @@ export class BoostBloom {
   ) {
     this.renderer = renderer;
     this.renderSubmissions = 1 + BLOOM_MIP_LEVELS + (BLOOM_MIP_LEVELS - 1);
-    this.sourceTarget = createBloomRenderTarget("BoostBloom.source", true);
+    this.sourceTarget = createBloomRenderTarget('BoostBloom.source', true);
     this.downTargets = [];
     this.upTargets = [];
 
@@ -200,7 +207,7 @@ export class BoostBloom {
         texelSize: { value: new Vector2() },
         applyThreshold: { value: 0 },
         threshold: { value: BLOOM_THRESHOLD },
-        smoothWidth: { value: BLOOM_SMOOTH_WIDTH }
+        smoothWidth: { value: BLOOM_SMOOTH_WIDTH },
       };
       this.downsampleMaterial = new ShaderMaterial({
         uniforms: downUniforms,
@@ -208,7 +215,7 @@ export class BoostBloom {
         fragmentShader: BLOOM_DOWNSAMPLE_FRAGMENT_SHADER,
         depthTest: false,
         depthWrite: false,
-        toneMapped: false
+        toneMapped: false,
       }) as THREE.ShaderMaterial & BloomMaterialLike<BloomDownsampleUniforms>;
 
       const upUniforms: BloomUpsampleUniforms = {
@@ -217,7 +224,7 @@ export class BoostBloom {
         lowTexelSize: { value: new Vector2() },
         highWeight: { value: 1 },
         lowWeight: { value: 1 },
-        outputStrength: { value: 1 }
+        outputStrength: { value: 1 },
       };
       this.upsampleMaterial = new ShaderMaterial({
         uniforms: upUniforms,
@@ -225,7 +232,7 @@ export class BoostBloom {
         fragmentShader: BLOOM_UPSAMPLE_FRAGMENT_SHADER,
         depthTest: false,
         depthWrite: false,
-        toneMapped: false
+        toneMapped: false,
       }) as THREE.ShaderMaterial & BloomMaterialLike<BloomUpsampleUniforms>;
     } else {
       this.downsampleMaterial = {
@@ -234,9 +241,9 @@ export class BoostBloom {
           texelSize: { value: new Vector2() },
           applyThreshold: { value: 0 },
           threshold: { value: BLOOM_THRESHOLD },
-          smoothWidth: { value: BLOOM_SMOOTH_WIDTH }
+          smoothWidth: { value: BLOOM_SMOOTH_WIDTH },
         },
-        dispose() {}
+        dispose() {},
       };
       this.upsampleMaterial = {
         uniforms: {
@@ -245,14 +252,16 @@ export class BoostBloom {
           lowTexelSize: { value: new Vector2() },
           highWeight: { value: 1 },
           lowWeight: { value: 1 },
-          outputStrength: { value: 1 }
+          outputStrength: { value: 1 },
         },
-        dispose() {}
+        dispose() {},
       };
     }
 
     if (FullScreenQuad) {
-      this.quad = new FullScreenQuad(this.downsampleMaterial as THREE.Material) as unknown as BloomQuadLike;
+      this.quad = new FullScreenQuad(
+        this.downsampleMaterial as THREE.Material
+      ) as unknown as BloomQuadLike;
     } else {
       this.quad = { material: this.downsampleMaterial, render() {}, dispose() {} };
     }
@@ -260,7 +269,11 @@ export class BoostBloom {
     this.setSize(width, height, pixelRatio);
   }
 
-  setSize(width: number, height: number, pixelRatio: number = (this.renderer?.getPixelRatio?.() ?? 1)): void {
+  setSize(
+    width: number,
+    height: number,
+    pixelRatio: number = this.renderer?.getPixelRatio?.() ?? 1
+  ): void {
     let currentWidth = Math.max(1, Math.round(width * pixelRatio * BLOOM_DOWNSCALE_FACTOR));
     let currentHeight = Math.max(1, Math.round(height * pixelRatio * BLOOM_DOWNSCALE_FACTOR));
     this.sourceTarget.setSize(currentWidth, currentHeight);
@@ -306,8 +319,11 @@ export class BoostBloom {
     let currentInputTarget = this.sourceTarget;
     for (let mipLevel = 0; mipLevel < BLOOM_MIP_LEVELS; mipLevel += 1) {
       this.downsampleMaterial.uniforms.inputTexture.value = currentInputTarget.texture;
-      this.downsampleMaterial.uniforms.texelSize.value.set(1 / currentInputTarget.width, 1 / currentInputTarget.height);
-      this.downsampleMaterial.uniforms.applyThreshold.value = (mipLevel === 0 ? 1 : 0);
+      this.downsampleMaterial.uniforms.texelSize.value.set(
+        1 / currentInputTarget.width,
+        1 / currentInputTarget.height
+      );
+      this.downsampleMaterial.uniforms.applyThreshold.value = mipLevel === 0 ? 1 : 0;
       renderer.setRenderTarget(this.downTargets[mipLevel] as THREE.WebGLRenderTarget);
       this.quad.render(renderer);
       currentInputTarget = this.downTargets[mipLevel];
@@ -318,10 +334,15 @@ export class BoostBloom {
     for (let mipLevel = BLOOM_MIP_LEVELS - 2; mipLevel >= 0; mipLevel -= 1) {
       this.upsampleMaterial.uniforms.lowTexture.value = currentUpTarget.texture;
       this.upsampleMaterial.uniforms.highTexture.value = this.downTargets[mipLevel].texture;
-      this.upsampleMaterial.uniforms.lowTexelSize.value.set(1 / currentUpTarget.width, 1 / currentUpTarget.height);
+      this.upsampleMaterial.uniforms.lowTexelSize.value.set(
+        1 / currentUpTarget.width,
+        1 / currentUpTarget.height
+      );
       this.upsampleMaterial.uniforms.highWeight.value = BLOOM_WEIGHTS[mipLevel];
-      this.upsampleMaterial.uniforms.lowWeight.value = (mipLevel === BLOOM_MIP_LEVELS - 2 ? BLOOM_WEIGHTS[BLOOM_MIP_LEVELS - 1] : 1);
-      this.upsampleMaterial.uniforms.outputStrength.value = (mipLevel === 0 ? BLOOM_OUTPUT_STRENGTH : 1);
+      this.upsampleMaterial.uniforms.lowWeight.value =
+        mipLevel === BLOOM_MIP_LEVELS - 2 ? BLOOM_WEIGHTS[BLOOM_MIP_LEVELS - 1] : 1;
+      this.upsampleMaterial.uniforms.outputStrength.value =
+        mipLevel === 0 ? BLOOM_OUTPUT_STRENGTH : 1;
       renderer.setRenderTarget(this.upTargets[mipLevel] as THREE.WebGLRenderTarget);
       this.quad.render(renderer);
       currentUpTarget = this.upTargets[mipLevel];

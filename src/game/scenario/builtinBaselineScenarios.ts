@@ -12,10 +12,7 @@
  *    celebration -> multiplayer streamed Director Goal Replay.
  */
 
-import {
-  SYSTEM_CONTROL_SIGNALS,
-  isSystemControlSignal,
-} from '../../physics/RocketSimConstants.ts';
+import { SYSTEM_CONTROL_SIGNALS, isSystemControlSignal } from '../../physics/RocketSimConstants.ts';
 import { COUNTUP_REPLAY_CAPACITY_TICKS } from '../../replay/ReplayRingBuffer.ts';
 import { ONLINE_3V3_DUCKY_FULL_LIFECYCLE_SCENARIO } from './autonomousOnline3v3LifecycleScenario.ts';
 import {
@@ -52,7 +49,8 @@ export const BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO: ScenarioScript = {
   steps: [
     {
       tick: 1,
-      description: 'Verify Freeplay initial playing state, single local physics engine, active car 0, and 60s (7200-tick) FIFO RingBuffer',
+      description:
+        'Verify Freeplay initial playing state, single local physics engine, active car 0, and 60s (7200-tick) FIFO RingBuffer',
       forceKeyframeRender: true,
       keyframeReason: 'freeplay_kickoff_initial_render',
       action: (ctx) => {
@@ -66,14 +64,12 @@ export const BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO: ScenarioScript = {
         ctx.recordAssertion(
           'freeplay_initial_mode_and_phase',
           mode === 'freeplay' && phase === 'playing' && isSingleEngine,
-          `mode=${mode}, phase=${phase}, isSingleEngine=${isSingleEngine}`,
+          `mode=${mode}, phase=${phase}, isSingleEngine=${isSingleEngine}`
         );
         ctx.recordAssertion(
           'freeplay_fifo_ringbuffer_60s_capacity',
-          ringCap === 7200 &&
-            COUNTUP_REPLAY_CAPACITY_TICKS === 7200 &&
-            ringMode === 'countup_fifo',
-          `capacityTicks=${ringCap}, mode=${ringMode}`,
+          ringCap === 7200 && COUNTUP_REPLAY_CAPACITY_TICKS === 7200 && ringMode === 'countup_fifo',
+          `capacityTicks=${ringCap}, mode=${ringMode}`
         );
       },
     },
@@ -111,7 +107,7 @@ export const BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO: ScenarioScript = {
         ctx.recordAssertion(
           'freeplay_goal_detected',
           goalScored,
-          `phase=${phase}, goalResetTicks=${resetTicks}`,
+          `phase=${phase}, goalResetTicks=${resetTicks}`
         );
         ctx.setLocalCarControls({ throttle: 0, boost: false });
       },
@@ -134,7 +130,7 @@ export const BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO: ScenarioScript = {
         ctx.recordAssertion(
           'freeplay_director_replay_active',
           phase === 'replay' && isReplayActive && isOverrideActive && replayCam === 'director',
-          `phase=${phase}, isReplayActive=${isReplayActive}, override=${isOverrideActive}, camera=${replayCam}`,
+          `phase=${phase}, isReplayActive=${isReplayActive}, override=${isOverrideActive}, camera=${replayCam}`
         );
       },
     },
@@ -150,7 +146,7 @@ export const BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO: ScenarioScript = {
         ctx.recordAssertion(
           'freeplay_replay_pov_mode_set',
           camMode === 'pov',
-          `replayCameraMode=${camMode}`,
+          `replayCameraMode=${camMode}`
         );
       },
     },
@@ -173,7 +169,8 @@ export const BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO: ScenarioScript = {
     },
     {
       tick: 510,
-      description: 'Skip Goal Replay while Jump is held, verify return to Freeplay, and start Rewinder recording',
+      description:
+        'Skip Goal Replay while Jump is held, verify return to Freeplay, and start Rewinder recording',
       forceKeyframeRender: true,
       keyframeReason: 'freeplay_post_replay_kickoff_restore',
       action: (ctx) => {
@@ -190,28 +187,30 @@ export const BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO: ScenarioScript = {
         ctx.recordAssertion(
           'freeplay_post_replay_restored',
           phase === 'playing' && !isOverrideActive,
-          `phase=${phase}, goalReplayCameraOverride=${isOverrideActive}`,
+          `phase=${phase}, goalReplayCameraOverride=${isOverrideActive}`
         );
         freeplayMode?.rewinderController?.startNewRecording?.();
       },
     },
     {
       tick: 520,
-      description: 'Verify holding Jump across replay skip did not cause a spontaneous jump on spawn, then release Jump',
+      description:
+        'Verify holding Jump across replay skip did not cause a spontaneous jump on spawn, then release Jump',
       action: (ctx) => {
         const cv = ctx.runtime?.physics?.getCarStateView?.(0);
         const didNotJump = Boolean(cv && !cv.isJumping && cv.posZ < 28);
         ctx.recordAssertion(
           'freeplay_no_spontaneous_jump_on_replay_skip_spawn',
           didNotJump,
-          `isJumping=${cv?.isJumping}, posZ=${cv?.posZ?.toFixed?.(2)}`,
+          `isJumping=${cv?.isJumping}, posZ=${cv?.posZ?.toFixed?.(2)}`
         );
         ctx.setLocalCarControls({ throttle: 1.0, boost: true, jump: false });
       },
     },
     {
       tick: 920,
-      description: 'Exercise Rewinder SYS_CTRL_STATE_ONLY -> SYS_CTRL_INTERVENE_WILL_RESUME -> SYS_CTRL_PHYSICS_RESUME lifecycle',
+      description:
+        'Exercise Rewinder SYS_CTRL_STATE_ONLY -> SYS_CTRL_INTERVENE_WILL_RESUME -> SYS_CTRL_PHYSICS_RESUME lifecycle',
       forceKeyframeRender: true,
       keyframeReason: 'freeplay_rewinder_sys_ctrl_transitions',
       action: (ctx) => {
@@ -243,7 +242,7 @@ export const BOOT_AND_FREEPLAY_GOAL_REPLAY_SCENARIO: ScenarioScript = {
             afterInterveneSignal === SYSTEM_CONTROL_SIGNALS.SYS_CTRL_INTERVENE_WILL_RESUME &&
             afterResumeSignal === SYSTEM_CONTROL_SIGNALS.SYS_CTRL_PHYSICS_RESUME &&
             !leakedSysSignals,
-          `seek=0x${(afterSeekSignal || 0).toString(16)}, intervene=0x${(afterInterveneSignal || 0).toString(16)}, resume=0x${(afterResumeSignal || 0).toString(16)}, leakedSysSignals=${leakedSysSignals}`,
+          `seek=0x${(afterSeekSignal || 0).toString(16)}, intervene=0x${(afterInterveneSignal || 0).toString(16)}, resume=0x${(afterResumeSignal || 0).toString(16)}, leakedSysSignals=${leakedSysSignals}`
         );
       },
     },
@@ -273,8 +272,10 @@ export const BUILTIN_BASELINE_SCENARIOS: Readonly<Record<string, ScenarioScript>
   [TRAINING_AND_KICKOFF_SCENARIO.id]: TRAINING_AND_KICKOFF_SCENARIO,
   [REPLAY_DIRECTOR_AND_EXPORT_SCENARIO.id]: REPLAY_DIRECTOR_AND_EXPORT_SCENARIO,
   [ONLINE_3V3_DUCKY_FULL_LIFECYCLE_SCENARIO.id]: ONLINE_3V3_DUCKY_FULL_LIFECYCLE_SCENARIO,
-  [TRAINING_SESSION_FIFO_AND_SYS_CTRL_E2E_SCENARIO.id]: TRAINING_SESSION_FIFO_AND_SYS_CTRL_E2E_SCENARIO,
-  [ROSTER_COMBINATIONS_MATRIX_EXPLORATION_SCENARIO.id]: ROSTER_COMBINATIONS_MATRIX_EXPLORATION_SCENARIO,
+  [TRAINING_SESSION_FIFO_AND_SYS_CTRL_E2E_SCENARIO.id]:
+    TRAINING_SESSION_FIFO_AND_SYS_CTRL_E2E_SCENARIO,
+  [ROSTER_COMBINATIONS_MATRIX_EXPLORATION_SCENARIO.id]:
+    ROSTER_COMBINATIONS_MATRIX_EXPLORATION_SCENARIO,
 });
 
 export function resolveRequestedScenarios(queryValue: string | null | undefined): ScenarioScript[] {

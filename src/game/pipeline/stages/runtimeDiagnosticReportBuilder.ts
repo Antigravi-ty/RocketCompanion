@@ -4,10 +4,7 @@
  * from PerformanceMonitorFloatingWindow or window.exportRuntimeDiagnosticReport().
  */
 
-import {
-  useAppStore,
-  useReplayViewerStore,
-} from '../../runtimeUiPort.ts';
+import { useAppStore, useReplayViewerStore } from '../../runtimeUiPort.ts';
 
 interface ParticleSystemStateLike {
   driveParticlesActive?: boolean;
@@ -109,8 +106,7 @@ export function buildRuntimeDiagnosticReport(
 
   return {
     capturedAt: new Date().toISOString(),
-    telemetry:
-      r?.profiler?.snapshot?.(60, 10) ?? r?.profiler?.getSnapshot?.(240) ?? null,
+    telemetry: r?.profiler?.snapshot?.(60, 10) ?? r?.profiler?.getSnapshot?.(240) ?? null,
     runtimeState: {
       matchMode: r?.match?.state?.mode || appState?.matchMode || 'freeplay',
       matchPhase: r?.match?.state?.phase || 'playing',

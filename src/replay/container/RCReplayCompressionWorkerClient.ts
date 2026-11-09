@@ -189,7 +189,12 @@ export async function packAndCompressReplayInBackground(
     ...(replayObj.directorReplayMeta ? { directorReplayMeta: replayObj.directorReplayMeta } : {}),
   };
 
-  if (typeof Worker !== 'undefined' && typeof Blob !== 'undefined' && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+  if (
+    typeof Worker !== 'undefined' &&
+    typeof Blob !== 'undefined' &&
+    typeof URL !== 'undefined' &&
+    typeof URL.createObjectURL === 'function'
+  ) {
     try {
       const workerResult = await new Promise<CompressedReplayWorkerResult>((resolve, reject) => {
         const blob = new Blob([WORKER_SOURCE], { type: 'application/javascript' });
@@ -199,12 +204,18 @@ export async function packAndCompressReplayInBackground(
           try {
             worker.terminate();
           } catch (termErr) {
-            console.warn('[RCReplayCompressionWorkerClient] Failed to terminate compression worker:', termErr);
+            console.warn(
+              '[RCReplayCompressionWorkerClient] Failed to terminate compression worker:',
+              termErr
+            );
           }
           try {
             URL.revokeObjectURL(url);
           } catch (revokeErr) {
-            console.warn('[RCReplayCompressionWorkerClient] Failed to revoke worker blob URL:', revokeErr);
+            console.warn(
+              '[RCReplayCompressionWorkerClient] Failed to revoke worker blob URL:',
+              revokeErr
+            );
           }
         };
         const stateCopy = new Uint8Array(tracks.stateInputBytes);
@@ -240,10 +251,15 @@ export async function packAndCompressReplayInBackground(
       });
       return workerResult;
     } catch (workerErr) {
-      console.warn('[RCReplayCompressionWorkerClient] Background Worker compression failed; falling back to main-thread serialization:', workerErr);
+      console.warn(
+        '[RCReplayCompressionWorkerClient] Background Worker compression failed; falling back to main-thread serialization:',
+        workerErr
+      );
     }
   } else {
-    console.warn('[RCReplayCompressionWorkerClient] Blob Worker is unavailable in this environment; falling back to main-thread serialization.');
+    console.warn(
+      '[RCReplayCompressionWorkerClient] Blob Worker is unavailable in this environment; falling back to main-thread serialization.'
+    );
   }
 
   // Fallback for Node.js / environments without Blob Worker
@@ -268,7 +284,9 @@ export async function packAndCompressReplayInBackground(
     };
   }
 
-  console.warn('[RCReplayCompressionWorkerClient] CompressionStream is unavailable; returning uncompressed .rcreplay container.');
+  console.warn(
+    '[RCReplayCompressionWorkerClient] CompressionStream is unavailable; returning uncompressed .rcreplay container.'
+  );
   const fallbackBuffer = containerBytes.buffer.slice(
     containerBytes.byteOffset,
     containerBytes.byteOffset + containerBytes.byteLength

@@ -69,10 +69,10 @@ export const SPEED_LINES_FRAGMENT_SHADER = `
 `;
 
 export const DEFAULT_COPY_SHADER = {
-  name: "CopyShader",
+  name: 'CopyShader',
   uniforms: {
     tDiffuse: { value: null },
-    opacity: { value: 1.0 }
+    opacity: { value: 1.0 },
   },
   vertexShader: `
     varying vec2 vUv;
@@ -89,7 +89,7 @@ export const DEFAULT_COPY_SHADER = {
       vec4 texel = texture2D(tDiffuse, vUv);
       gl_FragColor = opacity * texel;
     }
-  `
+  `,
 };
 
 export interface SpeedLinesCameraLike {
@@ -116,7 +116,7 @@ export class SpeedLinesEffectPass {
       BufferGeometry,
       BufferAttribute,
       InstancedBufferAttribute,
-      Mesh
+      Mesh,
     } = THREE;
 
     // Inherit from Pass instance & fulfill Pass contract
@@ -132,7 +132,7 @@ export class SpeedLinesEffectPass {
 
     const copyUniforms: { [uniform: string]: THREE.IUniform } = {
       tDiffuse: { value: null },
-      opacity: { value: 1.0 }
+      opacity: { value: 1.0 },
     };
     this.copy = new FullScreenQuad(
       new ShaderMaterial({
@@ -140,7 +140,7 @@ export class SpeedLinesEffectPass {
         vertexShader: CopyShader.vertexShader,
         fragmentShader: CopyShader.fragmentShader,
         depthTest: false,
-        depthWrite: false
+        depthWrite: false,
       })
     );
 
@@ -149,8 +149,11 @@ export class SpeedLinesEffectPass {
 
     const geometry = new BufferGeometry();
     geometry.setAttribute(
-      "position",
-      new BufferAttribute(new Float32Array([0, -1, 0, 1, -1, 0, 0, 1, 0, 0, 1, 0, 1, -1, 0, 1, 1, 0]), 3)
+      'position',
+      new BufferAttribute(
+        new Float32Array([0, -1, 0, 1, -1, 0, 0, 1, 0, 0, 1, 0, 1, -1, 0, 1, 1, 0]),
+        3
+      )
     );
 
     const seedArray = new Float32Array(SPEED_LINES_COUNT * 4);
@@ -158,8 +161,9 @@ export class SpeedLinesEffectPass {
       const pseudoRandom = Math.sin((seedIndex + 1) * 127.1) * 43758.5453;
       seedArray[seedIndex] = pseudoRandom - Math.floor(pseudoRandom);
     }
-    geometry.setAttribute("seed", new InstancedBufferAttribute(seedArray, 4));
-    (geometry as THREE.BufferGeometry & { instanceCount?: number }).instanceCount = SPEED_LINES_COUNT;
+    geometry.setAttribute('seed', new InstancedBufferAttribute(seedArray, 4));
+    (geometry as THREE.BufferGeometry & { instanceCount?: number }).instanceCount =
+      SPEED_LINES_COUNT;
 
     const mesh = new Mesh(geometry, material);
     mesh.frustumCulled = false;
@@ -227,7 +231,7 @@ export class SupersonicSpeedLinesPass {
         strength: { value: 0 },
         aspect: { value: 1 },
         travel: { value: new Vector3(0, 0, -1) },
-        cameraProjection: { value: new Matrix4() }
+        cameraProjection: { value: new Matrix4() },
       },
       vertexShader: SPEED_LINES_VERTEX_SHADER,
       fragmentShader: SPEED_LINES_FRAGMENT_SHADER,
@@ -235,7 +239,7 @@ export class SupersonicSpeedLinesPass {
       depthTest: false,
       depthWrite: false,
       toneMapped: false,
-      side: DoubleSide
+      side: DoubleSide,
     });
 
     this.pass = new SpeedLinesEffectPass(this.material);
@@ -250,8 +254,16 @@ export class SupersonicSpeedLinesPass {
     if (!camera) return;
     const clampedDt = Math.max(0, Math.min(dt, 0.1));
 
-    const dampFunc = THREE.MathUtils.damp || ((curr: number, target: number, lambda: number, step: number) => target + (curr - target) * Math.exp(-lambda * step));
-    this.strength = dampFunc(this.strength, isSupersonic ? 1 : 0, isSupersonic ? 12 : 18, clampedDt);
+    const dampFunc =
+      THREE.MathUtils.damp ||
+      ((curr: number, target: number, lambda: number, step: number) =>
+        target + (curr - target) * Math.exp(-lambda * step));
+    this.strength = dampFunc(
+      this.strength,
+      isSupersonic ? 1 : 0,
+      isSupersonic ? 12 : 18,
+      clampedDt
+    );
     this.time += clampedDt;
     this.pass.enabled = this.strength > 0.002;
 

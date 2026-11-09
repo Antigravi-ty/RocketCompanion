@@ -4,15 +4,24 @@ import { LoadingTask } from './LoadingTask.ts';
 import type { LoadingBootstrapError } from './types.ts';
 import { verifyCameraMicrokernelIntegrity } from '../camera/exempt_pov_microkernel/CameraMicrokernel.ts';
 import { auditRequiredAssets, formatMissingAssetsHtml } from '../game/AssetDiagnostics.ts';
-import { fetchArenaCollisionManifest, fetchArenaCollisionChunks } from '../physics/RocketSimMeshLoader.ts';
+import {
+  fetchArenaCollisionManifest,
+  fetchArenaCollisionChunks,
+} from '../physics/RocketSimMeshLoader.ts';
 
 export interface EngineLoadingRuntimePort {
   setupPhysics: (options: { collisionData?: unknown }) => Promise<unknown> | unknown;
   setupScene: (onProgress?: (ratio: number, detail?: string) => void) => Promise<unknown> | unknown;
-  setupShaders: (onProgress?: (ratio: number, theme?: string) => void) => Promise<unknown> | unknown;
+  setupShaders: (
+    onProgress?: (ratio: number, theme?: string) => void
+  ) => Promise<unknown> | unknown;
   ignite: () => unknown;
-  setupAudio: (onProgress?: (loaded: number, total?: number, file?: string) => void) => Promise<unknown> | unknown;
-  setupBot: (onProgress?: (loaded?: number, total?: number, botId?: string) => void) => Promise<unknown> | unknown;
+  setupAudio: (
+    onProgress?: (loaded: number, total?: number, file?: string) => void
+  ) => Promise<unknown> | unknown;
+  setupBot: (
+    onProgress?: (loaded?: number, total?: number, botId?: string) => void
+  ) => Promise<unknown> | unknown;
 }
 
 export interface BackgroundPipelineNotificationStorePort {
@@ -27,7 +36,10 @@ export interface BackgroundPipelineNotificationStorePort {
     isSpinningIcon?: boolean;
   }) => void;
   updateOngoingNotification: (id: string, patch: { progress?: number; content?: string }) => void;
-  completeOngoingNotification: (id: string, patch: { content?: string; autoDismissMs?: number; tone?: string }) => void;
+  completeOngoingNotification: (
+    id: string,
+    patch: { content?: string; autoDismissMs?: number; tone?: string }
+  ) => void;
   dismissOngoingNotification: (id: string) => void;
 }
 
@@ -63,7 +75,7 @@ export function buildEngineLoadingPipeline(
         ctx.reportProgress(0.2, 'Checking SHA-256 and ABI contract...');
         await verifyCameraMicrokernelIntegrity(options);
         ctx.reportProgress(1.0, 'POV camera microkernel verified');
-      }
+      },
     })
   );
 
@@ -89,7 +101,7 @@ export function buildEngineLoadingPipeline(
         }
 
         ctx.reportProgress(1.0, 'Asset diagnostics passed');
-      }
+      },
     })
   );
 
@@ -108,7 +120,7 @@ export function buildEngineLoadingPipeline(
         const chunkFilenames = await fetchArenaCollisionManifest();
         ctx.setShared('meshFilenames', chunkFilenames);
         ctx.reportProgress(1.0, `Discovered ${chunkFilenames.length} arena mesh chunks`);
-      }
+      },
     })
   );
 
@@ -129,12 +141,12 @@ export function buildEngineLoadingPipeline(
           fetchBuffer: (url) => ctx.downloadTracker.fetchBuffer(url),
           onChunkLoaded: (completed, total, chunkFile) => {
             ctx.reportProgress(completed / total, `Chunk ${completed}/${total} (${chunkFile})`);
-          }
+          },
         });
 
         ctx.setShared('collisionChunks', chunks);
         ctx.reportProgress(1.0, 'All collision mesh chunks downloaded');
-      }
+      },
     })
   );
 
@@ -147,7 +159,7 @@ export function buildEngineLoadingPipeline(
       type: 'indeterminate',
       category: 'Physics & Collision',
       hint: 'Allocating RocketSim WASM linear heap & compiling collision BVH tree...',
-      weight: 0.40,
+      weight: 0.4,
       dependencies: ['physics.mesh.stream', 'preflight.camera_microkernel'],
       critical: true,
       run: async (ctx) => {
@@ -155,7 +167,7 @@ export function buildEngineLoadingPipeline(
         const collisionData = ctx.getShared('collisionChunks');
         await runtime.setupPhysics({ collisionData });
         ctx.reportProgress(1.0, 'Arena collision space created & player car allocated');
-      }
+      },
     })
   );
 
@@ -176,7 +188,9 @@ export function buildEngineLoadingPipeline(
       critical: true,
       run: async (ctx) => {
         if (isTouchHeadless) {
-          console.info('[Loading][Headless] Headless Parameter Detected (?touch=2) — skipping 3D Stadium & Vehicle GLB asset streaming.');
+          console.info(
+            '[Loading][Headless] Headless Parameter Detected (?touch=2) — skipping 3D Stadium & Vehicle GLB asset streaming.'
+          );
         }
         await runtime.setupScene((ratio, detail) => {
           ctx.reportProgress(ratio, detail);
@@ -187,7 +201,7 @@ export function buildEngineLoadingPipeline(
             ? 'Headless Parameter Detected (?touch=2) — 3D scene graph exempted'
             : '3D scene graph & UI overlays mounted'
         );
-      }
+      },
     })
   );
 
@@ -205,7 +219,9 @@ export function buildEngineLoadingPipeline(
       critical: true,
       run: async (ctx) => {
         if (isTouchHeadless) {
-          console.info('[Loading][Headless] Headless Parameter Detected (?touch=2) — skipping WebGL shader prewarming.');
+          console.info(
+            '[Loading][Headless] Headless Parameter Detected (?touch=2) — skipping WebGL shader prewarming.'
+          );
         }
         await runtime.setupShaders((ratio, theme) => {
           ctx.reportProgress(ratio, `Prewarming materials for theme: ${theme}`);
@@ -216,7 +232,7 @@ export function buildEngineLoadingPipeline(
             ? 'Headless Parameter Detected (?touch=2) — WebGL shader compilation exempted'
             : 'All visual shaders compiled into GPU cache'
         );
-      }
+      },
     })
   );
 
@@ -246,7 +262,7 @@ export function buildEngineLoadingPipeline(
             ? 'Headless ignition complete (?touch=2). Simulation running at 120Hz.'
             : 'Engine ignition complete. Simulation running at 120Hz.'
         );
-      }
+      },
     })
   );
 
@@ -276,7 +292,7 @@ export async function startBackgroundAssetPipeline(
       icon: 'Layers',
       progress: 0,
       tone: 'info',
-      isSpinningIcon: true
+      isSpinningIcon: true,
     });
   }
 
@@ -287,7 +303,7 @@ export async function startBackgroundAssetPipeline(
     if (notifyStore) {
       notifyStore.updateOngoingNotification(taskId, {
         progress: totalRatio,
-        content: desc || `Synchronizing assets (${Math.round(totalRatio * 100)}%)`
+        content: desc || `Synchronizing assets (${Math.round(totalRatio * 100)}%)`,
       });
     }
   };
@@ -299,7 +315,10 @@ export async function startBackgroundAssetPipeline(
         await runtime.setupAudio((loaded = 0, total = 0, file = '') => {
           const filename = file ? file.split('/').pop() : '';
           const ratio = total > 0 ? loaded / total : loaded <= 1.0 ? loaded : 1.0;
-          const msg = total > 0 ? `Audio & arena: ${loaded}/${total} (${filename})` : `Audio & arena (${Math.round(ratio * 100)}%)`;
+          const msg =
+            total > 0
+              ? `Audio & arena: ${loaded}/${total} (${filename})`
+              : `Audio & arena (${Math.round(ratio * 100)}%)`;
           if (onProgress) onProgress('audio', ratio, msg);
           updateOverall('audio', ratio, msg);
           if (verbose) {
@@ -310,13 +329,19 @@ export async function startBackgroundAssetPipeline(
         if (verbose) {
           console.log('[Loading][Background] 41-channel audio, synth pack & arena assets ready.');
         }
-      }
+      },
     },
     {
       name: 'Web Font Preloader',
       run: async () => {
         if (typeof document !== 'undefined' && document.fonts) {
-          const fontList = ['400 14px "JetBrains Mono"', '400 16px Archivo', '500 16px Archivo', '700 16px Archivo', '400 20px "Lilita One"'];
+          const fontList = [
+            '400 14px "JetBrains Mono"',
+            '400 16px Archivo',
+            '500 16px Archivo',
+            '700 16px Archivo',
+            '400 20px "Lilita One"',
+          ];
           let loaded = 0;
           await Promise.all(
             fontList.map(async (f) => {
@@ -337,7 +362,7 @@ export async function startBackgroundAssetPipeline(
           );
           updateOverall('fonts', 1.0, 'Web fonts preloaded.');
         }
-      }
+      },
     },
     {
       name: 'Server/Bot Workers & All AI Neural Policies',
@@ -355,22 +380,26 @@ export async function startBackgroundAssetPipeline(
         if (verbose) {
           console.log('[Loading][Background] Server/Bot workers & all AI policies synchronized.');
         }
-      }
-    }
+      },
+    },
   ];
 
   try {
     await Promise.allSettled(backgroundTasks.map((t) => t.run()));
     if (verbose) {
       const elapsedSec = ((performance.now() - startTime) / 1000).toFixed(2);
-      console.log('[Loading] ══════════════ [Background Pipeline] All Assets Loaded ══════════════');
-      console.log(`[Loading] Background asset pipeline complete in ${elapsedSec}s — all deferred subsystems synchronized.`);
+      console.log(
+        '[Loading] ══════════════ [Background Pipeline] All Assets Loaded ══════════════'
+      );
+      console.log(
+        `[Loading] Background asset pipeline complete in ${elapsedSec}s — all deferred subsystems synchronized.`
+      );
     }
     if (notifyStore) {
       notifyStore.completeOngoingNotification(taskId, {
         content: 'All deferred assets, workers & AI policies synchronized',
         autoDismissMs: 3000,
-        tone: 'info'
+        tone: 'info',
       });
     }
   } catch (err) {

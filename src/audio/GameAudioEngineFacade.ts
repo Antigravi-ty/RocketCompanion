@@ -1,12 +1,22 @@
-import { audioConfig, registerAudioDiagnosticsProvider } from '../ui-core/config/audioConfig';
+import { audioConfig, registerAudioDiagnosticsProvider } from '../ui-core/config/audioConfig.ts';
 import { getAudioSlotPool, registerAudioEngine } from './audioContext.ts';
 import { VehicleAudioManager, type VehicleAudioUpdateContext } from './VehicleAudioManager.ts';
 import { IncidentAudioEngine } from './IncidentAudioEngine.ts';
 import { SignalAudioEngine } from './SignalAudioEngine.ts';
 import { loadAudioAssets, applyBoostVariationBuffers } from './audioAssetLoader.ts';
-import { stadiumSpatialAudioEngine, type StadiumSpatialAudioEngine } from './StadiumSpatialAudioEngine.ts';
-import { BallAudioEmitter, type BallMeshOrViewLike, type BallPhysicsStateLike } from './BallAudioEmitter.ts';
-import { AudioMenuPreviewPlayer, type PreviewAudioBufferOptions } from './AudioMenuPreviewPlayer.ts';
+import {
+  stadiumSpatialAudioEngine,
+  type StadiumSpatialAudioEngine,
+} from './StadiumSpatialAudioEngine.ts';
+import {
+  BallAudioEmitter,
+  type BallMeshOrViewLike,
+  type BallPhysicsStateLike,
+} from './BallAudioEmitter.ts';
+import {
+  AudioMenuPreviewPlayer,
+  type PreviewAudioBufferOptions,
+} from './AudioMenuPreviewPlayer.ts';
 import type { CameraTransformLike } from './SpatialAudioSource.ts';
 import type { PhysicsImpactAudioEvent } from './WorldImpactAudioHandler.ts';
 import './audioDebug.ts';
@@ -47,7 +57,7 @@ export class GameAudioEngineFacade {
     audioConfig.subscribe(() => {
       const spatialEnabled = audioConfig.get('spatialAudio') !== false;
       const panModel: PanningModelType = spatialEnabled
-        ? (audioConfig.get('spatialPanningModel') || 'equalpower')
+        ? audioConfig.get('spatialPanningModel') || 'equalpower'
         : 'equalpower';
       this.vehicleManager?.updatePanningModel?.(panModel);
       this.ballEngine?.updatePanningModel?.(panModel);
@@ -87,7 +97,9 @@ export class GameAudioEngineFacade {
     this.previewPlayer.previewBoostVariation(variationId, phase);
   }
 
-  async preload(onProgress: ((completed: number, total: number, url: string) => void) | null = null) {
+  async preload(
+    onProgress: ((completed: number, total: number, url: string) => void) | null = null
+  ) {
     if (this.loaded || this.loading || typeof window === 'undefined') return;
     this.loading = true;
     try {
@@ -99,7 +111,10 @@ export class GameAudioEngineFacade {
     }
   }
 
-  handleEvent(event: PhysicsImpactAudioEvent | null | undefined, camera: CameraTransformLike | null = null) {
+  handleEvent(
+    event: PhysicsImpactAudioEvent | null | undefined,
+    camera: CameraTransformLike | null = null
+  ) {
     this.incidentEngine.handleEvent(event, camera);
   }
 

@@ -1,4 +1,4 @@
-import { audioConfig } from '../ui-core/config/audioConfig';
+import { audioConfig } from '../ui-core/config/audioConfig.ts';
 import { listenerManager } from './SpatialAudioSource.ts';
 import {
   toAudioCoordinates,
@@ -84,7 +84,9 @@ export class AudioSlotPool {
         if (dest) sp.connect(dest);
         panner2D = sp;
       } else if (i === 0) {
-        console.warn('[AudioSlotPool] AudioContext.createStereoPanner is unavailable; 2D stereo signals will connect directly to destination without stereo panning.');
+        console.warn(
+          '[AudioSlotPool] AudioContext.createStereoPanner is unavailable; 2D stereo signals will connect directly to destination without stereo panning.'
+        );
       }
 
       this.slots.push({
@@ -97,7 +99,7 @@ export class AudioSlotPool {
         sourceNode: null,
         startTime: 0,
         priority: 0,
-        onEnded: null
+        onEnded: null,
       });
     }
     this._initialized = true;
@@ -154,7 +156,9 @@ export class AudioSlotPool {
     slot.priority = 0;
     slot.startTime = 0;
     if (slot.onEnded) {
-      try { slot.onEnded(); } catch (e) {
+      try {
+        slot.onEnded();
+      } catch (e) {
         console.error('[AudioArchitecture] SoundPool onEnded callback error:', e);
       }
       slot.onEnded = null;
@@ -168,18 +172,28 @@ export class AudioSlotPool {
         try {
           slot.panner3D.panningModel = model;
         } catch (err) {
-          console.warn("[AudioSlotPool] Failed to set panningModel:", err instanceof Error ? err.message : err);
+          console.warn(
+            '[AudioSlotPool] Failed to set panningModel:',
+            err instanceof Error ? err.message : err
+          );
         }
       }
     }
   }
 
-  playBuffer(buffer: AudioBuffer | null, options: PlayAudioBufferOptions = {}): AudioVoiceSlot | null {
+  playBuffer(
+    buffer: AudioBuffer | null,
+    options: PlayAudioBufferOptions = {}
+  ): AudioVoiceSlot | null {
     if (!buffer || this.isMuted) return null;
     const ctx = this.context;
-    if (!ctx || ctx.state === "closed") return null;
-    if (ctx.state === "suspended") {
-      ctx.resume().catch((err) => console.warn('[AudioArchitecture] AudioContext resume failed/blocked:', err));
+    if (!ctx || ctx.state === 'closed') return null;
+    if (ctx.state === 'suspended') {
+      ctx
+        .resume()
+        .catch((err) =>
+          console.warn('[AudioArchitecture] AudioContext resume failed/blocked:', err)
+        );
     }
 
     const baseVolume = options.volume ?? 1.0;
@@ -189,7 +203,9 @@ export class AudioSlotPool {
     const category = options.category ?? options.profileId ?? null;
     const distanceRadiusScale = options.distanceRadiusScale ?? 1.0;
 
-    const audioPos = options.position ? toAudioCoordinates(this._scratchPos, options.position) : null;
+    const audioPos = options.position
+      ? toAudioCoordinates(this._scratchPos, options.position)
+      : null;
     let distGain = 1.0;
     if (audioPos && listenerManager.hasListener) {
       const dx = audioPos.x - listenerManager.position.x;
@@ -215,7 +231,9 @@ export class AudioSlotPool {
       if (audioPos) {
         // Spatial 3D HRTF playback from emission coordinates (x, y, z)
         if (slot.currentMode !== 'spatial') {
-          try { slot.gainNode.disconnect(); } catch (e) {
+          try {
+            slot.gainNode.disconnect();
+          } catch (e) {
             console.warn('[AudioArchitecture] Error disconnecting slot gainNode:', e);
           }
           slot.gainNode.connect(slot.panner3D);
@@ -238,7 +256,9 @@ export class AudioSlotPool {
       } else {
         // Non-spatial 2D stereo playback (signals, UI clicks)
         if (slot.currentMode !== 'stereo') {
-          try { slot.gainNode.disconnect(); } catch (e) {
+          try {
+            slot.gainNode.disconnect();
+          } catch (e) {
             console.warn('[AudioArchitecture] Error disconnecting slot gainNode:', e);
           }
           if (slot.panner2D) {

@@ -17,14 +17,14 @@ export const BOOST_BURN_RATE = 33.333;
 export const MAX_CAR_SPEED = 2300.0;
 export const BALL_CAR_CONTACT_RADIUS = 148.0; // Ball radius (91.25) + Octane effective nose reach (~56.75)
 export const JUMP_IMMEDIATE_FORCE = 291.667; // Frame-1 jump impulse (875 / 3 UU/s)
-export const JUMP_MIN_VELOCITY = 328.125;    // Minimum tap-jump upward velocity: 291.667 + 0.025s * 1458.333 (3-tick minimum hold)
+export const JUMP_MIN_VELOCITY = 328.125; // Minimum tap-jump upward velocity: 291.667 + 0.025s * 1458.333 (3-tick minimum hold)
 export const JUMP_MAX_SINGLE_VELOCITY = 583.333; // Full 0.20s held single-jump upward velocity: 291.667 + 0.20s * 1458.333
 
 export const HORIZON_COLORS_HEX = Object.freeze([0x0df2a6, 0xffd91a, 0xff47a6]); // 1s Cyan-Green, 2s Gold, 3s Rose
 export const HORIZON_RGB = Object.freeze([
   Object.freeze([0.05, 0.95, 0.65]),
-  Object.freeze([1.00, 0.85, 0.10]),
-  Object.freeze([1.00, 0.28, 0.65]),
+  Object.freeze([1.0, 0.85, 0.1]),
+  Object.freeze([1.0, 0.28, 0.65]),
 ]);
 
 // Precomputed polar angle tables for Ground (72 bins)
@@ -51,7 +51,7 @@ for (let j = 0; j < FUNNEL_SECTORS; j++) {
   FUNNEL_SIN[j] = Math.sin(phi);
 }
 
-export const FUNNEL_IDX_1S = 5;  // t ~ 1.04s
+export const FUNNEL_IDX_1S = 5; // t ~ 1.04s
 export const FUNNEL_IDX_2S = 10; // t ~ 2.02s
 export const FUNNEL_IDX_3S = FUNNEL_RINGS - 1; // t = 3.00s
 

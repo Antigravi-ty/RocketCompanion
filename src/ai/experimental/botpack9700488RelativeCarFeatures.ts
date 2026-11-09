@@ -77,12 +77,22 @@ export function writeDuckyPlayerFeatures(
   obs[ptr++] = locBallVel[2] * VEL_COEF;
 
   if (includeOwnerRel) {
-    const relPos = rotDot(selfPhys, p.posX - selfPhys.posX, p.posY - selfPhys.posY, p.posZ - selfPhys.posZ);
+    const relPos = rotDot(
+      selfPhys,
+      p.posX - selfPhys.posX,
+      p.posY - selfPhys.posY,
+      p.posZ - selfPhys.posZ
+    );
     obs[ptr++] = relPos[0] * POS_COEF;
     obs[ptr++] = relPos[1] * POS_COEF;
     obs[ptr++] = relPos[2] * POS_COEF;
 
-    const relVel = rotDot(selfPhys, p.velX - selfPhys.velX, p.velY - selfPhys.velY, p.velZ - selfPhys.velZ);
+    const relVel = rotDot(
+      selfPhys,
+      p.velX - selfPhys.velX,
+      p.velY - selfPhys.velY,
+      p.velZ - selfPhys.velZ
+    );
     obs[ptr++] = relVel[0] * VEL_COEF;
     obs[ptr++] = relVel[1] * VEL_COEF;
     obs[ptr++] = relVel[2] * VEL_COEF;
@@ -94,7 +104,11 @@ export function writeDuckyPlayerFeatures(
   obs[ptr++] = p.isDemoed ? 1.0 : 0.0;
   obs[ptr++] = p.hasJumped ? 1.0 : 0.0;
   obs[ptr++] = 1.0 / (1.0 + Math.max(0.0, p.demoRespawnTimer));
-  obs[ptr++] = p.isOnGround ? 1.0 : !p.hasFlipOrJump ? 0.0 : Math.max(0.0, 1.0 - p.airTimeSinceJump / 1.25);
+  obs[ptr++] = p.isOnGround
+    ? 1.0
+    : !p.hasFlipOrJump
+      ? 0.0
+      : Math.max(0.0, 1.0 - p.airTimeSinceJump / 1.25);
   obs[ptr++] = p.isSupersonic ? 1.0 : 0.0;
   return ptr;
 }
@@ -120,12 +134,18 @@ export function writeFuryKickoffContext4(
     Math.abs(sBallView.posY) <= 10.0 &&
     Math.abs(sBallView.posZ - 93.15) <= 25.0;
   const ballStationary =
-    sBallView.velX * sBallView.velX + sBallView.velY * sBallView.velY + sBallView.velZ * sBallView.velZ <= 25.0;
+    sBallView.velX * sBallView.velX +
+      sBallView.velY * sBallView.velY +
+      sBallView.velZ * sBallView.velZ <=
+    25.0;
   const isKickoffActive = ballCentered && ballStationary;
 
   let anyCarMoving = false;
   for (let i = 0; i < roster.length; i++) {
-    const cv = (sCarViews[roster[i].carIndex] || new CarStateView()).attachCar(simState, roster[i].carIndex);
+    const cv = (sCarViews[roster[i].carIndex] || new CarStateView()).attachCar(
+      simState,
+      roster[i].carIndex
+    );
     if (cv.velX * cv.velX + cv.velY * cv.velY + cv.velZ * cv.velZ > 225.0) {
       anyCarMoving = true;
       break;
@@ -285,8 +305,16 @@ export function writeFuryPlayer39(
   obs[ptr++] = p.isDemoed ? 1.0 : 0.0;
   obs[ptr++] = p.hasJumped ? 1.0 : 0.0;
 
-  const toOwnUnit = safeUnit3(BLUE_GOAL_BACK[0] - p.posX, BLUE_GOAL_BACK[1] - p.posY, BLUE_GOAL_BACK[2] - p.posZ);
-  const toEnemyUnit = safeUnit3(ORANGE_GOAL_BACK[0] - p.posX, ORANGE_GOAL_BACK[1] - p.posY, ORANGE_GOAL_BACK[2] - p.posZ);
+  const toOwnUnit = safeUnit3(
+    BLUE_GOAL_BACK[0] - p.posX,
+    BLUE_GOAL_BACK[1] - p.posY,
+    BLUE_GOAL_BACK[2] - p.posZ
+  );
+  const toEnemyUnit = safeUnit3(
+    ORANGE_GOAL_BACK[0] - p.posX,
+    ORANGE_GOAL_BACK[1] - p.posY,
+    ORANGE_GOAL_BACK[2] - p.posZ
+  );
   obs[ptr++] = toOwnUnit[0];
   obs[ptr++] = toOwnUnit[1];
   obs[ptr++] = toOwnUnit[2];
@@ -302,7 +330,10 @@ export function writeFuryPlayer39(
     const other = roster[rIdx];
     const otherTeam = other.team === 1 ? 1 : 0;
     if (other.carIndex === carIndex || otherTeam !== carTeam) continue;
-    const ocv = (sCarViews[other.carIndex] || new CarStateView()).attachCar(simState, other.carIndex);
+    const ocv = (sCarViews[other.carIndex] || new CarStateView()).attachCar(
+      simState,
+      other.carIndex
+    );
     const dx = ocv.posX - cv.posX;
     const dy = ocv.posY - cv.posY;
     const dz = ocv.posZ - cv.posZ;

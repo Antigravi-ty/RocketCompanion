@@ -22,7 +22,7 @@ import {
   type NameTagAerialClimbTriggerMode,
   type NameTagAerialClimbTriggerReason,
   type NameTagConfig,
-} from '../../ui-core/config/nameTagConfig';
+} from '../../ui-core/config/nameTagConfig.ts';
 
 export interface CarAerialPhysicsSample {
   isOnGround: boolean;
@@ -105,9 +105,7 @@ export class VehicleAerialClimbTracker {
     this.carBoostAmounts = new Float32Array(maxCars);
     this.carVerticalVelZUu = new Float32Array(maxCars);
     this.carAirborneFlipExhausted = new Uint8Array(maxCars);
-    this.carAerialClimbStatuses = Array.from({ length: maxCars }, (_, idx) =>
-      this.getStatus(idx)
-    );
+    this.carAerialClimbStatuses = Array.from({ length: maxCars }, (_, idx) => this.getStatus(idx));
   }
 
   public reset(): void {
@@ -200,8 +198,7 @@ export class VehicleAerialClimbTracker {
     const holdMinSec =
       Math.max(
         25,
-        Number(config.aerialClimbHoldJumpMinMs) ||
-          DEFAULT_NAME_TAG_CONFIG.aerialClimbHoldJumpMinMs
+        Number(config.aerialClimbHoldJumpMinMs) || DEFAULT_NAME_TAG_CONFIG.aerialClimbHoldJumpMinMs
       ) / 1000;
     const minPitchFwdZ = Number.isFinite(Number(config.aerialClimbMinPitchFwdZ))
       ? Number(config.aerialClimbMinPitchFwdZ)
@@ -246,10 +243,7 @@ export class VehicleAerialClimbTracker {
     }
 
     // 3. Extinguish latched intent immediately when upward velocity disappears
-    if (
-      sample.velZUu <= 0 ||
-      (slot.hasReachedActiveClimb && sample.velZUu < minVelZUu)
-    ) {
+    if (sample.velZUu <= 0 || (slot.hasReachedActiveClimb && sample.velZUu < minVelZUu)) {
       slot.holdJumpIntentLatched = false;
       slot.doubleJumpIntentLatched = false;
       slot.activeTriggerReason = 'none';
@@ -283,8 +277,7 @@ export class VehicleAerialClimbTracker {
       }
     }
 
-    const meetsKinematics =
-      sample.posZUu >= minAltitudeUu && sample.velZUu >= minVelZUu;
+    const meetsKinematics = sample.posZUu >= minAltitudeUu && sample.velZUu >= minVelZUu;
 
     if (modeIntentMatches && meetsKinematics) {
       slot.isClimbing = true;

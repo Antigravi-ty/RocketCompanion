@@ -1,7 +1,5 @@
 import { DeterminismHarness } from '../../physics/DeterminismHarness.ts';
-import type {
-  DiagnosticsTestVehicleController,
-} from '../../network/diagnostics/DiagnosticsTestVehicles.ts';
+import type { DiagnosticsTestVehicleController } from '../../network/diagnostics/DiagnosticsTestVehicles.ts';
 import type { sampleDiagnosticFleetTelemetry } from '../../network/diagnostics/ZeroGDiagnosticLab.ts';
 import {
   DEFAULT_GHOST_OPACITY,
@@ -9,10 +7,7 @@ import {
   type LobbyGhostCarCoordinator,
 } from '../../network/server/LobbyGhostCarCoordinator.ts';
 import type { MultiWorldGhostRenderer } from '../modes/MultiWorldGhostRenderer.ts';
-import {
-  networkDiagnosticsStore,
-  type NameTagCarEntry,
-} from '../runtimeUiPort.ts';
+import { networkDiagnosticsStore, type NameTagCarEntry } from '../runtimeUiPort.ts';
 import {
   DiagnosticsFleetAndGhostController,
   type DiagnosticFleetSpawnOptions,
@@ -52,7 +47,7 @@ export function computeClampedPhysicsRate(rate: number, options: PhysicsRateOpti
 export function computeAdjustedExtraLatencyMs(
   currentChannelExtraMs: number | undefined,
   storeExtraMs: number | undefined,
-  deltaLatencyMs: number,
+  deltaLatencyMs: number
 ): number {
   const baseExtra =
     typeof currentChannelExtraMs === 'number' && Number.isFinite(currentChannelExtraMs)
@@ -126,7 +121,7 @@ export class NetworkDiagnosticsProbe {
 
   configureLobbyGhostMode(
     enabled = true,
-    optionsOrInteractWithBall: boolean | LobbyGhostModeOptions = {},
+    optionsOrInteractWithBall: boolean | LobbyGhostModeOptions = {}
   ): LobbyGhostModeConfigResult {
     return this.fleetAndGhost.configureLobbyGhostMode(enabled, optionsOrInteractWithBall);
   }
@@ -135,13 +130,13 @@ export class NetworkDiagnosticsProbe {
     carIndex: number,
     interactWithBall = false,
     interactWithCars = false,
-    opacity = DEFAULT_GHOST_OPACITY,
+    opacity = DEFAULT_GHOST_OPACITY
   ): CarCollisionMaskEntry {
     return this.fleetAndGhost.applyCarGhostCollision(
       carIndex,
       interactWithBall,
       interactWithCars,
-      opacity,
+      opacity
     );
   }
 
@@ -188,7 +183,7 @@ export class NetworkDiagnosticsProbe {
       console.log(
         '%c[Network Packet Dump]%c Waiting for next incoming datagram...',
         'background:#1f6feb;color:#fff;padding:2px 6px;border-radius:3px;font-weight:bold',
-        'color:#58a6ff',
+        'color:#58a6ff'
       );
       return reconciler.controlMessenger.triggerDumpNextPacket();
     }
@@ -210,7 +205,7 @@ export class NetworkDiagnosticsProbe {
     const newLatency = computeAdjustedExtraLatencyMs(
       channel?.extraLatencyMs,
       storeExtra,
-      deltaLatencyMs,
+      deltaLatencyMs
     );
 
     networkDiagnosticsStore?.setExtraLatency?.(newLatency);
@@ -270,7 +265,7 @@ export class NetworkDiagnosticsProbe {
   }
 
   async spawnDiagnosticTestFleet(
-    options: DiagnosticFleetSpawnOptions = {},
+    options: DiagnosticFleetSpawnOptions = {}
   ): Promise<DiagnosticsTestVehicleController | null> {
     return this.fleetAndGhost.spawnDiagnosticTestFleet(options);
   }
@@ -282,7 +277,7 @@ export class NetworkDiagnosticsProbe {
 
   async toggleDiagnosticTestFleet(
     forceEnabled: boolean | null = null,
-    anchorMode: string | null = null,
+    anchorMode: string | null = null
   ): Promise<DiagnosticsTestVehicleController | null> {
     const nextEnabled =
       forceEnabled !== null

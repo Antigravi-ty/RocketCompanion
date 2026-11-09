@@ -41,26 +41,13 @@ export type RLRCVisualId =
 
 export type RLRCTeamIndex = 0 | 1;
 
-export type RLRCBookmarkKind =
-  | 'user-mark'
-  | 'goal'
-  | 'kickoff'
-  | 'demolish'
-  | 'ue-keyframe';
+export type RLRCBookmarkKind = 'user-mark' | 'goal' | 'kickoff' | 'demolish' | 'ue-keyframe';
 
-export type RLRCNonPovInterventionMode =
-  | 'disappear'
-  | 'no-input'
-  | 'follow-state'
-  | 'bot-takeover';
+export type RLRCNonPovInterventionMode = 'disappear' | 'no-input' | 'follow-state' | 'bot-takeover';
 
 export type RLRCInterpolationMethod = 'hermite-clamped' | 'linear';
 
-export type RLRCSessionPhase =
-  | 'idle'
-  | 'viewing'
-  | 'preroll-countdown'
-  | 'intervening';
+export type RLRCSessionPhase = 'idle' | 'viewing' | 'preroll-countdown' | 'intervening';
 
 export interface RLRCVec3 {
   readonly x: number;

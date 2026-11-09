@@ -5,37 +5,62 @@
 
 import { type ReplayRingBuffer } from './ReplayRingBuffer.ts';
 import {
-  REPLAY_PLAYBACK_SPEEDS, resolveTimelineFrameEntryAt,
-  resolveTimelineFrameBufferAt, resolveTimelineFrameBufferByOffset,
+  REPLAY_PLAYBACK_SPEEDS,
+  resolveTimelineFrameEntryAt,
+  resolveTimelineFrameBufferAt,
+  resolveTimelineFrameBufferByOffset,
 } from './ReplayPlaybackState.ts';
 import { applyReplayFrameToEngine } from './ReplayFrameInterpolator.ts';
 import { ReplayDirectorCameraSubController } from './ReplayDirectorCameraSubController.ts';
 import { ReplayDiagnosticPatternController } from './ReplayDiagnosticPatternController.ts';
 import {
-  createInitialReplaySessionState, type DirectorCameraPose, type DirectorCameraState,
-  type ReplaySessionState, type ReplaySessionInitOptions, type ImportedDiagnosticPatternInput,
-  type ImportedDiagnosticLoadOptions, type ReplayTimelineFrameEntry, type ReplayFrameCarControlEntry,
-  type ReplayInterpolatorPort, type ReplayPhysicsEnginePort, type DirectorDiagnosticPatternOptions,
+  createInitialReplaySessionState,
+  type DirectorCameraPose,
+  type DirectorCameraState,
+  type ReplaySessionState,
+  type ReplaySessionInitOptions,
+  type ImportedDiagnosticPatternInput,
+  type ImportedDiagnosticLoadOptions,
+  type ReplayTimelineFrameEntry,
+  type ReplayFrameCarControlEntry,
+  type ReplayInterpolatorPort,
+  type ReplayPhysicsEnginePort,
+  type DirectorDiagnosticPatternOptions,
 } from './replayDirectorStateTypes.ts';
 import {
-  buildTimelineReplaySessionInitState, buildRetainedReplaySessionState,
-  buildClonedRetainedReplaySessionState, buildEndedReplaySessionState,
-  buildClearedRetainedReplaySessionState, executeReplayPlaybackStep, type ReplayPlaybackStepResult,
+  buildTimelineReplaySessionInitState,
+  buildRetainedReplaySessionState,
+  buildClonedRetainedReplaySessionState,
+  buildEndedReplaySessionState,
+  buildClearedRetainedReplaySessionState,
+  executeReplayPlaybackStep,
+  type ReplayPlaybackStepResult,
 } from './ReplayDirectorStatePipeline.ts';
 import {
-  resolveSessionTouchLookahead, computeSessionDramaticSlowMo, type ResolvedTouchLookahead,
+  resolveSessionTouchLookahead,
+  computeSessionDramaticSlowMo,
+  type ResolvedTouchLookahead,
 } from './replayTouchLookaheadPipeline.ts';
 import {
-  analyzeAndSyncReplayTouchTimelineState, appendStreamedReplayFrameToState, type ReplayTouchAnalysisConfig,
+  analyzeAndSyncReplayTouchTimelineState,
+  appendStreamedReplayFrameToState,
+  type ReplayTouchAnalysisConfig,
 } from './ReplayTouchTimelineAnalyzer.ts';
 import type { SuffixDirectorTrajectoryPlan } from './ReplayDirectorTrajectoryPlanner.ts';
 import {
-  getActiveReplayTimelineController, setActiveReplayTimelineController,
-  notifyActiveReplayTimelineController, markReplayTimelineControllerRetained,
+  getActiveReplayTimelineController,
+  setActiveReplayTimelineController,
+  notifyActiveReplayTimelineController,
+  markReplayTimelineControllerRetained,
 } from '../game/runtimeUiPort.ts';
 import type { DirectorPatternSerializerOptions } from './ReplayDirectorPatternSerializer.ts';
 
-export type { ReplayTimelineFrameEntry, ReplaySessionState, DirectorCameraState, ReplayPlaybackStepResult };
+export type {
+  ReplayTimelineFrameEntry,
+  ReplaySessionState,
+  DirectorCameraState,
+  ReplayPlaybackStepResult,
+};
 
 export interface ReplayTimelineControllerOptions {
   engine?: ReplayPhysicsEnginePort | null;
@@ -63,10 +88,16 @@ export class ReplayTimelineController {
     this.diagnosticPatterns = new ReplayDiagnosticPatternController(this);
   }
 
-  public get directorCameraState(): DirectorCameraState { return this.directorCamera.state; }
-  public set directorCameraState(val: DirectorCameraState) { this.directorCamera.state = val; }
+  public get directorCameraState(): DirectorCameraState {
+    return this.directorCamera.state;
+  }
+  public set directorCameraState(val: DirectorCameraState) {
+    this.directorCamera.state = val;
+  }
 
-  private _patch(patch: Partial<ReplaySessionState>): void { Object.assign(this.sessionState, patch); }
+  private _patch(patch: Partial<ReplaySessionState>): void {
+    Object.assign(this.sessionState, patch);
+  }
 
   attach(engine: ReplayPhysicsEnginePort | null, ringBuffer: ReplayRingBuffer | null = null): this {
     this.engine = engine || this.engine;
@@ -80,12 +111,20 @@ export class ReplayTimelineController {
     return wasmCount > 0 ? wasmCount : (this.ringBuffer?.size ?? 0);
   }
 
-  get frames(): ReplayTimelineFrameEntry[] { return this.sessionState.activeFrames; }
-  get ActiveWindowCount(): number { return Array.isArray(this.sessionState.activeFrames) ? this.sessionState.activeFrames.length : 0; }
+  get frames(): ReplayTimelineFrameEntry[] {
+    return this.sessionState.activeFrames;
+  }
+  get ActiveWindowCount(): number {
+    return Array.isArray(this.sessionState.activeFrames)
+      ? this.sessionState.activeFrames.length
+      : 0;
+  }
 
   get currentFrameIndex(): number {
     const total = this.getTotalRecordedFrames();
-    return total <= 0 ? 0 : Math.max(0, Math.min(total - 1, Math.floor(this.sessionState.cursorFloat)));
+    return total <= 0
+      ? 0
+      : Math.max(0, Math.min(total - 1, Math.floor(this.sessionState.cursorFloat)));
   }
 
   get progress(): number {
@@ -96,14 +135,23 @@ export class ReplayTimelineController {
   invalidateCachedDirectorPlans(disableCsv = false): void {
     const s = this.sessionState;
     this._patch({
-      useRecordedCsvCamera: disableCsv && s.isImportedPreview && s.useRecordedCsvCamera ? false : s.useRecordedCsvCamera,
-      cachedSuffixCameraPlan: null, cachedSmoothnessSummary: null, cachedAnomalyPeaks: null,
+      useRecordedCsvCamera:
+        disableCsv && s.isImportedPreview && s.useRecordedCsvCamera
+          ? false
+          : s.useRecordedCsvCamera,
+      cachedSuffixCameraPlan: null,
+      cachedSmoothnessSummary: null,
+      cachedAnomalyPeaks: null,
     });
     this.refreshCurrentFrameDirectorPose();
   }
 
   setRecordedCsvCameraMode(useCsv: boolean): boolean {
-    this._patch({ useRecordedCsvCamera: Boolean(useCsv), cachedSmoothnessSummary: null, cachedAnomalyPeaks: null });
+    this._patch({
+      useRecordedCsvCamera: Boolean(useCsv),
+      cachedSmoothnessSummary: null,
+      cachedAnomalyPeaks: null,
+    });
     this.refreshCurrentFrameDirectorPose();
     notifyActiveReplayTimelineController();
     return this.sessionState.useRecordedCsvCamera;
@@ -118,7 +166,13 @@ export class ReplayTimelineController {
   }
 
   resolveTouchLookaheadForFrame(frameIdx: number, fallback = 0): ResolvedTouchLookahead {
-    return resolveSessionTouchLookahead(this.sessionState, this.directorCamera.state, this.ensureSuffixCameraPlan(), frameIdx, fallback);
+    return resolveSessionTouchLookahead(
+      this.sessionState,
+      this.directorCamera.state,
+      this.ensureSuffixCameraPlan(),
+      frameIdx,
+      fallback
+    );
   }
 
   resolveFocusCarForFrame(frameIdx: number, fallback = 0): number {
@@ -133,7 +187,9 @@ export class ReplayTimelineController {
     const s = Object.assign(
       this.sessionState,
       buildTimelineReplaySessionInitState({
-        ringBuffer: this.ringBuffer, engine: this.engine, options,
+        ringBuffer: this.ringBuffer,
+        engine: this.engine,
+        options,
         currentRetainedReplaySeq: this.sessionState.retainedReplaySeq,
       })
     );
@@ -159,16 +215,39 @@ export class ReplayTimelineController {
   }
 
   copyRetainedReplayFrom(
-    srcCtrl: { sessionState?: ReplaySessionState; directorCamera?: ReplayDirectorCameraSubController; directorCameraState?: DirectorCameraState } | null | undefined
+    srcCtrl:
+      | {
+          sessionState?: ReplaySessionState;
+          directorCamera?: ReplayDirectorCameraSubController;
+          directorCameraState?: DirectorCameraState;
+        }
+      | null
+      | undefined
   ): number {
     const src = srcCtrl?.sessionState;
-    if (!srcCtrl || srcCtrl === this || !src || !Array.isArray(src.activeFrames) || src.activeFrames.length === 0) return 0;
-    Object.assign(this.sessionState, buildClonedRetainedReplaySessionState({ currentSessionState: this.sessionState, sourceSessionState: src }));
+    if (
+      !srcCtrl ||
+      srcCtrl === this ||
+      !src ||
+      !Array.isArray(src.activeFrames) ||
+      src.activeFrames.length === 0
+    )
+      return 0;
+    Object.assign(
+      this.sessionState,
+      buildClonedRetainedReplaySessionState({
+        currentSessionState: this.sessionState,
+        sourceSessionState: src,
+      })
+    );
     this.directorCamera.cloneFrom(srcCtrl.directorCamera?.state || srcCtrl.directorCameraState);
     return this.sessionState.activeFrames.length;
   }
 
-  loadImportedDiagnosticPattern(parsed: ImportedDiagnosticPatternInput | null | undefined, opts: ImportedDiagnosticLoadOptions = {}): number {
+  loadImportedDiagnosticPattern(
+    parsed: ImportedDiagnosticPatternInput | null | undefined,
+    opts: ImportedDiagnosticLoadOptions = {}
+  ): number {
     return this.diagnosticPatterns.loadImportedDiagnosticPattern(parsed, opts);
   }
 
@@ -177,9 +256,14 @@ export class ReplayTimelineController {
     if (!Array.isArray(s.activeFrames) || s.activeFrames.length === 0) return false;
     const isPaused = Boolean(opts.startPaused);
     this._patch({
-      isActive: true, isPersistent: true, isLoopingPreview: opts.loop !== false,
-      isPaused, isScrubbing: false, lastDispatchedFrameIndex: -1,
-      cursorFloat: Boolean(opts.restart) || s.cursorFloat >= s.activeFrames.length - 1 ? 0 : s.cursorFloat,
+      isActive: true,
+      isPersistent: true,
+      isLoopingPreview: opts.loop !== false,
+      isPaused,
+      isScrubbing: false,
+      lastDispatchedFrameIndex: -1,
+      cursorFloat:
+        Boolean(opts.restart) || s.cursorFloat >= s.activeFrames.length - 1 ? 0 : s.cursorFloat,
     });
     this.directorCamera.resetSmoothing();
     this.directorCamera.setPauseAndScrubState(isPaused, false);
@@ -193,16 +277,30 @@ export class ReplayTimelineController {
 
   refreshCurrentFrameDirectorPose(): DirectorCameraPose | null {
     return this.directorCamera.refreshSessionDirectorPose(
-      this.sessionState, this.getTotalRecordedFrames(),
+      this.sessionState,
+      this.getTotalRecordedFrames(),
       (idx) => this.getFrameEntryByIndex(idx),
       (idx) => this.getFrameBufferByIndex(idx),
       (idx, fb) => this.resolveTouchLookaheadForFrame(idx, fb)
     );
   }
 
-  appendStreamedReplayFrame(snap: Float32Array | number[], tick = 0, controls: ReplayFrameCarControlEntry[] | null = null): number {
-    const count = appendStreamedReplayFrameToState(this.sessionState, this.directorCamera, snap, tick, controls);
-    if (count > 0) { markReplayTimelineControllerRetained(this); setActiveReplayTimelineController(this); }
+  appendStreamedReplayFrame(
+    snap: Float32Array | number[],
+    tick = 0,
+    controls: ReplayFrameCarControlEntry[] | null = null
+  ): number {
+    const count = appendStreamedReplayFrameToState(
+      this.sessionState,
+      this.directorCamera,
+      snap,
+      tick,
+      controls
+    );
+    if (count > 0) {
+      markReplayTimelineControllerRetained(this);
+      setActiveReplayTimelineController(this);
+    }
     return count;
   }
 
@@ -214,7 +312,10 @@ export class ReplayTimelineController {
   }
 
   clearRetainedReplay(): void {
-    this.sessionState = buildClearedRetainedReplaySessionState(this.sessionState, this.directorCamera);
+    this.sessionState = buildClearedRetainedReplaySessionState(
+      this.sessionState,
+      this.directorCamera
+    );
     if (getActiveReplayTimelineController() === this) notifyActiveReplayTimelineController();
   }
 
@@ -223,25 +324,40 @@ export class ReplayTimelineController {
   }
 
   getFrameBufferByIndex(idx: number): Float32Array | null {
-    return resolveTimelineFrameBufferAt(this.sessionState.activeFrames, this.engine, this.ringBuffer, idx);
+    return resolveTimelineFrameBufferAt(
+      this.sessionState.activeFrames,
+      this.engine,
+      this.ringBuffer,
+      idx
+    );
   }
 
   getFrameBufferByOffset(ticksAgo = 0): Float32Array | null {
-    return resolveTimelineFrameBufferByOffset(this.sessionState.activeFrames, this.engine, this.ringBuffer, ticksAgo);
+    return resolveTimelineFrameBufferByOffset(
+      this.sessionState.activeFrames,
+      this.engine,
+      this.ringBuffer,
+      ticksAgo
+    );
   }
 
-  seekToIndex(frameIndex: number, interpolator: ReplayInterpolatorPort | null = null): Float32Array | null {
+  seekToIndex(
+    frameIndex: number,
+    interpolator: ReplayInterpolatorPort | null = null
+  ): Float32Array | null {
     const total = this.getTotalRecordedFrames();
     if (total <= 0) return null;
     const clamped = Math.max(0, Math.min(total - 1, Number(frameIndex) || 0));
     const targetIdx = Math.floor(clamped);
     this._patch({
-      cursorFloat: clamped, lastDispatchedFrameIndex: targetIdx,
+      cursorFloat: clamped,
+      lastDispatchedFrameIndex: targetIdx,
       ...(this.sessionState.isActive ? { isScrubbing: true, isPersistent: true } : {}),
     });
     this.refreshCurrentFrameDirectorPose();
     const buf = this.getFrameBufferByIndex(targetIdx);
-    if (this.sessionState.isActive && buf && this.engine) applyReplayFrameToEngine(this.engine, buf, interpolator);
+    if (this.sessionState.isActive && buf && this.engine)
+      applyReplayFrameToEngine(this.engine, buf, interpolator);
     setActiveReplayTimelineController(this);
     notifyActiveReplayTimelineController();
     return buf;
@@ -249,17 +365,29 @@ export class ReplayTimelineController {
 
   seekByOffset(ticksAgo = 0, interp: ReplayInterpolatorPort | null = null): Float32Array | null {
     const total = this.getTotalRecordedFrames();
-    return total <= 0 ? null : this.seekToIndex(Math.max(0, Math.min(total - 1, total - 1 - Math.max(0, Math.floor(ticksAgo)))), interp);
+    return total <= 0
+      ? null
+      : this.seekToIndex(
+          Math.max(0, Math.min(total - 1, total - 1 - Math.max(0, Math.floor(ticksAgo)))),
+          interp
+        );
   }
 
   seekToNormalized(p01: number, interp: ReplayInterpolatorPort | null = null): Float32Array | null {
     const total = this.getTotalRecordedFrames();
-    return total <= 0 ? null : this.seekToIndex(Math.max(0, Math.min(1, Number(p01) || 0)) * (total - 1), interp);
+    return total <= 0
+      ? null
+      : this.seekToIndex(Math.max(0, Math.min(1, Number(p01) || 0)) * (total - 1), interp);
   }
 
   setPaused(paused: boolean): boolean {
-    const isPaused = Boolean(paused), s = this.sessionState;
-    this._patch({ isPaused, isPersistent: isPaused ? true : s.isPersistent, isScrubbing: isPaused ? s.isScrubbing : false });
+    const isPaused = Boolean(paused),
+      s = this.sessionState;
+    this._patch({
+      isPaused,
+      isPersistent: isPaused ? true : s.isPersistent,
+      isScrubbing: isPaused ? s.isScrubbing : false,
+    });
     this.directorCamera.setPauseAndScrubState(isPaused, s.isScrubbing);
     setActiveReplayTimelineController(this);
     notifyActiveReplayTimelineController();
@@ -268,7 +396,10 @@ export class ReplayTimelineController {
 
   togglePause(): boolean {
     const s = this.sessionState;
-    if (!s.isPersistent) { this._patch({ isPersistent: true }); return this.setPaused(true); }
+    if (!s.isPersistent) {
+      this._patch({ isPersistent: true });
+      return this.setPaused(true);
+    }
     const total = this.getTotalRecordedFrames();
     if (s.isPaused && total > 1 && s.cursorFloat >= total - 1.05) {
       this._patch({ cursorFloat: 0, lastDispatchedFrameIndex: -1 });
@@ -279,25 +410,48 @@ export class ReplayTimelineController {
 
   setPlaybackSpeed(speed: number): number {
     const num = Number(speed);
-    if (Number.isFinite(num) && num > 0) this._patch({ playbackSpeed: Math.max(0.1, Math.min(4.0, num)) });
+    if (Number.isFinite(num) && num > 0)
+      this._patch({ playbackSpeed: Math.max(0.1, Math.min(4.0, num)) });
     notifyActiveReplayTimelineController();
     return this.sessionState.playbackSpeed;
   }
 
   cyclePlaybackSpeed(): number {
-    const idx = REPLAY_PLAYBACK_SPEEDS.findIndex((s: number) => Math.abs(s - this.sessionState.playbackSpeed) < 0.01);
-    this._patch({ playbackSpeed: REPLAY_PLAYBACK_SPEEDS[(idx + 1) % REPLAY_PLAYBACK_SPEEDS.length] });
+    const idx = REPLAY_PLAYBACK_SPEEDS.findIndex(
+      (s: number) => Math.abs(s - this.sessionState.playbackSpeed) < 0.01
+    );
+    this._patch({
+      playbackSpeed: REPLAY_PLAYBACK_SPEEDS[(idx + 1) % REPLAY_PLAYBACK_SPEEDS.length],
+    });
     notifyActiveReplayTimelineController();
     return this.sessionState.playbackSpeed;
   }
 
-  stepPlayback(dt: number, interpolator: ReplayInterpolatorPort | null = null, applyToEngine = false): ReplayPlaybackStepResult {
+  stepPlayback(
+    dt: number,
+    interpolator: ReplayInterpolatorPort | null = null,
+    applyToEngine = false
+  ): ReplayPlaybackStepResult {
     const total = this.getTotalRecordedFrames();
-    if (total <= 0) return { frame: null, frameIndex: 0, totalFrames: 0, progress: 0, isFinished: true, incidents: [], audioEvents: [] };
+    if (total <= 0)
+      return {
+        frame: null,
+        frameIndex: 0,
+        totalFrames: 0,
+        progress: 0,
+        isFinished: true,
+        incidents: [],
+        audioEvents: [],
+      };
     setActiveReplayTimelineController(this);
     const res = executeReplayPlaybackStep({
-      totalFrames: total, dtSeconds: dt, interpolator, applyToEngine, engine: this.engine,
-      sessionState: this.sessionState, directorCamera: this.directorCamera,
+      totalFrames: total,
+      dtSeconds: dt,
+      interpolator,
+      applyToEngine,
+      engine: this.engine,
+      sessionState: this.sessionState,
+      directorCamera: this.directorCamera,
       getFrameEntryByIndex: (idx) => this.getFrameEntryByIndex(idx),
       getFrameBufferByIndex: (idx) => this.getFrameBufferByIndex(idx),
       ensureSuffixCameraPlan: () => this.ensureSuffixCameraPlan(),
@@ -308,10 +462,18 @@ export class ReplayTimelineController {
     return res;
   }
 
-  getCurrentFrameDiagnosticSnapshot() { return this.diagnosticPatterns.getCurrentFrameDiagnosticSnapshot(); }
-  buildDirectorDiagnosticPatternPayload(opts?: DirectorDiagnosticPatternOptions) { return this.diagnosticPatterns.buildDirectorDiagnosticPatternPayload(opts); }
-  buildDirectorDiagnosticPatternCsv(opts?: DirectorPatternSerializerOptions): string { return this.diagnosticPatterns.buildDirectorDiagnosticPatternCsv(opts); }
-  buildDirectorFrameWindowDiagnostic(radius = 15) { return this.diagnosticPatterns.buildDirectorFrameWindowDiagnostic(radius); }
+  getCurrentFrameDiagnosticSnapshot() {
+    return this.diagnosticPatterns.getCurrentFrameDiagnosticSnapshot();
+  }
+  buildDirectorDiagnosticPatternPayload(opts?: DirectorDiagnosticPatternOptions) {
+    return this.diagnosticPatterns.buildDirectorDiagnosticPatternPayload(opts);
+  }
+  buildDirectorDiagnosticPatternCsv(opts?: DirectorPatternSerializerOptions): string {
+    return this.diagnosticPatterns.buildDirectorDiagnosticPatternCsv(opts);
+  }
+  buildDirectorFrameWindowDiagnostic(radius = 15) {
+    return this.diagnosticPatterns.buildDirectorFrameWindowDiagnostic(radius);
+  }
 }
 
 export default ReplayTimelineController;

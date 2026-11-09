@@ -6,16 +6,16 @@
  * wheelSpecs, boost outlets, hitbox dimensions, and static vehicle descriptors.
  */
 
-import { HITBOX_PRESETS } from '../../ui-core/config/vehiclePresets';
+import { HITBOX_PRESETS } from '../../ui-core/config/vehiclePresets.ts';
 import {
   INSIDIO_DESCRIPTOR,
   RYZA_DESCRIPTOR,
-} from '../../ui-core/config/vehicleDescriptorsConfig';
+} from '../../ui-core/config/vehicleDescriptorsConfig.ts';
 import {
   FENNEC_DESCRIPTOR,
   getVehicleDescriptor,
   hasVehicleDescriptor,
-} from '../../ui-core/config/vehicleTunerConfig';
+} from '../../ui-core/config/vehicleTunerConfig.ts';
 import {
   GOLDEN_65F1538D_COMMIT,
   GOLDEN_65F1538D_HITBOX_PRESETS,
@@ -64,7 +64,7 @@ function computeMaxAbsDelta(expected: unknown, actual: unknown): number {
 
 export function captureVehicleRigGeometryProbe(
   arena: ScenarioRuntimePort['arena'],
-  carIndex = 0,
+  carIndex = 0
 ): VehicleRigGeometryProbeSnapshot | null {
   if (!arena || !Array.isArray(arena.cars)) return null;
   const carRoot = arena.cars[carIndex];
@@ -106,23 +106,39 @@ export function captureVehicleRigGeometryProbe(
   }
 
   const frontAxleX =
-    wheels.length >= 2 ? roundMetric((wheels[0].steerPosition[0] + wheels[1].steerPosition[0]) * 0.5, 4) : 0;
+    wheels.length >= 2
+      ? roundMetric((wheels[0].steerPosition[0] + wheels[1].steerPosition[0]) * 0.5, 4)
+      : 0;
   const rearAxleX =
-    wheels.length >= 4 ? roundMetric((wheels[2].steerPosition[0] + wheels[3].steerPosition[0]) * 0.5, 4) : 0;
+    wheels.length >= 4
+      ? roundMetric((wheels[2].steerPosition[0] + wheels[3].steerPosition[0]) * 0.5, 4)
+      : 0;
   const wheelbaseX = roundMetric(frontAxleX - rearAxleX, 4);
   const frontTrackWidthZ =
-    wheels.length >= 2 ? roundMetric(Math.abs(wheels[0].steerPosition[2] - wheels[1].steerPosition[2]), 4) : 0;
+    wheels.length >= 2
+      ? roundMetric(Math.abs(wheels[0].steerPosition[2] - wheels[1].steerPosition[2]), 4)
+      : 0;
   const rearTrackWidthZ =
-    wheels.length >= 4 ? roundMetric(Math.abs(wheels[2].steerPosition[2] - wheels[3].steerPosition[2]), 4) : 0;
+    wheels.length >= 4
+      ? roundMetric(Math.abs(wheels[2].steerPosition[2] - wheels[3].steerPosition[2]), 4)
+      : 0;
 
   const rawBoosts = arena.carBoosts?.[carIndex] || [];
   const boostOutlets: Array<[number, number, number]> = rawBoosts.map((em) => {
     const noz = em?.nozzleLocal || em?.offset;
-    return [roundMetric(Number(noz?.x ?? 0), 4), roundMetric(Number(noz?.y ?? 0), 4), roundMetric(Number(noz?.z ?? 0), 4)];
+    return [
+      roundMetric(Number(noz?.x ?? 0), 4),
+      roundMetric(Number(noz?.y ?? 0), 4),
+      roundMetric(Number(noz?.z ?? 0), 4),
+    ];
   });
 
   const hitboxDimensions: [number, number, number] | null = hbPreset
-    ? [roundMetric(hbPreset.length, 4), roundMetric(hbPreset.width, 4), roundMetric(hbPreset.height, 4)]
+    ? [
+        roundMetric(hbPreset.length, 4),
+        roundMetric(hbPreset.width, 4),
+        roundMetric(hbPreset.height, 4),
+      ]
     : null;
   const hitboxOffset: [number, number, number] | null = hbPreset
     ? [roundMetric(hbPreset.forward, 4), 0, roundMetric(hbPreset.up, 4)]
@@ -130,17 +146,32 @@ export function captureVehicleRigGeometryProbe(
 
   const cPos = carRoot.position;
   return {
-    carIndex, visualId, hitboxPresetId,
+    carIndex,
+    visualId,
+    hitboxPresetId,
     carVisible: Boolean(carRoot.visible),
-    carPosition: [roundMetric(Number(cPos?.x ?? 0), 4), roundMetric(Number(cPos?.y ?? 0), 4), roundMetric(Number(cPos?.z ?? 0), 4)],
-    frontAxleX, rearAxleX, wheelbaseX, frontTrackWidthZ, rearTrackWidthZ,
-    wheelHeightsY, wheels, wheelSpecs, boostOutlets, hitboxDimensions, hitboxOffset,
+    carPosition: [
+      roundMetric(Number(cPos?.x ?? 0), 4),
+      roundMetric(Number(cPos?.y ?? 0), 4),
+      roundMetric(Number(cPos?.z ?? 0), 4),
+    ],
+    frontAxleX,
+    rearAxleX,
+    wheelbaseX,
+    frontTrackWidthZ,
+    rearTrackWidthZ,
+    wheelHeightsY,
+    wheels,
+    wheelSpecs,
+    boostOutlets,
+    hitboxDimensions,
+    hitboxOffset,
   };
 }
 
 export function diffVehicleRigProbeAgainstGolden65f1538d(
   probe: VehicleRigGeometryProbeSnapshot,
-  toleranceUu = DEFAULT_COORDINATE_TOLERANCE_UU,
+  toleranceUu = DEFAULT_COORDINATE_TOLERANCE_UU
 ): VehicleRigGoldenDiffReport {
   const mismatches: GoldenFieldDiffItem[] = [];
   let maxCoordinateDeltaUu = 0;
@@ -148,26 +179,48 @@ export function diffVehicleRigProbeAgainstGolden65f1538d(
   const recordCheck = (field: string, expected: unknown, actual: unknown, tol = toleranceUu) => {
     const delta = computeMaxAbsDelta(expected, actual);
     if (Number.isFinite(delta) && delta > maxCoordinateDeltaUu) maxCoordinateDeltaUu = delta;
-    if (delta > tol) mismatches.push({ field, expected, actual, maxAbsDelta: delta, passed: false });
+    if (delta > tol)
+      mismatches.push({ field, expected, actual, maxAbsDelta: delta, passed: false });
   };
 
   const goldenDesc = GOLDEN_65F1538D_VEHICLE_DESCRIPTORS[probe.visualId];
   const goldenHb =
-    GOLDEN_65F1538D_HITBOX_PRESETS[probe.hitboxPresetId] || GOLDEN_65F1538D_HITBOX_PRESETS['hitbox-octane'];
+    GOLDEN_65F1538D_HITBOX_PRESETS[probe.hitboxPresetId] ||
+    GOLDEN_65F1538D_HITBOX_PRESETS['hitbox-octane'];
 
   if (goldenDesc) {
     recordCheck(`${probe.visualId}.wheelSpecs`, goldenDesc.wheelAnchors, probe.wheelSpecs);
     recordCheck(`${probe.visualId}.boostOutlets`, goldenDesc.boostOutlets, probe.boostOutlets);
-    recordCheck(`${probe.visualId}.wheelbaseX`, roundMetric(goldenDesc.wheelAnchors[0][0] - goldenDesc.wheelAnchors[2][0], 4), probe.wheelbaseX);
-    recordCheck(`${probe.visualId}.frontTrackWidthZ`, roundMetric(Math.abs(goldenDesc.wheelAnchors[0][1] - goldenDesc.wheelAnchors[1][1]), 4), probe.frontTrackWidthZ);
-    recordCheck(`${probe.visualId}.rearTrackWidthZ`, roundMetric(Math.abs(goldenDesc.wheelAnchors[2][1] - goldenDesc.wheelAnchors[3][1]), 4), probe.rearTrackWidthZ);
+    recordCheck(
+      `${probe.visualId}.wheelbaseX`,
+      roundMetric(goldenDesc.wheelAnchors[0][0] - goldenDesc.wheelAnchors[2][0], 4),
+      probe.wheelbaseX
+    );
+    recordCheck(
+      `${probe.visualId}.frontTrackWidthZ`,
+      roundMetric(Math.abs(goldenDesc.wheelAnchors[0][1] - goldenDesc.wheelAnchors[1][1]), 4),
+      probe.frontTrackWidthZ
+    );
+    recordCheck(
+      `${probe.visualId}.rearTrackWidthZ`,
+      roundMetric(Math.abs(goldenDesc.wheelAnchors[2][1] - goldenDesc.wheelAnchors[3][1]), 4),
+      probe.rearTrackWidthZ
+    );
   } else if (goldenHb) {
     recordCheck(`${probe.visualId}.wheelSpecs`, goldenHb.wheelSpecs, probe.wheelSpecs);
-    recordCheck(`${probe.visualId}.wheelbaseX`, roundMetric(goldenHb.wheelSpecs[0][0] - goldenHb.wheelSpecs[2][0], 4), probe.wheelbaseX);
+    recordCheck(
+      `${probe.visualId}.wheelbaseX`,
+      roundMetric(goldenHb.wheelSpecs[0][0] - goldenHb.wheelSpecs[2][0], 4),
+      probe.wheelbaseX
+    );
   }
 
   if (goldenHb && probe.hitboxDimensions) {
-    recordCheck(`${probe.hitboxPresetId}.dimensions`, [goldenHb.length, goldenHb.width, goldenHb.height], probe.hitboxDimensions);
+    recordCheck(
+      `${probe.hitboxPresetId}.dimensions`,
+      [goldenHb.length, goldenHb.width, goldenHb.height],
+      probe.hitboxDimensions
+    );
   }
 
   return {
@@ -182,11 +235,13 @@ export function diffVehicleRigProbeAgainstGolden65f1538d(
 }
 
 export function auditStaticDescriptorsAgainstGolden65f1538d(
-  toleranceUu = DEFAULT_COORDINATE_TOLERANCE_UU,
+  toleranceUu = DEFAULT_COORDINATE_TOLERANCE_UU
 ): GoldenFieldDiffItem[] {
   const diffs: GoldenFieldDiffItem[] = [];
   const liveDescriptors: Record<string, typeof FENNEC_DESCRIPTOR> = {
-    fennec: FENNEC_DESCRIPTOR, insidio: INSIDIO_DESCRIPTOR, ryza: RYZA_DESCRIPTOR,
+    fennec: FENNEC_DESCRIPTOR,
+    insidio: INSIDIO_DESCRIPTOR,
+    ryza: RYZA_DESCRIPTOR,
   };
 
   const checkField = (field: string, expected: unknown, actual: unknown, tol = toleranceUu) => {
@@ -197,27 +252,51 @@ export function auditStaticDescriptorsAgainstGolden65f1538d(
   for (const [id, golden] of Object.entries(GOLDEN_65F1538D_VEHICLE_DESCRIPTORS)) {
     const live = liveDescriptors[id] || getVehicleDescriptor(id);
     if (!live) {
-      diffs.push({ field: `descriptor.${id}`, expected: 'defined', actual: 'missing', maxAbsDelta: Infinity, passed: false });
+      diffs.push({
+        field: `descriptor.${id}`,
+        expected: 'defined',
+        actual: 'missing',
+        maxAbsDelta: Infinity,
+        passed: false,
+      });
       continue;
     }
     checkField(`descriptor.${id}.wheelAnchors`, golden.wheelAnchors, live.wheelAnchors);
-    checkField(`descriptor.${id}.suspensionHeights`, golden.suspensionHeights, live.suspensionHeights);
+    checkField(
+      `descriptor.${id}.suspensionHeights`,
+      golden.suspensionHeights,
+      live.suspensionHeights
+    );
     checkField(`descriptor.${id}.boostOutlets`, golden.boostOutlets, live.boostOutlets);
-    checkField(`descriptor.${id}.boostNozzleParams`, golden.boostNozzleParams, live.boostNozzleParams);
-    checkField(`descriptor.${id}.alignment.centerOffset`, golden.alignment.centerOffset, live.alignment?.centerOffset);
+    checkField(
+      `descriptor.${id}.boostNozzleParams`,
+      golden.boostNozzleParams,
+      live.boostNozzleParams
+    );
+    checkField(
+      `descriptor.${id}.alignment.centerOffset`,
+      golden.alignment.centerOffset,
+      live.alignment?.centerOffset
+    );
     checkField(`descriptor.${id}.colors.default`, golden.colors.default, live.colors?.default, 0);
   }
 
   for (const [hbId, goldenHb] of Object.entries(GOLDEN_65F1538D_HITBOX_PRESETS)) {
     const liveHb = HITBOX_PRESETS[hbId];
     if (!liveHb) {
-      diffs.push({ field: `hitbox.${hbId}`, expected: 'defined', actual: 'missing', maxAbsDelta: Infinity, passed: false });
+      diffs.push({
+        field: `hitbox.${hbId}`,
+        expected: 'defined',
+        actual: 'missing',
+        maxAbsDelta: Infinity,
+        passed: false,
+      });
       continue;
     }
     checkField(
       `hitbox.${hbId}.dimensions`,
       [goldenHb.length, goldenHb.width, goldenHb.height, goldenHb.forward, goldenHb.up],
-      [liveHb.length, liveHb.width, liveHb.height, liveHb.forward, liveHb.up],
+      [liveHb.length, liveHb.width, liveHb.height, liveHb.forward, liveHb.up]
     );
   }
 
@@ -227,7 +306,7 @@ export function auditStaticDescriptorsAgainstGolden65f1538d(
 export function buildGoldenBaselineDiffSummary(
   arena: ScenarioRuntimePort['arena'],
   preCapturedProbes: readonly VehicleRigGeometryProbeSnapshot[] = [],
-  toleranceUu = DEFAULT_COORDINATE_TOLERANCE_UU,
+  toleranceUu = DEFAULT_COORDINATE_TOLERANCE_UU
 ): GoldenBaselineDiffSummary {
   const staticDescriptorDiffs = auditStaticDescriptorsAgainstGolden65f1538d(toleranceUu);
   const staticDescriptorChecksPassed = staticDescriptorDiffs.every((d) => d.passed);
@@ -242,7 +321,9 @@ export function buildGoldenBaselineDiffSummary(
     }
   }
 
-  const vehicleRigDiffs = probesToDiff.map((p) => diffVehicleRigProbeAgainstGolden65f1538d(p, toleranceUu));
+  const vehicleRigDiffs = probesToDiff.map((p) =>
+    diffVehicleRigProbeAgainstGolden65f1538d(p, toleranceUu)
+  );
   const rigsPassed = vehicleRigDiffs.every((r) => r.passed);
 
   return {

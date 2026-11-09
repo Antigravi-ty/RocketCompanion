@@ -29,7 +29,10 @@ export interface ActiveModeCarListPort {
 export interface RuntimeInputPollerHostPort {
   readonly modeManager: { getActiveMode(): ActiveModeCarListPort | null } | null;
   readonly physics: RocketSimPhysicsEngine | null;
-  readonly arena?: { readonly vehicleRegistry?: { readonly carTeams?: ArrayLike<number> }; readonly carTeams?: ArrayLike<number> } | null;
+  readonly arena?: {
+    readonly vehicleRegistry?: { readonly carTeams?: ArrayLike<number> };
+    readonly carTeams?: ArrayLike<number>;
+  } | null;
   readonly networkReconciler?: PredictionReconciler | null;
   readonly networkManager?: {
     readonly sessionCoordinator?: {
@@ -64,10 +67,10 @@ function resolveFallbackCarTeam(
   pollerHost: RuntimeInputPollerHostPort,
   cIdx: number,
   localCarIndex: number,
-  onlineLocalTeam: 0 | 1 | null,
+  onlineLocalTeam: 0 | 1 | null
 ): 0 | 1 {
   const fromParticipantMap = normalizeTeamBit(
-    pollerHost.networkManager?.rosterSyncCoordinator?.participantTeams?.get(cIdx),
+    pollerHost.networkManager?.rosterSyncCoordinator?.participantTeams?.get(cIdx)
   );
   if (fromParticipantMap !== null) return fromParticipantMap;
 
@@ -78,7 +81,9 @@ function resolveFallbackCarTeam(
   const fromPhysicsSpec = normalizeTeamBit(pollerHost.physics?._carSpecs?.[cIdx]?.team);
   if (fromPhysicsSpec !== null) return fromPhysicsSpec;
 
-  const fromArena = normalizeTeamBit((pollerHost.arena?.vehicleRegistry?.carTeams ?? pollerHost.arena?.carTeams)?.[cIdx]);
+  const fromArena = normalizeTeamBit(
+    (pollerHost.arena?.vehicleRegistry?.carTeams ?? pollerHost.arena?.carTeams)?.[cIdx]
+  );
   if (fromArena !== null) return fromArena;
 
   if (pollerHost.teamAssignment) {
@@ -96,9 +101,10 @@ function resolveFallbackCarTeam(
 
 function resolveTouchActiveCarsAndTeam(
   pollerHost: RuntimeInputPollerHostPort,
-  carIndex: number,
+  carIndex: number
 ): { team: number; activeCars: ActiveCarTeamSlot[] | null } {
-  const activeCarsList = pollerHost.modeManager?.getActiveMode?.()?.rosterController?.activeCarsList;
+  const activeCarsList =
+    pollerHost.modeManager?.getActiveMode?.()?.rosterController?.activeCarsList;
   if (activeCarsList && activeCarsList.length > 0) {
     const found = activeCarsList.find((c) => c.carIndex === carIndex);
     const team = found ? (found.team === 1 ? 1 : 0) : carIndex % 2;
@@ -182,7 +188,7 @@ function isClosestTeamCarToKickoff(
   pollerHost: RuntimeInputPollerHostPort,
   carIndex: number,
   team: number,
-  activeCars: ActiveCarTeamSlot[] | null,
+  activeCars: ActiveCarTeamSlot[] | null
 ): boolean {
   if (!Array.isArray(activeCars) || activeCars.length <= 2) return true;
   const myView = pollerHost.physics?.getCarStateView?.(carIndex);
@@ -227,10 +233,7 @@ export class RuntimeInputPoller {
     }
   }
 
-  private _resolveTouchAgentControls(
-    agentType: string,
-    isKickoff: boolean,
-  ): CarControlsInput {
+  private _resolveTouchAgentControls(agentType: string, isKickoff: boolean): CarControlsInput {
     const host = this.host;
     const carIndex = host.playerCarIndex ?? 0;
     const { team, activeCars } = resolveTouchActiveCarsAndTeam(host, carIndex);
@@ -261,9 +264,7 @@ export class RuntimeInputPoller {
     const kickoffStep = this._touchAgentKickoffStep || 0;
     const isPrimaryKickoff = isClosestTeamCarToKickoff(host, carIndex, team, activeCars);
     const ko = agent.getKickoffControls(simState, kickoffStep, isPrimaryKickoff) as
-      | CarControlsInput
-      | null
-      | undefined;
+      CarControlsInput | null | undefined;
     let ctrl: CarControlsInput | null | undefined;
     if (ko) {
       ctrl = ko;
@@ -316,8 +317,7 @@ export class RuntimeInputPoller {
     const phase = host.match?.state?.phase;
     const isKickoff = phase === 'kickoff' || phase === 'prepare';
     const currentTick = Math.floor(host.physics.getHeaderView?.()?.tickCount ?? 0);
-    const isKickoffMasked =
-      (host.networkReconciler?.kickoffMaskUntilTick ?? -1) > currentTick;
+    const isKickoffMasked = (host.networkReconciler?.kickoffMaskUntilTick ?? -1) > currentTick;
     const isReplayOrFrozenPhase =
       isFreeCamActive ||
       isKickoff ||
@@ -339,15 +339,18 @@ export class RuntimeInputPoller {
 
     let effectiveControls: CarControlsInput;
     if (isFreeCamActive || isKickoff || isKickoffMasked) {
-      if ((isKickoff || isKickoffMasked) && (touchInputAgent === 'necto' || touchInputAgent === 'nexto')) {
+      if (
+        (isKickoff || isKickoffMasked) &&
+        (touchInputAgent === 'necto' || touchInputAgent === 'nexto')
+      ) {
         this._resolveTouchAgentControls(touchInputAgent, true);
       }
       effectiveControls = NEUTRAL_CAR_CONTROLS;
     } else if (touchInputAgent === 'necto' || touchInputAgent === 'nexto') {
       effectiveControls = commitPhysicsStep
         ? this._resolveTouchAgentControls(touchInputAgent, false)
-        : ((this._touchInputAgentInstance?.action as CarControlsInput | undefined) ||
-          NEUTRAL_CAR_CONTROLS);
+        : (this._touchInputAgentInstance?.action as CarControlsInput | undefined) ||
+          NEUTRAL_CAR_CONTROLS;
     } else if (touchMode && touchInputAgent === 'none') {
       effectiveControls = NEUTRAL_CAR_CONTROLS;
     } else if (this._suppressJumpUntilReleased && rawControls.jump) {
@@ -356,8 +359,7 @@ export class RuntimeInputPoller {
       effectiveControls = rawControls;
     }
 
-    const hasFocus =
-      typeof document !== 'undefined' && !document.hidden && document.hasFocus();
+    const hasFocus = typeof document !== 'undefined' && !document.hidden && document.hasFocus();
 
     const camDynamics = host.cameraSubsystem?.cameraDynamics;
     if (camDynamics) {
@@ -366,9 +368,9 @@ export class RuntimeInputPoller {
             Math.max(
               host.keyboard.cameraLook.x +
                 (this.gamepadSettingsJustClosed ? 0 : host.gamepad.cameraLook.x),
-              -1,
+              -1
             ),
-            1,
+            1
           )
         : 0;
       camDynamics.lookY = hasFocus
@@ -376,9 +378,9 @@ export class RuntimeInputPoller {
             Math.max(
               host.keyboard.cameraLook.y +
                 (this.gamepadSettingsJustClosed ? 0 : host.gamepad.cameraLook.y),
-              -1,
+              -1
             ),
-            1,
+            1
           )
         : 0;
     }
@@ -408,7 +410,7 @@ export class RuntimeInputPoller {
       car0Controls =
         (reconciler.sampleAndPredictInput(
           host.playerCarIndex,
-          normalizedEffective,
+          normalizedEffective
         ) as CarControlsInput | null) || normalizedEffective;
     }
 
@@ -425,8 +427,7 @@ export class RuntimeInputPoller {
       for (let c = 0; c < numCars; c++) {
         if (c !== host.playerCarIndex) {
           const remote = reconciler.historyBuffer.lastRemoteControls.get(c) as
-            | ({ controls?: CarControlsInput } & CarControlsInput)
-            | undefined;
+            ({ controls?: CarControlsInput } & CarControlsInput) | undefined;
           const remoteCtrl = remote?.controls ? remote.controls : remote || NEUTRAL_CAR_CONTROLS;
           host.physics.setControls(c, remoteCtrl);
         }

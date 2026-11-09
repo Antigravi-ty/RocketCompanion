@@ -262,10 +262,7 @@ export class StaticTrainingReplayController {
     return true;
   }
 
-  completeSessionAndAdvance(
-    isTestingSingleShot: boolean,
-    reloadCurrentShot: () => void
-  ): void {
+  completeSessionAndAdvance(isTestingSingleShot: boolean, reloadCurrentShot: () => void): void {
     const r = this.runtime;
     endGoalReplaySession(r, this.replayController, {
       source: 'static-training-replay',

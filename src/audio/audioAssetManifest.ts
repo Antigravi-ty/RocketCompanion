@@ -33,8 +33,8 @@ import {
   TRAINING_BALL_EXPIRE_FILE,
   ENDGAME_FILE,
   CROSSBAR_PING_AUDIO_FILES,
-  CROSSBAR_PING_SMALL_AUDIO_FILES
-} from '../ui-core/config/audioConstants';
+  CROSSBAR_PING_SMALL_AUDIO_FILES,
+} from '../ui-core/config/audioConstants.ts';
 
 export function getAudioDescriptors(): Array<{ id: string; url: string; fallback?: string }> {
   return [
@@ -76,6 +76,6 @@ export function getAudioDescriptors(): Array<{ id: string; url: string; fallback
     ]),
     { id: 'endgame', url: ENDGAME_FILE },
     ...CROSSBAR_PING_AUDIO_FILES.map((url, i) => ({ id: `crossbar_ping_${i}`, url })),
-    ...CROSSBAR_PING_SMALL_AUDIO_FILES.map((url, i) => ({ id: `crossbar_ping_small_${i}`, url }))
+    ...CROSSBAR_PING_SMALL_AUDIO_FILES.map((url, i) => ({ id: `crossbar_ping_small_${i}`, url })),
   ];
 }

@@ -39,7 +39,7 @@ export interface PresentationStageRuntimePort {
             excludeCarIndices: number[];
             getCarControls: (carIdx: number) => CarControlsInput;
             showBall: boolean;
-          },
+          }
         ): void;
       } | null;
     };
@@ -55,7 +55,7 @@ export interface PresentationStageRuntimePort {
       car0Controls: CarControlsInput,
       car1Controls: CarControlsInput,
       isMatchActive: boolean,
-      getCarControls: (carIdx: number) => CarControlsInput,
+      getCarControls: (carIdx: number) => CarControlsInput
     ): void;
     updateSubjectShadows?(): void;
   } | null;
@@ -92,16 +92,13 @@ export class PresentationStage implements PipelineStage {
 
     const getCarControls = (carIdx: number): CarControlsInput => {
       const expCtrl = r.modeManager?.getActiveMode()?.getCarControls?.(carIdx) as
-        | CarControlsInput
-        | null
-        | undefined;
+        CarControlsInput | null | undefined;
       if (expCtrl) return expCtrl;
       if (carIdx === activeCar) {
         return r.playerControls;
       }
       const remote = reconciler?.historyBuffer.lastRemoteControls?.get(carIdx) as
-        | (CarControlsInput & { controls?: CarControlsInput })
-        | undefined;
+        (CarControlsInput & { controls?: CarControlsInput }) | undefined;
       const ctrl = remote?.controls ? remote.controls : remote;
       if (ctrl) return ctrl;
       if (botCoord?.isBotMatch && carIdx === 1) return botCoord.botControls || r.neutralControls;
@@ -109,8 +106,7 @@ export class PresentationStage implements PipelineStage {
     };
 
     const car0Controls = getCarControls(0);
-    const car0Throttle =
-      activeCar === 0 ? r.playerThrottle : (car0Controls?.throttle ?? 0);
+    const car0Throttle = activeCar === 0 ? r.playerThrottle : (car0Controls?.throttle ?? 0);
     const car1Controls = getCarControls(1);
 
     if (r.arena && r.interpolator) {
@@ -125,14 +121,13 @@ export class PresentationStage implements PipelineStage {
         car0Controls,
         car1Controls,
         isMatchActive,
-        getCarControls,
+        getCarControls
       );
     }
 
     if (reconciler) {
       const activeCarMesh = r.arena?.cars?.[activeCar] as
-        | { group?: { position: { x: number; y: number; z: number } } }
-        | undefined;
+        { group?: { position: { x: number; y: number; z: number } } } | undefined;
       const smoothOffset = reconciler.updateSmoothing(dt);
       if (reconciler.enableSmoothing && activeCarMesh?.group && smoothOffset) {
         activeCarMesh.group.position.x += smoothOffset.x;
@@ -149,8 +144,7 @@ export class PresentationStage implements PipelineStage {
         ghostRenderer.setVisible(true);
         ghostRenderer.updateWorld(
           'lobby-remote',
-          reconciler.lobbyPrevAuthoritativeState ||
-            reconciler.lobbyCurrAuthoritativeState,
+          reconciler.lobbyPrevAuthoritativeState || reconciler.lobbyCurrAuthoritativeState,
           reconciler.lobbyCurrAuthoritativeState,
           r.interpolator?.alpha ?? 1.0,
           dt,
@@ -162,7 +156,7 @@ export class PresentationStage implements PipelineStage {
                 : [1, 2, 3, 4, 5, 6, 7],
             getCarControls,
             showBall: true,
-          },
+          }
         );
       }
     }

@@ -7,14 +7,14 @@ import {
   type NameTagAerialClimbTriggerReason,
   type NameTagCarEntry,
   type NameTagConfig,
-} from '../../ui-core/config/nameTagConfig';
+} from '../../ui-core/config/nameTagConfig.ts';
 import {
   clampRayToRoiBoundary2D,
   computeOffscreenRoiBounds2D,
   resolveCarColorPalette,
   type NameTagOffscreenIndicatorCard2D,
-} from '../../ui-core/config/nameTagOffscreenRenderer';
-import type { CarAerialClimbStatus } from './VehicleAerialClimbTracker';
+} from '../../ui-core/config/nameTagOffscreenRenderer.ts';
+import type { CarAerialClimbStatus } from './VehicleAerialClimbTracker.ts';
 
 const GROUND_Y_UU = 4.0;
 const RING_SEGMENTS = 72;
@@ -59,9 +59,7 @@ export function resolveCarAerialClimbSimulation(params: {
       ? carAerialClimbStatuses[carIndex]
       : undefined;
 
-  const usePovClimbSimulation = Boolean(
-    config.aerialClimbSimulatePovInTuner && povClimbStatus
-  );
+  const usePovClimbSimulation = Boolean(config.aerialClimbSimulatePovInTuner && povClimbStatus);
   const activeClimbStatus = usePovClimbSimulation ? povClimbStatus : selfClimbStatus;
 
   let liveCarDoubleJumpedAndClimbing: boolean | undefined;
@@ -82,8 +80,7 @@ export function resolveCarAerialClimbSimulation(params: {
       const isLegacyClimbing =
         Boolean(carAirborneFlipExhausted[carIndex]) &&
         Number(carVerticalVelZUu[carIndex] || 0) >=
-          (Number(config.aerialClimbMinVelZUu) ||
-            DEFAULT_NAME_TAG_CONFIG.aerialClimbMinVelZUu);
+          (Number(config.aerialClimbMinVelZUu) || DEFAULT_NAME_TAG_CONFIG.aerialClimbMinVelZUu);
       liveCarDoubleJumpedAndClimbing = isLegacyClimbing;
       aerialClimbTriggerReason = isLegacyClimbing ? 'double-jump' : 'none';
     }
@@ -92,8 +89,7 @@ export function resolveCarAerialClimbSimulation(params: {
     aerialClimbTriggerReason = selfClimbStatus.triggerReason;
   } else if (
     Boolean(
-      carEntry?.isDoubleJumpedAndClimbing ??
-        config.previewAerialClimbingFlags?.[carIndex % 6]
+      carEntry?.isDoubleJumpedAndClimbing ?? config.previewAerialClimbingFlags?.[carIndex % 6]
     )
   ) {
     aerialClimbTriggerReason = 'manual-override';
@@ -158,16 +154,20 @@ export function buildPovActionSimulationIndicator2D(params: {
     : D.verticalOffsetUu;
   const anchorX = povCarMesh.position.x + cameraUpVector.x * (worldOffsetUu * 0.45);
   const anchorY =
-    povCarMesh.position.y +
-    worldOffsetUu * 0.65 +
-    cameraUpVector.y * (worldOffsetUu * 0.45);
+    povCarMesh.position.y + worldOffsetUu * 0.65 + cameraUpVector.y * (worldOffsetUu * 0.45);
   const anchorZ = povCarMesh.position.z + cameraUpVector.z * (worldOffsetUu * 0.45);
 
   projVector.set(anchorX, anchorY, anchorZ).project(activeCamera);
   if (projVector.z < -1 || projVector.z > 1) return null;
 
-  const circleRadiusPx = Math.max(1, Number(config.offscreenCircleRadiusPx) || D.offscreenCircleRadiusPx);
-  const arrowLengthPx = Math.max(0, Number(config.offscreenArrowLengthPx) ?? D.offscreenArrowLengthPx);
+  const circleRadiusPx = Math.max(
+    1,
+    Number(config.offscreenCircleRadiusPx) || D.offscreenCircleRadiusPx
+  );
+  const arrowLengthPx = Math.max(
+    0,
+    Number(config.offscreenArrowLengthPx) ?? D.offscreenArrowLengthPx
+  );
   const arrowGapPx = Math.max(0, Number(config.offscreenArrowGapPx) ?? D.offscreenArrowGapPx);
   const rawOffscreenBorderW = Number.isFinite(Number(config.offscreenBorderWidthPx))
     ? Number(config.offscreenBorderWidthPx)
@@ -202,7 +202,10 @@ export function buildPovActionSimulationIndicator2D(params: {
     angleRad: Math.PI * 0.5,
     circleRadiusPx,
     arrowLengthPx,
-    arrowBaseWidthPx: Math.max(0, Number(config.offscreenArrowBaseWidthPx) ?? D.offscreenArrowBaseWidthPx),
+    arrowBaseWidthPx: Math.max(
+      0,
+      Number(config.offscreenArrowBaseWidthPx) ?? D.offscreenArrowBaseWidthPx
+    ),
     arrowGapPx,
     borderW: Math.max(0, rawOffscreenBorderW * 0.65),
     opacity: Math.max(0.01, Math.min(1, Number(config.opacity) || 1)),
@@ -238,8 +241,7 @@ export function buildDistanceSimOffscreenIndicator2D(params: {
     1,
     Number(config.offscreenDistanceSimDistanceUu) || D.offscreenDistanceSimDistanceUu
   );
-  const simAngleDeg =
-    (((Number(config.offscreenDistanceSimAngleDeg) || 0) % 360) + 360) % 360;
+  const simAngleDeg = (((Number(config.offscreenDistanceSimAngleDeg) || 0) % 360) + 360) % 360;
   const angleRadInput = (simAngleDeg * Math.PI) / 180;
 
   const dirX = -Math.cos(angleRadInput) * viewportWidthPx;
@@ -284,8 +286,8 @@ export function buildDistanceSimOffscreenIndicator2D(params: {
     boostBorderColor: palette.boostColor,
     aerialClimbGlowVisible: Boolean(
       config.aerialClimbAlertEnabled &&
-        config.aerialClimbSimulatePovInTuner &&
-        povClimbStatus?.isClimbing
+      config.aerialClimbSimulatePovInTuner &&
+      povClimbStatus?.isClimbing
     ),
   };
 }
@@ -387,8 +389,7 @@ export class VehicleNameTagGroundSimVisual {
     this.forwardLine.geometry.attributes.position.needsUpdate = true;
     this.forwardLine.computeLineDistances();
 
-    const simAngleDeg =
-      (((Number(config.offscreenDistanceSimAngleDeg) || 0) % 360) + 360) % 360;
+    const simAngleDeg = (((Number(config.offscreenDistanceSimAngleDeg) || 0) % 360) + 360) % 360;
     const rad = (simAngleDeg * Math.PI) / 180;
     const rayRightWeight = -Math.cos(rad);
     const rayFwdWeight = -Math.sin(rad);

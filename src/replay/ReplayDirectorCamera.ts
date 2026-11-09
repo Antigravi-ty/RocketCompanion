@@ -3,10 +3,7 @@
  * Real-time Goal Replay AutoCam pose evaluation, interpolation, and Three.js camera application.
  */
 
-import {
-  SIM_OFFSETS,
-  BALL_STATE_STRIDE,
-} from '../physics/RocketSimConstants.ts';
+import { SIM_OFFSETS, BALL_STATE_STRIDE } from '../physics/RocketSimConstants.ts';
 import {
   DEFAULT_REPLAY_DIRECTOR_FOV_DEG,
   REPLAY_DIRECTOR_CONFIG,
@@ -56,7 +53,12 @@ export interface DirectorCameraTargetPort {
     updateProjectionMatrix?: () => void;
   } | null;
   setDirectorCameraPoseThreeJs?: (
-    eyeX: number, eyeY: number, eyeZ: number, targetX: number, targetY: number, targetZ: number
+    eyeX: number,
+    eyeY: number,
+    eyeZ: number,
+    targetX: number,
+    targetY: number,
+    targetZ: number
   ) => void;
 }
 
@@ -90,7 +92,8 @@ export function computeGoalReplayCameraPose(
   }
 
   const prevBuf =
-    options.prevStateBuffer && options.prevStateBuffer.length >= SIM_OFFSETS.BALL + BALL_STATE_STRIDE
+    options.prevStateBuffer &&
+    options.prevStateBuffer.length >= SIM_OFFSETS.BALL + BALL_STATE_STRIDE
       ? options.prevStateBuffer
       : stateBuffer;
   const alpha =
@@ -168,7 +171,8 @@ export function computeGoalReplayCameraPose(
             hasResolvedInitialLateralBias: true,
           }
         : {}),
-      ...(typeof embeddedTelemetry.scorerCarIndex === 'number' && embeddedTelemetry.scorerCarIndex >= 0
+      ...(typeof embeddedTelemetry.scorerCarIndex === 'number' &&
+      embeddedTelemetry.scorerCarIndex >= 0
         ? { scorerCarIndex: embeddedTelemetry.scorerCarIndex }
         : {}),
     });
@@ -179,7 +183,12 @@ export function computeGoalReplayCameraPose(
       prevBuf !== stateBuffer ? decodeReplayDirectorTelemetryFromState(prevBuf) : null;
     const p0 = prevEmbedded?.plannedPose || embeddedTelemetry.plannedPose;
     const p1 = embeddedTelemetry.plannedPose;
-    const pose = interpolatePlannedPose(p0, p1, prevEmbedded?.plannedPose ? alpha : 0.0, skipDamping);
+    const pose = interpolatePlannedPose(
+      p0,
+      p1,
+      prevEmbedded?.plannedPose ? alpha : 0.0,
+      skipDamping
+    );
     if (directorState && !skipDamping && pose) {
       Object.assign(directorState, {
         eyeX: pose.eyeX,
@@ -248,10 +257,7 @@ export function applyDirectorReplayCamera(
       stepOrInterpolator?.frame ||
       stepOrInterpolator?.sim?.state ||
       null;
-    prevFrame =
-      stepOrInterpolator?.prevState ||
-      stepOrInterpolator?.prevFrame ||
-      currFrame;
+    prevFrame = stepOrInterpolator?.prevState || stepOrInterpolator?.prevFrame || currFrame;
     alpha = typeof stepOrInterpolator?.alpha === 'number' ? stepOrInterpolator.alpha : 1.0;
     if (typeof stepOrInterpolator?.frameIndex === 'number') {
       frameIndex = stepOrInterpolator.frameIndex + alpha;
@@ -270,10 +276,7 @@ export function applyDirectorReplayCamera(
       stepOrInterpolator?.currState ||
       options.fallbackBuffer ||
       null;
-    prevFrame =
-      stepOrInterpolator?.prevFrame ||
-      stepOrInterpolator?.prevState ||
-      currFrame;
+    prevFrame = stepOrInterpolator?.prevFrame || stepOrInterpolator?.prevState || currFrame;
     alpha = typeof stepOrInterpolator?.alpha === 'number' ? stepOrInterpolator.alpha : 1.0;
     if (typeof stepOrInterpolator?.frameIndex === 'number') {
       frameIndex = stepOrInterpolator.frameIndex + alpha;

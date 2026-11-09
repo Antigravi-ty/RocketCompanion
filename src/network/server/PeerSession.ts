@@ -177,9 +177,7 @@ export function buildTailoredClientPacket(
   view.setFloat64(0, clientTs, false);
   view.setFloat64(8, serverTs, false);
   const signed7Bit = bufferSize & 0x7f;
-  const headerByte16 = hasSessionSignals
-    ? signed7Bit | HEADER_SESSION_SIGNAL_FLAG
-    : signed7Bit;
+  const headerByte16 = hasSessionSignals ? signed7Bit | HEADER_SESSION_SIGNAL_FLAG : signed7Bit;
   view.setUint8(16, headerByte16);
 
   let offset = CLIENT_HEADER_SIZE;

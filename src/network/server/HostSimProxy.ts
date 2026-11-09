@@ -241,8 +241,7 @@ export function createHostSimProxy(hostWorker: HostSimProxyPort) {
       }
       return {
         tickCount: hostWorker.lastServerTick,
-        numCars:
-          hostWorker.options.isBotMatch || (hostWorker.options.numCars ?? 0) >= 2 ? 2 : 1,
+        numCars: hostWorker.options.isBotMatch || (hostWorker.options.numCars ?? 0) >= 2 ? 2 : 1,
       };
     },
     resetKickoff: (seed?: number) => {
@@ -259,7 +258,10 @@ export function createHostSimProxy(hostWorker: HostSimProxyPort) {
         hostWorker.fallbackPhysics.resetGoalLatch();
       }
     },
-    setCarState: (carIndex: number, stateObj: Float32Array | number[] | Record<string, unknown>): number => {
+    setCarState: (
+      carIndex: number,
+      stateObj: Float32Array | number[] | Record<string, unknown>
+    ): number => {
       if (hostWorker.isWorker && hostWorker.worker) {
         const serialized = stateObj instanceof Float32Array ? Array.from(stateObj) : stateObj;
         hostWorker._postCommand('setCarState', {
@@ -316,11 +318,7 @@ export function createHostSimProxy(hostWorker: HostSimProxyPort) {
       }
       if (typeof hostWorker.fallbackSim?.setCarCollisionMask === 'function') {
         return Number(
-          hostWorker.fallbackSim.setCarCollisionMask(
-            carIndex,
-            interactWithBall,
-            interactWithCars
-          )
+          hostWorker.fallbackSim.setCarCollisionMask(carIndex, interactWithBall, interactWithCars)
         );
       }
       return 0;

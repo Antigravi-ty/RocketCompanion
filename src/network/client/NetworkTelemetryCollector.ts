@@ -7,7 +7,7 @@
 import type {
   PacingControllerState,
   PacingControllerParams,
-} from '../../ui-core/config/pacingControllerEvaluator';
+} from '../../ui-core/config/pacingControllerEvaluator.ts';
 import { isDiagnosticProbeSlot } from '../../physics/RocketSimConstants.ts';
 import type {
   PacingStepStatus,
@@ -103,19 +103,11 @@ export function restoreClientLobbyLocalEntities(
   if (!lobbyDualWorldMode || !sim || !saved) return;
   const localIdx = localCarIndex ?? 1;
 
-  if (
-    saved.compactState &&
-    sim.state &&
-    sim.state.length >= CAR_BASE_OFFSET + 6 * CAR_STRIDE
-  ) {
+  if (saved.compactState && sim.state && sim.state.length >= CAR_BASE_OFFSET + 6 * CAR_STRIDE) {
     const copyEnd = CAR_BASE_OFFSET + 6 * CAR_STRIDE;
-    sim.state
-      .subarray(BALL_OFFSET, copyEnd)
-      .set(saved.compactState.subarray(BALL_OFFSET, copyEnd));
+    sim.state.subarray(BALL_OFFSET, copyEnd).set(saved.compactState.subarray(BALL_OFFSET, copyEnd));
     if (sim.state.length >= 440 && saved.compactState.length >= 440) {
-      sim.state
-        .subarray(416, 416 + 6 * 4)
-        .set(saved.compactState.subarray(416, 416 + 6 * 4));
+      sim.state.subarray(416, 416 + 6 * 4).set(saved.compactState.subarray(416, 416 + 6 * 4));
     }
     if (typeof sim.restoreCompactState === 'function') {
       sim.restoreCompactState(sim.state, { preserveEngineTick: true });
@@ -215,7 +207,7 @@ export function syncClientCarTopology(input: TopologySyncInput): TopologySyncRes
   ) {
     let targetMask = packet.activeCarMask & 0xff;
     if (lobbyDualWorldMode) {
-      const diagMask = (packet.activeCarMask & 0xc0) || 0xc0;
+      const diagMask = packet.activeCarMask & 0xc0 || 0xc0;
       const localBit = localCarIndex >= 0 && localCarIndex < 8 ? 1 << localCarIndex : 0;
       targetMask = diagMask | localBit;
     } else if (localCarIndex >= 0 && localCarIndex < 8) {
@@ -225,8 +217,7 @@ export function syncClientCarTopology(input: TopologySyncInput): TopologySyncRes
       const shouldBeActive = (targetMask & (1 << c)) !== 0;
       const isActive = sim.isCarSlotActive(c);
       if (shouldBeActive && !isActive) {
-        const preset =
-          carVisualPresets.get(c) || (isDiagnosticProbeSlot(c) ? 'fennec' : 'octane');
+        const preset = carVisualPresets.get(c) || (isDiagnosticProbeSlot(c) ? 'fennec' : 'octane');
         const defaultTeam = c === 6 ? 0 : c === 7 ? 1 : c % 2;
         sim.addCarAtSlot(c, defaultTeam, preset);
         topologyChanged = true;
@@ -261,10 +252,7 @@ export function syncClientCarTopology(input: TopologySyncInput): TopologySyncRes
         activeCarMask,
       };
     }
-  } else if (
-    typeof packet.activeCarMask === 'number' &&
-    (packet.activeCarMask & 0xc0) !== 0
-  ) {
+  } else if (typeof packet.activeCarMask === 'number' && (packet.activeCarMask & 0xc0) !== 0) {
     configureClientLobbyDiagnosticProbes(sim);
   }
 
@@ -336,13 +324,10 @@ export function recordReconcileTelemetryTick(input: ReconcileTelemetryTickInput)
     smoothRttMs: stepOut?.smoothRttMs ?? effectiveRtt,
     jitterMs: stepOut?.jitterMs ?? 0,
     serverBuffer:
-      lastPacingStepStatus?.rawServerBuffer ??
-      (metrics.inputBufferSize ?? inputBufferTarget),
-    effectiveBuffer:
-      stepOut?.effectiveBuffer ?? (metrics.effectiveInputBuffer ?? inputBufferTarget),
-    targetBuffer:
-      stepOut?.activeTarget ?? (metrics.targetInputBuffer ?? inputBufferTarget),
-    physicsRateHz: stepOut?.physicsRateHz ?? (interpolatorPhysicsRate ?? 120),
+      lastPacingStepStatus?.rawServerBuffer ?? metrics.inputBufferSize ?? inputBufferTarget,
+    effectiveBuffer: stepOut?.effectiveBuffer ?? metrics.effectiveInputBuffer ?? inputBufferTarget,
+    targetBuffer: stepOut?.activeTarget ?? metrics.targetInputBuffer ?? inputBufferTarget,
+    physicsRateHz: stepOut?.physicsRateHz ?? interpolatorPhysicsRate ?? 120,
     leadTicks,
     posErrorUu: metrics.lastCorrectionDelta || 0,
     localPosErrorUu: metrics.localCorrectionDelta || 0,
@@ -368,10 +353,7 @@ export class NetworkTelemetryCollector {
   lastPacingStepStatus: PacingStepStatus | null = null;
   private readonly listeners = new Set<(metrics: ReconcilerMetrics) => void>();
 
-  constructor(
-    recorder: TelemetryRecorderPort | null | undefined,
-    isMatchTelemetryActive = true
-  ) {
+  constructor(recorder: TelemetryRecorderPort | null | undefined, isMatchTelemetryActive = true) {
     this.recorder = recorder;
     this.isMatchTelemetryActive = Boolean(isMatchTelemetryActive);
   }

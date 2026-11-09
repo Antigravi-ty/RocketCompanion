@@ -43,9 +43,7 @@ export function resolvePublicFallbackBrokerUrl(): string {
   }
 
   try {
-    const envUrl = String(
-      (import.meta as any).env?.VITE_PUBLIC_FALLBACK_BROKER_URL || ''
-    ).trim();
+    const envUrl = String((import.meta as any).env?.VITE_PUBLIC_FALLBACK_BROKER_URL || '').trim();
     if (envUrl) {
       return envUrl;
     }

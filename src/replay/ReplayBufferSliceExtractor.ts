@@ -4,7 +4,11 @@
  * cloning, tick search, chronological slice extraction, and audio/signal range queries.
  */
 
-import { MATCH_SIGNALS, isIncidentEvent, isSystemControlSignal } from '../physics/RocketSimConstants.ts';
+import {
+  MATCH_SIGNALS,
+  isIncidentEvent,
+  isSystemControlSignal,
+} from '../physics/RocketSimConstants.ts';
 
 export interface ReplaySignalEntry {
   [key: string]: unknown;
@@ -36,8 +40,14 @@ export interface ReplayAudioCue {
 
 export interface ReplayCarControlsSnapshot {
   [key: string]: unknown;
-  throttle?: number; steer?: number; pitch?: number; yaw?: number; roll?: number;
-  jump?: boolean | number; boost?: boolean | number; handbrake?: boolean | number;
+  throttle?: number;
+  steer?: number;
+  pitch?: number;
+  yaw?: number;
+  roll?: number;
+  jump?: boolean | number;
+  boost?: boolean | number;
+  handbrake?: boolean | number;
 }
 
 export interface ReplayAcknowledgedControlEntry extends ReplayCarControlsSnapshot {
@@ -47,29 +57,73 @@ export interface ReplayAcknowledgedControlEntry extends ReplayCarControlsSnapsho
 
 export interface ReplayRecordedIncident {
   [key: string]: unknown;
-  type?: number; subType?: number; frameIndex?: number; tick?: number;
-  x?: number; y?: number; z?: number; posX?: number; posY?: number; posZ?: number;
-  normalX?: number; normalY?: number; normalZ?: number;
-  normX?: number; normY?: number; normZ?: number;
-  nx?: number; ny?: number; nz?: number;
-  normalRelVel?: number; speed?: number; speedKph?: number; relSpeed?: number;
-  impulse?: number; intensity?: number;
-  primaryId?: number; secondaryId?: number;
-  carIndex?: number; otherCarIndex?: number; car1Index?: number; car2Index?: number;
-  car1Team?: number; car2Team?: number; team?: number;
-  surfaceTag?: number; actionSubType?: number; isCrossbar?: boolean;
-  padIndex?: number; isBig?: boolean; flags?: number;
-  customFloat?: number; customInt?: number;
-  directionDotNormal?: number; dirDot?: number; impactAngleDeg?: number;
-  isInitialTouch?: boolean; isSupersonic?: boolean; isFlipping?: boolean;
-  isOnGround?: boolean; isDemo?: boolean;
-  resetSubType?: number; resetSubTypeName?: string;
-  resetObjectCode?: number; resetObjectType?: string;
-  resetTargetCarIndex?: number; resetSurfaceTag?: number; resetWheelCount?: number;
+  type?: number;
+  subType?: number;
+  frameIndex?: number;
+  tick?: number;
+  x?: number;
+  y?: number;
+  z?: number;
+  posX?: number;
+  posY?: number;
+  posZ?: number;
+  normalX?: number;
+  normalY?: number;
+  normalZ?: number;
+  normX?: number;
+  normY?: number;
+  normZ?: number;
+  nx?: number;
+  ny?: number;
+  nz?: number;
+  normalRelVel?: number;
+  speed?: number;
+  speedKph?: number;
+  relSpeed?: number;
+  impulse?: number;
+  intensity?: number;
+  primaryId?: number;
+  secondaryId?: number;
+  carIndex?: number;
+  otherCarIndex?: number;
+  car1Index?: number;
+  car2Index?: number;
+  car1Team?: number;
+  car2Team?: number;
+  team?: number;
+  surfaceTag?: number;
+  actionSubType?: number;
+  isCrossbar?: boolean;
+  padIndex?: number;
+  isBig?: boolean;
+  flags?: number;
+  customFloat?: number;
+  customInt?: number;
+  directionDotNormal?: number;
+  dirDot?: number;
+  impactAngleDeg?: number;
+  isInitialTouch?: boolean;
+  isSupersonic?: boolean;
+  isFlipping?: boolean;
+  isOnGround?: boolean;
+  isDemo?: boolean;
+  resetSubType?: number;
+  resetSubTypeName?: string;
+  resetObjectCode?: number;
+  resetObjectType?: string;
+  resetTargetCarIndex?: number;
+  resetSurfaceTag?: number;
+  resetWheelCount?: number;
   isBallFlipReset?: boolean;
-  carPosX?: number; carPosY?: number; carPosZ?: number;
-  ballX?: number; ballY?: number; ballZ?: number;
-  ballPosX?: number; ballPosY?: number; ballPosZ?: number;
+  carPosX?: number;
+  carPosY?: number;
+  carPosZ?: number;
+  ballX?: number;
+  ballY?: number;
+  ballZ?: number;
+  ballPosX?: number;
+  ballPosY?: number;
+  ballPosZ?: number;
   carPos?: { x: number; y: number; z: number };
   ballPos?: { x: number; y: number; z: number };
 }
@@ -114,17 +168,31 @@ export function resolveReplayAudioCueForSignal(
       if ((signal.param1 || 0) + (signal.param2 || 0) <= 0) {
         return null;
       }
-      return { cueId: 'sfx_goal_poof', frameId: signal.frameId, blueScore: signal.param1, orangeScore: signal.param2 };
+      return {
+        cueId: 'sfx_goal_poof',
+        frameId: signal.frameId,
+        blueScore: signal.param1,
+        orangeScore: signal.param2,
+      };
     case MATCH_SIGNALS.TIME_ALERT_60S:
       return { cueId: 'match_60_seconds_left', frameId: signal.frameId };
     case MATCH_SIGNALS.TIME_ALERT_30S:
       return { cueId: 'match_30_seconds_left', frameId: signal.frameId };
     case MATCH_SIGNALS.COUNTDOWN_10S:
-      return { cueId: 'match_countdown_10s', frameId: signal.frameId, remainingSeconds: signal.param1 };
+      return {
+        cueId: 'match_countdown_10s',
+        frameId: signal.frameId,
+        remainingSeconds: signal.param1,
+      };
     case MATCH_SIGNALS.OVERTIME_START:
       return { cueId: 'match_overtime', frameId: signal.frameId };
     case MATCH_SIGNALS.MATCH_ENDED:
-      return { cueId: 'match_end_whistle', frameId: signal.frameId, winner: signal.param1, winReason: signal.param2 };
+      return {
+        cueId: 'match_end_whistle',
+        frameId: signal.frameId,
+        winner: signal.param1,
+        winReason: signal.param2,
+      };
     default:
       return null;
   }
@@ -159,7 +227,9 @@ export function populateRingBufferSlot(input: PopulateRingBufferSlotInput): Repl
   } = input;
   let { audioEvents, incidents, acknowledgedControls } = input;
 
-  let resolvedSignals: ReadonlyArray<ReplaySignalEntry | ReplayAcknowledgedControlEntry | null | undefined> = [];
+  let resolvedSignals: ReadonlyArray<
+    ReplaySignalEntry | ReplayAcknowledgedControlEntry | null | undefined
+  > = [];
   if (signals && typeof signals === 'object' && !Array.isArray(signals)) {
     const opts = signals as ReplayRecordFrameOptions;
     resolvedSignals = opts.signals || [];
@@ -186,8 +256,12 @@ export function populateRingBufferSlot(input: PopulateRingBufferSlotInput): Repl
 
   const outSignals: ReplaySignalEntry[] = existingSlot?.signals ? existingSlot.signals : [];
   const outAudio: ReplayAudioCue[] = existingSlot?.audioEvents ? existingSlot.audioEvents : [];
-  const outIncidents: ReplayRecordedIncident[] = Array.isArray(existingSlot?.incidents) ? existingSlot.incidents : [];
-  const outControls: ReplayAcknowledgedControlEntry[] = Array.isArray(existingSlot?.acknowledgedControls)
+  const outIncidents: ReplayRecordedIncident[] = Array.isArray(existingSlot?.incidents)
+    ? existingSlot.incidents
+    : [];
+  const outControls: ReplayAcknowledgedControlEntry[] = Array.isArray(
+    existingSlot?.acknowledgedControls
+  )
     ? existingSlot.acknowledgedControls
     : [];
   outSignals.length = 0;
@@ -258,7 +332,9 @@ export function cloneReplayRingBufferSlot(slot: ReplayRingBufferSlot): ReplayRin
     signals: slot.signals.slice(),
     audioEvents: slot.audioEvents.slice(),
     incidents: Array.isArray(slot.incidents) ? slot.incidents.slice() : [],
-    acknowledgedControls: Array.isArray(slot.acknowledgedControls) ? slot.acknowledgedControls.slice() : [],
+    acknowledgedControls: Array.isArray(slot.acknowledgedControls)
+      ? slot.acknowledgedControls.slice()
+      : [],
   };
 }
 

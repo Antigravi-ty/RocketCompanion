@@ -10,11 +10,11 @@ import {
 import { BallTrajectoryPredictor } from '../../entities/BallTrajectoryPredictor.ts';
 import { bindBallTrajectoryAnomalyUiBridge } from '../../entities/trajectory/BallTrajectoryAnomalySnapshotBuilder.ts';
 import { ReachabilityVisualizer } from '../../entities/ReachabilityVisualizer.ts';
-import { CAR_COLOR_SLOTS } from '../../ui-core/config/vehicleConstants';
+import { CAR_COLOR_SLOTS } from '../../ui-core/config/vehicleConstants.ts';
 import {
   getPreferredColorSlot,
   loadStoredPlayerName,
-} from '../../ui-core/config/vehiclePresets';
+} from '../../ui-core/config/vehiclePresets.ts';
 import { MultiplayerSessionManager } from '../../network/transport/MultiplayerSessionManager.ts';
 import type {
   HostOnlineServerOptions,
@@ -82,7 +82,7 @@ export interface SceneGraphRuntimeCallbacks {
   onSyncInitialMaterials(
     arena: ArenaWorld,
     applyFn: typeof applyVisualMaterialsConfig,
-    materials: Record<string, unknown> | undefined,
+    materials: Record<string, unknown> | undefined
   ): void;
   onUpdateViewport(
     renderer: THREE.WebGLRenderer,
@@ -90,7 +90,7 @@ export interface SceneGraphRuntimeCallbacks {
     composer: EffectComposer,
     boostBloom: BoostBloom,
     speedLinesPass: SupersonicSpeedLinesPass | null,
-    activeGraphicsSettings: Record<string, unknown>,
+    activeGraphicsSettings: Record<string, unknown>
   ): void;
   onEnableDeterminismHarness(autoOpenPanel: boolean): Promise<unknown>;
   onEnableNetworkPrediction(enabled: boolean): Promise<unknown>;
@@ -143,7 +143,7 @@ export interface RuntimeSceneCallbackHost {
     rosterSyncCoordinator: {
       onRemotePlayerConnected(
         channel: NetworkSessionChannelLike,
-        name: string,
+        name: string
       ): Promise<number | null | undefined>;
       removeRemotePlayer(carIndex: number): Promise<void>;
     };
@@ -158,13 +158,13 @@ export interface RuntimeSceneCallbackHost {
     composer: EffectComposer,
     boostBloom: BoostBloom,
     speedLinesPass: SupersonicSpeedLinesPass | null,
-    activeGraphicsSettings: Record<string, unknown>,
+    activeGraphicsSettings: Record<string, unknown>
   ): void;
 }
 
 export function buildRuntimeSceneGraphConfig(
   host: RuntimeSceneCallbackHost,
-  onProgress: ((progress: number, message?: string) => void) | null = null,
+  onProgress: ((progress: number, message?: string) => void) | null = null
 ): SceneGraphFactoryConfig {
   if (!host.physics || !host.interpolator) {
     throw new Error('[GameRuntime] setupPhysics must complete before setupScene.');
@@ -218,17 +218,13 @@ export function buildRuntimeSceneGraphConfig(
       },
       onSyncInitialMaterials: (arena, applyFn, materials) => {
         host.bindInitialArenaAndMaterials(arena, applyFn);
-        syncMaterialsToGame(host as unknown as Parameters<typeof syncMaterialsToGame>[0], materials);
+        syncMaterialsToGame(
+          host as unknown as Parameters<typeof syncMaterialsToGame>[0],
+          materials
+        );
       },
       onUpdateViewport: (renderer, camera, composer, boostBloom, speedLinesPass, gfx) => {
-        host.bindViewportRenderTargets(
-          renderer,
-          camera,
-          composer,
-          boostBloom,
-          speedLinesPass,
-          gfx,
-        );
+        host.bindViewportRenderTargets(renderer, camera, composer, boostBloom, speedLinesPass, gfx);
         host.domEventManager.updateViewport();
       },
       onEnableDeterminismHarness: (autoOpenPanel) =>
@@ -283,13 +279,13 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
       {},
       physics?.ballRadius || 91.25,
       physics,
-      (telemetry) => ballTrajectoryTunerStore.publishTelemetry(telemetry),
+      (telemetry) => ballTrajectoryTunerStore.publishTelemetry(telemetry)
     );
     bindBallTrajectoryAnomalyUiBridge(
       ballTrajectoryPredictor.anomalyRecorder,
       ballTrajectoryTunerStore,
       pushQuickNotification,
-      dismissQuickNotification,
+      dismissQuickNotification
     );
     reachabilityVisualizer = new ReachabilityVisualizer(
       arena.scene,
@@ -298,7 +294,7 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
       {
         getConfig: () => reachabilityStore.getConfig(),
         onTelemetry: (telemetry: unknown) => reachabilityStore.publishTelemetry(telemetry),
-      },
+      }
     );
   }
 

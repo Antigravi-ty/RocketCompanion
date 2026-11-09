@@ -16,7 +16,7 @@ import {
   type TrajectoryDashCapStyle,
   type TrajectoryRenderStyle,
   type TrajectoryUpdateMode,
-} from '../ui-core/config/trainingDefaults';
+} from '../ui-core/config/trainingDefaults.ts';
 import {
   resolveBallTrajectoryActivation,
   type BallTrajectoryOverride,
@@ -81,7 +81,7 @@ export class BallTrajectoryPredictor {
     initialSettings: Partial<TrajectorySettingsConfig> = {},
     ballRadius = 91.25,
     physics: TrajectoryPhysicsPort | null = null,
-    onTelemetry: ((telemetry: BallTrajectoryTelemetrySnapshot) => void) | null = null,
+    onTelemetry: ((telemetry: BallTrajectoryTelemetrySnapshot) => void) | null = null
   ) {
     this.scene = scene;
     this.ballRadius = Number(ballRadius) || 91.25;
@@ -100,14 +100,30 @@ export class BallTrajectoryPredictor {
     this.syncMaterialProperties();
   }
 
-  public get predictedPoints(): Float32Array { return this.sampler.predictedPoints; }
-  public get rawPredictedPoints(): Float32Array { return this.sampler.rawPredictedPoints; }
-  public get predictionCount(): number { return this.sampler.predictionCount; }
-  public get impactTick(): number { return this.sampler.impactTick; }
-  public get patternAnchorTick(): number { return this.sampler.patternAnchorTick; }
-  public get isActive(): boolean { return this.sampler.isActive; }
-  public get staticPreviewActive(): boolean { return this.sampler.staticPreviewActive; }
-  public get anomalyRecorder() { return this.sampler.anomalyRecorder; }
+  public get predictedPoints(): Float32Array {
+    return this.sampler.predictedPoints;
+  }
+  public get rawPredictedPoints(): Float32Array {
+    return this.sampler.rawPredictedPoints;
+  }
+  public get predictionCount(): number {
+    return this.sampler.predictionCount;
+  }
+  public get impactTick(): number {
+    return this.sampler.impactTick;
+  }
+  public get patternAnchorTick(): number {
+    return this.sampler.patternAnchorTick;
+  }
+  public get isActive(): boolean {
+    return this.sampler.isActive;
+  }
+  public get staticPreviewActive(): boolean {
+    return this.sampler.staticPreviewActive;
+  }
+  public get anomalyRecorder() {
+    return this.sampler.anomalyRecorder;
+  }
 
   public notifyCarBallHit(tick?: number): void {
     this.sampler.notifyCarBallHit(tick);
@@ -193,9 +209,9 @@ export class BallTrajectoryPredictor {
     const activation = this.isPredictionAllowed();
     return Boolean(
       activation.suppressedByOverride ||
-        this._suppressionSources.size > 0 ||
-        this._isGoalReplayActive ||
-        this._isPodiumActive,
+      this._suppressionSources.size > 0 ||
+      this._isGoalReplayActive ||
+      this._isPodiumActive
     );
   }
 
@@ -224,7 +240,7 @@ export class BallTrajectoryPredictor {
 
   public setStaticPreviewTrajectory(
     physics: TrajectoryPhysicsPort | null = null,
-    ballLaunchState: TrajectoryBallLaunchState | null = null,
+    ballLaunchState: TrajectoryBallLaunchState | null = null
   ): number {
     if (this.isTemporarilySuppressed()) {
       this.clearStaticPreview();
@@ -240,7 +256,7 @@ export class BallTrajectoryPredictor {
     const count = this.sampler.setStaticPreviewTrajectory(
       phys,
       ballLaunchState,
-      this.settings.predictionTicks,
+      this.settings.predictionTicks
     );
     if (count <= 0) this._hideMeshes();
     return count;
@@ -257,7 +273,7 @@ export class BallTrajectoryPredictor {
       forceFull?: boolean;
       deltaTicks?: number;
       reason?: TrajectoryUpdateKind;
-    } = {},
+    } = {}
   ): number {
     const phys = physics || this.physics;
     if (!this.isPredictionAllowed().allowed || !phys) {
@@ -265,12 +281,7 @@ export class BallTrajectoryPredictor {
       return 0;
     }
 
-    const count = this.sampler.predictFromCurrentState(
-      phys,
-      targetTick,
-      this.settings,
-      options,
-    );
+    const count = this.sampler.predictFromCurrentState(phys, targetTick, this.settings, options);
     if (count <= 0) this._hideMeshes();
     return count;
   }
@@ -283,7 +294,7 @@ export class BallTrajectoryPredictor {
     elapsedTicks: number,
     patternElapsedTicks: number,
     dynamicMode: boolean,
-    liveBallPosition: LiveBallPositionLike | null | undefined,
+    liveBallPosition: LiveBallPositionLike | null | undefined
   ): number {
     if (!this.tubeRenderer) return 0;
 
@@ -296,7 +307,7 @@ export class BallTrajectoryPredictor {
       startIndex,
       this.sampler.bounceMarkersBuffer,
       this.sampler.bounceCount,
-      tubeParams,
+      tubeParams
     );
 
     const phaseOffset = dynamicMode ? 0 : patternElapsedTicks;
@@ -308,7 +319,7 @@ export class BallTrajectoryPredictor {
       this.settings.transparentTicks,
       phaseOffset,
       liveBallPosition,
-      tubeParams,
+      tubeParams
     );
   }
 
@@ -317,7 +328,7 @@ export class BallTrajectoryPredictor {
     geometryBuildTimeUs: number,
     remainingSlices: number,
     primitiveCount: number,
-    ballSpeedUu: number,
+    ballSpeedUu: number
   ): void {
     if (!this.onTelemetry) return;
     const nowMs = typeof performance !== 'undefined' ? performance.now() : 0;
@@ -334,7 +345,7 @@ export class BallTrajectoryPredictor {
         ballSpeedUu,
         samplerMetrics: this.sampler,
         anomalySummary: this.sampler.anomalyRecorder.getSummary(),
-      }),
+      })
     );
   }
 
@@ -343,7 +354,7 @@ export class BallTrajectoryPredictor {
     liveBallPosition: LiveBallPositionLike | null = null,
     _renderWidth: number | null = null,
     _renderHeight: number | null = null,
-    physics: TrajectoryPhysicsPort | null = null,
+    physics: TrajectoryPhysicsPort | null = null
   ): void {
     const frameStartMs = typeof performance !== 'undefined' ? performance.now() : 0;
     const activation = this.isPredictionAllowed();
@@ -386,7 +397,7 @@ export class BallTrajectoryPredictor {
       stateBuf,
       currentTick,
       this.forcePredictAnyMovement,
-      this.settings,
+      this.settings
     );
     if (!awake) {
       this._hideMeshes();
@@ -409,28 +420,23 @@ export class BallTrajectoryPredictor {
       return;
     }
 
-    const patternElapsed = resolvePatternElapsedTicks(
-      currentTick,
-      this.patternAnchorTick,
-      elapsed,
-    );
+    const patternElapsed = resolvePatternElapsedTicks(currentTick, this.patternAnchorTick, elapsed);
 
     const tGeom0 = typeof performance !== 'undefined' ? performance.now() : 0;
     const prims = this._renderTrajectoryGeometry(
       elapsed,
       patternElapsed,
       Boolean(this.settings.dynamicMode),
-      liveBallPosition,
+      liveBallPosition
     );
-    const geomUs =
-      ((typeof performance !== 'undefined' ? performance.now() : 0) - tGeom0) * 1000.0;
+    const geomUs = ((typeof performance !== 'undefined' ? performance.now() : 0) - tGeom0) * 1000.0;
 
     this._maybePublishTelemetry(
       frameStartMs,
       geomUs,
       Math.max(0, this.predictionCount - elapsed),
       prims,
-      ballSpeedUu,
+      ballSpeedUu
     );
   }
 

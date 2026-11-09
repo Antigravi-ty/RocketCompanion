@@ -178,7 +178,7 @@ export class ScenarioAutorunController {
   }
 
   public runGoldenDiffAudit(
-    probes: readonly VehicleRigGeometryProbeSnapshot[] = [],
+    probes: readonly VehicleRigGeometryProbeSnapshot[] = []
   ): GoldenBaselineDiffSummary {
     return buildGoldenBaselineDiffSummary(this.runtime?.arena, probes);
   }
@@ -189,20 +189,20 @@ export class ScenarioAutorunController {
 
   public async runScenarioById(
     scenarioId: string,
-    options?: ScenarioDriverRunOptions,
+    options?: ScenarioDriverRunOptions
   ): Promise<BaselineSuiteTelemetryReport> {
     return this.runBaselineSuite(scenarioId, options);
   }
 
   public async runSelfTest(
-    options: ScenarioDriverRunOptions = { speed: '20x', includeGoldenDiff: true },
+    options: ScenarioDriverRunOptions = { speed: '20x', includeGoldenDiff: true }
   ): Promise<BaselineSuiteTelemetryReport> {
     return this.runBaselineSuite('all', options);
   }
 
   public async runBaselineSuite(
     queryValue = 'all',
-    options?: ScenarioDriverRunOptions,
+    options?: ScenarioDriverRunOptions
   ): Promise<BaselineSuiteTelemetryReport> {
     const scripts = resolveRequestedScenarios(queryValue);
     const scenarioReports: ScenarioRunReport[] = [];
@@ -211,7 +211,7 @@ export class ScenarioAutorunController {
     for (let i = 0; i < scripts.length; i++) {
       const script = scripts[i];
       console.info(
-        `[ScenarioBaseline] Starting scenario (${i + 1}/${scripts.length}): ${script.id} (${script.totalTicks} ticks, speed=${options?.speed ?? '20x'})...`,
+        `[ScenarioBaseline] Starting scenario (${i + 1}/${scripts.length}): ${script.id} (${script.totalTicks} ticks, speed=${options?.speed ?? '20x'})...`
       );
       const report = await this.driver.runScenario(script, options);
       scenarioReports.push(report);
@@ -221,7 +221,7 @@ export class ScenarioAutorunController {
         }
       }
       console.info(
-        `[ScenarioBaseline] Completed ${script.id}: passed=${report.passed}, wall=${report.wallClockDurationMs}ms, rate=${report.effectiveTickRateHz}Hz (${report.speedupFactorVsRealtime}x realtime), errors=${report.runtimeErrors.totalErrorCount}`,
+        `[ScenarioBaseline] Completed ${script.id}: passed=${report.passed}, wall=${report.wallClockDurationMs}ms, rate=${report.effectiveTickRateHz}Hz (${report.speedupFactorVsRealtime}x realtime), errors=${report.runtimeErrors.totalErrorCount}`
       );
     }
 
@@ -238,7 +238,8 @@ export class ScenarioAutorunController {
       userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'headless',
       webglRenderer: glSummary.renderer,
       webglVendor: glSummary.vendor,
-      configuredSpeedPreset: scenarioReports[0]?.configuredSpeedPreset || String(options?.speed ?? '20x'),
+      configuredSpeedPreset:
+        scenarioReports[0]?.configuredSpeedPreset || String(options?.speed ?? '20x'),
       bootstrap: this.bootstrapObserver.buildSnapshot(this.initialShaderPrograms),
       scenarios: scenarioReports,
       goldenBaselineDiff,
@@ -270,7 +271,7 @@ export class ScenarioAutorunController {
 export function attachScenarioAutorunController(
   runtime: ScenarioRuntimePort,
   bootstrapObserver: ScenarioBootstrapTelemetryObserver,
-  backgroundAssetsPromise: Promise<unknown>,
+  backgroundAssetsPromise: Promise<unknown>
 ): ScenarioAutorunController {
   const controller = new ScenarioAutorunController(runtime, bootstrapObserver);
   if (typeof window !== 'undefined') {

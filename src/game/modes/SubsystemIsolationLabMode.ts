@@ -1,11 +1,7 @@
 import { BaseGameMode } from './BaseGameMode.ts';
 import type { FrameContext } from '../pipeline/FramePipeline.ts';
 import type { GhostWorldUpdateOptions } from './MultiWorldGhostRenderer.ts';
-import {
-  hudStore,
-  useRewinderStore,
-  useSubsystemIsolationLabStore,
-} from '../runtimeUiPort.ts';
+import { hudStore, useRewinderStore, useSubsystemIsolationLabStore } from '../runtimeUiPort.ts';
 import type {
   IsolationLabTabId,
   LabFrameUpdateContext,
@@ -13,10 +9,7 @@ import type {
   LabTabContext,
   LabTabController,
 } from './subsystem-isolation-lab/LabTabTypes.ts';
-import {
-  type ProbeCameraTarget,
-  ProbesLabTab,
-} from './subsystem-isolation-lab/ProbesLabTab.ts';
+import { type ProbeCameraTarget, ProbesLabTab } from './subsystem-isolation-lab/ProbesLabTab.ts';
 import { resetSinglePlayerLabBaseline } from './subsystem-isolation-lab/probeKinematicsPipeline.ts';
 import { MultiGhostLabTab } from './subsystem-isolation-lab/MultiGhostLabTab.ts';
 import { StateReplayLabTab } from './subsystem-isolation-lab/StateReplayLabTab.ts';
@@ -64,8 +57,7 @@ export class SubsystemIsolationLabMode extends BaseGameMode {
       getSwitchEpoch: () => this.tabSwitchEpoch,
       ensureSinglePlayerCarOnly: (resetKickoffState = true) =>
         this.ensureSinglePlayerCarOnly(resetKickoffState),
-      enterPodiumShowcase: (winningTeam = 0) =>
-        this.goalReplayTab.enterPodiumShowcase(winningTeam),
+      enterPodiumShowcase: (winningTeam = 0) => this.goalReplayTab.enterPodiumShowcase(winningTeam),
       exitPodiumShowcase: () => this.goalReplayTab.exitPodiumShowcase(),
       isPodiumActive: () => this.goalReplayTab.isPodiumActive(),
     };
@@ -244,9 +236,7 @@ export class SubsystemIsolationLabMode extends BaseGameMode {
         this.demolishRespawnTab.selectSlotDirect(slotIndex);
       },
       onDemolishRespawnConfigChange: () => {
-        if (
-          useSubsystemIsolationLabStore.getState().activeTab === 'demolish-respawn'
-        ) {
+        if (useSubsystemIsolationLabStore.getState().activeTab === 'demolish-respawn') {
           this.demolishRespawnTab.applyConfigChange();
         }
       },
@@ -344,17 +334,14 @@ export class SubsystemIsolationLabMode extends BaseGameMode {
       const unlimitedHud = isRewinderScrubOrPreroll
         ? false
         : (r?.physics?.getCarUnlimitedBoost?.(activeCarIdx) ?? defaultUnlimited);
-      hudStore
-        .getState()
-        .setBoost(playerCarView.boost, playerCarView.isBoosting, unlimitedHud);
+      hudStore.getState().setBoost(playerCarView.boost, playerCarView.isBoosting, unlimitedHud);
     }
   }
 
   onResetKickoff(seed = -1): void {
     const r = this.runtime;
     const store = useSubsystemIsolationLabStore.getState();
-    const defaultUnlimited =
-      store.activeTab !== '90s-match' && store.activeTab !== 'kickoff-duel';
+    const defaultUnlimited = store.activeTab !== '90s-match' && store.activeTab !== 'kickoff-duel';
     r?.physics?.setUnlimitedBoost?.(defaultUnlimited);
     r?.physics?.resetKickoff?.(seed);
     r?.interpolator?.sync?.();

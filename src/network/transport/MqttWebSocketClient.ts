@@ -57,7 +57,10 @@ export class MqttWebSocketClient {
   _keepAliveTimer: ReturnType<typeof setInterval> | null = null;
   _probeId = `probe_${Math.random().toString(36).slice(2, 10)}`;
   _probeSentAt = 0;
-  eventListeners = new Map<string, Array<(payload?: Record<string, unknown> | Error | CloseEvent) => void>>();
+  eventListeners = new Map<
+    string,
+    Array<(payload?: Record<string, unknown> | Error | CloseEvent) => void>
+  >();
 
   constructor(brokerUrl: string, options: MqttWebSocketClientOptions = {}) {
     this.brokerUrl = String(brokerUrl || '').trim();

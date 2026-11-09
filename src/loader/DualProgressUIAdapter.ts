@@ -19,7 +19,7 @@ import type {
   LoadingTaskCompleteEvent,
   LoadingErrorEvent,
   LoadingCompleteEvent,
-  LoadingProgressObserver
+  LoadingProgressObserver,
 } from './types.ts';
 
 export interface CustomLoadingProgressUI {
@@ -45,9 +45,15 @@ export class DualProgressUIAdapter implements LoadingProgressObserver {
     container: Element | null = null,
     existingLoader: MinimumProgressLoader | null = null
   ) {
-    this.container = (container || (typeof document !== 'undefined' ? document.querySelector('#app') : null)) as MinimumLoaderDomContainer | null;
+    this.container = (container ||
+      (typeof document !== 'undefined'
+        ? document.querySelector('#app')
+        : null)) as MinimumLoaderDomContainer | null;
     this.customUI = null;
-    this.loader = existingLoader || this.container?.__minimumProgressLoader || new MinimumProgressLoader(this.container);
+    this.loader =
+      existingLoader ||
+      this.container?.__minimumProgressLoader ||
+      new MinimumProgressLoader(this.container);
     this.loader.mount();
   }
 

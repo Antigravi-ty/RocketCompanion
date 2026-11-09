@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { getTheme } from '../../ui-core/config/themeConfig';
+import { getTheme } from '../../ui-core/config/themeConfig.ts';
 import { prewarmSceneShaders, waitForCompiledMaterials } from '../ShaderPrewarmer.ts';
 import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
 import type { PhysicsStateInterpolator } from '../../physics/PhysicsStateInterpolator.ts';
@@ -50,7 +50,7 @@ export class RuntimeBloomOcclusion {
   }
 
   public async setupShaders(
-    onProgress: ((progress: number, label?: string) => void) | null = null,
+    onProgress: ((progress: number, label?: string) => void) | null = null
   ): Promise<void> {
     const r = this.host;
     if (!r.renderer || !r.arena || !r.composer || !r.interpolator || !r.camera || !r.boostBloom) {
@@ -72,13 +72,13 @@ export class RuntimeBloomOcclusion {
       0,
       r.neutralControls,
       r.neutralControls,
-      false,
+      false
     );
     camera.update(
       arena.cars[r.playerCarIndex],
       arena.ball,
       0,
-      r.cameraSubsystem?.cameraDynamics ?? {},
+      r.cameraSubsystem?.cameraDynamics ?? {}
     );
 
     const activeTheme = getTheme();
@@ -146,23 +146,25 @@ export class RuntimeBloomOcclusion {
       this.savedMaterials.length = 0;
       this.invisibleObjects.length = 0;
 
-      r.arena.scene.traverse((node: THREE.Object3D & { material?: THREE.Material | THREE.Material[] }) => {
-        if (node.layers && node.layers.isEnabled(BLOOM_OCCLUDER_LAYER)) return;
-        if (node instanceof THREE.Mesh) {
-          const mats = Array.isArray(node.material) ? node.material : [node.material];
-          if (
-            node.userData?.bloomOccluder === false ||
-            mats.every((m: THREE.Material) => m && m.transparent && !m.depthWrite)
-          ) {
-            this.invisibleObjects.push(node);
+      r.arena.scene.traverse(
+        (node: THREE.Object3D & { material?: THREE.Material | THREE.Material[] }) => {
+          if (node.layers && node.layers.isEnabled(BLOOM_OCCLUDER_LAYER)) return;
+          if (node instanceof THREE.Mesh) {
+            const mats = Array.isArray(node.material) ? node.material : [node.material];
+            if (
+              node.userData?.bloomOccluder === false ||
+              mats.every((m: THREE.Material) => m && m.transparent && !m.depthWrite)
+            ) {
+              this.invisibleObjects.push(node);
+              return;
+            }
+            this.occluderMeshes.push(node);
+            this.savedMaterials.push(node.material);
             return;
           }
-          this.occluderMeshes.push(node);
-          this.savedMaterials.push(node.material);
-          return;
+          if (node.material) this.invisibleObjects.push(node);
         }
-        if (node.material) this.invisibleObjects.push(node);
-      });
+      );
       this.lastTreeVersion = r.arena.renderTreeVersion;
     }
 

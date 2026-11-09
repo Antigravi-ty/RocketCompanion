@@ -158,11 +158,17 @@ export function writeWasmMutatorConfig(
     return false;
   }
   let encoded: Float32Array;
-  if (partialOrBuffer instanceof Float32Array && partialOrBuffer.length >= MUTATOR_CONFIG_FLOAT_COUNT) {
+  if (
+    partialOrBuffer instanceof Float32Array &&
+    partialOrBuffer.length >= MUTATOR_CONFIG_FLOAT_COUNT
+  ) {
     encoded = partialOrBuffer;
   } else {
     const base = readWasmMutatorConfig(wasmModule);
-    const merged: ArenaMutatorConfig = { ...base, ...(partialOrBuffer as Partial<ArenaMutatorConfig>) };
+    const merged: ArenaMutatorConfig = {
+      ...base,
+      ...(partialOrBuffer as Partial<ArenaMutatorConfig>),
+    };
     encoded = encodeMutatorConfigBuffer(merged);
   }
   const ptr = wasmModule._malloc(MUTATOR_CONFIG_FLOAT_COUNT * 4);

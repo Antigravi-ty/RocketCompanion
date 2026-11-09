@@ -5,10 +5,7 @@ import { NetworkInputBuffer, MAX_INPUT_BUFFER_TICKS } from './NetworkInputBuffer
 import { EstablishedSessionManager } from './EstablishedSessionManager.ts';
 import { MatchSessionAdmin, type AdminPhysicsManagerPort } from './match/MatchSessionAdmin.ts';
 import { NetworkDataHandler } from './NetworkDataHandler.ts';
-import {
-  HOST_WORKER_MSG_TYPES,
-  createWorkerEnvelope,
-} from '../protocol/HostWorkerProtocol.ts';
+import { HOST_WORKER_MSG_TYPES, createWorkerEnvelope } from '../protocol/HostWorkerProtocol.ts';
 import {
   routeProtocolMessageInWorker,
   buildWorkerRoomStateSummary,
@@ -256,8 +253,7 @@ export async function handleAuthoritativeWorkerMessage(
     }
 
     case 'attach_bot_port': {
-      const eventPorts =
-        eventOrData && 'ports' in eventOrData ? eventOrData.ports : undefined;
+      const eventPorts = eventOrData && 'ports' in eventOrData ? eventOrData.ports : undefined;
       const port = data.port || raw.port || eventPorts?.[0];
       if (port) {
         botPortBridge.attach(port, dataHandler, registerWorkerChannel);

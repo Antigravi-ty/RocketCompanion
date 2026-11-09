@@ -119,12 +119,8 @@ export function applyPodiumFormationToEngine(
   // Park ball far behind the camera so it does not obstruct the podium showcase
   if (typeof simTarget.setBallState === 'function') {
     const parkedBall = new Float32Array([
-      0.0, -3200.0, 93.15,
-      1.0, 0.0, 0.0,
-      0.0, 1.0, 0.0,
-      0.0, 0.0, 1.0,
-      0.0, 0.0, 0.0,
-      0.0, 0.0, 0.0,
+      0.0, -3200.0, 93.15, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0,
     ]);
     simTarget.setBallState(parkedBall);
   }

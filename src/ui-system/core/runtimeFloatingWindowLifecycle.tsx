@@ -1,12 +1,12 @@
 import React from 'react';
-import { type FloatingWindowItem } from '../../ui-core/stores/floatingStore';
-import { type FloatingWindowRenderContext } from '../../ui-core/navigation/FloatingWindowInstance';
-import { dialogue } from '../../ui-core/compounds/dialogue/dialogueStore';
+import { type FloatingWindowItem } from '../../ui-core/stores/floatingStore.ts';
+import { type FloatingWindowRenderContext } from '../../ui-core/navigation/FloatingWindowInstance.tsx';
+import { dialogue } from '../../ui-core/compounds/dialogue/dialogueStore.ts';
 import {
   FLOATING_WINDOW_OPACITY_PRESET,
   REPLAY_VIEWER_PRESET,
   REWINDER_CONFIGURATOR_PRESET,
-} from '../../ui-core/stores/floatingPresets';
+} from '../../ui-core/stores/floatingPresets.ts';
 import {
   SUBSYSTEM_ISOLATION_LAB_PRESET,
   EXPERIMENTAL_MULTI_BOTS_PRESET,
@@ -14,19 +14,19 @@ import {
   KICKOFF_TRAINING_TUNER_PRESET,
   NAME_TAG_TUNER_PRESET,
   REPLAY_DIRECTOR_TUNER_PRESET,
-} from '../../ui-core/stores/devFloatingPresets';
-import { useAppStore } from '../../ui-core/stores/appStore';
-import { useReplayViewerStore } from '../../ui-core/stores/replayViewerStore';
-import { useNameTagTunerStore } from '../../ui-core/stores/nameTagTunerStore';
-import { useRewinderStore } from '../../ui-core/stores/rewinderStore';
+} from '../../ui-core/stores/devFloatingPresets.ts';
+import { useAppStore } from '../../ui-core/stores/appStore.ts';
+import { useReplayViewerStore } from '../../ui-core/stores/replayViewerStore.ts';
+import { useNameTagTunerStore } from '../../ui-core/stores/nameTagTunerStore.ts';
+import { useRewinderStore } from '../../ui-core/stores/rewinderStore.ts';
 import {
   getActiveReplayTimelineController,
   exitActiveReplayDirectorPreview,
-} from '../../ui-core/stores/replayDirectorStore';
+} from '../../ui-core/stores/replayDirectorStore.ts';
 import {
   FLOATING_WINDOW_DESCRIPTORS,
   renderFloatingWindowPanel,
-} from '../../ui-core/panels/floatingWindowRegistry';
+} from '../../ui-core/panels/floatingWindowRegistry.tsx';
 
 export const renderFloatingWindowContent = (
   item: FloatingWindowItem,
@@ -44,11 +44,7 @@ export const renderFloatingWindowContent = (
   if (descriptor.category === 'user') {
     return content;
   }
-  return (
-    <div className="p-3.5 flex flex-col gap-2.5">
-      {content}
-    </div>
-  );
+  return <div className="p-3.5 flex flex-col gap-2.5">{content}</div>;
 };
 
 export const handleFloatingStackCloseWindow = (
@@ -130,7 +126,10 @@ export const handleFloatingStackCloseWindow = (
   if (win.id === REPLAY_DIRECTOR_TUNER_PRESET.id) {
     defaultClose();
     const ctrl = getActiveReplayTimelineController();
-    if (ctrl?.sessionState?.isActive && (ctrl?.sessionState?.isImportedPreview || ctrl?.sessionState?.isPersistent)) {
+    if (
+      ctrl?.sessionState?.isActive &&
+      (ctrl?.sessionState?.isImportedPreview || ctrl?.sessionState?.isPersistent)
+    ) {
       exitActiveReplayDirectorPreview();
     }
     return;

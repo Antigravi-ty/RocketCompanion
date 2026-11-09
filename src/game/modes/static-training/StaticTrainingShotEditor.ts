@@ -33,7 +33,7 @@ export interface StaticTrainingEditorCameraPort {
   setFreeCam: (enabled: boolean) => void;
   setFreeCamPose?: (
     position: [number, number, number] | number[],
-    lookAt: [number, number, number] | number[],
+    lookAt: [number, number, number] | number[]
   ) => void;
   getFreeCamStateSnapshot?: () => {
     eyeUnreal: [number, number, number];
@@ -43,7 +43,7 @@ export interface StaticTrainingEditorCameraPort {
   syncEditorShotCamera?: (
     subMode: StaticTrainingEditSubMode,
     shot: StaticTrainingShotConfig,
-    tuner: BallCamTunerParams,
+    tuner: BallCamTunerParams
   ) => void;
 }
 
@@ -72,7 +72,8 @@ export interface StaticTrainingShotEditorHostCallbacks {
 }
 
 function isModalBlockingInput(): boolean {
-  const hasDialog = typeof document !== 'undefined' && document.querySelector('[role="dialog"]') !== null;
+  const hasDialog =
+    typeof document !== 'undefined' && document.querySelector('[role="dialog"]') !== null;
   const appState = useAppStore.getState();
   return Boolean(hasDialog || (appState.isOpen && !appState.isLivePreviewCollapsed));
 }
@@ -104,7 +105,7 @@ export class StaticTrainingShotEditor {
 
   private applyShotPatch(
     draft: StaticTrainingShotConfig,
-    patch: { carPatch?: Partial<ShotCarConfig>; ballPatch?: Partial<ShotBallConfig> },
+    patch: { carPatch?: Partial<ShotCarConfig>; ballPatch?: Partial<ShotBallConfig> }
   ): void {
     if (patch.carPatch) draft.car = { ...draft.car, ...patch.carPatch };
     if (patch.ballPatch) draft.ball = { ...draft.ball, ...patch.ballPatch };
@@ -344,14 +345,18 @@ export class StaticTrainingShotEditor {
       const r = this.host.getRuntime();
       if (r?.match?.state?.mode !== 'static-training-pack') return;
       const store = useStaticTrainingPackStore.getState();
-      if (store.sessionMode !== 'edit' || this.host.isTestingSingleShot() || isModalBlockingInput()) {
+      if (
+        store.sessionMode !== 'edit' ||
+        this.host.isTestingSingleShot() ||
+        isModalBlockingInput()
+      ) {
         return;
       }
 
       const targetEl = evt.target as HTMLElement | null;
       if (
         targetEl?.closest?.(
-          '[data-panel="container"], [data-ui-element="edge-inspector-drawer"], [data-ui-element="floating-window"], [data-ui-interactive="true"], [role="dialog"], button, input, select, textarea, [style*="pointer-events: auto"]',
+          '[data-panel="container"], [data-ui-element="edge-inspector-drawer"], [data-ui-element="floating-window"], [data-ui-interactive="true"], [role="dialog"], button, input, select, textarea, [style*="pointer-events: auto"]'
         )
       ) {
         return;

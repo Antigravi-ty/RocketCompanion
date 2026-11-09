@@ -5,7 +5,7 @@
  * while modal dialogues are open, or when the main menu overlay blocks live gameplay.
  */
 
-import { useAppStore } from "../game/runtimeUiPort.ts";
+import { useAppStore } from '../game/runtimeUiPort.ts';
 
 export interface EditableElementCandidate {
   tagName?: string;
@@ -26,7 +26,9 @@ export function hasActiveModalDialogue(): boolean {
   return typeof document !== 'undefined' && document.querySelector('[role="dialog"]') !== null;
 }
 
-export function isEditableDomElement(node: EventTarget | Element | EditableElementCandidate | null | undefined): boolean {
+export function isEditableDomElement(
+  node: EventTarget | Element | EditableElementCandidate | null | undefined
+): boolean {
   if (!node || typeof node !== 'object') return false;
   const candidate = node as EditableElementCandidate;
   const tag = candidate.tagName ? String(candidate.tagName).toUpperCase() : '';
@@ -35,7 +37,9 @@ export function isEditableDomElement(node: EventTarget | Element | EditableEleme
   return false;
 }
 
-export function isEditableEventTarget(event: { target?: EventTarget | null } | null | undefined): boolean {
+export function isEditableEventTarget(
+  event: { target?: EventTarget | null } | null | undefined
+): boolean {
   if (isEditableDomElement(event?.target)) return true;
   const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
   if (isEditableDomElement(activeEl)) return true;
@@ -115,7 +119,10 @@ function syncGlobalRouterListeners(): void {
   }
 }
 
-export function subscribeGlobalKeyDown(handler: (e: KeyboardEvent) => void, capture = false): () => void {
+export function subscribeGlobalKeyDown(
+  handler: (e: KeyboardEvent) => void,
+  capture = false
+): () => void {
   if (typeof handler !== 'function') return () => {};
   const set = capture ? keyDownCaptureHandlers : keyDownBubbleHandlers;
   set.add(handler);
@@ -126,7 +133,10 @@ export function subscribeGlobalKeyDown(handler: (e: KeyboardEvent) => void, capt
   };
 }
 
-export function subscribeGlobalKeyUp(handler: (e: KeyboardEvent) => void, capture = false): () => void {
+export function subscribeGlobalKeyUp(
+  handler: (e: KeyboardEvent) => void,
+  capture = false
+): () => void {
   if (typeof handler !== 'function') return () => {};
   const set = capture ? keyUpCaptureHandlers : keyUpBubbleHandlers;
   set.add(handler);

@@ -10,19 +10,16 @@ import { PhysicsStateInterpolator } from '../../physics/PhysicsStateInterpolator
 import { RuntimeMatchState } from './RuntimeMatchState.ts';
 import { KeyboardMouseController } from '../../input/KeyboardMouseController.ts';
 import { GamepadController } from '../../input/GamepadController.ts';
-import { loadInputBindings } from '../../ui-core/config/inputBindings';
-import { DEFAULT_GRAPHICS_SETTINGS } from '../../ui-core/config/trainingDefaults';
+import { loadInputBindings } from '../../ui-core/config/inputBindings.ts';
+import { DEFAULT_GRAPHICS_SETTINGS } from '../../ui-core/config/trainingDefaults.ts';
 import {
   garageSettingsStore,
   getPreferredFreeplayTeam,
-} from '../../ui-core/config/vehiclePresets';
+} from '../../ui-core/config/vehiclePresets.ts';
 import type { MultiplayerSessionManager } from '../../network/transport/MultiplayerSessionManager.ts';
 import { BoostBloom } from '../../effects/BoostBloom.ts';
 import { SupersonicSpeedLinesPass } from '../../effects/SupersonicSpeedLinesPass.ts';
-import {
-  RenderPass,
-  ShaderPass,
-} from '../../effects/PostprocessingPasses.ts';
+import { RenderPass, ShaderPass } from '../../effects/PostprocessingPasses.ts';
 import { OutputPass } from '../../effects/PostprocessingMaskAndOutputPasses.ts';
 import { EffectComposer } from '../../effects/PostprocessingPipeline.ts';
 import { RoomEnvironment } from '../../effects/RoomEnvironment.ts';
@@ -109,23 +106,19 @@ export interface DisposableSceneGraphResources {
 }
 
 export async function createCorePhysicsBundle(
-  config: PhysicsBootstrapConfig = {},
+  config: PhysicsBootstrapConfig = {}
 ): Promise<CorePhysicsBundle> {
   const loadedSettings = garageSettingsStore.load() as {
     vehiclePreset?: string;
     carVisual?: string;
   };
-  const selectedPreset =
-    loadedSettings.vehiclePreset || loadedSettings.carVisual || 'fennec';
+  const selectedPreset = loadedSettings.vehiclePreset || loadedSettings.carVisual || 'fennec';
   const freeplayTeam = getPreferredFreeplayTeam();
   const teamAssignment = getTeamAssignment(freeplayTeam === 1);
 
   const physics = new RocketSimPhysicsEngine();
   await physics.init(config.options ?? {});
-  const playerCarIndex = physics.addCar(
-    teamAssignment.playerTeam,
-    selectedPreset,
-  );
+  const playerCarIndex = physics.addCar(teamAssignment.playerTeam, selectedPreset);
   physics.resetKickoff();
 
   const interpolator = new PhysicsStateInterpolator(physics);
@@ -145,7 +138,7 @@ export async function createCorePhysicsBundle(
 }
 
 export async function createCoreSceneGraph(
-  config: SceneGraphFactoryConfig,
+  config: SceneGraphFactoryConfig
 ): Promise<SceneGraphBundle> {
   const {
     container,
@@ -163,13 +156,9 @@ export async function createCoreSceneGraph(
     carVisual?: string;
   };
   const selectedPreset =
-    presetOverride ||
-    loadedSettings.vehiclePreset ||
-    loadedSettings.carVisual ||
-    'fennec';
+    presetOverride || loadedSettings.vehiclePreset || loadedSettings.carVisual || 'fennec';
   const freeplayTeam = getPreferredFreeplayTeam();
-  const teamAssignment: TeamAssignmentPair =
-    existingTeams || getTeamAssignment(freeplayTeam === 1);
+  const teamAssignment: TeamAssignmentPair = existingTeams || getTeamAssignment(freeplayTeam === 1);
   teamAssignment.playerTeam = freeplayTeam;
   teamAssignment.opponentTeam = freeplayTeam === 0 ? 1 : 0;
   hudStore.getState().setMatchState({ localTeam: freeplayTeam });
@@ -212,7 +201,7 @@ export async function createCoreSceneGraph(
     callbacks.onSyncInitialMaterials(
       arena,
       applyVisualMaterialsConfig,
-      useAppStore.getState().materials,
+      useAppStore.getState().materials
     );
   } else if (typeof onProgress === 'function') {
     onProgress(1.0, 'Headless React-only mode (?touch=2) ready — Three.js disabled');
@@ -232,8 +221,7 @@ export async function createCoreSceneGraph(
     callbacks.onEnsurePlayerFlipResetVisual(playerCarIndex);
   }
 
-  const aspect =
-    typeof window !== 'undefined' ? window.innerWidth / window.innerHeight : 16 / 9;
+  const aspect = typeof window !== 'undefined' ? window.innerWidth / window.innerHeight : 16 / 9;
   const CameraControllerClass = options.CameraControllerClass || CameraManager;
   const camera = new CameraControllerClass(aspect);
   const freeCtrl = camera?.controllers?.get?.('free') as
@@ -243,8 +231,7 @@ export async function createCoreSceneGraph(
       }
     | undefined;
   if (freeCtrl) {
-    freeCtrl.onFovChange = (newFov: number) =>
-      useAppStore.setState({ freeCamFov: newFov });
+    freeCtrl.onFovChange = (newFov: number) => useAppStore.setState({ freeCamFov: newFov });
     freeCtrl.shouldSuppressRightClickDrag = () =>
       useAppStore.getState().matchMode === 'static-training-pack';
   }
@@ -260,16 +247,13 @@ export async function createCoreSceneGraph(
     ...DEFAULT_GRAPHICS_SETTINGS,
   };
 
-  const {
-    ballTrajectoryPredictor,
-    reachabilityVisualizer,
-    multiplayerSession,
-  } = createSceneVisualizersAndMultiplayerSession({
-    isTouchHeadless,
-    arena,
-    physics,
-    callbacks,
-  });
+  const { ballTrajectoryPredictor, reachabilityVisualizer, multiplayerSession } =
+    createSceneVisualizersAndMultiplayerSession({
+      isTouchHeadless,
+      arena,
+      physics,
+      callbacks,
+    });
 
   let gameUI: MountedGameUIHandle | null = null;
   if (container && typeof document !== 'undefined') {
@@ -327,23 +311,14 @@ export async function createCoreSceneGraph(
     roomEnv.dispose();
     pmrem.dispose();
 
-    if (
-      container &&
-      renderer.domElement &&
-      renderer.domElement.parentNode !== container
-    ) {
+    if (container && renderer.domElement && renderer.domElement.parentNode !== container) {
       if (renderer.domElement.classList?.add) {
         renderer.domElement.classList.add('game-canvas');
       }
       container.appendChild(renderer.domElement);
     }
 
-    boostBloom = new BoostBloom(
-      renderer,
-      winWidth,
-      winHeight,
-      renderer.getPixelRatio(),
-    );
+    boostBloom = new BoostBloom(renderer, winWidth, winHeight, renderer.getPixelRatio());
     composer = new EffectComposer(renderer);
     callbacks.onUpdateViewport(
       renderer,
@@ -351,7 +326,7 @@ export async function createCoreSceneGraph(
       composer,
       boostBloom,
       speedLinesPass,
-      activeGraphicsSettings,
+      activeGraphicsSettings
     );
 
     composer.addPass(new RenderPass(arena.scene, camera.camera));
@@ -380,8 +355,8 @@ export async function createCoreSceneGraph(
             }
           `,
         }),
-        'baseTexture',
-      ),
+        'baseTexture'
+      )
     );
     composer.addPass(new OutputPass());
     composer.addPass(speedLinesPass.pass);
@@ -412,9 +387,7 @@ export async function createCoreSceneGraph(
   };
 }
 
-export function disposeCoreSceneGraph(
-  resources: DisposableSceneGraphResources,
-): void {
+export function disposeCoreSceneGraph(resources: DisposableSceneGraphResources): void {
   if (resources.cursorHintButton && resources.cursorHintButton.parentElement) {
     resources.cursorHintButton.parentElement.removeChild(resources.cursorHintButton);
   }

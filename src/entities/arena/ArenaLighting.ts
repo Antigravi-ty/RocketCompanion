@@ -13,7 +13,7 @@ import {
   shadowRuntimeConfig,
   normalizeShadowLightingPatch,
   type ShadowConfig,
-} from '../../ui-core/config/atmosphereFxConfig';
+} from '../../ui-core/config/atmosphereFxConfig.ts';
 
 import { ArenaLightingDebugGizmo } from './ArenaLightingDebugGizmo.ts';
 import { ArenaBlobShadowSystem } from './ArenaBlobShadowSystem.ts';
@@ -123,7 +123,7 @@ export class ArenaLightingManager {
         const azDeg =
           mode === 'opposite-sun'
             ? (Number(c.sunAzimuthDeg) || 0) + 180
-            : Number(c.keyLightAzimuthDeg) ?? -135;
+            : (Number(c.keyLightAzimuthDeg) ?? -135);
         const elDeg = Math.max(5, Math.min(85, Number(c.keyLightElevationDeg) ?? 35.3));
         const azRad = (azDeg * Math.PI) / 180;
         const elRad = (elDeg * Math.PI) / 180;
@@ -299,14 +299,21 @@ export class ArenaLightingManager {
       }
       if (renderer.shadowMap.type !== targetType || prevSharpness !== this.shadowConfig.sharpness) {
         renderer.shadowMap.type = targetType;
-        this.scene?.traverse?.((node: THREE.Object3D & { isMesh?: boolean; material?: THREE.Material | THREE.Material[] }) => {
-          if (node.isMesh && node.material) {
-            const mats = Array.isArray(node.material) ? node.material : [node.material];
-            for (const m of mats) {
-              if (m) m.needsUpdate = true;
+        this.scene?.traverse?.(
+          (
+            node: THREE.Object3D & {
+              isMesh?: boolean;
+              material?: THREE.Material | THREE.Material[];
+            }
+          ) => {
+            if (node.isMesh && node.material) {
+              const mats = Array.isArray(node.material) ? node.material : [node.material];
+              for (const m of mats) {
+                if (m) m.needsUpdate = true;
+              }
             }
           }
-        });
+        );
       }
       if (this.shouldRenderShadowMap()) {
         renderer.shadowMap.needsUpdate = true;
@@ -388,7 +395,12 @@ export class ArenaLightingManager {
 
     if (mode === 'single-sun') {
       if (roiFocusPos) {
-        this.updateSubjectShadow(this.carSun, this.carSunTarget, roiFocusPos, singleSunFrustumRadius);
+        this.updateSubjectShadow(
+          this.carSun,
+          this.carSunTarget,
+          roiFocusPos,
+          singleSunFrustumRadius
+        );
       }
       this.blobShadows.update(cars, ball, this);
       this.updateLightDebugVisuals(cars, ball, camera, focusedCarIndex);
@@ -403,7 +415,12 @@ export class ArenaLightingManager {
       const secondaryCarIndex = focusedCarIndex === 0 ? 1 : 0;
       const secondaryCar = cars?.[secondaryCarIndex];
       if (secondaryCar?.visible) {
-        this.updateSubjectShadow(this.opponentSun, this.opponentSunTarget, secondaryCar.position, 260);
+        this.updateSubjectShadow(
+          this.opponentSun,
+          this.opponentSunTarget,
+          secondaryCar.position,
+          260
+        );
       }
     }
     if (ball) {

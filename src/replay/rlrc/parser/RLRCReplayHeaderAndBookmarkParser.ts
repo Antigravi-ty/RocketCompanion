@@ -35,11 +35,11 @@ function getRLCrcTable(): Uint32Array {
 
 export function computeRLReplayCrc32(bytes: Uint8Array, seed: number = RL_CRC_SEED): number {
   const tbl = getRLCrcTable();
-  let crc = (~seed) >>> 0;
+  let crc = ~seed >>> 0;
   for (let i = 0; i < bytes.length; i++) {
     crc = (((crc << 8) >>> 0) ^ tbl[((crc >>> 24) ^ bytes[i]) & 0xff]) >>> 0;
   }
-  return (~crc) >>> 0;
+  return ~crc >>> 0;
 }
 
 export class RLRCByteReader {
@@ -247,7 +247,7 @@ export function estimateSourceFrameTimeSeconds(
   frame30: number,
   keyframes: readonly RLRCKeyFrameEntry[],
   fps: number,
-  frameTimes?: ArrayLike<number>,
+  frameTimes?: ArrayLike<number>
 ): number {
   const f = Math.max(0, Math.trunc(frame30));
   if (frameTimes && frameTimes.length > 0) {
@@ -255,7 +255,8 @@ export function estimateSourceFrameTimeSeconds(
   }
   const rate = fps > 0 ? fps : 30;
   if (keyframes.length === 0) return f / rate;
-  if (f <= keyframes[0].frame) return Math.max(0, keyframes[0].time - (keyframes[0].frame - f) / rate);
+  if (f <= keyframes[0].frame)
+    return Math.max(0, keyframes[0].time - (keyframes[0].frame - f) / rate);
   for (let i = 0; i < keyframes.length - 1; i++) {
     const a = keyframes[i];
     const b = keyframes[i + 1];
@@ -272,9 +273,10 @@ export function estimateFrameIndex120Hz(
   frame30: number,
   keyframes: readonly RLRCKeyFrameEntry[],
   fps: number,
-  frameTimes?: ArrayLike<number>,
+  frameTimes?: ArrayLike<number>
 ): number {
-  const t0 = frameTimes && frameTimes.length > 0 ? Number(frameTimes[0]) || 0 : keyframes[0]?.time ?? 0;
+  const t0 =
+    frameTimes && frameTimes.length > 0 ? Number(frameTimes[0]) || 0 : (keyframes[0]?.time ?? 0);
   const t = estimateSourceFrameTimeSeconds(frame30, keyframes, fps, frameTimes);
   return Math.max(0, Math.round((t - t0) * RLRC_TICK_RATE));
 }
@@ -284,14 +286,21 @@ export function buildRLRCBookmarksFromHeaderAndPart2(
   tickMarks: readonly RLRCTickMarkEntry[],
   keyframes: readonly RLRCKeyFrameEntry[],
   fps: number,
-  options?: RLRCBookmarkBuildOptions,
+  options?: RLRCBookmarkBuildOptions
 ): RLRCBookmarkRecord[] {
   const ft = options?.frameTimesSeconds;
   const byName = new Map<string, { slotIndex: number; team: RLRCTeamIndex }>();
-  for (const m of options?.roster ?? []) byName.set(m.userName.toLowerCase(), { slotIndex: m.slotIndex, team: m.team });
+  for (const m of options?.roster ?? [])
+    byName.set(m.userName.toLowerCase(), { slotIndex: m.slotIndex, team: m.team });
 
   const out: RLRCBookmarkRecord[] = [];
-  const add = (kind: RLRCBookmarkKind, frame: number, label: string, slotIndex: number, team: RLRCTeamIndex | -1): void => {
+  const add = (
+    kind: RLRCBookmarkKind,
+    frame: number,
+    label: string,
+    slotIndex: number,
+    team: RLRCTeamIndex | -1
+  ): void => {
     out.push({
       kind,
       frameIndex120Hz: estimateFrameIndex120Hz(frame, keyframes, fps, ft),
@@ -305,18 +314,34 @@ export function buildRLRCBookmarksFromHeaderAndPart2(
 
   let userIdx = 0;
   for (const m of tickMarks) {
-    if (m.description.trim().toLowerCase() === 'user') add('user-mark', m.frame, `User Mark #${++userIdx}`, -1, -1);
+    if (m.description.trim().toLowerCase() === 'user')
+      add('user-mark', m.frame, `User Mark #${++userIdx}`, -1, -1);
   }
   for (const g of goals) {
     const hit = byName.get(g.playerName.toLowerCase());
     const team: RLRCTeamIndex = g.playerTeam === 1 ? 1 : 0;
-    add('goal', g.frame, `Goal: ${g.playerName} (${team === 0 ? 'Blue' : 'Orange'})`, hit ? hit.slotIndex : -1, team);
+    add(
+      'goal',
+      g.frame,
+      `Goal: ${g.playerName} (${team === 0 ? 'Blue' : 'Orange'})`,
+      hit ? hit.slotIndex : -1,
+      team
+    );
   }
   for (const m of tickMarks) {
     const d = m.description.trim().toLowerCase();
-    if ((d === 'team0goal' || d === 'team1goal' || d === 'goal') && !goals.some((g) => Math.abs(g.frame - m.frame) <= 90)) {
+    if (
+      (d === 'team0goal' || d === 'team1goal' || d === 'goal') &&
+      !goals.some((g) => Math.abs(g.frame - m.frame) <= 90)
+    ) {
       const team: RLRCTeamIndex | -1 = d.includes('team0') ? 0 : d.includes('team1') ? 1 : -1;
-      add('goal', m.frame, `Goal (${team === 0 ? 'Blue' : team === 1 ? 'Orange' : 'Match'})`, -1, team);
+      add(
+        'goal',
+        m.frame,
+        `Goal (${team === 0 ? 'Blue' : team === 1 ? 'Orange' : 'Match'})`,
+        -1,
+        team
+      );
     }
   }
   if (options?.includeKickoffs) {
@@ -327,27 +352,32 @@ export function buildRLRCBookmarksFromHeaderAndPart2(
     }
   }
   if (options?.includeKeyframes) {
-    for (let i = 0; i < keyframes.length; i++) add('ue-keyframe', keyframes[i].frame, `UE KeyFrame #${i + 1}`, -1, -1);
+    for (let i = 0; i < keyframes.length; i++)
+      add('ue-keyframe', keyframes[i].frame, `UE KeyFrame #${i + 1}`, -1, -1);
   }
   return out.sort((a, b) => a.sourceFrame30Hz - b.sourceFrame30Hz);
 }
 
 export function alignRLRCBookmarksTo120HzFrames(
   bookmarks: readonly RLRCBookmarkRecord[],
-  frameTimes: ArrayLike<number>,
+  frameTimes: ArrayLike<number>
 ): RLRCBookmarkRecord[] {
   if (frameTimes.length === 0) return [...bookmarks];
   const t0 = Number(frameTimes[0]) || 0;
   return bookmarks.map((b) => {
     const idx = Math.max(0, Math.min(b.sourceFrame30Hz, frameTimes.length - 1));
     const timeSeconds = Number(frameTimes[idx]) || b.timeSeconds;
-    return { ...b, timeSeconds, frameIndex120Hz: Math.max(0, Math.round((timeSeconds - t0) * RLRC_TICK_RATE)) };
+    return {
+      ...b,
+      timeSeconds,
+      frameIndex120Hz: Math.max(0, Math.round((timeSeconds - t0) * RLRC_TICK_RATE)),
+    };
   });
 }
 
 export function parseRLRCReplayHeaderAndBookmarks(
   buffer: ArrayBuffer | Uint8Array,
-  options?: RLRCBookmarkBuildOptions,
+  options?: RLRCBookmarkBuildOptions
 ): RLRCParsedReplayHeaderAndBookmarks {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
   if (bytes.byteLength < 32) throw new Error('Invalid .replay: buffer < 32B.');
@@ -363,7 +393,8 @@ export function parseRLRCReplayHeaderAndBookmarks(
 
   const part2Length = view.getUint32(p2Off, true);
   const part2Crc = view.getUint32(p2Off + 4, true);
-  if (p2Off + 8 + part2Length > bytes.byteLength) throw new Error('Invalid .replay: Part 2 out of bounds.');
+  if (p2Off + 8 + part2Length > bytes.byteLength)
+    throw new Error('Invalid .replay: Part 2 out of bounds.');
 
   const part2Slice = bytes.subarray(p2Off + 8, p2Off + 8 + part2Length);
   const part2CrcValid = computeRLReplayCrc32(part2Slice) === part2Crc;
@@ -408,14 +439,25 @@ export function parseRLRCReplayHeaderAndBookmarks(
   const p2 = new RLRCByteReader(part2Slice);
   const readStr = (r: RLRCByteReader): string => r.readUEString();
   const levels = readTable(p2, readStr);
-  const keyframes = readTable(p2, (r) => ({ time: r.readF32(), frame: r.readI32(), bitPosition: r.readI32() }));
+  const keyframes = readTable(p2, (r) => ({
+    time: r.readF32(),
+    frame: r.readI32(),
+    bitPosition: r.readI32(),
+  }));
   const netstreamBytes = p2.readBytes(Math.max(0, p2.readI32()));
-  const debugInfo = readTable(p2, (r) => ({ frame: r.readI32(), user: r.readUEString(), text: r.readUEString() }));
+  const debugInfo = readTable(p2, (r) => ({
+    frame: r.readI32(),
+    user: r.readUEString(),
+    text: r.readUEString(),
+  }));
   const tickMarks = readTable(p2, (r) => ({ description: r.readUEString(), frame: r.readI32() }));
   const packages = readTable(p2, readStr);
   const objects = readTable(p2, readStr);
   const names = readTable(p2, readStr);
-  const classIndices = readTable(p2, (r) => ({ className: r.readUEString(), objectIndex: r.readI32() }));
+  const classIndices = readTable(p2, (r) => ({
+    className: r.readUEString(),
+    objectIndex: r.readI32(),
+  }));
   const netCache = readTable(p2, (r) => ({
     objectInd: r.readI32(),
     parentId: r.readI32(),
@@ -428,12 +470,23 @@ export function parseRLRCReplayHeaderAndBookmarks(
   const totalSeconds = Number(props.TotalSecondsPlayed) || 0;
   const estEnd =
     sourceFrameCount > 0
-      ? estimateSourceFrameTimeSeconds(sourceFrameCount - 1, keyframes, recordFps, options?.frameTimesSeconds) - (keyframes[0]?.time ?? 0)
+      ? estimateSourceFrameTimeSeconds(
+          sourceFrameCount - 1,
+          keyframes,
+          recordFps,
+          options?.frameTimesSeconds
+        ) - (keyframes[0]?.time ?? 0)
       : 0;
   const durationSeconds = totalSeconds > 0 ? totalSeconds : Math.max(0, estEnd);
   const frameCount120Hz = Math.max(0, Math.round(durationSeconds * RLRC_TICK_RATE));
-  const blueScore = props.Team0Score !== undefined ? Number(props.Team0Score) : goals.filter((g) => g.playerTeam === 0).length;
-  const orangeScore = props.Team1Score !== undefined ? Number(props.Team1Score) : goals.filter((g) => g.playerTeam === 1).length;
+  const blueScore =
+    props.Team0Score !== undefined
+      ? Number(props.Team0Score)
+      : goals.filter((g) => g.playerTeam === 0).length;
+  const orangeScore =
+    props.Team1Score !== undefined
+      ? Number(props.Team1Score)
+      : goals.filter((g) => g.playerTeam === 1).length;
 
   return {
     header: {
@@ -480,7 +533,13 @@ export function parseRLRCReplayHeaderAndBookmarks(
     names,
     classIndices,
     netCache,
-    bookmarks: buildRLRCBookmarksFromHeaderAndPart2(goals, tickMarks, keyframes, recordFps, options),
+    bookmarks: buildRLRCBookmarksFromHeaderAndPart2(
+      goals,
+      tickMarks,
+      keyframes,
+      recordFps,
+      options
+    ),
   };
 }
 

@@ -283,11 +283,7 @@ export class HandshakeSession {
   handleRoomMessage(data: any): void {
     if (!data) return;
 
-    if (
-      data instanceof Uint8Array ||
-      data instanceof ArrayBuffer ||
-      typeof data === 'string'
-    ) {
+    if (data instanceof Uint8Array || data instanceof ArrayBuffer || typeof data === 'string') {
       this.port.handleIncomingMessage(data);
       return;
     }

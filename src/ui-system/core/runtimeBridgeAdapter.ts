@@ -1,28 +1,28 @@
-import './runtimeEngineUiPort';
-import { useAppStore } from '../../ui-core/stores/appStore';
-import type { AppState } from '../../ui-core/stores/appStoreTypes';
-import { perfTelemetryStore } from '../../ui-core/stores/perfTelemetryStore';
-import { hudStore } from '../../ui-core/stores/hudStore';
-import { floatingStore } from '../../ui-core/stores/floatingStore';
-import { useRewinderStore } from '../../ui-core/stores/rewinderStore';
-import { useReplayViewerStore } from '../../ui-core/stores/replayViewerStore';
-import { useReplayToRcsImporterStore } from '../../ui-core/stores/replayToRcsImporterStore';
-import { loadInputBindings } from '../../ui-core/config/inputBindings';
+import './runtimeEngineUiPort.ts';
+import { useAppStore } from '../../ui-core/stores/appStore.ts';
+import type { AppState } from '../../ui-core/stores/appStoreTypes.ts';
+import { perfTelemetryStore } from '../../ui-core/stores/perfTelemetryStore.ts';
+import { hudStore } from '../../ui-core/stores/hudStore.ts';
+import { floatingStore } from '../../ui-core/stores/floatingStore.ts';
+import { useRewinderStore } from '../../ui-core/stores/rewinderStore.ts';
+import { useReplayViewerStore } from '../../ui-core/stores/replayViewerStore.ts';
+import { useReplayToRcsImporterStore } from '../../ui-core/stores/replayToRcsImporterStore.ts';
+import { loadInputBindings } from '../../ui-core/config/inputBindings.ts';
 import {
   getPreferredColorHex,
   getPreferredFreeplayTeam,
-} from '../../ui-core/config/vehiclePresets';
-import { createOnlineBridgeHandlers } from './runtimeOnlineBridgeHandlers';
-import { createModeBridgeHandlers } from './runtimeModeBridgeHandlers';
-import { createTunerBridgeHandlers, syncMaterialsToGame } from './runtimeTunerBridgeHandlers';
-import { cameraDeterminismStore } from '../../ui-core/stores/cameraDeterminismStore';
+} from '../../ui-core/config/vehiclePresets.ts';
+import { createOnlineBridgeHandlers } from './runtimeOnlineBridgeHandlers.ts';
+import { createModeBridgeHandlers } from './runtimeModeBridgeHandlers.ts';
+import { createTunerBridgeHandlers, syncMaterialsToGame } from './runtimeTunerBridgeHandlers.ts';
+import { cameraDeterminismStore } from '../../ui-core/stores/cameraDeterminismStore.ts';
 import { getCameraDeterminismHarness } from '../../camera/CameraDeterminismHarness.ts';
-import { useQuickNotificationStore } from '../../ui-core/stores/quickNotificationStore';
-import type { QuickNotificationPushOptions as QuickNotificationInput } from '../../ui-core/stores/notificationTypes';
-import { setPacingTelemetryNotificationHandler } from '../../ui-core/stores/pacingTelemetryExporter';
-import { useGoalBarrierStore } from '../../ui-core/stores/goalBarrierStore';
-import { buildGoalBarrierCmfChunks } from '../../ui-core/config/goalBarrierConfig';
-import { syncRuntimeNetworkDiagnostics } from './runtimeNetworkDiagnosticsBridge';
+import { useQuickNotificationStore } from '../../ui-core/stores/quickNotificationStore.ts';
+import type { QuickNotificationPushOptions as QuickNotificationInput } from '../../ui-core/stores/notificationTypes.ts';
+import { setPacingTelemetryNotificationHandler } from '../../ui-core/stores/pacingTelemetryExporter.ts';
+import { useGoalBarrierStore } from '../../ui-core/stores/goalBarrierStore.ts';
+import { buildGoalBarrierCmfChunks } from '../../ui-core/config/goalBarrierConfig.ts';
+import { syncRuntimeNetworkDiagnostics } from './runtimeNetworkDiagnosticsBridge.ts';
 import type {
   GameRuntimeUiBridgePort,
   GoalBarrierDecompositionPort,
@@ -69,7 +69,10 @@ function syncFloatingWindowFlags(): void {
     });
   }
   const impState = useReplayToRcsImporterStore.getState();
-  if (impState.isWindowOpen !== importerOpen || impState.hasHotkeyPriority !== importerHasPriority) {
+  if (
+    impState.isWindowOpen !== importerOpen ||
+    impState.hasHotkeyPriority !== importerHasPriority
+  ) {
     useReplayToRcsImporterStore.setState({
       isWindowOpen: importerOpen,
       hasHotkeyPriority: importerHasPriority,
@@ -84,7 +87,7 @@ function syncFloatingWindowFlags(): void {
 }
 
 export function syncGoalBarrierToGame(
-  runtimePort: GameRuntimeUiBridgePort | null | undefined,
+  runtimePort: GameRuntimeUiBridgePort | null | undefined
 ): void {
   if (!runtimePort) return;
   const gbState = useGoalBarrierStore.getState();
@@ -109,12 +112,12 @@ export function syncGoalBarrierToGame(
     enabled,
     opacity,
     chunks,
-    updatePhysicsChunks,
+    updatePhysicsChunks
   );
 }
 
 export function attachGameRuntimeBridge(
-  runtimePort: GameRuntimeUiBridgePort | null | undefined,
+  runtimePort: GameRuntimeUiBridgePort | null | undefined
 ): void {
   if (!runtimePort) return;
   const { cameraPort, matchPort, tunerPort } = runtimePort;
@@ -168,10 +171,10 @@ export function attachGameRuntimeBridge(
   const initialGraphics = useAppStore.getState().graphics;
   tunerPort.applyGraphicsSettings(initialGraphics);
   tunerPort.applyBoostPadTuner(
-    useAppStore.getState().boostPadTuner as unknown as Record<string, unknown>,
+    useAppStore.getState().boostPadTuner as unknown as Record<string, unknown>
   );
   tunerPort.applyDriftwoodsTuner(
-    useAppStore.getState().driftwoodsTuner as unknown as Record<string, unknown>,
+    useAppStore.getState().driftwoodsTuner as unknown as Record<string, unknown>
   );
 
   useAppStore.getState().setBridge({

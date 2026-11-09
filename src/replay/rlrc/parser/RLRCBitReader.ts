@@ -51,7 +51,7 @@ export class RLRCBitReader {
     const maxBits = 32 - Math.clz32(maxVal - 1);
     let val = this.readBits(maxBits - 1);
     const highBit = (1 << (maxBits - 1)) >>> 0;
-    if (((val | highBit) >>> 0) < (maxVal >>> 0)) {
+    if ((val | highBit) >>> 0 < maxVal >>> 0) {
       if (this.readBit() === 1) {
         val = (val | highBit) >>> 0;
       }

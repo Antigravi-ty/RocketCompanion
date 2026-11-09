@@ -24,15 +24,10 @@ import {
   type CanonicalRelayId,
 } from '../../ui-core/config/roomCodeConnectivityCodec.ts';
 
-export type {
-  CanonicalEdgeNodeId,
-  CanonicalRelayId,
-};
+export type { CanonicalEdgeNodeId, CanonicalRelayId };
 
 export type RelayTransportClient =
-  | MqttWebSocketClient
-  | WebSocketSignalingClient
-  | SupabaseRealtimeSignalingClient;
+  MqttWebSocketClient | WebSocketSignalingClient | SupabaseRealtimeSignalingClient;
 
 export interface RelayTransportFactoryContext {
   role: string;

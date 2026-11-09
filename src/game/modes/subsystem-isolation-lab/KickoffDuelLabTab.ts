@@ -1,8 +1,5 @@
 import { DEFAULT_CAR_CONTROLS } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
-import type {
-  BallStateView,
-  CarStateView,
-} from '../../../physics/RocketSimStateViews.ts';
+import type { BallStateView, CarStateView } from '../../../physics/RocketSimStateViews.ts';
 import { useSubsystemIsolationLabStore } from '../../runtimeUiPort.ts';
 import type { LabTabContext, LabTabController } from './LabTabTypes.ts';
 import { classifyBallOutcome } from '../../../ai/KickoffV2SafeTensorsAgent.ts';
@@ -71,11 +68,7 @@ export class KickoffDuelEpisodeTracker {
       }
     }
 
-    if (
-      this.touched &&
-      !this.inputsCutOff &&
-      this.tick >= this.touchTick + cutoffDelayTicks
-    ) {
+    if (this.touched && !this.inputsCutOff && this.tick >= this.touchTick + cutoffDelayTicks) {
       this.inputsCutOff = true;
       this.cutoffTick = this.tick;
     }
@@ -91,10 +84,7 @@ export class KickoffDuelEpisodeTracker {
     return this.tick % 4 === 0 && this.blueSteps.length < 120;
   }
 
-  recordStepTraces(
-    blueEntry: KickoffStepTraceEntry,
-    orangeEntry: KickoffStepTraceEntry
-  ): void {
+  recordStepTraces(blueEntry: KickoffStepTraceEntry, orangeEntry: KickoffStepTraceEntry): void {
     this.blueSteps.push(blueEntry);
     this.orangeSteps.push(orangeEntry);
   }
@@ -106,9 +96,7 @@ export class KickoffDuelEpisodeTracker {
 
   shouldPublishTelemetry(): boolean {
     return (
-      this.tick % 4 === 0 ||
-      this.tick === this.touchTick + 1 ||
-      this.tick === this.cutoffTick + 1
+      this.tick % 4 === 0 || this.tick === this.touchTick + 1 || this.tick === this.cutoffTick + 1
     );
   }
 
@@ -118,12 +106,8 @@ export class KickoffDuelEpisodeTracker {
     c1: CarStateView,
     cutoffDelayTicks: number
   ): Record<string, unknown> {
-    const d0Now = Math.round(
-      Math.hypot(c0.posX - bs.posX, c0.posY - bs.posY, c0.posZ - bs.posZ)
-    );
-    const d1Now = Math.round(
-      Math.hypot(c1.posX - bs.posX, c1.posY - bs.posY, c1.posZ - bs.posZ)
-    );
+    const d0Now = Math.round(Math.hypot(c0.posX - bs.posX, c0.posY - bs.posY, c0.posZ - bs.posZ));
+    const d1Now = Math.round(Math.hypot(c1.posX - bs.posX, c1.posY - bs.posY, c1.posZ - bs.posZ));
     const bSpd = Math.round(Math.hypot(bs.velX, bs.velY, bs.velZ));
     const outcome = this.touched
       ? classifyBallOutcome(bs.posX, bs.posY, bs.velX, bs.velY)
@@ -144,16 +128,8 @@ export class KickoffDuelEpisodeTracker {
       kickoffDuelInputsCutOff: this.inputsCutOff,
       kickoffDuelBlueDist: this.touched ? this.blueDistAtTouch : d0Now,
       kickoffDuelOrangeDist: this.touched ? this.orangeDistAtTouch : d1Now,
-      kickoffDuelBallPos: [
-        Math.round(bs.posX),
-        Math.round(bs.posY),
-        Math.round(bs.posZ),
-      ],
-      kickoffDuelBallVel: [
-        Math.round(bs.velX),
-        Math.round(bs.velY),
-        Math.round(bs.velZ),
-      ],
+      kickoffDuelBallPos: [Math.round(bs.posX), Math.round(bs.posY), Math.round(bs.posZ)],
+      kickoffDuelBallVel: [Math.round(bs.velX), Math.round(bs.velY), Math.round(bs.velZ)],
       kickoffDuelBallSpeed: bSpd,
       kickoffDuelBallOutcome: outcome,
       kickoffDuelLiveBlueSteps: this.blueSteps.slice(-16),
@@ -163,8 +139,7 @@ export class KickoffDuelEpisodeTracker {
 
   isEpisodeComplete(maxObservationTicks = 180): boolean {
     const timedOut = !this.touched && this.tick >= 420;
-    const finishedObservation =
-      this.inputsCutOff && this.postCutoffTicks >= maxObservationTicks;
+    const finishedObservation = this.inputsCutOff && this.postCutoffTicks >= maxObservationTicks;
     return finishedObservation || timedOut;
   }
 }
@@ -193,18 +168,13 @@ export class KickoffDuelLabTab implements LabTabController {
     const epoch = this.ctx.getSwitchEpoch();
 
     if (!this.kickoffDuelHelpers) {
-      this.kickoffDuelHelpers = createKickoffDuelHelpers(
-        store.kickoffDuelChannelMode
-      );
+      this.kickoffDuelHelpers = createKickoffDuelHelpers(store.kickoffDuelChannelMode);
     }
 
     this.startEpisode();
 
     await r.arena?.ensureOpponent?.();
-    await ensureKickoffDuelModelsLoaded([
-      store.kickoffDuelBlueModel,
-      store.kickoffDuelOrangeModel,
-    ]);
+    await ensureKickoffDuelModelsLoaded([store.kickoffDuelBlueModel, store.kickoffDuelOrangeModel]);
 
     if (
       this.ctx?.getSwitchEpoch() !== epoch ||
@@ -227,10 +197,7 @@ export class KickoffDuelLabTab implements LabTabController {
       }
     }
 
-    const mult = Math.max(
-      100,
-      Math.min(400, Number(store.kickoffDuelSpeedMultiplier) || 100)
-    );
+    const mult = Math.max(100, Math.min(400, Number(store.kickoffDuelSpeedMultiplier) || 100));
     r.interpolator?.setTrainingPhysicsRate?.(Math.round(120 * (mult / 100)));
 
     this.startEpisode();
@@ -241,15 +208,10 @@ export class KickoffDuelLabTab implements LabTabController {
     if (!r?.physics) return;
     const store = useSubsystemIsolationLabStore.getState();
 
-    void ensureKickoffDuelModelsLoaded([
-      store.kickoffDuelBlueModel,
-      store.kickoffDuelOrangeModel,
-    ]);
+    void ensureKickoffDuelModelsLoaded([store.kickoffDuelBlueModel, store.kickoffDuelOrangeModel]);
 
     const slotIdx =
-      typeof overrideSlotIndex === 'number'
-        ? overrideSlotIndex
-        : store.kickoffDuelSlotIndex ?? 0;
+      typeof overrideSlotIndex === 'number' ? overrideSlotIndex : (store.kickoffDuelSlotIndex ?? 0);
 
     resetSimToKickoffSlotAndSettle(r.physics, slotIdx);
     r.physics.clearEvents?.();
@@ -314,12 +276,7 @@ export class KickoffDuelLabTab implements LabTabController {
     const r = this.ctx?.runtime;
     const store = useSubsystemIsolationLabStore.getState();
     const sim = r?.physics;
-    if (
-      !sim ||
-      sim.numCars < 2 ||
-      !this.kickoffDuelRuntime ||
-      !this.kickoffDuelHelpers
-    ) {
+    if (!sim || sim.numCars < 2 || !this.kickoffDuelRuntime || !this.kickoffDuelHelpers) {
       return true;
     }
 
@@ -348,25 +305,9 @@ export class KickoffDuelLabTab implements LabTabController {
         channelMode: store.kickoffDuelChannelMode || 'keyboard_coupled',
       };
 
-      const dec0 = decideCarControlsForModel(
-        sim,
-        blueModel,
-        0,
-        0,
-        rt.tick,
-        helpers,
-        decideOpts
-      );
+      const dec0 = decideCarControlsForModel(sim, blueModel, 0, 0, rt.tick, helpers, decideOpts);
       helpers = dec0.nextHelpers;
-      const dec1 = decideCarControlsForModel(
-        sim,
-        orangeModel,
-        1,
-        1,
-        rt.tick,
-        helpers,
-        decideOpts
-      );
+      const dec1 = decideCarControlsForModel(sim, orangeModel, 1, 1, rt.tick, helpers, decideOpts);
       helpers = dec1.nextHelpers;
       this.kickoffDuelHelpers = helpers;
 
@@ -384,21 +325,16 @@ export class KickoffDuelLabTab implements LabTabController {
     rt.advanceTick();
 
     if (rt.shouldPublishTelemetry()) {
-      store.updateLiveTelemetry(
-        rt.buildLiveTelemetryPatch(bs, c0, c1, cutoffDelayTicks)
-      );
+      store.updateLiveTelemetry(rt.buildLiveTelemetryPatch(bs, c0, c1, cutoffDelayTicks));
     }
 
     if (rt.isEpisodeComplete(180) && store.kickoffDuelAutoCycle) {
       const nextSlot = (rt.slotIndex + 1) % 5;
       if (nextSlot === 0 && store.kickoffDuelAutoCycleAllPairs) {
         const currentPairIdx = KICKOFF_DUEL_PAIRINGS.findIndex(
-          (p) =>
-            p.blue === store.kickoffDuelBlueModel &&
-            p.orange === store.kickoffDuelOrangeModel
+          (p) => p.blue === store.kickoffDuelBlueModel && p.orange === store.kickoffDuelOrangeModel
         );
-        const nextPair =
-          KICKOFF_DUEL_PAIRINGS[(currentPairIdx + 1) % KICKOFF_DUEL_PAIRINGS.length];
+        const nextPair = KICKOFF_DUEL_PAIRINGS[(currentPairIdx + 1) % KICKOFF_DUEL_PAIRINGS.length];
         store.updateLiveTelemetry({
           kickoffDuelBlueModel: nextPair.blue,
           kickoffDuelOrangeModel: nextPair.orange,

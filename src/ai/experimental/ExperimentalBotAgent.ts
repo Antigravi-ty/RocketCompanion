@@ -68,7 +68,9 @@ const sRippleEngine = new RipplePerceiverEngine();
 /**
  * Preloads or retrieves a cached SafeTensors model for any neural policy.
  */
-export async function ensureExperimentalEngine(botType: string): Promise<ParsedSafeTensorsModel | null> {
+export async function ensureExperimentalEngine(
+  botType: string
+): Promise<ParsedSafeTensorsModel | null> {
   if (!botType || botType === 'heuristic' || !EXPERIMENTAL_MODEL_URLS[botType]) {
     return null;
   }
@@ -177,18 +179,16 @@ export class ExperimentalBotAgent {
     return policy ? policy.tickSkip : 8;
   }
 
-  overrideControls(
-    controls: {
-      throttle?: number;
-      steer?: number;
-      pitch?: number;
-      yaw?: number;
-      roll?: number;
-      jump?: boolean | number;
-      boost?: boolean | number;
-      handbrake?: boolean | number;
-    }
-  ): void {
+  overrideControls(controls: {
+    throttle?: number;
+    steer?: number;
+    pitch?: number;
+    yaw?: number;
+    roll?: number;
+    jump?: boolean | number;
+    boost?: boolean | number;
+    handbrake?: boolean | number;
+  }): void {
     this.action = {
       throttle: Number(controls.throttle ?? DEFAULT_CAR_CONTROLS.throttle),
       steer: Number(controls.steer ?? DEFAULT_CAR_CONTROLS.steer),
@@ -236,7 +236,8 @@ export class ExperimentalBotAgent {
         activeCars
       );
       writeControlsToFloat8(this.action, this.prevAction8);
-      this.lastInferenceMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
+      this.lastInferenceMs =
+        (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
       return this.action;
     }
 
@@ -257,7 +258,8 @@ export class ExperimentalBotAgent {
         activeCars
       );
       writeControlsToFloat8(this.action, this.prevAction8);
-      this.lastInferenceMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
+      this.lastInferenceMs =
+        (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
       return this.action;
     }
     this._warnedUnloadedFallback = false;
@@ -315,15 +317,13 @@ export class ExperimentalBotAgent {
         writeControlsToFloat8(this.action, this.prevAction8);
       } else {
         const enginePort = typeof physicsEngine === 'object' ? physicsEngine : null;
-        this._decideMlpBotpack9700488(
-          simState,
-          activeCars,
-          enginePort,
-          parsedModel.tensors
-        );
+        this._decideMlpBotpack9700488(simState, activeCars, enginePort, parsedModel.tensors);
       }
     } catch (err) {
-      console.warn(`[ExperimentalBotAgent] Inference error on car ${this.carIndex} (${this.botType}):`, err);
+      console.warn(
+        `[ExperimentalBotAgent] Inference error on car ${this.carIndex} (${this.botType}):`,
+        err
+      );
       this.action = multiCarHeuristicDecide(
         simState,
         boostPads,
@@ -334,7 +334,8 @@ export class ExperimentalBotAgent {
       writeControlsToFloat8(this.action, this.prevAction8);
     }
 
-    this.lastInferenceMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
+    this.lastInferenceMs =
+      (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
     return this.action;
   }
 
@@ -355,13 +356,34 @@ export class ExperimentalBotAgent {
         built = buildDiceObs(simState, this.action, this.carIndex, this.team, activeCars);
         break;
       case 'ducky':
-        built = buildDuckyObs(simState, this.action, this.carIndex, this.team, activeCars, physicsEngine);
+        built = buildDuckyObs(
+          simState,
+          this.action,
+          this.carIndex,
+          this.team,
+          activeCars,
+          physicsEngine
+        );
         break;
       case 'fury':
-        built = buildFuryObs(simState, this.action, this.carIndex, this.team, activeCars, physicsEngine);
+        built = buildFuryObs(
+          simState,
+          this.action,
+          this.carIndex,
+          this.team,
+          activeCars,
+          physicsEngine
+        );
         break;
       case 'galactus':
-        built = buildGalactusObs(simState, this.action, this.carIndex, this.team, activeCars, physicsEngine);
+        built = buildGalactusObs(
+          simState,
+          this.action,
+          this.carIndex,
+          this.team,
+          activeCars,
+          physicsEngine
+        );
         break;
       case 'kira':
         built = buildKiraObs(simState, this.action, this.carIndex, this.team, activeCars);

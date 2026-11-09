@@ -12,14 +12,9 @@ import {
   GLOBAL_VEHICLE_SURFACE_MATERIALS,
   getVehicleDescriptor,
   vehicleTunerRuntimeFlags,
-} from '../../ui-core/config/vehicleTunerConfig';
-import {
-  createCarPaintMaterial,
-  getVehicleReceiveShadows,
-} from './vehiclePaintMaterial.ts';
-import {
-  buildCustomToonRampTexture,
-} from './vehiclePaintMaterial.ts';
+} from '../../ui-core/config/vehicleTunerConfig.ts';
+import { createCarPaintMaterial, getVehicleReceiveShadows } from './vehiclePaintMaterial.ts';
+import { buildCustomToonRampTexture } from './vehiclePaintMaterial.ts';
 
 function resolveSurfaceSlotColor(
   slotConfig: { slotName?: string; color?: string | number },
@@ -30,15 +25,15 @@ function resolveSurfaceSlotColor(
     return vehicleTunerRuntimeFlags.borderOverrideColor || DEFAULT_BORDER_OVERRIDE_COLOR;
   }
   const isBodySlot = slotLower === 'body' || slotLower === 'body-shell';
-  const useDirectColor = Boolean(vehicleTunerRuntimeFlags.colorOverride) || !isBodySlot || typeof teamColor !== 'number';
-  return useDirectColor ? (slotConfig.color || '#42a5f5') : teamColor;
+  const useDirectColor =
+    Boolean(vehicleTunerRuntimeFlags.colorOverride) || !isBodySlot || typeof teamColor !== 'number';
+  return useDirectColor ? slotConfig.color || '#42a5f5' : teamColor;
 }
 
 export function buildSurfaceSlotMaterial(slotConfig, teamColor) {
   const rawMode = slotConfig.mode || 'standard';
-  const mode = (rawMode === 'standard' || rawMode === 'toon' || rawMode === 'pbr')
-    ? rawMode
-    : 'standard';
+  const mode =
+    rawMode === 'standard' || rawMode === 'toon' || rawMode === 'pbr' ? rawMode : 'standard';
 
   const resolvedColor = new THREE.Color(resolveSurfaceSlotColor(slotConfig, teamColor));
 
@@ -155,7 +150,8 @@ function updateExistingSurfaceSlotMaterial(
 ): boolean {
   if (!existingMat) return false;
   const rawMode = slotConfig.mode || 'standard';
-  const mode = rawMode === 'standard' || rawMode === 'toon' || rawMode === 'pbr' ? rawMode : 'standard';
+  const mode =
+    rawMode === 'standard' || rawMode === 'toon' || rawMode === 'pbr' ? rawMode : 'standard';
   if (existingMat.userData?._slotMode !== mode) return false;
 
   existingMat.color?.set?.(resolveSurfaceSlotColor(slotConfig, teamColor));
@@ -185,13 +181,7 @@ function updateExistingSurfaceSlotMaterial(
 }
 
 export type StandardVehicleMaterialSlot =
-  | 'body'
-  | 'window'
-  | 'border'
-  | 'bottom'
-  | 'metal'
-  | 'FrontBulb'
-  | 'BackBulb';
+  'body' | 'window' | 'border' | 'bottom' | 'metal' | 'FrontBulb' | 'BackBulb';
 
 export interface MaterialSlotClassification {
   slot: StandardVehicleMaterialSlot;
@@ -205,14 +195,19 @@ const warnedFallbackMaterials = new Set<string>();
  * (`body`, `window`, `border`, `bottom`, `metal`, `FrontBulb`, `BackBulb`) via
  * case-insensitive substring matching. Unrecognized names fall back to `body`.
  */
-export function classifyCustomVehicleMaterialSlot(rawMaterialName: string): MaterialSlotClassification {
-  const lower = String(rawMaterialName || '').trim().toLowerCase();
+export function classifyCustomVehicleMaterialSlot(
+  rawMaterialName: string
+): MaterialSlotClassification {
+  const lower = String(rawMaterialName || '')
+    .trim()
+    .toLowerCase();
   if (lower.includes('front')) return { slot: 'FrontBulb', isFallback: false };
   if (lower.includes('back')) return { slot: 'BackBulb', isFallback: false };
   if (lower.includes('body') || lower.includes('dummy')) return { slot: 'body', isFallback: false };
   if (lower.includes('window')) return { slot: 'window', isFallback: false };
   if (lower.includes('border')) return { slot: 'border', isFallback: false };
-  if (lower.includes('bottom') || lower.includes('chassis')) return { slot: 'bottom', isFallback: false };
+  if (lower.includes('bottom') || lower.includes('chassis'))
+    return { slot: 'bottom', isFallback: false };
   if (lower.includes('metal')) return { slot: 'metal', isFallback: false };
   return { slot: 'body', isFallback: true };
 }
@@ -225,20 +220,23 @@ export function applyCustomGlbVehicleMaterials(
 ) {
   const descriptor = getVehicleDescriptor(vehicleId) || FENNEC_DESCRIPTOR;
   const palette = createCarPaintMaterial(teamColor, descriptor.colors?.default);
-  const finishPreset = paintFinish === 'metallic'
-    ? { metalness: 0.70, roughness: 0.45 }
-    : paintFinish === 'matte'
-    ? { metalness: 0.50, roughness: 0.85 }
-    : null;
+  const finishPreset =
+    paintFinish === 'metallic'
+      ? { metalness: 0.7, roughness: 0.45 }
+      : paintFinish === 'matte'
+        ? { metalness: 0.5, roughness: 0.85 }
+        : null;
   if (finishPreset && palette?.body) {
     palette.body.metalness = finishPreset.metalness;
     palette.body.roughness = finishPreset.roughness;
   }
   const surfaceConfigs = GLOBAL_VEHICLE_SURFACE_MATERIALS || descriptor.surfaceMaterials || {};
-  const lampsCfg = GLOBAL_VEHICLE_LAMPS_CONFIG || descriptor.lampsConfig || FENNEC_DESCRIPTOR.lampsConfig;
+  const lampsCfg =
+    GLOBAL_VEHICLE_LAMPS_CONFIG || descriptor.lampsConfig || FENNEC_DESCRIPTOR.lampsConfig;
 
-  const frontBaseColor = new THREE.Color(lampsCfg.frontColor || '#d8eeff')
-    .multiplyScalar(lampsCfg.frontIntensity ?? 2.5);
+  const frontBaseColor = new THREE.Color(lampsCfg.frontColor || '#d8eeff').multiplyScalar(
+    lampsCfg.frontIntensity ?? 2.5
+  );
   let frontLampMaterial = root.userData.frontLampMaterial;
   if (frontLampMaterial && frontLampMaterial.isMeshBasicMaterial) {
     frontLampMaterial.color.copy(frontBaseColor);
@@ -251,8 +249,9 @@ export function applyCustomGlbVehicleMaterials(
     });
   }
 
-  const tailIdleColor = new THREE.Color(lampsCfg.tailIdleColor || '#5c0a0a')
-    .multiplyScalar(lampsCfg.tailIdleIntensity ?? 0.85);
+  const tailIdleColor = new THREE.Color(lampsCfg.tailIdleColor || '#5c0a0a').multiplyScalar(
+    lampsCfg.tailIdleIntensity ?? 0.85
+  );
   let tailLampMaterial = root.userData.tailLampMaterials?.[0];
   if (tailLampMaterial && tailLampMaterial.isMeshBasicMaterial) {
     tailLampMaterial.color.copy(tailIdleColor);
@@ -277,17 +276,18 @@ export function applyCustomGlbVehicleMaterials(
   for (const [slotKey, slotCfg] of Object.entries(surfaceConfigs)) {
     const lowerKey = slotKey.toLowerCase();
     const isBodySlot = lowerKey === 'body' || lowerKey === 'body-shell';
-    const effectiveCfg = (isBodySlot && finishPreset)
-      ? { ...slotCfg, metalness: finishPreset.metalness, roughness: finishPreset.roughness }
-      : slotCfg;
+    const effectiveCfg =
+      isBodySlot && finishPreset
+        ? { ...slotCfg, metalness: finishPreset.metalness, roughness: finishPreset.roughness }
+        : slotCfg;
     const existingSlotMat = prevSlotMap?.get(lowerKey);
-    if (existingSlotMat && updateExistingSurfaceSlotMaterial(existingSlotMat, effectiveCfg, teamColor)) {
+    if (
+      existingSlotMat &&
+      updateExistingSurfaceSlotMaterial(existingSlotMat, effectiveCfg, teamColor)
+    ) {
       slotMaterialMap.set(lowerKey, existingSlotMat);
     } else {
-      slotMaterialMap.set(
-        lowerKey,
-        buildSurfaceSlotMaterial(effectiveCfg, teamColor)
-      );
+      slotMaterialMap.set(lowerKey, buildSurfaceSlotMaterial(effectiveCfg, teamColor));
     }
   }
   if (!slotMaterialMap.has('bottom') && FENNEC_DESCRIPTOR.surfaceMaterials?.bottom) {
@@ -299,58 +299,60 @@ export function applyCustomGlbVehicleMaterials(
 
   const tailLampMaterials: THREE.MeshBasicMaterial[] = [];
 
-  root.traverse?.((node: THREE.Object3D & { isMesh?: boolean; material?: THREE.Material | THREE.Material[] }) => {
-    if (!node.isMesh) return;
-    if (node.name === 'boost-nozzle-gizmo' || node.name === 'car-hitbox' || node.name === 'car-hitbox-wireframe') {
-      return;
-    }
-
-    const origMatName = (
-      node.userData.originalMaterialName ||
-      (Array.isArray(node.material) ? node.material[0]?.name : node.material?.name) ||
-      ''
-    ).trim();
-    node.userData.originalMaterialName = origMatName;
-
-    const classification = classifyCustomVehicleMaterialSlot(origMatName);
-    if (classification.isFallback) {
-      const warnKey = `${descriptor.id}::${node.name || 'mesh'}::${origMatName || '<unnamed>'}`;
-      if (!warnedFallbackMaterials.has(warnKey)) {
-        warnedFallbackMaterials.add(warnKey);
-        console.warn(
-          `[CustomGlbMaterial] Unrecognized material "${origMatName || '<unnamed>'}" on mesh "${node.name || 'unnamed'}" in vehicle "${descriptor.id}"; falling back to default "body" slot.`
-        );
+  root.traverse?.(
+    (node: THREE.Object3D & { isMesh?: boolean; material?: THREE.Material | THREE.Material[] }) => {
+      if (!node.isMesh) return;
+      if (
+        node.name === 'boost-nozzle-gizmo' ||
+        node.name === 'car-hitbox' ||
+        node.name === 'car-hitbox-wireframe'
+      ) {
+        return;
       }
-    }
 
-    if (classification.slot === 'FrontBulb') {
-      node.material = frontLampMaterial;
-      node.castShadow = false;
-      node.receiveShadow = false;
-      return;
-    }
+      const origMatName = (
+        node.userData.originalMaterialName ||
+        (Array.isArray(node.material) ? node.material[0]?.name : node.material?.name) ||
+        ''
+      ).trim();
+      node.userData.originalMaterialName = origMatName;
 
-    if (classification.slot === 'BackBulb') {
-      node.material = tailLampMaterial;
-      node.castShadow = false;
-      node.receiveShadow = false;
-      if (!tailLampMaterials.includes(tailLampMaterial)) {
-        tailLampMaterials.push(tailLampMaterial);
+      const classification = classifyCustomVehicleMaterialSlot(origMatName);
+      if (classification.isFallback) {
+        const warnKey = `${descriptor.id}::${node.name || 'mesh'}::${origMatName || '<unnamed>'}`;
+        if (!warnedFallbackMaterials.has(warnKey)) {
+          warnedFallbackMaterials.add(warnKey);
+          console.warn(
+            `[CustomGlbMaterial] Unrecognized material "${origMatName || '<unnamed>'}" on mesh "${node.name || 'unnamed'}" in vehicle "${descriptor.id}"; falling back to default "body" slot.`
+          );
+        }
       }
-      return;
+
+      if (classification.slot === 'FrontBulb') {
+        node.material = frontLampMaterial;
+        node.castShadow = false;
+        node.receiveShadow = false;
+        return;
+      }
+
+      if (classification.slot === 'BackBulb') {
+        node.material = tailLampMaterial;
+        node.castShadow = false;
+        node.receiveShadow = false;
+        if (!tailLampMaterials.includes(tailLampMaterial)) {
+          tailLampMaterials.push(tailLampMaterial);
+        }
+        return;
+      }
+
+      const slotMat = slotMaterialMap.get(classification.slot);
+      node.material = slotMat || slotMaterialMap.get('body') || palette.body;
+      node.castShadow = true;
+      node.receiveShadow = getVehicleReceiveShadows();
     }
+  );
 
-    const slotMat = slotMaterialMap.get(classification.slot);
-    node.material = slotMat || slotMaterialMap.get('body') || palette.body;
-    node.castShadow = true;
-    node.receiveShadow = getVehicleReceiveShadows();
-  });
-
-  const nextDisposables = [
-    frontLampMaterial,
-    tailLampMaterial,
-    ...slotMaterialMap.values(),
-  ];
+  const nextDisposables = [frontLampMaterial, tailLampMaterial, ...slotMaterialMap.values()];
   const retainedSet = new Set(nextDisposables);
   for (const oldMat of prevCustomMats) {
     if (oldMat && !retainedSet.has(oldMat)) {

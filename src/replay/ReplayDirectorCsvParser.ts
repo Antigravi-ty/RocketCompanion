@@ -25,32 +25,63 @@ import type {
 } from './replayDirectorStateTypes.ts';
 
 interface CarTrackPoint {
-  x: number; y: number; z: number;
-  vx: number; vy: number; vz: number;
-  fx?: number; fy?: number; fz?: number;
-  ux?: number; uy?: number; uz?: number;
-  boost?: number; onGround?: boolean;
-  visualId?: string; hitboxId?: string; team?: number;
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  fx?: number;
+  fy?: number;
+  fz?: number;
+  ux?: number;
+  uy?: number;
+  uz?: number;
+  boost?: number;
+  onGround?: boolean;
+  visualId?: string;
+  hitboxId?: string;
+  team?: number;
 }
 
 type ParsedCsvRow = DirectorRecordedCsvRow & Record<string, number | string | undefined>;
 
 function buildOrthonormalBasisFromVelocity(
-  vx: number, vy: number, vz: number,
-  fallbackDirX: number = 0, fallbackDirY: number = 1
+  vx: number,
+  vy: number,
+  vz: number,
+  fallbackDirX: number = 0,
+  fallbackDirY: number = 1
 ): OrthonormalBasis {
   const speed = Math.hypot(vx, vy, vz);
-  let fx = fallbackDirX, fy = fallbackDirY, fz = 0;
+  let fx = fallbackDirX,
+    fy = fallbackDirY,
+    fz = 0;
   if (speed > 25) {
-    fx = vx / speed; fy = vy / speed; fz = vz / speed;
+    fx = vx / speed;
+    fy = vy / speed;
+    fz = vz / speed;
   } else {
     const fl = Math.hypot(fx, fy);
-    if (fl > 1e-4) { fx /= fl; fy /= fl; } else { fx = 0; fy = 1; }
+    if (fl > 1e-4) {
+      fx /= fl;
+      fy /= fl;
+    } else {
+      fx = 0;
+      fy = 1;
+    }
   }
-  let rx = -fy, ry = fx;
+  let rx = -fy,
+    ry = fx;
   const rz = 0;
   const rl = Math.hypot(rx, ry, rz);
-  if (rl > 1e-4) { rx /= rl; ry /= rl; } else { rx = -1; ry = 0; }
+  if (rl > 1e-4) {
+    rx /= rl;
+    ry /= rl;
+  } else {
+    rx = -1;
+    ry = 0;
+  }
   const ux = fy * rz - fz * ry;
   const uy = fz * rx - fx * rz;
   const uz = fx * ry - fy * rx;
@@ -68,7 +99,10 @@ export function parseDirectorDiagnosticPatternCsv(
   fileName: string = 'imported-pattern.csv'
 ): ParsedDirectorDiagnosticPattern | null {
   if (typeof csvText !== 'string' || !csvText.trim()) return null;
-  const rawLines = csvText.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  const rawLines = csvText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
   if (rawLines.length < 2) return null;
 
   const headers = rawLines[0].split(',').map((h) => h.trim());
@@ -131,31 +165,55 @@ export function parseDirectorDiagnosticPatternCsv(
         const resolvedTeam = Number.isFinite(team) ? team : cIdx % 2;
         carMetaBySlot.set(cIdx, { team: resolvedTeam, visualId: vis, hitboxId: hb });
         carTracks[cIdx][i] = {
-          x: Number(fields[4]) || 0, y: Number(fields[5]) || 0, z: Number(fields[6]) || 17,
-          vx: Number(fields[7]) || 0, vy: Number(fields[8]) || 0, vz: Number(fields[9]) || 0,
-          fx: Number(fields[10]) || 0, fy: Number(fields[11]) || 1, fz: Number(fields[12]) || 0,
-          ux: Number(fields[13]) || 0, uy: Number(fields[14]) || 0, uz: Number(fields[15]) || 1,
+          x: Number(fields[4]) || 0,
+          y: Number(fields[5]) || 0,
+          z: Number(fields[6]) || 17,
+          vx: Number(fields[7]) || 0,
+          vy: Number(fields[8]) || 0,
+          vz: Number(fields[9]) || 0,
+          fx: Number(fields[10]) || 0,
+          fy: Number(fields[11]) || 1,
+          fz: Number(fields[12]) || 0,
+          ux: Number(fields[13]) || 0,
+          uy: Number(fields[14]) || 0,
+          uz: Number(fields[15]) || 1,
           boost: fields.length > 16 ? (Number(fields[16]) || 50) / 100 : 0.5,
           onGround: fields.length > 17 ? Number(fields[17]) > 0.5 : (Number(fields[6]) || 17) <= 24,
-          visualId: vis, hitboxId: hb, team: resolvedTeam,
+          visualId: vis,
+          hitboxId: hb,
+          team: resolvedTeam,
         };
         populatedFromCompact = true;
       }
     }
     if (!populatedFromCompact) {
       const cIdx = Math.min(numCars - 1, Math.max(0, Math.round(r.active_touch_car_idx ?? 0)));
-      const vis = typeof r.focus_car_visual_id === 'string' && r.focus_car_visual_id ? r.focus_car_visual_id : undefined;
-      const hb = typeof r.focus_car_hitbox_id === 'string' && r.focus_car_hitbox_id ? r.focus_car_hitbox_id : vis;
+      const vis =
+        typeof r.focus_car_visual_id === 'string' && r.focus_car_visual_id
+          ? r.focus_car_visual_id
+          : undefined;
+      const hb =
+        typeof r.focus_car_hitbox_id === 'string' && r.focus_car_hitbox_id
+          ? r.focus_car_hitbox_id
+          : vis;
       if (vis && !carMetaBySlot.has(cIdx)) {
         carMetaBySlot.set(cIdx, { team: cIdx % 2, visualId: vis, hitboxId: hb || vis });
       }
       carTracks[cIdx][i] = {
-        x: r.focus_car_x ?? 0, y: r.focus_car_y ?? 0, z: r.focus_car_z ?? 17,
-        vx: r.focus_car_vx ?? 0, vy: r.focus_car_vy ?? 0, vz: r.focus_car_vz ?? 0,
+        x: r.focus_car_x ?? 0,
+        y: r.focus_car_y ?? 0,
+        z: r.focus_car_z ?? 17,
+        vx: r.focus_car_vx ?? 0,
+        vy: r.focus_car_vy ?? 0,
+        vz: r.focus_car_vz ?? 0,
         ...(hasFocusOrientation
           ? {
-              fx: r.focus_car_fx ?? 0, fy: r.focus_car_fy ?? 1, fz: r.focus_car_fz ?? 0,
-              ux: r.focus_car_ux ?? 0, uy: r.focus_car_uy ?? 0, uz: r.focus_car_uz ?? 1,
+              fx: r.focus_car_fx ?? 0,
+              fy: r.focus_car_fy ?? 1,
+              fz: r.focus_car_fz ?? 0,
+              ux: r.focus_car_ux ?? 0,
+              uy: r.focus_car_uy ?? 0,
+              uz: r.focus_car_uz ?? 1,
             }
           : {}),
       };
@@ -164,7 +222,8 @@ export function parseDirectorDiagnosticPatternCsv(
 
   for (let c = 0; c < numCars; c++) {
     const track = carTracks[c];
-    let firstValid = -1, lastValid = -1;
+    let firstValid = -1,
+      lastValid = -1;
     for (let i = 0; i < track.length; i++) {
       if (track[i]) {
         if (firstValid < 0) firstValid = i;
@@ -172,20 +231,27 @@ export function parseDirectorDiagnosticPatternCsv(
       }
     }
     if (firstValid < 0) continue;
-    const firstPt = track[firstValid]!, lastPt = track[lastValid]!;
+    const firstPt = track[firstValid]!,
+      lastPt = track[lastValid]!;
     for (let i = 0; i < firstValid; i++) track[i] = { ...firstPt };
     for (let i = lastValid + 1; i < track.length; i++) track[i] = { ...lastPt };
     let segStart = firstValid;
     for (let i = firstValid + 1; i <= lastValid; i++) {
       if (track[i]) {
         if (i - segStart > 1) {
-          const a = track[segStart]!, b = track[i]!, span = i - segStart;
+          const a = track[segStart]!,
+            b = track[i]!,
+            span = i - segStart;
           for (let k = segStart + 1; k < i; k++) {
             const t = (k - segStart) / span;
             track[k] = {
               ...a,
-              x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t,
-              vx: a.vx + (b.vx - a.vx) * t, vy: a.vy + (b.vy - a.vy) * t, vz: a.vz + (b.vz - a.vz) * t,
+              x: a.x + (b.x - a.x) * t,
+              y: a.y + (b.y - a.y) * t,
+              z: a.z + (b.z - a.z) * t,
+              vx: a.vx + (b.vx - a.vx) * t,
+              vy: a.vy + (b.vy - a.vy) * t,
+              vz: a.vz + (b.vz - a.vz) * t,
               ...(typeof a.fx === 'number' && typeof b.fx === 'number'
                 ? {
                     fx: a.fx + (b.fx - a.fx) * t,
@@ -209,7 +275,10 @@ export function parseDirectorDiagnosticPatternCsv(
 
   let goalLineFrameIdx = -1;
   for (let i = 0; i < rows.length; i++) {
-    if (Math.abs(rows[i].ball_y ?? 0) >= 5120) { goalLineFrameIdx = i; break; }
+    if (Math.abs(rows[i].ball_y ?? 0) >= 5120) {
+      goalLineFrameIdx = i;
+      break;
+    }
   }
   const scorerLookupIdx = goalLineFrameIdx >= 0 ? goalLineFrameIdx : rows.length - 1;
   const scorerCarIndex = Math.max(
@@ -219,30 +288,40 @@ export function parseDirectorDiagnosticPatternCsv(
 
   const touchEvents: ReplayTouchEvent[] = [];
   for (let i = 1; i < rows.length; i++) {
-    const prev = rows[i - 1], curr = rows[i];
+    const prev = rows[i - 1],
+      curr = rows[i];
     const dv = Math.hypot(
       (curr.ball_vx ?? 0) - (prev.ball_vx ?? 0),
       (curr.ball_vy ?? 0) - (prev.ball_vy ?? 0),
       (curr.ball_vz ?? 0) - (prev.ball_vz ?? 0)
     );
     const isCloseImpulse = (curr.focus_car_dist_to_ball ?? 9999) < 330 && dv > 120;
-    const isSwitch = Math.round(curr.active_touch_car_idx ?? 0) !== Math.round(prev.active_touch_car_idx ?? 0);
+    const isSwitch =
+      Math.round(curr.active_touch_car_idx ?? 0) !== Math.round(prev.active_touch_car_idx ?? 0);
     if (isCloseImpulse || isSwitch) {
       const cIdx = Math.max(0, Math.round(curr.active_touch_car_idx ?? 0));
       const prevTouch = touchEvents[touchEvents.length - 1];
       if (!prevTouch || prevTouch.carIndex !== cIdx || i - prevTouch.frameIndex > 8) {
         touchEvents.push({
-          frameIndex: i, tick: Math.round(curr.frame_id ?? i),
-          carIndex: cIdx, team: cIdx % 2,
-          ballX: curr.ball_x ?? 0, ballY: curr.ball_y ?? 0, ballZ: curr.ball_z ?? 0,
+          frameIndex: i,
+          tick: Math.round(curr.frame_id ?? i),
+          carIndex: cIdx,
+          team: cIdx % 2,
+          ballX: curr.ball_x ?? 0,
+          ballY: curr.ball_y ?? 0,
+          ballZ: curr.ball_z ?? 0,
         });
       }
     }
   }
 
   let selectedCursorIndex = 0;
-  let maxEyeStepUu = 0, maxTargetStepUu = 0, maxYawStepDeg = 0, maxEyeAccelUu = 0;
-  let maxPreGoalCarViewAngleDeg = 0, maxPreGoalBallViewAngleDeg = 0;
+  let maxEyeStepUu = 0,
+    maxTargetStepUu = 0,
+    maxYawStepDeg = 0,
+    maxEyeAccelUu = 0;
+  let maxPreGoalCarViewAngleDeg = 0,
+    maxPreGoalBallViewAngleDeg = 0;
 
   const firstFrameId = Math.round(rows[0]?.frame_id ?? 0);
   const peakZero = () => ({ replayFrameIndex: 0, frameId: firstFrameId, timestampSec: 0 });
@@ -261,45 +340,78 @@ export function parseDirectorDiagnosticPatternCsv(
     const ts = round3(i / REPLAY_TICK_RATE);
     if (Math.round(r.is_selected_cursor ?? 0) === 1) selectedCursorIndex = i;
 
-    const eyeStep = r.eye_step_uu ?? 0, targetStep = r.target_step_uu ?? 0;
-    const absYawStep = Math.abs(r.yaw_step_deg ?? 0), eyeAccel = r.eye_accel_uu ?? 0;
-    const carViewAngle = r.car_view_angle_deg ?? 0, ballViewAngle = r.ball_view_angle_deg ?? 0;
+    const eyeStep = r.eye_step_uu ?? 0,
+      targetStep = r.target_step_uu ?? 0;
+    const absYawStep = Math.abs(r.yaw_step_deg ?? 0),
+      eyeAccel = r.eye_accel_uu ?? 0;
+    const carViewAngle = r.car_view_angle_deg ?? 0,
+      ballViewAngle = r.ball_view_angle_deg ?? 0;
 
     if (eyeStep > maxEyeStepUu) {
       maxEyeStepUu = eyeStep;
-      anomalyPeaks.maxEyeStep = { valueUu: round3(maxEyeStepUu), replayFrameIndex: i, frameId: tick, timestampSec: ts };
+      anomalyPeaks.maxEyeStep = {
+        valueUu: round3(maxEyeStepUu),
+        replayFrameIndex: i,
+        frameId: tick,
+        timestampSec: ts,
+      };
     }
     if (targetStep > maxTargetStepUu) maxTargetStepUu = targetStep;
     if (absYawStep > maxYawStepDeg) {
       maxYawStepDeg = absYawStep;
-      anomalyPeaks.maxYawStep = { valueDeg: round4(maxYawStepDeg), replayFrameIndex: i, frameId: tick, timestampSec: ts };
+      anomalyPeaks.maxYawStep = {
+        valueDeg: round4(maxYawStepDeg),
+        replayFrameIndex: i,
+        frameId: tick,
+        timestampSec: ts,
+      };
     }
     if (eyeAccel > maxEyeAccelUu) {
       maxEyeAccelUu = eyeAccel;
-      anomalyPeaks.maxEyeAccel = { valueUu: round3(maxEyeAccelUu), replayFrameIndex: i, frameId: tick, timestampSec: ts };
+      anomalyPeaks.maxEyeAccel = {
+        valueUu: round3(maxEyeAccelUu),
+        replayFrameIndex: i,
+        frameId: tick,
+        timestampSec: ts,
+      };
     }
     if (goalLineFrameIdx < 0 || i <= goalLineFrameIdx) {
       if (carViewAngle > maxPreGoalCarViewAngleDeg) {
         maxPreGoalCarViewAngleDeg = carViewAngle;
-        anomalyPeaks.maxPreGoalCarViewAngle = { valueDeg: round3(maxPreGoalCarViewAngleDeg), replayFrameIndex: i, frameId: tick, timestampSec: ts };
+        anomalyPeaks.maxPreGoalCarViewAngle = {
+          valueDeg: round3(maxPreGoalCarViewAngleDeg),
+          replayFrameIndex: i,
+          frameId: tick,
+          timestampSec: ts,
+        };
       }
       if (ballViewAngle > maxPreGoalBallViewAngleDeg) {
         maxPreGoalBallViewAngleDeg = ballViewAngle;
-        anomalyPeaks.maxPreGoalBallViewAngle = { valueDeg: round3(maxPreGoalBallViewAngleDeg), replayFrameIndex: i, frameId: tick, timestampSec: ts };
+        anomalyPeaks.maxPreGoalBallViewAngle = {
+          valueDeg: round3(maxPreGoalBallViewAngleDeg),
+          replayFrameIndex: i,
+          frameId: tick,
+          timestampSec: ts,
+        };
       }
     }
 
     const snap = initBlankSnapshotBuffer(tick, numCars);
     writeBallStateToSnapshot(
       snap,
-      r.ball_x ?? 0, r.ball_y ?? 0, r.ball_z ?? 93,
-      r.ball_vx ?? 0, r.ball_vy ?? 0, r.ball_vz ?? 0
+      r.ball_x ?? 0,
+      r.ball_y ?? 0,
+      r.ball_z ?? 93,
+      r.ball_vx ?? 0,
+      r.ball_vy ?? 0,
+      r.ball_vz ?? 0
     );
 
     for (let c = 0; c < numCars; c++) {
       const ct = carTracks[c][i];
       if (!ct) continue;
-      const toBallX = (r.ball_x ?? 0) - ct.x, toBallY = (r.ball_y ?? 0) - ct.y;
+      const toBallX = (r.ball_x ?? 0) - ct.x,
+        toBallY = (r.ball_y ?? 0) - ct.y;
       const basis =
         typeof ct.fx === 'number' && typeof ct.ux === 'number'
           ? orthonormalizeFwdUpBasis(ct.fx, ct.fy ?? 1, ct.fz ?? 0, ct.ux, ct.uy ?? 0, ct.uz ?? 1)
@@ -343,8 +455,12 @@ export function parseDirectorDiagnosticPatternCsv(
     }
 
     activeFrames.push({
-      tick, timestamp: i / REPLAY_TICK_RATE,
-      snapshot: snap, incidents, signals: [], recordedCsvRow: r,
+      tick,
+      timestamp: i / REPLAY_TICK_RATE,
+      snapshot: snap,
+      incidents,
+      signals: [],
+      recordedCsvRow: r,
     });
   }
 
@@ -364,14 +480,27 @@ export function parseDirectorDiagnosticPatternCsv(
   });
 
   return {
-    format: 'csv', fileName, activeFrames, scoringTeam, scorerCarIndex, selectedCursorIndex,
+    format: 'csv',
+    fileName,
+    activeFrames,
+    scoringTeam,
+    scorerCarIndex,
+    selectedCursorIndex,
     lateralBias: rows[0]?.lateral_bias || 1.0,
-    touchEvents, goalLineFrameIdx, hasRecordedCsvRows: true, carEntries, anomalyPeaks,
+    touchEvents,
+    goalLineFrameIdx,
+    hasRecordedCsvRows: true,
+    carEntries,
+    anomalyPeaks,
     summary: {
-      totalFrames: activeFrames.length, durationSec: round3(activeFrames.length / REPLAY_TICK_RATE),
-      startFrameId: activeFrames[0]?.tick ?? 0, endFrameId: activeFrames[activeFrames.length - 1]?.tick ?? 0,
-      maxEyeStepUu: round3(maxEyeStepUu), maxTargetStepUu: round3(maxTargetStepUu),
-      maxYawStepDeg: round4(maxYawStepDeg), maxEyeAccelUu: round3(maxEyeAccelUu),
+      totalFrames: activeFrames.length,
+      durationSec: round3(activeFrames.length / REPLAY_TICK_RATE),
+      startFrameId: activeFrames[0]?.tick ?? 0,
+      endFrameId: activeFrames[activeFrames.length - 1]?.tick ?? 0,
+      maxEyeStepUu: round3(maxEyeStepUu),
+      maxTargetStepUu: round3(maxTargetStepUu),
+      maxYawStepDeg: round4(maxYawStepDeg),
+      maxEyeAccelUu: round3(maxEyeAccelUu),
       maxPreGoalCarViewAngleDeg: round3(maxPreGoalCarViewAngleDeg),
       maxPreGoalBallViewAngleDeg: round3(maxPreGoalBallViewAngleDeg),
     },

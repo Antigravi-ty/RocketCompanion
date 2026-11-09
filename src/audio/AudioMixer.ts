@@ -1,4 +1,4 @@
-import { clampVolume, type AudioConfigSettings } from '../ui-core/config/audioConstants';
+import { clampVolume, type AudioConfigSettings } from '../ui-core/config/audioConstants.ts';
 import {
   MasterAcousticProcessor,
   type MasterAcousticProcessorSnapshot,
@@ -40,7 +40,10 @@ export class AudioMixer {
       this.input.connect(this.acousticProcessor.input);
       this.acousticProcessor.output.connect(this.output);
     } catch (err) {
-      console.warn('[AudioMixer] Failed to wire MasterAcousticProcessor; connecting input directly to output:', err);
+      console.warn(
+        '[AudioMixer] Failed to wire MasterAcousticProcessor; connecting input directly to output:',
+        err
+      );
       this.input.connect(this.output);
     }
 
@@ -52,10 +55,15 @@ export class AudioMixer {
         this._analyserBuffer = new Float32Array(this.analyser.fftSize);
         this.output.connect(this.analyser);
       } else {
-        console.warn('[AudioMixer] AudioContext.createAnalyser is unavailable; continuing without analyser.');
+        console.warn(
+          '[AudioMixer] AudioContext.createAnalyser is unavailable; continuing without analyser.'
+        );
       }
     } catch (err) {
-      console.warn('[AudioMixer] Failed to initialize AnalyserNode; continuing without analyser:', err);
+      console.warn(
+        '[AudioMixer] Failed to initialize AnalyserNode; continuing without analyser:',
+        err
+      );
     }
   }
 
@@ -97,11 +105,20 @@ export class AudioMixer {
         peak: Number(peak.toFixed(6)),
         dbfs: Number(dbfs.toFixed(1)),
         nanCount,
-        silent: peak < 1e-4
+        silent: peak < 1e-4,
       };
     } catch (e) {
-      console.warn('[AudioMixer] sampleOutputMetrics failed; returning silent metrics fallback:', e);
-      return { rms: 0, peak: 0, dbfs: -120, silent: true, error: e instanceof Error ? e.message : String(e) };
+      console.warn(
+        '[AudioMixer] sampleOutputMetrics failed; returning silent metrics fallback:',
+        e
+      );
+      return {
+        rms: 0,
+        peak: 0,
+        dbfs: -120,
+        silent: true,
+        error: e instanceof Error ? e.message : String(e),
+      };
     }
   }
 
@@ -149,7 +166,7 @@ export class AudioMixer {
         this.connected = true;
       }
 
-      if (this.context.state === "running") {
+      if (this.context.state === 'running') {
         this.output.gain.setValueAtTime(Math.min(current, target), now);
         this.output.gain.linearRampToValueAtTime(target, now + 0.05);
       } else {

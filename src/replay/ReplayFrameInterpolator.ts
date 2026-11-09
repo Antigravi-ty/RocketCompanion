@@ -76,7 +76,10 @@ export function applyReplayFrameToEngine(
 ): boolean {
   if (!engine || !frameBuffer || frameBuffer.length < 410) return false;
 
-  const headerCars = Math.min(MAX_CARS, Math.max(0, Math.round(frameBuffer[SIM_OFFSETS.NUM_CARS] || 0)));
+  const headerCars = Math.min(
+    MAX_CARS,
+    Math.max(0, Math.round(frameBuffer[SIM_OFFSETS.NUM_CARS] || 0))
+  );
   if (typeof engine.isCarSlotActive === 'function' && typeof engine.addCarAtSlot === 'function') {
     for (let c = 0; c < headerCars; c++) {
       if (!engine.isCarSlotActive(c)) {
@@ -92,7 +95,9 @@ export function applyReplayFrameToEngine(
     engine.restoreState(frameBuffer, { preserveEngineTick: true });
   } else {
     if (typeof engine.setBallState === 'function') {
-      engine.setBallState(frameBuffer.subarray(SIM_OFFSETS.BALL, SIM_OFFSETS.BALL + BALL_STATE_STRIDE));
+      engine.setBallState(
+        frameBuffer.subarray(SIM_OFFSETS.BALL, SIM_OFFSETS.BALL + BALL_STATE_STRIDE)
+      );
     }
     const engineCars = engine.numCars ?? 0;
     const numCars = Math.min(engineCars, headerCars || engineCars, MAX_CARS);
@@ -122,7 +127,12 @@ export function applyReplayFrameToEngine(
     );
     engine.state
       .subarray(REPLAY_DIRECTOR_TELEMETRY_OFFSET, REPLAY_DIRECTOR_TELEMETRY_OFFSET + telemetryLen)
-      .set(frameBuffer.subarray(REPLAY_DIRECTOR_TELEMETRY_OFFSET, REPLAY_DIRECTOR_TELEMETRY_OFFSET + telemetryLen));
+      .set(
+        frameBuffer.subarray(
+          REPLAY_DIRECTOR_TELEMETRY_OFFSET,
+          REPLAY_DIRECTOR_TELEMETRY_OFFSET + telemetryLen
+        )
+      );
   }
 
   if (interpolator && engine.state) {
@@ -154,7 +164,11 @@ export function encodeReplayDirectorTelemetryIntoState(
   directorState: Partial<ReplayDirectorTelemetryState> | null | undefined,
   progress = 0
 ): Float32Array | null | undefined {
-  if (!targetBuffer || targetBuffer.length < REPLAY_DIRECTOR_TELEMETRY_OFFSET + 10 || !directorState) {
+  if (
+    !targetBuffer ||
+    targetBuffer.length < REPLAY_DIRECTOR_TELEMETRY_OFFSET + 10 ||
+    !directorState
+  ) {
     return targetBuffer;
   }
   const numCars = Math.round(targetBuffer[SIM_OFFSETS.NUM_CARS] || 0);
@@ -162,9 +176,12 @@ export function encodeReplayDirectorTelemetryIntoState(
 
   const base = REPLAY_DIRECTOR_TELEMETRY_OFFSET;
   targetBuffer[base] = REPLAY_DIRECTOR_MAGIC;
-  targetBuffer[base + 1] = typeof directorState.activeTouchCarIndex === 'number' ? directorState.activeTouchCarIndex : -1;
-  targetBuffer[base + 2] = typeof directorState.nextTouchCarIndex === 'number' ? directorState.nextTouchCarIndex : -1;
-  targetBuffer[base + 3] = typeof directorState.nextTouchBlend === 'number' ? directorState.nextTouchBlend : 0;
+  targetBuffer[base + 1] =
+    typeof directorState.activeTouchCarIndex === 'number' ? directorState.activeTouchCarIndex : -1;
+  targetBuffer[base + 2] =
+    typeof directorState.nextTouchCarIndex === 'number' ? directorState.nextTouchCarIndex : -1;
+  targetBuffer[base + 3] =
+    typeof directorState.nextTouchBlend === 'number' ? directorState.nextTouchBlend : 0;
   if (directorState.nextTouchBallPos) {
     targetBuffer[base + 4] = directorState.nextTouchBallPos.x || 0;
     targetBuffer[base + 5] = directorState.nextTouchBallPos.y || 0;
@@ -183,7 +200,8 @@ export function encodeReplayDirectorTelemetryIntoState(
         ? progress
         : 0;
   targetBuffer[base + 8] = resolvedProgress;
-  targetBuffer[base + 9] = typeof directorState.postGoalElapsedSec === 'number' ? directorState.postGoalElapsedSec : 0;
+  targetBuffer[base + 9] =
+    typeof directorState.postGoalElapsedSec === 'number' ? directorState.postGoalElapsedSec : 0;
   if (targetBuffer.length >= base + 12) {
     targetBuffer[base + 10] =
       typeof directorState.lateralBias === 'number' && directorState.lateralBias !== 0
@@ -194,7 +212,9 @@ export function encodeReplayDirectorTelemetryIntoState(
   }
   if (targetBuffer.length >= base + 27) {
     targetBuffer[base + 12] =
-      typeof directorState.interceptorCarIndex === 'number' ? directorState.interceptorCarIndex : -1;
+      typeof directorState.interceptorCarIndex === 'number'
+        ? directorState.interceptorCarIndex
+        : -1;
     targetBuffer[base + 13] =
       typeof directorState.interceptorBlend === 'number' ? directorState.interceptorBlend : 0;
     const pp = directorState.plannedPose;
@@ -286,9 +306,10 @@ export function interpolateReplaySnapshots(
   outBuffer: Float32Array | null = null
 ): Float32Array | null {
   if (!currSnap) return null;
-  const out = outBuffer && outBuffer.length >= currSnap.length
-    ? outBuffer
-    : new Float32Array(currSnap.length);
+  const out =
+    outBuffer && outBuffer.length >= currSnap.length
+      ? outBuffer
+      : new Float32Array(currSnap.length);
   const t = clamp(alpha, 0, 1);
   if (!prevSnap || prevSnap.length < currSnap.length || t >= 0.999) {
     out.set(currSnap);
@@ -320,40 +341,68 @@ export function interpolateReplaySnapshots(
       lerpIdx(base + i);
     }
     // Orthonormalize interpolated [fwd, right, up] basis so fast aerial rotations stay unit-length
-    let fx = out[base + 3], fy = out[base + 4], fz = out[base + 5];
+    let fx = out[base + 3],
+      fy = out[base + 4],
+      fz = out[base + 5];
     let fLen = Math.hypot(fx, fy, fz);
     if (fLen < 1e-4) {
-      fx = prevSnap[base + 3]; fy = prevSnap[base + 4]; fz = prevSnap[base + 5];
+      fx = prevSnap[base + 3];
+      fy = prevSnap[base + 4];
+      fz = prevSnap[base + 5];
       fLen = Math.hypot(fx, fy, fz) || 1;
     }
-    fx /= fLen; fy /= fLen; fz /= fLen;
+    fx /= fLen;
+    fy /= fLen;
+    fz /= fLen;
 
-    let ux = out[base + 9], uy = out[base + 10], uz = out[base + 11];
+    let ux = out[base + 9],
+      uy = out[base + 10],
+      uz = out[base + 11];
     const uDotF = ux * fx + uy * fy + uz * fz;
-    ux -= uDotF * fx; uy -= uDotF * fy; uz -= uDotF * fz;
+    ux -= uDotF * fx;
+    uy -= uDotF * fy;
+    uz -= uDotF * fz;
     let uLen = Math.hypot(ux, uy, uz);
     if (uLen < 1e-4) {
-      ux = prevSnap[base + 9]; uy = prevSnap[base + 10]; uz = prevSnap[base + 11];
+      ux = prevSnap[base + 9];
+      uy = prevSnap[base + 10];
+      uz = prevSnap[base + 11];
       const d2 = ux * fx + uy * fy + uz * fz;
-      ux -= d2 * fx; uy -= d2 * fy; uz -= d2 * fz;
+      ux -= d2 * fx;
+      uy -= d2 * fy;
+      uz -= d2 * fz;
       uLen = Math.hypot(ux, uy, uz) || 1;
     }
-    ux /= uLen; uy /= uLen; uz /= uLen;
+    ux /= uLen;
+    uy /= uLen;
+    uz /= uLen;
 
     // Cross(up, fwd) in RocketSim's left-handed frame yields right
     let rx = uy * fz - uz * fy;
     let ry = uz * fx - ux * fz;
     let rz = ux * fy - uy * fx;
-    const rawRx = out[base + 6], rawRy = out[base + 7], rawRz = out[base + 8];
+    const rawRx = out[base + 6],
+      rawRy = out[base + 7],
+      rawRz = out[base + 8];
     if (rx * rawRx + ry * rawRy + rz * rawRz < 0) {
-      rx = -rx; ry = -ry; rz = -rz;
+      rx = -rx;
+      ry = -ry;
+      rz = -rz;
     }
     const rLen = Math.hypot(rx, ry, rz) || 1;
-    rx /= rLen; ry /= rLen; rz /= rLen;
+    rx /= rLen;
+    ry /= rLen;
+    rz /= rLen;
 
-    out[base + 3] = fx; out[base + 4] = fy; out[base + 5] = fz;
-    out[base + 6] = rx; out[base + 7] = ry; out[base + 8] = rz;
-    out[base + 9] = ux; out[base + 10] = uy; out[base + 11] = uz;
+    out[base + 3] = fx;
+    out[base + 4] = fy;
+    out[base + 5] = fz;
+    out[base + 6] = rx;
+    out[base + 7] = ry;
+    out[base + 8] = rz;
+    out[base + 9] = ux;
+    out[base + 10] = uy;
+    out[base + 11] = uz;
   }
   const tBase = REPLAY_DIRECTOR_TELEMETRY_OFFSET;
   if (

@@ -6,10 +6,17 @@ import type { FreeplayRewinderController } from '../../replay/FreeplayRewinderCo
 import type { RetainedMatchReplay } from '../../replay/ReplayFileExporter.ts';
 import type { ImportedDiagnosticPatternInput } from '../../replay/ReplayDirectorStatePipeline.ts';
 import type { NameTagTunerArenaController } from './NameTagTunerArenaController.ts';
-import type { PodiumCelebrationController, PodiumCelebrationControls } from './PodiumCelebrationController.ts';
+import type {
+  PodiumCelebrationController,
+  PodiumCelebrationControls,
+} from './PodiumCelebrationController.ts';
 import type { ExperimentalMultiBotsRosterController } from './experimental-multi-bots/ExperimentalMultiBotsRosterController.ts';
 import type { ExperimentalMultiBotsMatchLifecycleController } from './experimental-multi-bots/ExperimentalMultiBotsMatchLifecycleController.ts';
-import type { DirectorPatternPreviewOptions, DirectorPreviewSubController, ReferenceFreeCamOptions } from './freeplay/DirectorPreviewSubController.ts';
+import type {
+  DirectorPatternPreviewOptions,
+  DirectorPreviewSubController,
+  ReferenceFreeCamOptions,
+} from './freeplay/DirectorPreviewSubController.ts';
 import type { FreeplayGoalAndTouchSubController } from './freeplay/FreeplayGoalAndTouchSubController.ts';
 import type { GoalReplayRuntimePort } from './shared/GoalReplaySessionCoordinator.ts';
 
@@ -30,99 +37,188 @@ export interface GameModePhysicsEvent {
 }
 
 export interface GameModeRuntimePort extends GoalReplayRuntimePort {
-  physics?: (NonNullable<GoalReplayRuntimePort['physics']> & {
-    numCars: number;
-    isUnlimitedBoost?: boolean;
-    controlsView?: Float32Array | null;
-    getHeaderView?: () => { tickCount: number } | null;
-    getBallStateView?: () => { posX: number; posY: number; posZ: number } | null;
-    getCarStateView?: (carIndex: number) => unknown;
-    getCarState?: (carIndex: number) => Float32Array | null;
-    setCarState?: (carIndex: number, state: Float32Array) => boolean | void;
-    setBallState?: (state: Float32Array) => boolean | void;
-    getCarUnlimitedBoost?: (carIndex: number) => boolean;
-    setUnlimitedBoost: (unlimited: boolean) => void;
-    setCarTeam?: (carIndex: number, team: number) => void;
-    removeCar?: (carIndex: number) => void;
-    addCar?: (team: number, preset: string) => number | void;
-    resetKickoff?: (seed?: number, preserveMomentum?: boolean) => void;
-    resetGoalLatch?: () => void;
-    clearEvents?: () => void;
-    saveCompactState: () => Float32Array;
-    setControls?: (carIndex: number, controls: PodiumCelebrationControls | Record<string, unknown>) => void;
-    step?: (ticks?: number) => void;
-    configureCars: (playerPreset: string, opponentPreset?: string | boolean, playerTeam?: number) => void;
-    setSimulationFrozen?: (frozen: boolean, resumeTick?: number, maskInputs?: boolean) => void;
-    setCarLinearFactorAndGravity?: (carIndex: number, fx: number, fy: number, fz: number, g: number) => void;
-    setCarCollisionMask?: (carIndex: number, collideCars: boolean, collideBall: boolean) => void;
-    setPossessionReportingEnabled?: (enabled: boolean) => void;
-  }) | null;
-  arena?: (NonNullable<GoalReplayRuntimePort['arena']> & {
-    isLobbyMode?: boolean;
-    carVisual?: string;
-    carTeams?: ArrayLike<number>;
-    scene?: unknown;
-    ball?: { children?: Array<{ quaternion: { identity: () => void } }> } | null;
-    cars?: Array<{ visible: boolean }>;
-    carDemolitions?: Array<{ stop?: () => void } | null | undefined>;
-    setCarTeam?: (carIndex: number, team: number) => void;
-    ensureCar?: (carIndex: number, team: number, preset: string) => void;
-    ensureOpponent?: () => void;
-    resetCarBoosts?: (carIndex: number) => void;
-    resetBallTrail?: () => void;
-    clearAllGhostOpacities?: () => void;
-    resetAllCarEffects?: () => void;
-  }) | null;
-  camera?: (NonNullable<GoalReplayRuntimePort['camera']> & {
-    isFreeCam?: boolean;
-    setFreeCam: (enabled: boolean) => void;
-    setEditorOverride?: (enabled: boolean) => void;
-    getFreeCamStateSnapshot?: () => {
-      eyeUnreal: [number, number, number];
-      yawUnrealDeg: number;
-      pitchUnrealDeg: number;
-    } | null;
-  }) | null;
-  interpolator?: (NonNullable<GoalReplayRuntimePort['interpolator']> & {
-    sync: (timestamp?: number) => void;
-    setTrainingPhysicsRate?: (rateHz: number) => void;
-  }) | null;
+  physics?:
+    | (NonNullable<GoalReplayRuntimePort['physics']> & {
+        numCars: number;
+        isUnlimitedBoost?: boolean;
+        controlsView?: Float32Array | null;
+        getHeaderView?: () => { tickCount: number } | null;
+        getBallStateView?: () => { posX: number; posY: number; posZ: number } | null;
+        getCarStateView?: (carIndex: number) => unknown;
+        getCarState?: (carIndex: number) => Float32Array | null;
+        setCarState?: (carIndex: number, state: Float32Array) => boolean | void;
+        setBallState?: (state: Float32Array) => boolean | void;
+        getCarUnlimitedBoost?: (carIndex: number) => boolean;
+        setUnlimitedBoost: (unlimited: boolean) => void;
+        setCarTeam?: (carIndex: number, team: number) => void;
+        removeCar?: (carIndex: number) => void;
+        addCar?: (team: number, preset: string) => number | void;
+        resetKickoff?: (seed?: number, preserveMomentum?: boolean) => void;
+        resetGoalLatch?: () => void;
+        clearEvents?: () => void;
+        saveCompactState: () => Float32Array;
+        setControls?: (
+          carIndex: number,
+          controls: PodiumCelebrationControls | Record<string, unknown>
+        ) => void;
+        step?: (ticks?: number) => void;
+        configureCars: (
+          playerPreset: string,
+          opponentPreset?: string | boolean,
+          playerTeam?: number
+        ) => void;
+        setSimulationFrozen?: (frozen: boolean, resumeTick?: number, maskInputs?: boolean) => void;
+        setCarLinearFactorAndGravity?: (
+          carIndex: number,
+          fx: number,
+          fy: number,
+          fz: number,
+          g: number
+        ) => void;
+        setCarCollisionMask?: (
+          carIndex: number,
+          collideCars: boolean,
+          collideBall: boolean
+        ) => void;
+        setPossessionReportingEnabled?: (enabled: boolean) => void;
+      })
+    | null;
+  arena?:
+    | (NonNullable<GoalReplayRuntimePort['arena']> & {
+        isLobbyMode?: boolean;
+        carVisual?: string;
+        carTeams?: ArrayLike<number>;
+        scene?: unknown;
+        ball?: { children?: Array<{ quaternion: { identity: () => void } }> } | null;
+        cars?: Array<{ visible: boolean }>;
+        carDemolitions?: Array<{ stop?: () => void } | null | undefined>;
+        setCarTeam?: (carIndex: number, team: number) => void;
+        ensureCar?: (carIndex: number, team: number, preset: string) => void;
+        ensureOpponent?: () => void;
+        resetCarBoosts?: (carIndex: number) => void;
+        resetBallTrail?: () => void;
+        clearAllGhostOpacities?: () => void;
+        resetAllCarEffects?: () => void;
+      })
+    | null;
+  camera?:
+    | (NonNullable<GoalReplayRuntimePort['camera']> & {
+        isFreeCam?: boolean;
+        setFreeCam: (enabled: boolean) => void;
+        setEditorOverride?: (enabled: boolean) => void;
+        getFreeCamStateSnapshot?: () => {
+          eyeUnreal: [number, number, number];
+          yawUnrealDeg: number;
+          pitchUnrealDeg: number;
+        } | null;
+      })
+    | null;
+  interpolator?:
+    | (NonNullable<GoalReplayRuntimePort['interpolator']> & {
+        sync: (timestamp?: number) => void;
+        setTrainingPhysicsRate?: (rateHz: number) => void;
+      })
+    | null;
   match?: {
-    state: { mode?: string; phase?: string; paused?: boolean; scorer?: number; scorerCarIndex?: number; winner?: number | string; winReason?: string; countdown?: number; countdownValue?: number; [key: string]: unknown };
+    state: {
+      mode?: string;
+      phase?: string;
+      paused?: boolean;
+      scorer?: number;
+      scorerCarIndex?: number;
+      winner?: number | string;
+      winReason?: string;
+      countdown?: number;
+      countdownValue?: number;
+      [key: string]: unknown;
+    };
   } | null;
   keyboard?: { ballControlEnabled?: boolean; read?: () => PodiumCelebrationControls } | null;
   gamepad?: { active?: () => boolean; read?: () => PodiumCelebrationControls } | null;
-  audioSubsystem?: { audio?: { play?: (cue: string, volume?: number) => void } | null; resetAudio?: () => void } | null;
-  ballTrajectoryPredictor?: (NonNullable<GoalReplayRuntimePort['ballTrajectoryPredictor']> & { forcePredictAnyMovement?: boolean; clear?: () => void; clearStaticPreview?: () => void }) | null;
+  audioSubsystem?: {
+    audio?: { play?: (cue: string, volume?: number) => void } | null;
+    resetAudio?: () => void;
+  } | null;
+  ballTrajectoryPredictor?:
+    | (NonNullable<GoalReplayRuntimePort['ballTrajectoryPredictor']> & {
+        forcePredictAnyMovement?: boolean;
+        clear?: () => void;
+        clearStaticPreview?: () => void;
+      })
+    | null;
   authoritativeServer?: {
-    sim: { resetKickoff?: (seed?: number) => void; pollGoal?: () => void; saveCompactState: () => Float32Array; getHeaderView: () => { tickCount: number }; restoreState?: (snapshot: Float32Array) => Promise<void> | void };
+    sim: {
+      resetKickoff?: (seed?: number) => void;
+      pollGoal?: () => void;
+      saveCompactState: () => Float32Array;
+      getHeaderView: () => { tickCount: number };
+      restoreState?: (snapshot: Float32Array) => Promise<void> | void;
+    };
     clientInputBuffer?: { clear?: () => void } | null;
     lastReceivedControls?: { clear?: () => void } | null;
-    fallbackManager?: { domain?: { goalBufferTicks?: number; players?: Map<unknown, Record<string, unknown>> } } | null;
+    fallbackManager?: {
+      domain?: { goalBufferTicks?: number; players?: Map<unknown, Record<string, unknown>> };
+    } | null;
     pauseMatch: (paused: boolean) => void;
     stop?: () => void;
-    setCarControls?: (carIndex: number, controls: PodiumCelebrationControls | Record<string, unknown>) => void;
+    setCarControls?: (
+      carIndex: number,
+      controls: PodiumCelebrationControls | Record<string, unknown>
+    ) => void;
     startTrainingMode?: (options: Record<string, unknown>) => void;
   } | null;
-  networkReconciler?: (NonNullable<GoalReplayRuntimePort['networkReconciler']> & {
-    replayPlaybackMode?: boolean;
-    lobbyDualWorldMode?: boolean;
-    historyBuffer?: { lastRemoteControls?: Map<number, { controls?: PodiumCelebrationControls } & PodiumCelebrationControls> };
-    setReplayPlaybackMode?: (enabled: boolean) => void;
-    syncTimeline: (snapshot: Float32Array, tick: number) => void;
-    sampleAndPredictInput?: (carIndex: number, controls: PodiumCelebrationControls) => PodiumCelebrationControls | null;
-    dispose?: () => void;
-  }) | null;
+  networkReconciler?:
+    | (NonNullable<GoalReplayRuntimePort['networkReconciler']> & {
+        replayPlaybackMode?: boolean;
+        lobbyDualWorldMode?: boolean;
+        historyBuffer?: {
+          lastRemoteControls?: Map<
+            number,
+            { controls?: PodiumCelebrationControls } & PodiumCelebrationControls
+          >;
+        };
+        setReplayPlaybackMode?: (enabled: boolean) => void;
+        syncTimeline: (snapshot: Float32Array, tick: number) => void;
+        sampleAndPredictInput?: (
+          carIndex: number,
+          controls: PodiumCelebrationControls
+        ) => PodiumCelebrationControls | null;
+        dispose?: () => void;
+      })
+    | null;
   inputPoller?: { latchJumpSuppression?: () => void } | null;
-  networkManager?: (NonNullable<GoalReplayRuntimePort['networkManager']> & { voteSkipReplay?: () => void }) | null;
-  modeManager?: { [key: string]: unknown; modes?: Map<string, BaseGameMode>; getActiveMode?: () => BaseGameMode | null; setMode?: (modeId: string) => void } | null;
+  networkManager?:
+    (NonNullable<GoalReplayRuntimePort['networkManager']> & { voteSkipReplay?: () => void }) | null;
+  modeManager?: {
+    [key: string]: unknown;
+    modes?: Map<string, BaseGameMode>;
+    getActiveMode?: () => BaseGameMode | null;
+    setMode?: (modeId: string) => void;
+  } | null;
   gameModeManager?: { modes?: Map<string, BaseGameMode> } | null;
   simulationStage?: { resetActionStates?: () => void } | null;
-  botCoordinator?: { isBotMatch: boolean; isBotPaused: boolean; botControls: PodiumCelebrationControls } | null;
+  botCoordinator?: {
+    isBotMatch: boolean;
+    isBotPaused: boolean;
+    botControls: PodiumCelebrationControls;
+  } | null;
   boostBloom?: { clear?: () => void } | null;
-  flipResetVisuals?: Map<number, { update?: (dt: number, active: boolean) => void; stopVisual?: () => void }> | Array<{ update?: (dt: number, active: boolean) => void; stopVisual?: () => void } | null | undefined> | null;
+  flipResetVisuals?:
+    | Map<number, { update?: (dt: number, active: boolean) => void; stopVisual?: () => void }>
+    | Array<
+        | { update?: (dt: number, active: boolean) => void; stopVisual?: () => void }
+        | null
+        | undefined
+      >
+    | null;
   openOverlays?: Set<string>;
-  trainingOptions?: { boostOption?: string; disableGoalReset?: boolean; freeplayReplayDurationSeconds?: number; gameSpeed?: number; [key: string]: unknown } | null;
+  trainingOptions?: {
+    boostOption?: string;
+    disableGoalReset?: boolean;
+    freeplayReplayDurationSeconds?: number;
+    gameSpeed?: number;
+    [key: string]: unknown;
+  } | null;
   teamAssignment?: { playerTeam: number; opponentTeam: number } | null;
   neutralControls?: PodiumCelebrationControls;
   playerControls?: PodiumCelebrationControls;
@@ -174,22 +270,39 @@ export interface BaseGameMode {
   _publishSpawnedCarsTelemetry?(): void;
   getCarControls?(_carIndex: number): PodiumCelebrationControls | Record<string, unknown> | null;
   resetToCleanFreeplay?(): void;
-  importDirectorDiagnosticPattern?(_file: unknown, _opts?: DirectorPatternPreviewOptions): Promise<ImportedDiagnosticPatternInput | boolean | null>;
-  startDirectorPatternPreview?(_pattern?: ImportedDiagnosticPatternInput | null, _opts?: DirectorPatternPreviewOptions): boolean;
+  importDirectorDiagnosticPattern?(
+    _file: unknown,
+    _opts?: DirectorPatternPreviewOptions
+  ): Promise<ImportedDiagnosticPatternInput | boolean | null>;
+  startDirectorPatternPreview?(
+    _pattern?: ImportedDiagnosticPatternInput | null,
+    _opts?: DirectorPatternPreviewOptions
+  ): boolean;
   enterDirectorReferenceFreeCamFromHere?(_opts?: ReferenceFreeCamOptions): boolean;
   exitDirectorReferenceFreeCam?(): boolean;
   exitDirectorPatternPreview?(): boolean;
-  exportRecentHighlightReplay?(_durationSeconds?: number, _suppressNotification?: boolean): RetainedMatchReplay | null;
-  syncExternalGhostWorld?(_worldId: string, _prev: Float32Array | number[], _curr: Float32Array | number[], _opts?: Record<string, unknown>): void;
+  exportRecentHighlightReplay?(
+    _durationSeconds?: number,
+    _suppressNotification?: boolean
+  ): RetainedMatchReplay | null;
+  syncExternalGhostWorld?(
+    _worldId: string,
+    _prev: Float32Array | number[],
+    _curr: Float32Array | number[],
+    _opts?: Record<string, unknown>
+  ): void;
 }
 
 function latchKickoffInputSuppression(
-  inputPort: {
-    inputPoller?: { latchJumpSuppression?: () => void } | null;
-    neutralControls?: PodiumCelebrationControls;
-    playerControls?: PodiumCelebrationControls;
-    playerThrottle?: number;
-  } | null | undefined,
+  inputPort:
+    | {
+        inputPoller?: { latchJumpSuppression?: () => void } | null;
+        neutralControls?: PodiumCelebrationControls;
+        playerControls?: PodiumCelebrationControls;
+        playerThrottle?: number;
+      }
+    | null
+    | undefined
 ): void {
   if (!inputPort) return;
   inputPort.inputPoller?.latchJumpSuppression?.();
@@ -202,7 +315,10 @@ function latchKickoffInputSuppression(
 export class BaseGameMode<TRuntime extends GameModeRuntimePort | null = GameModeRuntimePort> {
   public id: string;
   public runtime: TRuntime;
-  constructor(id: string, runtime: TRuntime | GameModeRuntimePort | Record<string, unknown> | null) {
+  constructor(
+    id: string,
+    runtime: TRuntime | GameModeRuntimePort | Record<string, unknown> | null
+  ) {
     this.id = id;
     this.runtime = runtime as TRuntime;
   }
@@ -211,7 +327,9 @@ export class BaseGameMode<TRuntime extends GameModeRuntimePort | null = GameMode
   public onGoal(..._args: unknown[]): void {}
   public onResetKickoff(_seed = -1): void {}
   public onLeave(): void {}
-  protected resetKickoffPresentationAndAudio(options: { resetCamera?: boolean; resetBots?: boolean } = {}): void {
+  protected resetKickoffPresentationAndAudio(
+    options: { resetCamera?: boolean; resetBots?: boolean } = {}
+  ): void {
     const r = this.runtime;
     if (!r) return;
     r.ballTrajectoryPredictor?.clear?.();
@@ -227,7 +345,10 @@ export class BaseGameMode<TRuntime extends GameModeRuntimePort | null = GameMode
     if (options.resetCamera !== false) r.camera?.resetView?.();
     r.interpolator?.sync?.();
   }
-  protected syncPlayerTeamAndFreeplayLoadout(freeplayTeam: 0 | 1, options: { resetPlayerCarIndex?: boolean; restoreLoadout?: boolean } = {}): void {
+  protected syncPlayerTeamAndFreeplayLoadout(
+    freeplayTeam: 0 | 1,
+    options: { resetPlayerCarIndex?: boolean; restoreLoadout?: boolean } = {}
+  ): void {
     const r = this.runtime;
     if (!r) return;
     if (options.resetPlayerCarIndex) {

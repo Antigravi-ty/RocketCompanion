@@ -90,11 +90,11 @@ export function normalizeFetchedProfile(fetchedProfile) {
 export async function githubApiRequest(url, token, method = 'GET') {
   const hasProxyEnv = Boolean(
     process.env.HTTPS_PROXY ||
-      process.env.https_proxy ||
-      process.env.HTTP_PROXY ||
-      process.env.http_proxy ||
-      process.env.ALL_PROXY ||
-      process.env.all_proxy
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy ||
+    process.env.ALL_PROXY ||
+    process.env.all_proxy
   );
 
   if (!hasProxyEnv) {
@@ -184,7 +184,10 @@ export function resolveMatchingSiblingProfileByGitHistory(
       ['-C', siblingRepoDir, 'log', '--format=%H', '-n', '30', '--', 'profile.json'],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
     );
-    for (const sha of logOut.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)) {
+    for (const sha of logOut
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean)) {
       if (!refsToInspect.includes(sha)) {
         refsToInspect.push(sha);
       }
@@ -192,11 +195,10 @@ export function resolveMatchingSiblingProfileByGitHistory(
 
     for (const ref of refsToInspect) {
       try {
-        const rawJson = execFileSync(
-          'git',
-          ['-C', siblingRepoDir, 'show', `${ref}:profile.json`],
-          { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
-        );
+        const rawJson = execFileSync('git', ['-C', siblingRepoDir, 'show', `${ref}:profile.json`], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        });
         const parsed = JSON.parse(rawJson);
         const normalized = normalizeFetchedProfile(parsed);
         if (normalized.profileHash === targetHash) {

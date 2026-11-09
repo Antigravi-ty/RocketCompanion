@@ -11,11 +11,9 @@ import {
 import {
   experimentalWallFxRuntimeConfig,
   type ExperimentalWallFxConfig,
-} from '../../../ui-core/config/atmosphereFxConfig';
-import {
-  ballVisualRuntimeConfig,
-} from '../../../ui-core/config/ballVisualConfig';
-import type { DriftwoodsGroundConfig } from '../../../ui-core/config/driftwoodsConfig';
+} from '../../../ui-core/config/atmosphereFxConfig.ts';
+import { ballVisualRuntimeConfig } from '../../../ui-core/config/ballVisualConfig.ts';
+import type { DriftwoodsGroundConfig } from '../../../ui-core/config/driftwoodsConfig.ts';
 import {
   PULSE_DIRECTION_MAP,
   PULSE_STEADY_MODE_MAP,
@@ -72,14 +70,14 @@ export function createSpherePreviewMeshes(
   const pulseFillMat = new MeshBasicMaterial({
     color: 0xf59e0b,
     transparent: true,
-    opacity: 0.10,
+    opacity: 0.1,
     depthWrite: false,
     side: DoubleSide,
   });
   const pulseWireMat = new MeshBasicMaterial({
     color: 0xfbbf24,
     transparent: true,
-    opacity: 0.50,
+    opacity: 0.5,
     wireframe: true,
     depthWrite: false,
   });

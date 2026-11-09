@@ -209,7 +209,11 @@ export function decodeRLRCNetStreamFrames(
               vectorMaxBits
             );
 
-            if (decoded.type === 'RigidBody' && decoded.value && typeof decoded.value === 'object') {
+            if (
+              decoded.type === 'RigidBody' &&
+              decoded.value &&
+              typeof decoded.value === 'object'
+            ) {
               const rb = decoded.value as { location?: RLRCVec3 };
               if (rb.location) {
                 carPositionsByActorId.set(actorId, rb.location);

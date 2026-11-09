@@ -12,7 +12,7 @@ import {
   NoColorSpace,
   type Object3D,
   type Texture,
-  TextureLoader
+  TextureLoader,
 } from 'three';
 import { type GLTF, GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { resolveAssetPath } from '../../../utils/AssetResponseValidator.ts';
@@ -20,7 +20,11 @@ import { resolveAssetPath } from '../../../utils/AssetResponseValidator.ts';
 export const DRIFTWOODS_GLB_URL = '/assets/arena/driftwoods.glb';
 export const DRIFTWOODS_Q1_GROUND_TEXTURE_URL = '/assets/arena/ground_q1_7gray_2048x3000.webp';
 
-function loadTextureWithTimeout(texLoader: TextureLoader, url: string, timeoutMs = 8000): Promise<Texture> {
+function loadTextureWithTimeout(
+  texLoader: TextureLoader,
+  url: string,
+  timeoutMs = 8000
+): Promise<Texture> {
   return new Promise<Texture>((resolve, reject) => {
     let settled = false;
     const timer = setTimeout(() => {
@@ -86,9 +90,7 @@ export async function loadDriftwoodsQ1GroundTexture() {
 export async function loadDriftwoodsStadium(): Promise<Group | null> {
   const loader = new GLTFLoader();
   let gltf: GLTF | null = null;
-  const candidatePaths = [
-    DRIFTWOODS_GLB_URL
-  ];
+  const candidatePaths = [DRIFTWOODS_GLB_URL];
 
   const q1TexturePromise = loadDriftwoodsQ1GroundTexture();
 
@@ -97,12 +99,18 @@ export async function loadDriftwoodsStadium(): Promise<Group | null> {
       gltf = await loader.loadAsync(resolveAssetPath(path));
       if (gltf?.scene) break;
     } catch (err) {
-      console.warn(`[DriftwoodsStadiumLoader] Failed to load Driftwoods arena GLTF from "${path}":`, err);
+      console.warn(
+        `[DriftwoodsStadiumLoader] Failed to load Driftwoods arena GLTF from "${path}":`,
+        err
+      );
     }
   }
 
   if (!gltf?.scene) {
-    console.error('[DriftwoodsStadiumLoader] All Driftwoods arena candidate paths failed to load:', candidatePaths);
+    console.error(
+      '[DriftwoodsStadiumLoader] All Driftwoods arena candidate paths failed to load:',
+      candidatePaths
+    );
     return null;
   }
 
@@ -189,14 +197,18 @@ export function alignWoodsFieldGroundTexture(mesh) {
   const uv = mesh.geometry.attributes.uv;
 
   const lineUMin = 0.192871;
-  const lineUMax = 0.806640;
+  const lineUMax = 0.80664;
   const lineVMin = 0.082113;
   const lineVMax = 0.915665;
 
-  let minX = Infinity, maxX = -Infinity;
-  let minU = Infinity, maxU = -Infinity;
-  let minZ = Infinity, maxZ = -Infinity;
-  let minV = Infinity, maxV = -Infinity;
+  let minX = Infinity,
+    maxX = -Infinity;
+  let minU = Infinity,
+    maxU = -Infinity;
+  let minZ = Infinity,
+    maxZ = -Infinity;
+  let minV = Infinity,
+    maxV = -Infinity;
 
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
@@ -206,11 +218,23 @@ export function alignWoodsFieldGroundTexture(mesh) {
     const v = uv.getY(i);
 
     if (y < 0.05) {
-      if (x < minX) { minX = x; minU = u; }
-      if (x > maxX) { maxX = x; maxU = u; }
+      if (x < minX) {
+        minX = x;
+        minU = u;
+      }
+      if (x > maxX) {
+        maxX = x;
+        maxU = u;
+      }
       if (Math.abs(x) < 8.95) {
-        if (z < minZ) { minZ = z; minV = v; }
-        if (z > maxZ) { maxZ = z; maxV = v; }
+        if (z < minZ) {
+          minZ = z;
+          minV = v;
+        }
+        if (z > maxZ) {
+          maxZ = z;
+          maxV = v;
+        }
       }
     }
   }

@@ -12,7 +12,7 @@
  *   are never preempted by surface or pad noise)
  */
 
-import { type AudioAttenuationCategory } from '../ui-core/config/spatialAttenuationProfiles';
+import { type AudioAttenuationCategory } from '../ui-core/config/spatialAttenuationProfiles.ts';
 import { SURFACE_SUBTYPES } from '../physics/RocketSimConstants.ts';
 import { type SpatialPositionInput } from './spatialAudioMath.ts';
 
@@ -97,12 +97,14 @@ export function computeCarBallImpactIntensity(
   event: PhysicsImpactAudioEvent,
   threshold = 80
 ): number {
-  const rawImpulse = Number.isFinite(event.impulse) && (event.impulse as number) > 0
-    ? (event.impulse as number)
-    : 0;
-  const rawSpeed = Number.isFinite(event.relSpeed) && (event.relSpeed as number) > 0
-    ? (event.relSpeed as number)
-    : (Number.isFinite(event.speed) ? Math.abs(event.speed as number) : 0);
+  const rawImpulse =
+    Number.isFinite(event.impulse) && (event.impulse as number) > 0 ? (event.impulse as number) : 0;
+  const rawSpeed =
+    Number.isFinite(event.relSpeed) && (event.relSpeed as number) > 0
+      ? (event.relSpeed as number)
+      : Number.isFinite(event.speed)
+        ? Math.abs(event.speed as number)
+        : 0;
   const metric = Math.max(rawImpulse, rawSpeed);
   const floor = Math.max(0, Number.isFinite(threshold) ? threshold : 80);
   const span = Math.max(400, 2400 - floor);
@@ -131,7 +133,7 @@ export function calibrateCarBallHitModulation(
   const volumeGainMultiplier = clamp(baseVolMult * selfPresence, 0.45, 1.3);
 
   // Propagation radius scale: soft touches attenuate faster (0.78x), power shots carry across field (1.28x)
-  const distanceRadiusScale = clamp(0.78 + 0.50 * intensity, 0.75, 1.35);
+  const distanceRadiusScale = clamp(0.78 + 0.5 * intensity, 0.75, 1.35);
 
   // Subtle pitch contour: heavier hits have slightly deeper body, crisp fast snaps slightly brighter
   const playbackRate = clamp(0.96 + 0.08 * intensity, 0.92, 1.08);
@@ -167,7 +169,7 @@ export function calibrateCarBumpModulation(
   const involvesSelf = car1 === activeCarIndex || car2 === activeCarIndex;
 
   const volumeGainMultiplier = clamp(
-    (0.60 + 0.52 * intensity) * (involvesSelf ? 1.12 : 1.0),
+    (0.6 + 0.52 * intensity) * (involvesSelf ? 1.12 : 1.0),
     0.45,
     1.3
   );
@@ -260,12 +262,12 @@ export function calibrateGoalpostPingModulation(
     : 'goalpost_ping_small';
 
   const volumeGainMultiplier = isPingLarge
-    ? clamp(0.85 + 0.30 * intensity, 0.8, 1.2)
-    : clamp(0.60 + 0.40 * intensity, 0.5, 1.05);
+    ? clamp(0.85 + 0.3 * intensity, 0.8, 1.2)
+    : clamp(0.6 + 0.4 * intensity, 0.5, 1.05);
 
   const distanceRadiusScale = isPingLarge
     ? clamp(0.92 + 0.23 * intensity, 0.9, 1.2)
-    : clamp(0.75 + 0.30 * intensity, 0.7, 1.1);
+    : clamp(0.75 + 0.3 * intensity, 0.7, 1.1);
 
   const playbackRate = isPingLarge
     ? clamp(0.98 + 0.05 * intensity, 0.96, 1.04)
@@ -341,12 +343,8 @@ export function calibrateWheelLandingModulation(
 ): IncidentSpatialModulationResult {
   const speed = Math.max(0, Math.abs(downwardSpeedUU));
   const intensity = smoothstep01((speed - 180) / 1350);
-  const volumeGainMultiplier = clamp(
-    (0.45 + 0.60 * intensity) * (isSelf ? 1.0 : 0.88),
-    0.35,
-    1.15
-  );
-  const distanceRadiusScale = clamp(0.70 + 0.45 * intensity, 0.65, 1.2);
+  const volumeGainMultiplier = clamp((0.45 + 0.6 * intensity) * (isSelf ? 1.0 : 0.88), 0.35, 1.15);
+  const distanceRadiusScale = clamp(0.7 + 0.45 * intensity, 0.65, 1.2);
   const playbackRate = clamp(0.94 + 0.12 * (1.0 - 0.5 * intensity), 0.92, 1.08);
 
   return {

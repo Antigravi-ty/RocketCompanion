@@ -4,33 +4,33 @@
  * and Background Music, bridging UI/game runtime context with Web Audio bus chains.
  */
 
-import { audioConfig } from "../ui-core/config/audioConfig";
-import { getAudioContext, getMasterAudioInput } from "./audioContext.ts";
-import { type SpatialAudioTunerConfig } from "../ui-core/config/spatialAudioConfig";
-import { type AnthemDef } from "../ui-core/config/anthemCatalogConfig";
-import { fetchAudioBuffer } from "./audioAssetLoader.ts";
+import { audioConfig } from '../ui-core/config/audioConfig.ts';
+import { getAudioContext, getMasterAudioInput } from './audioContext.ts';
+import { type SpatialAudioTunerConfig } from '../ui-core/config/spatialAudioConfig.ts';
+import { type AnthemDef } from '../ui-core/config/anthemCatalogConfig.ts';
+import { fetchAudioBuffer } from './audioAssetLoader.ts';
 import {
   useSpatialAudioStore,
   useHudStore,
   useAppStore,
   useStaticTrainingPackStore,
-} from "../game/runtimeUiPort.ts";
+} from '../game/runtimeUiPort.ts';
 import {
   buildStadiumImpulseBuffer,
   SpatialAudioBusChain,
   type SpatialAudioRuntimeContextSnapshot,
-} from "./SpatialAudioBusChain.ts";
+} from './SpatialAudioBusChain.ts';
 import {
   GoalAnthemPlayer,
   type AnthemPlaybackMode,
   type AnthemPreviewSource,
-} from "./GoalAnthemPlayer.ts";
-import { BackgroundMusicController } from "./BackgroundMusicController.ts";
+} from './GoalAnthemPlayer.ts';
+import { BackgroundMusicController } from './BackgroundMusicController.ts';
 
 const BGM_PREVIEW_SAMPLE_URL =
-  "/assets/audio/bgm/Hollywood Principle - Breathing Underwater (Ether Remix).m4a";
+  '/assets/audio/bgm/Hollywood Principle - Breathing Underwater (Ether Remix).m4a';
 const BGM_PREVIEW_FALLBACK_URL =
-  "/assets/audio/bgm/Mike Ault - Flying Forever (feat. Morgan Perry).m4a";
+  '/assets/audio/bgm/Mike Ault - Flying Forever (feat. Morgan Perry).m4a';
 
 export type PlaySampleBufferCallback = (
   buffer: AudioBuffer,
@@ -55,9 +55,9 @@ export class StadiumSpatialAudioEngine {
 
   runtimeContext: SpatialAudioRuntimeContextSnapshot = {
     isOpen: false,
-    matchMode: "freeplay",
+    matchMode: 'freeplay',
     onlineSession: null,
-    matchPhase: "playing",
+    matchPhase: 'playing',
     choreographySignal: null,
     replayScorerAnthemId: null,
     staticTrainingReplayType: null,
@@ -131,9 +131,9 @@ export class StadiumSpatialAudioEngine {
       const trainingState = useStaticTrainingPackStore.getState() || {};
       this.updateRuntimeContext({
         isOpen: Boolean(appState.isOpen ?? appState.isMenuOpen),
-        matchMode: appState.matchMode || "freeplay",
+        matchMode: appState.matchMode || 'freeplay',
         onlineSession: appState.onlineSession || null,
-        matchPhase: hudState.matchPhase || "playing",
+        matchPhase: hudState.matchPhase || 'playing',
         choreographySignal: hudState.choreographySignal || null,
         replayScorerAnthemId: hudState.replayScorerAnthemId || null,
         staticTrainingReplayType:
@@ -164,7 +164,7 @@ export class StadiumSpatialAudioEngine {
     const nextSignal = nextContext.choreographySignal;
     if (nextSignal !== this._lastChoreographySignal) {
       this._lastChoreographySignal = nextSignal;
-      if (nextSignal === "goal-replay-will-start" && !this._isTrainingShotExpire()) {
+      if (nextSignal === 'goal-replay-will-start' && !this._isTrainingShotExpire()) {
         this.bgmController.goalSequenceActive = true;
         this.syncBgmPlaybackState();
       }
@@ -199,14 +199,21 @@ export class StadiumSpatialAudioEngine {
   }
 
   prewarm(): void {
-    try { this._ensureAudioGraph(false); } catch { /* ignore prewarm errors */ }
+    try {
+      this._ensureAudioGraph(false);
+    } catch {
+      /* ignore prewarm errors */
+    }
   }
 
   handleWindowFocusChange(hasFocus: boolean, continueOnBlur: boolean): void {
     if (!hasFocus && !continueOnBlur) {
       if (this._isWindowUnfocusedMuted) return;
       this._isWindowUnfocusedMuted = true;
-      if (this.activeAnthemMode === 'garage-preview' || this.activeAnthemMode === 'tuner-audition') {
+      if (
+        this.activeAnthemMode === 'garage-preview' ||
+        this.activeAnthemMode === 'tuner-audition'
+      ) {
         this.stopAnthemPreview();
       }
       if (this.anthemPlayer.isTailDraining) {
@@ -291,7 +298,10 @@ export class StadiumSpatialAudioEngine {
     return this.anthemPlayer.loadAnthemBuffer(anthemDef);
   }
 
-  startAnthemPreview(anthemId: string, source: AnthemPreviewSource = 'garage-preview'): Promise<void> {
+  startAnthemPreview(
+    anthemId: string,
+    source: AnthemPreviewSource = 'garage-preview'
+  ): Promise<void> {
     return this.anthemPlayer.startPreview(anthemId, source);
   }
 
@@ -307,11 +317,14 @@ export class StadiumSpatialAudioEngine {
     const ctx = getAudioContext();
     if (!ctx || typeof playBufferFn !== 'function') return;
     const store = useSpatialAudioStore.getState();
-    const prefId = store.selectedAnthem && store.selectedAnthem !== 'none' ? store.selectedAnthem : 'random';
+    const prefId =
+      store.selectedAnthem && store.selectedAnthem !== 'none' ? store.selectedAnthem : 'random';
     const resolved = this.anthemPlayer.resolveAnthemDefinition(prefId);
     let buf = resolved ? await this.anthemPlayer.loadAnthemBuffer(resolved) : null;
     if (!buf) {
-      const url = resolved?.file ? `/${resolved.file.replace(/^\//, '')}` : BGM_PREVIEW_FALLBACK_URL;
+      const url = resolved?.file
+        ? `/${resolved.file.replace(/^\//, '')}`
+        : BGM_PREVIEW_FALLBACK_URL;
       buf = await fetchAudioBuffer(ctx, url, BGM_PREVIEW_FALLBACK_URL);
     }
     if (!buf) return;
@@ -331,7 +344,10 @@ export class StadiumSpatialAudioEngine {
     const buf = this._cachedBgmPreviewBuffer;
     if (!buf) return;
     const offset = buf.duration > 16 ? 12.0 : 0.0;
-    playBufferFn(buf, Number(audioConfig.get('bgmBusVolume') ?? 1.0), { offset, maxDurationSec: 2.2 });
+    playBufferFn(buf, Number(audioConfig.get('bgmBusVolume') ?? 1.0), {
+      offset,
+      maxDurationSec: 2.2,
+    });
   }
 
   private _handleMatchPhaseTransition(prevPhase: string, nextPhase: string): void {

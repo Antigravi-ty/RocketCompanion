@@ -60,11 +60,23 @@ export function retainCompletedMatchReplayAndNotify(
 
   let winner = options.winner;
   if (!winner) {
-    if (options.winnerTeam === 0 || options.winnerTeam === 'BLUE' || options.winnerTeam === 'blue') {
+    if (
+      options.winnerTeam === 0 ||
+      options.winnerTeam === 'BLUE' ||
+      options.winnerTeam === 'blue'
+    ) {
       winner = 'blue';
-    } else if (options.winnerTeam === 1 || options.winnerTeam === 'ORANGE' || options.winnerTeam === 'orange') {
+    } else if (
+      options.winnerTeam === 1 ||
+      options.winnerTeam === 'ORANGE' ||
+      options.winnerTeam === 'orange'
+    ) {
       winner = 'orange';
-    } else if (options.winnerTeam === 2 || options.winnerTeam === 'DRAW' || options.winnerTeam === 'draw') {
+    } else if (
+      options.winnerTeam === 2 ||
+      options.winnerTeam === 'DRAW' ||
+      options.winnerTeam === 'draw'
+    ) {
       winner = 'draw';
     } else {
       const b = Number(options.blueScore ?? 0);
@@ -94,9 +106,7 @@ export function retainCompletedMatchReplayAndNotify(
     : Array.isArray(options.roster?.players)
       ? options.roster.players
       : [];
-  const normalizedLoadouts = Array.isArray(options.loadouts)
-    ? options.loadouts
-    : normalizedRoster;
+  const normalizedLoadouts = Array.isArray(options.loadouts) ? options.loadouts : normalizedRoster;
 
   useReplayViewerStore.getState().updateLiveTelemetry({ hasRetainedMatch: true });
   _retainedMatchReplay = {
@@ -258,7 +268,10 @@ export async function exportRetainedMatchReplayFile(
     try {
       notifStore.dismissOngoingNotification(MATCH_REPLAY_SAVING_TASK_ID);
     } catch (dismissErr) {
-      console.warn('[ReplayFileExporter] Failed to dismiss ongoing export notification after failure:', dismissErr);
+      console.warn(
+        '[ReplayFileExporter] Failed to dismiss ongoing export notification after failure:',
+        dismissErr
+      );
     }
     return false;
   } finally {
@@ -271,7 +284,8 @@ export async function exportRetainedMatchReplayFile(
  * 3 parallel timelines (State+Input, Incidents, Signals) and per-frame snapshots + slots.
  */
 export async function parseRCReplayFile(
-  fileOrBuffer: ArrayBuffer | Uint8Array | Blob | { arrayBuffer?: () => Promise<ArrayBuffer> } | unknown,
+  fileOrBuffer:
+    ArrayBuffer | Uint8Array | Blob | { arrayBuffer?: () => Promise<ArrayBuffer> } | unknown
 ): Promise<ParsedRCReplayResult> {
   return decompressAndParseRCReplayFile(fileOrBuffer);
 }
@@ -281,7 +295,7 @@ export async function parseRCReplayFile(
  */
 export async function parseUploadedReplayFileWithFeedback(
   file: File,
-  onInitializeSession: (result: ParsedRCReplayResult) => void,
+  onInitializeSession: (result: ParsedRCReplayResult) => void
 ): Promise<void> {
   const store = useReplayViewerStore.getState();
   store.setErrorMessage(null);

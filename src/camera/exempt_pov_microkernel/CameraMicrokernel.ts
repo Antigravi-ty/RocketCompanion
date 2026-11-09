@@ -13,7 +13,8 @@
 import { getCameraDeterminismHarness } from '../CameraDeterminismHarness.ts';
 import { resolveAssetPath } from '../../utils/AssetResponseValidator.ts';
 
-export const EXPECTED_CAMERA_WASM_HASH = 'b8adc96e73372d0f53346499fb150b576fb08deb0494d8f7f7e989d9daea0854';
+export const EXPECTED_CAMERA_WASM_HASH =
+  'b8adc96e73372d0f53346499fb150b576fb08deb0494d8f7f7e989d9daea0854';
 export const CAMERA_VIEW_BUFFER_FLOATS = 42;
 export const TOTAL_VIEW_BUFFER_SIZE = 42;
 export const CAMERA_VIEW_BUFFER_BYTES = CAMERA_VIEW_BUFFER_FLOATS * Float64Array.BYTES_PER_ELEMENT; // 336 bytes
@@ -56,7 +57,9 @@ function createMicrokernelError(
 export async function computeSha256(buffer: ArrayBuffer | ArrayBufferView): Promise<string> {
   const subtle = globalThis.crypto?.subtle;
   if (!subtle) {
-    throw new Error('[FATAL] Web Crypto API (crypto.subtle) is unavailable for POV Camera Microkernel verification.');
+    throw new Error(
+      '[FATAL] Web Crypto API (crypto.subtle) is unavailable for POV Camera Microkernel verification.'
+    );
   }
 
   const sourceBuffer = ArrayBuffer.isView(buffer)
@@ -64,7 +67,7 @@ export async function computeSha256(buffer: ArrayBuffer | ArrayBufferView): Prom
     : buffer;
   const hashBuffer = await subtle.digest('SHA-256', sourceBuffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 export class CameraMicrokernel {
@@ -129,7 +132,7 @@ export class CameraMicrokernel {
       if (actualHash !== EXPECTED_CAMERA_WASM_HASH) {
         throw createMicrokernelError(
           `[FATAL] POV Camera Microkernel hash mismatch or missing! Tampering detected. ` +
-          `(Expected: ${EXPECTED_CAMERA_WASM_HASH}, Got: ${actualHash})`,
+            `(Expected: ${EXPECTED_CAMERA_WASM_HASH}, Got: ${actualHash})`,
           {
             expectedHash: EXPECTED_CAMERA_WASM_HASH,
             actualHash,
@@ -142,7 +145,10 @@ export class CameraMicrokernel {
     let result: WebAssembly.WebAssemblyInstantiatedSource | WebAssembly.Instance;
     try {
       const sourceBytes = ArrayBuffer.isView(wasmBytes)
-        ? (wasmBytes.buffer.slice(wasmBytes.byteOffset, wasmBytes.byteOffset + wasmBytes.byteLength) as ArrayBuffer)
+        ? (wasmBytes.buffer.slice(
+            wasmBytes.byteOffset,
+            wasmBytes.byteOffset + wasmBytes.byteLength
+          ) as ArrayBuffer)
         : wasmBytes;
       result = await WebAssembly.instantiate(sourceBytes, {});
     } catch (instantiateErr: unknown) {
@@ -246,7 +252,9 @@ let cachedCameraKernel: CameraMicrokernel | null = null;
 /**
  * Load singleton CameraMicrokernel instance with integrity validation.
  */
-export async function loadCameraMicrokernel(options: CameraMicrokernelOptions = {}): Promise<CameraMicrokernel> {
+export async function loadCameraMicrokernel(
+  options: CameraMicrokernelOptions = {}
+): Promise<CameraMicrokernel> {
   if (cachedCameraKernel) {
     return cachedCameraKernel;
   }
@@ -274,7 +282,9 @@ export function clearCachedCameraMicrokernel(): void {
  * Pre-flight verification helper for POV Camera Microkernel.
  * Guarantees camera.wasm exists, passes SHA-256 hash match, and satisfies strict ABI.
  */
-export async function verifyCameraMicrokernelIntegrity(options: CameraMicrokernelOptions = {}): Promise<CameraMicrokernel> {
+export async function verifyCameraMicrokernelIntegrity(
+  options: CameraMicrokernelOptions = {}
+): Promise<CameraMicrokernel> {
   return await loadCameraMicrokernel(options);
 }
 

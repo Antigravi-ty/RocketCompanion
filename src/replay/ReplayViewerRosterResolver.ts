@@ -4,18 +4,14 @@
  * and slot key assignment for the Standalone Replay Viewer.
  */
 
-import {
-  SIM_OFFSETS,
-  MAX_CARS,
-  MATCH_SIGNALS,
-} from '../physics/RocketSimConstants.ts';
+import { SIM_OFFSETS, MAX_CARS, MATCH_SIGNALS } from '../physics/RocketSimConstants.ts';
 import { assignTeamSlotKeys } from './container/RCReplayTimelineParser.ts';
 import {
   unpackLoadoutSignalParam2,
   getCarColorSlotById,
   normalizeVisualId,
   resolveVehicleHitboxId,
-} from '../ui-core/config/vehicleConstants';
+} from '../ui-core/config/vehicleConstants.ts';
 
 export interface ReplayRosterEntry {
   carIndex: number;
@@ -35,20 +31,38 @@ export interface ReplayRosterEntry {
 }
 
 export interface ReplayRosterMetaItem {
-  carIndex?: number; entityId?: number; team?: number | string;
-  visualId?: string; hitboxId?: string; colorSlot?: number; colorHex?: string;
-  paintFinish?: string; boostVisual?: string; boostAudio?: string; anthemId?: string;
-  isPlayer?: boolean; isSelf?: boolean; isLocal?: boolean; isLocalPlayer?: boolean;
-  name?: string | null; username?: string | null; botType?: string | null;
+  carIndex?: number;
+  entityId?: number;
+  team?: number | string;
+  visualId?: string;
+  hitboxId?: string;
+  colorSlot?: number;
+  colorHex?: string;
+  paintFinish?: string;
+  boostVisual?: string;
+  boostAudio?: string;
+  anthemId?: string;
+  isPlayer?: boolean;
+  isSelf?: boolean;
+  isLocal?: boolean;
+  isLocalPlayer?: boolean;
+  name?: string | null;
+  username?: string | null;
+  botType?: string | null;
   [key: string]: unknown;
 }
 
 export interface ReplayRosterSignalItem {
-  signalType?: number; param1?: number; param2?: number; [key: string]: unknown;
+  signalType?: number;
+  param1?: number;
+  param2?: number;
+  [key: string]: unknown;
 }
 
 export interface ReplayRosterMetadataLike {
-  roster?: ReplayRosterMetaItem[]; loadouts?: ReplayRosterMetaItem[]; [key: string]: unknown;
+  roster?: ReplayRosterMetaItem[];
+  loadouts?: ReplayRosterMetaItem[];
+  [key: string]: unknown;
 }
 
 export interface ReplayRosterExtractionInput {
@@ -188,8 +202,7 @@ export function resolveReplayRosterData(
     }
 
     const visualId = normalizeVisualId(metaItem?.visualId || sigLoadout?.visualId || 'fennec');
-    const hitboxId =
-      metaItem?.hitboxId || sigLoadout?.hitboxId || resolveVehicleHitboxId(visualId);
+    const hitboxId = metaItem?.hitboxId || sigLoadout?.hitboxId || resolveVehicleHitboxId(visualId);
     const defaultColorSlot = team === 0 ? 3 : 0;
     const colorSlot =
       typeof metaItem?.colorSlot === 'number'
@@ -260,9 +273,7 @@ export function resolveReplayRosterData(
         e.name = (botCounts[bt.toLowerCase()] || 0) > 1 ? `${cap} #${e.slotKey}` : cap;
       } else {
         e.name =
-          allEntries.length === 1
-            ? 'Player'
-            : `${e.team === 1 ? 'Orange' : 'Blue'} #${e.slotKey}`;
+          allEntries.length === 1 ? 'Player' : `${e.team === 1 ? 'Orange' : 'Blue'} #${e.slotKey}`;
       }
     }
   });

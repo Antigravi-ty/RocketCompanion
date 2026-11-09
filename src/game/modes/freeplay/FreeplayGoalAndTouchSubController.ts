@@ -1,17 +1,36 @@
-import { INCIDENT_EVENT_TYPES, MATCH_SIGNALS, MAX_CARS } from '../../../physics/RocketSimConstants.ts';
+import {
+  INCIDENT_EVENT_TYPES,
+  MATCH_SIGNALS,
+  MAX_CARS,
+} from '../../../physics/RocketSimConstants.ts';
 import type { ReplayRingBuffer } from '../../../replay/ReplayRingBuffer.ts';
 import { getNameTagRuntimeState, useStaticTrainingBallCamTunerStore } from '../../runtimeUiPort.ts';
-import { setTemporaryBallOpacityOverride } from '../../../ui-core/config/ballVisualConfig';
+import { setTemporaryBallOpacityOverride } from '../../../ui-core/config/ballVisualConfig.ts';
 import { gameAudio } from '../../../audio/GameAudioEngineFacade.ts';
-import { isGlobalHotkeyBlockedByUi, subscribeGlobalKeyDown } from '../../../input/hotkeyInputGuard.ts';
-import { detectSingleCarBallTouch, evaluateGoalScoredFromBallView, stepPostGoalBallFreeze } from '../shared/goalAndBallTouchPipeline.ts';
+import {
+  isGlobalHotkeyBlockedByUi,
+  subscribeGlobalKeyDown,
+} from '../../../input/hotkeyInputGuard.ts';
+import {
+  detectSingleCarBallTouch,
+  evaluateGoalScoredFromBallView,
+  stepPostGoalBallFreeze,
+} from '../shared/goalAndBallTouchPipeline.ts';
 import { syncLocalMatchStateToRuntimeAndHud } from '../shared/matchClockAndPhasePipeline.ts';
 
 export interface FreeplayGoalMetadataTargetPort {
-  goalScoringTeam: number; goalScorerCarIndex: number; goalScorerName: string;
-  goalBallSpeedKph: number | null; previewSpawnedExtraCars: boolean;
+  goalScoringTeam: number;
+  goalScorerCarIndex: number;
+  goalScorerName: string;
+  goalBallSpeedKph: number | null;
+  previewSpawnedExtraCars: boolean;
   resetGoalMetadata(scoringTeam?: number): void;
-  setGoalMetadata(meta: { scoringTeam: number; scorerCarIndex: number; scorerName: string; ballSpeedKph: number | null }): void;
+  setGoalMetadata(meta: {
+    scoringTeam: number;
+    scorerCarIndex: number;
+    scorerName: string;
+    ballSpeedKph: number | null;
+  }): void;
   exitPatternPreview(): boolean;
 }
 
@@ -56,8 +75,14 @@ export class FreeplayGoalAndTouchSubController {
   public attach(): void {
     this.detach();
     this._unsubKeyDown = subscribeGlobalKeyDown((e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.code !== 'KeyU') return;
-      if (isGlobalHotkeyBlockedByUi(e, this.deps.getRuntime(), { allowWhenLivePreviewCollapsed: true })) return;
+      if (e.defaultPrevented || e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.code !== 'KeyU')
+        return;
+      if (
+        isGlobalHotkeyBlockedByUi(e, this.deps.getRuntime(), {
+          allowWhenLivePreviewCollapsed: true,
+        })
+      )
+        return;
       if (this.triggerManualBallExpire()) e.preventDefault();
     }, false);
   }
@@ -71,50 +96,78 @@ export class FreeplayGoalAndTouchSubController {
   public setBallExpiredOpacity(expired: boolean): void {
     if (!expired && !this.isBallExpired) return;
     this.isBallExpired = expired;
-    const desiredOpacity = expired ? (useStaticTrainingBallCamTunerStore.getState().expiredBallOpacity ?? 0.7) : null;
+    const desiredOpacity = expired
+      ? (useStaticTrainingBallCamTunerStore.getState().expiredBallOpacity ?? 0.7)
+      : null;
     setTemporaryBallOpacityOverride(desiredOpacity, this.deps.getRuntime()?.arena?.ball);
   }
 
   public triggerManualBallExpire(): boolean {
-    const r = this.deps.getRuntime(), sim = r?.physics;
+    const r = this.deps.getRuntime(),
+      sim = r?.physics;
     if (!r || !sim || r.isPaused) return false;
     if (r.match?.state?.mode && r.match.state.mode !== 'freeplay') return false;
-    if (r.arena?.isLobbyMode || r.match?.state?.phase === 'lobby' || r.networkReconciler?.lobbyDualWorldMode) return false;
     if (
-      this.deps.isGoalReplayActive?.() || this.deps.isExternalReplayOrRewinderBlocking?.() ||
-      this.deps.isNameTagTunerActive?.() || this.goalResetTicks > 0
-    ) return false;
+      r.arena?.isLobbyMode ||
+      r.match?.state?.phase === 'lobby' ||
+      r.networkReconciler?.lobbyDualWorldMode
+    )
+      return false;
+    if (
+      this.deps.isGoalReplayActive?.() ||
+      this.deps.isExternalReplayOrRewinderBlocking?.() ||
+      this.deps.isNameTagTunerActive?.() ||
+      this.goalResetTicks > 0
+    )
+      return false;
 
     const currentTick = Math.floor(sim.getHeaderView?.()?.tickCount ?? 0);
     if (this.deps.replayRingBuffer.size === 0) {
       this.deps.replayRingBuffer.recordFrame(currentTick, sim.state, [], null, null, [
-        { carIndex: r.playerCarIndex ?? 0, controls: { ...(r.playerControls || r.neutralControls) } },
+        {
+          carIndex: r.playerCarIndex ?? 0,
+          controls: { ...(r.playerControls || r.neutralControls) },
+        },
       ]);
     }
 
     const bView = sim.getBallStateView?.();
     const playerTeam = this.deps.resolveEffectivePlayerTeam();
     const scoringTeam: 0 | 1 = bView ? (bView.posY >= 0 ? 0 : 1) : playerTeam;
-    const ballSpeedKph = Math.round((bView ? Math.hypot(bView.velX, bView.velY, bView.velZ) : 0) * 0.036);
+    const ballSpeedKph = Math.round(
+      (bView ? Math.hypot(bView.velX, bView.velY, bView.velZ) : 0) * 0.036
+    );
     const scorerCarIndex = r.playerCarIndex ?? 0;
 
     this.goalIncidentTick = currentTick;
     this.replayPendingType = 'expire';
     this.frozenGoalBallState = null;
-    this.deps.directorPreview.setGoalMetadata({ scoringTeam, scorerCarIndex, scorerName: 'SHOT EXPIRED', ballSpeedKph });
+    this.deps.directorPreview.setGoalMetadata({
+      scoringTeam,
+      scorerCarIndex,
+      scorerName: 'SHOT EXPIRED',
+      ballSpeedKph,
+    });
     if (!this.deps.isStandaloneReplayLoaded()) r?.arena?.setCarTeam?.(scorerCarIndex, playerTeam);
 
     this.setBallExpiredOpacity(true);
     this.deps.replayRingBuffer.appendAudioEvent(currentTick, {
-      cueId: 'training_ball_expire', cueName: 'training_ball_expire', volume: 1.0,
+      cueId: 'training_ball_expire',
+      cueName: 'training_ball_expire',
+      volume: 1.0,
     });
     const audio = r?.options?.gameAudio || r?.audioSubsystem?.audio || r?.audio || gameAudio;
     audio?.play?.('training_ball_expire', 1.0, 250);
 
     this.goalResetTicks = POST_GOAL_CELEBRATION_TICKS;
     syncLocalMatchStateToRuntimeAndHud(r?.match?.state, {
-      matchPhase: 'goal', localTeam: playerTeam, replayScorerName: 'SHOT EXPIRED',
-      replayScorerTeam: scoringTeam, replayScorerAnthemId: null, replayBallSpeedKph: ballSpeedKph, replayAssistName: null,
+      matchPhase: 'goal',
+      localTeam: playerTeam,
+      replayScorerName: 'SHOT EXPIRED',
+      replayScorerTeam: scoringTeam,
+      replayScorerAnthemId: null,
+      replayBallSpeedKph: ballSpeedKph,
+      replayAssistName: null,
     });
     return true;
   }
@@ -170,22 +223,31 @@ export class FreeplayGoalAndTouchSubController {
       const view = sim.controlsView;
       for (let c = 0; c < numActiveCars; c++) {
         if (c === (r.playerCarIndex ?? 0)) {
-          acknowledgedControls.push({ carIndex: c, controls: { ...(r.playerControls || r.neutralControls) } });
+          acknowledgedControls.push({
+            carIndex: c,
+            controls: { ...(r.playerControls || r.neutralControls) },
+          });
         } else {
           const base = c * 8;
           acknowledgedControls.push({
             carIndex: c,
             controls: {
-              throttle: view[base + 0] || 0, steer: view[base + 1] || 0, pitch: view[base + 2] || 0,
-              yaw: view[base + 3] || 0, roll: view[base + 4] || 0, jump: view[base + 5] >= 0.5,
-              boost: view[base + 6] >= 0.5, handbrake: view[base + 7] >= 0.5,
+              throttle: view[base + 0] || 0,
+              steer: view[base + 1] || 0,
+              pitch: view[base + 2] || 0,
+              yaw: view[base + 3] || 0,
+              roll: view[base + 4] || 0,
+              jump: view[base + 5] >= 0.5,
+              boost: view[base + 6] >= 0.5,
+              handbrake: view[base + 7] >= 0.5,
             },
           });
         }
       }
     } else {
       acknowledgedControls.push({
-        carIndex: r.playerCarIndex ?? 0, controls: { ...(r.playerControls || r.neutralControls) },
+        carIndex: r.playerCarIndex ?? 0,
+        controls: { ...(r.playerControls || r.neutralControls) },
       });
     }
     this.deps.replayRingBuffer.recordFrame(currentTick, sim.state, acknowledgedControls);
@@ -194,7 +256,10 @@ export class FreeplayGoalAndTouchSubController {
     // When Loopback AuthoritativeServerHost or PredictionReconciler is attached,
     // goal detection, 150-tick celebration, and Goal Replay are driven by server signals
     // unless a local manual ball expire countdown is active.
-    if ((r.authoritativeServer || r.networkReconciler) && !(this.goalResetTicks > 0 && this.replayPendingType === 'expire')) {
+    if (
+      (r.authoritativeServer || r.networkReconciler) &&
+      !(this.goalResetTicks > 0 && this.replayPendingType === 'expire')
+    ) {
       sim.pollGoal?.();
       return;
     }
@@ -202,8 +267,11 @@ export class FreeplayGoalAndTouchSubController {
     // 3. Post-goal 30-frame ball flight & freeze inside goal net (goal only; expired ball keeps rolling)
     if (this.replayPendingType === 'goal') {
       this.frozenGoalBallState = stepPostGoalBallFreeze({
-        sim, goalResetTicks: this.goalResetTicks, currentTick,
-        goalIncidentTick: this.goalIncidentTick, frozenBallState: this.frozenGoalBallState,
+        sim,
+        goalResetTicks: this.goalResetTicks,
+        currentTick,
+        goalIncidentTick: this.goalIncidentTick,
+        frozenBallState: this.frozenGoalBallState,
       });
     } else if (this.goalResetTicks > 0) {
       sim.resetGoalLatch?.();
@@ -225,7 +293,9 @@ export class FreeplayGoalAndTouchSubController {
       if (isOnlineLobby && !r.authoritativeServer && r.networkReconciler?.lobbyDualWorldMode) {
         if (evaluateGoalScoredFromBallView(sim, bView).scored) {
           sim.resetGoalLatch?.();
-          sim.setBallState?.(new Float32Array([0, 0, 93, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]));
+          sim.setBallState?.(
+            new Float32Array([0, 0, 93, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0])
+          );
         }
       } else {
         sim.resetGoalLatch?.();
@@ -259,23 +329,38 @@ export class FreeplayGoalAndTouchSubController {
       this.frozenGoalBallState = null;
 
       this.deps.replayRingBuffer.appendIncident(currentTick, {
-        type: INCIDENT_EVENT_TYPES.GOAL_SCORED, tick: currentTick, carIndex: scorerCarIndex,
-        team: scoringTeam, posX: bView.posX, posY: bView.posY, posZ: bView.posZ, intensity: ballSpeedUu,
+        type: INCIDENT_EVENT_TYPES.GOAL_SCORED,
+        tick: currentTick,
+        carIndex: scorerCarIndex,
+        team: scoringTeam,
+        posX: bView.posX,
+        posY: bView.posY,
+        posZ: bView.posZ,
+        intensity: ballSpeedUu,
       });
       this.deps.replayRingBuffer.appendSignal(currentTick, {
-        signalType: MATCH_SIGNALS.SCORE_UPDATED, frameId: currentTick,
-        param1: scoringTeam === 0 ? 1 : 0, param2: scoringTeam === 1 ? 1 : 0,
+        signalType: MATCH_SIGNALS.SCORE_UPDATED,
+        frameId: currentTick,
+        param1: scoringTeam === 0 ? 1 : 0,
+        param2: scoringTeam === 1 ? 1 : 0,
       });
-      this.deps.replayRingBuffer.appendAudioEvent(currentTick, { cueName: 'sfx_goal_poof', volume: 1.0 });
+      this.deps.replayRingBuffer.appendAudioEvent(currentTick, {
+        cueName: 'sfx_goal_poof',
+        volume: 1.0,
+      });
 
       const audio = r?.audioSubsystem?.audio || r?.audio;
       audio?.play?.('sfx_goal_poof', 1.0);
 
       this.goalResetTicks = POST_GOAL_CELEBRATION_TICKS;
       syncLocalMatchStateToRuntimeAndHud(r?.match?.state, {
-        matchPhase: 'goal', localTeam: playerTeam, replayScorerName: scorerName,
-        replayScorerTeam: scoringTeam, replayScorerAnthemId: null,
-        replayBallSpeedKph: ballSpeedKph, replayAssistName: null,
+        matchPhase: 'goal',
+        localTeam: playerTeam,
+        replayScorerName: scorerName,
+        replayScorerTeam: scoringTeam,
+        replayScorerAnthemId: null,
+        replayBallSpeedKph: ballSpeedKph,
+        replayAssistName: null,
       });
     }
   }
@@ -308,8 +393,10 @@ export class FreeplayGoalAndTouchSubController {
     r.authoritativeServer.startTrainingMode?.({
       unlimitedBoost: Boolean(r.physics.isUnlimitedBoost),
       disableGoalReset: Boolean(r.trainingOptions?.disableGoalReset),
-      goalReplayEnabled: true, fifoDurationSeconds: 60,
-      initialState: Array.from(snap), resetKickoff: false,
+      goalReplayEnabled: true,
+      fifoDurationSeconds: 60,
+      initialState: Array.from(snap),
+      resetKickoff: false,
     });
     void r.authoritativeServer.sim?.restoreState?.(snap);
     r.authoritativeServer.clientInputBuffer?.clear?.();
@@ -318,13 +405,27 @@ export class FreeplayGoalAndTouchSubController {
   }
 
   public applyCleanFreeplayReset(options: {
-    standaloneReplayViewer?: { hasLoadedReplay?: boolean; isActive?: boolean; clearReplay(): void } | null;
+    standaloneReplayViewer?: {
+      hasLoadedReplay?: boolean;
+      isActive?: boolean;
+      clearReplay(): void;
+    } | null;
     isGoalReplayActive: boolean;
     replayController?: { sessionState?: { isActive?: boolean } } | null;
     nameTagTunerController?: { isActive?: boolean; exitTunerArena(): void } | null;
-    rewinderController?: { isBlockingLivePhysics?: boolean; rewinderFrames?: unknown[]; clearBuffer(): void } | null;
+    rewinderController?: {
+      isBlockingLivePhysics?: boolean;
+      rewinderFrames?: unknown[];
+      clearBuffer(): void;
+    } | null;
   }): void {
-    const { standaloneReplayViewer, isGoalReplayActive, replayController, nameTagTunerController, rewinderController } = options;
+    const {
+      standaloneReplayViewer,
+      isGoalReplayActive,
+      replayController,
+      nameTagTunerController,
+      rewinderController,
+    } = options;
     if (standaloneReplayViewer?.hasLoadedReplay || standaloneReplayViewer?.isActive) {
       standaloneReplayViewer.clearReplay();
     }
@@ -334,7 +435,8 @@ export class FreeplayGoalAndTouchSubController {
     if (nameTagTunerController?.isActive) nameTagTunerController.exitTunerArena();
     if (
       rewinderController &&
-      (rewinderController.isBlockingLivePhysics || (rewinderController.rewinderFrames?.length ?? 0) > 0)
+      (rewinderController.isBlockingLivePhysics ||
+        (rewinderController.rewinderFrames?.length ?? 0) > 0)
     ) {
       rewinderController.clearBuffer();
     }
@@ -343,18 +445,27 @@ export class FreeplayGoalAndTouchSubController {
   }
 
   public tryApplyStandaloneViewerKickoffReset(
-    standaloneReplayViewer: {
-      hasLoadedReplay?: boolean; isActive?: boolean; frames: unknown[];
-      takeoverSubController: { targetFrame?: number; cursor?: number };
-      _handoffToLiveFreeplay(idx: number): void; _applyFrameAtCursor(a: boolean, b: boolean): void;
-    } | null | undefined,
+    standaloneReplayViewer:
+      | {
+          hasLoadedReplay?: boolean;
+          isActive?: boolean;
+          frames: unknown[];
+          takeoverSubController: { targetFrame?: number; cursor?: number };
+          _handoffToLiveFreeplay(idx: number): void;
+          _applyFrameAtCursor(a: boolean, b: boolean): void;
+        }
+      | null
+      | undefined,
     onResetPresentation: () => void
   ): boolean {
     if (!standaloneReplayViewer?.hasLoadedReplay) return false;
     const takeover = standaloneReplayViewer.takeoverSubController;
     const targetIdx = Math.max(
       0,
-      Math.min(standaloneReplayViewer.frames.length - 1, Math.round(takeover.targetFrame || takeover.cursor || 0))
+      Math.min(
+        standaloneReplayViewer.frames.length - 1,
+        Math.round(takeover.targetFrame || takeover.cursor || 0)
+      )
     );
     if (!standaloneReplayViewer.isActive) {
       standaloneReplayViewer._handoffToLiveFreeplay(targetIdx);

@@ -41,17 +41,31 @@ export interface ProbeSpawnCoordinates {
 }
 
 export interface ProbeKinematicsStepInput {
-  curZ: number; curVz: number; effectiveBaseZ: number; effectivePeakZ: number;
-  toleranceZ: number; targetHoldTicks: number; phase: ProbeBoostPhase; holdCounter: number;
+  curZ: number;
+  curVz: number;
+  effectiveBaseZ: number;
+  effectivePeakZ: number;
+  toleranceZ: number;
+  targetHoldTicks: number;
+  phase: ProbeBoostPhase;
+  holdCounter: number;
 }
 
 export interface ProbeKinematicsStepOutput {
-  nextPhase: ProbeBoostPhase; nextHoldCounter: number; shouldBoost: boolean; reanchorAtBase: boolean;
+  nextPhase: ProbeBoostPhase;
+  nextHoldCounter: number;
+  shouldBoost: boolean;
+  reanchorAtBase: boolean;
 }
 
 export interface ProbeTelemetrySnapshot {
-  posX: number; posY: number; posZ: number; velZ: number;
-  phase: ProbeBoostPhase; holdCounter: number; rollDir: number;
+  posX: number;
+  posY: number;
+  posZ: number;
+  velZ: number;
+  phase: ProbeBoostPhase;
+  holdCounter: number;
+  rollDir: number;
 }
 
 export interface ProbeStepResult {

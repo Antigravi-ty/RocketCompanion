@@ -39,17 +39,16 @@ export class TelemetryStage implements PipelineStage {
         boostAmount?: number;
         entityActive?: boolean;
       }>;
-    } | null,
+    } | null
   ): CarHudTelemetry {
     const r = this.runtime;
     const cv =
-      r?.interpolator?.getCurrCarStateView?.(carIndex) ||
-      r?.physics?.getCarStateView?.(carIndex);
+      r?.interpolator?.getCurrCarStateView?.(carIndex) || r?.physics?.getCarStateView?.(carIndex);
     const rlrcCar = rlrcCurrentFrame
-      ? (carIndex < (rlrcCurrentFrame.cars?.length ?? 0) &&
+      ? carIndex < (rlrcCurrentFrame.cars?.length ?? 0) &&
         rlrcCurrentFrame.cars?.[carIndex]?.slotIndex === carIndex
-          ? rlrcCurrentFrame.cars[carIndex]
-          : rlrcCurrentFrame.cars?.find?.((c) => c.slotIndex === carIndex))
+        ? rlrcCurrentFrame.cars[carIndex]
+        : rlrcCurrentFrame.cars?.find?.((c) => c.slotIndex === carIndex)
       : null;
     const rawBoost =
       rlrcCar && typeof rlrcCar.boostAmount === 'number'
@@ -95,8 +94,7 @@ export class TelemetryStage implements PipelineStage {
     const isRlrcLoaded =
       (matchMode === 'freeplay' || matchMode === 'replay-viewer') &&
       Boolean(rlrcSession?.hasLoadedReplay);
-    const useRlrcSession =
-      isRlrcLoaded && Boolean(rlrcSession?.isActive || !isStandaloneLoaded);
+    const useRlrcSession = isRlrcLoaded && Boolean(rlrcSession?.isActive || !isStandaloneLoaded);
     const isReplayViewerLoaded = isStandaloneLoaded || isRlrcLoaded;
 
     if (
@@ -130,14 +128,12 @@ export class TelemetryStage implements PipelineStage {
         0)
       : 0;
     const rlrcResolvedRoster = useRlrcSession
-      ? rlrcRosterMeta.map(
-          (m: { slotIndex: number; userName: string; team: number }) => ({
-            carIndex: m.slotIndex,
-            name: m.userName || `Player ${m.slotIndex + 1}`,
-            team: m.team === 1 ? 1 : 0,
-            isSelf: m.slotIndex === rlrcActivePovIdx,
-          }),
-        )
+      ? rlrcRosterMeta.map((m: { slotIndex: number; userName: string; team: number }) => ({
+          carIndex: m.slotIndex,
+          name: m.userName || `Player ${m.slotIndex + 1}`,
+          team: m.team === 1 ? 1 : 0,
+          isSelf: m.slotIndex === rlrcActivePovIdx,
+        }))
       : undefined;
     const rlrcCurrentFrame =
       useRlrcSession && !rlrcSession?.isIntervening
@@ -149,7 +145,7 @@ export class TelemetryStage implements PipelineStage {
         ? rlrcActivePovIdx
         : typeof viewerRoster?.activePovCarIndex === 'number'
           ? viewerRoster.activePovCarIndex
-          : r?.playerCarIndex ?? 0
+          : (r?.playerCarIndex ?? 0)
       : isReplayPov
         ? r.replayPovCarIndex
         : typeof context?.activeCar === 'number'
@@ -158,7 +154,8 @@ export class TelemetryStage implements PipelineStage {
             ? r.playerCarIndex
             : 0;
 
-    const expStore = matchMode === 'exp-multi-bots' ? useExperimentalMultiBotsStore.getState() : null;
+    const expStore =
+      matchMode === 'exp-multi-bots' ? useExperimentalMultiBotsStore.getState() : null;
     const activeMode = r?.modeManager?.getActiveMode?.();
     const modeSpawnedCars = activeMode?.rosterController?.spawnedCars;
     const expSpawnedCars =
@@ -174,7 +171,7 @@ export class TelemetryStage implements PipelineStage {
         ? r.networkReconciler.localCarIndex
         : typeof r?.reconciler?.localCarIndex === 'number' && r.reconciler.localCarIndex >= 0
           ? r.reconciler.localCarIndex
-          : r?.playerCarIndex ?? 0;
+          : (r?.playerCarIndex ?? 0);
 
     const { blueEntries, orangeEntries, isSpectatingNoHuman, detectedLocalTeam } =
       resolveModeRosterEntries({
@@ -185,9 +182,7 @@ export class TelemetryStage implements PipelineStage {
             ? rlrcStoreState?.viewerState
             : useReplayViewerStore.getState().viewerState
           : undefined,
-        replayViewerActivePovTeam: useRlrcSession
-          ? rlrcActivePovTeam
-          : viewerRoster?.activePovTeam,
+        replayViewerActivePovTeam: useRlrcSession ? rlrcActivePovTeam : viewerRoster?.activePovTeam,
         replayViewerLocalTeam: useRlrcSession ? rlrcActivePovTeam : viewerRoster?.localTeam,
         replayViewerActivePovCarIndex: useRlrcSession
           ? rlrcActivePovIdx
@@ -202,16 +197,14 @@ export class TelemetryStage implements PipelineStage {
           r?.authoritativeServer?.lastRoomState?.roster,
         replayTimelineCarEntries: r?.replayTimelineController?.carEntries,
         connectedPeers: appState?.onlineSession?.connectedPeers,
-        localPeerId:
-          r?.multiplayerSession?.localPeerId || appState?.onlineSession?.localPeerId,
+        localPeerId: r?.multiplayerSession?.localPeerId || appState?.onlineSession?.localPeerId,
         localCarIdx,
         participantTeams:
           r?.networkManager?.rosterSyncCoordinator?.participantTeams instanceof Map
             ? r.networkManager.rosterSyncCoordinator.participantTeams
             : null,
         arenaCarTeams: r?.arena?.carTeams,
-        localPlayerName:
-          r?.multiplayerSession?.playerName || appState?.onlineSession?.playerName,
+        localPlayerName: r?.multiplayerSession?.playerName || appState?.onlineSession?.playerName,
         carNamesByIndex: r?.networkReconciler?.carNames,
         activeBotName: r?.activeBotName,
         numCars: r?.physics?.numCars,
@@ -226,8 +219,7 @@ export class TelemetryStage implements PipelineStage {
       }
     }
 
-    const ballView =
-      r?.interpolator?.getCurrBallStateView?.() || r?.physics?.getBallStateView?.();
+    const ballView = r?.interpolator?.getCurrBallStateView?.() || r?.physics?.getBallStateView?.();
     const payload = buildHudTransientFramePayload(
       {
         ballPosX: ballView?.posX ?? 0,
@@ -236,8 +228,7 @@ export class TelemetryStage implements PipelineStage {
         ballVelX: ballView?.velX ?? 0,
         ballVelY: ballView?.velY ?? 0,
         ballVelZ: ballView?.velZ ?? 0,
-        resolveCarTelemetry: (carIdx) =>
-          this._resolveCarHudTelemetry(carIdx, rlrcCurrentFrame),
+        resolveCarTelemetry: (carIdx) => this._resolveCarHudTelemetry(carIdx, rlrcCurrentFrame),
       },
       {
         activeCameraCar,
@@ -252,10 +243,10 @@ export class TelemetryStage implements PipelineStage {
         choreographySignal: hudState?.choreographySignal,
         matchPhase: hudState?.matchPhase,
         localSkipReplayReady: Boolean(
-          r?._localSkipReplayReady || r?.networkReconciler?.localSkipReplayReady,
+          r?._localSkipReplayReady || r?.networkReconciler?.localSkipReplayReady
         ),
         acknowledgedJumpByCar: ackJumpByCar,
-      },
+      }
     );
 
     if (hudState && hudState.localTeam !== payload.localTeam) {
@@ -276,8 +267,7 @@ export class TelemetryStage implements PipelineStage {
 
     if (playerCarView) {
       const hasFlipNow =
-        !playerCarView.isDemoed &&
-        Boolean(playerCarView.isOnGround || playerCarView.hasFlipOrJump);
+        !playerCarView.isDemoed && Boolean(playerCarView.isOnGround || playerCarView.hasFlipOrJump);
       const flipStatus = playerCarView.flipStatus;
       const flipRemainingSeconds = playerCarView.flipRemainingSeconds;
       const flipsRemaining = playerCarView.flipsRemaining;
@@ -292,7 +282,7 @@ export class TelemetryStage implements PipelineStage {
       hudState?.setDemoRespawnState?.(
         playerCarView.isDemoed,
         playerCarView.demoRespawnTimer,
-        playerCarView.demoSpawnSelection,
+        playerCarView.demoSpawnSelection
       );
       hudState?.setCarSpeed?.(carSpeed);
     }
@@ -301,16 +291,11 @@ export class TelemetryStage implements PipelineStage {
 
     if (r.profiler) {
       r.profiler.mark();
-      const totalTicks =
-        (r.pipeline?._accumSimTicks ?? 0) + (r.interpolator?.lastTicks ?? 0);
-      const totalDropped =
-        (r.pipeline?._accumSimDropped ?? 0) + (r.interpolator?.lastDropped ?? 0);
-      const totalStalled = Boolean(
-        r.pipeline?._accumSimStalled || r.interpolator?.lastStalled,
-      );
+      const totalTicks = (r.pipeline?._accumSimTicks ?? 0) + (r.interpolator?.lastTicks ?? 0);
+      const totalDropped = (r.pipeline?._accumSimDropped ?? 0) + (r.interpolator?.lastDropped ?? 0);
+      const totalStalled = Boolean(r.pipeline?._accumSimStalled || r.interpolator?.lastStalled);
       const appState = useAppStore?.getState?.();
-      const pauseTelemetryInPowerSave =
-        appState?.telemetry?.pauseTelemetryInPowerSave !== false;
+      const pauseTelemetryInPowerSave = appState?.telemetry?.pauseTelemetryInPowerSave !== false;
       const skipSample =
         Boolean(context.shouldSkipGpuRender) ||
         (pauseTelemetryInPowerSave && Boolean(r.isPowerSavingActive));

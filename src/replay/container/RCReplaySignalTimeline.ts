@@ -3,10 +3,7 @@
  * Timeline 3 (Track C): Authoritative 64B Match Signal Stream with O(log N) range queries & HUD state evaluation.
  */
 
-import {
-  INCIDENT_EVENT_TYPES,
-  MATCH_SIGNALS,
-} from '../../physics/RocketSimConstants.ts';
+import { INCIDENT_EVENT_TYPES, MATCH_SIGNALS } from '../../physics/RocketSimConstants.ts';
 import { resolveReplayAudioCueForSignal } from '../ReplayBufferSliceExtractor.ts';
 import type {
   DecodedIncidentEvent,
@@ -140,8 +137,7 @@ export class SignalTimeline {
     this.synthesizedEvents = synthesizedEvents
       .slice()
       .sort((a, b) => (a.frameIndex ?? 0) - (b.frameIndex ?? 0) || (a.tick ?? 0) - (b.tick ?? 0));
-    this.events =
-      this.recordedEvents.length > 0 ? this.recordedEvents : this.synthesizedEvents;
+    this.events = this.recordedEvents.length > 0 ? this.recordedEvents : this.synthesizedEvents;
     this.byFrameMap = byFrameMap;
     this.frameCount = frameCount;
     this.isCountUp = isCountUp;
@@ -172,7 +168,10 @@ export class SignalTimeline {
     return this.byFrameMap.get(Math.floor(frameIndex)) || [];
   }
 
-  getEventsInFrameRange(startFrameInclusive: number, endFrameInclusive: number): DecodedSignalEvent[] {
+  getEventsInFrameRange(
+    startFrameInclusive: number,
+    endFrameInclusive: number
+  ): DecodedSignalEvent[] {
     if (this.events.length === 0) return [];
     const loFrame = Math.min(startFrameInclusive, endFrameInclusive);
     const hiFrame = Math.max(startFrameInclusive, endFrameInclusive);
@@ -447,8 +446,7 @@ export class SignalTimeline {
         param2: sig.param2 ?? 0,
         synthesized: Boolean(sig.synthesized),
         label:
-          SIGNAL_TYPE_LABELS[sig.signalType] ||
-          `Signal 0x${(sig.signalType || 0).toString(16)}`,
+          SIGNAL_TYPE_LABELS[sig.signalType] || `Signal 0x${(sig.signalType || 0).toString(16)}`,
       });
     }
     if (markers.length <= maxMarkers) return markers;

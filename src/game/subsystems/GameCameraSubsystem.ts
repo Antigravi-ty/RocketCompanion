@@ -151,18 +151,18 @@ export class GameCameraSubsystem {
     const activeRlrcSession = activeMode?.rlrcReplaySession;
     return Boolean(
       r.match?.state?.phase === 'replay' ||
-        hudStore.getState().matchPhase === 'replay' ||
-        activeMode?.isGoalReplayActive?.() ||
-        activeMode?.directorPreview?.isReplayActive ||
-        (activeReplayViewer?.isActive && !activeReplayViewer?.isIntervening) ||
-        (activeRlrcSession?.isActive && !activeRlrcSession?.isIntervening) ||
-        activeMode?.rewinderController?.isBlockingLivePhysics ||
-        activeMode?.replaySession?.isReplayActive ||
-        activeMode?.goalReplayPhase === 'replaying' ||
-        activeMode?.replayController?.sessionState?.isActive ||
-        activeMode?.replaySession?.replayController?.sessionState?.isActive ||
-        activeMode?.goalReplayTimelineController?.sessionState?.isActive ||
-        r.replayTimelineController?.sessionState?.isActive,
+      hudStore.getState().matchPhase === 'replay' ||
+      activeMode?.isGoalReplayActive?.() ||
+      activeMode?.directorPreview?.isReplayActive ||
+      (activeReplayViewer?.isActive && !activeReplayViewer?.isIntervening) ||
+      (activeRlrcSession?.isActive && !activeRlrcSession?.isIntervening) ||
+      activeMode?.rewinderController?.isBlockingLivePhysics ||
+      activeMode?.replaySession?.isReplayActive ||
+      activeMode?.goalReplayPhase === 'replaying' ||
+      activeMode?.replayController?.sessionState?.isActive ||
+      activeMode?.replaySession?.replayController?.sessionState?.isActive ||
+      activeMode?.goalReplayTimelineController?.sessionState?.isActive ||
+      r.replayTimelineController?.sessionState?.isActive
     );
   }
 
@@ -263,8 +263,11 @@ export class GameCameraSubsystem {
 
     r.camera.setFocusedCarIndex?.(obsTargetIdx);
 
-    let effectiveCarObject: THREE.Object3D | { position: THREE.Vector3; quaternion: THREE.Quaternion } | null | undefined =
-      targetMesh;
+    let effectiveCarObject:
+      | THREE.Object3D
+      | { position: THREE.Vector3; quaternion: THREE.Quaternion }
+      | null
+      | undefined = targetMesh;
     const isLocalTarget = obsTargetIdx === activeCar;
     const selectedRespawnSlot = targetView?.demoSpawnSelection ?? -1;
 
@@ -285,7 +288,7 @@ export class GameCameraSubsystem {
               this._basisFwd,
               this._basisRight,
               this._basisUp,
-              this._basisMatrix,
+              this._basisMatrix
             );
             effectiveCarObject = this.respawnCameraProxy;
           }
@@ -302,7 +305,7 @@ export class GameCameraSubsystem {
           this.scratchGroundNormal.set(
             targetView.groundNormalX,
             targetView.groundNormalZ,
-            targetView.groundNormalY,
+            targetView.groundNormalY
           );
           this.scratchVelocity.set(0, 0, 0);
           this.cameraDynamics.velocity = this.scratchVelocity;
@@ -314,7 +317,7 @@ export class GameCameraSubsystem {
         this.scratchGroundNormal.set(
           targetView.groundNormalX,
           targetView.groundNormalZ,
-          targetView.groundNormalY,
+          targetView.groundNormalY
         );
         this.scratchVelocity.set(targetView.velX, targetView.velZ, targetView.velY);
         this.cameraDynamics.velocity = this.scratchVelocity;
@@ -343,7 +346,7 @@ export class GameCameraSubsystem {
       r.arena?.ball,
       dt ?? 0.016,
       this.cameraDynamics,
-      this.cameraInputState,
+      this.cameraInputState
     );
 
     const activeCameraMode = r.camera.currentMode || (r.camera.isFreeCam ? 'free' : 'pov');
@@ -359,7 +362,7 @@ export class GameCameraSubsystem {
         r.camera.ballCam,
         obsTargetIdx,
         r.arena.ball,
-        effectiveCarObject as THREE.Object3D,
+        effectiveCarObject as THREE.Object3D
       );
     }
 

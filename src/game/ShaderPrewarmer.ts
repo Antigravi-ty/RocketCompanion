@@ -33,7 +33,7 @@ export interface WebGLShaderCompilerRendererPort {
   compile?: (
     scene: THREE.Object3D,
     camera: THREE.Camera,
-    targetScene?: THREE.Scene | null,
+    targetScene?: THREE.Scene | null
   ) => Set<THREE.Material> | void;
   getRenderTarget?: () => THREE.WebGLRenderTarget | null;
   setRenderTarget?: (renderTarget: THREE.WebGLRenderTarget | null) => void;
@@ -51,22 +51,22 @@ interface RenderableGeometryNode extends THREE.Object3D {
 
 function isLightNode(obj: THREE.Object3D | null | undefined): obj is THREE.Light {
   return Boolean(
-    obj && ((obj as THREE.Light).isLight || (THREE.Light && obj instanceof THREE.Light)),
+    obj && ((obj as THREE.Light).isLight || (THREE.Light && obj instanceof THREE.Light))
   );
 }
 
 function isRenderableVisualNode(
-  obj: THREE.Object3D | null | undefined,
+  obj: THREE.Object3D | null | undefined
 ): obj is RenderableGeometryNode {
   const candidate = obj as RenderableGeometryNode | null | undefined;
   return Boolean(
     candidate &&
-      (candidate.isMesh ||
-        (THREE.Mesh && candidate instanceof THREE.Mesh) ||
-        candidate.isPoints ||
-        (THREE.Points && candidate instanceof THREE.Points) ||
-        candidate.isLine ||
-        (THREE.Line && candidate instanceof THREE.Line)),
+    (candidate.isMesh ||
+      (THREE.Mesh && candidate instanceof THREE.Mesh) ||
+      candidate.isPoints ||
+      (THREE.Points && candidate instanceof THREE.Points) ||
+      candidate.isLine ||
+      (THREE.Line && candidate instanceof THREE.Line))
   );
 }
 

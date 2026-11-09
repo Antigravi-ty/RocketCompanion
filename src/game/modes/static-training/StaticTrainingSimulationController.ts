@@ -17,12 +17,7 @@ import {
   StaticTrainingReplayType,
 } from './StaticTrainingReplayController.ts';
 
-export type StaticTrainingPlayPhase =
-  | 'countdown'
-  | 'waiting-input'
-  | 'live'
-  | 'goal'
-  | 'replay';
+export type StaticTrainingPlayPhase = 'countdown' | 'waiting-input' | 'live' | 'goal' | 'replay';
 
 export class StaticTrainingSimulationController {
   private readonly runtime: any;
@@ -118,8 +113,7 @@ export class StaticTrainingSimulationController {
   ): void {
     if (!event || !isIncidentEvent(event.type) || replayCtrl.isReplayActive) return;
     const simTick = Math.floor(this.runtime?.physics?.getHeaderView?.()?.tickCount ?? 0);
-    const eventTick =
-      replayCtrl.currentRecordTick > 0 ? replayCtrl.currentRecordTick + 1 : simTick;
+    const eventTick = replayCtrl.currentRecordTick > 0 ? replayCtrl.currentRecordTick + 1 : simTick;
 
     if (this.playPhase === 'live') {
       replayCtrl.appendIncident(eventTick, { ...event, tick: eventTick });
@@ -159,10 +153,8 @@ export class StaticTrainingSimulationController {
           handbrake: false,
         });
         if (arenaCtrl.kickoffBallFrozen && arenaCtrl.stagedShot) {
-          const bLoc =
-            arenaCtrl.stagedShot.ball.location ||
-            arenaCtrl.stagedShot.ball.pos ||
-            [0, 0, BALL_GROUND_MIN_Z];
+          const bLoc = arenaCtrl.stagedShot.ball.location ||
+            arenaCtrl.stagedShot.ball.pos || [0, 0, BALL_GROUND_MIN_Z];
           const cv = sim.getCarStateView?.(0);
           if (cv) {
             const dist = Math.hypot(cv.posX - bLoc[0], cv.posY - bLoc[1], cv.posZ - bLoc[2]);
@@ -199,11 +191,7 @@ export class StaticTrainingSimulationController {
 
       const waitTick = replayCtrl.recordNextTickFrame(sim.state);
       const remSec = Math.ceil(this.countdownTicksRemaining / 120);
-      if (
-        remSec >= 1 &&
-        remSec <= Math.min(3, downSec) &&
-        remSec !== this.lastCountdownBeepSec
-      ) {
+      if (remSec >= 1 && remSec <= Math.min(3, downSec) && remSec !== this.lastCountdownBeepSec) {
         this.lastCountdownBeepSec = remSec;
         audio?.play?.('training_countdown', 1.0, 180);
         replayCtrl.appendAudioEvent(waitTick, {
@@ -232,10 +220,8 @@ export class StaticTrainingSimulationController {
     }
 
     if (arenaCtrl.kickoffBallFrozen && arenaCtrl.stagedShot) {
-      const bLoc =
-        arenaCtrl.stagedShot.ball.location ||
-        arenaCtrl.stagedShot.ball.pos ||
-        [0, 0, BALL_GROUND_MIN_Z];
+      const bLoc = arenaCtrl.stagedShot.ball.location ||
+        arenaCtrl.stagedShot.ball.pos || [0, 0, BALL_GROUND_MIN_Z];
       const cv = sim.getCarStateView?.(0);
       if (cv) {
         const dist = Math.hypot(cv.posX - bLoc[0], cv.posY - bLoc[1], cv.posZ - bLoc[2]);
@@ -278,10 +264,8 @@ export class StaticTrainingSimulationController {
     const cv = sim.getCarStateView?.(0);
 
     if (arenaCtrl.kickoffBallFrozen && arenaCtrl.stagedShot && bView && cv) {
-      const bLoc =
-        arenaCtrl.stagedShot.ball.location ||
-        arenaCtrl.stagedShot.ball.pos ||
-        [0, 0, BALL_GROUND_MIN_Z];
+      const bLoc = arenaCtrl.stagedShot.ball.location ||
+        arenaCtrl.stagedShot.ball.pos || [0, 0, BALL_GROUND_MIN_Z];
       const dist = Math.hypot(cv.posX - bLoc[0], cv.posY - bLoc[1], cv.posZ - bLoc[2]);
       const speedMag = Math.hypot(bView.velX, bView.velY, bView.velZ);
       if (dist <= 175.0 || speedMag > 35.0) {

@@ -8,15 +8,15 @@ import { resetSharedBallPredictionCache } from '../../../ai/experimental/botpack
 import {
   normalizeVisualId,
   resolveVehicleHitboxId,
-} from '../../../ui-core/config/vehicleConstants';
+} from '../../../ui-core/config/vehicleConstants.ts';
 import {
   useExperimentalMultiBotsStore,
   getExpColorSwatch,
   useSpatialAudioStore,
   setNameTagRuntimeState,
 } from '../../runtimeUiPort.ts';
-import { getMaterialsConfig } from '../../../ui-core/config/materialsConfig';
-import { rollRandomBotLoadout } from '../../../ui-core/config/botsLoadoutConfig';
+import { getMaterialsConfig } from '../../../ui-core/config/materialsConfig.ts';
+import { rollRandomBotLoadout } from '../../../ui-core/config/botsLoadoutConfig.ts';
 import { assignTeamSlotKeys } from '../../../replay/container/RCReplayTimelineParser.ts';
 import {
   type CarControls,
@@ -56,9 +56,7 @@ export class ExperimentalMultiBotsRosterController {
 
   getCarControls(carIndex: number): CarControls {
     return (
-      this.carControlsMap.get(carIndex) ||
-      this.runtime?.neutralControls ||
-      DEFAULT_CAR_CONTROLS
+      this.carControlsMap.get(carIndex) || this.runtime?.neutralControls || DEFAULT_CAR_CONTROLS
     );
   }
 
@@ -101,9 +99,7 @@ export class ExperimentalMultiBotsRosterController {
     if (store.activeBotpackShowcaseModel) {
       activeTypes.add(store.activeBotpackShowcaseModel);
     }
-    await Promise.all(
-      Array.from(activeTypes).map((botType) => ensureExperimentalEngine(botType))
-    );
+    await Promise.all(Array.from(activeTypes).map((botType) => ensureExperimentalEngine(botType)));
     useExperimentalMultiBotsStore.getState().updateLiveTelemetry({
       nextoLoaded: isExperimentalEngineReady('nexto'),
       nectoLoaded: isExperimentalEngineReady('necto'),
@@ -228,21 +224,21 @@ export class ExperimentalMultiBotsRosterController {
       usedColorSlotsByTeam[teamKey].add(swatch.id);
 
       const visualId = normalizeVisualId(
-        isPlayer ? (r.selectedPreset || 'fennec') : (rolledBot?.visualId || slot.visualId || 'fennec')
+        isPlayer ? r.selectedPreset || 'fennec' : rolledBot?.visualId || slot.visualId || 'fennec'
       );
       const hitboxId = isPlayer
-        ? (r.selectedHitbox || resolveVehicleHitboxId(visualId))
-        : (rolledBot?.hitboxId || slot.hitboxId || resolveVehicleHitboxId(visualId));
+        ? r.selectedHitbox || resolveVehicleHitboxId(visualId)
+        : rolledBot?.hitboxId || slot.hitboxId || resolveVehicleHitboxId(visualId);
       const paintFinish = isPlayer
-        ? (matCfg?.paintFinish || 'metallic')
-        : (rolledBot?.paintFinish || slot.paintFinish || 'metallic');
+        ? matCfg?.paintFinish || 'metallic'
+        : rolledBot?.paintFinish || slot.paintFinish || 'metallic';
       const boostVisual = isPlayer
-        ? (matCfg?.boostVisual || 'cartoon')
-        : (rolledBot?.boostVisual || slot.boostVisual || 'cartoon');
+        ? matCfg?.boostVisual || 'cartoon'
+        : rolledBot?.boostVisual || slot.boostVisual || 'cartoon';
       const boostAudio = isPlayer
-        ? (matCfg?.boostAudio || 'standard')
-        : (rolledBot?.boostAudio || slot.boostAudio || 'standard');
-      const anthemId = isPlayer ? userAnthemId : (rolledBot?.anthemId || 'TrainStation');
+        ? matCfg?.boostAudio || 'standard'
+        : rolledBot?.boostAudio || slot.boostAudio || 'standard';
+      const anthemId = isPlayer ? userAnthemId : rolledBot?.anthemId || 'TrainStation';
 
       r.physics.addCar(teamKey, hitboxId);
       r.physics.setCarTeam?.(carIndex, teamKey);
@@ -269,9 +265,7 @@ export class ExperimentalMultiBotsRosterController {
         r.selectedColorSlot = swatch.id;
       }
 
-      const agent = isPlayer
-        ? null
-        : new ExperimentalBotAgent(slot.botType, carIndex, teamKey);
+      const agent = isPlayer ? null : new ExperimentalBotAgent(slot.botType, carIndex, teamKey);
 
       const label = isPlayer
         ? `PLAYER (${teamKey === 0 ? 'Blue' : 'Orange'})`

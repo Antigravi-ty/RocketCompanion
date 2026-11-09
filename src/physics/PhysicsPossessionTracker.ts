@@ -88,9 +88,7 @@ export class PhysicsPossessionTracker {
     }
   }
 
-  public getPossessionStats(
-    state: Float32Array | null | undefined
-  ): PossessionStatsSnapshot {
+  public getPossessionStats(state: Float32Array | null | undefined): PossessionStatsSnapshot {
     if (state && state.length >= 416) {
       return {
         team: Math.round(state[EXTENDED_STATE_OFFSETS.POSSESSION_STATE]),

@@ -112,8 +112,10 @@ export function applyThreeMonkeyPatches(THREE) {
 
   // 4. ShaderChunk ANGLE Metal MSL light parameter patch
   if (THREE.ShaderChunk && THREE.ShaderChunk.lights_pars_begin) {
-    THREE.ShaderChunk.lights_pars_begin = THREE.ShaderChunk.lights_pars_begin
-      .replaceAll(/\bout IncidentLight light\b/g, 'inout IncidentLight light');
+    THREE.ShaderChunk.lights_pars_begin = THREE.ShaderChunk.lights_pars_begin.replaceAll(
+      /\bout IncidentLight light\b/g,
+      'inout IncidentLight light'
+    );
   }
 
   // 5. FileLoader asset diagnostics, SPA 404 HTML fallback guard, and stream stall retry
@@ -209,7 +211,11 @@ export function applyThreeMonkeyPatches(THREE) {
   }
 
   // 6. WebGLRenderer.compileAsync defensive guard against disposed materials and unrejected setTimeout errors
-  if (THREE.WebGLRenderer && THREE.WebGLRenderer.prototype && !THREE.WebGLRenderer.prototype._hasSafeCompileAsyncPatch) {
+  if (
+    THREE.WebGLRenderer &&
+    THREE.WebGLRenderer.prototype &&
+    !THREE.WebGLRenderer.prototype._hasSafeCompileAsyncPatch
+  ) {
     const rendererProto = THREE.WebGLRenderer.prototype;
     Object.defineProperty(rendererProto, 'compileAsync', {
       configurable: true,
@@ -219,7 +225,11 @@ export function applyThreeMonkeyPatches(THREE) {
       },
       set(origCompileAsync) {
         this._origCompileAsync = origCompileAsync;
-        this._safeCompileAsync = function (scene: unknown, camera: unknown, targetScene: unknown = null) {
+        this._safeCompileAsync = function (
+          scene: unknown,
+          camera: unknown,
+          targetScene: unknown = null
+        ) {
           const renderer = this;
           return new Promise((resolve, reject) => {
             let materials: Set<unknown> | null = null;
@@ -287,7 +297,7 @@ export function applyThreeMonkeyPatches(THREE) {
             setTimeout(checkMaterialsReady, 10);
           });
         };
-      }
+      },
     });
     rendererProto._hasSafeCompileAsyncPatch = true;
   }

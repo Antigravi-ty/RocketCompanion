@@ -76,12 +76,9 @@ export function normalizeAccountIndexEntry(
 ): CloudAccountIndexEntry {
   const userId = sanitizeCloudUserId(raw?.userId || topicUserId);
   const username = normalizeCloudUsername(raw?.username || userId) || userId;
-  const alias =
-    typeof raw?.alias === 'string' && raw.alias.trim() ? raw.alias.trim() : username;
+  const alias = typeof raw?.alias === 'string' && raw.alias.trim() ? raw.alias.trim() : username;
   const displayName =
-    typeof raw?.displayName === 'string' && raw.displayName.trim()
-      ? raw.displayName.trim()
-      : alias;
+    typeof raw?.displayName === 'string' && raw.displayName.trim() ? raw.displayName.trim() : alias;
   const userRev = typeof raw?.userRev === 'number' ? raw.userRev : 0;
   const devRev = typeof raw?.devRev === 'number' ? raw.devRev : 0;
   const userRevHash = formatCloudCommitHash(raw?.userRevHash, userRev);
@@ -121,8 +118,7 @@ export function buildUserSlotAndIndexPayloads(params: {
   const passphraseHash = computePassphraseHash(userId, params.password);
   const nextUserRev = (params.existingIndex?.userRev ?? 0) + 1;
   const revHash = computeCommitHashSync(params.snapshot, nextUserRev, userId);
-  const resolvedAlias =
-    params.alias?.trim() || params.existingIndex?.alias?.trim() || username;
+  const resolvedAlias = params.alias?.trim() || params.existingIndex?.alias?.trim() || username;
   const resolvedDisplayName =
     params.displayName?.trim() ||
     (typeof params.snapshot['garage.displayName'] === 'string'
@@ -181,8 +177,7 @@ export function buildDevSlotAndIndexPayloads(params: {
   const now = Date.now();
   const nextDevRev = (params.existingIndex?.devRev ?? 0) + 1;
   const revHash = computeCommitHashSync(params.snapshot, nextDevRev, `${userId}:dev`);
-  const resolvedAlias =
-    params.alias?.trim() || params.existingIndex?.alias?.trim() || username;
+  const resolvedAlias = params.alias?.trim() || params.existingIndex?.alias?.trim() || username;
   const resolvedDisplayName =
     params.displayName?.trim() ||
     (typeof params.snapshot['garage.displayName'] === 'string'
@@ -244,9 +239,7 @@ export function buildUpsertedAccountIndexEntry(params: {
   const passphraseHash = computePassphraseHash(resolvedUserId, params.password);
   const resolvedAlias = params.alias.trim() || cleanUsername;
   const resolvedDisplayName =
-    params.displayName?.trim() ||
-    params.existingIndex?.displayName?.trim() ||
-    resolvedAlias;
+    params.displayName?.trim() || params.existingIndex?.displayName?.trim() || resolvedAlias;
   const userRev = params.existingIndex?.userRev ?? 0;
   const devRev = params.existingIndex?.devRev ?? 0;
 

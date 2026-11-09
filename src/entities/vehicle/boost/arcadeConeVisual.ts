@@ -15,11 +15,16 @@ export function createArcadeBoostFlameConeGeometry(radius) {
 
   for (let heightStep = 0; heightStep <= HEIGHT_SEGS; heightStep++) {
     const fraction = heightStep / HEIGHT_SEGS;
-    const currentRadius = radius * (0.22 + 0.78 * Math.sin(Math.PI * Math.pow(fraction, 0.68))) * (1 - fraction);
+    const currentRadius =
+      radius * (0.22 + 0.78 * Math.sin(Math.PI * Math.pow(fraction, 0.68))) * (1 - fraction);
     for (let radialStep = 0; radialStep <= RADIAL_SEGS; radialStep++) {
       const uCoord = radialStep / RADIAL_SEGS;
       const angle = uCoord * Math.PI * 2;
-      positions.push(-50 * fraction, Math.cos(angle) * currentRadius, Math.sin(angle) * currentRadius);
+      positions.push(
+        -50 * fraction,
+        Math.cos(angle) * currentRadius,
+        Math.sin(angle) * currentRadius
+      );
       uvs.push(uCoord, 1 - fraction);
     }
   }
@@ -33,8 +38,8 @@ export function createArcadeBoostFlameConeGeometry(radius) {
   }
 
   const geom = new BufferGeometry();
-  geom.setAttribute("position", new BufferAttribute(new Float32Array(positions), 3));
-  geom.setAttribute("uv", new BufferAttribute(new Float32Array(uvs), 2));
+  geom.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
+  geom.setAttribute('uv', new BufferAttribute(new Float32Array(uvs), 2));
   geom.setIndex(indices);
   geom.computeVertexNormals();
   return geom;
@@ -46,10 +51,10 @@ export function createArcadeBoostFlameConeGeometry(radius) {
 export function createArcadeBoostFlameConeMaterial() {
   const { ShaderMaterial, DoubleSide } = THREE;
   return new ShaderMaterial({
-    name: "Arcade / painted flame",
+    name: 'Arcade / painted flame',
     uniforms: {
       time: { value: 0 },
-      opacity: { value: 0 }
+      opacity: { value: 0 },
     },
     vertexShader: `
       uniform float time;
@@ -90,7 +95,7 @@ export function createArcadeBoostFlameConeMaterial() {
     transparent: true,
     depthWrite: false,
     side: DoubleSide,
-    toneMapped: true
+    toneMapped: true,
   });
 }
 
@@ -100,12 +105,12 @@ export function createArcadeBoostFlameConeMaterial() {
 export function createNozzleFlash(pos) {
   const { BufferGeometry, BufferAttribute, ShaderMaterial, Points } = THREE;
   const geom = new BufferGeometry();
-  geom.setAttribute("position", new BufferAttribute(new Float32Array([0, 0, 0]), 3));
+  geom.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0]), 3));
 
   const mat = new ShaderMaterial({
-    name: "Arcade / nozzle glint",
+    name: 'Arcade / nozzle glint',
     uniforms: {
-      intensity: { value: 0 }
+      intensity: { value: 0 },
     },
     vertexShader: `
       void main() {
@@ -129,7 +134,7 @@ export function createNozzleFlash(pos) {
     `,
     transparent: true,
     depthWrite: false,
-    toneMapped: true
+    toneMapped: true,
   });
 
   const points = new Points(geom, mat);
@@ -152,11 +157,11 @@ export function createNozzleFlash(pos) {
 export function createBoostFlare(pos) {
   const { BufferGeometry, BufferAttribute, ShaderMaterial, Points, AdditiveBlending } = THREE;
   const geom = new BufferGeometry();
-  geom.setAttribute("position", new BufferAttribute(new Float32Array([0, 0, 0]), 3));
+  geom.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0]), 3));
 
   const mat = new ShaderMaterial({
     uniforms: {
-      intensity: { value: 0 }
+      intensity: { value: 0 },
     },
     vertexShader: `
       uniform float intensity;
@@ -185,7 +190,7 @@ export function createBoostFlare(pos) {
     transparent: true,
     blending: AdditiveBlending,
     depthWrite: false,
-    toneMapped: true
+    toneMapped: true,
   });
 
   const points = new Points(geom, mat);

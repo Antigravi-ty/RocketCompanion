@@ -20,24 +20,49 @@ import {
 } from './kickoffDuelSimulationPipeline.ts';
 
 export interface KickoffDuelSoloBenchmarkResult {
-  modelId: string; shortName: string; hasOpponentObs: boolean;
-  slotTicks: number[]; avgTicks: number; avgSec: number;
+  modelId: string;
+  shortName: string;
+  hasOpponentObs: boolean;
+  slotTicks: number[];
+  avgTicks: number;
+  avgSec: number;
 }
 
 export interface KickoffDuelMatrixSlotResult {
-  slotIndex: number; slotCode: string; touchTick: number; touchSec: number;
-  winner: string; blueDist: number; orangeDist: number;
-  endBallX: number; endBallY: number; endBallVy: number; outcome: string;
+  slotIndex: number;
+  slotCode: string;
+  touchTick: number;
+  touchSec: number;
+  winner: string;
+  blueDist: number;
+  orangeDist: number;
+  endBallX: number;
+  endBallY: number;
+  endBallVy: number;
+  outcome: string;
 }
 
 export interface KickoffDuelMatrixPairingResult {
-  pairId: string; label: string; category: string; blue: string; orange: string;
-  blueWins: number; orangeWins: number; ties: number; slots: KickoffDuelMatrixSlotResult[];
+  pairId: string;
+  label: string;
+  category: string;
+  blue: string;
+  orange: string;
+  blueWins: number;
+  orangeWins: number;
+  ties: number;
+  slots: KickoffDuelMatrixSlotResult[];
 }
 
 export interface KickoffDiagnosticTrajectoryTrace {
-  modelId: string; label: string; slotIndex: number; slotCode: string;
-  channelMode: string; touchTick: number; touchSec: number; maxCarSpeed: number;
+  modelId: string;
+  label: string;
+  slotIndex: number;
+  slotCode: string;
+  channelMode: string;
+  touchTick: number;
+  touchSec: number;
+  maxCarSpeed: number;
   steps: KickoffStepTraceEntry[];
 }
 
@@ -89,7 +114,13 @@ export async function runFullKickoffDuelMatrixBenchmark(): Promise<void> {
       const slotTicks: number[] = [];
       for (let s = 0; s < 5; s++) {
         resetSimToKickoffSlotAndSettle(sim, s);
-        sim.setCarState(1, { pos: [0, 4800, 17.05], vel: [0, 0, 0], angVel: [0, 0, 0], rot: [0, -Math.PI / 2, 0], boost: 0 });
+        sim.setCarState(1, {
+          pos: [0, 4800, 17.05],
+          vel: [0, 0, 0],
+          angVel: [0, 0, 0],
+          rot: [0, -Math.PI / 2, 0],
+          boost: 0,
+        });
         helpers.expBlue.setBotType(modelMeta.id === 'necto' ? 'necto' : 'nexto');
         helpers = resetKickoffDuelEnsemble(helpers);
 
@@ -119,9 +150,7 @@ export async function runFullKickoffDuelMatrixBenchmark(): Promise<void> {
         }
         slotTicks.push(touchTick);
       }
-      const avgTicks = Number(
-        (slotTicks.reduce((a, b) => a + b, 0) / 5).toFixed(1)
-      );
+      const avgTicks = Number((slotTicks.reduce((a, b) => a + b, 0) / 5).toFixed(1));
       soloResults.push({
         modelId: modelMeta.id,
         shortName: modelMeta.shortName,
@@ -320,11 +349,27 @@ export async function exportKickoffDuelDiagnosticsData(
     await yieldToBrowser();
 
     const configs = [
-      { modelId: 'ko_v2', channelMode: 'keyboard_coupled', label: 'KO_v2 (Keyboard Coupled · Optimal 257.8f)' },
-      { modelId: 'ko_v2', channelMode: 'ground_air_separated', label: 'KO_v2 (Ground/Air Separated · 265.2f)' },
+      {
+        modelId: 'ko_v2',
+        channelMode: 'keyboard_coupled',
+        label: 'KO_v2 (Keyboard Coupled · Optimal 257.8f)',
+      },
+      {
+        modelId: 'ko_v2',
+        channelMode: 'ground_air_separated',
+        label: 'KO_v2 (Ground/Air Separated · 265.2f)',
+      },
       { modelId: 'ko_v1', channelMode: 'keyboard_coupled', label: 'KO_v1 (Legacy 75D · 259.2f)' },
-      { modelId: 'nexto', channelMode: 'keyboard_coupled', label: 'Nexto (EARL Perceiver GC · 303.8f)' },
-      { modelId: 'necto', channelMode: 'keyboard_coupled', label: 'Necto (EARL Perceiver Diamond · 307.0f)' },
+      {
+        modelId: 'nexto',
+        channelMode: 'keyboard_coupled',
+        label: 'Nexto (EARL Perceiver GC · 303.8f)',
+      },
+      {
+        modelId: 'necto',
+        channelMode: 'keyboard_coupled',
+        label: 'Necto (EARL Perceiver Diamond · 307.0f)',
+      },
     ];
 
     const traces: KickoffDiagnosticTrajectoryTrace[] = [];
@@ -332,7 +377,13 @@ export async function exportKickoffDuelDiagnosticsData(
       let helpers = createKickoffDuelHelpers(cfg.channelMode);
       for (let s = 0; s < 5; s++) {
         resetSimToKickoffSlotAndSettle(sim, s);
-        sim.setCarState(1, { pos: [0, 4800, 17.05], vel: [0, 0, 0], angVel: [0, 0, 0], rot: [0, -Math.PI / 2, 0], boost: 0 });
+        sim.setCarState(1, {
+          pos: [0, 4800, 17.05],
+          vel: [0, 0, 0],
+          angVel: [0, 0, 0],
+          rot: [0, -Math.PI / 2, 0],
+          boost: 0,
+        });
         helpers.expBlue.setBotType(cfg.modelId === 'necto' ? 'necto' : 'nexto');
         helpers = resetKickoffDuelEnsemble(helpers);
 
@@ -348,14 +399,7 @@ export async function exportKickoffDuelDiagnosticsData(
           helpers = dec0.nextHelpers;
           const ctrl0 = dec0.controls;
           if (t % 4 === 0) {
-            const stepEntry = buildCarStepTraceEntry(
-              sim,
-              cfg.modelId,
-              0,
-              t,
-              helpers,
-              ctrl0
-            );
+            const stepEntry = buildCarStepTraceEntry(sim, cfg.modelId, 0, t, helpers, ctrl0);
             if (stepEntry.carSpeed > maxCarSpeed) maxCarSpeed = stepEntry.carSpeed;
             steps.push(stepEntry);
           }
@@ -369,9 +413,7 @@ export async function exportKickoffDuelDiagnosticsData(
             Math.hypot(bs.velX, bs.velY, bs.velZ) > 5.0
           ) {
             touchTick = t + 1;
-            steps.push(
-              buildCarStepTraceEntry(sim, cfg.modelId, 0, touchTick, helpers, ctrl0)
-            );
+            steps.push(buildCarStepTraceEntry(sim, cfg.modelId, 0, touchTick, helpers, ctrl0));
             break;
           }
         }

@@ -1,14 +1,11 @@
 import { getTeamAssignment } from '../../physics/RocketSimMeshLoader.ts';
-import {
-  CAR_COLOR_SLOTS,
-  resolveVehicleHitboxId,
-} from '../../ui-core/config/vehicleConstants';
+import { CAR_COLOR_SLOTS, resolveVehicleHitboxId } from '../../ui-core/config/vehicleConstants.ts';
 import {
   garageSettingsStore,
   getPreferredColorSlot,
   loadStoredColorPrefs,
-} from '../../ui-core/config/vehiclePresets';
-import { botSettingsStore } from '../../ui-core/config/trainingDefaults';
+} from '../../ui-core/config/vehiclePresets.ts';
+import { botSettingsStore } from '../../ui-core/config/trainingDefaults.ts';
 import { preloadKickoffPPOWeights } from '../../ai/kickoffPPOWeights.ts';
 import { preloadKickoffV1BestWeights } from '../../ai/KickoffV2SafeTensorsAgent.ts';
 import { preloadGroundReachabilityLut } from '../../entities/reachability/groundReachabilityLut.ts';
@@ -33,7 +30,7 @@ export interface BotAgentLike {
   name?: string;
   option: { name?: string; tickSkip: number; [key: string]: unknown };
   preloadAll(
-    onProgress?: ((completed?: number, total?: number, name?: string) => void) | null,
+    onProgress?: ((completed?: number, total?: number, name?: string) => void) | null
   ): Promise<unknown>;
   getKickoffControls?(state: unknown, step: number): CarControlsInput | null | undefined;
   overrideControls?(controls: CarControlsInput): void;
@@ -41,7 +38,7 @@ export interface BotAgentLike {
     state: unknown,
     pads?: unknown,
     carIndex?: number,
-    team?: number,
+    team?: number
   ): Promise<CarControlsInput>;
   reset(): void;
   select(botId: string): void;
@@ -93,7 +90,7 @@ export class RuntimeBotCoordinator {
   }
 
   public async setupBot(
-    onProgress: ((completed?: number, total?: number, name?: string) => void) | null = null,
+    onProgress: ((completed?: number, total?: number, name?: string) => void) | null = null
   ): Promise<void> {
     const r = this.runtime;
     const botpackIds = BOTPACK_9700488_POLICIES.map((p) => p.id);
@@ -126,7 +123,7 @@ export class RuntimeBotCoordinator {
       coreTasks.push(
         r.bot.preloadAll(null).catch((err: unknown) => {
           console.warn('[GameRuntime] Bot preload deferred or failed:', err);
-        }),
+        })
       );
     }
 
@@ -168,9 +165,7 @@ export class RuntimeBotCoordinator {
     }
 
     const kickoffControls = r.bot?.getKickoffControls?.(r.physics.state, this.botKickoffStep) as
-      | CarControlsInput
-      | null
-      | undefined;
+      CarControlsInput | null | undefined;
     if (kickoffControls) {
       this.botControls = kickoffControls;
       r.bot?.overrideControls?.(kickoffControls);
@@ -220,7 +215,7 @@ export class RuntimeBotCoordinator {
           }
           console.warn(
             '[GameRuntime] Bot opponent stopped responding:',
-            err instanceof Error ? err.message : err,
+            err instanceof Error ? err.message : err
           );
         }
       });
@@ -238,7 +233,7 @@ export class RuntimeBotCoordinator {
 
   public async startBotMatch(
     botId: string = this.runtime.bot?.id || 'nexto',
-    durationSeconds = 300,
+    durationSeconds = 300
   ): Promise<void> {
     const r = this.runtime;
     const net = r.networkManager;
@@ -265,8 +260,7 @@ export class RuntimeBotCoordinator {
 
     const initialSnapshot = r.physics.saveCompactState();
     const garagePrefs = garageSettingsStore.get() as { vehiclePreset?: string } | null;
-    const presetId =
-      useAppStore?.getState?.()?.activeCar || garagePrefs?.vehiclePreset || 'fennec';
+    const presetId = useAppStore?.getState?.()?.activeCar || garagePrefs?.vehiclePreset || 'fennec';
     const storedPrefs = loadStoredColorPrefs();
     const preferredBlueSlot = getPreferredColorSlot(storedPrefs, 0);
     const preferredOrangeSlot = getPreferredColorSlot(storedPrefs, 1);
@@ -328,7 +322,7 @@ export class RuntimeBotCoordinator {
       0,
       presetId,
       {},
-      true,
+      true
     );
     session.networkReconciler = reconciler;
     reconciler.setCarVisualPreset(1, 'fennec');
@@ -365,7 +359,7 @@ export class RuntimeBotCoordinator {
       session.networkChannel = session.reconcilerBinder.disposeSessionTransports(
         session.authoritativeServer,
         session.networkChannel,
-        session.networkReconciler,
+        session.networkReconciler
       );
       session.authoritativeServer = null;
       session.networkReconciler = null;
@@ -384,8 +378,7 @@ export class RuntimeBotCoordinator {
     const freeplayPrefs = loadStoredColorPrefs();
     const freeplayTeam = freeplayPrefs.primaryTeam === 'orange' ? 1 : 0;
     const garagePrefs = garageSettingsStore.get() as { vehiclePreset?: string } | null;
-    const presetId =
-      useAppStore?.getState?.()?.activeCar || garagePrefs?.vehiclePreset || 'fennec';
+    const presetId = useAppStore?.getState?.()?.activeCar || garagePrefs?.vehiclePreset || 'fennec';
     const playerHitbox = resolveVehicleHitboxId(presetId);
     r.physics?.configureCars(playerHitbox, false, freeplayTeam);
     if (r.loadoutCoordinator) {

@@ -3,7 +3,10 @@ import { loadBallAsset } from '../BallVisual.ts';
 import { loadDriftwoodsStadium } from '../stadium/driftwoods/DriftwoodsStadiumLoader.ts';
 import { preloadThrowbackStadiumAssets } from '../stadium/ThrowbackStadiumLoader.ts';
 import { preloadThrowbackCollisionMeshes } from '../../physics/RocketSimMeshLoader.ts';
-import { getAllVehicleDescriptors, hasVehicleDescriptor } from '../../ui-core/config/vehicleTunerConfig';
+import {
+  getAllVehicleDescriptors,
+  hasVehicleDescriptor,
+} from '../../ui-core/config/vehicleTunerConfig.ts';
 import { BOT_CAR_INDEX } from './ArenaConstants.ts';
 import type { ArenaVehicleRegistry } from './ArenaVehicleRegistry.ts';
 import type { BoostPadSystem } from '../BoostPadSystem.ts';
@@ -21,7 +24,7 @@ export async function loadBallAssetInto(ballGroup: THREE.Group): Promise<void> {
     const ballAsset = await loadBallAsset();
     ballGroup.add(ballAsset);
   } catch (err) {
-    console.warn("Ball asset failed to load, keeping default procedural mesh:", err);
+    console.warn('Ball asset failed to load, keeping default procedural mesh:', err);
   }
 }
 
@@ -63,7 +66,7 @@ export async function loadCarAndPadAssets(
       const glbTemplates = await boostPadSystem.loadTemplates();
       return glbTemplates || null;
     } catch (err) {
-      console.warn("Authentic GLB boost pads failed to load:", err);
+      console.warn('Authentic GLB boost pads failed to load:', err);
       return null;
     }
   })();
@@ -189,12 +192,12 @@ export async function prepareAllArenaWarmupAssets(
 export async function loadArenaStadiumMeshes(): Promise<ArenaStadiumMeshesResult> {
   try {
     const driftwoodsStadium = await loadDriftwoodsStadium().catch((err) => {
-      console.warn("Driftwoods stadium load failed:", err);
+      console.warn('Driftwoods stadium load failed:', err);
       return null;
     });
     return { driftwoodsStadium };
   } catch (err) {
-    console.warn("loadArena skipped:", err);
+    console.warn('loadArena skipped:', err);
     return {};
   }
 }

@@ -5,7 +5,7 @@ import {
   isBallFlipResetEvent,
 } from '../../../physics/RocketSimConstants.ts';
 import { eventStreamStore } from '../../runtimeUiPort.ts';
-import { isEventLogEnabled } from '../../../ui-core/config/audioConfig';
+import { isEventLogEnabled } from '../../../ui-core/config/audioConfig.ts';
 import { gameAudio } from '../../../audio/GameAudioEngineFacade.ts';
 import {
   CarActionDebounceRegistry,
@@ -99,7 +99,7 @@ export class CarActionEventSynthesizer {
 
   public processRuntimeTickEvents(
     runtime: CarActionSynthesizerRuntimePort,
-    isMatchEnded: boolean,
+    isMatchEnded: boolean
   ): void {
     if (!runtime.physics) return;
     const matchPhase = runtime.match?.state.phase ?? 'playing';
@@ -111,8 +111,7 @@ export class CarActionEventSynthesizer {
     if (
       (activeMode?.standaloneReplayViewer?.isActive &&
         !activeMode.standaloneReplayViewer.isIntervening) ||
-      (activeMode?.rlrcReplaySession?.isActive &&
-        !activeMode.rlrcReplaySession.isIntervening)
+      (activeMode?.rlrcReplaySession?.isActive && !activeMode.rlrcReplaySession.isIntervening)
     ) {
       return;
     }
@@ -208,7 +207,7 @@ export class CarActionEventSynthesizer {
             event,
             evtCarIdx,
             currentTick,
-            edgeCtx,
+            edgeCtx
           )
         ) {
           return;
@@ -239,7 +238,7 @@ export class CarActionEventSynthesizer {
             event,
             targetCarIdx,
             physics,
-            onModePhysicsEvent,
+            onModePhysicsEvent
           )
         ) {
           return;
@@ -247,10 +246,7 @@ export class CarActionEventSynthesizer {
       }
 
       if (isEventLogEnabled(event.type)) {
-        console.log(
-          `[Physics Incident 0x${event.type.toString(16).padStart(2, '0')}]`,
-          event,
-        );
+        console.log(`[Physics Incident 0x${event.type.toString(16).padStart(2, '0')}]`, event);
       }
 
       eventStreamStore.addEvent(event);

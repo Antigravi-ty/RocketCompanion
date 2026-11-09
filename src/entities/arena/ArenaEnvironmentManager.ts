@@ -1,15 +1,24 @@
 import * as THREE from 'three';
-import { createDriftwoodsManager, type DriftwoodsMaterialManager } from '../stadium/driftwoods/DriftwoodsMaterialManager.ts';
+import {
+  createDriftwoodsManager,
+  type DriftwoodsMaterialManager,
+} from '../stadium/driftwoods/DriftwoodsMaterialManager.ts';
 import {
   setExperimentalWallFxRuntimeConfig,
   updateShadowRuntimeConfig,
   type ExperimentalWallFxConfig,
   type ShadowConfig,
-} from '../../ui-core/config/atmosphereFxConfig';
-import type { DriftwoodsTunerConfig } from '../../ui-core/config/driftwoodsConfig';
-import type { SkyboxConfig } from '../../ui-core/config/skyboxConfig';
-import type { GoalBarrierDecomposition, GoalBarrierTargetGoal } from '../../ui-core/config/goalBarrierConfig';
-import { updateBallVisualConfig, type BallVisualConfig } from '../../ui-core/config/ballVisualConfig';
+} from '../../ui-core/config/atmosphereFxConfig.ts';
+import type { DriftwoodsTunerConfig } from '../../ui-core/config/driftwoodsConfig.ts';
+import type { SkyboxConfig } from '../../ui-core/config/skyboxConfig.ts';
+import type {
+  GoalBarrierDecomposition,
+  GoalBarrierTargetGoal,
+} from '../../ui-core/config/goalBarrierConfig.ts';
+import {
+  updateBallVisualConfig,
+  type BallVisualConfig,
+} from '../../ui-core/config/ballVisualConfig.ts';
 import { updateBallGoalEffect } from './BallGoalRimShader.ts';
 import {
   loadThrowbackStadiumField,
@@ -166,9 +175,7 @@ export class ArenaEnvironmentManager {
     h.markRenderTreeChanged();
   }
 
-  public updateDriftwoodsTuner(
-    config: Partial<DriftwoodsTunerConfig> | null | undefined
-  ): void {
+  public updateDriftwoodsTuner(config: Partial<DriftwoodsTunerConfig> | null | undefined): void {
     if (!config) return;
     this.pendingDriftwoodsConfig = config;
     this.driftwoodsManager?.applyConfig(config);
@@ -261,7 +268,17 @@ export class ArenaEnvironmentManager {
     const h = this.arena;
     const currBall = h._currBallView.attach(currState);
     const prevBall = h._prevBallView.attach(prevState);
-    interpolatePhysicsTransform(h.ball, prevBall, currBall, alpha, undefined, h.pA, h.pB, h.qA, h.qB);
+    interpolatePhysicsTransform(
+      h.ball,
+      prevBall,
+      currBall,
+      alpha,
+      undefined,
+      h.pA,
+      h.pB,
+      h.qA,
+      h.qB
+    );
     unrealToThreeCoords(h.ballVelocity, currBall.velX, currBall.velY, currBall.velZ);
     h.ballSpeedTrail?.update(h.ball.position, h.ballVelocity, actualDelta);
 
@@ -278,7 +295,9 @@ export class ArenaEnvironmentManager {
 
   public disposeEnvironmentMeshes(): void {
     const h = this.arena;
-    const disposeMaterialSlot = (material: THREE.Material | THREE.Material[] | null | undefined) => {
+    const disposeMaterialSlot = (
+      material: THREE.Material | THREE.Material[] | null | undefined
+    ) => {
       if (!material) return;
       for (const mat of Array.isArray(material) ? material : [material]) mat?.dispose?.();
     };

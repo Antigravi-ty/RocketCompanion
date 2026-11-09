@@ -91,7 +91,7 @@ export function buildSuffixSafeDirectorTrajectory(
   const aerialSlope = clamp(
     (REPLAY_DIRECTOR_CONFIG.cameraAerialHeightSlope ?? 0.36) * 2.15,
     0.55,
-    0.90
+    0.9
   );
 
   const rawPreX = new Float64Array(goalIdx + 1);
@@ -116,9 +116,7 @@ export function buildSuffixSafeDirectorTrajectory(
     const rawCbDist = Math.hypot(rawCbx, rawCby) || 1.0;
     const maxLeashDist = 1150.0;
     const effCbDist =
-      rawCbDist > maxLeashDist
-        ? maxLeashDist + (rawCbDist - maxLeashDist) * 0.22
-        : rawCbDist;
+      rawCbDist > maxLeashDist ? maxLeashDist + (rawCbDist - maxLeashDist) * 0.22 : rawCbDist;
     const leashRatio = effCbDist / rawCbDist;
     const effScx = sbx[i] - rawCbx * leashRatio;
     let effScy = sby[i] - rawCby * leashRatio;
@@ -145,11 +143,7 @@ export function buildSuffixSafeDirectorTrajectory(
     const ucby = cby / cbDist;
 
     const closeAnchorW = 1.0 - smoothstep(550.0, 1600.0, cbDist);
-    const ballAnchorW = clamp(
-      0.26 * closeAnchorW + 0.56 * postShotW + oppW * 0.25,
-      0.0,
-      0.85
-    );
+    const ballAnchorW = clamp(0.26 * closeAnchorW + 0.56 * postShotW + oppW * 0.25, 0.0, 0.85);
     const anchorX = (effScx * (1.0 - ballAnchorW) + sbx[i] * ballAnchorW) * 0.86;
     const anchorY = effScy * (1.0 - ballAnchorW) + sby[i] * ballAnchorW;
 
@@ -172,12 +166,7 @@ export function buildSuffixSafeDirectorTrajectory(
     }
 
     const alignW = smoothstep(-0.05, 0.55, ucbx * ubgx + ucby * ubgy);
-    const wCB =
-      0.38 *
-      smoothstep(140.0, 680.0, cbDist) *
-      alignW *
-      (1.0 - postShotW) *
-      (1.0 - oppW);
+    const wCB = 0.38 * smoothstep(140.0, 680.0, cbDist) * alignW * (1.0 - postShotW) * (1.0 - oppW);
 
     let fx = ucbx * wCB + ubgx * (1.0 - wCB);
     let fy = ucby * wCB + ubgy * (1.0 - wCB);
@@ -202,7 +191,7 @@ export function buildSuffixSafeDirectorTrajectory(
       ceilingPullback +
       oppW * 160.0 +
       bouncePullbackUu[i] * 0.25;
-    const closeLatW = 1.0 - 0.70 * smoothstep(750.0, 2200.0, cbDist);
+    const closeLatW = 1.0 - 0.7 * smoothstep(750.0, 2200.0, cbDist);
     const postShotSideWiden = 140.0 * smoothstep(lastScoreTouchFrame - 20, goalIdx, i);
     const sideMag =
       (360.0 * closeLatW + goalProx * 170.0 + handoffArcW * 160.0 + postShotSideWiden) *
@@ -299,11 +288,7 @@ export function buildSuffixSafeDirectorTrajectory(
     const desiredX = clamp(sx * 0.65 + postSideOffset, -3100.0, 3100.0);
     const desiredY =
       Math.min(goalEyeY * goalSignY, (sy - goalSignY * 520.0) * goalSignY) * goalSignY;
-    const desiredZ = clamp(
-      goalEyeZ + stretch * 55.0 + Math.max(0, sz - 40.0) * 0.20,
-      195.0,
-      1180.0
-    );
+    const desiredZ = clamp(goalEyeZ + stretch * 55.0 + Math.max(0, sz - 40.0) * 0.2, 195.0, 1180.0);
 
     // Leash post-goal camera drift to within 320 UU of goalEye so it never sprints backward
     // across the stadium or slams into the outside of the goalpost wall.

@@ -1,4 +1,4 @@
-import { audioConfig } from '../ui-core/config/audioConfig';
+import { audioConfig } from '../ui-core/config/audioConfig.ts';
 import { getAudioContext, getMasterAudioInput } from './audioContext.ts';
 import { listenerManager } from './SpatialAudioSource.ts';
 import {
@@ -13,7 +13,7 @@ export const BALL_AUDIO_CONFIG = Object.freeze({
   FLYING_DOWNWARD_VZ_THRESHOLD: -25.0, // Downward vertical velocity component threshold in UU/s
   FLYING_MIN_HEIGHT: 25.0, // Minimum height above ground to be considered airborne
   ROLLING_SPEED_THRESHOLD: 25.0, // Minimum surface rolling speed in UU/s
-  ROLLING_FADE_OUT_SECONDS: 0.05 // 50ms fast fade out when leaving surface
+  ROLLING_FADE_OUT_SECONDS: 0.05, // 50ms fast fade out when leaving surface
 });
 
 export interface BallAudioBuffers {
@@ -109,7 +109,10 @@ export class BallAudioEmitter {
       try {
         this.ballPanner.panningModel = panModel;
       } catch (err) {
-        console.warn(`[BallAudioEmitter] Failed to set panningModel="${panModel}", falling back to "equalpower":`, err);
+        console.warn(
+          `[BallAudioEmitter] Failed to set panningModel="${panModel}", falling back to "equalpower":`,
+          err
+        );
         this.ballPanner.panningModel = 'equalpower';
       }
       this.ballPanner.distanceModel = 'inverse';
@@ -141,7 +144,11 @@ export class BallAudioEmitter {
     const ctx = this.context || getAudioContext();
     if (!this.initialized || !ctx || ctx.state === 'closed') return;
     if (ctx.state === 'suspended') {
-      ctx.resume().catch((err) => console.warn('[AudioArchitecture] AudioContext resume failed/blocked:', err));
+      ctx
+        .resume()
+        .catch((err) =>
+          console.warn('[AudioArchitecture] AudioContext resume failed/blocked:', err)
+        );
     }
     const now = ctx.currentTime;
 
@@ -152,7 +159,9 @@ export class BallAudioEmitter {
         src.loop = true;
         src.connect(this.rollingGain);
         src.start(now);
-        src.onended = () => { if (this.rollingSource === src) this.rollingSource = null; };
+        src.onended = () => {
+          if (this.rollingSource === src) this.rollingSource = null;
+        };
         this.rollingSource = src;
       } catch (e) {
         console.warn('[BallAudioEmitter] Error starting rollingSource:', e);
@@ -166,7 +175,9 @@ export class BallAudioEmitter {
         src.loop = true;
         src.connect(this.flyingGain);
         src.start(now);
-        src.onended = () => { if (this.flyingSource === src) this.flyingSource = null; };
+        src.onended = () => {
+          if (this.flyingSource === src) this.flyingSource = null;
+        };
         this.flyingSource = src;
       } catch (e) {
         console.warn('[BallAudioEmitter] Error starting flyingSource:', e);
@@ -201,7 +212,10 @@ export class BallAudioEmitter {
       try {
         this.ballPanner.panningModel = model;
       } catch (err) {
-        console.warn("[BallAudioEmitter] Failed to set panningModel:", err instanceof Error ? err.message : err);
+        console.warn(
+          '[BallAudioEmitter] Failed to set panningModel:',
+          err instanceof Error ? err.message : err
+        );
       }
     }
   }
@@ -212,7 +226,10 @@ export class BallAudioEmitter {
     physics: BallPhysicsStateLike | null | undefined = null
   ): void {
     if (!this.initialized) return;
-    if ((this.ballRollingBuffer && !this.rollingSource) || (this.ballFlyingBuffer && !this.flyingSource)) {
+    if (
+      (this.ballRollingBuffer && !this.rollingSource) ||
+      (this.ballFlyingBuffer && !this.flyingSource)
+    ) {
       this._startLoops();
     }
     const ctx = this.context || getAudioContext();
@@ -225,12 +242,18 @@ export class BallAudioEmitter {
     }
 
     // 1. Position extraction: Map to RocketSim coords (px: width, py: length, pz: height)
-    let px = 0, py = 0, pz = 93.15;
+    let px = 0,
+      py = 0,
+      pz = 93.15;
     if (ballMeshOrView.position) {
       px = ballMeshOrView.position.x;
       py = ballMeshOrView.position.z;
       pz = ballMeshOrView.position.y;
-    } else if (Number.isFinite(ballMeshOrView.posX) && Number.isFinite(ballMeshOrView.posY) && Number.isFinite(ballMeshOrView.posZ)) {
+    } else if (
+      Number.isFinite(ballMeshOrView.posX) &&
+      Number.isFinite(ballMeshOrView.posY) &&
+      Number.isFinite(ballMeshOrView.posZ)
+    ) {
       px = ballMeshOrView.posX as number;
       py = ballMeshOrView.posY as number;
       pz = ballMeshOrView.posZ as number;
@@ -241,7 +264,9 @@ export class BallAudioEmitter {
     }
 
     // 2. Velocity extraction (Live from physics engine)
-    let vx = 0, vy = 0, vz = 0;
+    let vx = 0,
+      vy = 0,
+      vz = 0;
     if (physics?.ballState) {
       vx = physics.ballState.velX ?? 0;
       vy = physics.ballState.velY ?? 0;
@@ -314,20 +339,28 @@ export class BallAudioEmitter {
     const flyingSettingVol = audioConfig.get('ballFlyingVolume');
 
     // 4. Surface contact detection (floor: 93.15, ceiling: 2048, sidewalls: +-4096, endwalls: +-5120)
-    const isOnGround = physics ? (Boolean(physics.ballOnGround) || (typeof physics.getBallOnGround === 'function' && physics.getBallOnGround())) : false;
+    const isOnGround = physics
+      ? Boolean(physics.ballOnGround) ||
+        (typeof physics.getBallOnGround === 'function' && physics.getBallOnGround())
+      : false;
     const heightAboveFloor = pz - 93.15;
     const isNearFloor = heightAboveFloor <= 15.0;
-    const isNearCeiling = pz >= (2048 - 93.15 - 20.0);
-    const isNearSideWall = Math.abs(px) >= (4096 - 93.15 - 20.0);
-    const isNearEndWall = Math.abs(py) >= (5120 - 93.15 - 20.0);
-    const isContactingSurface = isOnGround || isNearFloor || isNearCeiling || isNearSideWall || isNearEndWall;
+    const isNearCeiling = pz >= 2048 - 93.15 - 20.0;
+    const isNearSideWall = Math.abs(px) >= 4096 - 93.15 - 20.0;
+    const isNearEndWall = Math.abs(py) >= 5120 - 93.15 - 20.0;
+    const isContactingSurface =
+      isOnGround || isNearFloor || isNearCeiling || isNearSideWall || isNearEndWall;
 
     const totalSpeed = Math.hypot(vx, vy, vz);
     const surfaceSpeed = Math.hypot(vx, vy);
 
     // 5. Rolling audio logic:
     let targetRollingGain = 0;
-    if (isContactingSurface && (totalSpeed > BALL_AUDIO_CONFIG.ROLLING_SPEED_THRESHOLD || surfaceSpeed > BALL_AUDIO_CONFIG.ROLLING_SPEED_THRESHOLD)) {
+    if (
+      isContactingSurface &&
+      (totalSpeed > BALL_AUDIO_CONFIG.ROLLING_SPEED_THRESHOLD ||
+        surfaceSpeed > BALL_AUDIO_CONFIG.ROLLING_SPEED_THRESHOLD)
+    ) {
       const speedFactor = Math.min(1.0, Math.max(0.1, totalSpeed / 1800.0));
       targetRollingGain = rollingSettingVol * master * rollingAtten * speedFactor;
       if (this.rollingSource && this.rollingSource.playbackRate) {
@@ -342,7 +375,10 @@ export class BallAudioEmitter {
     try {
       if (this.rollingGain) {
         if (targetRollingGain > 0) {
-          if (this._lastTargetRollingGain === undefined || Math.abs(targetRollingGain - this._lastTargetRollingGain) > 1e-3) {
+          if (
+            this._lastTargetRollingGain === undefined ||
+            Math.abs(targetRollingGain - this._lastTargetRollingGain) > 1e-3
+          ) {
             this._lastTargetRollingGain = targetRollingGain;
             this.rollingGain.gain.setTargetAtTime(targetRollingGain, now, 0.04);
           }
@@ -350,7 +386,10 @@ export class BallAudioEmitter {
           this._lastTargetRollingGain = 0;
           this.rollingGain.gain.cancelScheduledValues(now);
           this.rollingGain.gain.setValueAtTime(this.rollingGain.gain.value, now);
-          this.rollingGain.gain.linearRampToValueAtTime(0, now + BALL_AUDIO_CONFIG.ROLLING_FADE_OUT_SECONDS);
+          this.rollingGain.gain.linearRampToValueAtTime(
+            0,
+            now + BALL_AUDIO_CONFIG.ROLLING_FADE_OUT_SECONDS
+          );
         } else if (this._lastTargetRollingGain !== 0) {
           this._lastTargetRollingGain = 0;
           this.rollingGain.gain.setTargetAtTime(0, now, 0.04);
@@ -362,22 +401,29 @@ export class BallAudioEmitter {
     this._wasRolling = targetRollingGain > 0;
 
     // 6. Flying (downward aerial fall) audio logic:
-    const isAirborne = !isContactingSurface && heightAboveFloor > BALL_AUDIO_CONFIG.FLYING_MIN_HEIGHT;
-    const isFallingDownward = isAirborne && (vz < BALL_AUDIO_CONFIG.FLYING_DOWNWARD_VZ_THRESHOLD);
+    const isAirborne =
+      !isContactingSurface && heightAboveFloor > BALL_AUDIO_CONFIG.FLYING_MIN_HEIGHT;
+    const isFallingDownward = isAirborne && vz < BALL_AUDIO_CONFIG.FLYING_DOWNWARD_VZ_THRESHOLD;
 
     try {
       if (this.flyingGain) {
         if (isFallingDownward) {
           const fallSpeedFactor = Math.min(1.0, Math.max(0.15, Math.abs(vz) / 1400.0));
           const targetFlyingGain = flyingSettingVol * master * flyingAtten * fallSpeedFactor;
-          if (this._lastTargetFlyingGain === undefined || Math.abs(targetFlyingGain - this._lastTargetFlyingGain) > 1e-3) {
+          if (
+            this._lastTargetFlyingGain === undefined ||
+            Math.abs(targetFlyingGain - this._lastTargetFlyingGain) > 1e-3
+          ) {
             this._lastTargetFlyingGain = targetFlyingGain;
             this.flyingGain.gain.cancelScheduledValues(now);
             this.flyingGain.gain.setTargetAtTime(targetFlyingGain, now, 0.04);
           }
           if (this.flyingSource && this.flyingSource.playbackRate) {
             const rate = 0.9 + 0.3 * Math.min(1.0, Math.abs(vz) / 2000.0);
-            if (this._lastFlyingRate === undefined || Math.abs(rate - this._lastFlyingRate) > 1e-3) {
+            if (
+              this._lastFlyingRate === undefined ||
+              Math.abs(rate - this._lastFlyingRate) > 1e-3
+            ) {
               this._lastFlyingRate = rate;
               this.flyingSource.playbackRate.setValueAtTime(rate, now);
             }
@@ -386,11 +432,21 @@ export class BallAudioEmitter {
           this._lastTargetFlyingGain = 0;
           this.flyingGain.gain.cancelScheduledValues(now);
           this.flyingGain.gain.setValueAtTime(this.flyingGain.gain.value, now);
-          this.flyingGain.gain.linearRampToValueAtTime(0, now + BALL_AUDIO_CONFIG.FLYING_FADE_OUT_SECONDS);
-        } else if (!isFallingDownward && this.flyingGain.gain.value > 0.001 && this._lastTargetFlyingGain !== 0) {
+          this.flyingGain.gain.linearRampToValueAtTime(
+            0,
+            now + BALL_AUDIO_CONFIG.FLYING_FADE_OUT_SECONDS
+          );
+        } else if (
+          !isFallingDownward &&
+          this.flyingGain.gain.value > 0.001 &&
+          this._lastTargetFlyingGain !== 0
+        ) {
           this._lastTargetFlyingGain = 0;
           this.flyingGain.gain.cancelScheduledValues(now);
-          this.flyingGain.gain.linearRampToValueAtTime(0, now + BALL_AUDIO_CONFIG.FLYING_FADE_OUT_SECONDS);
+          this.flyingGain.gain.linearRampToValueAtTime(
+            0,
+            now + BALL_AUDIO_CONFIG.FLYING_FADE_OUT_SECONDS
+          );
         }
       }
     } catch (e) {

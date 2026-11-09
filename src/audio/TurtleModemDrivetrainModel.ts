@@ -245,7 +245,10 @@ export class TurtleModemDrivetrainModel {
           this.targetRPM = cfg.revLimitCutoffRPM;
           if (this.currentRPM >= cfg.revLimitCutoffRPM - 15) {
             this.revLimiterTimer = cfg.revLimiterBounceDuration;
-            this.targetRPM = Math.max(cfg.idleRPM, cfg.revLimitCutoffRPM - cfg.revLimiterBounceDrop);
+            this.targetRPM = Math.max(
+              cfg.idleRPM,
+              cfg.revLimitCutoffRPM - cfg.revLimiterBounceDrop
+            );
           }
         }
       } else {
@@ -266,7 +269,8 @@ export class TurtleModemDrivetrainModel {
       const activeGear = Math.max(1, this.currentGear);
       this.currentGear = activeGear;
       const baseRiseRate = isRev ? cfg.reverseAccelRiseRate : cfg.baseAccelRiseRate;
-      const boostMult = !isRev && isBoosting ? Math.max(1.0, cfg.boostOverdriveMultiplier ?? 1.85) : 1.0;
+      const boostMult =
+        !isRev && isBoosting ? Math.max(1.0, cfg.boostOverdriveMultiplier ?? 1.85) : 1.0;
       const effectiveRiseRate = baseRiseRate * boostMult;
       const decayBase = isRev ? cfg.reverseGearDecayFactorBase : cfg.gearDecayFactorBase;
       const gearDecay = Math.pow(decayBase, Math.max(0, activeGear - 1));
@@ -291,7 +295,8 @@ export class TurtleModemDrivetrainModel {
         this.targetRPM += (speedBaseRPM - this.targetRPM) * Math.min(1, 14 * dt);
       } else if (kinetics.isDeceleratingOnWallOrBevel) {
         const dipRate = Math.min(1800, Math.abs(signedAccel) * 2.2);
-        const minGearFloorRPM = this.currentGear > 1 ? cfg.downshiftTriggerRPM + 220 : cfg.idleRPM + 300;
+        const minGearFloorRPM =
+          this.currentGear > 1 ? cfg.downshiftTriggerRPM + 220 : cfg.idleRPM + 300;
         this.targetRPM = Math.max(minGearFloorRPM, this.targetRPM - dipRate * dt);
       } else {
         let nextTarget = this.targetRPM + effectiveRiseRate * gearDecay * absThrottle * dt;
@@ -333,14 +338,23 @@ export class TurtleModemDrivetrainModel {
         this.driveDirection,
         dt
       );
-      if (cfg.autoDownshiftEnabled && this.currentGear > 1 && this.currentRPM <= cfg.downshiftTriggerRPM) {
+      if (
+        cfg.autoDownshiftEnabled &&
+        this.currentGear > 1 &&
+        this.currentRPM <= cfg.downshiftTriggerRPM
+      ) {
         this.currentGear -= 1;
         const revMatched = cfg.velocityCoupledGearsEnabled
           ? Math.min(
               cfg.downshiftRevMatchPeakRPM,
               Math.max(
                 cfg.upshiftLandingRPM,
-                computeVelocityCoupledGearRPM(cfg, kinetics.absForwardSpeedUU, this.currentGear, this.driveDirection)
+                computeVelocityCoupledGearRPM(
+                  cfg,
+                  kinetics.absForwardSpeedUU,
+                  this.currentGear,
+                  this.driveDirection
+                )
               )
             )
           : cfg.downshiftRevMatchPeakRPM;

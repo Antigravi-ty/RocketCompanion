@@ -6,25 +6,16 @@
  *   - Timeline 3 (Track C): SignalTimeline     (64B Match Signal Stream with O(log N) range queries & HUD state evaluation)
  */
 
-import {
-  INCIDENT_EVENT_TYPES,
-  isBallFlipResetEvent,
-} from '../../physics/RocketSimConstants.ts';
+import { INCIDENT_EVENT_TYPES, isBallFlipResetEvent } from '../../physics/RocketSimConstants.ts';
 import type {
   ReplayCarControlState,
   DecodedIncidentEvent,
   ReplaySnapshotFloat32Array,
   DecodedReplayFrameSlot,
 } from './RCReplayBinarySchema.ts';
-import type {
-  SignalTimelineOptions,
-  SignalTimelineMarker,
-} from './RCReplaySignalTimeline.ts';
+import type { SignalTimelineOptions, SignalTimelineMarker } from './RCReplaySignalTimeline.ts';
 
-export type {
-  SignalTimelineOptions,
-  SignalTimelineMarker,
-};
+export type { SignalTimelineOptions, SignalTimelineMarker };
 
 export const INCIDENT_TYPE_LABELS: Readonly<Record<number, string>> = Object.freeze({
   [INCIDENT_EVENT_TYPES.CAR_BALL_HIT]: 'Car-Ball Hit',
@@ -46,7 +37,10 @@ export const INCIDENT_TYPE_LABELS: Readonly<Record<number, string>> = Object.fre
   [INCIDENT_EVENT_TYPES.POSSESSION_CHANGE]: 'Possession',
 });
 
-export function lowerBoundByFrameIndex<T extends { frameIndex?: number }>(events: T[], targetFrame: number): number {
+export function lowerBoundByFrameIndex<T extends { frameIndex?: number }>(
+  events: T[],
+  targetFrame: number
+): number {
   let lo = 0;
   let hi = events.length;
   while (lo < hi) {
@@ -60,7 +54,10 @@ export function lowerBoundByFrameIndex<T extends { frameIndex?: number }>(events
   return lo;
 }
 
-export function upperBoundByFrameIndex<T extends { frameIndex?: number }>(events: T[], targetFrame: number): number {
+export function upperBoundByFrameIndex<T extends { frameIndex?: number }>(
+  events: T[],
+  targetFrame: number
+): number {
   let lo = 0;
   let hi = events.length;
   while (lo < hi) {
@@ -142,8 +139,8 @@ export class StateInputTimeline {
     this.tickRate = tickRate;
     this.frames = frames;
     this.frameSlots = frameSlots;
-    this.startTick = frameCount > 0 ? frameSlots[0]?.tick ?? 0 : 0;
-    this.endTick = frameCount > 0 ? frameSlots[frameCount - 1]?.tick ?? 0 : 0;
+    this.startTick = frameCount > 0 ? (frameSlots[0]?.tick ?? 0) : 0;
+    this.endTick = frameCount > 0 ? (frameSlots[frameCount - 1]?.tick ?? 0) : 0;
   }
 
   get count(): number {
@@ -230,7 +227,10 @@ export class IncidentTimeline {
     return this.byFrameMap.get(Math.floor(frameIndex)) || [];
   }
 
-  getEventsInFrameRange(startFrameInclusive: number, endFrameInclusive: number): DecodedIncidentEvent[] {
+  getEventsInFrameRange(
+    startFrameInclusive: number,
+    endFrameInclusive: number
+  ): DecodedIncidentEvent[] {
     if (this.events.length === 0) return [];
     const loFrame = Math.min(startFrameInclusive, endFrameInclusive);
     const hiFrame = Math.max(startFrameInclusive, endFrameInclusive);
@@ -240,7 +240,10 @@ export class IncidentTimeline {
     return this.events.slice(startIdx, endIdx);
   }
 
-  getEventsInTickRange(startTickInclusive: number, endTickInclusive: number): DecodedIncidentEvent[] {
+  getEventsInTickRange(
+    startTickInclusive: number,
+    endTickInclusive: number
+  ): DecodedIncidentEvent[] {
     if (this.events.length === 0) return [];
     const loTick = Math.min(startTickInclusive, endTickInclusive);
     const hiTick = Math.max(startTickInclusive, endTickInclusive);

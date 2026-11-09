@@ -102,7 +102,7 @@ export interface RuntimeDomainPortOwner {
 }
 
 export function createRuntimePerfTelemetrySampler(
-  owner: RuntimeDomainPortOwner,
+  owner: RuntimeDomainPortOwner
 ): PerfTelemetrySamplerPort {
   return {
     getProfiler: () => owner.profiler,
@@ -111,28 +111,40 @@ export function createRuntimePerfTelemetrySampler(
     getPhysicsRate: () => owner.networkManager.diagnosticsProbe.getPhysicsRate(),
     getNetworkLatencyInfo: () => {
       const ch = owner.networkManager.sessionCoordinator.networkChannel as
-        | (NetworkSessionChannelLike & { isLoopback?: boolean; measuredRttMs?: number })
-        | null;
+        (NetworkSessionChannelLike & { isLoopback?: boolean; measuredRttMs?: number }) | null;
       const reconciler = owner.networkManager.sessionCoordinator.networkReconciler;
       if (!ch && !reconciler) {
         return {
-          rttMs: 0, extraRttMs: 0, uplinkMs: 0, downlinkMs: 0,
-          extraUplinkMs: 0, extraDownlinkMs: 0, baseLatency: 0, extraLatency: 0,
+          rttMs: 0,
+          extraRttMs: 0,
+          uplinkMs: 0,
+          downlinkMs: 0,
+          extraUplinkMs: 0,
+          extraDownlinkMs: 0,
+          baseLatency: 0,
+          extraLatency: 0,
         };
       }
       if (reconciler && typeof reconciler._resolveLatencyBreakdown === 'function') {
         const b = reconciler._resolveLatencyBreakdown();
         return {
-          rttMs: b.rttMs, extraRttMs: b.extraRttMs, uplinkMs: b.uplinkMs,
-          downlinkMs: b.downlinkMs, extraUplinkMs: b.extraUplinkMs,
-          extraDownlinkMs: b.extraDownlinkMs, baseLatency: b.rttMs, extraLatency: b.extraRttMs,
+          rttMs: b.rttMs,
+          extraRttMs: b.extraRttMs,
+          uplinkMs: b.uplinkMs,
+          downlinkMs: b.downlinkMs,
+          extraUplinkMs: b.extraUplinkMs,
+          extraDownlinkMs: b.extraDownlinkMs,
+          baseLatency: b.rttMs,
+          extraLatency: b.extraRttMs,
         };
       }
       const extraUplinkMs = Math.max(
-        0, Math.round(Number(ch?.extraUplinkMs ?? ch?.extraLatencyMs ?? 0) || 0),
+        0,
+        Math.round(Number(ch?.extraUplinkMs ?? ch?.extraLatencyMs ?? 0) || 0)
       );
       const extraDownlinkMs = Math.max(
-        0, Math.round(Number(ch?.extraDownlinkMs ?? ch?.extraLatencyMs ?? 0) || 0),
+        0,
+        Math.round(Number(ch?.extraDownlinkMs ?? ch?.extraLatencyMs ?? 0) || 0)
       );
       const extraRttMs = extraUplinkMs + extraDownlinkMs;
 
@@ -155,8 +167,14 @@ export function createRuntimePerfTelemetrySampler(
       const downlinkMs = baseDownlink + extraDownlinkMs;
 
       return {
-        rttMs: uplinkMs + downlinkMs, extraRttMs, uplinkMs, downlinkMs,
-        extraUplinkMs, extraDownlinkMs, baseLatency: uplinkMs + downlinkMs, extraLatency: extraRttMs,
+        rttMs: uplinkMs + downlinkMs,
+        extraRttMs,
+        uplinkMs,
+        downlinkMs,
+        extraUplinkMs,
+        extraDownlinkMs,
+        baseLatency: uplinkMs + downlinkMs,
+        extraLatency: extraRttMs,
       };
     },
   };
@@ -201,15 +219,11 @@ export function createRuntimeReplayPort(owner: RuntimeDomainPortOwner): RuntimeR
     },
     prepareForReplayViewerEntry: () => {
       const freeplayMode = owner.modeManager?.modes?.get?.('freeplay') as
-        | FreeplayModeCleanupPort
-        | undefined;
+        FreeplayModeCleanupPort | undefined;
       if (freeplayMode?.nameTagTunerController?.isActive) {
         freeplayMode.nameTagTunerController.exitTunerArena();
       }
-      if (
-        freeplayMode?.directorPreview?.isReplayActive ||
-        freeplayMode?.isGoalReplayActive?.()
-      ) {
+      if (freeplayMode?.directorPreview?.isReplayActive || freeplayMode?.isGoalReplayActive?.()) {
         freeplayMode.exitDirectorPatternPreview?.();
       }
       if (freeplayMode?.rewinderController?.isBlockingLivePhysics) {
@@ -237,18 +251,26 @@ export function createRuntimeReplayPort(owner: RuntimeDomainPortOwner): RuntimeR
           : true;
       const recorder =
         (session.networkReconciler?.telemetryCollector.recorder as
-          | PacingTelemetryRecorderPort
-          | undefined) || globalPacingTelemetryRecorder;
+          PacingTelemetryRecorderPort | undefined) || globalPacingTelemetryRecorder;
       const serverFrames = Number(session.authoritativeServer?.hostReplayRingBuffer?.size ?? 0);
       const activeCarMask = Number(owner.physics?.getActiveCarMask?.() ?? 0);
       const rosterSnapshot = net.rosterSyncCoordinator.lastRosterSnapshot;
       const rosterList = Array.isArray(rosterSnapshot?.players) ? rosterSnapshot.players : [];
 
       return {
-        isOnlineSession, isLobby, matchState, isHosting,
+        isOnlineSession,
+        isLobby,
+        matchState,
+        isHosting,
         localPlayerCarIndex: owner.playerCarIndex ?? 0,
-        activeCarMask, clientFrames, clientRecordingActive, clientOverflowPaused,
-        maxClientFrames, autoPauseOnOverflow, recorder, serverFrames,
+        activeCarMask,
+        clientFrames,
+        clientRecordingActive,
+        clientOverflowPaused,
+        maxClientFrames,
+        autoPauseOnOverflow,
+        recorder,
+        serverFrames,
         blueScore: owner.match?.state?.blueScore ?? 0,
         orangeScore: owner.match?.state?.orangeScore ?? 0,
         durationSeconds: owner.match?.state?.durationSeconds ?? 300,
@@ -259,7 +281,10 @@ export function createRuntimeReplayPort(owner: RuntimeDomainPortOwner): RuntimeR
     setDiagnosticMaxCapacity: (frames) => {
       owner.networkManager.diagnosticDumpMaxFrames = frames;
       const clientFrames = Number(owner.physics?.getReplayFrameCount?.() ?? 0);
-      if (clientFrames < frames && owner.networkManager.sessionCoordinator.clientReplayOverflowPaused) {
+      if (
+        clientFrames < frames &&
+        owner.networkManager.sessionCoordinator.clientReplayOverflowPaused
+      ) {
         owner.networkManager.sessionCoordinator.clientReplayOverflowPaused = false;
         owner.physics?.setReplayRecordingActive?.(true);
       }
@@ -285,8 +310,7 @@ export function createRuntimeReplayPort(owner: RuntimeDomainPortOwner): RuntimeR
       }
       const recorder =
         (session.networkReconciler?.telemetryCollector.recorder as
-          | PacingTelemetryRecorderPort
-          | undefined) || globalPacingTelemetryRecorder;
+          PacingTelemetryRecorderPort | undefined) || globalPacingTelemetryRecorder;
       const pacing = session.networkReconciler?.pacingController;
       recorder?.reset?.({
         mode: pacing?.clockPacingMode || 'csts',
@@ -295,21 +319,24 @@ export function createRuntimeReplayPort(owner: RuntimeDomainPortOwner): RuntimeR
       });
     },
     extractClientReplayTracks: () => {
-      const tracks = owner.physics?.extractWasmReplayTracks?.() as
-        | WasmReplayTracksPort
-        | undefined;
+      const tracks = owner.physics?.extractWasmReplayTracks?.() as WasmReplayTracksPort | undefined;
       return tracks && tracks.frameCount > 0 ? tracks : null;
     },
     extractServerReplaySlots: () => {
-      const ringBuffer = owner.networkManager.sessionCoordinator.authoritativeServer?.hostReplayRingBuffer as
-        | { getRecentFrames?(): Float32Array[] }
-        | undefined;
+      const ringBuffer = owner.networkManager.sessionCoordinator.authoritativeServer
+        ?.hostReplayRingBuffer as { getRecentFrames?(): Float32Array[] } | undefined;
       return ringBuffer?.getRecentFrames?.() || [];
     },
     retainAndExportStandaloneClientReplay: (isLobby) => {
       const clientFrames = Number(owner.physics?.getReplayFrameCount?.() ?? 0);
       const freeplayMode = owner.modeManager?.modes?.get?.('freeplay') as
-        | { replayRingBuffer?: typeof owner.networkManager.sessionCoordinator.authoritativeServer extends { hostReplayRingBuffer: infer R } | null ? R : never }
+        | {
+            replayRingBuffer?: typeof owner.networkManager.sessionCoordinator.authoritativeServer extends {
+              hostReplayRingBuffer: infer R;
+            } | null
+              ? R
+              : never;
+          }
         | undefined;
       const fallbackRingBuffer =
         owner.networkManager.sessionCoordinator.authoritativeServer?.hostReplayRingBuffer ||

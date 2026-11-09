@@ -37,7 +37,11 @@ export interface ExpPhysicsEnginePort {
   setControls: (carIndex: number, controls: CarControls) => void;
   setBallState: (
     state:
-      | { pos: [number, number, number]; vel: [number, number, number]; angVel: [number, number, number] }
+      | {
+          pos: [number, number, number];
+          vel: [number, number, number];
+          angVel: [number, number, number];
+        }
       | Float32Array
   ) => boolean | void;
   getBallState?: () => Float32Array | ArrayLike<number>;
@@ -74,7 +78,10 @@ export interface ExpModeRuntimePort {
     playerCarIndex?: number;
     cars?: Array<{ visible: boolean }>;
     carDemolitions?: Array<{ stop?: () => void } | null | undefined>;
-    supersonicWheelTrailSystem?: { clear?: () => void; resetCar?: (carIndex: number) => void } | null;
+    supersonicWheelTrailSystem?: {
+      clear?: () => void;
+      resetCar?: (carIndex: number) => void;
+    } | null;
     lighting?: { updateSunIntensities?: (scale?: number) => void } | null;
     ensureOpponent?: () => Promise<void> | void;
     ensureCar?: (carIndex: number, team: 0 | 1, visualId: string) => void;
@@ -289,8 +296,7 @@ export function computeKickoffSpawnPlacement(
   isFlipping: boolean;
   boost: number;
 } {
-  const perm =
-    KICKOFF_SLOT_PERMUTATIONS[permutationSeed % KICKOFF_SLOT_PERMUTATIONS.length];
+  const perm = KICKOFF_SLOT_PERMUTATIONS[permutationSeed % KICKOFF_SLOT_PERMUTATIONS.length];
   const presetIdx = perm[entry.teamSlotIndex % perm.length] ?? 0;
   const preset = KICKOFF_SPAWN_PRESETS[presetIdx] || KICKOFF_SPAWN_PRESETS[0];
   const coord = entry.team === 0 ? preset.team0 : preset.team1;
@@ -356,8 +362,7 @@ export function resolveGoalAttribution(
     scorerName = lastTeamTouch.playerName;
     scorerTouchTick = lastTeamTouch.tick;
   } else {
-    const fallbackEntry =
-      spawnedCars.find((c) => c.team === scoringTeam) || spawnedCars[0];
+    const fallbackEntry = spawnedCars.find((c) => c.team === scoringTeam) || spawnedCars[0];
     scorerCarIndex = fallbackEntry ? fallbackEntry.carIndex : 0;
     scorerName = fallbackEntry
       ? getExpCarDisplayName(fallbackEntry, spawnedCars)

@@ -14,10 +14,7 @@
  *   5. `boosts` [34 * 5]: 34 boost pads in local car frame (`[rx, ry, rz, amount, timer/10]`)
  */
 
-import {
-  CarStateView,
-  BallStateView,
-} from '../../physics/RocketSimStateViews.ts';
+import { CarStateView, BallStateView } from '../../physics/RocketSimStateViews.ts';
 import { resolveActiveCars } from './experimentalMultiCarObsPipeline.ts';
 import type { CarControls } from './botpack9700488Actions.ts';
 import {
@@ -48,37 +45,26 @@ const NUM_BALL_SLICES = 6; // t = 0, 1s, 2s, 3s, 4s, 5s
 // Normalization constants from src/obs.py:
 // NORM = [2300]*6 + [6]*3 + [1]*6 + [1, 3, 1, 1, 1, 1, 12, 24, 150, 120, 1, 1, 1, 1, 1, 1, 1]
 const NORM_32 = new Float32Array([
-  2300, 2300, 2300, 2300, 2300, 2300,
-  6, 6, 6,
-  1, 1, 1, 1, 1, 1,
-  1, 3, 1, 1, 1, 1,
-  12, 24, 150, 120,
+  2300, 2300, 2300, 2300, 2300, 2300, 6, 6, 6, 1, 1, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1, 12, 24, 150, 120,
   1, 1, 1, 1, 1, 1, 1,
 ]);
 
 // INVERT_TEAM = [-1, -1, 1]*5 + [-1] + [1]*16
 const INVERT_TEAM_32 = new Float32Array([
-  -1, -1, 1, -1, -1, 1, -1, -1, 1, -1, -1, 1, -1, -1, 1,
-  -1,
-  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  -1, -1, 1, -1, -1, 1, -1, -1, 1, -1, -1, 1, -1, -1, 1, -1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1,
 ]);
 
 // INVERT_SIDE = [-1, 1, 1]*2 + [1, -1, -1] + [-1, 1, 1]*2 + [1]*17
 const INVERT_SIDE_32 = new Float32Array([
-  -1, 1, 1, -1, 1, 1,
-  1, -1, -1,
-  -1, 1, 1, -1, 1, 1,
-  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  -1, 1, 1, -1, 1, 1, 1, -1, -1, -1, 1, 1, -1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1,
 ]);
 
 // INVERT_SIDE_RELATIVE = [1, -1, 1]*2 + [-1, 1, -1] + [1, -1, 1]*2 + [1]*12 + [-1] + [1]*4
 const INVERT_SIDE_RELATIVE_32 = new Float32Array([
-  1, -1, 1, 1, -1, 1,
-  -1, 1, -1,
-  1, -1, 1, 1, -1, 1,
-  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-  -1,
-  1, 1, 1, 1,
+  1, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1, 1, 1, -1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, 1, 1,
+  1, 1,
 ]);
 
 const sBallView = new BallStateView();
@@ -155,7 +141,10 @@ export class RippleAgentState {
     tracker.updateTimers(simState, selfCarIndex, roster);
     tracker.prevPrevAction.set(tracker.prevExecutedAction);
 
-    const selfCv = (sCarViews[selfCarIndex] || new CarStateView()).attachCar(simState, selfCarIndex);
+    const selfCv = (sCarViews[selfCarIndex] || new CarStateView()).attachCar(
+      simState,
+      selfCarIndex
+    );
 
     // 1. Populate self player features [32]
     const main = this.main;
@@ -198,7 +187,8 @@ export class RippleAgentState {
     others.fill(0);
 
     // Collect other cars (up to 5; if >5, keep closest 5 to ball)
-    const otherList: Array<{ carIndex: number; team: number; distSq: number; cv: CarStateView }> = [];
+    const otherList: Array<{ carIndex: number; team: number; distSq: number; cv: CarStateView }> =
+      [];
     for (let i = 0; i < roster.length; i++) {
       const entry = roster[i];
       if (entry.carIndex === selfCarIndex) continue;
@@ -271,18 +261,8 @@ export class RippleAgentState {
       const bvy = predBuf[tickOff + 4];
       const bvz = predBuf[tickOff + 5];
 
-      const relPos = matMulRot3(
-        bpx - selfCv.posX,
-        bpy - selfCv.posY,
-        bpz - selfCv.posZ,
-        selfCv
-      );
-      const relVel = matMulRot3(
-        bvx - selfCv.velX,
-        bvy - selfCv.velY,
-        bvz - selfCv.velZ,
-        selfCv
-      );
+      const relPos = matMulRot3(bpx - selfCv.posX, bpy - selfCv.posY, bpz - selfCv.posZ, selfCv);
+      const relVel = matMulRot3(bvx - selfCv.velX, bvy - selfCv.velY, bvz - selfCv.velZ, selfCv);
       const relAng = matMulRot3(rawAng[0], rawAng[1], rawAng[2], selfCv);
 
       const dst = step * 9;

@@ -8,18 +8,18 @@
 import {
   DEFAULT_BGM_SCENE_CONFIG,
   type SpatialAudioTunerConfig,
-} from "../ui-core/config/spatialAudioConfig";
+} from '../ui-core/config/spatialAudioConfig.ts';
 import {
   useSpatialAudioStore,
   getFilteredBgmTracks,
   type SpatialAudioStorePortState,
-} from "../game/runtimeUiPort.ts";
+} from '../game/runtimeUiPort.ts';
 import {
   SpatialAudioBusChain,
   evaluateSpatialBezierBlend,
   stepSpatialBezierTransition,
   type SpatialAudioRuntimeContextSnapshot,
-} from "./SpatialAudioBusChain.ts";
+} from './SpatialAudioBusChain.ts';
 
 export interface BgmTrackEntry {
   id: string;
@@ -148,7 +148,10 @@ export class BackgroundMusicController {
   ): boolean {
     const scenes = store.bgmScenes || DEFAULT_BGM_SCENE_CONFIG;
     const matchMode = appState.matchMode;
-    const onlineSession = appState.onlineSession as { roomId?: string | null; roomType?: string | null } | null;
+    const onlineSession = appState.onlineSession as {
+      roomId?: string | null;
+      roomType?: string | null;
+    } | null;
     const hasOnlineRoom = Boolean(onlineSession?.roomId);
 
     if (hasOnlineRoom) {
@@ -201,8 +204,7 @@ export class BackgroundMusicController {
     }
 
     const isPreviewing =
-      this.host.isPreviewOrPreviewDrainActive() ||
-      store.previewingAnthemId !== null;
+      this.host.isPreviewOrPreviewDrainActive() || store.previewingAnthemId !== null;
 
     if (Boolean(appState.isOpen) && (store.isGarageAnthemTabActive || isPreviewing)) {
       return false;
@@ -297,11 +299,7 @@ export class BackgroundMusicController {
         const bgmChain = this.host.getBgmChain();
         if (bgmChain) {
           const bgmVolScalar = this.host.getBgmVolScalar(store);
-          bgmChain.applyBlend(
-            this.blend,
-            store.tunerConfig,
-            this.fadeEnvelope * bgmVolScalar
-          );
+          bgmChain.applyBlend(this.blend, store.tunerConfig, this.fadeEnvelope * bgmVolScalar);
         }
         audioEl
           .play()
@@ -345,11 +343,7 @@ export class BackgroundMusicController {
       const bgmChain = this.host.getBgmChain();
       if (bgmChain) {
         const bgmVolScalar = this.host.getBgmVolScalar(store);
-        bgmChain.applyBlend(
-          this.blend,
-          store.tunerConfig,
-          this.fadeEnvelope * bgmVolScalar
-        );
+        bgmChain.applyBlend(this.blend, store.tunerConfig, this.fadeEnvelope * bgmVolScalar);
       }
       audioEl
         .play()
@@ -423,9 +417,7 @@ export class BackgroundMusicController {
 
   applyTunerConfig(cfg: Partial<SpatialAudioTunerConfig>, bgmVolScalar: number): void {
     this.blend = evaluateSpatialBezierBlend(this.linearPhase, cfg);
-    this.host
-      .getBgmChain()
-      ?.applyBlend(this.blend, cfg, this.fadeEnvelope * bgmVolScalar);
+    this.host.getBgmChain()?.applyBlend(this.blend, cfg, this.fadeEnvelope * bgmVolScalar);
   }
 
   stepTransition(

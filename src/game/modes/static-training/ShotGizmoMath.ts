@@ -4,11 +4,7 @@ export const ARENA_MAX_X = 3980;
 export const ARENA_MAX_Y = 5020;
 export const ARENA_MAX_Z = 1950;
 
-export type StaticTrainingEditSubMode =
-  | 'car-heading'
-  | 'car-speed'
-  | 'ball-speed'
-  | 'free-cam';
+export type StaticTrainingEditSubMode = 'car-heading' | 'car-speed' | 'ball-speed' | 'free-cam';
 
 export interface ShotCarConfig {
   location?: [number, number, number];
@@ -113,11 +109,7 @@ export function computeLaunchVelocity(
   const s = Math.max(0, Number(speed) || 0);
   if (s <= 0.001) return [0, 0, 0];
   const cp = Math.cos(pitch);
-  return [
-    Math.cos(yaw) * cp * s,
-    Math.sin(yaw) * cp * s,
-    Math.sin(pitch) * s,
-  ];
+  return [Math.cos(yaw) * cp * s, Math.sin(yaw) * cp * s, Math.sin(pitch) * s];
 }
 
 export function computeCarLaunchKinematics(
@@ -145,9 +137,7 @@ export function computeCarLaunchKinematics(
     ? 100
     : Math.max(0, Math.min(100, Number(car.initialBoost) || 0));
   const spawnZ =
-    typeof currentCarPosZ === 'number'
-      ? currentCarPosZ
-      : Math.max(CAR_GROUND_MIN_Z, carLoc[2]);
+    typeof currentCarPosZ === 'number' ? currentCarPosZ : Math.max(CAR_GROUND_MIN_Z, carLoc[2]);
   const isOnGround = Boolean(car.snapToGround || spawnZ <= CAR_GROUND_MIN_Z + 2);
   const hasFlipOrJump = Boolean(car.snapToGround || car.hasFlip !== false);
   const rot: [number, number, number] = car.snapToGround
@@ -183,8 +173,7 @@ export function computeEditorContinuousDeltas(
 ): EditorContinuousDeltas {
   const { heldKeys, subMode, dt, camDirX, camDirZ } = input;
   const safeDt = Math.min(0.05, dt || 0.016);
-  const moveSpeed =
-    heldKeys.has('ShiftLeft') || heldKeys.has('ShiftRight') ? 1350 : 680;
+  const moveSpeed = heldKeys.has('ShiftLeft') || heldKeys.has('ShiftRight') ? 1350 : 680;
   const stepDist = moveSpeed * safeDt;
 
   let camFwdX = 0;
@@ -326,10 +315,7 @@ export function computeContinuousDeltasShotPatch(
     let nextSpeedYaw = shot.car.speedYaw;
     let nextSpeedPitch = shot.car.speedPitch;
     if (speedDelta !== 0) {
-      nextSpeed = Math.max(
-        0,
-        Math.min(2300, Number((shot.car.speed + speedDelta).toFixed(1)))
-      );
+      nextSpeed = Math.max(0, Math.min(2300, Number((shot.car.speed + speedDelta).toFixed(1))));
       if (shot.car.speedFollowsHeading !== false) {
         nextSpeedYaw = shot.car.headingYaw;
         nextSpeedPitch = nextSnapToGround ? 0 : shot.car.headingPitch;
@@ -376,10 +362,7 @@ export function computeContinuousDeltasShotPatch(
         nextKickoffState = false;
         nextBallSpeed = 0;
       } else {
-        nextBallSpeed = Math.min(
-          4000,
-          Number((shot.ball.speed + speedDelta).toFixed(1))
-        );
+        nextBallSpeed = Math.min(4000, Number((shot.ball.speed + speedDelta).toFixed(1)));
       }
     }
 
@@ -446,7 +429,9 @@ export function computeMouseDragShotPatch(
   return {};
 }
 
-export function hasPlayerDrivingInput(controls: PlayerDrivingControlsInput | null | undefined): boolean {
+export function hasPlayerDrivingInput(
+  controls: PlayerDrivingControlsInput | null | undefined
+): boolean {
   if (!controls) return false;
   return (
     Math.abs(controls.throttle || 0) > 0.05 ||
@@ -461,14 +446,25 @@ export function hasPlayerDrivingInput(controls: PlayerDrivingControlsInput | nul
 }
 
 export const EDITOR_HELD_KEY_CODES: ReadonlySet<string> = new Set([
-  'Space', 'KeyV', 'KeyW', 'KeyA', 'KeyS', 'KeyD',
-  'KeyQ', 'KeyE', 'KeyO', 'KeyP', 'BracketLeft', 'BracketRight', 'Backslash',
+  'Space',
+  'KeyV',
+  'KeyW',
+  'KeyA',
+  'KeyS',
+  'KeyD',
+  'KeyQ',
+  'KeyE',
+  'KeyO',
+  'KeyP',
+  'BracketLeft',
+  'BracketRight',
+  'Backslash',
 ]);
 
 export function computeDiscreteEditKeyMutation(
   code: string,
   subMode: StaticTrainingEditSubMode,
-  item: StaticTrainingShotConfig | null,
+  item: StaticTrainingShotConfig | null
 ): {
   carPatch?: Partial<ShotCarConfig>;
   ballPatch?: Partial<ShotBallConfig>;

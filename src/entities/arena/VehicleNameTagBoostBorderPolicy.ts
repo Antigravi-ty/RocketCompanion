@@ -4,13 +4,10 @@ import type {
   NameTagBoostBorderSceneFlags,
   NameTagCarEntry,
   NameTagConfig,
-} from '../../ui-core/config/nameTagConfig';
+} from '../../ui-core/config/nameTagConfig.ts';
 
 export type NameTagBoostBorderSceneContext =
-  | 'matchPlaying'
-  | 'goalReplay'
-  | 'cinematicCamera'
-  | 'tunerOverview';
+  'matchPlaying' | 'goalReplay' | 'cinematicCamera' | 'tunerOverview';
 
 export interface ResolveCarBoostBorderInput {
   config: NameTagConfig;
@@ -130,9 +127,7 @@ export function resolveCarBoostBorderState(
   );
 
   const fallbackBoost =
-    config.previewBoostAmounts?.[carIndex] ??
-    config.previewBoostAmounts?.[carIndex % 6] ??
-    100;
+    config.previewBoostAmounts?.[carIndex] ?? config.previewBoostAmounts?.[carIndex % 6] ?? 100;
   const rawBoost =
     typeof carEntry?.boostAmount === 'number' && Number.isFinite(carEntry.boostAmount)
       ? carEntry.boostAmount
@@ -146,16 +141,12 @@ export function resolveCarBoostBorderState(
 
   const offscreenAudienceVisible =
     Boolean(config.offscreenIndicatorEnabled) &&
-    evaluateAudienceVisibility(
-      config.offscreenAudience || 'teammates',
-      carTeam,
-      focusedCarTeam
-    );
+    evaluateAudienceVisibility(config.offscreenAudience || 'teammates', carTeam, focusedCarTeam);
 
   const fallbackClimbing = Boolean(
     config.previewAerialClimbingFlags?.[carIndex] ??
-      config.previewAerialClimbingFlags?.[carIndex % 6] ??
-      false
+    config.previewAerialClimbingFlags?.[carIndex % 6] ??
+    false
   );
   const isDoubleJumpedAndClimbing =
     typeof carEntry?.isDoubleJumpedAndClimbing === 'boolean'
@@ -244,21 +235,13 @@ export function resolveCarBoostBorderState(
   if (sceneContext === 'goalReplay' || sceneContext === 'cinematicCamera') {
     visible =
       config.showBoostBorderInGoalReplay &&
-      evaluateAudienceVisibility(
-        config.boostBorderReplayAudience,
-        carTeam,
-        focusedCarTeam
-      );
+      evaluateAudienceVisibility(config.boostBorderReplayAudience, carTeam, focusedCarTeam);
   } else if (sceneContext === 'tunerOverview') {
     visible = config.showBoostBorderInMatchPlaying;
   } else {
     visible =
       config.showBoostBorderInMatchPlaying &&
-      evaluateAudienceVisibility(
-        config.boostBorderMatchAudience,
-        carTeam,
-        focusedCarTeam
-      );
+      evaluateAudienceVisibility(config.boostBorderMatchAudience, carTeam, focusedCarTeam);
   }
 
   return makeResult(visible);

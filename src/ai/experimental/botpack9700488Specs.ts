@@ -20,25 +20,148 @@ export interface ExperimentalBotPolicyMeta {
   scriptedKickoff: boolean;
 }
 
-export const EXPERIMENTAL_BOT_POLICIES: ReadonlyArray<Readonly<ExperimentalBotPolicyMeta>> = Object.freeze([
-  { id: 'nexto', name: 'Nexto (Native SafeTensors)', shortName: 'Nexto', rank: 'Grand Champion', modelUrl: EXPERIMENTAL_MODEL_URLS.nexto, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'legacy', scriptedKickoff: true },
-  { id: 'necto', name: 'Necto (Native SafeTensors)', shortName: 'Necto', rank: 'Diamond', modelUrl: EXPERIMENTAL_MODEL_URLS.necto, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'legacy', scriptedKickoff: false },
-  { id: 'heuristic', name: 'Tactical Heuristic (Multi-Role)', shortName: 'Heuristic', rank: 'All-Star', modelUrl: null, tickSkip: 4, maxPlayers: 3, showcaseFormat: '3v3', category: 'legacy', scriptedKickoff: false },
-  { id: 'chronos', name: 'Chronos v2.1 (Botpack #9700488)', shortName: 'Chronos v2.1', rank: 'SSL (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.chronos, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
-  { id: 'dice', name: 'Dice (Botpack #9700488)', shortName: 'Dice', rank: 'GC (2v2)', modelUrl: EXPERIMENTAL_MODEL_URLS.dice, tickSkip: 8, maxPlayers: 2, showcaseFormat: '2v2', category: 'botpack_9700488', scriptedKickoff: false },
-  { id: 'ducky', name: 'Ducky (Botpack #9700488)', shortName: 'Ducky', rank: 'GC (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.ducky, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
-  { id: 'fury', name: 'Fury (Botpack #9700488)', shortName: 'Fury', rank: 'SSL (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.fury, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
-  { id: 'galactus', name: 'Galactus v2 (Botpack #9700488)', shortName: 'Galactus v2', rank: 'GC (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.galactus, tickSkip: 8, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
-  { id: 'kira', name: 'Kira (Botpack #9700488)', shortName: 'Kira', rank: 'SSL Duel (1v1)', modelUrl: EXPERIMENTAL_MODEL_URLS.kira, tickSkip: 8, maxPlayers: 1, showcaseFormat: '1v1', category: 'botpack_9700488', scriptedKickoff: false },
-  { id: 'rain', name: 'Rain (Botpack #9700488)', shortName: 'Rain', rank: 'SSL (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.rain, tickSkip: 6, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
-  { id: 'ripple_v1_1', name: 'Ripple v1.1 (Botpack #9700488)', shortName: 'Ripple v1.1', rank: 'SSL Human-Pretrained (3v3)', modelUrl: EXPERIMENTAL_MODEL_URLS.ripple_v1_1, tickSkip: 4, maxPlayers: 3, showcaseFormat: '3v3', category: 'botpack_9700488', scriptedKickoff: false },
-]);
+export const EXPERIMENTAL_BOT_POLICIES: ReadonlyArray<Readonly<ExperimentalBotPolicyMeta>> =
+  Object.freeze([
+    {
+      id: 'nexto',
+      name: 'Nexto (Native SafeTensors)',
+      shortName: 'Nexto',
+      rank: 'Grand Champion',
+      modelUrl: EXPERIMENTAL_MODEL_URLS.nexto,
+      tickSkip: 8,
+      maxPlayers: 3,
+      showcaseFormat: '3v3',
+      category: 'legacy',
+      scriptedKickoff: true,
+    },
+    {
+      id: 'necto',
+      name: 'Necto (Native SafeTensors)',
+      shortName: 'Necto',
+      rank: 'Diamond',
+      modelUrl: EXPERIMENTAL_MODEL_URLS.necto,
+      tickSkip: 8,
+      maxPlayers: 3,
+      showcaseFormat: '3v3',
+      category: 'legacy',
+      scriptedKickoff: false,
+    },
+    {
+      id: 'heuristic',
+      name: 'Tactical Heuristic (Multi-Role)',
+      shortName: 'Heuristic',
+      rank: 'All-Star',
+      modelUrl: null,
+      tickSkip: 4,
+      maxPlayers: 3,
+      showcaseFormat: '3v3',
+      category: 'legacy',
+      scriptedKickoff: false,
+    },
+    {
+      id: 'chronos',
+      name: 'Chronos v2.1 (Botpack #9700488)',
+      shortName: 'Chronos v2.1',
+      rank: 'SSL (3v3)',
+      modelUrl: EXPERIMENTAL_MODEL_URLS.chronos,
+      tickSkip: 8,
+      maxPlayers: 3,
+      showcaseFormat: '3v3',
+      category: 'botpack_9700488',
+      scriptedKickoff: false,
+    },
+    {
+      id: 'dice',
+      name: 'Dice (Botpack #9700488)',
+      shortName: 'Dice',
+      rank: 'GC (2v2)',
+      modelUrl: EXPERIMENTAL_MODEL_URLS.dice,
+      tickSkip: 8,
+      maxPlayers: 2,
+      showcaseFormat: '2v2',
+      category: 'botpack_9700488',
+      scriptedKickoff: false,
+    },
+    {
+      id: 'ducky',
+      name: 'Ducky (Botpack #9700488)',
+      shortName: 'Ducky',
+      rank: 'GC (3v3)',
+      modelUrl: EXPERIMENTAL_MODEL_URLS.ducky,
+      tickSkip: 8,
+      maxPlayers: 3,
+      showcaseFormat: '3v3',
+      category: 'botpack_9700488',
+      scriptedKickoff: false,
+    },
+    {
+      id: 'fury',
+      name: 'Fury (Botpack #9700488)',
+      shortName: 'Fury',
+      rank: 'SSL (3v3)',
+      modelUrl: EXPERIMENTAL_MODEL_URLS.fury,
+      tickSkip: 8,
+      maxPlayers: 3,
+      showcaseFormat: '3v3',
+      category: 'botpack_9700488',
+      scriptedKickoff: false,
+    },
+    {
+      id: 'galactus',
+      name: 'Galactus v2 (Botpack #9700488)',
+      shortName: 'Galactus v2',
+      rank: 'GC (3v3)',
+      modelUrl: EXPERIMENTAL_MODEL_URLS.galactus,
+      tickSkip: 8,
+      maxPlayers: 3,
+      showcaseFormat: '3v3',
+      category: 'botpack_9700488',
+      scriptedKickoff: false,
+    },
+    {
+      id: 'kira',
+      name: 'Kira (Botpack #9700488)',
+      shortName: 'Kira',
+      rank: 'SSL Duel (1v1)',
+      modelUrl: EXPERIMENTAL_MODEL_URLS.kira,
+      tickSkip: 8,
+      maxPlayers: 1,
+      showcaseFormat: '1v1',
+      category: 'botpack_9700488',
+      scriptedKickoff: false,
+    },
+    {
+      id: 'rain',
+      name: 'Rain (Botpack #9700488)',
+      shortName: 'Rain',
+      rank: 'SSL (3v3)',
+      modelUrl: EXPERIMENTAL_MODEL_URLS.rain,
+      tickSkip: 6,
+      maxPlayers: 3,
+      showcaseFormat: '3v3',
+      category: 'botpack_9700488',
+      scriptedKickoff: false,
+    },
+    {
+      id: 'ripple_v1_1',
+      name: 'Ripple v1.1 (Botpack #9700488)',
+      shortName: 'Ripple v1.1',
+      rank: 'SSL Human-Pretrained (3v3)',
+      modelUrl: EXPERIMENTAL_MODEL_URLS.ripple_v1_1,
+      tickSkip: 4,
+      maxPlayers: 3,
+      showcaseFormat: '3v3',
+      category: 'botpack_9700488',
+      scriptedKickoff: false,
+    },
+  ]);
 
-export const BOTPACK_9700488_POLICIES: ReadonlyArray<Readonly<ExperimentalBotPolicyMeta>> = Object.freeze(
-  EXPERIMENTAL_BOT_POLICIES.filter((p) => p.category === 'botpack_9700488')
-);
+export const BOTPACK_9700488_POLICIES: ReadonlyArray<Readonly<ExperimentalBotPolicyMeta>> =
+  Object.freeze(EXPERIMENTAL_BOT_POLICIES.filter((p) => p.category === 'botpack_9700488'));
 
-export function getExperimentalBotPolicyMeta(botType: string): Readonly<ExperimentalBotPolicyMeta> | null {
+export function getExperimentalBotPolicyMeta(
+  botType: string
+): Readonly<ExperimentalBotPolicyMeta> | null {
   return EXPERIMENTAL_BOT_POLICIES.find((p) => p.id === botType) || null;
 }
 

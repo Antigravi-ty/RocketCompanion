@@ -28,14 +28,8 @@ export function injectSpecularAAShader(
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSpecularAAStrength = specularAAUniforms.uSpecularAAStrength;
     shader.fragmentShader = shader.fragmentShader
-      .replace(
-        '#include <common>',
-        '#include <common>\nuniform float uSpecularAAStrength;'
-      )
-      .replace(
-        '#include <roughnessmap_fragment>',
-        SPECULAR_AA_ROUGHNESS_FRAGMENT_CHUNK
-      );
+      .replace('#include <common>', '#include <common>\nuniform float uSpecularAAStrength;')
+      .replace('#include <roughnessmap_fragment>', SPECULAR_AA_ROUGHNESS_FRAGMENT_CHUNK);
   };
   material.customProgramCacheKey = () => 'driftwoods-standard-specular-aa-v1';
 }
@@ -73,10 +67,7 @@ export function injectGroundDetailShader(
     shader.uniforms.uOrangeTeamColor = wallFxUniforms.uOrangeTeamColor;
 
     shader.vertexShader = shader.vertexShader
-      .replace(
-        '#include <common>',
-        '#include <common>\nvarying vec3 vGroundWorldPos;'
-      )
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGroundWorldPos;')
       .replace(
         '#include <worldpos_vertex>',
         `#include <worldpos_vertex>

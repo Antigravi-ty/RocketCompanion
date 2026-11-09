@@ -9,14 +9,14 @@ import {
 import {
   isFreeplayConfigScopeActive,
   isTrainingGoalBarrierScopeActive,
-} from '../../ui-core/config/trainingDefaults';
+} from '../../ui-core/config/trainingDefaults.ts';
 import {
   getPreferredColorHex,
   getPreferredFreeplayTeam,
   garageSettingsStore,
-} from '../../ui-core/config/vehiclePresets';
-import { getMaterialsConfig } from '../../ui-core/config/materialsConfig';
-import { getVehicleDescriptor } from '../../ui-core/config/vehicleTunerConfig';
+} from '../../ui-core/config/vehiclePresets.ts';
+import { getMaterialsConfig } from '../../ui-core/config/materialsConfig.ts';
+import { getVehicleDescriptor } from '../../ui-core/config/vehicleTunerConfig.ts';
 import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
 import type { MaterialsConfigLike } from './onlineLobbyTransitionPipeline.ts';
 import {
@@ -38,9 +38,9 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
     const onlineSession = useAppStore.getState().onlineSession;
     return Boolean(
       onlineSession?.isHosting ||
-        onlineSession?.signalingConnected ||
-        onlineSession?.roomId ||
-        owner.botCoordinator.isBotMatch,
+      onlineSession?.signalingConnected ||
+      onlineSession?.roomId ||
+      owner.botCoordinator.isBotMatch
     );
   };
 
@@ -55,22 +55,33 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
     if (!cachedGoalBarrier) return;
     const { decomposition, targetGoal, enabled, opacity, chunks } = cachedGoalBarrier;
     const effectiveEnabled = Boolean(
-      enabled && isTrainingGoalBarrierScopeActive(resolveActiveMode(modeOverride), isOnlineSessionActive()),
+      enabled &&
+      isTrainingGoalBarrierScopeActive(resolveActiveMode(modeOverride), isOnlineSessionActive())
     );
     owner.arena?.environment.updateGoalBarrier(
       decomposition as unknown as Parameters<ArenaWorld['environment']['updateGoalBarrier']>[0],
       targetGoal,
       effectiveEnabled,
-      opacity,
+      opacity
     );
-    if ((forcePhysicsUpdate || effectiveEnabled !== appliedGoalBarrierEffectiveEnabled) && owner.physics?.setGoalBarrierChunks) {
+    if (
+      (forcePhysicsUpdate || effectiveEnabled !== appliedGoalBarrierEffectiveEnabled) &&
+      owner.physics?.setGoalBarrierChunks
+    ) {
       appliedGoalBarrierEffectiveEnabled = effectiveEnabled;
       const meta = effectiveEnabled
-        ? { enabled: decomposition.mergedRects.length > 0, targetGoal, rects: decomposition.mergedRects }
+        ? {
+            enabled: decomposition.mergedRects.length > 0,
+            targetGoal,
+            rects: decomposition.mergedRects,
+          }
         : null;
       const activeChunks = effectiveEnabled ? chunks : [];
       owner.physics.setGoalBarrierChunks(activeChunks, meta);
-      owner.networkManager.sessionCoordinator.authoritativeServer?.fallbackSim?.setGoalBarrierChunks?.(activeChunks, meta);
+      owner.networkManager.sessionCoordinator.authoritativeServer?.fallbackSim?.setGoalBarrierChunks?.(
+        activeChunks,
+        meta
+      );
       owner.interpolator?.sync?.();
     }
   };
@@ -92,30 +103,47 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
       const onlineSession = useAppStore.getState().onlineSession;
       const isActiveOnlineRoom = isOnlineSessionActive();
       const currentMode = owner.match?.state?.mode;
-      if ((currentMode === 'freeplay' || currentMode === 'static-training-pack') && !isActiveOnlineRoom) {
+      if (
+        (currentMode === 'freeplay' || currentMode === 'static-training-pack') &&
+        !isActiveOnlineRoom
+      ) {
         const freeplayTeam = getPreferredFreeplayTeam();
         const prevTeam = owner.teamAssignment?.playerTeam;
         if (owner.teamAssignment) owner.teamAssignment.playerTeam = freeplayTeam;
         owner.arena?.vehicleRegistry.setCarTeam(playerIdx, freeplayTeam);
         owner.physics?.setCarTeam?.(playerIdx, freeplayTeam);
-        owner.networkManager.sessionCoordinator.authoritativeServer?.fallbackSim?.setCarTeam?.(playerIdx, freeplayTeam);
+        owner.networkManager.sessionCoordinator.authoritativeServer?.fallbackSim?.setCarTeam?.(
+          playerIdx,
+          freeplayTeam
+        );
         hudStore.getState().setMatchState({ localTeam: freeplayTeam });
         const ntState = getNameTagRuntimeState();
         if (Array.isArray(ntState?.carEntries) && ntState.carEntries.length > 0) {
           setNameTagRuntimeState({
-            carEntries: ntState.carEntries.map((c) => (c.carIndex === playerIdx ? { ...c, team: freeplayTeam } : c)),
+            carEntries: ntState.carEntries.map((c) =>
+              c.carIndex === playerIdx ? { ...c, team: freeplayTeam } : c
+            ),
           });
         }
         owner.setCarColor(playerIdx, effectiveHex);
         if (currentMode === 'static-training-pack' && prevTeam !== freeplayTeam) {
-          (owner.modeManager?.activeMode as { reloadCurrentShot?: () => void } | null)?.reloadCurrentShot?.();
+          (
+            owner.modeManager?.activeMode as { reloadCurrentShot?: () => void } | null
+          )?.reloadCurrentShot?.();
         }
         return;
       } else if (isActiveOnlineRoom) {
         const localTeamStr = onlineSession?.localTeam;
         const assignedTeam: 0 | 1 | null =
-          localTeamStr === 'orange' ? 1 : localTeamStr === 'blue' ? 0 : owner.botCoordinator.isBotMatch ? 0 : null;
-        if (assignedTeam === 0 || assignedTeam === 1) effectiveHex = getPreferredColorHex(null, assignedTeam);
+          localTeamStr === 'orange'
+            ? 1
+            : localTeamStr === 'blue'
+              ? 0
+              : owner.botCoordinator.isBotMatch
+                ? 0
+                : null;
+        if (assignedTeam === 0 || assignedTeam === 1)
+          effectiveHex = getPreferredColorHex(null, assignedTeam);
       }
       owner.setCarColor(playerIdx, effectiveHex);
     },
@@ -129,7 +157,10 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
           owner.teamAssignment.opponentTeam = freeplayTeam === 0 ? 1 : 0;
         }
         owner.physics?.setCarTeam?.(playerIdx, freeplayTeam);
-        owner.networkManager.sessionCoordinator.authoritativeServer?.fallbackSim?.setCarTeam?.(playerIdx, freeplayTeam);
+        owner.networkManager.sessionCoordinator.authoritativeServer?.fallbackSim?.setCarTeam?.(
+          playerIdx,
+          freeplayTeam
+        );
         owner.arena?.vehicleRegistry.setCarTeam(playerIdx, freeplayTeam);
         hudStore.getState().setMatchState({ localTeam: freeplayTeam });
       }
@@ -163,7 +194,11 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
           });
         }
       }
-      owner.arena?.vehicleRegistry.setCarHitboxesVisible(gameplayConfig.showCarHitbox, showAll, owner.arena.playerCarIndex ?? 0);
+      owner.arena?.vehicleRegistry.setCarHitboxesVisible(
+        gameplayConfig.showCarHitbox,
+        showAll,
+        owner.arena.playerCarIndex ?? 0
+      );
     },
     applyTrajectorySettings: (trajectoryConfig) => {
       owner.ballTrajectoryPredictor?.updateSettings?.(trajectoryConfig);
@@ -230,38 +265,62 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
     applyCustomVehicleTuner: (vehicleId, hitboxPreset) => {
       owner.arena?.vehicleRegistry.refreshCustomVehicle(vehicleId);
       const desc = getVehicleDescriptor(vehicleId);
-      if (owner.selectedPreset === vehicleId && (hitboxPreset || desc?.threeWheels || vehicleId === 'trioctane-threewheel')) {
-        const isThreeWheels = Boolean(desc?.threeWheels || vehicleId === 'trioctane-threewheel' || hitboxPreset === 'hitbox-psyclops');
-        const hb = isThreeWheels ? 'hitbox-psyclops' : (hitboxPreset || desc?.hitboxPreset || owner.selectedHitbox || 'hitbox-octane');
+      if (
+        owner.selectedPreset === vehicleId &&
+        (hitboxPreset || desc?.threeWheels || vehicleId === 'trioctane-threewheel')
+      ) {
+        const isThreeWheels = Boolean(
+          desc?.threeWheels ||
+          vehicleId === 'trioctane-threewheel' ||
+          hitboxPreset === 'hitbox-psyclops'
+        );
+        const hb = isThreeWheels
+          ? 'hitbox-psyclops'
+          : hitboxPreset || desc?.hitboxPreset || owner.selectedHitbox || 'hitbox-octane';
         owner.selectedHitbox = hb;
         owner.physics?.setCarHitbox?.(owner.playerCarIndex ?? 0, hb);
       }
       owner.arena?.markRenderTreeChanged?.();
     },
     importCustomVehicleGlb: async (vehicleId, arrayBuffer, fileName, alignPreset) =>
-      owner.arena?.vehicleRegistry.loadout.importCustomVehicleGlb(vehicleId, arrayBuffer, fileName, alignPreset),
+      owner.arena?.vehicleRegistry.loadout.importCustomVehicleGlb(
+        vehicleId,
+        arrayBuffer,
+        fileName,
+        alignPreset
+      ),
     applyVehicleAlignPreset: (vehicleId, alignPreset) =>
       Boolean(owner.arena?.vehicleRegistry.loadout.applyVehicleAlignPreset(vehicleId, alignPreset)),
     applyUnderDevelopmentConfig: async (config, patch) => {
       const playerIdx = owner.playerCarIndex ?? 0;
       if (patch.stadiumPreset !== undefined) {
         const isThrowback = config.stadiumPreset === 'throwback';
-        const manifestUrl = isThrowback ? '/arenamesh/throwback_stadium/manifest.json' : '/arenamesh/manifest.json';
+        const manifestUrl = isThrowback
+          ? '/arenamesh/throwback_stadium/manifest.json'
+          : '/arenamesh/manifest.json';
         if (owner.physics) {
           const prevCars = Math.max(1, owner.physics.numCars || 1);
           await owner.physics.reloadMeshes?.(manifestUrl);
           owner.physics.setArenaPreset?.(isThrowback ? 1 : 0);
-          owner.physics.configureCars?.(owner.selectedHitbox || 'octane', prevCars > 1, Math.max(0, prevCars - 2));
+          owner.physics.configureCars?.(
+            owner.selectedHitbox || 'octane',
+            prevCars > 1,
+            Math.max(0, prevCars - 2)
+          );
           owner.physics.setUnlimitedBoost?.(
             isFreeplayConfigScopeActive(resolveActiveMode(), isOnlineSessionActive()) &&
-              Boolean(useAppStore.getState().gameplay?.unlimitedBoost),
+              Boolean(useAppStore.getState().gameplay?.unlimitedBoost)
           );
           if (config.threeWheelsEnabled) owner.physics.setCarThreeWheels?.(playerIdx, true);
           owner.resetKickoff();
-          if (owner.arena && typeof owner.physics.getPads === 'function') owner.arena.addPads(owner.physics.getPads());
+          if (owner.arena && typeof owner.physics.getPads === 'function')
+            owner.arena.addPads(owner.physics.getPads());
         }
         if (owner.arena) {
-          await owner.arena.environment.setThrowbackStadiumActive(isThrowback, Boolean(config.showThrowbackCollisionOverlay));
+          await owner.arena.environment.setThrowbackStadiumActive(
+            isThrowback,
+            Boolean(config.showThrowbackCollisionOverlay)
+          );
         }
       }
 
@@ -275,7 +334,7 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
 
       if (patch.showThrowbackCollisionOverlay !== undefined && patch.stadiumPreset === undefined) {
         await owner.arena?.environment.setThrowbackCollisionVisible(
-          Boolean(config.showThrowbackCollisionOverlay),
+          Boolean(config.showThrowbackCollisionOverlay)
         );
       }
 
@@ -291,7 +350,7 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
             idx,
             Boolean(c.rechargeBoostEnabled),
             Number(c.rechargeBoostPerSecond ?? 10.0),
-            Number(c.rechargeBoostDelay ?? 0.25),
+            Number(c.rechargeBoostDelay ?? 0.25)
           );
           if (serverSim) {
             serverSim.setCarUnlimitedBoost?.(idx, Boolean(c.unlimitedBoost));
@@ -300,7 +359,7 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
               idx,
               Boolean(c.rechargeBoostEnabled),
               Number(c.rechargeBoostPerSecond ?? 10.0),
-              Number(c.rechargeBoostDelay ?? 0.25),
+              Number(c.rechargeBoostDelay ?? 0.25)
             );
           }
         }
@@ -311,7 +370,7 @@ export function createRuntimeTunerPort(owner: RuntimeDomainPortOwner): RuntimeTu
         ? Array.isArray(chunks)
           ? chunks
           : []
-        : cachedGoalBarrier?.chunks ?? [];
+        : (cachedGoalBarrier?.chunks ?? []);
       cachedGoalBarrier = {
         decomposition,
         targetGoal,

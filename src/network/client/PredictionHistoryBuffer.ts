@@ -10,12 +10,25 @@ const CAR_BASE_OFFSET = 22;
 const CAR_STRIDE = 40;
 
 export interface CarControls {
-  throttle: number; steer: number; pitch: number; yaw: number; roll: number;
-  jump: boolean; boost: boolean; handbrake: boolean;
+  throttle: number;
+  steer: number;
+  pitch: number;
+  yaw: number;
+  roll: number;
+  jump: boolean;
+  boost: boolean;
+  handbrake: boolean;
 }
 
 export const NEUTRAL_CAR_CONTROLS: Readonly<CarControls> = Object.freeze({
-  throttle: 0, steer: 0, pitch: 0, yaw: 0, roll: 0, jump: false, boost: false, handbrake: false,
+  throttle: 0,
+  steer: 0,
+  pitch: 0,
+  yaw: 0,
+  roll: 0,
+  jump: false,
+  boost: false,
+  handbrake: false,
 });
 
 export function cloneCarControls(controls?: Partial<CarControls> | null): CarControls {
@@ -45,8 +58,13 @@ export interface PredictionTickHistoryEntry {
 }
 
 export interface ReconciliationTolerances {
-  posTolerance: number; velTolerance: number; rotTolerance: number;
-  ballPosTolerance: number; ballVelTolerance: number; boostTolerance: number; hardSnapThreshold: number;
+  posTolerance: number;
+  velTolerance: number;
+  rotTolerance: number;
+  ballPosTolerance: number;
+  ballVelTolerance: number;
+  boostTolerance: number;
+  hardSnapThreshold: number;
 }
 
 export interface SnapshotComparisonOptions {
@@ -97,7 +115,11 @@ export class LocalClientInputBuffer {
     return entry && entry.tick === tick ? entry : null;
   }
 
-  getRecentWindow(fromTick: number, count: number, carIndex = 0): Array<{ tick: number; controls: CarControls }> {
+  getRecentWindow(
+    fromTick: number,
+    count: number,
+    carIndex = 0
+  ): Array<{ tick: number; controls: CarControls }> {
     const window: Array<{ tick: number; controls: CarControls }> = [];
     const safeCount = Math.min(Math.max(1, count), 32);
     let lastValidControls: CarControls = { ...NEUTRAL_CAR_CONTROLS };
@@ -186,7 +208,10 @@ export class PredictionHistoryBuffer {
     return this.getEntry(tick)?.snapshot ?? null;
   }
 
-  recordAcknowledgedRemoteControls(acknowledgedControls: any[] | null | undefined, localCarIndex: number): number {
+  recordAcknowledgedRemoteControls(
+    acknowledgedControls: any[] | null | undefined,
+    localCarIndex: number
+  ): number {
     let maxAckCarIndex = 0;
     if (!Array.isArray(acknowledgedControls)) return maxAckCarIndex;
     for (const item of acknowledgedControls) {
@@ -212,7 +237,12 @@ export class PredictionHistoryBuffer {
     return { ...NEUTRAL_CAR_CONTROLS };
   }
 
-  backfillMissingLocalInputs(fromTick: number, toTick: number, localCarIndex: number, kickoffMaskUntilTick: number): void {
+  backfillMissingLocalInputs(
+    fromTick: number,
+    toTick: number,
+    localCarIndex: number,
+    kickoffMaskUntilTick: number
+  ): void {
     const startTick = Math.max(0, fromTick);
     for (let t = startTick; t < toTick; t++) {
       const isKickoffMasked = kickoffMaskUntilTick > 0 && t < kickoffMaskUntilTick;
@@ -226,7 +256,11 @@ export class PredictionHistoryBuffer {
   }
 
   resolveStepCarControls(
-    tick: number, carIndex: number, localCarIndex: number, isKickoffMasked: boolean, zeroHoldOrderDuringResim = false
+    tick: number,
+    carIndex: number,
+    localCarIndex: number,
+    isKickoffMasked: boolean,
+    zeroHoldOrderDuringResim = false
   ): CarControls {
     if (isKickoffMasked) return this.setCarControls(tick, carIndex, NEUTRAL_CAR_CONTROLS);
     const existing = this.getCarControls(tick, carIndex);
@@ -242,7 +276,6 @@ export class PredictionHistoryBuffer {
     }
     return remoteCtrl;
   }
-
 
   stepSimulationRange(
     sim: any,
@@ -279,7 +312,12 @@ export class PredictionHistoryBuffer {
   }
 
   resimulateSilentRange(
-    sim: any, fromTick: number, toTick: number, numCars: number, localCarIndex: number, kickoffMaskUntilTick: number
+    sim: any,
+    fromTick: number,
+    toTick: number,
+    numCars: number,
+    localCarIndex: number,
+    kickoffMaskUntilTick: number
   ): void {
     const hasSlotCheck = typeof sim?.isCarSlotActive === 'function';
     for (let t = fromTick; t < toTick; t++) {
@@ -311,42 +349,81 @@ export function evaluateHistoricalSnapshotDelta(
   const { numCars, localCarIndex, isLobbyDualWorld, tolerances, isCarSlotActive } = options;
   const minRequiredFloats = CAR_BASE_OFFSET + Math.max(1, numCars) * CAR_STRIDE;
 
-  if (!histSnap || !serverSnap || histSnap.length < minRequiredFloats || serverSnap.length < minRequiredFloats) {
+  if (
+    !histSnap ||
+    !serverSnap ||
+    histSnap.length < minRequiredFloats ||
+    serverSnap.length < minRequiredFloats
+  ) {
     return {
-      canCompare: false, withinTier1: false, exceedsHardSnap: false,
-      localPosDelta: 0, localVelDelta: 0, localRotDelta: 0, localBoostDelta: 0,
-      ballPosDelta: 0, ballVelDelta: 0, remoteMaxPosDelta: 0, remoteMaxVelDelta: 0,
-      probeMaxPosDelta: 0, probeMaxVelDelta: 0,
+      canCompare: false,
+      withinTier1: false,
+      exceedsHardSnap: false,
+      localPosDelta: 0,
+      localVelDelta: 0,
+      localRotDelta: 0,
+      localBoostDelta: 0,
+      ballPosDelta: 0,
+      ballVelDelta: 0,
+      remoteMaxPosDelta: 0,
+      remoteMaxVelDelta: 0,
+      probeMaxPosDelta: 0,
+      probeMaxVelDelta: 0,
     };
   }
 
   const sOff = CAR_BASE_OFFSET + localCarIndex * CAR_STRIDE;
   const sPosDelta = Math.hypot(
-    serverSnap[sOff] - histSnap[sOff], serverSnap[sOff + 1] - histSnap[sOff + 1], serverSnap[sOff + 2] - histSnap[sOff + 2]
+    serverSnap[sOff] - histSnap[sOff],
+    serverSnap[sOff + 1] - histSnap[sOff + 1],
+    serverSnap[sOff + 2] - histSnap[sOff + 2]
   );
   const sVelDelta = Math.hypot(
-    serverSnap[sOff + 12] - histSnap[sOff + 12], serverSnap[sOff + 13] - histSnap[sOff + 13], serverSnap[sOff + 14] - histSnap[sOff + 14]
+    serverSnap[sOff + 12] - histSnap[sOff + 12],
+    serverSnap[sOff + 13] - histSnap[sOff + 13],
+    serverSnap[sOff + 14] - histSnap[sOff + 14]
   );
-  const fwdDot = serverSnap[sOff + 3] * histSnap[sOff + 3] + serverSnap[sOff + 4] * histSnap[sOff + 4] + serverSnap[sOff + 5] * histSnap[sOff + 5];
-  const upDot = serverSnap[sOff + 9] * histSnap[sOff + 9] + serverSnap[sOff + 10] * histSnap[sOff + 10] + serverSnap[sOff + 11] * histSnap[sOff + 11];
+  const fwdDot =
+    serverSnap[sOff + 3] * histSnap[sOff + 3] +
+    serverSnap[sOff + 4] * histSnap[sOff + 4] +
+    serverSnap[sOff + 5] * histSnap[sOff + 5];
+  const upDot =
+    serverSnap[sOff + 9] * histSnap[sOff + 9] +
+    serverSnap[sOff + 10] * histSnap[sOff + 10] +
+    serverSnap[sOff + 11] * histSnap[sOff + 11];
   const sRotDelta = Math.max(0, 1.0 - fwdDot) + Math.max(0, 1.0 - upDot);
   const sBoostDelta = Math.abs(serverSnap[sOff + 18] - histSnap[sOff + 18]);
 
   const sBallPosDelta = Math.hypot(
-    serverSnap[BALL_OFFSET] - histSnap[BALL_OFFSET], serverSnap[BALL_OFFSET + 1] - histSnap[BALL_OFFSET + 1], serverSnap[BALL_OFFSET + 2] - histSnap[BALL_OFFSET + 2]
+    serverSnap[BALL_OFFSET] - histSnap[BALL_OFFSET],
+    serverSnap[BALL_OFFSET + 1] - histSnap[BALL_OFFSET + 1],
+    serverSnap[BALL_OFFSET + 2] - histSnap[BALL_OFFSET + 2]
   );
   const sBallVelDelta = Math.hypot(
-    serverSnap[BALL_OFFSET + 12] - histSnap[BALL_OFFSET + 12], serverSnap[BALL_OFFSET + 13] - histSnap[BALL_OFFSET + 13], serverSnap[BALL_OFFSET + 14] - histSnap[BALL_OFFSET + 14]
+    serverSnap[BALL_OFFSET + 12] - histSnap[BALL_OFFSET + 12],
+    serverSnap[BALL_OFFSET + 13] - histSnap[BALL_OFFSET + 13],
+    serverSnap[BALL_OFFSET + 14] - histSnap[BALL_OFFSET + 14]
   );
 
-  let sRemoteMaxPosDelta = 0, sRemoteMaxVelDelta = 0, sProbeMaxPosDelta = 0, sProbeMaxVelDelta = 0;
+  let sRemoteMaxPosDelta = 0,
+    sRemoteMaxVelDelta = 0,
+    sProbeMaxPosDelta = 0,
+    sProbeMaxVelDelta = 0;
 
   for (let c = 0; c < numCars; c++) {
     if (c === localCarIndex) continue;
     if (isCarSlotActive && !isCarSlotActive(c)) continue;
     const rOff = CAR_BASE_OFFSET + c * CAR_STRIDE;
-    const rPosD = Math.hypot(serverSnap[rOff] - histSnap[rOff], serverSnap[rOff + 1] - histSnap[rOff + 1], serverSnap[rOff + 2] - histSnap[rOff + 2]);
-    const rVelD = Math.hypot(serverSnap[rOff + 12] - histSnap[rOff + 12], serverSnap[rOff + 13] - histSnap[rOff + 13], serverSnap[rOff + 14] - histSnap[rOff + 14]);
+    const rPosD = Math.hypot(
+      serverSnap[rOff] - histSnap[rOff],
+      serverSnap[rOff + 1] - histSnap[rOff + 1],
+      serverSnap[rOff + 2] - histSnap[rOff + 2]
+    );
+    const rVelD = Math.hypot(
+      serverSnap[rOff + 12] - histSnap[rOff + 12],
+      serverSnap[rOff + 13] - histSnap[rOff + 13],
+      serverSnap[rOff + 14] - histSnap[rOff + 14]
+    );
     if (c >= 6) {
       if (rPosD > sProbeMaxPosDelta) sProbeMaxPosDelta = rPosD;
       if (rVelD > sProbeMaxVelDelta) sProbeMaxVelDelta = rVelD;
@@ -375,11 +452,18 @@ export function evaluateHistoricalSnapshotDelta(
     : sPosDelta >= hardSnapThreshold || sBallPosDelta >= hardSnapThreshold;
 
   return {
-    canCompare: true, withinTier1, exceedsHardSnap,
+    canCompare: true,
+    withinTier1,
+    exceedsHardSnap,
     localPosDelta: isLobbyDualWorld ? sProbeMaxPosDelta : sPosDelta,
-    localVelDelta: sVelDelta, localRotDelta: sRotDelta, localBoostDelta: sBoostDelta,
-    ballPosDelta: sBallPosDelta, ballVelDelta: sBallVelDelta,
-    remoteMaxPosDelta: sRemoteMaxPosDelta, remoteMaxVelDelta: sRemoteMaxVelDelta,
-    probeMaxPosDelta: sProbeMaxPosDelta, probeMaxVelDelta: sProbeMaxVelDelta,
+    localVelDelta: sVelDelta,
+    localRotDelta: sRotDelta,
+    localBoostDelta: sBoostDelta,
+    ballPosDelta: sBallPosDelta,
+    ballVelDelta: sBallVelDelta,
+    remoteMaxPosDelta: sRemoteMaxPosDelta,
+    remoteMaxVelDelta: sRemoteMaxVelDelta,
+    probeMaxPosDelta: sProbeMaxPosDelta,
+    probeMaxVelDelta: sProbeMaxVelDelta,
   };
 }

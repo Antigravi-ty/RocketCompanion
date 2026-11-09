@@ -38,6 +38,13 @@ import {
   checkValueReExports,
 } from './radar/radarAstScanners.ts';
 import {
+  analyzeStructuralCoupling,
+  type FileStructuralMetrics,
+  HARD_HOST_PENETRATION_LIMIT,
+  HARD_PASSTHROUGH_PROXY_LIMIT,
+  printStructuralAuditReport,
+} from './radar/radarStructuralCoupling.ts';
+import {
   checkRootConfigAndWasmParity,
   checkUiNamingAndRouteAlignment,
   detectCircularDependencies,
@@ -46,8 +53,12 @@ import {
 function runRadarChecks(
   allFiles: string[],
   skipTsc: boolean,
-  showAllInfos: boolean
-): RadarScanResult & { totalLargeFileCount: number } {
+  showAllInfos: boolean,
+  auditFilter?: string | null
+): RadarScanResult & {
+  totalLargeFileCount: number;
+  structuralHotspots: FileStructuralMetrics[];
+} {
   const errors: string[] = [];
   const infos: string[] = [];
   const importGraph = new Map<string, string[]>();
@@ -102,7 +113,7 @@ function runRadarChecks(
     const lineCount = content.split(/\r?\n/).length;
 
     checkLanguageAndEmoji(rel, content, errors);
-    checkLineLengthAndFilenameHygiene(rel, content, errors);
+    checkLineLengthAndFilenameHygiene(rel, content, codeWithoutComments, errors);
 
     const soccarMatch = content.match(/\b\w*socc[ae]r\w*\b/i);
     if (soccarMatch) {
@@ -139,7 +150,11 @@ function runRadarChecks(
       );
     }
 
-    if (!exceedsHardLine && !exceedsHardByte && (byteSize > SOFT_BYTE_LIMIT || lineCount > SOFT_LINE_LIMIT)) {
+    if (
+      !exceedsHardLine &&
+      !exceedsHardByte &&
+      (byteSize > SOFT_BYTE_LIMIT || lineCount > SOFT_LINE_LIMIT)
+    ) {
       totalLargeFileCount++;
       if (showAllInfos || modifiedRelSet.has(rel)) {
         infos.push(
@@ -162,6 +177,16 @@ function runRadarChecks(
       if (spec.endsWith('.js') && !spec.endsWith('/core.js') && spec !== './core.js') {
         errors.push(
           `[ZERO-SHIM VIOLATION] ${rel} imports "${spec}" with a legacy .js extension. Use explicit .ts/.tsx or extensionless specifier.`
+        );
+      }
+
+      if (
+        !rel.startsWith('src/ui-core/') &&
+        spec.startsWith('.') &&
+        !/\.(ts|tsx|js|css|json|wasm)$/.test(spec)
+      ) {
+        errors.push(
+          `[EXTENSIONLESS ENGINE IMPORT] ${rel} imports relative specifier "${spec}" without an explicit .ts/.tsx extension.`
         );
       }
 
@@ -270,6 +295,7 @@ function runRadarChecks(
   checkUiNamingAndRouteAlignment(errors);
   detectCircularDependencies(importGraph, errors);
   checkRootConfigAndWasmParity(errors);
+  const structuralHotspots = analyzeStructuralCoupling(allFiles, importGraph, errors, auditFilter);
 
   const tsResult = skipTsc
     ? { ok: true, command: 'skipped (--no-tsc)', errors: [] }
@@ -280,16 +306,31 @@ function runRadarChecks(
     }
   }
 
-  return { errors, infos, tsCount, jsCount, subsystemStats, tsResult, totalLargeFileCount };
+  return {
+    errors,
+    infos,
+    tsCount,
+    jsCount,
+    subsystemStats,
+    tsResult,
+    totalLargeFileCount,
+    structuralHotspots,
+  };
 }
 
 function main(): void {
-  const args = new Set(process.argv.slice(2));
+  const rawArgs = process.argv.slice(2);
+  const args = new Set(rawArgs);
   const skipTsc = args.has('--no-tsc');
   const showAllInfos = args.has('--all-info');
+  const auditArg = rawArgs.find((a) => a === '--audit' || a.startsWith('--audit='));
+  const auditMode = Boolean(auditArg);
+  const auditFilter =
+    auditArg && auditArg.startsWith('--audit=') ? auditArg.slice('--audit='.length) : null;
+
   const startTime = Date.now();
   const allFiles = walkSourceFiles(SRC_DIR);
-  const result = runRadarChecks(allFiles, skipTsc, showAllInfos);
+  const result = runRadarChecks(allFiles, skipTsc, showAllInfos, auditFilter);
   const elapsedMs = Date.now() - startTime;
 
   const totalFiles = result.tsCount + result.jsCount;
@@ -314,6 +355,9 @@ function main(): void {
   console.log(
     ` Hard Boundaries     : 0 Circular Deps | 0 Value Re-Exports | 0 Upward Imports | Any<=${FILE_ANY_LIMIT}`
   );
+  console.log(
+    ` Anti-Fake-Split     : 0 Multi-Stmt Lines | HostPen<=${HARD_HOST_PENETRATION_LIMIT} | PassThru<=${HARD_PASSTHROUGH_PROXY_LIMIT} (${result.structuralHotspots.length} audit targets; pass --audit)`
+  );
 
   const engineSubsystems = [...result.subsystemStats.entries()]
     .filter(([k]) => !k.startsWith('src/ui-'))
@@ -325,8 +369,14 @@ function main(): void {
   console.log(` Engine Subsystems   : ${subsystemSummary}`);
   console.log('----------------------------------------------------------------------');
 
+  if (auditMode) {
+    printStructuralAuditReport(result.structuralHotspots, auditFilter);
+  }
+
   if (result.infos.length > 0) {
-    console.log(` INFO (Non-blocking, Status: ACCEPTABLE — ${result.infos.length} modified file notice(s)):`);
+    console.log(
+      ` INFO (Non-blocking, Status: ACCEPTABLE — ${result.infos.length} modified file notice(s)):`
+    );
     for (const info of result.infos) {
       console.log(`  [i] ${info}`);
     }

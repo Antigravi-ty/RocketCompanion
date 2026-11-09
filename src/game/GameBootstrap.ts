@@ -8,13 +8,10 @@ import type {
   MinimumLoaderDomContainer,
   MinimumProgressLoader,
 } from '../loader/MinimumProgressLoader.ts';
-import {
-  ConsoleProgressObserver,
-  isVerboseLogEnabled
-} from '../loader/ConsoleProgressObserver.ts';
+import { ConsoleProgressObserver, isVerboseLogEnabled } from '../loader/ConsoleProgressObserver.ts';
 import {
   buildEngineLoadingPipeline,
-  startBackgroundAssetPipeline
+  startBackgroundAssetPipeline,
 } from '../loader/engineLoadingPipeline.ts';
 import { GameRuntime, type GameRuntimeOptions } from './GameRuntime.ts';
 import { useQuickNotificationStore } from './runtimeUiPort.ts';
@@ -79,7 +76,10 @@ export class GameBootstrap {
 
   constructor(container?: HTMLElement | null, options: GameBootstrapOptions = {}) {
     this.container =
-      container || (typeof document !== 'undefined' ? (document.querySelector('#app') as HTMLElement | null) : null);
+      container ||
+      (typeof document !== 'undefined'
+        ? (document.querySelector('#app') as HTMLElement | null)
+        : null);
     this.options = options;
     this.customProgressBar = options.customProgressBar || null;
   }
@@ -139,19 +139,21 @@ export class GameBootstrap {
             tone: 'warning',
             icon: 'Sliders',
             duration: 6000,
-            content: 'Headless Parameter Detected (?touch=2) · Three.js 3D rendering is disabled.'
+            content: 'Headless Parameter Detected (?touch=2) · Three.js 3D rendering is disabled.',
           });
         } catch (_e) {}
       }
 
       if (verbose) {
-        console.log('[Loading] ══════════════ [Training Mode] Essential Pipeline Complete ══════════════');
+        console.log(
+          '[Loading] ══════════════ [Training Mode] Essential Pipeline Complete ══════════════'
+        );
         console.log('[Loading] Training Mode Essential Resources ready — Player can now play.');
       }
 
       const runtimeInstance = this.runtime;
       const bgAssetsPromise = startBackgroundAssetPipeline(runtimeInstance, null, {
-        notifyStore: useQuickNotificationStore.getState()
+        notifyStore: useQuickNotificationStore.getState(),
       }).catch((err) => {
         console.warn('[Loading] Background asset pipeline unhandled rejection:', err);
       });
@@ -159,7 +161,7 @@ export class GameBootstrap {
       attachScenarioAutorunController(
         this.runtime as unknown as ScenarioRuntimePort,
         scenarioBootstrapObserver,
-        bgAssetsPromise,
+        bgAssetsPromise
       );
 
       return this.runtime;
@@ -168,7 +170,7 @@ export class GameBootstrap {
         taskId: 'bootstrap',
         taskName: 'Engine Lifecycle Bootstrap',
         error: err,
-        isCritical: true
+        isCritical: true,
       });
       console.error('[Bootstrap Error]', err);
       throw err;
@@ -211,20 +213,19 @@ export async function bootstrapEngine(options: GameBootstrapOptions = {}): Promi
   activeBootstrapPromise = (async () => {
     const host = (options.container ||
       (typeof document !== 'undefined' ? document.querySelector('#app') : null)) as
-      | (HTMLElement & MinimumLoaderDomContainer)
-      | null;
+      (HTMLElement & MinimumLoaderDomContainer) | null;
     const loader = options.loader || host?.__minimumProgressLoader || null;
 
     if (loader) {
       loader.onTaskProgress({
         overallPercent: 4,
-        detail: 'Initializing Three.js WebGL core & entity factories...'
+        detail: 'Initializing Three.js WebGL core & entity factories...',
       });
     }
 
     activeGameRuntime = await bootstrapGameEngine(host, {
       ...options,
-      loader
+      loader,
     });
     return activeGameRuntime;
   })();

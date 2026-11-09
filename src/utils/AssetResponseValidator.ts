@@ -19,7 +19,8 @@ export interface AssetValidationResult {
 export function resolveAssetPath(path: string): string {
   if (!path) return '';
   if (/^(?:https?:|\/\/|blob:|data:)/.test(path)) return path;
-  const win = typeof window !== 'undefined' ? (window as unknown as { __ASSET_BASE__?: string }) : undefined;
+  const win =
+    typeof window !== 'undefined' ? (window as unknown as { __ASSET_BASE__?: string }) : undefined;
   const base =
     win?.__ASSET_BASE__ ||
     (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL) ||

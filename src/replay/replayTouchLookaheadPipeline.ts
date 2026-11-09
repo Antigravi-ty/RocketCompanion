@@ -71,7 +71,7 @@ export interface ResolvedTouchLookahead {
  */
 export function ensureSuffixCameraPlan(
   frames: ReadonlyArray<any>,
-  input: SuffixCameraPlanInput,
+  input: SuffixCameraPlanInput
 ): SuffixDirectorTrajectoryPlan | null {
   if (
     input.isNetworkStreamed &&
@@ -107,7 +107,7 @@ export function ensureSuffixCameraPlan(
 export function resolveTouchLookaheadForFrame(
   input: ResolveTouchLookaheadInput,
   frameIdx: number,
-  fallbackScorerCarIndex = 0,
+  fallbackScorerCarIndex = 0
 ): ResolvedTouchLookahead {
   const plan = input.suffixPlan;
   if (plan && Array.isArray(plan.poses) && plan.poses.length > 0) {
@@ -151,10 +151,12 @@ export function resolveTouchLookaheadForFrame(
   }
 
   const scoringTeam = input.scoringTeam ?? 0;
-  const holdTicks = Math.round((REPLAY_DIRECTOR_CONFIG.touchHoldAfterSeconds ?? 0.2) * REPLAY_TICK_RATE);
+  const holdTicks = Math.round(
+    (REPLAY_DIRECTOR_CONFIG.touchHoldAfterSeconds ?? 0.2) * REPLAY_TICK_RATE
+  );
   const lookaheadTicks = Math.max(
     60,
-    Math.round((REPLAY_DIRECTOR_CONFIG.twoTouchLookaheadSeconds ?? 2.2) * REPLAY_TICK_RATE),
+    Math.round((REPLAY_DIRECTOR_CONFIG.twoTouchLookaheadSeconds ?? 2.2) * REPLAY_TICK_RATE)
   );
   const releaseTicks = Math.max(48, holdTicks + 36);
   const anticipationWeight = REPLAY_DIRECTOR_CONFIG.twoTouchAnticipationWeight ?? 0.36;
@@ -202,7 +204,7 @@ export function resolveTouchLookaheadForFrame(
       const s = 0.5 - 0.5 * Math.cos(Math.max(0, Math.min(1, u)) * Math.PI);
       w = s * s;
     } else {
-      const u = 1.0 - (-dt) / releaseTicks;
+      const u = 1.0 - -dt / releaseTicks;
       const s = 0.5 - 0.5 * Math.cos(Math.max(0, Math.min(1, u)) * Math.PI);
       w = s * s;
     }
@@ -221,7 +223,7 @@ export function resolveTouchLookaheadForFrame(
 
   const oppTouches = safeTouches.filter((t) => t.team !== scoringTeam && t.frameIndex > 12);
   const interceptorPreTicks = Math.round(
-    (REPLAY_DIRECTOR_CONFIG.interceptorLookaheadSeconds ?? 1.65) * REPLAY_TICK_RATE,
+    (REPLAY_DIRECTOR_CONFIG.interceptorLookaheadSeconds ?? 1.65) * REPLAY_TICK_RATE
   );
   const interceptorPostTicks = Math.round(0.75 * REPLAY_TICK_RATE);
   let bestOppW = 0;
@@ -234,7 +236,7 @@ export function resolveTouchLookaheadForFrame(
       const u = 1.0 - dt / interceptorPreTicks;
       w = 0.5 - 0.5 * Math.cos(Math.max(0, Math.min(1, u)) * Math.PI);
     } else if (dt < 0 && -dt <= interceptorPostTicks) {
-      const u = 1.0 - (-dt) / interceptorPostTicks;
+      const u = 1.0 - -dt / interceptorPostTicks;
       w = 0.5 - 0.5 * Math.cos(Math.max(0, Math.min(1, u)) * Math.PI);
     }
     w *= REPLAY_DIRECTOR_CONFIG.interceptorFramingWeight ?? 0.72;
@@ -280,7 +282,7 @@ export function resolveTouchLookaheadForFrame(
 export function resolveFocusCarForFrame(
   input: ResolveTouchLookaheadInput,
   frameIdx: number,
-  fallbackScorerCarIndex = 0,
+  fallbackScorerCarIndex = 0
 ): number {
   return resolveTouchLookaheadForFrame(input, frameIdx, fallbackScorerCarIndex).primaryCarIndex;
 }
@@ -293,7 +295,7 @@ export function resolveFocusCarForFrame(
 export function computeDramaticSlowMoFactor(
   input: DramaticSlowMoInput,
   cursorFloat: number,
-  options: { ignoreScrubState?: boolean } = {},
+  options: { ignoreScrubState?: boolean } = {}
 ): number {
   const ignoreScrubState = Boolean(options?.ignoreScrubState);
   if (
@@ -309,7 +311,7 @@ export function computeDramaticSlowMoFactor(
     dist: number,
     preTicks: number,
     postTicks: number,
-    minScale: number,
+    minScale: number
   ): number => {
     if (dist < -(preTicks + rampTicks) || dist > postTicks + rampTicks) {
       return 1.0;
@@ -317,7 +319,7 @@ export function computeDramaticSlowMoFactor(
     if (dist >= -preTicks && dist <= postTicks) {
       return minScale;
     }
-    const outside = dist < -preTicks ? (-preTicks - dist) : (dist - postTicks);
+    const outside = dist < -preTicks ? -preTicks - dist : dist - postTicks;
     const t = Math.max(0, Math.min(1, outside / rampTicks));
     const ease = 0.5 - 0.5 * Math.cos(t * Math.PI);
     return minScale + (1.0 - minScale) * ease;
@@ -327,16 +329,16 @@ export function computeDramaticSlowMoFactor(
   if (touchIdx >= 0) {
     const preTouchTicks = Math.max(
       1,
-      Math.round((REPLAY_DIRECTOR_CONFIG.lastTouchSlowMoPreSeconds ?? 0.50) * REPLAY_TICK_RATE),
+      Math.round((REPLAY_DIRECTOR_CONFIG.lastTouchSlowMoPreSeconds ?? 0.5) * REPLAY_TICK_RATE)
     );
     const postTouchTicks = Math.max(
       1,
-      Math.round((REPLAY_DIRECTOR_CONFIG.lastTouchSlowMoPostSeconds ?? 0.25) * REPLAY_TICK_RATE),
+      Math.round((REPLAY_DIRECTOR_CONFIG.lastTouchSlowMoPostSeconds ?? 0.25) * REPLAY_TICK_RATE)
     );
-    const minTouchScale = REPLAY_DIRECTOR_CONFIG.lastTouchSlowMoScale ?? 0.50;
+    const minTouchScale = REPLAY_DIRECTOR_CONFIG.lastTouchSlowMoScale ?? 0.5;
     factor = Math.min(
       factor,
-      evalPlateauWindow(cursorFloat - touchIdx, preTouchTicks, postTouchTicks, minTouchScale),
+      evalPlateauWindow(cursorFloat - touchIdx, preTouchTicks, postTouchTicks, minTouchScale)
     );
   }
 
@@ -344,16 +346,16 @@ export function computeDramaticSlowMoFactor(
   if (goalIdx > 0) {
     const preGoalTicks = Math.max(
       1,
-      Math.round((REPLAY_DIRECTOR_CONFIG.goalLineSlowMoPreSeconds ?? 0.25) * REPLAY_TICK_RATE),
+      Math.round((REPLAY_DIRECTOR_CONFIG.goalLineSlowMoPreSeconds ?? 0.25) * REPLAY_TICK_RATE)
     );
     const postGoalTicks = Math.max(
       1,
-      Math.round((REPLAY_DIRECTOR_CONFIG.goalLineSlowMoPostSeconds ?? 0.25) * REPLAY_TICK_RATE),
+      Math.round((REPLAY_DIRECTOR_CONFIG.goalLineSlowMoPostSeconds ?? 0.25) * REPLAY_TICK_RATE)
     );
-    const minGoalScale = REPLAY_DIRECTOR_CONFIG.goalLineSlowMoScale ?? 0.50;
+    const minGoalScale = REPLAY_DIRECTOR_CONFIG.goalLineSlowMoScale ?? 0.5;
     factor = Math.min(
       factor,
-      evalPlateauWindow(cursorFloat - goalIdx, preGoalTicks, postGoalTicks, minGoalScale),
+      evalPlateauWindow(cursorFloat - goalIdx, preGoalTicks, postGoalTicks, minGoalScale)
     );
   }
 
@@ -368,7 +370,7 @@ export function buildLookaheadInputFromSession(
     touchEvents?: ReplayTouchEvent[];
     reboundEvents?: ReplayReboundEvent[];
   },
-  suffixPlan: SuffixDirectorTrajectoryPlan | null,
+  suffixPlan: SuffixDirectorTrajectoryPlan | null
 ): ResolveTouchLookaheadInput {
   return {
     suffixPlan,
@@ -391,12 +393,12 @@ export function resolveSessionTouchLookahead(
   },
   suffixPlan: SuffixDirectorTrajectoryPlan | null,
   frameIdx: number,
-  fallbackScorerCarIndex = 0,
+  fallbackScorerCarIndex = 0
 ): ResolvedTouchLookahead {
   return resolveTouchLookaheadForFrame(
     buildLookaheadInputFromSession(sessionState, directorState, suffixPlan),
     frameIdx,
-    fallbackScorerCarIndex,
+    fallbackScorerCarIndex
   );
 }
 
@@ -404,7 +406,7 @@ export function computeSessionDramaticSlowMo(
   sessionState: { disableSlowMo: boolean; playbackSpeed: number; isScrubbing: boolean },
   directorState: { lastScoringTouchFrameIdx?: number; goalLineFrameIdx?: number },
   cursorFloat: number,
-  options: { ignoreScrubState?: boolean } = {},
+  options: { ignoreScrubState?: boolean } = {}
 ): number {
   return computeDramaticSlowMoFactor(
     {
@@ -415,6 +417,6 @@ export function computeSessionDramaticSlowMo(
       goalLineFrameIdx: directorState.goalLineFrameIdx ?? -1,
     },
     cursorFloat,
-    options,
+    options
   );
 }

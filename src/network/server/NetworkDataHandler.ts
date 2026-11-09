@@ -31,7 +31,11 @@ export class NetworkDataHandler {
   physicsManager: PhysicsEngineManager | null;
   channels: Map<string, NetworkTransportChannel>;
   interceptors: Array<
-    (channelId: string, rawData: Uint8Array | ArrayBuffer | string, arrivalTimestamp: number) => boolean
+    (
+      channelId: string,
+      rawData: Uint8Array | ArrayBuffer | string,
+      arrivalTimestamp: number
+    ) => boolean
   >;
 
   constructor(options: NetworkDataHandlerOptions = {}) {
@@ -194,7 +198,11 @@ export class NetworkDataHandler {
       try {
         parsed = JSON.parse(rawData);
       } catch (err) {
-        console.warn('[NetworkDataHandler] Failed to parse unknown packet string as JSON:', err, rawData);
+        console.warn(
+          '[NetworkDataHandler] Failed to parse unknown packet string as JSON:',
+          err,
+          rawData
+        );
       }
     }
 
@@ -230,13 +238,16 @@ export class NetworkDataHandler {
   dispatchFrameToSessions(globalPayloadBytes: Uint8Array): void {
     if (!this.sessionManager) return;
 
-    this.sessionManager.evaluateSessionTimeouts(this.sessionManager.getTime(), (evictedSessionId) => {
-      if (this.matchManager) {
-        this.matchManager.roster.removePlayerSession(evictedSessionId);
-      } else {
-        this.sessionManager?.unregisterSession(evictedSessionId, true);
+    this.sessionManager.evaluateSessionTimeouts(
+      this.sessionManager.getTime(),
+      (evictedSessionId) => {
+        if (this.matchManager) {
+          this.matchManager.roster.removePlayerSession(evictedSessionId);
+        } else {
+          this.sessionManager?.unregisterSession(evictedSessionId, true);
+        }
       }
-    });
+    );
 
     const { statelessPayloadBytes, serverTick } =
       this.sessionManager.extractSignalsFromGlobalPayload(globalPayloadBytes);

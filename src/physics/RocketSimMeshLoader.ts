@@ -4,7 +4,7 @@
  */
 
 import { validateAssetResponse, resolveAssetPath } from '../utils/AssetResponseValidator.ts';
-import { resolveHitboxIndex } from '../ui-core/config/vehicleConstants';
+import { resolveHitboxIndex } from '../ui-core/config/vehicleConstants.ts';
 
 export const PLAYER_CAR_INDEX = 0;
 export const BOT_CAR_INDEX = 1;
@@ -28,7 +28,9 @@ export function getHitboxIndex(hitboxType?: string | number) {
   return resolveHitboxIndex(hitboxType);
 }
 
-export async function fetchArenaCollisionManifest(manifestPath = ARENA_MESH_MANIFEST_PATH): Promise<string[]> {
+export async function fetchArenaCollisionManifest(
+  manifestPath = ARENA_MESH_MANIFEST_PATH
+): Promise<string[]> {
   const manifestUrl = resolveAssetPath(manifestPath);
   const manifestRes = await fetch(manifestUrl);
   const manifestCheck = validateAssetResponse(manifestRes, manifestUrl, 'json');

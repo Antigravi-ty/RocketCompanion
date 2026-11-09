@@ -63,7 +63,7 @@ export class GameRenderSubsystem {
         dt,
         Boolean(isSupersonic && isInputEnabled && isMatchActive),
         cameraVelocity,
-        activeCamera,
+        activeCamera
       );
     }
 
@@ -71,9 +71,7 @@ export class GameRenderSubsystem {
     const winWidth = domCanvas?.clientWidth || window.innerWidth;
     const winHeight = domCanvas?.clientHeight || window.innerHeight;
     const curTick = r.physics?.getHeaderView()?.tickCount ?? 0;
-    const effectiveGoalReplayActive = Boolean(
-      r.arena?.isGoalReplayActive || isGoalReplayActive,
-    );
+    const effectiveGoalReplayActive = Boolean(r.arena?.isGoalReplayActive || isGoalReplayActive);
     if (r.ballTrajectoryPredictor) {
       r.ballTrajectoryPredictor.setSceneContext?.({
         isGoalReplayActive: effectiveGoalReplayActive,
@@ -84,7 +82,7 @@ export class GameRenderSubsystem {
         r.arena?.ball?.position,
         winWidth,
         winHeight,
-        r.physics,
+        r.physics
       );
     }
     if (r.reachabilityVisualizer) {
@@ -95,18 +93,14 @@ export class GameRenderSubsystem {
     const isTransparentPreviewRoute =
       appState.activeRoute === 'trajectory' || appState.activeRoute === 'camera';
     const isLiveMenuOpen = Boolean(
-      r.gameUI &&
-        appState.isOpen &&
-        !appState.isLivePreviewCollapsed &&
-        !isTransparentPreviewRoute,
+      r.gameUI && appState.isOpen && !appState.isLivePreviewCollapsed && !isTransparentPreviewRoute
     );
     const isDocHidden = typeof document !== 'undefined' && document.hidden;
     const powerSave =
       appState.graphics?.menuPowerSave || (appState.pauseRenderingOnMenu ? 'freeze' : '30');
     const isExtremeFreeze = powerSave === 'freeze' || powerSave === 'extreme';
     const shouldSkipGpuRender =
-      Boolean(context.shouldSkipGpuRender) ||
-      isDocHidden || (isLiveMenuOpen && isExtremeFreeze);
+      Boolean(context.shouldSkipGpuRender) || isDocHidden || (isLiveMenuOpen && isExtremeFreeze);
     context.shouldSkipGpuRender = shouldSkipGpuRender;
 
     if (shouldSkipGpuRender) {
@@ -114,8 +108,7 @@ export class GameRenderSubsystem {
     }
 
     const isBloomActive =
-      r.bloomEnabled !== false &&
-      Boolean(r.arena?.boostBloomActive || hasActiveFlipResetBloom);
+      r.bloomEnabled !== false && Boolean(r.arena?.boostBloomActive || hasActiveFlipResetBloom);
     if (isBloomActive && r.arena && r.boostBloom) {
       activeCamera.layers.set(0);
       r.bloomOcclusion.applyBloomOccluders();

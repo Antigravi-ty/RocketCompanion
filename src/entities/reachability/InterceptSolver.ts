@@ -4,11 +4,7 @@
  * with sub-tick interpolation and 3D orthogonal cross axis generation.
  */
 
-import {
-  BOOST_ACCEL,
-  BOOST_BURN_RATE,
-  BALL_CAR_CONTACT_RADIUS,
-} from './ReachabilityConstants.ts';
+import { BOOST_ACCEL, BOOST_BURN_RATE, BALL_CAR_CONTACT_RADIUS } from './ReachabilityConstants.ts';
 import {
   computeAerialTurnLatency,
   computeBallisticCenter,
@@ -41,8 +37,12 @@ export function solveOptimalIntercept(
     centrality: 0,
     paceStatus: 'none',
     minBoost: 0,
-    rx: 0, ry: 0, rz: 0, // RocketSim coords
-    tx: 0, ty: 0, tz: 0, // Three.js coords (x, z, y)
+    rx: 0,
+    ry: 0,
+    rz: 0, // RocketSim coords
+    tx: 0,
+    ty: 0,
+    tz: 0, // Three.js coords (x, z, y)
     // 3 orthonormal vectors in Three.js space for the 3D Orthogonal Cross
     axis1: [1, 0, 0],
     axis2: [0, 1, 0],
@@ -60,19 +60,32 @@ export function solveOptimalIntercept(
   }
 
   const {
-    posX, posY, posZ,
-    velX, velY, velZ,
-    fwdX, fwdY, fwdZ,
-    upX, upY, upZ,
-    angVelX, angVelY, angVelZ,
-    boost, isOnGround,
+    posX,
+    posY,
+    posZ,
+    velX,
+    velY,
+    velZ,
+    fwdX,
+    fwdY,
+    fwdZ,
+    upX,
+    upY,
+    upZ,
+    angVelX,
+    angVelY,
+    angVelZ,
+    boost,
+    isOnGround,
   } = carState;
 
   const includeJump = config.includeJumpImpulse !== false;
 
   let prevMargin = -1e9;
   let prevT = 0;
-  let prevBx = 0, prevBy = 0, prevBz = 0;
+  let prevBx = 0,
+    prevBy = 0,
+    prevBz = 0;
 
   let bestFallbackMargin = -1e9;
   let bestFallbackTick = -1;
@@ -99,9 +112,15 @@ export function solveOptimalIntercept(
     const bz = rawBallPredPoints[bOffset + 2];
 
     const c = computeBallisticCenter(
-      posX, posY, posZ,
-      velX, velY, velZ,
-      upX, upY, upZ,
+      posX,
+      posY,
+      posZ,
+      velX,
+      velY,
+      velZ,
+      upX,
+      upY,
+      upZ,
       t,
       includeJump,
       isOnGround
@@ -112,7 +131,9 @@ export function solveOptimalIntercept(
     const dz = bz - c.z;
     const dist = Math.hypot(dx, dy, dz);
 
-    let ux = 0, uy = 0, uz = 1;
+    let ux = 0,
+      uy = 0,
+      uz = 1;
     if (dist > 1e-4) {
       ux = dx / dist;
       uy = dy / dist;
@@ -219,9 +240,15 @@ export function solveOptimalIntercept(
 
   // Evaluate ballistic center at tFinal for horn centrality & minimum boost
   const cFinal = computeBallisticCenter(
-    posX, posY, posZ,
-    velX, velY, velZ,
-    upX, upY, upZ,
+    posX,
+    posY,
+    posZ,
+    velX,
+    velY,
+    velZ,
+    upX,
+    upY,
+    upZ,
     tFinal,
     includeJump,
     isOnGround
@@ -281,14 +308,23 @@ export function solveOptimalIntercept(
     let tz1 = rawBallPredPoints[nextOff + 1] - rawBallPredPoints[prevOff + 1];
     const tLen = Math.hypot(tx1, ty1, tz1);
     if (tLen > 1e-4) {
-      tx1 /= tLen; ty1 /= tLen; tz1 /= tLen;
+      tx1 /= tLen;
+      ty1 /= tLen;
+      tz1 /= tLen;
       // Second orthogonal axis: cross(tangent, worldUp(0,1,0))
-      let nx = -tz1, ny = 0, nz = tx1;
+      let nx = -tz1,
+        ny = 0,
+        nz = tx1;
       let nLen = Math.hypot(nx, ny, nz);
       if (nLen < 1e-4) {
-        nx = 1; ny = 0; nz = 0; nLen = 1;
+        nx = 1;
+        ny = 0;
+        nz = 0;
+        nLen = 1;
       }
-      nx /= nLen; ny /= nLen; nz /= nLen;
+      nx /= nLen;
+      ny /= nLen;
+      nz /= nLen;
       // Third orthogonal axis: cross(tangent, normal)
       const bxAxis = ty1 * nz - tz1 * ny;
       const byAxis = tz1 * nx - tx1 * nz;

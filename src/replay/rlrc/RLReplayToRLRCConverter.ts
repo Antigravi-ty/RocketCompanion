@@ -6,30 +6,18 @@
  * and binary Track 0/1 container packing.
  */
 
-import {
-  buildBoostPadCooldownTimeline120Hz,
-} from './catalog/RLRCBoostPadSpatialCatalog.ts';
-import {
-  resolveRLRCVehicleLoadout,
-} from './catalog/RLRCVehicleLoadoutCatalog.ts';
+import { buildBoostPadCooldownTimeline120Hz } from './catalog/RLRCBoostPadSpatialCatalog.ts';
+import { resolveRLRCVehicleLoadout } from './catalog/RLRCVehicleLoadoutCatalog.ts';
 import {
   buildRLRCContainerPacket,
   deserializeRLRCBinaryContainer,
   isBinaryRLRCContainer,
   serializeRLRCBinaryContainer,
 } from './container/RLRCBinaryContainerCodec.ts';
-import {
-  decodeRLRCNetStreamFrames,
-} from './parser/RLRCNetStreamBitDecoder.ts';
-import {
-  extractNetStreamRigidBodyAndBoostTimeline,
-} from './parser/RLRCNetStreamRigidBodyAndBoostExtractor.ts';
-import {
-  extractRLRCNetStreamRosterAndLifecycle,
-} from './parser/RLRCNetStreamRosterAndLifecycleExtractor.ts';
-import {
-  parseRLRCReplayHeaderAndBookmarks,
-} from './parser/RLRCReplayHeaderAndBookmarkParser.ts';
+import { decodeRLRCNetStreamFrames } from './parser/RLRCNetStreamBitDecoder.ts';
+import { extractNetStreamRigidBodyAndBoostTimeline } from './parser/RLRCNetStreamRigidBodyAndBoostExtractor.ts';
+import { extractRLRCNetStreamRosterAndLifecycle } from './parser/RLRCNetStreamRosterAndLifecycleExtractor.ts';
+import { parseRLRCReplayHeaderAndBookmarks } from './parser/RLRCReplayHeaderAndBookmarkParser.ts';
 import {
   RLRC_FIXED_DT,
   RLRC_TICK_RATE,
@@ -41,9 +29,7 @@ import {
   type RLRCPlayerSlotMeta,
   type RLRCReplayHeaderMeta,
 } from './RLRCReplayTypes.ts';
-import {
-  resampleRLRCReplayTo120Hz,
-} from './synthesis/RLRCHermiteSlerpResampler.ts';
+import { resampleRLRCReplayTo120Hz } from './synthesis/RLRCHermiteSlerpResampler.ts';
 import {
   synthesizeControlsForTimeline120Hz,
   writeSynthesizedControlsToTrack0Buffer,
@@ -161,10 +147,7 @@ export function convertRLReplayBufferToRLRC(
   bytesOrBuffer: Uint8Array | ArrayBuffer,
   options: RLRCConverterOptions = {}
 ): RLRCConvertedReplaySession {
-  const u8 =
-    bytesOrBuffer instanceof Uint8Array
-      ? bytesOrBuffer
-      : new Uint8Array(bytesOrBuffer);
+  const u8 = bytesOrBuffer instanceof Uint8Array ? bytesOrBuffer : new Uint8Array(bytesOrBuffer);
 
   if (isBinaryRLRCContainer(u8)) {
     const deserialized = deserializeRLRCBinaryContainer(u8);
@@ -227,8 +210,6 @@ export function convertRLReplayBufferToRLRC(
   return buildRLRCSessionFromParserOutput(parserOutput, options);
 }
 
-export function exportRLRCSessionToBinaryBytes(
-  session: RLRCConvertedReplaySession
-): Uint8Array {
+export function exportRLRCSessionToBinaryBytes(session: RLRCConvertedReplaySession): Uint8Array {
   return serializeRLRCBinaryContainer(session.containerPacket);
 }

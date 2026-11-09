@@ -12,15 +12,10 @@ export interface ExperimentalBotAgentLike {
   getKickoffControls(
     state: unknown,
     kickoffTick: number,
-    isPrimaryKickoffCar: boolean,
+    isPrimaryKickoffCar: boolean
   ): CarControls | null | undefined;
   overrideControls(controls: CarControls): void;
-  decideSync(
-    state: unknown,
-    pads: unknown,
-    activeCarsList: unknown,
-    sim?: unknown,
-  ): CarControls;
+  decideSync(state: unknown, pads: unknown, activeCarsList: unknown, sim?: unknown): CarControls;
 }
 
 export interface MultiCarBotRosterEntry {
@@ -33,7 +28,7 @@ export interface MultiCarBotRosterEntry {
 export function findClosestNonDemoedCarPerTeam<T extends { carIndex: number; team: 0 | 1 }>(
   sim: { getCarStateView?: (carIndex: number) => CarStateViewLike | null },
   bView: BallStateViewLike,
-  entries: readonly T[],
+  entries: readonly T[]
 ): Record<0 | 1, number> {
   const closestCarPerTeam: Record<0 | 1, number> = { 0: -1, 1: -1 };
   const closestDistPerTeam: Record<0 | 1, number> = { 0: Infinity, 1: Infinity };

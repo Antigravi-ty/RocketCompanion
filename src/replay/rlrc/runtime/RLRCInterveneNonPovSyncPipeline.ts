@@ -81,9 +81,7 @@ export interface RLRCIntervenePhysicsPort extends ReconstructablePhysicsEngine {
     slotIndex: number,
     payload: RLRCInterveneCarStateWritePayload | Float32Array
   ) => boolean | void;
-  setBallState?: (
-    payload: RLRCInterveneBallStateWritePayload | Float32Array
-  ) => boolean | void;
+  setBallState?: (payload: RLRCInterveneBallStateWritePayload | Float32Array) => boolean | void;
   setControls?: (slotIndex: number, controls: RLRCSynthesizedCarControls) => void;
   setCarControls?: (slotIndex: number, controls: RLRCSynthesizedCarControls) => void;
   setUnlimitedBoost?: (enabled: boolean) => void;
@@ -197,8 +195,8 @@ export function buildReconstructedCarTransientState(
   const airTimeSinceJump = isOnGround
     ? 0
     : hasFlip
-    ? Math.min(1.15, Math.max(0.05, car.airTimeSinceJump || 0.2))
-    : Math.max(1.3, car.airTimeSinceJump || 1.3);
+      ? Math.min(1.15, Math.max(0.05, car.airTimeSinceJump || 0.2))
+      : Math.max(1.3, car.airTimeSinceJump || 1.3);
 
   return {
     lastGroundFrame: 0,
@@ -306,9 +304,7 @@ export function applyTargetFrameToPhysicsAndArena(params: {
     const hitboxId: RLRCHitboxId = isPov
       ? config.playerHitboxId
       : (meta?.hitboxId ?? 'hitbox-octane');
-    const visualId: RLRCVisualId = isPov
-      ? config.playerVisualId
-      : (meta?.visualId ?? 'fennec');
+    const visualId: RLRCVisualId = isPov ? config.playerVisualId : (meta?.visualId ?? 'fennec');
     const colorHex = isPov ? config.playerColorHex : meta?.primaryColorHex;
 
     if (rebuildMeshes) arena?.rebuildSlotVehicle?.(slot, team, hitboxId, visualId, colorHex);
@@ -345,8 +341,16 @@ export function stepNonPovCarsBeforePhysics(params: {
   readonly dt: number;
 }): void {
   const {
-    sim, arena, botPort, roster, followFrame, povSlotIndex, nonPovMode,
-    slotActiveTracker, latestControlSnapshot, dt,
+    sim,
+    arena,
+    botPort,
+    roster,
+    followFrame,
+    povSlotIndex,
+    nonPovMode,
+    slotActiveTracker,
+    latestControlSnapshot,
+    dt,
   } = params;
 
   for (let slot = 0; slot < RLRC_MAX_PLAYER_SLOTS; slot++) {

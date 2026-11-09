@@ -56,12 +56,18 @@ export interface CarControlsInput {
 }
 
 export interface Vector3Like {
-  0?: number; 1?: number; 2?: number;
-  x?: number; y?: number; z?: number;
+  0?: number;
+  1?: number;
+  2?: number;
+  x?: number;
+  y?: number;
+  z?: number;
 }
 
 export interface EulerRotationLike extends Vector3Like {
-  pitch?: number; yaw?: number; roll?: number;
+  pitch?: number;
+  yaw?: number;
+  roll?: number;
 }
 
 export interface BallStateObjectInput {
@@ -71,12 +77,22 @@ export interface BallStateObjectInput {
 }
 
 export interface CarStateObjectInput {
-  pos?: Vector3Like; posX?: number; posY?: number; posZ?: number;
-  fwd?: Vector3Like; forward?: Vector3Like; fwdX?: number; fwdY?: number; fwdZ?: number;
+  pos?: Vector3Like;
+  posX?: number;
+  posY?: number;
+  posZ?: number;
+  fwd?: Vector3Like;
+  forward?: Vector3Like;
+  fwdX?: number;
+  fwdY?: number;
+  fwdZ?: number;
   rot?: EulerRotationLike;
   right?: Vector3Like;
   up?: Vector3Like;
-  vel?: Vector3Like; velX?: number; velY?: number; velZ?: number;
+  vel?: Vector3Like;
+  velX?: number;
+  velY?: number;
+  velZ?: number;
   angVel?: Vector3Like;
   boost?: number;
   isOnGround?: boolean | number;
@@ -173,15 +189,22 @@ export function sanitizeCarSliceInPlace(
 ): void {
   if (!s || s.length < 18) return;
   const O = CAR_STATE_OFFSETS;
-  const px = s[O.POS], py = s[O.POS + 1], pz = s[O.POS + 2];
+  const px = s[O.POS],
+    py = s[O.POS + 1],
+    pz = s[O.POS + 2];
   if (isTrailingSlot) {
     s[O.POS] = -5500;
     s[O.POS + 1] = carIndex * 300;
     s[O.POS + 2] = -500;
     for (let k = O.VEL; k < O.ANG_VEL + 3; k++) s[k] = 0;
   } else if (
-    !Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz) ||
-    Math.abs(px) > 4200 || Math.abs(py) > 6100 || pz < -50 || pz > 2150
+    !Number.isFinite(px) ||
+    !Number.isFinite(py) ||
+    !Number.isFinite(pz) ||
+    Math.abs(px) > 4200 ||
+    Math.abs(py) > 6100 ||
+    pz < -50 ||
+    pz > 2150
   ) {
     s[O.POS] = (carIndex >> 1) * 300 - 300;
     s[O.POS + 1] = carIndex % 2 === 1 ? 4608 : -4608;
@@ -193,23 +216,42 @@ export function sanitizeCarSliceInPlace(
     }
   }
 
-  const fx = s[O.FWD], fy = s[O.FWD + 1], fz = s[O.FWD + 2];
-  const rx = s[O.RIGHT], ry = s[O.RIGHT + 1], rz = s[O.RIGHT + 2];
-  const ux = s[O.UP], uy = s[O.UP + 1], uz = s[O.UP + 2];
+  const fx = s[O.FWD],
+    fy = s[O.FWD + 1],
+    fz = s[O.FWD + 2];
+  const rx = s[O.RIGHT],
+    ry = s[O.RIGHT + 1],
+    rz = s[O.RIGHT + 2];
+  const ux = s[O.UP],
+    uy = s[O.UP + 1],
+    uz = s[O.UP + 2];
   const fSq = fx * fx + fy * fy + fz * fz;
   const rSq = rx * rx + ry * ry + rz * rz;
   const uSq = ux * ux + uy * uy + uz * uz;
   const det = fx * (ry * uz - rz * uy) - fy * (rx * uz - rz * ux) + fz * (rx * uy - ry * ux);
 
   if (
-    !Number.isFinite(fSq) || fSq < 0.5 || fSq > 2.0 ||
-    !Number.isFinite(rSq) || rSq < 0.5 || rSq > 2.0 ||
-    !Number.isFinite(uSq) || uSq < 0.5 || uSq > 2.0 ||
-    !Number.isFinite(det) || Math.abs(det) < 0.2
+    !Number.isFinite(fSq) ||
+    fSq < 0.5 ||
+    fSq > 2.0 ||
+    !Number.isFinite(rSq) ||
+    rSq < 0.5 ||
+    rSq > 2.0 ||
+    !Number.isFinite(uSq) ||
+    uSq < 0.5 ||
+    uSq > 2.0 ||
+    !Number.isFinite(det) ||
+    Math.abs(det) < 0.2
   ) {
-    s[O.FWD] = 1; s[O.FWD + 1] = 0; s[O.FWD + 2] = 0;
-    s[O.RIGHT] = 0; s[O.RIGHT + 1] = 1; s[O.RIGHT + 2] = 0;
-    s[O.UP] = 0; s[O.UP + 1] = 0; s[O.UP + 2] = 1;
+    s[O.FWD] = 1;
+    s[O.FWD + 1] = 0;
+    s[O.FWD + 2] = 0;
+    s[O.RIGHT] = 0;
+    s[O.RIGHT + 1] = 1;
+    s[O.RIGHT + 2] = 0;
+    s[O.UP] = 0;
+    s[O.UP + 1] = 0;
+    s[O.UP + 2] = 1;
   }
 
   for (let k = 18; k < s.length; k++) {
@@ -248,11 +290,20 @@ export function applyCarState(
     const O = CAR_STATE_OFFSETS;
     const fin = (val: unknown, name: string): number => {
       if (typeof val !== 'number' || !Number.isFinite(val)) {
-        throw new Error(`[RocketSimPhysicsEngine] setCarState non-finite or invalid number for ${name}: ${val}`);
+        throw new Error(
+          `[RocketSimPhysicsEngine] setCarState non-finite or invalid number for ${name}: ${val}`
+        );
       }
       return val;
     };
-    const setVec = (base: number, v: Vector3Like, dx: number, dy: number, dz: number, label: string) => {
+    const setVec = (
+      base: number,
+      v: Vector3Like,
+      dx: number,
+      dy: number,
+      dz: number,
+      label: string
+    ) => {
       target[base] = fin(v[0] ?? v.x ?? dx, `${label}.x`);
       target[base + 1] = fin(v[1] ?? v.y ?? dy, `${label}.y`);
       target[base + 2] = fin(v[2] ?? v.z ?? dz, `${label}.z`);
@@ -275,9 +326,12 @@ export function applyCarState(
       const pitch = fin(obj.rot[0] ?? obj.rot.pitch ?? obj.rot.x ?? 0, 'rot.pitch');
       const yaw = fin(obj.rot[1] ?? obj.rot.yaw ?? obj.rot.y ?? 0, 'rot.yaw');
       const roll = fin(obj.rot[2] ?? obj.rot.roll ?? obj.rot.z ?? 0, 'rot.roll');
-      const cp = Math.cos(pitch), sp = Math.sin(pitch);
-      const cy = Math.cos(yaw), sy = Math.sin(yaw);
-      const cr = Math.cos(roll), sr = Math.sin(roll);
+      const cp = Math.cos(pitch),
+        sp = Math.sin(pitch);
+      const cy = Math.cos(yaw),
+        sy = Math.sin(yaw);
+      const cr = Math.cos(roll),
+        sr = Math.sin(roll);
       target[O.FWD] = cy * cp;
       target[O.FWD + 1] = sy * cp;
       target[O.FWD + 2] = sp;
@@ -307,11 +361,14 @@ export function applyCarState(
     if ('isSupersonic' in obj) target[20] = obj.isSupersonic ? 1 : 0;
     if ('isDemoed' in obj) {
       target[21] = obj.isDemoed
-        ? typeof obj.demoRespawnTimer === 'number' && obj.demoRespawnTimer > 0 ? obj.demoRespawnTimer : 3.0
+        ? typeof obj.demoRespawnTimer === 'number' && obj.demoRespawnTimer > 0
+          ? obj.demoRespawnTimer
+          : 3.0
         : 0;
     }
     if ('hasFlipOrJump' in obj) {
-      target[22] = typeof obj.flipsRemaining === 'number' ? obj.flipsRemaining : obj.hasFlipOrJump ? 1 : 0;
+      target[22] =
+        typeof obj.flipsRemaining === 'number' ? obj.flipsRemaining : obj.hasFlipOrJump ? 1 : 0;
     }
     if ('isBoosting' in obj) target[23] = obj.isBoosting ? 1 : 0;
     if ('isFlipping' in obj) target[24] = obj.isFlipping ? 1 : 0;
@@ -342,7 +399,8 @@ export function setCarTeamInWasm(
         ? memoryViews.state.slice(offset, offset + CAR_STATE_STRIDE)
         : null;
     const savedThreeWheels = wasmModule._physics_getCarThreeWheels?.(carIndex) === 1;
-    if (wasmModule._physics_addCarAtSlot(carIndex, normalizedTeam, hitboxIndex) !== carIndex) return false;
+    if (wasmModule._physics_addCarAtSlot(carIndex, normalizedTeam, hitboxIndex) !== carIndex)
+      return false;
     if (savedThreeWheels) wasmModule._physics_setCarThreeWheels?.(carIndex, 1);
     if (savedSlice && memoryViews?.state) {
       memoryViews.state.subarray(offset, offset + CAR_STATE_STRIDE).set(savedSlice);

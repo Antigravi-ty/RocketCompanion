@@ -7,9 +7,9 @@ import {
   RGBAFormat,
   SRGBColorSpace,
   TextureLoader,
-  UnsignedByteType
+  UnsignedByteType,
 } from 'three';
-import { GROUND_Q1_MANIFEST } from '../../../ui-core/config/driftwoodsConfig';
+import { GROUND_Q1_MANIFEST } from '../../../ui-core/config/driftwoodsConfig.ts';
 import { resolveAssetPath } from '../../../utils/AssetResponseValidator.ts';
 
 export const Q1_WIDTH = GROUND_Q1_MANIFEST.resolution?.width || 2048;
@@ -31,7 +31,7 @@ export function subscribeQ1MaskReady(listener: () => void) {
 export function getPrecomputedQ1Mask() {
   return {
     dilatedLayerId: sharedQ1DilatedLayerId,
-    normalizedCoverage: sharedQ1NormalizedCoverage
+    normalizedCoverage: sharedQ1NormalizedCoverage,
   };
 }
 
@@ -241,8 +241,8 @@ export function rebuildMirroredRepeatMipmaps(tex) {
     {
       data: prevData,
       width: prevW,
-      height: prevH
-    }
+      height: prevH,
+    },
   ];
 
   while (prevW > 1 || prevH > 1) {
@@ -280,7 +280,7 @@ export function rebuildMirroredRepeatMipmaps(tex) {
     mipmaps.push({
       data: nextData,
       width: nextW,
-      height: nextH
+      height: nextH,
     });
 
     prevW = nextW;

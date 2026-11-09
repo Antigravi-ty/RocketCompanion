@@ -16,10 +16,7 @@ import {
   INCIDENT_EVENT_TYPES,
   SURFACE_SUBTYPES,
 } from './RocketSimConstants.ts';
-import {
-  readArenaPads,
-  type ArenaBoostPadDescriptor,
-} from './RocketSimSnapshotSerializer.ts';
+import { readArenaPads, type ArenaBoostPadDescriptor } from './RocketSimSnapshotSerializer.ts';
 import type { PhysicsEventReader, PhysicsEventRecord } from './PhysicsEventReader.ts';
 import type { RocketSimWasmModule } from './RocketSimWasm.ts';
 import type { BallStateView } from './RocketSimStateViews.ts';

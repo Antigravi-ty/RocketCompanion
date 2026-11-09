@@ -143,11 +143,7 @@ export function ensureSharedBallPrediction(
   sBallPredBuffer[4] = sBallView.velY;
   sBallPredBuffer[5] = sBallView.velZ;
 
-  if (
-    physicsEngine &&
-    physicsEngine.updateBallPrediction &&
-    physicsEngine.getBallPrediction
-  ) {
+  if (physicsEngine && physicsEngine.updateBallPrediction && physicsEngine.getBallPrediction) {
     const count = physicsEngine.updateBallPredictionIncremental
       ? physicsEngine.updateBallPredictionIncremental(reqHorizonSec)
       : physicsEngine.updateBallPrediction(reqHorizonSec);

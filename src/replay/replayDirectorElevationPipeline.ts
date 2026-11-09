@@ -91,10 +91,16 @@ export function smoothTrajectoryWithVelocityCap(
   const sy = smooth1DZeroPhase(rawY, alpha, passes);
   const sz = smooth1DZeroPhase(rawZ, alpha, passes);
 
-  const fwdX = new Float64Array(n), fwdY = new Float64Array(n), fwdZ = new Float64Array(n);
-  fwdX[0] = sx[0]; fwdY[0] = sy[0]; fwdZ[0] = sz[0];
+  const fwdX = new Float64Array(n),
+    fwdY = new Float64Array(n),
+    fwdZ = new Float64Array(n);
+  fwdX[0] = sx[0];
+  fwdY[0] = sy[0];
+  fwdZ[0] = sz[0];
   for (let i = 1; i < n; i++) {
-    const dx = sx[i] - fwdX[i - 1], dy = sy[i] - fwdY[i - 1], dz = sz[i] - fwdZ[i - 1];
+    const dx = sx[i] - fwdX[i - 1],
+      dy = sy[i] - fwdY[i - 1],
+      dz = sz[i] - fwdZ[i - 1];
     const dist = Math.hypot(dx, dy, dz);
     if (dist > maxStepUu && dist > 1e-6) {
       const s = maxStepUu / dist;
@@ -102,14 +108,22 @@ export function smoothTrajectoryWithVelocityCap(
       fwdY[i] = fwdY[i - 1] + dy * s;
       fwdZ[i] = fwdZ[i - 1] + dz * s;
     } else {
-      fwdX[i] = sx[i]; fwdY[i] = sy[i]; fwdZ[i] = sz[i];
+      fwdX[i] = sx[i];
+      fwdY[i] = sy[i];
+      fwdZ[i] = sz[i];
     }
   }
 
-  const bwdX = new Float64Array(n), bwdY = new Float64Array(n), bwdZ = new Float64Array(n);
-  bwdX[n - 1] = sx[n - 1]; bwdY[n - 1] = sy[n - 1]; bwdZ[n - 1] = sz[n - 1];
+  const bwdX = new Float64Array(n),
+    bwdY = new Float64Array(n),
+    bwdZ = new Float64Array(n);
+  bwdX[n - 1] = sx[n - 1];
+  bwdY[n - 1] = sy[n - 1];
+  bwdZ[n - 1] = sz[n - 1];
   for (let i = n - 2; i >= 0; i--) {
-    const dx = sx[i] - bwdX[i + 1], dy = sy[i] - bwdY[i + 1], dz = sz[i] - bwdZ[i + 1];
+    const dx = sx[i] - bwdX[i + 1],
+      dy = sy[i] - bwdY[i + 1],
+      dz = sz[i] - bwdZ[i + 1];
     const dist = Math.hypot(dx, dy, dz);
     if (dist > maxStepUu && dist > 1e-6) {
       const s = maxStepUu / dist;
@@ -117,11 +131,15 @@ export function smoothTrajectoryWithVelocityCap(
       bwdY[i] = bwdY[i + 1] + dy * s;
       bwdZ[i] = bwdZ[i + 1] + dz * s;
     } else {
-      bwdX[i] = sx[i]; bwdY[i] = sy[i]; bwdZ[i] = sz[i];
+      bwdX[i] = sx[i];
+      bwdY[i] = sy[i];
+      bwdZ[i] = sz[i];
     }
   }
 
-  const midX = new Float64Array(n), midY = new Float64Array(n), midZ = new Float64Array(n);
+  const midX = new Float64Array(n),
+    midY = new Float64Array(n),
+    midZ = new Float64Array(n);
   for (let i = 0; i < n; i++) {
     midX[i] = 0.5 * (fwdX[i] + bwdX[i]);
     midY[i] = 0.5 * (fwdY[i] + bwdY[i]);
@@ -133,20 +151,34 @@ export function smoothTrajectoryWithVelocityCap(
   const polY = smooth1DZeroPhase(midY, polAlpha, 2);
   const polZ = smooth1DZeroPhase(midZ, polAlpha, 2);
 
-  const eyeX = new Float64Array(n), eyeY = new Float64Array(n), eyeZ = new Float64Array(n);
+  const eyeX = new Float64Array(n),
+    eyeY = new Float64Array(n),
+    eyeZ = new Float64Array(n);
   const firstClamped = clampPositionInsideArena(polX[0], polY[0], polZ[0]);
-  eyeX[0] = firstClamped.x; eyeY[0] = firstClamped.y; eyeZ[0] = firstClamped.z;
+  eyeX[0] = firstClamped.x;
+  eyeY[0] = firstClamped.y;
+  eyeZ[0] = firstClamped.z;
 
   for (let i = 1; i < n; i++) {
     const cl = clampPositionInsideArena(polX[i], polY[i], polZ[i]);
-    const dx = cl.x - eyeX[i - 1], dy = cl.y - eyeY[i - 1], dz = cl.z - eyeZ[i - 1];
+    const dx = cl.x - eyeX[i - 1],
+      dy = cl.y - eyeY[i - 1],
+      dz = cl.z - eyeZ[i - 1];
     const dist = Math.hypot(dx, dy, dz);
     if (dist > maxStepUu && dist > 1e-6) {
       const s = maxStepUu / dist;
-      const capped = clampPositionInsideArena(eyeX[i - 1] + dx * s, eyeY[i - 1] + dy * s, eyeZ[i - 1] + dz * s);
-      eyeX[i] = capped.x; eyeY[i] = capped.y; eyeZ[i] = capped.z;
+      const capped = clampPositionInsideArena(
+        eyeX[i - 1] + dx * s,
+        eyeY[i - 1] + dy * s,
+        eyeZ[i - 1] + dz * s
+      );
+      eyeX[i] = capped.x;
+      eyeY[i] = capped.y;
+      eyeZ[i] = capped.z;
     } else {
-      eyeX[i] = cl.x; eyeY[i] = cl.y; eyeZ[i] = cl.z;
+      eyeX[i] = cl.x;
+      eyeY[i] = cl.y;
+      eyeZ[i] = cl.z;
     }
   }
 
@@ -179,7 +211,7 @@ export function clampPositionInsideArena(
   let x = clamp(rawX, -maxX, maxX);
 
   const goalPostCorridorW = 1.0 - smoothstep(920.0, 1480.0, Math.abs(x));
-  const maxY = (4780.0 - goalPostCorridorW * 120.0) - roofBevelInset;
+  const maxY = 4780.0 - goalPostCorridorW * 120.0 - roofBevelInset;
   let y = clamp(rawY, -maxY, maxY);
 
   const maxManhattan = 7450.0 - roofBevelInset * 1.2;
@@ -225,13 +257,19 @@ export function computeBounceBridgedBallTrajectory(
 
   const bounceTroughIndices: number[] = [];
   for (let i = 2; i <= limit; i++) {
-    const prevZ = bzArr[i - 1], currZ = bzArr[i], nextZ = bzArr[Math.min(n - 1, i + 1)];
+    const prevZ = bzArr[i - 1],
+      currZ = bzArr[i],
+      nextZ = bzArr[Math.min(n - 1, i + 1)];
     if (!(currZ <= prevZ && currZ <= nextZ)) continue;
 
     const vzBefore = bvzArr[Math.max(0, i - 1)] || (currZ - bzArr[Math.max(0, i - 2)]) * 60.0;
-    const vzAfter = bvzArr[Math.min(n - 1, i + 1)] || (bzArr[Math.min(n - 1, i + 2)] - currZ) * 60.0;
+    const vzAfter =
+      bvzArr[Math.min(n - 1, i + 1)] || (bzArr[Math.min(n - 1, i + 2)] - currZ) * 60.0;
     if (currZ < 320.0 && vzAfter - vzBefore > 95.0 && vzBefore < -55.0) {
-      if (bounceTroughIndices.length === 0 || i - bounceTroughIndices[bounceTroughIndices.length - 1] > 14) {
+      if (
+        bounceTroughIndices.length === 0 ||
+        i - bounceTroughIndices[bounceTroughIndices.length - 1] > 14
+      ) {
         bounceTroughIndices.push(i);
       }
     }
@@ -241,8 +279,11 @@ export function computeBounceBridgedBallTrajectory(
   const bouncePullbackUu = new Float64Array(n);
   for (let tIdx = 0; tIdx < bounceTroughIndices.length; tIdx++) {
     const b = bounceTroughIndices[tIdx];
-    const left = Math.max(0, b - 24), right = Math.min(limit, b + 24);
-    const zLeft = sbz[left], zRight = sbz[right], span = Math.max(1, right - left);
+    const left = Math.max(0, b - 24),
+      right = Math.min(limit, b + 24);
+    const zLeft = sbz[left],
+      zRight = sbz[right],
+      span = Math.max(1, right - left);
     for (let i = left; i <= right; i++) {
       const u = (i - left) / span;
       const chordZ = zLeft + (zRight - zLeft) * u;
@@ -259,7 +300,7 @@ export function computeBounceBridgedBallTrajectory(
   return {
     gazeEnvelopeZ,
     eyeEnvelopeZ: new Float64Array(gazeEnvelopeZ),
-    bouncePullbackUu: smooth1DZeroPhase(bouncePullbackUu, 0.10, 2),
+    bouncePullbackUu: smooth1DZeroPhase(bouncePullbackUu, 0.1, 2),
     bounceTroughIndices,
   };
 }
@@ -276,7 +317,9 @@ export function resolveBalancedLateralBias({
   smScy,
 }: BalancedLateralBiasInput): number {
   const touchEnd = Math.min(goalIdx, Math.max(0, lastScoreTouchFrame + holdTicks));
-  let sumWeight = 0, sumBallX = 0, sumCarRelV = 0;
+  let sumWeight = 0,
+    sumBallX = 0,
+    sumCarRelV = 0;
 
   for (let i = 0; i <= goalIdx; i++) {
     const w = i <= touchEnd ? 4.0 : 1.0;
@@ -293,12 +336,14 @@ export function resolveBalancedLateralBias({
   const interiorBiasV = -meanBallX * wxAxis;
   const offCenterW = smoothstep(320.0, 950.0, Math.abs(meanBallX));
   const carApproachV = sumWeight > 0 ? sumCarRelV / sumWeight : 0;
-  const combinedV = interiorBiasV * (0.35 + 0.65 * offCenterW) + carApproachV * 0.25 * (1.0 - offCenterW);
+  const combinedV =
+    interiorBiasV * (0.35 + 0.65 * offCenterW) + carApproachV * 0.25 * (1.0 - offCenterW);
 
   if (Math.abs(combinedV) > 1e-3) {
     return combinedV >= 0 ? 1.0 : -1.0;
   }
-  const openCarV = ((smScx[0] ?? 0) - (sbx[0] ?? 0)) * wxAxis + ((smScy[0] ?? 0) - (sby[0] ?? 0)) * wyAxis;
+  const openCarV =
+    ((smScx[0] ?? 0) - (sbx[0] ?? 0)) * wxAxis + ((smScy[0] ?? 0) - (sby[0] ?? 0)) * wyAxis;
   return openCarV >= 0 ? 1.0 : -1.0;
 }
 
@@ -313,8 +358,10 @@ export function resolveInitialCorridorAndLateralBias(params: {
   smScx: Float64Array;
   smScy: Float64Array;
 }): InitialCorridorAndBiasResult {
-  const { goalIdx, goalY, goalSignY, lastScoreTouchFrame, holdTicks, sbx, sby, smScx, smScy } = params;
-  let sumStartX = 0, sumStartY = 0;
+  const { goalIdx, goalY, goalSignY, lastScoreTouchFrame, holdTicks, sbx, sby, smScx, smScy } =
+    params;
+  let sumStartX = 0,
+    sumStartY = 0;
   const startWindow = Math.min(goalIdx + 1, 90);
   for (let i = 0; i < startWindow; i++) {
     sumStartX += 0.5 * (sbx[i] + smScx[i]);
@@ -333,7 +380,15 @@ export function resolveInitialCorridorAndLateralBias(params: {
   const wyAxis = ux;
 
   const resolvedLateralBias = resolveBalancedLateralBias({
-    goalIdx, lastScoreTouchFrame, holdTicks, wxAxis, wyAxis, sbx, sby, smScx, smScy,
+    goalIdx,
+    lastScoreTouchFrame,
+    holdTicks,
+    wxAxis,
+    wyAxis,
+    sbx,
+    sby,
+    smScx,
+    smScy,
   });
 
   let sumBallX = 0;

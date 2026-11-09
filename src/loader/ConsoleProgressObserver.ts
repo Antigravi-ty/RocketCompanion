@@ -5,7 +5,7 @@ import type {
   LoadingTaskCompleteEvent,
   LoadingErrorEvent,
   LoadingCompleteEvent,
-  LoadingProgressObserver
+  LoadingProgressObserver,
 } from './types.ts';
 
 export interface ConsoleProgressObserverOptions {
@@ -40,22 +40,44 @@ export class ConsoleProgressObserver implements LoadingProgressObserver {
     this.lastLoggedPercent = -1;
   }
 
-  onStageChange({ stageIndex, totalStages, stageTitle, stageDescription }: LoadingStageChangeEvent): void {
+  onStageChange({
+    stageIndex,
+    totalStages,
+    stageTitle,
+    stageDescription,
+  }: LoadingStageChangeEvent): void {
     if (!this.verbose) return;
     console.log(
       `${this.prefix} ══════════════ [Stage ${stageIndex}/${totalStages}] ${stageTitle} ══════════════\n` +
-      `${this.prefix} ${stageDescription ?? ''}`
+        `${this.prefix} ${stageDescription ?? ''}`
     );
   }
 
-  onTaskStart({ taskName, step, totalSteps, stageIndex, totalStages, overallPercent }: LoadingTaskStartEvent): void {
+  onTaskStart({
+    taskName,
+    step,
+    totalSteps,
+    stageIndex,
+    totalStages,
+    overallPercent,
+  }: LoadingTaskStartEvent): void {
     if (!this.verbose) return;
     console.log(
       `${this.prefix}[Stage ${stageIndex}/${totalStages}][Step ${step}/${totalSteps}][${overallPercent.toFixed(1)}%] > Started: ${taskName}`
     );
   }
 
-  onTaskProgress({ taskName, step, totalSteps, stageIndex, totalStages, overallPercent = 0, taskProgress = 0, detail, bytes }: LoadingTaskProgressEvent): void {
+  onTaskProgress({
+    taskName,
+    step,
+    totalSteps,
+    stageIndex,
+    totalStages,
+    overallPercent = 0,
+    taskProgress = 0,
+    detail,
+    bytes,
+  }: LoadingTaskProgressEvent): void {
     if (!this.verbose) return;
     const now = performance.now();
     const currentPct = Math.floor(overallPercent);
@@ -80,7 +102,16 @@ export class ConsoleProgressObserver implements LoadingProgressObserver {
     );
   }
 
-  onTaskComplete({ taskName, step, totalSteps, stageIndex, totalStages, overallPercent, durationMs, status }: LoadingTaskCompleteEvent): void {
+  onTaskComplete({
+    taskName,
+    step,
+    totalSteps,
+    stageIndex,
+    totalStages,
+    overallPercent,
+    durationMs,
+    status,
+  }: LoadingTaskCompleteEvent): void {
     if (!this.verbose) return;
     const dur = durationMs ? `${durationMs.toFixed(0)}ms` : '';
     const statusMark = status === 'skipped' ? '[WARN] Skipped' : '[OK] Done';
@@ -91,10 +122,7 @@ export class ConsoleProgressObserver implements LoadingProgressObserver {
 
   onError({ taskId, taskName, error, isCritical }: LoadingErrorEvent): void {
     if (isCritical) {
-      console.error(
-        `${this.prefix} [FATAL] Error in "${taskName}" (${taskId}):`,
-        error
-      );
+      console.error(`${this.prefix} [FATAL] Error in "${taskName}" (${taskId}):`, error);
     } else {
       const message = error instanceof Error ? error.message : error;
       console.warn(

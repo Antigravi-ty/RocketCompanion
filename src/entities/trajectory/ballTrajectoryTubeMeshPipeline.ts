@@ -5,7 +5,7 @@
  * and GLSL shader definitions for BallTrajectoryTubeRenderer.
  */
 
-import type { TrajectoryDashCapStyle } from '../../ui-core/config/trainingDefaults';
+import type { TrajectoryDashCapStyle } from '../../ui-core/config/trainingDefaults.ts';
 import type {
   LiveBallPositionLike,
   TrajectoryDashRange,
@@ -129,7 +129,7 @@ export const TUBE_FRAGMENT_SHADER = /* glsl */ `
 export function populateRadialTrigTable(
   radialSegments: number,
   cosTable: Float32Array,
-  sinTable: Float32Array,
+  sinTable: Float32Array
 ): void {
   for (let s = 0; s < radialSegments; s++) {
     const angle = (s / radialSegments) * Math.PI * 2;
@@ -148,7 +148,7 @@ export function buildGroundDropLineSegments(
   predictionCount: number,
   startIndex: number,
   dropLineIntervalTicks: number,
-  outPositions: Float32Array,
+  outPositions: Float32Array
 ): number {
   const interval = Math.max(15, Math.min(180, Math.round(dropLineIntervalTicks || 48)));
   const endIndex = predictionCount - 1;
@@ -201,25 +201,85 @@ interface CapRingStep {
 }
 
 const ROUND_START_CAP_STEPS: readonly CapRingStep[] = [
-  { axialOffsetScale: -0.92, radiusScale: 0.22, normalRadial: 0.22, normalAxial: -0.975, tipAlpha: 0.95 },
-  { axialOffsetScale: -0.71, radiusScale: 0.71, normalRadial: 0.71, normalAxial: -0.71, tipAlpha: 1.0 },
-  { axialOffsetScale: -0.38, radiusScale: 0.92, normalRadial: 0.92, normalAxial: -0.38, tipAlpha: 1.0 },
+  {
+    axialOffsetScale: -0.92,
+    radiusScale: 0.22,
+    normalRadial: 0.22,
+    normalAxial: -0.975,
+    tipAlpha: 0.95,
+  },
+  {
+    axialOffsetScale: -0.71,
+    radiusScale: 0.71,
+    normalRadial: 0.71,
+    normalAxial: -0.71,
+    tipAlpha: 1.0,
+  },
+  {
+    axialOffsetScale: -0.38,
+    radiusScale: 0.92,
+    normalRadial: 0.92,
+    normalAxial: -0.38,
+    tipAlpha: 1.0,
+  },
 ];
 
 const ROUND_END_CAP_STEPS: readonly CapRingStep[] = [
-  { axialOffsetScale: 0.38, radiusScale: 0.92, normalRadial: 0.92, normalAxial: 0.38, tipAlpha: 1.0 },
-  { axialOffsetScale: 0.71, radiusScale: 0.71, normalRadial: 0.71, normalAxial: 0.71, tipAlpha: 1.0 },
-  { axialOffsetScale: 0.92, radiusScale: 0.22, normalRadial: 0.22, normalAxial: 0.975, tipAlpha: 0.95 },
+  {
+    axialOffsetScale: 0.38,
+    radiusScale: 0.92,
+    normalRadial: 0.92,
+    normalAxial: 0.38,
+    tipAlpha: 1.0,
+  },
+  {
+    axialOffsetScale: 0.71,
+    radiusScale: 0.71,
+    normalRadial: 0.71,
+    normalAxial: 0.71,
+    tipAlpha: 1.0,
+  },
+  {
+    axialOffsetScale: 0.92,
+    radiusScale: 0.22,
+    normalRadial: 0.22,
+    normalAxial: 0.975,
+    tipAlpha: 0.95,
+  },
 ];
 
 const CHAMFER_START_CAP_STEPS: readonly CapRingStep[] = [
-  { axialOffsetScale: -0.38, radiusScale: 0.12, normalRadial: 0.24, normalAxial: -0.97, tipAlpha: 0.95 },
-  { axialOffsetScale: -0.32, radiusScale: 0.68, normalRadial: 0.707, normalAxial: -0.707, tipAlpha: 1.0 },
+  {
+    axialOffsetScale: -0.38,
+    radiusScale: 0.12,
+    normalRadial: 0.24,
+    normalAxial: -0.97,
+    tipAlpha: 0.95,
+  },
+  {
+    axialOffsetScale: -0.32,
+    radiusScale: 0.68,
+    normalRadial: 0.707,
+    normalAxial: -0.707,
+    tipAlpha: 1.0,
+  },
 ];
 
 const CHAMFER_END_CAP_STEPS: readonly CapRingStep[] = [
-  { axialOffsetScale: 0.32, radiusScale: 0.68, normalRadial: 0.707, normalAxial: 0.707, tipAlpha: 1.0 },
-  { axialOffsetScale: 0.38, radiusScale: 0.12, normalRadial: 0.24, normalAxial: 0.97, tipAlpha: 0.95 },
+  {
+    axialOffsetScale: 0.32,
+    radiusScale: 0.68,
+    normalRadial: 0.707,
+    normalAxial: 0.707,
+    tipAlpha: 1.0,
+  },
+  {
+    axialOffsetScale: 0.38,
+    radiusScale: 0.12,
+    normalRadial: 0.24,
+    normalAxial: 0.97,
+    tipAlpha: 0.95,
+  },
 ];
 
 const CYLINDER_RING_STEP: CapRingStep = {
@@ -237,7 +297,7 @@ const CYLINDER_RING_STEP: CapRingStep = {
  */
 export function extrudeTrajectoryTubeDashRanges(
   input: TubeExtrusionInput,
-  buffers: TubeExtrusionBuffers,
+  buffers: TubeExtrusionBuffers
 ): number {
   const {
     predictedPoints,
@@ -258,7 +318,8 @@ export function extrudeTrajectoryTubeDashRanges(
   const baseRadius = Math.max(0.5, worldRadius);
   const clampedTaper = Math.max(0.0, Math.min(0.92, radiusTaper));
   const totalHorizonSpan = Math.max(1, predictionCount - 1 - startIndex);
-  const startCapSteps = dashCapStyle === 'chamfer' ? CHAMFER_START_CAP_STEPS : ROUND_START_CAP_STEPS;
+  const startCapSteps =
+    dashCapStyle === 'chamfer' ? CHAMFER_START_CAP_STEPS : ROUND_START_CAP_STEPS;
   const endCapSteps = dashCapStyle === 'chamfer' ? CHAMFER_END_CAP_STEPS : ROUND_END_CAP_STEPS;
 
   let vertexCount = 0;

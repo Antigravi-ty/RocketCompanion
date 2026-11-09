@@ -5,12 +5,9 @@
  */
 
 import { MAX_CARS } from '../physics/RocketSimConstants.ts';
-import {
-  normalizeVisualId,
-  resolveVehicleHitboxId,
-} from '../ui-core/config/vehicleConstants';
-import { getMaterialsConfig } from '../ui-core/config/materialsConfig';
-import { resolveBotFallbackColorForTeam } from '../ui-core/config/botsLoadoutConfig';
+import { normalizeVisualId, resolveVehicleHitboxId } from '../ui-core/config/vehicleConstants.ts';
+import { getMaterialsConfig } from '../ui-core/config/materialsConfig.ts';
+import { resolveBotFallbackColorForTeam } from '../ui-core/config/botsLoadoutConfig.ts';
 import {
   setNameTagRuntimeState,
   useSpatialAudioStore,
@@ -102,7 +99,7 @@ export class ReplayViewerRosterSubController {
 
   resolveAndApplyToArena(
     input: ReplayRosterExtractionInput,
-    runtime: ReplayViewerRosterRuntimePort | null,
+    runtime: ReplayViewerRosterRuntimePort | null
   ): void {
     const resolved = resolveReplayRosterData(input);
     this.resolvedRoster = resolved.resolvedRoster;
@@ -213,18 +210,12 @@ export class ReplayViewerRosterSubController {
 
   applyUserLoadoutToTakenOverCar(
     runtime: ReplayViewerRosterRuntimePort | null,
-    carIndex = this.activePovCarIndex,
+    carIndex = this.activePovCarIndex
   ): void {
     if (!runtime) return;
     const povIdx = Number.isInteger(carIndex) ? carIndex : 0;
     const povEntry = this.resolvedRoster.find((e) => e.carIndex === povIdx) || null;
-    const povTeam = povEntry
-      ? povEntry.team === 1
-        ? 1
-        : 0
-      : this.activePovTeam === 1
-        ? 1
-        : 0;
+    const povTeam = povEntry ? (povEntry.team === 1 ? 1 : 0) : this.activePovTeam === 1 ? 1 : 0;
     this.activePovTeam = povTeam;
 
     const appState = useAppStore.getState?.() || null;

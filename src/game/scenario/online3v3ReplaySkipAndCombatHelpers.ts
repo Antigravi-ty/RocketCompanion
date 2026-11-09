@@ -9,7 +9,10 @@
  * - V2 .rcreplay binary container round-trip and StandaloneReplayViewer takeover
  */
 
-import { INCIDENT_EVENT_TYPES as INC, MATCH_SIGNALS as SIG } from '../../physics/RocketSimConstants.ts';
+import {
+  INCIDENT_EVENT_TYPES as INC,
+  MATCH_SIGNALS as SIG,
+} from '../../physics/RocketSimConstants.ts';
 import { isBinaryRCReplayContainer } from '../../replay/container/RCReplayBinarySchema.ts';
 import { serializeRCReplayBinaryContainer } from '../../replay/container/RCReplayBinaryEncoder.ts';
 import { getRetainedMatchReplay, parseRCReplayFile } from '../../replay/ReplayFileExporter.ts';
@@ -24,15 +27,22 @@ export function executeSupersonicDemolitionSetup(ctx: ScenarioStepContext): void
     right: [0, 1, 0] as [number, number, number],
     up: [0, 0, 1] as [number, number, number],
     angVel: [0, 0, 0] as [number, number, number],
-    isOnGround: true, isFlipping: false,
+    isOnGround: true,
+    isFlipping: false,
   };
   const victim = {
-    ...basis, pos: [0, -1500, 17.01] as [number, number, number],
-    vel: [0, 0, 0] as [number, number, number], boost: 33, isSupersonic: false,
+    ...basis,
+    pos: [0, -1500, 17.01] as [number, number, number],
+    vel: [0, 0, 0] as [number, number, number],
+    boost: 33,
+    isSupersonic: false,
   };
   const attacker = {
-    ...basis, pos: [-220, -1500, 17.01] as [number, number, number],
-    vel: [2295, 0, 0] as [number, number, number], boost: 100, isSupersonic: true,
+    ...basis,
+    pos: [-220, -1500, 17.01] as [number, number, number],
+    vel: [2295, 0, 0] as [number, number, number],
+    boost: 100,
+    isSupersonic: true,
   };
   const sim = r?.authoritativeServer?.fallbackSim;
   sim?.setCarState?.(4, victim);
@@ -40,12 +50,18 @@ export function executeSupersonicDemolitionSetup(ctx: ScenarioStepContext): void
   r?.physics?.setCarState?.(4, victim);
   r?.physics?.setCarState?.(0, attacker);
   const snap = sim?.saveCompactState?.() || null;
-  if (snap) r?.networkReconciler?.syncTimeline?.(snap, r?.authoritativeServer?.lastServerTick ?? 0, ctx.virtualTimeMs);
+  if (snap)
+    r?.networkReconciler?.syncTimeline?.(
+      snap,
+      r?.authoritativeServer?.lastServerTick ?? 0,
+      ctx.virtualTimeMs
+    );
 }
 
 export function verifyCombatIncidentsAndLaunchFirstGoal(ctx: ScenarioStepContext): void {
   const r = ctx.runtime;
-  const snap = eventStreamStore.getSnapshot?.() as { events?: Array<Record<string, unknown>> } | undefined;
+  const snap = eventStreamStore.getSnapshot?.() as
+    { events?: Array<Record<string, unknown>> } | undefined;
   const evs = Array.isArray(snap?.events) ? snap.events : [];
   const rq = r?.authoritativeServer?.fallbackManager?.commandQueue?.replaySignalLog || [];
   const hasJump = evs.some((e) => e.type === INC.CAR_JUMP);
@@ -59,7 +75,7 @@ export function verifyCombatIncidentsAndLaunchFirstGoal(ctx: ScenarioStepContext
   ctx.recordAssertion(
     'online_3v3_combat_and_movement_incidents_verified',
     hasJump && hasDodge && hasBoost && hasBallHit && hasDemo,
-    `jump=${hasJump}, dodge=${hasDodge}, boost=${hasBoost}, hit=${hasBallHit}, demo=${hasDemo}`,
+    `jump=${hasJump}, dodge=${hasDodge}, boost=${hasBoost}, hit=${hasBallHit}, demo=${hasDemo}`
   );
   const domain = r?.authoritativeServer?.fallbackManager?.domain;
   if (domain) Object.assign(domain, { clockStarted: false });
@@ -79,29 +95,42 @@ export function clampServerGoalCelebrationBuffer(ctx: ScenarioStepContext, ticks
 export function buildRegulationCombatAndReplaySkipSteps(): ScenarioTickStep[] {
   return [
     {
-      tick: 560, description: 'Release Jump while airborne',
-      action: (ctx) => ctx.setLocalCarControls({ throttle: 1.0, pitch: 0.0, jump: false, boost: true }),
+      tick: 560,
+      description: 'Release Jump while airborne',
+      action: (ctx) =>
+        ctx.setLocalCarControls({ throttle: 1.0, pitch: 0.0, jump: false, boost: true }),
     },
     {
-      tick: 570, description: 'Execute forward Dodge while boosting',
-      action: (ctx) => ctx.setLocalCarControls({ throttle: 1.0, pitch: -1.0, jump: true, boost: true }),
+      tick: 570,
+      description: 'Execute forward Dodge while boosting',
+      action: (ctx) =>
+        ctx.setLocalCarControls({ throttle: 1.0, pitch: -1.0, jump: true, boost: true }),
     },
     {
-      tick: 582, description: 'Launch Car 0 supersonic along +X into Car 4 for Demolition',
+      tick: 582,
+      description: 'Launch Car 0 supersonic along +X into Car 4 for Demolition',
       action: executeSupersonicDemolitionSetup,
     },
     {
-      tick: 615, forceKeyframeRender: true, keyframeReason: 'online_3v3_combat_and_movement_incidents',
-      description: 'Verify Boost, Jump, Dodge, Ball-Hit, and Demolition incidents, then launch Regulation Goal 1',
+      tick: 615,
+      forceKeyframeRender: true,
+      keyframeReason: 'online_3v3_combat_and_movement_incidents',
+      description:
+        'Verify Boost, Jump, Dodge, Ball-Hit, and Demolition incidents, then launch Regulation Goal 1',
       action: verifyCombatIncidentsAndLaunchFirstGoal,
     },
     {
-      tick: 645, description: 'Advance goal celebration buffer into Goal Replay to test Bot vs Human skip voting',
+      tick: 645,
+      description:
+        'Advance goal celebration buffer into Goal Replay to test Bot vs Human skip voting',
       action: (ctx) => clampServerGoalCelebrationBuffer(ctx, 5),
     },
     {
-      tick: 665, forceKeyframeRender: true, keyframeReason: 'e2e_replay_bots_auto_vote_while_humans_hold',
-      description: 'Verify Auto-Filling Ducky Bots automatically voted skip (jump:true) while Take-Over Humans hold never',
+      tick: 665,
+      forceKeyframeRender: true,
+      keyframeReason: 'e2e_replay_bots_auto_vote_while_humans_hold',
+      description:
+        'Verify Auto-Filling Ducky Bots automatically voted skip (jump:true) while Take-Over Humans hold never',
       action: (ctx) => {
         const r = ctx.runtime;
         const phase = r?.match?.state?.phase;
@@ -113,16 +142,19 @@ export function buildRegulationCombatAndReplaySkipSteps(): ScenarioTickStep[] {
         ctx.recordAssertion(
           'e2e_replay_bots_auto_vote_while_humans_hold',
           phase === 'replay' && botVotedCount === 3 && humanVotedCount === 0,
-          `phase=${phase}, botVotedCount=${botVotedCount}/3, humanVotedCount=${humanVotedCount}/3`,
+          `phase=${phase}, botVotedCount=${botVotedCount}/3, humanVotedCount=${humanVotedCount}/3`
         );
         ctx.loopbackSimulator.setPeerReplaySkipPolicy?.('peer_1', {
-          mode: 'delayed_tick', skipAfterReplayTicks: 1, holdIntoKickoff: true,
+          mode: 'delayed_tick',
+          skipAfterReplayTicks: 1,
+          holdIntoKickoff: true,
         });
       },
     },
     {
       tick: 680,
-      description: 'Verify partial human skip vote (Peer 1 only) keeps Goal Replay active, then vote with Host + Peer 2',
+      description:
+        'Verify partial human skip vote (Peer 1 only) keeps Goal Replay active, then vote with Host + Peer 2',
       action: (ctx) => {
         const r = ctx.runtime;
         const phase = r?.match?.state?.phase;
@@ -133,32 +165,42 @@ export function buildRegulationCombatAndReplaySkipSteps(): ScenarioTickStep[] {
         ctx.recordAssertion(
           'e2e_replay_partial_human_skip_waits_for_all_humans',
           phase === 'replay' && peer1Voted && !hostVoted && !peer2Voted,
-          `phase=${phase}, peer1=${peer1Voted}, host=${hostVoted}, peer2=${peer2Voted}`,
+          `phase=${phase}, peer1=${peer1Voted}, host=${hostVoted}, peer2=${peer2Voted}`
         );
         ctx.setLocalCarControls({ throttle: 1.0, jump: true, boost: true });
         ctx.loopbackSimulator.setPeerReplaySkipPolicy?.('peer_2', {
-          mode: 'delayed_tick', skipAfterReplayTicks: 1, holdIntoKickoff: true,
+          mode: 'delayed_tick',
+          skipAfterReplayTicks: 1,
+          holdIntoKickoff: true,
         });
       },
     },
     {
-      tick: 695, forceKeyframeRender: true, keyframeReason: 'e2e_replay_all_humans_skipped_to_kickoff',
-      description: 'Verify all humans voting skip immediately transitions to kickoff and registers jumpSuppressedCarIndices',
+      tick: 695,
+      forceKeyframeRender: true,
+      keyframeReason: 'e2e_replay_all_humans_skipped_to_kickoff',
+      description:
+        'Verify all humans voting skip immediately transitions to kickoff and registers jumpSuppressedCarIndices',
       action: (ctx) => {
         const r = ctx.runtime;
         const phase = r?.match?.state?.phase;
         const suppressed = r?.authoritativeServer?.fallbackPhysics?.jumpSuppressedCarIndices;
-        const hasSuppressed = Boolean(suppressed && suppressed.has(0) && suppressed.has(1) && suppressed.has(2));
+        const hasSuppressed = Boolean(
+          suppressed && suppressed.has(0) && suppressed.has(1) && suppressed.has(2)
+        );
         ctx.recordAssertion(
           'e2e_replay_all_humans_voted_skips_to_kickoff_and_suppresses_jump',
           phase === 'kickoff' && hasSuppressed,
-          `phase=${phase}, suppressed=[${Array.from(suppressed || []).join(',')}]`,
+          `phase=${phase}, suppressed=[${Array.from(suppressed || []).join(',')}]`
         );
       },
     },
     {
-      tick: 1165, forceKeyframeRender: true, keyframeReason: 'e2e_kickoff_unfreeze_jump_suppression',
-      description: 'Verify held Jump across replay skip did not cause spontaneous jump on kickoff unfreeze, then set 1-1 for Overtime',
+      tick: 1165,
+      forceKeyframeRender: true,
+      keyframeReason: 'e2e_kickoff_unfreeze_jump_suppression',
+      description:
+        'Verify held Jump across replay skip did not cause spontaneous jump on kickoff unfreeze, then set 1-1 for Overtime',
       action: (ctx) => {
         const r = ctx.runtime;
         const phase = r?.match?.state?.phase;
@@ -167,14 +209,20 @@ export function buildRegulationCombatAndReplaySkipSteps(): ScenarioTickStep[] {
         const c1 = sim?.getCarStateView?.(1) ?? r?.physics?.getCarStateView?.(1);
         const c2 = sim?.getCarStateView?.(2) ?? r?.physics?.getCarStateView?.(2);
         const noSpontaneousJump = Boolean(
-          c0 && !c0.isJumping && (c0.posZ ?? 0) < 28 &&
-          c1 && !c1.isJumping && (c1.posZ ?? 0) < 28 &&
-          c2 && !c2.isJumping && (c2.posZ ?? 0) < 28,
+          c0 &&
+          !c0.isJumping &&
+          (c0.posZ ?? 0) < 28 &&
+          c1 &&
+          !c1.isJumping &&
+          (c1.posZ ?? 0) < 28 &&
+          c2 &&
+          !c2.isJumping &&
+          (c2.posZ ?? 0) < 28
         );
         ctx.recordAssertion(
           'e2e_kickoff_unfreeze_jump_suppression_verified',
           phase === 'playing' && noSpontaneousJump,
-          `phase=${phase}, c0Z=${c0?.posZ?.toFixed?.(1)}, c1Z=${c1?.posZ?.toFixed?.(1)}, c2Z=${c2?.posZ?.toFixed?.(1)}`,
+          `phase=${phase}, c0Z=${c0?.posZ?.toFixed?.(1)}, c1Z=${c1?.posZ?.toFixed?.(1)}, c2Z=${c2?.posZ?.toFixed?.(1)}`
         );
         ctx.setLocalCarControls({ throttle: 1.0, jump: false, boost: true });
         ctx.loopbackSimulator.setPeerReplaySkipPolicy?.('all', 'never');
@@ -188,14 +236,19 @@ export function buildRegulationCombatAndReplaySkipSteps(): ScenarioTickStep[] {
   ];
 }
 
-export async function verifyMatchEndedAndRCReplayRoundTrip(ctx: ScenarioStepContext): Promise<void> {
+export async function verifyMatchEndedAndRCReplayRoundTrip(
+  ctx: ScenarioStepContext
+): Promise<void> {
   const r = ctx.runtime;
   const phase = r?.match?.state?.phase;
   const winner = r?.authoritativeServer?.fallbackManager?.domain?.winner;
   const retained = getRetainedMatchReplay();
   const hasRetained = Boolean(
-    retained && retained.winner === 'blue' && retained.blueScore >= 1 &&
-      Array.isArray(retained.roster) && retained.roster.length === 6,
+    retained &&
+    retained.winner === 'blue' &&
+    retained.blueScore >= 1 &&
+    Array.isArray(retained.roster) &&
+    retained.roster.length === 6
   );
   let roundTripOk = false;
   let framesLen = 0;
@@ -212,31 +265,43 @@ export async function verifyMatchEndedAndRCReplayRoundTrip(ctx: ScenarioStepCont
   const pktDump = r?.networkManager?.diagnosticsProbe?.dumpLatestNetworkPacket?.();
   ctx.recordAssertion(
     'e2e_match_ended_and_rcreplay_roundtrip_verified',
-    (phase === 'ended' || phase === 'podium') && winner === 0 && hasRetained && roundTripOk && Boolean(pktDump),
-    `phase=${phase}, winner=${winner}, roundTripOk=${roundTripOk} (frames=${framesLen}, roster=${rosterLen}), pktDump=${Boolean(pktDump)}`,
+    (phase === 'ended' || phase === 'podium') &&
+      winner === 0 &&
+      hasRetained &&
+      roundTripOk &&
+      Boolean(pktDump),
+    `phase=${phase}, winner=${winner}, roundTripOk=${roundTripOk} (frames=${framesLen}, roster=${rosterLen}), pktDump=${Boolean(pktDump)}`
   );
 }
 
 export function buildPodiumAndViewerTakeoverSteps(): ScenarioTickStep[] {
   return [
     {
-      tick: 2270, forceKeyframeRender: true, keyframeReason: 'e2e_podium_v_formation',
+      tick: 2270,
+      forceKeyframeRender: true,
+      keyframeReason: 'e2e_podium_v_formation',
       description: 'Verify 360-tick countdown transitioned into PODIUM_START V-formation',
       action: (ctx) => {
         const r = ctx.runtime;
         const phase = r?.match?.state?.phase;
         const serverState = r?.authoritativeServer?.fallbackManager?.domain?.state;
-        const podiumActive = Boolean(r?.podiumController?.isActive || phase === 'podium' || serverState === 'podium');
+        const podiumActive = Boolean(
+          r?.podiumController?.isActive || phase === 'podium' || serverState === 'podium'
+        );
         const sigs = ctx.loopbackSimulator.collectTelemetry().distinctSignalNames;
         ctx.recordAssertion(
-          'e2e_podium_celebration_active', podiumActive && sigs.includes('PODIUM_START'),
-          `phase=${phase}, serverState=${serverState}, hasSig=${sigs.includes('PODIUM_START')}`,
+          'e2e_podium_celebration_active',
+          podiumActive && sigs.includes('PODIUM_START'),
+          `phase=${phase}, serverState=${serverState}, hasSig=${sigs.includes('PODIUM_START')}`
         );
       },
     },
     {
-      tick: 2305, forceKeyframeRender: true, keyframeReason: 'e2e_room_destroy_and_viewer_takeover',
-      description: 'Destroy online room and load retained 6-car replay into StandaloneReplayViewerController',
+      tick: 2305,
+      forceKeyframeRender: true,
+      keyframeReason: 'e2e_room_destroy_and_viewer_takeover',
+      description:
+        'Destroy online room and load retained 6-car replay into StandaloneReplayViewerController',
       action: async (ctx) => {
         const r = ctx.runtime;
         await ctx.loopbackSimulator.stop();
@@ -247,13 +312,16 @@ export function buildPodiumAndViewerTakeoverSteps(): ScenarioTickStep[] {
         const active = Boolean(viewer?.isActive && viewer?.hasLoadedReplay);
         const rLen = viewer?.rosterSubController?.resolvedRoster?.length ?? 0;
         ctx.recordAssertion(
-          'e2e_room_destroyed_and_replay_viewer_loaded', stopped && active && rLen === 6,
-          `stopped=${stopped}, viewerActive=${active}, rosterLen=${rLen}`,
+          'e2e_room_destroyed_and_replay_viewer_loaded',
+          stopped && active && rLen === 6,
+          `stopped=${stopped}, viewerActive=${active}, rosterLen=${rLen}`
         );
       },
     },
     {
-      tick: 2335, forceKeyframeRender: true, keyframeReason: 'e2e_viewer_pov_and_intervene',
+      tick: 2335,
+      forceKeyframeRender: true,
+      keyframeReason: 'e2e_viewer_pov_and_intervene',
       description: 'Switch POV slot in Replay Viewer and exercise beginInterventionPreRoll',
       action: (ctx) => {
         const viewer = ctx.runtime?.modeManager?.getActiveMode?.()?.standaloneReplayViewer;
@@ -261,11 +329,17 @@ export function buildPodiumAndViewerTakeoverSteps(): ScenarioTickStep[] {
         const povIdx = viewer?.rosterSubController?.activePovCarIndex ?? -1;
         viewer?.beginInterventionPreRoll?.();
         const st = viewer?.takeoverSubController?.getViewerState?.() || 'playing';
-        ctx.recordAssertion('e2e_replay_viewer_pov_and_intervene_verified', povIdx >= 0 && Boolean(st), `pov=${povIdx}, state=${st}`);
+        ctx.recordAssertion(
+          'e2e_replay_viewer_pov_and_intervene_verified',
+          povIdx >= 0 && Boolean(st),
+          `pov=${povIdx}, state=${st}`
+        );
       },
     },
     {
-      tick: 2365, forceKeyframeRender: true, keyframeReason: 'e2e_viewer_exit_to_freeplay',
+      tick: 2365,
+      forceKeyframeRender: true,
+      keyframeReason: 'e2e_viewer_exit_to_freeplay',
       description: 'Exit Replay Viewer back to clean 1-car FreePlay',
       action: (ctx) => {
         const r = ctx.runtime;
@@ -274,7 +348,9 @@ export function buildPodiumAndViewerTakeoverSteps(): ScenarioTickStep[] {
       },
     },
     {
-      tick: 2390, forceKeyframeRender: true, keyframeReason: 'e2e_final_clean_freeplay',
+      tick: 2390,
+      forceKeyframeRender: true,
+      keyframeReason: 'e2e_final_clean_freeplay',
       description: 'Verify clean return to 1-car FreePlay with slots 1..5 hidden',
       action: (ctx) => {
         const r = ctx.runtime;
@@ -285,7 +361,7 @@ export function buildPodiumAndViewerTakeoverSteps(): ScenarioTickStep[] {
         ctx.recordAssertion(
           'e2e_clean_return_to_single_car_freeplay',
           viewerOff && phase === 'playing' && numCars === 1 && hidden,
-          `viewerOff=${viewerOff}, phase=${phase}, numCars=${numCars}, extraHidden=${hidden}`,
+          `viewerOff=${viewerOff}, phase=${phase}, numCars=${numCars}, extraHidden=${hidden}`
         );
       },
     },

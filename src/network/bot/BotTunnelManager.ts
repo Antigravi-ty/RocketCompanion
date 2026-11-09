@@ -111,9 +111,7 @@ export class BotTunnelManager {
     this.hostServer = hostServer;
     this.options = options;
     this.isWorker =
-      typeof Worker !== 'undefined' &&
-      !options.forceInProcess &&
-      Boolean(hostServer?.isWorker);
+      typeof Worker !== 'undefined' && !options.forceInProcess && Boolean(hostServer?.isWorker);
   }
 
   init(): void {
@@ -282,7 +280,8 @@ export class BotTunnelManager {
   ): void {
     if (this.hasDirectPort) return;
     if (!stateSnapshot || this.registeredTunnels.size === 0) return;
-    if (serverTick === this.lastSteppedServerTick && matchState === this.lastSteppedMatchState) return;
+    if (serverTick === this.lastSteppedServerTick && matchState === this.lastSteppedMatchState)
+      return;
     this.lastSteppedServerTick = serverTick;
     this.lastSteppedMatchState = matchState;
 
@@ -302,7 +301,7 @@ export class BotTunnelManager {
     }
     if (activeCars.length === 0) {
       for (let i = 0; i < bots.length; i++) {
-        activeCars.push({ carIndex: bots[i].carIndex!, team: (bots[i].team === 1 ? 1 : 0) });
+        activeCars.push({ carIndex: bots[i].carIndex!, team: bots[i].team === 1 ? 1 : 0 });
       }
     }
 

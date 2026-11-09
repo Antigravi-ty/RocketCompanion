@@ -9,7 +9,7 @@
 
 import * as THREE from 'three';
 import { subscribeGlobalKeyDown, subscribeGlobalKeyUp } from '../input/hotkeyInputGuard.ts';
-import { DEFAULT_REPLAY_DIRECTOR_FOV_DEG } from '../ui-core/config/replayDirectorConfig';
+import { DEFAULT_REPLAY_DIRECTOR_FOV_DEG } from '../ui-core/config/replayDirectorConfig.ts';
 import {
   clampHorizontalFovDeg,
   convertHorizontalToVerticalFov,
@@ -18,9 +18,7 @@ import {
 export const DEFAULT_FREE_CAMERA_FOV_DEG = DEFAULT_REPLAY_DIRECTOR_FOV_DEG;
 
 export type Vector3TupleOrObject =
-  | readonly [number?, number?, number?]
-  | number[]
-  | { x?: number; y?: number; z?: number };
+  readonly [number?, number?, number?] | number[] | { x?: number; y?: number; z?: number };
 
 export class FreeCameraController {
   private _fov: number;
@@ -55,7 +53,9 @@ export class FreeCameraController {
   public yaw: number;
 
   constructor(
-    aspect: number = typeof window !== 'undefined' ? window.innerWidth / window.innerHeight : 16 / 9,
+    aspect: number = typeof window !== 'undefined'
+      ? window.innerWidth / window.innerHeight
+      : 16 / 9,
     settings: Record<string, unknown> | null = null,
     existingCamera: THREE.PerspectiveCamera | null = null
   ) {

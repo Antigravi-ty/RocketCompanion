@@ -59,11 +59,7 @@ export async function syncPrivateProfile({ force = false } = {}) {
 
   // Check local sibling directories for a profile.json matching PRIVATE_PROFILE_HASH before hitting network
   if (!force) {
-    const siblingProfile = resolveMatchingSiblingProfile(
-      ROOT_DIR,
-      PRIVATE_PROFILE_HASH,
-      pinnedRef
-    );
+    const siblingProfile = resolveMatchingSiblingProfile(ROOT_DIR, PRIVATE_PROFILE_HASH, pinnedRef);
     if (siblingProfile) {
       writeFileIfChanged(RESOLVED_PROFILE_PATH, `${JSON.stringify(siblingProfile, null, 2)}\n`);
       console.log(

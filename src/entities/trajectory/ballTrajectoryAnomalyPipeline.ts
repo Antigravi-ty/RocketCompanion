@@ -3,11 +3,7 @@ import {
   CAR_STATE_STRIDE,
   CAR_STATE_OFFSETS,
 } from '../../physics/RocketSimConstants.ts';
-import {
-  RAW_STRIDE,
-  POINT_STRIDE,
-  MAX_STEPS,
-} from './ballTrajectoryGeometryPipeline.ts';
+import { RAW_STRIDE, POINT_STRIDE, MAX_STEPS } from './ballTrajectoryGeometryPipeline.ts';
 
 export interface AnomalyPhysicsCarTeamPort {
   readonly _carSpecs?: ReadonlyArray<{ readonly team?: number } | null>;
@@ -36,18 +32,11 @@ export type TrajectoryArenaSeamRegion =
   | 'mid-air';
 
 export type TrajectoryAnomalyTriggerKind =
-  | 'full-deviation'
-  | 'wasm-seam-resync'
-  | 'full-world-bounce'
-  | 'velocity-step-mismatch';
+  'full-deviation' | 'wasm-seam-resync' | 'full-world-bounce' | 'velocity-step-mismatch';
 
 export interface BallState18Snapshot {
   pos: [number, number, number];
-  rotMat: [
-    number, number, number,
-    number, number, number,
-    number, number, number,
-  ];
+  rotMat: [number, number, number, number, number, number, number, number, number];
   vel: [number, number, number];
   angVel: [number, number, number];
   speedUuPerSec: number;
@@ -199,7 +188,7 @@ function roundVec3(x: number, y: number, z: number): [number, number, number] {
 export function classifyArenaSeamRegion(
   posX: number,
   posY: number,
-  posZ: number,
+  posZ: number
 ): TrajectoryArenaSeamRegion {
   const absX = Math.abs(posX);
   const absY = Math.abs(posY);
@@ -278,7 +267,7 @@ export function extractBallState18Snapshot(statePtr: Float32Array): BallState18S
 
 export function extractCarProximitySnapshots(
   phys: AnomalyPhysicsCarTeamPort | null | undefined,
-  statePtr: Float32Array,
+  statePtr: Float32Array
 ): { cars: CarProximitySnapshot[]; closestSurfaceGapUu: number } {
   const b = SIM_OFFSETS.BALL;
   const bx = statePtr[b] ?? 0;
@@ -307,7 +296,7 @@ export function extractCarProximitySnapshots(
     }
     cars.push({
       carIndex: i,
-      team: phys?._carSpecs?.[i]?.team ?? (i % 2),
+      team: phys?._carSpecs?.[i]?.team ?? i % 2,
       pos: roundVec3(cx, cy, cz),
       vel: roundVec3(vx, vy, vz),
       centerDistanceUu: round4(centerDist),
@@ -317,36 +306,22 @@ export function extractCarProximitySnapshots(
 
   return {
     cars,
-    closestSurfaceGapUu: Number.isFinite(closestSurfaceGapUu)
-      ? round4(closestSurfaceGapUu)
-      : 99999,
+    closestSurfaceGapUu: Number.isFinite(closestSurfaceGapUu) ? round4(closestSurfaceGapUu) : 99999,
   };
 }
 
 export function readRawSliceSample(
   rawSlices: Float32Array,
   sliceIndex: number,
-  tickOffset: number,
+  tickOffset: number
 ): TrajectoryPredictedSliceSample {
   const base = sliceIndex * RAW_STRIDE;
   return {
     sliceIndex,
     tickOffset,
-    pos: roundVec3(
-      rawSlices[base] ?? 0,
-      rawSlices[base + 1] ?? 0,
-      rawSlices[base + 2] ?? 0,
-    ),
-    vel: roundVec3(
-      rawSlices[base + 3] ?? 0,
-      rawSlices[base + 4] ?? 0,
-      rawSlices[base + 5] ?? 0,
-    ),
-    angVel: roundVec3(
-      rawSlices[base + 6] ?? 0,
-      rawSlices[base + 7] ?? 0,
-      rawSlices[base + 8] ?? 0,
-    ),
+    pos: roundVec3(rawSlices[base] ?? 0, rawSlices[base + 1] ?? 0, rawSlices[base + 2] ?? 0),
+    vel: roundVec3(rawSlices[base + 3] ?? 0, rawSlices[base + 4] ?? 0, rawSlices[base + 5] ?? 0),
+    angVel: roundVec3(rawSlices[base + 6] ?? 0, rawSlices[base + 7] ?? 0, rawSlices[base + 8] ?? 0),
   };
 }
 
@@ -357,7 +332,7 @@ export function buildPredictionSpaceSnapshot(
   anchorBallState18: BallState18Snapshot,
   rawSlices: Float32Array,
   sliceCount: number,
-  focusSliceIndex = 0,
+  focusSliceIndex = 0
 ): PredictionSpaceSnapshot {
   const clampedCount = Math.max(0, Math.min(MAX_STEPS, sliceCount));
   const nearSlices: TrajectoryPredictedSliceSample[] = [];
@@ -399,12 +374,9 @@ export function computeTailContinuityErrorUu(
   prevPredictionCount: number,
   rawSlices: Float32Array,
   actualCount: number,
-  deltaTicks: number,
+  deltaTicks: number
 ): number {
-  if (
-    prevPredictionCount <= deltaTicks ||
-    actualCount <= prevPredictionCount - deltaTicks
-  ) {
+  if (prevPredictionCount <= deltaTicks || actualCount <= prevPredictionCount - deltaTicks) {
     return 0;
   }
   const checkRawIdx = prevPredictionCount - 1 - deltaTicks;

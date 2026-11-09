@@ -129,7 +129,10 @@ export class AerialReachabilityRenderer {
     // 4 Longitudinal Guide Rails
     const railSegmentsCount = 4 * (FUNNEL_RINGS - 1) * 2;
     const railGeom = new THREE.BufferGeometry();
-    railGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(railSegmentsCount * 3), 3));
+    railGeom.setAttribute(
+      'position',
+      new THREE.BufferAttribute(new Float32Array(railSegmentsCount * 3), 3)
+    );
     const railMat = new THREE.LineBasicMaterial({
       color: 0xdceeff,
       transparent: true,
@@ -177,14 +180,20 @@ export class AerialReachabilityRenderer {
 
     for (let h = 0; h < 3; h++) {
       const bGeom = new THREE.BufferGeometry();
-      bGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(BUBBLE_VERTS_COUNT * 3), 3));
-      bGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(BUBBLE_VERTS_COUNT * 3), 3));
+      bGeom.setAttribute(
+        'position',
+        new THREE.BufferAttribute(new Float32Array(BUBBLE_VERTS_COUNT * 3), 3)
+      );
+      bGeom.setAttribute(
+        'color',
+        new THREE.BufferAttribute(new Float32Array(BUBBLE_VERTS_COUNT * 3), 3)
+      );
       bGeom.setIndex(new THREE.BufferAttribute(sharedBubbleIndices, 1));
 
       const bMat = new THREE.MeshBasicMaterial({
         vertexColors: true,
         transparent: true,
-        opacity: 0.20 - h * 0.04,
+        opacity: 0.2 - h * 0.04,
         side: THREE.DoubleSide,
         depthTest: true,
         depthWrite: false,
@@ -196,7 +205,10 @@ export class AerialReachabilityRenderer {
       this.bubbleMeshes.push(bMesh);
 
       const ribGeom = new THREE.BufferGeometry();
-      ribGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this._bubbleRibIdx.length * 3), 3));
+      ribGeom.setAttribute(
+        'position',
+        new THREE.BufferAttribute(new Float32Array(this._bubbleRibIdx.length * 3), 3)
+      );
       const ribMat = new THREE.LineBasicMaterial({
         color: HORIZON_COLORS_HEX[h],
         transparent: true,
@@ -220,13 +232,26 @@ export class AerialReachabilityRenderer {
     this.group.visible = true;
 
     const {
-      posX, posY, posZ,
-      velX, velY, velZ,
-      fwdX, fwdY, fwdZ,
-      rightX, rightY, rightZ,
-      upX, upY, upZ,
-      angVelX, angVelY, angVelZ,
-      boost, isOnGround,
+      posX,
+      posY,
+      posZ,
+      velX,
+      velY,
+      velZ,
+      fwdX,
+      fwdY,
+      fwdZ,
+      rightX,
+      rightY,
+      rightZ,
+      upX,
+      upY,
+      upZ,
+      angVelX,
+      angVelY,
+      angVelZ,
+      boost,
+      isOnGround,
     } = carState;
 
     const includeJump = Boolean(config.includeJumpImpulse);
@@ -240,9 +265,15 @@ export class AerialReachabilityRenderer {
       for (let h = 0; h < 3; h++) {
         const T = horizons[h];
         const c = computeBallisticCenter(
-          posX, posY, posZ,
-          velX, velY, velZ,
-          upX, upY, upZ,
+          posX,
+          posY,
+          posZ,
+          velX,
+          velY,
+          velZ,
+          upX,
+          upY,
+          upZ,
           T,
           includeJump,
           isOnGround
@@ -262,7 +293,17 @@ export class AerialReachabilityRenderer {
           const dy = BUBBLE_UNIT_DIRS[v3 + 1];
           const dz = BUBBLE_UNIT_DIRS[v3 + 2];
 
-          const tTurn = computeAerialTurnLatency(fwdX, fwdY, fwdZ, dx, dy, dz, angVelX, angVelY, angVelZ);
+          const tTurn = computeAerialTurnLatency(
+            fwdX,
+            fwdY,
+            fwdZ,
+            dx,
+            dy,
+            dz,
+            angVelX,
+            angVelY,
+            angVelZ
+          );
           const velAlongD = c.ivx * dx + c.ivy * dy + c.ivz * dz;
           const sThrust = computeDirectionalBoostReach(T, boost, tTurn, velAlongD);
           const rTotal = sThrust + 65.0 + 30.0 * T;
@@ -278,7 +319,8 @@ export class AerialReachabilityRenderer {
           posArr[v3 + 2] = clipped.y;
 
           // Directional + hemisphere shading
-          const shade = 0.45 + 0.35 * Math.max(0, 0.45 * dx - 0.5 * dy + 0.74 * dz) + 0.20 * (0.5 * (dz + 1.0));
+          const shade =
+            0.45 + 0.35 * Math.max(0, 0.45 * dx - 0.5 * dy + 0.74 * dz) + 0.2 * (0.5 * (dz + 1.0));
           colArr[v3 + 0] = rgb[0] * shade;
           colArr[v3 + 1] = rgb[1] * shade;
           colArr[v3 + 2] = rgb[2] * shade;
@@ -319,15 +361,21 @@ export class AerialReachabilityRenderer {
     for (let i = 0; i < FUNNEL_RINGS; i++) {
       const t = FUNNEL_TIMES[i];
       const c = computeBallisticCenter(
-        posX, posY, posZ,
-        velX, velY, velZ,
-        upX, upY, upZ,
+        posX,
+        posY,
+        posZ,
+        velX,
+        velY,
+        velZ,
+        upX,
+        upY,
+        upZ,
         t,
         includeJump,
         isOnGround
       );
 
-      const rgb = t <= 1.05 ? HORIZON_RGB[0] : (t <= 2.05 ? HORIZON_RGB[1] : HORIZON_RGB[2]);
+      const rgb = t <= 1.05 ? HORIZON_RGB[0] : t <= 2.05 ? HORIZON_RGB[1] : HORIZON_RGB[2];
 
       for (let j = 0; j < FUNNEL_SECTORS; j++) {
         const cosPhi = FUNNEL_COS[j];
@@ -338,7 +386,17 @@ export class AerialReachabilityRenderer {
         const dirY = rightY * cosPhi + upY * sinPhi;
         const dirZ = rightZ * cosPhi + upZ * sinPhi;
 
-        const tTurn = computeAerialTurnLatency(fwdX, fwdY, fwdZ, dirX, dirY, dirZ, angVelX, angVelY, angVelZ);
+        const tTurn = computeAerialTurnLatency(
+          fwdX,
+          fwdY,
+          fwdZ,
+          dirX,
+          dirY,
+          dirZ,
+          angVelX,
+          angVelY,
+          angVelZ
+        );
         const velAlongD = c.ivx * dirX + c.ivy * dirY + c.ivz * dirZ;
         const sThrust = computeDirectionalBoostReach(t, boost, tTurn, velAlongD);
 
@@ -355,7 +413,10 @@ export class AerialReachabilityRenderer {
         posArr[vIdx3 + 1] = clipped.z;
         posArr[vIdx3 + 2] = clipped.y;
 
-        const shade = 0.50 + 0.30 * Math.max(0, 0.4 * dirX - 0.4 * dirY + 0.8 * dirZ) + 0.20 * (0.5 * (dirZ + 1.0));
+        const shade =
+          0.5 +
+          0.3 * Math.max(0, 0.4 * dirX - 0.4 * dirY + 0.8 * dirZ) +
+          0.2 * (0.5 * (dirZ + 1.0));
         colArr[vIdx3 + 0] = rgb[0] * shade;
         colArr[vIdx3 + 1] = rgb[1] * shade;
         colArr[vIdx3 + 2] = rgb[2] * shade;
@@ -394,7 +455,12 @@ export class AerialReachabilityRenderer {
     if (this.funnelRailsLine.visible) {
       const railAttr = this.funnelRailsLine.geometry.attributes.position;
       const railArr = railAttr.array;
-      const quarterSectors = [0, FUNNEL_SECTORS >> 2, FUNNEL_SECTORS >> 1, (3 * FUNNEL_SECTORS) >> 2];
+      const quarterSectors = [
+        0,
+        FUNNEL_SECTORS >> 2,
+        FUNNEL_SECTORS >> 1,
+        (3 * FUNNEL_SECTORS) >> 2,
+      ];
       let ptr = 0;
       for (const secJ of quarterSectors) {
         for (let i = 0; i < FUNNEL_RINGS - 1; i++) {

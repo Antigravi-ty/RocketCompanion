@@ -84,7 +84,7 @@ function evalTypeScriptModule(tsSource, mockImports = {}) {
 
 function formatCompactObjectEntries(obj, indent = '  ') {
   const lines = Object.entries(obj).map(
-    ([k, v]) => `${indent}${JSON.stringify(k)}: ${JSON.stringify(v)},`,
+    ([k, v]) => `${indent}${JSON.stringify(k)}: ${JSON.stringify(v)},`
   );
   return `{\n${lines.join('\n')}\n}`;
 }
@@ -96,14 +96,17 @@ function extractGoldenData(mainCommit) {
   const descriptorsTs = gitShow(uiCoreDir, `${uiCoreCommit}:config/vehicleDescriptorsConfig.ts`);
   const constantsTs = gitShow(uiCoreDir, `${uiCoreCommit}:config/vehicleConstants.ts`);
   const rocketSimConstantsTs = gitShow(ROOT_DIR, `${mainCommit}:src/physics/RocketSimConstants.ts`);
-  const suspensionSystemTs = gitShow(ROOT_DIR, `${mainCommit}:src/entities/VehicleSuspensionSystem.ts`);
+  const suspensionSystemTs = gitShow(
+    ROOT_DIR,
+    `${mainCommit}:src/entities/VehicleSuspensionSystem.ts`
+  );
 
   const descriptorsMod = evalTypeScriptModule(descriptorsTs);
   const constantsMod = evalTypeScriptModule(constantsTs);
   const rocketSimMod = evalTypeScriptModule(rocketSimConstantsTs);
 
   const suspensionMod = evalTypeScriptModule(suspensionSystemTs, {
-    'three': {
+    three: {
       Vector3: class {
         constructor(x = 0, y = 0, z = 0) {
           this.x = x;
@@ -345,7 +348,7 @@ export const GOLDEN_65F1538D_INCIDENT_EVENT_TYPES: Readonly<Record<string, numbe
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, tsBanner, 'utf8');
   console.log(
-    `[GoldenExtractor] Extracted 65f1538d golden baseline (${Object.keys(golden.vehicleDescriptors).length} vehicle descriptors, ${Object.keys(golden.hitboxPresets).length} hitbox presets) -> ${path.relative(ROOT_DIR, outPath)}`,
+    `[GoldenExtractor] Extracted 65f1538d golden baseline (${Object.keys(golden.vehicleDescriptors).length} vehicle descriptors, ${Object.keys(golden.hitboxPresets).length} hitbox presets) -> ${path.relative(ROOT_DIR, outPath)}`
   );
 }
 

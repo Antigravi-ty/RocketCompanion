@@ -1,22 +1,19 @@
 import React, { useEffect, useRef } from 'react';
-import { RuntimeViewportHost } from './core/RuntimeViewportHost';
-import { MenuShell } from './core/MenuShell';
-import { useAppStore } from '../ui-core/stores/appStore';
-import { copyAndLogLayoutSnapshot } from './core/UIInspector';
+import { RuntimeViewportHost } from './core/RuntimeViewportHost.tsx';
+import { MenuShell } from './core/MenuShell.tsx';
+import { useAppStore } from '../ui-core/stores/appStore.ts';
+import { copyAndLogLayoutSnapshot } from './core/UIInspector.ts';
 import {
   floatingStore,
   configureFloatingStorePersistence,
-} from '../ui-core/stores/floatingStore';
-import { FLOATING_WINDOW_OPACITY_PRESET } from '../ui-core/stores/floatingPresets';
-import {
-  getInitialFloatingOpacity,
-  saveFloatingOpacity,
-} from '../ui-core/config/uiConfig';
-import { useStaticTrainingPackStore } from '../ui-core/stores/staticTrainingPackStore';
-import { useCloudProfileSyncStore } from '../ui-core/stores/cloudProfileSyncStore';
-import { dialogue } from '../ui-core/compounds/dialogue/dialogueStore';
-import { ensureSignalingProfileBridge } from './core/runtimeOnlineBridgeHandlers';
-import { activateNameTagOffscreenForDeveloperMode } from '../ui-core/stores/nameTagTunerStore';
+} from '../ui-core/stores/floatingStore.ts';
+import { FLOATING_WINDOW_OPACITY_PRESET } from '../ui-core/stores/floatingPresets.ts';
+import { getInitialFloatingOpacity, saveFloatingOpacity } from '../ui-core/config/uiConfig.ts';
+import { useStaticTrainingPackStore } from '../ui-core/stores/staticTrainingPackStore.ts';
+import { useCloudProfileSyncStore } from '../ui-core/stores/cloudProfileSyncStore.ts';
+import { dialogue } from '../ui-core/compounds/dialogue/dialogueStore.ts';
+import { ensureSignalingProfileBridge } from './core/runtimeOnlineBridgeHandlers.ts';
+import { activateNameTagOffscreenForDeveloperMode } from '../ui-core/stores/nameTagTunerStore.ts';
 
 configureFloatingStorePersistence({
   getInitialOpacity: getInitialFloatingOpacity,
@@ -42,16 +39,19 @@ export const GameUIRoot: React.FC<GameUIRootProps> = () => {
     if (developerMode && !opacityInitRef.current) {
       opacityInitRef.current = true;
       activateNameTagOffscreenForDeveloperMode();
-      const existing = floatingStore.getSnapshot().windows.some(
-        (w) => w.id === FLOATING_WINDOW_OPACITY_PRESET.id
-      );
+      const existing = floatingStore
+        .getSnapshot()
+        .windows.some((w) => w.id === FLOATING_WINDOW_OPACITY_PRESET.id);
       if (!existing) {
         const w = FLOATING_WINDOW_OPACITY_PRESET.width ?? 320;
         const h = FLOATING_WINDOW_OPACITY_PRESET.height ?? 100;
-        const centerPos = typeof window !== 'undefined' ? {
-          x: Math.max(20, Math.round((window.innerWidth - w) / 2)),
-          y: Math.max(20, Math.round((window.innerHeight - h) / 2)),
-        } : undefined;
+        const centerPos =
+          typeof window !== 'undefined'
+            ? {
+                x: Math.max(20, Math.round((window.innerWidth - w) / 2)),
+                y: Math.max(20, Math.round((window.innerHeight - h) / 2)),
+              }
+            : undefined;
 
         floatingStore.spawnWindow({
           ...FLOATING_WINDOW_OPACITY_PRESET,
@@ -157,8 +157,8 @@ export const GameUIRoot: React.FC<GameUIRootProps> = () => {
       const defaultLabel = state.isOpen
         ? state.activeRoute
         : isEditActive
-        ? 'static-training-pack-edit'
-        : state.activeRoute;
+          ? 'static-training-pack-edit'
+          : state.activeRoute;
       return copyAndLogLayoutSnapshot(customLabel || defaultLabel);
     };
   }, []);

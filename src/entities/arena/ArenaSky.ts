@@ -14,7 +14,7 @@ import {
   updateSkyboxConfig as updateSkyboxConfigState,
   subscribeSkyboxConfig,
   type SkyboxConfig,
-} from '../../ui-core/config/skyboxConfig';
+} from '../../ui-core/config/skyboxConfig.ts';
 import {
   SKYBOX_VERTEX_SHADER,
   SKYBOX_COMMON_GLSL_HEADER,
@@ -55,26 +55,58 @@ function syncActiveSkyUniforms(c: SkyboxRuntimeParams = skyboxRuntimeConfig) {
   activeSkyUniforms.uTextureScaleU.value = Number(c.textureScaleU) || 1.0;
   activeSkyUniforms.uRotationRad.value = ((Number(rotDeg) || 0) * Math.PI) / 180;
   activeSkyUniforms.uExposure.value = Number(expVal) ?? 0.6;
-  activeSkyUniforms.uUpperVerticalStretch.value = Math.max(0.2, Number(c.upperVerticalStretch) || 1.0);
-  activeSkyUniforms.uContrastBalance.value = Math.max(0.0, Math.min(1.0, Number(c.contrastBalance) ?? 0.15));
-  activeSkyUniforms.uContrastMidpoint.value = Math.max(0.05, Math.min(1.0, Number(c.contrastMidpoint) ?? 0.15));
+  activeSkyUniforms.uUpperVerticalStretch.value = Math.max(
+    0.2,
+    Number(c.upperVerticalStretch) || 1.0
+  );
+  activeSkyUniforms.uContrastBalance.value = Math.max(
+    0.0,
+    Math.min(1.0, Number(c.contrastBalance) ?? 0.15)
+  );
+  activeSkyUniforms.uContrastMidpoint.value = Math.max(
+    0.05,
+    Math.min(1.0, Number(c.contrastMidpoint) ?? 0.15)
+  );
   activeSkyUniforms.uHorizonOffset.value = Number(c.horizonOffset) ?? 0.0;
   activeSkyUniforms.uHorizonBlendWidth.value = Math.max(0.002, Number(c.horizonBlendWidth) ?? 0.03);
   activeSkyUniforms.uHorizonHazeStrength.value = Number(c.horizonHazeStrength) ?? 0.0;
   activeSkyUniforms.uGroundSampleHorizon.value = c.groundSampleHorizon !== false ? 1.0 : 0.0;
-  activeSkyUniforms.uGroundGradientRange.value = Math.max(0.01, Number(c.groundGradientRange) ?? 0.95);
-  activeSkyUniforms.uGroundHorizonStrength.value = Math.max(0.0, Math.min(1.0, Number(c.groundHorizonStrength) ?? 0.8));
+  activeSkyUniforms.uGroundGradientRange.value = Math.max(
+    0.01,
+    Number(c.groundGradientRange) ?? 0.95
+  );
+  activeSkyUniforms.uGroundHorizonStrength.value = Math.max(
+    0.0,
+    Math.min(1.0, Number(c.groundHorizonStrength) ?? 0.8)
+  );
   if (c.horizonColor) activeSkyUniforms.uHorizonColor.value.set(c.horizonColor);
   if (c.groundColor) activeSkyUniforms.uGroundColor.value.set(c.groundColor);
   if (c.zenithColor) activeSkyUniforms.uZenithColor.value.set(c.zenithColor);
   if (c.middleColor) activeSkyUniforms.uMiddleColor.value.set(c.middleColor);
 
-  activeSkyUniforms.uFullSphereLowerVOffset.value = Math.max(0.0, Math.min(0.48, Number(c.fullSphereLowerVOffset) ?? 0.04));
-  activeSkyUniforms.uFullSphereLowerVerticalStretch.value = Math.max(0.2, Number(c.fullSphereLowerVerticalStretch) || 1.0);
-  activeSkyUniforms.uFullSphereLowerCutoffElev.value = Math.max(0.0, Math.min(1.0, Number(c.fullSphereLowerCutoffElev) ?? 0.18));
-  activeSkyUniforms.uFullSphereLowerFadeRange.value = Math.max(0.01, Math.min(1.0, Number(c.fullSphereLowerFadeRange) ?? 0.45));
-  activeSkyUniforms.uFullSphereLowerDimming.value = Math.max(0.0, Math.min(1.0, Number(c.fullSphereLowerDimming) ?? 0.25));
-  activeSkyUniforms.uFullSphereLowerSampleHorizon.value = c.fullSphereLowerSampleHorizon ? 1.0 : 0.0;
+  activeSkyUniforms.uFullSphereLowerVOffset.value = Math.max(
+    0.0,
+    Math.min(0.48, Number(c.fullSphereLowerVOffset) ?? 0.04)
+  );
+  activeSkyUniforms.uFullSphereLowerVerticalStretch.value = Math.max(
+    0.2,
+    Number(c.fullSphereLowerVerticalStretch) || 1.0
+  );
+  activeSkyUniforms.uFullSphereLowerCutoffElev.value = Math.max(
+    0.0,
+    Math.min(1.0, Number(c.fullSphereLowerCutoffElev) ?? 0.18)
+  );
+  activeSkyUniforms.uFullSphereLowerFadeRange.value = Math.max(
+    0.01,
+    Math.min(1.0, Number(c.fullSphereLowerFadeRange) ?? 0.45)
+  );
+  activeSkyUniforms.uFullSphereLowerDimming.value = Math.max(
+    0.0,
+    Math.min(1.0, Number(c.fullSphereLowerDimming) ?? 0.25)
+  );
+  activeSkyUniforms.uFullSphereLowerSampleHorizon.value = c.fullSphereLowerSampleHorizon
+    ? 1.0
+    : 0.0;
 
   const coronaOn = Boolean(c.coronaEnabled);
   activeSkyUniforms.uCoronaEnabled.value = coronaOn ? 1.0 : 0.0;
@@ -94,16 +126,23 @@ function syncActiveSkyUniforms(c: SkyboxRuntimeParams = skyboxRuntimeConfig) {
   if (cloudOn) {
     activeSkyUniforms.uCloudOverlayMap.value = loadCloudOverlayTexture();
   }
-  activeSkyUniforms.uCloudOverlayOpacity.value = Math.max(0.0, Math.min(1.0, Number(c.cloudOverlayOpacity) ?? 0.45));
+  activeSkyUniforms.uCloudOverlayOpacity.value = Math.max(
+    0.0,
+    Math.min(1.0, Number(c.cloudOverlayOpacity) ?? 0.45)
+  );
   activeSkyUniforms.uCloudOverlayScaleU.value = Number(c.cloudOverlayScaleU) || 1.0;
-  activeSkyUniforms.uCloudOverlayElevationOffset.value = Number(c.cloudOverlayElevationOffset) ?? 0.0;
+  activeSkyUniforms.uCloudOverlayElevationOffset.value =
+    Number(c.cloudOverlayElevationOffset) ?? 0.0;
 
   const oobOn = Boolean(c.oobNormalEnabled);
   activeSkyUniforms.uOobNormalEnabled.value = oobOn ? 1.0 : 0.0;
   if (oobOn) {
     activeSkyUniforms.uOobNormalMap.value = loadOobNormalTexture();
   }
-  activeSkyUniforms.uOobNormalStrength.value = Math.max(0.0, Math.min(1.0, Number(c.oobNormalStrength) ?? 0.35));
+  activeSkyUniforms.uOobNormalStrength.value = Math.max(
+    0.0,
+    Math.min(1.0, Number(c.oobNormalStrength) ?? 0.35)
+  );
   activeSkyUniforms.uOobNormalTileScale.value = Math.max(0.5, Number(c.oobNormalTileScale) || 6.0);
 }
 
@@ -124,9 +163,11 @@ export function updateSkyboxFrame(delta = 0, sceneSunDir: THREE.Vector3 | null =
   const c = skyboxRuntimeConfig;
   if (c.cloudOverlayEnabled || c.oobNormalEnabled) {
     skyAccumulatedTime += Math.max(0, Math.min(0.1, Number(delta) || 0));
-    const cloudSpeedRad = (((Number(c.cloudOverlayScrollSpeed) || 0) * Math.PI) / 180) * skyAccumulatedTime;
+    const cloudSpeedRad =
+      (((Number(c.cloudOverlayScrollSpeed) || 0) * Math.PI) / 180) * skyAccumulatedTime;
     activeSkyUniforms.uCloudScrollRad.value = cloudSpeedRad;
-    activeSkyUniforms.uOobScrollOffset.value = skyAccumulatedTime * (Number(c.oobNormalScrollSpeed) || 0);
+    activeSkyUniforms.uOobScrollOffset.value =
+      skyAccumulatedTime * (Number(c.oobNormalScrollSpeed) || 0);
   }
   if (c.coronaEnabled && c.coronaFollowSceneSun) {
     updateCoronaSunBasisUniforms(activeSkyUniforms, c, latestSceneSunDir);
@@ -161,18 +202,30 @@ function createSkyUniformMap(c: SkyboxRuntimeParams = skyboxRuntimeConfig) {
     uHorizonHazeStrength: { value: Number(c.horizonHazeStrength) ?? 0.0 },
     uGroundSampleHorizon: { value: c.groundSampleHorizon !== false ? 1.0 : 0.0 },
     uGroundGradientRange: { value: Math.max(0.01, Number(c.groundGradientRange) ?? 0.95) },
-    uGroundHorizonStrength: { value: Math.max(0.0, Math.min(1.0, Number(c.groundHorizonStrength) ?? 0.8)) },
+    uGroundHorizonStrength: {
+      value: Math.max(0.0, Math.min(1.0, Number(c.groundHorizonStrength) ?? 0.8)),
+    },
     uHorizonColor: { value: new THREE.Color(c.horizonColor || '#1a202c') },
     uGroundColor: { value: new THREE.Color(c.groundColor || '#000000') },
     uZenithColor: { value: new THREE.Color(c.zenithColor || '#0c220d') },
     uMiddleColor: { value: new THREE.Color(c.middleColor || '#476649') },
 
     // Full-Sphere lower hemisphere controls
-    uFullSphereLowerVOffset: { value: Math.max(0.0, Math.min(0.48, Number(c.fullSphereLowerVOffset) ?? 0.04)) },
-    uFullSphereLowerVerticalStretch: { value: Math.max(0.2, Number(c.fullSphereLowerVerticalStretch) || 1.0) },
-    uFullSphereLowerCutoffElev: { value: Math.max(0.0, Math.min(1.0, Number(c.fullSphereLowerCutoffElev) ?? 0.18)) },
-    uFullSphereLowerFadeRange: { value: Math.max(0.01, Math.min(1.0, Number(c.fullSphereLowerFadeRange) ?? 0.45)) },
-    uFullSphereLowerDimming: { value: Math.max(0.0, Math.min(1.0, Number(c.fullSphereLowerDimming) ?? 0.25)) },
+    uFullSphereLowerVOffset: {
+      value: Math.max(0.0, Math.min(0.48, Number(c.fullSphereLowerVOffset) ?? 0.04)),
+    },
+    uFullSphereLowerVerticalStretch: {
+      value: Math.max(0.2, Number(c.fullSphereLowerVerticalStretch) || 1.0),
+    },
+    uFullSphereLowerCutoffElev: {
+      value: Math.max(0.0, Math.min(1.0, Number(c.fullSphereLowerCutoffElev) ?? 0.18)),
+    },
+    uFullSphereLowerFadeRange: {
+      value: Math.max(0.01, Math.min(1.0, Number(c.fullSphereLowerFadeRange) ?? 0.45)),
+    },
+    uFullSphereLowerDimming: {
+      value: Math.max(0.0, Math.min(1.0, Number(c.fullSphereLowerDimming) ?? 0.25)),
+    },
     uFullSphereLowerSampleHorizon: { value: c.fullSphereLowerSampleHorizon ? 1.0 : 0.0 },
 
     // Auxiliary Layer 1: Sun Corona & Glow
@@ -191,7 +244,9 @@ function createSkyUniformMap(c: SkyboxRuntimeParams = skyboxRuntimeConfig) {
     // Auxiliary Layer 2: Horizon Cumulus Overlay
     uCloudOverlayEnabled: { value: c.cloudOverlayEnabled ? 1.0 : 0.0 },
     uCloudOverlayMap: { value: c.cloudOverlayEnabled ? loadCloudOverlayTexture() : emptyTex },
-    uCloudOverlayOpacity: { value: Math.max(0.0, Math.min(1.0, Number(c.cloudOverlayOpacity) ?? 0.45)) },
+    uCloudOverlayOpacity: {
+      value: Math.max(0.0, Math.min(1.0, Number(c.cloudOverlayOpacity) ?? 0.45)),
+    },
     uCloudOverlayScaleU: { value: Number(c.cloudOverlayScaleU) || 1.0 },
     uCloudOverlayElevationOffset: { value: Number(c.cloudOverlayElevationOffset) ?? 0.0 },
     uCloudScrollRad: { value: 0.0 },
@@ -199,7 +254,9 @@ function createSkyUniformMap(c: SkyboxRuntimeParams = skyboxRuntimeConfig) {
     // Auxiliary Layer 3: OOB Cloud-Sea Normal
     uOobNormalEnabled: { value: c.oobNormalEnabled ? 1.0 : 0.0 },
     uOobNormalMap: { value: c.oobNormalEnabled ? loadOobNormalTexture() : emptyTex },
-    uOobNormalStrength: { value: Math.max(0.0, Math.min(1.0, Number(c.oobNormalStrength) ?? 0.35)) },
+    uOobNormalStrength: {
+      value: Math.max(0.0, Math.min(1.0, Number(c.oobNormalStrength) ?? 0.35)),
+    },
     uOobNormalTileScale: { value: Math.max(0.5, Number(c.oobNormalTileScale) || 6.0) },
     uOobScrollOffset: { value: 0.0 },
   };
@@ -251,10 +308,7 @@ export function createStadiumDomeSky() {
     fragmentShader,
   });
 
-  const skyMesh = new THREE.Mesh(
-    new THREE.SphereGeometry(28000, 64, 32),
-    skyMat
-  );
+  const skyMesh = new THREE.Mesh(new THREE.SphereGeometry(28000, 64, 32), skyMat);
   skyMesh.name = 'Stadium / open blue sky';
   skyMesh.visible = c.enabled !== false;
   skyMesh.frustumCulled = false;

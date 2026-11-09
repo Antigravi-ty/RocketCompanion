@@ -1,5 +1,5 @@
 import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
-import { KICKOFF_SPAWNS } from '../../ui-core/config/trainingDefaults';
+import { KICKOFF_SPAWNS } from '../../ui-core/config/trainingDefaults.ts';
 import {
   TICKS_PER_DECISION,
   multiDiscreteToOverlayKeys,
@@ -37,7 +37,13 @@ export interface KickoffGhostVisualsPort {
   setVisible(visible: boolean): void;
   resetTrail(): void;
   recordBallTrajectoryPoint(ballView: unknown): void;
-  update(prevState: Float32Array, currState: Float32Array, alpha: number, dt: number, controls: KickoffCarControls): void;
+  update(
+    prevState: Float32Array,
+    currState: Float32Array,
+    alpha: number,
+    dt: number,
+    controls: KickoffCarControls
+  ): void;
 }
 
 export interface KickoffFrameUpdateContext {
@@ -67,8 +73,14 @@ export interface KickoffEpisodeSubControllerDeps {
 }
 
 const NEUTRAL_CONTROLS: KickoffCarControls = {
-  throttle: 0, steer: 0, pitch: 0, yaw: 0, roll: 0,
-  jump: false, boost: false, handbrake: false,
+  throttle: 0,
+  steer: 0,
+  pitch: 0,
+  yaw: 0,
+  roll: 0,
+  jump: false,
+  boost: false,
+  handbrake: false,
 };
 
 export class KickoffEpisodeSubController {
@@ -128,9 +140,11 @@ export class KickoffEpisodeSubController {
     this.ghostPlacement = 'same';
     this.ghostModeEnabled = true;
     this.spawnIndex = initialSpawnIndex;
-    this.readyPromise = Promise.all([this.ensureGhostEngine(), preloadKickoffV1BestWeights()]).then(() => {
-      if (r?.match?.state?.mode === 'kickoff-training') this.selectSpawn(this.spawnIndex);
-    });
+    this.readyPromise = Promise.all([this.ensureGhostEngine(), preloadKickoffV1BestWeights()]).then(
+      () => {
+        if (r?.match?.state?.mode === 'kickoff-training') this.selectSpawn(this.spawnIndex);
+      }
+    );
   }
 
   public onExit(): void {
@@ -141,25 +155,33 @@ export class KickoffEpisodeSubController {
 
   public getConfigSnapshot(): KickoffEpisodeConfigSnapshot {
     return {
-      spawnIndex: this.spawnIndex, subMode: this.subMode,
-      ghostPlacement: this.ghostPlacement, ghostModeEnabled: this.ghostModeEnabled,
+      spawnIndex: this.spawnIndex,
+      subMode: this.subMode,
+      ghostPlacement: this.ghostPlacement,
+      ghostModeEnabled: this.ghostModeEnabled,
     };
   }
 
   public applyConfigPatch(patch: KickoffEpisodeConfigPatch): void {
     if (patch.spawnIndex !== undefined) this.spawnIndex = patch.spawnIndex;
     if (patch.subMode !== undefined) {
-      this.subMode = patch.subMode === 'realistic' || patch.subMode === 'easy-learning' ? patch.subMode : 'instant';
+      this.subMode =
+        patch.subMode === 'realistic' || patch.subMode === 'easy-learning'
+          ? patch.subMode
+          : 'instant';
     }
     if (patch.ghostPlacement !== undefined) {
       this.ghostPlacement = patch.ghostPlacement === 'opposite' ? 'opposite' : 'same';
     }
-    if (patch.ghostModeEnabled !== undefined) this.ghostModeEnabled = Boolean(patch.ghostModeEnabled);
+    if (patch.ghostModeEnabled !== undefined)
+      this.ghostModeEnabled = Boolean(patch.ghostModeEnabled);
     if (patch.ghostVisibility) {
-      this.deps.getGhostVisuals()?.setEntityVisibility(
-        this.ghostModeEnabled && Boolean(patch.ghostVisibility.showCar),
-        this.ghostModeEnabled && Boolean(patch.ghostVisibility.showBall)
-      );
+      this.deps
+        .getGhostVisuals()
+        ?.setEntityVisibility(
+          this.ghostModeEnabled && Boolean(patch.ghostVisibility.showCar),
+          this.ghostModeEnabled && Boolean(patch.ghostVisibility.showBall)
+        );
     }
   }
 
@@ -186,10 +208,15 @@ export class KickoffEpisodeSubController {
     this.solidAgent?.reset?.();
 
     const res = resetKickoffSpawnInPhysics({
-      physics: r.physics, arena: r.arena, spawnIndex,
-      playerCarIndex: r.playerCarIndex ?? 0, selectedHitbox: r.selectedHitbox || 'default',
-      neutralControls: neutral, ghostModeEnabled: this.ghostModeEnabled,
-      ghostPlacement: this.ghostPlacement, settleImmediate,
+      physics: r.physics,
+      arena: r.arena,
+      spawnIndex,
+      playerCarIndex: r.playerCarIndex ?? 0,
+      selectedHitbox: r.selectedHitbox || 'default',
+      neutralControls: neutral,
+      ghostModeEnabled: this.ghostModeEnabled,
+      ghostPlacement: this.ghostPlacement,
+      settleImmediate,
     });
     this.aiTeamSign = res.aiTeamSign;
     this.preSettleCar0State = res.preSettleCar0State;
@@ -228,7 +255,12 @@ export class KickoffEpisodeSubController {
 
     if (this.ghostSim?.isInitialized && this.ghostPrevState && this.ghostCurrState) {
       const pre = precomputeKickoffGhostTimeline(
-        this.ghostSim, this.ghostAgent, spawnIndex, this.ghostPrevState, this.ghostCurrState, 95
+        this.ghostSim,
+        this.ghostAgent,
+        spawnIndex,
+        this.ghostPrevState,
+        this.ghostCurrState,
+        95
       );
       this.timeline = pre.timeline;
       this.aiTouchTick = pre.aiTouchTick;
@@ -239,14 +271,18 @@ export class KickoffEpisodeSubController {
     ghostVisuals?.resetTrail();
 
     const isRealistic = this.subMode === 'realistic';
-    const waitTicks = isRealistic ? (store.realisticWaitTicks || 480) : 0;
+    const waitTicks = isRealistic ? store.realisticWaitTicks || 480 : 0;
     this.phase = isRealistic ? 'countdown' : 'waiting-for-input';
     this.countdownTicks = waitTicks;
     this.countdownElapsed = 0;
     this.latchedSec.clear();
     this._resetPlayerCarToSpawn(spawnIndex, !isRealistic);
     if (isRealistic) {
-      this._syncMatchAndHudPhase(r, 'kickoff', scheduleKickoffCountdownSignal(r?.physics, waitTicks));
+      this._syncMatchAndHudPhase(
+        r,
+        'kickoff',
+        scheduleKickoffCountdownSignal(r?.physics, waitTicks)
+      );
     } else {
       r?.physics?.setSimulationFrozen?.(true, 0, true);
       this._syncMatchAndHudPhase(r, 'playing', 0);
@@ -254,32 +290,60 @@ export class KickoffEpisodeSubController {
 
     const reqAct = this.timeline?.steps?.[0]?.action || [2, 1, 1, 0, 1, 0];
     store.updateLiveState({
-      phase: this.phase, episodeTick: 0, decisionStep: 0,
+      phase: this.phase,
+      episodeTick: 0,
+      decisionStep: 0,
       countdownRemainingTicks: this.countdownTicks,
-      requiredAction: reqAct, requiredKeys: multiDiscreteToOverlayKeys(reqAct),
+      requiredAction: reqAct,
+      requiredKeys: multiDiscreteToOverlayKeys(reqAct),
       requiredKeyStr: multiDiscreteToKeyString(reqAct),
-      timeline: this.timeline, aiTouchTick: this.aiTouchTick,
-      playerTouchTick: null, lastDeltaTicks: null, isInputMatching: true,
+      timeline: this.timeline,
+      aiTouchTick: this.aiTouchTick,
+      playerTouchTick: null,
+      lastDeltaTicks: null,
+      isInputMatching: true,
     });
   }
 
   public onBeforePhysicsTick(): boolean {
     const r = this.deps.getRuntime();
-    const { stepIdx, requiredAction, requiredKeys, requiredKeyStr, playerAction, playerKeys, isMatching, isAnyKeyPressed } =
-      evaluateKickoffPreTickInput(r.playerControls, this.episodeTick, TICKS_PER_DECISION, this.timeline);
+    const {
+      stepIdx,
+      requiredAction,
+      requiredKeys,
+      requiredKeyStr,
+      playerAction,
+      playerKeys,
+      isMatching,
+      isAnyKeyPressed,
+    } = evaluateKickoffPreTickInput(
+      r.playerControls,
+      this.episodeTick,
+      TICKS_PER_DECISION,
+      this.timeline
+    );
     const basePatch = { playerAction, playerKeys, requiredAction, requiredKeys, requiredKeyStr };
     const liveStore = useKickoffTrainingStore.getState();
 
     if (this.phase === 'countdown') {
       r.physics.setControls(r.playerCarIndex, r.neutralControls);
-      if (!this.ghostModeEnabled && r.physics.numCars >= 2) r.physics.setControls(1, r.neutralControls);
-      liveStore.updateLiveState({ ...basePatch, phase: 'countdown', countdownRemainingTicks: this.countdownTicks });
+      if (!this.ghostModeEnabled && r.physics.numCars >= 2)
+        r.physics.setControls(1, r.neutralControls);
+      liveStore.updateLiveState({
+        ...basePatch,
+        phase: 'countdown',
+        countdownRemainingTicks: this.countdownTicks,
+      });
       return true;
     }
     if (this.subMode === 'instant' && this.phase === 'waiting-for-input') {
       if (!isAnyKeyPressed) {
         r.physics.setSimulationFrozen(true, 0, true);
-        liveStore.updateLiveState({ ...basePatch, phase: 'waiting-for-input', isInputMatching: false });
+        liveStore.updateLiveState({
+          ...basePatch,
+          phase: 'waiting-for-input',
+          isInputMatching: false,
+        });
         return true;
       }
       this.phase = 'running';
@@ -287,10 +351,21 @@ export class KickoffEpisodeSubController {
       r.physics.setControls(r.playerCarIndex, r.playerControls);
     }
     if (this.subMode === 'easy-learning') {
-      if (!this.playerTouchedBall && this.timeline && stepIdx < this.timeline.steps.length && !isMatching) {
+      if (
+        !this.playerTouchedBall &&
+        this.timeline &&
+        stepIdx < this.timeline.steps.length &&
+        !isMatching
+      ) {
         this.phase = 'paused-mismatch';
         r.physics.setSimulationFrozen(true, 0, false);
-        liveStore.updateLiveState({ ...basePatch, phase: 'paused-mismatch', episodeTick: this.episodeTick, decisionStep: stepIdx, isInputMatching: false });
+        liveStore.updateLiveState({
+          ...basePatch,
+          phase: 'paused-mismatch',
+          episodeTick: this.episodeTick,
+          decisionStep: stepIdx,
+          isInputMatching: false,
+        });
         return false;
       }
       if (this.phase !== 'running') {
@@ -300,7 +375,11 @@ export class KickoffEpisodeSubController {
     }
 
     liveStore.updateLiveState({
-      ...basePatch, phase: this.phase, episodeTick: this.episodeTick, decisionStep: stepIdx, isInputMatching: isMatching,
+      ...basePatch,
+      phase: this.phase,
+      episodeTick: this.episodeTick,
+      decisionStep: stepIdx,
+      isInputMatching: isMatching,
     });
     return true;
   }
@@ -317,8 +396,14 @@ export class KickoffEpisodeSubController {
 
       if (this.countdownElapsed === KICKOFF_V1_SETTLE_TICKS && r.physics) {
         clampKickoffSettledPlayerAndPartnerCars(
-          r.physics, r.playerCarIndex ?? 0, this.spawnIndex, KICKOFF_SPAWNS[this.spawnIndex] || KICKOFF_SPAWNS[0],
-          this.ghostModeEnabled, this.ghostPlacement, this.preSettleCar0State, this.preSettleCar1State
+          r.physics,
+          r.playerCarIndex ?? 0,
+          this.spawnIndex,
+          KICKOFF_SPAWNS[this.spawnIndex] || KICKOFF_SPAWNS[0],
+          this.ghostModeEnabled,
+          this.ghostPlacement,
+          this.preSettleCar0State,
+          this.preSettleCar1State
         );
         if (rem > 0) r.physics.setSimulationFrozen(true, 0, true);
       }
@@ -350,8 +435,13 @@ export class KickoffEpisodeSubController {
 
     if (!this.ghostModeEnabled && r.physics.numCars >= 2) {
       const solidStep = stepKickoffAgentControls(
-        this.solidAgent, r.physics, 1, this.aiTeamSign < 0,
-        this.episodeTick, TICKS_PER_DECISION, this.ghostRawCtrl
+        this.solidAgent,
+        r.physics,
+        1,
+        this.aiTeamSign < 0,
+        this.episodeTick,
+        TICKS_PER_DECISION,
+        this.ghostRawCtrl
       );
       this.ghostRawCtrl = solidStep.rawControls;
       this.ghostCtrl = solidStep.sanitizedControls;
@@ -359,10 +449,20 @@ export class KickoffEpisodeSubController {
 
     r.physics.step(1);
 
-    if (this.ghostModeEnabled && this.ghostSim?.isInitialized && this.ghostPrevState && this.ghostCurrState) {
+    if (
+      this.ghostModeEnabled &&
+      this.ghostSim?.isInitialized &&
+      this.ghostPrevState &&
+      this.ghostCurrState
+    ) {
       const ghostStep = stepKickoffGhostSimTick(
-        this.ghostSim, this.ghostAgent, this.episodeTick, TICKS_PER_DECISION,
-        this.ghostRawCtrl, this.ghostPrevState, this.ghostCurrState
+        this.ghostSim,
+        this.ghostAgent,
+        this.episodeTick,
+        TICKS_PER_DECISION,
+        this.ghostRawCtrl,
+        this.ghostPrevState,
+        this.ghostCurrState
       );
       this.ghostRawCtrl = ghostStep.rawControls;
       this.ghostCtrl = ghostStep.sanitizedControls;
@@ -371,7 +471,10 @@ export class KickoffEpisodeSubController {
 
     this.episodeTick++;
 
-    if (!this.playerTouchedBall && detectKickoffPlayerFirstTouch(r.physics, this.ghostModeEnabled)) {
+    if (
+      !this.playerTouchedBall &&
+      detectKickoffPlayerFirstTouch(r.physics, this.ghostModeEnabled)
+    ) {
       this.playerTouchedBall = true;
       this.playerTouchTick = this.episodeTick;
       useKickoffTrainingStore.getState().updateLiveState({
@@ -392,10 +495,15 @@ export class KickoffEpisodeSubController {
     const { goalScored, playerCarView, dt } = context;
 
     if (goalScored && this.goalResetTicks === 0) this.goalResetTicks = 54;
-    if (playerCarView) hudStore.getState().setBoost(playerCarView.boost, playerCarView.isBoosting, false);
+    if (playerCarView)
+      hudStore.getState().setBoost(playerCarView.boost, playerCarView.isBoosting, false);
     if (this.ghostModeEnabled && ghostVisuals && this.ghostPrevState && this.ghostCurrState) {
       ghostVisuals.update(
-        this.ghostPrevState, this.ghostCurrState, r.interpolator?.alpha ?? 0, dt ?? 0.016, this.ghostCtrl
+        this.ghostPrevState,
+        this.ghostCurrState,
+        r.interpolator?.alpha ?? 0,
+        dt ?? 0.016,
+        this.ghostCtrl
       );
     }
   }

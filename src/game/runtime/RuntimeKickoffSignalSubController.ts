@@ -38,7 +38,7 @@ function exitLobbyDualWorldAndActivateMatchMode(host: RuntimeSignalHostPort): vo
 
 function preparePhysicsReplayRecordingForMatch(
   host: RuntimeSignalHostPort,
-  options: { clearBuffer?: boolean; resetBallTrail?: boolean } = {},
+  options: { clearBuffer?: boolean; resetBallTrail?: boolean } = {}
 ): void {
   const physics = host.physics;
   if (options.clearBuffer) {
@@ -59,7 +59,7 @@ function preparePhysicsReplayRecordingForMatch(
 function pushMatchPrepareSignalToPhysicsBuffer(
   host: RuntimeSignalHostPort,
   sig: RuntimeSignalPacket,
-  currentTick: number,
+  currentTick: number
 ): void {
   const physics = host.physics;
   if (physics && typeof physics.pushSignalEvent === 'function') {
@@ -79,7 +79,7 @@ function pushMatchPrepareSignalToPhysicsBuffer(
       p2,
       (sig.signalId || 0) >>> 0,
       0,
-      0,
+      0
     );
   }
 }
@@ -87,14 +87,14 @@ function pushMatchPrepareSignalToPhysicsBuffer(
 function isKickoffTransitioningFromReplay(host: RuntimeSignalHostPort): boolean {
   return Boolean(
     host.isGoalReplayCameraOverrideActive() ||
-      host.replayTimelineController?.sessionState?.isActive ||
-      host.match?.state?.phase === 'replay',
+    host.replayTimelineController?.sessionState?.isActive ||
+    host.match?.state?.phase === 'replay'
   );
 }
 
 function resetCameraViewIfInvalidOrWasInReplay(
   host: RuntimeSignalHostPort,
-  wasInReplay: boolean,
+  wasInReplay: boolean
 ): void {
   const camPos = host.camera?.camera?.position;
   if (
@@ -133,12 +133,7 @@ export class RuntimeKickoffSignalSubController {
 
     if (presets instanceof Map) {
       for (const cIdx of presets.keys()) {
-        if (
-          typeof cIdx === 'number' &&
-          cIdx >= 0 &&
-          cIdx < 6 &&
-          !activeParticipantMap.has(cIdx)
-        ) {
+        if (typeof cIdx === 'number' && cIdx >= 0 && cIdx < 6 && !activeParticipantMap.has(cIdx)) {
           activeParticipantMap.set(cIdx, cIdx % 2);
         }
       }
@@ -147,18 +142,13 @@ export class RuntimeKickoffSignalSubController {
       if (typeof peer?.carIndex === 'number' && peer.carIndex >= 0 && peer.carIndex < 6) {
         activeParticipantMap.set(
           peer.carIndex,
-          typeof peer.team === 'number' ? peer.team : peer.carIndex % 2,
+          typeof peer.team === 'number' ? peer.team : peer.carIndex % 2
         );
       }
     }
     if (h.remotePeerCarMap instanceof Map) {
       for (const cIdx of h.remotePeerCarMap.values()) {
-        if (
-          typeof cIdx === 'number' &&
-          cIdx >= 0 &&
-          cIdx < 6 &&
-          !activeParticipantMap.has(cIdx)
-        ) {
+        if (typeof cIdx === 'number' && cIdx >= 0 && cIdx < 6 && !activeParticipantMap.has(cIdx)) {
           activeParticipantMap.set(cIdx, cIdx % 2);
         }
       }
@@ -214,7 +204,7 @@ export class RuntimeKickoffSignalSubController {
   public handleSignal(
     reconciler: PredictionReconciler,
     sig: RuntimeSignalPacket,
-    ctx: KickoffSignalStepContext,
+    ctx: KickoffSignalStepContext
   ): { handled: boolean; currentTick: number } {
     const h = this.host;
     const matchState = h.match?.state;
@@ -223,8 +213,7 @@ export class RuntimeKickoffSignalSubController {
 
     switch (sig.signalType) {
       case MATCH_SIGNALS.MATCH_INITIALIZED: {
-        const durationSec =
-          typeof sig.param2 === 'number' && sig.param2 >= 0 ? sig.param2 : 300;
+        const durationSec = typeof sig.param2 === 'number' && sig.param2 >= 0 ? sig.param2 : 300;
         if (matchState) {
           matchState.durationSeconds = durationSec;
         }
@@ -260,7 +249,7 @@ export class RuntimeKickoffSignalSubController {
           reconciler.controlMessenger.enqueueClientCommand(
             CLIENT_COMMAND_TYPES.CMD_ARENA_LOADED_ACK,
             matchSeq,
-            1,
+            1
           );
         }
         return { handled: true, currentTick };
@@ -275,9 +264,7 @@ export class RuntimeKickoffSignalSubController {
         this.ensureMatchParticipantsInLocalWorld(reconciler);
         exitLobbyDualWorldAndActivateMatchMode(h);
         const durationSec =
-          typeof sig.param1 === 'number' &&
-          Number.isFinite(sig.param1) &&
-          sig.param1 >= 0
+          typeof sig.param1 === 'number' && Number.isFinite(sig.param1) && sig.param1 >= 0
             ? sig.param1
             : 300;
         if (matchState) {
@@ -350,9 +337,7 @@ export class RuntimeKickoffSignalSubController {
           matchState.countdown >= 1
             ? matchState.countdown
             : 3;
-        const displaySec = isNewKickoffPhase
-          ? rawDisplaySec
-          : Math.min(prevSec, rawDisplaySec);
+        const displaySec = isNewKickoffPhase ? rawDisplaySec : Math.min(prevSec, rawDisplaySec);
 
         if (matchState) {
           matchState.mode = 'match';

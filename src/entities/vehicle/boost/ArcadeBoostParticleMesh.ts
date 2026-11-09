@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 
-const ARCADE_PARTICLE_ATTRS: ReadonlyArray<string> = ["aOffset", "aSize", "aOpacity", "aLife", "aRotation"];
+const ARCADE_PARTICLE_ATTRS: ReadonlyArray<string> = [
+  'aOffset',
+  'aSize',
+  'aOpacity',
+  'aLife',
+  'aRotation',
+];
 
 /**
  * Arcade Instanced Particle Mesh
@@ -20,7 +26,7 @@ export class ArcadeBoostParticleMesh {
       BufferAttribute,
       InstancedBufferAttribute,
       ShaderMaterial,
-      DynamicDrawUsage
+      DynamicDrawUsage,
     } = THREE;
 
     this.offsets = new Float32Array(count * 3);
@@ -30,20 +36,21 @@ export class ArcadeBoostParticleMesh {
     this.rotations = new Float32Array(count);
 
     const geom = new InstancedBufferGeometry();
-    geom.setAttribute("position", new BufferAttribute(new Float32Array([
-      -0.5, -0.5, 0,
-       0.5, -0.5, 0,
-       0.5,  0.5, 0,
-      -0.5,  0.5, 0
-    ]), 3));
-    geom.setAttribute("uv", new BufferAttribute(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), 2));
+    geom.setAttribute(
+      'position',
+      new BufferAttribute(
+        new Float32Array([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0]),
+        3
+      )
+    );
+    geom.setAttribute('uv', new BufferAttribute(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), 2));
     geom.setIndex([0, 1, 2, 0, 2, 3]);
 
-    geom.setAttribute("aOffset", new InstancedBufferAttribute(this.offsets, 3));
-    geom.setAttribute("aSize", new InstancedBufferAttribute(this.sizes, 2));
-    geom.setAttribute("aOpacity", new InstancedBufferAttribute(this.opacity, 1));
-    geom.setAttribute("aLife", new InstancedBufferAttribute(this.life, 1));
-    geom.setAttribute("aRotation", new InstancedBufferAttribute(this.rotations, 1));
+    geom.setAttribute('aOffset', new InstancedBufferAttribute(this.offsets, 3));
+    geom.setAttribute('aSize', new InstancedBufferAttribute(this.sizes, 2));
+    geom.setAttribute('aOpacity', new InstancedBufferAttribute(this.opacity, 1));
+    geom.setAttribute('aLife', new InstancedBufferAttribute(this.life, 1));
+    geom.setAttribute('aRotation', new InstancedBufferAttribute(this.rotations, 1));
 
     for (const attr of ARCADE_PARTICLE_ATTRS) {
       geom.attributes[attr].setUsage(DynamicDrawUsage);
@@ -52,7 +59,7 @@ export class ArcadeBoostParticleMesh {
 
     const mat = new ShaderMaterial({
       uniforms: {
-        driving: { value: isDriving ? 1 : 0 }
+        driving: { value: isDriving ? 1 : 0 },
       },
       vertexShader: `
         attribute vec3 aOffset;
@@ -113,12 +120,12 @@ export class ArcadeBoostParticleMesh {
       `,
       transparent: true,
       depthWrite: false,
-      toneMapped: true
+      toneMapped: true,
     });
-    mat.name = isDriving ? "Arcade / exhaust puffs" : "Arcade / boost puffs";
+    mat.name = isDriving ? 'Arcade / exhaust puffs' : 'Arcade / boost puffs';
 
     this.mesh = new Mesh(geom, mat);
-    this.mesh.name = isDriving ? "drive-puffs" : "boost-trail";
+    this.mesh.name = isDriving ? 'drive-puffs' : 'boost-trail';
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = renderOrder;
   }

@@ -3,10 +3,7 @@ import type {
   LoadedEngineAudioPackAssets,
   ConditionedEngineSliceBuffers,
 } from './EngineAudioLoopConditioner.ts';
-import {
-  EngineAudioEqualizer,
-  evaluateSliceLoudnessCompensation,
-} from './EngineAudioEqualizer.ts';
+import { EngineAudioEqualizer, evaluateSliceLoudnessCompensation } from './EngineAudioEqualizer.ts';
 
 export type EngineSynthLodMode = 'primary-full' | 'remote-lod';
 

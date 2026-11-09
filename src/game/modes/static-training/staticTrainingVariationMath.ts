@@ -17,8 +17,8 @@ import {
   resolveEffectiveRecommendedVariation,
   type StaticTrainingVariationConfig,
   type StaticTrainingQuickVariationToggles,
-} from '../../../ui-core/config/staticTrainingVariationTypes';
-import type { StaticTrainingEditorFreeCam } from '../../../ui-core/config/staticTrainingPackTypes';
+} from '../../../ui-core/config/staticTrainingVariationTypes.ts';
+import type { StaticTrainingEditorFreeCam } from '../../../ui-core/config/staticTrainingPackTypes.ts';
 
 function randRange(minVal: number, maxVal: number): number {
   const lo = Math.min(minVal, maxVal);
@@ -294,7 +294,10 @@ export function applyTrainingVariationsToShot(
     if (activeVar.forceUnlimitedBoost) {
       carUnlimitedBoost = true;
       carInitialBoost = 100;
-    } else if (activeVar.boostLimitOverride !== null && activeVar.boostLimitOverride !== undefined) {
+    } else if (
+      activeVar.boostLimitOverride !== null &&
+      activeVar.boostLimitOverride !== undefined
+    ) {
       carUnlimitedBoost = false;
       carInitialBoost = clamp(Number(activeVar.boostLimitOverride), 0, 100);
     }
@@ -348,9 +351,11 @@ export function applyTrainingVariationsToShot(
  * into Three.js `FreeCameraController` `position: [x, y, z]` and `lookAt: [tx, ty, tz]`.
  * If `editorFreeCam` is Rocket League's unmoved default overview, orients toward the midpoint of car and ball.
  */
-export function computeThreeJsFreeCamPoseFromShot(shot: StaticTrainingShotConfig & {
-  editorFreeCam?: StaticTrainingEditorFreeCam;
-}): {
+export function computeThreeJsFreeCamPoseFromShot(
+  shot: StaticTrainingShotConfig & {
+    editorFreeCam?: StaticTrainingEditorFreeCam;
+  }
+): {
   position: [number, number, number];
   lookAt: [number, number, number];
 } | null {
@@ -385,11 +390,7 @@ export function computeThreeJsFreeCamPoseFromShot(shot: StaticTrainingShotConfig
   const dist = 1000;
   return {
     position: posThree,
-    lookAt: [
-      posThree[0] + fwdRlX * dist,
-      posThree[1] + fwdRlZ * dist,
-      posThree[2] + fwdRlY * dist,
-    ],
+    lookAt: [posThree[0] + fwdRlX * dist, posThree[1] + fwdRlZ * dist, posThree[2] + fwdRlY * dist],
   };
 }
 

@@ -79,13 +79,25 @@ export class KickoffPPOAgent {
     const padPositions = this._ensurePadPositions(engine);
     const s = teamSign < 0 ? -1.0 : 1.0;
 
-    const carX = cs.posX * s, carY = cs.posY * s, carZ = cs.posZ;
-    const velX = cs.velX * s, velY = cs.velY * s, velZ = cs.velZ;
-    const angX = cs.angVelX * s, angY = cs.angVelY * s, angZ = cs.angVelZ;
+    const carX = cs.posX * s,
+      carY = cs.posY * s,
+      carZ = cs.posZ;
+    const velX = cs.velX * s,
+      velY = cs.velY * s,
+      velZ = cs.velZ;
+    const angX = cs.angVelX * s,
+      angY = cs.angVelY * s,
+      angZ = cs.angVelZ;
 
-    const fwdX = cs.fwdX * s, fwdY = cs.fwdY * s, fwdZ = cs.fwdZ;
-    const rightX = cs.rightX * s, rightY = cs.rightY * s, rightZ = cs.rightZ;
-    const upX = cs.upX * s, upY = cs.upY * s, upZ = cs.upZ;
+    const fwdX = cs.fwdX * s,
+      fwdY = cs.fwdY * s,
+      fwdZ = cs.fwdZ;
+    const rightX = cs.rightX * s,
+      rightY = cs.rightY * s,
+      rightZ = cs.rightZ;
+    const upX = cs.upX * s,
+      upY = cs.upY * s,
+      upZ = cs.upZ;
 
     outObs[0] = (carX + FIELD_X) / S_FACE;
     outObs[1] = (FIELD_X - carX) / S_FACE;
@@ -107,9 +119,15 @@ export class KickoffPPOAgent {
     outObs[11] = vUp / S_CAR_VEL;
     outObs[12] = vMag / S_CAR_VEL;
 
-    const ballX = bs.posX * s, ballY = bs.posY * s, ballZ = bs.posZ;
-    const bVelX = bs.velX * s, bVelY = bs.velY * s, bVelZ = bs.velZ;
-    const bAngX = bs.angVelX * s, bAngY = bs.angVelY * s, bAngZ = bs.angVelZ;
+    const ballX = bs.posX * s,
+      ballY = bs.posY * s,
+      ballZ = bs.posZ;
+    const bVelX = bs.velX * s,
+      bVelY = bs.velY * s,
+      bVelZ = bs.velZ;
+    const bAngX = bs.angVelX * s,
+      bAngY = bs.angVelY * s,
+      bAngZ = bs.angVelZ;
 
     const relX = ballX - carX;
     const relY = ballY - carY;
@@ -159,8 +177,12 @@ export class KickoffPPOAgent {
     outObs[38] = ballZ / S_FACE;
     outObs[39] = (FIELD_Z - ballZ) / S_FACE;
 
-    const rogX = OPP_GOAL_X - carX, rogY = OPP_GOAL_Y - carY, rogZ = OPP_GOAL_Z - carZ;
-    const rwgX = OWN_GOAL_X - carX, rwgY = OWN_GOAL_Y - carY, rwgZ = OWN_GOAL_Z - carZ;
+    const rogX = OPP_GOAL_X - carX,
+      rogY = OPP_GOAL_Y - carY,
+      rogZ = OPP_GOAL_Z - carZ;
+    const rwgX = OWN_GOAL_X - carX,
+      rwgY = OWN_GOAL_Y - carY,
+      rwgZ = OWN_GOAL_Z - carZ;
     outObs[40] = (rogX * fwdX + rogY * fwdY + rogZ * fwdZ) / S_BALL_POS;
     outObs[41] = (rogX * rightX + rogY * rightY + rogZ * rightZ) / S_BALL_POS;
     outObs[42] = (rogX * upX + rogY * upY + rogZ * upZ) / S_BALL_POS;
@@ -255,7 +277,14 @@ export class KickoffPPOAgent {
       logits[i] = sum;
     }
 
-    const slices = [[0, 3], [3, 6], [6, 9], [9, 11], [11, 13], [13, 15]];
+    const slices = [
+      [0, 3],
+      [3, 6],
+      [6, 9],
+      [9, 11],
+      [11, 13],
+      [13, 15],
+    ];
     const act = [0, 0, 0, 0, 0, 0];
     for (let ch = 0; ch < 6; ch++) {
       const [s, e] = slices[ch];
@@ -273,7 +302,10 @@ export class KickoffPPOAgent {
   }
 
   precomputeTimeline(ghostEngine, spawnIndex = 0, maxSteps = 95) {
-    resetEngineToKickoffSpawn(ghostEngine, spawnIndex, { settleTicks: KICKOFF_SETTLE_TICKS, recreateArena: false });
+    resetEngineToKickoffSpawn(ghostEngine, spawnIndex, {
+      settleTicks: KICKOFF_SETTLE_TICKS,
+      recreateArena: false,
+    });
     this.resetTracker();
 
     const steps: any[] = [];
@@ -312,7 +344,10 @@ export class KickoffPPOAgent {
 
     const noteBars = buildKickoffTimelineNoteBars(steps);
 
-    resetEngineToKickoffSpawn(ghostEngine, spawnIndex, { settleTicks: KICKOFF_SETTLE_TICKS, recreateArena: false });
+    resetEngineToKickoffSpawn(ghostEngine, spawnIndex, {
+      settleTicks: KICKOFF_SETTLE_TICKS,
+      recreateArena: false,
+    });
     this.resetTracker();
 
     return {

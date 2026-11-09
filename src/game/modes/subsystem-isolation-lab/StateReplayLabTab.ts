@@ -1,7 +1,15 @@
 import { gameAudio } from '../../../audio/GameAudioEngineFacade.ts';
-import { isGlobalHotkeyBlockedByUi, subscribeGlobalKeyDown, subscribeGlobalKeyUp } from '../../../input/hotkeyInputGuard.ts';
+import {
+  isGlobalHotkeyBlockedByUi,
+  subscribeGlobalKeyDown,
+  subscribeGlobalKeyUp,
+} from '../../../input/hotkeyInputGuard.ts';
 import type { RestoreSnapshotOptions } from '../../../physics/RocketSimSnapshotSerializer.ts';
-import { MAX_REWINDER_FRAMES, exportStateReplayFile, parseRCReplayFile } from '../../../replay/ReplayFileExporter.ts';
+import {
+  MAX_REWINDER_FRAMES,
+  exportStateReplayFile,
+  parseRCReplayFile,
+} from '../../../replay/ReplayFileExporter.ts';
 import { useRewinderStore, useSubsystemIsolationLabStore } from '../../runtimeUiPort.ts';
 import type { LabAudioPort, LabTabContext, LabTabController } from './LabTabTypes.ts';
 import {
@@ -27,9 +35,15 @@ export class StateReplayLabTab implements LabTabController {
   private unsubKeyDown: (() => void) | null = null;
   private unsubKeyUp: (() => void) | null = null;
 
-  attachToHost(ctx: LabTabContext): void { this.ctx = ctx; }
-  onActivate(ctx: LabTabContext): void { this.ctx = ctx; }
-  onDeactivate(): void { this.clearBuffer(); }
+  attachToHost(ctx: LabTabContext): void {
+    this.ctx = ctx;
+  }
+  onActivate(ctx: LabTabContext): void {
+    this.ctx = ctx;
+  }
+  onDeactivate(): void {
+    this.clearBuffer();
+  }
 
   private getAudio(): LabAudioPort | null {
     return this.ctx?.runtime?.options?.gameAudio || (gameAudio as unknown as LabAudioPort);
@@ -42,20 +56,36 @@ export class StateReplayLabTab implements LabTabController {
     this.keyDownHandler = (evt: KeyboardEvent) => {
       const runtime = this.ctx?.runtime;
       if (runtime?.match?.state?.mode !== 'dev-test-lab') return;
-      if (isGlobalHotkeyBlockedByUi(evt, runtime) || !Boolean(useRewinderStore.getState().rewinderWindowOpen)) return;
+      if (
+        isGlobalHotkeyBlockedByUi(evt, runtime) ||
+        !Boolean(useRewinderStore.getState().rewinderWindowOpen)
+      )
+        return;
 
       const noMods = !evt.ctrlKey && !evt.shiftKey && !evt.altKey && !evt.metaKey;
       const keyLower = evt.key?.toLowerCase();
       if ((evt.code === 'KeyO' || keyLower === 'o') && noMods) {
-        if (!evt.repeat) { evt.preventDefault(); evt.stopImmediatePropagation(); this.startRecording(); }
+        if (!evt.repeat) {
+          evt.preventDefault();
+          evt.stopImmediatePropagation();
+          this.startRecording();
+        }
         return;
       }
       if ((evt.code === 'KeyP' || keyLower === 'p') && noMods) {
-        if (!evt.repeat) { evt.preventDefault(); evt.stopImmediatePropagation(); this.pauseRecording(); }
+        if (!evt.repeat) {
+          evt.preventDefault();
+          evt.stopImmediatePropagation();
+          this.pauseRecording();
+        }
         return;
       }
       if ((evt.code === 'KeyG' || keyLower === 'g') && noMods) {
-        if (!evt.repeat) { evt.preventDefault(); evt.stopImmediatePropagation(); this.resumeFromCursor(); }
+        if (!evt.repeat) {
+          evt.preventDefault();
+          evt.stopImmediatePropagation();
+          this.resumeFromCursor();
+        }
         return;
       }
       if (evt.code === 'BracketLeft' || evt.key === '[') {
@@ -71,8 +101,17 @@ export class StateReplayLabTab implements LabTabController {
 
     this.keyUpHandler = (evt: KeyboardEvent) => {
       const runtime = this.ctx?.runtime;
-      if (runtime?.match?.state?.mode !== 'dev-test-lab' || !Boolean(useRewinderStore.getState().rewinderWindowOpen)) return;
-      if (evt.code === 'BracketLeft' || evt.key === '[' || evt.code === 'BracketRight' || evt.key === ']') {
+      if (
+        runtime?.match?.state?.mode !== 'dev-test-lab' ||
+        !Boolean(useRewinderStore.getState().rewinderWindowOpen)
+      )
+        return;
+      if (
+        evt.code === 'BracketLeft' ||
+        evt.key === '[' ||
+        evt.code === 'BracketRight' ||
+        evt.key === ']'
+      ) {
         evt.preventDefault();
         this.pauseScrub();
       }
@@ -93,13 +132,20 @@ export class StateReplayLabTab implements LabTabController {
 
   isScrubOrPrerollActive(): boolean {
     const state = useRewinderStore.getState().rewinderState;
-    return state === 'rewinding' || state === 'forwarding' || state === 'paused-scrub' || state === 'preroll-countdown';
+    return (
+      state === 'rewinding' ||
+      state === 'forwarding' ||
+      state === 'paused-scrub' ||
+      state === 'preroll-countdown'
+    );
   }
 
   private ensureActive(actionName: string): boolean {
     const currentMode = this.ctx?.runtime?.match?.state?.mode || 'dev-test-lab';
     if (currentMode !== 'dev-test-lab') {
-      console.warn(`[StateReplayLabTab] Cannot execute "${actionName}": active mode is "${currentMode}".`);
+      console.warn(
+        `[StateReplayLabTab] Cannot execute "${actionName}": active mode is "${currentMode}".`
+      );
       return false;
     }
     return true;
@@ -116,7 +162,12 @@ export class StateReplayLabTab implements LabTabController {
   ): void {
     const r = this.ctx?.runtime;
     restoreRewinderFrameToPhysicsAndInterpolator(
-      r?.physics, r?.interpolator, this.frames, this.cursor, smoothStep, restoreOptions
+      r?.physics,
+      r?.interpolator,
+      this.frames,
+      this.cursor,
+      smoothStep,
+      restoreOptions
     );
   }
 
@@ -140,8 +191,11 @@ export class StateReplayLabTab implements LabTabController {
     r.simulationStage?.resetActionStates?.();
 
     this.syncTelemetry({
-      rewinderState: 'recording', rewinderRecordedFrames: 0,
-      rewinderCursorFrame: 0, rewinderTargetFrame: 0, rewinderPrerollRemainingSec: 0,
+      rewinderState: 'recording',
+      rewinderRecordedFrames: 0,
+      rewinderCursorFrame: 0,
+      rewinderTargetFrame: 0,
+      rewinderPrerollRemainingSec: 0,
     });
   }
 
@@ -153,8 +207,11 @@ export class StateReplayLabTab implements LabTabController {
       this.cursor = lastFrame;
       this.targetFrame = lastFrame;
       this.syncTelemetry({
-        rewinderState: 'stopped', rewinderRecordedFrames: this.frames.length,
-        rewinderCursorFrame: lastFrame, rewinderTargetFrame: lastFrame, rewinderPrerollRemainingSec: 0,
+        rewinderState: 'stopped',
+        rewinderRecordedFrames: this.frames.length,
+        rewinderCursorFrame: lastFrame,
+        rewinderTargetFrame: lastFrame,
+        rewinderPrerollRemainingSec: 0,
       });
     } else {
       console.warn(`[StateReplayLabTab] Cannot stop recording in state "${store.rewinderState}".`);
@@ -178,8 +235,11 @@ export class StateReplayLabTab implements LabTabController {
     this.lastBeepSec = -1;
     const rounded = Math.round(this.cursor);
     this.syncTelemetry({
-      rewinderState: direction, rewinderRecordedFrames: this.frames.length,
-      rewinderCursorFrame: rounded, rewinderTargetFrame: rounded, rewinderPrerollRemainingSec: 0,
+      rewinderState: direction,
+      rewinderRecordedFrames: this.frames.length,
+      rewinderCursorFrame: rounded,
+      rewinderTargetFrame: rounded,
+      rewinderPrerollRemainingSec: 0,
     });
   }
 
@@ -190,7 +250,9 @@ export class StateReplayLabTab implements LabTabController {
       this.cursor = clamped;
       this.targetFrame = clamped;
       this.syncTelemetry({
-        rewinderState: 'paused-scrub', rewinderCursorFrame: clamped, rewinderTargetFrame: clamped,
+        rewinderState: 'paused-scrub',
+        rewinderCursorFrame: clamped,
+        rewinderTargetFrame: clamped,
       });
     }
   }
@@ -208,8 +270,10 @@ export class StateReplayLabTab implements LabTabController {
     this.lastBeepSec = -1;
     this.applyFrameAtCursor(false);
     this.syncTelemetry({
-      rewinderState: 'paused-scrub', rewinderCursorFrame: clamped,
-      rewinderTargetFrame: clamped, rewinderPrerollRemainingSec: 0,
+      rewinderState: 'paused-scrub',
+      rewinderCursorFrame: clamped,
+      rewinderTargetFrame: clamped,
+      rewinderPrerollRemainingSec: 0,
     });
   }
 
@@ -231,7 +295,11 @@ export class StateReplayLabTab implements LabTabController {
     }
 
     const calc = computeRewinderPrerollWindow(
-      this.frames.length, this.cursor, this.targetFrame, downSec, store.rewinderState
+      this.frames.length,
+      this.cursor,
+      this.targetFrame,
+      downSec,
+      store.rewinderState
     );
     this.targetFrame = calc.targetIdx;
     this.cursor = calc.startIdx;
@@ -251,8 +319,10 @@ export class StateReplayLabTab implements LabTabController {
     }
 
     this.syncTelemetry({
-      rewinderState: 'preroll-countdown', rewinderRecordedFrames: this.frames.length,
-      rewinderCursorFrame: calc.startIdx, rewinderTargetFrame: calc.targetIdx,
+      rewinderState: 'preroll-countdown',
+      rewinderRecordedFrames: this.frames.length,
+      rewinderCursorFrame: calc.startIdx,
+      rewinderTargetFrame: calc.targetIdx,
       rewinderPrerollRemainingSec: Math.max(1, calc.remSec),
     });
   }
@@ -288,8 +358,10 @@ export class StateReplayLabTab implements LabTabController {
       r.simulationStage?.resetActionStates?.();
 
       this.syncTelemetry({
-        rewinderState: 'stopped', rewinderRecordedFrames: this.frames.length,
-        rewinderCursorFrame: 0, rewinderTargetFrame: this.targetFrame,
+        rewinderState: 'stopped',
+        rewinderRecordedFrames: this.frames.length,
+        rewinderCursorFrame: 0,
+        rewinderTargetFrame: this.targetFrame,
         rewinderPrerollRemainingSec: 0,
       });
       return true;
@@ -308,8 +380,11 @@ export class StateReplayLabTab implements LabTabController {
     this.lastBeepSec = -1;
     r?.physics?.clearReplayBuffer?.();
     this.syncTelemetry({
-      rewinderState: 'idle', rewinderRecordedFrames: 0,
-      rewinderCursorFrame: 0, rewinderTargetFrame: 0, rewinderPrerollRemainingSec: 0,
+      rewinderState: 'idle',
+      rewinderRecordedFrames: 0,
+      rewinderCursorFrame: 0,
+      rewinderTargetFrame: 0,
+      rewinderPrerollRemainingSec: 0,
     });
   }
 
@@ -320,7 +395,9 @@ export class StateReplayLabTab implements LabTabController {
     if (this.frames.length < MAX_REWINDER_FRAMES) {
       const compactSnap = r.physics.saveCompactState();
       this.frames.push({
-        compactSnap, renderState: compactSnap, controls: { ...r.playerControls },
+        compactSnap,
+        renderState: compactSnap,
+        controls: { ...r.playerControls },
       });
       r.physics.recordReplayFrame?.();
       this.cursor = this.frames.length - 1;
@@ -371,8 +448,10 @@ export class StateReplayLabTab implements LabTabController {
         audio?.play?.('match_start_go', 1.0, 200);
         this.lastBeepSec = -1;
         this.syncTelemetry({
-          rewinderState: 'stopped', rewinderCursorFrame: targetIdx,
-          rewinderTargetFrame: targetIdx, rewinderPrerollRemainingSec: 0,
+          rewinderState: 'stopped',
+          rewinderCursorFrame: targetIdx,
+          rewinderTargetFrame: targetIdx,
+          rewinderPrerollRemainingSec: 0,
         });
         return false;
       }
@@ -383,9 +462,14 @@ export class StateReplayLabTab implements LabTabController {
         audio?.play?.('training_countdown', 1.0, 200);
       }
 
-      if (remFrames % 6 === 0 || remFrames % 120 === 0 || countdownSec !== store.rewinderPrerollRemainingSec) {
+      if (
+        remFrames % 6 === 0 ||
+        remFrames % 120 === 0 ||
+        countdownSec !== store.rewinderPrerollRemainingSec
+      ) {
         this.syncTelemetry({
-          rewinderCursorFrame: nextCursor, rewinderPrerollRemainingSec: countdownSec,
+          rewinderCursorFrame: nextCursor,
+          rewinderPrerollRemainingSec: countdownSec,
         });
       }
       return false;
@@ -416,5 +500,7 @@ export class StateReplayLabTab implements LabTabController {
     return true;
   }
 
-  onPhysicsTick(_dt: number): boolean { return true; }
+  onPhysicsTick(_dt: number): boolean {
+    return true;
+  }
 }

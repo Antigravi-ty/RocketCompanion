@@ -9,11 +9,7 @@ import {
 } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
 import type { ArenaBoostPadDescriptor } from '../../../physics/RocketSimSnapshotSerializer.ts';
 import { stepKickoffCountdownState } from '../shared/matchClockAndPhasePipeline.ts';
-import type {
-  LabAudioPort,
-  LabPhysicsEnginePort,
-  LabRuntimePort,
-} from './LabTabTypes.ts';
+import type { LabAudioPort, LabPhysicsEnginePort, LabRuntimePort } from './LabTabTypes.ts';
 
 const INCIDENT_ACTIVE_CARS: Array<{ carIndex: number; team: number }> = [
   { carIndex: 0, team: 0 },
@@ -68,10 +64,7 @@ export class NinetySecDualBotController {
     const car = sim.getCarStateView(carIdx);
     const onWallOrCeiling =
       car &&
-      (Math.abs(car.posX) > 3650 ||
-        Math.abs(car.posY) > 4750 ||
-        car.upZ < 0.82 ||
-        car.posZ > 700);
+      (Math.abs(car.posX) > 3650 || Math.abs(car.posY) > 4750 || car.upZ < 0.82 || car.posZ > 700);
     const ko = !onWallOrCeiling
       ? bot.getKickoffControls(sim.state, this.incidentKickoffStep, true)
       : null;
@@ -83,13 +76,7 @@ export class NinetySecDualBotController {
       ctrl = ko;
       bot.overrideControls(ko);
     } else if (onWallOrCeiling) {
-      ctrl = multiCarHeuristicDecide(
-        sim.state,
-        pads,
-        carIdx,
-        team,
-        INCIDENT_ACTIVE_CARS
-      );
+      ctrl = multiCarHeuristicDecide(sim.state, pads, carIdx, team, INCIDENT_ACTIVE_CARS);
     } else if (skip <= 0) {
       ctrl = bot.decideSync(sim.state, pads, INCIDENT_ACTIVE_CARS);
       skip = bot.tickSkip - 1;
@@ -118,9 +105,7 @@ export class NinetySecDualBotController {
   }
 }
 
-export function setupTwoCarIncidentArena(
-  r: LabRuntimePort | null | undefined
-): void {
+export function setupTwoCarIncidentArena(r: LabRuntimePort | null | undefined): void {
   if (!r?.physics) return;
   while (r.physics.numCars > 0 && typeof r.physics.removeCar === 'function') {
     r.physics.removeCar(r.physics.numCars - 1);
@@ -173,9 +158,22 @@ export function stepIncidentCountdownTick(params: {
   currentPhase: string;
   matchState?: { phase?: string; countdown?: number } | null;
   audio?: LabAudioPort | null;
-  onSyncCountdown: (sec: number, phase: string, matchPhase: 'kickoff' | 'playing' | 'overtime') => void;
+  onSyncCountdown: (
+    sec: number,
+    phase: string,
+    matchPhase: 'kickoff' | 'playing' | 'overtime'
+  ) => void;
 }): { nextCountdownTicks: number; nextPhase: string } {
-  const { sim, neutralControls, countdownTicks, isOvertime, currentPhase, matchState, audio, onSyncCountdown } = params;
+  const {
+    sim,
+    neutralControls,
+    countdownTicks,
+    isOvertime,
+    currentPhase,
+    matchState,
+    audio,
+    onSyncCountdown,
+  } = params;
   sim.setControls(0, neutralControls as never);
   sim.setControls(1, neutralControls as never);
   const stepRes = stepKickoffCountdownState(countdownTicks, isOvertime);

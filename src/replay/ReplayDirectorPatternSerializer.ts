@@ -38,7 +38,7 @@ export interface DirectorSerializerControllerPort {
   };
   directorCameraState?: Partial<DirectorCameraState>;
   buildDirectorDiagnosticPatternPayload?: (
-    options?: DirectorPatternSerializerOptions,
+    options?: DirectorPatternSerializerOptions
   ) => DirectorDiagnosticPatternPayload | null;
 }
 
@@ -77,39 +77,129 @@ export function buildDirectorDiagnosticPatternCsv(
   if (!payload || !Array.isArray(payload.frames)) return '';
 
   const columns = [
-    'frame_id', 'replay_frame_index', 'timestamp_sec', 'progress', 'is_selected_cursor', 'slow_mo_factor',
-    'active_touch_car_idx', 'next_touch_car_idx', 'next_touch_blend', 'lateral_bias',
-    'cam_eye_x', 'cam_eye_y', 'cam_eye_z', 'cam_target_x', 'cam_target_y', 'cam_target_z',
-    'cam_dist_to_target', 'cam_yaw_deg', 'cam_pitch_deg',
-    'raw_eye_x', 'raw_eye_y', 'raw_eye_z', 'raw_target_x', 'raw_target_y', 'raw_target_z',
-    'ball_x', 'ball_y', 'ball_z', 'ball_vx', 'ball_vy', 'ball_vz', 'ball_speed_kph',
-    'focus_car_x', 'focus_car_y', 'focus_car_z', 'focus_car_vx', 'focus_car_vy', 'focus_car_vz',
-    'focus_car_dist_to_ball', 'eye_step_uu', 'target_step_uu', 'yaw_step_deg', 'pitch_step_deg',
-    'raw_eye_step_uu', 'raw_target_step_uu', 'eye_accel_uu', 'target_accel_uu',
-    'car_view_angle_deg', 'ball_view_angle_deg',
-    'focus_car_fx', 'focus_car_fy', 'focus_car_fz', 'focus_car_ux', 'focus_car_uy', 'focus_car_uz',
-    'focus_car_visual_id', 'focus_car_hitbox_id', 'cars_pose_compact',
+    'frame_id',
+    'replay_frame_index',
+    'timestamp_sec',
+    'progress',
+    'is_selected_cursor',
+    'slow_mo_factor',
+    'active_touch_car_idx',
+    'next_touch_car_idx',
+    'next_touch_blend',
+    'lateral_bias',
+    'cam_eye_x',
+    'cam_eye_y',
+    'cam_eye_z',
+    'cam_target_x',
+    'cam_target_y',
+    'cam_target_z',
+    'cam_dist_to_target',
+    'cam_yaw_deg',
+    'cam_pitch_deg',
+    'raw_eye_x',
+    'raw_eye_y',
+    'raw_eye_z',
+    'raw_target_x',
+    'raw_target_y',
+    'raw_target_z',
+    'ball_x',
+    'ball_y',
+    'ball_z',
+    'ball_vx',
+    'ball_vy',
+    'ball_vz',
+    'ball_speed_kph',
+    'focus_car_x',
+    'focus_car_y',
+    'focus_car_z',
+    'focus_car_vx',
+    'focus_car_vy',
+    'focus_car_vz',
+    'focus_car_dist_to_ball',
+    'eye_step_uu',
+    'target_step_uu',
+    'yaw_step_deg',
+    'pitch_step_deg',
+    'raw_eye_step_uu',
+    'raw_target_step_uu',
+    'eye_accel_uu',
+    'target_accel_uu',
+    'car_view_angle_deg',
+    'ball_view_angle_deg',
+    'focus_car_fx',
+    'focus_car_fy',
+    'focus_car_fz',
+    'focus_car_ux',
+    'focus_car_uy',
+    'focus_car_uz',
+    'focus_car_visual_id',
+    'focus_car_hitbox_id',
+    'cars_pose_compact',
   ];
 
   const lines = [columns.join(',')];
   for (const f of payload.frames) {
-    const fc = f.cars.find((c: ExtractedCarEntity) => c.carIndex === f.lookahead.activeTouchCarIndex) || f.cars[0] || null;
+    const fc =
+      f.cars.find((c: ExtractedCarEntity) => c.carIndex === f.lookahead.activeTouchCarIndex) ||
+      f.cars[0] ||
+      null;
     const cp = f.cameraPose;
     const row = [
-      f.frameId, f.replayFrameIndex, f.timestampSec, f.progress, f.isSelectedCursorFrame ? 1 : 0, f.slowMoFactor,
-      f.lookahead.activeTouchCarIndex, f.lookahead.nextTouchCarIndex, f.lookahead.nextTouchBlend, f.lookahead.lateralBias,
-      cp.eyeUnreal[0], cp.eyeUnreal[1], cp.eyeUnreal[2], cp.targetUnreal[0], cp.targetUnreal[1], cp.targetUnreal[2],
-      cp.distanceToTarget, cp.yawDeg, cp.pitchDeg,
-      cp.rawUndampedEyeUnreal[0], cp.rawUndampedEyeUnreal[1], cp.rawUndampedEyeUnreal[2],
-      cp.rawUndampedTargetUnreal[0], cp.rawUndampedTargetUnreal[1], cp.rawUndampedTargetUnreal[2],
-      f.ball.pos[0], f.ball.pos[1], f.ball.pos[2], f.ball.vel[0], f.ball.vel[1], f.ball.vel[2], f.ball.speedKph,
-      fc ? fc.pos[0] : 0, fc ? fc.pos[1] : 0, fc ? fc.pos[2] : 0,
-      fc ? fc.vel[0] : 0, fc ? fc.vel[1] : 0, fc ? fc.vel[2] : 0, fc ? fc.distToBall : 0,
-      cp.eyeStepUu ?? 0, cp.targetStepUu ?? 0, cp.yawStepDeg ?? 0, cp.pitchStepDeg ?? 0,
-      cp.rawEyeStepUu ?? 0, cp.rawTargetStepUu ?? 0, cp.eyeAccelUu ?? 0, cp.targetAccelUu ?? 0,
-      cp.carViewAngleDeg ?? 0, cp.ballViewAngleDeg ?? 0,
-      fc ? (fc.fwd?.[0] ?? 0) : 0, fc ? (fc.fwd?.[1] ?? 1) : 1, fc ? (fc.fwd?.[2] ?? 0) : 0,
-      fc ? (fc.up?.[0] ?? 0) : 0, fc ? (fc.up?.[1] ?? 0) : 0, fc ? (fc.up?.[2] ?? 1) : 1,
+      f.frameId,
+      f.replayFrameIndex,
+      f.timestampSec,
+      f.progress,
+      f.isSelectedCursorFrame ? 1 : 0,
+      f.slowMoFactor,
+      f.lookahead.activeTouchCarIndex,
+      f.lookahead.nextTouchCarIndex,
+      f.lookahead.nextTouchBlend,
+      f.lookahead.lateralBias,
+      cp.eyeUnreal[0],
+      cp.eyeUnreal[1],
+      cp.eyeUnreal[2],
+      cp.targetUnreal[0],
+      cp.targetUnreal[1],
+      cp.targetUnreal[2],
+      cp.distanceToTarget,
+      cp.yawDeg,
+      cp.pitchDeg,
+      cp.rawUndampedEyeUnreal[0],
+      cp.rawUndampedEyeUnreal[1],
+      cp.rawUndampedEyeUnreal[2],
+      cp.rawUndampedTargetUnreal[0],
+      cp.rawUndampedTargetUnreal[1],
+      cp.rawUndampedTargetUnreal[2],
+      f.ball.pos[0],
+      f.ball.pos[1],
+      f.ball.pos[2],
+      f.ball.vel[0],
+      f.ball.vel[1],
+      f.ball.vel[2],
+      f.ball.speedKph,
+      fc ? fc.pos[0] : 0,
+      fc ? fc.pos[1] : 0,
+      fc ? fc.pos[2] : 0,
+      fc ? fc.vel[0] : 0,
+      fc ? fc.vel[1] : 0,
+      fc ? fc.vel[2] : 0,
+      fc ? fc.distToBall : 0,
+      cp.eyeStepUu ?? 0,
+      cp.targetStepUu ?? 0,
+      cp.yawStepDeg ?? 0,
+      cp.pitchStepDeg ?? 0,
+      cp.rawEyeStepUu ?? 0,
+      cp.rawTargetStepUu ?? 0,
+      cp.eyeAccelUu ?? 0,
+      cp.targetAccelUu ?? 0,
+      cp.carViewAngleDeg ?? 0,
+      cp.ballViewAngleDeg ?? 0,
+      fc ? (fc.fwd?.[0] ?? 0) : 0,
+      fc ? (fc.fwd?.[1] ?? 1) : 1,
+      fc ? (fc.fwd?.[2] ?? 0) : 0,
+      fc ? (fc.up?.[0] ?? 0) : 0,
+      fc ? (fc.up?.[1] ?? 0) : 0,
+      fc ? (fc.up?.[2] ?? 1) : 1,
       fc ? String(fc.visualId || 'octane') : 'octane',
       fc ? String(fc.hitboxId || fc.visualId || 'octane') : 'octane',
       encodeCarsPoseCompact(f.cars),
@@ -121,7 +211,7 @@ export function buildDirectorDiagnosticPatternCsv(
 
 export function buildDirectorFrameWindowDiagnostic(
   ctrl: DirectorSerializerControllerPort | null | undefined,
-  windowRadius: number = 15,
+  windowRadius: number = 15
 ) {
   if (!ctrl) return null;
   const payload = ctrl.buildDirectorDiagnosticPatternPayload?.();
@@ -196,7 +286,8 @@ export function buildDirectorReplayContainerPayload(
   options: DirectorPatternSerializerOptions = {}
 ) {
   const payload = ctrl?.buildDirectorDiagnosticPatternPayload?.(options);
-  if (!ctrl || !payload || !Array.isArray(payload.frames) || payload.frames.length === 0) return null;
+  if (!ctrl || !payload || !Array.isArray(payload.frames) || payload.frames.length === 0)
+    return null;
 
   const recordedDirectorFrames = payload.frames.map((f: DirectorDiagnosticFrameEntry) => {
     const focusCar =
@@ -260,7 +351,9 @@ export function buildDirectorReplayContainerPayload(
       focus_car_uy: focusCar ? (focusCar.up?.[1] ?? 0) : 0,
       focus_car_uz: focusCar ? (focusCar.up?.[2] ?? 1) : 1,
       focus_car_visual_id: focusCar ? String(focusCar.visualId || 'octane') : 'octane',
-      focus_car_hitbox_id: focusCar ? String(focusCar.hitboxId || focusCar.visualId || 'octane') : 'octane',
+      focus_car_hitbox_id: focusCar
+        ? String(focusCar.hitboxId || focusCar.visualId || 'octane')
+        : 'octane',
     };
   });
 
@@ -270,15 +363,16 @@ export function buildDirectorReplayContainerPayload(
     ctrl.sessionState?.importedCarEntries ||
     payload.replayMetadata?.carEntries ||
     [];
-  const carEntries: ReplayCarRosterEntry[] = Array.isArray(rawCarEntries) && rawCarEntries.length > 0
-    ? rawCarEntries.map((c: RawReplayCarEntryLike, idx: number) =>
-        normalizeReplayDirectorCarEntry(c, c?.carIndex ?? idx, c?.team ?? idx % 2)
-      )
-    : Array.isArray(payload.frames[0]?.cars)
-      ? payload.frames[0].cars.map((c: ExtractedCarEntity, idx: number) =>
+  const carEntries: ReplayCarRosterEntry[] =
+    Array.isArray(rawCarEntries) && rawCarEntries.length > 0
+      ? rawCarEntries.map((c: RawReplayCarEntryLike, idx: number) =>
           normalizeReplayDirectorCarEntry(c, c?.carIndex ?? idx, c?.team ?? idx % 2)
         )
-      : [];
+      : Array.isArray(payload.frames[0]?.cars)
+        ? payload.frames[0].cars.map((c: ExtractedCarEntity, idx: number) =>
+            normalizeReplayDirectorCarEntry(c, c?.carIndex ?? idx, c?.team ?? idx % 2)
+          )
+        : [];
 
   const directorReplayMeta = {
     schema: 'RocketCompanion.GoalReplayDirectorContainer.v1',
@@ -324,4 +418,3 @@ export function buildDirectorReplayContainerBytes(
     diagnosticPayload: containerPayload.diagnosticPayload,
   };
 }
-

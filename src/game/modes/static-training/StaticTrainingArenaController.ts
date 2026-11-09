@@ -4,11 +4,11 @@ import {
   useStaticTrainingBallCamTunerStore,
   hudStore,
 } from '../../runtimeUiPort.ts';
-import { setTemporaryBallOpacityOverride } from '../../../ui-core/config/ballVisualConfig';
+import { setTemporaryBallOpacityOverride } from '../../../ui-core/config/ballVisualConfig.ts';
 import {
   getPreferredFreeplayTeam,
   getPreferredColorHex,
-} from '../../../ui-core/config/vehiclePresets';
+} from '../../../ui-core/config/vehiclePresets.ts';
 import {
   CAR_GROUND_MIN_Z,
   BALL_GROUND_MIN_Z,
@@ -117,7 +117,14 @@ export class StaticTrainingArenaController {
     shot: StaticTrainingShotConfig,
     isLiveEditUpdate: boolean,
     isLeftMouseDragging: boolean,
-    replayRingBuffer: { clear?: () => void; currentRecordTick?: number; recordFrame?: (tick: number, state: Float32Array) => { snapshot?: Float32Array | null } | null | undefined } | null
+    replayRingBuffer: {
+      clear?: () => void;
+      currentRecordTick?: number;
+      recordFrame?: (
+        tick: number,
+        state: Float32Array
+      ) => { snapshot?: Float32Array | null } | null | undefined;
+    } | null
   ): void {
     const r = this.runtime;
     const sim = r?.physics;
@@ -316,8 +323,7 @@ export class StaticTrainingArenaController {
       });
     } else {
       this.kickoffBallFrozen = false;
-      this.hasBallMoved =
-        Number(ball.speed) > 0.5 || (ballLoc[2] || 0) > BALL_GROUND_MIN_Z + 5.5;
+      this.hasBallMoved = Number(ball.speed) > 0.5 || (ballLoc[2] || 0) > BALL_GROUND_MIN_Z + 5.5;
       const ballVel = computeLaunchVelocity(ball.speed, ball.speedYaw, ball.speedPitch);
       sim.setBallState({
         pos: [ballLoc[0], ballLoc[1], Math.max(BALL_GROUND_MIN_Z, ballLoc[2])],
@@ -349,7 +355,14 @@ export class StaticTrainingArenaController {
 
   launchFreeCamTrajectoryPreview(
     isLeftMouseDragging: boolean,
-    replayRingBuffer: { clear?: () => void; currentRecordTick?: number; recordFrame?: (tick: number, state: Float32Array) => { snapshot?: Float32Array | null } | null | undefined } | null
+    replayRingBuffer: {
+      clear?: () => void;
+      currentRecordTick?: number;
+      recordFrame?: (
+        tick: number,
+        state: Float32Array
+      ) => { snapshot?: Float32Array | null } | null | undefined;
+    } | null
   ): void {
     if (!this.runtime?.physics || !this.stagedShot) return;
     this.applyStagedShot(this.stagedShot, true, isLeftMouseDragging, replayRingBuffer);
@@ -389,7 +402,7 @@ export class StaticTrainingArenaController {
     context: { overrideCarSpeed?: number; isSupersonic?: boolean },
     shot: StaticTrainingShotConfig | null,
     dt: number,
-    syncBoostToHud = false,
+    syncBoostToHud = false
   ): void {
     this.spinBallMeshInPlace(dt);
     if (!shot) return;

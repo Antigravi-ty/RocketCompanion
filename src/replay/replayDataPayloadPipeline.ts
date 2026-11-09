@@ -40,7 +40,9 @@ export interface RewinderFrameEntry {
   compactSnap: Float32Array;
   renderState: Float32Array;
   controls: RewinderCarControlsRecord;
-  acknowledgedControls?: Array<{ carIndex?: number; controls?: RewinderCarControlsRecord } & RewinderCarControlsRecord>;
+  acknowledgedControls?: Array<
+    { carIndex?: number; controls?: RewinderCarControlsRecord } & RewinderCarControlsRecord
+  >;
   incidents: RewinderIncidentRecord[];
   signals?: Array<Record<string, unknown>>;
   audioEvents?: Array<Record<string, unknown>>;
@@ -111,7 +113,10 @@ export interface RewinderPhysicsPort {
   state: Float32Array;
   removeCar?: (carIndex: number) => void;
   addCar?: (team: number, preset: string) => void;
-  restoreState: (state: Float32Array, options?: { preserveEngineTick?: boolean; overrideTick?: number }) => void;
+  restoreState: (
+    state: Float32Array,
+    options?: { preserveEngineTick?: boolean; overrideTick?: number }
+  ) => void;
   setUnlimitedBoost?: (enabled: boolean) => void;
   resetKickoff?: () => void;
   setControls?: (carIndex: number, controls: Record<string, unknown>) => void;
@@ -167,17 +172,19 @@ export type RewinderModePort = RewinderResetModePort;
 export function cloneRetainedMatchReplayPayload(
   retained: RetainedMatchReplayInput
 ): ClonedRetainedReplayPayload {
-  const frames: ReplayAnnotatedFloat32Frame[] = retained.frames.map((f: ReplayAnnotatedFloat32Frame) => {
-    const out: ReplayAnnotatedFloat32Frame = new Float32Array(f);
-    Object.assign(out, {
-      ...(f.tick !== undefined ? { tick: f.tick } : {}),
-      ...(f.controls !== undefined ? { controls: f.controls } : {}),
-      ...(f.incidents !== undefined ? { incidents: f.incidents } : {}),
-      ...(f.signals !== undefined ? { signals: f.signals } : {}),
-      ...(f.audioEvents !== undefined ? { audioEvents: f.audioEvents } : {}),
-    });
-    return out;
-  });
+  const frames: ReplayAnnotatedFloat32Frame[] = retained.frames.map(
+    (f: ReplayAnnotatedFloat32Frame) => {
+      const out: ReplayAnnotatedFloat32Frame = new Float32Array(f);
+      Object.assign(out, {
+        ...(f.tick !== undefined ? { tick: f.tick } : {}),
+        ...(f.controls !== undefined ? { controls: f.controls } : {}),
+        ...(f.incidents !== undefined ? { incidents: f.incidents } : {}),
+        ...(f.signals !== undefined ? { signals: f.signals } : {}),
+        ...(f.audioEvents !== undefined ? { audioEvents: f.audioEvents } : {}),
+      });
+      return out;
+    }
+  );
   const frameSlots = Array.isArray(retained.frameSlots) ? retained.frameSlots : [];
   const metadata: Record<string, unknown> = {
     ...(retained.metadata && typeof retained.metadata === 'object' ? retained.metadata : {}),
@@ -219,7 +226,8 @@ export function buildRewinderFramesFromParsedReplay(
       signalTimeline?.getEventsAtFrame?.(idx) || slot?.signals || snap?.signals || [];
     const frameAudioEvents = slot?.audioEvents || snap?.audioEvents || [];
     const hadTouch = frameIncidents.some(
-      (inc: RewinderIncidentRecord) => inc?.type === INCIDENT_EVENT_TYPES.CAR_BALL_HIT || inc?.type === 0x01
+      (inc: RewinderIncidentRecord) =>
+        inc?.type === INCIDENT_EVENT_TYPES.CAR_BALL_HIT || inc?.type === 0x01
     );
     return {
       compactSnap: snap,
@@ -245,10 +253,7 @@ export function applyRewinderFrameToPhysics({
   restoreOptions,
 }: ApplyRewinderFrameInput): RewinderFrameEntry | null {
   if (!physics || rewinderFrames.length === 0) return null;
-  const idx = Math.max(
-    0,
-    Math.min(rewinderFrames.length - 1, Math.floor(rewinderCursor))
-  );
+  const idx = Math.max(0, Math.min(rewinderFrames.length - 1, Math.floor(rewinderCursor)));
   const entry = rewinderFrames[idx];
   if (!entry) return null;
 
@@ -331,8 +336,7 @@ export function resetRewinderArenaCarsIfAllowed(
   wasBlocking: boolean
 ): boolean {
   const canResetArena =
-    !mode?.standaloneReplayViewer?.hasLoadedReplay &&
-    !mode?.nameTagTunerController?.isActive;
+    !mode?.standaloneReplayViewer?.hasLoadedReplay && !mode?.nameTagTunerController?.isActive;
   if (runtime?.physics && canResetArena) {
     while (runtime.physics.numCars > 1 && typeof runtime.physics.removeCar === 'function') {
       runtime.physics.removeCar(runtime.physics.numCars - 1);

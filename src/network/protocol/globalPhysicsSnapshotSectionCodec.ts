@@ -93,7 +93,9 @@ export function maskToActiveCarIndices(mask?: number | null): number[] {
   return indices;
 }
 
-export function computePhysicsSectionBytePlan(physics: GlobalPhysicsSection): PhysicsSectionBytePlan {
+export function computePhysicsSectionBytePlan(
+  physics: GlobalPhysicsSection
+): PhysicsSectionBytePlan {
   const snapFloats = physics.stateSnapshot.length;
   const ackCount = Math.min(8, (physics.acknowledgedControls || []).length);
   if (snapFloats === 448) {
@@ -102,10 +104,8 @@ export function computePhysicsSectionBytePlan(physics: GlobalPhysicsSection): Ph
     const hasReplayDirectorTelemetry =
       (activeCarMask & (1 << 7)) === 0 &&
       Math.abs((physics.stateSnapshot[302] || 0) - 1337.5) <= 0.01;
-    const encodedFloats =
-      28 + activeCarList.length * 44 + (hasReplayDirectorTelemetry ? 27 : 0);
-    const byteSize =
-      4 + 1 + ackCount * 4 + 2 + BOOST_PAD_BITMASK_BYTES + encodedFloats * 4;
+    const encodedFloats = 28 + activeCarList.length * 44 + (hasReplayDirectorTelemetry ? 27 : 0);
+    const byteSize = 4 + 1 + ackCount * 4 + 2 + BOOST_PAD_BITMASK_BYTES + encodedFloats * 4;
     return {
       byteSize,
       snapFloats,

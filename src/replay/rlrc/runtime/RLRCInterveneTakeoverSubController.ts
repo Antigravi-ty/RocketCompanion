@@ -9,10 +9,7 @@
  * - Unlimited post-takeover duration and instant re-intervene at t0 on pressing G
  */
 
-import {
-  SIM_OFFSETS,
-  SYSTEM_CONTROL_SIGNALS,
-} from '../../../physics/RocketSimConstants.ts';
+import { SIM_OFFSETS, SYSTEM_CONTROL_SIGNALS } from '../../../physics/RocketSimConstants.ts';
 import type { ReplayAcknowledgedControlEntry } from '../../ReplayRingBuffer.ts';
 import {
   RLRC_FIXED_DT,
@@ -235,9 +232,7 @@ export class RLRCInterveneTakeoverSubController {
     if (this.phase === 'preroll-countdown') {
       const targetFrame = this.env.getFrames120Hz()[this.targetFrame120Hz];
       if (targetFrame) {
-        this.env
-          .getArena?.()
-          ?.spinBallInPlace?.(targetFrame.ball.rigidBody.angularVelocity, dt);
+        this.env.getArena?.()?.spinBallInPlace?.(targetFrame.ball.rigidBody.angularVelocity, dt);
       }
 
       this.countdownRemainingTicks = Math.max(0, this.countdownRemainingTicks - 1);

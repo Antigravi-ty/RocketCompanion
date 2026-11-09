@@ -3,17 +3,14 @@ import {
   type EngineSynthTelemetryInput,
 } from './TurtleModemEngineSynth.ts';
 import { getAudioContext, getMasterAudioInput } from './audioContext.ts';
-import { getAudioSettings } from '../ui-core/config/audioConfig';
+import { getAudioSettings } from '../ui-core/config/audioConfig.ts';
 import {
   SpatialAudioSource,
   listenerManager,
   type SpatialVector3Like,
 } from './SpatialAudioSource.ts';
-import {
-  isDistanceCulled,
-  getArenaAcousticScale,
-} from './SpatialAttenuationEvaluator.ts';
-import { getSpatialAttenuationProfile } from '../ui-core/config/spatialAttenuationProfiles';
+import { isDistanceCulled, getArenaAcousticScale } from './SpatialAttenuationEvaluator.ts';
+import { getSpatialAttenuationProfile } from '../ui-core/config/spatialAttenuationProfiles.ts';
 import type { CarStateView } from '../physics/RocketSimStateViews.ts';
 
 export const MAX_AUDIBLE_REMOTE_ENGINES = 3;
@@ -321,10 +318,10 @@ export class RemoteEngineAudioLodController {
       const speedUU = Math.hypot(carView.velX, carView.velY, carView.velZ);
       const isOnGround = Boolean(
         carView.isOnGround ||
-          carView.getWheelContact(0) ||
-          carView.getWheelContact(1) ||
-          carView.getWheelContact(2) ||
-          carView.getWheelContact(3)
+        carView.getWheelContact(0) ||
+        carView.getWheelContact(1) ||
+        carView.getWheelContact(2) ||
+        carView.getWheelContact(3)
       );
       const alive = !isDemoedNow;
       const audible = isAudibleActive && !isDormant;

@@ -143,7 +143,14 @@ export class SupersonicWheelTrailSystem {
     const cfg = supersonicTrailRuntimeConfig;
     const rawDtTicks = Math.max(0.15, Math.min(12, (dt || 0.008333) * 120));
 
-    if (!cfg.enabled || !carRoot || !carRoot.visible || !currCar || currCar.isDemoed || !activeVisuals) {
+    if (
+      !cfg.enabled ||
+      !carRoot ||
+      !carRoot.visible ||
+      !currCar ||
+      currCar.isDemoed ||
+      !activeVisuals
+    ) {
       pair.leftContactGraceTicks = 0;
       pair.rightContactGraceTicks = 0;
       pair.poseState.hasLastPose = false;
@@ -169,11 +176,11 @@ export class SupersonicWheelTrailSystem {
     const restHeight = getCarRestHeight(resolvedPreset);
     const isThreeWheels = Boolean(
       wheels?.threeWheels ||
-        resolvedPreset === 'hitbox-psyclops' ||
-        resolvedPreset === 'trioctane-threewheel' ||
-        (currCar.getWheelSusLength(3) === 0 &&
-          currCar.getWheelSusLength(0) > 0 &&
-          currCar.getWheelSusLength(1) > 0)
+      resolvedPreset === 'hitbox-psyclops' ||
+      resolvedPreset === 'trioctane-threewheel' ||
+      (currCar.getWheelSusLength(3) === 0 &&
+        currCar.getWheelSusLength(0) > 0 &&
+        currCar.getWheelSusLength(1) > 0)
     );
 
     // Resolve car local up vector in Three.js world space
@@ -228,9 +235,7 @@ export class SupersonicWheelTrailSystem {
         Boolean(hasPrev && prevCar?.getWheelContact(wasmWheelIdx));
       const restSusLength = restHeight + 6.0;
       const isCompressed =
-        cfg.useSuspensionCompression &&
-        susLength > 0.01 &&
-        susLength < restSusLength - 0.35;
+        cfg.useSuspensionCompression && susLength > 0.01 && susLength < restSusLength - 0.35;
 
       const rawWheelTouching = !cfg.requireWheelContact || hasDirectContact || isCompressed;
       if (rawWheelTouching) {

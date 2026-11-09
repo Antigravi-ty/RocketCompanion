@@ -34,6 +34,7 @@ export function checkLanguageAndEmoji(rel: string, content: string, errors: stri
 export function checkLineLengthAndFilenameHygiene(
   rel: string,
   content: string,
+  codeWithoutComments: string,
   errors: string[]
 ): void {
   const baseName = path.basename(rel, path.extname(rel));
@@ -52,6 +53,56 @@ export function checkLineLengthAndFilenameHygiene(
       );
       break;
     }
+  }
+
+  const noLiterals = codeWithoutComments.replace(
+    /`(?:\\[\s\S]|[^`\\])*`|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/g,
+    (m) => m.replace(/[^\n]/g, ' ')
+  );
+  const codeLines = noLiterals.split(/\r?\n/);
+  let multiStmtLines = 0;
+  let firstMultiLine = 0;
+  let nonEmptyCodeLines = 0;
+  let indentedLines = 0;
+
+  for (let i = 0; i < codeLines.length; i++) {
+    const rawLine = codeLines[i];
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue;
+    nonEmptyCodeLines++;
+    if (/^[ \t]+/.test(rawLine)) indentedLines++;
+
+    if (/^(?:for\s*\(|import\b|export\b|interface\b|type\b)/.test(trimmed)) continue;
+    const cleaned = trimmed
+      .replace(/\bfor\s*\([^)]*\)/g, 'for()')
+      .replace(/&[a-zA-Z0-9#]+;/g, '')
+      .replace(/\{[^{}]*\}/g, '{}');
+    const statements = cleaned
+      .split(';')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (statements.length >= 3) {
+      errors.push(
+        `[MULTI-STATEMENT LINE VIOLATION] ${rel}:${i + 1} packs ${statements.length} statements onto a single line. Run "pnpm run format" instead of compressing lines.`
+      );
+      return;
+    }
+    if (statements.length >= 2) {
+      multiStmtLines++;
+      if (!firstMultiLine) firstMultiLine = i + 1;
+    }
+  }
+
+  if (multiStmtLines > 2) {
+    errors.push(
+      `[MULTI-STATEMENT LINE VIOLATION] ${rel}:${firstMultiLine} contains ${multiStmtLines} multi-statement lines. Run "pnpm run format" instead of compressing lines.`
+    );
+  }
+
+  if (nonEmptyCodeLines >= 60 && indentedLines / nonEmptyCodeLines < 0.25) {
+    errors.push(
+      `[INDENTATION STRIP VIOLATION] ${rel} stripped indentation across ${nonEmptyCodeLines} code lines. Run "pnpm run format" to restore standard 2-space indentation.`
+    );
   }
 }
 
@@ -109,7 +160,10 @@ export function checkValueReExports(
       }
     }
 
-    const defaultPart = clause.replace(/\{[^}]*\}/, '').replace(/,/g, '').trim();
+    const defaultPart = clause
+      .replace(/\{[^}]*\}/, '')
+      .replace(/,/g, '')
+      .trim();
     if (defaultPart && !defaultPart.startsWith('*') && /^[A-Za-z_$][\w$]*$/.test(defaultPart)) {
       importedValueLocals.set(defaultPart, fromSpec);
     }

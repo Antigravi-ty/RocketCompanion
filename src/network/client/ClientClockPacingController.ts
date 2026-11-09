@@ -23,7 +23,7 @@ import {
   evaluatePacingControllerStep,
   type PacingControllerParams,
   type PacingControllerStepResult,
-} from '../../ui-core/config/pacingControllerEvaluator';
+} from '../../ui-core/config/pacingControllerEvaluator.ts';
 
 export interface ClockPacingInterpolatorPort {
   physicsRate?: number;
@@ -54,7 +54,12 @@ export interface ClientClockPacingStepContext {
   lobbyDualWorldMode: boolean;
   localCarIndex: number;
   lastLocalControls: CarControls;
-  stepForwardTicks: (fromTick: number, toTick: number, useSilentStep: boolean, nowMs: number) => number;
+  stepForwardTicks: (
+    fromTick: number,
+    toTick: number,
+    useSilentStep: boolean,
+    nowMs: number
+  ) => number;
 }
 
 export class ClientClockPacingController {
@@ -82,7 +87,11 @@ export class ClientClockPacingController {
   }
 
   resetTelemetry(telemetryCollector: NetworkTelemetryCollector): void {
-    telemetryCollector.reset(this.clockPacingMode, this.clockPacingPriority, this.clockPacingParams);
+    telemetryCollector.reset(
+      this.clockPacingMode,
+      this.clockPacingPriority,
+      this.clockPacingParams
+    );
   }
 
   resolveLatencyBreakdown(
@@ -93,8 +102,13 @@ export class ClientClockPacingController {
     inputBufferSize: number | undefined
   ): LatencyBreakdownResult {
     return resolveLatencyBreakdown({
-      channel, baseMeasuredRtt, measuredRtt, hasServerReportedBuffer,
-      inputBufferSize, inputBufferTarget: this.inputBufferTarget, tickDtMs: this.tickDtMs,
+      channel,
+      baseMeasuredRtt,
+      measuredRtt,
+      hasServerReportedBuffer,
+      inputBufferSize,
+      inputBufferTarget: this.inputBufferTarget,
+      tickDtMs: this.tickDtMs,
     });
   }
 
@@ -108,7 +122,11 @@ export class ClientClockPacingController {
     rollbackWindow: number
   ): LatencyBreakdownResult {
     const breakdown = this.resolveLatencyBreakdown(
-      channel, baseMeasuredRtt, measuredRtt, hasServerReportedBuffer, metrics?.inputBufferSize
+      channel,
+      baseMeasuredRtt,
+      measuredRtt,
+      hasServerReportedBuffer,
+      metrics?.inputBufferSize
     );
     if (!Number.isFinite(breakdown.rttMs)) {
       throw new Error(`[PredictionReconciler] Channel rttMs is non-finite: ${breakdown.rttMs}`);
@@ -122,8 +140,15 @@ export class ClientClockPacingController {
   }
 
   calculateLeadTicks(breakdown: LatencyBreakdownResult, rttMs?: number): number {
-    const maxLead = this.clockPacingMode === 'legacy' ? (this.maxLeadTicks ?? 72) : (this.maxLeadTicks ?? 64);
-    return computeLeadTicksFromBreakdown(breakdown, this.inputBufferTarget, this.tickDtMs, maxLead, rttMs);
+    const maxLead =
+      this.clockPacingMode === 'legacy' ? (this.maxLeadTicks ?? 72) : (this.maxLeadTicks ?? 64);
+    return computeLeadTicksFromBreakdown(
+      breakdown,
+      this.inputBufferTarget,
+      this.tickDtMs,
+      maxLead,
+      rttMs
+    );
   }
 
   calculateDownlinkTicks(breakdown: LatencyBreakdownResult, rttMs?: number): number {
@@ -139,7 +164,11 @@ export class ClientClockPacingController {
     rttMs?: number
   ): { breakdown: LatencyBreakdownResult; leadTicks: number; downlinkTicks: number } {
     const breakdown = this.resolveLatencyBreakdown(
-      channel, baseMeasuredRtt, measuredRtt, hasServerReportedBuffer, inputBufferSize
+      channel,
+      baseMeasuredRtt,
+      measuredRtt,
+      hasServerReportedBuffer,
+      inputBufferSize
     );
     return {
       breakdown,
@@ -164,13 +193,21 @@ export class ClientClockPacingController {
       interpolator?.setPhysicsRate?.(120);
       if (metrics) metrics.physicsRateHz = 120;
     }
-    telemetryCollector.updateSessionMetadata(this.clockPacingMode, this.clockPacingPriority, this.clockPacingParams);
+    telemetryCollector.updateSessionMetadata(
+      this.clockPacingMode,
+      this.clockPacingPriority,
+      this.clockPacingParams
+    );
   }
 
   setClockPacingPriority(priority: string, telemetryCollector: NetworkTelemetryCollector): boolean {
     if (typeof priority === 'string' && priority.length > 0) {
       this.clockPacingPriority = priority;
-      telemetryCollector.updateSessionMetadata(this.clockPacingMode, this.clockPacingPriority, this.clockPacingParams);
+      telemetryCollector.updateSessionMetadata(
+        this.clockPacingMode,
+        this.clockPacingPriority,
+        this.clockPacingParams
+      );
       return true;
     }
     return false;
@@ -191,19 +228,33 @@ export class ClientClockPacingController {
         this.inputBufferTarget = rounded;
       }
     }
-    if (typeof params.deadbandCatchupOffset === 'number' && Number.isFinite(params.deadbandCatchupOffset)) {
+    if (
+      typeof params.deadbandCatchupOffset === 'number' &&
+      Number.isFinite(params.deadbandCatchupOffset)
+    ) {
       this.catchupThresholdOffset = Math.min(0, Math.round(params.deadbandCatchupOffset));
     }
-    if (typeof params.deadbandSkipOffset === 'number' && Number.isFinite(params.deadbandSkipOffset)) {
+    if (
+      typeof params.deadbandSkipOffset === 'number' &&
+      Number.isFinite(params.deadbandSkipOffset)
+    ) {
       this.skipThresholdOffset = Math.max(0, Math.round(params.deadbandSkipOffset));
     }
     this.leadTicks = this.calculateLeadTicks(breakdown, breakdown.rttMs);
     metrics.leadTicks = this.leadTicks;
-    telemetryCollector.updateSessionMetadata(this.clockPacingMode, this.clockPacingPriority, this.clockPacingParams);
+    telemetryCollector.updateSessionMetadata(
+      this.clockPacingMode,
+      this.clockPacingPriority,
+      this.clockPacingParams
+    );
     return true;
   }
 
-  setInputBufferTarget(target: number, breakdown: LatencyBreakdownResult, metrics: ReconcilerMetrics): boolean {
+  setInputBufferTarget(
+    target: number,
+    breakdown: LatencyBreakdownResult,
+    metrics: ReconcilerMetrics
+  ): boolean {
     if (typeof target === 'number' && Number.isFinite(target) && target >= 1) {
       const rounded = Math.max(1, Math.min(12, Math.round(target)));
       if (rounded !== this.inputBufferTarget) this.forceTargetAlign = true;
@@ -219,11 +270,13 @@ export class ClientClockPacingController {
   setInputBufferThresholds(catchupOffset: number, skipOffset: number): void {
     if (typeof catchupOffset === 'number' && Number.isFinite(catchupOffset)) {
       this.catchupThresholdOffset = Math.min(0, Math.round(catchupOffset));
-      if (this.clockPacingParams) this.clockPacingParams.deadbandCatchupOffset = this.catchupThresholdOffset;
+      if (this.clockPacingParams)
+        this.clockPacingParams.deadbandCatchupOffset = this.catchupThresholdOffset;
     }
     if (typeof skipOffset === 'number' && Number.isFinite(skipOffset)) {
       this.skipThresholdOffset = Math.max(0, Math.round(skipOffset));
-      if (this.clockPacingParams) this.clockPacingParams.deadbandSkipOffset = this.skipThresholdOffset;
+      if (this.clockPacingParams)
+        this.clockPacingParams.deadbandSkipOffset = this.skipThresholdOffset;
     }
   }
 
@@ -240,16 +293,24 @@ export class ClientClockPacingController {
     const targetClientTick = serverTick + targetDelta;
     const isUnimpairedLoopback = Boolean(
       (ch?.isLoopback || sim?.isLoopback) &&
-        !((sim?.extraRttMs ?? ch?.extraRttMs ?? ((sim?.extraLatencyMs ?? ch?.extraLatencyMs ?? 0) * 2)) > 0) &&
-        !((sim?.jitterMs ?? ch?.jitterMs ?? 0) > 0) &&
-        !((sim?.packetLossRate ?? ch?.packetLossRate ?? 0) > 0) &&
-        !(sim?.burstDropEnabled ?? ch?.burstDropEnabled)
+      !(
+        (sim?.extraRttMs ??
+          ch?.extraRttMs ??
+          (sim?.extraLatencyMs ?? ch?.extraLatencyMs ?? 0) * 2) > 0
+      ) &&
+      !((sim?.jitterMs ?? ch?.jitterMs ?? 0) > 0) &&
+      !((sim?.packetLossRate ?? ch?.packetLossRate ?? 0) > 0) &&
+      !(sim?.burstDropEnabled ?? ch?.burstDropEnabled)
     );
-    const isKickoffMasked = ctx.kickoffMaskUntilTick > 0 && currentClientTick < ctx.kickoffMaskUntilTick;
+    const isKickoffMasked =
+      ctx.kickoffMaskUntilTick > 0 && currentClientTick < ctx.kickoffMaskUntilTick;
     const impliedBufferFromTimeline = this.inputBufferTarget + (currentDelta - targetDelta);
     const reportedSize = ctx.metrics?.inputBufferSize;
-    const hasServerBuf = Boolean(ctx.hasServerReportedBuffer) &&
-      typeof reportedSize === 'number' && Number.isFinite(reportedSize) && serverTick > 4;
+    const hasServerBuf =
+      Boolean(ctx.hasServerReportedBuffer) &&
+      typeof reportedSize === 'number' &&
+      Number.isFinite(reportedSize) &&
+      serverTick > 4;
     let rawServerBuffer = hasServerBuf ? reportedSize : impliedBufferFromTimeline;
     if (isUnimpairedLoopback) rawServerBuffer = this.inputBufferTarget;
     else if (isKickoffMasked) rawServerBuffer = Math.max(rawServerBuffer, this.inputBufferTarget);
@@ -259,13 +320,26 @@ export class ClientClockPacingController {
       deadbandCatchupOffset: this.catchupThresholdOffset ?? -2,
       deadbandSkipOffset: this.skipThresholdOffset ?? 2,
       rateStepMode: this.clockPacingMode === 'sts' ? 'discrete_2tier' : 'continuous_pd',
-      tier1Hz: 1.0, tier2Hz: 3.0, tier1EnterError: 1.0, tier1ExitError: 0.4,
-      tier2EnterError: 2.5, tier2ExitError: 1.3, minDwellTicks: 18,
-      kpHzPerTick: 0.85, kdHzPerTickVel: 0.35, maxAdjustHz: 6.0, inFlightCompGain: 0.85,
-      rttEwmaAlpha: 0.12, bufferEwmaAlpha: 0.25,
-      enableAdaptiveJitterBoost: this.clockPacingMode === 'csts' || this.clockPacingMode === 'custom',
-      adaptiveJitterGain: 1.25, maxAdaptiveBoostTicks: 4.0,
-      enableHardResync: true, hardResyncThresholdTicks: 10, hardResyncCooldownMs: 1000,
+      tier1Hz: 1.0,
+      tier2Hz: 3.0,
+      tier1EnterError: 1.0,
+      tier1ExitError: 0.4,
+      tier2EnterError: 2.5,
+      tier2ExitError: 1.3,
+      minDwellTicks: 18,
+      kpHzPerTick: 0.85,
+      kdHzPerTickVel: 0.35,
+      maxAdjustHz: 6.0,
+      inFlightCompGain: 0.85,
+      rttEwmaAlpha: 0.12,
+      bufferEwmaAlpha: 0.25,
+      enableAdaptiveJitterBoost:
+        this.clockPacingMode === 'csts' || this.clockPacingMode === 'custom',
+      adaptiveJitterGain: 1.25,
+      maxAdaptiveBoostTicks: 4.0,
+      enableHardResync: true,
+      hardResyncThresholdTicks: 10,
+      hardResyncCooldownMs: 1000,
     };
 
     const rawStepOut = evaluatePacingControllerStep(
@@ -275,31 +349,59 @@ export class ClientClockPacingController {
       params
     );
     const stepOut: PacingControllerStepResult = isUnimpairedLoopback
-      ? { ...rawStepOut, physicsRateHz: 120.0, tierState: 0, tierSwitched: false, requestHardResync: false, requestStepCatchup: false, requestStepSkip: false }
+      ? {
+          ...rawStepOut,
+          physicsRateHz: 120.0,
+          tierState: 0,
+          tierSwitched: false,
+          requestHardResync: false,
+          requestStepCatchup: false,
+          requestStepSkip: false,
+        }
       : rawStepOut;
 
     let action: 'none' | 'skip' | 'catchup' = 'none';
     let desiredClientTick = currentClientTick;
     if (this.forceTargetAlign) {
       this.forceTargetAlign = false;
-      if (currentDelta > targetDelta) { desiredClientTick = Math.max(serverTick, targetClientTick); action = 'skip'; }
-      else if (currentDelta < targetDelta) { desiredClientTick = targetClientTick; action = 'catchup'; }
+      if (currentDelta > targetDelta) {
+        desiredClientTick = Math.max(serverTick, targetClientTick);
+        action = 'skip';
+      } else if (currentDelta < targetDelta) {
+        desiredClientTick = targetClientTick;
+        action = 'catchup';
+      }
     } else if (this.clockPacingMode === 'legacy') {
       ctx.interpolator?.setPhysicsRate?.(120);
-      if (currentDelta > targetDelta + this.skipThresholdOffset) { desiredClientTick = Math.max(serverTick, targetClientTick); action = 'skip'; }
-      else if (currentDelta < targetDelta + this.catchupThresholdOffset) { desiredClientTick = targetClientTick; action = 'catchup'; }
+      if (currentDelta > targetDelta + this.skipThresholdOffset) {
+        desiredClientTick = Math.max(serverTick, targetClientTick);
+        action = 'skip';
+      } else if (currentDelta < targetDelta + this.catchupThresholdOffset) {
+        desiredClientTick = targetClientTick;
+        action = 'catchup';
+      }
     } else {
       ctx.interpolator?.setPhysicsRate?.(stepOut.physicsRateHz);
-      const adaptiveBoostRounded = Math.max(0, Math.round((stepOut.activeTarget || this.inputBufferTarget) - this.inputBufferTarget));
+      const adaptiveBoostRounded = Math.max(
+        0,
+        Math.round((stepOut.activeTarget || this.inputBufferTarget) - this.inputBufferTarget)
+      );
       const boostedTargetClientTick = targetClientTick + adaptiveBoostRounded;
       if (stepOut.requestHardResync) {
         const targetDiff = currentClientTick - boostedTargetClientTick;
-        if (targetDiff > 0) { desiredClientTick = Math.max(serverTick, boostedTargetClientTick); action = 'skip'; }
-        else if (targetDiff < 0) { desiredClientTick = boostedTargetClientTick; action = 'catchup'; }
+        if (targetDiff > 0) {
+          desiredClientTick = Math.max(serverTick, boostedTargetClientTick);
+          action = 'skip';
+        } else if (targetDiff < 0) {
+          desiredClientTick = boostedTargetClientTick;
+          action = 'catchup';
+        }
       } else if (stepOut.requestStepCatchup || currentDelta <= 0) {
-        desiredClientTick = boostedTargetClientTick; action = 'catchup';
+        desiredClientTick = boostedTargetClientTick;
+        action = 'catchup';
       } else if (stepOut.requestStepSkip) {
-        desiredClientTick = Math.max(serverTick, boostedTargetClientTick); action = 'skip';
+        desiredClientTick = Math.max(serverTick, boostedTargetClientTick);
+        action = 'skip';
       }
     }
 
@@ -312,15 +414,32 @@ export class ClientClockPacingController {
       ctx.sim.restoreStateSlot(updatedClientTick % 256);
       stepSkip = true;
     } else if (action === 'catchup') {
-      updatedClientTick = ctx.stepForwardTicks(currentClientTick, desiredClientTick, false, ctx.nowMs);
+      updatedClientTick = ctx.stepForwardTicks(
+        currentClientTick,
+        desiredClientTick,
+        false,
+        ctx.nowMs
+      );
       stepCatchup = true;
     }
     if (savedLobbyEntities && (stepCatchup || stepSkip)) {
-      restoreClientLobbyLocalEntities(ctx.sim, ctx.lobbyDualWorldMode, ctx.localCarIndex, ctx.lastLocalControls, savedLobbyEntities);
+      restoreClientLobbyLocalEntities(
+        ctx.sim,
+        ctx.lobbyDualWorldMode,
+        ctx.localCarIndex,
+        ctx.lastLocalControls,
+        savedLobbyEntities
+      );
     }
 
     if (ctx.metrics) ctx.metrics.applyPacingStep(stepOut, rawServerBuffer, hasServerBuf);
-    ctx.telemetryCollector.lastPacingStepStatus = { stepOut, rawServerBuffer, stepCatchup, stepSkip, nowMs: ctx.nowMs };
+    ctx.telemetryCollector.lastPacingStepStatus = {
+      stepOut,
+      rawServerBuffer,
+      stepCatchup,
+      stepSkip,
+      nowMs: ctx.nowMs,
+    };
     return updatedClientTick;
   }
 }

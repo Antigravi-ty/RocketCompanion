@@ -13,8 +13,8 @@ import {
   type ClockPacingMode,
   type ClockPacingPriority,
   type ClockPacingParams,
-} from '../../ui-core/config/clockPacingConfig';
-import type { PacingControllerParams } from '../../ui-core/config/pacingControllerEvaluator';
+} from '../../ui-core/config/clockPacingConfig.ts';
+import type { PacingControllerParams } from '../../ui-core/config/pacingControllerEvaluator.ts';
 import { createRuntimeTunerPort } from './runtimeTunerPort.ts';
 import {
   createRuntimeReplayPort,
@@ -38,7 +38,10 @@ function stopActiveOnlineOrLoopbackSessionIfNeeded(owner: RuntimeDomainPortOwner
     }
   }
   const netSession = owner.networkManager?.sessionCoordinator;
-  if (netSession && (netSession.authoritativeServer || netSession.networkChannel || netSession.networkReconciler)) {
+  if (
+    netSession &&
+    (netSession.authoritativeServer || netSession.networkChannel || netSession.networkReconciler)
+  ) {
     netSession.cleanupOnlineSession?.();
     void netSession.stopOnlineServer?.({ rebindLoopback: false });
   }
@@ -47,7 +50,7 @@ function stopActiveOnlineOrLoopbackSessionIfNeeded(owner: RuntimeDomainPortOwner
 function transitionToTrainingMode(
   owner: RuntimeDomainPortOwner,
   modeId: string,
-  reEnterIfActive = false,
+  reEnterIfActive = false
 ): void {
   stopActiveOnlineOrLoopbackSessionIfNeeded(owner);
   leaveActiveBotMatchIfNeeded(owner);
@@ -87,7 +90,7 @@ function transitionToExpMultiBotsMode(owner: RuntimeDomainPortOwner): void {
  * for a GameRuntime instance so UI Bridge handlers never read/mutate internal GameRuntime fields.
  */
 export function createGameRuntimeDomainPorts(
-  owner: RuntimeDomainPortOwner,
+  owner: RuntimeDomainPortOwner
 ): GameRuntimeUiBridgePort {
   const cameraPort: RuntimeCameraPort = {
     applyPovSettings: (cameraConfig) => {
@@ -111,7 +114,7 @@ export function createGameRuntimeDomainPorts(
     isOnlineOrServerActive: () =>
       Boolean(
         owner.networkManager.sessionCoordinator.authoritativeServer ||
-          owner.networkManager.sessionCoordinator.networkReconciler,
+        owner.networkManager.sessionCoordinator.networkReconciler
       ),
     isBotMatch: () => owner.botCoordinator.isBotMatch,
     getPlayerCarIndex: () => owner.playerCarIndex ?? 0,
@@ -194,8 +197,7 @@ export function createGameRuntimeDomainPorts(
       owner.modeManager?.setMode?.('freeplay');
 
       const freeplayMode = owner.modeManager?.modes?.get?.('freeplay') as
-        | FreeplayModeCleanupPort
-        | undefined;
+        FreeplayModeCleanupPort | undefined;
       freeplayMode?.resetToCleanFreeplay?.();
 
       owner.physics?.setUnlimitedBoost?.(unlimitedBoost);
@@ -317,7 +319,7 @@ export function createGameRuntimeDomainPorts(
     setClockPacingParams: (params) => {
       if (params) {
         owner.networkManager.sessionCoordinator.networkReconciler?.setClockPacingParams?.(
-          params as PacingControllerParams,
+          params as PacingControllerParams
         );
       }
     },
@@ -327,7 +329,7 @@ export function createGameRuntimeDomainPorts(
     setInputBufferThresholds: (minOffset, maxOffset) => {
       owner.networkManager.sessionCoordinator.networkReconciler?.setInputBufferThresholds?.(
         minOffset,
-        maxOffset,
+        maxOffset
       );
     },
     syncInitialClockPacing: (state) => {
@@ -339,7 +341,7 @@ export function createGameRuntimeDomainPorts(
       if (Array.isArray(state.inputBufferThreshold)) {
         reconciler.setInputBufferThresholds?.(
           state.inputBufferThreshold[0],
-          state.inputBufferThreshold[1],
+          state.inputBufferThreshold[1]
         );
       }
       if (state.customClockPacingParams) {
@@ -349,8 +351,8 @@ export function createGameRuntimeDomainPorts(
             state.clockPacingPriority as ClockPacingPriority,
             state.inputBufferTarget,
             state.inputBufferThreshold,
-            state.customClockPacingParams as unknown as ClockPacingParams,
-          ),
+            state.customClockPacingParams as unknown as ClockPacingParams
+          )
         );
       }
     },

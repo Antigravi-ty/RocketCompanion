@@ -9,12 +9,12 @@ export function createRoomEnvironmentMaterial(emissiveIntensity: number) {
     return new MeshLambertMaterial({
       color: 0x000000,
       emissive: 0xffffff,
-      emissiveIntensity
+      emissiveIntensity,
     });
   }
   return new MeshBasicMaterial({
     color: 0xffffff,
-    emissiveIntensity
+    emissiveIntensity,
   });
 }
 
@@ -31,13 +31,18 @@ export interface RoomEnvironmentChildLike {
 
 export class RoomEnvironment extends THREE.Scene {
   declare name: string;
-  declare position: { x: number; y: number; z: number; set: (x: number, y: number, z: number) => void };
+  declare position: {
+    x: number;
+    y: number;
+    z: number;
+    set: (x: number, y: number, z: number) => void;
+  };
   declare add: (...objects: unknown[]) => this;
   declare traverse: (callback: (child: RoomEnvironmentChildLike) => void) => void;
 
   constructor() {
     super();
-    this.name = "RoomEnvironment";
+    this.name = 'RoomEnvironment';
     this.position.y = -3.5;
 
     const {
@@ -47,12 +52,12 @@ export class RoomEnvironment extends THREE.Scene {
       PointLight,
       Mesh,
       InstancedMesh,
-      Object3D
+      Object3D,
     } = THREE;
 
     const boxGeom = new BoxGeometry();
     if (boxGeom.deleteAttribute) {
-      boxGeom.deleteAttribute("uv");
+      boxGeom.deleteAttribute('uv');
     }
 
     const backMaterial = new MeshStandardMaterial({ side: SideBack });

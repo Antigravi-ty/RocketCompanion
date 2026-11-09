@@ -156,7 +156,7 @@ import {
   CLOUD_OVERLAY_TEXTURE_PATH,
   OOB_NORMAL_TEXTURE_PATH,
   type SkyboxConfig,
-} from '../../../ui-core/config/skyboxConfig';
+} from '../../../ui-core/config/skyboxConfig.ts';
 import { resolveAssetPath } from '../../../utils/AssetResponseValidator.ts';
 
 const cachedSkyTexturesByPath = new Map<string, THREE.Texture>();
@@ -258,7 +258,8 @@ export function updateCoronaSunBasisUniforms(
     const cosEl = Math.cos(elRad);
     sunDir.set(cosEl * Math.cos(azRad), Math.sin(elRad), cosEl * Math.sin(azRad)).normalize();
   }
-  const worldUp = Math.abs(sunDir.y) < 0.98 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+  const worldUp =
+    Math.abs(sunDir.y) < 0.98 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
   const sunRight = uniforms.uSunRight.value.crossVectors(worldUp, sunDir).normalize();
   const sunUp = uniforms.uSunUp.value.crossVectors(sunDir, sunRight).normalize();
 

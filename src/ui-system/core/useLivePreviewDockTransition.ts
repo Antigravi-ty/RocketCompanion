@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { type ActiveMenuRoute } from '../../ui-core/config/uiConfig';
-import { type AppState } from '../../ui-core/stores/appStoreTypes';
-import { floatingStore } from '../../ui-core/stores/floatingStore';
+import { type ActiveMenuRoute } from '../../ui-core/config/uiConfig.ts';
+import { type AppState } from '../../ui-core/stores/appStoreTypes.ts';
+import { floatingStore } from '../../ui-core/stores/floatingStore.ts';
 
 export type LivePreviewAnimPhase =
   | 'expanded'

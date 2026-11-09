@@ -91,7 +91,9 @@ export class MinimumProgressLoader implements LoadingProgressObserver {
 
   constructor(container: Element | null = null, options: Record<string, unknown> = {}) {
     this.container = (container ||
-      (typeof document !== 'undefined' ? document.querySelector('#app') : null)) as MinimumLoaderDomContainer | null;
+      (typeof document !== 'undefined'
+        ? document.querySelector('#app')
+        : null)) as MinimumLoaderDomContainer | null;
     this.options = options;
     this._initFontAsync();
   }
@@ -161,7 +163,12 @@ export class MinimumProgressLoader implements LoadingProgressObserver {
     return `${(bytes / 1073741824).toFixed(2)} GB`;
   }
 
-  onStageChange({ stageIndex, totalStages, stageTitle, stageDescription }: LoadingStageChangeEvent): void {
+  onStageChange({
+    stageIndex,
+    totalStages,
+    stageTitle,
+    stageDescription,
+  }: LoadingStageChangeEvent): void {
     if (this.hasError || this.isCompleted) return;
     this.stageIndex = stageIndex || this.stageIndex;
     this.totalStages = totalStages || this.totalStages;
@@ -240,12 +247,21 @@ export class MinimumProgressLoader implements LoadingProgressObserver {
       }
     }
     if (detail && this.refs.microDetail) this.refs.microDetail.textContent = detail;
-    if (this.activeTaskType === 'determinate' && taskProgress !== undefined && this.refs.secondaryFill) {
+    if (
+      this.activeTaskType === 'determinate' &&
+      taskProgress !== undefined &&
+      this.refs.secondaryFill
+    ) {
       this.refs.secondaryFill.style.width = `${Math.min(100, Math.max(0, taskProgress * 100)).toFixed(1)}%`;
     }
   }
 
-  onByteStreamProgress({ overallRatio, loadedBytes, totalBytes, activeUrl }: StreamDownloadProgressInfo): void {
+  onByteStreamProgress({
+    overallRatio,
+    loadedBytes,
+    totalBytes,
+    activeUrl,
+  }: StreamDownloadProgressInfo): void {
     if (this.hasError || this.isCompleted) return;
     this.loadedBytes = loadedBytes || 0;
     this.totalBytes = totalBytes || 0;
@@ -355,7 +371,8 @@ export class MinimumProgressLoader implements LoadingProgressObserver {
     if (this.refs.overallPercent) this.refs.overallPercent.textContent = '100%';
     if (this.refs.primaryFill) this.refs.primaryFill.style.width = '100%';
     if (this.refs.secondaryFill) this.refs.secondaryFill.style.width = '100%';
-    if (this.refs.taskName) this.refs.taskName.textContent = 'Engine Ignition Online — 120Hz Active';
+    if (this.refs.taskName)
+      this.refs.taskName.textContent = 'Engine Ignition Online — 120Hz Active';
     if (this.refs.taskStatusBadge) this.refs.taskStatusBadge.textContent = 'READY';
 
     if (this.element) {

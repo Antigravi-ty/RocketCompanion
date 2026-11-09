@@ -13,14 +13,17 @@ import {
   isBallFlipResetEvent,
 } from '../physics/RocketSimConstants.ts';
 import { gameAudio } from '../audio/GameAudioEngineFacade.ts';
-import { isSignalAudioMutedInGoalReplay, type SignalAudioRuntimePort } from '../audio/SignalAudioEngine.ts';
-import { audioConfig } from '../ui-core/config/audioConfig';
-import { REPLAY_DIRECTOR_CONFIG } from '../ui-core/config/replayDirectorConfig';
-import { eventStreamStore, hudStore } from "../game/runtimeUiPort.ts";
+import {
+  isSignalAudioMutedInGoalReplay,
+  type SignalAudioRuntimePort,
+} from '../audio/SignalAudioEngine.ts';
+import { audioConfig } from '../ui-core/config/audioConfig.ts';
+import { REPLAY_DIRECTOR_CONFIG } from '../ui-core/config/replayDirectorConfig.ts';
+import { eventStreamStore, hudStore } from '../game/runtimeUiPort.ts';
 import {
   unpackLoadoutSignalParam2,
   getCarColorSlotById,
-} from '../ui-core/config/vehicleConstants';
+} from '../ui-core/config/vehicleConstants.ts';
 
 export interface ReplayDispatchIncidentItem {
   type?: number;
@@ -106,7 +109,8 @@ export function dispatchReplayFrameEvents(
         if (!isBallFlipResetEvent(evt)) {
           continue;
         }
-        const targetCarIdx = typeof evt.carIndex === 'number' && evt.carIndex >= 0 ? evt.carIndex : 0;
+        const targetCarIdx =
+          typeof evt.carIndex === 'number' && evt.carIndex >= 0 ? evt.carIndex : 0;
         runtime?.getFlipResetVisual?.(targetCarIdx)?.play?.();
       }
       if (evt.type === INCIDENT_EVENT_TYPES.GOAL_SCORED) {
@@ -124,7 +128,10 @@ export function dispatchReplayFrameEvents(
       try {
         eventStreamStore?.addEvent?.(normalizedEvt);
       } catch (err) {
-        console.warn('[ReplayTimelineController] Failed to push replay incident to eventStreamStore:', err);
+        console.warn(
+          '[ReplayTimelineController] Failed to push replay incident to eventStreamStore:',
+          err
+        );
       }
       gameAudio?.handleEvent?.(normalizedEvt, camera);
     }
@@ -177,7 +184,7 @@ export function dispatchReplayFrameEvents(
             >[1];
             gameAudio?.setCarBoostAudioVariation?.(
               carIndex,
-              unpacked.boostAudio as BoostAudioVariationArg,
+              unpacked.boostAudio as BoostAudioVariationArg
             );
           }
         }
@@ -214,4 +221,3 @@ export function dispatchReplayFrameEvents(
     gameAudio?.play?.('sfx_goal_poof', 1.0);
   }
 }
-

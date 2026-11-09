@@ -40,12 +40,14 @@ export interface PodiumFrameContextPort {
 }
 
 export interface PodiumCelebrationRuntimePort {
-  physics?: (PodiumCapablePhysicsEngine & {
-    controlsView?: Float32Array | null;
-    getCarState?: (carIndex: number) => Float32Array | null;
-    setControls?: (carIndex: number, controls: PodiumCelebrationControls) => void;
-    step?: (ticks?: number) => void;
-  }) | null;
+  physics?:
+    | (PodiumCapablePhysicsEngine & {
+        controlsView?: Float32Array | null;
+        getCarState?: (carIndex: number) => Float32Array | null;
+        setControls?: (carIndex: number, controls: PodiumCelebrationControls) => void;
+        step?: (ticks?: number) => void;
+      })
+    | null;
   interpolator?: {
     currState: Float32Array;
     prevState: Float32Array;
@@ -154,10 +156,8 @@ export class PodiumCelebrationController {
     this.podiumTick = 0;
 
     if (r?.physics) {
-      this.podiumCarSpots = applyPodiumFormationToEngine(
-        r.physics,
-        resolvedTeam,
-        (c: number) => (this._resolveCarTeam(c) === 1 ? 1 : 0),
+      this.podiumCarSpots = applyPodiumFormationToEngine(r.physics, resolvedTeam, (c: number) =>
+        this._resolveCarTeam(c) === 1 ? 1 : 0
       );
       r.interpolator?.sync?.();
       const numCars = Math.min(r.physics.numCars || 0, 6);
@@ -226,7 +226,10 @@ export class PodiumCelebrationController {
   }
 
   private _clampPodiumCarsToPedestals(
-    engine: (PodiumCapablePhysicsEngine & { getCarState?: (c: number) => Float32Array | null }) | null | undefined
+    engine:
+      | (PodiumCapablePhysicsEngine & { getCarState?: (c: number) => Float32Array | null })
+      | null
+      | undefined
   ): void {
     const spots = this.podiumCarSpots;
     if (!engine || !spots || typeof engine.getCarState !== 'function') return;
@@ -286,9 +289,7 @@ export class PodiumCelebrationController {
 
     const numCars = Math.min(sim.numCars || 1, 6);
     const localCarIndex =
-      typeof context?.activeCar === 'number'
-        ? context.activeCar
-        : (r.arena?.playerCarIndex ?? 0);
+      typeof context?.activeCar === 'number' ? context.activeCar : (r.arena?.playerCarIndex ?? 0);
     const localCarTeam = this._resolveCarTeam(localCarIndex);
     const isLocalWinner = this.winningTeam === 2 || localCarTeam === this.winningTeam;
     const effectivePlayerControls = isLocalWinner
@@ -313,9 +314,7 @@ export class PodiumCelebrationController {
           const botTeam = this._resolveCarTeam(c);
           const isBotWinner = this.winningTeam === 2 || botTeam === this.winningTeam;
           const rawBotCtrl = this._computeBotCelebrationControls(this.podiumTick, c);
-          const botCtrl = isBotWinner
-            ? rawBotCtrl
-            : { ...rawBotCtrl, throttle: 0, steer: 0 };
+          const botCtrl = isBotWinner ? rawBotCtrl : { ...rawBotCtrl, throttle: 0, steer: 0 };
           if (c === 1 && r.botCoordinator) {
             r.botCoordinator.botControls = botCtrl;
           }

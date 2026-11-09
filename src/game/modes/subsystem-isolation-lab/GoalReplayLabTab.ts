@@ -1,14 +1,29 @@
 import { MATCH_SIGNALS } from '../../../physics/RocketSimConstants.ts';
 import { REPLAY_BUFFER_MODES, ReplayRingBuffer } from '../../../replay/ReplayRingBuffer.ts';
 import { ReplayTimelineController } from '../../../replay/ReplayTimelineController.ts';
-import { extractGoalReplayFrames, resolveGoalReplayWindowBounds } from '../../../replay/ReplayPlaybackState.ts';
+import {
+  extractGoalReplayFrames,
+  resolveGoalReplayWindowBounds,
+} from '../../../replay/ReplayPlaybackState.ts';
 import { useSubsystemIsolationLabStore } from '../../runtimeUiPort.ts';
 import { gameAudio } from '../../../audio/GameAudioEngineFacade.ts';
-import { beginGoalReplaySession, endGoalReplaySession, stepGoalReplaySessionFrame } from '../shared/GoalReplaySessionCoordinator.ts';
-import type { LabAudioPort, LabFrameUpdateContext, LabTabContext, LabTabController } from './LabTabTypes.ts';
 import {
-  type GoalReplayBenchScenario, type ReplayExportPayload,
-  applyInstantKickoffGoalScenario, applyNormalPlayGoalScenario, isGoalBallScoredInLab,
+  beginGoalReplaySession,
+  endGoalReplaySession,
+  stepGoalReplaySessionFrame,
+} from '../shared/GoalReplaySessionCoordinator.ts';
+import type {
+  LabAudioPort,
+  LabFrameUpdateContext,
+  LabTabContext,
+  LabTabController,
+} from './LabTabTypes.ts';
+import {
+  type GoalReplayBenchScenario,
+  type ReplayExportPayload,
+  applyInstantKickoffGoalScenario,
+  applyNormalPlayGoalScenario,
+  isGoalBallScoredInLab,
 } from './goalReplayScenariosPipeline.ts';
 import {
   GoalReplayPodiumSubController,
@@ -28,7 +43,9 @@ export class GoalReplayLabTab implements LabTabController {
   private scoringTeam = 0;
   private phase = 'live';
 
-  attachToHost(ctx: LabTabContext): void { this.ctx = ctx; }
+  attachToHost(ctx: LabTabContext): void {
+    this.ctx = ctx;
+  }
 
   onActivate(ctx: LabTabContext): void {
     this.ctx = ctx;
@@ -43,7 +60,9 @@ export class GoalReplayLabTab implements LabTabController {
     this.postGoalCountdownTicks = 0;
   }
 
-  isPodiumActive(): boolean { return this.podiumSubController.isActive; }
+  isPodiumActive(): boolean {
+    return this.podiumSubController.isActive;
+  }
 
   private getAudio(): LabAudioPort | null {
     return this.ctx?.runtime?.options?.gameAudio || (gameAudio as unknown as LabAudioPort);
@@ -117,7 +136,9 @@ export class GoalReplayLabTab implements LabTabController {
     this.incidentFrame = currentTick;
     this.scoringTeam = scoringTeam;
 
-    const postGoalSec = Number.isFinite(store.goalReplayPostGoalSec) ? store.goalReplayPostGoalSec : 3.0;
+    const postGoalSec = Number.isFinite(store.goalReplayPostGoalSec)
+      ? store.goalReplayPostGoalSec
+      : 3.0;
     const postGoalTicks = Math.max(0, Math.round(postGoalSec * 120));
 
     this.ringBuffer?.recordFrame(currentTick, r.physics.state, [
@@ -297,7 +318,9 @@ export class GoalReplayLabTab implements LabTabController {
     }
   }
 
-  onRenderFrame(frameCtx: LabFrameUpdateContext): void { this.updatePresentation(frameCtx); }
+  onRenderFrame(frameCtx: LabFrameUpdateContext): void {
+    this.updatePresentation(frameCtx);
+  }
 
   updatePresentation(context: LabFrameUpdateContext): void {
     const r = this.ctx?.runtime;
@@ -346,7 +369,14 @@ export class GoalReplayLabTab implements LabTabController {
 
   enterPodiumShowcase(winningTeam = 0): void {
     this.ensureBenchState();
-    if (this.podiumSubController.enterShowcase(this.ctx?.runtime, winningTeam, this.timelineCtrl, this.phase === 'replaying')) {
+    if (
+      this.podiumSubController.enterShowcase(
+        this.ctx?.runtime,
+        winningTeam,
+        this.timelineCtrl,
+        this.phase === 'replaying'
+      )
+    ) {
       this.phase = 'podium';
     }
   }
@@ -389,7 +419,12 @@ export class GoalReplayLabTab implements LabTabController {
         const currentTick = Math.floor(r.physics.getHeaderView?.()?.tickCount || 0);
         this.lastKickoffFrame = currentTick;
         this.ringBuffer!.recordFrame(currentTick, r.physics.state, [
-          { signalType: MATCH_SIGNALS.KICKOFF_WILL_START, frameId: currentTick, param1: 0, param2: 0 },
+          {
+            signalType: MATCH_SIGNALS.KICKOFF_WILL_START,
+            frameId: currentTick,
+            param1: 0,
+            param2: 0,
+          },
         ]);
         store.updateLiveTelemetry({
           goalReplayLastKickoffFrameId: currentTick,

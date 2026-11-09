@@ -12,10 +12,7 @@ import {
   GROUND_SIN,
   clipArenaRocketSimXYZ,
 } from './ReachabilityConstants.ts';
-import {
-  predictGroundRadiiLUT,
-  predictGroundRadiiAnalytical,
-} from './GroundReachabilityMath.ts';
+import { predictGroundRadiiLUT, predictGroundRadiiAnalytical } from './GroundReachabilityMath.ts';
 
 export class GroundReachabilityRenderer {
   public _groundWorldRings: [Float32Array, Float32Array, Float32Array];
@@ -126,12 +123,24 @@ export class GroundReachabilityRenderer {
     this.group.visible = true;
 
     const {
-      posX, posY, posZ,
-      velX, velY, velZ,
-      fwdX, fwdY, fwdZ,
-      rightX, rightY, rightZ,
-      upX, upY, upZ,
-      angVelX, angVelY, angVelZ,
+      posX,
+      posY,
+      posZ,
+      velX,
+      velY,
+      velZ,
+      fwdX,
+      fwdY,
+      fwdZ,
+      rightX,
+      rightY,
+      rightZ,
+      upX,
+      upY,
+      upZ,
+      angVelX,
+      angVelY,
+      angVelZ,
     } = carState;
 
     // Project 3D velocity & angular velocity onto current driving surface frame

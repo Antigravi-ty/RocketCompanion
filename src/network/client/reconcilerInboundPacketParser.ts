@@ -22,10 +22,7 @@ import {
   type BoostPadEdgeTracker,
 } from '../protocol/boostPadBitmaskPipeline.ts';
 import type { InspectablePacketInput } from '../diagnostics/PacketDumpDiagnostics.ts';
-import type {
-  ReconcilerMetrics,
-  TelemetryChannelPort,
-} from './ReconcilerMetricsModel.ts';
+import type { ReconcilerMetrics, TelemetryChannelPort } from './ReconcilerMetricsModel.ts';
 
 export interface ParsedReconcilerPacket extends InspectablePacketInput {
   serverTick: number;
@@ -50,9 +47,7 @@ export interface DrainServerPacketsContext {
   metrics: ReconcilerMetrics;
   boostPadEdgeTracker: BoostPadEdgeTracker;
   isTimelineSynchronized: () => boolean;
-  onSignals:
-    | ((signals: MatchSignalDescriptor[], packetServerTick: number | null) => void)
-    | null;
+  onSignals: ((signals: MatchSignalDescriptor[], packetServerTick: number | null) => void) | null;
   onRosterUpdate: ((msg: Record<string, unknown>) => void) | null;
   onHandshakeResponse: ((msg: Record<string, unknown>) => void) | null;
   setLocalCarIndex: (entityId: number) => void;
@@ -142,10 +137,7 @@ export function drainAndParseServerPacketBatch(
                 baseMeasuredRtt = baseSampleRtt;
               } else {
                 const maxStepUp = Math.max(50, baseMeasuredRtt * 2);
-                const clampedSample = Math.min(
-                  baseSampleRtt,
-                  baseMeasuredRtt + maxStepUp
-                );
+                const clampedSample = Math.min(baseSampleRtt, baseMeasuredRtt + maxStepUp);
                 baseMeasuredRtt = baseMeasuredRtt * 0.85 + clampedSample * 0.15;
               }
             }
@@ -169,10 +161,7 @@ export function drainAndParseServerPacketBatch(
             let hasTransitionSignal = false;
             for (const sig of allSignals) {
               if (!sig) continue;
-              if (
-                sig.signalType === MATCH_SIGNALS.COMMAND_ACK &&
-                typeof sig.param1 === 'number'
-              ) {
+              if (sig.signalType === MATCH_SIGNALS.COMMAND_ACK && typeof sig.param1 === 'number') {
                 messenger.resolveClientCommandAck(sig.param1);
               }
               if (
@@ -279,17 +268,11 @@ export function drainAndParseServerPacketBatch(
             if (initSnap) {
               const snap = new Float32Array(initSnap);
               seedBoostPadEdgeTrackerFromSnapshot(boostPadTracker, snap, frame);
-              ctx.setLobbyAuthoritativeSnapshots(
-                new Float32Array(snap),
-                new Float32Array(snap)
-              );
+              ctx.setLobbyAuthoritativeSnapshots(new Float32Array(snap), new Float32Array(snap));
             }
           } else {
             ctx.setLobbyDualWorldMode(false);
-            if (
-              initSnap &&
-              (obj.serverFrame !== undefined || obj.matchTick !== undefined)
-            ) {
+            if (initSnap && (obj.serverFrame !== undefined || obj.matchTick !== undefined)) {
               const snap = new Float32Array(initSnap);
               seedBoostPadEdgeTrackerFromSnapshot(boostPadTracker, snap, frame);
               ctx.syncTimelineFromHandshake(snap, frame, nowMs);

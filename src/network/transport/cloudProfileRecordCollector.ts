@@ -91,11 +91,7 @@ export function createWatchedDevSlotPacketListener(params: {
       ) {
         latestIndex = normalized;
       }
-    } else if (
-      msg.topic.startsWith(userPrefix) &&
-      msg.topic.endsWith('/dev') &&
-      msg.parsedJson
-    ) {
+    } else if (msg.topic.startsWith(userPrefix) && msg.topic.endsWith('/dev') && msg.parsedJson) {
       const topicUserId = sanitizeCloudUserId(
         msg.topic.slice(userPrefix.length, msg.topic.length - '/dev'.length)
       );
@@ -110,20 +106,12 @@ export function createWatchedDevSlotPacketListener(params: {
         }) || Boolean(latestIndex && topicUserId === latestIndex.userId);
       if (!matchesUser) return;
 
-      onDevSlotUpdate(
-        normalizeWatchedDevSlotPayload(rawDev, topicUserId || userId),
-        latestIndex
-      );
+      onDevSlotUpdate(normalizeWatchedDevSlotPayload(rawDev, topicUserId || userId), latestIndex);
     }
   };
 
   return {
-    topicsToWatch: [
-      directIndexTopic,
-      directDevTopic,
-      wildcardIndexTopic,
-      wildcardDevTopic,
-    ],
+    topicsToWatch: [directIndexTopic, directDevTopic, wildcardIndexTopic, wildcardDevTopic],
     listener,
   };
 }

@@ -1,20 +1,20 @@
-import { useAppStore } from '../../ui-core/stores/appStore';
-import { floatingStore } from '../../ui-core/stores/floatingStore';
-import { REPLAY_VIEWER_PRESET } from '../../ui-core/stores/floatingPresets';
+import { useAppStore } from '../../ui-core/stores/appStore.ts';
+import { floatingStore } from '../../ui-core/stores/floatingStore.ts';
+import { REPLAY_VIEWER_PRESET } from '../../ui-core/stores/floatingPresets.ts';
 import {
   SUBSYSTEM_ISOLATION_LAB_PRESET,
   EXPERIMENTAL_MULTI_BOTS_PRESET,
   EXPERIMENTAL_BOT_PACK_PRESET,
   KICKOFF_TRAINING_TUNER_PRESET,
   REPLAY_TO_RCS_IMPORTER_PRESET,
-} from '../../ui-core/stores/devFloatingPresets';
-import { dialogue } from '../../ui-core/compounds/dialogue/dialogueStore';
-import { useExperimentalMultiBotsStore } from '../../ui-core/stores/experimentalMultiBotsStore';
+} from '../../ui-core/stores/devFloatingPresets.ts';
+import { dialogue } from '../../ui-core/compounds/dialogue/dialogueStore.ts';
+import { useExperimentalMultiBotsStore } from '../../ui-core/stores/experimentalMultiBotsStore.ts';
 import {
   exportRetainedMatchReplayFile,
   type RetainedMatchReplay,
 } from '../../replay/ReplayFileExporter.ts';
-import type { AppState } from '../../ui-core/stores/appStoreTypes';
+import type { AppState } from '../../ui-core/stores/appStoreTypes.ts';
 import type { GameRuntimeUiBridgePort } from '../../game/runtimeUiPort.ts';
 
 interface RuntimeWithExportableActiveMode {
@@ -22,14 +22,14 @@ interface RuntimeWithExportableActiveMode {
     getActiveMode?: () => {
       exportRecentHighlightReplay?: (
         durationSeconds?: number,
-        suppressNotification?: boolean,
+        suppressNotification?: boolean
       ) => RetainedMatchReplay | null;
     } | null;
   };
 }
 
 export function createModeBridgeHandlers(
-  runtimePort: GameRuntimeUiBridgePort,
+  runtimePort: GameRuntimeUiBridgePort
 ): Partial<AppState['bridge']> {
   const { matchPort, replayPort } = runtimePort;
   return {
@@ -70,7 +70,7 @@ export function createModeBridgeHandlers(
     onStartMatch: async (
       botId: string,
       durationSeconds = 90,
-      teamSize?: 'standard' | 'double' | 'solo',
+      teamSize?: 'standard' | 'double' | 'solo'
     ) => {
       useAppStore.getState().closeMenu();
       floatingStore.closeWindow(SUBSYSTEM_ISOLATION_LAB_PRESET.id);

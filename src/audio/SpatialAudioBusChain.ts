@@ -7,7 +7,7 @@ import {
   DEFAULT_SPATIAL_AUDIO_TUNER_CONFIG,
   solveCubicBezier,
   type SpatialAudioTunerConfig,
-} from "../ui-core/config/spatialAudioConfig";
+} from '../ui-core/config/spatialAudioConfig.ts';
 
 export interface SampleOutputPeakResult {
   peak: number;
@@ -62,10 +62,7 @@ export function stepSpatialBezierTransition(
   };
 }
 
-export function buildStadiumImpulseBuffer(
-  ctx: AudioContext,
-  durationSec = 3.0
-): AudioBuffer {
+export function buildStadiumImpulseBuffer(ctx: AudioContext, durationSec = 3.0): AudioBuffer {
   const sampleRate = ctx.sampleRate;
   const seconds = Math.max(0.4, Math.min(8.0, Number(durationSec) || 3.0));
   const length = Math.floor(sampleRate * seconds);
@@ -176,11 +173,7 @@ export class SpatialAudioBusChain {
   private _lastDry = -1;
   private _lastOut = -1;
 
-  constructor(
-    ctx: AudioContext,
-    destination: AudioNode,
-    impulseBuffer: AudioBuffer | null = null
-  ) {
+  constructor(ctx: AudioContext, destination: AudioNode, impulseBuffer: AudioBuffer | null = null) {
     this.ctx = ctx;
     this.impulseBuffer = impulseBuffer || null;
     this.input = ctx.createGain();
@@ -241,12 +234,7 @@ export class SpatialAudioBusChain {
   }
 
   sampleOutputPeak(): SampleOutputPeakResult {
-    if (
-      !this.analyser ||
-      !this._analyserBuffer ||
-      !this.ctx ||
-      this.ctx.state !== 'running'
-    ) {
+    if (!this.analyser || !this._analyserBuffer || !this.ctx || this.ctx.state !== 'running') {
       return { peak: 0, valid: false };
     }
     try {
@@ -317,7 +305,9 @@ export class SpatialAudioBusChain {
    * Immediately zeroes wet/output gains and swaps the ConvolverNode so any
    * accumulated stadium reverb tail is purged with zero echo bleed.
    */
-  resetAndSilence(cfg: Partial<SpatialAudioTunerConfig> = DEFAULT_SPATIAL_AUDIO_TUNER_CONFIG): void {
+  resetAndSilence(
+    cfg: Partial<SpatialAudioTunerConfig> = DEFAULT_SPATIAL_AUDIO_TUNER_CONFIG
+  ): void {
     this._lastLpf = -1;
     this._lastHpf = -1;
     this._lastWet = -1;
@@ -350,7 +340,10 @@ export class SpatialAudioBusChain {
     const currentHpf = 20 + b * Math.max(0, maxHpf - 20);
     const currentWet = b * targetWet * wetBoost;
     const currentDry = Math.max(0, 1.0 - b * (targetWet * 0.6));
-    const currentOut = Math.max(0, Math.min(2, Number.isFinite(Number(outputGain)) ? Number(outputGain) : 1.0));
+    const currentOut = Math.max(
+      0,
+      Math.min(2, Number.isFinite(Number(outputGain)) ? Number(outputGain) : 1.0)
+    );
 
     if (immediate || Math.abs(currentLpf - this._lastLpf) > 0.05) {
       this._lastLpf = currentLpf;

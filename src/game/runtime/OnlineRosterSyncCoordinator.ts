@@ -44,7 +44,7 @@ export function dismissHostLobbyOngoingNotification(): void {
   } catch (err) {
     console.warn(
       '[OnlineRosterSyncCoordinator] Failed to dismiss host lobby ongoing notification:',
-      err,
+      err
     );
   }
 }
@@ -74,8 +74,8 @@ export class OnlineRosterSyncCoordinator {
 
     const isLobby = Boolean(
       world.arena?.isLobbyMode ||
-        world.match?.state?.mode !== 'match' ||
-        world.match?.state?.phase === 'lobby',
+      world.match?.state?.mode !== 'match' ||
+      world.match?.state?.phase === 'lobby'
     );
     if (!isLobby) {
       dismissHostLobbyOngoingNotification();
@@ -95,7 +95,7 @@ export class OnlineRosterSyncCoordinator {
       const notifyStore = useQuickNotificationStore?.getState?.();
       if (!notifyStore) return;
       const existing = notifyStore.ongoingTasks?.some?.(
-        (t) => t.id === HOST_LOBBY_ONGOING_NOTIFICATION_ID,
+        (t) => t.id === HOST_LOBBY_ONGOING_NOTIFICATION_ID
       );
       if (existing) {
         notifyStore.updateOngoingNotification(HOST_LOBBY_ONGOING_NOTIFICATION_ID, {
@@ -118,7 +118,7 @@ export class OnlineRosterSyncCoordinator {
     } catch (err) {
       console.warn(
         '[OnlineRosterSyncCoordinator] Failed to update host lobby ongoing notification:',
-        err,
+        err
       );
     }
   }
@@ -128,7 +128,7 @@ export class OnlineRosterSyncCoordinator {
   }
 
   public async applyRosterSnapshot(
-    roster: OnlineRosterSnapshotPayload | null | undefined,
+    roster: OnlineRosterSnapshotPayload | null | undefined
   ): Promise<void> {
     const { session, world, diagnostics } = this.host;
     if (!roster || !Array.isArray(roster.players)) return;
@@ -170,8 +170,8 @@ export class OnlineRosterSyncCoordinator {
             cIdx,
             displayName,
             rawTeam,
-            physicsTeam,
-          ),
+            physicsTeam
+          )
         );
       }
 
@@ -181,7 +181,7 @@ export class OnlineRosterSyncCoordinator {
         physicsTeam,
         preset,
         hitbox,
-        isLobbyDualWorld,
+        isLobbyDualWorld
       );
     }
 
@@ -204,16 +204,12 @@ export class OnlineRosterSyncCoordinator {
         (p) =>
           p &&
           (p.entityId === world.playerCarIndex ||
-            (session.authoritativeServer && p.sessionId === 'host')),
+            (session.authoritativeServer && p.sessionId === 'host'))
       );
       const sessionPatch: Record<string, unknown> = { connectedPeers };
       if (localRosterEntry) {
         sessionPatch.localTeam =
-          localRosterEntry.team === 2
-            ? 'neutral'
-            : localRosterEntry.team === 1
-              ? 'orange'
-              : 'blue';
+          localRosterEntry.team === 2 ? 'neutral' : localRosterEntry.team === 1 ? 'orange' : 'blue';
       }
       if (roster.gameMode === '1v1' || roster.gameMode === '2v2' || roster.gameMode === '3v3') {
         sessionPatch.gameMode = roster.gameMode;
@@ -241,19 +237,19 @@ export class OnlineRosterSyncCoordinator {
   public async onRemotePlayerConnected(
     channel: RemotePeerChannel | null | undefined,
     remotePlayerName = 'Player 2',
-    assignedCarIndex: number | null = null,
+    assignedCarIndex: number | null = null
   ): Promise<number | null> {
     return this.peerSynchronizer.onRemotePlayerConnected(
       channel,
       remotePlayerName,
       assignedCarIndex,
-      () => this.syncHostLobbyOngoingNotification(),
+      () => this.syncHostLobbyOngoingNotification()
     );
   }
 
   public async removeRemotePlayer(carIndex: number): Promise<void> {
     this.peerSynchronizer.removeRemotePlayer(carIndex, () =>
-      this.syncHostLobbyOngoingNotification(),
+      this.syncHostLobbyOngoingNotification()
     );
   }
 }

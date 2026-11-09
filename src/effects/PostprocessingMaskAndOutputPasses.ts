@@ -85,10 +85,10 @@ export class ClearMaskPass extends Pass {
  * Output color grading and tonemapping shader
  */
 export const OutputShader = {
-  name: "OutputShader",
+  name: 'OutputShader',
   uniforms: {
     tDiffuse: { value: null },
-    toneMappingExposure: { value: 1.0 }
+    toneMappingExposure: { value: 1.0 },
   },
   vertexShader: `
 		precision highp float;
@@ -127,7 +127,7 @@ export const OutputShader = {
 			#ifdef SRGB_TRANSFER
 				gl_FragColor = sRGBTransferOETF( gl_FragColor );
 			#endif
-		}`
+		}`,
 };
 
 /**
@@ -154,7 +154,7 @@ export class OutputPass extends Pass {
       name: OutputShader.name,
       uniforms: this.uniforms,
       vertexShader: OutputShader.vertexShader,
-      fragmentShader: OutputShader.fragmentShader
+      fragmentShader: OutputShader.fragmentShader,
     });
     this._fsQuad = new FullScreenQuad(this.material);
     this._outputColorSpace = null;
@@ -175,7 +175,7 @@ export class OutputPass extends Pass {
       ACESFilmicToneMapping: ACESConst,
       AgXToneMapping: AgXConst,
       NeutralToneMapping: NeutralConst,
-      CustomToneMapping: CustomConst
+      CustomToneMapping: CustomConst,
     } = THREE;
 
     if (this.uniforms && this.uniforms.tDiffuse && readBuffer) {
@@ -185,7 +185,11 @@ export class OutputPass extends Pass {
       this.uniforms.toneMappingExposure.value = renderer ? renderer.toneMappingExposure : 1.0;
     }
 
-    if (renderer && (this._outputColorSpace !== renderer.outputColorSpace || this._toneMapping !== renderer.toneMapping)) {
+    if (
+      renderer &&
+      (this._outputColorSpace !== renderer.outputColorSpace ||
+        this._toneMapping !== renderer.toneMapping)
+    ) {
       this._outputColorSpace = renderer.outputColorSpace;
       this._toneMapping = renderer.toneMapping;
 
@@ -194,24 +198,28 @@ export class OutputPass extends Pass {
       const colorMgmt = ColorManagement as typeof THREE.ColorManagement & {
         getTransfer?: (colorSpace: THREE.ColorSpace | string) => string;
       };
-      if (colorMgmt && colorMgmt.getTransfer && colorMgmt.getTransfer(this._outputColorSpace) === SRGBTransferConst) {
-        this.material.defines.SRGB_TRANSFER = "";
+      if (
+        colorMgmt &&
+        colorMgmt.getTransfer &&
+        colorMgmt.getTransfer(this._outputColorSpace) === SRGBTransferConst
+      ) {
+        this.material.defines.SRGB_TRANSFER = '';
       }
 
       if (this._toneMapping === LinearConst) {
-        this.material.defines.LINEAR_TONE_MAPPING = "";
+        this.material.defines.LINEAR_TONE_MAPPING = '';
       } else if (this._toneMapping === ReinhardConst) {
-        this.material.defines.REINHARD_TONE_MAPPING = "";
+        this.material.defines.REINHARD_TONE_MAPPING = '';
       } else if (this._toneMapping === CineonConst) {
-        this.material.defines.CINEON_TONE_MAPPING = "";
+        this.material.defines.CINEON_TONE_MAPPING = '';
       } else if (this._toneMapping === ACESConst) {
-        this.material.defines.ACES_FILMIC_TONE_MAPPING = "";
+        this.material.defines.ACES_FILMIC_TONE_MAPPING = '';
       } else if (this._toneMapping === AgXConst) {
-        this.material.defines.AGX_TONE_MAPPING = "";
+        this.material.defines.AGX_TONE_MAPPING = '';
       } else if (this._toneMapping === NeutralConst) {
-        this.material.defines.NEUTRAL_TONE_MAPPING = "";
+        this.material.defines.NEUTRAL_TONE_MAPPING = '';
       } else if (this._toneMapping === CustomConst) {
-        this.material.defines.CUSTOM_TONE_MAPPING = "";
+        this.material.defines.CUSTOM_TONE_MAPPING = '';
       }
 
       this.material.needsUpdate = true;
@@ -224,7 +232,11 @@ export class OutputPass extends Pass {
       if (renderer) {
         renderer.setRenderTarget(writeBuffer);
         if (this.clear) {
-          renderer.clear(renderer.autoClearColor, renderer.autoClearDepth, renderer.autoClearStencil);
+          renderer.clear(
+            renderer.autoClearColor,
+            renderer.autoClearDepth,
+            renderer.autoClearStencil
+          );
         }
       }
       this._fsQuad.render(renderer);

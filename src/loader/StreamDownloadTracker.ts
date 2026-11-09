@@ -185,7 +185,7 @@ export class StreamDownloadTracker {
       totalBytes: this.totalBytes,
       activeUrl,
       currentLoaded,
-      currentTotal
+      currentTotal,
     });
   }
 }

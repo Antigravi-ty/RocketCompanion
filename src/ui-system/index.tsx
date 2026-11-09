@@ -7,13 +7,13 @@
 
 import React from 'react';
 import { createRoot, Root } from 'react-dom/client';
-import { GameUIRoot } from './GameUIRoot';
-import { useAppStore } from '../ui-core/stores/appStore';
-import { type ActiveMenuRoute } from '../ui-core/config/uiConfig';
-import { perfTelemetryStore } from '../ui-core/stores/perfTelemetryStore';
-import { attachGameRuntimeBridge } from './core/runtimeBridgeAdapter';
-import { syncMaterialsToGame } from './core/runtimeTunerBridgeHandlers';
-import { ensureSignalingProfileBridge } from './core/runtimeOnlineBridgeHandlers';
+import { GameUIRoot } from './GameUIRoot.tsx';
+import { useAppStore } from '../ui-core/stores/appStore.ts';
+import { type ActiveMenuRoute } from '../ui-core/config/uiConfig.ts';
+import { perfTelemetryStore } from '../ui-core/stores/perfTelemetryStore.ts';
+import { attachGameRuntimeBridge } from './core/runtimeBridgeAdapter.ts';
+import { syncMaterialsToGame } from './core/runtimeTunerBridgeHandlers.ts';
+import { ensureSignalingProfileBridge } from './core/runtimeOnlineBridgeHandlers.ts';
 import type { GameRuntimeUiBridgePort } from '../game/runtimeUiPort.ts';
 import '../styles/ui-system.css';
 
@@ -28,7 +28,7 @@ export interface GameUIRuntimeHandle {
 
 export function mountGameUI(
   container: HTMLElement,
-  gameRuntime?: GameRuntimeUiBridgePort | null,
+  gameRuntime?: GameRuntimeUiBridgePort | null
 ): GameUIRuntimeHandle {
   let rootEl = container.querySelector<HTMLElement>('#game-ui-root');
   if (!rootEl) {
