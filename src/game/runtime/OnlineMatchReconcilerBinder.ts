@@ -153,9 +153,10 @@ export class OnlineMatchReconcilerBinder {
     await server.init();
     const channel = server.channel as NetworkSessionChannelLike;
     this.applyInitialChannelLatency(channel, true);
+    const latestState = physics.saveCompactState();
     server.sim.setUnlimitedBoost(physics.isUnlimitedBoost);
     server.configureTrainingRuleset?.(trainingOptions);
-    server.sim.restoreState(compactState);
+    await server.sim.restoreState(latestState);
     return { server, channel, visualId: ld.visualId };
   }
 

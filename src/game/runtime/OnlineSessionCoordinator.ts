@@ -181,8 +181,9 @@ export class OnlineSessionCoordinator {
       this.authoritativeServer = loopback.server;
       this.networkChannel = loopback.channel;
       this.resetOnlineReplayRecording(true);
-      this.createPredictionReconciler(world.playerCarIndex ?? 0, loopback.visualId, { ...options }, false);
+      this.createPredictionReconciler(world.playerCarIndex ?? 0, loopback.visualId, { ...options }, true);
       this.reconcilerBinder.syncServerTimelineIfReady(this.authoritativeServer, this.networkReconciler, false);
+      world.interpolator?.sync?.(performance.now());
       lifecycle.onSessionReady?.(this.networkReconciler, this.networkChannel);
     }
     if (showHUD) lifecycle.onShowNetworkHUD?.();

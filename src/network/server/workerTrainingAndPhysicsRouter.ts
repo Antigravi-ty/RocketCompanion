@@ -261,8 +261,12 @@ export function routeTrainingAndPhysicsMessage(
       return true;
 
     case 'restoreState': {
-      const { state, reqId } = payload;
-      if (sim && state) sim.restoreState?.(state as Float32Array | number[]);
+      const { reqId } = payload;
+      const state = payload.state ?? (payload.snapshot as Float32Array | number[] | undefined);
+      if (sim && state) {
+        sim.restoreState?.(state as Float32Array | number[]);
+        physicsManager?.inputBuffer?.clear?.();
+      }
       const snap = sim ? (sim.saveCompactState ? sim.saveCompactState() : sim.saveState?.() ?? null) : null;
       const tickCount = sim?.getHeaderView ? Math.floor(sim.getHeaderView().tickCount) : 0;
       if (matchManager && sim) {
