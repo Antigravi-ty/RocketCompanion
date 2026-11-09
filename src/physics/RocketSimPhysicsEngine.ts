@@ -8,10 +8,9 @@ import { SIM_OFFSETS, BALL_STATE_STRIDE, CAR_STATE_STRIDE } from './RocketSimCon
 import {
   updateWasmBallPrediction,
   updateWasmBallPredictionIncremental,
-  updateWasmBallPredictionManual,
   getWasmBallPredictionBuffer,
-  getWasmBallPredictionCount,
   getWasmBallPredictionStride,
+  computeFreeplayBallControlState,
 } from './ballPredictionPipeline.ts';
 import {
   CarStateView,
@@ -55,6 +54,7 @@ import {
   type CarSpecEntry,
   type GoalBarrierMetadata,
 } from './RocketSimArenaBarrierController.ts';
+import { checkPointOnGoalBarrier, evaluateBallScored } from './goalBarrierVolumePipeline.ts';
 import { RocketSimCarMutatorController } from './RocketSimCarMutatorController.ts';
 
 export interface RocketSimEngineInitOptions extends RocketSimWasmModuleOptions {
@@ -71,11 +71,10 @@ export class RocketSimPhysicsEngine {
   eventBufferPtr = 0;
   eventBufferSize = 0;
   eventReader: PhysicsEventReader | null = null;
-  readonly eventDispatcher: PhysicsEventDispatcher;
+  readonly eventDispatcher = new PhysicsEventDispatcher();
   readonly possessionTracker = new PhysicsPossessionTracker();
-  readonly arenaBarriers: RocketSimArenaBarrierController;
-  readonly carMutators: RocketSimCarMutatorController;
-  syntheticFallback: { reset?: () => void } | null = null;
+  readonly arenaBarriers = new RocketSimArenaBarrierController();
+  readonly carMutators = new RocketSimCarMutatorController();
   stateView: Float32Array | null = null;
   controlsView: Float32Array | null = null;
   headerViewInstance: ArenaHeaderView | null = null;
@@ -87,17 +86,18 @@ export class RocketSimPhysicsEngine {
   cachedSnapshotBuffer: Float32Array | null = null;
   isUnlimitedBoost = false;
   arenaPreset = 0;
-  _carSpecs: Array<CarSpecEntry | null> = [];
-  floorNz = 0.8;
-  netNz = 0.05;
-  minDirDot = 0.0;
-  inputBufferCount?: number[];
   ballStateWriteRevision = 0;
 
   constructor() {
-    this.eventDispatcher = new PhysicsEventDispatcher(this);
-    this.arenaBarriers = new RocketSimArenaBarrierController(this);
-    this.carMutators = new RocketSimCarMutatorController(this);
+    const mutators = this.carMutators;
+    mutators.bindSimContext(this);
+  }
+
+  get _carSpecs(): Array<CarSpecEntry | null> {
+    return this.carMutators.carSpecs;
+  }
+  set _carSpecs(specs: Array<CarSpecEntry | null>) {
+    this.carMutators.carSpecs = specs;
   }
 
   getCachedCollisionData(): Uint8Array[] | null {
@@ -119,10 +119,12 @@ export class RocketSimPhysicsEngine {
   }
 
   async init(opts: RocketSimEngineInitOptions = {}): Promise<void> {
-    await this.arenaBarriers.initEngine(opts);
+    this.carMutators.bindSimContext(this);
+    await this.arenaBarriers.initEngine(this, opts);
   }
   clearEvents(): void {
-    this.arenaBarriers.clearEvents();
+    const barriers = this.arenaBarriers;
+    barriers.clearEvents(this);
   }
 
   updateBallPrediction(s = 5.0): number {
@@ -131,140 +133,138 @@ export class RocketSimPhysicsEngine {
   updateBallPredictionIncremental(s = 5.0): number {
     return updateWasmBallPredictionIncremental(this.module, s);
   }
-  updateBallPredictionManual(s = 5.0, ticks = 1): number {
-    return updateWasmBallPredictionManual(this.module, s, ticks);
-  }
   getBallPrediction(): Float32Array | null {
     return getWasmBallPredictionBuffer(this.module);
-  }
-  getBallPredictionCount(): number {
-    return getWasmBallPredictionCount(this.module);
   }
   getBallPredictionStride(): number {
     return getWasmBallPredictionStride(this.module);
   }
   isBallSleeping(): boolean {
-    return this.arenaBarriers.isBallSleeping(this.getBallStateView());
+    const bv = this.getBallStateView();
+    return this.arenaBarriers.isBallSleeping(bv, this.module);
   }
 
   setSimulationFrozen(frozen: boolean, resumeTick = 0, mask = false): void {
     this.module?._physics_setSimulationFrozen?.(frozen ? 1 : 0, resumeTick, mask ? 1 : 0);
   }
   setPossessionReportingEnabled(on: boolean): void {
-    this.possessionTracker.setReportingEnabled(this.module, on);
+    const tracker = this.possessionTracker;
+    tracker.setReportingEnabled(this.module, on);
   }
   resetPossessionStats(): void {
-    this.possessionTracker.resetPossessionStats(this.module, this.module ? this.state : null);
+    const state = this.module ? this.state : null;
+    this.possessionTracker.resetPossessionStats(this.module, state);
   }
   getPossessionStats(): PossessionStatsSnapshot {
-    return this.possessionTracker.getPossessionStats(this.module ? this.state : null);
+    const state = this.module ? this.state : null;
+    return this.possessionTracker.getPossessionStats(state);
   }
 
-  pushSignalEvent(
-    t: number,
-    tick: number,
-    x = 0,
-    y = 0,
-    z = 0,
-    nx = 0,
-    ny = 0,
-    nz = 0,
-    pId = 0,
-    sId = 0,
-    sub = 0,
-    flg = 0,
-    cf = 0,
-    ci = 0
-  ): void {
-    this.module?._physics_pushSignalEvent?.(
-      t,
-      tick,
-      x,
-      y,
-      z,
-      nx,
-      ny,
-      nz,
-      pId,
-      sId,
-      sub,
-      flg,
-      cf,
-      ci
-    );
+  pushSignalEvent(...args: [number, number, ...number[]]): void {
+    const fn = this.module?._physics_pushSignalEvent;
+    if (typeof fn === 'function') {
+      fn(
+        args[0],
+        args[1],
+        args[2] ?? 0,
+        args[3] ?? 0,
+        args[4] ?? 0,
+        args[5] ?? 0,
+        args[6] ?? 0,
+        args[7] ?? 0,
+        args[8] ?? 0,
+        args[9] ?? 0,
+        args[10] ?? 0,
+        args[11] ?? 0,
+        args[12] ?? 0,
+        args[13] ?? 0
+      );
+    }
   }
 
   resetGoalLatch(): void {
     this.module?._physics_resetGoalLatch?.();
   }
   readEvents(cb?: PhysicsEventDispatchCallback): number {
-    return this.eventDispatcher.readEvents(cb);
+    const dispatcher = this.eventDispatcher;
+    return dispatcher.readEvents(this, cb);
   }
 
   addCar(team: number, hb: string | number = 'octane'): number {
-    return this.carMutators.addCar(team, hb);
+    const mutators = this.carMutators;
+    return mutators.addCar(team, hb);
   }
   addCarAtSlot(i: number, team: number, hb: string | number = 'octane'): number {
-    return this.carMutators.addCarAtSlot(i, team, hb);
+    const mutators = this.carMutators;
+    return mutators.addCarAtSlot(i, team, hb);
   }
   removeCar(i: number): boolean {
-    return this.carMutators.removeCar(i);
+    const mutators = this.carMutators;
+    return mutators.removeCar(i);
   }
   getActiveCarMask(): number {
-    return this.carMutators.getActiveCarMask();
+    const mutators = this.carMutators;
+    return mutators.getActiveCarMask();
   }
   isCarSlotActive(i: number): boolean {
-    return this.carMutators.isCarSlotActive(i);
+    const mutators = this.carMutators;
+    return mutators.isCarSlotActive(i);
   }
   setCarHitbox(i: number, hb: string | number): boolean {
-    return this.carMutators.setCarHitbox(i, hb);
+    const mutators = this.carMutators;
+    return mutators.setCarHitbox(i, hb);
   }
   setCarTeam(i: number, team: number): boolean {
-    return this.carMutators.setCarTeam(i, team);
+    const mutators = this.carMutators;
+    return mutators.setCarTeam(i, team);
   }
   demolishCar(i: number, delay = 3.0): boolean {
-    return this.carMutators.demolishCar(i, delay);
+    return this.module?._physics_demolishCar?.(i, delay) === 1;
   }
   resetKickoffAtSpawn(spawn = 0, settle = 30): boolean {
-    return this.arenaBarriers.resetKickoffAtSpawn(spawn, settle);
+    const barriers = this.arenaBarriers;
+    return barriers.resetKickoffAtSpawn(this, spawn, settle);
   }
 
   setCarLinearFactorAndGravity(i: number, fx = 1.0, fy = 1.0, fz = 1.0, g = 1.0): boolean {
-    return this.carMutators.setCarLinearFactorAndGravity(i, fx, fy, fz, g);
+    return this.module?._physics_setCarLinearFactorAndGravity?.(i, fx, fy, fz, g) === 1;
   }
   setCarCollisionMask(i: number, ball = true, cars = true): boolean {
-    return this.carMutators.setCarCollisionMask(i, ball, cars);
+    return this.module?._physics_setCarCollisionMask?.(i, ball ? 1 : 0, cars ? 1 : 0) === 1;
   }
   setCarThreeWheels(i = 0, on = true): boolean {
-    return this.carMutators.setCarThreeWheels(i, on);
+    const mutators = this.carMutators;
+    return mutators.setCarThreeWheels(i, on);
   }
 
   setArenaPreset(p = 0): void {
-    this.arenaBarriers.setArenaPreset(p);
+    this.arenaPreset = this.arenaBarriers.setArenaPreset(p, this.module);
   }
   getArenaPreset(): number {
-    return this.arenaBarriers.getArenaPreset();
+    const barriers = this.arenaBarriers;
+    return barriers.getArenaPreset(this.module);
   }
   isBallScored(bv = this.getBallStateView()): boolean {
-    return this.arenaBarriers.isBallScored(bv);
+    return evaluateBallScored(
+      bv,
+      this.getArenaPreset(),
+      this.arenaBarriers.goalVolumeBox,
+      this.arenaBarriers.goalBarrierMeta
+    );
   }
   async reloadMeshes(p = '/arenamesh/manifest.json'): Promise<boolean> {
-    return this.arenaBarriers.reloadMeshes(p);
+    return await this.arenaBarriers.reloadMeshes(this.module, p);
   }
   setGoalBarrierChunks(c: Uint8Array[] = [], m: GoalBarrierMetadata | null = null): boolean {
-    return this.arenaBarriers.setGoalBarrierChunks(c, m);
+    const barriers = this.arenaBarriers;
+    return barriers.setGoalBarrierChunks(this, c, m);
   }
   isPointOnGoalBarrier(x: number, y: number, z: number): boolean {
-    return this.arenaBarriers.isPointOnGoalBarrier(x, y, z);
+    return checkPointOnGoalBarrier(this.arenaBarriers.goalBarrierMeta, x, y, z);
   }
-  setArenaMutators(opts?: {
-    gravityZ?: number;
-    boostAccelGround?: number;
-    boostAccelAir?: number;
-    ballMaxSpeed?: number;
-    ballBounciness?: number;
-  }): boolean {
-    return this.carMutators.setArenaMutators(opts);
+  setArenaMutators(opts?: Record<string, number>): boolean {
+    const mutators = this.carMutators;
+    return mutators.setArenaMutators(opts);
   }
 
   initReplayBuffer(): void {
@@ -305,7 +305,8 @@ export class RocketSimPhysicsEngine {
   }
 
   configureCars(hb: string | number, isMatch: boolean, team = 0): void {
-    this.arenaBarriers.configureCars(hb, isMatch, team);
+    const barriers = this.arenaBarriers;
+    barriers.configureCars(this, hb, isMatch, team);
   }
   setControls(i: number, c: CarControlsInput): void {
     writeCarControls(this.module!, this, i, c);
@@ -327,7 +328,8 @@ export class RocketSimPhysicsEngine {
     return (this.ballStateViewInstance ??= new BallStateView()).attach(this.state);
   }
   getBallState(): Float32Array {
-    return this.state.subarray(SIM_OFFSETS.BALL, SIM_OFFSETS.BALL + BALL_STATE_STRIDE);
+    const off = SIM_OFFSETS.BALL;
+    return this.state.subarray(off, off + BALL_STATE_STRIDE);
   }
   getCarStateView(i = 0): CarStateView {
     return (this.carStateViewInstances[i] ??= new CarStateView()).attachCar(this.state, i);
@@ -356,7 +358,7 @@ export class RocketSimPhysicsEngine {
   }
 
   step(ticks = 1): void {
-    this.eventDispatcher.stepWithPadEdgeDetection(ticks);
+    this.eventDispatcher.stepWithPadEdgeDetection(this, ticks);
     this.possessionTracker.applyAccumulatedPossessionToState(
       this.module,
       this.module ? this.state : null
@@ -397,48 +399,70 @@ export class RocketSimPhysicsEngine {
   }
 
   resetKickoff(seed = -1, preserveScore = true): void {
-    this.arenaBarriers.resetKickoff(seed, preserveScore);
+    const barriers = this.arenaBarriers;
+    barriers.resetKickoff(this, seed, preserveScore);
   }
   controlBall(i: number, mode: number | string): boolean {
-    return this.carMutators.controlBall(i, mode);
+    if (!this.module || !this.isCarSlotActive(i)) return false;
+    const cv = this.getCarStateView(i);
+    const target = computeFreeplayBallControlState(
+      { posX: cv.posX, posY: cv.posY, posZ: cv.posZ, fwdX: cv.fwdX, fwdY: cv.fwdY, fwdZ: cv.fwdZ },
+      mode
+    );
+    return target ? this.setBallState(target) : false;
   }
 
   setUnlimitedBoost(on: boolean): void {
-    this.carMutators.setUnlimitedBoost(on);
+    const flag = Boolean(on);
+    this.isUnlimitedBoost = flag;
+    this.carMutators.isUnlimitedBoost = flag;
+    this.module?._physics_setUnlimitedBoost?.(flag ? 1 : 0);
   }
   getUnlimitedBoost(): boolean {
-    return this.carMutators.getUnlimitedBoost();
+    return typeof this.module?._physics_getUnlimitedBoost === 'function'
+      ? this.module._physics_getUnlimitedBoost() === 1
+      : Boolean(this.isUnlimitedBoost);
   }
   setCarUnlimitedBoost(i: number, on: boolean): void {
-    this.carMutators.setCarUnlimitedBoost(i, on);
+    const flag = Boolean(on);
+    this.module?._physics_setCarUnlimitedBoost?.(i, flag ? 1 : 0);
+    if (i === 0) {
+      this.isUnlimitedBoost = flag;
+      this.carMutators.isUnlimitedBoost = flag;
+    }
   }
   getCarUnlimitedBoost(i = 0): boolean {
-    return this.carMutators.getCarUnlimitedBoost(i);
+    return typeof this.module?._physics_getCarUnlimitedBoost === 'function'
+      ? this.module._physics_getCarUnlimitedBoost(i) === 1
+      : Boolean(this.isUnlimitedBoost);
   }
   setCarBoostCollectable(i: number, on: boolean): void {
-    this.carMutators.setCarBoostCollectable(i, on);
+    this.module?._physics_setCarBoostCollectable?.(i, on ? 1 : 0);
   }
   getCarBoostCollectable(i = 0): boolean {
-    return this.carMutators.getCarBoostCollectable(i);
+    return typeof this.module?._physics_getCarBoostCollectable === 'function'
+      ? this.module._physics_getCarBoostCollectable(i) === 1
+      : true;
   }
   setCarBoostRecharge(i: number, on: boolean, rate = 10.0, delay = 0.25): void {
-    this.carMutators.setCarBoostRecharge(i, on, rate, delay);
+    this.module?._physics_setCarBoostRecharge?.(i, on ? 1 : 0, Number(rate), Number(delay));
   }
   getCarBoostRechargeEnabled(i = 0): boolean {
-    return this.carMutators.getCarBoostRechargeEnabled(i);
+    return (this.module?._physics_getCarBoostRechargeEnabled?.(i) ?? 0) === 1;
   }
   getCarBoostRechargePerSecond(i = 0): number {
-    return this.carMutators.getCarBoostRechargePerSecond(i);
+    return this.module?._physics_getCarBoostRechargePerSecond?.(i) ?? 10.0;
   }
   getCarBoostRechargeDelay(i = 0): number {
-    return this.carMutators.getCarBoostRechargeDelay(i);
+    return this.module?._physics_getCarBoostRechargeDelay?.(i) ?? 0.25;
   }
   getCarMaxFlipCount(i = 0): number {
-    return this.carMutators.getCarMaxFlipCount(i);
+    return this.module?._physics_getCarMaxFlipCount?.(i) ?? 1;
   }
 
   pollGoal(): number {
-    return this.arenaBarriers.pollGoal(this.getHeaderView().goalScoredFlag);
+    const flag = this.getHeaderView().goalScoredFlag;
+    return this.arenaBarriers.pollGoal(flag, this.module);
   }
   get ballRadius(): number {
     return this.module!._physics_getBallRadius();
@@ -463,6 +487,8 @@ export class RocketSimPhysicsEngine {
       this.wasmStateSize = 0;
       this.cachedSnapshotBuffer = null;
     }
+    this.arenaBarriers.bindWasmModule(null);
+    this.carMutators.bindSimContext(null);
     this.module = null;
     this.stateView = null;
     this.controlsView = null;

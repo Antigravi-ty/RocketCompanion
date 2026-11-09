@@ -1,7 +1,7 @@
 /**
  * PhysicsEventDispatcher.ts
- * Stateful SubController for physics event reading, goal-barrier hit classification,
- * and boost pad edge detection during WASM step execution for RocketSimPhysicsEngine.
+ * Self-contained domain module (Mode 2) for physics event reading, goal-barrier hit classification,
+ * and boost pad edge detection during WASM step execution.
  */
 
 import {
@@ -16,14 +16,18 @@ import {
   INCIDENT_EVENT_TYPES,
   SURFACE_SUBTYPES,
 } from './RocketSimConstants.ts';
-import { readArenaPads, type ArenaBoostPadDescriptor } from './RocketSimSnapshotSerializer.ts';
+import {
+  readArenaPads,
+  type ArenaBoostPadDescriptor,
+  type RocketSimSnapshotMemoryViews,
+} from './RocketSimSnapshotSerializer.ts';
 import type { PhysicsEventReader, PhysicsEventRecord } from './PhysicsEventReader.ts';
 import type { RocketSimWasmModule } from './RocketSimWasm.ts';
 import type { BallStateView } from './RocketSimStateViews.ts';
 
 export type PhysicsEventDispatchCallback = (event: PhysicsEventRecord) => void;
 
-export interface PhysicsEventDispatcherHostPort {
+export interface PhysicsEventStepSimContext extends RocketSimSnapshotMemoryViews {
   readonly module: RocketSimWasmModule | null;
   readonly eventReader: PhysicsEventReader | null;
   readonly eventBufferPtr: number;
@@ -53,37 +57,36 @@ export interface PhysicsEventDispatcherHostPort {
 }
 
 export class PhysicsEventDispatcher {
-  private readonly engine: PhysicsEventDispatcherHostPort;
   private readonly preStepPadActive = new Uint8Array(NUM_BOOST_PADS);
   private readonly preStepPadCooldown = new Float32Array(NUM_BOOST_PADS);
   private cachedPads: ArenaBoostPadDescriptor[] | null = null;
   private cachedPadsPreset = -1;
   public ballTouchedFloorInLastStep = false;
 
-  constructor(engine: PhysicsEventDispatcherHostPort) {
-    this.engine = engine;
-  }
-
   public resetFloorTouchLatch(): void {
     this.ballTouchedFloorInLastStep = false;
   }
 
-  public readEvents(callback?: PhysicsEventDispatchCallback | null): number {
-    const engine = this.engine;
-    if (!engine.eventReader) return 0;
+  public readEvents(
+    sim: PhysicsEventStepSimContext,
+    callback?: PhysicsEventDispatchCallback | null
+  ): number {
+    const reader = sim.eventReader;
+    if (!reader) return 0;
 
-    if (engine.module && typeof engine.module._physics_getEventBufferPtr === 'function') {
-      const heapBuffer = engine.module.HEAPU8.buffer;
-      if (engine.eventReader.buffer !== heapBuffer) {
-        engine.eventReader.attach(heapBuffer, engine.eventBufferPtr);
+    const wasmMod = sim.module;
+    if (wasmMod && typeof wasmMod._physics_getEventBufferPtr === 'function') {
+      const heapBuffer = wasmMod.HEAPU8.buffer;
+      if (reader.buffer !== heapBuffer) {
+        reader.attach(heapBuffer, sim.eventBufferPtr);
       }
     }
 
     const wrapCallback = (event: PhysicsEventRecord): void => {
       if (
         event.type === INCIDENT_EVENT_TYPES.BALL_WORLD_HIT &&
-        typeof engine.isPointOnGoalBarrier === 'function' &&
-        engine.isPointOnGoalBarrier(event.x, event.y, event.z)
+        typeof sim.isPointOnGoalBarrier === 'function' &&
+        sim.isPointOnGoalBarrier(event.x, event.y, event.z)
       ) {
         event.type = INCIDENT_EVENT_TYPES.BALL_GOALPOST_HIT;
         event.subType = SURFACE_SUBTYPES.GOALPOST;
@@ -95,9 +98,9 @@ export class PhysicsEventDispatcher {
       if (callback) callback(event);
     };
 
-    if (engine.eventReader.strideWords === 12) {
-      engine.eventReader.ballStateProvider = engine.ballState;
-      return engine.eventReader.readEvents((event: PhysicsEventRecord) => {
+    if (reader.strideWords === 12) {
+      reader.ballStateProvider = sim.ballState;
+      return reader.readEvents((event: PhysicsEventRecord) => {
         if (
           event.type === INCIDENT_EVENT_TYPES.BALL_WORLD_HIT ||
           event.type === INCIDENT_EVENT_TYPES.BALL_GOALPOST_HIT
@@ -110,9 +113,10 @@ export class PhysicsEventDispatcher {
           event.type === INCIDENT_EVENT_TYPES.BOOST_PICKUP ||
           event.type === PHYSICS_EVENT_TYPES.BOOST_PICKUP
         ) {
-          const nCars = engine.numCars;
+          const nCars = sim.numCars;
+          const st = sim.state;
           if (
-            engine.state &&
+            st &&
             nCars > 0 &&
             Number.isFinite(event.x) &&
             Number.isFinite(event.y) &&
@@ -121,13 +125,13 @@ export class PhysicsEventDispatcher {
             let bestCarIdx = 0;
             let bestDistSq = Infinity;
             for (let i = 0; i < nCars; i++) {
-              if (typeof engine.isCarSlotActive === 'function' && !engine.isCarSlotActive(i)) {
+              if (typeof sim.isCarSlotActive === 'function' && !sim.isCarSlotActive(i)) {
                 continue;
               }
               const base = SIM_OFFSETS.CARS + i * CAR_STATE_STRIDE + CAR_STATE_OFFSETS.POS;
-              const dx = engine.state[base] - event.x;
-              const dy = engine.state[base + 1] - event.y;
-              const dz = engine.state[base + 2] - event.z;
+              const dx = st[base] - event.x;
+              const dy = st[base + 1] - event.y;
+              const dz = st[base + 2] - event.z;
               const distSq = dx * dx + dy * dy + dz * dz;
               if (distSq < bestDistSq) {
                 bestDistSq = distSq;
@@ -141,19 +145,20 @@ export class PhysicsEventDispatcher {
       });
     }
 
-    return engine.eventReader.readEvents(wrapCallback);
+    return reader.readEvents(wrapCallback);
   }
 
-  public stepWithPadEdgeDetection(ticks: number = 1): void {
-    const engine = this.engine;
-    if (!engine?.module) return;
+  public stepWithPadEdgeDetection(sim: PhysicsEventStepSimContext, ticks: number = 1): void {
+    const wasmMod = sim?.module;
+    if (!wasmMod) return;
 
     const numSteps = Math.max(1, Math.floor(Number(ticks) || 1));
     const preActive = this.preStepPadActive;
     const preCooldown = this.preStepPadCooldown;
+    const reader = sim.eventReader;
 
     for (let s = 0; s < numSteps; s++) {
-      const preSt = engine.state;
+      const preSt = sim.state;
       const hasPadSlice =
         preSt && preSt.length >= BOOST_PAD_STATES_OFFSET + NUM_BOOST_PADS * BOOST_PAD_STATE_STRIDE;
 
@@ -165,16 +170,16 @@ export class PhysicsEventDispatcher {
         }
       }
 
-      const writeSeqBefore = engine.eventReader ? engine.eventReader.writeSeq : 0;
-      engine.module._physics_step(1);
+      const writeSeqBefore = reader ? reader.writeSeq : 0;
+      wasmMod._physics_step(1);
 
-      const writeSeqAfter = engine.eventReader ? engine.eventReader.writeSeq : 0;
-      const u32 = engine.eventReader?.u32View;
-      const capacity = engine.eventReader?.capacity || 256;
-      const stride = engine.eventReader?.strideWords || 16;
+      const writeSeqAfter = reader ? reader.writeSeq : 0;
+      const u32 = reader?.u32View;
+      const capacity = reader?.capacity || 256;
+      const stride = reader?.strideWords || 16;
       const scanStart = Math.max(writeSeqBefore, writeSeqAfter - capacity);
 
-      let floorHitThisTick = engine.module._physics_getBallOnGround?.() === 1;
+      let floorHitThisTick = wasmMod._physics_getBallOnGround?.() === 1;
       if (!floorHitThisTick && u32 && writeSeqAfter > scanStart) {
         for (let seq = scanStart; seq < writeSeqAfter; seq++) {
           const slot = seq % capacity;
@@ -192,7 +197,7 @@ export class PhysicsEventDispatcher {
       }
       this.ballTouchedFloorInLastStep = Boolean(floorHitThisTick);
 
-      const postSt = engine.state;
+      const postSt = sim.state;
       if (!hasPadSlice || !postSt) continue;
 
       let hasCandidatePickup = false;
@@ -211,9 +216,9 @@ export class PhysicsEventDispatcher {
 
       if (!hasCandidatePickup) continue;
 
-      if (!this.cachedPads || this.cachedPadsPreset !== engine.arenaPreset) {
-        this.cachedPads = readArenaPads(engine.module as any, engine as any);
-        this.cachedPadsPreset = engine.arenaPreset;
+      if (!this.cachedPads || this.cachedPadsPreset !== sim.arenaPreset) {
+        this.cachedPads = readArenaPads(wasmMod, sim);
+        this.cachedPadsPreset = sim.arenaPreset;
       }
       const pads = this.cachedPads;
       const eventTick = Math.max(0, Math.floor(postSt[0] || 0) - 1) >>> 0;
@@ -256,7 +261,7 @@ export class PhysicsEventDispatcher {
         const isBig = padInfo ? Boolean(padInfo.isBig) : p < 6;
 
         if (sameTickRespawnPickup && !hasNativeSpawn) {
-          engine.pushSignalEvent(
+          sim.pushSignalEvent(
             INCIDENT_EVENT_TYPES.BOOST_SPAWN,
             eventTick,
             padX,
@@ -278,12 +283,12 @@ export class PhysicsEventDispatcher {
           let pickedCarIdx = 0xffff;
           let bestDistSq = Infinity;
           for (let c = 0; c < MAX_CARS; c++) {
-            if (typeof engine.isCarSlotActive === 'function' && !engine.isCarSlotActive(c)) {
+            if (typeof sim.isCarSlotActive === 'function' && !sim.isCarSlotActive(c)) {
               continue;
             }
             if (
-              typeof engine.getCarBoostCollectable === 'function' &&
-              !engine.getCarBoostCollectable(c)
+              typeof sim.getCarBoostCollectable === 'function' &&
+              !sim.getCarBoostCollectable(c)
             ) {
               continue;
             }
@@ -299,7 +304,7 @@ export class PhysicsEventDispatcher {
             }
           }
 
-          engine.pushSignalEvent(
+          sim.pushSignalEvent(
             INCIDENT_EVENT_TYPES.BOOST_PICKUP,
             eventTick,
             padX,

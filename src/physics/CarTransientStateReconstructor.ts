@@ -13,12 +13,29 @@ import {
 } from './RocketSimConstants.ts';
 import {
   restoreWasmSnapshotState,
-  type CarControlsInput,
   type RestoreSnapshotOptions,
   type RocketSimSnapshotMemoryViews,
   type RocketSimWasmModule,
 } from './RocketSimSnapshotSerializer.ts';
 import { writeCarControls } from './RocketSimEntityStateMutator.ts';
+import {
+  computeDodgeRelTorque,
+  extractCarControlsFromFrameList,
+  traceStreaksAndHandbrakeFromHistory,
+  buildWarmupSnapshotPlan,
+  mergeWarmedWheelStateIntoSnapshot,
+  type ReplayHistoryControlItem,
+  type ReplayHistoryFrameSlot,
+  type ReplayFrameSlotAccessor,
+  type ReconstructedCarTransientState,
+} from './carTransientWarmupPipeline.ts';
+
+export type {
+  ReplayHistoryControlItem,
+  ReplayHistoryFrameSlot,
+  ReplayFrameSlotAccessor,
+  ReconstructedCarTransientState,
+};
 
 const WASM_CAR_PTR_TABLE_BYTE_OFFSET = 62768;
 const WASM_CAR_STATE_OFFSETS = Object.freeze({
@@ -53,43 +70,6 @@ const WASM_CAR_STATE_OFFSETS = Object.freeze({
   LAST_CONTROLS_HANDBRAKE: 1830,
 });
 
-export interface ReplayHistoryControlItem extends CarControlsInput {
-  carIndex?: number;
-  controls?: CarControlsInput;
-}
-
-export interface ReplayHistoryFrameSlot {
-  snapshot?: Float32Array | null;
-  controls?: ReplayHistoryControlItem[] | null;
-}
-
-export type ReplayFrameSlotAccessor = (
-  frameIndex: number
-) => ReplayHistoryFrameSlot | null | undefined;
-
-export interface ReconstructedCarTransientState {
-  lastGroundFrame: number;
-  isOnGround: boolean;
-  isJumping: boolean;
-  isFlipping: boolean;
-  isBoosting: boolean;
-  isSupersonic: boolean;
-  hasJumped: number;
-  hasDoubleJumped: number;
-  hasFlipped: number;
-  flipRelTorque: [number, number, number];
-  flipTime: number;
-  jumpTime: number;
-  airTime: number;
-  airTimeSinceJump: number;
-  boostingTime: number;
-  supersonicTime: number;
-  handbrakeVal: number;
-  hasWorldContact: number;
-  lastControls: CarControlsInput;
-  _warmupPreRec?: ReconstructedCarTransientState;
-}
-
 export interface ReconstructablePhysicsEngine extends Partial<RocketSimSnapshotMemoryViews> {
   module?: (RocketSimWasmModule & { HEAPU8?: Uint8Array }) | null;
   state: Float32Array;
@@ -97,32 +77,6 @@ export interface ReconstructablePhysicsEngine extends Partial<RocketSimSnapshotM
   stepSilent?: (ticks?: number) => void;
   clearEvents?: () => void;
   saveState?: () => Float32Array | null;
-}
-
-function computeDodgeRelTorque(
-  pitch?: number,
-  yaw?: number,
-  roll?: number
-): [number, number, number] {
-  const dirX = -Number(pitch || 0);
-  const dirY = Number(yaw || 0) + Number(roll || 0);
-  const mag = Math.hypot(dirX, dirY);
-  if (mag < 0.05) return [0, 0, 0];
-  return [-dirY / mag, dirX / mag, 0];
-}
-
-function extractCarControlsFromFrameList(
-  controlsList: ReplayHistoryControlItem[] | null | undefined,
-  carIndex: number
-): CarControlsInput | null {
-  if (!Array.isArray(controlsList)) return null;
-  for (let i = 0; i < controlsList.length; i++) {
-    const item = controlsList[i];
-    if (!item) continue;
-    const idx = typeof item.carIndex === 'number' ? item.carIndex : i;
-    if (idx === carIndex) return item.controls || item;
-  }
-  return null;
 }
 
 export function reconstructCarTransientStateFromHistory(
@@ -205,35 +159,16 @@ export function reconstructCarTransientStateFromHistory(
     }
   }
 
-  let boostingTime = 0;
-  if (isBoosting) {
-    let boostStreak = 0;
-    for (let f = targetFrameIndex; f >= startLookback; f--) {
-      const s = getFrameSlotAt(f)?.snapshot;
-      if (s && (s[carBase + CAR_STATE_OFFSETS.IS_BOOSTING] || 0) > 0.5) boostStreak++;
-      else break;
-    }
-    boostingTime = boostStreak * dt;
-  }
-
-  let supersonicTime = 0;
-  if (isSupersonic) {
-    let ssStreak = 0;
-    for (let f = targetFrameIndex; f >= startLookback; f--) {
-      const s = getFrameSlotAt(f)?.snapshot;
-      if (s && (s[carBase + CAR_STATE_OFFSETS.SUPERSONIC] || 0) > 0.5) ssStreak++;
-      else break;
-    }
-    supersonicTime = ssStreak * dt;
-  }
-
-  let handbrakeVal = 0;
-  const hbStartFrame = Math.max(startLookback, targetFrameIndex - 60);
-  for (let f = hbStartFrame; f <= targetFrameIndex; f++) {
-    const ctrl = extractCarControlsFromFrameList(getFrameSlotAt(f)?.controls, carIndex);
-    if (ctrl?.handbrake) handbrakeVal = Math.min(1.0, handbrakeVal + 5.0 * dt);
-    else handbrakeVal = Math.max(0.0, handbrakeVal - 2.0 * dt);
-  }
+  const { boostingTime, supersonicTime, handbrakeVal } = traceStreaksAndHandbrakeFromHistory(
+    getFrameSlotAt,
+    targetFrameIndex,
+    startLookback,
+    carIndex,
+    carBase,
+    isBoosting,
+    isSupersonic,
+    dt
+  );
 
   const lastCtrl = extractCarControlsFromFrameList(targetSlot?.controls, carIndex) || {
     throttle: 0,
@@ -270,13 +205,14 @@ export function reconstructCarTransientStateFromHistory(
 }
 
 function verifyWasmCarStatePointerLayout(
-  engine: ReconstructablePhysicsEngine | null | undefined,
+  heapByteLength: number,
   dv: DataView,
   cPtr: number,
   carIndex: number
 ): boolean {
-  const heapLen = engine?.module?.HEAPU8?.byteLength || 0;
-  if (cPtr <= 0 || cPtr + 1840 > heapLen || carIndex < 0 || carIndex >= MAX_CARS) return false;
+  if (cPtr <= 0 || cPtr + 1840 > heapByteLength || carIndex < 0 || carIndex >= MAX_CARS) {
+    return false;
+  }
   return (
     Number.isFinite(dv.getFloat32(cPtr + WASM_CAR_STATE_OFFSETS.AIR_TIME, true)) &&
     Number.isFinite(dv.getFloat32(cPtr + WASM_CAR_STATE_OFFSETS.BOOSTING_TIME, true))
@@ -284,17 +220,18 @@ function verifyWasmCarStatePointerLayout(
 }
 
 export function patchWasmCarTransientState(
-  engine: ReconstructablePhysicsEngine | null | undefined,
+  sim: ReconstructablePhysicsEngine | null | undefined,
   carIndex: number,
   rec: ReconstructedCarTransientState | null | undefined,
   resetBallHitInfo = true
 ): boolean {
-  if (!engine?.module?.HEAPU8?.buffer || !rec) return false;
-  const heapLen = engine.module.HEAPU8.byteLength || 0;
+  const heapU8 = sim?.module?.HEAPU8;
+  if (!heapU8?.buffer || !rec) return false;
+  const heapLen = heapU8.byteLength || 0;
   if (WASM_CAR_PTR_TABLE_BYTE_OFFSET + (carIndex + 1) * 4 > heapLen) return false;
-  const dv = new DataView(engine.module.HEAPU8.buffer);
+  const dv = new DataView(heapU8.buffer);
   const cPtr = dv.getInt32(WASM_CAR_PTR_TABLE_BYTE_OFFSET + carIndex * 4, true);
-  if (!cPtr || !verifyWasmCarStatePointerLayout(engine, dv, cPtr, carIndex)) return false;
+  if (!cPtr || !verifyWasmCarStatePointerLayout(heapLen, dv, cPtr, carIndex)) return false;
 
   const O = WASM_CAR_STATE_OFFSETS;
   dv.setUint8(cPtr + O.HAS_JUMPED, rec.hasJumped ? 1 : 0);
@@ -337,92 +274,59 @@ export function patchWasmCarTransientState(
 }
 
 export function reconstructAndRestoreReplayFrame(
-  engine: ReconstructablePhysicsEngine | null | undefined,
+  sim: ReconstructablePhysicsEngine | null | undefined,
   getFrameSlotAt: ReplayFrameSlotAccessor,
   targetFrameIndex: number,
   restoreOptions: RestoreSnapshotOptions = {}
 ): boolean {
-  if (!engine?.module || typeof getFrameSlotAt !== 'function') return false;
+  const wasmMod = sim?.module;
+  if (!wasmMod || typeof getFrameSlotAt !== 'function') return false;
   const targetSnap = getFrameSlotAt(targetFrameIndex)?.snapshot;
   if (!targetSnap) return false;
-  const memViews = engine as RocketSimSnapshotMemoryViews;
+  const memViews = sim as RocketSimSnapshotMemoryViews;
 
   const numCars = Math.min(
     MAX_CARS,
-    Math.max(1, Math.round(targetSnap[SIM_OFFSETS.NUM_CARS] || engine.numCars || 1))
+    Math.max(1, Math.round(targetSnap[SIM_OFFSETS.NUM_CARS] || sim.numCars || 1))
   );
   const byCar = new Map<number, ReconstructedCarTransientState>();
   for (let c = 0; c < numCars; c++) {
-    if (engine.isCarSlotActive && !engine.isCarSlotActive(c)) continue;
+    if (sim.isCarSlotActive && !sim.isCarSlotActive(c)) continue;
     const rec = reconstructCarTransientStateFromHistory(getFrameSlotAt, targetFrameIndex, c, 300);
     if (rec) byCar.set(c, rec);
   }
 
   let warmedSnap: Float32Array | null = null;
-  if (targetFrameIndex > 0 && typeof engine.stepSilent === 'function') {
-    const wSnap = new Float32Array(targetSnap);
-    for (const [c, rec] of byCar.entries()) {
-      const wIdx = Math.max(0, (rec.lastGroundFrame || targetFrameIndex) - 1);
-      const wSlot = getFrameSlotAt(wIdx);
-      const nextSlot = getFrameSlotAt(wIdx + 1) || wSlot;
-      if (wSlot?.snapshot) {
-        const cBase = SIM_OFFSETS.CARS + c * CAR_STATE_STRIDE;
-        wSnap
-          .subarray(cBase, cBase + CAR_STATE_STRIDE)
-          .set(wSlot.snapshot.subarray(cBase, cBase + CAR_STATE_STRIDE));
-        const eBase = 416 + c * 4;
-        if (wSlot.snapshot.length >= eBase + 4 && wSnap.length >= eBase + 4) {
-          wSnap.subarray(eBase, eBase + 4).set(wSlot.snapshot.subarray(eBase, eBase + 4));
-        }
-      }
-      const preRec = reconstructCarTransientStateFromHistory(getFrameSlotAt, wIdx, c, 180);
-      const stepCtrl = extractCarControlsFromFrameList(nextSlot?.controls, c);
-      if (stepCtrl) writeCarControls(engine.module, memViews, c, stepCtrl);
-      if (preRec) rec._warmupPreRec = preRec;
+  if (targetFrameIndex > 0 && typeof sim.stepSilent === 'function') {
+    const { warmupSnapshot, carInputs } = buildWarmupSnapshotPlan(
+      targetSnap,
+      targetFrameIndex,
+      byCar,
+      getFrameSlotAt,
+      reconstructCarTransientStateFromHistory
+    );
+    for (const item of carInputs) {
+      if (item.stepControls) writeCarControls(wasmMod, memViews, item.carIndex, item.stepControls);
     }
-
-    wSnap[SIM_OFFSETS.BALL + 2] = 1900;
-    wSnap[SIM_OFFSETS.BALL + 12] = 0;
-    wSnap[SIM_OFFSETS.BALL + 13] = 0;
-    wSnap[SIM_OFFSETS.BALL + 14] = 0;
-
-    restoreWasmSnapshotState(engine.module, memViews, wSnap, restoreOptions);
-    for (const [c, rec] of byCar.entries()) {
-      if (rec._warmupPreRec) {
-        patchWasmCarTransientState(engine, c, rec._warmupPreRec);
-        delete rec._warmupPreRec;
-      }
+    restoreWasmSnapshotState(wasmMod, memViews, warmupSnapshot, restoreOptions);
+    for (const item of carInputs) {
+      if (item.preRec) patchWasmCarTransientState(sim, item.carIndex, item.preRec);
     }
-    engine.stepSilent(1);
-    engine.clearEvents?.();
-    warmedSnap = engine.saveState?.() ?? null;
+    sim.stepSilent(1);
+    sim.clearEvents?.();
+    warmedSnap = sim.saveState?.() ?? null;
   }
 
-  const ok = restoreWasmSnapshotState(engine.module, memViews, targetSnap, restoreOptions);
-  const desiredTick = Math.floor(engine.state?.[SIM_OFFSETS.TICK] || 0);
-  for (const [c, rec] of byCar.entries()) patchWasmCarTransientState(engine, c, rec);
+  const ok = restoreWasmSnapshotState(wasmMod, memViews, targetSnap, restoreOptions);
+  const desiredTick = Math.floor(sim.state?.[SIM_OFFSETS.TICK] || 0);
+  for (const [c, rec] of byCar.entries()) patchWasmCarTransientState(sim, c, rec);
 
-  const curSnap = warmedSnap && warmedSnap.length >= 4233 ? engine.saveState?.() : null;
+  const curSnap = warmedSnap && warmedSnap.length >= 4233 ? sim.saveState?.() : null;
   if (curSnap && warmedSnap) {
-    for (const [c, rec] of byCar.entries()) {
-      const wStart = 169 + c * 508 + 124;
-      if (wStart + 384 <= curSnap.length) {
-        if (rec.isOnGround) {
-          curSnap
-            .subarray(wStart, wStart + 384)
-            .set(warmedSnap.subarray(wStart, Math.min(warmedSnap.length, wStart + 384)));
-        } else {
-          for (let w = 0; w < 4; w++) {
-            const wOff = wStart + w * 96;
-            curSnap[wOff + 84] = warmedSnap[wOff + 84];
-            curSnap[wOff + 85] = warmedSnap[wOff + 85];
-          }
-        }
-      }
-    }
-    restoreWasmSnapshotState(engine.module, memViews, curSnap);
-    if (engine.state && Number.isFinite(desiredTick)) engine.state[SIM_OFFSETS.TICK] = desiredTick;
-    for (const [c, rec] of byCar.entries()) patchWasmCarTransientState(engine, c, rec);
+    mergeWarmedWheelStateIntoSnapshot(curSnap, warmedSnap, byCar);
+    restoreWasmSnapshotState(wasmMod, memViews, curSnap);
+    if (sim.state && Number.isFinite(desiredTick)) sim.state[SIM_OFFSETS.TICK] = desiredTick;
+    for (const [c, rec] of byCar.entries()) patchWasmCarTransientState(sim, c, rec);
   }
   return ok;
 }
