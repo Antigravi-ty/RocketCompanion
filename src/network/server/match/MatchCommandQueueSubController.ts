@@ -112,7 +112,7 @@ export interface MatchCommandHostPort {
 }
 
 export class MatchCommandQueueSubController {
-  readonly host: MatchCommandHostPort;
+  readonly deps: MatchCommandHostPort;
   activeSignals = new Map<string | number, ActiveMatchSignal>();
   replaySignalLog: ReplaySignalLogEntry[] = [];
   currentFrameSignals: ReplaySignalLogEntry[] = [];
@@ -126,12 +126,12 @@ export class MatchCommandQueueSubController {
   lastRttBroadcastTick = -600;
   cachedAllUserRtt: UserRttSummary | null = null;
 
-  constructor(host: MatchCommandHostPort) {
-    this.host = host;
+  constructor(deps: MatchCommandHostPort) {
+    this.deps = deps;
   }
 
   getExpectedAckPeerIds(): Set<string> {
-    const { domain } = this.host;
+    const { domain } = this.deps;
     const peers = new Set<string>();
     for (const [sid, p] of domain.players.entries()) if (!p.isBot) peers.add(sid);
     for (const sid of domain.spectators.keys()) peers.add(sid);
@@ -144,7 +144,7 @@ export class MatchCommandQueueSubController {
     param1 = 0,
     param2 = 0
   ): ActiveMatchSignal | null {
-    const { domain, sessionManager: sm, physicsManager: pm, replayBuffer: rb } = this.host;
+    const { domain, sessionManager: sm, physicsManager: pm, replayBuffer: rb } = this.deps;
     if (
       domain.shouldSuppressCountdownClockSignal() &&
       (signalType === MATCH_SIGNALS.TIME_ALERT_60S ||
@@ -214,7 +214,7 @@ export class MatchCommandQueueSubController {
   }
 
   retireSignalTypes(signalTypes: number[], alsoRetireSessionBuffer = false): void {
-    const sb = this.host.sessionManager?.signalBuffer;
+    const sb = this.deps.sessionManager?.signalBuffer;
     for (const sigType of signalTypes) {
       const prev = this.activeSignals.get(sigType);
       if (alsoRetireSessionBuffer && sb) {
@@ -238,7 +238,7 @@ export class MatchCommandQueueSubController {
   sampleRttIfDue(matchTick: number): UserRttSummary | null {
     if (matchTick - this.lastRttBroadcastTick >= this.rttIntervalTicks) {
       this.lastRttBroadcastTick = matchTick;
-      return collectSessionUserRtt(this.host.sessionManager);
+      return collectSessionUserRtt(this.deps.sessionManager);
     }
     return null;
   }
@@ -273,7 +273,7 @@ export class MatchCommandQueueSubController {
   }
 
   checkSkipReplayVotes(): void {
-    const { domain, actions } = this.host;
+    const { domain, actions } = this.deps;
     if (domain.state !== MATCH_STATES.REPLAY && domain.state !== MATCH_STATES.GOAL_SCORED) return;
     const { allHumansVoted, spectatorSkippedAllBotMatch } = domain.areAllHumansVoted(
       this.skipReplayVotes,
@@ -286,7 +286,7 @@ export class MatchCommandQueueSubController {
   }
 
   checkRematchReady(): void {
-    const { domain, actions } = this.host;
+    const { domain, actions } = this.deps;
     if (domain.state !== MATCH_STATES.ENDED && domain.state !== MATCH_STATES.PODIUM) return;
     if (domain.areAllHumansVoted(this.rematchVotes).allHumansVoted)
       actions.startMatch(domain.clockDuration);
@@ -296,8 +296,9 @@ export class MatchCommandQueueSubController {
     sessionId: string,
     inputHistory: Array<{ jump?: boolean; controls?: { jump?: boolean } }>
   ): boolean {
+    const { domain, physicsManager } = this.deps;
     if (
-      this.host.domain.state !== MATCH_STATES.REPLAY ||
+      domain.state !== MATCH_STATES.REPLAY ||
       !Array.isArray(inputHistory) ||
       inputHistory.length === 0
     )
@@ -306,9 +307,9 @@ export class MatchCommandQueueSubController {
     for (let i = 0; i < inputHistory.length; i++) {
       const ctrl = inputHistory[i]?.controls || inputHistory[i];
       if (ctrl?.jump) {
-        const player = this.host.domain.players.get(sessionId);
+        const player = domain.players.get(sessionId);
         if (typeof player?.entityId === 'number' && player.entityId >= 0) {
-          this.host.physicsManager?.jumpSuppressedCarIndices?.add(player.entityId);
+          physicsManager?.jumpSuppressedCarIndices?.add(player.entityId);
         }
         this.skipReplayVotes.add(sessionId);
         this.checkSkipReplayVotes();
@@ -319,7 +320,7 @@ export class MatchCommandQueueSubController {
   }
 
   handleClientCommand(sessionId: string, cmd: ClientCommandPayload, _session?: unknown): void {
-    const { domain, roster, actions } = this.host;
+    const { domain, roster, actions } = this.deps;
     const commandId = cmd.commandId ?? 0,
       commandType = cmd.commandType;
     const param1 = cmd.param1 ?? 0,
@@ -448,7 +449,7 @@ export class MatchCommandQueueSubController {
     packetType: string | number,
     packetData: ControlPacketPayload | null | undefined
   ): unknown {
-    const { domain, roster, dataHandler, physicsManager, sessionManager } = this.host;
+    const { domain, roster, dataHandler, physicsManager, sessionManager } = this.deps;
     return evaluateSessionControlPacket({
       channelId,
       packetType,

@@ -151,22 +151,28 @@ export function routeTrainingAndPhysicsMessage(
       return true;
 
     case 'configureTrainingRuleset':
-      matchManager?.configureTrainingRuleset(payload);
+      matchManager?.systemControl.configureTrainingRuleset(payload);
       return true;
 
     case 'enterStateOnlyMode':
-      matchManager?.enterStateOnlyMode(payload?.stateSnapshot ?? null, payload?.cursorTick);
+      matchManager?.systemControl.enterStateOnlyMode(
+        payload?.stateSnapshot ?? null,
+        payload?.cursorTick
+      );
       return true;
 
     case 'beginInterveneCountdown':
-      matchManager?.beginInterveneCountdown(
+      matchManager?.systemControl.beginInterveneCountdown(
         payload?.countdownSeconds ?? 3,
         payload?.stateSnapshot ?? null
       );
       return true;
 
     case 'resumePhysicsFromState':
-      matchManager?.resumePhysicsFromState(payload?.stateSnapshot ?? null, payload?.resumeTick);
+      matchManager?.systemControl.resumePhysicsFromState(
+        payload?.stateSnapshot ?? null,
+        payload?.resumeTick
+      );
       return true;
 
     case 'startMatch':

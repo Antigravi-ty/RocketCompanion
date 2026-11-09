@@ -14,15 +14,7 @@ import {
   DiagnosticsTestVehicleController,
   DEFAULT_DIAGNOSTIC_FLEET,
 } from '../../diagnostics/DiagnosticsTestVehicles.ts';
-import {
-  collectSessionUserRtt,
-  type MatchState,
-  type MatchPlayerSlot,
-  type PlayerLoadoutOptions,
-  type MatchRosterMetadataEntry,
-  type RosterSnapshot,
-  type ActiveMatchSignal,
-} from './matchLoadoutAndSpawnPipeline.ts';
+import type { RosterSnapshot } from './matchLoadoutAndSpawnPipeline.ts';
 import {
   MatchDomainState,
   type MatchDomainStateOptions,
@@ -35,8 +27,6 @@ import {
 } from './MatchRosterSubController.ts';
 import {
   MatchCommandQueueSubController,
-  type ClientCommandPayload,
-  type ControlPacketPayload,
   type CommandQueueSessionPort,
 } from './MatchCommandQueueSubController.ts';
 import {
@@ -56,7 +46,6 @@ import {
 } from './MatchSystemControlSubController.ts';
 import type { RosterPhysicsManagerPort } from './matchRosterPhysicsAndBotPipeline.ts';
 import type { LifecyclePhysicsSnapshotPort } from './matchLifecyclePipeline.ts';
-import type { UserRttSummary, MatchSpectatorSlot } from './matchLoadoutAndSpawnPipeline.ts';
 
 export type { MatchSessionSnapshot, TrainingRulesetConfigOptions };
 
@@ -84,13 +73,16 @@ export interface AdminDataHandlerPort extends RosterDataHandlerPort {
   dispatchFrameToSessions?: (bytes: Uint8Array) => void;
 }
 
+export type ClearRetainedReplayCallback = () => void;
+export type RetainCompletedReplayCallback = (data: Record<string, unknown>) => void;
+
 export interface MatchSessionAdminOptions extends MatchDomainStateOptions {
   physicsManager?: AdminPhysicsManagerPort | null;
   sessionManager?: AdminSessionManagerPort | null;
   dataHandler?: AdminDataHandlerPort | null;
   diagnosticsController?: PhaseLifecycleDiagnosticsPort | null;
-  onClearRetainedReplay?: (() => void) | null;
-  onRetainCompletedReplay?: ((data: Record<string, unknown>) => void) | null;
+  onClearRetainedReplay?: ClearRetainedReplayCallback | null;
+  onRetainCompletedReplay?: RetainCompletedReplayCallback | null;
   replayCapacityTicks?: number;
   goalReplayLookbackSeconds?: number;
   goalReplayPostGoalSeconds?: number;
@@ -103,8 +95,8 @@ export class MatchSessionAdmin {
   sessionManager: AdminSessionManagerPort | null | undefined;
   dataHandler: AdminDataHandlerPort | null;
   diagnosticsController: PhaseLifecycleDiagnosticsPort;
-  onClearRetainedReplay: (() => void) | null;
-  onRetainCompletedReplay: ((data: Record<string, unknown>) => void) | null;
+  onClearRetainedReplay: ClearRetainedReplayCallback | null;
+  onRetainCompletedReplay: RetainCompletedReplayCallback | null;
   replayBuffer: ReplayRingBuffer;
 
   readonly roster: MatchRosterSubController;
@@ -142,13 +134,20 @@ export class MatchSessionAdmin {
       return bound;
     };
 
+    const removeSessionVotes = (sid: string): void => {
+      this.commandQueue.removeSessionVotes(sid);
+    };
+    const triggerLobbyAutoStart = (): void => {
+      this.lifecycle.initiateMatchPrepare();
+    };
+
     this.roster = new MatchRosterSubController(
       bindAdminPort({
         domain: this.domain,
         dispatchSignal: (t: number, f: number, p1?: number, p2?: number) =>
           this.commandQueue.dispatchSignal(t, f, p1, p2),
-        onPlayerSessionRemoved: (sid: string) => this.commandQueue.removeSessionVotes(sid),
-        onLobbyAutoStartTriggered: () => this.lifecycle.initiateMatchPrepare(),
+        onPlayerSessionRemoved: removeSessionVotes,
+        onLobbyAutoStartTriggered: triggerLobbyAutoStart,
       })
     );
 
@@ -220,200 +219,8 @@ export class MatchSessionAdmin {
     return this.roster.buildRosterSnapshot();
   }
 
-  getMatchRosterMetadata(): MatchRosterMetadataEntry[] {
-    return this.roster.getMatchRosterMetadata();
-  }
-
-  assignPlayerSlot(
-    sessionId: string,
-    playerName = 'Player',
-    role = 'player',
-    preferredTeam: number | null = null,
-    loadoutOptions: PlayerLoadoutOptions | string | number = {},
-    colorSlot: number | null = null
-  ):
-    | MatchPlayerSlot
-    | MatchSpectatorSlot
-    | { entityId: number; team: number; role: string; spawnSlot: number }
-    | null {
-    return this.roster.assignPlayerSlot(
-      sessionId,
-      playerName,
-      role,
-      preferredTeam,
-      loadoutOptions,
-      colorSlot
-    );
-  }
-
   removePlayerSession(sessionId: string): void {
     this.roster.removePlayerSession(sessionId);
-  }
-
-  updatePlayerLoadout(
-    sessionId: string,
-    visualIdOrIndex: string | number,
-    colorSlot: number | null = null,
-    hitboxIdOrIndex: string | number | null = null,
-    extraLoadout: Record<string, string | number | undefined> | null = null
-  ): MatchPlayerSlot | null {
-    return this.roster.updatePlayerLoadout(
-      sessionId,
-      visualIdOrIndex,
-      colorSlot,
-      hitboxIdOrIndex,
-      extraLoadout
-    );
-  }
-
-  switchPlayerRoleOrTeam(
-    sessionId: string,
-    role: string | number,
-    team = 0
-  ): MatchPlayerSlot | MatchSpectatorSlot | null {
-    return this.roster.switchPlayerRoleOrTeam(sessionId, role, team);
-  }
-
-  setGameMode(gameMode: string, durationSeconds: number | null = null): void {
-    this.roster.setGameMode(gameMode, durationSeconds);
-  }
-
-  setBotFillMode(botFillMode = 'no_bots', botType?: string): void {
-    this.roster.setBotFillMode(botFillMode, botType);
-  }
-
-  addBotPlayer(
-    preferredTeam = 1,
-    botName: string | null = null,
-    visualId: string | PlayerLoadoutOptions | null = null,
-    botType?: string
-  ):
-    | MatchPlayerSlot
-    | MatchSpectatorSlot
-    | { entityId: number; team: number; role: string; spawnSlot: number }
-    | null {
-    return this.roster.addBotPlayer(preferredTeam, botName, visualId, botType);
-  }
-
-  initiateMatchPrepare(durationSeconds: number | null = null, timeoutTicks = 240): void {
-    this.lifecycle.initiateMatchPrepare(durationSeconds, timeoutTicks);
-  }
-
-  forceStartMatch(durationSeconds: number | null = null): void {
-    this.lifecycle.forceStartMatch(durationSeconds);
-  }
-
-  startMatch(durationSeconds?: number | null): void {
-    this.lifecycle.startMatch(durationSeconds);
-  }
-
-  enterLobbyMode(options: Record<string, unknown> = {}): MatchState {
-    return this.lifecycle.enterLobbyMode(options);
-  }
-
-  startTrainingMode(options: Record<string, unknown> = {}): void {
-    this.lifecycle.startTrainingMode(options);
-  }
-
-  configureTrainingRuleset(options: TrainingRulesetConfigOptions = {}): void {
-    this.systemControl.configureTrainingRuleset(options);
-  }
-
-  enterStateOnlyMode(stateSnapshot?: Float32Array | number[] | null, cursorTick?: number): void {
-    this.systemControl.enterStateOnlyMode(stateSnapshot, cursorTick);
-  }
-
-  beginInterveneCountdown(
-    countdownSeconds = 3,
-    stateSnapshot?: Float32Array | number[] | null
-  ): number {
-    return this.systemControl.beginInterveneCountdown(countdownSeconds, stateSnapshot);
-  }
-
-  resumePhysicsFromState(
-    stateSnapshot?: Float32Array | number[] | null,
-    resumeTick?: number
-  ): void {
-    this.systemControl.resumePhysicsFromState(stateSnapshot, resumeTick);
-  }
-
-  setPaused(pause: boolean): void {
-    this.lifecycle.setPaused(pause);
-  }
-
-  stepFrame(): Uint8Array {
-    return this.lifecycle.stepFrame();
-  }
-
-  dispatchSignal(
-    signalType: number,
-    frameId: number,
-    param1 = 0,
-    param2 = 0
-  ): ActiveMatchSignal | null {
-    return this.commandQueue.dispatchSignal(signalType, frameId, param1, param2);
-  }
-
-  handleClientSignalAcks(
-    sessionId: string,
-    acks: Array<{ signalId: number; signalType?: number }> = []
-  ): void {
-    this.commandQueue.handleClientSignalAcks(sessionId, acks);
-  }
-
-  handleClientCommands(sessionId: string, commands: ClientCommandPayload[] = []): void {
-    this.commandQueue.handleClientCommands(sessionId, commands);
-  }
-
-  handleClientCommand(sessionId: string, cmd: ClientCommandPayload, _session?: unknown): void {
-    this.commandQueue.handleClientCommand(sessionId, cmd, _session);
-  }
-
-  recordSkipReplayInputEdge(
-    sessionId: string,
-    inputHistory: Array<{ jump?: boolean; controls?: { jump?: boolean } }>
-  ): boolean {
-    return this.commandQueue.recordSkipReplayInputEdge(sessionId, inputHistory);
-  }
-
-  evaluateUnknownPacket(
-    channelId: string,
-    packetType: string | number,
-    packetData: ControlPacketPayload | null | undefined
-  ): unknown {
-    return this.commandQueue.evaluateControlPacket(channelId, packetType, packetData);
-  }
-
-  setGhostCarConfig(
-    carIndex: number,
-    interactWithBall = false,
-    interactWithCars = false,
-    opacity: number | undefined = undefined
-  ): unknown {
-    return (
-      this.physicsManager?.setCarCollisionMask?.(
-        carIndex,
-        interactWithBall,
-        interactWithCars,
-        opacity
-      ) || null
-    );
-  }
-
-  getCarCollisionConfig(carIndex: number): Record<string, unknown> {
-    return (
-      this.physicsManager?.lobbyGhostCoordinator?.getCarGhostState?.(carIndex) || {
-        carIndex,
-        interactWithBall: true,
-        interactWithCars: true,
-        isGhost: false,
-        opacity: 1.0,
-      }
-    );
-  }
-
-  collectAllUserRtt(): UserRttSummary {
-    return collectSessionUserRtt(this.sessionManager);
   }
 
   destroy(): void {

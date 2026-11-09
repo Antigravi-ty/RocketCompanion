@@ -77,10 +77,12 @@ export interface HostLoopbackPacketConsumerPort {
 export interface HostChannelRegistryBridgePort
   extends HostSimProxyPort, HostLoopbackPacketConsumerPort {
   fallbackManager: MatchSessionAdmin | null;
-  routeFallbackEnvelope(
-    envelope: WorkerEnvelope,
-    onReply: (replyEnv: HostWorkerEnvelopeMessage) => void
-  ): void;
+  fallbackSubController: {
+    routeEnvelope(
+      envelope: WorkerEnvelope,
+      onReply: (replyEnv: HostWorkerEnvelopeMessage) => void
+    ): void;
+  };
 }
 
 function resolveRoomStatePhaseFromSignal(signalType: number): string | null {
@@ -167,7 +169,7 @@ export function decodeHostLoopbackFramePacket(
 }
 
 export function processHostLoopbackChannelPacket(
-  host: HostLoopbackPacketConsumerPort,
+  consumer: HostLoopbackPacketConsumerPort,
   packet: Uint8Array | ArrayBuffer | string | undefined
 ): void {
   if (!packet) return;
@@ -175,27 +177,28 @@ export function processHostLoopbackChannelPacket(
     try {
       const parsed = JSON.parse(packet);
       if (parsed?.type === 'roster_update') {
-        host.lastRoomState = {
-          ...(host.lastRoomState || {}),
-          state: parsed.state || host.lastRoomState?.state || 'lobby',
-          roster: parsed.roster || host.lastRoomState?.roster || { players: [], spectators: [] },
+        consumer.lastRoomState = {
+          ...(consumer.lastRoomState || {}),
+          state: parsed.state || consumer.lastRoomState?.state || 'lobby',
+          roster: parsed.roster ||
+            consumer.lastRoomState?.roster || { players: [], spectators: [] },
         };
-        host.botTunnelManager?.syncFromRoomState?.(host.lastRoomState);
+        consumer.botTunnelManager?.syncFromRoomState?.(consumer.lastRoomState);
       }
     } catch (_e) {}
   }
-  if (!deliverToHostLoopback(host.hostChannel, packet)) return;
+  if (!deliverToHostLoopback(consumer.hostChannel, packet)) return;
   if (packet instanceof Uint8Array || packet instanceof ArrayBuffer) {
     try {
       const decoded = decodeHostLoopbackFramePacket(
         packet,
-        host.boostPadEdgeTracker,
-        host._seenReplaySignalIds
+        consumer.boostPadEdgeTracker,
+        consumer._seenReplaySignalIds
       );
       if (decoded) {
         if (decoded.roomStatePhase) {
-          if (!host.lastRoomState) {
-            host.lastRoomState = {
+          if (!consumer.lastRoomState) {
+            consumer.lastRoomState = {
               state: decoded.roomStatePhase,
               roster: {
                 players: [],
@@ -208,29 +211,29 @@ export function processHostLoopbackChannelPacket(
               },
             };
           } else {
-            host.lastRoomState.state = decoded.roomStatePhase;
+            consumer.lastRoomState.state = decoded.roomStatePhase;
           }
         }
         if (decoded.hasPhysics && decoded.snapshot) {
-          if (host.cachedSnapshot.length !== decoded.snapshot.length) {
-            host.cachedSnapshot = new Float32Array(decoded.snapshot.length);
+          if (consumer.cachedSnapshot.length !== decoded.snapshot.length) {
+            consumer.cachedSnapshot = new Float32Array(decoded.snapshot.length);
           }
-          host.cachedSnapshot.set(decoded.snapshot);
-          host.lastServerTick = decoded.tick;
-          if (host.botTunnelManager && host.isWorker) {
-            host.botTunnelManager.onServerPhysicsFrame(
-              host.cachedSnapshot,
-              host.lastServerTick,
-              host.lastRoomState?.state || 'playing'
+          consumer.cachedSnapshot.set(decoded.snapshot);
+          consumer.lastServerTick = decoded.tick;
+          if (consumer.botTunnelManager && consumer.isWorker) {
+            consumer.botTunnelManager.onServerPhysicsFrame(
+              consumer.cachedSnapshot,
+              consumer.lastServerTick,
+              consumer.lastRoomState?.state || 'playing'
             );
           }
           const isReplaySliceFrame =
-            Math.abs((host.cachedSnapshot[302] || 0) - 1337.5) <= 0.01 ||
-            host.lastRoomState?.state === 'replay';
+            Math.abs((consumer.cachedSnapshot[302] || 0) - 1337.5) <= 0.01 ||
+            consumer.lastRoomState?.state === 'replay';
           if (!isReplaySliceFrame) {
-            host.hostReplayRingBuffer?.recordFrame(
-              host.lastServerTick,
-              host.cachedSnapshot,
+            consumer.hostReplayRingBuffer?.recordFrame(
+              consumer.lastServerTick,
+              consumer.cachedSnapshot,
               decoded.newReplaySignals as unknown as ReplaySignalsOrOptionsArg,
               null,
               null,
@@ -256,8 +259,8 @@ export class HostClientChannelRegistry {
   envelopeListeners = new Set<(envelope: HostWorkerEnvelopeMessage) => void>();
   reqId = 0;
 
-  constructor(hostBridge: HostSimProxyPort, initialChannel: HostClientChannelPort | null = null) {
-    this.hostChannel = initialChannel || createDefaultHostChannel(hostBridge);
+  constructor(initialChannel: HostClientChannelPort) {
+    this.hostChannel = initialChannel;
     this.channelMap.set(this.hostChannel, 'host');
     this.channelIdToChannel.set('host', this.hostChannel);
   }
@@ -356,7 +359,7 @@ export class HostClientChannelRegistry {
     if (bridge.isWorker && bridge.worker) {
       bridge.worker.postMessage(envelope, transfer);
     } else {
-      bridge.routeFallbackEnvelope(envelope, (replyEnv) =>
+      bridge.fallbackSubController.routeEnvelope(envelope, (replyEnv) =>
         this.handleWorkerMessage(bridge, replyEnv)
       );
     }
@@ -393,7 +396,7 @@ export class HostClientChannelRegistry {
     this.channelIdToChannel.set(channelId, channel);
 
     const origPacketReceived = channel.onPacketReceived;
-    channel.onPacketReceived = (packet: Uint8Array | ArrayBuffer | string) => {
+    const handleInbound = (packet: Uint8Array | ArrayBuffer | string) => {
       origPacketReceived?.(packet);
       if (isWorker && worker) {
         postCommand('channel_packet', { channelId, packet });
@@ -407,6 +410,7 @@ export class HostClientChannelRegistry {
         );
       }
     };
+    channel.onPacketReceived = handleInbound;
 
     if (isWorker && worker) {
       postCommand('registerChannel', {
@@ -444,7 +448,7 @@ export class HostClientChannelRegistry {
       postCommand('removeChannel', { channelId });
     } else if (fallbackDataHandler) {
       fallbackDataHandler.unregisterChannel(channelId);
-      fallbackManager?.removePlayerSession(channelId);
+      fallbackManager?.roster.removePlayerSession(channelId);
     }
   }
 
