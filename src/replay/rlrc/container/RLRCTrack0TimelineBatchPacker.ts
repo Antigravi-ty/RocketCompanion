@@ -1,8 +1,7 @@
 /**
- * RLRCTrack0FrameSlotPacker.ts
- * Zero-GC fixed-stride (1856 bytes/frame) Track 0 binary packer,
- * in-place synthesized controls writer, and lazy Proxy timeline view over a flat
- * stateInputTrackBytes Uint8Array.
+ * RLRCTrack0TimelineBatchPacker.ts
+ * Batch Track 0 binary packer, in-place synthesized controls writer, and lazy Proxy
+ * timeline view over a flat `stateInputTrackBytes` Uint8Array.
  */
 
 import {
@@ -13,11 +12,6 @@ import {
 } from '../../../physics/RocketSimConstants.ts';
 import { packCarControlsToTrack64 } from '../../container/RCReplayBinarySchema.ts';
 import {
-  packRLRCFrameToTrack0Slot as packSlotToTrack0,
-  resolveRLRCTrack0FrameByteOffset,
-  unpackRLRCFrameFromTrack0Slot,
-} from '../container/RLRCTrack0FrameSlotPacker.ts';
-import {
   RLRC_CONTROLS_BYTES_PER_FRAME,
   RLRC_MAX_PLAYER_SLOTS,
   RLRC_STATE_BYTES_PER_FRAME,
@@ -26,16 +20,13 @@ import {
   type RLRCCarFrameState120Hz,
   type RLRCFrame120Hz,
 } from '../RLRCReplayTypes.ts';
+import {
+  packRLRCFrameToTrack0Slot,
+  RLRC_TRACK0_META_OFFSETS,
+  unpackRLRCFrameFromTrack0Slot,
+} from './RLRCTrack0FrameSlotPacker.ts';
 
 const MAX_PACKED_SLOTS = 8;
-
-export function packRLRCFrameToTrack0Slot(
-  frame: RLRCFrame120Hz,
-  targetTrackBytes: Uint8Array,
-  frameByteOffset = resolveRLRCTrack0FrameByteOffset(frame.frameIndex120Hz)
-): void {
-  packSlotToTrack0(frame, targetTrackBytes, frameByteOffset);
-}
 
 export function packRLRCFramesToTrack0Bytes(
   frames120Hz: readonly RLRCFrame120Hz[],
@@ -67,7 +58,9 @@ export function packRLRCFrameControlsTo64Bytes(
     const car = cars[i];
     if (!car?.entityActive) continue;
     const idx = car.slotIndex >= 0 && car.slotIndex < MAX_PACKED_SLOTS ? car.slotIndex : i;
-    if (idx >= 0 && idx < MAX_PACKED_SLOTS) packCarControlsToTrack64(out, idx, { ...car.controls });
+    if (idx >= 0 && idx < MAX_PACKED_SLOTS) {
+      packCarControlsToTrack64(out, idx, { ...car.controls });
+    }
   }
   return out;
 }
@@ -84,8 +77,8 @@ export function writeSynthesizedControlsToTrack0Buffer(
     CAR_JUMP_AIR_BASE: j0,
     CAR_JUMP_AIR_STRIDE: jS,
     CAR_IS_JUMPING_OFFSET: oJ,
-    CAR_AIR_TIME_OFFSET: oDj,
-    CAR_JUMP_TIME_OFFSET: oDg,
+    CAR_AIR_TIME_OFFSET: oAir,
+    CAR_JUMP_TIME_OFFSET: oJmp,
     CAR_AIR_TIME_SINCE_JUMP_OFFSET: oAt,
   } = EXTENDED_STATE_OFFSETS;
   const { HAS_FLIP_OR_JUMP: oFlp, IS_BOOSTING: oBst, IS_FLIPPING: oFl } = CAR_STATE_OFFSETS;
@@ -98,6 +91,7 @@ export function writeSynthesizedControlsToTrack0Buffer(
       RLRC_STATE_FLOATS_PER_FRAME
     );
     const cars = frames[f].cars;
+    let slotMask = 0;
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i];
       if (!car) continue;
@@ -107,14 +101,23 @@ export function writeSynthesizedControlsToTrack0Buffer(
       const jB = j0 + slot * jS;
       const act = car.entityActive;
       const fl = car.activeFlags;
+      const airTime = act && !car.isOnGround ? Math.max(0, car.airTimeSinceJump) : 0;
+      if (act) {
+        slotMask |=
+          (1 << slot) |
+          (fl.doubleJumpActive ? 1 << (slot + 6) : 0) |
+          (fl.dodgeActive ? 1 << (slot + 12) : 0);
+      }
       dst[cB + oFlp] = act && car.hasFlipOrJump ? 1 : 0;
       dst[cB + oBst] = act && (fl.boostActive || car.controls.boost) ? 1 : 0;
       dst[cB + oFl] = act && (fl.dodgeActive || fl.doubleJumpActive) ? 1 : 0;
       dst[jB + oJ] = act && fl.jumpActive ? 1 : 0;
-      dst[jB + oDj] = act && fl.doubleJumpActive ? 1 : 0;
-      dst[jB + oDg] = act && fl.dodgeActive ? 1 : 0;
+      dst[jB + oAir] = airTime;
+      dst[jB + oJmp] = act && fl.jumpActive ? Math.min(0.2, airTime) : 0;
       dst[jB + oAt] = act ? car.airTimeSinceJump : 0;
     }
+    dst[RLRC_TRACK0_META_OFFSETS.SLOT_ACTION_MASK] = slotMask;
+    dst[RLRC_TRACK0_META_OFFSETS.MAGIC_TAG] = RLRC_TRACK0_META_OFFSETS.MAGIC_VALUE;
     packRLRCFrameControlsTo64Bytes(cars, trackBytes, off + RLRC_STATE_BYTES_PER_FRAME);
   }
 }

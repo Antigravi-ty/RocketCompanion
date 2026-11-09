@@ -14,6 +14,10 @@ import {
   isBinaryRLRCContainer,
   serializeRLRCBinaryContainer,
 } from './container/RLRCBinaryContainerCodec.ts';
+import {
+  createLazyTrack0FramesView,
+  packRLRCFramesToTrack0Bytes,
+} from './container/RLRCTrack0TimelineBatchPacker.ts';
 import { decodeRLRCNetStreamFrames } from './parser/RLRCNetStreamBitDecoder.ts';
 import { extractNetStreamRigidBodyAndBoostTimeline } from './parser/RLRCNetStreamRigidBodyAndBoostExtractor.ts';
 import { extractRLRCNetStreamRosterAndLifecycle } from './parser/RLRCNetStreamRosterAndLifecycleExtractor.ts';
@@ -31,10 +35,6 @@ import {
 } from './RLRCReplayTypes.ts';
 import { resampleRLRCReplayTo120Hz } from './synthesis/RLRCHermiteSlerpResampler.ts';
 import { synthesizeControlsForTimeline120Hz } from './synthesis/RLRCInverseControlSynthesizer.ts';
-import {
-  createLazyTrack0FramesView,
-  packRLRCFramesToTrack0Bytes,
-} from './synthesis/RLRCTrack0FrameSlotPacker.ts';
 
 export interface RLRCConverterOptions {
   readonly interpolationMethod?: RLRCInterpolationMethod;
