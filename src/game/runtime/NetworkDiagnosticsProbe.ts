@@ -1,12 +1,5 @@
 import { DeterminismHarness } from '../../physics/DeterminismHarness.ts';
 import type { DiagnosticsTestVehicleController } from '../../network/diagnostics/DiagnosticsTestVehicles.ts';
-import type { sampleDiagnosticFleetTelemetry } from '../../network/diagnostics/ZeroGDiagnosticLab.ts';
-import {
-  DEFAULT_GHOST_OPACITY,
-  type CarCollisionMaskEntry,
-  type LobbyGhostCarCoordinator,
-} from '../../network/server/LobbyGhostCarCoordinator.ts';
-import type { MultiWorldGhostRenderer } from '../modes/MultiWorldGhostRenderer.ts';
 import { networkDiagnosticsStore, type NameTagCarEntry } from '../runtimeUiPort.ts';
 import {
   DiagnosticsFleetAndGhostController,
@@ -52,92 +45,66 @@ export function computeAdjustedExtraLatencyMs(
   return Math.max(0, Math.min(500, Math.round(baseExtra + deltaLatencyMs)));
 }
 
-export class NetworkDiagnosticsProbe {
-  private readonly context: NetworkDiagnosticsHostPort;
+export interface NetworkLatencySnapshot {
+  readonly currentChannelExtraMs: number | undefined;
+  readonly storeExtraMs: number | undefined;
+  readonly channelRttMs: number | undefined;
+  readonly resolvedReconcilerRttMs: number | null;
+}
+
+export interface NetworkLatencyUpdateCommand {
+  readonly newExtraLatencyMs: number;
+  readonly effectiveRttMs: number;
+}
+
+export function resolveNetworkLatencyUpdateCommand(
+  snapshot: NetworkLatencySnapshot,
+  deltaLatencyMs: number
+): NetworkLatencyUpdateCommand {
+  const newExtraLatencyMs = computeAdjustedExtraLatencyMs(
+    snapshot.currentChannelExtraMs,
+    snapshot.storeExtraMs,
+    deltaLatencyMs
+  );
+  const effectiveRttMs =
+    snapshot.resolvedReconcilerRttMs ?? snapshot.channelRttMs ?? newExtraLatencyMs * 2;
+  return {
+    newExtraLatencyMs,
+    effectiveRttMs,
+  };
+}
+
+export class NetworkDiagnosticsProbe extends DiagnosticsFleetAndGhostController {
+  private readonly readProbePort: () => NetworkDiagnosticsHostPort;
   public readonly fleetAndGhost: DiagnosticsFleetAndGhostController;
   determinismHarness: DeterminismHarness | null = null;
   diagnosticObservationTarget = 0;
   testCarAudioEnabled = false;
   physicsRate = 120;
 
-  readonly ensureMultiWorldGhostRenderer: () => MultiWorldGhostRenderer | null;
-  readonly ensureLobbyRemoteGhostWorld: () => MultiWorldGhostRenderer | null;
-  readonly setLobbyGhostIsolationMode: (enabled?: boolean, interactWithBall?: boolean) => boolean;
-  readonly configureLobbyGhostMode: (
-    enabled?: boolean,
-    optionsOrInteractWithBall?: boolean | LobbyGhostModeOptions
-  ) => LobbyGhostModeConfigResult;
-  readonly applyCarGhostCollision: (
-    carIndex: number,
-    interactWithBall?: boolean,
-    interactWithCars?: boolean,
-    opacity?: number
-  ) => CarCollisionMaskEntry;
-  readonly spawnDiagnosticTestFleet: (
-    options?: DiagnosticFleetSpawnOptions
-  ) => Promise<DiagnosticsTestVehicleController | null>;
-  readonly ensureClientLobbyDiagnosticProbes: () => Promise<void>;
-  readonly sampleDiagnosticFleetTelemetry: () => ReturnType<typeof sampleDiagnosticFleetTelemetry>;
-
-  constructor(context: NetworkDiagnosticsHostPort) {
-    this.context = context;
-    const fg = new DiagnosticsFleetAndGhostController(context);
-    this.fleetAndGhost = fg;
-    this.ensureMultiWorldGhostRenderer = () => fg.ensureMultiWorldGhostRenderer();
-    this.ensureLobbyRemoteGhostWorld = () => fg.ensureLobbyRemoteGhostWorld();
-    this.setLobbyGhostIsolationMode = (enabled = true, interactWithBall = false) =>
-      fg.setLobbyGhostIsolationMode(enabled, interactWithBall);
-    this.configureLobbyGhostMode = (enabled = true, optionsOrInteractWithBall = {}) =>
-      fg.configureLobbyGhostMode(enabled, optionsOrInteractWithBall);
-    this.applyCarGhostCollision = (
-      carIndex: number,
-      interactWithBall = false,
-      interactWithCars = false,
-      opacity = DEFAULT_GHOST_OPACITY
-    ) => fg.applyCarGhostCollision(carIndex, interactWithBall, interactWithCars, opacity);
-    this.spawnDiagnosticTestFleet = (options = {}) => fg.spawnDiagnosticTestFleet(options);
-    this.ensureClientLobbyDiagnosticProbes = () => fg.ensureClientLobbyDiagnosticProbes();
-    this.sampleDiagnosticFleetTelemetry = () => fg.sampleDiagnosticFleetTelemetry();
-  }
-
-  get lobbyGhostCoordinator(): LobbyGhostCarCoordinator {
-    return this.fleetAndGhost.lobbyGhostCoordinator;
-  }
-
-  get multiWorldGhostRenderer(): MultiWorldGhostRenderer | null {
-    return this.fleetAndGhost.multiWorldGhostRenderer;
-  }
-
-  set multiWorldGhostRenderer(renderer: MultiWorldGhostRenderer | null) {
-    this.fleetAndGhost.multiWorldGhostRenderer = renderer;
-  }
-
-  get diagnosticsFleetController(): DiagnosticsTestVehicleController | null {
-    return this.fleetAndGhost.diagnosticsFleetController;
-  }
-
-  set diagnosticsFleetController(controller: DiagnosticsTestVehicleController | null) {
-    this.fleetAndGhost.diagnosticsFleetController = controller;
-  }
-
-  get lobbyGhostMode(): boolean {
-    return this.fleetAndGhost.lobbyGhostMode;
-  }
-
-  set lobbyGhostMode(enabled: boolean) {
-    this.fleetAndGhost.lobbyGhostMode = enabled;
+  constructor(portOrProvider: NetworkDiagnosticsHostPort | (() => NetworkDiagnosticsHostPort)) {
+    super(portOrProvider);
+    this.readProbePort =
+      typeof portOrProvider === 'function' ? portOrProvider : () => portOrProvider;
+    this.fleetAndGhost = this;
   }
 
   setMultiWorldGhostVisible(visible: boolean): void {
-    this.fleetAndGhost.multiWorldGhostRenderer?.setVisible(Boolean(visible));
+    this.multiWorldGhostRenderer?.setVisible(Boolean(visible));
   }
 
-  getPhysicsRate(): number {
-    return this.context.getInterpolator()?.physicsRate ?? this.physicsRate ?? 120;
+  getPhysicsRate(portOverride?: NetworkDiagnosticsHostPort): number {
+    const port = portOverride ?? this.readProbePort();
+    return port.getInterpolator()?.physicsRate ?? this.physicsRate ?? 120;
   }
 
-  setPhysicsRate(rate: number, options: PhysicsRateOptions = {}): number {
-    const interpolator = this.context.getInterpolator();
+  setPhysicsRate(
+    rate: number,
+    options: PhysicsRateOptions = {},
+    portOverride?: NetworkDiagnosticsHostPort
+  ): number {
+    const port = portOverride ?? this.readProbePort();
+    const interpolator = port.getInterpolator();
     if (interpolator && typeof interpolator.setPhysicsRate === 'function') {
       const applied = interpolator.setPhysicsRate(rate, options);
       this.physicsRate = applied;
@@ -148,29 +115,39 @@ export class NetworkDiagnosticsProbe {
     return clamped;
   }
 
-  adjustPhysicsRate(delta: number, options: PhysicsRateOptions = {}): number {
-    const currentRate = this.getPhysicsRate();
+  adjustPhysicsRate(
+    delta: number,
+    options: PhysicsRateOptions = {},
+    portOverride?: NetworkDiagnosticsHostPort
+  ): number {
+    const currentRate = this.getPhysicsRate(portOverride);
     const deltaNum = Number(delta);
     if (!Number.isFinite(deltaNum)) return currentRate;
-    return this.setPhysicsRate(currentRate + deltaNum, options);
+    return this.setPhysicsRate(currentRate + deltaNum, options, portOverride);
   }
 
-  setPhysicsTickScale(scale: number, options: PhysicsRateOptions = {}): number {
+  setPhysicsTickScale(
+    scale: number,
+    options: PhysicsRateOptions = {},
+    portOverride?: NetworkDiagnosticsHostPort
+  ): number {
     const scaleNum = Number(scale);
-    if (!Number.isFinite(scaleNum) || scaleNum <= 0) return this.getPhysicsRate();
-    return this.setPhysicsRate(120 * scaleNum, options);
+    if (!Number.isFinite(scaleNum) || scaleNum <= 0) return this.getPhysicsRate(portOverride);
+    return this.setPhysicsRate(120 * scaleNum, options, portOverride);
   }
 
-  resetPhysicsRate(): number {
-    return this.setPhysicsRate(120);
+  resetPhysicsRate(portOverride?: NetworkDiagnosticsHostPort): number {
+    return this.setPhysicsRate(120, {}, portOverride);
   }
 
-  dropPacketBurst(count: number | null = null): void {
-    this.context.getNetworkChannel()?.forceDropNextInput?.(count ?? 5);
+  dropPacketBurst(count: number | null = null, portOverride?: NetworkDiagnosticsHostPort): void {
+    const port = portOverride ?? this.readProbePort();
+    port.getNetworkChannel()?.forceDropNextInput?.(count ?? 5);
   }
 
-  dumpNextNetworkPacket(): Promise<unknown> {
-    const reconciler = this.context.getNetworkReconciler();
+  dumpNextNetworkPacket(portOverride?: NetworkDiagnosticsHostPort): Promise<unknown> {
+    const port = portOverride ?? this.readProbePort();
+    const reconciler = port.getNetworkReconciler();
     if (reconciler?.controlMessenger) {
       console.log(
         '%c[Network Packet Dump]%c Waiting for next incoming datagram...',
@@ -183,16 +160,19 @@ export class NetworkDiagnosticsProbe {
     return Promise.resolve(null);
   }
 
-  dumpLatestNetworkPacket(packet: Uint8Array | ArrayBuffer | null = null): unknown {
-    const reconciler = this.context.getNetworkReconciler();
+  dumpLatestNetworkPacket(
+    packet: Uint8Array | ArrayBuffer | null = null,
+    portOverride?: NetworkDiagnosticsHostPort
+  ): unknown {
+    const port = portOverride ?? this.readProbePort();
+    const reconciler = port.getNetworkReconciler();
     if (reconciler?.dumpPacket) return reconciler.dumpPacket(packet);
     console.warn('[Network Packet Dump] No active network prediction reconciler.');
     return null;
   }
 
-  adjustNetworkLatency(deltaLatencyMs: number): number {
-    const channel = this.context.getNetworkChannel();
-    const reconciler = this.context.getNetworkReconciler();
+  adjustNetworkLatency(deltaLatencyMs: number, portOverride?: NetworkDiagnosticsHostPort): number {
+    const { channel, reconciler } = this.captureWorldSnapshot(portOverride);
     const storeExtra = networkDiagnosticsStore?.getSnapshot?.()?.metrics?.extraLatencyMs;
     const newLatency = computeAdjustedExtraLatencyMs(
       channel?.extraLatencyMs,
@@ -209,29 +189,39 @@ export class NetworkDiagnosticsProbe {
       }
     }
     if (reconciler) {
-      const effectiveRtt =
-        typeof reconciler._resolveEffectiveRtt === 'function'
-          ? reconciler._resolveEffectiveRtt()
-          : (channel?.rttMs ?? newLatency * 2);
-      reconciler.leadTicks = reconciler.calculateLeadTicks(effectiveRtt);
+      const command = resolveNetworkLatencyUpdateCommand(
+        {
+          currentChannelExtraMs: channel?.extraLatencyMs,
+          storeExtraMs: storeExtra,
+          channelRttMs: channel?.rttMs,
+          resolvedReconcilerRttMs:
+            typeof reconciler._resolveEffectiveRtt === 'function'
+              ? reconciler._resolveEffectiveRtt()
+              : null,
+        },
+        0
+      );
+      reconciler.leadTicks = reconciler.calculateLeadTicks(command.effectiveRttMs);
       reconciler.metrics.leadTicks = reconciler.leadTicks;
-      reconciler.metrics.rttMs = effectiveRtt;
+      reconciler.metrics.rttMs = command.effectiveRttMs;
       reconciler.notifyMetricsUpdated?.();
     }
     return newLatency;
   }
 
-  adjustSimulatedLatency(direction: number, stepMs?: number): number {
+  adjustSimulatedLatency(
+    direction: number,
+    stepMs?: number,
+    portOverride?: NetworkDiagnosticsHostPort
+  ): number {
     const configuredStep =
       stepMs ?? networkDiagnosticsStore?.getSnapshot?.()?.metrics?.adjustStepMs ?? 50;
-    return this.adjustNetworkLatency(direction * configuredStep);
+    return this.adjustNetworkLatency(direction * configuredStep, portOverride);
   }
 
-  async spawnHeadlessCarEntity(): Promise<void> {
-    const arena = this.context.getArena();
-    const physics = this.context.getPhysics();
-    const authoritativeServer = this.context.getAuthoritativeServer();
-    const reconciler = this.context.getNetworkReconciler();
+  async spawnHeadlessCarEntity(portOverride?: NetworkDiagnosticsHostPort): Promise<void> {
+    const { arena, physics, authoritativeServer, reconciler, interpolator } =
+      this.captureWorldSnapshot(portOverride);
 
     await arena?.vehicleRegistry.ensureOpponent();
     if (arena?.cars?.[1]) arena.cars[1].visible = true;
@@ -242,48 +232,55 @@ export class NetworkDiagnosticsProbe {
       const serverTick = Math.floor(authoritativeServer.sim.getHeaderView().tickCount);
       reconciler.syncTimeline(snapshot, serverTick);
     }
-    this.context.getInterpolator()?.sync?.();
+    interpolator?.sync?.();
   }
 
-  async enableDeterminismHarness(showHUD = true): Promise<DeterminismHarness | null> {
-    const physics = this.context.getPhysics();
+  async enableDeterminismHarness(
+    showHUD = true,
+    portOverride?: NetworkDiagnosticsHostPort
+  ): Promise<DeterminismHarness | null> {
+    const port = portOverride ?? this.readProbePort();
+    const physics = port.getPhysics();
     if (!physics) return null;
     if (!this.determinismHarness) {
       this.determinismHarness = new DeterminismHarness(physics);
       await this.determinismHarness.init();
     }
-    this.context.notifyDeterminismHarnessReady(this.determinismHarness, showHUD);
+    port.notifyDeterminismHarnessReady(this.determinismHarness, showHUD);
     return this.determinismHarness;
   }
 
-  despawnDiagnosticTestFleet(): void {
+  override despawnDiagnosticTestFleet(portOverride?: NetworkDiagnosticsHostPort): void {
     this.diagnosticObservationTarget = 0;
-    this.fleetAndGhost.despawnDiagnosticTestFleet();
+    super.despawnDiagnosticTestFleet(portOverride);
   }
 
   async toggleDiagnosticTestFleet(
     forceEnabled: boolean | null = null,
-    anchorMode: string | null = null
+    anchorMode: string | null = null,
+    portOverride?: NetworkDiagnosticsHostPort
   ): Promise<DiagnosticsTestVehicleController | null> {
     const nextEnabled =
       forceEnabled !== null
         ? Boolean(forceEnabled)
         : !Boolean(this.diagnosticsFleetController?.enabled);
-    if (nextEnabled) return this.spawnDiagnosticTestFleet({ anchorMode });
-    const channel = this.context.getNetworkChannel();
-    const authoritativeServer = this.context.getAuthoritativeServer();
-    const arena = this.context.getArena();
+    if (nextEnabled) return this.spawnDiagnosticTestFleet({ anchorMode }, portOverride);
+    const { channel, authoritativeServer, arena } = this.captureWorldSnapshot(portOverride);
     if (channel && !authoritativeServer && arena?.isLobbyMode) {
       channel.sendDiagnosticFleetToggle?.(false, null);
     }
-    this.despawnDiagnosticTestFleet();
+    this.despawnDiagnosticTestFleet(portOverride);
     return null;
   }
 
-  setDiagnosticObservationTarget(targetCarIndex = 0): number {
+  setDiagnosticObservationTarget(
+    targetCarIndex = 0,
+    portOverride?: NetworkDiagnosticsHostPort
+  ): number {
     const clampedIndex = Math.max(0, Math.min(7, Math.floor(Number(targetCarIndex) || 0)));
     this.diagnosticObservationTarget = clampedIndex;
-    const camera = this.context.getCamera();
+    const port = portOverride ?? this.readProbePort();
+    const camera = port.getCamera();
     if (clampedIndex > 0 && camera) camera.ballCam = false;
     return clampedIndex;
   }
