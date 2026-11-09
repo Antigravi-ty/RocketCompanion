@@ -4,7 +4,7 @@
  * and extracts 34-pad boost pickup events via RLRCBoostPadSpatialTracker.
  */
 
-import { RLRCBoostPadSpatialTracker } from '../catalog/RLRCBoostPadSpatialCatalog.ts';
+import { RLRCBoostPadSpatialTracker } from '../catalog/RLRCBoostPadSpatialTracker.ts';
 import type { RLRCBoostPadPickupEvent, RLRCVec3 } from '../RLRCReplayTypes.ts';
 import { RLRCBitReader } from './RLRCBitReader.ts';
 import { decodeRLRCPropertyAttribute } from './RLRCPropertyAttributeDecoder.ts';
