@@ -1,5 +1,68 @@
+import type * as THREE from 'three';
 import { KICKOFF_SPAWN_PRESETS } from '../../../physics/RocketSimConstants.ts';
-import type { NameTagCarEntry, NameTagConfig } from '../../../ui-core/config/nameTagConfig.ts';
+import type {
+  NameTagCameraMode,
+  NameTagCarEntry,
+  NameTagConfig,
+} from '../../../ui-core/config/nameTagConfig.ts';
+import { hudStore, useAppStore } from '../../runtimeUiPort.ts';
+
+export interface NameTagTunerRuntimeHost {
+  playerCarIndex?: number;
+  selectedPreset?: string;
+  physics?: {
+    numCars: number;
+    removeCar?: (carIndex: number) => void;
+    addCar?: (team: number, preset: string) => void;
+    setCarTeam?: (carIndex: number, team: number) => void;
+    setCarState: (carIndex: number, state: Record<string, unknown>) => void;
+    setBallState: (state: Record<string, unknown>) => void;
+    setControls?: (carIndex: number, controls: Record<string, unknown>) => void;
+    step: (dt: number) => void;
+  };
+  match?: {
+    state?: {
+      mode?: string;
+      phase?: string;
+    };
+  };
+  modeManager?: {
+    setMode?: (mode: string) => void;
+  };
+  keyboard?: {
+    ballControlEnabled?: boolean;
+  };
+  interpolator?: {
+    sync?: () => void;
+  };
+  camera?: {
+    camera?: THREE.PerspectiveCamera | null;
+    isFreeCam?: boolean;
+    currentMode?: NameTagCameraMode;
+    ballCam?: boolean;
+    setFreeCamPose?: (pos: [number, number, number], target: [number, number, number]) => void;
+    setFreeCam?: (enabled: boolean) => void;
+    setFocusedCarIndex?: (carIndex: number) => void;
+    resetView?: () => void;
+  };
+  arena?: {
+    cars?: Array<THREE.Object3D | null | undefined>;
+    carBoostAmounts?: Float32Array | number[];
+    carVisual?: string;
+    playerCarIndex?: number;
+    focusedCarIndex?: number;
+    isFreeCam?: boolean;
+    cameraMode?: string;
+    isPovCamera?: boolean;
+    ensureOpponent?: () => Promise<void>;
+    ensureCar?: (carIndex: number, team: number, visual: string) => void;
+    setCarTeam?: (carIndex: number, team: number) => void;
+    setCarColor?: (carIndex: number, colorHex: number) => void;
+    nameTagSystem?: {
+      update?: (arena: unknown, numCars?: number, camera?: THREE.PerspectiveCamera | null) => void;
+    };
+  };
+}
 
 export const SIX_CAR_KICKOFF_PERMUTATIONS: readonly (readonly [number, number, number])[] = [
   [0, 1, 2],
@@ -49,6 +112,21 @@ export function isEditableTunerDomTarget(target: unknown): boolean {
     );
   }
   return false;
+}
+
+export function resolveNameTagTunerHotkeyAction(
+  code: string
+): { type: 'pov'; carIndex: number } | { type: 'overview' } | null {
+  if (code >= 'Digit1' && code <= 'Digit6') {
+    return { type: 'pov', carIndex: Number(code.replace('Digit', '')) - 1 };
+  }
+  if (code >= 'Numpad1' && code <= 'Numpad6') {
+    return { type: 'pov', carIndex: Number(code.replace('Numpad', '')) - 1 };
+  }
+  if (code === 'Digit0' || code === 'Numpad0' || code === 'Backquote') {
+    return { type: 'overview' };
+  }
+  return null;
 }
 
 export function buildNameTagCarEntriesFromConfig(
@@ -123,4 +201,147 @@ export function buildSixCarKickoffSpawnSpecs(
     });
   }
   return specs;
+}
+
+export function spawnSixKickoffCarsInScene(
+  scene: NameTagTunerRuntimeHost | null,
+  permutationIndex: number,
+  config: Readonly<Partial<NameTagConfig>>
+): void {
+  const sim = scene?.physics;
+  if (!sim || !scene) return;
+
+  while (sim.numCars > 6 && typeof sim.removeCar === 'function') {
+    sim.removeCar(sim.numCars - 1);
+  }
+  while (sim.numCars < 6 && typeof sim.addCar === 'function') {
+    const carIndex = sim.numCars;
+    const team = carIndex < 3 ? 0 : 1;
+    sim.addCar(team, scene.selectedPreset || 'octane');
+  }
+
+  const specs = buildSixCarKickoffSpawnSpecs(permutationIndex, config);
+  const arena = scene.arena;
+
+  for (let i = 0; i < specs.length; i++) {
+    const spec = specs[i];
+    if (sim.setCarTeam) sim.setCarTeam(spec.carIndex, spec.team);
+    sim.setCarState(spec.carIndex, spec.carState);
+
+    if (arena) {
+      if (arena.ensureCar) arena.ensureCar(spec.carIndex, spec.team, arena.carVisual || 'fennec');
+      if (arena.setCarTeam) arena.setCarTeam(spec.carIndex, spec.team);
+      if (arena.setCarColor) arena.setCarColor(spec.carIndex, spec.colorHex);
+      const carMesh = arena.cars?.[spec.carIndex];
+      if (carMesh) {
+        carMesh.visible = true;
+      }
+      if (arena.carBoostAmounts) {
+        arena.carBoostAmounts[spec.carIndex] = spec.sampleBoost;
+      }
+    }
+  }
+
+  sim.setBallState({
+    pos: [0, 0, 93.15],
+    vel: [0, 0, 0],
+    angVel: [0, 0, 0],
+  });
+
+  for (let stepIndex = 0; stepIndex < 30; stepIndex++) {
+    for (let carIndex = 0; carIndex < 6; carIndex++) {
+      if (sim.setControls) sim.setControls(carIndex, NEUTRAL_HOLD_CONTROLS);
+    }
+    sim.step(1 / 120);
+  }
+
+  if (scene.interpolator?.sync) scene.interpolator.sync();
+}
+
+export function applyTunerFreeCamOverviewToScene(
+  scene: NameTagTunerRuntimeHost,
+  focusedCarIndex: number
+): void {
+  const { camera, arena } = scene;
+  const appState = useAppStore.getState();
+  if (camera) {
+    if (typeof camera.setFreeCamPose === 'function') {
+      camera.setFreeCamPose(OVERVIEW_FREECAM_POSITION, OVERVIEW_FREECAM_TARGET);
+    } else if (camera.setFreeCam) {
+      camera.setFreeCam(true);
+    }
+    appState.setFreeCam(true);
+  }
+  if (arena) {
+    arena.isFreeCam = true;
+    arena.cameraMode = 'free';
+    arena.isPovCamera = false;
+    arena.focusedCarIndex = focusedCarIndex;
+  }
+  hudStore.getState().setCameraFocusState('free', focusedCarIndex);
+}
+
+export function applyTunerCarPovToScene(
+  scene: NameTagTunerRuntimeHost,
+  targetIndex: number
+): void {
+  scene.playerCarIndex = targetIndex;
+  const { arena, camera } = scene;
+  if (arena) {
+    arena.playerCarIndex = targetIndex;
+    arena.focusedCarIndex = targetIndex;
+    arena.isFreeCam = false;
+    arena.cameraMode = 'pov';
+    arena.isPovCamera = true;
+  }
+  if (camera) {
+    if (camera.setFocusedCarIndex) camera.setFocusedCarIndex(targetIndex);
+    if (camera.setFreeCam) camera.setFreeCam(false);
+    camera.ballCam = true;
+    if (camera.resetView) camera.resetView();
+  }
+  useAppStore.getState().setFreeCam(false);
+  const hud = hudStore.getState();
+  hud.setBallCamActive(true);
+  hud.setCameraFocusState(camera?.currentMode || 'pov', targetIndex);
+}
+
+export function restoreSceneFromNameTagTuner(scene: NameTagTunerRuntimeHost | null): void {
+  if (scene) {
+    scene.playerCarIndex = 0;
+    if (scene.keyboard && scene.match?.state?.mode === 'freeplay') {
+      scene.keyboard.ballControlEnabled = true;
+    }
+  }
+  const sim = scene?.physics;
+  if (sim) {
+    while (sim.numCars > 1 && typeof sim.removeCar === 'function') {
+      sim.removeCar(sim.numCars - 1);
+    }
+  }
+  const arena = scene?.arena;
+  if (arena) {
+    arena.playerCarIndex = 0;
+    arena.focusedCarIndex = 0;
+    arena.isFreeCam = false;
+    arena.cameraMode = 'pov';
+    arena.isPovCamera = true;
+    if (arena.cars) {
+      for (let carIndex = 1; carIndex < arena.cars.length; carIndex++) {
+        const carMesh = arena.cars[carIndex];
+        if (carMesh) {
+          carMesh.visible = false;
+        }
+      }
+    }
+  }
+  const camera = scene?.camera;
+  if (camera) {
+    if (camera.setFocusedCarIndex) camera.setFocusedCarIndex(0);
+    if (camera.setFreeCam) camera.setFreeCam(false);
+    if (camera.resetView) camera.resetView();
+  }
+  useAppStore.getState().setFreeCam(false);
+  hudStore.getState().setCameraFocusState('pov', 0);
+  if (scene?.interpolator?.sync) scene.interpolator.sync();
 }
