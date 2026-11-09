@@ -66,15 +66,15 @@ export class SignalLatchState implements RuntimeSignalLatchState {
  * alert frame state, and domain signal routing under RuntimeNetworkManager.
  */
 export class ReconcilerSignalCoordinator {
-  public readonly host: RuntimeSignalHostPort;
+  public readonly context: RuntimeSignalHostPort;
   public readonly latch = new SignalLatchState();
   public readonly domainSubController: RuntimeSignalDomainSubController;
   public readonly kickoffSubController: RuntimeKickoffSignalSubController;
 
-  constructor(host: RuntimeSignalHostPort) {
-    this.host = host;
-    this.domainSubController = new RuntimeSignalDomainSubController(host, this.latch);
-    this.kickoffSubController = new RuntimeKickoffSignalSubController(host, this.latch);
+  constructor(context: RuntimeSignalHostPort) {
+    this.context = context;
+    this.domainSubController = new RuntimeSignalDomainSubController(context, this.latch);
+    this.kickoffSubController = new RuntimeKickoffSignalSubController(context, this.latch);
   }
 
   public get lastKickoffTargetFrame(): number {
@@ -92,19 +92,19 @@ export class ReconcilerSignalCoordinator {
   public resetSignalState(): void {
     this.latch.resetAll();
 
-    const h = this.host;
-    if (!h) return;
-    h._clientGoalIncidentLatched = false;
-    h._localSkipReplayReady = false;
-    if (h.audioSubsystem) {
-      h.audioSubsystem.lastRemainingSec = -1;
-      h.audioSubsystem.last10sCountdown = -1;
+    const ctx = this.context;
+    if (!ctx) return;
+    ctx._clientGoalIncidentLatched = false;
+    ctx._localSkipReplayReady = false;
+    if (ctx.audioSubsystem) {
+      ctx.audioSubsystem.lastRemainingSec = -1;
+      ctx.audioSubsystem.last10sCountdown = -1;
     }
-    h.releaseGoalReplayCameraOverride?.();
+    ctx.releaseGoalReplayCameraOverride?.();
   }
 
   public bindReconcilerSignals(reconciler: PredictionReconciler | null): void {
-    const h = this.host;
+    const ctx = this.context;
     if (!reconciler) return;
 
     this.resetSignalState();
@@ -113,7 +113,7 @@ export class ReconcilerSignalCoordinator {
       signals: Array<RuntimeSignalPacket | null | undefined>,
       packetServerTick: number | null = null
     ) => {
-      const audio = h.options?.gameAudio || gameAudio;
+      const audio = ctx.options?.gameAudio || gameAudio;
       let currentTick =
         typeof packetServerTick === 'number' && packetServerTick >= 0
           ? packetServerTick
@@ -132,9 +132,9 @@ export class ReconcilerSignalCoordinator {
             s.signalType === MATCH_SIGNALS.MATCH_STARTED ||
             s.signalType === MATCH_SIGNALS.KICKOFF_WILL_START)
         ) {
-          if (h.arena && (h.arena.isLobbyMode || h.arena.isHostLobby)) {
-            h.arena.isLobbyMode = false;
-            h.arena.isHostLobby = false;
+          if (ctx.arena && (ctx.arena.isLobbyMode || ctx.arena.isHostLobby)) {
+            ctx.arena.isLobbyMode = false;
+            ctx.arena.isHostLobby = false;
           }
           if (reconciler.lobbyDualWorldMode) {
             reconciler.setLobbyDualWorldMode?.(false);
@@ -168,13 +168,13 @@ export class ReconcilerSignalCoordinator {
             if (
               rawSignalType !== MATCH_SIGNALS.MATCH_PREPARE &&
               !isSystemControlSignal(rawSignalType) &&
-              h.physics &&
-              typeof h.physics.pushSignalEvent === 'function'
+              ctx.physics &&
+              typeof ctx.physics.pushSignalEvent === 'function'
             ) {
               const p1 = Number(sig.param1 || 0) >>> 0;
               const p2 = Number(sig.param2 || 0) >>> 0;
-              const wasmFrameIdx = Math.max(0, (h.physics.getReplayFrameCount?.() ?? 0) - 1);
-              h.physics.pushSignalEvent(
+              const wasmFrameIdx = Math.max(0, (ctx.physics.getReplayFrameCount?.() ?? 0) - 1);
+              ctx.physics.pushSignalEvent(
                 rawSignalType,
                 (sig.frameId ?? currentTick) >>> 0,
                 Number(sig.param1 || 0),

@@ -24,10 +24,7 @@ import type {
 import type { BoostBloom } from '../../effects/BoostBloom.ts';
 import type { SupersonicSpeedLinesPass } from '../../effects/SupersonicSpeedLinesPass.ts';
 import type { EffectComposer } from '../../effects/PostprocessingPipeline.ts';
-import {
-  syncMaterialsToGame,
-  type applyVisualMaterialsConfig,
-} from '../../effects/ThemeMaterialPipeline.ts';
+import type { applyVisualMaterialsConfig } from '../../effects/ThemeMaterialPipeline.ts';
 import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
 import type { CameraManager } from '../../camera/CameraManager.ts';
 import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
@@ -148,119 +145,33 @@ export interface RuntimeSceneCallbackHost {
       removeRemotePlayer(carIndex: number): Promise<void>;
     };
   };
+  applyVisualMaterialsConfig: unknown;
+  renderer: THREE.WebGLRenderer | null;
+  camera: CameraManager | null;
+  composer: EffectComposer | null;
+  boostBloom: BoostBloom | null;
+  speedLinesPass: SupersonicSpeedLinesPass | null;
+  activeGraphicsSettings: unknown;
   resetKickoff(seed?: number): void;
   getFlipResetVisual(carIndex: number): unknown;
   setCarColor(carIndex: number, hex: string): void;
-  bindInitialArenaAndMaterials(arena: ArenaWorld, applyFn: typeof applyVisualMaterialsConfig): void;
-  bindViewportRenderTargets(
-    renderer: THREE.WebGLRenderer,
-    camera: CameraManager,
-    composer: EffectComposer,
-    boostBloom: BoostBloom,
-    speedLinesPass: SupersonicSpeedLinesPass | null,
-    activeGraphicsSettings: Record<string, unknown>
-  ): void;
-}
-
-export function buildRuntimeSceneGraphConfig(
-  host: RuntimeSceneCallbackHost,
-  onProgress: ((progress: number, message?: string) => void) | null = null
-): SceneGraphFactoryConfig {
-  if (!host.physics || !host.interpolator) {
-    throw new Error('[GameRuntime] setupPhysics must complete before setupScene.');
-  }
-  return {
-    container: host.container,
-    physics: host.physics,
-    interpolator: host.interpolator,
-    selectedPreset: host.selectedPreset,
-    teamAssignment: host.teamAssignment,
-    playerCarIndex: host.playerCarIndex,
-    options: host.options,
-    onProgress,
-    callbacks: {
-      onResetKickoff: () => host.resetKickoff(),
-      onBallControl: (actionId) => {
-        const activeMode = host.modeManager?.getActiveMode?.() as {
-          nameTagTunerController?: { isActive?: boolean };
-        } | null;
-        const modeName = host.match?.state.mode;
-        if (
-          (modeName === 'freeplay' || modeName === 'online-warmup') &&
-          !activeMode?.nameTagTunerController?.isActive &&
-          host.physics?.controlBall(host.playerCarIndex, actionId)
-        ) {
-          if (host.authoritativeServer) {
-            host.authoritativeServer.sim?.controlBall?.(host.playerCarIndex, actionId);
-            const snap =
-              typeof host.physics.saveCompactState === 'function'
-                ? host.physics.saveCompactState()
-                : host.physics.saveState();
-            host.authoritativeServer.sim?.restoreState?.(snap);
-            const curTick = Math.floor(host.physics.getHeaderView?.()?.tickCount ?? 0);
-            host.networkReconciler?.syncTimeline?.(snap, curTick);
-          }
-          host.interpolator?.syncBall();
-          host.arena?.resetBallTrail?.();
-          host.ballTrajectoryPredictor?.notifyBallStateReset?.();
-        }
-      },
-      onKickoffSpawnSelect: (spawnIndex) => {
-        if (host.match?.state?.mode === 'kickoff-training') {
-          const mode = host.modeManager?.getActiveMode?.() as {
-            selectSpawn?(idx: number): void;
-          } | null;
-          mode?.selectSpawn?.(spawnIndex);
-        }
-      },
-      onEnsurePlayerFlipResetVisual: (carIndex) => {
-        host.getFlipResetVisual(carIndex);
-      },
-      onSyncInitialMaterials: (arena, applyFn, materials) => {
-        host.bindInitialArenaAndMaterials(arena, applyFn);
-        syncMaterialsToGame(
-          host as unknown as Parameters<typeof syncMaterialsToGame>[0],
-          materials
-        );
-      },
-      onUpdateViewport: (renderer, camera, composer, boostBloom, speedLinesPass, gfx) => {
-        host.bindViewportRenderTargets(renderer, camera, composer, boostBloom, speedLinesPass, gfx);
-        host.domEventManager.updateViewport();
-      },
-      onEnableDeterminismHarness: (autoOpenPanel) =>
-        host.networkManager.diagnosticsProbe.enableDeterminismHarness(autoOpenPanel),
-      onEnableNetworkPrediction: (enabled) =>
-        host.networkManager.sessionCoordinator.enableNetworkPrediction(enabled),
-      onHostOnlineServer: (opts) => host.networkManager.sessionCoordinator.hostOnlineServer(opts),
-      onStopOnlineServer: () => host.networkManager.sessionCoordinator.stopOnlineServer(),
-      onJoinOnlineServer: (opts) => host.networkManager.sessionCoordinator.joinOnlineServer(opts),
-      onRemotePlayerConnected: async (channel, name) =>
-        (await host.networkManager.rosterSyncCoordinator.onRemotePlayerConnected(channel, name)) ??
-        -1,
-      onRemoveRemotePlayer: (carIndex) =>
-        host.networkManager.rosterSyncCoordinator.removeRemotePlayer(carIndex),
-      onSetCarColor: (carIndex, hex) => host.setCarColor(carIndex, hex),
-      onMountOrAttachGameUI: (container) => {
-        if (host.options?.gameUI) {
-          host.options.gameUI.attachToRuntime?.(host);
-          return host.options.gameUI;
-        }
-        if (typeof host.options?.mountUI === 'function') {
-          return host.options.mountUI(container, host);
-        }
-        return null;
-      },
-      onDisposeHeadlessBloomOcclusion: () => {
-        host.bloomOcclusion?.dispose?.();
-      },
-    },
-  };
 }
 
 export interface VisualizersAndSessionBundle {
   ballTrajectoryPredictor: BallTrajectoryPredictor | null;
   reachabilityVisualizer: ReachabilityVisualizer | null;
   multiplayerSession: MultiplayerSessionManager;
+}
+
+function resolvePreferredTeamColor(
+  assignedTeam: number | null | undefined
+): { slot: number; hex: string } | null {
+  const teamSlot = assignedTeam === 0 || assignedTeam === 1 ? assignedTeam : null;
+  const idx = getPreferredColorSlot(null, teamSlot);
+  if (idx >= 0 && idx < CAR_COLOR_SLOTS.length) {
+    return { slot: idx, hex: CAR_COLOR_SLOTS[idx].hex };
+  }
+  return null;
 }
 
 export function createSceneVisualizersAndMultiplayerSession(params: {
@@ -287,13 +198,16 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
       pushQuickNotification,
       dismissQuickNotification
     );
+    const publishReachabilityTelemetry = (telemetry: unknown) => {
+      reachabilityStore.publishTelemetry(telemetry);
+    };
     reachabilityVisualizer = new ReachabilityVisualizer(
       arena.scene,
       physics,
       ballTrajectoryPredictor,
       {
         getConfig: () => reachabilityStore.getConfig(),
-        onTelemetry: (telemetry: unknown) => reachabilityStore.publishTelemetry(telemetry),
+        onTelemetry: publishReachabilityTelemetry,
       }
     );
   }
@@ -319,74 +233,74 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
   }
 
   let multiplayerSession: MultiplayerSessionManager | null = null;
+  const handleUnexpectedDisconnect = () => {
+    notifyNetworkTelemetryExportAvailable('disconnected');
+  };
+  const handleHostServer = async (opts: HostRoomSettings) => {
+    await callbacks.onHostOnlineServer(opts);
+  };
+  const handleStopOrLeaveServer = async () => {
+    await callbacks.onStopOnlineServer();
+  };
+  const handleJoinServer = async (opts: JoinRoomSettings) => {
+    await callbacks.onJoinOnlineServer(opts);
+  };
+  const handlePeerConnected = async (channel: NetworkSessionChannelLike, name: string) =>
+    await callbacks.onRemotePlayerConnected(channel, name);
+  const handleRemovePlayer = async (carIndex: number) => {
+    await callbacks.onRemoveRemotePlayer(carIndex);
+  };
+  const handleColorSelect = (carIndex: number, _slotId: number, hex: string) => {
+    callbacks.onSetCarColor(carIndex, hex);
+  };
+  const handleSessionStatusChange = (status: SessionStatusSnapshot) => {
+    if (useAppStore && typeof useAppStore.getState === 'function') {
+      useAppStore.getState().setOnlineSession?.(status as unknown as Record<string, unknown>);
+    }
+  };
+  const handlePairingApprovalRequest = (req: PairingApprovalRequest) => {
+    const notifId = `pair-req-${req.peerId}`;
+    pushQuickNotification({
+      id: notifId,
+      type: 'persistent',
+      tone: 'warning',
+      icon: 'shield-alert',
+      duration: 0,
+      content: `Join Request: "${req.peerName}" — Pair Code [${req.pairingCode}]`,
+      buttons: [
+        {
+          label: 'Accept',
+          color: 'emerald',
+          onClick: () => {
+            multiplayerSession?.approvePendingPeer?.(req.peerId);
+            dismissQuickNotification(notifId);
+          },
+        },
+        {
+          label: 'Decline',
+          color: 'rose',
+          onClick: () => {
+            multiplayerSession?.declinePendingPeer?.(req.peerId);
+            dismissQuickNotification(notifId);
+          },
+        },
+      ],
+    });
+  };
+
   multiplayerSession = new MultiplayerSessionManager({
     resolvePlayerName: () => loadStoredPlayerName().substring(0, 16),
-    resolveTeamColor: (assignedTeam) => {
-      const teamSlot = assignedTeam === 0 || assignedTeam === 1 ? assignedTeam : null;
-      const idx = getPreferredColorSlot(null, teamSlot);
-      if (idx >= 0 && idx < CAR_COLOR_SLOTS.length) {
-        return { slot: idx, hex: CAR_COLOR_SLOTS[idx].hex };
-      }
-      return null;
-    },
-    onUnexpectedDisconnect: () => {
-      notifyNetworkTelemetryExportAvailable('disconnected');
-    },
-    onHostServer: async (opts: HostRoomSettings) => {
-      await callbacks.onHostOnlineServer(opts);
-    },
-    onStopServer: async () => {
-      await callbacks.onStopOnlineServer();
-    },
-    onLeaveServer: async () => {
-      await callbacks.onStopOnlineServer();
-    },
-    onJoinServer: async (opts: JoinRoomSettings) => {
-      await callbacks.onJoinOnlineServer(opts);
-    },
-    onPeerConnected: async (channel: NetworkSessionChannelLike, name: string) => {
-      return await callbacks.onRemotePlayerConnected(channel, name);
-    },
-    onRemovePlayer: async (carIndex: number) => {
-      await callbacks.onRemoveRemotePlayer(carIndex);
-    },
-    onColorSelect: (carIndex: number, _slotId: number, hex: string) => {
-      callbacks.onSetCarColor(carIndex, hex);
-    },
-    onSessionStatusChange: (status: SessionStatusSnapshot) => {
-      if (useAppStore && typeof useAppStore.getState === 'function') {
-        useAppStore.getState().setOnlineSession?.(status as unknown as Record<string, unknown>);
-      }
-    },
-    onPairingApprovalRequest: (req: PairingApprovalRequest) => {
-      const notifId = `pair-req-${req.peerId}`;
-      pushQuickNotification({
-        id: notifId,
-        type: 'persistent',
-        tone: 'warning',
-        icon: 'shield-alert',
-        duration: 0,
-        content: `Join Request: "${req.peerName}" — Pair Code [${req.pairingCode}]`,
-        buttons: [
-          {
-            label: 'Accept',
-            color: 'emerald',
-            onClick: () => {
-              multiplayerSession?.approvePendingPeer?.(req.peerId);
-              dismissQuickNotification(notifId);
-            },
-          },
-          {
-            label: 'Decline',
-            color: 'rose',
-            onClick: () => {
-              multiplayerSession?.declinePendingPeer?.(req.peerId);
-              dismissQuickNotification(notifId);
-            },
-          },
-        ],
-      });
-    },
+    resolveTeamColor: resolvePreferredTeamColor,
+    onUnexpectedDisconnect: handleUnexpectedDisconnect,
+    onHostServer: handleHostServer,
+    onStopServer: handleStopOrLeaveServer,
+    onLeaveServer: handleStopOrLeaveServer,
+    onJoinServer: handleJoinServer,
+    onPeerConnected: handlePeerConnected,
+    onRemovePlayer: handleRemovePlayer,
+    onColorSelect: handleColorSelect,
+    onSessionStatusChange: handleSessionStatusChange,
+    onPairingApprovalRequest: handlePairingApprovalRequest,
   });
 
   return {
