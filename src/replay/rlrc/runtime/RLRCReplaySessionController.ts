@@ -1,8 +1,4 @@
-import {
-  hudStore,
-  useQuickNotificationStore,
-  useReplayToRcsImporterStore,
-} from '../../../game/runtimeUiPort.ts';
+import { useReplayToRcsImporterStore } from '../../../game/runtimeUiPort.ts';
 import { ReplayHotkeySubController } from '../../ReplayHotkeySubController.ts';
 import type {
   ReplayScoreboardModePort,
@@ -25,18 +21,23 @@ import {
   type RLRCPlaybackRuntimePort,
 } from './RLRCPlaybackSyncApplier.ts';
 import {
-  downloadRcsReplayPack,
   mapUiInterpolationMethod,
   mapUiNonPovMode,
   publishConvertedSessionTelemetry,
   readLiveRuntimePlayerControls,
-  resolveRLRCPovSlotSelection,
-  syncRLRCFrameHudMatchState,
+  stepRLRCPlaybackCursor,
   syncRLRCNameTagRoster,
 } from './RLRCReplaySessionBridgePipeline.ts';
+import {
+  applyRLRCFrameToSubsystems,
+  applySelectedPovSlotToHudAndCamera,
+  bindRLRCSessionUiAndHotkeys,
+  executeRLRCExportPack,
+  executeRLRCFileUpload,
+  resetClearedReplayTelemetry,
+  triggerRLRCInterveneFromCursor,
+} from './RLRCReplayUiAndHudBinder.ts';
 
-const CONFLICT_MSG =
-  '[RLRCReplaySessionController] Replay Importer hotkeys (O/P/[/]/G) claimed by another window.';
 const getSt = () => useReplayToRcsImporterStore.getState();
 const setTelem: ReturnType<typeof getSt>['updateLiveTelemetry'] = (p) =>
   getSt().updateLiveTelemetry(p);
@@ -94,44 +95,8 @@ export class RLRCReplaySessionController {
   }
 
   public attach(): void {
-    getSt().setRuntimeHandlers({
-      onUploadRLReplayFile: (f: File) => this.handleUploadFile(f),
-      onExportRcsReplayPack: () => this.exportRcsReplayPack(),
-      onStartPlaying: () => this.startPlaying(),
-      onPausePlaying: () => this.pausePlaying(),
-      onSeekFrame: (f: number) => this.seekFrame(f),
-      onSelectPovSlot: (k: number | null) => this.selectPovSlot(k ?? 1),
-      onPushBackwardStart: () => this.beginScrub('rewinding'),
-      onPushBackwardStop: () => this.pauseScrub(),
-      onPushForwardStart: () => this.beginScrub('forwarding'),
-      onPushForwardStop: () => this.pauseScrub(),
-      onResumeFromHere: () => this.resumeFromCursor(),
-      onReturnToReplay: () => this.returnToReplay(),
-      onInterpolationMethodChange: (m) => this.handleInterpolationMethodChange(m),
-      onNonPovInterventionModeChange: (m) => this.handleNonPovModeChange(m),
-      onClearReplay: () => this.clearReplay(),
-    });
-    const winStat = () => ({
-      isWindowOpen: Boolean(getSt().isWindowOpen),
-      hasHotkeyPriority: Boolean(getSt().hasHotkeyPriority),
-    });
-    this.hotkeySubController.bindReplayViewerHotkeys({
-      getRuntime: () => this.runtime as Record<string, unknown> | null,
-      hasLoadedReplay: () => this.hasLoadedReplay,
-      hasFrames: () => Boolean(this.session && this.session.frames120Hz.length > 0),
-      getWindowStatus: winStat,
-      conflictErrorMessage: CONFLICT_MSG,
-      onSelectPovSlot: (k: number) => this.selectPovSlot(k),
-      onStartPlaying: () => this.startPlaying(),
-      onPausePlaying: () => this.pausePlaying(),
-      onResumeFromCursor: () => this.resumeFromCursor(),
-      onBeginScrub: (dir) => this.beginScrub(dir),
-      onPauseScrub: () => this.pauseScrub(),
-    });
     this._unsub?.();
-    this._unsub = useReplayToRcsImporterStore.subscribe(() => {
-      this.hotkeySubController.checkWindowOpenAndPriority(winStat(), CONFLICT_MSG);
-    });
+    this._unsub = bindRLRCSessionUiAndHotkeys(this.hotkeySubController, this);
   }
 
   public detach(): void {
@@ -162,36 +127,11 @@ export class RLRCReplaySessionController {
   }
 
   public async handleUploadFile(file: File): Promise<void> {
-    setTelem({ isLoadingReplay: true, errorMessage: null });
-    const notify = useQuickNotificationStore.getState().pushNotification;
-    try {
-      this.loadReplayBuffer(await file.arrayBuffer(), file.name);
-      try {
-        notify({
-          id: 'rlrc-replay-loaded',
-          content: `RL Replay Converted (120Hz): ${file.name} (${this.session?.frames120Hz.length ?? 0} frames, ${this.session?.roster.length ?? 0} players).`,
-          type: 'temporary',
-          duration: 2800,
-          tone: 'info',
-        });
-      } catch {
-        /* ignore notification schema errors after successful load */
-      }
-    } catch (err) {
-      const errorMessage = `Failed to parse .replay: ${err instanceof Error ? err.message : String(err)}`;
-      setTelem({ isLoadingReplay: false, errorMessage });
-      try {
-        notify({
-          id: 'rlrc-replay-error',
-          content: errorMessage,
-          type: 'temporary',
-          duration: 3600,
-          tone: 'error',
-        });
-      } catch {
-        /* ignore */
-      }
-    }
+    await executeRLRCFileUpload(
+      file,
+      (buf, name) => this.loadReplayBuffer(buf, name),
+      () => this.session
+    );
   }
 
   public loadReplayBuffer(buffer: ArrayBuffer | Uint8Array, fileName = 'match.replay'): void {
@@ -206,7 +146,8 @@ export class RLRCReplaySessionController {
   ): void {
     this.session = c;
     const clamped = Math.max(0, Math.min(Math.max(0, c.frames120Hz.length - 1), initialCursor));
-    this.cursorFrame120Hz = this._frac = clamped;
+    this.cursorFrame120Hz = clamped;
+    this._frac = clamped;
     this._tick = 0;
     this._hudKey = '';
     this.activePovSlotIndex = c.roster[0]?.slotIndex ?? 0;
@@ -222,13 +163,7 @@ export class RLRCReplaySessionController {
   }
 
   public async exportRcsReplayPack(): Promise<void> {
-    if (!this.session) return;
-    setTelem({ isExportingRcsPack: true });
-    try {
-      await downloadRcsReplayPack(this.session, getSt().loadedFileName);
-    } finally {
-      setTelem({ isExportingRcsPack: false });
-    }
+    await executeRLRCExportPack(this.session);
   }
 
   public startPlaying(): void {
@@ -236,7 +171,8 @@ export class RLRCReplaySessionController {
     if (!s || s.frames120Hz.length === 0) return;
     if (this.isIntervening) this.returnToReplay();
     if (this.cursorFrame120Hz >= s.frames120Hz.length - 1) {
-      this.cursorFrame120Hz = this._frac = 0;
+      this.cursorFrame120Hz = 0;
+      this._frac = 0;
       this.audioEdgeSynthesizer.reset();
     }
     this._tick = 0;
@@ -273,7 +209,8 @@ export class RLRCReplaySessionController {
       this._syncRoster(s.roster);
     }
     const clamped = Math.max(0, Math.min(s.frames120Hz.length - 1, Math.round(frameIndex120Hz)));
-    this.cursorFrame120Hz = this._frac = clamped;
+    this.cursorFrame120Hz = clamped;
+    this._frac = clamped;
     this.audioEdgeSynthesizer.reset();
     this._hudKey = '';
     this._applyFrame(clamped, false);
@@ -283,38 +220,32 @@ export class RLRCReplaySessionController {
   public selectPovSlot(slotKey: number): void {
     const s = this.session;
     if (!s) return;
-    const resolved = resolveRLRCPovSlotSelection(s.roster, slotKey, this.runtime);
-    if (!resolved) return;
-    const { key, slot, povTeam } = resolved;
-    this.activePovSlotIndex = slot;
-    if (this.isIntervening) this.interveneController.povSlotIndex = slot;
-    this._syncPov(slot);
-    syncRLRCNameTagRoster(s.roster, slot);
     this._hudKey = '';
-    hudStore.getState().setMatchState({ localTeam: this.isIntervening ? povTeam : 0 });
-    if (this.mode?.directorPreview?.isReplayActive || this.mode?.isGoalReplayActive?.()) {
-      if (this.mode.directorPreview) this.mode.directorPreview.goalScorerCarIndex = slot;
-      this.mode.setReplayCameraMode?.('pov');
-      this.runtime?.releaseGoalReplayCameraOverride?.();
-      hudStore.getState().setReplayState({ replayCameraMode: 'pov' });
-    } else if (!this.isIntervening) {
-      this._applyFrame(this.cursorFrame120Hz, false);
-    }
-    this.runtime?.camera?.resetView?.();
-    setTelem({ activePovCarIndex: slot, activePovSlotKey: key, activePovTeam: povTeam });
+    const resolved = applySelectedPovSlotToHudAndCamera({
+      roster: s.roster,
+      slotKey,
+      isIntervening: this.isIntervening,
+      sessionPort: this.runtime,
+      sessionMode: this.mode,
+      interveneController: this.interveneController,
+      syncPovToArena: (slot) => {
+        this.activePovSlotIndex = slot;
+        this._syncPov(slot);
+      },
+      applyCurrentFrame: () => this._applyFrame(this.cursorFrame120Hz, false),
+    });
+    if (!resolved) return;
   }
 
   public resumeFromCursor(): void {
-    if (!this.session || this.session.frames120Hz.length === 0) return;
-    const st = getSt();
-    this.audioEdgeSynthesizer.reset();
-    const opts = {
-      povSlotIndex: this.activePovSlotIndex,
-      nonPovMode: mapUiNonPovMode(st.nonPovInterventionMode),
-      downCounterSeconds: st.downCounterSec,
-    };
-    if (this.isIntervening) this.interveneController.reinterveneAtLastTargetFrame(opts);
-    else this.interveneController.enterInterveneAtFrame(this.cursorFrame120Hz, opts);
+    triggerRLRCInterveneFromCursor(
+      this.session,
+      this.cursorFrame120Hz,
+      this.activePovSlotIndex,
+      this.isIntervening,
+      this.audioEdgeSynthesizer,
+      this.interveneController
+    );
   }
 
   public returnToReplay(): void {
@@ -342,19 +273,11 @@ export class RLRCReplaySessionController {
     this.runtime?.audioSubsystem?.resetAudio?.();
     this.audioEdgeSynthesizer.reset();
     this.session = null;
-    this.cursorFrame120Hz = this._frac = this._tick = 0;
+    this.cursorFrame120Hz = 0;
+    this._frac = 0;
+    this._tick = 0;
     this._hudKey = '';
-    setTelem({
-      viewerState: 'idle',
-      loadedFileName: null,
-      totalFrames: 0,
-      cursorFrame: 0,
-      targetFrame: 0,
-      incidentMarkers: [],
-      signalMarkers: [],
-      trackDeltaSummary: null,
-      errorMessage: null,
-    });
+    resetClearedReplayTelemetry();
   }
 
   public getViewerState(): string {
@@ -404,27 +327,20 @@ export class RLRCReplaySessionController {
       );
       return true;
     }
-    const maxF = frames.length - 1;
-    const spd = Math.max(0.01, (Number(st.effectiveFlowPct) || 100) / 100);
-    if (state === 'playing' || state === 'forwarding' || state === 'rewinding') {
-      const dir = state === 'rewinding' ? -1 : 1;
-      this._frac = Math.max(
-        0,
-        Math.min(maxF, this._frac + dir * (state === 'playing' ? spd : Math.max(1.5, spd * 2)))
-      );
-      const next = Math.round(this._frac);
-      if (next !== this.cursorFrame120Hz) {
-        this.cursorFrame120Hz = next;
-        this._applyFrame(next, dir > 0);
-        const done = (dir > 0 && next >= maxF) || (dir < 0 && next <= 0);
-        if (done || (this._tick = (this._tick + 1) & 3) === 0) {
-          setTelem({ cursorFrame: next, targetFrame: next });
-        }
-        if (done) this.pausePlaying();
-      }
-      return true;
-    }
-    return false;
+    const res = stepRLRCPlaybackCursor({
+      state,
+      effectiveFlowPct: st.effectiveFlowPct,
+      maxF: frames.length - 1,
+      prevFrac: this._frac,
+      prevCursor: this.cursorFrame120Hz,
+      prevTick: this._tick,
+      applyFrame: (idx, sm) => this._applyFrame(idx, sm),
+      pausePlaying: () => this.pausePlaying(),
+    });
+    this._frac = res.frac;
+    this.cursorFrame120Hz = res.cursorFrame120Hz;
+    this._tick = res.tick;
+    return res.stepped;
   }
 
   private _syncPov(slot: number): void {
@@ -442,24 +358,16 @@ export class RLRCReplaySessionController {
   }
 
   private _applyFrame(idx: number, smoothStep: boolean): void {
-    const f = this.session?.frames120Hz[idx];
-    if (!f) return;
-    this.playbackApplier.applyFrame120Hz(f, this.runtime as unknown as RLRCPlaybackRuntimePort, {
+    this._hudKey = applyRLRCFrameToSubsystems({
+      session: this.session,
+      idx,
       smoothStep,
       activePovSlotIndex: this.activePovSlotIndex,
+      isIntervening: this.isIntervening,
+      sessionPort: this.runtime,
+      playbackApplier: this.playbackApplier,
+      audioEdgeSynthesizer: this.audioEdgeSynthesizer,
+      prevHudKey: this._hudKey,
     });
-    this.audioEdgeSynthesizer.stepFrame(f, {
-      smoothStep,
-      activePovSlotIndex: this.activePovSlotIndex,
-      runtime: this.runtime as unknown as RLRCPlaybackAudioRuntimePort,
-      bookmarks: this.session?.bookmarks ?? [],
-    });
-    this._hudKey = syncRLRCFrameHudMatchState(
-      f,
-      this.session?.roster ?? [],
-      this.activePovSlotIndex,
-      this.isIntervening,
-      this._hudKey
-    );
   }
 }
