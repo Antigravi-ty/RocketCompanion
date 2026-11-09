@@ -18,42 +18,28 @@ export function createTunerBridgeHandlers(
 ): Partial<AppState['bridge']> {
   const { cameraPort, tunerPort } = runtimePort;
   return {
-    onVehicleChange(carId: string) {
-      tunerPort.changePlayerVehicle(carId);
-    },
-    onColorChange(hex: string) {
-      tunerPort.applyPlayerColorChoice(hex);
-    },
-    onCameraChange(cameraConfig) {
-      cameraPort.applyPovSettings(cameraConfig as unknown as Record<string, unknown>);
-    },
-    onGraphicsChange(graphicsConfig) {
-      tunerPort.applyGraphicsSettings(graphicsConfig);
-    },
-    onGameplayChange(gameplayConfig) {
-      tunerPort.applyGameplaySettings(gameplayConfig);
-    },
-    onTrajectoryChange(trajectoryConfig) {
-      tunerPort.applyTrajectorySettings(trajectoryConfig as unknown as Record<string, unknown>);
-    },
-    onMaterialsChange(materialsConfig) {
-      syncMaterialsToGame(runtimePort, materialsConfig);
-    },
-    onBoostPadTunerChange(boostPadConfig) {
-      tunerPort.applyBoostPadTuner(boostPadConfig as unknown as Record<string, unknown>);
-    },
-    onDriftwoodsTunerChange(driftwoodsConfig) {
-      tunerPort.applyDriftwoodsTuner(driftwoodsConfig as unknown as Record<string, unknown>);
-    },
-    onFreeCamToggle(enabled) {
-      cameraPort.setFreeCam(enabled);
-    },
-    onFreeCamFovChange(fov) {
-      cameraPort.setFreeCamFov(fov);
-    },
-    onResetFreeCam() {
-      cameraPort.resetFreeCamOverview();
-    },
+    onVehicleChange: tunerPort.changePlayerVehicle.bind(tunerPort),
+    onColorChange: tunerPort.applyPlayerColorChoice.bind(tunerPort),
+    onCameraChange: cameraPort.applyPovSettings.bind(
+      cameraPort
+    ) as AppState['bridge']['onCameraChange'],
+    onGraphicsChange: tunerPort.applyGraphicsSettings.bind(tunerPort),
+    onGameplayChange: tunerPort.applyGameplaySettings.bind(tunerPort),
+    onTrajectoryChange: tunerPort.applyTrajectorySettings.bind(
+      tunerPort
+    ) as AppState['bridge']['onTrajectoryChange'],
+    onMaterialsChange: tunerPort.syncMaterialsConfig.bind(
+      tunerPort
+    ) as AppState['bridge']['onMaterialsChange'],
+    onBoostPadTunerChange: tunerPort.applyBoostPadTuner.bind(
+      tunerPort
+    ) as AppState['bridge']['onBoostPadTunerChange'],
+    onDriftwoodsTunerChange: tunerPort.applyDriftwoodsTuner.bind(
+      tunerPort
+    ) as AppState['bridge']['onDriftwoodsTunerChange'],
+    onFreeCamToggle: cameraPort.setFreeCam.bind(cameraPort),
+    onFreeCamFovChange: cameraPort.setFreeCamFov.bind(cameraPort),
+    onResetFreeCam: cameraPort.resetFreeCamOverview.bind(cameraPort),
     onBindingsChange(bindings) {
       tunerPort.applyInputBindings(bindings as unknown as Record<string, unknown>);
       hudStore.getState().syncBindings(bindings);
@@ -64,44 +50,36 @@ export function createTunerBridgeHandlers(
         determinismStore.setHarness(harness);
       }
     },
-    async onEnsureNetworkDiagnostics() {
+    onEnsureNetworkDiagnostics() {
       syncRuntimeNetworkDiagnostics(runtimePort);
     },
-    onSimulateBoostPadCollect(padIndex) {
-      tunerPort.simulateBoostPadCollect(padIndex);
-    },
-    onSimulateBoostPadRefill(padIndex, duration) {
-      tunerPort.simulateBoostPadRefill(padIndex, duration);
-    },
-    onExperimentalWallConfigChange(wallConfig) {
-      tunerPort.applyExperimentalWallConfig(wallConfig as unknown as Record<string, unknown>);
-    },
-    onShadowConfigChange(shadowConfig) {
-      tunerPort.applyShadowConfig(shadowConfig as unknown as Record<string, unknown>);
-    },
-    onAnodizedPaintChange() {
-      tunerPort.markArenaRenderTreeChanged();
-    },
-    onBoostParticleConfigChange(particleConfig) {
-      tunerPort.applyBoostParticleConfig(particleConfig as unknown as Record<string, unknown>);
-    },
-    onSkyboxConfigChange(skyboxConfig) {
-      tunerPort.applySkyboxConfig(skyboxConfig as unknown as Record<string, unknown>);
-    },
-    onBallVisualConfigChange(ballConfig) {
-      tunerPort.applyBallVisualConfig(ballConfig as unknown as Record<string, unknown>);
-    },
-    onCustomVehicleTunerChange(vehicleId, hitboxPreset) {
-      tunerPort.applyCustomVehicleTuner(vehicleId, hitboxPreset);
-    },
-    async onImportCustomVehicleGlb(vehicleId, arrayBuffer, fileName, alignPreset) {
-      return tunerPort.importCustomVehicleGlb?.(vehicleId, arrayBuffer, fileName, alignPreset);
+    onSimulateBoostPadCollect: tunerPort.simulateBoostPadCollect.bind(tunerPort),
+    onSimulateBoostPadRefill: tunerPort.simulateBoostPadRefill.bind(tunerPort),
+    onExperimentalWallConfigChange: tunerPort.applyExperimentalWallConfig.bind(
+      tunerPort
+    ) as AppState['bridge']['onExperimentalWallConfigChange'],
+    onShadowConfigChange: tunerPort.applyShadowConfig.bind(
+      tunerPort
+    ) as AppState['bridge']['onShadowConfigChange'],
+    onAnodizedPaintChange: tunerPort.markArenaRenderTreeChanged.bind(tunerPort),
+    onBoostParticleConfigChange: tunerPort.applyBoostParticleConfig.bind(
+      tunerPort
+    ) as AppState['bridge']['onBoostParticleConfigChange'],
+    onSkyboxConfigChange: tunerPort.applySkyboxConfig.bind(
+      tunerPort
+    ) as AppState['bridge']['onSkyboxConfigChange'],
+    onBallVisualConfigChange: tunerPort.applyBallVisualConfig.bind(
+      tunerPort
+    ) as AppState['bridge']['onBallVisualConfigChange'],
+    onCustomVehicleTunerChange: tunerPort.applyCustomVehicleTuner.bind(tunerPort),
+    onImportCustomVehicleGlb(vehicleId, arrayBuffer, fileName, alignPreset) {
+      return Promise.resolve(
+        tunerPort.importCustomVehicleGlb?.(vehicleId, arrayBuffer, fileName, alignPreset)
+      );
     },
     onApplyVehicleAlignPreset(vehicleId, alignPreset) {
       return Boolean(tunerPort.applyVehicleAlignPreset?.(vehicleId, alignPreset));
     },
-    async onUnderDevelopmentChange(config, patch) {
-      await tunerPort.applyUnderDevelopmentConfig(config, patch);
-    },
+    onUnderDevelopmentChange: tunerPort.applyUnderDevelopmentConfig.bind(tunerPort),
   };
 }
