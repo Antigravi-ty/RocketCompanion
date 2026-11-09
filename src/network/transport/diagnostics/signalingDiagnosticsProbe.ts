@@ -3,6 +3,7 @@
  * MQTT and WebSocket signaling connectivity diagnostic probes.
  */
 
+import { buildMqttConnectPacket, MQTT_DISCONNECT_PACKET } from '../mqttPacketCodec.ts';
 import {
   DEFAULT_SIGNALING_URL,
   detectSignalingProtocol,
@@ -24,60 +25,6 @@ export interface SignalingRelayDiagnosticSummary extends SignalingProbeResult {
   label: string;
   url: string;
   protocol: string;
-}
-
-function encodeMqttUtf8Field(str: string): Uint8Array {
-  const encoder = new TextEncoder();
-  const bytes = encoder.encode(str || '');
-  const out = new Uint8Array(2 + bytes.length);
-  out[0] = (bytes.length >> 8) & 0xff;
-  out[1] = bytes.length & 0xff;
-  out.set(bytes, 2);
-  return out;
-}
-
-function buildMqttDiagnosticConnectPacket(
-  clientId: string,
-  username = '',
-  password = ''
-): Uint8Array {
-  const protoHeader = new Uint8Array([0x00, 0x04, 0x4d, 0x51, 0x54, 0x54, 0x04]);
-  let connectFlags = 0x02;
-  const chunks = [encodeMqttUtf8Field(clientId)];
-  if (username) {
-    connectFlags |= 0x80;
-    chunks.push(encodeMqttUtf8Field(username));
-    if (password) {
-      connectFlags |= 0x40;
-      chunks.push(encodeMqttUtf8Field(password));
-    }
-  }
-  const keepAliveHeader = new Uint8Array([connectFlags, 0x00, 0x1e]);
-  let payloadLength = protoHeader.length + keepAliveHeader.length;
-  for (const chunk of chunks) payloadLength += chunk.length;
-
-  const lengthBytes: number[] = [];
-  let rem = payloadLength;
-  do {
-    let encodedByte = rem % 128;
-    rem = Math.floor(rem / 128);
-    if (rem > 0) encodedByte |= 128;
-    lengthBytes.push(encodedByte);
-  } while (rem > 0);
-
-  const packet = new Uint8Array(1 + lengthBytes.length + payloadLength);
-  let offset = 0;
-  packet[offset++] = 0x10;
-  for (const b of lengthBytes) packet[offset++] = b;
-  packet.set(protoHeader, offset);
-  offset += protoHeader.length;
-  packet.set(keepAliveHeader, offset);
-  offset += keepAliveHeader.length;
-  for (const chunk of chunks) {
-    packet.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return packet;
 }
 
 export async function testSignalingConnectivity(
@@ -154,7 +101,7 @@ export async function testSignalingConnectivity(
           } else if (sock.readyState === 1) {
             if (protocol === 'mqtt') {
               try {
-                sock.send(new Uint8Array([0xe0, 0x00]));
+                sock.send(MQTT_DISCONNECT_PACKET);
               } catch (_) {
                 // Ignore disconnect packet error
               }
@@ -197,7 +144,7 @@ export async function testSignalingConnectivity(
         mqttSock.onopen = () => {
           try {
             const diagClientId = `rc_diag_${Math.random().toString(36).slice(2, 10)}`;
-            mqttSock.send(buildMqttDiagnosticConnectPacket(diagClientId, username, password));
+            mqttSock.send(buildMqttConnectPacket(diagClientId, username, password));
           } catch (err: any) {
             const elapsed = Math.round(
               (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startTime

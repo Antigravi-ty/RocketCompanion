@@ -9,9 +9,13 @@
 
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import vm from 'node:vm';
-import ts from 'typescript';
+
+const rootRequire = createRequire(import.meta.url);
+const viteRequire = createRequire(rootRequire.resolve('vite'));
+const esbuild = viteRequire('esbuild');
 
 const ROOT_DIR = process.cwd();
 const DEFAULT_COMMIT = '65f1538d';
@@ -51,12 +55,11 @@ function resolveSubmoduleCommit(mainCommit, submodulePath) {
 }
 
 function evalTypeScriptModule(tsSource, mockImports = {}) {
-  const transpiled = ts.transpileModule(tsSource, {
-    compilerOptions: {
-      module: ts.ModuleKind.CommonJS,
-      target: ts.ScriptTarget.ES2022,
-    },
-  }).outputText;
+  const transpiled = esbuild.transformSync(tsSource, {
+    loader: 'ts',
+    format: 'cjs',
+    target: 'es2022',
+  }).code;
 
   const exportsObj = {};
   const moduleObj = { exports: exportsObj };
@@ -284,6 +287,45 @@ export interface GoldenHitboxPresetSpec {
   up: number;
   chassisRestHeightUu: number;
   wheelSpecs: ReadonlyArray<readonly [number, number, number]>;
+}
+
+export interface VehicleWheelGeometrySample {
+  wheelIndex: number;
+  steerPosition: [number, number, number];
+  steerRotationY: number; spinRotationZ: number;
+  specAnchor: [number, number, number];
+}
+
+export interface VehicleRigGeometryProbeSnapshot {
+  carIndex: number; visualId: string; hitboxPresetId: string;
+  carVisible: boolean; carPosition: [number, number, number];
+  frontAxleX: number; rearAxleX: number; wheelbaseX: number;
+  frontTrackWidthZ: number; rearTrackWidthZ: number;
+  wheelHeightsY: [number, number, number, number];
+  wheels: VehicleWheelGeometrySample[];
+  wheelSpecs: Array<[number, number, number]>;
+  boostOutlets: Array<[number, number, number]>;
+  hitboxDimensions: [number, number, number] | null;
+  hitboxOffset: [number, number, number] | null;
+}
+
+export interface GoldenFieldDiffItem {
+  field: string; expected: unknown; actual: unknown;
+  maxAbsDelta: number; passed: boolean;
+}
+
+export interface VehicleRigGoldenDiffReport {
+  carIndex: number; visualId: string; goldenReferenceId: string;
+  passed: boolean; maxCoordinateDeltaUu: number;
+  mismatches: GoldenFieldDiffItem[];
+  probe: VehicleRigGeometryProbeSnapshot;
+}
+
+export interface GoldenBaselineDiffSummary {
+  referenceCommit: string; referenceUiCoreCommit: string;
+  passed: boolean; staticDescriptorChecksPassed: boolean;
+  staticDescriptorDiffs: GoldenFieldDiffItem[];
+  vehicleRigDiffs: VehicleRigGoldenDiffReport[];
 }
 
 export const GOLDEN_65F1538D_COMMIT = ${JSON.stringify(golden.sourceMainCommit)} as const;

@@ -15,8 +15,6 @@ export const SPEED_TRAIL_MAX_OPACITY = 0.2;
 export const SPEED_TRAIL_MAX_POINTS = 60;
 export const SPEED_TRAIL_MAX_VERTICES = SPEED_TRAIL_MAX_POINTS + 1; // 61
 export const SPEED_TRAIL_TELEPORT_RESET_DISTANCE = 512;
-export const SPEED_TRAIL_ACTIVATION_GLOW_DURATION = 0.25;
-export const SPEED_TRAIL_ACTIVATION_GLOW_SCALE = 256;
 export const SPEED_TRAIL_VISIBLE_OPACITY_THRESHOLD = 0.015;
 
 export const SPEED_TRAIL_VERTEX_SHADER = `
@@ -47,27 +45,6 @@ export const SPEED_TRAIL_FRAGMENT_SHADER = `
   }
 `;
 
-export function createSpeedTrailGlowTexture() {
-  if (typeof document === 'undefined') return null;
-  const canvas = document.createElement("canvas");
-  canvas.width = 64;
-  canvas.height = 64;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-  const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-  gradient.addColorStop(0, "rgba(255,255,255,1)");
-  gradient.addColorStop(0.28, "rgba(220,239,255,0.82)");
-  gradient.addColorStop(0.7, "rgba(139,190,255,0.18)");
-  gradient.addColorStop(1, "rgba(100,160,255,0)");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, 64, 64);
-
-  const { CanvasTexture, SRGBColorSpace } = THREE;
-  const texture = new CanvasTexture(canvas);
-  texture.colorSpace = SRGBColorSpace;
-  return texture;
-}
-
 export interface SpeedTrailPoint {
   position: THREE.Vector3;
   age: number;
@@ -77,17 +54,12 @@ export class SpeedTrail {
   public side = new THREE.Vector3();
   public opacity = 0;
   public across = new Float32Array(SPEED_TRAIL_MAX_VERTICES * 2);
-  public activationGlow: THREE.Sprite;
-  public activationGlowAge = SPEED_TRAIL_ACTIVATION_GLOW_DURATION;
   public cameraPosition = new THREE.Vector3();
   public emissionClock = 0;
   public fallbackAxis = new THREE.Vector3(0, 1, 0);
   public geometry = new THREE.BufferGeometry();
   public geometryDirty = true;
-  public glowGeometry: THREE.BufferGeometry | undefined;
-  public glowMaterial: THREE.SpriteMaterial | undefined;
   public hasSourcePosition = false;
-  public hasSpawnedStartupGlow = false;
   public indices = new Uint16Array((SPEED_TRAIL_MAX_VERTICES - 1) * 6);
   public isEmitting = false;
   public lastEmitting = false;
@@ -113,12 +85,9 @@ export class SpeedTrail {
       BufferAttribute,
       ShaderMaterial,
       Mesh,
-      Sprite,
-      SpriteMaterial,
       Vector3,
       Color,
       DynamicDrawUsage,
-      AdditiveBlending,
       DoubleSide,
       NormalBlending
     } = THREE;
@@ -176,23 +145,7 @@ export class SpeedTrail {
     this.ribbon.frustumCulled = false;
     this.ribbon.renderOrder = 1;
 
-    const glowMaterial = new SpriteMaterial({
-      map: createSpeedTrailGlowTexture(),
-      color: 15332863,
-      transparent: true,
-      opacity: 0,
-      blending: AdditiveBlending,
-      depthWrite: false,
-      toneMapped: true
-    });
-
-    this.activationGlow = new Sprite(glowMaterial);
-    this.activationGlow.name = "SpeedTrail_PS-activation-glow";
-    this.activationGlow.scale?.setScalar?.(SPEED_TRAIL_ACTIVATION_GLOW_SCALE);
-    this.activationGlow.visible = false;
-    this.activationGlow.renderOrder = 2;
-
-    this.object.add(this.ribbon, this.activationGlow);
+    this.object.add(this.ribbon);
   }
 
   private _acquirePoint(): SpeedTrailPoint {
@@ -212,14 +165,11 @@ export class SpeedTrail {
     this._clearPoints();
     this.hasSourcePosition = false;
     this.previousSpeed = 0;
-    this.hasSpawnedStartupGlow = false;
-    this.activationGlowAge = SPEED_TRAIL_ACTIVATION_GLOW_DURATION;
     this.opacity = 0;
     if (this.material?.uniforms?.uOpacity) {
       this.material.uniforms.uOpacity.value = 0;
     }
     this.ribbon.visible = false;
-    this.activationGlow.visible = false;
     this.geometry.setDrawRange(0, 0);
     this.geometryDirty = true;
   }
@@ -326,27 +276,6 @@ export class SpeedTrail {
     this.previousSourcePosition.copy(sourcePos);
     this.previousSpeed = speed;
 
-    if (isSupersonic && !this.hasSpawnedStartupGlow) {
-      this.hasSpawnedStartupGlow = true;
-      this.activationGlowAge = 0;
-      this.activationGlow.position?.copy?.(sourcePos);
-      this.activationGlow.visible = true;
-    } else if (!isSupersonic) {
-      this.hasSpawnedStartupGlow = false;
-    }
-
-    if (this.activationGlowAge < SPEED_TRAIL_ACTIVATION_GLOW_DURATION) {
-      this.activationGlowAge += scaledDeltaTime;
-      const progress = THREE.MathUtils.clamp(this.activationGlowAge / SPEED_TRAIL_ACTIVATION_GLOW_DURATION, 0, 1);
-      if (this.activationGlow.material) {
-        this.activationGlow.material.opacity = (1 - progress) * (1 - progress);
-      }
-      this.activationGlow.position?.copy?.(sourcePos);
-      this.activationGlow.visible = progress < 1;
-    } else {
-      this.activationGlow.visible = false;
-    }
-
     this.ribbon.visible = this.opacity >= SPEED_TRAIL_VISIBLE_OPACITY_THRESHOLD && this.points.length > 0;
     this.geometryDirty = true;
   }
@@ -440,8 +369,6 @@ export class SpeedTrail {
   dispose() {
     this.geometry?.dispose?.();
     this.material?.dispose?.();
-    this.glowGeometry?.dispose?.();
-    this.glowMaterial?.dispose?.();
     this.object?.parent?.remove(this.object);
   }
 }

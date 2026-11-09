@@ -87,7 +87,7 @@ export function ensureWasmSimdMatVec(): Promise<boolean> {
       if (nodeProc?.versions?.node && wasmUrl.protocol === 'file:') {
         const fsModName = 'node:fs/promises';
         const fsPromises = (await import(/* @vite-ignore */ fsModName)) as {
-          readFile: (path: URL) => Promise<Uint8Array>;
+          readFile: (path: URL) => Promise<Uint8Array<ArrayBuffer>>;
         };
         const buf = await fsPromises.readFile(wasmUrl);
         const mod = new WebAssembly.Module(

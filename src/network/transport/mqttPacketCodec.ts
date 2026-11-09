@@ -52,7 +52,7 @@ export function encodeRemainingLength(lengthValue: number): number[] {
   return bytes;
 }
 
-export function encodeMqttUtf8String(value: string): Uint8Array {
+export function encodeMqttUtf8String(value: string): Uint8Array<ArrayBuffer> {
   const utf8 = textEncoder.encode(String(value || ''));
   const output = new Uint8Array(2 + utf8.length);
   output[0] = (utf8.length >> 8) & 0xff;
@@ -66,7 +66,7 @@ export function buildMqttConnectPacket(
   username: string,
   password: string,
   keepAliveSeconds = 30
-): Uint8Array {
+): Uint8Array<ArrayBuffer> {
   const protocolHeader = new Uint8Array([0x00, 0x04, 0x4d, 0x51, 0x54, 0x54, 0x04]);
   let connectFlags = 0x02;
   const payloadParts = [encodeMqttUtf8String(clientId)];
@@ -109,7 +109,11 @@ export function buildMqttConnectPacket(
   return packet;
 }
 
-export function buildMqttSubscribePacket(packetId: number, topic: string, qos = 1): Uint8Array {
+export function buildMqttSubscribePacket(
+  packetId: number,
+  topic: string,
+  qos = 1
+): Uint8Array<ArrayBuffer> {
   const topicBytes = encodeMqttUtf8String(topic);
   const bodyLength = 2 + topicBytes.length + 1;
   const remBytes = encodeRemainingLength(bodyLength);
@@ -127,7 +131,10 @@ export function buildMqttSubscribePacket(packetId: number, topic: string, qos = 
   return packet;
 }
 
-export function buildMqttUnsubscribePacket(packetId: number, topic: string): Uint8Array {
+export function buildMqttUnsubscribePacket(
+  packetId: number,
+  topic: string
+): Uint8Array<ArrayBuffer> {
   const topicBytes = encodeMqttUtf8String(topic);
   const bodyLength = 2 + topicBytes.length;
   const remBytes = encodeRemainingLength(bodyLength);
@@ -149,7 +156,7 @@ export function buildMqttPublishPacket(
   qos = 0,
   packetId = 1,
   retain = false
-): Uint8Array {
+): Uint8Array<ArrayBuffer> {
   const topicBytes = encodeMqttUtf8String(topic);
   const payloadBytes = textEncoder.encode(messageString);
   const packetIdLength = qos > 0 ? 2 : 0;
@@ -173,7 +180,7 @@ export function buildMqttPublishPacket(
   return packet;
 }
 
-export function buildMqttPubAckPacket(packetId: number): Uint8Array {
+export function buildMqttPubAckPacket(packetId: number): Uint8Array<ArrayBuffer> {
   return new Uint8Array([0x40, 0x02, (packetId >> 8) & 0xff, packetId & 0xff]);
 }
 
