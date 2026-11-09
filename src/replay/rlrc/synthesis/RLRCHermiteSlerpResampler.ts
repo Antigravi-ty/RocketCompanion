@@ -27,7 +27,6 @@ import {
   isDupRb,
   isRest,
   lerp,
-  packRLRCFramesToTrack0Bytes,
   SLEEP_RB,
   toRest,
   vAdd,
@@ -39,13 +38,17 @@ import {
   ZERO_FLAGS,
   type RLRCOrthonormalBasis,
 } from './RLRCHermiteSlerpMathPipeline.ts';
+import { packRLRCFramesToTrack0Bytes } from './RLRCTrack0FrameSlotPacker.ts';
 
 export type { RLRCOrthonormalBasis };
+
+const ZERO_BOOST_PAD_COOLDOWNS = new Float32Array(RLRC_BOOST_PAD_COUNT);
 
 export interface RLRCResamplerOptions {
   readonly method?: RLRCInterpolationMethod;
   readonly boostPadCooldownsByFrame120Hz?: readonly Float32Array[];
   readonly maxTeleportDistanceUu?: number;
+  readonly deferTrack0Packing?: boolean;
 }
 
 export interface RLRCEntitySpan {
@@ -346,7 +349,11 @@ export function resampleRLRCReplayTo120Hz(parsed: RLRCParserOutput, opts: RLRCRe
 
     const pads = opts.boostPadCooldownsByFrame120Hz?.[f];
     const boostPadCooldowns =
-      pads && pads.length >= RLRC_BOOST_PAD_COUNT ? pads.slice(0, RLRC_BOOST_PAD_COUNT) : new Float32Array(RLRC_BOOST_PAD_COUNT);
+      pads && pads.length >= RLRC_BOOST_PAD_COUNT
+        ? pads.length === RLRC_BOOST_PAD_COUNT
+          ? pads
+          : pads.subarray(0, RLRC_BOOST_PAD_COUNT)
+        : ZERO_BOOST_PAD_COOLDOWNS;
     const { sourceFrame30Hz, secondsRemaining, isOvertime, roundCountdownNumber, blueScore, orangeScore } = ref;
     frames120Hz[f] = {
       frameIndex120Hz: f,
@@ -368,6 +375,8 @@ export function resampleRLRCReplayTo120Hz(parsed: RLRCParserOutput, opts: RLRCRe
     roster: parsed.roster,
     bookmarks: alignBookmarksTo120Hz(parsed.bookmarks, nfs, frames120Hz, parsed.header.recordFps),
     frames120Hz,
-    stateInputTrackBytes: packRLRCFramesToTrack0Bytes(frames120Hz),
+    stateInputTrackBytes: opts.deferTrack0Packing
+      ? new Uint8Array(0)
+      : packRLRCFramesToTrack0Bytes(frames120Hz),
   };
 }

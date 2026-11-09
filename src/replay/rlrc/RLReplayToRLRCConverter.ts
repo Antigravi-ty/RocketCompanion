@@ -46,13 +46,17 @@ import {
 } from './synthesis/RLRCHermiteSlerpResampler.ts';
 import {
   synthesizeControlsForTimeline120Hz,
-  writeSynthesizedControlsToTrack0Buffer,
 } from './synthesis/RLRCInverseControlSynthesizer.ts';
+import {
+  createLazyTrack0FramesView,
+  packRLRCFramesToTrack0Bytes,
+} from './synthesis/RLRCTrack0FrameSlotPacker.ts';
 
 export interface RLRCConverterOptions {
   readonly interpolationMethod?: RLRCInterpolationMethod;
   readonly synthesizeControls?: boolean;
   readonly includeKeyframeBookmarks?: boolean;
+  readonly retainParserOutput?: boolean;
 }
 
 export interface RLRCConvertedReplaySession {
@@ -131,28 +135,30 @@ export function buildRLRCSessionFromParserOutput(
   const resampled = resampleRLRCReplayTo120Hz(parserOutput, {
     method,
     boostPadCooldownsByFrame120Hz,
+    deferTrack0Packing: true,
   });
 
-  const frames120Hz = synthesizeControls
-    ? synthesizeControlsForTimeline120Hz(resampled.frames120Hz)
-    : resampled.frames120Hz;
-
-  if (synthesizeControls && resampled.stateInputTrackBytes.byteLength > 0) {
-    writeSynthesizedControlsToTrack0Buffer(frames120Hz, resampled.stateInputTrackBytes);
+  if (synthesizeControls && resampled.frames120Hz.length > 0) {
+    synthesizeControlsForTimeline120Hz(resampled.frames120Hz);
   }
 
+  const stateInputTrackBytes = packRLRCFramesToTrack0Bytes(resampled.frames120Hz);
   const containerPacket = buildRLRCContainerPacket({
-    ...resampled,
-    frames120Hz,
+    header: resampled.header,
+    roster: resampled.roster,
+    bookmarks: resampled.bookmarks,
+    frames120Hz: resampled.frames120Hz,
+    stateInputTrackBytes,
   });
+  const lazyFrames120Hz = createLazyTrack0FramesView(stateInputTrackBytes);
 
   return {
     header: resampled.header,
     roster: resampled.roster,
     bookmarks: resampled.bookmarks,
-    frames120Hz,
+    frames120Hz: lazyFrames120Hz,
     containerPacket,
-    parserOutput,
+    parserOutput: options.retainParserOutput ? parserOutput : null,
     interpolationMethod: method,
   };
 }
@@ -172,7 +178,7 @@ export function convertRLReplayBufferToRLRC(
       header: deserialized.header,
       roster: deserialized.roster,
       bookmarks: deserialized.bookmarks,
-      frames120Hz: deserialized.frames120Hz,
+      frames120Hz: createLazyTrack0FramesView(deserialized.stateInputTrackBytes),
       containerPacket: {
         header: deserialized.header,
         roster: deserialized.roster,
@@ -189,7 +195,8 @@ export function convertRLReplayBufferToRLRC(
     includeKeyframes: options.includeKeyframeBookmarks !== false,
   });
 
-  const decodedNetStream = decodeRLRCNetStreamFrames(parsedHeader);
+  let decodedNetStream: ReturnType<typeof decodeRLRCNetStreamFrames> | null =
+    decodeRLRCNetStreamFrames(parsedHeader);
   const keyframeSet30Hz = new Set<number>(parsedHeader.keyframes.map((kf) => kf.frame));
 
   const rosterAndLifecycle = extractRLRCNetStreamRosterAndLifecycle({
@@ -208,6 +215,10 @@ export function convertRLReplayBufferToRLRC(
     slotByPriActorId: rosterAndLifecycle.slotIndexByPriActorId,
   });
 
+  const boostPadEvents = decodedNetStream.boostPadEvents30Hz;
+  decodedNetStream.frames.length = 0;
+  decodedNetStream = null;
+
   const mergedBookmarks = mergeAndEnrichBookmarks30Hz(
     parsedHeader.bookmarks,
     rigidBodyTimeline.demolishBookmarks,
@@ -220,7 +231,7 @@ export function convertRLReplayBufferToRLRC(
     roster: rosterAndLifecycle.roster,
     networkFrames: rigidBodyTimeline.networkFrames,
     lifeSegments: rosterAndLifecycle.lifeSegments,
-    boostPadEvents: decodedNetStream.boostPadEvents30Hz,
+    boostPadEvents,
     bookmarks: mergedBookmarks,
   };
 

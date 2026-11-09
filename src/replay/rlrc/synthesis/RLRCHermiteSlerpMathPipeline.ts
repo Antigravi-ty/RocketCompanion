@@ -1,18 +1,11 @@
 /**
  * RLRCHermiteSlerpMathPipeline.ts
- * Pure quaternion SLERP, NetStream velocity calibration, Clamped Cubic Hermite
- * rigid-body interpolation, and binary Track 0 frame packing for RLRC replays.
+ * Pure quaternion SLERP, NetStream velocity calibration, and Clamped Cubic Hermite
+ * rigid-body interpolation for RLRC replays.
  */
 
-import { packCarControlsToTrack64 } from '../../container/RCReplayBinarySchema.ts';
 import {
-  RLRC_BOOST_PAD_COUNT,
   RLRC_FIXED_DT,
-  RLRC_MAX_PLAYER_SLOTS,
-  RLRC_STATE_BYTES_PER_FRAME,
-  RLRC_STATE_FLOATS_PER_FRAME,
-  RLRC_TRACK0_FRAME_STRIDE_BYTES,
-  type RLRCFrame120Hz,
   type RLRCInterpolationMethod,
   type RLRCQuat,
   type RLRCRigidBodySample,
@@ -205,51 +198,4 @@ export function interpolateRigidBodyHermiteSlerp(
     linearVelocity: vAxis((k) => 0.5 * (vLin[k] + dh00 * (p0[k] - p1[k]) + dh10 * t0[k] + dh11 * t1[k])),
     angularVelocity,
   };
-}
-
-function writeRb18(dst: Float32Array, base: number, { position: p, rotation: r, linearVelocity: v, angularVelocity: w }: RLRCRigidBodySample): void {
-  const { fwd: f, right: rt, up: u } = quatToBasisVectors(r);
-  dst.set([p.x, p.y, p.z, f.x, f.y, f.z, rt.x, rt.y, rt.z, u.x, u.y, u.z, v.x, v.y, v.z, w.x, w.y, w.z], base);
-}
-
-export function packRLRCFramesToTrack0Bytes(frames120Hz: readonly RLRCFrame120Hz[]): Uint8Array {
-  const out = new Uint8Array(frames120Hz.length * RLRC_TRACK0_FRAME_STRIDE_BYTES);
-  const f32 = new Float32Array(RLRC_STATE_FLOATS_PER_FRAME);
-  const f32Bytes = new Uint8Array(f32.buffer, 0, RLRC_STATE_BYTES_PER_FRAME);
-
-  for (let f = 0; f < frames120Hz.length; f++) {
-    const fr = frames120Hz[f];
-    const off = f * RLRC_TRACK0_FRAME_STRIDE_BYTES;
-    f32.fill(0);
-    f32[0] = fr.frameIndex120Hz;
-    f32[2] = Math.min(RLRC_MAX_PLAYER_SLOTS, fr.cars.length);
-    f32[3] = RLRC_BOOST_PAD_COUNT;
-    writeRb18(f32, 4, fr.ball.rigidBody);
-    const ctrlSlice = out.subarray(off + RLRC_STATE_BYTES_PER_FRAME, off + RLRC_TRACK0_FRAME_STRIDE_BYTES);
-
-    for (let c = 0; c < fr.cars.length && c < RLRC_MAX_PLAYER_SLOTS; c++) {
-      const car = fr.cars[c];
-      const base = 22 + car.slotIndex * 40;
-      const fl = car.activeFlags;
-      writeRb18(f32, base, car.rigidBody);
-      f32[base + 18] = car.boostAmount;
-      f32[base + 39] = 1;
-      f32[416 + car.slotIndex * 4] = fl.jumpActive ? 1 : 0;
-      f32[419 + car.slotIndex * 4] = car.airTimeSinceJump;
-      if (car.entityActive) {
-        f32.set([car.isOnGround ? 1 : 0, car.isSupersonic ? 1 : 0, 0, car.hasFlipOrJump ? 1 : 0, fl.boostActive ? 1 : 0, fl.dodgeActive ? 1 : 0], base + 19);
-        packCarControlsToTrack64(ctrlSlice, car.slotIndex, { ...car.controls });
-      } else {
-        f32[base + 21] = 1;
-      }
-    }
-    for (let p = 0; p < RLRC_BOOST_PAD_COUNT; p++) {
-      const cd = fr.boostPadCooldowns[p] ?? 0;
-      f32[342 + p * 2] = cd <= 0 ? 1 : 0;
-      f32[343 + p * 2] = Math.max(0, cd);
-    }
-    f32[410] = fr.ball.rigidBody.sleeping ? 1 : 0;
-    out.set(f32Bytes, off);
-  }
-  return out;
 }
