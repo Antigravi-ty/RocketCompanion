@@ -4,72 +4,147 @@ import {
   floatingStore,
   type RuntimeMatchPort,
 } from '../runtimeUiPort.ts';
+import type { MultiplayerSessionManager } from '../../network/transport/MultiplayerSessionManager.ts';
+import type { RuntimeMatchState } from './RuntimeMatchState.ts';
+import type { OnlineSessionCoordinator } from './OnlineSessionCoordinator.ts';
+import type { NetworkDiagnosticsProbe } from './NetworkDiagnosticsProbe.ts';
 import type {
   FreeplayModeCleanupPort,
   RuntimeDomainPortOwner,
 } from './GoalBarrierRuntimeBridge.ts';
 
-export function leaveActiveBotMatchIfNeeded(target: RuntimeDomainPortOwner): void {
-  if (target.botCoordinator.isBotMatch || target.match?.state?.mode === 'match') {
-    target.botCoordinator.leaveBotMatch();
+export type MatchModeTransitionDomainPort = Pick<
+  RuntimeDomainPortOwner,
+  | 'match'
+  | 'networkManager'
+  | 'botCoordinator'
+  | 'playerCarIndex'
+  | 'matchDurationSeconds'
+  | 'domEventManager'
+  | 'gameUI'
+  | 'multiplayerSession'
+  | 'modeManager'
+  | 'physics'
+  | 'trainingOptions'
+  | 'resetKickoff'
+>;
+
+const TRAINING_FLOATING_WINDOW_IDS = [
+  'subsystem-isolation-lab',
+  'experimental-multi-bots',
+  'experimental-bot-pack',
+  'kickoff-training-tuner',
+  'replay-viewer',
+  'replay-to-rcs-importer',
+] as const;
+
+function closeTrainingAndDiagnosticFloatingWindows(): void {
+  for (const windowId of TRAINING_FLOATING_WINDOW_IDS) {
+    floatingStore.closeWindow(windowId);
   }
 }
 
-export function stopActiveOnlineOrLoopbackSessionIfNeeded(target: RuntimeDomainPortOwner): void {
-  const session = target.multiplayerSession;
-  if (session) {
-    if (session.isHosting) {
-      void session.stopHosting?.();
-    } else if (session.clientController || session.signalingHandler) {
-      void session.leaveSession?.();
-    }
+function teardownMultiplayerSignalingSession(session: MultiplayerSessionManager | null): void {
+  if (!session) return;
+  if (session.isHosting) {
+    void session.stopHosting?.();
+  } else if (session.clientController || session.signalingHandler) {
+    void session.leaveSession?.();
   }
-  const netSession = target.networkManager?.sessionCoordinator;
-  if (
-    netSession &&
-    (netSession.authoritativeServer || netSession.networkChannel || netSession.networkReconciler)
-  ) {
+}
+
+function teardownNetworkCoordinatorSession(
+  netSession: OnlineSessionCoordinator | null | undefined,
+  includeReconcilerAndCleanup: boolean
+): void {
+  if (!netSession) return;
+  const hasActiveHandles = Boolean(
+    netSession.authoritativeServer ||
+    netSession.networkChannel ||
+    (includeReconcilerAndCleanup && netSession.networkReconciler)
+  );
+  if (!hasActiveHandles) return;
+  if (includeReconcilerAndCleanup) {
     netSession.cleanupOnlineSession?.();
-    void netSession.stopOnlineServer?.({ rebindLoopback: false });
   }
+  void netSession.stopOnlineServer?.({ rebindLoopback: false });
+}
+
+function disableActiveDiagnosticsFleetAndGhost(probe: NetworkDiagnosticsProbe): void {
+  if (probe.diagnosticsFleetController?.enabled) {
+    void probe.toggleDiagnosticTestFleet(false);
+    networkDiagnosticsStore.syncZeroGFleetState(false);
+  }
+  if (probe.lobbyGhostMode) {
+    probe.configureLobbyGhostMode(false);
+    networkDiagnosticsStore?.setLobbyGhostMode?.(false);
+  }
+}
+
+function applyMatchStateModeTransition(
+  match: RuntimeMatchState | null,
+  lifecycleAction: 'leave' | 'start',
+  modeId: string
+): void {
+  if (!match) return;
+  if (lifecycleAction === 'leave') {
+    match.leave();
+    match.state.mode = modeId;
+    match.state.countdown = 0;
+    return;
+  }
+  match.start();
+  match.state.mode = modeId;
+}
+
+export function leaveActiveBotMatchIfNeeded(
+  domain: Pick<MatchModeTransitionDomainPort, 'botCoordinator' | 'match'>
+): void {
+  const { botCoordinator, match } = domain;
+  if (botCoordinator.isBotMatch || match?.state?.mode === 'match') {
+    botCoordinator.leaveBotMatch();
+  }
+}
+
+export function stopActiveOnlineOrLoopbackSessionIfNeeded(
+  domain: Pick<MatchModeTransitionDomainPort, 'multiplayerSession' | 'networkManager'>
+): void {
+  teardownMultiplayerSignalingSession(domain.multiplayerSession);
+  teardownNetworkCoordinatorSession(domain.networkManager?.sessionCoordinator, true);
 }
 
 export function transitionToTrainingMode(
-  target: RuntimeDomainPortOwner,
+  domain: MatchModeTransitionDomainPort,
   modeId: string,
   reEnterIfActive = false
 ): void {
-  stopActiveOnlineOrLoopbackSessionIfNeeded(target);
-  leaveActiveBotMatchIfNeeded(target);
-  const alreadyActive = target.modeManager?.activeMode?.id === modeId;
-  if (target.match) {
-    target.match.leave();
-    target.match.state.mode = modeId;
-    target.match.state.countdown = 0;
-  }
+  stopActiveOnlineOrLoopbackSessionIfNeeded(domain);
+  leaveActiveBotMatchIfNeeded(domain);
+  const { modeManager, domEventManager } = domain;
+  const activeMode = modeManager?.activeMode;
+  const alreadyActive = activeMode?.id === modeId;
+  applyMatchStateModeTransition(domain.match, 'leave', modeId);
   if (reEnterIfActive && alreadyActive) {
-    target.modeManager?.activeMode?.onEnter?.();
+    activeMode?.onEnter?.();
   } else {
-    target.modeManager?.setMode?.(modeId);
+    modeManager?.setMode?.(modeId);
   }
-  target.domEventManager.syncPausedAndInputState();
+  domEventManager.syncPausedAndInputState();
 }
 
-export function transitionToExpMultiBotsMode(target: RuntimeDomainPortOwner): void {
-  stopActiveOnlineOrLoopbackSessionIfNeeded(target);
-  leaveActiveBotMatchIfNeeded(target);
-  const activeMode = target.modeManager?.activeMode;
+export function transitionToExpMultiBotsMode(domain: MatchModeTransitionDomainPort): void {
+  stopActiveOnlineOrLoopbackSessionIfNeeded(domain);
+  leaveActiveBotMatchIfNeeded(domain);
+  const { modeManager, domEventManager } = domain;
+  const activeMode = modeManager?.activeMode;
   const alreadyExpMode = activeMode?.id === 'exp-multi-bots';
-  if (target.match) {
-    target.match.start();
-    target.match.state.mode = 'exp-multi-bots';
-  }
+  applyMatchStateModeTransition(domain.match, 'start', 'exp-multi-bots');
   if (alreadyExpMode) {
     void activeMode?.applyRosterAndStartMatch?.();
   } else {
-    target.modeManager?.setMode?.('exp-multi-bots');
+    modeManager?.setMode?.('exp-multi-bots');
   }
-  target.domEventManager.syncPausedAndInputState();
+  domEventManager.syncPausedAndInputState();
 }
 
 export type LocalMatchModeTransitionSlice = Pick<
@@ -93,109 +168,87 @@ export type LocalMatchModeTransitionSlice = Pick<
 >;
 
 export function createMatchModeTransitionBridge(
-  target: RuntimeDomainPortOwner
+  domain: MatchModeTransitionDomainPort
 ): LocalMatchModeTransitionSlice {
+  const { networkManager, botCoordinator, domEventManager } = domain;
+  const { sessionCoordinator, diagnosticsProbe } = networkManager;
+
   return {
-    getMatchMode: () => target.match?.state?.mode || 'freeplay',
+    getMatchMode: () => domain.match?.state?.mode || 'freeplay',
     isOnlineOrServerActive: () =>
-      Boolean(
-        target.networkManager.sessionCoordinator.authoritativeServer ||
-        target.networkManager.sessionCoordinator.networkReconciler
-      ),
-    isBotMatch: () => target.botCoordinator.isBotMatch,
-    getPlayerCarIndex: () => target.playerCarIndex ?? 0,
-    getMatchDurationSeconds: () => target.matchDurationSeconds || 300,
+      Boolean(sessionCoordinator.authoritativeServer || sessionCoordinator.networkReconciler),
+    isBotMatch: () => botCoordinator.isBotMatch,
+    getPlayerCarIndex: () => domain.playerCarIndex ?? 0,
+    getMatchDurationSeconds: () => domain.matchDurationSeconds || 300,
     syncPausedAndInputState: (graphicsOverride = null) => {
-      target.domEventManager.syncPausedAndInputState(graphicsOverride);
+      domEventManager.syncPausedAndInputState(graphicsOverride);
     },
     handleOverlayChange: (overlayName, isOpen) => {
-      target.domEventManager.handleOverlayChange(overlayName, isOpen);
+      domEventManager.handleOverlayChange(overlayName, isOpen);
     },
     openMainMenu: () => {
-      if (target.gameUI) {
-        target.gameUI.openMenu('main-menu');
+      const { gameUI } = domain;
+      if (gameUI) {
+        gameUI.openMenu('main-menu');
       } else {
         useAppStore.getState().openMenu('main-menu');
       }
     },
     startExpMultiBots: () => {
-      transitionToExpMultiBotsMode(target);
+      transitionToExpMultiBotsMode(domain);
     },
     startKickoffTraining: () => {
-      transitionToTrainingMode(target, 'kickoff-training', false);
+      transitionToTrainingMode(domain, 'kickoff-training', false);
     },
     startReplayViewer: () => {
-      transitionToTrainingMode(target, 'replay-viewer', false);
+      transitionToTrainingMode(domain, 'replay-viewer', false);
     },
     startStaticTrainingPack: () => {
-      transitionToTrainingMode(target, 'static-training-pack', true);
+      transitionToTrainingMode(domain, 'static-training-pack', true);
     },
     startDevTestLab: () => {
-      transitionToTrainingMode(target, 'dev-test-lab', true);
+      transitionToTrainingMode(domain, 'dev-test-lab', true);
     },
     restartMatch: async () => {
-      const currentMode = target.match?.state?.mode || useAppStore.getState().matchMode;
+      const currentMode = domain.match?.state?.mode || useAppStore.getState().matchMode;
       if (currentMode === 'exp-multi-bots') {
-        const activeMode = target.modeManager?.getActiveMode?.();
+        const activeMode = domain.modeManager?.getActiveMode?.();
         if (activeMode && typeof activeMode.applyRosterAndStartMatch === 'function') {
           await activeMode.applyRosterAndStartMatch();
         } else {
-          transitionToExpMultiBotsMode(target);
+          transitionToExpMultiBotsMode(domain);
         }
         useAppStore.setState({ matchMode: 'exp-multi-bots' });
         return;
       }
-      const duration = target.matchDurationSeconds || 300;
-      await target.botCoordinator.startBotMatch(undefined, duration);
+      const duration = domain.matchDurationSeconds || 300;
+      await botCoordinator.startBotMatch(undefined, duration);
       useAppStore.setState({ matchMode: 'match' });
     },
     returnToFreeplay: (unlimitedBoost) => {
-      floatingStore.closeWindow('subsystem-isolation-lab');
-      floatingStore.closeWindow('experimental-multi-bots');
-      floatingStore.closeWindow('experimental-bot-pack');
-      floatingStore.closeWindow('kickoff-training-tuner');
-      floatingStore.closeWindow('replay-viewer');
-      floatingStore.closeWindow('replay-to-rcs-importer');
+      closeTrainingAndDiagnosticFloatingWindows();
+      disableActiveDiagnosticsFleetAndGhost(diagnosticsProbe);
+      teardownMultiplayerSignalingSession(domain.multiplayerSession);
+      teardownNetworkCoordinatorSession(sessionCoordinator, false);
+      leaveActiveBotMatchIfNeeded(domain);
 
-      const probe = target.networkManager.diagnosticsProbe;
-      if (probe.diagnosticsFleetController?.enabled) {
-        void probe.toggleDiagnosticTestFleet(false);
-        networkDiagnosticsStore.syncZeroGFleetState(false);
-      }
-      if (probe.lobbyGhostMode) {
-        probe.configureLobbyGhostMode(false);
-        networkDiagnosticsStore?.setLobbyGhostMode?.(false);
-      }
+      const { modeManager, trainingOptions } = domain;
+      domain.match?.leave();
+      modeManager?.setMode?.('freeplay');
 
-      const session = target.multiplayerSession;
-      if (session) {
-        if (session.isHosting) {
-          void session.stopHosting?.();
-        } else if (session.clientController || session.signalingHandler) {
-          void session.leaveSession?.();
-        }
-      }
-      const netSession = target.networkManager.sessionCoordinator;
-      if (netSession.authoritativeServer || netSession.networkChannel) {
-        void netSession.stopOnlineServer({ rebindLoopback: false });
-      }
-      leaveActiveBotMatchIfNeeded(target);
-      target.match?.leave();
-      target.modeManager?.setMode?.('freeplay');
-
-      const freeplayMode = target.modeManager?.modes?.get?.('freeplay') as
+      const freeplayMode = modeManager?.modes?.get?.('freeplay') as
         FreeplayModeCleanupPort | undefined;
       freeplayMode?.resetToCleanFreeplay?.();
 
-      target.physics?.setUnlimitedBoost?.(unlimitedBoost);
-      if (target.trainingOptions) {
-        target.trainingOptions.boostOption = unlimitedBoost ? 'unlimited' : 'standard';
+      domain.physics?.setUnlimitedBoost?.(unlimitedBoost);
+      if (trainingOptions) {
+        trainingOptions.boostOption = unlimitedBoost ? 'unlimited' : 'standard';
       }
-      target.resetKickoff();
-      target.domEventManager.syncPausedAndInputState();
+      domain.resetKickoff();
+      domEventManager.syncPausedAndInputState();
     },
     resetKickoff: () => {
-      target.resetKickoff();
+      domain.resetKickoff();
     },
   };
 }

@@ -2,6 +2,7 @@ import type * as THREE from 'three';
 import {
   useAppStore,
   type GoalBarrierDecompositionPort,
+  type GoalBarrierRectPort,
   type GraphicsSettingsPort,
 } from '../runtimeUiPort.ts';
 import {
@@ -18,12 +19,12 @@ import type { GamepadController } from '../../input/GamepadController.ts';
 import type { BallTrajectoryPredictor } from '../../entities/BallTrajectoryPredictor.ts';
 import type { MultiplayerSessionManager } from '../../network/transport/MultiplayerSessionManager.ts';
 import type { ReplayTimelineController } from '../../replay/ReplayTimelineController.ts';
+import type { AuthoritativeServerHost } from '../../network/server/AuthoritativeServerHost.ts';
 import type { RuntimeNetworkManager } from './RuntimeNetworkManager.ts';
 import type { RuntimeBotCoordinator } from './RuntimeBotCoordinator.ts';
 import type { RuntimeDOMEventManager } from './RuntimeDOMEventManager.ts';
 import type { RuntimeLoadoutCoordinator } from './RuntimeLoadoutCoordinator.ts';
 import type { MountedGameUIHandle } from './RuntimeSceneBootstrap.ts';
-import type { MaterialsConfigLike } from './onlineLobbyTransitionPipeline.ts';
 
 interface StandaloneReplayViewerCarLoadoutPort {
   hasLoadedReplay?: boolean;
@@ -38,6 +39,14 @@ export interface FreeplayModeCleanupPort {
   exitDirectorPatternPreview?(): void;
   rewinderController?: { isBlockingLivePhysics?: boolean; clearBuffer?(): void } | null;
   resetToCleanFreeplay?(): void;
+}
+
+export interface TrainingOptionsPort {
+  boostOption?: string;
+  disableGoalReset?: boolean;
+  showCarHitbox?: boolean;
+  showAllCarHitboxes?: boolean;
+  [key: string]: unknown;
 }
 
 export interface RuntimeDomainPortOwner {
@@ -75,13 +84,7 @@ export interface RuntimeDomainPortOwner {
     } | null;
     setMode?(modeId: string): void;
   } | null;
-  trainingOptions: {
-    boostOption?: string;
-    disableGoalReset?: boolean;
-    showCarHitbox?: boolean;
-    showAllCarHitboxes?: boolean;
-    [key: string]: unknown;
-  };
+  trainingOptions: TrainingOptionsPort;
   readonly teamAssignment: { playerTeam: number; opponentTeam: number } | null;
   readonly playerCarIndex: number;
   readonly matchDurationSeconds: number;
@@ -89,90 +92,182 @@ export interface RuntimeDomainPortOwner {
   selectedHitbox: string | null;
   activeGraphicsSettings: GraphicsSettingsPort | null;
   bloomEnabled: boolean;
-  changePlayerVehicle(visualId: string, hitboxId?: string | null): void;
-  setCarColor(carIndex: number, colorVal: number | string, broadcast?: boolean): void;
-  syncPlayerMaterialsLoadout(materialsConfig?: MaterialsConfigLike | null): void;
-  restoreLocalPlayerFreeplayLoadout?(carIndex?: number): void;
   resetKickoff(seed?: number): void;
 }
 
-export function isOnlineSessionOrBotMatchActive(target: RuntimeDomainPortOwner): boolean {
+export type GameplayScopePort = Pick<
+  RuntimeDomainPortOwner,
+  'botCoordinator' | 'modeManager' | 'match'
+>;
+
+export type GoalBarrierDomainPort = Pick<
+  RuntimeDomainPortOwner,
+  | 'arena'
+  | 'physics'
+  | 'interpolator'
+  | 'networkManager'
+  | 'botCoordinator'
+  | 'modeManager'
+  | 'match'
+  | 'trainingOptions'
+>;
+
+export interface CachedGoalBarrierState {
+  readonly decomposition: GoalBarrierDecompositionPort;
+  readonly targetGoal: 'blue' | 'orange' | 'both';
+  readonly enabled: boolean;
+  readonly opacity: number;
+  readonly chunks: Uint8Array[];
+}
+
+export interface GoalBarrierPhysicsMeta {
+  [key: string]: unknown;
+  readonly enabled: boolean;
+  readonly targetGoal: 'blue' | 'orange' | 'both';
+  readonly rects: GoalBarrierRectPort[];
+}
+
+export interface GameplaySettingsInput {
+  readonly unlimitedBoost: boolean;
+  readonly goalRestart: boolean;
+  readonly showCarHitbox: boolean;
+  readonly showAllCarHitboxes?: boolean;
+}
+
+export interface TrainingRulesetPayload {
+  [key: string]: unknown;
+  readonly unlimitedBoost: boolean;
+  readonly disableGoalReset: boolean;
+  readonly goalReplayEnabled: boolean;
+  readonly fifoDurationSeconds: number;
+}
+
+export function isOnlineSessionOrBotMatchActive(scope: GameplayScopePort): boolean {
   const onlineSession = useAppStore.getState().onlineSession;
   return Boolean(
     onlineSession?.isHosting ||
     onlineSession?.signalingConnected ||
     onlineSession?.roomId ||
-    target.botCoordinator.isBotMatch
+    scope.botCoordinator.isBotMatch
   );
 }
 
 export function resolveActiveGameplayModeId(
-  target: RuntimeDomainPortOwner,
+  scope: GameplayScopePort,
   overrideMode?: string | null
 ): string {
+  const activeModeId = scope.modeManager?.activeMode?.id;
+  const matchModeId = scope.match?.state?.mode;
   return (
-    overrideMode ||
-    target.modeManager?.activeMode?.id ||
-    target.match?.state?.mode ||
-    useAppStore.getState().matchMode ||
-    'freeplay'
+    overrideMode || activeModeId || matchModeId || useAppStore.getState().matchMode || 'freeplay'
   );
 }
 
-/**
- * Self-contained domain bridge owning goal barrier cache state and training ruleset reconciliation.
- */
+export function buildGoalBarrierPhysicsPayload(
+  cached: CachedGoalBarrierState,
+  effectiveEnabled: boolean
+): { readonly meta: GoalBarrierPhysicsMeta | null; readonly activeChunks: Uint8Array[] } {
+  const meta: GoalBarrierPhysicsMeta | null = effectiveEnabled
+    ? {
+        enabled: cached.decomposition.mergedRects.length > 0,
+        targetGoal: cached.targetGoal,
+        rects: cached.decomposition.mergedRects,
+      }
+    : null;
+  return { meta, activeChunks: effectiveEnabled ? cached.chunks : [] };
+}
+
+export function buildTrainingOptionsPatch(
+  prevOptions: TrainingOptionsPort | undefined,
+  gameplayConfig: GameplaySettingsInput
+): TrainingOptionsPort {
+  return {
+    ...prevOptions,
+    boostOption: gameplayConfig.unlimitedBoost ? 'unlimited' : 'standard',
+    disableGoalReset: !gameplayConfig.goalRestart,
+    showCarHitbox: gameplayConfig.showCarHitbox,
+    showAllCarHitboxes: Boolean(gameplayConfig.showAllCarHitboxes),
+  };
+}
+
+export function buildTrainingRulesetPayload(
+  unlimitedBoost: boolean,
+  disableGoalReset: boolean
+): TrainingRulesetPayload {
+  return {
+    unlimitedBoost,
+    disableGoalReset,
+    goalReplayEnabled: !disableGoalReset,
+    fifoDurationSeconds: 30,
+  };
+}
+
+export function resolveEffectiveTrainingScopeFlags(
+  trainingOptions: TrainingOptionsPort | undefined,
+  storeGameplay: { unlimitedBoost?: boolean; goalRestart?: boolean } | undefined
+): { readonly unlimitedBoost: boolean; readonly disableGoalReset: boolean } {
+  const unlimitedBoost =
+    trainingOptions?.boostOption !== undefined
+      ? trainingOptions.boostOption === 'unlimited'
+      : Boolean(storeGameplay?.unlimitedBoost);
+  const disableGoalReset =
+    trainingOptions?.disableGoalReset !== undefined
+      ? Boolean(trainingOptions.disableGoalReset)
+      : !Boolean(storeGameplay?.goalRestart ?? true);
+  return { unlimitedBoost, disableGoalReset };
+}
+
+function applyTrainingBoostAndRulesetToEngines(
+  physics: RocketSimPhysicsEngine | null,
+  server: AuthoritativeServerHost | null,
+  unlimitedBoost: boolean,
+  disableGoalReset: boolean
+): void {
+  physics?.setUnlimitedBoost?.(unlimitedBoost);
+  if (!server) return;
+  server.sim?.setUnlimitedBoost?.(unlimitedBoost);
+  server.configureTrainingRuleset?.(buildTrainingRulesetPayload(unlimitedBoost, disableGoalReset));
+}
+
 export class GoalBarrierRuntimeBridge {
-  private readonly target: RuntimeDomainPortOwner;
-  private cachedGoalBarrier: {
-    decomposition: GoalBarrierDecompositionPort;
-    targetGoal: 'blue' | 'orange' | 'both';
-    enabled: boolean;
-    opacity: number;
-    chunks: Uint8Array[];
-  } | null = null;
+  private readonly readPort: () => GoalBarrierDomainPort;
+  private cachedGoalBarrier: CachedGoalBarrierState | null = null;
   private appliedGoalBarrierEffectiveEnabled = false;
 
-  constructor(target: RuntimeDomainPortOwner) {
-    this.target = target;
+  constructor(portOrProvider: GoalBarrierDomainPort | (() => GoalBarrierDomainPort)) {
+    this.readPort = typeof portOrProvider === 'function' ? portOrProvider : () => portOrProvider;
   }
 
   public applyEffectiveGoalBarrier(modeOverride?: string | null, forcePhysicsUpdate = false): void {
-    if (!this.cachedGoalBarrier) return;
-    const t = this.target;
-    const { decomposition, targetGoal, enabled, opacity, chunks } = this.cachedGoalBarrier;
+    const cached = this.cachedGoalBarrier;
+    if (!cached) return;
+    const domain = this.readPort();
+    const { arena, physics, interpolator, networkManager } = domain;
     const effectiveEnabled = Boolean(
-      enabled &&
+      cached.enabled &&
       isTrainingGoalBarrierScopeActive(
-        resolveActiveGameplayModeId(t, modeOverride),
-        isOnlineSessionOrBotMatchActive(t)
+        resolveActiveGameplayModeId(domain, modeOverride),
+        isOnlineSessionOrBotMatchActive(domain)
       )
     );
-    t.arena?.environment.updateGoalBarrier(
-      decomposition as unknown as Parameters<ArenaWorld['environment']['updateGoalBarrier']>[0],
-      targetGoal,
+    arena?.environment.updateGoalBarrier(
+      cached.decomposition as unknown as Parameters<
+        ArenaWorld['environment']['updateGoalBarrier']
+      >[0],
+      cached.targetGoal,
       effectiveEnabled,
-      opacity
+      cached.opacity
     );
     if (
       (forcePhysicsUpdate || effectiveEnabled !== this.appliedGoalBarrierEffectiveEnabled) &&
-      t.physics?.setGoalBarrierChunks
+      physics?.setGoalBarrierChunks
     ) {
       this.appliedGoalBarrierEffectiveEnabled = effectiveEnabled;
-      const meta = effectiveEnabled
-        ? {
-            enabled: decomposition.mergedRects.length > 0,
-            targetGoal,
-            rects: decomposition.mergedRects,
-          }
-        : null;
-      const activeChunks = effectiveEnabled ? chunks : [];
-      t.physics.setGoalBarrierChunks(activeChunks, meta);
-      t.networkManager.sessionCoordinator.authoritativeServer?.fallbackSim?.setGoalBarrierChunks?.(
-        activeChunks,
-        meta
-      );
-      t.interpolator?.sync?.();
+      const { meta, activeChunks } = buildGoalBarrierPhysicsPayload(cached, effectiveEnabled);
+      physics.setGoalBarrierChunks(activeChunks, meta);
+      const fallbackSim = networkManager.sessionCoordinator.authoritativeServer?.fallbackSim;
+      fallbackSim?.setGoalBarrierChunks?.(activeChunks, meta);
+      interpolator?.sync?.();
     }
   }
 
@@ -199,76 +294,52 @@ export class GoalBarrierRuntimeBridge {
     this.applyEffectiveGoalBarrier(null, updatePhysicsChunks);
   }
 
-  public applyGameplaySettings(gameplayConfig: {
-    unlimitedBoost: boolean;
-    goalRestart: boolean;
-    showCarHitbox: boolean;
-    showAllCarHitboxes?: boolean;
-  }): void {
-    const t = this.target;
+  public applyGameplaySettings(gameplayConfig: GameplaySettingsInput): void {
+    const domain = this.readPort();
+    const { arena, physics, networkManager } = domain;
     const showAll = Boolean(gameplayConfig.showAllCarHitboxes);
-    if (t.trainingOptions) {
-      t.trainingOptions = {
-        ...t.trainingOptions,
-        boostOption: gameplayConfig.unlimitedBoost ? 'unlimited' : 'standard',
-        disableGoalReset: !gameplayConfig.goalRestart,
-        showCarHitbox: gameplayConfig.showCarHitbox,
-        showAllCarHitboxes: showAll,
-      };
+    if (domain.trainingOptions) {
+      domain.trainingOptions = buildTrainingOptionsPatch(domain.trainingOptions, gameplayConfig);
     }
     if (
       isFreeplayConfigScopeActive(
-        resolveActiveGameplayModeId(t),
-        isOnlineSessionOrBotMatchActive(t)
+        resolveActiveGameplayModeId(domain),
+        isOnlineSessionOrBotMatchActive(domain)
       )
     ) {
-      t.physics?.setUnlimitedBoost?.(gameplayConfig.unlimitedBoost);
-      const server = t.networkManager.sessionCoordinator.authoritativeServer;
-      if (server) {
-        server.sim?.setUnlimitedBoost?.(gameplayConfig.unlimitedBoost);
-        server.configureTrainingRuleset?.({
-          unlimitedBoost: gameplayConfig.unlimitedBoost,
-          disableGoalReset: !gameplayConfig.goalRestart,
-          goalReplayEnabled: Boolean(gameplayConfig.goalRestart),
-          fifoDurationSeconds: 30,
-        });
-      }
+      applyTrainingBoostAndRulesetToEngines(
+        physics,
+        networkManager.sessionCoordinator.authoritativeServer,
+        gameplayConfig.unlimitedBoost,
+        !gameplayConfig.goalRestart
+      );
     }
-    t.arena?.vehicleRegistry.setCarHitboxesVisible(
+    arena?.vehicleRegistry.setCarHitboxesVisible(
       gameplayConfig.showCarHitbox,
       showAll,
-      t.arena.playerCarIndex ?? 0
+      arena.playerCarIndex ?? 0
     );
   }
 
   public reconcileTrainingScopeForMode(modeId?: string): void {
-    const t = this.target;
+    const domain = this.readPort();
     this.applyEffectiveGoalBarrier(modeId, false);
     if (
       isFreeplayConfigScopeActive(
-        resolveActiveGameplayModeId(t, modeId),
-        isOnlineSessionOrBotMatchActive(t)
+        resolveActiveGameplayModeId(domain, modeId),
+        isOnlineSessionOrBotMatchActive(domain)
       )
     ) {
-      const unlimited =
-        t.trainingOptions?.boostOption !== undefined
-          ? t.trainingOptions.boostOption === 'unlimited'
-          : Boolean(useAppStore.getState().gameplay?.unlimitedBoost);
-      const disableGoalReset =
-        t.trainingOptions?.disableGoalReset !== undefined
-          ? Boolean(t.trainingOptions.disableGoalReset)
-          : !Boolean(useAppStore.getState().gameplay?.goalRestart ?? true);
-      t.physics?.setUnlimitedBoost?.(unlimited);
-      const server = t.networkManager.sessionCoordinator.authoritativeServer;
-      if (server) {
-        server.sim?.setUnlimitedBoost?.(unlimited);
-        server.configureTrainingRuleset?.({
-          unlimitedBoost: unlimited,
-          disableGoalReset,
-          goalReplayEnabled: !disableGoalReset,
-          fifoDurationSeconds: 30,
-        });
-      }
+      const { unlimitedBoost, disableGoalReset } = resolveEffectiveTrainingScopeFlags(
+        domain.trainingOptions,
+        useAppStore.getState().gameplay
+      );
+      applyTrainingBoostAndRulesetToEngines(
+        domain.physics,
+        domain.networkManager.sessionCoordinator.authoritativeServer,
+        unlimitedBoost,
+        disableGoalReset
+      );
     }
   }
 }
