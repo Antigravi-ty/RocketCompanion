@@ -55,20 +55,32 @@ export class FreeplayRewinderController {
 
   public attach(): void {
     const store = useRewinderStore.getState();
+    const startRecordingHandler = (): void => this.startNewRecording();
+    const stopRecordingHandler = (): void => this.stopRecording();
+    const pushBackwardStartHandler = (): void => this.beginScrub('rewinding');
+    const pushBackwardStopHandler = (): void => this.pauseScrub();
+    const pushForwardStartHandler = (): void => this.beginScrub('forwarding');
+    const pushForwardStopHandler = (): void => this.pauseScrub();
+    const resumeFromHereHandler = (): void => this.resumeFromCursor();
+    const clearBufferHandler = (): void => this.clearBuffer();
+    const exportReplayHandler = (): Promise<boolean> => this.exportReplay();
+    const importReplayHandler = (file: File): Promise<boolean> => this.importReplay(file);
+    const seekFrameHandler = (idx: number): void => this.seekFrame(idx);
+
     store.setRuntimeHandlers({
       ...store.runtimeHandlers,
-      onRewinderStartRecording: () => this.startNewRecording(),
-      onRewinderStopRecording: () => this.stopRecording(),
-      onRewinderPushBackwardStart: () => this.beginScrub('rewinding'),
-      onRewinderPushBackwardStop: () => this.pauseScrub(),
-      onRewinderPushForwardStart: () => this.beginScrub('forwarding'),
-      onRewinderPushForwardStop: () => this.pauseScrub(),
-      onRewinderResumeFromHere: () => this.resumeFromCursor(),
-      onRewinderClearBuffer: () => this.clearBuffer(),
-      onRewinderCancelToFreeplay: () => this.clearBuffer(),
-      onRewinderExportReplay: () => this.exportReplay(),
-      onRewinderImportReplay: (file: File) => this.importReplay(file),
-      onRewinderSeekFrame: (idx: number) => this.seekFrame(idx),
+      onRewinderStartRecording: startRecordingHandler,
+      onRewinderStopRecording: stopRecordingHandler,
+      onRewinderPushBackwardStart: pushBackwardStartHandler,
+      onRewinderPushBackwardStop: pushBackwardStopHandler,
+      onRewinderPushForwardStart: pushForwardStartHandler,
+      onRewinderPushForwardStop: pushForwardStopHandler,
+      onRewinderResumeFromHere: resumeFromHereHandler,
+      onRewinderClearBuffer: clearBufferHandler,
+      onRewinderCancelToFreeplay: clearBufferHandler,
+      onRewinderExportReplay: exportReplayHandler,
+      onRewinderImportReplay: importReplayHandler,
+      onRewinderSeekFrame: seekFrameHandler,
     });
     this._bindHotkeys();
     this._unsubscribeFloating?.();
@@ -89,14 +101,15 @@ export class FreeplayRewinderController {
   }
 
   private _ensureFreeplayMode(actionName: string): boolean {
-    const currentMode = this.runtime?.match?.state?.mode || 'freeplay';
+    const { match, isBotMatch, botCoordinator } = this.runtime ?? {};
+    const currentMode = match?.state?.mode || 'freeplay';
     const online = useAppStore.getState().onlineSession;
     const isOnlineActive = Boolean(
       online?.isHosting ||
       online?.signalingConnected ||
       online?.roomId ||
-      this.runtime?.isBotMatch ||
-      this.runtime?.botCoordinator?.isBotMatch
+      isBotMatch ||
+      botCoordinator?.isBotMatch
     );
     if (isOnlineActive || (currentMode !== 'freeplay' && currentMode !== 'dev-test-lab')) {
       console.warn(
@@ -112,8 +125,9 @@ export class FreeplayRewinderController {
   }
 
   private _silenceContinuousAudio(): void {
-    this.runtime?.audioSubsystem?.resetAudio?.();
-    (this.runtime?.options?.gameAudio || gameAudio)?.silenceAll?.();
+    const { audioSubsystem, options } = this.runtime ?? {};
+    audioSubsystem?.resetAudio?.();
+    (options?.gameAudio || gameAudio)?.silenceAll?.();
   }
 
   public get isBlockingLivePhysics(): boolean {
@@ -127,6 +141,11 @@ export class FreeplayRewinderController {
   }
 
   private _bindHotkeys(): void {
+    const startNewRecording = (): void => this.startNewRecording();
+    const stopRecording = (): void => this.stopRecording();
+    const resumeFromCursor = (): void => this.resumeFromCursor();
+    const beginScrub = (direction: 'rewinding' | 'forwarding'): void => this.beginScrub(direction);
+    const pauseScrub = (): void => this.pauseScrub();
     this.hotkeySubController.bindFreeplayRewinderHotkeys({
       getRuntime: () => this.runtime,
       getWindowStatus: () => {
@@ -137,11 +156,11 @@ export class FreeplayRewinderController {
         };
       },
       conflictErrorMessage: REWINDER_HOTKEY_CONFLICT_MSG,
-      onStartNewRecording: () => this.startNewRecording(),
-      onStopRecording: () => this.stopRecording(),
-      onResumeFromCursor: () => this.resumeFromCursor(),
-      onBeginScrub: (direction) => this.beginScrub(direction),
-      onPauseScrub: () => this.pauseScrub(),
+      onStartNewRecording: startNewRecording,
+      onStopRecording: stopRecording,
+      onResumeFromCursor: resumeFromCursor,
+      onBeginScrub: beginScrub,
+      onPauseScrub: pauseScrub,
     });
   }
 
@@ -151,6 +170,7 @@ export class FreeplayRewinderController {
       preserveEngineTick: true,
     }
   ): RewinderFrameEntry | null {
+    if (this.rewinderFrames.length === 0) return null;
     return this.handoffAndMarkerController.applyFrameAtCursor(
       this.runtime,
       this.rewinderFrames,
@@ -206,7 +226,7 @@ export class FreeplayRewinderController {
 
     this.rewinderFrames = [];
     this.takeoverSubController.reset(0, 0);
-    this.handoffAndMarkerController.clearPendingIncidents();
+    this.handoffAndMarkerController.clearAll();
     r.physics.clearReplayBuffer?.();
 
     useRewinderStore.getState().updateLiveTelemetry({
@@ -321,11 +341,8 @@ export class FreeplayRewinderController {
   }
 
   public async exportReplay(): Promise<boolean> {
-    return this.handoffAndMarkerController.exportReplay(
-      this.rewinderFrames,
-      this.mode,
-      this.runtime
-    );
+    const framesSnapshot = this.rewinderFrames;
+    return this.handoffAndMarkerController.exportReplay(framesSnapshot, this.mode, this.runtime);
   }
 
   public async importReplay(fileOrBuffer: unknown): Promise<boolean> {
@@ -348,7 +365,7 @@ export class FreeplayRewinderController {
     this.rewinderFrames = [];
     this.timelines = null;
     this.takeoverSubController.reset(0, 0);
-    this.handoffAndMarkerController.clearPendingIncidents();
+    this.handoffAndMarkerController.clearAll();
     r?.physics?.clearReplayBuffer?.();
     const canResetArena = this.handoffAndMarkerController.resetArenaCarsIfAllowed(
       r,
@@ -382,6 +399,7 @@ export class FreeplayRewinderController {
   }
 
   public onPhysicsEvent(event: RewinderIncidentRecord | null | undefined): void {
+    if (!event) return;
     this.handoffAndMarkerController.recordPhysicsEvent(this.rewinderFrames, event, this.runtime);
   }
 
@@ -399,19 +417,26 @@ export class FreeplayRewinderController {
     if (state === 'paused-scrub') return false;
 
     if (state === 'rewinding' || state === 'forwarding') {
+      const applyScrubFrame = (): void => {
+        this.applyFrameAtCursor(false, { preserveEngineTick: true });
+      };
+      const syncScrubTelemetry = (cursorFrame: number): void => {
+        store.updateLiveTelemetry({
+          rewinderCursorFrame: cursorFrame,
+          rewinderTargetFrame: cursorFrame,
+        });
+      };
       return this.takeoverSubController.stepScrub({
         direction: state,
         totalFrames: this.rewinderFrames.length,
         effectiveFlowPct: store.rewinderEffectiveFlowPct || 100,
-        onApplyFrameAtCursor: () => this.applyFrameAtCursor(false, { preserveEngineTick: true }),
-        onUpdateScrubTelemetry: (cursorFrame: number) =>
-          store.updateLiveTelemetry({
-            rewinderCursorFrame: cursorFrame,
-            rewinderTargetFrame: cursorFrame,
-          }),
+        onApplyFrameAtCursor: applyScrubFrame,
+        onUpdateScrubTelemetry: syncScrubTelemetry,
       });
     }
     if (state === 'preroll-countdown') {
+      const totalFrames = this.rewinderFrames.length;
+      if (totalFrames === 0) return true;
       return this.handoffAndMarkerController.stepPrerollCountdownTick(
         this.runtime,
         this.mode,
@@ -423,6 +448,7 @@ export class FreeplayRewinderController {
   }
 
   public onAfterPhysicsTick(): void {
+    if (!this.runtime) return;
     this.handoffAndMarkerController.recordTickFrame(
       this.runtime,
       this.mode,
