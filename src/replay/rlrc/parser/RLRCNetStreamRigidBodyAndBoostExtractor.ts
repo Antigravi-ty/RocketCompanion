@@ -6,18 +6,34 @@ import {
  type RLRCQuat, type RLRCRigidBodySample,
  type RLRCSourceNetworkFrame, type RLRCSynthesizedCarControls, type RLRCTeamIndex, type RLRCVec3,
 } from '../RLRCReplayTypes.ts';
+import {
+ decodeReplicatedBoostAttribute,
+ RLRC_BOOST_CONSUMPTION_RATE_PER_SEC,
+ RLRCBoostTimelineReconstructor,
+} from './RLRCBoostTimelineReconstructor.ts';
 
 export type { RLRCBasis3x3, RLRCNetStreamExtractorInput, RLRCNetStreamExtractorOutput, RLRCNetStreamRawFrame };
 
 const B_INIT = 33.333, BALL_Z = 93.15, SS_SPD = 2200, FLIP_EXP = 1.25;
-export { B_INIT as RLRC_DEFAULT_SPAWN_BOOST, BALL_Z as RLRC_DEFAULT_BALL_REST_Z, SS_SPD as RLRC_SUPERSONIC_SPEED_UU_S, FLIP_EXP as RLRC_FLIP_EXPIRATION_SECONDS };
+export {
+ B_INIT as RLRC_DEFAULT_SPAWN_BOOST,
+ BALL_Z as RLRC_DEFAULT_BALL_REST_Z,
+ SS_SPD as RLRC_SUPERSONIC_SPEED_UU_S,
+ FLIP_EXP as RLRC_FLIP_EXPIRATION_SECONDS,
+};
 export const ZERO_VEC3: RLRCVec3 = { x: 0, y: 0, z: 0 }, IDENTITY_QUAT: RLRCQuat = { x: 0, y: 0, z: 0, w: 1 };
-const DEF_CRB: RLRCRigidBodySample = { sleeping: true, position: ZERO_VEC3, rotation: IDENTITY_QUAT, linearVelocity: ZERO_VEC3, angularVelocity: ZERO_VEC3, rbUpdated: false };
+const DEF_CRB: RLRCRigidBodySample = {
+ sleeping: true, position: ZERO_VEC3, rotation: IDENTITY_QUAT, linearVelocity: ZERO_VEC3, angularVelocity: ZERO_VEC3, rbUpdated: false,
+};
 export { DEF_CRB as DEFAULT_CAR_RB };
 const DEF_BRB: RLRCRigidBodySample = { ...DEF_CRB, position: { x: 0, y: 0, z: BALL_Z } };
 export { DEF_BRB as DEFAULT_BALL_RB };
-export const DEFAULT_ACTIVE_FLAGS: RLRCCarComponentActiveFlags = { boostActive: false, jumpActive: false, doubleJumpActive: false, dodgeActive: false };
-export const NEUTRAL_CONTROLS: RLRCSynthesizedCarControls = { throttle: 0, steer: 0, pitch: 0, yaw: 0, roll: 0, jump: false, boost: false, handbrake: false };
+export const DEFAULT_ACTIVE_FLAGS: RLRCCarComponentActiveFlags = {
+ boostActive: false, jumpActive: false, doubleJumpActive: false, dodgeActive: false,
+};
+export const NEUTRAL_CONTROLS: RLRCSynthesizedCarControls = {
+ throttle: 0, steer: 0, pitch: 0, yaw: 0, roll: 0, jump: false, boost: false, handbrake: false,
+};
 
 const fin = Number.isFinite, num = (v: unknown, fb = 0): number => (typeof v === 'number' && fin(v) ? v : fb);
 const rec = (v: unknown): Record<string, unknown> | null => (typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null);
@@ -54,10 +70,8 @@ export function extractRigidBodySample(raw: unknown): RLRCRigidBodySample | null
  };
 }
 
-export const normalizeReplicatedBoostAmount = (raw: unknown): number | null => {
- const o = rec(raw), rp = rec(o?.ReplicatedBoost) ?? o, b = typeof raw === 'number' ? raw : rp?.boost_amount ?? rp?.boostAmount ?? o?.Byte;
- return typeof b === 'number' && fin(b) ? (clamp(b, 0, 255) / 255) * 100 : null;
-};
+export const normalizeReplicatedBoostAmount = (raw: unknown): number | null =>
+ decodeReplicatedBoostAttribute(raw)?.boostAmount ?? null;
 
 export const decodeReplicatedAxisByte = (raw: unknown): number | null => {
  const b = typeof raw === 'number' ? raw : num(rec(raw)?.Byte, Number.NaN);
@@ -85,9 +99,10 @@ const spawnBallRb = (il?: RLRCVec3): RLRCRigidBodySample => ({
 export class RLRCNetStreamRigidBodyAndBoostExtractor {
  public run(input: RLRCNetStreamExtractorInput): RLRCNetStreamExtractorOutput {
   const imap = <V>() => new Map<number, V>();
-  const aType = imap<string>(), cPri = imap<number>(), lastPri = imap<number>(), cHid = imap<boolean>(), compCar = imap<number>(), initLoc = imap<RLRCVec3>();
+  const aType = imap<string>(), cPri = imap<number>(), lastPri = imap<number>(), cHid = imap<boolean>(), initLoc = imap<RLRCVec3>();
   const bExp = new Set<number>(), cRb = imap<RLRCRigidBodySample>(), cRbFi = imap<number>();
   const pName = imap<string>(), pTeam = imap<RLRCTeamIndex>(), pSlot = imap<number>(), nSlot = new Map<string, number>();
+  const boostRec = new RLRCBoostTimelineReconstructor();
   const slots = Array.from({ length: MAX_SLOTS }, () => ({
    carId: -1, on: false, spFi: -2, upd: false, rb: DEF_CRB, boost: B_INIT,
    th: 0, st: 0, hb: false, bOn: false, jOn: false, dOn: false, dgOn: false, jT: -1e9, flipped: false,
@@ -97,7 +112,11 @@ export class RLRCNetStreamRigidBodyAndBoostExtractor {
   for (const m of input.roster ?? []) {
    if (m.slotIndex >= 0 && m.slotIndex < MAX_SLOTS) {
     nSlot.set(m.userName, m.slotIndex);
-    if (m.priActorId >= 0) { pSlot.set(m.priActorId, m.slotIndex); pName.set(m.priActorId, m.userName); pTeam.set(m.priActorId, m.team); }
+    if (m.priActorId >= 0) {
+     pSlot.set(m.priActorId, m.slotIndex);
+     pName.set(m.priActorId, m.userName);
+     pTeam.set(m.priActorId, m.team);
+    }
    }
   }
   for (const [p, s] of input.slotByPriActorId?.entries() ?? []) if (s >= 0 && s < MAX_SLOTS) pSlot.set(p, s);
@@ -111,7 +130,8 @@ export class RLRCNetStreamRigidBodyAndBoostExtractor {
    if (bn !== undefined) { pSlot.set(pid, bn); return bn; }
    if (nSlot.size >= MAX_SLOTS) return -1;
    const nx = nSlot.size;
-   nSlot.set(nm, nx); pSlot.set(pid, nx);
+   nSlot.set(nm, nx);
+   pSlot.set(pid, nx);
    return nx;
   };
   const cSlot = (cid: number): number => {
@@ -121,7 +141,8 @@ export class RLRCNetStreamRigidBodyAndBoostExtractor {
   const off = (i: number, clr = false): void => {
    const s = slots[i];
    if (clr) s.carId = -1;
-   s.on = s.upd = s.bOn = s.jOn = s.dOn = s.dgOn = s.hb = false; s.th = s.st = 0;
+   s.on = s.upd = s.bOn = s.jOn = s.dOn = s.dgOn = s.hb = false;
+   s.th = s.st = 0;
   };
   const offByCar = (cid: number, clr = false): void => {
    for (const [i, s] of slots.entries()) if (s.carId === cid) off(i, clr);
@@ -137,12 +158,18 @@ export class RLRCNetStreamRigidBodyAndBoostExtractor {
   };
 
   for (let fi = 0; fi < input.frames.length; fi++) {
-   const fr = input.frames[fi], t = num(fr.time), dt = num(fr.delta, 1 / 30), isKf = input.keyframeIndices?.has(fi) ?? false;
+   const fr = input.frames[fi], t = num(fr.time), dt = clamp(num(fr.delta, 1 / 30), 0, 0.25);
+   const isKf = input.keyframeIndices?.has(fi) ?? false;
    let bUpd = false;
-   for (const s of slots) s.upd = false;
+   boostRec.beginFrame();
+   for (const s of slots) {
+    s.upd = false;
+    if (s.on && s.bOn) s.boost = max(0, s.boost - RLRC_BOOST_CONSUMPTION_RATE_PER_SEC * dt);
+   }
 
    for (const id of fr.deleted_actors ?? []) {
-    aType.delete(id); cPri.delete(id); cHid.delete(id); compCar.delete(id); initLoc.delete(id); cRb.delete(id); cRbFi.delete(id); bExp.delete(id); offByCar(id, true);
+    aType.delete(id); cPri.delete(id); cHid.delete(id); initLoc.delete(id); cRb.delete(id); cRbFi.delete(id); bExp.delete(id);
+    boostRec.deleteActor(id); offByCar(id, true);
     if (id === bId) { bId = -1; sleepBall(); }
    }
    for (const na of fr.new_actors ?? []) {
@@ -158,7 +185,8 @@ export class RLRCNetStreamRigidBodyAndBoostExtractor {
    }
 
    for (const ua of fr.updated_actors ?? []) {
-    const id = ua.actor_id, p = input.objects[ua.object_id] ?? '', a = ua.attribute, at = aType.get(id) ?? '', r = rec(a), cid = compCar.get(id) ?? id;
+    const id = ua.actor_id, p = input.objects[ua.object_id] ?? '', a = ua.attribute, at = aType.get(id) ?? '', r = rec(a);
+    const cid = boostRec.resolveOwnerCarId(id);
     if (p.endsWith(':PlayerName')) {
      const v = r?.String;
      if (typeof v === 'string' && v) { pName.set(id, v); getSlot(id, v); }
@@ -181,6 +209,7 @@ export class RLRCNetStreamRigidBodyAndBoostExtractor {
         if (cRbFi.get(id) === fi && cRb.has(id)) { s.rb = cRb.get(id)!; s.spFi = -2; }
         else { const il = initLoc.get(id); if (il) s.rb = { ...DEF_CRB, position: il, rbUpdated: true }; s.spFi = fi; }
         s.upd = true; s.boost = B_INIT; s.bOn = s.jOn = s.dOn = s.dgOn = s.flipped = false;
+        boostRec.onSlotCarSpawn(idx, id, fi, t, s, aType);
        }
       }
      }
@@ -190,8 +219,7 @@ export class RLRCNetStreamRigidBodyAndBoostExtractor {
      if (at.includes('Car') && idx >= 0 && slots[idx].carId === id) { if (hid) off(idx); else slots[idx].on = true; }
      else if (at.includes('Ball') && (id === bId || (!hid && bId < 0))) { bId = id; if (hid) sleepBall(); else if (!bExp.has(id)) bAct = true; }
     } else if (p === 'TAGame.CarComponent_TA:Vehicle') {
-     const vId = actId(a);
-     if (vId >= 0) compCar.set(id, vId);
+     boostRec.bindComponentCar(id, actId(a), fi, t, at, cSlot, slots);
     } else if (p.endsWith(':ReplicatedRBState')) {
      const rb = extractRigidBodySample(a);
      if (!rb) continue;
@@ -217,8 +245,13 @@ export class RLRCNetStreamRigidBodyAndBoostExtractor {
       }
      }
     } else if (p.includes(':ReplicatedBoost')) {
-     const bv = normalizeReplicatedBoostAmount(a), idx = cSlot(cid);
+     const idx = cSlot(cid), bv = boostRec.recordBoostAttribute(id, a, fi, idx);
      if (bv !== null && idx >= 0) slots[idx].boost = bv;
+    } else if (p.includes('ReplicatedPickupData')) {
+     const slotPos = slots.map((s) => (s.on ? (cRb.get(s.carId)?.position ?? s.rb.position) : null));
+     const slotAct = slots.map((s) => s.on);
+     const { slotIndex, grant } = boostRec.recordPickupAttribute(id, a, cSlot, slotPos, slotAct);
+     if (grant > 0 && slotIndex >= 0) slots[slotIndex].boost = min(100, slots[slotIndex].boost + grant);
     } else if (p.endsWith(':ReplicatedThrottle')) {
      const th = decodeReplicatedAxisByte(a), idx = cSlot(id);
      if (th !== null && idx >= 0) slots[idx].th = th;
@@ -229,13 +262,10 @@ export class RLRCNetStreamRigidBodyAndBoostExtractor {
      const idx = cSlot(id);
      if (idx >= 0) slots[idx].hb = Boolean(r?.Boolean);
     } else if (p.endsWith(':ReplicatedActive')) {
-     const act = isComponentActiveByte(a), idx = cSlot(cid);
-     if (act !== null && idx >= 0) {
-      const s = slots[idx];
-      if (at.includes('Boost')) s.bOn = act;
-      else if (at.includes('DoubleJump')) { s.dOn = act; if (act) s.flipped = true; }
-      else if (at.includes('Dodge')) { s.dgOn = act; if (act) s.flipped = true; }
-      else if (at.includes('Jump')) { s.jOn = act; if (act) s.jT = t; }
+     const act = isComponentActiveByte(a);
+     if (act !== null) {
+      const idx = cSlot(cid);
+      boostRec.recordActiveAttribute(id, at, act, fi, t, idx, idx >= 0 ? slots[idx] : undefined);
      }
     } else if (p.includes(':ReplicatedDemolish')) {
      const dem = rec(r?.DemolishExtended ?? r?.Demolish) ?? r, vCar = dem ? actId(dem.victim) : id, tCar = vCar >= 0 ? vCar : id;
@@ -258,6 +288,8 @@ export class RLRCNetStreamRigidBodyAndBoostExtractor {
     else if (p.endsWith(':ReplicatedRoundCountDownNumber') && !isKf) cdNum = max(0, trunc(num(r?.Int)));
    }
 
+   boostRec.commitFrame(t, dt, cdNum, slots);
+
    let cMask = 0;
    const cars = slots.map((s, slotIndex): RLRCCarFrameState120Hz => {
     const u = s.on && s.upd, rb = s.on ? { ...s.rb, rbUpdated: u } : DEF_CRB, q = rb.rotation, v = rb.linearVelocity;
@@ -265,8 +297,8 @@ export class RLRCNetStreamRigidBodyAndBoostExtractor {
     const onGnd = s.on && rb.position.z < 21.5 && abs(v.z) < 25 && 1 - 2 * (q.x * q.x + q.y * q.y) >= 0.7;
     const el = onGnd ? 0 : max(0, t - (s.jT > -1e8 ? s.jT : t));
     return {
-     slotIndex, entityActive: s.on, rigidBody: rb, rbUpdated: u, actorId: s.on ? s.carId : -1, boostAmount: s.on ? s.boost : 0, isOnGround: onGnd,
-     isSupersonic: s.on && hypot(v.x, v.y, v.z) >= SS_SPD,
+     slotIndex, entityActive: s.on, rigidBody: rb, rbUpdated: u, actorId: s.on ? s.carId : -1, boostAmount: s.on ? s.boost : 0,
+     isOnGround: onGnd, isSupersonic: s.on && hypot(v.x, v.y, v.z) >= SS_SPD,
      hasFlipOrJump: s.on && (onGnd || (!s.flipped && el <= FLIP_EXP)),
      airTimeSinceJump: onGnd ? 0 : min(FLIP_EXP, el),
      activeFlags: s.on ? { boostActive: s.bOn, jumpActive: s.jOn, doubleJumpActive: s.dOn, dodgeActive: s.dgOn } : DEFAULT_ACTIVE_FLAGS,
@@ -280,6 +312,9 @@ export class RLRCNetStreamRigidBodyAndBoostExtractor {
     cars, ballRbUpdated: bu, carRbUpdatedMask: cMask, rbUpdatedMask: cMask | (bu ? 1 << MAX_SLOTS : 0), activeBallActorId: bAid,
    });
   }
+
+  boostRec.applyReconstructedBoostToTimeline(nfs);
+
   const restMap = new Map<number, readonly RLRCRigidBodySample[]>();
   for (let i = 0; i < MAX_SLOTS; i++) if (resting[i].length > 0) restMap.set(i, resting[i]);
   return { networkFrames: nfs, demolishBookmarks: dems, goalExplosionFrames: goals, restingSamplesBySlot: restMap };
