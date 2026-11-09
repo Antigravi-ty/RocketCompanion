@@ -60,6 +60,17 @@ export class KickoffTrainingMode extends BaseGameMode {
     this.episodeController.applyConfigPatch({ ghostModeEnabled: Boolean(val) });
   }
 
+  private isModeActive(actionName: string): boolean {
+    const activeMode = this.runtime?.match?.state?.mode;
+    if (activeMode !== 'kickoff-training') {
+      console.warn(
+        `[KickoffTrainingMode] ${actionName} ignored: active mode is "${activeMode ?? 'none'}", requires "kickoff-training".`
+      );
+      return false;
+    }
+    return true;
+  }
+
   public override onEnter(): void {
     const r = this.runtime;
     if (r?.keyboard) {
@@ -69,65 +80,43 @@ export class KickoffTrainingMode extends BaseGameMode {
     const store = useKickoffTrainingStore.getState();
     store.resetToEntryDefaults?.();
 
-    const ensureActiveKickoffMode = (actionName: string): boolean => {
-      const activeMode = r?.match?.state?.mode;
-      if (activeMode !== 'kickoff-training') {
-        console.warn(
-          `[KickoffTrainingMode] ${actionName} ignored: active mode is "${activeMode ?? 'none'}", requires "kickoff-training".`
-        );
-        return false;
-      }
-      return true;
+    const handlers: Parameters<typeof store.setRuntimeHandlers>[0] = {};
+    handlers.onSelectSpawn = (idx: number) => {
+      if (this.isModeActive('onSelectSpawn')) this.episodeController.selectSpawn(idx);
     };
-
-    const handleSelectSpawn = (idx: number) => {
-      if (ensureActiveKickoffMode('onSelectSpawn')) this.selectSpawn(idx);
+    handlers.onResetSpawn = () => {
+      if (this.isModeActive('onResetSpawn')) this.episodeController.selectSpawn(this.spawnIndex);
     };
-    const handleResetSpawn = () => {
-      if (ensureActiveKickoffMode('onResetSpawn')) this.selectSpawn(this.spawnIndex);
-    };
-    const handleSubModeChange = (nextSubMode: KickoffSubMode) => {
+    handlers.onSubModeChange = (nextSubMode: KickoffSubMode) => {
       this.episodeController.applyConfigPatch({ subMode: nextSubMode });
-      if (ensureActiveKickoffMode('onSubModeChange')) this.selectSpawn(this.spawnIndex);
+      if (this.isModeActive('onSubModeChange')) this.episodeController.selectSpawn(this.spawnIndex);
     };
-    const handleSpeedChange = (physicsRate: number) => {
-      if (!ensureActiveKickoffMode('onSpeedChange')) return;
-      r?.interpolator?.setTrainingPhysicsRate?.(physicsRate);
-    };
-    const handleRealisticWaitChange = () => {
-      if (!ensureActiveKickoffMode('onRealisticWaitChange')) return;
-      if (this.subMode === 'realistic') {
-        this.selectSpawn(this.spawnIndex);
+    handlers.onSpeedChange = (physicsRate: number) => {
+      if (this.isModeActive('onSpeedChange')) {
+        r?.interpolator?.setTrainingPhysicsRate?.(physicsRate);
       }
     };
-    const handleGhostPlacementChange = (placement: KickoffGhostPlacement) => {
+    handlers.onRealisticWaitChange = () => {
+      if (this.isModeActive('onRealisticWaitChange') && this.subMode === 'realistic') {
+        this.episodeController.selectSpawn(this.spawnIndex);
+      }
+    };
+    handlers.onGhostPlacementChange = (placement: KickoffGhostPlacement) => {
       this.episodeController.applyConfigPatch({ ghostPlacement: placement });
-      if (ensureActiveKickoffMode('onGhostPlacementChange') && !this.ghostModeEnabled) {
-        this.selectSpawn(useKickoffTrainingStore.getState().spawnIndex);
+      if (this.isModeActive('onGhostPlacementChange') && !this.ghostModeEnabled) {
+        this.episodeController.selectSpawn(useKickoffTrainingStore.getState().spawnIndex);
       }
     };
-    const handleGhostModeChange = (enabled: boolean) => {
+    handlers.onGhostModeChange = (enabled: boolean) => {
       this.episodeController.applyConfigPatch({ ghostModeEnabled: enabled });
-      if (ensureActiveKickoffMode('onGhostModeChange')) {
-        this.selectSpawn(useKickoffTrainingStore.getState().spawnIndex);
+      if (this.isModeActive('onGhostModeChange')) {
+        this.episodeController.selectSpawn(useKickoffTrainingStore.getState().spawnIndex);
       }
     };
-    const handleGhostVisibilityChange = (showCar: boolean, showBall: boolean) => {
-      this.episodeController.applyConfigPatch({
-        ghostVisibility: { showCar, showBall },
-      });
+    handlers.onGhostVisibilityChange = (showCar: boolean, showBall: boolean) => {
+      this.episodeController.applyConfigPatch({ ghostVisibility: { showCar, showBall } });
     };
-
-    store.setRuntimeHandlers({
-      onSelectSpawn: handleSelectSpawn,
-      onResetSpawn: handleResetSpawn,
-      onSubModeChange: handleSubModeChange,
-      onSpeedChange: handleSpeedChange,
-      onRealisticWaitChange: handleRealisticWaitChange,
-      onGhostPlacementChange: handleGhostPlacementChange,
-      onGhostModeChange: handleGhostModeChange,
-      onGhostVisibilityChange: handleGhostVisibilityChange,
-    });
+    store.setRuntimeHandlers(handlers);
 
     if (r?.arena && !this.ghostVisuals) {
       this.ghostVisuals = new KickoffGhostVisuals(r.arena);
@@ -143,8 +132,7 @@ export class KickoffTrainingMode extends BaseGameMode {
 
   public override onLeave(): void {
     const r = this.runtime;
-    const store = useKickoffTrainingStore.getState();
-    store.setRuntimeHandlers({
+    useKickoffTrainingStore.getState().setRuntimeHandlers({
       onSelectSpawn: undefined,
       onResetSpawn: undefined,
       onSubModeChange: undefined,
@@ -185,29 +173,24 @@ export class KickoffTrainingMode extends BaseGameMode {
     this.episodeController.onExit();
   }
 
-  public selectSpawn(spawnIndex: number = this.spawnIndex): void {
-    const episodeCtrl = this.episodeController;
-    episodeCtrl.selectSpawn(spawnIndex);
+  public selectSpawn(spawnIndex?: number): void {
+    const targetSpawn = typeof spawnIndex === 'number' ? spawnIndex : this.spawnIndex;
+    this.episodeController.selectSpawn(targetSpawn);
   }
 
   public override onResetKickoff(): void {
-    const episodeCtrl = this.episodeController;
-    episodeCtrl.resetEpisode(this.spawnIndex);
-  }
-
-  public _resetKickoffEpisode(spawnIndex: number = this.spawnIndex): void {
-    const episodeCtrl = this.episodeController;
-    episodeCtrl.resetEpisode(spawnIndex);
+    const targetSpawn = this.episodeController.getConfigSnapshot().spawnIndex;
+    this.episodeController.resetEpisode(targetSpawn);
   }
 
   public onBeforePhysicsTick(): boolean {
-    const episodeCtrl = this.episodeController;
-    return episodeCtrl.onBeforePhysicsTick();
+    if (!this.runtime?.physics) return true;
+    return this.episodeController.onBeforePhysicsTick();
   }
 
   public onStepPhysicsTick(): boolean {
-    const episodeCtrl = this.episodeController;
-    return episodeCtrl.step();
+    if (!this.runtime?.physics) return true;
+    return this.episodeController.step();
   }
 
   public override getCarControls(carIndex: number): Record<string, unknown> | null {
@@ -217,7 +200,7 @@ export class KickoffTrainingMode extends BaseGameMode {
   }
 
   public override update(context: KickoffFrameUpdateContext): void {
-    const episodeCtrl = this.episodeController;
-    episodeCtrl.updateFrame(context);
+    if (!context) return;
+    this.episodeController.updateFrame(context);
   }
 }

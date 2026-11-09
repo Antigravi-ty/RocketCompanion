@@ -1,4 +1,3 @@
-import { extractGoalReplayFrames } from '../../../replay/ReplayPlaybackState.ts';
 import {
   ReplayRingBuffer,
   REPLAY_BUFFER_MODES,
@@ -8,25 +7,28 @@ import {
   type ReplayRecordedIncident,
 } from '../../../replay/ReplayRingBuffer.ts';
 import { ReplayTimelineController } from '../../../replay/ReplayTimelineController.ts';
-import { retainCompletedMatchReplayAndNotify } from '../../../replay/ReplayFileExporter.ts';
 import { MATCH_SIGNALS } from '../../../physics/RocketSimConstants.ts';
-import { useExperimentalMultiBotsStore, hudStore } from '../../runtimeUiPort.ts';
 import {
-  beginGoalReplaySession,
   endGoalReplaySession,
   stepGoalReplaySessionFrame,
 } from '../shared/GoalReplaySessionCoordinator.ts';
-import {
-  type ExpGoalIncidentMeta,
-  type ExpModeRuntimePort,
-  type ExpReplaySignal,
-  type ExpSpawnedCarEntry,
-  MAX_GOAL_LOOKBACK_SECONDS,
-  SCORER_TOUCH_LOOKBACK_SECONDS,
-  buildExpCarEntriesForReplay,
-  buildExpRosterForExport,
+import type {
+  ExpGoalIncidentMeta,
+  ExpModeRuntimePort,
+  ExpReplaySignal,
+  ExpSpawnedCarEntry,
 } from './ExperimentalMultiBotsMatchMath.ts';
 import { ExperimentalMultiBotsRosterController } from './ExperimentalMultiBotsRosterController.ts';
+import {
+  emitExpClockSecondAndAlertSignals,
+  emitExpRosterJoinAndLoadoutSignals,
+  exportCompletedExpMatchReplay,
+  extractExpGoalReplayWindow,
+  launchExpGoalReplaySession,
+  pushExpReplaySignalToSim,
+  syncReplayExitPhaseToKickoff,
+  syncReplayInterpolatedCarControls,
+} from './experimentalMultiBotsReplayPipeline.ts';
 
 export class ExperimentalMultiBotsReplayController {
   private readonly runtime: ExpModeRuntimePort | null;
@@ -40,7 +42,7 @@ export class ExperimentalMultiBotsReplayController {
   private nextReplaySignalId = 1;
   private readonly pendingFrameSignals: ExpReplaySignal[] = [];
 
-  private activeGoalMeta: ExpGoalIncidentMeta = {
+  public activeGoalMeta: ExpGoalIncidentMeta = {
     goalIncidentTick: -1,
     goalScoringTeam: 0,
     goalScorerCarIndex: 0,
@@ -72,7 +74,7 @@ export class ExperimentalMultiBotsReplayController {
 
   clearSignalsAndBuffer(): void {
     this.pendingFrameSignals.length = 0;
-    this.replayRingBuffer?.clear?.();
+    this.replayRingBuffer.clear();
   }
 
   clearPendingSignals(): void {
@@ -80,24 +82,7 @@ export class ExperimentalMultiBotsReplayController {
   }
 
   pushSignalToPhysicsEngine(sig: ExpReplaySignal): void {
-    const sim = this.runtime?.physics;
-    if (!sim || typeof sim.pushSignalEvent !== 'function') return;
-    sim.pushSignalEvent(
-      sig.signalType,
-      0,
-      sig.param1 | 0,
-      sig.param2 | 0,
-      0,
-      0,
-      sig.frameId,
-      sig.param1,
-      sig.param2,
-      sig.signalId,
-      0,
-      0,
-      0,
-      0
-    );
+    pushExpReplaySignalToSim(this.runtime?.physics, sig);
   }
 
   emitReplaySignal(
@@ -107,33 +92,24 @@ export class ExperimentalMultiBotsReplayController {
     explicitTick: number | null = null
   ): ExpReplaySignal {
     const sim = this.runtime?.physics;
-    if (explicitTick !== null) {
-      const targetTick = Math.floor(explicitTick);
-      const sig: ExpReplaySignal = {
-        signalId: this.nextReplaySignalId++,
-        signalType,
-        frameId: targetTick,
-        param1,
-        param2,
-      };
-      this.pushSignalToPhysicsEngine(sig);
-      const slot = this.replayRingBuffer?.findFrameByTick?.(targetTick);
-      if (slot) {
-        this.replayRingBuffer.appendSignal(targetTick, sig);
-      } else {
-        this.pendingFrameSignals.push(sig);
-      }
-      return sig;
-    }
-
-    const nextTick = Math.floor(sim?.getHeaderView?.()?.tickCount ?? 0) + 1;
+    const isExplicit = explicitTick !== null;
+    const targetTick = isExplicit
+      ? Math.floor(explicitTick)
+      : Math.floor(sim?.getHeaderView?.()?.tickCount ?? 0) + 1;
     const sig: ExpReplaySignal = {
       signalId: this.nextReplaySignalId++,
       signalType,
-      frameId: nextTick,
+      frameId: targetTick,
       param1,
       param2,
     };
+    if (isExplicit) {
+      this.pushSignalToPhysicsEngine(sig);
+      if (this.replayRingBuffer.findFrameByTick(targetTick)) {
+        this.replayRingBuffer.appendSignal(targetTick, sig);
+        return sig;
+      }
+    }
     this.pendingFrameSignals.push(sig);
     return sig;
   }
@@ -156,35 +132,24 @@ export class ExperimentalMultiBotsReplayController {
   }
 
   appendIncident(tick: number, event: ReplayRecordedIncident): void {
-    this.replayRingBuffer?.appendIncident?.(tick, event);
+    this.replayRingBuffer.appendIncident(tick, event);
   }
 
   appendAudioEvent(tick: number, audioEvt: ReplayAudioCue): void {
-    this.replayRingBuffer?.appendAudioEvent?.(tick, audioEvt);
+    this.replayRingBuffer.appendAudioEvent(tick, audioEvt);
   }
 
   emitRosterJoinAndLoadoutSignals(
     configuredDuration: number,
-    spawnedCars: ReadonlyArray<ExpSpawnedCarEntry>,
-    packLoadoutFn: (
-      visualId: string,
-      colorSlot: number,
-      hitboxId: string,
-      opts: { paintFinish?: string; boostVisual?: string; boostAudio?: string }
-    ) => number
+    spawnedCars: ReadonlyArray<ExpSpawnedCarEntry>
   ): void {
-    const carCount = spawnedCars.length;
-    this.emitReplaySignal(MATCH_SIGNALS.MATCH_INITIALIZED, configuredDuration, carCount);
-    for (const c of spawnedCars) {
-      this.emitReplaySignal(MATCH_SIGNALS.PLAYER_JOINED, c.carIndex, c.team & 0xff);
-      const packed = packLoadoutFn(c.visualId, c.colorSlot, c.hitboxId, {
-        paintFinish: c.paintFinish,
-        boostVisual: c.boostVisual,
-        boostAudio: c.boostAudio,
-      });
-      this.emitReplaySignal(MATCH_SIGNALS.PLAYER_LOADOUT_UPDATED, c.carIndex, packed);
-    }
-    this.emitReplaySignal(MATCH_SIGNALS.MATCH_STARTED, configuredDuration, carCount);
+    emitExpRosterJoinAndLoadoutSignals(
+      (type, p1, p2) => {
+        this.emitReplaySignal(type, p1, p2);
+      },
+      configuredDuration,
+      spawnedCars
+    );
   }
 
   emitClockSecondAndAlertSignals(
@@ -193,19 +158,15 @@ export class ExperimentalMultiBotsReplayController {
     isOvertime: boolean,
     timeAlertSecond: number | null
   ): void {
-    this.emitReplaySignal(
-      MATCH_SIGNALS.CLOCK_UPDATED_SECONDS,
+    emitExpClockSecondAndAlertSignals(
+      (type, p1, p2, tick) => {
+        this.emitReplaySignal(type, p1, p2, tick);
+      },
+      currentTick,
       remainingSec,
-      isOvertime ? 1 : 0,
-      currentTick
+      isOvertime,
+      timeAlertSecond
     );
-    if (timeAlertSecond === 60) {
-      this.emitReplaySignal(MATCH_SIGNALS.TIME_ALERT_60S, 60, 0, currentTick);
-    } else if (timeAlertSecond === 30) {
-      this.emitReplaySignal(MATCH_SIGNALS.TIME_ALERT_30S, 30, 0, currentTick);
-    } else if (timeAlertSecond !== null) {
-      this.emitReplaySignal(MATCH_SIGNALS.COUNTDOWN_10S, timeAlertSecond, 0, currentTick);
-    }
   }
 
   retainGoalReplayBuffer(
@@ -215,33 +176,23 @@ export class ExperimentalMultiBotsReplayController {
     const sim = this.runtime?.physics;
     if (!this.replayRingBuffer || this.replayRingBuffer.size === 0) return 0;
     const currentTick = Math.floor(
-      sim?.getHeaderView?.()?.tickCount ?? this.replayRingBuffer.getNewestFrame?.()?.tick ?? 0
+      sim?.getHeaderView?.()?.tickCount ?? this.replayRingBuffer.getNewestFrame()?.tick ?? 0
     );
-    const goalTick = goalMeta.goalIncidentTick > 0 ? goalMeta.goalIncidentTick : currentTick;
-    const postGoalTicks = Math.max(0, currentTick - goalTick);
     this.attachPhysicsIfNeeded();
 
-    const extractedFrames = extractGoalReplayFrames({
+    const win = extractExpGoalReplayWindow({
       ringBuffer: this.replayRingBuffer,
-      engine: null,
-      goalIncidentTick: goalTick,
-      scorerTouchTick: goalMeta.goalScorerTouchTick,
-      lookbackSeconds: MAX_GOAL_LOOKBACK_SECONDS,
-      touchLookbackSeconds: SCORER_TOUCH_LOOKBACK_SECONDS,
-      postGoalTicks,
-      lastKickoffWillStartTick: goalMeta.lastKickoffStartTick,
+      currentTick,
+      goalMeta,
+      spawnedCars,
     });
-    if (!Array.isArray(extractedFrames) || extractedFrames.length === 0) return 0;
-    const carEntries = buildExpCarEntriesForReplay(spawnedCars);
+    if (!win) return 0;
     return this.replayController.retainReplaySessionFrames({
       scoringTeam: goalMeta.goalScoringTeam ?? 0,
       scorerCarIndex: goalMeta.goalScorerCarIndex ?? 0,
-      carTeamResolver: (c: number) => {
-        const entry = spawnedCars.find((e) => e.carIndex === c);
-        return entry ? entry.team : c % 2;
-      },
-      carEntries,
-      frames: extractedFrames,
+      carTeamResolver: win.carTeamResolver,
+      carEntries: win.carEntries,
+      frames: win.extractedFrames,
     });
   }
 
@@ -257,25 +208,19 @@ export class ExperimentalMultiBotsReplayController {
     if ((!this.replayRingBuffer || this.replayRingBuffer.size === 0) && !simState) return;
     if (
       params.goalMeta.goalIncidentTick > 0 &&
-      this.replayRingBuffer &&
       this.replayRingBuffer.size > 0 &&
-      (!this.replayController || this.replayController.ActiveWindowCount <= 0)
+      this.replayController.ActiveWindowCount <= 0
     ) {
       this.retainGoalReplayBuffer(params.goalMeta, params.spawnedCars);
     }
-    const blueCount = params.spawnedCars.filter((c) => c.team === 0).length || 1;
-    const orangeCount = params.spawnedCars.filter((c) => c.team === 1).length || 1;
-    const roster = buildExpRosterForExport(params.spawnedCars);
-    retainCompletedMatchReplayAndNotify({
+    exportCompletedExpMatchReplay({
       ringBuffer: this.replayRingBuffer,
       fallbackState: simState,
       winnerTeam: params.winnerTeam,
       blueScore: params.blueScore,
       orangeScore: params.orangeScore,
-      gameMode: `${blueCount}v${orangeCount}`,
-      durationSeconds: params.configuredDuration ?? 300,
-      roster,
-      loadouts: roster,
+      configuredDuration: params.configuredDuration,
+      spawnedCars: params.spawnedCars,
     });
   }
 
@@ -286,7 +231,6 @@ export class ExperimentalMultiBotsReplayController {
   ): boolean {
     const r = this.runtime;
     const sim = r?.physics;
-    const store = useExperimentalMultiBotsStore.getState();
     if (r) {
       r._localSkipReplayReady = false;
     }
@@ -297,8 +241,6 @@ export class ExperimentalMultiBotsReplayController {
 
     this.activeGoalMeta = { ...goalMeta };
     const currentTick = Math.floor(sim.getHeaderView?.()?.tickCount ?? 0);
-    const goalTick = goalMeta.goalIncidentTick > 0 ? goalMeta.goalIncidentTick : currentTick;
-    const postGoalTicks = Math.max(0, currentTick - goalTick);
     this.emitReplaySignal(
       MATCH_SIGNALS.GOAL_REPLAY_WILL_START,
       goalMeta.goalScoringTeam ?? 0,
@@ -308,89 +250,42 @@ export class ExperimentalMultiBotsReplayController {
 
     this.attachPhysicsIfNeeded();
 
-    const extractedFrames = extractGoalReplayFrames({
+    const win = extractExpGoalReplayWindow({
       ringBuffer: this.replayRingBuffer,
-      engine: null,
-      goalIncidentTick: goalTick,
-      scorerTouchTick: goalMeta.goalScorerTouchTick,
-      lookbackSeconds: MAX_GOAL_LOOKBACK_SECONDS,
-      touchLookbackSeconds: SCORER_TOUCH_LOOKBACK_SECONDS,
-      postGoalTicks,
-      lastKickoffWillStartTick: goalMeta.lastKickoffStartTick,
+      currentTick,
+      goalMeta,
+      spawnedCars: rosterCtrl.spawnedCars,
     });
-
-    if (!Array.isArray(extractedFrames) || extractedFrames.length === 0) {
+    if (!win) {
       onCompleteTransition();
       return false;
     }
 
-    const carEntries = buildExpCarEntriesForReplay(rosterCtrl.spawnedCars);
     const totalFrames = this.replayController.beginReplaySession({
       scoringTeam: goalMeta.goalScoringTeam,
       scorerCarIndex: goalMeta.goalScorerCarIndex,
-      carTeamResolver: (c: number) => {
-        const entry = rosterCtrl.spawnedCars.find((e) => e.carIndex === c);
-        return entry ? entry.team : c % 2;
-      },
-      carEntries,
-      frames: extractedFrames,
+      carTeamResolver: win.carTeamResolver,
+      carEntries: win.carEntries,
+      frames: win.extractedFrames,
     });
 
-    if (carEntries.length > 0) {
-      this.replayController.sessionState.carEntries = carEntries;
+    if (win.carEntries.length > 0) {
+      this.replayController.sessionState.carEntries = win.carEntries;
     }
 
     this.isReplayActive = true;
     this.replayCameraMode = 'director';
     this.replayPovCarIndex = goalMeta.goalScorerCarIndex;
 
-    if (r?.match?.state) {
-      r.match.state.phase = 'replay';
-    }
-
-    rosterCtrl.applyCameraCarIndex(goalMeta.goalScorerCarIndex);
-    store.updateLiveTelemetry({
-      matchPhase: 'GOAL REPLAY',
-      activeCameraCarIndex: goalMeta.goalScorerCarIndex,
-    });
-
-    const scorerCarEntry = rosterCtrl.spawnedCars.find(
-      (e) => e.carIndex === goalMeta.goalScorerCarIndex
-    );
-    const scorerAnthemId = scorerCarEntry?.anthemId || null;
-
-    beginGoalReplaySession(r, this.replayController, {
-      cameraMode: 'director',
-      source: 'exp-multi-bots-replay',
-      initialSnapshot: extractedFrames[0].snapshot,
+    launchExpGoalReplaySession({
+      simPorts: r,
+      timelineCtrl: this.replayController,
+      sessionState: this,
+      goalMeta,
+      initialSnapshot: win.extractedFrames[0].snapshot,
       totalFrames,
-      scoringTeam: goalMeta.goalScoringTeam,
-      scorerCarIndex: goalMeta.goalScorerCarIndex,
-      scorerName: goalMeta.goalScorerName,
-      scorerTeam: goalMeta.goalScoringTeam,
-      scorerAnthemId,
-      ballSpeedKph: goalMeta.goalBallSpeedKph,
-      assistName: goalMeta.goalAssistName,
-      choreographySignal: 'goal-replay-started',
-      getCameraMode: () => this.replayCameraMode,
-      setCameraMode: (nextMode) => {
-        this.replayCameraMode = nextMode;
-      },
-      getScoringTeam: () => this.activeGoalMeta.goalScoringTeam,
-      getScorerCarIndex: () => this.activeGoalMeta.goalScorerCarIndex,
-      getPovCarIndex: () =>
-        typeof this.replayPovCarIndex === 'number'
-          ? this.replayPovCarIndex
-          : this.activeGoalMeta.goalScorerCarIndex,
-      setPovCarIndex: (carIdx) => {
-        if (typeof carIdx === 'number') {
-          this.replayPovCarIndex = carIdx;
-        }
-      },
-      onApplyPovCarIndex: (carIdx) => {
-        this.replayPovCarIndex = rosterCtrl.applyCameraCarIndex(carIdx);
-        store.setActiveCameraCarIndex(this.replayPovCarIndex);
-      },
+      spawnedCars: rosterCtrl.spawnedCars,
+      applyCameraCarIndex: (carIdx) => rosterCtrl.applyCameraCarIndex(carIdx),
     });
 
     return true;
@@ -405,13 +300,8 @@ export class ExperimentalMultiBotsReplayController {
     this.isReplayActive = false;
     if (r) {
       r._localSkipReplayReady = false;
-      if (r.match?.state?.phase === 'replay') {
-        r.match.state.phase = 'kickoff';
-      }
     }
-    if (hudStore.getState().matchPhase === 'replay') {
-      hudStore.getState().setMatchState({ matchPhase: 'kickoff' });
-    }
+    syncReplayExitPhaseToKickoff(r?.match?.state);
     const restoreCamIdx = rosterCtrl.resolveDefaultCameraCarIndex();
     rosterCtrl.applyCameraCarIndex(restoreCamIdx);
   }
@@ -440,22 +330,11 @@ export class ExperimentalMultiBotsReplayController {
       povCarIndex: this.replayPovCarIndex,
       isUnlimitedBoost: unlimited,
       onStepAfterEvents: () => {
-        for (const entry of rosterCtrl.spawnedCars) {
-          const cv = r?.interpolator?.getCurrCarStateView?.(entry.carIndex);
-          if (cv) {
-            const fwdSpeed = cv.velX * cv.fwdX + cv.velY * cv.fwdY + cv.velZ * cv.fwdZ;
-            rosterCtrl.carControlsMap.set(entry.carIndex, {
-              throttle: Math.abs(fwdSpeed) > 25 ? (fwdSpeed > 0 ? 1 : -1) : 0,
-              steer: 0,
-              pitch: 0,
-              yaw: 0,
-              roll: 0,
-              jump: Boolean(cv.isJumping),
-              boost: Boolean(cv.isBoosting),
-              handbrake: false,
-            });
-          }
-        }
+        syncReplayInterpolatedCarControls(
+          r?.interpolator,
+          rosterCtrl.spawnedCars,
+          rosterCtrl.carControlsMap
+        );
       },
       onComplete: () => {
         onCompleteTransition();
