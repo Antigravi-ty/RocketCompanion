@@ -48,14 +48,7 @@ export class GameAudioEngineFacade {
     this.stadiumSpatialEngine = stadiumSpatialEngine;
     this.stadiumSpatialEngine.init();
     this.previewPlayer = new AudioMenuPreviewPlayer({
-      isLoaded: () => this.loaded,
-      isLoading: () => this.loading,
       preload: () => this.preload(),
-      stadiumSpatialEngine,
-      incidentEngine,
-      vehicleManager,
-      signalEngine,
-      ballEngine,
     });
 
     this.loading = false;
@@ -75,9 +68,10 @@ export class GameAudioEngineFacade {
       const panModel: PanningModelType = spatialEnabled
         ? audioConfig.get('spatialPanningModel') || 'equalpower'
         : 'equalpower';
-      this.vehicleManager?.updatePanningModel?.(panModel);
-      this.ballEngine?.updatePanningModel?.(panModel);
-      getAudioSlotPool()?.updatePanningModel?.(panModel);
+      this.vehicleManager.updatePanningModel(panModel);
+      this.ballEngine.updatePanningModel(panModel);
+      const slotPool = getAudioSlotPool();
+      if (slotPool) slotPool.updatePanningModel(panModel);
 
       const nextBoostKey = `${audioConfig.get('boostStartVariation')}|${audioConfig.get('boostLoopVariation')}|${audioConfig.get('boostEndVariation')}`;
       if (nextBoostKey !== this._lastBoostVariationKey) {
@@ -85,24 +79,20 @@ export class GameAudioEngineFacade {
         const s = audioConfig.get('boostStartVariation');
         const l = audioConfig.get('boostLoopVariation');
         const e = audioConfig.get('boostEndVariation');
-        if (this.vehicleManager) {
-          const selfIdx = this.vehicleManager.activeCarIndex ?? 0;
-          if (s && s === l && l === e) {
-            this.vehicleManager.carBoostVariations.set(selfIdx, String(s));
-          } else {
-            this.vehicleManager.carBoostVariations.delete(selfIdx);
-          }
-        }
+        const selfIdx = this.vehicleManager.activeCarIndex ?? 0;
+        this.setCarBoostAudioVariation(selfIdx, s && s === l && l === e ? String(s) : null);
       }
 
       if (this.loaded) {
         applyBoostVariationBuffers(this);
+        this.previewPlayer.syncBoostBuffers(this.vehicleManager.buffers);
       }
     });
   }
 
   previewBoostVariation(variationId = 'rush', phase = 'start'): void {
-    this.previewPlayer?.previewBoostVariation?.(variationId, phase);
+    if (!variationId) return;
+    this.previewPlayer.previewBoostVariation(variationId, phase);
   }
 
   async preload(
@@ -111,8 +101,15 @@ export class GameAudioEngineFacade {
     if (this.loaded || this.loading || typeof window === 'undefined') return;
     this.loading = true;
     try {
-      this.stadiumSpatialEngine?.prewarm?.();
+      this.stadiumSpatialEngine.prewarm();
       await loadAudioAssets(this, onProgress);
+      this.previewPlayer.syncLoadedBuffers(
+        this.incidentEngine.buffers,
+        this.vehicleManager.buffers,
+        this.signalEngine.signalBuffers,
+        this.ballEngine.ballRollingBuffer,
+        this.ballEngine.ballFlyingBuffer
+      );
       this.loaded = true;
     } finally {
       this.loading = false;
@@ -140,29 +137,8 @@ export class GameAudioEngineFacade {
   }
 
   setCarBoostAudioVariation(carIndex: number, variationId: string | null = null) {
-    this.vehicleManager?.setCarBoostAudioVariation?.(carIndex, variationId);
-  }
-
-  updateSupersonic(isSupersonic: boolean, isMatchActive: boolean = true) {
-    const emitter = this.vehicleManager.getEmitter(this.vehicleManager.activeCarIndex);
-    if (emitter) {
-      if (typeof emitter.updateSupersonic === 'function') {
-        emitter.updateSupersonic(isSupersonic, isMatchActive);
-      } else {
-        emitter.updateState({ isSupersonic, isAlive: true, audible: isMatchActive });
-      }
-    }
-  }
-
-  updateBoost(isBoosting: boolean, isMatchActive: boolean = true) {
-    const emitter = this.vehicleManager.getEmitter(this.vehicleManager.activeCarIndex);
-    if (emitter) {
-      if (typeof emitter.updateBoost === 'function') {
-        emitter.updateBoost(isBoosting, isMatchActive);
-      } else {
-        emitter.updateState({ isBoosting, isAlive: true, audible: isMatchActive });
-      }
-    }
+    if (!Number.isFinite(carIndex) || carIndex < 0) return;
+    this.vehicleManager.setCarBoostAudioVariation(carIndex, variationId);
   }
 
   handleSignal(signalType: string) {
@@ -182,35 +158,23 @@ export class GameAudioEngineFacade {
     if (pool) pool.silenceAll();
   }
 
-  onFocusRegained() {
-    this.silenceAll();
-  }
-
-  stopContinuousAudio() {
-    this.silenceAll();
-  }
-
   resetIncidentDebounceState() {
-    if (this.incidentEngine) {
-      this.incidentEngine.lastCarBallHitTimestamp = 0;
-      this.incidentEngine.lastCarCollisionTimestamp = 0;
-      this.incidentEngine.lastGoalScoredTimestamp = 0;
-      this.incidentEngine.lastBoostPickupByPad?.clear?.();
-      this.incidentEngine.lastCarCollisionByPair?.clear?.();
-      this.incidentEngine.lastCarDemoByVictim?.clear?.();
-      if (this.incidentEngine.worldImpactHandler) {
-        this.incidentEngine.worldImpactHandler.lastGoalpostHitTimestamp = 0;
-        this.incidentEngine.worldImpactHandler.lastBallWorldHitTimestamp = 0;
-      }
+    this.incidentEngine.lastCarBallHitTimestamp = 0;
+    this.incidentEngine.lastCarCollisionTimestamp = 0;
+    this.incidentEngine.lastGoalScoredTimestamp = 0;
+    this.incidentEngine.lastBoostPickupByPad.clear();
+    this.incidentEngine.lastCarCollisionByPair.clear();
+    this.incidentEngine.lastCarDemoByVictim.clear();
+    this.incidentEngine.worldImpactHandler.lastGoalpostHitTimestamp = 0;
+    this.incidentEngine.worldImpactHandler.lastBallWorldHitTimestamp = 0;
+    if (this.vehicleManager._lastFlipResetMsByCar) {
+      this.vehicleManager._lastFlipResetMsByCar.clear();
     }
-    if (this.vehicleManager) {
-      this.vehicleManager._lastFlipResetMsByCar?.clear?.();
-      this.vehicleManager._lastBoostEdgeMsByCar?.clear?.();
-      this.vehicleManager._lastJumpActionMsByCar?.clear?.();
-      this.vehicleManager._lastSupersonicEnterMsByCar?.clear?.();
-      this.vehicleManager._lastWheelLandingMsByCar?.clear?.();
-      this.vehicleManager._landingStateByCar?.clear?.();
-    }
+    this.vehicleManager._lastBoostEdgeMsByCar.clear();
+    this.vehicleManager._lastJumpActionMsByCar.clear();
+    this.vehicleManager._lastSupersonicEnterMsByCar.clear();
+    this.vehicleManager._lastWheelLandingMsByCar.clear();
+    this.vehicleManager._landingStateByCar.clear();
   }
 }
 

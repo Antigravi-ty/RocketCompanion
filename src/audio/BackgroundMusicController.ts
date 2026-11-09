@@ -1,14 +1,4 @@
-/**
- * BackgroundMusicController.ts
- * Stateful SubController managing the hidden <audio> element, MediaSession integration,
- * scene gating, playlist navigation, directional Cubic-Bezier spatial blend,
- * and smooth BGM fade-in/out orchestration.
- */
-
-import {
-  DEFAULT_BGM_SCENE_CONFIG,
-  type SpatialAudioTunerConfig,
-} from '../ui-core/config/spatialAudioConfig.ts';
+import { type SpatialAudioTunerConfig } from '../ui-core/config/spatialAudioConfig.ts';
 import {
   useSpatialAudioStore,
   getFilteredBgmTracks,
@@ -20,32 +10,42 @@ import {
   stepSpatialBezierTransition,
   type SpatialAudioRuntimeContextSnapshot,
 } from './SpatialAudioBusChain.ts';
+import {
+  bindBgmMediaSession,
+  computeBgmTargetPhase,
+  computeBgmVolumeScalar,
+  evaluateBgmSceneAllowed,
+  readRuntimeAudioSnapshot,
+  setBgmMediaSessionPlaybackState,
+  stepLinearFadeEnvelope,
+  type BgmTrackEntry,
+} from './spatialMusicAndAnthemPipeline.ts';
 
-export interface BgmTrackEntry {
-  id: string;
-  title: string;
-  volume?: string;
-  file?: Blob | File;
-}
+export type { BgmTrackEntry };
 
-export interface BackgroundMusicDeps {
-  ensureAudioGraph(autoResume?: boolean): AudioContext | null;
-  getBgmChain(): SpatialAudioBusChain | null;
-  getBgmVolScalar(store?: SpatialAudioStorePortState): number;
-  isWindowUnfocusedMuted(): boolean;
-  getRuntimeContext(): SpatialAudioRuntimeContextSnapshot;
-  isPreviewOrPreviewDrainActive(): boolean;
-  refreshGoalSequenceBgmGate(): boolean;
+export interface BackgroundMusicOptions {
+  ensureAudioGraph?(autoResume?: boolean): AudioContext | null;
+  getBgmChain?(): SpatialAudioBusChain | null;
+  getBgmVolScalar?(store?: SpatialAudioStorePortState): number;
+  isWindowUnfocusedMuted?(): boolean;
+  getRuntimeContext?(): SpatialAudioRuntimeContextSnapshot;
+  isPreviewOrPreviewDrainActive?(): boolean;
+  refreshGoalSequenceBgmGate?(): boolean;
 }
 
 export class BackgroundMusicController {
-  private readonly deps: BackgroundMusicDeps;
+  private readonly ensureGraphFn: ((autoResume?: boolean) => AudioContext | null) | null;
+  private readonly isPreviewDrainActiveFn: (() => boolean) | null;
+  private readonly refreshGoalGateFn: (() => boolean) | null;
 
+  audioContext: AudioContext | null = null;
+  bgmChain: SpatialAudioBusChain | null = null;
   audioEl: HTMLAudioElement | null = null;
   mediaSourceNode: MediaElementAudioSourceNode | null = null;
   objectUrl: string | null = null;
   currentTrack: BgmTrackEntry | null = null;
 
+  windowUnfocusedMuted = false;
   userPaused = false;
   goalSequenceActive = false;
   fadeEnvelope = 0.0;
@@ -53,11 +53,24 @@ export class BackgroundMusicController {
   blend = 1.0;
   lastShouldBeAudible: boolean | undefined = undefined;
 
-  constructor(deps: BackgroundMusicDeps) {
-    this.deps = deps;
+  constructor(options: BackgroundMusicOptions = {}) {
+    this.ensureGraphFn = options.ensureAudioGraph ?? null;
+    this.isPreviewDrainActiveFn = options.isPreviewOrPreviewDrainActive ?? null;
+    this.refreshGoalGateFn = options.refreshGoalSequenceBgmGate ?? null;
+  }
+
+  private _ensureBusChain(autoResume = true): SpatialAudioBusChain | null {
+    if (!this.bgmChain && this.ensureGraphFn) {
+      this.ensureGraphFn(autoResume);
+    } else if (autoResume && this.audioContext?.state === 'suspended') {
+      this.audioContext.resume().catch(() => {});
+    }
+    return this.bgmChain;
   }
 
   attachToBusChain(ctx: AudioContext, bgmChain: SpatialAudioBusChain | null): void {
+    this.audioContext = ctx;
+    this.bgmChain = bgmChain;
     if (this.audioEl && bgmChain && !this.mediaSourceNode) {
       try {
         this.mediaSourceNode = ctx.createMediaElementSource(this.audioEl);
@@ -77,155 +90,93 @@ export class BackgroundMusicController {
       audioEl.dataset.rcBgmElement = 'true';
       document.body.appendChild(audioEl);
 
-      audioEl.addEventListener('ended', () => {
-        this.playNextTrack(1);
-      });
+      audioEl.addEventListener('ended', () => this.playNextTrack(1));
       audioEl.addEventListener('play', () => {
-        if (this.shouldBeAudible()) {
-          useSpatialAudioStore.getState().setBgmPlaybackState({ isPlaying: true });
-          this.updateMediaSessionPlaybackState('playing');
-        }
+        if (this.shouldBeAudible()) this._setPlaying(true);
       });
-      audioEl.addEventListener('pause', () => {
-        useSpatialAudioStore.getState().setBgmPlaybackState({ isPlaying: false });
-        this.updateMediaSessionPlaybackState('paused');
-      });
+      audioEl.addEventListener('pause', () => this._setPlaying(false));
 
       this.audioEl = audioEl;
-
-      const ctx = this.deps.ensureAudioGraph();
-      const bgmChain = this.deps.getBgmChain();
-      if (ctx && bgmChain) {
-        this.attachToBusChain(ctx, bgmChain);
+      this._ensureBusChain();
+      if (this.audioContext && this.bgmChain) {
+        this.attachToBusChain(this.audioContext, this.bgmChain);
       }
     }
     return this.audioEl;
   }
 
+  private _setPlaying(isPlaying: boolean): void {
+    useSpatialAudioStore.getState().setBgmPlaybackState({ isPlaying });
+    setBgmMediaSessionPlaybackState(isPlaying ? 'playing' : 'paused');
+  }
+
+  private _playAudioElement(audioEl: HTMLAudioElement, store: SpatialAudioStorePortState): void {
+    this.bgmChain?.applyBlend(
+      this.blend,
+      store.tunerConfig,
+      this.fadeEnvelope * computeBgmVolumeScalar(store)
+    );
+    audioEl
+      .play()
+      .then(() => this._setPlaying(true))
+      .catch(() => {});
+  }
+
   setupMediaSession(track: BgmTrackEntry | null): void {
-    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
-    try {
-      if (track && typeof window !== 'undefined' && typeof window.MediaMetadata === 'function') {
-        navigator.mediaSession.metadata = new window.MediaMetadata({
-          title: track.title,
-          artist: track.volume ? `RocketCompanion · Volume ${track.volume}` : 'RocketCompanion BGM',
-          album: 'Background Music',
-        });
-      }
-      navigator.mediaSession.setActionHandler('play', () => {
+    bindBgmMediaSession(track, {
+      onPlay: () => {
         this.userPaused = false;
         this.syncPlaybackState();
-      });
-      navigator.mediaSession.setActionHandler('pause', () => {
+      },
+      onPause: () => {
         this.userPaused = true;
         this.syncPlaybackState();
-      });
-      navigator.mediaSession.setActionHandler('previoustrack', () => {
+      },
+      onPrevious: () => {
         this.userPaused = false;
         this.playNextTrack(-1);
-      });
-      navigator.mediaSession.setActionHandler('nexttrack', () => {
+      },
+      onNext: () => {
         this.userPaused = false;
         this.playNextTrack(1);
-      });
-    } catch {
-      // Ignore unsupported mediaSession actions
-    }
-  }
-
-  updateMediaSessionPlaybackState(state: MediaSessionPlaybackState): void {
-    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
-    try {
-      navigator.mediaSession.playbackState = state;
-    } catch {
-      // ignore
-    }
-  }
-
-  isCurrentSceneAllowed(
-    store: Partial<SpatialAudioStorePortState> = useSpatialAudioStore.getState(),
-    appState: Partial<SpatialAudioRuntimeContextSnapshot> = this.deps.getRuntimeContext()
-  ): boolean {
-    const scenes = store.bgmScenes || DEFAULT_BGM_SCENE_CONFIG;
-    const matchMode = appState.matchMode;
-    const onlineSession = appState.onlineSession as {
-      roomId?: string | null;
-      roomType?: string | null;
-    } | null;
-    const hasOnlineRoom = Boolean(onlineSession?.roomId);
-
-    if (hasOnlineRoom) {
-      if (onlineSession?.roomType === 'warmup' && matchMode !== 'match') {
-        return Boolean(scenes.multiplayerTraining);
-      }
-      return Boolean(scenes.match);
-    }
-
-    if (matchMode === 'online-warmup') {
-      return Boolean(scenes.multiplayerTraining);
-    }
-
-    if (matchMode === 'match' || matchMode === 'exp-multi-bots') {
-      return Boolean(scenes.match);
-    }
-
-    if (
-      matchMode === 'kickoff-training' ||
-      matchMode === 'static-training-pack' ||
-      matchMode === 'dev-test-lab'
-    ) {
-      return Boolean(scenes.singlePlayerTraining);
-    }
-
-    return Boolean(scenes.freePlay);
+      },
+    });
   }
 
   shouldBeAudible(): boolean {
-    if (this.deps.isWindowUnfocusedMuted()) {
-      return false;
-    }
+    if (this.windowUnfocusedMuted) return false;
 
     const store = useSpatialAudioStore.getState();
     if (!store.bgmEnabled) {
       this.userPaused = false;
       return false;
     }
-
-    if (this.userPaused) {
-      return false;
-    }
+    if (this.userPaused) return false;
 
     const playlist = getFilteredBgmTracks(store) as BgmTrackEntry[];
     if (playlist.length === 0) return false;
 
-    const appState = this.deps.getRuntimeContext();
-    if (!this.isCurrentSceneAllowed(store, appState)) {
-      return false;
-    }
+    const appState = readRuntimeAudioSnapshot();
+    if (!evaluateBgmSceneAllowed(store, appState)) return false;
 
     const isPreviewing =
-      this.deps.isPreviewOrPreviewDrainActive() || store.previewingAnthemId !== null;
-
+      store.previewingAnthemId !== null || Boolean(this.isPreviewDrainActiveFn?.());
     if (Boolean(appState.isOpen) && (store.isGarageAnthemTabActive || isPreviewing)) {
       return false;
     }
-
-    if (isPreviewing || this.deps.refreshGoalSequenceBgmGate()) {
-      return false;
-    }
-
-    return true;
+    const goalGated = this.refreshGoalGateFn ? this.refreshGoalGateFn() : this.goalSequenceActive;
+    return !isPreviewing && !goalGated;
   }
 
   handleFocusChanged(muted: boolean, cfg: Partial<SpatialAudioTunerConfig>): void {
+    this.windowUnfocusedMuted = muted;
     this.fadeEnvelope = 0.0;
     if (muted) {
       this.lastShouldBeAudible = false;
-      this.deps.getBgmChain()?.resetAndSilence(cfg);
-      const el = this.audioEl;
-      if (el && !el.paused) el.pause();
+      this.bgmChain?.resetAndSilence(cfg);
+      if (this.audioEl && !this.audioEl.paused) this.audioEl.pause();
     } else {
-      this.deps.getBgmChain()?.applyBlend(this.blend, cfg, 0.0, true);
+      this.bgmChain?.applyBlend(this.blend, cfg, 0.0, true);
       this.syncPlaybackState();
     }
   }
@@ -235,9 +186,7 @@ export class BackgroundMusicController {
     bgmVolScalar: number,
     immediate = false
   ): void {
-    this.deps
-      .getBgmChain()
-      ?.applyBlend(this.blend, cfg, this.fadeEnvelope * bgmVolScalar, immediate);
+    this.bgmChain?.applyBlend(this.blend, cfg, this.fadeEnvelope * bgmVolScalar, immediate);
   }
 
   updateGoalSequenceGate(isGoalOrReplayPhase: boolean, isAnthemStillActive: boolean): boolean {
@@ -253,11 +202,9 @@ export class BackgroundMusicController {
     const store = useSpatialAudioStore.getState();
     const playlist = getFilteredBgmTracks(store) as BgmTrackEntry[];
     if (playlist.length > 0 && store.bgmEnabled && this.shouldBeAudible()) {
-      const randomIdx = Math.floor(Math.random() * playlist.length);
-      this.loadAndPlayTrack(playlist[randomIdx]);
+      this.loadAndPlayTrack(playlist[Math.floor(Math.random() * playlist.length)]);
     } else if (playlist.length > 0 && !this.currentTrack) {
-      const randomIdx = Math.floor(Math.random() * playlist.length);
-      this.currentTrack = playlist[randomIdx];
+      this.currentTrack = playlist[Math.floor(Math.random() * playlist.length)];
       store.setBgmPlaybackState({
         currentTrackId: this.currentTrack.id,
         currentTrackTitle: this.currentTrack.title,
@@ -268,49 +215,30 @@ export class BackgroundMusicController {
   syncPlaybackState(): void {
     const store = useSpatialAudioStore.getState();
     const playlist = getFilteredBgmTracks(store) as BgmTrackEntry[];
-    const shouldPlay = this.shouldBeAudible();
-
-    if (!shouldPlay) {
-      if (store.bgmIsPlaying) {
-        store.setBgmPlaybackState({ isPlaying: false });
-        this.updateMediaSessionPlaybackState('paused');
-      }
+    if (!this.shouldBeAudible()) {
+      if (store.bgmIsPlaying) this._setPlaying(false);
       return;
     }
 
     const currentStillValid =
       this.currentTrack && playlist.some((t) => t.id === this.currentTrack?.id);
-
     if (!currentStillValid) {
       const nextTrack = playlist[Math.floor(Math.random() * playlist.length)];
-      if (nextTrack) {
-        this.loadAndPlayTrack(nextTrack);
-      }
-    } else {
-      const audioEl = this.ensureAudioElement();
-      if (!audioEl) return;
-      this.deps.ensureAudioGraph();
-      if (!audioEl.src && this.currentTrack?.file) {
-        this.loadAndPlayTrack(this.currentTrack);
-        return;
-      }
-      if (audioEl.paused) {
-        const bgmChain = this.deps.getBgmChain();
-        if (bgmChain) {
-          const bgmVolScalar = this.deps.getBgmVolScalar(store);
-          bgmChain.applyBlend(this.blend, store.tunerConfig, this.fadeEnvelope * bgmVolScalar);
-        }
-        audioEl
-          .play()
-          .then(() => {
-            useSpatialAudioStore.getState().setBgmPlaybackState({ isPlaying: true });
-            this.updateMediaSessionPlaybackState('playing');
-          })
-          .catch(() => {});
-      } else if (!store.bgmIsPlaying) {
-        store.setBgmPlaybackState({ isPlaying: true });
-        this.updateMediaSessionPlaybackState('playing');
-      }
+      if (nextTrack) this.loadAndPlayTrack(nextTrack);
+      return;
+    }
+
+    const audioEl = this.ensureAudioElement();
+    if (!audioEl) return;
+    this._ensureBusChain();
+    if (!audioEl.src && this.currentTrack?.file) {
+      this.loadAndPlayTrack(this.currentTrack);
+      return;
+    }
+    if (audioEl.paused) {
+      this._playAudioElement(audioEl, store);
+    } else if (!store.bgmIsPlaying) {
+      this._setPlaying(true);
     }
   }
 
@@ -318,71 +246,39 @@ export class BackgroundMusicController {
     if (!track?.file) return;
     const audioEl = this.ensureAudioElement();
     if (!audioEl) return;
-
-    this.deps.ensureAudioGraph();
+    this._ensureBusChain();
 
     if (this.objectUrl) {
       URL.revokeObjectURL(this.objectUrl);
       this.objectUrl = null;
     }
-
     this.currentTrack = track;
     this.objectUrl = URL.createObjectURL(track.file);
     audioEl.src = this.objectUrl;
 
     const store = useSpatialAudioStore.getState();
-    store.setBgmPlaybackState({
-      currentTrackId: track.id,
-      currentTrackTitle: track.title,
-    });
-
+    store.setBgmPlaybackState({ currentTrackId: track.id, currentTrackTitle: track.title });
     this.setupMediaSession(track);
 
     if (this.shouldBeAudible()) {
-      const bgmChain = this.deps.getBgmChain();
-      if (bgmChain) {
-        const bgmVolScalar = this.deps.getBgmVolScalar(store);
-        bgmChain.applyBlend(this.blend, store.tunerConfig, this.fadeEnvelope * bgmVolScalar);
-      }
-      audioEl
-        .play()
-        .then(() => {
-          useSpatialAudioStore.getState().setBgmPlaybackState({ isPlaying: true });
-          this.updateMediaSessionPlaybackState('playing');
-        })
-        .catch((err) => {
-          console.warn('[BackgroundMusicController] BGM autoplay blocked until user gesture:', err);
-        });
+      this._playAudioElement(audioEl, store);
     }
   }
 
   playTrackById(trackId: string): void {
     this.userPaused = false;
-    const store = useSpatialAudioStore.getState();
-    const tracks = (store.bgmTracks || []) as BgmTrackEntry[];
+    const tracks = (useSpatialAudioStore.getState().bgmTracks || []) as BgmTrackEntry[];
     const found = tracks.find((t) => t.id === trackId);
-    if (found) {
-      this.loadAndPlayTrack(found);
-    }
+    if (found) this.loadAndPlayTrack(found);
   }
 
   playNextTrack(direction = 1): void {
-    const store = useSpatialAudioStore.getState();
-    const playlist = getFilteredBgmTracks(store) as BgmTrackEntry[];
+    const playlist = getFilteredBgmTracks(useSpatialAudioStore.getState()) as BgmTrackEntry[];
     if (playlist.length === 0) return;
-
-    if (!this.currentTrack) {
-      this.loadAndPlayTrack(playlist[0]);
-      return;
-    }
-
-    const curIdx = playlist.findIndex((t) => t.id === this.currentTrack?.id);
-    if (curIdx < 0) {
-      this.loadAndPlayTrack(playlist[0]);
-      return;
-    }
-
-    const nextIdx = (curIdx + direction + playlist.length) % playlist.length;
+    const curIdx = this.currentTrack
+      ? playlist.findIndex((t) => t.id === this.currentTrack?.id)
+      : -1;
+    const nextIdx = curIdx < 0 ? 0 : (curIdx + direction + playlist.length) % playlist.length;
     this.loadAndPlayTrack(playlist[nextIdx]);
   }
 
@@ -399,24 +295,9 @@ export class BackgroundMusicController {
     this.syncPlaybackState();
   }
 
-  computeTargetPhase(cfg: Partial<SpatialAudioTunerConfig>): number {
-    if (cfg.overrideMode === 'normal') return 0.0;
-    if (cfg.overrideMode === 'spatial') return 1.0;
-    if (cfg.overrideMode === 'manual') {
-      return Math.max(0, Math.min(1, Number(cfg.manualBlend) || 0));
-    }
-
-    const store = useSpatialAudioStore.getState();
-    if (!store.realisticBgmEnabled) {
-      return 0.0;
-    }
-
-    return Boolean(this.deps.getRuntimeContext()?.isOpen) ? 0.0 : 1.0;
-  }
-
   applyTunerConfig(cfg: Partial<SpatialAudioTunerConfig>, bgmVolScalar: number): void {
     this.blend = evaluateSpatialBezierBlend(this.linearPhase, cfg);
-    this.deps.getBgmChain()?.applyBlend(this.blend, cfg, this.fadeEnvelope * bgmVolScalar);
+    this.bgmChain?.applyBlend(this.blend, cfg, this.fadeEnvelope * bgmVolScalar);
   }
 
   stepTransition(
@@ -426,8 +307,12 @@ export class BackgroundMusicController {
     bgmVolScalar: number
   ): void {
     const store = useSpatialAudioStore.getState();
-    const targetBgmU = this.computeTargetPhase(cfg);
-    const next = stepSpatialBezierTransition(this.linearPhase, targetBgmU, maxDelta, cfg);
+    const next = stepSpatialBezierTransition(
+      this.linearPhase,
+      computeBgmTargetPhase(cfg),
+      maxDelta,
+      cfg
+    );
     this.linearPhase = next.linearPhase;
     this.blend = next.blend;
 
@@ -436,26 +321,19 @@ export class BackgroundMusicController {
       this.lastShouldBeAudible = shouldBeAudible;
       this.syncPlaybackState();
     }
-    const targetFade = shouldBeAudible ? 1.0 : 0.0;
-    const fadeDuration = Math.max(0.1, Math.min(3.0, Number(cfg.bgmFadeDurationSec) || 2.0));
-    const maxFadeDelta = dt / fadeDuration;
-
-    if (Math.abs(targetFade - this.fadeEnvelope) > 1e-4) {
-      this.fadeEnvelope =
-        targetFade > this.fadeEnvelope
-          ? Math.min(targetFade, this.fadeEnvelope + maxFadeDelta)
-          : Math.max(targetFade, this.fadeEnvelope - maxFadeDelta);
-    } else {
-      this.fadeEnvelope = targetFade;
-    }
+    this.fadeEnvelope = stepLinearFadeEnvelope(
+      this.fadeEnvelope,
+      shouldBeAudible,
+      dt,
+      cfg.bgmFadeDurationSec
+    );
 
     if (!shouldBeAudible && this.fadeEnvelope <= 0.001) {
       this.fadeEnvelope = 0.0;
-      const el = this.audioEl;
-      if (el && !el.paused) el.pause();
+      if (this.audioEl && !this.audioEl.paused) this.audioEl.pause();
     }
 
-    this.deps.getBgmChain()?.applyBlend(this.blend, cfg, this.fadeEnvelope * bgmVolScalar);
+    this.bgmChain?.applyBlend(this.blend, cfg, this.fadeEnvelope * bgmVolScalar);
 
     if (
       Math.abs(store.bgmLinearPhase - this.linearPhase) > 0.005 ||
