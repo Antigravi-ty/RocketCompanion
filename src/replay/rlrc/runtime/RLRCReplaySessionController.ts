@@ -251,8 +251,16 @@ export class RLRCReplaySessionController {
     });
   }
 
+  public getViewerState(): string {
+    return getSt().viewerState;
+  }
+
+  public getPhase(): string {
+    return this.isActive && getSt().viewerState === 'paused' ? 'paused-viewer' : getSt().viewerState;
+  }
+
   public onBeforePhysicsTick(dt = RLRC_FIXED_DT): boolean {
-    if (!this.isActive) return false;
+    if (!this.isActive) return true;
     this.stepPlaybackTick(dt);
     return false;
   }
