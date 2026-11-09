@@ -28,7 +28,7 @@ export interface BgmTrackEntry {
   file?: Blob | File;
 }
 
-export interface BackgroundMusicHostPort {
+export interface BackgroundMusicDeps {
   ensureAudioGraph(autoResume?: boolean): AudioContext | null;
   getBgmChain(): SpatialAudioBusChain | null;
   getBgmVolScalar(store?: SpatialAudioStorePortState): number;
@@ -39,7 +39,7 @@ export interface BackgroundMusicHostPort {
 }
 
 export class BackgroundMusicController {
-  private readonly host: BackgroundMusicHostPort;
+  private readonly deps: BackgroundMusicDeps;
 
   audioEl: HTMLAudioElement | null = null;
   mediaSourceNode: MediaElementAudioSourceNode | null = null;
@@ -53,8 +53,8 @@ export class BackgroundMusicController {
   blend = 1.0;
   lastShouldBeAudible: boolean | undefined = undefined;
 
-  constructor(host: BackgroundMusicHostPort) {
-    this.host = host;
+  constructor(deps: BackgroundMusicDeps) {
+    this.deps = deps;
   }
 
   attachToBusChain(ctx: AudioContext, bgmChain: SpatialAudioBusChain | null): void {
@@ -93,8 +93,8 @@ export class BackgroundMusicController {
 
       this.audioEl = audioEl;
 
-      const ctx = this.host.ensureAudioGraph();
-      const bgmChain = this.host.getBgmChain();
+      const ctx = this.deps.ensureAudioGraph();
+      const bgmChain = this.deps.getBgmChain();
       if (ctx && bgmChain) {
         this.attachToBusChain(ctx, bgmChain);
       }
@@ -144,7 +144,7 @@ export class BackgroundMusicController {
 
   isCurrentSceneAllowed(
     store: Partial<SpatialAudioStorePortState> = useSpatialAudioStore.getState(),
-    appState: Partial<SpatialAudioRuntimeContextSnapshot> = this.host.getRuntimeContext()
+    appState: Partial<SpatialAudioRuntimeContextSnapshot> = this.deps.getRuntimeContext()
   ): boolean {
     const scenes = store.bgmScenes || DEFAULT_BGM_SCENE_CONFIG;
     const matchMode = appState.matchMode;
@@ -181,7 +181,7 @@ export class BackgroundMusicController {
   }
 
   shouldBeAudible(): boolean {
-    if (this.host.isWindowUnfocusedMuted()) {
+    if (this.deps.isWindowUnfocusedMuted()) {
       return false;
     }
 
@@ -198,19 +198,19 @@ export class BackgroundMusicController {
     const playlist = getFilteredBgmTracks(store) as BgmTrackEntry[];
     if (playlist.length === 0) return false;
 
-    const appState = this.host.getRuntimeContext();
+    const appState = this.deps.getRuntimeContext();
     if (!this.isCurrentSceneAllowed(store, appState)) {
       return false;
     }
 
     const isPreviewing =
-      this.host.isPreviewOrPreviewDrainActive() || store.previewingAnthemId !== null;
+      this.deps.isPreviewOrPreviewDrainActive() || store.previewingAnthemId !== null;
 
     if (Boolean(appState.isOpen) && (store.isGarageAnthemTabActive || isPreviewing)) {
       return false;
     }
 
-    if (isPreviewing || this.host.refreshGoalSequenceBgmGate()) {
+    if (isPreviewing || this.deps.refreshGoalSequenceBgmGate()) {
       return false;
     }
 
@@ -221,12 +221,11 @@ export class BackgroundMusicController {
     this.fadeEnvelope = 0.0;
     if (muted) {
       this.lastShouldBeAudible = false;
-      this.host.getBgmChain()?.resetAndSilence(cfg);
-      if (this.audioEl && !this.audioEl.paused) {
-        this.audioEl.pause();
-      }
+      this.deps.getBgmChain()?.resetAndSilence(cfg);
+      const el = this.audioEl;
+      if (el && !el.paused) el.pause();
     } else {
-      this.host.getBgmChain()?.applyBlend(this.blend, cfg, 0.0, true);
+      this.deps.getBgmChain()?.applyBlend(this.blend, cfg, 0.0, true);
       this.syncPlaybackState();
     }
   }
@@ -236,7 +235,7 @@ export class BackgroundMusicController {
     bgmVolScalar: number,
     immediate = false
   ): void {
-    this.host
+    this.deps
       .getBgmChain()
       ?.applyBlend(this.blend, cfg, this.fadeEnvelope * bgmVolScalar, immediate);
   }
@@ -290,15 +289,15 @@ export class BackgroundMusicController {
     } else {
       const audioEl = this.ensureAudioElement();
       if (!audioEl) return;
-      this.host.ensureAudioGraph();
+      this.deps.ensureAudioGraph();
       if (!audioEl.src && this.currentTrack?.file) {
         this.loadAndPlayTrack(this.currentTrack);
         return;
       }
       if (audioEl.paused) {
-        const bgmChain = this.host.getBgmChain();
+        const bgmChain = this.deps.getBgmChain();
         if (bgmChain) {
-          const bgmVolScalar = this.host.getBgmVolScalar(store);
+          const bgmVolScalar = this.deps.getBgmVolScalar(store);
           bgmChain.applyBlend(this.blend, store.tunerConfig, this.fadeEnvelope * bgmVolScalar);
         }
         audioEl
@@ -320,7 +319,7 @@ export class BackgroundMusicController {
     const audioEl = this.ensureAudioElement();
     if (!audioEl) return;
 
-    this.host.ensureAudioGraph();
+    this.deps.ensureAudioGraph();
 
     if (this.objectUrl) {
       URL.revokeObjectURL(this.objectUrl);
@@ -340,9 +339,9 @@ export class BackgroundMusicController {
     this.setupMediaSession(track);
 
     if (this.shouldBeAudible()) {
-      const bgmChain = this.host.getBgmChain();
+      const bgmChain = this.deps.getBgmChain();
       if (bgmChain) {
-        const bgmVolScalar = this.host.getBgmVolScalar(store);
+        const bgmVolScalar = this.deps.getBgmVolScalar(store);
         bgmChain.applyBlend(this.blend, store.tunerConfig, this.fadeEnvelope * bgmVolScalar);
       }
       audioEl
@@ -412,12 +411,12 @@ export class BackgroundMusicController {
       return 0.0;
     }
 
-    return Boolean(this.host.getRuntimeContext()?.isOpen) ? 0.0 : 1.0;
+    return Boolean(this.deps.getRuntimeContext()?.isOpen) ? 0.0 : 1.0;
   }
 
   applyTunerConfig(cfg: Partial<SpatialAudioTunerConfig>, bgmVolScalar: number): void {
     this.blend = evaluateSpatialBezierBlend(this.linearPhase, cfg);
-    this.host.getBgmChain()?.applyBlend(this.blend, cfg, this.fadeEnvelope * bgmVolScalar);
+    this.deps.getBgmChain()?.applyBlend(this.blend, cfg, this.fadeEnvelope * bgmVolScalar);
   }
 
   stepTransition(
@@ -452,12 +451,11 @@ export class BackgroundMusicController {
 
     if (!shouldBeAudible && this.fadeEnvelope <= 0.001) {
       this.fadeEnvelope = 0.0;
-      if (this.audioEl && !this.audioEl.paused) {
-        this.audioEl.pause();
-      }
+      const el = this.audioEl;
+      if (el && !el.paused) el.pause();
     }
 
-    this.host.getBgmChain()?.applyBlend(this.blend, cfg, this.fadeEnvelope * bgmVolScalar);
+    this.deps.getBgmChain()?.applyBlend(this.blend, cfg, this.fadeEnvelope * bgmVolScalar);
 
     if (
       Math.abs(store.bgmLinearPhase - this.linearPhase) > 0.005 ||

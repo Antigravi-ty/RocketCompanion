@@ -70,10 +70,10 @@ function encodeCarsPoseCompact(cars: ExtractedCarEntity[] | undefined): string {
 }
 
 export function buildDirectorDiagnosticPatternCsv(
-  ctrl: DirectorSerializerControllerPort | null | undefined,
+  serializerPort: DirectorSerializerControllerPort | null | undefined,
   options: DirectorPatternSerializerOptions = {}
 ): string {
-  const payload = ctrl?.buildDirectorDiagnosticPatternPayload?.(options);
+  const payload = serializerPort?.buildDirectorDiagnosticPatternPayload?.(options);
   if (!payload || !Array.isArray(payload.frames)) return '';
 
   const columns = [
@@ -210,15 +210,15 @@ export function buildDirectorDiagnosticPatternCsv(
 }
 
 export function buildDirectorFrameWindowDiagnostic(
-  ctrl: DirectorSerializerControllerPort | null | undefined,
+  serializerPort: DirectorSerializerControllerPort | null | undefined,
   windowRadius: number = 15
 ) {
-  if (!ctrl) return null;
-  const payload = ctrl.buildDirectorDiagnosticPatternPayload?.();
+  if (!serializerPort) return null;
+  const payload = serializerPort.buildDirectorDiagnosticPatternPayload?.();
   if (!payload || !Array.isArray(payload.frames) || payload.frames.length === 0) return null;
 
   const total = payload.frames.length;
-  const centerIdx = Math.max(0, Math.min(total - 1, ctrl.currentFrameIndex));
+  const centerIdx = Math.max(0, Math.min(total - 1, serializerPort.currentFrameIndex));
   const radius = Math.max(1, Math.min(120, Math.round(windowRadius) || 15));
   const winStart = Math.max(0, centerIdx - radius);
   const winEnd = Math.min(total - 1, centerIdx + radius);
@@ -228,7 +228,7 @@ export function buildDirectorFrameWindowDiagnostic(
   return {
     schema: 'RocketCompanion.ReplayDirectorFrameWindowDiagnostic.v1',
     exportedAt: new Date().toISOString(),
-    fileName: ctrl.sessionState?.importedFileName || null,
+    fileName: serializerPort.sessionState?.importedFileName || null,
     selectedFrameId: centerFrame?.frameId ?? 0,
     selectedReplayFrameIndex: centerIdx,
     windowRadius: radius,
@@ -282,11 +282,11 @@ export function buildDirectorFrameWindowDiagnostic(
  * `anomalyPeaks`, and `recordedDirectorFrames`).
  */
 export function buildDirectorReplayContainerPayload(
-  ctrl: DirectorSerializerControllerPort | null | undefined,
+  serializerPort: DirectorSerializerControllerPort | null | undefined,
   options: DirectorPatternSerializerOptions = {}
 ) {
-  const payload = ctrl?.buildDirectorDiagnosticPatternPayload?.(options);
-  if (!ctrl || !payload || !Array.isArray(payload.frames) || payload.frames.length === 0)
+  const payload = serializerPort?.buildDirectorDiagnosticPatternPayload?.(options);
+  if (!serializerPort || !payload || !Array.isArray(payload.frames) || payload.frames.length === 0)
     return null;
 
   const recordedDirectorFrames = payload.frames.map((f: DirectorDiagnosticFrameEntry) => {
@@ -359,8 +359,8 @@ export function buildDirectorReplayContainerPayload(
 
   const rawCarEntries: RawReplayCarEntryLike[] =
     options.carEntries ||
-    ctrl.sessionState?.carEntries ||
-    ctrl.sessionState?.importedCarEntries ||
+    serializerPort.sessionState?.carEntries ||
+    serializerPort.sessionState?.importedCarEntries ||
     payload.replayMetadata?.carEntries ||
     [];
   const carEntries: ReplayCarRosterEntry[] =
@@ -376,15 +376,15 @@ export function buildDirectorReplayContainerPayload(
 
   const directorReplayMeta = {
     schema: 'RocketCompanion.GoalReplayDirectorContainer.v1',
-    scoringTeam: ctrl.sessionState?.scoringTeam ?? 0,
-    scorerCarIndex: ctrl.sessionState?.scorerCarIndex ?? 0,
-    selectedReplayFrameIndex: ctrl.currentFrameIndex ?? 0,
+    scoringTeam: serializerPort.sessionState?.scoringTeam ?? 0,
+    scorerCarIndex: serializerPort.sessionState?.scorerCarIndex ?? 0,
+    selectedReplayFrameIndex: serializerPort.currentFrameIndex ?? 0,
     selectedFrameId: payload.selectedFrameDiagnostic?.frameId ?? 0,
-    lateralBias: ctrl.directorCameraState?.lateralBias || 1.0,
-    lastScoringTouchFrameIdx: ctrl.directorCameraState?.lastScoringTouchFrameIdx ?? -1,
-    goalLineFrameIdx: ctrl.directorCameraState?.goalLineFrameIdx ?? -1,
-    initialSettledCarPos: ctrl.directorCameraState?.initialSettledCarPos
-      ? { ...ctrl.directorCameraState.initialSettledCarPos }
+    lateralBias: serializerPort.directorCameraState?.lateralBias || 1.0,
+    lastScoringTouchFrameIdx: serializerPort.directorCameraState?.lastScoringTouchFrameIdx ?? -1,
+    goalLineFrameIdx: serializerPort.directorCameraState?.goalLineFrameIdx ?? -1,
+    initialSettledCarPos: serializerPort.directorCameraState?.initialSettledCarPos
+      ? { ...serializerPort.directorCameraState.initialSettledCarPos }
       : null,
     directorConfig: payload.directorConfig,
     carEntries,
@@ -397,8 +397,8 @@ export function buildDirectorReplayContainerPayload(
   return {
     mode: 'goal-replay',
     tickRate: REPLAY_TICK_RATE,
-    winner: (ctrl.sessionState?.scoringTeam ?? 0) === 0 ? 'blue' : 'orange',
-    slots: ctrl.sessionState?.activeFrames,
+    winner: (serializerPort.sessionState?.scoringTeam ?? 0) === 0 ? 'blue' : 'orange',
+    slots: serializerPort.sessionState?.activeFrames,
     roster: carEntries,
     directorReplayMeta,
     diagnosticPayload: payload,
@@ -406,10 +406,10 @@ export function buildDirectorReplayContainerPayload(
 }
 
 export function buildDirectorReplayContainerBytes(
-  ctrl: DirectorSerializerControllerPort | null | undefined,
+  serializerPort: DirectorSerializerControllerPort | null | undefined,
   options: DirectorPatternSerializerOptions = {}
 ) {
-  const containerPayload = buildDirectorReplayContainerPayload(ctrl, options);
+  const containerPayload = buildDirectorReplayContainerPayload(serializerPort, options);
   if (!containerPayload) return null;
   const containerBytes = serializeRCReplayBinaryContainer(containerPayload);
   return {

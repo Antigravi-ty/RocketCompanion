@@ -12,85 +12,42 @@
 
 import { RocketSimPhysicsEngine } from './RocketSimPhysicsEngine.ts';
 import type { CarControlsInput } from './RocketSimSnapshotSerializer.ts';
+import {
+  createInitialDeterminismMetrics,
+  primeAllSimStateSlots,
+  pruneControlsHistoryBeforeTick,
+  recordTickCarControls,
+  ensureTickControlsMap,
+  evaluateDualArenaStateDelta,
+  type DeterminismMetrics,
+  type DeterminismTickHistorySlot,
+} from './determinismEvaluationPipeline.ts';
 
-export interface DeterminismMetrics {
-  tickA: number;
-  tickB: number;
-  totalRollbacks: number;
-  currentDepth: number;
-  lastRollbackDurationMs: number;
-  carDeltaPos: number;
-  carDeltaVel: number;
-  carDeltaAngVel: number;
-  ballDeltaPos: number;
-  maxDeltaPos: number;
-  maxDeltaVel: number;
-  maxDeltaBall: number;
-  isBitExact: boolean;
-}
-
-export interface DeterminismTickHistorySlot {
-  tick: number;
-  controls: Record<number, CarControlsInput>;
-}
+export type { DeterminismMetrics, DeterminismTickHistorySlot };
 
 export class DeterminismHarness {
   simA: RocketSimPhysicsEngine;
-  simB: RocketSimPhysicsEngine | null;
+  simB: RocketSimPhysicsEngine | null = null;
   options: Record<string, unknown>;
-  active: boolean;
-  periodicRollback: boolean;
-  rollbackInterval: number;
-  rollbackDepth: number;
-  totalRollbacks: number;
-  historyCapacity: number;
-  historyMask: number;
+  active = false;
+  periodicRollback = true;
+  rollbackInterval = 30;
+  rollbackDepth = 15;
+  totalRollbacks = 0;
+  historyCapacity = 2048;
+  historyMask = 2047;
   controlsHistory: Array<DeterminismTickHistorySlot | null | undefined>;
-  lastKnownControls: Map<number, CarControlsInput>;
-  lastResetTick: number;
-  metrics: DeterminismMetrics;
-  onMetricsUpdated: ((metrics: DeterminismMetrics) => void) | null;
-  _metricsListeners: Set<(metrics: DeterminismMetrics) => void>;
-  _originalMethods: Record<string, (...args: never[]) => unknown>;
+  lastKnownControls = new Map<number, CarControlsInput>();
+  lastResetTick = 0;
+  metrics: DeterminismMetrics = createInitialDeterminismMetrics();
+  onMetricsUpdated: ((metrics: DeterminismMetrics) => void) | null = null;
+  _metricsListeners = new Set<(metrics: DeterminismMetrics) => void>();
+  _originalMethods: Record<string, (...args: never[]) => unknown> = {};
 
   constructor(primarySim: RocketSimPhysicsEngine, options: Record<string, unknown> = {}) {
     this.simA = primarySim;
-    this.simB = null;
     this.options = options;
-
-    this.active = false;
-    this.periodicRollback = true;
-    this.rollbackInterval = 30; // Every 30 ticks (4 times per second at 120Hz)
-    this.rollbackDepth = 15; // Roll back 15 ticks (125ms)
-    this.totalRollbacks = 0;
-    this.historyCapacity = 2048;
-    this.historyMask = this.historyCapacity - 1;
-
-    // Ring buffer storing inputs: index -> { tick: number, controls: { [carIdx]: controls } }
-    this.controlsHistory = new Array(this.historyCapacity);
-    this.lastKnownControls = new Map();
-    this.lastResetTick = 0;
-
-    // Running verification metrics
-    this.metrics = {
-      tickA: 0,
-      tickB: 0,
-      totalRollbacks: 0,
-      currentDepth: 0,
-      lastRollbackDurationMs: 0,
-      carDeltaPos: 0,
-      carDeltaVel: 0,
-      carDeltaAngVel: 0,
-      ballDeltaPos: 0,
-      maxDeltaPos: 0,
-      maxDeltaVel: 0,
-      maxDeltaBall: 0,
-      isBitExact: true,
-    };
-
-    this.onMetricsUpdated = null;
-    this._metricsListeners = new Set();
-    this._originalMethods = {};
+    this.controlsHistory = Array.from({ length: this.historyCapacity });
   }
 
   private _patchMetrics(patch: Partial<DeterminismMetrics>): void {
@@ -122,34 +79,21 @@ export class DeterminismHarness {
     }
   }
 
-  /**
-   * Initialize Arena B with fresh WASM module instance and mirror Arena A's car configuration
-   */
   async init(): Promise<this> {
-    this.simB = new RocketSimPhysicsEngine();
-    await this.simB.init({ freshInstance: true, isolated: true });
+    const secondarySim = new RocketSimPhysicsEngine();
+    await secondarySim.init({ freshInstance: true, isolated: true });
+    this.simB = secondarySim;
 
-    // Sync cars with simA
     const numCarsA = this.simA.numCars;
     for (let i = 0; i < numCarsA; i++) {
-      this.simB.addCar(0, 0);
+      secondarySim.addCar(0, 0);
     }
 
-    // Bug 1 Fix: Synchronize unlimited boost setting from Arena A to Arena B
-    this.simB.setUnlimitedBoost(this.simA.isUnlimitedBoost);
+    secondarySim.setUnlimitedBoost(this.simA.isUnlimitedBoost);
+    secondarySim.restoreState(this.simA.saveState());
+    primeAllSimStateSlots(secondarySim);
 
-    // Clone initial state from A to B
-    const stateA = this.simA.saveState();
-    this.simB.restoreState(stateA);
-
-    // Prime all snapshot slots in B
-    for (let s = 0; s < 256; s++) {
-      this.simB.saveStateSlot(s);
-    }
-
-    // Non-invasive method interception on simA
     this._interceptSimA();
-
     this.active = true;
     return this;
   }
@@ -178,9 +122,7 @@ export class DeterminismHarness {
     ) => unknown;
     this.simA.setUnlimitedBoost = (unlimited) => {
       origSetUnlimitedBoost(unlimited);
-      if (this.simB) {
-        this.simB.setUnlimitedBoost(unlimited);
-      }
+      this.simB?.setUnlimitedBoost(unlimited);
     };
 
     const origResetKickoff = this.simA.resetKickoff.bind(this.simA);
@@ -202,9 +144,7 @@ export class DeterminismHarness {
     this._originalMethods.addCar = origAddCar as (...args: never[]) => unknown;
     this.simA.addCar = (team, hitboxType) => {
       const carIdx = origAddCar(team, hitboxType);
-      if (this.simB) {
-        this.simB.addCar(team, hitboxType);
-      }
+      this.simB?.addCar(team, hitboxType);
       return carIdx;
     };
 
@@ -213,13 +153,11 @@ export class DeterminismHarness {
       this._originalMethods.setCarState = origSetCarState as (...args: never[]) => unknown;
       this.simA.setCarState = (carIndex, stateObj) => {
         const res = origSetCarState(carIndex, stateObj);
-        if (this.simB && typeof this.simB.setCarState === 'function') {
-          this.simB.setCarState(carIndex, stateObj);
-          const currentTick = Math.floor(this.simA.getHeaderView().tickCount);
-          this.lastResetTick = currentTick;
-          for (let s = 0; s < 256; s++) {
-            this.simB.saveStateSlot(s);
-          }
+        const secondarySim = this.simB;
+        if (secondarySim && typeof secondarySim.setCarState === 'function') {
+          secondarySim.setCarState(carIndex, stateObj);
+          this.lastResetTick = Math.floor(this.simA.getHeaderView().tickCount);
+          primeAllSimStateSlots(secondarySim);
         }
         return res;
       };
@@ -232,9 +170,7 @@ export class DeterminismHarness {
       ) => unknown;
       this.simA.setCarLinearFactorAndGravity = (carIndex, fx, fy, fz, gravityScale) => {
         const res = origSetLinear(carIndex, fx, fy, fz, gravityScale);
-        if (this.simB && typeof this.simB.setCarLinearFactorAndGravity === 'function') {
-          this.simB.setCarLinearFactorAndGravity(carIndex, fx, fy, fz, gravityScale);
-        }
+        this.simB?.setCarLinearFactorAndGravity?.(carIndex, fx, fy, fz, gravityScale);
         return res;
       };
     }
@@ -244,9 +180,7 @@ export class DeterminismHarness {
       this._originalMethods.setCarCollisionMask = origSetCollision as (...args: never[]) => unknown;
       this.simA.setCarCollisionMask = (carIndex, interactWithBall, interactWithCars) => {
         const res = origSetCollision(carIndex, interactWithBall, interactWithCars);
-        if (this.simB && typeof this.simB.setCarCollisionMask === 'function') {
-          this.simB.setCarCollisionMask(carIndex, interactWithBall, interactWithCars);
-        }
+        this.simB?.setCarCollisionMask?.(carIndex, interactWithBall, interactWithCars);
         return res;
       };
     }
@@ -262,40 +196,39 @@ export class DeterminismHarness {
 
   recordControls(carIndex: number, controls: CarControlsInput): void {
     if (!this.active) return;
-    this.lastKnownControls.set(carIndex, { ...controls });
-
     const currentTick = Math.floor(this.simA.getHeaderView().tickCount);
-    const slot = currentTick & this.historyMask;
-    if (!this.controlsHistory[slot] || this.controlsHistory[slot]!.tick !== currentTick) {
-      this.controlsHistory[slot] = { tick: currentTick, controls: {} };
-    }
-    this.controlsHistory[slot]!.controls[carIndex] = { ...controls };
+    recordTickCarControls(
+      this.controlsHistory,
+      this.historyMask,
+      this.lastKnownControls,
+      currentTick,
+      carIndex,
+      controls
+    );
   }
 
   _ensureTickControls(tick: number): Record<number, CarControlsInput> {
-    const slot = tick & this.historyMask;
-    if (!this.controlsHistory[slot] || this.controlsHistory[slot]!.tick !== tick) {
-      const controlsMap: Record<number, CarControlsInput> = {};
-      for (const [cIdx, ctrl] of this.lastKnownControls.entries()) {
-        controlsMap[cIdx] = { ...ctrl };
-      }
-      this.controlsHistory[slot] = { tick, controls: controlsMap };
-    }
-    return this.controlsHistory[slot]!.controls;
+    return ensureTickControlsMap(
+      this.controlsHistory,
+      this.historyMask,
+      this.lastKnownControls,
+      tick
+    );
   }
 
   onPhysicsTickOneStep(): void {
-    if (!this.active || !this.simB) return;
+    const secondarySim = this.simB;
+    if (!this.active || !secondarySim) return;
 
-    const preTick = Math.floor(this.simB.getHeaderView().tickCount);
+    const preTick = Math.floor(secondarySim.getHeaderView().tickCount);
     const controlsMap = this._ensureTickControls(preTick);
 
     for (const [carIdxStr, ctrl] of Object.entries(controlsMap)) {
-      this.simB.setControls(Number(carIdxStr), ctrl);
+      secondarySim.setControls(Number(carIdxStr), ctrl);
     }
 
-    this.simB.saveStateSlot(preTick % 256);
-    this.simB.step(1);
+    secondarySim.saveStateSlot(preTick % 256);
+    secondarySim.step(1);
 
     const postTick = preTick + 1;
     if (
@@ -308,27 +241,24 @@ export class DeterminismHarness {
   }
 
   executeRollback(depth = 15): void {
-    if (!this.active || !this.simB) return;
+    const secondarySim = this.simB;
+    if (!this.active || !secondarySim) return;
 
     const currentTick = Math.floor(this.simA.getHeaderView().tickCount);
-    const minAllowedTick = this.lastResetTick;
-    const targetRollbackTick = Math.max(minAllowedTick, currentTick - Math.min(depth, 250));
+    const targetRollbackTick = Math.max(this.lastResetTick, currentTick - Math.min(depth, 250));
     const actualDepth = currentTick - targetRollbackTick;
     if (actualDepth <= 0) return;
 
-    const rollbackTick = targetRollbackTick;
     const startTime = performance.now();
+    secondarySim.restoreStateSlot(targetRollbackTick % 256);
 
-    this.simB.restoreStateSlot(rollbackTick % 256);
-
-    for (let t = rollbackTick; t < currentTick; t++) {
-      const slot = t & this.historyMask;
-      const entry = this.controlsHistory[slot];
+    for (let t = targetRollbackTick; t < currentTick; t++) {
+      const entry = this.controlsHistory[t & this.historyMask];
       const controlsMap = entry && entry.tick === t ? entry.controls : {};
       for (const [carIdxStr, ctrl] of Object.entries(controlsMap)) {
-        this.simB.setControls(Number(carIdxStr), ctrl);
+        secondarySim.setControls(Number(carIdxStr), ctrl);
       }
-      this.simB.stepSilent(1);
+      secondarySim.stepSilent(1);
     }
 
     const duration = performance.now() - startTime;
@@ -346,100 +276,36 @@ export class DeterminismHarness {
     this.compareStates();
   }
 
-  syncResetKickoff(seed = -1): void {
-    if (!this.active || !this.simB) return;
-    const currentTick = Math.floor(this.simA.getHeaderView().tickCount);
+  private _resyncSecondaryArenaFromPrimary(currentTick: number): void {
+    const secondarySim = this.simB;
+    if (!secondarySim) return;
     this.lastResetTick = currentTick;
-
-    this.simB.resetKickoff(seed);
-    const stateA = this.simA.saveState();
-    this.simB.restoreState(stateA);
-
-    for (let s = 0; s < 256; s++) {
-      this.simB.saveStateSlot(s);
-    }
-
-    for (let i = 0; i < this.historyCapacity; i++) {
-      const entry = this.controlsHistory[i];
-      if (entry && entry.tick < currentTick) {
-        this.controlsHistory[i] = null;
-      }
-    }
-
+    secondarySim.restoreState(this.simA.saveState());
+    primeAllSimStateSlots(secondarySim);
+    pruneControlsHistoryBeforeTick(this.controlsHistory, currentTick);
     this.compareStates();
+  }
+
+  syncResetKickoff(seed = -1): void {
+    const secondarySim = this.simB;
+    if (!this.active || !secondarySim) return;
+    const currentTick = Math.floor(this.simA.getHeaderView().tickCount);
+    secondarySim.resetKickoff(seed);
+    this._resyncSecondaryArenaFromPrimary(currentTick);
   }
 
   syncControlBall(carIndex: number, modeIndex: number | string): void {
-    if (!this.active || !this.simB) return;
+    const secondarySim = this.simB;
+    if (!this.active || !secondarySim) return;
     const currentTick = Math.floor(this.simA.getHeaderView().tickCount);
-    this.lastResetTick = currentTick;
-
-    this.simB.controlBall(carIndex, modeIndex);
-    const stateA = this.simA.saveState();
-    this.simB.restoreState(stateA);
-
-    for (let s = 0; s < 256; s++) {
-      this.simB.saveStateSlot(s);
-    }
-
-    for (let i = 0; i < this.historyCapacity; i++) {
-      const entry = this.controlsHistory[i];
-      if (entry && entry.tick < currentTick) {
-        this.controlsHistory[i] = null;
-      }
-    }
-
-    this.compareStates();
+    secondarySim.controlBall(carIndex, modeIndex);
+    this._resyncSecondaryArenaFromPrimary(currentTick);
   }
 
   compareStates(): void {
-    if (!this.active || !this.simB) return;
-
-    const tickA = Math.floor(this.simA.getHeaderView().tickCount);
-    const tickB = Math.floor(this.simB.getHeaderView().tickCount);
-
-    let carDeltaPos = 0;
-    let carDeltaVel = 0;
-    let carDeltaAngVel = 0;
-
-    const count = Math.min(this.simA.numCars || 0, this.simB.numCars || 0);
-    for (let c = 0; c < count; c++) {
-      const carA = this.simA.getCarStateView(c);
-      const carB = this.simB.getCarStateView(c);
-
-      const dPos = Math.hypot(carA.posX - carB.posX, carA.posY - carB.posY, carA.posZ - carB.posZ);
-      const dVel = Math.hypot(carA.velX - carB.velX, carA.velY - carB.velY, carA.velZ - carB.velZ);
-      const dAng = Math.hypot(
-        carA.angVelX - carB.angVelX,
-        carA.angVelY - carB.angVelY,
-        carA.angVelZ - carB.angVelZ
-      );
-      if (dPos > carDeltaPos) carDeltaPos = dPos;
-      if (dVel > carDeltaVel) carDeltaVel = dVel;
-      if (dAng > carDeltaAngVel) carDeltaAngVel = dAng;
-    }
-
-    const ballA = this.simA.getBallStateView();
-    const ballB = this.simB.getBallStateView();
-    const ballDeltaPos = Math.hypot(
-      ballA.posX - ballB.posX,
-      ballA.posY - ballB.posY,
-      ballA.posZ - ballB.posZ
-    );
-
-    this._patchMetrics({
-      tickA,
-      tickB,
-      carDeltaPos,
-      carDeltaVel,
-      carDeltaAngVel,
-      ballDeltaPos,
-      maxDeltaPos: Math.max(this.metrics.maxDeltaPos, carDeltaPos),
-      maxDeltaVel: Math.max(this.metrics.maxDeltaVel, carDeltaVel),
-      maxDeltaBall: Math.max(this.metrics.maxDeltaBall, ballDeltaPos),
-      isBitExact: carDeltaPos === 0 && ballDeltaPos === 0,
-    });
-
+    const secondarySim = this.simB;
+    if (!this.active || !secondarySim) return;
+    this._patchMetrics(evaluateDualArenaStateDelta(this.simA, secondarySim, this.metrics));
     this.notifyMetricsUpdated();
   }
 
@@ -473,8 +339,9 @@ export class DeterminismHarness {
     }
     this._originalMethods = {};
 
-    if (this.simB) {
-      this.simB.destroy();
+    const secondarySim = this.simB;
+    if (secondarySim) {
+      secondarySim.destroy();
       this.simB = null;
     }
     this.controlsHistory = [];

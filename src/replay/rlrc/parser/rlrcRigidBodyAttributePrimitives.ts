@@ -1,15 +1,18 @@
 /**
  * rlrcRigidBodyAttributePrimitives.ts
- * Pure attribute decoders and geometric primitives for RLRC 30Hz network stream
- * rigid-body samples, quaternions, orthonormal basis matrices, and replicated byte properties.
+ * Pure attribute decoders, PRI/car slot lookup table, and geometric primitives for RLRC 30Hz
+ * network stream rigid-body samples, quaternions, orthonormal basis matrices, and byte properties.
  */
 
 import {
+  RLRC_MAX_PLAYER_SLOTS,
   type RLRCBasis3x3,
   type RLRCCarComponentActiveFlags,
+  type RLRCNetStreamExtractorInput,
   type RLRCQuat,
   type RLRCRigidBodySample,
   type RLRCSynthesizedCarControls,
+  type RLRCTeamIndex,
   type RLRCVec3,
 } from '../RLRCReplayTypes.ts';
 
@@ -53,6 +56,94 @@ export const NEUTRAL_CONTROLS: RLRCSynthesizedCarControls = {
   handbrake: false,
 };
 
+export interface RLRCDecodedBoostAttribute {
+  readonly boostAmount: number;
+  readonly grantCount: number | null;
+}
+
+export interface RLRCDecodedPickupAttribute {
+  readonly instigatorCarActorId: number;
+  readonly pickedUp: boolean;
+}
+
+export class RLRCNetStreamPriSlotTable {
+  public readonly carPriById = new Map<number, number>();
+  public readonly lastPriByCarId = new Map<number, number>();
+  public readonly playerNameByPriId = new Map<number, string>();
+  public readonly playerTeamByPriId = new Map<number, RLRCTeamIndex>();
+  public readonly slotByPriId = new Map<number, number>();
+  public readonly slotByPlayerName = new Map<string, number>();
+
+  constructor(input: RLRCNetStreamExtractorInput) {
+    for (const member of input.roster ?? []) {
+      if (member.slotIndex >= 0 && member.slotIndex < RLRC_MAX_PLAYER_SLOTS) {
+        this.slotByPlayerName.set(member.userName, member.slotIndex);
+        if (member.priActorId >= 0) {
+          this.slotByPriId.set(member.priActorId, member.slotIndex);
+          this.playerNameByPriId.set(member.priActorId, member.userName);
+          this.playerTeamByPriId.set(member.priActorId, member.team);
+        }
+      }
+    }
+    for (const [priId, slotIdx] of input.slotByPriActorId?.entries() ?? []) {
+      if (slotIdx >= 0 && slotIdx < RLRC_MAX_PLAYER_SLOTS) this.slotByPriId.set(priId, slotIdx);
+    }
+  }
+
+  public resolveSlotForPri(priId: number, nameHint?: string): number {
+    const existingSlot = this.slotByPriId.get(priId);
+    if (existingSlot !== undefined) return existingSlot;
+    const playerName = nameHint ?? this.playerNameByPriId.get(priId);
+    if (!playerName) return -1;
+    const byNameSlot = this.slotByPlayerName.get(playerName);
+    if (byNameSlot !== undefined) {
+      this.slotByPriId.set(priId, byNameSlot);
+      return byNameSlot;
+    }
+    if (this.slotByPlayerName.size >= RLRC_MAX_PLAYER_SLOTS) return -1;
+    const nextSlot = this.slotByPlayerName.size;
+    this.slotByPlayerName.set(playerName, nextSlot);
+    this.slotByPriId.set(priId, nextSlot);
+    return nextSlot;
+  }
+
+  public resolveSlotForCar(carActorId: number, slots: readonly { carId: number }[]): number {
+    const priId = this.carPriById.get(carActorId);
+    if (priId !== undefined && this.slotByPriId.has(priId)) return this.slotByPriId.get(priId)!;
+    return slots.findIndex((s) => s.carId === carActorId);
+  }
+
+  public bindCarPriAndResolveSlot(carActorId: number, priId: number): number {
+    this.carPriById.set(carActorId, priId);
+    this.lastPriByCarId.set(carActorId, priId);
+    return this.resolveSlotForPri(priId);
+  }
+
+  public applyPriProperty(
+    prop: string,
+    actorId: number,
+    attr: unknown,
+    attrRec: Record<string, unknown> | null,
+    actorTypeById: ReadonlyMap<number, string>
+  ): boolean {
+    if (prop.endsWith(':PlayerName')) {
+      const nameVal = attrRec?.String;
+      if (typeof nameVal === 'string' && nameVal) {
+        this.playerNameByPriId.set(actorId, nameVal);
+        this.resolveSlotForPri(actorId, nameVal);
+      }
+      return true;
+    }
+    if (prop.endsWith('PlayerReplicationInfo:Team')) {
+      const teamType = actorTypeById.get(extractActiveActorId(attr)) ?? '';
+      if (teamType.includes('Team0')) this.playerTeamByPriId.set(actorId, 0);
+      else if (teamType.includes('Team1')) this.playerTeamByPriId.set(actorId, 1);
+      return true;
+    }
+    return false;
+  }
+}
+
 export function toFiniteNumber(value: unknown, fallback = 0): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
@@ -84,12 +175,7 @@ export function normalizeQuat(raw: unknown): RLRCQuat {
   const w = toFiniteNumber(record.w ?? record.W, 1);
   const length = Math.hypot(x, y, z, w);
   if (length < 1e-6) return IDENTITY_QUAT;
-  return {
-    x: x / length,
-    y: y / length,
-    z: z / length,
-    w: w / length,
-  };
+  return { x: x / length, y: y / length, z: z / length, w: w / length };
 }
 
 export function quatToBasis3x3({ x, y, z, w }: RLRCQuat): RLRCBasis3x3 {
@@ -137,6 +223,40 @@ export function normalizeReplicatedBoostAmount(raw: unknown): number | null {
       : (boostObj?.boost_amount ?? boostObj?.boostAmount ?? outer?.Byte);
   if (typeof byteVal !== 'number' || !Number.isFinite(byteVal)) return null;
   return (clampNumber(byteVal, 0, 255) / 255) * 100;
+}
+
+export function decodeReplicatedBoostAttribute(raw: unknown): RLRCDecodedBoostAttribute | null {
+  const o = asRecord(raw);
+  const rp = asRecord(o?.ReplicatedBoost) ?? o;
+  const b = typeof raw === 'number' ? raw : (rp?.boost_amount ?? rp?.boostAmount ?? o?.Byte);
+  if (typeof b !== 'number' || !Number.isFinite(b)) return null;
+  const boostAmount = (clampNumber(b, 0, 255) / 255) * 100;
+  const g = rp?.grant_count ?? rp?.grantCount;
+  return {
+    boostAmount,
+    grantCount: typeof g === 'number' && Number.isFinite(g) ? Math.trunc(g) : null,
+  };
+}
+
+export function decodeReplicatedPickupAttribute(raw: unknown): RLRCDecodedPickupAttribute | null {
+  const o = asRecord(raw);
+  const pk =
+    asRecord(o?.PickupNew ?? o?.Pickup ?? o?.NewReplicatedPickupData ?? o?.ReplicatedPickupData) ??
+    o;
+  if (!pk) return null;
+  const pRaw = pk.pickedUp ?? pk.picked_up;
+  let pickedUp = false;
+  if (typeof pRaw === 'boolean') pickedUp = pRaw;
+  else if (typeof pRaw === 'number' && Number.isFinite(pRaw))
+    pickedUp = (pRaw & 0xff) !== 0 && (pRaw & 0xff) !== 255;
+  else return null;
+
+  let instId = -1;
+  const ir = pk.instigator ?? pk.instigator_id ?? pk.instigatorId;
+  const io = asRecord(ir);
+  if (typeof ir === 'number' && Number.isFinite(ir)) instId = Math.trunc(ir);
+  else if (io && io.active !== false && typeof io.actor === 'number') instId = Math.trunc(io.actor);
+  return { instigatorCarActorId: instId, pickedUp };
 }
 
 export function decodeReplicatedAxisByte(raw: unknown): number | null {

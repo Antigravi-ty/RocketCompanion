@@ -47,6 +47,19 @@ export interface PendingSessionSignal {
 
 export type DecodedSessionSignal = PendingSessionSignal;
 
+function areAllRequiredPeersAcked(
+  ackedPeers: ReadonlySet<string>,
+  requiredPeers: ReadonlySet<string> | null,
+  activeSet: ReadonlySet<string> | null = null
+): boolean {
+  if (!requiredPeers || requiredPeers.size === 0) return false;
+  for (const peerId of requiredPeers) {
+    if (activeSet && !activeSet.has(peerId)) continue;
+    if (!ackedPeers.has(peerId)) return false;
+  }
+  return true;
+}
+
 export class SignalEventBuffer {
   capacity: number;
   defaultLifetimeTicks: number;
@@ -81,9 +94,10 @@ export class SignalEventBuffer {
       throw new Error('[SignalEventBuffer] pushSignal requires a valid numeric signalType');
     }
 
-    if (signalInput.signalType === MATCH_SIGNALS.KICKOFF_WILL_START) {
-      this.retireByType(MATCH_SIGNALS.KICKOFF_WILL_START);
-    } else if (signalInput.signalType === MATCH_SIGNALS.KICKOFF_START) {
+    if (
+      signalInput.signalType === MATCH_SIGNALS.KICKOFF_WILL_START ||
+      signalInput.signalType === MATCH_SIGNALS.KICKOFF_START
+    ) {
       this.retireByType(MATCH_SIGNALS.KICKOFF_WILL_START);
     } else if (signalInput.signalType === MATCH_SIGNALS.COMMAND_ACK) {
       const targetCmdId = (signalInput.param1 ?? 0) >>> 0;
@@ -139,9 +153,7 @@ export class SignalEventBuffer {
 
     if (this.entries.size >= this.capacity && !this.entries.has(signalId)) {
       const oldestKey = this.entries.keys().next().value;
-      if (oldestKey !== undefined) {
-        this.entries.delete(oldestKey);
-      }
+      if (oldestKey !== undefined) this.entries.delete(oldestKey);
     }
 
     const entry: SignalBufferEntry = {
@@ -180,9 +192,7 @@ export class SignalEventBuffer {
           existing.param2 === incomingP2
         ) {
           if (activeSessionIds && existing.isBroadcast) {
-            for (const sid of activeSessionIds) {
-              existing.targetPeers.add(sid);
-            }
+            for (const sid of activeSessionIds) existing.targetPeers.add(sid);
           }
           continue;
         }
@@ -207,32 +217,16 @@ export class SignalEventBuffer {
       if (!ack || typeof ack.signalId !== 'number') continue;
 
       const entry = this.entries.get(ack.signalId);
-      if (!entry) continue;
-
-      if ((entry.signalType & 0xff) !== ((ack.signalType ?? 0) & 0xff)) {
-        continue;
-      }
+      if (!entry || (entry.signalType & 0xff) !== ((ack.signalType ?? 0) & 0xff)) continue;
 
       if (!entry.ackedPeers.has(sessionId)) {
         entry.ackedPeers.add(sessionId);
         newlyAcked++;
       }
 
-      const requiredPeers = entry.targetPeers || activeSet;
-      if (requiredPeers && requiredPeers.size > 0) {
-        let allAcked = true;
-        for (const reqPeerId of requiredPeers) {
-          if (activeSet && !activeSet.has(reqPeerId)) {
-            continue;
-          }
-          if (!entry.ackedPeers.has(reqPeerId)) {
-            allAcked = false;
-            break;
-          }
-        }
-        if (allAcked) {
-          this.entries.delete(entry.signalId);
-        }
+      const requiredPeers = entry.targetPeers.size > 0 ? entry.targetPeers : activeSet;
+      if (areAllRequiredPeersAcked(entry.ackedPeers, requiredPeers, activeSet)) {
+        this.entries.delete(entry.signalId);
       }
     }
 
@@ -247,26 +241,12 @@ export class SignalEventBuffer {
     const activeSet = currentActiveSessionIds ? new Set(currentActiveSessionIds) : null;
 
     for (const [signalId, entry] of this.entries.entries()) {
-      if (typeof currentServerTick === 'number' && currentServerTick > entry.expiresAtTick) {
+      const expired =
+        typeof currentServerTick === 'number' && currentServerTick > entry.expiresAtTick;
+      const requiredPeers = entry.targetPeers.size > 0 ? entry.targetPeers : activeSet;
+      if (expired || areAllRequiredPeersAcked(entry.ackedPeers, requiredPeers, activeSet)) {
         this.entries.delete(signalId);
         removed++;
-        continue;
-      }
-
-      const requiredPeers = entry.targetPeers || activeSet;
-      if (requiredPeers && requiredPeers.size > 0) {
-        let hasUnackedActivePeer = false;
-        for (const peerId of requiredPeers) {
-          if (activeSet && !activeSet.has(peerId)) continue;
-          if (!entry.ackedPeers.has(peerId)) {
-            hasUnackedActivePeer = true;
-            break;
-          }
-        }
-        if (!hasUnackedActivePeer) {
-          this.entries.delete(signalId);
-          removed++;
-        }
       }
     }
 
@@ -277,33 +257,20 @@ export class SignalEventBuffer {
     if (!sessionId) return;
     for (const [signalId, entry] of this.entries.entries()) {
       entry.ackedPeers.delete(sessionId);
-      if (entry.targetPeers) {
-        entry.targetPeers.delete(sessionId);
-        if (entry.targetPeers.size > 0) {
-          let allAcked = true;
-          for (const peerId of entry.targetPeers) {
-            if (!entry.ackedPeers.has(peerId)) {
-              allAcked = false;
-              break;
-            }
-          }
-          if (allAcked) {
-            this.entries.delete(signalId);
-          }
-        }
+      entry.targetPeers.delete(sessionId);
+      if (areAllRequiredPeersAcked(entry.ackedPeers, entry.targetPeers)) {
+        this.entries.delete(signalId);
       }
     }
   }
 
   retireSignal(signalId: number): void {
-    this.entries.delete(signalId);
+    if (signalId > 0) this.entries.delete(signalId);
   }
 
   retireByType(signalType: number): void {
     for (const [signalId, entry] of this.entries.entries()) {
-      if (entry.signalType === signalType) {
-        this.entries.delete(signalId);
-      }
+      if (entry.signalType === signalType) this.entries.delete(signalId);
     }
   }
 
@@ -320,15 +287,10 @@ export class SignalEventBuffer {
       if (typeof currentServerTick === 'number' && currentServerTick > entry.expiresAtTick) {
         continue;
       }
-      if (sessionId && entry.ackedPeers.has(sessionId)) {
-        continue;
-      }
+      if (sessionId && entry.ackedPeers.has(sessionId)) continue;
       if (sessionId && entry.targetPeers && !entry.targetPeers.has(sessionId)) {
-        if (entry.isBroadcast) {
-          entry.targetPeers.add(sessionId);
-        } else {
-          continue;
-        }
+        if (entry.isBroadcast) entry.targetPeers.add(sessionId);
+        else continue;
       }
       pending.push({
         signalId: entry.signalId,
@@ -369,20 +331,15 @@ export class SignalEventBuffer {
   ): { signals: PendingSessionSignal[]; bytesRead: number } {
     if (!bufferInput) return { signals: [], bytesRead: 0 };
 
-    let view: DataView;
-    if (bufferInput instanceof DataView) {
-      view = bufferInput;
-    } else if (bufferInput instanceof Uint8Array) {
-      view = new DataView(bufferInput.buffer, bufferInput.byteOffset, bufferInput.byteLength);
-    } else if (bufferInput instanceof ArrayBuffer) {
-      view = new DataView(bufferInput);
-    } else {
-      return { signals: [], bytesRead: 0 };
-    }
-
-    if (view.byteLength < byteOffset + 1) {
-      return { signals: [], bytesRead: 0 };
-    }
+    const view =
+      bufferInput instanceof DataView
+        ? bufferInput
+        : bufferInput instanceof Uint8Array
+          ? new DataView(bufferInput.buffer, bufferInput.byteOffset, bufferInput.byteLength)
+          : bufferInput instanceof ArrayBuffer
+            ? new DataView(bufferInput)
+            : null;
+    if (!view || view.byteLength < byteOffset + 1) return { signals: [], bytesRead: 0 };
 
     const count = view.getUint8(byteOffset);
     let offset = byteOffset + 1;
@@ -413,7 +370,7 @@ export class SignalEventBuffer {
   }
 
   clear(): void {
-    this.entries.clear();
+    if (this.entries.size > 0) this.entries.clear();
   }
 }
 

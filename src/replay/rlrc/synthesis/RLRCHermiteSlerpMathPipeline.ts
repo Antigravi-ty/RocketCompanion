@@ -1,47 +1,46 @@
 /**
  * RLRCHermiteSlerpMathPipeline.ts
- * Pure quaternion SLERP, NetStream velocity calibration, Clamped Cubic Hermite
- * rigid-body interpolation, and binary Track 0 frame packing for RLRC replays.
+ * NetStream linear velocity calibration and Clamped Cubic Hermite rigid-body trajectory
+ * interpolation (paired with RLRCQuaternionTrajectoryInterpolator) for RLRC replays.
  */
 
-import { packCarControlsToTrack64 } from '../../container/RCReplayBinarySchema.ts';
 import {
-  RLRC_BOOST_PAD_COUNT,
   RLRC_FIXED_DT,
-  RLRC_MAX_PLAYER_SLOTS,
-  RLRC_STATE_BYTES_PER_FRAME,
-  RLRC_STATE_FLOATS_PER_FRAME,
-  RLRC_TRACK0_FRAME_STRIDE_BYTES,
-  type RLRCFrame120Hz,
   type RLRCInterpolationMethod,
   type RLRCQuat,
   type RLRCRigidBodySample,
   type RLRCSynthesizedCarControls,
   type RLRCVec3,
 } from '../RLRCReplayTypes.ts';
+import {
+  calibrateAngularVelocitySample,
+  dotQuat,
+  IDENTITY_QUAT,
+  interpolateQuaternionHermiteTrajectory,
+  slerpShortestArcQuat,
+  ZERO_ANGULAR_VEC,
+  type RLRCOrthonormalBasis,
+} from './RLRCQuaternionTrajectoryInterpolator.ts';
 
-export interface RLRCOrthonormalBasis {
-  readonly fwd: RLRCVec3;
-  readonly right: RLRCVec3;
-  readonly up: RLRCVec3;
-}
+export type { RLRCOrthonormalBasis };
 
-export const clamp = (v: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, v));
+export const clamp = (value: number, min: number, max: number): number =>
+  Math.max(min, Math.min(max, value));
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 export const v3 = (x: number, y: number, z: number): RLRCVec3 => ({ x, y, z });
-export const vAxis = (fn: (k: 'x' | 'y' | 'z') => number): RLRCVec3 =>
+export const vAxis = (fn: (axis: 'x' | 'y' | 'z') => number): RLRCVec3 =>
   v3(fn('x'), fn('y'), fn('z'));
 export const vLen = (a: RLRCVec3): number => Math.hypot(a.x, a.y, a.z);
 export const vAdd = (a: RLRCVec3, b: RLRCVec3): RLRCVec3 => v3(a.x + b.x, a.y + b.y, a.z + b.z);
 export const vSub = (a: RLRCVec3, b: RLRCVec3): RLRCVec3 => v3(a.x - b.x, a.y - b.y, a.z - b.z);
-export const vScale = (a: RLRCVec3, s: number): RLRCVec3 => v3(a.x * s, a.y * s, a.z * s);
+export const vScale = (a: RLRCVec3, scale: number): RLRCVec3 =>
+  v3(a.x * scale, a.y * scale, a.z * scale);
 export const vDist = (a: RLRCVec3, b: RLRCVec3): number => vLen(vSub(a, b));
 export const vLerp = (a: RLRCVec3, b: RLRCVec3, t: number): RLRCVec3 =>
-  vAxis((k) => lerp(a[k], b[k], t));
+  vAxis((axis) => lerp(a[axis], b[axis], t));
 
-export const ID_QUAT: RLRCQuat = Object.freeze({ x: 0, y: 0, z: 0, w: 1 });
-export const ZERO_VEC: RLRCVec3 = Object.freeze(v3(0, 0, 0));
+export const ID_QUAT: RLRCQuat = IDENTITY_QUAT;
+export const ZERO_VEC: RLRCVec3 = ZERO_ANGULAR_VEC;
 export const SLEEP_RB: RLRCRigidBodySample = Object.freeze({
   sleeping: true,
   position: ZERO_VEC,
@@ -77,90 +76,38 @@ export function toRest(rb: RLRCRigidBodySample): RLRCRigidBodySample {
 }
 
 export function isDupRb(a: RLRCRigidBodySample, b: RLRCRigidBodySample): boolean {
-  const qd =
-    a.rotation.x * b.rotation.x +
-    a.rotation.y * b.rotation.y +
-    a.rotation.z * b.rotation.z +
-    a.rotation.w * b.rotation.w;
+  const quatDot = dotQuat(a.rotation, b.rotation);
   return (
     a.sleeping === b.sleeping &&
     vDist(a.position, b.position) <= 1e-2 &&
     vDist(a.linearVelocity, b.linearVelocity) <= 1e-2 &&
-    Math.abs(qd) > 0.99999
+    Math.abs(quatDot) > 0.99999
   );
 }
 
-export function normalizeQuat(q: RLRCQuat): RLRCQuat {
-  const l = Math.hypot(q.x, q.y, q.z, q.w);
-  return Number.isFinite(l) && l >= 1e-7
-    ? { x: q.x / l, y: q.y / l, z: q.z / l, w: q.w / l }
-    : ID_QUAT;
+export function calibrateNetStreamVel(vel: RLRCVec3, secantSpeed: number): RLRCVec3 {
+  const speed = vLen(vel);
+  return secantSpeed > 60 && speed > 2 && secantSpeed / speed > 5.0 && secantSpeed / speed < 16.0
+    ? vScale(vel, 10)
+    : vel;
 }
 
-export function slerpShortestArcQuat(q0: RLRCQuat, q1: RLRCQuat, alpha: number): RLRCQuat {
-  const t = clamp(alpha, 0, 1);
-  const a = normalizeQuat(q0);
-  const b = normalizeQuat(q1);
-  if (t <= 0) return a;
-  if (t >= 1) return b;
-  const raw = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
-  const sgn = raw < 0 ? -1 : 1;
-  const dot = Math.abs(raw);
-  let s0 = 1 - t;
-  let s1 = t * sgn;
-  if (dot <= 0.9995) {
-    const th = Math.acos(clamp(dot, -1, 1));
-    const sin = Math.sin(th);
-    if (Math.abs(sin) < 1e-6) return a;
-    const w1 = Math.sin(th * t) / sin;
-    s0 = Math.cos(th * t) - dot * w1;
-    s1 = w1 * sgn;
-  }
-  return normalizeQuat({
-    x: s0 * a.x + s1 * b.x,
-    y: s0 * a.y + s1 * b.y,
-    z: s0 * a.z + s1 * b.z,
-    w: s0 * a.w + s1 * b.w,
-  });
+export function sanitizeAngularVel(angularVelocity: RLRCVec3): RLRCVec3 {
+  return calibrateAngularVelocitySample(angularVelocity, angularVelocity, 8.5);
 }
 
-export function quatToBasisVectors(rotation: RLRCQuat): RLRCOrthonormalBasis {
-  const { x, y, z, w } = normalizeQuat(rotation);
-  const xx = x * x,
-    yy = y * y,
-    zz = z * z;
-  const xy = x * y,
-    xz = x * z,
-    yz = y * z;
-  const wx = w * x,
-    wy = w * y,
-    wz = w * z;
-  return {
-    fwd: v3(1 - 2 * (yy + zz), 2 * (xy + wz), 2 * (xz - wy)),
-    right: v3(2 * (xy - wz), 1 - 2 * (xx + zz), 2 * (yz + wx)),
-    up: v3(2 * (xz + wy), 2 * (yz - wx), 1 - 2 * (xx + yy)),
-  };
-}
-
-export function calibrateNetStreamVel(v: RLRCVec3, secantSpeed: number): RLRCVec3 {
-  const vs = vLen(v);
-  return secantSpeed > 60 && vs > 2 && secantSpeed / vs > 5.0 && secantSpeed / vs < 16.0
-    ? vScale(v, 10)
-    : v;
-}
-
-export function sanitizeAngularVel(av: RLRCVec3): RLRCVec3 {
-  return vLen(av) > 9.0 ? vScale(av, 0.1) : av;
-}
-
-function clampTan(vel: RLRCVec3, sec: RLRCVec3, maxSpd: number): RLRCVec3 {
-  const scaled = calibrateNetStreamVel(vel, vLen(sec));
-  const maxD = 0.35 * vLen(sec) + 90;
-  const d = vSub(scaled, sec);
-  const dev = vLen(d);
-  const t = vAdd(sec, dev > maxD && dev > 1e-5 ? vScale(d, maxD / dev) : d);
-  const spd = vLen(t);
-  return spd > maxSpd && spd > 1e-5 ? vScale(t, maxSpd / spd) : t;
+function clampLinearTangent(vel: RLRCVec3, secantVel: RLRCVec3, maxSpeedUu: number): RLRCVec3 {
+  const secantSpeed = vLen(secantVel);
+  const scaled = calibrateNetStreamVel(vel, secantSpeed);
+  const maxDeviation = 0.35 * secantSpeed + 90;
+  const diff = vSub(scaled, secantVel);
+  const devMag = vLen(diff);
+  const tangent = vAdd(
+    secantVel,
+    devMag > maxDeviation && devMag > 1e-5 ? vScale(diff, maxDeviation / devMag) : diff
+  );
+  const speed = vLen(tangent);
+  return speed > maxSpeedUu && speed > 1e-5 ? vScale(tangent, maxSpeedUu / speed) : tangent;
 }
 
 export function interpolateRigidBodyHermiteSlerp(
@@ -174,44 +121,60 @@ export function interpolateRigidBodyHermiteSlerp(
   const tau = clamp(alpha, 0, 1);
   if (tau <= 0 || dtSeconds <= 1e-6) return s0;
   if (tau >= 1) return s1;
-  const r0 = isRest(s0);
-  const r1 = isRest(s1);
+
+  const rest0 = isRest(s0);
+  const rest1 = isRest(s1);
+  const maxOmegaRadPerSec = maxSpeedUu <= 2500 ? 7.5 : 8.5;
+
   if ((s0.sleeping && s1.sleeping) || isDupRb(s0, s1)) {
     return {
       sleeping: s0.sleeping && s1.sleeping,
       position: s0.position,
       rotation: s0.rotation,
-      linearVelocity: r0 ? ZERO_VEC : s0.linearVelocity,
-      angularVelocity: r0 ? ZERO_VEC : sanitizeAngularVel(s0.angularVelocity),
+      linearVelocity: rest0 ? ZERO_VEC : s0.linearVelocity,
+      angularVelocity: rest0 ? ZERO_VEC : sanitizeAngularVel(s0.angularVelocity),
     };
   }
 
   const dt = Math.max(RLRC_FIXED_DT, dtSeconds);
   const p0 = s0.position;
   const p1 = s1.position;
-  const sec = vScale(vSub(p1, p0), 1 / dt);
-  const secSpeed = vLen(sec);
-  const v0 = r0 ? ZERO_VEC : calibrateNetStreamVel(s0.linearVelocity, secSpeed);
-  const v1 = r1 ? ZERO_VEC : calibrateNetStreamVel(s1.linearVelocity, secSpeed);
-  const rotation = slerpShortestArcQuat(s0.rotation, s1.rotation, tau);
-  const angularVelocity = vLerp(
-    r0 ? ZERO_VEC : sanitizeAngularVel(s0.angularVelocity),
-    r1 ? ZERO_VEC : sanitizeAngularVel(s1.angularVelocity),
-    tau
-  );
-  const vLin = vLerp(v0, v1, tau);
+  const secantVel = vScale(vSub(p1, p0), 1 / dt);
+  const secantSpeed = vLen(secantVel);
+  const v0 = rest0 ? ZERO_VEC : calibrateNetStreamVel(s0.linearVelocity, secantSpeed);
+  const v1 = rest1 ? ZERO_VEC : calibrateNetStreamVel(s1.linearVelocity, secantSpeed);
+  const rawOmega0 = rest0 ? ZERO_VEC : s0.angularVelocity;
+  const rawOmega1 = rest1 ? ZERO_VEC : s1.angularVelocity;
+
   if (method === 'linear') {
+    const rotation = slerpShortestArcQuat(s0.rotation, s1.rotation, tau);
+    const angularVelocity = vLerp(
+      sanitizeAngularVel(rawOmega0),
+      sanitizeAngularVel(rawOmega1),
+      tau
+    );
     return {
       sleeping: false,
       position: vLerp(p0, p1, tau),
       rotation,
-      linearVelocity: sec,
+      linearVelocity: secantVel,
       angularVelocity,
     };
   }
 
-  const t0 = clampTan(v0, sec, maxSpeedUu);
-  const t1 = clampTan(v1, sec, maxSpeedUu);
+  const { rotation, angularVelocity } = interpolateQuaternionHermiteTrajectory(
+    s0.rotation,
+    rawOmega0,
+    s1.rotation,
+    rawOmega1,
+    tau,
+    dt,
+    maxOmegaRadPerSec
+  );
+
+  const vLinearBlend = vLerp(v0, v1, tau);
+  const t0 = clampLinearTangent(v0, secantVel, maxSpeedUu);
+  const t1 = clampLinearTangent(v1, secantVel, maxSpeedUu);
   const u2 = tau * tau;
   const u3 = u2 * tau;
   const h00 = 2 * u3 - 3 * u2 + 1;
@@ -225,80 +188,18 @@ export function interpolateRigidBodyHermiteSlerp(
 
   return {
     sleeping: false,
-    position: vAxis((k) =>
-      Math.max(k === 'z' ? minZ : -Infinity, h00 * p0[k] + h10 * t0[k] + h01 * p1[k] + h11 * t1[k])
+    position: vAxis((axis) =>
+      Math.max(
+        axis === 'z' ? minZ : -Infinity,
+        h00 * p0[axis] + h10 * t0[axis] + h01 * p1[axis] + h11 * t1[axis]
+      )
     ),
     rotation,
     linearVelocity: vAxis(
-      (k) => 0.5 * (vLin[k] + dh00 * (p0[k] - p1[k]) + dh10 * t0[k] + dh11 * t1[k])
+      (axis) =>
+        0.5 *
+        (vLinearBlend[axis] + dh00 * (p0[axis] - p1[axis]) + dh10 * t0[axis] + dh11 * t1[axis])
     ),
     angularVelocity,
   };
-}
-
-function writeRb18(
-  dst: Float32Array,
-  base: number,
-  { position: p, rotation: r, linearVelocity: v, angularVelocity: w }: RLRCRigidBodySample
-): void {
-  const { fwd: f, right: rt, up: u } = quatToBasisVectors(r);
-  dst.set(
-    [p.x, p.y, p.z, f.x, f.y, f.z, rt.x, rt.y, rt.z, u.x, u.y, u.z, v.x, v.y, v.z, w.x, w.y, w.z],
-    base
-  );
-}
-
-export function packRLRCFramesToTrack0Bytes(frames120Hz: readonly RLRCFrame120Hz[]): Uint8Array {
-  const out = new Uint8Array(frames120Hz.length * RLRC_TRACK0_FRAME_STRIDE_BYTES);
-  const f32 = new Float32Array(RLRC_STATE_FLOATS_PER_FRAME);
-  const f32Bytes = new Uint8Array(f32.buffer, 0, RLRC_STATE_BYTES_PER_FRAME);
-
-  for (let f = 0; f < frames120Hz.length; f++) {
-    const fr = frames120Hz[f];
-    const off = f * RLRC_TRACK0_FRAME_STRIDE_BYTES;
-    f32.fill(0);
-    f32[0] = fr.frameIndex120Hz;
-    f32[2] = Math.min(RLRC_MAX_PLAYER_SLOTS, fr.cars.length);
-    f32[3] = RLRC_BOOST_PAD_COUNT;
-    writeRb18(f32, 4, fr.ball.rigidBody);
-    const ctrlSlice = out.subarray(
-      off + RLRC_STATE_BYTES_PER_FRAME,
-      off + RLRC_TRACK0_FRAME_STRIDE_BYTES
-    );
-
-    for (let c = 0; c < fr.cars.length && c < RLRC_MAX_PLAYER_SLOTS; c++) {
-      const car = fr.cars[c];
-      const base = 22 + car.slotIndex * 40;
-      const fl = car.activeFlags;
-      writeRb18(f32, base, car.rigidBody);
-      f32[base + 18] = car.boostAmount;
-      f32[base + 39] = 1;
-      f32[416 + car.slotIndex * 4] = fl.jumpActive ? 1 : 0;
-      f32[419 + car.slotIndex * 4] = car.airTimeSinceJump;
-      if (car.entityActive) {
-        f32.set(
-          [
-            car.isOnGround ? 1 : 0,
-            car.isSupersonic ? 1 : 0,
-            0,
-            car.hasFlipOrJump ? 1 : 0,
-            fl.boostActive ? 1 : 0,
-            fl.dodgeActive ? 1 : 0,
-          ],
-          base + 19
-        );
-        packCarControlsToTrack64(ctrlSlice, car.slotIndex, { ...car.controls });
-      } else {
-        f32[base + 21] = 1;
-      }
-    }
-    for (let p = 0; p < RLRC_BOOST_PAD_COUNT; p++) {
-      const cd = fr.boostPadCooldowns[p] ?? 0;
-      f32[342 + p * 2] = cd <= 0 ? 1 : 0;
-      f32[343 + p * 2] = Math.max(0, cd);
-    }
-    f32[410] = fr.ball.rigidBody.sleeping ? 1 : 0;
-    out.set(f32Bytes, off);
-  }
-  return out;
 }

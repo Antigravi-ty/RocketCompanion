@@ -96,10 +96,8 @@ export class EntityManager {
     }
 
     // 2. Ensure visual representation exists in ArenaWorld
-    if (this.arena) {
-      if (!this.arena.cars || !this.arena.cars[slot]) {
-        this.arena.addCar(team, visual);
-      }
+    if (this.arena && (!this.arena.cars || !this.arena.cars[slot])) {
+      this.arena.addCar?.(team, visual);
     }
 
     const entity: EntityDescriptor = {
@@ -127,14 +125,10 @@ export class EntityManager {
     entity.controller = null;
 
     // 2. Remove from visual scene
-    if (this.arena && typeof this.arena.removeCar === 'function') {
-      this.arena.removeCar(slot);
-    }
+    this.arena?.removeCar?.(slot);
 
     // 3. Remove from physics simulation
-    if (this.physics && typeof this.physics.removeCar === 'function') {
-      this.physics.removeCar(slot);
-    }
+    this.physics?.removeCar?.(slot);
 
     this.entities.delete(slot);
     return true;
@@ -149,14 +143,10 @@ export class EntityManager {
     const newHitbox = options.hitbox || options.visual || entity?.hitbox || 'default';
 
     // 1. Visual hot-swap in ArenaWorld (in-place mesh and wheel updates)
-    if (this.arena && typeof this.arena.swapCarVisual === 'function') {
-      this.arena.swapCarVisual(slot, newVisual);
-    }
+    this.arena?.swapCarVisual?.(slot, newVisual);
 
     // 2. Physics hitbox hot-swap in RocketSim WASM
-    if (this.physics && typeof this.physics.setCarHitbox === 'function') {
-      this.physics.setCarHitbox(slot, newHitbox);
-    }
+    this.physics?.setCarHitbox?.(slot, newHitbox);
 
     if (entity) {
       entity.visual = newVisual;
@@ -178,10 +168,8 @@ export class EntityManager {
 
   /**
    * Possess a vehicle with a controller
-   * @param {any} controller
-   * @param {number} slot
    */
-  possess(controller, slot) {
+  possess(controller: unknown, slot: number): void {
     const entity = this.entities.get(slot);
     if (entity) {
       entity.controller = controller;
@@ -190,24 +178,23 @@ export class EntityManager {
 
   /**
    * Unpossess a vehicle
-   * @param {number} slot
    */
-  unpossess(slot) {
+  unpossess(slot: number): void {
     const entity = this.entities.get(slot);
     if (entity) {
       entity.controller = null;
     }
   }
 
-  getVehicle(slot) {
-    return this.entities.get(slot);
+  getVehicle(slot: number): EntityDescriptor | undefined {
+    return this.entities?.get(slot);
   }
 
-  hasVehicle(slot) {
-    return this.entities.has(slot);
+  hasVehicle(slot: number): boolean {
+    return Boolean(this.entities?.has(slot));
   }
 
-  get activeVehicleCount() {
+  get activeVehicleCount(): number {
     return this.entities.size;
   }
 

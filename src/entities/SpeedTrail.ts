@@ -97,11 +97,18 @@ export class SpeedTrail {
       age: 0,
     }));
 
-    this.positionAttribute = new BufferAttribute(this.positions, 3);
-    this.lifeAlphaAttribute = new BufferAttribute(this.lifeAlpha, 1);
+    const positionsBuf = this.positions;
+    const lifeAlphaBuf = this.lifeAlpha;
+    const acrossBuf = this.across;
+    const indicesBuf = this.indices;
+
+    const posAttr = new BufferAttribute(positionsBuf, 3);
+    const lifeAttr = new BufferAttribute(lifeAlphaBuf, 1);
+    this.positionAttribute = posAttr;
+    this.lifeAlphaAttribute = lifeAttr;
 
     this.object.name = 'ball-speed-trail';
-    this.material = new ShaderMaterial({
+    const mat = new ShaderMaterial({
       transparent: true,
       depthWrite: false,
       side: DoubleSide,
@@ -113,33 +120,35 @@ export class SpeedTrail {
       vertexShader: SPEED_TRAIL_VERTEX_SHADER,
       fragmentShader: SPEED_TRAIL_FRAGMENT_SHADER,
     });
-    this.material.toneMapped = true;
+    mat.toneMapped = true;
+    this.material = mat;
 
     for (let i = 0; i < SPEED_TRAIL_MAX_VERTICES; i++) {
-      this.across[i * 2] = -1;
-      this.across[i * 2 + 1] = 1;
+      acrossBuf[i * 2] = -1;
+      acrossBuf[i * 2 + 1] = 1;
     }
     for (let i = 0; i < SPEED_TRAIL_MAX_VERTICES - 1; i++) {
       const idx = i * 6;
       const v = i * 2;
-      this.indices[idx] = v;
-      this.indices[idx + 1] = v + 2;
-      this.indices[idx + 2] = v + 1;
-      this.indices[idx + 3] = v + 1;
-      this.indices[idx + 4] = v + 2;
-      this.indices[idx + 5] = v + 3;
+      indicesBuf[idx] = v;
+      indicesBuf[idx + 1] = v + 2;
+      indicesBuf[idx + 2] = v + 1;
+      indicesBuf[idx + 3] = v + 1;
+      indicesBuf[idx + 4] = v + 2;
+      indicesBuf[idx + 5] = v + 3;
     }
 
-    this.positionAttribute.setUsage(DynamicDrawUsage);
-    this.lifeAlphaAttribute.setUsage(DynamicDrawUsage);
+    posAttr.setUsage(DynamicDrawUsage);
+    lifeAttr.setUsage(DynamicDrawUsage);
 
-    this.geometry.setAttribute('position', this.positionAttribute);
-    this.geometry.setAttribute('aAcross', new BufferAttribute(this.across, 1));
-    this.geometry.setAttribute('aLifeAlpha', this.lifeAlphaAttribute);
-    this.geometry.setIndex(new BufferAttribute(this.indices, 1));
-    this.geometry.setDrawRange(0, 0);
+    const geom = this.geometry;
+    geom.setAttribute('position', posAttr);
+    geom.setAttribute('aAcross', new BufferAttribute(acrossBuf, 1));
+    geom.setAttribute('aLifeAlpha', lifeAttr);
+    geom.setIndex(new BufferAttribute(indicesBuf, 1));
+    geom.setDrawRange(0, 0);
 
-    this.ribbon = new Mesh(this.geometry, this.material);
+    this.ribbon = new Mesh(geom, mat);
     this.ribbon.name = 'SpeedTrail_PS-ribbon';
     this.ribbon.visible = false;
     this.ribbon.frustumCulled = false;

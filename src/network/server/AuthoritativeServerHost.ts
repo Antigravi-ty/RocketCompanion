@@ -4,6 +4,7 @@ import {
 } from '../protocol/boostPadBitmaskPipeline.ts';
 import type { CarControlsInput } from '../protocol/GlobalPayloadCodec.ts';
 import { createHostSimProxy, type HostSimRestoreStateResult } from './HostSimProxy.ts';
+import { createDefaultHostChannel } from './HostLoopbackChannel.ts';
 import {
   HOST_WORKER_MSG_TYPES as MSG,
   createWorkerEnvelope,
@@ -77,7 +78,8 @@ export class AuthoritativeServerHost {
     }
     this.options = { ...opts };
     this.isWorker = typeof Worker !== 'undefined' && !opts.forceFallback;
-    this.botTunnelManager = new BotTunnelManager(this, {
+    const serverRef = this;
+    this.botTunnelManager = new BotTunnelManager(serverRef, {
       forceInProcess: Boolean(opts.forceFallback),
     });
     this.hostReplayRingBuffer = new ReplayRingBuffer({
@@ -85,7 +87,8 @@ export class AuthoritativeServerHost {
       capacityTicks: opts.replayCapacityTicks ?? undefined,
     });
     this.sim = createHostSimProxy(this);
-    this.channelRegistry = new HostClientChannelRegistry(this, ch as HostClientChannelPort | null);
+    const initialChannel = (ch as HostClientChannelPort | null) || createDefaultHostChannel(this);
+    this.channelRegistry = new HostClientChannelRegistry(initialChannel);
   }
 
   get fallbackSim(): AuthoritativePhysicsSimPort | null {
@@ -116,13 +119,6 @@ export class AuthoritativeServerHost {
     }
   }
 
-  routeFallbackEnvelope(
-    env: WorkerEnvelope,
-    onReply: (r: HostWorkerEnvelopeMessage) => void
-  ): void {
-    this.fallbackSubController.routeEnvelope(env, onReply);
-  }
-
   private _applySyncedSnapshot(
     snap: Float32Array | number[] | null | undefined,
     tick: number | undefined,
@@ -144,19 +140,26 @@ export class AuthoritativeServerHost {
 
   async init(): Promise<this> {
     if (!this.isWorker) return this._initFallback();
+    const onMessage = (d: unknown) => this._handleWorkerMessage(d as HostWorkerEnvelopeMessage);
+    const onWorkerReady = (r: {
+      snapshot?: Float32Array | number[] | null;
+      tickCount?: number;
+      roomState?: Partial<WorkerRoomStateSummary> | null;
+    }) => this._applySyncedSnapshot(r.snapshot, r.tickCount, r.roomState);
+    const onFallbackToMainThread = async () => {
+      this.isWorker = false;
+      await this._initFallback();
+    };
     await spawnAuthoritativeWorkerWithRetry({
       options: this.options,
       getWorker: () => this.worker,
       setWorker: (w) => {
         this.worker = w;
       },
-      onMessage: (d) => this._handleWorkerMessage(d as HostWorkerEnvelopeMessage),
+      onMessage,
       sendInitEnvelope: (p) => this.sendEnvelope(MSG.WORKER_INIT, p),
-      onWorkerReady: (r) => this._applySyncedSnapshot(r.snapshot, r.tickCount, r.roomState),
-      onFallbackToMainThread: async () => {
-        this.isWorker = false;
-        await this._initFallback();
-      },
+      onWorkerReady,
+      onFallbackToMainThread,
     });
     return this;
   }
@@ -171,11 +174,13 @@ export class AuthoritativeServerHost {
   }
 
   addEnvelopeListener(fn: (env: HostWorkerEnvelopeMessage) => void): () => void {
-    return this.channelRegistry.addEnvelopeListener(fn);
+    const reg = this.channelRegistry;
+    return reg.addEnvelopeListener(fn);
   }
 
   _handleWorkerMessage(data: HostWorkerEnvelopeMessage | null | undefined): void {
-    this.channelRegistry.handleWorkerMessage(this, data);
+    const reg = this.channelRegistry;
+    reg.handleWorkerMessage(this, data);
   }
 
   sendEnvelope(
@@ -184,7 +189,8 @@ export class AuthoritativeServerHost {
     transfer: Transferable[] = [],
     seq: number | null = null
   ): WorkerEnvelope {
-    return this.channelRegistry.sendEnvelope(this, type, payload, transfer, seq);
+    const reg = this.channelRegistry;
+    return reg.sendEnvelope(this, type, payload, transfer, seq);
   }
 
   _postCommand(
@@ -203,7 +209,8 @@ export class AuthoritativeServerHost {
     type: string,
     data: Record<string, unknown> = {}
   ): Promise<HostSimRestoreStateResult> {
-    return this.channelRegistry.sendRequest((t, d) => this._postCommand(t, d), type, data);
+    const reg = this.channelRegistry;
+    return reg.sendRequest((t, d) => this._postCommand(t, d), type, data);
   }
 
   addClientChannel(

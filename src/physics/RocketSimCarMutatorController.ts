@@ -1,18 +1,16 @@
 /**
  * RocketSimCarMutatorController.ts
- * Stateful Sub-Controller managing per-car three-wheel mode, linear factor & gravity scale,
- * collision masks, unlimited boost, boost recharge rates, flip limits, and demo respawn timers.
+ * Self-contained domain module (Mode 2) managing per-car roster specs, three-wheel mode,
+ * arena mutator config, and demo respawn timers without host penetration.
  */
 
 import type { RocketSimWasmModule } from './RocketSimWasm.ts';
 import type { CarStateView } from './RocketSimStateViews.ts';
 import type { CarSpecEntry } from './goalBarrierVolumePipeline.ts';
 import { getHitboxIndex } from './RocketSimMeshLoader.ts';
-import { computeFreeplayBallControlState } from './ballPredictionPipeline.ts';
 import {
   setCarTeamInWasm,
   type RocketSimSnapshotMemoryViews,
-  type BallStateObjectInput,
 } from './RocketSimEntityStateMutator.ts';
 import {
   readWasmMutatorConfig,
@@ -20,49 +18,45 @@ import {
   type ArenaMutatorConfig,
 } from './mutatorConfigPipeline.ts';
 
-export interface CarMutatorEngineHostPort extends RocketSimSnapshotMemoryViews {
+export interface CarMutatorSimContext extends RocketSimSnapshotMemoryViews {
   readonly module: RocketSimWasmModule | null;
   readonly numCars: number;
-  readonly _carSpecs: Array<CarSpecEntry | null>;
   isUnlimitedBoost: boolean;
   getCarStateView(carIndex?: number): CarStateView;
-  setBallState(ballState: BallStateObjectInput): boolean;
   getCurrentTick(): number;
 }
 
 export class RocketSimCarMutatorController {
   public isUnlimitedBoost = false;
-  private readonly host: CarMutatorEngineHostPort;
+  public carSpecs: Array<CarSpecEntry | null> = [];
+  private simCtx: CarMutatorSimContext | null = null;
 
-  constructor(host: CarMutatorEngineHostPort) {
-    this.host = host;
+  public bindSimContext(ctx: CarMutatorSimContext | null): void {
+    this.simCtx = ctx;
   }
 
-  public controlBall(carIndex: number, mode: number | string): boolean {
-    if (!this.host.module || !this.isCarSlotActive(carIndex)) return false;
-    const cv = this.host.getCarStateView(carIndex);
-    const target = computeFreeplayBallControlState(
-      { posX: cv.posX, posY: cv.posY, posZ: cv.posZ, fwdX: cv.fwdX, fwdY: cv.fwdY, fwdZ: cv.fwdZ },
-      mode
-    );
-    return target ? this.host.setBallState(target) : false;
+  private get mod(): RocketSimWasmModule | null {
+    return this.simCtx?.module ?? null;
   }
 
-  public addCar(team: number, hitboxType: string | number = 'octane'): number {
-    const hitboxIdx = getHitboxIndex(hitboxType);
-    const isThreeWheels = hitboxIdx === 6;
-    const idx = this.host.module!._physics_addCar(team, hitboxIdx);
+  private _recordAddedCar(idx: number, team: number, hitboxIdx: number): number {
     if (idx >= 0) {
-      this.host._carSpecs[idx] = {
+      const isThreeWheels = hitboxIdx === 6;
+      this.carSpecs[idx] = {
         team: team ? 1 : 0,
         hitboxIndex: hitboxIdx,
         threeWheels: isThreeWheels,
       };
-      if (isThreeWheels) {
-        this.setCarThreeWheels(idx, true);
-      }
+      if (isThreeWheels) this.setCarThreeWheels(idx, true);
     }
     return idx;
+  }
+
+  public addCar(team: number, hitboxType: string | number = 'octane'): number {
+    const mod = this.mod;
+    if (!mod) return -1;
+    const hitboxIdx = getHitboxIndex(hitboxType);
+    return this._recordAddedCar(mod._physics_addCar(team, hitboxIdx), team, hitboxIdx);
   }
 
   public addCarAtSlot(
@@ -73,51 +67,43 @@ export class RocketSimCarMutatorController {
     const slot = Number(carIndex) | 0;
     if (slot < 0 || slot >= 8) return -1;
     const hitboxIdx = getHitboxIndex(hitboxType);
-    const isThreeWheels = hitboxIdx === 6;
     if (this.isCarSlotActive(slot)) {
-      const prevSpec = this.host._carSpecs[slot];
+      const prevSpec = this.carSpecs[slot];
       const nextTeam = team ? 1 : 0;
       if (!prevSpec || prevSpec.team !== nextTeam) this.setCarTeam(slot, nextTeam);
       if (!prevSpec || prevSpec.hitboxIndex !== hitboxIdx) this.setCarHitbox(slot, hitboxType);
-      this.host._carSpecs[slot] = {
+      this.carSpecs[slot] = {
         team: nextTeam,
         hitboxIndex: hitboxIdx,
-        threeWheels: isThreeWheels || (prevSpec?.threeWheels ?? false),
+        threeWheels: hitboxIdx === 6 || (prevSpec?.threeWheels ?? false),
       };
       return slot;
     }
-    if (typeof this.host.module?._physics_addCarAtSlot === 'function') {
-      const idx = this.host.module._physics_addCarAtSlot(slot, team, hitboxIdx);
-      if (idx >= 0) {
-        this.host._carSpecs[idx] = {
-          team: team ? 1 : 0,
-          hitboxIndex: hitboxIdx,
-          threeWheels: isThreeWheels,
-        };
-        if (isThreeWheels) {
-          this.setCarThreeWheels(idx, true);
-        }
-      }
-      return idx;
+    if (typeof this.mod?._physics_addCarAtSlot === 'function') {
+      return this._recordAddedCar(
+        this.mod._physics_addCarAtSlot(slot, team, hitboxIdx),
+        team,
+        hitboxIdx
+      );
     }
     return this.addCar(team, hitboxType);
   }
 
   public removeCar(carIndex: number): boolean {
     const slot = Number(carIndex) | 0;
-    const ok = this.host.module?._physics_removeCar?.(slot) === 1;
-    if (ok && slot >= 0 && slot < 8) this.host._carSpecs[slot] = null;
+    const ok = this.mod?._physics_removeCar?.(slot) === 1;
+    if (ok && slot >= 0 && slot < 8) this.carSpecs[slot] = null;
     return ok;
   }
 
   public getActiveCarMask(): number {
-    if (typeof this.host.module?._physics_getActiveCarMask === 'function') {
-      return this.host.module._physics_getActiveCarMask() & 0xff;
+    if (typeof this.mod?._physics_getActiveCarMask === 'function') {
+      return this.mod._physics_getActiveCarMask() & 0xff;
     }
     let mask = 0;
-    const n = Math.min(8, this.host.numCars || 0);
+    const n = Math.min(8, this.simCtx?.numCars || 0);
     for (let i = 0; i < n; i++) {
-      if (this.host._carSpecs[i] !== null) mask |= 1 << i;
+      if (this.carSpecs[i] !== null) mask |= 1 << i;
     }
     return mask;
   }
@@ -125,8 +111,8 @@ export class RocketSimCarMutatorController {
   public isCarSlotActive(carIndex: number): boolean {
     const slot = Number(carIndex) | 0;
     if (slot < 0 || slot >= 8) return false;
-    if (typeof this.host.module?._physics_isCarSlotActive === 'function') {
-      return this.host.module._physics_isCarSlotActive(slot) === 1;
+    if (typeof this.mod?._physics_isCarSlotActive === 'function') {
+      return this.mod._physics_isCarSlotActive(slot) === 1;
     }
     return (this.getActiveCarMask() & (1 << slot)) !== 0;
   }
@@ -134,30 +120,44 @@ export class RocketSimCarMutatorController {
   public setCarHitbox(carIndex: number, hitboxType: string | number): boolean {
     const hitboxIdx = getHitboxIndex(hitboxType);
     const isThreeWheels = hitboxIdx === 6;
-    const ok = this.host.module?._physics_setCarHitbox?.(carIndex, hitboxIdx) === 1;
-    if (ok && this.host._carSpecs[carIndex]) {
-      this.host._carSpecs[carIndex]!.hitboxIndex = hitboxIdx;
-      this.host._carSpecs[carIndex]!.threeWheels = isThreeWheels;
+    const ok = this.mod?._physics_setCarHitbox?.(carIndex, hitboxIdx) === 1;
+    if (ok && this.carSpecs[carIndex]) {
+      this.carSpecs[carIndex]!.hitboxIndex = hitboxIdx;
+      this.carSpecs[carIndex]!.threeWheels = isThreeWheels;
     }
     this.setCarThreeWheels(carIndex, isThreeWheels);
     return ok;
   }
 
   public setCarTeam(carIndex: number, team: number): boolean {
+    const ctx = this.simCtx;
+    if (!ctx) return false;
     const slot = Number(carIndex) | 0;
     const normalizedTeam = team ? 1 : 0;
-    const spec = this.host._carSpecs[slot];
+    const spec = this.carSpecs[slot];
     if (spec && spec.team === normalizedTeam) return true;
     const hitboxIdx = spec?.hitboxIndex ?? 0;
-    const ok = setCarTeamInWasm(this.host.module, slot, normalizedTeam, hitboxIdx, this.host);
+    const ok = setCarTeamInWasm(ctx.module, slot, normalizedTeam, hitboxIdx, ctx);
     if (ok && slot >= 0 && slot < 8) {
-      this.host._carSpecs[slot] = {
+      this.carSpecs[slot] = {
         team: normalizedTeam,
         hitboxIndex: hitboxIdx,
         threeWheels: spec?.threeWheels ?? false,
       };
     }
     return ok;
+  }
+
+  public setCarThreeWheels(carIndex = 0, enabled = true): boolean {
+    const ok = this.mod?._physics_setCarThreeWheels?.(carIndex, enabled ? 1 : 0) === 1;
+    if (ok && this.carSpecs[carIndex]) {
+      this.carSpecs[carIndex]!.threeWheels = Boolean(enabled);
+    }
+    return ok;
+  }
+
+  public getCarThreeWheels(carIndex = 0): boolean {
+    return this.mod?._physics_getCarThreeWheels?.(carIndex) === 1;
   }
 
   public setArenaMutators({
@@ -168,7 +168,7 @@ export class RocketSimCarMutatorController {
     ballBounciness = -1.0,
   } = {}): boolean {
     return (
-      this.host.module?._physics_setArenaMutators?.(
+      this.mod?._physics_setArenaMutators?.(
         gravityZ,
         boostAccelGround,
         boostAccelAir,
@@ -179,230 +179,44 @@ export class RocketSimCarMutatorController {
   }
 
   public getMutatorConfig(): ArenaMutatorConfig {
-    return readWasmMutatorConfig(this.host.module);
+    return readWasmMutatorConfig(this.mod);
   }
-
   public setMutatorConfig(config: Partial<ArenaMutatorConfig> | Float32Array): boolean {
-    return writeWasmMutatorConfig(this.host.module, config);
+    return writeWasmMutatorConfig(this.mod, config);
   }
-
   public resetMutatorConfig(): boolean {
-    return this.host.module?._physics_resetMutatorConfig?.() === 1;
-  }
-
-  public demolishCar(carIndex: number, respawnDelay = 3.0): boolean {
-    return this.host.module?._physics_demolishCar?.(carIndex, respawnDelay) === 1;
+    return this.mod?._physics_resetMutatorConfig?.() === 1;
   }
 
   public respawnCar(carIndex: number, seed = -1, boostAmount = 33.33): boolean {
+    const ctx = this.simCtx;
+    if (!ctx?.module) return false;
     const effectiveSeed =
       typeof seed === 'number' && seed >= 0
         ? seed | 0
-        : ((this.host.getCurrentTick() + ((carIndex | 0) + 1) * 17) & 0x7fffffff) | 0;
-    return this.host.module?._physics_respawnCar?.(carIndex, effectiveSeed, boostAmount) === 1;
-  }
-
-  public getCarIsJumping(carIndex = 0): boolean {
-    const mod = this.host.module;
-    return typeof mod?._physics_getCarIsJumping === 'function'
-      ? mod._physics_getCarIsJumping(carIndex) === 1
-      : this.host.getCarStateView(carIndex).isJumping;
-  }
-
-  public getCarAirTime(carIndex = 0): number {
-    const mod = this.host.module;
-    return typeof mod?._physics_getCarAirTime === 'function'
-      ? mod._physics_getCarAirTime(carIndex)
-      : this.host.getCarStateView(carIndex).airTime;
-  }
-
-  public getCarJumpTime(carIndex = 0): number {
-    const mod = this.host.module;
-    return typeof mod?._physics_getCarJumpTime === 'function'
-      ? mod._physics_getCarJumpTime(carIndex)
-      : this.host.getCarStateView(carIndex).jumpTime;
-  }
-
-  public getCarAirTimeSinceJump(carIndex = 0): number {
-    const mod = this.host.module;
-    return typeof mod?._physics_getCarAirTimeSinceJump === 'function'
-      ? mod._physics_getCarAirTimeSinceJump(carIndex)
-      : this.host.getCarStateView(carIndex).airTimeSinceJump;
-  }
-
-  public setCarLinearFactorAndGravity(
-    carIndex: number,
-    fx = 1.0,
-    fy = 1.0,
-    fz = 1.0,
-    gravityScale = 1.0
-  ): boolean {
-    return (
-      this.host.module?._physics_setCarLinearFactorAndGravity?.(
-        carIndex,
-        fx,
-        fy,
-        fz,
-        gravityScale
-      ) === 1
-    );
-  }
-
-  public setCarCollisionMask(
-    carIndex: number,
-    interactWithBall = true,
-    interactWithCars = true
-  ): boolean {
-    return (
-      this.host.module?._physics_setCarCollisionMask?.(
-        carIndex,
-        interactWithBall ? 1 : 0,
-        interactWithCars ? 1 : 0
-      ) === 1
-    );
-  }
-
-  public setCarThreeWheels(carIndex = 0, enabled = true): boolean {
-    const ok = this.host.module?._physics_setCarThreeWheels?.(carIndex, enabled ? 1 : 0) === 1;
-    if (ok && this.host._carSpecs[carIndex]) {
-      this.host._carSpecs[carIndex]!.threeWheels = Boolean(enabled);
-    }
-    return ok;
-  }
-
-  public getCarThreeWheels(carIndex = 0): boolean {
-    return this.host.module?._physics_getCarThreeWheels?.(carIndex) === 1;
-  }
-
-  public setUnlimitedBoost(unlimited: boolean): void {
-    const flag = Boolean(unlimited);
-    this.isUnlimitedBoost = flag;
-    this.host.isUnlimitedBoost = flag;
-    this.host.module?._physics_setUnlimitedBoost?.(flag ? 1 : 0);
-  }
-
-  public getUnlimitedBoost(): boolean {
-    const mod = this.host.module;
-    return typeof mod?._physics_getUnlimitedBoost === 'function'
-      ? mod._physics_getUnlimitedBoost() === 1
-      : Boolean(this.isUnlimitedBoost);
-  }
-
-  public setCarUnlimitedBoost(carIndex: number, unlimited: boolean): void {
-    const flag = Boolean(unlimited);
-    this.host.module?._physics_setCarUnlimitedBoost?.(carIndex, flag ? 1 : 0);
-    if (carIndex === 0) {
-      this.isUnlimitedBoost = flag;
-      this.host.isUnlimitedBoost = flag;
-    }
-  }
-
-  public getCarUnlimitedBoost(carIndex = 0): boolean {
-    const mod = this.host.module;
-    return typeof mod?._physics_getCarUnlimitedBoost === 'function'
-      ? mod._physics_getCarUnlimitedBoost(carIndex) === 1
-      : Boolean(this.isUnlimitedBoost);
-  }
-
-  public setCarBoostCollectable(carIndex: number, collectable: boolean): void {
-    this.host.module?._physics_setCarBoostCollectable?.(carIndex, collectable ? 1 : 0);
-  }
-
-  public getCarBoostCollectable(carIndex = 0): boolean {
-    const mod = this.host.module;
-    return typeof mod?._physics_getCarBoostCollectable === 'function'
-      ? mod._physics_getCarBoostCollectable(carIndex) === 1
-      : true;
-  }
-
-  public setCarBoostRecharge(
-    carIndex: number,
-    enabled: boolean,
-    rechargePerSecond = 10.0,
-    rechargeDelay = 0.25
-  ): void {
-    this.host.module?._physics_setCarBoostRecharge?.(
-      carIndex,
-      enabled ? 1 : 0,
-      Number(rechargePerSecond),
-      Number(rechargeDelay)
-    );
-  }
-
-  public getCarBoostRechargeEnabled(carIndex = 0): boolean {
-    return (this.host.module?._physics_getCarBoostRechargeEnabled?.(carIndex) ?? 0) === 1;
-  }
-
-  public getCarBoostRechargePerSecond(carIndex = 0): number {
-    return this.host.module?._physics_getCarBoostRechargePerSecond?.(carIndex) ?? 10.0;
-  }
-
-  public getCarBoostRechargeDelay(carIndex = 0): number {
-    return this.host.module?._physics_getCarBoostRechargeDelay?.(carIndex) ?? 0.25;
-  }
-
-  public setCarMaxFlipCount(carIndex = 0, maxFlipCount = 1): boolean {
-    return (
-      (this.host.module?._physics_setCarMaxFlipCount?.(carIndex, Math.trunc(maxFlipCount)) ?? 0) ===
-      1
-    );
-  }
-
-  public getCarMaxFlipCount(carIndex = 0): number {
-    return this.host.module?._physics_getCarMaxFlipCount?.(carIndex) ?? 1;
-  }
-
-  public getCarMutatorSummary(carIndex = 0) {
-    return {
-      unlimitedBoost: this.getCarUnlimitedBoost(carIndex),
-      boostCollectable: this.getCarBoostCollectable(carIndex),
-      rechargeEnabled: this.getCarBoostRechargeEnabled(carIndex),
-      rechargePerSecond: this.getCarBoostRechargePerSecond(carIndex),
-      rechargeDelay: this.getCarBoostRechargeDelay(carIndex),
-      maxFlipCount: this.getCarMaxFlipCount(carIndex),
-    };
-  }
-
-  public setCarFlipTimerMode(carIndex = 0, mode = 0): boolean {
-    return (this.host.module?._physics_setCarFlipTimerMode?.(carIndex, mode ? 1 : 0) ?? 0) === 1;
-  }
-
-  public getCarFlipTimerMode(carIndex = 0): number {
-    return this.host.module?._physics_getCarFlipTimerMode?.(carIndex) ?? 0;
+        : ((ctx.getCurrentTick() + ((carIndex | 0) + 1) * 17) & 0x7fffffff) | 0;
+    return ctx.module._physics_respawnCar?.(carIndex, effectiveSeed, boostAmount) === 1;
   }
 
   public setCarDemoSpawnSelection(carIndex = 0, slotIndex = -1): boolean {
     return (
-      (this.host.module?._physics_setCarDemoSpawnSelection?.(carIndex, Math.trunc(slotIndex)) ??
-        0) === 1
+      (this.mod?._physics_setCarDemoSpawnSelection?.(carIndex, Math.trunc(slotIndex)) ?? 0) === 1
     );
   }
 
   public getCarDemoSpawnSelection(carIndex = 0): number {
     return (
-      this.host.module?._physics_getCarDemoSpawnSelection?.(carIndex) ??
-      this.host.getCarStateView(carIndex).demoSpawnSelection
+      this.mod?._physics_getCarDemoSpawnSelection?.(carIndex) ??
+      this.simCtx?.getCarStateView(carIndex).demoSpawnSelection ??
+      -1
     );
   }
 
   public getCarDemoRespawnTimer(carIndex = 0): number {
     return (
-      this.host.module?._physics_getCarDemoRespawnTimer?.(carIndex) ??
-      this.host.getCarStateView(carIndex).demoRespawnTimer
-    );
-  }
-
-  public getCarFlipsRemaining(carIndex = 0): number {
-    return (
-      this.host.module?._physics_getCarFlipsRemaining?.(carIndex) ??
-      this.host.getCarStateView(carIndex).flipsRemaining
-    );
-  }
-
-  public getCarFlipWindowTimer(carIndex = 0): number {
-    return (
-      this.host.module?._physics_getCarFlipWindowTimer?.(carIndex) ??
-      this.host.getCarStateView(carIndex).flipRemainingSeconds
+      this.mod?._physics_getCarDemoRespawnTimer?.(carIndex) ??
+      this.simCtx?.getCarStateView(carIndex).demoRespawnTimer ??
+      0
     );
   }
 }

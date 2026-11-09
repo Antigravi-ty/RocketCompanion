@@ -7,7 +7,6 @@
 import { audioConfig } from '../ui-core/config/audioConfig.ts';
 import { getAudioContext, getMasterAudioInput } from './audioContext.ts';
 import { type SpatialAudioTunerConfig } from '../ui-core/config/spatialAudioConfig.ts';
-import { type AnthemDef } from '../ui-core/config/anthemCatalogConfig.ts';
 import { fetchAudioBuffer } from './audioAssetLoader.ts';
 import {
   useSpatialAudioStore,
@@ -20,11 +19,7 @@ import {
   SpatialAudioBusChain,
   type SpatialAudioRuntimeContextSnapshot,
 } from './SpatialAudioBusChain.ts';
-import {
-  GoalAnthemPlayer,
-  type AnthemPlaybackMode,
-  type AnthemPreviewSource,
-} from './GoalAnthemPlayer.ts';
+import { GoalAnthemPlayer, type AnthemPreviewSource } from './GoalAnthemPlayer.ts';
 import { BackgroundMusicController } from './BackgroundMusicController.ts';
 
 const BGM_PREVIEW_SAMPLE_URL =
@@ -78,9 +73,9 @@ export class StadiumSpatialAudioEngine {
       getOutputGain: (forceActive = false) => this._getAnthemOutputGain(forceActive),
       isWindowUnfocusedMuted: () => this._isWindowUnfocusedMuted,
       getRuntimeContext: () => this.runtimeContext,
-      onPlaybackOrDrainStateChanged: () => {
+      notifyPlaybackOrDrainStateChanged: () => {
         this._refreshGoalSequenceBgmGate();
-        this.syncBgmPlaybackState();
+        this.bgmController.syncPlaybackState();
       },
     });
 
@@ -95,34 +90,34 @@ export class StadiumSpatialAudioEngine {
     });
   }
 
-  get activeAnthemMode(): AnthemPlaybackMode | null {
-    return this.anthemPlayer.activeMode;
-  }
-
-  get activeAnthemId(): string | null {
-    return this.anthemPlayer.activeAnthemId;
-  }
-
-  get anthemBlend(): number {
-    return this.anthemPlayer.blend;
-  }
-
   init(): void {
     if (this._initialized || typeof window === 'undefined') return;
     this._initialized = true;
 
     const store = useSpatialAudioStore.getState();
+    const anthem = this.anthemPlayer;
+    const bgm = this.bgmController;
+    const previewAnthem = (anthemId: string, source?: AnthemPreviewSource) =>
+      anthem.startPreview(anthemId, source);
+    const stopPreviewAnthem = () => anthem.stopPreview();
+    const selectBgmTrack = (trackId: string) => bgm.playTrackById(trackId);
+    const nextBgmTrack = () => bgm.playNextTrack(1);
+    const prevBgmTrack = () => bgm.playNextTrack(-1);
+    const toggleBgmPlayPause = () => bgm.togglePlayPause();
+    const bgmPrefsChanged = () => bgm.syncPlaybackState();
+    const bgmFilesUploaded = () => bgm.onFilesUploaded();
+    const tunerConfigChanged = (cfg: SpatialAudioTunerConfig) => this.onTunerConfigChanged(cfg);
+
     store.registerRuntimeCallbacks({
-      onPreviewAnthem: (anthemId: string, source?: AnthemPreviewSource) =>
-        this.startAnthemPreview(anthemId, source),
-      onStopPreviewAnthem: () => this.stopAnthemPreview(),
-      onSelectBgmTrack: (trackId: string) => this.playBgmTrackById(trackId),
-      onNextBgmTrack: () => this.playNextBgmTrack(1),
-      onPrevBgmTrack: () => this.playNextBgmTrack(-1),
-      onToggleBgmPlayPause: () => this.toggleBgmPlayPause(),
-      onBgmPrefsChanged: () => this.syncBgmPlaybackState(),
-      onBgmFilesUploaded: () => this.onBgmFilesUploaded(),
-      onTunerConfigChanged: (cfg: SpatialAudioTunerConfig) => this.onTunerConfigChanged(cfg),
+      onPreviewAnthem: previewAnthem,
+      onStopPreviewAnthem: stopPreviewAnthem,
+      onSelectBgmTrack: selectBgmTrack,
+      onNextBgmTrack: nextBgmTrack,
+      onPrevBgmTrack: prevBgmTrack,
+      onToggleBgmPlayPause: toggleBgmPlayPause,
+      onBgmPrefsChanged: bgmPrefsChanged,
+      onBgmFilesUploaded: bgmFilesUploaded,
+      onTunerConfigChanged: tunerConfigChanged,
     });
 
     const syncFromPort = () => {
@@ -149,7 +144,7 @@ export class StadiumSpatialAudioEngine {
     audioConfig.subscribe(() => {
       const curStore = useSpatialAudioStore.getState();
       const cfg = curStore.tunerConfig;
-      this.anthemChain?.applyBlend(this.anthemBlend, cfg, this._getAnthemOutputGain());
+      this.anthemChain?.applyBlend(this.anthemPlayer.blend, cfg, this._getAnthemOutputGain());
       this.bgmController.applyCurrentChainBlend(cfg, this._getBgmVolScalar(curStore));
     });
 
@@ -166,7 +161,7 @@ export class StadiumSpatialAudioEngine {
       this._lastChoreographySignal = nextSignal;
       if (nextSignal === 'goal-replay-will-start' && !this._isTrainingShotExpire()) {
         this.bgmController.goalSequenceActive = true;
-        this.syncBgmPlaybackState();
+        this.bgmController.syncPlaybackState();
       }
     }
 
@@ -182,7 +177,7 @@ export class StadiumSpatialAudioEngine {
       prevContext.matchMode !== nextContext.matchMode ||
       prevContext.onlineSession !== nextContext.onlineSession
     ) {
-      this.syncBgmPlaybackState();
+      this.bgmController.syncPlaybackState();
     }
   }
 
@@ -210,15 +205,11 @@ export class StadiumSpatialAudioEngine {
     if (!hasFocus && !continueOnBlur) {
       if (this._isWindowUnfocusedMuted) return;
       this._isWindowUnfocusedMuted = true;
-      if (
-        this.activeAnthemMode === 'garage-preview' ||
-        this.activeAnthemMode === 'tuner-audition'
-      ) {
-        this.stopAnthemPreview();
+      const mode = this.anthemPlayer.activeMode;
+      if (mode === 'garage-preview' || mode === 'tuner-audition') {
+        this.anthemPlayer.stopPreview();
       }
-      if (this.anthemPlayer.isTailDraining) {
-        this.anthemPlayer.completeTailDrain();
-      }
+      if (this.anthemPlayer.isTailDraining) this.anthemPlayer.completeTailDrain();
       this.bgmController.handleFocusChanged(true, useSpatialAudioStore.getState().tunerConfig);
     } else if (this._isWindowUnfocusedMuted) {
       this._isWindowUnfocusedMuted = false;
@@ -255,7 +246,7 @@ export class StadiumSpatialAudioEngine {
       this.lastImpulseDecaySec = decaySec;
       this.anthemChain = new SpatialAudioBusChain(ctx, masterInput, this.impulseBuffer);
       this.bgmChain = new SpatialAudioBusChain(ctx, masterInput, this.impulseBuffer);
-      this.anthemChain.applyBlend(this.anthemBlend, cfg, anthemOutGain, true);
+      this.anthemChain.applyBlend(this.anthemPlayer.blend, cfg, anthemOutGain, true);
       this.bgmController.applyCurrentChainBlend(cfg, bgmVolScalar, true);
       this.bgmController.attachToBusChain(ctx, this.bgmChain);
     } else if (Math.abs(decaySec - this.lastImpulseDecaySec) > 0.05) {
@@ -292,25 +283,6 @@ export class StadiumSpatialAudioEngine {
     const store = useSpatialAudioStore.getState();
     this.anthemPlayer.applyTunerConfig(cfg);
     this.bgmController.applyTunerConfig(cfg, this._getBgmVolScalar(store));
-  }
-
-  _loadAnthemBuffer(anthemDef: AnthemDef | null | undefined): Promise<AudioBuffer | null> {
-    return this.anthemPlayer.loadAnthemBuffer(anthemDef);
-  }
-
-  startAnthemPreview(
-    anthemId: string,
-    source: AnthemPreviewSource = 'garage-preview'
-  ): Promise<void> {
-    return this.anthemPlayer.startPreview(anthemId, source);
-  }
-
-  stopAnthemPreview(): void {
-    this.anthemPlayer.stopPreview();
-  }
-
-  startGoalReplayAnthem(anthemId?: string | null): Promise<void> {
-    return this.anthemPlayer.startGoalReplayAnthem(anthemId);
   }
 
   async previewAnthemVolumeSample(playBufferFn: PlaySampleBufferCallback): Promise<void> {
@@ -355,7 +327,7 @@ export class StadiumSpatialAudioEngine {
 
     if (nextPhase === 'goal' && prevPhase !== 'goal') {
       if (!this._isTrainingShotExpire()) this.bgmController.goalSequenceActive = true;
-      this.syncBgmPlaybackState();
+      this.bgmController.syncPlaybackState();
       return;
     }
 
@@ -363,8 +335,10 @@ export class StadiumSpatialAudioEngine {
       if (this._isTrainingShotExpire()) return;
       this.bgmController.goalSequenceActive = true;
       store.setGoalReplaySkipped(false);
-      this.startGoalReplayAnthem(this.runtimeContext.replayScorerAnthemId || store.selectedAnthem);
-      this.syncBgmPlaybackState();
+      this.anthemPlayer.startGoalReplayAnthem(
+        this.runtimeContext.replayScorerAnthemId || store.selectedAnthem
+      );
+      this.bgmController.syncPlaybackState();
     } else if (
       (prevPhase === 'replay' || prevPhase === 'goal') &&
       nextPhase !== 'replay' &&
@@ -372,7 +346,7 @@ export class StadiumSpatialAudioEngine {
     ) {
       store.setGoalReplaySkipped(true);
       this._refreshGoalSequenceBgmGate();
-      this.syncBgmPlaybackState();
+      this.bgmController.syncPlaybackState();
     }
   }
 
@@ -389,27 +363,7 @@ export class StadiumSpatialAudioEngine {
   notifyGoalReplaySkipped(): void {
     useSpatialAudioStore.getState().setGoalReplaySkipped(true);
     this._refreshGoalSequenceBgmGate();
-    this.syncBgmPlaybackState();
-  }
-
-  onBgmFilesUploaded(): void {
-    this.bgmController.onFilesUploaded();
-  }
-
-  syncBgmPlaybackState(): void {
     this.bgmController.syncPlaybackState();
-  }
-
-  playBgmTrackById(trackId: string): void {
-    this.bgmController.playTrackById(trackId);
-  }
-
-  playNextBgmTrack(direction = 1): void {
-    this.bgmController.playNextTrack(direction);
-  }
-
-  toggleBgmPlayPause(): void {
-    this.bgmController.togglePlayPause();
   }
 
   private _startTransitionLoop(): void {

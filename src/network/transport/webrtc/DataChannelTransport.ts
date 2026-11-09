@@ -14,16 +14,16 @@ export interface DataChannelTransportPort {
   setDataChannel: (channel: RTCDataChannel | null) => void;
   isChannelOpen: () => boolean;
   isCrossTabActive: () => boolean;
-  onWebRTCDataChannelOpen: () => void;
-  onWebRTCDataChannelClosed: () => void;
-  onLocalColorUpdated: (
+  markDataChannelOpen: () => void;
+  markDataChannelClosed: () => void;
+  updateLocalColor: (
     slotId: number,
     hex: string,
     pendingIfClosed?: { slotId: number; hex: string; carIndex: number }
   ) => void;
-  onColorChange: (msg: any) => void;
-  onDiagnosticFleetToggle: (enabled: boolean, anchorMode: string) => void;
-  onPacketDelivered: (data: any) => void;
+  deliverColorChange: (msg: Record<string, unknown>) => void;
+  deliverDiagnosticFleetToggle: (enabled: boolean, anchorMode: string) => void;
+  deliverPacket: (data: any) => void;
 }
 
 export class DataChannelTransport {
@@ -39,7 +39,7 @@ export class DataChannelTransport {
       console.log(
         `[P2PWebRTCChannel] DataChannel "${dataChannel.label}" OPEN! Handshake complete.`
       );
-      this.port.onWebRTCDataChannelOpen();
+      this.port.markDataChannelOpen();
     };
 
     dataChannel.onclose = () => {
@@ -50,7 +50,7 @@ export class DataChannelTransport {
         );
         return;
       }
-      this.port.onWebRTCDataChannelClosed();
+      this.port.markDataChannelClosed();
     };
 
     dataChannel.onerror = (err) => {
@@ -74,11 +74,11 @@ export class DataChannelTransport {
           console.log(
             `[P2PWebRTCChannel] Received remote color_change: car ${msg.carIndex} -> slot ${msg.slotId} (${msg.hex})`
           );
-          this.port.onColorChange(msg);
+          this.port.deliverColorChange(msg);
           return;
         }
         if (msg.type === 'diagnostic_fleet_toggle') {
-          this.port.onDiagnosticFleetToggle(msg.enabled, msg.anchorMode);
+          this.port.deliverDiagnosticFleetToggle(msg.enabled, msg.anchorMode);
           return;
         }
         if (msg.type === 'ping') {
@@ -88,7 +88,7 @@ export class DataChannelTransport {
             sim.baseMeasuredRttMs = Math.max(0, msg.rtt - (sim.extraRttMs || 0));
             sim.rttMs = msg.rtt;
           }
-          this.port.onPacketDelivered(data);
+          this.port.deliverPacket(data);
           return;
         }
         if (msg.type === 'pong') {
@@ -108,7 +108,7 @@ export class DataChannelTransport {
     sim.receivePayload(
       data,
       (delivered) => {
-        this.port.onPacketDelivered(delivered);
+        this.port.deliverPacket(delivered);
       },
       now
     );
@@ -221,7 +221,7 @@ export class DataChannelTransport {
     const roomChannel = this.port.signaling.roomBroadcastChannel;
     const isClosed =
       !this.port.isChannelOpen() && (!dc || dc.readyState !== 'open') && !roomChannel;
-    this.port.onLocalColorUpdated(slotId, hex, isClosed ? { slotId, hex, carIndex } : undefined);
+    this.port.updateLocalColor(slotId, hex, isClosed ? { slotId, hex, carIndex } : undefined);
     const payload = JSON.stringify({ type: 'color_change', slotId, hex, carIndex });
     if (dc && dc.readyState === 'open') {
       try {

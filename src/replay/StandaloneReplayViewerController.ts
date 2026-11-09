@@ -68,20 +68,47 @@ export class StandaloneReplayViewerController {
   }
 
   public attach(): void {
+    const viewer = this;
     useReplayViewerStore.getState().setRuntimeHandlers({
-      onUploadReplayFile: (file: File) => this.handleUploadFile(file),
-      onLoadRetainedMatchReplay: () => this.handleLoadRetainedMatchReplay(),
-      onStartPlaying: () => this.startPlaying(),
-      onPausePlaying: () => this.pausePlaying(),
-      onSeekFrame: (frameIndex: number) => this.seekFrame(frameIndex),
-      onPushBackwardStart: () => this.beginScrub('rewinding'),
-      onPushBackwardStop: () => this.pauseScrub(),
-      onPushForwardStart: () => this.beginScrub('forwarding'),
-      onPushForwardStop: () => this.pauseScrub(),
-      onResumeFromHere: () => this.resumeFromCursor(),
-      onReturnToReplay: () => this.returnToReplay(),
-      onSelectPovSlot: (slotKey: number) => this.selectPovSlot(slotKey),
-      onClearReplay: () => this.clearReplay(),
+      onUploadReplayFile(file: File) {
+        return viewer.handleUploadFile(file);
+      },
+      onLoadRetainedMatchReplay() {
+        viewer.handleLoadRetainedMatchReplay();
+      },
+      onStartPlaying() {
+        viewer.startPlaying();
+      },
+      onPausePlaying() {
+        viewer.pausePlaying();
+      },
+      onSeekFrame(frameIndex: number) {
+        viewer.seekFrame(frameIndex);
+      },
+      onPushBackwardStart() {
+        viewer.beginScrub('rewinding');
+      },
+      onPushBackwardStop() {
+        viewer.pauseScrub();
+      },
+      onPushForwardStart() {
+        viewer.beginScrub('forwarding');
+      },
+      onPushForwardStop() {
+        viewer.pauseScrub();
+      },
+      onResumeFromHere() {
+        viewer.resumeFromCursor();
+      },
+      onReturnToReplay() {
+        viewer.returnToReplay();
+      },
+      onSelectPovSlot(slotKey: number) {
+        viewer.selectPovSlot(slotKey);
+      },
+      onClearReplay() {
+        viewer.clearReplay();
+      },
     });
     this._bindHotkeys();
     this._unsubscribeFloating?.();
@@ -124,11 +151,18 @@ export class StandaloneReplayViewerController {
   }
 
   private _bindHotkeys(): void {
+    const viewer = this;
     this.hotkeySubController.bindReplayViewerHotkeys({
-      getRuntime: () => this.runtime,
-      hasLoadedReplay: () => this.hasLoadedReplay,
-      hasFrames: () => this.frames.length > 0,
-      getWindowStatus: () => {
+      getRuntime() {
+        return viewer.runtime;
+      },
+      hasLoadedReplay() {
+        return viewer.hasLoadedReplay;
+      },
+      hasFrames() {
+        return viewer.frames.length > 0;
+      },
+      getWindowStatus() {
         const st = useReplayViewerStore.getState();
         return {
           isWindowOpen: Boolean(st.isWindowOpen),
@@ -136,12 +170,7 @@ export class StandaloneReplayViewerController {
         };
       },
       conflictErrorMessage: VIEWER_HOTKEY_CONFLICT_MSG,
-      onSelectPovSlot: (slotKey: number) => this.selectPovSlot(slotKey),
-      onStartPlaying: () => this.startPlaying(),
-      onPausePlaying: () => this.pausePlaying(),
-      onResumeFromCursor: () => this.resumeFromCursor(),
-      onBeginScrub: (direction) => this.beginScrub(direction),
-      onPauseScrub: () => this.pauseScrub(),
+      commandTarget: viewer,
     });
   }
 

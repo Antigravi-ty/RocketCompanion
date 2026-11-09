@@ -12,12 +12,15 @@ export class RLRCBitReader {
   public readonly data: Uint8Array;
   public bitPos = 0;
   public readonly totalBits: number;
-  private readonly scratchBytes = new Uint8Array(8);
-  private readonly scratchView = new DataView(this.scratchBytes.buffer);
+  private readonly scratchBytes: Uint8Array;
+  private readonly scratchView: DataView;
 
   public constructor(data: Uint8Array) {
     this.data = data;
     this.totalBits = data.byteLength * 8;
+    const scratch = new Uint8Array(8);
+    this.scratchBytes = scratch;
+    this.scratchView = new DataView(scratch.buffer);
   }
 
   public get bitsRemaining(): number {

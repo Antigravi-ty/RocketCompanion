@@ -12,7 +12,7 @@ import { getInitialFloatingOpacity, saveFloatingOpacity } from '../ui-core/confi
 import { useStaticTrainingPackStore } from '../ui-core/stores/staticTrainingPackStore.ts';
 import { useCloudProfileSyncStore } from '../ui-core/stores/cloudProfileSyncStore.ts';
 import { dialogue } from '../ui-core/compounds/dialogue/dialogueStore.ts';
-import { ensureSignalingProfileBridge } from './core/runtimeOnlineBridgeHandlers.ts';
+import { ensureSignalingProfileBridge } from './core/runtimeSignalingProfileBridge.ts';
 import { activateNameTagOffscreenForDeveloperMode } from '../ui-core/stores/nameTagTunerStore.ts';
 
 configureFloatingStorePersistence({

@@ -59,6 +59,13 @@ export interface RollbackStepperSyncOutput {
   hardSnapCount: number;
 }
 
+export type ReconcilerSignalsCallback = (
+  signals: MatchSignalDescriptor[],
+  packetServerTick?: number | null
+) => void;
+export type ReconcilerMessageCallback<T = Record<string, unknown>> = (msg: T) => void;
+export type ReconcilerHardResyncCallback = () => void;
+
 export interface ReconcileStepHost {
   sim: TelemetrySimPort;
   channel: TelemetryChannelPort | null | undefined;
@@ -77,6 +84,8 @@ export interface ReconcileStepHost {
   kickoffMaskUntilTick: number;
   redundantHistoryCount: number;
   enableRedundantInputs: boolean;
+  redundantHistoryTicks: number;
+  tickDtMs: number;
   lastAckedServerTick: number;
   lastServerRecordedInputTick: number;
   _hasServerReportedBuffer: boolean;
@@ -98,18 +107,12 @@ export interface ReconcileStepHost {
   maxCorrectionDelta: number;
   carVisualPresets: Map<number, string>;
   options: { maxRollbackFrames?: number };
-  onSignals: ((signals: MatchSignalDescriptor[], packetServerTick?: number | null) => void) | null;
-  onRosterUpdate: ((msg: Record<string, unknown>) => void) | null;
-  onHandshakeResponse: ((msg: Record<string, unknown>) => void) | null;
-  onHardResync: (() => void) | null;
+  onSignals: ReconcilerSignalsCallback | null;
+  onRosterUpdate: ReconcilerMessageCallback | null;
+  onHandshakeResponse: ReconcilerMessageCallback | null;
+  onHardResync: ReconcilerHardResyncCallback | null;
   setLobbyDualWorldMode: (enabled: boolean) => void;
   syncTimeline: (snapshot: Float32Array | null, serverTick: number, nowMs: number) => void;
-  sendOutboundInputForTick: (
-    tick: number,
-    carIndex: number,
-    controls: CarControls | null,
-    nowMs: number
-  ) => void;
   notifyMetricsUpdated: () => void;
   _resolveEffectiveRtt: () => number;
   getReconciliationTolerances: () => ReconciliationTolerances;
@@ -381,7 +384,8 @@ export class ReconcilerRollbackStepper {
             silent,
             isRedundant,
             ts,
-            (t, ctrl, tMs) => ctx.sendOutboundInputForTick(t, ctx.localCarIndex, ctrl, tMs)
+            (t, ctrl, tMs) =>
+              ctx.controlMessenger.sendOutboundInputForTick(ctx, t, ctx.localCarIndex, ctrl, tMs)
           ),
       }
     );

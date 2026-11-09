@@ -91,39 +91,33 @@ function isReplayDirectorTunerWindowPresent(): boolean {
   return windows.some((w) => w.id === 'replay-director-tuner');
 }
 
-/**
- * RuntimeWindowHotkeysController
- * SubController owning global window keydown handling for goal replay skip,
- * replay POV camera slot selection (1-7), replay director pause (P),
- * network diagnostics hotkeys (8/9/0), and menu escape fallback.
- */
 export class RuntimeWindowHotkeysController {
-  public readonly runtime: RuntimeWindowHotkeysHostPort;
+  public readonly context: RuntimeWindowHotkeysHostPort;
 
-  constructor(runtime: RuntimeWindowHotkeysHostPort) {
-    this.runtime = runtime;
+  constructor(context: RuntimeWindowHotkeysHostPort) {
+    this.context = context;
   }
 
   public selectReplayCameraSlot(slotKey: number | null): boolean {
-    const runtime = this.runtime;
-    if (!runtime) return false;
-    const activeMode = runtime.modeManager?.getActiveMode?.();
+    const ctx = this.context;
+    if (!ctx) return false;
+    const activeMode = ctx.modeManager?.getActiveMode?.();
     const isModeReplayActive = Boolean(
       activeMode?.isGoalReplayActive?.() ||
       activeMode?.directorPreview?.isReplayActive ||
       activeMode?.replaySession?.isReplayActive
     );
     const isGoalReplay =
-      runtime.match?.state?.phase === 'replay' ||
+      ctx.match?.state?.phase === 'replay' ||
       hudStore.getState().matchPhase === 'replay' ||
       isModeReplayActive;
 
     if (slotKey === 7 || slotKey === 0 || slotKey === null) {
       if (!isGoalReplay) return false;
-      runtime.replayPovCarIndex = null;
-      runtime.acquireGoalReplayCameraOverride();
-      if (runtime.replayTimelineController?.directorCameraState) {
-        runtime.replayTimelineController.directorCameraState.initialized = false;
+      ctx.replayPovCarIndex = null;
+      ctx.acquireGoalReplayCameraOverride();
+      if (ctx.replayTimelineController?.directorCameraState) {
+        ctx.replayTimelineController.directorCameraState.initialized = false;
       }
       if (activeMode && isModeReplayActive) {
         activeMode.setReplayCameraMode?.('director');
@@ -142,7 +136,7 @@ export class RuntimeWindowHotkeysController {
     }
 
     if (slotKey >= 1 && slotKey <= 6) {
-      let targetCarIdx = runtime._lastHudSlotCarMap?.[slotKey];
+      let targetCarIdx = ctx._lastHudSlotCarMap?.[slotKey];
       const spawnedCars = activeMode?.rosterController?.spawnedCars;
       if (
         (typeof targetCarIdx !== 'number' || targetCarIdx < 0) &&
@@ -161,8 +155,8 @@ export class RuntimeWindowHotkeysController {
       }
 
       if (isGoalReplay) {
-        runtime.replayPovCarIndex = targetCarIdx;
-        runtime.releaseGoalReplayCameraOverride();
+        ctx.replayPovCarIndex = targetCarIdx;
+        ctx.releaseGoalReplayCameraOverride();
         if (activeMode && isModeReplayActive) {
           activeMode.setReplayCameraMode?.('pov');
           if (activeMode.replaySession) {
@@ -172,15 +166,15 @@ export class RuntimeWindowHotkeysController {
           activeMode._applyCameraCarIndex?.(targetCarIdx);
           useExperimentalMultiBotsStore.getState().setActiveCameraCarIndex(targetCarIdx);
         }
-        runtime.camera?.setFocusedCarIndex?.(targetCarIdx);
-        runtime.camera?.resetView?.();
+        ctx.camera?.setFocusedCarIndex?.(targetCarIdx);
+        ctx.camera?.resetView?.();
         hudStore.getState().setReplayState?.({ replayCameraMode: 'pov' });
         globalHudTransientChannel.setRoster({ focusedSlotKey: slotKey });
         return true;
       }
 
       if (
-        runtime.match?.state?.mode === 'exp-multi-bots' &&
+        ctx.match?.state?.mode === 'exp-multi-bots' &&
         useExperimentalMultiBotsStore.getState().playerParticipation === 'none'
       ) {
         activeMode?._applyCameraCarIndex?.(targetCarIdx);
@@ -195,120 +189,94 @@ export class RuntimeWindowHotkeysController {
 
   public readonly handleKeyDown = (evt: KeyboardEvent): void => {
     if (evt.defaultPrevented) return;
-    const runtime = this.runtime;
-    const net = runtime?.networkManager;
-
+    const ctx = this.context;
+    const net = ctx?.networkManager;
     const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
     const isOutsideEditableUI =
       !isEditableFormElement(evt.target) && !isEditableFormElement(activeEl);
+    const hasNoModifier = !evt.repeat && !evt.ctrlKey && !evt.metaKey && !evt.altKey;
+    const isMenuOpen = Boolean(useAppStore?.getState?.()?.isOpen);
 
     const isGoalReplay =
-      runtime?.match?.state?.phase === 'replay' ||
+      ctx?.match?.state?.phase === 'replay' ||
       hudStore.getState().matchPhase === 'replay' ||
-      Boolean(runtime?.modeManager?.getActiveMode?.()?.isReplayActive);
+      Boolean(ctx?.modeManager?.getActiveMode?.()?.isReplayActive);
 
-    const skipReplaySources = runtime?.keyboard?.boundSources?.('skipReplay');
-    const hasCustomSkipReplayBinding =
-      Array.isArray(skipReplaySources) && skipReplaySources.length > 0;
-    const matchesSkipReplayBinding = hasCustomSkipReplayBinding
-      ? Boolean(
-          runtime?.keyboard?.matches?.('skipReplay', { kind: 'key', code: evt.code }) ||
-          (evt.code === 'NumpadEnter' &&
-            runtime?.keyboard?.matches?.('skipReplay', { kind: 'key', code: 'Enter' }))
-        )
-      : evt.code === 'Enter' || evt.code === 'NumpadEnter' || evt.key === 'Enter';
+    const skipReplaySources = ctx?.keyboard?.boundSources?.('skipReplay');
+    const matchesSkipReplayBinding =
+      Array.isArray(skipReplaySources) && skipReplaySources.length > 0
+        ? Boolean(
+            ctx?.keyboard?.matches?.('skipReplay', { kind: 'key', code: evt.code }) ||
+            (evt.code === 'NumpadEnter' &&
+              ctx?.keyboard?.matches?.('skipReplay', { kind: 'key', code: 'Enter' }))
+          )
+        : evt.code === 'Enter' || evt.code === 'NumpadEnter' || evt.key === 'Enter';
 
     if (
       isGoalReplay &&
       isOutsideEditableUI &&
-      !evt.repeat &&
-      !evt.ctrlKey &&
-      !evt.metaKey &&
-      !evt.altKey &&
-      matchesSkipReplayBinding
+      hasNoModifier &&
+      matchesSkipReplayBinding &&
+      !isMenuOpen
     ) {
-      const isMenuOpen = Boolean(useAppStore?.getState?.()?.isOpen);
-      if (!isMenuOpen) {
-        evt.preventDefault();
-        runtime._localSkipReplayReady = true;
-        if (net?.sessionCoordinator.networkReconciler) {
-          net.sessionCoordinator.networkReconciler.localSkipReplayReady = true;
-          net.sessionCoordinator.networkReconciler.controlMessenger.flushPendingControlPackets(
-            net.sessionCoordinator.networkReconciler,
-            performance.now()
-          );
-        } else {
-          const skipFn = hudStore.getState().onReplaySkip;
-          const activeMode = runtime?.modeManager?.getActiveMode?.();
-          if (typeof skipFn === 'function') {
-            skipFn();
-          } else if (typeof activeMode?.skipGoalReplay === 'function') {
-            activeMode.skipGoalReplay();
-          }
-        }
-        return;
+      evt.preventDefault();
+      ctx._localSkipReplayReady = true;
+      const reconciler = net?.sessionCoordinator.networkReconciler;
+      if (reconciler) {
+        reconciler.localSkipReplayReady = true;
+        reconciler.controlMessenger.flushPendingControlPackets(reconciler, performance.now());
+      } else {
+        const skipFn = hudStore.getState().onReplaySkip;
+        const activeMode = ctx?.modeManager?.getActiveMode?.();
+        if (typeof skipFn === 'function') skipFn();
+        else activeMode?.skipGoalReplay?.();
       }
+      return;
     }
 
     const isExpSpectatorLive =
       !isGoalReplay &&
-      runtime?.match?.state?.mode === 'exp-multi-bots' &&
+      ctx?.match?.state?.mode === 'exp-multi-bots' &&
       useExperimentalMultiBotsStore.getState().playerParticipation === 'none';
 
     if (
       (isGoalReplay || isExpSpectatorLive) &&
       isOutsideEditableUI &&
-      !evt.repeat &&
-      !evt.ctrlKey &&
-      !evt.metaKey &&
-      !evt.altKey &&
-      !Boolean(useAppStore?.getState?.()?.isOpen)
+      hasNoModifier &&
+      !isMenuOpen
     ) {
       let slotNum = -1;
-      if (evt.code >= 'Digit0' && evt.code <= 'Digit7') {
+      if (evt.code >= 'Digit0' && evt.code <= 'Digit7')
         slotNum = Number(evt.code.replace('Digit', ''));
-      } else if (evt.code >= 'Numpad0' && evt.code <= 'Numpad7') {
+      else if (evt.code >= 'Numpad0' && evt.code <= 'Numpad7')
         slotNum = Number(evt.code.replace('Numpad', ''));
-      } else if (evt.key >= '0' && evt.key <= '7') {
-        slotNum = Number(evt.key);
-      }
+      else if (evt.key >= '0' && evt.key <= '7') slotNum = Number(evt.key);
 
-      if (slotNum === 0 && isNetworkDiagnosticsWindowPresent()) {
-        slotNum = -1;
-      }
-
-      if (slotNum >= 0 && slotNum <= 7) {
-        if (this.selectReplayCameraSlot(slotNum)) {
-          evt.preventDefault();
-          return;
-        }
+      if (slotNum === 0 && isNetworkDiagnosticsWindowPresent()) slotNum = -1;
+      if (slotNum >= 0 && slotNum <= 7 && this.selectReplayCameraSlot(slotNum)) {
+        evt.preventDefault();
+        return;
       }
     }
 
     if (
       evt.code === 'KeyP' &&
-      !evt.repeat &&
-      !evt.ctrlKey &&
-      !evt.metaKey &&
-      !evt.altKey &&
+      hasNoModifier &&
       isOutsideEditableUI &&
       isReplayDirectorTunerWindowPresent()
     ) {
       const isOnlineSession = Boolean(useAppStore?.getState?.()?.onlineSession?.roomId);
-      const isMenuOpen = Boolean(useAppStore?.getState?.()?.isOpen);
-
       if (!isOnlineSession && !isMenuOpen && isGoalReplay) {
         const togglePause = hudStore.getState().onReplayTogglePause;
         if (typeof togglePause === 'function') {
           evt.preventDefault();
           togglePause();
-          runtime.isCursorBrowsing = true;
-          runtime.domEventManager?.syncPausedAndInputState?.();
+          ctx.isCursorBrowsing = true;
+          ctx.domEventManager?.syncPausedAndInputState?.();
           return;
         }
       }
-
-      const activeMode = runtime?.modeManager?.getActiveMode?.();
+      const activeMode = ctx?.modeManager?.getActiveMode?.();
       if (
         !isOnlineSession &&
         !isMenuOpen &&
@@ -317,78 +285,45 @@ export class RuntimeWindowHotkeysController {
       ) {
         evt.preventDefault();
         activeMode.goalReplayTimelineController.togglePause();
-        runtime.isCursorBrowsing = true;
-        runtime.domEventManager?.syncPausedAndInputState?.();
+        ctx.isCursorBrowsing = true;
+        ctx.domEventManager?.syncPausedAndInputState?.();
         return;
       }
     }
 
-    if (isNetworkDiagnosticsWindowPresent() && net) {
-      if (
-        (evt.code === 'Digit8' || evt.code === 'Numpad8' || evt.key === '8') &&
-        !evt.repeat &&
-        !evt.ctrlKey &&
-        !evt.metaKey &&
-        !evt.altKey &&
-        !evt.shiftKey
-      ) {
-        if (isOutsideEditableUI) {
-          evt.preventDefault();
-          if (!net.sessionCoordinator.networkReconciler) {
-            net.sessionCoordinator.enableNetworkPrediction(false).then(() => {
-              networkDiagnosticsStore.setSession(
-                net.sessionCoordinator.networkReconciler,
-                net.sessionCoordinator.networkChannel,
-                runtime
-              );
-              networkDiagnosticsStore.toggleBurstDrop();
-            });
-          } else {
+    if (isNetworkDiagnosticsWindowPresent() && net && isOutsideEditableUI && hasNoModifier) {
+      if ((evt.code === 'Digit8' || evt.code === 'Numpad8' || evt.key === '8') && !evt.shiftKey) {
+        evt.preventDefault();
+        if (!net.sessionCoordinator.networkReconciler) {
+          net.sessionCoordinator.enableNetworkPrediction(false).then(() => {
+            networkDiagnosticsStore.setSession(
+              net.sessionCoordinator.networkReconciler,
+              net.sessionCoordinator.networkChannel,
+              ctx
+            );
             networkDiagnosticsStore.toggleBurstDrop();
-          }
-          return;
+          });
+        } else {
+          networkDiagnosticsStore.toggleBurstDrop();
         }
+        return;
       }
-
-      if (
-        (evt.code === 'Digit9' || evt.code === 'Numpad9' || evt.key === '9') &&
-        !evt.repeat &&
-        !evt.ctrlKey &&
-        !evt.metaKey &&
-        !evt.altKey
-      ) {
-        if (isOutsideEditableUI) {
-          evt.preventDefault();
-          net.diagnosticsProbe.adjustSimulatedLatency(-1);
-          return;
-        }
+      if (evt.code === 'Digit9' || evt.code === 'Numpad9' || evt.key === '9') {
+        evt.preventDefault();
+        net.diagnosticsProbe.adjustSimulatedLatency(-1);
+        return;
       }
-
-      if (
-        (evt.code === 'Digit0' || evt.code === 'Numpad0' || evt.key === '0') &&
-        !evt.repeat &&
-        !evt.ctrlKey &&
-        !evt.metaKey &&
-        !evt.altKey
-      ) {
-        if (isOutsideEditableUI) {
-          evt.preventDefault();
-          net.diagnosticsProbe.adjustSimulatedLatency(1);
-          return;
-        }
+      if (evt.code === 'Digit0' || evt.code === 'Numpad0' || evt.key === '0') {
+        evt.preventDefault();
+        net.diagnosticsProbe.adjustSimulatedLatency(1);
+        return;
       }
     }
 
-    if (evt.code === 'Escape') {
-      if (typeof useAppStore?.getState === 'function') {
-        return;
-      }
+    if (evt.code === 'Escape' && typeof useAppStore?.getState !== 'function') {
       if (isOutsideEditableUI) {
         evt.preventDefault();
-        if (runtime.gameUI) {
-          runtime.gameUI.openMenu('main-menu');
-        }
-        return;
+        ctx.gameUI?.openMenu('main-menu');
       }
     }
   };

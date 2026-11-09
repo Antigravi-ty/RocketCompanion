@@ -196,6 +196,17 @@ export class CameraMicrokernel {
     return this;
   }
 
+  private _ensureViewArray(): Float64Array {
+    if (!this.memory) {
+      throw createMicrokernelError('CameraMicrokernel memory is uninitialized');
+    }
+    const memBuffer = this.memory.buffer;
+    if (!this.viewView || this.viewView.buffer !== memBuffer) {
+      this.viewView = new Float64Array(memBuffer, this.viewPtr, CAMERA_VIEW_BUFFER_FLOATS);
+    }
+    return this.viewView;
+  }
+
   /**
    * Reset internal camera history, swivel, and tracking filters
    */
@@ -204,7 +215,7 @@ export class CameraMicrokernel {
       this._fnResetView();
     }
     if (this.memory && this.viewPtr) {
-      this.viewView = new Float64Array(this.memory.buffer, this.viewPtr, CAMERA_VIEW_BUFFER_FLOATS);
+      this._ensureViewArray();
     }
     getCameraDeterminismHarness()?.onResetView();
   }
@@ -213,19 +224,14 @@ export class CameraMicrokernel {
    * Advance camera perspective one frame using 42-Float64 view buffer
    */
   stepView(inputView?: ArrayLike<number>): Float64Array {
-    if (!this.memory) {
-      throw createMicrokernelError('CameraMicrokernel memory is uninitialized');
-    }
-    if (!this.viewView || this.viewView.buffer !== this.memory.buffer) {
-      this.viewView = new Float64Array(this.memory.buffer, this.viewPtr, CAMERA_VIEW_BUFFER_FLOATS);
-    }
+    const view = this._ensureViewArray();
     if (inputView) {
-      this.viewView.set(inputView, 0);
+      view.set(inputView, 0);
     }
     if (typeof this._fnStepView === 'function') {
       this._fnStepView();
     }
-    return this.viewView;
+    return view;
   }
 
   getViewPtr(): number {
@@ -237,13 +243,7 @@ export class CameraMicrokernel {
   }
 
   getViewArray(): Float64Array {
-    if (!this.memory) {
-      throw createMicrokernelError('CameraMicrokernel memory is uninitialized');
-    }
-    if (!this.viewView || this.viewView.buffer !== this.memory.buffer) {
-      this.viewView = new Float64Array(this.memory.buffer, this.viewPtr, CAMERA_VIEW_BUFFER_FLOATS);
-    }
-    return this.viewView;
+    return this._ensureViewArray();
   }
 }
 

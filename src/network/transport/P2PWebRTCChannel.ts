@@ -26,6 +26,12 @@ export interface P2PWebRTCChannelOptions extends NetworkSimulatorOptions {
   signalingChannelName?: string;
 }
 
+export type VoidChannelHook = (() => void) | null;
+export type PayloadChannelHook = ((data: SimulatedPayload) => void) | null;
+export type JsonChannelHook = ((msg: Record<string, unknown>) => void) | null;
+export type FleetToggleChannelHook = ((enabled: boolean, anchorMode: string) => void) | null;
+export type IceCandidateChannelHook = ((cand: IceCandidateDescriptor) => void) | null;
+
 export class P2PWebRTCChannel {
   role: string;
   isHost?: boolean;
@@ -64,14 +70,47 @@ export class P2PWebRTCChannel {
   readonly handshake: HandshakeSession;
   readonly transport: DataChannelTransport;
 
-  onConnected: (() => void) | null = null;
-  onDisconnected: (() => void) | null = null;
-  onPacketReceived: ((data: SimulatedPayload) => void) | null = null;
-  onMessage: ((data: SimulatedPayload) => void) | null = null;
-  onColorChange: ((msg: Record<string, unknown>) => void) | null = null;
-  onDiagnosticFleetToggle: ((enabled: boolean, anchorMode: string) => void) | null = null;
-  onBroadcastSignal: ((msg: Record<string, unknown>) => void) | null = null;
-  onIceCandidate: ((cand: IceCandidateDescriptor) => void) | null = null;
+  onConnected: VoidChannelHook = null;
+  onDisconnected: VoidChannelHook = null;
+  onPacketReceived: PayloadChannelHook = null;
+  onMessage: PayloadChannelHook = null;
+  onColorChange: JsonChannelHook = null;
+  onDiagnosticFleetToggle: FleetToggleChannelHook = null;
+  onBroadcastSignal: JsonChannelHook = null;
+  onIceCandidate: IceCandidateChannelHook = null;
+
+  readonly send: DataChannelTransport['send'];
+  readonly sendClientInput: DataChannelTransport['sendClientInput'];
+  readonly sendServerState: DataChannelTransport['send'];
+  readonly sendColorChange: DataChannelTransport['sendColorChange'];
+  readonly sendDiagnosticFleetToggle: DataChannelTransport['sendDiagnosticFleetToggle'];
+  readonly receiveServerPackets: NetworkSimulator['drainInboundQueue'];
+  readonly receiveClientPackets: NetworkSimulator['drainInboundQueue'];
+
+  readonly createOfferToken: HandshakeSession['createOfferToken'];
+  readonly createAnswerToken: HandshakeSession['acceptOfferAndCreateAnswer'];
+  readonly acceptOfferAndCreateAnswer: HandshakeSession['acceptOfferAndCreateAnswer'];
+  readonly acceptAnswerToken: HandshakeSession['acceptAnswerToken'];
+  readonly addRemoteCandidate: (
+    candJson: IceCandidateDescriptor | RTCIceCandidateInit | Record<string, unknown>
+  ) => Promise<void>;
+  readonly addIceCandidate: (
+    candJson: IceCandidateDescriptor | RTCIceCandidateInit | Record<string, unknown>
+  ) => Promise<void>;
+
+  readonly setExtraUplinkLatency: NetworkSimulator['setExtraUplinkLatency'];
+  readonly setExtraDownlinkLatency: NetworkSimulator['setExtraDownlinkLatency'];
+  readonly setAsymmetricLatency: NetworkSimulator['setAsymmetricLatency'];
+  readonly setExtraLatency: NetworkSimulator['setExtraLatency'];
+  readonly setLatency: NetworkSimulator['setLatency'];
+  readonly setJitter: NetworkSimulator['setJitter'];
+  readonly setRtt: NetworkSimulator['setRtt'];
+  readonly setPacketLossRate: NetworkSimulator['setPacketLossRate'];
+  readonly setBurstDrop: NetworkSimulator['setBurstDrop'];
+  readonly setBurstDropEnabled: NetworkSimulator['setBurstDropEnabled'];
+  readonly toggleBurstDrop: NetworkSimulator['toggleBurstDrop'];
+  readonly forceDropNextInput: NetworkSimulator['forceDropNextInput'];
+  readonly dropSinglePacket: NetworkSimulator['dropSinglePacket'];
 
   constructor(options: P2PWebRTCChannelOptions = {}) {
     this.role = options.role ?? 'client';
@@ -87,14 +126,12 @@ export class P2PWebRTCChannel {
     this.signaling = new CrossTabSignaling({
       signalingChannelName: options.signalingChannelName ?? 'online_discovery',
       roomId: this.roomId,
-      onBroadcastMessage: (msg) => this._handleBroadcastMessage(msg),
-      onRoomMessage: (data) => this._handleRoomMessage(data as Record<string, unknown>),
     });
 
     this.connection = new WebRTCConnection({
-      onIceCandidate: (cand) => this.onIceCandidate?.(cand),
-      onConnectionStateChange: (state) => this._handleConnectionStateChange(state),
-      onIceConnectionStateChange: (state) => this._handleIceConnectionStateChange(state),
+      emitIceCandidate: (cand) => this.onIceCandidate?.(cand),
+      handleConnectionStateChange: (state) => this._handleConnectionStateChange(state),
+      handleIceConnectionStateChange: (state) => this._handleIceConnectionStateChange(state),
       broadcastSignal: (typ, payload) => this.broadcastSignal(typ, payload),
     });
 
@@ -107,27 +144,27 @@ export class P2PWebRTCChannel {
       },
       isChannelOpen: () => this.isOpen,
       isCrossTabActive: () => this.isCrossTab,
-      onWebRTCDataChannelOpen: () => {
+      markDataChannelOpen: () => {
         this.isWebRTC = true;
         this.isOpen = true;
         this.transportMode = 'webrtc';
         this.onConnected?.();
       },
-      onWebRTCDataChannelClosed: () => {
+      markDataChannelClosed: () => {
         this.isOpen = false;
         this.onDisconnected?.();
       },
-      onLocalColorUpdated: (slotId, hex, pendingIfClosed) => {
+      updateLocalColor: (slotId, hex, pendingIfClosed) => {
         this.localColorSlot = slotId;
         this.localColorHex = hex;
         if (pendingIfClosed) {
           this.pendingColorChange = pendingIfClosed;
         }
       },
-      onColorChange: (msg) => this.onColorChange?.(msg),
-      onDiagnosticFleetToggle: (enabled, anchorMode) =>
+      deliverColorChange: (msg) => this.onColorChange?.(msg),
+      deliverDiagnosticFleetToggle: (enabled, anchorMode) =>
         this.onDiagnosticFleetToggle?.(enabled, anchorMode),
-      onPacketDelivered: (delivered) => {
+      deliverPacket: (delivered) => {
         this.onPacketReceived?.(delivered);
         this.onMessage?.(delivered);
       },
@@ -178,9 +215,46 @@ export class P2PWebRTCChannel {
       bindDataChannel: (channel) => this.transport.bindDataChannel(channel),
       handleIncomingMessage: (data) => this.transport.handleIncomingMessage(data),
       sendPong: (sendTime) => this.transport.sendPong(sendTime),
-      onColorChange: (msg) => this.onColorChange?.(msg),
-      onBroadcastSignal: (msg) => this.onBroadcastSignal?.(msg),
+      deliverColorChange: (msg) => this.onColorChange?.(msg),
+      deliverBroadcastSignal: (msg) => this.onBroadcastSignal?.(msg),
     });
+
+    this.signaling.handler = this.handshake;
+
+    this.send = this.transport.send.bind(this.transport);
+    this.sendClientInput = this.transport.sendClientInput.bind(this.transport);
+    this.sendServerState = this.transport.send.bind(this.transport);
+    this.sendColorChange = this.transport.sendColorChange.bind(this.transport);
+    this.sendDiagnosticFleetToggle = this.transport.sendDiagnosticFleetToggle.bind(this.transport);
+    this.receiveServerPackets = this.simulator.drainInboundQueue.bind(this.simulator);
+    this.receiveClientPackets = this.simulator.drainInboundQueue.bind(this.simulator);
+
+    this.createOfferToken = this.handshake.createOfferToken.bind(this.handshake);
+    this.createAnswerToken = this.handshake.acceptOfferAndCreateAnswer.bind(this.handshake);
+    this.acceptOfferAndCreateAnswer = this.handshake.acceptOfferAndCreateAnswer.bind(
+      this.handshake
+    );
+    this.acceptAnswerToken = this.handshake.acceptAnswerToken.bind(this.handshake);
+
+    const addCand = (
+      candJson: IceCandidateDescriptor | RTCIceCandidateInit | Record<string, unknown>
+    ) => this.connection.addRemoteCandidate(candJson as IceCandidateDescriptor);
+    this.addRemoteCandidate = addCand;
+    this.addIceCandidate = addCand;
+
+    this.setExtraUplinkLatency = this.simulator.setExtraUplinkLatency.bind(this.simulator);
+    this.setExtraDownlinkLatency = this.simulator.setExtraDownlinkLatency.bind(this.simulator);
+    this.setAsymmetricLatency = this.simulator.setAsymmetricLatency.bind(this.simulator);
+    this.setExtraLatency = this.simulator.setExtraLatency.bind(this.simulator);
+    this.setLatency = this.simulator.setLatency.bind(this.simulator);
+    this.setJitter = this.simulator.setJitter.bind(this.simulator);
+    this.setRtt = this.simulator.setRtt.bind(this.simulator);
+    this.setPacketLossRate = this.simulator.setPacketLossRate.bind(this.simulator);
+    this.setBurstDrop = this.simulator.setBurstDrop.bind(this.simulator);
+    this.setBurstDropEnabled = this.simulator.setBurstDropEnabled.bind(this.simulator);
+    this.toggleBurstDrop = this.simulator.toggleBurstDrop.bind(this.simulator);
+    this.forceDropNextInput = this.simulator.forceDropNextInput.bind(this.simulator);
+    this.dropSinglePacket = this.simulator.dropSinglePacket.bind(this.simulator);
   }
 
   get connected(): boolean {
@@ -236,21 +310,13 @@ export class P2PWebRTCChannel {
     return this.offerToken;
   }
 
-  _initSignalingChannel(): void {
-    this.signaling.initSignalingChannel(this.signaling.signalingChannelName);
-  }
-  _initRoomChannel(roomId: string | null): void {
+  initRoomChannel(roomId: string | null): void {
     this.roomId = roomId;
     this.signaling.initRoomChannel(roomId);
   }
-  _sendRoomMessage(msg: Record<string, unknown>): void {
-    this.signaling.sendRoomMessage(msg, this.peerId);
-  }
-  _handleRoomMessage(data: Record<string, unknown>): void {
-    this.handshake.handleRoomMessage(data);
-  }
-  _handleBroadcastMessage(msg: Record<string, unknown>): void {
-    this.handshake.handleBroadcastMessage(msg);
+
+  sendRoomMessage(msg: Record<string, unknown>): boolean {
+    return this.signaling.sendRoomMessage(msg, this.peerId);
   }
 
   _handleConnectionStateChange(state: RTCPeerConnectionState): void {
@@ -287,129 +353,12 @@ export class P2PWebRTCChannel {
     }
   }
 
-  async addIceCandidate(
-    candJson: IceCandidateDescriptor | RTCIceCandidateInit | Record<string, unknown>
-  ): Promise<void> {
-    return this.addRemoteCandidate(candJson);
-  }
-  async addRemoteCandidate(
-    candJson: IceCandidateDescriptor | RTCIceCandidateInit | Record<string, unknown>
-  ): Promise<void> {
-    return this.connection.addRemoteCandidate(candJson as IceCandidateDescriptor);
-  }
-  async flushPendingCandidates(): Promise<void> {
-    return this.connection.flushPendingCandidates();
-  }
   broadcastSignal(type: string, payload: Record<string, unknown> = {}): boolean {
     return this.signaling.broadcastSignal(type, payload, {
       roomId: this.roomId,
       role: this.role,
       playerName: this.playerName,
     });
-  }
-
-  createPeerConnection(): RTCPeerConnection | null {
-    return this.connection.createPeerConnection();
-  }
-  _waitForIceGathering(timeoutMs = 1200): Promise<void> {
-    return this.connection.waitForIceGathering(timeoutMs);
-  }
-  async createOfferToken(
-    options: { roomId?: string; hostColorSlot?: number; hostColorHex?: string } = {}
-  ): Promise<string> {
-    return this.handshake.createOfferToken(options);
-  }
-  async createAnswerToken(
-    offerToken: string,
-    options: { clientColorSlot?: number; clientColorHex?: string } = {}
-  ): Promise<string> {
-    return this.handshake.acceptOfferAndCreateAnswer(offerToken, options);
-  }
-  async acceptOfferAndCreateAnswer(
-    offerToken: string,
-    options: { clientColorSlot?: number; clientColorHex?: string } = {}
-  ): Promise<string> {
-    return this.handshake.acceptOfferAndCreateAnswer(offerToken, options);
-  }
-  async acceptAnswerToken(answerToken: string): Promise<void> {
-    return this.handshake.acceptAnswerToken(answerToken);
-  }
-
-  _bindDataChannel(channel: RTCDataChannel): void {
-    this.transport.bindDataChannel(channel);
-  }
-  _handleIncomingMessage(data: SimulatedPayload): void {
-    this.transport.handleIncomingMessage(data);
-  }
-  _sendPong(sendTime: number): void {
-    this.transport.sendPong(sendTime);
-  }
-  _handlePong(sendTime: number): void {
-    this.simulator.handlePong(sendTime);
-  }
-  sendColorChange(slotId: number, hex: string, carIndex: number): void {
-    this.transport.sendColorChange(slotId, hex, carIndex);
-  }
-  sendDiagnosticFleetToggle(enabled: boolean, anchorMode: string): void {
-    this.transport.sendDiagnosticFleetToggle(enabled, anchorMode);
-  }
-  send(packet: SimulatedPayload, nowMs = performance.now()): boolean {
-    return this.transport.send(packet, nowMs);
-  }
-  sendClientInput(packet: SimulatedPayload, nowMs = performance.now()): boolean {
-    return this.transport.sendClientInput(packet, nowMs);
-  }
-  sendServerState(packet: SimulatedPayload, nowMs = performance.now()): boolean {
-    return this.transport.send(packet, nowMs);
-  }
-  receiveServerPackets(nowMs = performance.now()): SimulatedPayload[] {
-    return this._drainInboundQueue(nowMs);
-  }
-  receiveClientPackets(nowMs = performance.now()): SimulatedPayload[] {
-    return this._drainInboundQueue(nowMs);
-  }
-  _drainInboundQueue(nowMs = performance.now()): SimulatedPayload[] {
-    return this.simulator.drainInboundQueue(nowMs);
-  }
-
-  setExtraUplinkLatency(uplinkMs: number): void {
-    this.simulator.setExtraUplinkLatency(uplinkMs);
-  }
-  setExtraDownlinkLatency(downlinkMs: number): void {
-    this.simulator.setExtraDownlinkLatency(downlinkMs);
-  }
-  setAsymmetricLatency(uplinkMs: number, downlinkMs: number): void {
-    this.simulator.setAsymmetricLatency(uplinkMs, downlinkMs);
-  }
-  setExtraLatency(extraLatencyMs: number): void {
-    this.simulator.setExtraLatency(extraLatencyMs);
-  }
-  setLatency(latencyMs: number): void {
-    this.simulator.setLatency(latencyMs);
-  }
-  setJitter(jitterMs: number): void {
-    this.simulator.setJitter(jitterMs);
-  }
-  setRtt(rttMs: number): void {
-    this.simulator.setRtt(rttMs);
-  }
-  setPacketLossRate(rate: number): void {
-    this.simulator.setPacketLossRate(rate);
-  }
-  setBurstDrop(periodMs?: number, durationMs?: number, enabled?: boolean): void {
-    this.simulator.setBurstDrop(periodMs, durationMs, enabled);
-  }
-  setBurstDropEnabled(enabled: boolean): boolean {
-    return this.simulator.setBurstDropEnabled(enabled);
-  }
-  toggleBurstDrop(forceEnabled?: boolean): boolean {
-    return this.simulator.toggleBurstDrop(forceEnabled);
-  }
-  forceDropNextInput(count = 5): void {
-    this.simulator.forceDropNextInput(count);
-  }
-  dropSinglePacket(): void {
-    this.simulator.dropSinglePacket();
   }
 
   reset(): void {

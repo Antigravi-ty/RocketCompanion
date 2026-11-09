@@ -99,7 +99,8 @@ export class ArenaVehicleRegistry {
 
     this.customVehicleAssets = new Map<string, unknown>();
     this.carLoaders = createDefaultVehicleLoaders();
-    this.loadout = new ArenaVehicleLoadoutManager(this);
+    const selfRef = this;
+    this.loadout = new ArenaVehicleLoadoutManager(selfRef);
     this.carColors = this.loadout.carColors;
     this.carPaintFinishes = this.loadout.carPaintFinishes;
     this.carBoostVisuals = this.loadout.carBoostVisuals;
@@ -223,9 +224,10 @@ export class ArenaVehicleRegistry {
       this.carLoaders
     ) as VehicleWheelSet;
     const defaultOutlets = OCTANE_BOOST_OUTLETS.map(([x, y, z]) => new THREE.Vector3(x, y, z));
+    const arenaScene = this.scene;
     const emitters = (boostOutlets || defaultOutlets).map(
       (pos: THREE.Vector3, p: number) =>
-        new VehicleBoostEmitter(this.scene, carRoot, pos, p === 0, isBot)
+        new VehicleBoostEmitter(arenaScene, carRoot, pos, p === 0, isBot)
     );
     const activeBoostVisual = this.carBoostVisuals?.[slot] || null;
     if (activeBoostVisual) {
@@ -235,7 +237,7 @@ export class ArenaVehicleRegistry {
     }
 
     const demoEffect = new DemolitionEffect();
-    if (demoEffect.object) this.scene.add(demoEffect.object);
+    if (demoEffect.object) arenaScene.add(demoEffect.object);
 
     if (!this.carTeams) this.carTeams = [];
     this.carTeams[slot] = resolvedTeam;
@@ -249,7 +251,7 @@ export class ArenaVehicleRegistry {
     this.cars[slot] = carRoot;
     this.vehiclePresets[slot] = visual;
 
-    this.scene.add(carRoot);
+    arenaScene.add(carRoot);
     this.loadout.applySlotPaintOrColor(slot, teamColor);
     this.onRenderTreeChanged?.();
     return carRoot;
@@ -381,7 +383,7 @@ export class ArenaVehicleRegistry {
   }
 
   refreshCustomVehicle(vehicleId?: string): void {
-    this.loadout.refreshCustomVehicle(vehicleId);
+    this.loadout?.refreshCustomVehicle?.(vehicleId);
   }
 
   removeCar(carIndex: number): boolean {
@@ -417,19 +419,19 @@ export class ArenaVehicleRegistry {
   }
 
   setCarColor(carIndex: number, colorVal: string | number | null | undefined): void {
-    this.loadout.setCarColor(carIndex, colorVal);
+    this.loadout?.setCarColor?.(carIndex, colorVal);
   }
 
   setCarPaintFinish(carIndex: number, paintFinish: string | null): void {
-    this.loadout.setCarPaintFinish(carIndex, paintFinish);
+    this.loadout?.setCarPaintFinish?.(carIndex, paintFinish);
   }
 
   setCarBoostVisual(carIndex: number, boostVisual: string | null): void {
-    this.loadout.setCarBoostVisual(carIndex, boostVisual);
+    this.loadout?.setCarBoostVisual?.(carIndex, boostVisual);
   }
 
   setCarLoadout(carIndex: number, loadout: CarLoadoutConfig | null | undefined = {}): void {
-    this.loadout.setCarLoadout(carIndex, loadout);
+    this.loadout?.setCarLoadout?.(carIndex, loadout);
   }
 
   setCarHitboxesVisible(
@@ -453,19 +455,19 @@ export class ArenaVehicleRegistry {
   }
 
   setCarGhostOpacity(carIndex: number, isGhost = true, opacity = 0.7): boolean {
-    return this.loadout.setCarGhostOpacity(carIndex, isGhost, opacity);
+    return this.loadout?.setCarGhostOpacity?.(carIndex, isGhost, opacity) ?? false;
   }
 
   clearAllGhostOpacities(): void {
-    this.loadout.clearAllGhostOpacities();
+    this.loadout?.clearAllGhostOpacities?.();
   }
 
   resetCarBoosts(carIndex: number | null = null): void {
-    this.loadout.resetCarBoosts(carIndex);
+    this.loadout?.resetCarBoosts?.(carIndex);
   }
 
   resetAllCarEffects(): void {
-    this.loadout.resetCarBoosts();
+    this.loadout?.resetCarBoosts?.();
     for (const demo of this.carDemolitions ?? []) {
       if (demo) {
         demo.wasDemolished = null;
@@ -495,7 +497,7 @@ export class ArenaVehicleRegistry {
   }
 
   hasActiveBoostBloom(): boolean {
-    return this.loadout.hasActiveBoostBloom();
+    return this.loadout?.hasActiveBoostBloom?.() ?? false;
   }
 
   dispose(): void {

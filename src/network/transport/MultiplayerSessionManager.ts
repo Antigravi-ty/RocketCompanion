@@ -121,6 +121,10 @@ export class MultiplayerSessionManager {
     return fallback;
   }
 
+  private readonly statusUpdater = (status: Record<string, any>): void => {
+    this._updateSessionStatus(status);
+  };
+
   private getHostSignalingCallbacks(): HostSignalingNegotiationCallbacks {
     return {
       getRoomId: () => this.roomId,
@@ -131,8 +135,8 @@ export class MultiplayerSessionManager {
       getPlayerName: () => this.playerName,
       isHosting: () => this.isHosting,
       getHostController: () => this.hostController,
-      updateSessionStatus: (status) => this._updateSessionStatus(status),
-      onPairingApprovalRequest: this.callbacks.onPairingApprovalRequest,
+      updateSessionStatus: this.statusUpdater,
+      deliverPairingApprovalRequest: this.callbacks.onPairingApprovalRequest,
     };
   }
 
@@ -151,16 +155,70 @@ export class MultiplayerSessionManager {
   }
 
   approvePendingPeer(peerId: string): boolean {
-    return this.hostSignalingNegotiator.approvePendingPeer(peerId, (status) =>
-      this._updateSessionStatus(status)
-    );
+    const updater = this.statusUpdater;
+    return this.hostSignalingNegotiator.approvePendingPeer(peerId, updater);
   }
 
   declinePendingPeer(peerId: string): boolean {
-    return this.hostSignalingNegotiator.declinePendingPeer(peerId, (status) =>
-      this._updateSessionStatus(status)
-    );
+    const updater = this.statusUpdater;
+    return this.hostSignalingNegotiator.declinePendingPeer(peerId, updater);
   }
+
+  private handleHostPeerConnected = async (
+    channel: P2PWebRTCChannel,
+    peerName: string,
+    peerId: string,
+    role: string
+  ): Promise<number | void> => {
+    let assignedCarIdx: number | void = undefined;
+    if (this.callbacks.onPeerConnected) {
+      assignedCarIdx = await this.callbacks.onPeerConnected(channel, peerName, peerId, role);
+      if (typeof assignedCarIdx === 'number' && assignedCarIdx >= 0) {
+        channel.carIndex = assignedCarIdx;
+      }
+    }
+    const pairingCode =
+      channel?.pairingCode || this.signalingHandler?.getPairingCodeForPeer?.(peerId) || undefined;
+    this._updateSessionStatus({
+      connectedPeers: this.hostController?.getConnectedPeerList?.() || [
+        {
+          id: peerId || channel.peerId || 'peer-1',
+          name: peerName,
+          carIndex: assignedCarIdx,
+          pingMs: 0,
+          pairingCode,
+        },
+      ],
+    });
+    return assignedCarIdx;
+  };
+
+  private handleHostPeerDisconnected = (peerId: string, channel: P2PWebRTCChannel): void => {
+    this.hostSignalingNegotiator.removePendingPeer(peerId, this.statusUpdater);
+    if (typeof channel?.carIndex === 'number' && channel.carIndex > 0) {
+      this.callbacks.onRemovePlayer?.(channel.carIndex);
+    }
+    this._updateSessionStatus({
+      connectedPeers: this.hostController?.getConnectedPeerList?.() || [],
+    });
+  };
+
+  private handleHostColorChange = (
+    carIdx: number,
+    slotId: number | null,
+    hex: string | null
+  ): void => {
+    this.callbacks.onColorSelect?.(carIdx, slotId, hex);
+  };
+
+  private handleHostIceCandidate = (
+    cand: RTCIceCandidateInit | Record<string, unknown>,
+    targetPeerId: string
+  ): void => {
+    if (this.signalingHandler) {
+      void this.signalingHandler.sendCandidate(targetPeerId || null, cand);
+    }
+  };
 
   async startHosting(
     roomId: string | null = null,
@@ -203,50 +261,10 @@ export class MultiplayerSessionManager {
         colorHex: this.hostColorHex,
       },
       {
-        onPeerConnected: async (channel, peerName, peerId, role) => {
-          let assignedCarIdx: number | void = undefined;
-          if (this.callbacks.onPeerConnected) {
-            assignedCarIdx = await this.callbacks.onPeerConnected(channel, peerName, peerId, role);
-            if (typeof assignedCarIdx === 'number' && assignedCarIdx >= 0) {
-              channel.carIndex = assignedCarIdx;
-            }
-          }
-          const pairingCode =
-            channel?.pairingCode ||
-            this.signalingHandler?.getPairingCodeForPeer?.(peerId) ||
-            undefined;
-          this._updateSessionStatus({
-            connectedPeers: this.hostController?.getConnectedPeerList?.() || [
-              {
-                id: peerId || channel.peerId || 'peer-1',
-                name: peerName,
-                carIndex: assignedCarIdx,
-                pingMs: 0,
-                pairingCode,
-              },
-            ],
-          });
-          return assignedCarIdx;
-        },
-        onPeerDisconnected: (peerId, channel) => {
-          this.hostSignalingNegotiator.removePendingPeer(peerId, (status) =>
-            this._updateSessionStatus(status)
-          );
-          if (typeof channel?.carIndex === 'number' && channel.carIndex > 0) {
-            this.callbacks.onRemovePlayer?.(channel.carIndex);
-          }
-          this._updateSessionStatus({
-            connectedPeers: this.hostController?.getConnectedPeerList?.() || [],
-          });
-        },
-        onColorChange: (carIdx, slotId, hex) => {
-          this.callbacks.onColorSelect?.(carIdx, slotId, hex);
-        },
-        onIceCandidate: (cand, targetPeerId) => {
-          if (this.signalingHandler) {
-            void this.signalingHandler.sendCandidate(targetPeerId || null, cand);
-          }
-        },
+        onPeerConnected: this.handleHostPeerConnected,
+        onPeerDisconnected: this.handleHostPeerDisconnected,
+        onColorChange: this.handleHostColorChange,
+        onIceCandidate: this.handleHostIceCandidate,
       }
     );
 
@@ -265,23 +283,24 @@ export class MultiplayerSessionManager {
       clearActiveHostOffer();
     }
 
-    this.initHostSignaling();
+    const hostCallbacks = this.getHostSignalingCallbacks();
+    this.hostSignalingNegotiator.initHostSignaling(hostCallbacks);
     return offerToken;
   }
 
-  initHostSignaling(probedMask?: number): void {
-    this.hostSignalingNegotiator.initHostSignaling(this.getHostSignalingCallbacks(), probedMask);
-  }
-
   async reprobeAndRefreshHostSignaling(): Promise<void> {
-    return this.hostSignalingNegotiator.reprobeAndRefresh(this.getHostSignalingCallbacks());
+    if (!this.isHosting) return;
+    const hostCallbacks = this.getHostSignalingCallbacks();
+    return this.hostSignalingNegotiator.reprobeAndRefresh(hostCallbacks);
   }
 
   notifyMatchStarted(): void {
+    if (!this.isHosting) return;
     this.hostSignalingNegotiator.notifyMatchStarted();
   }
 
   notifyReturnedToLobby(): void {
+    if (!this.isHosting) return;
     this.hostSignalingNegotiator.notifyReturnedToLobby();
   }
 
@@ -321,12 +340,12 @@ export class MultiplayerSessionManager {
         colorHex: this.clientColorHex,
       },
       {
-        onSessionStatusChange: (status) => this._updateSessionStatus(status),
-        onJoinServer: this.callbacks.onJoinServer,
-        onAbortJoin: () => {
+        updateSessionStatus: this.statusUpdater,
+        joinServer: this.callbacks.onJoinServer,
+        abortJoin: () => {
           void this.leaveSession();
         },
-        onUnexpectedDisconnect: this.callbacks.onUnexpectedDisconnect,
+        notifyUnexpectedDisconnect: this.callbacks.onUnexpectedDisconnect,
       }
     );
   }

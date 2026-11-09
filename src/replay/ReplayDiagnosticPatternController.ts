@@ -208,118 +208,117 @@ registerReplayDirectorDiagnosticExporter(
   exportReplayDirectorReferenceKeyframe
 );
 
-export class ReplayDiagnosticPatternController {
-  private readonly timeline: ReplayDiagnosticTimelinePort;
+export function getCurrentFrameDiagnosticSnapshotForTimeline(
+  timeline: ReplayDiagnosticTimelinePort
+): ReturnType<typeof buildCurrentFrameDiagnosticSnapshot> {
+  const s = timeline.sessionState;
+  if (!s.isNetworkStreamed && s.activeFrames.length > 0 && !s.cachedSmoothnessSummary) {
+    buildDirectorDiagnosticPatternPayloadForTimeline(timeline);
+  }
+  return buildCurrentFrameDiagnosticSnapshot(buildReplayDiagnosticInput(timeline, s));
+}
 
-  constructor(timeline: ReplayDiagnosticTimelinePort) {
-    this.timeline = timeline;
+export function buildDirectorDiagnosticPatternPayloadForTimeline(
+  timeline: ReplayDiagnosticTimelinePort,
+  options: DirectorDiagnosticPatternOptions = {}
+): DirectorDiagnosticPatternPayload | null {
+  const res = evaluateDirectorDiagnosticPatternPayload(
+    buildReplayDiagnosticInput(timeline, timeline.sessionState),
+    options
+  );
+  if (!res) return null;
+  Object.assign(timeline.sessionState, {
+    cachedSmoothnessSummary: res.trajectorySmoothnessSummary,
+    cachedAnomalyPeaks: res.anomalyPeaks,
+  });
+  return res.payload;
+}
+
+export function buildDirectorDiagnosticPatternCsvForTimeline(
+  timeline: ReplayDiagnosticTimelinePort,
+  options: DirectorPatternSerializerOptions = {}
+): string {
+  return buildDirectorDiagnosticPatternCsv(
+    {
+      currentFrameIndex: timeline.currentFrameIndex,
+      sessionState: timeline.sessionState,
+      directorCameraState: timeline.directorCameraState,
+      buildDirectorDiagnosticPatternPayload: (opts) =>
+        buildDirectorDiagnosticPatternPayloadForTimeline(timeline, opts),
+    },
+    options
+  );
+}
+
+export function buildDirectorFrameWindowDiagnosticForTimeline(
+  timeline: ReplayDiagnosticTimelinePort,
+  windowRadius = 15
+): ReturnType<typeof buildDirectorFrameWindowDiagnostic> {
+  return buildDirectorFrameWindowDiagnostic(
+    {
+      currentFrameIndex: timeline.currentFrameIndex,
+      sessionState: timeline.sessionState,
+      directorCameraState: timeline.directorCameraState,
+      buildDirectorDiagnosticPatternPayload: (opts) =>
+        buildDirectorDiagnosticPatternPayloadForTimeline(timeline, opts),
+    },
+    windowRadius
+  );
+}
+
+export function loadImportedDiagnosticPatternForTimeline(
+  timeline: ReplayDiagnosticTimelinePort,
+  parsedPattern: ImportedDiagnosticPatternInput | null | undefined,
+  options: ImportedDiagnosticLoadOptions = {}
+): number {
+  if (
+    !parsedPattern ||
+    !Array.isArray(parsedPattern.activeFrames) ||
+    parsedPattern.activeFrames.length === 0
+  ) {
+    return 0;
+  }
+  const fields = buildImportedDiagnosticPatternSessionState(
+    timeline.sessionState,
+    parsedPattern,
+    timeline.sessionState.carTeamResolver,
+    options
+  );
+  const s = Object.assign(timeline.sessionState, fields.sessionState);
+
+  timeline._analyzeReplayTouchTimeline({
+    scorerCarIndex: s.scorerCarIndex,
+    carTeamResolver: s.carTeamResolver,
+  });
+
+  const goalLineFrameIdx = applyImportedPatternOverridesToDirectorState(
+    timeline.directorCamera.state,
+    parsedPattern,
+    s.activeFrames,
+    s.scoringTeam,
+    s.goalLineFrameIdx
+  );
+  s.goalLineFrameIdx = goalLineFrameIdx;
+
+  if (!s.useRecordedCsvCamera || !parsedPattern.summary || !parsedPattern.anomalyPeaks) {
+    timeline.ensureSuffixCameraPlan();
+    buildDirectorDiagnosticPatternPayloadForTimeline(timeline);
   }
 
-  buildDiagnosticInput(): ReplayDirectorDiagnosticInput {
-    return buildReplayDiagnosticInput(this.timeline, this.timeline.sessionState);
-  }
+  Object.assign(s, {
+    importedSummary: s.useRecordedCsvCamera
+      ? parsedPattern.summary || s.cachedSmoothnessSummary
+      : s.cachedSmoothnessSummary || parsedPattern.summary || null,
+    importedAnomalyPeaks: s.useRecordedCsvCamera
+      ? parsedPattern.anomalyPeaks || s.cachedAnomalyPeaks
+      : s.cachedAnomalyPeaks || parsedPattern.anomalyPeaks || null,
+    cursorFloat: fields.initialCursorFloat,
+    lastDispatchedFrameIndex: -1,
+  });
 
-  getCurrentFrameDiagnosticSnapshot(): ReturnType<typeof buildCurrentFrameDiagnosticSnapshot> {
-    const s = this.timeline.sessionState;
-    if (!s.isNetworkStreamed && s.activeFrames.length > 0 && !s.cachedSmoothnessSummary) {
-      this.buildDirectorDiagnosticPatternPayload();
-    }
-    return buildCurrentFrameDiagnosticSnapshot(this.buildDiagnosticInput());
-  }
-
-  buildDirectorDiagnosticPatternPayload(
-    options: DirectorDiagnosticPatternOptions = {}
-  ): DirectorDiagnosticPatternPayload | null {
-    const res = evaluateDirectorDiagnosticPatternPayload(this.buildDiagnosticInput(), options);
-    if (!res) return null;
-    Object.assign(this.timeline.sessionState, {
-      cachedSmoothnessSummary: res.trajectorySmoothnessSummary,
-      cachedAnomalyPeaks: res.anomalyPeaks,
-    });
-    return res.payload;
-  }
-
-  buildDirectorDiagnosticPatternCsv(options: DirectorPatternSerializerOptions = {}): string {
-    return buildDirectorDiagnosticPatternCsv(
-      {
-        currentFrameIndex: this.timeline.currentFrameIndex,
-        sessionState: this.timeline.sessionState,
-        directorCameraState: this.timeline.directorCameraState,
-        buildDirectorDiagnosticPatternPayload: (opts) =>
-          this.buildDirectorDiagnosticPatternPayload(opts),
-      },
-      options
-    );
-  }
-
-  buildDirectorFrameWindowDiagnostic(
-    windowRadius = 15
-  ): ReturnType<typeof buildDirectorFrameWindowDiagnostic> {
-    return buildDirectorFrameWindowDiagnostic(
-      {
-        currentFrameIndex: this.timeline.currentFrameIndex,
-        sessionState: this.timeline.sessionState,
-        directorCameraState: this.timeline.directorCameraState,
-        buildDirectorDiagnosticPatternPayload: (opts) =>
-          this.buildDirectorDiagnosticPatternPayload(opts),
-      },
-      windowRadius
-    );
-  }
-
-  loadImportedDiagnosticPattern(
-    parsedPattern: ImportedDiagnosticPatternInput | null | undefined,
-    options: ImportedDiagnosticLoadOptions = {}
-  ): number {
-    if (
-      !parsedPattern ||
-      !Array.isArray(parsedPattern.activeFrames) ||
-      parsedPattern.activeFrames.length === 0
-    ) {
-      return 0;
-    }
-    const fields = buildImportedDiagnosticPatternSessionState(
-      this.timeline.sessionState,
-      parsedPattern,
-      this.timeline.sessionState.carTeamResolver,
-      options
-    );
-    const s = Object.assign(this.timeline.sessionState, fields.sessionState);
-
-    this.timeline._analyzeReplayTouchTimeline({
-      scorerCarIndex: s.scorerCarIndex,
-      carTeamResolver: s.carTeamResolver,
-    });
-
-    const goalLineFrameIdx = applyImportedPatternOverridesToDirectorState(
-      this.timeline.directorCamera.state,
-      parsedPattern,
-      s.activeFrames,
-      s.scoringTeam,
-      s.goalLineFrameIdx
-    );
-    s.goalLineFrameIdx = goalLineFrameIdx;
-
-    if (!s.useRecordedCsvCamera || !parsedPattern.summary || !parsedPattern.anomalyPeaks) {
-      this.timeline.ensureSuffixCameraPlan();
-      this.buildDirectorDiagnosticPatternPayload();
-    }
-
-    Object.assign(s, {
-      importedSummary: s.useRecordedCsvCamera
-        ? parsedPattern.summary || s.cachedSmoothnessSummary
-        : s.cachedSmoothnessSummary || parsedPattern.summary || null,
-      importedAnomalyPeaks: s.useRecordedCsvCamera
-        ? parsedPattern.anomalyPeaks || s.cachedAnomalyPeaks
-        : s.cachedAnomalyPeaks || parsedPattern.anomalyPeaks || null,
-      cursorFloat: fields.initialCursorFloat,
-      lastDispatchedFrameIndex: -1,
-    });
-
-    this.timeline.refreshCurrentFrameDirectorPose();
-    markReplayTimelineControllerRetained(this.timeline);
-    setActiveReplayTimelineController(this.timeline);
-    notifyActiveReplayTimelineController();
-    return s.activeFrames.length;
-  }
+  timeline.refreshCurrentFrameDirectorPose();
+  markReplayTimelineControllerRetained(timeline);
+  setActiveReplayTimelineController(timeline);
+  notifyActiveReplayTimelineController();
+  return s.activeFrames.length;
 }

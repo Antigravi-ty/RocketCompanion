@@ -116,7 +116,7 @@ export class SignalingEncryptedEnvelopeHandler {
     ctx: SignalingEnvelopeDispatchContext
   ): void {
     this.stopPairingKeepAlive();
-    ctx.callbacks.onPairingHold?.({
+    ctx.callbacks.handlePairingHold?.({
       hostPeerId,
       hostName: hostName || 'Host',
       pairingCode,
@@ -194,7 +194,7 @@ export class SignalingEncryptedEnvelopeHandler {
     }
 
     if (inner.type === 'sig_pairing_ping') {
-      ctx.callbacks.onPairingKeepAlive?.({ peerId: fromPeerId, timestamp: Date.now() });
+      ctx.callbacks.handlePairingKeepAlive?.({ peerId: fromPeerId, timestamp: Date.now() });
       await ctx.sendEncryptedToPeer(fromPeerId, {
         type: 'sig_pairing_pong',
         fromPeerId: ctx.localPeerId,
@@ -204,13 +204,13 @@ export class SignalingEncryptedEnvelopeHandler {
     }
 
     if (inner.type === 'sig_pairing_pong') {
-      ctx.callbacks.onPairingKeepAlive?.({ peerId: fromPeerId, timestamp: Date.now() });
+      ctx.callbacks.handlePairingKeepAlive?.({ peerId: fromPeerId, timestamp: Date.now() });
       return;
     }
 
     if (inner.type === 'sig_pairing_approved') {
       this.stopPairingKeepAlive();
-      ctx.callbacks.onPairingApproved?.({
+      ctx.callbacks.handlePairingApproved?.({
         hostPeerId: fromPeerId,
         pairingCode: inner.pairingCode,
       });
@@ -219,7 +219,7 @@ export class SignalingEncryptedEnvelopeHandler {
 
     if (inner.type === 'sig_pairing_declined') {
       this.stopPairingKeepAlive();
-      ctx.callbacks.onPairingDeclined?.({
+      ctx.callbacks.handlePairingDeclined?.({
         hostPeerId: fromPeerId,
         reason: inner.reason || 'Host declined the connection request.',
       });
@@ -227,14 +227,14 @@ export class SignalingEncryptedEnvelopeHandler {
     }
 
     if (inner.type === 'relay_assignment') {
-      ctx.callbacks.onRelayAssignment?.(inner);
+      ctx.callbacks.handleRelayAssignment?.(inner);
       return;
     }
 
     if (inner.type === 'request_offer') {
       const meta = this.peerMetadata.get(fromPeerId);
       if (meta && (!getManualPairingConfirmationEnabled() || meta.approved)) {
-        ctx.callbacks.onRequestOffer?.({
+        ctx.callbacks.handleRequestOffer?.({
           fromPeerId,
           name: inner.name || meta.name,
           senderName: inner.name || meta.name,
@@ -248,7 +248,7 @@ export class SignalingEncryptedEnvelopeHandler {
 
     if (inner.type === 'offer') {
       this.stopPairingKeepAlive();
-      ctx.callbacks.onOffer?.({
+      ctx.callbacks.handleOffer?.({
         ...inner,
         fromPeerId,
         pairingCode: ctx.getPairingCodeForPeer(fromPeerId),
@@ -258,7 +258,7 @@ export class SignalingEncryptedEnvelopeHandler {
     }
 
     if (inner.type === 'answer') {
-      ctx.callbacks.onAnswer?.({
+      ctx.callbacks.handleAnswer?.({
         ...inner,
         fromPeerId,
         pairingCode: ctx.getPairingCodeForPeer(fromPeerId),
@@ -268,7 +268,7 @@ export class SignalingEncryptedEnvelopeHandler {
     }
 
     if (inner.type === 'candidate') {
-      ctx.callbacks.onCandidate?.({
+      ctx.callbacks.handleCandidate?.({
         ...inner,
         fromPeerId,
         relayId,
@@ -295,7 +295,7 @@ export class SignalingEncryptedEnvelopeHandler {
       if (meta.offerDispatched) return;
       meta.offerDispatched = true;
       meta.approved = true;
-      ctx.callbacks.onPeerJoined?.({
+      ctx.callbacks.handlePeerJoined?.({
         peerId: fromPeerId,
         name: meta.name,
         peerName: meta.name,
@@ -328,8 +328,8 @@ export class SignalingEncryptedEnvelopeHandler {
       relayId
     );
 
-    if (typeof ctx.callbacks.onPairingApprovalRequired === 'function') {
-      ctx.callbacks.onPairingApprovalRequired({
+    if (typeof ctx.callbacks.handlePairingApprovalRequired === 'function') {
+      ctx.callbacks.handlePairingApprovalRequired({
         peerId: fromPeerId,
         peerName: meta.name,
         role: meta.role,

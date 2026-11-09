@@ -80,8 +80,8 @@ export class ArenaLightingManager {
     this._shadowY = new THREE.Vector3();
     this._recomputeShadowBasis();
 
-    this.debugGizmo = new ArenaLightingDebugGizmo(this.scene);
-    this.blobShadows = new ArenaBlobShadowSystem(this.scene);
+    this.debugGizmo = new ArenaLightingDebugGizmo(scene);
+    this.blobShadows = new ArenaBlobShadowSystem(scene);
 
     this._applyLightRigMode();
     this._applyEnvironmentalLights();
@@ -145,21 +145,13 @@ export class ArenaLightingManager {
     }
   }
 
-  _ensureDebugGizmoGroup(): THREE.Group {
-    return this.debugGizmo.ensureGroup(Boolean(this.shadowConfig.lightGizmoDepthTest));
-  }
-
-  _updateDebugGizmoDepthTest(): void {
-    this.debugGizmo.updateDepthTest(Boolean(this.shadowConfig.lightGizmoDepthTest));
-  }
-
   updateLightDebugVisuals(
     cars: Array<THREE.Object3D | null>,
     ball: THREE.Object3D | null,
     camera: THREE.Camera | null = null,
     focusedCarIndex = 0
   ): void {
-    this.debugGizmo.update(
+    this.debugGizmo?.update(
       this.shadowConfig,
       this.carSun.position,
       this._shadowDir,
@@ -286,7 +278,7 @@ export class ArenaLightingManager {
     this.carSun.position.copy(this.shadowFocus).add(this._sunOffset);
 
     if (prevDepthTest !== this.shadowConfig.lightGizmoDepthTest) {
-      this._updateDebugGizmoDepthTest();
+      this.debugGizmo.updateDepthTest(Boolean(this.shadowConfig.lightGizmoDepthTest));
     }
 
     if (renderer?.shadowMap) {

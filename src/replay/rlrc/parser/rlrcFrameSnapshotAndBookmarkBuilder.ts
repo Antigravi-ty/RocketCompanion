@@ -12,6 +12,7 @@ import {
   type RLRCRigidBodySample,
   type RLRCSourceNetworkFrame,
   type RLRCTeamIndex,
+  type RLRCVec3,
 } from '../RLRCReplayTypes.ts';
 import {
   asRecord,
@@ -76,6 +77,39 @@ export function deactivatePlayerSlotState(
   slotState.handbrake = false;
   slotState.throttle = 0;
   slotState.steer = 0;
+}
+
+export function bindCarPawnToSlotState(params: {
+  readonly slotState: PlayerSlotTrackingState;
+  readonly actorId: number;
+  readonly frameIdx: number;
+  readonly isHidden: boolean;
+  readonly sameFrameRb: RLRCRigidBodySample | undefined;
+  readonly initLoc: RLRCVec3 | undefined;
+}): boolean {
+  const { slotState, actorId, frameIdx, isHidden, sameFrameRb, initLoc } = params;
+  const isNewCarBinding = slotState.carId !== actorId;
+  slotState.carId = actorId;
+  slotState.entityActive = !isHidden;
+  if (!isNewCarBinding || isHidden) return false;
+
+  if (sameFrameRb) {
+    slotState.rigidBody = sameFrameRb;
+    slotState.spawnFrameIndex = -2;
+  } else {
+    if (initLoc) {
+      slotState.rigidBody = { ...DEFAULT_CAR_RB, position: initLoc, rbUpdated: true };
+    }
+    slotState.spawnFrameIndex = frameIdx;
+  }
+  slotState.rbUpdated = true;
+  slotState.boostAmount = RLRC_DEFAULT_SPAWN_BOOST;
+  slotState.boostActive = false;
+  slotState.jumpActive = false;
+  slotState.doubleJumpActive = false;
+  slotState.dodgeActive = false;
+  slotState.flippedInAir = false;
+  return true;
 }
 
 export function applyCarRigidBodySampleToSlot(params: {

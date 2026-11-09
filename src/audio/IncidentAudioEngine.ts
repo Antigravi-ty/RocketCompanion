@@ -54,7 +54,7 @@ export class IncidentAudioEngine {
 
   constructor(vehicleManager: VehicleAudioManager | null = null) {
     this.vehicleManager = vehicleManager;
-    this.buffers = {
+    const initialBuffers: IncidentAudioBuffers = {
       ballHit: [],
       vehicleAccent: null,
       vehicleDetail: [],
@@ -77,6 +77,7 @@ export class IncidentAudioEngine {
       boostRelease: null,
       supersonicEnter: [],
     };
+    this.buffers = initialBuffers;
 
     this.lastCarBallHitTimestamp = 0;
     this.lastCarCollisionTimestamp = 0;
@@ -87,7 +88,7 @@ export class IncidentAudioEngine {
     this.lastCarCollisionByPair = new Map();
     this.lastCarDemoByVictim = new Map();
 
-    this.worldImpactHandler = new WorldImpactAudioHandler(this.buffers);
+    this.worldImpactHandler = new WorldImpactAudioHandler(initialBuffers);
   }
 
   setBuffers(bufs: Partial<IncidentAudioBuffers>): void {
@@ -118,12 +119,12 @@ export class IncidentAudioEngine {
 
       case INCIDENT_EVENT_TYPES.BALL_WORLD_HIT:
       case PHYSICS_EVENT_TYPES.BALL_WORLD_HIT:
-        this.handleBallWorldHit(event, camera);
+        this.worldImpactHandler.handleBallWorldHit(event, camera);
         break;
 
       case INCIDENT_EVENT_TYPES.BALL_GOALPOST_HIT:
       case PHYSICS_EVENT_TYPES.BALL_GOALPOST_HIT:
-        this.handleBallGoalpostHit(event, camera);
+        this.worldImpactHandler.handleBallGoalpostHit(event, camera);
         break;
 
       case INCIDENT_EVENT_TYPES.CAR_JUMP:
@@ -133,21 +134,19 @@ export class IncidentAudioEngine {
       case 0x06:
       case 0x07:
       case 0x08:
-        if (this.vehicleManager) {
-          this.vehicleManager.handleCarEvent(event);
-        } else {
-          this.handleCarAction(event, camera);
-        }
-        break;
-
       case INCIDENT_EVENT_TYPES.CAR_SUPERSONIC_ENTER:
       case PHYSICS_EVENT_TYPES.CAR_SUPERSONIC_ENTER:
       case 0x09:
-        if (this.vehicleManager) {
-          this.vehicleManager.handleCarEvent(event);
-        } else {
-          this.handleSupersonicEnter(event, camera);
-        }
+      case INCIDENT_EVENT_TYPES.CAR_BOOST_START:
+      case 0x0c:
+      case INCIDENT_EVENT_TYPES.CAR_BOOST_STOP:
+      case 0x0d:
+      case INCIDENT_EVENT_TYPES.FLIP_RESET_GAINED:
+      case PHYSICS_EVENT_TYPES.FLIP_RESET_GAINED:
+      case 0x0f:
+      case 'wheel_impact':
+      case 0x12:
+        this.vehicleManager?.handleCarEvent(event);
         break;
 
       case INCIDENT_EVENT_TYPES.BOOST_PICKUP:
@@ -156,42 +155,9 @@ export class IncidentAudioEngine {
         this.handleBoostPickup(event, camera);
         break;
 
-      case INCIDENT_EVENT_TYPES.CAR_BOOST_START:
-      case 0x0c:
-        if (this.vehicleManager) {
-          this.vehicleManager.handleCarEvent(event);
-        } else {
-          this.handleBoostStart(event, camera);
-        }
-        break;
-
-      case INCIDENT_EVENT_TYPES.CAR_BOOST_STOP:
-      case 0x0d:
-        if (this.vehicleManager) {
-          this.vehicleManager.handleCarEvent(event);
-        } else {
-          this.handleBoostStop(event, camera);
-        }
-        break;
-
       case INCIDENT_EVENT_TYPES.GOAL_SCORED:
       case 0x0e:
         this.handleGoalScored(event, camera);
-        break;
-
-      case INCIDENT_EVENT_TYPES.FLIP_RESET_GAINED:
-      case PHYSICS_EVENT_TYPES.FLIP_RESET_GAINED:
-      case 0x0f:
-        if (this.vehicleManager) {
-          this.vehicleManager.handleCarEvent(event);
-        } else {
-          this.handleFlipReset(event, camera);
-        }
-        break;
-
-      case 'wheel_impact':
-      case 0x12:
-        this.vehicleManager?.handleCarEvent(event);
         break;
 
       default:
@@ -351,39 +317,6 @@ export class IncidentAudioEngine {
     });
   }
 
-  handleBallWorldHit(event: PhysicsImpactAudioEvent, camera: unknown = null): void {
-    this.worldImpactHandler.handleBallWorldHit(event, camera);
-  }
-
-  handleBallGoalpostHit(event: PhysicsImpactAudioEvent, camera: unknown = null): void {
-    this.worldImpactHandler.handleBallGoalpostHit(event, camera);
-  }
-
-  handleCarAction(event: PhysicsImpactAudioEvent, _camera: unknown = null): void {
-    this.vehicleManager?.handleCarEvent(event);
-  }
-  handleJump(event: PhysicsImpactAudioEvent, _camera: unknown = null): void {
-    this.vehicleManager?.handleCarEvent({ ...event, type: INCIDENT_EVENT_TYPES.CAR_JUMP });
-  }
-  handleDoubleJump(event: PhysicsImpactAudioEvent, _camera: unknown = null): void {
-    this.vehicleManager?.handleCarEvent({ ...event, type: INCIDENT_EVENT_TYPES.CAR_DOUBLE_JUMP });
-  }
-  handleDodge(event: PhysicsImpactAudioEvent, _camera: unknown = null): void {
-    this.vehicleManager?.handleCarEvent({ ...event, type: INCIDENT_EVENT_TYPES.CAR_DODGE });
-  }
-  handleSupersonicEnter(event: PhysicsImpactAudioEvent, _camera: unknown = null): void {
-    this.vehicleManager?.handleCarEvent({
-      ...event,
-      type: INCIDENT_EVENT_TYPES.CAR_SUPERSONIC_ENTER,
-    });
-  }
-  handleBoostStart(event: PhysicsImpactAudioEvent, _camera: unknown = null): void {
-    this.vehicleManager?.handleCarEvent({ ...event, type: INCIDENT_EVENT_TYPES.CAR_BOOST_START });
-  }
-  handleBoostStop(event: PhysicsImpactAudioEvent, _camera: unknown = null): void {
-    this.vehicleManager?.handleCarEvent({ ...event, type: INCIDENT_EVENT_TYPES.CAR_BOOST_STOP });
-  }
-
   handleBoostPickup(event: PhysicsImpactAudioEvent, _camera: unknown = null): void {
     const pool = getAudioSlotPool();
     if (!pool || !this.buffers.boostCollect) return;
@@ -446,9 +379,5 @@ export class IncidentAudioEngine {
       category: 'goal_explosion',
       priority: INCIDENT_SLOT_PRIORITY.GOAL_EXPLOSION,
     });
-  }
-
-  handleFlipReset(event: PhysicsImpactAudioEvent, _camera: unknown = null): void {
-    this.vehicleManager?.handleCarEvent({ ...event, type: INCIDENT_EVENT_TYPES.FLIP_RESET_GAINED });
   }
 }

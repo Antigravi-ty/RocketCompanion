@@ -7,7 +7,7 @@ import {
   endGoalReplaySession,
   type GoalReplayCameraMode,
 } from './shared/GoalReplaySessionCoordinator.ts';
-import { stepNetworkStreamedGoalReplayFrame } from './shared/goalAndBallTouchPipeline.ts';
+import { stepNetworkStreamedGoalReplayFrame } from './shared/networkStreamedGoalReplayCoordinator.ts';
 import type { FrameContext } from '../pipeline/FramePipeline.ts';
 
 /**

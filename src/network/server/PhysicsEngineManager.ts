@@ -23,11 +23,13 @@ import {
 
 export type { PhysicsSignalData };
 
+export type PhysicsOutputCallback = (output: AuthoritativePhysicsStepOutput) => void;
+
 export interface PhysicsEngineManagerOptions {
   sim?: AuthoritativePhysicsSimPort;
   inputBuffer?: NetworkInputBuffer | null;
   maxBufferTicks?: number;
-  onPhysicsOutput?: ((output: AuthoritativePhysicsStepOutput) => void) | null;
+  onPhysicsOutput?: PhysicsOutputCallback | null;
   lobbyGhostCoordinator?: LobbyGhostCarCoordinator;
   lobbyGhostOptions?: LobbyGhostConfigOptions;
   isRecordingFullReplay?: boolean;
@@ -37,7 +39,7 @@ export class PhysicsEngineManager {
   sim: AuthoritativePhysicsSimPort;
   inputBuffer: NetworkInputBuffer | null;
   maxBufferTicks: number;
-  onPhysicsOutput: ((output: AuthoritativePhysicsStepOutput) => void) | null;
+  onPhysicsOutput: PhysicsOutputCallback | null;
   activeCarIndices: Set<number>;
   directControls: Map<number, CarControlsInput>;
   lobbyGhostCoordinator: LobbyGhostCarCoordinator;
@@ -76,9 +78,7 @@ export class PhysicsEngineManager {
 
     this.lastAcknowledgedControls = new Map();
     this.jumpSuppressedCarIndices = new Set();
-    if (this.sim?.isInitialized && typeof this.sim.initReplayBuffer === 'function') {
-      this.sim.initReplayBuffer();
-    }
+    if (this.sim?.isInitialized) this.sim.initReplayBuffer?.();
   }
 
   get isPaused(): boolean {
@@ -116,7 +116,8 @@ export class PhysicsEngineManager {
     interactWithCars = true,
     opacity: number | undefined = undefined
   ) {
-    return this.lobbyGhostCoordinator.applyCarCollisionMask(
+    const ghostCoord = this.lobbyGhostCoordinator;
+    return ghostCoord.applyCarCollisionMask(
       this.sim,
       carIndex,
       interactWithBall,
@@ -159,9 +160,7 @@ export class PhysicsEngineManager {
     }
     let mask = 0;
     for (const idx of this.activeCarIndices) {
-      if (idx >= 0 && idx < 8) {
-        mask |= 1 << idx;
-      }
+      if (idx >= 0 && idx < 8) mask |= 1 << idx;
     }
     return mask & 0xff;
   }
@@ -169,9 +168,7 @@ export class PhysicsEngineManager {
   registerCarEntity(carIndex: number, team = 0, config = 'octane'): number {
     const wasActive = this.activeCarIndices.has(carIndex);
     this.activeCarIndices.add(carIndex);
-    if (this.inputBuffer) {
-      this.inputBuffer.registerCar(carIndex);
-    }
+    this.inputBuffer?.registerCar(carIndex);
 
     syncCarSlotWithSim(this.sim, carIndex, team, config, wasActive);
 
@@ -180,9 +177,7 @@ export class PhysicsEngineManager {
       this.setCarCollisionMask(carIndex, true, true, 1.0);
     }
 
-    if (this.lobbyGhostCoordinator.lobbyModeActive) {
-      this.syncLobbyGhostMasks();
-    }
+    if (this.lobbyGhostCoordinator.lobbyModeActive) this.syncLobbyGhostMasks();
     return carIndex;
   }
 
@@ -190,12 +185,8 @@ export class PhysicsEngineManager {
     this.activeCarIndices.delete(carIndex);
     this.directControls.delete(carIndex);
     this.lastAcknowledgedControls.delete(carIndex);
-    if (this.inputBuffer) {
-      this.inputBuffer.unregisterCar(carIndex);
-    }
-    if (this.sim && typeof this.sim.removeCar === 'function') {
-      this.sim.removeCar(carIndex);
-    }
+    this.inputBuffer?.unregisterCar(carIndex);
+    this.sim?.removeCar?.(carIndex);
   }
 
   get currentTick(): number {
@@ -224,9 +215,8 @@ export class PhysicsEngineManager {
 
   pushInput(carIndex: number, targetTick: number, controls: CarControlsInput): boolean {
     if (!this.activeCarIndices.has(carIndex)) return false;
-    if (this.inputBuffer) {
-      return this.inputBuffer.pushInput(carIndex, this.currentTick, targetTick, controls);
-    }
+    const buf = this.inputBuffer;
+    if (buf) return buf.pushInput(carIndex, this.currentTick, targetTick, controls);
     this.directControls.set(carIndex, { ...controls });
     return true;
   }
@@ -241,13 +231,13 @@ export class PhysicsEngineManager {
     carIndex: number,
     inputList: Array<{ tick?: number; targetTick?: number; controls?: CarControlsInput }>
   ): number {
-    if (!this.inputBuffer) return 0;
-    return this.inputBuffer.pushRedundantInputs(carIndex, this.currentTick, inputList);
+    const buf = this.inputBuffer;
+    return buf ? buf.pushRedundantInputs(carIndex, this.currentTick, inputList) : 0;
   }
 
   getInputBufferSize(carIndex: number): number {
-    if (!this.inputBuffer) return 0;
-    return this.inputBuffer.getInputBufferSize(carIndex, this.currentTick);
+    const buf = this.inputBuffer;
+    return buf ? buf.getInputBufferSize(carIndex, this.currentTick) : 0;
   }
 
   setInputMask(isMasked: boolean, untilFrame = -1): void {
@@ -270,12 +260,8 @@ export class PhysicsEngineManager {
     this.goalLatched = false;
     this.goalScoredAtTick = -1;
     this.frozenBallSnapshot = null;
-    if (typeof this.sim?.resetGoalLatch === 'function') {
-      this.sim.resetGoalLatch();
-    }
-    if (typeof this.sim?.pollGoal === 'function') {
-      this.sim.pollGoal();
-    }
+    this.sim?.resetGoalLatch?.();
+    this.sim?.pollGoal?.();
   }
 
   applySignal(signalType: number | string, data: PhysicsSignalData = {}): void {
@@ -380,11 +366,9 @@ export class PhysicsEngineManager {
 
   resetBallToCenter(): void {
     this.resetGoalLatch();
-    if (typeof this.sim?.setBallState === 'function') {
-      this.sim.setBallState(
-        new Float32Array([0, 0, BALL_REST_Z, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0])
-      );
-    }
+    this.sim?.setBallState?.(
+      new Float32Array([0, 0, BALL_REST_Z, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0])
+    );
   }
 
   isBallOnGround(): boolean {

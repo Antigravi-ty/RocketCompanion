@@ -12,7 +12,13 @@ import {
 } from './ReplayPlaybackState.ts';
 import { applyReplayFrameToEngine } from './ReplayFrameInterpolator.ts';
 import { ReplayDirectorCameraSubController } from './ReplayDirectorCameraSubController.ts';
-import { ReplayDiagnosticPatternController } from './ReplayDiagnosticPatternController.ts';
+import {
+  getCurrentFrameDiagnosticSnapshotForTimeline,
+  buildDirectorDiagnosticPatternPayloadForTimeline,
+  buildDirectorDiagnosticPatternCsvForTimeline,
+  buildDirectorFrameWindowDiagnosticForTimeline,
+  loadImportedDiagnosticPatternForTimeline,
+} from './ReplayDiagnosticPatternController.ts';
 import {
   createInitialReplaySessionState,
   type DirectorCameraPose,
@@ -78,14 +84,12 @@ export class ReplayTimelineController {
   public ringBuffer: ReplayRingBuffer | null;
   public sessionState: ReplaySessionState;
   public readonly directorCamera: ReplayDirectorCameraSubController;
-  public readonly diagnosticPatterns: ReplayDiagnosticPatternController;
 
   constructor(options: ReplayTimelineControllerOptions = {}) {
     this.engine = options.engine || null;
     this.ringBuffer = options.ringBuffer || null;
     this.sessionState = createInitialReplaySessionState();
     this.directorCamera = new ReplayDirectorCameraSubController();
-    this.diagnosticPatterns = new ReplayDiagnosticPatternController(this);
   }
 
   public get directorCameraState(): DirectorCameraState {
@@ -248,7 +252,7 @@ export class ReplayTimelineController {
     parsed: ImportedDiagnosticPatternInput | null | undefined,
     opts: ImportedDiagnosticLoadOptions = {}
   ): number {
-    return this.diagnosticPatterns.loadImportedDiagnosticPattern(parsed, opts);
+    return loadImportedDiagnosticPatternForTimeline(this, parsed, opts);
   }
 
   startPreviewSession(opts: ReplayPreviewSessionStartOptions = {}): boolean {
@@ -463,16 +467,16 @@ export class ReplayTimelineController {
   }
 
   getCurrentFrameDiagnosticSnapshot() {
-    return this.diagnosticPatterns.getCurrentFrameDiagnosticSnapshot();
+    return getCurrentFrameDiagnosticSnapshotForTimeline(this);
   }
   buildDirectorDiagnosticPatternPayload(opts?: DirectorDiagnosticPatternOptions) {
-    return this.diagnosticPatterns.buildDirectorDiagnosticPatternPayload(opts);
+    return buildDirectorDiagnosticPatternPayloadForTimeline(this, opts);
   }
   buildDirectorDiagnosticPatternCsv(opts?: DirectorPatternSerializerOptions): string {
-    return this.diagnosticPatterns.buildDirectorDiagnosticPatternCsv(opts);
+    return buildDirectorDiagnosticPatternCsvForTimeline(this, opts);
   }
   buildDirectorFrameWindowDiagnostic(radius = 15) {
-    return this.diagnosticPatterns.buildDirectorFrameWindowDiagnostic(radius);
+    return buildDirectorFrameWindowDiagnosticForTimeline(this, radius);
   }
 }
 

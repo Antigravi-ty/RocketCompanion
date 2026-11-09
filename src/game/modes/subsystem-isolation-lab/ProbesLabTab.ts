@@ -23,9 +23,9 @@ export class ProbesLabTab implements LabTabController {
   }
 
   onDeactivate(): void {
-    const runtime = this.ctx?.runtime;
-    if (runtime?.physics) {
-      parkDevTestLabProbes(runtime.physics, runtime.arena);
+    const sceneTarget = this.ctx?.runtime;
+    if (sceneTarget?.physics) {
+      parkDevTestLabProbes(sceneTarget.physics, sceneTarget.arena);
     }
     this.probeState = null;
     this.applyCameraTarget('player');
@@ -33,16 +33,16 @@ export class ProbesLabTab implements LabTabController {
   }
 
   onPhysicsTick(_dt: number): boolean {
-    const runtime = this.ctx?.runtime;
+    const sim = this.ctx?.runtime?.physics;
     const store = useSubsystemIsolationLabStore.getState();
-    if (!store.probesEnabled || !runtime?.physics) {
+    if (!store.probesEnabled || !sim) {
       return true;
     }
 
     if (!this.probeState) {
       this.syncConfiguration(false);
     }
-    const stepOutput = stepDevTestLabProbes(runtime.physics, this.probeState);
+    const stepOutput = stepDevTestLabProbes(sim, this.probeState);
     if (stepOutput) {
       this.probeState = stepOutput.nextState;
       if (this.probeState.tickCounter % 4 === 0) {
@@ -60,26 +60,28 @@ export class ProbesLabTab implements LabTabController {
   }
 
   syncConfiguration(forceRestart = false): void {
-    const runtime = this.ctx?.runtime;
+    const sceneTarget = this.ctx?.runtime;
+    const sim = sceneTarget?.physics;
+    const arena = sceneTarget?.arena;
     const store = useSubsystemIsolationLabStore.getState();
-    if (!runtime?.physics || store.activeTab !== 'probes') return;
+    if (!sim || store.activeTab !== 'probes') return;
 
     if (store.probesEnabled) {
-      if (!forceRestart && this.probeState && runtime.physics.numCars > PROBE_QE_SLOT) {
+      if (!forceRestart && this.probeState && sim.numCars > PROBE_QE_SLOT) {
         this.probeState = updateDevTestLabProbeParameters(
-          runtime.physics,
+          sim,
           this.probeState,
           store.probeBaseAltitudeZ,
           store.probePeakAltitudeZ,
           store.probeOffsetX,
           store.probeOffsetY,
           store.probeOffsetZ,
-          runtime.arena
+          arena
         );
       } else {
         this.probeState = setupDevTestLabProbes(
-          runtime.physics,
-          runtime.arena,
+          sim,
+          arena,
           store.probeBaseAltitudeZ,
           store.probePeakAltitudeZ,
           store.probeOffsetX,
@@ -94,9 +96,9 @@ export class ProbesLabTab implements LabTabController {
         probeBoostHoldTicks: 0,
         probeRollDir: 1,
       });
-      runtime.interpolator?.sync?.();
+      sceneTarget?.interpolator?.sync?.();
     } else {
-      parkDevTestLabProbes(runtime.physics, runtime.arena);
+      parkDevTestLabProbes(sim, arena);
       this.probeState = null;
       if (store.probeCameraTarget !== 'player') {
         this.applyCameraTarget('player');
@@ -105,12 +107,13 @@ export class ProbesLabTab implements LabTabController {
   }
 
   applyCameraTarget(target: ProbeCameraTarget): void {
-    const runtime = this.ctx?.runtime;
-    if (!runtime) return;
-    runtime.playerCarIndex =
+    const sceneTarget = this.ctx?.runtime;
+    if (!sceneTarget) return;
+    const nextIdx =
       target === 'boost_probe' ? PROBE_BOOST_SLOT : target === 'qe_probe' ? PROBE_QE_SLOT : 0;
-    if (runtime.arena) {
-      runtime.arena.playerCarIndex = runtime.playerCarIndex;
+    sceneTarget.playerCarIndex = nextIdx;
+    if (sceneTarget.arena) {
+      sceneTarget.arena.playerCarIndex = nextIdx;
     }
   }
 }

@@ -21,20 +21,23 @@ import type { CameraTransformLike } from '../../../audio/SpatialAudioSource.ts';
 
 export type { CarActionDebounceState, CarActionPhysicsEventPayload };
 
-export interface ProcessTickEventsParams {
-  physics: RocketSimPhysicsEngine | null;
-  playerCarIndex: number;
-  playerControls: Partial<CarControlsInput> | null | undefined;
-  networkReconciler: { lobbyDualWorldMode?: boolean } | null | undefined;
-  testCarAudioEnabled: boolean;
-  isMatchEnded: boolean;
-  matchPhase: string;
-  clientGoalIncidentLatched: boolean;
-  camera: CameraTransformLike | null | undefined;
-  arena: { triggerGoalBarrierImpact?(x?: number, y?: number, z?: number): void } | null | undefined;
-  onGoalIncidentLatched: () => void;
-  onModePhysicsEvent: (event: CarActionPhysicsEventPayload) => void;
-  onPlayFlipResetVisual: (carIndex: number) => void;
+export interface CarActionTickInput {
+  readonly physics: RocketSimPhysicsEngine | null;
+  readonly playerCarIndex: number;
+  readonly playerControls: Partial<CarControlsInput> | null | undefined;
+  readonly networkReconciler: { lobbyDualWorldMode?: boolean } | null | undefined;
+  readonly testCarAudioEnabled: boolean;
+  readonly isMatchEnded: boolean;
+  readonly matchPhase: string;
+  readonly clientGoalIncidentLatched: boolean;
+  readonly camera: CameraTransformLike | null | undefined;
+}
+
+export interface CarActionTickResult {
+  readonly nextClientGoalIncidentLatched: boolean;
+  readonly emittedModeEvents: readonly CarActionPhysicsEventPayload[];
+  readonly flipResetVisualCarIndices: readonly number[];
+  readonly goalBarrierImpacts: ReadonlyArray<{ x?: number; y?: number; z?: number }>;
 }
 
 export interface CarActionSynthesizerRuntimePort {
@@ -76,7 +79,7 @@ export interface CarActionSynthesizerRuntimePort {
 
 /**
  * CarActionEventSynthesizer
- * Stateful sub-controller orchestrating per-vehicle action debounce state,
+ * Self-contained domain module owning per-vehicle action debounce state,
  * remote/local edge event synthesis, and native WASM physics incident dispatch.
  */
 export class CarActionEventSynthesizer {
@@ -84,70 +87,23 @@ export class CarActionEventSynthesizer {
   private _lastSeenPhysicsTick = -1;
 
   public reset(): void {
-    this._debounceRegistry.reset();
+    const registry = this._debounceRegistry;
+    registry.reset();
     this._lastSeenPhysicsTick = -1;
     gameAudio?.resetIncidentDebounceState?.();
   }
 
   public getCarActionState(carIdx: number): CarActionDebounceState {
-    return this._debounceRegistry.getCarActionState(carIdx);
+    const registry = this._debounceRegistry;
+    return registry.getCarActionState(carIdx);
   }
 
   public notifyLocalJumpReleased(playerCarIndex: number): void {
-    this._debounceRegistry.notifyLocalJumpReleased(playerCarIndex);
+    const registry = this._debounceRegistry;
+    registry.notifyLocalJumpReleased(playerCarIndex);
   }
 
-  public processRuntimeTickEvents(
-    runtime: CarActionSynthesizerRuntimePort,
-    isMatchEnded: boolean
-  ): void {
-    if (!runtime.physics) return;
-    const matchPhase = runtime.match?.state.phase ?? 'playing';
-    const ballPosY = Math.abs(runtime.physics.getBallStateView?.()?.posY || 0);
-    if (ballPosY < 5000 && matchPhase !== 'goal') {
-      runtime._clientGoalIncidentLatched = false;
-    }
-    const activeMode = runtime.modeManager?.getActiveMode?.();
-    if (
-      (activeMode?.standaloneReplayViewer?.isActive &&
-        !activeMode.standaloneReplayViewer.isIntervening) ||
-      (activeMode?.rlrcReplaySession?.isActive && !activeMode.rlrcReplaySession.isIntervening)
-    ) {
-      return;
-    }
-    const camTransform: CameraTransformLike | null | undefined =
-      runtime.camera && 'camera' in runtime.camera ? runtime.camera.camera : runtime.camera;
-
-    this.processTickEvents({
-      physics: runtime.physics,
-      playerCarIndex: runtime.playerCarIndex ?? 0,
-      playerControls: runtime.playerControls,
-      networkReconciler: runtime.networkManager?.sessionCoordinator?.networkReconciler,
-      testCarAudioEnabled: Boolean(runtime.networkManager?.diagnosticsProbe?.testCarAudioEnabled),
-      isMatchEnded,
-      matchPhase,
-      clientGoalIncidentLatched: Boolean(runtime._clientGoalIncidentLatched),
-      camera: camTransform,
-      arena: runtime.arena,
-      onGoalIncidentLatched: () => {
-        runtime._clientGoalIncidentLatched = true;
-      },
-      onModePhysicsEvent: (event) => {
-        if (event?.type === INCIDENT_EVENT_TYPES.CAR_BALL_HIT) {
-          runtime.ballTrajectoryPredictor?.notifyCarBallHit?.(event.tick);
-        }
-        runtime.modeManager?.getActiveMode?.()?.onPhysicsEvent?.(event);
-      },
-      onPlayFlipResetVisual: (carIdx) => {
-        const visual = runtime.getFlipResetVisual?.(carIdx);
-        if (visual) {
-          visual.play();
-        }
-      },
-    });
-  }
-
-  public processTickEvents(params: ProcessTickEventsParams): void {
+  public stepTickEvents(input: Readonly<CarActionTickInput>): CarActionTickResult {
     const {
       physics,
       playerCarIndex,
@@ -157,15 +113,27 @@ export class CarActionEventSynthesizer {
       isMatchEnded,
       matchPhase,
       camera,
-      arena,
-      onGoalIncidentLatched,
-      onModePhysicsEvent,
-      onPlayFlipResetVisual,
-    } = params;
+    } = input;
 
-    if (!physics) return;
+    const emittedModeEvents: CarActionPhysicsEventPayload[] = [];
+    const flipResetVisualCarIndices: number[] = [];
+    const goalBarrierImpacts: Array<{ x?: number; y?: number; z?: number }> = [];
 
-    let goalIncidentLatched = params.clientGoalIncidentLatched;
+    if (!physics) {
+      return {
+        nextClientGoalIncidentLatched: input.clientGoalIncidentLatched,
+        emittedModeEvents,
+        flipResetVisualCarIndices,
+        goalBarrierImpacts,
+      };
+    }
+
+    let goalIncidentLatched = input.clientGoalIncidentLatched;
+    const ballPosY = Math.abs(physics.getBallStateView?.()?.posY || 0);
+    if (ballPosY < 5000 && matchPhase !== 'goal') {
+      goalIncidentLatched = false;
+    }
+
     const currentTick = Math.floor(physics.getHeaderView?.()?.tickCount ?? 0);
     if (this._lastSeenPhysicsTick >= 0 && this._lastSeenPhysicsTick - currentTick > 180) {
       this.reset();
@@ -179,7 +147,7 @@ export class CarActionEventSynthesizer {
       networkReconciler,
       testCarAudioEnabled,
       camera,
-      onModePhysicsEvent,
+      emittedModeEvents,
     };
 
     this._debounceRegistry.syncPreTickCarStatesAndRemoteEdges(edgeCtx, currentTick);
@@ -219,7 +187,6 @@ export class CarActionEventSynthesizer {
           return;
         }
         goalIncidentLatched = true;
-        onGoalIncidentLatched();
       }
 
       if (
@@ -238,7 +205,7 @@ export class CarActionEventSynthesizer {
             event,
             targetCarIdx,
             physics,
-            onModePhysicsEvent
+            emittedModeEvents
           )
         ) {
           return;
@@ -250,7 +217,7 @@ export class CarActionEventSynthesizer {
       }
 
       eventStreamStore.addEvent(event);
-      onModePhysicsEvent(event);
+      emittedModeEvents.push(event);
 
       if (
         (event.type === PHYSICS_EVENT_TYPES.FLIP_RESET_GAINED ||
@@ -261,11 +228,11 @@ export class CarActionEventSynthesizer {
           typeof event.carIndex === 'number' && event.carIndex >= 0
             ? event.carIndex
             : playerCarIndex;
-        onPlayFlipResetVisual(targetCarIdx);
+        flipResetVisualCarIndices.push(targetCarIdx);
       }
 
       if (event.isGoalBarrierHit) {
-        arena?.triggerGoalBarrierImpact?.(event.x, event.y, event.z);
+        goalBarrierImpacts.push({ x: event.x, y: event.y, z: event.z });
       }
 
       if (gameAudio) {
@@ -274,5 +241,12 @@ export class CarActionEventSynthesizer {
     });
 
     this._debounceRegistry.synthesizePostTickLocalFallbackEdges(edgeCtx, currentTick);
+
+    return {
+      nextClientGoalIncidentLatched: goalIncidentLatched,
+      emittedModeEvents,
+      flipResetVisualCarIndices,
+      goalBarrierImpacts,
+    };
   }
 }

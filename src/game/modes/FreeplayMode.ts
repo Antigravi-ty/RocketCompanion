@@ -68,10 +68,20 @@ export class FreeplayMode extends BaseGameMode<FreeplayRuntimePort> {
       engine: rt?.physics || null,
       ringBuffer: this.replayRingBuffer,
     });
-    this.standaloneReplayViewer = new StandaloneReplayViewerController(this.runtime, this);
-    this.rlrcReplaySession = new RLRCReplaySessionController(this.runtime, this);
-    this.rewinderController = new FreeplayRewinderController(this.runtime, this);
-    this.nameTagTunerController = new NameTagTunerArenaController(this.runtime);
+    this.standaloneReplayViewer = new StandaloneReplayViewerController(rt, this);
+    this.rlrcReplaySession = new RLRCReplaySessionController(rt, this);
+    this.rewinderController = new FreeplayRewinderController(rt, this);
+    this.nameTagTunerController = new NameTagTunerArenaController(rt);
+    const handleReplaySessionCompleted = (): void => {
+      this.goalAndTouch.goalResetTicks = 0;
+      this.onResetKickoff();
+    };
+    const handleAfterFrameRecorded = (): void => {
+      this.rewinderController?.onAfterPhysicsTick?.();
+    };
+    const handleBeginGoalReplay = (): void => {
+      this._beginGoalReplay();
+    };
     this.directorPreview = new DirectorPreviewSubController({
       getRuntime: () => this.runtime,
       replayController: this.replayController,
@@ -84,10 +94,7 @@ export class FreeplayMode extends BaseGameMode<FreeplayRuntimePort> {
         this.rlrcReplaySession?.pausePlaying?.();
       },
       isNameTagTunerActive: () => Boolean(this.nameTagTunerController?.isActive),
-      onReplaySessionCompleted: () => {
-        this.goalAndTouch.goalResetTicks = 0;
-        this.onResetKickoff();
-      },
+      notifyReplaySessionCompleted: handleReplaySessionCompleted,
     });
     this.goalAndTouch = new FreeplayGoalAndTouchSubController({
       getRuntime: () => this.runtime,
@@ -99,8 +106,8 @@ export class FreeplayMode extends BaseGameMode<FreeplayRuntimePort> {
       isExternalReplayOrRewinderBlocking: () =>
         Boolean(this._isExtReplayActive() || this.rewinderController?.isBlockingLivePhysics),
       isNameTagTunerActive: () => Boolean(this.nameTagTunerController?.isActive),
-      onAfterFrameRecorded: () => this.rewinderController?.onAfterPhysicsTick?.(),
-      onBeginGoalReplay: () => this._beginGoalReplay(),
+      onAfterFrameRecorded: handleAfterFrameRecorded,
+      onBeginGoalReplay: handleBeginGoalReplay,
     });
     for (const c of [
       this.standaloneReplayViewer,

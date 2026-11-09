@@ -101,12 +101,12 @@ export interface ControlPacketPayload {
   stateSnapshot?: Float32Array | number[] | null;
 }
 
-export interface RosterSwitchControllerPort {
+export interface RosterSwitchContext {
   applyingBotFillPolicy: boolean;
   readonly players: Map<string, MatchPlayerSlot>;
   readonly spectators: Map<string, MatchSpectatorSlot>;
   readonly disconnectedPlayerSlots: Map<number, DisconnectedPlayerSlot>;
-  readonly host: {
+  readonly deps: {
     readonly domain: {
       matchTick: number;
       state: string;
@@ -145,60 +145,60 @@ export interface RosterSwitchControllerPort {
   broadcastRosterUpdate(): void;
 }
 
-export function executePlayerSessionRemoval(
-  ctrl: RosterSwitchControllerPort,
-  sessionId: string
-): void {
-  const { domain, sessionManager, physicsManager } = ctrl.host;
+export type RosterSwitchControllerPort = RosterSwitchContext;
+
+export function executePlayerSessionRemoval(ctx: RosterSwitchContext, sessionId: string): void {
+  const { domain, sessionManager, physicsManager, dispatchSignal, onPlayerSessionRemoved } =
+    ctx.deps;
   const tick = domain.matchTick,
-    player = ctrl.players.get(sessionId);
+    player = ctx.players.get(sessionId);
   if (player) {
     const entityId = player.entityId,
       wasHuman = !player.isBot;
     if (wasHuman && entityId >= 0)
-      ctrl.disconnectedPlayerSlots.set(entityId, { ...player, disconnectedAtTick: tick });
-    ctrl.players.delete(sessionId);
+      ctx.disconnectedPlayerSlots.set(entityId, { ...player, disconnectedAtTick: tick });
+    ctx.players.delete(sessionId);
     sessionManager?.unregisterSession?.(sessionId);
     if (physicsManager && entityId >= 0) physicsManager.unregisterCarEntity(entityId);
-    ctrl.host.dispatchSignal(MATCH_SIGNALS.PLAYER_LEFT, tick, entityId, player.team ?? 0);
-    ctrl.host.onPlayerSessionRemoved(sessionId);
+    dispatchSignal(MATCH_SIGNALS.PLAYER_LEFT, tick, entityId, player.team ?? 0);
+    onPlayerSessionRemoved(sessionId);
     if (
       wasHuman &&
-      !ctrl.applyingBotFillPolicy &&
+      !ctx.applyingBotFillPolicy &&
       domain.applyRosterPolicyConfig().shouldApplyBotFill
     )
-      ctrl.applyBotFillPolicy();
-    ctrl.broadcastRosterUpdate();
+      ctx.applyBotFillPolicy();
+    ctx.broadcastRosterUpdate();
     return;
   }
-  if (ctrl.spectators.has(sessionId)) {
-    ctrl.spectators.delete(sessionId);
+  if (ctx.spectators.has(sessionId)) {
+    ctx.spectators.delete(sessionId);
     sessionManager?.unregisterSession?.(sessionId);
-    ctrl.host.dispatchSignal(MATCH_SIGNALS.PLAYER_LEFT, tick, -1, 2);
-    ctrl.broadcastRosterUpdate();
+    dispatchSignal(MATCH_SIGNALS.PLAYER_LEFT, tick, -1, 2);
+    ctx.broadcastRosterUpdate();
   }
 }
 
 export function executePlayerSessionReclaim(
-  ctrl: RosterSwitchControllerPort,
+  ctx: RosterSwitchContext,
   sessionId: string,
   requestedEntityId: number,
   preferredTeam: number | null
 ): MatchPlayerSlot | MatchSpectatorSlot | null | undefined {
-  const { domain, sessionManager, physicsManager } = ctrl.host;
-  if (ctrl.players.has(sessionId)) return ctrl.players.get(sessionId);
+  const { domain, sessionManager, physicsManager, dispatchSignal } = ctx.deps;
+  if (ctx.players.has(sessionId)) return ctx.players.get(sessionId);
   const { reclaimed, entityId } = popReclaimedPlayerSlotCandidate(
-    ctrl.disconnectedPlayerSlots,
-    ctrl.players.values(),
+    ctx.disconnectedPlayerSlots,
+    ctx.players.values(),
     requestedEntityId
   );
   if (!reclaimed)
-    return ctrl.assignPlayerSlot(sessionId, 'Player', 'player', preferredTeam) as
+    return ctx.assignPlayerSlot(sessionId, 'Player', 'player', preferredTeam) as
       MatchPlayerSlot | MatchSpectatorSlot | null;
   if (entityId < 0)
-    return ctrl.assignPlayerSlot(sessionId, reclaimed.name || 'Player', 'spectator') as
+    return ctx.assignPlayerSlot(sessionId, reclaimed.name || 'Player', 'spectator') as
       MatchPlayerSlot | MatchSpectatorSlot | null;
-  if (ctrl.spectators.has(sessionId)) ctrl.spectators.delete(sessionId);
+  if (ctx.spectators.has(sessionId)) ctx.spectators.delete(sessionId);
 
   const p: MatchPlayerSlot = {
     ...reclaimed,
@@ -209,7 +209,7 @@ export function executePlayerSessionReclaim(
     arenaLoaded: true,
     isBot: false,
   };
-  ctrl.players.set(sessionId, p);
+  ctx.players.set(sessionId, p);
   sessionManager?.registerSession(sessionId, {
     role: 'player',
     entityId,
@@ -225,9 +225,9 @@ export function executePlayerSessionReclaim(
     physicsManager.applySignal('HOTSWAP_HITBOX', { carIndex: entityId, hitboxType: hb });
   }
   const tick = domain.matchTick;
-  ctrl.host.dispatchSignal(MATCH_SIGNALS.PLAYER_JOINED, tick, entityId, p.team);
-  ctrl.host.dispatchSignal(MATCH_SIGNALS.PLAYER_SLOT_UPDATED, tick, entityId, p.team);
-  ctrl.host.dispatchSignal(
+  dispatchSignal(MATCH_SIGNALS.PLAYER_JOINED, tick, entityId, p.team);
+  dispatchSignal(MATCH_SIGNALS.PLAYER_SLOT_UPDATED, tick, entityId, p.team);
+  dispatchSignal(
     MATCH_SIGNALS.PLAYER_LOADOUT_UPDATED,
     tick,
     entityId,
@@ -237,20 +237,20 @@ export function executePlayerSessionReclaim(
       boostAudio: p.boostAudio || 'rush',
     })
   );
-  ctrl.broadcastRosterUpdate();
+  ctx.broadcastRosterUpdate();
   return p;
 }
 
 export function executePlayerRoleOrTeamSwitch(
-  ctrl: RosterSwitchControllerPort,
+  ctx: RosterSwitchContext,
   sessionId: string,
   targetRole: string | number,
   targetTeam: number
 ): MatchPlayerSlot | MatchSpectatorSlot | null {
-  const { domain, sessionManager, dataHandler } = ctrl.host;
+  const { domain, sessionManager, dataHandler, dispatchSignal } = ctx.deps;
   const policyFlags = domain.applyRosterPolicyConfig();
-  const cp = ctrl.players.get(sessionId),
-    cs = ctrl.spectators.get(sessionId);
+  const cp = ctx.players.get(sessionId),
+    cs = ctx.spectators.get(sessionId);
   const name = cp?.name || cs?.name || 'Player';
   const visualId = cp?.visualId || 'fennec',
     hitboxId = cp?.hitboxId || visualId;
@@ -260,8 +260,8 @@ export function executePlayerRoleOrTeamSwitch(
     boostAudio = cp?.boostAudio || 'rush';
 
   if (targetRole === 'spectator' || targetRole === 2) {
-    if (cp) ctrl.removePlayerSession(sessionId);
-    const specSlot = ctrl.assignPlayerSlot(sessionId, name, 'spectator', null, {
+    if (cp) ctx.removePlayerSession(sessionId);
+    const specSlot = ctx.assignPlayerSlot(sessionId, name, 'spectator', null, {
       visualId,
       hitboxId,
       colorSlot,
@@ -269,7 +269,7 @@ export function executePlayerRoleOrTeamSwitch(
       boostVisual,
       boostAudio,
     }) as MatchSpectatorSlot | null;
-    ctrl.host.dispatchSignal(
+    dispatchSignal(
       MATCH_SIGNALS.PLAYER_SLOT_UPDATED,
       domain.matchTick,
       65535,
@@ -287,15 +287,15 @@ export function executePlayerRoleOrTeamSwitch(
   let teamCount = 0,
     autoFillBotSid: string | null = null;
   if (targetTeam === 0 || targetTeam === 1) {
-    for (const [sid, p] of ctrl.players.entries()) {
+    for (const [sid, p] of ctx.players.entries()) {
       if (sid !== sessionId && p.team === targetTeam) {
         teamCount++;
         if (p.isBot && String(sid).startsWith('bot_fill_') && !autoFillBotSid) autoFillBotSid = sid;
       }
     }
-    if (teamCount >= 5 && autoFillBotSid && !ctrl.applyingBotFillPolicy) {
-      ctrl.withBotFillGuard(() => {
-        ctrl.removePlayerSession(autoFillBotSid!);
+    if (teamCount >= 5 && autoFillBotSid && !ctx.applyingBotFillPolicy) {
+      ctx.withBotFillGuard(() => {
+        ctx.removePlayerSession(autoFillBotSid!);
         teamCount--;
       });
     }
@@ -306,12 +306,12 @@ export function executePlayerRoleOrTeamSwitch(
   let updated: MatchPlayerSlot | MatchSpectatorSlot | null = null;
   const hadValidEntity = Boolean(cp && typeof cp.entityId === 'number' && cp.entityId >= 0);
   if (hadValidEntity && cp) {
-    updated = ctrl.applyInPlaceTeamSwitch(sessionId, cp, targetTeam, policyFlags.isTrainingMode);
-    ctrl.broadcastRosterUpdate();
+    updated = ctx.applyInPlaceTeamSwitch(sessionId, cp, targetTeam, policyFlags.isTrainingMode);
+    ctx.broadcastRosterUpdate();
   } else {
-    updated = ctrl.withBotFillGuard(() => {
-      if (cs) ctrl.removePlayerSession(sessionId);
-      return ctrl.assignPlayerSlot(sessionId, name, 'player', targetTeam, {
+    updated = ctx.withBotFillGuard(() => {
+      if (cs) ctx.removePlayerSession(sessionId);
+      return ctx.assignPlayerSlot(sessionId, name, 'player', targetTeam, {
         visualId,
         hitboxId,
         colorSlot: resolveDefaultColorSlotForTeam(targetTeam === 1 ? 1 : 0),
@@ -322,10 +322,10 @@ export function executePlayerRoleOrTeamSwitch(
     });
   }
 
-  if (!ctrl.applyingBotFillPolicy && policyFlags.shouldApplyBotFill) ctrl.applyBotFillPolicy();
+  if (!ctx.applyingBotFillPolicy && policyFlags.shouldApplyBotFill) ctx.applyBotFillPolicy();
   if (updated && 'entityId' in updated && updated.entityId >= 0) {
     if (domain.state !== MATCH_STATES.LOBBY || !hadValidEntity) {
-      ctrl.host.dispatchSignal(
+      dispatchSignal(
         MATCH_SIGNALS.PLAYER_SLOT_UPDATED,
         domain.matchTick,
         updated.entityId,

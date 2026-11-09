@@ -38,8 +38,8 @@ export interface HandshakeSessionPort {
   bindDataChannel: (channel: RTCDataChannel) => void;
   handleIncomingMessage: (data: any) => void;
   sendPong: (sendTime: number) => void;
-  onColorChange: (msg: any) => void;
-  onBroadcastSignal: (msg: any) => void;
+  deliverColorChange: (msg: any) => void;
+  deliverBroadcastSignal: (msg: any) => void;
 }
 
 export class HandshakeSession {
@@ -168,7 +168,7 @@ export class HandshakeSession {
         );
       }
 
-      this.port.connection.options.onDataChannel = (event) => {
+      this.port.connection.options.handleDataChannel = (event) => {
         console.log('[P2PWebRTCChannel] Client accepted dataChannel from Host');
         const dc = event.channel;
         dc.binaryType = 'arraybuffer';
@@ -369,7 +369,7 @@ export class HandshakeSession {
       console.log(
         `[P2PWebRTCChannel] Received cross-tab color_change: car ${data.carIndex} -> slot ${data.slotId} (${data.hex})`
       );
-      this.port.onColorChange(data);
+      this.port.deliverColorChange(data);
       return;
     }
 
@@ -399,6 +399,6 @@ export class HandshakeSession {
       }
     }
 
-    this.port.onBroadcastSignal(msg);
+    this.port.deliverBroadcastSignal(msg);
   }
 }

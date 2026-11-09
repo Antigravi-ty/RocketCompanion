@@ -29,17 +29,28 @@ interface WasmEventTrackMaps {
   signalsByTick: Map<number, DecodedSignalEvent[]>;
 }
 
-function decodeWasmEventTrackMaps(engine: any): WasmEventTrackMaps {
+export interface WasmReplayBufferReaderPort {
+  getReplayFrameCount?: () => number;
+  getReplayFrameByIndex?: (index: number) => Float32Array | null;
+  getReplayFrameByOffset?: (ticksAgo: number) => Float32Array | null;
+  getReplayControlsByIndex?: (index: number) => Uint8Array | null;
+  getReplayIncidentTrackBytes?: () => Uint8Array | null;
+  getReplaySignalTrackBytes?: () => Uint8Array | null;
+}
+
+function decodeWasmEventTrackMaps(
+  wasmReader: WasmReplayBufferReaderPort | null | undefined
+): WasmEventTrackMaps {
   const incidentsByFrame = new Map<number, DecodedIncidentEvent[]>();
   const signalsByFrame = new Map<number, DecodedSignalEvent[]>();
   const incidentsByTick = new Map<number, DecodedIncidentEvent[]>();
   const signalsByTick = new Map<number, DecodedSignalEvent[]>();
 
-  if (!engine) {
+  if (!wasmReader) {
     return { incidentsByFrame, signalsByFrame, incidentsByTick, signalsByTick };
   }
 
-  const incidentBytes = engine.getReplayIncidentTrackBytes?.() || null;
+  const incidentBytes = wasmReader.getReplayIncidentTrackBytes?.() || null;
   if (incidentBytes && incidentBytes.byteLength >= 64) {
     const incList = unpackIncidentTrackToEvents(incidentBytes);
     for (let i = 0; i < incList.length; i++) {
@@ -65,7 +76,7 @@ function decodeWasmEventTrackMaps(engine: any): WasmEventTrackMaps {
     }
   }
 
-  const signalBytes = engine.getReplaySignalTrackBytes?.() || null;
+  const signalBytes = wasmReader.getReplaySignalTrackBytes?.() || null;
   if (signalBytes && signalBytes.byteLength >= 64) {
     const sigList = unpackSignalTrackToEvents(signalBytes);
     for (let i = 0; i < sigList.length; i++) {
@@ -95,7 +106,7 @@ function decodeWasmEventTrackMaps(engine: any): WasmEventTrackMaps {
 }
 
 function buildWasmFrameSlot(
-  engine: any,
+  wasmReader: WasmReplayBufferReaderPort,
   wasmFrameIndex: number,
   view: Float32Array,
   eventMaps: WasmEventTrackMaps
@@ -103,13 +114,13 @@ function buildWasmFrameSlot(
   const snapshot = new Float32Array(view.length);
   snapshot.set(view);
   const tick = Math.floor(snapshot[0] || 0);
-  const ctrlBytes = engine.getReplayControlsByIndex?.(wasmFrameIndex) || null;
+  const ctrlBytes = wasmReader.getReplayControlsByIndex?.(wasmFrameIndex) || null;
   const acknowledgedControls = ctrlBytes ? unpackControls64ToCars(ctrlBytes, 0) : [];
   const incidents =
     eventMaps.incidentsByFrame.get(wasmFrameIndex) || eventMaps.incidentsByTick.get(tick) || [];
   const signals =
     eventMaps.signalsByFrame.get(wasmFrameIndex) || eventMaps.signalsByTick.get(tick) || [];
-  const audioEvents: any[] = [];
+  const audioEvents: NonNullable<ReplayRingBufferSlot['audioEvents']> = [];
   for (let s = 0; s < signals.length; s++) {
     const cue = resolveReplayAudioCueForSignal(signals[s], false);
     if (cue) {
@@ -137,7 +148,7 @@ export interface GoalReplayWindowOptions {
   lastKickoffWillStartTick?: number;
   ringBuffer?: ReplayRingBuffer | null;
   signalLog?: Array<{ signalType?: number; frameId?: number }> | null;
-  engine?: any;
+  engine?: WasmReplayBufferReaderPort | null;
   durationTicks?: number;
 }
 
@@ -292,7 +303,7 @@ export function extractGoalReplayFrames(
 ): ReplayRingBufferSlot[] {
   const {
     ringBuffer = null,
-    engine = null,
+    engine: wasmReader = null,
     durationTicks = DEFAULT_GOAL_REPLAY_TICKS,
     goalIncidentTick = null,
     scorerTouchTick = -1,
@@ -345,20 +356,20 @@ export function extractGoalReplayFrames(
     }
 
     if (
-      engine &&
-      typeof engine.getReplayFrameCount === 'function' &&
-      typeof engine.getReplayFrameByIndex === 'function'
+      wasmReader &&
+      typeof wasmReader.getReplayFrameCount === 'function' &&
+      typeof wasmReader.getReplayFrameByIndex === 'function'
     ) {
-      const totalWasmFrames = engine.getReplayFrameCount();
-      const eventMaps = decodeWasmEventTrackMaps(engine);
+      const totalWasmFrames = wasmReader.getReplayFrameCount();
+      const eventMaps = decodeWasmEventTrackMaps(wasmReader);
       const matched: ReplayRingBufferSlot[] = [];
       for (let i = 0; i < totalWasmFrames; i++) {
-        const view = engine.getReplayFrameByIndex(i);
+        const view = wasmReader.getReplayFrameByIndex(i);
         if (!view) continue;
         if (view.length > 302 && Math.abs((view[302] || 0) - 1337.5) <= 0.01) continue;
         const tick = Math.floor(view[0] || 0);
         if (tick >= bounds.effectiveStartFrame && tick <= bounds.effectiveEndFrame) {
-          matched.push(buildWasmFrameSlot(engine, i, view, eventMaps));
+          matched.push(buildWasmFrameSlot(wasmReader, i, view, eventMaps));
         }
       }
       if (matched.length > 0) {
@@ -389,20 +400,20 @@ export function extractGoalReplayFrames(
   }
 
   if (
-    engine &&
-    typeof engine.getReplayFrameCount === 'function' &&
-    typeof engine.getReplayFrameByOffset === 'function'
+    wasmReader &&
+    typeof wasmReader.getReplayFrameCount === 'function' &&
+    typeof wasmReader.getReplayFrameByOffset === 'function'
   ) {
-    const totalWasmFrames = engine.getReplayFrameCount();
-    const eventMaps = decodeWasmEventTrackMaps(engine);
+    const totalWasmFrames = wasmReader.getReplayFrameCount();
+    const eventMaps = decodeWasmEventTrackMaps(wasmReader);
     const count = Math.min(totalWasmFrames, maxTicks);
     const frames: ReplayRingBufferSlot[] = [];
     for (let i = 0; i < count; i++) {
       const ticksAgo = count - 1 - i;
       const wasmIdx = Math.max(0, totalWasmFrames - 1 - ticksAgo);
-      const view = engine.getReplayFrameByOffset(ticksAgo);
+      const view = wasmReader.getReplayFrameByOffset(ticksAgo);
       if (view && !(view.length > 302 && Math.abs((view[302] || 0) - 1337.5) <= 0.01)) {
-        frames.push(buildWasmFrameSlot(engine, wasmIdx, view, eventMaps));
+        frames.push(buildWasmFrameSlot(wasmReader, wasmIdx, view, eventMaps));
       }
     }
     return frames;
@@ -429,7 +440,7 @@ export function resolveTimelineFrameEntryAt<T extends { snapshot?: Float32Array 
 
 export function resolveTimelineFrameBufferAt(
   activeFrames: ReadonlyArray<{ snapshot?: Float32Array | null }>,
-  engine: {
+  wasmReader: {
     getReplayFrameCount?: () => number;
     getReplayFrameByIndex?: (index: number) => Float32Array | null;
   } | null,
@@ -442,10 +453,12 @@ export function resolveTimelineFrameBufferAt(
       null
     );
   }
-  if (engine && typeof engine.getReplayFrameByIndex === 'function') {
-    const wasmCount = engine.getReplayFrameCount?.() ?? 0;
+  if (wasmReader && typeof wasmReader.getReplayFrameByIndex === 'function') {
+    const wasmCount = wasmReader.getReplayFrameCount?.() ?? 0;
     if (wasmCount > 0)
-      return engine.getReplayFrameByIndex(Math.max(0, Math.min(wasmCount - 1, Math.floor(index))));
+      return wasmReader.getReplayFrameByIndex(
+        Math.max(0, Math.min(wasmCount - 1, Math.floor(index)))
+      );
   }
   if (ringBuffer && ringBuffer.size > 0) {
     return (
@@ -458,7 +471,7 @@ export function resolveTimelineFrameBufferAt(
 
 export function resolveTimelineFrameBufferByOffset(
   activeFrames: ReadonlyArray<{ snapshot?: Float32Array | null }>,
-  engine: { getReplayFrameByOffset?: (ticksAgo: number) => Float32Array | null } | null,
+  wasmReader: { getReplayFrameByOffset?: (ticksAgo: number) => Float32Array | null } | null,
   ringBuffer: ReplayRingBuffer | null,
   ticksAgo = 0
 ): Float32Array | null {
@@ -466,8 +479,8 @@ export function resolveTimelineFrameBufferByOffset(
   if (Array.isArray(activeFrames) && activeFrames.length > 0) {
     return activeFrames[Math.max(0, activeFrames.length - 1 - safeOffset)]?.snapshot || null;
   }
-  if (engine && typeof engine.getReplayFrameByOffset === 'function') {
-    const wasmFrame = engine.getReplayFrameByOffset(safeOffset);
+  if (wasmReader && typeof wasmReader.getReplayFrameByOffset === 'function') {
+    const wasmFrame = wasmReader.getReplayFrameByOffset(safeOffset);
     if (wasmFrame) return wasmFrame;
   }
   if (ringBuffer && ringBuffer.size > 0)

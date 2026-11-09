@@ -1,11 +1,8 @@
 import { extractGoalReplayFrames } from '../../../replay/ReplayPlaybackState.ts';
-import { applyReplayFrameToEngine } from '../../../replay/ReplayFrameInterpolator.ts';
 import {
-  applyDirectorReplayCamera,
   type DirectorCameraTargetPort,
   type DirectorInterpolatorSnapshot,
 } from '../../../replay/ReplayDirectorCamera.ts';
-import { dispatchReplayFrameEvents } from '../../../replay/ReplayFrameEventDispatcher.ts';
 import {
   ReplayRingBuffer,
   REPLAY_BUFFER_MODES,
@@ -216,11 +213,13 @@ export class StaticTrainingReplayController {
     if (r?.match?.state) {
       r.match.state.phase = 'replay';
     }
+    const firstSnap = extractedFrames[0].snapshot;
     beginGoalReplaySession(r, this.replayController, {
       cameraMode: 'director',
       source: 'static-training-replay',
       syncHud: true,
       totalFrames,
+      initialSnapshot: firstSnap,
       scorerName: incidentMeta.goalScorerName,
       scorerTeam: incidentMeta.goalScoringTeam,
       ballSpeedKph: incidentMeta.goalBallSpeedKph,
@@ -232,18 +231,6 @@ export class StaticTrainingReplayController {
       getScoringTeam: () => this.activeIncidentMeta.goalScoringTeam ?? 0,
       getScorerCarIndex: () => this.activeIncidentMeta.goalScorerCarIndex ?? 0,
     });
-
-    const firstSnap = extractedFrames[0].snapshot;
-    applyReplayFrameToEngine(sim, firstSnap, r?.interpolator ?? null, firstSnap, 1.0);
-    applyDirectorReplayCamera(
-      r?.camera,
-      r?.interpolator,
-      0,
-      incidentMeta.goalScoringTeam,
-      0.016,
-      incidentMeta.goalScorerCarIndex,
-      this.replayController.directorCameraState
-    );
 
     useStaticTrainingPackStore.getState().updateLiveTelemetry({
       isReplayActive: true,

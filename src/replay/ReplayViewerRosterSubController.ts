@@ -99,63 +99,64 @@ export class ReplayViewerRosterSubController {
 
   resolveAndApplyToArena(
     input: ReplayRosterExtractionInput,
-    runtime: ReplayViewerRosterRuntimePort | null
+    arenaPort: ReplayViewerRosterRuntimePort | null
   ): void {
     const resolved = resolveReplayRosterData(input);
-    this.resolvedRoster = resolved.resolvedRoster;
+    const roster = resolved.resolvedRoster;
+    this.resolvedRoster = roster;
     this.localTeam = resolved.localTeam;
     this.slotKeyToCarIndex = resolved.slotKeyToCarIndex;
     this.activePovCarIndex = resolved.activePovCarIndex;
     this.activePovSlotKey = resolved.activePovSlotKey;
     this.activePovTeam = resolved.activePovTeam;
 
-    if (runtime?.physics) {
-      const activeSet = new Set(this.resolvedRoster.map((e) => e.carIndex));
+    const physics = arenaPort?.physics;
+    if (physics) {
+      const activeSet = new Set(roster.map((e) => e.carIndex));
       for (let c = MAX_CARS - 1; c >= 0; c--) {
-        if (!activeSet.has(c) && runtime.physics.isCarSlotActive?.(c)) {
-          runtime.physics.removeCar?.(c);
+        if (!activeSet.has(c) && physics.isCarSlotActive?.(c)) {
+          physics.removeCar?.(c);
         }
       }
-      for (const e of this.resolvedRoster) {
-        if (typeof runtime.physics.addCarAtSlot === 'function') {
-          runtime.physics.addCarAtSlot(e.carIndex, e.team, e.hitboxId);
+      for (const e of roster) {
+        if (typeof physics.addCarAtSlot === 'function') {
+          physics.addCarAtSlot(e.carIndex, e.team, e.hitboxId);
         } else {
-          while (
-            runtime.physics.numCars <= e.carIndex &&
-            typeof runtime.physics.addCar === 'function'
-          ) {
-            runtime.physics.addCar(e.team, e.hitboxId);
+          while (physics.numCars <= e.carIndex && typeof physics.addCar === 'function') {
+            physics.addCar(e.team, e.hitboxId);
           }
-          runtime.physics.setCarTeam?.(e.carIndex, e.team);
+          physics.setCarTeam?.(e.carIndex, e.team);
         }
       }
     }
 
-    this.applyRecordedLoadoutsToArena(runtime);
+    this.applyRecordedLoadoutsToArena(arenaPort);
   }
 
-  applyRecordedLoadoutsToArena(runtime: ReplayViewerRosterRuntimePort | null): void {
+  applyRecordedLoadoutsToArena(arenaPort: ReplayViewerRosterRuntimePort | null): void {
     const allEntries = this.resolvedRoster;
     if (allEntries.length === 0) return;
-    const audio = runtime?.options?.gameAudio || gameAudio;
+    const audio = arenaPort?.options?.gameAudio || gameAudio;
+    const physics = arenaPort?.physics;
+    const arena = arenaPort?.arena;
 
-    if (runtime?.physics) {
+    if (physics) {
       for (const e of allEntries) {
-        runtime.physics.setCarTeam?.(e.carIndex, e.team);
-        runtime.physics.setCarHitbox?.(e.carIndex, e.hitboxId);
+        physics.setCarTeam?.(e.carIndex, e.team);
+        physics.setCarHitbox?.(e.carIndex, e.hitboxId);
       }
     }
 
-    if (runtime?.arena) {
+    if (arena) {
       if (allEntries.length > 1) {
-        runtime.arena.ensureOpponent?.();
+        arena.ensureOpponent?.();
       }
       const activeSet = new Set(allEntries.map((e) => e.carIndex));
       for (const e of allEntries) {
-        runtime.arena.ensureCar?.(e.carIndex, e.team, e.visualId);
-        runtime.arena.setCarTeam?.(e.carIndex, e.team);
-        runtime.arena.setCarColor?.(e.carIndex, e.colorHex);
-        runtime.arena.setCarLoadout?.(e.carIndex, {
+        arena.ensureCar?.(e.carIndex, e.team, e.visualId);
+        arena.setCarTeam?.(e.carIndex, e.team);
+        arena.setCarColor?.(e.carIndex, e.colorHex);
+        arena.setCarLoadout?.(e.carIndex, {
           name: e.name,
           colorHex: e.colorHex,
           paintFinish: e.paintFinish,
@@ -163,26 +164,26 @@ export class ReplayViewerRosterSubController {
           boostAudio: e.boostAudio,
         });
         audio?.setCarBoostAudioVariation?.(e.carIndex, e.boostAudio);
-        if (runtime.arena.cars?.[e.carIndex]) {
-          runtime.arena.cars[e.carIndex]!.visible = true;
+        if (arena.cars?.[e.carIndex]) {
+          arena.cars[e.carIndex]!.visible = true;
         }
       }
-      if (Array.isArray(runtime.arena.cars)) {
-        for (let c = 0; c < runtime.arena.cars.length; c++) {
-          if (!activeSet.has(c) && runtime.arena.cars[c]) {
-            runtime.arena.cars[c]!.visible = false;
+      if (Array.isArray(arena.cars)) {
+        for (let c = 0; c < arena.cars.length; c++) {
+          if (!activeSet.has(c) && arena.cars[c]) {
+            arena.cars[c]!.visible = false;
           }
         }
       }
     }
 
-    if (runtime) {
-      runtime.playerCarIndex = this.activePovCarIndex;
-      if (runtime.arena) {
-        runtime.arena.playerCarIndex = this.activePovCarIndex;
+    if (arenaPort) {
+      arenaPort.playerCarIndex = this.activePovCarIndex;
+      if (arena) {
+        arena.playerCarIndex = this.activePovCarIndex;
       }
-      if (runtime.keyboard) {
-        runtime.keyboard.ballControlEnabled = false;
+      if (arenaPort.keyboard) {
+        arenaPort.keyboard.ballControlEnabled = false;
       }
     }
 
@@ -202,17 +203,17 @@ export class ReplayViewerRosterSubController {
     hudStore.getState().setMatchState({ localTeam: this.activePovTeam });
   }
 
-  restoreRecordedLoadoutsIfNeeded(runtime: ReplayViewerRosterRuntimePort | null): void {
+  restoreRecordedLoadoutsIfNeeded(arenaPort: ReplayViewerRosterRuntimePort | null): void {
     if (this.isTakenOverLoadoutApplied && this.resolvedRoster.length > 0) {
-      this.applyRecordedLoadoutsToArena(runtime);
+      this.applyRecordedLoadoutsToArena(arenaPort);
     }
   }
 
   applyUserLoadoutToTakenOverCar(
-    runtime: ReplayViewerRosterRuntimePort | null,
+    arenaPort: ReplayViewerRosterRuntimePort | null,
     carIndex = this.activePovCarIndex
   ): void {
-    if (!runtime) return;
+    if (!arenaPort) return;
     const povIdx = Number.isInteger(carIndex) ? carIndex : 0;
     const povEntry = this.resolvedRoster.find((e) => e.carIndex === povIdx) || null;
     const povTeam = povEntry ? (povEntry.team === 1 ? 1 : 0) : this.activePovTeam === 1 ? 1 : 0;
@@ -220,7 +221,7 @@ export class ReplayViewerRosterSubController {
 
     const appState = useAppStore.getState?.() || null;
     const userVisualId = normalizeVisualId(
-      appState?.activeCar || runtime.selectedPreset || 'fennec'
+      appState?.activeCar || arenaPort.selectedPreset || 'fennec'
     );
     const userHitboxId = resolveVehicleHitboxId(userVisualId);
 
@@ -237,31 +238,33 @@ export class ReplayViewerRosterSubController {
     const boostAudio = matCfg?.boostAudio || 'standard';
     const userAnthemId = useSpatialAudioStore.getState?.()?.selectedAnthem || 'random';
 
-    runtime.physics?.setCarTeam?.(povIdx, povTeam);
-    runtime.physics?.setCarHitbox?.(povIdx, userHitboxId);
+    const physics = arenaPort.physics;
+    const arena = arenaPort.arena;
+    physics?.setCarTeam?.(povIdx, povTeam);
+    physics?.setCarHitbox?.(povIdx, userHitboxId);
 
-    if (runtime.arena) {
-      runtime.arena.ensureCar?.(povIdx, povTeam, userVisualId);
-      runtime.arena.setCarTeam?.(povIdx, povTeam);
-      runtime.arena.setCarColor?.(povIdx, userColor.colorHex);
-      runtime.arena.setCarLoadout?.(povIdx, {
+    if (arena) {
+      arena.ensureCar?.(povIdx, povTeam, userVisualId);
+      arena.setCarTeam?.(povIdx, povTeam);
+      arena.setCarColor?.(povIdx, userColor.colorHex);
+      arena.setCarLoadout?.(povIdx, {
         name: povEntry?.name || 'Player',
         colorHex: userColor.colorHex,
         paintFinish,
         boostVisual,
         boostAudio,
       });
-      if (runtime.arena.cars?.[povIdx]) {
-        runtime.flipResetVisual?.dispose?.();
+      if (arena.cars?.[povIdx]) {
+        arenaPort.flipResetVisual?.dispose?.();
         try {
-          runtime.getFlipResetVisual?.(povIdx);
+          arenaPort.getFlipResetVisual?.(povIdx);
         } catch {
           // Ignore visual re-init failure
         }
       }
     }
 
-    const audio = runtime.options?.gameAudio || gameAudio;
+    const audio = arenaPort.options?.gameAudio || gameAudio;
     audio?.setCarBoostAudioVariation?.(povIdx, boostAudio);
 
     this.isTakenOverLoadoutApplied = true;
@@ -285,7 +288,7 @@ export class ReplayViewerRosterSubController {
 
   selectPovSlot(
     slotKey: number,
-    runtime: ReplayViewerRosterRuntimePort | null,
+    arenaPort: ReplayViewerRosterRuntimePort | null,
     freeplayMode: ReplayViewerRosterModePort | null,
     wasIntervening: boolean
   ): { activePovCarIndex: number; activePovSlotKey: number; activePovTeam: number } | null {
@@ -298,31 +301,31 @@ export class ReplayViewerRosterSubController {
     if (!entry) return null;
 
     if (wasIntervening && this.isTakenOverLoadoutApplied) {
-      this.applyRecordedLoadoutsToArena(runtime);
+      this.applyRecordedLoadoutsToArena(arenaPort);
     }
 
     this.activePovCarIndex = entry.carIndex;
     this.activePovSlotKey = entry.slotKey;
     this.activePovTeam = entry.team === 1 ? 1 : 0;
 
-    if (runtime) {
-      runtime.playerCarIndex = entry.carIndex;
-      if (runtime.arena) {
-        runtime.arena.playerCarIndex = entry.carIndex;
+    if (arenaPort) {
+      arenaPort.playerCarIndex = entry.carIndex;
+      if (arenaPort.arena) {
+        arenaPort.arena.playerCarIndex = entry.carIndex;
       }
       if (freeplayMode?.directorPreview?.isReplayActive || freeplayMode?.isGoalReplayActive?.()) {
         if (freeplayMode.directorPreview) {
           freeplayMode.directorPreview.goalScorerCarIndex = entry.carIndex;
         }
         freeplayMode.setReplayCameraMode?.('pov');
-        runtime.releaseGoalReplayCameraOverride?.();
+        arenaPort.releaseGoalReplayCameraOverride?.();
         hudStore.getState().setReplayState({ replayCameraMode: 'pov' });
       }
-      runtime.camera?.resetView?.();
+      arenaPort.camera?.resetView?.();
     }
 
     if (wasIntervening) {
-      this.applyUserLoadoutToTakenOverCar(runtime, this.activePovCarIndex);
+      this.applyUserLoadoutToTakenOverCar(arenaPort, this.activePovCarIndex);
     } else if (this.resolvedRoster.length > 0) {
       setNameTagRuntimeState({
         isMultiplayerOrMultiCarMode: this.resolvedRoster.length > 1,

@@ -113,7 +113,8 @@ export class ArenaWorld {
   public isGoalReplayActive?: boolean;
 
   constructor(ballRadius: number, defaultCarVisual = 'fennec') {
-    this.scene = new THREE.Scene();
+    const arenaScene = new THREE.Scene();
+    this.scene = arenaScene;
     this.ball = new THREE.Group();
     this.pads = [];
     this.boostPadSystem = new BoostPadSystem();
@@ -132,29 +133,29 @@ export class ArenaWorld {
     this.qA = new THREE.Quaternion();
     this.qB = new THREE.Quaternion();
 
-    this.scene.background = new THREE.Color(4679561);
-    this.scene.fog = new THREE.Fog(6586005, 15000, 34000);
+    arenaScene.background = new THREE.Color(4679561);
+    arenaScene.fog = new THREE.Fog(6586005, 15000, 34000);
 
-    this.lighting = new ArenaLightingManager(this.scene);
+    this.lighting = new ArenaLightingManager(arenaScene);
 
     this.sky = createStadiumDomeSky();
     this.goalBarrierVisual = new GoalBarrierVisual();
     this.goalVolumeHitboxVisual = new GoalVolumeHitboxVisual();
-    this.scene.add(
+    arenaScene.add(
       this.sky,
       this.ball,
       this.goalBarrierVisual.group,
       this.goalVolumeHitboxVisual.group
     );
-    if (this.ballLocatorArrow?.object) this.scene.add(this.ballLocatorArrow.object);
-    if (this.ballSpeedTrail?.object) this.scene.add(this.ballSpeedTrail.object);
+    if (this.ballLocatorArrow?.object) arenaScene.add(this.ballLocatorArrow.object);
+    if (this.ballSpeedTrail?.object) arenaScene.add(this.ballSpeedTrail.object);
 
-    const rings = createBallGroundIndicatorRings(this.scene, ballRadius);
+    const rings = createBallGroundIndicatorRings(arenaScene, ballRadius);
     this.indicatorRing = rings.indicatorRing;
     this.indicatorHeightRing = rings.indicatorHeightRing;
 
     const vr = (this.vehicleRegistry = new ArenaVehicleRegistry(
-      this.scene,
+      arenaScene,
       () => this.markRenderTreeChanged(),
       () => this.lighting.ensureOpponentSun()
     ));
@@ -170,16 +171,17 @@ export class ArenaWorld {
     this.carVerticalVelZUu = this.aerialClimbTracker.carVerticalVelZUu;
     this.carAirborneFlipExhausted = this.aerialClimbTracker.carAirborneFlipExhausted;
     this.carAerialClimbStatuses = this.aerialClimbTracker.carAerialClimbStatuses;
-    this.nameTagSystem = new VehicleNameTagSystem(this.scene);
-    this.respawnGhostPreview = new RespawnGhostPreview(this);
-    this.spatialAudioVisualizer = new SpatialAudioDebugVisualizer(this.scene, () =>
+    this.nameTagSystem = new VehicleNameTagSystem(arenaScene);
+    const selfRef = this;
+    this.respawnGhostPreview = new RespawnGhostPreview(selfRef);
+    this.spatialAudioVisualizer = new SpatialAudioDebugVisualizer(arenaScene, () =>
       this.markRenderTreeChanged()
     );
-    this.supersonicWheelTrailSystem = new SupersonicWheelTrailSystem(this.scene);
-    this.demolitionSimPreview = new DemolitionSimPreviewController(this.scene, () =>
+    this.supersonicWheelTrailSystem = new SupersonicWheelTrailSystem(arenaScene);
+    this.demolitionSimPreview = new DemolitionSimPreviewController(arenaScene, () =>
       this.markRenderTreeChanged()
     );
-    this.environment = new ArenaEnvironmentManager(this);
+    this.environment = new ArenaEnvironmentManager(selfRef);
 
     this._headerView = new ArenaHeaderView();
     this._currCarView = new CarStateView();
@@ -189,7 +191,7 @@ export class ArenaWorld {
 
     this.markRenderTreeChanged();
     if (typeof onThemeChange === 'function') {
-      const weakThis = new WeakRef(this);
+      const weakThis = new WeakRef(selfRef);
       onThemeChange(() => weakThis.deref()?.markRenderTreeChanged());
     }
   }
@@ -223,7 +225,7 @@ export class ArenaWorld {
     this._renderTreeVersion++;
   }
   get boostBloomActive() {
-    return this.vehicleRegistry.hasActiveBoostBloom();
+    return this.vehicleRegistry?.hasActiveBoostBloom?.() ?? false;
   }
 
   async loadBall() {
@@ -277,42 +279,42 @@ export class ArenaWorld {
 
   // Legacy vehicle delegates retained strictly for parallel branch callers outside src/game/runtime/
   setCarColor(carIndex: number, colorVal: string | number | null | undefined) {
-    this.vehicleRegistry.setCarColor(carIndex, colorVal);
+    this.vehicleRegistry?.setCarColor?.(carIndex, colorVal);
   }
   setCarLoadout(carIndex: number, loadout: CarLoadoutConfig | null | undefined) {
-    this.vehicleRegistry.setCarLoadout?.(carIndex, loadout);
+    this.vehicleRegistry?.setCarLoadout?.(carIndex, loadout);
   }
   addCar(
     teamIndex = 0,
     visualOrOptions: VehicleVisualInput = this.carVisual,
     targetIndex: number | null = null
   ) {
-    return this.vehicleRegistry.addCar(teamIndex, visualOrOptions, targetIndex);
+    return this.vehicleRegistry?.addCar?.(teamIndex, visualOrOptions, targetIndex);
   }
   removeCar(carIndex: number) {
-    return this.vehicleRegistry.removeCar(carIndex);
+    return this.vehicleRegistry?.removeCar?.(carIndex) ?? false;
   }
   async ensureOpponent() {
-    await this.vehicleRegistry.ensureOpponent();
+    await this.vehicleRegistry?.ensureOpponent?.();
   }
   ensureCar(
     carIndex: number,
     teamIndex: number | null = null,
     visual: VehicleVisualInput = this.carVisual
   ) {
-    return this.vehicleRegistry.ensureCar(carIndex, teamIndex, visual);
+    return this.vehicleRegistry?.ensureCar?.(carIndex, teamIndex, visual) ?? null;
   }
   setCarTeam(carIndex: number, teamIndex: number) {
-    return this.vehicleRegistry.setCarTeam(carIndex, teamIndex);
+    this.vehicleRegistry?.setCarTeam?.(carIndex, teamIndex);
   }
   swapCarVisual(carIndex: number, newVisual: VehicleVisualInput) {
-    return this.vehicleRegistry.swapCarVisual(carIndex, newVisual);
+    return this.vehicleRegistry?.swapCarVisual?.(carIndex, newVisual) ?? false;
   }
   refreshCustomVehicle(vehicleId?: string) {
-    return this.vehicleRegistry.refreshCustomVehicle?.(vehicleId);
+    return this.vehicleRegistry?.refreshCustomVehicle?.(vehicleId);
   }
   clearAllGhostOpacities() {
-    this.vehicleRegistry.clearAllGhostOpacities();
+    this.vehicleRegistry?.clearAllGhostOpacities?.();
   }
 
   prepareBallSpeedTrail(camera: THREE.Camera | null | undefined) {

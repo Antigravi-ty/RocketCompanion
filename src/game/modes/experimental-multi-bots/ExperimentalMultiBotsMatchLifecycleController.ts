@@ -71,7 +71,8 @@ export class ExperimentalMultiBotsMatchLifecycleController {
   }
 
   getGoalIncidentMeta(): ExpGoalIncidentMeta {
-    return this.goalTracker.getGoalIncidentMeta(this.lastKickoffStartTick);
+    const tracker = this.goalTracker;
+    return tracker.getGoalIncidentMeta(this.lastKickoffStartTick);
   }
 
   recordCarBallTouch(
@@ -80,13 +81,8 @@ export class ExperimentalMultiBotsMatchLifecycleController {
     spawnedCars: ReadonlyArray<ExpSpawnedCarEntry>,
     isReplayActive: boolean
   ): void {
-    this.goalTracker.recordCarBallTouch(
-      carIndex,
-      tick,
-      spawnedCars,
-      isReplayActive,
-      this.isMatchEnded
-    );
+    const tracker = this.goalTracker;
+    tracker.recordCarBallTouch(carIndex, tick, spawnedCars, isReplayActive, this.isMatchEnded);
   }
 
   async applyRosterAndStartMatch(
@@ -314,7 +310,8 @@ export class ExperimentalMultiBotsMatchLifecycleController {
     rosterCtrl: ExperimentalMultiBotsRosterController,
     replayCtrl: ExperimentalMultiBotsReplayController
   ): void {
-    this.goalTracker.executeSandboxAction(action, this, rosterCtrl, replayCtrl);
+    const tracker = this.goalTracker;
+    tracker.executeSandboxAction(action, this, rosterCtrl, replayCtrl);
   }
 
   stepEndedMatchPodiumDelay(
@@ -365,7 +362,8 @@ export class ExperimentalMultiBotsMatchLifecycleController {
   }
 
   stepPostGoalFreeze(sim: ExpPhysicsEnginePort, currentTick: number): void {
-    this.goalTracker.stepPostGoalFreeze(sim, currentTick);
+    const tracker = this.goalTracker;
+    tracker.stepPostGoalFreeze(sim, currentTick);
   }
 
   stepPlayingClock(
@@ -425,7 +423,8 @@ export class ExperimentalMultiBotsMatchLifecycleController {
     }
 
     if (this.ticksSinceKickoff % 8 === 0 || this.remainingSec !== prevRemSec) {
-      this.goalTracker.syncPeriodicPlayingTelemetry(
+      const tracker = this.goalTracker;
+      tracker.syncPeriodicPlayingTelemetry(
         r,
         this.remainingSec,
         this.isOvertime,

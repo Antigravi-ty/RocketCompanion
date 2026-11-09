@@ -3,11 +3,15 @@
  * BroadcastChannel signaling layer for cross-tab discovery and 120Hz native local data exchange.
  */
 
+export interface CrossTabSignalingHandler {
+  handleBroadcastMessage(data: Record<string, unknown>): void;
+  handleRoomMessage(data: Record<string, unknown> | Uint8Array | ArrayBuffer | string): void;
+}
+
 export interface CrossTabSignalingOptions {
   signalingChannelName?: string;
   roomId?: string | null;
-  onBroadcastMessage?: ((data: Record<string, unknown>) => void) | null;
-  onRoomMessage?: ((data: Record<string, unknown> | Uint8Array | ArrayBuffer) => void) | null;
+  handler?: CrossTabSignalingHandler | null;
 }
 
 export interface BroadcastSignalContext {
@@ -19,16 +23,14 @@ export interface BroadcastSignalContext {
 export class CrossTabSignaling {
   signalingChannelName: string;
   roomId: string | null;
-  onBroadcastMessage: ((data: Record<string, unknown>) => void) | null;
-  onRoomMessage: ((data: Record<string, unknown> | Uint8Array | ArrayBuffer) => void) | null;
+  handler: CrossTabSignalingHandler | null;
   broadcastChannel: BroadcastChannel | null = null;
   roomBroadcastChannel: BroadcastChannel | null = null;
 
   constructor(options: CrossTabSignalingOptions = {}) {
     this.signalingChannelName = options.signalingChannelName || 'online_discovery';
     this.roomId = options.roomId || null;
-    this.onBroadcastMessage = options.onBroadcastMessage || null;
-    this.onRoomMessage = options.onRoomMessage || null;
+    this.handler = options.handler || null;
 
     this.initSignalingChannel(this.signalingChannelName);
     if (this.roomId) {
@@ -49,7 +51,7 @@ export class CrossTabSignaling {
         unrefFn.call(this.broadcastChannel);
       }
       this.broadcastChannel.onmessage = (e) => {
-        this.onBroadcastMessage?.(e.data);
+        this.handler?.handleBroadcastMessage(e.data);
       };
     } catch (err) {
       console.warn('[P2PWebRTCChannel] BroadcastChannel unavailable:', err);
@@ -69,7 +71,7 @@ export class CrossTabSignaling {
       this.roomId = roomId;
       this.roomBroadcastChannel = new BroadcastChannel(targetName);
       this.roomBroadcastChannel.onmessage = (e) => {
-        this.onRoomMessage?.(e.data);
+        this.handler?.handleRoomMessage(e.data);
       };
       console.log(`[P2PWebRTCChannel] Room BroadcastChannel attached: p2p_room_${roomId}`);
     } catch (err) {

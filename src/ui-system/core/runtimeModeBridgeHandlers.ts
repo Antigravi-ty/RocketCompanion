@@ -28,27 +28,62 @@ interface RuntimeWithExportableActiveMode {
   };
 }
 
+function closeLabAndBotFloatingWindows(): void {
+  floatingStore.closeWindow(SUBSYSTEM_ISOLATION_LAB_PRESET.id);
+  floatingStore.closeWindow(EXPERIMENTAL_MULTI_BOTS_PRESET.id);
+  floatingStore.closeWindow(EXPERIMENTAL_BOT_PACK_PRESET.id);
+}
+
+async function exportRecentTrainingReplayFromRuntime(
+  runtimePort: GameRuntimeUiBridgePort,
+  durationSeconds = 60
+): Promise<boolean> {
+  try {
+    const driverRuntime =
+      typeof window !== 'undefined'
+        ? (
+            window as unknown as {
+              __rcScenarioDriver?: { runtime?: RuntimeWithExportableActiveMode };
+            }
+          ).__rcScenarioDriver?.runtime
+        : undefined;
+    const activeMode = driverRuntime?.modeManager?.getActiveMode?.();
+    if (typeof activeMode?.exportRecentHighlightReplay === 'function') {
+      const retained = activeMode.exportRecentHighlightReplay(durationSeconds, false);
+      if (retained) {
+        await exportRetainedMatchReplayFile(retained);
+        return true;
+      }
+    }
+    const exportedFrames = runtimePort.replayPort.retainAndExportStandaloneClientReplay(false);
+    return exportedFrames > 0;
+  } catch (err) {
+    console.error('[runtimeModeBridgeHandlers] Failed to export training replay:', err);
+    return false;
+  }
+}
+
 export function createModeBridgeHandlers(
   runtimePort: GameRuntimeUiBridgePort
 ): Partial<AppState['bridge']> {
   const { matchPort, replayPort } = runtimePort;
   return {
-    onResume: () => {
+    onResume() {
       matchPort.syncPausedAndInputState();
     },
-    onOverlayChange: (isOpen: boolean) => {
+    onOverlayChange(isOpen: boolean) {
       matchPort.handleOverlayChange('esc-menu', isOpen);
     },
-    onOpenGarage: () => {
+    onOpenGarage() {
       useAppStore.getState().openMenu('garage');
     },
-    onOpenSettings: () => {
+    onOpenSettings() {
       useAppStore.getState().openMenu('settings');
     },
-    onOpenPlay: () => {
+    onOpenPlay() {
       useAppStore.getState().openMenu('play');
     },
-    onRequestTouchOpenMenuConfirm: () => {
+    onRequestTouchOpenMenuConfirm() {
       if (dialogue.getCount() > 0) return;
       dialogue.show({
         id: 'touch-open-menu-confirm',
@@ -60,22 +95,20 @@ export function createModeBridgeHandlers(
           {
             label: 'Yes',
             variant: 'primary',
-            onClick: () => {
+            onClick() {
               matchPort.openMainMenu();
             },
           },
         ],
       });
     },
-    onStartMatch: async (
+    async onStartMatch(
       botId: string,
       durationSeconds = 90,
       teamSize?: 'standard' | 'double' | 'solo'
-    ) => {
+    ) {
       useAppStore.getState().closeMenu();
-      floatingStore.closeWindow(SUBSYSTEM_ISOLATION_LAB_PRESET.id);
-      floatingStore.closeWindow(EXPERIMENTAL_MULTI_BOTS_PRESET.id);
-      floatingStore.closeWindow(EXPERIMENTAL_BOT_PACK_PRESET.id);
+      closeLabAndBotFloatingWindows();
       const resolvedBot = botId === 'nexto' ? 'nexto' : 'necto';
       const resolvedTeamSize =
         teamSize || useExperimentalMultiBotsStore.getState().exhibitionTeamSize || 'standard';
@@ -85,7 +118,7 @@ export function createModeBridgeHandlers(
       matchPort.startExpMultiBots();
       useAppStore.setState({ matchMode: 'exp-multi-bots' });
     },
-    onStartKickoffTraining: () => {
+    onStartKickoffTraining() {
       useAppStore.getState().closeMenu();
       const snap = floatingStore.getSnapshot();
       const hasWindow =
@@ -103,11 +136,9 @@ export function createModeBridgeHandlers(
       matchPort.startKickoffTraining();
       useAppStore.setState({ matchMode: 'kickoff-training' });
     },
-    onStartReplayViewer: () => {
+    onStartReplayViewer() {
       useAppStore.getState().closeMenu();
-      floatingStore.closeWindow(SUBSYSTEM_ISOLATION_LAB_PRESET.id);
-      floatingStore.closeWindow(EXPERIMENTAL_MULTI_BOTS_PRESET.id);
-      floatingStore.closeWindow(EXPERIMENTAL_BOT_PACK_PRESET.id);
+      closeLabAndBotFloatingWindows();
       floatingStore.closeWindow(KICKOFF_TRAINING_TUNER_PRESET.id);
       floatingStore.closeWindow(REPLAY_TO_RCS_IMPORTER_PRESET.id);
       replayPort.prepareForReplayViewerEntry();
@@ -118,11 +149,9 @@ export function createModeBridgeHandlers(
       matchPort.startReplayViewer();
       useAppStore.setState({ matchMode: 'replay-viewer' });
     },
-    onStartReplayToRcsImporter: () => {
+    onStartReplayToRcsImporter() {
       useAppStore.getState().closeMenu();
-      floatingStore.closeWindow(SUBSYSTEM_ISOLATION_LAB_PRESET.id);
-      floatingStore.closeWindow(EXPERIMENTAL_MULTI_BOTS_PRESET.id);
-      floatingStore.closeWindow(EXPERIMENTAL_BOT_PACK_PRESET.id);
+      closeLabAndBotFloatingWindows();
       floatingStore.closeWindow(KICKOFF_TRAINING_TUNER_PRESET.id);
       floatingStore.closeWindow(REPLAY_VIEWER_PRESET.id);
       replayPort.prepareForReplayViewerEntry();
@@ -139,7 +168,7 @@ export function createModeBridgeHandlers(
       matchPort.startReplayViewer();
       useAppStore.setState({ matchMode: 'replay-viewer' });
     },
-    onStartStaticTrainingPack: () => {
+    onStartStaticTrainingPack() {
       useAppStore.setState({ matchMode: 'static-training-pack' });
       try {
         matchPort.startStaticTrainingPack();
@@ -147,7 +176,7 @@ export function createModeBridgeHandlers(
         console.error('[runtimeBridgeAdapter] Error starting static-training-pack:', err);
       }
     },
-    onStartDevTestLab: () => {
+    onStartDevTestLab() {
       useAppStore.getState().closeMenu();
       floatingStore.setOpacity(70);
       const snap = floatingStore.getSnapshot();
@@ -163,7 +192,7 @@ export function createModeBridgeHandlers(
       matchPort.startDevTestLab();
       useAppStore.setState({ matchMode: 'dev-test-lab' });
     },
-    onStartExpMultiBots: () => {
+    onStartExpMultiBots() {
       useAppStore.getState().closeMenu();
       floatingStore.setOpacity(70);
       const expState = useExperimentalMultiBotsStore.getState();
@@ -190,15 +219,13 @@ export function createModeBridgeHandlers(
       matchPort.startExpMultiBots();
       useAppStore.setState({ matchMode: 'exp-multi-bots' });
     },
-    onRestartMatch: async () => {
+    async onRestartMatch() {
       useAppStore.getState().closeMenu();
       await matchPort.restartMatch();
     },
-    onReturnToFreeplay: () => {
+    onReturnToFreeplay() {
       useAppStore.getState().closeMenu();
-      floatingStore.closeWindow(SUBSYSTEM_ISOLATION_LAB_PRESET.id);
-      floatingStore.closeWindow(EXPERIMENTAL_MULTI_BOTS_PRESET.id);
-      floatingStore.closeWindow(EXPERIMENTAL_BOT_PACK_PRESET.id);
+      closeLabAndBotFloatingWindows();
       const unlimited = useAppStore.getState().gameplay.unlimitedBoost;
       matchPort.returnToFreeplay(unlimited);
       useAppStore.setState({ matchMode: 'freeplay', isFreeCam: false });
@@ -211,30 +238,8 @@ export function createModeBridgeHandlers(
         isReady: false,
       });
     },
-    onExportRecentTrainingReplay: async (durationSeconds = 60): Promise<boolean> => {
-      try {
-        const driverRuntime =
-          typeof window !== 'undefined'
-            ? (
-                window as unknown as {
-                  __rcScenarioDriver?: { runtime?: RuntimeWithExportableActiveMode };
-                }
-              ).__rcScenarioDriver?.runtime
-            : undefined;
-        const activeMode = driverRuntime?.modeManager?.getActiveMode?.();
-        if (typeof activeMode?.exportRecentHighlightReplay === 'function') {
-          const retained = activeMode.exportRecentHighlightReplay(durationSeconds, false);
-          if (retained) {
-            await exportRetainedMatchReplayFile(retained);
-            return true;
-          }
-        }
-        const exportedFrames = replayPort.retainAndExportStandaloneClientReplay(false);
-        return exportedFrames > 0;
-      } catch (err) {
-        console.error('[runtimeModeBridgeHandlers] Failed to export training replay:', err);
-        return false;
-      }
+    onExportRecentTrainingReplay(durationSeconds = 60): Promise<boolean> {
+      return exportRecentTrainingReplayFromRuntime(runtimePort, durationSeconds);
     },
   };
 }

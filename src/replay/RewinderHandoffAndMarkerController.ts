@@ -78,6 +78,34 @@ export interface FreeplayRewinderModePort extends RewinderModePort {
   lastTouchTick?: number;
 }
 
+export async function exportRewinderReplay(
+  rewinderFrames: RewinderFrameEntry[],
+  freeplayPort: FreeplayRewinderModePort | null,
+  runtimePort?: FreeplayRewinderRuntimePort | null
+): Promise<boolean> {
+  if (rewinderFrames.length > 0) {
+    return exportStateReplayFile(rewinderFrames);
+  }
+  const serverRing = (
+    runtimePort as
+      | {
+          authoritativeServer?: {
+            hostReplayRingBuffer?: {
+              getRecentFrames?(): Array<RewinderFrameEntry | null>;
+            } | null;
+          } | null;
+        }
+      | null
+      | undefined
+  )?.authoritativeServer?.hostReplayRingBuffer;
+  const ringFrames =
+    serverRing?.getRecentFrames?.() ?? freeplayPort?.replayRingBuffer?.getRecentFrames?.();
+  if (Array.isArray(ringFrames) && ringFrames.length > 0) {
+    return exportStateReplayFile(ringFrames.filter((f): f is NonNullable<typeof f> => f !== null));
+  }
+  return false;
+}
+
 export class RewinderHandoffAndMarkerController {
   private _pendingFrameIncidents: RewinderIncidentRecord[] = [];
 
@@ -86,28 +114,30 @@ export class RewinderHandoffAndMarkerController {
   }
 
   public exitGoalOrReplayIfNeeded(
-    runtime: FreeplayRewinderRuntimePort | null,
-    mode: FreeplayRewinderModePort | null
+    runtimePort: FreeplayRewinderRuntimePort | null,
+    freeplayPort: FreeplayRewinderModePort | null
   ): void {
-    if (!runtime || !mode) return;
+    if (!runtimePort || !freeplayPort) return;
     const isReplayActive = Boolean(
-      mode.directorPreview?.isReplayActive || mode.isGoalReplayActive?.()
+      freeplayPort.directorPreview?.isReplayActive || freeplayPort.isGoalReplayActive?.()
     );
     const goalResetTicks =
-      mode.goalAndTouch?.getEffectiveGoalResetTicks?.() ?? mode.goalAndTouch?.goalResetTicks ?? 0;
+      freeplayPort.goalAndTouch?.getEffectiveGoalResetTicks?.() ??
+      freeplayPort.goalAndTouch?.goalResetTicks ??
+      0;
 
-    if (isReplayActive || goalResetTicks > 0 || runtime.match?.state?.phase !== 'playing') {
-      mode.replayController?.endReplaySession?.();
-      if (mode.directorPreview) mode.directorPreview.isReplayActive = false;
-      if (mode.goalAndTouch) {
-        Object.assign(mode.goalAndTouch, {
+    if (isReplayActive || goalResetTicks > 0 || runtimePort.match?.state?.phase !== 'playing') {
+      freeplayPort.replayController?.endReplaySession?.();
+      if (freeplayPort.directorPreview) freeplayPort.directorPreview.isReplayActive = false;
+      if (freeplayPort.goalAndTouch) {
+        Object.assign(freeplayPort.goalAndTouch, {
           goalResetTicks: 0,
           frozenGoalBallState: null,
           goalIncidentTick: -1,
         });
       }
-      runtime.releaseGoalReplayCameraOverride?.();
-      if (runtime.match?.state) runtime.match.state.phase = 'playing';
+      runtimePort.releaseGoalReplayCameraOverride?.();
+      if (runtimePort.match?.state) runtimePort.match.state.phase = 'playing';
       hudStore.getState().setReplayState({ replayPaused: false, replayPersistent: false });
       hudStore.getState().setMatchState({
         matchPhase: 'playing',
@@ -120,7 +150,7 @@ export class RewinderHandoffAndMarkerController {
   }
 
   public applyFrameAtCursor(
-    runtime: FreeplayRewinderRuntimePort | null,
+    runtimePort: FreeplayRewinderRuntimePort | null,
     rewinderFrames: ReadonlyArray<RewinderFrameEntry>,
     cursor: number,
     smoothStep: boolean = false,
@@ -129,9 +159,9 @@ export class RewinderHandoffAndMarkerController {
     }
   ): RewinderFrameEntry | null {
     return applyRewinderFrameToPhysics({
-      physics: runtime?.physics,
-      interpolator: runtime?.interpolator,
-      arena: runtime?.arena,
+      physics: runtimePort?.physics,
+      interpolator: runtimePort?.interpolator,
+      arena: runtimePort?.arena,
       rewinderFrames,
       rewinderCursor: cursor,
       smoothStep,
@@ -140,70 +170,77 @@ export class RewinderHandoffAndMarkerController {
   }
 
   public applyFrameAndEmitStateOnly(
-    runtime: FreeplayRewinderRuntimePort | null,
-    mode: FreeplayRewinderModePort | null,
+    runtimePort: FreeplayRewinderRuntimePort | null,
+    freeplayPort: FreeplayRewinderModePort | null,
     rewinderFrames: ReadonlyArray<RewinderFrameEntry>,
     frameIdx: number,
     disableBallControl = true
   ): RewinderFrameEntry | null {
     if (disableBallControl) {
-      this.exitGoalOrReplayIfNeeded(runtime, mode);
-      if (runtime?.keyboard) runtime.keyboard.ballControlEnabled = false;
+      this.exitGoalOrReplayIfNeeded(runtimePort, freeplayPort);
+      if (runtimePort?.keyboard) runtimePort.keyboard.ballControlEnabled = false;
     }
-    const entry = this.applyFrameAtCursor(runtime, rewinderFrames, frameIdx, false, {
+    const entry = this.applyFrameAtCursor(runtimePort, rewinderFrames, frameIdx, false, {
       preserveEngineTick: true,
     });
     emitSystemControlTransition(
-      runtime,
+      runtimePort,
       SYSTEM_CONTROL_SIGNALS.SYS_CTRL_STATE_ONLY,
       frameIdx,
       0,
-      entry?.compactSnap || runtime?.physics?.saveCompactState?.()
+      entry?.compactSnap || runtimePort?.physics?.saveCompactState?.()
     );
     return entry;
   }
 
   public executeHandoffToLiveFreeplay(
-    runtime: FreeplayRewinderRuntimePort | null,
-    mode: FreeplayRewinderModePort | null,
+    runtimePort: FreeplayRewinderRuntimePort | null,
+    freeplayPort: FreeplayRewinderModePort | null,
     rewinderFrames: ReadonlyArray<RewinderFrameEntry>,
     targetIdx: number,
     cursor: number
   ): void {
-    if (!runtime?.physics || rewinderFrames.length === 0) return;
+    if (!runtimePort?.physics || rewinderFrames.length === 0) return;
+    const self = this;
     executeLiveFreeplayHandoff({
-      runtime,
-      freeplayMode: mode,
+      runtime: runtimePort,
+      freeplayMode: freeplayPort,
       targetIdx,
       fallbackLastTouchTick: 'minusOne',
-      getHistorySlotAt: (idx: number) =>
-        buildRewinderHistorySlotAt(rewinderFrames, idx, runtime.playerCarIndex ?? 0),
-      onBeforeReconstruct: (liveTick: number) => {
-        this.exitGoalOrReplayIfNeeded(runtime, mode);
-        this.applyFrameAtCursor(runtime, rewinderFrames, cursor, false, { overrideTick: liveTick });
+      getHistorySlotAt(idx: number) {
+        return buildRewinderHistorySlotAt(rewinderFrames, idx, runtimePort.playerCarIndex ?? 0);
       },
-      onAfterReconstruct: () => {
-        if (runtime.keyboard) runtime.keyboard.ballControlEnabled = true;
-        if (runtime.playerControls) {
-          runtime.physics?.setControls?.(runtime.playerCarIndex || 0, runtime.playerControls);
+      beforeReconstruct(liveTick: number) {
+        self.exitGoalOrReplayIfNeeded(runtimePort, freeplayPort);
+        self.applyFrameAtCursor(runtimePort, rewinderFrames, cursor, false, {
+          overrideTick: liveTick,
+        });
+      },
+      afterReconstruct() {
+        if (runtimePort.keyboard) runtimePort.keyboard.ballControlEnabled = true;
+        if (runtimePort.playerControls) {
+          runtimePort.physics?.setControls?.(
+            runtimePort.playerCarIndex || 0,
+            runtimePort.playerControls
+          );
         }
       },
     });
   }
 
   public beginResumePreroll(
-    runtime: FreeplayRewinderRuntimePort | null,
-    mode: FreeplayRewinderModePort | null,
+    runtimePort: FreeplayRewinderRuntimePort | null,
+    freeplayPort: FreeplayRewinderModePort | null,
     rewinderFrames: ReadonlyArray<RewinderFrameEntry>,
     takeoverSubController: ReplayTakeoverSubController
   ): void {
     const store = useRewinderStore.getState();
     const downSec = store.rewinderDownCounterSec ?? 0;
     const minRequiredFrames = downSec === 0 ? 120 : 240;
-    if (!runtime?.physics || rewinderFrames.length < minRequiredFrames) return;
+    if (!runtimePort?.physics || rewinderFrames.length < minRequiredFrames) return;
 
-    this.exitGoalOrReplayIfNeeded(runtime, mode);
-    if (runtime.keyboard) runtime.keyboard.ballControlEnabled = false;
+    this.exitGoalOrReplayIfNeeded(runtimePort, freeplayPort);
+    if (runtimePort.keyboard) runtimePort.keyboard.ballControlEnabled = false;
 
     if (store.rewinderState === 'recording') {
       const lastFrame = Math.max(0, rewinderFrames.length - 1);
@@ -215,7 +252,7 @@ export class RewinderHandoffAndMarkerController {
         ? takeoverSubController.targetFrame || takeoverSubController.cursor
         : takeoverSubController.cursor;
 
-    const audio = runtime.options?.gameAudio || gameAudio;
+    const audio = runtimePort.options?.gameAudio || gameAudio;
     const { targetIdx, startIdx, remSec } = takeoverSubController.beginPrerollCountdown(
       rewinderFrames.length,
       baseTarget,
@@ -223,17 +260,17 @@ export class RewinderHandoffAndMarkerController {
       audio
     );
 
-    runtime.physics.setUnlimitedBoost?.(false);
-    const entry = this.applyFrameAtCursor(runtime, rewinderFrames, startIdx, false, {
+    runtimePort.physics.setUnlimitedBoost?.(false);
+    const entry = this.applyFrameAtCursor(runtimePort, rewinderFrames, startIdx, false, {
       preserveEngineTick: true,
     });
-    runtime.simulationStage?.resetActionStates?.();
+    runtimePort.simulationStage?.resetActionStates?.();
     emitSystemControlTransition(
-      runtime,
+      runtimePort,
       SYSTEM_CONTROL_SIGNALS.SYS_CTRL_INTERVENE_WILL_RESUME,
       targetIdx,
       remSec,
-      entry?.compactSnap || runtime.physics?.saveCompactState?.()
+      entry?.compactSnap || runtimePort.physics?.saveCompactState?.()
     );
 
     store.updateLiveTelemetry({
@@ -246,88 +283,96 @@ export class RewinderHandoffAndMarkerController {
   }
 
   public stepPrerollCountdownTick(
-    runtime: FreeplayRewinderRuntimePort | null,
-    mode: FreeplayRewinderModePort | null,
+    runtimePort: FreeplayRewinderRuntimePort | null,
+    freeplayPort: FreeplayRewinderModePort | null,
     rewinderFrames: ReadonlyArray<RewinderFrameEntry>,
     takeoverSubController: ReplayTakeoverSubController
   ): boolean {
     const store = useRewinderStore.getState();
-    return takeoverSubController.stepPrerollCountdown({
+    const outcome = takeoverSubController.stepPrerollCountdown({
       totalFrames: rewinderFrames.length,
       downCounterSec: store.rewinderDownCounterSec ?? 0,
       displayedRemainingSec: store.rewinderPrerollRemainingSec ?? 0,
-      audio: runtime?.options?.gameAudio || gameAudio,
-      onApplyFrameAtCursor: (cursorIdx: number) => {
-        const entry = this.applyFrameAtCursor(runtime, rewinderFrames, cursorIdx, true, {
-          preserveEngineTick: true,
-        });
-        if (entry?.controls && runtime) {
-          runtime.playerThrottle = Number(entry.controls.throttle ?? 0);
-          runtime.playerControls = { ...entry.controls };
-        }
-        if (entry?.incidents?.length || entry?.signals?.length || entry?.audioEvents?.length) {
-          dispatchReplayFrameEvents(
-            {
-              incidents: entry.incidents || [],
-              signals: entry.signals || [],
-              audioEvents: entry.audioEvents || [],
-            },
-            runtime
-          );
-        }
-      },
-      onHandoffToLiveFreeplay: (targetIdx: number) => {
-        runtime?.physics?.setUnlimitedBoost?.(false);
-        this.executeHandoffToLiveFreeplay(
-          runtime,
-          mode,
-          rewinderFrames,
-          targetIdx,
-          takeoverSubController.cursor
-        );
-        store.updateLiveTelemetry({
-          rewinderState: 'stopped',
-          rewinderCursorFrame: targetIdx,
-          rewinderTargetFrame: targetIdx,
-          rewinderPrerollRemainingSec: 0,
-        });
-      },
-      onUpdateCountdownTelemetry: (cursorFrame: number, remainingSec: number) =>
-        store.updateLiveTelemetry({
-          rewinderCursorFrame: cursorFrame,
-          rewinderPrerollRemainingSec: remainingSec,
-        }),
+      audio: runtimePort?.options?.gameAudio || gameAudio,
     });
+
+    const entry = this.applyFrameAtCursor(
+      runtimePort,
+      rewinderFrames,
+      outcome.appliedCursor,
+      true,
+      {
+        preserveEngineTick: true,
+      }
+    );
+    if (entry?.controls && runtimePort) {
+      runtimePort.playerThrottle = Number(entry.controls.throttle ?? 0);
+      runtimePort.playerControls = { ...entry.controls };
+    }
+    if (entry?.incidents?.length || entry?.signals?.length || entry?.audioEvents?.length) {
+      dispatchReplayFrameEvents(
+        {
+          incidents: entry.incidents || [],
+          signals: entry.signals || [],
+          audioEvents: entry.audioEvents || [],
+        },
+        runtimePort
+      );
+    }
+
+    if (outcome.handoffTargetIdx !== null) {
+      runtimePort?.physics?.setUnlimitedBoost?.(false);
+      this.executeHandoffToLiveFreeplay(
+        runtimePort,
+        freeplayPort,
+        rewinderFrames,
+        outcome.handoffTargetIdx,
+        takeoverSubController.cursor
+      );
+      store.updateLiveTelemetry({
+        rewinderState: 'stopped',
+        rewinderCursorFrame: outcome.handoffTargetIdx,
+        rewinderTargetFrame: outcome.handoffTargetIdx,
+        rewinderPrerollRemainingSec: 0,
+      });
+    } else if (outcome.telemetryUpdate) {
+      store.updateLiveTelemetry({
+        rewinderCursorFrame: outcome.telemetryUpdate.cursorFrame,
+        rewinderPrerollRemainingSec: outcome.telemetryUpdate.remainingSec,
+      });
+    }
+    return false;
   }
 
   public recordPhysicsEvent(
     rewinderFrames: RewinderFrameEntry[],
     event: RewinderIncidentRecord | null | undefined,
-    runtime: FreeplayRewinderRuntimePort | null
+    runtimePort: FreeplayRewinderRuntimePort | null
   ): void {
     if (!event || useRewinderStore.getState().rewinderState !== 'recording') return;
     recordPhysicsEventIntoRewinderFrames(
       rewinderFrames,
       this._pendingFrameIncidents,
       event,
-      runtime?.physics?.getHeaderView?.()?.tickCount
+      runtimePort?.physics?.getHeaderView?.()?.tickCount
     );
   }
 
   public recordTickFrame(
-    runtime: FreeplayRewinderRuntimePort | null,
-    mode: FreeplayRewinderModePort | null,
+    runtimePort: FreeplayRewinderRuntimePort | null,
+    freeplayPort: FreeplayRewinderModePort | null,
     rewinderFrames: RewinderFrameEntry[],
     takeoverSubController: ReplayTakeoverSubController
   ): void {
     const store = useRewinderStore.getState();
-    if (store.rewinderState !== 'recording' || !runtime?.physics) {
+    const physics = runtimePort?.physics;
+    if (store.rewinderState !== 'recording' || !runtimePort || !physics) {
       this._pendingFrameIncidents.length = 0;
       return;
     }
 
-    const compactSnap = runtime.physics.saveCompactState?.() ?? runtime.physics.state.slice();
-    const currentTick = Math.floor(runtime.physics.getHeaderView?.()?.tickCount ?? 0);
+    const compactSnap = physics.saveCompactState?.() ?? physics.state.slice();
+    const currentTick = Math.floor(physics.getHeaderView?.()?.tickCount ?? 0);
     const incidents =
       this._pendingFrameIncidents.length > 0 ? this._pendingFrameIncidents.slice() : [];
     this._pendingFrameIncidents.length = 0;
@@ -335,16 +380,16 @@ export class RewinderHandoffAndMarkerController {
     if (rewinderFrames.length >= MAX_REWINDER_FRAMES) {
       rewinderFrames.shift();
     }
-    const lastTouchTick = mode?.goalAndTouch?.lastTouchTick ?? -1;
+    const lastTouchTick = freeplayPort?.goalAndTouch?.lastTouchTick ?? -1;
     rewinderFrames.push({
       compactSnap,
       renderState: compactSnap,
-      controls: { ...(runtime.playerControls || DEFAULT_CAR_CONTROLS) },
+      controls: { ...(runtimePort.playerControls || DEFAULT_CAR_CONTROLS) },
       incidents,
-      hadTouch: Boolean(mode && lastTouchTick === currentTick),
+      hadTouch: Boolean(freeplayPort && lastTouchTick === currentTick),
       lastTouchTick,
     });
-    runtime.physics.recordReplayFrame?.();
+    physics.recordReplayFrame?.();
     const lastIdx = rewinderFrames.length - 1;
     takeoverSubController.cursor = lastIdx;
     takeoverSubController.targetFrame = lastIdx;
@@ -364,52 +409,30 @@ export class RewinderHandoffAndMarkerController {
 
   public async exportReplay(
     rewinderFrames: RewinderFrameEntry[],
-    mode: FreeplayRewinderModePort | null,
-    runtime?: FreeplayRewinderRuntimePort | null
+    freeplayPort: FreeplayRewinderModePort | null,
+    runtimePort?: FreeplayRewinderRuntimePort | null
   ): Promise<boolean> {
-    if (rewinderFrames.length > 0) {
-      return exportStateReplayFile(rewinderFrames);
-    }
-    const serverRing = (
-      runtime as
-        | {
-            authoritativeServer?: {
-              hostReplayRingBuffer?: {
-                getRecentFrames?(): Array<RewinderFrameEntry | null>;
-              } | null;
-            } | null;
-          }
-        | null
-        | undefined
-    )?.authoritativeServer?.hostReplayRingBuffer;
-    const ringFrames =
-      serverRing?.getRecentFrames?.() ?? mode?.replayRingBuffer?.getRecentFrames?.();
-    if (Array.isArray(ringFrames) && ringFrames.length > 0) {
-      return exportStateReplayFile(
-        ringFrames.filter((f): f is NonNullable<typeof f> => f !== null)
-      );
-    }
-    return false;
+    return exportRewinderReplay(rewinderFrames, freeplayPort, runtimePort);
   }
 
   public async importReplay(
     fileOrBuffer: unknown,
-    runtime: FreeplayRewinderRuntimePort | null,
-    mode: FreeplayRewinderModePort | null,
+    runtimePort: FreeplayRewinderRuntimePort | null,
+    freeplayPort: FreeplayRewinderModePort | null,
     takeoverSubController: ReplayTakeoverSubController
   ): Promise<{ frames: RewinderFrameEntry[]; timelines: Record<string, unknown> | null } | null> {
-    if (!runtime?.physics) return null;
+    if (!runtimePort?.physics) return null;
     try {
       const parsed = await parseRCReplayFile(fileOrBuffer);
       if (!parsed || !Array.isArray(parsed.frames) || parsed.frames.length === 0) {
         throw new Error('No valid frames found in replay file.');
       }
       const timelines = parsed.timelines || null;
-      const frames = buildRewinderFramesFromParsedReplay(parsed, runtime.neutralControls);
+      const frames = buildRewinderFramesFromParsedReplay(parsed, runtimePort.neutralControls);
       const lastIdx = Math.max(0, frames.length - 1);
       takeoverSubController.reset(0, lastIdx);
-      this.applyFrameAndEmitStateOnly(runtime, mode, frames, 0, true);
-      runtime.simulationStage?.resetActionStates?.();
+      this.applyFrameAndEmitStateOnly(runtimePort, freeplayPort, frames, 0, true);
+      runtimePort.simulationStage?.resetActionStates?.();
 
       useRewinderStore.getState().updateLiveTelemetry({
         rewinderState: 'paused-scrub',
@@ -426,10 +449,10 @@ export class RewinderHandoffAndMarkerController {
   }
 
   public resetArenaCarsIfAllowed(
-    runtime: FreeplayRewinderRuntimePort | null,
-    mode: FreeplayRewinderModePort | null,
+    runtimePort: FreeplayRewinderRuntimePort | null,
+    freeplayPort: FreeplayRewinderModePort | null,
     wasBlocking: boolean
   ): boolean {
-    return resetRewinderArenaCarsIfAllowed(runtime, mode, wasBlocking);
+    return resetRewinderArenaCarsIfAllowed(runtimePort, freeplayPort, wasBlocking);
   }
 }

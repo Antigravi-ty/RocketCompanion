@@ -1,20 +1,23 @@
 import { MATCH_SIGNALS } from '../../network/protocol/GlobalPayloadCodec.ts';
 import { isSignalAudioMutedInGoalReplay } from '../../audio/SignalAudioEngine.ts';
-import { hudStore, notifyNetworkTelemetryExportAvailable } from '../runtimeUiPort.ts';
-import { retainCompletedMatchReplayAndNotify } from '../../replay/ReplayFileExporter.ts';
+import { hudStore } from '../runtimeUiPort.ts';
 import type { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
 import {
   RuntimeGoalReplaySignalSubController,
-  focusLocalPlayerCarInArenaAndCamera,
-  isLocalReplayOrRewinderBlockingLivePhysics,
-  resetGoalReplayIncidentFlags,
-  teardownSignalReplayAndPodiumSession,
   type RuntimeSignalPacket,
   type SignalAudioFacadeLike,
   type RuntimeSignalLatchState,
   type RuntimeSignalHostPort,
 } from './RuntimeGoalReplaySignalSubController.ts';
 import { RuntimeParticipantAndCombatSignalSubController } from './RuntimeParticipantAndCombatSignalSubController.ts';
+import {
+  enterPodiumAndResetEndgameAudio,
+  focusLocalPlayerCarInArenaAndCamera,
+  isLocalReplayOrRewinderBlockingLivePhysics,
+  resetGoalReplayIncidentFlags,
+  retainHostMatchReplayAfterEnd,
+  teardownSignalReplayAndPodiumSession,
+} from './signalWorldTransitionPipeline.ts';
 
 export const WIN_REASON_LABELS: Readonly<Record<number, string>> = Object.freeze({
   0: 'SCORE',
@@ -22,54 +25,18 @@ export const WIN_REASON_LABELS: Readonly<Record<number, string>> = Object.freeze
   2: 'FORFEIT',
 });
 
-interface ReplayExportDataLike {
-  loadouts?: Array<Record<string, unknown>>;
-  roster?: { players?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>;
-  stateInputBytes?: Uint8Array | null;
-  incidentBytes?: Uint8Array | null;
-  signalBytes?: Uint8Array | null;
-  gameMode?: string;
-  durationSeconds?: number;
-  blueScore?: number;
-  orangeScore?: number;
-}
-
-function enterPodiumAndResetEndgameAudio(
-  host: RuntimeSignalHostPort,
-  reconciler: PredictionReconciler,
-  isPodiumStart: boolean,
-  winningTeam: number,
-  winReason: string
-): void {
-  if (isPodiumStart) {
-    reconciler.setMatchTelemetryActive?.(false, false);
-    host.podiumController?.enterPodium?.(winningTeam, winReason);
-  }
-  if (!host.isNetworkTelemetryNotified()) {
-    host.markNetworkTelemetryNotified(true);
-    notifyNetworkTelemetryExportAvailable('match-complete', reconciler.telemetryCollector.recorder);
-  }
-  host.resetAudio?.();
-  host.audioSubsystem?.resetAudio?.();
-}
-
-/**
- * RuntimeSignalDomainSubController
- * Stateful SubController owning match clock/pause/overtime state synchronization,
- * match lifecycle/endgame/podium transitions, and coordinating roster/goal-replay subcontrollers.
- */
 export class RuntimeSignalDomainSubController {
-  public readonly host: RuntimeSignalHostPort;
+  public readonly context: RuntimeSignalHostPort;
   public readonly latch: RuntimeSignalLatchState;
   public readonly participantAndCombat: RuntimeParticipantAndCombatSignalSubController;
   public readonly goalReplaySubController: RuntimeGoalReplaySignalSubController;
 
-  constructor(host: RuntimeSignalHostPort, latch: RuntimeSignalLatchState) {
-    this.host = host;
+  constructor(context: RuntimeSignalHostPort, latch: RuntimeSignalLatchState) {
+    this.context = context;
     this.latch = latch;
-    this.participantAndCombat = new RuntimeParticipantAndCombatSignalSubController(host);
+    this.participantAndCombat = new RuntimeParticipantAndCombatSignalSubController(context);
     this.goalReplaySubController = new RuntimeGoalReplaySignalSubController(
-      host,
+      context,
       latch,
       this.participantAndCombat
     );
@@ -77,71 +44,6 @@ export class RuntimeSignalDomainSubController {
 
   public reset(): void {
     this.goalReplaySubController.reset();
-  }
-
-  private retainHostMatchReplayAfterEnd(winningTeam: number, winReasonCode: number): void {
-    const h = this.host;
-    const server = h.authoritativeServer;
-    const matchState = h.match?.state;
-    const fallbackPhysicsState = h.physics?.state;
-    if (!server || this.latch.hostMatchReplayNotified) return;
-    this.latch.hostMatchReplayNotified = true;
-    const blueScore = matchState?.blueScore ?? hudStore.getState().blueScore ?? 0;
-    const orangeScore = matchState?.orangeScore ?? hudStore.getState().orangeScore ?? 0;
-    const serverRoomRoster = (
-      server as unknown as {
-        lastRoomState?: { roster?: { players?: Array<Record<string, unknown>> } };
-      }
-    ).lastRoomState?.roster?.players;
-    const fallbackRoster = serverRoomRoster || [];
-    const notifyFallback = () => {
-      retainCompletedMatchReplayAndNotify({
-        ringBuffer: server.hostReplayRingBuffer,
-        fallbackState: server.cachedSnapshot || fallbackPhysicsState,
-        mode: 'Host Match',
-        durationSeconds: matchState?.durationSeconds ?? 300,
-        roster: fallbackRoster,
-        loadouts: fallbackRoster,
-        blueScore,
-        orangeScore,
-        winnerTeam: winningTeam,
-        winReason: winReasonCode,
-      });
-    };
-    server
-      .requestFullReplayExport()
-      .then((exportData: ReplayExportDataLike | null) => {
-        const exportedRoster = Array.isArray(exportData?.loadouts)
-          ? exportData.loadouts
-          : !Array.isArray(exportData?.roster) && Array.isArray(exportData?.roster?.players)
-            ? exportData.roster.players
-            : Array.isArray(exportData?.roster)
-              ? exportData.roster
-              : fallbackRoster;
-        retainCompletedMatchReplayAndNotify({
-          stateInputBytes: exportData?.stateInputBytes || undefined,
-          incidentBytes: exportData?.incidentBytes || undefined,
-          signalBytes: exportData?.signalBytes || undefined,
-          ringBuffer: server.hostReplayRingBuffer,
-          fallbackState: server.cachedSnapshot || fallbackPhysicsState,
-          mode: 'Host Match',
-          gameMode: exportData?.gameMode || '3v3',
-          durationSeconds: exportData?.durationSeconds ?? matchState?.durationSeconds ?? 300,
-          roster: exportedRoster,
-          loadouts: exportedRoster,
-          blueScore: exportData?.blueScore ?? blueScore,
-          orangeScore: exportData?.orangeScore ?? orangeScore,
-          winnerTeam: winningTeam,
-          winReason: winReasonCode,
-        });
-      })
-      .catch((err: unknown) => {
-        console.warn(
-          '[RuntimeSignalDomainSubController] requestFullReplayExport failed; falling back:',
-          err
-        );
-        notifyFallback();
-      });
   }
 
   public handleRosterSignal(reconciler: PredictionReconciler, sig: RuntimeSignalPacket): boolean {
@@ -154,13 +56,13 @@ export class RuntimeSignalDomainSubController {
     audio: SignalAudioFacadeLike | null | undefined,
     reconciler?: PredictionReconciler | null
   ): boolean {
-    const h = this.host;
-    const matchState = h.match?.state;
-    const physics = h.physics;
-    const muteSignalAudio = isSignalAudioMutedInGoalReplay(h);
+    const ctx = this.context;
+    const matchState = ctx.match?.state;
+    const physics = ctx.physics;
+    const muteSignalAudio = isSignalAudioMutedInGoalReplay(ctx);
     switch (sig.signalType) {
       case MATCH_SIGNALS.SYS_CTRL_STATE_ONLY: {
-        const isLocalControllerActive = isLocalReplayOrRewinderBlockingLivePhysics(h.modeManager);
+        const isLocalControllerActive = isLocalReplayOrRewinderBlockingLivePhysics(ctx.modeManager);
         reconciler?.setReplayPlaybackMode?.(true);
         if (!isLocalControllerActive) {
           physics?.setSimulationFrozen?.(true, 0, true);
@@ -169,7 +71,7 @@ export class RuntimeSignalDomainSubController {
         return true;
       }
       case MATCH_SIGNALS.SYS_CTRL_INTERVENE_WILL_RESUME: {
-        const isLocalControllerActive = isLocalReplayOrRewinderBlockingLivePhysics(h.modeManager);
+        const isLocalControllerActive = isLocalReplayOrRewinderBlockingLivePhysics(ctx.modeManager);
         const targetTick = sig.param1 ?? currentTick;
         const countdownSec =
           sig.param2 && sig.param2 > 0
@@ -228,7 +130,7 @@ export class RuntimeSignalDomainSubController {
       }
       case MATCH_SIGNALS.COUNTDOWN_10S: {
         const sec = sig.param1 ?? 0;
-        const audioSubsystem = h.audioSubsystem;
+        const audioSubsystem = ctx.audioSubsystem;
         if (sec >= 1 && sec <= 10 && audioSubsystem?.last10sCountdown !== sec) {
           if (audioSubsystem) audioSubsystem.last10sCountdown = sec;
           if (!muteSignalAudio) audio?.play('match_countdown_10s', 1.0);
@@ -305,14 +207,14 @@ export class RuntimeSignalDomainSubController {
       return true;
     }
 
-    const h = this.host;
-    const matchState = h.match?.state;
-    const arena = h.arena;
+    const ctx = this.context;
+    const matchState = ctx.match?.state;
+    const arena = ctx.arena;
     switch (sig.signalType) {
       case MATCH_SIGNALS.BALL_RESET: {
-        h.physics?.resetGoalLatch?.();
+        ctx.physics?.resetGoalLatch?.();
         arena?.resetBallTrail?.();
-        teardownSignalReplayAndPodiumSession(h, { exitPodium: true });
+        teardownSignalReplayAndPodiumSession(ctx, { exitPodium: true });
         this.latch.lastKickoffTargetFrame = -1;
         this.latch.latchedKickoffSeconds.clear();
         reconciler.setKickoffMaskUntilTick?.(-1);
@@ -325,10 +227,10 @@ export class RuntimeSignalDomainSubController {
       }
 
       case MATCH_SIGNALS.MATCH_DESTROYED: {
-        resetGoalReplayIncidentFlags(h);
+        resetGoalReplayIncidentFlags(ctx);
         reconciler.setMatchTelemetryActive?.(false, false);
         reconciler.setKickoffMaskUntilTick?.(-1);
-        teardownSignalReplayAndPodiumSession(h, { exitPodium: true });
+        teardownSignalReplayAndPodiumSession(ctx, { exitPodium: true });
         onResetSignalState?.();
         return true;
       }
@@ -338,7 +240,7 @@ export class RuntimeSignalDomainSubController {
         if (arena?.isLobbyMode || matchState?.phase === 'lobby' || reconciler.lobbyDualWorldMode) {
           return true;
         }
-        resetGoalReplayIncidentFlags(h);
+        resetGoalReplayIncidentFlags(ctx);
         const winningTeam = sig.param1 ?? 0;
         const winReasonCode = sig.param2 || 0;
         const winnerName = winningTeam === 0 ? 'BLUE' : winningTeam === 1 ? 'ORANGE' : 'DRAW';
@@ -349,8 +251,8 @@ export class RuntimeSignalDomainSubController {
 
         reconciler.setReplayPlaybackMode?.(false);
         reconciler.setKickoffMaskUntilTick?.(-1);
-        teardownSignalReplayAndPodiumSession(h);
-        focusLocalPlayerCarInArenaAndCamera(reconciler, h);
+        teardownSignalReplayAndPodiumSession(ctx);
+        focusLocalPlayerCarInArenaAndCamera(reconciler, ctx);
         if (matchState) {
           matchState.phase = targetPhase;
           matchState.winner = winnerName;
@@ -359,8 +261,8 @@ export class RuntimeSignalDomainSubController {
         hudStore
           .getState()
           .setMatchState({ matchPhase: targetPhase, winner: winnerName, winReason });
-        this.retainHostMatchReplayAfterEnd(winningTeam, winReasonCode);
-        enterPodiumAndResetEndgameAudio(h, reconciler, isPodiumStart, winningTeam, winReason);
+        retainHostMatchReplayAfterEnd(ctx, this.latch, winningTeam, winReasonCode);
+        enterPodiumAndResetEndgameAudio(ctx, reconciler, isPodiumStart, winningTeam, winReason);
         if (wasNotEnded) audio?.play('endgame', 1.0);
         return true;
       }

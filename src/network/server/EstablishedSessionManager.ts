@@ -22,13 +22,15 @@ import type {
 
 export type ParsedClientPacketHeader = ParsedTailoredClientPacket;
 
+export type SessionTimeoutRemoveCallback = (sessionId: string, session: PeerSession) => void;
+
 export interface EstablishedSessionManagerOptions {
   staleInputTimeoutMs?: number;
   disconnectTimeoutMs?: number;
   signalBuffer?: SignalEventBuffer;
   signalBufferCapacity?: number;
   signalLifetimeTicks?: number;
-  onSessionTimeoutRemove?: ((sessionId: string, session: PeerSession) => void) | null;
+  onSessionTimeoutRemove?: SessionTimeoutRemoveCallback | null;
 }
 
 export class EstablishedSessionManager {
@@ -43,7 +45,7 @@ export class EstablishedSessionManager {
     { entityId: number; playerName: string; disconnectedAt: number }
   >;
   signalBuffer: SignalEventBuffer;
-  onSessionTimeoutRemove: ((sessionId: string, session: PeerSession) => void) | null;
+  onSessionTimeoutRemove: SessionTimeoutRemoveCallback | null;
 
   constructor(
     physicsManager: PhysicsEngineManager | null,
@@ -109,9 +111,7 @@ export class EstablishedSessionManager {
       } else if (typeof this.physicsManager?.inputBuffer?.registerCar === 'function') {
         this.physicsManager.inputBuffer.registerCar(session.entityId);
       }
-      if (this.physicsManager?.inputBuffer?.setCarInputStale) {
-        this.physicsManager.inputBuffer.setCarInputStale(session.entityId, false);
-      }
+      this.physicsManager?.inputBuffer?.setCarInputStale?.(session.entityId, false);
     }
     return session;
   }
@@ -129,9 +129,7 @@ export class EstablishedSessionManager {
         });
       }
       this.entitySessionMap.delete(session.entityId);
-      if (this.physicsManager) {
-        this.physicsManager.unregisterCarEntity(session.entityId);
-      }
+      this.physicsManager?.unregisterCarEntity(session.entityId);
     }
 
     this.signalBuffer.removeSession(sessionId);
@@ -152,12 +150,8 @@ export class EstablishedSessionManager {
     if (!session) return false;
     const now = this.getTime();
     session._recordClientPacket(clientTimestamp, now, hasValidInput);
-    if (
-      hasValidInput &&
-      session.entityId >= 0 &&
-      this.physicsManager?.inputBuffer?.setCarInputStale
-    ) {
-      this.physicsManager.inputBuffer.setCarInputStale(session.entityId, false);
+    if (hasValidInput && session.entityId >= 0) {
+      this.physicsManager?.inputBuffer?.setCarInputStale?.(session.entityId, false);
     }
     return true;
   }
@@ -171,8 +165,9 @@ export class EstablishedSessionManager {
     return ids;
   }
 
-  enqueueSignal(signalObj: MatchSignalDescriptor): any {
-    return this.signalBuffer.pushSignal(signalObj, this._getHumanAckSessionIds());
+  enqueueSignal(signalObj: MatchSignalDescriptor) {
+    const activeIds = this._getHumanAckSessionIds();
+    return this.signalBuffer.pushSignal(signalObj, activeIds);
   }
 
   recordClientSignalAcks(sessionId: string, acks: PiggybackedSignalAck[]): number {
@@ -181,9 +176,7 @@ export class EstablishedSessionManager {
     if (session) {
       for (let i = 0; i < acks.length; i++) {
         const sigId = acks[i]?.signalId ?? 0;
-        if (sigId > 0) {
-          session.acknowledgedSignalIds.add(sigId);
-        }
+        if (sigId > 0) session.acknowledgedSignalIds.add(sigId);
       }
     }
     return this.signalBuffer.acknowledgeSignals(sessionId, acks, this._getHumanAckSessionIds());
@@ -229,7 +222,7 @@ export class EstablishedSessionManager {
 
   evaluateSessionTimeouts(
     nowMs = this.getTime(),
-    onEvictCallback: ((sessionId: string, session: PeerSession) => void) | null = null
+    onEvictCallback: SessionTimeoutRemoveCallback | null = null
   ): { staleSessions: string[]; evictedSessions: string[] } {
     const staleSessions: string[] = [];
     const evictedSessions: string[] = [];
@@ -251,23 +244,16 @@ export class EstablishedSessionManager {
       ) {
         evictedSessions.push(sessionId);
         const evictHandler = onEvictCallback || this.onSessionTimeoutRemove;
-        if (typeof evictHandler === 'function') {
-          evictHandler(sessionId, session);
-        } else {
-          this.unregisterSession(sessionId, true);
-        }
+        if (typeof evictHandler === 'function') evictHandler(sessionId, session);
+        else this.unregisterSession(sessionId, true);
         continue;
       }
 
       if (this.staleInputTimeoutMs > 0 && elapsedMs >= this.staleInputTimeoutMs) {
         if (!session.isInputStale) {
           session.isInputStale = true;
-          if (this.physicsManager?.inputBuffer?.setCarInputStale) {
-            this.physicsManager.inputBuffer.setCarInputStale(session.entityId, true);
-          }
-          if (this.physicsManager?.lastAcknowledgedControls) {
-            this.physicsManager.lastAcknowledgedControls.delete(session.entityId);
-          }
+          this.physicsManager?.inputBuffer?.setCarInputStale?.(session.entityId, true);
+          this.physicsManager?.lastAcknowledgedControls?.delete(session.entityId);
         }
         staleSessions.push(sessionId);
       }
@@ -291,6 +277,7 @@ export class EstablishedSessionManager {
     const flagByte = globalPayloadBytes[0];
     const hasSignalsInGlobal = Boolean(flagByte & PAYLOAD_FLAGS.SIGNAL);
     const humanAckSessionIds = this._getHumanAckSessionIds();
+    const sigBuf = this.signalBuffer;
 
     if (!hasSignalsInGlobal) {
       let serverTick: number | null = null;
@@ -302,9 +289,7 @@ export class EstablishedSessionManager {
         );
         serverTick = view.getUint32(1, false);
       }
-      if (serverTick !== null) {
-        this.signalBuffer.pruneExpired(serverTick, humanAckSessionIds);
-      }
+      if (serverTick !== null) sigBuf.pruneExpired(serverTick, humanAckSessionIds);
       return { statelessPayloadBytes: globalPayloadBytes, serverTick };
     }
 
@@ -315,12 +300,9 @@ export class EstablishedSessionManager {
 
     const serverTick = decoded.physics?.tick ?? this.physicsManager?.currentTick ?? null;
 
-    if (decoded.signals && decoded.signals.length > 0) {
-      this.signalBuffer.ingestSignals(decoded.signals, humanAckSessionIds);
-    }
-    if (serverTick !== null) {
-      this.signalBuffer.pruneExpired(serverTick, humanAckSessionIds);
-    }
+    if (decoded.signals && decoded.signals.length > 0)
+      sigBuf.ingestSignals(decoded.signals, humanAckSessionIds);
+    if (serverTick !== null) sigBuf.pruneExpired(serverTick, humanAckSessionIds);
 
     const statelessPayloadBytes = GlobalPayloadCodec.encode({
       physics: decoded.physics ?? undefined,

@@ -13,7 +13,7 @@ import { type ActiveMenuRoute } from '../ui-core/config/uiConfig.ts';
 import { perfTelemetryStore } from '../ui-core/stores/perfTelemetryStore.ts';
 import { attachGameRuntimeBridge } from './core/runtimeBridgeAdapter.ts';
 import { syncMaterialsToGame } from './core/runtimeTunerBridgeHandlers.ts';
-import { ensureSignalingProfileBridge } from './core/runtimeOnlineBridgeHandlers.ts';
+import { ensureSignalingProfileBridge } from './core/runtimeSignalingProfileBridge.ts';
 import type { GameRuntimeUiBridgePort } from '../game/runtimeUiPort.ts';
 import '../styles/ui-system.css';
 
