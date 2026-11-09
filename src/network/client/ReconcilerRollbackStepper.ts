@@ -1,122 +1,42 @@
 /**
  * ReconcilerRollbackStepper.ts
- * Stateful rollback, timeline synchronization, forward tick stepping,
- * and correction evaluation sub-component for PredictionReconciler.
+ * Rollback step state pipeline, timeline synchronization, forward tick stepping,
+ * and inbound packet reconciliation for PredictionReconciler.
  */
 
-import type {
-  CarControls,
-  PredictionHistoryBuffer,
-  ReconciliationTolerances,
-} from './PredictionHistoryBuffer.ts';
-import { capturePreResimPositions, type VisualErrorSmoother } from './VisualErrorSmoother.ts';
+import type { CarControls, PredictionHistoryBuffer } from './PredictionHistoryBuffer.ts';
+import { capturePreResimPositions } from './VisualErrorSmoother.ts';
 import {
-  configureClientLobbyDiagnosticProbes,
-  restoreClientLobbyLocalEntities,
-  saveClientLobbyLocalEntities,
-  syncClientCarTopology,
   recordReconcileTelemetryTick,
-  type NetworkTelemetryCollector,
+  syncClientCarTopology,
 } from './NetworkTelemetryCollector.ts';
-import type {
-  ReconcilerMetrics,
-  TelemetryChannelPort,
-  TelemetrySimPort,
-} from './ReconcilerMetricsModel.ts';
-import type {
-  ClientClockPacingController,
-  ClockPacingInterpolatorPort,
-} from './ClientClockPacingController.ts';
-import type {
-  ParsedReconcilerPacket,
-  ReconcilerControlMessenger,
-} from './ReconcilerControlMessenger.ts';
-import type { BoostPadEdgeTracker, MatchSignalDescriptor } from '../protocol/GlobalPayloadCodec.ts';
+import type { TelemetrySimPort } from './ReconcilerMetricsModel.ts';
+import type { ParsedReconcilerPacket } from './ReconcilerControlMessenger.ts';
+import {
+  executeReplayAndEvaluateCorrection,
+  executeSyncTimelineStep,
+  stepForwardRollbackTicks,
+  type RollbackStepState,
+  type RollbackStepperSyncInput,
+  type RollbackStepperSyncOutput,
+} from './reconcilerRollbackPipeline.ts';
+import {
+  drainAndPrepareInboundSessionPacket,
+  type ReconcileSessionTarget,
+  type ReconcilerHardResyncCallback,
+  type ReconcilerMessageCallback,
+  type ReconcilerSignalsCallback,
+} from './reconcilerSessionPipeline.ts';
 
-export interface RollbackStepperSyncInput {
-  sim: TelemetrySimPort;
-  historyBuffer: PredictionHistoryBuffer;
-  visualSmoother: VisualErrorSmoother;
-  metrics: ReconcilerMetrics;
-  serverSnapshot: Float32Array | null;
-  serverTick: number;
-  nowMs: number;
-  localCarIndex: number;
-  lobbyDualWorldMode: boolean;
-  kickoffMaskUntilTick: number;
-  leadTicks: number;
-  downlinkTicks: number;
-  hardSnapCount: number;
-  isRedundant: boolean;
-  sendOutboundInput: (tick: number, controls: CarControls | null, nowMs: number) => void;
-}
-
-export interface RollbackStepperSyncOutput {
-  currentClientTick: number;
-  lastServerRecordedInputTick: number;
-  lastAckedServerTick: number;
-  lastHardResyncTime: number;
-  hardSnapCount: number;
-}
-
-export type ReconcilerSignalsCallback = (
-  signals: MatchSignalDescriptor[],
-  packetServerTick?: number | null
-) => void;
-export type ReconcilerMessageCallback<T = Record<string, unknown>> = (msg: T) => void;
-export type ReconcilerHardResyncCallback = () => void;
-
-export interface ReconcileStepHost {
-  sim: TelemetrySimPort;
-  channel: TelemetryChannelPort | null | undefined;
-  historyBuffer: PredictionHistoryBuffer;
-  visualSmoother: VisualErrorSmoother;
-  pacingController: ClientClockPacingController;
-  telemetryCollector: NetworkTelemetryCollector;
-  controlMessenger: ReconcilerControlMessenger;
-  interpolator: ClockPacingInterpolatorPort | null;
-  metrics: ReconcilerMetrics;
-  boostPadEdgeTracker: BoostPadEdgeTracker;
-  localCarIndex: number;
-  lobbyDualWorldMode: boolean;
-  hostLobbyMode: boolean;
-  replayPlaybackMode: boolean;
-  kickoffMaskUntilTick: number;
-  redundantHistoryCount: number;
-  enableRedundantInputs: boolean;
-  redundantHistoryTicks: number;
-  tickDtMs: number;
-  lastAckedServerTick: number;
-  lastServerRecordedInputTick: number;
-  _hasServerReportedBuffer: boolean;
-  _lastProcessedClientTimestamp: number;
-  _baseMeasuredRtt: number;
-  measuredRtt: number;
-  lastReceivedPacketRaw: unknown;
-  lastParsedPacket: ParsedReconcilerPacket | null;
-  drainedReplayPackets: ParsedReconcilerPacket[];
-  lobbyPrevAuthoritativeState: Float32Array | null;
-  lobbyCurrAuthoritativeState: Float32Array | null;
-  isTimelineSynchronized: boolean;
-  shouldSkipLocalStep: boolean;
-  lastHardResyncTime: number;
-  activeCarMask: number;
-  skippedCorrections: number;
-  hardSnapCount: number;
-  totalCorrections: number;
-  maxCorrectionDelta: number;
-  carVisualPresets: Map<number, string>;
-  options: { maxRollbackFrames?: number };
-  onSignals: ReconcilerSignalsCallback | null;
-  onRosterUpdate: ReconcilerMessageCallback | null;
-  onHandshakeResponse: ReconcilerMessageCallback | null;
-  onHardResync: ReconcilerHardResyncCallback | null;
-  setLobbyDualWorldMode: (enabled: boolean) => void;
-  syncTimeline: (snapshot: Float32Array | null, serverTick: number, nowMs: number) => void;
-  notifyMetricsUpdated: () => void;
-  _resolveEffectiveRtt: () => number;
-  getReconciliationTolerances: () => ReconciliationTolerances;
-}
+export type {
+  ReconcileSessionTarget,
+  ReconcilerHardResyncCallback,
+  ReconcilerMessageCallback,
+  ReconcilerSignalsCallback,
+  RollbackStepState,
+  RollbackStepperSyncInput,
+  RollbackStepperSyncOutput,
+};
 
 export class ReconcilerRollbackStepper {
   stepForwardTicks(
@@ -131,316 +51,285 @@ export class ReconcilerRollbackStepper {
     nowMs: number,
     sendOutboundInput: (tick: number, controls: CarControls | null, nowMs: number) => void
   ): number {
-    const updatedTick = historyBuffer.stepSimulationRange(
+    return stepForwardRollbackTicks(
       sim,
+      historyBuffer,
       fromTick,
       toTick,
       localCarIndex,
       kickoffMaskUntilTick,
       useSilentStep,
-      !isRedundant ? (t, ctrl) => sendOutboundInput(t, ctrl, nowMs) : undefined
-    );
-    if (isRedundant && toTick > fromTick) sendOutboundInput(toTick - 1, null, nowMs);
-    return updatedTick;
-  }
-
-  executeSyncTimeline(input: RollbackStepperSyncInput): RollbackStepperSyncOutput {
-    const {
-      sim,
-      historyBuffer,
-      visualSmoother,
-      metrics,
-      serverSnapshot,
-      serverTick,
-      nowMs,
-      localCarIndex,
-      lobbyDualWorldMode,
-      kickoffMaskUntilTick,
-      leadTicks,
-      downlinkTicks,
-      isRedundant,
-      sendOutboundInput,
-    } = input;
-
-    const savedLobby = saveClientLobbyLocalEntities(sim, lobbyDualWorldMode);
-    if (serverSnapshot) sim.restoreState(serverSnapshot);
-    if (
-      lobbyDualWorldMode ||
-      (typeof sim?.isCarSlotActive === 'function' &&
-        (sim.isCarSlotActive(6) || sim.isCarSlotActive(7)))
-    ) {
-      configureClientLobbyDiagnosticProbes(sim);
-    }
-    historyBuffer.backfillMissingLocalInputs(
-      serverTick - 16,
-      serverTick,
-      localCarIndex,
-      kickoffMaskUntilTick
-    );
-    this.stepForwardTicks(
-      sim,
-      historyBuffer,
-      serverTick,
-      serverTick + leadTicks + downlinkTicks,
-      localCarIndex,
-      kickoffMaskUntilTick,
-      true,
       isRedundant,
       nowMs,
       sendOutboundInput
     );
-    if (savedLobby) {
-      restoreClientLobbyLocalEntities(
-        sim,
-        lobbyDualWorldMode,
-        localCarIndex,
-        historyBuffer.lastLocalControls,
-        savedLobby
-      );
-    }
-    const currentClientTick = Math.floor(sim.getHeaderView!().tickCount);
-    const hardSnapCount = (input.hardSnapCount || 0) + 1;
-    visualSmoother.reset();
-    sim.saveStateSlot(currentClientTick % 256);
-    historyBuffer.saveTickSnapshot(currentClientTick, sim);
-    metrics.applyHardSyncState(currentClientTick, serverTick, leadTicks, hardSnapCount);
-
-    return {
-      currentClientTick,
-      lastServerRecordedInputTick: serverTick - 1,
-      lastAckedServerTick: serverTick,
-      lastHardResyncTime: nowMs,
-      hardSnapCount,
-    };
   }
 
-  executeReconcileStep(ctx: ReconcileStepHost, nowMs = performance.now()): void {
-    const incomingPackets = ctx.controlMessenger.receiveChannelPackets(ctx.channel, nowMs);
-    if (!incomingPackets || incomingPackets.length === 0) return;
+  executeSyncTimeline(input: RollbackStepperSyncInput): RollbackStepperSyncOutput {
+    return executeSyncTimelineStep(input);
+  }
 
-    const packet = ctx.controlMessenger.drainAndParseServerPackets(
-      {
-        channel: ctx.channel,
-        lobbyDualWorldMode: ctx.lobbyDualWorldMode,
-        hostLobbyMode: ctx.hostLobbyMode,
-        replayPlaybackMode: ctx.replayPlaybackMode,
-        inputBufferTarget: ctx.pacingController.inputBufferTarget,
-        metrics: ctx.metrics,
-        boostPadEdgeTracker: ctx.boostPadEdgeTracker,
-        isTimelineSynchronized: () => ctx.isTimelineSynchronized,
-        onSignals: ctx.onSignals,
-        onRosterUpdate: ctx.onRosterUpdate,
-        onHandshakeResponse: ctx.onHandshakeResponse,
-        setLocalCarIndex: (id) => {
-          ctx.localCarIndex = id;
-        },
-        setLobbyDualWorldMode: (en) => ctx.setLobbyDualWorldMode(en),
-        setLobbyAuthoritativeSnapshots: (prev, curr) => {
-          ctx.lobbyPrevAuthoritativeState = prev;
-          ctx.lobbyCurrAuthoritativeState = curr;
-        },
-        syncTimelineFromHandshake: (snap, frame, ts) => {
-          ctx.syncTimeline(snap, frame, ts);
-          ctx.interpolator?.sync?.(ts);
-        },
-      },
-      incomingPackets,
-      nowMs
+  syncSessionTimeline(
+    session: ReconcileSessionTarget,
+    serverSnapshot: Float32Array | null,
+    serverTick = 0,
+    nowMs = performance.now()
+  ): void {
+    const targets = session.pacingController.evaluateTimelineTargets(
+      session.channel,
+      session.controlMessenger.baseMeasuredRtt,
+      session.controlMessenger.measuredRtt,
+      session.controlMessenger.hasServerReportedBuffer,
+      session.metrics?.inputBufferSize,
+      session._resolveEffectiveRtt()
     );
-    ctx._hasServerReportedBuffer = ctx.controlMessenger.hasServerReportedBuffer;
-    ctx.lastServerRecordedInputTick = ctx.controlMessenger.lastServerRecordedInputTick;
-    ctx._lastProcessedClientTimestamp = ctx.controlMessenger.lastProcessedClientTimestamp;
-    ctx._baseMeasuredRtt = ctx.controlMessenger.baseMeasuredRtt;
-    ctx.measuredRtt = ctx.controlMessenger.measuredRtt;
-    ctx.lastReceivedPacketRaw = ctx.controlMessenger.lastReceivedPacketRaw;
-    ctx.drainedReplayPackets = ctx.controlMessenger.drainedReplayPackets;
-    if (!packet) return;
+    session.pacingController.leadTicks = targets.leadTicks;
+    const redundantConfig = session.getOutboundRedundantConfig();
+    const syncOut = executeSyncTimelineStep({
+      sim: session.sim,
+      historyBuffer: session.historyBuffer,
+      visualSmoother: session.visualSmoother,
+      metrics: session.metrics,
+      serverSnapshot,
+      serverTick,
+      nowMs,
+      localCarIndex: session.localCarIndex,
+      lobbyDualWorldMode: session.lobbyDualWorldMode,
+      kickoffMaskUntilTick: session.kickoffMaskUntilTick,
+      leadTicks: targets.leadTicks,
+      downlinkTicks: targets.downlinkTicks,
+      hardSnapCount: session.hardSnapCount,
+      isRedundant: session.redundantHistoryCount > 1 || Boolean(session.enableRedundantInputs),
+      sendOutboundInput: (t, ctrl, ts) =>
+        session.controlMessenger.sendOutboundInputForTick(
+          session.channel,
+          session.historyBuffer,
+          redundantConfig,
+          session.localCarIndex,
+          t,
+          session.localCarIndex,
+          ctrl,
+          ts
+        ),
+    });
+    session.lastServerRecordedInputTick = syncOut.lastServerRecordedInputTick;
+    session.controlMessenger.lastServerRecordedInputTick = syncOut.lastServerRecordedInputTick;
+    session.lastAckedServerTick = syncOut.lastAckedServerTick;
+    session.isTimelineSynchronized = true;
+    session.shouldSkipLocalStep = false;
+    session.lastHardResyncTime = syncOut.lastHardResyncTime;
+    session.hardSnapCount = syncOut.hardSnapCount;
+    session.notifyMetricsUpdated();
+  }
 
+  private stepReconcilePacket(
+    session: ReconcileSessionTarget,
+    packet: ParsedReconcilerPacket,
+    nowMs: number,
+    effectiveRtt: number,
+    leadTicks: number,
+    downlinkTicks: number
+  ): void {
+    const { sim, channel, historyBuffer, visualSmoother, pacingController, telemetryCollector } =
+      session;
+    const { interpolator, metrics, localCarIndex, lobbyDualWorldMode, hostLobbyMode, kickoffMaskUntilTick } =
+      session;
     const serverTick = packet.serverTick;
-    if (!ctx.replayPlaybackMode && serverTick <= ctx.lastAckedServerTick && serverTick > 0) return;
-    ctx.lastAckedServerTick = serverTick;
-    const effectiveRtt = ctx._resolveEffectiveRtt();
-    ctx.metrics.applyServerAck(serverTick, effectiveRtt);
-    const maxAckCarIndex = ctx.historyBuffer.recordAcknowledgedRemoteControls(
+    session.lastAckedServerTick = serverTick;
+    metrics.applyServerAck(serverTick, effectiveRtt);
+    const maxAckCarIndex = historyBuffer.recordAcknowledgedRemoteControls(
       packet.acknowledgedControls,
-      ctx.localCarIndex
+      localCarIndex
     );
-    ctx.lastParsedPacket = packet;
-    ctx.controlMessenger.recordLatestParsedPacket(packet);
-
-    const lobbySnaps = ctx.controlMessenger.updateLobbyAuthoritativeSnapshots(
-      ctx.lobbyDualWorldMode,
+    const topology = syncClientCarTopology({
+      sim,
       packet,
-      ctx.lobbyPrevAuthoritativeState,
-      ctx.lobbyCurrAuthoritativeState
-    );
-    ctx.lobbyPrevAuthoritativeState = lobbySnaps.prev;
-    ctx.lobbyCurrAuthoritativeState = lobbySnaps.curr;
-
-    if (ctx.replayPlaybackMode) {
-      ctx.notifyMetricsUpdated();
+      maxAckCarIndex,
+      localCarIndex,
+      lobbyDualWorldMode,
+      hostLobbyMode,
+      isLoopback: Boolean(channel?.isLoopback),
+      carVisualPresets: session.carVisualPresets,
+    });
+    if (topology.activeCarMask !== undefined) session.activeCarMask = topology.activeCarMask;
+    if (topology.invalidateTimelineSync) session.isTimelineSynchronized = false;
+    if (topology.shouldAbortReconcile) {
+      if (topology.shouldNotifyMetrics) session.notifyMetricsUpdated();
       return;
     }
 
-    const topologyResult = syncClientCarTopology({
-      sim: ctx.sim,
-      packet,
-      maxAckCarIndex,
-      localCarIndex: ctx.localCarIndex,
-      lobbyDualWorldMode: ctx.lobbyDualWorldMode,
-      hostLobbyMode: ctx.hostLobbyMode,
-      isLoopback: Boolean(ctx.channel?.isLoopback),
-      carVisualPresets: ctx.carVisualPresets,
-    });
-    if (topologyResult.activeCarMask !== undefined)
-      ctx.activeCarMask = topologyResult.activeCarMask;
-    if (topologyResult.invalidateTimelineSync) ctx.isTimelineSynchronized = false;
-    if (topologyResult.shouldNotifyMetrics) ctx.notifyMetricsUpdated();
-    if (topologyResult.shouldAbortReconcile) return;
-
-    const targets = ctx.pacingController.evaluateTimelineTargets(
-      ctx.channel,
-      ctx._baseMeasuredRtt,
-      ctx.measuredRtt,
-      ctx._hasServerReportedBuffer,
-      ctx.metrics?.inputBufferSize,
-      effectiveRtt
-    );
-    const leadTicks = targets.leadTicks;
-    ctx.pacingController.leadTicks = leadTicks;
-    ctx.metrics.leadTicks = leadTicks;
-    const targetDelta = leadTicks + targets.downlinkTicks;
-
-    let currentClientTick = Math.floor(ctx.sim.getHeaderView!().tickCount);
+    metrics.leadTicks = leadTicks;
+    const targetDelta = leadTicks + downlinkTicks;
+    let currentClientTick = Math.floor(sim.getHeaderView!().tickCount);
     const currentDelta = currentClientTick - serverTick;
     const desyncDistance = Math.abs(currentDelta - targetDelta);
     const rollbackDepth = currentClientTick - serverTick;
-    const maxRollbackFrames = ctx.options.maxRollbackFrames ?? 180;
+    const maxRollbackFrames = session.options.maxRollbackFrames ?? 180;
 
     if (
-      !ctx.isTimelineSynchronized ||
+      !session.isTimelineSynchronized ||
       rollbackDepth > maxRollbackFrames ||
       rollbackDepth < 0 ||
       desyncDistance > maxRollbackFrames
     ) {
-      const wasSync = ctx.isTimelineSynchronized;
-      if (nowMs - ctx.lastHardResyncTime > 300 || !wasSync) {
+      const wasSync = session.isTimelineSynchronized;
+      if (nowMs - session.lastHardResyncTime > 300 || !wasSync) {
         console.log(
           `[PredictionReconciler] Timeline sync aligned (currentDelta: ${currentDelta}, target: ${targetDelta}, rollbackDepth: ${rollbackDepth}). Snapping timeline to server tick ${serverTick}.`
         );
-        ctx.syncTimeline(packet.stateSnapshot, serverTick, nowMs);
-        const syncedTick = Math.floor(ctx.sim.getHeaderView!().tickCount);
-        const isKickoffMasked =
-          ctx.kickoffMaskUntilTick > 0 && syncedTick < ctx.kickoffMaskUntilTick;
-        if (ctx.telemetryCollector.isMatchTelemetryActive && wasSync && !isKickoffMasked) {
+        session.syncTimeline(packet.stateSnapshot, serverTick, nowMs);
+        if (wasSync) {
           recordReconcileTelemetryTick({
-            isMatchTelemetryActive: ctx.telemetryCollector.isMatchTelemetryActive,
-            telemetryRecorder: ctx.telemetryCollector.recorder,
+            isMatchTelemetryActive: telemetryCollector.isMatchTelemetryActive,
+            telemetryRecorder: telemetryCollector.recorder,
             nowMs,
-            clientTick: syncedTick,
+            clientTick: Math.floor(sim.getHeaderView!().tickCount),
             serverTick,
             effectiveRtt,
             isHardResyncSnap: true,
-            kickoffMaskUntilTick: ctx.kickoffMaskUntilTick,
-            inputBufferTarget: ctx.pacingController.inputBufferTarget,
+            kickoffMaskUntilTick,
+            inputBufferTarget: pacingController.inputBufferTarget,
             leadTicks,
-            interpolatorPhysicsRate: ctx.interpolator?.physicsRate,
-            metrics: ctx.metrics,
-            lastPacingStepStatus: ctx.telemetryCollector.lastPacingStepStatus,
+            interpolatorPhysicsRate: interpolator?.physicsRate,
+            metrics,
+            lastPacingStepStatus: telemetryCollector.lastPacingStepStatus,
           });
         }
-        if (typeof ctx.onHardResync === 'function') ctx.onHardResync();
+        session.onHardResync?.();
+      } else if (topology.shouldNotifyMetrics) {
+        session.notifyMetricsUpdated();
       }
       return;
     }
 
-    ctx.shouldSkipLocalStep = false;
-    const isRedundant = ctx.redundantHistoryCount > 1 || Boolean(ctx.enableRedundantInputs);
-    currentClientTick = ctx.pacingController.stepPacing(
+    session.shouldSkipLocalStep = false;
+    const isRedundant = session.redundantHistoryCount > 1 || Boolean(session.enableRedundantInputs);
+    const redundantConfig = session.getOutboundRedundantConfig();
+    currentClientTick = pacingController.stepPacing(
       currentClientTick,
       currentDelta,
       targetDelta,
       effectiveRtt,
       {
         nowMs,
-        sim: ctx.sim,
-        channel: ctx.channel,
-        interpolator: ctx.interpolator,
-        telemetryCollector: ctx.telemetryCollector,
-        metrics: ctx.metrics,
-        kickoffMaskUntilTick: ctx.kickoffMaskUntilTick,
-        hasServerReportedBuffer: ctx._hasServerReportedBuffer,
-        lobbyDualWorldMode: ctx.lobbyDualWorldMode,
-        localCarIndex: ctx.localCarIndex,
-        lastLocalControls: ctx.historyBuffer.lastLocalControls,
+        sim,
+        channel,
+        interpolator,
+        telemetryCollector,
+        metrics,
+        kickoffMaskUntilTick,
+        hasServerReportedBuffer: session.controlMessenger.hasServerReportedBuffer,
+        lobbyDualWorldMode,
+        localCarIndex,
+        lastLocalControls: historyBuffer.lastLocalControls,
         stepForwardTicks: (from, to, silent, ts) =>
-          this.stepForwardTicks(
-            ctx.sim,
-            ctx.historyBuffer,
+          stepForwardRollbackTicks(
+            sim,
+            historyBuffer,
             from,
             to,
-            ctx.localCarIndex,
-            ctx.kickoffMaskUntilTick,
+            localCarIndex,
+            kickoffMaskUntilTick,
             silent,
             isRedundant,
             ts,
             (t, ctrl, tMs) =>
-              ctx.controlMessenger.sendOutboundInputForTick(ctx, t, ctx.localCarIndex, ctrl, tMs)
+              session.controlMessenger.sendOutboundInputForTick(
+                channel,
+                historyBuffer,
+                redundantConfig,
+                localCarIndex,
+                t,
+                localCarIndex,
+                ctrl,
+                tMs
+              )
           ),
       }
     );
 
-    const { prePositions, hasNaN, numCars } = capturePreResimPositions(ctx.sim, 8);
+    const { prePositions, hasNaN, numCars } = capturePreResimPositions(sim, 8);
     if (hasNaN) {
       console.error(
         '[PredictionReconciler] NaN detected in vehicle coordinates! Forcing full state reset.'
       );
-      ctx.syncTimeline(packet.stateSnapshot, serverTick, nowMs);
-      if (typeof ctx.onHardResync === 'function') ctx.onHardResync();
+      session.syncTimeline(packet.stateSnapshot, serverTick, nowMs);
+      session.onHardResync?.();
       return;
     }
 
-    const updatedCounters = ctx.visualSmoother.executeReplayAndEvaluateCorrection({
-      sim: ctx.sim,
-      historyBuffer: ctx.historyBuffer,
+    const nextState = executeReplayAndEvaluateCorrection(
+      sim,
+      historyBuffer,
+      visualSmoother,
       packet,
       serverTick,
       currentClientTick,
       prePositions,
       numCars,
-      localCarIndex: ctx.localCarIndex,
-      lobbyDualWorldMode: ctx.lobbyDualWorldMode,
-      kickoffMaskUntilTick: ctx.kickoffMaskUntilTick,
-      tolerances: ctx.getReconciliationTolerances(),
-      metrics: ctx.metrics,
-      skippedCorrections: ctx.skippedCorrections,
-      hardSnapCount: ctx.hardSnapCount,
-      totalCorrections: ctx.totalCorrections,
-      maxCorrectionDelta: ctx.maxCorrectionDelta,
-    });
-    ctx.skippedCorrections = updatedCounters.skippedCorrections;
-    ctx.hardSnapCount = updatedCounters.hardSnapCount;
-    ctx.totalCorrections = updatedCounters.totalCorrections;
-    ctx.maxCorrectionDelta = updatedCounters.maxCorrectionDelta;
+      localCarIndex,
+      lobbyDualWorldMode,
+      kickoffMaskUntilTick,
+      session.getReconciliationTolerances(),
+      metrics,
+      session
+    );
+    session.skippedCorrections = nextState.skippedCorrections;
+    session.hardSnapCount = nextState.hardSnapCount;
+    session.totalCorrections = nextState.totalCorrections;
+    session.maxCorrectionDelta = nextState.maxCorrectionDelta;
+    metrics.clientTick = currentClientTick;
 
-    ctx.metrics.clientTick = currentClientTick;
-    if (ctx.telemetryCollector.isMatchTelemetryActive) {
+    if (telemetryCollector.isMatchTelemetryActive) {
       recordReconcileTelemetryTick({
-        isMatchTelemetryActive: ctx.telemetryCollector.isMatchTelemetryActive,
-        telemetryRecorder: ctx.telemetryCollector.recorder,
+        isMatchTelemetryActive: telemetryCollector.isMatchTelemetryActive,
+        telemetryRecorder: telemetryCollector.recorder,
         nowMs,
         clientTick: currentClientTick,
         serverTick,
         effectiveRtt,
         isHardResyncSnap: false,
-        kickoffMaskUntilTick: ctx.kickoffMaskUntilTick,
-        inputBufferTarget: ctx.pacingController.inputBufferTarget,
+        kickoffMaskUntilTick,
+        inputBufferTarget: pacingController.inputBufferTarget,
         leadTicks,
-        interpolatorPhysicsRate: ctx.interpolator?.physicsRate,
-        metrics: ctx.metrics,
-        lastPacingStepStatus: ctx.telemetryCollector.lastPacingStepStatus,
+        interpolatorPhysicsRate: interpolator?.physicsRate,
+        metrics,
+        lastPacingStepStatus: telemetryCollector.lastPacingStepStatus,
       });
     }
-    ctx.notifyMetricsUpdated();
+    session.notifyMetricsUpdated();
+  }
+
+  reconcileInboundBatch(
+    session: ReconcileSessionTarget,
+    incomingPackets: unknown[],
+    nowMs: number
+  ): void {
+    const prepared = drainAndPrepareInboundSessionPacket(session, incomingPackets, nowMs);
+    if (!prepared) return;
+    const { packet, effectiveRtt } = prepared;
+    const targets = session.pacingController.evaluateTimelineTargets(
+      session.channel,
+      session.controlMessenger.baseMeasuredRtt,
+      session.controlMessenger.measuredRtt,
+      session.controlMessenger.hasServerReportedBuffer,
+      session.metrics?.inputBufferSize,
+      effectiveRtt
+    );
+    session.pacingController.leadTicks = targets.leadTicks;
+    this.stepReconcilePacket(
+      session,
+      packet,
+      nowMs,
+      effectiveRtt,
+      targets.leadTicks,
+      targets.downlinkTicks
+    );
   }
 }
+
+
+
+
+
+

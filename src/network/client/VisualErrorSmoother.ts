@@ -4,21 +4,7 @@
  * Computes post-resimulation spatial discrepancy and decays visual smoothing offsets.
  */
 
-import {
-  type PredictionHistoryBuffer,
-  type ReconciliationTolerances,
-  evaluateHistoricalSnapshotDelta,
-} from './PredictionHistoryBuffer.ts';
-import {
-  saveClientLobbyLocalEntities,
-  configureClientLobbyDiagnosticProbes,
-  restoreClientLobbyLocalEntities,
-} from './NetworkTelemetryCollector.ts';
-import type {
-  ReconcilerMetrics,
-  TelemetrySimPort,
-  TopologyPacketPort,
-} from './ReconcilerMetricsModel.ts';
+import type { ReconcilerMetrics, TelemetrySimPort } from './ReconcilerMetricsModel.ts';
 
 export interface Vector3Like {
   x: number;
@@ -120,14 +106,9 @@ export function capturePreResimPositions(
 
   let ball: Vector3Like | null = null;
   if (!hasNaN && typeof sim?.getBallStateView === 'function') {
-    const ballView = sim.getBallStateView();
-    if (
-      ballView &&
-      !Number.isNaN(ballView.posX) &&
-      !Number.isNaN(ballView.posY) &&
-      !Number.isNaN(ballView.posZ)
-    ) {
-      ball = { x: ballView.posX, y: ballView.posY, z: ballView.posZ };
+    const bv = sim.getBallStateView();
+    if (bv && !Number.isNaN(bv.posX) && !Number.isNaN(bv.posY) && !Number.isNaN(bv.posZ)) {
+      ball = { x: bv.posX, y: bv.posY, z: bv.posZ };
     }
   }
   return { prePositions: { cars, ball }, hasNaN, numCars };
@@ -293,208 +274,9 @@ export class VisualErrorSmoother {
     metrics.applySmootherDiscrepancy(discrepancy, lastCorrectionDelta, this.getMagnitude());
     return discrepancy;
   }
-
-  executeReplayAndEvaluateCorrection(params: {
-    sim: TelemetrySimPort;
-    historyBuffer: PredictionHistoryBuffer;
-    packet: TopologyPacketPort;
-    serverTick: number;
-    currentClientTick: number;
-    prePositions: PreResimPositions;
-    numCars: number;
-    localCarIndex: number;
-    lobbyDualWorldMode: boolean;
-    kickoffMaskUntilTick: number;
-    tolerances: ReconciliationTolerances;
-    metrics: ReconcilerMetrics;
-    skippedCorrections: number;
-    hardSnapCount: number;
-    totalCorrections: number;
-    maxCorrectionDelta: number;
-  }): {
-    skippedCorrections: number;
-    hardSnapCount: number;
-    totalCorrections: number;
-    maxCorrectionDelta: number;
-  } {
-    const {
-      sim,
-      historyBuffer,
-      packet,
-      serverTick,
-      currentClientTick,
-      prePositions,
-      numCars,
-      localCarIndex,
-      lobbyDualWorldMode,
-      kickoffMaskUntilTick,
-      tolerances,
-      metrics,
-    } = params;
-    let { skippedCorrections, hardSnapCount, totalCorrections, maxCorrectionDelta } = params;
-
-    sim.saveStateSlot?.(currentClientTick % 256);
-    historyBuffer.saveTickSnapshot(currentClientTick, sim);
-    const histSnap = historyBuffer.getTickSnapshot(serverTick);
-    const evalResult = evaluateHistoricalSnapshotDelta(packet.stateSnapshot, histSnap, {
-      numCars,
-      localCarIndex,
-      isLobbyDualWorld: lobbyDualWorldMode,
-      tolerances,
-      isCarSlotActive:
-        typeof sim?.isCarSlotActive === 'function'
-          ? (c: number) => sim.isCarSlotActive!(c)
-          : undefined,
-    });
-    if (evalResult.canCompare) {
-      if (evalResult.withinTier1) {
-        skippedCorrections = (skippedCorrections || 0) + 1;
-        metrics.applyTier1Skip(evalResult.localPosDelta, skippedCorrections, this.getMagnitude());
-        return { skippedCorrections, hardSnapCount, totalCorrections, maxCorrectionDelta };
-      }
-      metrics.historicalPosDelta = evalResult.localPosDelta;
-    }
-    const isTier3HistoricalHardSnap = Boolean(evalResult.canCompare && evalResult.exceedsHardSnap);
-    const savedLobbyEntities = saveClientLobbyLocalEntities(sim, lobbyDualWorldMode);
-    let slotFullStateAtServerTick: Float32Array | null = null;
-    if (serverTick < currentClientTick && currentClientTick - serverTick < 256) {
-      const restoredSlot = sim.restoreStateSlot?.(serverTick % 256);
-      if (restoredSlot && typeof sim?.saveState === 'function') {
-        slotFullStateAtServerTick = sim.saveState();
-      }
-    }
-    sim.restoreState(packet.stateSnapshot);
-    if (slotFullStateAtServerTick) {
-      preserveCarTransientTimersAcrossCompactRestore(sim, slotFullStateAtServerTick, numCars);
-    }
-    if (
-      lobbyDualWorldMode ||
-      (typeof sim?.isCarSlotActive === 'function' &&
-        (sim.isCarSlotActive(6) || sim.isCarSlotActive(7)))
-    ) {
-      configureClientLobbyDiagnosticProbes(sim);
-    }
-    historyBuffer.backfillMissingLocalInputs(
-      serverTick - 16,
-      serverTick,
-      localCarIndex,
-      kickoffMaskUntilTick
-    );
-    historyBuffer.resimulateSilentRange(
-      sim,
-      serverTick,
-      currentClientTick,
-      numCars,
-      localCarIndex,
-      kickoffMaskUntilTick
-    );
-    if (savedLobbyEntities) {
-      restoreClientLobbyLocalEntities(
-        sim,
-        lobbyDualWorldMode,
-        localCarIndex,
-        historyBuffer.lastLocalControls,
-        savedLobbyEntities
-      );
-    }
-    sim.saveStateSlot(currentClientTick % 256);
-    historyBuffer.saveTickSnapshot(currentClientTick, sim);
-    const discrepancy = this.applyPostResimDiscrepancy(
-      sim,
-      prePositions,
-      {
-        numCars,
-        localCarIndex,
-        isLobbyDualWorld: lobbyDualWorldMode,
-        hardSnapThreshold: tolerances.hardSnapThreshold ?? 500.0,
-        isTier3HistoricalHardSnap,
-      },
-      metrics
-    );
-    let nextHardSnap: number | undefined;
-    let nextTotal: number | undefined;
-    let nextMaxDelta: number | undefined;
-    if (discrepancy.isTier3HardSnap) {
-      hardSnapCount = (hardSnapCount || 0) + 1;
-      nextHardSnap = hardSnapCount;
-    }
-    if (discrepancy.effectiveDelta > 0.05) {
-      totalCorrections++;
-      nextTotal = totalCorrections;
-      if (discrepancy.effectiveDelta > maxCorrectionDelta) {
-        maxCorrectionDelta = discrepancy.effectiveDelta;
-        nextMaxDelta = discrepancy.effectiveDelta;
-      }
-    }
-    metrics.applyCorrectionCounters(nextHardSnap, nextTotal, nextMaxDelta);
-    return { skippedCorrections, hardSnapCount, totalCorrections, maxCorrectionDelta };
-  }
 }
 
-const FULL_SNAPSHOT_MIN_FLOATS = 4201;
-const FULL_SNAPSHOT_CAR_BLOCK_BASE = 169;
-const FULL_SNAPSHOT_CAR_BLOCK_STRIDE = 508;
 
-export function preserveCarTransientTimersAcrossCompactRestore(
-  sim: (TelemetrySimPort & { isUnlimitedBoost?: boolean }) | null | undefined,
-  slotFullState: Float32Array | null | undefined,
-  numCars: number
-): void {
-  if (
-    !sim ||
-    !slotFullState ||
-    slotFullState.length < FULL_SNAPSHOT_MIN_FLOATS ||
-    typeof sim.saveState !== 'function'
-  ) {
-    return;
-  }
-  const mergedFullState: Float32Array | null = sim.saveState();
-  if (!mergedFullState || mergedFullState.length < slotFullState.length) {
-    return;
-  }
-  const slotBytes = new Uint8Array(
-    slotFullState.buffer,
-    slotFullState.byteOffset,
-    slotFullState.byteLength
-  );
-  const mergedBytes = new Uint8Array(
-    mergedFullState.buffer,
-    mergedFullState.byteOffset,
-    mergedFullState.byteLength
-  );
-  const maxCars = Math.min(numCars, 8);
-  const isSlotActive =
-    typeof sim.isCarSlotActive === 'function' ? sim.isCarSlotActive.bind(sim) : null;
-  let modified = false;
 
-  for (let c = 0; c < maxCars; c++) {
-    if (isSlotActive && !isSlotActive(c)) continue;
-    const base = FULL_SNAPSHOT_CAR_BLOCK_BASE + c * FULL_SNAPSHOT_CAR_BLOCK_STRIDE;
-    if (base + 110 > slotFullState.length || base + 110 > mergedFullState.length) continue;
 
-    const slotIsDemoed = slotBytes[(base + 29) * 4];
-    const mergedIsDemoed = mergedBytes[(base + 29) * 4];
-    const slotIsOnGround = slotBytes[(base + 34) * 4];
-    const mergedIsOnGround = mergedBytes[(base + 34) * 4];
 
-    if (slotIsDemoed !== 0 || mergedIsDemoed !== 0 || slotIsOnGround !== mergedIsOnGround) {
-      continue;
-    }
-
-    for (let k = 35; k <= 44; k++) mergedFullState[base + k] = slotFullState[base + k];
-
-    const hasFuel = mergedFullState[base + 46] > 0.1 || Boolean(sim.isUnlimitedBoost);
-    if (hasFuel) {
-      mergedFullState[base + 47] = slotFullState[base + 47];
-      mergedFullState[base + 48] = slotFullState[base + 48];
-    }
-
-    for (let k = 49; k <= 51; k++) mergedFullState[base + k] = slotFullState[base + k];
-    for (let k = 104; k <= 109; k++) mergedFullState[base + k] = slotFullState[base + k];
-    modified = true;
-  }
-
-  if (modified) {
-    sim.restoreState(mergedFullState);
-  }
-}
