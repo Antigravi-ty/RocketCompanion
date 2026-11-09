@@ -1,11 +1,12 @@
 import {
  RLRC_MAX_PLAYER_SLOTS as MAX_SLOTS, RLRC_TICK_RATE,
- type RLRCBallFrameState120Hz, type RLRCBasis3x3, type RLRCBookmarkRecord,
+ type RLRCBasis3x3, type RLRCBookmarkRecord,
  type RLRCCarComponentActiveFlags, type RLRCCarFrameState120Hz,
  type RLRCNetStreamExtractorInput, type RLRCNetStreamExtractorOutput, type RLRCNetStreamRawFrame,
  type RLRCQuat, type RLRCRigidBodySample,
  type RLRCSourceNetworkFrame, type RLRCSynthesizedCarControls, type RLRCTeamIndex, type RLRCVec3,
 } from '../RLRCReplayTypes.ts';
+import { RLRCBallLifecycleExtractor } from './RLRCBallLifecycleExtractor.ts';
 
 export type { RLRCBasis3x3, RLRCNetStreamExtractorInput, RLRCNetStreamExtractorOutput, RLRCNetStreamRawFrame };
 
@@ -74,20 +75,13 @@ const actId = (raw: unknown): number => {
  return !aa || aa.active === false ? -1 : trunc(num(aa.actor, -1));
 };
 
-const spawnBallRb = (il?: RLRCVec3): RLRCRigidBodySample => ({
- ...DEF_BRB,
- position: !il || (abs(il.x) < 2 && abs(il.y) < 2 && abs(il.z - 93) < 2.5)
-  ? DEF_BRB.position
-  : { x: il.x, y: il.y, z: il.z > 0 ? il.z : BALL_Z },
- rbUpdated: true,
-});
-
 export class RLRCNetStreamRigidBodyAndBoostExtractor {
  public run(input: RLRCNetStreamExtractorInput): RLRCNetStreamExtractorOutput {
   const imap = <V>() => new Map<number, V>();
-  const aType = imap<string>(), cPri = imap<number>(), lastPri = imap<number>(), cHid = imap<boolean>(), compCar = imap<number>(), initLoc = imap<RLRCVec3>();
-  const bExp = new Set<number>(), cRb = imap<RLRCRigidBodySample>(), cRbFi = imap<number>();
+  const aType = imap<string>(), cPri = imap<number>(), lastPri = imap<number>(), compCar = imap<number>();
+  const cRb = imap<RLRCRigidBodySample>(), cRbFi = imap<number>();
   const pName = imap<string>(), pTeam = imap<RLRCTeamIndex>(), pSlot = imap<number>(), nSlot = new Map<string, number>();
+  const ballLifecycle = new RLRCBallLifecycleExtractor();
   const slots = Array.from({ length: MAX_SLOTS }, () => ({
    carId: -1, on: false, spFi: -2, upd: false, rb: DEF_CRB, boost: B_INIT,
    th: 0, st: 0, hb: false, bOn: false, jOn: false, dOn: false, dgOn: false, jT: -1e9, flipped: false,
@@ -127,34 +121,24 @@ export class RLRCNetStreamRigidBodyAndBoostExtractor {
    for (const [i, s] of slots.entries()) if (s.carId === cid) off(i, clr);
   };
 
-  const nfs: RLRCSourceNetworkFrame[] = [], dems: RLRCBookmarkRecord[] = [], goals: number[] = [];
-  let bId = -1, bAct = true, bNeedsRb = false, bSpawnFi = -1, bRb = DEF_BRB;
+  const nfs: RLRCSourceNetworkFrame[] = [], dems: RLRCBookmarkRecord[] = [];
   let secRem = 300, ot = false, cdNum = 0, bSc = 0, oSc = 0, dT = -1e9, dS = -1;
   const t0 = input.frames.length > 0 ? input.frames[0].time : 0;
-  const sleepBall = (): void => {
-   bAct = bNeedsRb = false;
-   bRb = { ...bRb, sleeping: true, linearVelocity: ZERO_VEC3, angularVelocity: ZERO_VEC3, rbUpdated: false };
-  };
 
   for (let fi = 0; fi < input.frames.length; fi++) {
    const fr = input.frames[fi], t = num(fr.time), dt = num(fr.delta, 1 / 30), isKf = input.keyframeIndices?.has(fi) ?? false;
-   let bUpd = false;
+   ballLifecycle.beginFrame();
    for (const s of slots) s.upd = false;
 
    for (const id of fr.deleted_actors ?? []) {
-    aType.delete(id); cPri.delete(id); cHid.delete(id); compCar.delete(id); initLoc.delete(id); cRb.delete(id); cRbFi.delete(id); bExp.delete(id); offByCar(id, true);
-    if (id === bId) { bId = -1; sleepBall(); }
+    aType.delete(id); cPri.delete(id); compCar.delete(id); cRb.delete(id); cRbFi.delete(id); offByCar(id, true);
+    ballLifecycle.onActorDeleted(id);
    }
    for (const na of fr.new_actors ?? []) {
     const otn = input.objects[na.object_id] ?? '', aid = na.actor_id;
     aType.set(aid, otn);
-    if (!isKf) { cHid.delete(aid); bExp.delete(aid); }
-    if (na.initial_trajectory?.location) initLoc.set(aid, extractVec3(na.initial_trajectory.location));
-    if (otn.includes('Archetypes.Ball.') && !bExp.has(aid) && !cHid.get(aid)) {
-     if (!isKf || bId < 0 || !bAct || (aid !== bId && !fr.new_actors?.some((x) => x.actor_id === bId))) {
-      bId = aid; bAct = bNeedsRb = bUpd = true; bSpawnFi = fi; bRb = spawnBallRb(initLoc.get(aid));
-     }
-    }
+    const il = na.initial_trajectory?.location ? extractVec3(na.initial_trajectory.location) : undefined;
+    ballLifecycle.onActorSpawned(aid, otn, il, fi, isKf, fr.new_actors);
    }
 
    for (const ua of fr.updated_actors ?? []) {
@@ -175,20 +159,18 @@ export class RLRCNetStreamRigidBodyAndBoostExtractor {
       cPri.set(id, pid); lastPri.set(id, pid);
       const idx = getSlot(pid);
       if (idx >= 0) {
-       const s = slots[idx], isNew = s.carId !== id, hid = Boolean(cHid.get(id));
+       const s = slots[idx], isNew = s.carId !== id, hid = ballLifecycle.isActorHidden(id);
        s.carId = id; s.on = !hid;
        if (isNew && !hid) {
         if (cRbFi.get(id) === fi && cRb.has(id)) { s.rb = cRb.get(id)!; s.spFi = -2; }
-        else { const il = initLoc.get(id); if (il) s.rb = { ...DEF_CRB, position: il, rbUpdated: true }; s.spFi = fi; }
+        else { const il = ballLifecycle.getInitialLocation(id); if (il) s.rb = { ...DEF_CRB, position: il, rbUpdated: true }; s.spFi = fi; }
         s.upd = true; s.boost = B_INIT; s.bOn = s.jOn = s.dOn = s.dgOn = s.flipped = false;
        }
       }
      }
     } else if (p === 'Engine.Actor:bHidden') {
-     const hid = Boolean(r?.Boolean), idx = cSlot(id);
-     cHid.set(id, hid);
+     const hid = ballLifecycle.onActorHiddenChanged(id, at, a), idx = cSlot(id);
      if (at.includes('Car') && idx >= 0 && slots[idx].carId === id) { if (hid) off(idx); else slots[idx].on = true; }
-     else if (at.includes('Ball') && (id === bId || (!hid && bId < 0))) { bId = id; if (hid) sleepBall(); else if (!bExp.has(id)) bAct = true; }
     } else if (p === 'TAGame.CarComponent_TA:Vehicle') {
      const vId = actId(a);
      if (vId >= 0) compCar.set(id, vId);
@@ -196,15 +178,12 @@ export class RLRCNetStreamRigidBodyAndBoostExtractor {
      const rb = extractRigidBodySample(a);
      if (!rb) continue;
      const uRb: RLRCRigidBodySample = { ...rb, rbUpdated: true };
-     if (at.includes('Ball') && !cHid.get(id) && !bExp.has(id) && (bId < 0 || id === bId || !bAct)) {
-      if (bNeedsRb && bId === id && fi === bSpawnFi + 1 && nfs[fi - 1]?.ball.entityActive && hypot(rb.linearVelocity.x, rb.linearVelocity.y, rb.linearVelocity.z) < 10) {
-       (nfs[fi - 1] as { ball: RLRCBallFrameState120Hz }).ball = { entityActive: true, rigidBody: uRb, rbUpdated: true, activeBallActorId: id, actorId: id };
-      }
-      bId = id; bAct = bUpd = true; bNeedsRb = false; bRb = uRb;
+     if (at.includes('Ball')) {
+      ballLifecycle.onBallRigidBodySample(id, rb, fi, nfs);
      } else if (at.includes('Car')) {
       cRb.set(id, uRb); cRbFi.set(id, fi);
       const idx = cSlot(id);
-      if (idx >= 0 && !cHid.get(id)) {
+      if (idx >= 0 && !ballLifecycle.isActorHidden(id)) {
        const s = slots[idx], pos = rb.position, vel = rb.linearVelocity, q = rb.rotation, upZ = 1 - 2 * (q.x * q.x + q.y * q.y);
        if (fi === s.spFi + 1 && nfs[fi - 1]?.cars[idx]?.entityActive && hypot(vel.x, vel.y, vel.z) < 50) {
         (nfs[fi - 1].cars as RLRCCarFrameState120Hz[])[idx] = { ...nfs[fi - 1].cars[idx], rigidBody: uRb, rbUpdated: true };
@@ -250,9 +229,7 @@ export class RLRCNetStreamRigidBodyAndBoostExtractor {
       dT = t; dS = vSlot;
      }
     } else if (p.includes(':ReplicatedExplosionData')) {
-     bExp.add(id);
-     if (id === bId || bId < 0) sleepBall();
-     if (!isKf) goals.push(fi);
+     ballLifecycle.onBallExplosion(id, a, fi, isKf);
     } else if (p.endsWith(':SecondsRemaining') && !isKf) secRem = max(0, trunc(num(r?.Int, secRem)));
     else if (p.endsWith(':bOverTime')) ot = Boolean(r?.Boolean ?? ot);
     else if (p.endsWith(':ReplicatedRoundCountDownNumber') && !isKf) cdNum = max(0, trunc(num(r?.Int)));
@@ -273,16 +250,17 @@ export class RLRCNetStreamRigidBodyAndBoostExtractor {
      controls: s.on ? { throttle: s.th, steer: s.st, pitch: 0, yaw: 0, roll: 0, jump: s.jOn || s.dOn || s.dgOn, boost: s.bOn, handbrake: s.hb } : NEUTRAL_CONTROLS,
     };
    });
-   const bu = bAct && bUpd, bOut = { ...bRb, rbUpdated: bu }, bAid = bAct ? bId : -1;
+   const ballSnap = ballLifecycle.buildFrameBallState();
+   const bu = ballSnap.ballRbUpdated, bAid = ballSnap.activeBallActorId;
    nfs.push({
     sourceFrame30Hz: fi, timeSeconds: t, deltaSeconds: dt, secondsRemaining: secRem, isOvertime: ot, roundCountdownNumber: cdNum,
-    blueScore: bSc, orangeScore: oSc, ball: { entityActive: bAct, rigidBody: bOut, rbUpdated: bu, activeBallActorId: bAid, actorId: bAid },
+    blueScore: bSc, orangeScore: oSc, ball: ballSnap.ball,
     cars, ballRbUpdated: bu, carRbUpdatedMask: cMask, rbUpdatedMask: cMask | (bu ? 1 << MAX_SLOTS : 0), activeBallActorId: bAid,
    });
   }
   const restMap = new Map<number, readonly RLRCRigidBodySample[]>();
   for (let i = 0; i < MAX_SLOTS; i++) if (resting[i].length > 0) restMap.set(i, resting[i]);
-  return { networkFrames: nfs, demolishBookmarks: dems, goalExplosionFrames: goals, restingSamplesBySlot: restMap };
+  return { networkFrames: nfs, demolishBookmarks: dems, goalExplosionFrames: ballLifecycle.getGoalExplosionFrames(), restingSamplesBySlot: restMap };
  }
 }
 
