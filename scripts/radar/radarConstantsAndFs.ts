@@ -169,7 +169,7 @@ function resolveTscCommand(): string | null {
       stdio: 'pipe',
       encoding: 'utf8',
     }).trim();
-    if (/Version\s+5\./.test(versionOut)) {
+    if (/Version\s+[57]\./.test(versionOut)) {
       return 'tsc --noEmit';
     }
   } catch {
@@ -185,7 +185,7 @@ export function runTypeScriptCheck(): TypeScriptCheckResult {
       ok: false,
       command: 'tsc --noEmit (missing local node_modules/.bin/tsc)',
       errors: [
-        'Local TypeScript 5.x compiler not found in node_modules/.bin/tsc. Run "npm install -g pnpm --force && pnpm install" first.',
+        'Local TypeScript 7.x compiler not found in node_modules/.bin/tsc. Run "npm install -g pnpm --force && pnpm install" first.',
       ],
     };
   }
