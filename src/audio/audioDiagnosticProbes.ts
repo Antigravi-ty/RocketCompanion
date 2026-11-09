@@ -414,7 +414,11 @@ export class AudioDebugMonitorController {
           );
         } else {
           console.debug(
-            `[AudioDebug:Heartbeat] state=${r.audioContext.state} t=${r.audioContext.currentTime}s | masterGain=${r.masterMixer.outputGainValue} connected=${r.masterMixer.connected} | output=${r.masterMixer.realtimeOutput.dbfs}dBFS (peak=${r.masterMixer.realtimeOutput.peak}) | synths=${r.gameAudioState.activeEngineSynths}/${r.gameAudioState.engineSynthsCount} | poolVoices=${r.slotPool.activeSlots}/${r.slotPool.maxSlots}`
+            `[AudioDebug:Heartbeat] state=${r.audioContext.state} t=${r.audioContext.currentTime}s | ` +
+              `masterGain=${r.masterMixer.outputGainValue} connected=${r.masterMixer.connected} | ` +
+              `output=${r.masterMixer.realtimeOutput.dbfs}dBFS (peak=${r.masterMixer.realtimeOutput.peak}) | ` +
+              `synths=${r.gameAudioState.activeEngineSynths}/${r.gameAudioState.engineSynthsCount} | ` +
+              `poolVoices=${r.slotPool.activeSlots}/${r.slotPool.maxSlots}`
           );
         }
       }, 2500);

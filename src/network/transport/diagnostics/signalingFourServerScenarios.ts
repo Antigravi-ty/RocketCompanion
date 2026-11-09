@@ -272,7 +272,9 @@ export async function runOneWayIslandBridgeScenario(
       const timer = setTimeout(() => {
         const diagHint =
           srcSlot.protocol === 'mqtt'
-            ? `[DIAGNOSIS: ${sourceRelayId} -> ${srcSlot.edgeNodeId} Edge Webhook] Timed out after ${timeoutMs}ms waiting on ${targetRelayId} (${dstTopicLabel}). ${sourceRelayId} client published to "${brgMqttTopic}", but ${srcSlot.edgeNodeId} Edge Function did not forward it. Check EMQX Rule Engine SQL (FROM "${config.topicNamespace}/brg/+") and HTTP Action Header "x-rc-source-relay: ${sourceRelayId}" -> ${srcSlot.edgeFunctionBridgeUrl}.`
+            ? `[DIAGNOSIS: ${sourceRelayId} -> ${srcSlot.edgeNodeId} Edge Webhook] Timed out after ${timeoutMs}ms waiting on ${targetRelayId} (${dstTopicLabel}). ` +
+              `${sourceRelayId} client published to "${brgMqttTopic}", but ${srcSlot.edgeNodeId} Edge Function did not forward it. ` +
+              `Check EMQX Rule Engine SQL (FROM "${config.topicNamespace}/brg/+") and HTTP Action Header "x-rc-source-relay: ${sourceRelayId}" -> ${srcSlot.edgeFunctionBridgeUrl}.`
             : `[DIAGNOSIS: ${sourceRelayId} -> ${srcSlot.edgeNodeId} Edge -> ${targetRelayId}] Timed out after ${timeoutMs}ms waiting for 1-to-3 fanout on ${targetRelayId} (${dstTopicLabel}).`;
         resolve({ ok: false, detail: diagHint });
       }, timeoutMs);

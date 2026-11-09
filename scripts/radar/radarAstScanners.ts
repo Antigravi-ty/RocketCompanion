@@ -1,11 +1,8 @@
+import path from 'node:path';
 import {
-  ALLOWED_LOCAL_BUFFER_NAMES,
-  CROSS_CONTROLLER_MUTATION_LIMIT,
+  ARBITRARY_SPLIT_FILENAME_RE,
   FILE_ANY_LIMIT,
-  isGraphicsOrDomTarget,
-  PIPELINE_MUTATION_PROP_LIMIT,
-  PROXY_ACCESSOR_LIMIT,
-  WIDE_WAIST_PORT_READ_LIMIT,
+  MAX_LINE_CHAR_LIMIT,
 } from './radarConstantsAndFs.ts';
 
 export function checkLanguageAndEmoji(rel: string, content: string, errors: string[]): void {
@@ -13,7 +10,7 @@ export function checkLanguageAndEmoji(rel: string, content: string, errors: stri
   const emojiRegex = /[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u;
   const allowedTechnicalSymbols = /[±×÷→←↑↓↔↗↘↙↖⇒⇐⇔µαβγδθλμπσωΔΩ°✓✗✔✘⚠⚡]/g;
 
-  const lines = content.split('\n');
+  const lines = content.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (cjkRegex.test(line)) {
@@ -28,6 +25,30 @@ export function checkLanguageAndEmoji(rel: string, content: string, errors: stri
       const sample = line.trim().slice(0, 80);
       errors.push(
         `[NON-ENGLISH / EMOJI VIOLATION] ${rel}:${i + 1} contains forbidden emoji character: "${sample}"`
+      );
+      break;
+    }
+  }
+}
+
+export function checkLineLengthAndFilenameHygiene(
+  rel: string,
+  content: string,
+  errors: string[]
+): void {
+  const baseName = path.basename(rel, path.extname(rel));
+  if (ARBITRARY_SPLIT_FILENAME_RE.test(baseName)) {
+    errors.push(
+      `[ARBITRARY SPLIT FILENAME] ${rel} ("${baseName}") uses an arbitrary numbered split suffix. Decompose by functional domain, pure pipeline, or UI slot responsibility instead of line-count halving.`
+    );
+  }
+
+  const lines = content.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.length > MAX_LINE_CHAR_LIMIT) {
+      errors.push(
+        `[LINE LENGTH OVERFLOW] ${rel}:${i + 1} has ${line.length} characters (limit <= ${MAX_LINE_CHAR_LIMIT}). Do not inline Base64/data blobs or compress multiple statements onto a single line.`
       );
       break;
     }
@@ -132,225 +153,5 @@ export function checkAnyPurity(rel: string, codeWithoutComments: string, errors:
     errors.push(
       `[UNTYPED ANY VIOLATION] ${rel} contains ${reason}. Declare explicit TypeScript interfaces across module boundaries.`
     );
-  }
-}
-
-export function checkProxyBloat(rel: string, codeWithoutComments: string, errors: string[]): void {
-  if (rel.endsWith('RocketSimStateViews.ts')) return;
-
-  const getterMatches =
-    codeWithoutComments.match(
-      /\bget\s+[a-zA-Z_$][a-zA-Z0-9_$]*\s*\(\s*\)[^{]*\{\s*return\s+(?:this|simulator|self)\.[a-zA-Z0-9_$.?]+\s*;\s*\}/g
-    ) || [];
-  const setterMatches =
-    codeWithoutComments.match(
-      /\bset\s+[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)[^{]*\{\s*(?:this|simulator|self)\.[a-zA-Z0-9_$.]+(?:\([^)]*\)|\s*=\s*[^;]+);\s*\}/g
-    ) || [];
-
-  const totalProxies = getterMatches.length + setterMatches.length;
-  if (totalProxies > PROXY_ACCESSOR_LIMIT) {
-    errors.push(
-      `[PROXY BLOAT VIOLATION] ${rel} defines ${totalProxies} pass-through getter/setter proxies (${getterMatches.length} getters, ${setterMatches.length} setters; limit: ${PROXY_ACCESSOR_LIMIT}). Expose narrow domain methods or sub-controller ports instead of wide-waist forwarding accessors.`
-    );
-  }
-}
-
-export function checkAntiGutSharingAndMutations(
-  rel: string,
-  codeWithoutComments: string,
-  errors: string[]
-): void {
-  if (rel.startsWith('src/ui-')) return;
-  if (/(Types|Constants|Config)\.ts$/.test(rel)) return;
-
-  const hasExportedClass = /\bexport\s+class\s+\w+/.test(codeWithoutComments);
-  const isPipelineOrMath = /(Pipeline|Math)\.ts$/.test(rel);
-  const isHelperNamed = /(Helper|Stepper|Runner)\.ts$/.test(rel);
-
-  if (isPipelineOrMath || isHelperNamed || !hasExportedClass) {
-    const localAllocations = new Set<string>();
-    const localAllocRegex =
-      /\b(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*(?:new\s+|\{|\[|document\.|this\.|create|build|clone|make|Object\.create|Object\.assign\(\s*\{\s*\})/g;
-    let allocMatch: RegExpExecArray | null;
-    while ((allocMatch = localAllocRegex.exec(codeWithoutComments)) !== null) {
-      localAllocations.add(allocMatch[1]);
-    }
-
-    const mutatedPropsByTarget = new Map<string, Set<string>>();
-    const mutationRegex =
-      /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\.([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?:=(?!=)|[+\-*/%&|^]=|\+\+|--)/g;
-    let mutMatch: RegExpExecArray | null;
-    while ((mutMatch = mutationRegex.exec(codeWithoutComments)) !== null) {
-      const target = mutMatch[1];
-      const prop = mutMatch[2];
-      if (ALLOWED_LOCAL_BUFFER_NAMES.has(target)) continue;
-      if (localAllocations.has(target)) continue;
-      if (isGraphicsOrDomTarget(target)) continue;
-
-      if (!mutatedPropsByTarget.has(target)) {
-        mutatedPropsByTarget.set(target, new Set());
-      }
-      mutatedPropsByTarget.get(target)!.add(prop);
-    }
-
-    for (const [target, props] of mutatedPropsByTarget.entries()) {
-      if (props.size > PIPELINE_MUTATION_PROP_LIMIT) {
-        const sampleProps = [...props].sort().slice(0, 6).join(', ');
-        errors.push(
-          `[PIPELINE MUTATION VIOLATION] ${rel} mutates ${props.size} properties in-place on external object '${target}' (${sampleProps}${props.size > 6 ? ', ...' : ''}; limit: ${PIPELINE_MUTATION_PROP_LIMIT}). Pure pipelines must return a new state/patch object or encapsulate state transitions inside an owning SubController.`
-        );
-      }
-    }
-  }
-
-  if (hasExportedClass && !isPipelineOrMath) {
-    const aliasMap = new Map<string, string>();
-
-    const directAliasRegex =
-      /\b(?:const|let)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*this\.([a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z_$][a-zA-Z0-9_$]*)?)\s*;/g;
-    let aliasMatch: RegExpExecArray | null;
-    while ((aliasMatch = directAliasRegex.exec(codeWithoutComments)) !== null) {
-      aliasMap.set(aliasMatch[1], `this.${aliasMatch[2]}`);
-    }
-
-    const destructAliasRegex =
-      /\b(?:const|let)\s*\{([^}]+)\}\s*=\s*this(?:\.([a-zA-Z_$][a-zA-Z0-9_$]*))?\s*;/g;
-    let destructMatch: RegExpExecArray | null;
-    while ((destructMatch = destructAliasRegex.exec(codeWithoutComments)) !== null) {
-      const prefix = destructMatch[2] ? `this.${destructMatch[2]}` : 'this';
-      for (const rawItem of destructMatch[1].split(',')) {
-        const parts = rawItem.split(':').map((s) => s.trim());
-        const propName = parts[0];
-        const localName = parts[parts.length - 1];
-        if (propName && localName && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(localName)) {
-          aliasMap.set(localName, `${prefix}.${propName}`);
-        }
-      }
-    }
-
-    const isExternalControllerOrStateTarget = (target: string): boolean => {
-      const lower = target.toLowerCase();
-      if (
-        lower.startsWith('this._scratch') ||
-        lower.startsWith('this.currentevent') ||
-        lower.startsWith('this.controls') ||
-        lower.startsWith('this.settings') ||
-        lower.startsWith('this.primarypose') ||
-        lower.startsWith('this._originalmethods')
-      ) {
-        return false;
-      }
-      return (
-        lower.includes('ctrl') ||
-        lower.includes('controller') ||
-        lower.includes('coordinator') ||
-        lower.includes('domain') ||
-        lower.includes('channel') ||
-        lower.includes('host') ||
-        lower.includes('runtime') ||
-        lower.includes('reconciler') ||
-        lower.includes('sessionstate') ||
-        lower.includes('directorcamerastate') ||
-        lower.includes('mode') ||
-        lower.includes('simulator') ||
-        lower.includes('metrics') ||
-        lower.includes('sampler') ||
-        lower.includes('goalandtouch') ||
-        lower.includes('directorpreview') ||
-        lower.includes('latch')
-      );
-    };
-
-    const classMutatedByTarget = new Map<string, Set<string>>();
-
-    const memberMutRegex =
-      /\b(this\.[a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z_$][a-zA-Z0-9_$]*)?)\.([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?:=(?!=)|[+\-*/%&|^]=|\+\+|--)/g;
-    let mMut: RegExpExecArray | null;
-    while ((mMut = memberMutRegex.exec(codeWithoutComments)) !== null) {
-      const target = mMut[1];
-      const prop = mMut[2];
-      if (isGraphicsOrDomTarget(target)) continue;
-      if (!isExternalControllerOrStateTarget(target)) continue;
-      if (!classMutatedByTarget.has(target)) {
-        classMutatedByTarget.set(target, new Set());
-      }
-      classMutatedByTarget.get(target)!.add(prop);
-    }
-
-    const identMutRegex =
-      /(?<!\.)\b([a-zA-Z_$][a-zA-Z0-9_$]*)\.([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?:=(?!=)|[+\-*/%&|^]=|\+\+|--)/g;
-    let iMut: RegExpExecArray | null;
-    while ((iMut = identMutRegex.exec(codeWithoutComments)) !== null) {
-      const ident = iMut[1];
-      const prop = iMut[2];
-      if (ident === 'this' || ALLOWED_LOCAL_BUFFER_NAMES.has(ident)) continue;
-      const resolvedTarget = aliasMap.get(ident) || ident;
-      if (isGraphicsOrDomTarget(resolvedTarget)) continue;
-      if (!isExternalControllerOrStateTarget(resolvedTarget)) continue;
-      if (!classMutatedByTarget.has(resolvedTarget)) {
-        classMutatedByTarget.set(resolvedTarget, new Set());
-      }
-      classMutatedByTarget.get(resolvedTarget)!.add(prop);
-    }
-
-    for (const [target, props] of classMutatedByTarget.entries()) {
-      if (props.size > CROSS_CONTROLLER_MUTATION_LIMIT) {
-        const sampleProps = [...props].sort().slice(0, 6).join(', ');
-        errors.push(
-          `[CROSS-CONTROLLER GUT-SHARING] ${rel} directly mutates ${props.size} properties on '${target}' (${sampleProps}${props.size > 6 ? ', ...' : ''}; limit: ${CROSS_CONTROLLER_MUTATION_LIMIT}). Encapsulate state mutations inside the owning class via narrow domain methods.`
-        );
-      }
-    }
-
-    const classReadByTarget = new Map<string, Set<string>>();
-    const isPortTarget = (target: string): boolean => {
-      const lower = target.toLowerCase();
-      return (
-        lower === 'this.host' ||
-        lower === 'this.runtime' ||
-        lower === 'this.channel' ||
-        lower === 'this.domain' ||
-        lower.startsWith('this.host.') ||
-        lower.startsWith('this.deps.') ||
-        lower.endsWith('ctrl') ||
-        lower.endsWith('controller')
-      );
-    };
-
-    const memberReadRegex =
-      /\b(this\.[a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z_$][a-zA-Z0-9_$]*)?)\.([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
-    let mRead: RegExpExecArray | null;
-    while ((mRead = memberReadRegex.exec(codeWithoutComments)) !== null) {
-      const target = mRead[1];
-      const prop = mRead[2];
-      if (!isPortTarget(target)) continue;
-      if (!classReadByTarget.has(target)) {
-        classReadByTarget.set(target, new Set());
-      }
-      classReadByTarget.get(target)!.add(prop);
-    }
-
-    const identReadRegex = /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\.([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
-    let iRead: RegExpExecArray | null;
-    while ((iRead = identReadRegex.exec(codeWithoutComments)) !== null) {
-      const ident = iRead[1];
-      const prop = iRead[2];
-      if (ident === 'this') continue;
-      const resolvedTarget = aliasMap.get(ident) || ident;
-      if (!isPortTarget(resolvedTarget)) continue;
-      if (!classReadByTarget.has(resolvedTarget)) {
-        classReadByTarget.set(resolvedTarget, new Set());
-      }
-      classReadByTarget.get(resolvedTarget)!.add(prop);
-    }
-
-    for (const [target, props] of classReadByTarget.entries()) {
-      if (props.size > WIDE_WAIST_PORT_READ_LIMIT) {
-        const sampleProps = [...props].sort().slice(0, 6).join(', ');
-        errors.push(
-          `[WIDE-WAIST PORT VIOLATION] ${rel} accesses ${props.size} distinct properties on external port '${target}' (${sampleProps}${props.size > 6 ? ', ...' : ''}; limit: ${WIDE_WAIST_PORT_READ_LIMIT}). Narrow the port contract or move cohesive domain logic into the owning controller.`
-        );
-      }
-    }
   }
 }

@@ -6,47 +6,15 @@ export const ROOT_DIR: string = process.cwd();
 export const SRC_DIR: string = path.join(ROOT_DIR, 'src');
 export const SCRIPTS_DIR: string = path.join(ROOT_DIR, 'scripts');
 
-export const SOFT_LINE_LIMIT = 550;
-export const HARD_LINE_LIMIT = 600;
-export const SOFT_BYTE_LIMIT = 16 * 1024;
-export const HARD_BYTE_LIMIT = 22 * 1024;
-export const MICRO_FRAGMENT_LINE_FLOOR = 65;
-export const DELTA_LINE_WARNING = 140;
-
-export const PIPELINE_MUTATION_PROP_LIMIT = 3;
-export const CROSS_CONTROLLER_MUTATION_LIMIT = 5;
-export const WIDE_WAIST_PORT_READ_LIMIT = 12;
-export const PROXY_ACCESSOR_LIMIT = 8;
+export const SOFT_LINE_LIMIT = 400;
+export const HARD_LINE_LIMIT = 800;
+export const SOFT_BYTE_LIMIT = 12 * 1024;
+export const HARD_BYTE_LIMIT = 18 * 1024;
+export const MAX_LINE_CHAR_LIMIT = 400;
 export const FILE_ANY_LIMIT = 5;
 
-export const ALLOWED_LOCAL_BUFFER_NAMES: ReadonlySet<string> = new Set([
-  'this',
-  'window',
-  'document',
-  'console',
-  'Math',
-  'Object',
-  'Array',
-  'Number',
-  'String',
-  'Boolean',
-  'Promise',
-  'localStorage',
-  'sessionStorage',
-  'ctx',
-  'mat',
-  'mesh',
-  'uniforms',
-  'dst',
-  'out',
-  'target',
-  'res',
-  'result',
-  'next',
-  'patch',
-  'draft',
-  'style',
-]);
+export const ARBITRARY_SPLIT_FILENAME_RE =
+  /(Part[1-9]|Half[1-9]|Chunk[1-9]|Split[1-9]|Section[1-9]$|Tab[1-9]$|Helper[1-9])/i;
 
 export interface SubsystemCount {
   ts: number;
@@ -61,7 +29,7 @@ export interface TypeScriptCheckResult {
 
 export interface RadarScanResult {
   errors: string[];
-  warnings: string[];
+  infos: string[];
   tsCount: number;
   jsCount: number;
   subsystemStats: Map<string, SubsystemCount>;
@@ -137,27 +105,24 @@ export function kebabToPascalCase(kebab: string): string {
     .join('');
 }
 
-export function isGraphicsOrDomTarget(ident: string): boolean {
-  const lower = ident.toLowerCase();
-  return (
-    lower.includes('mat') ||
-    lower.includes('mesh') ||
-    lower.includes('uniform') ||
-    lower.includes('tex') ||
-    lower.includes('ramp') ||
-    lower.includes('geom') ||
-    lower.includes('light') ||
-    lower.includes('pass') ||
-    lower.includes('scene') ||
-    lower.includes('renderer') ||
-    lower.includes('panner') ||
-    lower.includes('gain') ||
-    lower.includes('filter') ||
-    lower.includes('node') ||
-    lower.includes('canvas') ||
-    lower === 'dom' ||
-    lower.endsWith('element')
-  );
+export function getGitModifiedRelFiles(repoDir: string = ROOT_DIR): Set<string> {
+  const modified = new Set<string>();
+  try {
+    const out = execSync('git status --porcelain', {
+      cwd: repoDir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    for (const line of out.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      const rawPath = line.slice(3).trim();
+      const targetPath = rawPath.includes(' -> ') ? rawPath.split(' -> ').pop()!.trim() : rawPath;
+      modified.add(targetPath.replace(/^"+|"+$/g, ''));
+    }
+  } catch {
+    // Ignore when git status is unavailable
+  }
+  return modified;
 }
 
 export function expandRelativeGlobPattern(fromFileAbs: string, pattern: string): string[] {

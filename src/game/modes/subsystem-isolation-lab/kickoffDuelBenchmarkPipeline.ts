@@ -410,7 +410,10 @@ export async function exportKickoffDuelDiagnosticsData(
           koV2RootCauseIn18be22f:
             'In commit 18be22f, buildObs42 had shifted observation indices [13..41] (feeding rvMag into obs[20] on_ground) and wrong airborne logit mask indices (+1e9 on logits[7] and logits[14]), causing the agent to believe it was airborne on tick 0 and spam Q+A+S+Jump.',
           channelSeparationVerification:
-            'KO_v2 (RLRL101 a9a52e7 ko_v1_best.pt) was trained with standard keyboard controls (multiDiscreteToControls: throttle = thrVal, pitch = -thrVal). Keeping keyboard channels coupled produces deterministic 257.8f average (232, 232, 262, 262, 301) with 0.00e+0 difference vs keyboard replay. Separating throttle=0 in air loses CAR_AIR_CONTROL_THROTTLE (66.67 uu/s^2) and slows average touch to 265.2f.',
+            'KO_v2 (RLRL101 a9a52e7 ko_v1_best.pt) was trained with standard keyboard controls ' +
+            '(multiDiscreteToControls: throttle = thrVal, pitch = -thrVal). Keeping keyboard channels coupled ' +
+            'produces deterministic 257.8f average (232, 232, 262, 262, 301) with 0.00e+0 difference vs keyboard replay. ' +
+            'Separating throttle=0 in air loses CAR_AIR_CONTROL_THROTTLE (66.67 uu/s^2) and slows average touch to 265.2f.',
           forcedWOverrideRemoved:
             'Removed hardcoded force_w override; policy naturally outputs W on ground when boosting (0 difference across all 5 slots).',
         },
