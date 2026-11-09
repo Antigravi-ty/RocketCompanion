@@ -17,9 +17,16 @@ export interface EntityPhysicsPort {
   setCarHitbox?(slot: number, hitbox: string): void;
 }
 
+export interface EntityVehicleRegistryPort {
+  addCar(team: number, visual?: string, targetIndex?: number | null): unknown;
+  removeCar(slot: number): boolean;
+  swapCarVisual(slot: number, visual: string): boolean;
+}
+
 export interface EntityArenaPort {
   cars?: unknown[];
-  addCar(team: number, visual?: string): unknown;
+  vehicleRegistry?: EntityVehicleRegistryPort;
+  addCar?(team: number, visual?: string): unknown;
   removeCar?(slot: number): void;
   swapCarVisual?(slot: number, visual: string): void;
 }
@@ -86,18 +93,22 @@ export class EntityManager {
     } = options;
 
     // 1. Ensure physics entity exists
-    if (this.physics) {
-      if (this.physics.numCars <= slot) {
-        while (this.physics.numCars <= slot) {
-          const t = this.physics.numCars === slot ? team : slot === 0 ? 0 : 1;
-          this.physics.addCar(t, hitbox);
-        }
+    const physicsPort = this.physics;
+    if (physicsPort && physicsPort.numCars <= slot) {
+      while (physicsPort.numCars <= slot) {
+        const t = physicsPort.numCars === slot ? team : slot === 0 ? 0 : 1;
+        physicsPort.addCar(t, hitbox);
       }
     }
 
     // 2. Ensure visual representation exists in ArenaWorld
-    if (this.arena && (!this.arena.cars || !this.arena.cars[slot])) {
-      this.arena.addCar?.(team, visual);
+    const arenaPort = this.arena;
+    if (arenaPort && (!arenaPort.cars || !arenaPort.cars[slot])) {
+      if (arenaPort.vehicleRegistry) {
+        arenaPort.vehicleRegistry.addCar(team, visual, slot);
+      } else if (arenaPort.addCar) {
+        arenaPort.addCar(team, visual);
+      }
     }
 
     const entity: EntityDescriptor = {
@@ -125,10 +136,18 @@ export class EntityManager {
     entity.controller = null;
 
     // 2. Remove from visual scene
-    this.arena?.removeCar?.(slot);
+    const arenaPort = this.arena;
+    if (arenaPort?.vehicleRegistry) {
+      arenaPort.vehicleRegistry.removeCar(slot);
+    } else if (arenaPort?.removeCar) {
+      arenaPort.removeCar(slot);
+    }
 
     // 3. Remove from physics simulation
-    this.physics?.removeCar?.(slot);
+    const physicsPort = this.physics;
+    if (physicsPort?.removeCar) {
+      physicsPort.removeCar(slot);
+    }
 
     this.entities.delete(slot);
     return true;
@@ -143,10 +162,18 @@ export class EntityManager {
     const newHitbox = options.hitbox || options.visual || entity?.hitbox || 'default';
 
     // 1. Visual hot-swap in ArenaWorld (in-place mesh and wheel updates)
-    this.arena?.swapCarVisual?.(slot, newVisual);
+    const arenaPort = this.arena;
+    if (arenaPort?.vehicleRegistry) {
+      arenaPort.vehicleRegistry.swapCarVisual(slot, newVisual);
+    } else if (arenaPort?.swapCarVisual) {
+      arenaPort.swapCarVisual(slot, newVisual);
+    }
 
     // 2. Physics hitbox hot-swap in RocketSim WASM
-    this.physics?.setCarHitbox?.(slot, newHitbox);
+    const physicsPort = this.physics;
+    if (physicsPort?.setCarHitbox) {
+      physicsPort.setCarHitbox(slot, newHitbox);
+    }
 
     if (entity) {
       entity.visual = newVisual;
@@ -187,11 +214,11 @@ export class EntityManager {
   }
 
   getVehicle(slot: number): EntityDescriptor | undefined {
-    return this.entities?.get(slot);
+    return this.entities.get(slot);
   }
 
   hasVehicle(slot: number): boolean {
-    return Boolean(this.entities?.has(slot));
+    return this.entities.has(slot);
   }
 
   get activeVehicleCount(): number {
