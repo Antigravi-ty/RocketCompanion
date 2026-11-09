@@ -48,8 +48,8 @@ export class RLRCReplaySessionController {
   }
 
   public get isActive(): boolean {
-    const st = getSt();
-    return Boolean(st.isWindowOpen && this.session && this.session.frames120Hz.length > 0 && st.viewerState !== 'idle');
+    const state = getSt().viewerState;
+    return state !== 'idle' && state !== 'intervening' && Boolean(this.session && this.session.frames120Hz.length > 0);
   }
 
   public attach(): void {
@@ -260,7 +260,15 @@ export class RLRCReplaySessionController {
   }
 
   public onBeforePhysicsTick(dt = RLRC_FIXED_DT): boolean {
-    if (!this.isActive) return true;
+    if (!this.hasLoadedReplay) return true;
+    if (getSt().viewerState === 'intervening') {
+      if (this.runtime?.keyboard) this.runtime.keyboard.ballControlEnabled = false;
+      this.interveneController.stepBeforeLivePhysics(
+        readLiveRuntimePlayerControls(this.runtime, this.activePovSlotIndex),
+        dt
+      );
+      return true;
+    }
     this.stepPlaybackTick(dt);
     return false;
   }

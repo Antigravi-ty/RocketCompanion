@@ -228,6 +228,58 @@ export class RLRCInterveneTakeoverSubController {
     this.env.onPhaseChanged?.('intervening', 0);
   }
 
+  public stepBeforeLivePhysics(
+    playerControls: RLRCSynthesizedCarControls = DEFAULT_NEUTRAL_CAR_CONTROLS,
+    dt = RLRC_FIXED_DT
+  ): void {
+    const sim = this.phase === 'intervening' ? this.env.getPhysics() : null;
+    if (!sim) return;
+
+    const frames = this.env.getFrames120Hz();
+    const roster = this.env.getRoster();
+    const arena = this.env.getArena?.();
+    const followIdx = this.targetFrame120Hz + this.postTakeoverFrameOffset;
+
+    this.latestControlSnapshot.clear();
+    if (typeof sim.setControls === 'function') {
+      sim.setControls(this._povSlot, playerControls);
+    } else {
+      sim.setCarControls?.(this._povSlot, playerControls);
+    }
+    this.latestControlSnapshot.set(this._povSlot, playerControls);
+
+    if (this.nonPovMode === 'follow-state') {
+      syncFollowStateNonPovAfterStep({
+        sim,
+        arena,
+        roster,
+        nextFrame: followIdx >= 0 && followIdx < frames.length ? frames[followIdx] : null,
+        povSlotIndex: this._povSlot,
+        slotActiveTracker: this.slotActiveTracker,
+        latestControlSnapshot: this.latestControlSnapshot,
+      });
+    } else {
+      stepNonPovCarsBeforePhysics({
+        sim,
+        arena,
+        botPort: this.env.getBotPort?.(),
+        roster,
+        followFrame: followIdx >= 0 && followIdx < frames.length ? frames[followIdx] : null,
+        povSlotIndex: this._povSlot,
+        nonPovMode: this.nonPovMode,
+        slotActiveTracker: this.slotActiveTracker,
+        latestControlSnapshot: this.latestControlSnapshot,
+        dt,
+      });
+    }
+
+    if (sim.state) {
+      sim.state[SIM_OFFSETS.TICK] = Math.max(0, this.liveInterventionTick - 1);
+    }
+    this.liveInterventionTick++;
+    this.postTakeoverFrameOffset++;
+  }
+
   public stepTick(
     playerControls: RLRCSynthesizedCarControls = DEFAULT_NEUTRAL_CAR_CONTROLS,
     dt = RLRC_FIXED_DT

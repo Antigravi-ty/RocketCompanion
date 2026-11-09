@@ -214,8 +214,8 @@ endGoalReplaySession(r, this.replayController, { clearHud: false });
 this.rewinderController?.onResetKickoff?.();
 this.goalAndTouch.goalResetTicks = 0;
 this._resetPlayTouchAndGoalState();
-if (this.rlrcReplaySession?.hasLoadedReplay && this.rlrcReplaySession?.isActive) {
-if (this.rlrcReplaySession.isIntervening) this.rlrcReplaySession.resumeFromCursor();
+if (this.rlrcReplaySession?.hasLoadedReplay) {
+if (this.rlrcReplaySession.isIntervening || !this.rlrcReplaySession.isActive) this.rlrcReplaySession.resumeFromCursor();
 else this.rlrcReplaySession.seekFrame(this.rlrcReplaySession.cursorFrame120Hz);
 this.resetKickoffPresentationAndAudio({ resetCamera: true, resetBots: false });
 this._syncPlayingHud('playing');
