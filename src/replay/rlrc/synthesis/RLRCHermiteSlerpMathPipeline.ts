@@ -117,6 +117,36 @@ function clampTan(vel: RLRCVec3, sec: RLRCVec3, maxSpd: number): RLRCVec3 {
   return spd > maxSpd && spd > 1e-5 ? vScale(t, maxSpd / spd) : t;
 }
 
+export function resolveEffectivePhysicsDt(
+  p0: RLRCVec3,
+  p1: RLRCVec3,
+  v0Raw: RLRCVec3,
+  v1Raw: RLRCVec3,
+  dtWallSeconds: number,
+  r0: boolean,
+  r1: boolean
+): number {
+  const dtWall = Math.max(RLRC_FIXED_DT, dtWallSeconds);
+  if (r0 && r1) return dtWall;
+  const dist = vDist(p0, p1);
+  if (dist <= 2.0) return dtWall;
+  const rawSecSpeed = dist / dtWall;
+  const v0 = r0 ? ZERO_VEC : calibrateNetStreamVel(v0Raw, rawSecSpeed);
+  const v1 = r1 ? ZERO_VEC : calibrateNetStreamVel(v1Raw, rawSecSpeed);
+  const s0Len = vLen(v0);
+  const s1Len = vLen(v1);
+  const avgVecSpeed = 0.5 * vLen(vAdd(v0, v1));
+  const avgScalarSpeed = 0.5 * (s0Len + s1Len);
+  const refSpeed = avgVecSpeed > 0.85 * avgScalarSpeed ? avgVecSpeed : avgScalarSpeed;
+  if (refSpeed <= 100) return dtWall;
+
+  const impliedDt = dist / refSpeed;
+  const quantizedTicks = Math.max(1, Math.round(impliedDt / RLRC_FIXED_DT));
+  const dtPhys = quantizedTicks * RLRC_FIXED_DT;
+  const maxTickJitter = Math.min(2.5 * RLRC_FIXED_DT, 0.35 * dtWall);
+  return Math.abs(dtPhys - dtWall) <= maxTickJitter ? dtPhys : dtWall;
+}
+
 export function interpolateRigidBodyHermiteSlerp(
   s0: RLRCRigidBodySample,
   s1: RLRCRigidBodySample,
@@ -140,9 +170,17 @@ export function interpolateRigidBodyHermiteSlerp(
     };
   }
 
-  const dt = Math.max(RLRC_FIXED_DT, dtSeconds);
   const p0 = s0.position;
   const p1 = s1.position;
+  const dt = resolveEffectivePhysicsDt(
+    p0,
+    p1,
+    s0.linearVelocity,
+    s1.linearVelocity,
+    dtSeconds,
+    r0,
+    r1
+  );
   const sec = vScale(vSub(p1, p0), 1 / dt);
   const secSpeed = vLen(sec);
   const v0 = r0 ? ZERO_VEC : calibrateNetStreamVel(s0.linearVelocity, secSpeed);
@@ -165,7 +203,7 @@ export function interpolateRigidBodyHermiteSlerp(
       sleeping: false,
       position: vLerp(p0, p1, tau),
       rotation,
-      linearVelocity: sec,
+      linearVelocity: vLen(vLin) > 1e-3 ? vLin : sec,
       angularVelocity,
     };
   }
@@ -182,6 +220,7 @@ export function interpolateRigidBodyHermiteSlerp(
   const dh10 = 3 * u2 - 4 * tau + 1;
   const dh11 = 3 * u2 - 2 * tau;
   const minZ = Math.min(p0.z, p1.z) < 25 ? Math.min(p0.z, p1.z) - 1.5 : -Infinity;
+  const hasReplicatedVel = !r0 || !r1;
 
   return {
     sleeping: false,
@@ -189,9 +228,9 @@ export function interpolateRigidBodyHermiteSlerp(
       Math.max(k === 'z' ? minZ : -Infinity, h00 * p0[k] + h10 * t0[k] + h01 * p1[k] + h11 * t1[k])
     ),
     rotation,
-    linearVelocity: vAxis(
-      (k) => 0.5 * (vLin[k] + dh00 * (p0[k] - p1[k]) + dh10 * t0[k] + dh11 * t1[k])
-    ),
+    linearVelocity: hasReplicatedVel
+      ? vLerp(t0, t1, tau)
+      : vAxis((k) => dh00 * (p0[k] - p1[k]) + dh10 * t0[k] + dh11 * t1[k]),
     angularVelocity,
   };
 }

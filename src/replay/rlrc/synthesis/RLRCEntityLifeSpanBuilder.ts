@@ -4,17 +4,19 @@
  * keyframe indices for 120Hz Hermite/SLERP resampling.
  */
 
-import type {
-  RLRCCarFrameState120Hz,
-  RLRCRigidBodySample,
-  RLRCSourceEntityLifeSegment,
-  RLRCSourceNetworkFrame,
+import {
+  RLRC_FIXED_DT,
+  type RLRCCarFrameState120Hz,
+  type RLRCRigidBodySample,
+  type RLRCSourceEntityLifeSegment,
+  type RLRCSourceNetworkFrame,
 } from '../RLRCReplayTypes.ts';
 import {
   calibrateNetStreamVel,
   clamp,
   isDupRb,
   isRest,
+  resolveEffectivePhysicsDt,
   SLEEP_RB,
   vAdd,
   vDist,
@@ -26,6 +28,7 @@ export interface RLRCEntitySpan {
   readonly startNetIdx: number;
   readonly endNetIdx: number;
   readonly keyframeIndices: readonly number[];
+  readonly keyframeTimes?: readonly number[];
 }
 
 export interface RLRCEntityBracketMatch {
@@ -60,7 +63,8 @@ function isRbUpdatedOnFrame(
   slot: number | 'ball'
 ): boolean | undefined {
   const entity = (slot === 'ball' ? nf.ball : getCarFromNetworkFrame(nf, slot)) as
-    { readonly rbUpdated?: boolean } | undefined;
+    | { readonly rbUpdated?: boolean }
+    | undefined;
   if (typeof entity?.rbUpdated === 'boolean') return entity.rbUpdated;
   const rb = getRbFromNetworkFrame(nf, slot) as { readonly rbUpdated?: boolean };
   if (typeof rb.rbUpdated === 'boolean') return rb.rbUpdated;
@@ -70,6 +74,41 @@ function isRbUpdatedOnFrame(
   }
   const mask = nf.rbUpdatedMask;
   return typeof mask === 'number' ? ((mask >>> (slot === 'ball' ? 6 : slot)) & 1) === 1 : undefined;
+}
+
+function buildPhaseAlignedKeyframeTimes(
+  nfs: readonly RLRCSourceNetworkFrame[],
+  kf: readonly number[],
+  slot: number | 'ball'
+): number[] {
+  const n = kf.length;
+  if (n === 0) return [];
+  const times = new Array<number>(n);
+  times[0] = nfs[kf[0]].timeSeconds;
+  for (let i = 0; i < n - 1; i++) {
+    const k0 = kf[i];
+    const k1 = kf[i + 1];
+    const tWall1 = nfs[k1].timeSeconds;
+    const dtWall = Math.max(RLRC_FIXED_DT, tWall1 - nfs[k0].timeSeconds);
+    const rb0 = getRbFromNetworkFrame(nfs[k0], slot);
+    const rb1 = getRbFromNetworkFrame(nfs[k1], slot);
+    const dtPhys = resolveEffectivePhysicsDt(
+      rb0.position,
+      rb1.position,
+      rb0.linearVelocity,
+      rb1.linearVelocity,
+      dtWall,
+      isRest(rb0),
+      isRest(rb1)
+    );
+    const candidate = times[i] + dtPhys;
+    const maxPhaseShift = 0.85 * RLRC_FIXED_DT;
+    times[i + 1] = Math.max(
+      times[i] + RLRC_FIXED_DT,
+      clamp(candidate, tWall1 - maxPhaseShift, tWall1 + maxPhaseShift)
+    );
+  }
+  return times;
 }
 
 /**
@@ -116,7 +155,12 @@ function buildSpan(
       kf.push(end);
     }
   }
-  return { startNetIdx: raw[0], endNetIdx: end, keyframeIndices: kf };
+  return {
+    startNetIdx: raw[0],
+    endNetIdx: end,
+    keyframeIndices: kf,
+    keyframeTimes: buildPhaseAlignedKeyframeTimes(nfs, kf, slot),
+  };
 }
 
 export function extractEntityLifeSpans(
@@ -230,11 +274,14 @@ export function locateEntitySpanBracket(
   }
   if (!sp || !sp.keyframeIndices.length) return null;
   const kf = sp.keyframeIndices;
+  const kt = sp.keyframeTimes;
+  const getKfTime = (idx: number): number =>
+    kt && kt.length === kf.length ? kt[idx] : nfs[kf[idx]].timeSeconds;
   const last = kf[kf.length - 1];
-  if (kf.length === 1 || t <= nfs[kf[0]].timeSeconds) {
+  if (kf.length === 1 || t <= getKfTime(0)) {
     return { k0Idx: kf[0], k1Idx: kf[0], alpha: 0, dt: 0, rest0: false, rest1: false };
   }
-  if (t >= nfs[last].timeSeconds) {
+  if (t >= getKfTime(kf.length - 1)) {
     return { k0Idx: last, k1Idx: last, alpha: 0, dt: 0, rest0: false, rest1: false };
   }
 
@@ -242,13 +289,13 @@ export function locateEntitySpanBracket(
   let hi = kf.length - 1;
   while (lo + 1 < hi) {
     const mid = (lo + hi) >>> 1;
-    if (nfs[kf[mid]].timeSeconds <= t) lo = mid;
+    if (getKfTime(mid) <= t) lo = mid;
     else hi = mid;
   }
   const k0Idx = kf[lo];
   const k1Idx = kf[hi];
-  const t0 = nfs[k0Idx].timeSeconds;
-  const dt = nfs[k1Idx].timeSeconds - t0;
+  const t0 = getKfTime(lo);
+  const dt = getKfTime(hi) - t0;
   const rb0 = getRbFromNetworkFrame(nfs[k0Idx], slot);
   const rb1 = getRbFromNetworkFrame(nfs[k1Idx], slot);
   return {

@@ -20,6 +20,7 @@ import {
   setActiveReplayTimelineController,
   setNameTagRuntimeState,
   hudStore,
+  useReplayToRcsImporterStore,
 } from '../runtimeUiPort.ts';
 import { getPreferredFreeplayTeam } from '../../ui-core/config/vehiclePresets.ts';
 import { StandaloneReplayViewerController } from '../../replay/StandaloneReplayViewerController.ts';
@@ -232,10 +233,18 @@ export class FreeplayMode extends BaseGameMode<FreeplayRuntimePort> {
     this.nameTagTunerController?.onBeforePhysicsTick?.();
     if (this.rewinderController && !this.rewinderController.onBeforePhysicsTick()) return false;
     if (this.isGoalReplayActive()) return false;
-    if (this.rlrcReplaySession && !this.rlrcReplaySession.onBeforePhysicsTick()) return false;
+    const rlrc = this.rlrcReplaySession;
+    if (this.standaloneReplayViewer?.isActive && rlrc?.isActive && !rlrc.isIntervening) {
+      rlrc.deactivateMode();
+      useReplayToRcsImporterStore.getState().updateLiveTelemetry({
+        isWindowOpen: false,
+        hasHotkeyPriority: false,
+        viewerState: 'idle',
+      });
+    }
     if (this.standaloneReplayViewer && !this.standaloneReplayViewer.onBeforePhysicsTick())
       return false;
-    return true;
+    return !rlrc || rlrc.onBeforePhysicsTick();
   }
   public override onAfterPhysicsTick(): void {
     if (

@@ -4,13 +4,12 @@
  * and standard RCREPLAY V2 multi-track binary container payloads (Track A State+Input, Track B Incidents, Track C Signals).
  */
 
-import { INCIDENT_EVENT_TYPES } from '../../../physics/RocketSimConstants.ts';
+import { INCIDENT_EVENT_TYPES, MATCH_SIGNALS } from '../../../physics/RocketSimConstants.ts';
 import { unfilterAndUntransposeStateInputTrack } from '../../container/RCReplayBinaryDecoder.ts';
 import {
   decodeIncidentFrom64Bytes,
   decodeSignalFrom64Bytes,
   encodeIncidentTo64Bytes,
-  encodeSignalTo64Bytes,
   RC_REPLAY_EVENT_STRIDE,
 } from '../../container/RCReplayBinarySchema.ts';
 import {
@@ -22,6 +21,10 @@ import {
   type RLRCReplayHeaderMeta,
   type RLRCTeamIndex,
 } from '../RLRCReplayTypes.ts';
+import {
+  restoreRLRCTrack0FromSanitizedStateInput,
+  sanitizeRLRCTrack0AndSynthesizeSignals,
+} from './RLRCRCReplayV2SignalAndTrackSanitizer.ts';
 
 export interface RLRCReplayV2ExportPayload {
   readonly mode: string;
@@ -40,6 +43,8 @@ export interface RLRCReplayV2ExportPayload {
   readonly directorReplayMeta: {
     readonly rlrcHeader: RLRCReplayHeaderMeta;
     readonly rlrcBookmarks: readonly RLRCBookmarkRecord[];
+    readonly rlrcNativeEvents?: readonly RLRCBookmarkRecord[];
+    readonly rlrcKeyframes?: readonly RLRCBookmarkRecord[];
   };
   readonly stateInputBytes: Uint8Array;
   readonly incidentBytes: Uint8Array;
@@ -86,30 +91,13 @@ export function mapRLRCPacketToRCReplayV2Payload(
     );
   }
 
-  const signalBookmarks = packet.bookmarks.filter(
-    (b) => b.kind === 'user-mark' || b.kind === 'kickoff' || b.kind === 'ue-keyframe'
-  );
-  const signalBytes = new Uint8Array(signalBookmarks.length * RC_REPLAY_EVENT_STRIDE);
-  for (let i = 0; i < signalBookmarks.length; i++) {
-    const bm = signalBookmarks[i];
-    const fIdx = Math.max(0, Math.trunc(bm.frameIndex120Hz));
-    const sigType = bm.kind === 'user-mark' ? 0x91 : 0x87;
-    encodeSignalTo64Bytes(
-      {
-        signalId: i + 1,
-        signalType: sigType,
-        type: sigType,
-        frameId: fIdx,
-        tick: fIdx,
-        frameIndex: fIdx,
-        param1: Math.max(0, Math.trunc(bm.sourceFrame30Hz)),
-        param2: Math.max(0, bm.slotIndex),
-      },
-      signalBytes,
-      i * RC_REPLAY_EVENT_STRIDE,
-      fIdx
-    );
-  }
+  const {
+    sanitizedStateInputBytes,
+    signalBytes,
+    regulationDurationSeconds,
+    rlrcNativeEvents,
+    rlrcKeyframes,
+  } = sanitizeRLRCTrack0AndSynthesizeSignals(packet);
 
   const roster = packet.roster.map((r) => ({
     ...r,
@@ -126,10 +114,6 @@ export function mapRLRCPacketToRCReplayV2Payload(
   const orangeScore = packet.header.orangeScore ?? 0;
   const winner = blueScore > orangeScore ? 'blue' : orangeScore > blueScore ? 'orange' : 'draw';
   const durationSec = Number((frameCount / RLRC_TICK_RATE).toFixed(2));
-  const durationSeconds = Math.max(
-    1,
-    Math.round(packet.header.durationSeconds || durationSec || 300)
-  );
 
   return {
     mode: 'match',
@@ -137,7 +121,7 @@ export function mapRLRCPacketToRCReplayV2Payload(
     tickRate: RLRC_TICK_RATE,
     frameCount,
     durationSec,
-    durationSeconds,
+    durationSeconds: regulationDurationSeconds,
     winner,
     blueScore,
     orangeScore,
@@ -148,8 +132,10 @@ export function mapRLRCPacketToRCReplayV2Payload(
     directorReplayMeta: {
       rlrcHeader: packet.header,
       rlrcBookmarks: packet.bookmarks,
+      rlrcNativeEvents,
+      rlrcKeyframes,
     },
-    stateInputBytes: packet.stateInputTrackBytes,
+    stateInputBytes: sanitizedStateInputBytes,
     incidentBytes,
     signalBytes,
   };
@@ -254,6 +240,13 @@ export function extractRLRCTracksFromRCReplayV2Bytes(
     part2CrcValid: true,
   };
 
+  const sigToc = tracks.signals;
+  const sigSlice =
+    sigToc && sigToc.count > 0 && sigToc.byteLength > 0
+      ? u8.subarray(sigToc.offset, sigToc.offset + sigToc.byteLength)
+      : undefined;
+  restoreRLRCTrack0FromSanitizedStateInput(stateInputTrackBytes, roster.length, header, sigSlice);
+
   const bookmarks: RLRCBookmarkRecord[] = Array.isArray(directorMeta.rlrcBookmarks)
     ? [...directorMeta.rlrcBookmarks]
     : [];
@@ -280,20 +273,24 @@ export function extractRLRCTracksFromRCReplayV2Bytes(
         }
       }
     }
-    const sigToc = tracks.signals;
-    if (sigToc && sigToc.count > 0 && sigToc.byteLength > 0) {
-      const sigSlice = u8.subarray(sigToc.offset, sigToc.offset + sigToc.byteLength);
+    if (sigSlice && sigToc) {
       for (let i = 0; i < sigToc.count; i++) {
         const sig = decodeSignalFrom64Bytes(sigSlice, i * RC_REPLAY_EVENT_STRIDE);
+        if (
+          sig.signalType !== MATCH_SIGNALS.KICKOFF_START &&
+          sig.signalType !== MATCH_SIGNALS.KICKOFF_WILL_START
+        ) {
+          continue;
+        }
         const fIdx = Math.max(0, sig.frameIndex || sig.tick || 0);
         bookmarks.push({
-          kind: sig.signalType === 0x91 ? 'user-mark' : 'kickoff',
+          kind: 'kickoff',
           frameIndex120Hz: fIdx,
           sourceFrame30Hz: sig.param1 || Math.floor(fIdx / 4),
           timeSeconds: fIdx / RLRC_TICK_RATE,
           slotIndex: sig.param2 ?? -1,
           team: -1,
-          label: sig.signalType === 0x91 ? 'Bookmark' : 'Kickoff',
+          label: 'Kickoff',
         });
       }
     }

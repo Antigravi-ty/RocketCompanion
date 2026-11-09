@@ -141,10 +141,14 @@ export function resampleRLRCReplayTo120Hz(
         }
       : { entityActive: false, rigidBody: ref.ball.rigidBody };
 
+    const rosterCount = parsed.roster.length;
     const cars: RLRCCarFrameState120Hz[] = new Array(slots);
     for (let s = 0; s < slots; s++) {
       const rCar = getCarFromNetworkFrame(ref, s);
-      const cb = locateEntitySpanBracket(nfs, cSpans[s], t, cur, near, s);
+      const cb =
+        rosterCount > 0 && s >= rosterCount
+          ? null
+          : locateEntitySpanBracket(nfs, cSpans[s], t, cur, near, s);
       if (cb && rCar) {
         const c0 = getCarFromNetworkFrame(nfs[cb.k0Idx], s) ?? rCar;
         const c1 = getCarFromNetworkFrame(nfs[cb.k1Idx], s) ?? rCar;
@@ -163,6 +167,23 @@ export function resampleRLRCReplayTo120Hz(
           curCar?.entityActive && nxtCar?.entityActive
             ? clamp(lerp(curCar.boostAmount, nxtCar.boostAmount, localAlpha), 0, 100)
             : clamp(lerp(c0.boostAmount, c1.boostAmount, cb.alpha), 0, 100);
+        const sourceBoosting = Boolean(
+          rCar.activeFlags.boostActive ||
+          c0.activeFlags.boostActive ||
+          c1.activeFlags.boostActive
+        );
+        const boostConsumed =
+          (curCar && nxtCar && curCar.boostAmount - nxtCar.boostAmount > 0.05) ||
+          c0.boostAmount - c1.boostAmount > 0.05;
+        const allowBoost = sourceBoosting || (boostConsumed && boostAmount > 0.5);
+        const activeFlags =
+          allowBoost === rCar.activeFlags.boostActive
+            ? rCar.activeFlags
+            : { ...rCar.activeFlags, boostActive: allowBoost };
+        const controls =
+          allowBoost === rCar.controls.boost
+            ? rCar.controls
+            : { ...rCar.controls, boost: allowBoost };
         cars[s] = {
           slotIndex: s,
           entityActive: true,
@@ -172,14 +193,20 @@ export function resampleRLRCReplayTo120Hz(
           isSupersonic: vLen(rb.linearVelocity) >= 2200 || nCar.isSupersonic,
           hasFlipOrJump: nCar.hasFlipOrJump,
           airTimeSinceJump: lerp(c0.airTimeSinceJump, c1.airTimeSinceJump, cb.alpha),
-          activeFlags: rCar.activeFlags,
-          controls: rCar.controls,
+          activeFlags,
+          controls,
         };
       } else {
+        const parkedRb =
+          rosterCount > 0 && s >= rosterCount
+            ? { ...SLEEP_RB, position: { x: -5500, y: s * 300, z: -2000 } }
+            : rCar
+              ? rCar.rigidBody
+              : SLEEP_RB;
         cars[s] = {
           slotIndex: s,
           entityActive: false,
-          rigidBody: rCar ? rCar.rigidBody : SLEEP_RB,
+          rigidBody: parkedRb,
           boostAmount: 0,
           isOnGround: false,
           isSupersonic: false,
