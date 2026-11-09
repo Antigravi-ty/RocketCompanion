@@ -1,39 +1,29 @@
 /**
  * RLRCBoostPadSpatialCatalog.ts
- * Spatial catalog for the 34 standard arena boost pads (6 big + 28 small),
- * nearest-neighbor pickupActorId -> padIndex (0..33) bijective resolver,
- * and 4.0s / 10.0s cooldown state machine for 120Hz RLRC replay synthesis.
+ * Stateful 34-pad pickup actor resolver, 4.0s / 10.0s cooldown state machine,
+ * and 120Hz cooldown timeline builder for RLRC replay synthesis.
  */
 
 import {
   BOOST_PAD_OFFSETS,
   BOOST_PAD_STATE_STRIDE,
   BOOST_PAD_STATES_OFFSET,
-  BOOST_PAD_TIMEOUT_BIG,
-  BOOST_PAD_TIMEOUT_SMALL,
   NUM_BOOST_PADS,
   SIM_OFFSETS,
 } from '../../../physics/RocketSimConstants.ts';
 import {
   RLRC_BOOST_PAD_COUNT,
   type RLRCBoostPadPickupEvent,
-  type RLRCVec3,
 } from '../RLRCReplayTypes.ts';
+import {
+  findNearestBoostPad,
+  getBoostPadCooldownDuration,
+  STANDARD_BOOST_PADS_34,
+  type RLRCBoostPadNearestMatch,
+  type RLRCBoostPadSpec,
+} from './RLRCBoostPadLocationsTable.ts';
 
-export interface RLRCBoostPadSpec {
-  readonly padIndex: number;
-  readonly isBigPad: boolean;
-  readonly cooldownSeconds: number;
-  readonly boostGrantAmount: number;
-  readonly position: RLRCVec3;
-}
-
-export interface RLRCBoostPadNearestMatch {
-  readonly padIndex: number;
-  readonly isBigPad: boolean;
-  readonly distanceXY: number;
-  readonly pad: RLRCBoostPadSpec;
-}
+export type { RLRCBoostPadNearestMatch, RLRCBoostPadSpec };
 
 export interface RLRCBoostPadPickupInput {
   readonly sourceFrame30Hz: number;
@@ -42,131 +32,6 @@ export interface RLRCBoostPadPickupInput {
   readonly pickedUpByte: number | boolean;
   readonly instigatorSlotIndex?: number;
   readonly instigatorPosition?: { readonly x: number; readonly y: number; readonly z?: number } | null;
-}
-
-export const RLRC_BIG_BOOST_PAD_COUNT = 6;
-export const RLRC_SMALL_BOOST_PAD_COUNT = 28;
-export const RLRC_BIG_BOOST_COOLDOWN_SECONDS: number = BOOST_PAD_TIMEOUT_BIG;
-export const RLRC_SMALL_BOOST_COOLDOWN_SECONDS: number = BOOST_PAD_TIMEOUT_SMALL;
-export const RLRC_MAX_PICKUP_MATCH_DISTANCE_UU = 450.0;
-
-const RAW_STANDARD_BOOST_PADS_34: ReadonlyArray<
-  readonly [number, number, number, boolean]
-> = Object.freeze([
-  // 0..5: 6 Big Boost Pads (100 boost, 10.0s cooldown)
-  [-3584, 0, 73, true],
-  [3584, 0, 73, true],
-  [-3072, 4096, 73, true],
-  [3072, 4096, 73, true],
-  [-3072, -4096, 73, true],
-  [3072, -4096, 73, true],
-  // 6..33: 28 Small Boost Pads (12 boost, 4.0s cooldown)
-  [0, -4240, 70, false],
-  [-1792, -4184, 70, false],
-  [1792, -4184, 70, false],
-  [-940, -3308, 70, false],
-  [940, -3308, 70, false],
-  [0, -2816, 70, false],
-  [-3584, -2484, 70, false],
-  [3584, -2484, 70, false],
-  [-1788, -2300, 70, false],
-  [1788, -2300, 70, false],
-  [-2048, -1036, 70, false],
-  [0, -1024, 70, false],
-  [2048, -1036, 70, false],
-  [-1024, 0, 70, false],
-  [1024, 0, 70, false],
-  [-2048, 1036, 70, false],
-  [0, 1024, 70, false],
-  [2048, 1036, 70, false],
-  [-1788, 2300, 70, false],
-  [1788, 2300, 70, false],
-  [-3584, 2484, 70, false],
-  [3584, 2484, 70, false],
-  [0, 2816, 70, false],
-  [-940, 3308, 70, false],
-  [940, 3308, 70, false],
-  [-1792, 4184, 70, false],
-  [1792, 4184, 70, false],
-  [0, 4240, 70, false],
-]);
-
-export const STANDARD_BOOST_PADS_34: readonly RLRCBoostPadSpec[] = Object.freeze(
-  RAW_STANDARD_BOOST_PADS_34.map(([x, y, z, isBigPad], padIndex) =>
-    Object.freeze({
-      padIndex,
-      isBigPad,
-      cooldownSeconds: isBigPad ? RLRC_BIG_BOOST_COOLDOWN_SECONDS : RLRC_SMALL_BOOST_COOLDOWN_SECONDS,
-      boostGrantAmount: isBigPad ? 100 : 12,
-      position: Object.freeze({ x, y, z }),
-    })
-  )
-);
-
-export function isBigBoostPadIndex(padIndex: number): boolean {
-  return padIndex >= 0 && padIndex < RLRC_BIG_BOOST_PAD_COUNT;
-}
-
-export function getBoostPadCooldownDuration(padIndex: number): number {
-  return isBigBoostPadIndex(padIndex)
-    ? RLRC_BIG_BOOST_COOLDOWN_SECONDS
-    : RLRC_SMALL_BOOST_COOLDOWN_SECONDS;
-}
-
-export function getBoostPadSpec(padIndex: number): RLRCBoostPadSpec | null {
-  if (padIndex < 0 || padIndex >= STANDARD_BOOST_PADS_34.length) {
-    return null;
-  }
-  return STANDARD_BOOST_PADS_34[padIndex];
-}
-
-/**
- * Finds the nearest standard boost pad (0..33) to the given `(x, y)` coordinates.
- * Optionally excludes already-bound pad indices if an unbound pad lies within `RLRC_MAX_PICKUP_MATCH_DISTANCE_UU`.
- */
-export function findNearestBoostPad(
-  x: number,
-  y: number,
-  excludedPadIndices?: ReadonlySet<number> | null
-): RLRCBoostPadNearestMatch {
-  let bestUnboundIndex = -1;
-  let bestUnboundDistSq = Number.POSITIVE_INFINITY;
-  let bestOverallIndex = 0;
-  let bestOverallDistSq = Number.POSITIVE_INFINITY;
-
-  for (let i = 0; i < STANDARD_BOOST_PADS_34.length; i++) {
-    const pad = STANDARD_BOOST_PADS_34[i];
-    const dx = x - pad.position.x;
-    const dy = y - pad.position.y;
-    const distSq = dx * dx + dy * dy;
-
-    if (distSq < bestOverallDistSq) {
-      bestOverallDistSq = distSq;
-      bestOverallIndex = i;
-    }
-    if (!excludedPadIndices || !excludedPadIndices.has(i)) {
-      if (distSq < bestUnboundDistSq) {
-        bestUnboundDistSq = distSq;
-        bestUnboundIndex = i;
-      }
-    }
-  }
-
-  const maxDistSq = RLRC_MAX_PICKUP_MATCH_DISTANCE_UU * RLRC_MAX_PICKUP_MATCH_DISTANCE_UU;
-  const chosenIndex =
-    bestUnboundIndex >= 0 && bestUnboundDistSq <= maxDistSq
-      ? bestUnboundIndex
-      : bestOverallIndex;
-  const chosenDistSq =
-    chosenIndex === bestUnboundIndex ? bestUnboundDistSq : bestOverallDistSq;
-  const chosenPad = STANDARD_BOOST_PADS_34[chosenIndex];
-
-  return {
-    padIndex: chosenIndex,
-    isBigPad: chosenPad.isBigPad,
-    distanceXY: Math.sqrt(chosenDistSq),
-    pad: chosenPad,
-  };
 }
 
 /**
@@ -321,7 +186,8 @@ export class RLRCBoostPadSpatialTracker {
   }
 
   public getCooldownsSnapshot(out?: Float32Array): Float32Array {
-    const dst = out && out.length >= RLRC_BOOST_PAD_COUNT ? out : new Float32Array(RLRC_BOOST_PAD_COUNT);
+    const dst =
+      out && out.length >= RLRC_BOOST_PAD_COUNT ? out : new Float32Array(RLRC_BOOST_PAD_COUNT);
     for (let i = 0; i < RLRC_BOOST_PAD_COUNT; i++) {
       dst[i] = this.cooldowns[i];
     }
@@ -333,16 +199,13 @@ export class RLRCBoostPadSpatialTracker {
   }
 }
 
-/**
- * Evaluates the exact 34 boost pad cooldowns (in seconds remaining) at any timestamp `timeSeconds`
- * from a chronological list of `RLRCBoostPadPickupEvent` records.
- */
 export function evaluateBoostPadCooldownsAtTime(
   events: readonly RLRCBoostPadPickupEvent[],
   timeSeconds: number,
   out?: Float32Array
 ): Float32Array {
-  const dst = out && out.length >= RLRC_BOOST_PAD_COUNT ? out : new Float32Array(RLRC_BOOST_PAD_COUNT);
+  const dst =
+    out && out.length >= RLRC_BOOST_PAD_COUNT ? out : new Float32Array(RLRC_BOOST_PAD_COUNT);
   dst.fill(0);
 
   const lastPickTime = new Float64Array(RLRC_BOOST_PAD_COUNT).fill(Number.NEGATIVE_INFINITY);
@@ -377,10 +240,6 @@ export function evaluateBoostPadCooldownsAtTime(
   return dst;
 }
 
-/**
- * Sweeps a sorted `RLRCBoostPadPickupEvent` timeline in O(N_frames + N_events) time
- * to synthesize 120Hz `Float32Array(34)` boost pad cooldown snapshots for every frame.
- */
 export function buildBoostPadCooldownTimeline120Hz(
   events: readonly RLRCBoostPadPickupEvent[],
   frameTimestampsSeconds: ArrayLike<number>
@@ -420,10 +279,6 @@ export function buildBoostPadCooldownTimeline120Hz(
   return result;
 }
 
-/**
- * Writes the 34 boost pad `(isActive, cooldown)` pairs into a 448-float `GameStateBuffer`
- * at `BOOST_PAD_STATES_OFFSET` (floats 342..409) and updates `SIM_OFFSETS.NUM_PADS`.
- */
 export function applyBoostPadCooldownsToSimStateBuffer(
   out: Float32Array,
   cooldowns: ArrayLike<number>
@@ -441,14 +296,12 @@ export function applyBoostPadCooldownsToSimStateBuffer(
   }
 }
 
-/**
- * Extracts the 34 boost pad remaining cooldown seconds from a 448-float `GameStateBuffer`.
- */
 export function extractBoostPadCooldownsFromSimStateBuffer(
   stateBuffer: ArrayLike<number>,
   out?: Float32Array
 ): Float32Array {
-  const dst = out && out.length >= RLRC_BOOST_PAD_COUNT ? out : new Float32Array(RLRC_BOOST_PAD_COUNT);
+  const dst =
+    out && out.length >= RLRC_BOOST_PAD_COUNT ? out : new Float32Array(RLRC_BOOST_PAD_COUNT);
   if (stateBuffer.length < BOOST_PAD_STATES_OFFSET + NUM_BOOST_PADS * BOOST_PAD_STATE_STRIDE) {
     dst.fill(0);
     return dst;

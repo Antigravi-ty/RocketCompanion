@@ -46,7 +46,6 @@ import {
 } from './synthesis/RLRCHermiteSlerpResampler.ts';
 import {
   synthesizeControlsForTimeline120Hz,
-  writeSynthesizedControlsToTrack0Buffer,
 } from './synthesis/RLRCInverseControlSynthesizer.ts';
 
 export interface RLRCConverterOptions {
@@ -131,15 +130,12 @@ export function buildRLRCSessionFromParserOutput(
   const resampled = resampleRLRCReplayTo120Hz(parserOutput, {
     method,
     boostPadCooldownsByFrame120Hz,
+    skipTrack0Pack: true,
   });
 
   const frames120Hz = synthesizeControls
     ? synthesizeControlsForTimeline120Hz(resampled.frames120Hz)
     : resampled.frames120Hz;
-
-  if (synthesizeControls && resampled.stateInputTrackBytes.byteLength > 0) {
-    writeSynthesizedControlsToTrack0Buffer(frames120Hz, resampled.stateInputTrackBytes);
-  }
 
   const containerPacket = buildRLRCContainerPacket({
     ...resampled,
@@ -206,6 +202,7 @@ export function convertRLReplayBufferToRLRC(
     keyframeIndices: keyframeSet30Hz,
     roster: rosterAndLifecycle.roster,
     slotByPriActorId: rosterAndLifecycle.slotIndexByPriActorId,
+    boostPadEvents: decodedNetStream.boostPadEvents30Hz,
   });
 
   const mergedBookmarks = mergeAndEnrichBookmarks30Hz(

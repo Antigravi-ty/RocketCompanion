@@ -259,10 +259,23 @@ export class ArenaEnvironmentManager {
     actualDelta: number
   ): void {
     const h = this.arena;
+    const ballFlags =
+      currState && currState.length > 410 ? Math.round(Number(currState[410]) || 0) : 0;
+    const isBallHidden = (ballFlags & 2) !== 0;
     const currBall = h._currBallView.attach(currState);
     const prevBall = h._prevBallView.attach(prevState);
     interpolatePhysicsTransform(h.ball, prevBall, currBall, alpha, undefined, h.pA, h.pB, h.qA, h.qB);
     unrealToThreeCoords(h.ballVelocity, currBall.velX, currBall.velY, currBall.velZ);
+
+    if (isBallHidden) {
+      h.ball.visible = false;
+      h.indicatorRing.visible = false;
+      h.indicatorHeightRing.visible = false;
+      h.ballSpeedTrail?.reset?.();
+      h.goalBarrierVisual?.update?.(actualDelta);
+      return;
+    }
+
     h.ballSpeedTrail?.update(h.ball.position, h.ballVelocity, actualDelta);
 
     const ballPos = h.ball.position;

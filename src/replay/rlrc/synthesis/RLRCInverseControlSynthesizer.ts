@@ -320,18 +320,34 @@ export function synthesizeControlsForTimeline120Hz(
   options?: RLRCControlSynthesisOptions
 ): RLRCFrame120Hz[] {
   if (!frames.length) return [];
-  const tls = Array.from({ length: RLRC_MAX_PLAYER_SLOTS }, (_, s) => synthesizeSlotTimeline120Hz(frames, s, options));
-  return frames.map((fr, f) => ({
-    ...fr,
-    cars: fr.cars.map((car, i) => {
+  const tls = Array.from({ length: RLRC_MAX_PLAYER_SLOTS }, (_, s) =>
+    synthesizeSlotTimeline120Hz(frames, s, options)
+  );
+  const n = frames.length;
+  for (let f = 0; f < n; f++) {
+    const cars = frames[f].cars as RLRCCarFrameState120Hz[];
+    for (let i = 0; i < cars.length; i++) {
+      const car = cars[i];
       const s = car.slotIndex >= 0 && car.slotIndex < RLRC_MAX_PLAYER_SLOTS ? car.slotIndex : i;
       if (!car.entityActive || s < 0 || s >= RLRC_MAX_PLAYER_SLOTS) {
-        return { ...car, activeFlags: NEUTRAL_ACTIVE_FLAGS, controls: NEUTRAL_SYNTHESIZED_CONTROLS };
+        cars[i] = {
+          ...car,
+          activeFlags: NEUTRAL_ACTIVE_FLAGS,
+          controls: NEUTRAL_SYNTHESIZED_CONTROLS,
+        };
+      } else {
+        const tl = tls[s];
+        cars[i] = {
+          ...car,
+          hasFlipOrJump: tl.hasFlipOrJump[f],
+          airTimeSinceJump: tl.airTimeSinceJump[f],
+          activeFlags: tl.activeFlags[f],
+          controls: tl.controls[f],
+        };
       }
-      const tl = tls[s];
-      return { ...car, hasFlipOrJump: tl.hasFlipOrJump[f], airTimeSinceJump: tl.airTimeSinceJump[f], activeFlags: tl.activeFlags[f], controls: tl.controls[f] };
-    }),
-  }));
+    }
+  }
+  return frames as RLRCFrame120Hz[];
 }
 
 export function packRLRCFrameControlsTo64Bytes(

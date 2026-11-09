@@ -141,9 +141,14 @@ export class RLRCInterveneTakeoverSubController {
     this.liveInterventionTick = this.prerollInjection.nextLiveTick;
 
     const sim = this.env.getPhysics();
+    const prerollStartIdx =
+      downCounterSeconds > 0
+        ? Math.max(0, clampedT0 - downCounterSeconds * 120)
+        : clampedT0;
+    const initialFrame = frames[prerollStartIdx] ?? targetFrame;
     if (sim) {
       applyTargetFrameToPhysicsAndArena({
-        frame: targetFrame,
+        frame: initialFrame,
         roster,
         config: launchConfig,
         sim,
@@ -155,7 +160,7 @@ export class RLRCInterveneTakeoverSubController {
 
     if (downCounterSeconds > 0) {
       this.phase = 'preroll-countdown';
-      this.countdownRemainingTicks = downCounterSeconds * 120;
+      this.countdownRemainingTicks = Math.max(1, clampedT0 - prerollStartIdx);
       this.countdownRemainingSeconds = downCounterSeconds;
       this.lastBeepSecond = downCounterSeconds;
       this.env.playSound?.('training_countdown', 1.0, 150);
@@ -228,28 +233,37 @@ export class RLRCInterveneTakeoverSubController {
     this.env.onPhaseChanged?.('intervening', 0);
   }
 
-  public stepTick(
+  public stepBeforePhysicsTick(
     playerControls: RLRCSynthesizedCarControls = DEFAULT_NEUTRAL_CAR_CONTROLS,
     dt = RLRC_FIXED_DT
-  ): RLRCInterveneStepResult {
+  ): boolean {
     if (this.phase === 'preroll-countdown') {
-      const targetFrame = this.env.getFrames120Hz()[this.targetFrame120Hz];
-      if (targetFrame) {
-        this.env
-          .getArena?.()
-          ?.spinBallInPlace?.(targetFrame.ball.rigidBody.angularVelocity, dt);
-      }
-
+      const frames = this.env.getFrames120Hz();
       this.countdownRemainingTicks = Math.max(0, this.countdownRemainingTicks - 1);
       if (this.countdownRemainingTicks <= 0) {
         this.launchShotNow();
-        return {
-          phase: this.phase,
-          physicsStepped: false,
-          currentTick: this.liveInterventionTick,
-          countdownRemainingSeconds: 0,
-          postTakeoverFrameOffset: 0,
-        };
+        return false;
+      }
+
+      const playIdx = Math.max(
+        0,
+        Math.min(frames.length - 1, this.targetFrame120Hz - this.countdownRemainingTicks)
+      );
+      const playFrame = frames[playIdx];
+      const sim = this.env.getPhysics();
+      const arena = this.env.getArena?.();
+      if (playFrame && sim && this.lastLaunchConfig) {
+        applyTargetFrameToPhysicsAndArena({
+          frame: playFrame,
+          roster: this.env.getRoster(),
+          config: this.lastLaunchConfig,
+          sim,
+          arena,
+          slotActiveTracker: this.slotActiveTracker,
+          rebuildMeshes: false,
+        });
+      } else if (playFrame) {
+        arena?.spinBallInPlace?.(playFrame.ball.rigidBody.angularVelocity, dt);
       }
 
       const nextSec = Math.max(1, Math.ceil(this.countdownRemainingTicks / 120));
@@ -261,26 +275,11 @@ export class RLRCInterveneTakeoverSubController {
         }
         this.env.onPhaseChanged?.('preroll-countdown', nextSec);
       }
-
-      return {
-        phase: 'preroll-countdown',
-        physicsStepped: false,
-        currentTick: this.prerollInjection?.finalPrerollTick ?? 1,
-        countdownRemainingSeconds: this.countdownRemainingSeconds,
-        postTakeoverFrameOffset: 0,
-      };
+      return false;
     }
 
     const sim = this.phase === 'intervening' ? this.env.getPhysics() : null;
-    if (!sim) {
-      return {
-        phase: this.phase,
-        physicsStepped: false,
-        currentTick: this.phase === 'intervening' ? this.liveInterventionTick : 0,
-        countdownRemainingSeconds: 0,
-        postTakeoverFrameOffset: this.postTakeoverFrameOffset,
-      };
-    }
+    if (!sim) return false;
 
     const frames = this.env.getFrames120Hz();
     const roster = this.env.getRoster();
@@ -314,8 +313,17 @@ export class RLRCInterveneTakeoverSubController {
       latestControlSnapshot: this.latestControlSnapshot,
       dt,
     });
+    return true;
+  }
 
-    sim.step?.(1);
+  public stepAfterPhysicsTick(recordToRingBuffer = false): number {
+    const sim = this.phase === 'intervening' ? this.env.getPhysics() : null;
+    if (!sim) return this.liveInterventionTick;
+
+    const frames = this.env.getFrames120Hz();
+    const roster = this.env.getRoster();
+    const arena = this.env.getArena?.();
+    const followIdx = this.targetFrame120Hz + this.postTakeoverFrameOffset;
 
     if (this.nonPovMode === 'follow-state') {
       const nextIdx = followIdx + 1;
@@ -341,12 +349,40 @@ export class RLRCInterveneTakeoverSubController {
       } else {
         arena?.syncInterpolatorToState?.(sim.state, this.prevStepStateBuffer ?? undefined);
       }
-      const acknowledgedControls = this.collectLiveAcknowledgedControls();
-      const slot = this.env
-        .getRingBuffer?.()
-        ?.recordFrame?.(recordedTick, sim.state, { acknowledgedControls });
-      if (slot?.snapshot) slot.snapshot[SIM_OFFSETS.TICK] = recordedTick;
+      if (recordToRingBuffer) {
+        const acknowledgedControls = this.collectLiveAcknowledgedControls();
+        const slot = this.env
+          .getRingBuffer?.()
+          ?.recordFrame?.(recordedTick, sim.state, { acknowledgedControls });
+        if (slot?.snapshot) slot.snapshot[SIM_OFFSETS.TICK] = recordedTick;
+      }
     }
+    return recordedTick;
+  }
+
+  public stepTick(
+    playerControls: RLRCSynthesizedCarControls = DEFAULT_NEUTRAL_CAR_CONTROLS,
+    dt = RLRC_FIXED_DT
+  ): RLRCInterveneStepResult {
+    const shouldStepPhysics = this.stepBeforePhysicsTick(playerControls, dt);
+    if (!shouldStepPhysics) {
+      return {
+        phase: this.phase,
+        physicsStepped: false,
+        currentTick:
+          this.phase === 'preroll-countdown'
+            ? (this.prerollInjection?.finalPrerollTick ?? 1)
+            : this.phase === 'intervening'
+              ? this.liveInterventionTick
+              : 0,
+        countdownRemainingSeconds: this.countdownRemainingSeconds,
+        postTakeoverFrameOffset: this.postTakeoverFrameOffset,
+      };
+    }
+
+    const sim = this.env.getPhysics();
+    sim?.step?.(1);
+    const recordedTick = this.stepAfterPhysicsTick(true);
 
     return {
       phase: 'intervening',

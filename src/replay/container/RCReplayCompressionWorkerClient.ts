@@ -254,10 +254,11 @@ export async function packAndCompressReplayInBackground(
 
   if (typeof CompressionStream !== 'undefined' && typeof Response !== 'undefined') {
     const cs = new CompressionStream('gzip');
+    const readPromise = new Response(cs.readable).arrayBuffer();
     const writer = cs.writable.getWriter();
-    writer.write(containerBytes as unknown as BufferSource);
-    writer.close();
-    const compressedBuf = await new Response(cs.readable).arrayBuffer();
+    await writer.write(containerBytes as unknown as BufferSource);
+    await writer.close();
+    const compressedBuf = await readPromise;
     return {
       ok: true,
       compressed: true,

@@ -112,7 +112,8 @@ this.goalAndTouch.goalResetTicks = 0;
 public override onPhysicsEvent(ev: GameModePhysicsEvent | null | undefined): void {
 if (!ev || !isIncidentEvent(ev.type ?? -1) || this.isGoalReplayActive() || this._isExtReplayActive() || this.rewinderController?.isBlockingLivePhysics) return;
 const cur = Math.floor(this.runtime?.physics?.getHeaderView?.()?.tickCount ?? 0);
-this.goalAndTouch.recordIncidentEvent(typeof ev.tick === 'number' && ev.tick > 0 ? ev.tick : cur, ev);
+const evTick = this.rlrcReplaySession?.isIntervening && cur > 0 ? cur : (typeof ev.tick === 'number' && ev.tick > 0 ? ev.tick : cur);
+this.goalAndTouch.recordIncidentEvent(evTick, ev);
 this.rewinderController?.onPhysicsEvent?.(ev);
 }
 public override onBeforePhysicsTick(): boolean {
@@ -125,6 +126,7 @@ return true;
 }
 public override onAfterPhysicsTick(): void {
 if (!this.runtime?.physics || this.isGoalReplayActive() || this._isExtReplayActive() || this.rewinderController?.isBlockingLivePhysics) return;
+this.rlrcReplaySession?.onAfterPhysicsTick?.();
 this.goalAndTouch.stepAfterPhysicsTick();
 }
 private _beginGoalReplay(): void {
@@ -214,7 +216,7 @@ endGoalReplaySession(r, this.replayController, { clearHud: false });
 this.rewinderController?.onResetKickoff?.();
 this.goalAndTouch.goalResetTicks = 0;
 this._resetPlayTouchAndGoalState();
-if (this.rlrcReplaySession?.hasLoadedReplay && this.rlrcReplaySession?.isActive) {
+if (this.rlrcReplaySession?.hasLoadedReplay && (this.rlrcReplaySession.isActive || this.rlrcReplaySession.isIntervening)) {
 if (this.rlrcReplaySession.isIntervening) this.rlrcReplaySession.resumeFromCursor();
 else this.rlrcReplaySession.seekFrame(this.rlrcReplaySession.cursorFrame120Hz);
 this.resetKickoffPresentationAndAudio({ resetCamera: true, resetBots: false });

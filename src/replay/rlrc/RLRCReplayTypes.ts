@@ -297,6 +297,7 @@ export interface RLRCNetStreamExtractorInput {
   readonly keyframeIndices?: ReadonlySet<number>;
   readonly roster?: readonly RLRCPlayerSlotMeta[];
   readonly slotByPriActorId?: ReadonlyMap<number, number>;
+  readonly boostPadEvents?: readonly RLRCBoostPadPickupEvent[];
 }
 
 export interface RLRCNetStreamExtractorOutput {

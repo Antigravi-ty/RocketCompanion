@@ -98,14 +98,13 @@ const B_OFF = BALL_STATE_OFFSETS, C_OFF = CAR_STATE_OFFSETS;
 
 export function writeBallFrameToSlice(ball: RLRCBallFrameState120Hz, d: Float32Array): void {
   d.fill(0);
-  if (!ball.entityActive) {
-    d[B_OFF.POS + 2] = -5000; d[B_OFF.FWD] = d[B_OFF.RIGHT + 1] = d[B_OFF.UP + 2] = 1;
-    return;
-  }
   const rb = ball.rigidBody;
   writeVec3(rb.position, d, B_OFF.POS, 93.15);
   writeQuaternionBasisToSlice(rb.rotation, d, B_OFF.ROT_MAT);
-  if (!rb.sleeping) { writeVec3(rb.linearVelocity, d, B_OFF.VEL); writeVec3(rb.angularVelocity, d, B_OFF.ANG_VEL); }
+  if (ball.entityActive && !rb.sleeping) {
+    writeVec3(rb.linearVelocity, d, B_OFF.VEL);
+    writeVec3(rb.angularVelocity, d, B_OFF.ANG_VEL);
+  }
 }
 
 function writeParkedCarSlice(slot: number, d: Float32Array): void {
@@ -165,7 +164,8 @@ export function buildCompactSnapshotFromRLRCFrame(
     if (cf) writeCarFrameToSlice(cf, slice); else writeParkedCarSlice(s, slice);
   }
   writeBoostPads(frame.boostPadCooldowns, out);
-  out[EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING] = !frame.ball.entityActive || frame.ball.rigidBody.sleeping ? 1 : 0;
+  out[EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING] =
+    (frame.ball.entityActive ? 0 : 2) | (frame.ball.rigidBody.sleeping ? 1 : 0);
   return out;
 }
 
@@ -250,7 +250,8 @@ export class RLRCPlaybackSyncApplier {
       sim.setBallState?.(this._ballBuf);
       if (sim.state.length >= SIM_OFFSETS.BALL + BALL_STATE_STRIDE) sim.state.set(this._ballBuf, SIM_OFFSETS.BALL);
       if (sim.state.length > EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING) {
-        sim.state[EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING] = !ballAct || frame.ball.rigidBody.sleeping ? 1 : 0;
+        sim.state[EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING] =
+          (ballAct ? 0 : 2) | (frame.ball.rigidBody.sleeping ? 1 : 0);
       }
       this._syncBallVis(arena, ballAct, !ballAct || ballChanged);
     }
