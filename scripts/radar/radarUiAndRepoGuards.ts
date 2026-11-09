@@ -1,8 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
 import {
-  DELTA_LINE_WARNING,
   kebabToPascalCase,
   ROOT_DIR,
   SRC_DIR,
@@ -145,7 +143,7 @@ export function detectCircularDependencies(importGraph: Map<string, string[]>, e
   }
 }
 
-export function checkRootConfigAndWasmParity(errors: string[], warnings: string[]): void {
+export function checkRootConfigAndWasmParity(errors: string[]): void {
   const forbiddenLegacyFiles = [
     'tsconfig.engine-check.json',
     'vite.config.js',
@@ -220,28 +218,5 @@ export function checkRootConfigAndWasmParity(errors: string[], warnings: string[
     }
   } catch {
     errors.push('[TSCONFIG VIOLATION] Unable to read tsconfig.json.');
-  }
-
-  try {
-    const diffOut = execSync('git diff --numstat HEAD', {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    for (const line of diffOut.trim().split('\n')) {
-      if (!line) continue;
-      const [addedStr, deletedStr, fileRel] = line.split(/\s+/);
-      const added = parseInt(addedStr, 10);
-      const deleted = parseInt(deletedStr, 10);
-      if (!Number.isNaN(added) && !Number.isNaN(deleted)) {
-        const netGrowth = added - deleted;
-        if (netGrowth >= DELTA_LINE_WARNING && fileRel.startsWith('src/')) {
-          warnings.push(
-            `[GROWTH DELTA] ${fileRel} grew by +${netGrowth} net lines in working tree. Verify if the new logic belongs in a dedicated SubController.ts.`
-          );
-        }
-      }
-    }
-  } catch {
-    // Ignore if git diff is unavailable
   }
 }

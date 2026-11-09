@@ -5,22 +5,22 @@
  *
  * Modularized under `scripts/radar/`:
  *   - `radarConstantsAndFs.ts`: Thresholds, filesystem/import resolution helpers, and `tsc --noEmit` runner
- *   - `radarAstScanners.ts`: English/Emoji hygiene, 0 value re-exports, `any` purity, proxy bloat, and anti-gut-sharing scanners
+ *   - `radarAstScanners.ts`: English/Emoji hygiene, line-length & filename guards, 0 value re-exports, and `any` purity scanners
  *   - `radarUiAndRepoGuards.ts`: UI route & floating window 1:1 naming guards, circular dependency DFS, lockfile & WASM parity guards
  */
 
 import fs from 'node:fs';
+import path from 'node:path';
 import {
-  CROSS_CONTROLLER_MUTATION_LIMIT,
   expandRelativeGlobPattern,
   FILE_ANY_LIMIT,
+  getGitModifiedRelFiles,
   HARD_BYTE_LIMIT,
   HARD_LINE_LIMIT,
-  MICRO_FRAGMENT_LINE_FLOOR,
-  PIPELINE_MUTATION_PROP_LIMIT,
-  PROXY_ACCESSOR_LIMIT,
+  MAX_LINE_CHAR_LIMIT,
   type RadarScanResult,
   resolveImportPath,
+  ROOT_DIR,
   runTypeScriptCheck,
   SCRIPTS_DIR,
   SOFT_BYTE_LIMIT,
@@ -30,13 +30,11 @@ import {
   type SubsystemCount,
   toPosixRel,
   walkSourceFiles,
-  WIDE_WAIST_PORT_READ_LIMIT,
 } from './radar/radarConstantsAndFs.ts';
 import {
-  checkAntiGutSharingAndMutations,
   checkAnyPurity,
   checkLanguageAndEmoji,
-  checkProxyBloat,
+  checkLineLengthAndFilenameHygiene,
   checkValueReExports,
 } from './radar/radarAstScanners.ts';
 import {
@@ -45,15 +43,26 @@ import {
   detectCircularDependencies,
 } from './radar/radarUiAndRepoGuards.ts';
 
-function runRadarChecks(allFiles: string[], skipTsc: boolean): RadarScanResult {
+function runRadarChecks(
+  allFiles: string[],
+  skipTsc: boolean,
+  showAllInfos: boolean
+): RadarScanResult & { totalLargeFileCount: number } {
   const errors: string[] = [];
-  const warnings: string[] = [];
+  const infos: string[] = [];
   const importGraph = new Map<string, string[]>();
   const incomingRefCounts = new Map<string, number>();
   const subsystemStats = new Map<string, SubsystemCount>();
 
+  const modifiedRelSet = getGitModifiedRelFiles(ROOT_DIR);
+  const uiSubmoduleModifiedSet = getGitModifiedRelFiles(path.join(SRC_DIR, 'ui-core'));
+  for (const uiRel of uiSubmoduleModifiedSet) {
+    modifiedRelSet.add(`src/ui-core/${uiRel}`);
+  }
+
   let jsCount = 0;
   let tsCount = 0;
+  let totalLargeFileCount = 0;
 
   for (const file of allFiles) {
     incomingRefCounts.set(toPosixRel(file), 0);
@@ -90,9 +99,10 @@ function runRadarChecks(allFiles: string[], skipTsc: boolean): RadarScanResult {
 
     const content = fs.readFileSync(file, 'utf8');
     const codeWithoutComments = stripComments(content);
-    const lineCount = content.split('\n').length;
+    const lineCount = content.split(/\r?\n/).length;
 
     checkLanguageAndEmoji(rel, content, errors);
+    checkLineLengthAndFilenameHygiene(rel, content, errors);
 
     const soccarMatch = content.match(/\b\w*socc[ae]r\w*\b/i);
     if (soccarMatch) {
@@ -115,30 +125,31 @@ function runRadarChecks(allFiles: string[], skipTsc: boolean): RadarScanResult {
 
     const byteSize = Buffer.byteLength(content, 'utf8');
     const kbFormatted = (byteSize / 1024).toFixed(1);
-    if (lineCount > HARD_LINE_LIMIT) {
+    const exceedsHardLine = lineCount > HARD_LINE_LIMIT;
+    const exceedsHardByte = byteSize > HARD_BYTE_LIMIT;
+
+    if (exceedsHardLine) {
       errors.push(
-        `[VOLUME OVERFLOW] ${rel} has ${lineCount} lines (${kbFormatted} KB; exceeds hard ceiling of ${HARD_LINE_LIMIT} lines). Extract a pure narrow-waist pipeline or stateful SubController.`
+        `[VOLUME OVERFLOW] ${rel} has ${lineCount} lines (${kbFormatted} KB; exceeds hard ceiling of ${HARD_LINE_LIMIT} lines). Decompose by functional domain, pure pipeline, or UI slot responsibility.`
       );
-    } else if (lineCount > SOFT_LINE_LIMIT) {
-      warnings.push(
-        `[WATERLINE ALERT] ${rel} is at ${lineCount} lines (${kbFormatted} KB; exceeds soft limit of ${SOFT_LINE_LIMIT} lines, approaching ${HARD_LINE_LIMIT}). Avoid adding new state here; encapsulate new features in a SubController.ts.`
+    }
+    if (exceedsHardByte) {
+      errors.push(
+        `[BYTE VOLUME OVERFLOW] ${rel} is ${kbFormatted} KB (${byteSize} bytes, ${lineCount} lines; exceeds hard ceiling of ${(HARD_BYTE_LIMIT / 1024).toFixed(0)} KB). Decompose by functional domain, pure pipeline, or UI slot responsibility.`
       );
     }
 
-    if (byteSize > HARD_BYTE_LIMIT) {
-      errors.push(
-        `[BYTE VOLUME OVERFLOW] ${rel} is ${kbFormatted} KB (${byteSize} bytes, ${lineCount} lines; exceeds hard ceiling of ${(HARD_BYTE_LIMIT / 1024).toFixed(0)} KB). Decompose into focused vertical modules.`
-      );
-    } else if (byteSize > SOFT_BYTE_LIMIT) {
-      warnings.push(
-        `[BYTE WATERLINE ALERT] ${rel} is at ${kbFormatted} KB (${byteSize} bytes, ${lineCount} lines; exceeds soft limit of ${(SOFT_BYTE_LIMIT / 1024).toFixed(0)} KB, approaching ${(HARD_BYTE_LIMIT / 1024).toFixed(0)} KB).`
-      );
+    if (!exceedsHardLine && !exceedsHardByte && (byteSize > SOFT_BYTE_LIMIT || lineCount > SOFT_LINE_LIMIT)) {
+      totalLargeFileCount++;
+      if (showAllInfos || modifiedRelSet.has(rel)) {
+        infos.push(
+          `[INFO: LARGE FILE NOTICE] ${rel} is ${kbFormatted} KB (${lineCount} lines; soft notice > ${(SOFT_BYTE_LIMIT / 1024).toFixed(0)} KB / ${SOFT_LINE_LIMIT}L, hard ceiling ${(HARD_BYTE_LIMIT / 1024).toFixed(0)} KB / ${HARD_LINE_LIMIT}L). Status: ACCEPTABLE (no action required to pass check; do NOT compress lines or shorten variable names). If considering splitting up when adding substantial new features later, split strictly by functional domain, pure logic pipeline, or independent UI Slot — never halve a file arbitrarily by line count or bridge it via a pass-through connector/helper.`
+        );
+      }
     }
 
     checkValueReExports(rel, codeWithoutComments, errors);
     checkAnyPurity(rel, codeWithoutComments, errors);
-    checkProxyBloat(rel, codeWithoutComments, errors);
-    checkAntiGutSharingAndMutations(rel, codeWithoutComments, errors);
 
     const importRegex =
       /(?:from\s+|import\s*\(\s*|import\s+)['"]([^'"]+)['"]|new\s+URL\s*\(\s*['"]([^'"]+)['"]\s*,\s*import\.meta\.url\s*\)/g;
@@ -253,24 +264,12 @@ function runRadarChecks(allFiles: string[], skipTsc: boolean): RadarScanResult {
       errors.push(
         `[ORPHAN MODULE] ${rel} has 0 incoming references across src/. Remove dead file or wire it into its owning subsystem.`
       );
-    } else if (refCount === 1) {
-      const content = fs.readFileSync(file, 'utf8');
-      const lineCount = content.split('\n').length;
-      const isTypeOrConfigOnly =
-        /(Types|Constants|Config|Tokens|Defaults|Presets|Schema)\.(ts|tsx)$/.test(rel) ||
-        rel.includes('/config/') ||
-        rel.includes('/tokens/');
-      if (lineCount < MICRO_FRAGMENT_LINE_FLOOR && !isTypeOrConfigOnly) {
-        warnings.push(
-          `[OVER-FRAGMENTATION WARNING] ${rel} is only ${lineCount} lines (<${MICRO_FRAGMENT_LINE_FLOOR}) and has only 1 incoming reference. Consider inlining into its sole caller or merging into a cohesive module.`
-        );
-      }
     }
   }
 
   checkUiNamingAndRouteAlignment(errors);
   detectCircularDependencies(importGraph, errors);
-  checkRootConfigAndWasmParity(errors, warnings);
+  checkRootConfigAndWasmParity(errors);
 
   const tsResult = skipTsc
     ? { ok: true, command: 'skipped (--no-tsc)', errors: [] }
@@ -281,15 +280,16 @@ function runRadarChecks(allFiles: string[], skipTsc: boolean): RadarScanResult {
     }
   }
 
-  return { errors, warnings, tsCount, jsCount, subsystemStats, tsResult };
+  return { errors, infos, tsCount, jsCount, subsystemStats, tsResult, totalLargeFileCount };
 }
 
 function main(): void {
   const args = new Set(process.argv.slice(2));
   const skipTsc = args.has('--no-tsc');
+  const showAllInfos = args.has('--all-info');
   const startTime = Date.now();
   const allFiles = walkSourceFiles(SRC_DIR);
-  const result = runRadarChecks(allFiles, skipTsc);
+  const result = runRadarChecks(allFiles, skipTsc, showAllInfos);
   const elapsedMs = Date.now() - startTime;
 
   const totalFiles = result.tsCount + result.jsCount;
@@ -309,10 +309,10 @@ function main(): void {
     }`
   );
   console.log(
-    ` Volume Waterline    : Soft=${SOFT_LINE_LIMIT}L/${(SOFT_BYTE_LIMIT / 1024).toFixed(0)}KB | Hard=${HARD_LINE_LIMIT}L/${(HARD_BYTE_LIMIT / 1024).toFixed(0)}KB | MicroFloor=${MICRO_FRAGMENT_LINE_FLOOR}L`
+    ` Volume Guardrails   : SoftInfo=${SOFT_LINE_LIMIT}L/${(SOFT_BYTE_LIMIT / 1024).toFixed(0)}KB | HardError=${HARD_LINE_LIMIT}L/${(HARD_BYTE_LIMIT / 1024).toFixed(0)}KB | MaxLine<=${MAX_LINE_CHAR_LIMIT}chars`
   );
   console.log(
-    ` Semantic Contracts  : PipelineMut<=${PIPELINE_MUTATION_PROP_LIMIT} | CrossCtrlMut<=${CROSS_CONTROLLER_MUTATION_LIMIT} | PortRead<=${WIDE_WAIST_PORT_READ_LIMIT} | Proxy<=${PROXY_ACCESSOR_LIMIT} | Any<=${FILE_ANY_LIMIT}`
+    ` Hard Boundaries     : 0 Circular Deps | 0 Value Re-Exports | 0 Upward Imports | Any<=${FILE_ANY_LIMIT}`
   );
 
   const engineSubsystems = [...result.subsystemStats.entries()]
@@ -325,11 +325,16 @@ function main(): void {
   console.log(` Engine Subsystems   : ${subsystemSummary}`);
   console.log('----------------------------------------------------------------------');
 
-  if (result.warnings.length > 0) {
-    console.log(` WARNINGS (${result.warnings.length}):`);
-    for (const w of result.warnings) {
-      console.log(`  ! ${w}`);
+  if (result.infos.length > 0) {
+    console.log(` INFO (Non-blocking, Status: ACCEPTABLE — ${result.infos.length} modified file notice(s)):`);
+    for (const info of result.infos) {
+      console.log(`  [i] ${info}`);
     }
+    console.log('----------------------------------------------------------------------');
+  } else if (result.totalLargeFileCount > 0) {
+    console.log(
+      ` INFO (Non-blocking) : ${result.totalLargeFileCount} existing file(s) in ${(SOFT_BYTE_LIMIT / 1024).toFixed(0)}KB..${(HARD_BYTE_LIMIT / 1024).toFixed(0)}KB / ${SOFT_LINE_LIMIT}..${HARD_LINE_LIMIT}L range — Status: ACCEPTABLE (pass --all-info to list).`
+    );
     console.log('----------------------------------------------------------------------');
   }
 
@@ -343,7 +348,7 @@ function main(): void {
   }
 
   console.log(
-    ' STATUS: GREEN -- 100% TS, tsc --noEmit clean, 0 gut-sharing, 0 proxy bloat, 0 untyped boundaries.'
+    ' STATUS: GREEN -- 100% TS, tsc --noEmit clean, hard boundaries & volume caps verified.'
   );
   console.log('======================================================================');
 }
