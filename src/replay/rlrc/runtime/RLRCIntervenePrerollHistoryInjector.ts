@@ -23,14 +23,19 @@ import {
   RLRC_PREROLL_HISTORY_FRAMES,
   type RLRCBookmarkRecord,
   type RLRCFrame120Hz,
+  type RLRCInterveneLaunchConfig,
   type RLRCNonPovInterventionMode,
+  type RLRCPlayerSlotMeta,
+  type RLRCTeamIndex,
 } from '../RLRCReplayTypes.ts';
 import {
   DEFAULT_NEUTRAL_CAR_CONTROLS,
   packRLRCFrameToGameStateBuffer,
+  resolveCurrentUserInterveneLoadout,
   type RLRCGoalAndTouchTrackerPort,
   type RLRCPovFrameOverride,
   type RLRCPrerollRingBufferPort,
+  type RLRCUserInterveneLoadout,
 } from './RLRCInterveneFrameStateBuilder.ts';
 
 export interface RLRCPrerollRingBufferInjectParams {
@@ -60,6 +65,64 @@ export interface RLRCPrerollCountdownBounds {
   readonly countdownSeconds: 0 | 1 | 2 | 3;
 }
 
+export function resolveValidIntervenePovSlotIndex(
+  frame: RLRCFrame120Hz,
+  roster: readonly RLRCPlayerSlotMeta[],
+  preferredSlot: number
+): number {
+  const clamped = Math.max(0, Math.min(RLRC_MAX_PLAYER_SLOTS - 1, Math.round(preferredSlot)));
+  if (frame.cars[clamped]?.entityActive) return clamped;
+  for (let i = 0; i < frame.cars.length; i++) {
+    if (frame.cars[i]?.entityActive) return i;
+  }
+  return roster[0]?.slotIndex ?? clamped;
+}
+
+export function buildInterveneLaunchConfig(params: {
+  readonly targetFrame: RLRCFrame120Hz;
+  readonly targetFrame120Hz: number;
+  readonly roster: readonly RLRCPlayerSlotMeta[];
+  readonly currentPovSlotIndex: number;
+  readonly currentNonPovMode: RLRCNonPovInterventionMode;
+  readonly downCounterSeconds: 0 | 1 | 2 | 3;
+  readonly userLoadoutPreset?: Partial<RLRCUserInterveneLoadout> | null;
+  readonly overrides?: Partial<RLRCInterveneLaunchConfig>;
+}): RLRCInterveneLaunchConfig {
+  const {
+    targetFrame,
+    targetFrame120Hz,
+    roster,
+    currentPovSlotIndex,
+    currentNonPovMode,
+    downCounterSeconds,
+    userLoadoutPreset,
+    overrides,
+  } = params;
+  const povSlotIndex = resolveValidIntervenePovSlotIndex(
+    targetFrame,
+    roster,
+    overrides?.povSlotIndex ?? currentPovSlotIndex
+  );
+  const povMeta = roster.find((r) => r.slotIndex === povSlotIndex);
+  const povTeam: RLRCTeamIndex = povMeta?.team ?? (povSlotIndex < 3 ? 0 : 1);
+  const userLoadout = resolveCurrentUserInterveneLoadout(povTeam, {
+    ...userLoadoutPreset,
+    hitboxId: overrides?.playerHitboxId ?? userLoadoutPreset?.hitboxId,
+    visualId: overrides?.playerVisualId ?? userLoadoutPreset?.visualId,
+    colorHex: overrides?.playerColorHex ?? userLoadoutPreset?.colorHex,
+  });
+  return {
+    targetFrame120Hz,
+    povSlotIndex,
+    playerHitboxId: userLoadout.hitboxId,
+    playerVisualId: userLoadout.visualId,
+    playerColorHex: userLoadout.colorHex,
+    downCounterSeconds,
+    nonPovMode: overrides?.nonPovMode ?? currentNonPovMode,
+    prerollHistoryFrames: overrides?.prerollHistoryFrames ?? RLRC_PREROLL_HISTORY_FRAMES,
+  };
+}
+
 export function computeRLRCPrerollCountdownBounds(
   totalFrames120Hz: number,
   t0FrameIndex: number,
@@ -79,6 +142,34 @@ export function computeRLRCPrerollCountdownBounds(
     prerollStartFrame120Hz,
     countdownTicks,
     countdownSeconds,
+  };
+}
+
+export function computeNextPrerollCountdownTick(params: {
+  readonly totalFrames120Hz: number;
+  readonly targetFrame120Hz: number;
+  readonly countdownRemainingTicks: number;
+  readonly finalPrerollTick: number;
+}): {
+  readonly nextRemainingTicks: number;
+  readonly nextCursorFrame: number;
+  readonly nextCountdownSeconds: number;
+  readonly currentPrerollTick: number;
+} {
+  const nextRemainingTicks = Math.max(0, params.countdownRemainingTicks - 1);
+  const maxIdx = Math.max(0, params.totalFrames120Hz - 1);
+  const nextCursorFrame = Math.max(
+    0,
+    Math.min(maxIdx, params.targetFrame120Hz - nextRemainingTicks)
+  );
+  const nextCountdownSeconds =
+    nextRemainingTicks <= 0 ? 0 : Math.max(1, Math.ceil(nextRemainingTicks / 120));
+  const currentPrerollTick = Math.max(1, params.finalPrerollTick - nextRemainingTicks);
+  return {
+    nextRemainingTicks,
+    nextCursorFrame,
+    nextCountdownSeconds,
+    currentPrerollTick,
   };
 }
 

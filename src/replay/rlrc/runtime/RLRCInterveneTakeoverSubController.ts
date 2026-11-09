@@ -1,46 +1,41 @@
 /**
  * RLRCInterveneTakeoverSubController.ts
- * Continuous static-training-style takeover sub-controller for 120Hz RLRC replays:
- * - Injects 4 seconds (480 frames @ 120Hz) of pre-roll history into ReplayRingBuffer
- * - Hot-swaps POV slot physical hitbox and visual model to the user's current garage preset
- *   with resting-Z ground-penetration protection and aerial flip/double-jump restoration
- * - Rewinds cursor to t0 - downCounterSeconds * 120 during 3..2..1..GO! pre-roll countdown
- *   and plays back authentic 120Hz historical frames [t0 - 3s, t0] before seamless t0 takeover
- * - Drives 4 non-POV car modes: 'disappear' | 'no-input' | 'follow-state' | 'bot-takeover'
- * - Unlimited post-takeover duration and instant re-intervene at t0 on pressing G
+ * Continuous takeover sub-controller for 120Hz RLRC replays:
+ * - Injects 480 frames (4s @ 120Hz) of pre-roll history into ReplayRingBuffer
+ * - Hot-swaps POV slot to user's garage preset & runs [t0-3s, t0] countdown
+ * - Drives 4 non-POV modes: 'disappear' | 'no-input' | 'follow-state' | 'bot-takeover'
  */
 
-import { SIM_OFFSETS, SYSTEM_CONTROL_SIGNALS } from '../../../physics/RocketSimConstants.ts';
-import type { ReplayAcknowledgedControlEntry } from '../../ReplayRingBuffer.ts';
+import { SYSTEM_CONTROL_SIGNALS } from '../../../physics/RocketSimConstants.ts';
 import {
   RLRC_FIXED_DT,
   RLRC_MAX_PLAYER_SLOTS,
-  RLRC_PREROLL_HISTORY_FRAMES,
   type RLRCFrame120Hz,
   type RLRCInterveneLaunchConfig,
   type RLRCNonPovInterventionMode,
-  type RLRCPlayerSlotMeta,
   type RLRCSessionPhase,
   type RLRCSynthesizedCarControls,
   type RLRCTeamIndex,
 } from '../RLRCReplayTypes.ts';
+import { DEFAULT_NEUTRAL_CAR_CONTROLS } from './RLRCInterveneFrameStateBuilder.ts';
 import {
-  DEFAULT_NEUTRAL_CAR_CONTROLS,
-  resolveCurrentUserInterveneLoadout,
-} from './RLRCInterveneFrameStateBuilder.ts';
-import {
-  applyTargetFrameToPhysicsAndArena,
-  deactivateInterveneSlotEntity,
-  stepNonPovCarsBeforePhysics,
-  syncFollowStateNonPovAfterStep,
-  type RLRCInterveneEnvironmentPort,
+  applyNonPovModeChangeToRuntime,
+  finalizeInterveneStepAfterPhysics,
+  prepareInterveneStepBeforePhysics,
+  restorePovVehicleOnExitIntervene,
 } from './RLRCInterveneNonPovSyncPipeline.ts';
 import {
+  buildInterveneLaunchConfig,
+  computeNextPrerollCountdownTick,
   computeRLRCPrerollCountdownBounds,
   injectPrerollHistoryIntoRingBuffer,
   syncGoalAndTouchTrackerAtTakeover,
   type RLRCPrerollInjectionResult,
 } from './RLRCIntervenePrerollHistoryInjector.ts';
+import {
+  applyPrerollFrameToRuntimeState,
+  type RLRCInterveneEnvironmentPort,
+} from './RLRCInterveneTargetFrameApplier.ts';
 
 export type * from './RLRCInterveneFrameStateBuilder.ts';
 export type * from './RLRCInterveneNonPovSyncPipeline.ts';
@@ -71,9 +66,9 @@ export class RLRCInterveneTakeoverSubController {
 
   private readonly env: RLRCInterveneEnvironmentPort;
   private lastBeepSecond = -1;
-  private slotActiveTracker = new Uint8Array(RLRC_MAX_PLAYER_SLOTS);
-  private latestControlSnapshot = new Map<number, RLRCSynthesizedCarControls>();
-  private prevStepStateBuffer: Float32Array | null = null;
+  private readonly slotActive = new Uint8Array(RLRC_MAX_PLAYER_SLOTS);
+  private readonly latestControls = new Map<number, RLRCSynthesizedCarControls>();
+  private prevStepState: Float32Array | null = null;
 
   public get _povSlot(): number {
     return this.povSlotIndex;
@@ -104,84 +99,64 @@ export class RLRCInterveneTakeoverSubController {
     if (!targetFrame) return null;
 
     const roster = this.env.getRoster();
-    const povSlotIndex = this.resolveValidPovSlotIndex(
+    const slot = overrides?.povSlotIndex ?? this.povSlotIndex;
+    const team: RLRCTeamIndex = roster.find((r) => r.slotIndex === slot)?.team ?? (slot < 3 ? 0 : 1);
+    const cfg = buildInterveneLaunchConfig({
       targetFrame,
-      roster,
-      overrides?.povSlotIndex ?? this.povSlotIndex
-    );
-    const povMeta = roster.find((r) => r.slotIndex === povSlotIndex);
-    const povTeam: RLRCTeamIndex = povMeta?.team ?? (povSlotIndex < 3 ? 0 : 1);
-    const userLoadout = resolveCurrentUserInterveneLoadout(povTeam, {
-      hitboxId: overrides?.playerHitboxId,
-      visualId: overrides?.playerVisualId,
-      colorHex: overrides?.playerColorHex,
-    });
-
-    const nonPovMode = overrides?.nonPovMode ?? this.nonPovMode;
-    const downCounterSeconds = bounds.countdownSeconds;
-    const prerollHistoryFrames = overrides?.prerollHistoryFrames ?? RLRC_PREROLL_HISTORY_FRAMES;
-
-    const launchConfig: RLRCInterveneLaunchConfig = {
       targetFrame120Hz: clampedT0,
-      povSlotIndex,
-      playerHitboxId: userLoadout.hitboxId,
-      playerVisualId: userLoadout.visualId,
-      playerColorHex: userLoadout.colorHex,
-      downCounterSeconds,
-      nonPovMode,
-      prerollHistoryFrames,
-    };
+      roster,
+      currentPovSlotIndex: this.povSlotIndex,
+      currentNonPovMode: this.nonPovMode,
+      downCounterSeconds: bounds.countdownSeconds,
+      userLoadoutPreset: this.env.getUserLoadoutPreset?.(team),
+      overrides,
+    });
 
     this.targetFrame120Hz = clampedT0;
     this.prerollStartFrame120Hz = bounds.prerollStartFrame120Hz;
     this.prerollCursorFrame120Hz = bounds.prerollStartFrame120Hz;
-    this.povSlotIndex = povSlotIndex;
-    this.nonPovMode = nonPovMode;
-    this.downCounterSeconds = downCounterSeconds;
-    this.lastLaunchConfig = launchConfig;
+    this.povSlotIndex = cfg.povSlotIndex;
+    this.nonPovMode = cfg.nonPovMode;
+    this.downCounterSeconds = cfg.downCounterSeconds;
+    this.lastLaunchConfig = cfg;
     this.postTakeoverFrameOffset = 0;
 
     this.prerollInjection = injectPrerollHistoryIntoRingBuffer({
       frames120Hz: frames,
       bookmarks: this.env.getBookmarks?.(),
       targetFrame120Hz: clampedT0,
-      maxPrerollFrames: prerollHistoryFrames,
-      povOverride: { povSlotIndex, playerHitboxId: userLoadout.hitboxId },
+      maxPrerollFrames: cfg.prerollHistoryFrames,
+      povOverride: { povSlotIndex: cfg.povSlotIndex, playerHitboxId: cfg.playerHitboxId },
       ringBuffer: this.env.getRingBuffer?.(),
       goalAndTouch: this.env.getGoalAndTouch?.(),
     });
     this.liveInterventionTick = this.prerollInjection.nextLiveTick;
 
-    if (downCounterSeconds > 0) {
+    const sec = cfg.downCounterSeconds;
+    if (sec > 0) {
       this.phase = 'preroll-countdown';
       this.countdownRemainingTicks = Math.max(1, clampedT0 - bounds.prerollStartFrame120Hz);
-      this.countdownRemainingSeconds = downCounterSeconds;
-      this.lastBeepSecond = downCounterSeconds;
-
-      const initialPrerollFrame = frames[bounds.prerollStartFrame120Hz] ?? targetFrame;
-      this.applyPrerollFrameToRuntime(initialPrerollFrame, launchConfig, true);
-
+      this.countdownRemainingSeconds = sec;
+      this.lastBeepSecond = sec;
+      this.applyPrerollFrame(frames[bounds.prerollStartFrame120Hz] ?? targetFrame, cfg, true);
       this.env.playSound?.('training_countdown', 1.0, 150);
       this.env.emitSystemSignal?.(
         SYSTEM_CONTROL_SIGNALS.SYS_CTRL_INTERVENE_WILL_RESUME,
         this.prerollInjection.finalPrerollTick,
-        downCounterSeconds
+        sec
       );
-      this.env.onPhaseChanged?.('preroll-countdown', downCounterSeconds);
+      this.env.onPhaseChanged?.('preroll-countdown', sec);
     } else {
-      this.applyPrerollFrameToRuntime(targetFrame, launchConfig, true);
+      this.applyPrerollFrame(targetFrame, cfg, true);
       this.launchShotNow();
     }
-    return launchConfig;
+    return cfg;
   }
 
   public reinterveneAtLastTargetFrame(
     overrides?: Partial<RLRCInterveneLaunchConfig>
   ): RLRCInterveneLaunchConfig | null {
-    return this.enterInterveneAtFrame(this.targetFrame120Hz, {
-      ...this.lastLaunchConfig,
-      ...overrides,
-    });
+    return this.enterInterveneAtFrame(this.targetFrame120Hz, { ...this.lastLaunchConfig, ...overrides });
   }
 
   public launchShotNow(): void {
@@ -195,28 +170,20 @@ export class RLRCInterveneTakeoverSubController {
     this.prerollCursorFrame120Hz = this.targetFrame120Hz;
     this.phase = 'intervening';
 
-    this.applyPrerollFrameToRuntime(targetFrame, this.lastLaunchConfig, false);
+    this.applyPrerollFrame(targetFrame, this.lastLaunchConfig, false);
     const sim = this.env.getPhysics();
     sim?.clearEvents?.();
     sim?.resetGoalLatch?.();
-
     syncGoalAndTouchTrackerAtTakeover(
       this.env.getGoalAndTouch?.(),
       targetFrame,
       this.prerollInjection?.baseTick ?? 1,
       this.prerollInjection?.latestTouchTick ?? 1
     );
-
-    if (this.nonPovMode === 'bot-takeover') {
-      this.env.getBotPort?.()?.resetAllBots?.();
-    }
+    if (this.nonPovMode === 'bot-takeover') this.env.getBotPort?.()?.resetAllBots?.();
 
     this.env.playSound?.('match_start_go', 1.0, 150);
-    this.env.emitSystemSignal?.(
-      SYSTEM_CONTROL_SIGNALS.SYS_CTRL_PHYSICS_RESUME,
-      this.liveInterventionTick,
-      1
-    );
+    this.env.emitSystemSignal?.(SYSTEM_CONTROL_SIGNALS.SYS_CTRL_PHYSICS_RESUME, this.liveInterventionTick, 1);
     this.env.onPhaseChanged?.('intervening', 0);
   }
 
@@ -228,41 +195,20 @@ export class RLRCInterveneTakeoverSubController {
       this.stepPrerollCountdownTick(dt);
       return false;
     }
-
     const sim = this.phase === 'intervening' ? this.env.getPhysics() : null;
     if (!sim) return false;
 
-    const frames = this.env.getFrames120Hz();
-    const roster = this.env.getRoster();
-    const arena = this.env.getArena?.();
-    const followIdx = this.targetFrame120Hz + this.postTakeoverFrameOffset;
-
-    if (sim.state) {
-      if (!this.prevStepStateBuffer || this.prevStepStateBuffer.length !== sim.state.length) {
-        this.prevStepStateBuffer = new Float32Array(sim.state.length);
-      }
-      this.prevStepStateBuffer.set(sim.state);
-    }
-
-    this.latestControlSnapshot.clear();
-    if (typeof sim.setControls === 'function') {
-      sim.setControls(this._povSlot, playerControls);
-    } else {
-      sim.setCarControls?.(this._povSlot, playerControls);
-    }
-    this.latestControlSnapshot.set(this._povSlot, playerControls);
-
-    stepNonPovCarsBeforePhysics({
+    this.prevStepState = prepareInterveneStepBeforePhysics({
+      env: this.env,
       sim,
-      arena,
-      botPort: this.env.getBotPort?.(),
-      roster,
-      followFrame: followIdx >= 0 && followIdx < frames.length ? frames[followIdx] : null,
+      followIdx: this.targetFrame120Hz + this.postTakeoverFrameOffset,
       povSlotIndex: this._povSlot,
       nonPovMode: this.nonPovMode,
-      slotActiveTracker: this.slotActiveTracker,
-      latestControlSnapshot: this.latestControlSnapshot,
+      playerControls,
       dt,
+      slotActiveTracker: this.slotActive,
+      latestControlSnapshot: this.latestControls,
+      prevStepStateBuffer: this.prevStepState,
     });
     return true;
   }
@@ -271,43 +217,22 @@ export class RLRCInterveneTakeoverSubController {
     const sim = this.phase === 'intervening' ? this.env.getPhysics() : null;
     if (!sim) return this.liveInterventionTick;
 
-    const frames = this.env.getFrames120Hz();
-    const roster = this.env.getRoster();
-    const arena = this.env.getArena?.();
     const followIdx = this.targetFrame120Hz + this.postTakeoverFrameOffset;
-
-    if (this.nonPovMode === 'follow-state') {
-      const nextIdx = followIdx + 1;
-      syncFollowStateNonPovAfterStep({
-        sim,
-        arena,
-        roster,
-        nextFrame: nextIdx >= 0 && nextIdx < frames.length ? frames[nextIdx] : null,
-        povSlotIndex: this._povSlot,
-        slotActiveTracker: this.slotActiveTracker,
-        latestControlSnapshot: this.latestControlSnapshot,
-      });
-    }
-
     const recordedTick = this.liveInterventionTick++;
     this.postTakeoverFrameOffset++;
 
-    if (sim.state) {
-      sim.state[SIM_OFFSETS.TICK] = recordedTick;
-      if (arena?.interpolator) {
-        arena.interpolator.prevState.set(this.prevStepStateBuffer ?? arena.interpolator.currState);
-        arena.interpolator.currState.set(sim.state);
-      } else {
-        arena?.syncInterpolatorToState?.(sim.state, this.prevStepStateBuffer ?? undefined);
-      }
-      if (recordToRingBuffer) {
-        const acknowledgedControls = this.collectLiveAcknowledgedControls();
-        const slot = this.env
-          .getRingBuffer?.()
-          ?.recordFrame?.(recordedTick, sim.state, { acknowledgedControls });
-        if (slot?.snapshot) slot.snapshot[SIM_OFFSETS.TICK] = recordedTick;
-      }
-    }
+    finalizeInterveneStepAfterPhysics({
+      env: this.env,
+      sim,
+      followIdx,
+      povSlotIndex: this._povSlot,
+      nonPovMode: this.nonPovMode,
+      recordedTick,
+      recordToRingBuffer,
+      slotActiveTracker: this.slotActive,
+      latestControlSnapshot: this.latestControls,
+      prevStepStateBuffer: this.prevStepState,
+    });
     return recordedTick;
   }
 
@@ -315,67 +240,29 @@ export class RLRCInterveneTakeoverSubController {
     playerControls: RLRCSynthesizedCarControls = DEFAULT_NEUTRAL_CAR_CONTROLS,
     dt = RLRC_FIXED_DT
   ): RLRCInterveneStepResult {
-    if (this.phase === 'preroll-countdown') {
-      return this.stepPrerollCountdownTick(dt);
+    if (this.phase === 'preroll-countdown') return this.stepPrerollCountdownTick(dt);
+    if (!this.stepBeforePhysicsTick(playerControls, dt)) {
+      return this.buildStepResult(false, this.phase === 'intervening' ? this.liveInterventionTick : 0);
     }
-
-    const shouldStepPhysics = this.stepBeforePhysicsTick(playerControls, dt);
-    if (!shouldStepPhysics) {
-      return {
-        phase: this.phase,
-        physicsStepped: false,
-        currentTick: this.phase === 'intervening' ? this.liveInterventionTick : 0,
-        countdownRemainingSeconds: this.countdownRemainingSeconds,
-        postTakeoverFrameOffset: this.postTakeoverFrameOffset,
-      };
-    }
-
-    const sim = this.env.getPhysics();
-    sim?.step?.(1);
-    const recordedTick = this.stepAfterPhysicsTick(true);
-
-    return {
-      phase: 'intervening',
-      physicsStepped: true,
-      currentTick: recordedTick,
-      countdownRemainingSeconds: 0,
-      postTakeoverFrameOffset: this.postTakeoverFrameOffset,
-    };
+    this.env.getPhysics()?.step?.(1);
+    return this.buildStepResult(true, this.stepAfterPhysicsTick(true));
   }
 
   public setNonPovMode(mode: RLRCNonPovInterventionMode): void {
     this.nonPovMode = mode;
-    if (this.lastLaunchConfig) {
-      this.lastLaunchConfig = { ...this.lastLaunchConfig, nonPovMode: mode };
-    }
+    if (this.lastLaunchConfig) this.lastLaunchConfig = { ...this.lastLaunchConfig, nonPovMode: mode };
     if (this.phase === 'intervening' || this.phase === 'preroll-countdown') {
-      const sim = this.env.getPhysics();
-      const arena = this.env.getArena?.();
-      if (mode === 'disappear' && sim) {
-        for (let slot = 0; slot < RLRC_MAX_PLAYER_SLOTS; slot++) {
-          if (slot !== this.povSlotIndex) {
-            deactivateInterveneSlotEntity(sim, arena, this.slotActiveTracker, slot);
-          }
-        }
-      } else if (mode === 'bot-takeover') {
-        this.env.getBotPort?.()?.resetAllBots?.();
-      }
+      applyNonPovModeChangeToRuntime({
+        env: this.env,
+        mode,
+        povSlotIndex: this.povSlotIndex,
+        slotActiveTracker: this.slotActive,
+      });
     }
   }
 
   public exitInterveneToViewing(): number {
-    const povMeta = this.env.getRoster().find((r) => r.slotIndex === this.povSlotIndex);
-    if (povMeta) {
-      this.env
-        .getArena?.()
-        ?.rebuildSlotVehicle?.(
-          povMeta.slotIndex,
-          povMeta.team,
-          povMeta.hitboxId,
-          povMeta.visualId,
-          povMeta.primaryColorHex
-        );
-    }
+    restorePovVehicleOnExitIntervene(this.env, this.povSlotIndex);
     this.countdownRemainingTicks = 0;
     this.countdownRemainingSeconds = 0;
     this.lastBeepSecond = -1;
@@ -386,124 +273,65 @@ export class RLRCInterveneTakeoverSubController {
   }
 
   private stepPrerollCountdownTick(dt: number): RLRCInterveneStepResult {
-    this.countdownRemainingTicks = Math.max(0, this.countdownRemainingTicks - 1);
+    const frames = this.env.getFrames120Hz();
+    const step = computeNextPrerollCountdownTick({
+      totalFrames120Hz: frames.length,
+      targetFrame120Hz: this.targetFrame120Hz,
+      countdownRemainingTicks: this.countdownRemainingTicks,
+      finalPrerollTick: this.prerollInjection?.finalPrerollTick ?? 1,
+    });
+    this.countdownRemainingTicks = step.nextRemainingTicks;
     if (this.countdownRemainingTicks <= 0) {
       this.prerollCursorFrame120Hz = this.targetFrame120Hz;
       this.launchShotNow();
-      return {
-        phase: this.phase,
-        physicsStepped: false,
-        currentTick: this.liveInterventionTick,
-        countdownRemainingSeconds: 0,
-        postTakeoverFrameOffset: 0,
-      };
+      return this.buildStepResult(false, this.liveInterventionTick);
     }
 
-    const frames = this.env.getFrames120Hz();
-    const maxIdx = Math.max(0, frames.length - 1);
-    const nextCursorFrame = Math.max(
-      0,
-      Math.min(maxIdx, this.targetFrame120Hz - this.countdownRemainingTicks)
-    );
-    this.prerollCursorFrame120Hz = nextCursorFrame;
-    const prerollFrame = frames[nextCursorFrame] ?? frames[this.targetFrame120Hz];
+    this.prerollCursorFrame120Hz = step.nextCursorFrame;
+    const prerollFrame = frames[step.nextCursorFrame] ?? frames[this.targetFrame120Hz];
     if (prerollFrame && this.lastLaunchConfig) {
       if (this.env.getPhysics()) {
-        this.applyPrerollFrameToRuntime(prerollFrame, this.lastLaunchConfig, false);
+        this.applyPrerollFrame(prerollFrame, this.lastLaunchConfig, false);
       } else {
         this.env.getArena?.()?.spinBallInPlace?.(prerollFrame.ball.rigidBody.angularVelocity, dt);
       }
     }
 
-    const nextSec = Math.max(1, Math.ceil(this.countdownRemainingTicks / 120));
-    if (nextSec !== this.countdownRemainingSeconds) {
-      this.countdownRemainingSeconds = nextSec;
-      if (nextSec !== this.lastBeepSecond) {
-        this.lastBeepSecond = nextSec;
+    if (step.nextCountdownSeconds !== this.countdownRemainingSeconds) {
+      this.countdownRemainingSeconds = step.nextCountdownSeconds;
+      if (step.nextCountdownSeconds !== this.lastBeepSecond) {
+        this.lastBeepSecond = step.nextCountdownSeconds;
         this.env.playSound?.('training_countdown', 1.0, 150);
       }
-      this.env.onPhaseChanged?.('preroll-countdown', nextSec);
+      this.env.onPhaseChanged?.('preroll-countdown', step.nextCountdownSeconds);
     }
+    return this.buildStepResult(false, step.currentPrerollTick);
+  }
 
-    const currentPrerollTick = Math.max(
-      1,
-      (this.prerollInjection?.finalPrerollTick ?? 1) - this.countdownRemainingTicks
-    );
+  private buildStepResult(physicsStepped: boolean, currentTick: number): RLRCInterveneStepResult {
     return {
-      phase: 'preroll-countdown',
-      physicsStepped: false,
-      currentTick: currentPrerollTick,
+      phase: this.phase,
+      physicsStepped,
+      currentTick,
       countdownRemainingSeconds: this.countdownRemainingSeconds,
-      postTakeoverFrameOffset: 0,
+      postTakeoverFrameOffset: this.postTakeoverFrameOffset,
     };
   }
 
-  private applyPrerollFrameToRuntime(
+  private applyPrerollFrame(
     frame: RLRCFrame120Hz,
     config: RLRCInterveneLaunchConfig,
     rebuildMeshes: boolean
   ): void {
-    const sim = this.env.getPhysics();
-    const arena = this.env.getArena?.();
-    if (!sim) return;
-
-    const state = sim.state;
-    const hadPrevStep =
-      !rebuildMeshes &&
-      this.countdownRemainingTicks > 0 &&
-      Boolean(state && this.prevStepStateBuffer?.length === state.length);
-    if (state) {
-      if (!this.prevStepStateBuffer || this.prevStepStateBuffer.length !== state.length) {
-        this.prevStepStateBuffer = new Float32Array(state.length);
-      }
-      this.prevStepStateBuffer.set(state);
-    }
-
-    applyTargetFrameToPhysicsAndArena({
+    this.prevStepState = applyPrerollFrameToRuntimeState({
+      env: this.env,
       frame,
-      roster: this.env.getRoster(),
       config,
-      sim,
-      arena,
-      slotActiveTracker: this.slotActiveTracker,
+      slotActiveTracker: this.slotActive,
       rebuildMeshes,
+      countdownRemainingTicks: this.countdownRemainingTicks,
+      finalPrerollTick: this.prerollInjection?.finalPrerollTick ?? 1,
+      prevStepStateBuffer: this.prevStepState,
     });
-
-    if (state && this.prevStepStateBuffer) {
-      state[SIM_OFFSETS.TICK] = Math.max(
-        1,
-        (this.prerollInjection?.finalPrerollTick ?? 1) - this.countdownRemainingTicks
-      );
-      state[SIM_OFFSETS.GOAL] = 0;
-      if (!hadPrevStep) this.prevStepStateBuffer.set(state);
-      if (arena?.interpolator && hadPrevStep) {
-        arena.interpolator.prevState.set(this.prevStepStateBuffer);
-        arena.interpolator.currState.set(state);
-      } else {
-        arena?.syncInterpolatorToState?.(state, this.prevStepStateBuffer);
-      }
-    }
-  }
-
-  private resolveValidPovSlotIndex(
-    frame: RLRCFrame120Hz,
-    roster: readonly RLRCPlayerSlotMeta[],
-    preferredSlot: number
-  ): number {
-    const clamped = Math.max(0, Math.min(RLRC_MAX_PLAYER_SLOTS - 1, Math.round(preferredSlot)));
-    if (frame.cars[clamped]?.entityActive) return clamped;
-    for (let i = 0; i < frame.cars.length; i++) {
-      if (frame.cars[i]?.entityActive) return i;
-    }
-    return roster[0]?.slotIndex ?? clamped;
-  }
-
-  private collectLiveAcknowledgedControls(): ReplayAcknowledgedControlEntry[] {
-    const entries: ReplayAcknowledgedControlEntry[] = [];
-    for (let slot = 0; slot < RLRC_MAX_PLAYER_SLOTS; slot++) {
-      const ctrl = this.latestControlSnapshot.get(slot) ?? DEFAULT_NEUTRAL_CAR_CONTROLS;
-      entries.push({ carIndex: slot, controls: { ...ctrl } });
-    }
-    return entries;
   }
 }
