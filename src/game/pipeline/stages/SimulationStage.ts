@@ -1,6 +1,8 @@
 import { applyReplayFrameToEngine } from '../../../replay/ReplayFrameInterpolator.ts';
 import { captureRuntimeReplayCarEntries } from '../../../replay/replayDirectorCarRosterPipeline.ts';
+import { INCIDENT_EVENT_TYPES } from '../../../physics/RocketSimConstants.ts';
 import type { CameraManager } from '../../../camera/CameraManager.ts';
+import type { CameraTransformLike } from '../../../audio/SpatialAudioSource.ts';
 import type { AuthoritativeServerHost } from '../../../network/server/AuthoritativeServerHost.ts';
 import type { PredictionReconciler } from '../../../network/client/PredictionReconciler.ts';
 import type { PhysicsStateInterpolator } from '../../../physics/PhysicsStateInterpolator.ts';
@@ -24,11 +26,13 @@ interface ActiveModeSimulationPort {
   standaloneReplayViewer?: {
     isActive?: boolean;
     hasLoadedReplay?: boolean;
+    isIntervening?: boolean;
     getViewerState?(): string;
   } | null;
   rlrcReplaySession?: {
     isActive?: boolean;
     hasLoadedReplay?: boolean;
+    isIntervening?: boolean;
     getPhase?(): string;
   } | null;
   replayController?: { sessionState?: { isPaused?: boolean } | null } | null;
@@ -387,7 +391,44 @@ export class SimulationStage implements PipelineStage {
             r.match.state.phase === 'kickoff' ||
             r.match.state.phase === 'goal')));
 
-    this.actionSynthesizer.processRuntimeTickEvents(r, isMatchEnded);
+    const isStandaloneViewerPassive = Boolean(
+      activeMode?.standaloneReplayViewer?.isActive &&
+      !activeMode.standaloneReplayViewer.isIntervening
+    );
+    const isRlrcSessionPassive = Boolean(
+      activeMode?.rlrcReplaySession?.isActive && !activeMode.rlrcReplaySession.isIntervening
+    );
+    if (!isStandaloneViewerPassive && !isRlrcSessionPassive) {
+      const camTransform: CameraTransformLike | null | undefined =
+        r.camera && 'camera' in r.camera ? r.camera.camera : r.camera;
+      const tickRes = this.actionSynthesizer.stepTickEvents({
+        physics: r.physics,
+        playerCarIndex: r.playerCarIndex ?? 0,
+        playerControls: r.playerControls,
+        networkReconciler: reconciler,
+        testCarAudioEnabled: Boolean(net?.diagnosticsProbe?.testCarAudioEnabled),
+        isMatchEnded,
+        matchPhase: r.match.state.phase ?? 'playing',
+        clientGoalIncidentLatched: Boolean(r._clientGoalIncidentLatched),
+        camera: camTransform,
+      });
+      r._clientGoalIncidentLatched = tickRes.nextClientGoalIncidentLatched;
+      for (let i = 0; i < tickRes.emittedModeEvents.length; i++) {
+        const evt = tickRes.emittedModeEvents[i];
+        if (evt?.type === INCIDENT_EVENT_TYPES.CAR_BALL_HIT) {
+          r.ballTrajectoryPredictor?.notifyCarBallHit?.(evt.tick);
+        }
+        r.modeManager?.getActiveMode()?.onPhysicsEvent?.(evt);
+      }
+      for (let i = 0; i < tickRes.flipResetVisualCarIndices.length; i++) {
+        const visual = r.getFlipResetVisual?.(tickRes.flipResetVisualCarIndices[i]);
+        visual?.play();
+      }
+      for (let i = 0; i < tickRes.goalBarrierImpacts.length; i++) {
+        const imp = tickRes.goalBarrierImpacts[i];
+        r.arena?.triggerGoalBarrierImpact?.(imp.x, imp.y, imp.z);
+      }
+    }
 
     if (r.profiler && !context.isSimulationOnly) r.profiler.mark();
   }

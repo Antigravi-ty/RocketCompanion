@@ -165,22 +165,22 @@ export interface EndGoalReplaySessionOptions {
   syncAfterEnd?: boolean;
 }
 export function applyGoalReplayCameraModeSelection(
-  runtime: GoalReplayRuntimePort | null | undefined,
+  scenePort: GoalReplayRuntimePort | null | undefined,
   cameraMode: GoalReplayCameraMode = 'director',
   source = 'goal-replay'
 ): void {
-  if (!runtime) return;
-  if (cameraMode === 'director') runtime.acquireGoalReplayCameraOverride?.(source);
-  else runtime.releaseGoalReplayCameraOverride?.(source);
+  if (!scenePort) return;
+  if (cameraMode === 'director') scenePort.acquireGoalReplayCameraOverride?.(source);
+  else scenePort.releaseGoalReplayCameraOverride?.(source);
 }
 export function bindGoalReplayHudCallbacks(options: GoalReplayHudSessionOptions): void {
-  const { runtime, replayController } = options;
+  const { runtime: scenePort, replayController } = options;
   if (!replayController) return;
   const source = options.source || 'goal-replay';
   const refreshDirectorCamera = (scoringTeam: number, scorerCarIndex: number): void => {
     applyDirectorReplayCamera(
-      runtime?.camera,
-      runtime?.interpolator as DirectorInterpolatorSnapshot | null | undefined,
+      scenePort?.camera,
+      scenePort?.interpolator as DirectorInterpolatorSnapshot | null | undefined,
       replayController.progress,
       scoringTeam,
       0.016,
@@ -188,31 +188,37 @@ export function bindGoalReplayHudCallbacks(options: GoalReplayHudSessionOptions)
       replayController.directorCameraState
     );
   };
-  bindGoalReplayHudStateAndCallbacks(options, {
-    onRefreshDirectorCamera: refreshDirectorCamera,
-    onSelectCameraMode: (nextMode, povCarIdx, scoringTeam, scorerCarIndex) => {
-      applyGoalReplayCameraModeSelection(runtime, nextMode, source);
-      if (nextMode === 'director' || typeof povCarIdx !== 'number' || povCarIdx < 0) {
-        if (runtime) runtime.replayPovCarIndex = null;
-        if (replayController.directorCameraState)
-          replayController.directorCameraState.initialized = false;
-        refreshDirectorCamera(scoringTeam, scorerCarIndex);
-      } else {
-        if (runtime) runtime.replayPovCarIndex = povCarIdx;
-        if (options.onApplyPovCarIndex) {
-          options.onApplyPovCarIndex(povCarIdx);
-        } else if (runtime) {
-          runtime.playerCarIndex = povCarIdx;
-          if (runtime.arena) runtime.arena.playerCarIndex = povCarIdx;
-          runtime.camera?.setFocusedCarIndex?.(povCarIdx);
-        }
-        runtime?.camera?.resetView?.();
+  const selectCameraMode = (
+    nextMode: GoalReplayCameraMode,
+    povCarIdx: number | null,
+    scoringTeam: number,
+    scorerCarIndex: number
+  ): void => {
+    applyGoalReplayCameraModeSelection(scenePort, nextMode, source);
+    if (nextMode === 'director' || typeof povCarIdx !== 'number' || povCarIdx < 0) {
+      if (scenePort) scenePort.replayPovCarIndex = null;
+      if (replayController.directorCameraState)
+        replayController.directorCameraState.initialized = false;
+      refreshDirectorCamera(scoringTeam, scorerCarIndex);
+    } else {
+      if (scenePort) scenePort.replayPovCarIndex = povCarIdx;
+      if (options.onApplyPovCarIndex) {
+        options.onApplyPovCarIndex(povCarIdx);
+      } else if (scenePort) {
+        scenePort.playerCarIndex = povCarIdx;
+        if (scenePort.arena) scenePort.arena.playerCarIndex = povCarIdx;
+        scenePort.camera?.setFocusedCarIndex?.(povCarIdx);
       }
-    },
+      scenePort?.camera?.resetView?.();
+    }
+  };
+  bindGoalReplayHudStateAndCallbacks(options, {
+    refreshDirectorCamera,
+    selectCameraMode,
   });
 }
 export function beginGoalReplaySession(
-  runtime: GoalReplayRuntimePort | null | undefined,
+  scenePort: GoalReplayRuntimePort | null | undefined,
   replayController: GoalReplayTimelineControllerPort | null | undefined,
   options: GoalReplayHudSessionOptions = {}
 ): void {
@@ -222,21 +228,21 @@ export function beginGoalReplaySession(
     options.scoringTeam ?? options.scorerTeam ?? replayController?.sessionState?.scoringTeam ?? 0;
   const scorerCarIndex =
     options.scorerCarIndex ?? replayController?.sessionState?.scorerCarIndex ?? 0;
-  runtime?.ballTrajectoryPredictor?.acquireTemporarySuppression?.(source);
-  runtime?.arena?.resetBallTrail?.();
-  applyGoalReplayCameraModeSelection(runtime, cameraMode, source);
-  if (options.initialSnapshot && runtime?.physics) {
+  scenePort?.ballTrajectoryPredictor?.acquireTemporarySuppression?.(source);
+  scenePort?.arena?.resetBallTrail?.();
+  applyGoalReplayCameraModeSelection(scenePort, cameraMode, source);
+  if (options.initialSnapshot && scenePort?.physics) {
     applyReplayFrameToEngine(
-      runtime.physics,
+      scenePort.physics,
       options.initialSnapshot,
-      runtime.interpolator ?? null,
+      scenePort.interpolator ?? null,
       options.initialSnapshot,
       1.0
     );
     if (cameraMode === 'director') {
       applyDirectorReplayCamera(
-        runtime.camera,
-        runtime.interpolator,
+        scenePort.camera,
+        scenePort.interpolator,
         replayController?.progress ?? 0,
         scoringTeam,
         0.016,
@@ -246,12 +252,12 @@ export function beginGoalReplaySession(
     }
   }
   if (options.syncHud !== false)
-    bindGoalReplayHudCallbacks({ ...options, runtime, replayController });
+    bindGoalReplayHudCallbacks({ ...options, runtime: scenePort, replayController });
 }
 export function stepGoalReplaySessionFrame(
   options: GoalReplayFrameStepOptions
 ): ReplayPlaybackStepResult {
-  const { runtime, replayController, context } = options;
+  const { runtime: scenePort, replayController, context } = options;
   if (!replayController) {
     return {
       frame: null,
@@ -273,15 +279,15 @@ export function stepGoalReplaySessionFrame(
     typeof options.povCarIndex === 'number' && options.povCarIndex >= 0
       ? options.povCarIndex
       : scorerCarIndex;
-  runtime?.ballTrajectoryPredictor?.acquireTemporarySuppression?.(source);
+  scenePort?.ballTrajectoryPredictor?.acquireTemporarySuppression?.(source);
   const prevFrameIdx = replayController.currentFrameIndex;
   const stepRes = replayController.stepPlayback(
     dt,
-    runtime?.interpolator ?? null,
+    scenePort?.interpolator ?? null,
     options.applyToEngine ?? true
   );
   if (prevFrameIdx > 0 && replayController.currentFrameIndex === 0)
-    runtime?.arena?.resetBallTrail?.();
+    scenePort?.arena?.resetBallTrail?.();
   const postState = replayController.sessionState ?? s;
   const curFloat = postState?.cursorFloat ?? stepRes.frameIndex;
   if (postState?.isPaused || postState?.isScrubbing) {
@@ -291,7 +297,7 @@ export function stepGoalReplaySessionFrame(
     ) {
       postState._lastTrailWarmupCursor = curFloat;
       warmupArenaTrailsFromReplayWindow(
-        runtime?.arena,
+        scenePort?.arena,
         (idx) => replayController.getFrameBufferByIndex?.(idx) ?? null,
         curFloat
       );
@@ -299,17 +305,17 @@ export function stepGoalReplaySessionFrame(
   } else if (postState) {
     postState._lastTrailWarmupCursor = -1;
   }
-  if (options.networkStreamSnapshot && runtime?.physics) {
+  if (options.networkStreamSnapshot && scenePort?.physics) {
     applyReplayFrameToEngine(
-      runtime.physics,
+      scenePort.physics,
       options.networkStreamSnapshot,
-      runtime.interpolator ?? null
+      scenePort.interpolator ?? null
     );
   }
   if (options.dispatchEvents !== false) {
     dispatchReplayFrameEvents(
       stepRes as unknown as ReplayStepEventsPayload,
-      runtime ?? null,
+      scenePort ?? null,
       options.eventDispatchOptions
     );
   }
@@ -319,26 +325,26 @@ export function stepGoalReplaySessionFrame(
       : options.resolveEffectiveProgress
         ? options.resolveEffectiveProgress(stepRes)
         : stepRes.progress;
-  applyGoalReplayCameraModeSelection(runtime, cameraMode, source);
+  applyGoalReplayCameraModeSelection(scenePort, cameraMode, source);
   if (cameraMode === 'director') {
     applyDirectorReplayCamera(
-      runtime?.camera,
-      runtime?.interpolator,
+      scenePort?.camera,
+      scenePort?.interpolator,
       effectiveProgress,
       scoringTeam,
       dt,
       scorerCarIndex,
       replayController.directorCameraState
     );
-  } else if (runtime && typeof options.povCarIndex === 'number' && options.povCarIndex >= 0) {
-    runtime.replayPovCarIndex = povCarIdx;
-    runtime.playerCarIndex = povCarIdx;
-    if (runtime.arena) runtime.arena.playerCarIndex = povCarIdx;
+  } else if (scenePort && typeof options.povCarIndex === 'number' && options.povCarIndex >= 0) {
+    scenePort.replayPovCarIndex = povCarIdx;
+    scenePort.playerCarIndex = povCarIdx;
+    if (scenePort.arena) scenePort.arena.playerCarIndex = povCarIdx;
   }
   options.onStepAfterEvents?.(stepRes, povCarIdx);
   if (options.syncActiveCarContext !== false && context) {
-    const activeReplayCarView = runtime?.interpolator?.getCurrCarStateView?.(povCarIdx);
-    const activeCarMesh = runtime?.arena?.cars?.[povCarIdx];
+    const activeReplayCarView = scenePort?.interpolator?.getCurrCarStateView?.(povCarIdx);
+    const activeCarMesh = scenePort?.arena?.cars?.[povCarIdx];
     const evalCar = evaluateGoalReplayCarContext(activeReplayCarView, activeCarMesh, povCarIdx);
     context.activeCar = evalCar.activeCar;
     context.activeCarMesh = evalCar.activeCarMesh;
@@ -347,7 +353,7 @@ export function stepGoalReplaySessionFrame(
     context.curBoost = evalCar.curBoost;
     if (activeReplayCarView) {
       if (options.syncPlayerThrottleFromCarView ?? options.syncCarAudioControls ?? false) {
-        applyGoalReplayCarAudioControls(runtime, evalCar);
+        applyGoalReplayCarAudioControls(scenePort, evalCar);
       }
       if (options.syncBoostToHud !== false) {
         hudStore
@@ -389,37 +395,37 @@ export function stepGoalReplaySessionFrame(
   return stepRes;
 }
 export function endGoalReplaySession(
-  runtime: GoalReplayRuntimePort | null | undefined,
+  scenePort: GoalReplayRuntimePort | null | undefined,
   replayController: GoalReplayTimelineControllerPort | null | undefined,
   options: EndGoalReplaySessionOptions = {}
 ): void {
   const source = options.source || null;
   replayController?.endReplaySession?.();
-  if (runtime) {
-    runtime.releaseGoalReplayCameraOverride?.(source);
-    runtime.ballTrajectoryPredictor?.releaseTemporarySuppression?.(source);
-    runtime.ballTrajectoryPredictor?.setSceneContext?.({ isGoalReplayActive: false });
-    if (runtime.arena) {
-      runtime.arena.isGoalReplayActive = false;
-      runtime.arena.resetBallTrail?.();
+  if (scenePort) {
+    scenePort.releaseGoalReplayCameraOverride?.(source);
+    scenePort.ballTrajectoryPredictor?.releaseTemporarySuppression?.(source);
+    scenePort.ballTrajectoryPredictor?.setSceneContext?.({ isGoalReplayActive: false });
+    if (scenePort.arena) {
+      scenePort.arena.isGoalReplayActive = false;
+      scenePort.arena.resetBallTrail?.();
     }
-    runtime.replayPovCarIndex = null;
-    runtime.camera?.up?.set?.(0, 1, 0);
+    scenePort.replayPovCarIndex = null;
+    scenePort.camera?.up?.set?.(0, 1, 0);
     if (options.restoreLocalCarFocus) {
       const localCarIdx =
-        typeof runtime.networkReconciler?.localCarIndex === 'number' &&
-        runtime.networkReconciler.localCarIndex >= 0
-          ? runtime.networkReconciler.localCarIndex
-          : typeof runtime.reconciler?.localCarIndex === 'number' &&
-              runtime.reconciler.localCarIndex >= 0
-            ? runtime.reconciler.localCarIndex
-            : (options.fallbackLocalCarIndex ?? runtime.playerCarIndex ?? 0);
-      runtime.playerCarIndex = localCarIdx;
-      if (runtime.arena) runtime.arena.playerCarIndex = localCarIdx;
-      runtime.camera?.setFocusedCarIndex?.(localCarIdx);
+        typeof scenePort.networkReconciler?.localCarIndex === 'number' &&
+        scenePort.networkReconciler.localCarIndex >= 0
+          ? scenePort.networkReconciler.localCarIndex
+          : typeof scenePort.reconciler?.localCarIndex === 'number' &&
+              scenePort.reconciler.localCarIndex >= 0
+            ? scenePort.reconciler.localCarIndex
+            : (options.fallbackLocalCarIndex ?? scenePort.playerCarIndex ?? 0);
+      scenePort.playerCarIndex = localCarIdx;
+      if (scenePort.arena) scenePort.arena.playerCarIndex = localCarIdx;
+      scenePort.camera?.setFocusedCarIndex?.(localCarIdx);
       if (options.syncAfterEnd) {
-        runtime.camera?.resetView?.();
-        runtime.interpolator?.sync?.();
+        scenePort.camera?.resetView?.();
+        scenePort.interpolator?.sync?.();
       }
     }
   }

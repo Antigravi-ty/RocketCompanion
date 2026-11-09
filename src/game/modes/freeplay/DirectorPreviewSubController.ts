@@ -18,17 +18,17 @@ import {
   stepGoalReplaySessionFrame,
   type GoalReplayRuntimePort,
 } from '../shared/GoalReplaySessionCoordinator.ts';
+import { stepNetworkStreamedGoalReplayFrame } from '../shared/networkStreamedGoalReplayCoordinator.ts';
 import {
+  pauseReplayAndEnterReferenceFreeCam,
+  prepareDirectorPatternPreviewRoster,
   prepareFreeplayGoalReplaySessionData,
   resolveImportedDiagnosticPatternInput,
   restoreSingleCarAfterPreview,
-  stepNetworkStreamedGoalReplayFrame,
-} from '../shared/goalAndBallTouchPipeline.ts';
+  syncAndAttachReplayTimelineController,
+} from './directorPreviewPipeline.ts';
 import {
   applyReplayControllerFrameAndDirectorCamera,
-  pauseReplayAndEnterReferenceFreeCam,
-  prepareDirectorPatternPreviewRoster,
-  syncAndAttachReplayTimelineController,
   type GoalReplayCarStateViewLike,
 } from '../shared/goalReplayHudPipeline.ts';
 
@@ -103,7 +103,7 @@ export interface DirectorPreviewSubControllerDeps {
   isStandaloneReplayActive: () => boolean;
   pauseStandaloneReplay: () => void;
   isNameTagTunerActive: () => boolean;
-  onReplaySessionCompleted: () => void;
+  notifyReplaySessionCompleted: () => void;
 }
 
 export class DirectorPreviewSubController {
@@ -126,17 +126,23 @@ export class DirectorPreviewSubController {
   }
 
   public registerPreviewHandlers(): void {
+    const handleImport = (f: unknown, opt: DirectorPatternPreviewOptions = {}) =>
+      this.importDiagnosticPattern(f, opt);
+    const handleStart = (opt: DirectorPatternPreviewOptions = {}) =>
+      this.startPatternPreview(null, opt);
+    const handleExit = () => this.exitPatternPreview();
+    const handleEnterRef = (opt: ReferenceFreeCamOptions = {}) =>
+      this.enterReferenceFreeCamFromHere(opt);
+    const handleExitRef = () => this.exitReferenceFreeCam();
+    const handleGetLiveCam = () =>
+      this.deps.getRuntime()?.camera?.getFreeCamStateSnapshot?.() || null;
     registerReplayDirectorPreviewHandlers({
-      onImportPattern: (f: unknown, opt: DirectorPatternPreviewOptions = {}) =>
-        this.importDiagnosticPattern(f, opt),
-      onStartPreview: (opt: DirectorPatternPreviewOptions = {}) =>
-        this.startPatternPreview(null, opt),
-      onExitPreview: () => this.exitPatternPreview(),
-      onEnterReferenceFreeCam: (opt: ReferenceFreeCamOptions = {}) =>
-        this.enterReferenceFreeCamFromHere(opt),
-      onExitReferenceFreeCam: () => this.exitReferenceFreeCam(),
-      onGetLiveCameraState: () =>
-        this.deps.getRuntime()?.camera?.getFreeCamStateSnapshot?.() || null,
+      onImportPattern: handleImport,
+      onStartPreview: handleStart,
+      onExitPreview: handleExit,
+      onEnterReferenceFreeCam: handleEnterRef,
+      onExitReferenceFreeCam: handleExitRef,
+      onGetLiveCameraState: handleGetLiveCam,
     });
   }
 
@@ -433,7 +439,7 @@ export class DirectorPreviewSubController {
       replayBallSpeedKph: null,
       replayAssistName: null,
     });
-    this.deps.onReplaySessionCompleted();
+    this.deps.notifyReplaySessionCompleted();
   }
 
   public step(context: DirectorPreviewStepContext, isUnlimitedBoost: boolean): boolean {

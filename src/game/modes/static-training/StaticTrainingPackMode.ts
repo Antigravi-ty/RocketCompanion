@@ -167,40 +167,45 @@ export class StaticTrainingPackMode extends BaseGameMode {
   }
 
   private _bindStoreRuntimeHandlers(): void {
+    const handleShotOrSessionChanged = (actionName: string) => {
+      if (this._ensureActiveMode(actionName)) this._resetTestFlagsAndReload();
+    };
+    const handleShotChanged = () => handleShotOrSessionChanged('onShotChanged');
+    const handleSessionModeChanged = () => handleShotOrSessionChanged('onSessionModeChanged');
+    const handleEditSubModeChanged = (subMode: StaticTrainingEditSubMode) => {
+      if (!this._ensureActiveMode('onEditSubModeChanged')) return;
+      if (this.isFreeCamTrajectoryTesting) this.stopFreeCamTrajectoryTest();
+      this.editor.applyEditSubModeCamera(subMode);
+    };
+    const handleEditVariableMutated = (item: StaticTrainingShotConfig) => {
+      if (!this._ensureActiveMode('onEditVariableMutated')) return;
+      const s = useStaticTrainingPackStore.getState();
+      if (this.isFreeCamTrajectoryTesting) {
+        this.isFreeCamTrajectoryTesting = false;
+        s.setFreeCamTrajectoryTesting(false);
+      }
+      const timeoutSec = Math.max(1, Math.min(60, Number(item?.timeoutSeconds) || 10));
+      this.simulationController.setTimeoutSeconds(timeoutSec);
+      if (s.remainingTimeoutSec !== timeoutSec) {
+        s.updateLiveTelemetry({ remainingTimeoutSec: timeoutSec });
+      }
+      this.arenaController.applyStagedShot(
+        item,
+        true,
+        this.editor.isLeftMouseDragging,
+        this.replaySession.replayRingBuffer
+      );
+    };
+    const handleResetShotRequested = () => {
+      if (this._ensureActiveMode('onResetShotRequested')) this.reloadCurrentShot();
+    };
+
     useStaticTrainingPackStore.getState().setRuntimeHandlers({
-      onShotChanged: () => {
-        if (this._ensureActiveMode('onShotChanged')) this._resetTestFlagsAndReload();
-      },
-      onSessionModeChanged: () => {
-        if (this._ensureActiveMode('onSessionModeChanged')) this._resetTestFlagsAndReload();
-      },
-      onEditSubModeChanged: (subMode: StaticTrainingEditSubMode) => {
-        if (!this._ensureActiveMode('onEditSubModeChanged')) return;
-        if (this.isFreeCamTrajectoryTesting) this.stopFreeCamTrajectoryTest();
-        this.editor.applyEditSubModeCamera(subMode);
-      },
-      onEditVariableMutated: (item: StaticTrainingShotConfig) => {
-        if (!this._ensureActiveMode('onEditVariableMutated')) return;
-        const s = useStaticTrainingPackStore.getState();
-        if (this.isFreeCamTrajectoryTesting) {
-          this.isFreeCamTrajectoryTesting = false;
-          s.setFreeCamTrajectoryTesting(false);
-        }
-        const timeoutSec = Math.max(1, Math.min(60, Number(item?.timeoutSeconds) || 10));
-        this.simulationController.setTimeoutSeconds(timeoutSec);
-        if (s.remainingTimeoutSec !== timeoutSec) {
-          s.updateLiveTelemetry({ remainingTimeoutSec: timeoutSec });
-        }
-        this.arenaController.applyStagedShot(
-          item,
-          true,
-          this.editor.isLeftMouseDragging,
-          this.replaySession.replayRingBuffer
-        );
-      },
-      onResetShotRequested: () => {
-        if (this._ensureActiveMode('onResetShotRequested')) this.reloadCurrentShot();
-      },
+      onShotChanged: handleShotChanged,
+      onSessionModeChanged: handleSessionModeChanged,
+      onEditSubModeChanged: handleEditSubModeChanged,
+      onEditVariableMutated: handleEditVariableMutated,
+      onResetShotRequested: handleResetShotRequested,
     });
   }
 
@@ -226,14 +231,13 @@ export class StaticTrainingPackMode extends BaseGameMode {
     this.isFreeCamTrajectoryTesting = false;
     useStaticTrainingPackStore.getState().setFreeCamTrajectoryTesting(false);
     const shot = this._getCurrentShotConfig();
-    if (shot) {
-      this.arenaController.applyStagedShot(
-        shot,
-        true,
-        this.editor.isLeftMouseDragging,
-        this.replaySession.replayRingBuffer
-      );
-    }
+    if (!shot) return;
+    this.arenaController.applyStagedShot(
+      shot,
+      true,
+      this.editor.isLeftMouseDragging,
+      this.replaySession.replayRingBuffer
+    );
   }
 
   toggleSingleShotTest(): void {
@@ -318,7 +322,8 @@ export class StaticTrainingPackMode extends BaseGameMode {
     );
 
     if (!isPlayableSession) {
-      this.editor.applyEditSubModeCamera(store.editSubMode as StaticTrainingEditSubMode);
+      const editSubMode = store.editSubMode as StaticTrainingEditSubMode;
+      this.editor.applyEditSubModeCamera(editSubMode);
     } else {
       if (r.camera?.isFreeCam) r.camera.setFreeCam(false);
       r.camera?.resetView?.();
@@ -347,11 +352,13 @@ export class StaticTrainingPackMode extends BaseGameMode {
   }
 
   onPhysicsEvent(event: any): void {
-    this.simulationController.onPhysicsEvent(event, this.arenaController, this.replaySession);
+    const simCtrl = this.simulationController;
+    simCtrl.onPhysicsEvent(event, this.arenaController, this.replaySession);
   }
 
   onBeforePhysicsTick(): boolean {
-    return this.simulationController.stepBeforePhysics(
+    const simCtrl = this.simulationController;
+    return simCtrl.stepBeforePhysics(
       this.arenaController,
       this.replaySession,
       this.isTestingSingleShot,
@@ -360,7 +367,8 @@ export class StaticTrainingPackMode extends BaseGameMode {
   }
 
   onAfterPhysicsTick(): void {
-    this.simulationController.stepAfterPhysics(
+    const simCtrl = this.simulationController;
+    simCtrl.stepAfterPhysics(
       this.arenaController,
       this.replaySession,
       this.isTestingSingleShot,
@@ -383,7 +391,8 @@ export class StaticTrainingPackMode extends BaseGameMode {
   update(context: any): void {
     const dt = context.dt ?? 0.016;
     const store = useStaticTrainingPackStore.getState();
-    this.arenaController.syncEditBallOpacityOverride(
+    const arenaCtrl = this.arenaController;
+    arenaCtrl.syncEditBallOpacityOverride(
       this.isTestingSingleShot,
       this.replaySession.isReplayActive
     );
@@ -392,15 +401,10 @@ export class StaticTrainingPackMode extends BaseGameMode {
       this.replaySession.isReplayActive &&
       this.replaySession.replayController.sessionState.isActive
     ) {
-      this.replaySession.stepUpdate(
-        context,
-        dt,
-        this.arenaController.stagedShot,
-        this.visuals,
-        () =>
-          this.replaySession.completeSessionAndAdvance(this.isTestingSingleShot, () =>
-            this.reloadCurrentShot()
-          )
+      this.replaySession.stepUpdate(context, dt, arenaCtrl.stagedShot, this.visuals, () =>
+        this.replaySession.completeSessionAndAdvance(this.isTestingSingleShot, () =>
+          this.reloadCurrentShot()
+        )
       );
       return;
     }
@@ -409,7 +413,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
       this.editor.updateCameraAndContinuousInputs(dt);
       const shot = this._getCurrentShotConfig();
       if (!this.isFreeCamTrajectoryTesting) {
-        this.arenaController.applyPreLaunchCarHudOverride(context, shot, dt, true);
+        arenaCtrl.applyPreLaunchCarHudOverride(context, shot, dt, true);
       }
       if (this.visuals && shot) this.visuals.update(shot, store.editSubMode, false);
       return;
@@ -419,16 +423,11 @@ export class StaticTrainingPackMode extends BaseGameMode {
       this.simulationController.playPhase === 'countdown' ||
       this.simulationController.playPhase === 'waiting-input';
     if (isPreLaunch) {
-      this.arenaController.applyPreLaunchCarHudOverride(
-        context,
-        this.arenaController.stagedShot,
-        dt,
-        false
-      );
+      arenaCtrl.applyPreLaunchCarHudOverride(context, arenaCtrl.stagedShot, dt, false);
     }
 
-    if (this.visuals && this.arenaController.stagedShot) {
-      if (isPreLaunch) this.visuals.update(this.arenaController.stagedShot, 'play', true);
+    if (this.visuals && arenaCtrl.stagedShot) {
+      if (isPreLaunch) this.visuals.update(arenaCtrl.stagedShot, 'play', true);
       else this.visuals.setVisible(false);
     }
 
@@ -439,7 +438,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
         .setBoost(
           playerCarView.boost,
           playerCarView.isBoosting,
-          Boolean(this.arenaController.stagedShot?.car?.unlimitedBoost)
+          Boolean(arenaCtrl.stagedShot?.car?.unlimitedBoost)
         );
     }
   }

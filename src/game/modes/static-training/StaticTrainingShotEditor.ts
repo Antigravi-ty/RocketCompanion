@@ -84,7 +84,7 @@ function isReplayDirectorTunerWindowPresent(): boolean {
 }
 
 export class StaticTrainingShotEditor {
-  private readonly host: StaticTrainingShotEditorHostCallbacks;
+  private readonly port: StaticTrainingShotEditorHostCallbacks;
 
   public readonly heldKeys = new Set<string>();
   public isLeftMouseDragging = false;
@@ -99,8 +99,8 @@ export class StaticTrainingShotEditor {
   private mouseUpHandler: ((evt: MouseEvent) => void) | null = null;
   private contextMenuHandler: ((evt: MouseEvent) => void) | null = null;
 
-  constructor(host: StaticTrainingShotEditorHostCallbacks) {
-    this.host = host;
+  constructor(port: StaticTrainingShotEditorHostCallbacks) {
+    this.port = port;
   }
 
   private applyShotPatch(
@@ -118,14 +118,14 @@ export class StaticTrainingShotEditor {
   }
 
   applyEditSubModeCamera(subMode: StaticTrainingEditSubMode): void {
-    const r = this.host.getRuntime();
+    const r = this.port.getRuntime();
     if (!r?.camera) return;
 
-    if (subMode !== 'free-cam' && this.host.isFreeCamTrajectoryTesting()) {
-      this.host.stopFreeCamTrajectoryTest();
+    if (subMode !== 'free-cam' && this.port.isFreeCamTrajectoryTesting()) {
+      this.port.stopFreeCamTrajectoryTest();
     }
 
-    if (this.host.isTestingSingleShot()) {
+    if (this.port.isTestingSingleShot()) {
       r.camera.setEditorOverride?.(false);
       r.releaseGoalReplayCameraOverride();
       if (r.camera.isFreeCam) r.camera.setFreeCam(false);
@@ -135,7 +135,7 @@ export class StaticTrainingShotEditor {
     if (subMode === 'free-cam') {
       r.camera.setEditorOverride?.(false);
       r.releaseGoalReplayCameraOverride();
-      const shot = this.host.getCurrentShotConfig();
+      const shot = this.port.getCurrentShotConfig();
       const freePose = shot ? computeThreeJsFreeCamPoseFromShot(shot) : null;
       if (freePose && typeof r.camera.setFreeCamPose === 'function') {
         r.camera.setFreeCamPose(freePose.position, freePose.lookAt);
@@ -158,19 +158,19 @@ export class StaticTrainingShotEditor {
       r.camera.setFreeCam(false);
     }
     r.camera.setEditorOverride?.(true);
-    const shot = this.host.getCurrentShotConfig();
+    const shot = this.port.getCurrentShotConfig();
     if (shot) {
       r.camera.syncEditorShotCamera?.(subMode, shot, useStaticTrainingBallCamTunerStore.getState());
     }
   }
 
   updateCameraAndContinuousInputs(dt: number): void {
-    const r = this.host.getRuntime();
+    const r = this.port.getRuntime();
     const store = useStaticTrainingPackStore.getState();
-    if (store.sessionMode !== 'edit' || this.host.isTestingSingleShot()) return;
+    if (store.sessionMode !== 'edit' || this.port.isTestingSingleShot()) return;
 
     const subMode = store.editSubMode as StaticTrainingEditSubMode;
-    const shot = this.host.getCurrentShotConfig();
+    const shot = this.port.getCurrentShotConfig();
     if (!shot) return;
 
     if (subMode !== 'free-cam' && r?.camera) {
@@ -213,7 +213,7 @@ export class StaticTrainingShotEditor {
     const code = evt.code;
     if ((code === 'KeyR' || evt.key === 'r' || evt.key === 'R') && !evt.repeat) {
       evt.preventDefault();
-      this.host.reloadCurrentShot();
+      this.port.reloadCurrentShot();
       return true;
     }
     if ((code === 'KeyF' || evt.key === 'f' || evt.key === 'F') && !evt.repeat) {
@@ -223,7 +223,7 @@ export class StaticTrainingShotEditor {
       if (enableFToMirror) {
         evt.preventDefault();
         store.setShotMirrored?.(!store.isShotMirrored);
-        this.host.reloadCurrentShot();
+        this.port.reloadCurrentShot();
       }
       return true;
     }
@@ -231,16 +231,16 @@ export class StaticTrainingShotEditor {
   }
 
   private handleKeyDown(evt: KeyboardEvent): void {
-    const r = this.host.getRuntime();
+    const r = this.port.getRuntime();
     if (r?.match?.state?.mode !== 'static-training-pack' || isEditableEventTarget(evt)) return;
 
     const store = useStaticTrainingPackStore.getState();
     const code = evt.code;
 
-    if (this.host.isReplayActive() && (code === 'KeyP' || evt.key === 'p' || evt.key === 'P')) {
+    if (this.port.isReplayActive() && (code === 'KeyP' || evt.key === 'p' || evt.key === 'P')) {
       if (isReplayDirectorTunerWindowPresent() && !evt.repeat) {
         evt.preventDefault();
-        const replayCtrl = this.host.getReplayController();
+        const replayCtrl = this.port.getReplayController();
         const paused = replayCtrl.togglePause();
         hudStore.getState().setReplayState({
           replayPaused: paused,
@@ -250,10 +250,10 @@ export class StaticTrainingShotEditor {
       return;
     }
 
-    if (store.sessionMode === 'edit' && this.host.isTestingSingleShot()) {
+    if (store.sessionMode === 'edit' && this.port.isTestingSingleShot()) {
       if ((code === 'KeyG' || evt.key === 'g' || evt.key === 'G') && !evt.repeat) {
         evt.preventDefault();
-        this.host.toggleSingleShotTest();
+        this.port.toggleSingleShotTest();
         return;
       }
       this.tryMirrorOrReloadHotkey(evt, store);
@@ -295,12 +295,12 @@ export class StaticTrainingShotEditor {
 
     if ((code === 'KeyT' || evt.key === 't' || evt.key === 'T') && !evt.repeat) {
       evt.preventDefault();
-      this.host.toggleFreeCamTrajectoryTest();
+      this.port.toggleFreeCamTrajectoryTest();
       return;
     }
     if ((code === 'KeyG' || evt.key === 'g' || evt.key === 'G') && !evt.repeat) {
       evt.preventDefault();
-      this.host.toggleSingleShotTest();
+      this.port.toggleSingleShotTest();
       return;
     }
     if ((code === 'KeyF' || evt.key === 'f' || evt.key === 'F') && !evt.shiftKey && !evt.repeat) {
@@ -342,12 +342,12 @@ export class StaticTrainingShotEditor {
     };
 
     this.mouseDownHandler = (evt: MouseEvent) => {
-      const r = this.host.getRuntime();
+      const r = this.port.getRuntime();
       if (r?.match?.state?.mode !== 'static-training-pack') return;
       const store = useStaticTrainingPackStore.getState();
       if (
         store.sessionMode !== 'edit' ||
-        this.host.isTestingSingleShot() ||
+        this.port.isTestingSingleShot() ||
         isModalBlockingInput()
       ) {
         return;
@@ -382,7 +382,7 @@ export class StaticTrainingShotEditor {
       if (
         store.sessionMode !== 'edit' ||
         store.editSubMode === 'free-cam' ||
-        this.host.isTestingSingleShot()
+        this.port.isTestingSingleShot()
       ) {
         this.isLeftMouseDragging = false;
         return;
@@ -405,10 +405,10 @@ export class StaticTrainingShotEditor {
     };
 
     this.contextMenuHandler = (evt: MouseEvent) => {
-      const r = this.host.getRuntime();
+      const r = this.port.getRuntime();
       if (r?.match?.state?.mode === 'static-training-pack') {
         const store = useStaticTrainingPackStore.getState();
-        if (store.sessionMode === 'edit' && !this.host.isTestingSingleShot()) {
+        if (store.sessionMode === 'edit' && !this.port.isTestingSingleShot()) {
           evt.preventDefault();
         }
       }

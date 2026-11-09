@@ -146,100 +146,138 @@ export class SubsystemIsolationLabMode extends BaseGameMode {
   }
 
   private bindStoreHandlers(): void {
+    const stateReplay = this.stateReplayTab;
+    const handleStartRecording = () => stateReplay.startRecording();
+    const handleStopRecording = () => stateReplay.pauseRecording();
+    const handlePushBackwardStart = () => stateReplay.beginScrub('rewinding');
+    const handlePushForwardStart = () => stateReplay.beginScrub('forwarding');
+    const handlePauseScrub = () => stateReplay.pauseScrub();
+    const handleResumeFromCursor = () => stateReplay.resumeFromCursor();
+    const handleClearBuffer = () => stateReplay.clearBuffer();
+    const handleExportReplay = () => stateReplay.exportReplay();
+    const handleImportReplay = (file: File | Blob | ArrayBuffer | Uint8Array) =>
+      stateReplay.importReplay(file);
+    const handleSeekFrame = (idx: number) => stateReplay.seekFrame(idx);
+
     const rewinderHandlers = {
-      onRewinderStartRecording: () => this.stateReplayTab.startRecording(),
-      onRewinderStopRecording: () => this.stateReplayTab.pauseRecording(),
-      onRewinderPushBackwardStart: () => this.stateReplayTab.beginScrub('rewinding'),
-      onRewinderPushBackwardStop: () => this.stateReplayTab.pauseScrub(),
-      onRewinderPushForwardStart: () => this.stateReplayTab.beginScrub('forwarding'),
-      onRewinderPushForwardStop: () => this.stateReplayTab.pauseScrub(),
-      onRewinderResumeFromHere: () => this.stateReplayTab.resumeFromCursor(),
-      onRewinderClearBuffer: () => this.stateReplayTab.clearBuffer(),
-      onRewinderCancelToFreeplay: () => this.stateReplayTab.clearBuffer(),
-      onRewinderExportReplay: () => this.stateReplayTab.exportReplay(),
-      onRewinderImportReplay: (file: File | Blob | ArrayBuffer | Uint8Array) =>
-        this.stateReplayTab.importReplay(file),
-      onRewinderSeekFrame: (idx: number) => this.stateReplayTab.seekFrame(idx),
+      onRewinderStartRecording: handleStartRecording,
+      onRewinderStopRecording: handleStopRecording,
+      onRewinderPushBackwardStart: handlePushBackwardStart,
+      onRewinderPushBackwardStop: handlePauseScrub,
+      onRewinderPushForwardStart: handlePushForwardStart,
+      onRewinderPushForwardStop: handlePauseScrub,
+      onRewinderResumeFromHere: handleResumeFromCursor,
+      onRewinderClearBuffer: handleClearBuffer,
+      onRewinderCancelToFreeplay: handleClearBuffer,
+      onRewinderExportReplay: handleExportReplay,
+      onRewinderImportReplay: handleImportReplay,
+      onRewinderSeekFrame: handleSeekFrame,
     };
 
     useRewinderStore.getState().setRuntimeHandlers(rewinderHandlers);
 
+    const handleTabChange = (tab: IsolationLabTabId) => this.handleTabSwitch(tab);
+    const handleProbesConfigChange = () => this.probesTab.syncConfiguration(false);
+    const handleProbeCameraChange = (target: ProbeCameraTarget) => {
+      if (useSubsystemIsolationLabStore.getState().activeTab === 'probes') {
+        this.probesTab.applyCameraTarget(target);
+      }
+    };
+    const handleDualWorldConfigChange = () => this.multiGhostTab.syncDualWorldConfiguration(false);
+    const handleSwitchWorld = () => {
+      this.ensureTabActive('multi-ghost');
+      this.multiGhostTab.handleSwitchWorld();
+    };
+    const handleStartIncidentMatch = (oppMode: IncidentOpponentMode) => {
+      if (!this.ensureTabActive('90s-match')) {
+        void this.ninetySecMatchTab.startMatchSession(oppMode);
+      }
+    };
+    const handleIncidentControlModeChange = (oppMode: IncidentOpponentMode) =>
+      this.ninetySecMatchTab.handleControlModeSwitch(oppMode);
+    const handleIncidentControlledCarChange = (carIdx: number) =>
+      this.ninetySecMatchTab.applyControlledCar(carIdx);
+    const handleIncidentSpeedMultiplierChange = (mult: number) =>
+      this.ninetySecMatchTab.applySpeedMultiplier(mult);
+    const handleTriggerIncidentAction = (action: IncidentSandboxAction) => {
+      this.ensureTabActive('90s-match');
+      this.ninetySecMatchTab.triggerSandboxAction(action);
+    };
+    const handleGoalReplayTriggerScenario = (scenario: GoalReplayBenchScenario) => {
+      this.ensureTabActive('goal-replay');
+      this.goalReplayTab.triggerScenario(scenario);
+    };
+    const handleGoalReplayTogglePause = () => this.goalReplayTab.togglePause();
+    const handleGoalReplayCycleSpeed = () => this.goalReplayTab.cycleSpeed();
+    const handleGoalReplaySeekNormalized = (progress01: number) =>
+      this.goalReplayTab.seekNormalized(progress01);
+    const handleEnterPodiumTest = (winningTeam: number) => {
+      this.ensureTabActive('goal-replay');
+      this.goalReplayTab.enterPodiumShowcase(winningTeam);
+    };
+    const handleExitPodiumTest = () => this.goalReplayTab.exitPodiumShowcase();
+    const handleKickoffDuelRestart = (slotIdx?: number) => {
+      if (!this.ensureTabActive('kickoff-duel')) {
+        this.kickoffDuelTab.startEpisode(slotIdx ?? null);
+      }
+    };
+    const handleKickoffDuelSpeedChange = (mult: number) => {
+      if (useSubsystemIsolationLabStore.getState().activeTab === 'kickoff-duel') {
+        this.kickoffDuelTab.applySpeedMultiplier(mult);
+      }
+    };
+    const handleKickoffDuelRunBenchmark = () => this.kickoffDuelTab.runMatrixBenchmark();
+    const handleKickoffDuelExportDiagnostics = (format: string, scope: string) =>
+      this.kickoffDuelTab.exportDiagnostics(format, scope);
+    const handleDemolishTriggerDemo = () => {
+      this.ensureTabActive('demolish-respawn');
+      this.demolishRespawnTab.triggerDemolish();
+    };
+    const handleDemolishForceRespawn = () => {
+      this.ensureTabActive('demolish-respawn');
+      this.demolishRespawnTab.forceRespawnNow();
+    };
+    const handleDemolishSimulateSteer = (direction: string) => {
+      this.ensureTabActive('demolish-respawn');
+      this.demolishRespawnTab.simulateSteerEdge(direction);
+    };
+    const handleDemolishSelectSlot = (slotIndex: number) => {
+      this.ensureTabActive('demolish-respawn');
+      this.demolishRespawnTab.selectSlotDirect(slotIndex);
+    };
+    const handleDemolishConfigChange = () => {
+      if (useSubsystemIsolationLabStore.getState().activeTab === 'demolish-respawn') {
+        this.demolishRespawnTab.applyConfigChange();
+      }
+    };
+
     useSubsystemIsolationLabStore.getState().setRuntimeHandlers({
-      onTabChange: (tab: IsolationLabTabId) => this.handleTabSwitch(tab),
-      onProbesConfigChange: () => this.probesTab.syncConfiguration(false),
-      onProbeCameraChange: (target: ProbeCameraTarget) => {
-        if (useSubsystemIsolationLabStore.getState().activeTab === 'probes') {
-          this.probesTab.applyCameraTarget(target);
-        }
-      },
-      onDualWorldConfigChange: () => this.multiGhostTab.syncDualWorldConfiguration(false),
-      onSwitchWorld: () => {
-        this.ensureTabActive('multi-ghost');
-        this.multiGhostTab.handleSwitchWorld();
-      },
+      onTabChange: handleTabChange,
+      onProbesConfigChange: handleProbesConfigChange,
+      onProbeCameraChange: handleProbeCameraChange,
+      onDualWorldConfigChange: handleDualWorldConfigChange,
+      onSwitchWorld: handleSwitchWorld,
       ...rewinderHandlers,
-      onStartIncidentMatch: (oppMode: IncidentOpponentMode) => {
-        if (!this.ensureTabActive('90s-match')) {
-          void this.ninetySecMatchTab.startMatchSession(oppMode);
-        }
-      },
-      onIncidentControlModeChange: (oppMode: IncidentOpponentMode) =>
-        this.ninetySecMatchTab.handleControlModeSwitch(oppMode),
-      onIncidentControlledCarChange: (carIdx: number) =>
-        this.ninetySecMatchTab.applyControlledCar(carIdx),
-      onIncidentSpeedMultiplierChange: (mult: number) =>
-        this.ninetySecMatchTab.applySpeedMultiplier(mult),
-      onTriggerIncidentAction: (action: IncidentSandboxAction) => {
-        this.ensureTabActive('90s-match');
-        this.ninetySecMatchTab.triggerSandboxAction(action);
-      },
-      onGoalReplayTriggerScenario: (scenario: GoalReplayBenchScenario) => {
-        this.ensureTabActive('goal-replay');
-        this.goalReplayTab.triggerScenario(scenario);
-      },
-      onGoalReplayTogglePause: () => this.goalReplayTab.togglePause(),
-      onGoalReplayCycleSpeed: () => this.goalReplayTab.cycleSpeed(),
-      onGoalReplaySeekNormalized: (progress01: number) =>
-        this.goalReplayTab.seekNormalized(progress01),
-      onEnterPodiumTest: (winningTeam: number) => {
-        this.ensureTabActive('goal-replay');
-        this.goalReplayTab.enterPodiumShowcase(winningTeam);
-      },
-      onExitPodiumTest: () => this.goalReplayTab.exitPodiumShowcase(),
-      onKickoffDuelRestart: (slotIdx?: number) => {
-        if (!this.ensureTabActive('kickoff-duel')) {
-          this.kickoffDuelTab.startEpisode(slotIdx ?? null);
-        }
-      },
-      onKickoffDuelSpeedChange: (mult: number) => {
-        if (useSubsystemIsolationLabStore.getState().activeTab === 'kickoff-duel') {
-          this.kickoffDuelTab.applySpeedMultiplier(mult);
-        }
-      },
-      onKickoffDuelRunBenchmark: () => this.kickoffDuelTab.runMatrixBenchmark(),
-      onKickoffDuelExportDiagnostics: (format: string, scope: string) =>
-        this.kickoffDuelTab.exportDiagnostics(format, scope),
-      onDemolishRespawnTriggerDemo: () => {
-        this.ensureTabActive('demolish-respawn');
-        this.demolishRespawnTab.triggerDemolish();
-      },
-      onDemolishRespawnForceRespawn: () => {
-        this.ensureTabActive('demolish-respawn');
-        this.demolishRespawnTab.forceRespawnNow();
-      },
-      onDemolishRespawnSimulateSteer: (direction: string) => {
-        this.ensureTabActive('demolish-respawn');
-        this.demolishRespawnTab.simulateSteerEdge(direction);
-      },
-      onDemolishRespawnSelectSlot: (slotIndex: number) => {
-        this.ensureTabActive('demolish-respawn');
-        this.demolishRespawnTab.selectSlotDirect(slotIndex);
-      },
-      onDemolishRespawnConfigChange: () => {
-        if (useSubsystemIsolationLabStore.getState().activeTab === 'demolish-respawn') {
-          this.demolishRespawnTab.applyConfigChange();
-        }
-      },
+      onStartIncidentMatch: handleStartIncidentMatch,
+      onIncidentControlModeChange: handleIncidentControlModeChange,
+      onIncidentControlledCarChange: handleIncidentControlledCarChange,
+      onIncidentSpeedMultiplierChange: handleIncidentSpeedMultiplierChange,
+      onTriggerIncidentAction: handleTriggerIncidentAction,
+      onGoalReplayTriggerScenario: handleGoalReplayTriggerScenario,
+      onGoalReplayTogglePause: handleGoalReplayTogglePause,
+      onGoalReplayCycleSpeed: handleGoalReplayCycleSpeed,
+      onGoalReplaySeekNormalized: handleGoalReplaySeekNormalized,
+      onEnterPodiumTest: handleEnterPodiumTest,
+      onExitPodiumTest: handleExitPodiumTest,
+      onKickoffDuelRestart: handleKickoffDuelRestart,
+      onKickoffDuelSpeedChange: handleKickoffDuelSpeedChange,
+      onKickoffDuelRunBenchmark: handleKickoffDuelRunBenchmark,
+      onKickoffDuelExportDiagnostics: handleKickoffDuelExportDiagnostics,
+      onDemolishRespawnTriggerDemo: handleDemolishTriggerDemo,
+      onDemolishRespawnForceRespawn: handleDemolishForceRespawn,
+      onDemolishRespawnSimulateSteer: handleDemolishSimulateSteer,
+      onDemolishRespawnSelectSlot: handleDemolishSelectSlot,
+      onDemolishRespawnConfigChange: handleDemolishConfigChange,
     });
   }
 

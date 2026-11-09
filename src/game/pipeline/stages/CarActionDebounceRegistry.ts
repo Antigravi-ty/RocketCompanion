@@ -53,7 +53,7 @@ export interface CarEdgeSynthesisContext {
   networkReconciler: { lobbyDualWorldMode?: boolean } | null | undefined;
   testCarAudioEnabled: boolean;
   camera: CameraTransformLike | null | undefined;
-  onModePhysicsEvent: (event: CarActionPhysicsEventPayload) => void;
+  readonly emittedModeEvents: CarActionPhysicsEventPayload[];
 }
 
 export class CarActionDebounceRegistry {
@@ -298,7 +298,7 @@ export class CarActionDebounceRegistry {
     event: PhysicsEventRecord,
     targetCarIdx: number,
     physics: RocketSimPhysicsEngine,
-    onModePhysicsEvent: (event: CarActionPhysicsEventPayload) => void
+    emittedModeEvents: CarActionPhysicsEventPayload[]
   ): boolean {
     const st = this.getCarActionState(targetCarIdx);
     const cv = physics.getCarStateView?.(targetCarIdx);
@@ -308,7 +308,7 @@ export class CarActionDebounceRegistry {
         st.hasAirJumped = false;
       }
       st.jumpReleasedSinceSingleJump = true;
-      onModePhysicsEvent(event);
+      emittedModeEvents.push(event);
       return false;
     }
 
@@ -340,7 +340,7 @@ export class CarActionDebounceRegistry {
       playerControls,
       networkReconciler,
       camera,
-      onModePhysicsEvent,
+      emittedModeEvents,
     } = ctx;
     const localIdx = playerCarIndex ?? 0;
     if (
@@ -377,7 +377,7 @@ export class CarActionDebounceRegistry {
         tick: currentTick,
       };
       eventStreamStore.addEvent(evt);
-      onModePhysicsEvent(evt);
+      emittedModeEvents.push(evt);
       if (gameAudio) {
         gameAudio.handleEvent(evt, camera);
       }

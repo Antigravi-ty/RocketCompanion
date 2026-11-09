@@ -74,54 +74,65 @@ export interface ProbeStepResult {
 }
 
 export function resetSinglePlayerLabBaseline(
-  runtime: LabRuntimePort | null | undefined,
+  sceneTarget: LabRuntimePort | null | undefined,
   resetKickoffState = true
 ): void {
-  if (!runtime?.physics) return;
-  while (runtime.physics.numCars > 1 && typeof runtime.physics.removeCar === 'function') {
-    runtime.physics.removeCar(runtime.physics.numCars - 1);
+  const sim = sceneTarget?.physics;
+  if (!sim || !sceneTarget) return;
+  while (sim.numCars > 1 && typeof sim.removeCar === 'function') {
+    sim.removeCar(sim.numCars - 1);
   }
-  if (runtime.physics.numCars < 1 && typeof runtime.physics.addCar === 'function') {
-    runtime.physics.addCar(0, 'octane');
+  if (sim.numCars < 1 && typeof sim.addCar === 'function') {
+    sim.addCar(0, 'octane');
   }
-  runtime.physics.setCarLinearFactorAndGravity?.(0, 1, 1, 1, 1);
-  runtime.physics.setCarCollisionMask?.(0, true, true);
-  runtime.physics.setSimulationFrozen?.(false, 0, false);
-  runtime.physics.setPossessionReportingEnabled?.(false);
-  runtime.physics.setUnlimitedBoost?.(true);
+  sim.setCarLinearFactorAndGravity?.(0, 1, 1, 1, 1);
+  sim.setCarCollisionMask?.(0, true, true);
+  sim.setSimulationFrozen?.(false, 0, false);
+  sim.setPossessionReportingEnabled?.(false);
+  sim.setUnlimitedBoost?.(true);
 
-  const neutral = runtime.neutralControls || DEFAULT_CAR_CONTROLS;
+  const {
+    arena,
+    neutralControls,
+    flipResetVisuals,
+    boostBloom,
+    ballTrajectoryPredictor,
+    simulationStage,
+    interpolator,
+  } = sceneTarget;
+
+  const neutral = neutralControls || DEFAULT_CAR_CONTROLS;
   for (let slot = 0; slot < 8; slot++) {
-    runtime.physics.setControls?.(slot, neutral);
+    sim.setControls?.(slot, neutral);
   }
 
   if (resetKickoffState) {
-    runtime.physics.resetGoalLatch?.();
-    runtime.physics.resetKickoff?.(0, false);
-    runtime.physics.clearEvents?.();
+    sim.resetGoalLatch?.();
+    sim.resetKickoff?.(0, false);
+    sim.clearEvents?.();
   }
 
-  if (runtime.arena?.cars) {
-    if (runtime.arena.cars[0]) {
-      runtime.arena.cars[0].visible = true;
-      runtime.arena.setCarTeam?.(0, 0);
+  if (arena?.cars) {
+    if (arena.cars[0]) {
+      arena.cars[0].visible = true;
+      arena.setCarTeam?.(0, 0);
     }
-    for (let i = 1; i < runtime.arena.cars.length; i++) {
-      if (runtime.arena.cars[i]) runtime.arena.cars[i].visible = false;
+    for (let i = 1; i < arena.cars.length; i++) {
+      if (arena.cars[i]) arena.cars[i].visible = false;
     }
-    runtime.arena.clearAllGhostOpacities?.();
+    arena.clearAllGhostOpacities?.();
   }
-  runtime.arena?.resetAllCarEffects?.();
-  if (Array.isArray(runtime.flipResetVisuals)) {
-    for (const fx of runtime.flipResetVisuals) fx?.stopVisual?.();
+  arena?.resetAllCarEffects?.();
+  if (Array.isArray(flipResetVisuals)) {
+    for (const fx of flipResetVisuals) fx?.stopVisual?.();
   }
-  runtime.boostBloom?.clear?.();
-  runtime.ballTrajectoryPredictor?.clear?.();
-  runtime.simulationStage?.resetActionStates?.();
-  runtime.interpolator?.sync?.();
+  boostBloom?.clear?.();
+  ballTrajectoryPredictor?.clear?.();
+  simulationStage?.resetActionStates?.();
+  interpolator?.sync?.();
 
-  runtime.playerCarIndex = 0;
-  if (runtime.arena) runtime.arena.playerCarIndex = 0;
+  sceneTarget.playerCarIndex = 0;
+  if (arena) arena.playerCarIndex = 0;
 }
 
 export function getProbeSpawnCoordinates(

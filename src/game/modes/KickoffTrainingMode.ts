@@ -80,46 +80,53 @@ export class KickoffTrainingMode extends BaseGameMode {
       return true;
     };
 
+    const handleSelectSpawn = (idx: number) => {
+      if (ensureActiveKickoffMode('onSelectSpawn')) this.selectSpawn(idx);
+    };
+    const handleResetSpawn = () => {
+      if (ensureActiveKickoffMode('onResetSpawn')) this.selectSpawn(this.spawnIndex);
+    };
+    const handleSubModeChange = (nextSubMode: KickoffSubMode) => {
+      this.episodeController.applyConfigPatch({ subMode: nextSubMode });
+      if (ensureActiveKickoffMode('onSubModeChange')) this.selectSpawn(this.spawnIndex);
+    };
+    const handleSpeedChange = (physicsRate: number) => {
+      if (!ensureActiveKickoffMode('onSpeedChange')) return;
+      r?.interpolator?.setTrainingPhysicsRate?.(physicsRate);
+    };
+    const handleRealisticWaitChange = () => {
+      if (!ensureActiveKickoffMode('onRealisticWaitChange')) return;
+      if (this.subMode === 'realistic') {
+        this.selectSpawn(this.spawnIndex);
+      }
+    };
+    const handleGhostPlacementChange = (placement: KickoffGhostPlacement) => {
+      this.episodeController.applyConfigPatch({ ghostPlacement: placement });
+      if (ensureActiveKickoffMode('onGhostPlacementChange') && !this.ghostModeEnabled) {
+        this.selectSpawn(useKickoffTrainingStore.getState().spawnIndex);
+      }
+    };
+    const handleGhostModeChange = (enabled: boolean) => {
+      this.episodeController.applyConfigPatch({ ghostModeEnabled: enabled });
+      if (ensureActiveKickoffMode('onGhostModeChange')) {
+        this.selectSpawn(useKickoffTrainingStore.getState().spawnIndex);
+      }
+    };
+    const handleGhostVisibilityChange = (showCar: boolean, showBall: boolean) => {
+      this.episodeController.applyConfigPatch({
+        ghostVisibility: { showCar, showBall },
+      });
+    };
+
     store.setRuntimeHandlers({
-      onSelectSpawn: (idx: number) => {
-        if (ensureActiveKickoffMode('onSelectSpawn')) this.selectSpawn(idx);
-      },
-      onResetSpawn: () => {
-        if (ensureActiveKickoffMode('onResetSpawn')) this.selectSpawn(this.spawnIndex);
-      },
-      onSubModeChange: (nextSubMode: KickoffSubMode) => {
-        this.episodeController.applyConfigPatch({ subMode: nextSubMode });
-        if (ensureActiveKickoffMode('onSubModeChange')) this.selectSpawn(this.spawnIndex);
-      },
-      onSpeedChange: (physicsRate: number) => {
-        if (!ensureActiveKickoffMode('onSpeedChange')) return;
-        if (r?.interpolator) {
-          r.interpolator.setTrainingPhysicsRate?.(physicsRate);
-        }
-      },
-      onRealisticWaitChange: () => {
-        if (!ensureActiveKickoffMode('onRealisticWaitChange')) return;
-        if (this.subMode === 'realistic') {
-          this.selectSpawn(this.spawnIndex);
-        }
-      },
-      onGhostPlacementChange: (placement: KickoffGhostPlacement) => {
-        this.episodeController.applyConfigPatch({ ghostPlacement: placement });
-        if (ensureActiveKickoffMode('onGhostPlacementChange') && !this.ghostModeEnabled) {
-          this.selectSpawn(useKickoffTrainingStore.getState().spawnIndex);
-        }
-      },
-      onGhostModeChange: (enabled: boolean) => {
-        this.episodeController.applyConfigPatch({ ghostModeEnabled: enabled });
-        if (ensureActiveKickoffMode('onGhostModeChange')) {
-          this.selectSpawn(useKickoffTrainingStore.getState().spawnIndex);
-        }
-      },
-      onGhostVisibilityChange: (showCar: boolean, showBall: boolean) => {
-        this.episodeController.applyConfigPatch({
-          ghostVisibility: { showCar, showBall },
-        });
-      },
+      onSelectSpawn: handleSelectSpawn,
+      onResetSpawn: handleResetSpawn,
+      onSubModeChange: handleSubModeChange,
+      onSpeedChange: handleSpeedChange,
+      onRealisticWaitChange: handleRealisticWaitChange,
+      onGhostPlacementChange: handleGhostPlacementChange,
+      onGhostModeChange: handleGhostModeChange,
+      onGhostVisibilityChange: handleGhostVisibilityChange,
     });
 
     if (r?.arena && !this.ghostVisuals) {
@@ -128,12 +135,8 @@ export class KickoffTrainingMode extends BaseGameMode {
     this.ghostVisuals?.ensureBuilt?.();
 
     r?.arena?.ensureOpponent?.();
-    if (r?.physics) {
-      r.physics.setUnlimitedBoost(false);
-    }
-    if (r?.interpolator) {
-      r.interpolator.setTrainingPhysicsRate?.(120);
-    }
+    r?.physics?.setUnlimitedBoost(false);
+    r?.interpolator?.setTrainingPhysicsRate?.(120);
 
     this.episodeController.onEnter(useKickoffTrainingStore.getState().spawnIndex || 0);
   }
@@ -152,9 +155,7 @@ export class KickoffTrainingMode extends BaseGameMode {
       onGhostVisibilityChange: undefined,
     });
 
-    if (this.ghostVisuals) {
-      this.ghostVisuals.setVisible(false);
-    }
+    this.ghostVisuals?.setVisible(false);
     if (r?.arena?.cars?.[1]) {
       r.arena.cars[1].visible = false;
     }
@@ -185,23 +186,28 @@ export class KickoffTrainingMode extends BaseGameMode {
   }
 
   public selectSpawn(spawnIndex: number = this.spawnIndex): void {
-    this.episodeController.selectSpawn(spawnIndex);
+    const episodeCtrl = this.episodeController;
+    episodeCtrl.selectSpawn(spawnIndex);
   }
 
   public override onResetKickoff(): void {
-    this.episodeController.resetEpisode(this.spawnIndex);
+    const episodeCtrl = this.episodeController;
+    episodeCtrl.resetEpisode(this.spawnIndex);
   }
 
   public _resetKickoffEpisode(spawnIndex: number = this.spawnIndex): void {
-    this.episodeController.resetEpisode(spawnIndex);
+    const episodeCtrl = this.episodeController;
+    episodeCtrl.resetEpisode(spawnIndex);
   }
 
   public onBeforePhysicsTick(): boolean {
-    return this.episodeController.onBeforePhysicsTick();
+    const episodeCtrl = this.episodeController;
+    return episodeCtrl.onBeforePhysicsTick();
   }
 
   public onStepPhysicsTick(): boolean {
-    return this.episodeController.step();
+    const episodeCtrl = this.episodeController;
+    return episodeCtrl.step();
   }
 
   public override getCarControls(carIndex: number): Record<string, unknown> | null {
@@ -211,6 +217,7 @@ export class KickoffTrainingMode extends BaseGameMode {
   }
 
   public override update(context: KickoffFrameUpdateContext): void {
-    this.episodeController.updateFrame(context);
+    const episodeCtrl = this.episodeController;
+    episodeCtrl.updateFrame(context);
   }
 }
