@@ -102,10 +102,11 @@ export class ReplayRingBuffer {
     this.snapshotFloatLimit = this._hasExplicitFloatLimit
       ? options.snapshotFloatLimit!
       : GAME_STATE_BUFFER_FLOATS;
-    this.capacityTicks = this._resolveCapacityTicks(mode, options.capacityTicks);
+    const cap = this._resolveCapacityTicks(mode, options.capacityTicks);
+    this.capacityTicks = cap;
     this.includeSystemControlSignals = Boolean(options.includeSystemControlSignals);
 
-    this._slots = new Array(this.capacityTicks);
+    this._slots = new Array(cap);
     this._head = 0;
     this._size = 0;
     this._totalRecordedFrames = 0;
@@ -152,7 +153,7 @@ export class ReplayRingBuffer {
     this.mode = mode;
     if (nextCapacity !== this.capacityTicks) {
       this.capacityTicks = nextCapacity;
-      this._slots = new Array(this.capacityTicks);
+      this._slots = new Array(nextCapacity);
     }
     this.clear();
   }

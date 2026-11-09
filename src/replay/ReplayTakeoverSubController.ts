@@ -106,62 +106,72 @@ export interface LiveFreeplayHandoffParams {
   freeplayMode: ReplayTakeoverFreeplayModePort | null | undefined;
   targetIdx: number;
   fallbackLastTouchTick?: 'baseTick' | 'minusOne';
-  getHistorySlotAt: (frameIndex: number) => ReplayHandoffHistorySlot | null;
-  onBeforeReconstruct?: (liveTick: number) => void;
-  onAfterReconstruct?: (liveTick: number) => void;
+  getHistorySlotAt(frameIndex: number): ReplayHandoffHistorySlot | null;
+  beforeReconstruct?(liveTick: number): void;
+  afterReconstruct?(liveTick: number): void;
 }
 
-export interface TakeoverPrerollStepParams {
+export interface TakeoverPrerollStepInput {
   totalFrames: number;
   downCounterSec: number;
   displayedRemainingSec: number;
   audio?: ReplayTakeoverAudioPort | null;
-  onApplyFrameAtCursor: (cursorIndex: number) => void;
-  onHandoffToLiveFreeplay: (targetIdx: number) => void;
-  onUpdateCountdownTelemetry: (cursorFrame: number, remainingSec: number) => void;
 }
 
-export interface TakeoverScrubStepParams {
+export interface TakeoverPrerollStepOutcome {
+  appliedCursor: number;
+  handoffTargetIdx: number | null;
+  telemetryUpdate: { cursorFrame: number; remainingSec: number } | null;
+}
+
+export interface TakeoverScrubStepInput {
   direction: 'rewinding' | 'forwarding';
   totalFrames: number;
   effectiveFlowPct: number;
   throttleUiSync?: boolean;
-  onApplyFrameAtCursor: (cursorIndex: number, isForwarding: boolean) => void;
-  onUpdateScrubTelemetry: (cursorFrame: number) => void;
 }
 
-export interface TakeoverPlayStepParams {
+export interface TakeoverScrubStepOutcome {
+  appliedCursor: number | null;
+  isForwarding: boolean;
+  telemetryCursor: number | null;
+}
+
+export interface TakeoverPlayStepInput {
   totalFrames: number;
   effectiveFlowPct: number;
-  onApplyFrameAtCursor: (cursorIndex: number) => void;
-  onPlaybackFinished: (finalFrame: number) => void;
-  onUpdatePlayTelemetry: (cursorFrame: number) => void;
+}
+
+export interface TakeoverPlayStepOutcome {
+  appliedCursor: number;
+  finishedAtFrame: number | null;
+  telemetryCursor: number | null;
 }
 
 export function emitSystemControlTransition(
-  runtime: ReplayTakeoverRuntimePort | null | undefined,
+  controlPort: ReplayTakeoverRuntimePort | null | undefined,
   signalType: number,
   param1 = 0,
   param2 = 0,
   stateSnapshot?: Float32Array | number[] | null
 ): void {
-  if (!runtime) return;
-  const tick = Math.floor(runtime.physics?.getHeaderView?.()?.tickCount ?? 0);
-  runtime.lastSystemControlSignal = signalType;
-  const hist = (runtime.systemControlSignalHistory ??= []);
+  if (!controlPort) return;
+  const tick = Math.floor(controlPort.physics?.getHeaderView?.()?.tickCount ?? 0);
+  controlPort.lastSystemControlSignal = signalType;
+  const hist = (controlPort.systemControlSignalHistory ??= []);
   hist.push({ signalType, tick, param1, param2 });
   if (hist.length > 64) hist.shift();
 
-  const server = runtime.authoritativeServer;
+  const server = controlPort.authoritativeServer;
   if (!server) return;
-  const snap = stateSnapshot ?? runtime.physics?.saveCompactState?.() ?? null;
+  const snap = stateSnapshot ?? controlPort.physics?.saveCompactState?.() ?? null;
   if (signalType === SYSTEM_CONTROL_SIGNALS.SYS_CTRL_STATE_ONLY) {
     server.enterStateOnlyMode?.(snap, param1);
   } else if (signalType === SYSTEM_CONTROL_SIGNALS.SYS_CTRL_INTERVENE_WILL_RESUME) {
     server.beginInterveneCountdown?.(param2 > 0 ? param2 : 3, snap);
   } else if (signalType === SYSTEM_CONTROL_SIGNALS.SYS_CTRL_PHYSICS_RESUME) {
     server.resumePhysicsFromState?.(snap, param1);
-    if (snap) runtime.networkReconciler?.syncTimeline?.(snap, param1);
+    if (snap) controlPort.networkReconciler?.syncTimeline?.(snap, param1);
   }
 }
 
@@ -195,8 +205,6 @@ export function executeLiveFreeplayHandoff(params: LiveFreeplayHandoffParams): n
     targetIdx,
     fallbackLastTouchTick = 'baseTick',
     getHistorySlotAt,
-    onBeforeReconstruct,
-    onAfterReconstruct,
   } = params;
   const sim = r?.physics;
   if (!sim || !r) return 0;
@@ -209,7 +217,7 @@ export function executeLiveFreeplayHandoff(params: LiveFreeplayHandoffParams): n
     historySpan + 16
   );
 
-  onBeforeReconstruct?.(liveTick);
+  params.beforeReconstruct?.(liveTick);
   reconstructAndRestoreReplayFrame(sim, (f: number) => getHistorySlotAt(f), targetIdx, {
     overrideTick: liveTick,
   });
@@ -228,7 +236,7 @@ export function executeLiveFreeplayHandoff(params: LiveFreeplayHandoffParams): n
   r.ballTrajectoryPredictor?.notifyBallStateReset?.();
   r.ballTrajectoryPredictor?.resetAnomalyCapture?.();
 
-  onAfterReconstruct?.(liveTick);
+  params.afterReconstruct?.(liveTick);
 
   const resumedSnap = sim.saveCompactState?.() ?? null;
   emitSystemControlTransition(
@@ -361,27 +369,21 @@ export class ReplayTakeoverSubController {
     return this.interveneStartFrame + this.interveneElapsedTicks++;
   }
 
-  stepPrerollCountdown(params: TakeoverPrerollStepParams): boolean {
-    const {
-      totalFrames,
-      downCounterSec,
-      displayedRemainingSec,
-      audio = gameAudio,
-      onApplyFrameAtCursor,
-      onHandoffToLiveFreeplay,
-      onUpdateCountdownTelemetry,
-    } = params;
+  stepPrerollCountdown(input: TakeoverPrerollStepInput): TakeoverPrerollStepOutcome {
+    const { totalFrames, downCounterSec, displayedRemainingSec, audio = gameAudio } = input;
     const targetIdx = Math.max(0, Math.min(totalFrames - 1, Math.round(this.targetFrame)));
     const nextCursor = Math.min(targetIdx, Math.round(this.cursor) + 1);
     this.cursor = nextCursor;
-    onApplyFrameAtCursor(nextCursor);
 
     const remFrames = Math.max(0, targetIdx - nextCursor);
     if (remFrames <= 0) {
       this.lastCountdownSecBeep = -1;
-      onHandoffToLiveFreeplay(targetIdx);
       audio?.play?.('match_start_go', 1.0, 200);
-      return false;
+      return {
+        appliedCursor: nextCursor,
+        handoffTargetIdx: targetIdx,
+        telemetryUpdate: null,
+      };
     }
 
     const countdownSec = Math.max(1, Math.ceil(remFrames / 120));
@@ -393,64 +395,69 @@ export class ReplayTakeoverSubController {
       audio?.play?.('training_countdown', 1.0, 200);
     }
 
-    if (remFrames % 6 === 0 || remFrames % 120 === 0 || countdownSec !== displayedRemainingSec) {
-      onUpdateCountdownTelemetry(nextCursor, countdownSec);
-    }
-    return false;
+    const shouldSyncTelemetry =
+      remFrames % 6 === 0 || remFrames % 120 === 0 || countdownSec !== displayedRemainingSec;
+    return {
+      appliedCursor: nextCursor,
+      handoffTargetIdx: null,
+      telemetryUpdate: shouldSyncTelemetry
+        ? { cursorFrame: nextCursor, remainingSec: countdownSec }
+        : null,
+    };
   }
 
-  stepScrub(params: TakeoverScrubStepParams): boolean {
-    const {
-      direction,
-      totalFrames,
-      effectiveFlowPct,
-      throttleUiSync = false,
-      onApplyFrameAtCursor,
-      onUpdateScrubTelemetry,
-    } = params;
+  stepScrub(input: TakeoverScrubStepInput): TakeoverScrubStepOutcome {
+    const { direction, totalFrames, effectiveFlowPct, throttleUiSync = false } = input;
+    const isForwarding = direction === 'forwarding';
     const stepPerTick = (effectiveFlowPct || 100) / 100;
     this.scrubAccumulator += direction === 'rewinding' ? -stepPerTick : stepPerTick;
     const wholeSteps = Math.trunc(this.scrubAccumulator);
-    if (wholeSteps !== 0) {
-      this.scrubAccumulator -= wholeSteps;
-      const nextIdx = Math.max(
-        0,
-        Math.min(Math.max(0, totalFrames - 1), Math.round(this.cursor) + wholeSteps)
-      );
-      this.cursor = nextIdx;
-      this.targetFrame = nextIdx;
-      onApplyFrameAtCursor(nextIdx, direction === 'forwarding');
-
-      if (
-        !throttleUiSync ||
-        (this.uiSyncTick = (this.uiSyncTick + 1) & 3) === 0 ||
-        Math.abs(wholeSteps) === 1
-      ) {
-        onUpdateScrubTelemetry(nextIdx);
-      }
+    if (wholeSteps === 0) {
+      return {
+        appliedCursor: null,
+        isForwarding,
+        telemetryCursor: null,
+      };
     }
-    return false;
+
+    this.scrubAccumulator -= wholeSteps;
+    const nextIdx = Math.max(
+      0,
+      Math.min(Math.max(0, totalFrames - 1), Math.round(this.cursor) + wholeSteps)
+    );
+    this.cursor = nextIdx;
+    this.targetFrame = nextIdx;
+
+    const shouldSyncTelemetry =
+      !throttleUiSync ||
+      (this.uiSyncTick = (this.uiSyncTick + 1) & 3) === 0 ||
+      Math.abs(wholeSteps) === 1;
+    return {
+      appliedCursor: nextIdx,
+      isForwarding,
+      telemetryCursor: shouldSyncTelemetry ? nextIdx : null,
+    };
   }
 
-  stepPlaying(params: TakeoverPlayStepParams): boolean {
-    const {
-      totalFrames,
-      effectiveFlowPct,
-      onApplyFrameAtCursor,
-      onPlaybackFinished,
-      onUpdatePlayTelemetry,
-    } = params;
+  stepPlaying(input: TakeoverPlayStepInput): TakeoverPlayStepOutcome {
+    const { totalFrames, effectiveFlowPct } = input;
     const maxIdx = Math.max(0, totalFrames - 1);
     this.cursor = Math.min(maxIdx, this.cursor + (effectiveFlowPct || 100) / 100);
     const rounded = Math.round(this.cursor);
     this.targetFrame = rounded;
-    onApplyFrameAtCursor(rounded);
 
     if (rounded >= maxIdx) {
-      onPlaybackFinished(rounded);
-    } else if ((this.uiSyncTick = (this.uiSyncTick + 1) & 3) === 0) {
-      onUpdatePlayTelemetry(rounded);
+      return {
+        appliedCursor: rounded,
+        finishedAtFrame: rounded,
+        telemetryCursor: null,
+      };
     }
-    return false;
+    const shouldSyncTelemetry = (this.uiSyncTick = (this.uiSyncTick + 1) & 3) === 0;
+    return {
+      appliedCursor: rounded,
+      finishedAtFrame: null,
+      telemetryCursor: shouldSyncTelemetry ? rounded : null,
+    };
   }
 }

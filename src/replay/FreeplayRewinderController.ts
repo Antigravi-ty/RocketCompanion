@@ -10,6 +10,7 @@ import { ReplayTakeoverSubController } from './ReplayTakeoverSubController.ts';
 import { ReplayHotkeySubController } from './ReplayHotkeySubController.ts';
 import {
   RewinderHandoffAndMarkerController,
+  exportRewinderReplay,
   type FreeplayRewinderRuntimePort,
   type FreeplayRewinderModePort,
   type RewinderFrameEntry,
@@ -54,21 +55,46 @@ export class FreeplayRewinderController {
   }
 
   public attach(): void {
+    const rewinder = this;
     const store = useRewinderStore.getState();
     store.setRuntimeHandlers({
       ...store.runtimeHandlers,
-      onRewinderStartRecording: () => this.startNewRecording(),
-      onRewinderStopRecording: () => this.stopRecording(),
-      onRewinderPushBackwardStart: () => this.beginScrub('rewinding'),
-      onRewinderPushBackwardStop: () => this.pauseScrub(),
-      onRewinderPushForwardStart: () => this.beginScrub('forwarding'),
-      onRewinderPushForwardStop: () => this.pauseScrub(),
-      onRewinderResumeFromHere: () => this.resumeFromCursor(),
-      onRewinderClearBuffer: () => this.clearBuffer(),
-      onRewinderCancelToFreeplay: () => this.clearBuffer(),
-      onRewinderExportReplay: () => this.exportReplay(),
-      onRewinderImportReplay: (file: File) => this.importReplay(file),
-      onRewinderSeekFrame: (idx: number) => this.seekFrame(idx),
+      onRewinderStartRecording() {
+        rewinder.startNewRecording();
+      },
+      onRewinderStopRecording() {
+        rewinder.stopRecording();
+      },
+      onRewinderPushBackwardStart() {
+        rewinder.beginScrub('rewinding');
+      },
+      onRewinderPushBackwardStop() {
+        rewinder.pauseScrub();
+      },
+      onRewinderPushForwardStart() {
+        rewinder.beginScrub('forwarding');
+      },
+      onRewinderPushForwardStop() {
+        rewinder.pauseScrub();
+      },
+      onRewinderResumeFromHere() {
+        rewinder.resumeFromCursor();
+      },
+      onRewinderClearBuffer() {
+        rewinder.clearBuffer();
+      },
+      onRewinderCancelToFreeplay() {
+        rewinder.clearBuffer();
+      },
+      onRewinderExportReplay() {
+        return rewinder.exportReplay();
+      },
+      onRewinderImportReplay(file: File) {
+        return rewinder.importReplay(file);
+      },
+      onRewinderSeekFrame(idx: number) {
+        rewinder.seekFrame(idx);
+      },
     });
     this._bindHotkeys();
     this._unsubscribeFloating?.();
@@ -127,9 +153,12 @@ export class FreeplayRewinderController {
   }
 
   private _bindHotkeys(): void {
+    const rewinder = this;
     this.hotkeySubController.bindFreeplayRewinderHotkeys({
-      getRuntime: () => this.runtime,
-      getWindowStatus: () => {
+      getRuntime() {
+        return rewinder.runtime;
+      },
+      getWindowStatus() {
         const st = useRewinderStore.getState();
         return {
           isWindowOpen: Boolean(st.rewinderWindowOpen),
@@ -137,11 +166,7 @@ export class FreeplayRewinderController {
         };
       },
       conflictErrorMessage: REWINDER_HOTKEY_CONFLICT_MSG,
-      onStartNewRecording: () => this.startNewRecording(),
-      onStopRecording: () => this.stopRecording(),
-      onResumeFromCursor: () => this.resumeFromCursor(),
-      onBeginScrub: (direction) => this.beginScrub(direction),
-      onPauseScrub: () => this.pauseScrub(),
+      commandTarget: rewinder,
     });
   }
 
@@ -321,11 +346,7 @@ export class FreeplayRewinderController {
   }
 
   public async exportReplay(): Promise<boolean> {
-    return this.handoffAndMarkerController.exportReplay(
-      this.rewinderFrames,
-      this.mode,
-      this.runtime
-    );
+    return exportRewinderReplay(this.rewinderFrames, this.mode, this.runtime);
   }
 
   public async importReplay(fileOrBuffer: unknown): Promise<boolean> {
@@ -399,20 +420,25 @@ export class FreeplayRewinderController {
     if (state === 'paused-scrub') return false;
 
     if (state === 'rewinding' || state === 'forwarding') {
-      return this.takeoverSubController.stepScrub({
+      const outcome = this.takeoverSubController.stepScrub({
         direction: state,
         totalFrames: this.rewinderFrames.length,
         effectiveFlowPct: store.rewinderEffectiveFlowPct || 100,
-        onApplyFrameAtCursor: () => this.applyFrameAtCursor(false, { preserveEngineTick: true }),
-        onUpdateScrubTelemetry: (cursorFrame: number) =>
-          store.updateLiveTelemetry({
-            rewinderCursorFrame: cursorFrame,
-            rewinderTargetFrame: cursorFrame,
-          }),
       });
+      if (outcome.appliedCursor !== null) {
+        this.applyFrameAtCursor(false, { preserveEngineTick: true });
+      }
+      if (outcome.telemetryCursor !== null) {
+        store.updateLiveTelemetry({
+          rewinderCursorFrame: outcome.telemetryCursor,
+          rewinderTargetFrame: outcome.telemetryCursor,
+        });
+      }
+      return false;
     }
     if (state === 'preroll-countdown') {
-      return this.handoffAndMarkerController.stepPrerollCountdownTick(
+      const handoff = this.handoffAndMarkerController;
+      return handoff.stepPrerollCountdownTick(
         this.runtime,
         this.mode,
         this.rewinderFrames,

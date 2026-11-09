@@ -49,13 +49,13 @@ export interface ReplayViewerCausalSyncSessionPort {
     readonly activePovTeam: number;
   };
   readonly takeoverSubController: ReplayTakeoverSubController;
-  _applyUserLoadoutToTakenOverCar: (carIndex?: number) => void;
-  _applyFrameAtCursor: (
+  _applyUserLoadoutToTakenOverCar(carIndex?: number): void;
+  _applyFrameAtCursor(
     smoothStep?: boolean,
     dispatchEvents?: boolean,
     restoreOptions?: { preserveEngineTick?: boolean; overrideTick?: number }
-  ) => void;
-  _silenceContinuousAudio: () => void;
+  ): void;
+  _silenceContinuousAudio(): void;
 }
 
 export class ReplayViewerCausalSyncController {
@@ -127,36 +127,39 @@ export class ReplayViewerCausalSyncController {
     const freeplayMode = session.mode || r.modeManager?.modes?.get?.('freeplay') || null;
     const roster = session.rosterSubController;
     const takeover = session.takeoverSubController;
+    const self = this;
 
     executeLiveFreeplayHandoff({
       runtime: r,
       freeplayMode,
       targetIdx,
       fallbackLastTouchTick: 'baseTick',
-      getHistorySlotAt: (idx: number) => this.getNormalizedFrameSlotAt(session, idx),
-      onBeforeReconstruct: (liveTick: number) => {
+      getHistorySlotAt(idx: number) {
+        return self.getNormalizedFrameSlotAt(session, idx);
+      },
+      beforeReconstruct(liveTick: number) {
         session._applyUserLoadoutToTakenOverCar(roster.activePovCarIndex);
         takeover.beginIntervention(targetIdx);
-        this.causalHybridEngine.beginIntervention(roster.activePovCarIndex);
+        self.causalHybridEngine.beginIntervention(roster.activePovCarIndex);
         r.physics?.setUnlimitedBoost?.(false);
         session._applyFrameAtCursor(false, false, { overrideTick: liveTick });
       },
-      onAfterReconstruct: () => {
-        this.configureLiveFreeplayViewerHandoff(
+      afterReconstruct() {
+        self.configureLiveFreeplayViewerHandoff(
           r,
           roster.resolvedRoster,
           roster.activePovCarIndex,
           roster.activePovTeam
         );
-        this.applyNonPovRecordedControlsAtFrame(session, targetIdx + 1);
+        self.applyNonPovRecordedControlsAtFrame(session, targetIdx + 1);
       },
     });
   }
 
   public beginPrerollFromCursor(
     session: ReplayViewerCausalSyncSessionPort,
-    onPrepareRuntime: () => void,
-    onResetDispatchedCursor: (startIdx: number) => void
+    prepareRuntime: () => void,
+    resetDispatchedCursor: (startIdx: number) => void
   ): void {
     const r = session.runtime;
     const store = useReplayViewerStore.getState();
@@ -164,7 +167,7 @@ export class ReplayViewerCausalSyncController {
     const minRequiredFrames = downSec === 0 ? 120 : 240;
     if (!r?.physics || session.frames.length < minRequiredFrames) return;
 
-    onPrepareRuntime();
+    prepareRuntime();
     const takeover = session.takeoverSubController;
     const baseCursor =
       store.viewerState === 'intervening' || store.viewerState === 'preroll-countdown'
@@ -177,7 +180,7 @@ export class ReplayViewerCausalSyncController {
       downSec,
       audio
     );
-    onResetDispatchedCursor(startIdx);
+    resetDispatchedCursor(startIdx);
     r.physics.setUnlimitedBoost?.(false);
     session._applyFrameAtCursor(false, false);
     r.simulationStage?.resetActionStates?.();
@@ -195,6 +198,13 @@ export class ReplayViewerCausalSyncController {
       targetFrame: targetIdx,
       prerollRemainingSec: remSec,
     });
+  }
+
+  private _syncAuthoritativeServerState(r: ReplayScoreboardRuntimePort | null): void {
+    if (r?.authoritativeServer?.sim?.restoreState) {
+      const snap = r?.physics?.saveCompactState?.();
+      if (snap) void r.authoritativeServer.sim.restoreState(snap);
+    }
   }
 
   public stepBeforePhysicsTick(session: ReplayViewerCausalSyncSessionPort): boolean {
@@ -225,70 +235,73 @@ export class ReplayViewerCausalSyncController {
     if (state === 'paused') return false;
 
     if (state === 'playing') {
-      return takeover.stepPlaying({
+      const outcome = takeover.stepPlaying({
         totalFrames: session.frames.length,
         effectiveFlowPct: store.effectiveFlowPct || 100,
-        onApplyFrameAtCursor: () => {
-          session._applyFrameAtCursor(true, true, { preserveEngineTick: true });
-          if (r?.authoritativeServer?.sim?.restoreState) {
-            const snap = r?.physics?.saveCompactState?.();
-            if (snap) void r.authoritativeServer.sim.restoreState(snap);
-          }
-        },
-        onPlaybackFinished: (finalFrame: number) => {
-          session._silenceContinuousAudio();
-          store.updateLiveTelemetry({
-            viewerState: 'paused',
-            cursorFrame: finalFrame,
-            targetFrame: finalFrame,
-          });
-        },
-        onUpdatePlayTelemetry: (cursorFrame: number) =>
-          store.updateLiveTelemetry({ cursorFrame, targetFrame: cursorFrame }),
       });
+      session._applyFrameAtCursor(true, true, { preserveEngineTick: true });
+      this._syncAuthoritativeServerState(r);
+      if (outcome.finishedAtFrame !== null) {
+        session._silenceContinuousAudio();
+        store.updateLiveTelemetry({
+          viewerState: 'paused',
+          cursorFrame: outcome.finishedAtFrame,
+          targetFrame: outcome.finishedAtFrame,
+        });
+      } else if (outcome.telemetryCursor !== null) {
+        store.updateLiveTelemetry({
+          cursorFrame: outcome.telemetryCursor,
+          targetFrame: outcome.telemetryCursor,
+        });
+      }
+      return false;
     }
 
     if (state === 'rewinding' || state === 'forwarding') {
-      return takeover.stepScrub({
+      const outcome = takeover.stepScrub({
         direction: state,
         totalFrames: session.frames.length,
         effectiveFlowPct: store.effectiveFlowPct || 100,
         throttleUiSync: true,
-        onApplyFrameAtCursor: (_cursorIdx: number, isForwarding: boolean) => {
-          session._applyFrameAtCursor(false, isForwarding, { preserveEngineTick: true });
-          if (r?.authoritativeServer?.sim?.restoreState) {
-            const snap = r?.physics?.saveCompactState?.();
-            if (snap) void r.authoritativeServer.sim.restoreState(snap);
-          }
-        },
-        onUpdateScrubTelemetry: (cursorFrame: number) =>
-          store.updateLiveTelemetry({ cursorFrame, targetFrame: cursorFrame }),
       });
+      if (outcome.appliedCursor !== null) {
+        session._applyFrameAtCursor(false, outcome.isForwarding, { preserveEngineTick: true });
+        this._syncAuthoritativeServerState(r);
+      }
+      if (outcome.telemetryCursor !== null) {
+        store.updateLiveTelemetry({
+          cursorFrame: outcome.telemetryCursor,
+          targetFrame: outcome.telemetryCursor,
+        });
+      }
+      return false;
     }
 
     if (state === 'preroll-countdown') {
-      return takeover.stepPrerollCountdown({
+      const outcome = takeover.stepPrerollCountdown({
         totalFrames: session.frames.length,
         downCounterSec: store.downCounterSec ?? 0,
         displayedRemainingSec: store.prerollRemainingSec ?? 0,
         audio: r?.options?.gameAudio || gameAudio,
-        onApplyFrameAtCursor: () => {
-          session._applyFrameAtCursor(true, true, { preserveEngineTick: true });
-          const snap = r?.physics?.saveCompactState?.();
-          if (snap) void r?.authoritativeServer?.sim?.restoreState?.(snap);
-        },
-        onHandoffToLiveFreeplay: (targetIdx: number) => {
-          this.executeHandoffToLiveFreeplay(session, targetIdx);
-          store.updateLiveTelemetry({
-            viewerState: 'intervening',
-            cursorFrame: targetIdx,
-            targetFrame: targetIdx,
-            prerollRemainingSec: 0,
-          });
-        },
-        onUpdateCountdownTelemetry: (cursorFrame: number, remainingSec: number) =>
-          store.updateLiveTelemetry({ cursorFrame, prerollRemainingSec: remainingSec }),
       });
+      session._applyFrameAtCursor(true, true, { preserveEngineTick: true });
+      this._syncAuthoritativeServerState(r);
+
+      if (outcome.handoffTargetIdx !== null) {
+        this.executeHandoffToLiveFreeplay(session, outcome.handoffTargetIdx);
+        store.updateLiveTelemetry({
+          viewerState: 'intervening',
+          cursorFrame: outcome.handoffTargetIdx,
+          targetFrame: outcome.handoffTargetIdx,
+          prerollRemainingSec: 0,
+        });
+      } else if (outcome.telemetryUpdate) {
+        store.updateLiveTelemetry({
+          cursorFrame: outcome.telemetryUpdate.cursorFrame,
+          prerollRemainingSec: outcome.telemetryUpdate.remainingSec,
+        });
+      }
+      return false;
     }
 
     return true;
@@ -297,7 +310,7 @@ export class ReplayViewerCausalSyncController {
   public prepareRuntimeForSession(
     runtime: ReplayScoreboardRuntimePort | null,
     currentMode: ReplayScoreboardModePort | null,
-    onRestoreRecordedLoadouts: () => void
+    restoreRecordedLoadouts: () => void
   ): ReplayScoreboardModePort | null {
     const r = runtime;
     if (!r) return currentMode;
@@ -375,7 +388,7 @@ export class ReplayViewerCausalSyncController {
     if (r.match?.state && r.match.state.phase !== 'playing') {
       r.match.state.phase = 'playing';
     }
-    onRestoreRecordedLoadouts();
+    restoreRecordedLoadouts();
     return freeplayMode || null;
   }
 

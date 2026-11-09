@@ -10,29 +10,48 @@ import {
   subscribeGlobalKeyUp,
 } from '../input/hotkeyInputGuard.ts';
 
+export interface ReplayViewerHotkeyCommandTarget {
+  selectPovSlot(slotKey: number): void;
+  startPlaying(): void;
+  pausePlaying(): void;
+  resumeFromCursor(): void;
+  beginScrub(direction: 'rewinding' | 'forwarding'): void;
+  pauseScrub(): void;
+}
+
+export interface FreeplayRewinderHotkeyCommandTarget {
+  startNewRecording(): void;
+  stopRecording(): void;
+  resumeFromCursor(): void;
+  beginScrub(direction: 'rewinding' | 'forwarding'): void;
+  pauseScrub(): void;
+}
+
 export interface ReplayViewerHotkeyBindings {
-  getRuntime: () => Record<string, any> | null;
-  hasLoadedReplay: () => boolean;
-  hasFrames: () => boolean;
-  getWindowStatus: () => { isWindowOpen: boolean; hasHotkeyPriority: boolean };
+  getRuntime(): Record<string, any> | null;
+  hasLoadedReplay(): boolean;
+  hasFrames(): boolean;
+  getWindowStatus(): { isWindowOpen: boolean; hasHotkeyPriority: boolean };
   conflictErrorMessage: string;
-  onSelectPovSlot: (slotKey: number) => void;
-  onStartPlaying: () => void;
-  onPausePlaying: () => void;
-  onResumeFromCursor: () => void;
-  onBeginScrub: (direction: 'rewinding' | 'forwarding') => void;
-  onPauseScrub: () => void;
+  commandTarget?: ReplayViewerHotkeyCommandTarget;
+  onSelectPovSlot?(slotKey: number): void;
+  onStartPlaying?(): void;
+  onPausePlaying?(): void;
+  onResumeFromCursor?(): void;
+  onBeginScrub?(direction: 'rewinding' | 'forwarding'): void;
+  onPauseScrub?(): void;
 }
 
 export interface FreeplayRewinderHotkeyBindings {
-  getRuntime: () => Record<string, any> | null;
-  getWindowStatus: () => { isWindowOpen: boolean; hasHotkeyPriority: boolean };
+  getRuntime(): Record<string, any> | null;
+  getWindowStatus(): { isWindowOpen: boolean; hasHotkeyPriority: boolean };
   conflictErrorMessage: string;
-  onStartNewRecording: () => void;
-  onStopRecording: () => void;
-  onResumeFromCursor: () => void;
-  onBeginScrub: (direction: 'rewinding' | 'forwarding') => void;
-  onPauseScrub: () => void;
+  commandTarget?: FreeplayRewinderHotkeyCommandTarget;
+  onStartNewRecording?(): void;
+  onStopRecording?(): void;
+  onResumeFromCursor?(): void;
+  onBeginScrub?(direction: 'rewinding' | 'forwarding'): void;
+  onPauseScrub?(): void;
 }
 
 export class ReplayHotkeySubController {
@@ -64,12 +83,13 @@ export class ReplayHotkeySubController {
   public bindReplayViewerHotkeys(bindings: ReplayViewerHotkeyBindings): void {
     if (typeof window === 'undefined') return;
     this.unbind();
+    const target = bindings.commandTarget;
 
     this._keyDownHandler = (evt: KeyboardEvent) => {
-      const runtime = bindings.getRuntime();
-      const activeMode = runtime?.match?.state?.mode;
+      const activeRuntime = bindings.getRuntime();
+      const activeMode = activeRuntime?.match?.state?.mode;
       if (activeMode !== 'freeplay' && activeMode !== 'replay-viewer') return;
-      if (isGlobalHotkeyBlockedByUi(evt, runtime)) return;
+      if (isGlobalHotkeyBlockedByUi(evt, activeRuntime)) return;
 
       const noMods = !evt.ctrlKey && !evt.shiftKey && !evt.altKey && !evt.metaKey;
       if (bindings.hasLoadedReplay() && noMods) {
@@ -82,7 +102,10 @@ export class ReplayHotkeySubController {
         if (keyNum >= 1 && keyNum <= 6) {
           evt.preventDefault();
           evt.stopImmediatePropagation();
-          if (!evt.repeat) bindings.onSelectPovSlot(keyNum);
+          if (!evt.repeat) {
+            if (target) target.selectPovSlot(keyNum);
+            else bindings.onSelectPovSlot?.(keyNum);
+          }
           return;
         }
       }
@@ -97,7 +120,8 @@ export class ReplayHotkeySubController {
         if (!evt.repeat) {
           evt.preventDefault();
           evt.stopImmediatePropagation();
-          bindings.onStartPlaying();
+          if (target) target.startPlaying();
+          else bindings.onStartPlaying?.();
         }
         return;
       }
@@ -105,7 +129,8 @@ export class ReplayHotkeySubController {
         if (!evt.repeat) {
           evt.preventDefault();
           evt.stopImmediatePropagation();
-          bindings.onPausePlaying();
+          if (target) target.pausePlaying();
+          else bindings.onPausePlaying?.();
         }
         return;
       }
@@ -113,24 +138,31 @@ export class ReplayHotkeySubController {
         if (!evt.repeat) {
           evt.preventDefault();
           evt.stopImmediatePropagation();
-          bindings.onResumeFromCursor();
+          if (target) target.resumeFromCursor();
+          else bindings.onResumeFromCursor?.();
         }
         return;
       }
       if (evt.code === 'BracketLeft' || evt.key === '[') {
         evt.preventDefault();
-        if (!evt.repeat) bindings.onBeginScrub('rewinding');
+        if (!evt.repeat) {
+          if (target) target.beginScrub('rewinding');
+          else bindings.onBeginScrub?.('rewinding');
+        }
         return;
       }
       if (evt.code === 'BracketRight' || evt.key === ']') {
         evt.preventDefault();
-        if (!evt.repeat) bindings.onBeginScrub('forwarding');
+        if (!evt.repeat) {
+          if (target) target.beginScrub('forwarding');
+          else bindings.onBeginScrub?.('forwarding');
+        }
       }
     };
 
     this._keyUpHandler = (evt: KeyboardEvent) => {
-      const runtime = bindings.getRuntime();
-      const activeMode = runtime?.match?.state?.mode;
+      const activeRuntime = bindings.getRuntime();
+      const activeMode = activeRuntime?.match?.state?.mode;
       if (activeMode !== 'freeplay' && activeMode !== 'replay-viewer') return;
       const isOpen = this.checkWindowOpenAndPriority(
         bindings.getWindowStatus(),
@@ -144,7 +176,8 @@ export class ReplayHotkeySubController {
         evt.key === ']'
       ) {
         evt.preventDefault();
-        bindings.onPauseScrub();
+        if (target) target.pauseScrub();
+        else bindings.onPauseScrub?.();
       }
     };
 
@@ -155,10 +188,11 @@ export class ReplayHotkeySubController {
   public bindFreeplayRewinderHotkeys(bindings: FreeplayRewinderHotkeyBindings): void {
     if (typeof window === 'undefined') return;
     this.unbind();
+    const target = bindings.commandTarget;
 
     this._keyDownHandler = (evt: KeyboardEvent) => {
-      const runtime = bindings.getRuntime();
-      if (isGlobalHotkeyBlockedByUi(evt, runtime)) return;
+      const activeRuntime = bindings.getRuntime();
+      if (isGlobalHotkeyBlockedByUi(evt, activeRuntime)) return;
       if (
         !this.checkWindowOpenAndPriority(bindings.getWindowStatus(), bindings.conflictErrorMessage)
       ) {
@@ -174,7 +208,7 @@ export class ReplayHotkeySubController {
 
       if (!isRecordKey && !isStopKey && !isResumeKey && !isRewindKey && !isForwardKey) return;
 
-      const currentMode = runtime?.match?.state?.mode || 'freeplay';
+      const currentMode = activeRuntime?.match?.state?.mode || 'freeplay';
       if (currentMode === 'dev-test-lab') return;
       if (currentMode !== 'freeplay') return;
 
@@ -182,7 +216,8 @@ export class ReplayHotkeySubController {
         if (!evt.repeat) {
           evt.preventDefault();
           evt.stopImmediatePropagation();
-          bindings.onStartNewRecording();
+          if (target) target.startNewRecording();
+          else bindings.onStartNewRecording?.();
         }
         return;
       }
@@ -190,7 +225,8 @@ export class ReplayHotkeySubController {
         if (!evt.repeat) {
           evt.preventDefault();
           evt.stopImmediatePropagation();
-          bindings.onStopRecording();
+          if (target) target.stopRecording();
+          else bindings.onStopRecording?.();
         }
         return;
       }
@@ -198,26 +234,33 @@ export class ReplayHotkeySubController {
         if (!evt.repeat) {
           evt.preventDefault();
           evt.stopImmediatePropagation();
-          bindings.onResumeFromCursor();
+          if (target) target.resumeFromCursor();
+          else bindings.onResumeFromCursor?.();
         }
         return;
       }
       if (isRewindKey) {
         evt.preventDefault();
         evt.stopImmediatePropagation();
-        if (!evt.repeat) bindings.onBeginScrub('rewinding');
+        if (!evt.repeat) {
+          if (target) target.beginScrub('rewinding');
+          else bindings.onBeginScrub?.('rewinding');
+        }
         return;
       }
       if (isForwardKey) {
         evt.preventDefault();
         evt.stopImmediatePropagation();
-        if (!evt.repeat) bindings.onBeginScrub('forwarding');
+        if (!evt.repeat) {
+          if (target) target.beginScrub('forwarding');
+          else bindings.onBeginScrub?.('forwarding');
+        }
       }
     };
 
     this._keyUpHandler = (evt: KeyboardEvent) => {
-      const runtime = bindings.getRuntime();
-      if (runtime?.match?.state?.mode !== 'freeplay') return;
+      const activeRuntime = bindings.getRuntime();
+      if (activeRuntime?.match?.state?.mode !== 'freeplay') return;
       if (
         !this.checkWindowOpenAndPriority(bindings.getWindowStatus(), bindings.conflictErrorMessage)
       ) {
@@ -231,7 +274,8 @@ export class ReplayHotkeySubController {
       ) {
         evt.preventDefault();
         evt.stopImmediatePropagation();
-        bindings.onPauseScrub();
+        if (target) target.pauseScrub();
+        else bindings.onPauseScrub?.();
       }
     };
 
