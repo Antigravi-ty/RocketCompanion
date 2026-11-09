@@ -14,12 +14,14 @@ import {
   isBinaryRLRCContainer,
   serializeRLRCBinaryContainer,
 } from './container/RLRCBinaryContainerCodec.ts';
+import { reconstructContinuousBoostTimeline30Hz } from './parser/RLRCBoostTimelineReconstructor.ts';
 import { decodeRLRCNetStreamFrames } from './parser/RLRCNetStreamBitDecoder.ts';
 import { extractNetStreamRigidBodyAndBoostTimeline } from './parser/RLRCNetStreamRigidBodyAndBoostExtractor.ts';
 import { extractRLRCNetStreamRosterAndLifecycle } from './parser/RLRCNetStreamRosterAndLifecycleExtractor.ts';
 import { parseRLRCReplayHeaderAndBookmarks } from './parser/RLRCReplayHeaderAndBookmarkParser.ts';
 import {
   RLRC_FIXED_DT,
+  RLRC_MAX_PLAYER_SLOTS,
   RLRC_TICK_RATE,
   type RLRCBookmarkRecord,
   type RLRCContainerPacket,
@@ -197,6 +199,17 @@ export function convertRLReplayBufferToRLRC(
     slotByPriActorId: rosterAndLifecycle.slotIndexByPriActorId,
     boostPadEvents,
   });
+
+  reconstructContinuousBoostTimeline30Hz(
+    rigidBodyTimeline.networkFrames,
+    {
+      anchorsBySlot: Array.from({ length: RLRC_MAX_PLAYER_SLOTS }, () => new Map<number, number>()),
+      spawnFramesBySlot: Array.from({ length: RLRC_MAX_PLAYER_SLOTS }, () => new Set<number>()),
+      rawFrames: decodedNetStream.frames,
+      objects: parsedHeader.objects,
+    },
+    boostPadEvents
+  );
 
   decodedNetStream.frames.length = 0;
   decodedNetStream = null;
