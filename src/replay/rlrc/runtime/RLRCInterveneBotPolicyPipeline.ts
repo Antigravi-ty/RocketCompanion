@@ -11,7 +11,7 @@ import type { BallPredictionEnginePort } from '../../../ai/experimental/botpack9
 import type { BoostPadDescriptor } from '../../../ai/experimental/experimentalMultiCarObsPipeline.ts';
 import { useReplayToRcsImporterStore } from '../../../game/runtimeUiPort.ts';
 import type { ReplayScoreboardRuntimePort } from '../../ReplayScoreboardSynchronizer.ts';
-import { STANDARD_BOOST_PADS_34 } from '../catalog/RLRCBoostPadSpatialCatalog.ts';
+import { STANDARD_BOOST_PADS_34 } from '../catalog/RLRCBoostPadLocationsTable.ts';
 import type { RLRCConvertedReplaySession } from '../RLReplayToRLRCConverter.ts';
 import {
   RLRC_MAX_PLAYER_SLOTS,
@@ -19,7 +19,7 @@ import {
   type RLRCTeamIndex,
 } from '../RLRCReplayTypes.ts';
 import { DEFAULT_NEUTRAL_CAR_CONTROLS } from './RLRCInterveneFrameStateBuilder.ts';
-import type { RLRCInterveneBotDecisionPort } from './RLRCInterveneTargetFrameApplier.ts';
+import type { RLRCInterveneBotDecisionPort } from './RLRCInterveneNonPovSyncPipeline.ts';
 
 export interface RLRCBridgeInputDevicePort {
   readonly controls?: Partial<RLRCSynthesizedCarControls>;
@@ -31,6 +31,7 @@ export interface RLRCBridgeInputDevicePort {
 }
 
 export interface RLRCBridgeBotCoordinatorPort {
+  readonly runtime?: { readonly bot?: { readonly id?: string } | null } | null;
   readonly resetBotState?: () => void;
   readonly resetAllBots?: () => void;
   readonly decideControlsForSlot?: (
@@ -50,11 +51,6 @@ export interface RLRCBridgeRuntimePort {
     readonly isCarSlotActive?: (slotIndex: number) => boolean;
     readonly getPads?: () => ReadonlyArray<BoostPadDescriptor>;
   } | null;
-}
-
-export interface RLRCSessionBridgeContext {
-  readonly getSession: () => RLRCConvertedReplaySession | null;
-  readonly getSimPort: () => ReplayScoreboardRuntimePort | null;
 }
 
 const _botPadDescriptors: ReadonlyArray<BoostPadDescriptor> = STANDARD_BOOST_PADS_34.map((p) => ({
@@ -99,22 +95,19 @@ function resolveSelectedBotPolicyId(
 ): 'nexto' | 'necto' {
   const uiMode = useReplayToRcsImporterStore.getState().nonPovInterventionMode;
   if (uiMode === 'necto' || uiMode === 'nexto') return uiMode;
-  const coordRecord = botCoordinator as
-    | Record<string, { readonly bot?: { readonly id?: string } | null } | null | undefined>
-    | null
-    | undefined;
-  return coordRecord?.['runtime']?.bot?.id === 'necto' ? 'necto' : 'nexto';
+  return botCoordinator?.runtime?.bot?.id === 'necto' ? 'necto' : 'nexto';
 }
 
-export function createRLRCInterveneBotDecisionPort(
-  sessionCtx: RLRCSessionBridgeContext
-): RLRCInterveneBotDecisionPort {
+export function createRLRCInterveneBotDecisionPort(host: {
+  getSession: () => RLRCConvertedReplaySession | null;
+  getRuntime: () => ReplayScoreboardRuntimePort | null;
+}): RLRCInterveneBotDecisionPort {
   const slotBotAgents = new Map<number, ExperimentalBotAgent>();
 
   return {
     resetAllBots: () => {
-      const bridgePort = sessionCtx.getSimPort() as unknown as RLRCBridgeRuntimePort | null;
-      const botCoord = bridgePort?.botCoordinator;
+      const bridgeRuntime = host.getRuntime() as unknown as RLRCBridgeRuntimePort | null;
+      const botCoord = bridgeRuntime?.botCoordinator;
       const policyId = resolveSelectedBotPolicyId(botCoord);
       void ensureExperimentalEngine(policyId);
       botCoord?.resetAllBots?.();
@@ -125,8 +118,8 @@ export function createRLRCInterveneBotDecisionPort(
       }
     },
     decideControlsForSlot: (slotIndex, team, state, dt) => {
-      const bridgePort = sessionCtx.getSimPort() as unknown as RLRCBridgeRuntimePort | null;
-      const botCoord = bridgePort?.botCoordinator;
+      const bridgeRuntime = host.getRuntime() as unknown as RLRCBridgeRuntimePort | null;
+      const botCoord = bridgeRuntime?.botCoordinator;
       const customDecision = botCoord?.decideControlsForSlot?.(slotIndex, team, state, dt);
       if (customDecision) return normalizeSynthesizedControls(customDecision);
 
@@ -140,8 +133,8 @@ export function createRLRCInterveneBotDecisionPort(
       }
 
       if (agent.tickSkipCounter <= 0) {
-        const roster = sessionCtx.getSession()?.roster ?? [];
-        const sim = bridgePort?.physics;
+        const roster = host.getSession()?.roster ?? [];
+        const sim = bridgeRuntime?.physics;
         const activeCars: Array<{ carIndex: number; team: number }> = [];
         for (let c = 0; c < RLRC_MAX_PLAYER_SLOTS; c++) {
           const isActive =

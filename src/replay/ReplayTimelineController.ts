@@ -13,11 +13,12 @@ import {
 import { applyReplayFrameToEngine } from './ReplayFrameInterpolator.ts';
 import { ReplayDirectorCameraSubController } from './ReplayDirectorCameraSubController.ts';
 import {
-  getCurrentFrameDiagnosticSnapshotForTimeline,
-  buildDirectorDiagnosticPatternPayloadForTimeline,
-  buildDirectorDiagnosticPatternCsvForTimeline,
-  buildDirectorFrameWindowDiagnosticForTimeline,
-  loadImportedDiagnosticPatternForTimeline,
+  buildSessionCurrentFrameDiagnosticSnapshot,
+  evaluateSessionDiagnosticPatternPayload,
+  buildSessionDiagnosticPatternCsv,
+  buildSessionFrameWindowDiagnostic,
+  applyImportedDiagnosticPatternToSession,
+  type ReplayDiagnosticSessionContext,
 } from './ReplayDiagnosticPatternController.ts';
 import {
   createInitialReplaySessionState,
@@ -100,7 +101,16 @@ export class ReplayTimelineController {
   }
 
   private _patch(patch: Partial<ReplaySessionState>): void {
-    Object.assign(this.sessionState, patch);
+    this.sessionState = { ...this.sessionState, ...patch };
+  }
+
+  private _diagnosticContext(): ReplayDiagnosticSessionContext {
+    return {
+      sessionState: this.sessionState,
+      directorCamera: this.directorCamera,
+      ringBuffer: this.ringBuffer,
+      engine: this.engine,
+    };
   }
 
   attach(engine: ReplayPhysicsEnginePort | null, ringBuffer: ReplayRingBuffer | null = null): this {
@@ -188,15 +198,13 @@ export class ReplayTimelineController {
   }
 
   beginReplaySession(options: ReplaySessionInitOptions = {}): number {
-    const s = Object.assign(
-      this.sessionState,
-      buildTimelineReplaySessionInitState({
-        ringBuffer: this.ringBuffer,
-        engine: this.engine,
-        options,
-        currentRetainedReplaySeq: this.sessionState.retainedReplaySeq,
-      })
-    );
+    const s = buildTimelineReplaySessionInitState({
+      ringBuffer: this.ringBuffer,
+      engine: this.engine,
+      options,
+      currentRetainedReplaySeq: this.sessionState.retainedReplaySeq,
+    });
+    this.sessionState = s;
     this.directorCamera.reset(s.isImportedPreview && s.useRecordedCsvCamera, false, false);
     this._analyzeReplayTouchTimeline(options);
     this.directorCamera.applyPostAnalysisOverrides(options);
@@ -209,7 +217,7 @@ export class ReplayTimelineController {
   retainReplaySessionFrames(options: ReplaySessionInitOptions = {}): number {
     const next = buildRetainedReplaySessionState(this.sessionState, options);
     if (next.activeFrames.length === 0) return 0;
-    Object.assign(this.sessionState, next);
+    this.sessionState = next;
     this.directorCamera.reset(false, next.isPaused, next.isScrubbing);
     this._analyzeReplayTouchTimeline(options);
     this.ensureSuffixCameraPlan();
@@ -237,13 +245,10 @@ export class ReplayTimelineController {
       src.activeFrames.length === 0
     )
       return 0;
-    Object.assign(
-      this.sessionState,
-      buildClonedRetainedReplaySessionState({
-        currentSessionState: this.sessionState,
-        sourceSessionState: src,
-      })
-    );
+    this.sessionState = buildClonedRetainedReplaySessionState({
+      currentSessionState: this.sessionState,
+      sourceSessionState: src,
+    });
     this.directorCamera.cloneFrom(srcCtrl.directorCamera?.state || srcCtrl.directorCameraState);
     return this.sessionState.activeFrames.length;
   }
@@ -252,7 +257,18 @@ export class ReplayTimelineController {
     parsed: ImportedDiagnosticPatternInput | null | undefined,
     opts: ImportedDiagnosticLoadOptions = {}
   ): number {
-    return loadImportedDiagnosticPatternForTimeline(this, parsed, opts);
+    const nextState = applyImportedDiagnosticPatternToSession(
+      this._diagnosticContext(),
+      parsed,
+      opts
+    );
+    if (!nextState) return 0;
+    this.sessionState = nextState;
+    this.refreshCurrentFrameDirectorPose();
+    markReplayTimelineControllerRetained(this);
+    setActiveReplayTimelineController(this);
+    notifyActiveReplayTimelineController();
+    return nextState.activeFrames.length;
   }
 
   startPreviewSession(opts: ReplayPreviewSessionStartOptions = {}): boolean {
@@ -467,16 +483,16 @@ export class ReplayTimelineController {
   }
 
   getCurrentFrameDiagnosticSnapshot() {
-    return getCurrentFrameDiagnosticSnapshotForTimeline(this);
+    return buildSessionCurrentFrameDiagnosticSnapshot(this._diagnosticContext());
   }
   buildDirectorDiagnosticPatternPayload(opts?: DirectorDiagnosticPatternOptions) {
-    return buildDirectorDiagnosticPatternPayloadForTimeline(this, opts);
+    return evaluateSessionDiagnosticPatternPayload(this._diagnosticContext(), opts);
   }
   buildDirectorDiagnosticPatternCsv(opts?: DirectorPatternSerializerOptions): string {
-    return buildDirectorDiagnosticPatternCsvForTimeline(this, opts);
+    return buildSessionDiagnosticPatternCsv(this._diagnosticContext(), opts);
   }
   buildDirectorFrameWindowDiagnostic(radius = 15) {
-    return buildDirectorFrameWindowDiagnosticForTimeline(this, radius);
+    return buildSessionFrameWindowDiagnostic(this._diagnosticContext(), radius);
   }
 }
 

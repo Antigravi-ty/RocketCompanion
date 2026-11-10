@@ -1,10 +1,5 @@
 import { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
-import { BALL_REST_Z, BALL_GROUND_CONTACT_MAX_Z } from '../../physics/RocketSimConstants.ts';
-import {
-  NEUTRAL_CONTROLS,
-  MAX_INPUT_BUFFER_TICKS,
-  NetworkInputBuffer,
-} from './NetworkInputBuffer.ts';
+import { MAX_INPUT_BUFFER_TICKS, NetworkInputBuffer } from './NetworkInputBuffer.ts';
 import type { CarControlsInput } from '../protocol/GlobalPayloadCodec.ts';
 import {
   LobbyGhostCarCoordinator,
@@ -14,12 +9,18 @@ import {
 } from './LobbyGhostCarCoordinator.ts';
 import {
   syncCarSlotWithSim,
-  buildPausedPhysicsStepOutput,
-  sampleAuthoritativeCarControlsForTick,
-  evaluatePostStepIncidentsAndGoalLatch,
   type AuthoritativePhysicsSimPort,
   type AuthoritativePhysicsStepOutput,
 } from './authoritativePhysicsStepPipeline.ts';
+import {
+  checkSimBallOnGround,
+  computeActiveCarMask,
+  executeAuthoritativePhysicsTickStep,
+  executeKickoffResetOnSim,
+  readSimCurrentTick,
+  resetSimBallToCenter,
+  writeSimCurrentTick,
+} from './authoritativePhysicsEngineHelpers.ts';
 
 export type { PhysicsSignalData };
 
@@ -78,7 +79,9 @@ export class PhysicsEngineManager {
 
     this.lastAcknowledgedControls = new Map();
     this.jumpSuppressedCarIndices = new Set();
-    if (this.sim?.isInitialized) this.sim.initReplayBuffer?.();
+    if (this.sim?.isInitialized) {
+      this.sim.initReplayBuffer?.();
+    }
   }
 
   get isPaused(): boolean {
@@ -87,27 +90,25 @@ export class PhysicsEngineManager {
 
   set isPaused(val: boolean) {
     this._isPaused = Boolean(val);
-    if (this.inputBuffer) this.inputBuffer.isPaused = this._isPaused;
+    if (this.inputBuffer) {
+      this.inputBuffer.isPaused = this._isPaused;
+    }
   }
 
   async init(): Promise<this> {
-    if (!this.sim.isInitialized) await this.sim.init?.();
+    if (!this.sim.isInitialized) {
+      await this.sim.init?.();
+    }
     this.sim.setPossessionReportingEnabled?.(true);
     this.sim.initReplayBuffer?.();
     return this;
   }
 
   getPossessionStats(): { team: number; bluePoints: number; orangePoints: number; time: number } {
-    if (typeof this.sim?.getPossessionStats === 'function') return this.sim.getPossessionStats();
-    return { team: 0, bluePoints: 0, orangePoints: 0, time: 0 };
-  }
-
-  setInputBuffer(buffer: NetworkInputBuffer | null): void {
-    this.inputBuffer = buffer;
-    if (this.inputBuffer) {
-      this.inputBuffer.isPaused = this._isPaused;
-      this.inputBuffer.setLobbyMode?.(Boolean(this.lobbyGhostCoordinator?.lobbyModeActive));
+    if (typeof this.sim?.getPossessionStats === 'function') {
+      return this.sim.getPossessionStats();
     }
+    return { team: 0, bluePoints: 0, orangePoints: 0, time: 0 };
   }
 
   setCarCollisionMask(
@@ -116,8 +117,7 @@ export class PhysicsEngineManager {
     interactWithCars = true,
     opacity: number | undefined = undefined
   ) {
-    const ghostCoord = this.lobbyGhostCoordinator;
-    return ghostCoord.applyCarCollisionMask(
+    return this.lobbyGhostCoordinator.applyCarCollisionMask(
       this.sim,
       carIndex,
       interactWithBall,
@@ -148,21 +148,7 @@ export class PhysicsEngineManager {
   }
 
   getActiveCarMask(): number {
-    if (this.sim && typeof this.sim.getActiveCarMask === 'function') {
-      const wasmMask = this.sim.getActiveCarMask();
-      if (typeof wasmMask === 'number' && wasmMask > 0) {
-        let combined = 0;
-        for (const idx of this.activeCarIndices) {
-          if (idx >= 0 && idx < 8) combined |= 1 << idx;
-        }
-        return (combined || wasmMask) & 0xff;
-      }
-    }
-    let mask = 0;
-    for (const idx of this.activeCarIndices) {
-      if (idx >= 0 && idx < 8) mask |= 1 << idx;
-    }
-    return mask & 0xff;
+    return computeActiveCarMask(this.sim, this.activeCarIndices);
   }
 
   registerCarEntity(carIndex: number, team = 0, config = 'octane'): number {
@@ -177,7 +163,9 @@ export class PhysicsEngineManager {
       this.setCarCollisionMask(carIndex, true, true, 1.0);
     }
 
-    if (this.lobbyGhostCoordinator.lobbyModeActive) this.syncLobbyGhostMasks();
+    if (this.lobbyGhostCoordinator.lobbyModeActive) {
+      this.syncLobbyGhostMasks();
+    }
     return carIndex;
   }
 
@@ -190,39 +178,28 @@ export class PhysicsEngineManager {
   }
 
   get currentTick(): number {
-    if (!this.sim) return 0;
-    if (typeof this.sim.getHeaderView === 'function') {
-      const header = this.sim.getHeaderView();
-      if (header && typeof header.tickCount === 'number') {
-        return Math.floor(header.tickCount);
-      }
-    }
-    return 0;
+    return readSimCurrentTick(this.sim);
   }
 
   set currentTick(val: number) {
-    if (this.sim && typeof this.sim.getHeaderView === 'function') {
-      try {
-        const header = this.sim.getHeaderView();
-        if (header && typeof val === 'number' && Number.isFinite(val)) {
-          header.tickCount = Math.max(0, Math.floor(val));
-        }
-      } catch {
-        // Read-only view in some mock engines; safe to ignore
-      }
-    }
+    writeSimCurrentTick(this.sim, val);
   }
 
   pushInput(carIndex: number, targetTick: number, controls: CarControlsInput): boolean {
-    if (!this.activeCarIndices.has(carIndex)) return false;
-    const buf = this.inputBuffer;
-    if (buf) return buf.pushInput(carIndex, this.currentTick, targetTick, controls);
+    if (!this.activeCarIndices.has(carIndex)) {
+      return false;
+    }
+    if (this.inputBuffer) {
+      return this.inputBuffer.pushInput(carIndex, this.currentTick, targetTick, controls);
+    }
     this.directControls.set(carIndex, { ...controls });
     return true;
   }
 
   setDirectCarControls(carIndex: number, controls: CarControlsInput): boolean {
-    if (!this.activeCarIndices.has(carIndex)) return false;
+    if (!this.activeCarIndices.has(carIndex)) {
+      return false;
+    }
     this.directControls.set(carIndex, { ...controls });
     return true;
   }
@@ -231,13 +208,17 @@ export class PhysicsEngineManager {
     carIndex: number,
     inputList: Array<{ tick?: number; targetTick?: number; controls?: CarControlsInput }>
   ): number {
-    const buf = this.inputBuffer;
-    return buf ? buf.pushRedundantInputs(carIndex, this.currentTick, inputList) : 0;
+    if (!this.inputBuffer) {
+      return 0;
+    }
+    return this.inputBuffer.pushRedundantInputs(carIndex, this.currentTick, inputList);
   }
 
   getInputBufferSize(carIndex: number): number {
-    const buf = this.inputBuffer;
-    return buf ? buf.getInputBufferSize(carIndex, this.currentTick) : 0;
+    if (!this.inputBuffer) {
+      return 0;
+    }
+    return this.inputBuffer.getInputBufferSize(carIndex, this.currentTick);
   }
 
   setInputMask(isMasked: boolean, untilFrame = -1): void {
@@ -246,9 +227,13 @@ export class PhysicsEngineManager {
   }
 
   shouldMaskInputs(tick: number): boolean {
-    if (this.isPaused) return true;
+    if (this.isPaused) {
+      return true;
+    }
     if (this.maskUntilFrame >= 0) {
-      if (tick < this.maskUntilFrame) return true;
+      if (tick < this.maskUntilFrame) {
+        return true;
+      }
       this.maskUntilFrame = -1;
       this.isMasked = false;
       return false;
@@ -301,36 +286,19 @@ export class PhysicsEngineManager {
   }
 
   stepAuthoritativeTick(): AuthoritativePhysicsStepOutput {
-    if (this.isPaused) {
-      const output = buildPausedPhysicsStepOutput({
-        sim: this.sim,
-        currentTick: this.currentTick,
-        activeCarMask: this.getActiveCarMask(),
-        activeCarIndices: this.activeCarIndices,
-        lastAcknowledgedControls: this.lastAcknowledgedControls,
-        lastBallTouchCarIndex: this.lastBallTouchCarIndex,
-      });
-      this.onPhysicsOutput?.(output);
-      return output;
-    }
-
-    const tick = this.currentTick;
-    const mask = this.shouldMaskInputs(tick);
-    const ackList = sampleAuthoritativeCarControlsForTick({
+    const currentTick = this.currentTick;
+    const stepResult = executeAuthoritativePhysicsTickStep({
       sim: this.sim,
-      tick,
-      mask,
+      isPaused: this.isPaused,
+      currentTick,
+      activeCarMask: this.getActiveCarMask(),
+      maskInputs: this.shouldMaskInputs(currentTick),
       activeCarIndices: this.activeCarIndices,
       directControls: this.directControls,
       inputBuffer: this.inputBuffer,
       lastAcknowledgedControls: this.lastAcknowledgedControls,
       jumpSuppressedCarIndices: this.jumpSuppressedCarIndices,
       lobbyGhostCoordinator: this.lobbyGhostCoordinator,
-    });
-
-    const stepEval = evaluatePostStepIncidentsAndGoalLatch({
-      sim: this.sim,
-      currentTick: this.currentTick,
       isRecordingFullReplay: this.isRecordingFullReplay,
       goalLatched: this.goalLatched,
       goalScoredAtTick: this.goalScoredAtTick,
@@ -338,59 +306,34 @@ export class PhysicsEngineManager {
       lastBallTouchCarIndex: this.lastBallTouchCarIndex,
       lastBallTouchTick: this.lastBallTouchTick,
     });
-    this.goalLatched = stepEval.goalLatched;
-    this.goalScoredAtTick = stepEval.goalScoredAtTick;
-    this.frozenBallSnapshot = stepEval.frozenBallSnapshot;
-    this.lastBallTouchCarIndex = stepEval.lastBallTouchCarIndex;
-    this.lastBallTouchTick = stepEval.lastBallTouchTick;
-
-    const output: AuthoritativePhysicsStepOutput = {
-      tick: this.currentTick,
-      activeCarMask: this.getActiveCarMask(),
-      acknowledgedControls: ackList,
-      stateSnapshot:
-        typeof this.sim.saveCompactState === 'function'
-          ? this.sim.saveCompactState()
-          : this.sim.saveState(),
-      incidents: stepEval.frameIncidents,
-      goalScored: stepEval.goalScored,
-      goalTeam: stepEval.goalTeam,
-      scorerCarIndex: this.lastBallTouchCarIndex ?? 0,
-      scorerTouchTick: this.lastBallTouchTick ?? null,
-      kickoffTouched: stepEval.kickoffTouched,
-    };
-
-    this.onPhysicsOutput?.(output);
-    return output;
+    this.goalLatched = stepResult.goalLatched;
+    this.goalScoredAtTick = stepResult.goalScoredAtTick;
+    this.frozenBallSnapshot = stepResult.frozenBallSnapshot;
+    this.lastBallTouchCarIndex = stepResult.lastBallTouchCarIndex;
+    this.lastBallTouchTick = stepResult.lastBallTouchTick;
+    this.onPhysicsOutput?.(stepResult.output);
+    return stepResult.output;
   }
 
   resetBallToCenter(): void {
     this.resetGoalLatch();
-    this.sim?.setBallState?.(
-      new Float32Array([0, 0, BALL_REST_Z, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0])
-    );
+    resetSimBallToCenter(this.sim);
   }
 
   isBallOnGround(): boolean {
-    if (!this.sim) return false;
-    if (typeof this.sim.ballOnGround === 'boolean') return this.sim.ballOnGround;
-    if (typeof this.sim.getBallOnGround === 'function') return Boolean(this.sim.getBallOnGround());
-    const b = this.sim.getBallStateView?.();
-    return Boolean(b && typeof b.posZ === 'number' && b.posZ <= BALL_GROUND_CONTACT_MAX_Z);
+    return checkSimBallOnGround(this.sim);
   }
 
   resetKickoff(seed = 0): void {
     this.resetGoalLatch();
-    for (const [carIdx, ctrl] of this.lastAcknowledgedControls.entries()) {
-      if (ctrl?.jump) this.jumpSuppressedCarIndices.add(carIdx);
-    }
-    for (const [carIdx, ctrl] of this.directControls.entries()) {
-      if (ctrl?.jump) this.jumpSuppressedCarIndices.add(carIdx);
-      this.directControls.set(carIdx, { ...NEUTRAL_CONTROLS });
-    }
-    this.lastAcknowledgedControls.clear();
-    this.sim.resetKickoff(seed);
-    this.inputBuffer?.clear();
+    executeKickoffResetOnSim({
+      sim: this.sim,
+      inputBuffer: this.inputBuffer,
+      lastAcknowledgedControls: this.lastAcknowledgedControls,
+      directControls: this.directControls,
+      jumpSuppressedCarIndices: this.jumpSuppressedCarIndices,
+      seed,
+    });
   }
 
   destroy(): void {

@@ -39,37 +39,96 @@ export interface RuntimeInputPollerHostPort extends TouchAgentWorldContext {
   playerControls: CarControlsInput;
 }
 
+export interface InputFrameSnapshot {
+  readonly pad: Gamepad | null;
+  readonly padReading: CarControlsInput;
+  readonly kbReading: CarControlsInput;
+  readonly activeDevice: 'gamepad' | 'keyboard';
+  readonly gamepadCameraLook: { readonly x: number; readonly y: number };
+  readonly keyboardCameraLook: { readonly x: number; readonly y: number };
+  readonly isMenuOpen: boolean;
+  readonly touchMode: boolean;
+  readonly touchInputAgent: string;
+  readonly isFreeCamActive: boolean;
+  readonly phase: string | undefined;
+  readonly isMatchPaused: boolean;
+  readonly currentTick: number;
+  readonly kickoffMaskUntilTick: number;
+  readonly replayPlaybackMode: boolean;
+  readonly hasFocus: boolean;
+}
+
+export interface NormalizedCarControls {
+  throttle: number;
+  steer: number;
+  pitch: number;
+  yaw: number;
+  roll: number;
+  jump: boolean;
+  boost: boolean;
+  handbrake: boolean;
+}
+
+export interface InputPollCommand {
+  readonly shouldOpenPlayMenu: boolean;
+  readonly isKickoff: boolean;
+  readonly isKickoffMasked: boolean;
+  readonly effectiveControls: CarControlsInput;
+  readonly normalizedControls: NormalizedCarControls;
+  readonly lookX: number;
+  readonly lookY: number;
+}
+
+function clampUnitLookAxis(value: number): number {
+  return Math.min(Math.max(value, -1), 1);
+}
+
+export function normalizeCarControlsInput(controls: CarControlsInput): NormalizedCarControls {
+  return {
+    throttle: controls.throttle ?? 0,
+    steer: controls.steer ?? 0,
+    pitch: controls.pitch ?? 0,
+    yaw: controls.yaw ?? 0,
+    roll: controls.roll ?? 0,
+    jump: Boolean(controls.jump),
+    boost: Boolean(controls.boost),
+    handbrake: Boolean(controls.handbrake),
+  };
+}
+
 /**
  * RuntimeInputPoller
- * Stateful SubController owning gamepad button debounce state, jump suppression latch,
+ * Self-contained SubController owning gamepad button debounce state, jump suppression latch,
  * and delegating touch AI agent control synthesis to TouchInputAgentController.
+ * Evaluates a pure InputFrameSnapshot and produces an explicit InputPollCommand.
  */
 export class RuntimeInputPoller {
-  private readonly context: RuntimeInputPollerHostPort;
+  private readonly readPort: () => RuntimeInputPollerHostPort;
   public readonly touchAgentController = new TouchInputAgentController();
   public lastGamepadId: string | null = null;
   public lastGamepadButton8 = false;
   public gamepadSettingsJustClosed = false;
   private _suppressJumpUntilReleased = false;
 
-  constructor(context: RuntimeInputPollerHostPort) {
-    this.context = context;
+  constructor(portOrProvider: RuntimeInputPollerHostPort | (() => RuntimeInputPollerHostPort)) {
+    this.readPort = typeof portOrProvider === 'function' ? portOrProvider : () => portOrProvider;
   }
 
-  public latchJumpSuppression(): void {
-    const ctx = this.context;
-    const kbJump = Boolean(ctx.keyboard?.read?.()?.jump);
-    const padJump = Boolean(ctx.gamepad?.read?.()?.jump);
-    if (kbJump || padJump || Boolean(ctx.playerControls?.jump)) {
+  public latchJumpSuppression(portOverride?: RuntimeInputPollerHostPort): void {
+    const port = portOverride ?? this.readPort();
+    const kbJump = Boolean(port.keyboard?.read?.()?.jump);
+    const padJump = Boolean(port.gamepad?.read?.()?.jump);
+    if (kbJump || padJump || Boolean(port.playerControls?.jump)) {
       this._suppressJumpUntilReleased = true;
     }
   }
 
-  public pollInputs(commitPhysicsStep = true): boolean {
-    const ctx = this.context;
-    const { gamepad, keyboard, physics } = ctx;
-    if (!gamepad || !keyboard || !physics) return false;
-    const pad = getEffectiveGamepad();
+  public evaluateInputSnapshot(
+    snapshot: InputFrameSnapshot,
+    commitPhysicsStep: boolean,
+    touchWorldContext: TouchAgentWorldContext
+  ): InputPollCommand {
+    const { pad, isMenuOpen, touchMode, touchInputAgent, hasFocus } = snapshot;
     const btn8 = pad?.buttons[8]?.pressed ?? false;
     const padId = pad ? JSON.stringify([pad.id, pad.index]) : null;
 
@@ -78,40 +137,29 @@ export class RuntimeInputPoller {
     }
     this.lastGamepadId = padId;
 
-    const appState = useAppStore ? useAppStore.getState() : null;
-    const isMenuOpen = Boolean(appState?.isOpen);
-    const shouldToggleMatch = btn8 && !this.lastGamepadButton8 && !isMenuOpen;
-    if (shouldToggleMatch) {
-      appState?.openMenu?.('play');
-    }
+    const shouldOpenPlayMenu = btn8 && !this.lastGamepadButton8 && !isMenuOpen;
     this.lastGamepadButton8 = btn8;
 
-    if (shouldToggleMatch) gamepad.capturing = true;
-    let padReading = gamepad.read();
-    if (shouldToggleMatch) gamepad.capturing = false;
-
+    let padReading = snapshot.padReading;
     if (this.gamepadSettingsJustClosed) {
       this.gamepadSettingsJustClosed = [0, 1, 8, 9].some((i) => pad?.buttons[i]?.pressed);
-      if (this.gamepadSettingsJustClosed) padReading = NEUTRAL_CAR_CONTROLS;
+      if (this.gamepadSettingsJustClosed) {
+        padReading = NEUTRAL_CAR_CONTROLS;
+      }
     }
 
-    const kbReading = keyboard.read();
-    const activeDevice = gamepad.active() ? 'gamepad' : 'keyboard';
-    const rawControls = activeDevice === 'gamepad' ? padReading : kbReading;
-    const isFreeCamActive = Boolean(ctx.camera?.isFreeCam);
-    const phase = ctx.match?.state?.phase;
-    const isKickoff = phase === 'kickoff' || phase === 'prepare';
-    const currentTick = Math.floor(physics.getHeaderView?.()?.tickCount ?? 0);
-    const isKickoffMasked = (ctx.networkReconciler?.kickoffMaskUntilTick ?? -1) > currentTick;
+    const rawControls = snapshot.activeDevice === 'gamepad' ? padReading : snapshot.kbReading;
+    const isKickoff = snapshot.phase === 'kickoff' || snapshot.phase === 'prepare';
+    const isKickoffMasked = snapshot.kickoffMaskUntilTick > snapshot.currentTick;
     const isReplayOrFrozenPhase =
-      isFreeCamActive ||
+      snapshot.isFreeCamActive ||
       isKickoff ||
       isKickoffMasked ||
-      phase === 'replay' ||
-      phase === 'podium' ||
-      phase === 'ended' ||
-      Boolean(ctx.match?.state?.paused) ||
-      Boolean(ctx.networkReconciler?.replayPlaybackMode);
+      snapshot.phase === 'replay' ||
+      snapshot.phase === 'podium' ||
+      snapshot.phase === 'ended' ||
+      snapshot.isMatchPaused ||
+      snapshot.replayPlaybackMode;
 
     if (!rawControls.jump) {
       this._suppressJumpUntilReleased = false;
@@ -119,21 +167,18 @@ export class RuntimeInputPoller {
       this._suppressJumpUntilReleased = true;
     }
 
-    const touchMode = Boolean(appState?.touchMode);
-    const touchInputAgent = appState?.touchInputAgent || 'none';
-
     let effectiveControls: CarControlsInput;
-    if (isFreeCamActive || isKickoff || isKickoffMasked) {
+    if (snapshot.isFreeCamActive || isKickoff || isKickoffMasked) {
       if (
         (isKickoff || isKickoffMasked) &&
         (touchInputAgent === 'necto' || touchInputAgent === 'nexto')
       ) {
-        this.touchAgentController.resolveControls(touchInputAgent, true, ctx);
+        this.touchAgentController.resolveControls(touchInputAgent, true, touchWorldContext);
       }
       effectiveControls = NEUTRAL_CAR_CONTROLS;
     } else if (touchInputAgent === 'necto' || touchInputAgent === 'nexto') {
       effectiveControls = commitPhysicsStep
-        ? this.touchAgentController.resolveControls(touchInputAgent, false, ctx)
+        ? this.touchAgentController.resolveControls(touchInputAgent, false, touchWorldContext)
         : this.touchAgentController.getCachedActionOrNeutral();
     } else if (touchMode && touchInputAgent === 'none') {
       effectiveControls = NEUTRAL_CAR_CONTROLS;
@@ -143,71 +188,101 @@ export class RuntimeInputPoller {
       effectiveControls = rawControls;
     }
 
-    const hasFocus = typeof document !== 'undefined' && !document.hidden && document.hasFocus();
+    const padLookX = this.gamepadSettingsJustClosed ? 0 : snapshot.gamepadCameraLook.x;
+    const padLookY = this.gamepadSettingsJustClosed ? 0 : snapshot.gamepadCameraLook.y;
+    const lookX = hasFocus ? clampUnitLookAxis(snapshot.keyboardCameraLook.x + padLookX) : 0;
+    const lookY = hasFocus ? clampUnitLookAxis(snapshot.keyboardCameraLook.y + padLookY) : 0;
 
-    const camDynamics = ctx.cameraSubsystem?.cameraDynamics;
+    return {
+      shouldOpenPlayMenu,
+      isKickoff,
+      isKickoffMasked,
+      effectiveControls,
+      normalizedControls: normalizeCarControlsInput(effectiveControls),
+      lookX,
+      lookY,
+    };
+  }
+
+  public pollInputs(commitPhysicsStep = true, portOverride?: RuntimeInputPollerHostPort): boolean {
+    const port = portOverride ?? this.readPort();
+    const { gamepad, keyboard, physics } = port;
+    if (!gamepad || !keyboard || !physics) return false;
+
+    const pad = getEffectiveGamepad();
+    const appState = useAppStore ? useAppStore.getState() : null;
+    const isMenuOpen = Boolean(appState?.isOpen);
+    const btn8 = pad?.buttons[8]?.pressed ?? false;
+    const padId = pad ? JSON.stringify([pad.id, pad.index]) : null;
+    const willToggleMatch =
+      btn8 && !(padId !== this.lastGamepadId ? btn8 : this.lastGamepadButton8) && !isMenuOpen;
+
+    if (willToggleMatch) gamepad.capturing = true;
+    const padReading = gamepad.read();
+    if (willToggleMatch) gamepad.capturing = false;
+
+    const snapshot: InputFrameSnapshot = {
+      pad,
+      padReading,
+      kbReading: keyboard.read(),
+      activeDevice: gamepad.active() ? 'gamepad' : 'keyboard',
+      gamepadCameraLook: gamepad.cameraLook,
+      keyboardCameraLook: keyboard.cameraLook,
+      isMenuOpen,
+      touchMode: Boolean(appState?.touchMode),
+      touchInputAgent:
+        typeof appState?.touchInputAgent === 'string' ? appState.touchInputAgent : 'none',
+      isFreeCamActive: Boolean(port.camera?.isFreeCam),
+      phase: port.match?.state?.phase,
+      isMatchPaused: Boolean(port.match?.state?.paused),
+      currentTick: Math.floor(physics.getHeaderView?.()?.tickCount ?? 0),
+      kickoffMaskUntilTick: port.networkReconciler?.kickoffMaskUntilTick ?? -1,
+      replayPlaybackMode: Boolean(port.networkReconciler?.replayPlaybackMode),
+      hasFocus: typeof document !== 'undefined' && !document.hidden && document.hasFocus(),
+    };
+
+    const command = this.evaluateInputSnapshot(snapshot, commitPhysicsStep, port);
+
+    if (command.shouldOpenPlayMenu) {
+      appState?.openMenu?.('play');
+    }
+
+    const camDynamics = port.cameraSubsystem?.cameraDynamics;
     if (camDynamics) {
-      camDynamics.lookX = hasFocus
-        ? Math.min(
-            Math.max(
-              keyboard.cameraLook.x + (this.gamepadSettingsJustClosed ? 0 : gamepad.cameraLook.x),
-              -1
-            ),
-            1
-          )
-        : 0;
-      camDynamics.lookY = hasFocus
-        ? Math.min(
-            Math.max(
-              keyboard.cameraLook.y + (this.gamepadSettingsJustClosed ? 0 : gamepad.cameraLook.y),
-              -1
-            ),
-            1
-          )
-        : 0;
+      camDynamics.lookX = command.lookX;
+      camDynamics.lookY = command.lookY;
     }
 
     if (!commitPhysicsStep) {
       return true;
     }
 
-    const reconciler = ctx.networkManager?.sessionCoordinator?.networkReconciler ?? null;
+    const reconciler = port.networkManager?.sessionCoordinator?.networkReconciler ?? null;
     if (reconciler?.shouldSkipLocalStep) {
       reconciler.shouldSkipLocalStep = false;
       return false;
     }
 
-    const normalizedEffective = {
-      throttle: effectiveControls.throttle ?? 0,
-      steer: effectiveControls.steer ?? 0,
-      pitch: effectiveControls.pitch ?? 0,
-      yaw: effectiveControls.yaw ?? 0,
-      roll: effectiveControls.roll ?? 0,
-      jump: Boolean(effectiveControls.jump),
-      boost: Boolean(effectiveControls.boost),
-      handbrake: Boolean(effectiveControls.handbrake),
-    };
-    let car0Controls: CarControlsInput = normalizedEffective;
+    const playerCarIndex = port.playerCarIndex;
+    let car0Controls: CarControlsInput = command.normalizedControls;
     if (reconciler) {
       car0Controls =
         (reconciler.sampleAndPredictInput(
-          ctx.playerCarIndex,
-          normalizedEffective
-        ) as CarControlsInput | null) || normalizedEffective;
+          playerCarIndex,
+          command.normalizedControls
+        ) as CarControlsInput | null) || command.normalizedControls;
     }
 
-    ctx.playerThrottle = car0Controls.throttle ?? 0;
-    ctx.playerControls = car0Controls;
-    physics.setControls(ctx.playerCarIndex, car0Controls);
+    port.playerThrottle = car0Controls.throttle ?? 0;
+    port.playerControls = car0Controls;
+    physics.setControls(playerCarIndex, car0Controls);
 
-    if (ctx.botCoordinator) {
-      ctx.botCoordinator.stepAuthoritativeBotControls(isKickoff);
-    }
+    port.botCoordinator?.stepAuthoritativeBotControls(command.isKickoff);
 
     if (reconciler?.historyBuffer.lastRemoteControls) {
       const numCars = Math.min(physics.numCars, 8);
       for (let c = 0; c < numCars; c++) {
-        if (c !== ctx.playerCarIndex) {
+        if (c !== playerCarIndex) {
           const remote = reconciler.historyBuffer.lastRemoteControls.get(c) as
             ({ controls?: CarControlsInput } & CarControlsInput) | undefined;
           const remoteCtrl = remote?.controls ? remote.controls : remote || NEUTRAL_CAR_CONTROLS;

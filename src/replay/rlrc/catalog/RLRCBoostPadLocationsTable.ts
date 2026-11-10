@@ -87,6 +87,8 @@ export function buildStandardBoostPadSpecs(): readonly RLRCBoostPadSpec[] {
   );
 }
 
+export const STANDARD_BOOST_PADS_34: readonly RLRCBoostPadSpec[] = buildStandardBoostPadSpecs();
+
 export function isBigBoostPadIndex(padIndex: number): boolean {
   return padIndex >= 0 && padIndex < RLRC_BIG_BOOST_PAD_COUNT;
 }

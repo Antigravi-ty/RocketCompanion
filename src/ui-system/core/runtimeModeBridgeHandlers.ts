@@ -34,6 +34,47 @@ function closeLabAndBotFloatingWindows(): void {
   floatingStore.closeWindow(EXPERIMENTAL_BOT_PACK_PRESET.id);
 }
 
+type FloatingPresetInput = Parameters<typeof floatingStore.spawnWindow>[0];
+
+function ensureFloatingWindowSpawned(
+  preset: FloatingPresetInput,
+  opts: { startMinimized: boolean; position?: { x: number; y: number } }
+): void {
+  const snap = floatingStore.getSnapshot();
+  const exists =
+    snap.windows.some((w) => w.id === preset.id) || snap.activeFlight?.preset?.id === preset.id;
+  if (!exists) {
+    floatingStore.spawnWindow({
+      ...preset,
+      ...opts,
+    });
+  }
+}
+
+function enterReplayViewerSurface(
+  runtimePort: GameRuntimeUiBridgePort,
+  targetPreset: FloatingPresetInput,
+  otherPresetId: string,
+  alwaysRespawn: boolean
+): void {
+  const { matchPort, replayPort } = runtimePort;
+  useAppStore.getState().closeMenu();
+  closeLabAndBotFloatingWindows();
+  floatingStore.closeWindow(KICKOFF_TRAINING_TUNER_PRESET.id);
+  floatingStore.closeWindow(otherPresetId);
+  replayPort.prepareForReplayViewerEntry();
+  if (alwaysRespawn) {
+    floatingStore.spawnWindow({
+      ...targetPreset,
+      startMinimized: false,
+    });
+  } else {
+    ensureFloatingWindowSpawned(targetPreset, { startMinimized: false });
+  }
+  matchPort.startReplayViewer();
+  useAppStore.setState({ matchMode: 'replay-viewer' });
+}
+
 async function exportRecentTrainingReplayFromRuntime(
   runtimePort: GameRuntimeUiBridgePort,
   durationSeconds = 60
@@ -66,11 +107,9 @@ async function exportRecentTrainingReplayFromRuntime(
 export function createModeBridgeHandlers(
   runtimePort: GameRuntimeUiBridgePort
 ): Partial<AppState['bridge']> {
-  const { matchPort, replayPort } = runtimePort;
+  const { matchPort } = runtimePort;
   return {
-    onResume() {
-      matchPort.syncPausedAndInputState();
-    },
+    onResume: matchPort.syncPausedAndInputState.bind(matchPort, undefined),
     onOverlayChange(isOpen: boolean) {
       matchPort.handleOverlayChange('esc-menu', isOpen);
     },
@@ -95,9 +134,7 @@ export function createModeBridgeHandlers(
           {
             label: 'Yes',
             variant: 'primary',
-            onClick() {
-              matchPort.openMainMenu();
-            },
+            onClick: matchPort.openMainMenu.bind(matchPort),
           },
         ],
       });
@@ -109,64 +146,39 @@ export function createModeBridgeHandlers(
     ) {
       useAppStore.getState().closeMenu();
       closeLabAndBotFloatingWindows();
+      const expStore = useExperimentalMultiBotsStore.getState();
       const resolvedBot = botId === 'nexto' ? 'nexto' : 'necto';
-      const resolvedTeamSize =
-        teamSize || useExperimentalMultiBotsStore.getState().exhibitionTeamSize || 'standard';
-      useExperimentalMultiBotsStore
-        .getState()
-        .configureExhibitionMatch(resolvedBot, durationSeconds, resolvedTeamSize);
+      const resolvedTeamSize = teamSize || expStore.exhibitionTeamSize || 'standard';
+      expStore.configureExhibitionMatch(resolvedBot, durationSeconds, resolvedTeamSize);
       matchPort.startExpMultiBots();
       useAppStore.setState({ matchMode: 'exp-multi-bots' });
     },
     onStartKickoffTraining() {
       useAppStore.getState().closeMenu();
-      const snap = floatingStore.getSnapshot();
-      const hasWindow =
-        snap.windows.some((w) => w.id === KICKOFF_TRAINING_TUNER_PRESET.id) ||
-        snap.activeFlight?.preset?.id === KICKOFF_TRAINING_TUNER_PRESET.id;
-      if (!hasWindow) {
-        const w = KICKOFF_TRAINING_TUNER_PRESET.width ?? 460;
-        const posX = typeof window !== 'undefined' ? Math.max(20, window.innerWidth - w - 28) : 40;
-        floatingStore.spawnWindow({
-          ...KICKOFF_TRAINING_TUNER_PRESET,
-          position: { x: posX, y: 68 },
-          startMinimized: true,
-        });
-      }
+      const w = KICKOFF_TRAINING_TUNER_PRESET.width ?? 460;
+      const posX = typeof window !== 'undefined' ? Math.max(20, window.innerWidth - w - 28) : 40;
+      ensureFloatingWindowSpawned(KICKOFF_TRAINING_TUNER_PRESET, {
+        position: { x: posX, y: 68 },
+        startMinimized: true,
+      });
       matchPort.startKickoffTraining();
       useAppStore.setState({ matchMode: 'kickoff-training' });
     },
     onStartReplayViewer() {
-      useAppStore.getState().closeMenu();
-      closeLabAndBotFloatingWindows();
-      floatingStore.closeWindow(KICKOFF_TRAINING_TUNER_PRESET.id);
-      floatingStore.closeWindow(REPLAY_TO_RCS_IMPORTER_PRESET.id);
-      replayPort.prepareForReplayViewerEntry();
-      floatingStore.spawnWindow({
-        ...REPLAY_VIEWER_PRESET,
-        startMinimized: false,
-      });
-      matchPort.startReplayViewer();
-      useAppStore.setState({ matchMode: 'replay-viewer' });
+      enterReplayViewerSurface(
+        runtimePort,
+        REPLAY_VIEWER_PRESET,
+        REPLAY_TO_RCS_IMPORTER_PRESET.id,
+        true
+      );
     },
     onStartReplayToRcsImporter() {
-      useAppStore.getState().closeMenu();
-      closeLabAndBotFloatingWindows();
-      floatingStore.closeWindow(KICKOFF_TRAINING_TUNER_PRESET.id);
-      floatingStore.closeWindow(REPLAY_VIEWER_PRESET.id);
-      replayPort.prepareForReplayViewerEntry();
-      const snap = floatingStore.getSnapshot();
-      const exists =
-        snap.windows.some((w) => w.id === REPLAY_TO_RCS_IMPORTER_PRESET.id) ||
-        snap.activeFlight?.preset?.id === REPLAY_TO_RCS_IMPORTER_PRESET.id;
-      if (!exists) {
-        floatingStore.spawnWindow({
-          ...REPLAY_TO_RCS_IMPORTER_PRESET,
-          startMinimized: false,
-        });
-      }
-      matchPort.startReplayViewer();
-      useAppStore.setState({ matchMode: 'replay-viewer' });
+      enterReplayViewerSurface(
+        runtimePort,
+        REPLAY_TO_RCS_IMPORTER_PRESET,
+        REPLAY_VIEWER_PRESET.id,
+        false
+      );
     },
     onStartStaticTrainingPack() {
       useAppStore.setState({ matchMode: 'static-training-pack' });
@@ -179,16 +191,7 @@ export function createModeBridgeHandlers(
     onStartDevTestLab() {
       useAppStore.getState().closeMenu();
       floatingStore.setOpacity(70);
-      const snap = floatingStore.getSnapshot();
-      const exists =
-        snap.windows.some((w) => w.id === SUBSYSTEM_ISOLATION_LAB_PRESET.id) ||
-        snap.activeFlight?.preset?.id === SUBSYSTEM_ISOLATION_LAB_PRESET.id;
-      if (!exists) {
-        floatingStore.spawnWindow({
-          ...SUBSYSTEM_ISOLATION_LAB_PRESET,
-          startMinimized: true,
-        });
-      }
+      ensureFloatingWindowSpawned(SUBSYSTEM_ISOLATION_LAB_PRESET, { startMinimized: true });
       matchPort.startDevTestLab();
       useAppStore.setState({ matchMode: 'dev-test-lab' });
     },
@@ -204,18 +207,8 @@ export function createModeBridgeHandlers(
         ? EXPERIMENTAL_MULTI_BOTS_PRESET
         : EXPERIMENTAL_BOT_PACK_PRESET;
       floatingStore.closeWindow(otherPreset.id);
-
-      const snap = floatingStore.getSnapshot();
-      const exists =
-        snap.windows.some((w) => w.id === targetPreset.id) ||
-        snap.activeFlight?.preset?.id === targetPreset.id;
-      if (!exists) {
-        floatingStore.spawnWindow({
-          ...targetPreset,
-          startMinimized: true,
-        });
-      }
-      useExperimentalMultiBotsStore.getState().setIsExhibitionMode(false);
+      ensureFloatingWindowSpawned(targetPreset, { startMinimized: true });
+      expState.setIsExhibitionMode(false);
       matchPort.startExpMultiBots();
       useAppStore.setState({ matchMode: 'exp-multi-bots' });
     },
@@ -224,12 +217,12 @@ export function createModeBridgeHandlers(
       await matchPort.restartMatch();
     },
     onReturnToFreeplay() {
-      useAppStore.getState().closeMenu();
+      const appState = useAppStore.getState();
+      appState.closeMenu();
       closeLabAndBotFloatingWindows();
-      const unlimited = useAppStore.getState().gameplay.unlimitedBoost;
-      matchPort.returnToFreeplay(unlimited);
+      matchPort.returnToFreeplay(appState.gameplay.unlimitedBoost);
       useAppStore.setState({ matchMode: 'freeplay', isFreeCam: false });
-      useAppStore.getState().setOnlineSession({
+      appState.setOnlineSession({
         isHosting: false,
         roomId: '',
         signalingConnected: false,

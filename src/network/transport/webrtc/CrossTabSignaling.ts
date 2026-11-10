@@ -3,14 +3,20 @@
  * BroadcastChannel signaling layer for cross-tab discovery and 120Hz native local data exchange.
  */
 
+export type CrossTabRoomPayload = Record<string, unknown> | Uint8Array | ArrayBuffer | string;
+export type BroadcastMessageListener = (data: Record<string, unknown>) => void;
+export type RoomMessageListener = (data: CrossTabRoomPayload) => void;
+
 export interface CrossTabSignalingHandler {
   handleBroadcastMessage(data: Record<string, unknown>): void;
-  handleRoomMessage(data: Record<string, unknown> | Uint8Array | ArrayBuffer | string): void;
+  handleRoomMessage(data: CrossTabRoomPayload): void;
 }
 
 export interface CrossTabSignalingOptions {
   signalingChannelName?: string;
   roomId?: string | null;
+  onBroadcastMessage?: BroadcastMessageListener | null;
+  onRoomMessage?: RoomMessageListener | null;
   handler?: CrossTabSignalingHandler | null;
 }
 
@@ -23,14 +29,23 @@ export interface BroadcastSignalContext {
 export class CrossTabSignaling {
   signalingChannelName: string;
   roomId: string | null;
+  onBroadcastMessage: BroadcastMessageListener | null;
+  onRoomMessage: RoomMessageListener | null;
   handler: CrossTabSignalingHandler | null;
   broadcastChannel: BroadcastChannel | null = null;
   roomBroadcastChannel: BroadcastChannel | null = null;
 
+  private readonly broadcastListeners = new Set<BroadcastMessageListener>();
+  private readonly roomListeners = new Set<RoomMessageListener>();
+  private readonly pendingBroadcastQueue: Record<string, unknown>[] = [];
+  private readonly pendingRoomQueue: CrossTabRoomPayload[] = [];
+
   constructor(options: CrossTabSignalingOptions = {}) {
     this.signalingChannelName = options.signalingChannelName || 'online_discovery';
     this.roomId = options.roomId || null;
-    this.handler = options.handler || null;
+    this.onBroadcastMessage = options.onBroadcastMessage ?? null;
+    this.onRoomMessage = options.onRoomMessage ?? null;
+    this.handler = options.handler ?? null;
 
     this.initSignalingChannel(this.signalingChannelName);
     if (this.roomId) {
@@ -38,21 +53,89 @@ export class CrossTabSignaling {
     }
   }
 
+  subscribeBroadcast(listener: BroadcastMessageListener): () => void {
+    this.broadcastListeners.add(listener);
+    return () => {
+      this.broadcastListeners.delete(listener);
+    };
+  }
+
+  subscribeRoom(listener: RoomMessageListener): () => void {
+    this.roomListeners.add(listener);
+    return () => {
+      this.roomListeners.delete(listener);
+    };
+  }
+
+  drainBroadcastMessages(): Record<string, unknown>[] {
+    if (this.pendingBroadcastQueue.length === 0) return [];
+    return this.pendingBroadcastQueue.splice(0, this.pendingBroadcastQueue.length);
+  }
+
+  drainRoomMessages(): CrossTabRoomPayload[] {
+    if (this.pendingRoomQueue.length === 0) return [];
+    return this.pendingRoomQueue.splice(0, this.pendingRoomQueue.length);
+  }
+
+  private dispatchBroadcast(data: Record<string, unknown>): void {
+    let handled = false;
+    if (this.onBroadcastMessage) {
+      this.onBroadcastMessage(data);
+      handled = true;
+    }
+    const activeHandler = this.handler;
+    if (activeHandler) {
+      activeHandler.handleBroadcastMessage(data);
+      handled = true;
+    }
+    for (const listener of this.broadcastListeners) {
+      listener(data);
+      handled = true;
+    }
+    const queue = this.pendingBroadcastQueue;
+    if (!handled) {
+      queue.push(data);
+    }
+  }
+
+  private dispatchRoom(data: CrossTabRoomPayload): void {
+    let handled = false;
+    if (this.onRoomMessage) {
+      this.onRoomMessage(data);
+      handled = true;
+    }
+    const activeHandler = this.handler;
+    if (activeHandler) {
+      activeHandler.handleRoomMessage(data);
+      handled = true;
+    }
+    for (const listener of this.roomListeners) {
+      listener(data);
+      handled = true;
+    }
+    const queue = this.pendingRoomQueue;
+    if (!handled) {
+      queue.push(data);
+    }
+  }
+
   initSignalingChannel(channelName: string): void {
     if (typeof BroadcastChannel === 'undefined' || !channelName) return;
     this.signalingChannelName = channelName;
     try {
-      if (this.broadcastChannel) {
-        this.broadcastChannel.close();
+      const existing = this.broadcastChannel;
+      if (existing) {
+        existing.close();
       }
-      this.broadcastChannel = new BroadcastChannel(channelName);
-      const unrefFn = (this.broadcastChannel as BroadcastChannel & { unref?: () => void }).unref;
+      const channel = new BroadcastChannel(channelName);
+      const unrefFn = (channel as BroadcastChannel & { unref?: () => void }).unref;
       if (typeof unrefFn === 'function') {
-        unrefFn.call(this.broadcastChannel);
+        unrefFn.call(channel);
       }
-      this.broadcastChannel.onmessage = (e) => {
-        this.handler?.handleBroadcastMessage(e.data);
+      channel.onmessage = (e: MessageEvent<Record<string, unknown>>) => {
+        this.dispatchBroadcast(e.data);
       };
+      this.broadcastChannel = channel;
     } catch (err) {
       console.warn('[P2PWebRTCChannel] BroadcastChannel unavailable:', err);
     }
@@ -61,29 +144,29 @@ export class CrossTabSignaling {
   initRoomChannel(roomId: string | null): void {
     if (!roomId || typeof BroadcastChannel === 'undefined') return;
     const targetName = 'p2p_room_' + roomId;
-    if (this.roomBroadcastChannel && this.roomBroadcastChannel.name === targetName) {
+    const existing = this.roomBroadcastChannel;
+    if (existing && existing.name === targetName) {
       return;
     }
     try {
-      if (this.roomBroadcastChannel) {
-        this.roomBroadcastChannel.close();
+      if (existing) {
+        existing.close();
       }
       this.roomId = roomId;
-      this.roomBroadcastChannel = new BroadcastChannel(targetName);
-      this.roomBroadcastChannel.onmessage = (e) => {
-        this.handler?.handleRoomMessage(e.data);
+      const channel = new BroadcastChannel(targetName);
+      channel.onmessage = (e: MessageEvent<CrossTabRoomPayload>) => {
+        this.dispatchRoom(e.data);
       };
+      this.roomBroadcastChannel = channel;
       console.log(`[P2PWebRTCChannel] Room BroadcastChannel attached: p2p_room_${roomId}`);
     } catch (err) {
       console.warn('[P2PWebRTCChannel] Could not create room BroadcastChannel:', err);
     }
   }
 
-  sendRoomMessage(
-    msg: Record<string, unknown> | Uint8Array | ArrayBuffer | string,
-    peerId: string | null = null
-  ): boolean {
-    if (this.roomBroadcastChannel) {
+  sendRoomMessage(msg: CrossTabRoomPayload, peerId: string | null = null): boolean {
+    const channel = this.roomBroadcastChannel;
+    if (channel) {
       try {
         const payload =
           typeof msg === 'object' &&
@@ -92,7 +175,7 @@ export class CrossTabSignaling {
           !(msg instanceof ArrayBuffer)
             ? { ...(peerId ? { senderId: peerId } : {}), ...msg }
             : msg;
-        this.roomBroadcastChannel.postMessage(payload);
+        channel.postMessage(payload);
         return true;
       } catch (err) {
         console.warn('[P2PWebRTCChannel] Failed to post room message:', err);
@@ -106,9 +189,10 @@ export class CrossTabSignaling {
     payload: Record<string, unknown> = {},
     context: BroadcastSignalContext = {}
   ): boolean {
-    if (this.broadcastChannel) {
+    const channel = this.broadcastChannel;
+    if (channel) {
       try {
-        this.broadcastChannel.postMessage({
+        channel.postMessage({
           type,
           roomId: context.roomId || this.roomId,
           senderRole: context.role || 'client',
@@ -125,9 +209,10 @@ export class CrossTabSignaling {
   }
 
   closeRoomChannel(): void {
-    if (this.roomBroadcastChannel) {
+    const channel = this.roomBroadcastChannel;
+    if (channel) {
       try {
-        this.roomBroadcastChannel.close();
+        channel.close();
       } catch (err) {
         console.warn('[P2PWebRTCChannel] Error closing roomBroadcastChannel:', err);
       }
@@ -137,13 +222,16 @@ export class CrossTabSignaling {
 
   destroy(): void {
     this.closeRoomChannel();
-    if (this.broadcastChannel) {
+    const channel = this.broadcastChannel;
+    if (channel) {
       try {
-        this.broadcastChannel.close();
+        channel.close();
       } catch (err) {
         console.warn('[P2PWebRTCChannel] Error closing broadcastChannel:', err);
       }
       this.broadcastChannel = null;
     }
+    this.pendingBroadcastQueue.length = 0;
+    this.pendingRoomQueue.length = 0;
   }
 }

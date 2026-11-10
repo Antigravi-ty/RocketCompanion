@@ -1,13 +1,15 @@
 import { useSubsystemIsolationLabStore } from '../../runtimeUiPort.ts';
 import type { LabTabContext, LabTabController } from './LabTabTypes.ts';
 import {
+  parkDevTestLabProbes,
+  setupDevTestLabProbes,
+  updateDevTestLabProbeParameters,
+} from './probeArenaSetupPipeline.ts';
+import {
   PROBE_BOOST_SLOT,
   PROBE_QE_SLOT,
   type ProbeControllerState,
-  parkDevTestLabProbes,
-  setupDevTestLabProbes,
   stepDevTestLabProbes,
-  updateDevTestLabProbeParameters,
 } from './probeKinematicsPipeline.ts';
 
 export type ProbeCameraTarget = 'player' | 'boost_probe' | 'qe_probe';
@@ -23,9 +25,9 @@ export class ProbesLabTab implements LabTabController {
   }
 
   onDeactivate(): void {
-    const sceneTarget = this.ctx?.runtime;
-    if (sceneTarget?.physics) {
-      parkDevTestLabProbes(sceneTarget.physics, sceneTarget.arena);
+    const runtime = this.ctx?.runtime;
+    if (runtime?.physics) {
+      parkDevTestLabProbes(runtime.physics, runtime.arena);
     }
     this.probeState = null;
     this.applyCameraTarget('player');
@@ -33,16 +35,16 @@ export class ProbesLabTab implements LabTabController {
   }
 
   onPhysicsTick(_dt: number): boolean {
-    const sim = this.ctx?.runtime?.physics;
+    const physics = this.ctx?.runtime?.physics;
     const store = useSubsystemIsolationLabStore.getState();
-    if (!store.probesEnabled || !sim) {
+    if (!store.probesEnabled || !physics) {
       return true;
     }
 
     if (!this.probeState) {
       this.syncConfiguration(false);
     }
-    const stepOutput = stepDevTestLabProbes(sim, this.probeState);
+    const stepOutput = stepDevTestLabProbes(physics, this.probeState);
     if (stepOutput) {
       this.probeState = stepOutput.nextState;
       if (this.probeState.tickCounter % 4 === 0) {
@@ -60,16 +62,16 @@ export class ProbesLabTab implements LabTabController {
   }
 
   syncConfiguration(forceRestart = false): void {
-    const sceneTarget = this.ctx?.runtime;
-    const sim = sceneTarget?.physics;
-    const arena = sceneTarget?.arena;
+    const runtime = this.ctx?.runtime;
+    if (!runtime?.physics) return;
+    const { physics, arena, interpolator } = runtime;
     const store = useSubsystemIsolationLabStore.getState();
-    if (!sim || store.activeTab !== 'probes') return;
+    if (store.activeTab !== 'probes') return;
 
     if (store.probesEnabled) {
-      if (!forceRestart && this.probeState && sim.numCars > PROBE_QE_SLOT) {
+      if (!forceRestart && this.probeState && physics.numCars > PROBE_QE_SLOT) {
         this.probeState = updateDevTestLabProbeParameters(
-          sim,
+          physics,
           this.probeState,
           store.probeBaseAltitudeZ,
           store.probePeakAltitudeZ,
@@ -80,7 +82,7 @@ export class ProbesLabTab implements LabTabController {
         );
       } else {
         this.probeState = setupDevTestLabProbes(
-          sim,
+          physics,
           arena,
           store.probeBaseAltitudeZ,
           store.probePeakAltitudeZ,
@@ -96,9 +98,9 @@ export class ProbesLabTab implements LabTabController {
         probeBoostHoldTicks: 0,
         probeRollDir: 1,
       });
-      sceneTarget?.interpolator?.sync?.();
+      interpolator?.sync();
     } else {
-      parkDevTestLabProbes(sim, arena);
+      parkDevTestLabProbes(physics, arena);
       this.probeState = null;
       if (store.probeCameraTarget !== 'player') {
         this.applyCameraTarget('player');
@@ -107,13 +109,13 @@ export class ProbesLabTab implements LabTabController {
   }
 
   applyCameraTarget(target: ProbeCameraTarget): void {
-    const sceneTarget = this.ctx?.runtime;
-    if (!sceneTarget) return;
+    const runtime = this.ctx?.runtime;
+    if (!runtime) return;
     const nextIdx =
       target === 'boost_probe' ? PROBE_BOOST_SLOT : target === 'qe_probe' ? PROBE_QE_SLOT : 0;
-    sceneTarget.playerCarIndex = nextIdx;
-    if (sceneTarget.arena) {
-      sceneTarget.arena.playerCarIndex = nextIdx;
+    runtime.playerCarIndex = nextIdx;
+    if (runtime.arena) {
+      runtime.arena.playerCarIndex = nextIdx;
     }
   }
 }

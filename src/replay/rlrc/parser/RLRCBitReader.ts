@@ -1,9 +1,26 @@
 /**
  * RLRCBitReader.ts
- * LSB-first bit-packed stream reader for Rocket League UE3 .replay NetStream frames.
+ * Self-contained LSB-first bit-packed stream reader for Rocket League UE3 .replay NetStream frames.
  */
 
-import type { RLRCQuat, RLRCVec3 } from '../RLRCReplayTypes.ts';
+export interface RLRCBitVector3 {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}
+
+export interface RLRCBitQuaternion {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly w: number;
+}
+
+export interface RLRCBitRotationShort {
+  readonly yaw: number | null;
+  readonly pitch: number | null;
+  readonly roll: number | null;
+}
 
 const UTF8 = new TextDecoder('utf-8');
 const UTF16 = new TextDecoder('utf-16le');
@@ -110,7 +127,7 @@ export class RLRCBitReader {
     return UTF8.decode(this.readBytes(length)).replace(/\0+$/, '');
   }
 
-  public readCompressedVector(maxBits = 22, scale = 1.0): RLRCVec3 {
+  public readCompressedVector(maxBits = 22, scale = 1.0): RLRCBitVector3 {
     const numBits = this.readBitsMax(maxBits);
     const bias = 1 << (numBits + 1);
     const bitLen = numBits + 2;
@@ -122,14 +139,14 @@ export class RLRCBitReader {
     return { x: dx * inv, y: dy * inv, z: dz * inv };
   }
 
-  public readRotationShort(): { yaw: number | null; pitch: number | null; roll: number | null } {
+  public readRotationShort(): RLRCBitRotationShort {
     const yaw = this.readBool() ? this.readI8() : null;
     const pitch = this.readBool() ? this.readI8() : null;
     const roll = this.readBool() ? this.readI8() : null;
     return { yaw, pitch, roll };
   }
 
-  public readCompressedQuat(): RLRCQuat {
+  public readCompressedQuat(): RLRCBitQuaternion {
     const maxInd = this.readBits(2);
     const invScale = 2.0 / ((1 << 18) - 1);
     const invSqrt2 = 0.7071067811865475;

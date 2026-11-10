@@ -33,70 +33,81 @@ export interface CustomLoadingProgressUI {
 }
 
 export class DualProgressUIAdapter implements LoadingProgressObserver {
-  container: MinimumLoaderDomContainer | null;
-  customUI: CustomLoadingProgressUI | null;
-  loader: MinimumProgressLoader;
+  readonly container: MinimumLoaderDomContainer | null;
+  customUI: CustomLoadingProgressUI | null = null;
+  readonly loader: MinimumProgressLoader;
 
-  /**
-   * @param {HTMLElement} [container] Host DOM container (#app)
-   * @param {MinimumProgressLoader} [existingLoader] Pre-mounted loader instance
-   */
   constructor(
     container: Element | null = null,
     existingLoader: MinimumProgressLoader | null = null
   ) {
-    const resolvedContainer = (container ||
+    this.container = (container ||
       (typeof document !== 'undefined'
         ? document.querySelector('#app')
         : null)) as MinimumLoaderDomContainer | null;
-    this.container = resolvedContainer;
-    this.customUI = null;
     this.loader =
       existingLoader ||
-      resolvedContainer?.__minimumProgressLoader ||
-      new MinimumProgressLoader(resolvedContainer);
+      this.container?.__minimumProgressLoader ||
+      new MinimumProgressLoader(this.container);
     this.loader.mount();
   }
 
-  /**
-   * Allows external custom UI modules to register and receive structured progress events.
-   * @param {object} customUI Custom UI progress bar component
-   */
   registerCustomUI(customUI: CustomLoadingProgressUI | null): void {
     this.customUI = customUI;
   }
 
   onStageChange(data: LoadingStageChangeEvent): void {
-    this.customUI?.onStageChange?.(data);
-    this.loader?.onStageChange(data);
+    const customHook = this.customUI?.onStageChange;
+    if (customHook) {
+      customHook(data);
+    }
+    this.loader.onStageChange(data);
   }
 
   onTaskStart(data: LoadingTaskStartEvent): void {
-    this.customUI?.onTaskStart?.(data);
-    this.loader?.onTaskStart(data);
+    const customHook = this.customUI?.onTaskStart;
+    if (customHook) {
+      customHook(data);
+    }
+    this.loader.onTaskStart(data);
   }
 
   onTaskProgress(data: LoadingTaskProgressEvent): void {
-    this.customUI?.onProgress?.(data);
-    this.loader?.onTaskProgress(data);
+    const customHook = this.customUI?.onProgress;
+    if (customHook) {
+      customHook(data);
+    }
+    this.loader.onTaskProgress(data);
   }
 
   onByteStreamProgress(data: StreamDownloadProgressInfo): void {
-    this.customUI?.onByteStream?.(data);
-    this.loader?.onByteStreamProgress(data);
+    const customHook = this.customUI?.onByteStream;
+    if (customHook) {
+      customHook(data);
+    }
+    this.loader.onByteStreamProgress(data);
   }
 
   onTaskComplete(data: LoadingTaskCompleteEvent): void {
-    this.customUI?.onTaskComplete?.(data);
+    const customHook = this.customUI?.onTaskComplete;
+    if (customHook) {
+      customHook(data);
+    }
   }
 
   onError(data: LoadingErrorEvent): void {
-    this.customUI?.onError?.(data);
-    this.loader?.onError(data);
+    const customHook = this.customUI?.onError;
+    if (customHook) {
+      customHook(data);
+    }
+    this.loader.onError(data);
   }
 
   onComplete(data: LoadingCompleteEvent): void {
-    this.customUI?.onComplete?.(data);
-    this.loader?.onComplete(data);
+    const customHook = this.customUI?.onComplete;
+    if (customHook) {
+      customHook(data);
+    }
+    this.loader.onComplete(data);
   }
 }

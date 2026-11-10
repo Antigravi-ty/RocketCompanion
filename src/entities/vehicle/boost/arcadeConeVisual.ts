@@ -1,13 +1,33 @@
 import * as THREE from 'three';
 
+export interface BoostNozzlePositionLike {
+  x?: number;
+  y?: number;
+  z?: number;
+  toArray?: () => number[];
+}
+
+function applyPointPosition(
+  points: THREE.Points,
+  pos: BoostNozzlePositionLike | null | undefined
+): void {
+  if (!pos) return;
+  if (typeof pos.toArray === 'function') {
+    const [px = 0, py = 0, pz = 0] = pos.toArray();
+    points.position.set(px, py, pz);
+  } else {
+    points.position.set(pos.x ?? 0, pos.y ?? 0, pos.z ?? 0);
+  }
+}
+
 /**
  * Arcade Boost flame cone geometry
  */
-export function createArcadeBoostFlameConeGeometry(radius) {
+export function createArcadeBoostFlameConeGeometry(radius: number): THREE.BufferGeometry {
   const { BufferGeometry, BufferAttribute } = THREE;
-  const positions: any[] = [];
-  const uvs: any[] = [];
-  const indices: any[] = [];
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
 
   const HEIGHT_SEGS = 12;
   const RADIAL_SEGS = 12;
@@ -48,7 +68,7 @@ export function createArcadeBoostFlameConeGeometry(radius) {
 /**
  * Arcade Boost flame cone material
  */
-export function createArcadeBoostFlameConeMaterial() {
+export function createArcadeBoostFlameConeMaterial(): THREE.ShaderMaterial {
   const { ShaderMaterial, DoubleSide } = THREE;
   return new ShaderMaterial({
     name: 'Arcade / painted flame',
@@ -102,7 +122,9 @@ export function createArcadeBoostFlameConeMaterial() {
 /**
  * Arcade nozzle flash point light / billboard
  */
-export function createNozzleFlash(pos) {
+export function createNozzleFlash(
+  pos?: BoostNozzlePositionLike | null
+): THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial> {
   const { BufferGeometry, BufferAttribute, ShaderMaterial, Points } = THREE;
   const geom = new BufferGeometry();
   geom.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0]), 3));
@@ -138,14 +160,7 @@ export function createNozzleFlash(pos) {
   });
 
   const points = new Points(geom, mat);
-  if (pos) {
-    if (pos.toArray) {
-      const [px = 0, py = 0, pz = 0] = pos.toArray();
-      points.position.set(px, py, pz);
-    } else {
-      points.position.set(pos.x ?? 0, pos.y ?? 0, pos.z ?? 0);
-    }
-  }
+  applyPointPosition(points, pos);
   points.frustumCulled = false;
   points.renderOrder = 7;
   return points;
@@ -154,7 +169,9 @@ export function createNozzleFlash(pos) {
 /**
  * Lens Flare billboard for realistic boost
  */
-export function createBoostFlare(pos) {
+export function createBoostFlare(
+  pos?: BoostNozzlePositionLike | null
+): THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial> {
   const { BufferGeometry, BufferAttribute, ShaderMaterial, Points, AdditiveBlending } = THREE;
   const geom = new BufferGeometry();
   geom.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0]), 3));
@@ -194,14 +211,7 @@ export function createBoostFlare(pos) {
   });
 
   const points = new Points(geom, mat);
-  if (pos) {
-    if (pos.toArray) {
-      const [px = 0, py = 0, pz = 0] = pos.toArray();
-      points.position.set(px, py, pz);
-    } else {
-      points.position.set(pos.x ?? 0, pos.y ?? 0, pos.z ?? 0);
-    }
-  }
+  applyPointPosition(points, pos);
   points.frustumCulled = false;
   points.renderOrder = 7;
   return points;

@@ -1,11 +1,9 @@
 /**
  * RLRCHermiteSlerpResampler.ts
- * Pure 120Hz timeline resampling scheduler and bookmark alignment for RLRC replays,
- * delegating entity lifespan span extraction to RLRCEntityLifeSpanBuilder and
- * rigid-body Hermite/quaternion interpolation to RLRCHermiteSlerpMathPipeline.
+ * Bookmark alignment and 120Hz timeline resampling for RLRC replays.
  */
 
-import { packRLRCFramesToTrack0Bytes } from '../container/RLRCTrack0TimelineBatchPacker.ts';
+import { encodeRLRCFramesToTrack0Bytes } from '../container/RLRCBinaryContainerCodec.ts';
 import {
   RLRC_BOOST_PAD_COUNT,
   RLRC_FIXED_DT,
@@ -23,9 +21,8 @@ import {
 import {
   extractEntityLifeSpans,
   getCarFromNetworkFrame,
-  locateKeyframeBracket,
+  locateEntitySpanBracket,
   type RLRCEntitySpan,
-  type RLRCKeyframeBracket,
 } from './RLRCEntityLifeSpanBuilder.ts';
 import {
   clamp,
@@ -39,74 +36,64 @@ import {
   type RLRCOrthonormalBasis,
 } from './RLRCHermiteSlerpMathPipeline.ts';
 
-export type { RLRCEntitySpan, RLRCKeyframeBracket, RLRCOrthonormalBasis };
-
-const ZERO_BOOST_PAD_COOLDOWNS = new Float32Array(RLRC_BOOST_PAD_COUNT);
+export type { RLRCEntitySpan, RLRCOrthonormalBasis };
 
 export interface RLRCResamplerOptions {
   readonly method?: RLRCInterpolationMethod;
   readonly boostPadCooldownsByFrame120Hz?: readonly Float32Array[];
   readonly maxTeleportDistanceUu?: number;
+  readonly skipTrack0Pack?: boolean;
   readonly deferTrack0Packing?: boolean;
 }
 
-export function alignBookmarksTo120Hz(
-  bookmarks: readonly RLRCBookmarkRecord[],
-  networkFrames: readonly RLRCSourceNetworkFrame[],
-  frames120Hz: readonly RLRCFrame120Hz[],
-  recordFps = 30
-): RLRCBookmarkRecord[] {
-  if (frames120Hz.length === 0) return [];
-  const startTimeSeconds = frames120Hz[0].timeSeconds;
-  const maxFrameIndex = frames120Hz.length - 1;
-  const effectiveFps = recordFps > 0 ? recordFps : 30;
+const ZERO_PAD_COOLDOWNS = new Float32Array(RLRC_BOOST_PAD_COUNT);
 
-  return bookmarks.map((bookmark) => {
-    let timeSeconds = bookmark.timeSeconds;
-    let nearestNetFrame = networkFrames[0];
-    for (const nf of networkFrames) {
+export function alignBookmarksTo120Hz(
+  bms: readonly RLRCBookmarkRecord[],
+  nfs: readonly RLRCSourceNetworkFrame[],
+  frames: readonly RLRCFrame120Hz[],
+  fps = 30
+): RLRCBookmarkRecord[] {
+  if (!frames.length) return [];
+  const t0 = frames[0].timeSeconds;
+  const maxIdx = frames.length - 1;
+  const rFps = fps > 0 ? fps : 30;
+  return bms.map((bm) => {
+    let t = bm.timeSeconds;
+    let best = nfs[0];
+    for (const nf of nfs) {
       if (
-        Math.abs(nf.sourceFrame30Hz - bookmark.sourceFrame30Hz) <
-        Math.abs(nearestNetFrame.sourceFrame30Hz - bookmark.sourceFrame30Hz)
+        Math.abs(nf.sourceFrame30Hz - bm.sourceFrame30Hz) <
+        Math.abs(best.sourceFrame30Hz - bm.sourceFrame30Hz)
       ) {
-        nearestNetFrame = nf;
+        best = nf;
       }
     }
     if (
-      nearestNetFrame &&
-      (Math.abs(nearestNetFrame.sourceFrame30Hz - bookmark.sourceFrame30Hz) <= 2 ||
-        !Number.isFinite(timeSeconds) ||
-        timeSeconds <= 0)
+      best &&
+      (Math.abs(best.sourceFrame30Hz - bm.sourceFrame30Hz) <= 2 || !Number.isFinite(t) || t <= 0)
     ) {
-      timeSeconds = nearestNetFrame.timeSeconds;
-    } else if (!Number.isFinite(timeSeconds) || timeSeconds <= 0) {
-      timeSeconds = startTimeSeconds + bookmark.sourceFrame30Hz / effectiveFps;
+      t = best.timeSeconds;
+    } else if (!Number.isFinite(t) || t <= 0) {
+      t = t0 + bm.sourceFrame30Hz / rFps;
     }
-    const frameIndex120Hz = clamp(
-      Math.round((timeSeconds - startTimeSeconds) * RLRC_TICK_RATE),
-      0,
-      maxFrameIndex
-    );
-    return {
-      ...bookmark,
-      frameIndex120Hz,
-      timeSeconds: frames120Hz[frameIndex120Hz].timeSeconds,
-    };
+    const idx = clamp(Math.round((t - t0) * RLRC_TICK_RATE), 0, maxIdx);
+    return { ...bm, frameIndex120Hz: idx, timeSeconds: frames[idx].timeSeconds };
   });
 }
 
 export function resampleRLRCReplayTo120Hz(
   parsed: RLRCParserOutput,
-  options: RLRCResamplerOptions = {}
+  opts: RLRCResamplerOptions = {}
 ): RLRCResamplerOutput {
-  const method = options.method ?? 'hermite-clamped';
-  const maxTeleportDistanceUu = options.maxTeleportDistanceUu ?? 450;
-  const networkFrames = parsed.networkFrames;
-  const slotCount = Math.min(
+  const method = opts.method ?? 'hermite-clamped';
+  const maxTel = opts.maxTeleportDistanceUu ?? 450;
+  const nfs = parsed.networkFrames;
+  const slots = Math.min(
     RLRC_MAX_PLAYER_SLOTS,
-    Math.max(parsed.roster.length, networkFrames[0]?.cars.length ?? 0)
+    Math.max(parsed.roster.length, nfs[0]?.cars.length ?? 0)
   );
-  if (networkFrames.length === 0) {
+  if (!nfs.length) {
     return {
       header: { ...parsed.header, frameCount120Hz: 0, durationSeconds: 0 },
       roster: parsed.roster,
@@ -116,105 +103,108 @@ export function resampleRLRCReplayTo120Hz(
     };
   }
 
-  const startTimeSeconds = networkFrames[0].timeSeconds;
-  const endTimeSeconds = networkFrames[networkFrames.length - 1].timeSeconds;
-  const durationSeconds = Math.max(0, endTimeSeconds - startTimeSeconds);
-  const frameCount120Hz = Math.max(1, Math.round(durationSeconds * RLRC_TICK_RATE) + 1);
-  const ballSpans = extractEntityLifeSpans(
-    networkFrames,
-    'ball',
-    parsed.lifeSegments,
-    maxTeleportDistanceUu
+  const t0 = nfs[0].timeSeconds;
+  const tEnd = nfs[nfs.length - 1].timeSeconds;
+  const dur = Math.max(0, tEnd - t0);
+  const count = Math.max(1, Math.round(dur * RLRC_TICK_RATE) + 1);
+  const bSpans = extractEntityLifeSpans(nfs, 'ball', parsed.lifeSegments ?? [], maxTel);
+  const cSpans = Array.from({ length: slots }, (_, s) =>
+    extractEntityLifeSpans(nfs, s, parsed.lifeSegments ?? [], maxTel)
   );
-  const carSpansBySlot = Array.from({ length: slotCount }, (_, slotIndex) =>
-    extractEntityLifeSpans(networkFrames, slotIndex, parsed.lifeSegments, maxTeleportDistanceUu)
-  );
-  const frames120Hz: RLRCFrame120Hz[] = new Array(frameCount120Hz);
+  const frames120Hz: RLRCFrame120Hz[] = new Array(count);
 
-  for (let frameIdx = 0, currentNetIdx = 0; frameIdx < frameCount120Hz; frameIdx++) {
-    const targetTime = Math.min(endTimeSeconds, startTimeSeconds + frameIdx * RLRC_FIXED_DT);
-    while (
-      currentNetIdx + 1 < networkFrames.length &&
-      networkFrames[currentNetIdx + 1].timeSeconds <= targetTime
-    ) {
-      currentNetIdx++;
-    }
-    const nextNetFrame = networkFrames[currentNetIdx + 1] ?? networkFrames[currentNetIdx];
-    const nearestNetIdx =
-      Math.abs(nextNetFrame.timeSeconds - targetTime) <
-      Math.abs(targetTime - networkFrames[currentNetIdx].timeSeconds)
-        ? currentNetIdx + 1
-        : currentNetIdx;
-    const referenceNetFrame = networkFrames[nearestNetIdx];
+  for (let f = 0, cur = 0; f < count; f++) {
+    const t = Math.min(tEnd, t0 + f * RLRC_FIXED_DT);
+    while (cur + 1 < nfs.length && nfs[cur + 1].timeSeconds <= t) cur++;
+    const nxtIdx = Math.min(nfs.length - 1, cur + 1);
+    const curNf = nfs[cur];
+    const nxtNf = nfs[nxtIdx];
+    const near = Math.abs(nxtNf.timeSeconds - t) < Math.abs(t - curNf.timeSeconds) ? nxtIdx : cur;
+    const ref = nfs[near];
+    const localDt = nxtNf.timeSeconds - curNf.timeSeconds;
+    const localAlpha = localDt > 1e-6 ? clamp((t - curNf.timeSeconds) / localDt, 0, 1) : 0;
 
-    const ballBracket = locateKeyframeBracket(
-      networkFrames,
-      ballSpans,
-      targetTime,
-      currentNetIdx,
-      nearestNetIdx,
-      'ball'
-    );
-    const ballRb0 = ballBracket
-      ? networkFrames[ballBracket.k0Idx].ball.rigidBody
-      : referenceNetFrame.ball.rigidBody;
-    const ballRb1 = ballBracket
-      ? networkFrames[ballBracket.k1Idx].ball.rigidBody
-      : referenceNetFrame.ball.rigidBody;
-    const ball: RLRCBallFrameState120Hz = ballBracket
+    const bb = locateEntitySpanBracket(nfs, bSpans, t, cur, near, 'ball');
+    const b0 = bb ? nfs[bb.k0Idx].ball.rigidBody : ref.ball.rigidBody;
+    const b1 = bb ? nfs[bb.k1Idx].ball.rigidBody : ref.ball.rigidBody;
+    const ball: RLRCBallFrameState120Hz = bb
       ? {
           entityActive: true,
           rigidBody: interpolateRigidBodyHermiteSlerp(
-            ballBracket.rest0 ? toRest(ballRb0) : ballRb0,
-            ballBracket.rest1 ? toRest(ballRb1) : ballRb1,
-            ballBracket.alpha,
-            ballBracket.dt,
+            bb.rest0 ? toRest(b0) : b0,
+            bb.rest1 ? toRest(b1) : b1,
+            bb.alpha,
+            bb.dt,
             method,
             4500
           ),
         }
-      : { entityActive: false, rigidBody: referenceNetFrame.ball.rigidBody };
+      : { entityActive: false, rigidBody: ref.ball.rigidBody };
 
-    const cars: RLRCCarFrameState120Hz[] = new Array(slotCount);
-    for (let slotIndex = 0; slotIndex < slotCount; slotIndex++) {
-      const refCar = getCarFromNetworkFrame(referenceNetFrame, slotIndex);
-      const carBracket = locateKeyframeBracket(
-        networkFrames,
-        carSpansBySlot[slotIndex],
-        targetTime,
-        currentNetIdx,
-        nearestNetIdx,
-        slotIndex
-      );
-      if (carBracket && refCar) {
-        const car0 = getCarFromNetworkFrame(networkFrames[carBracket.k0Idx], slotIndex) ?? refCar;
-        const car1 = getCarFromNetworkFrame(networkFrames[carBracket.k1Idx], slotIndex) ?? refCar;
-        const nearestCar = carBracket.alpha < 0.5 ? car0 : car1;
-        const rigidBody = interpolateRigidBodyHermiteSlerp(
-          carBracket.rest0 ? toRest(car0.rigidBody) : car0.rigidBody,
-          carBracket.rest1 ? toRest(car1.rigidBody) : car1.rigidBody,
-          carBracket.alpha,
-          carBracket.dt,
+    const rosterCount = parsed.roster.length;
+    const cars: RLRCCarFrameState120Hz[] = new Array(slots);
+    for (let s = 0; s < slots; s++) {
+      const rCar = getCarFromNetworkFrame(ref, s);
+      const cb =
+        rosterCount > 0 && s >= rosterCount
+          ? null
+          : locateEntitySpanBracket(nfs, cSpans[s], t, cur, near, s);
+      if (cb && rCar) {
+        const c0 = getCarFromNetworkFrame(nfs[cb.k0Idx], s) ?? rCar;
+        const c1 = getCarFromNetworkFrame(nfs[cb.k1Idx], s) ?? rCar;
+        const nCar = cb.alpha < 0.5 ? c0 : c1;
+        const rb = interpolateRigidBodyHermiteSlerp(
+          cb.rest0 ? toRest(c0.rigidBody) : c0.rigidBody,
+          cb.rest1 ? toRest(c1.rigidBody) : c1.rigidBody,
+          cb.alpha,
+          cb.dt,
           method,
           2300
         );
-        cars[slotIndex] = {
-          slotIndex,
+        const curCar = getCarFromNetworkFrame(curNf, s);
+        const nxtCar = getCarFromNetworkFrame(nxtNf, s);
+        const boostAmount =
+          curCar?.entityActive && nxtCar?.entityActive
+            ? clamp(lerp(curCar.boostAmount, nxtCar.boostAmount, localAlpha), 0, 100)
+            : clamp(lerp(c0.boostAmount, c1.boostAmount, cb.alpha), 0, 100);
+        const sourceBoosting = Boolean(
+          rCar.activeFlags.boostActive || c0.activeFlags.boostActive || c1.activeFlags.boostActive
+        );
+        const boostConsumed =
+          (curCar && nxtCar && curCar.boostAmount - nxtCar.boostAmount > 0.05) ||
+          c0.boostAmount - c1.boostAmount > 0.05;
+        const allowBoost = sourceBoosting || (boostConsumed && boostAmount > 0.5);
+        const activeFlags =
+          allowBoost === rCar.activeFlags.boostActive
+            ? rCar.activeFlags
+            : { ...rCar.activeFlags, boostActive: allowBoost };
+        const controls =
+          allowBoost === rCar.controls.boost
+            ? rCar.controls
+            : { ...rCar.controls, boost: allowBoost };
+        cars[s] = {
+          slotIndex: s,
           entityActive: true,
-          rigidBody,
-          boostAmount: clamp(lerp(car0.boostAmount, car1.boostAmount, carBracket.alpha), 0, 100),
-          isOnGround: rigidBody.position.z <= 20.5 || nearestCar.isOnGround,
-          isSupersonic: vLen(rigidBody.linearVelocity) >= 2200 || nearestCar.isSupersonic,
-          hasFlipOrJump: nearestCar.hasFlipOrJump,
-          airTimeSinceJump: lerp(car0.airTimeSinceJump, car1.airTimeSinceJump, carBracket.alpha),
-          activeFlags: refCar.activeFlags,
-          controls: refCar.controls,
+          rigidBody: rb,
+          boostAmount,
+          isOnGround: rb.position.z <= 20.5 || nCar.isOnGround,
+          isSupersonic: vLen(rb.linearVelocity) >= 2200 || nCar.isSupersonic,
+          hasFlipOrJump: nCar.hasFlipOrJump,
+          airTimeSinceJump: lerp(c0.airTimeSinceJump, c1.airTimeSinceJump, cb.alpha),
+          activeFlags,
+          controls,
         };
       } else {
-        cars[slotIndex] = {
-          slotIndex,
+        const parkedRb =
+          rosterCount > 0 && s >= rosterCount
+            ? { ...SLEEP_RB, position: { x: -5500, y: s * 300, z: -2000 } }
+            : rCar
+              ? rCar.rigidBody
+              : SLEEP_RB;
+        cars[s] = {
+          slotIndex: s,
           entityActive: false,
-          rigidBody: refCar ? refCar.rigidBody : SLEEP_RB,
+          rigidBody: parkedRb,
           boostAmount: 0,
           isOnGround: false,
           isSupersonic: false,
@@ -226,13 +216,13 @@ export function resampleRLRCReplayTo120Hz(
       }
     }
 
-    const sourcePads = options.boostPadCooldownsByFrame120Hz?.[frameIdx];
+    const pads = opts.boostPadCooldownsByFrame120Hz?.[f];
     const boostPadCooldowns =
-      sourcePads && sourcePads.length >= RLRC_BOOST_PAD_COUNT
-        ? sourcePads.length === RLRC_BOOST_PAD_COUNT
-          ? sourcePads
-          : sourcePads.subarray(0, RLRC_BOOST_PAD_COUNT)
-        : ZERO_BOOST_PAD_COOLDOWNS;
+      pads && pads.length >= RLRC_BOOST_PAD_COUNT
+        ? pads.length === RLRC_BOOST_PAD_COUNT
+          ? pads
+          : pads.subarray(0, RLRC_BOOST_PAD_COUNT)
+        : ZERO_PAD_COOLDOWNS;
     const {
       sourceFrame30Hz,
       secondsRemaining,
@@ -240,12 +230,11 @@ export function resampleRLRCReplayTo120Hz(
       roundCountdownNumber,
       blueScore,
       orangeScore,
-    } = referenceNetFrame;
-
-    frames120Hz[frameIdx] = {
-      frameIndex120Hz: frameIdx,
+    } = ref;
+    frames120Hz[f] = {
+      frameIndex120Hz: f,
       sourceFrame30Hz,
-      timeSeconds: targetTime,
+      timeSeconds: t,
       secondsRemaining,
       isOvertime,
       roundCountdownNumber,
@@ -258,21 +247,18 @@ export function resampleRLRCReplayTo120Hz(
   }
 
   return {
-    header: {
-      ...parsed.header,
-      frameCount120Hz,
-      durationSeconds,
-    },
+    header: { ...parsed.header, frameCount120Hz: count, durationSeconds: dur },
     roster: parsed.roster,
     bookmarks: alignBookmarksTo120Hz(
-      parsed.bookmarks,
-      networkFrames,
+      parsed.bookmarks ?? [],
+      nfs,
       frames120Hz,
-      parsed.header.recordFps
+      parsed.header?.recordFps ?? 30
     ),
     frames120Hz,
-    stateInputTrackBytes: options.deferTrack0Packing
-      ? new Uint8Array(0)
-      : packRLRCFramesToTrack0Bytes(frames120Hz),
+    stateInputTrackBytes:
+      opts.skipTrack0Pack || opts.deferTrack0Packing
+        ? new Uint8Array(0)
+        : encodeRLRCFramesToTrack0Bytes(frames120Hz),
   };
 }

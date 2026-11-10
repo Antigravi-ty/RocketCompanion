@@ -77,30 +77,60 @@ export interface CarActionSynthesizerRuntimePort {
   getFlipResetVisual?(carIndex: number): { play(): void } | null;
 }
 
+export interface CarActionDispatchTargets {
+  readonly ballTrajectoryPredictor?: { notifyCarBallHit?(tick?: number): void } | null;
+  readonly activeMode?: {
+    onPhysicsEvent?(event: CarActionPhysicsEventPayload): void;
+  } | null;
+  readonly getFlipResetVisual?: (carIndex: number) => { play(): void } | null;
+  readonly arena?: {
+    triggerGoalBarrierImpact?(x?: number, y?: number, z?: number): void;
+  } | null;
+}
+
+export function dispatchCarActionTickEffects(
+  tickResult: CarActionTickResult,
+  targets: CarActionDispatchTargets
+): void {
+  const { ballTrajectoryPredictor, activeMode, getFlipResetVisual, arena } = targets;
+  for (let i = 0; i < tickResult.emittedModeEvents.length; i++) {
+    const evt = tickResult.emittedModeEvents[i];
+    if (evt?.type === INCIDENT_EVENT_TYPES.CAR_BALL_HIT) {
+      ballTrajectoryPredictor?.notifyCarBallHit?.(evt.tick);
+    }
+    activeMode?.onPhysicsEvent?.(evt);
+  }
+  for (let i = 0; i < tickResult.flipResetVisualCarIndices.length; i++) {
+    const visual = getFlipResetVisual?.(tickResult.flipResetVisualCarIndices[i]);
+    visual?.play();
+  }
+  for (let i = 0; i < tickResult.goalBarrierImpacts.length; i++) {
+    const imp = tickResult.goalBarrierImpacts[i];
+    arena?.triggerGoalBarrierImpact?.(imp.x, imp.y, imp.z);
+  }
+}
+
 /**
  * CarActionEventSynthesizer
  * Self-contained domain module owning per-vehicle action debounce state,
  * remote/local edge event synthesis, and native WASM physics incident dispatch.
  */
 export class CarActionEventSynthesizer {
-  private readonly _debounceRegistry = new CarActionDebounceRegistry();
+  public readonly debounceRegistry = new CarActionDebounceRegistry();
   private _lastSeenPhysicsTick = -1;
 
   public reset(): void {
-    const registry = this._debounceRegistry;
-    registry.reset();
+    this.debounceRegistry.reset();
     this._lastSeenPhysicsTick = -1;
     gameAudio?.resetIncidentDebounceState?.();
   }
 
   public getCarActionState(carIdx: number): CarActionDebounceState {
-    const registry = this._debounceRegistry;
-    return registry.getCarActionState(carIdx);
+    return this.debounceRegistry.getCarActionState(carIdx);
   }
 
   public notifyLocalJumpReleased(playerCarIndex: number): void {
-    const registry = this._debounceRegistry;
-    registry.notifyLocalJumpReleased(playerCarIndex);
+    this.debounceRegistry.notifyLocalJumpReleased(playerCarIndex);
   }
 
   public stepTickEvents(input: Readonly<CarActionTickInput>): CarActionTickResult {
@@ -150,7 +180,7 @@ export class CarActionEventSynthesizer {
       emittedModeEvents,
     };
 
-    this._debounceRegistry.syncPreTickCarStatesAndRemoteEdges(edgeCtx, currentTick);
+    this.debounceRegistry.syncPreTickCarStatesAndRemoteEdges(edgeCtx, currentTick);
 
     physics.readEvents((event: PhysicsEventRecord) => {
       if (!isIncidentEvent(event.type)) {
@@ -171,7 +201,7 @@ export class CarActionEventSynthesizer {
 
       if (evtCarIdx >= 0 && evtCarIdx < 8) {
         if (
-          !this._debounceRegistry.shouldAcceptCarActionIncident(
+          !this.debounceRegistry.shouldAcceptCarActionIncident(
             event,
             evtCarIdx,
             currentTick,
@@ -201,7 +231,7 @@ export class CarActionEventSynthesizer {
             ? event.carIndex
             : playerCarIndex;
         if (
-          !this._debounceRegistry.shouldAcceptFlipResetIncident(
+          !this.debounceRegistry.shouldAcceptFlipResetIncident(
             event,
             targetCarIdx,
             physics,
@@ -240,7 +270,7 @@ export class CarActionEventSynthesizer {
       }
     });
 
-    this._debounceRegistry.synthesizePostTickLocalFallbackEdges(edgeCtx, currentTick);
+    this.debounceRegistry.synthesizePostTickLocalFallbackEdges(edgeCtx, currentTick);
 
     return {
       nextClientGoalIncidentLatched: goalIncidentLatched,

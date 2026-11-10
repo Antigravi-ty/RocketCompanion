@@ -25,24 +25,31 @@ import {
   toggleFloatingPreset,
   NETWORK_MONITOR_PRESET,
   DUAL_ARENA_DETERMINISM_HARNESS_PRESET,
+  type GraphicsSettingsPort,
 } from '../runtimeUiPort.ts';
-import type {
-  MaterialsConfigLike,
-  NetworkSessionChannelLike,
-} from './onlineLobbyTransitionPipeline.ts';
+import { RenderClockScheduler } from '../RenderClockScheduler.ts';
+import type { NetworkSessionChannelLike } from './onlineLobbyTransitionPipeline.ts';
+import type { BotAgentLike } from './RuntimeBotCoordinator.ts';
+
+export type {
+  BotAgentLike,
+  FramePipeline,
+  GameAudioSubsystem,
+  GameCameraSubsystem,
+  GameModeManager,
+  GameRenderSubsystem,
+  RuntimeBloomOcclusion,
+  RuntimeBotCoordinator,
+  RuntimeDOMEventManager,
+  RuntimeInputPoller,
+  RuntimeLoadoutCoordinator,
+  RuntimeNetworkManager,
+  SimulationStage,
+};
 
 export type AudioSetupProgressFn = (loaded: number, total?: number, file?: string) => void;
 export type BotSetupProgressFn = (completed?: number, total?: number, name?: string) => void;
 export type ShaderSetupProgressFn = (progress: number, label?: string) => void;
-export type SessionReadyHandler = (
-  reconciler: RuntimeNetworkManager['sessionCoordinator']['networkReconciler'],
-  channel: NetworkSessionChannelLike | null
-) => void;
-export type ShowNetworkHudHandler = () => void;
-export type DeterminismHarnessReadyHandler = (
-  harness: NonNullable<RuntimeNetworkManager['diagnosticsProbe']['determinismHarness']>,
-  showHUD?: boolean
-) => void;
 
 export type RuntimeSubsystemHost = ConstructorParameters<typeof RuntimeBloomOcclusion>[0] &
   ConstructorParameters<typeof RuntimeBotCoordinator>[0] &
@@ -53,7 +60,6 @@ export type RuntimeSubsystemHost = ConstructorParameters<typeof RuntimeBloomOccl
   ConstructorParameters<typeof GameAudioSubsystem>[0] &
   ConstructorParameters<typeof GameCameraSubsystem>[0] &
   ConstructorParameters<typeof GameRenderSubsystem>[0] &
-  ConstructorParameters<typeof GameModeManager>[0] &
   ConstructorParameters<typeof SimulationStage>[0] &
   ConstructorParameters<typeof FramePipeline>[0] &
   ConstructorParameters<typeof InputStage>[0] &
@@ -77,23 +83,6 @@ export interface AssembledRuntimeSubsystems {
   modeManager: GameModeManager;
   simulationStage: SimulationStage;
   pipeline: FramePipeline;
-  isGoalReplayCameraOverrideActive: () => boolean;
-  acquireGoalReplayCameraOverride: (source?: string) => void;
-  releaseGoalReplayCameraOverride: (source?: string | null) => void;
-  setupAudio: (progressFn?: AudioSetupProgressFn | null) => Promise<void>;
-  setupBot: (progressFn?: BotSetupProgressFn | null) => Promise<void>;
-  setupShaders: (progressFn?: ShaderSetupProgressFn | null) => Promise<void>;
-  pollInputs: (commitPhysicsStep?: boolean) => boolean;
-  changePlayerVehicle: (visualId: string, hitboxId?: string | null) => void;
-  setCarColor: (carIndex: number, colorVal: number | string, broadcast?: boolean) => void;
-  syncPlayerMaterialsLoadout: (materialsConfig?: MaterialsConfigLike | null) => void;
-  restoreLocalPlayerFreeplayLoadout: (carIndex?: number) => void;
-  resetAudio: () => void;
-  resetBotState: () => void;
-  leaveBotMatch: () => void;
-  onSessionReady: SessionReadyHandler;
-  onShowNetworkHUD: ShowNetworkHudHandler;
-  onDeterminismHarnessReady: DeterminismHarnessReadyHandler;
 }
 
 export function assembleRuntimeSubsystemsAndPipeline(
@@ -134,61 +123,82 @@ export function assembleRuntimeSubsystemsAndPipeline(
     modeManager,
     simulationStage,
     pipeline,
-    isGoalReplayCameraOverrideActive: () => cameraSubsystem.isGoalReplayCameraOverrideActive(),
-    acquireGoalReplayCameraOverride: (source = 'default') => {
-      cameraSubsystem.acquireGoalReplayCameraOverride(source);
-    },
-    releaseGoalReplayCameraOverride: (source: string | null = null) => {
-      cameraSubsystem.releaseGoalReplayCameraOverride(source);
-    },
-    setupAudio: (progressFn = null) => audioSubsystem.setupAudio(progressFn),
-    setupBot: (progressFn = null) => botCoordinator.setupBot(progressFn),
-    setupShaders: (progressFn = null) => bloomOcclusion.setupShaders(progressFn),
-    pollInputs: (commitPhysicsStep = true) => inputPoller.pollInputs(commitPhysicsStep),
-    changePlayerVehicle: (visualId: string, hitboxId: string | null = null) => {
-      loadoutCoordinator.changePlayerVehicle(visualId, hitboxId);
-    },
-    setCarColor: (carIndex: number, colorVal: number | string, broadcast = true) => {
-      loadoutCoordinator.setCarColor(carIndex, colorVal, broadcast);
-    },
-    syncPlayerMaterialsLoadout: (materialsConfig: MaterialsConfigLike | null = null) => {
-      loadoutCoordinator.syncPlayerMaterialsLoadout(materialsConfig);
-    },
-    restoreLocalPlayerFreeplayLoadout: (carIndex = 0) => {
-      loadoutCoordinator.restoreLocalPlayerFreeplayLoadout(carIndex);
-    },
-    resetAudio: () => {
-      audioSubsystem.resetAudio();
-    },
-    resetBotState: () => {
-      botCoordinator.resetBotState();
-    },
-    leaveBotMatch: () => {
-      botCoordinator.leaveBotMatch();
-    },
-    onSessionReady(reconciler, channel) {
-      networkDiagnosticsStore.setSession(reconciler, channel, target);
-    },
-    onShowNetworkHUD() {
-      toggleFloatingPreset(NETWORK_MONITOR_PRESET);
-    },
-    onDeterminismHarnessReady(harness, showHUD = false) {
-      determinismStore.setHarness(harness);
-      if (showHUD) toggleFloatingPreset(DUAL_ARENA_DETERMINISM_HARNESS_PRESET);
-    },
   };
+}
+
+export function createRuntimeClockScheduler(target: {
+  renderer: { getContext(): WebGLRenderingContext | WebGL2RenderingContext } | null;
+  profiler: { displayFrame(timestamp: number): void } | null;
+  pipeline: FramePipeline;
+  activeGraphicsSettings: GraphicsSettingsPort | null;
+  renderFrame(timestamp: number): boolean;
+}): RenderClockScheduler {
+  const scheduler = new RenderClockScheduler(
+    target.renderer?.getContext() ?? null,
+    (t) => target.renderFrame(t),
+    (t) => target.profiler?.displayFrame(t),
+    (t) => target.pipeline.executeSimulationOnly(t)
+  );
+  if (target.activeGraphicsSettings) {
+    scheduler.setFpsLimit(
+      target.activeGraphicsSettings.limitFps ? (target.activeGraphicsSettings.maxFps ?? null) : null
+    );
+  }
+  return scheduler;
+}
+
+export function createNeutralCarControls(): {
+  throttle: number;
+  steer: number;
+  pitch: number;
+  yaw: number;
+  roll: number;
+  jump: boolean;
+  boost: boolean;
+  handbrake: boolean;
+} {
+  return {
+    throttle: 0,
+    steer: 0,
+    pitch: 0,
+    yaw: 0,
+    roll: 0,
+    jump: false,
+    boost: false,
+    handbrake: false,
+  };
+}
+
+export function notifyRuntimeSessionReady(
+  target: RuntimeSubsystemHost,
+  reconciler: RuntimeNetworkManager['sessionCoordinator']['networkReconciler'],
+  channel: NetworkSessionChannelLike | null
+): void {
+  networkDiagnosticsStore.setSession(reconciler, channel, target);
+}
+
+export function notifyRuntimeNetworkHud(): void {
+  toggleFloatingPreset(NETWORK_MONITOR_PRESET);
+}
+
+export function notifyRuntimeDeterminismHarnessReady(
+  harness: NonNullable<RuntimeNetworkManager['diagnosticsProbe']['determinismHarness']>,
+  showHUD = false
+): void {
+  determinismStore.setHarness(harness);
+  if (showHUD) toggleFloatingPreset(DUAL_ARENA_DETERMINISM_HARNESS_PRESET);
 }
 
 export function destroyRuntimeSubsystems(
   target: RuntimeSubsystemHost & AssembledRuntimeSubsystems
 ): void {
-  target.domEventManager?.destroy?.();
-  target.audioSubsystem?.dispose?.();
-  target.cameraSubsystem?.dispose?.();
-  target.renderSubsystem?.dispose?.();
-  target.bloomOcclusion?.dispose?.();
-  target.networkManager.diagnosticsProbe.determinismHarness?.destroy?.();
-  target.networkManager.sessionCoordinator.authoritativeServer?.destroy?.();
+  target.domEventManager.destroy();
+  target.audioSubsystem.dispose();
+  target.cameraSubsystem.dispose();
+  target.renderSubsystem.dispose();
+  target.bloomOcclusion.dispose();
+  target.networkManager.diagnosticsProbe.determinismHarness?.destroy();
+  target.networkManager.sessionCoordinator.authoritativeServer?.destroy();
   target.networkManager.sessionCoordinator.authoritativeServer = null;
   target.networkManager.sessionCoordinator.networkReconciler = null;
   disposeCoreSceneGraph(target);

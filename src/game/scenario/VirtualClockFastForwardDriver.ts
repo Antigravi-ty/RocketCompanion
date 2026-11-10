@@ -6,45 +6,40 @@
  */
 
 import type { CarControlsInput } from '../../network/protocol/InputPacketCodec.ts';
+import type { CameraPoseSample, RawTickTimingSample } from './scenarioMetricsPipeline.ts';
 import {
-  buildAllStageTimingDistributions,
-  buildKeyframeRenderSample,
-  buildStepsByTickMap,
-  evaluateCameraSmoothness,
-  extractCameraPoseSample,
-  extractTopHitchFrames,
-  normalizeCarControls,
-  PIPELINE_STAGE_NAMES,
-  queryCompiledShaderProgramCount,
-  queryWebGlContextAttributesSummary,
-  queryWebGlError,
-  resolveRuntimeCameraMode,
-  resolveSpeedPacingConfig,
-  roundMetric,
-  type CameraPoseSample,
-  type RawTickTimingSample,
-} from './scenarioMetricsPipeline.ts';
-import {
-  buildGoldenBaselineDiffSummary,
   captureVehicleRigGeometryProbe,
   diffVehicleRigProbeAgainstGolden65f1538d,
 } from './scenarioRigProbeAndGoldenDiffPipeline.ts';
 import { attachRuntimeErrorInterceptors } from './scenarioRuntimeErrorInterceptor.ts';
+import {
+  buildKeyframeRenderSample,
+  buildStepsByTickMap,
+  extractCameraPoseSample,
+  queryCompiledShaderProgramCount,
+  queryWebGlContextAttributesSummary,
+  resolveRuntimeCameraMode,
+  resolveSpeedPacingConfig,
+} from './scenarioWebGlAndPacingPipeline.ts';
 import { MultiClientLoopbackSimulator } from './MultiClientLoopbackSimulator.ts';
 import type {
   KeyframeRenderSample,
-  PipelineStageName,
   ScenarioAssertionResult,
   ScenarioDriverRunOptions,
   ScenarioRunReport,
+  ScenarioRuntimePort,
   ScenarioScript,
-  ScenarioStepContext,
   VehicleRigGeometryProbeSnapshot,
   VehicleRigGoldenDiffReport,
 } from './ScenarioTypes.ts';
-
-const FIXED_TICK_DT_SEC = 1 / 120;
-const FIXED_TICK_DT_MS = 1000 / 120;
+import {
+  assembleVirtualClockScenarioRunReport,
+  createVirtualClockStepContext,
+  executeForcedKeyframeGpuRenderPass,
+  executeSingleVirtualPipelineTick,
+  FIXED_TICK_DT_MS,
+  type VirtualClockRuntimeTarget,
+} from './virtualClockTickAndReportPipeline.ts';
 
 export const NEUTRAL_CONTROLS: Readonly<CarControlsInput> = Object.freeze({
   throttle: 0,
@@ -58,7 +53,7 @@ export const NEUTRAL_CONTROLS: Readonly<CarControlsInput> = Object.freeze({
 });
 
 export class VirtualClockFastForwardDriver {
-  public readonly runtime: any;
+  public readonly runtime: VirtualClockRuntimeTarget;
   public readonly loopbackSimulator: MultiClientLoopbackSimulator;
   private readonly realNow: () => number;
   private virtualNowMs = 1000;
@@ -71,8 +66,8 @@ export class VirtualClockFastForwardDriver {
     includeGoldenDiff: true,
   };
 
-  constructor(runtime: any, defaultOptions?: ScenarioDriverRunOptions) {
-    this.runtime = runtime;
+  constructor(runtime: ScenarioRuntimePort, defaultOptions?: ScenarioDriverRunOptions) {
+    this.runtime = runtime as VirtualClockRuntimeTarget;
     this.loopbackSimulator = new MultiClientLoopbackSimulator(runtime);
     this.realNow = performance.now.bind(performance);
     if (defaultOptions) this.defaultOptions = { ...this.defaultOptions, ...defaultOptions };
@@ -137,46 +132,21 @@ export class VirtualClockFastForwardDriver {
       virtualOffsetMs: this.virtualNowMs - baseVirtualMs,
     }));
 
-    const stepContext: ScenarioStepContext = {
-      get tick() {
-        return currentTick;
-      },
-      get virtualTimeMs() {
-        return baseVirtualMs + currentTick * FIXED_TICK_DT_MS;
-      },
-      runtime: r,
+    const stepContext = createVirtualClockStepContext({
+      r,
       loopbackSimulator: this.loopbackSimulator,
-      setLocalCarControls: (c) => {
-        this.overrideLocalControls = normalizeCarControls<CarControlsInput>(c);
+      baseVirtualMs,
+      getCurrentTick: () => currentTick,
+      getVirtualNowMs: () => this.virtualNowMs,
+      setOverrideControls: (c) => {
+        this.overrideLocalControls = c;
       },
-      setBallState: (s) => {
-        r?.physics?.setBallState?.(s);
-        r?.authoritativeServer?.fallbackSim?.setBallState?.(s);
-        r?.interpolator?.sync?.(this.virtualNowMs);
-      },
-      setCarState: (carIndex, s) => {
-        r?.physics?.setCarState?.(carIndex, s);
-        r?.authoritativeServer?.fallbackSim?.setCarState?.(carIndex, s);
-        r?.interpolator?.sync?.(this.virtualNowMs);
-      },
-      captureVehicleRigProbe: (carIndex = 0) => {
-        const p = captureVehicleRigGeometryProbe(r?.arena, carIndex);
-        if (p) capturedProbes.push(p);
-        return p;
-      },
-      diffVehicleRigAgainstGolden: (carIndex = 0, tol) => {
-        const p = captureVehicleRigGeometryProbe(r?.arena, carIndex);
-        if (!p) return null;
-        capturedProbes.push(p);
-        return diffVehicleRigProbeAgainstGolden65f1538d(p, tol);
-      },
-      markKeyframe: (reason) => {
+      setPendingKeyframeReason: (reason) => {
         this.pendingKeyframeReason = reason;
       },
-      recordAssertion: (label, passed, detail) => {
-        assertions.push({ tick: currentTick, label, passed: Boolean(passed), detail });
-      },
-    };
+      capturedProbes,
+      assertions,
+    });
 
     try {
       if (r?.keyboard && origKeyboardRead) {
@@ -239,10 +209,12 @@ export class VirtualClockFastForwardDriver {
         const isKeyframeTick = Boolean(this.pendingKeyframeReason);
         const shouldRenderGpu =
           tick % pacing.renderStride === 0 || tick === totalTicks - 1 || isKeyframeTick;
-        const tr = this.executeSingleVirtualTick(
+        const tr = executeSingleVirtualPipelineTick(
+          r,
           this.virtualNowMs,
           shouldRenderGpu,
-          isKeyframeTick
+          isKeyframeTick,
+          this.realNow
         );
 
         const postPhase = String(r?.match?.state?.phase || 'freeplay');
@@ -260,7 +232,7 @@ export class VirtualClockFastForwardDriver {
               : postMode !== preMode
                 ? `mode_${preMode}_to_${postMode}`
                 : `camera_${preCam}_to_${postCam}`;
-          this.executeForcedKeyframeRenderPass(tr);
+          executeForcedKeyframeGpuRenderPass(r, tr, this.realNow);
         }
 
         if (tr.didGpuRender) renderedFramesCount++;
@@ -323,64 +295,22 @@ export class VirtualClockFastForwardDriver {
         : null;
       if (script.teardown) await script.teardown(stepContext);
 
-      const stageTimings = buildAllStageTimingDistributions(tickSamples);
-      const topHitchFrames = extractTopHitchFrames(tickSamples, 5);
-      const cameraSmoothness = evaluateCameraSmoothness(cameraPoses, keyframeSamples);
-      const goldenDiff = pacing.includeGoldenDiff
-        ? buildGoldenBaselineDiffSummary(r?.arena, capturedProbes)
-        : null;
-      const runtimeErrors = errorInterceptor.buildSummary();
-
-      assertions.push({
-        tick: totalTicks - 1,
-        label: 'camera_no_nan_poses',
-        passed: cameraSmoothness.nanFrameCount === 0,
-        detail:
-          cameraSmoothness.nanFrameCount > 0
-            ? `Detected ${cameraSmoothness.nanFrameCount} NaN camera poses`
-            : `All ${cameraSmoothness.sampleCount} camera poses finite`,
-      });
-
-      if (pacing.failOnConsoleError) {
-        const e0 = runtimeErrors.entries[0];
-        const loc = e0?.fileName ? ` (${e0.fileName}:${e0.lineNumber ?? 0})` : '';
-        assertions.push({
-          tick: e0?.tick ?? totalTicks - 1,
-          label: 'zero_runtime_and_console_errors',
-          passed: runtimeErrors.totalErrorCount === 0,
-          detail:
-            runtimeErrors.totalErrorCount === 0
-              ? 'window.onerror=0, unhandledrejection=0, console.error=0'
-              : `Captured ${runtimeErrors.totalErrorCount} error(s): [${e0?.source}] ${e0?.message}${loc}`,
-        });
-      }
-
-      const simulatedDurationSeconds = roundMetric(totalTicks * FIXED_TICK_DT_SEC, 3);
-      const effectiveTickRateHz = roundMetric((totalTicks / wallClockDurationMs) * 1000, 1);
-
-      return {
-        scenarioId: script.id,
-        title: script.title,
-        description: script.description,
-        passed: assertions.every((a) => a.passed),
-        configuredSpeedPreset: pacing.presetLabel,
+      return assembleVirtualClockScenarioRunReport({
+        script,
+        pacing,
         totalTicks,
-        simulatedDurationSeconds,
-        wallClockDurationMs: roundMetric(wallClockDurationMs, 2),
-        effectiveTickRateHz,
-        speedupFactorVsRealtime: roundMetric(effectiveTickRateHz / 120, 2),
+        wallClockDurationMs,
         renderedFramesCount,
         skippedRenderFramesCount,
-        stageTimings,
-        topHitchFrames,
-        keyframeRenders: keyframeSamples,
-        cameraSmoothness,
-        multiplayerLoopback,
-        runtimeErrors,
-        vehicleRigProbes: capturedProbes,
-        goldenDiff,
+        tickSamples,
+        keyframeSamples,
+        cameraPoses,
+        capturedProbes,
         assertions,
-      };
+        multiplayerLoopback,
+        runtimeErrors: errorInterceptor.buildSummary(),
+        arena: r?.arena,
+      });
     } finally {
       errorInterceptor.dispose();
       performance.now = origPerfNow;
@@ -390,75 +320,8 @@ export class VirtualClockFastForwardDriver {
       if (wasRunning && r) {
         r.lastTimestamp = performance.now();
         r.interpolator?.sync?.(r.lastTimestamp);
-        r.start();
+        r.start?.();
       }
     }
-  }
-
-  private executeSingleVirtualTick(
-    virtualTs: number,
-    shouldRenderGpu: boolean,
-    checkGlError = false
-  ) {
-    const r = this.runtime;
-    const { context: ctx, stages } = r.pipeline;
-    r.lastTimestamp = virtualTs - FIXED_TICK_DT_MS;
-    if (r.interpolator) {
-      r.interpolator.lastTime = virtualTs - FIXED_TICK_DT_MS;
-      r.interpolator.accumulator = 1e-6;
-    }
-    ctx.reset(virtualTs, FIXED_TICK_DT_SEC);
-    ctx.shouldSkipGpuRender = !shouldRenderGpu;
-
-    const shaderProgramsBefore = this.getCompiledShaderProgramCount();
-    const stageDurationsMs = {
-      InputStage: 0,
-      SimulationStage: 0,
-      GameplayModeStage: 0,
-      PresentationStage: 0,
-      AudioStage: 0,
-      RenderStage: 0,
-      TelemetryStage: 0,
-    } as Record<PipelineStageName, number>;
-    let totalFrameWallMs = 0;
-
-    for (let i = 0; i < stages.length; i++) {
-      const name = PIPELINE_STAGE_NAMES[i] || ('TelemetryStage' as PipelineStageName);
-      const t0 = this.realNow();
-      stages[i].execute(ctx);
-      const dur = this.realNow() - t0;
-      stageDurationsMs[name] = dur;
-      totalFrameWallMs += dur;
-    }
-
-    const glError = checkGlError && !ctx.shouldSkipGpuRender ? queryWebGlError(r?.renderer) : 0;
-    const shaderProgramsAfter = this.getCompiledShaderProgramCount();
-    return {
-      didGpuRender: !ctx.shouldSkipGpuRender,
-      shaderProgramsBefore,
-      shaderProgramsAfter,
-      shaderProgramsDelta: Math.max(0, shaderProgramsAfter - shaderProgramsBefore),
-      glError,
-      stageDurationsMs,
-      totalFrameWallMs,
-    };
-  }
-
-  private executeForcedKeyframeRenderPass(
-    res: ReturnType<VirtualClockFastForwardDriver['executeSingleVirtualTick']>
-  ): void {
-    const r = this.runtime;
-    const ctx = r.pipeline.context;
-    ctx.shouldSkipGpuRender = false;
-    res.shaderProgramsBefore = this.getCompiledShaderProgramCount();
-    const t0 = this.realNow();
-    r.renderSubsystem?.update?.(ctx);
-    const extraMs = this.realNow() - t0;
-    res.glError = queryWebGlError(r?.renderer);
-    res.stageDurationsMs.RenderStage += extraMs;
-    res.shaderProgramsAfter = this.getCompiledShaderProgramCount();
-    res.shaderProgramsDelta = Math.max(0, res.shaderProgramsAfter - res.shaderProgramsBefore);
-    res.didGpuRender = true;
-    res.totalFrameWallMs += extraMs;
   }
 }

@@ -1,20 +1,22 @@
 /**
  * RLRCEntityLifeSpanBuilder.ts
- * Lifespan segment extraction, ZOH duplicate filtering without mid-air freeze anchors,
- * kinematic teleport detection, and binary-search keyframe bracket lookup for 120Hz RLRC resampling.
+ * Extracts continuous non-teleporting entity lifespans and deduplicated ReplicatedRBState
+ * keyframe indices for 120Hz Hermite/SLERP resampling.
  */
 
-import type {
-  RLRCCarFrameState120Hz,
-  RLRCRigidBodySample,
-  RLRCSourceEntityLifeSegment,
-  RLRCSourceNetworkFrame,
+import {
+  RLRC_FIXED_DT,
+  type RLRCCarFrameState120Hz,
+  type RLRCRigidBodySample,
+  type RLRCSourceEntityLifeSegment,
+  type RLRCSourceNetworkFrame,
 } from '../RLRCReplayTypes.ts';
 import {
   calibrateNetStreamVel,
   clamp,
   isDupRb,
   isRest,
+  resolveEffectivePhysicsDt,
   SLEEP_RB,
   vAdd,
   vDist,
@@ -26,9 +28,10 @@ export interface RLRCEntitySpan {
   readonly startNetIdx: number;
   readonly endNetIdx: number;
   readonly keyframeIndices: readonly number[];
+  readonly keyframeTimes?: readonly number[];
 }
 
-export interface RLRCKeyframeBracket {
+export interface RLRCEntityBracketMatch {
   readonly k0Idx: number;
   readonly k1Idx: number;
   readonly alpha: number;
@@ -37,278 +40,269 @@ export interface RLRCKeyframeBracket {
   readonly rest1: boolean;
 }
 
-export const getCarFromNetworkFrame = (
-  networkFrame: RLRCSourceNetworkFrame,
-  slotIndex: number
-): RLRCCarFrameState120Hz | undefined =>
-  networkFrame.cars[slotIndex]?.slotIndex === slotIndex
-    ? networkFrame.cars[slotIndex]
-    : networkFrame.cars.find((car) => car.slotIndex === slotIndex);
-
-export const getRigidBodyFromNetworkFrame = (
-  networkFrame: RLRCSourceNetworkFrame,
-  slot: number | 'ball'
-): RLRCRigidBodySample =>
-  slot === 'ball'
-    ? networkFrame.ball.rigidBody
-    : (getCarFromNetworkFrame(networkFrame, slot)?.rigidBody ?? SLEEP_RB);
-
-export function isRigidBodyUpdatedInFrame(
-  networkFrame: RLRCSourceNetworkFrame,
-  slot: number | 'ball'
-): boolean | undefined {
-  const entity = (
-    slot === 'ball' ? networkFrame.ball : getCarFromNetworkFrame(networkFrame, slot)
-  ) as { readonly rbUpdated?: boolean } | undefined;
-  if (typeof entity?.rbUpdated === 'boolean') return entity.rbUpdated;
-  const rigidBody = getRigidBodyFromNetworkFrame(networkFrame, slot) as {
-    readonly rbUpdated?: boolean;
-  };
-  if (typeof rigidBody.rbUpdated === 'boolean') return rigidBody.rbUpdated;
-  const frameMasks = networkFrame as {
-    readonly ballRbUpdated?: boolean;
-    readonly carRbUpdatedMask?: number;
-    readonly rbUpdatedMask?: number;
-    readonly rbUpdated?: number;
-  };
-  if (slot === 'ball' && typeof frameMasks.ballRbUpdated === 'boolean') {
-    return frameMasks.ballRbUpdated;
-  }
-  if (typeof slot === 'number' && typeof frameMasks.carRbUpdatedMask === 'number') {
-    return ((frameMasks.carRbUpdatedMask >>> slot) & 1) === 1;
-  }
-  const combinedMask =
-    typeof frameMasks.rbUpdatedMask === 'number'
-      ? frameMasks.rbUpdatedMask
-      : typeof frameMasks.rbUpdated === 'number'
-        ? frameMasks.rbUpdated
-        : undefined;
-  return combinedMask !== undefined
-    ? ((combinedMask >>> (slot === 'ball' ? 6 : slot)) & 1) === 1
-    : undefined;
+export function getCarFromNetworkFrame(
+  nf: RLRCSourceNetworkFrame,
+  slot: number
+): RLRCCarFrameState120Hz | undefined {
+  return nf.cars[slot]?.slotIndex === slot
+    ? nf.cars[slot]
+    : nf.cars.find((c) => c.slotIndex === slot);
 }
 
-export function buildEntityKeyframeSpan(
-  networkFrames: readonly RLRCSourceNetworkFrame[],
-  rawFrameIndices: readonly number[],
+export function getRbFromNetworkFrame(
+  nf: RLRCSourceNetworkFrame,
+  slot: number | 'ball'
+): RLRCRigidBodySample {
+  return slot === 'ball'
+    ? nf.ball.rigidBody
+    : (getCarFromNetworkFrame(nf, slot)?.rigidBody ?? SLEEP_RB);
+}
+
+function isRbUpdatedOnFrame(
+  nf: RLRCSourceNetworkFrame,
+  slot: number | 'ball'
+): boolean | undefined {
+  const entity = (slot === 'ball' ? nf.ball : getCarFromNetworkFrame(nf, slot)) as
+    { readonly rbUpdated?: boolean } | undefined;
+  if (typeof entity?.rbUpdated === 'boolean') return entity.rbUpdated;
+  const rb = getRbFromNetworkFrame(nf, slot) as { readonly rbUpdated?: boolean };
+  if (typeof rb.rbUpdated === 'boolean') return rb.rbUpdated;
+  if (slot === 'ball' && typeof nf.ballRbUpdated === 'boolean') return nf.ballRbUpdated;
+  if (typeof slot === 'number' && typeof nf.carRbUpdatedMask === 'number') {
+    return ((nf.carRbUpdatedMask >>> slot) & 1) === 1;
+  }
+  const mask = nf.rbUpdatedMask;
+  return typeof mask === 'number' ? ((mask >>> (slot === 'ball' ? 6 : slot)) & 1) === 1 : undefined;
+}
+
+function buildPhaseAlignedKeyframeTimes(
+  nfs: readonly RLRCSourceNetworkFrame[],
+  kf: readonly number[],
+  slot: number | 'ball'
+): number[] {
+  const n = kf.length;
+  if (n === 0) return [];
+  const times = new Array<number>(n);
+  times[0] = nfs[kf[0]].timeSeconds;
+  for (let i = 0; i < n - 1; i++) {
+    const k0 = kf[i];
+    const k1 = kf[i + 1];
+    const tWall1 = nfs[k1].timeSeconds;
+    const dtWall = Math.max(RLRC_FIXED_DT, tWall1 - nfs[k0].timeSeconds);
+    const rb0 = getRbFromNetworkFrame(nfs[k0], slot);
+    const rb1 = getRbFromNetworkFrame(nfs[k1], slot);
+    const dtPhys = resolveEffectivePhysicsDt(
+      rb0.position,
+      rb1.position,
+      rb0.linearVelocity,
+      rb1.linearVelocity,
+      dtWall,
+      isRest(rb0),
+      isRest(rb1)
+    );
+    const candidate = times[i] + dtPhys;
+    const maxPhaseShift = 0.85 * RLRC_FIXED_DT;
+    times[i + 1] = Math.max(
+      times[i] + RLRC_FIXED_DT,
+      clamp(candidate, tWall1 - maxPhaseShift, tWall1 + maxPhaseShift)
+    );
+  }
+  return times;
+}
+
+/**
+ * Builds keyframe indices for a contiguous entity lifespan.
+ * Only inserts `prev` as a stationary hold boundary when the entity is genuinely at rest
+ * (`isRest(rbP)`) or had an explicit server `ReplicatedRBState` update at `prev`.
+ * Never inserts un-updated `prev` frames during moving/airborne replication gaps (`hDt >= 0.095`),
+ * which previously froze flipping cars in mid-air and snapped them in 1 frame.
+ */
+function buildSpan(
+  nfs: readonly RLRCSourceNetworkFrame[],
+  raw: readonly number[],
   slot: number | 'ball'
 ): RLRCEntitySpan {
-  const keyframeIndices: number[] = [];
-  for (let r = 0; r < rawFrameIndices.length; r++) {
-    const idx = rawFrameIndices[r];
-    const prevKf = keyframeIndices[keyframeIndices.length - 1];
-    if (prevKf === undefined) {
-      keyframeIndices.push(idx);
+  const kf: number[] = [];
+  for (let r = 0; r < raw.length; r++) {
+    const idx = raw[r];
+    const p = kf[kf.length - 1];
+    if (p === undefined) {
+      kf.push(idx);
       continue;
     }
-    const rbPrev = getRigidBodyFromNetworkFrame(networkFrames[prevKf], slot);
-    const rbCurr = getRigidBodyFromNetworkFrame(networkFrames[idx], slot);
-    const dt = networkFrames[idx].timeSeconds - networkFrames[prevKf].timeSeconds;
+    const rbP = getRbFromNetworkFrame(nfs[p], slot);
+    const rbC = getRbFromNetworkFrame(nfs[idx], slot);
+    const dt = nfs[idx].timeSeconds - nfs[p].timeSeconds;
     if (dt <= 1e-5) {
-      if (!isDupRb(rbPrev, rbCurr)) {
-        keyframeIndices[keyframeIndices.length - 1] = idx;
-      }
+      if (!isDupRb(rbP, rbC)) kf[kf.length - 1] = idx;
       continue;
     }
-    if (!isDupRb(rbPrev, rbCurr)) {
-      const immediatePrev = rawFrameIndices[r - 1];
-      const holdDt = networkFrames[immediatePrev].timeSeconds - networkFrames[prevKf].timeSeconds;
-      const shouldInsertHoldEndAnchor =
-        immediatePrev > prevKf &&
-        holdDt > 1e-5 &&
-        (isRest(rbPrev) || isRigidBodyUpdatedInFrame(networkFrames[immediatePrev], slot) === true);
-      if (shouldInsertHoldEndAnchor) {
-        keyframeIndices.push(immediatePrev);
+    if (!isDupRb(rbP, rbC)) {
+      const prev = raw[r - 1];
+      const hDt = nfs[prev].timeSeconds - nfs[p].timeSeconds;
+      if (prev > p && hDt > 1e-5 && (isRest(rbP) || isRbUpdatedOnFrame(nfs[prev], slot) === true)) {
+        kf.push(prev);
       }
-      keyframeIndices.push(idx);
+      kf.push(idx);
     }
   }
-  const endNetIdx = rawFrameIndices[rawFrameIndices.length - 1];
-  const lastKf = keyframeIndices[keyframeIndices.length - 1];
-  if (
-    lastKf !== undefined &&
-    endNetIdx > lastKf &&
-    networkFrames[endNetIdx].timeSeconds > networkFrames[lastKf].timeSeconds + 1e-5
-  ) {
-    const rbLast = getRigidBodyFromNetworkFrame(networkFrames[lastKf], slot);
-    if (isRest(rbLast) || isRigidBodyUpdatedInFrame(networkFrames[endNetIdx], slot) === true) {
-      keyframeIndices.push(endNetIdx);
+  const end = raw[raw.length - 1];
+  const last = kf[kf.length - 1];
+  if (last !== undefined && end > last && nfs[end].timeSeconds > nfs[last].timeSeconds + 1e-5) {
+    const rbL = getRbFromNetworkFrame(nfs[last], slot);
+    if (isRest(rbL) || isRbUpdatedOnFrame(nfs[end], slot) === true) {
+      kf.push(end);
     }
   }
   return {
-    startNetIdx: rawFrameIndices[0],
-    endNetIdx,
-    keyframeIndices,
+    startNetIdx: raw[0],
+    endNetIdx: end,
+    keyframeIndices: kf,
+    keyframeTimes: buildPhaseAlignedKeyframeTimes(nfs, kf, slot),
   };
 }
 
 export function extractEntityLifeSpans(
-  networkFrames: readonly RLRCSourceNetworkFrame[],
+  nfs: readonly RLRCSourceNetworkFrame[],
   slot: number | 'ball',
-  allLifeSegments: readonly RLRCSourceEntityLifeSegment[],
-  maxTeleportDistanceUu = 450
+  segsAll: readonly RLRCSourceEntityLifeSegment[],
+  maxTel = 450
 ): RLRCEntitySpan[] {
-  const slotSegments =
-    slot === 'ball' ? [] : allLifeSegments.filter((seg) => seg.slotIndex === slot);
+  const segs = slot === 'ball' ? [] : segsAll.filter((s) => s.slotIndex === slot);
   const spans: RLRCEntitySpan[] = [];
-  let rawIndices: number[] = [];
-  let currentSegmentKey = -1;
-  let lastUpdatedFrameIdx = -1;
+  let raw: number[] = [];
+  let curSeg = -1;
+  let lastRb = -1;
 
-  for (let i = 0; i < networkFrames.length; i++) {
-    const nf = networkFrames[i];
+  for (let i = 0; i < nfs.length; i++) {
+    const nf = nfs[i];
     const isActive =
       slot === 'ball'
         ? nf.ball.entityActive
         : Boolean(getCarFromNetworkFrame(nf, slot)?.entityActive);
     if (!isActive) {
-      if (rawIndices.length > 0) {
-        spans.push(buildEntityKeyframeSpan(networkFrames, rawIndices, slot));
-        rawIndices = [];
+      if (raw.length) {
+        spans.push(buildSpan(nfs, raw, slot));
+        raw = [];
       }
-      currentSegmentKey = -1;
-      lastUpdatedFrameIdx = -1;
+      curSeg = -1;
+      lastRb = -1;
       continue;
     }
-
-    const segIdx = slotSegments.findIndex(
-      (seg) => nf.sourceFrame30Hz >= seg.startFrame30Hz && nf.sourceFrame30Hz <= seg.endFrame30Hz
+    const si = segs.findIndex(
+      (s) => nf.sourceFrame30Hz >= s.startFrame30Hz && nf.sourceFrame30Hz <= s.endFrame30Hz
     );
-    const segmentKey = segIdx >= 0 ? slotSegments[segIdx].carActorId * 100000 + segIdx : -1;
-    const prevRawIdx = rawIndices.length > 0 ? rawIndices[rawIndices.length - 1] : -1;
-    const isKickoffReset =
-      i > 0 && nf.roundCountdownNumber > 0 && networkFrames[i - 1].roundCountdownNumber === 0;
-    const refIdx = lastUpdatedFrameIdx >= 0 ? lastUpdatedFrameIdx : prevRawIdx;
-    const currRb = getRigidBodyFromNetworkFrame(nf, slot);
-
-    let teleported = false;
-    let kinematicJump = false;
-    if (prevRawIdx >= 0 && refIdx >= 0) {
-      const refFrame = networkFrames[refIdx];
-      const refRb = getRigidBodyFromNetworkFrame(refFrame, slot);
-      const dt = clamp(nf.timeSeconds - refFrame.timeSeconds, nf.deltaSeconds || 1 / 30, 0.16);
-      const distance = vDist(currRb.position, refRb.position);
-      const secantSpeed = distance / Math.max(dt, 1e-4);
-      const velRef = calibrateNetStreamVel(refRb.linearVelocity, secantSpeed);
-      const velCurr = calibrateNetStreamVel(currRb.linearVelocity, secantSpeed);
-      const errForward = vDist(currRb.position, vAdd(refRb.position, vScale(velRef, dt)));
-      const errBackward = vDist(refRb.position, vSub(currRb.position, vScale(velCurr, dt)));
-      const errMidpoint = vDist(
-        currRb.position,
-        vAdd(refRb.position, vScale(vAdd(velRef, velCurr), 0.5 * dt))
-      );
-      const minKinematicError = Math.min(errForward, errBackward, errMidpoint);
-      teleported = distance > maxTeleportDistanceUu && minKinematicError > maxTeleportDistanceUu;
-      kinematicJump = teleported || (distance > 25 && minKinematicError > 40);
+    const segId = si >= 0 ? segs[si].carActorId * 100000 + si : -1;
+    const prev = raw.length ? raw[raw.length - 1] : -1;
+    const ko = i > 0 && nf.roundCountdownNumber > 0 && nfs[i - 1].roundCountdownNumber === 0;
+    const ref = lastRb >= 0 ? lastRb : prev;
+    const cRb = getRbFromNetworkFrame(nf, slot);
+    let tel = false;
+    let jmp = false;
+    if (prev >= 0 && ref >= 0) {
+      const rNf = nfs[ref];
+      const rRb = getRbFromNetworkFrame(rNf, slot);
+      const dt = clamp(nf.timeSeconds - rNf.timeSeconds, nf.deltaSeconds || 1 / 30, 0.12);
+      const dist = vDist(cRb.position, rRb.position);
+      const secSpd = dist / Math.max(dt, 1e-4);
+      const vR = calibrateNetStreamVel(rRb.linearVelocity, secSpd);
+      const vC = calibrateNetStreamVel(cRb.linearVelocity, secSpd);
+      const e0 = vDist(cRb.position, vAdd(rRb.position, vScale(vR, dt)));
+      const e1 = vDist(rRb.position, vSub(cRb.position, vScale(vC, dt)));
+      const e2 = vDist(cRb.position, vAdd(rRb.position, vScale(vAdd(vR, vC), 0.5 * dt)));
+      const err = Math.min(e0, e1, e2);
+      tel = dist > maxTel && err > maxTel;
+      jmp = tel || (dist > 25 && err > 40);
     }
-
-    if (
-      prevRawIdx >= 0 &&
-      ((slotSegments.length > 0 && segmentKey !== currentSegmentKey) ||
-        isKickoffReset ||
-        teleported)
-    ) {
-      if (!kinematicJump) {
-        const refRb = getRigidBodyFromNetworkFrame(networkFrames[refIdx], slot);
-        const posInRaw = rawIndices.indexOf(refIdx);
-        if (posInRaw > 0 && refIdx < i && isDupRb(refRb, currRb) && !isRest(refRb)) {
-          spans.push(
-            buildEntityKeyframeSpan(networkFrames, rawIndices.slice(0, posInRaw + 1), slot)
-          );
-          rawIndices = rawIndices.slice(posInRaw);
+    if (prev >= 0 && ((segs.length > 0 && segId !== curSeg) || ko || tel)) {
+      if (!jmp) {
+        const rRb = getRbFromNetworkFrame(nfs[ref], slot);
+        const pRef = raw.indexOf(ref);
+        if (pRef > 0 && ref < i && isDupRb(rRb, cRb) && !isRest(rRb)) {
+          spans.push(buildSpan(nfs, raw.slice(0, pRef + 1), slot));
+          raw = raw.slice(pRef);
         } else {
-          rawIndices.push(i);
-          spans.push(buildEntityKeyframeSpan(networkFrames, rawIndices, slot));
-          rawIndices = [];
+          raw.push(i);
+          spans.push(buildSpan(nfs, raw, slot));
+          raw = [];
         }
       } else {
-        spans.push(buildEntityKeyframeSpan(networkFrames, rawIndices, slot));
-        rawIndices = [];
+        spans.push(buildSpan(nfs, raw, slot));
+        raw = [];
       }
     }
-
     if (
-      rawIndices.length === 0 ||
-      isRigidBodyUpdatedInFrame(nf, slot) === true ||
-      (refIdx >= 0 && !isDupRb(getRigidBodyFromNetworkFrame(networkFrames[refIdx], slot), currRb))
+      !raw.length ||
+      isRbUpdatedOnFrame(nf, slot) === true ||
+      (ref >= 0 && !isDupRb(getRbFromNetworkFrame(nfs[ref], slot), cRb))
     ) {
-      lastUpdatedFrameIdx = i;
+      lastRb = i;
     }
-    rawIndices.push(i);
-    currentSegmentKey = segmentKey;
+    raw.push(i);
+    curSeg = segId;
   }
-
-  if (rawIndices.length > 0) {
-    spans.push(buildEntityKeyframeSpan(networkFrames, rawIndices, slot));
-  }
+  if (raw.length) spans.push(buildSpan(nfs, raw, slot));
   return spans;
 }
 
-export function locateKeyframeBracket(
-  networkFrames: readonly RLRCSourceNetworkFrame[],
+export function locateEntitySpanBracket(
+  nfs: readonly RLRCSourceNetworkFrame[],
   spans: readonly RLRCEntitySpan[],
-  targetTimeSeconds: number,
-  currentNetIdx: number,
-  nearestNetIdx: number,
+  t: number,
+  cur: number,
+  near: number,
   slot: number | 'ball'
-): RLRCKeyframeBracket | null {
-  let span =
+): RLRCEntityBracketMatch | null {
+  let sp =
     spans.find(
       (s) =>
-        nearestNetIdx >= s.startNetIdx &&
-        nearestNetIdx <= s.endNetIdx &&
-        targetTimeSeconds >= networkFrames[s.startNetIdx].timeSeconds &&
-        targetTimeSeconds <= networkFrames[s.endNetIdx].timeSeconds
+        near >= s.startNetIdx &&
+        near <= s.endNetIdx &&
+        t >= nfs[s.startNetIdx].timeSeconds &&
+        t <= nfs[s.endNetIdx].timeSeconds
     ) ??
     spans.find(
-      (s) =>
-        targetTimeSeconds >= networkFrames[s.startNetIdx].timeSeconds - 1e-4 &&
-        targetTimeSeconds <= networkFrames[s.endNetIdx].timeSeconds + 1e-4
+      (s) => t >= nfs[s.startNetIdx].timeSeconds - 1e-4 && t <= nfs[s.endNetIdx].timeSeconds + 1e-4
     ) ??
-    spans.find((s) => nearestNetIdx >= s.startNetIdx && nearestNetIdx <= s.endNetIdx);
-
-  if (!span) {
-    const prevSpan = spans.find((s) => s.endNetIdx === currentNetIdx);
-    const nextSpan = spans.find((s) => s.startNetIdx === currentNetIdx + 1);
-    if (prevSpan && (nextSpan || nearestNetIdx === currentNetIdx)) {
-      span = prevSpan;
-    } else if (nextSpan && nearestNetIdx === currentNetIdx + 1) {
-      span = nextSpan;
-    }
+    spans.find((s) => near >= s.startNetIdx && near <= s.endNetIdx);
+  if (!sp) {
+    const spP = spans.find((s) => s.endNetIdx === cur);
+    const spN = spans.find((s) => s.startNetIdx === cur + 1);
+    if (spP && (spN || near === cur)) sp = spP;
+    else if (spN && near === cur + 1) sp = spN;
   }
-  if (!span || span.keyframeIndices.length === 0) return null;
-
-  const kf = span.keyframeIndices;
-  const lastKf = kf[kf.length - 1];
-  if (kf.length === 1 || targetTimeSeconds <= networkFrames[kf[0]].timeSeconds) {
+  if (!sp || !sp.keyframeIndices.length) return null;
+  const kf = sp.keyframeIndices;
+  const kt = sp.keyframeTimes;
+  const getKfTime = (idx: number): number =>
+    kt && kt.length === kf.length ? kt[idx] : nfs[kf[idx]].timeSeconds;
+  const last = kf[kf.length - 1];
+  if (kf.length === 1 || t <= getKfTime(0)) {
     return { k0Idx: kf[0], k1Idx: kf[0], alpha: 0, dt: 0, rest0: false, rest1: false };
   }
-  if (targetTimeSeconds >= networkFrames[lastKf].timeSeconds) {
-    return { k0Idx: lastKf, k1Idx: lastKf, alpha: 0, dt: 0, rest0: false, rest1: false };
+  if (t >= getKfTime(kf.length - 1)) {
+    return { k0Idx: last, k1Idx: last, alpha: 0, dt: 0, rest0: false, rest1: false };
   }
 
   let lo = 0;
   let hi = kf.length - 1;
   while (lo + 1 < hi) {
     const mid = (lo + hi) >>> 1;
-    if (networkFrames[kf[mid]].timeSeconds <= targetTimeSeconds) lo = mid;
+    if (getKfTime(mid) <= t) lo = mid;
     else hi = mid;
   }
-
   const k0Idx = kf[lo];
   const k1Idx = kf[hi];
-  const t0 = networkFrames[k0Idx].timeSeconds;
-  const dt = networkFrames[k1Idx].timeSeconds - t0;
-  const rb0 = getRigidBodyFromNetworkFrame(networkFrames[k0Idx], slot);
-  const rb1 = getRigidBodyFromNetworkFrame(networkFrames[k1Idx], slot);
+  const t0 = getKfTime(lo);
+  const dt = getKfTime(hi) - t0;
+  const rb0 = getRbFromNetworkFrame(nfs[k0Idx], slot);
+  const rb1 = getRbFromNetworkFrame(nfs[k1Idx], slot);
   return {
     k0Idx,
     k1Idx,
-    alpha: dt > 1e-6 ? clamp((targetTimeSeconds - t0) / dt, 0, 1) : 0,
+    alpha: dt > 1e-6 ? clamp((t - t0) / dt, 0, 1) : 0,
     dt,
-    rest0: lo > 0 && isDupRb(getRigidBodyFromNetworkFrame(networkFrames[kf[lo - 1]], slot), rb0),
-    rest1:
-      hi + 1 < kf.length &&
-      isDupRb(rb1, getRigidBodyFromNetworkFrame(networkFrames[kf[hi + 1]], slot)),
+    rest0: lo > 0 && isDupRb(getRbFromNetworkFrame(nfs[kf[lo - 1]], slot), rb0),
+    rest1: hi + 1 < kf.length && isDupRb(rb1, getRbFromNetworkFrame(nfs[kf[hi + 1]], slot)),
   };
 }

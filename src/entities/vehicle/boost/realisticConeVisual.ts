@@ -1,9 +1,17 @@
 import { PLUME_TEXTURE, TURBULENCE_TEXTURE, SPARKS_TEXTURE } from './boostCurves.ts';
+import type { RealisticBoostParticleTextureSet } from './RealisticBoostParticleMesh.ts';
 import * as THREE from 'three';
 
-let cachedGoldenBoostTextures: any = null;
+export interface GoldenBoostTextureSet {
+  textures: RealisticBoostParticleTextureSet;
+  water: THREE.Texture;
+  particleSheet: THREE.Texture;
+  ready: Promise<void>;
+}
 
-export function setupBoostTexture(tex, repeatWrap) {
+let cachedGoldenBoostTextures: GoldenBoostTextureSet | null = null;
+
+export function setupBoostTexture(tex: THREE.Texture, repeatWrap: boolean): THREE.Texture {
   const { SRGBColorSpace, RepeatWrapping } = THREE;
   tex.colorSpace = SRGBColorSpace;
   tex.anisotropy = 4;
@@ -14,24 +22,24 @@ export function setupBoostTexture(tex, repeatWrap) {
   return tex;
 }
 
-export function loadGoldenBoostTextures() {
+export function loadGoldenBoostTextures(): GoldenBoostTextureSet {
   if (cachedGoldenBoostTextures) return cachedGoldenBoostTextures;
 
   const { TextureLoader } = THREE;
   const loader = new TextureLoader();
-  const promises: any[] = [];
+  const promises: Array<Promise<void>> = [];
 
-  const loadTex = (url, repeat) => {
-    let t;
+  const loadTex = (url: string, repeat: boolean): THREE.Texture => {
+    let loadedTex!: THREE.Texture;
     promises.push(
       new Promise<void>((resolve, reject) => {
-        t = setupBoostTexture(
+        loadedTex = setupBoostTexture(
           loader.load(url, () => resolve(), undefined, reject),
           repeat
         );
       })
     );
-    return t;
+    return loadedTex;
   };
 
   const plume = loadTex(PLUME_TEXTURE, false);
@@ -57,11 +65,16 @@ export function loadGoldenBoostTextures() {
 /**
  * Procedural cone geometry for realistic boost exhaust.
  */
-export function createRealisticBoostConeGeometry(radius, length, radialSegs = 28, heightSegs = 18) {
+export function createRealisticBoostConeGeometry(
+  radius: number,
+  length: number,
+  radialSegs = 28,
+  heightSegs = 18
+): THREE.BufferGeometry {
   const { BufferGeometry, BufferAttribute } = THREE;
-  const positions: any[] = [];
-  const uvs: any[] = [];
-  const indices: any[] = [];
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
 
   for (let heightStep = 0; heightStep <= heightSegs; heightStep++) {
     const fraction = heightStep / heightSegs;
@@ -101,7 +114,11 @@ export function createRealisticBoostConeGeometry(radius, length, radialSegs = 28
 /**
  * Procedural shader material for realistic boost exhaust cone.
  */
-export function createRealisticBoostConeMaterial(waterMap, particleSheetMap, layer) {
+export function createRealisticBoostConeMaterial(
+  waterMap: THREE.Texture | null,
+  particleSheetMap: THREE.Texture | null,
+  layer: number
+): THREE.ShaderMaterial {
   const { ShaderMaterial, NormalBlending, DoubleSide } = THREE;
   return new ShaderMaterial({
     uniforms: {

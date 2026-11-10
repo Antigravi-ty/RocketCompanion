@@ -1,5 +1,5 @@
 /**
- * rlrcFrameSnapshotAndBookmarkBuilder.ts
+ * RLRCFrameSnapshotAndBookmarkBuilder.ts
  * Pure pipeline functions for constructing 30Hz RLRC source network frames,
  * car state snapshots, and demolish bookmark records from tracked slot states.
  */
@@ -14,18 +14,19 @@ import {
   type RLRCTeamIndex,
   type RLRCVec3,
 } from '../RLRCReplayTypes.ts';
+import type { RLRCBallFrameSnapshot30Hz } from './RLRCBallLifecycleExtractor.ts';
 import {
-  asRecord,
   DEFAULT_ACTIVE_FLAGS,
   DEFAULT_CAR_RB,
-  extractActiveActorId,
+  extractActorIdFromAttr,
   NEUTRAL_CONTROLS,
+  recAttr,
   RLRC_DEFAULT_SPAWN_BOOST,
   RLRC_FLIP_EXPIRATION_SECONDS,
   RLRC_SUPERSONIC_SPEED_UU_S,
-} from './rlrcRigidBodyAttributePrimitives.ts';
+} from './RLRCNetStreamAttributeDecoders.ts';
 
-export interface PlayerSlotTrackingState {
+export interface RLRCPlayerSlotTrackingState {
   carId: number;
   entityActive: boolean;
   spawnFrameIndex: number;
@@ -43,8 +44,8 @@ export interface PlayerSlotTrackingState {
   flippedInAir: boolean;
 }
 
-export function createInitialPlayerSlotTrackingStates(): PlayerSlotTrackingState[] {
-  return Array.from({ length: RLRC_MAX_PLAYER_SLOTS }, (): PlayerSlotTrackingState => ({
+export function createInitialPlayerSlotTrackingStates(): RLRCPlayerSlotTrackingState[] {
+  return Array.from({ length: RLRC_MAX_PLAYER_SLOTS }, (): RLRCPlayerSlotTrackingState => ({
     carId: -1,
     entityActive: false,
     spawnFrameIndex: -2,
@@ -64,7 +65,7 @@ export function createInitialPlayerSlotTrackingStates(): PlayerSlotTrackingState
 }
 
 export function deactivatePlayerSlotState(
-  slotState: PlayerSlotTrackingState,
+  slotState: RLRCPlayerSlotTrackingState,
   clearCarId = false
 ): void {
   if (clearCarId) slotState.carId = -1;
@@ -80,7 +81,7 @@ export function deactivatePlayerSlotState(
 }
 
 export function bindCarPawnToSlotState(params: {
-  readonly slotState: PlayerSlotTrackingState;
+  readonly slotState: RLRCPlayerSlotTrackingState;
   readonly actorId: number;
   readonly frameIdx: number;
   readonly isHidden: boolean;
@@ -113,7 +114,7 @@ export function bindCarPawnToSlotState(params: {
 }
 
 export function applyCarRigidBodySampleToSlot(params: {
-  readonly slotState: PlayerSlotTrackingState;
+  readonly slotState: RLRCPlayerSlotTrackingState;
   readonly slotIdx: number;
   readonly actorId: number;
   readonly frameIdx: number;
@@ -206,8 +207,8 @@ export function buildDemolishBookmarkRecord(params: {
     resolveSlotForCar,
   } = params;
 
-  const demolishData = asRecord(attrRecord?.DemolishExtended ?? attrRecord?.Demolish) ?? attrRecord;
-  const victimCar = demolishData ? extractActiveActorId(demolishData.victim) : actorId;
+  const demolishData = recAttr(attrRecord?.DemolishExtended ?? attrRecord?.Demolish) ?? attrRecord;
+  const victimCar = demolishData ? extractActorIdFromAttr(demolishData.victim) : actorId;
   const targetCarId = victimCar >= 0 ? victimCar : actorId;
   const victimPriId = carPriById.get(targetCarId) ?? lastPriByCarId.get(targetCarId) ?? -1;
   const directCarSlot = resolveSlotForCar(targetCarId);
@@ -221,7 +222,7 @@ export function buildDemolishBookmarkRecord(params: {
   }
 
   const attackerPriId = demolishData
-    ? extractActiveActorId(demolishData.attacker_pri ?? demolishData.attacker)
+    ? extractActorIdFromAttr(demolishData.attacker_pri ?? demolishData.attacker)
     : -1;
   const attackerName = playerNameByPriId.get(attackerPriId) ?? 'Player';
   const victimName = playerNameByPriId.get(victimPriId) ?? `Slot ${Math.max(0, victimSlot)}`;
@@ -240,37 +241,10 @@ export function buildDemolishBookmarkRecord(params: {
   };
 }
 
-export function buildSourceNetworkFrameSnapshot(params: {
-  readonly frameIdx: number;
-  readonly timeSeconds: number;
-  readonly deltaSeconds: number;
-  readonly secondsRemaining: number;
-  readonly isOvertime: boolean;
-  readonly roundCountdownNumber: number;
-  readonly blueScore: number;
-  readonly orangeScore: number;
-  readonly ballActive: boolean;
-  readonly ballRbUpdated: boolean;
-  readonly ballActorId: number;
-  readonly ballRigidBody: RLRCRigidBodySample;
-  readonly slots: readonly PlayerSlotTrackingState[];
-}): RLRCSourceNetworkFrame {
-  const {
-    frameIdx,
-    timeSeconds,
-    deltaSeconds,
-    secondsRemaining,
-    isOvertime,
-    roundCountdownNumber,
-    blueScore,
-    orangeScore,
-    ballActive,
-    ballRbUpdated,
-    ballActorId,
-    ballRigidBody,
-    slots,
-  } = params;
-
+export function buildSourceFrameCars(
+  slots: readonly RLRCPlayerSlotTrackingState[],
+  timeSeconds: number
+): { cars: RLRCCarFrameState120Hz[]; carRbUpdatedMask: number } {
   let carRbUpdatedMask = 0;
   const cars = slots.map((slotState, slotIndex): RLRCCarFrameState120Hz => {
     const rbUpdated = slotState.entityActive && slotState.rbUpdated;
@@ -329,10 +303,36 @@ export function buildSourceNetworkFrameSnapshot(params: {
         : NEUTRAL_CONTROLS,
     };
   });
+  return { cars, carRbUpdatedMask };
+}
 
-  const ballUpdated = ballActive && ballRbUpdated;
-  const ballOut = { ...ballRigidBody, rbUpdated: ballUpdated };
-  const activeBallActorId = ballActive ? ballActorId : -1;
+export function buildSourceNetworkFrameSnapshot(params: {
+  readonly frameIdx: number;
+  readonly timeSeconds: number;
+  readonly deltaSeconds: number;
+  readonly secondsRemaining: number;
+  readonly isOvertime: boolean;
+  readonly roundCountdownNumber: number;
+  readonly blueScore: number;
+  readonly orangeScore: number;
+  readonly ballSnapshot: RLRCBallFrameSnapshot30Hz;
+  readonly slots: readonly RLRCPlayerSlotTrackingState[];
+}): RLRCSourceNetworkFrame {
+  const {
+    frameIdx,
+    timeSeconds,
+    deltaSeconds,
+    secondsRemaining,
+    isOvertime,
+    roundCountdownNumber,
+    blueScore,
+    orangeScore,
+    ballSnapshot,
+    slots,
+  } = params;
+
+  const { cars, carRbUpdatedMask } = buildSourceFrameCars(slots, timeSeconds);
+  const ballRbUpdated = ballSnapshot.ballRbUpdated;
 
   return {
     sourceFrame30Hz: frameIdx,
@@ -343,17 +343,11 @@ export function buildSourceNetworkFrameSnapshot(params: {
     roundCountdownNumber,
     blueScore,
     orangeScore,
-    ball: {
-      entityActive: ballActive,
-      rigidBody: ballOut,
-      rbUpdated: ballUpdated,
-      activeBallActorId,
-      actorId: activeBallActorId,
-    },
+    ball: ballSnapshot.ball,
     cars,
-    ballRbUpdated: ballUpdated,
+    ballRbUpdated,
     carRbUpdatedMask,
-    rbUpdatedMask: carRbUpdatedMask | (ballUpdated ? 1 << RLRC_MAX_PLAYER_SLOTS : 0),
-    activeBallActorId,
+    rbUpdatedMask: carRbUpdatedMask | (ballRbUpdated ? 1 << RLRC_MAX_PLAYER_SLOTS : 0),
+    activeBallActorId: ballSnapshot.activeBallActorId,
   };
 }

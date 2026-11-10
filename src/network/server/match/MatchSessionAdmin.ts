@@ -91,13 +91,13 @@ export interface MatchSessionAdminOptions extends MatchDomainStateOptions {
 export class MatchSessionAdmin {
   readonly domain: MatchDomainState;
 
-  physicsManager: AdminPhysicsManagerPort | null | undefined;
-  sessionManager: AdminSessionManagerPort | null | undefined;
-  dataHandler: AdminDataHandlerPort | null;
+  private _physicsManager: AdminPhysicsManagerPort | null | undefined;
+  private _sessionManager: AdminSessionManagerPort | null | undefined;
+  private _dataHandler: AdminDataHandlerPort | null;
+  private _replayBuffer: ReplayRingBuffer;
   diagnosticsController: PhaseLifecycleDiagnosticsPort;
   onClearRetainedReplay: ClearRetainedReplayCallback | null;
   onRetainCompletedReplay: RetainCompletedReplayCallback | null;
-  replayBuffer: ReplayRingBuffer;
 
   readonly roster: MatchRosterSubController;
   readonly commandQueue: MatchCommandQueueSubController;
@@ -108,9 +108,9 @@ export class MatchSessionAdmin {
   constructor(options: MatchSessionAdminOptions = {}) {
     this.domain = new MatchDomainState(options);
 
-    this.physicsManager = options.physicsManager;
-    this.sessionManager = options.sessionManager;
-    this.dataHandler = options.dataHandler || null;
+    this._physicsManager = options.physicsManager;
+    this._sessionManager = options.sessionManager;
+    this._dataHandler = options.dataHandler || null;
     this.diagnosticsController =
       options.diagnosticsController ||
       (new DiagnosticsTestVehicleController(
@@ -119,96 +119,129 @@ export class MatchSessionAdmin {
     this.onClearRetainedReplay = options.onClearRetainedReplay || null;
     this.onRetainCompletedReplay = options.onRetainCompletedReplay || null;
 
-    this.replayBuffer = new ReplayRingBuffer({
+    this._replayBuffer = new ReplayRingBuffer({
       mode: this.domain.isTrainingMode
         ? REPLAY_BUFFER_MODES.COUNTUP_FIFO
         : REPLAY_BUFFER_MODES.COUNTDOWN_MATCH,
       capacityTicks: options.replayCapacityTicks,
     });
 
-    const bindAdminPort = <T extends Record<string, unknown>>(port: T): T & this => {
-      const bound = Object.create(this) as T & this;
-      for (const [k, v] of Object.entries(port)) {
-        (bound as Record<string, unknown>)[k] = v;
-      }
-      return bound;
-    };
+    this.roster = new MatchRosterSubController({
+      domain: this.domain,
+      physicsManager: this._physicsManager,
+      sessionManager: this._sessionManager,
+      dataHandler: this._dataHandler,
+    });
 
-    const removeSessionVotes = (sid: string): void => {
-      this.commandQueue.removeSessionVotes(sid);
-    };
-    const triggerLobbyAutoStart = (): void => {
-      this.lifecycle.initiateMatchPrepare();
-    };
+    this.commandQueue = new MatchCommandQueueSubController({
+      domain: this.domain,
+      roster: this.roster,
+      physicsManager: this._physicsManager,
+      sessionManager: this._sessionManager,
+      dataHandler: this._dataHandler,
+      replayBuffer: this._replayBuffer,
+    });
 
-    this.roster = new MatchRosterSubController(
-      bindAdminPort({
-        domain: this.domain,
-        dispatchSignal: (t: number, f: number, p1?: number, p2?: number) =>
-          this.commandQueue.dispatchSignal(t, f, p1, p2),
-        onPlayerSessionRemoved: removeSessionVotes,
-        onLobbyAutoStartTriggered: triggerLobbyAutoStart,
-      })
-    );
-
-    this.commandQueue = new MatchCommandQueueSubController(
-      bindAdminPort({
-        domain: this.domain,
-        roster: this.roster,
-        actions: {
-          initiateMatchPrepare: (dur?: number | null, timeout?: number) =>
-            this.lifecycle.initiateMatchPrepare(dur, timeout),
-          checkArenaLoadedBarrier: () => this.lifecycle.checkArenaLoadedBarrier(),
-          startMatch: (dur?: number | null) => this.lifecycle.startMatch(dur),
-          finishGoalReplay: () => this.goalReplay.finishGoalReplay(),
-          setPaused: (pause: boolean) => this.lifecycle.setPaused(pause),
-          requestResumeWithCountdown: (sec?: number) =>
-            this.lifecycle.requestResumeWithCountdown(sec),
-          endMatch: (w?: number | null, r?: number) => this.lifecycle.endMatch(w, r),
-          enterStateOnlyMode: (snap?: Float32Array | number[] | null, tick?: number) =>
-            this.systemControl.enterStateOnlyMode(snap, tick),
-          beginInterveneCountdown: (sec?: number, snap?: Float32Array | number[] | null) =>
-            this.systemControl.beginInterveneCountdown(sec, snap),
-          resumePhysicsFromState: (snap?: Float32Array | number[] | null, tick?: number) =>
-            this.systemControl.resumePhysicsFromState(snap, tick),
-        },
-      })
-    );
-
+    const self = this;
     this.goalReplay = new MatchGoalReplaySubController(
-      bindAdminPort({
+      {
         domain: this.domain,
         commandQueue: this.commandQueue,
-        actions: {
-          resetTrainingPlay: () => this.lifecycle.resetTrainingPlay(),
-          startKickoffSequence: (ticks?: number) => this.lifecycle.startKickoffSequence(ticks),
-          endMatch: (w?: number | null, r?: number) => this.lifecycle.endMatch(w, r),
+        get actions() {
+          return self.lifecycle;
         },
-      }),
+        get replayBuffer() {
+          return self._replayBuffer;
+        },
+        get physicsManager() {
+          return self._physicsManager;
+        },
+      },
       {
         goalReplayLookbackSeconds: options.goalReplayLookbackSeconds,
         goalReplayPostGoalSeconds: options.goalReplayPostGoalSeconds,
       }
     );
 
-    this.systemControl = new MatchSystemControlSubController(
-      bindAdminPort({
-        domain: this.domain,
-        commandQueue: this.commandQueue,
-        encodeFramePacket: (snap: LifecyclePhysicsSnapshotPort | null) =>
-          this.lifecycle.encodeFramePacket(snap),
-      })
-    );
+    this.systemControl = new MatchSystemControlSubController({
+      domain: this.domain,
+      commandQueue: this.commandQueue,
+      get physicsManager() {
+        return self._physicsManager;
+      },
+      get replayBuffer() {
+        return self._replayBuffer;
+      },
+      encodeFramePacket: (snap: LifecyclePhysicsSnapshotPort | null) =>
+        this.lifecycle.encodeFramePacket(snap),
+    });
 
-    this.lifecycle = new MatchPhaseLifecycleSubController(
-      bindAdminPort({
-        domain: this.domain,
-        roster: this.roster,
-        commandQueue: this.commandQueue,
-        goalReplay: this.goalReplay,
-        systemControl: this.systemControl,
-      }) as unknown as ConstructorParameters<typeof MatchPhaseLifecycleSubController>[0]
-    );
+    this.lifecycle = new MatchPhaseLifecycleSubController({
+      domain: this.domain,
+      roster: this.roster,
+      commandQueue: this.commandQueue,
+      goalReplay: this.goalReplay,
+      systemControl: this.systemControl,
+      get physicsManager() {
+        return self._physicsManager;
+      },
+      get sessionManager() {
+        return self._sessionManager;
+      },
+      get diagnosticsController() {
+        return self.diagnosticsController;
+      },
+      get replayBuffer() {
+        return self._replayBuffer as unknown as MatchPhaseLifecycleSubController['host']['replayBuffer'];
+      },
+      get onClearRetainedReplay() {
+        return self.onClearRetainedReplay;
+      },
+      get onRetainCompletedReplay() {
+        return self.onRetainCompletedReplay;
+      },
+    });
+
+    this.roster.signalPort = this.commandQueue;
+    this.roster.lobbyAutoStarter = this.lifecycle;
+    this.commandQueue.lifecycle = this.lifecycle;
+    this.commandQueue.goalReplay = this.goalReplay;
+    this.commandQueue.systemControl = this.systemControl;
+  }
+
+  get physicsManager(): AdminPhysicsManagerPort | null | undefined {
+    return this._physicsManager;
+  }
+  set physicsManager(value: AdminPhysicsManagerPort | null | undefined) {
+    this._physicsManager = value;
+    this.roster.physicsManager = value;
+    this.commandQueue.physicsManager = value;
+  }
+
+  get sessionManager(): AdminSessionManagerPort | null | undefined {
+    return this._sessionManager;
+  }
+  set sessionManager(value: AdminSessionManagerPort | null | undefined) {
+    this._sessionManager = value;
+    this.roster.sessionManager = value;
+    this.commandQueue.sessionManager = value;
+  }
+
+  get dataHandler(): AdminDataHandlerPort | null {
+    return this._dataHandler;
+  }
+  set dataHandler(value: AdminDataHandlerPort | null) {
+    this._dataHandler = value;
+    this.roster.dataHandler = value;
+    this.commandQueue.dataHandler = value;
+  }
+
+  get replayBuffer(): ReplayRingBuffer {
+    return this._replayBuffer;
+  }
+  set replayBuffer(value: ReplayRingBuffer) {
+    this._replayBuffer = value;
+    this.commandQueue.replayBuffer = value;
   }
 
   getSnapshot(): MatchSessionSnapshot {
@@ -225,11 +258,11 @@ export class MatchSessionAdmin {
 
   destroy(): void {
     this.commandQueue.dispatchSignal(MATCH_SIGNALS.MATCH_DESTROYED, this.domain.matchTick, 0, 0);
-    if (this.dataHandler && typeof this.dataHandler.dispatchFrameToSessions === 'function') {
+    if (this._dataHandler && typeof this._dataHandler.dispatchFrameToSessions === 'function') {
       try {
         const finalBytes = this.lifecycle.encodeFramePacket(null);
         if (finalBytes && finalBytes.length > 0) {
-          this.dataHandler.dispatchFrameToSessions(finalBytes);
+          this._dataHandler.dispatchFrameToSessions(finalBytes);
         }
       } catch (err) {
         console.warn('[MatchSessionAdmin] Failed to flush MATCH_DESTROYED packet on destroy:', err);
@@ -239,6 +272,6 @@ export class MatchSessionAdmin {
     this.commandQueue.clear();
     this.goalReplay.clear();
     this.systemControl.clear();
-    this.replayBuffer?.clear();
+    this._replayBuffer?.clear();
   }
 }

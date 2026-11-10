@@ -1,10 +1,6 @@
 import React from 'react';
-import { useAppStore } from '../../ui-core/stores/appStore.ts';
-import { type AppState } from '../../ui-core/stores/appStoreTypes.ts';
 import { type ActiveMenuRoute } from '../../ui-core/config/uiConfig.ts';
 import { type MenuPanelId } from '../../ui-core/tokens/menuLayoutTokens.ts';
-import { useExperimentalMultiBotsStore } from '../../ui-core/stores/experimentalMultiBotsStore.ts';
-import { useStaticTrainingPackStore } from '../../ui-core/stores/staticTrainingPackStore.ts';
 import { Layer1MainMenuRecipe } from '../../ui-core/recipes/Layer1MainMenuRecipe.tsx';
 import { Layer2PlayRecipe } from '../../ui-core/recipes/Layer2PlayRecipe.tsx';
 import { Layer2GarageRecipe } from '../../ui-core/recipes/Layer2GarageRecipe.tsx';
@@ -36,20 +32,14 @@ import { Layer4AdvancedAudioRecipe } from '../../ui-core/recipes/Layer4AdvancedA
 import { Layer4EventTriggerRulesRecipe } from '../../ui-core/recipes/Layer4EventTriggerRulesRecipe.tsx';
 import { Layer4StaticTrainingPackBrowseRecipe } from '../../ui-core/recipes/Layer4StaticTrainingPackBrowseRecipe.tsx';
 import { Layer4DevSignalingLabRecipe } from '../../ui-core/recipes/Layer4DevSignalingLabRecipe.tsx';
-import { openStaticTrainingExitConfirmDialogue as openPureStaticTrainingExitConfirmDialogue } from '../../ui-core/recipes/StaticTrainingShotInspectorDrawer.tsx';
+import {
+  dispatchMainMenuTabAction,
+  dispatchPlayMenuTabAction,
+  leaveOnlineRoomAndCloseMenu,
+  type MenuRouteRenderContext,
+} from './menuRouteNavigationPipeline.ts';
 
-function openStaticTrainingExitConfirmDialogue(
-  onExitConfirmed?: (action: 'save' | 'ignore') => void | Promise<void>
-): void {
-  openPureStaticTrainingExitConfirmDialogue(async (action) => {
-    if (action === 'save') {
-      await useStaticTrainingPackStore.getState().commitEditSessionToMainDb();
-    } else {
-      await useStaticTrainingPackStore.getState().discardEditSessionChanges();
-    }
-    await onExitConfirmed?.(action);
-  });
-}
+export type { MenuRouteRenderContext };
 
 export const ROUTE_TO_PANEL_ID: Record<ActiveMenuRoute, MenuPanelId> = {
   'main-menu': 'layer1-main',
@@ -86,23 +76,35 @@ export const ROUTE_TO_PANEL_ID: Record<ActiveMenuRoute, MenuPanelId> = {
   'dev-tem-pack-converter': 'layer4-static-training-pack',
 };
 
-export interface MenuRouteRenderContext {
-  activeRoute: ActiveMenuRoute;
-  isLight: boolean;
-  isStaticTrainingEditActive: boolean;
-  settingsTargetTab: string;
-  setSettingsTargetTab: (tab: string) => void;
-  highlightSetting: string | null;
-  clearHighlightSetting: () => void;
-  bridge: AppState['bridge'];
-  navigate: (route: ActiveMenuRoute) => void;
-  goBack: () => void;
-  closeMenu: () => void;
-  setMatchMode: AppState['setMatchMode'];
-  handleTriggerCollapse: () => void;
-  resetLivePreviewToExpanded: () => void;
-  expConfigParentRef: React.MutableRefObject<ActiveMenuRoute>;
-  exhibitionParentRef: React.MutableRefObject<ActiveMenuRoute>;
+function createBackRouteRenderer(
+  RecipeComponent: React.ComponentType<{ isLight: boolean; onBack: () => void }>
+): (ctx: MenuRouteRenderContext) => React.ReactNode {
+  return ({ isLight, goBack }) => <RecipeComponent isLight={isLight} onBack={goBack} />;
+}
+
+function createLivePreviewRouteRenderer(
+  RecipeComponent: React.ComponentType<{ isLight: boolean; onBack: () => void }>
+): (ctx: MenuRouteRenderContext) => React.ReactNode {
+  return ({ isLight, resetLivePreviewToExpanded, goBack }) => (
+    <RecipeComponent
+      isLight={isLight}
+      onBack={() => {
+        resetLivePreviewToExpanded();
+        goBack();
+      }}
+    />
+  );
+}
+
+function createExpConfigRouteRenderer(
+  RecipeComponent: React.ComponentType<{ isLight: boolean; onBack: () => void }>
+): (ctx: MenuRouteRenderContext) => React.ReactNode {
+  return ({ isLight, navigate, expConfigParentRef }) => (
+    <RecipeComponent
+      isLight={isLight}
+      onBack={() => navigate(expConfigParentRef.current || 'dev-sandboxes')}
+    />
+  );
 }
 
 export const MENU_ROUTE_RENDERERS: Record<
@@ -113,225 +115,70 @@ export const MENU_ROUTE_RENDERERS: Record<
     <Layer1MainMenuRecipe
       isLight={ctx.isLight}
       onBack={ctx.closeMenu}
-      onTabChange={(target) => {
-        if (target === 'play') {
-          ctx.navigate('play');
-        } else if (target === 'garage') {
-          ctx.navigate('garage');
-        } else if (target.startsWith('settings')) {
-          const tab = target.split(':')[1];
-          if (tab) ctx.setSettingsTargetTab(tab);
-          ctx.navigate('settings');
-        } else if (target === 'manage-room') {
-          ctx.navigate('manage-room');
-        } else if (target === 'exp-multi-bots') {
-          const expState = useExperimentalMultiBotsStore.getState();
-          if (expState.isExhibitionMode) {
-            ctx.exhibitionParentRef.current = 'main-menu';
-            ctx.navigate('exhibition');
-          } else if (expState.activeSubMode === 'botpack') {
-            ctx.expConfigParentRef.current = 'main-menu';
-            ctx.navigate('exp-botpack-9700488');
-          } else {
-            ctx.expConfigParentRef.current = 'main-menu';
-            ctx.navigate('exp-multi-bots');
-          }
-        } else if (target === 'restart-match') {
-          ctx.bridge.onRestartMatch?.();
-        } else if (target === 'return-freeplay') {
-          ctx.setMatchMode('freeplay');
-          ctx.closeMenu();
-          ctx.bridge.onReturnToFreeplay?.();
-        } else if (target === 'leave-room') {
-          void (async () => {
-            if (ctx.bridge.onLeaveOnlineServer) {
-              await ctx.bridge.onLeaveOnlineServer();
-            }
-            ctx.setMatchMode('freeplay');
-            ctx.closeMenu();
-          })();
-        } else if (target === 'exit-edit-mode') {
-          openStaticTrainingExitConfirmDialogue(() => {
-            ctx.closeMenu();
-            ctx.bridge.onReturnToFreeplay?.();
-          });
-        }
-      }}
+      onTabChange={(target) => dispatchMainMenuTabAction(target, ctx)}
     />
   ),
-
   play: (ctx) => (
     <Layer2PlayRecipe
       isLight={ctx.isLight}
       onBack={ctx.goBack}
-      onTabChange={(modeId) => {
-        if (modeId === 'exhibition') {
-          ctx.exhibitionParentRef.current = 'play';
-          ctx.navigate('exhibition');
-        } else if (modeId === 'host-match') {
-          useAppStore.getState().setOnlineSession({ roomType: 'match', gameMode: '1v1' });
-          ctx.navigate('host-match');
-        } else if (modeId === 'join-room') {
-          useAppStore.getState().setOnlineSession({ roomType: 'match', gameMode: '1v1' });
-          ctx.navigate('join-room');
-        } else if (modeId === 'self-training') {
-          ctx.navigate('self-training');
-        } else if (modeId === 'online-training') {
-          ctx.navigate('host-training');
-        } else if (modeId === 'advanced') {
-          ctx.navigate('custom-play');
-        }
-      }}
+      onTabChange={(modeId) => dispatchPlayMenuTabAction(modeId, ctx)}
     />
   ),
-
-  'self-training': (ctx) => <Layer3SelfTrainingRecipe isLight={ctx.isLight} onBack={ctx.goBack} />,
-
-  'static-training-pack': (ctx) => (
-    <Layer4StaticTrainingPackBrowseRecipe
-      isLight={ctx.isLight}
-      isDevMode={false}
-      onBack={ctx.goBack}
-    />
+  'self-training': createBackRouteRenderer(Layer3SelfTrainingRecipe),
+  'static-training-pack': ({ isLight, goBack }) => (
+    <Layer4StaticTrainingPackBrowseRecipe isLight={isLight} isDevMode={false} onBack={goBack} />
   ),
-
-  'kickoff-training': (ctx) => (
-    <Layer3KickoffTrainingRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
+  'kickoff-training': createBackRouteRenderer(Layer3KickoffTrainingRecipe),
+  'host-match': ({ isLight, goBack }) => (
+    <Layer3HostMatchRecipe isLight={isLight} roomType="match" onBack={goBack} />
   ),
-
-  'host-match': (ctx) => (
-    <Layer3HostMatchRecipe isLight={ctx.isLight} roomType="match" onBack={ctx.goBack} />
-  ),
-
-  'join-room': (ctx) => <Layer3JoinRoomRecipe isLight={ctx.isLight} onBack={ctx.goBack} />,
-
-  'host-training': (ctx) => <Layer3HostTrainingRecipe isLight={ctx.isLight} onBack={ctx.goBack} />,
-
-  'custom-play': (ctx) => <Layer3CustomPlayRecipe isLight={ctx.isLight} onBack={ctx.goBack} />,
-
+  'join-room': createBackRouteRenderer(Layer3JoinRoomRecipe),
+  'host-training': createBackRouteRenderer(Layer3HostTrainingRecipe),
+  'custom-play': createBackRouteRenderer(Layer3CustomPlayRecipe),
   'manage-room': (ctx) => (
     <Layer2ManageRoomRecipe
       isLight={ctx.isLight}
       onBack={ctx.goBack}
-      onCloseRoom={async () => {
-        if (ctx.bridge.onLeaveOnlineServer) {
-          await ctx.bridge.onLeaveOnlineServer();
-        }
-        ctx.setMatchMode('freeplay');
-        ctx.closeMenu();
-      }}
+      onCloseRoom={() => leaveOnlineRoomAndCloseMenu(ctx)}
     />
   ),
-
-  exhibition: (ctx) => (
+  exhibition: ({ isLight, navigate, exhibitionParentRef }) => (
     <Layer3ExhibitionRecipe
-      isLight={ctx.isLight}
-      onBack={() => ctx.navigate(ctx.exhibitionParentRef.current)}
+      isLight={isLight}
+      onBack={() => navigate(exhibitionParentRef.current)}
     />
   ),
-
-  garage: (ctx) => <Layer2GarageRecipe isLight={ctx.isLight} onBack={ctx.goBack} />,
-
-  settings: (ctx) => (
+  garage: createBackRouteRenderer(Layer2GarageRecipe),
+  settings: ({ isLight, settingsTargetTab, setSettingsTargetTab, goBack }) => (
     <Layer2SettingsRecipe
-      isLight={ctx.isLight}
-      activeTab={ctx.settingsTargetTab}
-      onTabChange={ctx.setSettingsTargetTab}
-      onBack={ctx.goBack}
+      isLight={isLight}
+      activeTab={settingsTargetTab}
+      onTabChange={setSettingsTargetTab}
+      onBack={goBack}
     />
   ),
-
-  'dev-sandboxes': (ctx) => <Layer3DevSandboxesRecipe isLight={ctx.isLight} onBack={ctx.goBack} />,
-
-  'dev-tem-pack-converter': (ctx) => (
-    <Layer4StaticTrainingPackBrowseRecipe
-      isLight={ctx.isLight}
-      isDevMode={true}
-      onBack={ctx.goBack}
-    />
+  'dev-sandboxes': createBackRouteRenderer(Layer3DevSandboxesRecipe),
+  'dev-tem-pack-converter': ({ isLight, goBack }) => (
+    <Layer4StaticTrainingPackBrowseRecipe isLight={isLight} isDevMode={true} onBack={goBack} />
   ),
-
-  'dev-active-tuners': (ctx) => (
-    <Layer3DevActiveTunersRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
-
-  'dev-calibrated-presets': (ctx) => (
-    <Layer3DevCalibratedPresetsRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
-
-  'dev-quick-actions': (ctx) => (
-    <Layer3DevQuickActionsRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
-
-  'dev-self-test': (ctx) => <Layer3DevSelfTestRecipe isLight={ctx.isLight} onBack={ctx.goBack} />,
-
-  'dev-under-development': (ctx) => (
-    <Layer3DevUnderDevelopmentRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
-
-  'dev-remote-profile': (ctx) => (
-    <Layer3DevRemoteProfileRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
-
-  'dev-signaling-lab': (ctx) => (
-    <Layer4DevSignalingLabRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
-
-  'exp-multi-bots': (ctx) => (
-    <Layer3ExpMultiBotsRecipe
-      isLight={ctx.isLight}
-      onBack={() => ctx.navigate(ctx.expConfigParentRef.current || 'dev-sandboxes')}
-    />
-  ),
-
-  'exp-botpack-9700488': (ctx) => (
-    <Layer3ExpBotPackRecipe
-      isLight={ctx.isLight}
-      onBack={() => ctx.navigate(ctx.expConfigParentRef.current || 'dev-sandboxes')}
-    />
-  ),
-
-  'training-config': (ctx) => (
-    <Layer3TrainingConfigRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
-
-  trajectory: (ctx) => (
-    <Layer3BallTrajectoryRecipe
-      isLight={ctx.isLight}
-      onBack={() => {
-        ctx.resetLivePreviewToExpanded();
-        ctx.goBack();
-      }}
-    />
-  ),
-
-  camera: (ctx) => (
-    <Layer3CameraRecipe
-      isLight={ctx.isLight}
-      onBack={() => {
-        ctx.resetLivePreviewToExpanded();
-        ctx.goBack();
-      }}
-    />
-  ),
-
-  'acoustics-equalizer': (ctx) => (
-    <Layer3AcousticsEqualizerRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
-
-  keybindings: (ctx) => <Layer3KeybindingsRecipe isLight={ctx.isLight} onBack={ctx.goBack} />,
-
-  'controller-settings': (ctx) => (
-    <Layer4ControllerSettingsRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
-
-  'advanced-audio': (ctx) => (
-    <Layer4AdvancedAudioRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
-
-  'event-trigger-rules': (ctx) => (
-    <Layer4EventTriggerRulesRecipe isLight={ctx.isLight} onBack={ctx.goBack} />
-  ),
+  'dev-active-tuners': createBackRouteRenderer(Layer3DevActiveTunersRecipe),
+  'dev-calibrated-presets': createBackRouteRenderer(Layer3DevCalibratedPresetsRecipe),
+  'dev-quick-actions': createBackRouteRenderer(Layer3DevQuickActionsRecipe),
+  'dev-self-test': createBackRouteRenderer(Layer3DevSelfTestRecipe),
+  'dev-under-development': createBackRouteRenderer(Layer3DevUnderDevelopmentRecipe),
+  'dev-remote-profile': createBackRouteRenderer(Layer3DevRemoteProfileRecipe),
+  'dev-signaling-lab': createBackRouteRenderer(Layer4DevSignalingLabRecipe),
+  'exp-multi-bots': createExpConfigRouteRenderer(Layer3ExpMultiBotsRecipe),
+  'exp-botpack-9700488': createExpConfigRouteRenderer(Layer3ExpBotPackRecipe),
+  'training-config': createBackRouteRenderer(Layer3TrainingConfigRecipe),
+  trajectory: createLivePreviewRouteRenderer(Layer3BallTrajectoryRecipe),
+  camera: createLivePreviewRouteRenderer(Layer3CameraRecipe),
+  'acoustics-equalizer': createBackRouteRenderer(Layer3AcousticsEqualizerRecipe),
+  keybindings: createBackRouteRenderer(Layer3KeybindingsRecipe),
+  'controller-settings': createBackRouteRenderer(Layer4ControllerSettingsRecipe),
+  'advanced-audio': createBackRouteRenderer(Layer4AdvancedAudioRecipe),
+  'event-trigger-rules': createBackRouteRenderer(Layer4EventTriggerRulesRecipe),
 };
 
 export function renderActiveMenuRoute(ctx: MenuRouteRenderContext): React.ReactNode {

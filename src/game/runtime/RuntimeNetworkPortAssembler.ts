@@ -1,25 +1,26 @@
 import { ReconcilerSignalCoordinator } from './ReconcilerSignalCoordinator.ts';
 import {
   OnlineRosterSyncCoordinator,
-  type OnlineRosterSnapshotPayload,
   type OnlineRosterSyncHostPort,
 } from './OnlineRosterSyncCoordinator.ts';
-import type { RuntimeSignalHostPort } from './RuntimeGoalReplaySignalSubController.ts';
+import type {
+  RuntimeSignalHostPort,
+  SignalAudioFacadeLike,
+} from './RuntimeGoalReplaySignalSubController.ts';
 import {
   NetworkDiagnosticsProbe,
   type NetworkDiagnosticsHostPort,
 } from './NetworkDiagnosticsProbe.ts';
+import { OnlineLobbyDualWorldController } from './OnlineLobbyDualWorldController.ts';
+import { OnlineMatchReconcilerBinder } from './OnlineMatchReconcilerBinder.ts';
+import { OnlineSessionCoordinator } from './OnlineSessionCoordinator.ts';
 import {
-  OnlineSessionCoordinator,
-  type OnlineSessionCoordinatorHostPort,
+  createOnlineSessionBridgePort,
   type OnlineSessionLifecyclePort,
   type OnlineSessionWorldPort,
-} from './OnlineSessionCoordinator.ts';
-import type { SignalAudioFacadeLike } from './RuntimeGoalReplaySignalSubController.ts';
+} from './onlineSessionEnvironmentPipeline.ts';
 import type { EntityManager } from '../../entities/EntityManager.ts';
 import type { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
-import type { ReplayTimelineController } from '../../replay/ReplayTimelineController.ts';
-import type { PodiumCelebrationController } from '../modes/PodiumCelebrationController.ts';
 import type { SimulationStage } from '../pipeline/stages/SimulationStage.ts';
 import type { GameAudioSubsystem } from '../subsystems/GameAudioSubsystem.ts';
 import type { DeterminismHarness } from '../../physics/DeterminismHarness.ts';
@@ -28,12 +29,6 @@ import type { MultiplayerSessionManager } from '../../network/transport/Multipla
 export interface RuntimeNetworkHostPort extends OnlineSessionWorldPort, OnlineSessionLifecyclePort {
   readonly entityManager: EntityManager | null;
   readonly multiplayerSession: MultiplayerSessionManager | null;
-  readonly modeManager: {
-    setMode?(modeName: string): void;
-    getActiveMode?(): { id?: string; onPhysicsEvent?(event: Record<string, unknown>): void } | null;
-  } | null;
-  readonly replayTimelineController: ReplayTimelineController | null;
-  readonly podiumController: PodiumCelebrationController | null;
   readonly simulationStage: SimulationStage | null;
   readonly audioSubsystem: GameAudioSubsystem | null;
   readonly flipResetVisuals: Map<number, { stopVisual(): void; play?(): void }>;
@@ -41,60 +36,52 @@ export interface RuntimeNetworkHostPort extends OnlineSessionWorldPort, OnlineSe
   _clientGoalIncidentLatched: boolean;
   _localSkipReplayReady: boolean;
   readonly botCoordinator?: { botKickoffStep: number } | null;
-  readonly inputPoller?: { latchJumpSuppression?(): void } | null;
+  readonly inputPoller?: { latchJumpSuppression(): void } | null;
   getFlipResetVisual?(carIndex: number): { play(): void; stopVisual(): void } | null;
   resetAudio?(): void;
   isGoalReplayCameraOverrideActive(): boolean;
   acquireGoalReplayCameraOverride?(source?: string): void;
-  releaseGoalReplayCameraOverride(source?: string | null): void;
   replayPovCarIndex?: number | null;
   onDeterminismHarnessReady?(harness: DeterminismHarness, showHUD: boolean): void;
 }
 
-export interface RuntimeNetworkManagerLike {
+export interface RuntimeNetworkWorldSnapshot {
+  readonly playerCarIndex: number;
+  readonly isArenaLobbyMode: boolean;
+  readonly matchMode: string | undefined;
+  readonly matchPhase: string | undefined;
+}
+
+export interface AssembledNetworkCoordinators {
+  readonly diagnosticsProbe: NetworkDiagnosticsProbe;
   readonly sessionCoordinator: OnlineSessionCoordinator;
   readonly rosterSyncCoordinator: OnlineRosterSyncCoordinator;
   readonly signalCoordinator: ReconcilerSignalCoordinator;
-  isLobbyDualWorldActive(reconciler?: PredictionReconciler | null): boolean;
 }
 
-type SignalNetworkOverrides = Pick<
-  RuntimeSignalHostPort,
-  | 'authoritativeServer'
-  | 'remotePeerCarMap'
-  | 'clientReplayOverflowPaused'
-  | 'getLastRosterSnapshot'
-  | 'getParticipantTeams'
-  | 'syncHostLobbyOngoingNotification'
-  | 'isLobbyDualWorldActive'
-  | 'despawnDiagnosticTestFleet'
-  | 'setLobbyGhostMode'
-  | 'setLatestServerRosterState'
-  | 'isNetworkTelemetryNotified'
-  | 'markNetworkTelemetryNotified'
-  | 'resetBotKickoffStep'
-  | 'latchJumpSuppression'
->;
-
-export interface AssembledNetworkCoordinators {
-  diagnosticsProbe: NetworkDiagnosticsProbe;
-  sessionCoordinator: OnlineSessionCoordinator;
-  rosterSyncCoordinator: OnlineRosterSyncCoordinator;
-  signalCoordinator: ReconcilerSignalCoordinator;
-}
-
-export function assembleNetworkCoordinators(
-  manager: RuntimeNetworkManagerLike,
+export function createRuntimeNetworkWorldSnapshotReader(
   ctx: RuntimeNetworkHostPort
-): AssembledNetworkCoordinators {
-  const diagnosticsHostPort: NetworkDiagnosticsHostPort = {
+): () => RuntimeNetworkWorldSnapshot {
+  return () => ({
+    playerCarIndex: ctx.playerCarIndex ?? 0,
+    isArenaLobbyMode: Boolean(ctx.arena?.isLobbyMode),
+    matchMode: ctx.match?.state?.mode,
+    matchPhase: ctx.match?.state?.phase,
+  });
+}
+
+export function createNetworkDiagnosticsHostPort(
+  ctx: RuntimeNetworkHostPort,
+  getSessionCoordinator: () => OnlineSessionCoordinator
+): NetworkDiagnosticsHostPort {
+  return {
     getPhysics: () => ctx.physics,
     getArena: () => ctx.arena,
     getInterpolator: () => ctx.interpolator,
     getCamera: () => ctx.camera,
-    getAuthoritativeServer: () => manager.sessionCoordinator.authoritativeServer,
-    getNetworkChannel: () => manager.sessionCoordinator.networkChannel,
-    getNetworkReconciler: () => manager.sessionCoordinator.networkReconciler,
+    getAuthoritativeServer: () => getSessionCoordinator().authoritativeServer,
+    getNetworkChannel: () => getSessionCoordinator().networkChannel,
+    getNetworkReconciler: () => getSessionCoordinator().networkReconciler,
     getPlayerCarIndex: () => ctx.playerCarIndex ?? 0,
     isMatchPhaseBlockingDiagnosticsFleet: () => {
       const matchMode = ctx.match?.state?.mode;
@@ -102,37 +89,25 @@ export function assembleNetworkCoordinators(
       return Boolean(matchMode === 'match' && phase && phase !== 'lobby' && phase !== 'freeplay');
     },
     ensureFlipResetVisual: (carIndex: number) => {
-      ctx.getFlipResetVisual?.(carIndex);
+      if (typeof ctx.getFlipResetVisual === 'function') {
+        ctx.getFlipResetVisual(carIndex);
+      }
     },
     notifyDeterminismHarnessReady: (harness, showHUD) => {
-      ctx.onDeterminismHarnessReady?.(harness, showHUD);
+      if (typeof ctx.onDeterminismHarnessReady === 'function') {
+        ctx.onDeterminismHarnessReady(harness, showHUD);
+      }
     },
   };
+}
 
-  const diagnosticsProbe = new NetworkDiagnosticsProbe(diagnosticsHostPort);
-
-  const sessionHostPort: OnlineSessionCoordinatorHostPort = {
-    world: ctx,
-    lifecycle: ctx,
-    coordinators: {
-      resetReconcilerSignalState: () => {
-        manager.signalCoordinator.resetSignalState();
-      },
-      bindReconcilerSignals: (reconciler: PredictionReconciler) => {
-        manager.signalCoordinator.bindReconcilerSignals(reconciler);
-      },
-      applyRosterSnapshot: async (roster: OnlineRosterSnapshotPayload | null) => {
-        await manager.rosterSyncCoordinator.applyRosterSnapshot(roster);
-      },
-      syncHostLobbyNotification: () => {
-        manager.rosterSyncCoordinator.syncHostLobbyOngoingNotification();
-      },
-    },
-  };
-
-  const sessionCoordinator = new OnlineSessionCoordinator(sessionHostPort, diagnosticsProbe);
-
-  const rosterSyncHostPort: OnlineRosterSyncHostPort = {
+export function createOnlineRosterSyncHostPort(
+  ctx: RuntimeNetworkHostPort,
+  sessionCoordinator: OnlineSessionCoordinator,
+  diagnosticsProbe: NetworkDiagnosticsProbe,
+  isLobbyDualWorldActive: () => boolean
+): OnlineRosterSyncHostPort {
+  return {
     world: ctx,
     session: {
       get authoritativeServer() {
@@ -144,7 +119,7 @@ export function assembleNetworkCoordinators(
       get remotePeerCarMap() {
         return sessionCoordinator.remotePeerCarMap;
       },
-      isLobbyDualWorldActive: () => manager.isLobbyDualWorldActive(),
+      isLobbyDualWorldActive,
     },
     diagnostics: {
       isDiagnosticFleetEnabled: () => Boolean(diagnosticsProbe.diagnosticsFleetController?.enabled),
@@ -152,15 +127,78 @@ export function assembleNetworkCoordinators(
       despawnDiagnosticTestFleet: () => diagnosticsProbe.despawnDiagnosticTestFleet(),
     },
   };
+}
 
-  const rosterSyncCoordinator = new OnlineRosterSyncCoordinator(rosterSyncHostPort);
-
-  const overrides: SignalNetworkOverrides = {
+export function createRuntimeSignalHostPort(
+  ctx: RuntimeNetworkHostPort,
+  sessionCoordinator: OnlineSessionCoordinator,
+  rosterSyncCoordinator: OnlineRosterSyncCoordinator,
+  diagnosticsProbe: NetworkDiagnosticsProbe,
+  isLobbyDualWorldActive: (reconciler?: PredictionReconciler | null) => boolean
+): RuntimeSignalHostPort {
+  return {
+    get arena() {
+      return ctx.arena;
+    },
+    get physics() {
+      return ctx.physics;
+    },
+    get entityManager() {
+      return ctx.entityManager;
+    },
+    get options() {
+      return ctx.options;
+    },
+    get flipResetVisuals() {
+      return ctx.flipResetVisuals;
+    },
+    get match() {
+      return ctx.match;
+    },
+    get modeManager() {
+      return ctx.modeManager;
+    },
+    get replayTimelineController() {
+      return ctx.replayTimelineController;
+    },
+    get podiumController() {
+      return ctx.podiumController;
+    },
+    get camera() {
+      return ctx.camera;
+    },
+    get interpolator() {
+      return ctx.interpolator;
+    },
+    get simulationStage() {
+      return ctx.simulationStage;
+    },
+    get audioSubsystem() {
+      return ctx.audioSubsystem;
+    },
     get authoritativeServer() {
       return sessionCoordinator.authoritativeServer;
     },
     get remotePeerCarMap() {
       return sessionCoordinator.remotePeerCarMap;
+    },
+    get playerCarIndex() {
+      return ctx.playerCarIndex;
+    },
+    set playerCarIndex(val: number) {
+      ctx.playerCarIndex = val;
+    },
+    get replayPovCarIndex() {
+      return ctx.replayPovCarIndex;
+    },
+    set replayPovCarIndex(val: number | null | undefined) {
+      ctx.replayPovCarIndex = val;
+    },
+    get selectedColorSlot() {
+      return ctx.selectedColorSlot;
+    },
+    set selectedColorSlot(val: number | null) {
+      ctx.selectedColorSlot = val;
     },
     get clientReplayOverflowPaused() {
       return sessionCoordinator.clientReplayOverflowPaused;
@@ -168,11 +206,23 @@ export function assembleNetworkCoordinators(
     set clientReplayOverflowPaused(val: boolean) {
       sessionCoordinator.clientReplayOverflowPaused = Boolean(val);
     },
+    get _clientGoalIncidentLatched() {
+      return ctx._clientGoalIncidentLatched;
+    },
+    set _clientGoalIncidentLatched(val: boolean) {
+      ctx._clientGoalIncidentLatched = val;
+    },
+    get _localSkipReplayReady() {
+      return ctx._localSkipReplayReady;
+    },
+    set _localSkipReplayReady(val: boolean) {
+      ctx._localSkipReplayReady = val;
+    },
     getLastRosterSnapshot: () => rosterSyncCoordinator.lastRosterSnapshot,
     getParticipantTeams: () => rosterSyncCoordinator.participantTeams,
     syncHostLobbyOngoingNotification: () =>
       rosterSyncCoordinator.syncHostLobbyOngoingNotification(),
-    isLobbyDualWorldActive: (reconciler) => manager.isLobbyDualWorldActive(reconciler),
+    isLobbyDualWorldActive: (reconciler) => isLobbyDualWorldActive(reconciler),
     despawnDiagnosticTestFleet: () => diagnosticsProbe.despawnDiagnosticTestFleet(),
     setLobbyGhostMode: (enabled, options) => {
       diagnosticsProbe.configureLobbyGhostMode(enabled, options);
@@ -188,26 +238,83 @@ export function assembleNetworkCoordinators(
     resetBotKickoffStep: () => {
       if (ctx.botCoordinator) ctx.botCoordinator.botKickoffStep = 0;
     },
-    latchJumpSuppression: () => ctx.inputPoller?.latchJumpSuppression?.(),
-  };
-
-  const signalHostPort = new Proxy(ctx as unknown as RuntimeSignalHostPort, {
-    get(_target, prop) {
-      if (prop in overrides) {
-        return Reflect.get(overrides, prop, overrides);
+    isGoalReplayCameraOverrideActive: () => ctx.isGoalReplayCameraOverrideActive(),
+    acquireGoalReplayCameraOverride: (source) => {
+      if (typeof ctx.acquireGoalReplayCameraOverride === 'function') {
+        ctx.acquireGoalReplayCameraOverride(source);
       }
-      const value = Reflect.get(ctx, prop, ctx);
-      return typeof value === 'function' ? value.bind(ctx) : value;
     },
-    set(_target, prop, value) {
-      if (prop in overrides) {
-        return Reflect.set(overrides, prop, value, overrides);
+    releaseGoalReplayCameraOverride: (source) => {
+      ctx.releaseGoalReplayCameraOverride(source);
+    },
+    getFlipResetVisual: (carIdx) =>
+      typeof ctx.getFlipResetVisual === 'function' ? ctx.getFlipResetVisual(carIdx) : null,
+    resetAudio: () => {
+      if (typeof ctx.resetAudio === 'function') {
+        ctx.resetAudio();
       }
-      return Reflect.set(ctx, prop, value, ctx);
+    },
+    latchJumpSuppression: () => {
+      ctx.inputPoller?.latchJumpSuppression();
+    },
+    setCarColor: (carIndex, hexColor, persistPreference) => {
+      ctx.setCarColor(carIndex, hexColor, persistPreference);
+    },
+  };
+}
+
+export function assembleNetworkCoordinators(
+  ctx: RuntimeNetworkHostPort,
+  isLobbyDualWorldActive: (reconciler?: PredictionReconciler | null) => boolean
+): AssembledNetworkCoordinators {
+  let sessionCoordinator!: OnlineSessionCoordinator;
+  let rosterSyncCoordinator!: OnlineRosterSyncCoordinator;
+  let signalCoordinator!: ReconcilerSignalCoordinator;
+
+  const diagnosticsProbe = new NetworkDiagnosticsProbe(
+    createNetworkDiagnosticsHostPort(ctx, () => sessionCoordinator)
+  );
+  const lobbyDualWorld = new OnlineLobbyDualWorldController(ctx);
+  const reconcilerBinder = new OnlineMatchReconcilerBinder({
+    get physics() {
+      return ctx.physics;
+    },
+    get interpolator() {
+      return ctx.interpolator;
+    },
+    get camera() {
+      return ctx.camera;
+    },
+    bindReconcilerSignals: (reconciler) => {
+      signalCoordinator.bindReconcilerSignals(reconciler);
     },
   });
 
-  const signalCoordinator = new ReconcilerSignalCoordinator(signalHostPort);
+  const sessionBridge = createOnlineSessionBridgePort(
+    ctx,
+    () => signalCoordinator,
+    () => rosterSyncCoordinator
+  );
+  sessionCoordinator = new OnlineSessionCoordinator(
+    lobbyDualWorld,
+    reconcilerBinder,
+    diagnosticsProbe,
+    sessionBridge
+  );
+  rosterSyncCoordinator = new OnlineRosterSyncCoordinator(
+    createOnlineRosterSyncHostPort(ctx, sessionCoordinator, diagnosticsProbe, () =>
+      isLobbyDualWorldActive()
+    )
+  );
+  signalCoordinator = new ReconcilerSignalCoordinator(
+    createRuntimeSignalHostPort(
+      ctx,
+      sessionCoordinator,
+      rosterSyncCoordinator,
+      diagnosticsProbe,
+      isLobbyDualWorldActive
+    )
+  );
 
   return {
     diagnosticsProbe,

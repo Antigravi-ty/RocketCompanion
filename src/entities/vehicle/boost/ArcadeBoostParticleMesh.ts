@@ -8,6 +8,41 @@ const ARCADE_PARTICLE_ATTRS: ReadonlyArray<string> = [
   'aRotation',
 ];
 
+function createArcadeParticleGeometry(
+  count: number,
+  offsets: Float32Array,
+  sizes: Float32Array,
+  opacity: Float32Array,
+  life: Float32Array,
+  rotations: Float32Array
+): THREE.InstancedBufferGeometry {
+  const { InstancedBufferGeometry, BufferAttribute, InstancedBufferAttribute, DynamicDrawUsage } =
+    THREE;
+
+  const geom = new InstancedBufferGeometry();
+  geom.setAttribute(
+    'position',
+    new BufferAttribute(
+      new Float32Array([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0]),
+      3
+    )
+  );
+  geom.setAttribute('uv', new BufferAttribute(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), 2));
+  geom.setIndex([0, 1, 2, 0, 2, 3]);
+
+  geom.setAttribute('aOffset', new InstancedBufferAttribute(offsets, 3));
+  geom.setAttribute('aSize', new InstancedBufferAttribute(sizes, 2));
+  geom.setAttribute('aOpacity', new InstancedBufferAttribute(opacity, 1));
+  geom.setAttribute('aLife', new InstancedBufferAttribute(life, 1));
+  geom.setAttribute('aRotation', new InstancedBufferAttribute(rotations, 1));
+
+  for (const attr of ARCADE_PARTICLE_ATTRS) {
+    geom.attributes[attr].setUsage(DynamicDrawUsage);
+  }
+  geom.instanceCount = count;
+  return geom;
+}
+
 /**
  * Arcade Instanced Particle Mesh
  */
@@ -20,48 +55,22 @@ export class ArcadeBoostParticleMesh {
   public sizes: Float32Array;
 
   constructor(count: number, isDriving: boolean, renderOrder: number) {
-    const {
-      Mesh,
-      InstancedBufferGeometry,
-      BufferAttribute,
-      InstancedBufferAttribute,
-      ShaderMaterial,
-      DynamicDrawUsage,
-    } = THREE;
+    const { Mesh, ShaderMaterial } = THREE;
 
-    const offsets = new Float32Array(count * 3);
-    const sizes = new Float32Array(count * 2);
-    const opacity = new Float32Array(count);
-    const life = new Float32Array(count);
-    const rotations = new Float32Array(count);
+    this.offsets = new Float32Array(count * 3);
+    this.sizes = new Float32Array(count * 2);
+    this.opacity = new Float32Array(count);
+    this.life = new Float32Array(count);
+    this.rotations = new Float32Array(count);
 
-    this.offsets = offsets;
-    this.sizes = sizes;
-    this.opacity = opacity;
-    this.life = life;
-    this.rotations = rotations;
-
-    const geom = new InstancedBufferGeometry();
-    geom.setAttribute(
-      'position',
-      new BufferAttribute(
-        new Float32Array([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0]),
-        3
-      )
+    const geom = createArcadeParticleGeometry(
+      count,
+      this.offsets,
+      this.sizes,
+      this.opacity,
+      this.life,
+      this.rotations
     );
-    geom.setAttribute('uv', new BufferAttribute(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), 2));
-    geom.setIndex([0, 1, 2, 0, 2, 3]);
-
-    geom.setAttribute('aOffset', new InstancedBufferAttribute(offsets, 3));
-    geom.setAttribute('aSize', new InstancedBufferAttribute(sizes, 2));
-    geom.setAttribute('aOpacity', new InstancedBufferAttribute(opacity, 1));
-    geom.setAttribute('aLife', new InstancedBufferAttribute(life, 1));
-    geom.setAttribute('aRotation', new InstancedBufferAttribute(rotations, 1));
-
-    for (const attr of ARCADE_PARTICLE_ATTRS) {
-      geom.attributes[attr].setUsage(DynamicDrawUsage);
-    }
-    geom.instanceCount = count;
 
     const mat = new ShaderMaterial({
       uniforms: {
@@ -136,11 +145,43 @@ export class ArcadeBoostParticleMesh {
     this.mesh.renderOrder = renderOrder;
   }
 
+  attachTo(targetGroup: THREE.Object3D, name: string): void {
+    const mesh = this.mesh;
+    mesh.name = name;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.layers.enable(1);
+    mesh.visible = false;
+    targetGroup.add(mesh);
+  }
+
+  setVisible(visible: boolean): void {
+    this.mesh.visible = visible;
+  }
+
+  resetParticles(): void {
+    this.opacity.fill(0);
+    this.markDirty();
+    this.mesh.visible = false;
+  }
+
   markDirty(): void {
-    if (!this.mesh?.geometry?.attributes) return;
+    const attributes = this.mesh.geometry.attributes;
     for (const attr of ARCADE_PARTICLE_ATTRS) {
-      const a = this.mesh.geometry.attributes[attr];
+      const a = attributes[attr];
       if (a) a.needsUpdate = true;
     }
+  }
+
+  dispose(fallbackGroup: THREE.Object3D | null = null): void {
+    const mesh = this.mesh;
+    const parentGroup = mesh.parent;
+    if (parentGroup) {
+      parentGroup.remove(mesh);
+    } else if (fallbackGroup) {
+      fallbackGroup.remove(mesh);
+    }
+    mesh.geometry.dispose();
+    mesh.material.dispose();
   }
 }

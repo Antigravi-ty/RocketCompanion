@@ -5,7 +5,6 @@
  * HandshakeSession, and DataChannelTransport) via narrow typed ports.
  */
 
-import { encodeSignalToken, decodeSignalToken } from './webrtc/SignalTokenCodec.ts';
 import {
   NetworkSimulator,
   type NetworkSimulatorOptions,
@@ -26,13 +25,9 @@ export interface P2PWebRTCChannelOptions extends NetworkSimulatorOptions {
   signalingChannelName?: string;
 }
 
-export type VoidChannelHook = (() => void) | null;
-export type PayloadChannelHook = ((data: SimulatedPayload) => void) | null;
-export type JsonChannelHook = ((msg: Record<string, unknown>) => void) | null;
-export type FleetToggleChannelHook = ((enabled: boolean, anchorMode: string) => void) | null;
-export type IceCandidateChannelHook = ((cand: IceCandidateDescriptor) => void) | null;
+export type ChannelHook<T extends unknown[] = []> = ((...args: T) => void) | null;
 
-export class P2PWebRTCChannel {
+export class P2PWebRTCChannel implements HandshakeMetadataState {
   role: string;
   isHost?: boolean;
   peerId: string | null = null;
@@ -70,14 +65,14 @@ export class P2PWebRTCChannel {
   readonly handshake: HandshakeSession;
   readonly transport: DataChannelTransport;
 
-  onConnected: VoidChannelHook = null;
-  onDisconnected: VoidChannelHook = null;
-  onPacketReceived: PayloadChannelHook = null;
-  onMessage: PayloadChannelHook = null;
-  onColorChange: JsonChannelHook = null;
-  onDiagnosticFleetToggle: FleetToggleChannelHook = null;
-  onBroadcastSignal: JsonChannelHook = null;
-  onIceCandidate: IceCandidateChannelHook = null;
+  onConnected: ChannelHook = null;
+  onDisconnected: ChannelHook = null;
+  onPacketReceived: ChannelHook<[SimulatedPayload]> = null;
+  onMessage: ChannelHook<[SimulatedPayload]> = null;
+  onColorChange: ChannelHook<[Record<string, unknown>]> = null;
+  onDiagnosticFleetToggle: ChannelHook<[boolean, string]> = null;
+  onBroadcastSignal: ChannelHook<[Record<string, unknown>]> = null;
+  onIceCandidate: ChannelHook<[IceCandidateDescriptor]> = null;
 
   readonly send: DataChannelTransport['send'];
   readonly sendClientInput: DataChannelTransport['sendClientInput'];
@@ -88,50 +83,49 @@ export class P2PWebRTCChannel {
   readonly receiveClientPackets: NetworkSimulator['drainInboundQueue'];
 
   readonly createOfferToken: HandshakeSession['createOfferToken'];
-  readonly createAnswerToken: HandshakeSession['acceptOfferAndCreateAnswer'];
   readonly acceptOfferAndCreateAnswer: HandshakeSession['acceptOfferAndCreateAnswer'];
   readonly acceptAnswerToken: HandshakeSession['acceptAnswerToken'];
-  readonly addRemoteCandidate: (
-    candJson: IceCandidateDescriptor | RTCIceCandidateInit | Record<string, unknown>
-  ) => Promise<void>;
   readonly addIceCandidate: (
     candJson: IceCandidateDescriptor | RTCIceCandidateInit | Record<string, unknown>
   ) => Promise<void>;
 
-  readonly setExtraUplinkLatency: NetworkSimulator['setExtraUplinkLatency'];
-  readonly setExtraDownlinkLatency: NetworkSimulator['setExtraDownlinkLatency'];
   readonly setAsymmetricLatency: NetworkSimulator['setAsymmetricLatency'];
   readonly setExtraLatency: NetworkSimulator['setExtraLatency'];
-  readonly setLatency: NetworkSimulator['setLatency'];
   readonly setJitter: NetworkSimulator['setJitter'];
-  readonly setRtt: NetworkSimulator['setRtt'];
   readonly setPacketLossRate: NetworkSimulator['setPacketLossRate'];
   readonly setBurstDrop: NetworkSimulator['setBurstDrop'];
-  readonly setBurstDropEnabled: NetworkSimulator['setBurstDropEnabled'];
   readonly toggleBurstDrop: NetworkSimulator['toggleBurstDrop'];
   readonly forceDropNextInput: NetworkSimulator['forceDropNextInput'];
-  readonly dropSinglePacket: NetworkSimulator['dropSinglePacket'];
 
   constructor(options: P2PWebRTCChannelOptions = {}) {
     this.role = options.role ?? 'client';
     this.playerName = options.playerName ?? 'Player';
     this.roomId = options.roomId ?? null;
-
     this.localColorSlot = options.colorSlot ?? (this.role === 'host' ? 3 : 0);
     this.localColorHex = options.colorHex ?? (this.role === 'host' ? '#42a5f5' : '#ff7043');
 
     this.simulator = new NetworkSimulator(options);
     this.stats = this.simulator.stats;
-
     this.signaling = new CrossTabSignaling({
       signalingChannelName: options.signalingChannelName ?? 'online_discovery',
       roomId: this.roomId,
     });
-
     this.connection = new WebRTCConnection({
-      emitIceCandidate: (cand) => this.onIceCandidate?.(cand),
-      handleConnectionStateChange: (state) => this._handleConnectionStateChange(state),
-      handleIceConnectionStateChange: (state) => this._handleIceConnectionStateChange(state),
+      emitIceCandidate: (cand) => {
+        if (this.onIceCandidate) this.onIceCandidate(cand);
+      },
+      handleConnectionStateChange: (state) => {
+        if (state === 'connected') {
+          this.isWebRTC = true;
+          this.isOpen = true;
+          this.transportMode = 'webrtc';
+        } else if (state === 'failed') {
+          this.handleWebRtcFailureDisconnect();
+        }
+      },
+      handleIceConnectionStateChange: (state) => {
+        if (state === 'failed') this.handleWebRtcFailureDisconnect();
+      },
       broadcastSignal: (typ, payload) => this.broadcastSignal(typ, payload),
     });
 
@@ -148,25 +142,26 @@ export class P2PWebRTCChannel {
         this.isWebRTC = true;
         this.isOpen = true;
         this.transportMode = 'webrtc';
-        this.onConnected?.();
+        if (this.onConnected) this.onConnected();
       },
       markDataChannelClosed: () => {
         this.isOpen = false;
-        this.onDisconnected?.();
+        if (this.onDisconnected) this.onDisconnected();
       },
       updateLocalColor: (slotId, hex, pendingIfClosed) => {
         this.localColorSlot = slotId;
         this.localColorHex = hex;
-        if (pendingIfClosed) {
-          this.pendingColorChange = pendingIfClosed;
-        }
+        if (pendingIfClosed) this.pendingColorChange = pendingIfClosed;
       },
-      deliverColorChange: (msg) => this.onColorChange?.(msg),
-      deliverDiagnosticFleetToggle: (enabled, anchorMode) =>
-        this.onDiagnosticFleetToggle?.(enabled, anchorMode),
+      deliverColorChange: (msg) => {
+        if (this.onColorChange) this.onColorChange(msg);
+      },
+      deliverDiagnosticFleetToggle: (enabled, anchorMode) => {
+        if (this.onDiagnosticFleetToggle) this.onDiagnosticFleetToggle(enabled, anchorMode);
+      },
       deliverPacket: (delivered) => {
-        this.onPacketReceived?.(delivered);
-        this.onMessage?.(delivered);
+        if (this.onPacketReceived) this.onPacketReceived(delivered);
+        if (this.onMessage) this.onMessage(delivered);
       },
     });
 
@@ -174,32 +169,8 @@ export class P2PWebRTCChannel {
       connection: this.connection,
       signaling: this.signaling,
       simulator: this.simulator,
-      getState: (): HandshakeMetadataState => ({
-        role: this.role,
-        isHost: this.isHost,
-        peerId: this.peerId,
-        playerName: this.playerName,
-        roomId: this.roomId,
-        localColorSlot: this.localColorSlot,
-        localColorHex: this.localColorHex,
-        peerName: this.peerName,
-        peerColorSlot: this.peerColorSlot,
-        peerColorHex: this.peerColorHex,
-        offerToken: this.offerToken,
-        answerToken: this.answerToken,
-        isOpen: this.isOpen,
-      }),
-      applyHandshakeState: (patch) => {
-        if (patch.role !== undefined) this.role = patch.role;
-        if (patch.roomId !== undefined) this.roomId = patch.roomId;
-        if (patch.localColorSlot !== undefined) this.localColorSlot = patch.localColorSlot;
-        if (patch.localColorHex !== undefined) this.localColorHex = patch.localColorHex;
-        if (patch.peerName !== undefined) this.peerName = patch.peerName;
-        if (patch.peerColorSlot !== undefined) this.peerColorSlot = patch.peerColorSlot;
-        if (patch.peerColorHex !== undefined) this.peerColorHex = patch.peerColorHex;
-        if (patch.offerToken !== undefined) this.offerToken = patch.offerToken;
-        if (patch.answerToken !== undefined) this.answerToken = patch.answerToken;
-      },
+      getState: () => this,
+      applyHandshakeState: (patch) => this.applyHandshakePatch(patch),
       activateCrossTabTransport: (peerPatch) => {
         this.peerName = peerPatch.peerName;
         this.peerColorSlot = peerPatch.peerColorSlot;
@@ -209,18 +180,23 @@ export class P2PWebRTCChannel {
         const wasOpen = this.isOpen;
         this.isOpen = true;
         if (!wasOpen) {
-          queueMicrotask(() => this.onConnected?.());
+          queueMicrotask(() => {
+            if (this.onConnected) this.onConnected();
+          });
         }
       },
       bindDataChannel: (channel) => this.transport.bindDataChannel(channel),
       handleIncomingMessage: (data) => this.transport.handleIncomingMessage(data),
       sendPong: (sendTime) => this.transport.sendPong(sendTime),
-      deliverColorChange: (msg) => this.onColorChange?.(msg),
-      deliverBroadcastSignal: (msg) => this.onBroadcastSignal?.(msg),
+      deliverColorChange: (msg) => {
+        if (this.onColorChange) this.onColorChange(msg);
+      },
+      deliverBroadcastSignal: (msg) => {
+        if (this.onBroadcastSignal) this.onBroadcastSignal(msg);
+      },
     });
 
     this.signaling.handler = this.handshake;
-
     this.send = this.transport.send.bind(this.transport);
     this.sendClientInput = this.transport.sendClientInput.bind(this.transport);
     this.sendServerState = this.transport.send.bind(this.transport);
@@ -230,61 +206,55 @@ export class P2PWebRTCChannel {
     this.receiveClientPackets = this.simulator.drainInboundQueue.bind(this.simulator);
 
     this.createOfferToken = this.handshake.createOfferToken.bind(this.handshake);
-    this.createAnswerToken = this.handshake.acceptOfferAndCreateAnswer.bind(this.handshake);
     this.acceptOfferAndCreateAnswer = this.handshake.acceptOfferAndCreateAnswer.bind(
       this.handshake
     );
     this.acceptAnswerToken = this.handshake.acceptAnswerToken.bind(this.handshake);
+    this.addIceCandidate = (candJson) =>
+      this.connection.addRemoteCandidate(candJson as IceCandidateDescriptor);
 
-    const addCand = (
-      candJson: IceCandidateDescriptor | RTCIceCandidateInit | Record<string, unknown>
-    ) => this.connection.addRemoteCandidate(candJson as IceCandidateDescriptor);
-    this.addRemoteCandidate = addCand;
-    this.addIceCandidate = addCand;
-
-    this.setExtraUplinkLatency = this.simulator.setExtraUplinkLatency.bind(this.simulator);
-    this.setExtraDownlinkLatency = this.simulator.setExtraDownlinkLatency.bind(this.simulator);
     this.setAsymmetricLatency = this.simulator.setAsymmetricLatency.bind(this.simulator);
     this.setExtraLatency = this.simulator.setExtraLatency.bind(this.simulator);
-    this.setLatency = this.simulator.setLatency.bind(this.simulator);
     this.setJitter = this.simulator.setJitter.bind(this.simulator);
-    this.setRtt = this.simulator.setRtt.bind(this.simulator);
     this.setPacketLossRate = this.simulator.setPacketLossRate.bind(this.simulator);
     this.setBurstDrop = this.simulator.setBurstDrop.bind(this.simulator);
-    this.setBurstDropEnabled = this.simulator.setBurstDropEnabled.bind(this.simulator);
     this.toggleBurstDrop = this.simulator.toggleBurstDrop.bind(this.simulator);
     this.forceDropNextInput = this.simulator.forceDropNextInput.bind(this.simulator);
-    this.dropSinglePacket = this.simulator.dropSinglePacket.bind(this.simulator);
+  }
+
+  private applyHandshakePatch(patch: Partial<HandshakeMetadataState>): void {
+    if (patch.role !== undefined) this.role = patch.role;
+    if (patch.roomId !== undefined) this.roomId = patch.roomId;
+    if (patch.localColorSlot !== undefined) this.localColorSlot = patch.localColorSlot;
+    if (patch.localColorHex !== undefined) this.localColorHex = patch.localColorHex;
+    if (patch.peerName !== undefined) this.peerName = patch.peerName;
+    if (patch.peerColorSlot !== undefined) this.peerColorSlot = patch.peerColorSlot;
+    if (patch.peerColorHex !== undefined) this.peerColorHex = patch.peerColorHex;
+    if (patch.offerToken !== undefined) this.offerToken = patch.offerToken;
+    if (patch.answerToken !== undefined) this.answerToken = patch.answerToken;
   }
 
   get connected(): boolean {
     return Boolean(this.isOpen || (this.dataChannel && this.dataChannel.readyState === 'open'));
   }
-
   get rttMs(): number {
     return this.simulator.rttMs;
   }
-
   get measuredRttMs(): number {
     return this.simulator.measuredRttMs;
   }
-
   get extraUplinkMs(): number {
     return this.simulator.extraUplinkMs;
   }
-
   get extraDownlinkMs(): number {
     return this.simulator.extraDownlinkMs;
   }
-
   get extraLatencyMs(): number {
     return this.simulator.extraLatencyMs;
   }
-
   get jitterMs(): number {
     return this.simulator.jitterMs;
   }
-
   get packetLossRate(): number {
     return this.simulator.packetLossRate;
   }
@@ -292,22 +262,6 @@ export class P2PWebRTCChannel {
   setColor(slotId: number, hex: string): void {
     this.localColorSlot = slotId;
     this.localColorHex = hex;
-  }
-
-  updateOfferTokenColor(slotId: number, hex: string): string {
-    this.setColor(slotId, hex);
-    if (this.offerToken) {
-      try {
-        const data = decodeSignalToken(this.offerToken);
-        data.hostColorSlot = slotId;
-        data.hostColorHex = hex;
-        this.offerToken = 'RL_OFFER_' + encodeSignalToken(data);
-      } catch (err) {
-        console.warn('[P2PWebRTCChannel] Failed to update offer token color:', err);
-      }
-    }
-    this.sendColorChange(slotId, hex, 0);
-    return this.offerToken;
   }
 
   initRoomChannel(roomId: string | null): void {
@@ -319,38 +273,11 @@ export class P2PWebRTCChannel {
     return this.signaling.sendRoomMessage(msg, this.peerId);
   }
 
-  _handleConnectionStateChange(state: RTCPeerConnectionState): void {
-    console.log(`[P2PWebRTCChannel] Connection State: ${state}`);
-    if (state === 'connected') {
-      this.isWebRTC = true;
-      this.isOpen = true;
-      this.transportMode = 'webrtc';
-    } else if (state === 'failed') {
-      if (this.isCrossTab) {
-        console.log(
-          '[P2PWebRTCChannel] WebRTC connection failed, but local Cross-Tab transport is ACTIVE (120Hz). Connection maintained.'
-        );
-        return;
-      }
-      const wasOpen = this.isOpen;
-      this.isOpen = false;
-      if (wasOpen) this.onDisconnected?.();
-    }
-  }
-
-  _handleIceConnectionStateChange(state: RTCIceConnectionState): void {
-    console.log(`[P2PWebRTCChannel] ICE Connection State: ${state}`);
-    if (state === 'failed') {
-      if (this.isCrossTab) {
-        console.log(
-          '[P2PWebRTCChannel] WebRTC ICE failed, but local Cross-Tab transport is ACTIVE (120Hz). Connection maintained.'
-        );
-        return;
-      }
-      const wasOpen = this.isOpen;
-      this.isOpen = false;
-      if (wasOpen) this.onDisconnected?.();
-    }
+  private handleWebRtcFailureDisconnect(): void {
+    if (this.isCrossTab) return;
+    const wasOpen = this.isOpen;
+    this.isOpen = false;
+    if (wasOpen && this.onDisconnected) this.onDisconnected();
   }
 
   broadcastSignal(type: string, payload: Record<string, unknown> = {}): boolean {
@@ -368,10 +295,12 @@ export class P2PWebRTCChannel {
 
   destroy(): void {
     this.reset();
-    try {
-      this.dataChannel?.close();
-    } catch (err) {
-      console.warn('[P2PWebRTCChannel] Error closing dataChannel:', err);
+    if (this.dataChannel) {
+      try {
+        this.dataChannel.close();
+      } catch (err) {
+        console.warn('[P2PWebRTCChannel] Error closing dataChannel:', err);
+      }
     }
     this.connection.destroy();
     this.signaling.destroy();
@@ -381,5 +310,3 @@ export class P2PWebRTCChannel {
     this.isWebRTC = false;
   }
 }
-
-export default P2PWebRTCChannel;

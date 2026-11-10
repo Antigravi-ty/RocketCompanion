@@ -25,6 +25,119 @@ export interface ReachabilityVisualizerOptions {
   onTelemetry?: ((telemetry: Record<string, unknown>) => void) | null;
 }
 
+export interface ReachabilityCarStateView {
+  isDemoed?: boolean;
+  posX: number;
+  posY: number;
+  posZ: number;
+  velX: number;
+  velY: number;
+  velZ: number;
+  fwdX: number;
+  fwdY: number;
+  fwdZ: number;
+  rightX: number;
+  rightY: number;
+  rightZ: number;
+  upX: number;
+  upY: number;
+  upZ: number;
+  angVelX: number;
+  angVelY: number;
+  angVelZ: number;
+  boost: number;
+  isOnGround?: boolean;
+  forwardSpeed?: number;
+}
+
+export interface ReachabilityPhysicsPort {
+  getCarStateView?: (carIdx: number) => ReachabilityCarStateView | null | undefined;
+}
+
+export interface ReachabilityFrameSource {
+  physics?: ReachabilityPhysicsPort | null;
+  playerCarIndex?: number;
+  interpolator?: {
+    getCurrCarStateView?: (carIdx: number) => ReachabilityCarStateView | null | undefined;
+  } | null;
+  arena?: {
+    cars?: Array<THREE.Object3D | null | undefined>;
+  } | null;
+}
+
+function createReachabilityRenderers(
+  scene: THREE.Scene | null,
+  ballTrajectoryPredictor: BallTrajectoryPredictor | null
+): {
+  rootGroup: THREE.Group;
+  groundRenderer: GroundReachabilityRenderer;
+  aerialRenderer: AerialReachabilityRenderer;
+  interceptRenderer: InterceptCrossRenderer;
+} {
+  const rootGroup = new THREE.Group();
+  rootGroup.name = 'reachability-visualizer-root';
+  rootGroup.visible = false;
+  if (scene) {
+    scene.add(rootGroup);
+  }
+  const groundRenderer = new GroundReachabilityRenderer(rootGroup);
+  const aerialRenderer = new AerialReachabilityRenderer(rootGroup);
+  const interceptRenderer = new InterceptCrossRenderer(rootGroup, ballTrajectoryPredictor);
+  return { rootGroup, groundRenderer, aerialRenderer, interceptRenderer };
+}
+
+function resolveCarStateView(
+  frameSource: ReachabilityFrameSource | null | undefined,
+  phys: ReachabilityPhysicsPort,
+  targetIdx: number
+): ReachabilityCarStateView | null {
+  if (frameSource && frameSource.interpolator) {
+    const getInterpView = frameSource.interpolator.getCurrCarStateView;
+    if (typeof getInterpView === 'function') {
+      const view = getInterpView.call(frameSource.interpolator, targetIdx);
+      if (view) return view;
+    }
+  }
+  if (typeof phys.getCarStateView === 'function') {
+    return phys.getCarStateView(targetIdx) || null;
+  }
+  return null;
+}
+
+function resolveCarVisualGroup(
+  frameSource: ReachabilityFrameSource | null | undefined,
+  targetIdx: number
+): THREE.Object3D | null {
+  if (frameSource && frameSource.arena && Array.isArray(frameSource.arena.cars)) {
+    return frameSource.arena.cars[targetIdx] || null;
+  }
+  return null;
+}
+
+function disposeSceneNodeResources(scene: THREE.Scene | null, rootGroup: THREE.Group): void {
+  if (scene) {
+    scene.remove(rootGroup);
+  }
+  rootGroup.traverse((node: THREE.Object3D) => {
+    const meshNode = node as THREE.Mesh<
+      THREE.BufferGeometry | undefined,
+      THREE.Material | THREE.Material[] | undefined
+    >;
+    if (meshNode.geometry) {
+      meshNode.geometry.dispose();
+    }
+    if (meshNode.material) {
+      if (Array.isArray(meshNode.material)) {
+        for (const mat of meshNode.material) {
+          if (mat) mat.dispose();
+        }
+      } else {
+        meshNode.material.dispose();
+      }
+    }
+  });
+}
+
 export class ReachabilityVisualizer {
   public _lastTelemetryPublishMs: number;
   public aerialGroup: THREE.Group;
@@ -36,13 +149,13 @@ export class ReachabilityVisualizer {
   public interceptGroup: THREE.Group;
   public interceptRenderer: InterceptCrossRenderer;
   public onTelemetry: ((telemetry: Record<string, unknown>) => void) | null;
-  public physics: unknown;
+  public physics: ReachabilityPhysicsPort | null;
   public rootGroup: THREE.Group;
   public scene: THREE.Scene | null;
 
   constructor(
     scene: THREE.Scene | null,
-    physics: unknown = null,
+    physics: ReachabilityPhysicsPort | null = null,
     ballTrajectoryPredictor: BallTrajectoryPredictor | null = null,
     options: ReachabilityVisualizerOptions = {}
   ) {
@@ -52,18 +165,11 @@ export class ReachabilityVisualizer {
     this.getConfig = options.getConfig || null;
     this.onTelemetry = options.onTelemetry || null;
 
-    const rootGroup = new THREE.Group();
-    rootGroup.name = 'reachability-visualizer-root';
-    rootGroup.visible = false;
-    this.rootGroup = rootGroup;
-
-    if (scene) {
-      scene.add(rootGroup);
-    }
-
-    this.groundRenderer = new GroundReachabilityRenderer(rootGroup);
-    this.aerialRenderer = new AerialReachabilityRenderer(rootGroup);
-    this.interceptRenderer = new InterceptCrossRenderer(rootGroup, ballTrajectoryPredictor);
+    const renderers = createReachabilityRenderers(scene, ballTrajectoryPredictor);
+    this.rootGroup = renderers.rootGroup;
+    this.groundRenderer = renderers.groundRenderer;
+    this.aerialRenderer = renderers.aerialRenderer;
+    this.interceptRenderer = renderers.interceptRenderer;
 
     this.groundGroup = this.groundRenderer.group;
     this.aerialGroup = this.aerialRenderer.group;
@@ -77,8 +183,13 @@ export class ReachabilityVisualizer {
   /**
    * Per-frame update called from GameRenderSubsystem.
    */
-  update(runtime, currentTick, renderWidth, renderHeight) {
-    const config = this.getConfig?.();
+  update(
+    frameSource: ReachabilityFrameSource | null | undefined,
+    currentTick: number,
+    renderWidth: number,
+    renderHeight: number
+  ): void {
+    const config = this.getConfig ? this.getConfig() : null;
     if (!config || !config.enabled) {
       if (this.rootGroup.visible) {
         this.rootGroup.visible = false;
@@ -86,14 +197,15 @@ export class ReachabilityVisualizer {
       return;
     }
 
-    const phys = runtime?.physics || this.physics;
+    const phys = (frameSource && frameSource.physics) || this.physics;
     if (!phys) return;
 
-    const targetIdx =
-      (config.targetCarIndex ?? -1) >= 0 ? config.targetCarIndex! : (runtime?.playerCarIndex ?? 0);
+    const configuredIdx = config.targetCarIndex !== undefined ? config.targetCarIndex : -1;
+    const fallbackPlayerIdx =
+      frameSource && frameSource.playerCarIndex !== undefined ? frameSource.playerCarIndex : 0;
+    const targetIdx = configuredIdx >= 0 ? configuredIdx : fallbackPlayerIdx;
 
-    const carView =
-      runtime?.interpolator?.getCurrCarStateView?.(targetIdx) || phys.getCarStateView?.(targetIdx);
+    const carView = resolveCarStateView(frameSource, phys, targetIdx);
     if (!carView || carView.isDemoed) {
       this.rootGroup.visible = false;
       return;
@@ -101,8 +213,7 @@ export class ReachabilityVisualizer {
 
     this.rootGroup.visible = true;
 
-    // Extract current vehicle state in RocketSim coordinates (using interpolated visual position if available)
-    const carGroup = runtime?.arena?.cars?.[targetIdx];
+    const carGroup = resolveCarVisualGroup(frameSource, targetIdx);
     const posX = carGroup ? carGroup.position.x : carView.posX;
     const posY = carGroup ? carGroup.position.z : carView.posY; // Three.js Z -> RocketSim Y
     const posZ = carGroup ? carGroup.position.y : carView.posZ; // Three.js Y -> RocketSim Z
@@ -145,26 +256,26 @@ export class ReachabilityVisualizer {
     );
     const t3 = performance.now();
 
-    // Throttle UI store telemetry updates to ~15Hz so React UI never lags the 120Hz render loop
-    if (t3 - this._lastTelemetryPublishMs > 65.0) {
+    if (this.onTelemetry && t3 - this._lastTelemetryPublishMs > 65.0) {
       this._lastTelemetryPublishMs = t3;
       const groundUs = (t1 - t0) * 1000.0;
       const aerialUs = (t2 - t1) * 1000.0;
       const interceptUs = (t3 - t2) * 1000.0;
-      this.onTelemetry?.({
+      this.onTelemetry({
         computeTimeUs: groundUs + aerialUs + interceptUs,
         groundComputeUs: groundUs,
         aerialComputeUs: aerialUs,
         interceptComputeUs: interceptUs,
         isOnGround: carState.isOnGround,
         boostAmount: carState.boost,
-        forwardSpeed: carView.forwardSpeed ?? 0,
+        forwardSpeed: carView.forwardSpeed !== undefined ? carView.forwardSpeed : 0,
         interceptStatus: interceptRes.status,
         interceptTimeSec: interceptRes.timeSec,
         interceptDistance: interceptRes.distance,
         interceptMargin: interceptRes.margin,
-        interceptCentrality: interceptRes.centrality ?? 0,
-        interceptPaceStatus: interceptRes.paceStatus ?? 'none',
+        interceptCentrality: interceptRes.centrality !== undefined ? interceptRes.centrality : 0,
+        interceptPaceStatus:
+          interceptRes.paceStatus !== undefined ? interceptRes.paceStatus : 'none',
         interceptMinBoost: interceptRes.minBoost,
         interceptPos: [
           Math.round(interceptRes.rx),
@@ -175,19 +286,8 @@ export class ReachabilityVisualizer {
     }
   }
 
-  dispose() {
-    if (this.rootGroup) {
-      if (this.scene) {
-        this.scene.remove(this.rootGroup);
-      }
-      this.rootGroup.traverse((node) => {
-        node.geometry?.dispose?.();
-        if (node.material) {
-          const mats = Array.isArray(node.material) ? node.material : [node.material];
-          mats.forEach((m) => m?.dispose?.());
-        }
-      });
-    }
+  dispose(): void {
+    disposeSceneNodeResources(this.scene, this.rootGroup);
   }
 }
 

@@ -2,6 +2,7 @@ import {
   getActiveReplayTimelineController,
   getLatestRetainedReplayTimelineController,
   hudStore,
+  setNameTagRuntimeState,
   useAppStore,
 } from '../../runtimeUiPort.ts';
 import { SIM_OFFSETS, MAX_CARS } from '../../../physics/RocketSimConstants.ts';
@@ -18,18 +19,20 @@ import {
   applyReplayCarEntriesToRuntime,
   captureRuntimeReplayCarEntries,
   type NormalizedReplayDirectorCarEntry,
-  type ReplayCarEntryRuntimePort,
 } from '../../../replay/replayDirectorCarRosterPipeline.ts';
-import { extractGoalReplayFrames } from '../../../replay/ReplayPlaybackState.ts';
-import type { ReplayRingBuffer, ReplayRingBufferSlot } from '../../../replay/ReplayRingBuffer.ts';
+import type { ReplayRingBuffer } from '../../../replay/ReplayRingBuffer.ts';
 import type { ReplayTimelineController } from '../../../replay/ReplayTimelineController.ts';
 import {
   warmupArenaTrailsFromReplayWindow,
   type ReplayTrailWarmupArenaPort,
 } from '../../../entities/vehicle/supersonic-trail/SupersonicWheelTrailReplaySync.ts';
 import { DEFAULT_REPLAY_DIRECTOR_FOV_DEG } from '../../../ui-core/config/replayDirectorConfig.ts';
-import { EXPIRE_REPLAY_LOOKBACK_TICKS } from '../shared/goalAndBallTouchPipeline.ts';
-import type { GoalReplayRuntimePort } from '../shared/GoalReplaySessionCoordinator.ts';
+import {
+  endGoalReplaySession,
+  type GoalReplayRuntimePort,
+} from '../shared/GoalReplaySessionCoordinator.ts';
+import { applyReplayControllerFrameAndDirectorCamera } from '../shared/goalReplayHudPipeline.ts';
+import type { DirectorPreviewRuntimePort } from './directorPreviewFrameStepPipeline.ts';
 
 export function syncAndAttachReplayTimelineController(
   replayController: ReplayTimelineController,
@@ -57,6 +60,28 @@ export function syncAndAttachReplayTimelineController(
   return replayController.ActiveWindowCount;
 }
 
+export function resolveDesiredReferenceFreeCamFov(
+  explicitFov: number | undefined,
+  cameraPort:
+    | {
+        getDirectorFov?: () => number;
+        getFreeCamFov?: () => number;
+      }
+    | null
+    | undefined,
+  storeFreeCamFov: number | undefined
+): number {
+  const directorFov = cameraPort?.getDirectorFov ? Number(cameraPort.getDirectorFov()) : 0;
+  const freeCamFov = cameraPort?.getFreeCamFov ? Number(cameraPort.getFreeCamFov()) : 0;
+  return (
+    Number(explicitFov) ||
+    directorFov ||
+    freeCamFov ||
+    Number(storeFreeCamFov) ||
+    DEFAULT_REPLAY_DIRECTOR_FOV_DEG
+  );
+}
+
 export function pauseReplayAndEnterReferenceFreeCam(
   scenePort:
     | {
@@ -82,7 +107,7 @@ export function pauseReplayAndEnterReferenceFreeCam(
   warmupArenaTrailsFromReplayWindow(
     scenePort.arena,
     (idx) => replayController.getFrameBufferByIndex(idx),
-    replayController.sessionState?.cursorFloat ?? replayController.currentFrameIndex
+    replayController.sessionState.cursorFloat ?? replayController.currentFrameIndex
   );
   hudStore.getState().setReplayState({
     replayPaused: true,
@@ -93,15 +118,58 @@ export function pauseReplayAndEnterReferenceFreeCam(
   const snap = replayController.getCurrentFrameDiagnosticSnapshot();
   const eyeThreeJs = snap?.cameraPose?.dampedEyeThreeJs || [0, 420, -3600];
   const targetThreeJs = snap?.cameraPose?.dampedTargetThreeJs || [0, 120, 0];
-  const desiredFov =
-    Number(options.fov) ||
-    Number(scenePort.camera?.getDirectorFov?.()) ||
-    Number(scenePort.camera?.getFreeCamFov?.()) ||
-    Number(useAppStore.getState().freeCamFov) ||
-    DEFAULT_REPLAY_DIRECTOR_FOV_DEG;
-  scenePort.camera?.setFreeCamFov?.(desiredFov);
-  scenePort.camera?.setFreeCamPose?.(eyeThreeJs, targetThreeJs);
+  const desiredFov = resolveDesiredReferenceFreeCamFov(
+    options.fov,
+    scenePort.camera,
+    useAppStore.getState().freeCamFov
+  );
+  if (scenePort.camera?.setFreeCamFov) {
+    scenePort.camera.setFreeCamFov(desiredFov);
+  }
+  if (scenePort.camera?.setFreeCamPose) {
+    scenePort.camera.setFreeCamPose(eyeThreeJs, targetThreeJs);
+  }
   useAppStore.setState({ isFreeCam: true, freeCamFov: desiredFov });
+  return true;
+}
+
+export function releaseFreeplayGoalReplayOverridesOnExit(
+  scenePort: DirectorPreviewRuntimePort | null,
+  replayController: ReplayTimelineController
+): void {
+  replayController.endReplaySession();
+  if (scenePort) {
+    scenePort.releaseGoalReplayCameraOverride();
+    if (scenePort.ballTrajectoryPredictor?.releaseTemporarySuppression) {
+      scenePort.ballTrajectoryPredictor.releaseTemporarySuppression();
+    }
+  }
+  hudStore.getState().setReplayState({ replayPaused: false, replayPersistent: false });
+}
+
+export function restoreDirectorCameraAfterReferenceFreeCam(
+  scenePort: DirectorPreviewRuntimePort | null,
+  replayController: ReplayTimelineController,
+  isReplayActive: boolean,
+  scoringTeam: number,
+  scorerCarIndex: number
+): boolean {
+  useAppStore.getState().setFreeCam(false);
+  if (isReplayActive && replayController.sessionState.isActive && scenePort) {
+    if (scenePort.acquireGoalReplayCameraOverride) {
+      scenePort.acquireGoalReplayCameraOverride('freeplay-goal-replay');
+    }
+    applyReplayControllerFrameAndDirectorCamera(
+      scenePort,
+      replayController,
+      scoringTeam,
+      scorerCarIndex,
+      {
+        snapshot: null,
+        refreshDirectorPose: true,
+      }
+    );
+  }
   return true;
 }
 
@@ -176,6 +244,46 @@ export function restoreSingleCarAfterPreview(
   }
 }
 
+export function finalizeFreeplayReplaySessionCleanup(params: {
+  scenePort:
+    | (GoalReplayRuntimePort & {
+        keyboard?: { ballControlEnabled?: boolean } | null;
+        physics?: { numCars: number; removeCar?: (idx: number) => void } | null;
+      })
+    | null;
+  replayController: ReplayTimelineController;
+  shouldRestoreSingleCar: boolean;
+  savedCar0: NormalizedReplayDirectorCarEntry | null;
+  enableBallControl: boolean;
+}): void {
+  const { scenePort, replayController, shouldRestoreSingleCar, savedCar0, enableBallControl } =
+    params;
+  endGoalReplaySession(scenePort, replayController, {
+    source: 'freeplay-goal-replay',
+    clearHud: false,
+  });
+  if (shouldRestoreSingleCar) {
+    restoreSingleCarAfterPreview(scenePort, savedCar0);
+    setNameTagRuntimeState({ isMultiplayerOrMultiCarMode: false });
+  }
+  if (scenePort) {
+    if (scenePort.keyboard) {
+      scenePort.keyboard.ballControlEnabled = enableBallControl;
+    }
+    if (scenePort.match?.state) {
+      scenePort.match.state.phase = 'playing';
+    }
+  }
+  hudStore.getState().setReplayState({ replayPaused: false, replayPersistent: false });
+  hudStore.getState().setMatchState({
+    matchPhase: 'playing',
+    replayScorerName: null,
+    replayScorerTeam: null,
+    replayBallSpeedKph: null,
+    replayAssistName: null,
+  });
+}
+
 export async function resolveImportedDiagnosticPatternInput(
   fileOrInput: unknown,
   fileName?: string
@@ -194,100 +302,4 @@ export async function resolveImportedDiagnosticPatternInput(
   return parsed && Array.isArray(parsed.activeFrames) && parsed.activeFrames.length > 0
     ? parsed
     : null;
-}
-
-export function prepareFreeplayGoalReplaySessionData(params: {
-  runtime: GoalReplayRuntimePort | null | undefined;
-  ringBuffer: ReplayRingBuffer;
-  playerTeam: number;
-  isStandaloneReplayLoaded: boolean;
-  explicitCarEntries?: unknown[] | null;
-  incident: {
-    goalIncidentTick: number;
-    lastTouchTick: number;
-    lastKickoffStartTick: number;
-    scoringTeam?: number;
-    scorerCarIndex: number;
-    scorerName: string;
-    ballSpeedKph: number | null;
-    replayType?: 'goal' | 'expire';
-  };
-  currentTick: number;
-  ballPosY?: number;
-}): {
-  scoringTeam: number;
-  scorerCarIndex: number;
-  scorerName: string;
-  ballSpeedKph: number | null;
-  extractedFrames: Array<ReplayRingBufferSlot | ReturnType<typeof extractGoalReplayFrames>[number]>;
-  carEntries: NormalizedReplayDirectorCarEntry[];
-} | null {
-  const {
-    runtime: scenePort,
-    ringBuffer,
-    playerTeam,
-    isStandaloneReplayLoaded,
-    explicitCarEntries,
-    incident,
-    currentTick,
-    ballPosY,
-  } = params;
-  const scoringTeam =
-    incident.scoringTeam === 0 || incident.scoringTeam === 1
-      ? incident.scoringTeam
-      : typeof ballPosY === 'number' && Math.abs(ballPosY) > 100
-        ? ballPosY >= 0
-          ? 0
-          : 1
-        : playerTeam;
-  const scorerCarIndex = incident.scorerCarIndex;
-  const scorerName = incident.scorerName || 'Player';
-  const goalTick = incident.goalIncidentTick > 0 ? incident.goalIncidentTick : currentTick;
-  const extractedFrames =
-    incident.replayType === 'expire'
-      ? ringBuffer.getFramesInTickRange(
-          Math.max(incident.lastKickoffStartTick, goalTick - EXPIRE_REPLAY_LOOKBACK_TICKS),
-          currentTick
-        )
-      : extractGoalReplayFrames({
-          ringBuffer,
-          engine: null,
-          goalIncidentTick: goalTick,
-          scorerTouchTick: incident.lastTouchTick,
-          lookbackSeconds: 10.0,
-          touchLookbackSeconds: 7.0,
-          postGoalTicks: Math.max(0, currentTick - goalTick),
-          lastKickoffWillStartTick: incident.lastKickoffStartTick,
-        });
-  if (!Array.isArray(extractedFrames) || extractedFrames.length === 0) return null;
-
-  const resolvedPlayerTeam: 0 | 1 = playerTeam === 1 ? 1 : 0;
-  const fallbackCarName = incident.replayType === 'expire' ? 'Player' : scorerName;
-  const capturedEntries = captureRuntimeReplayCarEntries(
-    scenePort as unknown as ReplayCarEntryRuntimePort,
-    {
-      frameBuffer: extractedFrames[0].snapshot,
-      explicitEntries:
-        (explicitCarEntries as NormalizedReplayDirectorCarEntry[] | undefined) ?? undefined,
-      defaultTeam: resolvedPlayerTeam,
-    }
-  );
-  const carEntries = capturedEntries.map((c) =>
-    c.carIndex === scorerCarIndex
-      ? {
-          ...c,
-          name: c.name || fallbackCarName,
-          username: c.username || fallbackCarName,
-          team: isStandaloneReplayLoaded ? c.team : resolvedPlayerTeam,
-        }
-      : c
-  );
-  return {
-    scoringTeam,
-    scorerCarIndex,
-    scorerName,
-    ballSpeedKph: incident.ballSpeedKph,
-    extractedFrames,
-    carEntries,
-  };
 }

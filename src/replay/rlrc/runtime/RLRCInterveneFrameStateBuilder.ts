@@ -1,9 +1,9 @@
 /**
  * RLRCInterveneFrameStateBuilder.ts
- * Pure helper functions for RLRC intervention takeover:
+ * Pure helper functions for RLRC intervention POV loadout and frame state packing:
  * - User garage vehicle loadout resolution (hitboxId, visualId, team color hex)
- * - Hitbox resting Z ground-penetration protection
- * - 448-float GameStateBuffer packing and acknowledged control slice construction
+ * - Hitbox resting Z ground-penetration protection and quaternion basis axes extraction
+ * - 448-float GameStateBuffer packing for 120Hz RLRC replay frames
  */
 
 import {
@@ -17,29 +17,85 @@ import {
   EXTENDED_STATE_OFFSETS,
   GAME_STATE_BUFFER_FLOATS,
 } from '../../../physics/RocketSimConstants.ts';
-import type { ReplayAcknowledgedControlEntry } from '../../ReplayRingBuffer.ts';
-import { STORAGE_KEYS, safeStorage } from '../../../ui-core/config/storageHelpers.ts';
-import {
-  getCarColorSlotById,
-  normalizeVisualId,
-  resolveVehicleHitboxId,
-} from '../../../ui-core/config/vehicleConstants.ts';
+import type { ReconstructablePhysicsEngine } from '../../../physics/CarTransientStateReconstructor.ts';
+import type {
+  ReplayAcknowledgedControlEntry,
+  ReplayRecordedIncident,
+} from '../../ReplayRingBuffer.ts';
 import {
   RLRC_FIXED_DT,
   RLRC_MAX_PLAYER_SLOTS,
   RLRC_BOOST_PAD_COUNT,
-  RLRC_PREROLL_HISTORY_FRAMES,
   type RLRCFrame120Hz,
   type RLRCHitboxId,
-  type RLRCInterveneLaunchConfig,
-  type RLRCNonPovInterventionMode,
-  type RLRCPlayerSlotMeta,
   type RLRCQuat,
   type RLRCSynthesizedCarControls,
   type RLRCTeamIndex,
   type RLRCVec3,
   type RLRCVisualId,
 } from '../RLRCReplayTypes.ts';
+
+export interface RLRCInterveneBallStateWritePayload {
+  readonly pos: [number, number, number];
+  readonly vel: [number, number, number];
+  readonly angVel: [number, number, number];
+  readonly rotQuat: [number, number, number, number];
+  readonly fwd?: [number, number, number];
+  readonly right?: [number, number, number];
+  readonly up?: [number, number, number];
+}
+
+export interface RLRCInterveneCarStateWritePayload extends RLRCInterveneBallStateWritePayload {
+  readonly boost: number;
+  readonly isOnGround?: boolean;
+  readonly isSupersonic?: boolean;
+  readonly hasFlipOrJump?: boolean;
+  readonly isBoosting?: boolean;
+  readonly isFlipping?: boolean;
+}
+
+export interface RLRCIntervenePhysicsPort extends ReconstructablePhysicsEngine {
+  state: Float32Array;
+  isCarSlotActive?: (slotIndex: number) => boolean;
+  addCarAtSlot?: (slotIndex: number, team: number, hitboxPreset?: string) => number | void;
+  removeCar?: (slotIndex: number) => boolean | void;
+  setCarState?: (
+    slotIndex: number,
+    payload: RLRCInterveneCarStateWritePayload | Float32Array
+  ) => boolean | void;
+  setBallState?: (payload: RLRCInterveneBallStateWritePayload | Float32Array) => boolean | void;
+  setControls?: (slotIndex: number, controls: RLRCSynthesizedCarControls) => void;
+  setCarControls?: (slotIndex: number, controls: RLRCSynthesizedCarControls) => void;
+  setUnlimitedBoost?: (enabled: boolean) => void;
+  step?: (ticks?: number, controls?: RLRCSynthesizedCarControls) => void;
+  clearEvents?: () => void;
+  resetGoalLatch?: () => void;
+}
+
+export interface RLRCPrerollRingBufferPort {
+  clear?: () => void;
+  recordFrame?: (
+    tick: number,
+    stateSnapshot: Float32Array,
+    options?: {
+      acknowledgedControls?: ReadonlyArray<
+        ReplayAcknowledgedControlEntry | null | undefined
+      > | null;
+    }
+  ) => { snapshot?: Float32Array | null } | null;
+  appendIncident?: (tick: number, incident: ReplayRecordedIncident) => boolean | void;
+}
+
+export interface RLRCGoalAndTouchTrackerPort {
+  goalIncidentTick?: number;
+  goalResetTicks?: number;
+  frozenGoalBallState?: unknown;
+  prevBallVelX?: number;
+  prevBallVelY?: number;
+  prevBallVelZ?: number;
+  lastKickoffStartTick?: number;
+  lastTouchTick?: number;
+}
 
 export const RLRC_HITBOX_RESTING_Z: Readonly<Record<RLRCHitboxId, number>> = Object.freeze({
   'hitbox-octane': 17.01,
@@ -62,6 +118,27 @@ export const DEFAULT_NEUTRAL_CAR_CONTROLS: RLRCSynthesizedCarControls = Object.f
   handbrake: false,
 });
 
+const INTERVENE_VISUAL_TO_HITBOX_MAP: Readonly<Record<RLRCVisualId, RLRCHitboxId>> = Object.freeze({
+  fennec: 'hitbox-octane',
+  ryza: 'hitbox-octane',
+  trioctane: 'hitbox-octane',
+  insidio: 'hitbox-hybrid',
+  dominus: 'hitbox-dominus',
+  'breakout-mini': 'hitbox-breakout',
+  sentinel: 'hitbox-plank',
+  merc: 'hitbox-merc',
+  'trioctane-threewheel': 'hitbox-psyclops',
+});
+
+const INTERVENE_COLOR_SLOT_HEX: Readonly<Record<number, string>> = Object.freeze({
+  0: '#ff7043',
+  1: '#66bb6a',
+  2: '#ffc107',
+  3: '#42a5f5',
+  4: '#fd6e9d',
+  5: '#ba68c8',
+});
+
 export interface RLRCUserInterveneLoadout {
   readonly hitboxId: RLRCHitboxId;
   readonly visualId: RLRCVisualId;
@@ -75,103 +152,69 @@ export interface RLRCPovFrameOverride {
 }
 
 export function getHitboxRestingZ(hitboxId: RLRCHitboxId | string | null | undefined): number {
-  const key = (hitboxId || 'hitbox-octane') as RLRCHitboxId;
-  return RLRC_HITBOX_RESTING_Z[key] ?? 17.01;
+  return RLRC_HITBOX_RESTING_Z[(hitboxId || 'hitbox-octane') as RLRCHitboxId] ?? 17.01;
 }
 
-function readStoredGaragePreset(): string {
-  try {
-    const raw = safeStorage.get(STORAGE_KEYS.DISPLAY_SETTINGS);
-    if (raw) {
-      const parsed = JSON.parse(raw) as { vehiclePreset?: string; carVisual?: string };
-      return parsed?.vehiclePreset || parsed?.carVisual || 'fennec';
-    }
-  } catch {
-    // Fallback to default preset when storage is unavailable
-  }
+function normalizeInterveneVisualId(rawVisual: string | null | undefined): RLRCVisualId {
+  const key = String(rawVisual || '')
+    .toLowerCase()
+    .trim();
+  if (key in INTERVENE_VISUAL_TO_HITBOX_MAP) return key as RLRCVisualId;
+  if (
+    key.includes('three') ||
+    key.includes('psyclops') ||
+    key.includes('3w') ||
+    key === 'trioctane3'
+  )
+    return 'trioctane-threewheel';
+  if (key.includes('trioctane')) return 'trioctane';
+  if (key.includes('dominus')) return 'dominus';
+  if (key.includes('breakout')) return 'breakout-mini';
+  if (key.includes('plank') || key.includes('batmobile') || key.includes('sentinel'))
+    return 'sentinel';
+  if (key.includes('hybrid') || key.includes('insidio')) return 'insidio';
+  if (key.includes('merc')) return 'merc';
+  if (key.includes('ryza')) return 'ryza';
   return 'fennec';
 }
 
-function readStoredColorSlot(assignedTeam: RLRCTeamIndex): number {
-  const fallback = assignedTeam === 0 ? 3 : 2;
+function readStoredJson<T>(storageKey: string): T | null {
   try {
-    const raw = safeStorage.get(STORAGE_KEYS.COLOR_PREFS);
-    if (raw) {
-      const parsed = JSON.parse(raw) as { blueOrder?: number[]; orangeOrder?: number[] };
-      const slot = assignedTeam === 0 ? parsed?.blueOrder?.[0] : parsed?.orangeOrder?.[0];
-      if (typeof slot === 'number' && slot >= 0 && slot <= 5) return slot;
-    }
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(storageKey) : null;
+    return raw ? (JSON.parse(raw) as T) : null;
   } catch {
-    // Fallback to default team slot when storage is unavailable
+    return null;
   }
-  return fallback;
 }
 
 export function resolveCurrentUserInterveneLoadout(
   assignedTeam: RLRCTeamIndex = 0,
   overrides?: Partial<RLRCUserInterveneLoadout>
 ): RLRCUserInterveneLoadout {
-  const rawVisual = overrides?.visualId || readStoredGaragePreset();
-  const visualId = normalizeVisualId(rawVisual) as RLRCVisualId;
-  const hitboxId = (overrides?.hitboxId || resolveVehicleHitboxId(visualId)) as RLRCHitboxId;
-  const colorSlotId = overrides?.colorSlotId ?? readStoredColorSlot(assignedTeam);
-  const colorHex = overrides?.colorHex || getCarColorSlotById(colorSlotId).hex;
-  return { hitboxId, visualId, colorHex, colorSlotId };
-}
-
-export function resolveValidIntervenePovSlotIndex(
-  frame: RLRCFrame120Hz,
-  roster: readonly RLRCPlayerSlotMeta[],
-  preferredSlot: number
-): number {
-  const clamped = Math.max(0, Math.min(RLRC_MAX_PLAYER_SLOTS - 1, Math.round(preferredSlot)));
-  if (frame.cars[clamped]?.entityActive) return clamped;
-  for (let i = 0; i < frame.cars.length; i++) {
-    if (frame.cars[i]?.entityActive) return i;
-  }
-  return roster[0]?.slotIndex ?? clamped;
-}
-
-export function buildInterveneLaunchConfig(params: {
-  readonly targetFrame: RLRCFrame120Hz;
-  readonly targetFrame120Hz: number;
-  readonly roster: readonly RLRCPlayerSlotMeta[];
-  readonly currentPovSlotIndex: number;
-  readonly currentNonPovMode: RLRCNonPovInterventionMode;
-  readonly currentDownCounterSeconds: 0 | 1 | 2 | 3;
-  readonly overrides?: Partial<RLRCInterveneLaunchConfig>;
-}): RLRCInterveneLaunchConfig {
-  const {
-    targetFrame,
-    targetFrame120Hz,
-    roster,
-    currentPovSlotIndex,
-    currentNonPovMode,
-    currentDownCounterSeconds,
-    overrides,
-  } = params;
-  const povSlotIndex = resolveValidIntervenePovSlotIndex(
-    targetFrame,
-    roster,
-    overrides?.povSlotIndex ?? currentPovSlotIndex
+  const display = readStoredJson<{ vehiclePreset?: string; carVisual?: string }>(
+    'display-settings'
   );
-  const povMeta = roster.find((r) => r.slotIndex === povSlotIndex);
-  const povTeam: RLRCTeamIndex = povMeta?.team ?? (povSlotIndex < 3 ? 0 : 1);
-  const userLoadout = resolveCurrentUserInterveneLoadout(povTeam, {
-    hitboxId: overrides?.playerHitboxId,
-    visualId: overrides?.playerVisualId,
-    colorHex: overrides?.playerColorHex,
-  });
-  return {
-    targetFrame120Hz,
-    povSlotIndex,
-    playerHitboxId: userLoadout.hitboxId,
-    playerVisualId: userLoadout.visualId,
-    playerColorHex: userLoadout.colorHex,
-    downCounterSeconds: overrides?.downCounterSeconds ?? currentDownCounterSeconds,
-    nonPovMode: overrides?.nonPovMode ?? currentNonPovMode,
-    prerollHistoryFrames: overrides?.prerollHistoryFrames ?? RLRC_PREROLL_HISTORY_FRAMES,
-  };
+  const visualId = normalizeInterveneVisualId(
+    overrides?.visualId || display?.vehiclePreset || display?.carVisual || 'fennec'
+  );
+  const hitboxId =
+    overrides?.hitboxId && overrides.hitboxId in RLRC_HITBOX_RESTING_Z
+      ? overrides.hitboxId
+      : (INTERVENE_VISUAL_TO_HITBOX_MAP[visualId] ?? 'hitbox-octane');
+  const colors = readStoredJson<{ blueOrder?: number[]; orangeOrder?: number[] }>(
+    'color-preferences'
+  );
+  const storedSlot = assignedTeam === 0 ? colors?.blueOrder?.[0] : colors?.orangeOrder?.[0];
+  const colorSlotId =
+    overrides?.colorSlotId ??
+    (typeof storedSlot === 'number' && storedSlot >= 0 && storedSlot <= 5
+      ? storedSlot
+      : assignedTeam === 0
+        ? 3
+        : 2);
+  const colorHex =
+    overrides?.colorHex || INTERVENE_COLOR_SLOT_HEX[colorSlotId] || INTERVENE_COLOR_SLOT_HEX[0];
+  return { hitboxId, visualId, colorHex, colorSlotId };
 }
 
 export function clampCarPositionZForHitbox(
@@ -180,10 +223,9 @@ export function clampCarPositionZForHitbox(
   hitboxId: RLRCHitboxId
 ): RLRCVec3 {
   const restZ = getHitboxRestingZ(hitboxId);
-  if ((isOnGround || pos.z < restZ + 2.5) && pos.z < restZ) {
-    return { x: pos.x, y: pos.y, z: restZ };
-  }
-  return pos;
+  return (isOnGround || pos.z < restZ + 2.5) && pos.z < restZ
+    ? { x: pos.x, y: pos.y, z: restZ }
+    : pos;
 }
 
 export function quatToBasisAxes(q: RLRCQuat): {
@@ -192,18 +234,18 @@ export function quatToBasisAxes(q: RLRCQuat): {
   up: [number, number, number];
 } {
   const { x, y, z, w } = q;
-  const x2 = x + x;
-  const y2 = y + y;
-  const z2 = z + z;
-  const xx = x * x2;
-  const xy = x * y2;
-  const xz = x * z2;
-  const yy = y * y2;
-  const yz = y * z2;
-  const zz = z * z2;
-  const wx = w * x2;
-  const wy = w * y2;
-  const wz = w * z2;
+  const x2 = x + x,
+    y2 = y + y,
+    z2 = z + z;
+  const xx = x * x2,
+    xy = x * y2,
+    xz = x * z2;
+  const yy = y * y2,
+    yz = y * z2,
+    zz = z * z2;
+  const wx = w * x2,
+    wy = w * y2,
+    wz = w * z2;
   return {
     fwd: [1 - (yy + zz), xy + wz, xz - wy],
     right: [xy - wz, 1 - (xx + zz), yz + wx],
@@ -223,15 +265,9 @@ function writeKinematicsBlock(
   buf[base] = pos.x;
   buf[base + 1] = pos.y;
   buf[base + 2] = pos.z;
-  buf[base + 3] = axes.fwd[0];
-  buf[base + 4] = axes.fwd[1];
-  buf[base + 5] = axes.fwd[2];
-  buf[base + 6] = axes.right[0];
-  buf[base + 7] = axes.right[1];
-  buf[base + 8] = axes.right[2];
-  buf[base + 9] = axes.up[0];
-  buf[base + 10] = axes.up[1];
-  buf[base + 11] = axes.up[2];
+  buf.set(axes.fwd, base + 3);
+  buf.set(axes.right, base + 6);
+  buf.set(axes.up, base + 9);
   buf[base + 12] = vel.x;
   buf[base + 13] = vel.y;
   buf[base + 14] = vel.z;
@@ -251,7 +287,6 @@ export function packRLRCFrameToGameStateBuffer(
       ? outBuffer
       : new Float32Array(GAME_STATE_BUFFER_FLOATS);
   buf.fill(0);
-
   buf[SIM_OFFSETS.TICK] = tick;
   buf[SIM_OFFSETS.NUM_CARS] = RLRC_MAX_PLAYER_SLOTS;
   buf[SIM_OFFSETS.NUM_PADS] = RLRC_BOOST_PAD_COUNT;
@@ -297,11 +332,11 @@ export function packRLRCFrameToGameStateBuffer(
     buf[cBase + CAR_STATE_OFFSETS.IS_FLIPPING] =
       car.activeFlags.dodgeActive || car.activeFlags.doubleJumpActive ? 1 : 0;
 
-    const wContact = car.isOnGround ? 1 : 0;
-    buf[cBase + CAR_STATE_OFFSETS.WHEELS] = wContact;
-    buf[cBase + CAR_STATE_OFFSETS.WHEELS + 1] = wContact;
-    buf[cBase + CAR_STATE_OFFSETS.WHEELS + 2] = wContact;
-    buf[cBase + CAR_STATE_OFFSETS.WHEELS + 3] = wContact;
+    buf.fill(
+      car.isOnGround ? 1 : 0,
+      cBase + CAR_STATE_OFFSETS.WHEELS,
+      cBase + CAR_STATE_OFFSETS.WHEELS + 4
+    );
     buf[cBase + CAR_STATE_OFFSETS.GROUND_NORMAL + 2] = 1;
 
     const airTime = car.isOnGround ? 0 : Math.max(0, car.airTimeSinceJump);
@@ -325,22 +360,4 @@ export function packRLRCFrameToGameStateBuffer(
 
   buf[EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING] = bRb.sleeping ? 1 : 0;
   return buf;
-}
-
-export function buildFrameAcknowledgedControls(
-  frame: RLRCFrame120Hz,
-  nonPovMode?: RLRCNonPovInterventionMode,
-  povSlotIndex = 0
-): ReplayAcknowledgedControlEntry[] {
-  const entries: ReplayAcknowledgedControlEntry[] = [];
-  for (let slot = 0; slot < RLRC_MAX_PLAYER_SLOTS; slot++) {
-    const car = frame.cars[slot];
-    const useNeutral =
-      !car ||
-      !car.entityActive ||
-      ((nonPovMode === 'disappear' || nonPovMode === 'no-input') && slot !== povSlotIndex);
-    const carControls = useNeutral ? DEFAULT_NEUTRAL_CAR_CONTROLS : car.controls;
-    entries.push({ carIndex: slot, controls: { ...carControls } });
-  }
-  return entries;
 }

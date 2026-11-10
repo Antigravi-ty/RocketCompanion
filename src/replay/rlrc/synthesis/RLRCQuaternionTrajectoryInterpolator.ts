@@ -1,11 +1,10 @@
 /**
  * RLRCQuaternionTrajectoryInterpolator.ts
- * Angular-velocity-aware cubic Bezier/Hermite quaternion trajectory interpolation
- * (De Casteljau SLERP on SO(3)), shortest-arc SLERP, and NetStream angular velocity
- * secant calibration for 120Hz RLRC replay resampling.
+ * Angular-velocity-aware cubic Hermite quaternion interpolation on SO(3) and
+ * shortest-arc SLERP primitives for 120Hz vehicle dodge/flip resampling.
  */
 
-import type { RLRCQuat, RLRCVec3 } from '../RLRCReplayTypes.ts';
+import type { RLRCInterpolationMethod, RLRCQuat, RLRCVec3 } from '../RLRCReplayTypes.ts';
 
 export interface RLRCOrthonormalBasis {
   readonly fwd: RLRCVec3;
@@ -13,50 +12,20 @@ export interface RLRCOrthonormalBasis {
   readonly up: RLRCVec3;
 }
 
-export const IDENTITY_QUAT: RLRCQuat = Object.freeze({ x: 0, y: 0, z: 0, w: 1 });
-export const ZERO_ANGULAR_VEC: RLRCVec3 = Object.freeze({ x: 0, y: 0, z: 0 });
+export const ID_QUAT: RLRCQuat = Object.freeze({ x: 0, y: 0, z: 0, w: 1 });
 
-const clampUnitScalar = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));
-
-const vecLength = (v: RLRCVec3): number => Math.hypot(v.x, v.y, v.z);
-
-const vecScale = (v: RLRCVec3, scale: number): RLRCVec3 => ({
-  x: v.x * scale,
-  y: v.y * scale,
-  z: v.z * scale,
-});
-
-const vecAdd = (a: RLRCVec3, b: RLRCVec3): RLRCVec3 => ({
-  x: a.x + b.x,
-  y: a.y + b.y,
-  z: a.z + b.z,
-});
-
-const vecSub = (a: RLRCVec3, b: RLRCVec3): RLRCVec3 => ({
-  x: a.x - b.x,
-  y: a.y - b.y,
-  z: a.z - b.z,
-});
-
-const vecLerp = (a: RLRCVec3, b: RLRCVec3, alpha: number): RLRCVec3 => ({
-  x: a.x + (b.x - a.x) * alpha,
-  y: a.y + (b.y - a.y) * alpha,
-  z: a.z + (b.z - a.z) * alpha,
-});
+function clamp01(t: number): number {
+  return t < 0 ? 0 : t > 1 ? 1 : t;
+}
 
 export function normalizeQuat(q: RLRCQuat): RLRCQuat {
-  const length = Math.hypot(q.x, q.y, q.z, q.w);
-  return Number.isFinite(length) && length >= 1e-7
-    ? { x: q.x / length, y: q.y / length, z: q.z / length, w: q.w / length }
-    : IDENTITY_QUAT;
+  const len = Math.hypot(q.x, q.y, q.z, q.w);
+  return Number.isFinite(len) && len >= 1e-7
+    ? { x: q.x / len, y: q.y / len, z: q.z / len, w: q.w / len }
+    : ID_QUAT;
 }
 
-export function conjugateQuat(q: RLRCQuat): RLRCQuat {
-  return { x: -q.x, y: -q.y, z: -q.z, w: q.w };
-}
-
-export function multiplyQuat(a: RLRCQuat, b: RLRCQuat): RLRCQuat {
+function mulQuat(a: RLRCQuat, b: RLRCQuat): RLRCQuat {
   return {
     x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
     y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
@@ -65,83 +34,126 @@ export function multiplyQuat(a: RLRCQuat, b: RLRCQuat): RLRCQuat {
   };
 }
 
-export function dotQuat(a: RLRCQuat, b: RLRCQuat): number {
-  return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
-}
-
-export function negateQuat(q: RLRCQuat): RLRCQuat {
-  return { x: -q.x, y: -q.y, z: -q.z, w: -q.w };
-}
-
-export function expRotationVectorToQuat(rotationVector: RLRCVec3): RLRCQuat {
-  const angle = vecLength(rotationVector);
-  if (!Number.isFinite(angle) || angle < 1e-7) {
+function expQuatDelta(halfThetaVec: RLRCVec3): RLRCQuat {
+  const theta = Math.hypot(halfThetaVec.x, halfThetaVec.y, halfThetaVec.z);
+  if (theta < 1e-6) {
     return normalizeQuat({
-      x: 0.5 * (Number.isFinite(rotationVector.x) ? rotationVector.x : 0),
-      y: 0.5 * (Number.isFinite(rotationVector.y) ? rotationVector.y : 0),
-      z: 0.5 * (Number.isFinite(rotationVector.z) ? rotationVector.z : 0),
+      x: halfThetaVec.x,
+      y: halfThetaVec.y,
+      z: halfThetaVec.z,
       w: 1,
     });
   }
-  const halfAngle = 0.5 * angle;
-  const sinScale = Math.sin(halfAngle) / angle;
-  return normalizeQuat({
-    x: rotationVector.x * sinScale,
-    y: rotationVector.y * sinScale,
-    z: rotationVector.z * sinScale,
-    w: Math.cos(halfAngle),
-  });
-}
-
-export function logQuatToRotationVector(q: RLRCQuat): RLRCVec3 {
-  const unit = normalizeQuat(q.w < 0 ? negateQuat(q) : q);
-  const sinHalf = Math.hypot(unit.x, unit.y, unit.z);
-  if (sinHalf < 1e-7) {
-    return { x: 2 * unit.x, y: 2 * unit.y, z: 2 * unit.z };
-  }
-  const halfAngle = Math.atan2(sinHalf, clampUnitScalar(unit.w, -1, 1));
-  const scale = (2 * halfAngle) / sinHalf;
+  const s = Math.sin(theta) / theta;
   return {
-    x: unit.x * scale,
-    y: unit.y * scale,
-    z: unit.z * scale,
+    x: halfThetaVec.x * s,
+    y: halfThetaVec.y * s,
+    z: halfThetaVec.z * s,
+    w: Math.cos(theta),
   };
 }
 
-export function integrateQuatWorldAngularVelocity(
-  q: RLRCQuat,
-  worldOmega: RLRCVec3,
-  dtSeconds: number
-): RLRCQuat {
-  const deltaQuat = expRotationVectorToQuat(vecScale(worldOmega, dtSeconds));
-  return normalizeQuat(multiplyQuat(deltaQuat, q));
+function slerpAlignedQuat(a: RLRCQuat, b: RLRCQuat, t: number): RLRCQuat {
+  if (t <= 0) return a;
+  if (t >= 1) return b;
+  const rawDot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+  const dot = Math.max(-1, Math.min(1, rawDot));
+  if (dot > 0.9995) {
+    const s0 = 1 - t;
+    return normalizeQuat({
+      x: s0 * a.x + t * b.x,
+      y: s0 * a.y + t * b.y,
+      z: s0 * a.z + t * b.z,
+      w: s0 * a.w + t * b.w,
+    });
+  }
+  const theta = Math.acos(Math.abs(dot));
+  const sinTheta = Math.sin(theta);
+  if (Math.abs(sinTheta) < 1e-6) return a;
+  const sgn = dot < 0 ? -1 : 1;
+  const s0 = Math.sin((1 - t) * theta) / sinTheta;
+  const s1 = (Math.sin(t * theta) / sinTheta) * sgn;
+  return normalizeQuat({
+    x: s0 * a.x + s1 * b.x,
+    y: s0 * a.y + s1 * b.y,
+    z: s0 * a.z + s1 * b.z,
+    w: s0 * a.w + s1 * b.w,
+  });
 }
 
 export function slerpShortestArcQuat(q0: RLRCQuat, q1: RLRCQuat, alpha: number): RLRCQuat {
-  const t = clampUnitScalar(alpha, 0, 1);
+  const t = clamp01(alpha);
   const a = normalizeQuat(q0);
   const b = normalizeQuat(q1);
   if (t <= 0) return a;
   if (t >= 1) return b;
-  const rawDot = dotQuat(a, b);
-  const sign = rawDot < 0 ? -1 : 1;
-  const absDot = Math.abs(rawDot);
-  let weight0 = 1 - t;
-  let weight1 = t * sign;
-  if (absDot <= 0.9995) {
-    const theta = Math.acos(clampUnitScalar(absDot, -1, 1));
-    const sinTheta = Math.sin(theta);
-    if (Math.abs(sinTheta) < 1e-6) return a;
-    const ratio1 = Math.sin(theta * t) / sinTheta;
-    weight0 = Math.cos(theta * t) - absDot * ratio1;
-    weight1 = ratio1 * sign;
+  const raw = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+  const bAligned = raw < 0 ? { x: -b.x, y: -b.y, z: -b.z, w: -b.w } : b;
+  return slerpAlignedQuat(a, bAligned, t);
+}
+
+/**
+ * Cubic Bezier / Hermite quaternion interpolation using world-space angular velocities
+ * `w0` and `w1` (rad/s) to construct interior control orientations:
+ *   `c0 = exp(w0 * dt / 6) * q0`
+ *   `c1 = exp(-w1 * dt / 6) * q1`
+ * Also uses the forward-predicted quaternion `exp(0.5 * (w0 + w1) * dt) * q0` to disambiguate
+ * hemisphere sign when high-rate dodges rotate near or past 90..180 degrees across a replication gap.
+ */
+export function interpolateQuatHermiteWithAngularVelocity(
+  q0: RLRCQuat,
+  q1: RLRCQuat,
+  w0: RLRCVec3,
+  w1: RLRCVec3,
+  alpha: number,
+  dtSeconds: number,
+  method: RLRCInterpolationMethod = 'hermite-clamped'
+): RLRCQuat {
+  const t = clamp01(alpha);
+  const a = normalizeQuat(q0);
+  const bRaw = normalizeQuat(q1);
+  if (t <= 0 || dtSeconds <= 1e-6) return a;
+  if (t >= 1) return bRaw;
+
+  const wMag0 = Math.hypot(w0.x, w0.y, w0.z);
+  const wMag1 = Math.hypot(w1.x, w1.y, w1.z);
+  if (method === 'linear' || (wMag0 < 0.15 && wMag1 < 0.15) || dtSeconds > 0.25) {
+    return slerpShortestArcQuat(a, bRaw, t);
   }
-  return normalizeQuat({
-    x: weight0 * a.x + weight1 * b.x,
-    y: weight0 * a.y + weight1 * b.y,
-    z: weight0 * a.z + weight1 * b.z,
-    w: weight0 * a.w + weight1 * b.w,
+
+  // Predict midpoint/endpoint hemisphere using average angular velocity
+  const avgHalfAngle: RLRCVec3 = {
+    x: 0.25 * (w0.x + w1.x) * dtSeconds,
+    y: 0.25 * (w0.y + w1.y) * dtSeconds,
+    z: 0.25 * (w0.z + w1.z) * dtSeconds,
+  };
+  const qPred = normalizeQuat(mulQuat(expQuatDelta(avgHalfAngle), a));
+  const predDot = qPred.x * bRaw.x + qPred.y * bRaw.y + qPred.z * bRaw.z + qPred.w * bRaw.w;
+  const directDot = a.x * bRaw.x + a.y * bRaw.y + a.z * bRaw.z + a.w * bRaw.w;
+  const sgn = (Math.abs(directDot) < 0.35 ? predDot : directDot) < 0 ? -1 : 1;
+  const b: RLRCQuat = sgn < 0 ? { x: -bRaw.x, y: -bRaw.y, z: -bRaw.z, w: -bRaw.w } : bRaw;
+
+  const sixthDt = Math.min(dtSeconds, 0.18) / 6.0;
+  const d0 = expQuatDelta({
+    x: 0.5 * w0.x * sixthDt,
+    y: 0.5 * w0.y * sixthDt,
+    z: 0.5 * w0.z * sixthDt,
   });
+  const d1 = expQuatDelta({
+    x: -0.5 * w1.x * sixthDt,
+    y: -0.5 * w1.y * sixthDt,
+    z: -0.5 * w1.z * sixthDt,
+  });
+  const c0 = normalizeQuat(mulQuat(d0, a));
+  const c1 = normalizeQuat(mulQuat(d1, b));
+
+  // De Casteljau cubic evaluation on S^3
+  const p01 = slerpShortestArcQuat(a, c0, t);
+  const p12 = slerpShortestArcQuat(c0, c1, t);
+  const p23 = slerpShortestArcQuat(c1, b, t);
+  const p012 = slerpShortestArcQuat(p01, p12, t);
+  const p123 = slerpShortestArcQuat(p12, p23, t);
+  return slerpShortestArcQuat(p012, p123, t);
 }
 
 export function quatToBasisVectors(rotation: RLRCQuat): RLRCOrthonormalBasis {
@@ -160,125 +172,4 @@ export function quatToBasisVectors(rotation: RLRCQuat): RLRCOrthonormalBasis {
     right: { x: 2 * (xy - wz), y: 1 - 2 * (xx + zz), z: 2 * (yz + wx) },
     up: { x: 2 * (xz + wy), y: 2 * (yz - wx), z: 1 - 2 * (xx + yy) },
   };
-}
-
-export function extractSecantWorldAngularVelocity(
-  q0: RLRCQuat,
-  q1: RLRCQuat,
-  dtSeconds: number
-): RLRCVec3 {
-  if (dtSeconds <= 1e-6) return ZERO_ANGULAR_VEC;
-  const a = normalizeQuat(q0);
-  const b = normalizeQuat(q1);
-  const deltaQuat = multiplyQuat(b, conjugateQuat(a));
-  const rotationVector = logQuatToRotationVector(deltaQuat);
-  return vecScale(rotationVector, 1 / dtSeconds);
-}
-
-export function calibrateAngularVelocitySample(
-  rawOmega: RLRCVec3,
-  secantOmega: RLRCVec3,
-  maxOmegaRadPerSec = 9.0
-): RLRCVec3 {
-  const rawMag = vecLength(rawOmega);
-  if (!Number.isFinite(rawMag) || rawMag <= 1e-6) return ZERO_ANGULAR_VEC;
-  const secMag = vecLength(secantOmega);
-  let calibrated = rawOmega;
-  if (rawMag > 9.0) {
-    const tenth = vecScale(rawOmega, 0.1);
-    const errRaw = vecLength(vecSub(rawOmega, secantOmega));
-    const errTenth = vecLength(vecSub(tenth, secantOmega));
-    calibrated = errTenth <= errRaw || rawMag > maxOmegaRadPerSec * 1.5 ? tenth : rawOmega;
-  } else if (secMag > 0.8 && rawMag > 0.08 && secMag / rawMag > 5.5 && secMag / rawMag < 15.0) {
-    const tenX = vecScale(rawOmega, 10.0);
-    if (vecLength(vecSub(tenX, secantOmega)) < vecLength(vecSub(rawOmega, secantOmega))) {
-      calibrated = tenX;
-    }
-  }
-  const calMag = vecLength(calibrated);
-  return calMag > maxOmegaRadPerSec && calMag > 1e-6
-    ? vecScale(calibrated, maxOmegaRadPerSec / calMag)
-    : calibrated;
-}
-
-function clampAngularTangent(
-  omega: RLRCVec3,
-  secantOmega: RLRCVec3,
-  maxOmegaRadPerSec: number
-): RLRCVec3 {
-  const secMag = vecLength(secantOmega);
-  const maxDeviation = 0.65 * secMag + 2.5;
-  const diff = vecSub(omega, secantOmega);
-  const devMag = vecLength(diff);
-  const clamped = vecAdd(
-    secantOmega,
-    devMag > maxDeviation && devMag > 1e-6 ? vecScale(diff, maxDeviation / devMag) : diff
-  );
-  const clampedMag = vecLength(clamped);
-  return clampedMag > maxOmegaRadPerSec && clampedMag > 1e-6
-    ? vecScale(clamped, maxOmegaRadPerSec / clampedMag)
-    : clamped;
-}
-
-export interface RLRCQuaternionTrajectorySample {
-  readonly rotation: RLRCQuat;
-  readonly angularVelocity: RLRCVec3;
-}
-
-export function interpolateQuaternionHermiteTrajectory(
-  q0Raw: RLRCQuat,
-  omega0Raw: RLRCVec3,
-  q1Raw: RLRCQuat,
-  omega1Raw: RLRCVec3,
-  alpha: number,
-  dtSeconds: number,
-  maxOmegaRadPerSec = 8.5
-): RLRCQuaternionTrajectorySample {
-  const tau = clampUnitScalar(alpha, 0, 1);
-  const q0 = normalizeQuat(q0Raw);
-  const q1 = normalizeQuat(q1Raw);
-  const secantOmega = extractSecantWorldAngularVelocity(q0, q1, dtSeconds);
-  const w0Cal = calibrateAngularVelocitySample(omega0Raw, secantOmega, maxOmegaRadPerSec);
-  const w1Cal = calibrateAngularVelocitySample(omega1Raw, secantOmega, maxOmegaRadPerSec);
-
-  if (tau <= 0 || dtSeconds <= 1e-6) {
-    return { rotation: q0, angularVelocity: w0Cal };
-  }
-  if (tau >= 1) {
-    return { rotation: q1, angularVelocity: w1Cal };
-  }
-
-  const w0 = clampAngularTangent(w0Cal, secantOmega, maxOmegaRadPerSec);
-  const w1 = clampAngularTangent(w1Cal, secantOmega, maxOmegaRadPerSec);
-  const meanOmega = vecScale(vecAdd(w0, w1), 0.5);
-
-  const predictedEnd = integrateQuatWorldAngularVelocity(q0, meanOmega, dtSeconds);
-  const rawDot = dotQuat(q0, q1);
-  const predDot = dotQuat(predictedEnd, q1);
-  const usePredHemisphere = vecLength(meanOmega) * dtSeconds > 0.25 && Math.abs(rawDot) < 0.7;
-  const q1Aligned = (usePredHemisphere ? predDot < 0 : rawDot < 0) ? negateQuat(q1) : q1;
-
-  const ctrl0 = q0;
-  const ctrl1 = integrateQuatWorldAngularVelocity(q0, w0, dtSeconds / 3);
-  const ctrl2 = integrateQuatWorldAngularVelocity(q1Aligned, w1, -dtSeconds / 3);
-  const ctrl3 = q1Aligned;
-
-  const lvl10 = slerpShortestArcQuat(ctrl0, ctrl1, tau);
-  const lvl11 = slerpShortestArcQuat(ctrl1, ctrl2, tau);
-  const lvl12 = slerpShortestArcQuat(ctrl2, ctrl3, tau);
-  const lvl20 = slerpShortestArcQuat(lvl10, lvl11, tau);
-  const lvl21 = slerpShortestArcQuat(lvl11, lvl12, tau);
-  const rotation = slerpShortestArcQuat(lvl20, lvl21, tau);
-
-  const linearOmega = vecLerp(w0, w1, tau);
-  const tangentStep = multiplyQuat(lvl21, conjugateQuat(lvl20));
-  const bezierOmega = vecScale(logQuatToRotationVector(tangentStep), 3 / dtSeconds);
-  const blendedOmega = vecLerp(linearOmega, bezierOmega, 0.5);
-  const blendedMag = vecLength(blendedOmega);
-  const angularVelocity =
-    blendedMag > maxOmegaRadPerSec && blendedMag > 1e-6
-      ? vecScale(blendedOmega, maxOmegaRadPerSec / blendedMag)
-      : blendedOmega;
-
-  return { rotation, angularVelocity };
 }

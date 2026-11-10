@@ -1,42 +1,44 @@
 import { type SpatialAudioTunerConfig } from '../ui-core/config/spatialAudioConfig.ts';
-import {
-  ANTHEM_SPECIFIC_CATEGORIES,
-  resolvePlayableAnthemDef,
-  type AnthemDef,
-} from '../ui-core/config/anthemCatalogConfig.ts';
+import { type AnthemDef } from '../ui-core/config/anthemCatalogConfig.ts';
 import { useSpatialAudioStore } from '../game/runtimeUiPort.ts';
+import { getAudioContext } from './audioContext.ts';
 import {
   SpatialAudioBusChain,
   evaluateSpatialBezierBlend,
   stepSpatialBezierTransition,
-  TAIL_DRAIN_MIN_GUARD_SEC,
-  TAIL_DRAIN_SILENCE_THRESHOLD,
-  TAIL_DRAIN_SILENCE_HOLD_SEC,
-  TAIL_DRAIN_SAFETY_MARGIN_SEC,
   type SpatialAudioRuntimeContextSnapshot,
 } from './SpatialAudioBusChain.ts';
+import {
+  computeAnthemOutputGain,
+  evaluateAnthemTargetPhase,
+  fetchAndCacheAnthemBuffer,
+  isWindowFocusAudioMuted,
+  resolveCatalogAnthemDef,
+  stepAnthemTailDrainSilenceCheck,
+  type AnthemPlaybackMode,
+  type AnthemPreviewSource,
+} from './spatialMusicAndAnthemPipeline.ts';
 
-export type { SpatialAudioRuntimeContextSnapshot };
+export type { SpatialAudioRuntimeContextSnapshot, AnthemPlaybackMode, AnthemPreviewSource };
 
-export type AnthemPlaybackMode = 'garage-preview' | 'tuner-audition' | 'goal-replay' | 'goal';
-export type AnthemPreviewSource = 'garage-preview' | 'tuner-audition';
-
-export interface GoalAnthemDeps {
-  ensureAudioGraph(autoResume?: boolean): AudioContext | null;
-  getAudioContext(): AudioContext | null;
-  getAnthemChain(): SpatialAudioBusChain | null;
-  getImpulseBuffer(): AudioBuffer | null;
-  getOutputGain(forceActive?: boolean): number;
-  isWindowUnfocusedMuted(): boolean;
-  getRuntimeContext(): SpatialAudioRuntimeContextSnapshot;
-  notifyPlaybackOrDrainStateChanged(): void;
+export interface GoalAnthemOptions {
+  ensureAudioGraph?(autoResume?: boolean): AudioContext | null;
+  getAudioContext?(): AudioContext | null;
+  getAnthemChain?(): SpatialAudioBusChain | null;
+  getImpulseBuffer?(): AudioBuffer | null;
+  getOutputGain?(forceActive?: boolean): number;
+  isWindowUnfocusedMuted?(): boolean;
+  getRuntimeContext?(): SpatialAudioRuntimeContextSnapshot;
+  notifyPlaybackOrDrainStateChanged?(): void;
 }
 
-const SPECIFIC_CATEGORY_ID_SET = new Set(ANTHEM_SPECIFIC_CATEGORIES.map((c) => c.id));
-
 export class GoalAnthemPlayer {
-  private readonly deps: GoalAnthemDeps;
+  private readonly ensureGraphFn: ((autoResume?: boolean) => AudioContext | null) | null;
+  private readonly resolveChainFn: (() => SpatialAudioBusChain | null) | null;
+  private readonly onStateChangedFn: (() => void) | null;
 
+  audioContext: AudioContext | null = null;
+  anthemChain: SpatialAudioBusChain | null = null;
   readonly bufferCache = new Map<string, AudioBuffer>();
   readonly loadingPromises = new Map<string, Promise<AudioBuffer | null>>();
 
@@ -45,20 +47,32 @@ export class GoalAnthemPlayer {
   activeAnthemId: string | null = null;
   isGoalAnthemLoading = false;
   previewToken = 0;
+  windowUnfocusedMuted = false;
 
   isTailDraining = false;
   drainingMode: AnthemPlaybackMode | null = null;
-  drainingAnthemId: string | null = null;
   drainMinTargetPhase = 0.0;
-  tailDrainStartCtxTime = 0;
-  tailDrainStartPerfMs = 0;
-  tailSilentAccumSec = 0;
+  readonly drainTiming = { startCtxTime: 0, startPerfMs: 0, silentAccumSec: 0 };
 
   linearPhase = 0.0;
   blend = 0.0;
 
-  constructor(deps: GoalAnthemDeps) {
-    this.deps = deps;
+  constructor(options: GoalAnthemOptions = {}) {
+    this.ensureGraphFn = options.ensureAudioGraph ?? null;
+    this.resolveChainFn = options.getAnthemChain ?? null;
+    this.onStateChangedFn = options.notifyPlaybackOrDrainStateChanged ?? null;
+  }
+
+  private _ensureBusChain(autoResume = true): SpatialAudioBusChain | null {
+    if (!this.audioContext || !this.anthemChain) {
+      const ctx = this.ensureGraphFn ? this.ensureGraphFn(autoResume) : getAudioContext();
+      if (ctx) this.audioContext = ctx;
+      if (!this.anthemChain && this.resolveChainFn) this.anthemChain = this.resolveChainFn();
+      if (!this.audioContext && this.anthemChain) this.audioContext = this.anthemChain.ctx;
+    } else if (autoResume && this.audioContext.state === 'suspended') {
+      this.audioContext.resume().catch(() => {});
+    }
+    return this.anthemChain;
   }
 
   isActiveOrDraining(): boolean {
@@ -66,72 +80,32 @@ export class GoalAnthemPlayer {
   }
 
   isGoalSequenceAnthemActive(): boolean {
-    const m = this.activeMode,
-      d = this.drainingMode;
+    const isGoal = (m: AnthemPlaybackMode | null) => m === 'goal-replay' || m === 'goal';
     return (
-      m === 'goal-replay' ||
-      m === 'goal' ||
+      isGoal(this.activeMode) ||
       this.isGoalAnthemLoading ||
-      (this.isTailDraining && (d === 'goal-replay' || d === 'goal'))
+      (this.isTailDraining && isGoal(this.drainingMode))
     );
   }
 
   isPreviewOrPreviewDrainActive(): boolean {
-    const m = this.activeMode,
-      d = this.drainingMode;
-    return (
-      m === 'garage-preview' ||
-      m === 'tuner-audition' ||
-      (this.isTailDraining && (d === 'garage-preview' || d === 'tuner-audition'))
-    );
+    const isPrev = (m: AnthemPlaybackMode | null) =>
+      m === 'garage-preview' || m === 'tuner-audition';
+    return isPrev(this.activeMode) || (this.isTailDraining && isPrev(this.drainingMode));
   }
 
   resolveAnthemDefinition(anthemId: string | null | undefined): AnthemDef | null {
-    const store = useSpatialAudioStore.getState();
-    const trimmed = typeof anthemId === 'string' ? anthemId.trim() : '';
-    if (trimmed && SPECIFIC_CATEGORY_ID_SET.has(trimmed)) {
-      return resolvePlayableAnthemDef('random', {
-        randomScope: 'specific',
-        randomCategory: trimmed,
-      });
-    }
-    return resolvePlayableAnthemDef(anthemId, {
-      randomScope: store.randomAnthemScope,
-      randomCategory: store.randomAnthemCategory,
-    });
+    return resolveCatalogAnthemDef(anthemId);
   }
 
   async loadAnthemBuffer(anthemDef: AnthemDef | null | undefined): Promise<AudioBuffer | null> {
-    const fileUrl = anthemDef?.file ? `/${anthemDef.file.replace(/^\//, '')}` : null;
-    if (!fileUrl || !anthemDef) return null;
-
-    const cached = this.bufferCache.get(anthemDef.id);
-    if (cached) return cached;
-
-    const existing = this.loadingPromises.get(anthemDef.id);
-    if (existing) return existing;
-
-    const ctx = this.deps.ensureAudioGraph();
-    if (!ctx) return null;
-
-    const promise = fetch(fileUrl)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.arrayBuffer();
-      })
-      .then((buf) => ctx.decodeAudioData(buf))
-      .then((audioBuf) => {
-        this.bufferCache.set(anthemDef.id, audioBuf);
-        this.loadingPromises.delete(anthemDef.id);
-        return audioBuf;
-      })
-      .catch(() => {
-        this.loadingPromises.delete(anthemDef.id);
-        return null;
-      });
-
-    this.loadingPromises.set(anthemDef.id, promise);
-    return promise;
+    this._ensureBusChain(true);
+    return fetchAndCacheAnthemBuffer(
+      this.audioContext || getAudioContext(),
+      anthemDef,
+      this.bufferCache,
+      this.loadingPromises
+    );
   }
 
   stopCurrentSource(): void {
@@ -154,29 +128,28 @@ export class GoalAnthemPlayer {
   cancelTailDrain(): void {
     this.isTailDraining = false;
     this.drainingMode = null;
-    this.drainingAnthemId = null;
     this.drainMinTargetPhase = 0.0;
-    this.tailDrainStartCtxTime = 0;
-    this.tailDrainStartPerfMs = 0;
-    this.tailSilentAccumSec = 0;
+    this.drainTiming.startCtxTime = 0;
+    this.drainTiming.startPerfMs = 0;
+    this.drainTiming.silentAccumSec = 0;
   }
 
   private _resetPhaseAndChain(): void {
     const store = useSpatialAudioStore.getState();
     this.linearPhase = 0.0;
     this.blend = 0.0;
-    this.deps.getAnthemChain()?.resetAndSilence(store.tunerConfig);
+    this.anthemChain?.resetAndSilence(store.tunerConfig);
     store.setAnthemTransitionState(0.0, 0.0);
   }
 
   beginTailDrain(mode: AnthemPlaybackMode | null, anthemId: string | null = null): void {
     const store = useSpatialAudioStore.getState();
     const cfg = store.tunerConfig || {};
-    const targetPhase = this.computeTargetPhase(cfg, mode);
+    const targetPhase = this._computeTargetPhase(cfg, mode);
     const hasSpatial =
-      !this.deps.isWindowUnfocusedMuted() &&
-      Boolean(this.deps.getAnthemChain()) &&
-      this.deps.getOutputGain(true) > 1e-4 &&
+      !isWindowFocusAudioMuted(this.windowUnfocusedMuted) &&
+      Boolean(this.anthemChain) &&
+      computeAnthemOutputGain(true, true) > 1e-4 &&
       Number(cfg.wetMaxPct) > 0 &&
       (this.blend > 1e-4 || targetPhase > 1e-4);
 
@@ -185,17 +158,15 @@ export class GoalAnthemPlayer {
       return;
     }
 
-    const ctx = this.deps.getAudioContext();
     this.isTailDraining = true;
     this.drainingMode = mode;
-    this.drainingAnthemId = anthemId;
     this.drainMinTargetPhase = Math.max(this.linearPhase, targetPhase);
-    this.tailDrainStartCtxTime = ctx ? ctx.currentTime : 0;
-    this.tailDrainStartPerfMs = typeof performance !== 'undefined' ? performance.now() : 0;
-    this.tailSilentAccumSec = 0;
+    this.drainTiming.startCtxTime = this.audioContext ? this.audioContext.currentTime : 0;
+    this.drainTiming.startPerfMs = typeof performance !== 'undefined' ? performance.now() : 0;
+    this.drainTiming.silentAccumSec = 0;
 
     if (anthemId && store.activeGoalAnthemId !== anthemId) store.setActiveGoalAnthemId(anthemId);
-    this.deps.notifyPlaybackOrDrainStateChanged();
+    this.onStateChangedFn?.();
   }
 
   completeTailDrain(): void {
@@ -205,90 +176,25 @@ export class GoalAnthemPlayer {
       this._resetPhaseAndChain();
       if (store.activeGoalAnthemId !== null) store.setActiveGoalAnthemId(null);
     }
-    this.deps.notifyPlaybackOrDrainStateChanged();
+    this.onStateChangedFn?.();
   }
 
-  updateTailDrain(
-    dt: number,
-    now: number,
+  private _computeTargetPhase(
     cfg: Partial<SpatialAudioTunerConfig>,
-    targetAnthemU: number
-  ): void {
-    if (!this.isTailDraining) return;
-    const anthemChain = this.deps.getAnthemChain();
-    if (!anthemChain || this.deps.isWindowUnfocusedMuted()) {
-      this.completeTailDrain();
-      return;
-    }
-
-    const decaySec = Math.max(
-      0.4,
-      Number(this.deps.getImpulseBuffer()?.duration) || Number(cfg.decaySec) || 3.0
-    );
-    const ctx = this.deps.getAudioContext();
-    const ctxElapsed =
-      ctx?.state === 'running' ? Math.max(0, ctx.currentTime - this.tailDrainStartCtxTime) : -1;
-    const elapsedSec =
-      ctxElapsed >= 0 ? ctxElapsed : Math.max(0, (now - this.tailDrainStartPerfMs) / 1000);
-
-    if (elapsedSec >= decaySec + TAIL_DRAIN_SAFETY_MARGIN_SEC) {
-      this.completeTailDrain();
-      return;
-    }
-    if (elapsedSec < TAIL_DRAIN_MIN_GUARD_SEC || targetAnthemU > this.linearPhase + 1e-3) {
-      this.tailSilentAccumSec = 0;
-      return;
-    }
-
-    const { peak, valid } = anthemChain.sampleOutputPeak();
-    if (valid) {
-      if (peak <= TAIL_DRAIN_SILENCE_THRESHOLD) {
-        this.tailSilentAccumSec += dt;
-        if (this.tailSilentAccumSec >= TAIL_DRAIN_SILENCE_HOLD_SEC) this.completeTailDrain();
-      } else {
-        this.tailSilentAccumSec = 0;
-      }
-    }
-  }
-
-  computeTargetPhase(
-    cfg: Partial<SpatialAudioTunerConfig> = {},
     modeOverride: AnthemPlaybackMode | null = null
   ): number {
-    if (cfg.overrideMode === 'normal') return 0.0;
-    if (cfg.overrideMode === 'spatial') return 1.0;
-    if (cfg.overrideMode === 'manual')
-      return Math.max(0, Math.min(1, Number(cfg.manualBlend) || 0));
-
     const mode =
       modeOverride || this.activeMode || (this.isTailDraining ? this.drainingMode : null);
-    const store = useSpatialAudioStore.getState();
-
-    if (mode === 'garage-preview') {
-      if (store.isGarageAnthemTabActive)
-        return this.isTailDraining ? this.drainMinTargetPhase : 0.0;
-      if (this.isTailDraining)
-        return (this.drainMinTargetPhase = Math.max(this.drainMinTargetPhase, 1.0));
-      return 1.0;
-    }
-
-    if (mode === 'tuner-audition' || mode === 'goal-replay' || mode === 'goal') {
-      const ctx = this.deps.getRuntimeContext();
-      const target =
-        Boolean(ctx?.isOpen) || Boolean(store.isGoalReplaySkipped) || ctx?.matchPhase !== 'replay'
-          ? 1.0
-          : 0.0;
-      if (this.isTailDraining)
-        return (this.drainMinTargetPhase = Math.max(this.drainMinTargetPhase, target));
-      return target;
-    }
-
-    return 0.0;
+    const res = evaluateAnthemTargetPhase(cfg, mode, this.isTailDraining, this.drainMinTargetPhase);
+    this.drainMinTargetPhase = res.nextDrainMinTargetPhase;
+    return res.targetPhase;
   }
 
   applyTunerConfig(cfg: Partial<SpatialAudioTunerConfig>): void {
+    this._ensureBusChain(false);
     this.blend = evaluateSpatialBezierBlend(this.linearPhase, cfg);
-    this.deps.getAnthemChain()?.applyBlend(this.blend, cfg, this.deps.getOutputGain());
+    const gain = computeAnthemOutputGain(this.isActiveOrDraining());
+    this.anthemChain?.applyBlend(this.blend, cfg, gain);
   }
 
   stepTransition(
@@ -298,13 +204,29 @@ export class GoalAnthemPlayer {
     cfg: Partial<SpatialAudioTunerConfig>
   ): void {
     const store = useSpatialAudioStore.getState();
-    const targetAnthemU = this.computeTargetPhase(cfg);
+    const targetAnthemU = this._computeTargetPhase(cfg);
     const next = stepSpatialBezierTransition(this.linearPhase, targetAnthemU, maxDelta, cfg);
     this.linearPhase = next.linearPhase;
     this.blend = next.blend;
 
-    this.deps.getAnthemChain()?.applyBlend(this.blend, cfg, this.deps.getOutputGain());
-    if (this.isTailDraining) this.updateTailDrain(dt, now, cfg, targetAnthemU);
+    const gain = computeAnthemOutputGain(this.isActiveOrDraining());
+    this.anthemChain?.applyBlend(this.blend, cfg, gain);
+    if (this.isTailDraining) {
+      const done =
+        !this.anthemChain ||
+        isWindowFocusAudioMuted(this.windowUnfocusedMuted) ||
+        stepAnthemTailDrainSilenceCheck(
+          this.anthemChain,
+          this.audioContext,
+          cfg,
+          this.drainTiming,
+          now,
+          dt,
+          targetAnthemU,
+          this.linearPhase
+        );
+      if (done) this.completeTailDrain();
+    }
 
     if (
       Math.abs(store.anthemLinearPhase - this.linearPhase) > 0.005 ||
@@ -314,56 +236,68 @@ export class GoalAnthemPlayer {
     }
   }
 
-  private _primeChainAndMountSource(
-    ctx: AudioContext,
-    anthemChain: SpatialAudioBusChain,
-    buffer: AudioBuffer,
-    mode: AnthemPlaybackMode,
+  private async _loadAndMount(
     anthemId: string,
+    mode: AnthemPlaybackMode,
+    resetChainFirst: boolean,
     onEndedExtra?: () => void
-  ): boolean {
-    const store = useSpatialAudioStore.getState();
-    const cfg = store.tunerConfig || {};
-    anthemChain.resetAndSilence(cfg);
+  ): Promise<boolean> {
+    const token = ++this.previewToken;
+    this.cancelTailDrain();
+    this.stopCurrentSource();
+    if (!resetChainFirst) this.isGoalAnthemLoading = true;
 
-    this.linearPhase = this.computeTargetPhase(cfg, mode);
+    const store = useSpatialAudioStore.getState();
+    const resolved = this.resolveAnthemDefinition(anthemId);
+    const chain = resolved?.file ? this._ensureBusChain(true) : null;
+    const ctx = this.audioContext;
+    if (!resolved?.file || !ctx || !chain) {
+      if (resetChainFirst) chain?.resetAndSilence(store.tunerConfig);
+      return true;
+    }
+    if (resetChainFirst) chain.resetAndSilence(store.tunerConfig);
+    const buffer = await this.loadAnthemBuffer(resolved);
+    if (token !== this.previewToken || !buffer) return token === this.previewToken;
+
+    this.isGoalAnthemLoading = false;
+    if (!resetChainFirst) useSpatialAudioStore.getState().setActiveGoalAnthemId(resolved.id);
+
+    const mountedId = resetChainFirst ? anthemId : resolved.id;
+    const curStore = useSpatialAudioStore.getState();
+    const cfg = curStore.tunerConfig || {};
+    chain.resetAndSilence(cfg);
+
+    this.linearPhase = this._computeTargetPhase(cfg, mode);
     this.blend = evaluateSpatialBezierBlend(this.linearPhase, cfg);
-    anthemChain.applyBlend(this.blend, cfg, this.deps.getOutputGain(true), true);
-    store.setAnthemTransitionState(this.linearPhase, this.blend);
+    chain.applyBlend(this.blend, cfg, computeAnthemOutputGain(true, true), true);
+    curStore.setAnthemTransitionState(this.linearPhase, this.blend);
 
     const src = ctx.createBufferSource();
     src.buffer = buffer;
-    src.connect(anthemChain.input);
+    src.connect(chain.input);
     this.activeSource = src;
     this.activeMode = mode;
-    this.activeAnthemId = anthemId;
+    this.activeAnthemId = mountedId;
 
     src.onended = () => {
       if (this.activeSource === src) {
-        const finishedId = this.activeAnthemId || anthemId;
+        const finishedId = this.activeAnthemId || mountedId;
         const finishedMode = this.activeMode || mode;
-        this.activeSource = null;
-        this.activeMode = null;
-        this.activeAnthemId = null;
+        this.stopCurrentSource();
         onEndedExtra?.();
         this.beginTailDrain(finishedMode, finishedId);
-      }
-      try {
-        src.disconnect();
-      } catch {
-        /* ignore */
       }
     };
 
     try {
       src.start(ctx.currentTime);
-      return true;
-    } catch (err) {
-      console.warn(`[GoalAnthemPlayer] Failed to start anthem source (${mode}):`, err);
-      this.activeSource = null;
-      this.activeMode = null;
-      this.activeAnthemId = null;
       return false;
+    } catch {
+      this.stopCurrentSource();
+      if (resetChainFirst) {
+        this.anthemChain?.resetAndSilence(useSpatialAudioStore.getState().tunerConfig || {});
+      }
+      return true;
     }
   }
 
@@ -373,39 +307,11 @@ export class GoalAnthemPlayer {
   ): Promise<void> {
     const previewMode: AnthemPlaybackMode =
       source === 'tuner-audition' ? 'tuner-audition' : 'garage-preview';
-    const token = ++this.previewToken;
-    this.cancelTailDrain();
-    this.stopCurrentSource();
-
-    const store = useSpatialAudioStore.getState();
-    store.setActiveGoalAnthemId(null);
-    this.deps.notifyPlaybackOrDrainStateChanged();
-
-    const resolved = this.resolveAnthemDefinition(anthemId);
-    const ctx = resolved?.file ? this.deps.ensureAudioGraph() : null;
-    const anthemChain = this.deps.getAnthemChain();
-    if (!resolved?.file || !ctx || !anthemChain) {
-      store.setPreviewingAnthemId(null);
-      anthemChain?.resetAndSilence(store.tunerConfig);
-      return;
-    }
-
-    anthemChain.resetAndSilence(store.tunerConfig);
-    const buffer = await this.loadAnthemBuffer(resolved);
-    if (token !== this.previewToken || !buffer) {
-      if (token === this.previewToken) useSpatialAudioStore.getState().setPreviewingAnthemId(null);
-      return;
-    }
+    useSpatialAudioStore.getState().setActiveGoalAnthemId(null);
+    this.onStateChangedFn?.();
 
     const clearPreview = () => useSpatialAudioStore.getState().setPreviewingAnthemId(null);
-    if (
-      !this._primeChainAndMountSource(ctx, anthemChain, buffer, previewMode, anthemId, clearPreview)
-    ) {
-      this.deps
-        .getAnthemChain()
-        ?.resetAndSilence(useSpatialAudioStore.getState().tunerConfig || {});
-      clearPreview();
-    }
+    if (await this._loadAndMount(anthemId, previewMode, true, clearPreview)) clearPreview();
   }
 
   stopPreview(): void {
@@ -413,14 +319,14 @@ export class GoalAnthemPlayer {
     const store = useSpatialAudioStore.getState();
     if (store.previewingAnthemId !== null) store.setPreviewingAnthemId(null);
     if (this.activeMode === 'garage-preview' || this.activeMode === 'tuner-audition') {
-      const stoppedId = this.activeAnthemId,
-        stoppedMode = this.activeMode;
+      const stoppedId = this.activeAnthemId;
+      const stoppedMode = this.activeMode;
       this.stopCurrentSource();
       this.beginTailDrain(stoppedMode, stoppedId);
       return;
     }
     if (this.activeMode === null && !this.isTailDraining) this._resetPhaseAndChain();
-    this.deps.notifyPlaybackOrDrainStateChanged();
+    this.onStateChangedFn?.();
   }
 
   async startGoalReplayAnthem(
@@ -428,40 +334,15 @@ export class GoalAnthemPlayer {
   ): Promise<void> {
     if (!anthemId || anthemId === 'none') {
       this.isGoalAnthemLoading = false;
-      this.deps.notifyPlaybackOrDrainStateChanged();
+      this.onStateChangedFn?.();
       return;
     }
-
-    const token = ++this.previewToken;
-    this.cancelTailDrain();
-    this.stopCurrentSource();
-    this.isGoalAnthemLoading = true;
     useSpatialAudioStore.getState().setPreviewingAnthemId(null);
 
-    const resolved = this.resolveAnthemDefinition(anthemId);
-    const ctx = resolved?.file ? this.deps.ensureAudioGraph() : null;
-    const anthemChain = this.deps.getAnthemChain();
-    if (!resolved?.file || !ctx || !anthemChain) {
+    if (await this._loadAndMount(anthemId, 'goal-replay', false)) {
       this.isGoalAnthemLoading = false;
-      this.deps.notifyPlaybackOrDrainStateChanged();
-      return;
-    }
-
-    const buffer = await this.loadAnthemBuffer(resolved);
-    if (token !== this.previewToken || !buffer) {
-      if (token === this.previewToken) {
-        this.isGoalAnthemLoading = false;
-        this.deps.notifyPlaybackOrDrainStateChanged();
-      }
-      return;
-    }
-
-    this.isGoalAnthemLoading = false;
-    useSpatialAudioStore.getState().setActiveGoalAnthemId(resolved.id);
-
-    if (!this._primeChainAndMountSource(ctx, anthemChain, buffer, 'goal-replay', resolved.id)) {
       useSpatialAudioStore.getState().setActiveGoalAnthemId(null);
-      this.deps.notifyPlaybackOrDrainStateChanged();
+      this.onStateChangedFn?.();
     }
   }
 }

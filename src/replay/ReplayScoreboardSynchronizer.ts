@@ -5,7 +5,7 @@ import {
   type ReplayDispatchSignalItem,
   type ReplayDispatchAudioCueItem,
 } from './ReplayFrameEventDispatcher.ts';
-import { hudStore } from '../game/runtimeUiPort.ts';
+import { hudStore, useReplayToRcsImporterStore } from '../game/runtimeUiPort.ts';
 import type {
   ReplayRosterEntry,
   ReplayViewerRosterRuntimePort,
@@ -251,10 +251,13 @@ export class ReplayScoreboardSynchronizer {
   ): void {
     if (!signalTimeline) return;
     const evalState = signalTimeline.evaluateMatchStateAtFrame(idx, metadata || {});
-    const matchPhase = evalState.matchPhase || 'playing';
+    const isOt = Boolean(evalState.isOvertime);
+    const rawPhase = evalState.matchPhase || 'playing';
+    const hasActiveGoalScorer = Boolean(hudStore.getState().replayScorerName);
+    const matchPhase =
+      rawPhase === 'replay' && !hasActiveGoalScorer ? (isOt ? 'overtime' : 'playing') : rawPhase;
     const kickoffCountdown = evalState.kickoffCountdown || 0;
     const remSec = evalState.remainingSeconds;
-    const isOt = Boolean(evalState.isOvertime);
     const otSec = evalState.overtimeSeconds || 0;
     const syncKey = `${activePovTeam}|${evalState.blueScore}|${evalState.orangeScore}|${matchPhase}|${kickoffCountdown}|${remSec}|${isOt ? 1 : 0}|${otSec}`;
     if (syncKey === this._lastHudSyncKey) {
@@ -267,6 +270,14 @@ export class ReplayScoreboardSynchronizer {
       orangeScore: evalState.orangeScore,
       matchPhase,
       kickoffCountdown,
+      ...(matchPhase !== 'replay'
+        ? {
+            replayScorerName: null,
+            replayScorerTeam: null,
+            replayBallSpeedKph: null,
+            replayAssistName: null,
+          }
+        : {}),
     };
     if (remSec !== null) {
       hudPatch.remainingSeconds = remSec;
@@ -286,6 +297,10 @@ export class ReplayScoreboardSynchronizer {
   ): void {
     const r = source.runtime;
     if (!r?.physics || source.frames.length === 0) return;
+    const impSt = useReplayToRcsImporterStore.getState();
+    if (impSt.viewerState !== 'idle' && !impSt.isWindowOpen) {
+      impSt.updateLiveTelemetry({ viewerState: 'idle', hasHotkeyPriority: false });
+    }
     const idx = Math.max(
       0,
       Math.min(source.frames.length - 1, Math.floor(source.takeoverSubController.cursor))

@@ -3,20 +3,42 @@ import {
   syncMaterialsToGame,
   type applyVisualMaterialsConfig,
 } from '../../effects/ThemeMaterialPipeline.ts';
+import { FlipResetVisual } from '../../effects/FlipResetVisual.ts';
 import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
 import type { CameraManager } from '../../camera/CameraManager.ts';
 import type { BoostBloom } from '../../effects/BoostBloom.ts';
 import type { SupersonicSpeedLinesPass } from '../../effects/SupersonicSpeedLinesPass.ts';
 import type { EffectComposer } from '../../effects/PostprocessingPipeline.ts';
-import type { NetworkSessionChannelLike } from './onlineLobbyTransitionPipeline.ts';
+import type { CorePhysicsBundle } from './RuntimeSceneBootstrap.ts';
 import type {
-  HostRoomSettings,
-  JoinRoomSettings,
   MountedGameUIHandle,
   RuntimeSceneCallbackHost,
   SceneGraphFactoryConfig,
   SceneGraphRuntimeCallbacks,
 } from './RuntimePostprocessingAndSessionBootstrap.ts';
+
+export type { CorePhysicsBundle };
+
+export function ensureRuntimeFlipResetVisual(
+  flipResetVisuals: Map<number, FlipResetVisual>,
+  arena: ArenaWorld | null,
+  carIndex: number
+): FlipResetVisual | null {
+  let visual = flipResetVisuals.get(carIndex) ?? null;
+  const carRoot = arena?.cars?.[carIndex];
+  if (!visual && carRoot) {
+    visual = new FlipResetVisual(carRoot);
+    flipResetVisuals.set(carIndex, visual);
+  }
+  return visual;
+}
+
+export function resolveRuntimeContainer(container?: HTMLElement | null): HTMLElement | null {
+  if (container) return container;
+  return typeof document !== 'undefined'
+    ? (document.querySelector('#app') as HTMLElement | null)
+    : null;
+}
 
 function executeFreeplayBallControlAction(
   target: RuntimeSceneCallbackHost,
@@ -55,98 +77,69 @@ export function buildRuntimeSceneGraphConfig(
     throw new Error('[GameRuntime] setupPhysics must complete before setupScene.');
   }
 
-  const handleResetKickoff = () => {
-    target.resetKickoff();
-  };
-  const handleBallControl = (actionId: string) => {
-    executeFreeplayBallControlAction(target, actionId);
-  };
-  const handleKickoffSpawnSelect = (spawnIndex: number) => {
-    if (target.match?.state?.mode === 'kickoff-training') {
-      const activeMode = target.modeManager?.getActiveMode?.() as {
-        selectSpawn?(idx: number): void;
-      } | null;
-      activeMode?.selectSpawn?.(spawnIndex);
-    }
-  };
-  const handleEnsurePlayerFlipResetVisual = (carIndex: number) => {
-    target.getFlipResetVisual(carIndex);
-  };
-  const handleSyncInitialMaterials = (
-    arena: ArenaWorld,
-    applyFn: typeof applyVisualMaterialsConfig,
-    materials: Record<string, unknown> | undefined
-  ) => {
-    target.arena = arena;
-    target.applyVisualMaterialsConfig = applyFn;
-    syncMaterialsToGame(target as unknown as Parameters<typeof syncMaterialsToGame>[0], materials);
-  };
-  const handleUpdateViewport = (
-    renderer: THREE.WebGLRenderer,
-    camera: CameraManager,
-    composer: EffectComposer,
-    boostBloom: BoostBloom,
-    speedLinesPass: SupersonicSpeedLinesPass | null,
-    gfx: Record<string, unknown>
-  ) => {
-    Object.assign(target, {
-      renderer,
-      camera,
-      composer,
-      boostBloom,
-      speedLinesPass,
-      activeGraphicsSettings: gfx,
-    });
-    target.domEventManager.updateViewport();
-  };
-  const handleEnableDeterminismHarness = (autoOpenPanel: boolean) =>
-    target.networkManager.diagnosticsProbe.enableDeterminismHarness(autoOpenPanel);
-  const handleEnableNetworkPrediction = (enabled: boolean) =>
-    target.networkManager.sessionCoordinator.enableNetworkPrediction(enabled);
-  const handleHostOnlineServer = (opts: HostRoomSettings) =>
-    target.networkManager.sessionCoordinator.hostOnlineServer(opts);
-  const handleStopOnlineServer = () => target.networkManager.sessionCoordinator.stopOnlineServer();
-  const handleJoinOnlineServer = (opts: JoinRoomSettings) =>
-    target.networkManager.sessionCoordinator.joinOnlineServer(opts);
-  const handleRemotePlayerConnected = async (channel: NetworkSessionChannelLike, name: string) =>
-    (await target.networkManager.rosterSyncCoordinator.onRemotePlayerConnected(channel, name)) ??
-    -1;
-  const handleRemoveRemotePlayer = (carIndex: number) =>
-    target.networkManager.rosterSyncCoordinator.removeRemotePlayer(carIndex);
-  const handleSetCarColor = (carIndex: number, hex: string) => {
-    target.setCarColor(carIndex, hex);
-  };
-  const handleMountOrAttachGameUI = (container: HTMLElement): MountedGameUIHandle | null => {
-    if (target.options?.gameUI) {
-      target.options.gameUI.attachToRuntime?.(target);
-      return target.options.gameUI;
-    }
-    if (typeof target.options?.mountUI === 'function') {
-      return target.options.mountUI(container, target);
-    }
-    return null;
-  };
-  const handleDisposeHeadlessBloomOcclusion = () => {
-    target.bloomOcclusion?.dispose?.();
-  };
-
   const callbacks: SceneGraphRuntimeCallbacks = {
-    onResetKickoff: handleResetKickoff,
-    onBallControl: handleBallControl,
-    onKickoffSpawnSelect: handleKickoffSpawnSelect,
-    onEnsurePlayerFlipResetVisual: handleEnsurePlayerFlipResetVisual,
-    onSyncInitialMaterials: handleSyncInitialMaterials,
-    onUpdateViewport: handleUpdateViewport,
-    onEnableDeterminismHarness: handleEnableDeterminismHarness,
-    onEnableNetworkPrediction: handleEnableNetworkPrediction,
-    onHostOnlineServer: handleHostOnlineServer,
-    onStopOnlineServer: handleStopOnlineServer,
-    onJoinOnlineServer: handleJoinOnlineServer,
-    onRemotePlayerConnected: handleRemotePlayerConnected,
-    onRemoveRemotePlayer: handleRemoveRemotePlayer,
-    onSetCarColor: handleSetCarColor,
-    onMountOrAttachGameUI: handleMountOrAttachGameUI,
-    onDisposeHeadlessBloomOcclusion: handleDisposeHeadlessBloomOcclusion,
+    diagnosticsProbe: target.networkManager.diagnosticsProbe,
+    sessionCoordinator: target.networkManager.sessionCoordinator,
+    rosterSyncCoordinator: target.networkManager.rosterSyncCoordinator,
+    loadoutCoordinator: target.loadoutCoordinator,
+    onResetKickoff() {
+      target.resetKickoff();
+    },
+    onBallControl(actionId: string) {
+      executeFreeplayBallControlAction(target, actionId);
+    },
+    onKickoffSpawnSelect(spawnIndex: number) {
+      if (target.match?.state?.mode === 'kickoff-training') {
+        const activeMode = target.modeManager?.getActiveMode?.() as {
+          selectSpawn?(idx: number): void;
+        } | null;
+        activeMode?.selectSpawn?.(spawnIndex);
+      }
+    },
+    onEnsurePlayerFlipResetVisual(carIndex: number) {
+      target.getFlipResetVisual(carIndex);
+    },
+    onSyncInitialMaterials(
+      arena: ArenaWorld,
+      applyFn: typeof applyVisualMaterialsConfig,
+      materials: Record<string, unknown> | undefined
+    ) {
+      target.arena = arena;
+      target.applyVisualMaterialsConfig = applyFn;
+      syncMaterialsToGame(
+        target as unknown as Parameters<typeof syncMaterialsToGame>[0],
+        materials
+      );
+    },
+    onUpdateViewport(
+      renderer: THREE.WebGLRenderer,
+      camera: CameraManager,
+      composer: EffectComposer,
+      boostBloom: BoostBloom,
+      speedLinesPass: SupersonicSpeedLinesPass | null,
+      gfx: Record<string, unknown>
+    ) {
+      target.renderer = renderer;
+      target.camera = camera;
+      target.composer = composer;
+      target.boostBloom = boostBloom;
+      target.speedLinesPass = speedLinesPass;
+      target.activeGraphicsSettings = gfx;
+      target.domEventManager.updateViewport();
+    },
+    onMountOrAttachGameUI(container: HTMLElement): MountedGameUIHandle | null {
+      if (target.options?.gameUI) {
+        target.options.gameUI.attachToRuntime?.(target);
+        return target.options.gameUI;
+      }
+      if (typeof target.options?.mountUI === 'function') {
+        return target.options.mountUI(container, target);
+      }
+      return null;
+    },
+    onDisposeHeadlessBloomOcclusion() {
+      target.bloomOcclusion.dispose();
+    },
   };
 
   return {

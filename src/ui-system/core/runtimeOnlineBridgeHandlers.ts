@@ -129,6 +129,23 @@ async function exportOnlineTrainingReplayFromRuntime(
   }
 }
 
+const IDLE_ONLINE_SESSION_PATCH = {
+  isHosting: false,
+  roomId: '',
+  password: '',
+  pairingCode: undefined,
+  activeRelayLabel: undefined,
+  pendingPairingRequests: [],
+  signalingConnected: false,
+  signalingHealthLevel: 'offline' as const,
+  connectedPeers: [],
+  roomType: 'match' as const,
+  gameMode: '3v3' as const,
+  botFillMode: 'auto_fill' as const,
+  matchDurationSeconds: 90,
+  isReady: false,
+};
+
 export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort) {
   const { matchPort, replayPort } = runtimePort;
   ensureSignalingProfileBridge();
@@ -157,32 +174,14 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
         return false;
       }
     },
-    onApprovePendingPeer(peerId: string) {
-      matchPort.approvePendingPeer(peerId);
-    },
-    onDeclinePendingPeer(peerId: string) {
-      matchPort.declinePendingPeer(peerId);
-    },
+    onApprovePendingPeer: matchPort.approvePendingPeer.bind(matchPort),
+    onDeclinePendingPeer: matchPort.declinePendingPeer.bind(matchPort),
     async onLeaveOnlineServer() {
       try {
         await matchPort.leaveOnlineServer();
-        useAppStore.getState().setMatchMode('freeplay');
-        useAppStore.getState().setOnlineSession({
-          isHosting: false,
-          roomId: '',
-          password: '',
-          pairingCode: undefined,
-          activeRelayLabel: undefined,
-          pendingPairingRequests: [],
-          signalingConnected: false,
-          signalingHealthLevel: 'offline',
-          connectedPeers: [],
-          roomType: 'match',
-          gameMode: '3v3',
-          botFillMode: 'auto_fill',
-          matchDurationSeconds: 90,
-          isReady: false,
-        });
+        const appState = useAppStore.getState();
+        appState.setMatchMode('freeplay');
+        appState.setOnlineSession(IDLE_ONLINE_SESSION_PATCH);
       } catch (e) {
         console.error('[mountGameUI] Error stopping online server', e);
       }
@@ -197,9 +196,7 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
     onPauseOnlineMatch(pause: boolean, resumeCountdownSeconds = 3) {
       matchPort.pauseOnlineMatch(pause, resumeCountdownSeconds);
     },
-    async onRemovePlayer(carIndex: number) {
-      await matchPort.removeRemotePlayer(carIndex);
-    },
+    onRemovePlayer: matchPort.removeRemotePlayer.bind(matchPort),
     async onReconnectSignaling() {
       try {
         await matchPort.reconnectSignaling();
@@ -207,9 +204,7 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
         console.error('[mountGameUI] Error reconnecting signaling', e);
       }
     },
-    onResetBall() {
-      matchPort.resetKickoff();
-    },
+    onResetBall: matchPort.resetKickoff.bind(matchPort),
     onExportOnlineTrainingReplay(durationSeconds = 60): Promise<boolean> {
       return exportOnlineTrainingReplayFromRuntime(runtimePort, durationSeconds);
     },
@@ -217,9 +212,7 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
       useAppStore.getState().closeMenu();
       matchPort.forceStartOnlineMatch(durationSeconds);
     },
-    onSetOnlineGameMode(gameMode: '1v1' | '2v2' | '3v3') {
-      matchPort.setOnlineGameMode(gameMode);
-    },
+    onSetOnlineGameMode: matchPort.setOnlineGameMode.bind(matchPort),
     onSetOnlineMatchDuration(durationSeconds: number) {
       useAppStore.getState().setOnlineSession({ matchDurationSeconds: durationSeconds });
       matchPort.setOnlineMatchDuration(durationSeconds);
@@ -235,27 +228,15 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
       useAppStore.getState().setOnlineSession({ isReady: ready });
       matchPort.setClientReady(ready);
     },
-    onVoteSkipReplay() {
-      replayPort.voteOrSkipReplay();
-    },
-    onVoteRematch(ready: boolean) {
-      matchPort.voteRematch(ready);
-    },
-    onSwitchOnlineRoleTeam(role: 'player' | 'spectator', team: number) {
-      matchPort.switchOnlineRoleOrTeam(role, team);
-    },
-    onClockPacingModeChange(mode: ClockPacingMode) {
-      matchPort.setClockPacingMode(mode);
-    },
-    onClockPacingPriorityChange(priority: ClockPacingPriority) {
-      matchPort.setClockPacingPriority(priority);
-    },
+    onVoteSkipReplay: replayPort.voteOrSkipReplay.bind(replayPort),
+    onVoteRematch: matchPort.voteRematch.bind(matchPort),
+    onSwitchOnlineRoleTeam: matchPort.switchOnlineRoleOrTeam.bind(matchPort),
+    onClockPacingModeChange: matchPort.setClockPacingMode.bind(matchPort),
+    onClockPacingPriorityChange: matchPort.setClockPacingPriority.bind(matchPort),
     onClockPacingParamsChange(params: ClockPacingParams) {
       matchPort.setClockPacingParams(params as unknown as Record<string, unknown>);
     },
-    onInputBufferTargetChange(target: number) {
-      matchPort.setInputBufferTarget(target);
-    },
+    onInputBufferTargetChange: matchPort.setInputBufferTarget.bind(matchPort),
     onInputBufferThresholdChange(range: [number, number]) {
       matchPort.setInputBufferThresholds(range[0], range[1]);
     },

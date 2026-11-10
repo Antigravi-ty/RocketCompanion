@@ -1,7 +1,6 @@
 /**
  * RLRCInverseControlKinematicsPipeline.ts
- * Frame-to-frame inverse control inference for boost, handbrake, component active flags,
- * and continuous analog controls (throttle, steer, pitch, yaw, roll) at 120Hz.
+ * Frame-to-frame inverse control inference for boost, handbrake, active flags, and analog controls at 120Hz.
  */
 
 import {
@@ -39,6 +38,7 @@ export interface RLRCControlSynthesisOptions {
   readonly preferReplicatedGroundControls?: boolean;
   readonly smoothWindowRadius?: 0 | 1 | 2;
   readonly deadzone?: number;
+  readonly allowZeroDrainKinematicBoost?: boolean;
 }
 
 export function inferBoostStateFromKinematics(
@@ -46,7 +46,8 @@ export function inferBoostStateFromKinematics(
   currCar: RLRCCarFrameState120Hz,
   nextCar: RLRCCarFrameState120Hz | null | undefined,
   kin: FrameKinematicsSample,
-  dt: number
+  dt: number,
+  allowZeroDrainBoost = false
 ): boolean {
   const hasReserve =
     currCar.boostAmount > 0.05 || Boolean(prevCar?.entityActive && prevCar.boostAmount > 0.15);
@@ -54,9 +55,9 @@ export function inferBoostStateFromKinematics(
   if (currCar.activeFlags.boostActive || currCar.controls.boost) return true;
 
   if (!kin.teleported && prevCar?.entityActive) {
-    const singleDrop = prevCar.boostAmount - currCar.boostAmount;
-    const dropRate = singleDrop / Math.max(dt, 1e-4);
-    if (singleDrop > 0 && singleDrop <= 6.0 && dropRate >= 8.5 && dropRate <= 120.0) return true;
+    const drop = prevCar.boostAmount - currCar.boostAmount;
+    const rate = drop / Math.max(dt, 1e-4);
+    if (drop > 0 && drop <= 6.0 && rate >= 8.5 && rate <= 120.0) return true;
   }
   if (
     !kin.teleported &&
@@ -64,10 +65,12 @@ export function inferBoostStateFromKinematics(
     nextCar?.entityActive &&
     distVec3(nextCar.rigidBody.position, currCar.rigidBody.position) <= 360
   ) {
-    const spanDrop = prevCar.boostAmount - nextCar.boostAmount;
-    const spanRate = spanDrop / Math.max(2 * dt, 1e-4);
-    if (spanDrop > 0 && spanDrop <= 10.0 && spanRate >= 8.5 && spanRate <= 120.0) return true;
+    const drop = prevCar.boostAmount - nextCar.boostAmount;
+    const rate = drop / Math.max(2 * dt, 1e-4);
+    if (drop > 0 && drop <= 10.0 && rate >= 8.5 && rate <= 120.0) return true;
   }
+  if (!allowZeroDrainBoost) return false;
+
   if (currCar.isOnGround) {
     const maxDrive = evaluateGroundThrottleMaxAccel(Math.abs(kin.localForwardVel));
     return (
@@ -76,14 +79,14 @@ export function inferBoostStateFromKinematics(
       kin.nonGravityForwardAccel > maxDrive + 520
     );
   }
-  const kinDodgeImpulse =
+  const dodgeImp =
     kin.angAccelMag > 18.0 &&
     kin.flipOmegaMag > 3.5 &&
     (kin.planarAccelMag > 1350 || kin.angAccelMag > 25.0);
   return (
     currCar.boostAmount > 0.5 &&
     !currCar.activeFlags.dodgeActive &&
-    !kinDodgeImpulse &&
+    !dodgeImp &&
     kin.nonGravityForwardAccel > 560
   );
 }
@@ -95,27 +98,26 @@ export function inferHandbrakeFromKinematics(
   synthesizedRoll: number,
   framesSinceLanding = 999
 ): boolean {
-  const repHandbrake = Boolean(currCar.controls.handbrake);
-  if (!currCar.isOnGround) return repHandbrake && Math.abs(synthesizedRoll) > 0.22;
-  if (repHandbrake) return true;
+  const repHb = Boolean(currCar.controls.handbrake);
+  if (!currCar.isOnGround) return repHb && Math.abs(synthesizedRoll) > 0.22;
+  if (repHb) return true;
 
   if (kin.planarSpeed > 180) {
-    const slipRatio = Math.abs(kin.localRightVel) / kin.planarSpeed;
-    if (slipRatio > 0.22 && (Math.abs(kin.omegaYaw) > 0.85 || Math.abs(kin.localRightVel) > 155)) {
+    const slip = Math.abs(kin.localRightVel) / kin.planarSpeed;
+    if (slip > 0.22 && (Math.abs(kin.omegaYaw) > 0.85 || Math.abs(kin.localRightVel) > 155)) {
       return true;
     }
     if (
       (framesSinceLanding <= 12 || (prevCar?.entityActive && !prevCar.isOnGround)) &&
       kin.planarSpeed > 200 &&
-      slipRatio > 0.16
+      slip > 0.16
     ) {
       return true;
     }
   }
   if (kin.planarSpeed > 140 && Math.abs(kin.omegaYaw) > 1.5) {
-    const maxSteerYaw =
-      evaluateGroundSteerCurvature(kin.planarSpeed) * Math.abs(kin.localForwardVel);
-    if (Math.abs(kin.omegaYaw) > maxSteerYaw * 1.25 + 0.35) return true;
+    const maxYaw = evaluateGroundSteerCurvature(kin.planarSpeed) * Math.abs(kin.localForwardVel);
+    if (Math.abs(kin.omegaYaw) > maxYaw * 1.25 + 0.35) return true;
   }
   return false;
 }
@@ -130,63 +132,66 @@ export function synthesizeCarActiveFlagsBetweenFrames(
 
   const dt = Math.max(1e-4, options?.dtSeconds ?? RLRC_FIXED_DT);
   const kin = computeFrameKinematics(prevCar, currCar, nextCar, dt);
-  const boostActive = inferBoostStateFromKinematics(prevCar, currCar, nextCar, kin, dt);
+  const boostActive = inferBoostStateFromKinematics(
+    prevCar,
+    currCar,
+    nextCar,
+    kin,
+    dt,
+    options?.allowZeroDrainKinematicBoost ?? false
+  );
 
   if (currCar.isOnGround) {
-    const rawJumpRising =
+    const jRise =
       currCar.activeFlags.jumpActive && !(prevCar?.entityActive && prevCar.activeFlags.jumpActive);
-    const liftingOffNext =
+    const lifts =
       Boolean(nextCar?.entityActive && !nextCar.isOnGround) &&
       kin.basis.up.z > 0.25 &&
       (kin.localUpVel > 130 || kin.nonGravityUpAccel > 550);
     return {
       boostActive,
-      jumpActive: rawJumpRising || liftingOffNext,
+      jumpActive: jRise || lifts,
       doubleJumpActive: false,
       dodgeActive: false,
     };
   }
 
-  const airTime = Math.max(0, currCar.airTimeSinceJump);
-  const prevGrounded = Boolean(prevCar?.entityActive && prevCar.isOnGround);
-  const prevRawJump = Boolean(prevCar?.entityActive && prevCar.activeFlags.jumpActive);
-  const prevRawDj = Boolean(prevCar?.entityActive && prevCar.activeFlags.doubleJumpActive);
-  const prevRawDodge = Boolean(prevCar?.entityActive && prevCar.activeFlags.dodgeActive);
+  const airSec = Math.max(0, currCar.airTimeSinceJump);
+  const wasGnd = Boolean(prevCar?.entityActive && prevCar.isOnGround);
+  const pJmp = Boolean(prevCar?.entityActive && prevCar.activeFlags.jumpActive);
+  const pDj = Boolean(prevCar?.entityActive && prevCar.activeFlags.doubleJumpActive);
+  const pDg = Boolean(prevCar?.entityActive && prevCar.activeFlags.dodgeActive);
 
-  const rawDodgeValid =
-    currCar.activeFlags.dodgeActive && (!prevRawDodge || (!prevGrounded && airTime <= 0.72));
-  const kinDodge =
-    airTime >= 0.035 &&
-    airTime <= 1.45 &&
+  const rawDg = currCar.activeFlags.dodgeActive && (!pDg || (!wasGnd && airSec <= 0.72));
+  const kinDg =
+    airSec >= 0.035 &&
+    airSec <= 1.45 &&
     kin.angAccelMag > 18.0 &&
     kin.flipOmegaMag > 3.5 &&
     (kin.planarAccelMag > 1350 || kin.angAccelMag > 25.0);
-  const dodgeActive = rawDodgeValid || kinDodge;
+  const dodgeActive = rawDg || kinDg;
 
-  const netUpImpulseAccel =
+  const netUp =
     kin.nonGravityUpAccel -
     (boostActive ? BOOST_ACCEL_AIR_UU * Math.max(0, kin.basis.forward.z) : 0);
-  const rawDjValid =
-    !dodgeActive &&
-    currCar.activeFlags.doubleJumpActive &&
-    (!prevRawDj || (!prevGrounded && airTime <= 0.35));
+  const rawDj =
+    !dodgeActive && currCar.activeFlags.doubleJumpActive && (!pDj || (!wasGnd && airSec <= 0.35));
   const kinDj =
     !dodgeActive &&
-    airTime >= 0.045 &&
-    airTime <= 1.45 &&
-    netUpImpulseAccel > 1050 &&
+    airSec >= 0.045 &&
+    airSec <= 1.45 &&
+    netUp > 1050 &&
     kin.localUpVel > 150 &&
     kin.flipOmegaMag < 3.4;
-  const doubleJumpActive = rawDjValid || kinDj;
+  const doubleJumpActive = rawDj || kinDj;
 
-  const rawJumpValid =
+  const rawJmp =
     currCar.activeFlags.jumpActive &&
-    (!prevRawJump || (!prevGrounded && airTime <= 0.21) || (prevGrounded && kin.localUpVel > 90));
-  const kinLiftoffJump =
-    (prevGrounded && kin.basis.up.z > 0.25 && (kin.localUpVel > 135 || netUpImpulseAccel > 600)) ||
-    (airTime > 0 && airTime <= 0.2 && netUpImpulseAccel > 550 && kin.localUpVel > 120);
-  const jumpActive =
-    !dodgeActive && !doubleJumpActive && airTime <= 0.22 && (rawJumpValid || kinLiftoffJump);
+    (!pJmp || (!wasGnd && airSec <= 0.21) || (wasGnd && kin.localUpVel > 90));
+  const kinJmp =
+    (wasGnd && kin.basis.up.z > 0.25 && (kin.localUpVel > 135 || netUp > 600)) ||
+    (airSec > 0 && airSec <= 0.2 && netUp > 550 && kin.localUpVel > 120);
+  const jumpActive = !dodgeActive && !doubleJumpActive && airSec <= 0.22 && (rawJmp || kinJmp);
 
   return {
     boostActive: dodgeActive && !currCar.activeFlags.boostActive ? false : boostActive,
@@ -206,7 +211,7 @@ export function synthesizeCarControlsBetweenFrames(
 
   const dt = Math.max(1e-4, options?.dtSeconds ?? RLRC_FIXED_DT);
   const preferReplicated = options?.preferReplicatedGroundControls ?? true;
-  const deadzone = options?.deadzone ?? 0.04;
+  const dz = options?.deadzone ?? 0.04;
 
   const kin = computeFrameKinematics(prevCar, currCar, nextCar, dt);
   const flags = synthesizeCarActiveFlagsBetweenFrames(prevCar, currCar, nextCar, options);
@@ -226,24 +231,23 @@ export function synthesizeCarControlsBetweenFrames(
   let roll = 0;
 
   if (currCar.isOnGround) {
-    const netDriveAccel = kin.nonGravityForwardAccel - (boost ? BOOST_ACCEL_GROUND_UU : 0);
+    const netAccel = kin.nonGravityForwardAccel - (boost ? BOOST_ACCEL_GROUND_UU : 0);
     if (preferReplicated && Math.abs(currCar.controls.throttle) > 0.01) {
       throttle = clampUnit(currCar.controls.throttle);
     } else if (boost) {
       throttle = 1;
     } else if (
       Math.abs(kin.localForwardVel) > 40 &&
-      kin.localForwardVel * netDriveAccel < 0 &&
-      Math.abs(netDriveAccel) > COAST_DECEL_GROUND_UU * 1.65
+      kin.localForwardVel * netAccel < 0 &&
+      Math.abs(netAccel) > COAST_DECEL_GROUND_UU * 1.65
     ) {
       throttle =
-        -Math.sign(kin.localForwardVel) *
-        Math.min(1, Math.abs(netDriveAccel) / BRAKE_DECEL_GROUND_UU);
+        -Math.sign(kin.localForwardVel) * Math.min(1, Math.abs(netAccel) / BRAKE_DECEL_GROUND_UU);
     } else {
-      const maxDriveAccel = evaluateGroundThrottleMaxAccel(Math.abs(kin.localForwardVel));
-      if (maxDriveAccel > 60) {
-        throttle = applyDeadzone(netDriveAccel / maxDriveAccel, deadzone);
-      } else if (Math.abs(kin.localForwardVel) > 1380 && netDriveAccel > -200) {
+      const maxAccel = evaluateGroundThrottleMaxAccel(Math.abs(kin.localForwardVel));
+      if (maxAccel > 60) {
+        throttle = applyDeadzone(netAccel / maxAccel, dz);
+      } else if (Math.abs(kin.localForwardVel) > 1380 && netAccel > -200) {
         throttle = Math.sign(kin.localForwardVel);
       }
     }
@@ -251,14 +255,11 @@ export function synthesizeCarControlsBetweenFrames(
     if (preferReplicated && Math.abs(currCar.controls.steer) > 0.01) {
       steer = clampUnit(currCar.controls.steer);
     } else if (Math.abs(kin.localForwardVel) > 25) {
-      const expectedMaxYawRate = Math.max(
+      const maxYaw = Math.max(
         0.15,
         evaluateGroundSteerCurvature(kin.planarSpeed) * Math.abs(kin.localForwardVel)
       );
-      steer = applyDeadzone(
-        (kin.omegaYaw * (kin.localForwardVel >= 0 ? 1 : -1)) / expectedMaxYawRate,
-        deadzone
-      );
+      steer = applyDeadzone((kin.omegaYaw * (kin.localForwardVel >= 0 ? 1 : -1)) / maxYaw, dz);
     }
   } else {
     pitch = applyDeadzone(
@@ -268,11 +269,11 @@ export function synthesizeCarControlsBetweenFrames(
         AERIAL_TORQUE_PITCH,
         AERIAL_DAMPING_PITCH
       ),
-      deadzone
+      dz
     );
     yaw = applyDeadzone(
       solveAerialAxisWithDamping(kin.alphaYaw, kin.omegaYaw, AERIAL_TORQUE_YAW, AERIAL_DAMPING_YAW),
-      deadzone
+      dz
     );
     roll = applyDeadzone(
       solveAerialAxisWithDamping(
@@ -281,7 +282,7 @@ export function synthesizeCarControlsBetweenFrames(
         AERIAL_TORQUE_ROLL,
         AERIAL_DAMPING_ROLL
       ),
-      deadzone
+      dz
     );
 
     if (preferReplicated && Math.abs(currCar.controls.throttle) > 0.01) {
@@ -289,10 +290,8 @@ export function synthesizeCarControlsBetweenFrames(
     } else if (boost) {
       throttle = 1;
     } else {
-      throttle = applyDeadzone(
-        (kin.nonGravityForwardAccel - (boost ? BOOST_ACCEL_AIR_UU : 0)) / THROTTLE_AIR_ACCEL_UU,
-        0.15
-      );
+      const airDrive = kin.nonGravityForwardAccel - (boost ? BOOST_ACCEL_AIR_UU : 0);
+      throttle = applyDeadzone(airDrive / THROTTLE_AIR_ACCEL_UU, 0.15);
     }
 
     steer =

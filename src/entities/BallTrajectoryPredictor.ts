@@ -1,11 +1,6 @@
 /**
  * BallTrajectoryPredictor.ts
- * High-performance 3D visual subsystem for Ball Trajectory Prediction.
- *
- * Powered by RocketSim WASM BallPredTracker (up to 5.0 seconds = 600 ticks @ 120Hz).
- * Coordinates two dedicated SubControllers:
- * 1. BallTrajectorySamplingController: WASM incremental tail extension & progressive catch-up ramp.
- * 2. BallTrajectoryTubeRenderer: 1-draw-call indexed 3D volumetric tube, bounce rings, & drop lines.
+ * High-performance 3D visual subsystem for Ball Trajectory Prediction (WASM BallPredTracker @ 120Hz).
  */
 
 import type * as THREE from 'three';
@@ -13,17 +8,11 @@ import type * as THREE from 'three';
 import {
   loadSavedTrajectorySettings,
   saveTrajectorySettings,
-  type TrajectoryDashCapStyle,
-  type TrajectoryRenderStyle,
-  type TrajectoryUpdateMode,
 } from '../ui-core/config/trainingDefaults.ts';
 import {
   resolveBallTrajectoryActivation,
   type BallTrajectoryOverride,
   type ResolvedBallTrajectoryActivation,
-  type TrajectorySceneContext,
-  type TrajectorySceneFlags,
-  type TrajectoryUpdateKind,
 } from './trajectory/ballTrajectoryPolicy.ts';
 import type { LiveBallPositionLike } from './trajectory/ballTrajectoryGeometryPipeline.ts';
 import {
@@ -31,6 +20,9 @@ import {
   buildBallTrajectoryTelemetrySnapshot,
   buildTubeRenderParams,
   computeStaticPreviewScrollOffset,
+  hideTubeRenderer,
+  isTubeRendererVisible,
+  renderTrajectoryTubeFrame,
   resolvePatternElapsedTicks,
   shouldPublishTrajectoryTelemetry,
   type BallTrajectoryTelemetrySnapshot,
@@ -43,25 +35,14 @@ import {
   type TrajectoryPhysicsPort,
 } from './trajectory/BallTrajectorySamplingController.ts';
 
-export type {
-  BallTrajectoryOverride,
-  BallTrajectoryTelemetrySnapshot,
-  ResolvedBallTrajectoryActivation,
-  TrajectoryBallLaunchState,
-  TrajectoryDashCapStyle,
-  TrajectoryPhysicsPort,
-  TrajectoryRenderStyle,
-  TrajectorySceneContext,
-  TrajectorySceneFlags,
-  TrajectorySettingsConfig,
-  TrajectoryUpdateKind,
-  TrajectoryUpdateMode,
-};
+function nowMs(): number {
+  return typeof performance !== 'undefined' ? performance.now() : 0;
+}
 
 export class BallTrajectoryPredictor {
   public ballRadius: number;
-  public forcePredictAnyMovement: boolean;
-  public maxTicks: number;
+  public forcePredictAnyMovement = false;
+  public maxTicks = 600;
   public physics: TrajectoryPhysicsPort | null;
   public scene: THREE.Scene | null | undefined;
   public readonly sampler: BallTrajectorySamplingController;
@@ -92,18 +73,11 @@ export class BallTrajectoryPredictor {
       ...(loadSavedTrajectorySettings() as Partial<TrajectorySettingsConfig>),
       ...initialSettings,
     };
-
-    const maxPredictionTicks = 600;
-    this.maxTicks = maxPredictionTicks;
-    this.forcePredictAnyMovement = false;
-    this.sampler = new BallTrajectorySamplingController(maxPredictionTicks);
+    this.sampler = new BallTrajectorySamplingController(600);
     this.tubeRenderer = new BallTrajectoryTubeRenderer(scene);
     this.syncMaterialProperties();
   }
 
-  public get predictedPoints(): Float32Array {
-    return this.sampler.predictedPoints;
-  }
   public get rawPredictedPoints(): Float32Array {
     return this.sampler.rawPredictedPoints;
   }
@@ -113,14 +87,8 @@ export class BallTrajectoryPredictor {
   public get impactTick(): number {
     return this.sampler.impactTick;
   }
-  public get patternAnchorTick(): number {
-    return this.sampler.patternAnchorTick;
-  }
   public get isActive(): boolean {
     return this.sampler.isActive;
-  }
-  public get staticPreviewActive(): boolean {
-    return this.sampler.staticPreviewActive;
   }
   public get anomalyRecorder() {
     return this.sampler.anomalyRecorder;
@@ -134,20 +102,8 @@ export class BallTrajectoryPredictor {
     this.sampler.notifyBallStateReset();
   }
 
-  public getAnomalySummary() {
-    return this.sampler.anomalyRecorder.getSummary();
-  }
-
-  public exportAnomalyBundle(includeAllSamples = true): Record<string, unknown> {
-    return this.sampler.anomalyRecorder.buildExportBundle(includeAllSamples);
-  }
-
   public resetAnomalyCapture(): void {
     this.sampler.anomalyRecorder.resetLatchedAnomaly();
-  }
-
-  public clearAnomalySamples(): void {
-    this.sampler.anomalyRecorder.clearAllSamples();
   }
 
   public setTrajectoryOverride(override: BallTrajectoryOverride): void {
@@ -166,38 +122,29 @@ export class BallTrajectoryPredictor {
   }
 
   public releaseTemporarySuppression(source: string | null = null): void {
-    if (source) {
-      this._suppressionSources.delete(source);
-    } else {
-      this._suppressionSources.clear();
-    }
+    const sources = this._suppressionSources;
+    if (source) sources.delete(source);
+    else sources.clear();
   }
 
-  public setSceneContext(context: {
-    isGoalReplayActive?: boolean;
-    isPodiumActive?: boolean;
-  }): void {
-    if (context.isGoalReplayActive !== undefined) {
-      this._isGoalReplayActive = Boolean(context.isGoalReplayActive);
+  public setSceneContext(ctx: { isGoalReplayActive?: boolean; isPodiumActive?: boolean }): void {
+    if (ctx.isGoalReplayActive !== undefined) {
+      this._isGoalReplayActive = Boolean(ctx.isGoalReplayActive);
     }
-    if (context.isPodiumActive !== undefined) {
-      this._isPodiumActive = Boolean(context.isPodiumActive);
+    if (ctx.isPodiumActive !== undefined) {
+      this._isPodiumActive = Boolean(ctx.isPodiumActive);
     }
-    if (
+    const clearNeeded =
       !this.isPredictionAllowed().allowed &&
-      (this.isActive ||
-        this.tubeRenderer?.preOcclusionMesh?.visible ||
-        this.tubeRenderer?.foregroundMesh?.visible)
-    ) {
-      this.clear();
-    }
+      (this.isActive || isTubeRendererVisible(this.tubeRenderer));
+    if (clearNeeded) this.clear();
   }
 
   public isPredictionAllowed(): ResolvedBallTrajectoryActivation {
     return resolveBallTrajectoryActivation({
       enabled: Boolean(this.settings.enabled),
       forcePredictAnyMovement: Boolean(this.forcePredictAnyMovement),
-      staticPreviewActive: Boolean(this.staticPreviewActive),
+      staticPreviewActive: Boolean(this.sampler.staticPreviewActive),
       isGoalReplayActive: this._isGoalReplayActive,
       isPodiumActive: this._isPodiumActive,
       suppressionSourcesCount: this._suppressionSources.size,
@@ -225,15 +172,16 @@ export class BallTrajectoryPredictor {
 
   public setPhysicsEngine(physics: TrajectoryPhysicsPort | null): void {
     this.physics = physics;
-    if (physics?.ballRadius) this.setBallRadius(physics.ballRadius);
+    if (physics && physics.ballRadius) this.setBallRadius(physics.ballRadius);
   }
 
   public syncMaterialProperties(): void {
-    this.tubeRenderer?.syncUniforms(buildTubeRenderParams(this.ballRadius, this.settings));
+    const renderer = this.tubeRenderer;
+    if (renderer) renderer.syncUniforms(buildTubeRenderParams(this.ballRadius, this.settings));
   }
 
   public updateSettings(newSettings: Partial<TrajectorySettingsConfig>): void {
-    Object.assign(this.settings, newSettings);
+    this.settings = { ...this.settings, ...newSettings };
     this.syncMaterialProperties();
     if (!this.settings.enabled) this.clear();
     saveTrajectorySettings(this.settings);
@@ -243,23 +191,17 @@ export class BallTrajectoryPredictor {
     physics: TrajectoryPhysicsPort | null = null,
     ballLaunchState: TrajectoryBallLaunchState | null = null
   ): number {
-    if (this.isTemporarilySuppressed()) {
-      this.clearStaticPreview();
-      return 0;
-    }
-
     const phys = physics || this.physics;
-    if (!phys?.getBallState || !phys?.setBallState) {
+    if (this.isTemporarilySuppressed() || !phys || !phys.getBallState || !phys.setBallState) {
       this.clearStaticPreview();
       return 0;
     }
-
     const count = this.sampler.setStaticPreviewTrajectory(
       phys,
       ballLaunchState,
       this.settings.predictionTicks
     );
-    if (count <= 0) this._hideMeshes();
+    if (count <= 0) hideTubeRenderer(this.tubeRenderer);
     return count;
   }
 
@@ -267,64 +209,7 @@ export class BallTrajectoryPredictor {
     this.clear();
   }
 
-  public predictFromCurrentState(
-    physics: TrajectoryPhysicsPort | null = null,
-    targetTick: number | null = null,
-    options: {
-      forceFull?: boolean;
-      deltaTicks?: number;
-      reason?: TrajectoryUpdateKind;
-    } = {}
-  ): number {
-    const phys = physics || this.physics;
-    if (!this.isPredictionAllowed().allowed || !phys) {
-      if (this.isActive) this.clear();
-      return 0;
-    }
-
-    const count = this.sampler.predictFromCurrentState(phys, targetTick, this.settings, options);
-    if (count <= 0) this._hideMeshes();
-    return count;
-  }
-
-  private _hideMeshes(): void {
-    this.tubeRenderer?.hideAll();
-  }
-
-  private _renderTrajectoryGeometry(
-    elapsedTicks: number,
-    patternElapsedTicks: number,
-    dynamicMode: boolean,
-    liveBallPosition: LiveBallPositionLike | null | undefined
-  ): number {
-    if (!this.tubeRenderer) return 0;
-
-    const tubeParams = buildTubeRenderParams(this.ballRadius, this.settings);
-    const startIndex = Math.max(0, elapsedTicks);
-
-    this.tubeRenderer.updateBounceAndGroundAnchors(
-      this.predictedPoints,
-      this.predictionCount,
-      startIndex,
-      this.sampler.bounceMarkersBuffer,
-      this.sampler.bounceCount,
-      tubeParams
-    );
-
-    const phaseOffset = dynamicMode ? 0 : patternElapsedTicks;
-    return this.tubeRenderer.updateTubeGeometry(
-      this.predictedPoints,
-      this.predictionCount,
-      startIndex,
-      this.settings.solidTicks,
-      this.settings.transparentTicks,
-      phaseOffset,
-      liveBallPosition,
-      tubeParams
-    );
-  }
-
-  private _maybePublishTelemetry(
+  private _publishTelemetry(
     frameStartMs: number,
     geometryBuildTimeUs: number,
     remainingSlices: number,
@@ -332,14 +217,13 @@ export class BallTrajectoryPredictor {
     ballSpeedUu: number
   ): void {
     if (!this.onTelemetry) return;
-    const nowMs = typeof performance !== 'undefined' ? performance.now() : 0;
-    if (!shouldPublishTrajectoryTelemetry(nowMs, this._lastTelemetryPublishMs)) return;
-    this._lastTelemetryPublishMs = nowMs;
-
+    const currentMs = nowMs();
+    if (!shouldPublishTrajectoryTelemetry(currentMs, this._lastTelemetryPublishMs)) return;
+    this._lastTelemetryPublishMs = currentMs;
     this.onTelemetry(
       buildBallTrajectoryTelemetrySnapshot({
         frameStartMs,
-        nowMs,
+        nowMs: currentMs,
         geometryBuildTimeUs,
         remainingSlices,
         primitiveCount,
@@ -357,38 +241,44 @@ export class BallTrajectoryPredictor {
     _renderHeight: number | null = null,
     physics: TrajectoryPhysicsPort | null = null
   ): void {
-    const frameStartMs = typeof performance !== 'undefined' ? performance.now() : 0;
+    const frameStartMs = nowMs();
     const activation = this.isPredictionAllowed();
     if (!activation.allowed) {
-      if (activation.suppressedByOverride && this.isActive) {
-        this.clear();
-      } else {
-        this._hideMeshes();
-      }
+      if (activation.suppressedByOverride && this.isActive) this.clear();
+      else hideTubeRenderer(this.tubeRenderer);
       return;
     }
 
     const phys = physics || this.physics;
+    const predCount = this.sampler.predictionCount;
 
-    if (this.staticPreviewActive && this.isActive && this.predictionCount > 1) {
+    if (this.sampler.staticPreviewActive && this.isActive && predCount > 1) {
       const scrollOffset = computeStaticPreviewScrollOffset(frameStartMs);
-      const tGeom0 = typeof performance !== 'undefined' ? performance.now() : 0;
-      const prims = this._renderTrajectoryGeometry(0, -scrollOffset, false, liveBallPosition);
-      const geomUs =
-        ((typeof performance !== 'undefined' ? performance.now() : 0) - tGeom0) * 1000.0;
+      const tGeom0 = nowMs();
+      const prims = renderTrajectoryTubeFrame(
+        this.tubeRenderer,
+        this.sampler,
+        this.ballRadius,
+        this.settings,
+        0,
+        -scrollOffset,
+        false,
+        liveBallPosition
+      );
       this.sampler.markStaticPreviewUpdate();
-      this._maybePublishTelemetry(frameStartMs, geomUs, this.predictionCount, prims, 0);
+      this._publishTelemetry(frameStartMs, (nowMs() - tGeom0) * 1000.0, predCount, prims, 0);
       return;
     }
 
     if (!phys) return;
 
     const stateBuf = phys.state;
-    const isSleeping = phys.isBallSleeping?.() ?? false;
+    const isSleeping =
+      typeof phys.isBallSleeping === 'function' ? Boolean(phys.isBallSleeping()) : false;
     if (isSleeping || !stateBuf) {
       if (this.isActive) this.clear();
       this.sampler.markSleeping();
-      this._maybePublishTelemetry(frameStartMs, 0, 0, 0, 0);
+      this._publishTelemetry(frameStartMs, 0, 0, 0, 0);
       return;
     }
 
@@ -401,41 +291,42 @@ export class BallTrajectoryPredictor {
       this.settings
     );
     if (!awake) {
-      this._hideMeshes();
-      this._maybePublishTelemetry(frameStartMs, 0, 0, 0, ballSpeedUu);
+      hideTubeRenderer(this.tubeRenderer);
+      this._publishTelemetry(frameStartMs, 0, 0, 0, ballSpeedUu);
       return;
     }
 
-    if (!this.isActive || this.predictionCount <= 1) {
-      this._hideMeshes();
+    const liveCount = this.sampler.predictionCount;
+    const elapsed = Math.floor(currentTick - this.sampler.impactTick);
+    if (!this.isActive || liveCount <= 1 || elapsed < 0) {
+      hideTubeRenderer(this.tubeRenderer);
       return;
     }
-
-    const elapsed = Math.floor(currentTick - this.impactTick);
-    if (elapsed >= this.predictionCount) {
+    if (elapsed >= liveCount) {
       this.clear();
       return;
     }
-    if (elapsed < 0) {
-      this._hideMeshes();
-      return;
-    }
 
-    const patternElapsed = resolvePatternElapsedTicks(currentTick, this.patternAnchorTick, elapsed);
-
-    const tGeom0 = typeof performance !== 'undefined' ? performance.now() : 0;
-    const prims = this._renderTrajectoryGeometry(
+    const patternElapsed = resolvePatternElapsedTicks(
+      currentTick,
+      this.sampler.patternAnchorTick,
+      elapsed
+    );
+    const tGeom0 = nowMs();
+    const prims = renderTrajectoryTubeFrame(
+      this.tubeRenderer,
+      this.sampler,
+      this.ballRadius,
+      this.settings,
       elapsed,
       patternElapsed,
       Boolean(this.settings.dynamicMode),
       liveBallPosition
     );
-    const geomUs = ((typeof performance !== 'undefined' ? performance.now() : 0) - tGeom0) * 1000.0;
-
-    this._maybePublishTelemetry(
+    this._publishTelemetry(
       frameStartMs,
-      geomUs,
-      Math.max(0, this.predictionCount - elapsed),
+      (nowMs() - tGeom0) * 1000.0,
+      Math.max(0, liveCount - elapsed),
       prims,
       ballSpeedUu
     );
@@ -443,7 +334,7 @@ export class BallTrajectoryPredictor {
 
   public clear(): void {
     this.sampler.clear();
-    this._hideMeshes();
+    hideTubeRenderer(this.tubeRenderer);
   }
 
   public dispose(): void {

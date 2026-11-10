@@ -20,90 +20,88 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
     this.lifecycleController = new ExperimentalMultiBotsMatchLifecycleController(runtime);
     this.simulationController = new ExperimentalMultiBotsSimulationController(runtime);
 
-    const handlePreloadEngines = () => this.rosterController.preloadNativeModels();
-    useExperimentalMultiBotsStore.getState().setRuntimeHandlers({
-      onPreloadEngines: handlePreloadEngines,
-    });
+    const store = useExperimentalMultiBotsStore.getState();
+    const initHandlers: Parameters<typeof store.setRuntimeHandlers>[0] = {};
+    initHandlers.onPreloadEngines = () => {
+      void this.rosterController.preloadNativeModels();
+    };
+    store.setRuntimeHandlers(initHandlers);
+  }
+
+  private isModeActive(actionName: string): boolean {
+    const activeMode = this.runtime?.match?.state?.mode;
+    if (activeMode !== 'exp-multi-bots') {
+      console.warn(
+        `[ExperimentalMultiBotsMode] ${actionName} ignored: active mode is "${activeMode ?? 'none'}", requires "exp-multi-bots".`
+      );
+      return false;
+    }
+    return true;
   }
 
   onEnter(): void {
     const r = this.runtime;
-    const store = useExperimentalMultiBotsStore.getState();
-
     if (r) {
       r.podiumController = this.lifecycleController.podiumController;
     }
     this.replaySession.attachPhysicsIfNeeded();
 
-    const ensureActiveExpMode = (actionName: string): boolean => {
-      const activeMode = r?.match?.state?.mode;
-      if (activeMode !== 'exp-multi-bots') {
-        console.warn(
-          `[ExperimentalMultiBotsMode] ${actionName} ignored: active mode is "${activeMode ?? 'none'}", requires "exp-multi-bots".`
-        );
-        return false;
+    const store = useExperimentalMultiBotsStore.getState();
+    const handlers: Parameters<typeof store.setRuntimeHandlers>[0] = {};
+    handlers.onApplyRosterAndStart = () => {
+      if (this.isModeActive('onApplyRosterAndStart')) void this.applyRosterAndStartMatch();
+    };
+    handlers.onSelectCameraCar = (carIdx: number) => {
+      if (this.isModeActive('onSelectCameraCar')) this._applyCameraCarIndex(carIdx);
+    };
+    handlers.onSpeedMultiplierChange = (mult: number) => {
+      if (this.isModeActive('onSpeedMultiplierChange')) {
+        this.rosterController.applySpeedMultiplier(mult);
       }
-      return true;
     };
-
-    const handleApplyRosterAndStart = () => {
-      if (ensureActiveExpMode('onApplyRosterAndStart')) this.applyRosterAndStartMatch();
+    handlers.onUnlimitedBoostChange = (unlimited: boolean) => {
+      if (this.isModeActive('onUnlimitedBoostChange')) {
+        r?.physics?.setUnlimitedBoost?.(Boolean(unlimited));
+      }
     };
-    const handleSelectCameraCar = (carIdx: number) => {
-      if (ensureActiveExpMode('onSelectCameraCar')) this._applyCameraCarIndex(carIdx);
+    handlers.onTriggerAction = (action: string) => {
+      if (this.isModeActive('onTriggerAction')) this.triggerSandboxAction(action);
     };
-    const handleSpeedMultiplierChange = (mult: number) => {
-      if (!ensureActiveExpMode('onSpeedMultiplierChange')) return;
-      this.rosterController.applySpeedMultiplier(mult);
-    };
-    const handleUnlimitedBoostChange = (unlimited: boolean) => {
-      if (!ensureActiveExpMode('onUnlimitedBoostChange')) return;
-      r.physics?.setUnlimitedBoost?.(Boolean(unlimited));
-    };
-    const handleTriggerAction = (action: string) => {
-      if (ensureActiveExpMode('onTriggerAction')) this.triggerSandboxAction(action);
-    };
-    const handleHotSwapSlotBotType = (team: number, slotIndex: number, botType: string) => {
-      if (ensureActiveExpMode('onHotSwapSlotBotType')) {
+    handlers.onHotSwapSlotBotType = (team: number, slotIndex: number, botType: string) => {
+      if (this.isModeActive('onHotSwapSlotBotType')) {
         this._hotSwapSlotBotType(team, slotIndex, botType);
       }
     };
-    const handleHotSwapSlotColor = () => {
-      if (!ensureActiveExpMode('onHotSwapSlotColor')) return;
-      this.rosterController.syncCarColorsFromStore();
+    handlers.onHotSwapSlotColor = () => {
+      if (this.isModeActive('onHotSwapSlotColor')) {
+        this.rosterController.syncCarColorsFromStore();
+      }
     };
-    const handlePreloadEngines = () => this.rosterController.preloadNativeModels();
+    handlers.onPreloadEngines = () => {
+      void this.rosterController.preloadNativeModels();
+    };
+    store.setRuntimeHandlers(handlers);
 
-    store.setRuntimeHandlers({
-      onApplyRosterAndStart: handleApplyRosterAndStart,
-      onSelectCameraCar: handleSelectCameraCar,
-      onSpeedMultiplierChange: handleSpeedMultiplierChange,
-      onUnlimitedBoostChange: handleUnlimitedBoostChange,
-      onTriggerAction: handleTriggerAction,
-      onHotSwapSlotBotType: handleHotSwapSlotBotType,
-      onHotSwapSlotColor: handleHotSwapSlotColor,
-      onPreloadEngines: handlePreloadEngines,
-    });
-
-    this.applyRosterAndStartMatch();
+    void this.applyRosterAndStartMatch();
   }
 
   onLeave(): void {
     const r = this.runtime;
-    const lifecycleCtrl = this.lifecycleController;
-    const replayCtrl = this.replaySession;
 
-    if (lifecycleCtrl.goalResetTicks > 0 && lifecycleCtrl.goalTracker.goalIncidentTick > 0) {
-      replayCtrl.retainGoalReplayBuffer(
-        lifecycleCtrl.getGoalIncidentMeta(),
+    if (
+      this.lifecycleController.goalResetTicks > 0 &&
+      this.lifecycleController.goalTracker.goalIncidentTick > 0
+    ) {
+      this.replaySession.retainGoalReplayBuffer(
+        this.lifecycleController.getGoalIncidentMeta(),
         this.rosterController.spawnedCars
       );
     }
 
-    lifecycleCtrl.podiumController?.exitPodium?.();
-    replayCtrl.replayController?.endReplaySession?.();
-    replayCtrl.clearSignalsAndBuffer();
-    replayCtrl.isReplayActive = false;
+    this.lifecycleController.podiumController?.exitPodium?.();
+    this.replaySession.replayController?.endReplaySession?.();
+    this.replaySession.clearSignalsAndBuffer();
+    this.replaySession.isReplayActive = false;
     if (r) {
       r.releaseGoalReplayCameraOverride();
     }
@@ -126,27 +124,34 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
     if (botType && botType !== 'heuristic') {
       ensureExperimentalEngine(botType);
     }
-    this.applyRosterAndStartMatch();
+    void this.applyRosterAndStartMatch();
   }
 
   _publishSpawnedCarsTelemetry(): void {
-    const rosterCtrl = this.rosterController;
-    rosterCtrl.publishSpawnedCarsTelemetry();
+    if (this.rosterController.spawnedCars.length === 0) return;
+    this.rosterController.publishSpawnedCarsTelemetry();
   }
 
   getCarControls(carIndex: number): any {
-    const rosterCtrl = this.rosterController;
-    return rosterCtrl.getCarControls(carIndex);
+    if (carIndex < 0) return null;
+    return this.rosterController.getCarControls(carIndex);
   }
 
   async applyRosterAndStartMatch(): Promise<void> {
-    const lifecycleCtrl = this.lifecycleController;
-    return lifecycleCtrl.applyRosterAndStartMatch(this.rosterController, this.replaySession);
+    if (!this.runtime?.physics) return;
+    return this.lifecycleController.applyRosterAndStartMatch(
+      this.rosterController,
+      this.replaySession
+    );
   }
 
   triggerSandboxAction(action: string): void {
-    const lifecycleCtrl = this.lifecycleController;
-    lifecycleCtrl.triggerSandboxAction(action, this.rosterController, this.replaySession);
+    if (!action) return;
+    this.lifecycleController.triggerSandboxAction(
+      action,
+      this.rosterController,
+      this.replaySession
+    );
   }
 
   skipGoalReplay(): void {
@@ -159,8 +164,8 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
   }
 
   onPhysicsEvent(event: any): void {
-    const simCtrl = this.simulationController;
-    simCtrl.onPhysicsEvent(
+    if (!event) return;
+    this.simulationController.onPhysicsEvent(
       event,
       this.rosterController,
       this.replaySession,
@@ -169,8 +174,8 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
   }
 
   onBeforePhysicsTick(): boolean {
-    const simCtrl = this.simulationController;
-    return simCtrl.stepBeforePhysics(
+    if (!this.runtime?.physics) return true;
+    return this.simulationController.stepBeforePhysics(
       this.rosterController,
       this.replaySession,
       this.lifecycleController
@@ -178,8 +183,12 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
   }
 
   onAfterPhysicsTick(): void {
-    const simCtrl = this.simulationController;
-    simCtrl.stepAfterPhysics(this.rosterController, this.replaySession, this.lifecycleController);
+    if (!this.runtime?.physics) return;
+    this.simulationController.stepAfterPhysics(
+      this.rosterController,
+      this.replaySession,
+      this.lifecycleController
+    );
   }
 
   update(context: any): void {
@@ -216,6 +225,6 @@ export class ExperimentalMultiBotsMode extends BaseGameMode {
   }
 
   onResetKickoff(): void {
-    this.applyRosterAndStartMatch();
+    void this.applyRosterAndStartMatch();
   }
 }

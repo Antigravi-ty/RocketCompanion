@@ -72,6 +72,10 @@ export interface RuntimeSceneOptions {
 }
 
 export interface SceneGraphRuntimeCallbacks {
+  readonly diagnosticsProbe: RuntimeSceneCallbackHost['networkManager']['diagnosticsProbe'];
+  readonly sessionCoordinator: RuntimeSceneCallbackHost['networkManager']['sessionCoordinator'];
+  readonly rosterSyncCoordinator: RuntimeSceneCallbackHost['networkManager']['rosterSyncCoordinator'];
+  readonly loadoutCoordinator: RuntimeSceneCallbackHost['loadoutCoordinator'];
   onResetKickoff(): void;
   onBallControl(actionId: string): void;
   onKickoffSpawnSelect(spawnIndex: number): void;
@@ -89,14 +93,6 @@ export interface SceneGraphRuntimeCallbacks {
     speedLinesPass: SupersonicSpeedLinesPass | null,
     activeGraphicsSettings: Record<string, unknown>
   ): void;
-  onEnableDeterminismHarness(autoOpenPanel: boolean): Promise<unknown>;
-  onEnableNetworkPrediction(enabled: boolean): Promise<unknown>;
-  onHostOnlineServer(opts: HostRoomSettings): Promise<unknown>;
-  onStopOnlineServer(): Promise<void>;
-  onJoinOnlineServer(opts: JoinRoomSettings): Promise<unknown>;
-  onRemotePlayerConnected(channel: NetworkSessionChannelLike, name: string): Promise<number>;
-  onRemoveRemotePlayer(carIndex: number): Promise<void>;
-  onSetCarColor(carIndex: number, hex: string): void;
   onMountOrAttachGameUI(container: HTMLElement): MountedGameUIHandle | null;
   onDisposeHeadlessBloomOcclusion(): void;
 }
@@ -127,8 +123,11 @@ export interface RuntimeSceneCallbackHost {
   match: { state: { mode?: string } } | null;
   modeManager: { getActiveMode?(): unknown };
   options: RuntimeSceneOptions;
-  bloomOcclusion: { dispose?(): void };
+  bloomOcclusion: { dispose(): void };
   domEventManager: { updateViewport(): void };
+  loadoutCoordinator: {
+    setCarColor(carIndex: number, colorVal: number | string, broadcast?: boolean): void;
+  };
   networkManager: {
     diagnosticsProbe: { enableDeterminismHarness(autoOpenPanel: boolean): Promise<unknown> };
     sessionCoordinator: {
@@ -154,7 +153,6 @@ export interface RuntimeSceneCallbackHost {
   activeGraphicsSettings: unknown;
   resetKickoff(seed?: number): void;
   getFlipResetVisual(carIndex: number): unknown;
-  setCarColor(carIndex: number, hex: string): void;
 }
 
 export interface VisualizersAndSessionBundle {
@@ -181,6 +179,8 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
   callbacks: SceneGraphRuntimeCallbacks;
 }): VisualizersAndSessionBundle {
   const { isTouchHeadless, arena, physics, callbacks } = params;
+  const { diagnosticsProbe, sessionCoordinator, rosterSyncCoordinator, loadoutCoordinator } =
+    callbacks;
   let ballTrajectoryPredictor: BallTrajectoryPredictor | null = null;
   let reachabilityVisualizer: ReachabilityVisualizer | null = null;
 
@@ -198,16 +198,17 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
       pushQuickNotification,
       dismissQuickNotification
     );
-    const publishReachabilityTelemetry = (telemetry: unknown) => {
-      reachabilityStore.publishTelemetry(telemetry);
-    };
     reachabilityVisualizer = new ReachabilityVisualizer(
       arena.scene,
       physics,
       ballTrajectoryPredictor,
       {
-        getConfig: () => reachabilityStore.getConfig(),
-        onTelemetry: publishReachabilityTelemetry,
+        getConfig() {
+          return reachabilityStore.getConfig();
+        },
+        onTelemetry(telemetry: unknown) {
+          reachabilityStore.publishTelemetry(telemetry);
+        },
       }
     );
   }
@@ -219,88 +220,83 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
     isDeterminismTest ||
     (typeof window !== 'undefined' && window.__ENABLE_DETERMINISM_HARNESS__)
   ) {
-    callbacks
-      .onEnableDeterminismHarness(true)
+    diagnosticsProbe
+      .enableDeterminismHarness(true)
       .catch((err: unknown) => console.error('[DeterminismHarness] Failed to activate:', err));
   }
   const isNetTest =
     urlParams &&
     (urlParams.get('test') === 'prediction' || urlParams.get('test') === 'multiplayer');
   if (isNetTest || (typeof window !== 'undefined' && window.__ENABLE_NETWORK_PREDICTION__)) {
-    callbacks
-      .onEnableNetworkPrediction(true)
+    sessionCoordinator
+      .enableNetworkPrediction(true)
       .catch((err: unknown) => console.error('[NetworkPrediction] Failed to activate:', err));
   }
 
   let multiplayerSession: MultiplayerSessionManager | null = null;
-  const handleUnexpectedDisconnect = () => {
-    notifyNetworkTelemetryExportAvailable('disconnected');
-  };
-  const handleHostServer = async (opts: HostRoomSettings) => {
-    await callbacks.onHostOnlineServer(opts);
-  };
-  const handleStopOrLeaveServer = async () => {
-    await callbacks.onStopOnlineServer();
-  };
-  const handleJoinServer = async (opts: JoinRoomSettings) => {
-    await callbacks.onJoinOnlineServer(opts);
-  };
-  const handlePeerConnected = async (channel: NetworkSessionChannelLike, name: string) =>
-    await callbacks.onRemotePlayerConnected(channel, name);
-  const handleRemovePlayer = async (carIndex: number) => {
-    await callbacks.onRemoveRemotePlayer(carIndex);
-  };
-  const handleColorSelect = (carIndex: number, _slotId: number, hex: string) => {
-    callbacks.onSetCarColor(carIndex, hex);
-  };
-  const handleSessionStatusChange = (status: SessionStatusSnapshot) => {
-    if (useAppStore && typeof useAppStore.getState === 'function') {
-      useAppStore.getState().setOnlineSession?.(status as unknown as Record<string, unknown>);
-    }
-  };
-  const handlePairingApprovalRequest = (req: PairingApprovalRequest) => {
-    const notifId = `pair-req-${req.peerId}`;
-    pushQuickNotification({
-      id: notifId,
-      type: 'persistent',
-      tone: 'warning',
-      icon: 'shield-alert',
-      duration: 0,
-      content: `Join Request: "${req.peerName}" — Pair Code [${req.pairingCode}]`,
-      buttons: [
-        {
-          label: 'Accept',
-          color: 'emerald',
-          onClick: () => {
-            multiplayerSession?.approvePendingPeer?.(req.peerId);
-            dismissQuickNotification(notifId);
-          },
-        },
-        {
-          label: 'Decline',
-          color: 'rose',
-          onClick: () => {
-            multiplayerSession?.declinePendingPeer?.(req.peerId);
-            dismissQuickNotification(notifId);
-          },
-        },
-      ],
-    });
-  };
-
   multiplayerSession = new MultiplayerSessionManager({
-    resolvePlayerName: () => loadStoredPlayerName().substring(0, 16),
+    resolvePlayerName() {
+      return loadStoredPlayerName().substring(0, 16);
+    },
     resolveTeamColor: resolvePreferredTeamColor,
-    onUnexpectedDisconnect: handleUnexpectedDisconnect,
-    onHostServer: handleHostServer,
-    onStopServer: handleStopOrLeaveServer,
-    onLeaveServer: handleStopOrLeaveServer,
-    onJoinServer: handleJoinServer,
-    onPeerConnected: handlePeerConnected,
-    onRemovePlayer: handleRemovePlayer,
-    onColorSelect: handleColorSelect,
-    onSessionStatusChange: handleSessionStatusChange,
-    onPairingApprovalRequest: handlePairingApprovalRequest,
+    onUnexpectedDisconnect() {
+      notifyNetworkTelemetryExportAvailable('disconnected');
+    },
+    async onHostServer(opts: HostRoomSettings) {
+      await sessionCoordinator.hostOnlineServer(opts);
+    },
+    async onStopServer() {
+      await sessionCoordinator.stopOnlineServer();
+    },
+    async onLeaveServer() {
+      await sessionCoordinator.stopOnlineServer();
+    },
+    async onJoinServer(opts: JoinRoomSettings) {
+      await sessionCoordinator.joinOnlineServer(opts);
+    },
+    async onPeerConnected(channel: NetworkSessionChannelLike, name: string) {
+      return (await rosterSyncCoordinator.onRemotePlayerConnected(channel, name)) ?? -1;
+    },
+    async onRemovePlayer(carIndex: number) {
+      await rosterSyncCoordinator.removeRemotePlayer(carIndex);
+    },
+    onColorSelect(carIndex: number, _slotId: number, hex: string) {
+      loadoutCoordinator.setCarColor(carIndex, hex);
+    },
+    onSessionStatusChange(status: SessionStatusSnapshot) {
+      if (useAppStore && typeof useAppStore.getState === 'function') {
+        useAppStore.getState().setOnlineSession?.(status as unknown as Record<string, unknown>);
+      }
+    },
+    onPairingApprovalRequest(req: PairingApprovalRequest) {
+      const notifId = `pair-req-${req.peerId}`;
+      pushQuickNotification({
+        id: notifId,
+        type: 'persistent',
+        tone: 'warning',
+        icon: 'shield-alert',
+        duration: 0,
+        content: `Join Request: "${req.peerName}" — Pair Code [${req.pairingCode}]`,
+        buttons: [
+          {
+            label: 'Accept',
+            color: 'emerald',
+            onClick() {
+              multiplayerSession?.approvePendingPeer(req.peerId);
+              dismissQuickNotification(notifId);
+            },
+          },
+          {
+            label: 'Decline',
+            color: 'rose',
+            onClick() {
+              multiplayerSession?.declinePendingPeer(req.peerId);
+              dismissQuickNotification(notifId);
+            },
+          },
+        ],
+      });
+    },
   });
 
   return {

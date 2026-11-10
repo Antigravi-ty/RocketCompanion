@@ -5,7 +5,10 @@
  * encrypted offer/answer/ICE negotiation, and downstream spectator relay attachment.
  */
 
-import { SignalingProtocolHandler } from './SignalingProtocolHandler.ts';
+import {
+  SignalingProtocolHandler,
+  type SignalingProtocolCallbacks,
+} from './SignalingProtocolHandler.ts';
 import { ClientSessionController } from './ClientSessionController.ts';
 import type { P2PWebRTCChannel } from './P2PWebRTCChannel.ts';
 import { getAllowSpectatorDaisyChain } from './signalingRelayConfig.ts';
@@ -31,6 +34,28 @@ export interface ClientJoinNegotiationCallbacks {
   notifyUnexpectedDisconnect?: () => void;
 }
 
+function buildJoinTimeoutError(
+  cleanRoomId: string,
+  timeoutMs: number,
+  sdpOfferReceived: boolean,
+  signalingStatus: string | undefined
+): Error {
+  const timeoutSec = Math.round(timeoutMs / 1000);
+  if (sdpOfferReceived) {
+    return new Error(
+      'Signaling Connected (SDP/ICE Exchanged) — P2P Blocked by NAT (Symmetric NAT or firewall blocked direct WebRTC DataChannel).'
+    );
+  }
+  if (signalingStatus === 'connected') {
+    return new Error(
+      `Connected to signaling relay, but room "${cleanRoomId}" (or matching password) did not respond within ${timeoutSec}s.`
+    );
+  }
+  return new Error(
+    `Join room connection timed out after ${timeoutSec}s (All signaling relays unreachable)`
+  );
+}
+
 export class ClientJoinNegotiationSubController {
   clientController: ClientSessionController | null = null;
   signalingHandler: SignalingProtocolHandler | null = null;
@@ -42,7 +67,7 @@ export class ClientJoinNegotiationSubController {
   private sdpOfferReceived = false;
 
   get channel(): P2PWebRTCChannel | null {
-    return this.clientController?.channel || null;
+    return this.clientController ? this.clientController.channel : null;
   }
 
   private clearJoinTimer(): void {
@@ -50,18 +75,6 @@ export class ClientJoinNegotiationSubController {
       clearTimeout(this.joinDeadlineTimer);
       this.joinDeadlineTimer = null;
     }
-  }
-
-  private forwardLocalCandidate(cand: RTCIceCandidateInit | Record<string, unknown>): void {
-    const handler = this.signalingHandler;
-    if (!handler) return;
-    void handler.sendCandidate(null, cand);
-  }
-
-  private forwardSpectatorJoin(peerId: string, name: string | undefined): void {
-    const ctrl = this.clientController;
-    if (!ctrl || !ctrl.allowSpectatorRelay) return;
-    void ctrl.acceptDownstreamSpectatorPeer(peerId, name, this.signalingHandler);
   }
 
   async executeJoin(
@@ -101,8 +114,7 @@ export class ClientJoinNegotiationSubController {
         this.joinDeadlineTimer = setTimeout(() => {
           if (this.settled) return;
           if (this.isHeldForPairing) {
-            const silenceMs = Date.now() - this.lastKeepAliveAt;
-            if (silenceMs < 8000) {
+            if (Date.now() - this.lastKeepAliveAt < 8000) {
               scheduleJoinDeadline(4000);
               return;
             }
@@ -113,76 +125,22 @@ export class ClientJoinNegotiationSubController {
           const ch = this.channel;
           if (ch && (ch.connected || ch.isOpen)) {
             finishSuccess();
-          } else if (this.sdpOfferReceived) {
-            finishFailure(
-              new Error(
-                'Signaling Connected (SDP/ICE Exchanged) — P2P Blocked by NAT (Symmetric NAT or firewall blocked direct WebRTC DataChannel).'
-              )
-            );
-          } else if (this.signalingHandler?.status === 'connected') {
-            finishFailure(
-              new Error(
-                `Connected to signaling relay, but room "${cleanRoomId}" (or matching password) did not respond within ${Math.round(timeoutMs / 1000)}s.`
-              )
-            );
-          } else {
-            finishFailure(
-              new Error(
-                `Join room connection timed out after ${Math.round(timeoutMs / 1000)}s (All signaling relays unreachable)`
-              )
-            );
+            return;
           }
+          finishFailure(
+            buildJoinTimeoutError(
+              cleanRoomId,
+              timeoutMs,
+              this.sdpOfferReceived,
+              this.signalingHandler ? this.signalingHandler.status : undefined
+            )
+          );
         }, durationMs);
       };
 
       scheduleJoinDeadline(timeoutMs);
 
-      const handleClientConnected = async (
-        channel: P2PWebRTCChannel,
-        peerName: string,
-        pairingCode: string | null
-      ) => {
-        const resolvedPairingCode =
-          pairingCode || this.signalingHandler?.getPairingCodeForPeer?.() || undefined;
-        const activeRelayLabel = this.signalingHandler?.getActiveRelayLabel?.() || undefined;
-        callbacks.updateSessionStatus({
-          signalingConnected: true,
-          pairingCode: resolvedPairingCode,
-          activeRelayLabel,
-          connectedPeers: [
-            {
-              id: 'host',
-              name: peerName,
-              pingMs: 0,
-              pairingCode: resolvedPairingCode,
-            },
-          ],
-        });
-        if (callbacks.joinServer) {
-          await callbacks.joinServer({
-            channel,
-            playerName: options.playerName,
-            remotePlayerName: peerName,
-            pairingCode: resolvedPairingCode,
-          });
-        }
-        finishSuccess();
-      };
-
-      const handleClientDisconnected = () => {
-        callbacks.updateSessionStatus({ connectedPeers: [] });
-        if (!this.settled) {
-          finishFailure(new Error('P2P channel disconnected'));
-        } else {
-          callbacks.notifyUnexpectedDisconnect?.();
-        }
-      };
-
-      const handleClientCandidate = (cand: RTCIceCandidateInit | Record<string, unknown>) => {
-        this.forwardLocalCandidate(cand);
-      };
-
-      this.clientController = new ClientSessionController(
+      const clientController = new ClientSessionController(
         {
           roomId: cleanRoomId,
           playerName: options.playerName,
@@ -191,114 +149,137 @@ export class ClientJoinNegotiationSubController {
           allowSpectatorRelay,
         },
         {
-          onConnected: handleClientConnected,
-          onDisconnected: handleClientDisconnected,
-          onIceCandidate: handleClientCandidate,
+          onConnected: async (channel, peerName, pairingCode) => {
+            const handler = this.signalingHandler;
+            const resolvedPairingCode =
+              pairingCode || (handler ? handler.getPairingCodeForPeer() : null) || undefined;
+            const activeRelayLabel = (handler ? handler.getActiveRelayLabel() : null) || undefined;
+            callbacks.updateSessionStatus({
+              signalingConnected: true,
+              pairingCode: resolvedPairingCode,
+              activeRelayLabel,
+              connectedPeers: [
+                {
+                  id: 'host',
+                  name: peerName,
+                  pingMs: 0,
+                  pairingCode: resolvedPairingCode,
+                },
+              ],
+            });
+            if (callbacks.joinServer) {
+              await callbacks.joinServer({
+                channel,
+                playerName: options.playerName,
+                remotePlayerName: peerName,
+                pairingCode: resolvedPairingCode,
+              });
+            }
+            finishSuccess();
+          },
+          onDisconnected: () => {
+            callbacks.updateSessionStatus({ connectedPeers: [] });
+            if (!this.settled) {
+              finishFailure(new Error('P2P channel disconnected'));
+            } else if (callbacks.notifyUnexpectedDisconnect) {
+              callbacks.notifyUnexpectedDisconnect();
+            }
+          },
+          onIceCandidate: (cand) => {
+            if (this.signalingHandler) {
+              void this.signalingHandler.sendCandidate(null, cand);
+            }
+          },
         }
       );
+      this.clientController = clientController;
 
       try {
-        await this.clientController.initializeChannel();
+        await clientController.initializeChannel();
       } catch (e) {
-        console.error('[MultiplayerSessionManager] Failed to initialize client channel:', e);
+        console.error(
+          '[ClientJoinNegotiationSubController] Failed to initialize client channel:',
+          e
+        );
         return finishFailure(e);
       }
 
-      const handleSignalingOpen = ({ relayLabel }: { relayLabel: string }) => {
-        callbacks.updateSessionStatus({
-          signalingConnected: true,
-          roomId: cleanRoomId,
-          activeRelayLabel: relayLabel,
-        });
-      };
-
-      const handleRendezvousEstablished = ({
-        relayLabel,
-        pairingCode,
-        requireManualApproval,
-      }: {
-        relayLabel: string;
-        pairingCode: string;
-        requireManualApproval?: boolean;
-      }) => {
-        this.lastKeepAliveAt = Date.now();
-        callbacks.updateSessionStatus({
-          pairingCode,
-          activeRelayLabel: relayLabel,
-        });
-        if (requireManualApproval) {
-          this.isHeldForPairing = true;
-          scheduleJoinDeadline(6000);
-        }
-      };
-
-      const handlePairingHold = () => {
-        this.isHeldForPairing = true;
-        this.lastKeepAliveAt = Date.now();
-        scheduleJoinDeadline(6000);
-      };
-
-      const handlePairingKeepAlive = () => {
-        this.lastKeepAliveAt = Date.now();
-        if (this.isHeldForPairing) {
-          scheduleJoinDeadline(6000);
-        }
-      };
-
-      const handlePairingApproved = () => {
-        this.isHeldForPairing = false;
-        this.lastKeepAliveAt = Date.now();
-        scheduleJoinDeadline(timeoutMs);
-      };
-
-      const handlePairingDeclined = ({ reason }: { reason?: string }) => {
-        this.isHeldForPairing = false;
-        finishFailure(
-          new Error(reason || 'Connection declined by Host during pairing verification.')
-        );
-      };
-
-      const handleSignalingError = () => {
-        if (!this.channel?.connected) {
-          callbacks.updateSessionStatus({ signalingConnected: false });
-        }
-      };
-
-      const handleOffer = async ({
-        sdp,
-        fromPeerId,
-        pairingCode,
-      }: {
-        sdp: string;
-        fromPeerId?: string;
-        pairingCode?: string;
-      }) => {
-        try {
-          this.isHeldForPairing = false;
-          this.sdpOfferReceived = true;
-          scheduleJoinDeadline(Math.max(6000, timeoutMs));
-          await this.clientController?.handleOffer(sdp, fromPeerId, this.signalingHandler, {
-            pairingCode,
+      const signalingCallbacks: SignalingProtocolCallbacks = {
+        handleOpen: ({ relayLabel }) => {
+          callbacks.updateSessionStatus({
+            signalingConnected: true,
+            roomId: cleanRoomId,
+            activeRelayLabel: relayLabel,
           });
-        } catch (err) {
-          console.error('[MultiplayerSessionManager] Error handling host offer:', err);
-          finishFailure(err);
-        }
+        },
+        handleRendezvousEstablished: ({ relayLabel, pairingCode, requireManualApproval }) => {
+          this.lastKeepAliveAt = Date.now();
+          callbacks.updateSessionStatus({
+            pairingCode,
+            activeRelayLabel: relayLabel,
+          });
+          if (requireManualApproval) {
+            this.isHeldForPairing = true;
+            scheduleJoinDeadline(6000);
+          }
+        },
+        handlePairingHold: () => {
+          this.isHeldForPairing = true;
+          this.lastKeepAliveAt = Date.now();
+          scheduleJoinDeadline(6000);
+        },
+        handlePairingKeepAlive: () => {
+          this.lastKeepAliveAt = Date.now();
+          if (this.isHeldForPairing) {
+            scheduleJoinDeadline(6000);
+          }
+        },
+        handlePairingApproved: () => {
+          this.isHeldForPairing = false;
+          this.lastKeepAliveAt = Date.now();
+          scheduleJoinDeadline(timeoutMs);
+        },
+        handlePairingDeclined: ({ reason }) => {
+          this.isHeldForPairing = false;
+          finishFailure(
+            new Error(reason || 'Connection declined by Host during pairing verification.')
+          );
+        },
+        handleError: () => {
+          const ch = this.channel;
+          if (!ch || !ch.connected) {
+            callbacks.updateSessionStatus({ signalingConnected: false });
+          }
+        },
+        handleOffer: async ({ sdp, fromPeerId, pairingCode }) => {
+          try {
+            this.isHeldForPairing = false;
+            this.sdpOfferReceived = true;
+            scheduleJoinDeadline(Math.max(6000, timeoutMs));
+            if (this.clientController) {
+              await this.clientController.handleOffer(sdp, fromPeerId, this.signalingHandler, {
+                pairingCode,
+              });
+            }
+          } catch (err) {
+            console.error('[ClientJoinNegotiationSubController] Error handling host offer:', err);
+            finishFailure(err);
+          }
+        },
+        handleCandidate: ({ candidate }) => {
+          if (this.clientController) {
+            this.clientController.handleRemoteCandidate(candidate);
+          }
+        },
+        handlePeerJoined: ({ peerId, name }) => {
+          const ctrl = this.clientController;
+          if (ctrl && ctrl.allowSpectatorRelay) {
+            void ctrl.acceptDownstreamSpectatorPeer(peerId, name, this.signalingHandler);
+          }
+        },
       };
 
-      const handleCandidate = ({
-        candidate,
-      }: {
-        candidate: RTCIceCandidateInit | Record<string, unknown>;
-      }) => {
-        this.clientController?.handleRemoteCandidate(candidate);
-      };
-
-      const handlePeerJoined = ({ peerId, name }: { peerId: string; name?: string }) => {
-        this.forwardSpectatorJoin(peerId, name);
-      };
-
-      this.signalingHandler = new SignalingProtocolHandler(
+      const signalingHandler = new SignalingProtocolHandler(
         {
           roomId: cleanRoomId,
           password: joinPassword,
@@ -306,25 +287,15 @@ export class ClientJoinNegotiationSubController {
           playerName: options.playerName,
           allowSpectatorRelay,
         },
-        {
-          handleOpen: handleSignalingOpen,
-          handleRendezvousEstablished: handleRendezvousEstablished,
-          handlePairingHold: handlePairingHold,
-          handlePairingKeepAlive: handlePairingKeepAlive,
-          handlePairingApproved: handlePairingApproved,
-          handlePairingDeclined: handlePairingDeclined,
-          handleError: handleSignalingError,
-          handleOffer: handleOffer,
-          handleCandidate: handleCandidate,
-          handlePeerJoined: handlePeerJoined,
-        }
+        signalingCallbacks
       );
+      this.signalingHandler = signalingHandler;
 
       try {
-        await this.signalingHandler.connect(timeoutMs);
+        await signalingHandler.connect(timeoutMs);
       } catch (sigErr: unknown) {
         console.warn(
-          '[MultiplayerSessionManager] Signaling connection notice:',
+          '[ClientJoinNegotiationSubController] Signaling connection notice:',
           sigErr instanceof Error ? sigErr.message : sigErr
         );
         const ch = this.channel;

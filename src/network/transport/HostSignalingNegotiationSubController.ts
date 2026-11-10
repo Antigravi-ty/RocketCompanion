@@ -7,7 +7,9 @@
 
 import {
   SignalingProtocolHandler,
+  type PendingPairingRequest,
   type SignalingPoolHealthSnapshot,
+  type SignalingProtocolCallbacks,
 } from './SignalingProtocolHandler.ts';
 import type { HostSessionController } from './HostSessionController.ts';
 import { testAllSignalingRelays } from './diagnostics/signalingDiagnosticsProbe.ts';
@@ -17,24 +19,15 @@ import {
   parseRoomCode,
 } from '../../ui-core/config/roomCodeConnectivityCodec.ts';
 
-export interface PendingPairingRequest {
-  peerId: string;
-  peerName: string;
-  pairingCode: string;
-  relayId?: string;
-  relayLabel: string;
-  role: string;
-  approve?: () => Promise<void> | void;
-  decline?: (reason?: string) => Promise<void> | void;
-}
+export type { PendingPairingRequest };
 
-export interface HostSignalingNegotiationCallbacks {
-  getRoomId: () => string;
-  setRoomId: (roomId: string) => void;
-  getPassword: () => string;
-  getPlayerName: () => string;
+export interface HostSignalingNegotiationContext {
+  roomId: string;
+  password: string;
+  playerName: string;
+  hostController: HostSessionController | null;
   isHosting: () => boolean;
-  getHostController: () => HostSessionController | null;
+  setRoomId: (roomId: string) => void;
   updateSessionStatus: (status: Record<string, unknown>) => void;
   deliverPairingApprovalRequest?: (request: PendingPairingRequest) => void;
 }
@@ -42,7 +35,7 @@ export interface HostSignalingNegotiationCallbacks {
 export class HostSignalingNegotiationSubController {
   signalingHandler: SignalingProtocolHandler | null = null;
   pendingPairingRequests = new Map<string, PendingPairingRequest>();
-  private activeCallbacks: HostSignalingNegotiationCallbacks | null = null;
+  private activeContext: HostSignalingNegotiationContext | null = null;
   private activeProbedMask = 0x0f;
 
   approvePendingPeer(
@@ -53,7 +46,9 @@ export class HostSignalingNegotiationSubController {
     if (!req) return false;
     this.pendingPairingRequests.delete(peerId);
     this.syncPendingPairingStatus(updateSessionStatus);
-    void req.approve?.();
+    if (req.approve) {
+      void req.approve();
+    }
     return true;
   }
 
@@ -65,7 +60,9 @@ export class HostSignalingNegotiationSubController {
     if (!req) return false;
     this.pendingPairingRequests.delete(peerId);
     this.syncPendingPairingStatus(updateSessionStatus);
-    void req.decline?.('Host declined the pairing verification request.');
+    if (req.decline) {
+      void req.decline('Host declined the pairing verification request.');
+    }
     return true;
   }
 
@@ -89,204 +86,142 @@ export class HostSignalingNegotiationSubController {
     updateSessionStatus({ pendingPairingRequests: list });
   }
 
-  private handleSignalingOpen = ({ relayLabel }: { relayLabel: string }): void => {
-    const callbacks = this.activeCallbacks;
-    if (!callbacks) return;
-    const liveMask = this.signalingHandler?.relayPool.getConnectedConnectivityMask() || 0;
-    const healthSnapshot = this.signalingHandler?.relayPool.getHealthSnapshot();
-    callbacks.updateSessionStatus({
-      signalingConnected: true,
-      signalingHealthLevel: healthSnapshot?.healthLevel || 'healthy',
-      roomId: callbacks.getRoomId(),
-      activeRelayLabel: relayLabel,
-      hostMask: liveMask,
-    });
-  };
+  private createSignalingCallbacks(): SignalingProtocolCallbacks {
+    return {
+      handleOpen: ({ relayLabel }) => {
+        const ctx = this.activeContext;
+        const handler = this.signalingHandler;
+        if (!ctx || !handler) return;
+        const liveMask = handler.relayPool.getConnectedConnectivityMask();
+        const healthSnapshot = handler.relayPool.getHealthSnapshot();
+        ctx.updateSessionStatus({
+          signalingConnected: true,
+          signalingHealthLevel: healthSnapshot.healthLevel,
+          roomId: ctx.roomId,
+          activeRelayLabel: relayLabel,
+          hostMask: liveMask,
+        });
+      },
+      handleRelayHealthChanged: (snapshot: SignalingPoolHealthSnapshot) => {
+        const ctx = this.activeContext;
+        if (!ctx) return;
+        ctx.updateSessionStatus({
+          signalingConnected: snapshot.hasAnyConnected,
+          signalingHealthLevel: snapshot.healthLevel,
+          hostMask: snapshot.connectedMask,
+        });
+      },
+      handleClose: () => {
+        this.handleSignalingDisconnected();
+      },
+      handleError: () => {
+        this.handleSignalingDisconnected();
+      },
+      handlePairingApprovalRequired: (request: PendingPairingRequest) => {
+        const ctx = this.activeContext;
+        if (!ctx) return;
+        this.pendingPairingRequests.set(request.peerId, request);
+        this.syncPendingPairingStatus(ctx.updateSessionStatus);
+        if (ctx.deliverPairingApprovalRequest) {
+          ctx.deliverPairingApprovalRequest(request);
+        }
+      },
+      handlePeerJoined: ({ peerId, name, peerName, role, allowSpectatorRelay, pairingCode }) => {
+        const ctx = this.activeContext;
+        if (!ctx) return;
+        this.pendingPairingRequests.delete(peerId);
+        this.syncPendingPairingStatus(ctx.updateSessionStatus);
+        if (ctx.hostController) {
+          void ctx.hostController.dispatchOfferToPeer(
+            peerId,
+            name || peerName,
+            this.signalingHandler,
+            role || 'player',
+            { allowSpectatorRelay, pairingCode }
+          );
+        }
+      },
+      handleAnswer: async ({ sdp, fromPeerId, pairingCode }) => {
+        const ctx = this.activeContext;
+        if (!ctx || !ctx.hostController) return;
+        try {
+          await ctx.hostController.handleAnswer(sdp, fromPeerId || null, { pairingCode });
+        } catch (err) {
+          console.error(
+            '[HostSignalingNegotiationSubController] Error accepting peer answer:',
+            err
+          );
+          throw err;
+        }
+      },
+      handleCandidate: ({ candidate, fromPeerId }) => {
+        const ctx = this.activeContext;
+        if (ctx && ctx.hostController) {
+          ctx.hostController.handleRemoteCandidate(candidate, fromPeerId || null);
+        }
+      },
+    };
+  }
 
-  private handleRelayHealthChanged = (snapshot: SignalingPoolHealthSnapshot): void => {
-    this.activeCallbacks?.updateSessionStatus({
-      signalingConnected: snapshot.hasAnyConnected,
-      signalingHealthLevel: snapshot.healthLevel,
-      hostMask: snapshot.connectedMask,
-    });
-  };
-
-  private handleSignalingDisconnected = (): void => {
-    const callbacks = this.activeCallbacks;
-    if (!callbacks) return;
-    callbacks.updateSessionStatus({
+  private handleSignalingDisconnected(): void {
+    const ctx = this.activeContext;
+    if (!ctx) return;
+    ctx.updateSessionStatus({
       signalingConnected: false,
       signalingHealthLevel: 'offline',
     });
-    if (callbacks.isHosting()) {
+    if (ctx.isHosting() && this.signalingHandler) {
       const mask = this.activeProbedMask;
-      this.signalingHandler?.scheduleReconnect(3000, () => this.initHostSignaling(callbacks, mask));
+      this.signalingHandler.scheduleReconnect(3000, () => this.initHostSignaling(ctx, mask));
     }
-  };
+  }
 
-  private handlePairingApprovalRequired = (request: PendingPairingRequest): void => {
-    const callbacks = this.activeCallbacks;
-    if (!callbacks) return;
-    this.pendingPairingRequests.set(request.peerId, request);
-    this.syncPendingPairingStatus(callbacks.updateSessionStatus);
-    callbacks.deliverPairingApprovalRequest?.(request);
-  };
-
-  private handlePeerJoined = ({
-    peerId,
-    name,
-    peerName,
-    role,
-    allowSpectatorRelay,
-    pairingCode,
-  }: {
-    peerId: string;
-    name?: string;
-    peerName?: string;
-    role?: string;
-    allowSpectatorRelay?: boolean;
-    pairingCode?: string;
-  }): void => {
-    const callbacks = this.activeCallbacks;
-    if (!callbacks) return;
-    this.pendingPairingRequests.delete(peerId);
-    this.syncPendingPairingStatus(callbacks.updateSessionStatus);
-    void callbacks
-      .getHostController()
-      ?.dispatchOfferToPeer(peerId, name || peerName, this.signalingHandler, role || 'player', {
-        allowSpectatorRelay,
-        pairingCode,
-      });
-  };
-
-  private handleRoomInfo = ({
-    participants,
-  }: {
-    participants?: Array<{ peerId?: string; peerName?: string; name?: string; role?: string }>;
-  }): void => {
-    const callbacks = this.activeCallbacks;
-    if (!callbacks || !Array.isArray(participants) || !callbacks.isHosting()) return;
-    for (const p of participants) {
-      if (p?.peerId && p.peerId !== this.signalingHandler?.peerId) {
-        void callbacks
-          .getHostController()
-          ?.dispatchOfferToPeer(
-            p.peerId,
-            p.peerName || p.name,
-            this.signalingHandler,
-            p.role || 'player'
-          );
-      }
-    }
-  };
-
-  private handleRequestOffer = ({
-    fromPeerId,
-    name,
-    senderName,
-    role,
-    pairingCode,
-  }: {
-    fromPeerId: string;
-    name?: string;
-    senderName?: string;
-    role?: string;
-    pairingCode?: string;
-  }): void => {
-    void this.activeCallbacks
-      ?.getHostController()
-      ?.dispatchOfferToPeer(
-        fromPeerId,
-        name || senderName,
-        this.signalingHandler,
-        role || 'player',
-        { pairingCode }
-      );
-  };
-
-  private handleAnswer = async ({
-    sdp,
-    fromPeerId,
-    pairingCode,
-  }: {
-    sdp: string;
-    fromPeerId?: string;
-    pairingCode?: string;
-  }): Promise<void> => {
-    try {
-      await this.activeCallbacks?.getHostController()?.handleAnswer(sdp, fromPeerId || null, {
-        pairingCode,
-      });
-    } catch (err) {
-      console.error('[MultiplayerSessionManager] Error accepting peer answer:', err);
-      throw err;
-    }
-  };
-
-  private handleCandidate = ({
-    candidate,
-    fromPeerId,
-  }: {
-    candidate: RTCIceCandidateInit | Record<string, unknown>;
-    fromPeerId?: string;
-  }): void => {
-    this.activeCallbacks?.getHostController()?.handleRemoteCandidate(candidate, fromPeerId || null);
-  };
-
-  initHostSignaling(callbacks: HostSignalingNegotiationCallbacks, probedMask?: number): void {
-    if (!callbacks.isHosting()) return;
+  initHostSignaling(context: HostSignalingNegotiationContext, probedMask?: number): void {
+    if (!context.isHosting()) return;
     if (this.signalingHandler) {
       this.signalingHandler.cleanup();
       this.signalingHandler = null;
     }
 
-    const roomId = callbacks.getRoomId();
-    const parsedHostRoom = parseRoomCode(roomId);
+    const parsedHostRoom = parseRoomCode(context.roomId);
     const effectiveProbedMask =
       typeof probedMask === 'number' && (probedMask & 0x0f) !== 0
         ? probedMask & 0x0f
-        : parsedHostRoom?.hostMask || 0x0f;
+        : parsedHostRoom
+          ? parsedHostRoom.hostMask
+          : 0x0f;
 
-    this.activeCallbacks = callbacks;
+    this.activeContext = context;
     this.activeProbedMask = effectiveProbedMask;
 
-    const signalingCallbacks = {
-      handleOpen: this.handleSignalingOpen,
-      handleRelayHealthChanged: this.handleRelayHealthChanged,
-      handleClose: this.handleSignalingDisconnected,
-      handleError: this.handleSignalingDisconnected,
-      handlePairingApprovalRequired: this.handlePairingApprovalRequired,
-      handlePeerJoined: this.handlePeerJoined,
-      handleRoomInfo: this.handleRoomInfo,
-      handleRequestOffer: this.handleRequestOffer,
-      handleAnswer: this.handleAnswer,
-      handleCandidate: this.handleCandidate,
-    };
-
-    this.signalingHandler = new SignalingProtocolHandler(
+    const handler = new SignalingProtocolHandler(
       {
-        roomId,
-        password: callbacks.getPassword(),
+        roomId: context.roomId,
+        password: context.password,
         role: 'host',
-        playerName: callbacks.getPlayerName(),
+        playerName: context.playerName,
         allowSpectatorRelay: true,
         probedHostMask: effectiveProbedMask,
       },
-      signalingCallbacks
+      this.createSignalingCallbacks()
     );
+    this.signalingHandler = handler;
 
-    this.signalingHandler.connect().catch((err) => {
-      console.warn('[MultiplayerSessionManager] Signaling connection notice:', err?.message || err);
-      if (callbacks.isHosting()) {
-        this.signalingHandler?.scheduleReconnect(3000, () =>
-          this.initHostSignaling(callbacks, effectiveProbedMask)
+    handler.connect().catch((err: unknown) => {
+      console.warn(
+        '[HostSignalingNegotiationSubController] Signaling connection notice:',
+        err instanceof Error ? err.message : err
+      );
+      if (context.isHosting() && this.signalingHandler) {
+        this.signalingHandler.scheduleReconnect(3000, () =>
+          this.initHostSignaling(context, effectiveProbedMask)
         );
       }
     });
   }
 
-  async reprobeAndRefresh(callbacks: HostSignalingNegotiationCallbacks): Promise<void> {
-    if (!callbacks.isHosting()) return;
+  async reprobeAndRefresh(context: HostSignalingNegotiationContext): Promise<void> {
+    if (!context.isHosting()) return;
     let probedMask = 0;
     try {
       const probeResults = await testAllSignalingRelays(4000);
@@ -296,28 +231,35 @@ export class HostSignalingNegotiationSubController {
         }
       }
     } catch (err) {
-      console.warn('[MultiplayerSessionManager] Relay re-probe failed:', err);
+      console.warn('[HostSignalingNegotiationSubController] Relay re-probe failed:', err);
     }
     const cleanMask = probedMask & 0x0f || 0x0f;
-    const nextRoomId = applyConnectivityMaskToRoomCode(callbacks.getRoomId(), cleanMask);
-    callbacks.setRoomId(nextRoomId);
-    callbacks.updateSessionStatus({
+    const nextRoomId = applyConnectivityMaskToRoomCode(context.roomId, cleanMask);
+    context.roomId = nextRoomId;
+    context.setRoomId(nextRoomId);
+    context.updateSessionStatus({
       roomId: nextRoomId,
       hostMask: cleanMask,
     });
-    this.initHostSignaling(callbacks, cleanMask);
+    this.initHostSignaling(context, cleanMask);
   }
 
   notifyMatchStarted(): void {
-    this.signalingHandler?.applyMatchPhaseRelayConvergence();
+    if (this.signalingHandler) {
+      this.signalingHandler.relayPool.applyMatchPhaseRelayConvergence(
+        this.signalingHandler.relayUsageTracker.getActiveRelayIds()
+      );
+    }
   }
 
   notifyReturnedToLobby(): void {
-    this.signalingHandler?.relayPool.restoreLobbyRelays();
+    if (this.signalingHandler) {
+      this.signalingHandler.relayPool.restoreLobbyRelays();
+    }
   }
 
   cleanup(): void {
-    this.activeCallbacks = null;
+    this.activeContext = null;
     this.pendingPairingRequests.clear();
     if (this.signalingHandler) {
       this.signalingHandler.cleanup();

@@ -1,8 +1,4 @@
-/**
- * SignalingMultiRelayTransportPool.ts
- * Stateful SubController managing concurrent staggered signaling relay transports,
- * per-relay bounded auto-reconnect, match-phase relay convergence, and routed E2EE frame dispatch.
- */
+/** Multi-relay signaling transport pool with staggered launch and match convergence. */
 
 import { MqttWebSocketClient } from './MqttWebSocketClient.ts';
 import { SupabaseRealtimeSignalingClient } from './SupabaseRealtimeSignalingClient.ts';
@@ -15,7 +11,6 @@ import {
   createSignalingRelayTransport,
   resolveCoHostedEdgeBridgeUrlForRelay,
   type RelayTransportClient,
-  type RelayTransportFactoryContext,
 } from './signalingRelaySlotRegistry.ts';
 import type { DeterministicRoomContext } from './SignalingCryptoSession.ts';
 import {
@@ -25,12 +20,7 @@ import {
   type SignalingRelayMatchPolicy,
 } from './SignalingRelayLifecyclePolicy.ts';
 
-export type {
-  RelayTransportClient,
-  RelayTransportFactoryContext,
-  SignalingPoolHealthSnapshot,
-  SignalingRelayMatchPolicy,
-};
+export type { RelayTransportClient, SignalingPoolHealthSnapshot, SignalingRelayMatchPolicy };
 
 export interface SignalingRelayLaunchHooks {
   role: string;
@@ -59,38 +49,15 @@ export class SignalingMultiRelayTransportPool {
   private staggerTimers: Array<ReturnType<typeof setTimeout>> = [];
   private isCleanedUp = false;
 
-  get activeClient(): RelayTransportClient | null {
-    if (this.activeRelayId && this.transports.has(this.activeRelayId)) {
-      return this.transports.get(this.activeRelayId) || null;
-    }
-    for (const transport of this.transports.values()) {
-      if (transport.isConnected) return transport;
-    }
-    return null;
-  }
-
   getRelayLabel(relayId: string | null | undefined): string | null {
-    if (relayId && this.relayConfigs.has(relayId)) {
-      return this.relayConfigs.get(relayId)!.label;
-    }
-    if (this.activeRelayId && this.relayConfigs.has(this.activeRelayId)) {
-      return this.relayConfigs.get(this.activeRelayId)!.label;
-    }
-    for (const [id, transport] of this.transports.entries()) {
-      if (transport.isConnected && this.relayConfigs.has(id)) {
-        return this.relayConfigs.get(id)!.label;
-      }
-    }
-    return relayId || null;
+    const id = relayId || this.activeRelayId || this.getConnectedRelayIds()[0];
+    const cfg = id ? this.relayConfigs.get(id) : undefined;
+    return cfg ? cfg.label : relayId || null;
   }
 
   getConnectedRelayIds(): string[] {
     const ids: string[] = [];
-    for (const [relayId, transport] of this.transports.entries()) {
-      if (transport.isConnected) {
-        ids.push(relayId);
-      }
-    }
+    for (const [id, t] of this.transports) if (t.isConnected) ids.push(id);
     return ids;
   }
 
@@ -103,24 +70,20 @@ export class SignalingMultiRelayTransportPool {
   }
 
   private emitHealthSnapshot(): void {
-    this.lastHooks?.handleRelayHealthChanged?.(this.getHealthSnapshot());
+    if (this.lastHooks && this.lastHooks.handleRelayHealthChanged) {
+      this.lastHooks.handleRelayHealthChanged(this.getHealthSnapshot());
+    }
   }
 
   getBestRelayIdForBridge(preferredRelayId: string | null = null): string | null {
-    if (preferredRelayId) {
-      const pref = this.transports.get(preferredRelayId);
-      if (pref && pref.isConnected) return preferredRelayId;
-    }
+    const pref = preferredRelayId ? this.transports.get(preferredRelayId) : undefined;
+    if (pref && pref.isConnected) return preferredRelayId;
     let bestId: string | null = null;
     let bestRtt = Number.POSITIVE_INFINITY;
-    for (const [id, transport] of this.transports.entries()) {
+    for (const [id, transport] of this.transports) {
       if (!transport.isConnected) continue;
-      const rtt =
-        typeof (transport as MqttWebSocketClient | SupabaseRealtimeSignalingClient)
-          .loopbackRttMs === 'number' &&
-        (transport as MqttWebSocketClient | SupabaseRealtimeSignalingClient).loopbackRttMs > 0
-          ? (transport as MqttWebSocketClient | SupabaseRealtimeSignalingClient).loopbackRttMs
-          : 500;
+      const rawRtt = (transport as MqttWebSocketClient).loopbackRttMs;
+      const rtt = typeof rawRtt === 'number' && rawRtt > 0 ? rawRtt : 500;
       if (rtt < bestRtt) {
         bestRtt = rtt;
         bestId = id;
@@ -130,44 +93,32 @@ export class SignalingMultiRelayTransportPool {
   }
 
   sendOnRelay(relayId: string, payload: Record<string, unknown>, qos = 0): boolean {
-    const transport = this.transports.get(relayId);
-    if (!transport || !transport.isConnected) return false;
-    return (transport as MqttWebSocketClient).send(payload, qos);
+    const t = this.transports.get(relayId);
+    return Boolean(t && t.isConnected && (t as MqttWebSocketClient).send(payload, qos));
   }
 
   async sendBridgeOnRelay(relayId: string, payload: Record<string, unknown>): Promise<boolean> {
     const targetId = this.getBestRelayIdForBridge(relayId);
-    if (!targetId) return false;
-    const transport = this.transports.get(targetId);
-    if (!transport || !transport.isConnected) return false;
+    const transport = targetId ? this.transports.get(targetId) : undefined;
+    if (!targetId || !transport || !transport.isConnected) return false;
 
-    const frameWithMsgId = {
+    const frame = {
       ...payload,
       _brgMsgId:
         payload._brgMsgId || `${targetId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     };
-
     if (transport instanceof SupabaseRealtimeSignalingClient) {
-      const res = await transport.sendBridge(frameWithMsgId);
-      return res.ok;
+      return (await transport.sendBridge(frame)).ok;
     }
-
     if (transport instanceof MqttWebSocketClient) {
-      const relayCfg = this.relayConfigs.get(targetId);
-      const edgeUrl = resolveCoHostedEdgeBridgeUrlForRelay(
+      const cfg = this.relayConfigs.get(targetId);
+      const url = resolveCoHostedEdgeBridgeUrlForRelay(
         targetId,
-        relayCfg?.edgeFunctionBridgeUrl
+        cfg ? cfg.edgeFunctionBridgeUrl : undefined
       );
-      if (edgeUrl) {
-        try {
-          await fetch(`${edgeUrl}?action=logs`, { method: 'GET' });
-        } catch {
-          // Ignore Edge warmup ping failure; EMQX Rule Engine or warm listener will handle
-        }
-      }
-      return transport.sendBridge(frameWithMsgId, undefined, 1);
+      if (url) await fetch(`${url}?action=logs`, { method: 'GET' }).catch(() => {});
+      return transport.sendBridge(frame, undefined, 1);
     }
-
     return false;
   }
 
@@ -176,36 +127,30 @@ export class SignalingMultiRelayTransportPool {
     preferredRelayId: string | null = null,
     qos = 1
   ): boolean {
-    const routeRelayId = preferredRelayId || this.activeRelayId;
-    if (routeRelayId && this.transports.has(routeRelayId)) {
-      const transport = this.transports.get(routeRelayId)!;
-      if (transport.isConnected) {
-        return (transport as MqttWebSocketClient).send(wrapper, qos);
-      }
-    }
-
+    const routeId = preferredRelayId || this.activeRelayId;
+    if (routeId && this.sendOnRelay(routeId, wrapper, qos)) return true;
     let sentAny = false;
-    for (const transport of this.transports.values()) {
-      if (transport.isConnected) {
-        if ((transport as MqttWebSocketClient).send(wrapper, qos)) {
-          sentAny = true;
-        }
-      }
+    for (const id of this.transports.keys()) {
+      if (this.sendOnRelay(id, wrapper, qos)) sentAny = true;
     }
     return sentAny;
   }
 
+  private closeAndDelete(id: string, transport: RelayTransportClient): void {
+    try {
+      transport.close();
+    } catch {
+      // ignore
+    }
+    this.transports.delete(id);
+  }
+
   closeRedundantRelays(winningRelayId: string): void {
     this.activeRelayId = winningRelayId;
-    for (const [id, transport] of this.transports.entries()) {
+    for (const [id, transport] of this.transports) {
       if (id !== winningRelayId) {
         this.healthSupervisor.markPausedInMatch(id);
-        try {
-          transport.close();
-        } catch (_) {
-          // Ignore close error
-        }
-        this.transports.delete(id);
+        this.closeAndDelete(id, transport);
       }
     }
     this.emitHealthSnapshot();
@@ -215,24 +160,17 @@ export class SignalingMultiRelayTransportPool {
     activePlayerRelayIds: Set<string>,
     policy: SignalingRelayMatchPolicy = getSignalingRelayMatchPolicy()
   ): void {
-    if (this.isCleanedUp || this.lastHooks?.role !== 'host') return;
-    const allProbedIds = Array.from(this.relayConfigs.keys());
+    if (this.isCleanedUp || !this.lastHooks || this.lastHooks.role !== 'host') return;
     const keepIds = this.healthSupervisor.resolveMatchPhaseRelaysToKeep(
-      allProbedIds,
+      Array.from(this.relayConfigs.keys()),
       activePlayerRelayIds,
       policy
     );
-
-    for (const [id, transport] of this.transports.entries()) {
+    for (const [id, transport] of this.transports) {
       if (!keepIds.has(id)) {
         this.pausedMatchRelays.add(id);
         this.healthSupervisor.markPausedInMatch(id);
-        try {
-          transport.close();
-        } catch (_) {
-          // Ignore
-        }
-        this.transports.delete(id);
+        this.closeAndDelete(id, transport);
       }
     }
     this.emitHealthSnapshot();
@@ -240,122 +178,90 @@ export class SignalingMultiRelayTransportPool {
 
   restoreLobbyRelays(): void {
     if (this.isCleanedUp || !this.lastHooks) return;
-    const hooks = this.lastHooks;
-    for (const relayId of Array.from(this.pausedMatchRelays)) {
-      this.pausedMatchRelays.delete(relayId);
-      const relay = this.relayConfigs.get(relayId);
-      if (relay) {
-        this.launchSingleRelay(relay, hooks, 4500);
-      }
+    for (const id of Array.from(this.pausedMatchRelays)) {
+      this.pausedMatchRelays.delete(id);
+      const relay = this.relayConfigs.get(id);
+      if (relay) this.launchSingleRelay(relay, this.lastHooks, 4500);
     }
     this.emitHealthSnapshot();
+  }
+
+  private resolveTargetRelays(hooks: SignalingRelayLaunchHooks): SignalingRelaySpec[] {
+    const allRelays = getSignalingRelays();
+    if (allRelays.length === 0) {
+      const err = new Error('No signaling profile loaded. Import a .rctbnspib bundle in Settings.');
+      hooks.handleAllRelaysFailed(err);
+      throw err;
+    }
+    const mask =
+      hooks.role === 'host' && hooks.allowedMask && (hooks.allowedMask & 0x0f) !== 0
+        ? hooks.allowedMask & 0x0f
+        : 0x0f;
+    this.healthSupervisor.setProbedMask(mask);
+    const filtered = allRelays.filter((r) => {
+      const bit = hooks.role === 'host' ? getSlotBitForRelayId(r.id) : 0;
+      return bit === 0 || (mask & bit) !== 0;
+    });
+    const relays = filtered.length > 0 ? filtered : allRelays;
+    for (const r of relays) {
+      this.relayConfigs.set(r.id, r);
+      this.healthSupervisor.registerRelay(r.id, r.label);
+    }
+    return relays;
   }
 
   async connectStaggered(timeoutMs: number, hooks: SignalingRelayLaunchHooks): Promise<void> {
     this.cleanup();
     this.isCleanedUp = false;
     this.lastHooks = hooks;
-
-    const allRelays = getSignalingRelays();
-    if (allRelays.length === 0) {
-      const noProfileErr = new Error(
-        'No signaling profile loaded. Please import a .rctbnspib credential bundle in Settings → Advanced.'
-      );
-      hooks.handleAllRelaysFailed(noProfileErr);
-      throw noProfileErr;
-    }
-
-    const effectiveMask =
-      hooks.role === 'host' &&
-      typeof hooks.allowedMask === 'number' &&
-      (hooks.allowedMask & 0x0f) !== 0
-        ? hooks.allowedMask & 0x0f
-        : 0x0f;
-    this.healthSupervisor.setProbedMask(effectiveMask);
-
-    const filteredRelays = allRelays.filter((relay) => {
-      if (hooks.role !== 'host') return true;
-      const bit = getSlotBitForRelayId(relay.id);
-      if (bit === 0) return true;
-      return (effectiveMask & bit) !== 0;
-    });
-    const relays = filteredRelays.length > 0 ? filteredRelays : allRelays;
-
-    for (const relay of relays) {
-      this.relayConfigs.set(relay.id, relay);
-      this.healthSupervisor.registerRelay(relay.id, relay.label);
-    }
+    const relays = this.resolveTargetRelays(hooks);
 
     return new Promise((resolve, reject) => {
       let anyConnected = false;
       let failedCount = 0;
-      const totalRelays = relays.length;
-      let globalTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
-
-      const settleFirstSuccess = (relayId: string) => {
-        if (anyConnected || this.isCleanedUp) return;
-        anyConnected = true;
-        if (globalTimeoutHandle) {
-          clearTimeout(globalTimeoutHandle);
-          globalTimeoutHandle = null;
-        }
-        if (!this.activeRelayId) {
-          this.activeRelayId = relayId;
-        }
-        hooks.handleFirstRelayOpen({
-          relayId,
-          relayLabel: this.relayConfigs.get(relayId)?.label || relayId,
-          topicHash: hooks.roomContext.topicHash,
-        });
-        resolve();
+      const failAll = (err: Error) => {
+        if (globalTimer) clearTimeout(globalTimer);
+        hooks.handleAllRelaysFailed(err);
+        reject(err);
       };
-
-      const recordRelayFailure = (err: unknown) => {
-        failedCount++;
-        if (!anyConnected && failedCount >= totalRelays) {
-          if (globalTimeoutHandle) {
-            clearTimeout(globalTimeoutHandle);
-            globalTimeoutHandle = null;
-          }
-          const finalErr =
-            err instanceof Error ? err : new Error('All signaling relays failed to connect');
-          hooks.handleAllRelaysFailed(finalErr);
-          reject(finalErr);
-        }
-      };
-
-      if (timeoutMs > 0) {
-        globalTimeoutHandle = setTimeout(() => {
-          if (!anyConnected && !this.isCleanedUp) {
-            const timeoutErr = new Error(
-              `Signaling connection timed out after ${timeoutMs}ms across all relays`
-            );
-            hooks.handleAllRelaysFailed(timeoutErr);
-            reject(timeoutErr);
-          }
-        }, timeoutMs);
-      }
+      const globalTimer =
+        timeoutMs > 0
+          ? setTimeout(() => {
+              if (!anyConnected && !this.isCleanedUp) {
+                failAll(new Error(`Signaling connection timed out after ${timeoutMs}ms`));
+              }
+            }, timeoutMs)
+          : null;
 
       for (const relay of relays) {
         const delay = Math.max(0, relay.staggerDelayMs || 0);
         const launch = () => {
-          if (this.isCleanedUp || hooks.isSkipLaunch?.()) return;
-          const perRelayTimeout = Math.min(timeoutMs || 5000, relay.connectTimeoutMs || 4500);
+          if (this.isCleanedUp || (hooks.isSkipLaunch && hooks.isSkipLaunch())) return;
           this.launchSingleRelay(
             relay,
             hooks,
-            perRelayTimeout,
-            () => settleFirstSuccess(relay.id),
-            recordRelayFailure
+            Math.min(timeoutMs || 5000, relay.connectTimeoutMs || 4500),
+            () => {
+              if (anyConnected || this.isCleanedUp) return;
+              anyConnected = true;
+              if (globalTimer) clearTimeout(globalTimer);
+              if (!this.activeRelayId) this.activeRelayId = relay.id;
+              hooks.handleFirstRelayOpen({
+                relayId: relay.id,
+                relayLabel: relay.label,
+                topicHash: hooks.roomContext.topicHash,
+              });
+              resolve();
+            },
+            (err) => {
+              if (!anyConnected && ++failedCount >= relays.length) {
+                failAll(err instanceof Error ? err : new Error('All signaling relays failed'));
+              }
+            }
           );
         };
-
-        if (delay === 0) {
-          launch();
-        } else {
-          const timer = setTimeout(launch, delay);
-          this.staggerTimers.push(timer);
-        }
+        if (delay === 0) launch();
+        else this.staggerTimers.push(setTimeout(launch, delay));
       }
     });
   }
@@ -368,79 +274,54 @@ export class SignalingMultiRelayTransportPool {
     onFailure?: (err: unknown) => void
   ): void {
     if (this.isCleanedUp) return;
-
     const existing = this.transports.get(relay.id);
     if (existing) {
       if (existing.isConnected) return;
-      try {
-        existing.close();
-      } catch (_) {
-        // Ignore
-      }
-      this.transports.delete(relay.id);
+      this.closeAndDelete(relay.id, existing);
     }
 
     this.healthSupervisor.markConnecting(relay.id);
     const transport = createSignalingRelayTransport(relay, hooks);
     this.transports.set(relay.id, transport);
-
     transport.on('message', (msg?: Record<string, unknown>) => {
-      if (!this.isCleanedUp && msg) {
-        hooks.handleFrameReceived(relay.id, msg);
-      }
+      if (!this.isCleanedUp && msg) hooks.handleFrameReceived(relay.id, msg);
     });
-
-    transport.on('close', () => {
-      this.handleRelayClosed(relay.id, hooks);
-    });
+    transport.on('close', () => this.handleRelayClosed(relay.id, hooks));
 
     transport
       .connect(perRelayTimeout)
       .then(() => {
-        if (this.isCleanedUp) {
-          transport.close();
-          return;
-        }
+        if (this.isCleanedUp) return transport.close();
         this.healthSupervisor.markConnected(relay.id);
-        onSuccess?.();
-        hooks.handleRelayConnected?.(relay.id);
+        if (onSuccess) onSuccess();
+        if (hooks.handleRelayConnected) hooks.handleRelayConnected(relay.id);
         this.emitHealthSnapshot();
       })
       .catch((err: unknown) => {
-        onFailure?.(err);
+        if (onFailure) onFailure(err);
         this.handleRelayClosed(relay.id, hooks);
       });
   }
 
   private handleRelayClosed(relayId: string, hooks: SignalingRelayLaunchHooks): void {
     if (this.isCleanedUp || this.pausedMatchRelays.has(relayId)) return;
-
     let anyStillOpen = false;
-    for (const [id, transport] of this.transports.entries()) {
-      if (id !== relayId && transport.isConnected) {
+    for (const [id, t] of this.transports) {
+      if (id !== relayId && t.isConnected) {
         anyStillOpen = true;
-        if (this.activeRelayId === relayId) {
-          this.activeRelayId = id;
-        }
+        if (this.activeRelayId === relayId) this.activeRelayId = id;
         break;
       }
     }
-
     this.healthSupervisor.handleRelayDisconnected(
       relayId,
       anyStillOpen,
       (retryId) => {
-        if (this.isCleanedUp) return;
-        const relay = this.relayConfigs.get(retryId);
-        if (relay) {
-          this.launchSingleRelay(relay, hooks, relay.connectTimeoutMs || 4500);
-        }
+        const relay = !this.isCleanedUp ? this.relayConfigs.get(retryId) : undefined;
+        if (relay) this.launchSingleRelay(relay, hooks, relay.connectTimeoutMs || 4500);
       },
-      () => {
-        this.emitHealthSnapshot();
-      }
+      () => this.emitHealthSnapshot()
     );
-
     if (!anyStillOpen && !this.isCleanedUp) {
       this.emitHealthSnapshot();
       hooks.handleAllRelaysClosed(relayId);
@@ -451,19 +332,9 @@ export class SignalingMultiRelayTransportPool {
     this.isCleanedUp = true;
     this.healthSupervisor.dispose();
     this.pausedMatchRelays.clear();
-    for (const timer of this.staggerTimers) {
-      clearTimeout(timer);
-    }
+    for (const timer of this.staggerTimers) clearTimeout(timer);
     this.staggerTimers.length = 0;
-
-    for (const transport of this.transports.values()) {
-      try {
-        transport.close();
-      } catch (_) {
-        // Ignore close error
-      }
-    }
-    this.transports.clear();
+    for (const [id, t] of this.transports) this.closeAndDelete(id, t);
     this.activeRelayId = null;
   }
 }

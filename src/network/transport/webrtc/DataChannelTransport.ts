@@ -3,104 +3,223 @@
  * RTCDataChannel binding, message framing, ping/pong transport, and simulated dispatching.
  */
 
-import { InputPacketCodec } from '../../protocol/InputPacketCodec.ts';
-import type { NetworkSimulator } from './NetworkSimulator.ts';
+import type { NetworkSimulator, SimulatedPayload } from './NetworkSimulator.ts';
 import type { CrossTabSignaling } from './CrossTabSignaling.ts';
+import {
+  parseInboundControlFrame,
+  encodeClientInputPayload,
+  dispatchOpportunisticPing,
+  transmitClonedPayload,
+  dispatchDualChannelControlFrame,
+  type PendingColorChangeState,
+  type StructuredClientInputPacket,
+  type ClientInputPacketPayload,
+  type InboundControlFrame,
+  type DataChannelTransportEvent,
+} from './dataChannelFramingPipeline.ts';
+
+export type {
+  PendingColorChangeState,
+  StructuredClientInputPacket,
+  ClientInputPacketPayload,
+  InboundControlFrame,
+  DataChannelTransportEvent,
+};
+
+export type VoidTransportListener = () => void;
+export type LocalColorUpdatedListener = (
+  slotId: number,
+  hex: string,
+  pendingIfClosed?: PendingColorChangeState
+) => void;
+export type ColorChangeMessageListener = (msg: Record<string, unknown>) => void;
+export type DiagnosticFleetToggleListener = (enabled: boolean, anchorMode: string) => void;
+export type PacketDeliveredListener = (data: SimulatedPayload) => void;
 
 export interface DataChannelTransportPort {
   simulator: NetworkSimulator;
   signaling: CrossTabSignaling;
-  getDataChannel: () => RTCDataChannel | null;
-  setDataChannel: (channel: RTCDataChannel | null) => void;
-  isChannelOpen: () => boolean;
-  isCrossTabActive: () => boolean;
-  markDataChannelOpen: () => void;
-  markDataChannelClosed: () => void;
-  updateLocalColor: (
-    slotId: number,
-    hex: string,
-    pendingIfClosed?: { slotId: number; hex: string; carIndex: number }
-  ) => void;
-  deliverColorChange: (msg: Record<string, unknown>) => void;
-  deliverDiagnosticFleetToggle: (enabled: boolean, anchorMode: string) => void;
-  deliverPacket: (data: any) => void;
+  getDataChannel?: () => RTCDataChannel | null;
+  setDataChannel?: (channel: RTCDataChannel | null) => void;
+  isChannelOpen?: () => boolean;
+  isCrossTabActive?: () => boolean;
+  onChannelOpen?: VoidTransportListener | null;
+  onChannelClosed?: VoidTransportListener | null;
+  onWebRTCDataChannelOpen?: VoidTransportListener | null;
+  onWebRTCDataChannelClosed?: VoidTransportListener | null;
+  markDataChannelOpen?: VoidTransportListener | null;
+  markDataChannelClosed?: VoidTransportListener | null;
+  onLocalColorUpdated?: LocalColorUpdatedListener | null;
+  updateLocalColor?: LocalColorUpdatedListener | null;
+  onColorChange?: ColorChangeMessageListener | null;
+  deliverColorChange?: ColorChangeMessageListener | null;
+  onDiagnosticFleetToggle?: DiagnosticFleetToggleListener | null;
+  deliverDiagnosticFleetToggle?: DiagnosticFleetToggleListener | null;
+  onPacketDelivered?: PacketDeliveredListener | null;
+  deliverPacket?: PacketDeliveredListener | null;
 }
 
 export class DataChannelTransport {
-  private readonly port: DataChannelTransportPort;
+  readonly simulator: NetworkSimulator;
+  readonly signaling: CrossTabSignaling;
+  dataChannel: RTCDataChannel | null = null;
+  isWebRTCOpen = false;
+  localColorSlot = 0;
+  localColorHex = '#ff7043';
+  pendingColorChange: PendingColorChangeState | null = null;
 
-  constructor(port: DataChannelTransportPort) {
-    this.port = port;
+  onChannelOpen: VoidTransportListener | null;
+  onChannelClosed: VoidTransportListener | null;
+  onLocalColorUpdated: LocalColorUpdatedListener | null;
+  onColorChange: ColorChangeMessageListener | null;
+  onDiagnosticFleetToggle: DiagnosticFleetToggleListener | null;
+  onPacketDelivered: PacketDeliveredListener | null;
+
+  private readonly readExternalChannel: (() => RTCDataChannel | null) | null;
+  private readonly writeExternalChannel: ((channel: RTCDataChannel | null) => void) | null;
+  private readonly checkExternalOpen: (() => boolean) | null;
+  private readonly checkExternalCrossTab: (() => boolean) | null;
+  private readonly transportEvents: DataChannelTransportEvent[] = [];
+
+  constructor(config: DataChannelTransportPort) {
+    this.simulator = config.simulator;
+    this.signaling = config.signaling;
+    this.readExternalChannel = config.getDataChannel ?? null;
+    this.writeExternalChannel = config.setDataChannel ?? null;
+    this.checkExternalOpen = config.isChannelOpen ?? null;
+    this.checkExternalCrossTab = config.isCrossTabActive ?? null;
+
+    this.onChannelOpen =
+      config.onChannelOpen ?? config.onWebRTCDataChannelOpen ?? config.markDataChannelOpen ?? null;
+    this.onChannelClosed =
+      config.onChannelClosed ??
+      config.onWebRTCDataChannelClosed ??
+      config.markDataChannelClosed ??
+      null;
+    this.onLocalColorUpdated = config.onLocalColorUpdated ?? config.updateLocalColor ?? null;
+    this.onColorChange = config.onColorChange ?? config.deliverColorChange ?? null;
+    this.onDiagnosticFleetToggle =
+      config.onDiagnosticFleetToggle ?? config.deliverDiagnosticFleetToggle ?? null;
+    this.onPacketDelivered = config.onPacketDelivered ?? config.deliverPacket ?? null;
+  }
+
+  drainTransportEvents(): DataChannelTransportEvent[] {
+    if (this.transportEvents.length === 0) return [];
+    return this.transportEvents.splice(0, this.transportEvents.length);
+  }
+
+  private resolveActiveDataChannel(): RTCDataChannel | null {
+    if (this.readExternalChannel) {
+      return this.readExternalChannel();
+    }
+    return this.dataChannel;
+  }
+
+  private resolveIsChannelOpen(): boolean {
+    if (this.checkExternalOpen) {
+      return this.checkExternalOpen();
+    }
+    return this.isWebRTCOpen;
+  }
+
+  private resolveIsCrossTabActive(): boolean {
+    if (this.checkExternalCrossTab) {
+      return this.checkExternalCrossTab();
+    }
+    return Boolean(this.signaling.roomBroadcastChannel);
+  }
+
+  private emitPacket(payload: SimulatedPayload): void {
+    this.transportEvents.push({ type: 'packet', payload });
+    if (this.onPacketDelivered) {
+      this.onPacketDelivered(payload);
+    }
   }
 
   bindDataChannel(dataChannel: RTCDataChannel): void {
-    this.port.setDataChannel(dataChannel);
+    this.dataChannel = dataChannel;
+    if (this.writeExternalChannel) {
+      this.writeExternalChannel(dataChannel);
+    }
     dataChannel.onopen = () => {
       console.log(
         `[P2PWebRTCChannel] DataChannel "${dataChannel.label}" OPEN! Handshake complete.`
       );
-      this.port.markDataChannelOpen();
+      this.isWebRTCOpen = true;
+      this.transportEvents.push({ type: 'channel_open' });
+      if (this.onChannelOpen) {
+        this.onChannelOpen();
+      }
     };
 
     dataChannel.onclose = () => {
       console.log(`[P2PWebRTCChannel] DataChannel "${dataChannel.label}" CLOSED.`);
-      if (this.port.isCrossTabActive()) {
+      this.isWebRTCOpen = false;
+      if (this.resolveIsCrossTabActive()) {
         console.log(
           '[P2PWebRTCChannel] DataChannel closed but Cross-Tab transport is active. Maintaining connection.'
         );
         return;
       }
-      this.port.markDataChannelClosed();
+      this.transportEvents.push({ type: 'channel_closed' });
+      if (this.onChannelClosed) {
+        this.onChannelClosed();
+      }
     };
 
     dataChannel.onerror = (err) => {
       console.error('[P2PWebRTCChannel] DataChannel error:', err);
     };
 
-    dataChannel.onmessage = (event) => {
+    dataChannel.onmessage = (event: MessageEvent<SimulatedPayload>) => {
       this.handleIncomingMessage(event.data);
     };
   }
 
-  handleIncomingMessage(data: any): void {
-    const sim = this.port.simulator;
+  handleIncomingMessage(data: SimulatedPayload | null | undefined): void {
+    const sim = this.simulator;
     const now = performance.now();
     sim.stats.packetsReceived++;
 
     if (typeof data === 'string') {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.type === 'color_change') {
+      const control = parseInboundControlFrame(data);
+      if (control) {
+        if (control.kind === 'color_change') {
+          const raw = control.raw;
           console.log(
-            `[P2PWebRTCChannel] Received remote color_change: car ${msg.carIndex} -> slot ${msg.slotId} (${msg.hex})`
+            `[P2PWebRTCChannel] Received remote color_change: car ${String(raw.carIndex)} -> slot ${String(raw.slotId)} (${String(raw.hex)})`
           );
-          this.port.deliverColorChange(msg);
-          return;
-        }
-        if (msg.type === 'diagnostic_fleet_toggle') {
-          this.port.deliverDiagnosticFleetToggle(msg.enabled, msg.anchorMode);
-          return;
-        }
-        if (msg.type === 'ping') {
-          this.sendPong(msg.sendTime);
-          if (typeof msg.rtt === 'number' && Number.isFinite(msg.rtt) && msg.rtt > 0) {
-            sim.measuredRttMs = msg.rtt;
-            sim.baseMeasuredRttMs = Math.max(0, msg.rtt - (sim.extraRttMs || 0));
-            sim.rttMs = msg.rtt;
+          this.transportEvents.push({ type: 'color_change', payload: raw });
+          if (this.onColorChange) {
+            this.onColorChange(raw);
           }
-          this.port.deliverPacket(data);
           return;
         }
-        if (msg.type === 'pong') {
-          sim.handlePong(msg.sendTime);
+        if (control.kind === 'diagnostic_fleet_toggle') {
+          this.transportEvents.push({
+            type: 'diagnostic_fleet_toggle',
+            enabled: control.enabled,
+            anchorMode: control.anchorMode,
+          });
+          if (this.onDiagnosticFleetToggle) {
+            this.onDiagnosticFleetToggle(control.enabled, control.anchorMode);
+          }
           return;
         }
-      } catch (err) {
-        console.warn(
-          '[P2PWebRTCChannel] Failed to parse incoming string message as JSON:',
-          err,
-          data
-        );
+        if (control.kind === 'ping') {
+          this.sendPong(control.sendTime);
+          if (control.rtt !== null) {
+            sim.measuredRttMs = control.rtt;
+            sim.baseMeasuredRttMs = Math.max(0, control.rtt - (sim.extraRttMs || 0));
+            sim.rttMs = control.rtt;
+          }
+          this.emitPacket(data);
+          return;
+        }
+        if (control.kind === 'pong') {
+          sim.handlePong(control.sendTime);
+          return;
+        }
       }
     }
 
@@ -108,15 +227,15 @@ export class DataChannelTransport {
     sim.receivePayload(
       data,
       (delivered) => {
-        this.port.deliverPacket(delivered);
+        this.emitPacket(delivered);
       },
       now
     );
   }
 
   sendPong(sendTime: number): void {
-    const dc = this.port.getDataChannel();
-    const roomChannel = this.port.signaling.roomBroadcastChannel;
+    const dc = this.resolveActiveDataChannel();
+    const roomChannel = this.signaling.roomBroadcastChannel;
     const pongMsg = JSON.stringify({ type: 'pong', sendTime });
     if (dc && dc.readyState === 'open') {
       dc.send(pongMsg);
@@ -125,11 +244,11 @@ export class DataChannelTransport {
     }
   }
 
-  send(packet: any, nowMs = performance.now()): boolean {
-    const sim = this.port.simulator;
-    const dc = this.port.getDataChannel();
-    const roomChannel = this.port.signaling.roomBroadcastChannel;
-    const isOpen = this.port.isChannelOpen();
+  send(packet: SimulatedPayload, nowMs = performance.now()): boolean {
+    const sim = this.simulator;
+    const dc = this.resolveActiveDataChannel();
+    const roomChannel = this.signaling.roomBroadcastChannel;
+    const isOpen = this.resolveIsChannelOpen();
 
     if (
       (packet instanceof Uint8Array || packet instanceof ArrayBuffer) &&
@@ -137,73 +256,24 @@ export class DataChannelTransport {
     ) {
       sim.lastPingSentTime = nowMs;
       sim.stats.pingsSent++;
-      const pingPayload = JSON.stringify({
-        type: 'ping',
-        sendTime: nowMs,
-        rtt: Math.round(sim.rttMs || 0),
-      });
-      if (dc && dc.readyState === 'open') {
-        try {
-          dc.send(pingPayload);
-        } catch (_err) {
-          // Ignore ping error
-        }
-      } else if (roomChannel && isOpen) {
-        try {
-          roomChannel.postMessage(pingPayload);
-        } catch (_err) {
-          // Ignore ping error
-        }
-      }
+      dispatchOpportunisticPing(dc, roomChannel, isOpen, nowMs, sim.rttMs);
     }
     return sim.scheduleSend(
       packet,
-      (clonedPacket) => {
-        let dispatched = false;
-        const activeDc = this.port.getDataChannel();
-        const activeRoomChannel = this.port.signaling.roomBroadcastChannel;
-        if (activeDc && activeDc.readyState === 'open') {
-          try {
-            activeDc.send(clonedPacket);
-            dispatched = true;
-          } catch (err) {
-            console.warn('[P2PWebRTCChannel] DataChannel send failed:', err);
-          }
-        }
-        if (!dispatched && activeRoomChannel && this.port.isChannelOpen()) {
-          try {
-            activeRoomChannel.postMessage(clonedPacket);
-            dispatched = true;
-          } catch (err) {
-            console.warn('[P2PWebRTCChannel] RoomChannel send failed:', err);
-          }
-        }
-        return dispatched;
-      },
+      (clonedPacket) =>
+        transmitClonedPayload(
+          this.resolveActiveDataChannel(),
+          this.signaling.roomBroadcastChannel,
+          this.resolveIsChannelOpen(),
+          clonedPacket
+        ),
       nowMs
     );
   }
 
-  sendClientInput(packet: any, nowMs = performance.now()): boolean {
-    const sim = this.port.simulator;
-    let buf = packet;
-    if (
-      !(packet instanceof Uint8Array) &&
-      !(packet instanceof ArrayBuffer) &&
-      typeof packet !== 'string'
-    ) {
-      if (packet.history) {
-        buf = InputPacketCodec.encode(
-          packet.carIndex ?? 0,
-          packet.targetTick ?? packet.tick,
-          packet.history
-        );
-      } else if (packet.controls) {
-        buf = InputPacketCodec.encode(packet.carIndex ?? 0, packet.tick, [
-          { tick: packet.tick, controls: packet.controls },
-        ]);
-      }
-    }
+  sendClientInput(packet: ClientInputPacketPayload, nowMs = performance.now()): boolean {
+    const sim = this.simulator;
+    const buf = encodeClientInputPayload(packet);
     const sent = this.send(buf, nowMs);
     if (nowMs - sim.lastPingSentTime > sim.pingIntervalMs) {
       sim.lastPingSentTime = nowMs;
@@ -217,65 +287,38 @@ export class DataChannelTransport {
   }
 
   sendColorChange(slotId: number, hex: string, carIndex: number): void {
-    const dc = this.port.getDataChannel();
-    const roomChannel = this.port.signaling.roomBroadcastChannel;
+    const dc = this.resolveActiveDataChannel();
+    const roomChannel = this.signaling.roomBroadcastChannel;
     const isClosed =
-      !this.port.isChannelOpen() && (!dc || dc.readyState !== 'open') && !roomChannel;
-    this.port.updateLocalColor(slotId, hex, isClosed ? { slotId, hex, carIndex } : undefined);
-    const payload = JSON.stringify({ type: 'color_change', slotId, hex, carIndex });
-    if (dc && dc.readyState === 'open') {
-      try {
-        dc.send(payload);
-        console.log(
-          `[P2PWebRTCChannel] Sent color_change via DataChannel: slot ${slotId} (${hex}) for car ${carIndex}`
-        );
-      } catch (err) {
-        console.warn('[P2PWebRTCChannel] Failed to send color change via DataChannel:', err);
-      }
+      !this.resolveIsChannelOpen() && (!dc || dc.readyState !== 'open') && !roomChannel;
+    const pending = isClosed ? { slotId, hex, carIndex } : undefined;
+    this.localColorSlot = slotId;
+    this.localColorHex = hex;
+    if (pending) {
+      this.pendingColorChange = pending;
     }
-    if (roomChannel) {
-      try {
-        roomChannel.postMessage({ type: 'color_change', slotId, hex, carIndex });
-        console.log(
-          `[P2PWebRTCChannel] Sent color_change via RoomChannel: slot ${slotId} (${hex}) for car ${carIndex}`
-        );
-      } catch (err) {
-        console.warn('[P2PWebRTCChannel] Failed to send color change via RoomChannel:', err);
-      }
+    if (this.onLocalColorUpdated) {
+      this.onLocalColorUpdated(slotId, hex, pending);
     }
+    dispatchDualChannelControlFrame(
+      dc,
+      roomChannel,
+      { type: 'color_change', slotId, hex, carIndex },
+      'color_change',
+      `slot ${slotId} (${hex}) for car ${carIndex}`
+    );
   }
 
-  sendDiagnosticFleetToggle(enabled: boolean, anchorMode: string): void {
-    const dc = this.port.getDataChannel();
-    const roomChannel = this.port.signaling.roomBroadcastChannel;
-    const payload = JSON.stringify({
-      type: 'diagnostic_fleet_toggle',
-      enabled: Boolean(enabled),
-      anchorMode,
-    });
-    if (dc && dc.readyState === 'open') {
-      try {
-        dc.send(payload);
-      } catch (err) {
-        console.warn(
-          '[P2PWebRTCChannel] Failed to send diagnostic_fleet_toggle via DataChannel:',
-          err
-        );
-      }
-    }
-    if (roomChannel) {
-      try {
-        roomChannel.postMessage({
-          type: 'diagnostic_fleet_toggle',
-          enabled: Boolean(enabled),
-          anchorMode,
-        });
-      } catch (err) {
-        console.warn(
-          '[P2PWebRTCChannel] Failed to send diagnostic_fleet_toggle via RoomChannel:',
-          err
-        );
-      }
-    }
+  sendDiagnosticFleetToggle(enabled: boolean, anchorMode: string | null): void {
+    dispatchDualChannelControlFrame(
+      this.resolveActiveDataChannel(),
+      this.signaling.roomBroadcastChannel,
+      {
+        type: 'diagnostic_fleet_toggle',
+        enabled: Boolean(enabled),
+        anchorMode,
+      },
+      'diagnostic_fleet_toggle'
+    );
   }
 }

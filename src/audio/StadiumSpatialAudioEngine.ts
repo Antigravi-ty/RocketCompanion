@@ -7,7 +7,6 @@
 import { audioConfig } from '../ui-core/config/audioConfig.ts';
 import { getAudioContext, getMasterAudioInput } from './audioContext.ts';
 import { type SpatialAudioTunerConfig } from '../ui-core/config/spatialAudioConfig.ts';
-import { fetchAudioBuffer } from './audioAssetLoader.ts';
 import {
   useSpatialAudioStore,
   useHudStore,
@@ -19,13 +18,20 @@ import {
   SpatialAudioBusChain,
   type SpatialAudioRuntimeContextSnapshot,
 } from './SpatialAudioBusChain.ts';
-import { GoalAnthemPlayer, type AnthemPreviewSource } from './GoalAnthemPlayer.ts';
+import { GoalAnthemPlayer } from './GoalAnthemPlayer.ts';
 import { BackgroundMusicController } from './BackgroundMusicController.ts';
-
-const BGM_PREVIEW_SAMPLE_URL =
-  '/assets/audio/bgm/Hollywood Principle - Breathing Underwater (Ether Remix).m4a';
-const BGM_PREVIEW_FALLBACK_URL =
-  '/assets/audio/bgm/Mike Ault - Flying Forever (feat. Morgan Perry).m4a';
+import {
+  computeAnthemOutputGain,
+  computeBgmVolumeScalar,
+  computeSpatialTransitionMaxDelta,
+  evaluateSpatialContextTransition,
+  hasImpulseDecayChanged,
+  isTrainingShotExpireContext,
+  readSpatialAudioRuntimeContextSnapshot,
+  resolveAnthemVolumeSampleBuffer,
+  resolveBgmVolumeSampleBuffer,
+  resolveImpulseDecaySec,
+} from './stadiumSpatialAcousticPipeline.ts';
 
 export type PlaySampleBufferCallback = (
   buffer: AudioBuffer,
@@ -48,15 +54,7 @@ export class StadiumSpatialAudioEngine {
   private _cachedBgmPreviewBuffer: AudioBuffer | null = null;
   _isWindowUnfocusedMuted = false;
 
-  runtimeContext: SpatialAudioRuntimeContextSnapshot = {
-    isOpen: false,
-    matchMode: 'freeplay',
-    onlineSession: null,
-    matchPhase: 'playing',
-    choreographySignal: null,
-    replayScorerAnthemId: null,
-    staticTrainingReplayType: null,
-  };
+  runtimeContext: SpatialAudioRuntimeContextSnapshot = readSpatialAudioRuntimeContextSnapshot();
 
   private _lastRafTime = 0;
   private _rafId: number | null = null;
@@ -70,7 +68,8 @@ export class StadiumSpatialAudioEngine {
       getAudioContext: () => this.ctx,
       getAnthemChain: () => this.anthemChain,
       getImpulseBuffer: () => this.impulseBuffer,
-      getOutputGain: (forceActive = false) => this._getAnthemOutputGain(forceActive),
+      getOutputGain: (forceActive = false) =>
+        computeAnthemOutputGain(this.anthemPlayer.isActiveOrDraining(), forceActive),
       isWindowUnfocusedMuted: () => this._isWindowUnfocusedMuted,
       getRuntimeContext: () => this.runtimeContext,
       notifyPlaybackOrDrainStateChanged: () => {
@@ -82,7 +81,7 @@ export class StadiumSpatialAudioEngine {
     this.bgmController = new BackgroundMusicController({
       ensureAudioGraph: (autoResume = true) => this._ensureAudioGraph(autoResume),
       getBgmChain: () => this.bgmChain,
-      getBgmVolScalar: (store) => this._getBgmVolScalar(store),
+      getBgmVolScalar: (store) => computeBgmVolumeScalar(store),
       isWindowUnfocusedMuted: () => this._isWindowUnfocusedMuted,
       getRuntimeContext: () => this.runtimeContext,
       isPreviewOrPreviewDrainActive: () => this.anthemPlayer.isPreviewOrPreviewDrainActive(),
@@ -97,55 +96,34 @@ export class StadiumSpatialAudioEngine {
     const store = useSpatialAudioStore.getState();
     const anthem = this.anthemPlayer;
     const bgm = this.bgmController;
-    const previewAnthem = (anthemId: string, source?: AnthemPreviewSource) =>
-      anthem.startPreview(anthemId, source);
-    const stopPreviewAnthem = () => anthem.stopPreview();
-    const selectBgmTrack = (trackId: string) => bgm.playTrackById(trackId);
-    const nextBgmTrack = () => bgm.playNextTrack(1);
-    const prevBgmTrack = () => bgm.playNextTrack(-1);
-    const toggleBgmPlayPause = () => bgm.togglePlayPause();
-    const bgmPrefsChanged = () => bgm.syncPlaybackState();
-    const bgmFilesUploaded = () => bgm.onFilesUploaded();
-    const tunerConfigChanged = (cfg: SpatialAudioTunerConfig) => this.onTunerConfigChanged(cfg);
 
     store.registerRuntimeCallbacks({
-      onPreviewAnthem: previewAnthem,
-      onStopPreviewAnthem: stopPreviewAnthem,
-      onSelectBgmTrack: selectBgmTrack,
-      onNextBgmTrack: nextBgmTrack,
-      onPrevBgmTrack: prevBgmTrack,
-      onToggleBgmPlayPause: toggleBgmPlayPause,
-      onBgmPrefsChanged: bgmPrefsChanged,
-      onBgmFilesUploaded: bgmFilesUploaded,
-      onTunerConfigChanged: tunerConfigChanged,
+      onPreviewAnthem: anthem.startPreview.bind(anthem),
+      onStopPreviewAnthem: anthem.stopPreview.bind(anthem),
+      onSelectBgmTrack: bgm.playTrackById.bind(bgm),
+      onNextBgmTrack: () => bgm.playNextTrack(1),
+      onPrevBgmTrack: () => bgm.playNextTrack(-1),
+      onToggleBgmPlayPause: bgm.togglePlayPause.bind(bgm),
+      onBgmPrefsChanged: bgm.syncPlaybackState.bind(bgm),
+      onBgmFilesUploaded: bgm.onFilesUploaded.bind(bgm),
+      onTunerConfigChanged: this.onTunerConfigChanged.bind(this),
     });
 
-    const syncFromPort = () => {
-      const appState = useAppStore.getState() || {};
-      const hudState = useHudStore.getState() || {};
-      const trainingState = useStaticTrainingPackStore.getState() || {};
-      this.updateRuntimeContext({
-        isOpen: Boolean(appState.isOpen ?? appState.isMenuOpen),
-        matchMode: appState.matchMode || 'freeplay',
-        onlineSession: appState.onlineSession || null,
-        matchPhase: hudState.matchPhase || 'playing',
-        choreographySignal: hudState.choreographySignal || null,
-        replayScorerAnthemId: hudState.replayScorerAnthemId || null,
-        staticTrainingReplayType:
-          trainingState.liveTelemetry?.replayType ?? trainingState.replayType ?? null,
-      });
-    };
-
+    const syncFromPort = () => this.updateRuntimeContext(readSpatialAudioRuntimeContextSnapshot());
     syncFromPort();
-    useHudStore.subscribe(() => syncFromPort());
-    useAppStore.subscribe(() => syncFromPort());
-    useStaticTrainingPackStore.subscribe(() => syncFromPort());
+    useHudStore.subscribe(syncFromPort);
+    useAppStore.subscribe(syncFromPort);
+    useStaticTrainingPackStore.subscribe(syncFromPort);
 
     audioConfig.subscribe(() => {
       const curStore = useSpatialAudioStore.getState();
       const cfg = curStore.tunerConfig;
-      this.anthemChain?.applyBlend(this.anthemPlayer.blend, cfg, this._getAnthemOutputGain());
-      this.bgmController.applyCurrentChainBlend(cfg, this._getBgmVolScalar(curStore));
+      this.anthemChain?.applyBlend(
+        this.anthemPlayer.blend,
+        cfg,
+        computeAnthemOutputGain(this.anthemPlayer.isActiveOrDraining())
+      );
+      this.bgmController.applyCurrentChainBlend(cfg, computeBgmVolumeScalar(curStore));
     });
 
     this._startTransitionLoop();
@@ -156,48 +134,32 @@ export class StadiumSpatialAudioEngine {
     const nextContext: SpatialAudioRuntimeContextSnapshot = { ...prevContext, ...partial };
     this.runtimeContext = nextContext;
 
-    const nextSignal = nextContext.choreographySignal;
-    if (nextSignal !== this._lastChoreographySignal) {
-      this._lastChoreographySignal = nextSignal;
-      if (nextSignal === 'goal-replay-will-start' && !this._isTrainingShotExpire()) {
-        this.bgmController.goalSequenceActive = true;
-        this.bgmController.syncPlaybackState();
-      }
+    const plan = evaluateSpatialContextTransition(
+      prevContext,
+      nextContext,
+      this._lastChoreographySignal,
+      this._lastHudMatchPhase
+    );
+    this._lastChoreographySignal = plan.nextChoreographySignal;
+    this._lastHudMatchPhase = plan.nextHudMatchPhase;
+
+    if (plan.activateGoalSequenceBgm) this.bgmController.goalSequenceActive = true;
+    if (plan.setGoalReplaySkipped !== null) {
+      useSpatialAudioStore.getState().setGoalReplaySkipped(plan.setGoalReplaySkipped);
     }
-
-    const nextPhase = nextContext.matchPhase;
-    const prevPhase = this._lastHudMatchPhase;
-    if (nextPhase !== prevPhase) {
-      this._lastHudMatchPhase = nextPhase;
-      if (prevPhase !== null) this._handleMatchPhaseTransition(prevPhase, nextPhase);
+    if (plan.startGoalReplayAnthem) {
+      const selected = useSpatialAudioStore.getState().selectedAnthem;
+      this.anthemPlayer.startGoalReplayAnthem(nextContext.replayScorerAnthemId || selected);
     }
-
-    if (
-      prevContext.isOpen !== nextContext.isOpen ||
-      prevContext.matchMode !== nextContext.matchMode ||
-      prevContext.onlineSession !== nextContext.onlineSession
-    ) {
-      this.bgmController.syncPlaybackState();
-    }
-  }
-
-  _getAnthemOutputGain(forceActive = false): number {
-    if (!forceActive && !this.anthemPlayer.isActiveOrDraining()) return 0.0;
-    const raw = Number(audioConfig.get('anthemVolume') ?? 1.0);
-    return Math.max(0, Math.min(5.0, Number.isFinite(raw) ? raw : 1.0));
-  }
-
-  _getBgmVolScalar(store = useSpatialAudioStore.getState()): number {
-    const baseScalar = Math.max(0, Math.min(1, (Number(store.bgmVolume) ?? 80) / 100));
-    const busMult = Number(audioConfig.get('bgmBusVolume') ?? 1.0);
-    return baseScalar * Math.max(0, Math.min(5.0, Number.isFinite(busMult) ? busMult : 1.0));
+    if (plan.refreshGoalSequenceGate) this._refreshGoalSequenceBgmGate();
+    if (plan.syncBgmPlayback) this.bgmController.syncPlaybackState();
   }
 
   prewarm(): void {
     try {
       this._ensureAudioGraph(false);
     } catch {
-      /* ignore prewarm errors */
+      /* ignore */
     }
   }
 
@@ -206,9 +168,7 @@ export class StadiumSpatialAudioEngine {
       if (this._isWindowUnfocusedMuted) return;
       this._isWindowUnfocusedMuted = true;
       const mode = this.anthemPlayer.activeMode;
-      if (mode === 'garage-preview' || mode === 'tuner-audition') {
-        this.anthemPlayer.stopPreview();
-      }
+      if (mode === 'garage-preview' || mode === 'tuner-audition') this.anthemPlayer.stopPreview();
       if (this.anthemPlayer.isTailDraining) this.anthemPlayer.completeTailDrain();
       this.bgmController.handleFocusChanged(true, useSpatialAudioStore.getState().tunerConfig);
     } else if (this._isWindowUnfocusedMuted) {
@@ -218,27 +178,17 @@ export class StadiumSpatialAudioEngine {
     }
   }
 
-  _isTrainingShotExpire(): boolean {
-    return (
-      this.runtimeContext.matchMode === 'static-training-pack' &&
-      this.runtimeContext.staticTrainingReplayType === 'expire'
-    );
-  }
-
-  _ensureAudioGraph(autoResume = true): AudioContext | null {
+  private _ensureAudioGraph(autoResume = true): AudioContext | null {
     const ctx = getAudioContext();
     const masterInput = getMasterAudioInput() || ctx?.destination || null;
     if (!ctx || !masterInput) return null;
-
-    if (autoResume && ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
-    }
+    if (autoResume && ctx.state === 'suspended') ctx.resume().catch(() => {});
 
     const store = useSpatialAudioStore.getState();
     const cfg = store.tunerConfig || {};
-    const decaySec = Number(cfg.decaySec) || 3.0;
-    const bgmVolScalar = this._getBgmVolScalar(store);
-    const anthemOutGain = this._getAnthemOutputGain();
+    const decaySec = resolveImpulseDecaySec(cfg);
+    const bgmVolScalar = computeBgmVolumeScalar(store);
+    const anthemOutGain = computeAnthemOutputGain(this.anthemPlayer.isActiveOrDraining());
 
     if (!this.ctx || this.ctx !== ctx) {
       this.ctx = ctx;
@@ -249,56 +199,47 @@ export class StadiumSpatialAudioEngine {
       this.anthemChain.applyBlend(this.anthemPlayer.blend, cfg, anthemOutGain, true);
       this.bgmController.applyCurrentChainBlend(cfg, bgmVolScalar, true);
       this.bgmController.attachToBusChain(ctx, this.bgmChain);
-    } else if (Math.abs(decaySec - this.lastImpulseDecaySec) > 0.05) {
-      this.lastImpulseDecaySec = decaySec;
-      this.impulseBuffer = buildStadiumImpulseBuffer(ctx, decaySec);
-      this.anthemChain?.setImpulseBuffer(this.impulseBuffer);
-      this.bgmChain?.setImpulseBuffer(this.impulseBuffer);
+    } else if (hasImpulseDecayChanged(decaySec, this.lastImpulseDecaySec)) {
+      this._rebuildImpulseBuffers(ctx, decaySec);
     }
 
     this.bgmController.attachToBusChain(ctx, this.bgmChain);
     return ctx;
   }
 
+  private _rebuildImpulseBuffers(ctx: AudioContext, decaySec: number): void {
+    this.lastImpulseDecaySec = decaySec;
+    this.impulseBuffer = buildStadiumImpulseBuffer(ctx, decaySec);
+    this.anthemChain?.setImpulseBuffer(this.impulseBuffer);
+    this.bgmChain?.setImpulseBuffer(this.impulseBuffer);
+  }
+
   onTunerConfigChanged(cfg: Partial<SpatialAudioTunerConfig>): void {
     if (!this.ctx) this._ensureAudioGraph(false);
     if (!this.ctx) return;
 
-    const decaySec = Number(cfg.decaySec) || 3.0;
-    if (Math.abs(decaySec - this.lastImpulseDecaySec) > 0.05) {
+    if (hasImpulseDecayChanged(resolveImpulseDecaySec(cfg), this.lastImpulseDecaySec)) {
       if (this._decayRebuildTimer) clearTimeout(this._decayRebuildTimer);
       this._decayRebuildTimer = setTimeout(() => {
         this._decayRebuildTimer = null;
         if (!this.ctx) return;
-        const latestDecay = Number(useSpatialAudioStore.getState().tunerConfig?.decaySec) || 3.0;
-        if (Math.abs(latestDecay - this.lastImpulseDecaySec) > 0.05) {
-          this.lastImpulseDecaySec = latestDecay;
-          this.impulseBuffer = buildStadiumImpulseBuffer(this.ctx, latestDecay);
-          this.anthemChain?.setImpulseBuffer(this.impulseBuffer);
-          this.bgmChain?.setImpulseBuffer(this.impulseBuffer);
+        const latestDecay = resolveImpulseDecaySec(useSpatialAudioStore.getState().tunerConfig);
+        if (hasImpulseDecayChanged(latestDecay, this.lastImpulseDecaySec)) {
+          this._rebuildImpulseBuffers(this.ctx, latestDecay);
         }
       }, 100);
     }
 
     const store = useSpatialAudioStore.getState();
     this.anthemPlayer.applyTunerConfig(cfg);
-    this.bgmController.applyTunerConfig(cfg, this._getBgmVolScalar(store));
+    this.bgmController.applyTunerConfig(cfg, computeBgmVolumeScalar(store));
   }
 
   async previewAnthemVolumeSample(playBufferFn: PlaySampleBufferCallback): Promise<void> {
     const ctx = getAudioContext();
     if (!ctx || typeof playBufferFn !== 'function') return;
     const store = useSpatialAudioStore.getState();
-    const prefId =
-      store.selectedAnthem && store.selectedAnthem !== 'none' ? store.selectedAnthem : 'random';
-    const resolved = this.anthemPlayer.resolveAnthemDefinition(prefId);
-    let buf = resolved ? await this.anthemPlayer.loadAnthemBuffer(resolved) : null;
-    if (!buf) {
-      const url = resolved?.file
-        ? `/${resolved.file.replace(/^\//, '')}`
-        : BGM_PREVIEW_FALLBACK_URL;
-      buf = await fetchAudioBuffer(ctx, url, BGM_PREVIEW_FALLBACK_URL);
-    }
+    const buf = await resolveAnthemVolumeSampleBuffer(ctx, store.selectedAnthem, this.anthemPlayer);
     if (!buf) return;
     playBufferFn(buf, Number(audioConfig.get('anthemVolume') ?? 1.0), { maxDurationSec: 2.2 });
   }
@@ -306,54 +247,23 @@ export class StadiumSpatialAudioEngine {
   async previewBgmVolumeSample(playBufferFn: PlaySampleBufferCallback): Promise<void> {
     const ctx = getAudioContext();
     if (!ctx || typeof playBufferFn !== 'function') return;
-    if (!this._cachedBgmPreviewBuffer) {
-      this._cachedBgmPreviewBuffer = await fetchAudioBuffer(
-        ctx,
-        BGM_PREVIEW_SAMPLE_URL,
-        BGM_PREVIEW_FALLBACK_URL
-      );
-    }
-    const buf = this._cachedBgmPreviewBuffer;
-    if (!buf) return;
-    const offset = buf.duration > 16 ? 12.0 : 0.0;
-    playBufferFn(buf, Number(audioConfig.get('bgmBusVolume') ?? 1.0), {
-      offset,
+    const { buffer, offsetSec } = await resolveBgmVolumeSampleBuffer(
+      ctx,
+      this._cachedBgmPreviewBuffer
+    );
+    if (!buffer) return;
+    this._cachedBgmPreviewBuffer = buffer;
+    playBufferFn(buffer, Number(audioConfig.get('bgmBusVolume') ?? 1.0), {
+      offset: offsetSec,
       maxDurationSec: 2.2,
     });
   }
 
-  private _handleMatchPhaseTransition(prevPhase: string, nextPhase: string): void {
-    const store = useSpatialAudioStore.getState();
-
-    if (nextPhase === 'goal' && prevPhase !== 'goal') {
-      if (!this._isTrainingShotExpire()) this.bgmController.goalSequenceActive = true;
-      this.bgmController.syncPlaybackState();
-      return;
-    }
-
-    if (nextPhase === 'replay' && prevPhase !== 'replay') {
-      if (this._isTrainingShotExpire()) return;
-      this.bgmController.goalSequenceActive = true;
-      store.setGoalReplaySkipped(false);
-      this.anthemPlayer.startGoalReplayAnthem(
-        this.runtimeContext.replayScorerAnthemId || store.selectedAnthem
-      );
-      this.bgmController.syncPlaybackState();
-    } else if (
-      (prevPhase === 'replay' || prevPhase === 'goal') &&
-      nextPhase !== 'replay' &&
-      nextPhase !== 'goal'
-    ) {
-      store.setGoalReplaySkipped(true);
-      this._refreshGoalSequenceBgmGate();
-      this.bgmController.syncPlaybackState();
-    }
-  }
-
-  _refreshGoalSequenceBgmGate(): boolean {
+  private _refreshGoalSequenceBgmGate(): boolean {
     const currentPhase = this.runtimeContext.matchPhase;
     const isGoalOrReplayPhase =
-      (currentPhase === 'goal' || currentPhase === 'replay') && !this._isTrainingShotExpire();
+      (currentPhase === 'goal' || currentPhase === 'replay') &&
+      !isTrainingShotExpireContext(this.runtimeContext);
     return this.bgmController.updateGoalSequenceGate(
       isGoalOrReplayPhase,
       this.anthemPlayer.isGoalSequenceAnthemActive()
@@ -371,16 +281,13 @@ export class StadiumSpatialAudioEngine {
     this._lastRafTime = performance.now();
 
     const step = (now: number) => {
-      const dt = Math.min(0.1, Math.max(0.0, (now - this._lastRafTime) / 1000));
-      this._lastRafTime = now;
-
       const store = useSpatialAudioStore.getState();
       const cfg = store.tunerConfig || {};
-      const duration = Math.max(0.05, Number(cfg.transitionDurationSec) || 2.0);
-      const maxDelta = dt / duration;
+      const { dt, maxDelta } = computeSpatialTransitionMaxDelta(now, this._lastRafTime, cfg);
+      this._lastRafTime = now;
 
       this.anthemPlayer.stepTransition(dt, now, maxDelta, cfg);
-      this.bgmController.stepTransition(dt, maxDelta, cfg, this._getBgmVolScalar(store));
+      this.bgmController.stepTransition(dt, maxDelta, cfg, computeBgmVolumeScalar(store));
 
       this._rafId = window.requestAnimationFrame(step);
     };

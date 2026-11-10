@@ -14,6 +14,7 @@ import {
   type MatchSessionSnapshot,
   type FramePhaseGateAction,
 } from './MatchRosterPolicyState.ts';
+import { evaluateDomainStepFrameGate } from './matchCommandAndSignalPipeline.ts';
 
 export type { MatchDomainStateOptions, MatchSessionSnapshot, FramePhaseGateAction };
 
@@ -73,37 +74,30 @@ export class MatchDomainState extends MatchRosterPolicyState {
   resetForMatchStart(sec?: number | null) {
     this.resolveValidDuration(sec, true);
     const d = this.clockDuration;
-    Object.assign(this, {
-      isTrainingMode: false,
-      state: MATCH_STATES.KICKOFF,
-      matchTick: 0,
-      clockSecondsRemaining: d,
-      isOvertime: false,
-      overtimeSeconds: 0,
-      clockDirection: d === 0 ? 'up' : 'down',
-      blueScore: 0,
-      orangeScore: 0,
-      winner: null,
-      winReason: 0,
-      lastKickoffWillStartFrame: -1,
-      kickoffWillStartAt: -1,
-      kickoffStartedAtTick: -1,
-      goalBufferTicks: -1,
-      willResumeUntilTick: -1,
-      podiumDelayTicks: 0,
-      clockStarted: false,
-      pendingMatchEndAfterGoal: false,
-      pendingMatchWinner: null,
-      pendingOvertimeAfterGoal: d === 0,
-    });
+    this.isTrainingMode = false;
+    this.state = MATCH_STATES.KICKOFF;
+    this.matchTick = 0;
+    this.clockSecondsRemaining = d;
+    this.isOvertime = false;
+    this.overtimeSeconds = 0;
+    this.clockDirection = d === 0 ? 'up' : 'down';
+    this.blueScore = 0;
+    this.orangeScore = 0;
+    this.winner = null;
+    this.winReason = 0;
+    this.lastKickoffWillStartFrame = -1;
+    this.kickoffWillStartAt = -1;
+    this.kickoffStartedAtTick = -1;
+    this.goalBufferTicks = -1;
+    this.willResumeUntilTick = -1;
+    this.podiumDelayTicks = 0;
+    this.clockStarted = false;
+    this.pendingMatchEndAfterGoal = false;
+    this.pendingMatchWinner = null;
+    this.pendingOvertimeAfterGoal = d === 0;
     this.disconnectedPlayerSlots.clear();
-    return {
-      modeCode: this.gameMode === '1v1' ? 1 : this.gameMode === '2v2' ? 2 : 3,
-      clockDuration: d,
-      clockSecondsRemaining: d,
-      blueScore: 0,
-      orangeScore: 0,
-    };
+    const modeCode = this.gameMode === '1v1' ? 1 : this.gameMode === '2v2' ? 2 : 3;
+    return { modeCode, clockDuration: d, clockSecondsRemaining: d, blueScore: 0, orangeScore: 0 };
   }
 
   applyLobbyOrTrainingTransition(
@@ -111,32 +105,29 @@ export class MatchDomainState extends MatchRosterPolicyState {
     o: Record<string, unknown> = {}
   ): MatchState {
     if (mode === 'lobby') {
-      Object.assign(this, {
-        lobbyMode: true,
-        isTrainingMode: true,
-        clockDirection: 'up',
-        state: MATCH_STATES.LOBBY,
-        winner: null,
-        winReason: 0,
-        lobbyPhysicsActive:
-          o.lobbyPhysicsActive !== undefined ? Boolean(o.lobbyPhysicsActive) : true,
-      });
+      this.lobbyMode = true;
+      this.isTrainingMode = true;
+      this.clockDirection = 'up';
+      this.state = MATCH_STATES.LOBBY;
+      this.winner = null;
+      this.winReason = 0;
+      this.lobbyPhysicsActive =
+        o.lobbyPhysicsActive !== undefined ? Boolean(o.lobbyPhysicsActive) : true;
     } else if (mode === 'training_reset') {
       this.state = MATCH_STATES.PLAYING;
-      this.goalBufferTicks = this.kickoffWillStartAt = -1;
+      this.goalBufferTicks = -1;
+      this.kickoffWillStartAt = -1;
     } else {
-      Object.assign(this, {
-        isTrainingMode: true,
-        stateOnlyMode: false,
-        interveneTargetTick: -1,
-        lobbyPhysicsActive: false,
-        goalBufferTicks: -1,
-        clockDirection: 'up',
-        state: MATCH_STATES.PLAYING,
-        trainingSeconds: 0,
-        clockSecondsRemaining: 0,
-        clockStarted: true,
-      });
+      this.isTrainingMode = true;
+      this.stateOnlyMode = false;
+      this.interveneTargetTick = -1;
+      this.lobbyPhysicsActive = false;
+      this.goalBufferTicks = -1;
+      this.clockDirection = 'up';
+      this.state = MATCH_STATES.PLAYING;
+      this.trainingSeconds = 0;
+      this.clockSecondsRemaining = 0;
+      this.clockStarted = true;
       this.applyTrainingRulesetOptions({
         disableGoalReset: o.disableGoalReset as boolean | undefined,
         unlimitedBoost: o.unlimitedBoost as boolean | undefined,
@@ -151,25 +142,25 @@ export class MatchDomainState extends MatchRosterPolicyState {
 
   beginKickoffPhase(ticks: number) {
     this.state = MATCH_STATES.KICKOFF;
-    this.goalBufferTicks = this.kickoffStartedAtTick = -1;
+    this.goalBufferTicks = -1;
+    this.kickoffStartedAtTick = -1;
     this.clockStarted = !this.requireTouchToStartClock;
-    const ot =
-      this.pendingOvertimeAfterGoal ||
-      (!this.isTrainingMode &&
-        !this.isOvertime &&
-        this.clockSecondsRemaining === 0 &&
-        this.blueScore === this.orangeScore);
-    if (ot)
-      Object.assign(this, {
-        pendingOvertimeAfterGoal: false,
-        isOvertime: true,
-        clockDirection: 'up',
-        overtimeSeconds: 0,
-      });
+    const regTie =
+      !this.isTrainingMode &&
+      !this.isOvertime &&
+      this.clockSecondsRemaining === 0 &&
+      this.blueScore === this.orangeScore;
+    const startedOvertime = this.pendingOvertimeAfterGoal || regTie;
+    if (startedOvertime) {
+      this.pendingOvertimeAfterGoal = false;
+      this.isOvertime = true;
+      this.clockDirection = 'up';
+      this.overtimeSeconds = 0;
+    }
     this.lastKickoffWillStartFrame = this.matchTick;
     this.kickoffWillStartAt = this.matchTick + ticks;
     return {
-      startedOvertime: ot,
+      startedOvertime,
       kickoffWillStartAt: this.kickoffWillStartAt,
       isOvertime: this.isOvertime,
     };
@@ -184,14 +175,12 @@ export class MatchDomainState extends MatchRosterPolicyState {
   applyPauseOrResume(pause: boolean | null, sec = 5) {
     if (pause === null) {
       if (this.state !== MATCH_STATES.PAUSED) return { changed: false, targetResumeTick: -1 };
-      return {
-        changed: true,
-        targetResumeTick: (this.willResumeUntilTick =
-          this.matchTick + Math.max(1, Math.round(sec * 120))),
-      };
+      this.willResumeUntilTick = this.matchTick + Math.max(1, Math.round(sec * 120));
+      return { changed: true, targetResumeTick: this.willResumeUntilTick };
     }
-    if (this.state !== MATCH_STATES.PLAYING && this.state !== MATCH_STATES.PAUSED)
+    if (this.state !== MATCH_STATES.PLAYING && this.state !== MATCH_STATES.PAUSED) {
       return { changed: false, targetResumeTick: -1 };
+    }
     this.state = pause ? MATCH_STATES.PAUSED : MATCH_STATES.PLAYING;
     this.willResumeUntilTick = -1;
     return { changed: true, targetResumeTick: -1 };
@@ -201,7 +190,7 @@ export class MatchDomainState extends MatchRosterPolicyState {
     act: 'end' | 'podium',
     forcedWinner: number | null = null,
     winReason = 0,
-    deps?: {
+    src?: {
       engine: unknown;
       ringBuffer: { size: number } | null | undefined;
       signals: unknown;
@@ -213,30 +202,29 @@ export class MatchDomainState extends MatchRosterPolicyState {
         return { changed: false, winner: 0, winReason: 0, retentionPayload: null };
       this.state = MATCH_STATES.PODIUM;
       this.podiumDelayTicks = 0;
-      return {
-        changed: true,
-        winner: typeof this.winner === 'number' ? this.winner : 0,
-        winReason: this.winReason ?? 0,
-        retentionPayload: null,
-      };
+      const w = typeof this.winner === 'number' ? this.winner : 0;
+      return { changed: true, winner: w, winReason: this.winReason ?? 0, retentionPayload: null };
     }
     const winner =
       forcedWinner ??
       (this.blueScore > this.orangeScore ? 0 : this.orangeScore > this.blueScore ? 1 : 2);
-    Object.assign(this, { state: MATCH_STATES.ENDED, podiumDelayTicks: 360, winner, winReason });
+    this.state = MATCH_STATES.ENDED;
+    this.podiumDelayTicks = 360;
+    this.winner = winner;
+    this.winReason = winReason;
     const retentionPayload =
-      this.isHost && deps?.ringBuffer && deps.ringBuffer.size > 0
+      this.isHost && src?.ringBuffer && src.ringBuffer.size > 0
         ? {
-            engine: deps.engine || null,
-            ringBuffer: deps.ringBuffer,
-            signals: deps.signals,
+            engine: src.engine || null,
+            ringBuffer: src.ringBuffer,
+            signals: src.signals,
             winnerTeam: winner,
             blueScore: this.blueScore,
             orangeScore: this.orangeScore,
             gameMode: this.gameMode || '3v3',
             durationSeconds: this.clockDuration,
-            roster: deps.roster,
-            loadouts: deps.roster,
+            roster: src.roster,
+            loadouts: src.roster,
           }
         : null;
     return { changed: true, winner, winReason, retentionPayload };
@@ -250,15 +238,13 @@ export class MatchDomainState extends MatchRosterPolicyState {
     pendingMatchEndAfterGoal: boolean;
     pendingMatchWinner: number | null;
   }): void {
-    Object.assign(this, {
-      state: MATCH_STATES.GOAL_SCORED,
-      goalBufferTicks: o.celebrationTicks,
-      blueScore: o.blueScore,
-      orangeScore: o.orangeScore,
-      pendingOvertimeAfterGoal: o.pendingOvertimeAfterGoal,
-      pendingMatchEndAfterGoal: o.pendingMatchEndAfterGoal,
-      pendingMatchWinner: o.pendingMatchWinner,
-    });
+    this.state = MATCH_STATES.GOAL_SCORED;
+    this.goalBufferTicks = o.celebrationTicks;
+    this.blueScore = o.blueScore;
+    this.orangeScore = o.orangeScore;
+    this.pendingOvertimeAfterGoal = o.pendingOvertimeAfterGoal;
+    this.pendingMatchEndAfterGoal = o.pendingMatchEndAfterGoal;
+    this.pendingMatchWinner = o.pendingMatchWinner;
   }
 
   stepFramePhaseGate(
@@ -266,79 +252,29 @@ export class MatchDomainState extends MatchRosterPolicyState {
     pt?: number,
     hasPhys = true
   ): { action: FramePhaseGateAction; clockDuration: number } {
-    const dur = this.clockDuration,
-      st = this.state;
-    const ret = (action: FramePhaseGateAction) => ({ action, clockDuration: dur });
-    if (p === 'ended_podium_tick')
-      return ret(
-        st === MATCH_STATES.ENDED && !(this.podiumDelayTicks > 0 && --this.podiumDelayTicks > 0)
-          ? 'ended_or_podium'
-          : 'none'
-      );
-    if (p === 'post') {
-      if (hasPhys && typeof pt === 'number') this.matchTick = pt;
-      else if (!hasPhys) this.matchTick++;
-      if (
-        st === MATCH_STATES.KICKOFF &&
-        this.matchTick >= this.kickoffWillStartAt &&
-        this.kickoffWillStartAt > 0
-      ) {
-        this.completeKickoffToPlaying();
-        return ret('kickoff_started');
-      }
-      return ret('none');
-    }
-    if (st === MATCH_STATES.ENDED || st === MATCH_STATES.PODIUM) return ret('ended_or_podium');
-    if (st === MATCH_STATES.PREPARE || st === MATCH_STATES.COUNTDOWN) {
-      this.matchTick++;
-      return st === MATCH_STATES.PREPARE
-        ? ret(--this.prepareTimeoutTicks <= 0 ? 'start_from_prepare' : 'encode_null')
-        : ret(--this.startCountdownTicks <= 0 ? 'initiate_prepare_from_countdown' : 'encode_null');
-    }
-    if (st === MATCH_STATES.LOBBY) return ret('lobby');
-    if (st === MATCH_STATES.PAUSED && this.willResumeUntilTick > 0)
-      return ret(
-        ++this.matchTick >= this.willResumeUntilTick ? 'resume_from_pause' : 'encode_null'
-      );
-    if (st === MATCH_STATES.GOAL_SCORED && --this.goalBufferTicks <= 0)
-      return ret(
-        this.isTrainingMode && !this.trainingGoalReplayEnabled
-          ? 'reset_training_play'
-          : 'begin_goal_replay'
-      );
-    if (st === MATCH_STATES.REPLAY) {
-      this.matchTick++;
-      return ret('replay');
-    }
-    return ret('none');
+    return evaluateDomainStepFrameGate(this, p, pt, hasPhys);
   }
 
-  advanceClockTickSecond(): {
-    mode: 'none' | 'training' | 'regulation' | 'overtime';
-    seconds: number;
-    overtimeExpired: boolean;
-  } {
+  advanceClockTickSecond() {
     if (this.isTrainingMode) {
       this.clockDirection = 'up';
-      return {
-        mode: 'training',
-        seconds: (this.trainingSeconds = (this.trainingSeconds || 0) + 1),
-        overtimeExpired: false,
-      };
+      this.trainingSeconds = (this.trainingSeconds || 0) + 1;
+      return { mode: 'training' as const, seconds: this.trainingSeconds, overtimeExpired: false };
     }
     if (!this.isOvertime && this.clockDirection !== 'up') {
       this.clockDirection = 'down';
       return this.clockSecondsRemaining > 0
-        ? { mode: 'regulation', seconds: --this.clockSecondsRemaining, overtimeExpired: false }
-        : { mode: 'none', seconds: 0, overtimeExpired: false };
+        ? {
+            mode: 'regulation' as const,
+            seconds: --this.clockSecondsRemaining,
+            overtimeExpired: false,
+          }
+        : { mode: 'none' as const, seconds: 0, overtimeExpired: false };
     }
     this.clockDirection = 'up';
     const seconds = ++this.overtimeSeconds;
-    return {
-      mode: 'overtime',
-      seconds,
-      overtimeExpired: this.maxOvertimeSeconds > 0 && seconds >= this.maxOvertimeSeconds,
-    };
+    const overtimeExpired = this.maxOvertimeSeconds > 0 && seconds >= this.maxOvertimeSeconds;
+    return { mode: 'overtime' as const, seconds, overtimeExpired };
   }
 
   consumePendingMatchEndAfterGoal() {
@@ -365,8 +301,9 @@ export class MatchDomainState extends MatchRosterPolicyState {
       this.trainingDisableGoalReset = Boolean(o.disableGoalReset);
     if (o.goalReplayEnabled !== undefined)
       this.trainingGoalReplayEnabled = Boolean(o.goalReplayEnabled);
-    if (typeof o.celebrationTicks === 'number' && o.celebrationTicks > 0)
+    if (typeof o.celebrationTicks === 'number' && o.celebrationTicks > 0) {
       this.trainingGoalCelebrationTicks = Math.round(o.celebrationTicks);
+    }
     if (o.unlimitedBoost !== undefined) this.trainingUnlimitedBoost = Boolean(o.unlimitedBoost);
   }
 
@@ -379,12 +316,14 @@ export class MatchDomainState extends MatchRosterPolicyState {
     }
     if (mode === 'intervene') {
       this.stateOnlyMode = true;
-      return (this.interveneTargetTick = this.matchTick + (tick ?? 0));
+      this.interveneTargetTick = this.matchTick + (tick ?? 0);
+      return this.interveneTargetTick;
     }
     this.stateOnlyMode = false;
     this.interveneTargetTick = -1;
-    if (this.state === MATCH_STATES.PAUSED || this.state === MATCH_STATES.REPLAY)
+    if (this.state === MATCH_STATES.PAUSED || this.state === MATCH_STATES.REPLAY) {
       this.state = MATCH_STATES.PLAYING;
+    }
     if (typeof tick === 'number' && tick >= 0) this.matchTick = tick;
     return this.matchTick;
   }

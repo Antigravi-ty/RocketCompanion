@@ -98,7 +98,9 @@ export class GameBootstrap {
     applyThreeMonkeyPatches(THREE);
     this.prepareDOM();
 
-    const uiAdapter = new DualProgressUIAdapter(this.container, this.options.loader || null);
+    const container = this.container;
+    const options = this.options;
+    const uiAdapter = new DualProgressUIAdapter(container, options.loader || null);
     if (this.customProgressBar) {
       uiAdapter.registerCustomUI(this.customProgressBar);
     }
@@ -119,8 +121,8 @@ export class GameBootstrap {
     }
 
     try {
-      this.runtime = new GameRuntime(this.container, this.options);
-      const orchestrator = buildEngineLoadingPipeline(this.runtime, this.options);
+      this.runtime = new GameRuntime(container, options);
+      const orchestrator = buildEngineLoadingPipeline(this.runtime, options);
 
       orchestrator.subscribe(consoleObserver);
       orchestrator.subscribe(uiAdapter);

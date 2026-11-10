@@ -1,7 +1,7 @@
 /**
  * RLRCInterveneTargetFrameApplier.ts
- * Narrow-waist physics and arena entity applier for t0 target frame and car transient state
- * during RLRC intervention takeover.
+ * Narrow-waist physics and arena entity applier for t0 target frame, pre-roll countdown frames,
+ * and car transient state reconstruction during RLRC intervention takeover.
  */
 
 import {
@@ -39,55 +39,19 @@ import {
   DEFAULT_NEUTRAL_CAR_CONTROLS,
   clampCarPositionZForHitbox,
   quatToBasisAxes,
+  type RLRCGoalAndTouchTrackerPort,
+  type RLRCInterveneBallStateWritePayload,
+  type RLRCInterveneCarStateWritePayload,
+  type RLRCIntervenePhysicsPort,
+  type RLRCPrerollRingBufferPort,
+  type RLRCUserInterveneLoadout,
 } from './RLRCInterveneFrameStateBuilder.ts';
-import type {
-  RLRCGoalAndTouchTrackerPort,
-  RLRCPrerollRingBufferPort,
-} from './RLRCIntervenePrerollInjector.ts';
 
-export interface RLRCInterveneCarStateWritePayload {
-  readonly pos: [number, number, number];
-  readonly vel: [number, number, number];
-  readonly angVel: [number, number, number];
-  readonly rotQuat: [number, number, number, number];
-  readonly fwd?: [number, number, number];
-  readonly right?: [number, number, number];
-  readonly up?: [number, number, number];
-  readonly boost: number;
-  readonly isOnGround?: boolean;
-  readonly isSupersonic?: boolean;
-  readonly hasFlipOrJump?: boolean;
-  readonly isBoosting?: boolean;
-  readonly isFlipping?: boolean;
-}
-
-export interface RLRCInterveneBallStateWritePayload {
-  readonly pos: [number, number, number];
-  readonly vel: [number, number, number];
-  readonly angVel: [number, number, number];
-  readonly rotQuat: [number, number, number, number];
-  readonly fwd?: [number, number, number];
-  readonly right?: [number, number, number];
-  readonly up?: [number, number, number];
-}
-
-export interface RLRCIntervenePhysicsPort extends ReconstructablePhysicsEngine {
-  state: Float32Array;
-  isCarSlotActive?: (slotIndex: number) => boolean;
-  addCarAtSlot?: (slotIndex: number, team: number, hitboxPreset?: string) => number | void;
-  removeCar?: (slotIndex: number) => boolean | void;
-  setCarState?: (
-    slotIndex: number,
-    payload: RLRCInterveneCarStateWritePayload | Float32Array
-  ) => boolean | void;
-  setBallState?: (payload: RLRCInterveneBallStateWritePayload | Float32Array) => boolean | void;
-  setControls?: (slotIndex: number, controls: RLRCSynthesizedCarControls) => void;
-  setCarControls?: (slotIndex: number, controls: RLRCSynthesizedCarControls) => void;
-  setUnlimitedBoost?: (enabled: boolean) => void;
-  step?: (ticks?: number, controls?: RLRCSynthesizedCarControls) => void;
-  clearEvents?: () => void;
-  resetGoalLatch?: () => void;
-}
+export type {
+  RLRCInterveneBallStateWritePayload,
+  RLRCInterveneCarStateWritePayload,
+  RLRCIntervenePhysicsPort,
+};
 
 export interface RLRCInterveneInterpolatorPort {
   prevState: Float32Array;
@@ -130,6 +94,9 @@ export interface RLRCInterveneEnvironmentPort {
   readonly getRingBuffer?: () => RLRCPrerollRingBufferPort | null | undefined;
   readonly getGoalAndTouch?: () => RLRCGoalAndTouchTrackerPort | null | undefined;
   readonly getBotPort?: () => RLRCInterveneBotDecisionPort | null | undefined;
+  readonly getUserLoadoutPreset?: (
+    team: RLRCTeamIndex
+  ) => Partial<RLRCUserInterveneLoadout> | null | undefined;
   readonly playSound?: (soundId: string, volume?: number, cooldownMs?: number) => void;
   readonly emitSystemSignal?: (signalType: number, tick: number, param2?: number) => void;
   readonly onPhaseChanged?: (phase: RLRCSessionPhase, countdownSec: number) => void;
@@ -325,4 +292,54 @@ export function applyTargetFrameToPhysicsAndArena(params: {
       arena?.syncInterpolatorToState?.(sim.state, sim.state);
     }
   }
+}
+
+export function applyPrerollFrameToRuntimeState(params: {
+  readonly env: RLRCInterveneEnvironmentPort;
+  readonly frame: RLRCFrame120Hz;
+  readonly config: RLRCInterveneLaunchConfig;
+  readonly slotActiveTracker: Uint8Array;
+  readonly rebuildMeshes: boolean;
+  readonly countdownRemainingTicks: number;
+  readonly finalPrerollTick: number;
+  readonly prevStepStateBuffer: Float32Array | null;
+}): Float32Array | null {
+  const { env, frame, config, slotActiveTracker, rebuildMeshes } = params;
+  const sim = env.getPhysics();
+  const arena = env.getArena?.();
+  let prevBuf = params.prevStepStateBuffer;
+  if (!sim) return prevBuf;
+
+  const state = sim.state;
+  const hadPrevStep =
+    !rebuildMeshes &&
+    params.countdownRemainingTicks > 0 &&
+    Boolean(state && prevBuf?.length === state.length);
+  if (state) {
+    if (!prevBuf || prevBuf.length !== state.length) prevBuf = new Float32Array(state.length);
+    prevBuf.set(state);
+  }
+
+  applyTargetFrameToPhysicsAndArena({
+    frame,
+    roster: env.getRoster(),
+    config,
+    sim,
+    arena,
+    slotActiveTracker,
+    rebuildMeshes,
+  });
+
+  if (state && prevBuf) {
+    state[SIM_OFFSETS.TICK] = Math.max(1, params.finalPrerollTick - params.countdownRemainingTicks);
+    state[SIM_OFFSETS.GOAL] = 0;
+    if (!hadPrevStep) prevBuf.set(state);
+    if (arena?.interpolator && hadPrevStep) {
+      arena.interpolator.prevState.set(prevBuf);
+      arena.interpolator.currState.set(state);
+    } else {
+      arena?.syncInterpolatorToState?.(state, prevBuf);
+    }
+  }
+  return prevBuf;
 }

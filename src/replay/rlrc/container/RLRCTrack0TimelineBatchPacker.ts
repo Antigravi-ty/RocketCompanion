@@ -22,6 +22,7 @@ import {
 } from '../RLRCReplayTypes.ts';
 import {
   packRLRCFrameToTrack0Slot,
+  RLRC_TRACK0_META_OFFSETS,
   unpackRLRCFrameFromTrack0Slot,
 } from './RLRCTrack0FrameSlotPacker.ts';
 
@@ -76,8 +77,8 @@ export function writeSynthesizedControlsToTrack0Buffer(
     CAR_JUMP_AIR_BASE: j0,
     CAR_JUMP_AIR_STRIDE: jS,
     CAR_IS_JUMPING_OFFSET: oJ,
-    CAR_AIR_TIME_OFFSET: oDj,
-    CAR_JUMP_TIME_OFFSET: oDg,
+    CAR_AIR_TIME_OFFSET: oAir,
+    CAR_JUMP_TIME_OFFSET: oJmp,
     CAR_AIR_TIME_SINCE_JUMP_OFFSET: oAt,
   } = EXTENDED_STATE_OFFSETS;
   const { HAS_FLIP_OR_JUMP: oFlp, IS_BOOSTING: oBst, IS_FLIPPING: oFl } = CAR_STATE_OFFSETS;
@@ -90,6 +91,7 @@ export function writeSynthesizedControlsToTrack0Buffer(
       RLRC_STATE_FLOATS_PER_FRAME
     );
     const cars = frames[f].cars;
+    let slotMask = 0;
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i];
       if (!car) continue;
@@ -99,14 +101,23 @@ export function writeSynthesizedControlsToTrack0Buffer(
       const jB = j0 + slot * jS;
       const act = car.entityActive;
       const fl = car.activeFlags;
+      const airTime = act && !car.isOnGround ? Math.max(0, car.airTimeSinceJump) : 0;
+      if (act) {
+        slotMask |=
+          (1 << slot) |
+          (fl.doubleJumpActive ? 1 << (slot + 6) : 0) |
+          (fl.dodgeActive ? 1 << (slot + 12) : 0);
+      }
       dst[cB + oFlp] = act && car.hasFlipOrJump ? 1 : 0;
       dst[cB + oBst] = act && (fl.boostActive || car.controls.boost) ? 1 : 0;
       dst[cB + oFl] = act && (fl.dodgeActive || fl.doubleJumpActive) ? 1 : 0;
       dst[jB + oJ] = act && fl.jumpActive ? 1 : 0;
-      dst[jB + oDj] = act && fl.doubleJumpActive ? 1 : 0;
-      dst[jB + oDg] = act && fl.dodgeActive ? 1 : 0;
+      dst[jB + oAir] = airTime;
+      dst[jB + oJmp] = act && fl.jumpActive ? Math.min(0.2, airTime) : 0;
       dst[jB + oAt] = act ? car.airTimeSinceJump : 0;
     }
+    dst[RLRC_TRACK0_META_OFFSETS.SLOT_ACTION_MASK] = slotMask;
+    dst[RLRC_TRACK0_META_OFFSETS.MAGIC_TAG] = RLRC_TRACK0_META_OFFSETS.MAGIC_VALUE;
     packRLRCFrameControlsTo64Bytes(cars, trackBytes, off + RLRC_STATE_BYTES_PER_FRAME);
   }
 }

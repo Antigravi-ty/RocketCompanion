@@ -206,7 +206,7 @@ export class RLRCPlaybackSyncApplier {
       }
       if (sim.state.length > EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING) {
         sim.state[EXTENDED_STATE_OFFSETS.IS_BALL_SLEEPING] =
-          !ballActive || frame.ball.rigidBody.sleeping ? 1 : 0;
+          (ballActive ? 0 : 2) | (frame.ball.rigidBody.sleeping ? 1 : 0);
       }
       syncPlaybackBallVisibility(arena, ballActive, !ballActive || ballChanged);
     }
@@ -268,7 +268,7 @@ export class RLRCPlaybackSyncApplier {
     sim.state[SIM_OFFSETS.NUM_CARS] = maxSlot;
     sim.state[SIM_OFFSETS.NUM_PADS] = NUM_BOOST_PADS;
     if (options.syncBoostPads !== false && frame.boostPadCooldowns) {
-      writeBoostPadCooldownsToStateBuffer(frame.boostPadCooldowns, sim.state);
+      this.applyBoostPadCooldowns(frame.boostPadCooldowns, sim.state);
     }
 
     const stateLength = sim.state.length;
@@ -296,5 +296,12 @@ export class RLRCPlaybackSyncApplier {
       removedSlotMask,
       activeCarCount,
     };
+  }
+
+  public applyBoostPadCooldowns(
+    cooldowns: Float32Array | ArrayLike<number>,
+    stateBuffer: Float32Array
+  ): void {
+    writeBoostPadCooldownsToStateBuffer(cooldowns, stateBuffer);
   }
 }

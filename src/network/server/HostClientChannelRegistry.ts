@@ -1,34 +1,22 @@
-import {
-  createDefaultHostChannel,
-  deliverToHostLoopback,
-  type HostLoopbackChannelPort,
-} from './HostLoopbackChannel.ts';
-import {
-  GlobalPayloadCodec,
-  MATCH_SIGNALS,
-  type MatchSignalDescriptor,
-  type AcknowledgedCarControlEntry,
-} from '../protocol/GlobalPayloadCodec.ts';
-import {
-  applyBoostPadEdgeCooldowns,
-  type BoostPadEdgeTracker,
-} from '../protocol/boostPadBitmaskPipeline.ts';
-import { EstablishedSessionManager } from './EstablishedSessionManager.ts';
-import {
-  HOST_WORKER_MSG_TYPES,
-  createWorkerEnvelope,
-  type WorkerEnvelope,
-} from '../protocol/HostWorkerProtocol.ts';
+import type { HostLoopbackChannelPort } from './HostLoopbackChannel.ts';
+import { HOST_WORKER_MSG_TYPES } from '../protocol/HostWorkerProtocol.ts';
 import type { WorkerRoomStateSummary, HostWorkerInitOptions } from './HostWorkerMessageRouter.ts';
-import {
-  REPLAY_BUFFER_MODES,
-  type ReplayRingBuffer,
-  type ReplayAcknowledgedControlEntry,
-  type ReplaySignalsOrOptionsArg,
-} from '../../replay/ReplayRingBuffer.ts';
-import type { HostSimProxyPort, HostSimRestoreStateResult } from './HostSimProxy.ts';
 import type { NetworkDataHandler } from './NetworkDataHandler.ts';
-import type { MatchSessionAdmin } from './match/MatchSessionAdmin.ts';
+import { REPLAY_BUFFER_MODES as RBM } from '../../replay/ReplayRingBuffer.ts';
+import type { ExtraLoadoutConfig } from './match/matchLoadoutAndSpawnPipeline.ts';
+import {
+  processHostLoopbackChannelPacket,
+  type DecodedHostLoopbackFrame,
+  type HostLoopbackPacketConsumerPort,
+} from './hostLoopbackFrameDecodePipeline.ts';
+
+export type { DecodedHostLoopbackFrame, HostLoopbackPacketConsumerPort };
+
+export interface AuthoritativeServerHostOptions extends HostWorkerInitOptions {
+  forceFallback?: boolean;
+  replayCapacityTicks?: number | null;
+  fifoDurationSeconds?: number;
+}
 
 export interface HostClientChannelPort extends HostLoopbackChannelPort {
   peerName?: string;
@@ -50,203 +38,124 @@ export interface HostWorkerEnvelopeMessage {
   result?: unknown;
 }
 
-export interface DecodedHostLoopbackFrame {
-  roomStatePhase: string | null;
-  hasPhysics: boolean;
-  snapshot: Float32Array | null;
-  tick: number;
-  newReplaySignals: MatchSignalDescriptor[];
-  acknowledgedControls: AcknowledgedCarControlEntry[] | null;
-}
-
-export interface HostLoopbackPacketConsumerPort {
-  lastRoomState: Partial<WorkerRoomStateSummary> | null;
-  botTunnelManager?: {
-    syncFromRoomState?(state: Partial<WorkerRoomStateSummary> | null): void;
-    onServerPhysicsFrame(snapshot: Float32Array, tick: number, state: string): void;
-  } | null;
-  hostChannel: HostLoopbackChannelPort | null;
-  boostPadEdgeTracker: BoostPadEdgeTracker;
-  _seenReplaySignalIds: Set<string>;
-  cachedSnapshot: Float32Array;
-  lastServerTick: number;
-  isWorker: boolean;
-  hostReplayRingBuffer?: ReplayRingBuffer | null;
-}
-
-export interface HostChannelRegistryBridgePort
-  extends HostSimProxyPort, HostLoopbackPacketConsumerPort {
-  fallbackManager: MatchSessionAdmin | null;
-  fallbackSubController: {
-    routeEnvelope(
-      envelope: WorkerEnvelope,
-      onReply: (replyEnv: HostWorkerEnvelopeMessage) => void
-    ): void;
-  };
-}
-
-function resolveRoomStatePhaseFromSignal(signalType: number): string | null {
+export function resolveAuthoritativeHostConstructorArgs(
+  ch: HostClientChannelPort | AuthoritativeServerHostOptions | null = null,
+  opts: AuthoritativeServerHostOptions = {}
+): { channel: HostClientChannelPort | null; options: AuthoritativeServerHostOptions } {
   if (
-    signalType === MATCH_SIGNALS.KICKOFF_START ||
-    signalType === MATCH_SIGNALS.ROUND_STARTED ||
-    signalType === MATCH_SIGNALS.OVERTIME_START
+    ch &&
+    typeof ch === 'object' &&
+    !('send' in ch && typeof ch.send === 'function') &&
+    !('sendClientInput' in ch && typeof ch.sendClientInput === 'function') &&
+    !('inboundQueue' in ch && Array.isArray(ch.inboundQueue))
   ) {
-    return 'playing';
+    return { channel: null, options: { ...(ch as AuthoritativeServerHostOptions) } };
   }
-  if (
-    signalType === MATCH_SIGNALS.KICKOFF_WILL_START ||
-    signalType === MATCH_SIGNALS.GOAL_REPLAY_END ||
-    signalType === MATCH_SIGNALS.MATCH_STARTED
-  ) {
-    return 'kickoff';
-  }
-  if (
-    signalType === MATCH_SIGNALS.GOAL_REPLAY_WILL_START ||
-    signalType === MATCH_SIGNALS.GOAL_REPLAY_START
-  ) {
-    return 'replay';
-  }
-  if (signalType === MATCH_SIGNALS.MATCH_PREPARE) return 'prepare';
-  if (signalType === MATCH_SIGNALS.MATCH_ENDED || signalType === MATCH_SIGNALS.PODIUM_START) {
-    return 'ended';
-  }
-  return null;
+  return { channel: (ch as HostClientChannelPort | null) ?? null, options: { ...opts } };
 }
 
-export function decodeHostLoopbackFramePacket(
-  packet: Uint8Array | ArrayBuffer,
-  boostPadEdgeTracker: BoostPadEdgeTracker,
-  seenReplaySignalIds: Set<string>
-): DecodedHostLoopbackFrame | null {
-  const clientHeader = EstablishedSessionManager.parseClientPacket(packet);
-  if (!clientHeader?.globalPayloadSlice) return null;
-
-  const globalPayload = GlobalPayloadCodec.decode(clientHeader.globalPayloadSlice);
-  let roomStatePhase: string | null = null;
-  const newReplaySignals: MatchSignalDescriptor[] = [];
-
-  if (Array.isArray(globalPayload?.signals)) {
-    for (let s = 0; s < globalPayload.signals.length; s++) {
-      const sig = globalPayload.signals[s];
-      if (!sig) continue;
-      const phase = resolveRoomStatePhaseFromSignal(sig.signalType);
-      if (phase) roomStatePhase = phase;
-      if (
-        sig.signalType === MATCH_SIGNALS.CLOCK_UPDATED_SECONDS ||
-        sig.signalType === MATCH_SIGNALS.COMMAND_ACK
-      ) {
-        continue;
-      }
-      const key = sig.signalId ? `id_${sig.signalId}` : `${sig.signalType}_${sig.frameId}`;
-      if (!seenReplaySignalIds.has(key)) {
-        seenReplaySignalIds.add(key);
-        newReplaySignals.push(sig);
-      }
-    }
-  }
-
-  if (globalPayload?.hasPhysics && globalPayload.physics?.stateSnapshot) {
-    const snap = globalPayload.physics.stateSnapshot;
-    applyBoostPadEdgeCooldowns(snap, globalPayload.physics.tick, boostPadEdgeTracker);
-    return {
-      roomStatePhase,
-      hasPhysics: true,
-      snapshot: snap,
-      tick: globalPayload.physics.tick,
-      newReplaySignals,
-      acknowledgedControls: globalPayload.physics.acknowledgedControls || null,
-    };
-  }
-
-  return {
-    roomStatePhase,
-    hasPhysics: false,
-    snapshot: null,
-    tick: 0,
-    newReplaySignals,
-    acknowledgedControls: null,
-  };
-}
-
-export function processHostLoopbackChannelPacket(
+export function applyAuthoritativeHostSyncedSnapshot(
   consumer: HostLoopbackPacketConsumerPort,
-  packet: Uint8Array | ArrayBuffer | string | undefined
+  snap: Float32Array | number[] | null | undefined,
+  tick: number | undefined,
+  roomState: Partial<WorkerRoomStateSummary> | null | undefined,
+  fallbackMatchState?: string
 ): void {
-  if (!packet) return;
-  if (typeof packet === 'string') {
-    try {
-      const parsed = JSON.parse(packet);
-      if (parsed?.type === 'roster_update') {
-        consumer.lastRoomState = {
-          ...(consumer.lastRoomState || {}),
-          state: parsed.state || consumer.lastRoomState?.state || 'lobby',
-          roster: parsed.roster ||
-            consumer.lastRoomState?.roster || { players: [], spectators: [] },
-        };
-        consumer.botTunnelManager?.syncFromRoomState?.(consumer.lastRoomState);
-      }
-    } catch (_e) {}
+  consumer.active = true;
+  if (snap) {
+    const arr = snap instanceof Float32Array ? snap : new Float32Array(snap);
+    const len = Math.min(consumer.cachedSnapshot.length, arr.length);
+    consumer.cachedSnapshot.subarray(0, len).set(arr.subarray(0, len));
   }
-  if (!deliverToHostLoopback(consumer.hostChannel, packet)) return;
-  if (packet instanceof Uint8Array || packet instanceof ArrayBuffer) {
-    try {
-      const decoded = decodeHostLoopbackFramePacket(
-        packet,
-        consumer.boostPadEdgeTracker,
-        consumer._seenReplaySignalIds
-      );
-      if (decoded) {
-        if (decoded.roomStatePhase) {
-          if (!consumer.lastRoomState) {
-            consumer.lastRoomState = {
-              state: decoded.roomStatePhase,
-              roster: {
-                players: [],
-                spectators: [],
-                gameMode: '3v3',
-                botFillMode: 'no_bots',
-                durationSeconds: 300,
-                clockSeconds: 300,
-                score: { blue: 0, orange: 0 },
-              },
-            };
-          } else {
-            consumer.lastRoomState.state = decoded.roomStatePhase;
-          }
-        }
-        if (decoded.hasPhysics && decoded.snapshot) {
-          if (consumer.cachedSnapshot.length !== decoded.snapshot.length) {
-            consumer.cachedSnapshot = new Float32Array(decoded.snapshot.length);
-          }
-          consumer.cachedSnapshot.set(decoded.snapshot);
-          consumer.lastServerTick = decoded.tick;
-          if (consumer.botTunnelManager && consumer.isWorker) {
-            consumer.botTunnelManager.onServerPhysicsFrame(
-              consumer.cachedSnapshot,
-              consumer.lastServerTick,
-              consumer.lastRoomState?.state || 'playing'
-            );
-          }
-          const isReplaySliceFrame =
-            Math.abs((consumer.cachedSnapshot[302] || 0) - 1337.5) <= 0.01 ||
-            consumer.lastRoomState?.state === 'replay';
-          if (!isReplaySliceFrame) {
-            consumer.hostReplayRingBuffer?.recordFrame(
-              consumer.lastServerTick,
-              consumer.cachedSnapshot,
-              decoded.newReplaySignals as unknown as ReplaySignalsOrOptionsArg,
-              null,
-              null,
-              decoded.acknowledgedControls as unknown as
-                readonly ReplayAcknowledgedControlEntry[] | null
-            );
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('[HostServerWorker] Failed to decode authoritative frame packet:', err);
-    }
+  if (tick !== undefined) {
+    consumer.lastServerTick = tick;
   }
+  if (roomState) {
+    consumer.lastRoomState = roomState;
+    consumer.botTunnelManager?.init?.();
+    consumer.botTunnelManager?.syncFromRoomState?.(roomState);
+  }
+  if (fallbackMatchState !== undefined) {
+    consumer.botTunnelManager?.onServerPhysicsFrame?.(
+      consumer.cachedSnapshot,
+      consumer.lastServerTick,
+      fallbackMatchState
+    );
+    consumer.hostReplayRingBuffer?.recordFrame(consumer.lastServerTick, consumer.cachedSnapshot);
+  }
+}
+
+export function syncHostReplayBufferBeforeEnvelope(
+  consumer: HostLoopbackPacketConsumerPort,
+  type: string,
+  payload: AuthoritativeServerHostOptions
+): void {
+  if (type === HOST_WORKER_MSG_TYPES.MATCH_START_REQUEST) {
+    consumer.hostReplayRingBuffer?.configureMode?.(RBM.COUNTDOWN_MATCH);
+    consumer.hostReplayRingBuffer?.clear();
+    consumer._seenReplaySignalIds?.clear();
+  } else if (type === HOST_WORKER_MSG_TYPES.ROOM_CREATE) {
+    consumer.hostReplayRingBuffer?.configureMode?.(
+      payload.startAsMatch ? RBM.COUNTDOWN_MATCH : RBM.COUNTUP_FIFO,
+      payload.replayCapacityTicks || null
+    );
+    consumer.hostReplayRingBuffer?.clear();
+    consumer._seenReplaySignalIds?.clear();
+  }
+}
+
+export function buildNotifyPlayerJoinedPayload(
+  entityId: number,
+  name: string,
+  role = 'player',
+  channelId: string | null = null,
+  visualId = 'octane',
+  colorSlot = 0,
+  hitboxId: string | null = null,
+  paintFinish?: string,
+  boostVisual?: string,
+  boostAudio?: string
+): Record<string, unknown> {
+  return {
+    entityId,
+    name,
+    role,
+    channelId: channelId || (entityId === 0 ? 'host' : `peer_${entityId}`),
+    visualId,
+    colorSlot,
+    hitboxId,
+    paintFinish,
+    boostVisual,
+    boostAudio,
+  };
+}
+
+export function normalizeHostLoadoutCommandPayload(
+  sessionId: string | null,
+  visualId: string,
+  colorSlot = 0,
+  hitboxId: string | null = null,
+  extra: ExtraLoadoutConfig | string | null = null,
+  boostVisual: string | null = null,
+  boostAudio: string | null = null
+): {
+  sessionId: string | null;
+  visualId: string;
+  colorSlot: number;
+  hitboxId: string | null;
+  extraLoadout: ExtraLoadoutConfig | null;
+} {
+  const extraLoadout: ExtraLoadoutConfig | null =
+    extra && typeof extra === 'object'
+      ? extra
+      : extra !== null || boostVisual !== null || boostAudio !== null
+        ? {
+            paintFinish: typeof extra === 'string' ? extra : undefined,
+            boostVisual: boostVisual ?? undefined,
+            boostAudio: boostAudio ?? undefined,
+          }
+        : null;
+  return { sessionId, visualId, colorSlot, hitboxId, extraLoadout };
 }
 
 export class HostClientChannelRegistry {
@@ -263,10 +172,6 @@ export class HostClientChannelRegistry {
     this.hostChannel = initialChannel;
     this.channelMap.set(this.hostChannel, 'host');
     this.channelIdToChannel.set('host', this.hostChannel);
-  }
-
-  createDefaultHostChannel(hostBridge: HostSimProxyPort): HostClientChannelPort {
-    return createDefaultHostChannel(hostBridge);
   }
 
   addEnvelopeListener(fn: (envelope: HostWorkerEnvelopeMessage) => void): () => void {
@@ -287,15 +192,29 @@ export class HostClientChannelRegistry {
     }
   }
 
+  allocatePendingRequest<T = unknown>(
+    transform?: (val: unknown) => T
+  ): { reqId: number; promise: Promise<T> } {
+    const reqId = ++this.reqId;
+    const promise = new Promise<T>((resolve) => {
+      this.pendingRequests.set(reqId, {
+        resolve: (val: unknown) => resolve(transform ? transform(val) : (val as T)),
+      });
+    });
+    return { reqId, promise };
+  }
+
   handleWorkerMessage(
-    bridge: HostLoopbackPacketConsumerPort,
+    consumer: HostLoopbackPacketConsumerPort,
     data: HostWorkerEnvelopeMessage | null | undefined
   ): void {
-    if (!data) return;
+    if (!data) {
+      return;
+    }
     if (data.type && data.payload !== undefined) {
       if (data.type === HOST_WORKER_MSG_TYPES.ROOM_STATE_SYNC) {
-        bridge.lastRoomState = data.payload as Partial<WorkerRoomStateSummary>;
-        bridge.botTunnelManager?.syncFromRoomState?.(bridge.lastRoomState);
+        consumer.lastRoomState = data.payload as Partial<WorkerRoomStateSummary>;
+        consumer.botTunnelManager?.syncFromRoomState?.(consumer.lastRoomState);
       }
       if (data.seq && this.pendingRequests.has(data.seq)) {
         const req = this.pendingRequests.get(data.seq)!;
@@ -309,12 +228,15 @@ export class HostClientChannelRegistry {
       case 'channel_packet': {
         const { channelId, packet } = data;
         if (channelId === 'host') {
-          processHostLoopbackChannelPacket(bridge, packet);
+          processHostLoopbackChannelPacket(consumer, packet);
         } else if (channelId && packet !== undefined) {
           const ch = this.channelIdToChannel.get(channelId);
           if (ch) {
-            if (typeof ch.send === 'function') ch.send(packet);
-            else if (typeof ch.sendServerState === 'function') ch.sendServerState(packet);
+            if (typeof ch.send === 'function') {
+              ch.send(packet);
+            } else if (typeof ch.sendServerState === 'function') {
+              ch.sendServerState(packet);
+            }
           }
         }
         break;
@@ -333,53 +255,6 @@ export class HostClientChannelRegistry {
     }
   }
 
-  sendEnvelope(
-    bridge: HostChannelRegistryBridgePort,
-    type: string,
-    payload: HostWorkerInitOptions & { replayCapacityTicks?: number | null } = {},
-    transfer: Transferable[] = [],
-    seqOverride: number | null = null
-  ): WorkerEnvelope {
-    if (type === HOST_WORKER_MSG_TYPES.MATCH_START_REQUEST) {
-      bridge.hostReplayRingBuffer?.configureMode?.(REPLAY_BUFFER_MODES.COUNTDOWN_MATCH);
-      bridge.hostReplayRingBuffer?.clear();
-      bridge._seenReplaySignalIds?.clear();
-    } else if (type === HOST_WORKER_MSG_TYPES.ROOM_CREATE) {
-      bridge.hostReplayRingBuffer?.configureMode?.(
-        payload.startAsMatch
-          ? REPLAY_BUFFER_MODES.COUNTDOWN_MATCH
-          : REPLAY_BUFFER_MODES.COUNTUP_FIFO,
-        payload.replayCapacityTicks || null
-      );
-      bridge.hostReplayRingBuffer?.clear();
-      bridge._seenReplaySignalIds?.clear();
-    }
-    const seq = seqOverride ?? ++this.reqId;
-    const envelope = createWorkerEnvelope(type, payload, seq);
-    if (bridge.isWorker && bridge.worker) {
-      bridge.worker.postMessage(envelope, transfer);
-    } else {
-      bridge.fallbackSubController.routeEnvelope(envelope, (replyEnv) =>
-        this.handleWorkerMessage(bridge, replyEnv)
-      );
-    }
-    return envelope;
-  }
-
-  sendRequest(
-    postCommand: (type: string, data: Record<string, unknown>) => void,
-    type: string,
-    data: Record<string, unknown> = {}
-  ): Promise<HostSimRestoreStateResult> {
-    return new Promise((resolve) => {
-      const reqId = ++this.reqId;
-      this.pendingRequests.set(reqId, {
-        resolve: (val) => resolve((val || {}) as HostSimRestoreStateResult),
-      });
-      postCommand(type, { reqId, ...data });
-    });
-  }
-
   addClientChannel(
     channel: HostClientChannelPort | null | undefined,
     overrideId: string | null,
@@ -388,15 +263,19 @@ export class HostClientChannelRegistry {
     postCommand: (type: string, data: Record<string, unknown>) => void,
     fallbackDataHandler: NetworkDataHandler | null
   ): string | null {
-    if (!channel) return null;
-    if (this.channelMap.has(channel)) return this.channelMap.get(channel)!;
+    if (!channel) {
+      return null;
+    }
+    if (this.channelMap.has(channel)) {
+      return this.channelMap.get(channel)!;
+    }
     const channelId = overrideId || `peer_${this.nextChannelId++}`;
     this.channels.push(channel);
     this.channelMap.set(channel, channelId);
     this.channelIdToChannel.set(channelId, channel);
 
     const origPacketReceived = channel.onPacketReceived;
-    const handleInbound = (packet: Uint8Array | ArrayBuffer | string) => {
+    channel.onPacketReceived = (packet: Uint8Array | ArrayBuffer | string) => {
       origPacketReceived?.(packet);
       if (isWorker && worker) {
         postCommand('channel_packet', { channelId, packet });
@@ -410,7 +289,6 @@ export class HostClientChannelRegistry {
         );
       }
     };
-    channel.onPacketReceived = handleInbound;
 
     if (isWorker && worker) {
       postCommand('registerChannel', {
@@ -422,34 +300,13 @@ export class HostClientChannelRegistry {
     } else if (fallbackDataHandler) {
       fallbackDataHandler.registerChannel(channelId, {
         send: (pkt) => {
-          if (typeof channel.send === 'function') channel.send(pkt);
+          if (typeof channel.send === 'function') {
+            channel.send(pkt);
+          }
         },
       });
     }
     return channelId;
-  }
-
-  removeClientChannel(
-    channel: HostClientChannelPort,
-    isWorker: boolean,
-    worker: Worker | null,
-    postCommand: (type: string, data: Record<string, unknown>) => void,
-    fallbackDataHandler: NetworkDataHandler | null,
-    fallbackManager: MatchSessionAdmin | null
-  ): void {
-    const channelId = this.channelMap.get(channel);
-    if (!channelId) return;
-    const idx = this.channels.indexOf(channel);
-    if (idx !== -1) this.channels.splice(idx, 1);
-    this.channelMap.delete(channel);
-    this.channelIdToChannel.delete(channelId);
-
-    if (isWorker && worker) {
-      postCommand('removeChannel', { channelId });
-    } else if (fallbackDataHandler) {
-      fallbackDataHandler.unregisterChannel(channelId);
-      fallbackManager?.roster.removePlayerSession(channelId);
-    }
   }
 
   destroy(): void {

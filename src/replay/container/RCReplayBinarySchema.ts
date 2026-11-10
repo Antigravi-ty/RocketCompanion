@@ -179,17 +179,17 @@ export function isBinaryRCReplayContainer(
 export function packCarControlsToTrack64(
   out64: Uint8Array,
   carIndex: number,
-  carControl: Partial<ReplayCarControlState> | null | undefined
+  inputSnapshot: Readonly<Partial<ReplayCarControlState>> | null | undefined
 ): void {
-  if (!carControl || carIndex < 0 || carIndex >= MAX_CARS) return;
-  const thr = Math.max(-31, Math.min(31, Math.round((carControl.throttle || 0) * 31))) + 31;
-  const str = Math.max(-31, Math.min(31, Math.round((carControl.steer || 0) * 31))) + 31;
-  const pit = Math.max(-3, Math.min(3, Math.round((carControl.pitch || 0) * 3))) + 3;
-  const yaw = Math.max(-3, Math.min(3, Math.round((carControl.yaw || 0) * 3))) + 3;
-  const rol = Math.max(-3, Math.min(3, Math.round((carControl.roll || 0) * 3))) + 3;
-  const jmp = carControl.jump ? 1 : 0,
-    bst = carControl.boost ? 1 : 0,
-    hnd = carControl.handbrake ? 1 : 0;
+  if (!inputSnapshot || carIndex < 0 || carIndex >= MAX_CARS) return;
+  const thr = Math.max(-31, Math.min(31, Math.round((inputSnapshot.throttle || 0) * 31))) + 31;
+  const str = Math.max(-31, Math.min(31, Math.round((inputSnapshot.steer || 0) * 31))) + 31;
+  const pit = Math.max(-3, Math.min(3, Math.round((inputSnapshot.pitch || 0) * 3))) + 3;
+  const yaw = Math.max(-3, Math.min(3, Math.round((inputSnapshot.yaw || 0) * 3))) + 3;
+  const rol = Math.max(-3, Math.min(3, Math.round((inputSnapshot.roll || 0) * 3))) + 3;
+  const jmp = inputSnapshot.jump ? 1 : 0,
+    bst = inputSnapshot.boost ? 1 : 0,
+    hnd = inputSnapshot.handbrake ? 1 : 0;
 
   out64[carIndex * 3 + 0] = (thr & 0x3f) | ((str & 0x30) << 2);
   out64[carIndex * 3 + 1] = (str & 0x0f) | ((pit & 0x07) << 4) | ((yaw & 0x04) << 5);
@@ -199,11 +199,11 @@ export function packCarControlsToTrack64(
   const qOff = 24 + carIndex * 5;
   const qByte = (v: number | undefined) =>
     Math.max(-127, Math.min(127, Math.round(Math.max(-1, Math.min(1, v || 0)) * 127))) & 0xff;
-  out64[qOff + 0] = qByte(carControl.throttle);
-  out64[qOff + 1] = qByte(carControl.steer);
-  out64[qOff + 2] = qByte(carControl.pitch);
-  out64[qOff + 3] = qByte(carControl.yaw);
-  out64[qOff + 4] = qByte(carControl.roll);
+  out64[qOff + 0] = qByte(inputSnapshot.throttle);
+  out64[qOff + 1] = qByte(inputSnapshot.steer);
+  out64[qOff + 2] = qByte(inputSnapshot.pitch);
+  out64[qOff + 3] = qByte(inputSnapshot.yaw);
+  out64[qOff + 4] = qByte(inputSnapshot.roll);
 }
 
 export function unpackTrack64ToCarControls(

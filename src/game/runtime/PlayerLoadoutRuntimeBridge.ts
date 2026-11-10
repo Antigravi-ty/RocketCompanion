@@ -12,11 +12,28 @@ import {
 } from '../../ui-core/config/vehiclePresets.ts';
 import { getMaterialsConfig } from '../../ui-core/config/materialsConfig.ts';
 import { getVehicleDescriptor } from '../../ui-core/config/vehicleTunerConfig.ts';
+import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
+import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
 import type { MaterialsConfigLike } from './onlineLobbyTransitionPipeline.ts';
 import {
   isOnlineSessionOrBotMatchActive,
   type RuntimeDomainPortOwner,
 } from './GoalBarrierRuntimeBridge.ts';
+
+export type PlayerLoadoutDomainPort = Pick<
+  RuntimeDomainPortOwner,
+  | 'playerCarIndex'
+  | 'selectedPreset'
+  | 'selectedHitbox'
+  | 'teamAssignment'
+  | 'arena'
+  | 'physics'
+  | 'networkManager'
+  | 'botCoordinator'
+  | 'loadoutCoordinator'
+  | 'modeManager'
+  | 'match'
+>;
 
 export type PlayerLoadoutTunerSlice = Pick<
   RuntimeTunerPort,
@@ -30,117 +47,173 @@ export type PlayerLoadoutTunerSlice = Pick<
   | 'applyVehicleAlignPreset'
 >;
 
+export function resolveInitialVehiclePresetId(
+  garagePreset: string | undefined,
+  selectedPreset: string
+): string | null {
+  return garagePreset || selectedPreset || null;
+}
+
+export function resolveOnlineAssignedTeamColorHex(
+  requestedHex: string,
+  localTeamStr: string | undefined,
+  isBotMatch: boolean
+): string {
+  const assignedTeam: 0 | 1 | null =
+    localTeamStr === 'orange' ? 1 : localTeamStr === 'blue' ? 0 : isBotMatch ? 0 : null;
+  if (assignedTeam === 0 || assignedTeam === 1) {
+    return getPreferredColorHex(null, assignedTeam);
+  }
+  return requestedHex;
+}
+
+export function resolveCustomVehicleHitboxOverride(
+  selectedPreset: string,
+  vehicleId: string,
+  hitboxPreset: string | null | undefined,
+  selectedHitbox: string | null
+): string | null {
+  const desc = getVehicleDescriptor(vehicleId);
+  if (
+    selectedPreset !== vehicleId ||
+    (!hitboxPreset && !desc?.threeWheels && vehicleId !== 'trioctane-threewheel')
+  ) {
+    return null;
+  }
+  const isThreeWheels = Boolean(
+    desc?.threeWheels || vehicleId === 'trioctane-threewheel' || hitboxPreset === 'hitbox-psyclops'
+  );
+  return isThreeWheels
+    ? 'hitbox-psyclops'
+    : hitboxPreset || desc?.hitboxPreset || selectedHitbox || 'hitbox-octane';
+}
+
+function syncPlayerTeamInNameTagState(playerIdx: number, team: number): void {
+  const ntState = getNameTagRuntimeState();
+  if (Array.isArray(ntState?.carEntries) && ntState.carEntries.length > 0) {
+    setNameTagRuntimeState({
+      carEntries: ntState.carEntries.map((c) => (c.carIndex === playerIdx ? { ...c, team } : c)),
+    });
+  }
+}
+
+function applyLocalPlayerTeamToWorld(
+  playerIdx: number,
+  team: 0 | 1,
+  teamAssignment: { playerTeam: number; opponentTeam: number } | null,
+  syncOpponentTeam: boolean,
+  physics: RocketSimPhysicsEngine | null,
+  fallbackSim: { setCarTeam?(carIndex: number, team: number): void } | null | undefined,
+  arena: ArenaWorld | null
+): number | undefined {
+  const prevTeam = teamAssignment?.playerTeam;
+  if (teamAssignment) {
+    teamAssignment.playerTeam = team;
+    if (syncOpponentTeam) {
+      teamAssignment.opponentTeam = team === 0 ? 1 : 0;
+    }
+  }
+  arena?.vehicleRegistry.setCarTeam(playerIdx, team);
+  physics?.setCarTeam?.(playerIdx, team);
+  fallbackSim?.setCarTeam?.(playerIdx, team);
+  hudStore.getState().setMatchState({ localTeam: team });
+  return prevTeam;
+}
+
 export function createPlayerLoadoutRuntimeBridge(
-  target: RuntimeDomainPortOwner
+  domain: PlayerLoadoutDomainPort
 ): PlayerLoadoutTunerSlice {
+  const { loadoutCoordinator, networkManager, botCoordinator } = domain;
+  const getFallbackSim = () => networkManager.sessionCoordinator.authoritativeServer?.fallbackSim;
+
   return {
     getInitialVehiclePreset: () => {
       const garagePrefs = garageSettingsStore?.get?.() as { vehiclePreset?: string } | null;
-      return garagePrefs?.vehiclePreset || target.selectedPreset || null;
+      return resolveInitialVehiclePresetId(garagePrefs?.vehiclePreset, domain.selectedPreset);
     },
-    changePlayerVehicle: (carId) => target.loadoutCoordinator.changePlayerVehicle(carId),
+    changePlayerVehicle: (carId) => loadoutCoordinator.changePlayerVehicle(carId),
     applyPlayerColorChoice: (hex) => {
-      const playerIdx = target.playerCarIndex ?? 0;
-      const replayViewer = target.modeManager?.activeMode?.standaloneReplayViewer;
+      const playerIdx = domain.playerCarIndex ?? 0;
+      const activeMode = domain.modeManager?.activeMode;
+      const replayViewer = activeMode?.standaloneReplayViewer;
       if (replayViewer?.hasLoadedReplay) {
         if (!replayViewer.isActive) replayViewer._applyUserLoadoutToTakenOverCar?.(playerIdx);
         return;
       }
-      let effectiveHex = hex;
-      const onlineSession = useAppStore.getState().onlineSession;
-      const isActiveOnlineRoom = isOnlineSessionOrBotMatchActive(target);
-      const currentMode = target.match?.state?.mode;
+
+      const isActiveOnlineRoom = isOnlineSessionOrBotMatchActive(domain);
+      const currentMode = domain.match?.state?.mode;
       if (
         (currentMode === 'freeplay' || currentMode === 'static-training-pack') &&
         !isActiveOnlineRoom
       ) {
         const freeplayTeam = getPreferredFreeplayTeam();
-        const prevTeam = target.teamAssignment?.playerTeam;
-        if (target.teamAssignment) target.teamAssignment.playerTeam = freeplayTeam;
-        target.arena?.vehicleRegistry.setCarTeam(playerIdx, freeplayTeam);
-        target.physics?.setCarTeam?.(playerIdx, freeplayTeam);
-        target.networkManager.sessionCoordinator.authoritativeServer?.fallbackSim?.setCarTeam?.(
+        const prevTeam = applyLocalPlayerTeamToWorld(
           playerIdx,
-          freeplayTeam
+          freeplayTeam,
+          domain.teamAssignment,
+          false,
+          domain.physics,
+          getFallbackSim(),
+          domain.arena
         );
-        hudStore.getState().setMatchState({ localTeam: freeplayTeam });
-        const ntState = getNameTagRuntimeState();
-        if (Array.isArray(ntState?.carEntries) && ntState.carEntries.length > 0) {
-          setNameTagRuntimeState({
-            carEntries: ntState.carEntries.map((c) =>
-              c.carIndex === playerIdx ? { ...c, team: freeplayTeam } : c
-            ),
-          });
-        }
-        target.loadoutCoordinator.setCarColor(playerIdx, effectiveHex);
+        syncPlayerTeamInNameTagState(playerIdx, freeplayTeam);
+        loadoutCoordinator.setCarColor(playerIdx, hex);
         if (currentMode === 'static-training-pack' && prevTeam !== freeplayTeam) {
-          (
-            target.modeManager?.activeMode as { reloadCurrentShot?: () => void } | null
-          )?.reloadCurrentShot?.();
+          (activeMode as { reloadCurrentShot?: () => void } | null)?.reloadCurrentShot?.();
         }
         return;
-      } else if (isActiveOnlineRoom) {
-        const localTeamStr = onlineSession?.localTeam;
-        const assignedTeam: 0 | 1 | null =
-          localTeamStr === 'orange'
-            ? 1
-            : localTeamStr === 'blue'
-              ? 0
-              : target.botCoordinator.isBotMatch
-                ? 0
-                : null;
-        if (assignedTeam === 0 || assignedTeam === 1) {
-          effectiveHex = getPreferredColorHex(null, assignedTeam);
-        }
       }
-      target.loadoutCoordinator.setCarColor(playerIdx, effectiveHex);
+
+      const effectiveHex = isActiveOnlineRoom
+        ? resolveOnlineAssignedTeamColorHex(
+            hex,
+            useAppStore.getState().onlineSession?.localTeam,
+            botCoordinator.isBotMatch
+          )
+        : hex;
+      loadoutCoordinator.setCarColor(playerIdx, effectiveHex);
     },
     syncInitialFreeplayTeamAndColor: (targetHex, freeplayTeam) => {
-      const playerIdx = target.playerCarIndex ?? 0;
-      if (targetHex) target.loadoutCoordinator.setCarColor(playerIdx, targetHex);
-      const currentMode = target.match?.state?.mode || useAppStore.getState().matchMode;
+      const playerIdx = domain.playerCarIndex ?? 0;
+      if (targetHex) loadoutCoordinator.setCarColor(playerIdx, targetHex);
+      const currentMode = domain.match?.state?.mode || useAppStore.getState().matchMode;
       if (!currentMode || currentMode === 'freeplay') {
-        if (target.teamAssignment) {
-          target.teamAssignment.playerTeam = freeplayTeam;
-          target.teamAssignment.opponentTeam = freeplayTeam === 0 ? 1 : 0;
-        }
-        target.physics?.setCarTeam?.(playerIdx, freeplayTeam);
-        target.networkManager.sessionCoordinator.authoritativeServer?.fallbackSim?.setCarTeam?.(
+        applyLocalPlayerTeamToWorld(
           playerIdx,
-          freeplayTeam
+          freeplayTeam,
+          domain.teamAssignment,
+          true,
+          domain.physics,
+          getFallbackSim(),
+          domain.arena
         );
-        target.arena?.vehicleRegistry.setCarTeam(playerIdx, freeplayTeam);
-        hudStore.getState().setMatchState({ localTeam: freeplayTeam });
       }
     },
     syncMaterialsConfig: (materialsConfig = null) => {
       const config = (materialsConfig || getMaterialsConfig()) as MaterialsConfigLike;
-      target.loadoutCoordinator.syncPlayerMaterialsLoadout(config);
-      target.arena?.vehicleRegistry.refreshCustomVehicle();
-      target.arena?.markRenderTreeChanged?.();
+      loadoutCoordinator.syncPlayerMaterialsLoadout(config);
+      const { arena } = domain;
+      arena?.vehicleRegistry.refreshCustomVehicle();
+      arena?.markRenderTreeChanged?.();
     },
     applyCustomVehicleTuner: (vehicleId, hitboxPreset) => {
-      target.arena?.vehicleRegistry.refreshCustomVehicle(vehicleId);
-      const desc = getVehicleDescriptor(vehicleId);
-      if (
-        target.selectedPreset === vehicleId &&
-        (hitboxPreset || desc?.threeWheels || vehicleId === 'trioctane-threewheel')
-      ) {
-        const isThreeWheels = Boolean(
-          desc?.threeWheels ||
-          vehicleId === 'trioctane-threewheel' ||
-          hitboxPreset === 'hitbox-psyclops'
-        );
-        const hb = isThreeWheels
-          ? 'hitbox-psyclops'
-          : hitboxPreset || desc?.hitboxPreset || target.selectedHitbox || 'hitbox-octane';
-        target.selectedHitbox = hb;
-        target.physics?.setCarHitbox?.(target.playerCarIndex ?? 0, hb);
+      const { arena, physics } = domain;
+      arena?.vehicleRegistry.refreshCustomVehicle(vehicleId);
+      const resolvedHitbox = resolveCustomVehicleHitboxOverride(
+        domain.selectedPreset,
+        vehicleId,
+        hitboxPreset,
+        domain.selectedHitbox
+      );
+      if (resolvedHitbox) {
+        domain.selectedHitbox = resolvedHitbox;
+        physics?.setCarHitbox?.(domain.playerCarIndex ?? 0, resolvedHitbox);
       }
-      target.arena?.markRenderTreeChanged?.();
+      arena?.markRenderTreeChanged?.();
     },
     importCustomVehicleGlb: async (vehicleId, arrayBuffer, fileName, alignPreset) =>
-      target.arena?.vehicleRegistry.loadout.importCustomVehicleGlb(
+      domain.arena?.vehicleRegistry.loadout.importCustomVehicleGlb(
         vehicleId,
         arrayBuffer,
         fileName,
@@ -148,7 +221,7 @@ export function createPlayerLoadoutRuntimeBridge(
       ),
     applyVehicleAlignPreset: (vehicleId, alignPreset) =>
       Boolean(
-        target.arena?.vehicleRegistry.loadout.applyVehicleAlignPreset(vehicleId, alignPreset)
+        domain.arena?.vehicleRegistry.loadout.applyVehicleAlignPreset(vehicleId, alignPreset)
       ),
   };
 }

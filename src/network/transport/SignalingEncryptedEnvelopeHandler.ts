@@ -6,6 +6,18 @@
 
 import { getManualPairingConfirmationEnabled } from './signalingRelayConfig.ts';
 import type { SignalingCryptoSession } from './SignalingCryptoSession.ts';
+import type { SignalingPoolHealthSnapshot } from './SignalingRelayLifecyclePolicy.ts';
+
+export interface PendingPairingRequest {
+  peerId: string;
+  peerName: string;
+  pairingCode: string;
+  relayId?: string;
+  relayLabel: string;
+  role: string;
+  approve?: () => Promise<void> | void;
+  decline?: (reason?: string) => Promise<void> | void;
+}
 
 export interface SignalingPeerMetadata {
   peerId: string;
@@ -21,22 +33,57 @@ export interface SignalingPeerMetadata {
   approved?: boolean;
 }
 
-export type SignalingCallbackFn = (payload: Record<string, unknown>) => unknown;
+export interface SignalingSdpEnvelope {
+  sdp: string;
+  fromPeerId: string;
+  pairingCode?: string;
+  relayId: string;
+  [key: string]: unknown;
+}
+
+export interface SignalingProtocolCallbacks {
+  handleOpen?: (info: { relayId: string; relayLabel: string; topicHash: string }) => void;
+  handleRelayHealthChanged?: (snapshot: SignalingPoolHealthSnapshot) => void;
+  handleClose?: (info: { relayId: string }) => void;
+  handleError?: (err: Error) => void;
+  handleRendezvousEstablished?: (info: {
+    relayId: string;
+    relayLabel: string;
+    pairingCode: string;
+    hostPeerId: string;
+    hostName: string;
+    requireManualApproval: boolean;
+  }) => void;
+  handlePairingHold?: (info: { hostPeerId: string; hostName: string; pairingCode: string }) => void;
+  handlePairingKeepAlive?: (info: { peerId: string; timestamp: number }) => void;
+  handlePairingApproved?: (info: { hostPeerId: string; pairingCode?: string }) => void;
+  handlePairingDeclined?: (info: { hostPeerId: string; reason: string }) => void;
+  handlePairingApprovalRequired?: (request: PendingPairingRequest) => void;
+  handlePeerJoined?: (info: SignalingPeerMetadata & { peerName: string }) => void;
+  handleOffer?: (info: SignalingSdpEnvelope) => Promise<void> | void;
+  handleAnswer?: (info: SignalingSdpEnvelope) => Promise<void> | void;
+  handleCandidate?: (info: {
+    candidate: RTCIceCandidateInit | Record<string, unknown>;
+    fromPeerId: string;
+    relayId: string;
+    [key: string]: unknown;
+  }) => void;
+}
 
 export interface SignalingEnvelopeDispatchContext {
-  localPeerId: string;
+  peerId: string;
   playerName: string;
   cryptoSession: SignalingCryptoSession | null;
-  callbacks: Record<string, SignalingCallbackFn | undefined>;
-  getRelayLabel: (relayId: string) => string;
-  getPairingCodeForPeer: (peerId: string) => string | null;
+  callbacks: SignalingProtocolCallbacks;
+  isCleanedUp: boolean;
+  getActiveRelayLabel: (peerId?: string | null) => string | null;
+  getPairingCodeForPeer: (peerId?: string | null) => string | null;
   sendEncryptedToPeer: (
-    targetPeerId: string,
+    targetPeerId: string | null,
     payloadObj: Record<string, unknown>,
     preferredRelayId?: string | null
   ) => Promise<boolean>;
-  sendCandidate: (targetPeerId: string, candidate: unknown) => Promise<boolean>;
-  isCleanedUp: () => boolean;
+  sendCandidate: (targetPeerId: string | null, candidate: unknown) => Promise<boolean>;
 }
 
 export interface EncryptedSignalingWrapper {
@@ -52,55 +99,36 @@ export class SignalingEncryptedEnvelopeHandler {
   pendingCandidatesOut = new Map<string, unknown[]>();
   pairingKeepAliveTimer: ReturnType<typeof setInterval> | null = null;
 
-  registerClientHelloPeer(
-    peerId: string,
-    senderName: string | undefined,
-    role: string | undefined,
-    allowSpectatorRelay: boolean | undefined,
-    pairingCode: string,
+  registerHandshakePeer(
     relayId: string,
-    requiresBridge = false,
-    bridgedFromRelayId?: string
-  ): void {
-    const existingMeta = this.peerMetadata.get(peerId);
-    if (!existingMeta || !existingMeta.confirmed) {
+    msg: Record<string, unknown>,
+    pairingCode: string,
+    isHostResponder: boolean
+  ): { fromPeerId: string; pairingCode: string; isBridged: boolean } {
+    const peerId = String(msg.fromPeerId || '');
+    const isBridged = Number(msg._brgHop || 0) >= 1;
+    const prev = this.peerMetadata.get(peerId);
+    if (!isHostResponder || !prev || !prev.confirmed) {
       this.peerRelayRoutes.set(peerId, relayId);
     }
-
     this.peerMetadata.set(peerId, {
       peerId,
-      name: senderName || 'Player',
-      role: role || 'player',
-      allowSpectatorRelay: allowSpectatorRelay !== false,
+      name: String(msg.senderName || (isHostResponder ? 'Player' : 'Host')),
+      role: isHostResponder ? String(msg.role || 'client') : 'host',
+      allowSpectatorRelay: Boolean(msg.allowSpectatorRelay),
       pairingCode,
       relayId: this.peerRelayRoutes.get(peerId) || relayId,
-      requiresBridge: Boolean(requiresBridge || existingMeta?.requiresBridge),
-      bridgedFromRelayId: bridgedFromRelayId || existingMeta?.bridgedFromRelayId,
-      confirmed: existingMeta?.confirmed || false,
-      offerDispatched: existingMeta?.offerDispatched || false,
-      approved: existingMeta?.approved || false,
+      requiresBridge: Boolean(isBridged || (prev && prev.requiresBridge)),
+      bridgedFromRelayId: msg._brgFrom
+        ? String(msg._brgFrom)
+        : prev
+          ? prev.bridgedFromRelayId
+          : undefined,
+      confirmed: Boolean(!isHostResponder || (prev && prev.confirmed)),
+      offerDispatched: Boolean(prev && prev.offerDispatched),
+      approved: Boolean(prev && prev.approved),
     });
-  }
-
-  registerHostHelloAckPeer(
-    peerId: string,
-    senderName: string | undefined,
-    pairingCode: string,
-    relayId: string,
-    requiresBridge = false,
-    bridgedFromRelayId?: string
-  ): void {
-    this.peerRelayRoutes.set(peerId, relayId);
-    this.peerMetadata.set(peerId, {
-      peerId,
-      name: senderName || 'Host',
-      role: 'host',
-      pairingCode,
-      relayId,
-      requiresBridge,
-      bridgedFromRelayId,
-      confirmed: true,
-    });
+    return { fromPeerId: peerId, pairingCode, isBridged };
   }
 
   queuePendingOutgoingCandidate(targetPeerId: string, candidate: unknown): void {
@@ -116,22 +144,13 @@ export class SignalingEncryptedEnvelopeHandler {
     ctx: SignalingEnvelopeDispatchContext
   ): void {
     this.stopPairingKeepAlive();
-    ctx.callbacks.handlePairingHold?.({
-      hostPeerId,
-      hostName: hostName || 'Host',
-      pairingCode,
-    });
+    if (ctx.callbacks.handlePairingHold) {
+      ctx.callbacks.handlePairingHold({ hostPeerId, hostName: hostName || 'Host', pairingCode });
+    }
     this.pairingKeepAliveTimer = setInterval(() => {
-      if (ctx.isCleanedUp()) {
-        this.stopPairingKeepAlive();
-        return;
-      }
+      if (ctx.isCleanedUp) return this.stopPairingKeepAlive();
       ctx
-        .sendEncryptedToPeer(hostPeerId, {
-          type: 'sig_pairing_ping',
-          fromPeerId: ctx.localPeerId,
-          timestamp: Date.now(),
-        })
+        .sendEncryptedToPeer(hostPeerId, { type: 'sig_pairing_ping', timestamp: Date.now() })
         .catch(() => {});
     }, 2000);
   }
@@ -149,131 +168,113 @@ export class SignalingEncryptedEnvelopeHandler {
     ctx: SignalingEnvelopeDispatchContext
   ): Promise<void> {
     const fromPeerId = wrapper.fromPeerId;
-    if (!fromPeerId || !wrapper.env || !ctx.cryptoSession?.getPeerSession(fromPeerId)) return;
+    const cs = ctx.cryptoSession;
+    if (!fromPeerId || !wrapper.env || !cs || !cs.getPeerSession(fromPeerId)) return;
 
     const existingMeta = this.peerMetadata.get(fromPeerId);
     if (existingMeta && Number(wrapper._brgHop || 0) >= 1) {
       existingMeta.requiresBridge = true;
-      if (wrapper._brgFrom) {
-        existingMeta.bridgedFromRelayId = String(wrapper._brgFrom);
-      }
+      if (wrapper._brgFrom) existingMeta.bridgedFromRelayId = String(wrapper._brgFrom);
     }
 
-    let inner: Record<string, unknown> & {
-      type?: string;
-      pairingCode?: string;
-      hostName?: string;
-      reason?: string;
-      name?: string;
-    };
+    let inner: Record<string, unknown>;
     try {
-      inner = await ctx.cryptoSession.decryptFromPeer(fromPeerId, wrapper.env);
+      inner = await cs.decryptFromPeer(fromPeerId, wrapper.env);
     } catch (err: unknown) {
-      console.warn(
-        '[SignalingProtocolHandler] Dropped undecryptable signaling frame:',
-        err instanceof Error ? err.message : err
-      );
+      console.warn('[SignalingEncryptedEnvelopeHandler] Dropped undecryptable frame:', err);
       return;
     }
 
-    if (!inner || !inner.type) return;
+    const type = typeof inner.type === 'string' ? inner.type : '';
+    if (!type) return;
+    const cbs = ctx.callbacks;
 
-    if (inner.type === 'sig_handshake_confirm') {
-      await this.handleHandshakeConfirm(relayId, fromPeerId, ctx);
-      return;
-    }
-
-    if (inner.type === 'sig_pairing_hold') {
-      this.startClientPairingKeepAlive(
-        fromPeerId,
-        String(inner.pairingCode || ''),
-        inner.hostName,
-        ctx
-      );
-      return;
-    }
-
-    if (inner.type === 'sig_pairing_ping') {
-      ctx.callbacks.handlePairingKeepAlive?.({ peerId: fromPeerId, timestamp: Date.now() });
-      await ctx.sendEncryptedToPeer(fromPeerId, {
-        type: 'sig_pairing_pong',
-        fromPeerId: ctx.localPeerId,
-        timestamp: Date.now(),
-      });
-      return;
-    }
-
-    if (inner.type === 'sig_pairing_pong') {
-      ctx.callbacks.handlePairingKeepAlive?.({ peerId: fromPeerId, timestamp: Date.now() });
-      return;
-    }
-
-    if (inner.type === 'sig_pairing_approved') {
-      this.stopPairingKeepAlive();
-      ctx.callbacks.handlePairingApproved?.({
-        hostPeerId: fromPeerId,
-        pairingCode: inner.pairingCode,
-      });
-      return;
-    }
-
-    if (inner.type === 'sig_pairing_declined') {
-      this.stopPairingKeepAlive();
-      ctx.callbacks.handlePairingDeclined?.({
-        hostPeerId: fromPeerId,
-        reason: inner.reason || 'Host declined the connection request.',
-      });
-      return;
-    }
-
-    if (inner.type === 'relay_assignment') {
-      ctx.callbacks.handleRelayAssignment?.(inner);
-      return;
-    }
-
-    if (inner.type === 'request_offer') {
-      const meta = this.peerMetadata.get(fromPeerId);
-      if (meta && (!getManualPairingConfirmationEnabled() || meta.approved)) {
-        ctx.callbacks.handleRequestOffer?.({
+    switch (type) {
+      case 'sig_handshake_confirm':
+        await this.handleHandshakeConfirm(relayId, fromPeerId, ctx);
+        return;
+      case 'sig_pairing_hold':
+        this.startClientPairingKeepAlive(
           fromPeerId,
-          name: inner.name || meta.name,
-          senderName: inner.name || meta.name,
-          role: meta.role,
-          pairingCode: meta.pairingCode,
-          relayId,
-        });
+          String(inner.pairingCode || ''),
+          typeof inner.hostName === 'string' ? inner.hostName : undefined,
+          ctx
+        );
+        return;
+      case 'sig_pairing_ping':
+      case 'sig_pairing_pong':
+        if (cbs.handlePairingKeepAlive) {
+          cbs.handlePairingKeepAlive({ peerId: fromPeerId, timestamp: Date.now() });
+        }
+        if (type === 'sig_pairing_ping') {
+          await ctx.sendEncryptedToPeer(fromPeerId, {
+            type: 'sig_pairing_pong',
+            timestamp: Date.now(),
+          });
+        }
+        return;
+      case 'sig_pairing_approved':
+        this.stopPairingKeepAlive();
+        if (cbs.handlePairingApproved) {
+          cbs.handlePairingApproved({
+            hostPeerId: fromPeerId,
+            pairingCode: inner.pairingCode as string | undefined,
+          });
+        }
+        return;
+      case 'sig_pairing_declined':
+        this.stopPairingKeepAlive();
+        if (cbs.handlePairingDeclined) {
+          cbs.handlePairingDeclined({
+            hostPeerId: fromPeerId,
+            reason: (inner.reason as string) || 'Host declined the connection request.',
+          });
+        }
+        return;
+      case 'offer':
+      case 'answer': {
+        if (type === 'offer') this.stopPairingKeepAlive();
+        const handler = type === 'offer' ? cbs.handleOffer : cbs.handleAnswer;
+        if (handler) {
+          await handler({
+            ...inner,
+            sdp: String(inner.sdp || ''),
+            fromPeerId,
+            pairingCode: ctx.getPairingCodeForPeer(fromPeerId) || undefined,
+            relayId,
+          });
+        }
+        return;
       }
-      return;
+      case 'candidate':
+        if (inner.candidate && cbs.handleCandidate) {
+          cbs.handleCandidate({
+            ...inner,
+            candidate: inner.candidate as RTCIceCandidateInit | Record<string, unknown>,
+            fromPeerId,
+            relayId,
+          });
+        }
+        return;
     }
+  }
 
-    if (inner.type === 'offer') {
-      this.stopPairingKeepAlive();
-      ctx.callbacks.handleOffer?.({
-        ...inner,
-        fromPeerId,
-        pairingCode: ctx.getPairingCodeForPeer(fromPeerId),
-        relayId,
-      });
-      return;
+  private async dispatchConfirmedPeerReady(
+    relayId: string,
+    fromPeerId: string,
+    meta: SignalingPeerMetadata,
+    ctx: SignalingEnvelopeDispatchContext
+  ): Promise<void> {
+    if (meta.offerDispatched) return;
+    meta.offerDispatched = true;
+    meta.approved = true;
+    if (ctx.callbacks.handlePeerJoined) {
+      ctx.callbacks.handlePeerJoined({ ...meta, peerId: fromPeerId, peerName: meta.name, relayId });
     }
-
-    if (inner.type === 'answer') {
-      ctx.callbacks.handleAnswer?.({
-        ...inner,
-        fromPeerId,
-        pairingCode: ctx.getPairingCodeForPeer(fromPeerId),
-        relayId,
-      });
-      return;
-    }
-
-    if (inner.type === 'candidate') {
-      ctx.callbacks.handleCandidate?.({
-        ...inner,
-        fromPeerId,
-        relayId,
-      });
-      return;
+    const flushQueued = this.pendingCandidatesOut.get(fromPeerId);
+    if (Array.isArray(flushQueued) && flushQueued.length > 0) {
+      this.pendingCandidatesOut.delete(fromPeerId);
+      for (const cand of flushQueued) await ctx.sendCandidate(fromPeerId, cand);
     }
   }
 
@@ -289,31 +290,12 @@ export class SignalingEncryptedEnvelopeHandler {
     meta.relayId = relayId;
     meta.confirmed = true;
 
-    const flushQueued = this.pendingCandidatesOut.get(fromPeerId);
-
-    const dispatchPeerReady = async () => {
-      if (meta.offerDispatched) return;
-      meta.offerDispatched = true;
-      meta.approved = true;
-      ctx.callbacks.handlePeerJoined?.({
-        peerId: fromPeerId,
-        name: meta.name,
-        peerName: meta.name,
-        role: meta.role,
-        allowSpectatorRelay: meta.allowSpectatorRelay,
-        pairingCode: meta.pairingCode,
-        relayId,
-      });
-      if (Array.isArray(flushQueued) && flushQueued.length > 0) {
-        this.pendingCandidatesOut.delete(fromPeerId);
-        for (const cand of flushQueued) {
-          await ctx.sendCandidate(fromPeerId, cand);
-        }
-      }
-    };
-
-    if (!getManualPairingConfirmationEnabled() || meta.approved) {
-      await dispatchPeerReady();
+    if (
+      !getManualPairingConfirmationEnabled() ||
+      meta.approved ||
+      typeof ctx.callbacks.handlePairingApprovalRequired !== 'function'
+    ) {
+      await this.dispatchConfirmedPeerReady(relayId, fromPeerId, meta, ctx);
       return;
     }
 
@@ -328,43 +310,31 @@ export class SignalingEncryptedEnvelopeHandler {
       relayId
     );
 
-    if (typeof ctx.callbacks.handlePairingApprovalRequired === 'function') {
-      ctx.callbacks.handlePairingApprovalRequired({
-        peerId: fromPeerId,
-        peerName: meta.name,
-        role: meta.role,
-        pairingCode: meta.pairingCode,
-        relayId,
-        relayLabel: ctx.getRelayLabel(relayId),
-        approve: async () => {
-          meta.approved = true;
-          await ctx.sendEncryptedToPeer(
-            fromPeerId,
-            {
-              type: 'sig_pairing_approved',
-              pairingCode: meta.pairingCode,
-              timestamp: Date.now(),
-            },
-            relayId
-          );
-          await dispatchPeerReady();
-        },
-        decline: async (reason = 'Connection declined by Host') => {
-          this.peerMetadata.delete(fromPeerId);
-          await ctx.sendEncryptedToPeer(
-            fromPeerId,
-            {
-              type: 'sig_pairing_declined',
-              reason,
-              timestamp: Date.now(),
-            },
-            relayId
-          );
-        },
-      });
-    } else {
-      await dispatchPeerReady();
-    }
+    ctx.callbacks.handlePairingApprovalRequired({
+      peerId: fromPeerId,
+      peerName: meta.name,
+      role: meta.role,
+      pairingCode: meta.pairingCode,
+      relayId,
+      relayLabel: ctx.getActiveRelayLabel(fromPeerId) || relayId,
+      approve: async () => {
+        meta.approved = true;
+        await ctx.sendEncryptedToPeer(
+          fromPeerId,
+          { type: 'sig_pairing_approved', pairingCode: meta.pairingCode, timestamp: Date.now() },
+          relayId
+        );
+        await this.dispatchConfirmedPeerReady(relayId, fromPeerId, meta, ctx);
+      },
+      decline: async (reason = 'Connection declined by Host') => {
+        this.peerMetadata.delete(fromPeerId);
+        await ctx.sendEncryptedToPeer(
+          fromPeerId,
+          { type: 'sig_pairing_declined', reason, timestamp: Date.now() },
+          relayId
+        );
+      },
+    });
   }
 
   reset(): void {

@@ -7,15 +7,29 @@ import {
   networkDiagnosticsStore,
   globalHudTransientChannel,
 } from '../runtimeUiPort.ts';
-import {
-  resolveSlotKeyTargetCarEntry,
-  type ExpSpawnedCarEntry,
-} from '../modes/experimental-multi-bots/ExperimentalMultiBotsMatchMath.ts';
+import type { ExpSpawnedCarEntry } from '../modes/experimental-multi-bots/ExperimentalMultiBotsMatchMath.ts';
 import type { KeyboardMouseController } from '../../input/KeyboardMouseController.ts';
 import type { ReplayTimelineController } from '../../replay/ReplayTimelineController.ts';
 import type { CameraManager } from '../../camera/CameraManager.ts';
 import type { RuntimeMatchState } from './RuntimeMatchState.ts';
 import type { RuntimeNetworkManager } from './RuntimeNetworkManager.ts';
+import {
+  isEditableFormElement,
+  parseSlotKeyFromKeyEvent,
+  resolveReplayCameraSlotCommand,
+  resolveWindowHotkeyCommand,
+  type ReplayCameraSlotCommand,
+  type ReplayCameraSlotSnapshot,
+  type WindowHotkeyCommand,
+  type WindowKeyDownSnapshot,
+} from './windowHotkeysPipeline.ts';
+
+export type {
+  ReplayCameraSlotCommand,
+  ReplayCameraSlotSnapshot,
+  WindowHotkeyCommand,
+  WindowKeyDownSnapshot,
+};
 
 export interface ActiveModeReplayPort {
   id?: string;
@@ -68,19 +82,6 @@ export interface RuntimeWindowHotkeysHostPort {
   releaseGoalReplayCameraOverride(): void;
 }
 
-function isEditableFormElement(el: unknown): boolean {
-  if (!el || typeof el !== 'object') return false;
-  const elem = el as HTMLElement & { type?: string };
-  if (elem.isContentEditable) return true;
-  const tag = typeof elem.tagName === 'string' ? elem.tagName.toUpperCase() : '';
-  if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
-  if (tag === 'INPUT') {
-    const type = (elem.type || 'text').toLowerCase();
-    return !['range', 'checkbox', 'radio', 'button', 'submit', 'reset', 'color'].includes(type);
-  }
-  return false;
-}
-
 function isNetworkDiagnosticsWindowPresent(): boolean {
   const windows = floatingStore.getSnapshot()?.windows || [];
   return windows.some((w) => w.id === NETWORK_MONITOR_PRESET.id);
@@ -92,239 +93,186 @@ function isReplayDirectorTunerWindowPresent(): boolean {
 }
 
 export class RuntimeWindowHotkeysController {
-  public readonly context: RuntimeWindowHotkeysHostPort;
+  private readonly readPort: () => RuntimeWindowHotkeysHostPort;
 
-  constructor(context: RuntimeWindowHotkeysHostPort) {
-    this.context = context;
+  constructor(portOrProvider: RuntimeWindowHotkeysHostPort | (() => RuntimeWindowHotkeysHostPort)) {
+    this.readPort = typeof portOrProvider === 'function' ? portOrProvider : () => portOrProvider;
   }
 
-  public selectReplayCameraSlot(slotKey: number | null): boolean {
-    const ctx = this.context;
-    if (!ctx) return false;
-    const activeMode = ctx.modeManager?.getActiveMode?.();
+  public selectReplayCameraSlot(
+    slotKey: number | null,
+    portOverride?: RuntimeWindowHotkeysHostPort
+  ): boolean {
+    const port = portOverride ?? this.readPort();
+    if (!port) return false;
+    const activeMode = port.modeManager?.getActiveMode?.() ?? null;
     const isModeReplayActive = Boolean(
       activeMode?.isGoalReplayActive?.() ||
       activeMode?.directorPreview?.isReplayActive ||
       activeMode?.replaySession?.isReplayActive
     );
     const isGoalReplay =
-      ctx.match?.state?.phase === 'replay' ||
+      port.match?.state?.phase === 'replay' ||
       hudStore.getState().matchPhase === 'replay' ||
       isModeReplayActive;
+    const isExpSpectatorLive =
+      !isGoalReplay &&
+      port.match?.state?.mode === 'exp-multi-bots' &&
+      useExperimentalMultiBotsStore.getState().playerParticipation === 'none';
 
-    if (slotKey === 7 || slotKey === 0 || slotKey === null) {
-      if (!isGoalReplay) return false;
-      ctx.replayPovCarIndex = null;
-      ctx.acquireGoalReplayCameraOverride();
-      if (ctx.replayTimelineController?.directorCameraState) {
-        ctx.replayTimelineController.directorCameraState.initialized = false;
+    const cmd = resolveReplayCameraSlotCommand(slotKey, {
+      isGoalReplay,
+      isModeReplayActive,
+      isExpSpectatorLive,
+      localTeam: hudStore.getState().localTeam,
+      lastHudSlotCarMap: port._lastHudSlotCarMap,
+      spawnedCars: activeMode?.rosterController?.spawnedCars,
+    });
+
+    if (cmd.kind === 'select-director') {
+      port.replayPovCarIndex = null;
+      port.acquireGoalReplayCameraOverride();
+      if (port.replayTimelineController?.directorCameraState) {
+        port.replayTimelineController.directorCameraState.initialized = false;
       }
-      if (activeMode && isModeReplayActive) {
+      if (activeMode && cmd.resetModeDirectorCamera) {
         activeMode.setReplayCameraMode?.('director');
-        if (activeMode.replaySession) {
-          activeMode.replaySession.replayCameraMode = 'director';
-        }
-        const modeReplayCtrl =
-          activeMode.replayController ?? activeMode.replaySession?.replayController;
-        if (modeReplayCtrl?.directorCameraState) {
-          modeReplayCtrl.directorCameraState.initialized = false;
-        }
+        if (activeMode.replaySession) activeMode.replaySession.replayCameraMode = 'director';
+        const modeCtrl = activeMode.replayController ?? activeMode.replaySession?.replayController;
+        if (modeCtrl?.directorCameraState) modeCtrl.directorCameraState.initialized = false;
       }
       hudStore.getState().setReplayState?.({ replayCameraMode: 'director' });
       globalHudTransientChannel.setRoster({ focusedSlotKey: null });
       return true;
     }
 
-    if (slotKey >= 1 && slotKey <= 6) {
-      let targetCarIdx = ctx._lastHudSlotCarMap?.[slotKey];
-      const spawnedCars = activeMode?.rosterController?.spawnedCars;
-      if (
-        (typeof targetCarIdx !== 'number' || targetCarIdx < 0) &&
-        spawnedCars &&
-        spawnedCars.length > 0
-      ) {
-        const entry = resolveSlotKeyTargetCarEntry(
-          spawnedCars,
-          hudStore.getState().localTeam,
-          slotKey
-        );
-        targetCarIdx = entry ? entry.carIndex : -1;
-      }
-      if (typeof targetCarIdx !== 'number' || targetCarIdx < 0) {
-        return false;
-      }
-
-      if (isGoalReplay) {
-        ctx.replayPovCarIndex = targetCarIdx;
-        ctx.releaseGoalReplayCameraOverride();
-        if (activeMode && isModeReplayActive) {
-          activeMode.setReplayCameraMode?.('pov');
-          if (activeMode.replaySession) {
-            activeMode.replaySession.replayCameraMode = 'pov';
-            activeMode.replaySession.replayPovCarIndex = targetCarIdx;
-          }
-          activeMode._applyCameraCarIndex?.(targetCarIdx);
-          useExperimentalMultiBotsStore.getState().setActiveCameraCarIndex(targetCarIdx);
+    if (cmd.kind === 'select-replay-pov') {
+      port.replayPovCarIndex = cmd.targetCarIndex;
+      port.releaseGoalReplayCameraOverride();
+      if (activeMode && cmd.applyToActiveMode) {
+        activeMode.setReplayCameraMode?.('pov');
+        if (activeMode.replaySession) {
+          activeMode.replaySession.replayCameraMode = 'pov';
+          activeMode.replaySession.replayPovCarIndex = cmd.targetCarIndex;
         }
-        ctx.camera?.setFocusedCarIndex?.(targetCarIdx);
-        ctx.camera?.resetView?.();
-        hudStore.getState().setReplayState?.({ replayCameraMode: 'pov' });
-        globalHudTransientChannel.setRoster({ focusedSlotKey: slotKey });
-        return true;
+        activeMode._applyCameraCarIndex?.(cmd.targetCarIndex);
+        useExperimentalMultiBotsStore.getState().setActiveCameraCarIndex(cmd.targetCarIndex);
       }
-
-      if (
-        ctx.match?.state?.mode === 'exp-multi-bots' &&
-        useExperimentalMultiBotsStore.getState().playerParticipation === 'none'
-      ) {
-        activeMode?._applyCameraCarIndex?.(targetCarIdx);
-        useExperimentalMultiBotsStore.getState().setActiveCameraCarIndex(targetCarIdx);
-        globalHudTransientChannel.setRoster({ focusedSlotKey: slotKey });
-        return true;
-      }
+      port.camera?.setFocusedCarIndex?.(cmd.targetCarIndex);
+      port.camera?.resetView?.();
+      hudStore.getState().setReplayState?.({ replayCameraMode: 'pov' });
+      globalHudTransientChannel.setRoster({ focusedSlotKey: cmd.slotKey });
+      return true;
     }
 
+    if (cmd.kind === 'select-live-spectator-pov') {
+      activeMode?._applyCameraCarIndex?.(cmd.targetCarIndex);
+      useExperimentalMultiBotsStore.getState().setActiveCameraCarIndex(cmd.targetCarIndex);
+      globalHudTransientChannel.setRoster({ focusedSlotKey: cmd.slotKey });
+      return true;
+    }
     return false;
   }
 
   public readonly handleKeyDown = (evt: KeyboardEvent): void => {
     if (evt.defaultPrevented) return;
-    const ctx = this.context;
-    const net = ctx?.networkManager;
+    const port = this.readPort();
+    if (!port) return;
+
+    const net = port.networkManager;
+    const activeMode = port.modeManager?.getActiveMode?.() ?? null;
     const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
     const isOutsideEditableUI =
       !isEditableFormElement(evt.target) && !isEditableFormElement(activeEl);
     const hasNoModifier = !evt.repeat && !evt.ctrlKey && !evt.metaKey && !evt.altKey;
-    const isMenuOpen = Boolean(useAppStore?.getState?.()?.isOpen);
+    const appState = useAppStore?.getState?.();
+    const isMenuOpen = Boolean(appState?.isOpen);
+    const hudState = hudStore.getState();
 
     const isGoalReplay =
-      ctx?.match?.state?.phase === 'replay' ||
-      hudStore.getState().matchPhase === 'replay' ||
-      Boolean(ctx?.modeManager?.getActiveMode?.()?.isReplayActive);
+      port.match?.state?.phase === 'replay' ||
+      hudState.matchPhase === 'replay' ||
+      Boolean(activeMode?.isReplayActive);
 
-    const skipReplaySources = ctx?.keyboard?.boundSources?.('skipReplay');
+    const skipReplaySources = port.keyboard?.boundSources?.('skipReplay');
     const matchesSkipReplayBinding =
       Array.isArray(skipReplaySources) && skipReplaySources.length > 0
         ? Boolean(
-            ctx?.keyboard?.matches?.('skipReplay', { kind: 'key', code: evt.code }) ||
+            port.keyboard?.matches?.('skipReplay', { kind: 'key', code: evt.code }) ||
             (evt.code === 'NumpadEnter' &&
-              ctx?.keyboard?.matches?.('skipReplay', { kind: 'key', code: 'Enter' }))
+              port.keyboard?.matches?.('skipReplay', { kind: 'key', code: 'Enter' }))
           )
         : evt.code === 'Enter' || evt.code === 'NumpadEnter' || evt.key === 'Enter';
 
-    if (
-      isGoalReplay &&
-      isOutsideEditableUI &&
-      hasNoModifier &&
-      matchesSkipReplayBinding &&
-      !isMenuOpen
-    ) {
+    const cmd = resolveWindowHotkeyCommand({
+      code: evt.code,
+      key: evt.key,
+      shiftKey: evt.shiftKey,
+      isOutsideEditableUI,
+      hasNoModifier,
+      isMenuOpen,
+      isOnlineSession: Boolean(appState?.onlineSession?.roomId),
+      isGoalReplay,
+      isExpSpectatorLive:
+        !isGoalReplay &&
+        port.match?.state?.mode === 'exp-multi-bots' &&
+        useExperimentalMultiBotsStore.getState().playerParticipation === 'none',
+      matchesSkipReplayBinding,
+      isNetworkDiagnosticsPresent: isNetworkDiagnosticsWindowPresent(),
+      isReplayDirectorTunerPresent: isReplayDirectorTunerWindowPresent(),
+      hasHudReplayTogglePause: typeof hudState.onReplayTogglePause === 'function',
+      hasModeGoalReplayTogglePause: Boolean(
+        activeMode?.goalReplayPhase === 'replaying' &&
+        activeMode?.goalReplayTimelineController?.sessionState?.isActive
+      ),
+      hasAppStoreStateReader: typeof useAppStore?.getState === 'function',
+      hasNetworkManager: Boolean(net),
+    });
+
+    if (cmd.kind === 'skip-replay') {
       evt.preventDefault();
-      ctx._localSkipReplayReady = true;
+      port._localSkipReplayReady = true;
       const reconciler = net?.sessionCoordinator.networkReconciler;
       if (reconciler) {
         reconciler.localSkipReplayReady = true;
         reconciler.controlMessenger.flushPendingControlPackets(reconciler, performance.now());
+      } else if (typeof hudState.onReplaySkip === 'function') {
+        hudState.onReplaySkip();
       } else {
-        const skipFn = hudStore.getState().onReplaySkip;
-        const activeMode = ctx?.modeManager?.getActiveMode?.();
-        if (typeof skipFn === 'function') skipFn();
-        else activeMode?.skipGoalReplay?.();
+        activeMode?.skipGoalReplay?.();
       }
-      return;
-    }
-
-    const isExpSpectatorLive =
-      !isGoalReplay &&
-      ctx?.match?.state?.mode === 'exp-multi-bots' &&
-      useExperimentalMultiBotsStore.getState().playerParticipation === 'none';
-
-    if (
-      (isGoalReplay || isExpSpectatorLive) &&
-      isOutsideEditableUI &&
-      hasNoModifier &&
-      !isMenuOpen
-    ) {
-      let slotNum = -1;
-      if (evt.code >= 'Digit0' && evt.code <= 'Digit7')
-        slotNum = Number(evt.code.replace('Digit', ''));
-      else if (evt.code >= 'Numpad0' && evt.code <= 'Numpad7')
-        slotNum = Number(evt.code.replace('Numpad', ''));
-      else if (evt.key >= '0' && evt.key <= '7') slotNum = Number(evt.key);
-
-      if (slotNum === 0 && isNetworkDiagnosticsWindowPresent()) slotNum = -1;
-      if (slotNum >= 0 && slotNum <= 7 && this.selectReplayCameraSlot(slotNum)) {
-        evt.preventDefault();
-        return;
-      }
-    }
-
-    if (
-      evt.code === 'KeyP' &&
-      hasNoModifier &&
-      isOutsideEditableUI &&
-      isReplayDirectorTunerWindowPresent()
-    ) {
-      const isOnlineSession = Boolean(useAppStore?.getState?.()?.onlineSession?.roomId);
-      if (!isOnlineSession && !isMenuOpen && isGoalReplay) {
-        const togglePause = hudStore.getState().onReplayTogglePause;
-        if (typeof togglePause === 'function') {
-          evt.preventDefault();
-          togglePause();
-          ctx.isCursorBrowsing = true;
-          ctx.domEventManager?.syncPausedAndInputState?.();
-          return;
-        }
-      }
-      const activeMode = ctx?.modeManager?.getActiveMode?.();
-      if (
-        !isOnlineSession &&
-        !isMenuOpen &&
-        activeMode?.goalReplayPhase === 'replaying' &&
-        activeMode?.goalReplayTimelineController?.sessionState?.isActive
-      ) {
-        evt.preventDefault();
-        activeMode.goalReplayTimelineController.togglePause();
-        ctx.isCursorBrowsing = true;
-        ctx.domEventManager?.syncPausedAndInputState?.();
-        return;
-      }
-    }
-
-    if (isNetworkDiagnosticsWindowPresent() && net && isOutsideEditableUI && hasNoModifier) {
-      if ((evt.code === 'Digit8' || evt.code === 'Numpad8' || evt.key === '8') && !evt.shiftKey) {
-        evt.preventDefault();
-        if (!net.sessionCoordinator.networkReconciler) {
-          net.sessionCoordinator.enableNetworkPrediction(false).then(() => {
-            networkDiagnosticsStore.setSession(
-              net.sessionCoordinator.networkReconciler,
-              net.sessionCoordinator.networkChannel,
-              ctx
-            );
-            networkDiagnosticsStore.toggleBurstDrop();
-          });
-        } else {
+    } else if (cmd.kind === 'select-camera-slot') {
+      if (this.selectReplayCameraSlot(cmd.slotKey, port)) evt.preventDefault();
+    } else if (cmd.kind === 'toggle-hud-replay-pause') {
+      evt.preventDefault();
+      hudState.onReplayTogglePause?.();
+      port.isCursorBrowsing = true;
+      port.domEventManager?.syncPausedAndInputState?.();
+    } else if (cmd.kind === 'toggle-mode-replay-pause') {
+      evt.preventDefault();
+      activeMode?.goalReplayTimelineController?.togglePause();
+      port.isCursorBrowsing = true;
+      port.domEventManager?.syncPausedAndInputState?.();
+    } else if (cmd.kind === 'toggle-burst-drop' && net) {
+      evt.preventDefault();
+      if (!net.sessionCoordinator.networkReconciler) {
+        net.sessionCoordinator.enableNetworkPrediction(false).then(() => {
+          networkDiagnosticsStore.setSession(
+            net.sessionCoordinator.networkReconciler,
+            net.sessionCoordinator.networkChannel,
+            port
+          );
           networkDiagnosticsStore.toggleBurstDrop();
-        }
-        return;
+        });
+      } else {
+        networkDiagnosticsStore.toggleBurstDrop();
       }
-      if (evt.code === 'Digit9' || evt.code === 'Numpad9' || evt.key === '9') {
-        evt.preventDefault();
-        net.diagnosticsProbe.adjustSimulatedLatency(-1);
-        return;
-      }
-      if (evt.code === 'Digit0' || evt.code === 'Numpad0' || evt.key === '0') {
-        evt.preventDefault();
-        net.diagnosticsProbe.adjustSimulatedLatency(1);
-        return;
-      }
-    }
-
-    if (evt.code === 'Escape' && typeof useAppStore?.getState !== 'function') {
-      if (isOutsideEditableUI) {
-        evt.preventDefault();
-        ctx.gameUI?.openMenu('main-menu');
-      }
+    } else if (cmd.kind === 'adjust-simulated-latency' && net) {
+      evt.preventDefault();
+      net.diagnosticsProbe.adjustSimulatedLatency(cmd.direction);
+    } else if (cmd.kind === 'open-main-menu') {
+      evt.preventDefault();
+      port.gameUI?.openMenu('main-menu');
     }
   };
 }
