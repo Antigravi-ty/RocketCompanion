@@ -23,6 +23,10 @@ export function parseQueryPresetArgs(searchParams) {
   const subGlobs =
     searchParams.get("tmpfs_submodules") ||
     searchParams.get("tmpfs-submodules");
+  const gitName =
+    searchParams.get("git_name") || searchParams.get("git-name");
+  const gitEmail =
+    searchParams.get("git_email") || searchParams.get("git-email");
   const noCheck = searchParams.get("no_check") || searchParams.get("no-check");
   const checkCmd =
     searchParams.get("check_cmd") || searchParams.get("check-cmd");
@@ -35,6 +39,8 @@ export function parseQueryPresetArgs(searchParams) {
   if (workDir) presetArgs.push("--work-dir", shellQuote(workDir));
   if (tmpDir) presetArgs.push("--tmp-dir", shellQuote(tmpDir));
   if (subGlobs) presetArgs.push("--tmpfs-submodules", shellQuote(subGlobs));
+  if (gitName) presetArgs.push("--git-name", shellQuote(gitName));
+  if (gitEmail) presetArgs.push("--git-email", shellQuote(gitEmail));
   if (noCheck === "1" || noCheck === "true") presetArgs.push("--no-check");
   if (checkCmd) presetArgs.push("--check-cmd", shellQuote(checkCmd));
 
