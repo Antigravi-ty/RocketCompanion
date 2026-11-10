@@ -15,13 +15,14 @@ PURPOSE & ARCHITECTURE (FOR AI AGENTS & DEVELOPERS)
   2. Ephemeral Artifacts & Dependencies on tmpfs (/tmp):
      Mounts heavy build/dependency directories onto /tmp (tmpfs RAM disk):
        - node_modules      -> /tmp/<slug>-node_modules
-       - pnpm store        -> /tmp/pnpm-store
-       - pnpm global bin   -> /tmp/pnpm-global/bin (linked to /usr/local/bin)
+       - pnpm store/cache  -> /tmp/pnpm-store & /tmp/pnpm-cache
        - Vite build outDir -> /tmp/<slug>-dist
        - Vite cache        -> /tmp/<slug>-vite
        - Tauri Rust target -> /tmp/<slug>-tauri-target (if src-tauri/ exists)
        - Cargo cache       -> /tmp/cargo-home          (if src-tauri/ exists)
        - Static submodules -> /tmp/<StaticsRepo>       (matching public,*Statics*)
+     Meanwhile, the pnpm binary itself is installed into persistent /usr/local
+     so `/usr/local/bin/pnpm` never becomes a dangling symlink if /tmp resets.
   3. Zero-Copy Hardlinks & Dangling Symlink Prevention:
      - Always runs `mkdir -p` on /tmp targets BEFORE `ln -sfn` so pnpm v12
        (Rust) never encounters a dangling symlink (which otherwise triggers
@@ -352,27 +353,40 @@ main() {
 
   local PROJECT_DIR="${WORK_DIR}/${REPO_NAME}"
   local PNPM_STORE="${TMP_DIR}/pnpm-store"
+  local PNPM_CACHE="${TMP_DIR}/pnpm-cache"
+  local NPM_CACHE="${TMP_DIR}/npm-cache"
   local NM_TARGET="${TMP_DIR}/${SLUG}-node_modules"
   local DIST_TARGET="${TMP_DIR}/${SLUG}-dist"
   local VITE_TARGET="${TMP_DIR}/${SLUG}-vite"
   local TAURI_TARGET="${TMP_DIR}/${SLUG}-tauri-target"
   local CARGO_HOME_TMP="${TMP_DIR}/cargo-home"
 
-  mkdir -p "$WORK_DIR" "$TMP_DIR" "$PNPM_STORE" "$NM_TARGET" "$DIST_TARGET" "$VITE_TARGET"
+  mkdir -p "$WORK_DIR" "$TMP_DIR" "$PNPM_STORE" "$PNPM_CACHE" "$NPM_CACHE" "$NM_TARGET" "$DIST_TARGET" "$VITE_TARGET"
   ensure_fix_sh_persisted "$WORK_DIR"
 
-  local PNPM_GLOBAL_DIR="${TMP_DIR}/pnpm-global"
-  export PATH="${PNPM_GLOBAL_DIR}/bin:/usr/local/bin:${PATH}"
-  if [ ! -x "${PNPM_GLOBAL_DIR}/bin/pnpm" ] && ! command -v pnpm >/dev/null 2>&1; then
-    mkdir -p "$PNPM_GLOBAL_DIR"
-    npm install -g pnpm --prefix "$PNPM_GLOBAL_DIR" --force --no-audit --no-fund >/dev/null 2>&1 || npm install -g pnpm --force
+  local PNPM_PERSIST_PREFIX="/usr/local"
+  if [ "$ROOT_PREFIX" != "/" ]; then
+    PNPM_PERSIST_PREFIX="${ROOT_PREFIX}/usr/local"
   fi
-  if [ -x "${PNPM_GLOBAL_DIR}/bin/pnpm" ]; then
-    mkdir -p /usr/local/bin 2>/dev/null || true
-    ln -sfn "${PNPM_GLOBAL_DIR}/bin/pnpm" /usr/local/bin/pnpm 2>/dev/null || true
-    [ -e "${PNPM_GLOBAL_DIR}/bin/pnpx" ] && ln -sfn "${PNPM_GLOBAL_DIR}/bin/pnpx" /usr/local/bin/pnpx 2>/dev/null || true
+  export PATH="${PNPM_PERSIST_PREFIX}/bin:/usr/local/bin:${PATH}"
+
+  # Clean up legacy dangling symlinks that pointed to /tmp/pnpm-global
+  for bin_name in pnpm pnpx pn pnx; do
+    local bin_path="${PNPM_PERSIST_PREFIX}/bin/${bin_name}"
+    if [ -L "$bin_path" ] && [ ! -e "$bin_path" ]; then
+      rm -f "$bin_path"
+    fi
+  done
+
+  if ! command -v pnpm >/dev/null 2>&1 || ! pnpm --version >/dev/null 2>&1; then
+    mkdir -p "${PNPM_PERSIST_PREFIX}/bin" "${PNPM_PERSIST_PREFIX}/lib" 2>/dev/null || true
+    npm install -g pnpm --prefix "$PNPM_PERSIST_PREFIX" --cache "$NPM_CACHE" --force --no-audit --no-fund >/dev/null 2>&1 || \
+      npm install -g pnpm --cache "$NPM_CACHE" --force
+    rm -rf /root/.npm 2>/dev/null || true
   fi
   pnpm config set store-dir "$PNPM_STORE" --global >/dev/null 2>&1 || true
+  pnpm config set cache-dir "$PNPM_CACHE" --global >/dev/null 2>&1 || true
+  rm -rf /root/.cache/pnpm 2>/dev/null || true
 
   if [ ! -d "${PROJECT_DIR}/.git" ] || ! git -C "$PROJECT_DIR" rev-parse HEAD >/dev/null 2>&1; then
     rm -rf "$PROJECT_DIR"

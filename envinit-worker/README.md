@@ -29,8 +29,8 @@ envinit-worker/
 4. **Commit-Locked Submodule SHA Extraction & Auto-Sync Git Hooks (`HEAD:<sub_path>`)**:
    - Directly extracts the exact gitlink commit SHA pinned in the parent commit tree (`git rev-parse -q --verify "HEAD:<sub_path>"`) and explicitly fetches/checks out that exact commit for both code submodules (`src/ui-core`) and `tmpfs` static submodules (`public`), preventing remote default-branch (`a1`/`main`) drift or unpinned `git clone` bumps.
    - Installs `.git/hooks/post-checkout`, `.git/hooks/post-merge`, and `.git/hooks/post-rewrite` so `src/ui-core` automatically syncs to `HEAD:src/ui-core` whenever a local branch switch or merge updates the submodule pointer.
-5. **Global Subshell `pnpm` & `pnpx` Availability**:
-   - Automatically symlinks `/tmp/pnpm-global/bin/pnpm` and `/tmp/pnpm-global/bin/pnpx` into `/usr/local/bin/pnpm` and `/usr/local/bin/pnpx` so every subsequent non-interactive subshell tool call can invoke `pnpm` directly without losing `PATH`.
+5. **Persistent `/usr/local` `pnpm` & `pnpx` Availability (Zero Dangling Symlinks)**:
+   - Installs `pnpm` directly into persistent `/usr/local` (`/usr/local/bin/pnpm` & `/usr/local/bin/pnpx`) while keeping `pnpm` store (`/tmp/pnpm-store`), `pnpm` cache (`/tmp/pnpm-cache`), and `npm` cache (`/tmp/npm-cache`) on `tmpfs`, so container snapshot restores (where `/tmp` is wiped) never leave `/usr/local/bin/pnpm` as a dangling symlink.
 6. **Automatic `/work/fix.sh` Persistence**:
    - When executed via pipe (`curl -fsSL https://envinit.maboco-mark.workers.dev/ | bash`) or from another path, the script automatically persists itself to `/work/fix.sh` (`chmod +x`) so container snapshot restores (where `/tmp` is wiped) can always recover in one command: `/work/fix.sh --no-check`.
 7. **Complete `tmpfs` Offloading (Zero OverlayFS Bloat)**:
