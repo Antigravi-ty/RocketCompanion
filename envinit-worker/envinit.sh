@@ -378,14 +378,50 @@ main() {
     fi
   done
 
-  if ! command -v pnpm >/dev/null 2>&1 || ! pnpm --version >/dev/null 2>&1; then
+  local REAL_PNPM_BIN="${PNPM_PERSIST_PREFIX}/lib/node_modules/pnpm/pnpm"
+  if [ ! -x "$REAL_PNPM_BIN" ]; then
+    rm -f "${PNPM_PERSIST_PREFIX}/bin/pnpm" "${PNPM_PERSIST_PREFIX}/bin/pnpx" "${PNPM_PERSIST_PREFIX}/bin/pn" "${PNPM_PERSIST_PREFIX}/bin/pnx" 2>/dev/null || true
     mkdir -p "${PNPM_PERSIST_PREFIX}/bin" "${PNPM_PERSIST_PREFIX}/lib" 2>/dev/null || true
     npm install -g pnpm --prefix "$PNPM_PERSIST_PREFIX" --cache "$NPM_CACHE" --force --no-audit --no-fund >/dev/null 2>&1 || \
       npm install -g pnpm --cache "$NPM_CACHE" --force
-    rm -rf /root/.npm 2>/dev/null || true
+    rm -rf /root/.npm "$NPM_CACHE" 2>/dev/null || true
   fi
-  pnpm config set store-dir "$PNPM_STORE" --global >/dev/null 2>&1 || true
-  pnpm config set cache-dir "$PNPM_CACHE" --global >/dev/null 2>&1 || true
+
+  mkdir -p "${PNPM_PERSIST_PREFIX}/etc/pnpm" 2>/dev/null || true
+  cat << EOF > "${PNPM_PERSIST_PREFIX}/etc/pnpm/config.yaml"
+cacheDir: ${PNPM_CACHE}
+storeDir: ${PNPM_STORE}
+verifyDepsBeforeRun: false
+confirmModulesPurge: false
+EOF
+
+  if [ -x "$REAL_PNPM_BIN" ]; then
+    rm -f "${PNPM_PERSIST_PREFIX}/bin/pnpm"
+    cat << EOF > "${PNPM_PERSIST_PREFIX}/bin/pnpm"
+#!/usr/bin/env bash
+export XDG_CONFIG_HOME="${PNPM_PERSIST_PREFIX}/etc"
+export XDG_CACHE_HOME="${TMP_DIR}"
+export XDG_DATA_HOME="${TMP_DIR}"
+export XDG_STATE_HOME="${TMP_DIR}"
+for link_dir in dist .vite src-tauri/target; do
+  if [ -L "\$link_dir" ] && [ ! -e "\$link_dir" ]; then
+    mkdir -p "\$(readlink "\$link_dir")"
+  fi
+done
+if [ -L "node_modules" ] && [ -f "package.json" ]; then
+  NM_TARGET="\$(readlink "node_modules")"
+  if [ ! -e "node_modules" ] || [ ! -f "node_modules/.modules.yaml" ]; then
+    mkdir -p "\$NM_TARGET" "${PNPM_STORE}"
+    case "\${1:-}" in
+      install|i|add|remove|config|--version|-v|--help|-h) ;;
+      *) "${REAL_PNPM_BIN}" install --store-dir="${PNPM_STORE}" --config.confirm-modules-purge=false >&2 ;;
+    esac
+  fi
+fi
+exec "${REAL_PNPM_BIN}" "\$@"
+EOF
+    chmod +x "${PNPM_PERSIST_PREFIX}/bin/pnpm"
+  fi
   rm -rf /root/.cache/pnpm 2>/dev/null || true
 
   if [ ! -d "${PROJECT_DIR}/.git" ] || ! git -C "$PROJECT_DIR" rev-parse HEAD >/dev/null 2>&1; then
