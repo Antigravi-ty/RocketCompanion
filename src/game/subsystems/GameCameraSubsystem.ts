@@ -380,6 +380,12 @@ export class GameCameraSubsystem {
     const numCars = r.interpolator?.getCurrHeaderView?.()?.numCars ?? r.interpolator?.numCars ?? 0;
     r.arena?.nameTagSystem?.update(r.arena, numCars, r.camera.camera);
     r.arena?.spatialAudioVisualizer?.update(r.arena, r.camera.camera);
+    r.arena?.carNoseOrientationArrows?.update(
+      effectiveCarObject,
+      r.arena?.vehiclePresets?.[obsTargetIdx] ?? r.arena?.vehiclePreset ?? 'hitbox-octane',
+      r.camera.camera,
+      r.keyboard
+    );
 
     const hud = hudStore.getState();
     hud.setBallCamActive(r.camera.ballCam);

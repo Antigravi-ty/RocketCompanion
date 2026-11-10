@@ -49,6 +49,7 @@ import { GoalBarrierVisual } from './arena/GoalBarrierVisual.ts';
 import { GoalVolumeHitboxVisual } from './arena/GoalVolumeHitboxVisual.ts';
 import { RespawnGhostPreview } from './arena/RespawnGhostPreview.ts';
 import { SpatialAudioDebugVisualizer } from './arena/SpatialAudioDebugVisualizer.ts';
+import { CarNoseOrientationArrows } from './arena/CarNoseOrientationArrows.ts';
 import { SupersonicWheelTrailSystem } from './vehicle/supersonic-trail/SupersonicWheelTrailSystem.ts';
 import type { VehicleBoostEmitter } from './vehicle/boost/vehicleBoostEmitter.ts';
 import { DemolitionSimPreviewController, type DemolitionEffect } from './DemolitionEffect.ts';
@@ -96,6 +97,7 @@ export class ArenaWorld {
   public nameTagSystem: VehicleNameTagSystem;
   public respawnGhostPreview: RespawnGhostPreview;
   public spatialAudioVisualizer: SpatialAudioDebugVisualizer;
+  public carNoseOrientationArrows: CarNoseOrientationArrows;
   public supersonicWheelTrailSystem: SupersonicWheelTrailSystem;
   public demolitionSimPreview: DemolitionSimPreviewController;
   public _headerView: ArenaHeaderView;
@@ -175,6 +177,7 @@ export class ArenaWorld {
     this.spatialAudioVisualizer = new SpatialAudioDebugVisualizer(this.scene, () =>
       this.markRenderTreeChanged()
     );
+    this.carNoseOrientationArrows = new CarNoseOrientationArrows(this.scene);
     this.supersonicWheelTrailSystem = new SupersonicWheelTrailSystem(this.scene);
     this.demolitionSimPreview = new DemolitionSimPreviewController(this.scene, () =>
       this.markRenderTreeChanged()
@@ -417,6 +420,7 @@ export class ArenaWorld {
     this.nameTagSystem?.dispose?.();
     this.respawnGhostPreview?.dispose?.();
     this.spatialAudioVisualizer?.dispose?.();
+    this.carNoseOrientationArrows?.dispose?.();
     this.supersonicWheelTrailSystem?.dispose?.();
     this.demolitionSimPreview?.dispose?.();
     this.lighting?.dispose?.();
