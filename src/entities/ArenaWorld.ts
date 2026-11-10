@@ -55,6 +55,7 @@ import { GoalBarrierVisual } from './arena/GoalBarrierVisual.ts';
 import { GoalVolumeHitboxVisual } from './arena/GoalVolumeHitboxVisual.ts';
 import { RespawnGhostPreview } from './arena/RespawnGhostPreview.ts';
 import { SpatialAudioDebugVisualizer } from './arena/SpatialAudioDebugVisualizer.ts';
+import { CarNoseOrientationArrows } from './arena/CarNoseOrientationArrows.ts';
 import { SupersonicWheelTrailSystem } from './vehicle/supersonic-trail/SupersonicWheelTrailSystem.ts';
 import type { VehicleBoostEmitter } from './vehicle/boost/vehicleBoostEmitter.ts';
 import { DemolitionSimPreviewController, type DemolitionEffect } from './DemolitionEffect.ts';
@@ -102,6 +103,7 @@ export class ArenaWorld {
   public nameTagSystem: VehicleNameTagSystem;
   public respawnGhostPreview: RespawnGhostPreview;
   public spatialAudioVisualizer: SpatialAudioDebugVisualizer;
+  public carNoseOrientationArrows: CarNoseOrientationArrows;
   public supersonicWheelTrailSystem: SupersonicWheelTrailSystem;
   public demolitionSimPreview: DemolitionSimPreviewController;
   public _headerView: ArenaHeaderView = new ArenaHeaderView();
@@ -158,12 +160,12 @@ export class ArenaWorld {
     this.carVerticalVelZUu = this.aerialClimbTracker.carVerticalVelZUu;
     this.carAirborneFlipExhausted = this.aerialClimbTracker.carAirborneFlipExhausted;
     this.carAerialClimbStatuses = this.aerialClimbTracker.carAerialClimbStatuses;
-
     this.nameTagSystem = new VehicleNameTagSystem(arenaScene);
     this.respawnGhostPreview = new RespawnGhostPreview(this);
     this.spatialAudioVisualizer = new SpatialAudioDebugVisualizer(arenaScene, () =>
       this.markRenderTreeChanged()
     );
+    this.carNoseOrientationArrows = new CarNoseOrientationArrows(arenaScene);
     this.supersonicWheelTrailSystem = new SupersonicWheelTrailSystem(arenaScene);
     this.demolitionSimPreview = new DemolitionSimPreviewController(arenaScene, () =>
       this.markRenderTreeChanged()

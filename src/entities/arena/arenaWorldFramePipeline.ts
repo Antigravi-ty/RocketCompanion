@@ -32,6 +32,7 @@ import type { GoalBarrierVisual } from './GoalBarrierVisual.ts';
 import type { GoalVolumeHitboxVisual } from './GoalVolumeHitboxVisual.ts';
 import type { RespawnGhostPreview } from './RespawnGhostPreview.ts';
 import type { SpatialAudioDebugVisualizer } from './SpatialAudioDebugVisualizer.ts';
+import type { CarNoseOrientationArrows } from './CarNoseOrientationArrows.ts';
 import type { SupersonicWheelTrailSystem } from '../vehicle/supersonic-trail/SupersonicWheelTrailSystem.ts';
 import type { DemolitionSimPreviewController } from '../DemolitionEffect.ts';
 
@@ -56,6 +57,7 @@ export interface ArenaWorldLifecycleState extends ArenaVehicleStepTarget {
   nameTagSystem: VehicleNameTagSystem;
   respawnGhostPreview: RespawnGhostPreview;
   spatialAudioVisualizer: SpatialAudioDebugVisualizer;
+  carNoseOrientationArrows: CarNoseOrientationArrows;
   supersonicWheelTrailSystem: SupersonicWheelTrailSystem;
   demolitionSimPreview: DemolitionSimPreviewController;
   _headerView: ArenaHeaderView;
@@ -207,6 +209,7 @@ export function disposeArenaWorldSubsystems(world: ArenaWorldLifecycleState): vo
   world.nameTagSystem.dispose();
   world.respawnGhostPreview.dispose();
   world.spatialAudioVisualizer.dispose();
+  world.carNoseOrientationArrows.dispose();
   world.supersonicWheelTrailSystem.dispose();
   world.demolitionSimPreview.dispose();
   world.lighting.dispose();
