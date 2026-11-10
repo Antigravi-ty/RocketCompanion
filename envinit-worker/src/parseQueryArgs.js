@@ -1,0 +1,50 @@
+/**
+ * Query Parameter Parser & Shell-Safe Preset Argument Injector
+ */
+
+export function shellQuote(val) {
+  return "'" + String(val).replace(/'/g, "'\\''") + "'";
+}
+
+export function parseQueryPresetArgs(searchParams) {
+  const presetArgs = [];
+
+  const repo = searchParams.get("repo");
+  const targetRef =
+    searchParams.get("ref") ||
+    searchParams.get("branch") ||
+    searchParams.get("commit");
+  const newBranch =
+    searchParams.get("new_branch") || searchParams.get("new-branch");
+  const name = searchParams.get("name");
+  const root = searchParams.get("root");
+  const workDir = searchParams.get("work_dir") || searchParams.get("work-dir");
+  const tmpDir = searchParams.get("tmp_dir") || searchParams.get("tmp-dir");
+  const subGlobs =
+    searchParams.get("tmpfs_submodules") ||
+    searchParams.get("tmpfs-submodules");
+  const noCheck = searchParams.get("no_check") || searchParams.get("no-check");
+  const checkCmd =
+    searchParams.get("check_cmd") || searchParams.get("check-cmd");
+
+  if (repo) presetArgs.push("--repo", shellQuote(repo));
+  if (targetRef) presetArgs.push("--ref", shellQuote(targetRef));
+  if (newBranch) presetArgs.push("--new-branch", shellQuote(newBranch));
+  if (name) presetArgs.push("--name", shellQuote(name));
+  if (root) presetArgs.push("--root", shellQuote(root));
+  if (workDir) presetArgs.push("--work-dir", shellQuote(workDir));
+  if (tmpDir) presetArgs.push("--tmp-dir", shellQuote(tmpDir));
+  if (subGlobs) presetArgs.push("--tmpfs-submodules", shellQuote(subGlobs));
+  if (noCheck === "1" || noCheck === "true") presetArgs.push("--no-check");
+  if (checkCmd) presetArgs.push("--check-cmd", shellQuote(checkCmd));
+
+  return presetArgs;
+}
+
+export function injectPresetArgs(scriptText, presetArgs) {
+  if (!presetArgs || presetArgs.length === 0) {
+    return scriptText;
+  }
+  const callLine = "main " + presetArgs.join(" ") + ' "$@"\n';
+  return scriptText.replace(/main "\$@"\s*$/, callLine);
+}
