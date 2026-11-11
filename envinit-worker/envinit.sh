@@ -4,7 +4,7 @@ set -euo pipefail
 print_help() {
   cat << 'HELP_EOF'
 ================================================================================
- Universal OverlayFS + tmpfs Sandbox Initializer (Vite / Tauri / pnpm / npm)
+ Universal OverlayFS + tmpfs Sandbox Initializer (Vite / Rust WASM / Tauri)
 ================================================================================
 
 PURPOSE & ARCHITECTURE (FOR AI AGENTS & DEVELOPERS)
@@ -12,51 +12,48 @@ PURPOSE & ARCHITECTURE (FOR AI AGENTS & DEVELOPERS)
      Keeps only git-tracked source code and small code submodules (e.g.
      src/ui-core) on OverlayFS (/work) so code edits survive container
      snapshot restores without exhausting the 100 MB OverlayFS quota.
-  2. Ephemeral Artifacts & Dependencies on tmpfs (/tmp):
-     Mounts ALL heavy binaries, dependencies, and build outputs onto /tmp (RAM):
-       - pnpm binary (63MB) -> /tmp/pnpm-global (with 2KB self-healing wrapper
-                               at /usr/local/bin/pnpm & /usr/local/bin/pnpx)
+  2. Ephemeral Artifacts, Toolchains & Dependencies on tmpfs (/tmp):
+     Mounts ALL heavy binaries, toolchains, dependencies, and build outputs onto
+     /tmp (RAM) and purges any accidental caches under /root:
+       - pnpm binary (63MB) -> /tmp/pnpm-global (2KB wrapper at /usr/local/bin/pnpm)
+       - Rust toolchain     -> /tmp/rustup & /tmp/cargo-home (2KB lazy-bootstrap
+                               wrappers at /usr/local/bin/{cargo,rustc,rustup})
        - node_modules       -> /tmp/<slug>-node_modules
        - pnpm store/cache   -> /tmp/pnpm-store & /tmp/pnpm-cache
        - Vite build outDir  -> /tmp/<slug>-dist
        - Vite cache         -> /tmp/<slug>-vite
-       - Tauri Rust target  -> /tmp/<slug>-tauri-target (if src-tauri/ exists)
-       - Cargo cache        -> /tmp/cargo-home          (if src-tauri/ exists)
-       - Static submodules  -> /tmp/<StaticsRepo>       (matching public,*Statics*)
-  3. Zero-OverlayFS Self-Healing pnpm Wrapper (/usr/local/bin/pnpm):
-     - Writes a small (~2 KB) real Bash wrapper script at `/usr/local/bin/pnpm`
-       (never a symlink!) while installing the 63 MB `@pnpm/linux-x64` binary into
-       `/tmp/pnpm-global` (tmpfs) and purging `/usr/local/lib/node_modules/pnpm`.
-     - If `/tmp` is wiped across container snapshot restores, running any `pnpm`
-       command automatically reinstalls `pnpm` into `/tmp/pnpm-global`, restores
-       missing `/tmp` symlink targets (`public`, `dist`, `.vite`, `node_modules`),
-       and runs `/work/fix.sh --no-check` if needed.
+       - WASM Rust target   -> /tmp/rc-wasm-target       (if crates/ exists)
+       - WASM binary output -> /tmp/rc-wasm-target/core.wasm (if untracked)
+       - Tauri Rust target  -> /tmp/<slug>-tauri-target  (if src-tauri/ exists)
+       - Static submodules  -> /tmp/<StaticsRepo>        (matching public,*Statics*)
+  3. Zero-OverlayFS Self-Healing Wrappers (/usr/local/bin/{pnpm,pnpx,cargo,rustc,rustup}):
+     - pnpm: Installs `@pnpm/linux-x64` into `/tmp/pnpm-global` and purges
+       `/usr/local/lib/node_modules/pnpm`. Auto-reinstalls on `/tmp` reset.
+     - cargo / rustc / rustup: Lazy-bootstraps minimal Rust `stable` +
+       `wasm32-unknown-unknown` into `/tmp/rustup` and `/tmp/cargo-home` only
+       when a Rust/WASM command is actually invoked (0s overhead for UI-only
+       tasks, or pre-warmed eagerly via `--with-rust`).
+     - Smart Dual-Rust `CARGO_TARGET_DIR` routing: Automatically routes
+       `src-tauri` builds to `/tmp/<slug>-tauri-target` and `crates` WASM builds
+       to `/tmp/rc-wasm-target` (100% shared cache between bare `cargo check`
+       and `pnpm build:wasm:dev`).
   4. Zero-Copy Hardlinks & Dangling Symlink Prevention:
      - Always runs `mkdir -p` on /tmp targets BEFORE `ln -sfn` so pnpm v12
-       (Rust) never encounters a dangling symlink (which otherwise triggers
-       ERR_PNPM_PACKAGE_MANAGER_CREATE_SLOT_DIR / os error 17 EEXIST).
-     - Because both /tmp/<slug>-node_modules and /tmp/pnpm-store live on the
-       same /tmp mount point, pnpm uses zero-copy hardlinks instead of falling
-       back to cross-device (EXDEV) physical file copies.
+       (Rust) and Cargo never encounter dangling symlinks.
+     - Both `pnpm` and `cargo` wrappers auto-heal dangling symlink targets
+       (`public`, `dist`, `.vite`, `crates/target`, `src-tauri/target`,
+       `src/physics/core.wasm`, `node_modules`) after container `/tmp` resets.
   5. Git Identity, Hook Self-Healing & Stale Submodule Cleanup:
      - Configures default Git identity (`user.name` & `user.email`) globally and
        per-repo so local `git merge`, `git rebase`, and `git cherry-pick` never
-       fail with `unable to auto-detect email address` under `GIT_TERMINAL_PROMPT=0`.
+       fail under `GIT_TERMINAL_PROMPT=0`.
      - Supports branches, tags, full commit SHAs, or abbreviated commit hashes
-       via `-b` / `--branch` / `--ref`, plus `--new-branch <z/name>`. When `--ref`
-       is a commit SHA and `--new-branch` is omitted, automatically attaches HEAD
-       to the matching remote branch on `origin` (or `z/ref-<short_sha>`) so the
-       working tree is never left in `detached HEAD` state.
-     - Cleans up residual submodule `.git` metadata (e.g. `src/ui-core/.git` and
-       `.git/modules/src/ui-core`) when switching from legacy submodule branches
-       to branches where the directory is tracked as regular files (`alpha`).
-     - Installs `post-checkout`, `post-merge`, and `post-rewrite` Git hooks that:
-       (a) automatically recreate the `/tmp/<StaticsRepo>` symlink and reapply
-           `--assume-unchanged` whenever `git reset --hard` or `git checkout -f`
-           replaces a `tmpfs` static submodule (`public`) with an empty directory;
-       (b) keep code submodules strictly locked to `HEAD:<sub_path>`.
-     - Prunes unreachable loose git objects (`git prune`) to prevent `.git/objects`
-       bloat on OverlayFS.
+       via `-b` / `--branch` / `--ref`, plus `--new-branch <z/name>`, without
+       leaving the working tree in `detached HEAD` state.
+     - Installs `post-checkout`, `post-merge`, and `post-rewrite` Git hooks (plus
+       `/usr/local/bin/git` wrapper for `git reset --hard`) that automatically
+       restore `/tmp` symlinks (`public`, `crates/target`, `src-tauri/target`,
+       untracked `src/physics/core.wasm`) and lock code submodules to `HEAD`.
 
 USAGE
   /work/fix.sh [OPTIONS]
@@ -78,6 +75,8 @@ OPTIONS
   --git-name <name>             Git user.name for local merges/commits (default: "Mark").
   --git-email <email>           Git user.email for local merges/commits
                                 (default: "29165094+MaBoCoMark@users.noreply.github.com").
+  --with-rust                   Eagerly bootstrap Rust + wasm32 toolchain into /tmp
+                                during initialization (default: lazy on first cargo call).
   --no-check                    Skip post-install verification check.
   --radar-args <args>           Arguments passed to default `pnpm radar` check
                                 (default: "--no-tsc").
@@ -89,10 +88,10 @@ EXAMPLES (MULTI-REPO, COMMIT CHECKOUT & SNAPSHOT RECOVERY)
   /work/fix.sh
 
   # 2. Checkout a specific commit hash (or branch) and create a working branch:
-  /work/fix.sh --ref 77755f1e --new-branch z/my-feature --no-check
+  /work/fix.sh --ref 932af8b --new-branch z/my-feature --no-check
 
   # 3. Initialize via Worker URL query parameters:
-  curl -fsSL "https://envinit.maboco-mark.workers.dev/?ref=77755f1e&no_check=1" | bash
+  curl -fsSL "https://envinit.maboco-mark.workers.dev/?ref=932af8b&no_check=1" | bash
 
   # 4. Recover after container snapshot restore (when /tmp was wiped):
   /work/fix.sh --no-check
@@ -111,6 +110,7 @@ parse_cli_args() {
   TMPFS_SUBMODULES="public,*Statics*,*statics*"
   GIT_USER_NAME="${GIT_AUTHOR_NAME:-Mark}"
   GIT_USER_EMAIL="${GIT_AUTHOR_EMAIL:-29165094+MaBoCoMark@users.noreply.github.com}"
+  WITH_RUST=0
   RUN_CHECK=1
   RADAR_ARGS="--no-tsc"
   CHECK_CMD=""
@@ -205,6 +205,10 @@ parse_cli_args() {
         GIT_USER_EMAIL="${1#*=}"
         shift 1
         ;;
+      --with-rust)
+        WITH_RUST=1
+        shift 1
+        ;;
       --no-check)
         RUN_CHECK=0
         shift 1
@@ -296,6 +300,8 @@ export XDG_CONFIG_HOME="${persist_prefix}/etc"
 export XDG_CACHE_HOME="${tmp_dir}"
 export XDG_DATA_HOME="${tmp_dir}"
 export XDG_STATE_HOME="${tmp_dir}"
+export CARGO_HOME="\${CARGO_HOME:-${tmp_dir}/cargo-home}"
+export RUSTUP_HOME="\${RUSTUP_HOME:-${tmp_dir}/rustup}"
 
 REAL_PNPM_PREFIX="${real_pnpm_prefix}"
 REAL_PNPM="\${REAL_PNPM_PREFIX}/bin/pnpm"
@@ -311,9 +317,15 @@ if [ ! -x "\$REAL_PNPM" ]; then
   fi
 fi
 
-for link_dir in dist .vite src-tauri/target public; do
+TOP_DIR="\$(/usr/bin/git rev-parse --show-toplevel 2>/dev/null || pwd)"
+for link_dir in dist .vite crates/target src-tauri/target public "\${TOP_DIR}/dist" "\${TOP_DIR}/.vite" "\${TOP_DIR}/crates/target" "\${TOP_DIR}/src-tauri/target" "\${TOP_DIR}/public"; do
   if [ -L "\$link_dir" ] && [ ! -e "\$link_dir" ]; then
     mkdir -p "\$(readlink "\$link_dir")" 2>/dev/null || true
+  fi
+done
+for wasm_link in "src/physics/core.wasm" "\${TOP_DIR}/src/physics/core.wasm"; do
+  if [ -L "\$wasm_link" ]; then
+    mkdir -p "\$(dirname "\$(readlink "\$wasm_link")")" 2>/dev/null || true
   fi
 done
 
@@ -340,13 +352,184 @@ fi
 exec "${real_pnpx_bin}" "\$@"
 EOF
   chmod +x "${persist_prefix}/bin/pnpx"
+}
 
-  # Install a lightweight git wrapper at /usr/local/bin/git so `git reset --hard`
-  # (which natively does not trigger post-checkout in Git) automatically invokes
-  # .git/hooks/post-checkout to restore tmpfs submodule symlinks (e.g. public -> /tmp/...)
+setup_tmpfs_rust_wrappers() {
+  local persist_prefix="$1"
+  local tmp_dir="$2"
+  local cargo_home_tmp="${tmp_dir}/cargo-home"
+  local rustup_home_tmp="${tmp_dir}/rustup"
+  local wasm_target_dir="${tmp_dir}/rc-wasm-target"
+
+  # Purge any accidental Rust caches in /root (OverlayFS)
+  rm -rf /root/.cargo /root/.rustup 2>/dev/null || true
+  mkdir -p "${persist_prefix}/bin" 2>/dev/null || true
+
+  for bin_name in cargo rustc rustup; do
+    rm -f "${persist_prefix}/bin/${bin_name}" 2>/dev/null || true
+  done
+
+  cat << EOF > "${persist_prefix}/bin/rustup"
+#!/usr/bin/env bash
+export CARGO_HOME="${cargo_home_tmp}"
+export RUSTUP_HOME="${rustup_home_tmp}"
+rm -rf /root/.cargo /root/.rustup 2>/dev/null || true
+
+REAL_RUSTUP="\${CARGO_HOME}/bin/rustup"
+REAL_CARGO="\${CARGO_HOME}/bin/cargo"
+REAL_RUSTC="\${CARGO_HOME}/bin/rustc"
+
+if [ ! -x "\$REAL_RUSTUP" ] || [ ! -x "\$REAL_CARGO" ] || [ ! -x "\$REAL_RUSTC" ]; then
+  echo "[rust-wrapper] Lazy-bootstrapping Rust (stable + wasm32-unknown-unknown) into ${tmp_dir} (tmpfs)..." >&2
+  mkdir -p "\$CARGO_HOME" "\$RUSTUP_HOME" "${wasm_target_dir}" 2>/dev/null || true
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    CARGO_HOME="\$CARGO_HOME" RUSTUP_HOME="\$RUSTUP_HOME" sh -s -- \
+    -y --default-toolchain stable --profile minimal --target wasm32-unknown-unknown --no-modify-path >&2
+  rm -rf /root/.cargo /root/.rustup /root/.wget-hsts 2>/dev/null || true
+fi
+
+TOP_DIR="\$(/usr/bin/git rev-parse --show-toplevel 2>/dev/null || pwd)"
+for link_dir in dist .vite crates/target src-tauri/target public "\${TOP_DIR}/dist" "\${TOP_DIR}/.vite" "\${TOP_DIR}/crates/target" "\${TOP_DIR}/src-tauri/target" "\${TOP_DIR}/public"; do
+  if [ -L "\$link_dir" ] && [ ! -e "\$link_dir" ]; then
+    mkdir -p "\$(readlink "\$link_dir")" 2>/dev/null || true
+  fi
+done
+for wasm_link in "src/physics/core.wasm" "\${TOP_DIR}/src/physics/core.wasm"; do
+  if [ -L "\$wasm_link" ]; then
+    mkdir -p "\$(dirname "\$(readlink "\$wasm_link")")" 2>/dev/null || true
+  fi
+done
+
+export PATH="\${CARGO_HOME}/bin:${persist_prefix}/bin:/usr/local/bin:\${PATH}"
+exec "\$REAL_RUSTUP" "\$@"
+EOF
+  chmod +x "${persist_prefix}/bin/rustup"
+
+  cat << EOF > "${persist_prefix}/bin/rustc"
+#!/usr/bin/env bash
+export CARGO_HOME="${cargo_home_tmp}"
+export RUSTUP_HOME="${rustup_home_tmp}"
+rm -rf /root/.cargo /root/.rustup 2>/dev/null || true
+
+REAL_RUSTC="\${CARGO_HOME}/bin/rustc"
+if [ ! -x "\$REAL_RUSTC" ]; then
+  "${persist_prefix}/bin/rustup" --version >/dev/null 2>&1 || true
+fi
+
+TOP_DIR="\$(/usr/bin/git rev-parse --show-toplevel 2>/dev/null || pwd)"
+for link_dir in dist .vite crates/target src-tauri/target public "\${TOP_DIR}/dist" "\${TOP_DIR}/.vite" "\${TOP_DIR}/crates/target" "\${TOP_DIR}/src-tauri/target" "\${TOP_DIR}/public"; do
+  if [ -L "\$link_dir" ] && [ ! -e "\$link_dir" ]; then
+    mkdir -p "\$(readlink "\$link_dir")" 2>/dev/null || true
+  fi
+done
+
+export PATH="\${CARGO_HOME}/bin:${persist_prefix}/bin:/usr/local/bin:\${PATH}"
+exec "\$REAL_RUSTC" "\$@"
+EOF
+  chmod +x "${persist_prefix}/bin/rustc"
+
+  cat << EOF > "${persist_prefix}/bin/cargo"
+#!/usr/bin/env bash
+export CARGO_HOME="${cargo_home_tmp}"
+export RUSTUP_HOME="${rustup_home_tmp}"
+rm -rf /root/.cargo /root/.rustup 2>/dev/null || true
+
+REAL_CARGO="\${CARGO_HOME}/bin/cargo"
+if [ ! -x "\$REAL_CARGO" ]; then
+  "${persist_prefix}/bin/rustup" --version >/dev/null 2>&1 || true
+fi
+
+TOP_DIR="\$(/usr/bin/git rev-parse --show-toplevel 2>/dev/null || pwd)"
+for link_dir in dist .vite crates/target src-tauri/target public "\${TOP_DIR}/dist" "\${TOP_DIR}/.vite" "\${TOP_DIR}/crates/target" "\${TOP_DIR}/src-tauri/target" "\${TOP_DIR}/public"; do
+  if [ -L "\$link_dir" ] && [ ! -e "\$link_dir" ]; then
+    mkdir -p "\$(readlink "\$link_dir")" 2>/dev/null || true
+  fi
+done
+for wasm_link in "src/physics/core.wasm" "\${TOP_DIR}/src/physics/core.wasm"; do
+  if [ -L "\$wasm_link" ]; then
+    mkdir -p "\$(dirname "\$(readlink "\$wasm_link")")" 2>/dev/null || true
+  fi
+done
+
+IS_TAURI_CTX=0
+case "\$PWD" in
+  */src-tauri|*/src-tauri/*) IS_TAURI_CTX=1 ;;
+esac
+case "\$*" in
+  *src-tauri*) IS_TAURI_CTX=1 ;;
+esac
+
+if [ -z "\${CARGO_TARGET_DIR:-}" ]; then
+  if [ "\$IS_TAURI_CTX" -eq 1 ]; then
+    REPO_SLUG="\$(basename "\$TOP_DIR" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-')"
+    REPO_SLUG="\${REPO_SLUG#-}"
+    REPO_SLUG="\${REPO_SLUG%-}"
+    export CARGO_TARGET_DIR="${tmp_dir}/\${REPO_SLUG:-rocketcompanion}-tauri-target"
+  else
+    export CARGO_TARGET_DIR="${wasm_target_dir}"
+  fi
+fi
+mkdir -p "\$CARGO_TARGET_DIR" 2>/dev/null || true
+
+export PATH="\${CARGO_HOME}/bin:${persist_prefix}/bin:/usr/local/bin:\${PATH}"
+
+SUBCMD="\${1:-}"
+if [ "\$IS_TAURI_CTX" -eq 1 ]; then
+  case "\$SUBCMD" in
+    check|build|test|run|clippy)
+      if ! command -v cc >/dev/null 2>&1; then
+        echo "[rust-wrapper] Note: Native host C linker (cc) & WebKitGTK dev headers are not pre-installed in this sandbox (installing 400MB+ packages onto / would exceed the 100MB OverlayFS limit). For WASM crates verification, run 'pnpm build:wasm:check' or 'cargo check --target wasm32-unknown-unknown' in crates/." >&2
+      fi
+      ;;
+  esac
+else
+  case "\$SUBCMD" in
+    check|build|clippy)
+      if [ -z "\${CARGO_BUILD_TARGET:-}" ] && [[ "\$*" != *"--target"* ]]; then
+        case "\$PWD" in
+          */crates|*/crates/*) export CARGO_BUILD_TARGET="wasm32-unknown-unknown" ;;
+          *)
+            if [ -f "crates/Cargo.toml" ]; then
+              export CARGO_BUILD_TARGET="wasm32-unknown-unknown"
+            fi
+            ;;
+        esac
+      fi
+      if [ ! -f "Cargo.toml" ] && [ -f "crates/Cargo.toml" ] && [[ "\$*" != *"--manifest-path"* ]]; then
+        exec "\$REAL_CARGO" "\$SUBCMD" --manifest-path crates/Cargo.toml "\${@:2}"
+      fi
+      ;;
+  esac
+fi
+
+exec "\$REAL_CARGO" "\$@"
+EOF
+  chmod +x "${persist_prefix}/bin/cargo"
+}
+
+setup_git_wrapper() {
+  local persist_prefix="$1"
+  mkdir -p "${persist_prefix}/bin" 2>/dev/null || true
+
+  # Install a lightweight git wrapper at /usr/local/bin/git so:
+  # 1. Switching between branches where `src/physics/core.wasm` is untracked+symlinked
+  #    vs git-tracked never fails with "untracked working tree files would be overwritten".
+  # 2. `git reset --hard` (which natively does not trigger post-checkout in Git)
+  #    automatically invokes .git/hooks/post-checkout to restore tmpfs symlinks.
   if [ -x "/usr/bin/git" ]; then
     cat << 'EOF' > "${persist_prefix}/bin/git"
 #!/usr/bin/env bash
+case "$*" in
+  *checkout*|*switch*|*reset*|*merge*|*pull*|*rebase*)
+    TOP_DIR="$(/usr/bin/git rev-parse --show-toplevel 2>/dev/null || true)"
+    if [ -n "$TOP_DIR" ] && [ -L "${TOP_DIR}/src/physics/core.wasm" ]; then
+      if ! /usr/bin/git -C "$TOP_DIR" ls-files --error-unmatch "src/physics/core.wasm" >/dev/null 2>&1; then
+        rm -f "${TOP_DIR}/src/physics/core.wasm" 2>/dev/null || true
+      fi
+    fi
+    ;;
+esac
+
 /usr/bin/git "$@"
 GIT_EXIT=$?
 if [ $GIT_EXIT -eq 0 ]; then
@@ -387,6 +570,10 @@ cleanup_stale_submodules() {
     if [[ "$active_paths" != *" ${sname} "* ]]; then
       git -C "$repo_dir" config --local --remove-section "submodule.${sname}" 2>/dev/null || true
       rm -rf "${repo_dir}/${sname}/.git" "${repo_dir}/.git/modules/${sname}" 2>/dev/null || true
+      if [ -d "${repo_dir}/${sname}" ] && [ ! -L "${repo_dir}/${sname}" ]; then
+        git -C "$repo_dir" clean -fd -- "${sname}" >/dev/null 2>&1 || true
+        git -C "$repo_dir" checkout -f HEAD -- "${sname}" >/dev/null 2>&1 || true
+      fi
     fi
   done
 
@@ -397,6 +584,10 @@ cleanup_stale_submodules() {
       local rel_mod="${mod_git_dir#${repo_dir}/.git/modules/}"
       if [[ "$active_paths" != *" ${rel_mod} "* ]]; then
         rm -rf "${repo_dir}/${rel_mod}/.git" "$mod_git_dir" 2>/dev/null || true
+        if [ -d "${repo_dir}/${rel_mod}" ] && [ ! -L "${repo_dir}/${rel_mod}" ]; then
+          git -C "$repo_dir" clean -fd -- "${rel_mod}" >/dev/null 2>&1 || true
+          git -C "$repo_dir" checkout -f HEAD -- "${rel_mod}" >/dev/null 2>&1 || true
+        fi
       fi
     done < <(find "${repo_dir}/.git/modules" -mindepth 1 -maxdepth 3 -name "HEAD" 2>/dev/null | sed 's|/HEAD$||')
   fi
@@ -467,14 +658,19 @@ checkout_target_ref() {
   local new_branch="$3"
 
   if [ -n "$target_ref" ]; then
-    # Remove any residual .git inside former submodule directories before switching branches
+    # Remove any non-symlink submodule working directories before switching branches so
+    # git checkout -f never warns "unable to rmdir" or leaves stale submodule files behind
     find "$repo_dir" -mindepth 2 -maxdepth 3 -name ".git" | while IFS= read -r sub_git; do
       local rel_sub="${sub_git#${repo_dir}/}"
       rel_sub="${rel_sub%/.git}"
       if [ ! -L "${repo_dir}/${rel_sub}" ]; then
-        rm -rf "$sub_git" 2>/dev/null || true
+        rm -rf "${repo_dir:?}/${rel_sub}" 2>/dev/null || true
       fi
     done
+
+    if [ -L "${repo_dir}/src/physics/core.wasm" ] && ! git -C "$repo_dir" ls-files --error-unmatch "src/physics/core.wasm" >/dev/null 2>&1; then
+      rm -f "${repo_dir}/src/physics/core.wasm" 2>/dev/null || true
+    fi
 
     # Fetch remote ref or branch tips without pulling heavy tags unless needed
     if git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/${target_ref}"; then
@@ -542,9 +738,9 @@ install_git_submodule_hooks() {
 # 1. Restores tmpfs static submodule symlinks (e.g. public -> /tmp/<StaticsRepo>)
 #    and re-applies --assume-unchanged whenever \`git reset --hard\` or \`git checkout -f\`
 #    replaces the symlink with an empty directory on OverlayFS.
-# 2. Cleans up stale submodule .git directories when switching to branches (like alpha)
-#    where former submodules (e.g. src/ui-core) are tracked as regular files.
-# 3. Locks active non-tmpfs code submodules strictly to HEAD:<sub_path>.
+# 2. Restores dual-Rust tmpfs symlinks (crates/target, src-tauri/target, and untracked
+#    src/physics/core.wasm) when switching across Rust/WASM or Tauri branches.
+# 3. Cleans up stale submodule .git directories and locks code submodules to HEAD.
 set -u
 
 TMP_DIR="${tmp_dir}"
@@ -602,8 +798,43 @@ if [ -d ".git/modules" ]; then
     if [[ "\$active_paths" != *" \${rel_mod} "* ]]; then
       git config --local --remove-section "submodule.\${rel_mod}" 2>/dev/null || true
       rm -rf "\${rel_mod}/.git" "\$mod_git_dir" 2>/dev/null || true
+      if [ -d "\$rel_mod" ] && [ ! -L "\$rel_mod" ]; then
+        git clean -fd -- "\$rel_mod" >/dev/null 2>&1 || true
+        git checkout -f HEAD -- "\$rel_mod" >/dev/null 2>&1 || true
+      fi
     fi
   done < <(find ".git/modules" -mindepth 1 -maxdepth 3 -name "HEAD" 2>/dev/null | sed 's|/HEAD\$||')
+fi
+
+if [ -d "crates" ]; then
+  wasm_target_dir="\${TMP_DIR}/rc-wasm-target"
+  mkdir -p "\$wasm_target_dir" 2>/dev/null || true
+  if [ ! -L "crates/target" ] || [ "\$(readlink "crates/target" 2>/dev/null || true)" != "\$wasm_target_dir" ]; then
+    rm -rf "crates/target"
+    ln -sfn "\$wasm_target_dir" "crates/target"
+  fi
+  if [ -d "src/physics" ] && ! git ls-files --error-unmatch "src/physics/core.wasm" >/dev/null 2>&1; then
+    wasm_out_tmp="\${wasm_target_dir}/core.wasm"
+    if [ -f "src/physics/core.wasm" ] && [ ! -L "src/physics/core.wasm" ]; then
+      mv -f "src/physics/core.wasm" "\$wasm_out_tmp" 2>/dev/null || rm -f "src/physics/core.wasm"
+    fi
+    if [ ! -L "src/physics/core.wasm" ] || [ "\$(readlink "src/physics/core.wasm" 2>/dev/null || true)" != "\$wasm_out_tmp" ]; then
+      rm -rf "src/physics/core.wasm"
+      ln -sfn "\$wasm_out_tmp" "src/physics/core.wasm"
+    fi
+  fi
+fi
+
+if [ -d "src-tauri" ]; then
+  repo_slug="\$(basename "\$REPO_ROOT" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-')"
+  repo_slug="\${repo_slug#-}"
+  repo_slug="\${repo_slug%-}"
+  tauri_target_dir="\${TMP_DIR}/\${repo_slug:-rocketcompanion}-tauri-target"
+  mkdir -p "\$tauri_target_dir" 2>/dev/null || true
+  if [ ! -L "src-tauri/target" ] || [ "\$(readlink "src-tauri/target" 2>/dev/null || true)" != "\$tauri_target_dir" ]; then
+    rm -rf "src-tauri/target"
+    ln -sfn "\$tauri_target_dir" "src-tauri/target"
+  fi
 fi
 HOOK_EOF
 
@@ -766,8 +997,10 @@ main() {
   local NM_TARGET="${TMP_DIR}/${SLUG}-node_modules"
   local DIST_TARGET="${TMP_DIR}/${SLUG}-dist"
   local VITE_TARGET="${TMP_DIR}/${SLUG}-vite"
+  local WASM_TARGET_DIR="${TMP_DIR}/rc-wasm-target"
   local TAURI_TARGET="${TMP_DIR}/${SLUG}-tauri-target"
   local CARGO_HOME_TMP="${TMP_DIR}/cargo-home"
+  local RUSTUP_HOME_TMP="${TMP_DIR}/rustup"
 
   mkdir -p "$WORK_DIR" "$TMP_DIR" "$PNPM_STORE" "$PNPM_CACHE" "$NPM_CACHE" "$NM_TARGET" "$DIST_TARGET" "$VITE_TARGET"
   ensure_fix_sh_persisted "$WORK_DIR"
@@ -779,6 +1012,12 @@ main() {
   export PATH="${PNPM_PERSIST_PREFIX}/bin:/usr/local/bin:${PATH}"
 
   setup_tmpfs_pnpm_and_wrapper "$PNPM_PERSIST_PREFIX" "$TMP_DIR" "$WORK_DIR" "$PNPM_STORE" "$PNPM_CACHE" "$NPM_CACHE"
+  setup_tmpfs_rust_wrappers "$PNPM_PERSIST_PREFIX" "$TMP_DIR"
+  setup_git_wrapper "$PNPM_PERSIST_PREFIX"
+
+  if [ "${WITH_RUST:-0}" -eq 1 ]; then
+    "${PNPM_PERSIST_PREFIX}/bin/rustup" --version >/dev/null
+  fi
 
   if [ ! -d "${PROJECT_DIR}/.git" ] || ! git -C "$PROJECT_DIR" rev-parse HEAD >/dev/null 2>&1; then
     rm -rf "$PROJECT_DIR"
@@ -814,18 +1053,36 @@ main() {
     ln -sfn "$VITE_TARGET" ".vite"
   fi
 
+  # 1. If crates/ (WASM Rust workspace) exists, symlink crates/target -> /tmp/rc-wasm-target
+  if [ -d "crates" ]; then
+    mkdir -p "$WASM_TARGET_DIR" "$CARGO_HOME_TMP" "$RUSTUP_HOME_TMP"
+    if [ ! -L "crates/target" ] || [ ! -e "crates/target" ] || [ "$(readlink "crates/target")" != "$WASM_TARGET_DIR" ]; then
+      rm -rf "crates/target"
+      ln -sfn "$WASM_TARGET_DIR" "crates/target"
+    fi
+    if [ -d "src/physics" ] && ! git ls-files --error-unmatch "src/physics/core.wasm" >/dev/null 2>&1; then
+      local WASM_OUT_TMP="${WASM_TARGET_DIR}/core.wasm"
+      if [ -f "src/physics/core.wasm" ] && [ ! -L "src/physics/core.wasm" ]; then
+        mv -f "src/physics/core.wasm" "$WASM_OUT_TMP" 2>/dev/null || rm -f "src/physics/core.wasm"
+      fi
+      if [ ! -L "src/physics/core.wasm" ] || [ "$(readlink "src/physics/core.wasm")" != "$WASM_OUT_TMP" ]; then
+        rm -rf "src/physics/core.wasm"
+        ln -sfn "$WASM_OUT_TMP" "src/physics/core.wasm"
+      fi
+    fi
+  fi
+
+  # 2. If src-tauri/ (Tauri desktop workspace) exists, symlink src-tauri/target -> /tmp/<slug>-tauri-target
   if [ -d "src-tauri" ]; then
-    mkdir -p "$TAURI_TARGET" "$CARGO_HOME_TMP"
+    mkdir -p "$TAURI_TARGET" "$CARGO_HOME_TMP" "$RUSTUP_HOME_TMP"
     if [ ! -L "src-tauri/target" ] || [ ! -e "src-tauri/target" ] || [ "$(readlink "src-tauri/target")" != "$TAURI_TARGET" ]; then
       rm -rf "src-tauri/target"
       ln -sfn "$TAURI_TARGET" "src-tauri/target"
     fi
-    export CARGO_TARGET_DIR="$TAURI_TARGET"
-    export CARGO_HOME="$CARGO_HOME_TMP"
   fi
 
   mkdir -p .git/info
-  for exc in "node_modules" "dist" ".vite" "src-tauri/target"; do
+  for exc in "node_modules" "dist" ".vite" "crates/target" "src-tauri/target" "src/physics/core.wasm"; do
     grep -qxF "$exc" .git/info/exclude 2>/dev/null || echo "$exc" >> .git/info/exclude
   done
 

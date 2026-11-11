@@ -27,6 +27,8 @@ export function parseQueryPresetArgs(searchParams) {
     searchParams.get("git_name") || searchParams.get("git-name");
   const gitEmail =
     searchParams.get("git_email") || searchParams.get("git-email");
+  const withRust =
+    searchParams.get("with_rust") || searchParams.get("with-rust");
   const noCheck = searchParams.get("no_check") || searchParams.get("no-check");
   const radarArgs =
     searchParams.get("radar_args") || searchParams.get("radar-args");
@@ -43,6 +45,7 @@ export function parseQueryPresetArgs(searchParams) {
   if (subGlobs) presetArgs.push("--tmpfs-submodules", shellQuote(subGlobs));
   if (gitName) presetArgs.push("--git-name", shellQuote(gitName));
   if (gitEmail) presetArgs.push("--git-email", shellQuote(gitEmail));
+  if (withRust === "1" || withRust === "true") presetArgs.push("--with-rust");
   if (noCheck === "1" || noCheck === "true") presetArgs.push("--no-check");
   if (radarArgs) presetArgs.push("--radar-args", shellQuote(radarArgs));
   if (checkCmd) presetArgs.push("--check-cmd", shellQuote(checkCmd));

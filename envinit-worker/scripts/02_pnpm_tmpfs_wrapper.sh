@@ -62,6 +62,8 @@ export XDG_CONFIG_HOME="${persist_prefix}/etc"
 export XDG_CACHE_HOME="${tmp_dir}"
 export XDG_DATA_HOME="${tmp_dir}"
 export XDG_STATE_HOME="${tmp_dir}"
+export CARGO_HOME="\${CARGO_HOME:-${tmp_dir}/cargo-home}"
+export RUSTUP_HOME="\${RUSTUP_HOME:-${tmp_dir}/rustup}"
 
 REAL_PNPM_PREFIX="${real_pnpm_prefix}"
 REAL_PNPM="\${REAL_PNPM_PREFIX}/bin/pnpm"
@@ -77,9 +79,15 @@ if [ ! -x "\$REAL_PNPM" ]; then
   fi
 fi
 
-for link_dir in dist .vite src-tauri/target public; do
+TOP_DIR="\$(/usr/bin/git rev-parse --show-toplevel 2>/dev/null || pwd)"
+for link_dir in dist .vite crates/target src-tauri/target public "\${TOP_DIR}/dist" "\${TOP_DIR}/.vite" "\${TOP_DIR}/crates/target" "\${TOP_DIR}/src-tauri/target" "\${TOP_DIR}/public"; do
   if [ -L "\$link_dir" ] && [ ! -e "\$link_dir" ]; then
     mkdir -p "\$(readlink "\$link_dir")" 2>/dev/null || true
+  fi
+done
+for wasm_link in "src/physics/core.wasm" "\${TOP_DIR}/src/physics/core.wasm"; do
+  if [ -L "\$wasm_link" ]; then
+    mkdir -p "\$(dirname "\$(readlink "\$wasm_link")")" 2>/dev/null || true
   fi
 done
 
@@ -106,27 +114,4 @@ fi
 exec "${real_pnpx_bin}" "\$@"
 EOF
   chmod +x "${persist_prefix}/bin/pnpx"
-
-  # Install a lightweight git wrapper at /usr/local/bin/git so `git reset --hard`
-  # (which natively does not trigger post-checkout in Git) automatically invokes
-  # .git/hooks/post-checkout to restore tmpfs submodule symlinks (e.g. public -> /tmp/...)
-  if [ -x "/usr/bin/git" ]; then
-    cat << 'EOF' > "${persist_prefix}/bin/git"
-#!/usr/bin/env bash
-/usr/bin/git "$@"
-GIT_EXIT=$?
-if [ $GIT_EXIT -eq 0 ]; then
-  case "$*" in
-    *reset*--hard*|*checkout*|*switch*|*merge*|*pull*|*rebase*)
-      TOP_DIR="$(/usr/bin/git rev-parse --show-toplevel 2>/dev/null || true)"
-      if [ -n "$TOP_DIR" ] && [ -x "${TOP_DIR}/.git/hooks/post-checkout" ]; then
-        "${TOP_DIR}/.git/hooks/post-checkout" HEAD HEAD 1 >/dev/null 2>&1 || true
-      fi
-      ;;
-  esac
-fi
-exit $GIT_EXIT
-EOF
-    chmod +x "${persist_prefix}/bin/git"
-  fi
 }

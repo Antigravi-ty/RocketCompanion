@@ -143,8 +143,10 @@ main() {
   local NM_TARGET="${TMP_DIR}/${SLUG}-node_modules"
   local DIST_TARGET="${TMP_DIR}/${SLUG}-dist"
   local VITE_TARGET="${TMP_DIR}/${SLUG}-vite"
+  local WASM_TARGET_DIR="${TMP_DIR}/rc-wasm-target"
   local TAURI_TARGET="${TMP_DIR}/${SLUG}-tauri-target"
   local CARGO_HOME_TMP="${TMP_DIR}/cargo-home"
+  local RUSTUP_HOME_TMP="${TMP_DIR}/rustup"
 
   mkdir -p "$WORK_DIR" "$TMP_DIR" "$PNPM_STORE" "$PNPM_CACHE" "$NPM_CACHE" "$NM_TARGET" "$DIST_TARGET" "$VITE_TARGET"
   ensure_fix_sh_persisted "$WORK_DIR"
@@ -156,6 +158,12 @@ main() {
   export PATH="${PNPM_PERSIST_PREFIX}/bin:/usr/local/bin:${PATH}"
 
   setup_tmpfs_pnpm_and_wrapper "$PNPM_PERSIST_PREFIX" "$TMP_DIR" "$WORK_DIR" "$PNPM_STORE" "$PNPM_CACHE" "$NPM_CACHE"
+  setup_tmpfs_rust_wrappers "$PNPM_PERSIST_PREFIX" "$TMP_DIR"
+  setup_git_wrapper "$PNPM_PERSIST_PREFIX"
+
+  if [ "${WITH_RUST:-0}" -eq 1 ]; then
+    "${PNPM_PERSIST_PREFIX}/bin/rustup" --version >/dev/null
+  fi
 
   if [ ! -d "${PROJECT_DIR}/.git" ] || ! git -C "$PROJECT_DIR" rev-parse HEAD >/dev/null 2>&1; then
     rm -rf "$PROJECT_DIR"
@@ -191,18 +199,36 @@ main() {
     ln -sfn "$VITE_TARGET" ".vite"
   fi
 
+  # 1. If crates/ (WASM Rust workspace) exists, symlink crates/target -> /tmp/rc-wasm-target
+  if [ -d "crates" ]; then
+    mkdir -p "$WASM_TARGET_DIR" "$CARGO_HOME_TMP" "$RUSTUP_HOME_TMP"
+    if [ ! -L "crates/target" ] || [ ! -e "crates/target" ] || [ "$(readlink "crates/target")" != "$WASM_TARGET_DIR" ]; then
+      rm -rf "crates/target"
+      ln -sfn "$WASM_TARGET_DIR" "crates/target"
+    fi
+    if [ -d "src/physics" ] && ! git ls-files --error-unmatch "src/physics/core.wasm" >/dev/null 2>&1; then
+      local WASM_OUT_TMP="${WASM_TARGET_DIR}/core.wasm"
+      if [ -f "src/physics/core.wasm" ] && [ ! -L "src/physics/core.wasm" ]; then
+        mv -f "src/physics/core.wasm" "$WASM_OUT_TMP" 2>/dev/null || rm -f "src/physics/core.wasm"
+      fi
+      if [ ! -L "src/physics/core.wasm" ] || [ "$(readlink "src/physics/core.wasm")" != "$WASM_OUT_TMP" ]; then
+        rm -rf "src/physics/core.wasm"
+        ln -sfn "$WASM_OUT_TMP" "src/physics/core.wasm"
+      fi
+    fi
+  fi
+
+  # 2. If src-tauri/ (Tauri desktop workspace) exists, symlink src-tauri/target -> /tmp/<slug>-tauri-target
   if [ -d "src-tauri" ]; then
-    mkdir -p "$TAURI_TARGET" "$CARGO_HOME_TMP"
+    mkdir -p "$TAURI_TARGET" "$CARGO_HOME_TMP" "$RUSTUP_HOME_TMP"
     if [ ! -L "src-tauri/target" ] || [ ! -e "src-tauri/target" ] || [ "$(readlink "src-tauri/target")" != "$TAURI_TARGET" ]; then
       rm -rf "src-tauri/target"
       ln -sfn "$TAURI_TARGET" "src-tauri/target"
     fi
-    export CARGO_TARGET_DIR="$TAURI_TARGET"
-    export CARGO_HOME="$CARGO_HOME_TMP"
   fi
 
   mkdir -p .git/info
-  for exc in "node_modules" "dist" ".vite" "src-tauri/target"; do
+  for exc in "node_modules" "dist" ".vite" "crates/target" "src-tauri/target" "src/physics/core.wasm"; do
     grep -qxF "$exc" .git/info/exclude 2>/dev/null || echo "$exc" >> .git/info/exclude
   done
 
