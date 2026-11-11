@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Syncs `src/helpText.js` and `src/initScript.js` from `envinit.sh` (single source of truth),
- * and optionally deploys the multi-module ES Worker to Cloudflare Workers API (`--deploy`).
+ * Assembles the modular `scripts/*.sh` sections in memory (optionally writing
+ * `/work/fix.sh` via `--write-fix` or `--out <path>`) and deploys the
+ * multi-module ES + Text Worker to Cloudflare Workers API (`--deploy`).
  */
 
 import { execFileSync } from "node:child_process";
@@ -11,65 +12,30 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const scriptsDir = path.join(__dirname, "scripts");
-const shPath = path.join(__dirname, "envinit.sh");
 const srcDir = path.join(__dirname, "src");
 
-function assembleEnvinitSh() {
-  if (!fs.existsSync(scriptsDir)) {
-    return fs.readFileSync(shPath, "utf8");
+const SCRIPT_MODULE_ORDER = [
+  "helpBanner.sh",
+  "cliAndRepoState.sh",
+  "gitAuthAndWrapper.sh",
+  "pnpmTmpfsWrapper.sh",
+  "rustTmpfsWrapper.sh",
+  "gitRefCheckout.sh",
+  "gitSubmoduleHooks.sh",
+  "submoduleSync.sh",
+  "workspaceLinksAndMain.sh",
+];
+
+const JS_MODULE_FILES = ["index.js", "parseQueryArgs.js", "initScript.js"];
+
+export function assembleEnvinitSh() {
+  const chunks = ["#!/usr/bin/env bash\nset -euo pipefail"];
+  for (const file of SCRIPT_MODULE_ORDER) {
+    const fullPath = path.join(scriptsDir, file);
+    const content = fs.readFileSync(fullPath, "utf8").trim();
+    chunks.push(content);
   }
-  const files = fs
-    .readdirSync(scriptsDir)
-    .filter((f) => f.endsWith(".sh"))
-    .sort();
-  if (files.length === 0) {
-    return fs.readFileSync(shPath, "utf8");
-  }
-  const chunks = ["#!/usr/bin/env bash\nset -euo pipefail\n"];
-  for (const file of files) {
-    const content = fs
-      .readFileSync(path.join(scriptsDir, file), "utf8")
-      .trim();
-    chunks.push(content + "\n");
-  }
-  const assembled = chunks.join("\n");
-  fs.writeFileSync(shPath, assembled, { encoding: "utf8", mode: 0o755 });
-  return assembled;
-}
-
-function extractHelpText(shContent) {
-  const match = shContent.match(
-    /cat << 'HELP_EOF'\r?\n([\s\S]*?)\r?\nHELP_EOF/
-  );
-  if (!match || !match[1]) {
-    throw new Error("Could not find HELP_EOF block in envinit.sh");
-  }
-  return match[1] + "\n";
-}
-
-function syncGeneratedModules() {
-  const shContent = assembleEnvinitSh();
-  const helpText = extractHelpText(shContent);
-
-  fs.mkdirSync(srcDir, { recursive: true });
-
-  const helpModuleContent =
-    "// Auto-generated from envinit.sh HELP_EOF block. Do not edit manually.\n" +
-    `export const HELP_TEXT = ${JSON.stringify(helpText)};\n`;
-
-  const scriptModuleContent =
-    "// Auto-generated from envinit.sh. Do not edit manually.\n" +
-    `export const INIT_SCRIPT = ${JSON.stringify(shContent)};\n`;
-
-  fs.writeFileSync(path.join(srcDir, "helpText.js"), helpModuleContent, "utf8");
-  fs.writeFileSync(
-    path.join(srcDir, "initScript.js"),
-    scriptModuleContent,
-    "utf8"
-  );
-  console.log(
-    `[envinit-worker] Assembled envinit.sh (${shContent.length}B) and synced src/helpText.js (${helpText.length}B) & src/initScript.js.`
-  );
+  return chunks.join("\n\n") + "\n";
 }
 
 function deployToCloudflare() {
@@ -105,17 +71,19 @@ function deployToCloudflare() {
     `metadata=${metadata};type=application/json`,
   ];
 
-  const moduleFiles = [
-    "index.js",
-    "parseQueryArgs.js",
-    "helpText.js",
-    "initScript.js",
-  ];
-  for (const modName of moduleFiles) {
+  for (const modName of JS_MODULE_FILES) {
     const filePath = path.join(srcDir, modName);
     curlArgs.push(
       "-F",
       `${modName}=@${filePath};filename=${modName};type=application/javascript+module`
+    );
+  }
+
+  for (const shName of SCRIPT_MODULE_ORDER) {
+    const filePath = path.join(scriptsDir, shName);
+    curlArgs.push(
+      "-F",
+      `${shName}=@${filePath};filename=${shName};type=text/plain`
     );
   }
 
@@ -127,11 +95,33 @@ function deployToCloudflare() {
     );
   }
   console.log(
-    `[envinit-worker] Deployed multi-module Worker "${scriptName}" (etag: ${result.result?.etag}).`
+    `[envinit-worker] Deployed multi-module Worker "${scriptName}" (${JS_MODULE_FILES.length} JS + ${SCRIPT_MODULE_ORDER.length} Text modules, etag: ${result.result?.etag}).`
   );
 }
 
-syncGeneratedModules();
-if (process.argv.includes("--deploy")) {
+const assembled = assembleEnvinitSh();
+const args = process.argv.slice(2);
+const outIdx = args.indexOf("--out");
+if (outIdx !== -1 && args[outIdx + 1]) {
+  const outPath = path.resolve(args[outIdx + 1]);
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  fs.writeFileSync(outPath, assembled, { encoding: "utf8", mode: 0o755 });
+  console.log(
+    `[envinit-worker] Wrote assembled initializer to ${outPath} (${assembled.length}B).`
+  );
+} else if (args.includes("--write-fix")) {
+  const fixPath = "/work/fix.sh";
+  fs.mkdirSync("/work", { recursive: true });
+  fs.writeFileSync(fixPath, assembled, { encoding: "utf8", mode: 0o755 });
+  console.log(
+    `[envinit-worker] Updated ${fixPath} (${assembled.length}B, ${SCRIPT_MODULE_ORDER.length} modules).`
+  );
+} else {
+  console.log(
+    `[envinit-worker] Verified ${SCRIPT_MODULE_ORDER.length} script modules (${assembled.length}B assembled).`
+  );
+}
+
+if (args.includes("--deploy")) {
   deployToCloudflare();
 }

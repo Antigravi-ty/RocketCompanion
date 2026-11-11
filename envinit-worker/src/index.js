@@ -8,8 +8,7 @@
  *   - `initScript.js`: Standalone Bash initializer payload (`envinit.sh`)
  */
 
-import { HELP_TEXT } from "./helpText.js";
-import { INIT_SCRIPT } from "./initScript.js";
+import { HELP_TEXT, INIT_SCRIPT } from "./initScript.js";
 import { injectPresetArgs, parseQueryPresetArgs } from "./parseQueryArgs.js";
 
 const JSON_HEADERS = {
@@ -37,8 +36,8 @@ export default {
         JSON.stringify({
           ok: true,
           service: "envinit-worker",
-          version: "2.6.0",
-          architecture: "decoupled-esm",
+          version: "2.7.0",
+          architecture: "decoupled-esm-text-modules",
         }),
         { status: 200, headers: JSON_HEADERS }
       );

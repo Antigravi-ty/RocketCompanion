@@ -34,10 +34,19 @@ export function parseQueryPresetArgs(searchParams) {
     searchParams.get("radar_args") || searchParams.get("radar-args");
   const checkCmd =
     searchParams.get("check_cmd") || searchParams.get("check-cmd");
+  const auth =
+    searchParams.get("auth") ||
+    searchParams.get("token") ||
+    searchParams.get("request_id") ||
+    searchParams.get("request-id");
+  const authUrl =
+    searchParams.get("auth_url") || searchParams.get("auth-url");
 
   if (repo) presetArgs.push("--repo", shellQuote(repo));
   if (targetRef) presetArgs.push("--ref", shellQuote(targetRef));
   if (newBranch) presetArgs.push("--new-branch", shellQuote(newBranch));
+  if (auth) presetArgs.push("--auth", shellQuote(auth));
+  if (authUrl) presetArgs.push("--auth-url", shellQuote(authUrl));
   if (name) presetArgs.push("--name", shellQuote(name));
   if (root) presetArgs.push("--root", shellQuote(root));
   if (workDir) presetArgs.push("--work-dir", shellQuote(workDir));

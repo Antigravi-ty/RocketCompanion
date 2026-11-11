@@ -32,17 +32,9 @@ if [ ! -x "\$REAL_RUSTUP" ] || [ ! -x "\$REAL_CARGO" ] || [ ! -x "\$REAL_RUSTC" 
   rm -rf /root/.cargo /root/.rustup /root/.wget-hsts 2>/dev/null || true
 fi
 
-TOP_DIR="\$(/usr/bin/git rev-parse --show-toplevel 2>/dev/null || pwd)"
-for link_dir in dist .vite crates/target src-tauri/target public "\${TOP_DIR}/dist" "\${TOP_DIR}/.vite" "\${TOP_DIR}/crates/target" "\${TOP_DIR}/src-tauri/target" "\${TOP_DIR}/public"; do
-  if [ -L "\$link_dir" ] && [ ! -e "\$link_dir" ]; then
-    mkdir -p "\$(readlink "\$link_dir")" 2>/dev/null || true
-  fi
-done
-for wasm_link in "src/physics/core.wasm" "\${TOP_DIR}/src/physics/core.wasm"; do
-  if [ -L "\$wasm_link" ]; then
-    mkdir -p "\$(dirname "\$(readlink "\$wasm_link")")" 2>/dev/null || true
-  fi
-done
+if [ -x "${persist_prefix}/bin/heal-tmpfs-links" ]; then
+  "${persist_prefix}/bin/heal-tmpfs-links" 2>/dev/null || true
+fi
 
 export PATH="\${CARGO_HOME}/bin:${persist_prefix}/bin:/usr/local/bin:\${PATH}"
 exec "\$REAL_RUSTUP" "\$@"
@@ -60,12 +52,9 @@ if [ ! -x "\$REAL_RUSTC" ]; then
   "${persist_prefix}/bin/rustup" --version >/dev/null 2>&1 || true
 fi
 
-TOP_DIR="\$(/usr/bin/git rev-parse --show-toplevel 2>/dev/null || pwd)"
-for link_dir in dist .vite crates/target src-tauri/target public "\${TOP_DIR}/dist" "\${TOP_DIR}/.vite" "\${TOP_DIR}/crates/target" "\${TOP_DIR}/src-tauri/target" "\${TOP_DIR}/public"; do
-  if [ -L "\$link_dir" ] && [ ! -e "\$link_dir" ]; then
-    mkdir -p "\$(readlink "\$link_dir")" 2>/dev/null || true
-  fi
-done
+if [ -x "${persist_prefix}/bin/heal-tmpfs-links" ]; then
+  "${persist_prefix}/bin/heal-tmpfs-links" 2>/dev/null || true
+fi
 
 export PATH="\${CARGO_HOME}/bin:${persist_prefix}/bin:/usr/local/bin:\${PATH}"
 exec "\$REAL_RUSTC" "\$@"
@@ -83,17 +72,11 @@ if [ ! -x "\$REAL_CARGO" ]; then
   "${persist_prefix}/bin/rustup" --version >/dev/null 2>&1 || true
 fi
 
+if [ -x "${persist_prefix}/bin/heal-tmpfs-links" ]; then
+  "${persist_prefix}/bin/heal-tmpfs-links" 2>/dev/null || true
+fi
+
 TOP_DIR="\$(/usr/bin/git rev-parse --show-toplevel 2>/dev/null || pwd)"
-for link_dir in dist .vite crates/target src-tauri/target public "\${TOP_DIR}/dist" "\${TOP_DIR}/.vite" "\${TOP_DIR}/crates/target" "\${TOP_DIR}/src-tauri/target" "\${TOP_DIR}/public"; do
-  if [ -L "\$link_dir" ] && [ ! -e "\$link_dir" ]; then
-    mkdir -p "\$(readlink "\$link_dir")" 2>/dev/null || true
-  fi
-done
-for wasm_link in "src/physics/core.wasm" "\${TOP_DIR}/src/physics/core.wasm"; do
-  if [ -L "\$wasm_link" ]; then
-    mkdir -p "\$(dirname "\$(readlink "\$wasm_link")")" 2>/dev/null || true
-  fi
-done
 
 IS_TAURI_CTX=0
 case "\$PWD" in
@@ -102,6 +85,13 @@ esac
 case "\$*" in
   *src-tauri*) IS_TAURI_CTX=1 ;;
 esac
+if [ "\$IS_TAURI_CTX" -eq 0 ]; then
+  if [ ! -f "\${PWD}/Cargo.toml" ] && [ ! -f "\${PWD}/crates/Cargo.toml" ] && [ -f "\${PWD}/src-tauri/Cargo.toml" ]; then
+    IS_TAURI_CTX=1
+  elif [ ! -f "\${TOP_DIR}/Cargo.toml" ] && [ ! -f "\${TOP_DIR}/crates/Cargo.toml" ] && [ -f "\${TOP_DIR}/src-tauri/Cargo.toml" ]; then
+    IS_TAURI_CTX=1
+  fi
+fi
 
 if [ -z "\${CARGO_TARGET_DIR:-}" ]; then
   if [ "\$IS_TAURI_CTX" -eq 1 ]; then
@@ -120,9 +110,12 @@ export PATH="\${CARGO_HOME}/bin:${persist_prefix}/bin:/usr/local/bin:\${PATH}"
 SUBCMD="\${1:-}"
 if [ "\$IS_TAURI_CTX" -eq 1 ]; then
   case "\$SUBCMD" in
-    check|build|test|run|clippy)
+    check|build|test|run|clippy|metadata|clean|doc|bench)
       if ! command -v cc >/dev/null 2>&1; then
         echo "[rust-wrapper] Note: Native host C linker (cc) & WebKitGTK dev headers are not pre-installed in this sandbox (installing 400MB+ packages onto / would exceed the 100MB OverlayFS limit). For WASM crates verification, run 'pnpm build:wasm:check' or 'cargo check --target wasm32-unknown-unknown' in crates/." >&2
+      fi
+      if [ ! -f "\${PWD}/Cargo.toml" ] && [ -f "\${PWD}/src-tauri/Cargo.toml" ] && [[ "\$*" != *"--manifest-path"* ]]; then
+        exec "\$REAL_CARGO" "\$SUBCMD" --manifest-path "\${PWD}/src-tauri/Cargo.toml" "\${@:2}"
       fi
       ;;
   esac

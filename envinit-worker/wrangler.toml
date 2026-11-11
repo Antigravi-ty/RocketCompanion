@@ -6,3 +6,9 @@ workers_dev = true
 [observability]
 enabled = true
 head_sampling_rate = 1
+
+[[rules]]
+type = "Text"
+globs = ["**/*.sh"]
+fallthrough = true
+
