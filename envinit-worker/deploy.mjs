@@ -10,8 +10,32 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const scriptsDir = path.join(__dirname, "scripts");
 const shPath = path.join(__dirname, "envinit.sh");
 const srcDir = path.join(__dirname, "src");
+
+function assembleEnvinitSh() {
+  if (!fs.existsSync(scriptsDir)) {
+    return fs.readFileSync(shPath, "utf8");
+  }
+  const files = fs
+    .readdirSync(scriptsDir)
+    .filter((f) => f.endsWith(".sh"))
+    .sort();
+  if (files.length === 0) {
+    return fs.readFileSync(shPath, "utf8");
+  }
+  const chunks = ["#!/usr/bin/env bash\nset -euo pipefail\n"];
+  for (const file of files) {
+    const content = fs
+      .readFileSync(path.join(scriptsDir, file), "utf8")
+      .trim();
+    chunks.push(content + "\n");
+  }
+  const assembled = chunks.join("\n");
+  fs.writeFileSync(shPath, assembled, { encoding: "utf8", mode: 0o755 });
+  return assembled;
+}
 
 function extractHelpText(shContent) {
   const match = shContent.match(
@@ -24,7 +48,7 @@ function extractHelpText(shContent) {
 }
 
 function syncGeneratedModules() {
-  const shContent = fs.readFileSync(shPath, "utf8");
+  const shContent = assembleEnvinitSh();
   const helpText = extractHelpText(shContent);
 
   fs.mkdirSync(srcDir, { recursive: true });
@@ -44,7 +68,7 @@ function syncGeneratedModules() {
     "utf8"
   );
   console.log(
-    `[envinit-worker] Synced src/helpText.js (${helpText.length}B) and src/initScript.js (${shContent.length}B).`
+    `[envinit-worker] Assembled envinit.sh (${shContent.length}B) and synced src/helpText.js (${helpText.length}B) & src/initScript.js.`
   );
 }
 

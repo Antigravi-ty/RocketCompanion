@@ -6,10 +6,15 @@ Modular ES Module Cloudflare Worker and standalone script (`envinit.sh`) for ini
 
 ```text
 envinit-worker/
-├── README.md                  # Architecture & usage guide
+├── README.md                  # Architecture, 4 OverlayFS root-cause fixes & universal System Instruction
 ├── wrangler.toml              # Cloudflare Wrangler configuration (ES Module multi-file support)
-├── deploy.mjs                 # Zero-dependency Cloudflare Workers REST API multipart deployer
-├── envinit.sh                 # Standalone executable Bash initializer (source of truth)
+├── deploy.mjs                 # Assembles scripts/*.sh -> envinit.sh, syncs src/, & deploys via CF REST API
+├── envinit.sh                 # Assembled standalone executable Bash initializer
+├── scripts/
+│   ├── 01_help_and_cli.sh     # Help documentation & CLI flag parser
+│   ├── 02_pnpm_tmpfs_wrapper.sh # Zero-OverlayFS tmpfs pnpm installer & 2KB self-healing wrapper
+│   ├── 03_git_and_hooks.sh    # Ref checkout, stale submodule cleanup & self-healing Git hooks
+│   └── 04_workspace_and_main.sh # Submodule SHA sync, tmpfs workspace links & main entrypoint
 └── src/
     ├── index.js               # Worker HTTP request entry point & route dispatcher
     ├── parseQueryArgs.js      # Query parameter parser, shell-quoting, and CLI preset injector
@@ -17,22 +22,35 @@ envinit-worker/
     └── initScript.js          # Generated Bash script payload module (synced from envinit.sh)
 ```
 
-## Key Capabilities & Fixes
+## Key Capabilities & 4 OverlayFS Bloat Fixes (~19 MB Total OverlayFS Footprint)
 
-1. **Accurate `/help` Endpoint (`src/helpText.js`)**:
-   - `GET /help`, `GET /--help`, and `GET /?help=1` return pure plain-text documentation (matching `envinit.sh --help`) without leaking or slicing raw Bash source code.
-2. **Branch, Tag, Abbreviated Commit SHA, and `--new-branch` Support (`envinit.sh` & `src/parseQueryArgs.js`)**:
-   - Supports `-b` / `--branch` / `--ref` (and `?branch=` / `?ref=`) with branch names, tags, full 40-char commit SHAs, or abbreviated commit hashes (e.g. `77755f1e`, `2b0cf7a3`).
-   - Supports `--new-branch <name>` (and `?new_branch=<name>`) to automatically create/reset a working branch (such as `z/my-feature`) at the resolved target ref.
-3. **Automatic Git Identity (`user.name` & `user.email`)**:
-   - Configures default Git identity (`Mark <29165094+MaBoCoMark@users.noreply.github.com>`, overridable via `--git-name` / `--git-email` or `?git_name=` / `?git_email=`) globally and per-repository so local `git merge` (including Octopus merges), `git rebase`, and `git cherry-pick` never fail with `fatal: unable to auto-detect email address` in fresh containers under `GIT_TERMINAL_PROMPT=0`.
-4. **Commit-Locked Submodule SHA Extraction & Auto-Sync Git Hooks (`HEAD:<sub_path>`)**:
-   - Directly extracts the exact gitlink commit SHA pinned in the parent commit tree (`git rev-parse -q --verify "HEAD:<sub_path>"`) and explicitly fetches/checks out that exact commit for both code submodules (`src/ui-core`) and `tmpfs` static submodules (`public`), preventing remote default-branch (`a1`/`main`) drift or unpinned `git clone` bumps.
-   - Installs `.git/hooks/post-checkout`, `.git/hooks/post-merge`, and `.git/hooks/post-rewrite` so `src/ui-core` automatically syncs to `HEAD:src/ui-core` whenever a local branch switch or merge updates the submodule pointer.
-5. **Persistent `/usr/local` `pnpm` & `pnpx` Availability (Zero Dangling Symlinks)**:
-   - Installs `pnpm` directly into persistent `/usr/local` (`/usr/local/bin/pnpm` & `/usr/local/bin/pnpx`) while keeping `pnpm` store (`/tmp/pnpm-store`), `pnpm` cache (`/tmp/pnpm-cache`), and `npm` cache (`/tmp/npm-cache`) on `tmpfs`, so container snapshot restores (where `/tmp` is wiped) never leave `/usr/local/bin/pnpm` as a dangling symlink.
-6. **Automatic `/work/fix.sh` Persistence**:
-   - When executed via pipe (`curl -fsSL https://envinit.maboco-mark.workers.dev/ | bash`) or from another path, the script automatically persists itself to `/work/fix.sh` (`chmod +x`) so container snapshot restores (where `/tmp` is wiped) can always recover in one command: `/work/fix.sh --no-check`.
-7. **Complete `tmpfs` Offloading (Zero OverlayFS Bloat)**:
-   - Symlinks `node_modules` -> `/tmp/<slug>-node_modules`, `dist` -> `/tmp/<slug>-dist`, and `.vite` -> `/tmp/<slug>-vite` (plus `src-tauri/target` -> `/tmp/<slug>-tauri-target` when `src-tauri` is present).
-   - Creates `/tmp` targets with `mkdir -p` **before** `ln -sfn` to prevent `pnpm` v12 Rust `EEXIST (os error 17)` on dangling symlinks, and keeps both `pnpm-store` and `node_modules` on `/tmp` for zero-copy hardlinks.
+1. **Zero-OverlayFS Self-Healing `pnpm` Wrapper (`scripts/02_pnpm_tmpfs_wrapper.sh`, saves 63 MB on `/`)**:
+   - Installs the 63 MB `@pnpm/linux-x64` package into `/tmp/pnpm-global` (`tmpfs`) and purges `/usr/local/lib/node_modules/pnpm` from OverlayFS.
+   - Writes a real ~2 KB Bash wrapper script (never a symlink!) at `/usr/local/bin/pnpm` and `/usr/local/bin/pnpx`.
+   - When `/tmp` is wiped across container snapshot restores, running any `pnpm` command automatically reinstalls `pnpm` into `/tmp/pnpm-global`, heals `/tmp` symlink targets (`public`, `dist`, `.vite`, `src-tauri/target`, `node_modules`), and invokes `/work/fix.sh --no-check`.
+2. **Self-Healing `public` (`tmpfs` Submodule) Symlink in Git Hooks (`scripts/03_git_and_hooks.sh`, prevents 180 MB spike)**:
+   - `git reset --hard` and `git checkout -f` clear `--assume-unchanged` and replace the `public` symlink with an empty directory on OverlayFS.
+   - `.git/hooks/post-checkout`, `post-merge`, and `post-rewrite` now detect `tmpfs` submodules (`sub_update=none` or `public`/`*Statics*`) and immediately recreate `ln -sfn /tmp/<StaticsRepo> "$sub_path"` + `git update-index --assume-unchanged "$sub_path"`.
+3. **Stale Submodule `.git` Cleanup Across Branch Switches (`scripts/03_git_and_hooks.sh`, saves 5~10 MB)**:
+   - Switching between legacy submodule branches (`beabd26` where `src/ui-core` is a submodule) and `alpha` (where `src/ui-core` is a normal directory) automatically cleans up residual `src/ui-core/.git` and `.git/modules/src/ui-core`.
+4. **On-Demand `--no-tags` Fetch & Loose Object Pruning (`scripts/03_git_and_hooks.sh`)**:
+   - Uses targeted `git fetch --no-tags origin <ref>` and runs `git prune --expire=now` after ref switches to prevent `.git/objects` accumulation on OverlayFS.
+
+## Universal System Instruction Template (Vite / TypeScript / Tauri)
+
+```markdown
+Step 1: Read the User Request to identify the target repository (`--repo`), base commit/branch (`--ref`), and working branch (`--new-branch`), then initialize or restore the sandbox environment:
+`mkdir -p /work && curl -fsSL https://envinit.maboco-mark.workers.dev/ -o /work/fix.sh && chmod +x /work/fix.sh && /work/fix.sh --repo <Owner/Repo> [--ref <commit_or_branch>] [--new-branch <z/branch_name>] --no-check`
+- Key `/work/fix.sh` options (run `/work/fix.sh --help` for full details):
+  - `--repo <url|Owner/Repo>`: Target Git repository (defaults to `Antigravi-ty/RocketCompanion` if omitted)
+  - `--ref <sha|branch|tag>`: Base commit SHA (full or short), branch, or tag to checkout
+  - `--new-branch <name>`: Create/reset local working branch at `--ref`
+  - `--no-check`: Skip initial radar check during bootstrap
+- Snapshot & `/tmp` Auto-Recovery: Source code lives in `/work/<RepoName>` (persistent OverlayFS), while `pnpm` binaries, `node_modules`, `dist`, `.vite`, `src-tauri/target`, and static submodules (`public`) live on `/tmp` (`tmpfs`). If `/tmp` is wiped after a container reset, running any `pnpm` command auto-heals `/tmp` via the `/usr/local/bin/pnpm` wrapper, or you can run `/work/fix.sh --no-check` at any time.
+Step 2: Proceed with the user's request inside `/work/<RepoName>`. Keep build artifacts, temporary branch comparisons (`/tmp/branches/`), and static assets strictly on `/tmp` (never on OverlayFS).
+Step 3: Verify changes using the project's actual scripts in `package.json` / `src-tauri` (e.g., `pnpm check`, `pnpm radar`, `pnpm build`, or `cargo check`). If any dependency or symlink is missing, re-run `/work/fix.sh --no-check`.
+
+Prefer editing existing files with `replace_file_content` rather than `write_to_file`.
+Never run bare `git show` or `git diff` across the entire repository to stdout.
+Always inspect change summaries with `git diff --stat` first, or extract specific conflicting files into `/tmp/branches/` (`git show <ref>:<path> > /tmp/branches/...` / `git merge-file`) and run `diff -u` on individual files.
+```

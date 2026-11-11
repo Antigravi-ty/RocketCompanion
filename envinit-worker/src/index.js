@@ -37,7 +37,7 @@ export default {
         JSON.stringify({
           ok: true,
           service: "envinit-worker",
-          version: "2.3.0",
+          version: "2.4.0",
           architecture: "decoupled-esm",
         }),
         { status: 200, headers: JSON_HEADERS }

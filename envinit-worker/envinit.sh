@@ -11,46 +11,49 @@ PURPOSE & ARCHITECTURE (FOR AI AGENTS & DEVELOPERS)
   1. Persistent Source on OverlayFS (/work/<RepoName>):
      Keeps only git-tracked source code and small code submodules (e.g.
      src/ui-core) on OverlayFS (/work) so code edits survive container
-     snapshot restores without exhausting disk quota or snapshot bandwidth.
+     snapshot restores without exhausting the 100 MB OverlayFS quota.
   2. Ephemeral Artifacts & Dependencies on tmpfs (/tmp):
-     Mounts heavy build/dependency directories onto /tmp (tmpfs RAM disk):
-       - node_modules      -> /tmp/<slug>-node_modules
-       - pnpm store/cache  -> /tmp/pnpm-store & /tmp/pnpm-cache
-       - Vite build outDir -> /tmp/<slug>-dist
-       - Vite cache        -> /tmp/<slug>-vite
-       - Tauri Rust target -> /tmp/<slug>-tauri-target (if src-tauri/ exists)
-       - Cargo cache       -> /tmp/cargo-home          (if src-tauri/ exists)
-       - Static submodules -> /tmp/<StaticsRepo>       (matching public,*Statics*)
-     Meanwhile, the pnpm binary itself is installed into persistent /usr/local
-     so `/usr/local/bin/pnpm` never becomes a dangling symlink if /tmp resets.
-  3. Zero-Copy Hardlinks & Dangling Symlink Prevention:
+     Mounts ALL heavy binaries, dependencies, and build outputs onto /tmp (RAM):
+       - pnpm binary (63MB) -> /tmp/pnpm-global (with 2KB self-healing wrapper
+                               at /usr/local/bin/pnpm & /usr/local/bin/pnpx)
+       - node_modules       -> /tmp/<slug>-node_modules
+       - pnpm store/cache   -> /tmp/pnpm-store & /tmp/pnpm-cache
+       - Vite build outDir  -> /tmp/<slug>-dist
+       - Vite cache         -> /tmp/<slug>-vite
+       - Tauri Rust target  -> /tmp/<slug>-tauri-target (if src-tauri/ exists)
+       - Cargo cache        -> /tmp/cargo-home          (if src-tauri/ exists)
+       - Static submodules  -> /tmp/<StaticsRepo>       (matching public,*Statics*)
+  3. Zero-OverlayFS Self-Healing pnpm Wrapper (/usr/local/bin/pnpm):
+     - Writes a small (~2 KB) real Bash wrapper script at `/usr/local/bin/pnpm`
+       (never a symlink!) while installing the 63 MB `@pnpm/linux-x64` binary into
+       `/tmp/pnpm-global` (tmpfs) and purging `/usr/local/lib/node_modules/pnpm`.
+     - If `/tmp` is wiped across container snapshot restores, running any `pnpm`
+       command automatically reinstalls `pnpm` into `/tmp/pnpm-global`, restores
+       missing `/tmp` symlink targets (`public`, `dist`, `.vite`, `node_modules`),
+       and runs `/work/fix.sh --no-check` if needed.
+  4. Zero-Copy Hardlinks & Dangling Symlink Prevention:
      - Always runs `mkdir -p` on /tmp targets BEFORE `ln -sfn` so pnpm v12
        (Rust) never encounters a dangling symlink (which otherwise triggers
        ERR_PNPM_PACKAGE_MANAGER_CREATE_SLOT_DIR / os error 17 EEXIST).
      - Because both /tmp/<slug>-node_modules and /tmp/pnpm-store live on the
        same /tmp mount point, pnpm uses zero-copy hardlinks instead of falling
        back to cross-device (EXDEV) physical file copies.
-  4. Git Identity, Status Hygiene & Commit-Locked Submodule Sync:
+  5. Git Identity, Hook Self-Healing & Stale Submodule Cleanup:
      - Configures default Git identity (`user.name` & `user.email`) globally and
-       per-repo so local `git merge` (including Octopus merges), `git rebase`,
-       and `git cherry-pick` never fail with `unable to auto-detect email address`
-       under `GIT_TERMINAL_PROMPT=0`.
+       per-repo so local `git merge`, `git rebase`, and `git cherry-pick` never
+       fail with `unable to auto-detect email address` under `GIT_TERMINAL_PROMPT=0`.
      - Supports branches, tags, full commit SHAs, or abbreviated commit hashes
        via `-b` / `--branch` / `--ref`, plus `--new-branch <z/name>`.
-     - Strictly extracts the exact submodule gitlink commit SHA from the parent
-       commit (`git rev-parse "HEAD:<sub_path>"`) and checks out that exact SHA
-       for both code submodules (`src/ui-core`) and `tmpfs` static submodules,
-       preventing accidental branch drift or remote HEAD bumps.
-     - Installs `post-checkout`, `post-merge`, and `post-rewrite` Git hooks so
-       `src/ui-core` automatically syncs to `HEAD:src/ui-core` after any local
-       `git checkout` or `git merge`.
-     - Registers symlink names (without trailing slashes) in .git/info/exclude
-       and marks static submodules with --assume-unchanged so `git status`
-       remains 100% clean.
-  5. Automatic Persistence to /work/fix.sh:
-     - Even if invoked via `curl -fsSL https://envinit.maboco-mark.workers.dev/ | bash`,
-       the script automatically saves a copy of itself to `/work/fix.sh` so
-       subsequent snapshot recoveries only require `/work/fix.sh --no-check`.
+     - Cleans up residual submodule `.git` metadata (e.g. `src/ui-core/.git` and
+       `.git/modules/src/ui-core`) when switching from legacy submodule branches
+       to branches where the directory is tracked as regular files (`alpha`).
+     - Installs `post-checkout`, `post-merge`, and `post-rewrite` Git hooks that:
+       (a) automatically recreate the `/tmp/<StaticsRepo>` symlink and reapply
+           `--assume-unchanged` whenever `git reset --hard` or `git checkout -f`
+           replaces a `tmpfs` static submodule (`public`) with an empty directory;
+       (b) keep code submodules strictly locked to `HEAD:<sub_path>`.
+     - Prunes unreachable loose git objects (`git prune`) to prevent `.git/objects`
+       bloat on OverlayFS.
 
 USAGE
   /work/fix.sh [OPTIONS]
@@ -92,138 +95,25 @@ EXAMPLES (MULTI-REPO, COMMIT CHECKOUT & SNAPSHOT RECOVERY)
 HELP_EOF
 }
 
-checkout_target_ref() {
-  local repo_dir="$1"
-  local target_ref="$2"
-  local new_branch="$3"
-
-  if [ -n "$target_ref" ]; then
-    if git -C "$repo_dir" fetch origin "$target_ref" >/dev/null 2>&1; then
-      if git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/${target_ref}"; then
-        git -C "$repo_dir" checkout -B "$target_ref" "origin/${target_ref}"
-      else
-        git -C "$repo_dir" checkout --detach FETCH_HEAD
-      fi
-    else
-      git -C "$repo_dir" fetch --all --tags --prune >/dev/null 2>&1 || true
-      if git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/${target_ref}"; then
-        git -C "$repo_dir" checkout -B "$target_ref" "origin/${target_ref}"
-      else
-        git -C "$repo_dir" checkout "$target_ref"
-      fi
-    fi
-  fi
-
-  if [ -n "$new_branch" ]; then
-    git -C "$repo_dir" checkout -B "$new_branch"
-  fi
-}
-
-ensure_fix_sh_persisted() {
-  local work_dir="$1"
-  local fix_path="${work_dir}/fix.sh"
-  mkdir -p "$work_dir"
-
-  local self_path="${BASH_SOURCE[0]:-}"
-  if [ -n "$self_path" ] && [ -f "$self_path" ]; then
-    local abs_self abs_fix
-    abs_self="$(readlink -f "$self_path" 2>/dev/null || echo "$self_path")"
-    abs_fix="$(readlink -f "$fix_path" 2>/dev/null || echo "$fix_path")"
-    if [ "$abs_self" != "$abs_fix" ]; then
-      cp -f "$self_path" "$fix_path" 2>/dev/null || true
-      chmod +x "$fix_path" 2>/dev/null || true
-    else
-      chmod +x "$fix_path" 2>/dev/null || true
-    fi
-  elif [ ! -f "$fix_path" ]; then
-    curl -fsSL "https://envinit.maboco-mark.workers.dev/" -o "$fix_path" 2>/dev/null || true
-    chmod +x "$fix_path" 2>/dev/null || true
-  fi
-}
-
-install_git_submodule_hooks() {
-  local repo_dir="$1"
-  local hooks_dir="${repo_dir}/.git/hooks"
-  mkdir -p "$hooks_dir"
-
-  local hook_body
-  read -r -d '' hook_body << 'HOOK_EOF' || true
-#!/usr/bin/env bash
-# Auto-generated by envinit: keeps non-tmpfs code submodules (e.g. src/ui-core)
-# strictly locked to the parent commit's gitlink SHA (HEAD:<sub_path>) across
-# local `git checkout`, `git merge`, and `git rebase` operations.
-set -u
-
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-cd "$REPO_ROOT" || exit 0
-[ -f ".gitmodules" ] || exit 0
-
-sub_keys="$(git config --file .gitmodules --name-only --get-regexp '^submodule\..*\.path$' 2>/dev/null || true)"
-for key in $sub_keys; do
-  sub_name="${key#submodule.}"
-  sub_name="${sub_name%.path}"
-  sub_path="$(git config --file .gitmodules --get "$key" 2>/dev/null || true)"
-  [ -z "$sub_path" ] && continue
-
-  # Skip tmpfs symlinked static submodules (marked with update=none or symlink)
-  sub_update="$(git config --get "submodule.${sub_name}.update" 2>/dev/null || true)"
-  if [ "$sub_update" = "none" ] || [ -L "$sub_path" ]; then
-    continue
-  fi
-
-  pinned_sha="$(git rev-parse -q --verify "HEAD:${sub_path}" 2>/dev/null || true)"
-  [ -z "$pinned_sha" ] && continue
-  [ -e "${sub_path}/.git" ] || continue
-
-  cur_sha="$(git -C "$sub_path" rev-parse HEAD 2>/dev/null || true)"
-  if [ "$cur_sha" != "$pinned_sha" ]; then
-    if git -C "$sub_path" diff --quiet 2>/dev/null && git -C "$sub_path" diff --cached --quiet 2>/dev/null; then
-      if ! git -C "$sub_path" cat-file -e "${pinned_sha}^{commit}" 2>/dev/null; then
-        git -C "$sub_path" fetch origin "$pinned_sha" >/dev/null 2>&1 || git -C "$sub_path" fetch --all --tags --prune >/dev/null 2>&1 || true
-      fi
-      git -C "$sub_path" checkout --detach "$pinned_sha" >/dev/null 2>&1 || true
-    fi
-  fi
-done
-HOOK_EOF
-
-  cat > "${hooks_dir}/post-checkout" << EOF
-#!/usr/bin/env bash
-# Only run on branch/ref checkouts (\$3 == 1), skip single-file checkouts (\$3 == 0)
-if [ "\${3:-1}" = "0" ]; then
-  exit 0
-fi
-${hook_body#*$'\n'}
-EOF
-
-  printf '%s\n' "$hook_body" > "${hooks_dir}/post-merge"
-  printf '%s\n' "$hook_body" > "${hooks_dir}/post-rewrite"
-  chmod +x "${hooks_dir}/post-checkout" "${hooks_dir}/post-merge" "${hooks_dir}/post-rewrite" 2>/dev/null || true
-}
-
-main() {
-  export GIT_TERMINAL_PROMPT=0
-  export PAGER=cat
-  export CI=true
-  export DEBIAN_FRONTEND=noninteractive
-
-  local ROOT_PREFIX="/"
-  local WORK_DIR=""
-  local TMP_DIR=""
-  local REPO_URL="https://github.com/Antigravi-ty/RocketCompanion"
-  local REPO_NAME=""
-  local TARGET_REF=""
-  local NEW_BRANCH=""
-  local TMPFS_SUBMODULES="public,*Statics*,*statics*"
-  local GIT_USER_NAME="${GIT_AUTHOR_NAME:-Mark}"
-  local GIT_USER_EMAIL="${GIT_AUTHOR_EMAIL:-29165094+MaBoCoMark@users.noreply.github.com}"
-  local RUN_CHECK=1
-  local CHECK_CMD=""
+parse_cli_args() {
+  ROOT_PREFIX="/"
+  WORK_DIR=""
+  TMP_DIR=""
+  REPO_URL="https://github.com/Antigravi-ty/RocketCompanion"
+  REPO_NAME=""
+  TARGET_REF=""
+  NEW_BRANCH=""
+  TMPFS_SUBMODULES="public,*Statics*,*statics*"
+  GIT_USER_NAME="${GIT_AUTHOR_NAME:-Mark}"
+  GIT_USER_EMAIL="${GIT_AUTHOR_EMAIL:-29165094+MaBoCoMark@users.noreply.github.com}"
+  RUN_CHECK=1
+  CHECK_CMD=""
+  SHOW_HELP=0
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
       -h|--help|help)
-        print_help
+        SHOW_HELP=1
         return 0
         ;;
       --root)
@@ -326,6 +216,422 @@ main() {
         ;;
     esac
   done
+}
+
+ensure_fix_sh_persisted() {
+  local work_dir="$1"
+  local fix_path="${work_dir}/fix.sh"
+  mkdir -p "$work_dir"
+
+  local self_path="${BASH_SOURCE[0]:-}"
+  if [ -n "$self_path" ] && [ -f "$self_path" ]; then
+    local abs_self abs_fix
+    abs_self="$(readlink -f "$self_path" 2>/dev/null || echo "$self_path")"
+    abs_fix="$(readlink -f "$fix_path" 2>/dev/null || echo "$fix_path")"
+    if [ "$abs_self" != "$abs_fix" ]; then
+      cp -f "$self_path" "$fix_path" 2>/dev/null || true
+      chmod +x "$fix_path" 2>/dev/null || true
+    else
+      chmod +x "$fix_path" 2>/dev/null || true
+    fi
+  elif [ ! -f "$fix_path" ]; then
+    curl -fsSL "https://envinit.maboco-mark.workers.dev/" -o "$fix_path" 2>/dev/null || true
+    chmod +x "$fix_path" 2>/dev/null || true
+  fi
+}
+
+setup_tmpfs_pnpm_and_wrapper() {
+  local persist_prefix="$1"
+  local tmp_dir="$2"
+  local work_dir="$3"
+  local pnpm_store="$4"
+  local pnpm_cache="$5"
+  local npm_cache="$6"
+
+  local real_pnpm_prefix="${tmp_dir}/pnpm-global"
+  local real_pnpm_bin="${real_pnpm_prefix}/bin/pnpm"
+  local real_pnpx_bin="${real_pnpm_prefix}/bin/pnpx"
+
+  # Purge any legacy 63MB pnpm installation on OverlayFS (/usr/local/lib/node_modules/pnpm)
+  rm -rf "${persist_prefix}/lib/node_modules/pnpm" /root/.npm /root/.cache/pnpm /root/.local/share/pnpm 2>/dev/null || true
+
+  # Install pnpm binary into tmpfs (/tmp/pnpm-global)
+  if [ ! -x "$real_pnpm_bin" ]; then
+    mkdir -p "$real_pnpm_prefix" "$npm_cache" 2>/dev/null || true
+    NPM_CONFIG_CACHE="$npm_cache" npm install -g pnpm --prefix "$real_pnpm_prefix" --force --no-audit --no-fund --silent >/dev/null 2>&1 || \
+      NPM_CONFIG_CACHE="$npm_cache" npm install -g pnpm --prefix "$real_pnpm_prefix" --force
+    rm -rf /root/.npm "$npm_cache" 2>/dev/null || true
+  fi
+
+  mkdir -p "${persist_prefix}/etc/pnpm" "${persist_prefix}/bin" 2>/dev/null || true
+  cat << EOF > "${persist_prefix}/etc/pnpm/config.yaml"
+cacheDir: ${pnpm_cache}
+storeDir: ${pnpm_store}
+verifyDepsBeforeRun: false
+confirmModulesPurge: false
+EOF
+
+  # Remove any symlinks in /usr/local/bin/{pnpm,pnpx,pn,pnx} so we write real 2KB scripts
+  for bin_name in pnpm pnpx pn pnx; do
+    rm -f "${persist_prefix}/bin/${bin_name}" 2>/dev/null || true
+  done
+
+  cat << EOF > "${persist_prefix}/bin/pnpm"
+#!/usr/bin/env bash
+export XDG_CONFIG_HOME="${persist_prefix}/etc"
+export XDG_CACHE_HOME="${tmp_dir}"
+export XDG_DATA_HOME="${tmp_dir}"
+export XDG_STATE_HOME="${tmp_dir}"
+
+REAL_PNPM_PREFIX="${real_pnpm_prefix}"
+REAL_PNPM="\${REAL_PNPM_PREFIX}/bin/pnpm"
+
+if [ ! -x "\$REAL_PNPM" ]; then
+  echo "[pnpm-wrapper] /tmp reset detected. Reinstalling pnpm to tmpfs & healing workspace..." >&2
+  mkdir -p "\$REAL_PNPM_PREFIX" "${pnpm_store}" "${pnpm_cache}" "${npm_cache}" 2>/dev/null || true
+  NPM_CONFIG_CACHE="${npm_cache}" npm install -g pnpm --prefix "\$REAL_PNPM_PREFIX" --force --no-audit --no-fund --silent >/dev/null 2>&1 || \
+    NPM_CONFIG_CACHE="${npm_cache}" npm install -g pnpm --prefix "\$REAL_PNPM_PREFIX" --force >&2
+  rm -rf /root/.npm "${npm_cache}" 2>/dev/null || true
+  if [ -x "${work_dir}/fix.sh" ] && [ -z "\${FIX_SH_RUNNING:-}" ]; then
+    FIX_SH_RUNNING=1 "${work_dir}/fix.sh" --no-check >&2 || true
+  fi
+fi
+
+for link_dir in dist .vite src-tauri/target public; do
+  if [ -L "\$link_dir" ] && [ ! -e "\$link_dir" ]; then
+    mkdir -p "\$(readlink "\$link_dir")" 2>/dev/null || true
+  fi
+done
+
+if [ -L "node_modules" ] && [ -f "package.json" ]; then
+  NM_TARGET="\$(readlink "node_modules")"
+  if [ ! -e "node_modules" ] || [ ! -f "node_modules/.modules.yaml" ]; then
+    mkdir -p "\$NM_TARGET" "${pnpm_store}" 2>/dev/null || true
+    case "\${1:-}" in
+      install|i|add|remove|config|--version|-v|--help|-h) ;;
+      *) "\$REAL_PNPM" install --store-dir="${pnpm_store}" --config.confirm-modules-purge=false >&2 ;;
+    esac
+  fi
+fi
+
+exec "\$REAL_PNPM" "\$@"
+EOF
+  chmod +x "${persist_prefix}/bin/pnpm"
+
+  cat << EOF > "${persist_prefix}/bin/pnpx"
+#!/usr/bin/env bash
+if [ ! -x "${real_pnpx_bin}" ]; then
+  "${persist_prefix}/bin/pnpm" --version >/dev/null 2>&1 || true
+fi
+exec "${real_pnpx_bin}" "\$@"
+EOF
+  chmod +x "${persist_prefix}/bin/pnpx"
+
+  # Install a lightweight git wrapper at /usr/local/bin/git so `git reset --hard`
+  # (which natively does not trigger post-checkout in Git) automatically invokes
+  # .git/hooks/post-checkout to restore tmpfs submodule symlinks (e.g. public -> /tmp/...)
+  if [ -x "/usr/bin/git" ]; then
+    cat << 'EOF' > "${persist_prefix}/bin/git"
+#!/usr/bin/env bash
+/usr/bin/git "$@"
+GIT_EXIT=$?
+if [ $GIT_EXIT -eq 0 ]; then
+  case "$*" in
+    *reset*--hard*|*checkout*|*switch*|*merge*|*pull*|*rebase*)
+      TOP_DIR="$(/usr/bin/git rev-parse --show-toplevel 2>/dev/null || true)"
+      if [ -n "$TOP_DIR" ] && [ -x "${TOP_DIR}/.git/hooks/post-checkout" ]; then
+        "${TOP_DIR}/.git/hooks/post-checkout" HEAD HEAD 1 >/dev/null 2>&1 || true
+      fi
+      ;;
+  esac
+fi
+exit $GIT_EXIT
+EOF
+    chmod +x "${persist_prefix}/bin/git"
+  fi
+}
+
+cleanup_stale_submodules() {
+  local repo_dir="$1"
+  local active_paths=" "
+
+  if [ -f "${repo_dir}/.gitmodules" ]; then
+    local sub_keys
+    sub_keys="$(git -C "$repo_dir" config --file .gitmodules --name-only --get-regexp '^submodule\..*\.path$' 2>/dev/null || true)"
+    for key in $sub_keys; do
+      local sp
+      sp="$(git -C "$repo_dir" config --file .gitmodules --get "$key" 2>/dev/null || true)"
+      [ -n "$sp" ] && active_paths="${active_paths}${sp} "
+    done
+  fi
+
+  local cfg_keys
+  cfg_keys="$(git -C "$repo_dir" config --local --name-only --get-regexp '^submodule\..*\.(url|active|update)$' 2>/dev/null || true)"
+  for key in $cfg_keys; do
+    local sname="${key#submodule.}"
+    sname="${sname%.*}"
+    if [[ "$active_paths" != *" ${sname} "* ]]; then
+      git -C "$repo_dir" config --local --remove-section "submodule.${sname}" 2>/dev/null || true
+      rm -rf "${repo_dir}/${sname}/.git" "${repo_dir}/.git/modules/${sname}" 2>/dev/null || true
+    fi
+  done
+
+  if [ -d "${repo_dir}/.git/modules" ]; then
+    local mod_git_dir
+    while IFS= read -r mod_git_dir; do
+      [ -z "$mod_git_dir" ] && continue
+      local rel_mod="${mod_git_dir#${repo_dir}/.git/modules/}"
+      if [[ "$active_paths" != *" ${rel_mod} "* ]]; then
+        rm -rf "${repo_dir}/${rel_mod}/.git" "$mod_git_dir" 2>/dev/null || true
+      fi
+    done < <(find "${repo_dir}/.git/modules" -mindepth 1 -maxdepth 3 -name "HEAD" 2>/dev/null | sed 's|/HEAD$||')
+  fi
+}
+
+checkout_target_ref() {
+  local repo_dir="$1"
+  local target_ref="$2"
+  local new_branch="$3"
+
+  if [ -n "$target_ref" ]; then
+    # Remove any residual .git inside former submodule directories before switching branches
+    find "$repo_dir" -mindepth 2 -maxdepth 3 -name ".git" | while IFS= read -r sub_git; do
+      local rel_sub="${sub_git#${repo_dir}/}"
+      rel_sub="${rel_sub%/.git}"
+      if [ ! -L "${repo_dir}/${rel_sub}" ]; then
+        rm -rf "$sub_git" 2>/dev/null || true
+      fi
+    done
+
+    if git -C "$repo_dir" fetch --no-tags origin "$target_ref" >/dev/null 2>&1 || \
+       git -C "$repo_dir" fetch origin "$target_ref" >/dev/null 2>&1; then
+      if git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/${target_ref}"; then
+        git -C "$repo_dir" checkout -f -B "$target_ref" "origin/${target_ref}"
+      else
+        git -C "$repo_dir" checkout -f --detach FETCH_HEAD
+      fi
+    else
+      git -C "$repo_dir" fetch --all --tags --prune >/dev/null 2>&1 || true
+      if git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/${target_ref}"; then
+        git -C "$repo_dir" checkout -f -B "$target_ref" "origin/${target_ref}"
+      else
+        git -C "$repo_dir" checkout -f "$target_ref"
+      fi
+    fi
+  fi
+
+  if [ -n "$new_branch" ]; then
+    git -C "$repo_dir" checkout -B "$new_branch"
+  fi
+
+  cleanup_stale_submodules "$repo_dir"
+  git -C "$repo_dir" prune --expire=now >/dev/null 2>&1 || true
+}
+
+install_git_submodule_hooks() {
+  local repo_dir="$1"
+  local tmp_dir="${2:-/tmp}"
+  local hooks_dir="${repo_dir}/.git/hooks"
+  mkdir -p "$hooks_dir"
+
+  local hook_body
+  read -r -d '' hook_body << HOOK_EOF || true
+#!/usr/bin/env bash
+# Auto-generated by envinit:
+# 1. Restores tmpfs static submodule symlinks (e.g. public -> /tmp/<StaticsRepo>)
+#    and re-applies --assume-unchanged whenever \`git reset --hard\` or \`git checkout -f\`
+#    replaces the symlink with an empty directory on OverlayFS.
+# 2. Cleans up stale submodule .git directories when switching to branches (like alpha)
+#    where former submodules (e.g. src/ui-core) are tracked as regular files.
+# 3. Locks active non-tmpfs code submodules strictly to HEAD:<sub_path>.
+set -u
+
+TMP_DIR="${tmp_dir}"
+REPO_ROOT="\$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "\$REPO_ROOT" || exit 0
+
+active_paths=" "
+if [ -f ".gitmodules" ]; then
+  sub_keys="\$(git config --file .gitmodules --name-only --get-regexp '^submodule\..*\.path\$' 2>/dev/null || true)"
+  for key in \$sub_keys; do
+    sub_name="\${key#submodule.}"
+    sub_name="\${sub_name%.path}"
+    sub_path="\$(git config --file .gitmodules --get "\$key" 2>/dev/null || true)"
+    [ -z "\$sub_path" ] && continue
+    active_paths="\${active_paths}\${sub_path} "
+
+    sub_url="\$(git config --file .gitmodules --get "submodule.\${sub_name}.url" 2>/dev/null || true)"
+    sub_update="\$(git config --get "submodule.\${sub_name}.update" 2>/dev/null || git config --file .gitmodules --get "submodule.\${sub_name}.update" 2>/dev/null || true)"
+
+    if [ "\$sub_update" = "none" ] || [ "\$sub_path" = "public" ] || [[ "\$sub_url" == *Statics* ]] || [[ "\$sub_url" == *statics* ]]; then
+      statics_base="\$(basename "\${sub_url%.git}")"
+      [ -z "\$statics_base" ] && statics_base="\$sub_name"
+      tmp_target="\${TMP_DIR}/\${statics_base}"
+      mkdir -p "\$tmp_target" 2>/dev/null || true
+      if [ ! -L "\$sub_path" ] || [ "\$(readlink "\$sub_path" 2>/dev/null || true)" != "\$tmp_target" ]; then
+        rm -rf "\$sub_path"
+        ln -sfn "\$tmp_target" "\$sub_path"
+      fi
+      git config "submodule.\${sub_name}.update" none 2>/dev/null || true
+      git config "submodule.\${sub_name}.active" false 2>/dev/null || true
+      git update-index --assume-unchanged "\$sub_path" 2>/dev/null || true
+      continue
+    fi
+
+    pinned_sha="\$(git rev-parse -q --verify "HEAD:\${sub_path}" 2>/dev/null || true)"
+    [ -z "\$pinned_sha" ] && continue
+    [ -e "\${sub_path}/.git" ] || continue
+
+    cur_sha="\$(git -C "\$sub_path" rev-parse HEAD 2>/dev/null || true)"
+    if [ "\$cur_sha" != "\$pinned_sha" ]; then
+      if git -C "\$sub_path" diff --quiet 2>/dev/null && git -C "\$sub_path" diff --cached --quiet 2>/dev/null; then
+        if ! git -C "\$sub_path" cat-file -e "\${pinned_sha}^{commit}" 2>/dev/null; then
+          git -C "\$sub_path" fetch --no-tags origin "\$pinned_sha" >/dev/null 2>&1 || git -C "\$sub_path" fetch --all --tags --prune >/dev/null 2>&1 || true
+        fi
+        git -C "\$sub_path" checkout --detach "\$pinned_sha" >/dev/null 2>&1 || true
+      fi
+    fi
+  done
+fi
+
+if [ -d ".git/modules" ]; then
+  while IFS= read -r mod_git_dir; do
+    [ -z "\$mod_git_dir" ] && continue
+    rel_mod="\${mod_git_dir#.git/modules/}"
+    if [[ "\$active_paths" != *" \${rel_mod} "* ]]; then
+      git config --local --remove-section "submodule.\${rel_mod}" 2>/dev/null || true
+      rm -rf "\${rel_mod}/.git" "\$mod_git_dir" 2>/dev/null || true
+    fi
+  done < <(find ".git/modules" -mindepth 1 -maxdepth 3 -name "HEAD" 2>/dev/null | sed 's|/HEAD\$||')
+fi
+HOOK_EOF
+
+  cat > "${hooks_dir}/post-checkout" << EOF
+#!/usr/bin/env bash
+# Only run on branch/ref checkouts (\$3 == 1), skip single-file checkouts (\$3 == 0)
+if [ "\${3:-1}" = "0" ]; then
+  exit 0
+fi
+${hook_body#*$'\n'}
+EOF
+
+  printf '%s\n' "$hook_body" > "${hooks_dir}/post-merge"
+  printf '%s\n' "$hook_body" > "${hooks_dir}/post-rewrite"
+  chmod +x "${hooks_dir}/post-checkout" "${hooks_dir}/post-merge" "${hooks_dir}/post-rewrite" 2>/dev/null || true
+}
+
+sync_submodules() {
+  local project_dir="$1"
+  local repo_url="$2"
+  local tmp_dir="$3"
+  local slug="$4"
+  local tmpfs_submodules="$5"
+  local git_user_name="$6"
+  local git_user_email="$7"
+
+  cd "$project_dir"
+  cleanup_stale_submodules "$project_dir"
+
+  if [ -f ".gitmodules" ]; then
+    local sub_keys
+    sub_keys="$(git config --file .gitmodules --name-only --get-regexp '^submodule\..*\.path$' || true)"
+    for key in $sub_keys; do
+      local sub_name="${key#submodule.}"
+      sub_name="${sub_name%.path}"
+      local sub_path
+      sub_path="$(git config --file .gitmodules --get "$key")"
+      local sub_url
+      sub_url="$(git config --file .gitmodules --get "submodule.${sub_name}.url" || true)"
+
+      if [[ "$sub_url" == ../* ]]; then
+        local repo_parent
+        repo_parent="$(dirname "$repo_url")"
+        sub_url="${repo_parent}/${sub_url#../}"
+      fi
+
+      local pinned_sha
+      pinned_sha="$(git rev-parse -q --verify "HEAD:${sub_path}" 2>/dev/null || true)"
+
+      local is_tmpfs_sub=0
+      IFS=',' read -ra patterns <<< "$tmpfs_submodules"
+      for pat in "${patterns[@]}"; do
+        if [[ "$sub_path" == $pat || "$sub_name" == $pat || "$sub_url" == $pat ]]; then
+          is_tmpfs_sub=1
+          break
+        fi
+      done
+
+      if [ "$is_tmpfs_sub" -eq 1 ]; then
+        local statics_base
+        statics_base="$(basename "${sub_url%.git}")"
+        [ -z "$statics_base" ] && statics_base="${slug}-${sub_name}"
+        local tmp_sub_dir="${tmp_dir}/${statics_base}"
+        if [ ! -d "${tmp_sub_dir}/.git" ] || ! git -C "$tmp_sub_dir" rev-parse HEAD >/dev/null 2>&1; then
+          rm -rf "$tmp_sub_dir"
+          git clone "$sub_url" "$tmp_sub_dir"
+        fi
+        if [ -n "$pinned_sha" ]; then
+          if ! git -C "$tmp_sub_dir" cat-file -e "${pinned_sha}^{commit}" 2>/dev/null; then
+            git -C "$tmp_sub_dir" fetch --no-tags origin "$pinned_sha" >/dev/null 2>&1 || git -C "$tmp_sub_dir" fetch --all --tags --prune >/dev/null 2>&1 || true
+          fi
+          if [ "$(git -C "$tmp_sub_dir" rev-parse HEAD 2>/dev/null || true)" != "$pinned_sha" ]; then
+            git -C "$tmp_sub_dir" checkout --detach "$pinned_sha" >/dev/null 2>&1 || true
+          fi
+        fi
+        if [ ! -L "$sub_path" ] || [ ! -e "$sub_path" ] || [ "$(readlink "$sub_path")" != "$tmp_sub_dir" ]; then
+          rm -rf "$sub_path"
+          ln -sfn "$tmp_sub_dir" "$sub_path"
+        fi
+        git config "submodule.${sub_name}.update" none 2>/dev/null || true
+        git config "submodule.${sub_name}.active" false 2>/dev/null || true
+        git update-index --assume-unchanged "$sub_path" 2>/dev/null || true
+      else
+        git submodule init -- "$sub_path" >/dev/null 2>&1 || true
+        [ -n "$sub_url" ] && git config "submodule.${sub_name}.url" "$sub_url" 2>/dev/null || true
+        git config "submodule.${sub_name}.active" true 2>/dev/null || true
+        git config --unset "submodule.${sub_name}.update" 2>/dev/null || true
+
+        if [ ! -e "${sub_path}/.git" ] || ! git -C "$sub_path" rev-parse HEAD >/dev/null 2>&1; then
+          git submodule update --init --recursive -- "$sub_path" >/dev/null 2>&1 || true
+        fi
+        if [ ! -e "${sub_path}/.git" ] || ! git -C "$sub_path" rev-parse HEAD >/dev/null 2>&1; then
+          rm -rf "$sub_path"
+          git clone "$sub_url" "$sub_path"
+        fi
+
+        if [ -n "$pinned_sha" ]; then
+          if ! git -C "$sub_path" cat-file -e "${pinned_sha}^{commit}" 2>/dev/null; then
+            git -C "$sub_path" fetch --no-tags origin "$pinned_sha" >/dev/null 2>&1 || git -C "$sub_path" fetch --all --tags --prune >/dev/null 2>&1 || true
+          fi
+          local cur_sub_sha
+          cur_sub_sha="$(git -C "$sub_path" rev-parse HEAD 2>/dev/null || true)"
+          if [ "$cur_sub_sha" != "$pinned_sha" ]; then
+            if git -C "$sub_path" diff --quiet 2>/dev/null && git -C "$sub_path" diff --cached --quiet 2>/dev/null; then
+              git -C "$sub_path" checkout --detach "$pinned_sha" >/dev/null 2>&1 || git submodule update --init --recursive --force -- "$sub_path" >/dev/null 2>&1 || true
+            else
+              echo "[init-sandbox] Warning: submodule ${sub_path} has uncommitted local changes; keeping working tree (${cur_sub_sha:0:8} vs parent ${pinned_sha:0:8})." >&2
+            fi
+          fi
+        fi
+
+        git -C "$sub_path" config user.name "$git_user_name" 2>/dev/null || true
+        git -C "$sub_path" config user.email "$git_user_email" 2>/dev/null || true
+      fi
+    done
+  fi
+}
+
+main() {
+  export GIT_TERMINAL_PROMPT=0
+  export PAGER=cat
+  export CI=true
+  export DEBIAN_FRONTEND=noninteractive
+
+  parse_cli_args "$@"
+  if [ "${SHOW_HELP:-0}" -eq 1 ]; then
+    print_help
+    return 0
+  fi
 
   git config --global user.name "$GIT_USER_NAME" 2>/dev/null || true
   git config --global user.email "$GIT_USER_EMAIL" 2>/dev/null || true
@@ -370,59 +676,7 @@ main() {
   fi
   export PATH="${PNPM_PERSIST_PREFIX}/bin:/usr/local/bin:${PATH}"
 
-  # Clean up legacy dangling symlinks that pointed to /tmp/pnpm-global
-  for bin_name in pnpm pnpx pn pnx; do
-    local bin_path="${PNPM_PERSIST_PREFIX}/bin/${bin_name}"
-    if [ -L "$bin_path" ] && [ ! -e "$bin_path" ]; then
-      rm -f "$bin_path"
-    fi
-  done
-
-  local REAL_PNPM_BIN="${PNPM_PERSIST_PREFIX}/lib/node_modules/pnpm/pnpm"
-  if [ ! -x "$REAL_PNPM_BIN" ]; then
-    rm -f "${PNPM_PERSIST_PREFIX}/bin/pnpm" "${PNPM_PERSIST_PREFIX}/bin/pnpx" "${PNPM_PERSIST_PREFIX}/bin/pn" "${PNPM_PERSIST_PREFIX}/bin/pnx" 2>/dev/null || true
-    mkdir -p "${PNPM_PERSIST_PREFIX}/bin" "${PNPM_PERSIST_PREFIX}/lib" 2>/dev/null || true
-    npm install -g pnpm --prefix "$PNPM_PERSIST_PREFIX" --cache "$NPM_CACHE" --force --no-audit --no-fund >/dev/null 2>&1 || \
-      npm install -g pnpm --cache "$NPM_CACHE" --force
-    rm -rf /root/.npm "$NPM_CACHE" 2>/dev/null || true
-  fi
-
-  mkdir -p "${PNPM_PERSIST_PREFIX}/etc/pnpm" 2>/dev/null || true
-  cat << EOF > "${PNPM_PERSIST_PREFIX}/etc/pnpm/config.yaml"
-cacheDir: ${PNPM_CACHE}
-storeDir: ${PNPM_STORE}
-verifyDepsBeforeRun: false
-confirmModulesPurge: false
-EOF
-
-  if [ -x "$REAL_PNPM_BIN" ]; then
-    rm -f "${PNPM_PERSIST_PREFIX}/bin/pnpm"
-    cat << EOF > "${PNPM_PERSIST_PREFIX}/bin/pnpm"
-#!/usr/bin/env bash
-export XDG_CONFIG_HOME="${PNPM_PERSIST_PREFIX}/etc"
-export XDG_CACHE_HOME="${TMP_DIR}"
-export XDG_DATA_HOME="${TMP_DIR}"
-export XDG_STATE_HOME="${TMP_DIR}"
-for link_dir in dist .vite src-tauri/target; do
-  if [ -L "\$link_dir" ] && [ ! -e "\$link_dir" ]; then
-    mkdir -p "\$(readlink "\$link_dir")"
-  fi
-done
-if [ -L "node_modules" ] && [ -f "package.json" ]; then
-  NM_TARGET="\$(readlink "node_modules")"
-  if [ ! -e "node_modules" ] || [ ! -f "node_modules/.modules.yaml" ]; then
-    mkdir -p "\$NM_TARGET" "${PNPM_STORE}"
-    case "\${1:-}" in
-      install|i|add|remove|config|--version|-v|--help|-h) ;;
-      *) "${REAL_PNPM_BIN}" install --store-dir="${PNPM_STORE}" --config.confirm-modules-purge=false >&2 ;;
-    esac
-  fi
-fi
-exec "${REAL_PNPM_BIN}" "\$@"
-EOF
-    chmod +x "${PNPM_PERSIST_PREFIX}/bin/pnpm"
-  fi
-  rm -rf /root/.cache/pnpm 2>/dev/null || true
+  setup_tmpfs_pnpm_and_wrapper "$PNPM_PERSIST_PREFIX" "$TMP_DIR" "$WORK_DIR" "$PNPM_STORE" "$PNPM_CACHE" "$NPM_CACHE"
 
   if [ ! -d "${PROJECT_DIR}/.git" ] || ! git -C "$PROJECT_DIR" rev-parse HEAD >/dev/null 2>&1; then
     rm -rf "$PROJECT_DIR"
@@ -431,103 +685,19 @@ EOF
 
   git -C "$PROJECT_DIR" config user.name "$GIT_USER_NAME" 2>/dev/null || true
   git -C "$PROJECT_DIR" config user.email "$GIT_USER_EMAIL" 2>/dev/null || true
+  git -C "$PROJECT_DIR" config gc.auto 0 2>/dev/null || true
+
+  # Install hooks before checkout so post-checkout runs with the updated logic
+  install_git_submodule_hooks "$PROJECT_DIR" "$TMP_DIR"
 
   if [ -n "$TARGET_REF" ] || [ -n "$NEW_BRANCH" ]; then
     checkout_target_ref "$PROJECT_DIR" "$TARGET_REF" "$NEW_BRANCH"
   fi
 
+  sync_submodules "$PROJECT_DIR" "$REPO_URL" "$TMP_DIR" "$SLUG" "$TMPFS_SUBMODULES" "$GIT_USER_NAME" "$GIT_USER_EMAIL"
+  install_git_submodule_hooks "$PROJECT_DIR" "$TMP_DIR"
+
   cd "$PROJECT_DIR"
-
-  if [ -f ".gitmodules" ]; then
-    local sub_keys
-    sub_keys="$(git config --file .gitmodules --name-only --get-regexp '^submodule\..*\.path$' || true)"
-    for key in $sub_keys; do
-      local sub_name="${key#submodule.}"
-      sub_name="${sub_name%.path}"
-      local sub_path
-      sub_path="$(git config --file .gitmodules --get "$key")"
-      local sub_url
-      sub_url="$(git config --file .gitmodules --get "submodule.${sub_name}.url" || true)"
-
-      if [[ "$sub_url" == ../* ]]; then
-        local repo_parent
-        repo_parent="$(dirname "$REPO_URL")"
-        sub_url="${repo_parent}/${sub_url#../}"
-      fi
-
-      # Extract the exact gitlink commit SHA pinned in the parent commit tree
-      local pinned_sha
-      pinned_sha="$(git rev-parse -q --verify "HEAD:${sub_path}" 2>/dev/null || true)"
-
-      local is_tmpfs_sub=0
-      IFS=',' read -ra patterns <<< "$TMPFS_SUBMODULES"
-      for pat in "${patterns[@]}"; do
-        if [[ "$sub_path" == $pat || "$sub_name" == $pat || "$sub_url" == $pat ]]; then
-          is_tmpfs_sub=1
-          break
-        fi
-      done
-
-      if [ "$is_tmpfs_sub" -eq 1 ]; then
-        local statics_base
-        statics_base="$(basename "${sub_url%.git}")"
-        [ -z "$statics_base" ] && statics_base="${SLUG}-${sub_name}"
-        local tmp_sub_dir="${TMP_DIR}/${statics_base}"
-        if [ ! -d "${tmp_sub_dir}/.git" ] || ! git -C "$tmp_sub_dir" rev-parse HEAD >/dev/null 2>&1; then
-          rm -rf "$tmp_sub_dir"
-          git clone "$sub_url" "$tmp_sub_dir"
-        fi
-        if [ -n "$pinned_sha" ]; then
-          if ! git -C "$tmp_sub_dir" cat-file -e "${pinned_sha}^{commit}" 2>/dev/null; then
-            git -C "$tmp_sub_dir" fetch origin "$pinned_sha" >/dev/null 2>&1 || git -C "$tmp_sub_dir" fetch --all --tags --prune >/dev/null 2>&1 || true
-          fi
-          if [ "$(git -C "$tmp_sub_dir" rev-parse HEAD 2>/dev/null || true)" != "$pinned_sha" ]; then
-            git -C "$tmp_sub_dir" checkout --detach "$pinned_sha" >/dev/null 2>&1 || true
-          fi
-        fi
-        if [ ! -L "$sub_path" ] || [ ! -e "$sub_path" ] || [ "$(readlink "$sub_path")" != "$tmp_sub_dir" ]; then
-          rm -rf "$sub_path"
-          ln -sfn "$tmp_sub_dir" "$sub_path"
-        fi
-        git config "submodule.${sub_name}.update" none 2>/dev/null || true
-        git config "submodule.${sub_name}.active" false 2>/dev/null || true
-        git update-index --assume-unchanged "$sub_path" 2>/dev/null || true
-      else
-        git submodule init -- "$sub_path" >/dev/null 2>&1 || true
-        [ -n "$sub_url" ] && git config "submodule.${sub_name}.url" "$sub_url" 2>/dev/null || true
-        git config "submodule.${sub_name}.active" true 2>/dev/null || true
-        git config --unset "submodule.${sub_name}.update" 2>/dev/null || true
-
-        if [ ! -e "${sub_path}/.git" ] || ! git -C "$sub_path" rev-parse HEAD >/dev/null 2>&1; then
-          git submodule update --init --recursive -- "$sub_path" >/dev/null 2>&1 || true
-        fi
-        if [ ! -e "${sub_path}/.git" ] || ! git -C "$sub_path" rev-parse HEAD >/dev/null 2>&1; then
-          rm -rf "$sub_path"
-          git clone "$sub_url" "$sub_path"
-        fi
-
-        if [ -n "$pinned_sha" ]; then
-          if ! git -C "$sub_path" cat-file -e "${pinned_sha}^{commit}" 2>/dev/null; then
-            git -C "$sub_path" fetch origin "$pinned_sha" >/dev/null 2>&1 || git -C "$sub_path" fetch --all --tags --prune >/dev/null 2>&1 || true
-          fi
-          local cur_sub_sha
-          cur_sub_sha="$(git -C "$sub_path" rev-parse HEAD 2>/dev/null || true)"
-          if [ "$cur_sub_sha" != "$pinned_sha" ]; then
-            if git -C "$sub_path" diff --quiet 2>/dev/null && git -C "$sub_path" diff --cached --quiet 2>/dev/null; then
-              git -C "$sub_path" checkout --detach "$pinned_sha" >/dev/null 2>&1 || git submodule update --init --recursive --force -- "$sub_path" >/dev/null 2>&1 || true
-            else
-              echo "[init-sandbox] Warning: submodule ${sub_path} has uncommitted local changes; keeping working tree (${cur_sub_sha:0:8} vs parent ${pinned_sha:0:8})." >&2
-            fi
-          fi
-        fi
-
-        git -C "$sub_path" config user.name "$GIT_USER_NAME" 2>/dev/null || true
-        git -C "$sub_path" config user.email "$GIT_USER_EMAIL" 2>/dev/null || true
-      fi
-    done
-  fi
-
-  install_git_submodule_hooks "$PROJECT_DIR"
 
   mkdir -p "$NM_TARGET" "$PNPM_STORE" "$DIST_TARGET" "$VITE_TARGET"
   if [ ! -L "node_modules" ] || [ ! -e "node_modules" ] || [ "$(readlink "node_modules")" != "$NM_TARGET" ]; then
