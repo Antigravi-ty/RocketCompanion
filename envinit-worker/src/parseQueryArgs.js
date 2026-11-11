@@ -28,6 +28,8 @@ export function parseQueryPresetArgs(searchParams) {
   const gitEmail =
     searchParams.get("git_email") || searchParams.get("git-email");
   const noCheck = searchParams.get("no_check") || searchParams.get("no-check");
+  const radarArgs =
+    searchParams.get("radar_args") || searchParams.get("radar-args");
   const checkCmd =
     searchParams.get("check_cmd") || searchParams.get("check-cmd");
 
@@ -42,6 +44,7 @@ export function parseQueryPresetArgs(searchParams) {
   if (gitName) presetArgs.push("--git-name", shellQuote(gitName));
   if (gitEmail) presetArgs.push("--git-email", shellQuote(gitEmail));
   if (noCheck === "1" || noCheck === "true") presetArgs.push("--no-check");
+  if (radarArgs) presetArgs.push("--radar-args", shellQuote(radarArgs));
   if (checkCmd) presetArgs.push("--check-cmd", shellQuote(checkCmd));
 
   return presetArgs;

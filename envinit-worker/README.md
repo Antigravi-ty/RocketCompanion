@@ -33,8 +33,9 @@ envinit-worker/
    - `.git/hooks/post-checkout`, `post-merge`, and `post-rewrite` now detect `tmpfs` submodules (`sub_update=none` or `public`/`*Statics*`) and immediately recreate `ln -sfn /tmp/<StaticsRepo> "$sub_path"` + `git update-index --assume-unchanged "$sub_path"`.
 3. **Stale Submodule `.git` Cleanup Across Branch Switches (`scripts/03_git_and_hooks.sh`, saves 5~10 MB)**:
    - Switching between legacy submodule branches (`beabd26` where `src/ui-core` is a submodule) and `alpha` (where `src/ui-core` is a normal directory) automatically cleans up residual `src/ui-core/.git` and `.git/modules/src/ui-core`.
-4. **On-Demand `--no-tags` Fetch & Loose Object Pruning (`scripts/03_git_and_hooks.sh`)**:
-   - Uses targeted `git fetch --no-tags origin <ref>` and runs `git prune --expire=now` after ref switches to prevent `.git/objects` accumulation on OverlayFS.
+4. **Zero-Detached-HEAD Commit Checkout, On-Demand `--no-tags` Fetch & Loose Object Pruning (`scripts/03_git_and_hooks.sh`)**:
+   - When `--ref <commit_sha>` is passed without `--new-branch`, automatically resolves the commit SHA to the matching remote branch on `origin` (preferring `origin/HEAD`, `alpha`, `main`, `master`, or the unique remote branch at that commit) or creates a local `z/ref-<short_sha>` branch so the working tree is never left in `detached HEAD` state.
+   - Uses targeted `git fetch --no-tags` (refreshing remote branch tips without pulling heavy tags on short SHAs) and runs `git prune --expire=now` after ref switches to prevent `.git/objects` accumulation on OverlayFS.
 
 ## Universal System Instruction Template (Vite / TypeScript / Tauri)
 

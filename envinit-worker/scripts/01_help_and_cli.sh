@@ -40,7 +40,10 @@ PURPOSE & ARCHITECTURE (FOR AI AGENTS & DEVELOPERS)
        per-repo so local `git merge`, `git rebase`, and `git cherry-pick` never
        fail with `unable to auto-detect email address` under `GIT_TERMINAL_PROMPT=0`.
      - Supports branches, tags, full commit SHAs, or abbreviated commit hashes
-       via `-b` / `--branch` / `--ref`, plus `--new-branch <z/name>`.
+       via `-b` / `--branch` / `--ref`, plus `--new-branch <z/name>`. When `--ref`
+       is a commit SHA and `--new-branch` is omitted, automatically attaches HEAD
+       to the matching remote branch on `origin` (or `z/ref-<short_sha>`) so the
+       working tree is never left in `detached HEAD` state.
      - Cleans up residual submodule `.git` metadata (e.g. `src/ui-core/.git` and
        `.git/modules/src/ui-core`) when switching from legacy submodule branches
        to branches where the directory is tracked as regular files (`alpha`).
@@ -73,8 +76,10 @@ OPTIONS
   --git-email <email>           Git user.email for local merges/commits
                                 (default: "29165094+MaBoCoMark@users.noreply.github.com").
   --no-check                    Skip post-install verification check.
+  --radar-args <args>           Arguments passed to default `pnpm radar` check
+                                (default: "--no-tsc").
   --check-cmd <command>         Custom verification command to run after install
-                                (default: `pnpm radar --no-tsc` if defined in package.json).
+                                (default: `pnpm radar <radar-args>` if defined in package.json).
 
 EXAMPLES (MULTI-REPO, COMMIT CHECKOUT & SNAPSHOT RECOVERY)
   # 1. Default initialization (RocketCompanion in /work/RocketCompanion):
@@ -104,6 +109,7 @@ parse_cli_args() {
   GIT_USER_NAME="${GIT_AUTHOR_NAME:-Mark}"
   GIT_USER_EMAIL="${GIT_AUTHOR_EMAIL:-29165094+MaBoCoMark@users.noreply.github.com}"
   RUN_CHECK=1
+  RADAR_ARGS="--no-tsc"
   CHECK_CMD=""
   SHOW_HELP=0
 
@@ -198,6 +204,14 @@ parse_cli_args() {
         ;;
       --no-check)
         RUN_CHECK=0
+        shift 1
+        ;;
+      --radar-args)
+        RADAR_ARGS="$2"
+        shift 2
+        ;;
+      --radar-args=*)
+        RADAR_ARGS="${1#*=}"
         shift 1
         ;;
       --check-cmd)

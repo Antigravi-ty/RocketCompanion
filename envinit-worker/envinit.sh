@@ -43,7 +43,10 @@ PURPOSE & ARCHITECTURE (FOR AI AGENTS & DEVELOPERS)
        per-repo so local `git merge`, `git rebase`, and `git cherry-pick` never
        fail with `unable to auto-detect email address` under `GIT_TERMINAL_PROMPT=0`.
      - Supports branches, tags, full commit SHAs, or abbreviated commit hashes
-       via `-b` / `--branch` / `--ref`, plus `--new-branch <z/name>`.
+       via `-b` / `--branch` / `--ref`, plus `--new-branch <z/name>`. When `--ref`
+       is a commit SHA and `--new-branch` is omitted, automatically attaches HEAD
+       to the matching remote branch on `origin` (or `z/ref-<short_sha>`) so the
+       working tree is never left in `detached HEAD` state.
      - Cleans up residual submodule `.git` metadata (e.g. `src/ui-core/.git` and
        `.git/modules/src/ui-core`) when switching from legacy submodule branches
        to branches where the directory is tracked as regular files (`alpha`).
@@ -76,8 +79,10 @@ OPTIONS
   --git-email <email>           Git user.email for local merges/commits
                                 (default: "29165094+MaBoCoMark@users.noreply.github.com").
   --no-check                    Skip post-install verification check.
+  --radar-args <args>           Arguments passed to default `pnpm radar` check
+                                (default: "--no-tsc").
   --check-cmd <command>         Custom verification command to run after install
-                                (default: `pnpm radar --no-tsc` if defined in package.json).
+                                (default: `pnpm radar <radar-args>` if defined in package.json).
 
 EXAMPLES (MULTI-REPO, COMMIT CHECKOUT & SNAPSHOT RECOVERY)
   # 1. Default initialization (RocketCompanion in /work/RocketCompanion):
@@ -107,6 +112,7 @@ parse_cli_args() {
   GIT_USER_NAME="${GIT_AUTHOR_NAME:-Mark}"
   GIT_USER_EMAIL="${GIT_AUTHOR_EMAIL:-29165094+MaBoCoMark@users.noreply.github.com}"
   RUN_CHECK=1
+  RADAR_ARGS="--no-tsc"
   CHECK_CMD=""
   SHOW_HELP=0
 
@@ -201,6 +207,14 @@ parse_cli_args() {
         ;;
       --no-check)
         RUN_CHECK=0
+        shift 1
+        ;;
+      --radar-args)
+        RADAR_ARGS="$2"
+        shift 2
+        ;;
+      --radar-args=*)
+        RADAR_ARGS="${1#*=}"
         shift 1
         ;;
       --check-cmd)
@@ -388,6 +402,65 @@ cleanup_stale_submodules() {
   fi
 }
 
+resolve_branch_for_commit() {
+  local repo_dir="$1"
+  local target_oid="$2"
+
+  local default_remote_branch=""
+  default_remote_branch="$(git -C "$repo_dir" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+  default_remote_branch="${default_remote_branch#origin/}"
+
+  local matched_remote=""
+  local first_remote=""
+  local cand
+  while IFS= read -r cand; do
+    [ -z "$cand" ] && continue
+    [ "$cand" = "HEAD" ] && continue
+    [ -z "$first_remote" ] && first_remote="$cand"
+    if [ -n "$default_remote_branch" ] && [ "$cand" = "$default_remote_branch" ]; then
+      matched_remote="$cand"
+      break
+    fi
+    if [ "$cand" = "alpha" ] || [ "$cand" = "main" ] || [ "$cand" = "master" ]; then
+      matched_remote="$cand"
+    fi
+  done < <(git -C "$repo_dir" for-each-ref --format='%(refname:lstrip=3)' --points-at "$target_oid" refs/remotes/origin/ 2>/dev/null || true)
+
+  [ -z "$matched_remote" ] && matched_remote="$first_remote"
+  if [ -n "$matched_remote" ]; then
+    echo "remote:${matched_remote}"
+    return 0
+  fi
+
+  local matched_local=""
+  matched_local="$(git -C "$repo_dir" for-each-ref --format='%(refname:lstrip=2)' --points-at "$target_oid" refs/heads/ 2>/dev/null | head -n 1 || true)"
+  if [ -n "$matched_local" ]; then
+    echo "local:${matched_local}"
+    return 0
+  fi
+
+  echo "auto:z/ref-${target_oid:0:7}"
+}
+
+ensure_attached_head() {
+  local repo_dir="$1"
+  if git -C "$repo_dir" symbolic-ref -q HEAD >/dev/null 2>&1; then
+    return 0
+  fi
+  local head_oid
+  head_oid="$(git -C "$repo_dir" rev-parse -q --verify "HEAD^{commit}" 2>/dev/null || true)"
+  [ -z "$head_oid" ] && return 0
+
+  local resolved
+  resolved="$(resolve_branch_for_commit "$repo_dir" "$head_oid")"
+  local kind="${resolved%%:*}"
+  local branch_name="${resolved#*:}"
+  git -C "$repo_dir" checkout -B "$branch_name" HEAD >/dev/null 2>&1 || true
+  if [ "$kind" = "remote" ]; then
+    git -C "$repo_dir" branch --set-upstream-to="origin/${branch_name}" "$branch_name" >/dev/null 2>&1 || true
+  fi
+}
+
 checkout_target_ref() {
   local repo_dir="$1"
   local target_ref="$2"
@@ -403,25 +476,53 @@ checkout_target_ref() {
       fi
     done
 
-    if git -C "$repo_dir" fetch --no-tags origin "$target_ref" >/dev/null 2>&1 || \
-       git -C "$repo_dir" fetch origin "$target_ref" >/dev/null 2>&1; then
-      if git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/${target_ref}"; then
-        git -C "$repo_dir" checkout -f -B "$target_ref" "origin/${target_ref}"
-      else
-        git -C "$repo_dir" checkout -f --detach FETCH_HEAD
-      fi
+    # Fetch remote ref or branch tips without pulling heavy tags unless needed
+    if git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/${target_ref}"; then
+      git -C "$repo_dir" fetch --no-tags origin "+refs/heads/${target_ref}:refs/remotes/origin/${target_ref}" >/dev/null 2>&1 || true
+    elif git -C "$repo_dir" fetch --no-tags origin "+refs/heads/${target_ref}:refs/remotes/origin/${target_ref}" >/dev/null 2>&1; then
+      :
+    elif git -C "$repo_dir" fetch --no-tags origin "$target_ref" >/dev/null 2>&1; then
+      :
     else
-      git -C "$repo_dir" fetch --all --tags --prune >/dev/null 2>&1 || true
+      git -C "$repo_dir" fetch --no-tags --prune origin '+refs/heads/*:refs/remotes/origin/*' >/dev/null 2>&1 || true
+      if ! git -C "$repo_dir" rev-parse -q --verify "${target_ref}^{commit}" >/dev/null 2>&1; then
+        git -C "$repo_dir" fetch --tags --prune origin >/dev/null 2>&1 || true
+      fi
+    fi
+
+    if [ -n "$new_branch" ]; then
       if git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/${target_ref}"; then
-        git -C "$repo_dir" checkout -f -B "$target_ref" "origin/${target_ref}"
+        git -C "$repo_dir" checkout -f -B "$new_branch" "origin/${target_ref}"
+      elif git -C "$repo_dir" rev-parse -q --verify "${target_ref}^{commit}" >/dev/null 2>&1; then
+        git -C "$repo_dir" checkout -f -B "$new_branch" "${target_ref}^{commit}"
+      else
+        git -C "$repo_dir" checkout -f -B "$new_branch" FETCH_HEAD
+      fi
+    elif git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/${target_ref}"; then
+      git -C "$repo_dir" checkout -f -B "$target_ref" "origin/${target_ref}"
+      git -C "$repo_dir" branch --set-upstream-to="origin/${target_ref}" "$target_ref" >/dev/null 2>&1 || true
+    else
+      local target_oid=""
+      target_oid="$(git -C "$repo_dir" rev-parse -q --verify "${target_ref}^{commit}" 2>/dev/null || git -C "$repo_dir" rev-parse -q --verify "FETCH_HEAD^{commit}" 2>/dev/null || true)"
+      if [ -n "$target_oid" ]; then
+        local resolved
+        resolved="$(resolve_branch_for_commit "$repo_dir" "$target_oid")"
+        local kind="${resolved%%:*}"
+        local branch_name="${resolved#*:}"
+        if [ "$kind" = "remote" ]; then
+          git -C "$repo_dir" checkout -f -B "$branch_name" "origin/${branch_name}"
+          git -C "$repo_dir" branch --set-upstream-to="origin/${branch_name}" "$branch_name" >/dev/null 2>&1 || true
+        else
+          git -C "$repo_dir" checkout -f -B "$branch_name" "$target_oid"
+        fi
       else
         git -C "$repo_dir" checkout -f "$target_ref"
       fi
     fi
-  fi
-
-  if [ -n "$new_branch" ]; then
+  elif [ -n "$new_branch" ]; then
     git -C "$repo_dir" checkout -B "$new_branch"
+  else
+    ensure_attached_head "$repo_dir"
   fi
 
   cleanup_stale_submodules "$repo_dir"
@@ -635,6 +736,7 @@ main() {
 
   git config --global user.name "$GIT_USER_NAME" 2>/dev/null || true
   git config --global user.email "$GIT_USER_EMAIL" 2>/dev/null || true
+  git config --global advice.detachedHead false 2>/dev/null || true
 
   if [[ "$REPO_URL" != *"://"* && "$REPO_URL" != git@* ]]; then
     REPO_URL="https://github.com/${REPO_URL#.git}"
@@ -685,14 +787,13 @@ main() {
 
   git -C "$PROJECT_DIR" config user.name "$GIT_USER_NAME" 2>/dev/null || true
   git -C "$PROJECT_DIR" config user.email "$GIT_USER_EMAIL" 2>/dev/null || true
+  git -C "$PROJECT_DIR" config advice.detachedHead false 2>/dev/null || true
   git -C "$PROJECT_DIR" config gc.auto 0 2>/dev/null || true
 
   # Install hooks before checkout so post-checkout runs with the updated logic
   install_git_submodule_hooks "$PROJECT_DIR" "$TMP_DIR"
 
-  if [ -n "$TARGET_REF" ] || [ -n "$NEW_BRANCH" ]; then
-    checkout_target_ref "$PROJECT_DIR" "$TARGET_REF" "$NEW_BRANCH"
-  fi
+  checkout_target_ref "$PROJECT_DIR" "$TARGET_REF" "$NEW_BRANCH"
 
   sync_submodules "$PROJECT_DIR" "$REPO_URL" "$TMP_DIR" "$SLUG" "$TMPFS_SUBMODULES" "$GIT_USER_NAME" "$GIT_USER_EMAIL"
   install_git_submodule_hooks "$PROJECT_DIR" "$TMP_DIR"
@@ -738,8 +839,9 @@ main() {
     if [ -n "$CHECK_CMD" ]; then
       eval "$CHECK_CMD"
     elif grep -q '"radar"' package.json 2>/dev/null; then
-      echo "[init-sandbox] Ready. Running quick radar check (--no-tsc)..."
-      pnpm radar --no-tsc
+      echo "[init-sandbox] Ready. Running quick radar check (${RADAR_ARGS:---no-tsc})..."
+      # shellcheck disable=SC2086
+      pnpm radar ${RADAR_ARGS:---no-tsc}
     fi
   fi
 

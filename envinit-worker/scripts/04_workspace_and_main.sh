@@ -113,6 +113,7 @@ main() {
 
   git config --global user.name "$GIT_USER_NAME" 2>/dev/null || true
   git config --global user.email "$GIT_USER_EMAIL" 2>/dev/null || true
+  git config --global advice.detachedHead false 2>/dev/null || true
 
   if [[ "$REPO_URL" != *"://"* && "$REPO_URL" != git@* ]]; then
     REPO_URL="https://github.com/${REPO_URL#.git}"
@@ -163,14 +164,13 @@ main() {
 
   git -C "$PROJECT_DIR" config user.name "$GIT_USER_NAME" 2>/dev/null || true
   git -C "$PROJECT_DIR" config user.email "$GIT_USER_EMAIL" 2>/dev/null || true
+  git -C "$PROJECT_DIR" config advice.detachedHead false 2>/dev/null || true
   git -C "$PROJECT_DIR" config gc.auto 0 2>/dev/null || true
 
   # Install hooks before checkout so post-checkout runs with the updated logic
   install_git_submodule_hooks "$PROJECT_DIR" "$TMP_DIR"
 
-  if [ -n "$TARGET_REF" ] || [ -n "$NEW_BRANCH" ]; then
-    checkout_target_ref "$PROJECT_DIR" "$TARGET_REF" "$NEW_BRANCH"
-  fi
+  checkout_target_ref "$PROJECT_DIR" "$TARGET_REF" "$NEW_BRANCH"
 
   sync_submodules "$PROJECT_DIR" "$REPO_URL" "$TMP_DIR" "$SLUG" "$TMPFS_SUBMODULES" "$GIT_USER_NAME" "$GIT_USER_EMAIL"
   install_git_submodule_hooks "$PROJECT_DIR" "$TMP_DIR"
@@ -216,8 +216,9 @@ main() {
     if [ -n "$CHECK_CMD" ]; then
       eval "$CHECK_CMD"
     elif grep -q '"radar"' package.json 2>/dev/null; then
-      echo "[init-sandbox] Ready. Running quick radar check (--no-tsc)..."
-      pnpm radar --no-tsc
+      echo "[init-sandbox] Ready. Running quick radar check (${RADAR_ARGS:---no-tsc})..."
+      # shellcheck disable=SC2086
+      pnpm radar ${RADAR_ARGS:---no-tsc}
     fi
   fi
 
