@@ -27,9 +27,19 @@ export interface TypeScriptCheckResult {
   errors: string[];
 }
 
+export interface FileVolumeMeta {
+  rel: string;
+  byteSize: number;
+  kbFormatted: string;
+  lineCount: number;
+  exceedsHardLine: boolean;
+  exceedsHardByte: boolean;
+}
+
 export interface RadarScanResult {
   errors: string[];
-  infos: string[];
+  hardCeilingViolations: FileVolumeMeta[];
+  softLimitNotices: FileVolumeMeta[];
   tsCount: number;
   jsCount: number;
   subsystemStats: Map<string, SubsystemCount>;
