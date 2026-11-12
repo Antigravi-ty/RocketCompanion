@@ -47,7 +47,7 @@ const PRIVATE_VAULT_STORAGE_KEYS = new Set<string>([
   'rc_dev_remote_profile_bundle_v1',
 ]);
 
-export const DEV_PARAM_REGEX = /dev=1/;
+export const DEV_PARAM_REGEX = /(?:dev|developer)=1/;
 
 export function matchesDevLaunchParameter(raw: string): boolean {
   return DEV_PARAM_REGEX.test(raw);

@@ -130,6 +130,33 @@ pub fn open_configurator_window(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+pub fn update_macos_activation_policy(app: &AppHandle, closing_label: Option<&str>) {
+    #[cfg(target_os = "macos")]
+    {
+        let main_visible = if closing_label == Some("main") {
+            false
+        } else {
+            app.get_webview_window("main")
+                .and_then(|w| w.is_visible().ok())
+                .unwrap_or(false)
+        };
+        let cfg_visible = if closing_label == Some("configurator") {
+            false
+        } else {
+            app.get_webview_window("configurator")
+                .and_then(|w| w.is_visible().ok())
+                .unwrap_or(false)
+        };
+        let has_visible = main_visible || cfg_visible;
+        let target_policy = if has_visible {
+            tauri::ActivationPolicy::Regular
+        } else {
+            tauri::ActivationPolicy::Accessory
+        };
+        let _ = app.set_activation_policy(target_policy);
+    }
+}
+
 fn open_directory_in_os_shell(dir: &Path) -> Result<String, String> {
     let path_str = dir.to_string_lossy().to_string();
     #[cfg(target_os = "macos")]

@@ -9,7 +9,7 @@ use window_manager::{
     launch_main_window_with_config, open_configurator_window, tauri_get_display_diagnostics,
     tauri_get_launch_state, tauri_launch_game, tauri_open_configurator, tauri_open_vault_folder,
     tauri_open_workspace_folder, tauri_reset_launch_config, tauri_save_launch_config,
-    tauri_set_display_window_mode,
+    tauri_set_display_window_mode, update_macos_activation_policy,
 };
 
 fn should_start_tray_only_from_env() -> bool {
@@ -42,21 +42,13 @@ pub fn run() {
             tauri_get_display_diagnostics,
         ])
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { .. } = event {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                // Prevent window destruction and process exit; close to tray
+                api.prevent_close();
+                let _ = window.hide();
                 let label = window.label();
                 let app_handle = window.app_handle();
-                if label == "main" {
-                    // Close requested on main game window cleanly terminates application and removes tray icon
-                    app_handle.exit(0);
-                } else if label == "configurator" {
-                    let main_visible = app_handle
-                        .get_webview_window("main")
-                        .and_then(|w| w.is_visible().ok())
-                        .unwrap_or(false);
-                    if !main_visible {
-                        app_handle.exit(0);
-                    }
-                }
+                update_macos_activation_policy(app_handle, Some(label));
             }
         })
         .setup(|app| {
@@ -69,18 +61,15 @@ pub fn run() {
             }
 
             let handle = app.handle();
-            #[cfg(target_os = "macos")]
-            let _ = handle.set_activation_policy(tauri::ActivationPolicy::Regular);
-
             setup_system_tray(handle)?;
 
             let state = load_launch_state(handle);
-            let tray_only = should_start_tray_only_from_env();
+            let tray_only = should_start_tray_only_from_env() || state.config.tray_only_mode;
             let force_cfg = should_force_configurator_from_args();
 
             if tray_only && !force_cfg {
                 log::info!(
-                    "[RocketCompanion] Started in silent tray-only mode via flag. Use the Crossbar tray icon to Launch or open Configurator."
+                    "[RocketCompanion] Started in silent tray-only mode. Use the Crossbar tray icon to Launch or open Configurator."
                 );
             } else if !force_cfg
                 && state.has_valid_default
@@ -94,6 +83,8 @@ pub fn run() {
                 let _ = open_configurator_window(handle);
             }
 
+            update_macos_activation_policy(handle, None);
+
             Ok(())
         });
 
@@ -104,20 +95,21 @@ pub fn run() {
     app.run(|app_handle, event| {
         match event {
             tauri::RunEvent::Reopen { has_visible_windows, .. } => {
-                #[cfg(target_os = "macos")]
-                let _ = app_handle.set_activation_policy(tauri::ActivationPolicy::Regular);
-
                 let main_win = app_handle.get_webview_window("main");
                 let cfg_win = app_handle.get_webview_window("configurator");
                 let main_visible = main_win.as_ref().and_then(|w| w.is_visible().ok()).unwrap_or(false);
                 let cfg_visible = cfg_win.as_ref().and_then(|w| w.is_visible().ok()).unwrap_or(false);
 
                 if main_visible {
+                    #[cfg(target_os = "macos")]
+                    let _ = app_handle.set_activation_policy(tauri::ActivationPolicy::Regular);
                     if let Some(main) = main_win {
                         let _ = main.unminimize();
                         let _ = main.set_focus();
                     }
                 } else if cfg_visible {
+                    #[cfg(target_os = "macos")]
+                    let _ = app_handle.set_activation_policy(tauri::ActivationPolicy::Regular);
                     if let Some(cfg) = cfg_win {
                         let _ = cfg.unminimize();
                         let _ = cfg.set_focus();

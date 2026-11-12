@@ -186,8 +186,8 @@ export const DisplayRefreshRateCard: React.FC<DisplayRefreshRateCardProps> = ({
     }
   };
 
-  const isProMotion = avgFps >= 95;
-  const isCapped60 = avgFps >= 50 && avgFps < 95;
+  const isHighRefresh = avgFps >= 95;
+  const isStandard60 = avgFps >= 50 && avgFps < 95;
 
   return (
     <div
@@ -204,17 +204,17 @@ export const DisplayRefreshRateCard: React.FC<DisplayRefreshRateCardProps> = ({
         <div className="flex items-center gap-2.5">
           <Activity className="w-4 h-4 text-emerald-400" />
           <span className="font-semibold text-xs tracking-wide">
-            Display & ProMotion Refresh Rate Diagnostics
+            Display Refresh Rate Diagnostics
           </span>
           <Badge
-            variant={isProMotion ? 'emerald' : isCapped60 ? 'amber' : 'danger'}
+            variant={isHighRefresh ? 'emerald' : isStandard60 ? 'amber' : 'danger'}
             size="sm"
             isLight={isLight}
           >
-            {isProMotion
-              ? 'ProMotion 120Hz'
-              : isCapped60
-              ? '60-72Hz (WebKit Capped)'
+            {isHighRefresh
+              ? 'High Refresh Rate (120Hz+)'
+              : isStandard60
+              ? '60-72Hz Standard'
               : `${currentFps} FPS`}
           </Badge>
         </div>
@@ -254,10 +254,10 @@ export const DisplayRefreshRateCard: React.FC<DisplayRefreshRateCardProps> = ({
             <div className={`p-2.5 rounded-lg border ${isLight ? 'bg-neutral-100/70 border-neutral-200' : 'bg-black/30 border-white/5'}`}>
               <div className="text-[10px] uppercase text-neutral-500 font-sans">Status</div>
               <div className="flex items-center gap-1.5 mt-1 font-sans font-semibold text-xs">
-                {isProMotion ? (
+                {isHighRefresh ? (
                   <>
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                    <span className="text-emerald-400">ProMotion OK</span>
+                    <span className="text-emerald-400">120Hz+ OK</span>
                   </>
                 ) : (
                   <>
