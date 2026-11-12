@@ -328,8 +328,13 @@ export class BallTrajectorySamplingController {
       catchupBudget < actualCount &&
       this.wasmWindowTicks < actualCount;
     const stepVisible = isIncWindow
-      ? Math.min(actualCount, Math.max(2, prevVisible - deltaTicks + catchupBudget))
+      ? Math.min(actualCount, Math.max(catchupBudget, prevVisible + catchupBudget))
       : actualCount;
+    const shouldCollapseToCatchup =
+      Boolean(options.intentionalReset) ||
+      Boolean(options.carBallHitEvent) ||
+      options.reason === 'full-car-hit' ||
+      prevVisible <= catchupBudget;
     if (wasIncrementalShift) {
       this.predictionCount = stepVisible;
       this.incrementalStepCount++;
@@ -339,7 +344,11 @@ export class BallTrajectorySamplingController {
       this.fullRecomputeCount++;
       this.lastUpdateKind = 'wasm-seam-resync';
     } else {
-      this.predictionCount = actualCount;
+      this.predictionCount = isIncWindow
+        ? shouldCollapseToCatchup
+          ? Math.min(actualCount, Math.max(2, catchupBudget))
+          : stepVisible
+        : actualCount;
       this.fullRecomputeCount++;
       this.patternAnchorTick = resolvedTick;
       this.lastUpdateKind = options.reason || 'full-initial';

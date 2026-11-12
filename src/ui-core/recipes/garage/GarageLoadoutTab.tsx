@@ -1,7 +1,5 @@
 import React from 'react';
 import {
-  Disc,
-  Flame,
   Sparkles,
   Volume2,
   Sun,
@@ -20,14 +18,14 @@ export const SURFACE_VARIANT_META: SurfaceVariantMeta = {
   variantId: 'loadout',
   label: '3. Loadout & Visual FX',
   description:
-    'Ball visual style, demolition FX, boost trail visual, 4 boost audio variations, and luminance.',
+    'Boost trail visual, 4 boost audio variations, and flame/plume luminance.',
 };
 
 export const DEFAULT_VISUAL_MATERIALS: VisualMaterialsConfig = {
   ballStyle: 'football',
   carPaint: 'anodized',
   demolishedEffect: 'shockwave',
-  boostVisual: 'gold-rush',
+  boostVisual: 'light-wave',
   boostAudio: 'rush',
   boostFlameLuminance: 'balanced',
   boostPlumeLuminance: 'balanced',
@@ -56,55 +54,28 @@ export const GarageLoadoutTab: React.FC<GarageLoadoutTabProps> = ({
   const onLeave = () => onHoverDesc?.(null);
 
   return (
-    <div className="flex flex-col justify-between h-full flex-1 py-1" style={{ gap: `${rowGap}px` }}>
-      <SettingSegmentedRow
-        icon={Disc}
-        iconColor="text-sky-400"
-        title="Ball Style"
-        value="football"
-        onValueChange={() => {}}
-        options={[{ value: 'football', label: 'Football' }]}
-        disabled={true}
-        isLight={isLight}
-        onMouseEnter={() =>
-          setHoveredDesc('Ball style is locked to the classic geodesic football.')
-        }
-        onMouseLeave={onLeave}
-      />
-
-      <SettingSegmentedRow
-        icon={Flame}
-        iconColor="text-rose-400"
-        title="Demolition Effect"
-        value="shockwave"
-        onValueChange={() => {}}
-        options={[{ value: 'shockwave', label: 'Shockwave' }]}
-        disabled={true}
-        isLight={isLight}
-        onMouseEnter={() =>
-          setHoveredDesc(
-            'High-performance camera-facing radial shockwave ring with inner-hole burn-through and thermal color fade.'
-          )
-        }
-        onMouseLeave={onLeave}
-      />
+    <div className="flex flex-col justify-start h-full flex-1 py-1" style={{ gap: `${rowGap}px` }}>
 
       <SettingSegmentedRow
         icon={Sparkles}
         iconColor="text-amber-400"
         title="Boost Trail Effect"
-        value={materials.boostVisual}
+        value={materials.boostVisual === 'custom' ? 'light-wave' : materials.boostVisual}
         onValueChange={(val) =>
-          updateMaterials({ boostVisual: val as 'cartoon' | 'gold-rush' })
+          updateMaterials({
+            boostVisual: val as 'cartoon' | 'gold-rush' | 'light-beam' | 'light-wave',
+          })
         }
         options={[
           { value: 'cartoon', label: 'Cartoon' },
           { value: 'gold-rush', label: 'Gold Rush' },
+          { value: 'light-beam', label: 'Light Beam' },
+          { value: 'light-wave', label: 'Light Wave' },
         ]}
         isLight={isLight}
         onMouseEnter={() =>
           setHoveredDesc(
-            'Selects personal rocket booster particle and trail rendering style (Cartoon vs Gold Rush).'
+            'Selects personal rocket booster visual style (Cartoon, Gold Rush, Light Beam, or Light Wave).'
           )
         }
         onMouseLeave={onLeave}
