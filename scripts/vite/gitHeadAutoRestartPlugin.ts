@@ -243,7 +243,7 @@ export function rcGitHeadAutoRestartPlugin(): Plugin {
                 data: { signature: settled.signature },
               });
               server.ws?.send?.({ type: 'full-reload', path: '*' });
-              await server.restart();
+              await server.restart(true);
               server.ws?.send?.({ type: 'full-reload', path: '*' });
               setTimeout(() => {
                 server.ws?.send?.({ type: 'full-reload', path: '*' });
