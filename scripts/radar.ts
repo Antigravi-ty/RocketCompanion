@@ -14,6 +14,7 @@ import path from 'node:path';
 import {
   expandRelativeGlobPattern,
   FILE_ANY_LIMIT,
+  type FileVolumeMeta,
   getGitModifiedRelFiles,
   HARD_BYTE_LIMIT,
   HARD_LINE_LIMIT,
@@ -60,7 +61,8 @@ function runRadarChecks(
   structuralHotspots: FileStructuralMetrics[];
 } {
   const errors: string[] = [];
-  const infos: string[] = [];
+  const hardCeilingViolations: FileVolumeMeta[] = [];
+  const softLimitNotices: FileVolumeMeta[] = [];
   const importGraph = new Map<string, string[]>();
   const incomingRefCounts = new Map<string, number>();
   const subsystemStats = new Map<string, SubsystemCount>();
@@ -135,27 +137,26 @@ function runRadarChecks(
     const exceedsHardLine = lineCount > HARD_LINE_LIMIT;
     const exceedsHardByte = byteSize > HARD_BYTE_LIMIT;
 
-    if (exceedsHardLine) {
-      errors.push(
-        `[VOLUME OVERFLOW] ${rel} has ${lineCount} lines (${kbFormatted} KB; exceeds hard ceiling of ${HARD_LINE_LIMIT} lines). Decompose by functional domain, pure pipeline, or UI slot responsibility.`
-      );
-    }
-    if (exceedsHardByte) {
-      errors.push(
-        `[BYTE VOLUME OVERFLOW] ${rel} is ${kbFormatted} KB (${byteSize} bytes, ${lineCount} lines; exceeds hard ceiling of ${(HARD_BYTE_LIMIT / 1024).toFixed(0)} KB). Decompose by functional domain, pure pipeline, or UI slot responsibility.`
-      );
-    }
-
-    if (
-      !exceedsHardLine &&
-      !exceedsHardByte &&
-      (byteSize > SOFT_BYTE_LIMIT || lineCount > SOFT_LINE_LIMIT)
-    ) {
+    if (exceedsHardLine || exceedsHardByte) {
+      hardCeilingViolations.push({
+        rel,
+        byteSize,
+        kbFormatted,
+        lineCount,
+        exceedsHardLine,
+        exceedsHardByte,
+      });
+    } else if (byteSize > SOFT_BYTE_LIMIT || lineCount > SOFT_LINE_LIMIT) {
       totalLargeFileCount++;
       if (showAllInfos || modifiedRelSet.has(rel)) {
-        infos.push(
-          `[INFO: LARGE FILE NOTICE] ${rel} is ${kbFormatted} KB (${lineCount} lines; soft notice > ${(SOFT_BYTE_LIMIT / 1024).toFixed(0)} KB / ${SOFT_LINE_LIMIT}L, hard ceiling ${(HARD_BYTE_LIMIT / 1024).toFixed(0)} KB / ${HARD_LINE_LIMIT}L). Status: ACCEPTABLE (no action required to pass check; do NOT compress lines or shorten variable names). If considering splitting up when adding substantial new features later, split strictly by functional domain, pure logic pipeline, or independent UI Slot — never halve a file arbitrarily by line count or bridge it via a pass-through connector/helper.`
-        );
+        softLimitNotices.push({
+          rel,
+          byteSize,
+          kbFormatted,
+          lineCount,
+          exceedsHardLine: false,
+          exceedsHardByte: false,
+        });
       }
     }
 
@@ -311,9 +312,19 @@ function runRadarChecks(
     }
   }
 
+  const sortByVolumeDesc = (a: FileVolumeMeta, b: FileVolumeMeta): number => {
+    if (b.byteSize !== a.byteSize) {
+      return b.byteSize - a.byteSize;
+    }
+    return b.lineCount - a.lineCount;
+  };
+  hardCeilingViolations.sort(sortByVolumeDesc);
+  softLimitNotices.sort(sortByVolumeDesc);
+
   return {
     errors,
-    infos,
+    hardCeilingViolations,
+    softLimitNotices,
     tsCount,
     jsCount,
     subsystemStats,
@@ -321,6 +332,15 @@ function runRadarChecks(
     totalLargeFileCount,
     structuralHotspots,
   };
+}
+
+function formatVolumeList(items: FileVolumeMeta[]): string[] {
+  if (items.length === 0) return [];
+  const maxPathLen = Math.max(...items.map((i) => i.rel.length));
+  return items.map(
+    (item) =>
+      `    - ${item.rel.padEnd(maxPathLen)} (${item.kbFormatted} KB, ${item.lineCount} lines)`
+  );
 }
 
 function main(): void {
@@ -386,26 +406,66 @@ function main(): void {
     printStructuralAuditReport(result.structuralHotspots, auditFilter);
   }
 
-  if (result.infos.length > 0) {
+  let printedSection = false;
+
+  if (result.hardCeilingViolations.length > 0) {
+    const fileWord = result.hardCeilingViolations.length === 1 ? 'file' : 'files';
     console.log(
-      ` INFO (Non-blocking, Status: ACCEPTABLE — ${result.infos.length} modified file notice(s)):`
+      `[!] ERROR: Hard Limit Exceeded (Status: NOT ACCEPTABLE — ${result.hardCeilingViolations.length} ${fileWord}):`
     );
-    for (const info of result.infos) {
-      console.log(`  [i] ${info}`);
+    console.log(
+      `    Violations exceed hard ceilings (> ${(HARD_BYTE_LIMIT / 1024).toFixed(1)} KB or > ${HARD_LINE_LIMIT} lines). Build rejected.`
+    );
+    console.log(
+      '    Action required: Must split strictly by functional domain, pure logic pipeline,'
+    );
+    console.log('    or independent UI Slot before commit.\n');
+    for (const line of formatVolumeList(result.hardCeilingViolations)) {
+      console.log(line);
     }
-    console.log('----------------------------------------------------------------------');
-  } else if (result.totalLargeFileCount > 0) {
+    printedSection = true;
+  }
+
+  if (result.softLimitNotices.length > 0) {
+    if (printedSection) console.log('');
+    const fileWord = result.softLimitNotices.length === 1 ? 'file' : 'files';
+    console.log(
+      `[-] INFO: Volume Soft Threshold Notices (Status: ACCEPTABLE — ${result.softLimitNotices.length} ${fileWord}):`
+    );
+    console.log(
+      `    Files exceeding soft bounds (> ${(SOFT_BYTE_LIMIT / 1024).toFixed(1)} KB or > ${SOFT_LINE_LIMIT} lines). Non-blocking.`
+    );
+    console.log(
+      '    Refactoring guidance: No immediate action required. Do NOT artificially compress'
+    );
+    console.log(
+      '    code or shorten names. If adding features later, split by domain/pure pipelines.\n'
+    );
+    for (const line of formatVolumeList(result.softLimitNotices)) {
+      console.log(line);
+    }
+    printedSection = true;
+  } else if (result.totalLargeFileCount > 0 && result.hardCeilingViolations.length === 0) {
     console.log(
       ` INFO (Non-blocking) : ${result.totalLargeFileCount} existing file(s) in ${(SOFT_BYTE_LIMIT / 1024).toFixed(0)}KB..${(HARD_BYTE_LIMIT / 1024).toFixed(0)}KB / ${SOFT_LINE_LIMIT}..${HARD_LINE_LIMIT}L range — Status: ACCEPTABLE (pass --all-info to list).`
     );
-    console.log('----------------------------------------------------------------------');
+    printedSection = true;
   }
 
   if (result.errors.length > 0) {
-    console.error(` ERRORS (${result.errors.length}):`);
+    if (printedSection) console.log('');
+    console.error(`[!] ERROR: Architecture & Boundary Violations (${result.errors.length}):`);
     for (const e of result.errors) {
-      console.error(`  [x] ${e}`);
+      console.error(`    [x] ${e}`);
     }
+    printedSection = true;
+  }
+
+  const hasFailure = result.hardCeilingViolations.length > 0 || result.errors.length > 0;
+
+  console.log('----------------------------------------------------------------------');
+  if (hasFailure) {
+    console.error(' STATUS: FAILED -- Build rejected due to architecture or volume violations.');
     console.log('======================================================================');
     process.exit(1);
   }
