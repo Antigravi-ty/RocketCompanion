@@ -222,9 +222,13 @@ export function normalizeReplayDirectorCarEntry(
   const paintFinish =
     raw?.paintFinish === 'matte' || raw?.paintFinish === 'metallic' ? raw.paintFinish : 'metallic';
   const boostVisual =
-    raw?.boostVisual === 'cartoon' || raw?.boostVisual === 'gold-rush'
+    raw?.boostVisual === 'cartoon' ||
+    raw?.boostVisual === 'gold-rush' ||
+    raw?.boostVisual === 'light-beam' ||
+    raw?.boostVisual === 'light-wave' ||
+    raw?.boostVisual === 'custom'
       ? raw.boostVisual
-      : 'cartoon';
+      : 'light-wave';
   const boostAudio =
     typeof raw?.boostAudio === 'string' && raw.boostAudio.length > 0 ? raw.boostAudio : 'standard';
   const anthemId =
@@ -393,7 +397,7 @@ export function captureRuntimeReplayCarEntries(
         ros?.boostVisual ||
         arena?.carBoostVisuals?.[c] ||
         nt?.boostVisual ||
-        'cartoon',
+        'light-wave',
       boostAudio:
         exp?.boostAudio ||
         ros?.boostAudio ||
@@ -465,6 +469,7 @@ export function applyReplayCarEntriesToRuntime(
         paintFinish: e.paintFinish,
         boostVisual: e.boostVisual,
         boostAudio: e.boostAudio,
+        isBot: e.isBot,
       });
       audio?.setCarBoostAudioVariation?.(e.carIndex, e.boostAudio);
       const carMesh = arena.cars?.[e.carIndex];
