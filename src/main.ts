@@ -3,6 +3,7 @@ import { isVerboseLogEnabled } from './loader/ConsoleProgressObserver.ts';
 import {
   applyCleanStartupFromQueryIfNeeded,
   isConfiguratorRoute,
+  isDiagnosticsRoute,
 } from './ui-core/config/tauriLaunchConfigBridge.ts';
 
 const MODULE_RETRY_SESSION_KEY = '__rc_bootstrap_module_reload_ts';
@@ -51,7 +52,7 @@ async function bootApplication(): Promise<void> {
   applyCleanStartupFromQueryIfNeeded();
 
   const host = typeof document !== 'undefined' ? document.querySelector<HTMLElement>('#app') : null;
-  if (isConfiguratorRoute() && host) {
+  if ((isConfiguratorRoute() || isDiagnosticsRoute()) && host) {
     const { mountTauriConfigurator } = await import('./ui-system/mountTauriConfigurator.tsx');
     mountTauriConfigurator(host);
     return;

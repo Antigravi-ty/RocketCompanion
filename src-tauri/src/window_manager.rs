@@ -4,6 +4,7 @@ use crate::config_store::{
     save_launch_config, TauriLaunchConfig, TauriLaunchStatePayload,
 };
 use crate::tray_manager::{sync_tray_devtools_enabled, sync_tray_launch_enabled};
+use serde::Serialize;
 use std::path::Path;
 use std::process::Command;
 use tauri::{AppHandle, Manager, PhysicalPosition, Position, WebviewWindow};
@@ -102,19 +103,27 @@ pub fn launch_main_window_with_config(
     );
     let _ = main_win.eval(&js_script);
 
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+
     if let Some(cfg_win) = app.get_webview_window("configurator") {
         let _ = cfg_win.hide();
     }
 
+    let _ = main_win.unminimize();
     let _ = main_win.show();
     let _ = main_win.set_focus();
     Ok(())
 }
 
 pub fn open_configurator_window(app: &AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+
     let cfg_win = app
         .get_webview_window("configurator")
         .ok_or_else(|| "Configurator window handle not found".to_string())?;
+    let _ = cfg_win.unminimize();
     let _ = cfg_win.eval("window.dispatchEvent(new CustomEvent('rc-tauri-config-updated'));");
     let _ = cfg_win.show();
     let _ = cfg_win.set_focus();
@@ -215,4 +224,61 @@ pub fn tauri_open_vault_folder(
     ensure_storage_directories(&app)?;
     let dir = resolve_vault_dir(&app);
     open_directory_in_os_shell(&dir)
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorDiagnostic {
+    pub name: Option<String>,
+    pub width: u32,
+    pub height: u32,
+    pub scale_factor: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TauriDisplayDiagnostics {
+    pub platform: String,
+    pub arch: String,
+    pub os: String,
+    pub has_macos_fps_plugin: bool,
+    pub available_monitors: Vec<MonitorDiagnostic>,
+    pub primary_monitor: Option<MonitorDiagnostic>,
+}
+
+#[tauri::command]
+pub fn tauri_get_display_diagnostics(app: AppHandle) -> TauriDisplayDiagnostics {
+    let available_monitors = app
+        .available_monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| MonitorDiagnostic {
+            name: m.name().cloned(),
+            width: m.size().width,
+            height: m.size().height,
+            scale_factor: m.scale_factor(),
+        })
+        .collect();
+
+    let primary_monitor = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| MonitorDiagnostic {
+            name: m.name().cloned(),
+            width: m.size().width,
+            height: m.size().height,
+            scale_factor: m.scale_factor(),
+        });
+
+    let has_macos_fps_plugin = cfg!(target_os = "macos");
+
+    TauriDisplayDiagnostics {
+        platform: std::env::consts::OS.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
+        os: format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
+        has_macos_fps_plugin,
+        available_monitors,
+        primary_monitor,
+    }
 }

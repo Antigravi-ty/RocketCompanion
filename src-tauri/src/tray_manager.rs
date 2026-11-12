@@ -53,6 +53,13 @@ pub fn setup_system_tray(app: &AppHandle) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
+    let diagnostics_item = MenuItem::with_id(
+        app,
+        "tray_diagnostics",
+        "Display & ProMotion Diagnostics...",
+        true,
+        None::<&str>,
+    )?;
     let devtools_item = MenuItem::with_id(
         app,
         "tray_devtools",
@@ -107,6 +114,7 @@ pub fn setup_system_tray(app: &AppHandle) -> tauri::Result<()> {
         &[
             &launch_item,
             &configurator_item,
+            &diagnostics_item,
             &devtools_item,
             &sep_1,
             &restore_submenu,
@@ -177,6 +185,12 @@ fn handle_tray_menu_event(app: &AppHandle, menu_id: &str) {
         }
         "tray_configurator" => {
             let _ = open_configurator_window(app);
+        }
+        "tray_diagnostics" => {
+            let _ = open_configurator_window(app);
+            if let Some(cfg_win) = app.get_webview_window("configurator") {
+                let _ = cfg_win.eval("window.dispatchEvent(new CustomEvent('rc-open-diagnostics'));");
+            }
         }
         "tray_devtools" => {
             let state = load_launch_state(app);

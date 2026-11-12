@@ -14,11 +14,13 @@ import {
 import { PanelFooter } from '../layout/PanelFooter';
 import { SettingSegmentedRow } from '../compounds/SettingSegmentedRow';
 import { SettingToggleRow } from '../compounds/SettingToggleRow';
+import { DisplayRefreshRateCard } from '../compounds/DisplayRefreshRateCard';
 import { Checkbox } from '../primitives/Checkbox';
 import { Button } from '../primitives/Button';
 import {
   DEFAULT_TAURI_LAUNCH_CONFIG,
   getTauriLaunchState,
+  isDiagnosticsRoute,
   launchGameFromConfigurator,
   matchesDevLaunchParameter,
   openTauriVaultFolder,
@@ -89,13 +91,22 @@ export const Layer1TauriConfiguratorRecipe: React.FC<Layer1TauriConfiguratorReci
     applyDocumentTheme(state.config.themeMode);
   }, [applyDocumentTheme]);
 
+  const [openDiagnostics, setOpenDiagnostics] = useState<boolean>(() => isDiagnosticsRoute());
+
   useEffect(() => {
     refreshFromBackend();
     const onUpdated = () => {
       refreshFromBackend();
     };
+    const onDiag = () => {
+      setOpenDiagnostics(true);
+    };
     window.addEventListener('rc-tauri-config-updated', onUpdated);
-    return () => window.removeEventListener('rc-tauri-config-updated', onUpdated);
+    window.addEventListener('rc-open-diagnostics', onDiag);
+    return () => {
+      window.removeEventListener('rc-tauri-config-updated', onUpdated);
+      window.removeEventListener('rc-open-diagnostics', onDiag);
+    };
   }, [refreshFromBackend]);
 
   const isMacOs = launchState?.platform === 'macos';
@@ -337,6 +348,17 @@ export const Layer1TauriConfiguratorRecipe: React.FC<Layer1TauriConfiguratorReci
                 label="Silent Tray-Only Startup"
               />
             </div>
+          </div>
+
+          <div
+            onMouseEnter={() =>
+              setHoveredDesc(
+                'Live requestAnimationFrame FPS sampling, ProMotion 120Hz verification, and system diagnostic JSON export.'
+              )
+            }
+            onMouseLeave={() => setHoveredDesc(null)}
+          >
+            <DisplayRefreshRateCard isLight={isLight} defaultExpanded={openDiagnostics} />
           </div>
 
           <div className="grid grid-cols-2 gap-2.5">

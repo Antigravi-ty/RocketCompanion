@@ -6,8 +6,8 @@ use config_store::load_launch_state;
 use tauri::{Manager, WindowEvent};
 use tray_manager::setup_system_tray;
 use window_manager::{
-    launch_main_window_with_config, open_configurator_window, tauri_get_launch_state,
-    tauri_launch_game, tauri_open_configurator, tauri_open_vault_folder,
+    launch_main_window_with_config, open_configurator_window, tauri_get_display_diagnostics,
+    tauri_get_launch_state, tauri_launch_game, tauri_open_configurator, tauri_open_vault_folder,
     tauri_open_workspace_folder, tauri_reset_launch_config, tauri_save_launch_config,
     tauri_set_display_window_mode,
 };
@@ -28,7 +28,8 @@ fn should_force_configurator_from_args() -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_macos_fps::init())
         .invoke_handler(tauri::generate_handler![
             tauri_get_launch_state,
             tauri_save_launch_config,
@@ -38,14 +39,23 @@ pub fn run() {
             tauri_set_display_window_mode,
             tauri_open_workspace_folder,
             tauri_open_vault_folder,
+            tauri_get_display_diagnostics,
         ])
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
+            if let WindowEvent::CloseRequested { .. } = event {
                 let label = window.label();
-                if label == "main" || label == "configurator" {
-                    // Close-to-tray: hide window instead of terminating the process
-                    api.prevent_close();
-                    let _ = window.hide();
+                let app_handle = window.app_handle();
+                if label == "main" {
+                    // Close requested on main game window cleanly terminates application and removes tray icon
+                    app_handle.exit(0);
+                } else if label == "configurator" {
+                    let main_visible = app_handle
+                        .get_webview_window("main")
+                        .and_then(|w| w.is_visible().ok())
+                        .unwrap_or(false);
+                    if !main_visible {
+                        app_handle.exit(0);
+                    }
                 }
             }
         })
@@ -59,15 +69,18 @@ pub fn run() {
             }
 
             let handle = app.handle();
+            #[cfg(target_os = "macos")]
+            let _ = handle.set_activation_policy(tauri::ActivationPolicy::Regular);
+
             setup_system_tray(handle)?;
 
             let state = load_launch_state(handle);
-            let tray_only = should_start_tray_only_from_env() || state.config.tray_only_mode;
+            let tray_only = should_start_tray_only_from_env();
             let force_cfg = should_force_configurator_from_args();
 
             if tray_only && !force_cfg {
                 log::info!(
-                    "[RocketCompanion] Started in silent tray-only mode. Use the Crossbar tray icon to Launch or open Configurator."
+                    "[RocketCompanion] Started in silent tray-only mode via flag. Use the Crossbar tray icon to Launch or open Configurator."
                 );
             } else if !force_cfg
                 && state.has_valid_default
@@ -82,7 +95,43 @@ pub fn run() {
             }
 
             Ok(())
-        })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        });
+
+    let app = builder
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        match event {
+            tauri::RunEvent::Reopen { has_visible_windows, .. } => {
+                #[cfg(target_os = "macos")]
+                let _ = app_handle.set_activation_policy(tauri::ActivationPolicy::Regular);
+
+                let main_win = app_handle.get_webview_window("main");
+                let cfg_win = app_handle.get_webview_window("configurator");
+                let main_visible = main_win.as_ref().and_then(|w| w.is_visible().ok()).unwrap_or(false);
+                let cfg_visible = cfg_win.as_ref().and_then(|w| w.is_visible().ok()).unwrap_or(false);
+
+                if main_visible {
+                    if let Some(main) = main_win {
+                        let _ = main.unminimize();
+                        let _ = main.set_focus();
+                    }
+                } else if cfg_visible {
+                    if let Some(cfg) = cfg_win {
+                        let _ = cfg.unminimize();
+                        let _ = cfg.set_focus();
+                    }
+                } else if !has_visible_windows {
+                    let state = load_launch_state(app_handle);
+                    if state.has_valid_default && !state.config.launch_configurator_every_time {
+                        let _ = launch_main_window_with_config(app_handle, &state.config);
+                    } else {
+                        let _ = open_configurator_window(app_handle);
+                    }
+                }
+            }
+            _ => {}
+        }
+    });
 }

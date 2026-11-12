@@ -98,6 +98,21 @@ export function isConfiguratorRoute(): boolean {
   }
 }
 
+export function isDiagnosticsRoute(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return (
+      params.get('diagnostics') === '1' ||
+      params.get('diagnostics') === 'true' ||
+      params.get('test-fps') === '1' ||
+      params.get('promotion') === '1'
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function isCleanStartupRequested(): boolean {
   if (typeof window === 'undefined') return false;
   try {
@@ -301,4 +316,39 @@ export async function openTauriVaultFolder(additionalParams: string): Promise<st
     return await invoke<string>('tauri_open_vault_folder', { additionalParams });
   }
   return loadWebFallbackState().vaultDir;
+}
+
+export interface MonitorDiagnostic {
+  name: string | null;
+  width: number;
+  height: number;
+  scaleFactor: number;
+}
+
+export interface TauriDisplayDiagnostics {
+  platform: string;
+  arch: string;
+  os: string;
+  hasMacosFpsPlugin: boolean;
+  availableMonitors: MonitorDiagnostic[];
+  primaryMonitor: MonitorDiagnostic | null;
+}
+
+export async function getTauriDisplayDiagnostics(): Promise<TauriDisplayDiagnostics | null> {
+  const invoke = getTauriInvoke();
+  if (invoke) {
+    try {
+      return await invoke<TauriDisplayDiagnostics>('tauri_get_display_diagnostics');
+    } catch (err) {
+      console.warn('[Tauri] Failed to query display diagnostics:', err);
+    }
+  }
+  return {
+    platform: detectClientPlatformTag(),
+    arch: 'unknown',
+    os: typeof navigator !== 'undefined' ? navigator.platform : 'unknown',
+    hasMacosFpsPlugin: false,
+    availableMonitors: [],
+    primaryMonitor: null,
+  };
 }
