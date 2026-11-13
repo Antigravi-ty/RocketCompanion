@@ -78,6 +78,11 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   readonly sendServerState: DataChannelTransport['send'];
   readonly sendColorChange: DataChannelTransport['sendColorChange'];
   readonly sendDiagnosticFleetToggle: DataChannelTransport['sendDiagnosticFleetToggle'];
+  readonly sendReliableControl: DataChannelTransport['sendReliableControl'];
+  readonly sendRoomActivitySwitch: DataChannelTransport['sendRoomActivitySwitch'];
+  readonly sendStatePausedAck: DataChannelTransport['sendStatePausedAck'];
+  readonly sendCsrStateBroadcast: DataChannelTransport['sendCsrStateBroadcast'];
+  readonly setReplicationMode: DataChannelTransport['setReplicationMode'];
   readonly receiveServerPackets: NetworkSimulator['drainInboundQueue'];
   readonly receiveClientPackets: NetworkSimulator['drainInboundQueue'];
 
@@ -201,6 +206,11 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
     this.sendServerState = this.transport.send.bind(this.transport);
     this.sendColorChange = this.transport.sendColorChange.bind(this.transport);
     this.sendDiagnosticFleetToggle = this.transport.sendDiagnosticFleetToggle.bind(this.transport);
+    this.sendReliableControl = this.transport.sendReliableControl.bind(this.transport);
+    this.sendRoomActivitySwitch = this.transport.sendRoomActivitySwitch.bind(this.transport);
+    this.sendStatePausedAck = this.transport.sendStatePausedAck.bind(this.transport);
+    this.sendCsrStateBroadcast = this.transport.sendCsrStateBroadcast.bind(this.transport);
+    this.setReplicationMode = this.transport.setReplicationMode.bind(this.transport);
     this.receiveServerPackets = this.simulator.drainInboundQueue.bind(this.simulator);
     this.receiveClientPackets = this.simulator.drainInboundQueue.bind(this.simulator);
 
