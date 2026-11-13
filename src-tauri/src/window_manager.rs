@@ -1,3 +1,7 @@
+use crate::app_icon::apply_app_and_window_icons;
+use crate::build_info::{
+    format_window_title, CONFIGURATOR_WINDOW_BASE_TITLE, MAIN_WINDOW_BASE_TITLE,
+};
 use crate::config_store::{
     delete_launch_config, ensure_storage_directories, has_dev_param_flag, is_dev_console_unlocked,
     load_launch_state, resolve_vault_dir, resolve_workspace_dir, sanitize_config_for_platform,
@@ -54,6 +58,15 @@ pub fn apply_window_mode_to_webview(win: &WebviewWindow, requested_mode: &str) {
     }
 }
 
+pub fn apply_window_titles(app: &AppHandle) {
+    if let Some(main_win) = app.get_webview_window("main") {
+        let _ = main_win.set_title(&format_window_title(MAIN_WINDOW_BASE_TITLE));
+    }
+    if let Some(cfg_win) = app.get_webview_window("configurator") {
+        let _ = cfg_win.set_title(&format_window_title(CONFIGURATOR_WINDOW_BASE_TITLE));
+    }
+}
+
 pub fn launch_main_window_with_config(
     app: &AppHandle,
     raw_config: &TauriLaunchConfig,
@@ -63,6 +76,7 @@ pub fn launch_main_window_with_config(
         .get_webview_window("main")
         .ok_or_else(|| "Main window handle not found".to_string())?;
 
+    let _ = main_win.set_title(&format_window_title(MAIN_WINDOW_BASE_TITLE));
     apply_window_mode_to_webview(&main_win, &config.window_mode);
 
     let effective_params = if config.additional_params_enabled {
@@ -105,6 +119,7 @@ pub fn launch_main_window_with_config(
 
     #[cfg(target_os = "macos")]
     let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+    apply_app_and_window_icons(app);
 
     if let Some(cfg_win) = app.get_webview_window("configurator") {
         let _ = cfg_win.hide();
@@ -119,10 +134,12 @@ pub fn launch_main_window_with_config(
 pub fn open_configurator_window(app: &AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+    apply_app_and_window_icons(app);
 
     let cfg_win = app
         .get_webview_window("configurator")
         .ok_or_else(|| "Configurator window handle not found".to_string())?;
+    let _ = cfg_win.set_title(&format_window_title(CONFIGURATOR_WINDOW_BASE_TITLE));
     let _ = cfg_win.unminimize();
     let _ = cfg_win.eval("window.dispatchEvent(new CustomEvent('rc-tauri-config-updated'));");
     let _ = cfg_win.show();
@@ -154,6 +171,9 @@ pub fn update_macos_activation_policy(app: &AppHandle, closing_label: Option<&st
             tauri::ActivationPolicy::Accessory
         };
         let _ = app.set_activation_policy(target_policy);
+        if has_visible {
+            crate::app_icon::ensure_macos_dock_icon();
+        }
     }
 }
 

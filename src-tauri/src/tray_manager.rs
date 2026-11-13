@@ -1,3 +1,4 @@
+use crate::build_info::{format_tray_launch_label, format_tray_tooltip};
 use crate::config_store::{delete_launch_config, is_dev_console_unlocked, load_launch_state};
 use crate::window_manager::{launch_main_window_with_config, open_configurator_window};
 use std::sync::Mutex;
@@ -39,10 +40,11 @@ pub fn setup_system_tray(app: &AppHandle) -> tauri::Result<()> {
     let initial_state = load_launch_state(app);
     let dev_unlocked = is_dev_console_unlocked(&initial_state.config);
 
+    let launch_label = format_tray_launch_label();
     let launch_item = MenuItem::with_id(
         app,
         "tray_launch",
-        "Launch",
+        &launch_label,
         initial_state.has_valid_default,
         None::<&str>,
     )?;
@@ -132,10 +134,11 @@ pub fn setup_system_tray(app: &AppHandle) -> tauri::Result<()> {
     };
     let tray_image = Image::new(icon_bytes, 64, 64);
 
+    let tray_tooltip = format_tray_tooltip();
     TrayIconBuilder::with_id("rc-crossbar-tray")
         .icon(tray_image)
         .icon_as_template(is_macos)
-        .tooltip("Rocket Companion")
+        .tooltip(&tray_tooltip)
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app_handle, event| {

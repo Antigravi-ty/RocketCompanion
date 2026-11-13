@@ -1,15 +1,21 @@
+pub mod app_icon;
+pub mod app_menu;
+pub mod build_info;
 pub mod config_store;
 pub mod tray_manager;
 pub mod window_manager;
 
+use app_icon::{apply_app_and_window_icons, ensure_macos_dock_icon};
+use app_menu::setup_app_menu;
 use config_store::load_launch_state;
 use tauri::{Manager, WindowEvent};
 use tray_manager::setup_system_tray;
 use window_manager::{
-    launch_main_window_with_config, open_configurator_window, tauri_get_display_diagnostics,
-    tauri_get_launch_state, tauri_launch_game, tauri_open_configurator, tauri_open_vault_folder,
-    tauri_open_workspace_folder, tauri_reset_launch_config, tauri_save_launch_config,
-    tauri_set_display_window_mode, update_macos_activation_policy,
+    apply_window_titles, launch_main_window_with_config, open_configurator_window,
+    tauri_get_display_diagnostics, tauri_get_launch_state, tauri_launch_game,
+    tauri_open_configurator, tauri_open_vault_folder, tauri_open_workspace_folder,
+    tauri_reset_launch_config, tauri_save_launch_config, tauri_set_display_window_mode,
+    update_macos_activation_policy,
 };
 
 fn should_start_tray_only_from_env() -> bool {
@@ -61,6 +67,9 @@ pub fn run() {
             }
 
             let handle = app.handle();
+            setup_app_menu(handle)?;
+            apply_app_and_window_icons(handle);
+            apply_window_titles(handle);
             setup_system_tray(handle)?;
 
             let state = load_launch_state(handle);
@@ -103,6 +112,7 @@ pub fn run() {
                 if main_visible {
                     #[cfg(target_os = "macos")]
                     let _ = app_handle.set_activation_policy(tauri::ActivationPolicy::Regular);
+                    ensure_macos_dock_icon();
                     if let Some(main) = main_win {
                         let _ = main.unminimize();
                         let _ = main.set_focus();
@@ -110,6 +120,7 @@ pub fn run() {
                 } else if cfg_visible {
                     #[cfg(target_os = "macos")]
                     let _ = app_handle.set_activation_policy(tauri::ActivationPolicy::Regular);
+                    ensure_macos_dock_icon();
                     if let Some(cfg) = cfg_win {
                         let _ = cfg.unminimize();
                         let _ = cfg.set_focus();
