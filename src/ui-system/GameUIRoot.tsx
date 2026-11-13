@@ -13,6 +13,10 @@ import { useStaticTrainingPackStore } from '../ui-core/stores/staticTrainingPack
 import { useCloudProfileSyncStore } from '../ui-core/stores/cloudProfileSyncStore.ts';
 import { dialogue } from '../ui-core/compounds/dialogue/dialogueStore.ts';
 import { ensureSignalingProfileBridge } from './core/runtimeSignalingProfileBridge.ts';
+import {
+  clearCsrFollowHostBridge,
+  syncCsrFollowHostNotification,
+} from './core/csrFollowHostBridge.ts';
 import { activateNameTagOffscreenForDeveloperMode } from '../ui-core/stores/nameTagTunerStore.ts';
 import { DrawingSandboxController } from './telestrator/DrawingSandboxController.ts';
 import { ensureVoiceChannelBridge } from './core/runtimeVoiceChannelBridge.ts';
@@ -37,7 +41,9 @@ export const GameUIRoot: React.FC<GameUIRootProps> = () => {
     const disposeVoice = ensureVoiceChannelBridge();
     const controller = new DrawingSandboxController();
     const disposeTelestrator = controller.start();
+    syncCsrFollowHostNotification();
     return () => {
+      clearCsrFollowHostBridge();
       disposeTelestrator();
       disposeVoice();
     };

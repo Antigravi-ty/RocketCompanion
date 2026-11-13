@@ -13,6 +13,10 @@ export type { RocketSimWasmModule, RocketSimWasmModuleOptions };
 
 let cachedInstance: RocketSimWasmModule | null = null;
 
+export function getLoadedRocketSimWasmModule(): RocketSimWasmModule | null {
+  return cachedInstance;
+}
+
 export async function loadRocketSimWasmModule(
   moduleArg: RocketSimWasmModuleOptions = {}
 ): Promise<RocketSimWasmModule> {

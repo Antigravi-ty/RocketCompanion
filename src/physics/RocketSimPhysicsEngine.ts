@@ -21,6 +21,19 @@ import { writeCarControls, applyBallState, applyCarState } from './RocketSimEnti
 import type { GoalBarrierMetadata } from './RocketSimArenaBarrierController.ts';
 import { checkPointOnGoalBarrier, evaluateBallScored } from './goalBarrierVolumePipeline.ts';
 import { RocketSimCarMutatorController } from './RocketSimCarMutatorController.ts';
+import {
+  clearWasmReconcilerHistory,
+  evaluateWasmClockSyncPacing,
+  pushWasmClockSyncRttSample,
+  readWasmReconcilerOutcome,
+  resetWasmClockSync,
+  runWasmReconcileRollbackToTick,
+  setWasmReconcilerRemoteControls,
+  setWasmReconcilerTickControls,
+  stepWasmReconcilerRange,
+  type WasmClockSyncState,
+  type WasmReconcileOutcome,
+} from './wasmReconcilerBridge.ts';
 
 export interface RocketSimEngineInitOptions extends RocketSimWasmModuleOptions {
   collisionData?: Uint8Array[] | null;
@@ -315,6 +328,86 @@ export class RocketSimPhysicsEngine extends RocketSimCarMutatorController {
     const mod = this.module;
     const wasmGrounded = mod ? mod._physics_getBallOnGround() === 1 : false;
     return wasmGrounded || Boolean(this.eventDispatcher.ballTouchedFloorInLastStep);
+  }
+
+  clearReconcilerHistory(): void {
+    clearWasmReconcilerHistory(this.module);
+  }
+
+  setReconcilerTickControls(
+    tick: number,
+    carIndex: number,
+    controls: Partial<CarControlsInput>
+  ): void {
+    setWasmReconcilerTickControls(this.module, tick, carIndex, controls);
+  }
+
+  setReconcilerRemoteControls(carIndex: number, controls: Partial<CarControlsInput>): void {
+    setWasmReconcilerRemoteControls(this.module, carIndex, controls);
+  }
+
+  reconcileRollbackToTick(
+    serverTick: number,
+    targetClientTick: number,
+    localCarIndex: number,
+    kickoffMaskUntilTick: number,
+    authoritativeState?: Float32Array | number[] | null
+  ): boolean {
+    return runWasmReconcileRollbackToTick(
+      this.module,
+      this,
+      serverTick,
+      targetClientTick,
+      localCarIndex,
+      kickoffMaskUntilTick,
+      authoritativeState
+    );
+  }
+
+  stepReconcilerRange(
+    fromTick: number,
+    toTick: number,
+    localCarIndex: number,
+    kickoffMaskUntilTick: number,
+    silent: boolean
+  ): number {
+    return stepWasmReconcilerRange(
+      this.module,
+      fromTick,
+      toTick,
+      localCarIndex,
+      kickoffMaskUntilTick,
+      silent
+    );
+  }
+
+  getReconcilerOutcome(): WasmReconcileOutcome | null {
+    return readWasmReconcilerOutcome(this.module);
+  }
+
+  resetClockSync(): void {
+    resetWasmClockSync(this.module);
+  }
+
+  pushClockSyncRttSample(rttMs: number, jitterHintMs = 0): void {
+    pushWasmClockSyncRttSample(this.module, rttMs, jitterHintMs);
+  }
+
+  evaluateClockSyncPacing(
+    clientTick: number,
+    serverTick: number,
+    inputBufferTarget: number,
+    maxLeadTicks: number,
+    tickDtMs: number
+  ): WasmClockSyncState | null {
+    return evaluateWasmClockSyncPacing(
+      this.module,
+      clientTick,
+      serverTick,
+      inputBufferTarget,
+      maxLeadTicks,
+      tickDtMs
+    );
   }
 
   destroy(): void {

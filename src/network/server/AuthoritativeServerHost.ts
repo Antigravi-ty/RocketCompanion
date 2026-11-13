@@ -34,6 +34,12 @@ import { yieldIdleSlice } from '../../loader/frameBudgetScheduler.ts';
 import type { ArenaHeaderView } from '../../physics/RocketSimStateViews.ts';
 import type { ExtraLoadoutConfig } from './match/matchLoadoutAndSpawnPipeline.ts';
 import type { AuthoritativePhysicsSimPort } from './authoritativePhysicsStepPipeline.ts';
+import type {
+  CsrFollowHostPayload,
+  InterveneAuthorizationRequest,
+  RoomActivitySwitchPayload,
+  SpectatorTimelineCommand,
+} from '../protocol/RoomActivityProtocol.ts';
 
 export type { AuthoritativeServerHostOptions, HostClientChannelPort, HostWorkerEnvelopeMessage };
 
@@ -307,6 +313,25 @@ export class AuthoritativeServerHost {
 
   configureDiagnosticFleet(enabled = true, anchorMode = 'z_hover'): void {
     this._postCommand('configureDiagnosticFleet', { enabled: Boolean(enabled), anchorMode });
+  }
+
+  switchRoomActivity(payload: RoomActivitySwitchPayload): void {
+    this.sendEnvelope(
+      MSG.ROOM_ACTIVITY_SWITCH,
+      payload as unknown as AuthoritativeServerHostOptions
+    );
+  }
+
+  sendSpectatorTimelineCommand(cmd: SpectatorTimelineCommand): void {
+    this.sendEnvelope(MSG.SPECTATOR_TIMELINE_CMD, cmd as unknown as AuthoritativeServerHostOptions);
+  }
+
+  requestInterveneHandoff(req: InterveneAuthorizationRequest): void {
+    this.sendEnvelope(MSG.INTERVENE_HANDOFF_CMD, req as unknown as AuthoritativeServerHostOptions);
+  }
+
+  broadcastCsrFollowHostState(patch: Partial<CsrFollowHostPayload>): void {
+    this.sendEnvelope(MSG.CSR_FOLLOW_HOST_SYNC, patch as unknown as AuthoritativeServerHostOptions);
   }
 
   update(): void {

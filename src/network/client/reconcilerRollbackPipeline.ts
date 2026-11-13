@@ -91,6 +91,42 @@ export function stepForwardRollbackTicks(
   nowMs: number,
   sendOutboundInput: (tick: number, controls: CarControls | null, nowMs: number) => void
 ): number {
+  if (
+    typeof sim.stepReconcilerRange === 'function' &&
+    typeof sim.setReconcilerTickControls === 'function'
+  ) {
+    for (let t = fromTick; t < toTick; t++) {
+      const isKickoffMasked = kickoffMaskUntilTick > 0 && t < kickoffMaskUntilTick;
+      const ctrl = historyBuffer.resolveStepCarControls(
+        t,
+        localCarIndex,
+        localCarIndex,
+        isKickoffMasked,
+        false
+      );
+      historyBuffer.lastLocalControls = { ...ctrl };
+      historyBuffer.clientInputRingBuffer.record(t, localCarIndex, ctrl);
+      sim.setReconcilerTickControls(t, localCarIndex, ctrl);
+    }
+    const updatedTick = sim.stepReconcilerRange(
+      fromTick,
+      toTick,
+      localCarIndex,
+      kickoffMaskUntilTick,
+      useSilentStep
+    );
+    if (toTick > fromTick) {
+      historyBuffer.saveTickSnapshot(toTick - 1, sim);
+      if (isRedundant) {
+        sendOutboundInput(toTick - 1, null, nowMs);
+      } else {
+        for (let t = fromTick; t < toTick; t++) {
+          sendOutboundInput(t, historyBuffer.getCarControls(t, localCarIndex), nowMs);
+        }
+      }
+    }
+    return updatedTick;
+  }
   const updatedTick = historyBuffer.stepSimulationRange(
     sim,
     fromTick,
@@ -241,38 +277,50 @@ export function executeReplayAndEvaluateCorrection(
   }
   const isTier3HistoricalHardSnap = Boolean(evalResult.canCompare && evalResult.exceedsHardSnap);
   const savedLobbyEntities = saveClientLobbyLocalEntities(sim, lobbyDualWorldMode);
-  let slotFullState: Float32Array | null = null;
-  if (serverTick < currentClientTick && currentClientTick - serverTick < 256) {
-    if (
-      sim.restoreStateSlot?.(serverTick % 256, { suppressBallWriteMark: true }) &&
-      Math.floor(sim.getHeaderView?.()?.tickCount ?? serverTick) === serverTick &&
-      typeof sim?.saveState === 'function'
-    ) {
-      slotFullState = sim.saveState();
+  const usedWasmReconciler =
+    typeof sim.reconcileRollbackToTick === 'function' &&
+    sim.reconcileRollbackToTick(
+      serverTick,
+      currentClientTick,
+      localCarIndex,
+      kickoffMaskUntilTick,
+      packet.stateSnapshot
+    );
+  if (!usedWasmReconciler) {
+    let slotFullState: Float32Array | null = null;
+    if (serverTick < currentClientTick && currentClientTick - serverTick < 256) {
+      if (
+        sim.restoreStateSlot?.(serverTick % 256, { suppressBallWriteMark: true }) &&
+        Math.floor(sim.getHeaderView?.()?.tickCount ?? serverTick) === serverTick &&
+        typeof sim?.saveState === 'function'
+      ) {
+        slotFullState = sim.saveState();
+      }
     }
+    sim.restoreState(packet.stateSnapshot, { suppressBallWriteMark: true });
+    if (slotFullState) preserveCarTransientTimersAcrossCompactRestore(sim, slotFullState, numCars);
+    if (
+      typeof sim?.isCarSlotActive === 'function' &&
+      (sim.isCarSlotActive(6) || sim.isCarSlotActive(7))
+    ) {
+      configureClientLobbyDiagnosticProbes(sim);
+    }
+    historyBuffer.backfillMissingLocalInputs(
+      serverTick - 16,
+      serverTick,
+      localCarIndex,
+      kickoffMaskUntilTick
+    );
+    historyBuffer.resimulateSilentRange(
+      sim,
+      serverTick,
+      currentClientTick,
+      numCars,
+      localCarIndex,
+      kickoffMaskUntilTick
+    );
+    sim.saveStateSlot(currentClientTick % 256);
   }
-  sim.restoreState(packet.stateSnapshot, { suppressBallWriteMark: true });
-  if (slotFullState) preserveCarTransientTimersAcrossCompactRestore(sim, slotFullState, numCars);
-  if (
-    typeof sim?.isCarSlotActive === 'function' &&
-    (sim.isCarSlotActive(6) || sim.isCarSlotActive(7))
-  ) {
-    configureClientLobbyDiagnosticProbes(sim);
-  }
-  historyBuffer.backfillMissingLocalInputs(
-    serverTick - 16,
-    serverTick,
-    localCarIndex,
-    kickoffMaskUntilTick
-  );
-  historyBuffer.resimulateSilentRange(
-    sim,
-    serverTick,
-    currentClientTick,
-    numCars,
-    localCarIndex,
-    kickoffMaskUntilTick
-  );
   if (savedLobbyEntities) {
     restoreClientLobbyLocalEntities(
       sim,
@@ -282,7 +330,6 @@ export function executeReplayAndEvaluateCorrection(
       savedLobbyEntities
     );
   }
-  sim.saveStateSlot(currentClientTick % 256);
   historyBuffer.saveTickSnapshot(currentClientTick, sim);
   const discrepancy = visualSmoother.applyPostResimDiscrepancy(
     sim,

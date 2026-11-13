@@ -194,6 +194,35 @@ export interface RocketSimWasmModule {
   _physics_seekReplayTime(timeSec: number, interpolateMode: number): number;
   _physics_diffReplayFrameAnomaly(frameIndex: number, posThresholdUu: number): number;
   _physics_getReplayAnomalyDiffPtr(): number;
+  _physics_beginReplayImportStream(totalBytes: number): number;
+  _physics_allocReplayImportChunkBuffer(chunkLen: number): number;
+  _physics_commitReplayImportChunk(offset: number, chunkLen: number): number;
+  _physics_finalizeReplayImportStream(
+    interpolationMode: number,
+    synthesizeControls: number
+  ): number;
+  _physics_analyzeReplayTouchTimeline(
+    scoringTeam: number,
+    isNetworkStreamed: number,
+    watchAllTouches: number,
+    scorerCarIndex: number,
+    carTeamMask: number
+  ): number;
+  _physics_allocTouchExternalSnapshotsBuffer(frameCount: number, strideFloats: number): number;
+  _physics_analyzeExternalTouchSnapshots(
+    frameCount: number,
+    strideFloats: number,
+    scoringTeam: number,
+    isNetworkStreamed: number,
+    watchAllTouches: number,
+    scorerCarIndex: number,
+    carTeamMask: number
+  ): number;
+  _physics_getReplayTouchAnalysisSummaryPtr(): number;
+  _physics_getReplayTouchEventsPtr(): number;
+  _physics_getReplayTouchEventCount(): number;
+  _physics_getReplayReboundEventsPtr(): number;
+  _physics_getReplayReboundEventCount(): number;
   _physics_setCarThreeWheels(carIndex: number, enabled: number): number;
   _physics_getCarThreeWheels(carIndex: number): number;
   _physics_setArenaPreset(presetIndex: number): void;
@@ -356,6 +385,16 @@ export interface RocketSimWasmModule {
     kickoffMaskUntilTick: number,
     silent: number
   ): number;
+  _physics_resetClockSync(): void;
+  _physics_pushClockSyncRttSample(rttMs: number, jitterHintMs: number): void;
+  _physics_evaluateClockSyncPacing(
+    clientTick: number,
+    serverTick: number,
+    inputBufferTarget: number,
+    maxLeadTicks: number,
+    tickDtMs: number
+  ): number;
+  _physics_getClockSyncStatePtr(): number;
 
   // Semantic unprefixed aliases bound by RocketSimWasm.ts
   physics_init: RocketSimWasmModule['_physics_init'];
@@ -469,6 +508,18 @@ export interface RocketSimWasmModule {
   physics_seekReplayTime: RocketSimWasmModule['_physics_seekReplayTime'];
   physics_diffReplayFrameAnomaly: RocketSimWasmModule['_physics_diffReplayFrameAnomaly'];
   physics_getReplayAnomalyDiffPtr: RocketSimWasmModule['_physics_getReplayAnomalyDiffPtr'];
+  physics_beginReplayImportStream: RocketSimWasmModule['_physics_beginReplayImportStream'];
+  physics_allocReplayImportChunkBuffer: RocketSimWasmModule['_physics_allocReplayImportChunkBuffer'];
+  physics_commitReplayImportChunk: RocketSimWasmModule['_physics_commitReplayImportChunk'];
+  physics_finalizeReplayImportStream: RocketSimWasmModule['_physics_finalizeReplayImportStream'];
+  physics_analyzeReplayTouchTimeline: RocketSimWasmModule['_physics_analyzeReplayTouchTimeline'];
+  physics_allocTouchExternalSnapshotsBuffer: RocketSimWasmModule['_physics_allocTouchExternalSnapshotsBuffer'];
+  physics_analyzeExternalTouchSnapshots: RocketSimWasmModule['_physics_analyzeExternalTouchSnapshots'];
+  physics_getReplayTouchAnalysisSummaryPtr: RocketSimWasmModule['_physics_getReplayTouchAnalysisSummaryPtr'];
+  physics_getReplayTouchEventsPtr: RocketSimWasmModule['_physics_getReplayTouchEventsPtr'];
+  physics_getReplayTouchEventCount: RocketSimWasmModule['_physics_getReplayTouchEventCount'];
+  physics_getReplayReboundEventsPtr: RocketSimWasmModule['_physics_getReplayReboundEventsPtr'];
+  physics_getReplayReboundEventCount: RocketSimWasmModule['_physics_getReplayReboundEventCount'];
   physics_setCarThreeWheels: RocketSimWasmModule['_physics_setCarThreeWheels'];
   physics_getCarThreeWheels: RocketSimWasmModule['_physics_getCarThreeWheels'];
   physics_setArenaPreset: RocketSimWasmModule['_physics_setArenaPreset'];
@@ -538,6 +589,10 @@ export interface RocketSimWasmModule {
   physics_setReconcilerRemoteControls: RocketSimWasmModule['_physics_setReconcilerRemoteControls'];
   physics_reconcileRollbackToTick: RocketSimWasmModule['_physics_reconcileRollbackToTick'];
   physics_stepReconcilerRange: RocketSimWasmModule['_physics_stepReconcilerRange'];
+  physics_resetClockSync: RocketSimWasmModule['_physics_resetClockSync'];
+  physics_pushClockSyncRttSample: RocketSimWasmModule['_physics_pushClockSyncRttSample'];
+  physics_evaluateClockSyncPacing: RocketSimWasmModule['_physics_evaluateClockSyncPacing'];
+  physics_getClockSyncStatePtr: RocketSimWasmModule['_physics_getClockSyncStatePtr'];
 
   [key: string]: any;
 }

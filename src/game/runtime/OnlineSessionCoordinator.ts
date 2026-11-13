@@ -21,6 +21,10 @@ import {
   shouldReturnToLobbyOnRosterUpdate,
   type OnlineSessionBridgePort,
 } from './onlineSessionEnvironmentPipeline.ts';
+import { RoomReplicationBus } from '../../network/sync/RoomReplicationBus.ts';
+import { EntityAuthorityRouter } from '../../network/sync/EntityAuthorityRouter.ts';
+import { NetworkStateInterpolator } from '../../network/sync/NetworkStateInterpolator.ts';
+import { TelestratorSyncChannel } from '../../network/sync/TelestratorSyncChannel.ts';
 
 export type { OnlineSessionBridgePort };
 
@@ -39,6 +43,10 @@ export interface RosterUpdateMessage {
 export class OnlineSessionCoordinator {
   public readonly lobbyDualWorld: OnlineLobbyDualWorldController;
   public readonly reconcilerBinder: OnlineMatchReconcilerBinder;
+  public readonly replicationBus = new RoomReplicationBus();
+  public readonly authorityRouter = new EntityAuthorityRouter();
+  public readonly stateInterpolator = new NetworkStateInterpolator();
+  public readonly telestratorSync = new TelestratorSyncChannel();
   private readonly diagnosticsProbe: NetworkDiagnosticsProbe;
   private readonly sessionBridge: OnlineSessionBridgePort;
   authoritativeServer: AuthoritativeServerHost | null = null;

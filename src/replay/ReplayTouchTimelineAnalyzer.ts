@@ -20,6 +20,8 @@ import type {
   ResolvedTouchLookahead,
 } from './replayTouchLookaheadPipeline.ts';
 
+import { analyzeExternalFramesTouchTimelineViaWasm } from './rlrc/RLRCWasmReplayBridge.ts';
+
 export type {
   ReplayReboundEvent,
   SuffixCameraPlanInput,
@@ -60,6 +62,33 @@ export function analyzeReplayTouchTimeline(
     typeof config.scorerCarIndex === 'number' && config.scorerCarIndex >= 0
       ? config.scorerCarIndex
       : 0;
+
+  const hasExplicitJsEvents =
+    total > 0 &&
+    frames.some(
+      (f) =>
+        (Array.isArray(f?.incidents) && f.incidents.length > 0) ||
+        (Array.isArray(f?.events) && f.events.length > 0)
+    );
+  if (!hasExplicitJsEvents && total > 0) {
+    let carTeamMask = 0;
+    for (let c = 0; c < MAX_CARS; c++) {
+      if ((carTeamResolver(c) & 1) === 1) {
+        carTeamMask |= 1 << c;
+      }
+    }
+    const wasmRes = analyzeExternalFramesTouchTimelineViaWasm(
+      frames,
+      scoringTeam,
+      Boolean(config.isNetworkStreamed),
+      Boolean(config.watchAllTouches),
+      fallbackScorer,
+      carTeamMask
+    );
+    if (wasmRes) {
+      return wasmRes;
+    }
+  }
 
   const touchEvents: ReplayTouchEvent[] = [];
   const reboundEvents: ReplayReboundEvent[] = [];

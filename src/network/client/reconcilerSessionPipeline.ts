@@ -178,6 +178,7 @@ export function commitPredictedLocalStep(
       historyBuffer.setCarControls(currentTick, carIndex, controls);
   if (carIndex === localCarIndex) historyBuffer.lastLocalControls = { ...committed };
   historyBuffer.clientInputRingBuffer.record(currentTick, carIndex, committed);
+  sim.setReconcilerTickControls?.(currentTick, carIndex, committed);
   controlMessenger.sendOutboundInputForTick(
     channel,
     historyBuffer,

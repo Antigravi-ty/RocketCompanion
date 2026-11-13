@@ -193,6 +193,18 @@ async function loadDirectRocketSimWasm(moduleArg = {}) {
   Module['_physics_seekReplayTime'] = wasmExports._physics_seekReplayTime;
   Module['_physics_diffReplayFrameAnomaly'] = wasmExports._physics_diffReplayFrameAnomaly;
   Module['_physics_getReplayAnomalyDiffPtr'] = wasmExports._physics_getReplayAnomalyDiffPtr;
+  Module['_physics_beginReplayImportStream'] = wasmExports._physics_beginReplayImportStream;
+  Module['_physics_allocReplayImportChunkBuffer'] = wasmExports._physics_allocReplayImportChunkBuffer;
+  Module['_physics_commitReplayImportChunk'] = wasmExports._physics_commitReplayImportChunk;
+  Module['_physics_finalizeReplayImportStream'] = wasmExports._physics_finalizeReplayImportStream;
+  Module['_physics_analyzeReplayTouchTimeline'] = wasmExports._physics_analyzeReplayTouchTimeline;
+  Module['_physics_allocTouchExternalSnapshotsBuffer'] = wasmExports._physics_allocTouchExternalSnapshotsBuffer;
+  Module['_physics_analyzeExternalTouchSnapshots'] = wasmExports._physics_analyzeExternalTouchSnapshots;
+  Module['_physics_getReplayTouchAnalysisSummaryPtr'] = wasmExports._physics_getReplayTouchAnalysisSummaryPtr;
+  Module['_physics_getReplayTouchEventsPtr'] = wasmExports._physics_getReplayTouchEventsPtr;
+  Module['_physics_getReplayTouchEventCount'] = wasmExports._physics_getReplayTouchEventCount;
+  Module['_physics_getReplayReboundEventsPtr'] = wasmExports._physics_getReplayReboundEventsPtr;
+  Module['_physics_getReplayReboundEventCount'] = wasmExports._physics_getReplayReboundEventCount;
   Module['_physics_setCarThreeWheels'] = wasmExports._physics_setCarThreeWheels;
   Module['_physics_getCarThreeWheels'] = wasmExports._physics_getCarThreeWheels;
   Module['_physics_setArenaPreset'] = wasmExports._physics_setArenaPreset;
@@ -262,6 +274,10 @@ async function loadDirectRocketSimWasm(moduleArg = {}) {
   Module['_physics_setReconcilerRemoteControls'] = wasmExports._physics_setReconcilerRemoteControls;
   Module['_physics_reconcileRollbackToTick'] = wasmExports._physics_reconcileRollbackToTick;
   Module['_physics_stepReconcilerRange'] = wasmExports._physics_stepReconcilerRange;
+  Module['_physics_resetClockSync'] = wasmExports._physics_resetClockSync;
+  Module['_physics_pushClockSyncRttSample'] = wasmExports._physics_pushClockSyncRttSample;
+  Module['_physics_evaluateClockSyncPacing'] = wasmExports._physics_evaluateClockSyncPacing;
+  Module['_physics_getClockSyncStatePtr'] = wasmExports._physics_getClockSyncStatePtr;
 
   for (const [key, val] of Object.entries(wasmExports)) {
     if (typeof val === 'function' && key.startsWith('_physics_')) {

@@ -149,6 +149,17 @@ export class ReconcilerRollbackStepper {
       packet.acknowledgedControls,
       localCarIndex
     );
+    if (
+      typeof sim.setReconcilerRemoteControls === 'function' &&
+      Array.isArray(packet.acknowledgedControls)
+    ) {
+      for (let i = 0; i < packet.acknowledgedControls.length; i++) {
+        const entry = packet.acknowledgedControls[i];
+        if (entry && typeof entry.carIndex === 'number' && entry.carIndex !== localCarIndex) {
+          sim.setReconcilerRemoteControls(entry.carIndex, entry.controls ?? entry);
+        }
+      }
+    }
     const topology = syncClientCarTopology({
       sim,
       packet,

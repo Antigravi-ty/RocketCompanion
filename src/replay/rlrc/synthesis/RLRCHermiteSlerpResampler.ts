@@ -4,13 +4,22 @@
  */
 
 import { encodeRLRCFramesToTrack0Bytes } from '../container/RLRCBinaryContainerCodec.ts';
-import {
-  createParkedCarRigidBody,
-  RLRC_BALL_MAX_SPEED_UU_S,
-  RLRC_CAR_MAX_SPEED_UU_S,
-  RLRC_SUPERSONIC_MAINTAIN_SPEED_UU_S,
-  RLRC_SUPERSONIC_SPEED_UU_S,
-} from '../parser/RLRCNetStreamAttributeDecoders.ts';
+
+const RLRC_SUPERSONIC_SPEED_UU_S = 2200;
+const RLRC_SUPERSONIC_MAINTAIN_SPEED_UU_S = 2100;
+const RLRC_CAR_MAX_SPEED_UU_S = 2300;
+const RLRC_BALL_MAX_SPEED_UU_S = 4500;
+
+function createParkedCarRigidBody(slotIndex: number) {
+  return {
+    sleeping: true,
+    position: { x: -5500, y: slotIndex * 300, z: -2000 },
+    rotation: { x: 0, y: 0, z: 0, w: 1 },
+    linearVelocity: { x: 0, y: 0, z: 0 },
+    angularVelocity: { x: 0, y: 0, z: 0 },
+    rbUpdated: false,
+  };
+}
 import {
   RLRC_BOOST_PAD_COUNT,
   RLRC_FIXED_DT,

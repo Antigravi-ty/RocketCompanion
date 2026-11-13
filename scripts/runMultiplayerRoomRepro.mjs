@@ -34,7 +34,15 @@ function parseCliArgs(argv) {
   for (const arg of argv.slice(2)) {
     if (arg.startsWith('--mode=')) {
       const val = arg.slice('--mode='.length).trim();
-      if (val === '2p' || val === '2p2ai' || val === '3p3ai' || val === 'both' || val === 'all') {
+      if (
+        val === '2p' ||
+        val === '2p2ai' ||
+        val === '3p3ai' ||
+        val === 'both' ||
+        val === 'all' ||
+        val === 'freeplay' ||
+        val === 'room-switch'
+      ) {
         mode = val;
       }
     } else if (arg.startsWith('--speed=')) {
@@ -60,7 +68,12 @@ function parseCliArgs(argv) {
     }
   }
 
-  const modesToRun = mode === 'all' || mode === 'both' ? ['2p', '2p2ai', '3p3ai'] : [mode];
+  const modesToRun =
+    mode === 'all' || mode === 'both'
+      ? ['2p', '2p2ai', '3p3ai']
+      : mode === 'freeplay' || mode === 'room-switch'
+        ? ['2p']
+        : [mode];
   return {
     mode,
     modesToRun,
