@@ -197,6 +197,17 @@ export function buildEngineLoadingPipeline(
             '[Loading][Headless] Headless Parameter Detected (?touch=2) — skipping 3D Stadium & Vehicle GLB asset streaming.'
           );
         }
+        const loadMountUI = options.loadMountUI as (() => Promise<unknown>) | undefined;
+        const runtimeTarget = runtime as EngineLoadingRuntimePort & {
+          options?: { mountUI?: unknown };
+        };
+        if (!runtimeTarget.options?.mountUI && typeof loadMountUI === 'function') {
+          ctx.reportProgress(0.02, 'Synchronizing UI overlay modules...');
+          const resolvedMountUI = await loadMountUI();
+          if (runtimeTarget.options && resolvedMountUI) {
+            runtimeTarget.options.mountUI = resolvedMountUI;
+          }
+        }
         await runtime.setupScene((ratio, detail) => {
           ctx.reportProgress(ratio, detail);
         });
@@ -221,7 +232,7 @@ export function buildEngineLoadingPipeline(
       hint: 'Compiling PBR Uber-Shaders across visual themes (WebGL compileAsync)...',
       weight: 1.0,
       dependencies: ['geometry.scene.build'],
-      critical: true,
+      critical: false,
       run: async (ctx) => {
         if (isTouchHeadless) {
           console.info(

@@ -206,7 +206,7 @@ export const measureEqualDialogueButtonWidth = (
   return maxW > 0 ? Math.ceil(Math.max(maxW, 92)) : null;
 };
 
-export const MONO_FONT_STACK = "'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Monaco, Consolas, monospace";
+
 
 export const DEFAULT_TITLES: Record<DialogueTone, string> = {
   error: 'ERROR',

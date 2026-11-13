@@ -1,0 +1,9 @@
+# macOS Finder metadata — prevent .DS_Store / AppleDouble from triggering tauri dev rebuilds
+.DS_Store
+**/.DS_Store
+._*
+**/._*
+
+# Build / generated artifacts
+target/
+gen/

@@ -23,9 +23,9 @@ export interface MainMenuTypographyAndOutlineSectionProps {
   isLight: boolean;
 }
 
-export const MainMenuTypographyAndOutlineSection: React.FC<MainMenuTypographyAndOutlineSectionProps> = ({
-  isLight,
-}) => {
+export const MainMenuTypographyAndOutlineSection: React.FC<
+  MainMenuTypographyAndOutlineSectionProps
+> = ({ isLight }) => {
   const store = useMainMenuStyleStore();
   const { variant, setParam, setItemIconColor } = store;
   const cardCls = `p-4 rounded-xl border flex flex-col gap-4 ${
@@ -42,12 +42,17 @@ export const MainMenuTypographyAndOutlineSection: React.FC<MainMenuTypographyAnd
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs font-bold text-amber-500">
             <Type className="h-4 w-4" />
-            <span>B. Header Font, font size, Official Spacing 8 Font Weight Level (Title Typography &amp; Font Weight)</span>
+            <span>
+              B. Header Font, font size, Official Spacing 8 Font Weight Level (Title Typography
+              &amp; Font Weight)
+            </span>
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-1.5">
-              <span className="text-xs font-mono text-neutral-500 dark:text-neutral-400">Title Font (Font Family):</span>
+              <span className="text-xs font-mono text-neutral-500 dark:text-neutral-400">
+                Title Font (Font Family):
+              </span>
               {(
                 [
                   { id: 'sans', label: 'Apple Sans (Non Apple Auto Fallback To JetBrains Mono)' },
@@ -69,20 +74,30 @@ export const MainMenuTypographyAndOutlineSection: React.FC<MainMenuTypographyAnd
               ))}
             </div>
 
-            <ToggleSwitch checked={store.titleUppercase} onCheckedChange={(v) => setParam('titleUppercase', v)}
-              label="All Caps Title (UPPERCASE)" isLight={isLight} />
+            <ToggleSwitch
+              checked={store.titleUppercase}
+              onCheckedChange={(v) => setParam('titleUppercase', v)}
+              label="All Caps Title (UPPERCASE)"
+              isLight={isLight}
+            />
           </div>
         </div>
 
         {store.titleFontFamily === 'sans' && (
           <div
             className={`px-3 py-2 rounded-lg border flex flex-wrap items-center justify-between gap-2 text-xs font-mono ${
-            isLight ? 'bg-amber-50/50 border-amber-200/80 text-neutral-700'
-            : 'bg-amber-500/5 border-amber-500/25 text-neutral-300' }`}>
+              isLight
+                ? 'bg-amber-50/50 border-amber-200/80 text-neutral-700'
+                : 'bg-amber-500/5 border-amber-500/25 text-neutral-300'
+            }`}
+          >
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-bold text-amber-500">Cross-platform font and weight auto-scaling Fallback Strategy:</span>
+              <span className="font-bold text-amber-500">
+                Cross-platform font and weight auto-scaling Fallback Strategy:
+              </span>
               <span>
-                Apple Device Usage <strong className="text-amber-500">Apple Sans ({store.titleFontWeight})</strong>
+                Apple Device Usage{' '}
+                <strong className="text-amber-500">Apple Sans ({store.titleFontWeight})</strong>
                 {' · '}Non Apple Device Auto Fallback To{' '}
                 <strong className="text-emerald-500">JetBrains Mono Regular (400)</strong>
               </span>
@@ -118,25 +133,65 @@ export const MainMenuTypographyAndOutlineSection: React.FC<MainMenuTypographyAnd
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <SliderControl label="Header Font Size (titleFontSize)" value={store.titleFontSizePx} min={12} max={34} step={1}
-            unit="px" editable allowOutOfBoundsInput colorScheme="amber"
-            onChange={(v) => setParam('titleFontSizePx', v)} isLight={isLight} />
-          <SliderControl label="Title Letter Spacing (letterSpacing)" value={store.titleLetterSpacingEm} min={-0.08} max={0.18}
-            step={0.01} unit="em" editable allowOutOfBoundsInput colorScheme="amber"
-            onChange={(v) => setParam('titleLetterSpacingEm', v)} isLight={isLight} />
-          <SliderControl label="Title Line Height (lineHeight · Descender not clipped)" value={store.titleLineHeight} min={0.95} max={1.6}
-            step={0.05} editable allowOutOfBoundsInput colorScheme="amber"
-            onChange={(v) => setParam('titleLineHeight', v)} isLight={isLight} />
-          <SliderControl label="Vertical title visual fine-tuning (titleOffsetY)" value={store.titleOffsetYPx} min={-6} max={6} step={0.5}
-            unit="px" editable allowOutOfBoundsInput colorScheme="emerald"
-            onChange={(v) => store.setTitleOffsetYPx(v)} isLight={isLight} />
+          <SliderControl
+            label="Header Font Size (titleFontSize)"
+            value={store.titleFontSizePx}
+            min={12}
+            max={34}
+            step={1}
+            unit="px"
+            editable
+            allowOutOfBoundsInput
+            colorScheme="amber"
+            onChange={(v) => setParam('titleFontSizePx', v)}
+            isLight={isLight}
+          />
+          <SliderControl
+            label="Title Letter Spacing (letterSpacing)"
+            value={store.titleLetterSpacingEm}
+            min={-0.08}
+            max={0.18}
+            step={0.01}
+            unit="em"
+            editable
+            allowOutOfBoundsInput
+            colorScheme="amber"
+            onChange={(v) => setParam('titleLetterSpacingEm', v)}
+            isLight={isLight}
+          />
+          <SliderControl
+            label="Title Line Height (lineHeight · Descender not clipped)"
+            value={store.titleLineHeight}
+            min={0.95}
+            max={1.6}
+            step={0.05}
+            editable
+            allowOutOfBoundsInput
+            colorScheme="amber"
+            onChange={(v) => setParam('titleLineHeight', v)}
+            isLight={isLight}
+          />
+          <SliderControl
+            label="Vertical title visual fine-tuning (titleOffsetY)"
+            value={store.titleOffsetYPx}
+            min={-6}
+            max={6}
+            step={0.5}
+            unit="px"
+            editable
+            allowOutOfBoundsInput
+            colorScheme="emerald"
+            onChange={(v) => store.setTitleOffsetYPx(v)}
+            isLight={isLight}
+          />
         </div>
 
         {/* 8 Font Weights */}
         <div className="flex flex-col gap-2 pt-2 border-t border-neutral-200/60 dark:border-neutral-800/70">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-mono text-neutral-500 dark:text-neutral-400">
-              Title Font Weight (100 Thin ~ 800 Extra Bold · Non Apple Device Fallback To JetBrains Mono Auto Fallback to 400 Regular):
+              Title Font Weight (100 Thin ~ 800 Extra Bold · Non Apple Device Fallback To JetBrains
+              Mono Auto Fallback to 400 Regular):
             </span>
             {resolveMainMenuTitleTypography(
               store.titleFontFamily,
@@ -156,9 +211,7 @@ export const MainMenuTypographyAndOutlineSection: React.FC<MainMenuTypographyAnd
                 onClick={() => setParam('titleFontWeight', opt.weight)}
                 style={{
                   fontFamily:
-                    store.titleFontFamily === 'mono'
-                      ? 'var(--font-jetbrains)'
-                      : 'var(--font-apple)',
+                    store.titleFontFamily === 'mono' ? 'var(--font-mono)' : 'var(--font-apple)',
                   fontWeight: opt.weight,
                 }}
                 className={`py-1.5 px-2 rounded-lg text-xs border cursor-pointer transition-all ${
@@ -175,15 +228,44 @@ export const MainMenuTypographyAndOutlineSection: React.FC<MainMenuTypographyAnd
 
         {store.showDescription && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-neutral-200/60 dark:border-neutral-800/70">
-            <SliderControl label="Description font size (descSize)" value={store.descFontSizePx} min={10} max={16}
-              step={1} unit="px" editable allowOutOfBoundsInput colorScheme="sky"
-              onChange={(v) => setParam('descFontSizePx', v)} isLight={isLight} />
-            <SliderControl label="Description Line Height (descLineHeight)" value={store.descLineHeight} min={1.0} max={1.8}
-              step={0.05} editable allowOutOfBoundsInput colorScheme="sky"
-              onChange={(v) => setParam('descLineHeight', v)} isLight={isLight} />
-            <SliderControl label="Title and Description spacing" value={store.titleDescGapPx} min={0} max={12} step={1}
-              unit="px" editable allowOutOfBoundsInput colorScheme="sky"
-              onChange={(v) => setParam('titleDescGapPx', v)} isLight={isLight} />
+            <SliderControl
+              label="Description font size (descSize)"
+              value={store.descFontSizePx}
+              min={10}
+              max={16}
+              step={1}
+              unit="px"
+              editable
+              allowOutOfBoundsInput
+              colorScheme="sky"
+              onChange={(v) => setParam('descFontSizePx', v)}
+              isLight={isLight}
+            />
+            <SliderControl
+              label="Description Line Height (descLineHeight)"
+              value={store.descLineHeight}
+              min={1.0}
+              max={1.8}
+              step={0.05}
+              editable
+              allowOutOfBoundsInput
+              colorScheme="sky"
+              onChange={(v) => setParam('descLineHeight', v)}
+              isLight={isLight}
+            />
+            <SliderControl
+              label="Title and Description spacing"
+              value={store.titleDescGapPx}
+              min={0}
+              max={12}
+              step={1}
+              unit="px"
+              editable
+              allowOutOfBoundsInput
+              colorScheme="sky"
+              onChange={(v) => setParam('titleDescGapPx', v)}
+              isLight={isLight}
+            />
           </div>
         )}
       </div>
@@ -194,7 +276,8 @@ export const MainMenuTypographyAndOutlineSection: React.FC<MainMenuTypographyAnd
           <div className="flex items-center gap-2 text-xs font-bold text-amber-500">
             <Palette className="h-4 w-4" />
             <span>
-              E. Independent menu items Icon Color and style watermark parameters (Per-Item Icon Colors &amp; Watermark)
+              E. Independent menu items Icon Color and style watermark parameters (Per-Item Icon
+              Colors &amp; Watermark)
             </span>
           </div>
 
@@ -214,7 +297,9 @@ export const MainMenuTypographyAndOutlineSection: React.FC<MainMenuTypographyAnd
               const isCustom = isCustomPlayCardColor(currentColor);
               const resolvedHex = resolvePlayCardIconHex(currentColor, isLight);
               const rgb = hexToRgbTuple(resolvedHex);
-              const presetLabel = PLAY_CARD_ICON_COLOR_OPTIONS.find((c) => c.id === currentColor)?.label;
+              const presetLabel = PLAY_CARD_ICON_COLOR_OPTIONS.find(
+                (c) => c.id === currentColor
+              )?.label;
               const swatchActiveCls = isLight
                 ? 'bg-neutral-900 text-white border-neutral-900 font-bold'
                 : 'bg-white text-neutral-950 border-white font-bold';
@@ -274,18 +359,58 @@ export const MainMenuTypographyAndOutlineSection: React.FC<MainMenuTypographyAnd
 
         {variant === 'mono-watermark-row' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-3 border-t border-neutral-200/60 dark:border-neutral-800/70">
-            <SliderControl label="watermark Icon size (watermarkSize)" value={store.watermarkSizePx} min={32} max={120}
-              step={2} unit="px" editable allowOutOfBoundsInput colorScheme="amber"
-              onChange={(v) => setParam('watermarkSizePx', v)} isLight={isLight} />
-            <SliderControl label="Default watermark opacity (opacity)" value={store.watermarkOpacityPct} min={5} max={80}
-              step={1} unit="%" editable allowOutOfBoundsInput colorScheme="emerald"
-              onChange={(v) => setParam('watermarkOpacityPct', v)} isLight={isLight} />
-            <SliderControl label="watermark Hover opacity" value={store.watermarkHoverOpacityPct} min={10} max={95}
-              step={1} unit="%" editable allowOutOfBoundsInput colorScheme="emerald"
-              onChange={(v) => setParam('watermarkHoverOpacityPct', v)} isLight={isLight} />
-            <SliderControl label="Watermark Rotation (rotateDeg)" value={store.watermarkRotateDeg} min={-40} max={40}
-              step={1} unit="°" editable allowOutOfBoundsInput colorScheme="sky"
-              onChange={(v) => setParam('watermarkRotateDeg', v)} isLight={isLight} />
+            <SliderControl
+              label="watermark Icon size (watermarkSize)"
+              value={store.watermarkSizePx}
+              min={32}
+              max={120}
+              step={2}
+              unit="px"
+              editable
+              allowOutOfBoundsInput
+              colorScheme="amber"
+              onChange={(v) => setParam('watermarkSizePx', v)}
+              isLight={isLight}
+            />
+            <SliderControl
+              label="Default watermark opacity (opacity)"
+              value={store.watermarkOpacityPct}
+              min={5}
+              max={80}
+              step={1}
+              unit="%"
+              editable
+              allowOutOfBoundsInput
+              colorScheme="emerald"
+              onChange={(v) => setParam('watermarkOpacityPct', v)}
+              isLight={isLight}
+            />
+            <SliderControl
+              label="watermark Hover opacity"
+              value={store.watermarkHoverOpacityPct}
+              min={10}
+              max={95}
+              step={1}
+              unit="%"
+              editable
+              allowOutOfBoundsInput
+              colorScheme="emerald"
+              onChange={(v) => setParam('watermarkHoverOpacityPct', v)}
+              isLight={isLight}
+            />
+            <SliderControl
+              label="Watermark Rotation (rotateDeg)"
+              value={store.watermarkRotateDeg}
+              min={-40}
+              max={40}
+              step={1}
+              unit="°"
+              editable
+              allowOutOfBoundsInput
+              colorScheme="sky"
+              onChange={(v) => setParam('watermarkRotateDeg', v)}
+              isLight={isLight}
+            />
           </div>
         )}
       </div>

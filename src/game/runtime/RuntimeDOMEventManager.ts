@@ -2,6 +2,7 @@ import type * as THREE from 'three';
 import type { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import {
   useAppStore,
+  useTelestratorStore,
   networkDiagnosticsStore,
   toggleFloatingPreset,
   NETWORK_MONITOR_PRESET,
@@ -127,13 +128,12 @@ export class RuntimeDOMEventManager {
       typeof window !== 'undefined' &&
       Boolean(
         (window as unknown as { __TAURI__?: unknown; __TAURI_INTERNALS__?: unknown }).__TAURI__ ||
-          (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+        (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
       );
     const hasFocus =
       typeof document !== 'undefined'
         ? !isMinimized &&
-          (isTauriWebview ||
-            (typeof document.hasFocus === 'function' ? document.hasFocus() : true))
+          (isTauriWebview || (typeof document.hasFocus === 'function' ? document.hasFocus() : true))
         : true;
     if (subsystemState.runtime) {
       subsystemState.runtime.isWindowFocused = hasFocus;
@@ -363,6 +363,14 @@ export class RuntimeDOMEventManager {
     const canvasDom = r.boostBloom?.renderer?.domElement;
     if (canvasDom) {
       this._onCanvasMouseDown = (evt: MouseEvent) => {
+        const telestratorState = useTelestratorStore?.getState?.();
+        if (
+          telestratorState?.overlayActive &&
+          (telestratorState.drawingEnabled || telestratorState.directionAdjustActive)
+        ) {
+          this.pendingClickToPlay = false;
+          return;
+        }
         const appState = useAppStore?.getState?.();
         if (appState?.touchMode) {
           this.pendingClickToPlay = false;
@@ -386,6 +394,14 @@ export class RuntimeDOMEventManager {
       canvasDom.addEventListener('mousedown', this._onCanvasMouseDown);
 
       this._onCanvasClick = (evt: MouseEvent) => {
+        const telestratorState = useTelestratorStore?.getState?.();
+        if (
+          telestratorState?.overlayActive &&
+          (telestratorState.drawingEnabled || telestratorState.directionAdjustActive)
+        ) {
+          this.pendingClickToPlay = false;
+          return;
+        }
         const appState = useAppStore?.getState?.();
         if (appState?.touchMode) {
           this.pendingClickToPlay = false;

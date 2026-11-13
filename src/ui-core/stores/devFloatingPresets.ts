@@ -349,6 +349,21 @@ export const DYNAMIC_TRAINING_PACK_PRESET: PresetConfig = makeDevPreset({
   component: 'DynamicTrainingPackFloatingWindow',
 });
 
+export const TELESTRATOR_TOOLBAR_PRESET: PresetConfig = makeDevPreset({
+  id: 'telestrator-toolbar',
+  title: 'Telestrator Overlay',
+  category: 'TelestratorToolbar',
+  width: 56,
+  minWidth: 52,
+  height: 500,
+  minHeight: 340,
+  hideFooter: true,
+  summary:
+    'Mode-independent 3D telestrator overlay toolbar with brush modes, normalized screen-space presets, colors, Direction Adjust, Undo, Clear, and Settings.',
+  menuEntryPath: DEV_ENTRY_PATHS.ACTIVE_TUNERS,
+  component: 'TelestratorToolbarFloatingWindow',
+});
+
 export const DEV_PRESET_WINDOWS: PresetConfig[] = [
   DIAGNOSTIC_DUMP_PRESET,
   KEYBOARD_INPUT_OVERLAY_TUNER_PRESET,
@@ -380,6 +395,7 @@ export const DEV_PRESET_WINDOWS: PresetConfig[] = [
   BOTS_LOADOUT_TUNER_PRESET,
   REPLAY_TO_RCS_IMPORTER_PRESET,
   DYNAMIC_TRAINING_PACK_PRESET,
+  TELESTRATOR_TOOLBAR_PRESET,
 ];
 
 export const PRESET_WINDOWS: PresetConfig[] = [

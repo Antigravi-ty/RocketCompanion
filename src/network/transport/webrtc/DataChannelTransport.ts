@@ -5,12 +5,26 @@
 
 import type { NetworkSimulator, SimulatedPayload } from './NetworkSimulator.ts';
 import type { CrossTabSignaling } from './CrossTabSignaling.ts';
+import { AdaptiveReplicationPacer } from './AdaptiveReplicationPacer.ts';
+import {
+  PING_PONG_KIND_PING,
+  PING_PONG_KIND_PONG,
+  REPLICATION_MODES,
+  decodeSparsePingPong16B,
+  encodeSparsePingPong16B,
+  isSparsePingPong16B,
+  type CsrStateBroadcastPayload,
+  type ReplicationMode,
+  type RoomActivitySwitchPayload,
+  type StatePausedAckPayload,
+} from '../../protocol/ReplicationBusProtocol.ts';
 import {
   parseInboundControlFrame,
   encodeClientInputPayload,
   dispatchOpportunisticPing,
   transmitClonedPayload,
   dispatchDualChannelControlFrame,
+  transmitReliableControlFrame,
   type PendingColorChangeState,
   type StructuredClientInputPacket,
   type ClientInputPacketPayload,
@@ -63,7 +77,10 @@ export class DataChannelTransport {
   readonly simulator: NetworkSimulator;
   readonly signaling: CrossTabSignaling;
   dataChannel: RTCDataChannel | null = null;
+  controlDataChannel: RTCDataChannel | null = null;
   isWebRTCOpen = false;
+  isControlChannelOpen = false;
+  readonly pacer = new AdaptiveReplicationPacer();
   localColorSlot = 0;
   localColorHex = '#ff7043';
   pendingColorChange: PendingColorChangeState | null = null;
@@ -137,6 +154,10 @@ export class DataChannelTransport {
   }
 
   bindDataChannel(dataChannel: RTCDataChannel): void {
+    if (dataChannel.label === 'game_ctrl') {
+      this.bindControlDataChannel(dataChannel);
+      return;
+    }
     this.dataChannel = dataChannel;
     if (this.writeExternalChannel) {
       this.writeExternalChannel(dataChannel);
@@ -176,10 +197,48 @@ export class DataChannelTransport {
     };
   }
 
+  bindControlDataChannel(controlChannel: RTCDataChannel): void {
+    this.controlDataChannel = controlChannel;
+    controlChannel.onopen = () => {
+      console.log(`[P2PWebRTCChannel] Control DataChannel "${controlChannel.label}" OPEN!`);
+      this.isControlChannelOpen = true;
+      this.transportEvents.push({ type: 'control_channel_open' });
+    };
+    controlChannel.onclose = () => {
+      console.log(`[P2PWebRTCChannel] Control DataChannel "${controlChannel.label}" CLOSED.`);
+      this.isControlChannelOpen = false;
+      this.transportEvents.push({ type: 'control_channel_closed' });
+    };
+    controlChannel.onerror = (err) => {
+      console.error('[P2PWebRTCChannel] Control DataChannel error:', err);
+    };
+    controlChannel.onmessage = (event: MessageEvent<SimulatedPayload>) => {
+      this.handleIncomingMessage(event.data);
+    };
+  }
+
   handleIncomingMessage(data: SimulatedPayload | null | undefined): void {
     const sim = this.simulator;
     const now = performance.now();
     sim.stats.packetsReceived++;
+
+    if (isSparsePingPong16B(data)) {
+      const frame = decodeSparsePingPong16B(data);
+      if (frame) {
+        if (frame.kind === PING_PONG_KIND_PING) {
+          this.sendSparsePingPong16B(
+            PING_PONG_KIND_PONG,
+            frame.seq,
+            frame.timestampMs,
+            frame.epoch,
+            frame.ackTick
+          );
+        } else {
+          sim.handlePong(frame.timestampMs);
+        }
+        return;
+      }
+    }
 
     if (typeof data === 'string') {
       const control = parseInboundControlFrame(data);
@@ -204,6 +263,22 @@ export class DataChannelTransport {
           if (this.onDiagnosticFleetToggle) {
             this.onDiagnosticFleetToggle(control.enabled, control.anchorMode);
           }
+          return;
+        }
+        if (
+          control.kind === 'room_activity_switch' ||
+          control.kind === 'replication_mode_set' ||
+          control.kind === 'state_paused_ack' ||
+          control.kind === 'room_csr_state_broadcast'
+        ) {
+          if (control.kind === 'replication_mode_set') {
+            const nextMode =
+              control.raw.replicationMode === REPLICATION_MODES.SPARSE
+                ? REPLICATION_MODES.SPARSE
+                : REPLICATION_MODES.CONTINUOUS;
+            this.pacer.setMode(nextMode);
+          }
+          this.transportEvents.push({ type: control.kind, payload: control.raw });
           return;
         }
         if (control.kind === 'ping') {
@@ -351,5 +426,68 @@ export class DataChannelTransport {
       },
       'diagnostic_fleet_toggle'
     );
+  }
+
+  sendReliableControl(messageObj: Record<string, unknown>, label = 'reliable_control'): boolean {
+    return transmitReliableControlFrame(
+      this.controlDataChannel,
+      this.resolveActiveDataChannel(),
+      this.signaling.roomBroadcastChannel,
+      messageObj,
+      label
+    );
+  }
+
+  sendRoomActivitySwitch(payload: RoomActivitySwitchPayload): boolean {
+    if (payload.replicationMode) {
+      this.pacer.setMode(payload.replicationMode);
+    }
+    return this.sendReliableControl(
+      { type: 'room_activity_switch', ...payload },
+      'room_activity_switch'
+    );
+  }
+
+  sendStatePausedAck(payload: StatePausedAckPayload): boolean {
+    return this.sendReliableControl({ type: 'state_paused_ack', ...payload }, 'state_paused_ack');
+  }
+
+  sendCsrStateBroadcast(payload: CsrStateBroadcastPayload): boolean {
+    return this.sendReliableControl(
+      { type: 'room_csr_state_broadcast', ...payload },
+      'room_csr_state_broadcast'
+    );
+  }
+
+  setReplicationMode(mode: ReplicationMode, epoch = 0): boolean {
+    this.pacer.setMode(mode);
+    return this.sendReliableControl(
+      { type: 'replication_mode_set', replicationMode: mode, epoch },
+      'replication_mode_set'
+    );
+  }
+
+  sendSparsePingPong16B(
+    kind: typeof PING_PONG_KIND_PING | typeof PING_PONG_KIND_PONG,
+    seq: number,
+    timestampMs = performance.now(),
+    epoch = 0,
+    ackTick = 0
+  ): boolean {
+    const frame = encodeSparsePingPong16B({ kind, seq, timestampMs, epoch, ackTick });
+    return transmitClonedPayload(
+      this.resolveActiveDataChannel(),
+      this.signaling.roomBroadcastChannel,
+      this.resolveIsChannelOpen() || Boolean(this.signaling.roomBroadcastChannel),
+      frame
+    );
+  }
+
+  shouldSendAdaptiveSnapshot(nowMs = performance.now()): boolean {
+    const dc = this.resolveActiveDataChannel();
+    const buffered = dc ? dc.bufferedAmount : 0;
+    const sim = this.simulator;
+    this.pacer.updateNetworkHealth(sim.rttMs || 0, sim.packetLossRate || 0, buffered);
+    return this.pacer.shouldSendSnapshot(nowMs, buffered);
   }
 }

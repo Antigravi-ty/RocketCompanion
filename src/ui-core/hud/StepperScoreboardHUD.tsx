@@ -276,7 +276,7 @@ const StepperScoreboardHUDInner = forwardRef<StepperScoreboardHandle, StepperSco
         data-ui-element="hud-stepper-scoreboard"
         data-alpha-id="Alpha:StepperScoreboardHUD"
         className={`inline-flex flex-col items-center select-none pointer-events-auto ${className}`}
-        style={{ fontFamily: 'var(--font-jetbrains)' }}
+        style={{ fontFamily: 'var(--font-mono)' }}
       >
         {/* TOP UNFOLDED-BOX STEPPER (z-30) */}
         <div

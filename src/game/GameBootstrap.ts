@@ -26,6 +26,7 @@ export interface GameBootstrapOptions extends GameRuntimeOptions {
   container?: HTMLElement | null;
   loader?: MinimumProgressLoader | null;
   customProgressBar?: CustomLoadingProgressUI | null;
+  loadMountUI?: () => Promise<GameRuntimeOptions['mountUI']>;
 }
 
 let activeGameRuntime: GameRuntime | null = null;

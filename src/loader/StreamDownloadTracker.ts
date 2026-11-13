@@ -24,6 +24,7 @@ export interface TrackedFileByteState {
 export class StreamDownloadTracker {
   bufferCache: Map<string, ArrayBuffer>;
   loadedBytes: number;
+  lastNotifyTime: number;
   onProgressUpdate: ((info: StreamDownloadProgressInfo) => void) | null;
   totalBytes: number;
   trackedFiles: Map<string, TrackedFileByteState>;
@@ -32,6 +33,7 @@ export class StreamDownloadTracker {
     this.onProgressUpdate = onProgressUpdate;
     this.totalBytes = 0;
     this.loadedBytes = 0;
+    this.lastNotifyTime = 0;
     this.trackedFiles = new Map<string, TrackedFileByteState>();
     this.bufferCache = new Map<string, ArrayBuffer>();
   }
@@ -48,7 +50,7 @@ export class StreamDownloadTracker {
       this.trackedFiles.set(resolvedUrl, { loaded: 0, total: initialSize });
       this.totalBytes += initialSize;
     }
-    this._notify();
+    this._notify('', 0, 0, true);
   }
 
   /**
@@ -64,31 +66,65 @@ export class StreamDownloadTracker {
       return cached;
     }
 
+    const maxAttempts = options.signal ? 1 : 3;
+    let lastError: unknown = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const requestUrl =
+        attempt === 1
+          ? url
+          : `${url}${url.includes('?') ? '&' : '?'}__rc_retry=${attempt}_${Date.now()}`;
+      try {
+        return await this._fetchBufferAttempt(url, requestUrl, options);
+      } catch (err) {
+        lastError = err;
+        if (options.signal?.aborted || attempt >= maxAttempts) {
+          break;
+        }
+        const trackedEntry = this.trackedFiles.get(url);
+        if (trackedEntry && trackedEntry.loaded > 0) {
+          this.loadedBytes = Math.max(0, this.loadedBytes - trackedEntry.loaded);
+          trackedEntry.loaded = 0;
+        }
+        await new Promise((r) => setTimeout(r, 150 * attempt));
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error(`[StreamDownloadTracker] Failed fetching "${url}"`);
+  }
+
+  private async _fetchBufferAttempt(
+    cacheKeyUrl: string,
+    requestUrl: string,
+    options: RequestInit
+  ): Promise<ArrayBuffer> {
     const controller =
       !options.signal && typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timeoutId = controller ? setTimeout(() => controller.abort(), 30000) : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 12000) : null;
 
     try {
       const res = await fetch(
-        url,
+        requestUrl,
         controller ? { ...options, signal: controller.signal } : options
       );
       if (!res.ok) {
-        throw new Error(`[StreamDownloadTracker] HTTP ${res.status} fetching "${url}"`);
+        throw new Error(`[StreamDownloadTracker] HTTP ${res.status} fetching "${cacheKeyUrl}"`);
       }
 
       const contentLength = res.headers.get('content-length');
       const headerTotal = contentLength ? parseInt(contentLength, 10) : 0;
-      let trackedEntry = this.trackedFiles.get(url);
+      let trackedEntry = this.trackedFiles.get(cacheKeyUrl);
 
       if (headerTotal > 0) {
         const prevEst = trackedEntry?.total || 0;
         this.totalBytes = this.totalBytes - prevEst + headerTotal;
         trackedEntry = { loaded: trackedEntry?.loaded || 0, total: headerTotal };
-        this.trackedFiles.set(url, trackedEntry);
+        this.trackedFiles.set(cacheKeyUrl, trackedEntry);
       } else if (!trackedEntry) {
         trackedEntry = { loaded: 0, total: 0 };
-        this.trackedFiles.set(url, trackedEntry);
+        this.trackedFiles.set(cacheKeyUrl, trackedEntry);
       }
 
       // Fallback if ReadableStream is unavailable
@@ -103,8 +139,8 @@ export class StreamDownloadTracker {
         trackedEntry.loaded = actualSize;
         trackedEntry.total = actualSize;
         this.loadedBytes += delta;
-        this.bufferCache.set(url, buffer);
-        this._notify(url, actualSize, actualSize);
+        this.bufferCache.set(cacheKeyUrl, buffer);
+        this._notify(cacheKeyUrl, actualSize, actualSize, true);
         return buffer;
       }
 
@@ -129,7 +165,7 @@ export class StreamDownloadTracker {
           }
           this.loadedBytes += delta;
 
-          this._notify(url, received, activeTotal || trackedEntry.total);
+          this._notify(cacheKeyUrl, received, activeTotal || trackedEntry.total, false);
         }
       } finally {
         reader.releaseLock();
@@ -144,7 +180,8 @@ export class StreamDownloadTracker {
       }
 
       const arrayBuffer = fullBuffer.buffer;
-      this.bufferCache.set(url, arrayBuffer);
+      this.bufferCache.set(cacheKeyUrl, arrayBuffer);
+      this._notify(cacheKeyUrl, received, activeTotal || trackedEntry.total, true);
       return arrayBuffer;
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
@@ -176,8 +213,11 @@ export class StreamDownloadTracker {
     this.bufferCache.clear();
   }
 
-  _notify(activeUrl = '', currentLoaded = 0, currentTotal = 0): void {
+  _notify(activeUrl = '', currentLoaded = 0, currentTotal = 0, force = false): void {
     if (!this.onProgressUpdate) return;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (!force && now - this.lastNotifyTime < 50) return;
+    this.lastNotifyTime = now;
     const overallRatio = this.totalBytes > 0 ? Math.min(1, this.loadedBytes / this.totalBytes) : 0;
     this.onProgressUpdate({
       overallRatio,
