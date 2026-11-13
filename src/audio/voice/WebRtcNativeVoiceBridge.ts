@@ -9,6 +9,15 @@ import {
   type VoicePeerStateSnapshot,
   type VoiceRenegotiationSignal,
 } from './IVoiceAudioBridge.ts';
+import {
+  applyPeerPlaybackGain,
+  bindPeerRemoteAudioGraph,
+  cleanupPeerAudioGraph,
+  createEmptyPeerAudioGraph,
+  sampleAnalyserRms01,
+  VoiceMasterOutputBus,
+  type PeerAudioGraphHandles,
+} from './voiceAudioGraph.ts';
 
 interface AttachedVoicePeer {
   peerId: string;
@@ -21,14 +30,11 @@ interface AttachedVoicePeer {
   muted: boolean;
   sender: RTCRtpSender | null;
   remoteStream: MediaStream | null;
-  sourceNode: MediaStreamAudioSourceNode | null;
-  gainNode: GainNode | null;
-  analyserNode: AnalyserNode | null;
-  analyserBuffer: Float32Array<ArrayBuffer> | null;
-  hiddenAudioEl: HTMLAudioElement | null;
+  audioGraph: PeerAudioGraphHandles;
   onTrackListener: ((event: Event) => void) | null;
   onNegotiationListener: (() => void) | null;
   makingOffer: boolean;
+  pendingRenegotiation: boolean;
   isPolite: boolean;
 }
 
@@ -41,29 +47,11 @@ export interface WebRtcNativeVoiceBridgeOptions {
   onStateChanged?: (snapshot: VoiceBridgeStateSnapshot) => void;
 }
 
-function sampleAnalyserRms01(
-  analyser: AnalyserNode | null,
-  buffer: Float32Array<ArrayBuffer> | null
-): number {
-  if (!analyser || !buffer) return 0;
-  try {
-    analyser.getFloatTimeDomainData(buffer);
-    let sumSq = 0;
-    for (let i = 0; i < buffer.length; i++) {
-      const s = buffer[i];
-      if (Number.isFinite(s)) sumSq += s * s;
-    }
-    const rms = Math.sqrt(sumSq / Math.max(1, buffer.length));
-    return Math.max(0, Math.min(1, rms * 3.5));
-  } catch {
-    return 0;
-  }
-}
-
 export class WebRtcNativeVoiceBridge implements IVoiceAudioBridge {
   private readonly getAudioContext: () => AudioContext | null;
   private readonly resolvePeerInitialMix?: WebRtcNativeVoiceBridgeOptions['resolvePeerInitialMix'];
   private readonly onStateChanged?: WebRtcNativeVoiceBridgeOptions['onStateChanged'];
+  private readonly outputBus: VoiceMasterOutputBus;
 
   private enabled = false;
   private micMuted = false;
@@ -80,50 +68,13 @@ export class WebRtcNativeVoiceBridge implements IVoiceAudioBridge {
   private localMicAnalyser: AnalyserNode | null = null;
   private localMicBuffer: Float32Array<ArrayBuffer> | null = null;
 
-  private masterGainNode: GainNode | null = null;
-  private outputLimiterNode: DynamicsCompressorNode | null = null;
   private readonly peers = new Map<string, AttachedVoicePeer>();
 
   constructor(options: WebRtcNativeVoiceBridgeOptions) {
     this.getAudioContext = options.getAudioContext;
     this.resolvePeerInitialMix = options.resolvePeerInitialMix;
     this.onStateChanged = options.onStateChanged;
-  }
-
-  private ensureOutputBus(): { ctx: AudioContext; inputNode: GainNode } | null {
-    const ctx = this.getAudioContext();
-    if (!ctx) return null;
-    if (ctx.state === 'suspended') {
-      void ctx.resume().catch(() => {});
-    }
-    if (!this.masterGainNode) {
-      this.masterGainNode = ctx.createGain();
-      this.masterGainNode.gain.value = this.masterVoiceVolumePct / 100;
-      this.outputLimiterNode = ctx.createDynamicsCompressor();
-      this.outputLimiterNode.threshold.value = -3;
-      this.outputLimiterNode.knee.value = 6;
-      this.outputLimiterNode.ratio.value = 12;
-      this.outputLimiterNode.attack.value = 0.003;
-      this.outputLimiterNode.release.value = 0.1;
-      this.rewireOutputBus(ctx);
-    }
-    return { ctx, inputNode: this.masterGainNode };
-  }
-
-  private rewireOutputBus(ctx: AudioContext): void {
-    if (!this.masterGainNode) return;
-    try {
-      this.masterGainNode.disconnect();
-      this.outputLimiterNode?.disconnect();
-    } catch {
-      // Ignore disconnect errors when graph is not yet wired
-    }
-    if (this.outputLimiterEnabled && this.outputLimiterNode) {
-      this.masterGainNode.connect(this.outputLimiterNode);
-      this.outputLimiterNode.connect(ctx.destination);
-    } else {
-      this.masterGainNode.connect(ctx.destination);
-    }
+    this.outputBus = new VoiceMasterOutputBus(options.getAudioContext);
   }
 
   async enableVoice(): Promise<void> {
@@ -242,18 +193,16 @@ export class WebRtcNativeVoiceBridge implements IVoiceAudioBridge {
 
   setMasterVoiceVolumePct(volumePct: number): void {
     this.masterVoiceVolumePct = clampVoiceVolumePct(volumePct);
-    if (this.masterGainNode) {
-      this.masterGainNode.gain.value = this.masterVoiceVolumePct / 100;
+    this.outputBus.setMasterVolumePct(this.masterVoiceVolumePct);
+    for (const peer of this.peers.values()) {
+      this.applyPeerGain(peer);
     }
     this.emitStateChanged();
   }
 
   setOutputLimiterEnabled(enabled: boolean): void {
     this.outputLimiterEnabled = Boolean(enabled);
-    const ctx = this.getAudioContext();
-    if (ctx) {
-      this.rewireOutputBus(ctx);
-    }
+    this.outputBus.setOutputLimiterEnabled(this.outputLimiterEnabled);
     this.emitStateChanged();
   }
 
@@ -280,8 +229,13 @@ export class WebRtcNativeVoiceBridge implements IVoiceAudioBridge {
   }
 
   private applyPeerGain(peer: AttachedVoicePeer): void {
-    if (!peer.gainNode) return;
-    peer.gainNode.gain.value = peer.muted ? 0 : peer.volumePct / 100;
+    applyPeerPlaybackGain(
+      peer.audioGraph,
+      this.outputBus.isContextRunning(),
+      peer.volumePct,
+      peer.muted,
+      this.masterVoiceVolumePct
+    );
   }
 
   attachPeer(options: VoicePeerAttachmentOptions): void {
@@ -307,14 +261,11 @@ export class WebRtcNativeVoiceBridge implements IVoiceAudioBridge {
       muted: initialMuted,
       sender: null,
       remoteStream: null,
-      sourceNode: null,
-      gainNode: null,
-      analyserNode: null,
-      analyserBuffer: null,
-      hiddenAudioEl: null,
+      audioGraph: createEmptyPeerAudioGraph(),
       onTrackListener: null,
       onNegotiationListener: null,
       makingOffer: false,
+      pendingRenegotiation: false,
       isPolite: options.isPolite ?? options.peerId === 'host',
     };
 
@@ -368,56 +319,21 @@ export class WebRtcNativeVoiceBridge implements IVoiceAudioBridge {
   }
 
   private bindRemoteStream(peer: AttachedVoicePeer, stream: MediaStream): void {
-    this.cleanupPeerAudioGraph(peer);
     peer.remoteStream = stream;
-
-    if (typeof Audio !== 'undefined') {
-      const audioEl = new Audio();
-      audioEl.srcObject = stream;
-      audioEl.muted = true;
-      audioEl.autoplay = true;
-      void audioEl.play().catch(() => {});
-      peer.hiddenAudioEl = audioEl;
-    }
-
-    const bus = this.ensureOutputBus();
-    if (bus) {
-      peer.sourceNode = bus.ctx.createMediaStreamSource(stream);
-      peer.gainNode = bus.ctx.createGain();
-      peer.analyserNode = bus.ctx.createAnalyser();
-      peer.analyserNode.fftSize = 256;
-      peer.analyserBuffer = new Float32Array(peer.analyserNode.fftSize);
-      this.applyPeerGain(peer);
-
-      peer.sourceNode.connect(peer.gainNode);
-      peer.gainNode.connect(peer.analyserNode);
-      peer.analyserNode.connect(bus.inputNode);
-    }
+    bindPeerRemoteAudioGraph(
+      peer.audioGraph,
+      stream,
+      this.outputBus,
+      peer.volumePct,
+      peer.muted,
+      this.masterVoiceVolumePct
+    );
     this.emitStateChanged();
   }
 
   private cleanupPeerAudioGraph(peer: AttachedVoicePeer): void {
-    try {
-      peer.sourceNode?.disconnect();
-      peer.gainNode?.disconnect();
-      peer.analyserNode?.disconnect();
-    } catch {
-      // Ignore
-    }
-    peer.sourceNode = null;
-    peer.gainNode = null;
-    peer.analyserNode = null;
-    peer.analyserBuffer = null;
+    cleanupPeerAudioGraph(peer.audioGraph);
     peer.remoteStream = null;
-    if (peer.hiddenAudioEl) {
-      try {
-        peer.hiddenAudioEl.pause();
-        peer.hiddenAudioEl.srcObject = null;
-      } catch {
-        // Ignore
-      }
-      peer.hiddenAudioEl = null;
-    }
   }
 
   private async syncLocalTrackToPeer(peer: AttachedVoicePeer): Promise<void> {
@@ -433,8 +349,12 @@ export class WebRtcNativeVoiceBridge implements IVoiceAudioBridge {
   }
 
   private async renegotiatePeer(peer: AttachedVoicePeer): Promise<void> {
-    if (!peer.pc || !peer.sendSignal || peer.makingOffer) return;
-    if (peer.pc.signalingState !== 'stable') return;
+    if (!peer.pc || !peer.sendSignal) return;
+    if (peer.makingOffer || peer.pc.signalingState !== 'stable') {
+      peer.pendingRenegotiation = true;
+      return;
+    }
+    peer.pendingRenegotiation = false;
     peer.makingOffer = true;
     try {
       const offer = await peer.pc.createOffer();
@@ -444,6 +364,10 @@ export class WebRtcNativeVoiceBridge implements IVoiceAudioBridge {
       console.warn('[WebRtcNativeVoiceBridge] Renegotiation offer failed:', err);
     } finally {
       peer.makingOffer = false;
+      if (peer.pendingRenegotiation && peer.pc.signalingState === 'stable') {
+        peer.pendingRenegotiation = false;
+        void this.renegotiatePeer(peer);
+      }
     }
   }
 
@@ -496,6 +420,11 @@ export class WebRtcNativeVoiceBridge implements IVoiceAudioBridge {
         console.warn('[WebRtcNativeVoiceBridge] Handling voice_answer failed:', err);
       }
     }
+
+    if (peer.pendingRenegotiation && peer.pc.signalingState === 'stable') {
+      peer.pendingRenegotiation = false;
+      void this.renegotiatePeer(peer);
+    }
   }
 
   getLocalMicLevel01(): number {
@@ -506,7 +435,7 @@ export class WebRtcNativeVoiceBridge implements IVoiceAudioBridge {
   getPeerAudioLevel01(peerId: string): number {
     const peer = this.peers.get(peerId);
     if (!peer || peer.muted) return 0;
-    return sampleAnalyserRms01(peer.analyserNode, peer.analyserBuffer);
+    return sampleAnalyserRms01(peer.audioGraph.analyserNode, peer.audioGraph.analyserBuffer);
   }
 
   getPeers(): VoicePeerStateSnapshot[] {
@@ -520,7 +449,9 @@ export class WebRtcNativeVoiceBridge implements IVoiceAudioBridge {
         volumePct: peer.volumePct,
         muted: peer.muted,
         hasRemoteAudio: Boolean(peer.remoteStream),
-        audioLevel01: peer.muted ? 0 : sampleAnalyserRms01(peer.analyserNode, peer.analyserBuffer),
+        audioLevel01: peer.muted
+          ? 0
+          : sampleAnalyserRms01(peer.audioGraph.analyserNode, peer.audioGraph.analyserBuffer),
       });
     }
     return list;
@@ -547,13 +478,6 @@ export class WebRtcNativeVoiceBridge implements IVoiceAudioBridge {
     for (const peerId of [...this.peers.keys()]) {
       this.detachPeer(peerId);
     }
-    try {
-      this.masterGainNode?.disconnect();
-      this.outputLimiterNode?.disconnect();
-    } catch {
-      // Ignore
-    }
-    this.masterGainNode = null;
-    this.outputLimiterNode = null;
+    this.outputBus.dispose();
   }
 }

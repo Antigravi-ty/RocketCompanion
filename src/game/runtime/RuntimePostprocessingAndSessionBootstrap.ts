@@ -257,14 +257,14 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
       await sessionCoordinator.stopOnlineServer();
     },
     async onJoinServer(opts: JoinRoomSettings) {
-      await sessionCoordinator.joinOnlineServer(opts);
       if (opts.channel) {
         attachVoiceToPeerChannel(opts.channel, 'host', String(opts.remotePlayerName || 'Host'));
       }
+      await sessionCoordinator.joinOnlineServer(opts);
     },
     async onPeerConnected(channel: NetworkSessionChannelLike, name: string, peerId?: string) {
-      const assignedIdx = await rosterSyncCoordinator.onRemotePlayerConnected(channel, name);
       attachVoiceToPeerChannel(channel, peerId || '', name);
+      const assignedIdx = await rosterSyncCoordinator.onRemotePlayerConnected(channel, name);
       return assignedIdx ?? -1;
     },
     onPeerDisconnected(peerId: string) {

@@ -72,9 +72,24 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   onMessage: ChannelHook<[SimulatedPayload]> = null;
   onColorChange: ChannelHook<[Record<string, unknown>]> = null;
   onDiagnosticFleetToggle: ChannelHook<[boolean, string]> = null;
-  onVoiceSignal: ChannelHook<[Record<string, unknown>]> = null;
+  private _onVoiceSignal: ChannelHook<[Record<string, unknown>]> = null;
+  private readonly pendingVoiceSignals: Record<string, unknown>[] = [];
   onBroadcastSignal: ChannelHook<[Record<string, unknown>]> = null;
   onIceCandidate: ChannelHook<[IceCandidateDescriptor]> = null;
+
+  get onVoiceSignal(): ChannelHook<[Record<string, unknown>]> {
+    return this._onVoiceSignal;
+  }
+
+  set onVoiceSignal(listener: ChannelHook<[Record<string, unknown>]>) {
+    this._onVoiceSignal = listener;
+    if (listener && this.pendingVoiceSignals.length > 0) {
+      const queued = this.pendingVoiceSignals.splice(0, this.pendingVoiceSignals.length);
+      for (const signal of queued) {
+        listener(signal);
+      }
+    }
+  }
 
   readonly send: DataChannelTransport['send'];
   readonly sendClientInput: DataChannelTransport['sendClientInput'];
@@ -163,7 +178,14 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
         if (this.onDiagnosticFleetToggle) this.onDiagnosticFleetToggle(enabled, anchorMode);
       },
       deliverVoiceSignal: (signal) => {
-        if (this.onVoiceSignal) this.onVoiceSignal(signal);
+        if (this._onVoiceSignal) {
+          this._onVoiceSignal(signal);
+        } else {
+          if (this.pendingVoiceSignals.length >= 64) {
+            this.pendingVoiceSignals.shift();
+          }
+          this.pendingVoiceSignals.push(signal);
+        }
       },
       deliverPacket: (delivered) => {
         if (this.onPacketReceived) this.onPacketReceived(delivered);
