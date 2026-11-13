@@ -1,10 +1,8 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BellDot, Layers } from 'lucide-react';
-import {
-  QuickNotificationDrawer,
-  MONO_FONT_STACK,
-} from '../compounds/QuickNotification';
+import { QuickNotificationDrawer } from '../compounds/QuickNotification';
+import { MONO_FONT_STACK } from '../tokens/typography';
 import type { QuickNotificationItem } from '../stores/notificationTypes';
 
 type NotificationIconLifecycle =

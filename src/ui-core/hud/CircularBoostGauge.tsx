@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useImperativeHandle, forwardRef, useCallback } from 'react';
 import { BoostTransientListener } from '../stores/hudTransientTypes';
 import { useBoostGaugeStore } from '../stores/boostGaugeStore';
+import { MONO_FONT_STACK } from '../tokens/typography';
 import { type BoostColorScheme, type BoostColorMode, type BoostThemeOverride, type BoostSegmentColorInfo, getBoostSegmentColor, resolveBoostVisualColors } from './boostGaugeConfig';
 
 export type {
@@ -35,8 +36,7 @@ export interface CircularBoostGaugeProps {
   className?: string;
 }
 
-const MONO_FONT_FAMILY =
-  "'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Monaco, Consolas, monospace";
+const MONO_FONT_FAMILY = MONO_FONT_STACK;
 
 const DISC_CENTER = 68;
 const DISC_MAX_RADIUS = 68;

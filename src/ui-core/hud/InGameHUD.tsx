@@ -291,7 +291,7 @@ export const InGameHUD: React.FC<InGameHUDProps> = ({ className = '' }) => {
 
       <HudAnchorStage
         strategy="reserve"
-        style={{ fontFamily: 'var(--font-jetbrains)' }}
+        style={{ fontFamily: 'var(--font-mono)' }}
       >
         <HudZone anchor="top-left" flush>
           <HudSlot

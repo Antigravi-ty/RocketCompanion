@@ -77,7 +77,7 @@ export const DEFAULT_NAME_TAG_CONFIG: NameTagConfig = {
   cornerRadius: 27,
   borderWidth: 4,
   fontSize: 48,
-  fontFamily: 'jetbrains-mono',
+  fontFamily: 'sf-mono',
   fontWeight: 600,
   opacity: 0.7,
   bgOpacity: 0.7,
@@ -94,7 +94,7 @@ export const DEFAULT_NAME_TAG_CONFIG: NameTagConfig = {
   singleCharCornerRadius: 27,
   singleCharBorderWidth: 4,
   singleCharFontSize: 48,
-  singleCharFontFamily: 'jetbrains-mono',
+  singleCharFontFamily: 'sf-mono',
   singleCharFontWeight: 600,
   singleCharOpacity: 0.7,
   singleCharBgOpacity: 0.7,
@@ -195,9 +195,9 @@ export const VARIANT_KEY_MAP: Array<[keyof NameTagCardVariantParams, keyof NameT
 ];
 
 export function resolveNameTagFontFamilyCss(fontFamily: NameTagFontFamily): string {
-  if (fontFamily === 'sf-mono') return '"SF Mono", ui-monospace, "JetBrains Mono", Menlo, Monaco, Consolas, monospace';
+  if (fontFamily === 'sf-mono') return 'ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, Monaco, Consolas, monospace';
   if (fontFamily === 'archivo') return '"Archivo", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif';
-  return '"JetBrains Mono", "SF Mono", ui-monospace, Menlo, Monaco, Consolas, monospace';
+  return '"JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace';
 }
 
 export function shouldUseSingleCharIndicator(

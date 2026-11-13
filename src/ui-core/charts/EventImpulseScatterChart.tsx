@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { Zap, Volume2, Pause, Play, Trash2 } from 'lucide-react';
 import { UI_RADIUS } from '../tokens/radius';
 import { UI_THEME } from '../tokens/colors';
+import { MONO_FONT_STACK } from '../tokens/typography';
 
 export const ALPHA_COMPONENT_ID = 'Alpha:EventImpulseScatterChart' as const;
 
@@ -144,7 +145,7 @@ export const EventImpulseScatterChart: React.FC<EventImpulseScatterChartProps> =
     ctx.fillRect(padLeft, threshY, plotW, Math.max(0, baseY - threshY));
 
     // 2. Grid lines
-    ctx.font = '10px "SF Mono", "JetBrains Mono", monospace';
+    ctx.font = `10px ${MONO_FONT_STACK}`;
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
 
@@ -221,7 +222,7 @@ export const EventImpulseScatterChart: React.FC<EventImpulseScatterChartProps> =
 
     // 5. X-Axis Time Labels
     ctx.fillStyle = isLight ? '#64748b' : '#94a3b8';
-    ctx.font = '9px "SF Mono", "JetBrains Mono", monospace';
+    ctx.font = `9px ${MONO_FONT_STACK}`;
     ctx.textAlign = 'left';
     ctx.fillText(`-${timeWindowSec.toFixed(1)}s`, padLeft, height - 6);
     ctx.textAlign = 'center';
