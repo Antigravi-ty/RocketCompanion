@@ -59,6 +59,12 @@ async function startAllServers() {
   console.log('  -> Tauri / RC HTTP  : http://localhost:3003/');
   console.log('====================================================================\n');
 
+  for (const ep of ENDPOINTS) {
+    if ((ep.role === 'rc-https' || ep.role === 'rc-http') && ep.server) {
+      void ep.server.warmupRequest('/src/main.ts').catch(() => {});
+    }
+  }
+
   const shutdown = async () => {
     for (const ep of ENDPOINTS) {
       try {

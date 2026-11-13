@@ -8,6 +8,7 @@ import {
   recomputeDescriptorBoostOutlets,
 } from '../../ui-core/config/vehicleTunerConfig.ts';
 import { resolveAssetPath } from '../../utils/AssetResponseValidator.ts';
+import { loadGltfWithTimeoutAndRetry } from '../../utils/resilientAssetLoad.ts';
 import { createProceduralSportWheel } from './vehicleWheelsAndLamps.ts';
 
 export interface UnscaledGlbBounds {
@@ -143,7 +144,10 @@ export async function loadCustomGlbCarAsset(vehicleId: string): Promise<CustomGl
 
   const loadPromise = (async (): Promise<CustomGlbVehicleAsset> => {
     const loader = new GLTFLoader();
-    const gltf = await loader.loadAsync(resolveAssetPath(descriptor.modelUrl));
+    const gltf = await loadGltfWithTimeoutAndRetry(loader, resolveAssetPath(descriptor.modelUrl), {
+      timeoutMs: 20000,
+      retries: 2,
+    });
     gltf.scene.updateMatrixWorld?.(true);
     const { unscaledBounds, appliedGeometryScale } = normalizeCustomVehicleScene(
       gltf.scene,

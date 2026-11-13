@@ -4,6 +4,7 @@
  */
 
 import { validateAssetResponse, resolveAssetPath } from '../utils/AssetResponseValidator.ts';
+import { fetchWithTimeoutAndRetry } from '../utils/resilientAssetLoad.ts';
 import { resolveHitboxIndex } from '../ui-core/config/vehicleConstants.ts';
 
 export const PLAYER_CAR_INDEX = 0;
@@ -32,7 +33,11 @@ export async function fetchArenaCollisionManifest(
   manifestPath = ARENA_MESH_MANIFEST_PATH
 ): Promise<string[]> {
   const manifestUrl = resolveAssetPath(manifestPath);
-  const manifestRes = await fetch(manifestUrl);
+  const manifestRes = await fetchWithTimeoutAndRetry(
+    manifestUrl,
+    {},
+    { timeoutMs: 12000, retries: 2 }
+  );
   const manifestCheck = validateAssetResponse(manifestRes, manifestUrl, 'json');
   if (!manifestCheck.ok) throw manifestCheck.error;
   return manifestRes.json();

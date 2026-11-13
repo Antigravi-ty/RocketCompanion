@@ -33,8 +33,29 @@ export function loadGoldenBoostTextures(): GoldenBoostTextureSet {
     let loadedTex!: THREE.Texture;
     promises.push(
       new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          reject(new Error(`Boost texture load timed out after 10000ms: "${url}"`));
+        }, 10000);
         loadedTex = setupBoostTexture(
-          loader.load(url, () => resolve(), undefined, reject),
+          loader.load(
+            url,
+            () => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              resolve();
+            },
+            undefined,
+            (err) => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              reject(err);
+            }
+          ),
           repeat
         );
       })

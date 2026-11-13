@@ -12,6 +12,7 @@
 
 import { getCameraDeterminismHarness } from '../CameraDeterminismHarness.ts';
 import { resolveAssetPath } from '../../utils/AssetResponseValidator.ts';
+import { fetchWithTimeoutAndRetry } from '../../utils/resilientAssetLoad.ts';
 
 export const EXPECTED_CAMERA_WASM_HASH =
   'b8adc96e73372d0f53346499fb150b576fb08deb0494d8f7f7e989d9daea0854';
@@ -103,7 +104,7 @@ export class CameraMicrokernel {
         : resolveAssetPath('/assets/camera/camera.wasm');
 
       try {
-        const res = await fetch(wasmPath);
+        const res = await fetchWithTimeoutAndRetry(wasmPath, {}, { timeoutMs: 12000, retries: 2 });
         if (!res.ok) {
           throw createMicrokernelError(
             `[FATAL] POV Camera Microkernel hash mismatch or missing! Tampering detected. (HTTP ${res.status}: ${res.statusText})`

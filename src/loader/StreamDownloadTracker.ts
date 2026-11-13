@@ -64,91 +64,105 @@ export class StreamDownloadTracker {
       return cached;
     }
 
-    const controller =
-      !options.signal && typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timeoutId = controller ? setTimeout(() => controller.abort(), 30000) : null;
+    const maxAttempts = options.signal ? 1 : 3;
+    let lastErr: unknown = null;
 
-    try {
-      const res = await fetch(
-        url,
-        controller ? { ...options, signal: controller.signal } : options
-      );
-      if (!res.ok) {
-        throw new Error(`[StreamDownloadTracker] HTTP ${res.status} fetching "${url}"`);
-      }
-
-      const contentLength = res.headers.get('content-length');
-      const headerTotal = contentLength ? parseInt(contentLength, 10) : 0;
-      let trackedEntry = this.trackedFiles.get(url);
-
-      if (headerTotal > 0) {
-        const prevEst = trackedEntry?.total || 0;
-        this.totalBytes = this.totalBytes - prevEst + headerTotal;
-        trackedEntry = { loaded: trackedEntry?.loaded || 0, total: headerTotal };
-        this.trackedFiles.set(url, trackedEntry);
-      } else if (!trackedEntry) {
-        trackedEntry = { loaded: 0, total: 0 };
-        this.trackedFiles.set(url, trackedEntry);
-      }
-
-      // Fallback if ReadableStream is unavailable
-      if (!res.body || typeof res.body.getReader !== 'function') {
-        const buffer = await res.arrayBuffer();
-        const actualSize = buffer.byteLength;
-        if (!headerTotal) {
-          const prevEst = trackedEntry.total || 0;
-          this.totalBytes = this.totalBytes - prevEst + actualSize;
-        }
-        const delta = actualSize - trackedEntry.loaded;
-        trackedEntry.loaded = actualSize;
-        trackedEntry.total = actualSize;
-        this.loadedBytes += delta;
-        this.bufferCache.set(url, buffer);
-        this._notify(url, actualSize, actualSize);
-        return buffer;
-      }
-
-      const reader = res.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let received = 0;
-      const activeTotal = headerTotal || trackedEntry.total || 0;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const requestUrl =
+        attempt === 0
+          ? url
+          : `${url}${url.includes('?') ? '&' : '?'}__rc_retry=${attempt}_${Date.now()}`;
+      const controller =
+        !options.signal && typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = controller ? setTimeout(() => controller.abort(), 20000) : null;
 
       try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-          received += value.byteLength;
+        const res = await fetch(
+          requestUrl,
+          controller ? { ...options, signal: controller.signal } : options
+        );
+        if (!res.ok) {
+          throw new Error(`[StreamDownloadTracker] HTTP ${res.status} fetching "${url}"`);
+        }
 
-          const prevLoaded = trackedEntry.loaded || 0;
-          const delta = received - prevLoaded;
-          trackedEntry.loaded = received;
-          if (!headerTotal && received > trackedEntry.total) {
-            this.totalBytes += received - trackedEntry.total;
-            trackedEntry.total = received;
+        const contentLength = res.headers.get('content-length');
+        const headerTotal = contentLength ? parseInt(contentLength, 10) : 0;
+        let trackedEntry = this.trackedFiles.get(url);
+
+        if (headerTotal > 0) {
+          const prevEst = trackedEntry?.total || 0;
+          this.totalBytes = this.totalBytes - prevEst + headerTotal;
+          trackedEntry = { loaded: trackedEntry?.loaded || 0, total: headerTotal };
+          this.trackedFiles.set(url, trackedEntry);
+        } else if (!trackedEntry) {
+          trackedEntry = { loaded: 0, total: 0 };
+          this.trackedFiles.set(url, trackedEntry);
+        }
+
+        if (!res.body || typeof res.body.getReader !== 'function') {
+          const buffer = await res.arrayBuffer();
+          const actualSize = buffer.byteLength;
+          if (!headerTotal) {
+            const prevEst = trackedEntry.total || 0;
+            this.totalBytes = this.totalBytes - prevEst + actualSize;
           }
+          const delta = actualSize - trackedEntry.loaded;
+          trackedEntry.loaded = actualSize;
+          trackedEntry.total = actualSize;
           this.loadedBytes += delta;
+          this.bufferCache.set(url, buffer);
+          this._notify(url, actualSize, actualSize);
+          return buffer;
+        }
 
-          this._notify(url, received, activeTotal || trackedEntry.total);
+        const reader = res.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let received = 0;
+        const activeTotal = headerTotal || trackedEntry.total || 0;
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            received += value.byteLength;
+
+            const prevLoaded = trackedEntry.loaded || 0;
+            const delta = received - prevLoaded;
+            trackedEntry.loaded = received;
+            if (!headerTotal && received > trackedEntry.total) {
+              this.totalBytes += received - trackedEntry.total;
+              trackedEntry.total = received;
+            }
+            this.loadedBytes += delta;
+
+            this._notify(url, received, activeTotal || trackedEntry.total);
+          }
+        } finally {
+          reader.releaseLock();
+        }
+
+        const fullBuffer = new Uint8Array(received);
+        let offset = 0;
+        for (const chunk of chunks) {
+          fullBuffer.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+
+        const arrayBuffer = fullBuffer.buffer;
+        this.bufferCache.set(url, arrayBuffer);
+        return arrayBuffer;
+      } catch (err) {
+        lastErr = err;
+        if (attempt + 1 < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
         }
       } finally {
-        reader.releaseLock();
+        if (timeoutId) clearTimeout(timeoutId);
       }
-
-      // Concatenate chunks into contiguous ArrayBuffer
-      const fullBuffer = new Uint8Array(received);
-      let offset = 0;
-      for (const chunk of chunks) {
-        fullBuffer.set(chunk, offset);
-        offset += chunk.byteLength;
-      }
-
-      const arrayBuffer = fullBuffer.buffer;
-      this.bufferCache.set(url, arrayBuffer);
-      return arrayBuffer;
-    } finally {
-      if (timeoutId) clearTimeout(timeoutId);
     }
+
+    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
   }
 
   /**

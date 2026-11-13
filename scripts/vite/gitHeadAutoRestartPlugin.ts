@@ -21,26 +21,25 @@ export function rcGitHeadAutoRestartPlugin(): Plugin {
       const res = await fetch('/__rc_git_head', { cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
-      if (data && data.signature && bootSig && data.signature !== bootSig) {
+      if (data && data.ready !== false && data.signature && bootSig && data.signature !== bootSig) {
         reloading = true;
         window.location.reload();
       } else if (data && data.signature && !bootSig) {
         bootSig = data.signature;
       }
     } catch {
-      // Server is restarting; next poll will catch new signature
+      // Server is restarting; next poll or vite:ws:connect will catch new signature
     }
   };
   if (import.meta.hot) {
-    import.meta.hot.on('vite:ws:connect', checkGitHead);
+    import.meta.hot.on('vite:ws:connect', () => {
+      void checkGitHead();
+    });
     import.meta.hot.on('rc:git-head-changed', () => {
-      if (!reloading) {
-        reloading = true;
-        window.location.reload();
-      }
+      void checkGitHead();
     });
   }
-  setInterval(checkGitHead, 1500);
+  setInterval(checkGitHead, 1000);
 })();
 </script>`;
       return html.includes('</body>')
@@ -50,6 +49,7 @@ export function rcGitHeadAutoRestartPlugin(): Plugin {
     configureServer(server: ViteDevServer) {
       let baselineSignature = readCompositeGitHeadState().signature;
       let isRestarting = false;
+      let isReady = true;
       let settleTimer: ReturnType<typeof setTimeout> | null = null;
 
       server.middlewares.use('/__rc_git_head', (_req, res) => {
@@ -61,6 +61,7 @@ export function rcGitHeadAutoRestartPlugin(): Plugin {
           JSON.stringify({
             signature: current.signature ?? baselineSignature,
             locked: current.locked,
+            ready: isReady && !isRestarting,
           })
         );
       });
@@ -97,6 +98,7 @@ export function rcGitHeadAutoRestartPlugin(): Plugin {
               return;
             }
             isRestarting = true;
+            isReady = false;
             baselineSignature = settled.signature;
             cleanup();
             console.log(
@@ -104,19 +106,17 @@ export function rcGitHeadAutoRestartPlugin(): Plugin {
             );
             try {
               server.moduleGraph.invalidateAll();
+              await server.restart(false);
+              isReady = true;
               server.ws?.send?.({
                 type: 'custom',
                 event: 'rc:git-head-changed',
                 data: { signature: settled.signature },
               });
               server.ws?.send?.({ type: 'full-reload', path: '*' });
-              await server.restart(true);
-              server.ws?.send?.({ type: 'full-reload', path: '*' });
-              setTimeout(() => {
-                server.ws?.send?.({ type: 'full-reload', path: '*' });
-              }, 350);
             } catch (err) {
               isRestarting = false;
+              isReady = true;
               console.error('[rc-git-auto-restart] Failed to auto-restart Vite server:', err);
             }
           }, 120);

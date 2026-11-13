@@ -138,15 +138,29 @@ async function bootApplication(): Promise<void> {
       hint: 'Streaming and linking core runtime & 3D subsystems...',
     });
 
-    // Stagger engine and UI module trees so cold-start HTTP/2 stream breadth stays low
-    const { bootstrapEngine } = await importWithRetry(
-      () => import('./game/GameBootstrap.ts'),
-      './game/GameBootstrap.ts'
-    );
-    const { mountGameUI } = await importWithRetry(
-      () => import('./ui-system/index.tsx'),
-      './ui-system/index.tsx'
-    );
+    let completedModuleTrees = 0;
+    const onModuleTreeReady = (label: string) => {
+      completedModuleTrees++;
+      loader.onTaskProgress({
+        overallPercent: completedModuleTrees === 1 ? 5 : 8,
+        detail: `${label} ready (${completedModuleTrees}/2)...`,
+      });
+    };
+
+    const [{ bootstrapEngine }, { mountGameUI }] = await Promise.all([
+      importWithRetry(() => import('./game/GameBootstrap.ts'), './game/GameBootstrap.ts').then(
+        (mod) => {
+          onModuleTreeReady('Engine core runtime');
+          return mod;
+        }
+      ),
+      importWithRetry(() => import('./ui-system/index.tsx'), './ui-system/index.tsx').then(
+        (mod) => {
+          onModuleTreeReady('UI system');
+          return mod;
+        }
+      ),
+    ]);
 
     try {
       if (typeof sessionStorage !== 'undefined') {

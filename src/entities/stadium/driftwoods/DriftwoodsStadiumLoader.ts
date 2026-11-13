@@ -16,40 +16,14 @@ import {
 } from 'three';
 import { type GLTF, GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { resolveAssetPath } from '../../../utils/AssetResponseValidator.ts';
+import {
+  loadGltfWithTimeoutAndRetry,
+  loadTextureWithTimeoutAndRetry,
+} from '../../../utils/resilientAssetLoad.ts';
 import { prepareWoodsFieldHexRibbonAttributes } from './DriftwoodsHexGeometryProcessor.ts';
 
 export const DRIFTWOODS_GLB_URL = '/assets/arena/driftwoods.glb';
 export const DRIFTWOODS_Q1_GROUND_TEXTURE_URL = '/assets/arena/ground_q1_7gray_2048x3000.webp';
-
-function loadTextureWithTimeout(
-  texLoader: TextureLoader,
-  url: string,
-  timeoutMs = 8000
-): Promise<Texture> {
-  return new Promise<Texture>((resolve, reject) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      reject(new Error(`Texture load timed out after ${timeoutMs}ms: "${url}"`));
-    }, timeoutMs);
-
-    texLoader
-      .loadAsync(url)
-      .then((tex) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(tex);
-      })
-      .catch((err) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        reject(err);
-      });
-  });
-}
 
 /**
  * Loads the Q1 7-layer grayscale ground mask texture (2048x3000).
@@ -59,30 +33,25 @@ function loadTextureWithTimeout(
 export async function loadDriftwoodsQ1GroundTexture() {
   const texLoader = new TextureLoader();
   const baseUrl = resolveAssetPath(DRIFTWOODS_Q1_GROUND_TEXTURE_URL);
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const targetUrl =
-        attempt === 0
-          ? baseUrl
-          : `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}__rc_retry=${Date.now()}`;
-      const tex = await loadTextureWithTimeout(texLoader, targetUrl, 8000);
-      tex.name = 'Ground_Q1_7Gray_2048x3000';
-      tex.flipY = false;
-      tex.colorSpace = NoColorSpace;
-      tex.wrapS = MirroredRepeatWrapping;
-      tex.wrapT = MirroredRepeatWrapping;
-      tex.minFilter = LinearMipmapLinearFilter;
-      tex.magFilter = LinearFilter;
-      tex.generateMipmaps = true;
-      tex.needsUpdate = true;
-      return tex;
-    } catch (err) {
-      if (attempt === 1) {
-        console.warn(`[DriftwoodsStadiumLoader] Failed to load Q1 7-gray ground texture:`, err);
-      }
-    }
+  try {
+    const tex = await loadTextureWithTimeoutAndRetry(texLoader, baseUrl, {
+      timeoutMs: 8000,
+      retries: 1,
+    });
+    tex.name = 'Ground_Q1_7Gray_2048x3000';
+    tex.flipY = false;
+    tex.colorSpace = NoColorSpace;
+    tex.wrapS = MirroredRepeatWrapping;
+    tex.wrapT = MirroredRepeatWrapping;
+    tex.minFilter = LinearMipmapLinearFilter;
+    tex.magFilter = LinearFilter;
+    tex.generateMipmaps = true;
+    tex.needsUpdate = true;
+    return tex;
+  } catch (err) {
+    console.warn(`[DriftwoodsStadiumLoader] Failed to load Q1 7-gray ground texture:`, err);
+    return null;
   }
-  return null;
 }
 
 /**
@@ -97,7 +66,10 @@ export async function loadDriftwoodsStadium(): Promise<Group | null> {
 
   for (const path of candidatePaths) {
     try {
-      gltf = await loader.loadAsync(resolveAssetPath(path));
+      gltf = await loadGltfWithTimeoutAndRetry(loader, resolveAssetPath(path), {
+        timeoutMs: 20000,
+        retries: 2,
+      });
       if (gltf?.scene) break;
     } catch (err) {
       console.warn(
