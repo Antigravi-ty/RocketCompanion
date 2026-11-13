@@ -33,6 +33,7 @@ export interface ClientSessionCallbacks {
     pairingCode: string | null
   ) => Promise<void> | void;
   onDisconnected?: () => void;
+  onKicked?: (reason: string) => void;
   onIceCandidate?: (cand: RTCIceCandidateInit | Record<string, unknown>) => void;
 }
 
@@ -94,6 +95,13 @@ export class ClientSessionController {
 
     this.channel.onDisconnected = () => {
       this.callbacks.onDisconnected?.();
+    };
+
+    this.channel.onSessionKick = (reason) => {
+      console.warn('[ClientSessionController] Kicked from room:', reason);
+      this.callbacks.onKicked?.(reason);
+      this.callbacks.onDisconnected?.();
+      this.cleanup();
     };
 
     this.channel.onIceCandidate = (cand) => {
@@ -276,6 +284,16 @@ export class ClientSessionController {
         })
       );
     }
+  }
+
+  sendLeaveAndCleanup(reason = 'left_room'): void {
+    if (this.channel?.connected) {
+      this.channel.sendReliableControl(
+        { type: 'session_leave', reason, carIndex: this.channel.carIndex },
+        'session_leave'
+      );
+    }
+    this.cleanup();
   }
 
   cleanup(): void {

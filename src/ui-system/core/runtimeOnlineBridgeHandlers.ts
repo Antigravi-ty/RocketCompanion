@@ -1,5 +1,6 @@
 import { useAppStore } from '../../ui-core/stores/appStore.ts';
 import { hudStore } from '../../ui-core/stores/hudStore.ts';
+import { useSpectatorSyncStore } from '../../ui-core/stores/spectatorSyncStore.ts';
 import {
   clearOnlineRoomLaunchError,
   recordOnlineRoomLaunchError,
@@ -190,6 +191,7 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
         const appState = useAppStore.getState();
         appState.setMatchMode('freeplay');
         appState.setOnlineSession(IDLE_ONLINE_SESSION_PATCH);
+        useSpectatorSyncStore.getState().resetSpectatorSync();
       } catch (e) {
         console.error('[mountGameUI] Error stopping online server', e);
       }

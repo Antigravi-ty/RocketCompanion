@@ -157,6 +157,7 @@ class SandboxActivityKernel implements RoomActivityKernel {
 
 export function createDefaultActivityKernelRegistry(): Map<ActivityId, RoomActivityKernel> {
   const registry = new Map<ActivityId, RoomActivityKernel>();
+  registry.set(ACTIVITY_IDS.LOBBY, new FreeplayActivityKernel());
   registry.set(ACTIVITY_IDS.MATCH, new MatchActivityKernel());
   registry.set(ACTIVITY_IDS.FREEPLAY, new FreeplayActivityKernel());
   registry.set(ACTIVITY_IDS.REPLAY, new ReplayActivityKernel());

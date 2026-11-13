@@ -6,6 +6,8 @@ import {
   reachabilityStore,
   ballTrajectoryTunerStore,
   notifyNetworkTelemetryExportAvailable,
+  attachVoiceToPeerChannel,
+  detachVoiceFromPeer,
 } from '../runtimeUiPort.ts';
 import { BallTrajectoryPredictor } from '../../entities/BallTrajectoryPredictor.ts';
 import { bindBallTrajectoryAnomalyUiBridge } from '../../entities/trajectory/ballTrajectoryAnomalyUiBridge.ts';

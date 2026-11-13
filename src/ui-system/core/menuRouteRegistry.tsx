@@ -32,6 +32,7 @@ import { Layer4AdvancedAudioRecipe } from '../../ui-core/recipes/Layer4AdvancedA
 import { Layer4EventTriggerRulesRecipe } from '../../ui-core/recipes/Layer4EventTriggerRulesRecipe.tsx';
 import { Layer4StaticTrainingPackBrowseRecipe } from '../../ui-core/recipes/Layer4StaticTrainingPackBrowseRecipe.tsx';
 import { Layer4DevSignalingLabRecipe } from '../../ui-core/recipes/Layer4DevSignalingLabRecipe.tsx';
+import { Layer4DevVoiceConfiguratorRecipe } from '../../ui-core/recipes/Layer4DevVoiceConfiguratorRecipe.tsx';
 import {
   dispatchMainMenuTabAction,
   dispatchPlayMenuTabAction,
@@ -74,6 +75,7 @@ export const ROUTE_TO_PANEL_ID: Record<ActiveMenuRoute, MenuPanelId> = {
   'dev-remote-profile': 'layer3-dev-remote-profile',
   'dev-signaling-lab': 'layer4-dev-signaling-lab',
   'dev-tem-pack-converter': 'layer4-static-training-pack',
+  'dev-voice-configurator': 'layer4-dev-voice-configurator',
 };
 
 function createBackRouteRenderer(
@@ -169,6 +171,7 @@ export const MENU_ROUTE_RENDERERS: Record<
   'dev-under-development': createBackRouteRenderer(Layer3DevUnderDevelopmentRecipe),
   'dev-remote-profile': createBackRouteRenderer(Layer3DevRemoteProfileRecipe),
   'dev-signaling-lab': createBackRouteRenderer(Layer4DevSignalingLabRecipe),
+  'dev-voice-configurator': createBackRouteRenderer(Layer4DevVoiceConfiguratorRecipe),
   'exp-multi-bots': createExpConfigRouteRenderer(Layer3ExpMultiBotsRecipe),
   'exp-botpack-9700488': createExpConfigRouteRenderer(Layer3ExpBotPackRecipe),
   'training-config': createBackRouteRenderer(Layer3TrainingConfigRecipe),

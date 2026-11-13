@@ -26,7 +26,12 @@ import {
   isRustTunnelAvailable,
   probeRustUpnp,
 } from './tunnel/TunnelFactory.ts';
-import type { TunnelKind, TunnelTransport, UpnpProbeResult } from './tunnel/TunnelTransport.ts';
+import type {
+  TunnelEndpointDescriptor,
+  TunnelKind,
+  TunnelTransport,
+  UpnpProbeResult,
+} from './tunnel/TunnelTransport.ts';
 
 const DEFAULT_HOST_COLOR = Object.freeze({ slot: 3, hex: '#42a5f5' });
 const DEFAULT_CLIENT_COLOR = Object.freeze({ slot: 0, hex: '#ff7043' });
@@ -79,6 +84,8 @@ export class MultiplayerSessionManager {
   hostController: HostSessionController | null = null;
   readonly hostSignalingNegotiator = new HostSignalingNegotiationSubController();
   readonly clientJoinNegotiator = new ClientJoinNegotiationSubController();
+  activeTunnel: TunnelTransport | null = null;
+  localTunnelEndpoint: TunnelEndpointDescriptor | null = null;
 
   constructor(callbacks: MultiplayerSessionCallbacks = {}) {
     this.callbacks = callbacks;
@@ -339,14 +346,22 @@ export class MultiplayerSessionManager {
       this.hostController.cleanup();
       this.hostController = null;
     }
+    await this.closeActiveTunnel();
     clearActiveHostOffer();
     if (this.callbacks.onStopServer) await this.callbacks.onStopServer();
   }
 
   async leaveSession(): Promise<void> {
+    this.clientController?.sendLeaveAndCleanup?.('left_room');
     this.clientJoinNegotiator.cleanup();
     this.hostSignalingNegotiator.cleanup();
+    await this.closeActiveTunnel();
     if (this.callbacks.onLeaveServer) await this.callbacks.onLeaveServer();
+  }
+
+  kickPlayerByCarIndex(carIndex: number, reason = 'Removed by host'): boolean {
+    if (!this.isHosting || !this.hostController) return false;
+    return this.hostController.kickPeerByCarIndex(carIndex, reason);
   }
 
   getProtocolVersion(): string {
@@ -363,5 +378,63 @@ export class MultiplayerSessionManager {
 
   createSessionTunnel(sessionId?: string, webChannel?: P2PWebRTCChannel): TunnelTransport {
     return createTunnelTransport({ sessionId, webChannel });
+  }
+
+  async ensureSessionTunnelOpen(
+    sessionId: string,
+    role: 'host' | 'client',
+    webChannel?: P2PWebRTCChannel
+  ): Promise<TunnelEndpointDescriptor | null> {
+    if (!isRustTunnelAvailable()) return null;
+    if (this.activeTunnel?.isOpen && this.localTunnelEndpoint) {
+      return this.localTunnelEndpoint;
+    }
+    const tunnel = this.createSessionTunnel(sessionId, webChannel);
+    try {
+      const endpoint = await tunnel.open({
+        sessionId,
+        enableUpnp: true,
+        role,
+        roomId: this.roomId || this.joinRoomId || sessionId,
+        playerName: this.playerName,
+      });
+      this.activeTunnel = tunnel;
+      this.localTunnelEndpoint = endpoint;
+      this.updateSessionStatus({
+        tunnelKind: tunnel.kind,
+        tunnelBridgeMode: tunnel.getStats().bridgeMode ?? 'webtransport',
+        upnpMapped: endpoint.upnpMapped,
+      });
+      return endpoint;
+    } catch (err) {
+      console.warn('[MultiplayerSessionManager] Rust/WebTransport tunnel open failed:', err);
+      await tunnel.close().catch(() => {});
+      return null;
+    }
+  }
+
+  async connectPeerTunnel(
+    channel: P2PWebRTCChannel,
+    remotePeerId: string,
+    remoteEndpoint: TunnelEndpointDescriptor
+  ): Promise<boolean> {
+    if (!this.activeTunnel?.isOpen) return false;
+    try {
+      await this.activeTunnel.connectPeer(remotePeerId, remoteEndpoint);
+      channel.attachTunnelTransport(this.activeTunnel, remotePeerId);
+      return true;
+    } catch (err) {
+      console.warn('[MultiplayerSessionManager] Failed to connect peer tunnel:', remotePeerId, err);
+      return false;
+    }
+  }
+
+  async closeActiveTunnel(): Promise<void> {
+    if (this.activeTunnel) {
+      const t = this.activeTunnel;
+      this.activeTunnel = null;
+      this.localTunnelEndpoint = null;
+      await t.close().catch(() => {});
+    }
   }
 }

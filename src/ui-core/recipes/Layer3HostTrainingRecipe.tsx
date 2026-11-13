@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Ghost, Play } from 'lucide-react';
+import { Flame, Ghost, Mic, Play } from 'lucide-react';
 import type { StandardSurfaceProps, SurfaceMeta } from '../manifest/surfaceMetaTypes';
 import { PanelContainer, PanelHeader, PanelContent } from '../layout/Panel';
 import { PanelFooter } from '../layout/PanelFooter';
@@ -23,6 +23,7 @@ import {
   loadStoredPlayerName,
   saveStoredPlayerName,
 } from '../config/vehiclePresets';
+import type { VoiceChatMode } from '../config/voiceChatConfig';
 import { OnlineRoomIdentityFields } from './online/OnlineRoomIdentityFields';
 import {
   DEFAULT_HOST_CREATION_STEPS,
@@ -32,12 +33,16 @@ import {
 import { useOnlineRoomProgressController } from './online/useOnlineRoomProgressController';
 
 export type HostTrainingGhostMode = 'automatically-enable' | 'manual';
+export type HostTrainingBoostPolicy = 'limited' | 'limit_when_aerial' | 'unlimited' | 'custom';
 
 export interface HostTrainingConfig {
   playerName: string;
   roomCode: string;
   roomKey: string;
   ghostMode: HostTrainingGhostMode;
+  boostPolicy?: HostTrainingBoostPolicy;
+  perPlayerBoost?: Record<string, Exclude<HostTrainingBoostPolicy, 'custom'>>;
+  voiceChatMode?: VoiceChatMode;
 }
 
 export interface Layer3HostTrainingStateOverride {
@@ -181,6 +186,15 @@ export const Layer3HostTrainingRecipe: React.FC<Layer3HostTrainingRecipeProps> =
     resolvedDefaultConfig?.roomKey ?? onlineSession?.password ?? ''
   );
   const [ghostMode, setGhostMode] = useState<HostTrainingGhostMode>(resolvedDefaultGhostMode);
+  const [boostPolicy, setBoostPolicy] = useState<HostTrainingBoostPolicy>(
+    resolvedDefaultConfig?.boostPolicy ?? 'limit_when_aerial'
+  );
+  const [customHostBoost, setCustomHostBoost] = useState<Exclude<HostTrainingBoostPolicy, 'custom'>>(
+    resolvedDefaultConfig?.perPlayerBoost?.host ?? 'limit_when_aerial'
+  );
+  const [voiceChatMode, setVoiceChatMode] = useState<VoiceChatMode>(
+    resolvedDefaultConfig?.voiceChatMode ?? 'open'
+  );
   useEffect(() => {
     setGhostMode(resolvedDefaultGhostMode);
   }, [resolvedDefaultGhostMode]);
@@ -238,11 +252,15 @@ export const Layer3HostTrainingRecipe: React.FC<Layer3HostTrainingRecipeProps> =
 
     const cleanName = playerName.trim() || generateDefaultPlayerName();
     saveStoredPlayerName(cleanName);
+    const perPlayerBoost = boostPolicy === 'custom' ? { host: customHostBoost } : undefined;
     const finalConfig: HostTrainingConfig = {
       playerName: cleanName,
       roomCode: cleanCode,
       roomKey,
       ghostMode,
+      boostPolicy,
+      perPlayerBoost,
+      voiceChatMode,
     };
 
     const sessionPatch = {
@@ -269,6 +287,9 @@ export const Layer3HostTrainingRecipe: React.FC<Layer3HostTrainingRecipeProps> =
               durationSeconds: 0,
               lobbyMode: false,
               ghostMode,
+              boostPolicy,
+              perPlayerBoost,
+              voiceChatMode,
             });
           }
         : undefined;
@@ -333,6 +354,71 @@ export const Layer3HostTrainingRecipe: React.FC<Layer3HostTrainingRecipeProps> =
               { label: 'Manual', value: 'manual' },
             ]}
             hoverDescription="Ghost Mode: Choose Automatically Enable to phase car collisions automatically, or Manual so clients can toggle Ghost Mode individually."
+            onHover={(desc) => desc && setHoveredDesc(desc)}
+            onLeave={() => setHoveredDesc(null)}
+            isLight={isLight}
+          />
+
+          <SettingSegmentedRow
+            icon={Flame}
+            iconColor="text-amber-400"
+            title="Boost Policy"
+            value={boostPolicy}
+            onChange={(v) => setBoostPolicy(v as HostTrainingBoostPolicy)}
+            layout="inline"
+            bordered={false}
+            showDescription={false}
+            options={[
+              { label: 'Limited', value: 'limited' },
+              { label: 'Limit When Aerial', value: 'limit_when_aerial' },
+              { label: 'Unlimited', value: 'unlimited' },
+              { label: 'Custom', value: 'custom' },
+            ]}
+            hoverDescription="Boost Policy: Limit When Aerial preserves boost on ground (replenishable via pads) and drains only while airborne."
+            onHover={(desc) => desc && setHoveredDesc(desc)}
+            onLeave={() => setHoveredDesc(null)}
+            isLight={isLight}
+          />
+
+          {boostPolicy === 'custom' && (
+            <SettingSegmentedRow
+              icon={Flame}
+              iconColor="text-orange-400"
+              title="Per-Player Boost (Host)"
+              value={customHostBoost}
+              onChange={(v) =>
+                setCustomHostBoost(v as Exclude<HostTrainingBoostPolicy, 'custom'>)
+              }
+              layout="inline"
+              bordered={false}
+              showDescription={false}
+              options={[
+                { label: 'Limited', value: 'limited' },
+                { label: 'Limit When Aerial', value: 'limit_when_aerial' },
+                { label: 'Unlimited', value: 'unlimited' },
+              ]}
+              hoverDescription="Per-Player Boost Override: Configure individual boost rules when Boost Policy is set to Custom."
+              onHover={(desc) => desc && setHoveredDesc(desc)}
+              onLeave={() => setHoveredDesc(null)}
+              isLight={isLight}
+            />
+          )}
+
+          <SettingSegmentedRow
+            icon={Mic}
+            iconColor="text-cyan-400"
+            title="Voice Chat Mode"
+            value={voiceChatMode}
+            onChange={(v) => setVoiceChatMode(v as VoiceChatMode)}
+            layout="inline"
+            bordered={false}
+            showDescription={false}
+            options={[
+              { label: 'Open', value: 'open' },
+              { label: 'Team Only', value: 'team_only' },
+              { label: 'Off', value: 'off' },
+            ]}
+            hoverDescription="Voice Chat Mode: Open allows all players; Team Only gates by team after leaving Lobby; Off disables room voice."
             onHover={(desc) => desc && setHoveredDesc(desc)}
             onLeave={() => setHoveredDesc(null)}
             isLight={isLight}

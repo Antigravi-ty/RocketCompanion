@@ -12,13 +12,47 @@ export const REPLICATION_MODES = Object.freeze({
 export type ReplicationMode = (typeof REPLICATION_MODES)[keyof typeof REPLICATION_MODES];
 
 export const ACTIVITY_IDS = Object.freeze({
+  LOBBY: 'lobby',
   MATCH: 'match',
   FREEPLAY: 'freeplay',
+  MULTIPLAYER_TRAINING: 'multiplayer_training',
   REPLAY: 'replay',
   SANDBOX: 'sandbox',
 } as const);
 
 export type ActivityId = (typeof ACTIVITY_IDS)[keyof typeof ACTIVITY_IDS] | string;
+
+export type MultiplayerTrainingBoostPolicy =
+  | 'limited'
+  | 'limit_when_aerial'
+  | 'unlimited'
+  | 'custom';
+
+export interface MultiplayerTrainingConfig {
+  boostPolicy: MultiplayerTrainingBoostPolicy;
+  perPlayerBoost?: Record<string, MultiplayerTrainingBoostPolicy>;
+  ghostModeEnabled: boolean;
+  hideScoreboard: boolean;
+  goalReplayEnabled: boolean;
+}
+
+export type SpectatorSyncMode = 'gameplay_only' | 'mirror_host_ui';
+export type TelestratorPermission = 'host_only' | 'all_peers';
+
+export interface FloatingWindowSyncEntry {
+  id: string;
+  isOpen: boolean;
+  isMinimized: boolean;
+}
+
+export interface GlobalUiStateBroadcast {
+  epoch: number;
+  activeMenuRoute: string;
+  floatingWindows: FloatingWindowSyncEntry[];
+  paused: boolean;
+  pausedAtTick: number;
+  telestratorPermission: TelestratorPermission;
+}
 
 export const REPLICATION_PACKET_FLAGS = Object.freeze({
   STATE_SNAPSHOT: 1 << 0,
@@ -32,12 +66,18 @@ export const REPLICATION_PACKET_FLAGS = Object.freeze({
 });
 
 export const ACTIVITY_DEFAULT_PACKET_FLAGS: Readonly<Record<string, number>> = Object.freeze({
+  [ACTIVITY_IDS.LOBBY]:
+    REPLICATION_PACKET_FLAGS.STATE_SNAPSHOT | REPLICATION_PACKET_FLAGS.USER_INPUT,
   [ACTIVITY_IDS.MATCH]:
     REPLICATION_PACKET_FLAGS.STATE_SNAPSHOT |
     REPLICATION_PACKET_FLAGS.USER_INPUT |
     REPLICATION_PACKET_FLAGS.CLOCK_AND_SCORE,
   [ACTIVITY_IDS.FREEPLAY]:
     REPLICATION_PACKET_FLAGS.STATE_SNAPSHOT | REPLICATION_PACKET_FLAGS.USER_INPUT,
+  [ACTIVITY_IDS.MULTIPLAYER_TRAINING]:
+    REPLICATION_PACKET_FLAGS.STATE_SNAPSHOT |
+    REPLICATION_PACKET_FLAGS.USER_INPUT |
+    REPLICATION_PACKET_FLAGS.CSR_SUMMARY,
   [ACTIVITY_IDS.REPLAY]:
     REPLICATION_PACKET_FLAGS.STATE_SNAPSHOT |
     REPLICATION_PACKET_FLAGS.TELESTRATOR_SYNC |
@@ -71,7 +111,9 @@ export interface CsrStateBroadcastPayload {
   activityId: ActivityId;
   tick: number;
   followHostEnabled: boolean;
+  spectatorSyncMode?: SpectatorSyncMode;
   cameraMode?: string;
+  globalUiState?: GlobalUiStateBroadcast;
   uiSummary?: Record<string, unknown>;
 }
 

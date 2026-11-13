@@ -17,11 +17,13 @@ import {
 } from '../protocol/ReplicationBusProtocol.ts';
 import { SyncAuthorityRouter } from '../sync/SyncAuthorityRouter.ts';
 import { ReplicationStateInterpolator } from '../sync/ReplicationStateInterpolator.ts';
+import { SpectatorGlobalStateCoordinator } from '../sync/SpectatorGlobalStateCoordinator.ts';
 import {
   createDefaultActivityKernelRegistry,
   type ActivityKernelContext,
   type RoomActivityKernel,
 } from './activities/ActivityKernel.ts';
+import { MultiplayerTrainingActivityKernel } from './activities/MultiplayerTrainingKernel.ts';
 
 export class RoomActivityOrchestrator {
   private readonly kernels: Map<ActivityId, RoomActivityKernel>;
@@ -32,9 +34,11 @@ export class RoomActivityOrchestrator {
   private readonly pausedAckSessions = new Set<string>();
   readonly authorityRouter = new SyncAuthorityRouter();
   readonly interpolator = new ReplicationStateInterpolator();
+  readonly spectatorCoordinator = new SpectatorGlobalStateCoordinator();
 
   constructor(initialActivityId: ActivityId = ACTIVITY_IDS.FREEPLAY) {
     this.kernels = createDefaultActivityKernelRegistry();
+    this.kernels.set(ACTIVITY_IDS.MULTIPLAYER_TRAINING, new MultiplayerTrainingActivityKernel());
     this.activeKernel =
       this.kernels.get(initialActivityId) ?? this.kernels.get(ACTIVITY_IDS.FREEPLAY)!;
     this.replicationMode = this.activeKernel.defaultReplicationMode;
@@ -129,10 +133,26 @@ export class RoomActivityOrchestrator {
     return true;
   }
 
+  getActiveKernel(): RoomActivityKernel {
+    return this.activeKernel;
+  }
+
+  handleControlMessage(
+    ctx: ActivityKernelContext,
+    type: string,
+    payload: Record<string, unknown>
+  ): boolean {
+    if (this.activeKernel.onControlMessage) {
+      return this.activeKernel.onControlMessage({ ...ctx, epoch: this.epoch }, type, payload);
+    }
+    return false;
+  }
+
   buildCsrBroadcast(
     ctx: ActivityKernelContext,
     followHostEnabled: boolean,
-    cameraMode?: string
+    cameraMode?: string,
+    extra?: Pick<CsrStateBroadcastPayload, 'spectatorSyncMode' | 'globalUiState'>
   ): CsrStateBroadcastPayload {
     this.authorityRouter.setFollowHostEnabled(followHostEnabled);
     const payload: CsrStateBroadcastPayload = {
@@ -140,7 +160,9 @@ export class RoomActivityOrchestrator {
       activityId: this.activeKernel.id,
       tick: ctx.matchManager?.domain.matchTick ?? 0,
       followHostEnabled,
+      spectatorSyncMode: extra?.spectatorSyncMode,
       cameraMode,
+      globalUiState: extra?.globalUiState,
       uiSummary: this.activeKernel.getStateSummary(ctx),
     };
     this.authorityRouter.applyCsrBroadcast(payload);

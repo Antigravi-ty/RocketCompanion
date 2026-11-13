@@ -45,6 +45,9 @@ export type InboundControlFrame =
   | { readonly kind: 'replication_mode_set'; readonly raw: Record<string, unknown> }
   | { readonly kind: 'state_paused_ack'; readonly raw: Record<string, unknown> }
   | { readonly kind: 'room_csr_state_broadcast'; readonly raw: Record<string, unknown> }
+  | { readonly kind: 'voice_signal'; readonly signal: Record<string, unknown> }
+  | { readonly kind: 'session_kick'; readonly reason: string; readonly carIndex?: number }
+  | { readonly kind: 'session_leave'; readonly reason: string; readonly carIndex?: number }
   | { readonly kind: 'ping'; readonly sendTime: number; readonly rtt: number | null }
   | { readonly kind: 'pong'; readonly sendTime: number };
 
@@ -63,6 +66,9 @@ export type DataChannelTransportEvent =
   | { readonly type: 'replication_mode_set'; readonly payload: Record<string, unknown> }
   | { readonly type: 'state_paused_ack'; readonly payload: Record<string, unknown> }
   | { readonly type: 'room_csr_state_broadcast'; readonly payload: Record<string, unknown> }
+  | { readonly type: 'voice_signal'; readonly signal: Record<string, unknown> }
+  | { readonly type: 'session_kick'; readonly reason: string; readonly carIndex?: number }
+  | { readonly type: 'session_leave'; readonly reason: string; readonly carIndex?: number }
   | { readonly type: 'packet'; readonly payload: SimulatedPayload };
 
 export function parseInboundControlFrame(raw: string): InboundControlFrame | null {
@@ -88,6 +94,26 @@ export function parseInboundControlFrame(raw: string): InboundControlFrame | nul
     }
     if (msg.type === 'state_paused_ack') {
       return { kind: 'state_paused_ack', raw: msg };
+    }
+    if (msg.type === 'voice_signal' && typeof msg.signal === 'object' && msg.signal !== null) {
+      return {
+        kind: 'voice_signal',
+        signal: msg.signal as Record<string, unknown>,
+      };
+    }
+    if (msg.type === 'session_kick') {
+      return {
+        kind: 'session_kick',
+        reason: typeof msg.reason === 'string' ? msg.reason : 'Removed by host',
+        carIndex: typeof msg.carIndex === 'number' ? msg.carIndex : undefined,
+      };
+    }
+    if (msg.type === 'session_leave') {
+      return {
+        kind: 'session_leave',
+        reason: typeof msg.reason === 'string' ? msg.reason : 'left_room',
+        carIndex: typeof msg.carIndex === 'number' ? msg.carIndex : undefined,
+      };
     }
     if (msg.type === 'room_csr_state_broadcast') {
       return { kind: 'room_csr_state_broadcast', raw: msg };

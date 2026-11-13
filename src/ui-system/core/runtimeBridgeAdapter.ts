@@ -24,6 +24,7 @@ import { useGoalBarrierStore } from '../../ui-core/stores/goalBarrierStore.ts';
 import { buildGoalBarrierCmfChunks } from '../../ui-core/config/goalBarrierConfig.ts';
 import { syncRuntimeNetworkDiagnostics } from './runtimeNetworkDiagnosticsBridge.ts';
 import { bindDynamicTrainingBridge } from './runtimeDynamicTrainingBridge.ts';
+import { ensureVoiceRuntimeBridge } from './runtimeVoiceBridge.ts';
 import type {
   GameRuntimeUiBridgePort,
   GoalBarrierDecompositionPort,
@@ -138,6 +139,7 @@ export function attachGameRuntimeBridge(
   floatingFlagsUnsubscribe = floatingStore.subscribe(syncFloatingWindowFlags);
 
   perfTelemetryStore.setSampler(tunerPort.createPerfTelemetrySampler());
+  ensureVoiceRuntimeBridge();
 
   const appState = useAppStore.getState();
   matchPort.syncInitialClockPacing({

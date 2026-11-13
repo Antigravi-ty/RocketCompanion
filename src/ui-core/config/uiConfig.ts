@@ -46,7 +46,8 @@ export type ActiveMenuRoute =
   | 'dev-under-development'
   | 'dev-remote-profile'
   | 'dev-signaling-lab'
-  | 'dev-tem-pack-converter';
+  | 'dev-tem-pack-converter'
+  | 'dev-voice-configurator';
 
 export const ROUTE_PARENT_MAP: Record<ActiveMenuRoute, ActiveMenuRoute | null> = {
   'main-menu': null,
@@ -81,6 +82,7 @@ export const ROUTE_PARENT_MAP: Record<ActiveMenuRoute, ActiveMenuRoute | null> =
   'dev-under-development': 'settings',
   'dev-remote-profile': 'settings',
   'dev-signaling-lab': 'dev-self-test',
+  'dev-voice-configurator': 'dev-under-development',
 };
 
 export type ContainerTransitionMode = 'fluid-morph' | 'sequenced-step';

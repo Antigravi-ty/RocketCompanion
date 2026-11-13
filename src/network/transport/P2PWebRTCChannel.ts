@@ -15,6 +15,7 @@ import { WebRTCConnection } from './webrtc/WebRTCConnection.ts';
 import type { IceCandidateDescriptor } from './webrtc/SdpUtils.ts';
 import { HandshakeSession, type HandshakeMetadataState } from './webrtc/HandshakeSession.ts';
 import { DataChannelTransport } from './webrtc/DataChannelTransport.ts';
+import type { TunnelTransport } from './tunnel/TunnelTransport.ts';
 
 export interface P2PWebRTCChannelOptions extends NetworkSimulatorOptions {
   role?: string;
@@ -30,6 +31,8 @@ export type ChannelHook<T extends unknown[] = []> = ((...args: T) => void) | nul
 export class P2PWebRTCChannel implements HandshakeMetadataState {
   role: string;
   peerId: string | null = null;
+  playerId: string | null = null;
+  isRegisteredPlayerId = false;
   peerRole?: string;
   carIndex?: number;
   pairingCode: string | null = null;
@@ -70,14 +73,33 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   onMessage: ChannelHook<[SimulatedPayload]> = null;
   onColorChange: ChannelHook<[Record<string, unknown>]> = null;
   onDiagnosticFleetToggle: ChannelHook<[boolean, string]> = null;
+  onSessionKick: ChannelHook<[string]> = null;
+  onSessionLeave: ChannelHook<[string]> = null;
+  private _onVoiceSignal: ChannelHook<[Record<string, unknown>]> = null;
+  private readonly pendingVoiceSignals: Record<string, unknown>[] = [];
   onBroadcastSignal: ChannelHook<[Record<string, unknown>]> = null;
   onIceCandidate: ChannelHook<[IceCandidateDescriptor]> = null;
+
+  get onVoiceSignal(): ChannelHook<[Record<string, unknown>]> {
+    return this._onVoiceSignal;
+  }
+
+  set onVoiceSignal(listener: ChannelHook<[Record<string, unknown>]>) {
+    this._onVoiceSignal = listener;
+    if (listener && this.pendingVoiceSignals.length > 0) {
+      const queued = this.pendingVoiceSignals.splice(0, this.pendingVoiceSignals.length);
+      for (const signal of queued) {
+        listener(signal);
+      }
+    }
+  }
 
   readonly send: DataChannelTransport['send'];
   readonly sendClientInput: DataChannelTransport['sendClientInput'];
   readonly sendServerState: DataChannelTransport['send'];
   readonly sendColorChange: DataChannelTransport['sendColorChange'];
   readonly sendDiagnosticFleetToggle: DataChannelTransport['sendDiagnosticFleetToggle'];
+  readonly sendVoiceSignal: DataChannelTransport['sendVoiceSignal'];
   readonly sendReliableControl: DataChannelTransport['sendReliableControl'];
   readonly sendRoomActivitySwitch: DataChannelTransport['sendRoomActivitySwitch'];
   readonly sendStatePausedAck: DataChannelTransport['sendStatePausedAck'];
@@ -163,6 +185,12 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
       deliverDiagnosticFleetToggle: (enabled, anchorMode) => {
         if (this.onDiagnosticFleetToggle) this.onDiagnosticFleetToggle(enabled, anchorMode);
       },
+      onSessionKick: (reason) => {
+        if (this.onSessionKick) this.onSessionKick(reason);
+      },
+      onSessionLeave: (reason) => {
+        if (this.onSessionLeave) this.onSessionLeave(reason);
+      },
       deliverPacket: (delivered) => {
         if (this.onPacketReceived) this.onPacketReceived(delivered);
         if (this.onMessage) this.onMessage(delivered);
@@ -206,6 +234,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
     this.sendServerState = this.transport.send.bind(this.transport);
     this.sendColorChange = this.transport.sendColorChange.bind(this.transport);
     this.sendDiagnosticFleetToggle = this.transport.sendDiagnosticFleetToggle.bind(this.transport);
+    this.sendVoiceSignal = this.transport.sendVoiceSignal.bind(this.transport);
     this.sendReliableControl = this.transport.sendReliableControl.bind(this.transport);
     this.sendRoomActivitySwitch = this.transport.sendRoomActivitySwitch.bind(this.transport);
     this.sendStatePausedAck = this.transport.sendStatePausedAck.bind(this.transport);
@@ -244,7 +273,21 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   }
 
   get connected(): boolean {
-    return Boolean(this.isOpen || (this.dataChannel && this.dataChannel.readyState === 'open'));
+    return Boolean(
+      this.isOpen ||
+        this.transport.hasActiveTunnel() ||
+        (this.dataChannel && this.dataChannel.readyState === 'open')
+    );
+  }
+
+  attachTunnelTransport(tunnel: TunnelTransport, remotePeerId: string): void {
+    this.transport.attachTunnelBridge(tunnel, remotePeerId);
+    this.isOpen = true;
+    this.transportMode = tunnel.kind;
+  }
+
+  detachTunnelTransport(): void {
+    this.transport.detachTunnelBridge();
   }
   get rttMs(): number {
     return this.simulator.rttMs;
@@ -288,7 +331,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   }
 
   private handleWebRtcFailureDisconnect(): void {
-    if (this.isCrossTab) return;
+    if (this.isCrossTab || this.transport.hasActiveTunnel()) return;
     const wasOpen = this.isOpen;
     this.isOpen = false;
     if (wasOpen && this.onDisconnected) this.onDisconnected();
@@ -309,6 +352,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
 
   destroy(): void {
     this.reset();
+    this.transport.detachTunnelBridge();
     if (this.dataChannel) {
       try {
         this.dataChannel.close();

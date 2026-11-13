@@ -348,6 +348,8 @@ export class OnlineRemotePeerVehicleSynchronizer {
     const { session, world } = this.host;
     if (carIndex === world.playerCarIndex) return;
 
+    world.multiplayerSession?.kickPlayerByCarIndex?.(carIndex, 'Removed by host');
+
     for (const [k, v] of session.remotePeerCarMap.entries()) {
       if (v === carIndex) session.remotePeerCarMap.delete(k);
     }

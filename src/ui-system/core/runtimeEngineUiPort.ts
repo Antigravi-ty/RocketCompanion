@@ -62,6 +62,12 @@ import {
   registerReplayDirectorDiagnosticExporter,
   registerReplayDirectorPreviewHandlers,
 } from '../../ui-core/stores/replayDirectorStore.ts';
+import {
+  attachVoiceToPeerChannel,
+  detachVoiceFromPeer,
+  setVoicePeerTeam,
+  syncVoiceRoomContext,
+} from './runtimeVoiceBridge.ts';
 
 let initialized = false;
 

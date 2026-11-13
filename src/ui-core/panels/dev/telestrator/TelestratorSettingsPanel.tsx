@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Bug, Check, Copy } from 'lucide-react';
 import {
   useTelestratorStore,
-} from '../../stores/telestratorStore';
+} from '../../../stores/telestratorStore';
 
 export interface TelestratorSettingsPanelProps {
   isLight: boolean;

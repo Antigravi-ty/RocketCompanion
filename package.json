@@ -30,6 +30,7 @@
     "extract:golden": "node scripts/extractGoldenBaseline65f1538d.mjs",
     "test:baseline": "node scripts/runScenarioBaseline.mjs",
     "test:soak": "node scripts/runSoakWatchdog.mjs",
+    "test:matrix": "node --experimental-strip-types scripts/runMultiplayerTestMatrix.ts",
     "repro:multiplayer-room": "node scripts/runMultiplayerRoomRepro.mjs"
   },
   "dependencies": {

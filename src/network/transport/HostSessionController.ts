@@ -144,6 +144,16 @@ export class HostSessionController {
       this.callbacks.onPeerDisconnected?.(peerId, ch);
     };
 
+    ch.onSessionLeave = () => {
+      this.peerChannels.delete(peerId);
+      this.peerRoles.delete(peerId);
+      this.peerReadyStates.delete(peerId);
+      this.peerPairingCodes.delete(peerId);
+      this.daisyChainCoordinator.unregisterNode(peerId);
+      this.callbacks.onPeerDisconnected?.(peerId, ch);
+      ch.destroy();
+    };
+
     ch.onColorChange = (msg: { carIndex?: number; slotId: number | null; hex: string | null }) => {
       const cIdx = msg.carIndex ?? ch.carIndex ?? 1;
       if (msg.slotId !== undefined) {
@@ -160,6 +170,22 @@ export class HostSessionController {
     };
 
     return ch;
+  }
+
+  kickPeerByCarIndex(carIndex: number, reason = 'Removed by host'): boolean {
+    for (const [peerId, ch] of this.peerChannels.entries()) {
+      if (ch.carIndex === carIndex) {
+        ch.sendReliableControl({ type: 'session_kick', carIndex, reason }, 'session_kick');
+        this.peerChannels.delete(peerId);
+        this.peerRoles.delete(peerId);
+        this.peerReadyStates.delete(peerId);
+        this.peerPairingCodes.delete(peerId);
+        this.daisyChainCoordinator.unregisterNode(peerId);
+        setTimeout(() => ch.destroy(), 30);
+        return true;
+      }
+    }
+    return false;
   }
 
   getInputChannelCount(): number {

@@ -23,7 +23,7 @@ import {
   canLocalDrawInTelestrator,
   useTelestratorStore,
 } from '../../stores/telestratorStore';
-import { TelestratorSettingsPanel } from './TelestratorSettingsPanel';
+import { TelestratorSettingsPanel } from './telestrator/TelestratorSettingsPanel';
 
 export const SURFACE_META: SurfaceMeta = {
   id: 'telestrator-toolbar',

@@ -313,3 +313,20 @@ export function dismissOngoingNotification(id: string): unknown {
 export function completeOngoingNotification(...args: unknown[]): unknown {
   return _handlers.completeOngoingNotification?.(...args);
 }
+export function attachVoiceToPeerChannel(
+  channel: unknown,
+  peerId: string,
+  peerName: string,
+  peerTeam: 'blue' | 'orange' | null = null
+): void {
+  _handlers.attachVoiceToPeerChannel?.(channel, peerId, peerName, peerTeam);
+}
+export function detachVoiceFromPeer(peerId: string): void {
+  _handlers.detachVoiceFromPeer?.(peerId);
+}
+export function syncVoiceRoomContext(context: Record<string, unknown>): void {
+  _handlers.syncVoiceRoomContext?.(context);
+}
+export function setVoicePeerTeam(peerId: string, team: 'blue' | 'orange' | null): void {
+  _handlers.setVoicePeerTeam?.(peerId, team);
+}
