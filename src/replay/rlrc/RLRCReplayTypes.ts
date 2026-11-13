@@ -254,6 +254,8 @@ export interface RLRCInterveneLaunchConfig {
   readonly playerColorHex?: string;
   readonly downCounterSeconds: 0 | 1 | 2 | 3;
   readonly nonPovMode: RLRCNonPovInterventionMode;
+  readonly perSlotModes?: Readonly<Record<number, RLRCNonPovInterventionMode>>;
+  readonly perSlotModelIds?: Readonly<Record<number, string>>;
   readonly prerollHistoryFrames: number;
 }
 

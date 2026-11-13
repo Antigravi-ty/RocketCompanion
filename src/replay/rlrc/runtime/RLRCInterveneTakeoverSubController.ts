@@ -184,7 +184,10 @@ export class RLRCInterveneTakeoverSubController {
       this.prerollInjection?.baseTick ?? 1,
       this.prerollInjection?.latestTouchTick ?? 1
     );
-    if (this.nonPovMode === 'bot-takeover') this.env.getBotPort?.()?.resetAllBots?.();
+    const hasAnyBotTakeover =
+      this.nonPovMode === 'bot-takeover' ||
+      Object.values(this.lastLaunchConfig.perSlotModes ?? {}).includes('bot-takeover');
+    if (hasAnyBotTakeover) this.env.getBotPort?.()?.resetAllBots?.();
 
     this.env.playSound?.('match_start_go', 1.0, 150);
     this.env.emitSystemSignal?.(
@@ -212,6 +215,8 @@ export class RLRCInterveneTakeoverSubController {
       followIdx: this.targetFrame120Hz + this.postTakeoverFrameOffset,
       povSlotIndex: this._povSlot,
       nonPovMode: this.nonPovMode,
+      perSlotModes: this.lastLaunchConfig?.perSlotModes,
+      perSlotModelIds: this.lastLaunchConfig?.perSlotModelIds,
       playerControls,
       dt,
       slotActiveTracker: this.slotActive,
@@ -235,6 +240,7 @@ export class RLRCInterveneTakeoverSubController {
       followIdx,
       povSlotIndex: this._povSlot,
       nonPovMode: this.nonPovMode,
+      perSlotModes: this.lastLaunchConfig?.perSlotModes,
       recordedTick,
       recordToRingBuffer,
       slotActiveTracker: this.slotActive,

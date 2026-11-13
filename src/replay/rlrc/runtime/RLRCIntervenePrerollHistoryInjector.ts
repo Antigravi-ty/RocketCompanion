@@ -30,6 +30,7 @@ import {
 } from '../RLRCReplayTypes.ts';
 import {
   DEFAULT_NEUTRAL_CAR_CONTROLS,
+  findCarBySlot,
   packRLRCFrameToGameStateBuffer,
   resolveCurrentUserInterveneLoadout,
   type RLRCGoalAndTouchTrackerPort,
@@ -71,9 +72,11 @@ export function resolveValidIntervenePovSlotIndex(
   preferredSlot: number
 ): number {
   const clamped = Math.max(0, Math.min(RLRC_MAX_PLAYER_SLOTS - 1, Math.round(preferredSlot)));
-  if (frame.cars[clamped]?.entityActive) return clamped;
+  const preferred = findCarBySlot(frame.cars, clamped);
+  if (preferred?.entityActive) return preferred.slotIndex;
   for (let i = 0; i < frame.cars.length; i++) {
-    if (frame.cars[i]?.entityActive) return i;
+    const car = frame.cars[i];
+    if (car?.entityActive) return car.slotIndex;
   }
   return roster[0]?.slotIndex ?? clamped;
 }
@@ -180,7 +183,7 @@ export function buildFrameAcknowledgedControls(
 ): ReplayAcknowledgedControlEntry[] {
   const entries: ReplayAcknowledgedControlEntry[] = [];
   for (let slot = 0; slot < RLRC_MAX_PLAYER_SLOTS; slot++) {
-    const car = frame.cars[slot];
+    const car = findCarBySlot(frame.cars, slot);
     const useNeutral =
       !car ||
       !car.entityActive ||
@@ -236,14 +239,14 @@ export function detectBallTouchIncidentBetweenFrames(
   const bPos = currFrame.ball.rigidBody.position;
   let bestSlot = -1;
   let bestDistSq = 285 * 285;
-  for (let slot = 0; slot < currFrame.cars.length; slot++) {
-    const car = currFrame.cars[slot];
+  for (let i = 0; i < currFrame.cars.length; i++) {
+    const car = currFrame.cars[i];
     if (!car || !car.entityActive) continue;
     const cPos = car.rigidBody.position;
     const dSq = (cPos.x - bPos.x) ** 2 + (cPos.y - bPos.y) ** 2 + (cPos.z - bPos.z) ** 2;
     if (dSq < bestDistSq) {
       bestDistSq = dSq;
-      bestSlot = slot;
+      bestSlot = car.slotIndex;
     }
   }
   if (bestSlot < 0) return null;

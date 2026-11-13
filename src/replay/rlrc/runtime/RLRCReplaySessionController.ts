@@ -10,6 +10,8 @@ import {
   type RLRCConvertedReplaySession,
 } from '../RLReplayToRLRCConverter.ts';
 import { RLRC_FIXED_DT, type RLRCPlayerSlotMeta } from '../RLRCReplayTypes.ts';
+import { extractDynamicSessionFromRLRCFrames } from '../../DynamicTrainingSliceExtractor.ts';
+import type { DynamicTrainingStateSession } from '../../../ui-core/config/dynamicTrainingPackTypes.ts';
 import { createRLRCInterveneEnvPort } from './RLRCInterveneEnvPortBuilder.ts';
 import { RLRCInterveneTakeoverSubController } from './RLRCInterveneTakeoverSubController.ts';
 import {
@@ -342,6 +344,22 @@ export class RLRCReplaySessionController {
     this.cursorFrame120Hz = res.cursorFrame120Hz;
     this._tick = res.tick;
     return res.stepped;
+  }
+
+  public extractCurrentDynamicSession(options?: {
+    interveneFrame?: number;
+    originEndFrame?: number;
+  }): DynamicTrainingStateSession | null {
+    if (!this.session || this.session.frames120Hz.length === 0) return null;
+    const st = getSt();
+    return extractDynamicSessionFromRLRCFrames({
+      frames120Hz: this.session.frames120Hz,
+      roster: this.session.roster,
+      targetFrame120Hz: options?.interveneFrame ?? this.cursorFrame120Hz,
+      originEndFrame120Hz: options?.originEndFrame,
+      povSlotIndex: this.activePovSlotIndex,
+      sourceReplayName: st.loadedFileName || this.session.header?.replayName || 'replay',
+    });
   }
 
   private _syncPov(slot: number): void {

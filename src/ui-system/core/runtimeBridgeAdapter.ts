@@ -23,6 +23,7 @@ import { setPacingTelemetryNotificationHandler } from '../../ui-core/stores/paci
 import { useGoalBarrierStore } from '../../ui-core/stores/goalBarrierStore.ts';
 import { buildGoalBarrierCmfChunks } from '../../ui-core/config/goalBarrierConfig.ts';
 import { syncRuntimeNetworkDiagnostics } from './runtimeNetworkDiagnosticsBridge.ts';
+import { bindDynamicTrainingBridge } from './runtimeDynamicTrainingBridge.ts';
 import type {
   GameRuntimeUiBridgePort,
   GoalBarrierDecompositionPort,
@@ -182,6 +183,7 @@ export function attachGameRuntimeBridge(
     ...createOnlineBridgeHandlers(runtimePort),
     ...createTunerBridgeHandlers(runtimePort),
   });
+  bindDynamicTrainingBridge(runtimePort);
 
   const initialCamera = useAppStore.getState().camera;
   cameraPort.applyPovSettings(initialCamera as unknown as Record<string, unknown>);

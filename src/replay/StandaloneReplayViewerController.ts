@@ -36,6 +36,8 @@ import {
 } from './replayDataPayloadPipeline.ts';
 import { useReplayViewerStore } from '../game/runtimeUiPort.ts';
 import { gameAudio } from '../audio/GameAudioEngineFacade.ts';
+import { extractDynamicSessionFromReplayFrames } from './DynamicTrainingSliceExtractor.ts';
+import type { DynamicTrainingStateSession } from '../ui-core/config/dynamicTrainingPackTypes.ts';
 
 export type { ReplayAnnotatedFloat32Frame };
 
@@ -297,6 +299,14 @@ export class StandaloneReplayViewerController {
 
   public async handleUploadFile(file: File | null | undefined): Promise<void> {
     if (!file) return;
+    if (/\.rlrc/i.test(file.name)) {
+      useReplayViewerStore
+        .getState()
+        .setErrorMessage(
+          'Replay Viewer only accepts .RCReplay files. Remove .rlrc from the filename to force-import as .RCReplay, or use Replay to RLRCReplay Importer.'
+        );
+      return;
+    }
     await parseUploadedReplayFileWithFeedback(file, (result) => {
       this._initializeLoadedReplaySession(
         result.frames,
@@ -306,6 +316,22 @@ export class StandaloneReplayViewerController {
         file.name,
         true
       );
+    });
+  }
+
+  public extractCurrentDynamicSession(options?: {
+    interveneFrame?: number;
+    originEndFrame?: number;
+  }): DynamicTrainingStateSession | null {
+    if (this.frames.length === 0) return null;
+    const loadedName = useReplayViewerStore.getState().loadedFileName || 'rc-replay.RCReplay';
+    return extractDynamicSessionFromReplayFrames({
+      frames: this.frames,
+      roster: this.rosterSubController.resolvedRoster,
+      targetFrameIndex: options?.interveneFrame ?? this.takeoverSubController.cursor,
+      originEndFrameIndex: options?.originEndFrame,
+      povCarIndex: this.rosterSubController.activePovCarIndex,
+      sourceReplayName: loadedName,
     });
   }
 
