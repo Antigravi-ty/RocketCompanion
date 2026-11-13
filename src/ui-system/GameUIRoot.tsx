@@ -13,6 +13,10 @@ import { useStaticTrainingPackStore } from '../ui-core/stores/staticTrainingPack
 import { useCloudProfileSyncStore } from '../ui-core/stores/cloudProfileSyncStore.ts';
 import { dialogue } from '../ui-core/compounds/dialogue/dialogueStore.ts';
 import { ensureSignalingProfileBridge } from './core/runtimeSignalingProfileBridge.ts';
+import {
+  clearCsrFollowHostBridge,
+  syncCsrFollowHostNotification,
+} from './core/csrFollowHostBridge.ts';
 import { activateNameTagOffscreenForDeveloperMode } from '../ui-core/stores/nameTagTunerStore.ts';
 
 configureFloatingStorePersistence({
@@ -32,6 +36,10 @@ export const GameUIRoot: React.FC<GameUIRootProps> = () => {
 
   useEffect(() => {
     ensureSignalingProfileBridge();
+    syncCsrFollowHostNotification();
+    return () => {
+      clearCsrFollowHostBridge();
+    };
   }, []);
 
   // Auto-generate Floating Window Opacity in default Stack and auto-activate Off-Screen Indicator if Developer Mode is active

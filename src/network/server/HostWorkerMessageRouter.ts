@@ -22,6 +22,14 @@ import type { AuthoritativePhysicsSimPort } from './authoritativePhysicsStepPipe
 import type { LobbyGhostConfigOptions } from './LobbyGhostCarCoordinator.ts';
 import type { CarControlsInput } from '../protocol/GlobalPayloadCodec.ts';
 import type { ClientReliableCommand } from './match/MatchCommandQueueSubController.ts';
+import type {
+  CsrFollowHostPayload,
+  InterveneAuthorizationRequest,
+  RoomActivityStateSummary,
+  RoomActivitySwitchPayload,
+  SpectatorTimelineCommand,
+} from '../protocol/RoomActivityProtocol.ts';
+import { RoomActivityOrchestrator } from './activities/RoomActivityOrchestrator.ts';
 
 export type { WorkerRouterContext };
 
@@ -42,6 +50,8 @@ export interface WorkerRoomStateSummary {
   ghostConfig: LobbyGhostConfigOptions | null;
   pads: unknown;
   roster: RosterSnapshot;
+  activitySummary?: RoomActivityStateSummary | null;
+  csrFollowHost?: CsrFollowHostPayload | null;
 }
 
 export interface HostWorkerInitOptions {
@@ -123,7 +133,8 @@ export interface HostWorkerMessageRouterOptions extends WorkerRouterContext {
 
 export function buildWorkerRoomStateSummary(
   matchManager: MatchSessionAdmin | null | undefined,
-  physicsManager: PhysicsEngineManager | null | undefined
+  physicsManager: PhysicsEngineManager | null | undefined,
+  activityOrchestrator?: RoomActivityOrchestrator | null
 ): WorkerRoomStateSummary | null {
   if (!matchManager) return null;
   const s = matchManager.getSnapshot();
@@ -144,6 +155,8 @@ export function buildWorkerRoomStateSummary(
     ghostConfig: physicsManager?.lobbyGhostCoordinator?.getSnapshotConfig?.() || null,
     pads: physicsManager?.sim?.getPads?.() || null,
     roster: s.roster,
+    activitySummary: activityOrchestrator ? activityOrchestrator.getSummary() : null,
+    csrFollowHost: activityOrchestrator ? activityOrchestrator.getCsrFollowHostState() : null,
   };
 }
 
@@ -159,6 +172,10 @@ export function routeProtocolMessageInWorker(
       : (rest as WorkerProtocolPayload);
   const seq = msg.seq ?? p?.reqId ?? 0;
   const { sim, physicsManager, sessionManager, matchManager, dataHandler } = workerCtx;
+  if (!workerCtx.activityOrchestrator) {
+    workerCtx.activityOrchestrator = new RoomActivityOrchestrator();
+  }
+  const orchestrator = workerCtx.activityOrchestrator;
   const emitRaw: ((m: Record<string, unknown>, transfer?: Transferable[]) => void) | null =
     workerCtx.emit ||
     (workerCtx.postEnvelope
@@ -173,8 +190,12 @@ export function routeProtocolMessageInWorker(
     );
   };
   const syncRoomState = () => {
-    if (matchManager)
-      reply(MSG.ROOM_STATE_SYNC, buildWorkerRoomStateSummary(matchManager, physicsManager));
+    if (matchManager) {
+      reply(
+        MSG.ROOM_STATE_SYNC,
+        buildWorkerRoomStateSummary(matchManager, physicsManager, orchestrator)
+      );
+    }
   };
 
   if (routeReplayAndDiagnosticsMessage(workerCtx, type, p, seq, reply)) return true;
@@ -389,6 +410,53 @@ export function routeProtocolMessageInWorker(
       return true;
     }
 
+    case MSG.ROOM_ACTIVITY_SWITCH: {
+      const switchPayload = p as unknown as RoomActivitySwitchPayload;
+      if (switchPayload.activityId) {
+        const summary = orchestrator.switchActivity(
+          { matchManager, physicsManager, syncRoomState },
+          switchPayload
+        );
+        reply(MSG.ROOM_ACTIVITY_SWITCH, summary);
+      }
+      return true;
+    }
+
+    case MSG.SPECTATOR_TIMELINE_CMD: {
+      const cmd = p as unknown as SpectatorTimelineCommand;
+      if (cmd.action) {
+        const summary = orchestrator.handleSpectatorTimelineCommand(
+          { matchManager, physicsManager, syncRoomState },
+          cmd
+        );
+        reply(MSG.SPECTATOR_TIMELINE_CMD, summary);
+      }
+      return true;
+    }
+
+    case MSG.INTERVENE_HANDOFF_CMD: {
+      const req = p as unknown as InterveneAuthorizationRequest;
+      if (req.action) {
+        const summary = orchestrator.handleInterveneHandoffRequest(
+          { matchManager, physicsManager, syncRoomState },
+          req
+        );
+        reply(MSG.INTERVENE_HANDOFF_CMD, summary);
+      }
+      return true;
+    }
+
+    case MSG.CSR_FOLLOW_HOST_SYNC: {
+      const csrPatch = p as unknown as Partial<CsrFollowHostPayload>;
+      const csrState = orchestrator.updateCsrFollowHostState(csrPatch, {
+        matchManager,
+        physicsManager,
+        syncRoomState,
+      });
+      reply(MSG.CSR_FOLLOW_HOST_SYNC, csrState);
+      return true;
+    }
+
     default:
       return false;
   }
@@ -400,6 +468,7 @@ export class HostWorkerMessageRouter {
   physicsManager: PhysicsEngineManager | null;
   sessionManager: EstablishedSessionManager | null;
   dataHandler: NetworkDataHandler | null;
+  activityOrchestrator: RoomActivityOrchestrator;
   registerWorkerChannel: ((channelId: string) => void) | null;
   unregisterWorkerChannel: ((channelId: string) => void) | null;
   postEnvelope: ((envelope: WorkerEnvelope, transfer?: Transferable[]) => void) | null;
@@ -416,6 +485,7 @@ export class HostWorkerMessageRouter {
       (this.matchManager?.sessionManager as EstablishedSessionManager | null) ||
       null;
     this.dataHandler = options.dataHandler || null;
+    this.activityOrchestrator = options.activityOrchestrator || new RoomActivityOrchestrator();
     this.registerWorkerChannel = options.registerWorkerChannel || null;
     this.unregisterWorkerChannel = options.unregisterWorkerChannel || null;
     this.postEnvelope = options.postEnvelope || null;
