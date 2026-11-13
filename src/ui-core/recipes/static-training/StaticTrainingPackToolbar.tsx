@@ -40,7 +40,7 @@ export const StaticTrainingPackToolbar: React.FC<StaticTrainingPackToolbarProps>
     onHoverDesc,
   }) => {
     const acceptedFormats = isDevMode
-      ? '.rcspack,.RCSPack,.rcspacke,.RCSPackE,.rlrcspack,.RLRCSPack,.Tem,.tem,.zip,.ZIP,.gz,.json'
+      ? '.rcspack,.RCSPack,.rcspacke,.RCSPackE,.rlrcspack,.RLRCSPack,.Tem,.tem,.zip,.ZIP,.json'
       : '.rcspack,.RCSPack,.rcspacke,.RCSPackE,.zip,.ZIP';
 
     return (

@@ -20,9 +20,9 @@ import { ReplayDirectorCameraCard } from './replay-director-tuner/ReplayDirector
 export const SURFACE_META: SurfaceMeta = {
   id: 'replay-director-tuner',
   title: 'Replay Director Camera & Slow-Mo Tuner',
-  subtitle: '.rcgr.gz Goal Replay · 3D Arena Preview · 2-Touch Lookahead',
+  subtitle: '.RCGR Goal Replay · 3D Arena Preview · 2-Touch Lookahead',
   description:
-    '.rcgr.gz Goal Replay container export/import, 3D Arena preview, anomaly peak seek chips & +-15f window.',
+    '.RCGR Goal Replay container export/import, 3D Arena preview, anomaly peak seek chips & +-15f window.',
   icon: 'Film',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',

@@ -71,12 +71,12 @@ export const EXPERIMENTAL_AND_DIAGNOSTIC_TUNER_SPECS: DevFloatingLauncherSpec[] 
     preset: REPLAY_DIRECTOR_TUNER_PRESET,
     icon: Film,
     iconColor: 'text-amber-400',
-    badge: '.rcgr.gz · Preview · AutoCam',
+    badge: '.RCGR · Preview · AutoCam',
     badgeTone: 'amber',
     description:
-      'Export & import .rcgr.gz Goal Replay containers, 3D Arena preview, anomaly peak seek chips & ±15f window diagnostics',
+      'Export & import .RCGR Goal Replay containers, 3D Arena preview, anomaly peak seek chips & ±15f window diagnostics',
     hoverTooltip:
-      'Replay Director Camera & Slow-Mo Tuner: Export and import compressed .rcgr.gz Goal Replay containers, jump to anomaly peaks, and copy ±15-frame diagnostic windows.',
+      'Replay Director Camera & Slow-Mo Tuner: Export and import compressed .RCGR Goal Replay containers, jump to anomaly peaks, and copy ±15-frame diagnostic windows.',
     section: 'primary',
   },
   {

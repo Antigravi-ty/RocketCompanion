@@ -53,7 +53,7 @@ export function decodeRcdPackFromJson(rawJson: string): {
 } {
   const parsed = JSON.parse(rawJson) as Partial<RCDPackArchive> | null;
   if (!parsed || parsed.format !== 'RCDPack' || parsed.category !== 'dynamic-training-pack') {
-    throw new Error('Invalid .rcd archive: missing RCDPack header');
+    throw new Error('Invalid .RCDPack archive: missing RCDPack header');
   }
 
   const now = Date.now();

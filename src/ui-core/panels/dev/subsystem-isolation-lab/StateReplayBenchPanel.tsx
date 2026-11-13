@@ -86,7 +86,7 @@ export const StateReplayBenchPanel: React.FC<StateReplayBenchPanelProps> = ({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".gz,.rcreplay,.rcreplay.gz,.json,application/gzip,application/json"
+          accept=".RCReplay,.rcreplay,.json,application/json"
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0];

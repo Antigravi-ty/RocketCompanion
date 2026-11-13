@@ -112,7 +112,7 @@ export const ReplayToRcsHeaderAndDeltaSection: React.FC<ReplayToRcsHeaderAndDelt
           ) : (
             <>
               <Download className="h-3.5 w-3.5 shrink-0" />
-              <span>Save RCS Pack (.gz)</span>
+              <span>Save .RLRCReplay</span>
             </>
           )}
         </button>

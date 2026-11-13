@@ -61,7 +61,7 @@ export const REPLAY_DIRECTOR_TUNER_PRESET: PresetConfig = makeDevPreset({
   category: 'ReplayDirector',
   width: 485,
   height: 640,
-  summary: '.rcgr.gz Goal Replay container export/import, 3D Arena preview, anomaly peak seek chips & +-15f window.',
+  summary: '.RCGR Goal Replay container export/import, 3D Arena preview, anomaly peak seek chips & +-15f window.',
   menuEntryPath: DEV_ENTRY_PATHS.ACTIVE_TUNERS,
   component: 'ReplayDirectorTunerFloatingWindow',
 });
@@ -339,12 +339,12 @@ export const PERFORMANCE_BOOST_TUNER_PRESET: PresetConfig = makeDevPreset({
 
 export const DYNAMIC_TRAINING_PACK_PRESET: PresetConfig = makeDevPreset({
   id: 'dynamic-training-pack',
-  title: 'Dynamic Training Pack (.rcd)',
+  title: 'Dynamic Training Pack (.RCDPack)',
   category: 'DynamicTrainingPack',
   width: 480,
   height: 580,
   minHeight: 240,
-  summary: 'Capture 4s replay state sessions, configure per-car takeover, and practice .rcd packs.',
+  summary: 'Capture 4s replay state sessions, configure per-car takeover, and practice .RCDPack packs.',
   menuEntryPath: DEV_ENTRY_PATHS.SANDBOXES,
   component: 'DynamicTrainingPackFloatingWindow',
 });

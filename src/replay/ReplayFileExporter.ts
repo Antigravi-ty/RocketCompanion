@@ -156,7 +156,7 @@ export function retainCompletedMatchReplayAndNotify(
       buttons: [
         {
           key: 'export-rcreplay',
-          label: 'Export .rcreplay.gz',
+          label: 'Export .RCReplay',
           icon: 'download',
           color: 'sky',
           dismissOnClick: false,
@@ -215,7 +215,7 @@ export async function exportRetainedMatchReplayFile(
   try {
     notifStore.pushOngoingNotification({
       id: MATCH_REPLAY_SAVING_TASK_ID,
-      content: 'Saving & compressing RC Replay (.rcreplay.gz) in background...',
+      content: 'Saving & compressing RC Replay (.RCReplay) in background...',
       icon: 'loader-2',
       isSpinningIcon: true,
       tone: 'info',
@@ -235,7 +235,7 @@ export async function exportRetainedMatchReplayFile(
     const baseFilename = `rc-replay-${modeSlug}-${bScore}-${oScore}-${stamp}`;
 
     const isGzip = Boolean(packedResult.compressed);
-    const filename = isGzip ? `${baseFilename}.rcreplay.gz` : `${baseFilename}.rcreplay`;
+    const filename = `${baseFilename}.RCReplay`;
     const mimeType = isGzip ? 'application/gzip' : 'application/octet-stream';
     const blob = new Blob([packedResult.buffer], { type: mimeType });
 

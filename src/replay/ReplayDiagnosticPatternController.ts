@@ -90,7 +90,7 @@ export function buildImportedDiagnosticPatternSessionState(
       scorerCarIndex: parsedPattern.scorerCarIndex ?? 0,
       hasRetainedReplay: true,
       isImportedPreview: true,
-      importedFileName: parsedPattern.fileName || options.fileName || 'imported.rcgr.gz',
+      importedFileName: parsedPattern.fileName || options.fileName || 'imported.RCGR',
       importedCarEntries,
       carEntries: importedCarEntries,
       carTeamResolver: resolvedTeamResolver || fallbackCarTeamResolver,
