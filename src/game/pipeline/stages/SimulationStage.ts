@@ -67,6 +67,7 @@ const CUSTOM_STEP_MODES = new Set([
   'dev-test-lab',
   'exp-multi-bots',
   'static-training-pack',
+  'drawing-sandbox',
 ]);
 
 /**

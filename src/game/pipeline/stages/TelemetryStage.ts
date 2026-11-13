@@ -241,11 +241,15 @@ export class TelemetryStage implements PipelineStage {
           : (r?.playerCarIndex ?? 0)
       : isReplayPov
         ? r.replayPovCarIndex
-        : typeof context?.activeCar === 'number'
-          ? context.activeCar
-          : typeof r?.playerCarIndex === 'number'
-            ? r.playerCarIndex
-            : 0;
+        : matchMode === 'drawing-sandbox'
+          ? r?.camera?.isFreeCam
+            ? -1
+            : (r?.camera?.focusedCarIndex ?? 0)
+          : typeof context?.activeCar === 'number'
+            ? context.activeCar
+            : typeof r?.playerCarIndex === 'number'
+              ? r.playerCarIndex
+              : 0;
 
     const expStore =
       matchMode === 'exp-multi-bots' ? useExperimentalMultiBotsStore.getState() : null;

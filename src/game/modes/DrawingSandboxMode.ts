@@ -17,6 +17,7 @@ import {
   floatingStore,
   globalHudTransientChannel,
   hudStore,
+  useAppStore,
   useTelestratorStore,
 } from '../runtimeUiPort.ts';
 import { isEditableEventTarget, subscribeGlobalKeyDown } from '../../input/hotkeyInputGuard.ts';
@@ -42,6 +43,7 @@ export interface DrawingSandboxRuntimePort extends GameModeRuntimePort {
   arena?: {
     scene?: THREE.Scene | null;
     focusedCarIndex?: number;
+    isFreeCam?: boolean;
   } | null;
 }
 
@@ -72,15 +74,26 @@ export class DrawingSandboxMode extends BaseGameMode<DrawingSandboxRuntimePort |
     this.boundPointerUp = this.handlePointerUp.bind(this);
 
     useTelestratorStore.getState().setRuntimeHandlers({
-      onStartDrawingSandbox: () => {
-        this.runtime?.modeManager?.setMode?.('drawing-sandbox');
-      },
+      onStartDrawingSandbox: () => this.activateDrawingSandboxMode(),
     });
+  }
+
+  private activateDrawingSandboxMode(): void {
+    if (this.runtime?.match?.state) {
+      this.runtime.match.state.mode = 'drawing-sandbox';
+    }
+    useAppStore.getState().setMatchMode?.('drawing-sandbox');
+    this.runtime?.modeManager?.setMode?.('drawing-sandbox');
   }
 
   onEnter(): void {
     const r = this.runtime;
     if (!r) return;
+
+    if (r.match?.state) {
+      r.match.state.mode = 'drawing-sandbox';
+    }
+    useAppStore.getState().setMatchMode?.('drawing-sandbox');
 
     if (r.arena?.scene) {
       this.telestrator.attachToScene(r.arena.scene);
@@ -103,6 +116,8 @@ export class DrawingSandboxMode extends BaseGameMode<DrawingSandboxRuntimePort |
 
     const store = useTelestratorStore.getState();
     store.setDrawingSandboxActive(true);
+    store.setDrawingEnabled(true);
+    store.setDirectionOffsetDeg(0, 0);
     store.setDropStemsEnabled(store.dropStemsEnabled);
     store.setStrokeCount(this.telestrator.getStrokeCount());
     store.setRuntimeHandlers({
@@ -111,7 +126,7 @@ export class DrawingSandboxMode extends BaseGameMode<DrawingSandboxRuntimePort |
       onRestoreDirectionOffset: () => this.restoreDirectionOffset(),
       onSelectCameraSlot: (slot: number) => this.selectCameraSlot(slot),
       onToggleDropStems: (enabled: boolean) => this.telestrator.setDropStemsEnabled(enabled),
-      onStartDrawingSandbox: () => this.runtime?.modeManager?.setMode?.('drawing-sandbox'),
+      onStartDrawingSandbox: () => this.activateDrawingSandboxMode(),
     });
 
     this.spawnToolbarWindow();
@@ -126,6 +141,7 @@ export class DrawingSandboxMode extends BaseGameMode<DrawingSandboxRuntimePort |
       r.camera.freeController.shouldSuppressDrag = null;
     }
     r?.camera?.resetDirectionOffset?.();
+    r?.camera?.setFocusedCarIndex?.(0);
     const store = useTelestratorStore.getState();
     store.setDrawingSandboxActive(false);
     store.setDirectionOffsetDeg(0, 0);
@@ -156,7 +172,7 @@ export class DrawingSandboxMode extends BaseGameMode<DrawingSandboxRuntimePort |
         hideFooter: true,
         component: 'TelestratorToolbarFloatingWindow',
         startMinimized: false,
-        position: { x: 20, y: 120 },
+        position: { x: 16, y: 280 },
       });
     }
   }
@@ -196,7 +212,10 @@ export class DrawingSandboxMode extends BaseGameMode<DrawingSandboxRuntimePort |
       const carIdx = slot - 1;
       r.camera.setFreeCam?.(false);
       r.camera.setFocusedCarIndex?.(carIdx);
-      if (r.arena) r.arena.focusedCarIndex = carIdx;
+      if (r.arena) {
+        r.arena.focusedCarIndex = carIdx;
+        r.arena.isFreeCam = false;
+      }
       hudStore.getState().setCameraFocusState('pov', carIdx);
       globalHudTransientChannel.setRoster({ focusedSlotKey: slot });
       return;
@@ -204,6 +223,7 @@ export class DrawingSandboxMode extends BaseGameMode<DrawingSandboxRuntimePort |
 
     r.camera.setFreeCam?.(true);
     r.camera.setFreeCamPose?.([0, 1600, -3600], [0, 80, 0]);
+    if (r.arena) r.arena.isFreeCam = true;
     hudStore.getState().setCameraFocusState('free', 0);
     globalHudTransientChannel.setRoster({ focusedSlotKey: null });
   }

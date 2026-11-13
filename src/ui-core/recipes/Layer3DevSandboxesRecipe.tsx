@@ -181,6 +181,11 @@ export const Layer3DevSandboxesRecipe: React.FC<Layer3DevSandboxesRecipeProps> =
       navigate('exp-multi-bots');
       return;
     }
+    if (tab === 'drawing-sandbox') {
+      useTelestratorStore.getState().runtimeHandlers.onStartDrawingSandbox?.();
+      closeMenu();
+      return;
+    }
     if (tab === 'exp-botpack-9700488' && !sourceEl) {
       useExperimentalMultiBotsStore
         .getState()
