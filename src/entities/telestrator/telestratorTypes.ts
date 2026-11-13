@@ -117,4 +117,5 @@ export interface TelestratorStrokeDebugDump {
   camPos: TelestratorVec3;
   camForward: TelestratorVec3;
   camFovDeg: number;
+  pointerDiagnostics?: import('./telestratorPointerDiag.ts').TelestratorPointerDiagDump;
 }

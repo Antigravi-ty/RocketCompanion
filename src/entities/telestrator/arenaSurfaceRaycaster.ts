@@ -250,19 +250,61 @@ export interface ArenaRaycastTargets {
   stadiumTargets?: THREE.Object3D[];
 }
 
-export function raycastScreenToArena(
+export interface ArenaRaycastDiag {
+  hitSource: 'cmf' | 'stadium' | 'dynamic' | 'analytical' | 'none';
+  hitMeshName: string | null;
+  cmfTargetCount: number;
+  stadiumTargetCount: number;
+  cmfMs: number;
+  stadiumMs: number;
+  analyticalMs: number;
+  totalMs: number;
+  cmfHitsCount: number;
+  stadiumHitsCount: number;
+  camOutside: boolean;
+  cmfSkippedByCamOutside: number;
+  stadiumSkippedInvisible: number;
+  stadiumSkippedOutOfBounds: number;
+  stadiumSkippedCamOutside: number;
+}
+
+export function raycastScreenToArenaWithDiag(
   ndcX: number,
   ndcY: number,
   camera: THREE.Camera,
   targets?: THREE.Object3D[] | ArenaRaycastTargets
-): ArenaSurfaceHit | null {
+): { hit: ArenaSurfaceHit | null; diag: ArenaRaycastDiag } {
+  const tStart = performance.now();
   scratchNdc.set(ndcX, ndcY);
   scratchRaycaster.setFromCamera(scratchNdc, camera);
+  const camOutside = isCameraOutsideArena(scratchRaycaster.ray.origin);
 
+  const diag: ArenaRaycastDiag = {
+    hitSource: 'none',
+    hitMeshName: null,
+    cmfTargetCount: 0,
+    stadiumTargetCount: 0,
+    cmfMs: 0,
+    stadiumMs: 0,
+    analyticalMs: 0,
+    totalMs: 0,
+    cmfHitsCount: 0,
+    stadiumHitsCount: 0,
+    camOutside,
+    cmfSkippedByCamOutside: 0,
+    stadiumSkippedInvisible: 0,
+    stadiumSkippedOutOfBounds: 0,
+    stadiumSkippedCamOutside: 0,
+  };
+
+  let bestCmf: ArenaSurfaceHit | null = null;
+  let bestCmfName: string | null = null;
   const cmfTargets = Array.isArray(targets) ? undefined : targets?.cmfTargets;
   if (cmfTargets && cmfTargets.length > 0) {
-    const camOutside = isCameraOutsideArena(scratchRaycaster.ray.origin);
+    diag.cmfTargetCount = cmfTargets.length;
+    const tCmf = performance.now();
     const hits = scratchRaycaster.intersectObjects(cmfTargets, false);
+    diag.cmfHitsCount = hits.length;
     for (let i = 0; i < hits.length; i++) {
       const h = hits[i];
       if (camOutside && h.face) {
@@ -272,20 +314,22 @@ export function raycastScreenToArena(
           (h.point.y - ARENA_HEIGHT * 0.5) * scratchWorldNormal.y +
           h.point.z * scratchWorldNormal.z;
         if (outwardFromCenter > 0 && scratchWorldNormal.dot(scratchRaycaster.ray.direction) < 0) {
+          diag.cmfSkippedByCamOutside++;
           continue;
         }
       }
-      return {
+      bestCmf = {
         point: h.point.clone(),
         normal: resolveHitNormal(h, scratchRaycaster.ray.direction),
         distance: h.distance,
       };
+      bestCmfName = h.object.name || 'cmf';
+      break;
     }
+    diag.cmfMs = performance.now() - tCmf;
   }
 
   const dynamicTargets = Array.isArray(targets) ? targets : targets?.dynamicTargets;
-  const stadiumTargets = Array.isArray(targets) ? undefined : targets?.stadiumTargets;
-
   let bestDynamic: ArenaSurfaceHit | null = null;
   if (dynamicTargets && dynamicTargets.length > 0) {
     const hits = scratchRaycaster.intersectObjects(dynamicTargets, true);
@@ -301,14 +345,42 @@ export function raycastScreenToArena(
     }
   }
 
-  let bestStadium: ArenaSurfaceHit | null = null;
-  if (stadiumTargets && stadiumTargets.length > 0) {
-    const camOutside = isCameraOutsideArena(scratchRaycaster.ray.origin);
+  const tAna = performance.now();
+  const analyticalHit = raycastArenaSurface(scratchRaycaster.ray);
+  diag.analyticalMs = performance.now() - tAna;
+
+  let best: ArenaSurfaceHit | null = bestDynamic;
+  if (best) {
+    diag.hitSource = 'dynamic';
+  }
+  if (bestCmf && (!best || bestCmf.distance < best.distance)) {
+    best = bestCmf;
+    diag.hitSource = 'cmf';
+    diag.hitMeshName = bestCmfName;
+  }
+  if (analyticalHit && (!best || analyticalHit.distance + 1 < best.distance)) {
+    best = analyticalHit;
+    diag.hitSource = 'analytical';
+    diag.hitMeshName = 'ARENA_PLANES';
+  }
+
+  // Only fall back to visual stadium GLB if neither CMF nor analytical planes produced a hit
+  const stadiumTargets = Array.isArray(targets) ? undefined : targets?.stadiumTargets;
+  if (!best && stadiumTargets && stadiumTargets.length > 0) {
+    diag.stadiumTargetCount = stadiumTargets.length;
+    const tStad = performance.now();
     const hits = scratchRaycaster.intersectObjects(stadiumTargets, true);
+    diag.stadiumHitsCount = hits.length;
     for (let i = 0; i < hits.length; i++) {
       const h = hits[i];
-      if (!isObjectChainVisible(h.object)) continue;
-      if (!isInsideArenaRayBounds(h.point)) continue;
+      if (!isObjectChainVisible(h.object)) {
+        diag.stadiumSkippedInvisible++;
+        continue;
+      }
+      if (!isInsideArenaRayBounds(h.point)) {
+        diag.stadiumSkippedOutOfBounds++;
+        continue;
+      }
       if (camOutside && h.face) {
         scratchWorldNormal.copy(h.face.normal).transformDirection(h.object.matrixWorld).normalize();
         const outwardFromCenter =
@@ -316,29 +388,31 @@ export function raycastScreenToArena(
           (h.point.y - ARENA_HEIGHT * 0.5) * scratchWorldNormal.y +
           h.point.z * scratchWorldNormal.z;
         if (outwardFromCenter > 0 && scratchWorldNormal.dot(scratchRaycaster.ray.direction) < 0) {
+          diag.stadiumSkippedCamOutside++;
           continue;
         }
       }
-      bestStadium = {
+      best = {
         point: h.point.clone(),
         normal: resolveHitNormal(h, scratchRaycaster.ray.direction),
         distance: h.distance,
       };
+      diag.hitSource = 'stadium';
+      diag.hitMeshName = h.object.name || '(unnamed)';
       break;
     }
+    diag.stadiumMs = performance.now() - tStad;
   }
 
-  const analyticalHit = raycastArenaSurface(scratchRaycaster.ray);
+  diag.totalMs = performance.now() - tStart;
+  return { hit: best, diag };
+}
 
-  let best: ArenaSurfaceHit | null = bestDynamic;
-  if (bestStadium && (!best || bestStadium.distance < best.distance)) {
-    best = bestStadium;
-  }
-  if (!best) {
-    best = analyticalHit;
-  } else if (analyticalHit && analyticalHit.distance + 120 < best.distance) {
-    best = analyticalHit;
-  }
-
-  return best;
+export function raycastScreenToArena(
+  ndcX: number,
+  ndcY: number,
+  camera: THREE.Camera,
+  targets?: THREE.Object3D[] | ArenaRaycastTargets
+): ArenaSurfaceHit | null {
+  return raycastScreenToArenaWithDiag(ndcX, ndcY, camera, targets).hit;
 }

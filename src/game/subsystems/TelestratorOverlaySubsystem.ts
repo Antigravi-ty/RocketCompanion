@@ -4,19 +4,28 @@ import {
   disposeCmfCollisionMeshes,
 } from '../../entities/telestrator/cmfCollisionMeshBuilder.ts';
 import { TelestratorManager } from '../../entities/telestrator/TelestratorManager.ts';
-import { raycastScreenToArena } from '../../entities/telestrator/arenaSurfaceRaycaster.ts';
 import {
-  decodeTelestratorHashAck,
-  decodeTelestratorStroke,
-  encodeTelestratorHashAck,
-  encodeTelestratorStroke,
-} from '../../network/protocol/TelestratorWireCodec.ts';
+  TelestratorPointerDiagRecorder,
+  type TelestratorPointerDiagDump,
+} from '../../entities/telestrator/telestratorPointerDiag.ts';
+import { raycastScreenToArenaWithDiag } from '../../entities/telestrator/arenaSurfaceRaycaster.ts';
 import {
   fetchArenaCollisionMeshes,
   preloadThrowbackCollisionMeshes,
 } from '../../physics/RocketSimMeshLoader.ts';
-import { floatingStore, useTelestratorStore } from '../runtimeUiPort.ts';
-import { isEditableEventTarget, subscribeGlobalKeyDown } from '../../input/hotkeyInputGuard.ts';
+import { useTelestratorStore } from '../runtimeUiPort.ts';
+import {
+  canTelestratorDrawNow,
+  clientPointToNdc,
+  collectTelestratorRaycastTargets,
+  isTelestratorUiEventTarget,
+  shouldTelestratorTakeOverPointer,
+  spawnTelestratorToolbarWindow,
+  subscribeTelestratorHotkeys,
+  subscribeTelestratorStoreSync,
+  TelestratorBodyTouchLock,
+  verifyTelestratorStrokeWire,
+} from './telestratorOverlayHelpers.ts';
 
 export interface TelestratorOverlayRuntimePort {
   arena?: {
@@ -40,35 +49,22 @@ export interface TelestratorOverlayRuntimePort {
   } | null;
 }
 
-function isUiEventTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  return Boolean(
-    target.closest(
-      'button, input, select, textarea, [role="button"], [role="switch"], [role="dialog"], [role="tab"], .floating-window, #game-ui-root, .hud-tools'
-    )
-  );
-}
-
-function canDrawNow(st: ReturnType<typeof useTelestratorStore.getState>): boolean {
-  if (!st.strokesVisible) return false;
-  if (st.isHost) return true;
-  if (!st.isCameraSynced) return false;
-  return st.allowClientDrawing || st.allowedClientIds.includes(st.localAuthorId);
-}
-
-function shouldTakeOverPointer(): boolean {
-  const st = useTelestratorStore.getState();
-  if (!st.overlayActive) return false;
-  const drawReady = st.drawingEnabled && canDrawNow(st);
-  return drawReady || st.directionAdjustActive;
-}
-
 export class TelestratorOverlaySubsystem {
   public readonly telestrator: TelestratorManager = new TelestratorManager();
   private readonly runtime: TelestratorOverlayRuntimePort;
+  private readonly pointerDiag = new TelestratorPointerDiagRecorder();
   private isActive = false;
   private isDrawingPointerDown = false;
   private isAdjustPointerDown = false;
+  private activePointerId: number | null = null;
+  private pendingMove: {
+    clientX: number;
+    clientY: number;
+    pointerType: string;
+    pointerId: number;
+    button: number;
+  } | null = null;
+  private readonly touchLock = new TelestratorBodyTouchLock();
   private lastPointerX = 0;
   private lastPointerY = 0;
   private lastWireBytes = 0;
@@ -80,13 +76,15 @@ export class TelestratorOverlaySubsystem {
   private loadingThrowbackCmf = false;
   private readonly boundPointerDown: (e: PointerEvent) => void;
   private readonly boundPointerMove: (e: PointerEvent) => void;
-  private readonly boundPointerUp: () => void;
+  private readonly boundPointerUp: (e: PointerEvent) => void;
+  private readonly boundPointerCancel: (e: PointerEvent) => void;
 
   constructor(runtime: TelestratorOverlayRuntimePort) {
     this.runtime = runtime;
     this.boundPointerDown = this.handlePointerDown.bind(this);
     this.boundPointerMove = this.handlePointerMove.bind(this);
     this.boundPointerUp = this.handlePointerUp.bind(this);
+    this.boundPointerCancel = this.handlePointerCancel.bind(this);
 
     useTelestratorStore.getState().setRuntimeHandlers({
       onUndo: () => this.undoLastStroke(),
@@ -94,8 +92,19 @@ export class TelestratorOverlaySubsystem {
       onRestoreDirectionOffset: () => this.restoreDirectionOffset(),
       onActivateOverlay: () => this.activate(),
       onDeactivateOverlay: () => this.deactivate(),
-      onDumpLastStroke: () => this.telestrator.getLastStrokeDebugDump(this.lastWireBytes),
+      onDumpLastStroke: () => {
+        const dump = this.telestrator.getLastStrokeDebugDump(this.lastWireBytes);
+        if (!dump) return null;
+        return { ...dump, pointerDiagnostics: this.getPointerDiagnostics() };
+      },
     });
+
+    if (typeof window !== 'undefined') {
+      (window as unknown as Record<string, unknown>).__rcTelestratorDiag = {
+        getDump: () => this.getPointerDiagnostics(),
+        probeAt: (x: number, y: number) => this.probeScreenPoint(x, y),
+      };
+    }
   }
 
   public activate(): void {
@@ -107,10 +116,10 @@ export class TelestratorOverlaySubsystem {
       this.telestrator.attachToScene(r.arena.scene);
     }
     if (r.camera?.freeController) {
-      r.camera.freeController.shouldSuppressDrag = shouldTakeOverPointer;
+      r.camera.freeController.shouldSuppressDrag = shouldTelestratorTakeOverPointer;
     }
     if (r.keyboard) {
-      r.keyboard.externalMouseSuppressPredicate = shouldTakeOverPointer;
+      r.keyboard.externalMouseSuppressPredicate = shouldTelestratorTakeOverPointer;
     }
 
     const store = useTelestratorStore.getState();
@@ -118,9 +127,10 @@ export class TelestratorOverlaySubsystem {
     this.telestrator.setStrokesVisible(store.strokesVisible);
     this.syncStrokeStoreState();
     this.ensureCmfMeshesLoaded();
-    this.spawnToolbarWindow();
+    spawnTelestratorToolbarWindow();
     this.bindStoreSubscription();
     this.bindInputListeners();
+    this.touchLock.sync(shouldTelestratorTakeOverPointer());
   }
 
   public deactivate(): void {
@@ -128,15 +138,18 @@ export class TelestratorOverlaySubsystem {
     this.isActive = false;
     this.isDrawingPointerDown = false;
     this.isAdjustPointerDown = false;
+    this.activePointerId = null;
+    this.pendingMove = null;
     this.telestrator.cancelDraft();
     this.unbindStoreSubscription();
     this.unbindInputListeners();
+    this.touchLock.sync(false);
 
     const r = this.runtime;
-    if (r.camera?.freeController?.shouldSuppressDrag === shouldTakeOverPointer) {
+    if (r.camera?.freeController?.shouldSuppressDrag === shouldTelestratorTakeOverPointer) {
       r.camera.freeController.shouldSuppressDrag = null;
     }
-    if (r.keyboard?.externalMouseSuppressPredicate === shouldTakeOverPointer) {
+    if (r.keyboard?.externalMouseSuppressPredicate === shouldTelestratorTakeOverPointer) {
       r.keyboard.externalMouseSuppressPredicate = null;
     }
     this.restoreDirectionOffset();
@@ -151,6 +164,8 @@ export class TelestratorOverlaySubsystem {
     if (!this.isActive) {
       this.activate();
     }
+    this.touchLock.sync(shouldTelestratorTakeOverPointer());
+    this.flushPendingMove();
     const r = this.runtime;
     if (r.arena?.scene) {
       this.telestrator.attachToScene(r.arena.scene);
@@ -197,34 +212,9 @@ export class TelestratorOverlaySubsystem {
 
   private bindStoreSubscription(): void {
     this.unbindStoreSubscription();
-    let prevPresets = useTelestratorStore.getState().presets;
-    let prevArrowLen = useTelestratorStore.getState().arrowLengthRefPx;
-    let prevArrowW = useTelestratorStore.getState().arrowWidthRefPx;
-    let prevVisible = useTelestratorStore.getState().strokesVisible;
-
-    this.unsubStore = useTelestratorStore.subscribe((st) => {
-      if (st.strokesVisible !== prevVisible) {
-        prevVisible = st.strokesVisible;
-        this.telestrator.setStrokesVisible(st.strokesVisible);
-        if (!st.strokesVisible) {
-          this.isDrawingPointerDown = false;
-          this.telestrator.cancelDraft();
-        }
-      }
-      if (
-        st.presets !== prevPresets ||
-        st.arrowLengthRefPx !== prevArrowLen ||
-        st.arrowWidthRefPx !== prevArrowW
-      ) {
-        prevPresets = st.presets;
-        prevArrowLen = st.arrowLengthRefPx;
-        prevArrowW = st.arrowWidthRefPx;
-        this.telestrator.rebuildStrokesForPresets(
-          st.presets,
-          st.arrowLengthRefPx,
-          st.arrowWidthRefPx
-        );
-      }
+    this.unsubStore = subscribeTelestratorStoreSync(this.telestrator, () => {
+      this.isDrawingPointerDown = false;
+      this.telestrator.cancelDraft();
     });
   }
 
@@ -233,46 +223,12 @@ export class TelestratorOverlaySubsystem {
     this.unsubStore = null;
   }
 
-  private spawnToolbarWindow(): void {
-    const snap = floatingStore.getSnapshot();
-    const exists = snap.windows.some((w) => w.id === 'telestrator-toolbar');
-    if (!exists) {
-      floatingStore._bound?.spawnWindow?.({
-        id: 'telestrator-toolbar',
-        title: 'Telestrator',
-        category: 'TelestratorToolbar',
-        width: 58,
-        minWidth: 52,
-        height: 540,
-        minHeight: 360,
-        hideFooter: true,
-        contentPadding: { x: 4, y: 2 },
-        component: 'TelestratorToolbarFloatingWindow',
-        startMinimized: false,
-        position: { x: 16, y: 200 },
-      });
-    }
-  }
-
-  private getRaycastTargets(): {
-    cmfTargets: THREE.Object3D[];
-    stadiumTargets: THREE.Object3D[];
-  } {
-    const cmfTargets: THREE.Object3D[] = [];
-    const stadiumTargets: THREE.Object3D[] = [];
-    const env = this.runtime.arena?.environment;
-    const isThrowback = Boolean(env?.isThrowbackStadiumActive);
-    const activeCmf = isThrowback ? this.throwbackCmfMeshes : this.standardCmfMeshes;
-    if (activeCmf && activeCmf.length > 0) {
-      for (let i = 0; i < activeCmf.length; i++) cmfTargets.push(activeCmf[i]);
-    }
-    if (env) {
-      const activeStadium = isThrowback ? env.throwbackStadium : env.driftwoodsStadium;
-      if (activeStadium && activeStadium.visible) {
-        stadiumTargets.push(activeStadium);
-      }
-    }
-    return { cmfTargets, stadiumTargets };
+  private getRaycastTargets() {
+    return collectTelestratorRaycastTargets(
+      this.runtime.arena?.environment,
+      this.standardCmfMeshes,
+      this.throwbackCmfMeshes
+    );
   }
 
   private restoreDirectionOffset(): void {
@@ -308,35 +264,16 @@ export class TelestratorOverlaySubsystem {
     this.unbindInputListeners();
     if (typeof window === 'undefined') return;
 
-    this.unsubKeyDown = subscribeGlobalKeyDown((e: KeyboardEvent) => {
-      if (!useTelestratorStore.getState().overlayActive) return;
-      if (isEditableEventTarget(e)) return;
-
-      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
-        e.preventDefault();
-        e.stopPropagation();
-        this.undoLastStroke();
-        return;
-      }
-
-      if (
-        !e.ctrlKey &&
-        !e.metaKey &&
-        !e.altKey &&
-        (e.code === 'Delete' || e.code === 'Backspace')
-      ) {
-        const st = useTelestratorStore.getState();
-        if (this.telestrator.hasUndoHistory(st.localAuthorId)) {
-          e.preventDefault();
-          e.stopPropagation();
-          this.clearStrokes();
-        }
-      }
-    }, true);
+    this.unsubKeyDown = subscribeTelestratorHotkeys(
+      () => this.undoLastStroke(),
+      () => this.clearStrokes(),
+      (authorId) => this.telestrator.hasUndoHistory(authorId)
+    );
 
     window.addEventListener('pointerdown', this.boundPointerDown);
     window.addEventListener('pointermove', this.boundPointerMove);
     window.addEventListener('pointerup', this.boundPointerUp);
+    window.addEventListener('pointercancel', this.boundPointerCancel);
   }
 
   private unbindInputListeners(): void {
@@ -346,40 +283,88 @@ export class TelestratorOverlaySubsystem {
       window.removeEventListener('pointerdown', this.boundPointerDown);
       window.removeEventListener('pointermove', this.boundPointerMove);
       window.removeEventListener('pointerup', this.boundPointerUp);
+      window.removeEventListener('pointercancel', this.boundPointerCancel);
     }
   }
 
-  private pointerToNdc(e: PointerEvent): { ndcX: number; ndcY: number } {
-    const w = typeof window !== 'undefined' ? window.innerWidth || 1280 : 1280;
-    const h = typeof window !== 'undefined' ? window.innerHeight || 720 : 720;
+  public getPointerDiagnostics(): TelestratorPointerDiagDump {
+    return this.pointerDiag.getDump();
+  }
+
+  public probeScreenPoint(clientX: number, clientY: number) {
+    const cam = this.runtime.camera?.camera;
+    if (!cam) return { hit: null, diag: null };
+    const { ndcX, ndcY } = clientPointToNdc(clientX, clientY);
+    const { hit, diag } = raycastScreenToArenaWithDiag(ndcX, ndcY, cam, this.getRaycastTargets());
+    this.pointerDiag.record(
+      'hover',
+      hit ? 'ok' : 'no-hit',
+      { clientX, clientY, pointerType: 'probe', pointerId: -1, button: 0 },
+      hit,
+      diag
+    );
     return {
-      ndcX: (e.clientX / w) * 2 - 1,
-      ndcY: -(e.clientY / h) * 2 + 1,
+      hit: hit
+        ? {
+            point: hit.point.toArray(),
+            normal: hit.normal.toArray(),
+            distance: hit.distance,
+          }
+        : null,
+      diag,
     };
   }
 
   private handlePointerDown(e: PointerEvent): void {
-    if (e.button !== 0 || isUiEventTarget(e.target)) return;
+    if (e.isPrimary === false) {
+      this.pointerDiag.record('down', 'non-primary-pointer', e);
+      return;
+    }
+    if (this.activePointerId !== null) {
+      this.pointerDiag.record('down', 'pointer-already-active', e);
+      return;
+    }
+    if ((e.pointerType === 'mouse' && e.button !== 0) || isTelestratorUiEventTarget(e.target)) {
+      this.pointerDiag.record('down', 'blocked-button-or-ui', e);
+      return;
+    }
     const st = useTelestratorStore.getState();
-    if (!st.overlayActive) return;
-
-    if (st.directionAdjustActive && !st.isFreeCam) {
-      this.isAdjustPointerDown = true;
-      this.lastPointerX = e.clientX;
-      this.lastPointerY = e.clientY;
+    if (!st.overlayActive) {
+      this.pointerDiag.record('down', 'overlay-inactive', e);
       return;
     }
 
-    if (!st.drawingEnabled || !canDrawNow(st)) return;
-    const cam = this.runtime.camera?.camera;
-    if (!cam) return;
+    if (st.directionAdjustActive && !st.isFreeCam) {
+      this.activePointerId = e.pointerId;
+      this.isAdjustPointerDown = true;
+      this.lastPointerX = e.clientX;
+      this.lastPointerY = e.clientY;
+      this.pointerDiag.record('down', 'direction-adjust', e);
+      return;
+    }
 
-    const { ndcX, ndcY } = this.pointerToNdc(e);
-    const hit = raycastScreenToArena(ndcX, ndcY, cam, this.getRaycastTargets());
-    if (!hit) return;
+    if (!st.drawingEnabled || !canTelestratorDrawNow(st)) {
+      this.pointerDiag.record('down', 'drawing-disabled-or-cannot-draw', e);
+      return;
+    }
+    const cam = this.runtime.camera?.camera;
+    if (!cam) {
+      this.pointerDiag.record('down', 'no-camera', e);
+      return;
+    }
+
+    if (e.cancelable) e.preventDefault();
+    const { ndcX, ndcY } = clientPointToNdc(e.clientX, e.clientY);
+    const { hit, diag } = raycastScreenToArenaWithDiag(ndcX, ndcY, cam, this.getRaycastTargets());
+    if (!hit) {
+      this.pointerDiag.record('down', 'no-hit', e, null, diag);
+      return;
+    }
 
     const preset = st.presets[st.activePresetIndex] ?? st.presets[0];
+    this.activePointerId = e.pointerId;
     this.isDrawingPointerDown = true;
+    this.pendingMove = null;
     this.telestrator.beginStroke(
       {
         x: hit.point.x,
@@ -401,10 +386,14 @@ export class TelestratorOverlaySubsystem {
       },
       cam
     );
+    this.pointerDiag.record('down', 'ok', e, hit, diag);
   }
 
   private handlePointerMove(e: PointerEvent): void {
+    if (this.activePointerId !== null && e.pointerId !== this.activePointerId) return;
+
     if (this.isAdjustPointerDown) {
+      if (e.cancelable) e.preventDefault();
       const dx = e.clientX - this.lastPointerX;
       const dy = e.clientY - this.lastPointerY;
       this.lastPointerX = e.clientX;
@@ -416,10 +405,26 @@ export class TelestratorOverlaySubsystem {
     }
 
     if (!this.isDrawingPointerDown) return;
+    if (e.cancelable) e.preventDefault();
+    this.pendingMove = {
+      clientX: e.clientX,
+      clientY: e.clientY,
+      pointerType: e.pointerType,
+      pointerId: e.pointerId,
+      button: e.button,
+    };
+  }
+
+  private flushPendingMove(): void {
+    const move = this.pendingMove;
+    if (!move) return;
+    this.pendingMove = null;
+    if (!this.isDrawingPointerDown) return;
     const cam = this.runtime.camera?.camera;
     if (!cam) return;
-    const { ndcX, ndcY } = this.pointerToNdc(e);
-    const hit = raycastScreenToArena(ndcX, ndcY, cam, this.getRaycastTargets());
+    const { ndcX, ndcY } = clientPointToNdc(move.clientX, move.clientY);
+    const { hit, diag } = raycastScreenToArenaWithDiag(ndcX, ndcY, cam, this.getRaycastTargets());
+    this.pointerDiag.record('move', hit ? 'ok' : 'no-hit', move, hit, diag);
     if (!hit) return;
     this.telestrator.appendDraftPoint({
       x: hit.point.x,
@@ -431,21 +436,31 @@ export class TelestratorOverlaySubsystem {
     });
   }
 
-  private handlePointerUp(): void {
+  private handlePointerUp(e: PointerEvent): void {
+    if (this.activePointerId !== null && e.pointerId !== this.activePointerId) return;
+    this.activePointerId = null;
+    this.isAdjustPointerDown = false;
+    if (!this.isDrawingPointerDown) return;
+    this.flushPendingMove();
+    this.isDrawingPointerDown = false;
+    const committed = this.telestrator.endStroke();
+    this.pointerDiag.record('up', committed ? 'committed' : 'too-short', e);
+    if (committed) {
+      this.lastWireBytes = verifyTelestratorStrokeWire(committed);
+      this.syncStrokeStoreState();
+    }
+  }
+
+  private handlePointerCancel(e: PointerEvent): void {
+    if (this.activePointerId !== null && e.pointerId !== this.activePointerId) return;
+    this.pointerDiag.record('cancel', 'pointer-cancelled', e);
+    this.activePointerId = null;
+    this.pendingMove = null;
     this.isAdjustPointerDown = false;
     if (!this.isDrawingPointerDown) return;
     this.isDrawingPointerDown = false;
     const committed = this.telestrator.endStroke();
     if (committed) {
-      const encoded = encodeTelestratorStroke(committed, false);
-      this.lastWireBytes = encoded.byteLength;
-      const decoded = decodeTelestratorStroke(encoded);
-      const ackBytes = encodeTelestratorHashAck({
-        strokeId: committed.id,
-        hash: committed.hash,
-        matched: decoded?.stroke.hash === committed.hash,
-      });
-      decodeTelestratorHashAck(ackBytes);
       this.syncStrokeStoreState();
     }
   }

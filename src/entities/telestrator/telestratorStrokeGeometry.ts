@@ -353,7 +353,6 @@ function buildCameraFacingArrowheadMesh(
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.computeVertexNormals();
 
   const material = new THREE.MeshBasicMaterial({
     color: colorHex,
@@ -397,7 +396,6 @@ export function buildStrokeRenderGroup(
   if (positions.length > 0) {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geometry.computeVertexNormals();
 
     const material = new THREE.MeshBasicMaterial({
       color: colorHex,
