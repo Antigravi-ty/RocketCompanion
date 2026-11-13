@@ -264,7 +264,7 @@ export const DriftwoodsTransparentTab: React.FC<DriftwoodsTransparentTabProps> =
 
               <TunerRow
                 label="Alpha Opacity"
-                value={config.hexes.opacity ?? 0.22}
+                value={config.hexes.opacity ?? 0.03}
                 sliderMin={0.0}
                 sliderMax={1.0}
                 sliderStep={0.005}

@@ -337,6 +337,7 @@ export function setupDriftwoodsMeshMaterials(
   mesh.material = ctx.fastDiffuse ? lambertMat : standardMat;
 
   if (isDynamicOcclusionMesh) {
+    mesh.userData = { ...mesh.userData, isDynamicOcclusionMesh: true };
     const { overlayStandardMat, overlayLambertMat } = createDriftwoodsOcclusionOverlayPass(
       mesh,
       origMat,
