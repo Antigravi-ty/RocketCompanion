@@ -47,7 +47,7 @@ const PRIVATE_VAULT_STORAGE_KEYS = new Set<string>([
   'rc_dev_remote_profile_bundle_v1',
 ]);
 
-export const DEV_PARAM_REGEX = /dev=1/;
+export const DEV_PARAM_REGEX = /(?:dev|developer)=1/;
 
 export function matchesDevLaunchParameter(raw: string): boolean {
   return DEV_PARAM_REGEX.test(raw);
@@ -93,6 +93,21 @@ export function isConfiguratorRoute(): boolean {
   try {
     const params = new URLSearchParams(window.location.search);
     return params.get('configurator') === '1' || params.get('configurator') === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function isDiagnosticsRoute(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return (
+      params.get('diagnostics') === '1' ||
+      params.get('diagnostics') === 'true' ||
+      params.get('test-fps') === '1' ||
+      params.get('promotion') === '1'
+    );
   } catch {
     return false;
   }
@@ -301,4 +316,39 @@ export async function openTauriVaultFolder(additionalParams: string): Promise<st
     return await invoke<string>('tauri_open_vault_folder', { additionalParams });
   }
   return loadWebFallbackState().vaultDir;
+}
+
+export interface MonitorDiagnostic {
+  name: string | null;
+  width: number;
+  height: number;
+  scaleFactor: number;
+}
+
+export interface TauriDisplayDiagnostics {
+  platform: string;
+  arch: string;
+  os: string;
+  hasMacosFpsPlugin: boolean;
+  availableMonitors: MonitorDiagnostic[];
+  primaryMonitor: MonitorDiagnostic | null;
+}
+
+export async function getTauriDisplayDiagnostics(): Promise<TauriDisplayDiagnostics | null> {
+  const invoke = getTauriInvoke();
+  if (invoke) {
+    try {
+      return await invoke<TauriDisplayDiagnostics>('tauri_get_display_diagnostics');
+    } catch (err) {
+      console.warn('[Tauri] Failed to query display diagnostics:', err);
+    }
+  }
+  return {
+    platform: detectClientPlatformTag(),
+    arch: 'unknown',
+    os: typeof navigator !== 'undefined' ? navigator.platform : 'unknown',
+    hasMacosFpsPlugin: false,
+    availableMonitors: [],
+    primaryMonitor: null,
+  };
 }

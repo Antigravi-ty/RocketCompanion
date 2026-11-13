@@ -1,9 +1,14 @@
+use crate::app_icon::apply_app_and_window_icons;
+use crate::build_info::{
+    format_window_title, CONFIGURATOR_WINDOW_BASE_TITLE, MAIN_WINDOW_BASE_TITLE,
+};
 use crate::config_store::{
     delete_launch_config, ensure_storage_directories, has_dev_param_flag, is_dev_console_unlocked,
     load_launch_state, resolve_vault_dir, resolve_workspace_dir, sanitize_config_for_platform,
     save_launch_config, TauriLaunchConfig, TauriLaunchStatePayload,
 };
 use crate::tray_manager::{sync_tray_devtools_enabled, sync_tray_launch_enabled};
+use serde::Serialize;
 use std::path::Path;
 use std::process::Command;
 use tauri::{AppHandle, Manager, PhysicalPosition, Position, WebviewWindow};
@@ -53,6 +58,15 @@ pub fn apply_window_mode_to_webview(win: &WebviewWindow, requested_mode: &str) {
     }
 }
 
+pub fn apply_window_titles(app: &AppHandle) {
+    if let Some(main_win) = app.get_webview_window("main") {
+        let _ = main_win.set_title(&format_window_title(MAIN_WINDOW_BASE_TITLE));
+    }
+    if let Some(cfg_win) = app.get_webview_window("configurator") {
+        let _ = cfg_win.set_title(&format_window_title(CONFIGURATOR_WINDOW_BASE_TITLE));
+    }
+}
+
 pub fn launch_main_window_with_config(
     app: &AppHandle,
     raw_config: &TauriLaunchConfig,
@@ -62,6 +76,7 @@ pub fn launch_main_window_with_config(
         .get_webview_window("main")
         .ok_or_else(|| "Main window handle not found".to_string())?;
 
+    let _ = main_win.set_title(&format_window_title(MAIN_WINDOW_BASE_TITLE));
     apply_window_mode_to_webview(&main_win, &config.window_mode);
 
     let effective_params = if config.additional_params_enabled {
@@ -102,23 +117,64 @@ pub fn launch_main_window_with_config(
     );
     let _ = main_win.eval(&js_script);
 
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+    apply_app_and_window_icons(app);
+
     if let Some(cfg_win) = app.get_webview_window("configurator") {
         let _ = cfg_win.hide();
     }
 
+    let _ = main_win.unminimize();
     let _ = main_win.show();
     let _ = main_win.set_focus();
     Ok(())
 }
 
 pub fn open_configurator_window(app: &AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+    apply_app_and_window_icons(app);
+
     let cfg_win = app
         .get_webview_window("configurator")
         .ok_or_else(|| "Configurator window handle not found".to_string())?;
+    let _ = cfg_win.set_title(&format_window_title(CONFIGURATOR_WINDOW_BASE_TITLE));
+    let _ = cfg_win.unminimize();
     let _ = cfg_win.eval("window.dispatchEvent(new CustomEvent('rc-tauri-config-updated'));");
     let _ = cfg_win.show();
     let _ = cfg_win.set_focus();
     Ok(())
+}
+
+pub fn update_macos_activation_policy(app: &AppHandle, closing_label: Option<&str>) {
+    #[cfg(target_os = "macos")]
+    {
+        let main_visible = if closing_label == Some("main") {
+            false
+        } else {
+            app.get_webview_window("main")
+                .and_then(|w| w.is_visible().ok())
+                .unwrap_or(false)
+        };
+        let cfg_visible = if closing_label == Some("configurator") {
+            false
+        } else {
+            app.get_webview_window("configurator")
+                .and_then(|w| w.is_visible().ok())
+                .unwrap_or(false)
+        };
+        let has_visible = main_visible || cfg_visible;
+        let target_policy = if has_visible {
+            tauri::ActivationPolicy::Regular
+        } else {
+            tauri::ActivationPolicy::Accessory
+        };
+        let _ = app.set_activation_policy(target_policy);
+        if has_visible {
+            crate::app_icon::ensure_macos_dock_icon();
+        }
+    }
 }
 
 fn open_directory_in_os_shell(dir: &Path) -> Result<String, String> {
@@ -215,4 +271,61 @@ pub fn tauri_open_vault_folder(
     ensure_storage_directories(&app)?;
     let dir = resolve_vault_dir(&app);
     open_directory_in_os_shell(&dir)
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorDiagnostic {
+    pub name: Option<String>,
+    pub width: u32,
+    pub height: u32,
+    pub scale_factor: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TauriDisplayDiagnostics {
+    pub platform: String,
+    pub arch: String,
+    pub os: String,
+    pub has_macos_fps_plugin: bool,
+    pub available_monitors: Vec<MonitorDiagnostic>,
+    pub primary_monitor: Option<MonitorDiagnostic>,
+}
+
+#[tauri::command]
+pub fn tauri_get_display_diagnostics(app: AppHandle) -> TauriDisplayDiagnostics {
+    let available_monitors = app
+        .available_monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| MonitorDiagnostic {
+            name: m.name().cloned(),
+            width: m.size().width,
+            height: m.size().height,
+            scale_factor: m.scale_factor(),
+        })
+        .collect();
+
+    let primary_monitor = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| MonitorDiagnostic {
+            name: m.name().cloned(),
+            width: m.size().width,
+            height: m.size().height,
+            scale_factor: m.scale_factor(),
+        });
+
+    let has_macos_fps_plugin = cfg!(target_os = "macos");
+
+    TauriDisplayDiagnostics {
+        platform: std::env::consts::OS.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
+        os: format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
+        has_macos_fps_plugin,
+        available_monitors,
+        primary_monitor,
+    }
 }

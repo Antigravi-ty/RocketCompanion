@@ -5,8 +5,6 @@ import {
   Moon,
   Sun,
   Terminal,
-  FolderOpen,
-  Lock,
   Play,
   Save,
   RotateCcw,
@@ -14,11 +12,14 @@ import {
 import { PanelFooter } from '../layout/PanelFooter';
 import { SettingSegmentedRow } from '../compounds/SettingSegmentedRow';
 import { SettingToggleRow } from '../compounds/SettingToggleRow';
+import { ConfiguratorActionButtons } from '../compounds/ConfiguratorActionButtons';
+import { ConfiguratorAdvancedView } from '../compounds/ConfiguratorAdvancedView';
 import { Checkbox } from '../primitives/Checkbox';
 import { Button } from '../primitives/Button';
 import {
   DEFAULT_TAURI_LAUNCH_CONFIG,
   getTauriLaunchState,
+  isDiagnosticsRoute,
   launchGameFromConfigurator,
   matchesDevLaunchParameter,
   openTauriVaultFolder,
@@ -89,13 +90,24 @@ export const Layer1TauriConfiguratorRecipe: React.FC<Layer1TauriConfiguratorReci
     applyDocumentTheme(state.config.themeMode);
   }, [applyDocumentTheme]);
 
+  const [viewMode, setViewMode] = useState<'main' | 'advanced'>(() =>
+    isDiagnosticsRoute() ? 'advanced' : 'main'
+  );
+
   useEffect(() => {
     refreshFromBackend();
     const onUpdated = () => {
       refreshFromBackend();
     };
+    const onDiag = () => {
+      setViewMode('advanced');
+    };
     window.addEventListener('rc-tauri-config-updated', onUpdated);
-    return () => window.removeEventListener('rc-tauri-config-updated', onUpdated);
+    window.addEventListener('rc-open-diagnostics', onDiag);
+    return () => {
+      window.removeEventListener('rc-tauri-config-updated', onUpdated);
+      window.removeEventListener('rc-open-diagnostics', onDiag);
+    };
   }, [refreshFromBackend]);
 
   const isMacOs = launchState?.platform === 'macos';
@@ -195,255 +207,231 @@ export const Layer1TauriConfiguratorRecipe: React.FC<Layer1TauriConfiguratorReci
       }`}
     >
       <div className="flex-1 min-h-0 w-full overflow-y-auto px-5 py-4 flex flex-col justify-between gap-3">
-        <div className="flex flex-col gap-2.5">
-          <SettingSegmentedRow
-            icon={Monitor}
-            label="Display Window Mode"
-            showDescription={false}
-            value={effectiveWindowMode}
-            onChange={(val) =>
-              setDraftConfig((prev) => ({ ...prev, windowMode: val as TauriWindowMode }))
-            }
-            options={windowModeOptions}
-            hoverDescription={
-              isMacOs
-                ? 'Select Fullscreen or Windowed mode (Borderless is disabled on macOS).'
-                : 'Select Fullscreen, Borderless (top-left offset without titlebar), or Windowed mode.'
-            }
-            onHover={(desc) => desc && setHoveredDesc(desc)}
-            onLeave={() => setHoveredDesc(null)}
+        {viewMode === 'advanced' ? (
+          <ConfiguratorAdvancedView
             isLight={isLight}
-            bordered
+            onBack={() => setViewMode('main')}
+            onHover={setHoveredDesc}
           />
-
-          <SettingSegmentedRow
-            icon={Palette}
-            label="Style"
-            showDescription={false}
-            value={draftConfig.themeMode}
-            onChange={handleThemeModeChange}
-            options={[
-              { value: 'dark', label: 'Dark Mode', icon: <Moon className="h-3.5 w-3.5" /> },
-              { value: 'light', label: 'Light Mode', icon: <Sun className="h-3.5 w-3.5" /> },
-            ]}
-            hoverDescription="Switch user interface appearance between Dark Mode and Light Mode."
-            onHover={(desc) => desc && setHoveredDesc(desc)}
-            onLeave={() => setHoveredDesc(null)}
-            isLight={isLight}
-            bordered
-          />
-
-          <SettingToggleRow
-            icon={Terminal}
-            title="Additional Launching Parameters"
-            showDescription={false}
-            checked={draftConfig.additionalParamsEnabled}
-            onChange={(enabled) =>
-              setDraftConfig((prev) => ({ ...prev, additionalParamsEnabled: enabled }))
-            }
-            variant="amber"
-            bordered
-            hoverDescription="Enable custom launch query parameters. Arguments are passed directly on startup without validation."
-            onHover={(desc) => desc && setHoveredDesc(desc)}
-            onLeave={() => setHoveredDesc(null)}
-            isLight={isLight}
-            bottomSlot={
-              draftConfig.additionalParamsEnabled ? (
-                <input
-                  type="text"
-                  spellCheck={false}
-                  autoComplete="off"
-                  value={draftConfig.additionalParams}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) =>
-                    setDraftConfig((prev) => ({ ...prev, additionalParams: e.target.value }))
-                  }
-                  placeholder="Enter custom launch arguments..."
-                  className={`w-full rounded-lg border px-3 py-2 text-xs font-mono outline-none transition-colors ${
-                    isLight
-                      ? 'bg-neutral-100 border-neutral-300 text-neutral-900 placeholder:text-neutral-400 focus:border-amber-500'
-                      : 'bg-neutral-900 border-white/12 text-neutral-100 placeholder:text-neutral-600 focus:border-amber-500/70'
-                  }`}
-                />
-              ) : undefined
-            }
-          />
-
-          <div
-            className={`flex flex-col rounded-xl border divide-y ${
-              isLight
-                ? 'bg-white/90 border-neutral-200/90 divide-neutral-200/80'
-                : 'bg-white/[0.03] border-white/[0.08] divide-white/[0.06]'
-            }`}
-          >
-            <div
-              className="px-3.5 py-3 flex items-center"
-              onMouseEnter={() =>
-                setHoveredDesc(
-                  "Unlocks the System Tray 'Launch' button and enables direct startup when launch-config.json is present."
-                )
-              }
-              onMouseLeave={() => setHoveredDesc(null)}
-            >
-              <Checkbox
-                checked={draftConfig.useAsDefault}
-                onChange={(checked) => setDraftConfig((prev) => ({ ...prev, useAsDefault: checked }))}
-                variant="amber"
-                size="lg"
-                isLight={isLight}
-                className="w-full [&_span]:!text-[clamp(13px,1.6vw,15px)]"
-                label="Use this configuration as default"
-              />
-            </div>
-
-            <div
-              className="px-3.5 py-3 flex items-center"
-              onMouseEnter={() =>
-                setHoveredDesc(
-                  'Always open this Configurator window on application startup instead of auto-launching the game window.'
-                )
-              }
-              onMouseLeave={() => setHoveredDesc(null)}
-            >
-              <Checkbox
-                checked={draftConfig.launchConfiguratorEveryTime}
-                onChange={(checked) =>
-                  setDraftConfig((prev) => ({ ...prev, launchConfiguratorEveryTime: checked }))
+        ) : (
+          <>
+            <div className="flex flex-col gap-2.5">
+              <SettingSegmentedRow
+                icon={Monitor}
+                label="Display Window Mode"
+                showDescription={false}
+                value={effectiveWindowMode}
+                onChange={(val) =>
+                  setDraftConfig((prev) => ({ ...prev, windowMode: val as TauriWindowMode }))
                 }
-                variant="sky"
-                size="lg"
+                options={windowModeOptions}
+                hoverDescription={
+                  isMacOs
+                    ? 'Select Fullscreen or Windowed mode (Borderless is disabled on macOS).'
+                    : 'Select Fullscreen, Borderless (top-left offset without titlebar), or Windowed mode.'
+                }
+                onHover={(desc) => desc && setHoveredDesc(desc)}
+                onLeave={() => setHoveredDesc(null)}
                 isLight={isLight}
-                className="w-full [&_span]:!text-[clamp(13px,1.6vw,15px)]"
-                label="Launch Configurator every time"
+                bordered
+              />
+
+              <SettingSegmentedRow
+                icon={Palette}
+                label="Style"
+                showDescription={false}
+                value={draftConfig.themeMode}
+                onChange={handleThemeModeChange}
+                options={[
+                  { value: 'dark', label: 'Dark Mode', icon: <Moon className="h-3.5 w-3.5" /> },
+                  { value: 'light', label: 'Light Mode', icon: <Sun className="h-3.5 w-3.5" /> },
+                ]}
+                hoverDescription="Switch user interface appearance between Dark Mode and Light Mode."
+                onHover={(desc) => desc && setHoveredDesc(desc)}
+                onLeave={() => setHoveredDesc(null)}
+                isLight={isLight}
+                bordered
+              />
+
+              <SettingToggleRow
+                icon={Terminal}
+                title="Additional Launching Parameters"
+                showDescription={false}
+                checked={draftConfig.additionalParamsEnabled}
+                onChange={(enabled) =>
+                  setDraftConfig((prev) => ({ ...prev, additionalParamsEnabled: enabled }))
+                }
+                variant="amber"
+                bordered
+                hoverDescription="Enable custom launch query parameters. Arguments are passed directly on startup without validation."
+                onHover={(desc) => desc && setHoveredDesc(desc)}
+                onLeave={() => setHoveredDesc(null)}
+                isLight={isLight}
+                bottomSlot={
+                  draftConfig.additionalParamsEnabled ? (
+                    <input
+                      type="text"
+                      spellCheck={false}
+                      autoComplete="off"
+                      value={draftConfig.additionalParams}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) =>
+                        setDraftConfig((prev) => ({ ...prev, additionalParams: e.target.value }))
+                      }
+                      placeholder="Enter custom launch arguments..."
+                      className={`w-full rounded-lg border px-3 py-2 text-xs font-mono outline-none transition-colors ${
+                        isLight
+                          ? 'bg-neutral-100 border-neutral-300 text-neutral-900 placeholder:text-neutral-400 focus:border-amber-500'
+                          : 'bg-neutral-900 border-white/12 text-neutral-100 placeholder:text-neutral-600 focus:border-amber-500/70'
+                      }`}
+                    />
+                  ) : undefined
+                }
+              />
+
+              <div
+                className={`flex flex-col rounded-xl border divide-y ${
+                  isLight
+                    ? 'bg-white/90 border-neutral-200/90 divide-neutral-200/80'
+                    : 'bg-white/[0.03] border-white/[0.08] divide-white/[0.06]'
+                }`}
+              >
+                <div
+                  className="px-3.5 py-3 flex items-center"
+                  onMouseEnter={() =>
+                    setHoveredDesc(
+                      "Unlocks the System Tray 'Launch' button and enables direct startup when launch-config.json is present."
+                    )
+                  }
+                  onMouseLeave={() => setHoveredDesc(null)}
+                >
+                  <Checkbox
+                    checked={draftConfig.useAsDefault}
+                    onChange={(checked) => setDraftConfig((prev) => ({ ...prev, useAsDefault: checked }))}
+                    variant="amber"
+                    size="lg"
+                    isLight={isLight}
+                    className="w-full [&_span]:!text-[clamp(13px,1.6vw,15px)]"
+                    label="Use this configuration as default"
+                  />
+                </div>
+
+                <div
+                  className="px-3.5 py-3 flex items-center"
+                  onMouseEnter={() =>
+                    setHoveredDesc(
+                      'Always open this Configurator window on application startup instead of auto-launching the game window.'
+                    )
+                  }
+                  onMouseLeave={() => setHoveredDesc(null)}
+                >
+                  <Checkbox
+                    checked={draftConfig.launchConfiguratorEveryTime}
+                    onChange={(checked) =>
+                      setDraftConfig((prev) => ({ ...prev, launchConfiguratorEveryTime: checked }))
+                    }
+                    variant="sky"
+                    size="lg"
+                    isLight={isLight}
+                    className="w-full [&_span]:!text-[clamp(13px,1.6vw,15px)]"
+                    label="Launch Configurator every time"
+                  />
+                </div>
+
+                <div
+                  className="px-3.5 py-3 flex items-center"
+                  onMouseEnter={() =>
+                    setHoveredDesc(
+                      'Do not pop up any window on process start; launch or configure on-demand from the Crossbar system tray icon.'
+                    )
+                  }
+                  onMouseLeave={() => setHoveredDesc(null)}
+                >
+                  <Checkbox
+                    checked={draftConfig.trayOnlyMode}
+                    onChange={(checked) => setDraftConfig((prev) => ({ ...prev, trayOnlyMode: checked }))}
+                    variant="emerald"
+                    size="lg"
+                    isLight={isLight}
+                    className="w-full [&_span]:!text-[clamp(13px,1.6vw,15px)]"
+                    label="Silent Tray-Only Startup"
+                  />
+                </div>
+              </div>
+
+              <ConfiguratorActionButtons
+                isLight={isLight}
+                isPrivateVaultUnlocked={isPrivateVaultUnlocked}
+                workspaceDir={launchState?.workspaceDir}
+                vaultDir={launchState?.vaultDir}
+                onOpenWorkspace={handleOpenWorkspace}
+                onOpenPrivateVault={handleOpenPrivateVault}
+                onOpenAdvanced={() => setViewMode('advanced')}
+                onHover={setHoveredDesc}
               />
             </div>
 
-            <div
-              className="px-3.5 py-3 flex items-center"
-              onMouseEnter={() =>
-                setHoveredDesc(
-                  'Do not pop up any window on process start; launch or configure on-demand from the Crossbar system tray icon.'
-                )
-              }
-              onMouseLeave={() => setHoveredDesc(null)}
-            >
-              <Checkbox
-                checked={draftConfig.trayOnlyMode}
-                onChange={(checked) => setDraftConfig((prev) => ({ ...prev, trayOnlyMode: checked }))}
-                variant="emerald"
-                size="lg"
-                isLight={isLight}
-                className="w-full [&_span]:!text-[clamp(13px,1.6vw,15px)]"
-                label="Silent Tray-Only Startup"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5">
-            <div
-              onMouseEnter={() =>
-                setHoveredDesc(
-                  `Open public user workspace directory (${launchState?.workspaceDir || 'workspace'}).`
-                )
-              }
-              onMouseLeave={() => setHoveredDesc(null)}
-            >
-              <Button
-                variant="secondary"
-                size="md"
-                className="w-full"
-                isLight={isLight}
-                icon={<FolderOpen className="w-4 h-4" />}
-                onClick={handleOpenWorkspace}
+            <div className="flex items-center justify-between gap-2.5 pt-2">
+              <div
+                onMouseEnter={() =>
+                  setHoveredDesc(
+                    'Delete launch-config.json and disable the System Tray Launch button until a new default is saved.'
+                  )
+                }
+                onMouseLeave={() => setHoveredDesc(null)}
               >
-                Open Workspace Folder
-              </Button>
-            </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  isLight={isLight}
+                  disabled={isBusy || !launchState?.configFileExists}
+                  icon={<RotateCcw className="w-3.5 h-3.5" />}
+                  onClick={handleResetDefault}
+                >
+                  Reset Default
+                </Button>
+              </div>
 
-            <div
-              onMouseEnter={() =>
-                setHoveredDesc(
-                  isPrivateVaultUnlocked
-                    ? `Open isolated private vault directory (${launchState?.vaultDir || '.vault'}).`
-                    : 'Private Vault folder is locked.'
-                )
-              }
-              onMouseLeave={() => setHoveredDesc(null)}
-            >
-              <Button
-                variant="secondary"
-                size="md"
-                className="w-full"
-                isLight={isLight}
-                disabled={!isPrivateVaultUnlocked}
-                icon={<Lock className="w-4 h-4" />}
-                onClick={handleOpenPrivateVault}
-              >
-                Open Private Vault Folder
-              </Button>
-            </div>
-          </div>
-        </div>
+              <div className="flex items-center gap-2">
+                <div
+                  onMouseEnter={() =>
+                    setHoveredDesc('Save current configuration to workspace/launch-config.json without launching.')
+                  }
+                  onMouseLeave={() => setHoveredDesc(null)}
+                >
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    isLight={isLight}
+                    disabled={isBusy}
+                    icon={<Save className="w-4 h-4" />}
+                    onClick={handleSaveOnly}
+                  >
+                    Save Only
+                  </Button>
+                </div>
 
-        <div className="flex items-center justify-between gap-2.5 pt-2">
-          <div
-            onMouseEnter={() =>
-              setHoveredDesc(
-                'Delete launch-config.json and disable the System Tray Launch button until a new default is saved.'
-              )
-            }
-            onMouseLeave={() => setHoveredDesc(null)}
-          >
-            <Button
-              variant="ghost"
-              size="sm"
-              isLight={isLight}
-              disabled={isBusy || !launchState?.configFileExists}
-              icon={<RotateCcw className="w-3.5 h-3.5" />}
-              onClick={handleResetDefault}
-            >
-              Reset Default
-            </Button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div
-              onMouseEnter={() =>
-                setHoveredDesc('Save current configuration to workspace/launch-config.json without launching.')
-              }
-              onMouseLeave={() => setHoveredDesc(null)}
-            >
-              <Button
-                variant="secondary"
-                size="md"
-                isLight={isLight}
-                disabled={isBusy}
-                icon={<Save className="w-4 h-4" />}
-                onClick={handleSaveOnly}
-              >
-                Save Only
-              </Button>
+                <div
+                  onMouseEnter={() =>
+                    setHoveredDesc('Save configuration and launch Rocket Companion with the selected settings.')
+                  }
+                  onMouseLeave={() => setHoveredDesc(null)}
+                >
+                  <Button
+                    variant="primary"
+                    size="md"
+                    isLight={isLight}
+                    loading={isBusy}
+                    icon={<Play className="w-4 h-4 fill-current" />}
+                    onClick={handleLaunchGame}
+                  >
+                    Launch Rocket Companion
+                  </Button>
+                </div>
+              </div>
             </div>
-
-            <div
-              onMouseEnter={() =>
-                setHoveredDesc('Save configuration and launch Rocket Companion with the selected settings.')
-              }
-              onMouseLeave={() => setHoveredDesc(null)}
-            >
-              <Button
-                variant="primary"
-                size="md"
-                isLight={isLight}
-                loading={isBusy}
-                icon={<Play className="w-4 h-4 fill-current" />}
-                onClick={handleLaunchGame}
-              >
-                Launch Rocket Companion
-              </Button>
-            </div>
-          </div>
-        </div>
+          </>
+        )}
       </div>
 
       <PanelFooter
