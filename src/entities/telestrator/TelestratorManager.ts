@@ -5,8 +5,8 @@ import {
   simplifyAndResampleStroke,
 } from './telestratorStrokeGeometry.ts';
 import {
-  DEFAULT_TELESTRATOR_ARROW_LENGTH_UU,
-  DEFAULT_TELESTRATOR_ARROW_WIDTH_UU,
+  DEFAULT_TELESTRATOR_ARROW_LENGTH_REF_PX,
+  DEFAULT_TELESTRATOR_ARROW_WIDTH_REF_PX,
   type TelestratorBrushTool,
   type TelestratorColorId,
   type TelestratorPoint,
@@ -24,10 +24,12 @@ export interface BeginStrokeOptions {
   tool: TelestratorBrushTool;
   colorId: TelestratorColorId;
   opacity: number;
-  widthUnits: number;
-  arrowLength?: number;
-  arrowWidth?: number;
+  widthRefPx: number;
+  arrowLengthRefPx?: number;
+  arrowWidthRefPx?: number;
+  camPos?: TelestratorVec3;
   camForward?: TelestratorVec3;
+  camFovDeg?: number;
   createdTick?: number;
   fadeDurationTicks?: number;
 }
@@ -59,6 +61,20 @@ function extractCamForward(camera: THREE.Camera | null): TelestratorVec3 {
   return { x: dir.x, y: dir.y, z: dir.z };
 }
 
+function extractCamPos(camera: THREE.Camera | null): TelestratorVec3 {
+  if (!camera) return { x: 0, y: 1600, z: -3600 };
+  const pos = new THREE.Vector3();
+  camera.getWorldPosition(pos);
+  return { x: pos.x, y: pos.y, z: pos.z };
+}
+
+function extractCamFovDeg(camera: THREE.Camera | null): number {
+  if (camera && 'fov' in camera && typeof (camera as THREE.PerspectiveCamera).fov === 'number') {
+    return (camera as THREE.PerspectiveCamera).fov;
+  }
+  return 60;
+}
+
 export class TelestratorManager {
   public readonly rootGroup: THREE.Group = new THREE.Group();
   private readonly strokes: ManagedStrokeEntry[] = [];
@@ -68,7 +84,15 @@ export class TelestratorManager {
     options: Required<
       Pick<
         BeginStrokeOptions,
-        'tool' | 'colorId' | 'opacity' | 'widthUnits' | 'arrowLength' | 'arrowWidth' | 'camForward'
+        | 'tool'
+        | 'colorId'
+        | 'opacity'
+        | 'widthRefPx'
+        | 'arrowLengthRefPx'
+        | 'arrowWidthRefPx'
+        | 'camPos'
+        | 'camForward'
+        | 'camFovDeg'
       >
     > &
       BeginStrokeOptions;
@@ -111,16 +135,20 @@ export class TelestratorManager {
   ): void {
     this.cancelDraft();
     this.strokeSeq++;
+    const camPos = options.camPos ?? extractCamPos(camera);
     const camForward = options.camForward ?? extractCamForward(camera);
-    const arrowLength = options.arrowLength ?? DEFAULT_TELESTRATOR_ARROW_LENGTH_UU;
-    const arrowWidth = options.arrowWidth ?? DEFAULT_TELESTRATOR_ARROW_WIDTH_UU;
+    const camFovDeg = options.camFovDeg ?? extractCamFovDeg(camera);
+    const arrowLengthRefPx = options.arrowLengthRefPx ?? DEFAULT_TELESTRATOR_ARROW_LENGTH_REF_PX;
+    const arrowWidthRefPx = options.arrowWidthRefPx ?? DEFAULT_TELESTRATOR_ARROW_WIDTH_REF_PX;
     this.activeDraft = {
       id: `stroke-${Date.now()}-${this.strokeSeq}`,
       options: {
         ...options,
-        arrowLength,
-        arrowWidth,
+        arrowLengthRefPx,
+        arrowWidthRefPx,
+        camPos,
         camForward,
+        camFovDeg,
       },
       points: [{ ...firstPoint }],
       group: null,
@@ -147,10 +175,12 @@ export class TelestratorManager {
       opts.tool,
       opts.colorId,
       opts.opacity,
-      opts.widthUnits,
-      opts.arrowLength,
-      opts.arrowWidth,
-      opts.camForward
+      opts.widthRefPx,
+      opts.arrowLengthRefPx,
+      opts.arrowWidthRefPx,
+      opts.camPos,
+      opts.camForward,
+      opts.camFovDeg
     );
     this.rootGroup.add(this.activeDraft.group);
     return true;
@@ -174,7 +204,7 @@ export class TelestratorManager {
       opts.tool,
       opts.colorId,
       opts.opacity,
-      opts.widthUnits,
+      opts.widthRefPx,
       simplified
     );
 
@@ -184,10 +214,12 @@ export class TelestratorManager {
       tool: opts.tool,
       colorId: opts.colorId,
       opacity: opts.opacity,
-      widthUnits: opts.widthUnits,
-      arrowLength: opts.arrowLength,
-      arrowWidth: opts.arrowWidth,
+      widthRefPx: opts.widthRefPx,
+      arrowLengthRefPx: opts.arrowLengthRefPx,
+      arrowWidthRefPx: opts.arrowWidthRefPx,
+      camPos: opts.camPos,
       camForward: opts.camForward,
+      camFovDeg: opts.camFovDeg,
       createdTick: opts.createdTick ?? 0,
       fadeDurationTicks: opts.fadeDurationTicks ?? 0,
       points: simplified,
@@ -287,10 +319,12 @@ export class TelestratorManager {
       stroke.tool,
       stroke.colorId,
       stroke.opacity,
-      stroke.widthUnits,
-      stroke.arrowLength,
-      stroke.arrowWidth,
-      stroke.camForward
+      stroke.widthRefPx,
+      stroke.arrowLengthRefPx,
+      stroke.arrowWidthRefPx,
+      stroke.camPos,
+      stroke.camForward,
+      stroke.camFovDeg
     );
   }
 

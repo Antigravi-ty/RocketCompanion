@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { TELESTRATOR_COLORS } from '../../../entities/telestrator/telestratorTypes';
 import type { StandardSurfaceProps, SurfaceMeta } from '../../manifest/surfaceMetaTypes';
+import { floatingStore } from '../../stores/floatingStore';
 import {
   useTelestratorStore,
   type TelestratorPresetIndex,
@@ -24,15 +25,15 @@ export const SURFACE_META: SurfaceMeta = {
   title: 'Telestrator Overlay',
   subtitle: '3D Spatial Tactical Drawing & View Adjust',
   description:
-    'Mode-independent vertical overlay toolbar for 3D arena telestrator strokes, brush presets, colors, Direction Adjust, Undo, Clear, and real-unit Settings.',
+    'Mode-independent vertical overlay toolbar for 3D arena telestrator strokes, brush presets, colors, Direction Adjust, Undo, Clear, and normalized screen-space Settings.',
   icon: 'Pen',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
   hideFooter: true,
   defaultSizing: {
-    width: 72,
-    height: 540,
-    minHeight: 360,
+    width: 56,
+    height: 500,
+    minHeight: 340,
     mode: 'adaptive',
   },
 };
@@ -111,8 +112,8 @@ export const TelestratorToolbarFloatingWindow: React.FC<
   const activeColorId = useTelestratorStore((s) => s.activeColorId);
   const activePresetIndex = useTelestratorStore((s) => s.activePresetIndex);
   const presets = useTelestratorStore((s) => s.presets);
-  const arrowLength = useTelestratorStore((s) => s.arrowLength);
-  const arrowWidth = useTelestratorStore((s) => s.arrowWidth);
+  const arrowLengthRefPx = useTelestratorStore((s) => s.arrowLengthRefPx);
+  const arrowWidthRefPx = useTelestratorStore((s) => s.arrowWidthRefPx);
   const strokeCount = useTelestratorStore((s) => s.strokeCount);
   const hasUndoHistory = useTelestratorStore((s) => s.hasUndoHistory);
   const pendingClearPurge = useTelestratorStore((s) => s.pendingClearPurge);
@@ -149,15 +150,27 @@ export const TelestratorToolbarFloatingWindow: React.FC<
   const dividerClass = isLight ? 'border-neutral-200' : 'border-neutral-800';
   const activePreset = presets[activePresetIndex] ?? presets[0];
 
+  const handleToggleSettings = () => {
+    const nextOpen = !settingsOpen;
+    setSettingsOpen(nextOpen);
+    const snap = floatingStore.getSnapshot();
+    const win = snap.windows.find((w) => w.id === 'telestrator-toolbar');
+    const curHeight = win?.height ?? 500;
+    floatingStore.updateSize('telestrator-toolbar', {
+      width: nextOpen ? 310 : 56,
+      height: curHeight,
+    });
+  };
+
   const handleCopyJson = () => {
     const payload = {
-      widthUnits: activePreset.widthUnits,
-      arrowLength,
-      arrowWidth,
+      widthRefPx: activePreset.widthRefPx,
+      arrowLengthRefPx,
+      arrowWidthRefPx,
       presets: presets.map((p) => ({
         id: p.id,
         opacity: Number(p.opacity.toFixed(2)),
-        widthUnits: p.widthUnits,
+        widthRefPx: p.widthRefPx,
       })),
     };
     const json = JSON.stringify(payload, null, 2);
@@ -169,7 +182,8 @@ export const TelestratorToolbarFloatingWindow: React.FC<
   };
 
   return (
-    <div className="relative flex flex-col items-center gap-1.5 py-1 select-none">
+    <div className="flex flex-row items-start w-full select-none">
+      <div className="flex flex-col items-center gap-1 shrink-0">
       <IconButtonWithBubble
         label={drawingEnabled ? 'Draw Mode ON (Click to Pause Drawing)' : 'Draw Mode OFF (Click to Draw)'}
         active={drawingEnabled && !directionAdjustActive}
@@ -247,7 +261,7 @@ export const TelestratorToolbarFloatingWindow: React.FC<
         return (
           <IconButtonWithBubble
             key={preset.id}
-            label={`Preset ${idx + 1}: ${pct}% Opacity, ${preset.widthUnits} UU`}
+            label={`Preset ${idx + 1}: ${pct}% Opacity, ${preset.widthRefPx} px (1080p)`}
             active={activePresetIndex === idx}
             isLight={isLight}
             onClick={() => setActivePresetIndex(idx)}
@@ -307,24 +321,25 @@ export const TelestratorToolbarFloatingWindow: React.FC<
       </IconButtonWithBubble>
 
       <IconButtonWithBubble
-        label="Telestrator Settings (Units & Presets)"
+        label="Telestrator Settings (Screen-Space Ref Px & Presets)"
         active={settingsOpen}
         isLight={isLight}
-        onClick={() => setSettingsOpen(!settingsOpen)}
+        onClick={handleToggleSettings}
       >
         <Settings className="w-3.5 h-3.5" />
       </IconButtonWithBubble>
+      </div>
 
       {settingsOpen && (
         <div
-          className={`absolute left-full bottom-0 ml-2 z-50 w-60 rounded-xl border p-3 shadow-xl flex flex-col gap-2.5 text-xs ${
+          className={`ml-2 w-[236px] shrink-0 rounded-xl border p-2.5 flex flex-col gap-2 text-xs ${
             isLight
-              ? 'bg-white border-neutral-300 text-neutral-800'
-              : 'bg-neutral-950/95 border-neutral-700 text-neutral-100'
+              ? 'bg-white/95 border-neutral-300 text-neutral-800'
+              : 'bg-neutral-950/90 border-neutral-700 text-neutral-100'
           }`}
         >
           <div className="flex items-center justify-between">
-            <span className="font-semibold">Telestrator Units (UU)</span>
+            <span className="font-semibold">Brush Size (1080p Ref)</span>
             <button
               type="button"
               onClick={handleCopyJson}
@@ -338,16 +353,16 @@ export const TelestratorToolbarFloatingWindow: React.FC<
           <label className="flex flex-col gap-1">
             <div className="flex justify-between text-[11px]">
               <span>Line Width (Active Preset)</span>
-              <span className="tabular-nums font-semibold">{activePreset.widthUnits} UU</span>
+              <span className="tabular-nums font-semibold">{activePreset.widthRefPx} px</span>
             </div>
             <input
               type="range"
-              min={6}
-              max={120}
-              step={2}
-              value={activePreset.widthUnits}
+              min={3}
+              max={48}
+              step={1}
+              value={activePreset.widthRefPx}
               onChange={(e) =>
-                updatePreset(activePresetIndex, { widthUnits: Number(e.target.value) })
+                updatePreset(activePresetIndex, { widthRefPx: Number(e.target.value) })
               }
               className="w-full accent-emerald-400"
             />
@@ -356,15 +371,15 @@ export const TelestratorToolbarFloatingWindow: React.FC<
           <label className="flex flex-col gap-1">
             <div className="flex justify-between text-[11px]">
               <span>Arrowhead Length</span>
-              <span className="tabular-nums font-semibold">{arrowLength} UU</span>
+              <span className="tabular-nums font-semibold">{arrowLengthRefPx} px</span>
             </div>
             <input
               type="range"
-              min={25}
-              max={300}
-              step={5}
-              value={arrowLength}
-              onChange={(e) => setArrowSize(Number(e.target.value), arrowWidth)}
+              min={12}
+              max={120}
+              step={2}
+              value={arrowLengthRefPx}
+              onChange={(e) => setArrowSize(Number(e.target.value), arrowWidthRefPx)}
               className="w-full accent-sky-400"
             />
           </label>
@@ -372,15 +387,15 @@ export const TelestratorToolbarFloatingWindow: React.FC<
           <label className="flex flex-col gap-1">
             <div className="flex justify-between text-[11px]">
               <span>Arrowhead Width</span>
-              <span className="tabular-nums font-semibold">{arrowWidth} UU</span>
+              <span className="tabular-nums font-semibold">{arrowWidthRefPx} px</span>
             </div>
             <input
               type="range"
-              min={20}
-              max={250}
-              step={5}
-              value={arrowWidth}
-              onChange={(e) => setArrowSize(arrowLength, Number(e.target.value))}
+              min={10}
+              max={100}
+              step={2}
+              value={arrowWidthRefPx}
+              onChange={(e) => setArrowSize(arrowLengthRefPx, Number(e.target.value))}
               className="w-full accent-sky-400"
             />
           </label>
@@ -410,6 +425,8 @@ export const TelestratorToolbarFloatingWindow: React.FC<
           </div>
         </div>
       )}
+
+      <div className="flex-1 min-w-0" />
     </div>
   );
 };

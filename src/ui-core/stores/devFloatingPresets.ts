@@ -341,12 +341,13 @@ export const TELESTRATOR_TOOLBAR_PRESET: PresetConfig = makeDevPreset({
   id: 'telestrator-toolbar',
   title: 'Telestrator Overlay',
   category: 'TelestratorToolbar',
-  width: 72,
-  minWidth: 64,
-  height: 540,
-  minHeight: 360,
+  width: 56,
+  minWidth: 52,
+  height: 500,
+  minHeight: 340,
   hideFooter: true,
-  summary: 'Mode-independent 3D telestrator overlay toolbar with brush modes, real-unit UU presets, colors, Direction Adjust, Undo, Clear, and Settings.',
+  summary:
+    'Mode-independent 3D telestrator overlay toolbar with brush modes, normalized screen-space presets, colors, Direction Adjust, Undo, Clear, and Settings.',
   menuEntryPath: DEV_ENTRY_PATHS.ACTIVE_TUNERS,
   component: 'TelestratorToolbarFloatingWindow',
 });

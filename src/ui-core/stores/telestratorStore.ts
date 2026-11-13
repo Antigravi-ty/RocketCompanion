@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import {
-  DEFAULT_TELESTRATOR_ARROW_LENGTH_UU,
-  DEFAULT_TELESTRATOR_ARROW_WIDTH_UU,
+  DEFAULT_TELESTRATOR_ARROW_LENGTH_REF_PX,
+  DEFAULT_TELESTRATOR_ARROW_WIDTH_REF_PX,
   DEFAULT_TELESTRATOR_PRESETS,
   type TelestratorBrushPreset,
   type TelestratorBrushTool,
@@ -29,8 +29,8 @@ export interface TelestratorState {
   activeColorId: TelestratorColorId;
   activePresetIndex: TelestratorPresetIndex;
   presets: [TelestratorBrushPreset, TelestratorBrushPreset, TelestratorBrushPreset];
-  arrowLength: number;
-  arrowWidth: number;
+  arrowLengthRefPx: number;
+  arrowWidthRefPx: number;
   strokeCount: number;
   hasUndoHistory: boolean;
   pendingClearPurge: boolean;
@@ -47,9 +47,9 @@ export interface TelestratorState {
   setActivePresetIndex: (index: TelestratorPresetIndex) => void;
   updatePreset: (
     index: TelestratorPresetIndex,
-    patch: Partial<Pick<TelestratorBrushPreset, 'opacity' | 'widthUnits'>>
+    patch: Partial<Pick<TelestratorBrushPreset, 'opacity' | 'widthRefPx'>>
   ) => void;
-  setArrowSize: (length: number, width: number) => void;
+  setArrowSize: (lengthRefPx: number, widthRefPx: number) => void;
   setStrokeSyncState: (
     strokeCount: number,
     hasUndoHistory: boolean,
@@ -77,8 +77,8 @@ export const useTelestratorStore = create<TelestratorState>((set, get) => ({
     { ...DEFAULT_TELESTRATOR_PRESETS[1] },
     { ...DEFAULT_TELESTRATOR_PRESETS[2] },
   ],
-  arrowLength: DEFAULT_TELESTRATOR_ARROW_LENGTH_UU,
-  arrowWidth: DEFAULT_TELESTRATOR_ARROW_WIDTH_UU,
+  arrowLengthRefPx: DEFAULT_TELESTRATOR_ARROW_LENGTH_REF_PX,
+  arrowWidthRefPx: DEFAULT_TELESTRATOR_ARROW_WIDTH_REF_PX,
   strokeCount: 0,
   hasUndoHistory: false,
   pendingClearPurge: false,
@@ -153,18 +153,18 @@ export const useTelestratorStore = create<TelestratorState>((set, get) => ({
         typeof patch.opacity === 'number'
           ? Math.max(0.05, Math.min(1, patch.opacity))
           : target.opacity,
-      widthUnits:
-        typeof patch.widthUnits === 'number'
-          ? Math.max(4, Math.min(160, Math.round(patch.widthUnits)))
-          : target.widthUnits,
+      widthRefPx:
+        typeof patch.widthRefPx === 'number'
+          ? Math.max(3, Math.min(48, Math.round(patch.widthRefPx)))
+          : target.widthRefPx,
     };
     set({ presets: next });
   },
 
-  setArrowSize: (length, width) =>
+  setArrowSize: (lengthRefPx, widthRefPx) =>
     set({
-      arrowLength: Math.max(20, Math.min(350, Math.round(length))),
-      arrowWidth: Math.max(15, Math.min(300, Math.round(width))),
+      arrowLengthRefPx: Math.max(12, Math.min(120, Math.round(lengthRefPx))),
+      arrowWidthRefPx: Math.max(10, Math.min(100, Math.round(widthRefPx))),
     }),
 
   setStrokeSyncState: (strokeCount, hasUndoHistory, pendingClearPurge) =>

@@ -18,8 +18,8 @@ export const TelestratorDeveloperSection: React.FC<TelestratorDeveloperSectionPr
 }) => {
   const overlayActive = useTelestratorStore((s) => s.overlayActive);
   const presets = useTelestratorStore((s) => s.presets);
-  const arrowLength = useTelestratorStore((s) => s.arrowLength);
-  const arrowWidth = useTelestratorStore((s) => s.arrowWidth);
+  const arrowLengthRefPx = useTelestratorStore((s) => s.arrowLengthRefPx);
+  const arrowWidthRefPx = useTelestratorStore((s) => s.arrowWidthRefPx);
   const updatePreset = useTelestratorStore((s) => s.updatePreset);
   const setArrowSize = useTelestratorStore((s) => s.setArrowSize);
   const [copiedJson, setCopiedJson] = useState(false);
@@ -35,12 +35,12 @@ export const TelestratorDeveloperSection: React.FC<TelestratorDeveloperSectionPr
 
   const handleCopyJson = () => {
     const payload = {
-      arrowLength,
-      arrowWidth,
+      arrowLengthRefPx,
+      arrowWidthRefPx,
       presets: presets.map((p) => ({
         id: p.id,
         opacity: Number(p.opacity.toFixed(2)),
-        widthUnits: p.widthUnits,
+        widthRefPx: p.widthRefPx,
       })),
     };
     const json = JSON.stringify(payload, null, 2);
@@ -67,7 +67,7 @@ export const TelestratorDeveloperSection: React.FC<TelestratorDeveloperSectionPr
 
       <div className={`rounded-xl border p-2.5 flex flex-col gap-2 text-xs ${cardClass}`}>
         <div className="flex items-center justify-between">
-          <span className="font-semibold">Telestrator Brush Presets &amp; Arrowhead (UU)</span>
+          <span className="font-semibold">Telestrator Brush Presets (1080p Ref Px)</span>
           <button
             type="button"
             onClick={handleCopyJson}
@@ -81,26 +81,26 @@ export const TelestratorDeveloperSection: React.FC<TelestratorDeveloperSectionPr
         <div className="flex items-center justify-between gap-3">
           <span className={`w-20 font-medium ${labelMuted}`}>Arrowhead</span>
           <label className="flex items-center gap-1.5 flex-1">
-            <span className={`text-[11px] w-16 ${labelMuted}`}>L: {arrowLength} UU</span>
+            <span className={`text-[11px] w-16 ${labelMuted}`}>L: {arrowLengthRefPx} px</span>
             <input
               type="range"
-              min={25}
-              max={300}
-              step={5}
-              value={arrowLength}
-              onChange={(e) => setArrowSize(Number(e.target.value), arrowWidth)}
+              min={12}
+              max={120}
+              step={2}
+              value={arrowLengthRefPx}
+              onChange={(e) => setArrowSize(Number(e.target.value), arrowWidthRefPx)}
               className="w-full accent-sky-400"
             />
           </label>
           <label className="flex items-center gap-1.5 flex-1">
-            <span className={`text-[11px] w-16 ${labelMuted}`}>W: {arrowWidth} UU</span>
+            <span className={`text-[11px] w-16 ${labelMuted}`}>W: {arrowWidthRefPx} px</span>
             <input
               type="range"
-              min={20}
-              max={250}
-              step={5}
-              value={arrowWidth}
-              onChange={(e) => setArrowSize(arrowLength, Number(e.target.value))}
+              min={10}
+              max={100}
+              step={2}
+              value={arrowWidthRefPx}
+              onChange={(e) => setArrowSize(arrowLengthRefPx, Number(e.target.value))}
               className="w-full accent-sky-400"
             />
           </label>
@@ -127,14 +127,14 @@ export const TelestratorDeveloperSection: React.FC<TelestratorDeveloperSectionPr
                 />
               </label>
               <label className="flex items-center gap-1.5 flex-1">
-                <span className={`text-[11px] w-14 ${labelMuted}`}>{preset.widthUnits} UU</span>
+                <span className={`text-[11px] w-14 ${labelMuted}`}>{preset.widthRefPx} px</span>
                 <input
                   type="range"
-                  min={6}
-                  max={120}
-                  step={2}
-                  value={preset.widthUnits}
-                  onChange={(e) => updatePreset(idx, { widthUnits: Number(e.target.value) })}
+                  min={3}
+                  max={48}
+                  step={1}
+                  value={preset.widthRefPx}
+                  onChange={(e) => updatePreset(idx, { widthRefPx: Number(e.target.value) })}
                   className="w-full accent-emerald-400"
                 />
               </label>

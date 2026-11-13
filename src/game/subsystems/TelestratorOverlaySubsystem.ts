@@ -13,6 +13,13 @@ import { isEditableEventTarget, subscribeGlobalKeyDown } from '../../input/hotke
 export interface TelestratorOverlayRuntimePort {
   arena?: {
     scene?: THREE.Scene | null;
+    ball?: THREE.Group | null;
+    cars?: Array<THREE.Group | null>;
+    environment?: {
+      isThrowbackStadiumActive?: boolean;
+      driftwoodsStadium?: THREE.Group | null;
+      throwbackStadium?: THREE.Group | null;
+    } | null;
   } | null;
   camera?: {
     camera?: THREE.PerspectiveCamera | null;
@@ -142,16 +149,47 @@ export class TelestratorOverlaySubsystem {
         id: 'telestrator-toolbar',
         title: 'Telestrator',
         category: 'TelestratorToolbar',
-        width: 72,
-        minWidth: 64,
-        height: 540,
-        minHeight: 360,
+        width: 56,
+        minWidth: 52,
+        height: 500,
+        minHeight: 340,
         hideFooter: true,
+        contentPadding: { x: 4, y: 2 },
         component: 'TelestratorToolbarFloatingWindow',
         startMinimized: false,
-        position: { x: 16, y: 240 },
+        position: { x: 16, y: 200 },
       });
     }
+  }
+
+  private getRaycastTargets(): {
+    dynamicTargets: THREE.Object3D[];
+    stadiumTargets: THREE.Object3D[];
+  } {
+    const dynamicTargets: THREE.Object3D[] = [];
+    const stadiumTargets: THREE.Object3D[] = [];
+    const arena = this.runtime.arena;
+    if (arena) {
+      if (arena.ball && arena.ball.visible) {
+        dynamicTargets.push(arena.ball);
+      }
+      if (Array.isArray(arena.cars)) {
+        for (let i = 0; i < arena.cars.length; i++) {
+          const car = arena.cars[i];
+          if (car && car.visible) dynamicTargets.push(car);
+        }
+      }
+      const env = arena.environment;
+      if (env) {
+        const activeStadium = env.isThrowbackStadiumActive
+          ? env.throwbackStadium
+          : env.driftwoodsStadium;
+        if (activeStadium && activeStadium.visible) {
+          stadiumTargets.push(activeStadium);
+        }
+      }
+    }
+    return { dynamicTargets, stadiumTargets };
   }
 
   private restoreDirectionOffset(): void {
@@ -249,7 +287,7 @@ export class TelestratorOverlaySubsystem {
     if (!cam) return;
 
     const { ndcX, ndcY } = this.pointerToNdc(e);
-    const hit = raycastScreenToArena(ndcX, ndcY, cam);
+    const hit = raycastScreenToArena(ndcX, ndcY, cam, this.getRaycastTargets());
     if (!hit) return;
 
     const preset = st.presets[st.activePresetIndex] ?? st.presets[0];
@@ -267,9 +305,9 @@ export class TelestratorOverlaySubsystem {
         tool: st.activeTool,
         colorId: st.activeColorId,
         opacity: preset.opacity,
-        widthUnits: preset.widthUnits,
-        arrowLength: st.arrowLength,
-        arrowWidth: st.arrowWidth,
+        widthRefPx: preset.widthRefPx,
+        arrowLengthRefPx: st.arrowLengthRefPx,
+        arrowWidthRefPx: st.arrowWidthRefPx,
       },
       cam
     );
@@ -291,7 +329,7 @@ export class TelestratorOverlaySubsystem {
     const cam = this.runtime.camera?.camera;
     if (!cam) return;
     const { ndcX, ndcY } = this.pointerToNdc(e);
-    const hit = raycastScreenToArena(ndcX, ndcY, cam);
+    const hit = raycastScreenToArena(ndcX, ndcY, cam, this.getRaycastTargets());
     if (!hit) return;
     this.telestrator.appendDraftPoint({
       x: hit.point.x,
