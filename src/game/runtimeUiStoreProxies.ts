@@ -20,6 +20,7 @@ import type {
   StoreListener,
   StoreProxy,
   SubsystemIsolationLabStorePortState,
+  TelestratorStorePortState,
 } from './runtimeUiStorePortTypes.ts';
 
 export const DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG = {
@@ -368,6 +369,46 @@ export function createRuntimeUiStoreProxies() {
     }
   );
 
+  const useTelestratorStore = createStoreProxy<TelestratorStorePortState>({
+    overlayActive: false,
+    drawingEnabled: true,
+    directionAdjustActive: false,
+    isFreeCam: false,
+    directionOffsetYawDeg: 0,
+    directionOffsetPitchDeg: 0,
+    activeTool: 'solid',
+    activeColorId: 'yellow',
+    activePresetIndex: 0,
+    presets: [
+      { id: 'preset-100', label: '100%', opacity: 1.0, widthRefPx: 10 },
+      { id: 'preset-50', label: '50%', opacity: 0.5, widthRefPx: 10 },
+      { id: 'preset-25', label: '25%', opacity: 0.25, widthRefPx: 10 },
+    ],
+    arrowLengthRefPx: 36,
+    arrowWidthRefPx: 28,
+    strokeCount: 0,
+    hasUndoHistory: false,
+    pendingClearPurge: false,
+    settingsOpen: false,
+    runtimeHandlers: {},
+    setOverlayActive: () => {},
+    setDrawingEnabled: () => {},
+    setDirectionAdjustActive: () => {},
+    setIsFreeCam: () => {},
+    setDirectionOffsetDeg: () => {},
+    setActiveTool: () => {},
+    setActiveColorId: () => {},
+    setActivePresetIndex: () => {},
+    updatePreset: () => {},
+    setArrowSize: () => {},
+    setStrokeSyncState: () => {},
+    setSettingsOpen: () => {},
+    setRuntimeHandlers: () => {},
+    triggerUndo: () => {},
+    triggerClear: () => {},
+    triggerRestoreDirectionOffset: () => {},
+  });
+
   const floatingStore = createFloatingStoreProxy();
 
   return {
@@ -386,6 +427,7 @@ export function createRuntimeUiStoreProxies() {
     useReferenceOverlayStore,
     useNameTagTunerStore,
     useQuickNotificationStore,
+    useTelestratorStore,
     networkDiagnosticsStore,
     determinismStore,
     eventStreamStore,

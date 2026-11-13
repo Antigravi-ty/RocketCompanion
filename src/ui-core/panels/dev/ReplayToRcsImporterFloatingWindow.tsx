@@ -31,7 +31,7 @@ import type { StandardSurfaceProps, SurfaceMeta } from '../../manifest/surfaceMe
 
 export const SURFACE_META: SurfaceMeta = {
   id: 'replay-to-rcs-importer',
-  title: 'Replay to RCS Replay Importer',
+  title: 'Replay to RLRCReplay Importer',
   layer: 'floating-dev',
   menuGroup: 'sandboxes',
   hideFooter: false,
@@ -48,12 +48,12 @@ export interface ReplayToRcsImporterFloatingWindowProps extends StandardSurfaceP
 }
 
 /**
- * [Developer Sandbox] Replay to RCS Replay Importer (`replay-to-rcs-importer`)
+ * [Developer Sandbox] Replay to RLRCReplay Importer (`replay-to-rcs-importer`)
  * Dedicated floating window panel adapted from ReplayViewerFloatingWindow.
  * Supports importing raw Rocket League `.replay` files, upsampling 30Hz -> 120Hz via
  * StateInterpolationPipeline, inspecting Track Delta (native telemetry & unmapped properties),
  * intervening with selectable non-POV car behavior (Disappear | Trajectory | Nexto | Necto),
- * and exporting the converted session as an RCS Replay Pack (`.rcreplay.gz`).
+ * and exporting the converted 5-track session as an `.RLRCReplay` package.
  */
 export const ReplayToRcsImporterFloatingWindow: React.FC<ReplayToRcsImporterFloatingWindowProps> =
   React.memo(({ isLight = false }) => {
@@ -311,6 +311,24 @@ export const ReplayToRcsImporterFloatingWindow: React.FC<ReplayToRcsImporterFloa
             setDownCounterSec((Number(nextDown) || 0) as ReplayDownCounterOption)
           }
         />
+
+        <button
+          type="button"
+          disabled={controlsDisabled}
+          onClick={() => {
+            if (controlsDisabled) return;
+            void runtimeHandlers.onPutIntoDynamicTrainingPack?.();
+          }}
+          className={`w-full py-1.5 px-3 rounded-lg border text-[11px] font-semibold transition-all ${
+            controlsDisabled
+              ? 'opacity-45 cursor-not-allowed pointer-events-none border-neutral-700 text-neutral-500'
+              : isLight
+                ? 'bg-cyan-50 hover:bg-cyan-100 border-cyan-300 text-cyan-900 cursor-pointer'
+                : 'bg-cyan-950/60 hover:bg-cyan-900/70 border-cyan-700/70 text-cyan-200 cursor-pointer'
+          }`}
+        >
+          Put 4s Pre-Roll into Dynamic Training Pack (.RCDPack)
+        </button>
       </div>
     );
   });

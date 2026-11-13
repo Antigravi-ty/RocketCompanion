@@ -21,6 +21,7 @@ import {
 import {
   DEFAULT_NEUTRAL_CAR_CONTROLS,
   clampCarPositionZForHitbox,
+  findCarBySlot,
   type RLRCPrerollRingBufferPort,
 } from './RLRCInterveneFrameStateBuilder.ts';
 import {
@@ -83,6 +84,8 @@ export function stepNonPovCarsBeforePhysics(params: {
   readonly followFrame: RLRCFrame120Hz | null;
   readonly povSlotIndex: number;
   readonly nonPovMode: RLRCNonPovInterventionMode;
+  readonly perSlotModes?: Readonly<Record<number, RLRCNonPovInterventionMode>>;
+  readonly perSlotModelIds?: Readonly<Record<number, string>>;
   readonly slotActiveTracker: Uint8Array;
   readonly latestControlSnapshot: Map<number, RLRCSynthesizedCarControls>;
   readonly dt: number;
@@ -95,6 +98,8 @@ export function stepNonPovCarsBeforePhysics(params: {
     followFrame,
     povSlotIndex,
     nonPovMode,
+    perSlotModes,
+    perSlotModelIds,
     slotActiveTracker,
     latestControlSnapshot,
     dt,
@@ -102,15 +107,16 @@ export function stepNonPovCarsBeforePhysics(params: {
 
   for (let slot = 0; slot < RLRC_MAX_PLAYER_SLOTS; slot++) {
     if (slot === povSlotIndex) continue;
+    const slotMode = perSlotModes?.[slot] ?? nonPovMode;
 
-    if (nonPovMode === 'disappear') {
+    if (slotMode === 'disappear') {
       if (slotActiveTracker[slot] !== 0) {
         deactivateInterveneSlotEntity(sim, arena, slotActiveTracker, slot);
       }
       continue;
     }
 
-    if (nonPovMode === 'no-input') {
+    if (slotMode === 'no-input') {
       if (slotActiveTracker[slot] !== 0) {
         applySlotControls(sim, slot, DEFAULT_NEUTRAL_CAR_CONTROLS);
         latestControlSnapshot.set(slot, DEFAULT_NEUTRAL_CAR_CONTROLS);
@@ -118,12 +124,12 @@ export function stepNonPovCarsBeforePhysics(params: {
       continue;
     }
 
-    const carFrame = followFrame?.cars[slot];
+    const carFrame = findCarBySlot(followFrame?.cars, slot);
     const meta = roster.find((r) => r.slotIndex === slot);
     const team: RLRCTeamIndex = meta?.team ?? (slot < 3 ? 0 : 1);
     const hitboxId = meta?.hitboxId ?? 'hitbox-octane';
 
-    if (nonPovMode === 'follow-state') {
+    if (slotMode === 'follow-state') {
       if (!carFrame) {
         if (slotActiveTracker[slot] !== 0) {
           applySlotControls(sim, slot, DEFAULT_NEUTRAL_CAR_CONTROLS);
@@ -142,13 +148,14 @@ export function stepNonPovCarsBeforePhysics(params: {
       continue;
     }
 
-    if (nonPovMode === 'bot-takeover') {
+    if (slotMode === 'bot-takeover') {
       if (slotActiveTracker[slot] === 0 && carFrame?.entityActive) {
         ensureInterveneSlotEntityActive(sim, arena, slotActiveTracker, slot, team, hitboxId);
       }
       if (slotActiveTracker[slot] !== 0) {
+        const modelId = perSlotModelIds?.[slot];
         const botCtrl =
-          botPort?.decideControlsForSlot?.(slot, team, sim.state, dt) ??
+          botPort?.decideControlsForSlot?.(slot, team, sim.state, dt, modelId) ??
           DEFAULT_NEUTRAL_CAR_CONTROLS;
         applySlotControls(sim, slot, botCtrl);
         latestControlSnapshot.set(slot, botCtrl);
@@ -163,16 +170,28 @@ export function syncFollowStateNonPovAfterStep(params: {
   readonly roster: readonly RLRCPlayerSlotMeta[];
   readonly nextFrame: RLRCFrame120Hz | null;
   readonly povSlotIndex: number;
+  readonly nonPovMode?: RLRCNonPovInterventionMode;
+  readonly perSlotModes?: Readonly<Record<number, RLRCNonPovInterventionMode>>;
   readonly slotActiveTracker: Uint8Array;
   readonly latestControlSnapshot?: Map<number, RLRCSynthesizedCarControls>;
 }): void {
-  const { sim, arena, roster, nextFrame, povSlotIndex, slotActiveTracker, latestControlSnapshot } =
-    params;
+  const {
+    sim,
+    arena,
+    roster,
+    nextFrame,
+    povSlotIndex,
+    nonPovMode = 'follow-state',
+    perSlotModes,
+    slotActiveTracker,
+    latestControlSnapshot,
+  } = params;
   if (!nextFrame) return;
 
   for (let slot = 0; slot < RLRC_MAX_PLAYER_SLOTS; slot++) {
     if (slot === povSlotIndex) continue;
-    const car = nextFrame.cars[slot];
+    if ((perSlotModes?.[slot] ?? nonPovMode) !== 'follow-state') continue;
+    const car = findCarBySlot(nextFrame.cars, slot);
     if (!car || !car.entityActive) {
       deactivateInterveneSlotEntity(sim, arena, slotActiveTracker, slot);
       continue;
@@ -207,6 +226,8 @@ export function prepareInterveneStepBeforePhysics(params: {
   readonly followIdx: number;
   readonly povSlotIndex: number;
   readonly nonPovMode: RLRCNonPovInterventionMode;
+  readonly perSlotModes?: Readonly<Record<number, RLRCNonPovInterventionMode>>;
+  readonly perSlotModelIds?: Readonly<Record<number, string>>;
   readonly playerControls: RLRCSynthesizedCarControls;
   readonly dt: number;
   readonly slotActiveTracker: Uint8Array;
@@ -219,6 +240,8 @@ export function prepareInterveneStepBeforePhysics(params: {
     followIdx,
     povSlotIndex,
     nonPovMode,
+    perSlotModes,
+    perSlotModelIds,
     playerControls,
     dt,
     slotActiveTracker,
@@ -246,6 +269,8 @@ export function prepareInterveneStepBeforePhysics(params: {
     followFrame: followIdx >= 0 && followIdx < frames.length ? frames[followIdx] : null,
     povSlotIndex,
     nonPovMode,
+    perSlotModes,
+    perSlotModelIds,
     slotActiveTracker,
     latestControlSnapshot,
     dt,
@@ -260,6 +285,7 @@ export function finalizeInterveneStepAfterPhysics(params: {
   readonly followIdx: number;
   readonly povSlotIndex: number;
   readonly nonPovMode: RLRCNonPovInterventionMode;
+  readonly perSlotModes?: Readonly<Record<number, RLRCNonPovInterventionMode>>;
   readonly recordedTick: number;
   readonly recordToRingBuffer: boolean;
   readonly slotActiveTracker: Uint8Array;
@@ -272,6 +298,7 @@ export function finalizeInterveneStepAfterPhysics(params: {
     followIdx,
     povSlotIndex,
     nonPovMode,
+    perSlotModes,
     recordedTick,
     recordToRingBuffer,
     slotActiveTracker,
@@ -280,7 +307,12 @@ export function finalizeInterveneStepAfterPhysics(params: {
   } = params;
   const arena = env.getArena?.();
 
-  if (nonPovMode === 'follow-state') {
+  const hasAnyFollowState =
+    perSlotModes !== undefined
+      ? Object.values(perSlotModes).includes('follow-state') || nonPovMode === 'follow-state'
+      : nonPovMode === 'follow-state';
+
+  if (hasAnyFollowState) {
     const frames = env.getFrames120Hz();
     const nextIdx = followIdx + 1;
     syncFollowStateNonPovAfterStep({
@@ -289,6 +321,8 @@ export function finalizeInterveneStepAfterPhysics(params: {
       roster: env.getRoster(),
       nextFrame: nextIdx >= 0 && nextIdx < frames.length ? frames[nextIdx] : null,
       povSlotIndex,
+      nonPovMode,
+      perSlotModes,
       slotActiveTracker,
       latestControlSnapshot,
     });

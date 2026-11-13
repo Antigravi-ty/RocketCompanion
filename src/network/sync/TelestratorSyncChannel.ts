@@ -15,7 +15,7 @@ import {
   encodeTelestratorStrokeFrame,
   type TelestratorCommandFrame,
   type TelestratorStrokePayload,
-} from '../protocol/TelestratorWireCodec.ts';
+} from '../protocol/TelestratorFrameCodec.ts';
 
 export interface TelestratorReliableTransportPort {
   sendReliable: (payload: Uint8Array) => void;

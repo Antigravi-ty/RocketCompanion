@@ -20,6 +20,13 @@ import {
   generateRandomRoomCode,
   parseRoomCode,
 } from '../../ui-core/config/roomCodeConnectivityCodec.ts';
+import { NETWORK_PROTOCOL_VERSION_TAG } from '../protocol/TunnelProtocol.ts';
+import {
+  createTunnelTransport,
+  isRustTunnelAvailable,
+  probeRustUpnp,
+} from './tunnel/TunnelFactory.ts';
+import type { TunnelKind, TunnelTransport, UpnpProbeResult } from './tunnel/TunnelTransport.ts';
 
 const DEFAULT_HOST_COLOR = Object.freeze({ slot: 3, hex: '#42a5f5' });
 const DEFAULT_CLIENT_COLOR = Object.freeze({ slot: 0, hex: '#ff7043' });
@@ -340,5 +347,21 @@ export class MultiplayerSessionManager {
     this.clientJoinNegotiator.cleanup();
     this.hostSignalingNegotiator.cleanup();
     if (this.callbacks.onLeaveServer) await this.callbacks.onLeaveServer();
+  }
+
+  getProtocolVersion(): string {
+    return NETWORK_PROTOCOL_VERSION_TAG;
+  }
+
+  getPreferredTunnelKind(): TunnelKind {
+    return isRustTunnelAvailable() ? 'rust-upnp-udp' : 'web-webrtc';
+  }
+
+  probeLocalUpnp(): Promise<UpnpProbeResult> {
+    return probeRustUpnp();
+  }
+
+  createSessionTunnel(sessionId?: string, webChannel?: P2PWebRTCChannel): TunnelTransport {
+    return createTunnelTransport({ sessionId, webChannel });
   }
 }

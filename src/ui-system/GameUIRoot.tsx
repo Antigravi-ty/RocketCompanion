@@ -18,7 +18,6 @@ import {
   syncCsrFollowHostNotification,
 } from './core/csrFollowHostBridge.ts';
 import { activateNameTagOffscreenForDeveloperMode } from '../ui-core/stores/nameTagTunerStore.ts';
-import { DrawingSandboxController } from './telestrator/DrawingSandboxController.ts';
 import { ensureVoiceChannelBridge } from './core/runtimeVoiceChannelBridge.ts';
 
 configureFloatingStorePersistence({
@@ -39,12 +38,9 @@ export const GameUIRoot: React.FC<GameUIRootProps> = () => {
   useEffect(() => {
     ensureSignalingProfileBridge();
     const disposeVoice = ensureVoiceChannelBridge();
-    const controller = new DrawingSandboxController();
-    const disposeTelestrator = controller.start();
     syncCsrFollowHostNotification();
     return () => {
       clearCsrFollowHostBridge();
-      disposeTelestrator();
       disposeVoice();
     };
   }, []);

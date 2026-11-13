@@ -3,13 +3,20 @@ pub mod app_menu;
 pub mod build_info;
 pub mod config_store;
 pub mod tray_manager;
+pub mod tunnel_manager;
 pub mod window_manager;
 
-use app_icon::{apply_app_and_window_icons, ensure_macos_dock_icon};
+use app_icon::apply_app_and_window_icons;
+#[cfg(target_os = "macos")]
+use app_icon::ensure_macos_dock_icon;
 use app_menu::setup_app_menu;
 use config_store::load_launch_state;
 use tauri::{Manager, WindowEvent};
 use tray_manager::setup_system_tray;
+use tunnel_manager::{
+    cleanup_all_tunnels, tauri_tunnel_close, tauri_tunnel_connect, tauri_tunnel_get_status,
+    tauri_tunnel_open, tauri_tunnel_send, tauri_upnp_probe, TunnelManagerState,
+};
 use window_manager::{
     apply_window_titles, launch_main_window_with_config, open_configurator_window,
     tauri_get_display_diagnostics, tauri_get_launch_state, tauri_launch_game,
@@ -36,6 +43,7 @@ fn should_force_configurator_from_args() -> bool {
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_macos_fps::init())
+        .manage(TunnelManagerState::default())
         .invoke_handler(tauri::generate_handler![
             tauri_get_launch_state,
             tauri_save_launch_config,
@@ -46,6 +54,12 @@ pub fn run() {
             tauri_open_workspace_folder,
             tauri_open_vault_folder,
             tauri_get_display_diagnostics,
+            tauri_upnp_probe,
+            tauri_tunnel_open,
+            tauri_tunnel_connect,
+            tauri_tunnel_send,
+            tauri_tunnel_close,
+            tauri_tunnel_get_status,
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -103,6 +117,7 @@ pub fn run() {
 
     app.run(|app_handle, event| {
         match event {
+            #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { has_visible_windows, .. } => {
                 let main_win = app_handle.get_webview_window("main");
                 let cfg_win = app_handle.get_webview_window("configurator");
@@ -110,7 +125,6 @@ pub fn run() {
                 let cfg_visible = cfg_win.as_ref().and_then(|w| w.is_visible().ok()).unwrap_or(false);
 
                 if main_visible {
-                    #[cfg(target_os = "macos")]
                     let _ = app_handle.set_activation_policy(tauri::ActivationPolicy::Regular);
                     ensure_macos_dock_icon();
                     if let Some(main) = main_win {
@@ -118,7 +132,6 @@ pub fn run() {
                         let _ = main.set_focus();
                     }
                 } else if cfg_visible {
-                    #[cfg(target_os = "macos")]
                     let _ = app_handle.set_activation_policy(tauri::ActivationPolicy::Regular);
                     ensure_macos_dock_icon();
                     if let Some(cfg) = cfg_win {
@@ -133,6 +146,9 @@ pub fn run() {
                         let _ = open_configurator_window(app_handle);
                     }
                 }
+            }
+            tauri::RunEvent::Exit => {
+                cleanup_all_tunnels(app_handle);
             }
             _ => {}
         }

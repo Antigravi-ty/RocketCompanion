@@ -1,228 +1,307 @@
 import { create } from 'zustand';
-import type {
-  CarTakeoverMode,
-  RCDPack,
-  RcdJudgeOutcome,
-  StateSession,
-} from '../config/dynamicTrainingPackTypes.ts';
 import {
-  loadAllRcdData,
-  putRcdPack,
-  putStateSession,
-  removeRcdPack,
-  removeStateSession,
-} from './dynamicTrainingStorage.ts';
+  createDefaultPerCarTakeover,
+  generateDynamicUuid,
+  relinkDynamicShotChain,
+  type DynamicCarTakeoverRule,
+  type DynamicTrainingPackRecord,
+  type DynamicTrainingShotRef,
+  type DynamicTrainingShotStats,
+  type DynamicTrainingStateSession,
+  type DynamicTrainingStateSessionSummary,
+} from '../config/dynamicTrainingPackTypes';
+import { decodeRcdPackFromJson, encodeRcdPackToJson } from '../config/dynamicTrainingPackCodec';
+import {
+  countSessionReferencesAcrossPacks,
+  deleteDynamicPack,
+  deleteDynamicStateSession,
+  duplicateDynamicShotToPack,
+  ensureCapturedFromReplayPack,
+  listDynamicPacks,
+  listDynamicStateSessionSummaries,
+  loadAllDynamicShotStats,
+  loadDynamicStateSession,
+  moveDynamicShotBetweenPacks,
+  saveDynamicPack,
+  saveDynamicShotStats,
+  saveDynamicStateSession,
+} from './dynamicTrainingPackStorage';
 
-export interface DynamicTrainingPackState {
-  loaded: boolean;
-  packs: readonly RCDPack[];
-  sessions: Record<string, StateSession>;
-  activePackId: string | null;
-  activeSessionId: string | null;
+export type DynamicTrainingPlayPhase = 'idle' | 'preroll-countdown' | 'intervening' | 'result';
+
+export interface DynamicTrainingPackStoreState {
+  isLoaded: boolean;
+  packs: DynamicTrainingPackRecord[];
+  sessionSummaries: DynamicTrainingStateSessionSummary[];
+  activePackUuid: string | null;
+  activeShotId: string | null;
+  playPhase: DynamicTrainingPlayPhase;
   countdownRemainingSec: number;
-  lastJudgeOutcome: RcdJudgeOutcome | null;
+  remainingTimeoutSec: number;
+  lastResult: 'goal' | 'timeout' | null;
+  shotStats: Record<string, DynamicTrainingShotStats>;
+  statusMessage: string | null;
 
-  loadAll: () => Promise<void>;
-  createPack: (name: string, description?: string) => string;
-  deletePack: (packId: string) => void;
-  saveCapturedSession: (session: StateSession, targetPackId?: string) => void;
-  duplicateSessionTo: (sessionId: string, targetPackId: string) => void;
-  moveSessionTo: (sessionId: string, fromPackId: string, toPackId: string) => void;
-  deleteSessionFromPack: (sessionId: string, packId: string) => void;
-  setCarTakeoverMode: (sessionId: string, carIndex: number, mode: CarTakeoverMode) => void;
-  setActivePack: (packId: string | null) => void;
-  setActiveSession: (sessionId: string | null) => void;
-  setCountdownRemaining: (sec: number) => void;
-  setLastJudgeOutcome: (outcome: RcdJudgeOutcome | null) => void;
+  initialize: () => Promise<void>;
+  refreshAll: () => Promise<void>;
+  selectPack: (packUuid: string | null) => void;
+  selectShot: (shotId: string | null) => void;
+  createPack: (title: string, folder?: string) => Promise<DynamicTrainingPackRecord>;
+  removePack: (packUuid: string) => Promise<void>;
+  saveCaptureSessionIntoPack: (
+    session: DynamicTrainingStateSession,
+    options?: { packUuid?: string; shotName?: string; povSlotIndex?: number }
+  ) => Promise<{ pack: DynamicTrainingPackRecord; shot: DynamicTrainingShotRef }>;
+  updateShotConfig: (
+    packUuid: string,
+    shotId: string,
+    patch: Partial<DynamicTrainingShotRef>
+  ) => Promise<void>;
+  updateShotPerCarTakeover: (
+    packUuid: string,
+    shotId: string,
+    slotIndex: number,
+    rule: DynamicCarTakeoverRule
+  ) => Promise<void>;
+  moveShotToPack: (sourcePackUuid: string, targetPackUuid: string, shotId: string) => Promise<void>;
+  duplicateShotToPack: (
+    sourcePackUuid: string,
+    targetPackUuid: string,
+    shotId: string
+  ) => Promise<void>;
+  deleteShotWithSessionCheck: (
+    packUuid: string,
+    shotId: string,
+    deleteUnreferencedSession: boolean
+  ) => Promise<void>;
+  exportPackJson: (packUuid: string) => Promise<string | null>;
+  importPackJson: (rawJson: string) => Promise<DynamicTrainingPackRecord>;
+  recordShotOutcome: (shotId: string, outcome: 'goal' | 'timeout') => Promise<void>;
+  setLivePlaybackState: (patch: {
+    playPhase?: DynamicTrainingPlayPhase;
+    countdownRemainingSec?: number;
+    remainingTimeoutSec?: number;
+    lastResult?: 'goal' | 'timeout' | null;
+    statusMessage?: string | null;
+  }) => void;
+
+  runtimeHandlers: {
+    onPlayShot?: (packUuid: string, shotId: string) => Promise<void> | void;
+    onRestartShot?: () => void;
+    onStopSession?: () => void;
+  };
+  setRuntimeHandlers: (
+    handlers: Partial<DynamicTrainingPackStoreState['runtimeHandlers']>
+  ) => void;
 }
 
-function isSessionReferenced(packs: readonly RCDPack[], sessionId: string): boolean {
-  return packs.some((p) => p.sessionIds.includes(sessionId));
-}
-
-export const dynamicTrainingPackStore = create<DynamicTrainingPackState>((set, get) => ({
-  loaded: false,
+export const useDynamicTrainingPackStore = create<DynamicTrainingPackStoreState>((set, get) => ({
+  isLoaded: false,
   packs: [],
-  sessions: {},
-  activePackId: null,
-  activeSessionId: null,
+  sessionSummaries: [],
+  activePackUuid: null,
+  activeShotId: null,
+  playPhase: 'idle',
   countdownRemainingSec: 0,
-  lastJudgeOutcome: null,
+  remainingTimeoutSec: 0,
+  lastResult: null,
+  shotStats: {},
+  statusMessage: null,
+  runtimeHandlers: {},
 
-  loadAll: async () => {
-    const { packs, sessions } = await loadAllRcdData();
-    const sessionMap: Record<string, StateSession> = {};
-    for (const s of sessions) {
-      sessionMap[s.id] = s;
-    }
+  setRuntimeHandlers: (handlers) =>
+    set((s) => ({ runtimeHandlers: { ...s.runtimeHandlers, ...handlers } })),
+
+  setLivePlaybackState: (patch) => set((s) => ({ ...s, ...patch })),
+
+  initialize: async () => {
+    if (get().isLoaded) return;
+    await ensureCapturedFromReplayPack();
+    await get().refreshAll();
+    set({ isLoaded: true });
+  },
+
+  refreshAll: async () => {
+    const [packs, sessionSummaries, shotStats] = await Promise.all([
+      listDynamicPacks(),
+      listDynamicStateSessionSummaries(),
+      loadAllDynamicShotStats(),
+    ]);
+    const currentPackUuid = get().activePackUuid;
+    const activePack =
+      packs.find((p) => p.metadata.uuid === currentPackUuid) ?? packs[0] ?? null;
+    const currentShotId = get().activeShotId;
+    const activeShot =
+      activePack?.shots.find((s) => s.id === currentShotId) ?? activePack?.shots[0] ?? null;
     set({
-      loaded: true,
       packs,
-      sessions: sessionMap,
-      activePackId: get().activePackId ?? packs[0]?.id ?? null,
+      sessionSummaries,
+      shotStats,
+      activePackUuid: activePack?.metadata.uuid ?? null,
+      activeShotId: activeShot?.id ?? null,
     });
   },
 
-  createPack: (name, description = '') => {
-    const now = Date.now();
-    const id = `rcd-pack-${now}-${Math.random().toString(36).slice(2, 7)}`;
-    const pack: RCDPack = {
-      id,
-      name: name.trim() || 'Untitled RCDPack',
-      description,
-      sessionIds: [],
-      createdAt: now,
-      updatedAt: now,
-    };
-    set((s) => ({
-      packs: [...s.packs, pack],
-      activePackId: id,
-    }));
-    void putRcdPack(pack);
-    return id;
-  },
-
-  deletePack: (packId) => {
-    const prev = get();
-    const nextPacks = prev.packs.filter((p) => p.id !== packId);
-    const nextSessions = { ...prev.sessions };
-    for (const sid of Object.keys(nextSessions)) {
-      if (!isSessionReferenced(nextPacks, sid)) {
-        delete nextSessions[sid];
-        void removeStateSession(sid);
-      }
-    }
+  selectPack: (packUuid) => {
+    const pack = get().packs.find((p) => p.metadata.uuid === packUuid) ?? null;
     set({
-      packs: nextPacks,
-      sessions: nextSessions,
-      activePackId: prev.activePackId === packId ? nextPacks[0]?.id ?? null : prev.activePackId,
+      activePackUuid: pack?.metadata.uuid ?? null,
+      activeShotId: pack?.shots[0]?.id ?? null,
     });
-    void removeRcdPack(packId);
   },
 
-  saveCapturedSession: (session, targetPackId) => {
-    const state = get();
-    let packId = targetPackId ?? state.activePackId;
-    if (!packId || !state.packs.some((p) => p.id === packId)) {
-      packId = state.createPack('Captured Replay Sessions', 'Auto-created RCDPack');
-    }
-    const now = Date.now();
-    set((s) => {
-      const nextPacks = s.packs.map((p) =>
-        p.id === packId
-          ? {
-              ...p,
-              sessionIds: p.sessionIds.includes(session.id)
-                ? p.sessionIds
-                : [...p.sessionIds, session.id],
-              updatedAt: now,
-            }
-          : p
-      );
-      const updatedPack = nextPacks.find((p) => p.id === packId);
-      if (updatedPack) void putRcdPack(updatedPack);
-      return {
-        packs: nextPacks,
-        sessions: { ...s.sessions, [session.id]: session },
-        activePackId: packId,
-        activeSessionId: session.id,
-      };
-    });
-    void putStateSession(session);
-  },
+  selectShot: (shotId) => set({ activeShotId: shotId }),
 
-  duplicateSessionTo: (sessionId, targetPackId) => {
-    const src = get().sessions[sessionId];
-    if (!src) return;
+  createPack: async (title, folder = 'custom') => {
     const now = Date.now();
-    const copyId = `rcd-session-${now}-${Math.random().toString(36).slice(2, 7)}`;
-    const copy: StateSession = {
-      ...src,
-      id: copyId,
-      name: `${src.name} (Copy)`,
-      createdAt: now,
-      updatedAt: now,
+    const record: DynamicTrainingPackRecord = {
+      metadata: {
+        uuid: generateDynamicUuid(),
+        title: title.trim() || 'Untitled Dynamic Pack',
+        description: '',
+        folder,
+        createdAt: now,
+        updatedAt: now,
+        itemCount: 0,
+      },
+      shots: [],
     };
-    get().saveCapturedSession(copy, targetPackId);
+    const saved = await saveDynamicPack(record);
+    await get().refreshAll();
+    set({ activePackUuid: saved.metadata.uuid, activeShotId: null });
+    return saved;
   },
 
-  moveSessionTo: (sessionId, fromPackId, toPackId) => {
-    if (fromPackId === toPackId) return;
-    const now = Date.now();
-    set((s) => {
-      const nextPacks = s.packs.map((p) => {
-        if (p.id === fromPackId) {
-          const updated = {
-            ...p,
-            sessionIds: p.sessionIds.filter((id) => id !== sessionId),
-            updatedAt: now,
-          };
-          void putRcdPack(updated);
-          return updated;
-        }
-        if (p.id === toPackId) {
-          const updated = {
-            ...p,
-            sessionIds: p.sessionIds.includes(sessionId) ? p.sessionIds : [...p.sessionIds, sessionId],
-            updatedAt: now,
-          };
-          void putRcdPack(updated);
-          return updated;
-        }
-        return p;
-      });
-      return { packs: nextPacks };
+  removePack: async (packUuid) => {
+    await deleteDynamicPack(packUuid);
+    await get().refreshAll();
+  },
+
+  saveCaptureSessionIntoPack: async (session, options) => {
+    await saveDynamicStateSession(session);
+    const packs = await listDynamicPacks();
+    let targetPack = options?.packUuid
+      ? packs.find((p) => p.metadata.uuid === options.packUuid)
+      : undefined;
+    if (!targetPack) {
+      targetPack = await ensureCapturedFromReplayPack();
+    }
+
+    const povSlot = options?.povSlotIndex ?? session.defaultPovSlotIndex;
+    const prevShotId =
+      targetPack.shots.length > 0 ? targetPack.shots[targetPack.shots.length - 1].id : null;
+    const shot: DynamicTrainingShotRef = {
+      id: generateDynamicUuid(),
+      sessionId: session.sessionId,
+      prevShotId,
+      name: options?.shotName?.trim() || session.title || `Shot ${targetPack.shots.length + 1}`,
+      timeoutSeconds: 10,
+      downCounterSeconds: 3,
+      interveneOffsetFrames: 0,
+      povSlotIndex: povSlot,
+      perCarTakeover: createDefaultPerCarTakeover(povSlot, session.roster),
+    };
+
+    const savedPack = await saveDynamicPack({
+      metadata: targetPack.metadata,
+      shots: [...targetPack.shots, shot],
+    });
+    await get().refreshAll();
+    set({ activePackUuid: savedPack.metadata.uuid, activeShotId: shot.id });
+    return { pack: savedPack, shot };
+  },
+
+  updateShotConfig: async (packUuid, shotId, patch) => {
+    const pack = get().packs.find((p) => p.metadata.uuid === packUuid);
+    if (!pack) return;
+    const nextShots = relinkDynamicShotChain(
+      pack.shots.map((s) => (s.id === shotId ? { ...s, ...patch, id: s.id } : s))
+    );
+    await saveDynamicPack({ metadata: pack.metadata, shots: nextShots });
+    await get().refreshAll();
+  },
+
+  updateShotPerCarTakeover: async (packUuid, shotId, slotIndex, rule) => {
+    const pack = get().packs.find((p) => p.metadata.uuid === packUuid);
+    if (!pack) return;
+    const shot = pack.shots.find((s) => s.id === shotId);
+    if (!shot) return;
+    const nextPerCar = { ...shot.perCarTakeover, [slotIndex]: rule };
+    const nextPov = rule.mode === 'player' ? slotIndex : shot.povSlotIndex;
+    await get().updateShotConfig(packUuid, shotId, {
+      povSlotIndex: nextPov,
+      perCarTakeover: nextPerCar,
     });
   },
 
-  deleteSessionFromPack: (sessionId, packId) => {
-    const now = Date.now();
-    set((s) => {
-      const nextPacks = s.packs.map((p) => {
-        if (p.id !== packId) return p;
-        const updated = {
-          ...p,
-          sessionIds: p.sessionIds.filter((id) => id !== sessionId),
-          updatedAt: now,
-        };
-        void putRcdPack(updated);
-        return updated;
-      });
-      const nextSessions = { ...s.sessions };
-      if (!isSessionReferenced(nextPacks, sessionId)) {
-        delete nextSessions[sessionId];
-        void removeStateSession(sessionId);
+  moveShotToPack: async (sourcePackUuid, targetPackUuid, shotId) => {
+    await moveDynamicShotBetweenPacks(sourcePackUuid, targetPackUuid, shotId);
+    await get().refreshAll();
+  },
+
+  duplicateShotToPack: async (sourcePackUuid, targetPackUuid, shotId) => {
+    await duplicateDynamicShotToPack(sourcePackUuid, targetPackUuid, shotId);
+    await get().refreshAll();
+  },
+
+  deleteShotWithSessionCheck: async (packUuid, shotId, deleteUnreferencedSession) => {
+    const pack = get().packs.find((p) => p.metadata.uuid === packUuid);
+    if (!pack) return;
+    const shot = pack.shots.find((s) => s.id === shotId);
+    const nextShots = relinkDynamicShotChain(pack.shots.filter((s) => s.id !== shotId));
+    await saveDynamicPack({ metadata: pack.metadata, shots: nextShots });
+    if (shot && deleteUnreferencedSession) {
+      const refs = await countSessionReferencesAcrossPacks(shot.sessionId);
+      if (refs === 0) {
+        await deleteDynamicStateSession(shot.sessionId);
       }
-      return {
-        packs: nextPacks,
-        sessions: nextSessions,
-        activeSessionId: s.activeSessionId === sessionId ? null : s.activeSessionId,
-      };
-    });
+    }
+    await get().refreshAll();
   },
 
-  setCarTakeoverMode: (sessionId, carIndex, mode) => {
-    set((s) => {
-      const cur = s.sessions[sessionId];
-      if (!cur) return s;
-      const updated: StateSession = {
-        ...cur,
-        carTakeoverModes: { ...cur.carTakeoverModes, [carIndex]: mode },
-        updatedAt: Date.now(),
-      };
-      void putStateSession(updated);
-      return { sessions: { ...s.sessions, [sessionId]: updated } };
-    });
+  exportPackJson: async (packUuid) => {
+    const pack = get().packs.find((p) => p.metadata.uuid === packUuid);
+    if (!pack) return null;
+    const sessionMap = new Map<string, DynamicTrainingStateSession>();
+    for (const shot of pack.shots) {
+      if (sessionMap.has(shot.sessionId)) continue;
+      const sess = await loadDynamicStateSession(shot.sessionId);
+      if (sess) sessionMap.set(shot.sessionId, sess);
+    }
+    return encodeRcdPackToJson(pack, sessionMap);
   },
 
-  setActivePack: (activePackId) => set({ activePackId }),
-  setActiveSession: (activeSessionId) => set({ activeSessionId }),
-  setCountdownRemaining: (countdownRemainingSec) => set({ countdownRemainingSec }),
-  setLastJudgeOutcome: (lastJudgeOutcome) => set({ lastJudgeOutcome }),
+  importPackJson: async (rawJson) => {
+    const { pack, sessions } = decodeRcdPackFromJson(rawJson);
+    for (const sess of sessions) {
+      await saveDynamicStateSession(sess);
+    }
+    const saved = await saveDynamicPack(pack);
+    await get().refreshAll();
+    set({ activePackUuid: saved.metadata.uuid, activeShotId: saved.shots[0]?.id ?? null });
+    return saved;
+  },
+
+  recordShotOutcome: async (shotId, outcome) => {
+    const prev = get().shotStats[shotId] ?? {
+      attempts: 0,
+      goals: 0,
+      timeouts: 0,
+      lastResult: null,
+      lastPlayedAt: 0,
+    };
+    const next: DynamicTrainingShotStats = {
+      attempts: prev.attempts + 1,
+      goals: prev.goals + (outcome === 'goal' ? 1 : 0),
+      timeouts: prev.timeouts + (outcome === 'timeout' ? 1 : 0),
+      lastResult: outcome,
+      lastPlayedAt: Date.now(),
+    };
+    await saveDynamicShotStats(shotId, next);
+    set((s) => ({
+      shotStats: { ...s.shotStats, [shotId]: next },
+      lastResult: outcome,
+      playPhase: 'result',
+    }));
+  },
 }));
-
-export function useDynamicTrainingPackStore<T>(
-  selector: (state: DynamicTrainingPackState) => T
-): T {
-  return dynamicTrainingPackStore(selector);
-}

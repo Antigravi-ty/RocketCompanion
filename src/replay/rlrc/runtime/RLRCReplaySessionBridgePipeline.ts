@@ -305,11 +305,11 @@ export async function downloadRcsReplayPack(
   const packedResult = await packAndCompressRLRCContainer(sourcePacket);
   if (typeof document !== 'undefined') {
     const baseName = (loadedFileName || 'replay').replace(
-      /\.(replay|rcreplay\.gz|rcreplay|rlrc)$/i,
+      /\.(replay|rcreplay\.gz|rcreplay|rlrcreplay|rlrc)$/i,
       ''
     );
     const isGzip = Boolean(packedResult.compressed);
-    const ext = isGzip ? '.rcreplay.gz' : '.rcreplay';
+    const ext = '.RLRCReplay';
     const mimeType = isGzip ? 'application/gzip' : 'application/octet-stream';
     const blob = new Blob([packedResult.buffer], { type: mimeType });
     const url = URL.createObjectURL(blob);

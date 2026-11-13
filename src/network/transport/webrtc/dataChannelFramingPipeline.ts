@@ -41,18 +41,28 @@ export type InboundControlFrame =
       readonly enabled: boolean;
       readonly anchorMode: string;
     }
+  | { readonly kind: 'room_activity_switch'; readonly raw: Record<string, unknown> }
+  | { readonly kind: 'replication_mode_set'; readonly raw: Record<string, unknown> }
+  | { readonly kind: 'state_paused_ack'; readonly raw: Record<string, unknown> }
+  | { readonly kind: 'room_csr_state_broadcast'; readonly raw: Record<string, unknown> }
   | { readonly kind: 'ping'; readonly sendTime: number; readonly rtt: number | null }
   | { readonly kind: 'pong'; readonly sendTime: number };
 
 export type DataChannelTransportEvent =
   | { readonly type: 'channel_open' }
   | { readonly type: 'channel_closed' }
+  | { readonly type: 'control_channel_open' }
+  | { readonly type: 'control_channel_closed' }
   | { readonly type: 'color_change'; readonly payload: Record<string, unknown> }
   | {
       readonly type: 'diagnostic_fleet_toggle';
       readonly enabled: boolean;
       readonly anchorMode: string;
     }
+  | { readonly type: 'room_activity_switch'; readonly payload: Record<string, unknown> }
+  | { readonly type: 'replication_mode_set'; readonly payload: Record<string, unknown> }
+  | { readonly type: 'state_paused_ack'; readonly payload: Record<string, unknown> }
+  | { readonly type: 'room_csr_state_broadcast'; readonly payload: Record<string, unknown> }
   | { readonly type: 'packet'; readonly payload: SimulatedPayload };
 
 export function parseInboundControlFrame(raw: string): InboundControlFrame | null {
@@ -69,6 +79,18 @@ export function parseInboundControlFrame(raw: string): InboundControlFrame | nul
         enabled: Boolean(msg.enabled),
         anchorMode: typeof msg.anchorMode === 'string' ? msg.anchorMode : '',
       };
+    }
+    if (msg.type === 'room_activity_switch') {
+      return { kind: 'room_activity_switch', raw: msg };
+    }
+    if (msg.type === 'replication_mode_set') {
+      return { kind: 'replication_mode_set', raw: msg };
+    }
+    if (msg.type === 'state_paused_ack') {
+      return { kind: 'state_paused_ack', raw: msg };
+    }
+    if (msg.type === 'room_csr_state_broadcast') {
+      return { kind: 'room_csr_state_broadcast', raw: msg };
     }
     if (msg.type === 'ping') {
       const sendTime = typeof msg.sendTime === 'number' ? msg.sendTime : 0;
@@ -195,6 +217,39 @@ export function dispatchDualChannelControlFrame(
       console.warn(`[P2PWebRTCChannel] Failed to send ${label} via RoomChannel:`, err);
     }
   }
+}
+
+export function transmitReliableControlFrame(
+  controlDc: RTCDataChannel | null,
+  fallbackSnapshotDc: RTCDataChannel | null,
+  roomChannel: BroadcastChannel | null,
+  messageObj: Record<string, unknown>,
+  label: string
+): boolean {
+  const targetDc =
+    controlDc && controlDc.readyState === 'open'
+      ? controlDc
+      : fallbackSnapshotDc && fallbackSnapshotDc.readyState === 'open'
+        ? fallbackSnapshotDc
+        : null;
+  let dispatched = false;
+  if (targetDc) {
+    try {
+      targetDc.send(JSON.stringify(messageObj));
+      dispatched = true;
+    } catch (err) {
+      console.warn(`[P2PWebRTCChannel] Failed to send ${label} via reliable DataChannel:`, err);
+    }
+  }
+  if (!dispatched && roomChannel) {
+    try {
+      roomChannel.postMessage(messageObj);
+      dispatched = true;
+    } catch (err) {
+      console.warn(`[P2PWebRTCChannel] Failed to send ${label} via RoomChannel:`, err);
+    }
+  }
+  return dispatched;
 }
 
 export function isLoopbackCandidate(cand: IceCandidateDescriptor | null | undefined): boolean {

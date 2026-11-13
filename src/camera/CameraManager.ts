@@ -64,6 +64,14 @@ export class CameraManager {
   public readonly directorController: DirectorCameraController;
   public readonly editorController: EditorCameraController;
   public focusedCarIndex = 0;
+  public coachFollowCarIndex: number | null = null;
+  public directionAdjustActive = false;
+  public directionOffsetYaw = 0;
+  public directionOffsetPitch = 0;
+  private readonly _offsetYawQuat = new THREE.Quaternion();
+  private readonly _offsetPitchQuat = new THREE.Quaternion();
+  private readonly _offsetWorldUp = new THREE.Vector3(0, 1, 0);
+  private readonly _offsetLocalRight = new THREE.Vector3(1, 0, 0);
   public isDirectorOverrideActive = false;
   public isEditorOverrideActive = false;
   public isFreeCam = false;
@@ -203,7 +211,13 @@ export class CameraManager {
 
   setFocusedCarIndex(carIndex: number): void {
     const idx = Number(carIndex);
-    if (Number.isFinite(idx) && idx >= 0) this.focusedCarIndex = Math.round(idx);
+    if (Number.isFinite(idx) && idx >= 0) {
+      const rounded = Math.round(idx);
+      if (rounded !== this.focusedCarIndex) {
+        this.focusedCarIndex = rounded;
+        this.resetDirectionOffset();
+      }
+    }
   }
 
   private getPreferredPovMode(): CameraMode {
@@ -231,6 +245,10 @@ export class CameraManager {
     const shouldEnable = Boolean(enabled);
     if (this.isFreeCam === shouldEnable) return;
     this.isFreeCam = shouldEnable;
+    if (shouldEnable) {
+      this.resetDirectionOffset();
+      this.setDirectionAdjustActive(false);
+    }
     const fallback = this.isDirectorOverrideActive
       ? CAMERA_MODES.DIRECTOR
       : this.getPreferredPovMode();
@@ -317,16 +335,81 @@ export class CameraManager {
   }
 
   adjustPovAngularOffset(deltaYawRad: number, deltaPitchRad: number): void {
-    this.povAngularOffset.yawRad += deltaYawRad;
-    this.povAngularOffset.pitchRad = Math.max(
-      -Math.PI * 0.45,
-      Math.min(Math.PI * 0.45, this.povAngularOffset.pitchRad + deltaPitchRad)
-    );
+    this.applyDirectionOffsetDelta(deltaYawRad, deltaPitchRad);
   }
 
   resetPovAngularOffset(): void {
-    this.povAngularOffset.yawRad = 0;
-    this.povAngularOffset.pitchRad = 0;
+    this.resetDirectionOffset();
+  }
+
+  setDirectionAdjustActive(active: boolean): void {
+    this.directionAdjustActive = Boolean(active);
+  }
+
+  applyDirectionOffsetDelta(deltaYawRad: number, deltaPitchRad: number): void {
+    if (!Number.isFinite(deltaYawRad) || !Number.isFinite(deltaPitchRad)) return;
+    this.directionOffsetYaw += deltaYawRad;
+    const maxPitch = Math.PI * 0.48;
+    this.directionOffsetPitch = Math.max(
+      -maxPitch,
+      Math.min(maxPitch, this.directionOffsetPitch + deltaPitchRad)
+    );
+  }
+
+  resetDirectionOffset(): void {
+    this.directionOffsetYaw = 0;
+    this.directionOffsetPitch = 0;
+  }
+
+  getDirectionOffsetDeg(): { yawDeg: number; pitchDeg: number } {
+    return {
+      yawDeg: Math.round(THREE.MathUtils.radToDeg(this.directionOffsetYaw)),
+      pitchDeg: Math.round(THREE.MathUtils.radToDeg(this.directionOffsetPitch)),
+    };
+  }
+
+  setCoachFollowCarIndex(carIndex: number | null): void {
+    if (carIndex === null || !Number.isFinite(carIndex) || carIndex < 0) {
+      this.coachFollowCarIndex = null;
+      return;
+    }
+    this.coachFollowCarIndex = Math.round(carIndex);
+    this.focusedCarIndex = this.coachFollowCarIndex;
+    this.setFreeCam(false);
+  }
+
+  cycleCameraView(carCount = 6): { isFreeCam: boolean; focusedCarIndex: number } {
+    const safeCount = Math.max(1, Math.round(carCount));
+    this.resetDirectionOffset();
+    if (this.isFreeCam) {
+      this.setFreeCam(false);
+      this.focusedCarIndex = 0;
+      this.coachFollowCarIndex = 0;
+      return { isFreeCam: false, focusedCarIndex: 0 };
+    }
+    const nextIdx = this.focusedCarIndex + 1;
+    if (nextIdx >= safeCount) {
+      this.setFreeCam(true);
+      this.coachFollowCarIndex = null;
+      return { isFreeCam: true, focusedCarIndex: this.focusedCarIndex };
+    }
+    this.focusedCarIndex = nextIdx;
+    this.coachFollowCarIndex = nextIdx;
+    return { isFreeCam: false, focusedCarIndex: nextIdx };
+  }
+
+  private applyPersistentDirectionOffset(): void {
+    if (this.isFreeCam) return;
+    const cam = this._sharedCamera;
+    if (!cam) return;
+    if (Math.abs(this.directionOffsetYaw) < 1e-5 && Math.abs(this.directionOffsetPitch) < 1e-5) {
+      return;
+    }
+    this._offsetYawQuat.setFromAxisAngle(this._offsetWorldUp, this.directionOffsetYaw);
+    this._offsetPitchQuat.setFromAxisAngle(this._offsetLocalRight, this.directionOffsetPitch);
+    cam.quaternion.premultiply(this._offsetYawQuat);
+    cam.quaternion.multiply(this._offsetPitchQuat);
+    cam.updateMatrixWorld();
   }
 
   update(
@@ -351,20 +434,7 @@ export class CameraManager {
     if (needsSubject && (!carObject || !ballObject)) return;
     const current = this.controllers.get(this.activeMode);
     if (current) current.update(carObject, ballObject, dt, extraInfo, inputState);
-    if (
-      this._sharedCamera &&
-      (Math.abs(this.povAngularOffset.yawRad) > 1e-5 ||
-        Math.abs(this.povAngularOffset.pitchRad) > 1e-5)
-    ) {
-      this._povOffsetEuler.set(
-        this.povAngularOffset.pitchRad,
-        this.povAngularOffset.yawRad,
-        0,
-        'YXZ'
-      );
-      this._povOffsetQuat.setFromEuler(this._povOffsetEuler);
-      this._sharedCamera.quaternion.multiply(this._povOffsetQuat);
-    }
+    this.applyPersistentDirectionOffset();
   }
 
   dispose(): void {

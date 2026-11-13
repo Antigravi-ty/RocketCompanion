@@ -29,6 +29,7 @@ export interface RLRCInterveneSessionAccessors {
   readonly getSession: () => RLRCConvertedReplaySession | null;
   readonly getRuntime: () => ReplayScoreboardRuntimePort | null;
   readonly getMode: () => ReplayScoreboardModePort | null;
+  readonly onPhaseChanged?: (phase: RLRCSessionPhase, countdownSec: number) => void;
 }
 
 function resolveIntervenePhysicsPort(simRaw: unknown): RLRCIntervenePhysicsPort | null {
@@ -136,6 +137,6 @@ export function createRLRCInterveneEnvPort(
       if (typeof audio?.play === 'function') audio.play(soundId, volume);
       else audio?.playSound?.(soundId, volume);
     },
-    onPhaseChanged: syncImporterPhaseTelemetry,
+    onPhaseChanged: accessors.onPhaseChanged ?? syncImporterPhaseTelemetry,
   };
 }

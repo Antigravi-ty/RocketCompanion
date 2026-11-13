@@ -1,96 +1,121 @@
-export type TelestratorBrushType = 'solid' | 'dashed' | 'arrow';
-
-export type TelestratorOpacityPreset = 1.0 | 0.7 | 0.5;
+export type TelestratorBrushTool = 'solid' | 'dashed' | 'arrow';
 
 export type TelestratorColorId =
   'dark-grey' | 'white' | 'red' | 'yellow' | 'bright-green' | 'dark-green';
 
-export const TELESTRATOR_COLOR_PALETTE: Record<
-  TelestratorColorId,
-  { readonly label: string; readonly hex: string }
-> = {
-  'dark-grey': { label: 'Dark Grey', hex: '#3f3f46' },
-  white: { label: 'White', hex: '#ffffff' },
-  red: { label: 'Red', hex: '#ef4444' },
-  yellow: { label: 'Yellow', hex: '#facc15' },
-  'bright-green': { label: 'Bright Green', hex: '#4ade80' },
-  'dark-green': { label: 'Dark Green', hex: '#15803d' },
-};
-
-export interface TelestratorBrushPreset {
-  readonly id: 1 | 2 | 3;
+export interface TelestratorColorSpec {
+  readonly id: TelestratorColorId;
   readonly label: string;
-  widthPx: number;
-  brushType: TelestratorBrushType;
-  colorId: TelestratorColorId;
-  opacity: TelestratorOpacityPreset;
+  readonly hex: string;
+  readonly numeric: number;
 }
 
-export const DEFAULT_TELESTRATOR_PRESETS: readonly TelestratorBrushPreset[] = [
+export const TELESTRATOR_COLORS: readonly TelestratorColorSpec[] = [
+  { id: 'dark-grey', label: 'Dark Grey', hex: '#374151', numeric: 0x374151 },
+  { id: 'white', label: 'White', hex: '#f8fafc', numeric: 0xf8fafc },
+  { id: 'red', label: 'Red', hex: '#ef4444', numeric: 0xef4444 },
+  { id: 'yellow', label: 'Yellow', hex: '#facc15', numeric: 0xfacc15 },
+  { id: 'bright-green', label: 'Bright Green', hex: '#4ade80', numeric: 0x4ade80 },
+  { id: 'dark-green', label: 'Dark Green', hex: '#15803d', numeric: 0x15803d },
+];
+
+export function resolveTelestratorColorNumeric(colorId: TelestratorColorId): number {
+  const found = TELESTRATOR_COLORS.find((c) => c.id === colorId);
+  return found ? found.numeric : 0xfacc15;
+}
+
+export interface TelestratorBrushPreset {
+  readonly id: string;
+  readonly label: string;
+  readonly opacity: number;
+  readonly widthRefPx: number;
+}
+
+export const TELESTRATOR_REF_VIEWPORT_HEIGHT = 1080;
+export const DEFAULT_TELESTRATOR_LINE_WIDTH_REF_PX = 10;
+export const DEFAULT_TELESTRATOR_ARROW_LENGTH_REF_PX = 36;
+export const DEFAULT_TELESTRATOR_ARROW_WIDTH_REF_PX = 28;
+
+export const DEFAULT_TELESTRATOR_PRESETS: readonly [
+  TelestratorBrushPreset,
+  TelestratorBrushPreset,
+  TelestratorBrushPreset,
+] = [
   {
-    id: 1,
-    label: 'Preset 1',
-    widthPx: 6,
-    brushType: 'solid',
-    colorId: 'yellow',
+    id: 'preset-100',
+    label: '100%',
     opacity: 1.0,
+    widthRefPx: DEFAULT_TELESTRATOR_LINE_WIDTH_REF_PX,
   },
   {
-    id: 2,
-    label: 'Preset 2',
-    widthPx: 8,
-    brushType: 'arrow',
-    colorId: 'red',
-    opacity: 1.0,
-  },
-  {
-    id: 3,
-    label: 'Preset 3',
-    widthPx: 5,
-    brushType: 'dashed',
-    colorId: 'bright-green',
+    id: 'preset-70',
+    label: '70%',
     opacity: 0.7,
+    widthRefPx: DEFAULT_TELESTRATOR_LINE_WIDTH_REF_PX,
+  },
+  {
+    id: 'preset-50',
+    label: '50%',
+    opacity: 0.5,
+    widthRefPx: DEFAULT_TELESTRATOR_LINE_WIDTH_REF_PX,
   },
 ];
 
-export interface TelestratorStroke {
-  readonly strokeId: string;
-  readonly fnv1aHash: number;
-  readonly brushType: TelestratorBrushType;
-  readonly colorHex: string;
-  readonly opacity: number;
-  readonly widthPx: number;
-  readonly points: Float32Array;
-  readonly normals: Float32Array;
-  readonly pointCount: number;
-  readonly tick: number;
+export type TelestratorPresetIndex = 0 | 1 | 2;
+
+export interface TelestratorPoint {
+  x: number;
+  y: number;
+  z: number;
+  nx: number;
+  ny: number;
+  nz: number;
 }
 
-export function computeFnv1aStrokeHash(
-  points: Float32Array,
-  pointCount: number,
-  brushType: TelestratorBrushType,
-  colorHex: string,
-  opacity: number,
-  widthPx: number
-): number {
-  let hash = 0x811c9dc5;
-  const mixByte = (b: number) => {
-    hash ^= b & 0xff;
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  };
-  const mixStr = (s: string) => {
-    for (let i = 0; i < s.length; i++) mixByte(s.charCodeAt(i));
-  };
-  mixStr(brushType);
-  mixStr(colorHex);
-  mixByte(Math.round(opacity * 100));
-  mixByte(Math.round(widthPx));
-  const floats = Math.min(points.length, pointCount * 3);
-  for (let i = 0; i < floats; i++) {
-    const q = Math.round(points[i]);
-    mixByte(q);
-    mixByte(q >>> 8);
-  }
-  return hash >>> 0;
+export interface TelestratorVec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface TelestratorStroke {
+  id: string;
+  authorId: string;
+  strokeSeq: number;
+  tool: TelestratorBrushTool;
+  colorId: TelestratorColorId;
+  presetIndex: TelestratorPresetIndex;
+  opacity: number;
+  widthRefPx: number;
+  arrowLengthRefPx: number;
+  arrowWidthRefPx: number;
+  camPos: TelestratorVec3;
+  camForward: TelestratorVec3;
+  camFovDeg: number;
+  createdTick: number;
+  fadeDurationTicks: number;
+  points: TelestratorPoint[];
+  hash: number;
+}
+
+export interface TelestratorStrokeDebugDump {
+  strokeId: string;
+  authorId: string;
+  strokeSeq: number;
+  tool: TelestratorBrushTool;
+  presetIndex: TelestratorPresetIndex;
+  colorId: TelestratorColorId;
+  opacity: number;
+  widthRefPx: number;
+  arrowLengthRefPx: number;
+  arrowWidthRefPx: number;
+  rawPoints: TelestratorPoint[];
+  simplifiedPoints: TelestratorPoint[];
+  renderedPoints: TelestratorPoint[];
+  wireBytes: number;
+  hash: number;
+  camPos: TelestratorVec3;
+  camForward: TelestratorVec3;
+  camFovDeg: number;
+  pointerDiagnostics?: import('./telestratorPointerDiag.ts').TelestratorPointerDiagDump;
 }

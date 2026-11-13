@@ -334,7 +334,7 @@ export const DiagnosticDumpFloatingWindow: React.FC<DiagnosticDumpFloatingWindow
             }`}
           >
             <Download className="h-3 w-3 text-sky-400" />
-            Client .rcreplay.gz ({clientFrames}f)
+            Client .RCReplay ({clientFrames}f)
           </button>
           <button
             type="button"

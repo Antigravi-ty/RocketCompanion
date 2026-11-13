@@ -65,7 +65,7 @@ export const MultiTrackReplayTimeline = React.memo(
   forwardRef<MultiTrackReplayTimelineHandle, MultiTrackReplayTimelineProps>(
     (props, ref) => {
       const {
-        fileName = 'match_2026_finals_ot.rcreplay.gz',
+        fileName = 'match_2026_finals_ot.RCReplay',
         totalFrames = 1440,
         cursorFrame: controlledCursorFrame,
         isIntervening = false,

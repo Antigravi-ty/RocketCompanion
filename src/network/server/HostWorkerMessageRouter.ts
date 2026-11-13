@@ -29,7 +29,10 @@ import type {
   RoomActivitySwitchPayload,
   SpectatorTimelineCommand,
 } from '../protocol/RoomActivityProtocol.ts';
-import { RoomActivityOrchestrator } from './activities/RoomActivityOrchestrator.ts';
+import { RoomActivityOrchestrator as ActivitiesRoomActivityOrchestrator } from './activities/RoomActivityOrchestrator.ts';
+import type { ActivityId, ReplicationMode } from '../protocol/ReplicationBusProtocol.ts';
+import { RoomActivityOrchestrator } from './RoomActivityOrchestrator.ts';
+import { routeRoomActivityAndReplicationMessage } from './hostWorkerActivityHandlers.ts';
 
 export type { WorkerRouterContext };
 
@@ -52,6 +55,9 @@ export interface WorkerRoomStateSummary {
   roster: RosterSnapshot;
   activitySummary?: RoomActivityStateSummary | null;
   csrFollowHost?: CsrFollowHostPayload | null;
+  activeActivityId?: ActivityId;
+  activityEpoch?: number;
+  replicationMode?: ReplicationMode;
 }
 
 export interface HostWorkerInitOptions {
@@ -134,7 +140,7 @@ export interface HostWorkerMessageRouterOptions extends WorkerRouterContext {
 export function buildWorkerRoomStateSummary(
   matchManager: MatchSessionAdmin | null | undefined,
   physicsManager: PhysicsEngineManager | null | undefined,
-  activityOrchestrator?: RoomActivityOrchestrator | null
+  activityOrchestrator?: ActivitiesRoomActivityOrchestrator | null
 ): WorkerRoomStateSummary | null {
   if (!matchManager) return null;
   const s = matchManager.getSnapshot();
@@ -173,7 +179,7 @@ export function routeProtocolMessageInWorker(
   const seq = msg.seq ?? p?.reqId ?? 0;
   const { sim, physicsManager, sessionManager, matchManager, dataHandler } = workerCtx;
   if (!workerCtx.activityOrchestrator) {
-    workerCtx.activityOrchestrator = new RoomActivityOrchestrator();
+    workerCtx.activityOrchestrator = new ActivitiesRoomActivityOrchestrator();
   }
   const orchestrator = workerCtx.activityOrchestrator;
   const emitRaw: ((m: Record<string, unknown>, transfer?: Transferable[]) => void) | null =
@@ -410,55 +416,8 @@ export function routeProtocolMessageInWorker(
       return true;
     }
 
-    case MSG.ROOM_ACTIVITY_SWITCH: {
-      const switchPayload = p as unknown as RoomActivitySwitchPayload;
-      if (switchPayload.activityId) {
-        const summary = orchestrator.switchActivity(
-          { matchManager, physicsManager, syncRoomState },
-          switchPayload
-        );
-        reply(MSG.ROOM_ACTIVITY_SWITCH, summary);
-      }
-      return true;
-    }
-
-    case MSG.SPECTATOR_TIMELINE_CMD: {
-      const cmd = p as unknown as SpectatorTimelineCommand;
-      if (cmd.action) {
-        const summary = orchestrator.handleSpectatorTimelineCommand(
-          { matchManager, physicsManager, syncRoomState },
-          cmd
-        );
-        reply(MSG.SPECTATOR_TIMELINE_CMD, summary);
-      }
-      return true;
-    }
-
-    case MSG.INTERVENE_HANDOFF_CMD: {
-      const req = p as unknown as InterveneAuthorizationRequest;
-      if (req.action) {
-        const summary = orchestrator.handleInterveneHandoffRequest(
-          { matchManager, physicsManager, syncRoomState },
-          req
-        );
-        reply(MSG.INTERVENE_HANDOFF_CMD, summary);
-      }
-      return true;
-    }
-
-    case MSG.CSR_FOLLOW_HOST_SYNC: {
-      const csrPatch = p as unknown as Partial<CsrFollowHostPayload>;
-      const csrState = orchestrator.updateCsrFollowHostState(csrPatch, {
-        matchManager,
-        physicsManager,
-        syncRoomState,
-      });
-      reply(MSG.CSR_FOLLOW_HOST_SYNC, csrState);
-      return true;
-    }
-
     default:
-      return false;
+      return routeRoomActivityAndReplicationMessage(workerCtx, type, p, reply, syncRoomState);
   }
 }
 
@@ -468,7 +427,8 @@ export class HostWorkerMessageRouter {
   physicsManager: PhysicsEngineManager | null;
   sessionManager: EstablishedSessionManager | null;
   dataHandler: NetworkDataHandler | null;
-  activityOrchestrator: RoomActivityOrchestrator;
+  activityOrchestrator: ActivitiesRoomActivityOrchestrator;
+  orchestrator: RoomActivityOrchestrator;
   registerWorkerChannel: ((channelId: string) => void) | null;
   unregisterWorkerChannel: ((channelId: string) => void) | null;
   postEnvelope: ((envelope: WorkerEnvelope, transfer?: Transferable[]) => void) | null;
@@ -485,7 +445,9 @@ export class HostWorkerMessageRouter {
       (this.matchManager?.sessionManager as EstablishedSessionManager | null) ||
       null;
     this.dataHandler = options.dataHandler || null;
-    this.activityOrchestrator = options.activityOrchestrator || new RoomActivityOrchestrator();
+    this.activityOrchestrator =
+      options.activityOrchestrator || new ActivitiesRoomActivityOrchestrator();
+    this.orchestrator = options.orchestrator || new RoomActivityOrchestrator();
     this.registerWorkerChannel = options.registerWorkerChannel || null;
     this.unregisterWorkerChannel = options.unregisterWorkerChannel || null;
     this.postEnvelope = options.postEnvelope || null;

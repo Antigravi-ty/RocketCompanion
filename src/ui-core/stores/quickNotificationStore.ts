@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { syncBridge as crossClientSync } from './syncBridge';
+import { bindQuickNotificationSync } from './quickNotificationSync';
 import type {
   QuickNotificationItem,
   QuickNotificationPushOptions,
@@ -81,6 +81,7 @@ export const useQuickNotificationStore = create<QuickNotificationStore>((set, ge
   unreadStack: [],
   totalUnreadCount: 0,
   isStackOpen: false,
+  isForceCollapsed: false,
   ongoingTasks: [],
   activeOngoingTask: null,
   ongoingConflictPolicy: 'latest',
@@ -332,10 +333,19 @@ export const useQuickNotificationStore = create<QuickNotificationStore>((set, ge
 
   setStackOpen: (open: boolean) => set(() => ({ isStackOpen: open })),
 
+  toggleForceCollapse: () => set((s) => ({ isForceCollapsed: !s.isForceCollapsed })),
+
+  setForceCollapsed: (collapsed: boolean) => set(() => ({ isForceCollapsed: collapsed })),
+
   expandNotificationCenter: () => {
     const s = get();
-    if (s.unreadStack.length + s.preemptedPersistentStack.length > 0 && !s.isStackOpen) {
-      set(() => ({ isStackOpen: true }));
+    const shouldOpenStack =
+      s.unreadStack.length + s.preemptedPersistentStack.length > 0 && !s.isStackOpen;
+    if (s.isForceCollapsed || shouldOpenStack) {
+      set(() => ({
+        isForceCollapsed: false,
+        ...(shouldOpenStack ? { isStackOpen: true } : {}),
+      }));
     }
   },
 
@@ -352,87 +362,12 @@ export const useQuickNotificationStore = create<QuickNotificationStore>((set, ge
       ongoingTasks: [],
       activeOngoingTask: null,
       isStackOpen: false,
+      isForceCollapsed: false,
     }));
   },
 }));
 
-// Listen for decoupled UI expand events (e.g., from L1 InlineErrorNotice)
-const sanitizeItem = (item: QuickNotificationItem | null): QuickNotificationItem | null => {
-  if (!item) return null;
-  return {
-    ...item,
-    icon: typeof item.icon === 'string' ? item.icon : 'bell',
-    buttons: item.buttons?.map((b) => ({
-      key: b.key,
-      label: b.label,
-      color: b.color,
-      format: b.format,
-      icon: typeof b.icon === 'string' ? b.icon : undefined,
-    })),
-  };
-};
-
-let syncingFromRemoteNotification = false;
-
-useQuickNotificationStore.subscribe((s) => {
-  if (syncingFromRemoteNotification || crossClientSync.isApplyingRemote()) return;
-  crossClientSync.set('store:quickNotification', {
-    activeNotification: sanitizeItem(s.activeNotification),
-    preemptedPersistentStack: s.preemptedPersistentStack
-      .map(sanitizeItem)
-      .filter(Boolean) as QuickNotificationItem[],
-    unreadStack: s.unreadStack.map(sanitizeItem).filter(Boolean) as QuickNotificationItem[],
-    totalUnreadCount: s.totalUnreadCount,
-    isStackOpen: s.isStackOpen,
-    ongoingTasks: s.ongoingTasks.map(sanitizeItem).filter(Boolean) as QuickNotificationItem[],
-    activeOngoingTask: sanitizeItem(s.activeOngoingTask),
-    ongoingConflictPolicy: s.ongoingConflictPolicy,
-  });
-});
-
-crossClientSync.subscribeKey<Partial<QuickNotificationStoreState>>(
-  'store:quickNotification',
-  (remote) => {
-    if (!remote || typeof remote !== 'object') return;
-    syncingFromRemoteNotification = true;
-    try {
-      clearActiveTimers();
-      useQuickNotificationStore.setState({
-        activeNotification: remote.activeNotification ?? null,
-        preemptedPersistentStack: remote.preemptedPersistentStack ?? [],
-        unreadStack: remote.unreadStack ?? [],
-        totalUnreadCount: remote.totalUnreadCount ?? 0,
-        isStackOpen: remote.isStackOpen ?? false,
-        ongoingTasks: remote.ongoingTasks ?? [],
-        activeOngoingTask: remote.activeOngoingTask ?? null,
-        ongoingConflictPolicy: remote.ongoingConflictPolicy ?? 'latest',
-      });
-    } finally {
-      syncingFromRemoteNotification = false;
-    }
-  }
-);
-
-crossClientSync.onReset((scopePrefix) => {
-  if (scopePrefix && !'store:quickNotification'.startsWith(scopePrefix)) return;
-  clearActiveTimers();
-  useQuickNotificationStore.setState({
-    activeNotification: null,
-    preemptedPersistentStack: [],
-    unreadStack: [],
-    totalUnreadCount: 0,
-    ongoingTasks: [],
-    activeOngoingTask: null,
-    isStackOpen: false,
-    ongoingConflictPolicy: 'latest',
-  });
-});
-
-if (typeof window !== 'undefined') {
-  window.addEventListener('ui:expand-quick-notification', () => {
-    useQuickNotificationStore.getState().expandNotificationCenter();
-  });
-}
+bindQuickNotificationSync(useQuickNotificationStore, clearActiveTimers);
 
 // Standalone action helpers
 export const pushQuickNotification = (config: QuickNotificationPushOptions) =>
@@ -478,6 +413,9 @@ export const quickNotificationStore = Object.assign(useQuickNotificationStore, {
   ignoreActive: () => useQuickNotificationStore.getState().ignoreActive(),
   toggleStack: () => useQuickNotificationStore.getState().toggleStack(),
   setStackOpen: (open: boolean) => useQuickNotificationStore.getState().setStackOpen(open),
+  toggleForceCollapse: () => useQuickNotificationStore.getState().toggleForceCollapse(),
+  setForceCollapsed: (collapsed: boolean) =>
+    useQuickNotificationStore.getState().setForceCollapsed(collapsed),
   expandNotificationCenter: expandQuickNotificationCenter,
   resolveFromStack: resolveQuickNotification,
   dismissFromStack: dismissQuickNotification,

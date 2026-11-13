@@ -38,6 +38,7 @@ export interface QuickNotificationSystemProps {
   previewNotification?: QuickNotificationItem | null;
   unreadStack?: QuickNotificationItem[];
   isStackOpen?: boolean;
+  isForceCollapsed?: boolean;
   onAction?: () => void;
   onCollapse?: () => void;
   onIgnore?: () => void;
@@ -45,6 +46,7 @@ export interface QuickNotificationSystemProps {
   onDismissFromStack?: (id: string) => void;
   onToggleStack?: () => void;
   onStackOpenChange?: (open: boolean) => void;
+  onForceCollapsedChange?: (collapsed: boolean) => void;
   onLifecycleChange?: (lifecycle: NotificationIconLifecycle) => void;
 }
 
@@ -59,6 +61,7 @@ export const QuickNotificationSystem: React.FC<QuickNotificationSystemProps> = (
   previewNotification,
   unreadStack: controlledUnread,
   isStackOpen: controlledIsStackOpen,
+  isForceCollapsed: controlledIsForceCollapsed,
   onAction,
   onCollapse,
   onIgnore,
@@ -66,6 +69,7 @@ export const QuickNotificationSystem: React.FC<QuickNotificationSystemProps> = (
   onDismissFromStack,
   onToggleStack,
   onStackOpenChange,
+  onForceCollapsedChange,
   onLifecycleChange,
 }) => {
   const store = useQuickNotificationStore();
@@ -87,6 +91,13 @@ export const QuickNotificationSystem: React.FC<QuickNotificationSystemProps> = (
   const totalCount = (effectiveActive ? 1 : 0) + effectiveUnread.length;
 
   const [localStackOpen, setLocalStackOpen] = useState(false);
+  const [localForceCollapsed, setLocalForceCollapsed] = useState(false);
+
+  const isControlledMode =
+    controlledActive !== undefined ||
+    controlledUnread !== undefined ||
+    previewNotification !== undefined;
+
   const effectiveIsStackOpen =
     controlledIsStackOpen !== undefined
       ? controlledIsStackOpen
@@ -94,10 +105,37 @@ export const QuickNotificationSystem: React.FC<QuickNotificationSystemProps> = (
       ? localStackOpen
       : store.isStackOpen;
 
+  const effectiveIsForceCollapsed =
+    controlledIsForceCollapsed !== undefined
+      ? controlledIsForceCollapsed
+      : isControlledMode
+      ? localForceCollapsed
+      : store.isForceCollapsed;
+
+  const setForceCollapsedValue = (next: boolean) => {
+    if (onForceCollapsedChange) {
+      onForceCollapsedChange(next);
+    } else if (isControlledMode) {
+      setLocalForceCollapsed(next);
+    } else {
+      store.setForceCollapsed(next);
+    }
+  };
+
   const handleToggleStack = () => {
     if (onToggleStack) {
       onToggleStack();
-    } else if (onStackOpenChange) {
+      return;
+    }
+    if (effectiveIsForceCollapsed) {
+      setForceCollapsedValue(false);
+      return;
+    }
+    if (effectiveActive) {
+      setForceCollapsedValue(true);
+      return;
+    }
+    if (onStackOpenChange) {
       onStackOpenChange(!effectiveIsStackOpen);
     } else if (controlledUnread !== undefined) {
       setLocalStackOpen((prev) => !prev);
@@ -169,8 +207,17 @@ export const QuickNotificationSystem: React.FC<QuickNotificationSystemProps> = (
   }, [totalCount, effectiveUnread.length, lifecycle]);
 
   useEffect(() => {
+    if (totalCount === 0 && effectiveIsForceCollapsed) {
+      setForceCollapsedValue(false);
+    }
+  }, [totalCount, effectiveIsForceCollapsed]);
+
+  useEffect(() => {
     return () => clearTimers();
   }, []);
+
+  const visibleActive = effectiveIsForceCollapsed ? null : effectiveActive;
+  const visibleIsStackOpen = effectiveIsForceCollapsed ? false : effectiveIsStackOpen;
 
   const hasSlotRight = Boolean(slotRight);
   const isBottomRight = placement === 'bottom-right';
@@ -188,9 +235,9 @@ export const QuickNotificationSystem: React.FC<QuickNotificationSystemProps> = (
     >
       <div className="h-10 flex items-center gap-2.5 relative">
         <AnimatePresence mode="wait">
-          {effectiveActive && (
+          {visibleActive && (
             <motion.div
-              key={`active-drawer-${effectiveActive.id}`}
+              key={`active-drawer-${visibleActive.id}`}
               initial={{ width: 0, opacity: 0 }}
               animate={{ width: 'auto', opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
@@ -211,17 +258,17 @@ export const QuickNotificationSystem: React.FC<QuickNotificationSystemProps> = (
                 }}
               >
                 <QuickNotificationDrawer
-                  id={effectiveActive.id}
-                  content={effectiveActive.content}
-                  tone={effectiveActive.tone}
-                  icon={effectiveActive.icon}
-                  type={effectiveActive.type}
-                  duration={effectiveActive.duration}
-                  buttons={effectiveActive.buttons}
-                  actionButton={effectiveActive.actionButton}
-                  remainingProgress={effectiveActive.remainingProgress}
-                  progress={effectiveActive.progress}
-                  isSpinningIcon={effectiveActive.isSpinningIcon}
+                  id={visibleActive.id}
+                  content={visibleActive.content}
+                  tone={visibleActive.tone}
+                  icon={visibleActive.icon}
+                  type={visibleActive.type}
+                  duration={visibleActive.duration}
+                  buttons={visibleActive.buttons}
+                  actionButton={visibleActive.actionButton}
+                  remainingProgress={visibleActive.remainingProgress}
+                  progress={visibleActive.progress}
+                  isSpinningIcon={visibleActive.isSpinningIcon}
                   isLight={isLight}
                   onAction={() => {
                     if (onAction) onAction();
@@ -245,13 +292,14 @@ export const QuickNotificationSystem: React.FC<QuickNotificationSystemProps> = (
           isLight={isLight}
           lifecycle={lifecycle}
           unreadCount={effectiveUnread.length}
+          isForceCollapsed={effectiveIsForceCollapsed}
           slotRight={slotRight}
           onToggleStack={handleToggleStack}
         />
       </div>
 
       <QuickNotificationUnreadStackTray
-        isOpen={effectiveIsStackOpen}
+        isOpen={visibleIsStackOpen}
         items={effectiveUnread}
         isLight={isLight}
         isBottomRight={isBottomRight}

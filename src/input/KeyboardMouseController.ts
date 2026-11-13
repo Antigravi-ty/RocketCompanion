@@ -95,6 +95,7 @@ export class KeyboardMouseController {
   onKickoffSpawnSelect: KickoffSpawnInputCallback | null;
   onReset: VoidInputCallback | null;
   onSettingsToggle: VoidInputCallback | null;
+  externalMouseSuppressPredicate: (() => boolean) | null;
 
   constructor(bindings?: KeyboardInputBindingsMap | null) {
     this.keys = new Set<string>();
@@ -122,6 +123,7 @@ export class KeyboardMouseController {
     this.onSettingsToggle = null;
     this.onFreeCamToggle = null;
     this.ballControlEnabled = true;
+    this.externalMouseSuppressPredicate = null;
     this._unsubKeyDown = null;
     this._unsubKeyUp = null;
 
@@ -163,6 +165,10 @@ export class KeyboardMouseController {
 
     this._onMouseDown = (e: MouseEvent) => {
       if (this.captureActive || isEventWithinUI(e.target)) return;
+      if (this.externalMouseSuppressPredicate?.()) {
+        this.mouse.clear();
+        return;
+      }
       const source: MouseInputBindingSource = { kind: 'mouse', button: e.button };
       if (!this.fireToggles(source, e)) {
         if (this.inputEnabled) {

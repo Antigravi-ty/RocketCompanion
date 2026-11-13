@@ -61,7 +61,7 @@ export const REPLAY_DIRECTOR_TUNER_PRESET: PresetConfig = makeDevPreset({
   category: 'ReplayDirector',
   width: 485,
   height: 640,
-  summary: '.rcgr.gz Goal Replay container export/import, 3D Arena preview, anomaly peak seek chips & +-15f window.',
+  summary: '.RCGR Goal Replay container export/import, 3D Arena preview, anomaly peak seek chips & +-15f window.',
   menuEntryPath: DEV_ENTRY_PATHS.ACTIVE_TUNERS,
   component: 'ReplayDirectorTunerFloatingWindow',
 });
@@ -301,12 +301,12 @@ export const DEMOLISH_SHOCKWAVE_TUNER_PRESET: PresetConfig = makeDevPreset({
 
 export const REPLAY_TO_RCS_IMPORTER_PRESET: PresetConfig = makeDevPreset({
   id: 'replay-to-rcs-importer',
-  title: 'Replay to RCS Replay Importer',
+  title: 'Replay to RLRCReplay Importer',
   category: 'ReplayImporter',
   width: 495,
   height: 660,
   minHeight: 220,
-  summary: 'Import raw Rocket League .replay files, upsample 30Hz -> 120Hz via SLERP/Hermite, intervene with Disappear/Trajectory/Nexto/Necto, and export .rcreplay.gz.',
+  summary: 'Import raw Rocket League .replay files, upsample 30Hz -> 120Hz via SLERP/Hermite, intervene with Disappear/Trajectory/Nexto/Necto, and export 5-track .RLRCReplay.',
   menuEntryPath: DEV_ENTRY_PATHS.SANDBOXES_AND_LABS,
   component: 'ReplayToRcsImporterFloatingWindow',
 });
@@ -335,6 +335,33 @@ export const PERFORMANCE_BOOST_TUNER_PRESET: PresetConfig = makeDevPreset({
   summary: 'Extreme Performance zero-bloom boost tuner: Pose-Attached Laser Beam vs Trajectory Tube Ribbon, Single Color vs 3-Stop Gradient, and alpha blend expire curves.',
   menuEntryPath: DEV_ENTRY_PATHS.ACTIVE_TUNERS,
   component: 'PerformanceBoostTunerFloatingWindow',
+});
+
+export const DYNAMIC_TRAINING_PACK_PRESET: PresetConfig = makeDevPreset({
+  id: 'dynamic-training-pack',
+  title: 'Dynamic Training Pack (.RCDPack)',
+  category: 'DynamicTrainingPack',
+  width: 480,
+  height: 580,
+  minHeight: 240,
+  summary: 'Capture 4s replay state sessions, configure per-car takeover, and practice .RCDPack packs.',
+  menuEntryPath: DEV_ENTRY_PATHS.SANDBOXES,
+  component: 'DynamicTrainingPackFloatingWindow',
+});
+
+export const TELESTRATOR_TOOLBAR_PRESET: PresetConfig = makeDevPreset({
+  id: 'telestrator-toolbar',
+  title: 'Telestrator Overlay',
+  category: 'TelestratorToolbar',
+  width: 56,
+  minWidth: 52,
+  height: 500,
+  minHeight: 340,
+  hideFooter: true,
+  summary:
+    'Mode-independent 3D telestrator overlay toolbar with brush modes, normalized screen-space presets, colors, Direction Adjust, Undo, Clear, and Settings.',
+  menuEntryPath: DEV_ENTRY_PATHS.ACTIVE_TUNERS,
+  component: 'TelestratorToolbarFloatingWindow',
 });
 
 export const DEV_PRESET_WINDOWS: PresetConfig[] = [
@@ -367,6 +394,8 @@ export const DEV_PRESET_WINDOWS: PresetConfig[] = [
   ENGINE_AUDIO_TUNER_PRESET,
   BOTS_LOADOUT_TUNER_PRESET,
   REPLAY_TO_RCS_IMPORTER_PRESET,
+  DYNAMIC_TRAINING_PACK_PRESET,
+  TELESTRATOR_TOOLBAR_PRESET,
 ];
 
 export const PRESET_WINDOWS: PresetConfig[] = [

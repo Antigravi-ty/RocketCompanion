@@ -17,7 +17,8 @@ import type { EstablishedSessionManager } from './EstablishedSessionManager.ts';
 import type { NetworkDataHandler } from './NetworkDataHandler.ts';
 import type { AuthoritativePhysicsSimPort } from './authoritativePhysicsStepPipeline.ts';
 import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
-import type { RoomActivityOrchestrator } from './activities/RoomActivityOrchestrator.ts';
+import type { RoomActivityOrchestrator as ActivitiesRoomActivityOrchestrator } from './activities/RoomActivityOrchestrator.ts';
+import type { RoomActivityOrchestrator } from './RoomActivityOrchestrator.ts';
 
 export interface WorkerRouterContext {
   sim?: AuthoritativePhysicsSimPort | null;
@@ -25,7 +26,8 @@ export interface WorkerRouterContext {
   sessionManager?: EstablishedSessionManager | null;
   matchManager?: MatchSessionAdmin | null;
   dataHandler?: NetworkDataHandler | null;
-  activityOrchestrator?: RoomActivityOrchestrator | null;
+  activityOrchestrator?: ActivitiesRoomActivityOrchestrator | null;
+  orchestrator?: RoomActivityOrchestrator | null;
   diagnosticsController?: DiagnosticsTestVehicleController | null;
   registerWorkerChannel?: ((channelId: string) => void) | null;
   unregisterWorkerChannel?: ((channelId: string) => void) | null;

@@ -284,7 +284,7 @@ export const Layer3TrainingConfigRecipe: React.FC<Layer3TrainingConfigRecipeProp
             bordered={false}
             showDescription={false}
             onAction={handleExportRecentReplay}
-            hoverDescription="Free Play Only: Export the last 60 seconds of Free Play FIFO ring buffer frames to a compressed .rcreplay.gz file (Hotkey: F8)."
+            hoverDescription="Free Play Only: Export the last 60 seconds of Free Play FIFO ring buffer frames to a compressed .RCReplay file (Hotkey: F8)."
             onHover={setHoveredDesc}
             onLeave={() => setHoveredDesc(null)}
             isLight={isLight}

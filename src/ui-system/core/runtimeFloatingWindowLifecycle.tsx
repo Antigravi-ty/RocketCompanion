@@ -23,7 +23,6 @@ import {
   getActiveReplayTimelineController,
   exitActiveReplayDirectorPreview,
 } from '../../ui-core/stores/replayDirectorStore.ts';
-import { telestratorStore } from '../../ui-core/stores/telestratorStore.ts';
 import {
   FLOATING_WINDOW_DESCRIPTORS,
   renderFloatingWindowPanel,
@@ -150,7 +149,6 @@ export const handleFloatingStackCloseWindow = (
   }
   if (win.id === 'telestrator-toolbar') {
     defaultClose();
-    telestratorStore.getState().exitDrawingSandbox();
     return;
   }
   defaultClose();

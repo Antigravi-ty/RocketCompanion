@@ -39,6 +39,7 @@ import type {
   QuickNotificationItem,
   QuickNotificationStore,
 } from '../ui-core/stores/notificationTypes.ts';
+import type { TelestratorState } from '../ui-core/stores/telestratorStore.ts';
 
 export type {
   NameTagBoostBorderOverride,
@@ -277,6 +278,8 @@ export type StaticTrainingPackStorePortState = PortOverride<
 
 export type StaticTrainingBallCamTunerStorePortState = StaticTrainingBallCamTunerState &
   Record<string, unknown>;
+
+export type TelestratorStorePortState = TelestratorState;
 
 export type KickoffTrainingStorePortState = PortOverride<
   KickoffTrainingState,

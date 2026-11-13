@@ -10,6 +10,11 @@ import {
   createWorkerEnvelope,
   type WorkerEnvelope,
 } from '../protocol/HostWorkerProtocol.ts';
+import type {
+  ReplicationMode,
+  RoomActivitySwitchPayload as TrackDRoomActivitySwitchPayload,
+  StatePausedAckPayload,
+} from '../protocol/ReplicationBusProtocol.ts';
 import type { WorkerRoomStateSummary } from './HostWorkerMessageRouter.ts';
 import {
   HostServerFallbackSubController,
@@ -256,6 +261,22 @@ export class AuthoritativeServerHost {
       );
     }
     this._postCommand('configureTrainingRuleset', opts);
+  }
+
+  switchActivity(payload: Partial<TrackDRoomActivitySwitchPayload>): void {
+    this._postCommand(MSG.ROOM_ACTIVITY_SWITCH, payload as Record<string, unknown>);
+  }
+
+  setReplicationMode(replicationMode: ReplicationMode): void {
+    this._postCommand(MSG.REPLICATION_MODE_SET, { replicationMode });
+  }
+
+  sendStatePausedAck(payload: StatePausedAckPayload): void {
+    this._postCommand(MSG.STATE_PAUSED_ACK, payload as unknown as Record<string, unknown>);
+  }
+
+  broadcastCsrSummary(followHostEnabled: boolean, cameraMode?: string): void {
+    this._postCommand(MSG.ROOM_CSR_STATE_BROADCAST, { followHostEnabled, cameraMode });
   }
 
   enterStateOnlyMode(s?: Float32Array | number[] | null, cursorTick?: number): void {
