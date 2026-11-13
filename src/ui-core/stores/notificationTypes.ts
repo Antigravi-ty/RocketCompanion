@@ -99,6 +99,7 @@ export interface QuickNotificationStoreState {
   unreadStack: QuickNotificationItem[];
   totalUnreadCount: number;
   isStackOpen: boolean;
+  isForceCollapsed: boolean;
   ongoingTasks: QuickNotificationItem[];
   activeOngoingTask: QuickNotificationItem | null;
   ongoingConflictPolicy: OngoingConflictPolicy;
@@ -136,9 +137,11 @@ export interface QuickNotificationActions {
   resolveActive: () => void;
   ignoreActive: () => void;
 
-  // Unread stack tray
+  // Unread stack tray & force-collapse toggle
   toggleStack: () => void;
   setStackOpen: (open: boolean) => void;
+  toggleForceCollapse: () => void;
+  setForceCollapsed: (collapsed: boolean) => void;
   expandNotificationCenter: () => void;
   resolveFromStack: (id: string) => void;
   dismissFromStack: (id: string) => void;
