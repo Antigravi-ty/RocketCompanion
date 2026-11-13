@@ -83,10 +83,10 @@ export const DynamicTrainingPackFloatingWindow: React.FC<DynamicTrainingPackFloa
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${targetPack.metadata.title || 'dynamic-pack'}.rcd.gz`;
+      a.download = `${targetPack.metadata.title || 'dynamic-pack'}.RCDPack`;
       a.click();
       URL.revokeObjectURL(url);
-      setLivePlaybackState({ statusMessage: 'Exported .rcd.gz pack' });
+      setLivePlaybackState({ statusMessage: 'Exported .RCDPack' });
     };
 
     const handleImportPack = async (rawOrBytes: ArrayBuffer | string) => {
@@ -110,7 +110,7 @@ export const DynamicTrainingPackFloatingWindow: React.FC<DynamicTrainingPackFloa
         setLivePlaybackState({ statusMessage: `Imported ${imported.metadata.title}` });
       } catch (err) {
         setLivePlaybackState({
-          statusMessage: err instanceof Error ? err.message : 'Failed to import .rcd.gz pack',
+          statusMessage: err instanceof Error ? err.message : 'Failed to import .RCDPack',
         });
       }
     };
@@ -167,9 +167,9 @@ export const DynamicTrainingPackFloatingWindow: React.FC<DynamicTrainingPackFloa
           />
         ) : (
           <div className="rounded-lg border border-dashed border-neutral-600/50 p-4 text-center text-[11px] opacity-75">
-            No shots in this pack yet. Open Replay Viewer (or Replay to RLRCS Replay Importer) and
-            click "Put 4s Pre-Roll into Dynamic Training Pack (.rcd.gz)" at any frame, or import a
-            .rcd.gz pack.
+            No shots in this pack yet. Open Replay Viewer (or Replay to RLRCReplay Importer) and
+            click "Put 4s Pre-Roll into Dynamic Training Pack (.RCDPack)" at any frame, or import a
+            .RCDPack.
           </div>
         )}
 

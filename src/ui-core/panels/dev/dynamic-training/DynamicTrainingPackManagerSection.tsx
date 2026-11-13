@@ -71,16 +71,16 @@ export const DynamicTrainingPackManagerSection: React.FC<DynamicTrainingPackMana
               disabled={!activePack}
               onClick={() => activePack && onExportPack(activePack.metadata.uuid)}
               className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-[11px] font-semibold cursor-pointer ${btnCls}`}
-              title="Export .rcd.gz Pack"
+              title="Export .RCDPack"
             >
               <Download className="h-3 w-3" />
-              .rcd.gz
+              .RCDPack
             </button>
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-[11px] font-semibold cursor-pointer ${btnCls}`}
-              title="Import .rcd.gz Pack"
+              title="Import .RCDPack"
             >
               <Upload className="h-3 w-3" />
               Import
@@ -88,7 +88,7 @@ export const DynamicTrainingPackManagerSection: React.FC<DynamicTrainingPackMana
             <input
               ref={fileInputRef}
               type="file"
-              accept=".rcd.gz,.rcd,.json,.gz"
+              accept=".RCDPack,.rcdpack,.json"
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];

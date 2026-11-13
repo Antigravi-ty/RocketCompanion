@@ -403,7 +403,7 @@ export const ReplayViewerFloatingWindow: React.FC<
           if (hasRuntimeHandlers) {
             void runtimeHandlers.onPutIntoDynamicTrainingPack?.();
           } else {
-            quickNotification.info('Load an .rcreplay.gz file to capture 4s into .rcd.gz pack.');
+            quickNotification.info('Load an .RCReplay file to capture 4s into .RCDPack.');
           }
         }}
         className={`w-full py-1.5 px-3 rounded-lg border text-[11px] font-semibold transition-all ${
@@ -414,7 +414,7 @@ export const ReplayViewerFloatingWindow: React.FC<
               : 'bg-cyan-950/60 hover:bg-cyan-900/70 border-cyan-700/70 text-cyan-200 cursor-pointer'
         }`}
       >
-        Put 4s Pre-Roll into Dynamic Training Pack (.rcd.gz)
+        Put 4s Pre-Roll into Dynamic Training Pack (.RCDPack)
       </button>
     </div>
   );

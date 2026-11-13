@@ -31,7 +31,7 @@ import type { StandardSurfaceProps, SurfaceMeta } from '../../manifest/surfaceMe
 
 export const SURFACE_META: SurfaceMeta = {
   id: 'replay-to-rcs-importer',
-  title: 'Replay to RLRCS Replay Importer',
+  title: 'Replay to RLRCReplay Importer',
   layer: 'floating-dev',
   menuGroup: 'sandboxes',
   hideFooter: false,
@@ -48,12 +48,12 @@ export interface ReplayToRcsImporterFloatingWindowProps extends StandardSurfaceP
 }
 
 /**
- * [Developer Sandbox] Replay to RLRCS Replay Importer (`replay-to-rcs-importer`)
+ * [Developer Sandbox] Replay to RLRCReplay Importer (`replay-to-rcs-importer`)
  * Dedicated floating window panel adapted from ReplayViewerFloatingWindow.
  * Supports importing raw Rocket League `.replay` files, upsampling 30Hz -> 120Hz via
  * StateInterpolationPipeline, inspecting Track Delta (native telemetry & unmapped properties),
  * intervening with selectable non-POV car behavior (Disappear | Trajectory | Nexto | Necto),
- * and exporting the converted 5-track session as an RLRCS Replay Pack (`.rlrc.rcreplay.gz`).
+ * and exporting the converted 5-track session as an `.RLRCReplay` package.
  */
 export const ReplayToRcsImporterFloatingWindow: React.FC<ReplayToRcsImporterFloatingWindowProps> =
   React.memo(({ isLight = false }) => {
@@ -327,7 +327,7 @@ export const ReplayToRcsImporterFloatingWindow: React.FC<ReplayToRcsImporterFloa
                 : 'bg-cyan-950/60 hover:bg-cyan-900/70 border-cyan-700/70 text-cyan-200 cursor-pointer'
           }`}
         >
-          Put 4s Pre-Roll into Dynamic Training Pack (.rcd.gz)
+          Put 4s Pre-Roll into Dynamic Training Pack (.RCDPack)
         </button>
       </div>
     );

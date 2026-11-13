@@ -7,7 +7,7 @@ export function triggerReplayFilePicker(onSelect: (file: File) => void): void {
   if (!_persistentReplayFileInput || !_persistentReplayFileInput.isConnected) {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.rcreplay.gz,.rcreplay';
+    input.accept = '.RCReplay,.rcreplay';
     input.style.position = 'fixed';
     input.style.left = '-9999px';
     input.style.top = '-9999px';

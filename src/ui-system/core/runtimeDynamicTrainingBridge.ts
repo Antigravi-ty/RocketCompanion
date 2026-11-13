@@ -81,7 +81,7 @@ export function bindDynamicTrainingBridge(
       const session = freeplay?.standaloneReplayViewer?.extractCurrentDynamicSession?.() ?? null;
       await saveExtractedSessionAndOpenPack(
         session,
-        'Load an .rcreplay.gz file in Replay Viewer before capturing into Dynamic Training Pack.'
+        'Load an .RCReplay file in Replay Viewer before capturing into Dynamic Training Pack.'
       );
     },
   });
@@ -91,7 +91,7 @@ export function bindDynamicTrainingBridge(
       const session = owner?.rlrcReplaySession?.extractCurrentDynamicSession?.() ?? null;
       await saveExtractedSessionAndOpenPack(
         session,
-        'Load a .replay file in Replay to RLRCS Replay Importer before capturing into Dynamic Training Pack.'
+        'Load a .replay file in Replay to RLRCReplay Importer before capturing into Dynamic Training Pack.'
       );
     },
   });

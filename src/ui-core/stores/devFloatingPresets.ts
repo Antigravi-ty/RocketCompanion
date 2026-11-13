@@ -301,12 +301,12 @@ export const DEMOLISH_SHOCKWAVE_TUNER_PRESET: PresetConfig = makeDevPreset({
 
 export const REPLAY_TO_RCS_IMPORTER_PRESET: PresetConfig = makeDevPreset({
   id: 'replay-to-rcs-importer',
-  title: 'Replay to RLRCS Replay Importer',
+  title: 'Replay to RLRCReplay Importer',
   category: 'ReplayImporter',
   width: 495,
   height: 660,
   minHeight: 220,
-  summary: 'Import raw Rocket League .replay files, upsample 30Hz -> 120Hz via SLERP/Hermite, intervene with Disappear/Trajectory/Nexto/Necto, and export 5-track RLRCS replays.',
+  summary: 'Import raw Rocket League .replay files, upsample 30Hz -> 120Hz via SLERP/Hermite, intervene with Disappear/Trajectory/Nexto/Necto, and export 5-track .RLRCReplay.',
   menuEntryPath: DEV_ENTRY_PATHS.SANDBOXES_AND_LABS,
   component: 'ReplayToRcsImporterFloatingWindow',
 });

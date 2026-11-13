@@ -303,7 +303,7 @@ export class StandaloneReplayViewerController {
       useReplayViewerStore
         .getState()
         .setErrorMessage(
-          'Replay Viewer only accepts .rcreplay.gz files. Remove .rlrc from the filename to force-import as RC Replay, or use Replay to RLRCS Replay Importer.'
+          'Replay Viewer only accepts .RCReplay files. Remove .rlrc from the filename to force-import as .RCReplay, or use Replay to RLRCReplay Importer.'
         );
       return;
     }
@@ -321,7 +321,7 @@ export class StandaloneReplayViewerController {
 
   public extractCurrentDynamicSession(): DynamicTrainingStateSession | null {
     if (this.frames.length === 0) return null;
-    const loadedName = useReplayViewerStore.getState().loadedFileName || 'rc-replay.rcreplay.gz';
+    const loadedName = useReplayViewerStore.getState().loadedFileName || 'rc-replay.RCReplay';
     return extractDynamicSessionFromReplayFrames({
       frames: this.frames,
       roster: this.rosterSubController.resolvedRoster,

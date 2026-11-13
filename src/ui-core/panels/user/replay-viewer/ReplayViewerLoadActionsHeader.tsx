@@ -29,7 +29,7 @@ export const ReplayViewerLoadActionsHeader: React.FC<
       <input
         ref={fileInputRef}
         type="file"
-        accept=".rcreplay.gz,.rcreplay"
+        accept=".RCReplay,.rcreplay"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
