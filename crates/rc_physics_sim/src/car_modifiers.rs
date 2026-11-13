@@ -2,7 +2,7 @@
 //! `flip_timer_mode`, `demo_spawn_selection`, `recharge_delay`) plus goal/possession tracking.
 
 use glam::{EulerRot, Mat3A, Vec3A};
-use rocketsim::{consts, CarCore, CarState, PhysState, Team};
+use rocketsim::{consts, CarCore, CarState, PhysState, Team, UserInfoType};
 
 use crate::{
     layout::{PhysicsEvent, MAX_CARS, MAX_PADS},
@@ -174,13 +174,19 @@ impl SimInstance {
             let dodged_this_tick =
                 (!pre.is_flipping && st.is_flipping) || (!pre.has_flipped && st.has_flipped);
 
-            let now_air_flip_avail = !is_on_ground && st.has_flip_or_jump();
+            let has_ball_or_car_wheel = st.wheels_with_contact().iter().flatten().any(|w| {
+                matches!(w.user_info, UserInfoType::Ball | UserInfoType::Car)
+            });
+            let is_ceiling_contact = st.pos.z > 1800.0 && st.rot_mat.z_axis.z < -0.35;
             let flip_reset_this_tick = !st.is_demoed
-                && !is_on_ground
+                && is_on_ground
                 && !pre.is_on_ground
-                && !st.has_jumped
-                && (pre.has_jumped || !pre.had_air_flip_avail)
-                && now_air_flip_avail;
+                && (has_ball_or_car_wheel || is_ceiling_contact)
+                && (pre.has_jumped
+                    || !pre.had_air_flip_avail
+                    || pre.has_double_jumped
+                    || pre.has_flipped)
+                && st.has_flip_or_jump();
 
             if flip_reset_this_tick {
                 self.car_custom[slot].air_flips_used = 0;

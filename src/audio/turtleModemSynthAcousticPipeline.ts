@@ -8,6 +8,11 @@ import {
   type EngineDriveDirection,
 } from '../ui-core/config/engineAudioConfig.ts';
 import { yieldToNextFrame } from '../loader/frameBudgetScheduler.ts';
+import {
+  computeBufferRms,
+  conditionPeriodicLoopBuffer,
+  createReversedLoopBuffer,
+} from './turtleModemBufferConditioning.ts';
 
 export const REMOTE_HIBERNATE_GRACE_SEC = 15.0;
 
@@ -102,68 +107,6 @@ export interface EngineSynthManualBenchState {
 const packAssetCache = new Map<EngineAudioPackId, Promise<LoadedEngineAudioPackAssets>>();
 const resolvedPackAssets = new Map<EngineAudioPackId, LoadedEngineAudioPackAssets>();
 
-export function computeBufferRms(buffer: AudioBuffer): number {
-  const data = buffer.getChannelData(0);
-  const len = data.length;
-  if (len === 0) return 0.2;
-  let sumSq = 0;
-  for (let i = 0; i < len; i++) {
-    const v = data[i];
-    sumSq += v * v;
-  }
-  return Math.max(1e-4, Math.sqrt(sumSq / len));
-}
-
-export function conditionPeriodicLoopBuffer(
-  ctx: AudioContext,
-  rawBuffer: AudioBuffer,
-  freqHz: number
-): AudioBuffer {
-  const sr = rawBuffer.sampleRate;
-  const src = rawBuffer.getChannelData(0);
-  const totalLen = src.length;
-  const safeFreq = Math.max(15, Number.isFinite(freqHz) ? freqHz : 45);
-  const P = Math.max(64, Math.round(sr / safeFreq));
-  if (totalLen < P * 3) return rawBuffer;
-
-  const margin = Math.min(1536, Math.floor(totalLen / 6));
-  const searchEnd = Math.min(Math.floor(totalLen / 2), margin + P * 3);
-  let zc = margin;
-  for (let i = Math.max(1, margin); i < searchEnd; i++) {
-    if (src[i - 1] <= 0 && src[i] > 0) {
-      zc = i;
-      break;
-    }
-  }
-  const avail = totalLen - margin - zc - P;
-  const K = Math.max(1, Math.floor(avail / P));
-  const L = K * P;
-  const outBuffer = ctx.createBuffer(1, L, sr);
-  const out = outBuffer.getChannelData(0);
-  for (let n = 0; n < P; n++) {
-    const alpha = 0.5 * (1.0 - Math.cos((Math.PI * n) / P));
-    out[n] = (1.0 - alpha) * src[zc + L + n] + alpha * src[zc + n];
-  }
-  for (let n = P; n < L; n++) {
-    out[n] = src[zc + n];
-  }
-  return outBuffer;
-}
-
-export function createReversedLoopBuffer(
-  ctx: AudioContext,
-  forwardBuffer: AudioBuffer
-): AudioBuffer {
-  const len = forwardBuffer.length;
-  const revBuffer = ctx.createBuffer(1, len, forwardBuffer.sampleRate);
-  const src = forwardBuffer.getChannelData(0);
-  const dst = revBuffer.getChannelData(0);
-  for (let i = 0; i < len; i++) {
-    dst[i] = src[len - 1 - i];
-  }
-  return revBuffer;
-}
-
 async function fetchAndDecodeBuffer(ctx: AudioContext, url: string): Promise<AudioBuffer> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
@@ -251,7 +194,10 @@ export function loadEngineAudioPackAssets(
       while (sliceCursor < totalSlices) {
         const idx = sliceCursor++;
         const sliceMeta = normalizedSlices[idx];
-        const rawOn = await fetchAndDecodeBuffer(ctx, `${descriptor.basePath}/${sliceMeta.on_file}`);
+        const rawOn = await fetchAndDecodeBuffer(
+          ctx,
+          `${descriptor.basePath}/${sliceMeta.on_file}`
+        );
         const nowPerf = typeof performance !== 'undefined' ? performance.now() : 0;
         if (nowPerf - lastYieldTime >= 2.0) {
           await yieldToNextFrame();
@@ -272,7 +218,9 @@ export function loadEngineAudioPackAssets(
       }
     };
 
-    await Promise.all(Array.from({ length: Math.min(3, Math.max(1, totalSlices)) }, () => sliceWorker()));
+    await Promise.all(
+      Array.from({ length: Math.min(3, Math.max(1, totalSlices)) }, () => sliceWorker())
+    );
     const sortedRms = rawConditionedSlices.map((s) => s.rms).sort((a, b) => a - b);
     const medianRms = sortedRms.length > 0 ? sortedRms[Math.floor(sortedRms.length / 2)] : 0.2;
     const slices: ConditionedEngineSliceBuffers[] = rawConditionedSlices.map((s) => ({
@@ -302,7 +250,14 @@ export function loadEngineAudioPackAssets(
 }
 
 export function createInitialManualBenchState(): EngineSynthManualBenchState {
-  return { active: false, throttle: false, boost: false, reverse: false, airborne: false, speedUU: 0 };
+  return {
+    active: false,
+    throttle: false,
+    boost: false,
+    reverse: false,
+    airborne: false,
+    speedUU: 0,
+  };
 }
 
 export function applyManualBenchPatch(
@@ -355,7 +310,10 @@ export function evaluateBackfirePopTrigger(
 ): BackfirePopDecision | null {
   const pops = assets?.popBuffers;
   if (!pops?.length || (!forceAudition && !canPlayNormally)) return null;
-  if (!forceAudition && nowSec - lastBackfireTimeSec < Math.max(0.15, cfg.backfireCooldownSec ?? 0.65)) {
+  if (
+    !forceAudition &&
+    nowSec - lastBackfireTimeSec < Math.max(0.15, cfg.backfireCooldownSec ?? 0.65)
+  ) {
     return null;
   }
   let idx = 0;
@@ -364,7 +322,10 @@ export function evaluateBackfirePopTrigger(
       idx = Math.floor(Math.random() * pops.length);
     } while (idx === lastPopIndex);
   }
-  const gain = Math.max(0, Math.min(1.5, cfg.backfireVolume * (forceAudition ? 0.9 : engineVolume)));
+  const gain = Math.max(
+    0,
+    Math.min(1.5, cfg.backfireVolume * (forceAudition ? 0.9 : engineVolume))
+  );
   return { buffer: pops[idx], nextPopIndex: idx, gain, playbackRate: 0.94 + Math.random() * 0.12 };
 }
 
@@ -482,8 +443,15 @@ export function stepEngineSynthDrivetrain(
     isOnGround = !manualBench.airborne;
     isBoosting = manualBench.boost;
     throttleIn = manualBench.boost || manualBench.throttle ? 1 : manualBench.reverse ? -1 : 0;
-    const cap = isBoosting ? maxBoostSpd : throttleIn < 0 ? cfg.maxThrottleSpeedUU * 0.5 : cfg.maxThrottleSpeedUU;
-    manualBench.speedUU = Math.max(0, Math.min(cap, manualBench.speedUU + (throttleIn !== 0 ? 1100 : -650) * dt));
+    const cap = isBoosting
+      ? maxBoostSpd
+      : throttleIn < 0
+        ? cfg.maxThrottleSpeedUU * 0.5
+        : cfg.maxThrottleSpeedUU;
+    manualBench.speedUU = Math.max(
+      0,
+      Math.min(cap, manualBench.speedUU + (throttleIn !== 0 ? 1100 : -650) * dt)
+    );
     rawSpeedUU = manualBench.speedUU;
   }
 
@@ -491,9 +459,11 @@ export function stepEngineSynthDrivetrain(
   dtState.isOnGround = isOnGround;
   dtState.isBoosting = isBoosting;
   dtState.wasAccelerating = Math.abs(throttleIn) > 0.05 || isBoosting;
-  dtState.driveDirection = rawSpeedUU < 22 ? 'stopped' : (t.forwardSpeedUU ?? rawSpeedUU) < -22 ? 'reverse' : 'forward';
+  dtState.driveDirection =
+    rawSpeedUU < 22 ? 'stopped' : (t.forwardSpeedUU ?? rawSpeedUU) < -22 ? 'reverse' : 'forward';
   dtState.isNeutral = rawSpeedUU < 25 && !dtState.wasAccelerating;
-  dtState.smoothThrottle += ((dtState.wasAccelerating ? 1.0 : 0.0) - dtState.smoothThrottle) * Math.min(1, dt * 14);
+  dtState.smoothThrottle +=
+    ((dtState.wasAccelerating ? 1.0 : 0.0) - dtState.smoothThrottle) * Math.min(1, dt * 14);
   dtState.smoothForwardAccelUU = (rawSpeedUU - prevSpeedUU) / dt;
 
   if (t.wasmRpm !== undefined && !manualBench.active) {
@@ -504,19 +474,34 @@ export function stepEngineSynthDrivetrain(
   } else {
     const numGears = Math.max(1, Math.min(6, cfg.maxGears || 6));
     const speedNorm = Math.min(1, rawSpeedUU / Math.max(1, maxBoostSpd));
-    dtState.currentGear = dtState.isNeutral ? 1 : Math.min(numGears, 1 + Math.floor(speedNorm * numGears));
+    dtState.currentGear = dtState.isNeutral
+      ? 1
+      : Math.min(numGears, 1 + Math.floor(speedNorm * numGears));
     dtState.isInOverdrive = rawSpeedUU > cfg.maxThrottleSpeedUU + 40;
-    dtState.isUnderStrain = isOnGround && dtState.wasAccelerating && dtState.smoothForwardAccelUU < -220;
-    const gearRatio = Math.max(0, Math.min(1.15, (rawSpeedUU / Math.max(1, cfg.maxThrottleSpeedUU)) * numGears - (dtState.currentGear - 1)));
+    dtState.isUnderStrain =
+      isOnGround && dtState.wasAccelerating && dtState.smoothForwardAccelUU < -220;
+    const gearRatio = Math.max(
+      0,
+      Math.min(
+        1.15,
+        (rawSpeedUU / Math.max(1, cfg.maxThrottleSpeedUU)) * numGears - (dtState.currentGear - 1)
+      )
+    );
     dtState.targetRPM = dtState.isNeutral
       ? cfg.idleRPM
-      : Math.max(cfg.idleRPM, Math.min(cfg.redlineRPM, cfg.idleRPM + gearRatio * (cfg.revLimitCutoffRPM - cfg.idleRPM) + (isBoosting ? 420 : 0)));
+      : Math.max(
+          cfg.idleRPM,
+          Math.min(
+            cfg.redlineRPM,
+            cfg.idleRPM + gearRatio * (cfg.revLimitCutoffRPM - cfg.idleRPM) + (isBoosting ? 420 : 0)
+          )
+        );
     dtState.currentRPM += (dtState.targetRPM - dtState.currentRPM) * Math.min(1, dt * 12);
   }
 
   const shouldTriggerBackfire = Boolean(
-    t.wasmBackfireTriggered || (!dtState.wasAccelerating && wasBoosting && dtState.currentRPM > cfg.backfireTriggerRPM)
+    t.wasmBackfireTriggered ||
+    (!dtState.wasAccelerating && wasBoosting && dtState.currentRPM > cfg.backfireTriggerRPM)
   );
   return { rawSpeedUU, shouldTriggerBackfire };
 }
-

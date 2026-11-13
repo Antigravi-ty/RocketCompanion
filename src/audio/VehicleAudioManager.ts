@@ -271,7 +271,7 @@ export class VehicleAudioManager {
   handleCarEvent(event: PhysicsImpactAudioEvent | null | undefined): void {
     if (!event) return;
     const t = event.type;
-    if (t === 0x05 || t === 'car_action') {
+    if (t === 0x3e || t === 'car_action') {
       const sub = Number(event.actionSubType ?? event.subType ?? 0);
       if (sub >= 1 && sub <= 3) this.handleCarEvent({ ...event, type: 0x05 + sub });
       return;

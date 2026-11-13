@@ -12,9 +12,10 @@ import {
   type GranularSliceChannel,
 } from './TurtleModemGranularVoiceGraph.ts';
 import {
-  applySmoothedAudioParamValue,
+  applyAudioRateSmoothedParam,
   clampSmoothingDtSec,
   resetAudioParamValueImmediate,
+  stepExponentialSmoothedValue,
 } from './audioParamSmoothingPipeline.ts';
 import {
   getResolvedEngineAudioPackAssets,
@@ -155,17 +156,21 @@ export class TurtleModemEngineSynth {
 
     const targetGain =
       isAudibleActive && cue.active && !cue.dormant ? Math.max(0, cue.engineGain) : 0;
-    const outStep = applySmoothedAudioParamValue(
-      this.outputNode.gain,
+    this.smoothedOutputGain = stepExponentialSmoothedValue(
       this.smoothedOutputGain,
-      this.lastOutputGain,
       targetGain,
       resolvedDt,
       0.02,
+      OUTPUT_GAIN_DEADBAND * 0.25
+    );
+    this.lastOutputGain = applyAudioRateSmoothedParam(
+      this.outputNode.gain,
+      this.ctx.currentTime,
+      this.lastOutputGain < 0 ? NaN : this.lastOutputGain,
+      targetGain,
+      0.02,
       OUTPUT_GAIN_DEADBAND
     );
-    this.smoothedOutputGain = outStep.smoothed;
-    this.lastOutputGain = outStep.written;
 
     if (this.smoothedOutputGain <= OUTPUT_GAIN_DEADBAND && targetGain <= OUTPUT_GAIN_DEADBAND) {
       this.voiceGraph.silence();

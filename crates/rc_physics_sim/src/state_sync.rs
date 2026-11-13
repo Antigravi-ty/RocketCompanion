@@ -149,15 +149,16 @@ impl SimInstance {
             cs.is_demoed = false;
             cs.demo_respawn_timer = 0.0;
         }
+        let target_on_ground = f[19] >= 0.5 || cs.is_on_ground();
         if f[22] >= 0.5 {
-            if !cs.is_on_ground() {
-                cs.has_jumped = false;
-                cs.has_double_jumped = false;
-                cs.has_flipped = false;
+            cs.has_jumped = false;
+            cs.has_double_jumped = false;
+            cs.has_flipped = false;
+            if !target_on_ground {
                 cs.air_time_since_jump = 0.0;
             }
             self.car_custom[slot].air_flips_used = 0;
-        } else if !cs.is_on_ground() {
+        } else if !target_on_ground {
             cs.has_jumped = true;
             cs.has_double_jumped = true;
         }
@@ -186,20 +187,31 @@ impl SimInstance {
             let mut car_arr = [0.0f32; 40];
             car_arr.copy_from_slice(&slice[base..base + 40]);
             self.set_car_state_from_slice(slot, &car_arr);
-            if slice.len() >= 448 {
-                let ja_base = 416 + slot * 4;
-                if let Some(car_id) = self.car_slots[slot]
-                    && let Some(arena) = self.arena.as_mut()
-                {
-                    let mut cs = *arena.get_car_state(car_id);
+            if let Some(car_id) = self.car_slots[slot]
+                && let Some(arena) = self.arena.as_mut()
+            {
+                let mut cs = *arena.get_car_state(car_id);
+                let snap_on_ground = car_arr[19] >= 0.5;
+                let snap_has_flip = car_arr[22] >= 0.5;
+                if snap_has_flip {
+                    cs.has_jumped = false;
+                    cs.has_double_jumped = false;
+                    cs.has_flipped = false;
+                } else if !snap_on_ground {
+                    cs.has_jumped = true;
+                    cs.has_double_jumped = true;
+                }
+                if slice.len() >= 448 {
+                    let ja_base = 416 + slot * 4;
                     cs.is_jumping = slice[ja_base] > 0.5;
                     cs.air_time = slice[ja_base + 1];
                     if !cs.is_demoed {
                         cs.jump_ticks = (slice[ja_base + 2] / consts::TICK_TIME).round().max(0.0) as u32;
                     }
                     cs.air_time_since_jump = slice[ja_base + 3];
-                    arena.set_car_state_full(car_id, cs);
                 }
+                arena.set_car_state_full(car_id, cs);
+                arena.refresh_car_contact_state(car_id);
             }
         }
         self.sync_state_to_buffer();

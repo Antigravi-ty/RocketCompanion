@@ -70,6 +70,9 @@ impl AudioDirectorInstance {
             0x03 => self.handle_car_demo(car_idx, secondary_id, ev_tick, dist_uu, audio_pos),
             0x04 | 0x05 => self.handle_ball_world_or_post_hit(ev, ev_type, ev_tick, dist_uu, audio_pos),
             0x06..=0x08 => self.handle_car_jump_family(ev, ev_type, car_idx, ev_tick, dist_uu, audio_pos),
+            0x3E if (1..=3).contains(&ev.sub_type) => {
+                self.handle_car_jump_family(ev, 0x05 + ev.sub_type, car_idx, ev_tick, dist_uu, audio_pos);
+            }
             0x09 => self.handle_car_supersonic_enter(car_idx, ev_tick, dist_uu, audio_pos),
             0x0A => self.handle_boost_pickup(ev, car_idx, secondary_id, ev_tick, dist_uu, audio_pos),
             0x0C | 0x0D => self.handle_car_boost_edge(ev_type, car_idx, ev_tick, dist_uu, audio_pos),

@@ -90,6 +90,29 @@ export function applySmoothedAudioParamValue(
   return { smoothed: nextSmoothed, written: lastWritten };
 }
 
+export function applyAudioRateSmoothedParam(
+  param: AudioParam,
+  nowSec: number,
+  lastTarget: number,
+  target: number,
+  tauSec: number,
+  deadbandEpsilon: number
+): number {
+  if (!Number.isFinite(target)) {
+    return Number.isFinite(lastTarget) ? lastTarget : 0;
+  }
+  if (!Number.isFinite(lastTarget) || Math.abs(target - lastTarget) > deadbandEpsilon) {
+    const safeTau = Math.max(MIN_SMOOTHING_TAU_SEC, tauSec);
+    try {
+      param.setTargetAtTime(target, nowSec, safeTau);
+    } catch {
+      param.value = target;
+    }
+    return target;
+  }
+  return lastTarget;
+}
+
 /**
  * Clears any residual scheduled automation values on an AudioParam and assigns
  * an immediate scalar value.

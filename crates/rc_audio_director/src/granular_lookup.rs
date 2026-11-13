@@ -227,7 +227,7 @@ pub fn evaluate_slice_loudness_compensation(
     let norm_db = auto_db * t.slice_rms_auto_norm_strength.clamp(0.0, 1.0);
     let eq_db = evaluate_engine_freq_eq_curve_db(freq, &t.eq_band_gains_db);
     let f_norm = ((freq - min_f) / (max_f - min_f).max(1.0)).clamp(0.0, 1.0);
-    let total_db = (norm_db + eq_db + t.freq_tilt_db * (f_norm - 0.5) * 2.0).clamp(-15.0, 15.0);
+    let total_db = (norm_db + eq_db + t.freq_tilt_db * (f_norm - 0.5) * 2.0).clamp(-15.0, 4.0);
     (10.0_f32.powf(total_db / 20.0), total_db)
 }
 
@@ -262,11 +262,30 @@ pub fn evaluate_granular_synthesis(
     let (idle_gain, idle_pitch) = (idle_w * tuning.idle_volume.clamp(0.0, 2.0), (cur_rpm / idle).clamp(0.5, 2.0));
 
     let (lower_idx, upper_idx) = if primary {
-        let mut l = 0usize;
-        for (i, &r) in rpms.iter().enumerate().take(MAX_ENGINE_GRANULAR_SLICES - 1) {
-            if cur_rpm >= r { l = i; } else { break; }
+        let mut anchors = [0usize; MAX_ENGINE_GRANULAR_SLICES];
+        let mut anchor_count = 1usize;
+        let mut last_rpm = rpms[0];
+        for (i, &r) in rpms.iter().enumerate().take(MAX_ENGINE_GRANULAR_SLICES - 1).skip(1) {
+            if r - last_rpm >= 95.0 {
+                anchors[anchor_count] = i;
+                anchor_count += 1;
+                last_rpm = r;
+            }
         }
-        (l, (l + 1).min(MAX_ENGINE_GRANULAR_SLICES - 1))
+        let last_idx = MAX_ENGINE_GRANULAR_SLICES - 1;
+        if anchors[anchor_count - 1] != last_idx {
+            if anchor_count > 1 && rpms[last_idx] - rpms[anchors[anchor_count - 1]] < 75.0 {
+                anchors[anchor_count - 1] = last_idx;
+            } else {
+                anchors[anchor_count] = last_idx;
+                anchor_count += 1;
+            }
+        }
+        let mut p = 0usize;
+        for (k, &idx) in anchors.iter().enumerate().take(anchor_count.saturating_sub(1)) {
+            if cur_rpm >= rpms[idx] { p = k; } else { break; }
+        }
+        (anchors[p], anchors[(p + 1).min(anchor_count - 1)])
     } else {
         let anc = remote_lod_anchor_indices();
         let mut p = 0usize;
@@ -286,7 +305,7 @@ pub fn evaluate_granular_synthesis(
     };
 
     let eng = if stat_neutral { 0.0 } else { ((cur_rpm - idle) / 160.0).clamp(0.0, 1.0).max((smooth_thr * 2.5).clamp(0.0, 1.0)) };
-    let master = (1.0 - idle_w * 0.65) * eng;
+    let master = (1.0 - idle_w * 0.65) * eng * 0.78;
     let min_f = freqs[0].max(15.0);
     let max_f = freqs[MAX_ENGINE_GRANULAR_SLICES - 1].max(min_f + 1.0);
     let tgt_f = min_f + ((cur_rpm - idle) / (red - idle)) * (max_f - min_f);

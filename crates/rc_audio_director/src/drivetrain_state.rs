@@ -224,7 +224,9 @@ impl VehicleDrivetrainState {
 
         self.was_in_overdrive = self.is_in_overdrive;
         self.target_rpm = self.target_rpm.clamp(idle, red);
-        let agi = if air_rev { 55.0 } else if under_thr || self.rev_limiter_timer > 0.0 || self.landing_recovery_timer > 0.0 {
+        let agi = if air_rev {
+            cfg.flywheel_agility.max(20.0).min(28.0)
+        } else if under_thr || self.rev_limiter_timer > 0.0 || self.landing_recovery_timer > 0.0 {
             if self.landing_recovery_timer > 0.0 { (cfg.flywheel_agility * 1.5).max(24.0) } else { cfg.flywheel_agility }
         } else if kin.braking { 45.0 } else { (cfg.flywheel_agility * 1.4).max(24.0) };
 

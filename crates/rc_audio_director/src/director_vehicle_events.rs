@@ -176,7 +176,8 @@ impl AudioDirectorInstance {
         dist_uu: f32,
         audio_pos: [f32; 3],
     ) {
-        if ev.sub_type != 1 {
+        let is_ball_reset = ev.sub_type == 1 || ((ev.flags >> 4) & 0xF) == 1;
+        if !is_ball_reset {
             return;
         }
         let dt_state = &mut self.drivetrains[car_idx];
