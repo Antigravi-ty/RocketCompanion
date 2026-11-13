@@ -57,6 +57,8 @@ export interface DynamicTrainingStateSession {
   sourceReplayName: string;
   sourceFrame120Hz: number;
   prerollStartFrame120Hz: number;
+  originEndFrame120Hz?: number;
+  interveneLocalFrameIndex?: number;
   durationSeconds: number;
   tickRate: 120;
   defaultPovSlotIndex: number;

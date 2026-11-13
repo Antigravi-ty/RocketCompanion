@@ -266,7 +266,7 @@ export class BoostPadSystem {
     if (!stateBuffer || this.pads.length === 0) return;
 
     const now = performance.now();
-    const safeDt = Number.isFinite(dt) && dt > 0 ? Math.min(0.25, dt) : 0.016;
+    const safeDt = Number.isFinite(dt) && dt >= 0 ? Math.min(0.25, dt) : 0.016;
     const c = this.tunerConfig;
     const bigThreshold = c.bigRefillThreshold || 3.0;
     const smallThreshold = c.smallRefillThreshold || 1.0;
@@ -293,18 +293,26 @@ export class BoostPadSystem {
         const prevBufferCd = this.prevBufferCooldowns[i];
         const respawnedAndCollected =
           !wasActive && !isActive && prevBufferCd > 0 && bufferCooldown > prevBufferCd + 0.5;
+        const isBufferFrozen =
+          safeDt === 0 || (bufferCooldown > 0 && Math.abs(bufferCooldown - prevBufferCd) < 1e-6);
         if ((wasActive && !isActive) || respawnedAndCollected) {
           this.startCollectAnimation(i);
           this.padCooldownTimers[i] =
             bufferCooldown > 0 && bufferCooldown <= fullTimeout ? bufferCooldown : fullTimeout;
         } else if (!isActive) {
-          this.padCooldownTimers[i] = Math.max(0.0, this.padCooldownTimers[i] - safeDt);
-          if (
-            bufferCooldown > 0 &&
-            bufferCooldown < fullTimeout &&
-            Math.abs(this.padCooldownTimers[i] - bufferCooldown) > 0.5
-          ) {
-            this.padCooldownTimers[i] = bufferCooldown;
+          if (isBufferFrozen) {
+            if (bufferCooldown > 0 && bufferCooldown <= fullTimeout) {
+              this.padCooldownTimers[i] = bufferCooldown;
+            }
+          } else {
+            this.padCooldownTimers[i] = Math.max(0.0, this.padCooldownTimers[i] - safeDt);
+            if (
+              bufferCooldown > 0 &&
+              bufferCooldown < fullTimeout &&
+              Math.abs(this.padCooldownTimers[i] - bufferCooldown) > 0.5
+            ) {
+              this.padCooldownTimers[i] = bufferCooldown;
+            }
           }
         } else {
           this.padCooldownTimers[i] = 0.0;

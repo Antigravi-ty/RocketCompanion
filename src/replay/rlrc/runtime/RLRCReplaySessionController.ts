@@ -346,13 +346,17 @@ export class RLRCReplaySessionController {
     return res.stepped;
   }
 
-  public extractCurrentDynamicSession(): DynamicTrainingStateSession | null {
+  public extractCurrentDynamicSession(options?: {
+    interveneFrame?: number;
+    originEndFrame?: number;
+  }): DynamicTrainingStateSession | null {
     if (!this.session || this.session.frames120Hz.length === 0) return null;
     const st = getSt();
     return extractDynamicSessionFromRLRCFrames({
       frames120Hz: this.session.frames120Hz,
       roster: this.session.roster,
-      targetFrame120Hz: this.cursorFrame120Hz,
+      targetFrame120Hz: options?.interveneFrame ?? this.cursorFrame120Hz,
+      originEndFrame120Hz: options?.originEndFrame,
       povSlotIndex: this.activePovSlotIndex,
       sourceReplayName: st.loadedFileName || this.session.header?.replayName || 'replay',
     });

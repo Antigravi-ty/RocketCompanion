@@ -70,15 +70,19 @@ export function bindDynamicTrainingBridge(
   }
 
   useReplayViewerStore.getState().setRuntimeHandlers({
-    onPutIntoDynamicTrainingPack: async () => {
+    onPutIntoDynamicTrainingPack: async (options) => {
       const freeplay = owner?.modeManager?.modes?.get('freeplay') as
         | {
             standaloneReplayViewer?: {
-              extractCurrentDynamicSession?: () => DynamicTrainingStateSession | null;
+              extractCurrentDynamicSession?: (opts?: {
+                interveneFrame?: number;
+                originEndFrame?: number;
+              }) => DynamicTrainingStateSession | null;
             } | null;
           }
         | undefined;
-      const session = freeplay?.standaloneReplayViewer?.extractCurrentDynamicSession?.() ?? null;
+      const session =
+        freeplay?.standaloneReplayViewer?.extractCurrentDynamicSession?.(options) ?? null;
       await saveExtractedSessionAndOpenPack(
         session,
         'Load an .RCReplay file in Replay Viewer before capturing into Dynamic Training Pack.'
@@ -87,8 +91,19 @@ export function bindDynamicTrainingBridge(
   });
 
   useReplayToRcsImporterStore.getState().setRuntimeHandlers({
-    onPutIntoDynamicTrainingPack: async () => {
-      const session = owner?.rlrcReplaySession?.extractCurrentDynamicSession?.() ?? null;
+    onPutIntoDynamicTrainingPack: async (options) => {
+      const session =
+        (
+          owner?.rlrcReplaySession as
+            | {
+                extractCurrentDynamicSession?: (opts?: {
+                  interveneFrame?: number;
+                  originEndFrame?: number;
+                }) => DynamicTrainingStateSession | null;
+              }
+            | null
+            | undefined
+        )?.extractCurrentDynamicSession?.(options) ?? null;
       await saveExtractedSessionAndOpenPack(
         session,
         'Load a .replay file in Replay to RLRCReplay Importer before capturing into Dynamic Training Pack.'

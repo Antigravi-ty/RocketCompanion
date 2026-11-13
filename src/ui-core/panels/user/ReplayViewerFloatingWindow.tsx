@@ -133,6 +133,8 @@ export const ReplayViewerFloatingWindow: React.FC<
   const [internalCursorFrame, setInternalCursorFrame] = useState<number>(420);
   const [internalIsPlaying, setInternalIsPlaying] = useState<boolean>(false);
   const [internalIsIntervening, setInternalIsIntervening] = useState<boolean>(false);
+  const [interveneMarkFrame, setInterveneMarkFrame] = useState<number | null>(null);
+  const [originEndMarkFrame, setOriginEndMarkFrame] = useState<number | null>(null);
 
   const fileName = hasRuntimeHandlers
     ? hasLoadedReplay && loadedFileName
@@ -395,27 +397,52 @@ export const ReplayViewerFloatingWindow: React.FC<
         }}
       />
 
-      <button
-        type="button"
-        disabled={controlsDisabled}
-        onClick={() => {
-          if (controlsDisabled) return;
-          if (hasRuntimeHandlers) {
-            void runtimeHandlers.onPutIntoDynamicTrainingPack?.();
-          } else {
-            quickNotification.info('Load an .RCReplay file to capture 4s into .RCDPack.');
-          }
-        }}
-        className={`w-full py-1.5 px-3 rounded-lg border text-[11px] font-semibold transition-all ${
-          controlsDisabled
-            ? 'opacity-45 cursor-not-allowed pointer-events-none border-neutral-700 text-neutral-500'
-            : isLight
-              ? 'bg-cyan-50 hover:bg-cyan-100 border-cyan-300 text-cyan-900 cursor-pointer'
-              : 'bg-cyan-950/60 hover:bg-cyan-900/70 border-cyan-700/70 text-cyan-200 cursor-pointer'
-        }`}
-      >
-        Put 4s Pre-Roll into Dynamic Training Pack (.RCDPack)
-      </button>
+      <div className="flex flex-col gap-1.5">
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            disabled={controlsDisabled}
+            onClick={() => setInterveneMarkFrame(clampedCursor)}
+            className={`${compactBtnClass} justify-between px-2`}
+            title="Mark the frame where player intervention begins (includes 4s pre-roll)"
+          >
+            <span>{interveneMarkFrame !== null ? `Intervene: #${interveneMarkFrame}` : 'Mark Intervene'}</span>
+          </button>
+          <button
+            type="button"
+            disabled={controlsDisabled}
+            onClick={() => setOriginEndMarkFrame(clampedCursor)}
+            className={`${compactBtnClass} justify-between px-2`}
+            title="Mark the end frame for original movement playback (defaults to +4s)"
+          >
+            <span>{originEndMarkFrame !== null ? `Origin End: #${originEndMarkFrame}` : 'Mark Origin End'}</span>
+          </button>
+        </div>
+        <button
+          type="button"
+          disabled={controlsDisabled}
+          onClick={() => {
+            if (controlsDisabled) return;
+            if (hasRuntimeHandlers) {
+              void runtimeHandlers.onPutIntoDynamicTrainingPack?.({
+                interveneFrame: interveneMarkFrame ?? clampedCursor,
+                originEndFrame: originEndMarkFrame ?? undefined,
+              });
+            } else {
+              quickNotification.info('Load an .RCReplay file to capture into .RCDPack.');
+            }
+          }}
+          className={`w-full py-1.5 px-3 rounded-lg border text-[11px] font-semibold transition-all ${
+            controlsDisabled
+              ? 'opacity-45 cursor-not-allowed pointer-events-none border-neutral-700 text-neutral-500'
+              : isLight
+                ? 'bg-cyan-50 hover:bg-cyan-100 border-cyan-300 text-cyan-900 cursor-pointer'
+                : 'bg-cyan-950/60 hover:bg-cyan-900/70 border-cyan-700/70 text-cyan-200 cursor-pointer'
+          }`}
+        >
+          Capture Segment into Dynamic Training Pack (.RCDPack)
+        </button>
+      </div>
     </div>
   );
 });

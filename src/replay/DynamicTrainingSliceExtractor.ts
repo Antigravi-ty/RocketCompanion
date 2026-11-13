@@ -95,6 +95,7 @@ export function extractDynamicSessionFromRLRCFrames(params: {
   readonly frames120Hz: readonly RLRCFrame120Hz[];
   readonly roster: readonly RLRCPlayerSlotMeta[];
   readonly targetFrame120Hz: number;
+  readonly originEndFrame120Hz?: number;
   readonly povSlotIndex: number;
   readonly sourceReplayName: string;
   readonly prerollFrames?: number;
@@ -107,7 +108,11 @@ export function extractDynamicSessionFromRLRCFrames(params: {
   const clampedTarget = Math.max(0, Math.min(maxIdx, Math.round(targetFrame120Hz)));
   const count = Math.max(1, params.prerollFrames ?? DYNAMIC_TRAINING_PREROLL_FRAMES);
   const startIdx = Math.max(0, clampedTarget - count + 1);
-  const slice = frames120Hz.slice(startIdx, clampedTarget + 1);
+  const endIdx =
+    params.originEndFrame120Hz !== undefined
+      ? Math.max(clampedTarget, Math.min(maxIdx, Math.round(params.originEndFrame120Hz)))
+      : Math.min(maxIdx, clampedTarget + count);
+  const slice = frames120Hz.slice(startIdx, endIdx + 1);
   const now = Date.now();
 
   const compactRoster: DynamicTrainingRosterSlot[] = roster.map((r) => ({
@@ -133,6 +138,8 @@ export function extractDynamicSessionFromRLRCFrames(params: {
     sourceReplayName,
     sourceFrame120Hz: clampedTarget,
     prerollStartFrame120Hz: startIdx,
+    originEndFrame120Hz: endIdx,
+    interveneLocalFrameIndex: clampedTarget - startIdx,
     durationSeconds,
     tickRate: 120,
     defaultPovSlotIndex: povSlotIndex,
@@ -219,6 +226,7 @@ export function extractDynamicSessionFromReplayFrames(params: {
   readonly frames: readonly ReplayAnnotatedFloat32Frame[];
   readonly roster: readonly ReplayRosterEntry[];
   readonly targetFrameIndex: number;
+  readonly originEndFrameIndex?: number;
   readonly povCarIndex: number;
   readonly sourceReplayName: string;
   readonly prerollFrames?: number;
@@ -231,7 +239,11 @@ export function extractDynamicSessionFromReplayFrames(params: {
   const clampedTarget = Math.max(0, Math.min(maxIdx, Math.round(targetFrameIndex)));
   const count = Math.max(1, params.prerollFrames ?? DYNAMIC_TRAINING_PREROLL_FRAMES);
   const startIdx = Math.max(0, clampedTarget - count + 1);
-  const slice = frames.slice(startIdx, clampedTarget + 1);
+  const endIdx =
+    params.originEndFrameIndex !== undefined
+      ? Math.max(clampedTarget, Math.min(maxIdx, Math.round(params.originEndFrameIndex)))
+      : Math.min(maxIdx, clampedTarget + count);
+  const slice = frames.slice(startIdx, endIdx + 1);
   const now = Date.now();
 
   const carCount = Math.max(
@@ -392,6 +404,8 @@ export function extractDynamicSessionFromReplayFrames(params: {
     sourceReplayName,
     sourceFrame120Hz: clampedTarget,
     prerollStartFrame120Hz: startIdx,
+    originEndFrame120Hz: endIdx,
+    interveneLocalFrameIndex: clampedTarget - startIdx,
     durationSeconds,
     tickRate: 120,
     defaultPovSlotIndex: povCarIndex,

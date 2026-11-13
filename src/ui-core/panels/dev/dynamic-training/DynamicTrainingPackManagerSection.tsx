@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Copy, Download, FolderPlus, MoveRight, Trash2, Upload } from 'lucide-react';
 import type { DynamicTrainingPackRecord } from '../../../config/dynamicTrainingPackTypes';
+import { DropdownMenu } from '../../../compounds/DropdownMenu';
 
 export interface DynamicTrainingPackManagerSectionProps {
   isLight: boolean;
@@ -55,17 +56,23 @@ export const DynamicTrainingPackManagerSection: React.FC<DynamicTrainingPackMana
       return (
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5">
-            <select
+            <DropdownMenu
+              isLight={isLight}
+              size="sm"
+              className="flex-1 min-w-0"
+              menuWidthClass="w-64"
               value={activePack?.metadata.uuid ?? ''}
-              onChange={(e) => onSelectPack(e.target.value)}
-              className={`flex-1 min-w-0 px-2 py-1 rounded border text-xs font-semibold ${inputCls}`}
-            >
-              {packs.map((p) => (
-                <option key={p.metadata.uuid} value={p.metadata.uuid}>
-                  [{p.metadata.folder}] {p.metadata.title} ({p.shots.length})
-                </option>
-              ))}
-            </select>
+              label={
+                activePack
+                  ? `[${activePack.metadata.folder}] ${activePack.metadata.title} (${activePack.shots.length})`
+                  : 'Select Pack'
+              }
+              options={packs.map((p) => ({
+                value: p.metadata.uuid,
+                label: `[${p.metadata.folder}] ${p.metadata.title} (${p.shots.length})`,
+              }))}
+              onChange={(val) => onSelectPack(val)}
+            />
             <button
               type="button"
               disabled={!activePack}
@@ -208,19 +215,24 @@ export const DynamicTrainingPackManagerSection: React.FC<DynamicTrainingPackMana
           )}
 
           {otherPacks.length > 0 && (
-            <div className="flex items-center gap-1.5 text-[10px] opacity-75">
-              <span>Move/Duplicate target:</span>
-              <select
+            <div className="flex items-center gap-1.5 text-[10px] opacity-85">
+              <span className="shrink-0">Move/Duplicate target:</span>
+              <DropdownMenu
+                isLight={isLight}
+                size="sm"
+                className="flex-1 min-w-0"
+                menuWidthClass="w-56"
                 value={effectiveTargetPack}
-                onChange={(e) => setTargetPackUuid(e.target.value)}
-                className={`flex-1 px-1.5 py-0.5 rounded border ${inputCls}`}
-              >
-                {otherPacks.map((p) => (
-                  <option key={p.metadata.uuid} value={p.metadata.uuid}>
-                    {p.metadata.title}
-                  </option>
-                ))}
-              </select>
+                label={
+                  otherPacks.find((p) => p.metadata.uuid === effectiveTargetPack)?.metadata.title ??
+                  'Target Pack'
+                }
+                options={otherPacks.map((p) => ({
+                  value: p.metadata.uuid,
+                  label: p.metadata.title,
+                }))}
+                onChange={(val) => setTargetPackUuid(val)}
+              />
             </div>
           )}
         </div>

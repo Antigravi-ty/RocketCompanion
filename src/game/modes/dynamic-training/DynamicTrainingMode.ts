@@ -93,12 +93,10 @@ export class DynamicTrainingMode extends BaseGameMode<GameModeRuntimePort> {
     const hydrated = hydrateRLRCFramesFromDynamicSession(session);
     if (hydrated.frames120Hz.length === 0) return false;
 
+    const anchorIdx = session.interveneLocalFrameIndex ?? hydrated.frames120Hz.length - 1;
     const baseTargetIdx = Math.max(
       0,
-      Math.min(
-        hydrated.frames120Hz.length - 1,
-        hydrated.frames120Hz.length - 1 + shot.interveneOffsetFrames
-      )
+      Math.min(hydrated.frames120Hz.length - 1, anchorIdx + shot.interveneOffsetFrames)
     );
     const targetFrame = hydrated.frames120Hz[baseTargetIdx];
     if (targetFrame && shot.optionalCarSpawnVariation?.enabled) {
@@ -115,6 +113,15 @@ export class DynamicTrainingMode extends BaseGameMode<GameModeRuntimePort> {
     this.hydratedRoster = hydrated.roster;
     this.elapsedInterveneSeconds = 0;
     this.resultSettled = false;
+
+    const r = this.runtime as unknown as {
+      playerCarIndex?: number;
+      arena?: { playerCarIndex?: number } | null;
+    } | null;
+    if (r) {
+      r.playerCarIndex = shot.povSlotIndex;
+      if (r.arena) r.arena.playerCarIndex = shot.povSlotIndex;
+    }
 
     const perSlotModes: Record<number, RLRCNonPovInterventionMode> = {};
     const perSlotModelIds: Record<number, string> = {};
@@ -166,47 +173,64 @@ export class DynamicTrainingMode extends BaseGameMode<GameModeRuntimePort> {
     void this.restartCurrentShot();
   }
 
-  public update(context: FrameContext): void {
-    if (!this.activeShot || this.resultSettled) return;
+  public override onBeforePhysicsTick(): boolean {
+    if (!this.activeShot || this.resultSettled) return false;
 
     const prevPhase = this.interveneController.phase;
+    const prevCountdownSec = this.interveneController.countdownRemainingSeconds;
     const playerControls = this.readPlayerControls();
-    const dt = context?.dt ?? RLRC_FIXED_DT;
-    const step = this.interveneController.stepTick(playerControls, dt);
+    const shouldStepPhysics = this.interveneController.stepBeforePhysicsTick(
+      playerControls,
+      RLRC_FIXED_DT
+    );
+    const nextPhase = this.interveneController.phase;
+    const nextCountdownSec = this.interveneController.countdownRemainingSeconds;
 
-    if (step.phase !== prevPhase) {
+    if (
+      nextPhase !== prevPhase ||
+      (nextPhase === 'preroll-countdown' && nextCountdownSec !== prevCountdownSec)
+    ) {
       this.callbacks.onPhaseChange?.(
-        step.phase === 'preroll-countdown'
+        nextPhase === 'preroll-countdown'
           ? 'preroll-countdown'
-          : step.phase === 'intervening'
+          : nextPhase === 'intervening'
             ? 'intervening'
             : 'idle',
-        step.countdownRemainingSeconds
+        nextCountdownSec
       );
     }
 
-    if (step.phase === 'intervening' && step.physicsStepped) {
-      this.elapsedInterveneSeconds += RLRC_FIXED_DT;
-      const sim = this.runtime?.physics;
-      const ballView = sim?.getBallStateView?.();
-      const goalState = sim?.state ? Number(sim.state[SIM_OFFSETS.GOAL] ?? 0) : 0;
-      const ballY =
-        ballView?.posY ?? (sim?.state ? Number(sim.state[SIM_OFFSETS.BALL + 1] ?? 0) : 0);
+    return shouldStepPhysics;
+  }
 
-      const judge = evaluateDynamicTrainingOutcome({
-        elapsedInterveneSeconds: this.elapsedInterveneSeconds,
-        timeoutSeconds: this.activeShot.timeoutSeconds,
-        goalState,
-        ballY,
-      });
+  public override onAfterPhysicsTick(): void {
+    if (!this.activeShot || this.resultSettled) return;
+    if (this.interveneController.phase !== 'intervening') return;
 
-      this.callbacks.onTimerTick?.(judge.remainingSeconds);
-      if (judge.completed && judge.outcome) {
-        this.resultSettled = true;
-        this.callbacks.onOutcome?.(this.activeShot.id, judge.outcome);
-        this.callbacks.onPhaseChange?.('result', 0);
-      }
+    this.interveneController.stepAfterPhysicsTick(true);
+    this.elapsedInterveneSeconds += RLRC_FIXED_DT;
+    const sim = this.runtime?.physics;
+    const ballView = sim?.getBallStateView?.();
+    const goalState = sim?.state ? Number(sim.state[SIM_OFFSETS.GOAL] ?? 0) : 0;
+    const ballY = ballView?.posY ?? (sim?.state ? Number(sim.state[SIM_OFFSETS.BALL + 1] ?? 0) : 0);
+
+    const judge = evaluateDynamicTrainingOutcome({
+      elapsedInterveneSeconds: this.elapsedInterveneSeconds,
+      timeoutSeconds: this.activeShot.timeoutSeconds,
+      goalState,
+      ballY,
+    });
+
+    this.callbacks.onTimerTick?.(judge.remainingSeconds);
+    if (judge.completed && judge.outcome) {
+      this.resultSettled = true;
+      this.callbacks.onOutcome?.(this.activeShot.id, judge.outcome);
+      this.callbacks.onPhaseChange?.('result', 0);
     }
+  }
+
+  public update(_context: FrameContext): void {
+    // Physics and countdown stepping are driven deterministically at 120Hz via onBeforePhysicsTick/onAfterPhysicsTick.
   }
 
   private readPlayerControls(): RLRCSynthesizedCarControls {

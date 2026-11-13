@@ -319,13 +319,17 @@ export class StandaloneReplayViewerController {
     });
   }
 
-  public extractCurrentDynamicSession(): DynamicTrainingStateSession | null {
+  public extractCurrentDynamicSession(options?: {
+    interveneFrame?: number;
+    originEndFrame?: number;
+  }): DynamicTrainingStateSession | null {
     if (this.frames.length === 0) return null;
     const loadedName = useReplayViewerStore.getState().loadedFileName || 'rc-replay.RCReplay';
     return extractDynamicSessionFromReplayFrames({
       frames: this.frames,
       roster: this.rosterSubController.resolvedRoster,
-      targetFrameIndex: this.takeoverSubController.cursor,
+      targetFrameIndex: options?.interveneFrame ?? this.takeoverSubController.cursor,
+      originEndFrameIndex: options?.originEndFrame,
       povCarIndex: this.rosterSubController.activePovCarIndex,
       sourceReplayName: loadedName,
     });

@@ -7,6 +7,9 @@ import type {
   DynamicTrainingShotStats,
   DynamicTrainingStateSessionSummary,
 } from '../../../config/dynamicTrainingPackTypes';
+import { DropdownMenu } from '../../../compounds/DropdownMenu';
+import { SegmentedSwitch } from '../../../primitives/SegmentedSwitch';
+import { Checkbox } from '../../../primitives/Checkbox';
 
 export interface DynamicTrainingShotEditorCardProps {
   isLight: boolean;
@@ -137,23 +140,26 @@ export const DynamicTrainingShotEditorCard: React.FC<DynamicTrainingShotEditorCa
                 className={`px-1.5 py-1 rounded border ${inputCls}`}
               />
             </label>
-            <label className="flex flex-col gap-0.5">
+            <div className="flex flex-col gap-0.5">
               <span className={mutedCls}>Countdown (s)</span>
-              <select
-                value={shot.downCounterSeconds}
-                onChange={(e) =>
+              <SegmentedSwitch
+                isLight={isLight}
+                size="sm"
+                fullWidth
+                value={String(shot.downCounterSeconds)}
+                options={[
+                  { value: '0', label: '0s' },
+                  { value: '1', label: '1s' },
+                  { value: '2', label: '2s' },
+                  { value: '3', label: '3s' },
+                ]}
+                onValueChange={(val) =>
                   onUpdateShot({
-                    downCounterSeconds: (Number(e.target.value) || 0) as 0 | 1 | 2 | 3,
+                    downCounterSeconds: (Number(val) || 0) as 0 | 1 | 2 | 3,
                   })
                 }
-                className={`px-1.5 py-1 rounded border ${inputCls}`}
-              >
-                <option value={0}>0s</option>
-                <option value={1}>1s</option>
-                <option value={2}>2s</option>
-                <option value={3}>3s</option>
-              </select>
-            </label>
+              />
+            </div>
             <label className="flex flex-col gap-0.5">
               <span className={mutedCls}>Intervene Offset (f)</span>
               <input
@@ -182,38 +188,35 @@ export const DynamicTrainingShotEditorCard: React.FC<DynamicTrainingShotEditorCa
             <div className="flex flex-col gap-1">
               {slotKeys.map((slot) => {
                 const rule = shot.perCarTakeover[slot] ?? { mode: 'as-previous' };
+                const modeLabel =
+                  TAKEOVER_MODES.find((m) => m.value === rule.mode)?.label ?? rule.mode;
                 return (
                   <div key={slot} className="flex items-center gap-1.5 text-[11px]">
-                    <span className="w-14 font-mono">Slot {slot}</span>
-                    <select
+                    <span className="w-14 font-mono shrink-0">Slot {slot}</span>
+                    <DropdownMenu
+                      isLight={isLight}
+                      size="sm"
+                      className="flex-1 min-w-0"
+                      menuWidthClass="w-44"
                       value={rule.mode}
-                      onChange={(e) =>
-                        onUpdatePerCar(
-                          slot,
-                          e.target.value as DynamicCarTakeoverMode,
-                          rule.modelId ?? 'nexto'
-                        )
+                      label={modeLabel}
+                      options={TAKEOVER_MODES}
+                      onChange={(val) =>
+                        onUpdatePerCar(slot, val, rule.modelId ?? 'nexto')
                       }
-                      className={`flex-1 px-1.5 py-0.5 rounded border ${inputCls}`}
-                    >
-                      {TAKEOVER_MODES.map((m) => (
-                        <option key={m.value} value={m.value}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
+                    />
                     {rule.mode === 'model' && (
-                      <select
+                      <DropdownMenu
+                        isLight={isLight}
+                        size="sm"
+                        className="w-28 shrink-0"
+                        menuWidthClass="w-36"
+                        align="right"
                         value={rule.modelId ?? 'nexto'}
-                        onChange={(e) => onUpdatePerCar(slot, 'model', e.target.value)}
-                        className={`w-28 px-1.5 py-0.5 rounded border ${inputCls}`}
-                      >
-                        {MODEL_IDS.map((id) => (
-                          <option key={id} value={id}>
-                            {id}
-                          </option>
-                        ))}
-                      </select>
+                        label={rule.modelId ?? 'nexto'}
+                        options={MODEL_IDS.map((id) => ({ value: id, label: id }))}
+                        onChange={(val) => onUpdatePerCar(slot, 'model', val)}
+                      />
                     )}
                   </div>
                 );
@@ -221,24 +224,16 @@ export const DynamicTrainingShotEditorCard: React.FC<DynamicTrainingShotEditorCa
             </div>
           </div>
 
-          <label className="flex items-center gap-2 text-[11px] pt-1 border-t border-neutral-500/20">
-            <input
-              type="checkbox"
-              checked={Boolean(shot.optionalCarSpawnVariation?.enabled)}
-              onChange={(e) =>
-                onUpdateShot({
-                  optionalCarSpawnVariation: {
-                    enabled: e.target.checked,
-                    posJitterUu: shot.optionalCarSpawnVariation?.posJitterUu ?? 120,
-                    yawJitterRad: shot.optionalCarSpawnVariation?.yawJitterRad ?? 0.12,
-                  },
-                })
-              }
+          <div className="pt-1.5 border-t border-neutral-500/20 opacity-60">
+            <Checkbox
+              isLight={isLight}
+              size="sm"
+              checked={false}
+              disabled
+              label="Optional POV Car Spawn Variation (under evaluation)"
+              description="Disabled while boost-collection interaction under position jitter is evaluated."
             />
-            <span className={mutedCls}>
-              Optional POV Car Spawn Variation (off by default for determinism)
-            </span>
-          </label>
+          </div>
         </div>
       );
     }

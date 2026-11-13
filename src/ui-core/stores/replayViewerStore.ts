@@ -78,7 +78,10 @@ export interface ReplayViewerStoreState {
     onReturnToReplay?: () => void;
     onSelectPovSlot?: (slotKey: number | null) => void;
     onClearReplay?: () => void;
-    onPutIntoDynamicTrainingPack?: () => Promise<void> | void;
+    onPutIntoDynamicTrainingPack?: (options?: {
+      interveneFrame?: number;
+      originEndFrame?: number;
+    }) => Promise<void> | void;
   };
   setRuntimeHandlers: (handlers: Partial<ReplayViewerStoreState['runtimeHandlers']>) => void;
 }
