@@ -26,6 +26,7 @@ import {
   RLRC_FIXED_DT,
   RLRC_MAX_PLAYER_SLOTS,
   RLRC_BOOST_PAD_COUNT,
+  type RLRCCarFrameState120Hz,
   type RLRCFrame120Hz,
   type RLRCHitboxId,
   type RLRCQuat,
@@ -276,6 +277,16 @@ function writeKinematicsBlock(
   buf[base + 17] = angVel.z;
 }
 
+export function findCarBySlot(
+  cars: readonly RLRCCarFrameState120Hz[] | null | undefined,
+  slot: number
+): RLRCCarFrameState120Hz | undefined {
+  if (!cars || cars.length === 0) return undefined;
+  const direct = cars[slot];
+  if (direct && direct.slotIndex === slot) return direct;
+  return cars.find((c) => c?.slotIndex === slot);
+}
+
 export function packRLRCFrameToGameStateBuffer(
   frame: RLRCFrame120Hz,
   tick: number,
@@ -302,7 +313,7 @@ export function packRLRCFrameToGameStateBuffer(
   );
 
   for (let slot = 0; slot < RLRC_MAX_PLAYER_SLOTS; slot++) {
-    const car = frame.cars[slot];
+    const car = findCarBySlot(frame.cars, slot);
     const cBase = SIM_OFFSETS.CARS + slot * CAR_STATE_STRIDE;
     const extBase =
       EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE + slot * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;

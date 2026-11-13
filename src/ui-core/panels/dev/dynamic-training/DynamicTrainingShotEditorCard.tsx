@@ -63,9 +63,15 @@ export const DynamicTrainingShotEditorCard: React.FC<DynamicTrainingShotEditorCa
         : 'bg-neutral-950 border-neutral-700 text-neutral-100';
       const mutedCls = isLight ? 'text-neutral-500' : 'text-neutral-400';
 
-      const slotKeys = Object.keys(shot.perCarTakeover)
-        .map((k) => Number(k))
-        .filter((n) => Number.isFinite(n))
+      const rosterBySlot = new Map(
+        (sessionSummary?.roster ?? []).map((r) => [r.slotIndex, r] as const)
+      );
+      const slotKeys = (
+        sessionSummary?.roster && sessionSummary.roster.length > 0
+          ? sessionSummary.roster.map((r) => r.slotIndex)
+          : Object.keys(shot.perCarTakeover).map((k) => Number(k))
+      )
+        .filter((n, idx, arr) => Number.isFinite(n) && arr.indexOf(n) === idx)
         .sort((a, b) => a - b);
 
       return (
@@ -188,11 +194,34 @@ export const DynamicTrainingShotEditorCard: React.FC<DynamicTrainingShotEditorCa
             <div className="flex flex-col gap-1">
               {slotKeys.map((slot) => {
                 const rule = shot.perCarTakeover[slot] ?? { mode: 'as-previous' };
+                const rosterMeta = rosterBySlot.get(slot);
+                const teamColor =
+                  rosterMeta?.primaryColorHex ||
+                  (rosterMeta?.team === 1 || (!rosterMeta && slot >= 3) ? '#f97316' : '#3b82f6');
+                const displayName = rosterMeta?.userName || `Car ${slot + 1}`;
+                const isPov = slot === shot.povSlotIndex;
                 const modeLabel =
                   TAKEOVER_MODES.find((m) => m.value === rule.mode)?.label ?? rule.mode;
                 return (
                   <div key={slot} className="flex items-center gap-1.5 text-[11px]">
-                    <span className="w-14 font-mono shrink-0">Slot {slot}</span>
+                    <span
+                      className="inline-flex items-center gap-1.5 w-32 min-w-0 shrink-0"
+                      title={`Slot ${slot} · ${displayName}`}
+                    >
+                      <span
+                        className="h-2 w-2 rounded-full shrink-0"
+                        style={{ backgroundColor: teamColor }}
+                      />
+                      <span className="font-mono text-[10px] opacity-70 shrink-0">
+                        #{slot + 1}
+                      </span>
+                      <span className="truncate font-medium">{displayName}</span>
+                      {isPov && (
+                        <span className="px-1 rounded bg-emerald-500/20 text-emerald-400 text-[9px] font-bold shrink-0">
+                          POV
+                        </span>
+                      )}
+                    </span>
                     <DropdownMenu
                       isLight={isLight}
                       size="sm"

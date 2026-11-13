@@ -14,7 +14,10 @@ import {
   type RLRCSynthesizedCarControls,
 } from '../../../replay/rlrc/RLRCReplayTypes.ts';
 import { createRLRCInterveneEnvPort } from '../../../replay/rlrc/runtime/RLRCInterveneEnvPortBuilder.ts';
-import { DEFAULT_NEUTRAL_CAR_CONTROLS } from '../../../replay/rlrc/runtime/RLRCInterveneFrameStateBuilder.ts';
+import {
+  DEFAULT_NEUTRAL_CAR_CONTROLS,
+  findCarBySlot,
+} from '../../../replay/rlrc/runtime/RLRCInterveneFrameStateBuilder.ts';
 import { RLRCInterveneTakeoverSubController } from '../../../replay/rlrc/runtime/RLRCInterveneTakeoverSubController.ts';
 import {
   applyOptionalCarSpawnVariationToFrame,
@@ -22,6 +25,7 @@ import {
   type DynamicTrainingOutcome,
 } from './DynamicTrainingJudge.ts';
 import { SIM_OFFSETS } from '../../../physics/RocketSimConstants.ts';
+import { gameAudio } from '../../../audio/GameAudioEngineFacade.ts';
 
 export interface DynamicTrainingModeCallbacks {
   onPhaseChange?: (
@@ -56,6 +60,7 @@ export class DynamicTrainingMode extends BaseGameMode<GameModeRuntimePort> {
   private hydratedFrames: RLRCFrame120Hz[] = [];
   private hydratedRoster: RLRCPlayerSlotMeta[] = [];
   private elapsedInterveneSeconds = 0;
+  private lastTimeoutBeepSecond = -1;
   private resultSettled = false;
 
   constructor(runtime: GameModeRuntimePort | null) {
@@ -72,6 +77,7 @@ export class DynamicTrainingMode extends BaseGameMode<GameModeRuntimePort> {
             : null,
         getRuntime: () => this.runtime as never,
         getMode: () => null,
+        onPhaseChanged: () => {},
       })
     );
   }
@@ -83,6 +89,7 @@ export class DynamicTrainingMode extends BaseGameMode<GameModeRuntimePort> {
   public onEnter(): void {
     this.resultSettled = false;
     this.elapsedInterveneSeconds = 0;
+    this.lastTimeoutBeepSecond = -1;
   }
 
   public onLeave(): void {
@@ -99,10 +106,15 @@ export class DynamicTrainingMode extends BaseGameMode<GameModeRuntimePort> {
       Math.min(hydrated.frames120Hz.length - 1, anchorIdx + shot.interveneOffsetFrames)
     );
     const targetFrame = hydrated.frames120Hz[baseTargetIdx];
+    const resolvedPovSlot = this.resolveEffectivePovSlot(
+      shot.povSlotIndex,
+      hydrated.roster,
+      targetFrame
+    );
     if (targetFrame && shot.optionalCarSpawnVariation?.enabled) {
       hydrated.frames120Hz[baseTargetIdx] = applyOptionalCarSpawnVariationToFrame({
         frame: targetFrame,
-        povSlotIndex: shot.povSlotIndex,
+        povSlotIndex: resolvedPovSlot,
         variation: shot.optionalCarSpawnVariation,
       });
     }
@@ -112,6 +124,7 @@ export class DynamicTrainingMode extends BaseGameMode<GameModeRuntimePort> {
     this.hydratedFrames = hydrated.frames120Hz;
     this.hydratedRoster = hydrated.roster;
     this.elapsedInterveneSeconds = 0;
+    this.lastTimeoutBeepSecond = -1;
     this.resultSettled = false;
 
     const r = this.runtime as unknown as {
@@ -119,8 +132,8 @@ export class DynamicTrainingMode extends BaseGameMode<GameModeRuntimePort> {
       arena?: { playerCarIndex?: number } | null;
     } | null;
     if (r) {
-      r.playerCarIndex = shot.povSlotIndex;
-      if (r.arena) r.arena.playerCarIndex = shot.povSlotIndex;
+      r.playerCarIndex = resolvedPovSlot;
+      if (r.arena) r.arena.playerCarIndex = resolvedPovSlot;
     }
 
     const perSlotModes: Record<number, RLRCNonPovInterventionMode> = {};
@@ -135,7 +148,7 @@ export class DynamicTrainingMode extends BaseGameMode<GameModeRuntimePort> {
     }
 
     const cfg = this.interveneController.enterInterveneAtFrame(baseTargetIdx, {
-      povSlotIndex: shot.povSlotIndex,
+      povSlotIndex: resolvedPovSlot,
       downCounterSeconds: shot.downCounterSeconds,
       nonPovMode: 'follow-state',
       perSlotModes,
@@ -165,6 +178,7 @@ export class DynamicTrainingMode extends BaseGameMode<GameModeRuntimePort> {
     this.hydratedFrames = [];
     this.hydratedRoster = [];
     this.elapsedInterveneSeconds = 0;
+    this.lastTimeoutBeepSecond = -1;
     this.resultSettled = false;
     this.callbacks.onPhaseChange?.('idle', 0);
   }
@@ -221,9 +235,18 @@ export class DynamicTrainingMode extends BaseGameMode<GameModeRuntimePort> {
       ballY,
     });
 
+    if (!judge.completed && judge.remainingSeconds > 0 && judge.remainingSeconds <= 3.0) {
+      const ceilSec = Math.ceil(judge.remainingSeconds);
+      if (ceilSec >= 1 && ceilSec <= 3 && ceilSec !== this.lastTimeoutBeepSecond) {
+        this.lastTimeoutBeepSecond = ceilSec;
+        this.playCue('training_countdown', 1.0);
+      }
+    }
+
     this.callbacks.onTimerTick?.(judge.remainingSeconds);
     if (judge.completed && judge.outcome) {
       this.resultSettled = true;
+      this.playCue(judge.outcome === 'timeout' ? 'training_ball_expire' : 'sfx_goal_poof', 1.0);
       this.callbacks.onOutcome?.(this.activeShot.id, judge.outcome);
       this.callbacks.onPhaseChange?.('result', 0);
     }
@@ -233,11 +256,38 @@ export class DynamicTrainingMode extends BaseGameMode<GameModeRuntimePort> {
     // Physics and countdown stepping are driven deterministically at 120Hz via onBeforePhysicsTick/onAfterPhysicsTick.
   }
 
+  private resolveEffectivePovSlot(
+    preferredSlot: number,
+    roster: readonly RLRCPlayerSlotMeta[],
+    targetFrame: RLRCFrame120Hz | undefined
+  ): number {
+    const preferredCar = findCarBySlot(targetFrame?.cars, preferredSlot);
+    if (preferredCar?.entityActive) return preferredSlot;
+    if (roster.some((r) => r.slotIndex === preferredSlot) && preferredCar) return preferredSlot;
+    const firstActive = targetFrame?.cars.find((c) => c?.entityActive);
+    if (firstActive) return firstActive.slotIndex;
+    return roster[0]?.slotIndex ?? preferredSlot;
+  }
+
+  private playCue(soundId: string, volume = 1.0): void {
+    type GameAudioLike = {
+      play?: (cue: string, vol?: number) => void;
+      playSound?: (cue: string, vol?: number) => void;
+    };
+    const r = this.runtime as unknown as {
+      options?: { gameAudio?: GameAudioLike };
+    } | null;
+    const audio: GameAudioLike = r?.options?.gameAudio ?? (gameAudio as unknown as GameAudioLike);
+    if (typeof audio?.play === 'function') audio.play(soundId, volume);
+    else audio?.playSound?.(soundId, volume);
+  }
+
   private readPlayerControls(): RLRCSynthesizedCarControls {
     const r = this.runtime as unknown as {
+      playerControls?: Partial<RLRCSynthesizedCarControls> | null;
       input?: { getPlayerControls?: () => Partial<RLRCSynthesizedCarControls> } | null;
-    };
-    const raw = r?.input?.getPlayerControls?.();
+    } | null;
+    const raw = r?.playerControls ?? r?.input?.getPlayerControls?.();
     if (!raw) return DEFAULT_NEUTRAL_CAR_CONTROLS;
     return {
       throttle: Number(raw.throttle) || 0,

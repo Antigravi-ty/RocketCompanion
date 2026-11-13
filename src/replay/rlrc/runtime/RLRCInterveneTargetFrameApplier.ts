@@ -38,6 +38,7 @@ import {
 import {
   DEFAULT_NEUTRAL_CAR_CONTROLS,
   clampCarPositionZForHitbox,
+  findCarBySlot,
   quatToBasisAxes,
   type RLRCGoalAndTouchTrackerPort,
   type RLRCInterveneBallStateWritePayload,
@@ -268,7 +269,7 @@ export function applyTargetFrameToPhysicsAndArena(params: {
   }
 
   for (let slot = 0; slot < RLRC_MAX_PLAYER_SLOTS; slot++) {
-    const car = frame.cars[slot];
+    const car = findCarBySlot(frame.cars, slot);
     const meta = roster.find((r) => r.slotIndex === slot);
     const team: RLRCTeamIndex = meta?.team ?? (slot < 3 ? 0 : 1);
     const isPov = slot === config.povSlotIndex;

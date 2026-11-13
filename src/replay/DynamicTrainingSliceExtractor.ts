@@ -19,12 +19,14 @@ import {
   type DynamicTrainingRosterSlot,
   type DynamicTrainingStateSession,
 } from '../ui-core/config/dynamicTrainingPackTypes.ts';
-import type {
-  RLRCFrame120Hz,
-  RLRCHitboxId,
-  RLRCPlayerSlotMeta,
-  RLRCTeamIndex,
-  RLRCVisualId,
+import {
+  RLRC_MAX_PLAYER_SLOTS,
+  type RLRCCarFrameState120Hz,
+  type RLRCFrame120Hz,
+  type RLRCHitboxId,
+  type RLRCPlayerSlotMeta,
+  type RLRCTeamIndex,
+  type RLRCVisualId,
 } from './rlrc/RLRCReplayTypes.ts';
 
 function basisAxesToQuat(
@@ -79,6 +81,7 @@ function toCompactCar(car: RLRCFrame120Hz['cars'][number]): DynamicTrainingCompa
 
 function toCompactFrame(frame: RLRCFrame120Hz, localIndex: number): DynamicTrainingCompactFrame {
   const b = frame.ball.rigidBody;
+  const sortedCars = [...frame.cars].sort((a, c) => a.slotIndex - c.slotIndex);
   return {
     frameIndex: localIndex,
     timeSeconds: frame.timeSeconds,
@@ -86,7 +89,7 @@ function toCompactFrame(frame: RLRCFrame120Hz, localIndex: number): DynamicTrain
     ballRot: [b.rotation.x, b.rotation.y, b.rotation.z, b.rotation.w],
     ballVel: [b.linearVelocity.x, b.linearVelocity.y, b.linearVelocity.z],
     ballAngVel: [b.angularVelocity.x, b.angularVelocity.y, b.angularVelocity.z],
-    cars: frame.cars.map(toCompactCar),
+    cars: sortedCars.map(toCompactCar),
     boostPadCooldowns: Array.from(frame.boostPadCooldowns ?? []),
   };
 }
@@ -115,15 +118,17 @@ export function extractDynamicSessionFromRLRCFrames(params: {
   const slice = frames120Hz.slice(startIdx, endIdx + 1);
   const now = Date.now();
 
-  const compactRoster: DynamicTrainingRosterSlot[] = roster.map((r) => ({
-    slotIndex: r.slotIndex,
-    userName: r.userName,
-    team: r.team,
-    hitboxId: r.hitboxId,
-    visualId: r.visualId,
-    ...(r.primaryColorHex ? { primaryColorHex: r.primaryColorHex } : {}),
-    ...(r.accentColorHex ? { accentColorHex: r.accentColorHex } : {}),
-  }));
+  const compactRoster: DynamicTrainingRosterSlot[] = [...roster]
+    .sort((a, b) => a.slotIndex - b.slotIndex)
+    .map((r) => ({
+      slotIndex: r.slotIndex,
+      userName: r.userName,
+      team: r.team,
+      hitboxId: r.hitboxId,
+      visualId: r.visualId,
+      ...(r.primaryColorHex ? { primaryColorHex: r.primaryColorHex } : {}),
+      ...(r.accentColorHex ? { accentColorHex: r.accentColorHex } : {}),
+    }));
 
   const frames = slice.map((f, idx) => toCompactFrame(f, idx));
   const durationSeconds = Number((frames.length / 120).toFixed(2));
@@ -148,76 +153,130 @@ export function extractDynamicSessionFromRLRCFrames(params: {
   };
 }
 
+function createInactiveHydratedCar(slotIndex: number): RLRCCarFrameState120Hz {
+  return {
+    slotIndex,
+    entityActive: false,
+    rigidBody: {
+      sleeping: true,
+      position: { x: 0, y: 0, z: -2000 },
+      rotation: { x: 0, y: 0, z: 0, w: 1 },
+      linearVelocity: { x: 0, y: 0, z: 0 },
+      angularVelocity: { x: 0, y: 0, z: 0 },
+    },
+    boostAmount: 0,
+    isOnGround: false,
+    isSupersonic: false,
+    hasFlipOrJump: false,
+    airTimeSinceJump: 0,
+    activeFlags: {
+      boostActive: false,
+      jumpActive: false,
+      doubleJumpActive: false,
+      dodgeActive: false,
+    },
+    controls: {
+      throttle: 0,
+      steer: 0,
+      pitch: 0,
+      yaw: 0,
+      roll: 0,
+      jump: false,
+      boost: false,
+      handbrake: false,
+    },
+  };
+}
+
 export function hydrateRLRCFramesFromDynamicSession(session: DynamicTrainingStateSession): {
   frames120Hz: RLRCFrame120Hz[];
   roster: RLRCPlayerSlotMeta[];
 } {
-  const roster: RLRCPlayerSlotMeta[] = session.roster.map((r) => ({
-    slotIndex: r.slotIndex,
-    userName: r.userName,
-    team: r.team as RLRCTeamIndex,
-    priActorId: r.slotIndex + 1,
-    bodyProductId: 23,
-    hitboxId: (r.hitboxId || 'hitbox-octane') as RLRCHitboxId,
-    visualId: (r.visualId || 'fennec') as RLRCVisualId,
-    ...(r.primaryColorHex ? { primaryColorHex: r.primaryColorHex } : {}),
-    ...(r.accentColorHex ? { accentColorHex: r.accentColorHex } : {}),
-  }));
+  const roster: RLRCPlayerSlotMeta[] = [...session.roster]
+    .sort((a, b) => a.slotIndex - b.slotIndex)
+    .map((r) => ({
+      slotIndex: r.slotIndex,
+      userName: r.userName,
+      team: r.team as RLRCTeamIndex,
+      priActorId: r.slotIndex + 1,
+      bodyProductId: 23,
+      hitboxId: (r.hitboxId || 'hitbox-octane') as RLRCHitboxId,
+      visualId: (r.visualId || 'fennec') as RLRCVisualId,
+      ...(r.primaryColorHex ? { primaryColorHex: r.primaryColorHex } : {}),
+      ...(r.accentColorHex ? { accentColorHex: r.accentColorHex } : {}),
+    }));
 
-  const frames120Hz: RLRCFrame120Hz[] = session.frames.map((cf, idx) => ({
-    frameIndex120Hz: idx,
-    sourceFrame30Hz: Math.floor(idx / 4),
-    timeSeconds: cf.timeSeconds,
-    secondsRemaining: 300,
-    isOvertime: false,
-    roundCountdownNumber: 0,
-    blueScore: 0,
-    orangeScore: 0,
-    ball: {
-      entityActive: true,
-      rigidBody: {
-        sleeping: false,
-        position: { x: cf.ballPos[0], y: cf.ballPos[1], z: cf.ballPos[2] },
-        rotation: { x: cf.ballRot[0], y: cf.ballRot[1], z: cf.ballRot[2], w: cf.ballRot[3] },
-        linearVelocity: { x: cf.ballVel[0], y: cf.ballVel[1], z: cf.ballVel[2] },
-        angularVelocity: { x: cf.ballAngVel[0], y: cf.ballAngVel[1], z: cf.ballAngVel[2] },
+  const frames120Hz: RLRCFrame120Hz[] = session.frames.map((cf, idx) => {
+    const bySlot = new Map<number, DynamicTrainingCompactCarFrame>();
+    for (const car of cf.cars) {
+      bySlot.set(car.slotIndex, car);
+    }
+    const maxSlot = Math.max(
+      RLRC_MAX_PLAYER_SLOTS - 1,
+      ...cf.cars.map((c) => c.slotIndex),
+      ...roster.map((r) => r.slotIndex)
+    );
+    const slotCars: RLRCCarFrameState120Hz[] = Array.from({ length: maxSlot + 1 }, (_, slot) => {
+      const car = bySlot.get(slot);
+      if (!car) return createInactiveHydratedCar(slot);
+      return {
+        slotIndex: slot,
+        entityActive: car.entityActive,
+        ...(car.isDemolished ? { isDemolished: true } : {}),
+        rigidBody: {
+          sleeping: false,
+          position: { x: car.pos[0], y: car.pos[1], z: car.pos[2] },
+          rotation: { x: car.rot[0], y: car.rot[1], z: car.rot[2], w: car.rot[3] },
+          linearVelocity: { x: car.vel[0], y: car.vel[1], z: car.vel[2] },
+          angularVelocity: { x: car.angVel[0], y: car.angVel[1], z: car.angVel[2] },
+        },
+        boostAmount: car.boostAmount,
+        isOnGround: car.isOnGround,
+        isSupersonic: car.isSupersonic,
+        hasFlipOrJump: car.hasFlipOrJump,
+        airTimeSinceJump: car.airTimeSinceJump,
+        activeFlags: {
+          boostActive: car.activeFlags[0],
+          jumpActive: car.activeFlags[1],
+          doubleJumpActive: car.activeFlags[2],
+          dodgeActive: car.activeFlags[3],
+        },
+        controls: {
+          throttle: car.controls[0],
+          steer: car.controls[1],
+          pitch: car.controls[2],
+          yaw: car.controls[3],
+          roll: car.controls[4],
+          jump: car.controls[5],
+          boost: car.controls[6],
+          handbrake: car.controls[7],
+        },
+      };
+    });
+
+    return {
+      frameIndex120Hz: idx,
+      sourceFrame30Hz: Math.floor(idx / 4),
+      timeSeconds: cf.timeSeconds,
+      secondsRemaining: 300,
+      isOvertime: false,
+      roundCountdownNumber: 0,
+      blueScore: 0,
+      orangeScore: 0,
+      ball: {
+        entityActive: true,
+        rigidBody: {
+          sleeping: false,
+          position: { x: cf.ballPos[0], y: cf.ballPos[1], z: cf.ballPos[2] },
+          rotation: { x: cf.ballRot[0], y: cf.ballRot[1], z: cf.ballRot[2], w: cf.ballRot[3] },
+          linearVelocity: { x: cf.ballVel[0], y: cf.ballVel[1], z: cf.ballVel[2] },
+          angularVelocity: { x: cf.ballAngVel[0], y: cf.ballAngVel[1], z: cf.ballAngVel[2] },
+        },
       },
-    },
-    cars: cf.cars.map((car) => ({
-      slotIndex: car.slotIndex,
-      entityActive: car.entityActive,
-      ...(car.isDemolished ? { isDemolished: true } : {}),
-      rigidBody: {
-        sleeping: false,
-        position: { x: car.pos[0], y: car.pos[1], z: car.pos[2] },
-        rotation: { x: car.rot[0], y: car.rot[1], z: car.rot[2], w: car.rot[3] },
-        linearVelocity: { x: car.vel[0], y: car.vel[1], z: car.vel[2] },
-        angularVelocity: { x: car.angVel[0], y: car.angVel[1], z: car.angVel[2] },
-      },
-      boostAmount: car.boostAmount,
-      isOnGround: car.isOnGround,
-      isSupersonic: car.isSupersonic,
-      hasFlipOrJump: car.hasFlipOrJump,
-      airTimeSinceJump: car.airTimeSinceJump,
-      activeFlags: {
-        boostActive: car.activeFlags[0],
-        jumpActive: car.activeFlags[1],
-        doubleJumpActive: car.activeFlags[2],
-        dodgeActive: car.activeFlags[3],
-      },
-      controls: {
-        throttle: car.controls[0],
-        steer: car.controls[1],
-        pitch: car.controls[2],
-        yaw: car.controls[3],
-        roll: car.controls[4],
-        jump: car.controls[5],
-        boost: car.controls[6],
-        handbrake: car.controls[7],
-      },
-    })),
-    boostPadCooldowns: Float32Array.from(cf.boostPadCooldowns),
-  }));
+      cars: slotCars,
+      boostPadCooldowns: Float32Array.from(cf.boostPadCooldowns),
+    };
+  });
 
   return { frames120Hz, roster };
 }
@@ -250,7 +309,7 @@ export function extractDynamicSessionFromReplayFrames(params: {
     roster.length,
     Math.min(8, Math.round(Number(slice[0]?.[SIM_OFFSETS.NUM_CARS] ?? 0)))
   );
-  const compactRoster: DynamicTrainingRosterSlot[] =
+  const rawRoster: DynamicTrainingRosterSlot[] =
     roster.length > 0
       ? roster.map((r) => ({
           slotIndex: r.carIndex,
@@ -267,6 +326,7 @@ export function extractDynamicSessionFromReplayFrames(params: {
           hitboxId: 'hitbox-octane',
           visualId: 'fennec',
         }));
+  const compactRoster = [...rawRoster].sort((a, b) => a.slotIndex - b.slotIndex);
 
   const compactFrames: DynamicTrainingCompactFrame[] = slice.map((f, localIdx) => {
     const b = SIM_OFFSETS.BALL;

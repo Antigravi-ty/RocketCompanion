@@ -21,6 +21,7 @@ import {
 import {
   DEFAULT_NEUTRAL_CAR_CONTROLS,
   clampCarPositionZForHitbox,
+  findCarBySlot,
   type RLRCPrerollRingBufferPort,
 } from './RLRCInterveneFrameStateBuilder.ts';
 import {
@@ -123,7 +124,7 @@ export function stepNonPovCarsBeforePhysics(params: {
       continue;
     }
 
-    const carFrame = followFrame?.cars[slot];
+    const carFrame = findCarBySlot(followFrame?.cars, slot);
     const meta = roster.find((r) => r.slotIndex === slot);
     const team: RLRCTeamIndex = meta?.team ?? (slot < 3 ? 0 : 1);
     const hitboxId = meta?.hitboxId ?? 'hitbox-octane';
@@ -190,7 +191,7 @@ export function syncFollowStateNonPovAfterStep(params: {
   for (let slot = 0; slot < RLRC_MAX_PLAYER_SLOTS; slot++) {
     if (slot === povSlotIndex) continue;
     if ((perSlotModes?.[slot] ?? nonPovMode) !== 'follow-state') continue;
-    const car = nextFrame.cars[slot];
+    const car = findCarBySlot(nextFrame.cars, slot);
     if (!car || !car.entityActive) {
       deactivateInterveneSlotEntity(sim, arena, slotActiveTracker, slot);
       continue;

@@ -77,6 +77,7 @@ export interface DynamicTrainingStateSessionSummary {
   frameCount: number;
   defaultPovSlotIndex: number;
   rosterCount: number;
+  roster?: DynamicTrainingRosterSlot[];
 }
 
 export interface DynamicTrainingCarSpawnVariation {
@@ -233,5 +234,6 @@ export function summarizeDynamicStateSession(
     frameCount: session.frames.length,
     defaultPovSlotIndex: session.defaultPovSlotIndex,
     rosterCount: session.roster.length,
+    roster: [...session.roster].sort((a, b) => a.slotIndex - b.slotIndex),
   };
 }

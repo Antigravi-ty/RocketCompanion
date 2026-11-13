@@ -3,6 +3,7 @@ import { HudZone, HudSlot } from '../layout/HudAnchorStage';
 import { useReplayViewerStore } from '../stores/replayViewerStore';
 import { useReplayToRcsImporterStore } from '../stores/replayToRcsImporterStore';
 import { useRewinderStore } from '../stores/rewinderStore';
+import { useDynamicTrainingPackStore } from '../stores/dynamicTrainingPackStore';
 import type { HudTransientChannel } from '../stores/hudTransientTypes';
 import { TemporalReplayFooterHUD } from './TemporalReplayFooterHUD';
 import { TakeoverCountdownHUD } from './TakeoverCountdownHUD';
@@ -14,6 +15,30 @@ import {
   type TakeoverTeamSide,
 } from './takeoverCountdownDefaults';
 import { useTakeoverPrerollChoreography } from './useInGameHudChoreography';
+
+function useDynamicTrainingPrerollHud() {
+  const playPhase = useDynamicTrainingPackStore((s) => s.playPhase);
+  const countdownRemainingSec = useDynamicTrainingPackStore((s) => s.countdownRemainingSec);
+  const activePackUuid = useDynamicTrainingPackStore((s) => s.activePackUuid);
+  const activeShotId = useDynamicTrainingPackStore((s) => s.activeShotId);
+  const packs = useDynamicTrainingPackStore((s) => s.packs);
+  const sessionSummaries = useDynamicTrainingPackStore((s) => s.sessionSummaries);
+
+  const isPreroll = playPhase === 'preroll-countdown';
+  const activeShot = packs
+    .find((p) => p.metadata.uuid === activePackUuid)
+    ?.shots.find((s) => s.id === activeShotId);
+  const povSlot = activeShot?.povSlotIndex ?? 0;
+  const roster = activeShot ? sessionSummaries[activeShot.sessionId]?.roster : undefined;
+  const povTeam = roster?.find((r) => r.slotIndex === povSlot)?.team ?? (povSlot >= 3 ? 1 : 0);
+
+  return {
+    isDynamicPreroll: isPreroll,
+    dynamicPrerollSec: countdownRemainingSec,
+    dynamicDownCounterSec: activeShot?.downCounterSeconds ?? 3,
+    dynamicPovTeam: povTeam,
+  };
+}
 
 export function useGoalReplayAndTakeoverHudState(params: {
   choreographySignal: string | null;
@@ -53,11 +78,26 @@ export function useGoalReplayAndTakeoverHudState(params: {
   const rewinderPrerollSec = useRewinderStore((s) => s.rewinderPrerollRemainingSec);
   const rewinderDownCounterSec = useRewinderStore((s) => s.rewinderDownCounterSec);
 
+  const {
+    isDynamicPreroll,
+    dynamicPrerollSec,
+    dynamicDownCounterSec,
+    dynamicPovTeam,
+  } = useDynamicTrainingPrerollHud();
+
   const isReplayPreroll = replayViewerState === 'preroll-countdown';
-  const isRewinderPreroll = rewinderState === 'preroll-countdown';
+  const isRewinderPreroll = rewinderState === 'preroll-countdown' || isDynamicPreroll;
+  const effectiveRewinderPrerollSec = isDynamicPreroll ? dynamicPrerollSec : rewinderPrerollSec;
+  const effectiveRewinderDownCounterSec = isDynamicPreroll
+    ? dynamicDownCounterSec
+    : rewinderDownCounterSec;
 
   const takeoverTeam: TakeoverTeamSide =
-    (isReplayPreroll || replayViewerState === 'intervening' ? activePovTeam : localTeam) === 1
+    (isDynamicPreroll
+      ? dynamicPovTeam
+      : isReplayPreroll || replayViewerState === 'intervening'
+        ? activePovTeam
+        : localTeam) === 1
       ? 'orange'
       : 'blue';
 
@@ -65,9 +105,9 @@ export function useGoalReplayAndTakeoverHudState(params: {
     isReplayPreroll,
     isRewinderPreroll,
     replayPrerollSec,
-    rewinderPrerollSec,
+    rewinderPrerollSec: effectiveRewinderPrerollSec,
     replayDownCounterSec,
-    rewinderDownCounterSec,
+    rewinderDownCounterSec: effectiveRewinderDownCounterSec,
     takeoverTeam,
   });
 
@@ -160,11 +200,26 @@ export const GoalReplayHudOverlay: React.FC<GoalReplayHudOverlayProps> = ({
   const rewinderPrerollSec = useRewinderStore((s) => s.rewinderPrerollRemainingSec);
   const rewinderDownCounterSec = useRewinderStore((s) => s.rewinderDownCounterSec);
 
+  const {
+    isDynamicPreroll,
+    dynamicPrerollSec,
+    dynamicDownCounterSec,
+    dynamicPovTeam,
+  } = useDynamicTrainingPrerollHud();
+
   const isReplayPreroll = replayViewerState === 'preroll-countdown';
-  const isRewinderPreroll = rewinderState === 'preroll-countdown';
+  const isRewinderPreroll = rewinderState === 'preroll-countdown' || isDynamicPreroll;
+  const effectiveRewinderPrerollSec = isDynamicPreroll ? dynamicPrerollSec : rewinderPrerollSec;
+  const effectiveRewinderDownCounterSec = isDynamicPreroll
+    ? dynamicDownCounterSec
+    : rewinderDownCounterSec;
 
   const takeoverTeam: TakeoverTeamSide =
-    (isReplayPreroll || replayViewerState === 'intervening' ? activePovTeam : localTeam) === 1
+    (isDynamicPreroll
+      ? dynamicPovTeam
+      : isReplayPreroll || replayViewerState === 'intervening'
+        ? activePovTeam
+        : localTeam) === 1
       ? 'orange'
       : 'blue';
 
@@ -172,9 +227,9 @@ export const GoalReplayHudOverlay: React.FC<GoalReplayHudOverlayProps> = ({
     isReplayPreroll,
     isRewinderPreroll,
     replayPrerollSec,
-    rewinderPrerollSec,
+    rewinderPrerollSec: effectiveRewinderPrerollSec,
     replayDownCounterSec,
-    rewinderDownCounterSec,
+    rewinderDownCounterSec: effectiveRewinderDownCounterSec,
     takeoverTeam,
   });
 
