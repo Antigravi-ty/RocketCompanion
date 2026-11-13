@@ -23,13 +23,24 @@ export const PlayCardWatermarkAndColorTuner: React.FC<PlayCardWatermarkAndColorT
   return (
     <>
       {/* Group C: Style 3 Specific - JetBrains Mono + 30% Giant Watermark Icon */}
-      <div className={`p-4 rounded-xl border flex flex-col gap-4 ${ variant === 'mono-giant-watermark' ? isLight
-        ? 'bg-amber-50/40 border-amber-400/80' : 'bg-amber-500/5 border-amber-500/40' : isLight
-        ? 'bg-neutral-50/70 border-neutral-200/80' : 'bg-neutral-950/50 border-neutral-800' }`}>
+      <div
+        className={`p-4 rounded-xl border flex flex-col gap-4 ${
+          variant === 'mono-giant-watermark'
+            ? isLight
+              ? 'bg-amber-50/40 border-amber-400/80'
+              : 'bg-amber-500/5 border-amber-500/40'
+            : isLight
+              ? 'bg-neutral-50/70 border-neutral-200/80'
+              : 'bg-neutral-950/50 border-neutral-800'
+        }`}
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs font-bold text-amber-500">
             <ImageIcon className="h-4 w-4" />
-            <span>C. Style three exclusive parameters: JetBrains Mono Large heading + Background Large Watermark Icon (default 30% Opacity)</span>
+            <span>
+              C. Style three exclusive parameters: JetBrains Mono Large heading + Background Large
+              Watermark Icon (default 30% Opacity)
+            </span>
           </div>
           {variant !== 'mono-giant-watermark' && (
             <button
@@ -44,15 +55,44 @@ export const PlayCardWatermarkAndColorTuner: React.FC<PlayCardWatermarkAndColorT
 
         {/* C1: JetBrains Mono Title Typography */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <SliderControl label="Mono Header Font Size (monoTitleSize)" value={store.monoTitleSizePx} min={13} max={38} step={1}
-            unit="px" editable allowOutOfBoundsInput colorScheme="amber"
-            onChange={(v) => setParam('monoTitleSizePx', v)} isLight={isLight} />
-          <SliderControl label="Mono Letter Spacing (letterSpacing)" value={store.monoLetterSpacingEm} min={-0.08} max={0.15}
-            step={0.01} unit="em" editable allowOutOfBoundsInput colorScheme="amber"
-            onChange={(v) => setParam('monoLetterSpacingEm', v)} isLight={isLight} />
-          <SliderControl label="Mono Line Height (lineHeight)" value={store.monoLineHeight} min={0.95} max={1.6} step={0.05}
-            editable allowOutOfBoundsInput colorScheme="amber" onChange={(v) => setParam('monoLineHeight', v)}
-            isLight={isLight} />
+          <SliderControl
+            label="Mono Header Font Size (monoTitleSize)"
+            value={store.monoTitleSizePx}
+            min={13}
+            max={38}
+            step={1}
+            unit="px"
+            editable
+            allowOutOfBoundsInput
+            colorScheme="amber"
+            onChange={(v) => setParam('monoTitleSizePx', v)}
+            isLight={isLight}
+          />
+          <SliderControl
+            label="Mono Letter Spacing (letterSpacing)"
+            value={store.monoLetterSpacingEm}
+            min={-0.08}
+            max={0.15}
+            step={0.01}
+            unit="em"
+            editable
+            allowOutOfBoundsInput
+            colorScheme="amber"
+            onChange={(v) => setParam('monoLetterSpacingEm', v)}
+            isLight={isLight}
+          />
+          <SliderControl
+            label="Mono Line Height (lineHeight)"
+            value={store.monoLineHeight}
+            min={0.95}
+            max={1.6}
+            step={0.05}
+            editable
+            allowOutOfBoundsInput
+            colorScheme="amber"
+            onChange={(v) => setParam('monoLineHeight', v)}
+            isLight={isLight}
+          />
         </div>
 
         {/* Official 8 JetBrains Mono Font Weights */}
@@ -67,15 +107,15 @@ export const PlayCardWatermarkAndColorTuner: React.FC<PlayCardWatermarkAndColorT
                 type="button"
                 onClick={() => setParam('monoTitleWeight', opt.weight)}
                 style={{
-                  fontFamily: 'var(--font-jetbrains)',
+                  fontFamily: 'var(--font-mono)',
                   fontWeight: opt.weight,
                 }}
                 className={`py-1.5 px-2 rounded-lg text-xs border cursor-pointer transition-all ${
                   store.monoTitleWeight === opt.weight
                     ? 'bg-amber-500 text-white border-amber-500 shadow-2xs'
                     : isLight
-                    ? 'bg-white border-neutral-200 text-neutral-700 hover:bg-neutral-100'
-                    : 'bg-neutral-900 border-neutral-700 text-neutral-300 hover:bg-neutral-800'
+                      ? 'bg-white border-neutral-200 text-neutral-700 hover:bg-neutral-100'
+                      : 'bg-neutral-900 border-neutral-700 text-neutral-300 hover:bg-neutral-800'
                 }`}
               >
                 {opt.label}
@@ -87,7 +127,9 @@ export const PlayCardWatermarkAndColorTuner: React.FC<PlayCardWatermarkAndColorT
         {/* C2: Title Anchor & Optional Overlays */}
         <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-neutral-200/60 dark:border-neutral-800/70">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-mono text-neutral-500 dark:text-neutral-400">Large text alignment anchor (monoTitleAnchor):</span>
+            <span className="text-xs font-mono text-neutral-500 dark:text-neutral-400">
+              Large text alignment anchor (monoTitleAnchor):
+            </span>
             {(
               [
                 { id: 'center-left', label: 'Middle Left (Center-Left)' },
@@ -105,8 +147,8 @@ export const PlayCardWatermarkAndColorTuner: React.FC<PlayCardWatermarkAndColorT
                   store.monoTitleAnchor === opt.id
                     ? 'bg-amber-500 text-white border-amber-500 font-bold'
                     : isLight
-                    ? 'bg-white border-neutral-200 text-neutral-700'
-                    : 'bg-neutral-900 border-neutral-700 text-neutral-300'
+                      ? 'bg-white border-neutral-200 text-neutral-700'
+                      : 'bg-neutral-900 border-neutral-700 text-neutral-300'
                 }`}
               >
                 {opt.label}
@@ -115,13 +157,24 @@ export const PlayCardWatermarkAndColorTuner: React.FC<PlayCardWatermarkAndColorT
           </div>
 
           <div className="flex items-center gap-4 flex-wrap">
-            <ToggleSwitch checked={store.monoUppercase} onCheckedChange={(v) => setParam('monoUppercase', v)}
-              label="Uppercase Header (UPPERCASE)" isLight={isLight} />
-            <ToggleSwitch checked={store.monoShowDescription}
-              onCheckedChange={(v) => setParam('monoShowDescription', v)} label="Additional Display Description"
-              isLight={isLight} />
-            <ToggleSwitch checked={store.monoShowBadge} onCheckedChange={(v) => setParam('monoShowBadge', v)}
-              label="Display top right included Badge" isLight={isLight} />
+            <ToggleSwitch
+              checked={store.monoUppercase}
+              onCheckedChange={(v) => setParam('monoUppercase', v)}
+              label="Uppercase Header (UPPERCASE)"
+              isLight={isLight}
+            />
+            <ToggleSwitch
+              checked={store.monoShowDescription}
+              onCheckedChange={(v) => setParam('monoShowDescription', v)}
+              label="Additional Display Description"
+              isLight={isLight}
+            />
+            <ToggleSwitch
+              checked={store.monoShowBadge}
+              onCheckedChange={(v) => setParam('monoShowBadge', v)}
+              label="Display top right included Badge"
+              isLight={isLight}
+            />
           </div>
         </div>
 
@@ -130,47 +183,143 @@ export const PlayCardWatermarkAndColorTuner: React.FC<PlayCardWatermarkAndColorT
       </div>
 
       {/* Group D: Style 1 & Style 2 Specific Controls */}
-      <div className={`p-4 rounded-xl border flex flex-col gap-4 ${ isLight
-        ? 'bg-neutral-50/70 border-neutral-200/80' : 'bg-neutral-950/50 border-neutral-800' }`}>
+      <div
+        className={`p-4 rounded-xl border flex flex-col gap-4 ${
+          isLight
+            ? 'bg-neutral-50/70 border-neutral-200/80'
+            : 'bg-neutral-950/50 border-neutral-800'
+        }`}
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs font-bold text-amber-500">
             <Type className="h-4 w-4" />
-            <span>D. style 1 &amp; Style 2 exclusive parameters: Foreground Icon Container, Inline Title Spacing and Description Typography</span>
+            <span>
+              D. style 1 &amp; Style 2 exclusive parameters: Foreground Icon Container, Inline Title
+              Spacing and Description Typography
+            </span>
           </div>
 
           <div className="flex items-center gap-4 flex-wrap">
-            <ToggleSwitch checked={store.showIconBox} onCheckedChange={(v) => setParam('showIconBox', v)}
-              label="Show Foreground Icon Border Box (showIconBox)" isLight={isLight} />
-            <ToggleSwitch checked={store.titleUseMonoFont} onCheckedChange={(v) => setParam('titleUseMonoFont', v)}
-              label="Title Use JetBrains Mono Font" isLight={isLight} />
+            <ToggleSwitch
+              checked={store.showIconBox}
+              onCheckedChange={(v) => setParam('showIconBox', v)}
+              label="Show Foreground Icon Border Box (showIconBox)"
+              isLight={isLight}
+            />
+            <ToggleSwitch
+              checked={store.titleUseMonoFont}
+              onCheckedChange={(v) => setParam('titleUseMonoFont', v)}
+              label="Title Use JetBrains Mono Font"
+              isLight={isLight}
+            />
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <SliderControl label="Foreground Icon size (iconSize)" value={store.iconSizePx} min={12} max={36} step={1}
-            unit="px" editable allowOutOfBoundsInput colorScheme="amber"
-            onChange={(v) => setParam('iconSizePx', v)} isLight={isLight} />
-          <SliderControl label="Foreground Icon Box Padding (boxPad)" value={store.iconBoxPaddingPx} min={0} max={16} step={1}
-            unit="px" editable allowOutOfBoundsInput colorScheme="amber"
-            onChange={(v) => setParam('iconBoxPaddingPx', v)} isLight={isLight} />
-          <SliderControl label="Title title font size (titleSize)" value={store.titleFontSizePx} min={11} max={24} step={1}
-            unit="px" editable allowOutOfBoundsInput colorScheme="amber"
-            onChange={(v) => setParam('titleFontSizePx', v)} isLight={isLight} />
-          <SliderControl label="Description font size (descSize)" value={store.descFontSizePx} min={10} max={16} step={1}
-            unit="px" editable allowOutOfBoundsInput colorScheme="sky"
-            onChange={(v) => setParam('descFontSizePx', v)} isLight={isLight} />
-          <SliderControl label="[style 2] Icon and Title Horizontal Spacing" value={store.inlineIconTitleGapPx} min={4} max={24}
-            step={1} unit="px" editable allowOutOfBoundsInput colorScheme="emerald"
-            onChange={(v) => setParam('inlineIconTitleGapPx', v)} isLight={isLight} />
-          <SliderControl label="[style 2] Top Row & Description spacing" value={store.inlineHeaderMarginBottomPx} min={0} max={24}
-            step={1} unit="px" editable allowOutOfBoundsInput colorScheme="emerald"
-            onChange={(v) => setParam('inlineHeaderMarginBottomPx', v)} isLight={isLight} />
-          <SliderControl label="[style 1] Top Row & Title spacing" value={store.style1TopRowMarginBottomPx} min={0} max={24}
-            step={1} unit="px" editable allowOutOfBoundsInput colorScheme="amber"
-            onChange={(v) => setParam('style1TopRowMarginBottomPx', v)} isLight={isLight} />
-          <SliderControl label="[style 1] Title and Description spacing" value={store.style1TitleMarginBottomPx} min={0}
-            max={16} step={1} unit="px" editable allowOutOfBoundsInput colorScheme="amber"
-            onChange={(v) => setParam('style1TitleMarginBottomPx', v)} isLight={isLight} />
+          <SliderControl
+            label="Foreground Icon size (iconSize)"
+            value={store.iconSizePx}
+            min={12}
+            max={36}
+            step={1}
+            unit="px"
+            editable
+            allowOutOfBoundsInput
+            colorScheme="amber"
+            onChange={(v) => setParam('iconSizePx', v)}
+            isLight={isLight}
+          />
+          <SliderControl
+            label="Foreground Icon Box Padding (boxPad)"
+            value={store.iconBoxPaddingPx}
+            min={0}
+            max={16}
+            step={1}
+            unit="px"
+            editable
+            allowOutOfBoundsInput
+            colorScheme="amber"
+            onChange={(v) => setParam('iconBoxPaddingPx', v)}
+            isLight={isLight}
+          />
+          <SliderControl
+            label="Title title font size (titleSize)"
+            value={store.titleFontSizePx}
+            min={11}
+            max={24}
+            step={1}
+            unit="px"
+            editable
+            allowOutOfBoundsInput
+            colorScheme="amber"
+            onChange={(v) => setParam('titleFontSizePx', v)}
+            isLight={isLight}
+          />
+          <SliderControl
+            label="Description font size (descSize)"
+            value={store.descFontSizePx}
+            min={10}
+            max={16}
+            step={1}
+            unit="px"
+            editable
+            allowOutOfBoundsInput
+            colorScheme="sky"
+            onChange={(v) => setParam('descFontSizePx', v)}
+            isLight={isLight}
+          />
+          <SliderControl
+            label="[style 2] Icon and Title Horizontal Spacing"
+            value={store.inlineIconTitleGapPx}
+            min={4}
+            max={24}
+            step={1}
+            unit="px"
+            editable
+            allowOutOfBoundsInput
+            colorScheme="emerald"
+            onChange={(v) => setParam('inlineIconTitleGapPx', v)}
+            isLight={isLight}
+          />
+          <SliderControl
+            label="[style 2] Top Row & Description spacing"
+            value={store.inlineHeaderMarginBottomPx}
+            min={0}
+            max={24}
+            step={1}
+            unit="px"
+            editable
+            allowOutOfBoundsInput
+            colorScheme="emerald"
+            onChange={(v) => setParam('inlineHeaderMarginBottomPx', v)}
+            isLight={isLight}
+          />
+          <SliderControl
+            label="[style 1] Top Row & Title spacing"
+            value={store.style1TopRowMarginBottomPx}
+            min={0}
+            max={24}
+            step={1}
+            unit="px"
+            editable
+            allowOutOfBoundsInput
+            colorScheme="amber"
+            onChange={(v) => setParam('style1TopRowMarginBottomPx', v)}
+            isLight={isLight}
+          />
+          <SliderControl
+            label="[style 1] Title and Description spacing"
+            value={store.style1TitleMarginBottomPx}
+            min={0}
+            max={16}
+            step={1}
+            unit="px"
+            editable
+            allowOutOfBoundsInput
+            colorScheme="amber"
+            onChange={(v) => setParam('style1TitleMarginBottomPx', v)}
+            isLight={isLight}
+          />
         </div>
 
         {/* Style 1 & 2 Official Font Weights */}
@@ -189,8 +338,8 @@ export const PlayCardWatermarkAndColorTuner: React.FC<PlayCardWatermarkAndColorT
                   store.titleFontWeight === opt.weight
                     ? 'bg-amber-500 text-white border-amber-500 shadow-2xs'
                     : isLight
-                    ? 'bg-white border-neutral-200 text-neutral-700 hover:bg-neutral-100'
-                    : 'bg-neutral-900 border-neutral-700 text-neutral-300 hover:bg-neutral-800'
+                      ? 'bg-white border-neutral-200 text-neutral-700 hover:bg-neutral-100'
+                      : 'bg-neutral-900 border-neutral-700 text-neutral-300 hover:bg-neutral-800'
                 }`}
               >
                 {opt.label}
@@ -218,8 +367,8 @@ export const PlayCardWatermarkAndColorTuner: React.FC<PlayCardWatermarkAndColorT
                   store.inlineHeaderLayout === opt.id
                     ? 'bg-emerald-500 text-white border-emerald-500 font-bold'
                     : isLight
-                    ? 'bg-white border-neutral-200 text-neutral-700'
-                    : 'bg-neutral-900 border-neutral-700 text-neutral-300'
+                      ? 'bg-white border-neutral-200 text-neutral-700'
+                      : 'bg-neutral-900 border-neutral-700 text-neutral-300'
                 }`}
               >
                 {opt.label}
@@ -228,7 +377,9 @@ export const PlayCardWatermarkAndColorTuner: React.FC<PlayCardWatermarkAndColorT
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-neutral-500 dark:text-neutral-400">Description Max Lines (lineClamp):</span>
+            <span className="text-xs font-mono text-neutral-500 dark:text-neutral-400">
+              Description Max Lines (lineClamp):
+            </span>
             {([1, 2, 3, 0] as const).map((lines) => (
               <button
                 key={lines}
@@ -238,8 +389,8 @@ export const PlayCardWatermarkAndColorTuner: React.FC<PlayCardWatermarkAndColorT
                   store.descLineClamp === lines
                     ? 'bg-amber-500 text-white border-amber-500 font-bold'
                     : isLight
-                    ? 'bg-white border-neutral-200 text-neutral-700'
-                    : 'bg-neutral-900 border-neutral-700 text-neutral-300'
+                      ? 'bg-white border-neutral-200 text-neutral-700'
+                      : 'bg-neutral-900 border-neutral-700 text-neutral-300'
                 }`}
               >
                 {lines === 0 ? 'Unlimited Lines' : `${lines} Row`}

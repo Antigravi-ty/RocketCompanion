@@ -343,7 +343,7 @@ export const CenterUpperInfoHUD = React.memo(
           data-variant={info?.variant ?? 'none'}
           className={`relative w-[10000px] max-w-none flex flex-col items-center justify-center text-center select-none pointer-events-none will-change-transform py-4 ${className}`}
           style={{
-            fontFamily: 'var(--font-jetbrains), monospace',
+            fontFamily: 'var(--font-mono)',
             transformOrigin: 'center center',
             opacity: info ? 1 : 0,
             visibility: info ? 'visible' : 'hidden',
@@ -364,7 +364,7 @@ export const CenterUpperInfoHUD = React.memo(
               data-role="center-upper-top-regular"
               className="leading-none whitespace-nowrap text-center"
               style={{
-                fontFamily: 'var(--font-jetbrains), monospace',
+                fontFamily: 'var(--font-mono)',
                 fontWeight: 400,
                 display: info?.topText ? 'block' : 'none',
               }}
@@ -377,7 +377,7 @@ export const CenterUpperInfoHUD = React.memo(
               data-role="center-upper-main-thin"
               className="leading-none whitespace-nowrap tabular-nums text-center"
               style={{
-                fontFamily: 'var(--font-jetbrains), monospace',
+                fontFamily: 'var(--font-mono)',
                 fontWeight: 100,
               }}
             >
@@ -389,7 +389,7 @@ export const CenterUpperInfoHUD = React.memo(
               data-role="center-upper-sub-caption"
               className="mt-2 px-3 py-0.5 rounded-full border bg-neutral-950/92 text-[11px] font-normal tracking-[0.22em] whitespace-nowrap"
               style={{
-                fontFamily: 'var(--font-jetbrains), monospace',
+                fontFamily: 'var(--font-mono)',
                 display: info?.subText ? 'inline-flex' : 'none',
               }}
             >

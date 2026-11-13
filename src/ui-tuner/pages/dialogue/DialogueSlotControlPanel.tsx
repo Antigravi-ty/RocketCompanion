@@ -105,7 +105,7 @@ export const DialogueSlotControlPanel: React.FC<DialogueSlotControlPanelProps> =
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="ALERT"
-                style={{ fontFamily: "'SF Mono', 'JetBrains Mono', monospace" }}
+                style={{ fontFamily: 'var(--font-mono)' }}
                 className={`w-full px-3 py-2 rounded-xl text-xs border outline-none transition-colors ${
                   isLight
                     ? 'bg-white border-neutral-300 focus:border-amber-500 text-neutral-900'
@@ -138,8 +138,8 @@ export const DialogueSlotControlPanel: React.FC<DialogueSlotControlPanelProps> =
                           ? 'bg-white border-neutral-900 shadow-xs text-neutral-900 font-bold'
                           : 'bg-neutral-800 border-white shadow-xs text-white font-bold'
                         : isLight
-                        ? 'bg-white/70 hover:bg-white border-neutral-200 text-neutral-600'
-                        : 'bg-neutral-950/70 hover:bg-neutral-950 border-neutral-800 text-neutral-400'
+                          ? 'bg-white/70 hover:bg-white border-neutral-200 text-neutral-600'
+                          : 'bg-neutral-950/70 hover:bg-neutral-950 border-neutral-800 text-neutral-400'
                     }`}
                   >
                     <span className={`h-2.5 w-2.5 rounded-full ${item.dot}`} />
@@ -208,7 +208,7 @@ export const DialogueSlotControlPanel: React.FC<DialogueSlotControlPanelProps> =
                 value={iconName}
                 onChange={(e) => setIconName(e.target.value)}
                 placeholder="octagon-alert"
-                style={{ fontFamily: "'SF Mono', 'JetBrains Mono', monospace" }}
+                style={{ fontFamily: 'var(--font-mono)' }}
                 className={`w-full px-3 py-2 rounded-xl text-xs border outline-none transition-colors ${
                   isLight
                     ? 'bg-white border-neutral-300 focus:border-amber-500 text-neutral-900'
@@ -228,8 +228,8 @@ export const DialogueSlotControlPanel: React.FC<DialogueSlotControlPanelProps> =
                           ? 'bg-neutral-900 text-white border-neutral-900 font-bold'
                           : 'bg-white text-neutral-900 border-white font-bold'
                         : isLight
-                        ? 'bg-white hover:bg-neutral-100 border-neutral-200 text-neutral-600'
-                        : 'bg-neutral-950 hover:bg-neutral-800 border-neutral-800 text-neutral-400'
+                          ? 'bg-white hover:bg-neutral-100 border-neutral-200 text-neutral-600'
+                          : 'bg-neutral-950 hover:bg-neutral-800 border-neutral-800 text-neutral-400'
                     }`}
                   >
                     {preset}
@@ -246,7 +246,7 @@ export const DialogueSlotControlPanel: React.FC<DialogueSlotControlPanelProps> =
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 placeholder="Type informative English content..."
-                style={{ fontFamily: "'SF Mono', 'JetBrains Mono', monospace" }}
+                style={{ fontFamily: 'var(--font-mono)' }}
                 className={`w-full px-3 py-2 rounded-xl text-xs border outline-none transition-colors resize-none leading-relaxed ${
                   isLight
                     ? 'bg-white border-neutral-300 focus:border-amber-500 text-neutral-900'

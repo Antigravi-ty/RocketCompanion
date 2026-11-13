@@ -1,3 +1,5 @@
+import { MONO_FONT_STACK } from '../tokens/typography';
+
 // Pre-allocated static line-dash arrays to eliminate per-frame array allocations
 const DASH_4_3 = [4, 3];
 const DASH_2_2 = [2, 2];
@@ -80,7 +82,7 @@ export function drawTelemetryCanvas(
     padTop + (1 - Math.min(1, Math.max(0, ms / safeCeiling))) * plotH;
 
   // 1. Horizontal Grid Lines & Y-Axis Labels (0, budgetMs, ceiling)
-  ctx.font = '10px "SF Mono", "JetBrains Mono", monospace';
+  ctx.font = `10px ${MONO_FONT_STACK}`;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
 
@@ -195,7 +197,7 @@ export function drawTelemetryCanvas(
 
   // 5. X-Axis Footer Labels
   ctx.fillStyle = isLight ? '#64748b' : '#94a3b8';
-  ctx.font = '9px "SF Mono", "JetBrains Mono", monospace';
+  ctx.font = `9px ${MONO_FONT_STACK}`;
   ctx.textAlign = 'left';
   ctx.fillText(`-${(len / Math.max(1, refreshHz)).toFixed(1)}s`, padLeft, height - 6);
   ctx.textAlign = 'center';

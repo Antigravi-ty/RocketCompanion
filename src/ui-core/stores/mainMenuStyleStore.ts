@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { syncBridge } from './syncBridge';
 import type { JetBrainsMonoFontWeight } from '../tokens/colors';
+import { APPLE_SANS_FONT_STACK, MONO_FONT_STACK } from '../tokens/typography';
 import {
   createMainMenuStylePresets,
   detectIsAppleDeviceImpl,
@@ -58,12 +59,6 @@ export const DEFAULT_MAIN_MENU_ITEM_COLORS: Record<MainMenuItemSlotId, MainMenuI
   leave: 'rose',
 };
 
-export const MAIN_MENU_APPLE_SANS_STACK =
-  '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "JetBrains Mono", "SF Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
-
-export const MAIN_MENU_JETBRAINS_MONO_STACK =
-  '"JetBrains Mono", "SF Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
-
 export const DEFAULT_MAIN_MENU_MONO_FALLBACK_WEIGHT: JetBrainsMonoFontWeight = 400;
 
 export const normalizeMainMenuContextMode = (
@@ -81,7 +76,7 @@ export const resolveMainMenuTitleTypography = (
 ): ResolvedMainMenuTypography => {
   if (fontFamilyMode === 'mono') {
     return {
-      fontFamily: MAIN_MENU_JETBRAINS_MONO_STACK,
+      fontFamily: MONO_FONT_STACK,
       fontWeight: configuredWeight,
       isUsingMonoFallback: false,
     };
@@ -95,13 +90,13 @@ export const resolveMainMenuTitleTypography = (
 
   if (!isApple) {
     return {
-      fontFamily: MAIN_MENU_JETBRAINS_MONO_STACK,
+      fontFamily: MONO_FONT_STACK,
       fontWeight: fallbackMonoWeight,
       isUsingMonoFallback: true,
     };
   }
   return {
-    fontFamily: MAIN_MENU_APPLE_SANS_STACK,
+    fontFamily: APPLE_SANS_FONT_STACK,
     fontWeight: configuredWeight,
     isUsingMonoFallback: false,
   };

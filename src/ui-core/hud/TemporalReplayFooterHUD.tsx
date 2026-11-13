@@ -230,7 +230,7 @@ export const TemporalReplayFooterHUD = React.memo(
             transition: visible
               ? `transform ${enterDurationSec}s cubic-bezier(0.16, 1, 0.3, 1)`
               : `transform ${exitDurationSec}s cubic-bezier(0.7, 0, 0.84, 0)`,
-            fontFamily: "'Chakra Petch', var(--font-jetbrains), system-ui, sans-serif",
+            fontFamily: "'Chakra Petch', var(--font-mono), system-ui, sans-serif",
           }}
         >
           <style>{`
