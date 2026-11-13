@@ -33,6 +33,7 @@ export interface FramePipelineRuntimePort {
   modeManager: { update(context: FrameContext): void } | null;
   audioSubsystem: { update(context: FrameContext): void } | null;
   renderSubsystem: { update(context: FrameContext): void } | null;
+  telestratorOverlay?: { update?(): void } | null;
   pollInputs(commitPhysicsStep?: boolean): boolean;
 }
 
@@ -188,6 +189,7 @@ export class RenderStage implements PipelineStage {
 
   public execute(context: FrameContext): void {
     const r = this.runtime;
+    r.telestratorOverlay?.update?.();
     r.renderSubsystem?.update?.(context);
   }
 }

@@ -47,6 +47,7 @@ export class FreeCameraController {
   public readonly planarForward: THREE.Vector3;
   public readonly right: THREE.Vector3;
   public settings: Record<string, unknown> | null;
+  public shouldSuppressDrag: (() => boolean) | null;
   public shouldSuppressRightClickDrag: (() => boolean) | null;
   public readonly target: THREE.Vector3;
   public readonly up: THREE.Vector3;
@@ -62,6 +63,7 @@ export class FreeCameraController {
     this.settings = settings || {};
     this._fov = DEFAULT_FREE_CAMERA_FOV_DEG;
     this.onFovChange = null;
+    this.shouldSuppressDrag = null;
     this.shouldSuppressRightClickDrag = null;
 
     // Use shared camera if provided, else create standalone with converted vertical FOV
@@ -286,6 +288,7 @@ export class FreeCameraController {
   private _onPointerDown(e: PointerEvent): void {
     if (!this.isFreeCamActive) return;
     if (this._isTargetInUI(e.target)) return;
+    if (this.shouldSuppressDrag?.()) return;
     // In Static Training Pack edit mode, right-click (button 2) cycles sub-modes
     if (e.button === 2 && this.shouldSuppressRightClickDrag?.()) {
       return;
