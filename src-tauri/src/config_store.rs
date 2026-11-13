@@ -45,7 +45,7 @@ impl Default for TauriLaunchConfig {
 }
 
 pub fn has_dev_param_flag(raw: &str) -> bool {
-    raw.contains("dev=1")
+    raw.contains("dev=1") || raw.contains("developer=1")
 }
 
 #[derive(Debug, Clone, Serialize)]

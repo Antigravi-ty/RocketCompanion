@@ -199,7 +199,15 @@ export class MinimumProgressLoader implements LoadingProgressObserver {
     this.activeTaskName = taskName || this.activeTaskName;
     this.activeTaskType = taskType || 'indeterminate';
     this.activeTaskCategory = category || this.activeTaskCategory;
-    if (overallPercent !== undefined) this.overallPercent = overallPercent;
+    if (overallPercent !== undefined) {
+      this.overallPercent = overallPercent;
+      if (this.refs.overallPercent) {
+        this.refs.overallPercent.textContent = `${Math.round(overallPercent)}%`;
+      }
+      if (this.refs.primaryFill) {
+        this.refs.primaryFill.style.width = `${Math.min(100, Math.max(0, overallPercent)).toFixed(1)}%`;
+      }
+    }
 
     if (!this.refs.taskName) return;
     this.refs.taskName.textContent = this.activeTaskName;

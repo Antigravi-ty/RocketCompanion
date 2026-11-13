@@ -9,6 +9,7 @@ import {
   DialogueModalProps,
 } from './dialogue/dialogueTypes';
 import { dialogue, useDialogueStack } from './dialogue/dialogueStore';
+import { MONO_FONT_STACK } from '../tokens/typography';
 import {
   buildCombinedShadow,
   getToneConfig,
@@ -16,7 +17,6 @@ import {
   resolveDialogueTitleColorClass,
   resolveDialogueButtonVariantClasses,
   measureEqualDialogueButtonWidth,
-  MONO_FONT_STACK,
   DEFAULT_TITLES
 } from './dialogue/dialogueStyles';
 

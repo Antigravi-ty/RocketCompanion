@@ -64,7 +64,8 @@ export const CenterUpperStageCanvas: React.FC<CenterUpperStageCanvasProps> = ({
   return (
     <div
       className="relative w-full h-[500px] rounded-3xl border border-neutral-300 dark:border-neutral-800 overflow-hidden shadow-2xl transition-colors duration-200"
-      style={getStageBackgroundStyle()}>
+      style={getStageBackgroundStyle()}
+    >
       {stageBgMode === 'arena' && (
         <ArenaBackdrop
           preset={arenaPreset}
@@ -86,7 +87,8 @@ export const CenterUpperStageCanvas: React.FC<CenterUpperStageCanvasProps> = ({
           <div className="absolute inset-y-0 left-1/2 w-px border-l border-dashed border-amber-400/25 -translate-x-1/2" />
           <div
             className="absolute inset-x-0 h-px border-t border-dashed border-amber-400/45 transition-all duration-150"
-            style={{ top: `${upperCenterTopPct}%` }}>
+            style={{ top: `${upperCenterTopPct}%` }}
+          >
             <span className="absolute right-3 -top-5 px-1.5 py-0.5 rounded bg-black/65 border border-amber-500/40 text-[10px] font-mono text-amber-300">
               HudZone anchor=&quot;upper-center&quot; (Y = {upperCenterTopPct}%)
             </span>
@@ -100,7 +102,7 @@ export const CenterUpperStageCanvas: React.FC<CenterUpperStageCanvasProps> = ({
         </div>
       )}
 
-      <HudAnchorStage strategy="reserve" style={{ fontFamily: 'var(--font-jetbrains)' }}>
+      <HudAnchorStage strategy="reserve" style={{ fontFamily: 'var(--font-mono)' }}>
         {showSurroundingHud && (
           <>
             <HudZone anchor="top-center" flush zIndexClassName="z-30">
@@ -148,7 +150,11 @@ export const CenterUpperStageCanvas: React.FC<CenterUpperStageCanvasProps> = ({
           </>
         )}
 
-        <HudZone anchor="upper-center" zIndexClassName="z-40" style={{ top: `${upperCenterTopPct}%` }}>
+        <HudZone
+          anchor="upper-center"
+          zIndexClassName="z-40"
+          style={{ top: `${upperCenterTopPct}%` }}
+        >
           <HudSlot visible={true} mode="reserve">
             <CenterUpperInfoHUD
               info={activePayload}

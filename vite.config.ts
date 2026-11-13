@@ -115,6 +115,16 @@ export function createRcViteConfig(
       port,
       strictPort: true,
       open: false,
+      warmup:
+        role === 'rc-https' || role === 'rc-http'
+          ? {
+              clientFiles: [
+                './src/main.ts',
+                './src/game/GameBootstrap.ts',
+                './src/ui-system/index.tsx',
+              ],
+            }
+          : undefined,
       watch: {
         ignored: ['**/src-tauri/**'],
       },

@@ -91,7 +91,7 @@ const EdgePlayerHudStripInner = forwardRef<EdgePlayerHudStripHandle, EdgePlayerH
         className={`flex flex-col gap-2 select-none pointer-events-auto ${
           side === 'left' ? 'items-start' : 'items-end'
         } ${className}`}
-        style={{ fontFamily: 'var(--font-jetbrains)' }}
+        style={{ fontFamily: 'var(--font-mono)' }}
       >
         {TEAM_SLOT_INDICES.map((slotIndex) => (
           <EdgePlayerSlotCard

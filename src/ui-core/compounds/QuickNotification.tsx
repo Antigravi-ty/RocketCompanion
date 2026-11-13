@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { CircleSlash, Bell } from 'lucide-react';
 import { lookupLucideIcon } from '../primitives/iconLookup';
 import { UI_RADIUS } from '../tokens/radius';
+import { MONO_FONT_STACK } from '../tokens/typography';
 import type {
   QuickNotificationGlowLevel,
   QuickNotificationType,
@@ -41,8 +42,6 @@ export interface QuickNotificationProps {
   isSpinningIcon?: boolean; // optional spinning animation for leading icon
   isStackedItem?: boolean; // When rendered in the dropdown stack
 }
-
-export const MONO_FONT_STACK = "'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Monaco, Consolas, monospace";
 
 /**
  * Custom Collapse to Right Icon

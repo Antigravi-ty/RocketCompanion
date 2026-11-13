@@ -3,6 +3,7 @@ import { isVerboseLogEnabled } from './loader/ConsoleProgressObserver.ts';
 import {
   applyCleanStartupFromQueryIfNeeded,
   isConfiguratorRoute,
+  isDiagnosticsRoute,
 } from './ui-core/config/tauriLaunchConfigBridge.ts';
 
 const MODULE_RETRY_SESSION_KEY = '__rc_bootstrap_module_reload_ts';
@@ -51,7 +52,7 @@ async function bootApplication(): Promise<void> {
   applyCleanStartupFromQueryIfNeeded();
 
   const host = typeof document !== 'undefined' ? document.querySelector<HTMLElement>('#app') : null;
-  if (isConfiguratorRoute() && host) {
+  if ((isConfiguratorRoute() || isDiagnosticsRoute()) && host) {
     const { mountTauriConfigurator } = await import('./ui-system/mountTauriConfigurator.tsx');
     mountTauriConfigurator(host);
     return;
@@ -123,6 +124,21 @@ async function bootApplication(): Promise<void> {
     });
   }
 
+  const bootStartMs = performance.now();
+  const heartbeatTimer =
+    typeof window !== 'undefined'
+      ? window.setInterval(() => {
+          if (loader.hasError || loader.isCompleted || loader.activeTaskId !== 'bootstrap.module_graph') {
+            return;
+          }
+          const elapsedSec = ((performance.now() - bootStartMs) / 1000).toFixed(1);
+          loader.onTaskProgress({
+            overallPercent: Math.max(loader.overallPercent, 2),
+            detail: `Streaming and linking core runtime & 3D subsystems... (${elapsedSec}s)`,
+          });
+        }, 500)
+      : null;
+
   try {
     loader.onTaskStart({
       taskId: 'bootstrap.module_graph',
@@ -137,15 +153,36 @@ async function bootApplication(): Promise<void> {
       hint: 'Streaming and linking core runtime & 3D subsystems...',
     });
 
-    // Stagger engine and UI module trees so cold-start HTTP/2 stream breadth stays low
-    const { bootstrapEngine } = await importWithRetry(
-      () => import('./game/GameBootstrap.ts'),
-      './game/GameBootstrap.ts'
-    );
-    const { mountGameUI } = await importWithRetry(
+    // Overlap React UI module tree with engine bootstrap Stages 1-3; mountGameUI is only needed in Stage 4
+    const uiModulePromise = importWithRetry(
       () => import('./ui-system/index.tsx'),
       './ui-system/index.tsx'
     );
+    const { bootstrapEngine, destroyEngine } = await importWithRetry(
+      () => import('./game/GameBootstrap.ts'),
+      './game/GameBootstrap.ts'
+    );
+
+    if (heartbeatTimer !== null) {
+      window.clearInterval(heartbeatTimer);
+    }
+
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener(
+        'pagehide',
+        () => {
+          try {
+            destroyEngine();
+          } catch (_e) {}
+        },
+        { once: true }
+      );
+    }
+
+    loader.onTaskProgress({
+      overallPercent: 3,
+      detail: 'Core engine modules linked — starting preflight & physics...',
+    });
 
     try {
       if (typeof sessionStorage !== 'undefined') {
@@ -153,12 +190,18 @@ async function bootApplication(): Promise<void> {
       }
     } catch (_e) {}
 
-    await bootstrapEngine({ loader, mountUI: mountGameUI });
+    await bootstrapEngine({
+      loader,
+      loadMountUI: async () => (await uiModulePromise).mountGameUI,
+    });
 
     if (isVerboseLogEnabled()) {
       console.log('[Engine] Rocket Companion Engine online — Free Play ready.');
     }
   } catch (err) {
+    if (heartbeatTimer !== null) {
+      window.clearInterval(heartbeatTimer);
+    }
     // If a sub-module inside the static import graph failed at the HTTP/2 transport layer
     // on a cold cache, perform a single automatic page reload so cached modules finish cleanly.
     if (isModuleImportError(err) && typeof window !== 'undefined') {

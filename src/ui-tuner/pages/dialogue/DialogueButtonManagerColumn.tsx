@@ -56,9 +56,7 @@ export const DialogueButtonManagerColumn: React.FC<DialogueButtonManagerColumnPr
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between text-xs font-semibold">
           <span>Active Buttons (Compact centered)</span>
-          <span className="text-[10px] font-mono text-neutral-400">
-            {buttons.length} items
-          </span>
+          <span className="text-[10px] font-mono text-neutral-400">{buttons.length} items</span>
         </div>
 
         <div className="flex flex-col gap-2 max-h-56 overflow-y-auto pr-1">
@@ -67,9 +65,7 @@ export const DialogueButtonManagerColumn: React.FC<DialogueButtonManagerColumnPr
               key={btn.key ?? index}
               className={`flex items-center gap-2 p-2 rounded-xl border text-xs transition-colors ${
                 btn.disabled ? 'opacity-65' : ''
-              } ${
-                isLight ? 'bg-white border-neutral-200' : 'bg-neutral-950 border-neutral-800'
-              }`}
+              } ${isLight ? 'bg-white border-neutral-200' : 'bg-neutral-950 border-neutral-800'}`}
             >
               <span
                 className={`text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
@@ -83,11 +79,9 @@ export const DialogueButtonManagerColumn: React.FC<DialogueButtonManagerColumnPr
                 value={btn.label}
                 onChange={(e) => handleUpdateButtonLabel(index, e.target.value)}
                 placeholder="Button text"
-                style={{ fontFamily: "'SF Mono', 'JetBrains Mono', monospace" }}
+                style={{ fontFamily: 'var(--font-mono)' }}
                 className={`flex-1 min-w-0 px-2 py-1 rounded-lg border text-xs outline-none ${
-                  isLight
-                    ? 'bg-neutral-50 border-neutral-300'
-                    : 'bg-neutral-900 border-neutral-700'
+                  isLight ? 'bg-neutral-50 border-neutral-300' : 'bg-neutral-900 border-neutral-700'
                 }`}
               />
               <select
@@ -113,8 +107,8 @@ export const DialogueButtonManagerColumn: React.FC<DialogueButtonManagerColumnPr
                   btn.disabled
                     ? 'bg-rose-500/15 border-rose-500 text-rose-500 font-bold'
                     : isLight
-                    ? 'bg-neutral-100 border-neutral-300 text-neutral-500'
-                    : 'bg-neutral-800 border-neutral-700 text-neutral-400'
+                      ? 'bg-neutral-100 border-neutral-300 text-neutral-500'
+                      : 'bg-neutral-800 border-neutral-700 text-neutral-400'
                 }`}
                 title={btn.disabled ? 'Button is disabled' : 'Click to disable button'}
               >
@@ -162,7 +156,7 @@ export const DialogueButtonManagerColumn: React.FC<DialogueButtonManagerColumnPr
               }
             }}
             placeholder="Primary"
-            style={{ fontFamily: "'SF Mono', 'JetBrains Mono', monospace" }}
+            style={{ fontFamily: 'var(--font-mono)' }}
             className={`flex-1 min-w-0 px-2 py-1 rounded-lg border text-xs outline-none ${
               isLight ? 'bg-white border-neutral-300' : 'bg-neutral-900 border-neutral-700'
             }`}

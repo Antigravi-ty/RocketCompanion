@@ -36,21 +36,24 @@ export const TAKEOVER_DIRECTORY_ITEMS: JumpDirectoryItem[] = [
     code: '5G-1',
     componentName: 'TakeoverStageCanvas',
     name: 'HudAnchorStage (bottom-center + upward offset)',
-    label: 'Takeover live stage - Scoreboard + Team Roster - Seamless rounded-rect vignette - Team-colored Top Regular + Glowing stroke',
+    label:
+      'Takeover live stage - Scoreboard + Team Roster - Seamless rounded-rect vignette - Team-colored Top Regular + Glowing stroke',
   },
   {
     id: 'takeover-tuner',
     code: '5G-2',
     componentName: 'TakeoverTunerSection',
     name: 'Vignette, Team Top Label & Motion Tuner',
-    label: 'Seamless rounded-rect vignette (Independent X/Y depth, blur feather, corner radius, Bezier curve) + Team-colored top label & stroke + One-click copy config',
+    label:
+      'Seamless rounded-rect vignette (Independent X/Y depth, blur feather, corner radius, Bezier curve) + Team-colored top label & stroke + One-click copy config',
   },
   {
     id: 'takeover-archetypes',
     code: '5G-3',
     componentName: 'TakeoverArchetypesSection',
     name: 'Scenario Presets & Integration Recipe',
-    label: 'Blue & Orange Team Bot Takeover / Disconnect Reconnect / Mid-Match Handoff presets & decoupled code recipe',
+    label:
+      'Blue & Orange Team Bot Takeover / Disconnect Reconnect / Mid-Match Handoff presets & decoupled code recipe',
   },
 ];
 
@@ -93,13 +96,7 @@ export const TakeoverStageCanvas: React.FC<TakeoverStageCanvasProps> = ({
     showAnchorGuides,
     getStageBackgroundStyle,
   },
-  hudConfig: {
-    glowConfig,
-    typoConfig,
-    timingConfig,
-    vignetteConfig,
-    vignettePreviewActive,
-  },
+  hudConfig: { glowConfig, typoConfig, timingConfig, vignetteConfig, vignettePreviewActive },
   bottomOffsetPx,
   activeSignal,
   isCockpitVisible,
@@ -112,7 +109,8 @@ export const TakeoverStageCanvas: React.FC<TakeoverStageCanvasProps> = ({
   const leftTeamColor = myTeamSide === 'blue' ? '#2563EB' : '#EA580C';
   const leftBarColor = myTeamSide === 'blue' ? '#3B82F6' : '#F97316';
   const rightTeamColor = myTeamSide === 'blue' ? '#EA580C' : '#2563EB';
-  const isFlowBackdrop = stageBgMode === 'flow' || (stageBgMode === 'arena' && arenaPreset === 'flow');
+  const isFlowBackdrop =
+    stageBgMode === 'flow' || (stageBgMode === 'arena' && arenaPreset === 'flow');
 
   return (
     <div
@@ -136,10 +134,7 @@ export const TakeoverStageCanvas: React.FC<TakeoverStageCanvasProps> = ({
       )}
 
       {/* Seamless Rounded-Rectangle 4-Edge Atmospheric Vignette Layer BELOW the HUD layer (z-10 under HudAnchorStage z-20) */}
-      <TakeoverVignetteOverlay
-        config={vignetteConfig}
-        active={vignettePreviewActive}
-      />
+      <TakeoverVignetteOverlay config={vignetteConfig} active={vignettePreviewActive} />
 
       {showAnchorGuides && (
         <div className="absolute inset-0 pointer-events-none z-15">
@@ -162,7 +157,7 @@ export const TakeoverStageCanvas: React.FC<TakeoverStageCanvasProps> = ({
       )}
 
       {/* Main UI Layer (z-20, rendered strictly ABOVE the z-10 Vignette Overlay) */}
-      <HudAnchorStage strategy="reserve" style={{ fontFamily: 'var(--font-jetbrains)' }}>
+      <HudAnchorStage strategy="reserve" style={{ fontFamily: 'var(--font-mono)' }}>
         {/* 1. TOP-CENTER: Scoreboard always visible during Takeover */}
         <HudZone anchor="top-center" flush zIndexClassName="z-30">
           <StepperScoreboardHUD
@@ -193,11 +188,7 @@ export const TakeoverStageCanvas: React.FC<TakeoverStageCanvasProps> = ({
 
         {/* 3. BOTTOM-LEFT: Ball Cam Indicator */}
         <HudZone anchor="bottom-left">
-          <HudSlot
-            visible={isCockpitVisible}
-            mode="reserve"
-            exitOffset="translate3d(-140%, 0, 0)"
-          >
+          <HudSlot visible={isCockpitVisible} mode="reserve" exitOffset="translate3d(-140%, 0, 0)">
             <BallCameraIndicator
               subscribeBallCam={channel.subscribeBallCam}
               shortcut="SPACE"
@@ -211,21 +202,14 @@ export const TakeoverStageCanvas: React.FC<TakeoverStageCanvasProps> = ({
 
         {/* 4. BOTTOM-CENTER: Speedometer + FlipIndicatorPillHUD */}
         <HudZone anchor="bottom-center">
-          <HudSlot
-            visible={isCockpitVisible}
-            mode="reserve"
-            exitOffset="translate3d(0, 220%, 0)"
-          >
+          <HudSlot visible={isCockpitVisible} mode="reserve" exitOffset="translate3d(0, 220%, 0)">
             <HudRelativeAnchor
               placement="top"
               align="start"
               gap={8}
               floating
               attachment={
-                <FlipIndicatorPillHUD
-                  isLight={false}
-                  subscribeFlip={channel.subscribeFlip}
-                />
+                <FlipIndicatorPillHUD isLight={false} subscribeFlip={channel.subscribeFlip} />
               }
             >
               <div className="w-[360px] max-w-[42vw]">
@@ -247,10 +231,7 @@ export const TakeoverStageCanvas: React.FC<TakeoverStageCanvasProps> = ({
             exitOffset="translate3d(140%, 0, 0)"
             innerClassName="pr-5"
           >
-            <CircularBoostGauge
-              subscribeBoost={channel.subscribeBoost}
-              isLight={false}
-            />
+            <CircularBoostGauge subscribeBoost={channel.subscribeBoost} isLight={false} />
           </HudSlot>
         </HudZone>
 
@@ -282,9 +263,7 @@ export const TakeoverStageCanvas: React.FC<TakeoverStageCanvasProps> = ({
       <div className="absolute top-2.5 right-2.5 z-40 flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-black/75 border border-white/15 text-[10px] font-mono text-neutral-200 pointer-events-none">
         <span
           className={`h-2 w-2 rounded-full ${
-            activeSignal === 'replacing-in'
-              ? 'bg-amber-400 animate-pulse'
-              : 'bg-emerald-400'
+            activeSignal === 'replacing-in' ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'
           }`}
         />
         <strong className="text-amber-400">{activeSignal}</strong>

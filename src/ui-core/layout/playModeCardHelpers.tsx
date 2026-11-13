@@ -59,7 +59,7 @@ export function resolvePlayCardVisualState(
       ? 'line-clamp-3'
       : '';
 
-  const titleFontFamily = cfg.titleUseMonoFont ? 'var(--font-jetbrains)' : 'var(--font-apple)';
+  const titleFontFamily = cfg.titleUseMonoFont ? 'var(--font-mono)' : 'var(--font-apple)';
 
   const watermarkColorOverride =
     cfg.watermarkColorMode === 'amber'

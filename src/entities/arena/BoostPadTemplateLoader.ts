@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { resolveAssetPath } from '../../utils/AssetResponseValidator.ts';
+import { loadGltfWithRetry } from '../../utils/assetLoadRetry.ts';
 import { computeAllPadRotations } from '../../ui-core/config/boostPadGeometry.ts';
 import {
   DEFAULT_BOOST_PAD_TUNER,
@@ -69,7 +70,10 @@ export async function loadBoostPadTemplates(system: {
   const loadCandidate = async (candidates: string[]) => {
     for (const p of candidates) {
       try {
-        const gltf = await loader.loadAsync(resolveAssetPath(p));
+        const gltf = await loadGltfWithRetry(loader, resolveAssetPath(p), {
+          timeoutMs: 10000,
+          maxAttempts: 2,
+        });
         if (gltf?.scene) return gltf.scene;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
