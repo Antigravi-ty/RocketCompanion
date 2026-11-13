@@ -11,7 +11,11 @@ import {
   type EngineSynthLodMode,
   type GranularSliceChannel,
 } from './TurtleModemGranularVoiceGraph.ts';
-import { resetAudioParamValueImmediate } from './audioParamSmoothingPipeline.ts';
+import {
+  applySmoothedAudioParamValue,
+  clampSmoothingDtSec,
+  resetAudioParamValueImmediate,
+} from './audioParamSmoothingPipeline.ts';
 import {
   getResolvedEngineAudioPackAssets,
   loadEngineAudioPackAssets,
@@ -46,7 +50,9 @@ export class TurtleModemEngineSynth {
   packId: EngineAudioPackId = 'turtle_modem';
   assets: LoadedEngineAudioPackAssets | null = null;
   loadingPromise: Promise<void> | null = null;
+  smoothedOutputGain = 0;
   lastOutputGain = -1;
+  lastUpdatePerfMs = 0;
   telemetryPublishCounter = 0;
 
   constructor(
@@ -125,6 +131,12 @@ export class TurtleModemEngineSynth {
 
   applyWasmCarCue(cue: WasmCarAudioCue, isAudibleActive = true): void {
     if (!this.active) this.start();
+    const nowPerf = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const resolvedDt = clampSmoothingDtSec(
+      this.lastUpdatePerfMs > 0 ? (nowPerf - this.lastUpdatePerfMs) / 1000 : undefined
+    );
+    this.lastUpdatePerfMs = nowPerf;
+
     const cfg = getEngineAudioTuningConfig();
     if (cfg.activePackId && cfg.activePackId !== this.packId) {
       this.packId = cfg.activePackId;
@@ -143,15 +155,19 @@ export class TurtleModemEngineSynth {
 
     const targetGain =
       isAudibleActive && cue.active && !cue.dormant ? Math.max(0, cue.engineGain) : 0;
-    if (
-      Math.abs(targetGain - this.lastOutputGain) > OUTPUT_GAIN_DEADBAND ||
-      (targetGain === 0 && this.lastOutputGain !== 0)
-    ) {
-      this.outputNode.gain.value = targetGain;
-      this.lastOutputGain = targetGain;
-    }
+    const outStep = applySmoothedAudioParamValue(
+      this.outputNode.gain,
+      this.smoothedOutputGain,
+      this.lastOutputGain,
+      targetGain,
+      resolvedDt,
+      0.02,
+      OUTPUT_GAIN_DEADBAND
+    );
+    this.smoothedOutputGain = outStep.smoothed;
+    this.lastOutputGain = outStep.written;
 
-    if (targetGain <= OUTPUT_GAIN_DEADBAND) {
+    if (this.smoothedOutputGain <= OUTPUT_GAIN_DEADBAND && targetGain <= OUTPUT_GAIN_DEADBAND) {
       this.voiceGraph.silence();
       return;
     }
@@ -161,7 +177,7 @@ export class TurtleModemEngineSynth {
       if (!this.voiceGraph.graphBuilt) return;
     }
 
-    this.voiceGraph.applyWasmCue(cue, cfg);
+    this.voiceGraph.applyWasmCue(cue, cfg, resolvedDt);
 
     if (this.isPrimaryListener) {
       this.telemetryPublishCounter = (this.telemetryPublishCounter + 1) % 3;
@@ -186,6 +202,7 @@ export class TurtleModemEngineSynth {
 
   private _muteOutput(): void {
     resetAudioParamValueImmediate(this.outputNode?.gain, 0, this.ctx?.currentTime);
+    this.smoothedOutputGain = 0;
     this.lastOutputGain = 0;
   }
 

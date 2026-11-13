@@ -13,6 +13,7 @@ import {
   applyBoostVariationBuffers,
   type BallAudioBuffers,
 } from './audioAssetLoader.ts';
+import { BallAudioEmitter } from './BallAudioEmitter.ts';
 import {
   stadiumSpatialAudioEngine,
   type StadiumSpatialAudioEngine,
@@ -90,24 +91,7 @@ function createEmptyIncidentBuffers(): IncidentAudioBuffers {
 
 export class GameAudioEngineFacade {
   _lastBoostVariationKey: string;
-  ballEngine: {
-    initialized: boolean;
-    ballRollingBuffer: AudioBuffer | null;
-    ballFlyingBuffer: AudioBuffer | null;
-    rollingSource: AudioBufferSourceNode | null;
-    flyingSource: AudioBufferSourceNode | null;
-    rollingGain: GainNode | null;
-    flyingGain: GainNode | null;
-    init: (buffers?: BallAudioBuffers) => void;
-    _startLoops: () => void;
-    silenceAll: () => void;
-    updatePanningModel: (model: PanningModelType | null | undefined) => void;
-    update: (
-      ballViewOrMesh: BallMeshOrViewLike | null | undefined,
-      camera?: CameraTransformLike | null,
-      physics?: BallPhysicsStateLike | null
-    ) => void;
-  };
+  ballEngine: BallAudioEmitter;
   incidentEngine: {
     buffers: IncidentAudioBuffers;
     setBuffers: (bufs: Partial<IncidentAudioBuffers>) => void;
@@ -127,23 +111,7 @@ export class GameAudioEngineFacade {
     const signalEngine = new SignalAudioEngine();
     const stadiumSpatialEngine = stadiumSpatialAudioEngine;
 
-    this.ballEngine = {
-      initialized: true,
-      ballRollingBuffer: null,
-      ballFlyingBuffer: null,
-      rollingSource: null,
-      flyingSource: null,
-      rollingGain: null,
-      flyingGain: null,
-      init: (buffers: BallAudioBuffers = {}) => {
-        if (buffers.ballRolling) this.ballEngine.ballRollingBuffer = buffers.ballRolling;
-        if (buffers.ballFlying) this.ballEngine.ballFlyingBuffer = buffers.ballFlying;
-      },
-      _startLoops: () => {},
-      silenceAll: () => {},
-      updatePanningModel: () => {},
-      update: () => {},
-    };
+    this.ballEngine = new BallAudioEmitter();
 
     const incidentBuffers = createEmptyIncidentBuffers();
     this.incidentEngine = {

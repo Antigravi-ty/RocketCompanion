@@ -3,7 +3,12 @@ import type {
   LoadedEngineAudioPackAssets,
   ConditionedEngineSliceBuffers,
 } from './turtleModemSynthAcousticPipeline.ts';
-import { resetAudioParamValueImmediate } from './audioParamSmoothingPipeline.ts';
+import {
+  applySmoothedAudioParamValue,
+  clampSmoothingDtSec,
+  resetAudioParamValueImmediate,
+  stepExponentialSmoothedValue,
+} from './audioParamSmoothingPipeline.ts';
 import type { WasmCarAudioCue } from './WasmAudioDirectorBridge.ts';
 
 export type EngineSynthLodMode = 'primary-full' | 'remote-lod';
@@ -12,6 +17,9 @@ export const REMOTE_ENGINE_LOD_ANCHOR_COUNT = 10;
 const FILTER_CUTOFF_DEADBAND_HZ = 5;
 const PLAYBACK_RATE_DEADBAND = 1e-3;
 const GAIN_DEADBAND = 1e-4;
+const DELAY_DEADBAND_SEC = 1e-4;
+const SLICE_RATE_SMOOTHING_TAU_SEC = 0.015;
+const SLICE_DELAY_SMOOTHING_TAU_SEC = 0.04;
 
 export interface GranularSliceChannel {
   index: number;
@@ -250,12 +258,15 @@ export class TurtleModemGranularVoiceGraph {
 
   silence(): void {
     if (!this.graphBuilt) return;
+    this.smoothedIdleGain = 0;
     if (this.idleGain && this.lastIdleGain !== 0) {
       this.idleGain.gain.value = 0;
       this.lastIdleGain = 0;
     }
     for (let i = 0; i < this.sliceChannels.length; i++) {
       const ch = this.sliceChannels[i];
+      ch.smoothedOnGain = 0;
+      ch.smoothedOffGain = 0;
       if (ch.lastOnGain !== 0) {
         ch.onGain.gain.value = 0;
         ch.lastOnGain = 0;
@@ -267,33 +278,66 @@ export class TurtleModemGranularVoiceGraph {
     }
   }
 
-  applyWasmCue(cue: WasmCarAudioCue, cfg: EngineAudioTuningConfig): void {
+  applyWasmCue(cue: WasmCarAudioCue, cfg: EngineAudioTuningConfig, dtSec?: number): void {
     if (!this.graphBuilt || this.sliceChannels.length === 0) return;
+    const now = this.ctx.currentTime;
+    const resolvedDt =
+      typeof dtSec === 'number' && Number.isFinite(dtSec) && dtSec > 0
+        ? clampSmoothingDtSec(dtSec)
+        : this._lastUpdateSec >= 0 && now > this._lastUpdateSec
+          ? clampSmoothingDtSec(now - this._lastUpdateSec)
+          : clampSmoothingDtSec(undefined);
+    this._lastUpdateSec = now;
+    const tau = Math.max(0.004, Math.min(0.15, (cfg.gainSmoothingTimeMs ?? 15) / 1000));
     const isFull = this.lodMode === 'primary-full';
 
     if (isFull) {
-      this.eqLow.gain.value = Math.max(-18, Math.min(18, cfg.timbreLowShelfDb || 0));
-      this.eqMid.gain.value = Math.max(-18, Math.min(18, cfg.timbreMidPeakDb || 0));
-      this.eqHigh.gain.value = Math.max(-18, Math.min(18, cfg.timbreHighShelfDb || 0));
+      const eqL = Math.max(-18, Math.min(18, cfg.timbreLowShelfDb || 0));
+      const eqM = Math.max(-18, Math.min(18, cfg.timbreMidPeakDb || 0));
+      const eqH = Math.max(-18, Math.min(18, cfg.timbreHighShelfDb || 0));
+      if (Math.abs(this.eqLow.gain.value - eqL) > 0.01) this.eqLow.gain.value = eqL;
+      if (Math.abs(this.eqMid.gain.value - eqM) > 0.01) this.eqMid.gain.value = eqM;
+      if (Math.abs(this.eqHigh.gain.value - eqH) > 0.01) this.eqHigh.gain.value = eqH;
     }
 
     const cutoff = Math.max(800, Math.min(20000, cue.filterCutoffHz || 18000));
-    if (Math.abs(cutoff - this.lastFilterCutoff) > FILTER_CUTOFF_DEADBAND_HZ) {
-      this.lowpassNode.frequency.value = cutoff;
-      this.lastFilterCutoff = cutoff;
-    }
+    const cutoffStep = applySmoothedAudioParamValue(
+      this.lowpassNode.frequency,
+      this.smoothedFilterCutoff,
+      this.lastFilterCutoff,
+      cutoff,
+      resolvedDt,
+      tau,
+      FILTER_CUTOFF_DEADBAND_HZ
+    );
+    this.smoothedFilterCutoff = cutoffStep.smoothed;
+    this.lastFilterCutoff = cutoffStep.written;
 
-    if (this.idleSource && Math.abs(cue.enginePitch - this.lastIdleRate) > PLAYBACK_RATE_DEADBAND) {
-      this.idleSource.playbackRate.value = cue.enginePitch;
-      this.lastIdleRate = cue.enginePitch;
+    if (this.idleSource) {
+      const rateStep = applySmoothedAudioParamValue(
+        this.idleSource.playbackRate,
+        this.smoothedIdleRate,
+        this.lastIdleRate,
+        cue.enginePitch,
+        resolvedDt,
+        tau,
+        PLAYBACK_RATE_DEADBAND
+      );
+      this.smoothedIdleRate = rateStep.smoothed;
+      this.lastIdleRate = rateStep.written;
     }
-    if (
-      this.idleGain &&
-      (Math.abs(cue.idleGain - this.lastIdleGain) > GAIN_DEADBAND ||
-        (cue.idleGain === 0 && this.lastIdleGain !== 0))
-    ) {
-      this.idleGain.gain.value = cue.idleGain;
-      this.lastIdleGain = cue.idleGain;
+    if (this.idleGain) {
+      const idleStep = applySmoothedAudioParamValue(
+        this.idleGain.gain,
+        this.smoothedIdleGain,
+        this.lastIdleGain,
+        cue.idleGain,
+        resolvedDt,
+        tau,
+        GAIN_DEADBAND
+      );
+      this.smoothedIdleGain = idleStep.smoothed;
+      this.lastIdleGain = idleStep.written;
     }
 
     const count = this.sliceChannels.length;
@@ -321,6 +365,7 @@ export class TurtleModemGranularVoiceGraph {
     const throttle = Math.max(0, Math.min(1, cue.engineLoad));
     const onRatio = useDualReverseOff ? throttle : 0.42 + 0.58 * throttle;
     const offRatio = useDualReverseOff ? (1.0 - throttle) * 0.72 : 0;
+    const decorrDelaySec = Math.max(0, Math.min(0.08, (cfg.decorrelationDelayMs ?? 12) / 1000));
 
     for (let i = 0; i < count; i++) {
       const ch = this.sliceChannels[i];
@@ -345,34 +390,73 @@ export class TurtleModemGranularVoiceGraph {
       if (
         sliceWeight <= GAIN_DEADBAND &&
         ch.lastOnGain <= GAIN_DEADBAND &&
-        ch.lastOffGain <= GAIN_DEADBAND
+        ch.lastOffGain <= GAIN_DEADBAND &&
+        ch.smoothedOnGain <= GAIN_DEADBAND &&
+        ch.smoothedOffGain <= GAIN_DEADBAND
       ) {
         continue;
       }
 
-      if (
-        sliceWeight > GAIN_DEADBAND &&
-        Math.abs(targetRate - ch.lastRate) > PLAYBACK_RATE_DEADBAND
-      ) {
-        ch.onSource.playbackRate.value = targetRate;
-        if (ch.offSource) ch.offSource.playbackRate.value = targetRate;
-        ch.lastRate = targetRate;
+      if (sliceWeight > GAIN_DEADBAND) {
+        const nextSmoothedRate = stepExponentialSmoothedValue(
+          ch.smoothedRate,
+          targetRate,
+          resolvedDt,
+          SLICE_RATE_SMOOTHING_TAU_SEC,
+          PLAYBACK_RATE_DEADBAND * 0.25
+        );
+        ch.smoothedRate = nextSmoothedRate;
+        const rateDelta = Math.abs(nextSmoothedRate - ch.lastRate);
+        const snappedRate =
+          nextSmoothedRate === targetRate &&
+          Math.abs(ch.lastRate - targetRate) > PLAYBACK_RATE_DEADBAND * 0.1;
+        if (rateDelta > PLAYBACK_RATE_DEADBAND || snappedRate) {
+          ch.onSource.playbackRate.value = nextSmoothedRate;
+          if (ch.offSource) ch.offSource.playbackRate.value = nextSmoothedRate;
+          ch.lastRate = nextSmoothedRate;
+        }
       }
 
-      if (
-        Math.abs(targetOnGain - ch.lastOnGain) > GAIN_DEADBAND ||
-        (targetOnGain === 0 && ch.lastOnGain !== 0)
-      ) {
-        ch.onGain.gain.value = targetOnGain;
-        ch.lastOnGain = targetOnGain;
+      const onGainStep = applySmoothedAudioParamValue(
+        ch.onGain.gain,
+        ch.smoothedOnGain,
+        ch.lastOnGain,
+        targetOnGain,
+        resolvedDt,
+        tau,
+        GAIN_DEADBAND
+      );
+      ch.smoothedOnGain = onGainStep.smoothed;
+      ch.lastOnGain = onGainStep.written;
+
+      if (ch.offGain) {
+        const offGainStep = applySmoothedAudioParamValue(
+          ch.offGain.gain,
+          ch.smoothedOffGain,
+          ch.lastOffGain,
+          targetOffGain,
+          resolvedDt,
+          tau,
+          GAIN_DEADBAND
+        );
+        ch.smoothedOffGain = offGainStep.smoothed;
+        ch.lastOffGain = offGainStep.written;
       }
-      if (
-        ch.offGain &&
-        (Math.abs(targetOffGain - ch.lastOffGain) > GAIN_DEADBAND ||
-          (targetOffGain === 0 && ch.lastOffGain !== 0))
-      ) {
-        ch.offGain.gain.value = targetOffGain;
-        ch.lastOffGain = targetOffGain;
+
+      if (ch.delayNode) {
+        const targetDelay =
+          srcIdx === mappedUpper && mappedUpper !== mappedLower ? decorrDelaySec : 0;
+        const delayStep = applySmoothedAudioParamValue(
+          ch.delayNode.delayTime,
+          ch.smoothedDelay,
+          ch.lastDelay,
+          targetDelay,
+          resolvedDt,
+          SLICE_DELAY_SMOOTHING_TAU_SEC,
+          DELAY_DEADBAND_SEC
+        );
+        ch.smoothedDelay = delayStep.smoothed;
+        ch.lastDelay = delayStep.written;
       }
     }
   }

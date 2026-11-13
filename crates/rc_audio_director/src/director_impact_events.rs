@@ -246,9 +246,9 @@ impl AudioDirectorInstance {
                 return;
             }
             let cd_ticks =
-                ((self.config_pod.goalpost_hit_cooldown_ms.max(60.0) / 1000.0) * 120.0)
+                ((self.config_pod.goalpost_hit_cooldown_ms.max(80.0) / 1000.0) * 120.0)
                     .round()
-                    .max(8.0) as u32;
+                    .max(10.0) as u32;
             if self.last_goalpost_hit_tick != u32::MAX
                 && ev_tick.saturating_sub(self.last_goalpost_hit_tick) < cd_ticks
             {
@@ -293,7 +293,7 @@ impl AudioDirectorInstance {
             } else {
                 1.0
             };
-            if dir_dot < 0.15 {
+            if dir_dot < 0.18 {
                 return;
             }
             let threshold = if sub == 1 {
@@ -305,9 +305,9 @@ impl AudioDirectorInstance {
                 return;
             }
             let cd_ticks =
-                ((self.config_pod.incident_cooldown_ms.max(60.0) / 1000.0) * 120.0)
+                ((self.config_pod.incident_cooldown_ms.max(80.0) / 1000.0) * 120.0)
                     .round()
-                    .max(8.0) as u32;
+                    .max(10.0) as u32;
             if self.last_ball_world_hit_tick != u32::MAX
                 && ev_tick.saturating_sub(self.last_ball_world_hit_tick) < cd_ticks
             {

@@ -265,7 +265,7 @@ export class CarActionEventSynthesizer {
         goalBarrierImpacts.push({ x: event.x, y: event.y, z: event.z });
       }
 
-      if (gameAudio) {
+      if (gameAudio && typeof physics?.module?._physics_stepAudioDirector !== 'function') {
         gameAudio.handleEvent(event, camera);
       }
     });
