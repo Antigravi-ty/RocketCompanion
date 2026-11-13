@@ -103,6 +103,21 @@ const CALIBRATED_WASM_HITBOX_SUS_REST: ReadonlyArray<readonly [number, number]> 
   [HITBOX_PRESETS.MERC.frontWheels.susRest, HITBOX_PRESETS.MERC.backWheels.susRest],
 ]);
 
+/**
+ * Float32 offsets for `#[repr(C)] CarConfigC` in `crates/rc_physics_sim/src/layout.rs`:
+ * - hitbox_size [f32; 3] (0..2), hitbox_pos_offset [f32; 3] (3..5)
+ * - front_wheels: wheel_radius (6), suspension_rest_length (7), connection_point_offset [f32; 3] (8..10)
+ * - back_wheels: wheel_radius (11), suspension_rest_length (12), connection_point_offset [f32; 3] (13..15)
+ * - three_wheels + pad (16), dodge_deadzone (17)
+ */
+export const CAR_CONFIG_C_OFFSETS = Object.freeze({
+  FRONT_WHEEL_RADIUS: 6,
+  FRONT_SUS_REST: 7,
+  BACK_WHEEL_RADIUS: 11,
+  BACK_SUS_REST: 12,
+  DODGE_DEADZONE: 17,
+});
+
 export function applyCalibratedCarSuspensionConfigsToWasm(wasmModule: {
   HEAPF32?: Float32Array;
   _physics_getCarConfig?: (hitboxIndex: number) => number;
@@ -112,8 +127,10 @@ export function applyCalibratedCarSuspensionConfigsToWasm(wasmModule: {
     const ptr = wasmModule._physics_getCarConfig(h);
     if (ptr > 0) {
       const fIdx = ptr >> 2;
-      wasmModule.HEAPF32[fIdx + 9] = CALIBRATED_WASM_HITBOX_SUS_REST[h][0];
-      wasmModule.HEAPF32[fIdx + 17] = CALIBRATED_WASM_HITBOX_SUS_REST[h][1];
+      wasmModule.HEAPF32[fIdx + CAR_CONFIG_C_OFFSETS.FRONT_SUS_REST] =
+        CALIBRATED_WASM_HITBOX_SUS_REST[h][0];
+      wasmModule.HEAPF32[fIdx + CAR_CONFIG_C_OFFSETS.BACK_SUS_REST] =
+        CALIBRATED_WASM_HITBOX_SUS_REST[h][1];
     }
   }
 }
