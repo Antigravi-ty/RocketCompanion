@@ -23,6 +23,7 @@ import { useStaticTrainingBallCamTunerStore } from '../../ui-core/stores/staticT
 import { useKickoffTrainingStore } from '../../ui-core/stores/kickoffTrainingStore.ts';
 import { useReferenceOverlayStore } from '../../ui-core/stores/referenceOverlayStore.ts';
 import { useExperimentalMultiBotsStore } from '../../ui-core/stores/experimentalMultiBotsStore.ts';
+import { useTelestratorStore } from '../../ui-core/stores/telestratorStore.ts';
 import { getExpColorSwatch } from '../../ui-core/stores/experimentalMultiBotsRosterUtils.ts';
 import {
   useQuickNotificationStore,
@@ -83,6 +84,7 @@ export function ensureRuntimeEngineUiPortBound(): void {
     useReferenceOverlayStore,
     useNameTagTunerStore,
     useQuickNotificationStore,
+    useTelestratorStore,
     networkDiagnosticsStore,
     determinismStore,
     eventStreamStore,

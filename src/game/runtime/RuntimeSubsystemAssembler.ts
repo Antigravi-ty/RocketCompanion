@@ -17,6 +17,7 @@ import { TelemetryStage } from '../pipeline/stages/TelemetryStage.ts';
 import { GameAudioSubsystem } from '../subsystems/GameAudioSubsystem.ts';
 import { GameCameraSubsystem } from '../subsystems/GameCameraSubsystem.ts';
 import { GameRenderSubsystem } from '../subsystems/GameRenderSubsystem.ts';
+import { TelestratorOverlaySubsystem } from '../subsystems/TelestratorOverlaySubsystem.ts';
 import { GameModeManager } from '../modes/GameModeManager.ts';
 import { disposeCoreSceneGraph } from './RuntimeSceneBootstrap.ts';
 import {
@@ -45,6 +46,7 @@ export type {
   RuntimeLoadoutCoordinator,
   RuntimeNetworkManager,
   SimulationStage,
+  TelestratorOverlaySubsystem,
 };
 
 export type AudioSetupProgressFn = (loaded: number, total?: number, file?: string) => void;
@@ -60,6 +62,7 @@ export type RuntimeSubsystemHost = ConstructorParameters<typeof RuntimeBloomOccl
   ConstructorParameters<typeof GameAudioSubsystem>[0] &
   ConstructorParameters<typeof GameCameraSubsystem>[0] &
   ConstructorParameters<typeof GameRenderSubsystem>[0] &
+  ConstructorParameters<typeof TelestratorOverlaySubsystem>[0] &
   ConstructorParameters<typeof SimulationStage>[0] &
   ConstructorParameters<typeof FramePipeline>[0] &
   ConstructorParameters<typeof InputStage>[0] &
@@ -80,6 +83,7 @@ export interface AssembledRuntimeSubsystems {
   audioSubsystem: GameAudioSubsystem;
   cameraSubsystem: GameCameraSubsystem;
   renderSubsystem: GameRenderSubsystem;
+  telestratorOverlay: TelestratorOverlaySubsystem;
   modeManager: GameModeManager;
   simulationStage: SimulationStage;
   pipeline: FramePipeline;
@@ -98,6 +102,7 @@ export function assembleRuntimeSubsystemsAndPipeline(
   const audioSubsystem = new GameAudioSubsystem(target);
   const cameraSubsystem = new GameCameraSubsystem(target);
   const renderSubsystem = new GameRenderSubsystem(target);
+  const telestratorOverlay = new TelestratorOverlaySubsystem(target);
   const modeManager = new GameModeManager(target);
   const simulationStage = new SimulationStage(target);
 
@@ -120,6 +125,7 @@ export function assembleRuntimeSubsystemsAndPipeline(
     audioSubsystem,
     cameraSubsystem,
     renderSubsystem,
+    telestratorOverlay,
     modeManager,
     simulationStage,
     pipeline,
@@ -196,6 +202,7 @@ export function destroyRuntimeSubsystems(
   target.audioSubsystem.dispose();
   target.cameraSubsystem.dispose();
   target.renderSubsystem.dispose();
+  target.telestratorOverlay.dispose();
   target.bloomOcclusion.dispose();
   target.networkManager.diagnosticsProbe.determinismHarness?.destroy();
   target.networkManager.sessionCoordinator.authoritativeServer?.destroy();
