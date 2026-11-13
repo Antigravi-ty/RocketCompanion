@@ -1,8 +1,5 @@
 import * as THREE from 'three';
-import {
-  computeNormalizedScreenWorldWidth,
-  smoothStrokeCurve,
-} from './telestratorStrokeMath.ts';
+import { computeNormalizedScreenWorldWidth, smoothStrokeCurve } from './telestratorStrokeMath.ts';
 import {
   resolveTelestratorColorNumeric,
   type TelestratorBrushTool,
@@ -234,6 +231,8 @@ function buildDashedRibbonPositions(
     const gapLen = Math.max(halfWidth * 2.8, 16);
     const dashPeriod = dashLen + gapLen;
 
+    if (!Number.isFinite(halfWidth) || !Number.isFinite(dashPeriod) || dashPeriod <= 0) continue;
+
     normal.set(pt0.nx + pt1.nx, pt0.ny + pt1.ny, pt0.nz + pt1.nz);
     if (normal.lengthSq() < 1e-4) normal.set(0, 1, 0);
     normal.normalize();
@@ -244,31 +243,36 @@ function buildDashedRibbonPositions(
     side.copy(sideUnit).multiplyScalar(halfWidth);
 
     let localOffset = 0;
-    while (localOffset < segLen) {
+    const minStep = Math.max(1e-3, segLen * 1e-5);
+    const maxIter = Math.min(10000, Math.ceil(segLen / Math.min(dashLen, gapLen)) * 4 + 32);
+    let iter = 0;
+    while (localOffset < segLen && iter++ < maxIter) {
       const phase = (accumPhase + localOffset) % dashPeriod;
       if (phase < dashLen) {
         const remainDash = dashLen - phase;
         const step = Math.min(remainDash, segLen - localOffset);
-        const t0 = localOffset / segLen;
-        const t1 = (localOffset + step) / segLen;
-        segStart.lerpVectors(p0, p1, t0).addScaledVector(normal, surfaceOffset);
-        segEnd.lerpVectors(p0, p1, t1).addScaledVector(normal, surfaceOffset);
-        a.copy(segStart).sub(side);
-        b.copy(segStart).add(side);
-        c.copy(segEnd).sub(side);
-        d.copy(segEnd).add(side);
-        appendQuad(positions, a, b, c, d);
-        if (phase < 1e-2) {
-          appendRoundCap(positions, segStart, tangent, sideUnit, halfWidth, true, 4);
+        if (step > 1e-3) {
+          const t0 = localOffset / segLen;
+          const t1 = (localOffset + step) / segLen;
+          segStart.lerpVectors(p0, p1, t0).addScaledVector(normal, surfaceOffset);
+          segEnd.lerpVectors(p0, p1, t1).addScaledVector(normal, surfaceOffset);
+          a.copy(segStart).sub(side);
+          b.copy(segStart).add(side);
+          c.copy(segEnd).sub(side);
+          d.copy(segEnd).add(side);
+          appendQuad(positions, a, b, c, d);
+          if (phase < 1e-2) {
+            appendRoundCap(positions, segStart, tangent, sideUnit, halfWidth, true, 4);
+          }
+          if (step >= remainDash - 1e-2) {
+            appendRoundCap(positions, segEnd, tangent, sideUnit, halfWidth, false, 4);
+          }
         }
-        if (step >= remainDash - 1e-2) {
-          appendRoundCap(positions, segEnd, tangent, sideUnit, halfWidth, false, 4);
-        }
-        localOffset += step;
+        localOffset += Math.max(step, minStep);
       } else {
         const remainGap = dashPeriod - phase;
         const step = Math.min(remainGap, segLen - localOffset);
-        localOffset += step;
+        localOffset += Math.max(step, minStep);
       }
     }
     accumPhase = (accumPhase + segLen) % dashPeriod;
@@ -292,11 +296,7 @@ function buildCameraFacingArrowheadMesh(
   const tipDist = Math.hypot(tipPt.x - camPos.x, tipPt.y - camPos.y, tipPt.z - camPos.z);
 
   // Billboard normal points directly toward camera to eliminate edge perspective skew
-  const viewNormal = new THREE.Vector3(
-    camPos.x - tipPt.x,
-    camPos.y - tipPt.y,
-    camPos.z - tipPt.z
-  );
+  const viewNormal = new THREE.Vector3(camPos.x - tipPt.x, camPos.y - tipPt.y, camPos.z - tipPt.z);
   if (viewNormal.lengthSq() < 1e-4) viewNormal.set(0, 0, 1);
   viewNormal.normalize();
 
