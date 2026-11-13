@@ -152,6 +152,8 @@ export class HandshakeSession {
     if (pc) {
       const dc = pc.createDataChannel('game_net', { ordered: false, maxRetransmits: 0 });
       this.bindIncomingDataChannel(dc);
+      const ctrlDc = pc.createDataChannel('game_ctrl', { ordered: true });
+      this.bindIncomingDataChannel(ctrlDc);
       sdp = await connection.createOfferDescription();
     }
 
