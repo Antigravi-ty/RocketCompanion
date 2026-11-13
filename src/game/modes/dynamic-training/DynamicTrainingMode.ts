@@ -190,7 +190,8 @@ export class DynamicTrainingMode extends BaseGameMode<GameModeRuntimePort> {
       const sim = this.runtime?.physics;
       const ballView = sim?.getBallStateView?.();
       const goalState = sim?.state ? Number(sim.state[SIM_OFFSETS.GOAL] ?? 0) : 0;
-      const ballY = ballView?.posY ?? (sim?.state ? Number(sim.state[SIM_OFFSETS.BALL] ?? 0) : 0);
+      const ballY =
+        ballView?.posY ?? (sim?.state ? Number(sim.state[SIM_OFFSETS.BALL + 1] ?? 0) : 0);
 
       const judge = evaluateDynamicTrainingOutcome({
         elapsedInterveneSeconds: this.elapsedInterveneSeconds,

@@ -4,9 +4,11 @@ import { DYNAMIC_TRAINING_PACK_PRESET } from '../../ui-core/stores/devFloatingPr
 import { useDynamicTrainingPackStore } from '../../ui-core/stores/dynamicTrainingPackStore.ts';
 import { loadDynamicStateSession } from '../../ui-core/stores/dynamicTrainingPackStorage.ts';
 import { useReplayToRcsImporterStore } from '../../ui-core/stores/replayToRcsImporterStore.ts';
+import { useReplayViewerStore } from '../../ui-core/stores/replayViewerStore.ts';
 import { quickNotification } from '../../ui-core/stores/quickNotificationStore.ts';
 import type { GameRuntimeUiBridgePort } from '../../game/runtimeUiPort.ts';
 import type { DynamicTrainingMode } from '../../game/modes/dynamic-training/DynamicTrainingMode.ts';
+import type { DynamicTrainingStateSession } from '../../ui-core/config/dynamicTrainingPackTypes.ts';
 import type { RLRCReplaySessionController } from '../../replay/rlrc/runtime/RLRCReplaySessionController.ts';
 
 interface RuntimeDynamicBridgeOwner {
@@ -30,6 +32,25 @@ export function bindDynamicTrainingBridge(
     return (mode as DynamicTrainingMode | undefined) ?? null;
   };
 
+  const saveExtractedSessionAndOpenPack = async (
+    session: DynamicTrainingStateSession | null,
+    emptyWarning: string
+  ): Promise<void> => {
+    if (!session) {
+      quickNotification.warning(emptyWarning);
+      return;
+    }
+    await useDynamicTrainingPackStore.getState().initialize();
+    const { pack, shot } = await useDynamicTrainingPackStore
+      .getState()
+      .saveCaptureSessionIntoPack(session);
+    floatingStore.spawnWindow({ ...DYNAMIC_TRAINING_PACK_PRESET, startMinimized: false });
+    useDynamicTrainingPackStore.getState().setLivePlaybackState({
+      statusMessage: `Captured "${shot.name}" into ${pack.metadata.title}`,
+    });
+    quickNotification.success(`Captured 4s pre-roll into "${pack.metadata.title}"`);
+  };
+
   const dynMode = getDynamicMode();
   if (dynMode) {
     dynMode.setCallbacks({
@@ -48,24 +69,30 @@ export function bindDynamicTrainingBridge(
     });
   }
 
+  useReplayViewerStore.getState().setRuntimeHandlers({
+    onPutIntoDynamicTrainingPack: async () => {
+      const freeplay = owner?.modeManager?.modes?.get('freeplay') as
+        | {
+            standaloneReplayViewer?: {
+              extractCurrentDynamicSession?: () => DynamicTrainingStateSession | null;
+            } | null;
+          }
+        | undefined;
+      const session = freeplay?.standaloneReplayViewer?.extractCurrentDynamicSession?.() ?? null;
+      await saveExtractedSessionAndOpenPack(
+        session,
+        'Load an .rcreplay.gz file in Replay Viewer before capturing into Dynamic Training Pack.'
+      );
+    },
+  });
+
   useReplayToRcsImporterStore.getState().setRuntimeHandlers({
     onPutIntoDynamicTrainingPack: async () => {
       const session = owner?.rlrcReplaySession?.extractCurrentDynamicSession?.() ?? null;
-      if (!session) {
-        quickNotification.warning(
-          'Load a .replay file before capturing into Dynamic Training Pack.'
-        );
-        return;
-      }
-      await useDynamicTrainingPackStore.getState().initialize();
-      const { pack, shot } = await useDynamicTrainingPackStore
-        .getState()
-        .saveCaptureSessionIntoPack(session);
-      floatingStore.spawnWindow({ ...DYNAMIC_TRAINING_PACK_PRESET, startMinimized: false });
-      useDynamicTrainingPackStore.getState().setLivePlaybackState({
-        statusMessage: `Captured "${shot.name}" into ${pack.metadata.title}`,
-      });
-      quickNotification.success(`Captured 4s pre-roll into "${pack.metadata.title}"`);
+      await saveExtractedSessionAndOpenPack(
+        session,
+        'Load a .replay file in Replay to RLRCS Replay Importer before capturing into Dynamic Training Pack.'
+      );
     },
   });
 

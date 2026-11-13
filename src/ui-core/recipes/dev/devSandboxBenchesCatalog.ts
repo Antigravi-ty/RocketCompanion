@@ -155,11 +155,11 @@ export const SANDBOX_BENCH_SPECS: DevSandboxBenchSpec[] = [
   },
   {
     id: 'replay-to-rcs-importer',
-    title: 'Replay to RCS Replay Importer',
+    title: 'Replay to RLRCS Replay Importer',
     summary:
-      'Import raw Rocket League .replay files, upsample 30Hz to 120Hz, intervene (Disappear/Trajectory/Nexto/Necto), and save as .rcreplay.gz.',
+      'Import raw Rocket League .replay files, upsample 30Hz to 120Hz, intervene (Disappear/Trajectory/Nexto/Necto), and save as 5-track RLRCS Replay.',
     details:
-      'Replay to RCS Replay Importer (UE3 Bitstream Decoder · 30Hz->120Hz SLERP/Hermite · Track Delta): Parses raw .replay files into 120Hz RocketCompanion tracks, preserves native UE3 telemetry in Track Delta, and exports RCS Replay Packs.',
+      'Replay to RLRCS Replay Importer (UE3 Bitstream Decoder · 30Hz->120Hz SLERP/Hermite · 5-Track RLRCS): Parses raw .replay files into 120Hz RocketCompanion tracks, preserves native UE3 telemetry in Track Delta, and exports RLRCS Replay Packs.',
     icon: FileArchive,
     iconColor: 'text-cyan-400',
     preset: REPLAY_TO_RCS_IMPORTER_PRESET,

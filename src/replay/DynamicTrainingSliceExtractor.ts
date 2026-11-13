@@ -1,4 +1,17 @@
 import {
+  SIM_OFFSETS,
+  BALL_STATE_OFFSETS,
+  CAR_STATE_OFFSETS,
+  CAR_STATE_STRIDE,
+  BOOST_PAD_STATES_OFFSET,
+  BOOST_PAD_STATE_STRIDE,
+  BOOST_PAD_OFFSETS,
+  EXTENDED_STATE_OFFSETS,
+  NUM_BOOST_PADS,
+} from '../physics/RocketSimConstants.ts';
+import type { ReplayAnnotatedFloat32Frame } from './replayDataPayloadPipeline.ts';
+import type { ReplayRosterEntry } from './ReplayViewerRosterResolver.ts';
+import {
   DYNAMIC_TRAINING_PREROLL_FRAMES,
   generateDynamicUuid,
   type DynamicTrainingCompactCarFrame,
@@ -13,6 +26,34 @@ import type {
   RLRCTeamIndex,
   RLRCVisualId,
 } from './rlrc/RLRCReplayTypes.ts';
+
+function basisAxesToQuat(
+  fx: number,
+  fy: number,
+  fz: number,
+  rx: number,
+  ry: number,
+  rz: number,
+  ux: number,
+  uy: number,
+  uz: number
+): [number, number, number, number] {
+  const trace = fx + ry + uz;
+  if (trace > 0) {
+    const s = 0.5 / Math.sqrt(trace + 1.0);
+    return [(rz - uy) * s, (ux - fz) * s, (fy - rx) * s, 0.25 / s];
+  }
+  if (fx > ry && fx > uz) {
+    const s = 2.0 * Math.sqrt(Math.max(1e-8, 1.0 + fx - ry - uz));
+    return [0.25 * s, (rx + fy) / s, (ux + fz) / s, (rz - uy) / s];
+  }
+  if (ry > uz) {
+    const s = 2.0 * Math.sqrt(Math.max(1e-8, 1.0 + ry - fx - uz));
+    return [(rx + fy) / s, 0.25 * s, (uy + rz) / s, (ux - fz) / s];
+  }
+  const s = 2.0 * Math.sqrt(Math.max(1e-8, 1.0 + uz - fx - ry));
+  return [(ux + fz) / s, (uy + rz) / s, 0.25 * s, (fy - rx) / s];
+}
 
 function toCompactCar(car: RLRCFrame120Hz['cars'][number]): DynamicTrainingCompactCarFrame {
   const rb = car.rigidBody;
@@ -172,4 +213,189 @@ export function hydrateRLRCFramesFromDynamicSession(session: DynamicTrainingStat
   }));
 
   return { frames120Hz, roster };
+}
+
+export function extractDynamicSessionFromReplayFrames(params: {
+  readonly frames: readonly ReplayAnnotatedFloat32Frame[];
+  readonly roster: readonly ReplayRosterEntry[];
+  readonly targetFrameIndex: number;
+  readonly povCarIndex: number;
+  readonly sourceReplayName: string;
+  readonly prerollFrames?: number;
+  readonly title?: string;
+}): DynamicTrainingStateSession | null {
+  const { frames, roster, targetFrameIndex, povCarIndex, sourceReplayName } = params;
+  if (!frames || frames.length === 0) return null;
+
+  const maxIdx = frames.length - 1;
+  const clampedTarget = Math.max(0, Math.min(maxIdx, Math.round(targetFrameIndex)));
+  const count = Math.max(1, params.prerollFrames ?? DYNAMIC_TRAINING_PREROLL_FRAMES);
+  const startIdx = Math.max(0, clampedTarget - count + 1);
+  const slice = frames.slice(startIdx, clampedTarget + 1);
+  const now = Date.now();
+
+  const carCount = Math.max(
+    roster.length,
+    Math.min(8, Math.round(Number(slice[0]?.[SIM_OFFSETS.NUM_CARS] ?? 0)))
+  );
+  const compactRoster: DynamicTrainingRosterSlot[] =
+    roster.length > 0
+      ? roster.map((r) => ({
+          slotIndex: r.carIndex,
+          userName: r.name || `Car ${r.carIndex + 1}`,
+          team: r.team === 1 ? 1 : 0,
+          hitboxId: r.hitboxId || 'hitbox-octane',
+          visualId: r.visualId || 'fennec',
+          ...(r.colorHex ? { primaryColorHex: r.colorHex } : {}),
+        }))
+      : Array.from({ length: carCount }, (_, idx) => ({
+          slotIndex: idx,
+          userName: `Car ${idx + 1}`,
+          team: idx < Math.ceil(carCount / 2) ? (0 as const) : (1 as const),
+          hitboxId: 'hitbox-octane',
+          visualId: 'fennec',
+        }));
+
+  const compactFrames: DynamicTrainingCompactFrame[] = slice.map((f, localIdx) => {
+    const b = SIM_OFFSETS.BALL;
+    const ballPos: [number, number, number] = [
+      f[b + BALL_STATE_OFFSETS.POS] || 0,
+      f[b + BALL_STATE_OFFSETS.POS + 1] || 0,
+      f[b + BALL_STATE_OFFSETS.POS + 2] || 93.15,
+    ];
+    const ballRot = basisAxesToQuat(
+      f[b + BALL_STATE_OFFSETS.FWD] ?? 1,
+      f[b + BALL_STATE_OFFSETS.FWD + 1] ?? 0,
+      f[b + BALL_STATE_OFFSETS.FWD + 2] ?? 0,
+      f[b + BALL_STATE_OFFSETS.RIGHT] ?? 0,
+      f[b + BALL_STATE_OFFSETS.RIGHT + 1] ?? 1,
+      f[b + BALL_STATE_OFFSETS.RIGHT + 2] ?? 0,
+      f[b + BALL_STATE_OFFSETS.UP] ?? 0,
+      f[b + BALL_STATE_OFFSETS.UP + 1] ?? 0,
+      f[b + BALL_STATE_OFFSETS.UP + 2] ?? 1
+    );
+    const ballVel: [number, number, number] = [
+      f[b + BALL_STATE_OFFSETS.VEL] || 0,
+      f[b + BALL_STATE_OFFSETS.VEL + 1] || 0,
+      f[b + BALL_STATE_OFFSETS.VEL + 2] || 0,
+    ];
+    const ballAngVel: [number, number, number] = [
+      f[b + BALL_STATE_OFFSETS.ANG_VEL] || 0,
+      f[b + BALL_STATE_OFFSETS.ANG_VEL + 1] || 0,
+      f[b + BALL_STATE_OFFSETS.ANG_VEL + 2] || 0,
+    ];
+
+    const cars: DynamicTrainingCompactCarFrame[] = compactRoster.map((r) => {
+      const slot = r.slotIndex;
+      const cBase = SIM_OFFSETS.CARS + slot * CAR_STATE_STRIDE;
+      const extBase =
+        EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_BASE +
+        slot * EXTENDED_STATE_OFFSETS.CAR_JUMP_AIR_STRIDE;
+      const isDemo = Number(f[cBase + CAR_STATE_OFFSETS.DEMOED] ?? 0) >= 0.5;
+      const posZ = Number(f[cBase + CAR_STATE_OFFSETS.POS + 2] ?? -2000);
+      const entityActive = posZ > -1000 && !isDemo;
+      const isOnGround = Number(f[cBase + CAR_STATE_OFFSETS.ON_GROUND] ?? 0) >= 0.5;
+      const isSupersonic = Number(f[cBase + CAR_STATE_OFFSETS.SUPERSONIC] ?? 0) >= 0.5;
+      const hasFlipOrJump = Number(f[cBase + CAR_STATE_OFFSETS.HAS_FLIP_OR_JUMP] ?? 0) >= 0.5;
+      const isBoosting = Number(f[cBase + CAR_STATE_OFFSETS.IS_BOOSTING] ?? 0) >= 0.5;
+      const isFlipping = Number(f[cBase + CAR_STATE_OFFSETS.IS_FLIPPING] ?? 0) >= 0.5;
+      const isJumping =
+        extBase + EXTENDED_STATE_OFFSETS.CAR_IS_JUMPING_OFFSET < f.length
+          ? Number(f[extBase + EXTENDED_STATE_OFFSETS.CAR_IS_JUMPING_OFFSET] ?? 0) >= 0.5
+          : false;
+      const airTimeSinceJump =
+        extBase + EXTENDED_STATE_OFFSETS.CAR_AIR_TIME_SINCE_JUMP_OFFSET < f.length
+          ? Number(f[extBase + EXTENDED_STATE_OFFSETS.CAR_AIR_TIME_SINCE_JUMP_OFFSET] ?? 0)
+          : 0;
+
+      const rawCtrl = (f.controls?.[slot] ?? {}) as Record<string, unknown>;
+      return {
+        slotIndex: slot,
+        entityActive,
+        ...(isDemo ? { isDemolished: true } : {}),
+        pos: [
+          f[cBase + CAR_STATE_OFFSETS.POS] || 0,
+          f[cBase + CAR_STATE_OFFSETS.POS + 1] || 0,
+          posZ,
+        ],
+        rot: basisAxesToQuat(
+          f[cBase + CAR_STATE_OFFSETS.FWD] ?? 1,
+          f[cBase + CAR_STATE_OFFSETS.FWD + 1] ?? 0,
+          f[cBase + CAR_STATE_OFFSETS.FWD + 2] ?? 0,
+          f[cBase + CAR_STATE_OFFSETS.RIGHT] ?? 0,
+          f[cBase + CAR_STATE_OFFSETS.RIGHT + 1] ?? 1,
+          f[cBase + CAR_STATE_OFFSETS.RIGHT + 2] ?? 0,
+          f[cBase + CAR_STATE_OFFSETS.UP] ?? 0,
+          f[cBase + CAR_STATE_OFFSETS.UP + 1] ?? 0,
+          f[cBase + CAR_STATE_OFFSETS.UP + 2] ?? 1
+        ),
+        vel: [
+          f[cBase + CAR_STATE_OFFSETS.VEL] || 0,
+          f[cBase + CAR_STATE_OFFSETS.VEL + 1] || 0,
+          f[cBase + CAR_STATE_OFFSETS.VEL + 2] || 0,
+        ],
+        angVel: [
+          f[cBase + CAR_STATE_OFFSETS.ANG_VEL] || 0,
+          f[cBase + CAR_STATE_OFFSETS.ANG_VEL + 1] || 0,
+          f[cBase + CAR_STATE_OFFSETS.ANG_VEL + 2] || 0,
+        ],
+        boostAmount: Number(f[cBase + CAR_STATE_OFFSETS.BOOST] ?? 33.33),
+        isOnGround,
+        isSupersonic,
+        hasFlipOrJump,
+        airTimeSinceJump,
+        activeFlags: [isBoosting, isJumping, false, isFlipping],
+        controls: [
+          Number(rawCtrl.throttle) || 0,
+          Number(rawCtrl.steer) || 0,
+          Number(rawCtrl.pitch) || 0,
+          Number(rawCtrl.yaw) || 0,
+          Number(rawCtrl.roll) || 0,
+          Boolean(rawCtrl.jump),
+          Boolean(rawCtrl.boost),
+          Boolean(rawCtrl.handbrake),
+        ],
+      };
+    });
+
+    const boostPadCooldowns: number[] = new Array(NUM_BOOST_PADS).fill(0);
+    for (let p = 0; p < NUM_BOOST_PADS; p++) {
+      const padOff = BOOST_PAD_STATES_OFFSET + p * BOOST_PAD_STATE_STRIDE;
+      if (padOff + BOOST_PAD_OFFSETS.COOLDOWN < f.length) {
+        const isActive = Number(f[padOff + BOOST_PAD_OFFSETS.IS_ACTIVE] ?? 1) >= 0.5;
+        const cd = Number(f[padOff + BOOST_PAD_OFFSETS.COOLDOWN] ?? 0);
+        boostPadCooldowns[p] = isActive ? 0 : Math.max(0.01, cd);
+      }
+    }
+
+    return {
+      frameIndex: localIdx,
+      timeSeconds: Number(((startIdx + localIdx) / 120).toFixed(4)),
+      ballPos,
+      ballRot,
+      ballVel,
+      ballAngVel,
+      cars,
+      boostPadCooldowns,
+    };
+  });
+
+  const durationSeconds = Number((compactFrames.length / 120).toFixed(2));
+  const timeSec = (clampedTarget / 120).toFixed(1);
+
+  return {
+    sessionId: generateDynamicUuid(),
+    title: params.title?.trim() || `${sourceReplayName} @ ${timeSec}s`,
+    createdAt: now,
+    updatedAt: now,
+    sourceKind: 'replay-capture',
+    sourceReplayName,
+    sourceFrame120Hz: clampedTarget,
+    prerollStartFrame120Hz: startIdx,
+    durationSeconds,
+    tickRate: 120,
+    defaultPovSlotIndex: povCarIndex,
+    roster: compactRoster,
+    frames: compactFrames,
+  };
 }

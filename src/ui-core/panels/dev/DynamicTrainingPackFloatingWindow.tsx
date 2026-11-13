@@ -1,6 +1,11 @@
 import React, { useEffect } from 'react';
 import type { StandardSurfaceProps, SurfaceMeta } from '../../manifest/surfaceMetaTypes';
 import { useDynamicTrainingPackStore } from '../../stores/dynamicTrainingPackStore';
+import {
+  decodeRcdPackFromFileBytes,
+  encodeRcdPackToGzipBytes,
+} from '../../config/dynamicTrainingPackCodec';
+import { loadDynamicStateSession } from '../../stores/dynamicTrainingPackStorage';
 import { DynamicTrainingPackManagerSection } from './dynamic-training/DynamicTrainingPackManagerSection';
 import { DynamicTrainingShotEditorCard } from './dynamic-training/DynamicTrainingShotEditorCard';
 
@@ -65,25 +70,47 @@ export const DynamicTrainingPackFloatingWindow: React.FC<DynamicTrainingPackFloa
       : null;
 
     const handleExportPack = async (uuid: string) => {
-      const json = await exportPackJson(uuid);
-      if (!json) return;
-      const blob = new Blob([json], { type: 'application/json' });
+      const targetPack = packs.find((p) => p.metadata.uuid === uuid);
+      if (!targetPack) return;
+      const sessionMap = new Map<string, NonNullable<Awaited<ReturnType<typeof loadDynamicStateSession>>>>();
+      for (const shot of targetPack.shots) {
+        if (sessionMap.has(shot.sessionId)) continue;
+        const sess = await loadDynamicStateSession(shot.sessionId);
+        if (sess) sessionMap.set(shot.sessionId, sess);
+      }
+      const gzBytes = await encodeRcdPackToGzipBytes(targetPack, sessionMap);
+      const blob = new Blob([gzBytes as BlobPart], { type: 'application/gzip' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${activePack?.metadata.title || 'dynamic-pack'}.rcd`;
+      a.download = `${targetPack.metadata.title || 'dynamic-pack'}.rcd.gz`;
       a.click();
       URL.revokeObjectURL(url);
-      setLivePlaybackState({ statusMessage: 'Exported .rcd pack' });
+      setLivePlaybackState({ statusMessage: 'Exported .rcd.gz pack' });
     };
 
-    const handleImportPack = async (rawJson: string) => {
+    const handleImportPack = async (rawOrBytes: ArrayBuffer | string) => {
       try {
-        const imported = await importPackJson(rawJson);
+        let imported;
+        if (typeof rawOrBytes === 'string') {
+          imported = await importPackJson(rawOrBytes);
+        } else {
+          const decoded = await decodeRcdPackFromFileBytes(rawOrBytes);
+          imported = await importPackJson(
+            JSON.stringify({
+              format: 'RCDPack',
+              version: 1,
+              category: 'dynamic-training-pack',
+              metadata: decoded.pack.metadata,
+              shots: decoded.pack.shots,
+              sessions: decoded.sessions,
+            })
+          );
+        }
         setLivePlaybackState({ statusMessage: `Imported ${imported.metadata.title}` });
       } catch (err) {
         setLivePlaybackState({
-          statusMessage: err instanceof Error ? err.message : 'Failed to import .rcd pack',
+          statusMessage: err instanceof Error ? err.message : 'Failed to import .rcd.gz pack',
         });
       }
     };
@@ -99,7 +126,7 @@ export const DynamicTrainingPackFloatingWindow: React.FC<DynamicTrainingPackFloa
           onSelectShot={(shotId) => selectShot(shotId)}
           onCreatePack={(title) => void createPack(title)}
           onExportPack={(uuid) => void handleExportPack(uuid)}
-          onImportPack={(raw) => void handleImportPack(raw)}
+          onImportPack={(rawOrBytes) => void handleImportPack(rawOrBytes)}
           onMoveShot={(targetUuid, shotId) =>
             activePack && void moveShotToPack(activePack.metadata.uuid, targetUuid, shotId)
           }
@@ -140,8 +167,9 @@ export const DynamicTrainingPackFloatingWindow: React.FC<DynamicTrainingPackFloa
           />
         ) : (
           <div className="rounded-lg border border-dashed border-neutral-600/50 p-4 text-center text-[11px] opacity-75">
-            No shots in this pack yet. Open Replay to RCS Importer and click "Put into Dynamic
-            Training Pack" at any frame, or import a .rcd pack.
+            No shots in this pack yet. Open Replay Viewer (or Replay to RLRCS Replay Importer) and
+            click "Put 4s Pre-Roll into Dynamic Training Pack (.rcd.gz)" at any frame, or import a
+            .rcd.gz pack.
           </div>
         )}
 

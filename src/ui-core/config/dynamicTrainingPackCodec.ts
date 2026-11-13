@@ -79,3 +79,32 @@ export function decodeRcdPackFromJson(rawJson: string): {
     sessions: rawSessions as DynamicTrainingStateSession[],
   };
 }
+
+export async function encodeRcdPackToGzipBytes(
+  pack: DynamicTrainingPackRecord,
+  sessionMap: ReadonlyMap<string, DynamicTrainingStateSession>
+): Promise<Uint8Array> {
+  const rawJson = encodeRcdPackToJson(pack, sessionMap);
+  const utf8 = new TextEncoder().encode(rawJson);
+  if (typeof CompressionStream === 'undefined') {
+    return utf8;
+  }
+  const stream = new Blob([utf8]).stream().pipeThrough(new CompressionStream('gzip'));
+  const buffer = await new Response(stream).arrayBuffer();
+  return new Uint8Array(buffer);
+}
+
+export async function decodeRcdPackFromFileBytes(bytes: ArrayBuffer | Uint8Array): Promise<{
+  pack: DynamicTrainingPackRecord;
+  sessions: DynamicTrainingStateSession[];
+}> {
+  const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const isGzip = view.length >= 2 && view[0] === 0x1f && view[1] === 0x8b;
+  if (isGzip && typeof DecompressionStream !== 'undefined') {
+    const stream = new Blob([view as BlobPart]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const text = await new Response(stream).text();
+    return decodeRcdPackFromJson(text);
+  }
+  const text = new TextDecoder().decode(view);
+  return decodeRcdPackFromJson(text);
+}

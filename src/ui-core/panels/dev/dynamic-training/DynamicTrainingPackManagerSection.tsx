@@ -11,7 +11,7 @@ export interface DynamicTrainingPackManagerSectionProps {
   onSelectShot: (shotId: string) => void;
   onCreatePack: (title: string) => void;
   onExportPack: (uuid: string) => void;
-  onImportPack: (rawJson: string) => void;
+  onImportPack: (rawOrBytes: ArrayBuffer | string) => void;
   onMoveShot: (targetPackUuid: string, shotId: string) => void;
   onDuplicateShot: (targetPackUuid: string, shotId: string) => void;
   onDeleteShot: (shotId: string, deleteSessionToo: boolean) => void;
@@ -71,16 +71,16 @@ export const DynamicTrainingPackManagerSection: React.FC<DynamicTrainingPackMana
               disabled={!activePack}
               onClick={() => activePack && onExportPack(activePack.metadata.uuid)}
               className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-[11px] font-semibold cursor-pointer ${btnCls}`}
-              title="Export .rcd Pack"
+              title="Export .rcd.gz Pack"
             >
               <Download className="h-3 w-3" />
-              .rcd
+              .rcd.gz
             </button>
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-[11px] font-semibold cursor-pointer ${btnCls}`}
-              title="Import .rcd Pack"
+              title="Import .rcd.gz Pack"
             >
               <Upload className="h-3 w-3" />
               Import
@@ -88,12 +88,12 @@ export const DynamicTrainingPackManagerSection: React.FC<DynamicTrainingPackMana
             <input
               ref={fileInputRef}
               type="file"
-              accept=".rcd,.json"
+              accept=".rcd.gz,.rcd,.json,.gz"
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
-                void file.text().then((txt) => onImportPack(txt));
+                void file.arrayBuffer().then((buf) => onImportPack(buf));
                 e.target.value = '';
               }}
             />
