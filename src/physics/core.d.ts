@@ -194,6 +194,35 @@ export interface RocketSimWasmModule {
   _physics_seekReplayTime(timeSec: number, interpolateMode: number): number;
   _physics_diffReplayFrameAnomaly(frameIndex: number, posThresholdUu: number): number;
   _physics_getReplayAnomalyDiffPtr(): number;
+  _physics_beginReplayImportStream(totalBytes: number): number;
+  _physics_allocReplayImportChunkBuffer(chunkLen: number): number;
+  _physics_commitReplayImportChunk(offset: number, chunkLen: number): number;
+  _physics_finalizeReplayImportStream(
+    interpolationMode: number,
+    synthesizeControls: number
+  ): number;
+  _physics_analyzeReplayTouchTimeline(
+    scoringTeam: number,
+    isNetworkStreamed: number,
+    watchAllTouches: number,
+    scorerCarIndex: number,
+    carTeamMask: number
+  ): number;
+  _physics_allocTouchExternalSnapshotsBuffer(frameCount: number, strideFloats: number): number;
+  _physics_analyzeExternalTouchSnapshots(
+    frameCount: number,
+    strideFloats: number,
+    scoringTeam: number,
+    isNetworkStreamed: number,
+    watchAllTouches: number,
+    scorerCarIndex: number,
+    carTeamMask: number
+  ): number;
+  _physics_getReplayTouchAnalysisSummaryPtr(): number;
+  _physics_getReplayTouchEventsPtr(): number;
+  _physics_getReplayTouchEventCount(): number;
+  _physics_getReplayReboundEventsPtr(): number;
+  _physics_getReplayReboundEventCount(): number;
   _physics_setCarThreeWheels(carIndex: number, enabled: number): number;
   _physics_getCarThreeWheels(carIndex: number): number;
   _physics_setArenaPreset(presetIndex: number): void;
@@ -469,6 +498,18 @@ export interface RocketSimWasmModule {
   physics_seekReplayTime: RocketSimWasmModule['_physics_seekReplayTime'];
   physics_diffReplayFrameAnomaly: RocketSimWasmModule['_physics_diffReplayFrameAnomaly'];
   physics_getReplayAnomalyDiffPtr: RocketSimWasmModule['_physics_getReplayAnomalyDiffPtr'];
+  physics_beginReplayImportStream: RocketSimWasmModule['_physics_beginReplayImportStream'];
+  physics_allocReplayImportChunkBuffer: RocketSimWasmModule['_physics_allocReplayImportChunkBuffer'];
+  physics_commitReplayImportChunk: RocketSimWasmModule['_physics_commitReplayImportChunk'];
+  physics_finalizeReplayImportStream: RocketSimWasmModule['_physics_finalizeReplayImportStream'];
+  physics_analyzeReplayTouchTimeline: RocketSimWasmModule['_physics_analyzeReplayTouchTimeline'];
+  physics_allocTouchExternalSnapshotsBuffer: RocketSimWasmModule['_physics_allocTouchExternalSnapshotsBuffer'];
+  physics_analyzeExternalTouchSnapshots: RocketSimWasmModule['_physics_analyzeExternalTouchSnapshots'];
+  physics_getReplayTouchAnalysisSummaryPtr: RocketSimWasmModule['_physics_getReplayTouchAnalysisSummaryPtr'];
+  physics_getReplayTouchEventsPtr: RocketSimWasmModule['_physics_getReplayTouchEventsPtr'];
+  physics_getReplayTouchEventCount: RocketSimWasmModule['_physics_getReplayTouchEventCount'];
+  physics_getReplayReboundEventsPtr: RocketSimWasmModule['_physics_getReplayReboundEventsPtr'];
+  physics_getReplayReboundEventCount: RocketSimWasmModule['_physics_getReplayReboundEventCount'];
   physics_setCarThreeWheels: RocketSimWasmModule['_physics_setCarThreeWheels'];
   physics_getCarThreeWheels: RocketSimWasmModule['_physics_getCarThreeWheels'];
   physics_setArenaPreset: RocketSimWasmModule['_physics_setArenaPreset'];

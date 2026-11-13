@@ -7,7 +7,6 @@
  */
 
 import { buildBoostPadCooldownTimeline120Hz } from './catalog/RLRCBoostPadSpatialCatalog.ts';
-import { resolveRLRCVehicleLoadout } from './catalog/RLRCVehicleLoadoutCatalog.ts';
 import {
   buildRLRCContainerPacket,
   deserializeRLRCBinaryContainer,
@@ -18,10 +17,7 @@ import {
   createLazyTrack0FramesView,
   packRLRCFramesToTrack0Bytes,
 } from './container/RLRCTrack0TimelineBatchPacker.ts';
-import { decodeRLRCNetStreamFrames } from './parser/RLRCNetStreamBitDecoder.ts';
-import { extractNetStreamRigidBodyAndBoostTimeline } from './parser/RLRCNetStreamRigidBodyAndBoostExtractor.ts';
-import { extractRLRCNetStreamRosterAndLifecycle } from './parser/RLRCNetStreamRosterAndLifecycleExtractor.ts';
-import { parseRLRCReplayHeaderAndBookmarks } from './parser/RLRCReplayHeaderAndBookmarkParser.ts';
+import { buildSessionFromWasmResult, decodeReplayBytesViaWasm } from './RLRCWasmReplayBridge.ts';
 import {
   RLRC_FIXED_DT,
   RLRC_TICK_RATE,
@@ -178,52 +174,12 @@ export function convertRLReplayBufferToRLRC(
     };
   }
 
-  const parsedHeader = parseRLRCReplayHeaderAndBookmarks(u8, {
-    includeKeyframes: options.includeKeyframeBookmarks !== false,
-  });
-
-  let decodedNetStream: ReturnType<typeof decodeRLRCNetStreamFrames> | null =
-    decodeRLRCNetStreamFrames(parsedHeader);
-  const keyframeSet30Hz = new Set<number>(parsedHeader.keyframes.map((kf) => kf.frame));
-
-  const rosterAndLifecycle = extractRLRCNetStreamRosterAndLifecycle({
-    objects: parsedHeader.objects,
-    frames: decodedNetStream.frames,
-    keyframeIndices30Hz: keyframeSet30Hz,
-    loadoutResolver: resolveRLRCVehicleLoadout,
-  });
-
-  const boostPadEvents = decodedNetStream.boostPadEvents30Hz;
-  const rigidBodyTimeline = extractNetStreamRigidBodyAndBoostTimeline({
-    frames: decodedNetStream.frames,
-    objects: parsedHeader.objects,
-    names: parsedHeader.names,
-    keyframeIndices: keyframeSet30Hz,
-    roster: rosterAndLifecycle.roster,
-    slotByPriActorId: rosterAndLifecycle.slotIndexByPriActorId,
-    boostPadEvents,
-  });
-
-  decodedNetStream.frames.length = 0;
-  decodedNetStream = null;
-
-  const mergedBookmarks = mergeAndEnrichBookmarks30Hz(
-    parsedHeader.bookmarks,
-    rigidBodyTimeline.demolishBookmarks,
-    rosterAndLifecycle.roster,
-    options.includeKeyframeBookmarks !== false
-  );
-
-  const parserOutput: RLRCParserOutput = {
-    header: parsedHeader.header,
-    roster: rosterAndLifecycle.roster,
-    networkFrames: rigidBodyTimeline.networkFrames,
-    lifeSegments: rosterAndLifecycle.lifeSegments,
-    boostPadEvents,
-    bookmarks: mergedBookmarks,
-  };
-
-  return buildRLRCSessionFromParserOutput(parserOutput, options);
+  const method: RLRCInterpolationMethod = options.interpolationMethod ?? 'hermite-clamped';
+  const wasmDecoded = decodeReplayBytesViaWasm(u8, method, options.synthesizeControls !== false);
+  if (!wasmDecoded) {
+    throw new Error('Failed to decode .replay stream via RocketSim WASM codec.');
+  }
+  return buildSessionFromWasmResult(wasmDecoded, method);
 }
 
 export function exportRLRCSessionToBinaryBytes(session: RLRCConvertedReplaySession): Uint8Array {
