@@ -303,9 +303,10 @@ function runRadarChecks(
   checkUiNamingAndRouteAlignment(errors);
   detectCircularDependencies(importGraph, errors);
   checkRootConfigAndWasmParity(errors);
+  const rustInfos: string[] = [];
   const { rustFileCount, rustLargeFileCount } = checkRustWorkspaceAndWasmGuards(
     errors,
-    infos,
+    rustInfos,
     showAllInfos,
     modifiedRelSet
   );
