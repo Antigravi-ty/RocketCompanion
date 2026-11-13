@@ -7,6 +7,7 @@ import type {
 } from '../../entities/telestrator/telestratorTypes.ts';
 
 const WIRE_MAGIC = 0x5243544c; // "RCTL"
+const STROKE_HEADER_BYTES = 52;
 
 export const TELESTRATOR_WIRE_MSG_TYPE = {
   STROKE_FULL: 1,
@@ -48,7 +49,7 @@ export function encodeTelestratorStroke(stroke: TelestratorStroke): Uint8Array {
   const idBytes = textEncoder.encode(stroke.id);
   const authorBytes = textEncoder.encode(stroke.authorId);
   const pointCount = stroke.points.length;
-  const headerSize = 32 + idBytes.length + authorBytes.length;
+  const headerSize = STROKE_HEADER_BYTES + idBytes.length + authorBytes.length;
   const payloadSize = pointCount * 6 * 4;
   const buffer = new ArrayBuffer(headerSize + payloadSize);
   const view = new DataView(buffer);
@@ -65,7 +66,7 @@ export function encodeTelestratorStroke(stroke: TelestratorStroke): Uint8Array {
   offset += 1;
   view.setUint8(offset, Math.round(Math.max(0, Math.min(1, stroke.opacity)) * 255));
   offset += 1;
-  view.setFloat32(offset, stroke.widthPx, true);
+  view.setFloat32(offset, stroke.widthUnits, true);
   offset += 4;
   view.setInt32(offset, stroke.createdTick, true);
   offset += 4;
@@ -81,6 +82,16 @@ export function encodeTelestratorStroke(stroke: TelestratorStroke): Uint8Array {
   offset += 2;
   view.setUint16(offset, 0, true);
   offset += 2;
+  view.setFloat32(offset, stroke.arrowLength, true);
+  offset += 4;
+  view.setFloat32(offset, stroke.arrowWidth, true);
+  offset += 4;
+  view.setFloat32(offset, stroke.camForward.x, true);
+  offset += 4;
+  view.setFloat32(offset, stroke.camForward.y, true);
+  offset += 4;
+  view.setFloat32(offset, stroke.camForward.z, true);
+  offset += 4;
 
   out.set(idBytes, offset);
   offset += idBytes.length;
@@ -102,7 +113,7 @@ export function encodeTelestratorStroke(stroke: TelestratorStroke): Uint8Array {
 }
 
 export function decodeTelestratorStroke(bytes: Uint8Array): TelestratorStroke | null {
-  if (bytes.byteLength < 32) return null;
+  if (bytes.byteLength < STROKE_HEADER_BYTES) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (view.getUint32(0, true) !== WIRE_MAGIC) return null;
   if (view.getUint8(4) !== TELESTRATOR_WIRE_MSG_TYPE.STROKE_FULL) return null;
@@ -110,15 +121,22 @@ export function decodeTelestratorStroke(bytes: Uint8Array): TelestratorStroke | 
   const tool = BYTE_TO_TOOL[view.getUint8(5)] ?? 'solid';
   const colorId = BYTE_TO_COLOR[view.getUint8(6)] ?? 'yellow';
   const opacity = view.getUint8(7) / 255;
-  const widthPx = view.getFloat32(8, true);
+  const widthUnits = view.getFloat32(8, true);
   const createdTick = view.getInt32(12, true);
   const fadeDurationTicks = view.getInt32(16, true);
   const wireHash = view.getUint32(20, true);
   const pointCount = view.getUint16(24, true);
   const idLen = view.getUint16(26, true);
   const authorLen = view.getUint16(28, true);
+  const arrowLength = view.getFloat32(32, true);
+  const arrowWidth = view.getFloat32(36, true);
+  const camForward = {
+    x: view.getFloat32(40, true),
+    y: view.getFloat32(44, true),
+    z: view.getFloat32(48, true),
+  };
 
-  let offset = 32;
+  let offset = STROKE_HEADER_BYTES;
   const expectedSize = offset + idLen + authorLen + pointCount * 24;
   if (bytes.byteLength < expectedSize) return null;
 
@@ -140,14 +158,17 @@ export function decodeTelestratorStroke(bytes: Uint8Array): TelestratorStroke | 
     offset += 24;
   }
 
-  const computedHash = computeStrokeHash(tool, colorId, opacity, widthPx, points);
+  const computedHash = computeStrokeHash(tool, colorId, opacity, widthUnits, points);
   return {
     id,
     authorId,
     tool,
     colorId,
     opacity,
-    widthPx,
+    widthUnits,
+    arrowLength,
+    arrowWidth,
+    camForward,
     createdTick,
     fadeDurationTicks,
     points,

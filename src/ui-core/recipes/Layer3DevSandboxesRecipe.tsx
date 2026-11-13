@@ -12,7 +12,6 @@ import {
   useSubsystemIsolationLabStore,
   type DevTestLabTab as IsolationDevTestLabTab,
 } from '../stores/subsystemIsolationLabStore';
-import { useTelestratorStore } from '../stores/telestratorStore';
 import { useScopedStore } from '../stores/storeSnapshotScope';
 import {
   EXPERIMENTAL_BOT_PACK_PRESET,
@@ -151,12 +150,6 @@ export const Layer3DevSandboxesRecipe: React.FC<Layer3DevSandboxesRecipeProps> =
       return;
     }
 
-    if (tab === 'drawing-sandbox') {
-      useTelestratorStore.getState().runtimeHandlers.onStartDrawingSandbox?.();
-      closeMenu();
-      return;
-    }
-
     const labTab = tab as IsolationDevTestLabTab;
     setSelectedTab(labTab);
     applyAndRestartLab(labTab);
@@ -179,11 +172,6 @@ export const Layer3DevSandboxesRecipe: React.FC<Layer3DevSandboxesRecipeProps> =
     if (tab === 'exp-multi-bots' && !sourceEl) {
       useExperimentalMultiBotsStore.getState().activateMultiBotsSubMode(false);
       navigate('exp-multi-bots');
-      return;
-    }
-    if (tab === 'drawing-sandbox') {
-      useTelestratorStore.getState().runtimeHandlers.onStartDrawingSandbox?.();
-      closeMenu();
       return;
     }
     if (tab === 'exp-botpack-9700488' && !sourceEl) {

@@ -276,8 +276,7 @@ export const InGameHUD: React.FC<InGameHUDProps> = ({ className = '' }) => {
     isReplayViewerLoaded;
 
   const showEdgeRosterStrips =
-    (showTopScoreboard && !isLobbyPhase && matchPhase !== 'podium' && matchPhase !== 'ended') ||
-    matchMode === 'drawing-sandbox';
+    showTopScoreboard && !isLobbyPhase && matchPhase !== 'podium' && matchPhase !== 'ended';
 
   return (
     <div

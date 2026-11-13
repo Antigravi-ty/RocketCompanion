@@ -28,17 +28,21 @@ export interface TelestratorBrushPreset {
   readonly id: string;
   readonly label: string;
   readonly opacity: number;
-  readonly widthPx: number;
+  readonly widthUnits: number;
 }
+
+export const DEFAULT_TELESTRATOR_LINE_WIDTH_UU = 28;
+export const DEFAULT_TELESTRATOR_ARROW_LENGTH_UU = 95;
+export const DEFAULT_TELESTRATOR_ARROW_WIDTH_UU = 75;
 
 export const DEFAULT_TELESTRATOR_PRESETS: readonly [
   TelestratorBrushPreset,
   TelestratorBrushPreset,
   TelestratorBrushPreset,
 ] = [
-  { id: 'preset-100', label: '100%', opacity: 1.0, widthPx: 8 },
-  { id: 'preset-70', label: '70%', opacity: 0.7, widthPx: 8 },
-  { id: 'preset-50', label: '50%', opacity: 0.5, widthPx: 8 },
+  { id: 'preset-100', label: '100%', opacity: 1.0, widthUnits: DEFAULT_TELESTRATOR_LINE_WIDTH_UU },
+  { id: 'preset-50', label: '50%', opacity: 0.5, widthUnits: DEFAULT_TELESTRATOR_LINE_WIDTH_UU },
+  { id: 'preset-25', label: '25%', opacity: 0.25, widthUnits: DEFAULT_TELESTRATOR_LINE_WIDTH_UU },
 ];
 
 export interface TelestratorPoint {
@@ -50,13 +54,22 @@ export interface TelestratorPoint {
   nz: number;
 }
 
+export interface TelestratorVec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
 export interface TelestratorStroke {
   id: string;
   authorId: string;
   tool: TelestratorBrushTool;
   colorId: TelestratorColorId;
   opacity: number;
-  widthPx: number;
+  widthUnits: number;
+  arrowLength: number;
+  arrowWidth: number;
+  camForward: TelestratorVec3;
   createdTick: number;
   fadeDurationTicks: number;
   points: TelestratorPoint[];

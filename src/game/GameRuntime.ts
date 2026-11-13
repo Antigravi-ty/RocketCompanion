@@ -36,6 +36,7 @@ import {
   type RuntimeNetworkManager,
   type ShaderSetupProgressFn,
   type SimulationStage,
+  type TelestratorOverlaySubsystem,
 } from './runtime/RuntimeSubsystemAssembler.ts';
 import type {
   GameRuntimeUiBridgePort,
@@ -152,6 +153,7 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
   audioSubsystem: GameAudioSubsystem;
   cameraSubsystem: GameCameraSubsystem;
   renderSubsystem: GameRenderSubsystem;
+  telestratorOverlay: TelestratorOverlaySubsystem;
   modeManager: GameModeManager;
   simulationStage: SimulationStage;
   pipeline: FramePipeline;
@@ -177,6 +179,7 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
     this.audioSubsystem = subsystems.audioSubsystem;
     this.cameraSubsystem = subsystems.cameraSubsystem;
     this.renderSubsystem = subsystems.renderSubsystem;
+    this.telestratorOverlay = subsystems.telestratorOverlay;
     this.modeManager = subsystems.modeManager;
     this.simulationStage = subsystems.simulationStage;
     this.pipeline = subsystems.pipeline;

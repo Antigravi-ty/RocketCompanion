@@ -4,7 +4,6 @@ import {
   Film,
   History,
   Layers,
-  Pen,
   Radio,
   Skull,
   Sparkles,
@@ -16,7 +15,6 @@ import {
   EXPERIMENTAL_MULTI_BOTS_PRESET,
   REPLAY_TO_RCS_IMPORTER_PRESET,
   SUBSYSTEM_ISOLATION_LAB_PRESET,
-  TELESTRATOR_TOOLBAR_PRESET,
 } from '../../stores/devFloatingPresets';
 import type { PresetConfig } from '../../stores/floatingPresets';
 import { getDiscoveredFloatingSurfacesByMenuGroup as getDiscoveredSurfacesByMenuGroup } from '../../manifest/floatingSurfaceRegistry';
@@ -31,8 +29,7 @@ export type DevTestLabTab =
   | 'exp-multi-bots'
   | 'exp-botpack-9700488'
   | 'tem-pack-converter'
-  | 'replay-to-rcs-importer'
-  | 'drawing-sandbox';
+  | 'replay-to-rcs-importer';
 
 export type LayerDevTestLabTab = DevTestLabTab;
 
@@ -166,17 +163,6 @@ export const SANDBOX_BENCH_SPECS: DevSandboxBenchSpec[] = [
     icon: FileArchive,
     iconColor: 'text-cyan-400',
     preset: REPLAY_TO_RCS_IMPORTER_PRESET,
-  },
-  {
-    id: 'drawing-sandbox',
-    title: 'Drawing Sandbox (3D Telestrator)',
-    summary:
-      'Spawn 6-car kickoff arena, open vertical telestrator toolbar, surface-hugging strokes, and Direction Adjust.',
-    details:
-      'Drawing Sandbox (3D Telestrator): Spawns 6 cars (Keys 1-6 POV, Key 7 Free Cam, Key C Cycle), opens the narrow vertical Telestrator toolbar, and enables surface-hugging 3D strokes with Ctrl/Cmd+Z undo.',
-    icon: Pen,
-    iconColor: 'text-emerald-400',
-    preset: TELESTRATOR_TOOLBAR_PRESET,
   },
 ];
 

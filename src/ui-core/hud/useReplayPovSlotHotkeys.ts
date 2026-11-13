@@ -3,7 +3,6 @@ import { useReplayViewerStore } from '../stores/replayViewerStore';
 import { useReplayToRcsImporterStore } from '../stores/replayToRcsImporterStore';
 import { useHudStore } from '../stores/hudStore';
 import { useExperimentalMultiBotsStore } from '../stores/experimentalMultiBotsStore';
-import { useTelestratorStore } from '../stores/telestratorStore';
 import type { HudTransientChannel } from '../stores/hudTransientTypes';
 
 export type HudPovSlotKey = 1 | 2 | 3 | 4 | 5 | 6;
@@ -73,10 +72,6 @@ export function useReplayPovSlotHotkeys(params: {
 
   const handleSelectPovSlot = useCallback(
     (slotKey: HudPovSlotKey | null) => {
-      if (matchMode === 'drawing-sandbox') {
-        useTelestratorStore.getState().triggerSelectCameraSlot(slotKey ?? 7);
-        return;
-      }
       if (slotKey === null) {
         hudChannel.setRoster({ focusedSlotKey: null });
         if (isReplayViewerLoaded) {

@@ -208,7 +208,13 @@ export class CameraManager {
 
   setFocusedCarIndex(carIndex: number): void {
     const idx = Number(carIndex);
-    if (Number.isFinite(idx) && idx >= 0) this.focusedCarIndex = Math.round(idx);
+    if (Number.isFinite(idx) && idx >= 0) {
+      const rounded = Math.round(idx);
+      if (rounded !== this.focusedCarIndex) {
+        this.focusedCarIndex = rounded;
+        this.resetDirectionOffset();
+      }
+    }
   }
 
   private getPreferredPovMode(): CameraMode {
@@ -236,6 +242,10 @@ export class CameraManager {
     const shouldEnable = Boolean(enabled);
     if (this.isFreeCam === shouldEnable) return;
     this.isFreeCam = shouldEnable;
+    if (shouldEnable) {
+      this.resetDirectionOffset();
+      this.setDirectionAdjustActive(false);
+    }
     const fallback = this.isDirectorOverrideActive
       ? CAMERA_MODES.DIRECTOR
       : this.getPreferredPovMode();
@@ -378,6 +388,7 @@ export class CameraManager {
   }
 
   private applyPersistentDirectionOffset(): void {
+    if (this.isFreeCam) return;
     const cam = this._sharedCamera;
     if (!cam) return;
     if (Math.abs(this.directionOffsetYaw) < 1e-5 && Math.abs(this.directionOffsetPitch) < 1e-5) {

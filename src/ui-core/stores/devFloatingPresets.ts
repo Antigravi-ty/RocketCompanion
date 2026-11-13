@@ -339,15 +339,15 @@ export const PERFORMANCE_BOOST_TUNER_PRESET: PresetConfig = makeDevPreset({
 
 export const TELESTRATOR_TOOLBAR_PRESET: PresetConfig = makeDevPreset({
   id: 'telestrator-toolbar',
-  title: 'Telestrator',
+  title: 'Telestrator Overlay',
   category: 'TelestratorToolbar',
   width: 72,
   minWidth: 64,
   height: 540,
   minHeight: 360,
   hideFooter: true,
-  summary: 'Vertical 3D telestrator toolbar with brush modes, opacity presets, colors, Direction Adjust, Undo, and Clear.',
-  menuEntryPath: DEV_ENTRY_PATHS.SANDBOXES,
+  summary: 'Mode-independent 3D telestrator overlay toolbar with brush modes, real-unit UU presets, colors, Direction Adjust, Undo, Clear, and Settings.',
+  menuEntryPath: DEV_ENTRY_PATHS.ACTIVE_TUNERS,
   component: 'TelestratorToolbarFloatingWindow',
 });
 

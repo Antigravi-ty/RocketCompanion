@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import {
+  DEFAULT_TELESTRATOR_ARROW_LENGTH_UU,
+  DEFAULT_TELESTRATOR_ARROW_WIDTH_UU,
   DEFAULT_TELESTRATOR_PRESETS,
   type TelestratorBrushPreset,
   type TelestratorBrushTool,
@@ -12,51 +14,59 @@ export interface TelestratorRuntimeHandlers {
   onUndo?: () => void;
   onClear?: () => void;
   onRestoreDirectionOffset?: () => void;
-  onSelectCameraSlot?: (slot: number) => void;
-  onToggleDropStems?: (enabled: boolean) => void;
-  onStartDrawingSandbox?: () => void;
+  onActivateOverlay?: () => void;
+  onDeactivateOverlay?: () => void;
 }
 
 export interface TelestratorState {
-  isDrawingSandboxActive: boolean;
+  overlayActive: boolean;
   drawingEnabled: boolean;
   directionAdjustActive: boolean;
+  isFreeCam: boolean;
   directionOffsetYawDeg: number;
   directionOffsetPitchDeg: number;
   activeTool: TelestratorBrushTool;
   activeColorId: TelestratorColorId;
   activePresetIndex: TelestratorPresetIndex;
   presets: [TelestratorBrushPreset, TelestratorBrushPreset, TelestratorBrushPreset];
-  dropStemsEnabled: boolean;
+  arrowLength: number;
+  arrowWidth: number;
   strokeCount: number;
-  activeCameraSlot: number;
+  hasUndoHistory: boolean;
+  pendingClearPurge: boolean;
+  settingsOpen: boolean;
   runtimeHandlers: TelestratorRuntimeHandlers;
 
-  setDrawingSandboxActive: (active: boolean) => void;
+  setOverlayActive: (active: boolean) => void;
   setDrawingEnabled: (enabled: boolean) => void;
   setDirectionAdjustActive: (active: boolean) => void;
+  setIsFreeCam: (isFreeCam: boolean) => void;
   setDirectionOffsetDeg: (yawDeg: number, pitchDeg: number) => void;
   setActiveTool: (tool: TelestratorBrushTool) => void;
   setActiveColorId: (colorId: TelestratorColorId) => void;
   setActivePresetIndex: (index: TelestratorPresetIndex) => void;
   updatePreset: (
     index: TelestratorPresetIndex,
-    patch: Partial<Pick<TelestratorBrushPreset, 'opacity' | 'widthPx'>>
+    patch: Partial<Pick<TelestratorBrushPreset, 'opacity' | 'widthUnits'>>
   ) => void;
-  setDropStemsEnabled: (enabled: boolean) => void;
-  setStrokeCount: (count: number) => void;
-  setActiveCameraSlot: (slot: number) => void;
+  setArrowSize: (length: number, width: number) => void;
+  setStrokeSyncState: (
+    strokeCount: number,
+    hasUndoHistory: boolean,
+    pendingClearPurge: boolean
+  ) => void;
+  setSettingsOpen: (open: boolean) => void;
   setRuntimeHandlers: (handlers: TelestratorRuntimeHandlers) => void;
   triggerUndo: () => void;
   triggerClear: () => void;
   triggerRestoreDirectionOffset: () => void;
-  triggerSelectCameraSlot: (slot: number) => void;
 }
 
 export const useTelestratorStore = create<TelestratorState>((set, get) => ({
-  isDrawingSandboxActive: false,
+  overlayActive: false,
   drawingEnabled: true,
   directionAdjustActive: false,
+  isFreeCam: false,
   directionOffsetYawDeg: 0,
   directionOffsetPitchDeg: 0,
   activeTool: 'solid',
@@ -67,12 +77,29 @@ export const useTelestratorStore = create<TelestratorState>((set, get) => ({
     { ...DEFAULT_TELESTRATOR_PRESETS[1] },
     { ...DEFAULT_TELESTRATOR_PRESETS[2] },
   ],
-  dropStemsEnabled: true,
+  arrowLength: DEFAULT_TELESTRATOR_ARROW_LENGTH_UU,
+  arrowWidth: DEFAULT_TELESTRATOR_ARROW_WIDTH_UU,
   strokeCount: 0,
-  activeCameraSlot: 7,
+  hasUndoHistory: false,
+  pendingClearPurge: false,
+  settingsOpen: false,
   runtimeHandlers: {},
 
-  setDrawingSandboxActive: (active) => set({ isDrawingSandboxActive: Boolean(active) }),
+  setOverlayActive: (active) => {
+    const next = Boolean(active);
+    const prev = get().overlayActive;
+    set({
+      overlayActive: next,
+      drawingEnabled: next ? true : false,
+      directionAdjustActive: false,
+      settingsOpen: next ? get().settingsOpen : false,
+    });
+    if (next && !prev) {
+      get().runtimeHandlers.onActivateOverlay?.();
+    } else if (!next && prev) {
+      get().runtimeHandlers.onDeactivateOverlay?.();
+    }
+  },
 
   setDrawingEnabled: (enabled) => {
     const next = Boolean(enabled);
@@ -84,9 +111,21 @@ export const useTelestratorStore = create<TelestratorState>((set, get) => ({
 
   setDirectionAdjustActive: (active) => {
     const next = Boolean(active);
+    if (next && get().isFreeCam) return;
     set({
       directionAdjustActive: next,
-      drawingEnabled: next ? false : true,
+      drawingEnabled: next ? false : get().drawingEnabled,
+    });
+  },
+
+  setIsFreeCam: (isFreeCam) => {
+    const next = Boolean(isFreeCam);
+    if (get().isFreeCam === next) return;
+    set({
+      isFreeCam: next,
+      directionAdjustActive: next ? false : get().directionAdjustActive,
+      directionOffsetYawDeg: next ? 0 : get().directionOffsetYawDeg,
+      directionOffsetPitchDeg: next ? 0 : get().directionOffsetPitchDeg,
     });
   },
 
@@ -112,29 +151,35 @@ export const useTelestratorStore = create<TelestratorState>((set, get) => ({
       ...target,
       opacity:
         typeof patch.opacity === 'number'
-          ? Math.max(0.1, Math.min(1, patch.opacity))
+          ? Math.max(0.05, Math.min(1, patch.opacity))
           : target.opacity,
-      widthPx:
-        typeof patch.widthPx === 'number'
-          ? Math.max(2, Math.min(32, Math.round(patch.widthPx)))
-          : target.widthPx,
+      widthUnits:
+        typeof patch.widthUnits === 'number'
+          ? Math.max(4, Math.min(160, Math.round(patch.widthUnits)))
+          : target.widthUnits,
     };
     set({ presets: next });
   },
 
-  setDropStemsEnabled: (enabled) => {
-    const next = Boolean(enabled);
-    set({ dropStemsEnabled: next });
-    get().runtimeHandlers.onToggleDropStems?.(next);
-  },
+  setArrowSize: (length, width) =>
+    set({
+      arrowLength: Math.max(20, Math.min(350, Math.round(length))),
+      arrowWidth: Math.max(15, Math.min(300, Math.round(width))),
+    }),
 
-  setStrokeCount: (count) => set({ strokeCount: Math.max(0, count) }),
-  setActiveCameraSlot: (slot) => set({ activeCameraSlot: slot }),
+  setStrokeSyncState: (strokeCount, hasUndoHistory, pendingClearPurge) =>
+    set({
+      strokeCount: Math.max(0, strokeCount),
+      hasUndoHistory: Boolean(hasUndoHistory),
+      pendingClearPurge: Boolean(pendingClearPurge),
+    }),
+
+  setSettingsOpen: (open) => set({ settingsOpen: Boolean(open) }),
+
   setRuntimeHandlers: (handlers) =>
     set((s) => ({ runtimeHandlers: { ...s.runtimeHandlers, ...handlers } })),
 
   triggerUndo: () => get().runtimeHandlers.onUndo?.(),
   triggerClear: () => get().runtimeHandlers.onClear?.(),
   triggerRestoreDirectionOffset: () => get().runtimeHandlers.onRestoreDirectionOffset?.(),
-  triggerSelectCameraSlot: (slot) => get().runtimeHandlers.onSelectCameraSlot?.(slot),
 }));

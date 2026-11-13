@@ -4,16 +4,18 @@ import {
   computeStrokeHash,
   simplifyAndResampleStroke,
 } from './telestratorStrokeGeometry.ts';
-import type {
-  TelestratorBrushTool,
-  TelestratorColorId,
-  TelestratorPoint,
-  TelestratorStroke,
+import {
+  DEFAULT_TELESTRATOR_ARROW_LENGTH_UU,
+  DEFAULT_TELESTRATOR_ARROW_WIDTH_UU,
+  type TelestratorBrushTool,
+  type TelestratorColorId,
+  type TelestratorPoint,
+  type TelestratorStroke,
+  type TelestratorVec3,
 } from './telestratorTypes.ts';
 
 interface ManagedStrokeEntry {
   stroke: TelestratorStroke;
-  worldWidth: number;
   group: THREE.Group;
 }
 
@@ -22,7 +24,10 @@ export interface BeginStrokeOptions {
   tool: TelestratorBrushTool;
   colorId: TelestratorColorId;
   opacity: number;
-  widthPx: number;
+  widthUnits: number;
+  arrowLength?: number;
+  arrowWidth?: number;
+  camForward?: TelestratorVec3;
   createdTick?: number;
   fadeDurationTicks?: number;
 }
@@ -45,32 +50,31 @@ function disposeThreeGroup(group: THREE.Group): void {
   for (const m of materials) m.dispose();
 }
 
-export function computeScreenRelativeWorldWidth(
-  widthPx: number,
-  distanceToCamera: number,
-  camera: THREE.Camera | null,
-  viewportHeightPx = 1080
-): number {
-  const safeDist = Math.max(100, distanceToCamera);
-  const vFovDeg = camera instanceof THREE.PerspectiveCamera ? camera.fov : 60;
-  const vFovRad = THREE.MathUtils.degToRad(vFovDeg);
-  const worldHeightAtDist = 2 * Math.tan(vFovRad * 0.5) * safeDist;
-  const safeViewportH = Math.max(240, viewportHeightPx);
-  const worldPerPx = worldHeightAtDist / safeViewportH;
-  return Math.max(10, Math.min(180, widthPx * worldPerPx));
+function extractCamForward(camera: THREE.Camera | null): TelestratorVec3 {
+  if (!camera) return { x: 0, y: 0, z: -1 };
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  if (dir.lengthSq() < 1e-6) return { x: 0, y: 0, z: -1 };
+  dir.normalize();
+  return { x: dir.x, y: dir.y, z: dir.z };
 }
 
 export class TelestratorManager {
   public readonly rootGroup: THREE.Group = new THREE.Group();
   private readonly strokes: ManagedStrokeEntry[] = [];
+  private lastClearedStrokes: TelestratorStroke[] | null = null;
   private activeDraft: {
     id: string;
-    options: BeginStrokeOptions;
+    options: Required<
+      Pick<
+        BeginStrokeOptions,
+        'tool' | 'colorId' | 'opacity' | 'widthUnits' | 'arrowLength' | 'arrowWidth' | 'camForward'
+      >
+    > &
+      BeginStrokeOptions;
     points: TelestratorPoint[];
-    worldWidth: number;
     group: THREE.Group | null;
   } | null = null;
-  private dropStemsEnabled = true;
   private strokeSeq = 0;
 
   constructor(scene?: THREE.Scene | null) {
@@ -84,17 +88,16 @@ export class TelestratorManager {
     }
   }
 
-  public setDropStemsEnabled(enabled: boolean): void {
-    const next = Boolean(enabled);
-    if (this.dropStemsEnabled === next) return;
-    this.dropStemsEnabled = next;
-    for (const entry of this.strokes) {
-      this.rebuildEntryGroup(entry);
-    }
-  }
-
   public getStrokeCount(): number {
     return this.strokes.length;
+  }
+
+  public hasUndoHistory(): boolean {
+    return this.strokes.length > 0 || this.lastClearedStrokes !== null;
+  }
+
+  public isPendingClearPurge(): boolean {
+    return this.strokes.length === 0 && this.lastClearedStrokes !== null;
   }
 
   public getAllStrokes(): readonly TelestratorStroke[] {
@@ -104,28 +107,22 @@ export class TelestratorManager {
   public beginStroke(
     firstPoint: TelestratorPoint,
     options: BeginStrokeOptions,
-    camera: THREE.Camera | null,
-    viewportHeightPx: number
+    camera: THREE.Camera | null
   ): void {
     this.cancelDraft();
-    const camPos = camera ? camera.position : new THREE.Vector3(0, 1600, -3600);
-    const dist = Math.hypot(
-      firstPoint.x - camPos.x,
-      firstPoint.y - camPos.y,
-      firstPoint.z - camPos.z
-    );
-    const worldWidth = computeScreenRelativeWorldWidth(
-      options.widthPx,
-      dist,
-      camera,
-      viewportHeightPx
-    );
     this.strokeSeq++;
+    const camForward = options.camForward ?? extractCamForward(camera);
+    const arrowLength = options.arrowLength ?? DEFAULT_TELESTRATOR_ARROW_LENGTH_UU;
+    const arrowWidth = options.arrowWidth ?? DEFAULT_TELESTRATOR_ARROW_WIDTH_UU;
     this.activeDraft = {
       id: `stroke-${Date.now()}-${this.strokeSeq}`,
-      options: { ...options },
+      options: {
+        ...options,
+        arrowLength,
+        arrowWidth,
+        camForward,
+      },
       points: [{ ...firstPoint }],
-      worldWidth,
       group: null,
     };
   }
@@ -144,13 +141,16 @@ export class TelestratorManager {
       this.rootGroup.remove(this.activeDraft.group);
       disposeThreeGroup(this.activeDraft.group);
     }
+    const opts = this.activeDraft.options;
     this.activeDraft.group = buildStrokeRenderGroup(
       pts,
-      this.activeDraft.options.tool,
-      this.activeDraft.options.colorId,
-      this.activeDraft.options.opacity,
-      this.activeDraft.worldWidth,
-      this.dropStemsEnabled
+      opts.tool,
+      opts.colorId,
+      opts.opacity,
+      opts.widthUnits,
+      opts.arrowLength,
+      opts.arrowWidth,
+      opts.camForward
     );
     this.rootGroup.add(this.activeDraft.group);
     return true;
@@ -166,40 +166,38 @@ export class TelestratorManager {
     }
     if (draft.points.length < 2) return null;
 
-    const simplified = simplifyAndResampleStroke(draft.points, 28, 6);
+    const simplified = simplifyAndResampleStroke(draft.points, 24, 6);
     if (simplified.length < 2) return null;
 
+    const opts = draft.options;
     const hash = computeStrokeHash(
-      draft.options.tool,
-      draft.options.colorId,
-      draft.options.opacity,
-      draft.options.widthPx,
+      opts.tool,
+      opts.colorId,
+      opts.opacity,
+      opts.widthUnits,
       simplified
     );
 
     const stroke: TelestratorStroke = {
       id: draft.id,
-      authorId: draft.options.authorId ?? 'local',
-      tool: draft.options.tool,
-      colorId: draft.options.colorId,
-      opacity: draft.options.opacity,
-      widthPx: draft.options.widthPx,
-      createdTick: draft.options.createdTick ?? 0,
-      fadeDurationTicks: draft.options.fadeDurationTicks ?? 0,
+      authorId: opts.authorId ?? 'local',
+      tool: opts.tool,
+      colorId: opts.colorId,
+      opacity: opts.opacity,
+      widthUnits: opts.widthUnits,
+      arrowLength: opts.arrowLength,
+      arrowWidth: opts.arrowWidth,
+      camForward: opts.camForward,
+      createdTick: opts.createdTick ?? 0,
+      fadeDurationTicks: opts.fadeDurationTicks ?? 0,
       points: simplified,
       hash,
     };
 
-    const group = buildStrokeRenderGroup(
-      stroke.points,
-      stroke.tool,
-      stroke.colorId,
-      stroke.opacity,
-      draft.worldWidth,
-      this.dropStemsEnabled
-    );
+    this.lastClearedStrokes = null;
+    const group = this.buildEntryGroup(stroke);
     this.rootGroup.add(group);
-    this.strokes.push({ stroke, worldWidth: draft.worldWidth, group });
+    this.strokes.push({ stroke, group });
     return stroke;
   }
 
@@ -212,50 +210,47 @@ export class TelestratorManager {
     this.activeDraft = null;
   }
 
-  public addRemoteStroke(
-    stroke: TelestratorStroke,
-    camera: THREE.Camera | null,
-    viewportHeightPx = 1080
-  ): void {
+  public addRemoteStroke(stroke: TelestratorStroke): void {
     if (this.strokes.some((e) => e.stroke.id === stroke.id)) return;
-    const anchor = stroke.points[0];
-    const camPos = camera ? camera.position : new THREE.Vector3(0, 1600, -3600);
-    const dist = anchor
-      ? Math.hypot(anchor.x - camPos.x, anchor.y - camPos.y, anchor.z - camPos.z)
-      : 2000;
-    const worldWidth = computeScreenRelativeWorldWidth(
-      stroke.widthPx,
-      dist,
-      camera,
-      viewportHeightPx
-    );
-    const group = buildStrokeRenderGroup(
-      stroke.points,
-      stroke.tool,
-      stroke.colorId,
-      stroke.opacity,
-      worldWidth,
-      this.dropStemsEnabled
-    );
+    const group = this.buildEntryGroup(stroke);
     this.rootGroup.add(group);
-    this.strokes.push({ stroke, worldWidth, group });
+    this.strokes.push({ stroke, group });
   }
 
   public undoLastStroke(): TelestratorStroke | null {
-    const popped = this.strokes.pop();
-    if (!popped) return null;
-    this.rootGroup.remove(popped.group);
-    disposeThreeGroup(popped.group);
-    return popped.stroke;
+    if (this.strokes.length > 0) {
+      const popped = this.strokes.pop()!;
+      this.rootGroup.remove(popped.group);
+      disposeThreeGroup(popped.group);
+      return popped.stroke;
+    }
+    if (this.lastClearedStrokes && this.lastClearedStrokes.length > 0) {
+      const restored = this.lastClearedStrokes;
+      this.lastClearedStrokes = null;
+      for (const stroke of restored) {
+        const group = this.buildEntryGroup(stroke);
+        this.rootGroup.add(group);
+        this.strokes.push({ stroke, group });
+      }
+      return restored[restored.length - 1] ?? null;
+    }
+    return null;
   }
 
   public clearAll(): void {
     this.cancelDraft();
-    while (this.strokes.length > 0) {
-      const entry = this.strokes.pop()!;
+    if (this.strokes.length === 0) {
+      this.lastClearedStrokes = null;
+      return;
+    }
+    const snapshot: TelestratorStroke[] = [];
+    for (const entry of this.strokes) {
+      snapshot.push(entry.stroke);
       this.rootGroup.remove(entry.group);
       disposeThreeGroup(entry.group);
     }
+    this.strokes.length = 0;
+    this.lastClearedStrokes = snapshot;
   }
 
   public updateReplayTick(currentTick: number): void {
@@ -286,22 +281,27 @@ export class TelestratorManager {
     }
   }
 
-  private rebuildEntryGroup(entry: ManagedStrokeEntry): void {
-    this.rootGroup.remove(entry.group);
-    disposeThreeGroup(entry.group);
-    entry.group = buildStrokeRenderGroup(
-      entry.stroke.points,
-      entry.stroke.tool,
-      entry.stroke.colorId,
-      entry.stroke.opacity,
-      entry.worldWidth,
-      this.dropStemsEnabled
+  private buildEntryGroup(stroke: TelestratorStroke): THREE.Group {
+    return buildStrokeRenderGroup(
+      stroke.points,
+      stroke.tool,
+      stroke.colorId,
+      stroke.opacity,
+      stroke.widthUnits,
+      stroke.arrowLength,
+      stroke.arrowWidth,
+      stroke.camForward
     );
-    this.rootGroup.add(entry.group);
   }
 
   public dispose(): void {
-    this.clearAll();
+    this.lastClearedStrokes = null;
+    this.cancelDraft();
+    while (this.strokes.length > 0) {
+      const entry = this.strokes.pop()!;
+      this.rootGroup.remove(entry.group);
+      disposeThreeGroup(entry.group);
+    }
     this.rootGroup.parent?.remove(this.rootGroup);
   }
 }

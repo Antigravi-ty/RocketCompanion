@@ -4,6 +4,7 @@ import {
   type TelestratorBrushTool,
   type TelestratorColorId,
   type TelestratorPoint,
+  type TelestratorVec3,
 } from './telestratorTypes.ts';
 
 function pointSegmentDistSq(
@@ -61,7 +62,7 @@ function rdpSimplify(
 
 export function simplifyAndResampleStroke(
   rawPoints: readonly TelestratorPoint[],
-  minSpacing = 28,
+  minSpacing = 24,
   rdpEpsilon = 6
 ): TelestratorPoint[] {
   if (rawPoints.length <= 2) return rawPoints.map((p) => ({ ...p }));
@@ -94,11 +95,56 @@ export function simplifyAndResampleStroke(
   return out;
 }
 
+function catmullRomValue(p0: number, p1: number, p2: number, p3: number, t: number): number {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return (
+    0.5 *
+    (2 * p1 +
+      (-p0 + p2) * t +
+      (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+      (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
+  );
+}
+
+function smoothStrokeCurve(points: readonly TelestratorPoint[]): TelestratorPoint[] {
+  if (points.length <= 2) return points.map((p) => ({ ...p }));
+
+  const smoothed: TelestratorPoint[] = [];
+  const n = points.length;
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(n - 1, i + 2)];
+    const segDist = Math.hypot(p2.x - p1.x, p2.y - p1.y, p2.z - p1.z);
+    const steps = Math.max(1, Math.min(10, Math.ceil(segDist / 20)));
+
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps;
+      const nx = p1.nx + (p2.nx - p1.nx) * t;
+      const ny = p1.ny + (p2.ny - p1.ny) * t;
+      const nz = p1.nz + (p2.nz - p1.nz) * t;
+      const nLen = Math.hypot(nx, ny, nz) || 1;
+      smoothed.push({
+        x: catmullRomValue(p0.x, p1.x, p2.x, p3.x, t),
+        y: catmullRomValue(p0.y, p1.y, p2.y, p3.y, t),
+        z: catmullRomValue(p0.z, p1.z, p2.z, p3.z, t),
+        nx: nx / nLen,
+        ny: ny / nLen,
+        nz: nz / nLen,
+      });
+    }
+  }
+  smoothed.push({ ...points[n - 1] });
+  return smoothed;
+}
+
 export function computeStrokeHash(
   tool: TelestratorBrushTool,
   colorId: TelestratorColorId,
   opacity: number,
-  widthPx: number,
+  widthUnits: number,
   points: readonly TelestratorPoint[]
 ): number {
   let hash = 0x811c9dc5;
@@ -109,7 +155,7 @@ export function computeStrokeHash(
   for (let i = 0; i < tool.length; i++) mix(tool.charCodeAt(i));
   for (let i = 0; i < colorId.length; i++) mix(colorId.charCodeAt(i));
   mix(Math.round(opacity * 100));
-  mix(Math.round(widthPx));
+  mix(Math.round(widthUnits));
   mix(points.length);
   for (let i = 0; i < points.length; i++) {
     const p = points[i];
@@ -131,51 +177,94 @@ function appendQuad(
   positions.push(b.x, b.y, b.z, d.x, d.y, d.z, c.x, c.y, c.z);
 }
 
-function buildRibbonMesh(
-  points: readonly TelestratorPoint[],
-  tool: TelestratorBrushTool,
-  worldWidth: number,
-  colorHex: number,
-  opacity: number
-): THREE.Mesh | null {
-  if (points.length < 2) return null;
-
+function buildContinuousRibbonPositions(
+  curve: readonly TelestratorPoint[],
+  halfWidth: number,
+  surfaceOffset: number
+): number[] {
   const positions: number[] = [];
-  const halfWidth = Math.max(4, worldWidth * 0.5);
-  const surfaceOffset = 3.5;
+  const n = curve.length;
+  if (n < 2) return positions;
 
+  const leftPts: THREE.Vector3[] = [];
+  const rightPts: THREE.Vector3[] = [];
+  const tangent = new THREE.Vector3();
+  const prevTan = new THREE.Vector3();
+  const nextTan = new THREE.Vector3();
+  const normal = new THREE.Vector3();
+  const side = new THREE.Vector3();
+  const center = new THREE.Vector3();
+
+  for (let i = 0; i < n; i++) {
+    const cur = curve[i];
+    if (i === 0) {
+      tangent.set(curve[1].x - cur.x, curve[1].y - cur.y, curve[1].z - cur.z);
+    } else if (i === n - 1) {
+      tangent.set(cur.x - curve[n - 2].x, cur.y - curve[n - 2].y, cur.z - curve[n - 2].z);
+    } else {
+      prevTan
+        .set(cur.x - curve[i - 1].x, cur.y - curve[i - 1].y, cur.z - curve[i - 1].z)
+        .normalize();
+      nextTan
+        .set(curve[i + 1].x - cur.x, curve[i + 1].y - cur.y, curve[i + 1].z - cur.z)
+        .normalize();
+      tangent.addVectors(prevTan, nextTan);
+      if (tangent.lengthSq() < 1e-4) tangent.copy(nextTan);
+    }
+    if (tangent.lengthSq() < 1e-6) tangent.set(0, 0, 1);
+    tangent.normalize();
+
+    normal.set(cur.nx, cur.ny, cur.nz);
+    if (normal.lengthSq() < 1e-4) normal.set(0, 1, 0);
+    normal.normalize();
+
+    side.crossVectors(tangent, normal);
+    if (side.lengthSq() < 1e-4) side.set(1, 0, 0);
+    side.normalize().multiplyScalar(halfWidth);
+
+    center.set(cur.x, cur.y, cur.z).addScaledVector(normal, surfaceOffset);
+    leftPts.push(center.clone().sub(side));
+    rightPts.push(center.clone().add(side));
+  }
+
+  for (let i = 0; i < n - 1; i++) {
+    appendQuad(positions, leftPts[i], rightPts[i], leftPts[i + 1], rightPts[i + 1]);
+  }
+  return positions;
+}
+
+function buildDashedRibbonPositions(
+  curve: readonly TelestratorPoint[],
+  halfWidth: number,
+  surfaceOffset: number
+): number[] {
+  const positions: number[] = [];
+  const dashLen = Math.max(halfWidth * 4.2, 56);
+  const gapLen = Math.max(halfWidth * 2.8, 38);
+  const dashPeriod = dashLen + gapLen;
+
+  const p0 = new THREE.Vector3();
+  const p1 = new THREE.Vector3();
+  const segStart = new THREE.Vector3();
+  const segEnd = new THREE.Vector3();
   const tangent = new THREE.Vector3();
   const normal = new THREE.Vector3();
   const side = new THREE.Vector3();
-  const p0 = new THREE.Vector3();
-  const p1 = new THREE.Vector3();
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();
   const c = new THREE.Vector3();
   const d = new THREE.Vector3();
 
   let accumDist = 0;
-  const dashPeriod = Math.max(worldWidth * 3.2, 70);
-  const dashFill = dashPeriod * 0.58;
-
-  const endIndex = points.length - 1;
-  for (let i = 0; i < endIndex; i++) {
-    const pt0 = points[i];
-    const pt1 = points[i + 1];
+  for (let i = 0; i < curve.length - 1; i++) {
+    const pt0 = curve[i];
+    const pt1 = curve[i + 1];
     p0.set(pt0.x, pt0.y, pt0.z);
     p1.set(pt1.x, pt1.y, pt1.z);
     tangent.subVectors(p1, p0);
     const segLen = tangent.length();
     if (segLen < 0.5) continue;
     tangent.divideScalar(segLen);
-
-    if (tool === 'dashed') {
-      const midDist = accumDist + segLen * 0.5;
-      accumDist += segLen;
-      if (midDist % dashPeriod > dashFill) continue;
-    } else {
-      accumDist += segLen;
-    }
 
     normal.set(pt0.nx + pt1.nx, pt0.ny + pt1.ny, pt0.nz + pt1.nz);
     if (normal.lengthSq() < 1e-4) normal.set(0, 1, 0);
@@ -185,53 +274,89 @@ function buildRibbonMesh(
     if (side.lengthSq() < 1e-4) side.set(1, 0, 0);
     side.normalize().multiplyScalar(halfWidth);
 
-    p0.addScaledVector(normal, surfaceOffset);
-    p1.addScaledVector(normal, surfaceOffset);
-
-    a.copy(p0).sub(side);
-    b.copy(p0).add(side);
-    c.copy(p1).sub(side);
-    d.copy(p1).add(side);
-    appendQuad(positions, a, b, c, d);
-  }
-
-  if (tool === 'arrow' && points.length >= 2) {
-    const tail = points[points.length - 2];
-    const tip = points[points.length - 1];
-    p0.set(tail.x, tail.y, tail.z);
-    p1.set(tip.x, tip.y, tip.z);
-    tangent.subVectors(p1, p0);
-    if (tangent.lengthSq() > 0.25) {
-      tangent.normalize();
-      normal.set(tip.nx, tip.ny, tip.nz);
-      if (normal.lengthSq() < 1e-4) normal.set(0, 1, 0);
-      normal.normalize();
-
-      const headLen = Math.max(worldWidth * 2.8, 70);
-      const headHalfW = Math.max(worldWidth * 1.45, 36);
-      side.crossVectors(tangent, normal).normalize().multiplyScalar(headHalfW);
-
-      const baseCenter = p1.clone().addScaledVector(normal, surfaceOffset + 0.5);
-      const tipPoint = baseCenter.clone().addScaledVector(tangent, headLen * 0.45);
-      const backCenter = baseCenter.clone().addScaledVector(tangent, -headLen * 0.55);
-      const leftCorner = backCenter.clone().sub(side);
-      const rightCorner = backCenter.clone().add(side);
-
-      positions.push(
-        leftCorner.x,
-        leftCorner.y,
-        leftCorner.z,
-        rightCorner.x,
-        rightCorner.y,
-        rightCorner.z,
-        tipPoint.x,
-        tipPoint.y,
-        tipPoint.z
-      );
+    let localOffset = 0;
+    while (localOffset < segLen) {
+      const globalDist = accumDist + localOffset;
+      const phase = globalDist % dashPeriod;
+      if (phase < dashLen) {
+        const remainDash = dashLen - phase;
+        const step = Math.min(remainDash, segLen - localOffset);
+        const t0 = localOffset / segLen;
+        const t1 = (localOffset + step) / segLen;
+        segStart.lerpVectors(p0, p1, t0).addScaledVector(normal, surfaceOffset);
+        segEnd.lerpVectors(p0, p1, t1).addScaledVector(normal, surfaceOffset);
+        a.copy(segStart).sub(side);
+        b.copy(segStart).add(side);
+        c.copy(segEnd).sub(side);
+        d.copy(segEnd).add(side);
+        appendQuad(positions, a, b, c, d);
+        localOffset += step;
+      } else {
+        const remainGap = dashPeriod - phase;
+        localOffset += Math.min(remainGap, segLen - localOffset);
+      }
     }
+    accumDist += segLen;
   }
 
-  if (positions.length === 0) return null;
+  return positions;
+}
+
+function buildCameraFacingArrowheadMesh(
+  curve: readonly TelestratorPoint[],
+  camForward: TelestratorVec3,
+  arrowLength: number,
+  arrowWidth: number,
+  colorHex: number,
+  opacity: number
+): THREE.Mesh | null {
+  if (curve.length < 2) return null;
+
+  const tipPt = curve[curve.length - 1];
+  let tailPt = curve[curve.length - 2];
+  for (let i = curve.length - 2; i >= 0; i--) {
+    const cand = curve[i];
+    const d = Math.hypot(tipPt.x - cand.x, tipPt.y - cand.y, tipPt.z - cand.z);
+    tailPt = cand;
+    if (d >= 35) break;
+  }
+
+  const viewNormal = new THREE.Vector3(-camForward.x, -camForward.y, -camForward.z);
+  if (viewNormal.lengthSq() < 1e-4) viewNormal.set(0, 0, 1);
+  viewNormal.normalize();
+
+  const rawDir = new THREE.Vector3(tipPt.x - tailPt.x, tipPt.y - tailPt.y, tipPt.z - tailPt.z);
+  const dot = rawDir.dot(viewNormal);
+  const projDir = rawDir.addScaledVector(viewNormal, -dot);
+  if (projDir.lengthSq() < 1e-4) {
+    projDir.set(0, 1, 0);
+    projDir.addScaledVector(viewNormal, -projDir.dot(viewNormal));
+    if (projDir.lengthSq() < 1e-4) projDir.set(1, 0, 0);
+  }
+  projDir.normalize();
+
+  const side = new THREE.Vector3().crossVectors(projDir, viewNormal);
+  if (side.lengthSq() < 1e-4) side.set(1, 0, 0);
+  side.normalize().multiplyScalar(Math.max(8, arrowWidth * 0.5));
+
+  const safeLen = Math.max(12, arrowLength);
+  const baseCenter = new THREE.Vector3(tipPt.x, tipPt.y, tipPt.z).addScaledVector(viewNormal, 8);
+  const tipVertex = baseCenter.clone().addScaledVector(projDir, safeLen * 0.45);
+  const backCenter = baseCenter.clone().addScaledVector(projDir, -safeLen * 0.55);
+  const leftCorner = backCenter.clone().sub(side);
+  const rightCorner = backCenter.clone().add(side);
+
+  const positions = [
+    leftCorner.x,
+    leftCorner.y,
+    leftCorner.z,
+    rightCorner.x,
+    rightCorner.y,
+    rightCorner.z,
+    tipVertex.x,
+    tipVertex.y,
+    tipVertex.z,
+  ];
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -242,73 +367,13 @@ function buildRibbonMesh(
     transparent: opacity < 1,
     opacity,
     side: THREE.DoubleSide,
-    depthWrite: opacity >= 1,
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
-  });
-
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.renderOrder = 10;
-  return mesh;
-}
-
-function buildDropStemsGroup(
-  points: readonly TelestratorPoint[],
-  colorHex: number,
-  opacity: number
-): THREE.Group | null {
-  const aerialPoints: TelestratorPoint[] = [];
-  for (let i = 0; i < points.length; i += 2) {
-    if (points[i].y > 24) aerialPoints.push(points[i]);
-  }
-  const last = points[points.length - 1];
-  if (last && last.y > 24 && aerialPoints[aerialPoints.length - 1] !== last) {
-    aerialPoints.push(last);
-  }
-  if (aerialPoints.length === 0) return null;
-
-  const group = new THREE.Group();
-  const linePositions: number[] = [];
-  for (let i = 0; i < aerialPoints.length; i++) {
-    const p = aerialPoints[i];
-    linePositions.push(p.x, p.y, p.z, p.x, 1.5, p.z);
-  }
-
-  const lineGeom = new THREE.BufferGeometry();
-  lineGeom.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
-  const lineMat = new THREE.LineDashedMaterial({
-    color: colorHex,
-    transparent: true,
-    opacity: opacity * 0.55,
-    dashSize: 24,
-    gapSize: 18,
-  });
-  const lines = new THREE.LineSegments(lineGeom, lineMat);
-  lines.computeLineDistances();
-  lines.renderOrder = 8;
-  group.add(lines);
-
-  const ringGeom = new THREE.RingGeometry(14, 22, 20);
-  ringGeom.rotateX(-Math.PI / 2);
-  const ringMat = new THREE.MeshBasicMaterial({
-    color: colorHex,
-    transparent: true,
-    opacity: opacity * 0.45,
-    side: THREE.DoubleSide,
+    depthTest: false,
     depthWrite: false,
   });
 
-  const step = Math.max(1, Math.floor(aerialPoints.length / 6));
-  for (let i = 0; i < aerialPoints.length; i += step) {
-    const p = aerialPoints[i];
-    const ring = new THREE.Mesh(ringGeom, ringMat);
-    ring.position.set(p.x, 2, p.z);
-    ring.renderOrder = 8;
-    group.add(ring);
-  }
-
-  return group;
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.renderOrder = 15;
+  return mesh;
 }
 
 export function buildStrokeRenderGroup(
@@ -317,16 +382,54 @@ export function buildStrokeRenderGroup(
   colorId: TelestratorColorId,
   opacity: number,
   worldWidth: number,
-  dropStemsEnabled: boolean
+  arrowLength: number,
+  arrowWidth: number,
+  camForward: TelestratorVec3
 ): THREE.Group {
   const group = new THREE.Group();
-  const colorHex = resolveTelestratorColorNumeric(colorId);
-  const ribbon = buildRibbonMesh(points, tool, worldWidth, colorHex, opacity);
-  if (ribbon) group.add(ribbon);
+  if (points.length < 2) return group;
 
-  if (dropStemsEnabled) {
-    const stems = buildDropStemsGroup(points, colorHex, opacity);
-    if (stems) group.add(stems);
+  const colorHex = resolveTelestratorColorNumeric(colorId);
+  const curve = smoothStrokeCurve(points);
+  const halfWidth = Math.max(3, worldWidth * 0.5);
+  const surfaceOffset = 3.5;
+
+  const positions =
+    tool === 'dashed'
+      ? buildDashedRibbonPositions(curve, halfWidth, surfaceOffset)
+      : buildContinuousRibbonPositions(curve, halfWidth, surfaceOffset);
+
+  if (positions.length > 0) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.computeVertexNormals();
+
+    const material = new THREE.MeshBasicMaterial({
+      color: colorHex,
+      transparent: opacity < 1,
+      opacity,
+      side: THREE.DoubleSide,
+      depthWrite: opacity >= 1,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+
+    const ribbonMesh = new THREE.Mesh(geometry, material);
+    ribbonMesh.renderOrder = 10;
+    group.add(ribbonMesh);
+  }
+
+  if (tool === 'arrow') {
+    const arrowMesh = buildCameraFacingArrowheadMesh(
+      curve,
+      camForward,
+      arrowLength,
+      arrowWidth,
+      colorHex,
+      opacity
+    );
+    if (arrowMesh) group.add(arrowMesh);
   }
 
   return group;

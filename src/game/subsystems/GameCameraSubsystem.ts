@@ -199,18 +199,11 @@ export class GameCameraSubsystem {
       r.replayPovCarIndex >= 0;
 
     const diagTarget = r?.networkManager?.diagnosticsProbe?.diagnosticObservationTarget ?? 0;
-    const isDrawingSandbox = r?.match?.state?.mode === 'drawing-sandbox';
-    const sandboxCarIdx =
-      isDrawingSandbox && typeof r?.camera?.focusedCarIndex === 'number'
-        ? r.camera.focusedCarIndex
-        : -1;
     const obsTargetIdx = isReplayPov
       ? (r.replayPovCarIndex ?? activeCar)
-      : sandboxCarIdx >= 0
-        ? sandboxCarIdx
-        : diagTarget > 0 && r.arena?.cars?.[diagTarget]?.visible
-          ? diagTarget
-          : activeCar;
+      : diagTarget > 0 && r.arena?.cars?.[diagTarget]?.visible
+        ? diagTarget
+        : activeCar;
 
     let cameraMode = r?.camera?.currentMode || 'pov';
     if (r?.camera?.isFreeCam) {

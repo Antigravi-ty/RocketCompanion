@@ -399,14 +399,6 @@ export function resolveModeRosterEntries(
     if (numCars >= 2) {
       pushEntry(true, 1, 'Bot', false, true);
     }
-  } else if (source.matchMode === 'drawing-sandbox') {
-    for (let i = 0; i < 3; i++) {
-      pushEntry(false, i, `Blue ${i + 1}`, false, false);
-    }
-    for (let i = 3; i < 6; i++) {
-      pushEntry(true, i, `Orange ${i - 2}`, false, false);
-    }
-    detectedLocalTeam = 0;
   }
 
   targetBuffer.isSpectatingNoHuman = isSpectatingNoHuman;
