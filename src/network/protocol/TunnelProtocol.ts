@@ -117,3 +117,33 @@ export function decodeTunnelEnvelope(
     ),
   };
 }
+
+const bridgeTextEncoder = new TextEncoder();
+const bridgeTextDecoder = new TextDecoder();
+
+export function encodeBridgeFrame(peerId: string, payload: Uint8Array): Uint8Array {
+  const idBytes = bridgeTextEncoder.encode(peerId);
+  const idLen = Math.min(255, idBytes.byteLength);
+  const out = new Uint8Array(1 + idLen + payload.byteLength);
+  out[0] = idLen;
+  if (idLen > 0) {
+    out.set(idBytes.subarray(0, idLen), 1);
+  }
+  out.set(payload, 1 + idLen);
+  return out;
+}
+
+export function decodeBridgeFrame(
+  frame: Uint8Array | ArrayBuffer
+): { peerId: string; payload: Uint8Array } | null {
+  const bytes = frame instanceof Uint8Array ? frame : new Uint8Array(frame);
+  if (bytes.byteLength < 1) return null;
+  const idLen = bytes[0];
+  if (bytes.byteLength < 1 + idLen) return null;
+  const peerId = bridgeTextDecoder.decode(bytes.subarray(1, 1 + idLen));
+  return {
+    peerId,
+    payload: bytes.subarray(1 + idLen),
+  };
+}
+

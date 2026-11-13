@@ -3,7 +3,9 @@ pub mod app_menu;
 pub mod build_info;
 pub mod config_store;
 pub mod tray_manager;
+pub mod tunnel_bridge;
 pub mod tunnel_manager;
+pub mod tunnel_upnp;
 pub mod window_manager;
 
 use app_icon::apply_app_and_window_icons;
@@ -14,9 +16,11 @@ use config_store::load_launch_state;
 use tauri::{Manager, WindowEvent};
 use tray_manager::setup_system_tray;
 use tunnel_manager::{
-    cleanup_all_tunnels, tauri_tunnel_close, tauri_tunnel_connect, tauri_tunnel_get_status,
-    tauri_tunnel_open, tauri_tunnel_send, tauri_upnp_probe, TunnelManagerState,
+    cleanup_all_tunnels, tauri_tunnel_close, tauri_tunnel_connect, tauri_tunnel_connect_peer,
+    tauri_tunnel_disconnect_peer, tauri_tunnel_get_status, tauri_tunnel_open, tauri_tunnel_send,
+    TunnelManagerState,
 };
+use tunnel_upnp::tauri_upnp_probe;
 use window_manager::{
     apply_window_titles, launch_main_window_with_config, open_configurator_window,
     tauri_get_display_diagnostics, tauri_get_launch_state, tauri_launch_game,
@@ -57,6 +61,8 @@ pub fn run() {
             tauri_upnp_probe,
             tauri_tunnel_open,
             tauri_tunnel_connect,
+            tauri_tunnel_connect_peer,
+            tauri_tunnel_disconnect_peer,
             tauri_tunnel_send,
             tauri_tunnel_close,
             tauri_tunnel_get_status,

@@ -1,27 +1,22 @@
-use igd_next::{PortMappingProtocol, SearchOptions};
+use crate::tunnel_bridge::{
+    encode_bridge_frame, start_local_bridge, LocalBridgeHandles, PeerRoutingTable,
+};
+use crate::tunnel_upnp::{
+    detect_network_warning, resolve_local_lan_ipv4, try_map_upnp_udp, try_unmap_upnp_udp,
+    UpnpLeaseRecord,
+};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
+use tokio::sync::watch;
 
-const UPNP_LEASE_DURATION_SECS: u32 = 3600;
-const UPNP_MAPPING_DESCRIPTION: &str = "RocketCompanion P2P Tunnel";
-const TUNNEL_PACKET_EVENT: &str = "rc-tunnel-packet";
 const MAX_UDP_DATAGRAM_BYTES: usize = 65507;
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpnpProbeResult {
-    pub available: bool,
-    pub gateway_addr: Option<String>,
-    pub local_ip: Option<String>,
-    pub external_ip: Option<String>,
-    pub error: Option<String>,
-}
+const HOLE_PUNCH_MAGIC: &[u8; 4] = b"RCPH";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -33,6 +28,13 @@ pub struct TunnelEndpointInfo {
     pub external_port: Option<u16>,
     pub upnp_mapped: bool,
     pub upnp_error: Option<String>,
+    pub permission_denied: bool,
+    pub network_warning: Option<String>,
+    pub wt_url: Option<String>,
+    pub wt_cert_hash: Option<Vec<u8>>,
+    pub wt_error: Option<String>,
+    pub ws_url: String,
+    pub auth_token: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -44,33 +46,21 @@ pub struct TunnelStatusInfo {
     pub external_ip: Option<String>,
     pub external_port: Option<u16>,
     pub upnp_mapped: bool,
+    pub peer_count: usize,
     pub peer_addr: Option<String>,
     pub bytes_sent: u64,
     pub bytes_received: u64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TunnelPacketEventPayload {
-    pub session_id: String,
-    pub from_addr: String,
-    pub data: Vec<u8>,
-}
-
-#[derive(Debug, Clone)]
-struct UpnpLeaseRecord {
-    external_ip: IpAddr,
-    external_port: u16,
 }
 
 struct ActiveTunnelSession {
     socket: Arc<UdpSocket>,
     local_port: u16,
     upnp_lease: Option<UpnpLeaseRecord>,
-    peer_addr: Arc<Mutex<Option<SocketAddr>>>,
+    routing: PeerRoutingTable,
     bytes_sent: Arc<AtomicU64>,
     bytes_received: Arc<AtomicU64>,
     shutdown: Arc<AtomicBool>,
+    bridge_shutdown_tx: watch::Sender<bool>,
     rx_thread: Option<JoinHandle<()>>,
 }
 
@@ -79,56 +69,9 @@ pub struct TunnelManagerState {
     sessions: Mutex<HashMap<String, ActiveTunnelSession>>,
 }
 
-fn resolve_local_lan_ipv4(target_hint: Option<SocketAddr>) -> Option<Ipv4Addr> {
-    let probe_target = target_hint.unwrap_or_else(|| SocketAddr::from(([8, 8, 8, 8], 80)));
-    let sock = UdpSocket::bind("0.0.0.0:0").ok()?;
-    sock.connect(probe_target).ok()?;
-    match sock.local_addr().ok()?.ip() {
-        IpAddr::V4(v4) if !v4.is_loopback() => Some(v4),
-        _ => None,
-    }
-}
-
-fn try_map_upnp_udp(local_port: u16) -> Result<UpnpLeaseRecord, String> {
-    let mut search_opts = SearchOptions::default();
-    search_opts.timeout = Some(Duration::from_millis(1800));
-    let gateway = igd_next::search_gateway(search_opts)
-        .map_err(|e| format!("UPnP gateway discovery failed: {}", e))?;
-
-    let local_ip = resolve_local_lan_ipv4(Some(gateway.addr))
-        .ok_or_else(|| "Unable to determine local LAN IPv4 address".to_string())?;
-    let local_socket_addr = SocketAddr::V4(SocketAddrV4::new(local_ip, local_port));
-
-    gateway
-        .add_port(
-            PortMappingProtocol::UDP,
-            local_port,
-            local_socket_addr,
-            UPNP_LEASE_DURATION_SECS,
-            UPNP_MAPPING_DESCRIPTION,
-        )
-        .map_err(|e| format!("UPnP add_port failed: {}", e))?;
-
-    let external_ip = gateway
-        .get_external_ip()
-        .map_err(|e| format!("UPnP get_external_ip failed: {}", e))?;
-
-    Ok(UpnpLeaseRecord {
-        external_ip,
-        external_port: local_port,
-    })
-}
-
-fn try_unmap_upnp_udp(external_port: u16) {
-    let mut search_opts = SearchOptions::default();
-    search_opts.timeout = Some(Duration::from_millis(1200));
-    if let Ok(gateway) = igd_next::search_gateway(search_opts) {
-        let _ = gateway.remove_port(PortMappingProtocol::UDP, external_port);
-    }
-}
-
 fn close_session_internal(mut session: ActiveTunnelSession) {
     session.shutdown.store(true, Ordering::SeqCst);
+    let _ = session.bridge_shutdown_tx.send(true);
     if let Some(handle) = session.rx_thread.take() {
         let _ = handle.join();
     }
@@ -152,55 +95,19 @@ pub fn cleanup_all_tunnels(app: &AppHandle) {
 }
 
 #[tauri::command]
-pub async fn tauri_upnp_probe() -> Result<UpnpProbeResult, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        let mut search_opts = SearchOptions::default();
-        search_opts.timeout = Some(Duration::from_millis(1800));
-        match igd_next::search_gateway(search_opts) {
-            Ok(gateway) => {
-                let local_ip =
-                    resolve_local_lan_ipv4(Some(gateway.addr)).map(|ip| ip.to_string());
-                match gateway.get_external_ip() {
-                    Ok(ext_ip) => UpnpProbeResult {
-                        available: true,
-                        gateway_addr: Some(gateway.addr.to_string()),
-                        local_ip,
-                        external_ip: Some(ext_ip.to_string()),
-                        error: None,
-                    },
-                    Err(e) => UpnpProbeResult {
-                        available: false,
-                        gateway_addr: Some(gateway.addr.to_string()),
-                        local_ip,
-                        external_ip: None,
-                        error: Some(format!("get_external_ip failed: {}", e)),
-                    },
-                }
-            }
-            Err(e) => UpnpProbeResult {
-                available: false,
-                gateway_addr: None,
-                local_ip: resolve_local_lan_ipv4(None).map(|ip| ip.to_string()),
-                external_ip: None,
-                error: Some(format!("UPnP discovery failed: {}", e)),
-            },
-        }
-    })
-    .await
-    .map_err(|e| format!("UPnP probe task panicked: {}", e))
-}
-
-#[tauri::command]
 pub async fn tauri_tunnel_open(
-    app: AppHandle,
     state: State<'_, TunnelManagerState>,
     session_id: String,
     preferred_port: Option<u16>,
     enable_upnp: Option<bool>,
 ) -> Result<TunnelEndpointInfo, String> {
     let bind_port = preferred_port.unwrap_or(0);
-    let socket = UdpSocket::bind(("0.0.0.0", bind_port))
-        .map_err(|e| format!("Failed to bind UDP tunnel socket: {}", e))?;
+    let socket = UdpSocket::bind(("0.0.0.0", bind_port)).map_err(|e| {
+        let msg = format!("Failed to bind UDP tunnel socket: {}", e);
+        log::error!("[RocketCompanion][Tunnel] {}", msg);
+        eprintln!("[RocketCompanion][Tunnel] ERROR: {}", msg);
+        msg
+    })?;
     socket
         .set_read_timeout(Some(Duration::from_millis(50)))
         .map_err(|e| format!("Failed to configure UDP socket timeout: {}", e))?;
@@ -213,30 +120,49 @@ pub async fn tauri_tunnel_open(
         .unwrap_or(Ipv4Addr::LOCALHOST)
         .to_string();
 
+    let network_warning = detect_network_warning();
+
     let should_upnp = enable_upnp.unwrap_or(true);
-    let (upnp_lease, upnp_error) = if should_upnp {
+    let (upnp_lease, upnp_error, permission_denied) = if should_upnp {
         let mapped = tauri::async_runtime::spawn_blocking(move || try_map_upnp_udp(local_port))
             .await
             .map_err(|e| format!("UPnP mapping task panicked: {}", e))?;
         match mapped {
-            Ok(lease) => (Some(lease), None),
-            Err(err) => (None, Some(err)),
+            Ok(lease) => (Some(lease), None, false),
+            Err((err, denied)) => (None, Some(err), denied),
         }
     } else {
-        (None, None)
+        (None, None, false)
     };
 
     let socket_arc = Arc::new(socket);
     let shutdown = Arc::new(AtomicBool::new(false));
     let bytes_received = Arc::new(AtomicU64::new(0));
     let bytes_sent = Arc::new(AtomicU64::new(0));
-    let peer_addr = Arc::new(Mutex::new(None));
+    let routing = PeerRoutingTable::new();
+
+    let LocalBridgeHandles {
+        wt_url,
+        wt_cert_hash,
+        wt_error,
+        ws_url,
+        auth_token,
+        rx_broadcast,
+        shutdown_tx: bridge_shutdown_tx,
+    } = start_local_bridge(
+        session_id.clone(),
+        Arc::clone(&socket_arc),
+        routing.clone(),
+        Arc::clone(&bytes_sent),
+        Arc::clone(&shutdown),
+    )
+    .await?;
 
     let rx_socket = Arc::clone(&socket_arc);
     let rx_shutdown = Arc::clone(&shutdown);
     let rx_counter = Arc::clone(&bytes_received);
+    let rx_routing = routing.clone();
     let rx_session_id = session_id.clone();
-    let rx_app = app.clone();
 
     let rx_thread = thread::Builder::new()
         .name(format!("rc-tunnel-rx-{}", session_id))
@@ -245,13 +171,15 @@ pub async fn tauri_tunnel_open(
             while !rx_shutdown.load(Ordering::Relaxed) {
                 match rx_socket.recv_from(&mut buf) {
                     Ok((len, src_addr)) => {
+                        if len == HOLE_PUNCH_MAGIC.len() && &buf[..4] == HOLE_PUNCH_MAGIC {
+                            continue;
+                        }
                         rx_counter.fetch_add(len as u64, Ordering::Relaxed);
-                        let payload = TunnelPacketEventPayload {
-                            session_id: rx_session_id.clone(),
-                            from_addr: src_addr.to_string(),
-                            data: buf[..len].to_vec(),
-                        };
-                        let _ = rx_app.emit(TUNNEL_PACKET_EVENT, payload);
+                        let peer_id = rx_routing
+                            .resolve_peer_by_addr(&src_addr)
+                            .unwrap_or_else(|| src_addr.to_string());
+                        let frame = encode_bridge_frame(&peer_id, &buf[..len]);
+                        let _ = rx_broadcast.send(frame);
                     }
                     Err(err)
                         if err.kind() == std::io::ErrorKind::WouldBlock
@@ -259,7 +187,20 @@ pub async fn tauri_tunnel_open(
                     {
                         continue;
                     }
-                    Err(_) => break,
+                    Err(err) => {
+                        if !rx_shutdown.load(Ordering::Relaxed) {
+                            log::error!(
+                                "[RocketCompanion][Tunnel:{}] UDP recv_from error: {}",
+                                rx_session_id,
+                                err
+                            );
+                            eprintln!(
+                                "[RocketCompanion][Tunnel:{}] ERROR UDP recv_from: {}",
+                                rx_session_id, err
+                            );
+                        }
+                        break;
+                    }
                 }
             }
         })
@@ -273,16 +214,24 @@ pub async fn tauri_tunnel_open(
         external_port: upnp_lease.as_ref().map(|l| l.external_port),
         upnp_mapped: upnp_lease.is_some(),
         upnp_error,
+        permission_denied,
+        network_warning,
+        wt_url,
+        wt_cert_hash,
+        wt_error,
+        ws_url,
+        auth_token,
     };
 
     let session = ActiveTunnelSession {
         socket: socket_arc,
         local_port,
         upnp_lease,
-        peer_addr,
+        routing,
         bytes_sent,
         bytes_received,
         shutdown,
+        bridge_shutdown_tx,
         rx_thread: Some(rx_thread),
     };
 
@@ -301,9 +250,10 @@ pub async fn tauri_tunnel_open(
 }
 
 #[tauri::command]
-pub fn tauri_tunnel_connect(
+pub fn tauri_tunnel_connect_peer(
     state: State<'_, TunnelManagerState>,
     session_id: String,
+    peer_id: String,
     peer_addr: String,
 ) -> Result<(), String> {
     let parsed: SocketAddr = peer_addr
@@ -318,12 +268,42 @@ pub fn tauri_tunnel_connect(
         .get(&session_id)
         .ok_or_else(|| format!("Tunnel session '{}' not found", session_id))?;
 
-    if let Ok(mut peer_guard) = session.peer_addr.lock() {
-        *peer_guard = Some(parsed);
+    session.routing.upsert(peer_id.clone(), parsed);
+    if let Err(e) = session.socket.send_to(HOLE_PUNCH_MAGIC, parsed) {
+        log::warn!(
+            "[RocketCompanion][Tunnel:{}] Hole-punch send_to({}, peer={}) failed: {}",
+            session_id,
+            parsed,
+            peer_id,
+            e
+        );
     }
-    // Send a 4-byte UDP hole-punching keepalive probe so NAT tables open the 5-tuple
-    let _ = session.socket.send_to(b"RCPH", parsed);
     Ok(())
+}
+
+#[tauri::command]
+pub fn tauri_tunnel_disconnect_peer(
+    state: State<'_, TunnelManagerState>,
+    session_id: String,
+    peer_id: String,
+) -> Result<(), String> {
+    let guard = state
+        .sessions
+        .lock()
+        .map_err(|_| "TunnelManagerState lock poisoned".to_string())?;
+    if let Some(session) = guard.get(&session_id) {
+        session.routing.remove(&peer_id);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn tauri_tunnel_connect(
+    state: State<'_, TunnelManagerState>,
+    session_id: String,
+    peer_addr: String,
+) -> Result<(), String> {
+    tauri_tunnel_connect_peer(state, session_id, "default".to_string(), peer_addr)
 }
 
 #[tauri::command]
@@ -347,11 +327,9 @@ pub fn tauri_tunnel_send(
             .map_err(|e| format!("Invalid target SocketAddr '{}': {}", addr_str, e))?
     } else {
         session
-            .peer_addr
-            .lock()
-            .ok()
-            .and_then(|g| *g)
-            .ok_or_else(|| "No peer address configured for tunnel session".to_string())?
+            .routing
+            .resolve_addr_by_peer("default")
+            .ok_or_else(|| "No default peer address configured for tunnel session".to_string())?
     };
 
     let sent = session
@@ -392,11 +370,12 @@ pub fn tauri_tunnel_get_status(
         .lock()
         .map_err(|_| "TunnelManagerState lock poisoned".to_string())?;
     if let Some(session) = guard.get(&session_id) {
+        let all = session.routing.all_addrs();
+        let peer_count = all.len();
         let peer_addr = session
-            .peer_addr
-            .lock()
-            .ok()
-            .and_then(|g| *g)
+            .routing
+            .resolve_addr_by_peer("default")
+            .or_else(|| all.first().copied())
             .map(|a| a.to_string());
         Ok(TunnelStatusInfo {
             session_id,
@@ -405,6 +384,7 @@ pub fn tauri_tunnel_get_status(
             external_ip: session.upnp_lease.as_ref().map(|l| l.external_ip.to_string()),
             external_port: session.upnp_lease.as_ref().map(|l| l.external_port),
             upnp_mapped: session.upnp_lease.is_some(),
+            peer_count,
             peer_addr,
             bytes_sent: session.bytes_sent.load(Ordering::Relaxed),
             bytes_received: session.bytes_received.load(Ordering::Relaxed),
@@ -417,6 +397,7 @@ pub fn tauri_tunnel_get_status(
             external_ip: None,
             external_port: None,
             upnp_mapped: false,
+            peer_count: 0,
             peer_addr: None,
             bytes_sent: 0,
             bytes_received: 0,

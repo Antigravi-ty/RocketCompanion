@@ -10,6 +10,7 @@ import {
 } from '../../protocol/TunnelProtocol.ts';
 import { P2PWebRTCChannel, type P2PWebRTCChannelOptions } from '../P2PWebRTCChannel.ts';
 import type {
+  TunnelDiagnosticListener,
   TunnelEndpointDescriptor,
   TunnelLifecycleState,
   TunnelOpenOptions,
@@ -159,6 +160,14 @@ export class WebTunnelTransport implements TunnelTransport {
     }
   }
 
+  async connectPeer(_peerId: string, remoteEndpoint: TunnelEndpointDescriptor): Promise<void> {
+    await this.connectToPeer(remoteEndpoint);
+  }
+
+  async disconnectPeer(_peerId: string): Promise<void> {
+    // WebTunnelTransport wraps a single P2PWebRTCChannel; per-peer lifecycle is managed by close()
+  }
+
   send(payload: TunnelPacketPayload): boolean {
     if (!this.channel) return false;
     const sent = this.channel.send(payload);
@@ -173,6 +182,10 @@ export class WebTunnelTransport implements TunnelTransport {
     return sent;
   }
 
+  sendToPeer(_peerId: string, payload: TunnelPacketPayload, _reliable?: boolean): boolean {
+    return this.send(payload);
+  }
+
   sendTyped(
     packetType: TunnelPacketType | number,
     payload: Uint8Array,
@@ -180,6 +193,24 @@ export class WebTunnelTransport implements TunnelTransport {
   ): boolean {
     const envelope = encodeTunnelEnvelope(packetType, payload, flags);
     return this.send(envelope);
+  }
+
+  sendTypedToPeer(
+    _peerId: string,
+    packetType: TunnelPacketType | number,
+    payload: Uint8Array,
+    flags: number = TUNNEL_ENVELOPE_FLAGS.NONE
+  ): boolean {
+    return this.sendTyped(packetType, payload, flags);
+  }
+
+  broadcastTyped(
+    packetType: TunnelPacketType | number,
+    payload: Uint8Array,
+    flags: number = TUNNEL_ENVELOPE_FLAGS.NONE,
+    _excludePeerId?: string
+  ): number {
+    return this.sendTyped(packetType, payload, flags) ? 1 : 0;
   }
 
   onPacket(listener: TunnelPacketListener): () => void {
@@ -196,15 +227,21 @@ export class WebTunnelTransport implements TunnelTransport {
     };
   }
 
+  onDiagnosticWarning(_listener: TunnelDiagnosticListener): () => void {
+    return () => {};
+  }
+
   getStats(): TunnelStats {
     return {
       kind: this.kind,
+      bridgeMode: 'webrtc',
       state: this.state,
       bytesSent: this.bytesSent,
       bytesReceived: this.bytesReceived,
       packetsSent: this.packetsSent,
       packetsReceived: this.packetsReceived,
       upnpMapped: false,
+      peerCount: this.channel?.isOpen ? 1 : 0,
       peerAddr: this.channel?.peerName ?? null,
     };
   }
