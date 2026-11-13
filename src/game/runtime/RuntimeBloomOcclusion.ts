@@ -33,6 +33,9 @@ export class RuntimeBloomOcclusion {
   private readonly host: RuntimeBloomOcclusionHostPort;
   public readonly occluderMeshes: THREE.Mesh[] = [];
   public readonly savedMaterials: Array<THREE.Material | THREE.Material[]> = [];
+  public readonly dynamicOcclusionMeshes: THREE.Mesh[] = [];
+  public readonly savedDynamicColorWrites: Array<{ mat: THREE.Material; colorWrite: boolean }> =
+    [];
   public readonly invisibleObjects: THREE.Object3D[] = [];
   public readonly hiddenObjects: THREE.Object3D[] = [];
   public lastTreeVersion = -1;
@@ -182,6 +185,7 @@ export class RuntimeBloomOcclusion {
     if (this.lastTreeVersion !== r.arena.renderTreeVersion) {
       this.occluderMeshes.length = 0;
       this.savedMaterials.length = 0;
+      this.dynamicOcclusionMeshes.length = 0;
       this.invisibleObjects.length = 0;
 
       r.arena.scene.traverse(
@@ -196,6 +200,10 @@ export class RuntimeBloomOcclusion {
               this.invisibleObjects.push(node);
               return;
             }
+            if (node.userData?.isDynamicOcclusionMesh) {
+              this.dynamicOcclusionMeshes.push(node);
+              return;
+            }
             this.occluderMeshes.push(node);
             this.savedMaterials.push(node.material);
             return;
@@ -206,13 +214,33 @@ export class RuntimeBloomOcclusion {
       this.lastTreeVersion = r.arena.renderTreeVersion;
     }
 
+    this.hiddenObjects.length = 0;
     for (let i = 0; i < this.occluderMeshes.length; i++) {
       const mesh = this.occluderMeshes[i];
-      this.savedMaterials[i] = mesh.material;
+      const currentMat = mesh.material;
+      this.savedMaterials[i] = currentMat;
+      const mats = Array.isArray(currentMat) ? currentMat : [currentMat];
+      if (mats.every((m: THREE.Material) => m && m.transparent && !m.depthWrite)) {
+        if (mesh.visible) {
+          mesh.visible = false;
+          this.hiddenObjects.push(mesh);
+        }
+        continue;
+      }
       mesh.material = this.darkMaterial;
     }
 
-    this.hiddenObjects.length = 0;
+    this.savedDynamicColorWrites.length = 0;
+    for (let i = 0; i < this.dynamicOcclusionMeshes.length; i++) {
+      const mesh = this.dynamicOcclusionMeshes[i];
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const mat of mats) {
+        if (!mat) continue;
+        this.savedDynamicColorWrites.push({ mat, colorWrite: mat.colorWrite });
+        mat.colorWrite = false;
+      }
+    }
+
     for (let i = 0; i < this.invisibleObjects.length; i++) {
       const obj = this.invisibleObjects[i];
       if (obj.visible) {
@@ -226,6 +254,11 @@ export class RuntimeBloomOcclusion {
     for (let i = 0; i < this.occluderMeshes.length; i++) {
       this.occluderMeshes[i].material = this.savedMaterials[i];
     }
+    for (let i = 0; i < this.savedDynamicColorWrites.length; i++) {
+      const entry = this.savedDynamicColorWrites[i];
+      entry.mat.colorWrite = entry.colorWrite;
+    }
+    this.savedDynamicColorWrites.length = 0;
     for (let i = 0; i < this.hiddenObjects.length; i++) {
       this.hiddenObjects[i].visible = true;
     }
@@ -234,6 +267,8 @@ export class RuntimeBloomOcclusion {
   public dispose(): void {
     this.occluderMeshes.length = 0;
     this.savedMaterials.length = 0;
+    this.dynamicOcclusionMeshes.length = 0;
+    this.savedDynamicColorWrites.length = 0;
     this.invisibleObjects.length = 0;
     this.hiddenObjects.length = 0;
     this.lastTreeVersion = -1;

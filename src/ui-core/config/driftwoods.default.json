@@ -163,7 +163,7 @@
   },
   "hexes": {
     "color": "#ffffff",
-    "opacity": 0.22,
+    "opacity": 0.03,
     "roughness": 0.5,
     "metalness": 0,
     "emissive": "#ffffff",

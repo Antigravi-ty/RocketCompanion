@@ -181,7 +181,7 @@ export function createDriftwoodsOcclusionOverlayPass(
     : new MeshStandardMaterial();
   overlayStandardMat.name = `${name}_OcclusionTransparent_Standard`;
   overlayStandardMat.transparent = true;
-  overlayStandardMat.depthWrite = true;
+  overlayStandardMat.depthWrite = false;
   overlayStandardMat.stencilWrite = true;
   overlayStandardMat.stencilFunc = AlwaysStencilFunc;
   overlayStandardMat.stencilRef = 2;
@@ -196,7 +196,7 @@ export function createDriftwoodsOcclusionOverlayPass(
     map: overlayStandardMat.map || null,
     transparent: true,
     opacity: overlayStandardMat.opacity,
-    depthWrite: true,
+    depthWrite: false,
     side: overlayStandardMat.side,
     wireframe: overlayStandardMat.wireframe,
     emissiveIntensity: 0,
@@ -270,7 +270,7 @@ export function applyDriftwoodsLayerMaterials(
         mat.opacity = layerConfig.opacity;
       }
       mat.transparent = isOverlayMat;
-      mat.depthWrite = true;
+      mat.depthWrite = !isOverlayMat;
       if (isOverlayMat) {
         mat.stencilWrite = true;
         mat.stencilFunc = AlwaysStencilFunc;
