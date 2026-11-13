@@ -18,12 +18,20 @@ export interface QuickNotificationToastCardProps {
   isLight: boolean;
   lifecycle: NotificationIconLifecycle;
   unreadCount: number;
+  isForceCollapsed?: boolean;
   slotRight?: React.ReactNode | boolean;
   onToggleStack: () => void;
 }
 
 export const QuickNotificationBellCluster: React.FC<QuickNotificationToastCardProps> = React.memo(
-  ({ isLight, lifecycle, unreadCount, slotRight, onToggleStack }) => {
+  ({
+    isLight,
+    lifecycle,
+    unreadCount,
+    isForceCollapsed = false,
+    slotRight,
+    onToggleStack,
+  }) => {
     const isIconMounted = lifecycle !== 'hidden';
     const isContainerShrunk = lifecycle === 'exiting_container';
     const isBellFaded = lifecycle === 'exiting_bell' || lifecycle === 'exiting_container';
@@ -62,9 +70,11 @@ export const QuickNotificationBellCluster: React.FC<QuickNotificationToastCardPr
                       onToggleStack();
                     }}
                     title={
-                      unreadCount > 0
+                      isForceCollapsed
+                        ? 'Expand collapsed notifications'
+                        : unreadCount > 0
                         ? `View unread notifications (${unreadCount})`
-                        : 'Notification Center'
+                        : 'Collapse notifications'
                     }
                     aria-label="Quick Notifications"
                     className={`relative h-10 w-10 flex items-center justify-center rounded-xl border transition-all cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 active:scale-95 z-30 shadow-md ${
@@ -91,7 +101,17 @@ export const QuickNotificationBellCluster: React.FC<QuickNotificationToastCardPr
                       }}
                       className="flex items-center justify-center"
                     >
-                      <BellDot className="h-5 w-5 text-neutral-900 dark:text-neutral-100" />
+                      <BellDot
+                        className={`h-5 w-5 transition-colors duration-150 ${
+                          isForceCollapsed
+                            ? isLight
+                              ? 'text-yellow-600'
+                              : 'text-yellow-400'
+                            : isLight
+                            ? 'text-neutral-900'
+                            : 'text-neutral-100'
+                        }`}
+                      />
                     </motion.div>
                   </motion.button>
 

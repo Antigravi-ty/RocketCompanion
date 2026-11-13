@@ -147,6 +147,14 @@ export const MenuShell: React.FC<MenuShellProps> = ({ inspectorSlot }) => {
     };
   }, []);
 
+  const prevMenuOpenRef = useRef(isOpen);
+  useEffect(() => {
+    if (prevMenuOpenRef.current && !isOpen) {
+      useQuickNotificationStore.getState().setForceCollapsed(false);
+    }
+    prevMenuOpenRef.current = isOpen;
+  }, [isOpen]);
+
   useEffect(() => {
     if (matchMode === 'online-warmup' && !onlineSession.signalingConnected) {
       useQuickNotificationStore.getState().pushNotification({
