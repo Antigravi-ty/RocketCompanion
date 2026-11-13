@@ -129,7 +129,7 @@ export const ReplayDirectorOrientationCard: React.FC<ReplayDirectorOrientationCa
           `Imported ${file.name} (${parsed.activeFrames?.length || 0} frames) - 3D Preview active`
         );
       } else {
-        setExportedFileMsg(`Failed to parse ${file.name}: invalid .rcgr.gz / CSV / JSON`);
+        setExportedFileMsg(`Failed to parse ${file.name}: invalid .RCGR / CSV / JSON`);
       }
       setTimeout(() => setExportedFileMsg(null), 4000);
       setTickRevision((r) => r + 1);
@@ -180,7 +180,7 @@ export const ReplayDirectorOrientationCard: React.FC<ReplayDirectorOrientationCa
       <input
         ref={fileInputRef}
         type="file"
-        accept=".rcgr.gz,.rcreplay.gz,.gz,.rcgr,.rcreplay,.csv,.json,application/gzip,text/csv,application/json"
+        accept=".RCGR,.rcgr,.RCReplay,.rcreplay,.csv,.json,text/csv,application/json"
         onChange={handleImportFileChange}
         className="hidden"
       />
@@ -189,7 +189,7 @@ export const ReplayDirectorOrientationCard: React.FC<ReplayDirectorOrientationCa
         <div className="flex items-center gap-1.5 min-w-0">
           <Crosshair className="h-3.5 w-3.5 text-sky-400 shrink-0" />
           <span className="font-semibold text-[11px] truncate">
-            Goal Replay Container (.rcgr.gz) &amp; Window Diagnostics
+            Goal Replay Container (.RCGR) &amp; Window Diagnostics
           </span>
         </div>
         <Badge
@@ -216,7 +216,7 @@ export const ReplayDirectorOrientationCard: React.FC<ReplayDirectorOrientationCa
                   ? 'GOAL REPLAY LIVE [P]'
                   : hasRetainedReplay
                     ? 'LAST REPLAY · EXPORT READY'
-                    : 'IMPORT .RCGR.GZ OR SCORE'}
+                    : 'IMPORT .RCGR OR SCORE'}
         </Badge>
       </div>
 
@@ -238,7 +238,7 @@ export const ReplayDirectorOrientationCard: React.FC<ReplayDirectorOrientationCa
         />
       ) : (
         <p className={`text-[10px] leading-snug ${mutedText}`}>
-          Import any <b>.rcgr.gz</b> Goal Replay container (or legacy CSV/JSON) to immediately
+          Import any <b>.RCGR</b> Goal Replay container (or legacy CSV/JSON) to immediately
           preview all cars, orientations, name tags, and camera paths in the 3D Arena, or score a
           Goal Replay to export.
         </p>
@@ -252,10 +252,10 @@ export const ReplayDirectorOrientationCard: React.FC<ReplayDirectorOrientationCa
             onClick={() => fileInputRef.current?.click()}
             isLight={isLight}
             className="gap-1 px-2.5 py-1 text-[10px] font-bold"
-            title="Import a .rcgr.gz (or .rcreplay.gz / .csv / .json) Goal Replay file to preview and scrub in the 3D Arena"
+            title="Import an .RCGR (or .RCReplay / .csv / .json) Goal Replay file to preview and scrub in the 3D Arena"
           >
             <Upload className="h-3 w-3 shrink-0" />
-            <span>Import .rcgr.gz</span>
+            <span>Import .RCGR</span>
           </Button>
 
           <Button
@@ -267,12 +267,12 @@ export const ReplayDirectorOrientationCard: React.FC<ReplayDirectorOrientationCa
             className="gap-1 px-2.5 py-1 text-[10px] font-bold"
             title={
               canExportReplay
-                ? 'Export Gzip-compressed .rcgr.gz containing full 8-car 448-float physics, orientations, name tags, directorConfig, and camera trajectory'
+                ? 'Export compressed .RCGR containing full 8-car 448-float physics, orientations, name tags, directorConfig, and camera trajectory'
                 : 'Available once a Goal Replay is active or imported'
             }
           >
             <Download className="h-3 w-3 text-emerald-400 shrink-0" />
-            <span>Export .rcgr.gz</span>
+            <span>Export .RCGR</span>
           </Button>
         </div>
 

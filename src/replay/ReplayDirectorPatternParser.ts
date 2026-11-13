@@ -53,7 +53,7 @@ async function decompressBytesIfGzip(bytesOrBuffer: Uint8Array | ArrayBuffer): P
  */
 export function parseDirectorDiagnosticContainerBytes(
   bytesOrBuffer: Uint8Array | ArrayBuffer,
-  fileName: string = 'imported.rcgr.gz'
+  fileName: string = 'imported.RCGR'
 ): ParsedDirectorDiagnosticPattern | null {
   const u8 = bytesOrBuffer instanceof Uint8Array ? bytesOrBuffer : new Uint8Array(bytesOrBuffer);
   if (!isBinaryRCReplayContainer(u8)) return null;
@@ -368,7 +368,7 @@ export function parseDirectorDiagnosticPatternText(
  */
 export async function parseDirectorDiagnosticInput(
   input: unknown,
-  fileName: string = 'imported.rcgr.gz'
+  fileName: string = 'imported.RCGR'
 ): Promise<ParsedDirectorDiagnosticPattern | null> {
   if (!input) return null;
   if (typeof input === 'string') {

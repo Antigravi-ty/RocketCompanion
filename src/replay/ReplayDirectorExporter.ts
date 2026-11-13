@@ -103,7 +103,7 @@ export function exportReplayDirectorDiagnosticPattern(
     const containerPayload = buildDirectorReplayContainerPayload(ctrl, options);
     if (!containerPayload) return null;
     const containerBytes = serializeRCReplayBinaryContainer(containerPayload);
-    const filename = `goal-replay-${frameTag}-${stamp}.rcgr.gz`;
+    const filename = `goal-replay-${frameTag}-${stamp}.RCGR`;
 
     if (typeof document !== 'undefined' && typeof Blob !== 'undefined') {
       packAndCompressReplayInBackground(containerPayload)

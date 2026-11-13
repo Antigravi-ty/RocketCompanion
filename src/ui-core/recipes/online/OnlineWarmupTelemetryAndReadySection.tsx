@@ -190,7 +190,7 @@ export const OnlineWarmupTelemetryAndReadySection: React.FC<
         onClick={handleTriggerReplayExport}
         onMouseEnter={() =>
           onHoverDesc?.(
-            'Export Training Replay (60s): Export recent online co-op training frames from the FIFO ring buffer to .rcreplay.gz (Hotkey: F8).'
+            'Export Training Replay (60s): Export recent online co-op training frames from the FIFO ring buffer to .RCReplay (Hotkey: F8).'
           )
         }
         onMouseLeave={() => onHoverDesc?.(null)}

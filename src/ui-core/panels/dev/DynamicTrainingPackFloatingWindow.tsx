@@ -11,7 +11,7 @@ import { DynamicTrainingShotEditorCard } from './dynamic-training/DynamicTrainin
 
 export const SURFACE_META: SurfaceMeta = {
   id: 'dynamic-training-pack',
-  title: 'Dynamic Training Pack (.rcd)',
+  title: 'Dynamic Training Pack (.RCDPack)',
   subtitle: 'Capture 4s replay state sessions, configure per-car takeover, and practice.',
   icon: 'UsersRoundCollaboration',
   layer: 'floating-dev',

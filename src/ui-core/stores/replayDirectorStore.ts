@@ -379,7 +379,7 @@ export async function importActiveReplayDirectorDiagnosticPattern(
   const fileName =
     options.fileName ||
     (inputRecord && typeof inputRecord.name === 'string' && inputRecord.name) ||
-    'imported.rcgr.gz';
+    'imported.RCGR';
 
   let parsed: ReplayDirectorDiagnosticPattern | null = null;
   if (inputRecord && Array.isArray(inputRecord.activeFrames)) {
