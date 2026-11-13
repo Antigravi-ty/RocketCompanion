@@ -293,7 +293,7 @@ export const PlayModeCard: React.FC<PlayModeCardProps> = React.memo((props) => {
           >
             <span
               style={{
-                fontFamily: 'var(--font-jetbrains)',
+                fontFamily: 'var(--font-mono)',
                 fontSize: `${cfg.monoTitleSizePx}px`,
                 fontWeight: cfg.monoTitleWeight,
                 letterSpacing: `${cfg.monoLetterSpacingEm}em`,

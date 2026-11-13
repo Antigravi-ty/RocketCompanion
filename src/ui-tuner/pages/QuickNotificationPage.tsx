@@ -1,14 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BellDot, Eye } from 'lucide-react';
 import {
-  useQuickNotificationStore, pushOngoingNotification, updateOngoingNotification,
+  useQuickNotificationStore,
+  pushOngoingNotification,
+  updateOngoingNotification,
   completeOngoingNotification,
 } from '../../ui-core/stores/quickNotificationStore';
-import {
-  MONO_FONT_STACK,
-  type QuickNotificationGlowLevel, type QuickNotificationType, type QuickNotificationButtonConfig,
+import type {
+  QuickNotificationGlowLevel,
+  QuickNotificationType,
+  QuickNotificationButtonConfig,
 } from '../../ui-core/compounds/QuickNotification';
-import { QuickNotificationSystem, type NotificationIconLifecycle } from '../../ui-core/navigation/QuickNotificationSystem';
+import { MONO_FONT_STACK } from '../../ui-core/tokens/typography';
+import {
+  QuickNotificationSystem,
+  type NotificationIconLifecycle,
+} from '../../ui-core/navigation/QuickNotificationSystem';
 import { CodeBlock } from '../CodeBlock';
 import { QuickNotificationControlPanel } from './quick-notification/QuickNotificationControlPanel';
 import { QuickNotificationPresetsPanel } from './quick-notification/QuickNotificationPresetsPanel';
@@ -53,11 +60,8 @@ const LAZY_LOADING_SIM_STEPS: Array<{
 ];
 
 export const QuickNotificationPage: React.FC<{ isLight?: boolean }> = ({ isLight = false }) => {
-  const {
-    activeOngoingTask,
-    ongoingConflictPolicy,
-    pushNotification,
-  } = useQuickNotificationStore();
+  const { activeOngoingTask, ongoingConflictPolicy, pushNotification } =
+    useQuickNotificationStore();
 
   const [iconLifecycle, setIconLifecycle] = useState<NotificationIconLifecycle>('hidden');
 
@@ -96,8 +100,8 @@ export const QuickNotificationPage: React.FC<{ isLight?: boolean }> = ({ isLight
           ongoingProgressMode === 'indeterminate'
             ? 'indeterminate'
             : ongoingProgressMode === 'determinate'
-            ? ongoingProgressPct / 100
-            : undefined,
+              ? ongoingProgressPct / 100
+              : undefined,
         isSpinningIcon,
       });
       return;
@@ -138,23 +142,30 @@ export const QuickNotificationPage: React.FC<{ isLight?: boolean }> = ({ isLight
       0,
       'octagon-alert',
       'Critical: Main game loop frame drop detected',
-      [{ key: 'reconnect', label: 'Reconnect', icon: 'rotate-ccw', format: 'icon-text', color: 'amber' }]
+      [
+        {
+          key: 'reconnect',
+          label: 'Reconnect',
+          icon: 'rotate-ccw',
+          format: 'icon-text',
+          color: 'amber',
+        },
+      ]
     );
     setTimeout(() => {
-      handlePushPreset(
-        'warning',
-        'temporary',
-        3000,
-        'flame',
-        'GPU temperature reached 84°C',
-        [
-          { key: 'cool', label: 'Cool', icon: 'check', format: 'icon-only', color: 'green' },
-          { key: 'ignore', label: 'Mute', icon: 'thumbs-down', format: 'icon-only', color: 'red' },
-        ]
-      );
+      handlePushPreset('warning', 'temporary', 3000, 'flame', 'GPU temperature reached 84°C', [
+        { key: 'cool', label: 'Cool', icon: 'check', format: 'icon-only', color: 'green' },
+        { key: 'ignore', label: 'Mute', icon: 'thumbs-down', format: 'icon-only', color: 'red' },
+      ]);
     }, 450);
     setTimeout(() => {
-      handlePushPreset('info', 'temporary', 5000, 'bell', 'Notice: Sync token refreshed successfully');
+      handlePushPreset(
+        'info',
+        'temporary',
+        5000,
+        'bell',
+        'Notice: Sync token refreshed successfully'
+      );
     }, 900);
   };
 
@@ -219,7 +230,13 @@ export const QuickNotificationPage: React.FC<{ isLight?: boolean }> = ({ isLight
           type: 'temporary',
           duration: 3000,
           buttons: [
-            { key: 'inspect', label: 'Inspect', icon: 'rotate-ccw', format: 'icon-text', color: 'amber' },
+            {
+              key: 'inspect',
+              label: 'Inspect',
+              icon: 'rotate-ccw',
+              format: 'icon-text',
+              color: 'amber',
+            },
           ],
         });
       }, 700)
@@ -292,16 +309,23 @@ pushQuickNotification({
 <QuickNotificationSystem slotRight={true} />`;
 
   return (
-    <div style={{ fontFamily: MONO_FONT_STACK }} className="flex flex-col gap-5 w-full relative font-mono text-xs">
+    <div
+      style={{ fontFamily: MONO_FONT_STACK }}
+      className="flex flex-col gap-5 w-full relative font-mono text-xs"
+    >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-neutral-200/80 dark:border-neutral-800">
         <div className="flex items-center gap-3">
           <div className="h-8 w-8 rounded-lg bg-neutral-200/80 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 flex items-center justify-center shrink-0">
             <BellDot className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Quick Notification Quick notification system</h1>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
+              Quick Notification Quick notification system
+            </h1>
             <p className={`text-xs mt-0.5 ${isLight ? 'text-neutral-500' : 'text-neutral-400'}`}>
-              Lightweight drawer notification. 4 Level inner glow and non-glow regular base plate, Far-right collapse button, Multi-business button color palettes and horizontal drawer expansion animations.
+              Lightweight drawer notification. 4 Level inner glow and non-glow regular base plate,
+              Far-right collapse button, Multi-business button color palettes and horizontal drawer
+              expansion animations.
             </p>
           </div>
         </div>
@@ -309,27 +333,42 @@ pushQuickNotification({
 
       <div
         className={`relative w-full min-h-[520px] rounded-2xl border p-6 overflow-hidden select-none transition-colors ${
-        isLight ? 'bg-neutral-100/70 border-neutral-200 shadow-inner'
-        : 'bg-neutral-950/80 border-neutral-800 shadow-inner' }`} style={{ backgroundImage: isLight
-        ? 'radial-gradient(#d4d4d8 1px, transparent 1px)' : 'radial-gradient(#27272a 1px, transparent 1px)',
-        backgroundSize: '24px 24px' }}>
+          isLight
+            ? 'bg-neutral-100/70 border-neutral-200 shadow-inner'
+            : 'bg-neutral-950/80 border-neutral-800 shadow-inner'
+        }`}
+        style={{
+          backgroundImage: isLight
+            ? 'radial-gradient(#d4d4d8 1px, transparent 1px)'
+            : 'radial-gradient(#27272a 1px, transparent 1px)',
+          backgroundSize: '24px 24px',
+        }}
+      >
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none opacity-30 select-none">
           <span className="text-3xl mb-1">[Bell]</span>
           <span className="text-xs font-mono font-bold text-neutral-800 dark:text-neutral-200">
             [Quick Notification Simulation Canvas]
           </span>
           <span className="text-[11px] text-neutral-400 max-w-md text-center mt-1">
-            Top-right dual slots: Slot 1 (Stack Icon / Empty slot) and Slot 2 (Notification Icon). Each drawer slides out from right to left when the unread stack expands.
+            Top-right dual slots: Slot 1 (Stack Icon / Empty slot) and Slot 2 (Notification Icon).
+            Each drawer slides out from right to left when the unread stack expands.
           </span>
         </div>
 
-        <QuickNotificationSystem isLight={isLight} absolute={true} slotRight={showStackIcon}
-          previewNotification={liveMode ? livePreviewDraft : null} onLifecycleChange={setIconLifecycle} />
+        <QuickNotificationSystem
+          isLight={isLight}
+          absolute={true}
+          slotRight={showStackIcon}
+          previewNotification={liveMode ? livePreviewDraft : null}
+          onLifecycleChange={setIconLifecycle}
+        />
 
         {liveMode && (
           <div className="absolute bottom-4 left-4 flex items-center gap-2 px-3 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-500 text-[11px] font-mono pointer-events-none">
             <Eye className="h-3.5 w-3.5 animate-pulse" />
-            <span>LIVE Enable real-time debug mode · Real-time character and button projection</span>
+            <span>
+              LIVE Enable real-time debug mode · Real-time character and button projection
+            </span>
           </div>
         )}
       </div>
@@ -345,16 +384,25 @@ pushQuickNotification({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <QuickNotificationControlPanel isLight={isLight} />
 
-        <QuickNotificationPresetsPanel isLight={isLight} handlePushCurrent={handlePushCurrent}
-          handlePushPreset={handlePushPreset} handlePushBatch={handlePushBatch}
+        <QuickNotificationPresetsPanel
+          isLight={isLight}
+          handlePushCurrent={handlePushCurrent}
+          handlePushPreset={handlePushPreset}
+          handlePushBatch={handlePushBatch}
           handleRunLazyLoadingSimulation={handleRunLazyLoadingSimulation}
           handleRunPriorityPreemptionTest={handleRunPriorityPreemptionTest}
-          handleRunMultiTaskTest={handleRunMultiTaskTest} ongoingConflictPolicy={ongoingConflictPolicy}
-          activeOngoingTask={activeOngoingTask} />
+          handleRunMultiTaskTest={handleRunMultiTaskTest}
+          ongoingConflictPolicy={ongoingConflictPolicy}
+          activeOngoingTask={activeOngoingTask}
+        />
       </div>
 
       <div className="mt-2">
-        <CodeBlock code={generatedUsageCode} language="tsx" title="QuickNotification Recipe (Code usage demo)" />
+        <CodeBlock
+          code={generatedUsageCode}
+          language="tsx"
+          title="QuickNotification Recipe (Code usage demo)"
+        />
       </div>
     </div>
   );

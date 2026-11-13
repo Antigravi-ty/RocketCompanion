@@ -253,7 +253,7 @@ export const TakeoverCountdownHUD = React.memo(
           data-ui-element="hud-takeover-countdown"
           className={`relative w-[10000px] max-w-none flex flex-col items-center justify-end text-center select-none pointer-events-none py-2 ${className}`}
           style={{
-            fontFamily: 'var(--font-jetbrains), monospace',
+            fontFamily: 'var(--font-mono)',
             opacity: payload ? 1 : 0,
             visibility: payload ? 'visible' : 'hidden',
           }}
@@ -275,7 +275,7 @@ export const TakeoverCountdownHUD = React.memo(
               data-role="takeover-top-regular-static"
               className="leading-none whitespace-nowrap text-center"
               style={{
-                fontFamily: 'var(--font-jetbrains), monospace',
+                fontFamily: 'var(--font-mono)',
                 fontWeight: 400,
                 transform: 'none',
                 paintOrder: 'stroke fill',
@@ -299,7 +299,7 @@ export const TakeoverCountdownHUD = React.memo(
                 data-role="takeover-main-thin-countdown"
                 className="leading-none whitespace-nowrap tabular-nums text-center"
                 style={{
-                  fontFamily: 'var(--font-jetbrains), monospace',
+                  fontFamily: 'var(--font-mono)',
                   fontWeight: 100,
                 }}
               >
@@ -313,7 +313,7 @@ export const TakeoverCountdownHUD = React.memo(
               data-role="takeover-sub-caption"
               className="mt-2 px-3 py-0.5 rounded-full border bg-neutral-950/92 text-[11px] font-normal tracking-[0.14em] whitespace-nowrap"
               style={{
-                fontFamily: 'var(--font-jetbrains), monospace',
+                fontFamily: 'var(--font-mono)',
                 display: payload?.subText ? 'inline-flex' : 'none',
               }}
             >

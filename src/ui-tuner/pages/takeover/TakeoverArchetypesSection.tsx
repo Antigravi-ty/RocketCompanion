@@ -90,7 +90,8 @@ export const TakeoverArchetypesSection: React.FC<TakeoverArchetypesSectionProps>
           </h2>
         </div>
         <span className="text-xs font-mono opacity-65">
-          Click any card to switch Team Side (Blue vs Orange) &amp; run the replacing-in -&gt; 3-2-1 -&gt; Cockpit HUD sequence
+          Click any card to switch Team Side (Blue vs Orange) &amp; run the replacing-in -&gt; 3-2-1
+          -&gt; Cockpit HUD sequence
         </span>
       </div>
 
@@ -109,7 +110,7 @@ export const TakeoverArchetypesSection: React.FC<TakeoverArchetypesSectionProps>
               </span>
               <div
                 style={{
-                  fontFamily: 'var(--font-jetbrains), monospace',
+                  fontFamily: 'var(--font-mono)',
                   fontWeight: typoConfig.topFontWeight,
                   fontSize: '20px',
                   color: topVisuals.fillColor,
@@ -123,7 +124,7 @@ export const TakeoverArchetypesSection: React.FC<TakeoverArchetypesSectionProps>
               </div>
               <div
                 style={{
-                  fontFamily: 'var(--font-jetbrains), monospace',
+                  fontFamily: 'var(--font-mono)',
                   fontWeight: typoConfig.mainFontWeight,
                   fontSize: '44px',
                   color: glowConfig.textColor,

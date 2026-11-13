@@ -50,10 +50,7 @@ export const HudSpatialChoreographyStageCanvas: React.FC = () => {
       />
 
       {/* Pure L2 HUD Anchor Stage Shell */}
-      <HudAnchorStage
-        strategy={layoutStrategy}
-        style={{ fontFamily: 'var(--font-jetbrains)' }}
-      >
+      <HudAnchorStage strategy={layoutStrategy} style={{ fontFamily: 'var(--font-mono)' }}>
         {/* 1. TOP-LEFT ZONE:
                - Top Container (`56px` shared vertical space)
                - Below (`y = 56px`): My Team `[1, 2, 3]` `EdgePlayerHudStrip` */}
@@ -189,8 +186,8 @@ export const HudSpatialChoreographyStageCanvas: React.FC = () => {
                 jumpPlacement === 'top-left'
                   ? 'top'
                   : jumpPlacement === 'center-bottom-right'
-                  ? 'right'
-                  : 'left'
+                    ? 'right'
+                    : 'left'
               }
               align={jumpPlacement === 'top-left' ? 'start' : 'center'}
               gap={jumpPlacement === 'top-left' ? 8 : 14}
@@ -228,10 +225,7 @@ export const HudSpatialChoreographyStageCanvas: React.FC = () => {
             instant={instantCockpitTransition}
             innerClassName="pr-5"
           >
-            <CircularBoostGauge
-              subscribeBoost={channel.subscribeBoost}
-              isLight={hudThemeLight}
-            />
+            <CircularBoostGauge subscribeBoost={channel.subscribeBoost} isLight={hudThemeLight} />
           </HudSlot>
         </HudZone>
 

@@ -21,9 +21,7 @@ export interface CenterUpperArchetypesSectionProps {
   handleApplyCustomPreset: (preset: CustomAnnouncementPreset) => void;
 }
 
-export const CenterUpperArchetypesSection: React.FC<
-  CenterUpperArchetypesSectionProps
-> = ({
+export const CenterUpperArchetypesSection: React.FC<CenterUpperArchetypesSectionProps> = ({
   isLight,
   activePayload,
   handleSelectVariant,
@@ -46,17 +44,27 @@ export const CenterUpperArchetypesSection: React.FC<
     : winnerBlueConfig.glowColor;
 
   return (
-    <section id="center-upper-archetypes" className={`p-5 rounded-3xl border flex flex-col gap-5 scroll-mt-24 ${
-      isLight ? 'bg-white border-neutral-200 text-neutral-900 shadow-xs'
-      : 'bg-neutral-900/80 border-neutral-800 text-neutral-100 shadow-lg' }`}>
+    <section
+      id="center-upper-archetypes"
+      className={`p-5 rounded-3xl border flex flex-col gap-5 scroll-mt-24 ${
+        isLight
+          ? 'bg-white border-neutral-200 text-neutral-900 shadow-xs'
+          : 'bg-neutral-900/80 border-neutral-800 text-neutral-100 shadow-lg'
+      }`}
+    >
       <div className="flex items-center justify-between border-b pb-2.5 border-neutral-200 dark:border-neutral-800 flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <Badge variant="amber" size="sm" isLight={isLight}>
             5E-3
           </Badge>
-          <h2 className="text-sm font-bold font-mono">Visual specification for three types of upper-center high-priority alerts (Countdown / Winner / Custom Announcement)</h2>
+          <h2 className="text-sm font-bold font-mono">
+            Visual specification for three types of upper-center high-priority alerts (Countdown /
+            Winner / Custom Announcement)
+          </h2>
         </div>
-        <span className="text-xs font-mono opacity-65">Click any card to switch text and trigger animations</span>
+        <span className="text-xs font-mono opacity-65">
+          Click any card to switch text and trigger animations
+        </span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -72,9 +80,17 @@ export const CenterUpperArchetypesSection: React.FC<
           <span className="absolute top-2.5 left-3 text-[10px] font-mono uppercase tracking-wider text-amber-400/90 bg-black/60 px-2 py-0.5 rounded border border-amber-500/30">
             1. Countdown · 3-2-1-GO · 1.50x Pop
           </span>
-          <div style={{ fontFamily: 'var(--font-jetbrains), monospace', fontWeight: 100, fontSize: '68px',
-            letterSpacing: '0em', color: '#FFE600', WebkitTextStroke: '1.2px #F59E0B', }}
-            className="leading-none select-none">
+          <div
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontWeight: 100,
+              fontSize: '68px',
+              letterSpacing: '0em',
+              color: '#FFE600',
+              WebkitTextStroke: '1.2px #F59E0B',
+            }}
+            className="leading-none select-none"
+          >
             3 · 2 · 1 · GO
           </div>
           <span className="absolute bottom-2.5 text-[10px] font-mono text-neutral-400 group-hover:text-white transition-colors">
@@ -91,14 +107,31 @@ export const CenterUpperArchetypesSection: React.FC<
           <span className="absolute top-2.5 left-3 text-[10px] font-mono uppercase tracking-wider text-sky-400/90 bg-black/60 px-2 py-0.5 rounded border border-sky-500/30">
             2. Winner · Top Unchanged + Blue Team Color
           </span>
-          <div style={{ fontFamily: 'var(--font-jetbrains), monospace', fontWeight: 400, fontSize: '20px',
-            letterSpacing: '0em', color: '#FFFFFF', textShadow: '0 0 18px rgba(245, 158, 11, 0.7)' }}
-            className="leading-none select-none">
+          <div
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontWeight: 400,
+              fontSize: '20px',
+              letterSpacing: '0em',
+              color: '#FFFFFF',
+              textShadow: '0 0 18px rgba(245, 158, 11, 0.7)',
+            }}
+            className="leading-none select-none"
+          >
             WINNER
           </div>
-          <div className="flex items-center gap-2 leading-none select-none"
-            style={{ fontFamily: 'var(--font-jetbrains), monospace', fontWeight: 100, fontSize: '36px', letterSpacing: '0em' }}>
-            <span style={{ color: winnerBlueConfig.textColor, textShadow: `0 0 22px ${blueGlowHex}` }}>
+          <div
+            className="flex items-center gap-2 leading-none select-none"
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontWeight: 100,
+              fontSize: '36px',
+              letterSpacing: '0em',
+            }}
+          >
+            <span
+              style={{ color: winnerBlueConfig.textColor, textShadow: `0 0 22px ${blueGlowHex}` }}
+            >
               BLUE
             </span>
             <span className="text-neutral-500 text-2xl">/</span>
@@ -125,14 +158,30 @@ export const CenterUpperArchetypesSection: React.FC<
           <span className="absolute top-2.5 left-3 text-[10px] font-mono uppercase tracking-wider text-emerald-400/90 bg-black/60 px-2 py-0.5 rounded border border-emerald-500/30">
             3. Custom · Forced Uppercase Announcement
           </span>
-          <div style={{ fontFamily: 'var(--font-jetbrains), monospace', fontWeight: 400, fontSize: '18px',
-            letterSpacing: '0em', color: '#FFFFFF', textShadow: '0 0 18px rgba(245, 158, 11, 0.7)' }}
-            className="leading-none select-none uppercase">
+          <div
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontWeight: 400,
+              fontSize: '18px',
+              letterSpacing: '0em',
+              color: '#FFFFFF',
+              textShadow: '0 0 18px rgba(245, 158, 11, 0.7)',
+            }}
+            className="leading-none select-none uppercase"
+          >
             ADMIN CONTROL
           </div>
-          <div style={{ fontFamily: 'var(--font-jetbrains), monospace', fontWeight: 100, fontSize: '38px',
-            letterSpacing: '0em', color: '#FFE600', textShadow: '0 0 22px rgba(245, 158, 11, 0.7)' }}
-            className="leading-none select-none whitespace-nowrap uppercase">
+          <div
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontWeight: 100,
+              fontSize: '38px',
+              letterSpacing: '0em',
+              color: '#FFE600',
+              textShadow: '0 0 22px rgba(245, 158, 11, 0.7)',
+            }}
+            className="leading-none select-none whitespace-nowrap uppercase"
+          >
             MATCH PAUSED
           </div>
           <span className="absolute bottom-2.5 text-[10px] font-mono text-neutral-400 group-hover:text-white transition-colors">

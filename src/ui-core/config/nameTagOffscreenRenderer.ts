@@ -357,7 +357,7 @@ export function drawOffscreenIndicatorCard2D(
       const fontPx = Math.max(9, circleRadiusPx * 0.72);
       const fontFamily =
         indicator.fontFamilyCss ||
-        '"JetBrains Mono", "SF Mono", ui-monospace, monospace';
+        'ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, Monaco, Consolas, monospace';
       const weight = indicator.fontWeight || 700;
       ctx.save();
       ctx.font = `${weight} ${fontPx.toFixed(1)}px ${fontFamily}`;
