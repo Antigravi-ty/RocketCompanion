@@ -342,6 +342,24 @@ export class ClientClockPacingController {
       hardResyncCooldownMs: 1000,
     };
 
+    const jitterMs = Number(sim?.jitterMs ?? ch?.jitterMs ?? 0);
+    if (
+      typeof ctx.sim?.pushClockSyncRttSample === 'function' &&
+      typeof ctx.sim?.evaluateClockSyncPacing === 'function'
+    ) {
+      ctx.sim.pushClockSyncRttSample(rttMs, Number.isFinite(jitterMs) ? jitterMs : 0);
+      const wasmClock = ctx.sim.evaluateClockSyncPacing(
+        currentClientTick,
+        serverTick,
+        this.inputBufferTarget,
+        this.maxLeadTicks ?? 64,
+        this.tickDtMs
+      );
+      if (wasmClock && ctx.metrics && !isUnimpairedLoopback) {
+        ctx.metrics.smoothedRttMs = wasmClock.smoothedRttMs;
+      }
+    }
+
     const rawStepOut = evaluatePacingControllerStep(
       ctx.telemetryCollector.pacingControllerState,
       { nowMs: ctx.nowMs, rawRttMs: rttMs, rawServerBuffer, packetArrived: true },

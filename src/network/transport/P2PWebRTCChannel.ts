@@ -74,6 +74,9 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   onIceCandidate: ChannelHook<[IceCandidateDescriptor]> = null;
 
   readonly send: DataChannelTransport['send'];
+  readonly sendUnreliable: DataChannelTransport['sendUnreliable'];
+  readonly sendReliable: DataChannelTransport['sendReliable'];
+  readonly evaluateAdaptiveSendDivisor: DataChannelTransport['evaluateAdaptiveSendDivisor'];
   readonly sendClientInput: DataChannelTransport['sendClientInput'];
   readonly sendServerState: DataChannelTransport['send'];
   readonly sendColorChange: DataChannelTransport['sendColorChange'];
@@ -184,7 +187,13 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
           });
         }
       },
-      bindDataChannel: (channel) => this.transport.bindDataChannel(channel),
+      bindDataChannel: (channel) => {
+        if (channel.label === 'game_net_reliable') {
+          this.transport.bindReliableDataChannel(channel);
+        } else {
+          this.transport.bindDataChannel(channel);
+        }
+      },
       handleIncomingMessage: (data) => this.transport.handleIncomingMessage(data),
       sendPong: (sendTime) => this.transport.sendPong(sendTime),
       deliverColorChange: (msg) => {
@@ -197,6 +206,11 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
 
     this.signaling.handler = this.handshake;
     this.send = this.transport.send.bind(this.transport);
+    this.sendUnreliable = this.transport.sendUnreliable.bind(this.transport);
+    this.sendReliable = this.transport.sendReliable.bind(this.transport);
+    this.evaluateAdaptiveSendDivisor = this.transport.evaluateAdaptiveSendDivisor.bind(
+      this.transport
+    );
     this.sendClientInput = this.transport.sendClientInput.bind(this.transport);
     this.sendServerState = this.transport.send.bind(this.transport);
     this.sendColorChange = this.transport.sendColorChange.bind(this.transport);

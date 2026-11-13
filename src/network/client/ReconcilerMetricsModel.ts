@@ -70,6 +70,42 @@ export interface TelemetrySimPort {
     snapshot: Float32Array | number[],
     opts?: { preserveEngineTick?: boolean; suppressBallWriteMark?: boolean }
   ) => void;
+  clearReconcilerHistory?: () => void;
+  setReconcilerTickControls?: (tick: number, carIndex: number, controls: unknown) => void;
+  setReconcilerRemoteControls?: (carIndex: number, controls: unknown) => void;
+  reconcileRollbackToTick?: (
+    serverTick: number,
+    targetClientTick: number,
+    localCarIndex: number,
+    kickoffMaskUntilTick: number,
+    authoritativeState?: Float32Array | number[] | null
+  ) => boolean;
+  stepReconcilerRange?: (
+    fromTick: number,
+    toTick: number,
+    localCarIndex: number,
+    kickoffMaskUntilTick: number,
+    silent: boolean
+  ) => number;
+  resetClockSync?: () => void;
+  pushClockSyncRttSample?: (rttMs: number, jitterHintMs?: number) => void;
+  evaluateClockSyncPacing?: (
+    clientTick: number,
+    serverTick: number,
+    inputBufferTarget: number,
+    maxLeadTicks: number,
+    tickDtMs: number
+  ) => {
+    smoothedRttMs: number;
+    rttJitterMs: number;
+    clockOffsetMs: number;
+    leadTicks: number;
+    downlinkTicks: number;
+    targetDeltaTicks: number;
+    pacingRateHz: number;
+    driftTicks: number;
+    sampleCount: number;
+  } | null;
 }
 
 export interface TelemetryRecorderPort {

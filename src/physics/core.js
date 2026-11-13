@@ -262,6 +262,10 @@ async function loadDirectRocketSimWasm(moduleArg = {}) {
   Module['_physics_setReconcilerRemoteControls'] = wasmExports._physics_setReconcilerRemoteControls;
   Module['_physics_reconcileRollbackToTick'] = wasmExports._physics_reconcileRollbackToTick;
   Module['_physics_stepReconcilerRange'] = wasmExports._physics_stepReconcilerRange;
+  Module['_physics_resetClockSync'] = wasmExports._physics_resetClockSync;
+  Module['_physics_pushClockSyncRttSample'] = wasmExports._physics_pushClockSyncRttSample;
+  Module['_physics_evaluateClockSyncPacing'] = wasmExports._physics_evaluateClockSyncPacing;
+  Module['_physics_getClockSyncStatePtr'] = wasmExports._physics_getClockSyncStatePtr;
 
   for (const [key, val] of Object.entries(wasmExports)) {
     if (typeof val === 'function' && key.startsWith('_physics_')) {

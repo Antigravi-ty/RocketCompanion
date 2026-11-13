@@ -356,6 +356,16 @@ export interface RocketSimWasmModule {
     kickoffMaskUntilTick: number,
     silent: number
   ): number;
+  _physics_resetClockSync(): void;
+  _physics_pushClockSyncRttSample(rttMs: number, jitterHintMs: number): void;
+  _physics_evaluateClockSyncPacing(
+    clientTick: number,
+    serverTick: number,
+    inputBufferTarget: number,
+    maxLeadTicks: number,
+    tickDtMs: number
+  ): number;
+  _physics_getClockSyncStatePtr(): number;
 
   // Semantic unprefixed aliases bound by RocketSimWasm.ts
   physics_init: RocketSimWasmModule['_physics_init'];
@@ -538,6 +548,10 @@ export interface RocketSimWasmModule {
   physics_setReconcilerRemoteControls: RocketSimWasmModule['_physics_setReconcilerRemoteControls'];
   physics_reconcileRollbackToTick: RocketSimWasmModule['_physics_reconcileRollbackToTick'];
   physics_stepReconcilerRange: RocketSimWasmModule['_physics_stepReconcilerRange'];
+  physics_resetClockSync: RocketSimWasmModule['_physics_resetClockSync'];
+  physics_pushClockSyncRttSample: RocketSimWasmModule['_physics_pushClockSyncRttSample'];
+  physics_evaluateClockSyncPacing: RocketSimWasmModule['_physics_evaluateClockSyncPacing'];
+  physics_getClockSyncStatePtr: RocketSimWasmModule['_physics_getClockSyncStatePtr'];
 
   [key: string]: any;
 }

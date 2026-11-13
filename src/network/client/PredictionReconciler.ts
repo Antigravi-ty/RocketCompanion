@@ -263,6 +263,8 @@ export class PredictionReconciler
     this.telemetryCollector.pacingControllerState = { initialized: false };
     if (!keepSync) {
       this.historyBuffer.clear();
+      this.sim?.clearReconcilerHistory?.();
+      this.sim?.resetClockSync?.();
     }
     this.visualSmoother.reset();
     this.boostPadEdgeTracker = createBoostPadEdgeTracker();

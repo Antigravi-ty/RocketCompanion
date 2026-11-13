@@ -1,4 +1,5 @@
 use rc_physics_sim::{
+    clock_sync::ClockSyncStatePod,
     layout::CarControlsPod,
     reconciler::{ReconcileControlEntryPod, ReconcileOutcomePod, CONTROLS_RING_CAPACITY},
 };
@@ -138,4 +139,38 @@ pub extern "C" fn _physics_stepReconcilerRange(
             silent != 0,
         )
     })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn _physics_resetClockSync() {
+    with_sim(|sim| sim.reconciler.clock_sync.reset());
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn _physics_pushClockSyncRttSample(rtt_ms: f32, jitter_hint_ms: f32) {
+    with_sim(|sim| sim.reconciler.clock_sync.push_rtt_sample(rtt_ms, jitter_hint_ms));
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn _physics_evaluateClockSyncPacing(
+    client_tick: i32,
+    server_tick: i32,
+    input_buffer_target: i32,
+    max_lead_ticks: i32,
+    tick_dt_ms: f32,
+) -> i32 {
+    with_sim(|sim| {
+        sim.reconciler.clock_sync.evaluate_pacing(
+            client_tick,
+            server_tick,
+            input_buffer_target,
+            max_lead_ticks,
+            tick_dt_ms,
+        )
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn _physics_getClockSyncStatePtr() -> *const u8 {
+    with_sim(|sim| (&sim.reconciler.clock_sync.state as *const ClockSyncStatePod) as *const u8)
 }

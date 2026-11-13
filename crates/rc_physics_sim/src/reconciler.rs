@@ -2,6 +2,7 @@
 //! and single-call rollback-resimulate / forward-prediction stepping for client reconciliation.
 
 use crate::{
+    clock_sync::ClockSyncFilter,
     layout::{CarControlsPod, MAX_CARS},
     sim_instance::{SavedSlotSnapshot, SimInstance},
 };
@@ -63,6 +64,7 @@ pub struct ReconcilerRingStorage {
     pub last_local_controls: CarControlsPod,
     pub last_remote_controls: [CarControlsPod; MAX_CARS],
     pub remote_controls_valid_mask: u32,
+    pub clock_sync: ClockSyncFilter,
 }
 
 impl Default for ReconcilerRingStorage {
@@ -79,6 +81,7 @@ impl ReconcilerRingStorage {
             last_local_controls: CarControlsPod::default(),
             last_remote_controls: [CarControlsPod::default(); MAX_CARS],
             remote_controls_valid_mask: 0,
+            clock_sync: ClockSyncFilter::new(),
         }
     }
 
@@ -88,6 +91,7 @@ impl ReconcilerRingStorage {
         self.last_local_controls = CarControlsPod::default();
         self.last_remote_controls = [CarControlsPod::default(); MAX_CARS];
         self.remote_controls_valid_mask = 0;
+        self.clock_sync.reset();
     }
 
     pub fn set_tick_controls(&mut self, tick: i32, slot: usize, ctrl: CarControlsPod) {

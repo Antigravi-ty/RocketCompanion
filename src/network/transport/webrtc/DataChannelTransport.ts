@@ -63,7 +63,11 @@ export class DataChannelTransport {
   readonly simulator: NetworkSimulator;
   readonly signaling: CrossTabSignaling;
   dataChannel: RTCDataChannel | null = null;
+  reliableDataChannel: RTCDataChannel | null = null;
   isWebRTCOpen = false;
+  isReliableOpen = false;
+  adaptiveSendDivisor = 1;
+  private lastAdaptiveEvalMs = 0;
   localColorSlot = 0;
   localColorHex = '#ff7043';
   pendingColorChange: PendingColorChangeState | null = null;
@@ -171,6 +175,23 @@ export class DataChannelTransport {
       console.error('[P2PWebRTCChannel] DataChannel error:', err);
     };
 
+    dataChannel.onmessage = (event: MessageEvent<SimulatedPayload>) => {
+      this.handleIncomingMessage(event.data);
+    };
+  }
+
+  bindReliableDataChannel(dataChannel: RTCDataChannel): void {
+    this.reliableDataChannel = dataChannel;
+    dataChannel.binaryType = 'arraybuffer';
+    dataChannel.onopen = () => {
+      this.isReliableOpen = true;
+    };
+    dataChannel.onclose = () => {
+      this.isReliableOpen = false;
+    };
+    dataChannel.onerror = (err) => {
+      console.error('[P2PWebRTCChannel] Reliable DataChannel error:', err);
+    };
     dataChannel.onmessage = (event: MessageEvent<SimulatedPayload>) => {
       this.handleIncomingMessage(event.data);
     };
@@ -317,8 +338,50 @@ export class DataChannelTransport {
     return sent;
   }
 
-  sendColorChange(slotId: number, hex: string, carIndex: number): void {
+  sendUnreliable(packet: SimulatedPayload, nowMs = performance.now()): boolean {
+    return this.send(packet, nowMs);
+  }
+
+  sendReliable(packet: SimulatedPayload, nowMs = performance.now()): boolean {
+    const reliableDc =
+      this.reliableDataChannel && this.reliableDataChannel.readyState === 'open'
+        ? this.reliableDataChannel
+        : this.resolveActiveDataChannel();
+    return this.simulator.scheduleSend(
+      packet,
+      (clonedPacket) =>
+        transmitClonedPayload(
+          reliableDc,
+          this.signaling.roomBroadcastChannel,
+          this.resolveIsChannelOpen() || this.isReliableOpen,
+          clonedPacket
+        ),
+      nowMs
+    );
+  }
+
+  evaluateAdaptiveSendDivisor(nowMs = performance.now()): number {
+    if (nowMs - this.lastAdaptiveEvalMs < 250) return this.adaptiveSendDivisor;
+    this.lastAdaptiveEvalMs = nowMs;
     const dc = this.resolveActiveDataChannel();
+    const buffered = dc ? dc.bufferedAmount : 0;
+    const rtt = this.simulator.rttMs || 0;
+    const loss = this.simulator.packetLossRate || 0;
+    if (buffered > 65536 || rtt > 180 || loss > 0.08) {
+      this.adaptiveSendDivisor = 4;
+    } else if (buffered > 16384 || rtt > 100 || loss > 0.03) {
+      this.adaptiveSendDivisor = 2;
+    } else {
+      this.adaptiveSendDivisor = 1;
+    }
+    return this.adaptiveSendDivisor;
+  }
+
+  sendColorChange(slotId: number, hex: string, carIndex: number): void {
+    const dc =
+      this.reliableDataChannel && this.reliableDataChannel.readyState === 'open'
+        ? this.reliableDataChannel
+        : this.resolveActiveDataChannel();
     const roomChannel = this.signaling.roomBroadcastChannel;
     const isClosed =
       !this.resolveIsChannelOpen() && (!dc || dc.readyState !== 'open') && !roomChannel;
@@ -341,8 +404,12 @@ export class DataChannelTransport {
   }
 
   sendDiagnosticFleetToggle(enabled: boolean, anchorMode: string | null): void {
+    const dc =
+      this.reliableDataChannel && this.reliableDataChannel.readyState === 'open'
+        ? this.reliableDataChannel
+        : this.resolveActiveDataChannel();
     dispatchDualChannelControlFrame(
-      this.resolveActiveDataChannel(),
+      dc,
       this.signaling.roomBroadcastChannel,
       {
         type: 'diagnostic_fleet_toggle',

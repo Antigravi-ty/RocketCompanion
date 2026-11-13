@@ -150,8 +150,10 @@ export class HandshakeSession {
     const pc = connection.createPeerConnection();
     let sdp = '';
     if (pc) {
-      const dc = pc.createDataChannel('game_net', { ordered: false, maxRetransmits: 0 });
-      this.bindIncomingDataChannel(dc);
+      const unreliableDc = pc.createDataChannel('game_net', { ordered: false, maxRetransmits: 0 });
+      const reliableDc = pc.createDataChannel('game_net_reliable', { ordered: true });
+      this.bindIncomingDataChannel(unreliableDc);
+      this.bindIncomingDataChannel(reliableDc);
       sdp = await connection.createOfferDescription();
     }
 
