@@ -19,6 +19,14 @@ import {
   type StatePausedAckPayload,
 } from '../../protocol/ReplicationBusProtocol.ts';
 import type { TunnelTransport } from '../tunnel/TunnelTransport.ts';
+import { ReliableTunnelFramer } from '../tunnel/ReliableTunnelFramer.ts';
+import {
+  attachTunnelToBridge,
+  createTunnelFramerBridgeState,
+  detachTunnelFromBridge,
+  sendReliableControlViaTunnelBridge,
+  tryTransmitViaTunnelBridge,
+} from './tunnelFramerBridge.ts';
 import {
   parseInboundControlFrame,
   dispatchInboundControlFrame,
@@ -98,9 +106,9 @@ export class DataChannelTransport {
   onPeerKick: ControlPayloadListener | null = null;
   onPeerLeave: ControlPayloadListener | null = null;
   onVoiceSignal: ControlPayloadListener | null = null;
+  onGlobalWorkspaceBroadcast: ControlPayloadListener | null = null;
 
-  private attachedTunnel: TunnelTransport | null = null;
-  private tunnelRemotePeerId: string | null = null;
+  private readonly tunnelBridge = createTunnelFramerBridgeState();
   private readonly utf8Decoder = new TextDecoder();
 
   private readonly readExternalChannel: (() => RTCDataChannel | null) | null;
@@ -132,17 +140,21 @@ export class DataChannelTransport {
   }
 
   attachTunnelTransport(tunnel: TunnelTransport, remotePeerId: string): void {
-    this.attachedTunnel = tunnel;
-    this.tunnelRemotePeerId = remotePeerId;
+    attachTunnelToBridge(this.tunnelBridge, tunnel, remotePeerId, (payload) =>
+      this.handleIncomingMessage(payload)
+    );
   }
 
   detachTunnelTransport(): void {
-    this.attachedTunnel = null;
-    this.tunnelRemotePeerId = null;
+    detachTunnelFromBridge(this.tunnelBridge);
+  }
+
+  getTunnelFramer(): ReliableTunnelFramer | null {
+    return this.tunnelBridge.framer;
   }
 
   hasActiveTunnel(): boolean {
-    return Boolean(this.attachedTunnel?.isOpen && this.tunnelRemotePeerId);
+    return Boolean(this.tunnelBridge.tunnel?.isOpen && this.tunnelBridge.remotePeerId);
   }
 
   drainTransportEvents(): DataChannelTransportEvent[] {
@@ -247,6 +259,13 @@ export class DataChannelTransport {
     const now = performance.now();
     sim.stats.packetsReceived++;
 
+    if (data instanceof Uint8Array && ReliableTunnelFramer.isReliableFrame(data)) {
+      if (this.tunnelBridge.framer) {
+        this.tunnelBridge.framer.handleIncomingFrame(data);
+      }
+      return;
+    }
+
     if (isSparsePingPong16B(data)) {
       const frame = decodeSparsePingPong16B(data);
       if (frame) {
@@ -285,6 +304,7 @@ export class DataChannelTransport {
           onPeerKick: this.onPeerKick,
           onPeerLeave: this.onPeerLeave,
           onVoiceSignal: this.onVoiceSignal,
+          onGlobalWorkspaceBroadcast: this.onGlobalWorkspaceBroadcast,
           receiveSimulatorPayload: (payload, onDelivered, ts) =>
             sim.receivePayload(payload, onDelivered, ts),
           popInboundQueue: () => {
@@ -313,15 +333,8 @@ export class DataChannelTransport {
     allowBroadcastFallback: boolean,
     reliable = false
   ): boolean {
-    if (this.attachedTunnel?.isOpen && this.tunnelRemotePeerId) {
-      if (
-        (payload instanceof Uint8Array ||
-          payload instanceof ArrayBuffer ||
-          typeof payload === 'string') &&
-        this.attachedTunnel.sendToPeer(this.tunnelRemotePeerId, payload, reliable)
-      ) {
-        return true;
-      }
+    if (tryTransmitViaTunnelBridge(this.tunnelBridge, payload, reliable)) {
+      return true;
     }
     return transmitClonedPayload(
       this.resolveActiveDataChannel(),
@@ -363,8 +376,8 @@ export class DataChannelTransport {
         pingPayload,
         (clonedPing) => {
           const msg = typeof clonedPing === 'string' ? clonedPing : pingPayload;
-          if (this.attachedTunnel?.isOpen && this.tunnelRemotePeerId) {
-            if (this.attachedTunnel.sendToPeer(this.tunnelRemotePeerId, msg, false)) {
+          if (this.tunnelBridge.tunnel?.isOpen && this.tunnelBridge.remotePeerId) {
+            if (this.tunnelBridge.tunnel.sendToPeer(this.tunnelBridge.remotePeerId, msg, false)) {
               return true;
             }
           }
@@ -440,16 +453,8 @@ export class DataChannelTransport {
   }
 
   sendReliableControl(messageObj: Record<string, unknown>, label = 'reliable_control'): boolean {
-    if (
-      messageObj.type !== 'tunnel_endpoint_advertise' &&
-      this.attachedTunnel?.isOpen &&
-      this.tunnelRemotePeerId
-    ) {
-      if (
-        this.attachedTunnel.sendToPeer(this.tunnelRemotePeerId, JSON.stringify(messageObj), true)
-      ) {
-        return true;
-      }
+    if (sendReliableControlViaTunnelBridge(this.tunnelBridge, messageObj)) {
+      return true;
     }
     return transmitReliableControlFrame(
       this.controlDataChannel,
@@ -462,6 +467,13 @@ export class DataChannelTransport {
 
   sendVoiceSignal(signal: Record<string, unknown>): boolean {
     return this.sendReliableControl({ type: 'voice_signal', ...signal }, 'voice_signal');
+  }
+
+  sendGlobalWorkspaceBroadcast(payload: Record<string, unknown>): boolean {
+    return this.sendReliableControl(
+      { type: 'global_workspace_broadcast', ...payload },
+      'global_workspace_broadcast'
+    );
   }
 
   sendRoomActivitySwitch(payload: RoomActivitySwitchPayload): boolean {

@@ -281,6 +281,8 @@ export const Layer3HostTrainingRecipe: React.FC<Layer3HostTrainingRecipeProps> =
               durationSeconds: 0,
               lobbyMode: false,
               ghostMode,
+              boostPolicy,
+              perPlayerBoostOverrides,
             });
           }
         : undefined;

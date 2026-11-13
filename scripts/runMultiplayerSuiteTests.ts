@@ -61,7 +61,11 @@ function runSection(name: string, fn: () => void | Promise<void>): Promise<void>
 
 async function testTunnelAndKickLeaveSignaling(): Promise<void> {
   const sentPackets: Array<{ peerId: string; payload: TunnelPacketPayload; reliable: boolean }> = [];
-  const mockTunnel: TunnelTransport = {
+  let hostTransport: DataChannelTransport;
+  let clientTransport: DataChannelTransport;
+  let dropNextReliableFrame = false;
+
+  const loopbackTunnel: TunnelTransport = {
     mode: 'rust_udp',
     isOpen: true,
     localEndpoint: { addr: '127.0.0.1:49000', isUpnpMapped: false, mode: 'rust_udp' },
@@ -69,23 +73,32 @@ async function testTunnelAndKickLeaveSignaling(): Promise<void> {
     connectPeer: async () => {},
     sendToPeer: (peerId, payload, reliable = false) => {
       sentPackets.push({ peerId, payload, reliable });
+      if (payload instanceof Uint8Array && dropNextReliableFrame) {
+        dropNextReliableFrame = false;
+        return true; // simulate single UDP frame drop
+      }
+      if (peerId === 'peer_client_1') {
+        clientTransport.handleIncomingMessage(payload);
+      } else if (peerId === 'host') {
+        hostTransport.handleIncomingMessage(payload);
+      }
       return true;
     },
     onPacket: () => {},
     close: async () => {},
   };
 
-  const hostTransport = new DataChannelTransport({
+  hostTransport = new DataChannelTransport({
     simulator: new NetworkSimulator(),
     signaling: new CrossTabSignaling(),
   });
-  const clientTransport = new DataChannelTransport({
+  clientTransport = new DataChannelTransport({
     simulator: new NetworkSimulator(),
     signaling: new CrossTabSignaling(),
   });
 
-  hostTransport.attachTunnelTransport(mockTunnel, 'peer_client_1');
-  clientTransport.attachTunnelTransport(mockTunnel, 'host');
+  hostTransport.attachTunnelTransport(loopbackTunnel, 'peer_client_1');
+  clientTransport.attachTunnelTransport(loopbackTunnel, 'host');
   assert.equal(hostTransport.hasActiveTunnel(), true);
 
   // State packet -> unreliable tunnel
@@ -93,19 +106,42 @@ async function testTunnelAndKickLeaveSignaling(): Promise<void> {
   assert.equal(hostTransport.send(stateFrame, 1000), true);
   assert.equal(sentPackets.some((p) => p.peerId === 'peer_client_1' && !p.reliable), true);
 
-  // Reliable control -> reliable tunnel
+  // Reliable control -> framed via ReliableTunnelFramer with chunking & loss recovery
+  let kickedPayload: Record<string, unknown> | null = null;
+  clientTransport.onPeerKick = (msg) => {
+    kickedPayload = msg;
+  };
+  dropNextReliableFrame = true;
   assert.equal(
     hostTransport.sendReliableControl({ type: 'peer_kick', reason: 'test_kick' }, 'peer_kick'),
     true
   );
-  const kickPacket = sentPackets.find(
-    (p) =>
-      p.peerId === 'peer_client_1' &&
-      p.reliable &&
-      typeof p.payload === 'string' &&
-      p.payload.includes('peer_kick')
+  //Wait for retransmit loop (25ms interval, 45ms retransmit threshold)
+  await new Promise((resolve) => setTimeout(resolve, 90));
+  assert.equal(kickedPayload?.reason, 'test_kick');
+
+  // Oversized (>2500B) global_workspace_broadcast chunked & reassembled across ReliableTunnelFramer
+  let receivedWorkspace: Record<string, unknown> | null = null;
+  clientTransport.onGlobalWorkspaceBroadcast = (msg) => {
+    receivedWorkspace = msg;
+  };
+  const manyWindows = Array.from({ length: 60 }, (_, idx) => ({
+    id: `floating_window_${idx}`,
+    isOpen: idx % 2 === 0,
+    isMinimized: idx % 3 === 0,
+  }));
+  assert.equal(
+    hostTransport.sendGlobalWorkspaceBroadcast({
+      menuRoute: 'settings/audio',
+      openFloatingWindows: manyWindows,
+    }),
+    true
   );
-  assert.ok(kickPacket, 'peer_kick must be sent reliably over tunnel');
+  assert.equal(receivedWorkspace?.menuRoute, 'settings/audio');
+  assert.equal(
+    (receivedWorkspace?.openFloatingWindows as unknown[] | undefined)?.length,
+    60
+  );
 
   // tunnel_endpoint_advertise must NOT go over tunnel (bootstraps via WebRTC/BroadcastChannel)
   const beforeCount = sentPackets.length;
@@ -115,26 +151,19 @@ async function testTunnelAndKickLeaveSignaling(): Promise<void> {
   );
   assert.equal(sentPackets.length, beforeCount);
 
-  // Inbound UTF-8 JSON bytes from tunnel -> client receives peer_kick, host receives peer_leave
-  let kickedPayload: Record<string, unknown> | null = null;
-  clientTransport.onPeerKick = (msg) => {
-    kickedPayload = msg;
-  };
-  clientTransport.handleIncomingMessage(
-    new TextEncoder().encode(JSON.stringify({ type: 'peer_kick', reason: 'host_removed' }))
-  );
-  assert.equal(kickedPayload?.reason, 'host_removed');
-
+  // Client -> Host peer_leave over ReliableTunnelFramer
   let leftPayload: Record<string, unknown> | null = null;
   hostTransport.onPeerLeave = (msg) => {
     leftPayload = msg;
   };
-  hostTransport.handleIncomingMessage(
-    new TextEncoder().encode(JSON.stringify({ type: 'peer_leave', peerId: 'peer_client_1' }))
+  assert.equal(
+    clientTransport.sendReliableControl({ type: 'peer_leave', peerId: 'peer_client_1' }, 'peer_leave'),
+    true
   );
   assert.equal(leftPayload?.peerId, 'peer_client_1');
 
   hostTransport.detachTunnelTransport();
+  clientTransport.detachTunnelTransport();
   assert.equal(hostTransport.hasActiveTunnel(), false);
 }
 
@@ -462,6 +491,51 @@ async function testMultiClientLoopbackBotMatrix(): Promise<void> {
   await sim.stop();
   assert.equal(sim.isActive(), false);
   assert.equal(hostStopped, true);
+
+  // Full parameterized roster matrix: 1v1, 1v2, 2v1, 2v2, 2v3, 3v3 (Human-Takeover & Auto-fill Bot)
+  const rosterMatrix = [
+    { label: '1v1_1h1b', blueHumans: 1, orangeHumans: 0, blueBots: 0, orangeBots: 1 },
+    { label: '1v1_2h', blueHumans: 1, orangeHumans: 1, blueBots: 0, orangeBots: 0 },
+    { label: '1v2_1h2b', blueHumans: 1, orangeHumans: 0, blueBots: 0, orangeBots: 2 },
+    { label: '2v1_2h1b', blueHumans: 2, orangeHumans: 0, blueBots: 0, orangeBots: 1 },
+    { label: '2v2_2h2b', blueHumans: 1, orangeHumans: 1, blueBots: 1, orangeBots: 1 },
+    { label: '2v2_4h', blueHumans: 2, orangeHumans: 2, blueBots: 0, orangeBots: 0 },
+    { label: '2v3_2h3b', blueHumans: 2, orangeHumans: 0, blueBots: 0, orangeBots: 3 },
+    { label: '3v3_3h3b', blueHumans: 2, orangeHumans: 1, blueBots: 1, orangeBots: 2 },
+    { label: '3v3_6h', blueHumans: 3, orangeHumans: 3, blueBots: 0, orangeBots: 0 },
+  ];
+
+  const voiceBridge = new WebRtcNativeVoiceBridge({ getAudioContext: () => null });
+  for (const caseSpec of rosterMatrix) {
+    const totalCars =
+      caseSpec.blueHumans + caseSpec.orangeHumans + caseSpec.blueBots + caseSpec.orangeBots;
+    const carIndices = Array.from({ length: totalCars }, (_, i) => i);
+    const carUnlimited = new Map<number, boolean>();
+    const simPort = {
+      setCarUnlimitedBoost: (idx: number, val: boolean) => carUnlimited.set(idx, val),
+      setCarBoostCollectable: () => {},
+      getCarStateView: (idx: number) => ({ isOnGround: idx % 2 === 0 }),
+    };
+    applyTrainingBoostPolicyToSim(simPort as never, carIndices, {
+      boostPolicy: 'limit_when_aerial',
+      perPlayerBoostOverrides: {},
+      ghostModeEnabled: false,
+    });
+    for (const idx of carIndices) {
+      assert.equal(
+        carUnlimited.get(idx),
+        idx % 2 === 0,
+        `${caseSpec.label}: car ${idx} limit_when_aerial mismatch`
+      );
+    }
+
+    // Verify team_only voice gating in Lobby (all-talk) vs Match (team-gated)
+    voiceBridge.setRoomVoicePolicy('team_only', 0, true);
+    assert.equal(voiceBridge.isPeerVoiceAllowed({ team: 1 }), true, `${caseSpec.label} lobby all-talk`);
+    voiceBridge.setRoomVoicePolicy('team_only', 0, false);
+    assert.equal(voiceBridge.isPeerVoiceAllowed({ team: 0 }), true, `${caseSpec.label} match teammate`);
+    assert.equal(voiceBridge.isPeerVoiceAllowed({ team: 1 }), false, `${caseSpec.label} match opponent`);
+  }
 }
 
 async function main(): Promise<void> {

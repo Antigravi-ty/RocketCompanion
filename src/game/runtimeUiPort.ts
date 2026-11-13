@@ -106,6 +106,10 @@ const _handlers: Record<string, PortHandlerFn | null> = {
   pushOngoingNotification: null,
   dismissOngoingNotification: null,
   completeOngoingNotification: null,
+  attachVoiceToPeerChannel: null,
+  detachVoiceFromPeer: null,
+  setVoicePeerTeam: null,
+  applyIncomingWorkspaceBroadcast: null,
 };
 
 export function bindRuntimeUiPort(port: Record<string, unknown> = {}): void {
@@ -312,4 +316,21 @@ export function dismissOngoingNotification(id: string): unknown {
 }
 export function completeOngoingNotification(...args: unknown[]): unknown {
   return _handlers.completeOngoingNotification?.(...args);
+}
+export function attachVoiceToPeerChannel(
+  channel: unknown,
+  peerId: string,
+  peerName: string,
+  peerTeam: number | null = null
+): void {
+  _handlers.attachVoiceToPeerChannel?.(channel, peerId, peerName, peerTeam);
+}
+export function detachVoiceFromPeer(peerId: string): void {
+  _handlers.detachVoiceFromPeer?.(peerId);
+}
+export function setVoicePeerTeam(peerId: string, team: number | null): void {
+  _handlers.setVoicePeerTeam?.(peerId, team);
+}
+export function applyIncomingWorkspaceBroadcast(raw: Record<string, unknown>): void {
+  _handlers.applyIncomingWorkspaceBroadcast?.(raw);
 }

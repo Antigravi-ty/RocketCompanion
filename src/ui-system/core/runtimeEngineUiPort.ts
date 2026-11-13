@@ -62,6 +62,12 @@ import {
   registerReplayDirectorDiagnosticExporter,
   registerReplayDirectorPreviewHandlers,
 } from '../../ui-core/stores/replayDirectorStore.ts';
+import {
+  attachVoiceToPeerChannel,
+  detachVoiceFromPeer,
+  setVoicePeerTeam,
+} from './runtimeVoiceBridge.ts';
+import { applyIncomingWorkspaceBroadcast } from './runtimeSpectateWorkspaceBridge.ts';
 
 let initialized = false;
 
@@ -122,6 +128,10 @@ export function ensureRuntimeEngineUiPortBound(): void {
     pushOngoingNotification,
     dismissOngoingNotification,
     completeOngoingNotification,
+    attachVoiceToPeerChannel,
+    detachVoiceFromPeer,
+    setVoicePeerTeam,
+    applyIncomingWorkspaceBroadcast,
   });
 }
 

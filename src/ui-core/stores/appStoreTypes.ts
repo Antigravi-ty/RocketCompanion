@@ -203,6 +203,8 @@ export interface AppState {
       durationSeconds?: number;
       lobbyMode?: boolean;
       ghostMode?: 'automatically-enable' | 'manual';
+      boostPolicy?: 'limited' | 'limit_when_aerial' | 'unlimited' | 'custom';
+      perPlayerBoostOverrides?: Record<number, 'limited' | 'limit_when_aerial' | 'unlimited'>;
     }) => Promise<boolean>;
     onJoinOnlineWarmup?: (opts: { roomId: string; password?: string; playerName: string }) => Promise<boolean>;
     onApprovePendingPeer?: (peerId: string) => void;

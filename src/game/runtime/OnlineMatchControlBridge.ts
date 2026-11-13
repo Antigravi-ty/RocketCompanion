@@ -125,9 +125,22 @@ export function createRuntimeMatchPort(domain: OnlineMatchControlDomainPort): Ru
     hostOnlineWarmup: async (opts) => {
       const session = domain.multiplayerSession;
       const roomConfig = buildOnlineWarmupRoomConfig(opts);
+      const applyTrainingActivity = () => {
+        if (opts.roomType === 'warmup' || opts.boostPolicy) {
+          sessionCoordinator.authoritativeServer?.switchActivity({
+            activityId: 'multiplayer_training',
+            stateSummary: {
+              boostPolicy: opts.boostPolicy ?? 'limit_when_aerial',
+              perPlayerBoostOverrides: opts.perPlayerBoostOverrides ?? {},
+              ghostModeEnabled: opts.ghostMode === 'automatically-enable',
+            },
+          });
+        }
+      };
       if (session) {
         if (opts.playerName) session.playerName = opts.playerName;
         await session.startHosting(opts.roomId, opts.password || '', roomConfig);
+        applyTrainingActivity();
         return true;
       }
       await sessionCoordinator.hostOnlineServer({
@@ -135,6 +148,7 @@ export function createRuntimeMatchPort(domain: OnlineMatchControlDomainPort): Ru
         playerName: opts.playerName,
         ...roomConfig,
       });
+      applyTrainingActivity();
       return true;
     },
     joinOnlineWarmup: async (opts) => {

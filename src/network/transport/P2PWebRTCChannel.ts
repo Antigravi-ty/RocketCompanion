@@ -78,6 +78,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   onPeerKick: ChannelHook<[Record<string, unknown>]> = null;
   onPeerLeave: ChannelHook<[Record<string, unknown>]> = null;
   onVoiceSignal: ChannelHook<[Record<string, unknown>]> = null;
+  onGlobalWorkspaceBroadcast: ChannelHook<[Record<string, unknown>]> = null;
 
   readonly attachTunnelTransport: DataChannelTransport['attachTunnelTransport'];
   readonly detachTunnelTransport: DataChannelTransport['detachTunnelTransport'];
@@ -88,6 +89,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   readonly sendDiagnosticFleetToggle: DataChannelTransport['sendDiagnosticFleetToggle'];
   readonly sendReliableControl: DataChannelTransport['sendReliableControl'];
   readonly sendVoiceSignal: DataChannelTransport['sendVoiceSignal'];
+  readonly sendGlobalWorkspaceBroadcast: DataChannelTransport['sendGlobalWorkspaceBroadcast'];
   readonly sendRoomActivitySwitch: DataChannelTransport['sendRoomActivitySwitch'];
   readonly sendStatePausedAck: DataChannelTransport['sendStatePausedAck'];
   readonly sendCsrStateBroadcast: DataChannelTransport['sendCsrStateBroadcast'];
@@ -216,6 +218,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
     this.transport.onPeerKick = (msg) => this.onPeerKick?.(msg);
     this.transport.onPeerLeave = (msg) => this.onPeerLeave?.(msg);
     this.transport.onVoiceSignal = (msg) => this.onVoiceSignal?.(msg);
+    this.transport.onGlobalWorkspaceBroadcast = (msg) => this.onGlobalWorkspaceBroadcast?.(msg);
     this.send = this.transport.send.bind(this.transport);
     this.sendClientInput = this.transport.sendClientInput.bind(this.transport);
     this.sendServerState = this.transport.send.bind(this.transport);
@@ -223,6 +226,9 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
     this.sendDiagnosticFleetToggle = this.transport.sendDiagnosticFleetToggle.bind(this.transport);
     this.sendReliableControl = this.transport.sendReliableControl.bind(this.transport);
     this.sendVoiceSignal = this.transport.sendVoiceSignal.bind(this.transport);
+    this.sendGlobalWorkspaceBroadcast = this.transport.sendGlobalWorkspaceBroadcast.bind(
+      this.transport
+    );
     this.sendRoomActivitySwitch = this.transport.sendRoomActivitySwitch.bind(this.transport);
     this.sendStatePausedAck = this.transport.sendStatePausedAck.bind(this.transport);
     this.sendCsrStateBroadcast = this.transport.sendCsrStateBroadcast.bind(this.transport);

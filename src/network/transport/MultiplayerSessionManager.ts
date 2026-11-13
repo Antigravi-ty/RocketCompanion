@@ -470,6 +470,7 @@ export class MultiplayerSessionManager {
         },
         'peer_leave'
       );
+      await new Promise((resolve) => setTimeout(resolve, 60));
       activeChannel.detachTunnelTransport();
     }
     this.clientJoinNegotiator.cleanup();

@@ -49,6 +49,7 @@ export type InboundControlFrame =
   | { readonly kind: 'peer_kick'; readonly raw: Record<string, unknown> }
   | { readonly kind: 'peer_leave'; readonly raw: Record<string, unknown> }
   | { readonly kind: 'voice_signal'; readonly raw: Record<string, unknown> }
+  | { readonly kind: 'global_workspace_broadcast'; readonly raw: Record<string, unknown> }
   | { readonly kind: 'ping'; readonly sendTime: number; readonly rtt: number | null }
   | { readonly kind: 'pong'; readonly sendTime: number };
 
@@ -71,6 +72,7 @@ export type DataChannelTransportEvent =
   | { readonly type: 'peer_kick'; readonly payload: Record<string, unknown> }
   | { readonly type: 'peer_leave'; readonly payload: Record<string, unknown> }
   | { readonly type: 'voice_signal'; readonly payload: Record<string, unknown> }
+  | { readonly type: 'global_workspace_broadcast'; readonly payload: Record<string, unknown> }
   | { readonly type: 'packet'; readonly payload: SimulatedPayload };
 
 export function parseInboundControlFrame(raw: string): InboundControlFrame | null {
@@ -112,6 +114,9 @@ export function parseInboundControlFrame(raw: string): InboundControlFrame | nul
     if (msg.type === 'voice_signal') {
       return { kind: 'voice_signal', raw: msg };
     }
+    if (msg.type === 'global_workspace_broadcast') {
+      return { kind: 'global_workspace_broadcast', raw: msg };
+    }
     if (msg.type === 'ping') {
       const sendTime = typeof msg.sendTime === 'number' ? msg.sendTime : 0;
       const rtt =
@@ -139,6 +144,7 @@ export interface InboundControlDispatchContext {
   readonly onPeerKick: ((raw: Record<string, unknown>) => void) | null;
   readonly onPeerLeave: ((raw: Record<string, unknown>) => void) | null;
   readonly onVoiceSignal: ((raw: Record<string, unknown>) => void) | null;
+  readonly onGlobalWorkspaceBroadcast?: ((raw: Record<string, unknown>) => void) | null;
   readonly receiveSimulatorPayload: (
     data: SimulatedPayload,
     onDelivered: (delivered: SimulatedPayload) => void,
@@ -187,6 +193,10 @@ export function dispatchInboundControlFrame(
     case 'voice_signal':
       ctx.pushEvent({ type: 'voice_signal', payload: control.raw });
       ctx.onVoiceSignal?.(control.raw);
+      return true;
+    case 'global_workspace_broadcast':
+      ctx.pushEvent({ type: 'global_workspace_broadcast', payload: control.raw });
+      ctx.onGlobalWorkspaceBroadcast?.(control.raw);
       return true;
     case 'room_activity_switch':
     case 'replication_mode_set':

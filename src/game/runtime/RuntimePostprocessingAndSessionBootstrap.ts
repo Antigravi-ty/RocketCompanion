@@ -6,6 +6,9 @@ import {
   reachabilityStore,
   ballTrajectoryTunerStore,
   notifyNetworkTelemetryExportAvailable,
+  attachVoiceToPeerChannel,
+  detachVoiceFromPeer,
+  applyIncomingWorkspaceBroadcast,
 } from '../runtimeUiPort.ts';
 import { BallTrajectoryPredictor } from '../../entities/BallTrajectoryPredictor.ts';
 import { bindBallTrajectoryAnomalyUiBridge } from '../../entities/trajectory/ballTrajectoryAnomalyUiBridge.ts';
@@ -246,16 +249,37 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
       await sessionCoordinator.hostOnlineServer(opts);
     },
     async onStopServer() {
+      detachVoiceFromPeer('*');
       await sessionCoordinator.stopOnlineServer();
     },
     async onLeaveServer() {
+      detachVoiceFromPeer('*');
       await sessionCoordinator.stopOnlineServer();
     },
     async onJoinServer(opts: JoinRoomSettings) {
       await sessionCoordinator.joinOnlineServer(opts);
+      if (opts.channel) {
+        attachVoiceToPeerChannel(
+          opts.channel,
+          'host',
+          typeof opts.remotePlayerName === 'string' && opts.remotePlayerName
+            ? opts.remotePlayerName
+            : 'Host',
+          null
+        );
+        const ch = opts.channel as unknown as {
+          onGlobalWorkspaceBroadcast?: ((msg: Record<string, unknown>) => void) | null;
+        };
+        ch.onGlobalWorkspaceBroadcast = (msg) => {
+          applyIncomingWorkspaceBroadcast(msg);
+        };
+      }
     },
     async onPeerConnected(channel: NetworkSessionChannelLike, name: string) {
-      return (await rosterSyncCoordinator.onRemotePlayerConnected(channel, name)) ?? -1;
+      const assignedCarIdx = (await rosterSyncCoordinator.onRemotePlayerConnected(channel, name)) ?? -1;
+      const peerId = (channel as { peerId?: string }).peerId || name;
+      attachVoiceToPeerChannel(channel, peerId, name, null);
+      return assignedCarIdx;
     },
     async onRemovePlayer(carIndex: number) {
       await rosterSyncCoordinator.removeRemotePlayer(carIndex);

@@ -1,5 +1,9 @@
 import { CAR_COLOR_SLOTS } from '../../ui-core/config/vehicleConstants.ts';
-import { useAppStore, type OnlinePeerEntryPort } from '../runtimeUiPort.ts';
+import {
+  detachVoiceFromPeer,
+  useAppStore,
+  type OnlinePeerEntryPort,
+} from '../runtimeUiPort.ts';
 import { gameAudio } from '../../audio/GameAudioEngineFacade.ts';
 import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
 import type { EntityManager } from '../../entities/EntityManager.ts';
@@ -356,12 +360,15 @@ export class OnlineRemotePeerVehicleSynchronizer {
             { type: 'peer_kick', peerId, carIndex, reason: 'kicked_by_host' },
             'peer_kick'
           );
-          ch.detachTunnelTransport();
-          ch.destroy();
           hostCtrl.peerChannels.delete(peerId);
           hostCtrl.peerRoles.delete(peerId);
           hostCtrl.peerReadyStates.delete(peerId);
           hostCtrl.peerPairingCodes.delete(peerId);
+          detachVoiceFromPeer(peerId);
+          setTimeout(() => {
+            ch.detachTunnelTransport();
+            ch.destroy();
+          }, 100);
         }
       }
     }

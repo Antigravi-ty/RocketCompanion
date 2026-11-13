@@ -25,6 +25,9 @@ export interface HostOnlineWarmupPortOptions {
   botFillMode?: string;
   durationSeconds?: number;
   lobbyMode?: boolean;
+  ghostMode?: 'automatically-enable' | 'manual';
+  boostPolicy?: 'limited' | 'limit_when_aerial' | 'unlimited' | 'custom';
+  perPlayerBoostOverrides?: Record<number, 'limited' | 'limit_when_aerial' | 'unlimited'>;
 }
 
 export interface JoinOnlineWarmupPortOptions {
