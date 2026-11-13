@@ -30,6 +30,8 @@ export type ChannelHook<T extends unknown[] = []> = ((...args: T) => void) | nul
 export class P2PWebRTCChannel implements HandshakeMetadataState {
   role: string;
   peerId: string | null = null;
+  playerId?: string;
+  isRegisteredPlayerId?: boolean;
   peerRole?: string;
   carIndex?: number;
   pairingCode: string | null = null;
@@ -72,13 +74,20 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   onDiagnosticFleetToggle: ChannelHook<[boolean, string]> = null;
   onBroadcastSignal: ChannelHook<[Record<string, unknown>]> = null;
   onIceCandidate: ChannelHook<[IceCandidateDescriptor]> = null;
+  onTunnelEndpointAdvertise: ChannelHook<[Record<string, unknown>]> = null;
+  onPeerKick: ChannelHook<[Record<string, unknown>]> = null;
+  onPeerLeave: ChannelHook<[Record<string, unknown>]> = null;
+  onVoiceSignal: ChannelHook<[Record<string, unknown>]> = null;
 
+  readonly attachTunnelTransport: DataChannelTransport['attachTunnelTransport'];
+  readonly detachTunnelTransport: DataChannelTransport['detachTunnelTransport'];
   readonly send: DataChannelTransport['send'];
   readonly sendClientInput: DataChannelTransport['sendClientInput'];
   readonly sendServerState: DataChannelTransport['send'];
   readonly sendColorChange: DataChannelTransport['sendColorChange'];
   readonly sendDiagnosticFleetToggle: DataChannelTransport['sendDiagnosticFleetToggle'];
   readonly sendReliableControl: DataChannelTransport['sendReliableControl'];
+  readonly sendVoiceSignal: DataChannelTransport['sendVoiceSignal'];
   readonly sendRoomActivitySwitch: DataChannelTransport['sendRoomActivitySwitch'];
   readonly sendStatePausedAck: DataChannelTransport['sendStatePausedAck'];
   readonly sendCsrStateBroadcast: DataChannelTransport['sendCsrStateBroadcast'];
@@ -201,12 +210,19 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
     });
 
     this.signaling.handler = this.handshake;
+    this.attachTunnelTransport = this.transport.attachTunnelTransport.bind(this.transport);
+    this.detachTunnelTransport = this.transport.detachTunnelTransport.bind(this.transport);
+    this.transport.onTunnelEndpointAdvertise = (msg) => this.onTunnelEndpointAdvertise?.(msg);
+    this.transport.onPeerKick = (msg) => this.onPeerKick?.(msg);
+    this.transport.onPeerLeave = (msg) => this.onPeerLeave?.(msg);
+    this.transport.onVoiceSignal = (msg) => this.onVoiceSignal?.(msg);
     this.send = this.transport.send.bind(this.transport);
     this.sendClientInput = this.transport.sendClientInput.bind(this.transport);
     this.sendServerState = this.transport.send.bind(this.transport);
     this.sendColorChange = this.transport.sendColorChange.bind(this.transport);
     this.sendDiagnosticFleetToggle = this.transport.sendDiagnosticFleetToggle.bind(this.transport);
     this.sendReliableControl = this.transport.sendReliableControl.bind(this.transport);
+    this.sendVoiceSignal = this.transport.sendVoiceSignal.bind(this.transport);
     this.sendRoomActivitySwitch = this.transport.sendRoomActivitySwitch.bind(this.transport);
     this.sendStatePausedAck = this.transport.sendStatePausedAck.bind(this.transport);
     this.sendCsrStateBroadcast = this.transport.sendCsrStateBroadcast.bind(this.transport);

@@ -45,6 +45,10 @@ export type InboundControlFrame =
   | { readonly kind: 'replication_mode_set'; readonly raw: Record<string, unknown> }
   | { readonly kind: 'state_paused_ack'; readonly raw: Record<string, unknown> }
   | { readonly kind: 'room_csr_state_broadcast'; readonly raw: Record<string, unknown> }
+  | { readonly kind: 'tunnel_endpoint_advertise'; readonly raw: Record<string, unknown> }
+  | { readonly kind: 'peer_kick'; readonly raw: Record<string, unknown> }
+  | { readonly kind: 'peer_leave'; readonly raw: Record<string, unknown> }
+  | { readonly kind: 'voice_signal'; readonly raw: Record<string, unknown> }
   | { readonly kind: 'ping'; readonly sendTime: number; readonly rtt: number | null }
   | { readonly kind: 'pong'; readonly sendTime: number };
 
@@ -63,6 +67,10 @@ export type DataChannelTransportEvent =
   | { readonly type: 'replication_mode_set'; readonly payload: Record<string, unknown> }
   | { readonly type: 'state_paused_ack'; readonly payload: Record<string, unknown> }
   | { readonly type: 'room_csr_state_broadcast'; readonly payload: Record<string, unknown> }
+  | { readonly type: 'tunnel_endpoint_advertise'; readonly payload: Record<string, unknown> }
+  | { readonly type: 'peer_kick'; readonly payload: Record<string, unknown> }
+  | { readonly type: 'peer_leave'; readonly payload: Record<string, unknown> }
+  | { readonly type: 'voice_signal'; readonly payload: Record<string, unknown> }
   | { readonly type: 'packet'; readonly payload: SimulatedPayload };
 
 export function parseInboundControlFrame(raw: string): InboundControlFrame | null {
@@ -92,6 +100,18 @@ export function parseInboundControlFrame(raw: string): InboundControlFrame | nul
     if (msg.type === 'room_csr_state_broadcast') {
       return { kind: 'room_csr_state_broadcast', raw: msg };
     }
+    if (msg.type === 'tunnel_endpoint_advertise') {
+      return { kind: 'tunnel_endpoint_advertise', raw: msg };
+    }
+    if (msg.type === 'peer_kick') {
+      return { kind: 'peer_kick', raw: msg };
+    }
+    if (msg.type === 'peer_leave') {
+      return { kind: 'peer_leave', raw: msg };
+    }
+    if (msg.type === 'voice_signal') {
+      return { kind: 'voice_signal', raw: msg };
+    }
     if (msg.type === 'ping') {
       const sendTime = typeof msg.sendTime === 'number' ? msg.sendTime : 0;
       const rtt =
@@ -106,6 +126,99 @@ export function parseInboundControlFrame(raw: string): InboundControlFrame | nul
     console.warn('[P2PWebRTCChannel] Failed to parse incoming string message as JSON:', err, raw);
   }
   return null;
+}
+
+export interface InboundControlDispatchContext {
+  readonly rawData: SimulatedPayload;
+  readonly nowMs: number;
+  readonly pushEvent: (event: DataChannelTransportEvent) => void;
+  readonly setReplicationMode: (isSparse: boolean) => void;
+  readonly onColorChange: ((raw: Record<string, unknown>) => void) | null;
+  readonly onDiagnosticFleetToggle: ((enabled: boolean, anchorMode: string) => void) | null;
+  readonly onTunnelEndpointAdvertise: ((raw: Record<string, unknown>) => void) | null;
+  readonly onPeerKick: ((raw: Record<string, unknown>) => void) | null;
+  readonly onPeerLeave: ((raw: Record<string, unknown>) => void) | null;
+  readonly onVoiceSignal: ((raw: Record<string, unknown>) => void) | null;
+  readonly receiveSimulatorPayload: (
+    data: SimulatedPayload,
+    onDelivered: (delivered: SimulatedPayload) => void,
+    nowMs: number
+  ) => boolean;
+  readonly popInboundQueue: () => void;
+  readonly sendPong: (sendTime: number) => void;
+  readonly handlePong: (sendTime: number) => void;
+  readonly emitPacket: (delivered: SimulatedPayload) => void;
+}
+
+export function dispatchInboundControlFrame(
+  control: InboundControlFrame,
+  ctx: InboundControlDispatchContext
+): boolean {
+  switch (control.kind) {
+    case 'color_change': {
+      const raw = control.raw;
+      console.log(
+        `[P2PWebRTCChannel] Received remote color_change: car ${String(raw.carIndex)} -> slot ${String(raw.slotId)} (${String(raw.hex)})`
+      );
+      ctx.pushEvent({ type: 'color_change', payload: raw });
+      ctx.onColorChange?.(raw);
+      return true;
+    }
+    case 'diagnostic_fleet_toggle':
+      ctx.pushEvent({
+        type: 'diagnostic_fleet_toggle',
+        enabled: control.enabled,
+        anchorMode: control.anchorMode,
+      });
+      ctx.onDiagnosticFleetToggle?.(control.enabled, control.anchorMode);
+      return true;
+    case 'tunnel_endpoint_advertise':
+      ctx.pushEvent({ type: 'tunnel_endpoint_advertise', payload: control.raw });
+      ctx.onTunnelEndpointAdvertise?.(control.raw);
+      return true;
+    case 'peer_kick':
+      ctx.pushEvent({ type: 'peer_kick', payload: control.raw });
+      ctx.onPeerKick?.(control.raw);
+      return true;
+    case 'peer_leave':
+      ctx.pushEvent({ type: 'peer_leave', payload: control.raw });
+      ctx.onPeerLeave?.(control.raw);
+      return true;
+    case 'voice_signal':
+      ctx.pushEvent({ type: 'voice_signal', payload: control.raw });
+      ctx.onVoiceSignal?.(control.raw);
+      return true;
+    case 'room_activity_switch':
+    case 'replication_mode_set':
+    case 'state_paused_ack':
+    case 'room_csr_state_broadcast':
+      if (control.kind === 'replication_mode_set') {
+        ctx.setReplicationMode(control.raw.replicationMode === 'SPARSE');
+      }
+      ctx.pushEvent({ type: control.kind, payload: control.raw });
+      return true;
+    case 'ping': {
+      const accepted = ctx.receiveSimulatorPayload(
+        ctx.rawData,
+        (delivered) => {
+          ctx.sendPong(control.sendTime);
+          ctx.emitPacket(delivered);
+        },
+        ctx.nowMs
+      );
+      if (accepted) ctx.popInboundQueue();
+      return true;
+    }
+    case 'pong': {
+      const accepted = ctx.receiveSimulatorPayload(
+        ctx.rawData,
+        () => ctx.handlePong(control.sendTime),
+        ctx.nowMs
+      );
+      if (accepted) ctx.popInboundQueue();
+      return true;
+    }
+  }
 }
 
 export function encodeClientInputPayload(packet: ClientInputPacketPayload): SimulatedPayload {

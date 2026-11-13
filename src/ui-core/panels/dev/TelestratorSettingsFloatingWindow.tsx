@@ -4,11 +4,11 @@ import {
   useTelestratorStore,
 } from '../../stores/telestratorStore';
 
-export interface TelestratorSettingsPanelProps {
+export interface TelestratorSettingsFloatingWindowProps {
   isLight: boolean;
 }
 
-export const TelestratorSettingsPanel: React.FC<TelestratorSettingsPanelProps> = ({ isLight }) => {
+export const TelestratorSettingsFloatingWindow: React.FC<TelestratorSettingsFloatingWindowProps> = ({ isLight }) => {
   const activePresetIndex = useTelestratorStore((s) => s.activePresetIndex);
   const presets = useTelestratorStore((s) => s.presets);
   const arrowLengthRefPx = useTelestratorStore((s) => s.arrowLengthRefPx);

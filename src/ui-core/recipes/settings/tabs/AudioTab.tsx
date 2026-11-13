@@ -16,6 +16,7 @@ import { useAppStore } from '../../../stores/appStore';
 import { useScopedStore } from '../../../stores/storeSnapshotScope';
 import type { SurfaceVariantMeta } from '../../../manifest/surfaceMetaTypes';
 import { BgmFolderAndSceneConfigSection } from '../components/BgmFolderAndSceneConfigSection';
+import { VoiceChatSettingsSection } from '../components/VoiceChatSettingsSection';
 
 export interface AudioConfig {
   masterVolume: number;      // 0..100
@@ -265,6 +266,12 @@ export const AudioTab: React.FC<AudioTabProps> = ({
         hoverDescription="Configure 3-band parametric equalizer (Bass 100Hz, Midrange 1kHz, Treble 10kHz), Dynamic Range Profile (Night, Dynamic, Studio), and 3D spatial acoustics."
         buttonHoverDescription="Open Acoustics & Equalizer panel to tune 3-band EQ, dynamic range compression, and 3D spatial roll-off."
         onAction={onNavigateAcousticsEqualizer ?? (() => navigate('acoustics-equalizer'))}
+        onHover={onHover}
+        onLeave={onLeave}
+        isLight={isLight}
+      />
+
+      <VoiceChatSettingsSection
         onHover={onHover}
         onLeave={onLeave}
         isLight={isLight}

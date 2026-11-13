@@ -18,8 +18,10 @@ import {
   type RoomActivitySwitchPayload,
   type StatePausedAckPayload,
 } from '../../protocol/ReplicationBusProtocol.ts';
+import type { TunnelTransport } from '../tunnel/TunnelTransport.ts';
 import {
   parseInboundControlFrame,
+  dispatchInboundControlFrame,
   encodeClientInputPayload,
   dispatchOpportunisticPing,
   transmitClonedPayload,
@@ -49,6 +51,7 @@ export type LocalColorUpdatedListener = (
 export type ColorChangeMessageListener = (msg: Record<string, unknown>) => void;
 export type DiagnosticFleetToggleListener = (enabled: boolean, anchorMode: string) => void;
 export type PacketDeliveredListener = (data: SimulatedPayload) => void;
+export type ControlPayloadListener = (msg: Record<string, unknown>) => void;
 
 export interface DataChannelTransportPort {
   simulator: NetworkSimulator;
@@ -91,6 +94,14 @@ export class DataChannelTransport {
   onColorChange: ColorChangeMessageListener | null;
   onDiagnosticFleetToggle: DiagnosticFleetToggleListener | null;
   onPacketDelivered: PacketDeliveredListener | null;
+  onTunnelEndpointAdvertise: ControlPayloadListener | null = null;
+  onPeerKick: ControlPayloadListener | null = null;
+  onPeerLeave: ControlPayloadListener | null = null;
+  onVoiceSignal: ControlPayloadListener | null = null;
+
+  private attachedTunnel: TunnelTransport | null = null;
+  private tunnelRemotePeerId: string | null = null;
+  private readonly utf8Decoder = new TextDecoder();
 
   private readonly readExternalChannel: (() => RTCDataChannel | null) | null;
   private readonly writeExternalChannel: ((channel: RTCDataChannel | null) => void) | null;
@@ -118,6 +129,20 @@ export class DataChannelTransport {
     this.onDiagnosticFleetToggle =
       config.onDiagnosticFleetToggle ?? config.deliverDiagnosticFleetToggle ?? null;
     this.onPacketDelivered = config.onPacketDelivered ?? config.deliverPacket ?? null;
+  }
+
+  attachTunnelTransport(tunnel: TunnelTransport, remotePeerId: string): void {
+    this.attachedTunnel = tunnel;
+    this.tunnelRemotePeerId = remotePeerId;
+  }
+
+  detachTunnelTransport(): void {
+    this.attachedTunnel = null;
+    this.tunnelRemotePeerId = null;
+  }
+
+  hasActiveTunnel(): boolean {
+    return Boolean(this.attachedTunnel?.isOpen && this.tunnelRemotePeerId);
   }
 
   drainTransportEvents(): DataChannelTransportEvent[] {
@@ -240,74 +265,36 @@ export class DataChannelTransport {
       }
     }
 
-    if (typeof data === 'string') {
-      const control = parseInboundControlFrame(data);
+    let maybeString: string | null = typeof data === 'string' ? data : null;
+    if (!maybeString && data instanceof Uint8Array && data.byteLength > 0 && data[0] === 0x7b) {
+      maybeString = this.utf8Decoder.decode(data);
+    }
+
+    if (maybeString !== null && data != null) {
+      const control = parseInboundControlFrame(maybeString);
       if (control) {
-        if (control.kind === 'color_change') {
-          const raw = control.raw;
-          console.log(
-            `[P2PWebRTCChannel] Received remote color_change: car ${String(raw.carIndex)} -> slot ${String(raw.slotId)} (${String(raw.hex)})`
-          );
-          this.transportEvents.push({ type: 'color_change', payload: raw });
-          if (this.onColorChange) {
-            this.onColorChange(raw);
-          }
-          return;
-        }
-        if (control.kind === 'diagnostic_fleet_toggle') {
-          this.transportEvents.push({
-            type: 'diagnostic_fleet_toggle',
-            enabled: control.enabled,
-            anchorMode: control.anchorMode,
-          });
-          if (this.onDiagnosticFleetToggle) {
-            this.onDiagnosticFleetToggle(control.enabled, control.anchorMode);
-          }
-          return;
-        }
-        if (
-          control.kind === 'room_activity_switch' ||
-          control.kind === 'replication_mode_set' ||
-          control.kind === 'state_paused_ack' ||
-          control.kind === 'room_csr_state_broadcast'
-        ) {
-          if (control.kind === 'replication_mode_set') {
-            const nextMode =
-              control.raw.replicationMode === REPLICATION_MODES.SPARSE
-                ? REPLICATION_MODES.SPARSE
-                : REPLICATION_MODES.CONTINUOUS;
-            this.pacer.setMode(nextMode);
-          }
-          this.transportEvents.push({ type: control.kind, payload: control.raw });
-          return;
-        }
-        if (control.kind === 'ping') {
-          const accepted = sim.receivePayload(
-            data,
-            (delivered) => {
-              this.sendPong(control.sendTime);
-              this.emitPacket(delivered);
-            },
-            now
-          );
-          if (accepted && sim.inboundQueue.length > 0) {
-            sim.inboundQueue.pop();
-          }
-          return;
-        }
-        if (control.kind === 'pong') {
-          const accepted = sim.receivePayload(
-            data,
-            () => {
-              sim.handlePong(control.sendTime);
-            },
-            now
-          );
-          if (accepted && sim.inboundQueue.length > 0) {
-            sim.inboundQueue.pop();
-          }
-          return;
-        }
+        dispatchInboundControlFrame(control, {
+          rawData: data,
+          nowMs: now,
+          pushEvent: (ev) => this.transportEvents.push(ev),
+          setReplicationMode: (isSparse) =>
+            this.pacer.setMode(isSparse ? REPLICATION_MODES.SPARSE : REPLICATION_MODES.CONTINUOUS),
+          onColorChange: this.onColorChange,
+          onDiagnosticFleetToggle: this.onDiagnosticFleetToggle,
+          onTunnelEndpointAdvertise: this.onTunnelEndpointAdvertise,
+          onPeerKick: this.onPeerKick,
+          onPeerLeave: this.onPeerLeave,
+          onVoiceSignal: this.onVoiceSignal,
+          receiveSimulatorPayload: (payload, onDelivered, ts) =>
+            sim.receivePayload(payload, onDelivered, ts),
+          popInboundQueue: () => {
+            if (sim.inboundQueue.length > 0) sim.inboundQueue.pop();
+          },
+          sendPong: (sendTime) => this.sendPong(sendTime),
+          handlePong: (sendTime) => sim.handlePong(sendTime),
+          emitPacket: (delivered) => this.emitPacket(delivered),
+        });
+        return;
       }
     }
 
@@ -321,16 +308,38 @@ export class DataChannelTransport {
     );
   }
 
+  private transmitViaTunnelOrDataChannel(
+    payload: SimulatedPayload,
+    allowBroadcastFallback: boolean,
+    reliable = false
+  ): boolean {
+    if (this.attachedTunnel?.isOpen && this.tunnelRemotePeerId) {
+      if (
+        (payload instanceof Uint8Array ||
+          payload instanceof ArrayBuffer ||
+          typeof payload === 'string') &&
+        this.attachedTunnel.sendToPeer(this.tunnelRemotePeerId, payload, reliable)
+      ) {
+        return true;
+      }
+    }
+    return transmitClonedPayload(
+      this.resolveActiveDataChannel(),
+      this.signaling.roomBroadcastChannel,
+      allowBroadcastFallback,
+      payload
+    );
+  }
+
   sendPong(sendTime: number, nowMs = performance.now()): void {
     const pongMsg = JSON.stringify({ type: 'pong', sendTime });
     this.simulator.scheduleSend(
       pongMsg,
       (clonedPacket) =>
-        transmitClonedPayload(
-          this.resolveActiveDataChannel(),
-          this.signaling.roomBroadcastChannel,
+        this.transmitViaTunnelOrDataChannel(
+          clonedPacket,
           this.resolveIsChannelOpen() || Boolean(this.signaling.roomBroadcastChannel),
-          clonedPacket
+          false
         ),
       nowMs
     );
@@ -352,27 +361,29 @@ export class DataChannelTransport {
       });
       sim.scheduleSend(
         pingPayload,
-        (clonedPing) =>
-          dispatchOpportunisticPing(
+        (clonedPing) => {
+          const msg = typeof clonedPing === 'string' ? clonedPing : pingPayload;
+          if (this.attachedTunnel?.isOpen && this.tunnelRemotePeerId) {
+            if (this.attachedTunnel.sendToPeer(this.tunnelRemotePeerId, msg, false)) {
+              return true;
+            }
+          }
+          return dispatchOpportunisticPing(
             this.resolveActiveDataChannel(),
             this.signaling.roomBroadcastChannel,
             this.resolveIsChannelOpen() || Boolean(this.signaling.roomBroadcastChannel),
             nowMs,
             sim.rttMs,
-            typeof clonedPing === 'string' ? clonedPing : pingPayload
-          ),
+            msg
+          );
+        },
         nowMs
       );
     }
     return sim.scheduleSend(
       packet,
       (clonedPacket) =>
-        transmitClonedPayload(
-          this.resolveActiveDataChannel(),
-          this.signaling.roomBroadcastChannel,
-          this.resolveIsChannelOpen(),
-          clonedPacket
-        ),
+        this.transmitViaTunnelOrDataChannel(clonedPacket, this.resolveIsChannelOpen(), false),
       nowMs
     );
   }
@@ -429,6 +440,17 @@ export class DataChannelTransport {
   }
 
   sendReliableControl(messageObj: Record<string, unknown>, label = 'reliable_control'): boolean {
+    if (
+      messageObj.type !== 'tunnel_endpoint_advertise' &&
+      this.attachedTunnel?.isOpen &&
+      this.tunnelRemotePeerId
+    ) {
+      if (
+        this.attachedTunnel.sendToPeer(this.tunnelRemotePeerId, JSON.stringify(messageObj), true)
+      ) {
+        return true;
+      }
+    }
     return transmitReliableControlFrame(
       this.controlDataChannel,
       this.resolveActiveDataChannel(),
@@ -436,6 +458,10 @@ export class DataChannelTransport {
       messageObj,
       label
     );
+  }
+
+  sendVoiceSignal(signal: Record<string, unknown>): boolean {
+    return this.sendReliableControl({ type: 'voice_signal', ...signal }, 'voice_signal');
   }
 
   sendRoomActivitySwitch(payload: RoomActivitySwitchPayload): boolean {
@@ -475,11 +501,10 @@ export class DataChannelTransport {
     ackTick = 0
   ): boolean {
     const frame = encodeSparsePingPong16B({ kind, seq, timestampMs, epoch, ackTick });
-    return transmitClonedPayload(
-      this.resolveActiveDataChannel(),
-      this.signaling.roomBroadcastChannel,
+    return this.transmitViaTunnelOrDataChannel(
+      frame,
       this.resolveIsChannelOpen() || Boolean(this.signaling.roomBroadcastChannel),
-      frame
+      false
     );
   }
 

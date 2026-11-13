@@ -21,6 +21,11 @@ import {
   resetSimBallToCenter,
   writeSimCurrentTick,
 } from './authoritativePhysicsEngineHelpers.ts';
+import {
+  applyTrainingBoostPolicyToSim,
+  type MultiplayerTrainingConfig,
+  type TrainingSimBoostPort,
+} from './activities/MultiplayerTrainingPolicy.ts';
 
 export type { PhysicsSignalData };
 
@@ -55,6 +60,7 @@ export class PhysicsEngineManager {
   jumpSuppressedCarIndices: Set<number>;
   lastBallTouchCarIndex?: number;
   lastBallTouchTick?: number;
+  trainingBoostConfig: MultiplayerTrainingConfig | null = null;
 
   constructor(options: PhysicsEngineManagerOptions = {}) {
     this.sim =
@@ -285,8 +291,19 @@ export class PhysicsEngineManager {
     this.maskUntilFrame = next.maskUntilFrame;
   }
 
+  setTrainingBoostConfig(config: MultiplayerTrainingConfig | null): void {
+    this.trainingBoostConfig = config;
+  }
+
   stepAuthoritativeTick(): AuthoritativePhysicsStepOutput {
     const currentTick = this.currentTick;
+    if (this.trainingBoostConfig && !this.isPaused) {
+      applyTrainingBoostPolicyToSim(
+        this.sim as TrainingSimBoostPort,
+        this.activeCarIndices,
+        this.trainingBoostConfig
+      );
+    }
     const stepResult = executeAuthoritativePhysicsTickStep({
       sim: this.sim,
       isPaused: this.isPaused,

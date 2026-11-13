@@ -23,7 +23,7 @@ import {
   canLocalDrawInTelestrator,
   useTelestratorStore,
 } from '../../stores/telestratorStore';
-import { TelestratorSettingsPanel } from './TelestratorSettingsPanel';
+import { TelestratorSettingsFloatingWindow } from './TelestratorSettingsFloatingWindow';
 
 export const SURFACE_META: SurfaceMeta = {
   id: 'telestrator-toolbar',
@@ -368,7 +368,7 @@ export const TelestratorToolbarFloatingWindow: React.FC<
         </IconButtonWithBubble>
       </div>
 
-      {settingsOpen && <TelestratorSettingsPanel isLight={isLight} />}
+      {settingsOpen && <TelestratorSettingsFloatingWindow isLight={isLight} />}
 
       <div className="flex-1 min-w-0" />
     </div>

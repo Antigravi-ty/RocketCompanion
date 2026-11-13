@@ -155,10 +155,75 @@ class SandboxActivityKernel implements RoomActivityKernel {
   }
 }
 
+import {
+  GhostBallRelayCoordinator,
+  sanitizeTrainingConfig,
+  type GhostBallSample,
+  type MultiplayerTrainingConfig,
+} from './MultiplayerTrainingPolicy.ts';
+
+class MultiplayerTrainingActivityKernel implements RoomActivityKernel {
+  readonly id = ACTIVITY_IDS.MULTIPLAYER_TRAINING;
+  readonly defaultReplicationMode = REPLICATION_MODES.CONTINUOUS;
+  readonly defaultPacketFlags = resolvePacketFlagsForActivity(
+    ACTIVITY_IDS.MULTIPLAYER_TRAINING,
+    REPLICATION_MODES.CONTINUOUS
+  );
+  private config: MultiplayerTrainingConfig = sanitizeTrainingConfig(null);
+  private readonly ghostRelay = new GhostBallRelayCoordinator();
+
+  onMount(ctx: ActivityKernelContext): void {
+    this.config = sanitizeTrainingConfig(ctx.stateSummary);
+    this.ghostRelay.clear();
+    ctx.matchManager?.lifecycle.startTrainingMode({ unlimitedBoost: false });
+    ctx.physicsManager?.setTrainingBoostConfig(this.config);
+  }
+
+  onUnmount(ctx: ActivityKernelContext): void {
+    ctx.physicsManager?.setTrainingBoostConfig(null);
+    this.ghostRelay.clear();
+  }
+
+  onControlMessage(
+    ctx: ActivityKernelContext,
+    type: string,
+    payload: Record<string, unknown>
+  ): boolean {
+    if (type === 'training_config_update') {
+      this.config = sanitizeTrainingConfig(payload);
+      ctx.physicsManager?.setTrainingBoostConfig(this.config);
+      return true;
+    }
+    if (type === 'ghost_ball_report') {
+      if (!this.config.ghostModeEnabled) return false;
+      const sample = payload.ball as GhostBallSample | undefined;
+      if (sample && typeof sample.ownerPeerId === 'string') {
+        this.ghostRelay.ingestClientBall(sample);
+        return true;
+      }
+      return false;
+    }
+    return false;
+  }
+
+  getStateSummary(ctx: ActivityKernelContext): Record<string, unknown> {
+    return {
+      activityId: this.id,
+      hideScoreboard: true,
+      boostPolicy: this.config.boostPolicy,
+      perPlayerBoostOverrides: { ...this.config.perPlayerBoostOverrides },
+      ghostModeEnabled: this.config.ghostModeEnabled,
+      ghostBalls: this.config.ghostModeEnabled ? this.ghostRelay.buildRelaySnapshot() : [],
+      matchTick: ctx.matchManager?.domain.matchTick ?? 0,
+    };
+  }
+}
+
 export function createDefaultActivityKernelRegistry(): Map<ActivityId, RoomActivityKernel> {
   const registry = new Map<ActivityId, RoomActivityKernel>();
   registry.set(ACTIVITY_IDS.MATCH, new MatchActivityKernel());
   registry.set(ACTIVITY_IDS.FREEPLAY, new FreeplayActivityKernel());
+  registry.set(ACTIVITY_IDS.MULTIPLAYER_TRAINING, new MultiplayerTrainingActivityKernel());
   registry.set(ACTIVITY_IDS.REPLAY, new ReplayActivityKernel());
   registry.set(ACTIVITY_IDS.SANDBOX, new SandboxActivityKernel());
   return registry;

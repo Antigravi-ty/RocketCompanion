@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Ghost, Play } from 'lucide-react';
+import { Flame, Ghost, Play } from 'lucide-react';
 import type { StandardSurfaceProps, SurfaceMeta } from '../manifest/surfaceMetaTypes';
 import { PanelContainer, PanelHeader, PanelContent } from '../layout/Panel';
 import { PanelFooter } from '../layout/PanelFooter';
@@ -32,12 +32,16 @@ import {
 import { useOnlineRoomProgressController } from './online/useOnlineRoomProgressController';
 
 export type HostTrainingGhostMode = 'automatically-enable' | 'manual';
+export type PerPlayerTrainingBoostPolicy = 'limited' | 'limit_when_aerial' | 'unlimited';
+export type TrainingBoostPolicy = PerPlayerTrainingBoostPolicy | 'custom';
 
 export interface HostTrainingConfig {
   playerName: string;
   roomCode: string;
   roomKey: string;
   ghostMode: HostTrainingGhostMode;
+  boostPolicy: TrainingBoostPolicy;
+  perPlayerBoostOverrides: Record<number, PerPlayerTrainingBoostPolicy>;
 }
 
 export interface Layer3HostTrainingStateOverride {
@@ -166,7 +170,7 @@ export const Layer3HostTrainingRecipe: React.FC<Layer3HostTrainingRecipeProps> =
 
   const resolvedDefaultConfig = propDefaultConfig ?? overrides.defaultConfig;
   const resolvedDefaultGhostMode =
-    propDefaultGhostMode ?? overrides.defaultGhostMode ?? resolvedDefaultConfig?.ghostMode ?? 'automatically-enable';
+    propDefaultGhostMode ?? overrides.defaultGhostMode ?? resolvedDefaultConfig?.ghostMode ?? 'manual';
 
   const [playerName, setPlayerName] = useState<string>(() =>
     resolvedDefaultConfig?.playerName ??
@@ -181,6 +185,12 @@ export const Layer3HostTrainingRecipe: React.FC<Layer3HostTrainingRecipeProps> =
     resolvedDefaultConfig?.roomKey ?? onlineSession?.password ?? ''
   );
   const [ghostMode, setGhostMode] = useState<HostTrainingGhostMode>(resolvedDefaultGhostMode);
+  const [boostPolicy, setBoostPolicy] = useState<TrainingBoostPolicy>(
+    resolvedDefaultConfig?.boostPolicy ?? 'limit_when_aerial'
+  );
+  const [perPlayerBoostOverrides, setPerPlayerBoostOverrides] = useState<
+    Record<number, PerPlayerTrainingBoostPolicy>
+  >(resolvedDefaultConfig?.perPlayerBoostOverrides ?? {});
   useEffect(() => {
     setGhostMode(resolvedDefaultGhostMode);
   }, [resolvedDefaultGhostMode]);
@@ -243,6 +253,8 @@ export const Layer3HostTrainingRecipe: React.FC<Layer3HostTrainingRecipeProps> =
       roomCode: cleanCode,
       roomKey,
       ghostMode,
+      boostPolicy,
+      perPlayerBoostOverrides,
     };
 
     const sessionPatch = {
@@ -320,6 +332,56 @@ export const Layer3HostTrainingRecipe: React.FC<Layer3HostTrainingRecipeProps> =
           />
 
           <SettingSegmentedRow
+            icon={Flame}
+            iconColor="text-amber-400"
+            title="Boost Policy"
+            value={boostPolicy}
+            onChange={(v) => setBoostPolicy(v as TrainingBoostPolicy)}
+            layout="inline"
+            bordered={false}
+            showDescription={false}
+            options={[
+              { label: 'Limited', value: 'limited' },
+              { label: 'Limit When Aerial', value: 'limit_when_aerial' },
+              { label: 'Unlimited', value: 'unlimited' },
+              { label: 'Custom', value: 'custom' },
+            ]}
+            hoverDescription="Boost Policy: Limit When Aerial preserves boost on ground (with boost pad replenishment) and consumes boost realistically while airborne."
+            onHover={(desc) => desc && setHoveredDesc(desc)}
+            onLeave={() => setHoveredDesc(null)}
+            isLight={isLight}
+          />
+
+          {boostPolicy === 'custom' && (
+            <div className="flex flex-col gap-1.5 pl-2 border-l border-white/10">
+              {[0, 1, 2, 3].map((slotIdx) => (
+                <SettingSegmentedRow
+                  key={slotIdx}
+                  title={`Player Slot #${slotIdx + 1} Boost`}
+                  value={perPlayerBoostOverrides[slotIdx] ?? 'limit_when_aerial'}
+                  onChange={(v) =>
+                    setPerPlayerBoostOverrides((prev) => ({
+                      ...prev,
+                      [slotIdx]: v as PerPlayerTrainingBoostPolicy,
+                    }))
+                  }
+                  layout="inline"
+                  bordered={false}
+                  showDescription={false}
+                  options={[
+                    { label: 'Limited', value: 'limited' },
+                    { label: 'Aerial', value: 'limit_when_aerial' },
+                    { label: 'Unlimited', value: 'unlimited' },
+                  ]}
+                  onHover={(desc) => desc && setHoveredDesc(desc)}
+                  onLeave={() => setHoveredDesc(null)}
+                  isLight={isLight}
+                />
+              ))}
+            </div>
+          )}
+
+          <SettingSegmentedRow
             icon={Ghost}
             iconColor="text-purple-400"
             title="Ghost Mode"
@@ -332,7 +394,7 @@ export const Layer3HostTrainingRecipe: React.FC<Layer3HostTrainingRecipeProps> =
               { label: 'Automatically Enable', value: 'automatically-enable' },
               { label: 'Manual', value: 'manual' },
             ]}
-            hoverDescription="Ghost Mode: Choose Automatically Enable to phase car collisions automatically, or Manual so clients can toggle Ghost Mode individually."
+            hoverDescription="Ghost Mode: Manual keeps Client Ghost Mode OFF by default (with Host multi-ball relay when enabled)."
             onHover={(desc) => desc && setHoveredDesc(desc)}
             onLeave={() => setHoveredDesc(null)}
             isLight={isLight}

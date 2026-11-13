@@ -348,6 +348,24 @@ export class OnlineRemotePeerVehicleSynchronizer {
     const { session, world } = this.host;
     if (carIndex === world.playerCarIndex) return;
 
+    const hostCtrl = world.multiplayerSession?.hostController;
+    if (hostCtrl?.peerChannels) {
+      for (const [peerId, ch] of hostCtrl.peerChannels.entries()) {
+        if (ch.carIndex === carIndex) {
+          ch.sendReliableControl(
+            { type: 'peer_kick', peerId, carIndex, reason: 'kicked_by_host' },
+            'peer_kick'
+          );
+          ch.detachTunnelTransport();
+          ch.destroy();
+          hostCtrl.peerChannels.delete(peerId);
+          hostCtrl.peerRoles.delete(peerId);
+          hostCtrl.peerReadyStates.delete(peerId);
+          hostCtrl.peerPairingCodes.delete(peerId);
+        }
+      }
+    }
+
     for (const [k, v] of session.remotePeerCarMap.entries()) {
       if (v === carIndex) session.remotePeerCarMap.delete(k);
     }

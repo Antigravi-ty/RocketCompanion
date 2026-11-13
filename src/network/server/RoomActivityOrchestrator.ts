@@ -15,6 +15,14 @@ import {
   type RoomActivitySwitchPayload,
   type StatePausedAckPayload,
 } from '../protocol/ReplicationBusProtocol.ts';
+import {
+  DEFAULT_PAUSE_HEARTBEAT_HZ,
+  clampPauseHeartbeatHz,
+  getPauseHeartbeatIntervalMs,
+  type FloatingWindowSyncEntry,
+  type GlobalWorkspaceBroadcastPayload,
+  type TelestratorDrawPermission,
+} from '../protocol/GlobalWorkspaceProtocol.ts';
 import { SyncAuthorityRouter } from '../sync/SyncAuthorityRouter.ts';
 import { ReplicationStateInterpolator } from '../sync/ReplicationStateInterpolator.ts';
 import {
@@ -30,6 +38,8 @@ export class RoomActivityOrchestrator {
   private replicationMode: ReplicationMode = REPLICATION_MODES.CONTINUOUS;
   private activePacketFlags: number;
   private readonly pausedAckSessions = new Set<string>();
+  private telestratorPermission: TelestratorDrawPermission = 'host_only';
+  private pauseHeartbeatHz = DEFAULT_PAUSE_HEARTBEAT_HZ;
   readonly authorityRouter = new SyncAuthorityRouter();
   readonly interpolator = new ReplicationStateInterpolator();
 
@@ -63,6 +73,27 @@ export class RoomActivityOrchestrator {
 
   getPausedAckCount(): number {
     return this.pausedAckSessions.size;
+  }
+
+  hasAllPeersPausedAck(expectedPeerCount: number): boolean {
+    if (expectedPeerCount <= 0) return true;
+    return this.pausedAckSessions.size >= expectedPeerCount;
+  }
+
+  setTelestratorPermission(permission: TelestratorDrawPermission): void {
+    this.telestratorPermission = permission === 'everyone' ? 'everyone' : 'host_only';
+  }
+
+  getTelestratorPermission(): TelestratorDrawPermission {
+    return this.telestratorPermission;
+  }
+
+  setPauseHeartbeatHz(hz: number): void {
+    this.pauseHeartbeatHz = clampPauseHeartbeatHz(hz);
+  }
+
+  getPauseHeartbeatIntervalMs(): number {
+    return getPauseHeartbeatIntervalMs(this.pauseHeartbeatHz);
   }
 
   switchActivity(
@@ -145,5 +176,28 @@ export class RoomActivityOrchestrator {
     };
     this.authorityRouter.applyCsrBroadcast(payload);
     return payload;
+  }
+
+  buildGlobalWorkspaceBroadcast(params: {
+    tick: number;
+    menuRoute: string | null;
+    openFloatingWindows: FloatingWindowSyncEntry[];
+    playbackPaused: boolean;
+    pausedAtTick?: number;
+  }): GlobalWorkspaceBroadcastPayload {
+    return {
+      epoch: this.epoch,
+      tick: params.tick,
+      menuRoute: params.menuRoute,
+      openFloatingWindows: params.openFloatingWindows.map((w) => ({
+        id: w.id,
+        isOpen: Boolean(w.isOpen),
+        isMinimized: Boolean(w.isMinimized),
+      })),
+      telestratorPermission: this.telestratorPermission,
+      playbackPaused: Boolean(params.playbackPaused),
+      pausedAtTick: params.pausedAtTick ?? params.tick,
+      pauseHeartbeatHz: this.pauseHeartbeatHz,
+    };
   }
 }

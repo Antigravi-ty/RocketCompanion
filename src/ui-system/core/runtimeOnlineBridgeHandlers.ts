@@ -1,4 +1,10 @@
 import { useAppStore } from '../../ui-core/stores/appStore.ts';
+import { useVoiceChatStore } from '../../ui-core/stores/voiceChatStore.ts';
+import {
+  ensureVoiceRuntimeBridge,
+  detachVoiceFromPeer,
+  syncVoiceRoomPolicy,
+} from './runtimeVoiceBridge.ts';
 import { hudStore } from '../../ui-core/stores/hudStore.ts';
 import {
   clearOnlineRoomLaunchError,
@@ -160,6 +166,8 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
       opts: HostOnlineWarmupPortOptions & { ghostMode?: 'automatically-enable' | 'manual' }
     ) {
       clearOnlineRoomLaunchError();
+      ensureVoiceRuntimeBridge();
+      syncVoiceRoomPolicy(useVoiceChatStore.getState().roomVoiceMode, null, true);
       try {
         const ok = await matchPort.hostOnlineWarmup(opts);
         if (ok && opts.ghostMode !== undefined) {
@@ -174,6 +182,8 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
     },
     async onJoinOnlineWarmup(opts: JoinOnlineWarmupPortOptions) {
       clearOnlineRoomLaunchError();
+      ensureVoiceRuntimeBridge();
+      syncVoiceRoomPolicy(useVoiceChatStore.getState().roomVoiceMode, null, true);
       try {
         return await matchPort.joinOnlineWarmup(opts);
       } catch (e) {
@@ -186,6 +196,7 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
     onDeclinePendingPeer: matchPort.declinePendingPeer.bind(matchPort),
     async onLeaveOnlineServer() {
       try {
+        detachVoiceFromPeer('*');
         await matchPort.leaveOnlineServer();
         const appState = useAppStore.getState();
         appState.setMatchMode('freeplay');
@@ -196,6 +207,7 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
     },
     async onReturnToOnlineLobby() {
       try {
+        syncVoiceRoomPolicy(useVoiceChatStore.getState().roomVoiceMode, null, true);
         await matchPort.returnToOnlineLobby();
       } catch (e) {
         console.error('[mountGameUI] Error returning online match to lobby', e);
@@ -218,6 +230,11 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
     },
     onForceStartOnlineMatch(durationSeconds = 90) {
       useAppStore.getState().closeMenu();
+      syncVoiceRoomPolicy(
+        useVoiceChatStore.getState().roomVoiceMode,
+        useVoiceChatStore.getState().localTeam,
+        false
+      );
       matchPort.forceStartOnlineMatch(durationSeconds);
     },
     onSetOnlineGameMode: matchPort.setOnlineGameMode.bind(matchPort),
