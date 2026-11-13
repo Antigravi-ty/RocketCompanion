@@ -12,6 +12,7 @@ import {
   useSubsystemIsolationLabStore,
   type DevTestLabTab as IsolationDevTestLabTab,
 } from '../stores/subsystemIsolationLabStore';
+import { useTelestratorStore } from '../stores/telestratorStore';
 import { useScopedStore } from '../stores/storeSnapshotScope';
 import {
   EXPERIMENTAL_BOT_PACK_PRESET,
@@ -147,6 +148,12 @@ export const Layer3DevSandboxesRecipe: React.FC<Layer3DevSandboxesRecipeProps> =
       } else {
         closeMenu();
       }
+      return;
+    }
+
+    if (tab === 'drawing-sandbox') {
+      useTelestratorStore.getState().runtimeHandlers.onStartDrawingSandbox?.();
+      closeMenu();
       return;
     }
 

@@ -4,6 +4,7 @@ import { KickoffTrainingMode } from './KickoffTrainingMode.ts';
 import { SubsystemIsolationLabMode } from './SubsystemIsolationLabMode.ts';
 import { ExperimentalMultiBotsMode } from './ExperimentalMultiBotsMode.ts';
 import { StaticTrainingPackMode } from './static-training/StaticTrainingPackMode.ts';
+import { DrawingSandboxMode, type DrawingSandboxRuntimePort } from './DrawingSandboxMode.ts';
 import type { BaseGameMode, GameModeRuntimePort } from './BaseGameMode.ts';
 import type { ExpModeRuntimePort } from './experimental-multi-bots/ExperimentalMultiBotsMatchMath.ts';
 import type { LabRuntimePort } from './subsystem-isolation-lab/LabTabTypes.ts';
@@ -12,7 +13,8 @@ import type { FrameContext } from '../pipeline/FramePipeline.ts';
 export type GameModeManagerRuntimePort = GameModeRuntimePort &
   FreeplayRuntimePort &
   ExpModeRuntimePort &
-  LabRuntimePort & {
+  LabRuntimePort &
+  DrawingSandboxRuntimePort & {
     tunerPort?: { reconcileTrainingScopeForMode?: (modeId: string) => void } | null;
     keyboard?: { ballControlEnabled?: boolean } | null;
     match?: { state?: { mode?: string } | null } | null;
@@ -36,6 +38,7 @@ export class GameModeManager {
     const devTestLab = new SubsystemIsolationLabMode(runtime);
     const expMultiBots = new ExperimentalMultiBotsMode(runtime);
     const staticTrainingPack = new StaticTrainingPackMode(runtime);
+    const drawingSandbox = new DrawingSandboxMode(runtime);
 
     this.modes.set('freeplay', freeplay);
     this.modes.set('replay-viewer', freeplay);
@@ -44,6 +47,7 @@ export class GameModeManager {
     this.modes.set('dev-test-lab', devTestLab);
     this.modes.set('exp-multi-bots', expMultiBots);
     this.modes.set('static-training-pack', staticTrainingPack);
+    this.modes.set('drawing-sandbox', drawingSandbox);
 
     this.activeMode = freeplay;
   }

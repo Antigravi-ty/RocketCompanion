@@ -337,6 +337,20 @@ export const PERFORMANCE_BOOST_TUNER_PRESET: PresetConfig = makeDevPreset({
   component: 'PerformanceBoostTunerFloatingWindow',
 });
 
+export const TELESTRATOR_TOOLBAR_PRESET: PresetConfig = makeDevPreset({
+  id: 'telestrator-toolbar',
+  title: 'Telestrator',
+  category: 'TelestratorToolbar',
+  width: 72,
+  minWidth: 64,
+  height: 540,
+  minHeight: 360,
+  hideFooter: true,
+  summary: 'Vertical 3D telestrator toolbar with brush modes, opacity presets, colors, Direction Adjust, Undo, and Clear.',
+  menuEntryPath: DEV_ENTRY_PATHS.SANDBOXES,
+  component: 'TelestratorToolbarFloatingWindow',
+});
+
 export const DEV_PRESET_WINDOWS: PresetConfig[] = [
   DIAGNOSTIC_DUMP_PRESET,
   KEYBOARD_INPUT_OVERLAY_TUNER_PRESET,
@@ -367,6 +381,7 @@ export const DEV_PRESET_WINDOWS: PresetConfig[] = [
   ENGINE_AUDIO_TUNER_PRESET,
   BOTS_LOADOUT_TUNER_PRESET,
   REPLAY_TO_RCS_IMPORTER_PRESET,
+  TELESTRATOR_TOOLBAR_PRESET,
 ];
 
 export const PRESET_WINDOWS: PresetConfig[] = [

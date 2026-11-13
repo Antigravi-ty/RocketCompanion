@@ -44,6 +44,7 @@ export const {
   useReferenceOverlayStore,
   useNameTagTunerStore,
   useQuickNotificationStore,
+  useTelestratorStore,
   networkDiagnosticsStore,
   determinismStore,
   eventStreamStore,

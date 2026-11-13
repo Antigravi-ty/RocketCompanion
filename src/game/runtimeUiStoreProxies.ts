@@ -20,6 +20,7 @@ import type {
   StoreListener,
   StoreProxy,
   SubsystemIsolationLabStorePortState,
+  TelestratorStorePortState,
 } from './runtimeUiStorePortTypes.ts';
 
 export const DEFAULT_STATIC_TRAINING_BALL_CAM_CONFIG = {
@@ -368,6 +369,42 @@ export function createRuntimeUiStoreProxies() {
     }
   );
 
+  const useTelestratorStore = createStoreProxy<TelestratorStorePortState>({
+    isDrawingSandboxActive: false,
+    drawingEnabled: true,
+    directionAdjustActive: false,
+    directionOffsetYawDeg: 0,
+    directionOffsetPitchDeg: 0,
+    activeTool: 'solid',
+    activeColorId: 'yellow',
+    activePresetIndex: 0,
+    presets: [
+      { id: 'preset-100', label: '100%', opacity: 1.0, widthPx: 8 },
+      { id: 'preset-70', label: '70%', opacity: 0.7, widthPx: 8 },
+      { id: 'preset-50', label: '50%', opacity: 0.5, widthPx: 8 },
+    ],
+    dropStemsEnabled: true,
+    strokeCount: 0,
+    activeCameraSlot: 7,
+    runtimeHandlers: {},
+    setDrawingSandboxActive: () => {},
+    setDrawingEnabled: () => {},
+    setDirectionAdjustActive: () => {},
+    setDirectionOffsetDeg: () => {},
+    setActiveTool: () => {},
+    setActiveColorId: () => {},
+    setActivePresetIndex: () => {},
+    updatePreset: () => {},
+    setDropStemsEnabled: () => {},
+    setStrokeCount: () => {},
+    setActiveCameraSlot: () => {},
+    setRuntimeHandlers: () => {},
+    triggerUndo: () => {},
+    triggerClear: () => {},
+    triggerRestoreDirectionOffset: () => {},
+    triggerSelectCameraSlot: () => {},
+  });
+
   const floatingStore = createFloatingStoreProxy();
 
   return {
@@ -386,6 +423,7 @@ export function createRuntimeUiStoreProxies() {
     useReferenceOverlayStore,
     useNameTagTunerStore,
     useQuickNotificationStore,
+    useTelestratorStore,
     networkDiagnosticsStore,
     determinismStore,
     eventStreamStore,
