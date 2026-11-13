@@ -246,7 +246,9 @@ export class DynamicTrainingMode extends BaseGameMode<GameModeRuntimePort> {
     this.callbacks.onTimerTick?.(judge.remainingSeconds);
     if (judge.completed && judge.outcome) {
       this.resultSettled = true;
-      this.playCue(judge.outcome === 'timeout' ? 'training_ball_expire' : 'sfx_goal_poof', 1.0);
+      if (judge.outcome === 'timeout') {
+        this.playCue('training_ball_expire', 1.0);
+      }
       this.callbacks.onOutcome?.(this.activeShot.id, judge.outcome);
       this.callbacks.onPhaseChange?.('result', 0);
     }

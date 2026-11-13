@@ -337,10 +337,6 @@ export function recordGoalScoredAndSyncHud(params: {
     cueName: 'sfx_goal_poof',
     volume: 1.0,
   });
-  const audio = scenePort.audioSubsystem?.audio || scenePort.audio;
-  if (audio?.play) {
-    audio.play('sfx_goal_poof', 1.0);
-  }
   syncLocalMatchStateToRuntimeAndHud(scenePort.match?.state as MatchStateData | null | undefined, {
     matchPhase: 'goal',
     localTeam: playerTeam,

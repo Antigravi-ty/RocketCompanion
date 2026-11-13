@@ -408,7 +408,7 @@ impl AudioDirectorInstance {
         audio_pos: [f32; 3],
     ) {
         if self.last_goal_scored_tick != u32::MAX
-            && ev_tick.saturating_sub(self.last_goal_scored_tick) < 120
+            && ev_tick.abs_diff(self.last_goal_scored_tick) < 240
         {
             return;
         }

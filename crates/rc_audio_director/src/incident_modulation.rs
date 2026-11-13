@@ -90,7 +90,7 @@ pub mod cooldown_ticks {
     pub const BOOST_EDGE_PER_CAR: u32 = 5;
     pub const JUMP_ACTION_PER_CAR: u32 = 5;
     pub const SUPERSONIC_ENTER_PER_CAR: u32 = 30;
-    pub const FLIP_RESET_PER_CAR: u32 = 60;
+    pub const FLIP_RESET_PER_CAR: u32 = 120;
 }
 
 #[derive(Clone, Copy)]

@@ -181,12 +181,13 @@ impl AudioDirectorInstance {
             return;
         }
         let dt_state = &mut self.drivetrains[car_idx];
-        if dt_state.last_flip_reset_tick != 0
-            && ev_tick.saturating_sub(dt_state.last_flip_reset_tick) < 60
+        if dt_state.last_flip_reset_tick != u32::MAX
+            && ev_tick >= dt_state.last_flip_reset_tick
+            && ev_tick.saturating_sub(dt_state.last_flip_reset_tick) < 120
         {
             return;
         }
-        dt_state.last_flip_reset_tick = ev_tick.max(1);
+        dt_state.last_flip_reset_tick = ev_tick;
         let is_local = (car_idx as i32) == self.listener_pod.active_car_index;
         let (atten, culled) = if is_local {
             (self.config_pod.vehicle_self_volume, false)

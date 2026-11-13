@@ -164,7 +164,14 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
           pkt.acknowledgedControls
         );
       }
-      if ((!isCustomScrubbing || !flags.isGoalReplay) && !flags.isLocalReplayControllerStepping) {
+      const isReplayTimelineOwningInterpolator = Boolean(
+        flags.isGoalReplay && replayTimelineController?.sessionState?.isActive
+      );
+      if (
+        !isReplayTimelineOwningInterpolator &&
+        (!isCustomScrubbing || !flags.isGoalReplay) &&
+        !flags.isLocalReplayControllerStepping
+      ) {
         applyReplayFrameToEngine(physics, pkt.stateSnapshot, interpolator);
         if (!matchState.paused && !flags.isMatchEnded && sessionStateTarget) {
           const recOut = recordClientDiagnosticReplayFrame(physics, diagnosticDumpMaxFrames);

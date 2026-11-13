@@ -100,9 +100,6 @@ export class RuntimeGoalReplaySignalSubController {
       blueScore: bScore,
       orangeScore: oScore,
     });
-    if (isScoreChange && !isSignalAudioMutedInGoalReplay(ctx)) {
-      audio?.play('sfx_goal_poof', 1.0);
-    }
   }
 
   private handleGoalReplayWillStart(sig: RuntimeSignalPacket): void {

@@ -339,7 +339,8 @@ pub fn dispatch_car_action_incident(
                 return;
             }
             let dt_st = &mut drivetrains[car_idx];
-            if dt_st.last_flip_reset_tick > 0
+            if dt_st.last_flip_reset_tick != u32::MAX
+                && tick >= dt_st.last_flip_reset_tick
                 && tick.saturating_sub(dt_st.last_flip_reset_tick)
                     < cooldown_ticks::FLIP_RESET_PER_CAR
             {

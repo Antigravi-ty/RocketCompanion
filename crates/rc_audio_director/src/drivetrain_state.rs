@@ -54,7 +54,7 @@ impl VehicleDrivetrainState {
             boost_latched: false, boost_hysteresis_until_tick: 0, has_single_jumped: false,
             jump_released_since_single_jump: true, has_air_jumped: false, last_boost_tick: 0,
             last_jump_tick: 0, last_air_jump_tick: 0, last_supersonic_tick: 0,
-            last_wheel_landing_tick: 0, last_flip_reset_tick: 0,
+            last_wheel_landing_tick: 0, last_flip_reset_tick: u32::MAX,
         }
     }
 

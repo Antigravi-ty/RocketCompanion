@@ -165,9 +165,11 @@ impl SimInstance {
             self.replay.push_incident(&pev);
         }
 
-        if flip_reset_this_tick
-            && tick.saturating_sub(self.car_custom[slot].last_flip_reset_tick) >= 12
-        {
+        let last_fr_tick = self.car_custom[slot].last_flip_reset_tick;
+        let flip_reset_debounce_ok = last_fr_tick == u32::MAX
+            || tick < last_fr_tick
+            || tick.saturating_sub(last_fr_tick) >= 120;
+        if flip_reset_this_tick && flip_reset_debounce_ok {
             self.car_custom[slot].last_flip_reset_tick = tick;
             let wheels = st.wheels_with_contact();
             let mut wheel_count = 0u32;

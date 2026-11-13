@@ -362,8 +362,6 @@ export class StaticTrainingSimulationController {
         volume: 1.0,
       });
 
-      audio?.play?.('sfx_goal_poof', 1.0);
-
       this.goalResetTicks = POST_GOAL_CELEBRATION_TICKS;
 
       store.updateLiveTelemetry({

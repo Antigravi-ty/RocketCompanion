@@ -182,10 +182,6 @@ impl SimInstance {
                 && is_on_ground
                 && !pre.is_on_ground
                 && (has_ball_or_car_wheel || is_ceiling_contact)
-                && (pre.has_jumped
-                    || !pre.had_air_flip_avail
-                    || pre.has_double_jumped
-                    || pre.has_flipped)
                 && st.has_flip_or_jump();
 
             if flip_reset_this_tick {

@@ -310,7 +310,11 @@ impl AudioDirectorInstance {
             self.last_goalpost_hit_tick = u32::MAX;
             self.last_car_ball_hit_tick = u32::MAX;
             self.last_car_bump_global_tick = u32::MAX;
-            self.last_goal_scored_tick = u32::MAX;
+            if self.last_goal_scored_tick != u32::MAX
+                && current_tick + 240 < self.last_goal_scored_tick
+            {
+                self.last_goal_scored_tick = u32::MAX;
+            }
             self.last_pad_pickup_tick = [u32::MAX; MAX_PADS];
             self.last_car_demo_tick = [u32::MAX; MAX_CARS];
             for dt in &mut self.drivetrains {
@@ -319,7 +323,7 @@ impl AudioDirectorInstance {
                 dt.last_air_jump_tick = 0;
                 dt.last_supersonic_tick = 0;
                 dt.last_wheel_landing_tick = 0;
-                dt.last_flip_reset_tick = 0;
+                dt.last_flip_reset_tick = u32::MAX;
             }
             if sim.event_buffer.write_seq < self.last_event_read_seq {
                 self.last_event_read_seq = 0;

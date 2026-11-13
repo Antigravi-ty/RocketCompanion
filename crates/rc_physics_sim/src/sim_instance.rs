@@ -45,7 +45,7 @@ impl Default for CarCustomSettings {
             three_wheels: false,
             hitbox_index: 0,
             air_flips_used: 0,
-            last_flip_reset_tick: 0,
+            last_flip_reset_tick: u32::MAX,
         }
     }
 }

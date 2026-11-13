@@ -223,9 +223,6 @@ export class CarActionEventSynthesizer {
         event.type === PHYSICS_EVENT_TYPES.FLIP_RESET_GAINED ||
         event.type === INCIDENT_EVENT_TYPES.FLIP_RESET_GAINED
       ) {
-        if (networkReconciler && !networkReconciler.lobbyDualWorldMode) {
-          return;
-        }
         const targetCarIdx =
           typeof event.carIndex === 'number' && event.carIndex >= 0
             ? event.carIndex

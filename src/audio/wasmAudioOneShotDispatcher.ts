@@ -13,6 +13,7 @@ export const AUDIO_CUE_ONE_SHOTS_WORD_OFFSET = 182;
 export const AUDIO_CUE_ONE_SHOT_STRIDE_WORDS = 12;
 
 const SAME_FRAME_DEDUP_MS = 28;
+const GOAL_SCORED_DEDUP_MS = 1000;
 
 export interface WasmIncidentAudioTarget {
   buffers: IncidentAudioBuffers;
@@ -251,7 +252,7 @@ export function dispatchWasmOneShotSlots(
         break;
       }
       case 0x0e: {
-        if (nowMs - lastGoalScoredTimestamp < SAME_FRAME_DEDUP_MS) break;
+        if (nowMs - lastGoalScoredTimestamp < GOAL_SCORED_DEDUP_MS) break;
         lastGoalScoredTimestamp = nowMs;
         if (pool && incBufs.goalScored) {
           pool.playBuffer(incBufs.goalScored, {

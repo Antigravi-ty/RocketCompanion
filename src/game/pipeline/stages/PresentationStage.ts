@@ -12,10 +12,12 @@ export interface PresentationStageRuntimePort {
   modeManager: {
     getActiveMode(): { getCarControls?(carIdx: number): unknown } | null;
   } | null;
+  match?: { state?: { phase?: string } } | null;
   networkManager: {
     sessionCoordinator: {
       networkReconciler: {
         enableSmoothing: boolean;
+        replayPlaybackMode?: boolean;
         lobbyDualWorldMode?: boolean;
         lobbyPrevAuthoritativeState?: Float32Array | null;
         lobbyCurrAuthoritativeState?: Float32Array | null;
@@ -125,7 +127,7 @@ export class PresentationStage implements PipelineStage {
       );
     }
 
-    if (reconciler) {
+    if (reconciler && r.match?.state?.phase !== 'replay' && !reconciler.replayPlaybackMode) {
       const activeCarMesh = r.arena?.cars?.[activeCar] as
         { group?: { position: { x: number; y: number; z: number } } } | undefined;
       const smoothOffset = reconciler.updateSmoothing(dt);

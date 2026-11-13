@@ -207,7 +207,6 @@ export class ExperimentalMultiBotsGoalIncidentTracker {
     });
     replayCtrl.emitReplaySignal(MATCH_SIGNALS.SCORE_UPDATED, blueScore, orangeScore, currentTick);
     replayCtrl.appendAudioEvent(currentTick, { cueName: 'sfx_goal_poof', volume: 1.0 });
-    audio?.play?.('sfx_goal_poof', 1.0);
 
     let pendingMatchEndAfterReplay = false;
     let pendingOvertimeAfterReplay = false;

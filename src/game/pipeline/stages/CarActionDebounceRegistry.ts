@@ -312,21 +312,19 @@ export class CarActionDebounceRegistry {
       return false;
     }
 
-    const nowMs = performance.now();
-    const tickDelta =
-      event.tick > 0 && st.lastFlipResetTick > 0
-        ? Math.abs(event.tick - st.lastFlipResetTick)
-        : Infinity;
-    const timeDeltaMs = nowMs - st.lastFlipResetTimeMs;
-    if (tickDelta < 60 || timeDeltaMs < 500) {
+    const evTick = typeof event.tick === 'number' ? event.tick : 0;
+    if (
+      st.lastFlipResetTick >= 0 &&
+      evTick >= st.lastFlipResetTick &&
+      evTick - st.lastFlipResetTick < 120
+    ) {
       return false;
     }
     if (!cv?.isFlipping) {
       st.hasAirJumped = false;
     }
     st.jumpReleasedSinceSingleJump = true;
-    st.lastFlipResetTick = event.tick || 0;
-    st.lastFlipResetTimeMs = nowMs;
+    st.lastFlipResetTick = evTick;
     return true;
   }
 

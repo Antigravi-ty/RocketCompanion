@@ -218,6 +218,5 @@ export function dispatchReplayFrameEvents(
 
   if (!muteSignalAudio && sawGoalIncident && !playedCueKeys.has('sfx_goal_poof')) {
     playedCueKeys.add('sfx_goal_poof');
-    gameAudio?.play?.('sfx_goal_poof', 1.0);
   }
 }

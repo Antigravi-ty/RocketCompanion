@@ -450,7 +450,10 @@ pub fn process_vehicle_action_incident(
         }
         0x0F => {
             let is_ball_reset = ev.sub_type == 1 || ((ev.flags >> 4) & 0x0F) == 1;
-            if is_ball_reset && (tick == 0 || tick.saturating_sub(dt_state.last_flip_reset_tick) >= 60)
+            if is_ball_reset
+                && (dt_state.last_flip_reset_tick == u32::MAX
+                    || tick < dt_state.last_flip_reset_tick
+                    || tick.saturating_sub(dt_state.last_flip_reset_tick) >= 120)
             {
                 dt_state.last_flip_reset_tick = tick;
             }
