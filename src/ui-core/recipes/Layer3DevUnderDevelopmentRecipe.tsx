@@ -4,8 +4,11 @@ import {
   Eye,
   FlagTriangleRight,
   Info,
+  Mic,
+  MicOff,
   Play,
   RotateCcw,
+  Sliders,
   Triangle,
 } from 'lucide-react';
 import { PanelContainer, PanelHeader, PanelContent } from '../layout/Panel';
@@ -17,6 +20,7 @@ import { useAppStore } from '../stores/appStore';
 import { useMenuLayoutStore } from '../stores/menuLayoutStore';
 import { useSettingActionRowStore } from '../stores/settingRowStore';
 import { useScopedStore } from '../stores/storeSnapshotScope';
+import { useVoiceChatStore } from '../stores/voiceChatStore';
 import { DEFAULT_PANEL_SIZING } from '../tokens/menuLayoutTokens';
 import type { StandardSurfaceProps, SurfaceMeta } from '../manifest/surfaceMetaTypes';
 import {
@@ -53,7 +57,11 @@ export const Layer3DevUnderDevelopmentRecipe: React.FC<
   Layer3DevUnderDevelopmentRecipeProps
 > = ({ isLight = false, onBack: propOnBack }) => {
   const goBack = useScopedStore('appStore', useAppStore, (s) => s.goBack);
+  const navigate = useScopedStore('appStore', useAppStore, (s) => s.navigate);
   const closeMenu = useScopedStore('appStore', useAppStore, (s) => s.closeMenu);
+  const voiceEnabled = useVoiceChatStore((s) => s.enabled);
+  const setVoiceEnabled = useVoiceChatStore((s) => s.setVoiceEnabled);
+  const voicePeerCount = useVoiceChatStore((s) => s.peers.length);
   const underDev = useScopedStore(
     'appStore',
     useAppStore,
@@ -309,7 +317,67 @@ export const Layer3DevUnderDevelopmentRecipe: React.FC<
             isLight={isLight}
           />
 
-          {/* 4. Per-Car Boost Adjustment */}
+          {/* 4. WebRTC Voice Chat (Developer Preview) */}
+          <SettingActionRow
+            icon={voiceEnabled ? Mic : MicOff}
+            iconName={voiceEnabled ? 'mic' : 'mic-off'}
+            iconColor={voiceEnabled ? 'text-emerald-400' : 'text-sky-400'}
+            title="WebRTC Voice Chat"
+            description={
+              voiceEnabled
+                ? `Active in room (${voicePeerCount} peer${voicePeerCount === 1 ? '' : 's'} attached)`
+                : 'Disabled by default · Enable to request mic & open Configurator for AEC/NS/0-250% mix'
+            }
+            bordered={false}
+            showDescription={false}
+            hoverDescription="WebRTC Voice Chat: Native P2P Opus voice channel over active Host Match / Join Room connections. Disabled by default; requests microphone permission only when enabled. Click Configure for full audio & per-player mix options."
+            onAction={() => navigate('dev-voice-configurator')}
+            onHover={setHoveredDesc}
+            onLeave={() => setHoveredDesc(null)}
+            isLight={isLight}
+            rightSlot={
+              <div className="flex items-center gap-2.5">
+                <ToggleSwitch
+                  checked={voiceEnabled}
+                  onCheckedChange={(enabled) => {
+                    void setVoiceEnabled(enabled);
+                  }}
+                  isLight={isLight}
+                />
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate('dev-voice-configurator');
+                  }}
+                  style={{
+                    fontSize: `${buttonFontSize}px`,
+                    paddingLeft: `${buttonPaddingX}px`,
+                    paddingRight: `${buttonPaddingX}px`,
+                    paddingTop: `${buttonPaddingY}px`,
+                    paddingBottom: `${buttonPaddingY}px`,
+                    borderRadius: `${Math.max(0, buttonRadius)}px`,
+                  }}
+                  className={`shrink-0 font-semibold border transition-all duration-150 cursor-pointer inline-flex items-center gap-1.5 leading-tight active:scale-95 whitespace-nowrap ${
+                    isLight
+                      ? 'bg-neutral-200/60 group-hover:bg-neutral-200/95 hover:!bg-neutral-300/90 border-neutral-300/80 text-neutral-800'
+                      : 'bg-white/[0.06] group-hover:bg-white/[0.11] hover:!bg-white/[0.16] border-white/[0.10] group-hover:border-white/[0.16] text-neutral-200'
+                  }`}
+                >
+                  <Sliders
+                    style={{
+                      width: `${Math.max(11, buttonFontSize)}px`,
+                      height: `${Math.max(11, buttonFontSize)}px`,
+                    }}
+                    className="shrink-0"
+                  />
+                  <span>Configure</span>
+                </button>
+              </div>
+            }
+          />
+
+          {/* 5. Per-Car Boost Adjustment */}
           <PerCarBoostConfigSection
             selectedCarIdx={selectedCarIdx}
             onSelectedCarIdxChange={(idx) =>

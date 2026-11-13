@@ -30,6 +30,8 @@ export type ChannelHook<T extends unknown[] = []> = ((...args: T) => void) | nul
 export class P2PWebRTCChannel implements HandshakeMetadataState {
   role: string;
   peerId: string | null = null;
+  playerId: string | null = null;
+  isRegisteredPlayerId = false;
   peerRole?: string;
   carIndex?: number;
   pairingCode: string | null = null;
@@ -70,6 +72,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   onMessage: ChannelHook<[SimulatedPayload]> = null;
   onColorChange: ChannelHook<[Record<string, unknown>]> = null;
   onDiagnosticFleetToggle: ChannelHook<[boolean, string]> = null;
+  onVoiceSignal: ChannelHook<[Record<string, unknown>]> = null;
   onBroadcastSignal: ChannelHook<[Record<string, unknown>]> = null;
   onIceCandidate: ChannelHook<[IceCandidateDescriptor]> = null;
 
@@ -78,6 +81,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   readonly sendServerState: DataChannelTransport['send'];
   readonly sendColorChange: DataChannelTransport['sendColorChange'];
   readonly sendDiagnosticFleetToggle: DataChannelTransport['sendDiagnosticFleetToggle'];
+  readonly sendVoiceSignal: DataChannelTransport['sendVoiceSignal'];
   readonly receiveServerPackets: NetworkSimulator['drainInboundQueue'];
   readonly receiveClientPackets: NetworkSimulator['drainInboundQueue'];
 
@@ -158,6 +162,9 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
       deliverDiagnosticFleetToggle: (enabled, anchorMode) => {
         if (this.onDiagnosticFleetToggle) this.onDiagnosticFleetToggle(enabled, anchorMode);
       },
+      deliverVoiceSignal: (signal) => {
+        if (this.onVoiceSignal) this.onVoiceSignal(signal);
+      },
       deliverPacket: (delivered) => {
         if (this.onPacketReceived) this.onPacketReceived(delivered);
         if (this.onMessage) this.onMessage(delivered);
@@ -201,6 +208,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
     this.sendServerState = this.transport.send.bind(this.transport);
     this.sendColorChange = this.transport.sendColorChange.bind(this.transport);
     this.sendDiagnosticFleetToggle = this.transport.sendDiagnosticFleetToggle.bind(this.transport);
+    this.sendVoiceSignal = this.transport.sendVoiceSignal.bind(this.transport);
     this.receiveServerPackets = this.simulator.drainInboundQueue.bind(this.simulator);
     this.receiveClientPackets = this.simulator.drainInboundQueue.bind(this.simulator);
 

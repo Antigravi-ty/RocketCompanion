@@ -40,6 +40,8 @@ import {
 import { useSpatialAudioStore } from './spatialAudioStore';
 import { useStaticTrainingBallCamTunerStore } from './staticTrainingBallCamTunerStore';
 import { viewportStore } from './viewportStore';
+import { VOICE_CHAT_STORAGE_KEY, loadVoiceChatPrefs } from '../config/voiceChatConfig';
+import { useVoiceChatStore } from './voiceChatStore';
 
 export const SYNCABLE_EXTRA_STORAGE_KEYS: ReadonlyArray<string> = [
   STORAGE_KEYS.UI_SCALE,
@@ -54,6 +56,7 @@ export const SYNCABLE_EXTRA_STORAGE_KEYS: ReadonlyArray<string> = [
   STORAGE_KEYS.SPATIAL_ATTENUATION_PROFILES,
   STORAGE_KEYS.BOTS_LOADOUT_CONFIG,
   STORAGE_KEYS.STATIC_TRAINING_BALL_CAM_TUNER,
+  VOICE_CHAT_STORAGE_KEY,
   'rc_ui_action_bindings_v1',
 ];
 
@@ -163,6 +166,9 @@ export function applyUnifiedProfileSnapshot(snapshot: ProfileFlatSnapshot): void
   }
   if (typeof snapshot[`storage.${STORAGE_KEYS.KICKOFF_WS_OFFSET_PCT}`] === 'string') {
     useKickoffTrainingStore.getState().setWsVerticalOffsetPct(getInitialKickoffWsOffset());
+  }
+  if (typeof snapshot[`storage.${VOICE_CHAT_STORAGE_KEY}`] === 'string') {
+    useVoiceChatStore.getState().applySyncedPrefs(loadVoiceChatPrefs());
   }
 
   // Update viewport scale/margin if present

@@ -41,6 +41,7 @@ export type InboundControlFrame =
       readonly enabled: boolean;
       readonly anchorMode: string;
     }
+  | { readonly kind: 'voice_signal'; readonly signal: Record<string, unknown> }
   | { readonly kind: 'ping'; readonly sendTime: number; readonly rtt: number | null }
   | { readonly kind: 'pong'; readonly sendTime: number };
 
@@ -53,6 +54,7 @@ export type DataChannelTransportEvent =
       readonly enabled: boolean;
       readonly anchorMode: string;
     }
+  | { readonly type: 'voice_signal'; readonly signal: Record<string, unknown> }
   | { readonly type: 'packet'; readonly payload: SimulatedPayload };
 
 export function parseInboundControlFrame(raw: string): InboundControlFrame | null {
@@ -68,6 +70,12 @@ export function parseInboundControlFrame(raw: string): InboundControlFrame | nul
         kind: 'diagnostic_fleet_toggle',
         enabled: Boolean(msg.enabled),
         anchorMode: typeof msg.anchorMode === 'string' ? msg.anchorMode : '',
+      };
+    }
+    if (msg.type === 'voice_signal' && typeof msg.signal === 'object' && msg.signal !== null) {
+      return {
+        kind: 'voice_signal',
+        signal: msg.signal as Record<string, unknown>,
       };
     }
     if (msg.type === 'ping') {

@@ -46,6 +46,7 @@ export interface MultiplayerSessionCallbacks {
     peerId: string,
     role: string
   ) => Promise<number | void> | number | void;
+  onPeerDisconnected?: (peerId: string) => void;
   onRemovePlayer?: (carIndex: number) => void;
   onColorSelect?: (carIdx: number, slotId: number | null, hex: string | null) => void;
   onPairingApprovalRequest?: (request: PendingPairingRequest) => void;
@@ -191,6 +192,7 @@ export class MultiplayerSessionManager {
 
   private handleHostPeerDisconnected = (peerId: string, channel: P2PWebRTCChannel): void => {
     this.hostSignalingNegotiator.removePendingPeer(peerId, this.updateSessionStatus);
+    this.callbacks.onPeerDisconnected?.(peerId);
     if (
       typeof channel.carIndex === 'number' &&
       channel.carIndex > 0 &&

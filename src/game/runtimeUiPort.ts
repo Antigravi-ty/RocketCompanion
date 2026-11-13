@@ -312,3 +312,9 @@ export function dismissOngoingNotification(id: string): unknown {
 export function completeOngoingNotification(...args: unknown[]): unknown {
   return _handlers.completeOngoingNotification?.(...args);
 }
+export function attachVoiceToPeerChannel(channel: unknown, peerId: string, peerName: string): void {
+  _handlers.attachVoiceToPeerChannel?.(channel, peerId, peerName);
+}
+export function detachVoiceFromPeer(peerId: string): void {
+  _handlers.detachVoiceFromPeer?.(peerId);
+}

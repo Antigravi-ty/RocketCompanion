@@ -34,6 +34,7 @@ export type LocalColorUpdatedListener = (
 ) => void;
 export type ColorChangeMessageListener = (msg: Record<string, unknown>) => void;
 export type DiagnosticFleetToggleListener = (enabled: boolean, anchorMode: string) => void;
+export type VoiceSignalListener = (signal: Record<string, unknown>) => void;
 export type PacketDeliveredListener = (data: SimulatedPayload) => void;
 
 export interface DataChannelTransportPort {
@@ -55,6 +56,8 @@ export interface DataChannelTransportPort {
   deliverColorChange?: ColorChangeMessageListener | null;
   onDiagnosticFleetToggle?: DiagnosticFleetToggleListener | null;
   deliverDiagnosticFleetToggle?: DiagnosticFleetToggleListener | null;
+  onVoiceSignal?: VoiceSignalListener | null;
+  deliverVoiceSignal?: VoiceSignalListener | null;
   onPacketDelivered?: PacketDeliveredListener | null;
   deliverPacket?: PacketDeliveredListener | null;
 }
@@ -73,6 +76,7 @@ export class DataChannelTransport {
   onLocalColorUpdated: LocalColorUpdatedListener | null;
   onColorChange: ColorChangeMessageListener | null;
   onDiagnosticFleetToggle: DiagnosticFleetToggleListener | null;
+  onVoiceSignal: VoiceSignalListener | null;
   onPacketDelivered: PacketDeliveredListener | null;
 
   private readonly readExternalChannel: (() => RTCDataChannel | null) | null;
@@ -100,6 +104,7 @@ export class DataChannelTransport {
     this.onColorChange = config.onColorChange ?? config.deliverColorChange ?? null;
     this.onDiagnosticFleetToggle =
       config.onDiagnosticFleetToggle ?? config.deliverDiagnosticFleetToggle ?? null;
+    this.onVoiceSignal = config.onVoiceSignal ?? config.deliverVoiceSignal ?? null;
     this.onPacketDelivered = config.onPacketDelivered ?? config.deliverPacket ?? null;
   }
 
@@ -203,6 +208,16 @@ export class DataChannelTransport {
           });
           if (this.onDiagnosticFleetToggle) {
             this.onDiagnosticFleetToggle(control.enabled, control.anchorMode);
+          }
+          return;
+        }
+        if (control.kind === 'voice_signal') {
+          this.transportEvents.push({
+            type: 'voice_signal',
+            signal: control.signal,
+          });
+          if (this.onVoiceSignal) {
+            this.onVoiceSignal(control.signal);
           }
           return;
         }
@@ -351,5 +366,23 @@ export class DataChannelTransport {
       },
       'diagnostic_fleet_toggle'
     );
+  }
+
+  sendVoiceSignal(signal: Record<string, unknown>): boolean {
+    const dc = this.resolveActiveDataChannel();
+    const roomChannel = this.signaling.roomBroadcastChannel;
+    if ((!dc || dc.readyState !== 'open') && !roomChannel) {
+      return false;
+    }
+    dispatchDualChannelControlFrame(
+      dc,
+      roomChannel,
+      {
+        type: 'voice_signal',
+        signal,
+      },
+      'voice_signal'
+    );
+    return true;
   }
 }

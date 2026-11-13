@@ -23,6 +23,7 @@ import { setPacingTelemetryNotificationHandler } from '../../ui-core/stores/paci
 import { useGoalBarrierStore } from '../../ui-core/stores/goalBarrierStore.ts';
 import { buildGoalBarrierCmfChunks } from '../../ui-core/config/goalBarrierConfig.ts';
 import { syncRuntimeNetworkDiagnostics } from './runtimeNetworkDiagnosticsBridge.ts';
+import { ensureVoiceRuntimeBridge } from './runtimeVoiceBridge.ts';
 import type {
   GameRuntimeUiBridgePort,
   GoalBarrierDecompositionPort,
@@ -138,6 +139,7 @@ export function attachGameRuntimeBridge(
 
   perfTelemetryStore.setSampler(tunerPort.createPerfTelemetrySampler());
 
+  ensureVoiceRuntimeBridge();
   const appState = useAppStore.getState();
   matchPort.syncInitialClockPacing({
     clockPacingMode: appState.clockPacingMode,

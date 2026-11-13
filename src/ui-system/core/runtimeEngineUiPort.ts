@@ -62,6 +62,8 @@ import {
   registerReplayDirectorPreviewHandlers,
 } from '../../ui-core/stores/replayDirectorStore.ts';
 
+import { attachVoiceToPeerChannel, detachVoiceFromPeer } from './runtimeVoiceBridge.ts';
+
 let initialized = false;
 
 export function ensureRuntimeEngineUiPortBound(): void {
@@ -120,6 +122,13 @@ export function ensureRuntimeEngineUiPortBound(): void {
     pushOngoingNotification,
     dismissOngoingNotification,
     completeOngoingNotification,
+    attachVoiceToPeerChannel: (channel: unknown, peerId: unknown, peerName: unknown) =>
+      attachVoiceToPeerChannel(
+        channel as Parameters<typeof attachVoiceToPeerChannel>[0],
+        String(peerId || ''),
+        String(peerName || 'Player')
+      ),
+    detachVoiceFromPeer: (peerId: unknown) => detachVoiceFromPeer(String(peerId || '')),
   });
 }
 

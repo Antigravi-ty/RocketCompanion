@@ -6,6 +6,8 @@ import {
   reachabilityStore,
   ballTrajectoryTunerStore,
   notifyNetworkTelemetryExportAvailable,
+  attachVoiceToPeerChannel,
+  detachVoiceFromPeer,
 } from '../runtimeUiPort.ts';
 import { BallTrajectoryPredictor } from '../../entities/BallTrajectoryPredictor.ts';
 import { bindBallTrajectoryAnomalyUiBridge } from '../../entities/trajectory/ballTrajectoryAnomalyUiBridge.ts';
@@ -240,22 +242,33 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
     },
     resolveTeamColor: resolvePreferredTeamColor,
     onUnexpectedDisconnect() {
+      detachVoiceFromPeer('*');
       notifyNetworkTelemetryExportAvailable('disconnected');
     },
     async onHostServer(opts: HostRoomSettings) {
       await sessionCoordinator.hostOnlineServer(opts);
     },
     async onStopServer() {
+      detachVoiceFromPeer('*');
       await sessionCoordinator.stopOnlineServer();
     },
     async onLeaveServer() {
+      detachVoiceFromPeer('*');
       await sessionCoordinator.stopOnlineServer();
     },
     async onJoinServer(opts: JoinRoomSettings) {
       await sessionCoordinator.joinOnlineServer(opts);
+      if (opts.channel) {
+        attachVoiceToPeerChannel(opts.channel, 'host', String(opts.remotePlayerName || 'Host'));
+      }
     },
-    async onPeerConnected(channel: NetworkSessionChannelLike, name: string) {
-      return (await rosterSyncCoordinator.onRemotePlayerConnected(channel, name)) ?? -1;
+    async onPeerConnected(channel: NetworkSessionChannelLike, name: string, peerId?: string) {
+      const assignedIdx = await rosterSyncCoordinator.onRemotePlayerConnected(channel, name);
+      attachVoiceToPeerChannel(channel, peerId || '', name);
+      return assignedIdx ?? -1;
+    },
+    onPeerDisconnected(peerId: string) {
+      detachVoiceFromPeer(peerId);
     },
     async onRemovePlayer(carIndex: number) {
       await rosterSyncCoordinator.removeRemotePlayer(carIndex);
