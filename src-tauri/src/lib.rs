@@ -14,8 +14,9 @@ use config_store::load_launch_state;
 use tauri::{Manager, WindowEvent};
 use tray_manager::setup_system_tray;
 use tunnel_manager::{
-    cleanup_all_tunnels, tauri_tunnel_close, tauri_tunnel_connect, tauri_tunnel_get_status,
-    tauri_tunnel_open, tauri_tunnel_send, tauri_upnp_probe, TunnelManagerState,
+    cleanup_all_tunnels, tauri_tunnel_attach_rx_channel, tauri_tunnel_close, tauri_tunnel_connect,
+    tauri_tunnel_disconnect_peer, tauri_tunnel_get_status, tauri_tunnel_open, tauri_tunnel_send,
+    tauri_tunnel_send_raw, tauri_upnp_probe, TunnelManagerState,
 };
 use window_manager::{
     apply_window_titles, launch_main_window_with_config, open_configurator_window,
@@ -56,8 +57,11 @@ pub fn run() {
             tauri_get_display_diagnostics,
             tauri_upnp_probe,
             tauri_tunnel_open,
+            tauri_tunnel_attach_rx_channel,
             tauri_tunnel_connect,
+            tauri_tunnel_disconnect_peer,
             tauri_tunnel_send,
+            tauri_tunnel_send_raw,
             tauri_tunnel_close,
             tauri_tunnel_get_status,
         ])

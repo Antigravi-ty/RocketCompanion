@@ -57,6 +57,8 @@ export interface DataChannelTransportPort {
   setDataChannel?: (channel: RTCDataChannel | null) => void;
   isChannelOpen?: () => boolean;
   isCrossTabActive?: () => boolean;
+  isNativeTunnelOpen?: () => boolean;
+  sendViaNativeTunnel?: (payload: SimulatedPayload, reliable: boolean) => boolean;
   onChannelOpen?: VoidTransportListener | null;
   onChannelClosed?: VoidTransportListener | null;
   onWebRTCDataChannelOpen?: VoidTransportListener | null;
@@ -96,6 +98,9 @@ export class DataChannelTransport {
   private readonly writeExternalChannel: ((channel: RTCDataChannel | null) => void) | null;
   private readonly checkExternalOpen: (() => boolean) | null;
   private readonly checkExternalCrossTab: (() => boolean) | null;
+  private readonly checkNativeTunnelOpen: (() => boolean) | null;
+  private readonly dispatchNativeTunnel:
+    ((payload: SimulatedPayload, reliable: boolean) => boolean) | null;
   private readonly transportEvents: DataChannelTransportEvent[] = [];
 
   constructor(config: DataChannelTransportPort) {
@@ -105,6 +110,8 @@ export class DataChannelTransport {
     this.writeExternalChannel = config.setDataChannel ?? null;
     this.checkExternalOpen = config.isChannelOpen ?? null;
     this.checkExternalCrossTab = config.isCrossTabActive ?? null;
+    this.checkNativeTunnelOpen = config.isNativeTunnelOpen ?? null;
+    this.dispatchNativeTunnel = config.sendViaNativeTunnel ?? null;
 
     this.onChannelOpen =
       config.onChannelOpen ?? config.onWebRTCDataChannelOpen ?? config.markDataChannelOpen ?? null;
@@ -321,16 +328,29 @@ export class DataChannelTransport {
     );
   }
 
+  private sendViaTunnelOrFallback(
+    payload: SimulatedPayload,
+    reliable: boolean,
+    fallback: () => boolean
+  ): boolean {
+    if (this.checkNativeTunnelOpen?.() && this.dispatchNativeTunnel) {
+      if (this.dispatchNativeTunnel(payload, reliable)) return true;
+    }
+    return fallback();
+  }
+
   sendPong(sendTime: number, nowMs = performance.now()): void {
     const pongMsg = JSON.stringify({ type: 'pong', sendTime });
     this.simulator.scheduleSend(
       pongMsg,
       (clonedPacket) =>
-        transmitClonedPayload(
-          this.resolveActiveDataChannel(),
-          this.signaling.roomBroadcastChannel,
-          this.resolveIsChannelOpen() || Boolean(this.signaling.roomBroadcastChannel),
-          clonedPacket
+        this.sendViaTunnelOrFallback(clonedPacket, false, () =>
+          transmitClonedPayload(
+            this.resolveActiveDataChannel(),
+            this.signaling.roomBroadcastChannel,
+            this.resolveIsChannelOpen() || Boolean(this.signaling.roomBroadcastChannel),
+            clonedPacket
+          )
         ),
       nowMs
     );
@@ -353,13 +373,15 @@ export class DataChannelTransport {
       sim.scheduleSend(
         pingPayload,
         (clonedPing) =>
-          dispatchOpportunisticPing(
-            this.resolveActiveDataChannel(),
-            this.signaling.roomBroadcastChannel,
-            this.resolveIsChannelOpen() || Boolean(this.signaling.roomBroadcastChannel),
-            nowMs,
-            sim.rttMs,
-            typeof clonedPing === 'string' ? clonedPing : pingPayload
+          this.sendViaTunnelOrFallback(clonedPing, false, () =>
+            dispatchOpportunisticPing(
+              this.resolveActiveDataChannel(),
+              this.signaling.roomBroadcastChannel,
+              this.resolveIsChannelOpen() || Boolean(this.signaling.roomBroadcastChannel),
+              nowMs,
+              sim.rttMs,
+              typeof clonedPing === 'string' ? clonedPing : pingPayload
+            )
           ),
         nowMs
       );
@@ -367,11 +389,13 @@ export class DataChannelTransport {
     return sim.scheduleSend(
       packet,
       (clonedPacket) =>
-        transmitClonedPayload(
-          this.resolveActiveDataChannel(),
-          this.signaling.roomBroadcastChannel,
-          this.resolveIsChannelOpen(),
-          clonedPacket
+        this.sendViaTunnelOrFallback(clonedPacket, false, () =>
+          transmitClonedPayload(
+            this.resolveActiveDataChannel(),
+            this.signaling.roomBroadcastChannel,
+            this.resolveIsChannelOpen(),
+            clonedPacket
+          )
         ),
       nowMs
     );
@@ -396,7 +420,10 @@ export class DataChannelTransport {
     const dc = this.resolveActiveDataChannel();
     const roomChannel = this.signaling.roomBroadcastChannel;
     const isClosed =
-      !this.resolveIsChannelOpen() && (!dc || dc.readyState !== 'open') && !roomChannel;
+      !this.checkNativeTunnelOpen?.() &&
+      !this.resolveIsChannelOpen() &&
+      (!dc || dc.readyState !== 'open') &&
+      !roomChannel;
     const pending = isClosed ? { slotId, hex, carIndex } : undefined;
     this.localColorSlot = slotId;
     this.localColorHex = hex;
@@ -406,35 +433,45 @@ export class DataChannelTransport {
     if (this.onLocalColorUpdated) {
       this.onLocalColorUpdated(slotId, hex, pending);
     }
-    dispatchDualChannelControlFrame(
-      dc,
-      roomChannel,
-      { type: 'color_change', slotId, hex, carIndex },
-      'color_change',
-      `slot ${slotId} (${hex}) for car ${carIndex}`
-    );
+    const payload = { type: 'color_change', slotId, hex, carIndex };
+    this.sendViaTunnelOrFallback(JSON.stringify(payload), true, () => {
+      dispatchDualChannelControlFrame(
+        dc,
+        roomChannel,
+        payload,
+        'color_change',
+        `slot ${slotId} (${hex}) for car ${carIndex}`
+      );
+      return true;
+    });
   }
 
   sendDiagnosticFleetToggle(enabled: boolean, anchorMode: string | null): void {
-    dispatchDualChannelControlFrame(
-      this.resolveActiveDataChannel(),
-      this.signaling.roomBroadcastChannel,
-      {
-        type: 'diagnostic_fleet_toggle',
-        enabled: Boolean(enabled),
-        anchorMode,
-      },
-      'diagnostic_fleet_toggle'
-    );
+    const payload = {
+      type: 'diagnostic_fleet_toggle',
+      enabled: Boolean(enabled),
+      anchorMode,
+    };
+    this.sendViaTunnelOrFallback(JSON.stringify(payload), true, () => {
+      dispatchDualChannelControlFrame(
+        this.resolveActiveDataChannel(),
+        this.signaling.roomBroadcastChannel,
+        payload,
+        'diagnostic_fleet_toggle'
+      );
+      return true;
+    });
   }
 
   sendReliableControl(messageObj: Record<string, unknown>, label = 'reliable_control'): boolean {
-    return transmitReliableControlFrame(
-      this.controlDataChannel,
-      this.resolveActiveDataChannel(),
-      this.signaling.roomBroadcastChannel,
-      messageObj,
-      label
+    return this.sendViaTunnelOrFallback(JSON.stringify(messageObj), true, () =>
+      transmitReliableControlFrame(
+        this.controlDataChannel,
+        this.resolveActiveDataChannel(),
+        this.signaling.roomBroadcastChannel,
+        messageObj,
+        label
+      )
     );
   }
 
@@ -475,11 +512,13 @@ export class DataChannelTransport {
     ackTick = 0
   ): boolean {
     const frame = encodeSparsePingPong16B({ kind, seq, timestampMs, epoch, ackTick });
-    return transmitClonedPayload(
-      this.resolveActiveDataChannel(),
-      this.signaling.roomBroadcastChannel,
-      this.resolveIsChannelOpen() || Boolean(this.signaling.roomBroadcastChannel),
-      frame
+    return this.sendViaTunnelOrFallback(frame, false, () =>
+      transmitClonedPayload(
+        this.resolveActiveDataChannel(),
+        this.signaling.roomBroadcastChannel,
+        this.resolveIsChannelOpen() || Boolean(this.signaling.roomBroadcastChannel),
+        frame
+      )
     );
   }
 

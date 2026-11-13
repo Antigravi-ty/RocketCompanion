@@ -7,6 +7,8 @@
 
 import { P2PWebRTCChannel } from './P2PWebRTCChannel.ts';
 import { SpectatorDaisyChainCoordinator } from './SpectatorDaisyChainCoordinator.ts';
+import { isRustTunnelAvailable } from './tunnel/TunnelFactory.ts';
+import { HostTunnelCoordinator } from './tunnel/HostTunnelCoordinator.ts';
 
 export const DEFAULT_MAX_INPUT_CHANNELS = 6;
 export const DEFAULT_MAX_BROADCAST_CHANNELS = 16;
@@ -65,6 +67,7 @@ export class HostSessionController {
   peerReadyStates = new Map<string, { ready: boolean; arenaLoaded: boolean }>();
   peerPairingCodes = new Map<string, string>();
   daisyChainCoordinator = new SpectatorDaisyChainCoordinator();
+  hostTunnelCoordinator: HostTunnelCoordinator | null = null;
   offerToken = '';
   offersSentTime = new Map<string, number>();
   _nextPeerSeq = 1;
@@ -77,6 +80,9 @@ export class HostSessionController {
     this.maxInputChannels = options.maxInputChannels ?? DEFAULT_MAX_INPUT_CHANNELS;
     this.maxBroadcastChannels = options.maxBroadcastChannels ?? DEFAULT_MAX_BROADCAST_CHANNELS;
     this.callbacks = callbacks;
+    if (isRustTunnelAvailable()) {
+      this.hostTunnelCoordinator = new HostTunnelCoordinator(this.roomId);
+    }
   }
 
   _createPeerChannel(
@@ -92,6 +98,7 @@ export class HostSessionController {
       colorSlot: this.colorSlot,
       colorHex: this.colorHex,
       extraLatencyMs: 0,
+      tunnelBridge: this.hostTunnelCoordinator?.createPeerBridge(peerId),
     });
     ch.peerId = peerId;
     ch.peerName = peerName;
@@ -415,6 +422,10 @@ export class HostSessionController {
       }
     }
     this.peerChannels.clear();
+    if (this.hostTunnelCoordinator) {
+      void this.hostTunnelCoordinator.close();
+      this.hostTunnelCoordinator = null;
+    }
     this.channel = null;
     this.offerToken = '';
   }

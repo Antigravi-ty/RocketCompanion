@@ -15,6 +15,8 @@ import { WebRTCConnection } from './webrtc/WebRTCConnection.ts';
 import type { IceCandidateDescriptor } from './webrtc/SdpUtils.ts';
 import { HandshakeSession, type HandshakeMetadataState } from './webrtc/HandshakeSession.ts';
 import { DataChannelTransport } from './webrtc/DataChannelTransport.ts';
+import { isTauriRuntime } from '../../ui-core/config/tauriLaunchConfigBridge.ts';
+import { TunnelPeerBridge } from './tunnel/TunnelPeerBridge.ts';
 
 export interface P2PWebRTCChannelOptions extends NetworkSimulatorOptions {
   role?: string;
@@ -23,6 +25,7 @@ export interface P2PWebRTCChannelOptions extends NetworkSimulatorOptions {
   colorSlot?: number;
   colorHex?: string;
   signalingChannelName?: string;
+  tunnelBridge?: TunnelPeerBridge;
 }
 
 export type ChannelHook<T extends unknown[] = []> = ((...args: T) => void) | null;
@@ -63,6 +66,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   readonly connection: WebRTCConnection;
   readonly handshake: HandshakeSession;
   readonly transport: DataChannelTransport;
+  readonly tunnelBridge: TunnelPeerBridge | null = null;
 
   onConnected: ChannelHook = null;
   onDisconnected: ChannelHook = null;
@@ -133,6 +137,15 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
       broadcastSignal: (typ, payload) => this.broadcastSignal(typ, payload),
     });
 
+    this.tunnelBridge =
+      options.tunnelBridge ??
+      (this.role === 'client' && isTauriRuntime()
+        ? new TunnelPeerBridge({
+            role: 'client',
+            sessionId: `rc_cli_${this.roomId || Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+          })
+        : null);
+
     this.transport = new DataChannelTransport({
       simulator: this.simulator,
       signaling: this.signaling,
@@ -142,13 +155,28 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
       },
       isChannelOpen: () => this.isOpen,
       isCrossTabActive: () => this.isCrossTab,
+      isNativeTunnelOpen: () => Boolean(this.tunnelBridge?.isReady),
+      sendViaNativeTunnel: (payload, reliable) => {
+        if (
+          payload instanceof Uint8Array ||
+          payload instanceof ArrayBuffer ||
+          typeof payload === 'string'
+        ) {
+          return Boolean(this.tunnelBridge?.sendPayload(payload, reliable));
+        }
+        return false;
+      },
       markDataChannelOpen: () => {
         this.isWebRTC = true;
+        const wasOpen = this.isOpen;
         this.isOpen = true;
-        this.transportMode = 'webrtc';
-        if (this.onConnected) this.onConnected();
+        if (!this.tunnelBridge?.isReady) {
+          this.transportMode = 'webrtc';
+        }
+        if (!wasOpen && this.onConnected) this.onConnected();
       },
       markDataChannelClosed: () => {
+        if (this.tunnelBridge?.isReady) return;
         this.isOpen = false;
         if (this.onDisconnected) this.onDisconnected();
       },
@@ -169,12 +197,34 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
       },
     });
 
+    if (this.tunnelBridge) {
+      this.tunnelBridge.onReady = () => {
+        const wasOpen = this.isOpen;
+        this.isOpen = true;
+        this.transportMode = 'rust-upnp-udp';
+        if (!wasOpen) {
+          queueMicrotask(() => {
+            if (this.onConnected) this.onConnected();
+          });
+        }
+      };
+      this.tunnelBridge.onPayload = (payload) => {
+        this.transport.handleIncomingMessage(payload);
+      };
+    }
+
     this.handshake = new HandshakeSession({
       connection: this.connection,
       signaling: this.signaling,
       simulator: this.simulator,
       getState: () => this,
       applyHandshakeState: (patch) => this.applyHandshakePatch(patch),
+      openTunnelEndpoint: () =>
+        this.tunnelBridge ? this.tunnelBridge.openEndpoint() : Promise.resolve(null),
+      connectTunnelEndpoint: (remoteEndpoint) =>
+        this.tunnelBridge
+          ? this.tunnelBridge.connectRemoteEndpoint(remoteEndpoint)
+          : Promise.resolve(),
       activateCrossTabTransport: (peerPatch) => {
         this.peerName = peerPatch.peerName;
         this.peerColorSlot = peerPatch.peerColorSlot;
@@ -309,6 +359,9 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
 
   destroy(): void {
     this.reset();
+    if (this.tunnelBridge) {
+      void this.tunnelBridge.close();
+    }
     if (this.dataChannel) {
       try {
         this.dataChannel.close();

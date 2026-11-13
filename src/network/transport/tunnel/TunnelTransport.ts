@@ -50,8 +50,13 @@ export interface TunnelStats {
   peerAddr: string | null;
 }
 
-export type TunnelPacketListener = (payload: TunnelPacketPayload, fromAddr?: string) => void;
+export type TunnelPacketListener = (
+  payload: TunnelPacketPayload,
+  fromAddr?: string,
+  peerId?: string
+) => void;
 export type TunnelStateListener = (state: TunnelLifecycleState, detail?: string) => void;
+export type TunnelPeerReadyListener = (peerId: string | undefined, fromAddr: string) => void;
 
 export interface TunnelTransport {
   readonly kind: TunnelKind;
@@ -61,9 +66,13 @@ export interface TunnelTransport {
 
   open(options?: TunnelOpenOptions): Promise<TunnelEndpointDescriptor>;
   connectToPeer(remoteEndpoint: TunnelEndpointDescriptor): Promise<void>;
+  connectPeer?(peerId: string, remoteEndpoint: TunnelEndpointDescriptor): Promise<void>;
+  disconnectPeer?(peerId: string): Promise<void>;
   send(payload: TunnelPacketPayload): boolean;
+  sendToPeer?(peerId: string, payload: TunnelPacketPayload): boolean;
   sendTyped(packetType: TunnelPacketType | number, payload: Uint8Array, flags?: number): boolean;
   onPacket(listener: TunnelPacketListener): () => void;
+  onPeerReady?(listener: TunnelPeerReadyListener): () => void;
   onStateChange(listener: TunnelStateListener): () => void;
   getStats(): TunnelStats;
   close(): Promise<void>;

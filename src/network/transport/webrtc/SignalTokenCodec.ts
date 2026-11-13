@@ -4,11 +4,13 @@
  */
 
 import { injectLoopback, type IceCandidateDescriptor } from './SdpUtils.ts';
+import type { TunnelEndpointDescriptor } from '../tunnel/TunnelTransport.ts';
 
 export interface DecodedSignalTokenPayload {
   type?: string;
   sdp?: string;
   candidates?: IceCandidateDescriptor[];
+  tunnelEndpoint?: TunnelEndpointDescriptor;
   roomId?: string | null;
   hostName?: string;
   hostColorSlot?: number | null;

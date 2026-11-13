@@ -7,6 +7,7 @@ import type { WebRTCConnection } from './WebRTCConnection.ts';
 import type { CrossTabSignaling } from './CrossTabSignaling.ts';
 import type { NetworkSimulator } from './NetworkSimulator.ts';
 import type { IceCandidateDescriptor } from './SdpUtils.ts';
+import type { TunnelEndpointDescriptor } from '../tunnel/TunnelTransport.ts';
 import {
   DEFAULT_HANDSHAKE_STATE,
   buildHostOfferResult,
@@ -44,6 +45,8 @@ export interface HandshakeSessionPort {
   simulator: NetworkSimulator;
   getState?: () => HandshakeMetadataState;
   applyHandshakeState?: (patch: Partial<HandshakeMetadataState>) => void;
+  openTunnelEndpoint?: () => Promise<TunnelEndpointDescriptor | null>;
+  connectTunnelEndpoint?: (remoteEndpoint: TunnelEndpointDescriptor) => Promise<void>;
   onCrossTabActivated?: CrossTabActivatedListener | null;
   activateCrossTabTransport?: CrossTabActivatedListener | null;
   onDataChannelBound?: DataChannelBoundListener | null;
@@ -75,6 +78,9 @@ export class HandshakeSession {
   private localState: HandshakeMetadataState = { ...DEFAULT_HANDSHAKE_STATE };
   private readonly readExternalState: (() => HandshakeMetadataState) | null;
   private readonly writeExternalState: ((patch: Partial<HandshakeMetadataState>) => void) | null;
+  private readonly openTunnelEndpoint: (() => Promise<TunnelEndpointDescriptor | null>) | null;
+  private readonly connectTunnelEndpoint:
+    ((remoteEndpoint: TunnelEndpointDescriptor) => Promise<void>) | null;
   private acceptOfferPromise: Promise<string> | null = null;
   private readonly handshakeEvents: HandshakeSessionEvent[] = [];
 
@@ -84,6 +90,8 @@ export class HandshakeSession {
     this.simulator = config.simulator;
     this.readExternalState = config.getState ?? null;
     this.writeExternalState = config.applyHandshakeState ?? null;
+    this.openTunnelEndpoint = config.openTunnelEndpoint ?? null;
+    this.connectTunnelEndpoint = config.connectTunnelEndpoint ?? null;
     this.onCrossTabActivated =
       config.onCrossTabActivated ?? config.activateCrossTabTransport ?? null;
     this.onDataChannelBound = config.onDataChannelBound ?? config.bindDataChannel ?? null;
@@ -147,6 +155,10 @@ export class HandshakeSession {
     const connection = this.connection;
     signaling.initRoomChannel(roomId);
 
+    const tunnelEndpointPromise = this.openTunnelEndpoint
+      ? this.openTunnelEndpoint().catch(() => null)
+      : Promise.resolve(null);
+
     const pc = connection.createPeerConnection();
     let sdp = '';
     if (pc) {
@@ -157,8 +169,14 @@ export class HandshakeSession {
       sdp = await connection.createOfferDescription();
     }
 
+    const tunnelEndpoint = await tunnelEndpointPromise;
     const state = this.getStateSnapshot();
-    const offerResult = buildHostOfferResult(state, sdp, connection.localCandidates);
+    const offerResult = buildHostOfferResult(
+      state,
+      sdp,
+      connection.localCandidates,
+      tunnelEndpoint as Record<string, unknown> | null
+    );
     this.applyStatePatch({ offerToken: offerResult.token });
     console.log(offerResult.logLine);
     signaling.broadcastSignal(
@@ -192,6 +210,10 @@ export class HandshakeSession {
         signaling.sendRoomMessage(buildCrossTabJoinMessage(state), state.peerId);
       }
 
+      const localTunnelPromise = this.openTunnelEndpoint
+        ? this.openTunnelEndpoint().catch(() => null)
+        : Promise.resolve(null);
+
       connection.setDataChannelHandler((event) => {
         console.log('[P2PWebRTCChannel] Client accepted dataChannel from Host');
         this.bindIncomingDataChannel(event.channel);
@@ -199,7 +221,19 @@ export class HandshakeSession {
       connection.createPeerConnection();
 
       const sdp = await connection.applyRemoteOfferAndCreateAnswer(offerData);
-      const answerResult = buildClientAnswerResult(state, sdp, connection.localCandidates);
+      const localTunnelEndpoint = await localTunnelPromise;
+      if (offerData.tunnelEndpoint && this.connectTunnelEndpoint) {
+        void this.connectTunnelEndpoint(offerData.tunnelEndpoint).catch((err) => {
+          console.warn('[HandshakeSession] Failed to connect remote tunnel endpoint:', err);
+        });
+      }
+
+      const answerResult = buildClientAnswerResult(
+        state,
+        sdp,
+        connection.localCandidates,
+        localTunnelEndpoint as Record<string, unknown> | null
+      );
       console.log(answerResult.logLine);
       signaling.broadcastSignal(
         'room_answer',
@@ -238,6 +272,12 @@ export class HandshakeSession {
     const state = this.applyStatePatch(statePatch);
     if (roomToInit) {
       signaling.initRoomChannel(roomToInit);
+    }
+
+    if (answerData.tunnelEndpoint && this.connectTunnelEndpoint) {
+      void this.connectTunnelEndpoint(answerData.tunnelEndpoint).catch((err) => {
+        console.warn('[HandshakeSession] Failed to connect client tunnel endpoint:', err);
+      });
     }
 
     signaling.sendRoomMessage(buildCrossTabAckMessage(state, false), state.peerId);

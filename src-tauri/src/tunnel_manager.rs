@@ -6,12 +6,16 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody, Request};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 const UPNP_LEASE_DURATION_SECS: u32 = 3600;
 const UPNP_MAPPING_DESCRIPTION: &str = "RocketCompanion P2P Tunnel";
 const TUNNEL_PACKET_EVENT: &str = "rc-tunnel-packet";
+const TUNNEL_PEER_READY_EVENT: &str = "rc-tunnel-peer-ready";
 const MAX_UDP_DATAGRAM_BYTES: usize = 65507;
+const HOLE_PUNCH_PROBE: &[u8; 4] = b"RCPH";
+const HOLE_PUNCH_ACK: &[u8; 4] = b"RCPA";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +49,7 @@ pub struct TunnelStatusInfo {
     pub external_port: Option<u16>,
     pub upnp_mapped: bool,
     pub peer_addr: Option<String>,
+    pub peer_count: usize,
     pub bytes_sent: u64,
     pub bytes_received: u64,
 }
@@ -53,8 +58,17 @@ pub struct TunnelStatusInfo {
 #[serde(rename_all = "camelCase")]
 pub struct TunnelPacketEventPayload {
     pub session_id: String,
+    pub peer_id: Option<String>,
     pub from_addr: String,
     pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TunnelPeerReadyEventPayload {
+    pub session_id: String,
+    pub peer_id: Option<String>,
+    pub from_addr: String,
 }
 
 #[derive(Debug, Clone)]
@@ -67,7 +81,10 @@ struct ActiveTunnelSession {
     socket: Arc<UdpSocket>,
     local_port: u16,
     upnp_lease: Option<UpnpLeaseRecord>,
-    peer_addr: Arc<Mutex<Option<SocketAddr>>>,
+    default_peer: Arc<Mutex<Option<SocketAddr>>>,
+    peers: Arc<Mutex<HashMap<String, SocketAddr>>>,
+    addr_to_peer: Arc<Mutex<HashMap<SocketAddr, String>>>,
+    rx_channel: Arc<Mutex<Option<Channel<InvokeResponseBody>>>>,
     bytes_sent: Arc<AtomicU64>,
     bytes_received: Arc<AtomicU64>,
     shutdown: Arc<AtomicBool>,
@@ -77,6 +94,20 @@ struct ActiveTunnelSession {
 #[derive(Default)]
 pub struct TunnelManagerState {
     sessions: Mutex<HashMap<String, ActiveTunnelSession>>,
+}
+
+fn encode_binary_rx_frame(peer_id: Option<&str>, from_addr: &str, payload: &[u8]) -> Vec<u8> {
+    let pid_bytes = peer_id.unwrap_or("").as_bytes();
+    let addr_bytes = from_addr.as_bytes();
+    let pid_len = pid_bytes.len().min(255);
+    let addr_len = addr_bytes.len().min(255);
+    let mut frame = Vec::with_capacity(2 + pid_len + addr_len + payload.len());
+    frame.push(pid_len as u8);
+    frame.push(addr_len as u8);
+    frame.extend_from_slice(&pid_bytes[..pid_len]);
+    frame.extend_from_slice(&addr_bytes[..addr_len]);
+    frame.extend_from_slice(payload);
+    frame
 }
 
 fn resolve_local_lan_ipv4(target_hint: Option<SocketAddr>) -> Option<Ipv4Addr> {
@@ -230,11 +261,16 @@ pub async fn tauri_tunnel_open(
     let shutdown = Arc::new(AtomicBool::new(false));
     let bytes_received = Arc::new(AtomicU64::new(0));
     let bytes_sent = Arc::new(AtomicU64::new(0));
-    let peer_addr = Arc::new(Mutex::new(None));
+    let default_peer = Arc::new(Mutex::new(None));
+    let peers = Arc::new(Mutex::new(HashMap::new()));
+    let addr_to_peer = Arc::new(Mutex::new(HashMap::new()));
+    let rx_channel: Arc<Mutex<Option<Channel<InvokeResponseBody>>>> = Arc::new(Mutex::new(None));
 
     let rx_socket = Arc::clone(&socket_arc);
     let rx_shutdown = Arc::clone(&shutdown);
     let rx_counter = Arc::clone(&bytes_received);
+    let rx_addr_to_peer = Arc::clone(&addr_to_peer);
+    let rx_chan_ref = Arc::clone(&rx_channel);
     let rx_session_id = session_id.clone();
     let rx_app = app.clone();
 
@@ -245,13 +281,58 @@ pub async fn tauri_tunnel_open(
             while !rx_shutdown.load(Ordering::Relaxed) {
                 match rx_socket.recv_from(&mut buf) {
                     Ok((len, src_addr)) => {
+                        let data = &buf[..len];
+                        let peer_id = rx_addr_to_peer
+                            .lock()
+                            .ok()
+                            .and_then(|map| map.get(&src_addr).cloned());
+
+                        if data == HOLE_PUNCH_PROBE {
+                            let _ = rx_socket.send_to(HOLE_PUNCH_ACK, src_addr);
+                            let _ = rx_app.emit(
+                                TUNNEL_PEER_READY_EVENT,
+                                TunnelPeerReadyEventPayload {
+                                    session_id: rx_session_id.clone(),
+                                    peer_id,
+                                    from_addr: src_addr.to_string(),
+                                },
+                            );
+                            continue;
+                        }
+                        if data == HOLE_PUNCH_ACK {
+                            let _ = rx_app.emit(
+                                TUNNEL_PEER_READY_EVENT,
+                                TunnelPeerReadyEventPayload {
+                                    session_id: rx_session_id.clone(),
+                                    peer_id,
+                                    from_addr: src_addr.to_string(),
+                                },
+                            );
+                            continue;
+                        }
+
                         rx_counter.fetch_add(len as u64, Ordering::Relaxed);
-                        let payload = TunnelPacketEventPayload {
-                            session_id: rx_session_id.clone(),
-                            from_addr: src_addr.to_string(),
-                            data: buf[..len].to_vec(),
+                        let from_str = src_addr.to_string();
+                        let sent_via_channel = if let Ok(ch_guard) = rx_chan_ref.lock() {
+                            if let Some(ref channel) = *ch_guard {
+                                let frame =
+                                    encode_binary_rx_frame(peer_id.as_deref(), &from_str, data);
+                                channel.send(InvokeResponseBody::Raw(frame)).is_ok()
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
                         };
-                        let _ = rx_app.emit(TUNNEL_PACKET_EVENT, payload);
+                        if !sent_via_channel {
+                            let payload = TunnelPacketEventPayload {
+                                session_id: rx_session_id.clone(),
+                                peer_id,
+                                from_addr: from_str,
+                                data: data.to_vec(),
+                            };
+                            let _ = rx_app.emit(TUNNEL_PACKET_EVENT, payload);
+                        }
                     }
                     Err(err)
                         if err.kind() == std::io::ErrorKind::WouldBlock
@@ -279,7 +360,10 @@ pub async fn tauri_tunnel_open(
         socket: socket_arc,
         local_port,
         upnp_lease,
-        peer_addr,
+        default_peer,
+        peers,
+        addr_to_peer,
+        rx_channel,
         bytes_sent,
         bytes_received,
         shutdown,
@@ -301,10 +385,31 @@ pub async fn tauri_tunnel_open(
 }
 
 #[tauri::command]
+pub fn tauri_tunnel_attach_rx_channel(
+    state: State<'_, TunnelManagerState>,
+    session_id: String,
+    on_packet: Channel<InvokeResponseBody>,
+) -> Result<(), String> {
+    let guard = state
+        .sessions
+        .lock()
+        .map_err(|_| "TunnelManagerState lock poisoned".to_string())?;
+    let session = guard
+        .get(&session_id)
+        .ok_or_else(|| format!("Tunnel session '{}' not found", session_id))?;
+    if let Ok(mut ch_guard) = session.rx_channel.lock() {
+        *ch_guard = Some(on_packet);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn tauri_tunnel_connect(
     state: State<'_, TunnelManagerState>,
     session_id: String,
     peer_addr: String,
+    peer_id: Option<String>,
+    fallback_addr: Option<String>,
 ) -> Result<(), String> {
     let parsed: SocketAddr = peer_addr
         .parse()
@@ -318,12 +423,79 @@ pub fn tauri_tunnel_connect(
         .get(&session_id)
         .ok_or_else(|| format!("Tunnel session '{}' not found", session_id))?;
 
-    if let Ok(mut peer_guard) = session.peer_addr.lock() {
+    if let Ok(mut peer_guard) = session.default_peer.lock() {
         *peer_guard = Some(parsed);
     }
-    // Send a 4-byte UDP hole-punching keepalive probe so NAT tables open the 5-tuple
-    let _ = session.socket.send_to(b"RCPH", parsed);
+    if let Some(pid) = peer_id {
+        if let Ok(mut peers_guard) = session.peers.lock() {
+            peers_guard.insert(pid.clone(), parsed);
+        }
+        if let Ok(mut rev_guard) = session.addr_to_peer.lock() {
+            rev_guard.insert(parsed, pid.clone());
+            if let Some(ref fb) = fallback_addr {
+                if let Ok(fb_parsed) = fb.parse::<SocketAddr>() {
+                    rev_guard.insert(fb_parsed, pid);
+                }
+            }
+        }
+    }
+
+    // Send 4-byte UDP hole-punching keepalive probes so NAT tables open the 5-tuple
+    let _ = session.socket.send_to(HOLE_PUNCH_PROBE, parsed);
+    if let Some(fb) = fallback_addr {
+        if let Ok(fb_parsed) = fb.parse::<SocketAddr>() {
+            if fb_parsed != parsed {
+                let _ = session.socket.send_to(HOLE_PUNCH_PROBE, fb_parsed);
+            }
+        }
+    }
     Ok(())
+}
+
+#[tauri::command]
+pub fn tauri_tunnel_disconnect_peer(
+    state: State<'_, TunnelManagerState>,
+    session_id: String,
+    peer_id: String,
+) -> Result<(), String> {
+    let guard = state
+        .sessions
+        .lock()
+        .map_err(|_| "TunnelManagerState lock poisoned".to_string())?;
+    if let Some(session) = guard.get(&session_id) {
+        if let Ok(mut peers_guard) = session.peers.lock() {
+            peers_guard.remove(&peer_id);
+        }
+        if let Ok(mut rev_guard) = session.addr_to_peer.lock() {
+            rev_guard.retain(|_, v| v != &peer_id);
+        }
+    }
+    Ok(())
+}
+
+fn resolve_dest_addr(
+    session: &ActiveTunnelSession,
+    peer_id: Option<&str>,
+    target_addr: Option<&str>,
+) -> Result<SocketAddr, String> {
+    if let Some(pid) = peer_id {
+        if let Ok(peers_guard) = session.peers.lock() {
+            if let Some(addr) = peers_guard.get(pid) {
+                return Ok(*addr);
+            }
+        }
+    }
+    if let Some(addr_str) = target_addr {
+        return addr_str
+            .parse()
+            .map_err(|e| format!("Invalid target SocketAddr '{}': {}", addr_str, e));
+    }
+    session
+        .default_peer
+        .lock()
+        .ok()
+        .and_then(|g| *g)
+        .ok_or_else(|| "No peer address configured for tunnel session".to_string())
 }
 
 #[tauri::command]
@@ -332,6 +504,7 @@ pub fn tauri_tunnel_send(
     session_id: String,
     data: Vec<u8>,
     target_addr: Option<String>,
+    peer_id: Option<String>,
 ) -> Result<usize, String> {
     let guard = state
         .sessions
@@ -341,22 +514,49 @@ pub fn tauri_tunnel_send(
         .get(&session_id)
         .ok_or_else(|| format!("Tunnel session '{}' not found", session_id))?;
 
-    let dest: SocketAddr = if let Some(addr_str) = target_addr {
-        addr_str
-            .parse()
-            .map_err(|e| format!("Invalid target SocketAddr '{}': {}", addr_str, e))?
-    } else {
-        session
-            .peer_addr
-            .lock()
-            .ok()
-            .and_then(|g| *g)
-            .ok_or_else(|| "No peer address configured for tunnel session".to_string())?
-    };
-
+    let dest = resolve_dest_addr(session, peer_id.as_deref(), target_addr.as_deref())?;
     let sent = session
         .socket
         .send_to(&data, dest)
+        .map_err(|e| format!("UDP send_to failed: {}", e))?;
+    session
+        .bytes_sent
+        .fetch_add(sent as u64, Ordering::Relaxed);
+    Ok(sent)
+}
+
+#[tauri::command]
+pub fn tauri_tunnel_send_raw(
+    state: State<'_, TunnelManagerState>,
+    request: Request<'_>,
+) -> Result<usize, String> {
+    let headers = request.headers();
+    let session_id = headers
+        .get("x-session-id")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| "Missing x-session-id header".to_string())?;
+    let peer_id = headers.get("x-peer-id").and_then(|v| v.to_str().ok());
+    let target_addr = headers.get("x-target-addr").and_then(|v| v.to_str().ok());
+
+    let bytes: &[u8] = match request.body() {
+        InvokeBody::Raw(raw) => raw.as_slice(),
+        InvokeBody::Json(_) => {
+            return Err("Expected raw binary body for tauri_tunnel_send_raw".to_string());
+        }
+    };
+
+    let guard = state
+        .sessions
+        .lock()
+        .map_err(|_| "TunnelManagerState lock poisoned".to_string())?;
+    let session = guard
+        .get(session_id)
+        .ok_or_else(|| format!("Tunnel session '{}' not found", session_id))?;
+
+    let dest = resolve_dest_addr(session, peer_id, target_addr)?;
+    let sent = session
+        .socket
+        .send_to(bytes, dest)
         .map_err(|e| format!("UDP send_to failed: {}", e))?;
     session
         .bytes_sent
@@ -393,11 +593,12 @@ pub fn tauri_tunnel_get_status(
         .map_err(|_| "TunnelManagerState lock poisoned".to_string())?;
     if let Some(session) = guard.get(&session_id) {
         let peer_addr = session
-            .peer_addr
+            .default_peer
             .lock()
             .ok()
             .and_then(|g| *g)
             .map(|a| a.to_string());
+        let peer_count = session.peers.lock().map(|p| p.len()).unwrap_or(0);
         Ok(TunnelStatusInfo {
             session_id,
             open: !session.shutdown.load(Ordering::Relaxed),
@@ -406,6 +607,7 @@ pub fn tauri_tunnel_get_status(
             external_port: session.upnp_lease.as_ref().map(|l| l.external_port),
             upnp_mapped: session.upnp_lease.is_some(),
             peer_addr,
+            peer_count,
             bytes_sent: session.bytes_sent.load(Ordering::Relaxed),
             bytes_received: session.bytes_received.load(Ordering::Relaxed),
         })
@@ -418,6 +620,7 @@ pub fn tauri_tunnel_get_status(
             external_port: None,
             upnp_mapped: false,
             peer_addr: None,
+            peer_count: 0,
             bytes_sent: 0,
             bytes_received: 0,
         })

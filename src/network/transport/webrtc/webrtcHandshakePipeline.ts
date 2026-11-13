@@ -103,7 +103,8 @@ export type RoomMessageResolution =
 export function buildHostOfferResult(
   state: HandshakeMetadataState,
   sdp: string,
-  candidates: IceCandidateDescriptor[]
+  candidates: IceCandidateDescriptor[],
+  tunnelEndpoint?: Record<string, unknown> | null
 ): OfferTokenBuildResult {
   const token =
     'RL_OFFER_' +
@@ -112,6 +113,7 @@ export function buildHostOfferResult(
       roomId: state.roomId,
       sdp,
       candidates,
+      ...(tunnelEndpoint ? { tunnelEndpoint } : {}),
       hostName: state.playerName,
       hostColorSlot: state.localColorSlot,
       hostColorHex: state.localColorHex,
@@ -223,7 +225,8 @@ export function buildRoomAnswerMessage(
 export function buildClientAnswerResult(
   state: HandshakeMetadataState,
   sdp: string,
-  candidates: IceCandidateDescriptor[]
+  candidates: IceCandidateDescriptor[],
+  tunnelEndpoint?: Record<string, unknown> | null
 ): AnswerTokenBuildResult {
   const token =
     'RL_ANSWER_' +
@@ -232,6 +235,7 @@ export function buildClientAnswerResult(
       roomId: state.roomId,
       sdp,
       candidates,
+      ...(tunnelEndpoint ? { tunnelEndpoint } : {}),
       clientName: state.playerName,
       clientColorSlot: state.localColorSlot,
       clientColorHex: state.localColorHex,
@@ -303,11 +307,7 @@ export function classifyRoomMessage(
     };
   }
 
-  if (
-    msg.type === 'room_answer' &&
-    state.role === 'host' &&
-    typeof msg.sdp === 'string'
-  ) {
+  if (msg.type === 'room_answer' && state.role === 'host' && typeof msg.sdp === 'string') {
     return {
       action: 'room_answer',
       sdp: msg.sdp,
