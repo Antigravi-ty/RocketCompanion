@@ -4,6 +4,7 @@ import { KickoffTrainingMode } from './KickoffTrainingMode.ts';
 import { SubsystemIsolationLabMode } from './SubsystemIsolationLabMode.ts';
 import { ExperimentalMultiBotsMode } from './ExperimentalMultiBotsMode.ts';
 import { StaticTrainingPackMode } from './static-training/StaticTrainingPackMode.ts';
+import { DynamicTrainingMode } from './dynamic-training/DynamicTrainingMode.ts';
 import type { BaseGameMode, GameModeRuntimePort } from './BaseGameMode.ts';
 import type { ExpModeRuntimePort } from './experimental-multi-bots/ExperimentalMultiBotsMatchMath.ts';
 import type { LabRuntimePort } from './subsystem-isolation-lab/LabTabTypes.ts';
@@ -36,6 +37,7 @@ export class GameModeManager {
     const devTestLab = new SubsystemIsolationLabMode(runtime);
     const expMultiBots = new ExperimentalMultiBotsMode(runtime);
     const staticTrainingPack = new StaticTrainingPackMode(runtime);
+    const dynamicTrainingPack = new DynamicTrainingMode(runtime);
 
     this.modes.set('freeplay', freeplay);
     this.modes.set('replay-viewer', freeplay);
@@ -44,6 +46,7 @@ export class GameModeManager {
     this.modes.set('dev-test-lab', devTestLab);
     this.modes.set('exp-multi-bots', expMultiBots);
     this.modes.set('static-training-pack', staticTrainingPack);
+    this.modes.set('dynamic-training-pack', dynamicTrainingPack);
 
     this.activeMode = freeplay;
   }

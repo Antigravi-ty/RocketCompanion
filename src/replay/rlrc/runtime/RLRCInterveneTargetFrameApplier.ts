@@ -81,7 +81,8 @@ export interface RLRCInterveneBotDecisionPort {
     slotIndex: number,
     team: RLRCTeamIndex,
     state: Float32Array,
-    dt: number
+    dt: number,
+    modelId?: string
   ) => RLRCSynthesizedCarControls | null | undefined;
 }
 
@@ -225,8 +226,18 @@ export function applyTargetFrameToPhysicsAndArena(params: {
   readonly arena: RLRCInterveneArenaPort | null | undefined;
   readonly slotActiveTracker: Uint8Array;
   readonly rebuildMeshes: boolean;
+  readonly isCountdownPreroll?: boolean;
 }): void {
-  const { frame, roster, config, sim, arena, slotActiveTracker, rebuildMeshes } = params;
+  const {
+    frame,
+    roster,
+    config,
+    sim,
+    arena,
+    slotActiveTracker,
+    rebuildMeshes,
+    isCountdownPreroll = false,
+  } = params;
   sim.setUnlimitedBoost?.(false);
   arena?.setBallVisible?.(true);
 
@@ -261,8 +272,10 @@ export function applyTargetFrameToPhysicsAndArena(params: {
     const meta = roster.find((r) => r.slotIndex === slot);
     const team: RLRCTeamIndex = meta?.team ?? (slot < 3 ? 0 : 1);
     const isPov = slot === config.povSlotIndex;
+    const slotMode = config.perSlotModes?.[slot] ?? config.nonPovMode;
+    const shouldDisappearNow = !isCountdownPreroll && slotMode === 'disappear';
 
-    if (!car || (!isPov && (config.nonPovMode === 'disappear' || !car.entityActive))) {
+    if (!car || (!isPov && (shouldDisappearNow || !car.entityActive))) {
       deactivateInterveneSlotEntity(sim, arena, slotActiveTracker, slot);
       continue;
     }
@@ -328,6 +341,7 @@ export function applyPrerollFrameToRuntimeState(params: {
     arena,
     slotActiveTracker,
     rebuildMeshes,
+    isCountdownPreroll: params.countdownRemainingTicks > 0,
   });
 
   if (state && prevBuf) {

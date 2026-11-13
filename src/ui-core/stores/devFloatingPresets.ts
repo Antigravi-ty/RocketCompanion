@@ -337,6 +337,18 @@ export const PERFORMANCE_BOOST_TUNER_PRESET: PresetConfig = makeDevPreset({
   component: 'PerformanceBoostTunerFloatingWindow',
 });
 
+export const DYNAMIC_TRAINING_PACK_PRESET: PresetConfig = makeDevPreset({
+  id: 'dynamic-training-pack',
+  title: 'Dynamic Training Pack (.rcd)',
+  category: 'DynamicTrainingPack',
+  width: 480,
+  height: 580,
+  minHeight: 240,
+  summary: 'Capture 4s replay state sessions, configure per-car takeover, and practice .rcd packs.',
+  menuEntryPath: DEV_ENTRY_PATHS.SANDBOXES,
+  component: 'DynamicTrainingPackFloatingWindow',
+});
+
 export const DEV_PRESET_WINDOWS: PresetConfig[] = [
   DIAGNOSTIC_DUMP_PRESET,
   KEYBOARD_INPUT_OVERLAY_TUNER_PRESET,
@@ -367,6 +379,7 @@ export const DEV_PRESET_WINDOWS: PresetConfig[] = [
   ENGINE_AUDIO_TUNER_PRESET,
   BOTS_LOADOUT_TUNER_PRESET,
   REPLAY_TO_RCS_IMPORTER_PRESET,
+  DYNAMIC_TRAINING_PACK_PRESET,
 ];
 
 export const PRESET_WINDOWS: PresetConfig[] = [

@@ -94,6 +94,7 @@ export interface ReplayToRcsImporterStoreState {
     onPushForwardStop?: () => void;
     onResumeFromHere?: () => void;
     onReturnToReplay?: () => void;
+    onPutIntoDynamicTrainingPack?: () => Promise<void> | void;
     onSelectPovSlot?: (slotKey: number | null) => void;
     onInterpolationMethodChange?: (method: RLReplayInterpolationMethod) => void;
     onNonPovInterventionModeChange?: (mode: RLReplayNonPovInterventionMode) => void;
