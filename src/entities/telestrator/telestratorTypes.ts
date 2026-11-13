@@ -32,9 +32,9 @@ export interface TelestratorBrushPreset {
 }
 
 export const TELESTRATOR_REF_VIEWPORT_HEIGHT = 1080;
-export const DEFAULT_TELESTRATOR_LINE_WIDTH_REF_PX = 10;
-export const DEFAULT_TELESTRATOR_ARROW_LENGTH_REF_PX = 36;
-export const DEFAULT_TELESTRATOR_ARROW_WIDTH_REF_PX = 28;
+export const DEFAULT_TELESTRATOR_LINE_WIDTH_REF_PX = 5;
+export const DEFAULT_TELESTRATOR_ARROW_LENGTH_REF_PX = 60;
+export const DEFAULT_TELESTRATOR_ARROW_WIDTH_REF_PX = 30;
 
 export const DEFAULT_TELESTRATOR_PRESETS: readonly [
   TelestratorBrushPreset,
@@ -44,19 +44,19 @@ export const DEFAULT_TELESTRATOR_PRESETS: readonly [
   {
     id: 'preset-100',
     label: '100%',
-    opacity: 1.0,
+    opacity: 1,
     widthRefPx: DEFAULT_TELESTRATOR_LINE_WIDTH_REF_PX,
   },
   {
-    id: 'preset-50',
+    id: 'preset-70',
     label: '50%',
     opacity: 0.5,
     widthRefPx: DEFAULT_TELESTRATOR_LINE_WIDTH_REF_PX,
   },
   {
-    id: 'preset-25',
-    label: '25%',
-    opacity: 0.25,
+    id: 'preset-50',
+    label: '10%',
+    opacity: 0.1,
     widthRefPx: DEFAULT_TELESTRATOR_LINE_WIDTH_REF_PX,
   },
 ];
