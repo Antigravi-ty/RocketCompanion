@@ -14,6 +14,8 @@ import { useCloudProfileSyncStore } from '../ui-core/stores/cloudProfileSyncStor
 import { dialogue } from '../ui-core/compounds/dialogue/dialogueStore.ts';
 import { ensureSignalingProfileBridge } from './core/runtimeSignalingProfileBridge.ts';
 import { activateNameTagOffscreenForDeveloperMode } from '../ui-core/stores/nameTagTunerStore.ts';
+import { DrawingSandboxController } from './telestrator/DrawingSandboxController.ts';
+import { ensureVoiceChannelBridge } from './core/runtimeVoiceChannelBridge.ts';
 
 configureFloatingStorePersistence({
   getInitialOpacity: getInitialFloatingOpacity,
@@ -32,6 +34,13 @@ export const GameUIRoot: React.FC<GameUIRootProps> = () => {
 
   useEffect(() => {
     ensureSignalingProfileBridge();
+    const disposeVoice = ensureVoiceChannelBridge();
+    const controller = new DrawingSandboxController();
+    const disposeTelestrator = controller.start();
+    return () => {
+      disposeTelestrator();
+      disposeVoice();
+    };
   }, []);
 
   // Auto-generate Floating Window Opacity in default Stack and auto-activate Off-Screen Indicator if Developer Mode is active

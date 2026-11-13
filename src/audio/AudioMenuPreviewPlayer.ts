@@ -1,6 +1,7 @@
 import { audioConfig } from '../ui-core/config/audioConfig.ts';
 import { getAudioContext, getMasterAudioInput, subsystemState } from './audioContext.ts';
 import { TurtleModemEngineSynth } from './TurtleModemEngineSynth.ts';
+import { createEmptyWasmCarAudioCue } from './WasmAudioDirectorBridge.ts';
 import {
   AudioPreviewBufferCatalog,
   type IncidentAudioBuffers,
@@ -151,32 +152,40 @@ export class AudioMenuPreviewPlayer {
       const synth = new TurtleModemEngineSynth(ctx, dest, { isPrimaryListener: false });
       synth.setVolume(Math.max(0, Math.min(5.0, gainMult)));
       this._previewSynth = synth;
+      const cue = createEmptyWasmCarAudioCue();
+      cue.active = true;
+      cue.dormant = false;
+      cue.engineGain = Math.max(0, Math.min(5.0, gainMult));
+      cue.engineLoad = 1.0;
+      cue.filterCutoffHz = 16000;
       let step = 0;
-      synth.update({
-        speedUU: 450,
-        forwardSpeedUU: 450,
-        throttleInput: 1,
-        isOnGround: true,
-        alive: true,
-        audible: true,
-        dt: 0.05,
-      });
+      const pushStep = (progress: number, isAccel: boolean) => {
+        const rpm = isAccel
+          ? 1400 + (progress / 0.72) * 4200
+          : 5600 - ((progress - 0.72) / 0.28) * 2600;
+        const norm = Math.max(0, Math.min(1, (rpm - 900) / 5100));
+        const slicePos = norm * 39;
+        const lo = Math.min(39, Math.floor(slicePos));
+        const hi = Math.min(39, lo + 1);
+        const alpha = slicePos - lo;
+        cue.engineRpm = rpm;
+        cue.engineRpmNorm = norm;
+        cue.engineLoad = isAccel ? 1.0 : 0.1;
+        cue.enginePitch = rpm / 900;
+        cue.idleGain = norm < 0.15 ? 1 - norm / 0.15 : 0;
+        cue.lowerSliceIdx = lo;
+        cue.upperSliceIdx = hi;
+        cue.lowerSliceGain = 1 - alpha;
+        cue.upperSliceGain = alpha;
+        cue.lowerSliceRate = 1.0;
+        cue.upperSliceRate = 1.0;
+        synth.applyWasmCarCue(cue, true);
+      };
+      pushStep(0, true);
       this._previewSynthInterval = setInterval(() => {
         step++;
         const progress = Math.min(1, step / 28);
-        const isAccel = progress < 0.72;
-        const speed = isAccel
-          ? 450 + (progress / 0.72) * 1750
-          : 2200 - ((progress - 0.72) / 0.28) * 900;
-        synth.update({
-          speedUU: speed,
-          forwardSpeedUU: speed,
-          throttleInput: isAccel ? 1 : 0,
-          isOnGround: true,
-          alive: true,
-          audible: true,
-          dt: 0.05,
-        });
+        pushStep(progress, progress < 0.72);
       }, 50);
       this._previewSynthTimeout = setTimeout(() => this.stopAudioDetailPreview(), 1450);
     } catch (err) {

@@ -24,10 +24,12 @@ import {
 } from './AudioMenuPreviewPlayer.ts';
 import {
   applyWasmBallCueToEmitter,
+  readWasmStadiumBusCue,
   syncWasmAudioDirectorConfig,
   syncWasmAudioListenerState,
   type WasmAudioPhysicsModule,
   type WasmListenerSyncInput,
+  type WasmStadiumBusCue,
 } from './WasmAudioDirectorBridge.ts';
 import { dispatchWasmOneShotSlots } from './wasmAudioOneShotDispatcher.ts';
 import type { CameraTransformLike } from './SpatialAudioSource.ts';
@@ -109,10 +111,7 @@ export class GameAudioEngineFacade {
   incidentEngine: {
     buffers: IncidentAudioBuffers;
     setBuffers: (bufs: Partial<IncidentAudioBuffers>) => void;
-    handleEvent: (
-      event: PhysicsImpactAudioEvent | null | undefined,
-      camera?: unknown
-    ) => void;
+    handleEvent: (event: PhysicsImpactAudioEvent | null | undefined, camera?: unknown) => void;
   };
   loaded: boolean;
   loading: boolean;
@@ -382,4 +381,3 @@ export class GameAudioEngineFacade {
 }
 
 export const gameAudio = new GameAudioEngineFacade();
-

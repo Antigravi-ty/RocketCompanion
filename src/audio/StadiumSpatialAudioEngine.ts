@@ -233,6 +233,29 @@ export class StadiumSpatialAudioEngine {
     this.bgmChain?.setImpulseBuffer(this.impulseBuffer);
   }
 
+  applyWasmStadiumBusCue(cue: {
+    spatialBlend: number;
+    hpfFreqHz: number;
+    lpfFreqHz: number;
+    wetGain: number;
+  }): void {
+    if (!this.ctx) return;
+    const store = useSpatialAudioStore.getState();
+    const cfg = store.tunerConfig;
+    const blend = Math.max(0, Math.min(1, cue.spatialBlend));
+    this.bgmController.blend = blend;
+    this.bgmChain?.applyBlend(
+      blend,
+      cfg,
+      this.bgmController.fadeEnvelope * computeBgmVolumeScalar(store)
+    );
+    this.anthemChain?.applyBlend(
+      blend,
+      cfg,
+      computeAnthemOutputGain(this.anthemPlayer.isActiveOrDraining())
+    );
+  }
+
   onTunerConfigChanged(cfg: Partial<SpatialAudioTunerConfig>): void {
     if (!this.ctx) this._ensureAudioGraph(false);
     if (!this.ctx) return;
@@ -275,13 +298,17 @@ export class StadiumSpatialAudioEngine {
       useSpatialAudioStore.getState().selectedAnthem,
       this.anthemPlayer
     );
-    if (buf) playBufferFn(buf, Number(audioConfig.get('anthemVolume') ?? 1.0), { maxDurationSec: 2.2 });
+    if (buf)
+      playBufferFn(buf, Number(audioConfig.get('anthemVolume') ?? 1.0), { maxDurationSec: 2.2 });
   }
 
   async previewBgmVolumeSample(playBufferFn: PlaySampleBufferCallback): Promise<void> {
     const ctx = getAudioContext();
     if (!ctx || typeof playBufferFn !== 'function') return;
-    const { buffer, offsetSec } = await resolveBgmVolumeSampleBuffer(ctx, this._cachedBgmPreviewBuffer);
+    const { buffer, offsetSec } = await resolveBgmVolumeSampleBuffer(
+      ctx,
+      this._cachedBgmPreviewBuffer
+    );
     if (!buffer) return;
     this._cachedBgmPreviewBuffer = buffer;
     playBufferFn(buffer, Number(audioConfig.get('bgmBusVolume') ?? 1.0), {

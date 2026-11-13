@@ -30,7 +30,7 @@ impl AudioDirectorInstance {
         }
     }
 
-    fn process_physics_event(&mut self, ev: &PhysicsEvent, current_tick: u32) {
+    pub(crate) fn process_physics_event(&mut self, ev: &PhysicsEvent, current_tick: u32) {
         let ev_type = ev.event_type;
         if ev_type == 0 || ev_type > 0x3F {
             return;
@@ -227,22 +227,35 @@ impl AudioDirectorInstance {
             classify_ball_surface(ev.pos_x, ev.pos_y, ev.pos_z, ev.norm_z, ev_type == 0x05)
         };
         let is_post_or_bar = ev_type == 0x05 || sub == 8 || sub == 9;
-        let normal_speed = ev.normal_rel_vel.max(ev.impulse);
+        let normal_speed = if ev.normal_rel_vel.is_finite() && ev.normal_rel_vel > 0.0 {
+            ev.normal_rel_vel.abs()
+        } else {
+            0.0
+        };
         let master = self.config_pod.master_volume;
 
         if is_post_or_bar {
-            if normal_speed < self.config_pod.goalpost_hit_threshold {
+            let post_speed = if normal_speed > 0.0 {
+                normal_speed
+            } else if ev.impulse.is_finite() && ev.impulse > 0.0 {
+                ev.impulse.abs()
+            } else {
+                0.0
+            };
+            if post_speed < self.config_pod.goalpost_hit_threshold {
                 return;
             }
             let cd_ticks =
-                ((self.config_pod.goalpost_hit_cooldown_ms / 1000.0) * 120.0).round() as u32;
+                ((self.config_pod.goalpost_hit_cooldown_ms.max(60.0) / 1000.0) * 120.0)
+                    .round()
+                    .max(8.0) as u32;
             if self.last_goalpost_hit_tick != u32::MAX
-                && ev_tick.saturating_sub(self.last_goalpost_hit_tick) < cd_ticks.max(1)
+                && ev_tick.saturating_sub(self.last_goalpost_hit_tick) < cd_ticks
             {
                 return;
             }
             self.last_goalpost_hit_tick = ev_tick;
-            let is_large_ping = normal_speed >= 950.0 || sub == 9;
+            let is_large_ping = post_speed >= 950.0 || sub == 9;
             let cat_idx = if is_large_ping { 2 } else { 5 };
             let (atten, culled) = self.evaluate_attenuation(cat_idx, dist_uu);
             if culled {
@@ -253,7 +266,7 @@ impl AudioDirectorInstance {
             } else {
                 self.config_pod.goalpost_small_hit_volume
             };
-            let intensity = ((normal_speed - 140.0) / 1860.0).clamp(0.25, 1.0);
+            let intensity = ((post_speed - 140.0) / 1860.0).clamp(0.25, 1.0);
             let gain = (intensity * atten * vol * master).clamp(0.0, 2.0);
             let variant = self.select_variation(if is_large_ping { 4 } else { 5 }, 6);
             let rate = 0.97 + self.next_rand_f32() * 0.06;
@@ -273,16 +286,30 @@ impl AudioDirectorInstance {
                 category_index: cat_idx as u32,
             });
         } else {
-            let threshold = if sub == 1 {
-                self.config_pod.ball_ground_hit_threshold
+            let dir_dot = if ev.custom_float.is_finite() && ev.custom_float > 0.0 {
+                ev.custom_float
+            } else if ev.speed.is_finite() && ev.speed > 1e-4 {
+                (normal_speed / ev.speed).clamp(0.0, 1.0)
             } else {
-                self.config_pod.ball_wall_hit_threshold
+                1.0
+            };
+            if dir_dot < 0.15 {
+                return;
+            }
+            let threshold = if sub == 1 {
+                self.config_pod.ball_ground_hit_threshold.max(140.0)
+            } else {
+                self.config_pod.ball_wall_hit_threshold.max(140.0)
             };
             if normal_speed < threshold {
                 return;
             }
+            let cd_ticks =
+                ((self.config_pod.incident_cooldown_ms.max(60.0) / 1000.0) * 120.0)
+                    .round()
+                    .max(8.0) as u32;
             if self.last_ball_world_hit_tick != u32::MAX
-                && ev_tick.saturating_sub(self.last_ball_world_hit_tick) < 5
+                && ev_tick.saturating_sub(self.last_ball_world_hit_tick) < cd_ticks
             {
                 return;
             }
@@ -421,3 +448,4 @@ fn classify_ball_surface(x: f32, y: f32, z: f32, nz: f32, is_goalpost: bool) -> 
     }
     7
 }
+

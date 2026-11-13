@@ -68,6 +68,9 @@ export class CameraManager {
   public isEditorOverrideActive = false;
   public isFreeCam = false;
   public settings: CameraSettingsConfig | null;
+  public readonly povAngularOffset = { yawRad: 0, pitchRad: 0 };
+  private readonly _povOffsetEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+  private readonly _povOffsetQuat = new THREE.Quaternion();
 
   constructor(
     aspect: number = typeof window !== 'undefined'
@@ -313,6 +316,19 @@ export class CameraManager {
     }
   }
 
+  adjustPovAngularOffset(deltaYawRad: number, deltaPitchRad: number): void {
+    this.povAngularOffset.yawRad += deltaYawRad;
+    this.povAngularOffset.pitchRad = Math.max(
+      -Math.PI * 0.45,
+      Math.min(Math.PI * 0.45, this.povAngularOffset.pitchRad + deltaPitchRad)
+    );
+  }
+
+  resetPovAngularOffset(): void {
+    this.povAngularOffset.yawRad = 0;
+    this.povAngularOffset.pitchRad = 0;
+  }
+
   update(
     carObject: unknown,
     ballObject: unknown,
@@ -335,6 +351,20 @@ export class CameraManager {
     if (needsSubject && (!carObject || !ballObject)) return;
     const current = this.controllers.get(this.activeMode);
     if (current) current.update(carObject, ballObject, dt, extraInfo, inputState);
+    if (
+      this._sharedCamera &&
+      (Math.abs(this.povAngularOffset.yawRad) > 1e-5 ||
+        Math.abs(this.povAngularOffset.pitchRad) > 1e-5)
+    ) {
+      this._povOffsetEuler.set(
+        this.povAngularOffset.pitchRad,
+        this.povAngularOffset.yawRad,
+        0,
+        'YXZ'
+      );
+      this._povOffsetQuat.setFromEuler(this._povOffsetEuler);
+      this._sharedCamera.quaternion.multiply(this._povOffsetQuat);
+    }
   }
 
   dispose(): void {

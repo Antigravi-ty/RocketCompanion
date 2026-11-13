@@ -335,16 +335,19 @@ export class GameAudioSubsystem {
       }
     }
 
-    this.engineLodController.updateFrame({
-      activeCar,
-      effectiveNumCars,
-      isAudibleActive,
-      curBoost,
-      activeCarMesh,
-      arenaCars: r.arena?.cars,
-      playerControls: r.playerControls,
-      resolveCarView,
-    });
+    if (cueWordBase > 0 && wasmMod) {
+      this.engineLodController.applyWasmFrame({
+        f32: wasmMod.HEAPF32,
+        u32: wasmMod.HEAPU32,
+        cueWordBase,
+        activeCar,
+        effectiveNumCars,
+        isAudibleActive,
+        activeCarMesh,
+        arenaCars: r.arena?.cars,
+        resolveCarView,
+      });
+    }
 
     if (subsystemState?.lastTelemetry) {
       const audioCtx = getAudioContext();
@@ -413,7 +416,19 @@ export class GameAudioSubsystem {
       vOpts.hasBlockingOverlay = hasBlockingOverlay;
       vOpts.continueOnBlur = continueOnBlur;
       vOpts.isHidden = isHidden;
-      gameAudio.updateVehicles(vOpts);
+      if (cueWordBase > 0 && wasmMod && gameAudio.vehicleManager?.applyWasmFrame) {
+        gameAudio.vehicleManager.applyWasmFrame(
+          wasmMod.HEAPF32,
+          wasmMod.HEAPU32,
+          cueWordBase,
+          activeCar,
+          effectiveNumCars,
+          isAudibleActive,
+          vOpts.getCarPos
+        );
+      } else {
+        gameAudio.updateVehicles(vOpts);
+      }
     }
 
     if (isMatchActive) {

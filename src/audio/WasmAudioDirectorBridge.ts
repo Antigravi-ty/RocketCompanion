@@ -370,3 +370,127 @@ export function applyWasmBallCueToEmitter(
   ballEngine._wasRolling = rollGain > 0;
   ballEngine._wasFallingDownward = flyGain > 0;
 }
+
+export interface WasmCarAudioCue {
+  engineRpm: number;
+  engineRpmNorm: number;
+  engineLoad: number;
+  engineGain: number;
+  enginePitch: number;
+  filterCutoffHz: number;
+  idleGain: number;
+  lowerSliceGain: number;
+  upperSliceGain: number;
+  lowerSliceRate: number;
+  upperSliceRate: number;
+  boostGain: number;
+  boostPitch: number;
+  supersonicGain: number;
+  skidGain: number;
+  airRollGain: number;
+  spatialPan: number;
+  dopplerPitch: number;
+  distanceUU: number;
+  active: boolean;
+  dormant: boolean;
+  primary: boolean;
+  strain: boolean;
+  overdrive: boolean;
+  revLimiting: boolean;
+  gear: number;
+  lowerSliceIdx: number;
+  upperSliceIdx: number;
+}
+
+export interface WasmStadiumBusCue {
+  spatialBlend: number;
+  hpfFreqHz: number;
+  lpfFreqHz: number;
+  wetGain: number;
+}
+
+export function createEmptyWasmCarAudioCue(): WasmCarAudioCue {
+  return {
+    engineRpm: 900,
+    engineRpmNorm: 0,
+    engineLoad: 0,
+    engineGain: 0,
+    enginePitch: 1,
+    filterCutoffHz: 18000,
+    idleGain: 0,
+    lowerSliceGain: 0,
+    upperSliceGain: 0,
+    lowerSliceRate: 1,
+    upperSliceRate: 1,
+    boostGain: 0,
+    boostPitch: 1,
+    supersonicGain: 0,
+    skidGain: 0,
+    airRollGain: 0,
+    spatialPan: 0,
+    dopplerPitch: 1,
+    distanceUU: 0,
+    active: false,
+    dormant: true,
+    primary: false,
+    strain: false,
+    overdrive: false,
+    revLimiting: false,
+    gear: 1,
+    lowerSliceIdx: 0,
+    upperSliceIdx: 0,
+  };
+}
+
+export function readWasmCarAudioCue(
+  f32: Float32Array,
+  u32: Uint32Array,
+  cueWordBase: number,
+  carIndex: number,
+  out: WasmCarAudioCue
+): WasmCarAudioCue {
+  const off = cueWordBase + AUDIO_CUE_CARS_WORD_OFFSET + carIndex * AUDIO_CUE_CAR_STRIDE_WORDS;
+  out.engineRpm = f32[off + 0];
+  out.engineRpmNorm = f32[off + 1];
+  out.engineLoad = f32[off + 2];
+  out.engineGain = f32[off + 3];
+  out.enginePitch = f32[off + 4];
+  out.filterCutoffHz = f32[off + 5];
+  out.idleGain = f32[off + 6];
+  out.lowerSliceGain = f32[off + 7];
+  out.upperSliceGain = f32[off + 8];
+  out.lowerSliceRate = f32[off + 9];
+  out.upperSliceRate = f32[off + 10];
+  out.boostGain = f32[off + 11];
+  out.boostPitch = f32[off + 12];
+  out.supersonicGain = f32[off + 13];
+  out.skidGain = f32[off + 14];
+  out.airRollGain = f32[off + 15];
+  out.spatialPan = f32[off + 16];
+  out.dopplerPitch = f32[off + 17];
+  out.distanceUU = f32[off + 18];
+  const flags = u32[off + 19];
+  out.active = (flags & (1 << 0)) !== 0;
+  out.dormant = (flags & (1 << 1)) !== 0;
+  out.primary = (flags & (1 << 2)) !== 0;
+  out.strain = (flags & (1 << 3)) !== 0;
+  out.overdrive = (flags & (1 << 4)) !== 0;
+  out.revLimiting = (flags & (1 << 5)) !== 0;
+  out.gear = (flags >>> 8) & 0xff;
+  out.lowerSliceIdx = (flags >>> 16) & 0xff;
+  out.upperSliceIdx = (flags >>> 24) & 0xff;
+  return out;
+}
+
+export function readWasmStadiumBusCue(
+  f32: Float32Array,
+  cueWordBase: number,
+  out: WasmStadiumBusCue
+): WasmStadiumBusCue {
+  const off = cueWordBase + AUDIO_CUE_STADIUM_WORD_OFFSET;
+  out.spatialBlend = f32[off + 0];
+  out.hpfFreqHz = f32[off + 1];
+  out.lpfFreqHz = f32[off + 2];
+  out.wetGain = f32[off + 3];
+  return out;
+}

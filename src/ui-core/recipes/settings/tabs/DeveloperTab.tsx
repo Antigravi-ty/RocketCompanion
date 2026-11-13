@@ -31,6 +31,7 @@ import { useScopedStore } from '../../../stores/storeSnapshotScope';
 import type { SurfaceVariantMeta } from '../../../manifest/surfaceMetaTypes';
 import { FloatingWindowCard } from '../components/FloatingWindowCard';
 import { DeveloperProfileExportSection } from '../components/DeveloperProfileExportSection';
+import { DeveloperWave1Section } from '../components/DeveloperWave1Section';
 import type { BallOpacityMode } from './GameplayTab';
 
 export const SURFACE_VARIANT_META: SurfaceVariantMeta = {
@@ -335,6 +336,7 @@ export const DeveloperTab: React.FC<DeveloperTabProps> = ({
       />
 
       <DeveloperProfileExportSection onHover={onHover} onLeave={onLeave} isLight={isLight} />
+      <DeveloperWave1Section onHover={onHover} onLeave={onLeave} isLight={isLight} />
 
       <SettingActionRow
         icon={AlertTriangle}

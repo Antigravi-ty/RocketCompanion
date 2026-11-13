@@ -239,21 +239,27 @@ fn dispatch_single_physics_event(
                 || surface_tag == surface_subtypes::CROSSBAR;
 
             if is_goalpost_or_crossbar {
-                let cooldown = ms_to_ticks_120hz(cfg.goalpost_hit_cooldown_ms);
+                let cooldown = ms_to_ticks_120hz(cfg.goalpost_hit_cooldown_ms.max(60.0)).max(8);
                 if *last_goalpost_hit_tick > 0
                     && tick.saturating_sub(*last_goalpost_hit_tick) < cooldown
                 {
                     return;
                 }
                 let threshold = cfg.goalpost_hit_threshold.max(0.0);
-                let impact_val = ev.normal_rel_vel.abs().max(ev.impulse.abs()).max(ev.speed.abs());
+                let impact_val = if ev.normal_rel_vel.is_finite() && ev.normal_rel_vel > 0.0 {
+                    ev.normal_rel_vel.abs()
+                } else if ev.impulse.is_finite() && ev.impulse > 0.0 {
+                    ev.impulse.abs()
+                } else {
+                    0.0
+                };
                 if impact_val < threshold {
                     return;
                 }
                 *last_goalpost_hit_tick = tick;
 
                 let (m, is_ping_large) =
-                    calibrate_goalpost_ping(ev.speed.abs().max(impact_val), threshold);
+                    calibrate_goalpost_ping(impact_val, threshold);
                 let post_vol = if is_ping_large {
                     cue.one_shot_edge_mask_hi |= 1u32 << edge_mask_bits::BALL_GOALPOST_LARGE_BIT;
                     cfg.goalpost_hit_volume
@@ -276,7 +282,7 @@ fn dispatch_single_physics_event(
                 return;
             }
 
-            let cooldown = ms_to_ticks_120hz(cfg.incident_cooldown_ms);
+            let cooldown = ms_to_ticks_120hz(cfg.incident_cooldown_ms.max(60.0)).max(8);
             if *last_ball_world_hit_tick > 0
                 && tick.saturating_sub(*last_ball_world_hit_tick) < cooldown
             {
@@ -285,15 +291,25 @@ fn dispatch_single_physics_event(
 
             let is_floor = surface_tag == surface_subtypes::FLOOR;
             let threshold = if is_floor {
-                cfg.ball_ground_hit_threshold.max(0.0)
+                cfg.ball_ground_hit_threshold.max(140.0)
             } else {
-                cfg.ball_wall_hit_threshold.max(0.0)
+                cfg.ball_wall_hit_threshold.max(140.0)
             };
             let normal_vel = if ev.normal_rel_vel.is_finite() && ev.normal_rel_vel > 0.0 {
                 ev.normal_rel_vel.abs()
             } else {
-                ev.speed.abs()
+                0.0
             };
+            let dir_dot = if ev.custom_float.is_finite() && ev.custom_float > 0.0 {
+                ev.custom_float
+            } else if ev.speed.is_finite() && ev.speed > 1e-4 {
+                (normal_vel / ev.speed).clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+            if dir_dot < 0.15 {
+                return;
+            }
             if normal_vel < threshold {
                 return;
             }

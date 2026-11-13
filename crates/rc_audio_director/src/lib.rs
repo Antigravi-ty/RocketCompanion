@@ -13,6 +13,9 @@ pub mod spatial_math;
 pub mod stadium_bus;
 pub mod vehicle_incident_cues;
 
+#[cfg(test)]
+mod director_impact_tests;
+
 pub use ball_loops::step_ball_acoustic_loops;
 pub use config_pod::{AttenuationProfilePod, AudioDirectorConfigPod, EngineTuningConfigPod};
 pub use director::AudioDirectorInstance;

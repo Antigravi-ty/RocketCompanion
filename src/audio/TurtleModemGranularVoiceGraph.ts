@@ -3,12 +3,8 @@ import type {
   LoadedEngineAudioPackAssets,
   ConditionedEngineSliceBuffers,
 } from './turtleModemSynthAcousticPipeline.ts';
-import {
-  applySmoothedAudioParamValue,
-  clampSmoothingDtSec,
-  resetAudioParamValueImmediate,
-  stepExponentialSmoothedValue,
-} from './audioParamSmoothingPipeline.ts';
+import { resetAudioParamValueImmediate } from './audioParamSmoothingPipeline.ts';
+import type { WasmCarAudioCue } from './WasmAudioDirectorBridge.ts';
 
 export type EngineSynthLodMode = 'primary-full' | 'remote-lod';
 export const REMOTE_ENGINE_LOD_ANCHOR_COUNT = 10;
@@ -16,9 +12,6 @@ export const REMOTE_ENGINE_LOD_ANCHOR_COUNT = 10;
 const FILTER_CUTOFF_DEADBAND_HZ = 5;
 const PLAYBACK_RATE_DEADBAND = 1e-3;
 const GAIN_DEADBAND = 1e-4;
-const DELAY_DEADBAND_SEC = 1e-4;
-const SLICE_RATE_SMOOTHING_TAU_SEC = 0.015;
-const SLICE_DELAY_SMOOTHING_TAU_SEC = 0.04;
 
 export interface GranularSliceChannel {
   index: number;
@@ -40,27 +33,6 @@ export interface GranularSliceChannel {
   lastDelay: number;
 }
 
-export interface GranularGraphUpdateInput {
-  cfg: EngineAudioTuningConfig;
-  now: number;
-  dtSec?: number;
-  tau: number;
-  currentRPM: number;
-  smoothThrottle: number;
-  isUnderStrain: boolean;
-  isStationaryNeutral: boolean;
-}
-
-export interface GranularGraphUpdateResult {
-  lowerSliceIndex: number;
-  upperSliceIndex: number;
-  lowerSliceFreqHz: number;
-  upperSliceFreqHz: number;
-  activeEqCompensationDb: number;
-  effectiveIdleGain: number;
-  filterCutoffHz: number;
-}
-
 export function selectRemoteLodAnchorSlices(
   slices: readonly ConditionedEngineSliceBuffers[],
   targetCount: number = REMOTE_ENGINE_LOD_ANCHOR_COUNT
@@ -79,35 +51,6 @@ export function selectRemoteLodAnchorSlices(
     }
   }
   return selected;
-}
-
-function evalSliceComp(
-  cfg: EngineAudioTuningConfig,
-  freqHz: number,
-  autoNormDb: number,
-  minFreq: number,
-  maxFreq: number
-): { totalDb: number; linearGain: number } {
-  const normStrength = Math.max(0, Math.min(1, cfg.sliceRmsAutoNormStrength ?? 0.85));
-  const normDb = cfg.engineEqEnabled ? (autoNormDb || 0) * normStrength : 0;
-  let tiltDb = 0;
-  if (cfg.engineEqEnabled) {
-    const t = Math.max(0, Math.min(1, (freqHz - minFreq) / Math.max(1, maxFreq - minFreq)));
-    const s = t * 4;
-    const i = Math.min(3, Math.floor(s));
-    const f = s - i;
-    const bands = cfg.eqBandGainsDb;
-    const pts = [
-      bands?.[0] ?? 0,
-      bands?.[1] ?? 0,
-      bands?.[2] ?? 0,
-      bands?.[3] ?? 0,
-      bands?.[4] ?? 0,
-    ];
-    tiltDb = pts[i] * (1 - f) + pts[i + 1] * f + (t - 0.5) * (cfg.freqTiltDb ?? 0);
-  }
-  const totalDb = Math.max(-18, Math.min(18, normDb + tiltDb));
-  return { totalDb, linearGain: Math.pow(10, totalDb / 20) };
 }
 
 export class TurtleModemGranularVoiceGraph {
@@ -305,17 +248,27 @@ export class TurtleModemGranularVoiceGraph {
     }
   }
 
-  update(input: GranularGraphUpdateInput): GranularGraphUpdateResult | null {
-    if (!this.graphBuilt || this.sliceChannels.length === 0) return null;
-    const { cfg, now, dtSec, tau, currentRPM, smoothThrottle, isUnderStrain, isStationaryNeutral } =
-      input;
-    const resolvedDt =
-      dtSec !== undefined
-        ? clampSmoothingDtSec(dtSec)
-        : this._lastUpdateSec >= 0 && now > this._lastUpdateSec
-          ? clampSmoothingDtSec(now - this._lastUpdateSec)
-          : clampSmoothingDtSec(undefined);
-    this._lastUpdateSec = now;
+  silence(): void {
+    if (!this.graphBuilt) return;
+    if (this.idleGain && this.lastIdleGain !== 0) {
+      this.idleGain.gain.value = 0;
+      this.lastIdleGain = 0;
+    }
+    for (let i = 0; i < this.sliceChannels.length; i++) {
+      const ch = this.sliceChannels[i];
+      if (ch.lastOnGain !== 0) {
+        ch.onGain.gain.value = 0;
+        ch.lastOnGain = 0;
+      }
+      if (ch.offGain && ch.lastOffGain !== 0) {
+        ch.offGain.gain.value = 0;
+        ch.lastOffGain = 0;
+      }
+    }
+  }
+
+  applyWasmCue(cue: WasmCarAudioCue, cfg: EngineAudioTuningConfig): void {
+    if (!this.graphBuilt || this.sliceChannels.length === 0) return;
     const isFull = this.lodMode === 'primary-full';
 
     if (isFull) {
@@ -324,202 +277,103 @@ export class TurtleModemGranularVoiceGraph {
       this.eqHigh.gain.value = Math.max(-18, Math.min(18, cfg.timbreHighShelfDb || 0));
     }
 
-    const strainOffset = isUnderStrain ? -1800 : 0;
-    const rawCutoff =
-      cfg.decelMode === 'reverse-filter'
-        ? 900 + smoothThrottle * 17100 + (currentRPM / cfg.redlineRPM) * 2000 + strainOffset
-        : 2200 + smoothThrottle * 15800 + strainOffset;
-    const filterCutoff = Math.max(800, Math.min(20000, rawCutoff));
-    const cutoffStep = applySmoothedAudioParamValue(
-      this.lowpassNode.frequency,
-      this.smoothedFilterCutoff,
-      this.lastFilterCutoff,
-      filterCutoff,
-      resolvedDt,
-      tau,
-      FILTER_CUTOFF_DEADBAND_HZ
-    );
-    this.smoothedFilterCutoff = cutoffStep.smoothed;
-    this.lastFilterCutoff = cutoffStep.written;
-
-    const idleWeight =
-      currentRPM < 1450 ? Math.max(0, Math.min(1, 1.0 - (currentRPM - cfg.idleRPM) / 550)) : 0;
-    const effectiveIdleGain = idleWeight * Math.max(0, Math.min(2.0, cfg.idleVolume ?? 1.0));
-    const idleRate = Math.max(0.5, Math.min(2.0, currentRPM / cfg.idleRPM));
-
-    if (this.idleSource) {
-      const rateStep = applySmoothedAudioParamValue(
-        this.idleSource.playbackRate,
-        this.smoothedIdleRate,
-        this.lastIdleRate,
-        idleRate,
-        resolvedDt,
-        tau,
-        PLAYBACK_RATE_DEADBAND
-      );
-      this.smoothedIdleRate = rateStep.smoothed;
-      this.lastIdleRate = rateStep.written;
+    const cutoff = Math.max(800, Math.min(20000, cue.filterCutoffHz || 18000));
+    if (Math.abs(cutoff - this.lastFilterCutoff) > FILTER_CUTOFF_DEADBAND_HZ) {
+      this.lowpassNode.frequency.value = cutoff;
+      this.lastFilterCutoff = cutoff;
     }
-    if (this.idleGain) {
-      const gainStep = applySmoothedAudioParamValue(
-        this.idleGain.gain,
-        this.smoothedIdleGain,
-        this.lastIdleGain,
-        effectiveIdleGain,
-        resolvedDt,
-        tau,
-        GAIN_DEADBAND
-      );
-      this.smoothedIdleGain = gainStep.smoothed;
-      this.lastIdleGain = gainStep.written;
+
+    if (this.idleSource && Math.abs(cue.enginePitch - this.lastIdleRate) > PLAYBACK_RATE_DEADBAND) {
+      this.idleSource.playbackRate.value = cue.enginePitch;
+      this.lastIdleRate = cue.enginePitch;
+    }
+    if (
+      this.idleGain &&
+      (Math.abs(cue.idleGain - this.lastIdleGain) > GAIN_DEADBAND ||
+        (cue.idleGain === 0 && this.lastIdleGain !== 0))
+    ) {
+      this.idleGain.gain.value = cue.idleGain;
+      this.lastIdleGain = cue.idleGain;
     }
 
     const count = this.sliceChannels.length;
-    let lowerIdx = 0;
-    for (let i = 0; i < count - 1; i++) {
-      if (currentRPM >= this.sliceChannels[i].meta.rpm) lowerIdx = i;
-      else break;
+    let mappedLower = cue.lowerSliceIdx;
+    let mappedUpper = cue.upperSliceIdx;
+    if (!isFull) {
+      let bestLowDist = Infinity;
+      let bestUpDist = Infinity;
+      for (let i = 0; i < count; i++) {
+        const srcIdx = this.sliceChannels[i].sourceSliceIndex;
+        const dLow = Math.abs(srcIdx - cue.lowerSliceIdx);
+        if (dLow < bestLowDist) {
+          bestLowDist = dLow;
+          mappedLower = srcIdx;
+        }
+        const dUp = Math.abs(srcIdx - cue.upperSliceIdx);
+        if (dUp < bestUpDist) {
+          bestUpDist = dUp;
+          mappedUpper = srcIdx;
+        }
+      }
     }
-    const upperIdx = Math.min(count - 1, lowerIdx + 1);
-    const lowerMeta = this.sliceChannels[lowerIdx].meta;
-    const upperMeta = this.sliceChannels[upperIdx].meta;
-    const rpmSpan = upperMeta.rpm - lowerMeta.rpm;
-    const mixAlpha =
-      upperIdx !== lowerIdx && rpmSpan > 1e-3
-        ? Math.max(0, Math.min(1, (currentRPM - lowerMeta.rpm) / rpmSpan))
-        : 0;
-    const wLower =
-      cfg.crossfadeCurveType === 'equal-sine' ? Math.cos(mixAlpha * 0.5 * Math.PI) : 1.0 - mixAlpha;
-    const wUpper =
-      cfg.crossfadeCurveType === 'equal-sine' ? Math.sin(mixAlpha * 0.5 * Math.PI) : mixAlpha;
 
-    const rpmEngagement = Math.max(0, Math.min(1, (currentRPM - cfg.idleRPM) / 160));
-    const sliceEngagement = isStationaryNeutral
-      ? 0
-      : Math.max(rpmEngagement, Math.min(1, smoothThrottle * 2.5));
-    const slicesMasterGain = (1.0 - idleWeight * 0.65) * sliceEngagement;
-
-    const minFreq = this.sliceChannels[0].meta.freq;
-    const maxFreq = this.sliceChannels[count - 1].meta.freq;
-    const targetFreq =
-      minFreq +
-      ((currentRPM - cfg.idleRPM) / Math.max(1, cfg.redlineRPM - cfg.idleRPM)) *
-        (maxFreq - minFreq);
-
-    let activeEqCompensationDb = 0;
-    const minRateClamp = isFull ? 0.7 : 0.65;
-    const maxRateClamp = isFull ? 1.4 : 1.45;
+    const useDualReverseOff = isFull && cfg.decelMode === 'reverse-filter';
+    const throttle = Math.max(0, Math.min(1, cue.engineLoad));
+    const onRatio = useDualReverseOff ? throttle : 0.42 + 0.58 * throttle;
+    const offRatio = useDualReverseOff ? (1.0 - throttle) * 0.72 : 0;
 
     for (let i = 0; i < count; i++) {
       const ch = this.sliceChannels[i];
+      const srcIdx = ch.sourceSliceIndex;
       let sliceWeight = 0;
-      if (i === lowerIdx) sliceWeight += wLower;
-      if (i === upperIdx && upperIdx !== lowerIdx) sliceWeight += wUpper;
-      sliceWeight *= slicesMasterGain;
+      let targetRate = 1.0;
 
-      let eqGain = 1.0;
-      if (sliceWeight > 1e-4) {
-        const comp = evalSliceComp(cfg, ch.meta.freq, ch.autoNormDb, minFreq, maxFreq);
-        eqGain = comp.linearGain;
-        if (i === lowerIdx) activeEqCompensationDb += comp.totalDb * (1 - mixAlpha);
-        else if (i === upperIdx && upperIdx !== lowerIdx) {
-          activeEqCompensationDb += comp.totalDb * mixAlpha;
-        }
+      if (srcIdx === mappedLower) {
+        sliceWeight += cue.lowerSliceGain;
+        targetRate = cue.lowerSliceRate;
       }
-      const compensatedWeight = sliceWeight * eqGain;
-      const useDualReverseOff = isFull && ch.offGain !== null && cfg.decelMode === 'reverse-filter';
-      const targetOnGain = useDualReverseOff
-        ? compensatedWeight * smoothThrottle
-        : compensatedWeight * (0.42 + 0.58 * smoothThrottle);
-      const targetOffGain = useDualReverseOff ? compensatedWeight * (1.0 - smoothThrottle) * 0.72 : 0;
+      if (srcIdx === mappedUpper && mappedUpper !== mappedLower) {
+        sliceWeight += cue.upperSliceGain;
+        targetRate = cue.upperSliceRate;
+      } else if (srcIdx === mappedUpper && mappedUpper === mappedLower) {
+        sliceWeight += cue.upperSliceGain;
+      }
+
+      const targetOnGain = sliceWeight * onRatio;
+      const targetOffGain = sliceWeight * offRatio;
 
       if (
-        compensatedWeight <= 1e-4 &&
-        ch.lastOnGain <= 1e-4 &&
-        ch.lastOffGain <= 1e-4 &&
-        ch.smoothedOnGain <= 1e-4 &&
-        ch.smoothedOffGain <= 1e-4
+        sliceWeight <= GAIN_DEADBAND &&
+        ch.lastOnGain <= GAIN_DEADBAND &&
+        ch.lastOffGain <= GAIN_DEADBAND
       ) {
         continue;
       }
 
-      if (compensatedWeight > 1e-4) {
-        const rawRate = targetFreq / Math.max(15, ch.meta.freq);
-        const clampedRate = Math.max(
-          minRateClamp,
-          Math.min(maxRateClamp, Number.isFinite(rawRate) ? rawRate : 1.0)
-        );
-        const nextSmoothedRate = stepExponentialSmoothedValue(
-          ch.smoothedRate,
-          clampedRate,
-          resolvedDt,
-          SLICE_RATE_SMOOTHING_TAU_SEC,
-          PLAYBACK_RATE_DEADBAND * 0.25
-        );
-        ch.smoothedRate = nextSmoothedRate;
-        if (
-          Math.abs(nextSmoothedRate - ch.lastRate) > PLAYBACK_RATE_DEADBAND ||
-          (nextSmoothedRate === clampedRate &&
-            Math.abs(ch.lastRate - clampedRate) > PLAYBACK_RATE_DEADBAND * 0.1)
-        ) {
-          ch.onSource.playbackRate.value = nextSmoothedRate;
-          if (ch.offSource) ch.offSource.playbackRate.value = nextSmoothedRate;
-          ch.lastRate = nextSmoothedRate;
-        }
+      if (
+        sliceWeight > GAIN_DEADBAND &&
+        Math.abs(targetRate - ch.lastRate) > PLAYBACK_RATE_DEADBAND
+      ) {
+        ch.onSource.playbackRate.value = targetRate;
+        if (ch.offSource) ch.offSource.playbackRate.value = targetRate;
+        ch.lastRate = targetRate;
       }
 
-      const onGainStep = applySmoothedAudioParamValue(
-        ch.onGain.gain,
-        ch.smoothedOnGain,
-        ch.lastOnGain,
-        targetOnGain,
-        resolvedDt,
-        tau,
-        GAIN_DEADBAND
-      );
-      ch.smoothedOnGain = onGainStep.smoothed;
-      ch.lastOnGain = onGainStep.written;
-
-      if (ch.offGain) {
-        const offGainStep = applySmoothedAudioParamValue(
-          ch.offGain.gain,
-          ch.smoothedOffGain,
-          ch.lastOffGain,
-          targetOffGain,
-          resolvedDt,
-          tau,
-          GAIN_DEADBAND
-        );
-        ch.smoothedOffGain = offGainStep.smoothed;
-        ch.lastOffGain = offGainStep.written;
+      if (
+        Math.abs(targetOnGain - ch.lastOnGain) > GAIN_DEADBAND ||
+        (targetOnGain === 0 && ch.lastOnGain !== 0)
+      ) {
+        ch.onGain.gain.value = targetOnGain;
+        ch.lastOnGain = targetOnGain;
       }
-
-      if (ch.delayNode) {
-        const targetDelay =
-          i === upperIdx && upperIdx !== lowerIdx ? cfg.decorrelationDelayMs / 1000 : 0;
-        const delayStep = applySmoothedAudioParamValue(
-          ch.delayNode.delayTime,
-          ch.smoothedDelay,
-          ch.lastDelay,
-          targetDelay,
-          resolvedDt,
-          SLICE_DELAY_SMOOTHING_TAU_SEC,
-          DELAY_DEADBAND_SEC
-        );
-        ch.smoothedDelay = delayStep.smoothed;
-        ch.lastDelay = delayStep.written;
+      if (
+        ch.offGain &&
+        (Math.abs(targetOffGain - ch.lastOffGain) > GAIN_DEADBAND ||
+          (targetOffGain === 0 && ch.lastOffGain !== 0))
+      ) {
+        ch.offGain.gain.value = targetOffGain;
+        ch.lastOffGain = targetOffGain;
       }
     }
-
-    return {
-      lowerSliceIndex: this.sliceChannels[lowerIdx].sourceSliceIndex,
-      upperSliceIndex: this.sliceChannels[upperIdx].sourceSliceIndex,
-      lowerSliceFreqHz: lowerMeta.freq,
-      upperSliceFreqHz: upperMeta.freq,
-      activeEqCompensationDb,
-      effectiveIdleGain,
-      filterCutoffHz: filterCutoff,
-    };
   }
 }
-
