@@ -12,7 +12,7 @@ import {
   type PacingControllerStepResult,
   numOr,
   computeTierAndRateStep,
-} from "./pacingControllerStepMath";
+} from './pacingControllerStepMath.ts';
 
 export type {
   PacingControllerState,

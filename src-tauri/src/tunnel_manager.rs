@@ -404,3 +404,53 @@ pub fn tauri_tunnel_get_status(
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tunnel_bridge::decode_bridge_frame;
+
+    #[test]
+    fn peer_routing_table_multi_peer_upsert_and_remove() {
+        let table = PeerRoutingTable::new();
+        let addr1: SocketAddr = "127.0.0.1:41001".parse().unwrap();
+        let addr2: SocketAddr = "127.0.0.1:41002".parse().unwrap();
+        let addr1_new: SocketAddr = "127.0.0.1:41003".parse().unwrap();
+
+        table.upsert("peer_a".to_string(), addr1);
+        table.upsert("peer_b".to_string(), addr2);
+        assert_eq!(table.resolve_addr_by_peer("peer_a"), Some(addr1));
+        assert_eq!(table.resolve_peer_by_addr(&addr2).as_deref(), Some("peer_b"));
+        assert_eq!(table.all_addrs().len(), 2);
+
+        // Re-bind peer_a to new port; old addr1 must be evicted
+        table.upsert("peer_a".to_string(), addr1_new);
+        assert_eq!(table.resolve_peer_by_addr(&addr1), None);
+        assert_eq!(table.resolve_peer_by_addr(&addr1_new).as_deref(), Some("peer_a"));
+
+        table.remove("peer_a");
+        assert_eq!(table.resolve_addr_by_peer("peer_a"), None);
+        assert_eq!(table.all_addrs().len(), 1);
+    }
+
+    #[test]
+    fn bridge_frame_roundtrip_and_udp_loopback() {
+        let frame = encode_bridge_frame("peer_1", b"hello_tunnel");
+        let (peer_id, payload) = decode_bridge_frame(&frame).expect("valid bridge frame");
+        assert_eq!(peer_id, "peer_1");
+        assert_eq!(payload, b"hello_tunnel");
+
+        let rx = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let tx = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let rx_addr = rx.local_addr().unwrap();
+        tx.send_to(HOLE_PUNCH_MAGIC, rx_addr).unwrap();
+        tx.send_to(b"RCPH_DATA", rx_addr).unwrap();
+
+        let mut buf = [0u8; 64];
+        let (n1, _) = rx.recv_from(&mut buf).unwrap();
+        assert_eq!(&buf[..n1], HOLE_PUNCH_MAGIC);
+        let (n2, _) = rx.recv_from(&mut buf).unwrap();
+        assert_eq!(&buf[..n2], b"RCPH_DATA");
+    }
+}
+

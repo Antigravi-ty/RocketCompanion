@@ -685,6 +685,25 @@ async function main() {
           `[${s.rosterMode}] Client realizedThroughputKbps=${c.networkLatencyHudDiagnostics.realizedThroughputKbps} (expected > 0).`
         );
       }
+      if (c.lobbyGoalResetDiagnostics?.stuckInGoal) {
+        failures.push(`[${s.rosterMode}] Client ball stuckInGoal=true during lobby goal reset.`);
+      }
+      if (c.trajectoryDiagnostics?.trajectoryCollapsedBelow30Ticks) {
+        failures.push(`[${s.rosterMode}] Client trajectory collapsed below 30 ticks.`);
+      }
+      const clientAnomalies = c.poseProbes.reduce((acc, p) => acc + p.anomalies.length, 0);
+      if (clientAnomalies > 0) {
+        failures.push(`[${s.rosterMode}] Client detected ${clientAnomalies} pose anomaly(ies).`);
+      }
+    }
+    if (h) {
+      if (h.lobbyGoalResetDiagnostics?.stuckInGoal) {
+        failures.push(`[${s.rosterMode}] Host ball stuckInGoal=true during lobby goal reset.`);
+      }
+      const hostAnomalies = h.poseProbes.reduce((acc, p) => acc + p.anomalies.length, 0);
+      if (hostAnomalies > 0) {
+        failures.push(`[${s.rosterMode}] Host detected ${hostAnomalies} pose anomaly(ies).`);
+      }
     }
     if (opts.glitchCheck) {
       const runtimeErrs = (eventsByMode[s.rosterMode] || []).filter(

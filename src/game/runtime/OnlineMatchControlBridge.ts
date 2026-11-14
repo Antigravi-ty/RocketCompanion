@@ -1,7 +1,8 @@
-import type {
-  HostOnlineWarmupPortOptions,
-  RuntimeCameraPort,
-  RuntimeMatchPort,
+import {
+  useAppStore,
+  type HostOnlineWarmupPortOptions,
+  type RuntimeCameraPort,
+  type RuntimeMatchPort,
 } from '../runtimeUiPort.ts';
 import {
   resolveEffectiveClockPacingParams,
@@ -223,6 +224,8 @@ export function createRuntimeMatchPort(domain: OnlineMatchControlDomainPort): Ru
           ...(opts.replayId ? { replayId: opts.replayId } : {}),
         },
       });
+      getReconciler()?.setReplayPlaybackMode?.(opts.activityId === 'replay');
+      useAppStore.getState().setOnlineSession?.({ activeRoomActivity: opts.activityId });
       domain.multiplayerSession?.broadcastRoomActivitySwitch({
         activityId: opts.activityId,
         mode: opts.activityId,

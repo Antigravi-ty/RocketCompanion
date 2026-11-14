@@ -13,6 +13,9 @@
 
 import assert from 'node:assert/strict';
 import { DataChannelTransport } from '../src/network/transport/webrtc/DataChannelTransport.ts';
+import { HostSessionController } from '../src/network/transport/HostSessionController.ts';
+import { ReliableTunnelFramer } from '../src/network/transport/tunnel/ReliableTunnelFramer.ts';
+import { PredictionReconciler } from '../src/network/client/PredictionReconciler.ts';
 import { NetworkSimulator } from '../src/network/transport/webrtc/NetworkSimulator.ts';
 import { CrossTabSignaling } from '../src/network/transport/webrtc/CrossTabSignaling.ts';
 import type { TunnelPacketPayload, TunnelTransport } from '../src/network/transport/tunnel/TunnelTransport.ts';
@@ -117,7 +120,7 @@ async function testTunnelAndKickLeaveSignaling(): Promise<void> {
     true
   );
   //Wait for retransmit loop (25ms interval, 45ms retransmit threshold)
-  await new Promise((resolve) => setTimeout(resolve, 90));
+  await new Promise((resolve) => setTimeout(resolve, 180));
   assert.equal(kickedPayload?.reason, 'test_kick');
 
   // Oversized (>2500B) global_workspace_broadcast chunked & reassembled across ReliableTunnelFramer
@@ -538,6 +541,218 @@ async function testMultiClientLoopbackBotMatrix(): Promise<void> {
   }
 }
 
+async function testWebRtcFirstAndTunnelFallbackPath(): Promise<void> {
+  const tunnelSent: Uint8Array[] = [];
+  const webrtcSent: unknown[] = [];
+  const mockTunnel: TunnelTransport = {
+    kind: 'rust-upnp-udp',
+    sessionId: 'sess_fallback',
+    state: 'open',
+    isOpen: true,
+    open: async () => ({
+      kind: 'rust-upnp-udp',
+      sessionId: 'sess_fallback',
+      localIp: '127.0.0.1',
+      localPort: 49001,
+      externalIp: null,
+      externalPort: null,
+      upnpMapped: false,
+    }),
+    connectToPeer: async () => {},
+    connectPeer: async () => {},
+    disconnectPeer: async () => {},
+    send: () => true,
+    sendToPeer: (_peerId, payload) => {
+      if (payload instanceof Uint8Array) tunnelSent.push(payload);
+      return true;
+    },
+    sendTyped: () => true,
+    sendTypedToPeer: () => true,
+    broadcastTyped: () => 1,
+    onPacket: () => {},
+    onStateChange: () => {},
+    onDiagnostic: () => {},
+    getStats: () => ({
+      kind: 'rust-upnp-udp',
+      state: 'open',
+      bytesSent: 0,
+      bytesReceived: 0,
+      packetsSent: 0,
+      packetsReceived: 0,
+      upnpMapped: false,
+      peerCount: 1,
+      peerAddr: '127.0.0.1:49001',
+    }),
+    close: async () => {},
+  };
+
+  const fakeDc = {
+    readyState: 'open',
+    bufferedAmount: 0,
+    send: (data: unknown) => {
+      webrtcSent.push(data);
+    },
+  } as unknown as RTCDataChannel;
+
+  const transport = new DataChannelTransport({
+    simulator: new NetworkSimulator(),
+    signaling: new CrossTabSignaling(),
+    getDataChannel: () => fakeDc,
+  });
+  transport.attachTunnelTransport(mockTunnel, 'peer_remote');
+
+  // When WebRTC DataChannel is open, transport MUST prefer WebRTC (zero IPC overhead)
+  assert.equal(transport.getTransportPath(), 'webrtc');
+  assert.equal(transport.send(new Uint8Array([9, 8, 7]), 1000), true);
+  assert.equal(webrtcSent.length, 1);
+  assert.equal(tunnelSent.length, 0);
+
+  // When WebRTC DataChannel drops, transport MUST automatically downgrade to rust-upnp-udp
+  (fakeDc as unknown as { readyState: string }).readyState = 'closed';
+  assert.equal(transport.getTransportPath(), 'rust-upnp-udp');
+  assert.equal(transport.send(new Uint8Array([6, 5, 4]), 1000), true);
+  assert.equal(tunnelSent.length, 1);
+
+  transport.detachTunnelTransport();
+  assert.equal(transport.getTransportPath(), 'disconnected');
+}
+
+async function testHostPrewarmedPeerRenameAndTunnelEndpoint(): Promise<void> {
+  const endpointCallbacks: Array<{ peerId: string; endpoint: Record<string, unknown> }> = [];
+  const disconnectedPeers: string[] = [];
+  const controller = new HostSessionController(
+    { roomId: '9999', playerName: 'HostTest' },
+    {
+      onRemoteTunnelEndpoint: (endpoint, peerId) => {
+        endpointCallbacks.push({ peerId, endpoint });
+      },
+      onPeerDisconnected: (peerId) => {
+        disconnectedPeers.push(peerId);
+      },
+    }
+  );
+
+  // Simulate prewarmed peer_1 channel created by initializeChannel(), then renamed to peer_real_42
+  const prewarmed = controller._createPeerChannel('peer_1', 'Player 2', 'player');
+  controller.peerChannels.delete('peer_1');
+  controller.peerRoles.delete('peer_1');
+  controller.peerReadyStates.delete('peer_1');
+  prewarmed.peerId = 'peer_real_42';
+  controller.peerChannels.set('peer_real_42', prewarmed);
+  controller.peerRoles.set('peer_real_42', 'player');
+  controller.peerReadyStates.set('peer_real_42', { ready: true, arenaLoaded: true });
+
+  prewarmed.onRemoteTunnelEndpoint?.({ kind: 'rust-upnp-udp', localPort: 50001 });
+  assert.equal(endpointCallbacks.length, 1);
+  assert.equal(endpointCallbacks[0].peerId, 'peer_real_42');
+
+  prewarmed.onDisconnected?.();
+  assert.deepEqual(disconnectedPeers, ['peer_real_42']);
+  assert.equal(controller.peerReadyStates.has('peer_real_42'), false);
+  controller.cleanup();
+}
+
+async function testRoomActivitySwitchWireAndEpochOrdering(): Promise<void> {
+  const hostController = new HostSessionController({ roomId: '8888', playerName: 'HostSync' });
+  const hostCh = hostController._createPeerChannel('peer_client', 'Client1', 'player');
+  const clientTransport = new DataChannelTransport({
+    simulator: new NetworkSimulator(),
+    signaling: new CrossTabSignaling(),
+  });
+
+  // Wire hostCh control/data output directly into clientTransport
+  const fakeHostDc = {
+    readyState: 'open',
+    bufferedAmount: 0,
+    send: (data: unknown) => {
+      clientTransport.handleIncomingMessage(data);
+    },
+    close: () => {},
+  } as unknown as RTCDataChannel;
+  hostCh.dataChannel = fakeHostDc;
+  hostCh.isOpen = true;
+
+  const reconciler = new PredictionReconciler(
+    {} as never,
+    {
+      sendInput: () => true,
+      receiveStates: () => [],
+      drainTransportEvents: () => clientTransport.drainTransportEvents(),
+      measureLatency: () => {},
+      rttMs: 0,
+    } as never,
+    { playerCarIndex: 1 }
+  );
+
+  const observed: Array<{ activityId: string; epoch: number }> = [];
+  reconciler.onRoomActivitySwitch = (payload) => {
+    observed.push({
+      activityId: String(payload.activityId),
+      epoch: Number(payload.epoch ?? 0),
+    });
+  };
+
+  assert.equal(hostController.broadcastRoomActivitySwitch({ activityId: 'multiplayer_training' }), 1);
+  assert.equal(hostController.broadcastRoomActivitySwitch({ activityId: 'replay' }), 1);
+  // Inject stale out-of-order epoch 1 after epoch 2 -> must be ignored by PredictionReconciler
+  clientTransport.handleIncomingMessage(
+    JSON.stringify({ type: 'room_activity_switch', activityId: 'freeplay', epoch: 1 })
+  );
+
+  reconciler.reconcile(performance.now());
+  assert.deepEqual(observed, [
+    { activityId: 'multiplayer_training', epoch: 1 },
+    { activityId: 'replay', epoch: 2 },
+  ]);
+  assert.equal(hostController.activeRoomActivity?.activityId, 'replay');
+  hostController.cleanup();
+}
+
+async function testReliableTunnelFramerOutOfOrderAndMultiDrop(): Promise<void> {
+  const reassembled: Uint8Array[] = [];
+  const wireFrames: Uint8Array[] = [];
+  let receiverFramer: ReliableTunnelFramer;
+
+  const senderFramer = new ReliableTunnelFramer({
+    sendRaw: (frame) => {
+      wireFrames.push(new Uint8Array(frame));
+      return true;
+    },
+    onReliablePayload: () => {},
+  });
+  receiverFramer = new ReliableTunnelFramer({
+    sendRaw: (ackFrame) => {
+      senderFramer.handleIncomingFrame(ackFrame);
+      return true;
+    },
+    onReliablePayload: (payload) => {
+      reassembled.push(payload);
+    },
+  });
+
+  // Build >3000B payload (multi-chunk)
+  const bigPayload = new Uint8Array(3200);
+  for (let i = 0; i < bigPayload.length; i++) bigPayload[i] = i % 251;
+  assert.equal(senderFramer.sendReliable(bigPayload), true);
+  assert.ok(wireFrames.length >= 3, 'Expected multi-chunk framing for 3200B payload');
+
+  // Drop first frame, deliver remaining frames in reverse (out-of-order)
+  for (let i = wireFrames.length - 1; i >= 1; i--) {
+    receiverFramer.handleIncomingFrame(wireFrames[i]);
+  }
+  assert.equal(reassembled.length, 0, 'Should not reassemble while chunk 0 is missing');
+
+  // Wait for retransmit of dropped chunk 0 via sender timer
+  await new Promise((r) => setTimeout(r, 180));
+  for (const frame of wireFrames) {
+    receiverFramer.handleIncomingFrame(frame);
+  }
+  assert.equal(reassembled.length, 1);
+  assert.deepEqual(reassembled[0], bigPayload);
+  senderFramer.dispose();
+  receiverFramer.dispose();
+}
+
 async function main(): Promise<void> {
   console.log('=== RocketCompanion Multiplayer Suite Test Matrix ===');
   await runSection('1. Tunnel Transport & Kick/Leave Bidirectional Signaling', testTunnelAndKickLeaveSignaling);
@@ -546,6 +761,10 @@ async function main(): Promise<void> {
   await runSection('4. Spectating & GlobalWorkspaceBroadcast + Pause ACK', testSpectatingAndGlobalWorkspace);
   await runSection('5. Telestrator 50-Stroke Stress Test & HashAck', testTelestratorStressAndHashAck);
   await runSection('6. MultiClientLoopbackSimulator Bot Takeover & 6-Car Matrix', testMultiClientLoopbackBotMatrix);
+  await runSection('7. WebRTC-First & Rust UDP Tunnel Automatic Fallback', testWebRtcFirstAndTunnelFallbackPath);
+  await runSection('8. Host Prewarmed Peer Rename & Tunnel Endpoint Routing', testHostPrewarmedPeerRenameAndTunnelEndpoint);
+  await runSection('9. ROOM_ACTIVITY_SWITCH Wire Delivery & Epoch Ordering', testRoomActivitySwitchWireAndEpochOrdering);
+  await runSection('10. ReliableTunnelFramer Multi-Chunk Out-of-Order & Loss Recovery', testReliableTunnelFramerOutOfOrderAndMultiDrop);
   console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
 }
 

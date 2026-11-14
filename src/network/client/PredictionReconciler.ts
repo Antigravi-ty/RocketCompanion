@@ -107,6 +107,7 @@ export class PredictionReconciler
   onRosterUpdate: ReconcilerMessageCallback<RosterStatePayload> | null = null;
   onHandshakeResponse: ReconcilerMessageCallback<HandshakeResponsePayload> | null = null;
   onRoomActivitySwitch: ((payload: Record<string, unknown>) => void) | null = null;
+  lastRoomActivityEpoch = 0;
   kickoffMaskUntilTick = -1;
   carVisualPresets = new Map<number, string>();
   carNames = new Map<number, string>();
@@ -408,6 +409,9 @@ export class PredictionReconciler
     if (transportEvents && transportEvents.length > 0) {
       for (const evt of transportEvents) {
         if (evt.type === 'room_activity_switch' && this.onRoomActivitySwitch) {
+          const epoch = typeof evt.payload.epoch === 'number' ? evt.payload.epoch : 0;
+          if (epoch > 0 && epoch < this.lastRoomActivityEpoch) continue;
+          if (epoch > 0) this.lastRoomActivityEpoch = epoch;
           this.onRoomActivitySwitch(evt.payload);
         }
       }

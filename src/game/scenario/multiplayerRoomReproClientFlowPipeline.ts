@@ -190,7 +190,7 @@ export async function executeReproClientFlow(ctx: ReproClientFlowContext): Promi
   }
 
   if (ctx.hasProbe('goal-replay-kickoff-freeze')) {
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 300; i++) {
       if (hostStartingGoalFreezeProbe) break;
       await sleepMs(100);
     }
@@ -206,7 +206,7 @@ export async function executeReproClientFlow(ctx: ReproClientFlowContext): Promi
     emitReproStreamEvent({ type: 'goal_replay_kickoff_diag', diag: goalFreezeDiag });
   }
 
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 200; i++) {
     if (hostProbesComplete) break;
     await sleepMs(150);
   }

@@ -70,6 +70,15 @@ export class HostSessionController {
   offerToken = '';
   offersSentTime = new Map<string, number>();
   _nextPeerSeq = 1;
+  private _activityEpoch = 0;
+  activeRoomActivity: {
+    activityId: string;
+    epoch: number;
+    mode?: string;
+    trainingPackId?: string;
+    replayId?: string;
+    config?: Record<string, unknown>;
+  } | null = null;
 
   constructor(options: HostSessionOptions, callbacks: HostSessionCallbacks = {}) {
     this.roomId = options.roomId;
@@ -115,8 +124,9 @@ export class HostSessionController {
     }
 
     ch.onConnected = async () => {
+      const activePeerId = ch.peerId || peerId;
       const resolvedName = ch.peerName || peerName || 'Player 2';
-      this.daisyChainCoordinator.registerRelayNode(peerId, {
+      this.daisyChainCoordinator.registerRelayNode(activePeerId, {
         playerName: resolvedName,
         role: assignedRole,
         allowSpectatorRelay: ch.allowSpectatorRelay,
@@ -126,7 +136,7 @@ export class HostSessionController {
         const assignedCarIdx = await this.callbacks.onPeerConnected(
           ch,
           resolvedName,
-          peerId,
+          activePeerId,
           assignedRole
         );
         if (typeof assignedCarIdx === 'number' && assignedCarIdx >= 0) {
@@ -137,13 +147,17 @@ export class HostSessionController {
       if (ch.peerColorHex) {
         this.callbacks.onColorChange?.(ch.carIndex ?? 1, ch.peerColorSlot, ch.peerColorHex);
       }
+      if (this.activeRoomActivity && this.activeRoomActivity.activityId !== 'freeplay') {
+        ch.sendRoomActivitySwitch(this.activeRoomActivity);
+      }
     };
 
     ch.onDisconnected = () => {
-      this.peerReadyStates.delete(peerId);
-      this.peerPairingCodes.delete(peerId);
-      this.daisyChainCoordinator.unregisterNode(peerId);
-      this.callbacks.onPeerDisconnected?.(peerId, ch);
+      const activePeerId = ch.peerId || peerId;
+      this.peerReadyStates.delete(activePeerId);
+      this.peerPairingCodes.delete(activePeerId);
+      this.daisyChainCoordinator.unregisterNode(activePeerId);
+      this.callbacks.onPeerDisconnected?.(activePeerId, ch);
     };
 
     ch.onColorChange = (msg: { carIndex?: number; slotId: number | null; hex: string | null }) => {
@@ -158,11 +172,13 @@ export class HostSessionController {
     };
 
     ch.onIceCandidate = (cand: RTCIceCandidateInit | Record<string, unknown>) => {
-      this.callbacks.onIceCandidate?.(cand, peerId);
+      const activePeerId = ch.peerId || peerId;
+      this.callbacks.onIceCandidate?.(cand, activePeerId);
     };
     ch.getLocalTunnelDescriptor = () => this.callbacks.getLocalTunnelDescriptor?.() ?? null;
     ch.onRemoteTunnelEndpoint = (endpoint) => {
-      this.callbacks.onRemoteTunnelEndpoint?.(endpoint, peerId);
+      const activePeerId = ch.peerId || peerId;
+      this.callbacks.onRemoteTunnelEndpoint?.(endpoint, activePeerId);
     };
 
     return ch;
@@ -416,12 +432,22 @@ export class HostSessionController {
     config?: Record<string, unknown>;
     requestId?: string;
   }): number {
+    const epoch =
+      typeof payload.epoch === 'number' && payload.epoch > 0
+        ? Math.max(payload.epoch, ++this._activityEpoch)
+        : ++this._activityEpoch;
+    const normalized = { ...payload, epoch };
+    this.activeRoomActivity = {
+      activityId: payload.activityId,
+      epoch,
+      mode: payload.mode,
+      trainingPackId: payload.trainingPackId,
+      replayId: payload.replayId,
+      config: payload.config,
+    };
     let sentCount = 0;
     for (const ch of this.peerChannels.values()) {
-      if (
-        (ch.connected || ch.isOpen) &&
-        ch.sendRoomActivitySwitch({ ...payload, epoch: payload.epoch ?? 0 })
-      ) {
+      if ((ch.connected || ch.isOpen) && ch.sendRoomActivitySwitch(normalized)) {
         sentCount++;
       }
     }
@@ -434,6 +460,8 @@ export class HostSessionController {
     this.peerReadyStates.clear();
     this.peerPairingCodes.clear();
     this.daisyChainCoordinator.clear();
+    this._activityEpoch = 0;
+    this.activeRoomActivity = null;
     for (const ch of this.peerChannels.values()) {
       try {
         ch.destroy();

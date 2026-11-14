@@ -154,23 +154,27 @@ export function createRuntimeReplayPort(domain: DiagnosticReplayDomainPort): Run
       channel: sessionCoordinator.networkChannel,
     }),
     getTransportDiagnostics: () => {
-      const ch = sessionCoordinator.networkChannel as
+      type DiagChannelShape = {
+        transport?: {
+          getTransportPath?: () => string;
+          tunnelBridge?: {
+            tunnel?: { getStats?: () => Record<string, unknown> } | null;
+            framer?: { getStats?: () => Record<string, unknown> } | null;
+          };
+        };
+        connection?: { pc?: { iceConnectionState?: string } | null };
+      };
+      const session = domain.multiplayerSession as
         | {
-            transport?: {
-              getTransportPath?: () => string;
-              tunnelBridge?: {
-                tunnel?: { getStats?: () => Record<string, unknown> } | null;
-                framer?: { getStats?: () => Record<string, unknown> } | null;
-              };
-            };
-            connection?: { pc?: { iceConnectionState?: string } | null };
+            localTunnelDescriptor?: { upnpMapped?: boolean } | null;
+            hostController?: { peerChannels?: Map<string, DiagChannelShape> } | null;
           }
         | null
         | undefined;
-      const session = domain.multiplayerSession as
-        | { localTunnelDescriptor?: { upnpMapped?: boolean } | null }
-        | null
-        | undefined;
+      let ch = sessionCoordinator.networkChannel as DiagChannelShape | null | undefined;
+      if (!ch?.transport?.getTransportPath && session?.hostController?.peerChannels?.size) {
+        ch = session.hostController.peerChannels.values().next().value;
+      }
       return {
         transportPath: ch?.transport?.getTransportPath?.() ?? 'disconnected',
         iceConnectionState: ch?.connection?.pc?.iceConnectionState ?? null,
