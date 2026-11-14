@@ -31,7 +31,8 @@
     "test:baseline": "node scripts/runScenarioBaseline.mjs",
     "test:soak": "node scripts/runSoakWatchdog.mjs",
     "test:multiplayer-suite": "node --experimental-strip-types scripts/runMultiplayerSuiteTests.ts",
-    "repro:multiplayer-room": "node scripts/runMultiplayerRoomRepro.mjs"
+    "repro:multiplayer-room": "node scripts/runMultiplayerRoomRepro.mjs",
+    "repro:multiplayer-chaos": "node --experimental-strip-types scripts/runMultiplayerChaosRepro.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.23",

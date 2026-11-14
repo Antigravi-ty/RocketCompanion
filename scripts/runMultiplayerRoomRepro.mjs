@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import { createServer } from 'vite';
 
 const DEFAULT_OUT_PATH = '/tmp/multiplayer-room-repro-report.json';
-const DEFAULT_MAX_DURATION_MS = 285_000;
+const DEFAULT_MAX_DURATION_MS = 270_000;
 const PER_MODE_TIMEOUT_MS = 115_000;
 
 function parseCliArgs(argv) {
@@ -26,6 +26,8 @@ function parseCliArgs(argv) {
   let maxDurationMs = DEFAULT_MAX_DURATION_MS;
   let outPath = DEFAULT_OUT_PATH;
   let bridgeSignaling = true;
+  let chaos = false;
+  let glitchCheck = false;
   let probes = 'all';
   let latencyMs = 50;
   let bandwidthKbps = 512;
@@ -57,6 +59,10 @@ function parseCliArgs(argv) {
       outPath = arg.slice('--out='.length).trim() || DEFAULT_OUT_PATH;
     } else if (arg === '--no-signaling-bridge') {
       bridgeSignaling = false;
+    } else if (arg === '--chaos' || arg === '--chaos=1') {
+      chaos = true;
+    } else if (arg === '--glitch-check' || arg === '--glitch-check=1') {
+      glitchCheck = true;
     }
   }
 
@@ -72,6 +78,8 @@ function parseCliArgs(argv) {
     maxDurationMs,
     outPath,
     bridgeSignaling,
+    chaos,
+    glitchCheck,
   };
 }
 
@@ -390,6 +398,19 @@ async function main() {
             role: 'host',
             rosterMode,
             sample,
+          });
+        } else if (
+          opts.glitchCheck &&
+          /(webglcontextlost|GL_INVALID|WebGL: CONTEXT_LOST|Uncaught (?:TypeError|ReferenceError|RangeError|Error))/i.test(
+            line
+          )
+        ) {
+          ingestStreamEvent({
+            type: 'runtime_error',
+            role: 'host',
+            rosterMode,
+            elapsedMs: Date.now() - modeStartMs,
+            errorText: line.slice(0, 300),
           });
         }
       }
