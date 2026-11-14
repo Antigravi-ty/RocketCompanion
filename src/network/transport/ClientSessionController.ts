@@ -34,6 +34,8 @@ export interface ClientSessionCallbacks {
   ) => Promise<void> | void;
   onDisconnected?: () => void;
   onIceCandidate?: (cand: RTCIceCandidateInit | Record<string, unknown>) => void;
+  getLocalTunnelDescriptor?: () => Record<string, unknown> | null;
+  onRemoteTunnelEndpoint?: (endpoint: Record<string, unknown>) => void;
 }
 
 export class ClientSessionController {
@@ -98,6 +100,11 @@ export class ClientSessionController {
 
     this.channel.onIceCandidate = (cand) => {
       this.callbacks.onIceCandidate?.(cand);
+    };
+    this.channel.getLocalTunnelDescriptor = () =>
+      this.callbacks.getLocalTunnelDescriptor?.() ?? null;
+    this.channel.onRemoteTunnelEndpoint = (endpoint) => {
+      this.callbacks.onRemoteTunnelEndpoint?.(endpoint);
     };
 
     this.channel.sendRoomMessage({

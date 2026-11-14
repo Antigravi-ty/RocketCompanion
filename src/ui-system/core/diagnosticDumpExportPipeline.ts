@@ -7,6 +7,7 @@ import { MAX_TELEMETRY_TICKS } from '../../ui-core/stores/pacingTelemetryRecorde
 import { buildZipArchiveBytes } from '../../ui-core/stores/pacingTelemetryExporter.ts';
 import { serializeRCReplayBinaryContainer } from '../../replay/container/RCReplayBinaryEncoder.ts';
 import { RC_REPLAY_STATE_INPUT_STRIDE } from '../../replay/container/RCReplayBinarySchema.ts';
+import { pushQuickNotification } from '../../ui-core/stores/quickNotificationStore.ts';
 import type { GameRuntimeUiBridgePort } from '../../game/runtimeUiPort.ts';
 
 function triggerZipDownload(bytes: Uint8Array, filename: string): boolean {
@@ -204,6 +205,7 @@ export function exportUnifiedDiagnosticDumpArchive(
         exportedFrames: exportedServerFrames,
       },
     },
+    transport: replayPort.getTransportDiagnostics?.() ?? null,
   };
 
   entries.unshift({
@@ -227,4 +229,37 @@ export function exportStandaloneClientReplayDump(runtimePort: GameRuntimeUiBridg
   }
   const durationSec = (exportedFrames / 120).toFixed(1);
   return `Exported standalone Client Replay (${exportedFrames} frames / ${durationSec}s).`;
+}
+
+export function notifyTransportDiagnosticDumpReady(
+  runtimePort: GameRuntimeUiBridgePort,
+  reason: 'tunnel_fallback' | 'retransmit_spike' | 'unexpected_disconnect'
+): void {
+  const label =
+    reason === 'tunnel_fallback'
+      ? 'WebRTC ICE failed; downgraded to Rust UDP Tunnel.'
+      : reason === 'retransmit_spike'
+        ? 'High tunnel retransmit/packet-loss detected.'
+        : 'Multiplayer session disconnected unexpectedly.';
+  pushQuickNotification({
+    id: `transport-diag-${reason}`,
+    type: 'temporary',
+    tone: 'warning',
+    icon: 'wifi-off',
+    duration: 12000,
+    content: `${label} Export diagnostic dump?`,
+    buttons: [
+      {
+        label: 'Export Dump',
+        color: 'amber',
+        onClick() {
+          exportUnifiedDiagnosticDumpArchive(runtimePort, {
+            includeClientReplay: true,
+            includeReconcileTelemetry: true,
+            includeServerReplay: true,
+          });
+        },
+      },
+    ],
+  });
 }

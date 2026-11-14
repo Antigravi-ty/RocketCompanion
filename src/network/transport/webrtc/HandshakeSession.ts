@@ -56,6 +56,8 @@ export interface HandshakeSessionPort {
   deliverColorChange?: HandshakeJsonListener | null;
   onBroadcastSignal?: HandshakeJsonListener | null;
   deliverBroadcastSignal?: HandshakeJsonListener | null;
+  getLocalTunnelDescriptor?: (() => Record<string, unknown> | null) | null;
+  onRemoteTunnelEndpoint?: ((endpoint: Record<string, unknown>) => void) | null;
 }
 
 export class HandshakeSession {
@@ -71,6 +73,8 @@ export class HandshakeSession {
   onPingReceived: PingReceivedListener | null;
   onColorChange: HandshakeJsonListener | null;
   onBroadcastSignal: HandshakeJsonListener | null;
+  getLocalTunnelDescriptor: (() => Record<string, unknown> | null) | null;
+  onRemoteTunnelEndpoint: ((endpoint: Record<string, unknown>) => void) | null;
 
   private localState: HandshakeMetadataState = { ...DEFAULT_HANDSHAKE_STATE };
   private readonly readExternalState: (() => HandshakeMetadataState) | null;
@@ -91,6 +95,8 @@ export class HandshakeSession {
     this.onPingReceived = config.onPingReceived ?? config.sendPong ?? null;
     this.onColorChange = config.onColorChange ?? config.deliverColorChange ?? null;
     this.onBroadcastSignal = config.onBroadcastSignal ?? config.deliverBroadcastSignal ?? null;
+    this.getLocalTunnelDescriptor = config.getLocalTunnelDescriptor ?? null;
+    this.onRemoteTunnelEndpoint = config.onRemoteTunnelEndpoint ?? null;
   }
 
   drainHandshakeEvents(): HandshakeSessionEvent[] {
@@ -158,7 +164,12 @@ export class HandshakeSession {
     }
 
     const state = this.getStateSnapshot();
-    const offerResult = buildHostOfferResult(state, sdp, connection.localCandidates);
+    const offerResult = buildHostOfferResult(
+      state,
+      sdp,
+      connection.localCandidates,
+      this.getLocalTunnelDescriptor?.() ?? null
+    );
     this.applyStatePatch({ offerToken: offerResult.token });
     console.log(offerResult.logLine);
     signaling.broadcastSignal(
@@ -184,6 +195,9 @@ export class HandshakeSession {
       const prev = this.getStateSnapshot();
       const { offerData, roomId, statePatch } = decodeAndValidateOffer(offerToken, prev, options);
       const state = this.applyStatePatch(statePatch);
+      if (offerData.tunnelEndpoint && this.onRemoteTunnelEndpoint) {
+        this.onRemoteTunnelEndpoint(offerData.tunnelEndpoint);
+      }
       const signaling = this.signaling;
       const connection = this.connection;
 
@@ -199,7 +213,12 @@ export class HandshakeSession {
       connection.createPeerConnection();
 
       const sdp = await connection.applyRemoteOfferAndCreateAnswer(offerData);
-      const answerResult = buildClientAnswerResult(state, sdp, connection.localCandidates);
+      const answerResult = buildClientAnswerResult(
+        state,
+        sdp,
+        connection.localCandidates,
+        this.getLocalTunnelDescriptor?.() ?? null
+      );
       console.log(answerResult.logLine);
       signaling.broadcastSignal(
         'room_answer',
@@ -236,6 +255,9 @@ export class HandshakeSession {
       this.getStateSnapshot()
     );
     const state = this.applyStatePatch(statePatch);
+    if (answerData.tunnelEndpoint && this.onRemoteTunnelEndpoint) {
+      this.onRemoteTunnelEndpoint(answerData.tunnelEndpoint);
+    }
     if (roomToInit) {
       signaling.initRoomChannel(roomToInit);
     }

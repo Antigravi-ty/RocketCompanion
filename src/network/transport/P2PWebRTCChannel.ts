@@ -75,6 +75,8 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   onBroadcastSignal: ChannelHook<[Record<string, unknown>]> = null;
   onIceCandidate: ChannelHook<[IceCandidateDescriptor]> = null;
   onTunnelEndpointAdvertise: ChannelHook<[Record<string, unknown>]> = null;
+  getLocalTunnelDescriptor: (() => Record<string, unknown> | null) | null = null;
+  onRemoteTunnelEndpoint: ((endpoint: Record<string, unknown>) => void) | null = null;
   onPeerKick: ChannelHook<[Record<string, unknown>]> = null;
   onPeerLeave: ChannelHook<[Record<string, unknown>]> = null;
   onVoiceSignal: ChannelHook<[Record<string, unknown>]> = null;
@@ -82,6 +84,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
 
   readonly attachTunnelTransport: DataChannelTransport['attachTunnelTransport'];
   readonly detachTunnelTransport: DataChannelTransport['detachTunnelTransport'];
+  readonly drainTransportEvents: DataChannelTransport['drainTransportEvents'];
   readonly send: DataChannelTransport['send'];
   readonly sendClientInput: DataChannelTransport['sendClientInput'];
   readonly sendServerState: DataChannelTransport['send'];
@@ -209,11 +212,14 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
       deliverBroadcastSignal: (msg) => {
         if (this.onBroadcastSignal) this.onBroadcastSignal(msg);
       },
+      getLocalTunnelDescriptor: () => this.getLocalTunnelDescriptor?.() ?? null,
+      onRemoteTunnelEndpoint: (endpoint) => this.onRemoteTunnelEndpoint?.(endpoint),
     });
 
     this.signaling.handler = this.handshake;
     this.attachTunnelTransport = this.transport.attachTunnelTransport.bind(this.transport);
     this.detachTunnelTransport = this.transport.detachTunnelTransport.bind(this.transport);
+    this.drainTransportEvents = this.transport.drainTransportEvents.bind(this.transport);
     this.transport.onTunnelEndpointAdvertise = (msg) => this.onTunnelEndpointAdvertise?.(msg);
     this.transport.onPeerKick = (msg) => this.onPeerKick?.(msg);
     this.transport.onPeerLeave = (msg) => this.onPeerLeave?.(msg);

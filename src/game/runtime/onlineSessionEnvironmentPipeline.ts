@@ -91,6 +91,10 @@ export interface OnlineSessionBridgePort {
   ): void;
   applyRosterSnapshot(roster: OnlineRosterSnapshotPayload | null): Promise<void>;
   syncHostLobbyNotification(): void;
+  applyClientRoomActivitySwitch(
+    reconciler: PredictionReconciler,
+    payload: Record<string, unknown>
+  ): void;
 }
 
 export function shouldReturnToLobbyOnRosterUpdate(
@@ -298,5 +302,26 @@ export function createOnlineSessionBridgePort(
     },
     applyRosterSnapshot: (roster) => getRosterSyncCoordinator().applyRosterSnapshot(roster),
     syncHostLobbyNotification: () => getRosterSyncCoordinator().syncHostLobbyOngoingNotification(),
+    applyClientRoomActivitySwitch: (reconciler, payload) => {
+      const activityId = typeof payload.activityId === 'string' ? payload.activityId : 'freeplay';
+      const mode = typeof payload.mode === 'string' ? payload.mode : activityId;
+      reconciler.setReplayPlaybackMode(activityId === 'replay');
+      if (ctx.modeManager) {
+        const targetMode =
+          activityId === 'match' || mode === 'match'
+            ? 'match'
+            : activityId === 'multiplayer_training'
+              ? 'training'
+              : activityId === 'replay'
+                ? 'replay'
+                : 'freeplay';
+        ctx.modeManager.setMode(targetMode);
+      }
+      const store = useAppStore.getState();
+      store.setOnlineSession?.({ activeRoomActivity: activityId });
+      if (activityId === 'match' || mode === 'match') {
+        store.setMatchMode?.('match');
+      }
+    },
   };
 }

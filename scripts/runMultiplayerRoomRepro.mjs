@@ -310,9 +310,16 @@ async function main() {
       reproBandwidthKbps: String(opts.bandwidthKbps),
       reproPhysicsHz: opts.physicsHz,
       reproBridgeSignaling: opts.bridgeSignaling ? '1' : '0',
+      reproNoWindowOpen: '1',
+      reproChaos: opts.chaos ? '1' : '0',
     });
 
     const targetUrl = `${protocol}://127.0.0.1:${port}/?${queryParams.toString()}`;
+    const clientQueryParams = new URLSearchParams(queryParams);
+    clientQueryParams.set('reproRole', 'client');
+    clientQueryParams.set('reproPeerIdx', '1');
+    const clientUrl = `${protocol}://127.0.0.1:${port}/?${clientQueryParams.toString()}`;
+
     console.log(
       `\n[MultiplayerRoomRepro] === Starting scenario ${i + 1}/${opts.modesToRun.length}: mode=${rosterMode} (room=${roomCode}, probes=${opts.probes}) ===`
     );
@@ -331,10 +338,29 @@ async function main() {
       };
     });
 
+    let cdpPort = null;
+    let clientTabLaunched = false;
+    const maybeLaunchClientViaCdp = () => {
+      if (clientTabLaunched || !cdpPort) return;
+      clientTabLaunched = true;
+      fetch(`http://127.0.0.1:${cdpPort}/json/new?${encodeURIComponent(clientUrl)}`, {
+        method: 'PUT',
+      })
+        .then((res) => {
+          console.log(
+            `[MultiplayerRoomRepro] Opened Client tab via CDP /json/new (status=${res.status})`
+          );
+        })
+        .catch((err) => {
+          console.warn('[MultiplayerRoomRepro] Failed to open Client tab via CDP:', err);
+        });
+    };
+
     activeChromeProc = spawn(
       chromeBin,
       [
         '--headless=new',
+        '--remote-debugging-port=0',
         '--use-gl=angle',
         '--use-angle=swiftshader',
         '--enable-unsafe-swiftshader',
@@ -368,6 +394,10 @@ async function main() {
       while ((nl = stderrBuf.indexOf('\n')) !== -1) {
         const line = stderrBuf.slice(0, nl).trim();
         stderrBuf = stderrBuf.slice(nl + 1);
+        const cdpMatch = line.match(/DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)\//);
+        if (cdpMatch) {
+          cdpPort = Number(cdpMatch[1]);
+        }
         const marker = '[ReproStream] ';
         const idx = line.indexOf(marker);
         if (idx !== -1) {
@@ -375,7 +405,16 @@ async function main() {
           const srcIdx = payload.lastIndexOf('", source:');
           if (srcIdx !== -1) payload = payload.slice(0, srcIdx);
           try {
-            ingestStreamEvent(JSON.parse(payload));
+            const parsed = JSON.parse(payload);
+            ingestStreamEvent(parsed);
+            if (
+              parsed?.type === 'lifecycle' &&
+              parsed?.role === 'host' &&
+              typeof parsed?.message === 'string' &&
+              parsed.message.includes('hostOnlineWarmup completed')
+            ) {
+              maybeLaunchClientViaCdp();
+            }
           } catch {
             // Ignore truncated stderr line
           }
@@ -617,6 +656,66 @@ async function main() {
     }
   }
   console.log('================================================================================\n');
+
+  const failures = [];
+  if (autoTerminatedByWatchdog) {
+    failures.push('Watchdog auto-terminated before all scenarios completed.');
+  }
+  for (const s of report.scenarios) {
+    const h = s.hostSummary;
+    const c = s.clientSummary;
+    if (!h) {
+      failures.push(`[${s.rosterMode}] Missing hostSummary.`);
+    } else if (!h.enteredMatch) {
+      failures.push(`[${s.rosterMode}] Host did not enter match (mode=${h.finalMatchMode}).`);
+    }
+    if (!c) {
+      failures.push(`[${s.rosterMode}] Missing clientSummary (client failed to connect/finish).`);
+    } else {
+      if (!c.enteredMatch || c.finalMatchMode !== 'match') {
+        failures.push(
+          `[${s.rosterMode}] Client failed to enter match (enteredMatch=${c.enteredMatch}, mode=${c.finalMatchMode}, phase=${c.finalMatchPhase}).`
+        );
+      }
+      if (
+        c.networkLatencyHudDiagnostics &&
+        !(c.networkLatencyHudDiagnostics.realizedThroughputKbps > 0)
+      ) {
+        failures.push(
+          `[${s.rosterMode}] Client realizedThroughputKbps=${c.networkLatencyHudDiagnostics.realizedThroughputKbps} (expected > 0).`
+        );
+      }
+    }
+    if (opts.glitchCheck) {
+      const runtimeErrs = (eventsByMode[s.rosterMode] || []).filter(
+        (e) => e.type === 'runtime_error'
+      );
+      if (runtimeErrs.length > 0) {
+        failures.push(
+          `[${s.rosterMode}] Detected ${runtimeErrs.length} runtime_error(s): ${runtimeErrs[0].errorText}`
+        );
+      }
+    }
+    if (failures.length > 0) {
+      console.error(
+        `[MultiplayerRoomRepro][${s.rosterMode}] Bidirectional Handshake Diagnostics:`,
+        JSON.stringify(
+          {
+            host: h?.handshakeDiagnostics ?? null,
+            client: c?.handshakeDiagnostics ?? null,
+          },
+          null,
+          2
+        )
+      );
+    }
+  }
+
+  if (failures.length > 0) {
+    console.error('[MultiplayerRoomRepro] HARD ASSERTIONS FAILED:');
+    for (const f of failures) console.error(`  - ${f}`);
+    process.exit(1);
+  }
 }
 
 main().catch((err) => {

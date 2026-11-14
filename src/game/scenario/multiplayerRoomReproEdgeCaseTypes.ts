@@ -281,6 +281,12 @@ export interface ReproProbeRuntimeView {
     }) => Promise<boolean>;
     readonly forceStartOnlineMatch?: (durationSeconds?: number) => void;
     readonly switchOnlineRoleOrTeam?: (role?: string, team?: number) => void;
+    readonly switchRoomActivity?: (options: {
+      activityId: string;
+      trainingPackId?: string;
+      replayId?: string;
+      stateSummary?: Record<string, unknown>;
+    }) => void;
     readonly voteSkipOnlineReplay?: () => void;
   } | null;
   readonly multiplayerSession?: {

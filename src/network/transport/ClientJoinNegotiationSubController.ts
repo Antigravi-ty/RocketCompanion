@@ -32,6 +32,11 @@ export interface ClientJoinNegotiationCallbacks {
   }) => Promise<void> | void;
   abortJoin: () => void;
   notifyUnexpectedDisconnect?: () => void;
+  getLocalTunnelDescriptor?: () => Record<string, unknown> | null;
+  onRemoteTunnelEndpoint?: (
+    endpoint: Record<string, unknown>,
+    channel: P2PWebRTCChannel
+  ) => void;
 }
 
 function buildJoinTimeoutError(
@@ -198,6 +203,12 @@ export class ClientJoinNegotiationSubController {
               void this.signalingHandler.sendCandidate(null, cand);
             }
           },
+          getLocalTunnelDescriptor: () => callbacks.getLocalTunnelDescriptor?.() ?? null,
+          onRemoteTunnelEndpoint: (endpoint) => {
+            if (this.clientController?.channel) {
+              callbacks.onRemoteTunnelEndpoint?.(endpoint, this.clientController.channel);
+            }
+          },
         }
       );
       this.clientController = clientController;
@@ -306,7 +317,12 @@ export class ClientJoinNegotiationSubController {
         );
         const ch = this.channel;
         if (!ch || (!ch.connected && !ch.isOpen)) {
-          finishFailure(sigErr);
+          if (typeof BroadcastChannel !== 'undefined' && ch) {
+            // Allow local BroadcastChannel cross-tab handshake to complete within grace window
+            scheduleJoinDeadline(Math.min(3500, timeoutMs));
+          } else {
+            finishFailure(sigErr);
+          }
         }
       }
     });

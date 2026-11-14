@@ -80,7 +80,9 @@ export async function executeReproHostFlow(ctx: ReproHostFlowContext): Promise<v
   }
   ctx.recordPoseProbe('host_lobby_1500ms');
 
-  if (typeof window !== 'undefined') {
+  const searchParams =
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  if (typeof window !== 'undefined' && searchParams?.get('reproNoWindowOpen') !== '1') {
     const clientUrl = new URL(window.location.href);
     clientUrl.searchParams.set('reproRole', 'client');
     clientUrl.searchParams.set('reproPeerIdx', '1');
@@ -130,6 +132,14 @@ export async function executeReproHostFlow(ctx: ReproHostFlowContext): Promise<v
 
   if (cfg.rosterMode !== '2p') {
     await ensureExperimentalEngine('ducky');
+  }
+
+  if (searchParams?.get('reproChaos') === '1' && targetView.matchPort?.switchRoomActivity) {
+    for (const act of ['multiplayer_training', 'replay', 'freeplay'] as const) {
+      targetView.matchPort.switchRoomActivity({ activityId: act });
+      await sleepMs(250);
+    }
+    ctx.logLifecycle('Chaos activity switch traversal completed (multiplayer_training -> replay -> freeplay)');
   }
 
   targetView.matchPort?.forceStartOnlineMatch?.(90);

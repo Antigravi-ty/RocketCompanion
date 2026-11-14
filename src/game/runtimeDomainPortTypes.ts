@@ -151,6 +151,12 @@ export interface RuntimeMatchPort {
   setClientReady(ready: boolean): void;
   voteRematch(ready: boolean): void;
   switchOnlineRoleOrTeam(role: 'player' | 'spectator', team: number): void;
+  switchRoomActivity?(options: {
+    activityId: string;
+    trainingPackId?: string;
+    replayId?: string;
+    stateSummary?: Record<string, unknown>;
+  }): void;
   setClockPacingMode(mode: string): void;
   setClockPacingPriority(priority: string): void;
   setClockPacingParams(params: Record<string, unknown> | null): void;
@@ -230,6 +236,13 @@ export interface RuntimeReplayPort {
   voteOrSkipReplay(): void;
   prepareForReplayViewerEntry(): void;
   getDiagnosticSessionHandles(): { reconciler: unknown; channel: unknown };
+  getTransportDiagnostics?(): {
+    transportPath: string;
+    iceConnectionState: string | null;
+    upnpMapped: boolean | null;
+    tunnelStats: Record<string, unknown> | null;
+    framerStats: Record<string, unknown> | null;
+  };
   getDiagnosticBufferContext(): DiagnosticBufferRuntimeContext;
   setDiagnosticMaxCapacity(frames: number): void;
   setDiagnosticAutoPauseOverflow(enabled: boolean): void;

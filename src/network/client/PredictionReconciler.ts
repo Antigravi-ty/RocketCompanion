@@ -106,6 +106,7 @@ export class PredictionReconciler
   onSignals: ReconcilerSignalsCallback | null = null;
   onRosterUpdate: ReconcilerMessageCallback<RosterStatePayload> | null = null;
   onHandshakeResponse: ReconcilerMessageCallback<HandshakeResponsePayload> | null = null;
+  onRoomActivitySwitch: ((payload: Record<string, unknown>) => void) | null = null;
   kickoffMaskUntilTick = -1;
   carVisualPresets = new Map<number, string>();
   carNames = new Map<number, string>();
@@ -403,6 +404,14 @@ export class PredictionReconciler
   }
 
   reconcile(nowMs = performance.now()): void {
+    const transportEvents = this.channel?.drainTransportEvents?.();
+    if (transportEvents && transportEvents.length > 0) {
+      for (const evt of transportEvents) {
+        if (evt.type === 'room_activity_switch' && this.onRoomActivitySwitch) {
+          this.onRoomActivitySwitch(evt.payload);
+        }
+      }
+    }
     const incomingPackets = this.controlMessenger.receiveChannelPackets(this.channel, nowMs);
     if (!incomingPackets || incomingPackets.length === 0) return;
     this.rollbackStepper.reconcileInboundBatch(this, incomingPackets, nowMs);

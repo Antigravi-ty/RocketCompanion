@@ -214,6 +214,23 @@ export function createRuntimeMatchPort(domain: OnlineMatchControlDomainPort): Ru
     switchOnlineRoleOrTeam: (role, team) => {
       networkManager.switchOnlineRoleOrTeam(role, team);
     },
+    switchRoomActivity: (opts) => {
+      sessionCoordinator.authoritativeServer?.switchActivity({
+        activityId: opts.activityId,
+        stateSummary: {
+          ...(opts.stateSummary ?? {}),
+          ...(opts.trainingPackId ? { trainingPackId: opts.trainingPackId } : {}),
+          ...(opts.replayId ? { replayId: opts.replayId } : {}),
+        },
+      });
+      domain.multiplayerSession?.broadcastRoomActivitySwitch({
+        activityId: opts.activityId,
+        mode: opts.activityId,
+        trainingPackId: opts.trainingPackId,
+        replayId: opts.replayId,
+        config: opts.stateSummary,
+      });
+    },
     setClockPacingMode: (pacingMode) => {
       getReconciler()?.setClockPacingMode?.(pacingMode);
     },

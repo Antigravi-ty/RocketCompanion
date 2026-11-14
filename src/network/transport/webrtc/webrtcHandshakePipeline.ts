@@ -103,7 +103,8 @@ export type RoomMessageResolution =
 export function buildHostOfferResult(
   state: HandshakeMetadataState,
   sdp: string,
-  candidates: IceCandidateDescriptor[]
+  candidates: IceCandidateDescriptor[],
+  tunnelEndpoint?: Record<string, unknown> | null
 ): OfferTokenBuildResult {
   const token =
     'RL_OFFER_' +
@@ -115,6 +116,7 @@ export function buildHostOfferResult(
       hostName: state.playerName,
       hostColorSlot: state.localColorSlot,
       hostColorHex: state.localColorHex,
+      ...(tunnelEndpoint ? { tunnelEndpoint } : {}),
       version: 2,
     });
   return {
@@ -223,7 +225,8 @@ export function buildRoomAnswerMessage(
 export function buildClientAnswerResult(
   state: HandshakeMetadataState,
   sdp: string,
-  candidates: IceCandidateDescriptor[]
+  candidates: IceCandidateDescriptor[],
+  tunnelEndpoint?: Record<string, unknown> | null
 ): AnswerTokenBuildResult {
   const token =
     'RL_ANSWER_' +
@@ -235,6 +238,7 @@ export function buildClientAnswerResult(
       clientName: state.playerName,
       clientColorSlot: state.localColorSlot,
       clientColorHex: state.localColorHex,
+      ...(tunnelEndpoint ? { tunnelEndpoint } : {}),
       version: 2,
     });
   return {

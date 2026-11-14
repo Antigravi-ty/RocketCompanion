@@ -104,6 +104,13 @@ export class OnlineSessionCoordinator {
         await this.sessionBridge.applyRosterSnapshot(msg.roster);
       }
     };
+    if (!isHost) {
+      this.networkReconciler.onRoomActivitySwitch = (payload) => {
+        if (this.networkReconciler) {
+          this.sessionBridge.applyClientRoomActivitySwitch(this.networkReconciler, payload);
+        }
+      };
+    }
   }
 
   private disposeActiveSessionTransports(

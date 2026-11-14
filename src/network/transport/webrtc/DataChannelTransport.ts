@@ -11,7 +11,6 @@ import {
   PING_PONG_KIND_PONG,
   REPLICATION_MODES,
   decodeSparsePingPong16B,
-  encodeSparsePingPong16B,
   isSparsePingPong16B,
   type CsrStateBroadcastPayload,
   type ReplicationMode,
@@ -24,14 +23,13 @@ import {
   attachTunnelToBridge,
   createTunnelFramerBridgeState,
   detachTunnelFromBridge,
+  resolveActiveTransportPath,
   sendReliableControlViaTunnelBridge,
   tryTransmitViaTunnelBridge,
 } from './tunnelFramerBridge.ts';
 import {
   parseInboundControlFrame,
   dispatchInboundControlFrame,
-  encodeClientInputPayload,
-  dispatchOpportunisticPing,
   transmitClonedPayload,
   dispatchDualChannelControlFrame,
   transmitReliableControlFrame,
@@ -41,6 +39,14 @@ import {
   type InboundControlFrame,
   type DataChannelTransportEvent,
 } from './dataChannelFramingPipeline.ts';
+import {
+  dispatchSimulatedClientInput,
+  dispatchSimulatedPacket,
+  dispatchSimulatedPong,
+  dispatchSparsePingPongFrame,
+  evaluateAdaptiveSnapshotReadiness,
+  type ProbeTransportContext,
+} from './dataChannelProbePipeline.ts';
 
 export type {
   PendingColorChangeState,
@@ -345,76 +351,37 @@ export class DataChannelTransport {
     );
   }
 
-  sendPong(sendTime: number, nowMs = performance.now()): void {
-    const pongMsg = JSON.stringify({ type: 'pong', sendTime });
-    this.simulator.scheduleSend(
-      pongMsg,
-      (clonedPacket) =>
-        this.transmitViaTunnelOrDataChannel(
-          clonedPacket,
-          this.resolveIsChannelOpen() || Boolean(this.signaling.roomBroadcastChannel),
-          false
-        ),
-      nowMs
+  getTransportPath(): 'webrtc' | 'rust-upnp-udp' | 'crosstab' | 'disconnected' {
+    return resolveActiveTransportPath(
+      this.tunnelBridge,
+      this.resolveActiveDataChannel(),
+      this.resolveIsCrossTabActive() || Boolean(this.signaling.roomBroadcastChannel)
     );
+  }
+
+  private getProbeContext(): ProbeTransportContext {
+    return {
+      simulator: this.simulator,
+      pacer: this.pacer,
+      tunnelBridge: this.tunnelBridge,
+      activeDataChannel: this.resolveActiveDataChannel(),
+      roomBroadcastChannel: this.signaling.roomBroadcastChannel,
+      isChannelOpen: this.resolveIsChannelOpen(),
+      transmitViaTunnelOrDataChannel: (payload, allowBroadcastFallback, reliable = false) =>
+        this.transmitViaTunnelOrDataChannel(payload, allowBroadcastFallback, reliable),
+    };
+  }
+
+  sendPong(sendTime: number, nowMs = performance.now()): void {
+    dispatchSimulatedPong(this.getProbeContext(), sendTime, nowMs);
   }
 
   send(packet: SimulatedPayload, nowMs = performance.now()): boolean {
-    const sim = this.simulator;
-
-    if (
-      (packet instanceof Uint8Array || packet instanceof ArrayBuffer) &&
-      nowMs - sim.lastPingSentTime > sim.pingIntervalMs
-    ) {
-      sim.lastPingSentTime = nowMs;
-      sim.stats.pingsSent++;
-      const pingPayload = JSON.stringify({
-        type: 'ping',
-        sendTime: nowMs,
-        rtt: Math.round(sim.rttMs || 0),
-      });
-      sim.scheduleSend(
-        pingPayload,
-        (clonedPing) => {
-          const msg = typeof clonedPing === 'string' ? clonedPing : pingPayload;
-          if (this.tunnelBridge.tunnel?.isOpen && this.tunnelBridge.remotePeerId) {
-            if (this.tunnelBridge.tunnel.sendToPeer(this.tunnelBridge.remotePeerId, msg, false)) {
-              return true;
-            }
-          }
-          return dispatchOpportunisticPing(
-            this.resolveActiveDataChannel(),
-            this.signaling.roomBroadcastChannel,
-            this.resolveIsChannelOpen() || Boolean(this.signaling.roomBroadcastChannel),
-            nowMs,
-            sim.rttMs,
-            msg
-          );
-        },
-        nowMs
-      );
-    }
-    return sim.scheduleSend(
-      packet,
-      (clonedPacket) =>
-        this.transmitViaTunnelOrDataChannel(clonedPacket, this.resolveIsChannelOpen(), false),
-      nowMs
-    );
+    return dispatchSimulatedPacket(this.getProbeContext(), packet, nowMs);
   }
 
   sendClientInput(packet: ClientInputPacketPayload, nowMs = performance.now()): boolean {
-    const sim = this.simulator;
-    const buf = encodeClientInputPayload(packet);
-    const sent = this.send(buf, nowMs);
-    if (nowMs - sim.lastPingSentTime > sim.pingIntervalMs) {
-      sim.lastPingSentTime = nowMs;
-      sim.stats.pingsSent++;
-      this.send(
-        JSON.stringify({ type: 'ping', sendTime: nowMs, rtt: Math.round(sim.rttMs) }),
-        nowMs
-      );
-    }
-    return sent;
+    return dispatchSimulatedClientInput(this.getProbeContext(), packet, nowMs);
   }
 
   sendColorChange(slotId: number, hex: string, carIndex: number): void {
@@ -516,19 +483,17 @@ export class DataChannelTransport {
     epoch = 0,
     ackTick = 0
   ): boolean {
-    const frame = encodeSparsePingPong16B({ kind, seq, timestampMs, epoch, ackTick });
-    return this.transmitViaTunnelOrDataChannel(
-      frame,
-      this.resolveIsChannelOpen() || Boolean(this.signaling.roomBroadcastChannel),
-      false
+    return dispatchSparsePingPongFrame(
+      this.getProbeContext(),
+      kind,
+      seq,
+      timestampMs,
+      epoch,
+      ackTick
     );
   }
 
   shouldSendAdaptiveSnapshot(nowMs = performance.now()): boolean {
-    const dc = this.resolveActiveDataChannel();
-    const buffered = dc ? dc.bufferedAmount : 0;
-    const sim = this.simulator;
-    this.pacer.updateNetworkHealth(sim.rttMs || 0, sim.packetLossRate || 0, buffered);
-    return this.pacer.shouldSendSnapshot(nowMs, buffered);
+    return evaluateAdaptiveSnapshotReadiness(this.getProbeContext(), nowMs);
   }
 }

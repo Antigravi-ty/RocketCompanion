@@ -37,6 +37,7 @@ export type DiagnosticReplayDomainPort = Pick<
   | 'arena'
   | 'physics'
   | 'playerCarIndex'
+  | 'multiplayerSession'
 >;
 
 type AuthoritativeReplayRingBuffer = NonNullable<
@@ -152,6 +153,32 @@ export function createRuntimeReplayPort(domain: DiagnosticReplayDomainPort): Run
       reconciler: sessionCoordinator.networkReconciler,
       channel: sessionCoordinator.networkChannel,
     }),
+    getTransportDiagnostics: () => {
+      const ch = sessionCoordinator.networkChannel as
+        | {
+            transport?: {
+              getTransportPath?: () => string;
+              tunnelBridge?: {
+                tunnel?: { getStats?: () => Record<string, unknown> } | null;
+                framer?: { getStats?: () => Record<string, unknown> } | null;
+              };
+            };
+            connection?: { pc?: { iceConnectionState?: string } | null };
+          }
+        | null
+        | undefined;
+      const session = domain.multiplayerSession as
+        | { localTunnelDescriptor?: { upnpMapped?: boolean } | null }
+        | null
+        | undefined;
+      return {
+        transportPath: ch?.transport?.getTransportPath?.() ?? 'disconnected',
+        iceConnectionState: ch?.connection?.pc?.iceConnectionState ?? null,
+        upnpMapped: session?.localTunnelDescriptor?.upnpMapped ?? null,
+        tunnelStats: ch?.transport?.tunnelBridge?.tunnel?.getStats?.() ?? null,
+        framerStats: ch?.transport?.tunnelBridge?.framer?.getStats?.() ?? null,
+      };
+    },
     getDiagnosticBufferContext: () => {
       const { physics, arena, match } = domain;
       const { networkReconciler, authoritativeServer } = sessionCoordinator;

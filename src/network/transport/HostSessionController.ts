@@ -36,6 +36,8 @@ export interface HostSessionCallbacks {
   onPeerDisconnected?: (peerId: string, ch: P2PWebRTCChannel) => void;
   onColorChange?: (carIdx: number, slotId: number | null, hex: string | null) => void;
   onIceCandidate?: (cand: RTCIceCandidateInit | Record<string, unknown>, peerId: string) => void;
+  getLocalTunnelDescriptor?: () => Record<string, unknown> | null;
+  onRemoteTunnelEndpoint?: (endpoint: Record<string, unknown>, peerId: string) => void;
 }
 
 export interface ConnectedPeerSummary {
@@ -157,6 +159,10 @@ export class HostSessionController {
 
     ch.onIceCandidate = (cand: RTCIceCandidateInit | Record<string, unknown>) => {
       this.callbacks.onIceCandidate?.(cand, peerId);
+    };
+    ch.getLocalTunnelDescriptor = () => this.callbacks.getLocalTunnelDescriptor?.() ?? null;
+    ch.onRemoteTunnelEndpoint = (endpoint) => {
+      this.callbacks.onRemoteTunnelEndpoint?.(endpoint, peerId);
     };
 
     return ch;
@@ -399,6 +405,27 @@ export class HostSessionController {
       allReady: activePlayerPeers > 0 && allReady,
       allArenaLoaded: activePlayerPeers > 0 && allArenaLoaded,
     };
+  }
+
+  broadcastRoomActivitySwitch(payload: {
+    activityId: string;
+    epoch?: number;
+    mode?: string;
+    trainingPackId?: string;
+    replayId?: string;
+    config?: Record<string, unknown>;
+    requestId?: string;
+  }): number {
+    let sentCount = 0;
+    for (const ch of this.peerChannels.values()) {
+      if (
+        (ch.connected || ch.isOpen) &&
+        ch.sendRoomActivitySwitch({ ...payload, epoch: payload.epoch ?? 0 })
+      ) {
+        sentCount++;
+      }
+    }
+    return sentCount;
   }
 
   cleanup(): void {

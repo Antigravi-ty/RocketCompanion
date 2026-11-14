@@ -29,6 +29,7 @@ export interface TelemetryChannelPort extends TelemetrySimulatorPort {
   send?: (packet: Uint8Array, nowMs?: number) => unknown;
   receiveClientPackets?: (nowMs?: number) => unknown[];
   receiveServerPackets?: (nowMs?: number) => unknown[];
+  drainTransportEvents?: () => Array<{ type: string; payload: Record<string, unknown> }>;
   inboundQueue?: unknown[];
 }
 

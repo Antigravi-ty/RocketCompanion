@@ -21,11 +21,6 @@ import {
   parseRoomCode,
 } from '../../ui-core/config/roomCodeConnectivityCodec.ts';
 import { NETWORK_PROTOCOL_VERSION_TAG } from '../protocol/TunnelProtocol.ts';
-import {
-  createTunnelTransport,
-  isRustTunnelAvailable,
-  probeRustUpnp,
-} from './tunnel/TunnelFactory.ts';
 import type {
   TunnelEndpointDescriptor,
   TunnelKind,
@@ -33,6 +28,18 @@ import type {
   TunnelTransport,
   UpnpProbeResult,
 } from './tunnel/TunnelTransport.ts';
+import {
+  createTunnelTransport,
+  isRustTunnelAvailable,
+  probeRustUpnp,
+} from './tunnel/TunnelFactory.ts';
+import {
+  bindChannelSessionTunnelExchange,
+  closeManagedSessionTunnel,
+  connectRemoteSessionTunnelEndpoint,
+  openManagedSessionTunnelIfTauri,
+  type SessionTunnelState,
+} from './sessionTunnelLifecyclePipeline.ts';
 
 const DEFAULT_HOST_COLOR = Object.freeze({ slot: 3, hex: '#42a5f5' });
 const DEFAULT_CLIENT_COLOR = Object.freeze({ slot: 0, hex: '#ff7043' });
@@ -173,81 +180,36 @@ export class MultiplayerSessionManager {
     return this.hostSignalingNegotiator.declinePendingPeer(peerId, this.updateSessionStatus);
   }
 
-  private bindChannelTunnelExchange(channel: P2PWebRTCChannel, remotePeerId: string): void {
-    channel.onTunnelEndpointAdvertise = (msg) => {
-      const descriptor = msg.descriptor as TunnelEndpointDescriptor | undefined;
-      if (!descriptor || descriptor.kind !== 'rust-upnp-udp') return;
-      if (!this.sessionTunnel || !this.sessionTunnel.isOpen) return;
-      const targetPeerId =
-        typeof msg.peerId === 'string' && msg.peerId ? msg.peerId : remotePeerId;
-      void this.sessionTunnel
-        .connectPeer(targetPeerId, descriptor)
-        .then(() => {
-          if (this.sessionTunnel?.isOpen) {
-            channel.attachTunnelTransport(this.sessionTunnel, targetPeerId);
-          }
-        })
-        .catch((err) => {
-          console.warn(
-            `[MultiplayerSessionManager] Failed to connect Rust UDP tunnel to ${targetPeerId}:`,
-            err
-          );
-        });
-    };
+  private getTunnelState(): SessionTunnelState {
+    return this;
+  }
 
-    if (this.localTunnelDescriptor && this.sessionTunnel?.isOpen) {
-      channel.sendReliableControl(
-        {
-          type: 'tunnel_endpoint_advertise',
-          peerId: this.localPeerId || (this.isHosting ? 'host' : 'client'),
-          descriptor: this.localTunnelDescriptor,
-        },
-        'tunnel_endpoint_advertise'
-      );
-    }
+  private bindChannelTunnelExchange(channel: P2PWebRTCChannel, remotePeerId: string): void {
+    bindChannelSessionTunnelExchange(
+      this.getTunnelState(),
+      channel,
+      remotePeerId,
+      this.localPeerId || (this.isHosting ? 'host' : 'client')
+    );
   }
 
   private async openSessionTunnelIfTauri(role: 'host' | 'client', roomId: string): Promise<void> {
-    if (!isRustTunnelAvailable()) return;
-    await this.closeSessionTunnel();
-    const tunnel = this.createSessionTunnel(`rc_${role}_${roomId}_${Date.now().toString(36)}`);
-    try {
-      const descriptor = await tunnel.open({
-        role,
-        roomId,
-        playerName: this.playerName,
-        enableUpnp: true,
-      });
-      tunnel.onPacket((payload, fromPeerId) => {
-        if (this.isHosting && this.hostController) {
-          const peerCh = fromPeerId ? this.hostController.peerChannels.get(fromPeerId) : null;
-          if (peerCh) {
-            peerCh.transport.handleIncomingMessage(payload);
-            return;
-          }
-          for (const ch of this.hostController.peerChannels.values()) {
-            ch.transport.handleIncomingMessage(payload);
-            break;
-          }
-        } else if (this.clientController?.channel) {
-          this.clientController.channel.transport.handleIncomingMessage(payload);
-        }
-      });
-      this.sessionTunnel = tunnel;
-      this.localTunnelDescriptor = descriptor;
-    } catch (err) {
-      console.warn('[MultiplayerSessionManager] Failed to open Rust session tunnel:', err);
-      await tunnel.close().catch(() => undefined);
-    }
+    await openManagedSessionTunnelIfTauri(
+      this.getTunnelState(),
+      (sessionId) => this.createSessionTunnel(sessionId),
+      () => ({
+        isHosting: this.isHosting,
+        hostController: this.hostController,
+        clientController: this.clientController,
+      }),
+      role,
+      roomId,
+      this.playerName
+    );
   }
 
   private async closeSessionTunnel(): Promise<void> {
-    if (this.sessionTunnel) {
-      const t = this.sessionTunnel;
-      this.sessionTunnel = null;
-      this.localTunnelDescriptor = null;
-      await t.close().catch(() => undefined);
-    }
+    await closeManagedSessionTunnel(this.getTunnelState());
   }
 
   private handleHostPeerConnected = async (
@@ -337,6 +299,8 @@ export class MultiplayerSessionManager {
       this.callbacks.onColorSelect(0, this.hostColorSlot, this.hostColorHex);
     }
 
+    await this.openSessionTunnelIfTauri('host', this.roomId);
+
     this.hostController = new HostSessionController(
       {
         roomId: this.roomId,
@@ -353,6 +317,14 @@ export class MultiplayerSessionManager {
         onIceCandidate: (cand, targetPeerId) => {
           const handler = this.signalingHandler;
           if (handler) void handler.sendCandidate(targetPeerId || null, cand);
+        },
+        getLocalTunnelDescriptor: () =>
+          this.localTunnelDescriptor as Record<string, unknown> | null,
+        onRemoteTunnelEndpoint: (endpoint, peerId) => {
+          const peerCh = this.hostController?.peerChannels.get(peerId);
+          if (peerCh) {
+            connectRemoteSessionTunnelEndpoint(this.getTunnelState(), peerCh, endpoint, peerId);
+          }
         },
       }
     );
@@ -372,8 +344,19 @@ export class MultiplayerSessionManager {
     }
 
     this.hostSignalingNegotiator.initHostSignaling(this.buildHostSignalingContext());
-    void this.openSessionTunnelIfTauri('host', this.roomId);
     return offerToken;
+  }
+
+  broadcastRoomActivitySwitch(payload: {
+    activityId: string;
+    mode?: string;
+    trainingPackId?: string;
+    replayId?: string;
+    config?: Record<string, unknown>;
+    requestId?: string;
+  }): number {
+    if (!this.isHosting || !this.hostController) return 0;
+    return this.hostController.broadcastRoomActivitySwitch(payload);
   }
 
   async reprobeAndRefreshHostSignaling(): Promise<void> {
@@ -422,6 +405,11 @@ export class MultiplayerSessionManager {
       },
       {
         updateSessionStatus: this.updateSessionStatus,
+        getLocalTunnelDescriptor: () =>
+          this.localTunnelDescriptor as Record<string, unknown> | null,
+        onRemoteTunnelEndpoint: (endpoint, channel) => {
+          connectRemoteSessionTunnelEndpoint(this.getTunnelState(), channel, endpoint, 'host');
+        },
         joinServer: async (cfg) => {
           this.bindChannelTunnelExchange(cfg.channel, 'host');
           cfg.channel.onPeerKick = (msg) => {
