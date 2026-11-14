@@ -15,6 +15,63 @@ export const SURFACE_VARIANT_META: SurfaceVariantMeta = {
     'Multiplayer Name Card display name & cross-device cloud profile 3-way merge synchronization.',
 };
 
+export type GarageSyncPreviewMode = 'anonymous' | 'pack-imported' | 'dev-signed-in';
+
+export const GARAGE_SYNC_PREVIEW_PRESETS: Record<
+  GarageSyncPreviewMode,
+  {
+    label: string;
+    overrides: Record<string, Record<string, unknown>>;
+  }
+> = {
+  anonymous: {
+    label: 'Anonymous (No Bundle)',
+    overrides: {
+      cloudProfileSyncStore: {
+        available: false,
+        canManageAccounts: false,
+        loggedInUser: null,
+        syncStatus: 'idle',
+      },
+    },
+  },
+  'pack-imported': {
+    label: 'Pack Imported (Sign In)',
+    overrides: {
+      cloudProfileSyncStore: {
+        available: true,
+        canManageAccounts: false,
+        loggedInUser: null,
+        syncStatus: 'idle',
+      },
+    },
+  },
+  'dev-signed-in': {
+    label: 'Signed In / Dev',
+    overrides: {
+      cloudProfileSyncStore: {
+        available: true,
+        canManageAccounts: true,
+        loggedInUser: {
+          userId: 'u_demo_01',
+          username: 'alex',
+          alias: 'DEV-01',
+          displayName: 'Alex',
+          password: '••••••••',
+        },
+        syncStatus: 'idle',
+        userRevHash: 'a1b2c3d',
+        devRevHash: 'f9e8d7c',
+        allowRemoteProfileDeployment: true,
+        autoSyncEnabled: true,
+        statusMessage: 'Synced with cloud profile (@alex · rev #a1b2c3d).',
+        errorMessage: null,
+        conflicts: [],
+      },
+    },
+  },
+};
+
 export interface GarageSyncTabProps {
   isLight?: boolean;
   onHoverDesc?: (desc: string | null) => void;

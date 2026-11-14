@@ -71,6 +71,9 @@ export const GarageCloudAccountSyncSection: React.FC<
     if (loggedInUser) {
       setUsernameInput(loggedInUser.username || loggedInUser.userId);
       setPasswordInput(loggedInUser.password);
+    } else {
+      setUsernameInput('');
+      setPasswordInput('');
     }
   }, [loggedInUser]);
 
