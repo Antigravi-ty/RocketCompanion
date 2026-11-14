@@ -16,6 +16,7 @@ export interface DecodedSignalTokenPayload {
   clientName?: string;
   clientColorSlot?: number | null;
   clientColorHex?: string | null;
+  tunnelEndpoint?: Record<string, unknown> | null;
   timestamp?: number;
   [key: string]: unknown;
 }

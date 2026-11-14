@@ -75,3 +75,14 @@ export function tryTransmitViaTunnelBridge(
   }
   return false;
 }
+
+export function resolveActiveTransportPath(
+  state: TunnelFramerBridgeState,
+  dc: RTCDataChannel | null,
+  hasBroadcastFallback: boolean
+): 'webrtc' | 'rust-upnp-udp' | 'crosstab' | 'disconnected' {
+  if (dc && dc.readyState === 'open') return 'webrtc';
+  if (state.tunnel?.isOpen && state.remotePeerId) return 'rust-upnp-udp';
+  if (hasBroadcastFallback) return 'crosstab';
+  return 'disconnected';
+}

@@ -333,11 +333,12 @@ export class DataChannelTransport {
     allowBroadcastFallback: boolean,
     reliable = false
   ): boolean {
-    if (tryTransmitViaTunnelBridge(this.tunnelBridge, payload, reliable)) {
+    const dc = this.resolveActiveDataChannel();
+    if (dc?.readyState !== 'open' && tryTransmitViaTunnelBridge(this.tunnelBridge, payload, reliable)) {
       return true;
     }
     return transmitClonedPayload(
-      this.resolveActiveDataChannel(),
+      dc,
       this.signaling.roomBroadcastChannel,
       allowBroadcastFallback,
       payload
@@ -453,12 +454,15 @@ export class DataChannelTransport {
   }
 
   sendReliableControl(messageObj: Record<string, unknown>, label = 'reliable_control'): boolean {
-    if (sendReliableControlViaTunnelBridge(this.tunnelBridge, messageObj)) {
+    const dc = this.resolveActiveDataChannel();
+    const webrtcOpen =
+      this.controlDataChannel?.readyState === 'open' || dc?.readyState === 'open';
+    if (!webrtcOpen && sendReliableControlViaTunnelBridge(this.tunnelBridge, messageObj)) {
       return true;
     }
     return transmitReliableControlFrame(
       this.controlDataChannel,
-      this.resolveActiveDataChannel(),
+      dc,
       this.signaling.roomBroadcastChannel,
       messageObj,
       label

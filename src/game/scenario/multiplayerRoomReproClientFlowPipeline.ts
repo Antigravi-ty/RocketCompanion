@@ -81,7 +81,18 @@ export async function executeReproClientFlow(ctx: ReproClientFlowContext): Promi
       roomId: cfg.roomCode,
       playerName: 'Player2727',
     })
-    .catch(() => {});
+    .then((ok) => {
+      if (!ok) {
+        const msg = `Client joinOnlineWarmup returned false for room=${cfg.roomCode}`;
+        console.error(`[MultiplayerRoomRepro][Client] ${msg}`);
+        ctx.logLifecycle(`ERROR: ${msg}`);
+      }
+    })
+    .catch((err: unknown) => {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[MultiplayerRoomRepro][Client] joinOnlineWarmup rejected:`, err);
+      ctx.logLifecycle(`ERROR: joinOnlineWarmup rejected: ${errMsg}`);
+    });
 
   let answerToken = '';
   for (let i = 0; i < 30; i++) {
