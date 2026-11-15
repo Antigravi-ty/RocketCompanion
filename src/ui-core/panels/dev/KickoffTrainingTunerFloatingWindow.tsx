@@ -28,7 +28,8 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'Kickoff Sub-Modes, 0.25s Realistic Wait Steps, N/120 Speed & AI Ghost/Solid Opponent',
   description:
     'Kickoff sub-modes, realistic wait (0.25s steps), N/120 speed & W/S rhythm overlay offset.',
-  icon: 'Gauge',
+  icon: 'pencil-ruler',
+  iconColor: 'text-sky-500 dark:text-sky-400',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
   hideFooter: false,

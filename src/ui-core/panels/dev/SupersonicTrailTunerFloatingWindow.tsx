@@ -22,10 +22,11 @@ import type { SurfaceMeta, StandardSurfaceProps } from '../../manifest/surfaceMe
 
 export const SURFACE_META: SurfaceMeta = {
   id: 'supersonic-trail-tuner',
-  title: 'Supersonic Wheel Trail',
+  title: 'Supersonic Wheel Trail Tuner',
   layer: 'floating-dev',
   menuGroup: 'calibrated-presets',
-  icon: 'Zap',
+  icon: 'zap',
+  iconColor: 'text-purple-500 dark:text-purple-400',
   hideFooter: false,
   defaultSizing: {
     width: 480,

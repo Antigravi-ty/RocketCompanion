@@ -17,7 +17,10 @@ import { UnderConstructionPlaceholder } from '../primitives/UnderConstructionPla
 import { useAppStore } from '../stores/appStore';
 import { useCloudProfileSyncStore } from '../stores/cloudProfileSyncStore';
 import { useMenuLayoutStore } from '../stores/menuLayoutStore';
-import { useScopedStore } from '../stores/storeSnapshotScope';
+import {
+  useScopedStore,
+  useStoreSnapshotOverride,
+} from '../stores/storeSnapshotScope';
 import { DEFAULT_PANEL_SIZING } from '../tokens/menuLayoutTokens';
 import type { StandardSurfaceProps, SurfaceMeta } from '../manifest/surfaceMetaTypes';
 import { DevManageAccountsSection } from './dev/DevManageAccountsSection';
@@ -34,6 +37,7 @@ export const SURFACE_META: SurfaceMeta = {
   icon: 'user-cog',
   layer: 'layer3',
   menuGroup: 'menu-layer',
+  profileTierPolicy: 'auth-triad',
   defaultSizing: {
     mode: 'adaptive',
     width: DEFAULT_PANEL_SIZING['layer3-dev-remote-profile'].width,
@@ -42,8 +46,82 @@ export const SURFACE_META: SurfaceMeta = {
     maxHeight: DEFAULT_PANEL_SIZING['layer3-dev-remote-profile'].maxHeight,
   },
   variants: [
-    { variantId: 'set-profile', label: 'Set Others Profile' },
-    { variantId: 'manage-accounts', label: 'Manage Accounts' },
+    {
+      variantId: 'set-profile',
+      label: 'Set Others Profile (Developer)',
+      profileTier: 'developer',
+      tier: 'developer',
+      storeOverrides: {
+        appStore: { activeTab: 'set-profile', developerMode: true },
+        cloudProfileSyncStore: {
+          available: true,
+          canManageAccounts: true,
+          isLoadingAccounts: false,
+          accounts: [
+            {
+              userId: 'u_demo_01',
+              username: 'alex',
+              alias: 'ace-pilot',
+              displayName: 'AcePilot',
+              userRev: 4,
+              userRevHash: 'a3f1c9',
+              devRev: 2,
+              devRevHash: 'b82d04',
+            },
+            {
+              userId: 'u_demo_02',
+              username: 'sam_rl',
+              alias: 'aerial-9',
+              displayName: 'AerialNine',
+              userRev: 2,
+              userRevHash: '7c10e2',
+              devRev: 1,
+              devRevHash: 'd4a901',
+            },
+          ],
+        },
+      },
+    },
+    {
+      variantId: 'manage-accounts',
+      label: 'Manage Accounts (Developer)',
+      profileTier: 'developer',
+      tier: 'developer',
+      storeOverrides: {
+        appStore: { activeTab: 'manage-accounts', developerMode: true },
+        cloudProfileSyncStore: {
+          available: true,
+          canManageAccounts: true,
+          isLoadingAccounts: false,
+          accounts: [
+            {
+              userId: 'u_demo_01',
+              username: 'alex',
+              alias: 'ace-pilot',
+              displayName: 'AcePilot',
+              userRev: 4,
+              userRevHash: 'a3f1c9',
+              devRev: 2,
+              devRevHash: 'b82d04',
+            },
+          ],
+        },
+      },
+    },
+    {
+      variantId: 'credentials-required',
+      label: 'Credentials Required (Anonymous)',
+      profileTier: 'anonymous',
+      tier: 'developer',
+      storeOverrides: {
+        appStore: { activeTab: 'set-profile', developerMode: true },
+        cloudProfileSyncStore: {
+          available: false,
+          canManageAccounts: false,
+          accounts: [],
+        },
+      },
+    },
   ],
 };
 
@@ -81,12 +159,14 @@ export const Layer3DevRemoteProfileRecipe: React.FC<
     exportRemoteAccountProfileBackup,
   } = cloudSync;
 
+  const scopedOverrides = useStoreSnapshotOverride<{ activeTab?: string }>('appStore');
   const [internalTab, setInternalTab] = useState<DevRemoteProfileTabId>('set-profile');
   const [hoveredDesc, setHoveredDesc] = useState<string | null>(null);
 
+  const externalTab = controlledTab ?? scopedOverrides?.activeTab;
   const activeTab: DevRemoteProfileTabId =
-    controlledTab === 'manage-accounts' || controlledTab === 'set-profile'
-      ? controlledTab
+    externalTab === 'manage-accounts' || externalTab === 'set-profile'
+      ? externalTab
       : internalTab;
 
   const handleSelectTab = (nextTab: DevRemoteProfileTabId) => {

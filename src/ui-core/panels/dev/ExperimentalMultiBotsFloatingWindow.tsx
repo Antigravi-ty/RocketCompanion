@@ -22,7 +22,8 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'Up to 3v3 Native SafeTensors Nexto/Necto POV Switching & Inference Telemetry',
   description:
     'Live floating controller for up to 3v3 Native SafeTensors Nexto/Necto POV switching & inference telemetry.',
-  icon: 'Users',
+  icon: 'bot',
+  iconColor: 'text-emerald-500 dark:text-emerald-400',
   layer: 'floating-dev',
   menuGroup: 'sandboxes',
   hideFooter: false,

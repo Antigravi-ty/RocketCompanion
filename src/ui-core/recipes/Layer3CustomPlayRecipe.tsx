@@ -16,6 +16,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Custom game modes, mutator presets, and workshop rule builders are currently in development.',
   icon: 'Hammer',
   layer: 'layer3',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 500,

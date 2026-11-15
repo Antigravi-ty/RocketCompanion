@@ -33,7 +33,8 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'DiagnosticDump',
   description:
     'Live Client Replay, Reconcile & Pacing Telemetry, and Server Replay buffer gauges + one-click .zip dump.',
-  icon: 'FileArchive',
+  icon: 'database',
+  iconColor: 'text-sky-500 dark:text-sky-400',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
   hideFooter: false,

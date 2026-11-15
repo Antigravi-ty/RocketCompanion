@@ -36,10 +36,11 @@ export type { CustomVehicleId };
 
 export const SURFACE_META: SurfaceMeta = {
   id: 'vehicle-model-offset-tuner',
-  title: 'Vehicle Offsets & Hitbox',
+  title: 'Vehicle Model & Offset Tuner',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
-  icon: 'Car',
+  icon: 'car',
+  iconColor: 'text-amber-500 dark:text-amber-400',
   hideFooter: false,
   defaultSizing: { width: 540, height: 620, minWidth: 340, minHeight: 220, maxHeight: 820, mode: 'adaptive' },
   variants: [

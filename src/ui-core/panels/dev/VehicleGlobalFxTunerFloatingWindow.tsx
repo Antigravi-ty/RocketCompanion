@@ -43,10 +43,11 @@ import type { SurfaceMeta, StandardSurfaceProps } from '../../manifest/surfaceMe
 
 export const SURFACE_META: SurfaceMeta = {
   id: 'vehicle-global-fx-tuner',
-  title: 'Vehicle Global FX',
+  title: 'Vehicle Global Surfaces & FX Tuner',
   layer: 'floating-dev',
   menuGroup: 'calibrated-presets',
-  icon: 'Palette',
+  icon: 'car',
+  iconColor: 'text-emerald-500 dark:text-emerald-400',
   hideFooter: false,
   defaultSizing: {
     width: 480,

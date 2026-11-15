@@ -36,6 +36,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: '3-Column Keyboard & Controller Action Mapping Table with Category Filters',
   icon: 'Keyboard',
   layer: 'layer3',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 560,

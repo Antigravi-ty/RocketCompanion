@@ -13,7 +13,9 @@ import type { StandardSurfaceProps, SurfaceMeta } from '../../manifest/surfaceMe
  */
 export const SURFACE_META: SurfaceMeta = {
   id: 'name-tag-tuner',
-  title: '3D Nameplate & Off-Screen Indicator Tuner',
+  title: 'Multiplayer Name Tag Tuner',
+  icon: 'tag',
+  iconColor: 'text-sky-500 dark:text-sky-400',
   layer: 'floating-dev',
   menuGroup: 'calibrated-presets',
   hideFooter: false,

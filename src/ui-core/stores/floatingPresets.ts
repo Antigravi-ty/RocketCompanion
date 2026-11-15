@@ -10,6 +10,8 @@ export interface PresetConfig {
   id: string;
   title: string;
   category: string;
+  iconName: string;
+  iconColor: string;
   width: number;
   height: number;
   minWidth?: number;
@@ -42,6 +44,8 @@ export const REPLAY_VIEWER_PRESET: PresetConfig = {
   id: 'replay-viewer',
   title: 'Replay Viewer',
   category: 'ReplayViewer',
+  iconName: 'film',
+  iconColor: 'text-amber-500 dark:text-amber-400',
   width: 471,
   height: 456,
   minWidth: 471,
@@ -61,6 +65,8 @@ export const GOAL_BARRIER_CONFIGURATOR_PRESET: PresetConfig = {
   id: 'goal-barrier-configurator',
   title: 'Goal Barrier Configurator',
   category: 'GoalBarrier',
+  iconName: 'shield',
+  iconColor: 'text-sky-500 dark:text-sky-400',
   width: 418,
   height: 462,
   minWidth: 418,
@@ -80,6 +86,8 @@ export const REWINDER_CONFIGURATOR_PRESET: PresetConfig = {
   id: 'rewinder-configurator',
   title: 'Rewinder Configurator',
   category: 'Rewinder',
+  iconName: 'history',
+  iconColor: 'text-amber-500 dark:text-amber-400',
   width: 505,
   height: 367,
   minWidth: 380,
@@ -99,6 +107,8 @@ export const NETWORK_MONITOR_PRESET: PresetConfig = {
   id: 'network-monitor',
   title: 'Network Monitor',
   category: 'Network',
+  iconName: 'router',
+  iconColor: 'text-violet-500 dark:text-violet-400',
   width: 446,
   height: 501,
   minWidth: 446,
@@ -118,6 +128,8 @@ export const PERFORMANCE_MONITOR_PRESET: PresetConfig = {
   id: 'performance-monitor',
   title: 'Performance Monitor',
   category: 'Diagnostic',
+  iconName: 'activity',
+  iconColor: 'text-sky-500 dark:text-sky-400',
   width: 441,
   height: 801,
   minWidth: 441,
@@ -137,6 +149,8 @@ export const FLOATING_WINDOW_OPACITY_PRESET: PresetConfig = {
   id: 'floating-window-opacity',
   title: 'Floating Window Opacity',
   category: 'System',
+  iconName: 'sliders',
+  iconColor: 'text-amber-500 dark:text-amber-400',
   width: 343,
   height: 123,
   minWidth: 343,
@@ -157,6 +171,8 @@ export const KEYBOARD_INPUT_OVERLAY_PRESET: PresetConfig = {
   id: 'keyboard-input-overlay',
   title: 'Keyboard Input Overlay',
   category: 'KeyboardInputOverlay',
+  iconName: 'keyboard',
+  iconColor: 'text-emerald-500 dark:text-emerald-400',
   width: 280,
   height: 300,
   minWidth: 180,

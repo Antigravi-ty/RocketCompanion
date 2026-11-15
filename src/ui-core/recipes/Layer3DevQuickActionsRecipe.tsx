@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Compass, Flame, Hash, HatGlasses, Info, Tag, Users } from 'lucide-react';
+import { Box, Compass, Flame, Hash, HatGlasses, Info, Users } from 'lucide-react';
 import { PanelContainer, PanelHeader, PanelContent } from '../layout/Panel';
 import { PanelFooter } from '../layout/PanelFooter';
 import { SettingSegmentedRow } from '../compounds/SettingSegmentedRow';
@@ -28,6 +28,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Developer quick actions auto-activated in Developer Mode and deployable to remote profiles.',
   icon: 'zap',
   layer: 'layer3',
+  profileTierPolicy: 'user-dev-split',
   menuGroup: 'menu-layer',
   defaultSizing: {
     mode: 'adaptive',
@@ -197,8 +198,6 @@ export const Layer3DevQuickActionsRecipe: React.FC<Layer3DevQuickActionsRecipePr
           {/* 6. Quick Spawner for Multiplayer Name Tag Tuner */}
           <FloatingWindowCard
             preset={NAME_TAG_TUNER_PRESET}
-            icon={Tag}
-            iconColor="text-sky-400"
             badge="Calibrated · 5 Tabs"
             badgeClass="bg-sky-500/15 border-sky-500/30 text-sky-400"
             description="Open full Multiplayer Name Tag Tuner floating window to inspect or fine-tune pill, single-char indicator, boost, off-screen ROI, and 3D scaling"

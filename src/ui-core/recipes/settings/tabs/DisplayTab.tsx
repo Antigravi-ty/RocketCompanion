@@ -16,7 +16,7 @@ import { SettingPresetCustomRow } from '../../../compounds/SettingPresetCustomRo
 import { useSettingActionRowStore } from '../../../stores/settingRowStore';
 import { useAppStore } from '../../../stores/appStore';
 import { useViewportStore, viewportStore } from '../../../stores/viewportStore';
-import { useScopedStore } from '../../../stores/storeSnapshotScope';
+import { useScopedStore, useStoreSnapshotOverride } from '../../../stores/storeSnapshotScope';
 import type { SurfaceVariantMeta } from '../../../manifest/surfaceMetaTypes';
 import { calculateSettingsSafeScale } from '../../../config/uiConfig';
 import {
@@ -24,6 +24,7 @@ import {
   getTauriLaunchState,
   isTauriRuntime,
   setTauriDisplayWindowMode,
+  type TauriPlatformTag,
   type TauriWindowMode,
 } from '../../../config/tauriLaunchConfigBridge';
 
@@ -72,13 +73,36 @@ const normalizePowerSave = (val?: MenuPowerSaveOption): 'extreme' | '15' | '30' 
 
 export const SURFACE_VARIANT_META: SurfaceVariantMeta = {
   variantId: 'settings:display',
-  label: '3. Display & Graphics',
+  label: '3a. Display & Graphics (Browser)',
   description:
-    'Theme toggle, UI Scale, Safe Area Margin, FPS limiter, Render Scale, and Menu Power Save mode.',
+    'Browser display settings: Theme toggle, UI Scale, Safe Area Margin, FPS limiter, Render Scale, and Menu Power Save mode.',
+  tier: 'user',
   storeOverrides: {
     appStore: {
       settingsTargetTab: 'display',
-      developerMode: true,
+      developerMode: false,
+    },
+    tauriRuntime: {
+      isTauri: false,
+    },
+  },
+};
+
+export const DISPLAY_TAURI_FULLSCREEN_VARIANT_META: SurfaceVariantMeta = {
+  variantId: 'settings:display-tauri-fullscreen',
+  label: '3b. Display & Graphics (Tauri · Fullscreen)',
+  description:
+    'Tauri Desktop runtime display settings with Window Mode (Fullscreen / Borderless / Windowed) selector active in Fullscreen mode.',
+  tier: 'user',
+  storeOverrides: {
+    appStore: {
+      settingsTargetTab: 'display',
+      developerMode: false,
+    },
+    tauriRuntime: {
+      isTauri: true,
+      platform: 'windows',
+      windowMode: 'fullscreen',
     },
   },
 };

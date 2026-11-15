@@ -4,6 +4,8 @@ export interface DevPresetSpec {
   id: string;
   title: string;
   category: string;
+  iconName: string;
+  iconColor: string;
   width?: number;
   height?: number;
   minWidth?: number;
@@ -75,6 +77,8 @@ export function makeDevPreset(spec: DevPresetSpec): PresetConfig {
     id: spec.id,
     title: spec.title,
     category: spec.category,
+    iconName: spec.iconName,
+    iconColor: spec.iconColor,
     width: spec.width ?? 480,
     height: spec.height ?? 580,
     minHeight: spec.minHeight ?? 200,

@@ -1,10 +1,8 @@
 import React, { useState } from 'react';
 import {
-  Activity,
   Code2,
   Download,
   HatGlasses,
-  Router,
   Sliders,
   ChevronsLeftRightEllipsis,
 } from 'lucide-react';
@@ -44,14 +42,84 @@ export type TelemetryOverlayConfig = TelemetryConfigState;
 export type InputBufferTargetOption = number;
 
 export const SURFACE_VARIANT_META: SurfaceVariantMeta = {
-  variantId: 'settings:advanced',
-  label: '4. Advanced & Telemetry',
+  variantId: 'settings:advanced-anonymous',
+  label: '4a. Advanced & Telemetry (Anonymous · Public Broker)',
   description:
-    'Input buffer target/thresholds, HUD telemetry overlay configuration, user floating monitors, and Developer Mode status.',
+    'Anonymous state without imported bundle: Developer Mode Disabled, Public Broker (Best-Effort / No SLA), and remote profile deployment off.',
+  profileTier: 'anonymous',
+  tier: 'user',
+  storeOverrides: {
+    appStore: {
+      settingsTargetTab: 'advanced',
+      developerMode: false,
+    },
+    signalingProfileStore: {
+      loaded: false,
+      source: 'public',
+      shortHash: 'pub000',
+      relayCount: 1,
+      relayLabels: ['Public Broker'],
+      turnServerCount: 0,
+      customUrl: '',
+      noKeySimulationActive: false,
+    },
+    cloudProfileSyncStore: {
+      available: false,
+      allowRemoteProfileDeployment: false,
+    },
+  },
+};
+
+export const ADVANCED_PACK_IMPORTED_VARIANT_META: SurfaceVariantMeta = {
+  variantId: 'settings:advanced-pack-imported',
+  label: '4b. Advanced & Telemetry (Pack Imported)',
+  description:
+    'Bundle imported state: Developer Mode Disabled, locked .rctbnspib 4-relay bundle active, and live remote profile deployment enabled.',
+  profileTier: 'anonymous',
+  tier: 'user',
+  storeOverrides: {
+    appStore: {
+      settingsTargetTab: 'advanced',
+      developerMode: false,
+    },
+    signalingProfileStore: {
+      loaded: true,
+      source: 'imported-bundle',
+      shortHash: 'b4e92a',
+      relayCount: 4,
+      relayLabels: ['CN-1', 'CN-2', 'GB-1', 'GB-2'],
+      turnServerCount: 2,
+    },
+    cloudProfileSyncStore: {
+      available: true,
+      allowRemoteProfileDeployment: true,
+    },
+  },
+};
+
+export const ADVANCED_DEVELOPER_VARIANT_META: SurfaceVariantMeta = {
+  variantId: 'settings:advanced-developer',
+  label: '4c. Advanced & Telemetry (Developer)',
+  description:
+    'Developer Mode Active with dev-private 4-relay signaling profile and live remote profile deployment.',
+  profileTier: 'developer',
+  tier: 'developer',
   storeOverrides: {
     appStore: {
       settingsTargetTab: 'advanced',
       developerMode: true,
+    },
+    signalingProfileStore: {
+      loaded: true,
+      source: 'dev-private',
+      shortHash: 'd7c10f',
+      relayCount: 4,
+      relayLabels: ['CN-1', 'CN-2', 'GB-1', 'GB-2'],
+      turnServerCount: 2,
+    },
+    cloudProfileSyncStore: {
+      available: true,
+      allowRemoteProfileDeployment: true,
     },
   },
 };
@@ -153,7 +221,6 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
   const opacityManagerCard = (
     <FloatingWindowCard
       preset={FLOATING_WINDOW_OPACITY_PRESET}
-      icon={Sliders}
       bordered={resolvedBordered}
       description="Opacity adjustment (1% - 100%) for all floating telemetry windows"
       hoverTooltip="Floating Window Opacity: Adjust transparency across all active floating windows. Minimum 1%."
@@ -299,7 +366,6 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
 
       <FloatingWindowCard
         preset={PERFORMANCE_MONITOR_PRESET}
-        icon={Activity}
         bordered={resolvedBordered}
         description="Real-time CPU phase breakdown, physics simulation sub-ticks, and WebGL rendering pipeline metrics."
         hoverTooltip="Performance Monitor: Inspect live frame pacing, tick rate stability, CPU pipeline phases, and GPU draw calls in a dockable floating overlay."
@@ -319,7 +385,6 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
 
       <FloatingWindowCard
         preset={NETWORK_MONITOR_PRESET}
-        icon={Router}
         bordered={resolvedBordered}
         description="Real-time RTT & jitter oscilloscope, input buffer queue depth, and 20-minute session telemetry export."
         hoverTooltip="Network Monitor: Monitor live connection health, input buffer starvation/hysteresis curves, and export full 20-minute session telemetry (.json / .csv)."

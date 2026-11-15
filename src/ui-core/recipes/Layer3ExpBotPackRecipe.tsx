@@ -34,6 +34,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Spectate the 8 native SafeTensors models from RLBot Pack #9700488 in their recommended match formats.',
   icon: 'sparkles',
   layer: 'layer3',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     mode: 'adaptive',

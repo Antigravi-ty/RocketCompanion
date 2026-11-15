@@ -62,6 +62,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'Connect to peer-to-peer room via room code, optional key, and daisy-chain spectating relay',
   icon: 'Wifi',
   layer: 'layer3',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 500,

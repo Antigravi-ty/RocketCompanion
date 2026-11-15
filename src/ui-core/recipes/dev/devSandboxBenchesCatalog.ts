@@ -129,7 +129,7 @@ export const SANDBOX_BENCH_SPECS: DevSandboxBenchSpec[] = [
     details:
       'Experimental Multiple Bots Mode (Up to 3v3 · Native SafeTensors): Multi-agent Nexto & Necto bot rosters, team & time config, and live POV switching (Keys 1–6).',
     icon: Bot,
-    iconColor: 'text-emerald-400',
+    iconColor: EXPERIMENTAL_MULTI_BOTS_PRESET.iconColor,
     preset: EXPERIMENTAL_MULTI_BOTS_PRESET,
   },
   {
@@ -140,7 +140,7 @@ export const SANDBOX_BENCH_SPECS: DevSandboxBenchSpec[] = [
     details:
       'Experimental Bot Pack #9700488 (8 Native SafeTensors Models · Max-Format All-Bots Spectate): Launches 3v3/2v2/1v1 self-play spectate for Chronos v2.1, Dice, Ducky, Fury, Galactus v2, Kira, Rain, and Ripple v1.1.',
     icon: Sparkles,
-    iconColor: 'text-teal-400',
+    iconColor: EXPERIMENTAL_BOT_PACK_PRESET.iconColor,
     preset: EXPERIMENTAL_BOT_PACK_PRESET,
   },
   {
@@ -161,7 +161,7 @@ export const SANDBOX_BENCH_SPECS: DevSandboxBenchSpec[] = [
     details:
       'Replay to RLRCReplay Importer (UE3 Bitstream Decoder · 30Hz->120Hz SLERP/Hermite · 5-Track .RLRCReplay): Parses raw .replay files into 120Hz RocketCompanion tracks, preserves native UE3 telemetry in Track Delta, and exports .RLRCReplay files.',
     icon: FileArchive,
-    iconColor: 'text-cyan-400',
+    iconColor: REPLAY_TO_RCS_IMPORTER_PRESET.iconColor,
     preset: REPLAY_TO_RCS_IMPORTER_PRESET,
   },
 ];

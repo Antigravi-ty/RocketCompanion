@@ -10,6 +10,7 @@ import {
 import { SettingActionRow } from '../../../compounds/SettingActionRow';
 import { useSettingActionRowStore } from '../../../stores/settingRowStore';
 import { useSignalingProfileStore } from '../../../stores/signalingProfileStore';
+import { useScopedStore } from '../../../stores/storeSnapshotScope';
 
 export interface DeveloperProfileExportSectionProps {
   onHover?: (desc: string) => void;
@@ -37,12 +38,12 @@ function triggerBundleDownload(content: string, filename: string): void {
  */
 export const DeveloperProfileExportSection: React.FC<DeveloperProfileExportSectionProps> =
   React.memo(({ onHover, onLeave, isLight = false }) => {
-    const loaded = useSignalingProfileStore((s) => s.loaded);
-    const source = useSignalingProfileStore((s) => s.source);
-    const profileHash = useSignalingProfileStore((s) => s.profileHash);
-    const isBusy = useSignalingProfileStore((s) => s.isBusy);
-    const lastExport = useSignalingProfileStore((s) => s.lastExport);
-    const exportBundle = useSignalingProfileStore((s) => s.exportBundle);
+    const loaded = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.loaded);
+    const source = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.source);
+    const profileHash = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.profileHash);
+    const isBusy = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.isBusy);
+    const lastExport = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.lastExport);
+    const exportBundle = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.exportBundle);
 
     const [isExpanded, setIsExpanded] = useState(false);
     const [showOverride, setShowOverride] = useState(false);

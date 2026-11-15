@@ -26,6 +26,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'Master 3-Band Parametric EQ, Dynamic Range Compressor & 3D Spatial Acoustics',
   icon: 'Sliders',
   layer: 'layer3',
+  profileTierPolicy: 'user-dev-split',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 480,

@@ -29,6 +29,7 @@ export const SURFACE_META: SurfaceMeta = {
   description:
     'Free Play state history recorder, timeline scrubber ([ / ]), and countdown takeover.',
   icon: 'history',
+  iconColor: 'text-amber-500 dark:text-amber-400',
   layer: 'floating-user',
   menuGroup: 'user-floating',
   hideFooter: false,

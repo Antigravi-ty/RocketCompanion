@@ -32,6 +32,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'Analog stick axes, deadzones, trigger threshold, and Turning & Dodging visualizer',
   icon: 'gamepad-2',
   layer: 'layer4',
+  profileTierPolicy: 'user-dev-split',
   menuGroup: 'menu-layer',
   defaultSizing: {
     mode: 'adaptive',

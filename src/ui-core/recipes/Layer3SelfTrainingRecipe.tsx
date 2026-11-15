@@ -96,6 +96,7 @@ export const SURFACE_META: SurfaceMeta = {
   description: 'Select a solo training discipline or replay analysis tool.',
   icon: 'Stone',
   layer: 'layer3',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 500,

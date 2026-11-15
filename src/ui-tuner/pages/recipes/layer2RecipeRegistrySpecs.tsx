@@ -69,7 +69,9 @@ export function renderLayer2RecipeStage(
                 badgeColor="amber"
                 isLight={isLight}
                 renderStateCard={(st) => (
-                  <Layer2GarageRecipe isLight={isLight} activeTab={st.props.activeTab} onBack={noop} />
+                  <StoreSnapshotScope overrides={st.storeOverrides ?? {}}>
+                    <Layer2GarageRecipe isLight={isLight} activeTab={st.props.activeTab} onBack={noop} />
+                  </StoreSnapshotScope>
                 )}
               />
             </Suspense>
@@ -110,9 +112,11 @@ export function renderLayer2RecipeStage(
                 renderStateCard={(st) => (
                   <StoreSnapshotScope
                     overrides={{
+                      ...(st.storeOverrides ?? {}),
                       appStore: {
                         settingsTargetTab: st.props.activeTab,
                         developerMode: true,
+                        ...(st.storeOverrides?.appStore ?? {}),
                       },
                     }}
                   >

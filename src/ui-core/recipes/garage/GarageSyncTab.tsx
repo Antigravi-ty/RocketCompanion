@@ -1,19 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { IdCard, Sparkles, Check } from 'lucide-react';
-import type { SurfaceVariantMeta } from '../../manifest/surfaceMetaTypes';
 import { loadStoredPlayerName } from '../../config/vehiclePresets';
 import { useAppStore } from '../../stores/appStore';
 import { useCloudProfileSyncStore } from '../../stores/cloudProfileSyncStore';
 import { useScopedStore } from '../../stores/storeSnapshotScope';
 import { attachCloudProfileConflictDialogueAutoSync } from './CloudProfileConflictDialogue';
 import { GarageCloudAccountSyncSection } from './GarageCloudAccountSyncSection';
-
-export const SURFACE_VARIANT_META: SurfaceVariantMeta = {
-  variantId: 'sync',
-  label: '5. Cloud Profile Sync',
-  description:
-    'Multiplayer Name Card display name & cross-device cloud profile 3-way merge synchronization.',
-};
 
 export interface GarageSyncTabProps {
   isLight?: boolean;

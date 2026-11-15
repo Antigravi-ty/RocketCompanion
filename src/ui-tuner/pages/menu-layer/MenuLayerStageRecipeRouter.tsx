@@ -32,6 +32,7 @@ import {
 } from './MenuLayerSandboxContext';
 import { MenuLayerSecondaryRecipeRoutes } from './MenuLayerSecondaryRecipeRoutes';
 import { resolveManageRoomRosterOverride } from './menuLayerOnlineRoomSteps';
+import { isFloatingWindowPlaylistUnit } from '../floating-windows/floatingWindowsLinearPlaylists';
 
 export type { Layer3StepOverrideState };
 
@@ -59,8 +60,14 @@ export const MenuLayerStageRecipeRouter = React.memo<MenuLayerStageRecipeRouterP
     setLastParentRoute,
     setLiveAnimPhase,
     layer3StepOverride,
+    activePlaylistStep,
   } = useMenuLayerSandbox();
   const [touchInputAgent, setTouchInputAgent] = React.useState<'none' | 'necto' | 'nexto'>('none');
+
+  const activeStepStoreOverrides =
+    activePlaylistStep && !isFloatingWindowPlaylistUnit(activePlaylistStep)
+      ? activePlaylistStep.storeOverrides
+      : undefined;
 
   const goBack = () => {
     if (handleNavigateBack) {
@@ -90,7 +97,7 @@ export const MenuLayerStageRecipeRouter = React.memo<MenuLayerStageRecipeRouterP
   };
 
   return (
-    <>
+    <StoreSnapshotScope overrides={activeStepStoreOverrides ?? {}}>
       {displayedRoute === 'main-menu' && (
         <StoreSnapshotScope
           overrides={{
@@ -349,7 +356,7 @@ export const MenuLayerStageRecipeRouter = React.memo<MenuLayerStageRecipeRouterP
       )}
 
       <MenuLayerSecondaryRecipeRoutes isLight={isLight} onBack={goBack} />
-    </>
+    </StoreSnapshotScope>
   );
 });
 

@@ -29,7 +29,8 @@ export const SURFACE_META: SurfaceMeta = {
   title: 'Demolish Shockwave Active Tuner',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
-  icon: 'Sparkles',
+  icon: 'sparkles',
+  iconColor: 'text-amber-500 dark:text-amber-400',
   hideFooter: false,
   defaultSizing: {
     width: 470,

@@ -25,6 +25,8 @@ import type { StandardSurfaceProps, SurfaceMeta } from '../../manifest/surfaceMe
 export const SURFACE_META: SurfaceMeta = {
   id: 'static-training-ball-cam-tuner',
   title: 'Static Training Ball Camera & Opacity Tuner',
+  icon: 'camera',
+  iconColor: 'text-sky-500 dark:text-sky-400',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
   hideFooter: false,

@@ -130,7 +130,7 @@ export const DEFAULT_NAME_TAG_CONFIG: NameTagConfig = {
   boostBorderReplayAudience: 'all',
   ballOcclusionEnabled: true,
   ballOcclusionOpacity: 1.0,
-  offscreenIndicatorEnabled: true,
+  offscreenIndicatorEnabled: false,
   offscreenAudience: 'teammates',
   offscreenShowBoostCircle: true,
   offscreenShowArrow: true,

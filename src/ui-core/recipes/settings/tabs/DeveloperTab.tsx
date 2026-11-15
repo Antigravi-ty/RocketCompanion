@@ -39,10 +39,21 @@ export const SURFACE_VARIANT_META: SurfaceVariantMeta = {
   label: '5. Developer Hub',
   description:
     'Subsystem Isolation Lab, Active Tuners, Calibrated Presets, Developer Quick Actions, Self Test, Remote Profile Management, Under Development, and Safe Area boundary observer.',
+  profileTier: 'developer',
+  tier: 'developer',
   storeOverrides: {
     appStore: {
       settingsTargetTab: 'developer',
       developerMode: true,
+    },
+    signalingProfileStore: {
+      loaded: true,
+      source: 'dev-private',
+      profileHash: 'd7c10f8899aabbcc',
+      shortHash: 'd7c10f',
+      relayCount: 4,
+      relayLabels: ['CN-1', 'CN-2', 'GB-1', 'GB-2'],
+      turnServerCount: 2,
     },
   },
 };
@@ -276,8 +287,6 @@ export const DeveloperTab: React.FC<DeveloperTabProps> = ({
 
       <FloatingWindowCard
         preset={BOTS_LOADOUT_TUNER_PRESET}
-        icon={Bot}
-        iconColor="text-amber-400"
         badge="3 GLB Default · Multi-Select"
         badgeClass="bg-amber-500/15 border-amber-500/30 text-amber-400"
         description="Configure multi-select Bot Loadout randomizer pools (Car GLB models, Metallic paint, Cartoon boost, Standard boost audio, Random TrainStation anthem)"

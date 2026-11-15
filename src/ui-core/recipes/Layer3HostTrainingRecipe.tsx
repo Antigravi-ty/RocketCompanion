@@ -69,6 +69,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'Create shared online co-op training room with ghost collision mode and 5-step initialization',
   icon: 'Ghost',
   layer: 'layer3',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 500,
@@ -164,8 +165,8 @@ export const Layer3HostTrainingRecipe: React.FC<Layer3HostTrainingRecipeProps> =
     setSettingsTargetTab,
     setHighlightSetting,
   } = appState;
-  const hostMask = useSignalingProfileStore((s) => s.hostMask);
-  const verifyRelays = useSignalingProfileStore((s) => s.verifyRelays);
+  const hostMask = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.hostMask);
+  const verifyRelays = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.verifyRelays);
   const onBack = propOnBack ?? storeGoBack;
 
   const resolvedDefaultConfig = propDefaultConfig ?? overrides.defaultConfig;
