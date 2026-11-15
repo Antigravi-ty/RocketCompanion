@@ -45,6 +45,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Configure countdown pacing, AI opponent spawn geometry, and kickoff training floating tools.',
   icon: 'Zap',
   layer: 'layer3',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 520,

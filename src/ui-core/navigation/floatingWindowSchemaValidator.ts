@@ -50,3 +50,50 @@ export function validateFloatingWindowHideFooter(
   }
   return config.hideFooter;
 }
+
+const VALID_PROFILE_TIER_POLICIES = new Set([
+  'tier-invariant',
+  'user-dev-split',
+  'auth-triad',
+]);
+
+/**
+ * Validates that a Menu Recipe `SURFACE_META` explicitly declares `profileTierPolicy`
+ * (`'tier-invariant' | 'user-dev-split' | 'auth-triad'`), and that `'auth-triad'` surfaces
+ * declare `variants` with `storeOverrides`.
+ */
+export function validateRecipeProfileTierPolicy(
+  meta: {
+    id?: string;
+    title?: string;
+    profileTierPolicy?: unknown;
+    variants?: Array<{ profileTier?: string; storeOverrides?: unknown }>;
+  },
+  contextLabel = 'Recipe'
+): void {
+  const surfaceId = meta.id || meta.title || 'anonymous';
+  if (
+    typeof meta.profileTierPolicy !== 'string' ||
+    !VALID_PROFILE_TIER_POLICIES.has(meta.profileTierPolicy)
+  ) {
+    triggerFloatingSchemaWarning(
+      `Missing or invalid required 'profileTierPolicy' in ${contextLabel} '${surfaceId}'. ` +
+        `Must be 'tier-invariant', 'user-dev-split', or 'auth-triad'.`,
+      `recipe-tier-policy:${contextLabel}:${surfaceId}`
+    );
+    return;
+  }
+
+  if (meta.profileTierPolicy === 'auth-triad') {
+    const hasScopedVariant = (meta.variants ?? []).some(
+      (v) => Boolean(v.profileTier) && Boolean(v.storeOverrides)
+    );
+    if (!hasScopedVariant) {
+      triggerFloatingSchemaWarning(
+        `Recipe '${surfaceId}' declares profileTierPolicy='auth-triad' in ${contextLabel} ` +
+          `but has no variants with 'profileTier' and 'storeOverrides'.`,
+        `recipe-tier-variants:${contextLabel}:${surfaceId}`
+      );
+    }
+  }
+}

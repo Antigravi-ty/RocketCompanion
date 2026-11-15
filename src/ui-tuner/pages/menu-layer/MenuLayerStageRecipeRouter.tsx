@@ -3,10 +3,6 @@ import { Layer1MainMenuRecipe } from '../../../ui-core/recipes/Layer1MainMenuRec
 import type { Layer1MenuContextMode } from '../../../ui-core/recipes/layer1MenuContextSpecs';
 import { Layer2PlayRecipe } from '../../../ui-core/recipes/Layer2PlayRecipe';
 import { Layer2GarageRecipe } from '../../../ui-core/recipes/Layer2GarageRecipe';
-import {
-  GARAGE_SYNC_PREVIEW_PRESETS,
-  type GarageSyncPreviewMode,
-} from '../../../ui-core/recipes/garage/GarageSyncTab';
 import { Layer2SettingsRecipe } from '../../../ui-core/recipes/Layer2SettingsRecipe';
 import {
   Layer2ManageRoomRecipe,
@@ -36,6 +32,7 @@ import {
 } from './MenuLayerSandboxContext';
 import { MenuLayerSecondaryRecipeRoutes } from './MenuLayerSecondaryRecipeRoutes';
 import { resolveManageRoomRosterOverride } from './menuLayerOnlineRoomSteps';
+import { isFloatingWindowPlaylistUnit } from '../floating-windows/floatingWindowsLinearPlaylists';
 
 export type { Layer3StepOverrideState };
 
@@ -63,10 +60,14 @@ export const MenuLayerStageRecipeRouter = React.memo<MenuLayerStageRecipeRouterP
     setLastParentRoute,
     setLiveAnimPhase,
     layer3StepOverride,
+    activePlaylistStep,
   } = useMenuLayerSandbox();
   const [touchInputAgent, setTouchInputAgent] = React.useState<'none' | 'necto' | 'nexto'>('none');
-  const [syncPreviewMode, setSyncPreviewMode] =
-    React.useState<GarageSyncPreviewMode>('dev-signed-in');
+
+  const activeStepStoreOverrides =
+    activePlaylistStep && !isFloatingWindowPlaylistUnit(activePlaylistStep)
+      ? activePlaylistStep.storeOverrides
+      : undefined;
 
   const goBack = () => {
     if (handleNavigateBack) {
@@ -96,7 +97,7 @@ export const MenuLayerStageRecipeRouter = React.memo<MenuLayerStageRecipeRouterP
   };
 
   return (
-    <>
+    <StoreSnapshotScope overrides={activeStepStoreOverrides ?? {}}>
       {displayedRoute === 'main-menu' && (
         <StoreSnapshotScope
           overrides={{
@@ -169,52 +170,12 @@ export const MenuLayerStageRecipeRouter = React.memo<MenuLayerStageRecipeRouterP
       )}
 
       {displayedRoute === 'garage' && (
-        <div className="flex flex-col items-center gap-2 w-full">
-          {garageTab === 'sync' && (
-            <div
-              className={`inline-flex items-center gap-1 px-2 py-1 rounded-xl border text-[11px] font-mono ${
-                isLight
-                  ? 'bg-white/95 border-neutral-200 text-neutral-700 shadow-xs'
-                  : 'bg-neutral-950/90 border-neutral-800 text-neutral-300 shadow-md'
-              }`}
-            >
-              <span className="px-1.5 text-[10px] font-bold uppercase tracking-wider opacity-60">
-                Sync Variation:
-              </span>
-              {(Object.keys(GARAGE_SYNC_PREVIEW_PRESETS) as GarageSyncPreviewMode[]).map((mode) => {
-                const active = syncPreviewMode === mode;
-                return (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => setSyncPreviewMode(mode)}
-                    className={`px-2 py-0.5 rounded-lg border text-[10px] font-semibold cursor-pointer transition-all ${
-                      active
-                        ? 'bg-sky-500 text-white border-sky-400 shadow-xs'
-                        : isLight
-                          ? 'bg-neutral-100 hover:bg-neutral-200 border-neutral-200 text-neutral-700'
-                          : 'bg-neutral-900 hover:bg-neutral-800 border-neutral-800 text-neutral-400'
-                    }`}
-                  >
-                    {GARAGE_SYNC_PREVIEW_PRESETS[mode].label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          <StoreSnapshotScope
-            overrides={
-              garageTab === 'sync' ? GARAGE_SYNC_PREVIEW_PRESETS[syncPreviewMode].overrides : {}
-            }
-          >
-            <Layer2GarageRecipe
-              isLight={isLight}
-              activeTab={garageTab}
-              onTabChange={setGarageTab}
-              onBack={goBack}
-            />
-          </StoreSnapshotScope>
-        </div>
+        <Layer2GarageRecipe
+          isLight={isLight}
+          activeTab={garageTab}
+          onTabChange={setGarageTab}
+          onBack={goBack}
+        />
       )}
 
       {displayedRoute === 'settings' && (
@@ -395,7 +356,7 @@ export const MenuLayerStageRecipeRouter = React.memo<MenuLayerStageRecipeRouterP
       )}
 
       <MenuLayerSecondaryRecipeRoutes isLight={isLight} onBack={goBack} />
-    </>
+    </StoreSnapshotScope>
   );
 });
 

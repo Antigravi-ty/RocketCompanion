@@ -40,11 +40,20 @@ export interface SurfaceSizingSpec {
   mode?: SurfaceSizingMode;
 }
 
+export type ProfileTierVariantKind = 'anonymous' | 'signed-in' | 'developer';
+
+export type SurfaceProfileTierPolicy =
+  | 'tier-invariant'
+  | 'user-dev-split'
+  | 'auth-triad';
+
 export interface SurfaceVariantMeta {
   variantId: string;
   label: string;
   description?: string;
   entryFile?: string;
+  profileTier?: ProfileTierVariantKind;
+  tier?: 'user' | 'developer';
   storeOverrides?: Record<string, Record<string, unknown>>;
 }
 
@@ -63,6 +72,8 @@ export interface SurfaceMeta {
   defaultSizing: SurfaceSizingSpec;
   /** Mandatory boolean for Floating Windows (`layer === 'floating-user' | 'floating-dev'`) specifying whether Stage 3 Footer is hidden */
   hideFooter?: boolean;
+  /** Mandatory policy for Menu Recipes (`layer1`..`layer5`) declaring how profile/auth tiers (`anonymous` | `signed-in` | `developer`) affect the surface */
+  profileTierPolicy?: SurfaceProfileTierPolicy;
   /** Optional inner content padding override in px for Floating Windows */
   contentPadding?: number;
   defaultOpen?: boolean;

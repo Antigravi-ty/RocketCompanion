@@ -34,6 +34,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Configure up to 3v3 Native SafeTensors Nexto & Necto bot rosters and select active camera POV.',
   icon: 'bot',
   layer: 'layer3',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     mode: 'adaptive',

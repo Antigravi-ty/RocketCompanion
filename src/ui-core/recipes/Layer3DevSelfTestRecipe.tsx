@@ -22,6 +22,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Automated subsystem self-test suites, VirtualClock fast-forward scenario runner, and Golden Baseline verification harnesses.',
   icon: 'bug-play',
   layer: 'layer3',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     mode: 'adaptive',

@@ -49,6 +49,7 @@ export const SURFACE_META: SurfaceMeta = {
   id: 'recipe:StaticTrainingShotInspectorDrawer',
   title: 'Static Training Shot Inspector',
   layer: 'layer4',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: { mode: 'fixed', width: 520, height: 680, minHeight: 320, maxHeight: 1080 },
 };

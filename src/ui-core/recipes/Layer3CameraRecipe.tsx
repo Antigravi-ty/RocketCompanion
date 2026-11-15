@@ -31,6 +31,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'Spine-Aligned FOV, Distance, Height, Pitch, Stiffness, Swivel & Camera Shake',
   icon: 'Camera',
   layer: 'layer3',
+  profileTierPolicy: 'user-dev-split',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 560,

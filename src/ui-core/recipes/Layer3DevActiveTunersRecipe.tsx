@@ -31,6 +31,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Active tuners under calibration (Atmosphere, Vehicle, Kickoff, Audio & Diagnostics).',
   icon: 'sliders',
   layer: 'layer3',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     mode: 'adaptive',

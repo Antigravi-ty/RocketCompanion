@@ -4,6 +4,7 @@ import { UI_RADIUS } from '../tokens/radius';
 import { getSurfaceCalibrationOverride } from '../manifest/surfaceCalibration';
 import { useCloudProfileSyncStore } from '../stores/cloudProfileSyncStore';
 import { useMenuLayoutStore } from '../stores/menuLayoutStore';
+import { useScopedStore } from '../stores/storeSnapshotScope';
 import { resolvePanelHeaderBackBtnGeometry, type PanelSizingConfig, type PanelSizingMode } from '../tokens/menuLayoutTokens';
 import { resolvePanelHeaderBtnSurfaceClasses, resolvePanelContainerSizingAndStyle } from './PanelFooter';
 
@@ -64,8 +65,16 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
   const rightBtnExpandOnHover = useMenuLayoutStore((s) => s.panelHeaderRightBtnExpandOnHover);
   const panelOuterRadius = useMenuLayoutStore((s) => s.panelOuterRadius);
 
-  const activeRemoteSession = useCloudProfileSyncStore((s) => s.activeRemoteSession);
-  const exitRemoteTuningSession = useCloudProfileSyncStore((s) => s.exitRemoteTuningSession);
+  const activeRemoteSession = useScopedStore(
+    'cloudProfileSyncStore',
+    useCloudProfileSyncStore,
+    (s) => s.activeRemoteSession
+  );
+  const exitRemoteTuningSession = useScopedStore(
+    'cloudProfileSyncStore',
+    useCloudProfileSyncStore,
+    (s) => s.exitRemoteTuningSession
+  );
 
   const [rightHovered, setRightHovered] = useState(false);
 

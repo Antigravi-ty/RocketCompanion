@@ -3,6 +3,7 @@ import { Info } from 'lucide-react';
 import { KeycapBadge } from '../primitives/KeycapBadge';
 import { useCloudProfileSyncStore } from '../stores/cloudProfileSyncStore';
 import { useMenuLayoutStore } from '../stores/menuLayoutStore';
+import { useScopedStore } from '../stores/storeSnapshotScope';
 import type { PanelSizingConfig, PanelSizingMode } from '../tokens/menuLayoutTokens';
 
 export interface PanelFooterProps {
@@ -52,7 +53,11 @@ export const PanelFooter: React.FC<PanelFooterProps> = ({
   const footerSplitRight = useMenuLayoutStore((s) => s.panelFooterSplitRight);
   const footerRightDivider = useMenuLayoutStore((s) => s.panelFooterRightDivider);
   const footerRightPadX = useMenuLayoutStore((s) => s.panelFooterRightPaddingX);
-  const activeRemoteSession = useCloudProfileSyncStore((s) => s.activeRemoteSession);
+  const activeRemoteSession = useScopedStore(
+    'cloudProfileSyncStore',
+    useCloudProfileSyncStore,
+    (s) => s.activeRemoteSession
+  );
 
   const hasUnifiedDesc =
     defaultDescription !== undefined || hoveredDescription !== undefined;

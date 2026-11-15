@@ -28,6 +28,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Developer quick actions auto-activated in Developer Mode and deployable to remote profiles.',
   icon: 'zap',
   layer: 'layer3',
+  profileTierPolicy: 'user-dev-split',
   menuGroup: 'menu-layer',
   defaultSizing: {
     mode: 'adaptive',

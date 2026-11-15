@@ -35,6 +35,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Unstable / Under Development workspace for Three-Wheeler mode, Throwback Stadium, and Per-Car Boost.',
   icon: 'alert-triangle',
   layer: 'layer3',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     mode: 'adaptive',

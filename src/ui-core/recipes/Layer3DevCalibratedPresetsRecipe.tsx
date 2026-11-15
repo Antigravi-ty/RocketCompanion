@@ -25,6 +25,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Calibrated visual presets (Atmosphere & FX, Vehicle Global Surfaces, Supersonic Wheel Trail, Driftwoods Stadium, Boost Pad & Multiplayer Name Tag).',
   icon: 'palette',
   layer: 'layer3',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     mode: 'adaptive',

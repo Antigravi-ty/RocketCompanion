@@ -32,6 +32,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: '.RCSPack / .RCSPackE / .Tem 2-column pack manager, metadata editor, and Kevpert variations',
   icon: 'folder-open',
   layer: 'layer4',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     mode: 'fixed',

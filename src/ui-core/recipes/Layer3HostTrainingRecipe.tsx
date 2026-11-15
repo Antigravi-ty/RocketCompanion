@@ -65,6 +65,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'Create shared online co-op training room with ghost collision mode and 5-step initialization',
   icon: 'Ghost',
   layer: 'layer3',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 500,

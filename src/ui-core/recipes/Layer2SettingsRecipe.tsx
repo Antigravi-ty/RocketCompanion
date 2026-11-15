@@ -71,6 +71,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Gameplay, Audio, Display, Advanced telemetry, and Developer Hub configuration shell.',
   icon: 'Sliders',
   layer: 'layer2',
+  profileTierPolicy: 'user-dev-split',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: DEFAULT_PANEL_SIZING['layer2-settings'].width,

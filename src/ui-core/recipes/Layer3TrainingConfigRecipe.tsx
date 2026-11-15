@@ -47,6 +47,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Configure Free Play rules (boost, goal reset, rewinder) and Training goal barrier. Automatically bypassed in Exhibition & Multiplayer.',
   icon: 'History',
   layer: 'layer3',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 480,

@@ -62,6 +62,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'Create & host online peer-to-peer match lobby with 5-step initialization sequence',
   icon: 'Play',
   layer: 'layer3',
+  profileTierPolicy: 'user-dev-split',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 520,
