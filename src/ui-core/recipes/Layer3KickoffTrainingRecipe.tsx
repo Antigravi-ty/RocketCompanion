@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Check, Clock, Compass, Crosshair, Ghost, GraduationCap, Play, Zap } from 'lucide-react';
+import { Check, Clock, Compass, Ghost, GraduationCap, Play, Zap } from 'lucide-react';
 import type { StandardSurfaceProps, SurfaceMeta } from '../manifest/surfaceMetaTypes';
 import {
   resolveCalibratedDefaultConfig,
@@ -341,8 +341,6 @@ export const Layer3KickoffTrainingRecipe: React.FC<Layer3KickoffTrainingRecipePr
           {/* 4. Kickoff Spawn & Mirror Floating Window Launcher */}
           <FloatingWindowCard
             preset={KICKOFF_TRAINING_TUNER_PRESET}
-            icon={Crosshair}
-            iconColor="text-amber-500"
             bordered={false}
             showDescription={false}
             hoverTooltip="Kickoff Training Tuner (PPO): Spawn floating window to configure exact kickoff spawn slots and PPO opponent mirror settings."

@@ -52,7 +52,7 @@ export function checkUiNamingAndRouteAlignment(errors: string[]): void {
     /\b(?:import\.meta\.glob|importMetaGlob|getDiscoveredFloatingSurfaces)\b/.test(registryContent);
 
   const presetBlockRegex =
-    /export\s+const\s+\w+_PRESET\s*:\s*PresetConfig\s*=\s*\{([\s\S]*?)\n\};/g;
+    /export\s+const\s+\w+_PRESET\s*:\s*PresetConfig\s*=\s*(?:makeDevPreset\()?\s*\{([\s\S]*?)\n(?:\}\)|};)/g;
   for (const presetFile of presetFiles) {
     if (!fs.existsSync(presetFile)) continue;
     const rel = toPosixRel(presetFile);
@@ -61,14 +61,26 @@ export function checkUiNamingAndRouteAlignment(errors: string[]): void {
     while ((blockMatch = presetBlockRegex.exec(content)) !== null) {
       const body = blockMatch[1];
       const idMatch = body.match(/\bid\s*:\s*['"]([^'"]+)['"]/);
+      const titleMatch = body.match(/\btitle\s*:\s*['"]([^'"]+)['"]/);
+      const iconNameMatch = body.match(/\biconName\s*:\s*['"]([^'"]+)['"]/);
+      const iconColorMatch = body.match(/\biconColor\s*:\s*['"]([^'"]+)['"]/);
       const compMatch = body.match(/\bcomponent\s*:\s*['"]([^'"]+)['"]/);
       const sourceMatch = body.match(/\bsourcePath\s*:\s*['"]([^'"]+)['"]/);
       if (!idMatch) continue;
 
       const id = idMatch[1];
+      const title = titleMatch?.[1] || '';
+      const iconName = iconNameMatch?.[1] || '';
+      const iconColor = iconColorMatch?.[1] || '';
       const component = compMatch?.[1] || '';
-      const sourcePath = sourceMatch?.[1] || '';
+      const sourcePath = sourceMatch?.[1] || (component ? `panels/dev/${component}.tsx` : '');
       const expectedComponent = `${kebabToPascalCase(id)}FloatingWindow`;
+
+      if (!iconName || !iconColor) {
+        errors.push(
+          `[FLOATING WINDOW ICON VIOLATION] ${rel} preset '${id}' must define both 'iconName' and 'iconColor' as the single source of truth.`
+        );
+      }
 
       if (/(?:^|-)ob(?:-|$)/i.test(id) || /OBFloatingWindow/.test(component)) {
         errors.push(
@@ -98,17 +110,35 @@ export function checkUiNamingAndRouteAlignment(errors: string[]): void {
           );
         } else {
           const winContent = stripComments(fs.readFileSync(absSourcePath, 'utf8'));
-          const metaBlockMatch = winContent.match(
-            /\bexport\s+const\s+SURFACE_META\b[\s\S]*?\bid\s*:\s*['"]([^'"]+)['"]/
+          const surfaceMetaMatch = winContent.match(
+            /\bexport\s+const\s+SURFACE_META\s*:\s*SurfaceMeta\s*=\s*\{([\s\S]*?)\n\};/
           );
-          if (!metaBlockMatch || metaBlockMatch[1] !== id) {
+          const metaBody = surfaceMetaMatch?.[1] || '';
+          const metaIdMatch = metaBody.match(/\bid\s*:\s*['"]([^'"]+)['"]/);
+          if (!metaIdMatch || metaIdMatch[1] !== id) {
             errors.push(
-              `[UI NAMING VIOLATION] ${sourcePath} must export SURFACE_META with id '${id}' (found '${metaBlockMatch?.[1] || 'missing'}') to match 1:1 filename '${expectedComponent}.tsx'.`
+              `[UI NAMING VIOLATION] ${sourcePath} must export SURFACE_META with id '${id}' (found '${metaIdMatch?.[1] || 'missing'}') to match 1:1 filename '${expectedComponent}.tsx'.`
             );
           }
-          const hideFooterMatch = winContent.match(
-            /\bexport\s+const\s+SURFACE_META\b[\s\S]*?\bhideFooter\s*:\s*(true|false)\b/
-          );
+          const metaTitleMatch = metaBody.match(/\btitle\s*:\s*['"]([^'"]+)['"]/);
+          if (title && (!metaTitleMatch || metaTitleMatch[1] !== title)) {
+            errors.push(
+              `[FLOATING WINDOW TITLE MISMATCH] ${sourcePath} SURFACE_META.title ('${metaTitleMatch?.[1] || 'missing'}') must match ${rel} preset '${id}' title ('${title}').`
+            );
+          }
+          const metaIconMatch = metaBody.match(/\bicon\s*:\s*['"]([^'"]+)['"]/);
+          if (iconName && (!metaIconMatch || metaIconMatch[1] !== iconName)) {
+            errors.push(
+              `[FLOATING WINDOW ICON MISMATCH] ${sourcePath} SURFACE_META.icon ('${metaIconMatch?.[1] || 'missing'}') must match ${rel} preset '${id}' iconName ('${iconName}').`
+            );
+          }
+          const metaColorMatch = metaBody.match(/\biconColor\s*:\s*['"]([^'"]+)['"]/);
+          if (iconColor && (!metaColorMatch || metaColorMatch[1] !== iconColor)) {
+            errors.push(
+              `[FLOATING WINDOW ICON COLOR MISMATCH] ${sourcePath} SURFACE_META.iconColor ('${metaColorMatch?.[1] || 'missing'}') must match ${rel} preset '${id}' iconColor ('${iconColor}').`
+            );
+          }
+          const hideFooterMatch = metaBody.match(/\bhideFooter\s*:\s*(true|false)\b/);
           if (!hideFooterMatch) {
             errors.push(
               `[FLOATING WINDOW SCHEMA VIOLATION] ${sourcePath} SURFACE_META for '${id}' must explicitly set 'hideFooter: true' or 'hideFooter: false'.`

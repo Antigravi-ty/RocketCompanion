@@ -17,7 +17,8 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'Observer',
   description:
     'Real-time physics collision observer, impulse scatter chart & audio threshold visualizer.',
-  icon: 'Activity',
+  icon: 'activity',
+  iconColor: 'text-sky-500 dark:text-sky-400',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
   hideFooter: false,

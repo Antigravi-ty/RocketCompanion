@@ -1,6 +1,7 @@
 import React from 'react';
 import { Plus, X, Activity } from 'lucide-react';
 import { Badge } from '../../../primitives/Badge';
+import { lookupLucideIcon } from '../../../primitives/iconLookup';
 import { SettingActionRow } from '../../../compounds/SettingActionRow';
 import { useFloatingStore, floatingStore } from '../../../stores/floatingStore';
 import { useSettingActionRowStore } from '../../../stores/settingRowStore';
@@ -61,6 +62,8 @@ export const FloatingWindowCard: React.FC<FloatingWindowCardProps> = ({
 
   if (preset) {
     const existingWindow = windows.find((w) => w.id === preset.id);
+    const resolvedIcon = icon ?? (lookupLucideIcon(preset.iconName) ?? Activity);
+    const resolvedIconColor = iconColor ?? preset.iconColor;
     const handleSpawn = (e: React.MouseEvent<HTMLButtonElement>) => {
       e.stopPropagation();
       const containerEl =
@@ -82,8 +85,8 @@ export const FloatingWindowCard: React.FC<FloatingWindowCardProps> = ({
 
     return (
       <SettingActionRow
-        icon={icon ?? Activity}
-        iconColor={iconColor}
+        icon={resolvedIcon}
+        iconColor={resolvedIconColor}
         title={preset.title}
         badge={
           badge && advancedShowBadges ? (

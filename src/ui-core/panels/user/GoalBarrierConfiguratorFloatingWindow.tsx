@@ -26,7 +26,8 @@ export const SURFACE_META: SurfaceMeta = {
   title: 'Goal Barrier Configurator',
   description:
     'Interactive 2D goal barrier boolean rectangle designer with Orange/Blue/Both target selection.',
-  icon: 'brick-wall-shield',
+  icon: 'shield',
+  iconColor: 'text-sky-500 dark:text-sky-400',
   layer: 'floating-user',
   menuGroup: 'user-floating',
   hideFooter: false,

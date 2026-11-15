@@ -9,7 +9,8 @@ export const SURFACE_META: SurfaceMeta = {
   title: 'Floating Window Opacity',
   description:
     'Global opacity adjustment (1% - 100%) for all active floating telemetry windows.',
-  icon: 'sliders-horizontal',
+  icon: 'sliders',
+  iconColor: 'text-amber-500 dark:text-amber-400',
   layer: 'floating-user',
   menuGroup: 'user-floating',
   hideFooter: false,

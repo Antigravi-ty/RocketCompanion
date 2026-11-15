@@ -24,7 +24,8 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: '8 Native SafeTensors Policies (Chronos, Dice, Ducky, Fury, Galactus, Kira, Rain, Ripple v1.1)',
   description:
     'Live floating controller for Experimental Bot Pack #9700488 (8 native models: Chronos, Dice, Ducky, Fury, Galactus, Kira, Rain, Ripple v1.1).',
-  icon: 'Sparkles',
+  icon: 'sparkles',
+  iconColor: 'text-teal-500 dark:text-teal-400',
   layer: 'floating-dev',
   menuGroup: 'sandboxes',
   hideFooter: false,

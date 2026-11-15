@@ -22,10 +22,11 @@ import type { SurfaceMeta, StandardSurfaceProps } from '../../manifest/surfaceMe
 
 export const SURFACE_META: SurfaceMeta = {
   id: 'boost-pad-tuner',
-  title: 'Boost Pad Tuner',
+  title: 'Boost Pad Visual Tuner',
   layer: 'floating-dev',
   menuGroup: 'calibrated-presets',
-  icon: 'Sparkles',
+  icon: 'sparkles',
+  iconColor: 'text-amber-500 dark:text-amber-400',
   hideFooter: false,
   defaultSizing: {
     width: 480,

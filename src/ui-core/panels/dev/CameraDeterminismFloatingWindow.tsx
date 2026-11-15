@@ -16,6 +16,8 @@ import type { StandardSurfaceProps, SurfaceMeta } from '../../manifest/surfaceMe
 export const SURFACE_META: SurfaceMeta = {
   id: 'camera-determinism',
   title: 'Camera Deterministic Harness',
+  icon: 'camera',
+  iconColor: 'text-sky-500 dark:text-sky-400',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
   hideFooter: false,

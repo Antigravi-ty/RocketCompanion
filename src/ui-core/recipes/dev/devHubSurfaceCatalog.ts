@@ -105,7 +105,7 @@ export const ACTIVE_TUNER_SPECS: DevFloatingLauncherSpec[] = [
     id: DIAGNOSTIC_DUMP_PRESET.id,
     preset: DIAGNOSTIC_DUMP_PRESET,
     icon: Database,
-    iconColor: 'text-sky-400',
+    iconColor: DIAGNOSTIC_DUMP_PRESET.iconColor,
     badge: 'Live Buffers · Anytime ZIP',
     badgeTone: 'sky',
     description:
@@ -118,7 +118,7 @@ export const ACTIVE_TUNER_SPECS: DevFloatingLauncherSpec[] = [
     id: KEYBOARD_INPUT_OVERLAY_TUNER_PRESET.id,
     preset: KEYBOARD_INPUT_OVERLAY_TUNER_PRESET,
     icon: Keyboard,
-    iconColor: 'text-emerald-400',
+    iconColor: KEYBOARD_INPUT_OVERLAY_TUNER_PRESET.iconColor,
     badge: '3x3 Retro · 3D Nose Arrows',
     badgeTone: 'emerald',
     description:
@@ -131,7 +131,7 @@ export const ACTIVE_TUNER_SPECS: DevFloatingLauncherSpec[] = [
     id: PERFORMANCE_BOOST_TUNER_PRESET.id,
     preset: PERFORMANCE_BOOST_TUNER_PRESET,
     icon: Sparkles,
-    iconColor: 'text-amber-400',
+    iconColor: PERFORMANCE_BOOST_TUNER_PRESET.iconColor,
     badge: 'Zero-Bloom · Attach vs Trail',
     badgeTone: 'amber',
     description:
@@ -144,7 +144,7 @@ export const ACTIVE_TUNER_SPECS: DevFloatingLauncherSpec[] = [
     id: BOTS_LOADOUT_TUNER_PRESET.id,
     preset: BOTS_LOADOUT_TUNER_PRESET,
     icon: Bot,
-    iconColor: 'text-amber-400',
+    iconColor: BOTS_LOADOUT_TUNER_PRESET.iconColor,
     badge: '3 GLB Default · Multi-Select',
     badgeTone: 'amber',
     description:
@@ -157,7 +157,7 @@ export const ACTIVE_TUNER_SPECS: DevFloatingLauncherSpec[] = [
     id: SPATIAL_AUDIO_TUNER_PRESET.id,
     preset: SPATIAL_AUDIO_TUNER_PRESET,
     icon: Volume2,
-    iconColor: 'text-amber-400',
+    iconColor: SPATIAL_AUDIO_TUNER_PRESET.iconColor,
     badge: '2.0s Curve · Stadium Reverb',
     badgeTone: 'amber',
     description:
@@ -170,7 +170,7 @@ export const ACTIVE_TUNER_SPECS: DevFloatingLauncherSpec[] = [
     id: ENGINE_AUDIO_TUNER_PRESET.id,
     preset: ENGINE_AUDIO_TUNER_PRESET,
     icon: Volume2,
-    iconColor: 'text-emerald-400',
+    iconColor: ENGINE_AUDIO_TUNER_PRESET.iconColor,
     badge: 'Turtle Modem · 40-Slice REV',
     badgeTone: 'emerald',
     description:
@@ -183,7 +183,7 @@ export const ACTIVE_TUNER_SPECS: DevFloatingLauncherSpec[] = [
     id: STATIC_TRAINING_BALL_CAM_TUNER_PRESET.id,
     preset: STATIC_TRAINING_BALL_CAM_TUNER_PRESET,
     icon: Camera,
-    iconColor: 'text-sky-400',
+    iconColor: STATIC_TRAINING_BALL_CAM_TUNER_PRESET.iconColor,
     badge: 'Ball Cam · Opacity Override',
     badgeTone: 'sky',
     description:
@@ -196,7 +196,7 @@ export const ACTIVE_TUNER_SPECS: DevFloatingLauncherSpec[] = [
     id: VEHICLE_MODEL_OFFSET_TUNER_PRESET.id,
     preset: VEHICLE_MODEL_OFFSET_TUNER_PRESET,
     icon: Car,
-    iconColor: 'text-amber-400',
+    iconColor: VEHICLE_MODEL_OFFSET_TUNER_PRESET.iconColor,
     badge: 'Per-Model Offsets',
     badgeTone: 'amber',
     description:
@@ -209,7 +209,7 @@ export const ACTIVE_TUNER_SPECS: DevFloatingLauncherSpec[] = [
     id: GOAL_VOLUME_TUNER_PRESET.id,
     preset: GOAL_VOLUME_TUNER_PRESET,
     icon: Box,
-    iconColor: 'text-emerald-400',
+    iconColor: GOAL_VOLUME_TUNER_PRESET.iconColor,
     badge: '3D AABB · JSON Export',
     badgeTone: 'emerald',
     description:
@@ -222,7 +222,7 @@ export const ACTIVE_TUNER_SPECS: DevFloatingLauncherSpec[] = [
     id: DEMOLISH_SHOCKWAVE_TUNER_PRESET.id,
     preset: DEMOLISH_SHOCKWAVE_TUNER_PRESET,
     icon: Sparkles,
-    iconColor: 'text-amber-400',
+    iconColor: DEMOLISH_SHOCKWAVE_TUNER_PRESET.iconColor,
     badge: 'Shockwave Ring · 3D XYZ Sim',
     badgeTone: 'amber',
     description:
@@ -239,7 +239,7 @@ export const CALIBRATED_PRESET_SPECS: DevFloatingLauncherSpec[] = [
     id: ATMOSPHERE_FX_TUNER_PRESET.id,
     preset: ATMOSPHERE_FX_TUNER_PRESET,
     icon: Sparkles,
-    iconColor: 'text-sky-400',
+    iconColor: ATMOSPHERE_FX_TUNER_PRESET.iconColor,
     badge: 'Calibrated',
     badgeTone: 'sky',
     description:
@@ -251,7 +251,7 @@ export const CALIBRATED_PRESET_SPECS: DevFloatingLauncherSpec[] = [
     id: VEHICLE_GLOBAL_FX_TUNER_PRESET.id,
     preset: VEHICLE_GLOBAL_FX_TUNER_PRESET,
     icon: Car,
-    iconColor: 'text-emerald-400',
+    iconColor: VEHICLE_GLOBAL_FX_TUNER_PRESET.iconColor,
     badge: 'Calibrated',
     badgeTone: 'emerald',
     description:
@@ -263,7 +263,7 @@ export const CALIBRATED_PRESET_SPECS: DevFloatingLauncherSpec[] = [
     id: SUPERSONIC_TRAIL_TUNER_PRESET.id,
     preset: SUPERSONIC_TRAIL_TUNER_PRESET,
     icon: Zap,
-    iconColor: 'text-purple-400',
+    iconColor: SUPERSONIC_TRAIL_TUNER_PRESET.iconColor,
     badge: 'Calibrated',
     badgeTone: 'purple',
     description:
@@ -275,7 +275,7 @@ export const CALIBRATED_PRESET_SPECS: DevFloatingLauncherSpec[] = [
     id: DRIFTWOODS_TUNER_PRESET.id,
     preset: DRIFTWOODS_TUNER_PRESET,
     icon: Palette,
-    iconColor: 'text-emerald-400',
+    iconColor: DRIFTWOODS_TUNER_PRESET.iconColor,
     badge: 'Calibrated',
     badgeTone: 'emerald',
     description:
@@ -287,7 +287,7 @@ export const CALIBRATED_PRESET_SPECS: DevFloatingLauncherSpec[] = [
     id: BOOST_PAD_TUNER_PRESET.id,
     preset: BOOST_PAD_TUNER_PRESET,
     icon: Sparkles,
-    iconColor: 'text-amber-400',
+    iconColor: BOOST_PAD_TUNER_PRESET.iconColor,
     badge: 'Calibrated',
     badgeTone: 'amber',
     description:
@@ -299,7 +299,7 @@ export const CALIBRATED_PRESET_SPECS: DevFloatingLauncherSpec[] = [
     id: NAME_TAG_TUNER_PRESET.id,
     preset: NAME_TAG_TUNER_PRESET,
     icon: Tag,
-    iconColor: 'text-sky-400',
+    iconColor: NAME_TAG_TUNER_PRESET.iconColor,
     badge: 'Calibrated',
     badgeTone: 'sky',
     description:
@@ -314,10 +314,19 @@ export function discoveredSurfaceToLauncherSpec(
   defaultSection: 'primary' | 'diagnostics' = 'diagnostics'
 ): DevFloatingLauncherSpec {
   const { meta, resolvedSizing } = entry;
+  const iconKey = (meta.icon || '').toLowerCase();
+  const IconComp = DEV_ICON_BY_NAME[iconKey] ?? Sliders;
+  const resolvedColor =
+    meta.iconColor ??
+    (meta.menuGroup === 'calibrated-presets'
+      ? 'text-emerald-500 dark:text-emerald-400'
+      : 'text-sky-500 dark:text-sky-400');
   const preset: PresetConfig = {
     id: meta.id,
     title: meta.title,
     category: meta.menuGroup ?? 'DeveloperTuner',
+    iconName: iconKey || 'sliders',
+    iconColor: resolvedColor,
     width: resolvedSizing.width,
     height: typeof resolvedSizing.height === 'number' ? resolvedSizing.height : 580,
     minWidth: resolvedSizing.minWidth,
@@ -332,13 +341,11 @@ export function discoveredSurfaceToLauncherSpec(
     component: entry.Component.displayName || entry.Component.name || meta.id,
     sourcePath: entry.modulePath,
   };
-  const iconKey = (meta.icon || '').toLowerCase();
-  const IconComp = DEV_ICON_BY_NAME[iconKey] ?? Sliders;
   return {
     id: meta.id,
     preset,
     icon: IconComp,
-    iconColor: meta.menuGroup === 'calibrated-presets' ? 'text-emerald-400' : 'text-sky-400',
+    iconColor: resolvedColor,
     badge:
       meta.subtitle ||
       (meta.menuGroup === 'calibrated-presets' ? 'Calibrated' : undefined),

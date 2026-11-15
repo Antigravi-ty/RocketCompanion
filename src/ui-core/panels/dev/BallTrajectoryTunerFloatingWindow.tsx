@@ -17,6 +17,8 @@ import type { StandardSurfaceProps, SurfaceMeta } from '../../manifest/surfaceMe
 export const SURFACE_META: SurfaceMeta = {
   id: 'ball-trajectory-tuner',
   title: 'Ball Trajectory Prediction Line Tuner',
+  icon: 'target',
+  iconColor: 'text-amber-500 dark:text-amber-400',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
   hideFooter: false,

@@ -23,7 +23,8 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: '.RCGR Goal Replay · 3D Arena Preview · 2-Touch Lookahead',
   description:
     '.RCGR Goal Replay container export/import, 3D Arena preview, anomaly peak seek chips & +-15f window.',
-  icon: 'Film',
+  icon: 'film',
+  iconColor: 'text-amber-500 dark:text-amber-400',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
   hideFooter: false,

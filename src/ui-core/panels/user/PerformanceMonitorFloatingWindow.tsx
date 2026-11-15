@@ -17,7 +17,8 @@ export const SURFACE_META: SurfaceMeta = {
   title: 'Performance Monitor',
   description:
     'Real-time CPU 6-phase breakdown, physics simulation sub-ticks, and WebGL rendering pipeline metrics.',
-  icon: 'cpu',
+  icon: 'activity',
+  iconColor: 'text-sky-500 dark:text-sky-400',
   layer: 'floating-user',
   menuGroup: 'user-floating',
   hideFooter: false,

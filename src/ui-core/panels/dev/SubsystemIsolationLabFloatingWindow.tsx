@@ -33,7 +33,8 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'DeveloperLab',
   description:
     '7 isolated test benches: Probes, Multi-World Ghost, State Replay, 90s Match, Goal Replay, Kickoff Duel & Demolish Respawn.',
-  icon: 'Layers',
+  icon: 'cpu',
+  iconColor: 'text-amber-500 dark:text-amber-400',
   layer: 'floating-dev',
   menuGroup: 'sandboxes',
   hideFooter: false,

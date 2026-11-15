@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Zap, Shield, History, CircleSlash2, FlipHorizontal2, Download, Info, Keyboard, Compass } from 'lucide-react';
+import { Zap, CircleSlash2, FlipHorizontal2, Download, Info, Compass } from 'lucide-react';
 import type { StandardSurfaceProps, SurfaceMeta } from '../manifest/surfaceMetaTypes';
 import {
   resolveCalibratedDefaultConfig,
@@ -263,8 +263,6 @@ export const Layer3TrainingConfigRecipe: React.FC<Layer3TrainingConfigRecipeProp
           {/* 3. Rewinder Configurator: Floating Window Spawner */}
           <FloatingWindowCard
             preset={REWINDER_CONFIGURATOR_PRESET}
-            icon={History}
-            iconColor="text-amber-500"
             bordered={false}
             showDescription={false}
             hoverTooltip="Free Play Only: Spawn the Rewinder Configurator floating window to record, scrub, rewind, and resume Free Play state history with hotkeys (O / P / [ / ] / G)."
@@ -321,8 +319,6 @@ export const Layer3TrainingConfigRecipe: React.FC<Layer3TrainingConfigRecipeProp
           {/* 6. Goal Barrier Configurator: Floating Window Spawner */}
           <FloatingWindowCard
             preset={GOAL_BARRIER_CONFIGURATOR_PRESET}
-            icon={Shield}
-            iconColor="text-sky-500"
             bordered={false}
             showDescription={false}
             hoverTooltip="Training Scope: Spawn the Goal Barrier Configurator floating window to draw custom barrier regions in Free Play, Static Training Pack, and Kickoff Training (automatically bypassed in Exhibition & Multiplayer)."
@@ -334,8 +330,6 @@ export const Layer3TrainingConfigRecipe: React.FC<Layer3TrainingConfigRecipeProp
           {/* 7. Keyboard Input Overlay: Floating Window Spawner */}
           <FloatingWindowCard
             preset={KEYBOARD_INPUT_OVERLAY_PRESET}
-            icon={Keyboard}
-            iconColor="text-emerald-400"
             bordered={false}
             showDescription={false}
             hoverTooltip="Training Scope: Spawn the resizable 3x3 Keyboard Input Overlay floating window (Q/W/E, A/S/D, Slide/Boost/Jump) with 3D camera-relative WASD attitude arrows."
