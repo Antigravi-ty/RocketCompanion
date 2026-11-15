@@ -157,6 +157,8 @@ export interface RuntimeMatchPort {
     replayId?: string;
     stateSummary?: Record<string, unknown>;
   }): void;
+  broadcastGlobalWorkspace?(options?: Record<string, unknown>): number;
+  setClientInputEnabled?(enabled: boolean): void;
   setClockPacingMode(mode: string): void;
   setClockPacingPriority(priority: string): void;
   setClockPacingParams(params: Record<string, unknown> | null): void;

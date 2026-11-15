@@ -27,6 +27,9 @@ export interface GlobalWorkspaceBroadcastPayload {
   playbackPaused: boolean;
   pausedAtTick: number;
   pauseHeartbeatHz: number;
+  clientInputEnabled: boolean;
+  followHostWorkspace: boolean;
+  arenaPreset?: 'standard' | 'throwback';
 }
 
 export function clampPauseHeartbeatHz(hz: number): number {
@@ -57,6 +60,13 @@ export function sanitizeGlobalWorkspaceBroadcast(
     }
   }
 
+  const arenaPreset =
+    src.arenaPreset === 'throwback'
+      ? 'throwback'
+      : src.arenaPreset === 'standard'
+        ? 'standard'
+        : undefined;
+
   return {
     epoch: typeof src.epoch === 'number' && Number.isFinite(src.epoch) ? src.epoch : 0,
     tick: typeof src.tick === 'number' && Number.isFinite(src.tick) ? src.tick : 0,
@@ -72,5 +82,9 @@ export function sanitizeGlobalWorkspaceBroadcast(
     pauseHeartbeatHz: clampPauseHeartbeatHz(
       typeof src.pauseHeartbeatHz === 'number' ? src.pauseHeartbeatHz : DEFAULT_PAUSE_HEARTBEAT_HZ
     ),
+    clientInputEnabled:
+      typeof src.clientInputEnabled === 'boolean' ? src.clientInputEnabled : true,
+    followHostWorkspace: Boolean(src.followHostWorkspace),
+    ...(arenaPreset !== undefined ? { arenaPreset } : {}),
   };
 }

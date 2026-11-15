@@ -1,5 +1,7 @@
 import {
   useAppStore,
+  buildHostWorkspaceBroadcastPayload,
+  syncClientInputEnabledUi,
   type HostOnlineWarmupPortOptions,
   type RuntimeCameraPort,
   type RuntimeMatchPort,
@@ -233,6 +235,23 @@ export function createRuntimeMatchPort(domain: OnlineMatchControlDomainPort): Ru
         replayId: opts.replayId,
         config: opts.stateSummary,
       });
+    },
+    broadcastGlobalWorkspace: (opts) => {
+      const payload = buildHostWorkspaceBroadcastPayload(opts as Record<string, unknown>);
+      if (!payload) return 0;
+      sessionCoordinator.authoritativeServer?.setClientInputEnabled?.(
+        Boolean(payload.clientInputEnabled)
+      );
+      return domain.multiplayerSession?.broadcastGlobalWorkspace?.(payload) ?? 0;
+    },
+    setClientInputEnabled: (enabled) => {
+      const next = Boolean(enabled);
+      syncClientInputEnabledUi(next);
+      sessionCoordinator.authoritativeServer?.setClientInputEnabled?.(next);
+      const payload = buildHostWorkspaceBroadcastPayload({ clientInputEnabled: next });
+      if (payload) {
+        domain.multiplayerSession?.broadcastGlobalWorkspace?.(payload);
+      }
     },
     setClockPacingMode: (pacingMode) => {
       getReconciler()?.setClockPacingMode?.(pacingMode);

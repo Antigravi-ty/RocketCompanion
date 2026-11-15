@@ -23,11 +23,14 @@ import type { LobbyGhostConfigOptions } from './LobbyGhostCarCoordinator.ts';
 import type { CarControlsInput } from '../protocol/GlobalPayloadCodec.ts';
 import type { ClientReliableCommand } from './match/MatchCommandQueueSubController.ts';
 import {
-  REPLICATION_MODES,
   type ActivityId,
   type ReplicationMode,
 } from '../protocol/ReplicationBusProtocol.ts';
 import { RoomActivityOrchestrator } from './RoomActivityOrchestrator.ts';
+import {
+  routeActivityAndInputMessage,
+  type ActivityAndInputPayload,
+} from './workerActivityAndInputRouter.ts';
 
 export type { WorkerRouterContext };
 
@@ -118,6 +121,7 @@ export interface WorkerProtocolPayload
   prepareOnly?: boolean;
   entityId?: number;
   controls?: CarControlsInput;
+  clientInputEnabled?: boolean;
 }
 
 export interface WorkerProtocolIncomingMessage extends WorkerProtocolPayload {
@@ -398,87 +402,14 @@ export function routeProtocolMessageInWorker(
       return true;
     }
 
-    case MSG.ROOM_ACTIVITY_SWITCH: {
-      const orch = workerCtx.orchestrator ?? new RoomActivityOrchestrator();
-      workerCtx.orchestrator = orch;
-      const switched = orch.switchActivity(
-        {
-          activityId: typeof p.activityId === 'string' ? p.activityId : 'freeplay',
-          seed: typeof p.seed === 'number' ? p.seed : undefined,
-          replicationMode:
-            p.replicationMode === REPLICATION_MODES.SPARSE
-              ? REPLICATION_MODES.SPARSE
-              : p.replicationMode === REPLICATION_MODES.CONTINUOUS
-                ? REPLICATION_MODES.CONTINUOUS
-                : undefined,
-          authorityMask:
-            p.authorityMask && typeof p.authorityMask === 'object'
-              ? (p.authorityMask as Record<string, string>)
-              : undefined,
-          stateSummary:
-            p.stateSummary && typeof p.stateSummary === 'object'
-              ? (p.stateSummary as Record<string, unknown>)
-              : null,
-          followHostEnabled: Boolean(p.followHostEnabled),
-        },
-        {
-          matchManager,
-          physicsManager,
-          epoch: orch.getEpoch(),
-        }
-      );
-      reply(MSG.ROOM_ACTIVITY_SWITCH, switched);
-      syncRoomState();
-      return true;
-    }
-
-    case MSG.REPLICATION_MODE_SET: {
-      const orch = workerCtx.orchestrator ?? new RoomActivityOrchestrator();
-      workerCtx.orchestrator = orch;
-      const mode =
-        p.replicationMode === REPLICATION_MODES.SPARSE
-          ? REPLICATION_MODES.SPARSE
-          : REPLICATION_MODES.CONTINUOUS;
-      orch.setReplicationMode(mode);
-      reply(MSG.REPLICATION_MODE_SET, {
-        replicationMode: mode,
-        epoch: orch.getEpoch(),
-        packetFlags: orch.getActivePacketFlags(),
-      });
-      return true;
-    }
-
-    case MSG.STATE_PAUSED_ACK: {
-      const orch = workerCtx.orchestrator;
-      if (orch) {
-        const accepted = orch.recordStatePausedAck({
-          epoch: typeof p.epoch === 'number' ? p.epoch : orch.getEpoch(),
-          pausedAtTick: typeof p.pausedAtTick === 'number' ? p.pausedAtTick : 0,
-          clientSessionId: p.channelId || p.sessionId,
-        });
-        reply(MSG.STATE_PAUSED_ACK, {
-          accepted,
-          epoch: orch.getEpoch(),
-          pausedAckCount: orch.getPausedAckCount(),
-        });
-      }
-      return true;
-    }
-
-    case MSG.ROOM_CSR_STATE_BROADCAST: {
-      const orch = workerCtx.orchestrator ?? new RoomActivityOrchestrator();
-      workerCtx.orchestrator = orch;
-      const csr = orch.buildCsrBroadcast(
-        { matchManager, physicsManager, epoch: orch.getEpoch() },
-        Boolean(p.followHostEnabled),
-        typeof p.cameraMode === 'string' ? p.cameraMode : undefined
-      );
-      reply(MSG.ROOM_CSR_STATE_BROADCAST, csr);
-      return true;
-    }
-
     default:
-      return false;
+      return routeActivityAndInputMessage(
+        workerCtx,
+        type,
+        p as ActivityAndInputPayload,
+        reply,
+        syncRoomState
+      );
   }
 }
 

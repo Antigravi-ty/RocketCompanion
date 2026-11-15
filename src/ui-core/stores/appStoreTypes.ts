@@ -152,6 +152,7 @@ export interface AppState {
     gameMode?: '1v1' | '2v2' | '3v3';
     botFillMode?: 'no_bots' | 'auto_fill' | 'bots_vs_humans' | 'custom';
     matchDurationSeconds?: number;
+    activeRoomActivity?: string;
     localTeam?: 'blue' | 'neutral' | 'orange';
     isReady?: boolean;
     pendingPairingRequests?: {
@@ -221,6 +222,14 @@ export interface AppState {
     onVoteSkipReplay?: () => void;
     onVoteRematch?: (ready: boolean) => void;
     onSwitchOnlineRoleTeam?: (role: 'player' | 'spectator', team: number) => void;
+    onSwitchRoomActivity?: (opts: {
+      activityId: string;
+      trainingPackId?: string;
+      replayId?: string;
+      stateSummary?: Record<string, unknown>;
+    }) => void;
+    onBroadcastGlobalWorkspace?: (opts?: Record<string, unknown>) => number;
+    onSetClientInputEnabled?: (enabled: boolean) => void;
     onReturnToOnlineLobby?: () => Promise<void> | void;
     onPauseOnlineMatch?: (pause: boolean, resumeCountdownSeconds?: number) => void;
     onResetBall?: () => void;

@@ -9,6 +9,7 @@ import {
   attachVoiceToPeerChannel,
   detachVoiceFromPeer,
   applyIncomingWorkspaceBroadcast,
+  resetSpectateWorkspaceOnLeave,
 } from '../runtimeUiPort.ts';
 import { BallTrajectoryPredictor } from '../../entities/BallTrajectoryPredictor.ts';
 import { bindBallTrajectoryAnomalyUiBridge } from '../../entities/trajectory/ballTrajectoryAnomalyUiBridge.ts';
@@ -254,6 +255,7 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
     },
     async onLeaveServer() {
       detachVoiceFromPeer('*');
+      resetSpectateWorkspaceOnLeave();
       await sessionCoordinator.stopOnlineServer();
     },
     async onJoinServer(opts: JoinRoomSettings) {
@@ -271,7 +273,15 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
           onGlobalWorkspaceBroadcast?: ((msg: Record<string, unknown>) => void) | null;
         };
         ch.onGlobalWorkspaceBroadcast = (msg) => {
-          applyIncomingWorkspaceBroadcast(msg);
+          const payload = applyIncomingWorkspaceBroadcast(msg);
+          const reconciler = (
+            sessionCoordinator as {
+              networkReconciler?: { setClientInputEnabled?: (enabled: boolean) => void } | null;
+            }
+          ).networkReconciler;
+          if (payload && typeof payload.clientInputEnabled === 'boolean') {
+            reconciler?.setClientInputEnabled?.(payload.clientInputEnabled);
+          }
         };
       }
     },

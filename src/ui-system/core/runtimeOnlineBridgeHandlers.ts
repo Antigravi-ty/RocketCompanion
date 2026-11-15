@@ -256,6 +256,19 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
     onVoteSkipReplay: replayPort.voteOrSkipReplay.bind(replayPort),
     onVoteRematch: matchPort.voteRematch.bind(matchPort),
     onSwitchOnlineRoleTeam: matchPort.switchOnlineRoleOrTeam.bind(matchPort),
+    onSwitchRoomActivity: (opts: {
+      activityId: string;
+      trainingPackId?: string;
+      replayId?: string;
+      stateSummary?: Record<string, unknown>;
+    }) => {
+      matchPort.switchRoomActivity?.(opts);
+    },
+    onBroadcastGlobalWorkspace: (opts?: Record<string, unknown>) =>
+      matchPort.broadcastGlobalWorkspace?.(opts) ?? 0,
+    onSetClientInputEnabled: (enabled: boolean) => {
+      matchPort.setClientInputEnabled?.(enabled);
+    },
     onClockPacingModeChange: matchPort.setClockPacingMode.bind(matchPort),
     onClockPacingPriorityChange: matchPort.setClockPacingPriority.bind(matchPort),
     onClockPacingParamsChange(params: ClockPacingParams) {

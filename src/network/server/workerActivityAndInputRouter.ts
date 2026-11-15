@@ -1,0 +1,121 @@
+import { HOST_WORKER_MSG_TYPES as MSG } from '../protocol/HostWorkerProtocol.ts';
+import { REPLICATION_MODES } from '../protocol/ReplicationBusProtocol.ts';
+import { RoomActivityOrchestrator } from './RoomActivityOrchestrator.ts';
+import type { WorkerRouterContext } from './workerReplayAndDiagnosticsRouter.ts';
+
+export interface ActivityAndInputPayload {
+  activityId?: string;
+  seed?: number;
+  replicationMode?: string;
+  authorityMask?: Record<string, string>;
+  stateSummary?: Record<string, unknown> | null;
+  followHostEnabled?: boolean;
+  clientInputEnabled?: boolean;
+  epoch?: number;
+  pausedAtTick?: number;
+  channelId?: string;
+  sessionId?: string;
+  cameraMode?: string;
+}
+
+export function routeActivityAndInputMessage(
+  workerCtx: WorkerRouterContext,
+  type: string,
+  p: ActivityAndInputPayload,
+  reply: (replyType: string, replyPayload: unknown, transfer?: Transferable[]) => void,
+  syncRoomState: () => void
+): boolean {
+  const { matchManager, physicsManager, dataHandler } = workerCtx;
+
+  switch (type) {
+    case MSG.ROOM_ACTIVITY_SWITCH: {
+      const orch = workerCtx.orchestrator ?? new RoomActivityOrchestrator();
+      workerCtx.orchestrator = orch;
+      const switched = orch.switchActivity(
+        {
+          activityId: typeof p.activityId === 'string' ? p.activityId : 'freeplay',
+          seed: typeof p.seed === 'number' ? p.seed : undefined,
+          replicationMode:
+            p.replicationMode === REPLICATION_MODES.SPARSE
+              ? REPLICATION_MODES.SPARSE
+              : p.replicationMode === REPLICATION_MODES.CONTINUOUS
+                ? REPLICATION_MODES.CONTINUOUS
+                : undefined,
+          authorityMask:
+            p.authorityMask && typeof p.authorityMask === 'object'
+              ? p.authorityMask
+              : undefined,
+          stateSummary:
+            p.stateSummary && typeof p.stateSummary === 'object' ? p.stateSummary : null,
+          followHostEnabled: Boolean(p.followHostEnabled),
+        },
+        {
+          matchManager,
+          physicsManager,
+          epoch: orch.getEpoch(),
+        }
+      );
+      reply(MSG.ROOM_ACTIVITY_SWITCH, switched);
+      if (typeof p.clientInputEnabled === 'boolean') {
+        dataHandler?.setClientInputEnabled?.(p.clientInputEnabled);
+      }
+      syncRoomState();
+      return true;
+    }
+
+    case MSG.SET_CLIENT_INPUT_ENABLED: {
+      const enabled = Boolean(p.clientInputEnabled);
+      dataHandler?.setClientInputEnabled?.(enabled);
+      reply(MSG.SET_CLIENT_INPUT_ENABLED, { clientInputEnabled: enabled });
+      return true;
+    }
+
+    case MSG.REPLICATION_MODE_SET: {
+      const orch = workerCtx.orchestrator ?? new RoomActivityOrchestrator();
+      workerCtx.orchestrator = orch;
+      const mode =
+        p.replicationMode === REPLICATION_MODES.SPARSE
+          ? REPLICATION_MODES.SPARSE
+          : REPLICATION_MODES.CONTINUOUS;
+      orch.setReplicationMode(mode);
+      reply(MSG.REPLICATION_MODE_SET, {
+        replicationMode: mode,
+        epoch: orch.getEpoch(),
+        packetFlags: orch.getActivePacketFlags(),
+      });
+      return true;
+    }
+
+    case MSG.STATE_PAUSED_ACK: {
+      const orch = workerCtx.orchestrator;
+      if (orch) {
+        const accepted = orch.recordStatePausedAck({
+          epoch: typeof p.epoch === 'number' ? p.epoch : orch.getEpoch(),
+          pausedAtTick: typeof p.pausedAtTick === 'number' ? p.pausedAtTick : 0,
+          clientSessionId: p.channelId || p.sessionId,
+        });
+        reply(MSG.STATE_PAUSED_ACK, {
+          accepted,
+          epoch: orch.getEpoch(),
+          pausedAckCount: orch.getPausedAckCount(),
+        });
+      }
+      return true;
+    }
+
+    case MSG.ROOM_CSR_STATE_BROADCAST: {
+      const orch = workerCtx.orchestrator ?? new RoomActivityOrchestrator();
+      workerCtx.orchestrator = orch;
+      const csr = orch.buildCsrBroadcast(
+        { matchManager, physicsManager, epoch: orch.getEpoch() },
+        Boolean(p.followHostEnabled),
+        typeof p.cameraMode === 'string' ? p.cameraMode : undefined
+      );
+      reply(MSG.ROOM_CSR_STATE_BROADCAST, csr);
+      return true;
+    }
+
+    default:
+      return false;
+  }
+}

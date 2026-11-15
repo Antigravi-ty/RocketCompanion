@@ -58,6 +58,7 @@ export interface ReconcileSessionTarget extends RollbackStepState {
   localCarIndex: number;
   lobbyDualWorldMode: boolean;
   hostLobbyMode: boolean;
+  clientInputEnabled?: boolean;
   replayPlaybackMode: boolean;
   kickoffMaskUntilTick: number;
   redundantHistoryCount: number;
@@ -172,7 +173,8 @@ export function commitPredictedLocalStep(
   const currentTick = Math.floor(sim.getHeaderView!().tickCount);
   const isKickoffMasked =
     session.kickoffMaskUntilTick > 0 && currentTick < session.kickoffMaskUntilTick;
-  const committed = isKickoffMasked
+  const isInputGated = session.clientInputEnabled === false || isKickoffMasked;
+  const committed = isInputGated
     ? historyBuffer.setCarControls(currentTick, carIndex, session.neutralControls)
     : historyBuffer.getCarControls(currentTick, carIndex) ||
       historyBuffer.setCarControls(currentTick, carIndex, controls);

@@ -1,7 +1,12 @@
 import type { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
 import type { PodiumCelebrationController } from '../modes/PodiumCelebrationController.ts';
 import type { ReplayTimelineController } from '../../replay/ReplayTimelineController.ts';
-import { hudStore, useAppStore } from '../runtimeUiPort.ts';
+import {
+  hudStore,
+  useAppStore,
+  syncArenaPresetUi,
+  syncClientInputEnabledUi,
+} from '../runtimeUiPort.ts';
 import type { NetworkDiagnosticsProbe } from './NetworkDiagnosticsProbe.ts';
 import type {
   OnlineLobbyDualWorldController,
@@ -304,23 +309,35 @@ export function createOnlineSessionBridgePort(
     syncHostLobbyNotification: () => getRosterSyncCoordinator().syncHostLobbyOngoingNotification(),
     applyClientRoomActivitySwitch: (reconciler, payload) => {
       const activityId = typeof payload.activityId === 'string' ? payload.activityId : 'freeplay';
-      const mode = typeof payload.mode === 'string' ? payload.mode : activityId;
       reconciler.setReplayPlaybackMode(activityId === 'replay');
+      // Client in an online/CSR room has no local .RCDPack / .RCSPack / .RCReplay files
+      // and must not trigger local BotMatchMode AI via setMode('match') or setMatchMode('match').
+      // Keep GameModeManager in the lightweight 'freeplay' CSR-receiving shell driven by Host SNAPSHOT + stateSummary.
       if (ctx.modeManager) {
-        const targetMode =
-          activityId === 'match' || mode === 'match'
-            ? 'match'
-            : activityId === 'multiplayer_training'
-              ? 'training'
-              : activityId === 'replay'
-                ? 'replay'
-                : 'freeplay';
-        ctx.modeManager.setMode(targetMode);
+        const activeId = ctx.modeManager.getActiveMode?.()?.id;
+        if (activeId !== 'freeplay') {
+          ctx.modeManager.setMode('freeplay');
+        }
       }
       const store = useAppStore.getState();
       store.setOnlineSession?.({ activeRoomActivity: activityId });
-      if (activityId === 'match' || mode === 'match') {
-        store.setMatchMode?.('match');
+      const cfg =
+        payload.config && typeof payload.config === 'object'
+          ? (payload.config as Record<string, unknown>)
+          : null;
+      const arenaPreset =
+        payload.arenaPreset === 'throwback' || cfg?.arenaPreset === 'throwback'
+          ? 'throwback'
+          : payload.arenaPreset === 'standard' || cfg?.arenaPreset === 'standard'
+            ? 'standard'
+            : null;
+      if (arenaPreset) {
+        store.updateUnderDevelopment?.({ stadiumPreset: arenaPreset });
+        syncArenaPresetUi(arenaPreset);
+      }
+      if (typeof payload.clientInputEnabled === 'boolean') {
+        reconciler.setClientInputEnabled(payload.clientInputEnabled);
+        syncClientInputEnabledUi(payload.clientInputEnabled);
       }
     },
   };

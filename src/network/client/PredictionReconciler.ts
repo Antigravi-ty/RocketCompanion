@@ -115,6 +115,7 @@ export class PredictionReconciler
   boostPadEdgeTracker = createBoostPadEdgeTracker();
   lobbyDualWorldMode = false;
   hostLobbyMode = false;
+  clientInputEnabled = true;
   replayPlaybackMode = false;
   localSkipReplayReady = false;
   lobbyPrevAuthoritativeState: Float32Array | null = null;
@@ -241,6 +242,10 @@ export class PredictionReconciler
     }
     if (this.replayPlaybackMode && !next) this.resetTimelineState();
     this.replayPlaybackMode = next;
+  }
+
+  setClientInputEnabled(enabled: boolean): void {
+    this.clientInputEnabled = Boolean(enabled);
   }
 
   resetTimelineState(preserveTimelineSync = false): void {

@@ -110,6 +110,10 @@ const _handlers: Record<string, PortHandlerFn | null> = {
   detachVoiceFromPeer: null,
   setVoicePeerTeam: null,
   applyIncomingWorkspaceBroadcast: null,
+  buildHostWorkspaceBroadcastPayload: null,
+  resetSpectateWorkspaceOnLeave: null,
+  syncClientInputEnabledUi: null,
+  syncArenaPresetUi: null,
 };
 
 export function bindRuntimeUiPort(port: Record<string, unknown> = {}): void {
@@ -331,6 +335,25 @@ export function detachVoiceFromPeer(peerId: string): void {
 export function setVoicePeerTeam(peerId: string, team: number | null): void {
   _handlers.setVoicePeerTeam?.(peerId, team);
 }
-export function applyIncomingWorkspaceBroadcast(raw: Record<string, unknown>): void {
-  _handlers.applyIncomingWorkspaceBroadcast?.(raw);
+export function applyIncomingWorkspaceBroadcast(
+  raw: Record<string, unknown>
+): Record<string, unknown> | null {
+  return (_handlers.applyIncomingWorkspaceBroadcast?.(raw) as Record<string, unknown> | null) ?? null;
+}
+export function buildHostWorkspaceBroadcastPayload(
+  meta?: Record<string, unknown>
+): Record<string, unknown> | null {
+  return (
+    (_handlers.buildHostWorkspaceBroadcastPayload?.(meta) as Record<string, unknown> | null) ??
+    null
+  );
+}
+export function resetSpectateWorkspaceOnLeave(): void {
+  _handlers.resetSpectateWorkspaceOnLeave?.();
+}
+export function syncClientInputEnabledUi(enabled: boolean): void {
+  _handlers.syncClientInputEnabledUi?.(enabled);
+}
+export function syncArenaPresetUi(preset: 'standard' | 'throwback'): void {
+  _handlers.syncArenaPresetUi?.(preset);
 }

@@ -18,6 +18,9 @@ export interface GlobalWorkspaceStateInput {
   playbackPaused: boolean;
   pausedAtTick: number;
   pauseHeartbeatHz?: number;
+  clientInputEnabled?: boolean;
+  followHostWorkspace?: boolean;
+  arenaPreset?: 'standard' | 'throwback';
 }
 
 export interface SpectateWorkspaceStoreState {
@@ -25,6 +28,9 @@ export interface SpectateWorkspaceStoreState {
   spectateMode: SpectateMode;
   isReadOnlyLocked: boolean;
   telestratorPermission: TelestratorDrawPermission;
+  clientInputEnabled: boolean;
+  followHostWorkspace: boolean;
+  arenaPreset: 'standard' | 'throwback';
   hostMenuRoute: string | null;
   hostFloatingWindows: FloatingWindowSyncEntry[];
   playbackPaused: boolean;
@@ -46,9 +52,13 @@ export interface SpectateWorkspaceStoreState {
     applyWorkspaceState?: (menuRoute: string | null, windows: FloatingWindowSyncEntry[]) => void
   ) => void;
   setTelestratorPermission: (permission: TelestratorDrawPermission) => void;
+  setClientInputEnabled: (enabled: boolean) => void;
+  setFollowHostWorkspace: (follow: boolean) => void;
+  setArenaPreset: (preset: 'standard' | 'throwback') => void;
   applyHostWorkspaceBroadcast: (
     payload: GlobalWorkspaceStateInput,
-    applyWorkspaceState?: (menuRoute: string | null, windows: FloatingWindowSyncEntry[]) => void
+    applyWorkspaceState?: (menuRoute: string | null, windows: FloatingWindowSyncEntry[]) => void,
+    captureLocalState?: () => { menuRoute: string | null; windows: FloatingWindowSyncEntry[] }
   ) => void;
 }
 
@@ -57,6 +67,9 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
   spectateMode: 'spectate_state_only',
   isReadOnlyLocked: false,
   telestratorPermission: 'host_only',
+  clientInputEnabled: true,
+  followHostWorkspace: false,
+  arenaPreset: 'standard',
   hostMenuRoute: null,
   hostFloatingWindows: [],
   playbackPaused: false,
@@ -129,11 +142,88 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
     set({ telestratorPermission: permission === 'everyone' ? 'everyone' : 'host_only' });
   },
 
-  applyHostWorkspaceBroadcast: (payload, applyWorkspaceState) => {
+  setClientInputEnabled: (enabled) => {
+    set({ clientInputEnabled: Boolean(enabled) });
+  },
+
+  setFollowHostWorkspace: (follow) => {
+    set({ followHostWorkspace: Boolean(follow) });
+  },
+
+  setArenaPreset: (preset) => {
+    set({ arenaPreset: preset === 'throwback' ? 'throwback' : 'standard' });
+  },
+
+  applyHostWorkspaceBroadcast: (payload, applyWorkspaceState, captureLocalState) => {
     const s = get();
     const nextWindows = payload.openFloatingWindows.map((w) => ({ ...w }));
+    const nextClientInputEnabled =
+      typeof payload.clientInputEnabled === 'boolean'
+        ? payload.clientInputEnabled
+        : s.clientInputEnabled;
+    const nextFollowHostWorkspace =
+      typeof payload.followHostWorkspace === 'boolean'
+        ? payload.followHostWorkspace
+        : s.followHostWorkspace;
+    const nextArenaPreset =
+      payload.arenaPreset === 'throwback'
+        ? 'throwback'
+        : payload.arenaPreset === 'standard'
+          ? 'standard'
+          : s.arenaPreset;
+
+    if (nextFollowHostWorkspace) {
+      const snapshot =
+        s.localSnapshotBeforeMirror ?? (captureLocalState ? captureLocalState() : null);
+      set({
+        isSpectating: true,
+        spectateMode: 'spectate_mirror',
+        isReadOnlyLocked: true,
+        localSnapshotBeforeMirror: snapshot,
+        telestratorPermission: payload.telestratorPermission,
+        clientInputEnabled: nextClientInputEnabled,
+        followHostWorkspace: true,
+        arenaPreset: nextArenaPreset,
+        hostMenuRoute: payload.menuRoute,
+        hostFloatingWindows: nextWindows,
+        playbackPaused: payload.playbackPaused,
+        pausedAtTick: payload.pausedAtTick,
+        pauseHeartbeatHz: payload.pauseHeartbeatHz ?? s.pauseHeartbeatHz,
+      });
+      applyWorkspaceState?.(payload.menuRoute, nextWindows);
+      return;
+    }
+
+    if (s.followHostWorkspace && !nextFollowHostWorkspace) {
+      if (s.localSnapshotBeforeMirror && applyWorkspaceState) {
+        applyWorkspaceState(
+          s.localSnapshotBeforeMirror.menuRoute,
+          s.localSnapshotBeforeMirror.windows
+        );
+      }
+      set({
+        isSpectating: false,
+        spectateMode: 'spectate_state_only',
+        isReadOnlyLocked: false,
+        localSnapshotBeforeMirror: null,
+        telestratorPermission: payload.telestratorPermission,
+        clientInputEnabled: nextClientInputEnabled,
+        followHostWorkspace: false,
+        arenaPreset: nextArenaPreset,
+        hostMenuRoute: payload.menuRoute,
+        hostFloatingWindows: nextWindows,
+        playbackPaused: payload.playbackPaused,
+        pausedAtTick: payload.pausedAtTick,
+        pauseHeartbeatHz: payload.pauseHeartbeatHz ?? s.pauseHeartbeatHz,
+      });
+      return;
+    }
+
     set({
       telestratorPermission: payload.telestratorPermission,
+      clientInputEnabled: nextClientInputEnabled,
+      followHostWorkspace: nextFollowHostWorkspace,
+      arenaPreset: nextArenaPreset,
       hostMenuRoute: payload.menuRoute,
       hostFloatingWindows: nextWindows,
       playbackPaused: payload.playbackPaused,

@@ -273,6 +273,10 @@ export class AuthoritativeServerHost {
     this._postCommand(MSG.ROOM_CSR_STATE_BROADCAST, { followHostEnabled, cameraMode });
   }
 
+  setClientInputEnabled(enabled: boolean): void {
+    this._postCommand(MSG.SET_CLIENT_INPUT_ENABLED, { clientInputEnabled: Boolean(enabled) });
+  }
+
   enterStateOnlyMode(s?: Float32Array | number[] | null, cursorTick?: number): void {
     this._postCommand('enterStateOnlyMode', {
       stateSnapshot: s ? Array.from<number>(s) : null,

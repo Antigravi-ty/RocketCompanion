@@ -426,6 +426,22 @@ export const TELESTRATOR_TOOLBAR_PRESET: PresetConfig = makeDevPreset({
   component: 'TelestratorToolbarFloatingWindow',
 });
 
+export const DEV_ROOM_SYNC_PRESET: PresetConfig = makeDevPreset({
+  id: 'dev-room-sync',
+  title: 'Developer Sync Room',
+  category: 'DevRoomSync',
+  iconName: 'users-round-collaboration',
+  iconColor: 'text-emerald-500 dark:text-emerald-400',
+  width: 440,
+  minWidth: 360,
+  height: 480,
+  minHeight: 280,
+  summary:
+    'Pure CSR Sync All host control panel: room status, workspace mirroring, client input gating, telestrator permissions, and arena preset sync.',
+  menuEntryPath: DEV_ENTRY_PATHS.SANDBOXES,
+  component: 'DevRoomSyncFloatingWindow',
+});
+
 export const DEV_PRESET_WINDOWS: PresetConfig[] = [
   DIAGNOSTIC_DUMP_PRESET,
   KEYBOARD_INPUT_OVERLAY_TUNER_PRESET,
@@ -458,6 +474,7 @@ export const DEV_PRESET_WINDOWS: PresetConfig[] = [
   REPLAY_TO_RCS_IMPORTER_PRESET,
   DYNAMIC_TRAINING_PACK_PRESET,
   TELESTRATOR_TOOLBAR_PRESET,
+  DEV_ROOM_SYNC_PRESET,
 ];
 
 export const PRESET_WINDOWS: PresetConfig[] = [

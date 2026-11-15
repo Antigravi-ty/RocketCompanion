@@ -30,6 +30,7 @@ export class NetworkDataHandler {
   sessionManager: EstablishedSessionManager | null;
   physicsManager: PhysicsEngineManager | null;
   channels: Map<string, NetworkTransportChannel>;
+  clientInputEnabled = true;
   interceptors: Array<
     (
       channelId: string,
@@ -45,6 +46,10 @@ export class NetworkDataHandler {
 
     this.channels = new Map();
     this.interceptors = [];
+  }
+
+  setClientInputEnabled(enabled: boolean): void {
+    this.clientInputEnabled = Boolean(enabled);
   }
 
   registerChannel(channelId: string, channel: NetworkTransportChannel): void {
@@ -171,6 +176,10 @@ export class NetworkDataHandler {
     if (hasValidInput && inputHistory && this.physicsManager) {
       const targetEntityId = session.entityId >= 0 ? session.entityId : (decoded?.carIndex ?? 0);
       const isBotChannel = channelId === 'bot' || String(channelId || '').startsWith('bot_');
+      const isHostChannel = channelId === 'host';
+      if (!this.clientInputEnabled && !isHostChannel && !isBotChannel) {
+        return;
+      }
       this.physicsManager.pushRedundantInputs(targetEntityId, inputHistory);
       if (isBotChannel) {
         const latestCtrl = inputHistory[inputHistory.length - 1]?.controls;

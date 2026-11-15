@@ -1,4 +1,5 @@
 import { useAppStore } from '../../ui-core/stores/appStore.ts';
+import { PRESET_WINDOWS } from '../../ui-core/stores/devFloatingPresets.ts';
 import { floatingStore } from '../../ui-core/stores/floatingStore.ts';
 import {
   useSpectateWorkspaceStore,
@@ -52,12 +53,14 @@ export function applyWorkspaceStateLocally(
         floatingStore.restoreWindow(entry.id);
       }
     } else {
+      const preset = PRESET_WINDOWS.find((p) => p.id === entry.id);
       floatingStore.spawnWindow({
         id: entry.id,
-        title: entry.id,
+        title: preset?.title ?? entry.id,
+        category: preset?.category,
         position: { x: 48 + desiredOpenIds.size * 24, y: 48 + desiredOpenIds.size * 24 },
-        width: 340,
-        height: 260,
+        width: preset?.width ?? 340,
+        height: preset?.height ?? 260,
         startMinimized: entry.isMinimized,
       });
     }
@@ -70,11 +73,39 @@ export function applyWorkspaceStateLocally(
   }
 }
 
-export function applyIncomingWorkspaceBroadcast(raw: Record<string, unknown>): void {
+export function resetSpectateWorkspaceOnLeave(): void {
+  const ws = useSpectateWorkspaceStore.getState();
+  ws.setSpectatingActive(false, undefined, applyWorkspaceStateLocally);
+  ws.setFollowHostWorkspace(false);
+  ws.setClientInputEnabled(true);
+}
+
+export function syncClientInputEnabledUi(enabled: boolean): void {
+  useSpectateWorkspaceStore.getState().setClientInputEnabled(enabled);
+}
+
+export function syncArenaPresetUi(preset: 'standard' | 'throwback'): void {
+  useSpectateWorkspaceStore.getState().setArenaPreset(preset);
+}
+
+export function applyIncomingWorkspaceBroadcast(
+  raw: Record<string, unknown>
+): GlobalWorkspaceBroadcastPayload {
   const sanitized = sanitizeGlobalWorkspaceBroadcast(raw);
   useSpectateWorkspaceStore
     .getState()
-    .applyHostWorkspaceBroadcast(sanitized, applyWorkspaceStateLocally);
+    .applyHostWorkspaceBroadcast(
+      sanitized,
+      applyWorkspaceStateLocally,
+      captureLocalWorkspaceState
+    );
+  if (sanitized.arenaPreset) {
+    const app = useAppStore.getState();
+    if (app.underDevelopment?.stadiumPreset !== sanitized.arenaPreset) {
+      app.updateUnderDevelopment?.({ stadiumPreset: sanitized.arenaPreset });
+    }
+  }
+  return sanitized;
 }
 
 export function buildHostWorkspaceBroadcastPayload(meta?: {
@@ -83,9 +114,16 @@ export function buildHostWorkspaceBroadcastPayload(meta?: {
   playbackPaused?: boolean;
   pausedAtTick?: number;
   pauseHeartbeatHz?: number;
+  clientInputEnabled?: boolean;
+  followHostWorkspace?: boolean;
+  arenaPreset?: 'standard' | 'throwback';
 }): GlobalWorkspaceBroadcastPayload {
   const local = captureLocalWorkspaceState();
   const ws = useSpectateWorkspaceStore.getState();
+  const app = useAppStore.getState();
+  const currentArenaPreset =
+    meta?.arenaPreset ??
+    (app.underDevelopment?.stadiumPreset === 'throwback' ? 'throwback' : ws.arenaPreset);
   return sanitizeGlobalWorkspaceBroadcast({
     epoch: meta?.epoch ?? 0,
     tick: meta?.tick ?? 0,
@@ -95,5 +133,8 @@ export function buildHostWorkspaceBroadcastPayload(meta?: {
     playbackPaused: meta?.playbackPaused ?? ws.playbackPaused,
     pausedAtTick: meta?.pausedAtTick ?? ws.pausedAtTick,
     pauseHeartbeatHz: meta?.pauseHeartbeatHz ?? ws.pauseHeartbeatHz,
+    clientInputEnabled: meta?.clientInputEnabled ?? ws.clientInputEnabled,
+    followHostWorkspace: meta?.followHostWorkspace ?? ws.followHostWorkspace,
+    arenaPreset: currentArenaPreset,
   });
 }

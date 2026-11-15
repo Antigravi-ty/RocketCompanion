@@ -5,6 +5,7 @@ import {
   FlagTriangleRight,
   Info,
   Play,
+  Radio,
   RotateCcw,
   Triangle,
 } from 'lucide-react';
@@ -14,6 +15,10 @@ import { ToggleSwitch } from '../primitives/ToggleSwitch';
 import { SettingActionRow } from '../compounds/SettingActionRow';
 import { SettingToggleRow } from '../compounds/SettingToggleRow';
 import { useAppStore } from '../stores/appStore';
+import { floatingStore } from '../stores/floatingStore';
+import { DEV_ROOM_SYNC_PRESET } from '../stores/devFloatingPresets';
+import { useSpectateWorkspaceStore } from '../stores/spectateWorkspaceStore';
+import { generateRandomRoomCode } from '../config/roomCodeConnectivityCodec';
 import { useMenuLayoutStore } from '../stores/menuLayoutStore';
 import { useSettingActionRowStore } from '../stores/settingRowStore';
 import { useScopedStore } from '../stores/storeSnapshotScope';
@@ -322,6 +327,76 @@ export const Layer3DevUnderDevelopmentRecipe: React.FC<
             onUpdateCarBoostCfg={handleUpdateCarBoostCfg}
             onHover={setHoveredDesc}
             isLight={isLight}
+          />
+
+          {/* 5. Developer Sync Room (Pure CSR) */}
+          <SettingActionRow
+            icon={Radio}
+            iconName="users-round-collaboration"
+            iconColor="text-emerald-400"
+            title="Developer Sync Room (Pure CSR)"
+            bordered={false}
+            showDescription={false}
+            hoverDescription="Host a Pure CSR Sync All room: mirrors Host workspace, gates Client driving input, and opens DevRoomSyncFloatingWindow."
+            onAction={() => {
+              floatingStore.spawnWindow(DEV_ROOM_SYNC_PRESET);
+            }}
+            onHover={setHoveredDesc}
+            onLeave={() => setHoveredDesc(null)}
+            isLight={isLight}
+            rightSlot={
+              <button
+                type="button"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  const ws = useSpectateWorkspaceStore.getState();
+                  ws.setFollowHostWorkspace(true);
+                  ws.setClientInputEnabled(false);
+                  ws.setArenaPreset(stadiumPreset);
+                  floatingStore.spawnWindow(DEV_ROOM_SYNC_PRESET);
+                  const appState = useAppStore.getState();
+                  const roomId = appState.onlineSession?.roomId || generateRandomRoomCode();
+                  const playerName = appState.onlineSession?.playerName || 'Host';
+                  const ok = await appState.bridge.onHostOnlineWarmup?.({
+                    roomId,
+                    playerName,
+                    roomType: 'warmup',
+                    gameMode: '1v1',
+                    botFillMode: 'no_bots',
+                  });
+                  if (ok) {
+                    appState.bridge.onSetClientInputEnabled?.(false);
+                    appState.bridge.onBroadcastGlobalWorkspace?.({
+                      clientInputEnabled: false,
+                      followHostWorkspace: true,
+                      arenaPreset: stadiumPreset,
+                    });
+                  }
+                }}
+                style={{
+                  fontSize: `${buttonFontSize}px`,
+                  paddingLeft: `${buttonPaddingX}px`,
+                  paddingRight: `${buttonPaddingX}px`,
+                  paddingTop: `${buttonPaddingY}px`,
+                  paddingBottom: `${buttonPaddingY}px`,
+                  borderRadius: `${Math.max(0, buttonRadius)}px`,
+                }}
+                className={`shrink-0 font-semibold border transition-all duration-150 cursor-pointer inline-flex items-center gap-1.5 leading-tight active:scale-95 whitespace-nowrap ${
+                  isLight
+                    ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-800'
+                    : 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/40 text-emerald-300'
+                }`}
+              >
+                <Radio
+                  style={{
+                    width: `${Math.max(11, buttonFontSize)}px`,
+                    height: `${Math.max(11, buttonFontSize)}px`,
+                  }}
+                  className="shrink-0"
+                />
+                <span>Create Developer Sync Room</span>
+              </button>
+            }
           />
         </div>
       </PanelContent>

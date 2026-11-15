@@ -184,6 +184,9 @@ export class RoomActivityOrchestrator {
     openFloatingWindows: FloatingWindowSyncEntry[];
     playbackPaused: boolean;
     pausedAtTick?: number;
+    clientInputEnabled?: boolean;
+    followHostWorkspace?: boolean;
+    arenaPreset?: 'standard' | 'throwback';
   }): GlobalWorkspaceBroadcastPayload {
     return {
       epoch: this.epoch,
@@ -198,6 +201,9 @@ export class RoomActivityOrchestrator {
       playbackPaused: Boolean(params.playbackPaused),
       pausedAtTick: params.pausedAtTick ?? params.tick,
       pauseHeartbeatHz: this.pauseHeartbeatHz,
+      clientInputEnabled: params.clientInputEnabled ?? true,
+      followHostWorkspace: params.followHostWorkspace ?? false,
+      ...(params.arenaPreset ? { arenaPreset: params.arenaPreset } : {}),
     };
   }
 }

@@ -53,6 +53,12 @@ import {
   MultiClientLoopbackSimulator,
   SIX_CAR_STRESS_LOADOUTS,
 } from '../src/game/scenario/MultiClientLoopbackSimulator.ts';
+import { NetworkDataHandler } from '../src/network/server/NetworkDataHandler.ts';
+import { EstablishedSessionManager } from '../src/network/server/EstablishedSessionManager.ts';
+import { InputPacketCodec } from '../src/network/protocol/InputPacketCodec.ts';
+import { routeProtocolMessageInWorker } from '../src/network/server/HostWorkerMessageRouter.ts';
+import { HOST_WORKER_MSG_TYPES } from '../src/network/protocol/HostWorkerProtocol.ts';
+import { createOnlineSessionBridgePort } from '../src/game/runtime/onlineSessionEnvironmentPipeline.ts';
 
 function runSection(name: string, fn: () => void | Promise<void>): Promise<void> {
   return Promise.resolve()
@@ -753,6 +759,266 @@ async function testReliableTunnelFramerOutOfOrderAndMultiDrop(): Promise<void> {
   receiverFramer.dispose();
 }
 
+async function testPureCsrSyncAllAndDualInputGating(): Promise<void> {
+  // 1. HostSessionController.broadcastGlobalWorkspace -> DataChannelTransport + late-join replay
+  const hostController = new HostSessionController({ roomId: '7777', playerName: 'HostCSR' });
+  const hostCh = hostController._createPeerChannel('peer_csr_1', 'ClientCSR', 'player');
+  const clientTransport = new DataChannelTransport({
+    simulator: new NetworkSimulator(),
+    signaling: new CrossTabSignaling(),
+  });
+  const receivedBroadcasts: Array<Record<string, unknown>> = [];
+  clientTransport.onGlobalWorkspaceBroadcast = (msg) => {
+    receivedBroadcasts.push(msg);
+  };
+  hostCh.dataChannel = {
+    readyState: 'open',
+    bufferedAmount: 0,
+    send: (data: unknown) => {
+      clientTransport.handleIncomingMessage(data);
+    },
+    close: () => {},
+  } as unknown as RTCDataChannel;
+  hostCh.isOpen = true;
+
+  const sentCount = hostController.broadcastGlobalWorkspace({
+    epoch: 3,
+    tick: 120,
+    menuRoute: 'dev-under-development',
+    openFloatingWindows: [{ id: 'dev-room-sync', isOpen: true, isMinimized: false }],
+    telestratorPermission: 'host_only',
+    playbackPaused: false,
+    pausedAtTick: 0,
+    pauseHeartbeatHz: 2,
+    clientInputEnabled: false,
+    followHostWorkspace: true,
+    arenaPreset: 'throwback',
+  });
+  assert.equal(sentCount, 1);
+  assert.equal(receivedBroadcasts.length, 1);
+  assert.equal(receivedBroadcasts[0].clientInputEnabled, false);
+  assert.equal(receivedBroadcasts[0].followHostWorkspace, true);
+  assert.equal(receivedBroadcasts[0].arenaPreset, 'throwback');
+
+  // Late-joining peer must receive activeGlobalWorkspace on onConnected
+  const lateTransport = new DataChannelTransport({
+    simulator: new NetworkSimulator(),
+    signaling: new CrossTabSignaling(),
+  });
+  const lateBroadcasts: Array<Record<string, unknown>> = [];
+  lateTransport.onGlobalWorkspaceBroadcast = (msg) => lateBroadcasts.push(msg);
+  const lateCh = hostController._createPeerChannel('peer_csr_2', 'LateClient', 'player');
+  lateCh.dataChannel = {
+    readyState: 'open',
+    bufferedAmount: 0,
+    send: (data: unknown) => lateTransport.handleIncomingMessage(data),
+    close: () => {},
+  } as unknown as RTCDataChannel;
+  lateCh.isOpen = true;
+  await lateCh.onConnected?.();
+  assert.equal(lateBroadcasts.length, 1);
+  assert.equal(lateBroadcasts[0].arenaPreset, 'throwback');
+
+  // 2. Client spectateWorkspaceStore auto-mirroring & restore on exit
+  const wsStore = useSpectateWorkspaceStore.getState();
+  let localRoute: string | null = 'home';
+  let localWins = [{ id: 'network-monitor', isOpen: true, isMinimized: false }];
+  const sanitized = sanitizeGlobalWorkspaceBroadcast(receivedBroadcasts[0]);
+  wsStore.applyHostWorkspaceBroadcast(
+    sanitized,
+    (route, wins) => {
+      localRoute = route;
+      localWins = wins;
+    },
+    () => ({ menuRoute: localRoute, windows: localWins })
+  );
+  const afterMirror = useSpectateWorkspaceStore.getState();
+  assert.equal(afterMirror.isSpectating, true);
+  assert.equal(afterMirror.spectateMode, 'spectate_mirror');
+  assert.equal(afterMirror.isReadOnlyLocked, true);
+  assert.equal(afterMirror.clientInputEnabled, false);
+  assert.equal(afterMirror.arenaPreset, 'throwback');
+  assert.equal(localRoute, 'dev-under-development');
+  assert.equal(localWins[0].id, 'dev-room-sync');
+
+  afterMirror.setSpectatingActive(false, undefined, (route, wins) => {
+    localRoute = route;
+    localWins = wins;
+  });
+  assert.equal(localRoute, 'home');
+  assert.equal(localWins[0].id, 'network-monitor');
+  useSpectateWorkspaceStore.getState().setFollowHostWorkspace(false);
+  useSpectateWorkspaceStore.getState().setClientInputEnabled(true);
+
+  // 3. Client PredictionReconciler.sampleAndPredictInput gating
+  let simTick = 10;
+  const mockSim = {
+    getHeaderView: () => ({ tickCount: simTick }),
+    saveStateSlot: () => {},
+    getStateSnapshot: () => new Float32Array(0),
+    getCarSnapshot: () => null,
+    getBallSnapshot: () => null,
+  };
+  const reconciler = new PredictionReconciler(
+    mockSim as never,
+    {
+      sendInput: () => true,
+      receiveStates: () => [],
+      measureLatency: () => {},
+      rttMs: 0,
+    } as never,
+    { playerCarIndex: 1 }
+  );
+  reconciler.setClientInputEnabled(false);
+  const gatedCtrl = reconciler.sampleAndPredictInput(1, {
+    throttle: 1,
+    steer: 0.8,
+    pitch: -0.5,
+    yaw: 0.4,
+    roll: 0.2,
+    jump: true,
+    boost: true,
+    handbrake: true,
+  });
+  assert.equal(gatedCtrl.throttle, 0);
+  assert.equal(gatedCtrl.steer, 0);
+  assert.equal(gatedCtrl.boost, false);
+  assert.equal(gatedCtrl.jump, false);
+
+  simTick = 11;
+  reconciler.setClientInputEnabled(true);
+  const activeCtrl = reconciler.sampleAndPredictInput(1, {
+    throttle: 1,
+    steer: -0.5,
+    pitch: 0,
+    yaw: 0,
+    roll: 0,
+    jump: false,
+    boost: true,
+    handbrake: false,
+  });
+  assert.equal(activeCtrl.throttle, 1);
+  assert.equal(activeCtrl.steer, -0.5);
+  assert.equal(activeCtrl.boost, true);
+
+  // 4. Server NetworkDataHandler + HostWorkerMessageRouter input gating
+  const sessionManager = new EstablishedSessionManager();
+  sessionManager.registerSession('host', { entityId: 0, role: 'player', playerName: 'Host' });
+  sessionManager.registerSession('peer_csr_1', {
+    entityId: 1,
+    role: 'player',
+    playerName: 'ClientCSR',
+  });
+  const pushedInputs: Array<{ entityId: number; count: number }> = [];
+  const mockPhysics = {
+    currentTick: 20,
+    pushRedundantInputs: (entityId: number, history: unknown[]) => {
+      pushedInputs.push({ entityId, count: history.length });
+    },
+  };
+  const dataHandler = new NetworkDataHandler({
+    sessionManager,
+    physicsManager: mockPhysics as never,
+  });
+  const workerReplies: Array<{ type: string; payload: Record<string, unknown> }> = [];
+  const workerCtx = {
+    dataHandler,
+    physicsManager: mockPhysics as never,
+    sessionManager,
+    postEnvelope: (env: { type: string; payload: Record<string, unknown> }) => {
+      workerReplies.push(env);
+    },
+  };
+
+  routeProtocolMessageInWorker(workerCtx as never, {
+    type: HOST_WORKER_MSG_TYPES.SET_CLIENT_INPUT_ENABLED,
+    clientInputEnabled: false,
+  });
+  assert.equal(dataHandler.clientInputEnabled, false);
+
+  const clientPkt = InputPacketCodec.encode(
+    1,
+    20,
+    [{ tick: 20, controls: { throttle: 1, steer: 0.5, pitch: 0, yaw: 0, roll: 0, jump: false, boost: true, handbrake: false } }],
+    1000
+  );
+  const hostPkt = InputPacketCodec.encode(
+    0,
+    20,
+    [{ tick: 20, controls: { throttle: 1, steer: 0, pitch: 0, yaw: 0, roll: 0, jump: false, boost: false, handbrake: false } }],
+    1000
+  );
+  routeProtocolMessageInWorker(workerCtx as never, {
+    type: 'clientInput',
+    channelId: 'peer_csr_1',
+    packet: clientPkt,
+  });
+  assert.equal(pushedInputs.length, 0, 'Remote client input must be ignored when clientInputEnabled=false');
+
+  routeProtocolMessageInWorker(workerCtx as never, {
+    type: 'clientInput',
+    channelId: 'host',
+    packet: hostPkt,
+  });
+  assert.equal(pushedInputs.length, 1, 'Host input must still be accepted when clientInputEnabled=false');
+
+  routeProtocolMessageInWorker(workerCtx as never, {
+    type: HOST_WORKER_MSG_TYPES.SET_CLIENT_INPUT_ENABLED,
+    clientInputEnabled: true,
+  });
+  routeProtocolMessageInWorker(workerCtx as never, {
+    type: 'clientInput',
+    channelId: 'peer_csr_1',
+    packet: clientPkt,
+  });
+  assert.equal(pushedInputs.length, 2, 'Remote client input must resume when clientInputEnabled=true');
+
+  // 5. applyClientRoomActivitySwitch keeps Client in lightweight freeplay CSR shell
+  const modeCalls: string[] = [];
+  const envPipeline = createOnlineSessionBridgePort(
+    {
+      match: null,
+      trainingOptions: {},
+      modeManager: {
+        setMode: (m: string) => modeCalls.push(m),
+        getActiveMode: () => ({ id: 'freeplay' }),
+      },
+      podiumController: null,
+      replayTimelineController: null,
+      isBotMatch: false,
+      releaseGoalReplayCameraOverride: () => {},
+    } as never,
+    () => ({}) as never,
+    () => ({}) as never
+  );
+  envPipeline.applyClientRoomActivitySwitch(reconciler, {
+    activityId: 'multiplayer_training',
+    arenaPreset: 'throwback',
+    clientInputEnabled: false,
+  });
+  assert.equal(reconciler.replayPlaybackMode, false);
+  assert.equal(reconciler.clientInputEnabled, false);
+  assert.equal(modeCalls.includes('training'), false);
+  assert.equal(modeCalls.includes('static-training-pack'), false);
+
+  envPipeline.applyClientRoomActivitySwitch(reconciler, {
+    activityId: 'replay',
+  });
+  assert.equal(reconciler.replayPlaybackMode, true);
+  assert.equal(modeCalls.includes('replay'), false);
+  assert.equal(modeCalls.includes('replay-viewer'), false);
+
+  envPipeline.applyClientRoomActivitySwitch(reconciler, {
+    activityId: 'match',
+    clientInputEnabled: true,
+  });
+  assert.equal(reconciler.replayPlaybackMode, false);
+  assert.equal(reconciler.clientInputEnabled, true);
+  assert.equal(modeCalls.includes('match'), false);
+
+  hostController.cleanup();
+}
+
 async function main(): Promise<void> {
   console.log('=== RocketCompanion Multiplayer Suite Test Matrix ===');
   await runSection('1. Tunnel Transport & Kick/Leave Bidirectional Signaling', testTunnelAndKickLeaveSignaling);
@@ -765,6 +1031,7 @@ async function main(): Promise<void> {
   await runSection('8. Host Prewarmed Peer Rename & Tunnel Endpoint Routing', testHostPrewarmedPeerRenameAndTunnelEndpoint);
   await runSection('9. ROOM_ACTIVITY_SWITCH Wire Delivery & Epoch Ordering', testRoomActivitySwitchWireAndEpochOrdering);
   await runSection('10. ReliableTunnelFramer Multi-Chunk Out-of-Order & Loss Recovery', testReliableTunnelFramerOutOfOrderAndMultiDrop);
+  await runSection('11. Pure CSR Sync All, Dual-End Input Gating & Workspace Broadcast', testPureCsrSyncAllAndDualInputGating);
   console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
 }
 

@@ -7,6 +7,10 @@
 
 import { P2PWebRTCChannel } from './P2PWebRTCChannel.ts';
 import { SpectatorDaisyChainCoordinator } from './SpectatorDaisyChainCoordinator.ts';
+import {
+  sanitizeGlobalWorkspaceBroadcast,
+  type GlobalWorkspaceBroadcastPayload,
+} from '../protocol/GlobalWorkspaceProtocol.ts';
 
 export const DEFAULT_MAX_INPUT_CHANNELS = 6;
 export const DEFAULT_MAX_BROADCAST_CHANNELS = 16;
@@ -79,6 +83,7 @@ export class HostSessionController {
     replayId?: string;
     config?: Record<string, unknown>;
   } | null = null;
+  activeGlobalWorkspace: GlobalWorkspaceBroadcastPayload | null = null;
 
   constructor(options: HostSessionOptions, callbacks: HostSessionCallbacks = {}) {
     this.roomId = options.roomId;
@@ -149,6 +154,11 @@ export class HostSessionController {
       }
       if (this.activeRoomActivity && this.activeRoomActivity.activityId !== 'freeplay') {
         ch.sendRoomActivitySwitch(this.activeRoomActivity);
+      }
+      if (this.activeGlobalWorkspace) {
+        ch.sendGlobalWorkspaceBroadcast(
+          this.activeGlobalWorkspace as unknown as Record<string, unknown>
+        );
       }
     };
 
@@ -454,6 +464,23 @@ export class HostSessionController {
     return sentCount;
   }
 
+  broadcastGlobalWorkspace(
+    payload: GlobalWorkspaceBroadcastPayload | Record<string, unknown>
+  ): number {
+    const normalized = sanitizeGlobalWorkspaceBroadcast(payload);
+    this.activeGlobalWorkspace = normalized;
+    let sentCount = 0;
+    for (const ch of this.peerChannels.values()) {
+      if (
+        (ch.connected || ch.isOpen) &&
+        ch.sendGlobalWorkspaceBroadcast(normalized as unknown as Record<string, unknown>)
+      ) {
+        sentCount++;
+      }
+    }
+    return sentCount;
+  }
+
   cleanup(): void {
     this.offersSentTime.clear();
     this.peerRoles.clear();
@@ -462,6 +489,7 @@ export class HostSessionController {
     this.daisyChainCoordinator.clear();
     this._activityEpoch = 0;
     this.activeRoomActivity = null;
+    this.activeGlobalWorkspace = null;
     for (const ch of this.peerChannels.values()) {
       try {
         ch.destroy();

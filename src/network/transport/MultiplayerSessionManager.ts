@@ -7,6 +7,7 @@
 
 import type { SignalingProtocolHandler } from './SignalingProtocolHandler.ts';
 import { HostSessionController } from './HostSessionController.ts';
+import type { GlobalWorkspaceBroadcastPayload } from '../protocol/GlobalWorkspaceProtocol.ts';
 import type { ClientSessionController } from './ClientSessionController.ts';
 import { ClientJoinNegotiationSubController } from './ClientJoinNegotiationSubController.ts';
 import {
@@ -357,6 +358,13 @@ export class MultiplayerSessionManager {
   }): number {
     if (!this.isHosting || !this.hostController) return 0;
     return this.hostController.broadcastRoomActivitySwitch(payload);
+  }
+
+  broadcastGlobalWorkspace(
+    payload: GlobalWorkspaceBroadcastPayload | Record<string, unknown>
+  ): number {
+    if (!this.isHosting || !this.hostController) return 0;
+    return this.hostController.broadcastGlobalWorkspace(payload);
   }
 
   async reprobeAndRefreshHostSignaling(): Promise<void> {

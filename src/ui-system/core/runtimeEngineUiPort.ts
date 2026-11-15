@@ -67,7 +67,13 @@ import {
   detachVoiceFromPeer,
   setVoicePeerTeam,
 } from './runtimeVoiceBridge.ts';
-import { applyIncomingWorkspaceBroadcast } from './runtimeSpectateWorkspaceBridge.ts';
+import {
+  applyIncomingWorkspaceBroadcast,
+  buildHostWorkspaceBroadcastPayload,
+  resetSpectateWorkspaceOnLeave,
+  syncClientInputEnabledUi,
+  syncArenaPresetUi,
+} from './runtimeSpectateWorkspaceBridge.ts';
 
 let initialized = false;
 
@@ -132,6 +138,10 @@ export function ensureRuntimeEngineUiPortBound(): void {
     detachVoiceFromPeer,
     setVoicePeerTeam,
     applyIncomingWorkspaceBroadcast,
+    buildHostWorkspaceBroadcastPayload,
+    resetSpectateWorkspaceOnLeave,
+    syncClientInputEnabledUi,
+    syncArenaPresetUi,
   });
 }
 
