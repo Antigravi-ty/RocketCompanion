@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Check,
   CheckCircle2,
@@ -48,7 +48,6 @@ export const RapidReviewTriageBar: React.FC<RapidReviewTriageBarProps> = React.m
       simulateTemplateStale,
       isExporterModalOpen,
       setDecision,
-      updateNote,
       stepQueue,
       setExporterModalOpen,
     } = useReviewLedgerStore();
@@ -56,7 +55,6 @@ export const RapidReviewTriageBar: React.FC<RapidReviewTriageBarProps> = React.m
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [copiedQuick, setCopiedQuick] = useState(false);
     const [diffTick, setDiffTick] = useState(0);
-    const noteInputRef = useRef<HTMLTextAreaElement | null>(null);
 
     useEffect(() => {
       return subscribeTunerDiffChanges(() => {
@@ -145,14 +143,15 @@ export const RapidReviewTriageBar: React.FC<RapidReviewTriageBarProps> = React.m
       [allUnits]
     );
 
-    const triggerDecision = (status: 'approved' | 'rejected' | 'deferred') => {
+    const triggerDecision = (status: 'approved' | 'rejected' | 'pending' | 'deferred') => {
       if (!activeUnit) return;
       const next = setDecision({
         unitKey: activeUnit.unitKey,
         status,
         advanceToNext: true,
       });
-      const msg = `${status.toUpperCase()} #${activeUnit.playlistIndex} · ${
+      const statusText = status === 'pending' ? 'FIXED / VERIFY' : status.toUpperCase();
+      const msg = `${statusText} #${activeUnit.playlistIndex} · ${
         activeUnit.label
       }${next ? ` -> #${next.playlistIndex} ${next.label}` : ''}`;
       if (status === 'approved') quickNotification.success(msg);
@@ -186,17 +185,23 @@ export const RapidReviewTriageBar: React.FC<RapidReviewTriageBarProps> = React.m
         if (!activeUnit) return;
 
         const keyLower = e.key.toLowerCase();
-        if (keyLower === 'a' || keyLower === 'r' || keyLower === 'd') {
+        if (keyLower === 'a' || keyLower === 'r' || keyLower === 'f' || keyLower === 'd') {
           e.preventDefault();
-          const status = keyLower === 'a' ? 'approved' : keyLower === 'r' ? 'rejected' : 'deferred';
+          const status =
+            keyLower === 'a'
+              ? 'approved'
+              : keyLower === 'r'
+                ? 'rejected'
+                : keyLower === 'f'
+                  ? 'pending'
+                  : 'deferred';
           triggerDecision(status);
         } else if (e.key === ' ') {
           e.preventDefault();
-          setIsCollapsed(false);
-          window.setTimeout(() => {
-            noteInputRef.current?.focus();
-            noteInputRef.current?.select();
-          }, 20);
+          const sidebarNote = document.getElementById(
+            'rc-sidebar-triage-note'
+          ) as HTMLTextAreaElement | null;
+          sidebarNote?.focus();
         }
       };
 
@@ -257,6 +262,20 @@ export const RapidReviewTriageBar: React.FC<RapidReviewTriageBarProps> = React.m
               >
                 <XCircle className="h-3.5 w-3.5" />
                 <span>Reject [R]</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => triggerDecision('pending')}
+                title="Mark current unit as Fixed / Pending Verify & advance to next (Shortcut: F)"
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-bold cursor-pointer transition-all active:scale-95 ${
+                  activeUnit.status === 'pending'
+                    ? 'bg-sky-500 text-neutral-950 border-sky-400'
+                    : 'bg-sky-500/15 hover:bg-sky-500/25 text-sky-400 border-sky-500/35'
+                }`}
+              >
+                <Check className="h-3.5 w-3.5" />
+                <span>Fixed [F]</span>
               </button>
 
               <button
@@ -399,34 +418,28 @@ export const RapidReviewTriageBar: React.FC<RapidReviewTriageBarProps> = React.m
                 </span>
               </div>
 
-              <div className="flex items-start gap-1.5 flex-1 min-w-[240px] max-w-md">
-                <MessageSquare className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-1.5" />
-                <textarea
-                  ref={noteInputRef}
-                  rows={
-                    activeUnit.note.includes('\n')
-                      ? Math.min(4, activeUnit.note.split('\n').length)
-                      : 1
-                  }
-                  value={activeUnit.note}
-                  onChange={(e) => updateNote(activeUnit.unitKey, e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      e.currentTarget.blur();
-                      quickNotification.success(
-                        `Saved note for #${activeUnit.playlistIndex} ${activeUnit.label}`
-                      );
-                    }
-                  }}
-                  placeholder="Press [Space] to type triage note (Shift+Enter for newline, Enter to save)..."
-                  className={`w-full px-2.5 py-1 rounded-lg border text-[11px] font-mono outline-none transition-colors resize-y min-h-[26px] max-h-28 leading-relaxed ${
-                    isLight
-                      ? 'bg-white border-neutral-300 focus:border-amber-500 text-neutral-900 placeholder:text-neutral-400'
-                      : 'bg-neutral-950 border-neutral-800 focus:border-amber-500 text-neutral-100 placeholder:text-neutral-500'
-                  }`}
-                />
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const el = document.getElementById(
+                    'rc-sidebar-triage-note'
+                  ) as HTMLTextAreaElement | null;
+                  el?.focus();
+                }}
+                title={activeUnit.note || 'Focus multi-line note editor in Left Sidebar [Space]'}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-mono cursor-pointer transition-colors max-w-xs truncate ${
+                  isLight
+                    ? 'bg-white hover:bg-neutral-50 border-neutral-300 text-neutral-700'
+                    : 'bg-neutral-950 hover:bg-neutral-900 border-neutral-800 text-neutral-300'
+                }`}
+              >
+                <MessageSquare className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                <span className="truncate">
+                  {activeUnit.note.trim()
+                    ? activeUnit.note.trim().split('\n')[0]
+                    : 'Edit Note in Sidebar [Space]'}
+                </span>
+              </button>
 
               <RapidReviewSpotCheckStrip
                 activeUnitKey={activeUnit.unitKey}

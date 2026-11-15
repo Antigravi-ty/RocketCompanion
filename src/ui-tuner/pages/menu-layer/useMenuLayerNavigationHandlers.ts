@@ -152,10 +152,11 @@ export function useMenuLayerNavigationHandlers({
     activeFloatingSubTab
   );
   const activePlaylistIdx = anchorIndex;
-  const activePlaylistStep =
-    (doesViewMatchPlaylistStep(activePlaylist[matchedStepIdx], activeViewSummary)
-      ? activePlaylist[matchedStepIdx]
-      : undefined) || anchorPlaylistStep;
+  const activePlaylistStep = !isFreeRoaming
+    ? anchorPlaylistStep
+    : (doesViewMatchPlaylistStep(activePlaylist[matchedStepIdx], activeViewSummary)
+        ? activePlaylist[matchedStepIdx]
+        : undefined) || anchorPlaylistStep;
 
   useMenuLayerUrlSync({
     visibilityTier,

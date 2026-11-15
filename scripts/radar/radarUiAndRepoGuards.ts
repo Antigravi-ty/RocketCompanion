@@ -152,6 +152,60 @@ export function checkUiNamingAndRouteAlignment(errors: string[]): void {
       }
     }
   }
+
+  checkRecipeProfileTierContracts(errors);
+}
+
+function checkRecipeProfileTierContracts(errors: string[]): void {
+  const recipesDir = path.join(SRC_DIR, 'ui-core/recipes');
+  if (!fs.existsSync(recipesDir)) return;
+
+  const recipeFiles = fs
+    .readdirSync(recipesDir)
+    .filter(
+      (name) =>
+        (name.startsWith('Layer') && name.endsWith('Recipe.tsx')) ||
+        name === 'StaticTrainingShotInspectorDrawer.tsx'
+    )
+    .map((name) => path.join(recipesDir, name));
+
+  for (const recipeFile of recipeFiles) {
+    const rel = toPosixRel(recipeFile);
+    const raw = stripComments(fs.readFileSync(recipeFile, 'utf8'));
+    if (!/\bexport\s+const\s+SURFACE_META\b/.test(raw)) continue;
+
+    const policyMatch = raw.match(
+      /\bprofileTierPolicy\s*:\s*['"](tier-invariant|user-dev-split|auth-triad)['"]/
+    );
+    if (!policyMatch) {
+      errors.push(
+        `[SURFACE SCHEMA VIOLATION] ${rel} SURFACE_META must explicitly declare 'profileTierPolicy' ('tier-invariant' | 'user-dev-split' | 'auth-triad').`
+      );
+      continue;
+    }
+
+    const policy = policyMatch[1];
+    if (policy === 'tier-invariant' && /\bdeveloperMode\b/.test(raw)) {
+      errors.push(
+        `[SURFACE TIER CONTRACT VIOLATION] ${rel} references 'developerMode' but declares profileTierPolicy: 'tier-invariant'. Use 'user-dev-split' or 'auth-triad'.`
+      );
+    }
+    if (policy === 'tier-invariant' && /\buseCloudProfileSyncStore\b/.test(raw)) {
+      errors.push(
+        `[SURFACE TIER CONTRACT VIOLATION] ${rel} references 'useCloudProfileSyncStore' but declares profileTierPolicy: 'tier-invariant'. Use 'auth-triad' with variants.`
+      );
+    }
+    if (policy === 'auth-triad') {
+      const hasVariants = /\bvariants\s*:/.test(raw);
+      const hasProfileTier =
+        /\bprofileTier\s*:/.test(raw) || /GARAGE_SYNC_VARIANT_METAS/.test(raw);
+      if (!hasVariants || !hasProfileTier) {
+        errors.push(
+          `[SURFACE TIER CONTRACT VIOLATION] ${rel} declares profileTierPolicy: 'auth-triad' and must provide variants with 'profileTier' and 'storeOverrides'.`
+        );
+      }
+    }
+  }
 }
 
 export function detectCircularDependencies(

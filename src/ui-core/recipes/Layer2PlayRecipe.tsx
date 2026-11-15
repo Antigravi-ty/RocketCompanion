@@ -23,6 +23,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: '2x3 grid of match, online lobby, and training disciplines',
   icon: 'Gamepad2',
   layer: 'layer2',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 680,

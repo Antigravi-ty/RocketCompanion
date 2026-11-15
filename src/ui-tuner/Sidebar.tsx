@@ -4,6 +4,7 @@ import { useAccentStore } from './stores/themeStore';
 import { SidebarWorkspaceHeader } from './SidebarWorkspaceHeader';
 import { PYRAMID_LAYERS, SIDEBAR_NAV_ITEMS, getWorkspaceForTab, type ShowcaseTab, type TunerWorkspaceId, type WorkspaceSectionId } from './sidebarNavConfig';
 import { WORKSPACE_SECTIONS, WORKSPACE_SPECS, getApprovalLedgerSummary } from './workspaceSpecs';
+import { SidebarReviewTriagePanel } from './components/review/SidebarReviewTriagePanel';
 
 export interface SidebarProps {
   activeTab: ShowcaseTab;
@@ -246,6 +247,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             })}
           </div>
         </div>
+
+        {(activeTab === 'layer-preview' ||
+          activeTab === 'floating-windows' ||
+          activeTab === 'recipes') && <SidebarReviewTriagePanel isLight={isLight} />}
 
         {/* Theme Switcher Bottom Bar */}
         <div

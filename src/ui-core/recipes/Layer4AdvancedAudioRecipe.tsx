@@ -29,6 +29,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'Per-trigger gain calibration (0%–500%), preview audition, and JSON export',
   icon: 'volume-2',
   layer: 'layer4',
+  profileTierPolicy: 'user-dev-split',
   menuGroup: 'menu-layer',
   defaultSizing: {
     mode: 'adaptive',

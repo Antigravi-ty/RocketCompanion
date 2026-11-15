@@ -35,6 +35,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'Root ESC pause & session context menu across 14 user and developer variations',
   icon: 'Menu',
   layer: 'layer1',
+  profileTierPolicy: 'user-dev-split',
   menuGroup: 'menu-layer',
   defaultSizing: { width: 420, minHeight: 240, maxHeight: 540, mode: 'adaptive' },
   variants: LAYER1_SURFACE_VARIANTS,

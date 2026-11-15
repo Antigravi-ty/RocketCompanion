@@ -40,6 +40,7 @@ export const SURFACE_META: SurfaceMeta = {
   description:
     'Pre-launch desktop configurator for Window Mode (Fullscreen/Borderless/Windowed), Theme Style, additional launch parameters, default persistence, and tray-only background startup.',
   layer: 'layer1',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 640,

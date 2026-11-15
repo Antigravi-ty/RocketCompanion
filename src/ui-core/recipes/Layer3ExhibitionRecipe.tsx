@@ -38,6 +38,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Select team format, RLBot neural policy difficulty, and regulation duration.',
   icon: 'Bot',
   layer: 'layer3',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 480,

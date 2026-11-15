@@ -229,6 +229,8 @@ export interface LinearPlaylistStep {
   tier: MenuVisibilityTier;
   route: ActiveMenuRoute;
   subtab?: string;
+  profileTier?: 'anonymous' | 'signed-in' | 'developer';
+  storeOverrides?: Record<string, Record<string, unknown>>;
   contextMode?: Layer1MenuContextMode;
   progressStatus?: Layer3StepProgressStatus;
   currentStep?: number;

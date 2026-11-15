@@ -2,6 +2,7 @@ import React from 'react';
 import { Lock, Radio, Shuffle } from 'lucide-react';
 import { useSettingActionRowStore } from '../../stores/settingRowStore';
 import { useSignalingProfileStore } from '../../stores/signalingProfileStore';
+import { useScopedStore } from '../../stores/storeSnapshotScope';
 import {
   finalizeHostRoomCode,
   generateRandomRoomCode,
@@ -60,12 +61,12 @@ export const OnlineRoomIdentityFields: React.FC<OnlineRoomIdentityFieldsProps> =
     onRoomKeyChange,
   } = identity;
   const { titleFontSize, paddingX } = useSettingActionRowStore();
-  const source = useSignalingProfileStore((s) => s.source);
-  const shortHash = useSignalingProfileStore((s) => s.shortHash);
-  const hostMask = useSignalingProfileStore((s) => s.hostMask);
-  const isProbing = useSignalingProfileStore((s) => s.isProbing);
-  const hasProbedOnce = useSignalingProfileStore((s) => s.hasProbedOnce);
-  const probeResults = useSignalingProfileStore((s) => s.probeResults);
+  const source = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.source);
+  const shortHash = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.shortHash);
+  const hostMask = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.hostMask);
+  const isProbing = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.isProbing);
+  const hasProbedOnce = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.hasProbedOnce);
+  const probeResults = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.probeResults);
 
   const labelStyle: React.CSSProperties = {
     fontSize: `${Math.max(13, titleFontSize)}px`,

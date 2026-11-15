@@ -3,6 +3,9 @@ import {
   LAYER1_CONTEXT_VARIATIONS,
   type Layer1MenuContextMode,
 } from '../../../ui-core/recipes/layer1MenuContextSpecs';
+import { GARAGE_SYNC_VARIANT_METAS } from '../../../ui-core/recipes/garage/garageSyncVariants';
+import { SETTINGS_TAB_VARIANTS } from '../../../ui-core/recipes/Layer2SettingsRecipe';
+import { SURFACE_META as REMOTE_PROFILE_SURFACE_META } from '../../../ui-core/recipes/Layer3DevRemoteProfileRecipe';
 import type { PresetConfig } from '../../../ui-core/stores/floatingPresets';
 import { floatingStore } from '../../../ui-core/stores/floatingStore';
 import {
@@ -36,6 +39,61 @@ export type UnifiedApprovalPlaylistStep =
 
 export type UnifiedPlaylistScope = 'all' | 'user' | 'developer';
 
+const GARAGE_USER_PLAYLIST_STEPS: LinearPlaylistStep[] = GARAGE_QUICK_TABS.flatMap((t) => {
+  if (t.id !== 'sync') {
+    return [
+      {
+        id: `user-l2-garage-${t.id}`,
+        tier: 'user' as const,
+        route: 'garage' as const,
+        subtab: t.id,
+        layer: 2 as const,
+        label: `L2 Garage · ${t.label} Tab`,
+        breadcrumb: `Layer 1 → Garage → ${t.label}`,
+      },
+    ];
+  }
+  return GARAGE_SYNC_VARIANT_METAS.filter((v) => v.tier !== 'developer').map((v) => ({
+    id: `user-l2-garage-${v.variantId}`,
+    tier: 'user' as const,
+    route: 'garage' as const,
+    subtab: 'sync',
+    profileTier: v.profileTier,
+    storeOverrides: v.storeOverrides,
+    layer: 2 as const,
+    label: `L2 Garage · ${v.label}`,
+    breadcrumb: `Layer 1 → Garage → ${v.label}`,
+  }));
+});
+
+const GARAGE_DEV_PLAYLIST_STEPS: LinearPlaylistStep[] = GARAGE_SYNC_VARIANT_METAS.filter(
+  (v) => v.tier === 'developer'
+).map((v) => ({
+  id: `dev-l2-garage-${v.variantId}`,
+  tier: 'developer' as const,
+  route: 'garage' as const,
+  subtab: 'sync',
+  profileTier: v.profileTier,
+  storeOverrides: v.storeOverrides,
+  layer: 2 as const,
+  label: `L2 Garage · ${v.label}`,
+  breadcrumb: `Layer 1 (Dev) → Garage → ${v.label}`,
+}));
+
+const DEV_REMOTE_PROFILE_PLAYLIST_STEPS: LinearPlaylistStep[] = (
+  REMOTE_PROFILE_SURFACE_META.variants ?? []
+).map((v) => ({
+  id: `dev-l3-remote-profile-${v.variantId}`,
+  tier: 'developer' as const,
+  route: 'dev-remote-profile' as const,
+  subtab: v.variantId === 'credentials-required' ? 'set-profile' : v.variantId,
+  profileTier: v.profileTier,
+  storeOverrides: v.storeOverrides,
+  layer: 3 as const,
+  label: `L3 Remote Profile · ${v.label}`,
+  breadcrumb: `Developer → Remote Profile → ${v.label}`,
+}));
+
 /**
  * Complete Linear Playlist of all User-Only vs Developer-Only pages/variations/tabs/states
  * for the `< Prev Page | Next Page >` and ArrowLeft/ArrowRight rapid visual scanner.
@@ -56,10 +114,7 @@ export const USER_LINEAR_PLAYLIST: LinearPlaylistStep[] = [
     layer: 1 as const, label: `L1 Main Menu · ${v.label}`, breadcrumb: `Layer 1 · ${v.headerTitle} (${v.label})`,
   })),
   { id: 'user-l2-play', tier: 'user', route: 'play', layer: 2, label: 'L2 Play Modes (6-Mode Grid)', breadcrumb: 'Layer 1 → Play' },
-  ...GARAGE_QUICK_TABS.map((t) => ({
-    id: `user-l2-garage-${t.id}`, tier: 'user' as const, route: 'garage' as const, subtab: t.id,
-    layer: 2 as const, label: `L2 Garage · ${t.label} Tab`, breadcrumb: `Layer 1 → Garage → ${t.label}`,
-  })),
+  ...GARAGE_USER_PLAYLIST_STEPS,
   ...USER_SETTINGS_QUICK_TABS.map((t) => ({
     id: `user-l2-settings-${t.id}`, tier: 'user' as const, route: 'settings' as const, subtab: t.id,
     layer: 2 as const, label: `L2 Settings · ${t.label} Tab`, breadcrumb: `Layer 1 → Settings → ${t.label}`,
@@ -85,6 +140,7 @@ export const DEV_LINEAR_PLAYLIST: LinearPlaylistStep[] = [
     id: `dev-l1-${v.id}`, tier: 'developer' as const, route: 'main-menu' as const, contextMode: v.id,
     layer: 1 as const, label: `L1 Dev Menu · ${v.label}`, breadcrumb: `Layer 1 (Dev) · ${v.headerTitle} (${v.label})`,
   })),
+  ...GARAGE_DEV_PLAYLIST_STEPS,
   ...DEV_SETTINGS_QUICK_TABS.map((t) => ({
     id: `dev-l2-settings-${t.id}`, tier: 'developer' as const, route: 'settings' as const, subtab: t.id,
     layer: 2 as const, label: 'L2 Settings · Developer Tab', breadcrumb: 'Settings → Developer Tab (5 Hub Cards)',
@@ -95,7 +151,7 @@ export const DEV_LINEAR_PLAYLIST: LinearPlaylistStep[] = [
   { id: 'dev-l3-active-tuners', tier: 'developer', route: 'dev-active-tuners', layer: 3, label: 'L3 Active Tuners & Phase Matrix', breadcrumb: 'Developer → Active Tuners' },
   { id: 'dev-l3-calibrated-presets', tier: 'developer', route: 'dev-calibrated-presets', layer: 3, label: 'L3 Calibrated Presets & Tuners', breadcrumb: 'Developer → Calibrated Presets' },
   { id: 'dev-l3-self-test', tier: 'developer', route: 'dev-self-test', layer: 3, label: 'L3 Self Test Suites & Harnesses', breadcrumb: 'Developer → Self Test' },
-  { id: 'dev-l3-remote-profile', tier: 'developer', route: 'dev-remote-profile', layer: 3, label: 'L3 Remote Profile & Account Management', breadcrumb: 'Developer → Remote Profile Management' },
+  ...DEV_REMOTE_PROFILE_PLAYLIST_STEPS,
   { id: 'dev-l3-quick-actions', tier: 'developer', route: 'dev-quick-actions', layer: 3, label: 'L3 Quick Actions & Match Toggles', breadcrumb: 'Developer → Quick Actions' },
   { id: 'dev-l3-under-dev', tier: 'developer', route: 'dev-under-development', layer: 3, label: 'L3 Under Development', breadcrumb: 'Developer → Under Development' },
   { id: 'dev-l3-audio-eq', tier: 'developer', route: 'acoustics-equalizer', layer: 3, label: 'L3 Acoustics & Parametric EQ', breadcrumb: 'Developer → Acoustics & EQ' },

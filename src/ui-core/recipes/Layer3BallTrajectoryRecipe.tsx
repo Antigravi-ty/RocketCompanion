@@ -26,6 +26,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: '3D Predictive Flight Horizon, Dash Geometry, Line Color & WASM Incremental Mode',
   icon: 'Activity',
   layer: 'layer3',
+  profileTierPolicy: 'user-dev-split',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 560,

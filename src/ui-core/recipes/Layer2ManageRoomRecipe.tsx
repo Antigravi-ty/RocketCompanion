@@ -108,6 +108,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: '6-state online session control for Match Lobby, During Match, and Online Warmup (Host & Client)',
   icon: 'Radio',
   layer: 'layer2',
+  profileTierPolicy: 'user-dev-split',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 680,

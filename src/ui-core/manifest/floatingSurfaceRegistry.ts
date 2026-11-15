@@ -1,6 +1,9 @@
 /// <reference types="vite/client" />
 import type React from 'react';
-import { validateFloatingWindowHideFooter } from '../navigation/floatingWindowSchemaValidator';
+import {
+  validateFloatingWindowHideFooter,
+  validateRecipeProfileTierPolicy,
+} from '../navigation/floatingWindowSchemaValidator';
 import { resolveCalibratedSurfaceSizing } from './surfaceCalibration';
 import type {
   DiscoveredSurfaceEntry,
@@ -50,6 +53,8 @@ export function collectDiscoveredEntries(
     const meta = mod.SURFACE_META;
     if (meta.layer === 'floating-user' || meta.layer === 'floating-dev') {
       validateFloatingWindowHideFooter(meta, `SURFACE_META (${modulePath})`);
+    } else {
+      validateRecipeProfileTierPolicy(meta, `SURFACE_META (${modulePath})`);
     }
     entries.push({
       meta,

@@ -21,7 +21,8 @@ import { GarageCarTab, SURFACE_VARIANT_META as GARAGE_CAR_VARIANT_META } from '.
 import { GaragePaintTab, SURFACE_VARIANT_META as GARAGE_PAINT_VARIANT_META } from './garage/GaragePaintTab';
 import { GarageLoadoutTab, SURFACE_VARIANT_META as GARAGE_LOADOUT_VARIANT_META } from './garage/GarageLoadoutTab';
 import { GarageAnthemTab, SURFACE_VARIANT_META as GARAGE_ANTHEM_VARIANT_META } from './garage/GarageAnthemTab';
-import { GarageSyncTab, SURFACE_VARIANT_META as GARAGE_SYNC_VARIANT_META } from './garage/GarageSyncTab';
+import { GARAGE_SYNC_VARIANT_METAS } from './garage/garageSyncVariants';
+import { GarageSyncTab } from './garage/GarageSyncTab';
 
 export type GarageTabId =
   | 'car'
@@ -37,6 +38,7 @@ export const SURFACE_META: SurfaceMeta = {
   icon: 'Wrench',
   layer: 'layer2',
   menuGroup: 'menu-layer',
+  profileTierPolicy: 'auth-triad',
   defaultSizing: {
     width: 640,
     height: 520,
@@ -49,7 +51,7 @@ export const SURFACE_META: SurfaceMeta = {
     GARAGE_PAINT_VARIANT_META,
     GARAGE_LOADOUT_VARIANT_META,
     GARAGE_ANTHEM_VARIANT_META,
-    GARAGE_SYNC_VARIANT_META,
+    ...GARAGE_SYNC_VARIANT_METAS,
   ],
 };
 

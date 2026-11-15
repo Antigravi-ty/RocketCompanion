@@ -38,6 +38,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Select an isolated subsystem to enter its dedicated test environment.',
   icon: 'flask-conical',
   layer: 'layer3',
+  profileTierPolicy: 'tier-invariant',
   menuGroup: 'menu-layer',
   defaultSizing: {
     mode: 'adaptive',

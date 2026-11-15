@@ -7,6 +7,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { useSignalingProfileStore } from '../../../stores/signalingProfileStore';
+import { useScopedStore } from '../../../stores/storeSnapshotScope';
 
 export interface SignalingRelayNodeListSectionProps {
   isLight?: boolean;
@@ -19,15 +20,15 @@ export interface SignalingRelayNodeListSectionProps {
  */
 export const SignalingRelayNodeListSection: React.FC<SignalingRelayNodeListSectionProps> =
   React.memo(({ isLight = false }) => {
-    const source = useSignalingProfileStore((s) => s.source);
-    const shortHash = useSignalingProfileStore((s) => s.shortHash);
-    const customUrl = useSignalingProfileStore((s) => s.customUrl);
-    const customUsername = useSignalingProfileStore((s) => s.customUsername);
-    const statusMessage = useSignalingProfileStore((s) => s.statusMessage);
-    const errorMessage = useSignalingProfileStore((s) => s.errorMessage);
-    const probeResults = useSignalingProfileStore((s) => s.probeResults);
-    const saveCustomRelay = useSignalingProfileStore((s) => s.saveCustomRelay);
-    const clearMessages = useSignalingProfileStore((s) => s.clearMessages);
+    const source = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.source);
+    const shortHash = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.shortHash);
+    const customUrl = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.customUrl);
+    const customUsername = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.customUsername);
+    const statusMessage = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.statusMessage);
+    const errorMessage = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.errorMessage);
+    const probeResults = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.probeResults);
+    const saveCustomRelay = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.saveCustomRelay);
+    const clearMessages = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.clearMessages);
 
     const [draftCustomUrl, setDraftCustomUrl] = useState<string>(customUrl);
     const [draftCustomUser, setDraftCustomUser] = useState<string>(customUsername);
