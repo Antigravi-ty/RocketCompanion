@@ -161,8 +161,8 @@ export const Layer3HostTrainingRecipe: React.FC<Layer3HostTrainingRecipeProps> =
     setSettingsTargetTab,
     setHighlightSetting,
   } = appState;
-  const hostMask = useSignalingProfileStore((s) => s.hostMask);
-  const verifyRelays = useSignalingProfileStore((s) => s.verifyRelays);
+  const hostMask = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.hostMask);
+  const verifyRelays = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.verifyRelays);
   const onBack = propOnBack ?? storeGoBack;
 
   const resolvedDefaultConfig = propDefaultConfig ?? overrides.defaultConfig;

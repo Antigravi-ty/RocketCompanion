@@ -4,6 +4,7 @@ import {
   type Layer1MenuContextMode,
 } from '../../../ui-core/recipes/layer1MenuContextSpecs';
 import { GARAGE_SYNC_VARIANT_METAS } from '../../../ui-core/recipes/garage/garageSyncVariants';
+import { SETTINGS_TAB_VARIANTS } from '../../../ui-core/recipes/Layer2SettingsRecipe';
 import { SURFACE_META as REMOTE_PROFILE_SURFACE_META } from '../../../ui-core/recipes/Layer3DevRemoteProfileRecipe';
 import type { PresetConfig } from '../../../ui-core/stores/floatingPresets';
 import { floatingStore } from '../../../ui-core/stores/floatingStore';

@@ -159,8 +159,8 @@ export const Layer3HostMatchRecipe: React.FC<Layer3HostMatchRecipeProps> = React
     bridge,
   } = appState;
 
-  const hostMask = useSignalingProfileStore((s) => s.hostMask);
-  const verifyRelays = useSignalingProfileStore((s) => s.verifyRelays);
+  const hostMask = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.hostMask);
+  const verifyRelays = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.verifyRelays);
   const { panels } = useMenuLayoutStore();
   const sizing = panels['layer3-host-match'];
 

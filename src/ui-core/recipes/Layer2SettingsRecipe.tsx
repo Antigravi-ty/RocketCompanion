@@ -30,11 +30,14 @@ import {
 import {
   DisplayTab,
   SURFACE_VARIANT_META as DISPLAY_TAB_VARIANT_META,
+  DISPLAY_TAURI_FULLSCREEN_VARIANT_META,
   type GraphicsConfig,
 } from './settings/tabs/DisplayTab';
 import {
   AdvancedTab,
   SURFACE_VARIANT_META as ADVANCED_TAB_VARIANT_META,
+  ADVANCED_PACK_IMPORTED_VARIANT_META,
+  ADVANCED_DEVELOPER_VARIANT_META,
   type TelemetryOverlayConfig,
 } from './settings/tabs/AdvancedTab';
 import type { AudioDebugTelemetryProps } from './settings/components/AudioDebugSection';
@@ -59,7 +62,10 @@ export const SETTINGS_TAB_VARIANTS = [
   GAMEPLAY_TAB_VARIANT_META,
   AUDIO_TAB_VARIANT_META,
   DISPLAY_TAB_VARIANT_META,
+  DISPLAY_TAURI_FULLSCREEN_VARIANT_META,
   ADVANCED_TAB_VARIANT_META,
+  ADVANCED_PACK_IMPORTED_VARIANT_META,
+  ADVANCED_DEVELOPER_VARIANT_META,
   DEVELOPER_TAB_VARIANT_META,
 ] as const;
 

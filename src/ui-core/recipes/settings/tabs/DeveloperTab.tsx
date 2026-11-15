@@ -39,10 +39,21 @@ export const SURFACE_VARIANT_META: SurfaceVariantMeta = {
   label: '5. Developer Hub',
   description:
     'Subsystem Isolation Lab, Active Tuners, Calibrated Presets, Developer Quick Actions, Self Test, Remote Profile Management, Under Development, and Safe Area boundary observer.',
+  profileTier: 'developer',
+  tier: 'developer',
   storeOverrides: {
     appStore: {
       settingsTargetTab: 'developer',
       developerMode: true,
+    },
+    signalingProfileStore: {
+      loaded: true,
+      source: 'dev-private',
+      profileHash: 'd7c10f8899aabbcc',
+      shortHash: 'd7c10f',
+      relayCount: 4,
+      relayLabels: ['CN-1', 'CN-2', 'GB-1', 'GB-2'],
+      turnServerCount: 2,
     },
   },
 };

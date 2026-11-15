@@ -11,6 +11,7 @@ import { SettingActionRow } from '../../../compounds/SettingActionRow';
 import { useSettingActionRowStore } from '../../../stores/settingRowStore';
 import { useSignalingProfileStore } from '../../../stores/signalingProfileStore';
 import { useAppStore } from '../../../stores/appStore';
+import { useScopedStore } from '../../../stores/storeSnapshotScope';
 import { SignalingRelayNodeListSection } from './SignalingRelayNodeListSection';
 
 export interface SignalingProfileSectionProps {
@@ -30,22 +31,22 @@ export interface SignalingProfileSectionProps {
  */
 export const SignalingProfileSection: React.FC<SignalingProfileSectionProps> = React.memo(
   ({ bordered = false, onHover, onLeave, isLight = false }) => {
-    const source = useSignalingProfileStore((s) => s.source);
-    const shortHash = useSignalingProfileStore((s) => s.shortHash);
-    const relayCount = useSignalingProfileStore((s) => s.relayCount);
-    const relayLabels = useSignalingProfileStore((s) => s.relayLabels);
-    const turnServerCount = useSignalingProfileStore((s) => s.turnServerCount);
-    const customUrl = useSignalingProfileStore((s) => s.customUrl);
-    const noKeySimulationActive = useSignalingProfileStore((s) => s.noKeySimulationActive);
-    const isBusy = useSignalingProfileStore((s) => s.isBusy);
-    const isProbing = useSignalingProfileStore((s) => s.isProbing);
-    const importBundle = useSignalingProfileStore((s) => s.importBundle);
-    const clearProfile = useSignalingProfileStore((s) => s.clearProfile);
-    const verifyRelays = useSignalingProfileStore((s) => s.verifyRelays);
-    const clearMessages = useSignalingProfileStore((s) => s.clearMessages);
+    const source = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.source);
+    const shortHash = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.shortHash);
+    const relayCount = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.relayCount);
+    const relayLabels = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.relayLabels);
+    const turnServerCount = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.turnServerCount);
+    const customUrl = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.customUrl);
+    const noKeySimulationActive = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.noKeySimulationActive);
+    const isBusy = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.isBusy);
+    const isProbing = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.isProbing);
+    const importBundle = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.importBundle);
+    const clearProfile = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.clearProfile);
+    const verifyRelays = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.verifyRelays);
+    const clearMessages = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.clearMessages);
 
-    const highlightSetting = useAppStore((s) => s.highlightSetting);
-    const clearHighlightSetting = useAppStore((s) => s.clearHighlightSetting);
+    const highlightSetting = useScopedStore('appStore', useAppStore, (s) => s.highlightSetting);
+    const clearHighlightSetting = useScopedStore('appStore', useAppStore, (s) => s.clearHighlightSetting);
 
     const [isExpanded, setIsExpanded] = useState(false);
     const [selectedFileName, setSelectedFileName] = useState<string>('');

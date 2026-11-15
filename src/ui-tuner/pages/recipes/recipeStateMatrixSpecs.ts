@@ -11,7 +11,11 @@ import type { HostMatchConfig } from '../../../ui-core/recipes/online/OnlineRoom
 import type { JoinRoomConfig } from '../../../ui-core/recipes/Layer3JoinRoomRecipe';
 import type { HostTrainingGhostMode } from '../../../ui-core/recipes/Layer3HostTrainingRecipe';
 import type { GarageTabId } from '../../../ui-core/recipes/Layer2GarageRecipe';
-import type { SettingsTabId } from '../../../ui-core/recipes/Layer2SettingsRecipe';
+import { GARAGE_SYNC_VARIANT_METAS } from '../../../ui-core/recipes/garage/garageSyncVariants';
+import {
+  SETTINGS_TAB_VARIANTS,
+  type SettingsTabId,
+} from '../../../ui-core/recipes/Layer2SettingsRecipe';
 import {
   HOST_MATCH_PROGRESS_STEPS,
   HOST_TRAINING_PROGRESS_STEPS,
@@ -27,6 +31,7 @@ export interface RecipeStateSnapshotSpec<TProps> {
   componentName?: string;
   sourceFile?: string;
   subViewFile?: string;
+  storeOverrides?: Record<string, Record<string, unknown>>;
   props: TProps;
 }
 
@@ -81,65 +86,48 @@ export const LAYER2_GARAGE_STATES: RecipeStateSnapshotSpec<{
     subViewFile: 'recipes/garage/GarageAnthemTab.tsx',
     props: { activeTab: 'anthem' },
   },
-  {
-    id: 'garage-sync',
-    label: '5. Cloud Profile Sync',
-    description: 'Cross-device loadout and profile synchronization status tab.',
+  ...GARAGE_SYNC_VARIANT_METAS.map((v) => ({
+    id: `garage-${v.variantId}`,
+    label: v.label,
+    description: v.description ?? v.label,
     componentName: 'Layer2GarageRecipe',
     sourceFile: 'recipes/Layer2GarageRecipe.tsx',
-    props: { activeTab: 'sync' },
-  },
+    subViewFile: v.entryFile,
+    storeOverrides: v.storeOverrides,
+    props: { activeTab: 'sync' as GarageTabId },
+  })),
 ];
+
+const resolveSettingsTabFromVariant = (variantId: string): SettingsTabId => {
+  const suffix = variantId.replace(/^settings:/, '');
+  if (suffix.startsWith('display')) return 'display';
+  if (suffix.startsWith('advanced')) return 'advanced';
+  if (suffix === 'audio' || suffix === 'developer') return suffix;
+  return 'gameplay';
+};
 
 export const LAYER2_SETTINGS_STATES: RecipeStateSnapshotSpec<{
   activeTab: SettingsTabId;
-}>[] = [
-  {
-    id: 'settings-gameplay',
-    label: '1. Gameplay Settings',
-    description: 'Camera, Keybindings, Ball Cam Indicator, Trajectory Predictor, Show POV Hitbox, Training Config, and Experience Priority.',
+}>[] = SETTINGS_TAB_VARIANTS.map((v) => {
+  const tab = resolveSettingsTabFromVariant(v.variantId);
+  const subViewMap: Record<SettingsTabId, string> = {
+    gameplay: 'recipes/settings/tabs/GameplayTab.tsx',
+    audio: 'recipes/settings/tabs/AudioTab.tsx',
+    display: 'recipes/settings/tabs/DisplayTab.tsx',
+    advanced: 'recipes/settings/tabs/AdvancedTab.tsx',
+    developer: 'recipes/settings/tabs/DeveloperTab.tsx',
+  };
+  return {
+    id: v.variantId.replace(':', '-'),
+    label: v.label,
+    description: v.description ?? v.label,
     componentName: 'Layer2SettingsRecipe',
     sourceFile: 'recipes/Layer2SettingsRecipe.tsx',
-    subViewFile: 'recipes/settings/tabs/GameplayTab.tsx',
-    props: { activeTab: 'gameplay' },
-  },
-  {
-    id: 'settings-audio',
-    label: '2. Audio Settings',
-    description: 'Master, Engine, and Boost volume sliders, Acoustics & EQ entry, and background mute toggle.',
-    componentName: 'Layer2SettingsRecipe',
-    sourceFile: 'recipes/Layer2SettingsRecipe.tsx',
-    subViewFile: 'recipes/settings/tabs/AudioTab.tsx',
-    props: { activeTab: 'audio' },
-  },
-  {
-    id: 'settings-display',
-    label: '3. Display & Graphics',
-    description: 'Theme toggle, UI Scale, Safe Area Margin, FPS limiter, Render Scale, and Menu Power Save mode.',
-    componentName: 'Layer2SettingsRecipe',
-    sourceFile: 'recipes/Layer2SettingsRecipe.tsx',
-    subViewFile: 'recipes/settings/tabs/DisplayTab.tsx',
-    props: { activeTab: 'display' },
-  },
-  {
-    id: 'settings-advanced',
-    label: '4. Advanced & Telemetry',
-    description: 'Input buffer target/thresholds, HUD telemetry overlay configuration, user floating monitors, and Developer Mode unlock.',
-    componentName: 'Layer2SettingsRecipe',
-    sourceFile: 'recipes/Layer2SettingsRecipe.tsx',
-    subViewFile: 'recipes/settings/tabs/AdvancedTab.tsx',
-    props: { activeTab: 'advanced' },
-  },
-  {
-    id: 'settings-developer',
-    label: '5. Developer Hub',
-    description: 'Subsystem Isolation Lab, Active Tuners, Calibrated Presets, Self Test, Under Development, and Safe Area boundary observer.',
-    componentName: 'Layer2SettingsRecipe',
-    sourceFile: 'recipes/Layer2SettingsRecipe.tsx',
-    subViewFile: 'recipes/settings/tabs/DeveloperTab.tsx',
-    props: { activeTab: 'developer' },
-  },
-];
+    subViewFile: subViewMap[tab],
+    storeOverrides: v.storeOverrides,
+    props: { activeTab: tab },
+  };
+});
 
 export const LAYER2_MANAGE_ROOM_STATES: RecipeStateSnapshotSpec<
   OnlineRoomControlStateOverride & {

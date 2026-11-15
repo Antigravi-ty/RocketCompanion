@@ -19,6 +19,7 @@ import {
   isTauriRuntime,
   type TauriDisplayDiagnostics,
 } from '../config/tauriLaunchConfigBridge';
+import { useStoreSnapshotOverride } from '../stores/storeSnapshotScope';
 
 export interface DisplayRefreshRateCardProps {
   isLight?: boolean;
