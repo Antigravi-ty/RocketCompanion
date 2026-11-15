@@ -58,6 +58,7 @@ export interface SurfaceMeta {
   subtitle?: string;
   description?: string;
   icon?: string;
+  iconColor?: string;
   layer: SurfaceLayerKind;
   menuGroup?: SurfaceMenuGroup;
   defaultSizing: SurfaceSizingSpec;

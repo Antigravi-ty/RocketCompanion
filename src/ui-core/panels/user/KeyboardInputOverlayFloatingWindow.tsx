@@ -11,6 +11,7 @@ export const SURFACE_META: SurfaceMeta = {
   description:
     'Resizable 3x3 retro trapezoid keycap overlay (Q/W/E, A/S/D, Slide/Boost/Jump) with 3D camera-relative WASD attitude arrows.',
   icon: 'keyboard',
+  iconColor: 'text-emerald-500 dark:text-emerald-400',
   layer: 'floating-user',
   menuGroup: 'user-floating',
   hideFooter: true,

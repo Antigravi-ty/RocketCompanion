@@ -37,6 +37,7 @@ export const SURFACE_META: SurfaceMeta = {
   description:
     'Multi-track replay timeline scrubber, camera mode switcher, and speed flow controls.',
   icon: 'film',
+  iconColor: 'text-amber-500 dark:text-amber-400',
   layer: 'floating-user',
   menuGroup: 'user-floating',
   hideFooter: false,

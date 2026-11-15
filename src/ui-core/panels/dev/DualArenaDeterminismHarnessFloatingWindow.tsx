@@ -11,7 +11,8 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'Determinism',
   description:
     'Bit-exact parallel RocketSim physics rollback verification & desync delta monitoring.',
-  icon: 'CheckCircle2',
+  icon: 'target',
+  iconColor: 'text-emerald-500 dark:text-emerald-400',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
   hideFooter: false,

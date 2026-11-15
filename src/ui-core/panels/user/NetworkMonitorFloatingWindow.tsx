@@ -16,7 +16,8 @@ export const SURFACE_META: SurfaceMeta = {
   title: 'Network Monitor',
   description:
     'Real-time RTT & jitter oscilloscope, input buffer queue depth, and 20-minute session telemetry export.',
-  icon: 'wifi',
+  icon: 'router',
+  iconColor: 'text-violet-500 dark:text-violet-400',
   layer: 'floating-user',
   menuGroup: 'user-floating',
   hideFooter: false,

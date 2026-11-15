@@ -23,6 +23,8 @@ import type { StandardSurfaceProps, SurfaceMeta } from '../../manifest/surfaceMe
 export const SURFACE_META: SurfaceMeta = {
   id: 'reachability-tuner',
   title: 'Reachability & Intercept Tuner',
+  icon: 'crosshair',
+  iconColor: 'text-emerald-500 dark:text-emerald-400',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
   hideFooter: false,

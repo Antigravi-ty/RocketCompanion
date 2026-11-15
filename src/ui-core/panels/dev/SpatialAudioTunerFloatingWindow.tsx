@@ -28,7 +28,8 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: '3D Distance Rolloff Profiles, Live Arena Gizmo & Stadium Reverb Engine',
   description:
     'Stadium spatial acoustics (HPF 425Hz, LPF 3500Hz, Wet 69%, 3.0s Decay) & 2.0s directional non-linear transition curve.',
-  icon: 'Volume2',
+  icon: 'volume-2',
+  iconColor: 'text-amber-500 dark:text-amber-400',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
   hideFooter: false,

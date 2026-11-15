@@ -32,6 +32,8 @@ import type { StandardSurfaceProps, SurfaceMeta } from '../../manifest/surfaceMe
 export const SURFACE_META: SurfaceMeta = {
   id: 'replay-to-rcs-importer',
   title: 'Replay to RLRCReplay Importer',
+  icon: 'file-archive',
+  iconColor: 'text-cyan-500 dark:text-cyan-400',
   layer: 'floating-dev',
   menuGroup: 'sandboxes',
   hideFooter: false,

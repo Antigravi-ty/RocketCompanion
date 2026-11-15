@@ -12,7 +12,8 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'NetworkLab',
   description:
     'Asymmetric uplink/downlink delay, jitter, packet loss & burst drop injection + 2-Car 0G probes.',
-  icon: 'Wifi',
+  icon: 'router',
+  iconColor: 'text-rose-500 dark:text-rose-400',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
   hideFooter: false,

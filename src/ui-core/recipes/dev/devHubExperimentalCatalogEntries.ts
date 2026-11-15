@@ -44,7 +44,7 @@ export const EXPERIMENTAL_AND_DIAGNOSTIC_TUNER_SPECS: DevFloatingLauncherSpec[] 
     id: REACHABILITY_TUNER_PRESET.id,
     preset: REACHABILITY_TUNER_PRESET,
     icon: Crosshair,
-    iconColor: 'text-emerald-400',
+    iconColor: REACHABILITY_TUNER_PRESET.iconColor,
     badge: 'LUT · 3D Horn · Cross',
     badgeTone: 'emerald',
     description:
@@ -57,7 +57,7 @@ export const EXPERIMENTAL_AND_DIAGNOSTIC_TUNER_SPECS: DevFloatingLauncherSpec[] 
     id: BALL_TRAJECTORY_TUNER_PRESET.id,
     preset: BALL_TRAJECTORY_TUNER_PRESET,
     icon: Target,
-    iconColor: 'text-amber-400',
+    iconColor: BALL_TRAJECTORY_TUNER_PRESET.iconColor,
     badge: 'WASM Incr · 3D Tube · JSON',
     badgeTone: 'amber',
     description:
@@ -70,7 +70,7 @@ export const EXPERIMENTAL_AND_DIAGNOSTIC_TUNER_SPECS: DevFloatingLauncherSpec[] 
     id: REPLAY_DIRECTOR_TUNER_PRESET.id,
     preset: REPLAY_DIRECTOR_TUNER_PRESET,
     icon: Film,
-    iconColor: 'text-amber-400',
+    iconColor: REPLAY_DIRECTOR_TUNER_PRESET.iconColor,
     badge: '.RCGR · Preview · AutoCam',
     badgeTone: 'amber',
     description:
@@ -83,7 +83,7 @@ export const EXPERIMENTAL_AND_DIAGNOSTIC_TUNER_SPECS: DevFloatingLauncherSpec[] 
     id: KICKOFF_TRAINING_TUNER_PRESET.id,
     preset: KICKOFF_TRAINING_TUNER_PRESET,
     icon: PencilRuler,
-    iconColor: 'text-sky-400',
+    iconColor: KICKOFF_TRAINING_TUNER_PRESET.iconColor,
     badge: 'PPO AI',
     badgeTone: 'sky',
     description:
@@ -96,7 +96,7 @@ export const EXPERIMENTAL_AND_DIAGNOSTIC_TUNER_SPECS: DevFloatingLauncherSpec[] 
     id: EVENT_STREAM_OBSERVER_PRESET.id,
     preset: EVENT_STREAM_OBSERVER_PRESET,
     icon: Activity,
-    iconColor: 'text-sky-400',
+    iconColor: EVENT_STREAM_OBSERVER_PRESET.iconColor,
     description:
       'Physics collision observer, impulse curves & threshold visualizer',
     hoverTooltip:
@@ -107,7 +107,7 @@ export const EXPERIMENTAL_AND_DIAGNOSTIC_TUNER_SPECS: DevFloatingLauncherSpec[] 
     id: DUAL_ARENA_DETERMINISM_HARNESS_PRESET.id,
     preset: DUAL_ARENA_DETERMINISM_HARNESS_PRESET,
     icon: Target,
-    iconColor: 'text-emerald-400',
+    iconColor: DUAL_ARENA_DETERMINISM_HARNESS_PRESET.iconColor,
     description:
       'Bit-exact physics rollback verification & desync delta monitoring',
     hoverTooltip:
@@ -118,7 +118,7 @@ export const EXPERIMENTAL_AND_DIAGNOSTIC_TUNER_SPECS: DevFloatingLauncherSpec[] 
     id: CAMERA_DETERMINISM_PRESET.id,
     preset: CAMERA_DETERMINISM_PRESET,
     icon: Camera,
-    iconColor: 'text-sky-400',
+    iconColor: CAMERA_DETERMINISM_PRESET.iconColor,
     badge: 'WASM vs Clean JS · 600+600f',
     badgeTone: 'sky',
     description:
@@ -131,7 +131,7 @@ export const EXPERIMENTAL_AND_DIAGNOSTIC_TUNER_SPECS: DevFloatingLauncherSpec[] 
     id: CLOCK_PACING_TUNER_PRESET.id,
     preset: CLOCK_PACING_TUNER_PRESET,
     icon: Sliders,
-    iconColor: 'text-amber-400',
+    iconColor: CLOCK_PACING_TUNER_PRESET.iconColor,
     badge: 'What-If Sim · Trace JSON',
     badgeTone: 'amber',
     description:
@@ -144,7 +144,7 @@ export const EXPERIMENTAL_AND_DIAGNOSTIC_TUNER_SPECS: DevFloatingLauncherSpec[] 
     id: NETWORK_STRESS_INJECTION_PRESET.id,
     preset: NETWORK_STRESS_INJECTION_PRESET,
     icon: Router,
-    iconColor: 'text-rose-400',
+    iconColor: NETWORK_STRESS_INJECTION_PRESET.iconColor,
     badge: 'Asymmetric ↑/↓ · 2-Car Probes',
     badgeTone: 'rose',
     description:

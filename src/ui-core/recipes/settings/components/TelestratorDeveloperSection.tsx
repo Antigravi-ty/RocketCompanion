@@ -47,7 +47,7 @@ export const TelestratorDeveloperSection: React.FC<TelestratorDeveloperSectionPr
     <div className="flex flex-col gap-2">
       <SettingActionRow
         icon={Pen}
-        iconColor={isLight ? 'text-emerald-600' : 'text-emerald-400'}
+        iconColor={TELESTRATOR_TOOLBAR_PRESET.iconColor}
         title={overlayActive ? '3D Telestrator Overlay (Active)' : '3D Telestrator Overlay'}
         description="Toggle functional 3D drawing & POV Direction Adjust overlay on top of Replay, Training, or Freeplay"
         hoverDescription="3D Telestrator Overlay: Mode-independent functional override. Opens the vertical Telestrator toolbar on any active mode without replacing physics or match state."

@@ -53,7 +53,8 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'Wall & Pulse · Shadows & Light · Skybox · Ball',
   description:
     'Wall & Pulse (Cubic-Bezier Fade-Out Curve), Single-Sun Sharp Shadows, Full-Sphere Skybox & 70% Ball.',
-  icon: 'Sun',
+  icon: 'sparkles',
+  iconColor: 'text-sky-500 dark:text-sky-400',
   layer: 'floating-dev',
   menuGroup: 'calibrated-presets',
   hideFooter: false,

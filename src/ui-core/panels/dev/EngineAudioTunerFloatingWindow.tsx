@@ -26,7 +26,8 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: '40-Slice Granular REV Powertrain Synthesizer & 5-Band Loudness EQ',
   description:
     'Turtle Modem 40-slice granular REV powertrain synthesizer, RPM/gear/reverse physics, backfire pops & Entity Spawn SFX.',
-  icon: 'Volume2',
+  icon: 'volume-2',
+  iconColor: 'text-emerald-500 dark:text-emerald-400',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
   hideFooter: false,

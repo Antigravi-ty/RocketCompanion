@@ -31,7 +31,8 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: '3D Spatial Tactical Drawing & View Adjust',
   description:
     'Mode-independent vertical overlay toolbar for 3D arena telestrator strokes, brush presets, colors, Direction Adjust, Eye visibility, Undo, Clear, and screen-normalized Settings.',
-  icon: 'Pen',
+  icon: 'pen',
+  iconColor: 'text-emerald-500 dark:text-emerald-400',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
   hideFooter: true,

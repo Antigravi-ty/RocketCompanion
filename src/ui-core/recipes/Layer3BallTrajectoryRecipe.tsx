@@ -147,8 +147,6 @@ export const Layer3BallTrajectoryRecipe: React.FC<
           {developerMode && (
             <FloatingWindowCard
               preset={BALL_TRAJECTORY_TUNER_PRESET}
-              icon={Sliders}
-              iconColor="text-amber-400"
               badge="WASM Incr · 3D Tube · JSON"
               badgeClass="bg-amber-500/15 border-amber-500/30 text-amber-400"
               bordered={false}

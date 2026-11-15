@@ -21,6 +21,7 @@ export const SURFACE_META: SurfaceMeta = {
   description:
     'Developer tuner for the 3x3 Keyboard Input Overlay (opacity superposition, trapezoid bevels, 3D WASD attitude arrows) and 4-way 3D Car Nose Arrows.',
   icon: 'keyboard',
+  iconColor: 'text-emerald-500 dark:text-emerald-400',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
   hideFooter: false,

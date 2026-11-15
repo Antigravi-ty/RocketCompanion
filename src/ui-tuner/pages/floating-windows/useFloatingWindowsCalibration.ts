@@ -71,6 +71,8 @@ export function buildMergedFloatingPresets(tier: FloatingWindowVisibilityTier): 
       id: entry.meta.id,
       title: entry.meta.title,
       category: entry.meta.menuGroup ?? 'Developer',
+      iconName: entry.meta.icon || 'sliders',
+      iconColor: entry.meta.iconColor || 'text-sky-500 dark:text-sky-400',
       width: calibrated.width,
       height: typeof calibrated.height === 'number' ? calibrated.height : 580,
       minWidth: calibrated.minWidth,
@@ -119,9 +121,7 @@ export function useFloatingWindowsCalibration(currentPreset?: PresetConfig) {
       category: preset.category,
       width: savedManualMinW ?? preset.minWidth ?? preset.width,
       height:
-        savedManualMinH !== undefined
-          ? Math.max(savedManualMinH, preset.height)
-          : preset.height,
+        savedManualMinH !== undefined ? Math.max(savedManualMinH, preset.height) : preset.height,
       minWidth: preset.minWidth,
       manualMinWidth: savedManualMinW,
       minHeight: preset.minHeight,
@@ -368,12 +368,7 @@ export function useFloatingPlaylistState({
     [tier, activeTierWindows]
   );
   const activePlaylistIdx = useMemo(
-    () =>
-      findFloatingPlaylistUnitIndex(
-        activePlaylist,
-        currentPreset?.id || '',
-        activeSubTab
-      ),
+    () => findFloatingPlaylistUnitIndex(activePlaylist, currentPreset?.id || '', activeSubTab),
     [activePlaylist, currentPreset?.id, activeSubTab]
   );
   const activePlaylistUnit = activePlaylist[activePlaylistIdx] || activePlaylist[0];
@@ -430,4 +425,3 @@ export function useFloatingPlaylistState({
     toolbarDisplayPreset,
   };
 }
-

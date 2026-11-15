@@ -21,10 +21,11 @@ import type { SurfaceMeta, StandardSurfaceProps } from '../../manifest/surfaceMe
 
 export const SURFACE_META: SurfaceMeta = {
   id: 'goal-volume-tuner',
-  title: 'Goal Volume & Rim FX',
+  title: 'Goal Volume Hitbox Active Tuner',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
-  icon: 'Box',
+  icon: 'box',
+  iconColor: 'text-emerald-500 dark:text-emerald-400',
   hideFooter: false,
   defaultSizing: {
     width: 480,

@@ -1,10 +1,8 @@
 import React, { useState } from 'react';
 import {
-  Activity,
   Code2,
   Download,
   HatGlasses,
-  Router,
   Sliders,
   ChevronsLeftRightEllipsis,
 } from 'lucide-react';
@@ -153,7 +151,6 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
   const opacityManagerCard = (
     <FloatingWindowCard
       preset={FLOATING_WINDOW_OPACITY_PRESET}
-      icon={Sliders}
       bordered={resolvedBordered}
       description="Opacity adjustment (1% - 100%) for all floating telemetry windows"
       hoverTooltip="Floating Window Opacity: Adjust transparency across all active floating windows. Minimum 1%."
@@ -297,7 +294,6 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
 
       <FloatingWindowCard
         preset={PERFORMANCE_MONITOR_PRESET}
-        icon={Activity}
         bordered={resolvedBordered}
         description="Real-time CPU phase breakdown, physics simulation sub-ticks, and WebGL rendering pipeline metrics."
         hoverTooltip="Performance Monitor: Inspect live frame pacing, tick rate stability, CPU pipeline phases, and GPU draw calls in a dockable floating overlay."
@@ -317,7 +313,6 @@ export const AdvancedTab: React.FC<AdvancedTabProps> = ({
 
       <FloatingWindowCard
         preset={NETWORK_MONITOR_PRESET}
-        icon={Router}
         bordered={resolvedBordered}
         description="Real-time RTT & jitter oscilloscope, input buffer queue depth, and 20-minute session telemetry export."
         hoverTooltip="Network Monitor: Monitor live connection health, input buffer starvation/hysteresis curves, and export full 20-minute session telemetry (.json / .csv)."

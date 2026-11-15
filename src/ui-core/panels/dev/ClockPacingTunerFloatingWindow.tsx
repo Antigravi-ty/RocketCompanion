@@ -30,7 +30,8 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'PacingTuner',
   description:
     'Low-level STS/CSTS hysteresis, PD gains, RTT bias compensation, trace import & What-If simulator.',
-  icon: 'Sliders',
+  icon: 'sliders',
+  iconColor: 'text-amber-500 dark:text-amber-400',
   layer: 'floating-dev',
   menuGroup: 'active-tuners',
   hideFooter: false,

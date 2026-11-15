@@ -276,8 +276,6 @@ export const DeveloperTab: React.FC<DeveloperTabProps> = ({
 
       <FloatingWindowCard
         preset={BOTS_LOADOUT_TUNER_PRESET}
-        icon={Bot}
-        iconColor="text-amber-400"
         badge="3 GLB Default · Multi-Select"
         badgeClass="bg-amber-500/15 border-amber-500/30 text-amber-400"
         description="Configure multi-select Bot Loadout randomizer pools (Car GLB models, Metallic paint, Cartoon boost, Standard boost audio, Random TrainStation anthem)"

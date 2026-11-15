@@ -30,7 +30,8 @@ export const SURFACE_META: SurfaceMeta = {
   title: 'Driftwoods Stadium Tuner',
   layer: 'floating-dev',
   menuGroup: 'calibrated-presets',
-  icon: 'Palette',
+  icon: 'palette',
+  iconColor: 'text-emerald-500 dark:text-emerald-400',
   hideFooter: false,
   defaultSizing: {
     width: 480,
