@@ -1,0 +1,50 @@
+#!/bin/sh
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$REPO_ROOT" ]; then
+  exit 0
+fi
+
+PREV_HEAD="$(git rev-parse ORIG_HEAD 2>/dev/null || echo "")"
+NEXT_HEAD="$(git rev-parse HEAD 2>/dev/null || echo "")"
+
+TAURI_CHANGED="false"
+DEPS_CHANGED="false"
+if [ -n "$PREV_HEAD" ] && [ -n "$NEXT_HEAD" ] && [ "$PREV_HEAD" != "$NEXT_HEAD" ]; then
+  if ! git diff --quiet "$PREV_HEAD" "$NEXT_HEAD" -- src-tauri/ 2>/dev/null; then
+    TAURI_CHANGED="true"
+  fi
+  if ! git diff --quiet "$PREV_HEAD" "$NEXT_HEAD" -- package.json pnpm-lock.yaml 2>/dev/null; then
+    DEPS_CHANGED="true"
+  fi
+fi
+
+CACHE_DIR="$REPO_ROOT/.cache"
+mkdir -p "$CACHE_DIR" 2>/dev/null || exit 0
+
+EVENT_ID="$(date +%s)-$$"
+TIMESTAMP_MS="$(($(date +%s) * 1000))"
+TMP_FILE="$CACHE_DIR/git-checkout-event.json.tmp.$$"
+TARGET_FILE="$CACHE_DIR/git-checkout-event.json"
+
+cat > "$TMP_FILE" <<EOF
+{
+  "eventId": "$EVENT_ID",
+  "timestamp": $TIMESTAMP_MS,
+  "hook": "post-rewrite",
+  "prevHead": "$PREV_HEAD",
+  "nextHead": "$NEXT_HEAD",
+  "tauriChanged": $TAURI_CHANGED,
+  "depsChanged": $DEPS_CHANGED
+}
+EOF
+mv -f "$TMP_FILE" "$TARGET_FILE" 2>/dev/null || rm -f "$TMP_FILE"
+
+if command -v curl >/dev/null 2>&1; then
+  (
+    curl -s --connect-timeout 0.2 --max-time 0.5 -X POST -H "Content-Type: application/json" -d @"$TARGET_FILE" "http://127.0.0.1:3003/__rc_git_checkout_done" >/dev/null 2>&1 || \
+    curl -sk --connect-timeout 0.2 --max-time 0.5 -X POST -H "Content-Type: application/json" -d @"$TARGET_FILE" "https://127.0.0.1:3001/__rc_git_checkout_done" >/dev/null 2>&1
+  ) &
+fi
+
+exit 0

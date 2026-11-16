@@ -1,10 +1,18 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import { resolve } from 'node:path';
+import { ensureGitHooks } from './git/ensureGitHooks.ts';
+import {
+  ensureCacheDir,
+  getCheckoutEventPath,
+  isCheckoutLockActive,
+  readGitCheckoutEvent,
+} from './git/gitCheckoutSignal.ts';
 import { readCompositeGitHeadState, REPO_ROOT_DIR } from './git/gitHeadState.ts';
 
-const POLL_INTERVAL_MS = 200;
-const SETTLE_DELAY_MS = 150;
+const FALLBACK_POLL_MS = 500;
+const SETTLE_DELAY_MS = 1000;
+const SETTLE_MAX_WAIT_MS = 3000;
 const FORCE_KILL_TIMEOUT_MS = 2500;
 
 const extraArgs = process.argv.slice(2);
@@ -15,7 +23,35 @@ let childExitWaiter: Promise<void> | null = null;
 let isShuttingDown = false;
 let isRestarting = false;
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
+let settleStartAt = 0;
 let baselineSignature = readCompositeGitHeadState(REPO_ROOT_DIR).signature;
+let baselineHeadSha = readHeadSha();
+let lastSeenEventId = readGitCheckoutEvent(REPO_ROOT_DIR)?.eventId ?? '';
+
+function readHeadSha(): string {
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: REPO_ROOT_DIR,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return '';
+  }
+}
+
+function didTauriChangeSince(prevSha: string, nextSha: string): boolean {
+  if (!prevSha || !nextSha || prevSha === nextSha) return false;
+  try {
+    execFileSync('git', ['diff', '--quiet', prevSha, nextSha, '--', 'src-tauri/'], {
+      cwd: REPO_ROOT_DIR,
+      stdio: 'ignore',
+    });
+    return false;
+  } catch {
+    return true;
+  }
+}
 
 function resolveTauriCommand(): { command: string; args: string[] } {
   const localBin = resolve(REPO_ROOT_DIR, 'node_modules/.bin', isWindows ? 'tauri.cmd' : 'tauri');
@@ -71,7 +107,7 @@ function spawnTauriDev(): void {
     detached: !isWindows,
     env: {
       ...process.env,
-      RC_DISABLE_VITE_GIT_RESTART: '1',
+      RC_TAURI_WATCH_ACTIVE: '1',
     },
   });
 
@@ -94,19 +130,24 @@ function spawnTauriDev(): void {
       }
 
       console.error(
-        `\n[tauri-dev-watch] tauri dev exited with code ${code ?? 'null'}. Waiting for next Git HEAD switch to retry...`
+        `\n[tauri-dev-watch] tauri dev exited with code ${code ?? 'null'}. Waiting for next Git checkout to retry...`
       );
     });
   });
 }
 
-async function restartForGitHeadChange(previousSig: string | null, nextSig: string): Promise<void> {
+async function restartForTauriChange(
+  previousSig: string | null,
+  nextSig: string,
+  reason: string
+): Promise<void> {
   if (isShuttingDown || isRestarting) return;
   isRestarting = true;
   baselineSignature = nextSig;
+  baselineHeadSha = readHeadSha();
 
   console.log(
-    `\n[tauri-dev-watch] Git HEAD switch detected:\n  prev: ${previousSig ?? 'none'}\n  next: ${nextSig}\n-> Restarting Tauri dev shell & Vite servers...`
+    `\n[tauri-dev-watch] ${reason} detected:\n  prev: ${previousSig ?? 'none'}\n  next: ${nextSig}\n-> Restarting Tauri dev shell & Vite servers (incremental rebuild updates tray/title Commit ID)...`
   );
 
   try {
@@ -120,6 +161,102 @@ async function restartForGitHeadChange(previousSig: string | null, nextSig: stri
   }
 }
 
+function scheduleTauriRestart(previousSig: string | null, reason: string): void {
+  if (isShuttingDown || isRestarting) return;
+
+  if (!settleTimer) {
+    settleStartAt = Date.now();
+  } else {
+    clearTimeout(settleTimer);
+  }
+
+  const elapsed = Date.now() - settleStartAt;
+  const remainingCap = Math.max(0, SETTLE_MAX_WAIT_MS - elapsed);
+  const delay = Math.min(SETTLE_DELAY_MS, remainingCap);
+
+  settleTimer = setTimeout(() => {
+    settleTimer = null;
+    if (isShuttingDown || isRestarting) return;
+
+    if (isCheckoutLockActive(REPO_ROOT_DIR) && Date.now() - settleStartAt < SETTLE_MAX_WAIT_MS) {
+      scheduleTauriRestart(previousSig, reason);
+      return;
+    }
+
+    const settled = readCompositeGitHeadState(REPO_ROOT_DIR);
+    if (!settled.signature) return;
+    void restartForTauriChange(previousSig, settled.signature, reason);
+  }, delay);
+  settleTimer.unref?.();
+}
+
+function checkCheckoutSignals(): void {
+  if (isShuttingDown || isRestarting) return;
+
+  const event = readGitCheckoutEvent(REPO_ROOT_DIR);
+  if (event && event.eventId !== lastSeenEventId) {
+    lastSeenEventId = event.eventId;
+    const prevSig = baselineSignature;
+    const currentSig = readCompositeGitHeadState(REPO_ROOT_DIR).signature;
+    const nextSha = event.nextHead || readHeadSha();
+    const commitChanged = Boolean(nextSha && baselineHeadSha && nextSha !== baselineHeadSha);
+    if (event.tauriChanged || commitChanged) {
+      const reason = event.tauriChanged
+        ? `Native src-tauri/ change (${event.hook})`
+        : `HEAD commit change (${event.hook})`;
+      scheduleTauriRestart(prevSig, reason);
+    } else {
+      baselineSignature = currentSig ?? baselineSignature;
+      baselineHeadSha = nextSha;
+      console.log(
+        `\n[tauri-dev-watch] Same-commit checkout (${event.hook}); keeping Tauri shell alive while Vite servers restart.`
+      );
+    }
+    return;
+  }
+
+  const current = readCompositeGitHeadState(REPO_ROOT_DIR);
+  if (current.locked || !current.signature) return;
+
+  if (baselineSignature === null) {
+    baselineSignature = current.signature;
+    baselineHeadSha = readHeadSha();
+    return;
+  }
+
+  if (current.signature !== baselineSignature && !settleTimer) {
+    const nextSha = readHeadSha();
+    const tauriChanged = didTauriChangeSince(baselineHeadSha, nextSha);
+    const commitChanged = Boolean(nextSha && baselineHeadSha && nextSha !== baselineHeadSha);
+    if (tauriChanged || commitChanged) {
+      const reason = tauriChanged ? 'Native src-tauri/ change' : 'HEAD commit change';
+      scheduleTauriRestart(baselineSignature, reason);
+    } else {
+      baselineSignature = current.signature;
+      baselineHeadSha = nextSha;
+      console.log(
+        '\n[tauri-dev-watch] Same-commit HEAD ref change detected; keeping Tauri shell alive while Vite servers restart.'
+      );
+    }
+  }
+}
+
+const cacheDir = ensureCacheDir(REPO_ROOT_DIR);
+const eventFilePath = getCheckoutEventPath(REPO_ROOT_DIR);
+let cacheWatcher: fs.FSWatcher | null = null;
+try {
+  cacheWatcher = fs.watch(cacheDir, (_eventType, filename) => {
+    if (!filename || filename === 'git-checkout-event.json' || eventFilePath.endsWith(filename)) {
+      checkCheckoutSignals();
+    }
+  });
+} catch {
+  // Fallback poll remains active
+}
+
+const pollTimer = setInterval(checkCheckoutSignals, FALLBACK_POLL_MS);
+pollTimer.unref?.();
+
 function cleanupAndExit(exitCode: number): void {
   if (isShuttingDown) return;
   isShuttingDown = true;
@@ -128,6 +265,11 @@ function cleanupAndExit(exitCode: number): void {
     clearTimeout(settleTimer);
     settleTimer = null;
   }
+  try {
+    cacheWatcher?.close();
+  } catch {
+    // Ignore watcher close errors
+  }
   stopActiveChild()
     .catch(() => {})
     .finally(() => {
@@ -135,36 +277,10 @@ function cleanupAndExit(exitCode: number): void {
     });
 }
 
-const pollTimer = setInterval(() => {
-  if (isShuttingDown || isRestarting) return;
-  const current = readCompositeGitHeadState(REPO_ROOT_DIR);
-  if (current.locked || !current.signature) return;
-
-  if (baselineSignature === null) {
-    baselineSignature = current.signature;
-    return;
-  }
-
-  if (current.signature !== baselineSignature && !settleTimer) {
-    const previousSignature = baselineSignature;
-    settleTimer = setTimeout(() => {
-      settleTimer = null;
-      if (isShuttingDown || isRestarting) return;
-      const settled = readCompositeGitHeadState(REPO_ROOT_DIR);
-      if (settled.locked || !settled.signature || settled.signature === previousSignature) {
-        return;
-      }
-      void restartForGitHeadChange(previousSignature, settled.signature);
-    }, SETTLE_DELAY_MS);
-    settleTimer.unref?.();
-  }
-}, POLL_INTERVAL_MS);
-
-pollTimer.unref?.();
-
 process.on('SIGINT', () => cleanupAndExit(0));
 process.on('SIGTERM', () => cleanupAndExit(0));
 
+ensureGitHooks(REPO_ROOT_DIR);
 console.log(
   `[tauri-dev-watch] Supervising tauri dev (Git HEAD: ${baselineSignature ?? 'unknown'})...`
 );

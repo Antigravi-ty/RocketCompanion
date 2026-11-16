@@ -132,7 +132,16 @@ export function createRcViteConfig(
               }
             : undefined,
       watch: {
-        ignored: ['**/src-tauri/**'],
+        ignored: [
+          '**/src-tauri/**',
+          '**/.git/**',
+          '**/.cache/**',
+          '**/dist/**',
+          '**/rc-vite-cache/**',
+          '**/.DS_Store',
+          '**/._*',
+          '**/.AppleDouble',
+        ],
       },
       headers: {
         'Cross-Origin-Resource-Policy': 'cross-origin',
