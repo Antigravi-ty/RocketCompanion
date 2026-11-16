@@ -264,6 +264,40 @@ export const JOIN_ROOM_PROGRESS_STEPS: OnlineRoomProgressStepSpec[] = [
     description: 'Initial client join room form with room code, optional key, and spectating relay toggle.',
   },
   {
+    suffix: 'idle-pack-imported',
+    status: 'idle',
+    step: 1,
+    profileTier: 'pack-imported',
+    storeOverrides: {
+      signalingProfileStore: {
+        source: 'imported-bundle',
+        shortHash: 'imp-a1b2',
+        hasProbedOnce: true,
+        probeResults: [{ ok: true }],
+      },
+    },
+    label: 'Idle · Imported Pack Signaling',
+    description: 'Join Room with imported .rctbnspib signaling bundle active.',
+  },
+  {
+    suffix: 'idle-dev-private',
+    status: 'idle',
+    step: 1,
+    tier: 'developer',
+    profileTier: 'developer',
+    storeOverrides: {
+      appStore: { developerMode: true },
+      signalingProfileStore: {
+        source: 'dev-private',
+        shortHash: 'dev-9f8e',
+        hasProbedOnce: true,
+        probeResults: [{ ok: true }],
+      },
+    },
+    label: 'Idle · Dev Private Signaling',
+    description: 'Join Room with developer private signaling profile active.',
+  },
+  {
     suffix: 'error-signaling',
     status: 'error',
     step: 2,
@@ -332,8 +366,11 @@ export const HOST_TRAINING_PLAYLIST_STEPS: LinearPlaylistStep[] =
 export const JOIN_ROOM_PLAYLIST_STEPS: LinearPlaylistStep[] =
   JOIN_ROOM_PROGRESS_STEPS.map((jr) => ({
     id: `user-l3-join-room-${jr.suffix}`,
-    tier: 'user',
+    variantId: jr.suffix,
+    tier: jr.tier ?? 'user',
     route: 'join-room',
+    profileTier: jr.profileTier,
+    storeOverrides: jr.storeOverrides,
     progressStatus: jr.status,
     currentStep: jr.step,
     layer: 3,

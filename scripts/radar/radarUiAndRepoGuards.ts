@@ -218,6 +218,7 @@ function scanRecipeSubtreeForTierStores(
     { symbol: 'developerMode', re: /\bdeveloperMode\b/ },
     { symbol: 'useCloudProfileSyncStore', re: /\buseCloudProfileSyncStore\b/ },
     { symbol: 'useSignalingProfileStore', re: /\buseSignalingProfileStore\b/ },
+    { symbol: 'isTauriRuntime', re: /\bisTauriRuntime\b/ },
   ];
 
   while (stack.length > 0) {
@@ -254,15 +255,26 @@ function checkMenuPlaylistVariantCoverage(
   recipeFiles: string[],
   errors: string[]
 ): void {
-  const playlistFiles = [
-    path.join(SRC_DIR, 'ui-tuner/pages/menu-layer/menuLayerLinearPlaylists.ts'),
-    path.join(SRC_DIR, 'ui-tuner/pages/menu-layer/menuLayerVariantPlaylistBuilder.ts'),
-    path.join(SRC_DIR, 'ui-tuner/pages/menu-layer/menuLayerOnlineRoomSteps.ts'),
-  ];
+  const linearPlaylistsPath = path.join(SRC_DIR, 'ui-tuner/pages/menu-layer/menuLayerLinearPlaylists.ts');
+  const builderPath = path.join(SRC_DIR, 'ui-tuner/pages/menu-layer/menuLayerVariantPlaylistBuilder.ts');
+  const onlineStepsPath = path.join(SRC_DIR, 'ui-tuner/pages/menu-layer/menuLayerOnlineRoomSteps.ts');
+  const playlistFiles = [linearPlaylistsPath, builderPath, onlineStepsPath];
   const combinedPlaylistSrc = playlistFiles
     .filter((f) => fs.existsSync(f))
     .map((f) => stripComments(fs.readFileSync(f, 'utf8')))
     .join('\n');
+
+  const linearSrc = fs.existsSync(linearPlaylistsPath)
+    ? stripComments(fs.readFileSync(linearPlaylistsPath, 'utf8'))
+    : '';
+  if (
+    !linearSrc.includes("buildSettingsPlaylistSteps('user')") ||
+    !linearSrc.includes("buildSettingsPlaylistSteps('developer')")
+  ) {
+    errors.push(
+      "[PLAYLIST COVERAGE VIOLATION] menuLayerLinearPlaylists.ts must expand buildSettingsPlaylistSteps('user') and buildSettingsPlaylistSteps('developer')."
+    );
+  }
 
   for (const recipeFile of recipeFiles) {
     const baseName = path.basename(recipeFile, '.tsx');

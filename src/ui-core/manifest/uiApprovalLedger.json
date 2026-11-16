@@ -344,7 +344,7 @@
           ],
           "approvedAt": "2026-11-06T00:00:00.000Z"
         },
-        "collect-fx": {
+        "collect": {
           "unitId": "floating:boost-pad-tuner:collect-fx",
           "variantId": "collect-fx",
           "label": "Collect Fx",
@@ -1428,35 +1428,6 @@
           ],
           "approvedAt": "2026-11-06T00:00:00.000Z"
         },
-        "ninety-sec-match": {
-          "unitId": "floating:subsystem-isolation-lab:ninety-sec-match",
-          "variantId": "ninety-sec-match",
-          "label": "Ninety Sec Match",
-          "entryFile": "src/ui-core/panels/dev/subsystem-isolation-lab/NinetySecMatchBenchPanel.tsx",
-          "status": "deferred",
-          "visualAstHash": "c76c85da313879c5",
-          "fileVisualHashes": {
-            "src/ui-core/panels/dev/subsystem-isolation-lab/NinetySecMatchBenchPanel.tsx": "9afb5512ae62954f",
-            "src/ui-core/primitives/Badge.tsx": "7332eebed32d732f",
-            "src/ui-core/primitives/Button.tsx": "9623b599d8b9277e",
-            "src/ui-core/primitives/KeycapBadge.tsx": "7c2207cb344577c7",
-            "src/ui-core/primitives/SegmentedSwitch.tsx": "5e964ae4d1e7ed16",
-            "src/ui-core/primitives/ToggleSwitch.tsx": "a1437b3383d20e0f"
-          },
-          "alphaDependencies": [
-            "Alpha:Badge",
-            "Alpha:Button",
-            "Alpha:KeycapBadge",
-            "Alpha:SegmentedSwitch",
-            "Alpha:ToggleSwitch",
-            "src/ui-core/stores/subsystemIsolationLabStore.ts",
-            "src/ui-core/tokens/colors.ts",
-            "src/ui-core/tokens/easing.ts",
-            "src/ui-core/tokens/radius.ts",
-            "src/ui-core/tokens/spacing.ts"
-          ],
-          "approvedAt": "2026-11-06T00:00:00.000Z"
-        },
         "goal-replay": {
           "unitId": "floating:subsystem-isolation-lab:goal-replay",
           "variantId": "goal-replay",
@@ -1549,6 +1520,35 @@
             "Alpha:SliderControl",
             "Alpha:ToggleSwitch",
             "src/ui-core/config/kickoffDuelConfig.ts",
+            "src/ui-core/stores/subsystemIsolationLabStore.ts",
+            "src/ui-core/tokens/colors.ts",
+            "src/ui-core/tokens/easing.ts",
+            "src/ui-core/tokens/radius.ts",
+            "src/ui-core/tokens/spacing.ts"
+          ],
+          "approvedAt": "2026-11-06T00:00:00.000Z"
+        },
+        "90s-match": {
+          "unitId": "floating:subsystem-isolation-lab:ninety-sec-match",
+          "variantId": "ninety-sec-match",
+          "label": "Ninety Sec Match",
+          "entryFile": "src/ui-core/panels/dev/subsystem-isolation-lab/NinetySecMatchBenchPanel.tsx",
+          "status": "deferred",
+          "visualAstHash": "c76c85da313879c5",
+          "fileVisualHashes": {
+            "src/ui-core/panels/dev/subsystem-isolation-lab/NinetySecMatchBenchPanel.tsx": "9afb5512ae62954f",
+            "src/ui-core/primitives/Badge.tsx": "7332eebed32d732f",
+            "src/ui-core/primitives/Button.tsx": "9623b599d8b9277e",
+            "src/ui-core/primitives/KeycapBadge.tsx": "7c2207cb344577c7",
+            "src/ui-core/primitives/SegmentedSwitch.tsx": "5e964ae4d1e7ed16",
+            "src/ui-core/primitives/ToggleSwitch.tsx": "a1437b3383d20e0f"
+          },
+          "alphaDependencies": [
+            "Alpha:Badge",
+            "Alpha:Button",
+            "Alpha:KeycapBadge",
+            "Alpha:SegmentedSwitch",
+            "Alpha:ToggleSwitch",
             "src/ui-core/stores/subsystemIsolationLabStore.ts",
             "src/ui-core/tokens/colors.ts",
             "src/ui-core/tokens/easing.ts",
@@ -1697,31 +1697,6 @@
           ],
           "approvedAt": "2026-11-06T00:00:00.000Z"
         },
-        "boost-fx": {
-          "unitId": "floating:vehicle-global-fx-tuner:boost-fx",
-          "variantId": "boost-fx",
-          "label": "Boost Fx",
-          "entryFile": "src/ui-core/panels/dev/vehicle-global-fx-tuner/BoostFxTab.tsx",
-          "status": "deferred",
-          "visualAstHash": "7e212cef0fc267d0",
-          "fileVisualHashes": {
-            "src/ui-core/panels/dev/vehicle-global-fx-tuner/BoostFxTab.tsx": "5670eccc30735734",
-            "src/ui-core/primitives/PrecisionDigitPicker.tsx": "fc404eaf5774c5da",
-            "src/ui-core/primitives/SegmentedSwitch.tsx": "5e964ae4d1e7ed16",
-            "src/ui-core/primitives/SliderControl.tsx": "23e8761730e617d3",
-            "src/ui-core/primitives/ToggleSwitch.tsx": "a1437b3383d20e0f"
-          },
-          "alphaDependencies": [
-            "Alpha:PrecisionDigitPicker",
-            "Alpha:SegmentedSwitch",
-            "Alpha:SliderControl",
-            "Alpha:ToggleSwitch",
-            "src/ui-core/tokens/colors.ts",
-            "src/ui-core/tokens/easing.ts",
-            "src/ui-core/tokens/radius.ts"
-          ],
-          "approvedAt": "2026-11-06T00:00:00.000Z"
-        },
         "wheels": {
           "unitId": "floating:vehicle-global-fx-tuner:wheels",
           "variantId": "wheels",
@@ -1744,6 +1719,31 @@
             "Alpha:ToggleSwitch",
             "Alpha:TunerControls",
             "src/ui-core/config/vehicleTunerConfig.ts",
+            "src/ui-core/tokens/colors.ts",
+            "src/ui-core/tokens/easing.ts",
+            "src/ui-core/tokens/radius.ts"
+          ],
+          "approvedAt": "2026-11-06T00:00:00.000Z"
+        },
+        "boost": {
+          "unitId": "floating:vehicle-global-fx-tuner:boost-fx",
+          "variantId": "boost-fx",
+          "label": "Boost Fx",
+          "entryFile": "src/ui-core/panels/dev/vehicle-global-fx-tuner/BoostFxTab.tsx",
+          "status": "deferred",
+          "visualAstHash": "7e212cef0fc267d0",
+          "fileVisualHashes": {
+            "src/ui-core/panels/dev/vehicle-global-fx-tuner/BoostFxTab.tsx": "5670eccc30735734",
+            "src/ui-core/primitives/PrecisionDigitPicker.tsx": "fc404eaf5774c5da",
+            "src/ui-core/primitives/SegmentedSwitch.tsx": "5e964ae4d1e7ed16",
+            "src/ui-core/primitives/SliderControl.tsx": "23e8761730e617d3",
+            "src/ui-core/primitives/ToggleSwitch.tsx": "a1437b3383d20e0f"
+          },
+          "alphaDependencies": [
+            "Alpha:PrecisionDigitPicker",
+            "Alpha:SegmentedSwitch",
+            "Alpha:SliderControl",
+            "Alpha:ToggleSwitch",
             "src/ui-core/tokens/colors.ts",
             "src/ui-core/tokens/easing.ts",
             "src/ui-core/tokens/radius.ts"
@@ -1809,7 +1809,7 @@
         "src/ui-core/tokens/radius.ts"
       ],
       "variants": {
-        "hitbox-align": {
+        "hitbox": {
           "unitId": "floating:vehicle-model-offset-tuner:hitbox-align",
           "variantId": "hitbox-align",
           "label": "Hitbox Align",
@@ -1839,7 +1839,27 @@
           ],
           "approvedAt": "2026-11-06T00:00:00.000Z"
         },
-        "boost-nozzles": {
+        "wheels": {
+          "unitId": "floating:vehicle-model-offset-tuner:wheel-offsets",
+          "variantId": "wheel-offsets",
+          "label": "Wheel Offsets",
+          "entryFile": "src/ui-core/panels/dev/vehicle-model-offset-tuner/WheelOffsetsTab.tsx",
+          "status": "deferred",
+          "visualAstHash": "c6349431ac2bb873",
+          "fileVisualHashes": {
+            "src/ui-core/panels/dev/vehicle-model-offset-tuner/WheelOffsetsTab.tsx": "1fa22a8d7a89c3a4",
+            "src/ui-core/primitives/PrecisionDigitPicker.tsx": "fc404eaf5774c5da",
+            "src/ui-core/primitives/SliderControl.tsx": "23e8761730e617d3"
+          },
+          "alphaDependencies": [
+            "Alpha:PrecisionDigitPicker",
+            "Alpha:SliderControl",
+            "src/ui-core/tokens/colors.ts",
+            "src/ui-core/tokens/radius.ts"
+          ],
+          "approvedAt": "2026-11-06T00:00:00.000Z"
+        },
+        "boost": {
           "unitId": "floating:vehicle-model-offset-tuner:boost-nozzles",
           "variantId": "boost-nozzles",
           "label": "Boost Nozzles",
@@ -1858,26 +1878,6 @@
             "Alpha:ToggleSwitch",
             "src/ui-core/tokens/colors.ts",
             "src/ui-core/tokens/easing.ts",
-            "src/ui-core/tokens/radius.ts"
-          ],
-          "approvedAt": "2026-11-06T00:00:00.000Z"
-        },
-        "wheel-offsets": {
-          "unitId": "floating:vehicle-model-offset-tuner:wheel-offsets",
-          "variantId": "wheel-offsets",
-          "label": "Wheel Offsets",
-          "entryFile": "src/ui-core/panels/dev/vehicle-model-offset-tuner/WheelOffsetsTab.tsx",
-          "status": "deferred",
-          "visualAstHash": "c6349431ac2bb873",
-          "fileVisualHashes": {
-            "src/ui-core/panels/dev/vehicle-model-offset-tuner/WheelOffsetsTab.tsx": "1fa22a8d7a89c3a4",
-            "src/ui-core/primitives/PrecisionDigitPicker.tsx": "fc404eaf5774c5da",
-            "src/ui-core/primitives/SliderControl.tsx": "23e8761730e617d3"
-          },
-          "alphaDependencies": [
-            "Alpha:PrecisionDigitPicker",
-            "Alpha:SliderControl",
-            "src/ui-core/tokens/colors.ts",
             "src/ui-core/tokens/radius.ts"
           ],
           "approvedAt": "2026-11-06T00:00:00.000Z"
@@ -2397,17 +2397,7 @@
           "approvedAt": "2026-11-11T09:34:00.000Z",
           "note": "Display name for TriOctane4 and TriOctane3 should both be TriOctane; badge below should be Octane and 3 instead of Octane (Three-Wheeler)."
         },
-        "user-l2-garage-car": {
-          "status": "rejected",
-          "approvedAt": "2026-11-11T09:34:00.000Z",
-          "note": "Display name for TriOctane4 and TriOctane3 should both be TriOctane; badge below should be Octane and 3 instead of Octane (Three-Wheeler)."
-        },
         "paint": {
-          "status": "rejected",
-          "approvedAt": "2026-11-11T09:34:00.000Z",
-          "note": "Vehicle Paint Finishes uses horizontally flipped spray-can; Primary Team Priority renamed to Team Priority with Blue / Orange options and user-star icon."
-        },
-        "user-l2-garage-paint": {
           "status": "rejected",
           "approvedAt": "2026-11-11T09:34:00.000Z",
           "note": "Vehicle Paint Finishes uses horizontally flipped spray-can; Primary Team Priority renamed to Team Priority with Blue / Orange options and user-star icon."
@@ -2417,16 +2407,7 @@
           "approvedAt": "2026-11-11T10:01:04.067Z",
           "note": "Ball style 以及 demolition effect 可以直接删掉了。"
         },
-        "user-l2-garage-loadout": {
-          "status": "deferred",
-          "approvedAt": "2026-11-11T10:01:04.067Z",
-          "note": "Ball style 以及 demolition effect 可以直接删掉了。"
-        },
         "anthem": {
-          "status": "deferred",
-          "approvedAt": "2026-11-06T00:00:00.000Z"
-        },
-        "sync": {
           "status": "deferred",
           "approvedAt": "2026-11-06T00:00:00.000Z"
         }
@@ -2533,13 +2514,7 @@
         "src/ui-core/stores/signalingProfileStore.ts",
         "src/ui-core/stores/storeSnapshotScope.tsx"
       ],
-      "approvedAt": "2026-11-11T09:34:00.000Z",
-      "variants": {
-        "user-l2-play": {
-          "status": "approved",
-          "approvedAt": "2026-11-11T09:34:00.000Z"
-        }
-      }
+      "approvedAt": "2026-11-11T09:34:00.000Z"
     },
     "recipe:Layer2SettingsRecipe": {
       "status": "deferred",
@@ -2652,7 +2627,7 @@
         "src/ui-core/tokens/spacing.ts"
       ],
       "variants": {
-        "gameplay": {
+        "settings:gameplay": {
           "unitId": "recipe:Layer2SettingsRecipe:gameplay",
           "variantId": "gameplay",
           "label": "Gameplay",
@@ -2690,7 +2665,7 @@
           ],
           "approvedAt": "2026-11-06T00:00:00.000Z"
         },
-        "audio": {
+        "settings:audio": {
           "unitId": "recipe:Layer2SettingsRecipe:audio",
           "variantId": "audio",
           "label": "Audio",
@@ -2731,7 +2706,7 @@
           ],
           "approvedAt": "2026-11-06T00:00:00.000Z"
         },
-        "display": {
+        "settings:display": {
           "unitId": "recipe:Layer2SettingsRecipe:display",
           "variantId": "display",
           "label": "Display",
@@ -2774,69 +2749,7 @@
           ],
           "approvedAt": "2026-11-06T00:00:00.000Z"
         },
-        "advanced": {
-          "unitId": "recipe:Layer2SettingsRecipe:advanced",
-          "variantId": "advanced",
-          "label": "Advanced",
-          "entryFile": "src/ui-core/recipes/settings/tabs/AdvancedTab.tsx",
-          "status": "deferred",
-          "visualAstHash": "3f2bc347a6cdf2e5",
-          "fileVisualHashes": {
-            "src/ui-core/compounds/DropdownMenu.tsx": "06c0041058a3f43d",
-            "src/ui-core/compounds/SettingActionRow.tsx": "75df97b61462cb35",
-            "src/ui-core/compounds/SettingDeveloperStatusRow.tsx": "630569aca045d1eb",
-            "src/ui-core/compounds/SettingSegmentedRow.tsx": "3b1b6d0abc2ce290",
-            "src/ui-core/compounds/SettingToggleRow.tsx": "851a43d02ec595ec",
-            "src/ui-core/compounds/TelemetryConfigCard.tsx": "eee0ef2038fa8a02",
-            "src/ui-core/primitives/Badge.tsx": "7332eebed32d732f",
-            "src/ui-core/primitives/Checkbox.tsx": "42456add754d48d9",
-            "src/ui-core/primitives/DualGrabberSlider.tsx": "a8c36533d03e66fc",
-            "src/ui-core/primitives/SegmentedSwitch.tsx": "5e964ae4d1e7ed16",
-            "src/ui-core/primitives/ToggleSwitch.tsx": "a1437b3383d20e0f",
-            "src/ui-core/primitives/iconLookup.tsx": "6080075f43a3d9fb",
-            "src/ui-core/primitives/packagedSvgIcons.tsx": "0ab03d4b7ce97d84",
-            "src/ui-core/primitives/svg/packagedSvgDefinitions.ts": "6741e6bcb7330141",
-            "src/ui-core/primitives/svg/packagedSvgHudAndDevicePaths.ts": "9ddae8fd6131fe03",
-            "src/ui-core/primitives/svg/packagedSvgVectorPaths.ts": "f96332fb863f49f0",
-            "src/ui-core/recipes/settings/components/AudioDebugSection.tsx": "e53f64f2be7df9ec",
-            "src/ui-core/recipes/settings/components/FloatingWindowCard.tsx": "2435a026ea8276e5",
-            "src/ui-core/recipes/settings/components/InputBufferPacingSection.tsx": "2450f97c33346a27",
-            "src/ui-core/recipes/settings/components/RealisticBgmSection.tsx": "46637aa28fa41521",
-            "src/ui-core/recipes/settings/components/RealisticBgmTrackLibraryTable.tsx": "eed8ae82f0285022",
-            "src/ui-core/recipes/settings/components/SignalingProfileSection.tsx": "9a96727d8a870806",
-            "src/ui-core/recipes/settings/components/SignalingRelayNodeListSection.tsx": "8ba3dfe2fd68d6bc",
-            "src/ui-core/recipes/settings/tabs/AdvancedTab.tsx": "da9ae5813df0e28c"
-          },
-          "alphaDependencies": [
-            "Alpha:Badge",
-            "Alpha:Checkbox",
-            "Alpha:DropdownMenu",
-            "Alpha:DualGrabberSlider",
-            "Alpha:SegmentedSwitch",
-            "Alpha:SettingActionRow",
-            "Alpha:SettingDeveloperStatusRow",
-            "Alpha:SettingSegmentedRow",
-            "Alpha:SettingToggleRow",
-            "Alpha:TelemetryConfigCard",
-            "Alpha:ToggleSwitch",
-            "src/ui-core/stores/appStore.ts",
-            "src/ui-core/stores/cloudProfileSyncStore.ts",
-            "src/ui-core/stores/floatingPresets.ts",
-            "src/ui-core/stores/floatingStore.ts",
-            "src/ui-core/stores/nameTagTunerStore.ts",
-            "src/ui-core/stores/settingRowStore.ts",
-            "src/ui-core/stores/settingsPacingStore.ts",
-            "src/ui-core/stores/signalingProfileStore.ts",
-            "src/ui-core/stores/spatialAudioStore.ts",
-            "src/ui-core/stores/storeSnapshotScope.tsx",
-            "src/ui-core/tokens/colors.ts",
-            "src/ui-core/tokens/easing.ts",
-            "src/ui-core/tokens/radius.ts",
-            "src/ui-core/tokens/spacing.ts"
-          ],
-          "approvedAt": "2026-11-06T00:00:00.000Z"
-        },
-        "developer": {
+        "settings:developer": {
           "unitId": "recipe:Layer2SettingsRecipe:developer",
           "variantId": "developer",
           "label": "Developer",

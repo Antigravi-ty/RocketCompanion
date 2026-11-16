@@ -32,7 +32,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: '.RCSPack / .RCSPackE / .Tem 2-column pack manager, metadata editor, and Kevpert variations',
   icon: 'folder-open',
   layer: 'layer4',
-  profileTierPolicy: 'tier-invariant',
+  profileTierPolicy: 'user-dev-split',
   menuGroup: 'menu-layer',
   defaultSizing: {
     mode: 'fixed',
@@ -46,11 +46,17 @@ export const SURFACE_META: SurfaceMeta = {
       variantId: 'user',
       label: 'Standard Pack Browser',
       description: '2-column Static Training Pack browser (.RCSPack / .RCSPackE)',
+      tier: 'user',
+      profileTier: 'anonymous',
+      storeOverrides: { appStore: { developerMode: false } },
     },
     {
       variantId: 'dev',
       label: 'Dev Mode (.Tem Converter & Variations)',
       description: 'Includes .Tem original description inspector and Kevpert F3–F12 variations modal',
+      tier: 'developer',
+      profileTier: 'developer',
+      storeOverrides: { appStore: { developerMode: true } },
     },
   ],
 };

@@ -166,6 +166,7 @@ export const LAYER3_JOIN_ROOM_STATES: RecipeStateSnapshotSpec<{
     jr.status === 'idle'
       ? undefined
       : 'recipes/online/OnlineRoomCreationProgress.tsx',
+  storeOverrides: jr.storeOverrides,
   props: {
     progressStatus: jr.status,
     currentStep: jr.step,
@@ -187,6 +188,7 @@ export const LAYER3_HOST_MATCH_STATES: RecipeStateSnapshotSpec<{
     hm.status === 'idle'
       ? 'recipes/online/OnlineRoomConfigSummaryCard.tsx'
       : 'recipes/online/OnlineRoomCreationProgress.tsx',
+  storeOverrides: hm.storeOverrides,
   props: {
     defaultEditingConfig: Boolean(hm.editing),
     progressStatus: hm.status,
@@ -208,6 +210,7 @@ export const LAYER3_HOST_TRAINING_STATES: RecipeStateSnapshotSpec<{
     ht.status === 'idle'
       ? undefined
       : 'recipes/online/OnlineRoomCreationProgress.tsx',
+  storeOverrides: ht.storeOverrides,
   props: {
     defaultGhostMode: ht.status === 'completed' ? 'manual' : 'automatically-enable',
     progressStatus: ht.status,
