@@ -38,6 +38,7 @@ export interface OnlineLoadoutOptions {
 
 export interface HostOnlineServerOptions extends OnlineLoadoutOptions {
   roomType?: string;
+  isDevSyncRoom?: boolean;
   lobbyMode?: boolean;
   gameMode?: string;
   botFillMode?: string;
@@ -83,6 +84,7 @@ export interface HandshakeResponseMessage {
   clockSeconds?: number;
   score?: { blue?: number; orange?: number };
   roomId?: string;
+  isDevSyncRoom?: boolean;
   gameMode?: string;
   botFillMode?: string;
   roster?: OnlineRosterSnapshotPayload & {
@@ -157,7 +159,12 @@ export function resolveHostSessionLaunchConfig(
         : `Player${Math.floor(1000 + Math.random() * 9000)}`;
   const roomId = options.roomId || 'local_room';
   const roomType = options.roomType || onlineSession?.roomType || 'match';
-  const isMatchLobby = options.lobbyMode !== undefined ? Boolean(options.lobbyMode) : true;
+  const isDevSyncRoom = Boolean(options.isDevSyncRoom);
+  const isMatchLobby = isDevSyncRoom
+    ? false
+    : options.lobbyMode !== undefined
+      ? Boolean(options.lobbyMode)
+      : true;
   const gameMode = options.gameMode || onlineSession?.gameMode || '2v2';
   const botFillMode = options.botFillMode || onlineSession?.botFillMode || 'auto_fill';
   const durationSeconds = options.durationSeconds ?? onlineSession?.matchDurationSeconds ?? 300;
@@ -184,6 +191,7 @@ export function resolveHostSessionLaunchConfig(
       botType: options.botType,
       durationSeconds,
       lobbyMode: isMatchLobby,
+      isDevSyncRoom,
       skipReplayByDefault,
       roomId,
       forceFallback: Boolean(options.forceFallback),
@@ -194,6 +202,7 @@ export function resolveHostSessionLaunchConfig(
       playerName,
       signalingConnected: true,
       roomType,
+      isDevSyncRoom,
       gameMode,
       botFillMode,
       matchDurationSeconds: durationSeconds,
@@ -261,8 +270,9 @@ export function resolveClientHandshakeTransition(
   currentOnlineSession: OnlineSessionPortState | null | undefined
 ) {
   const state = msg?.state;
+  const isDevSyncRoom = Boolean(msg?.isDevSyncRoom);
   const isMidMatchJoin = Boolean(state && MID_MATCH_STATES.has(state));
-  const isLobbyOrWarmup = state === 'lobby' || state === 'freeplay' || !state;
+  const isLobbyOrWarmup = !isDevSyncRoom && (state === 'lobby' || state === 'freeplay' || !state);
   const assignedCarIndex =
     typeof msg?.entityId === 'number' && msg.entityId >= 0 ? msg.entityId : null;
   const localTeam: 0 | 1 = msg?.team === 1 ? 1 : 0;
@@ -284,6 +294,7 @@ export function resolveClientHandshakeTransition(
     roomId: msg?.roomId || currentOnlineSession?.roomId || 'online_room',
     gameMode: msg?.gameMode || currentOnlineSession?.gameMode || '3v3',
     roomType: state === 'lobby' || isMidMatchJoin ? 'match' : 'warmup',
+    isDevSyncRoom,
   };
   if (typeof msg?.botFillMode === 'string') onlineSessionPatch.botFillMode = msg.botFillMode;
   if (typeof msg?.durationSeconds === 'number' && Number.isFinite(msg.durationSeconds)) {

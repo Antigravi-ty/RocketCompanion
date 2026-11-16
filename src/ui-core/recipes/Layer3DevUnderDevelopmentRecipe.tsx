@@ -361,6 +361,7 @@ export const Layer3DevUnderDevelopmentRecipe: React.FC<
                     roomId,
                     playerName,
                     roomType: 'warmup',
+                    isDevSyncRoom: true,
                     gameMode: '1v1',
                     botFillMode: 'no_bots',
                   });

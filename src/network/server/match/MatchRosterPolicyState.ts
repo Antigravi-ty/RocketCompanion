@@ -32,6 +32,7 @@ export interface MatchDomainStateOptions {
   defaultBotType?: string;
   botsLoadoutConfig?: Record<string, unknown> | null;
   isHost?: boolean;
+  isDevSyncRoom?: boolean;
   externalBotTunnels?: boolean;
   lobbyMode?: boolean;
   isTrainingMode?: boolean;
@@ -172,6 +173,7 @@ export class MatchRosterPolicyState {
   defaultBotType: string;
   botsLoadoutConfig: Record<string, unknown> | null;
   isHost: boolean;
+  isDevSyncRoom: boolean;
   externalBotTunnels: boolean;
   maxPlayers: number;
   autoStartWhenFull: boolean;
@@ -207,6 +209,7 @@ export class MatchRosterPolicyState {
     this.defaultBotType = opts.defaultBotType || 'nexto';
     this.botsLoadoutConfig = opts.botsLoadoutConfig || null;
     this.isHost = opts.isHost ?? true;
+    this.isDevSyncRoom = Boolean(opts.isDevSyncRoom);
     this.externalBotTunnels = Boolean(opts.externalBotTunnels);
     this.lobbyMode = Boolean(opts.lobbyMode);
     this.isTrainingMode = opts.isTrainingMode ?? this.lobbyMode;
@@ -286,6 +289,7 @@ export class MatchRosterPolicyState {
               serverTick: this.matchTick,
               state: this.state,
               isHost: false,
+              isDevSyncRoom: this.isDevSyncRoom,
               roster,
               initialSnapshot: initialSnapshot || null,
             })
@@ -302,6 +306,7 @@ export class MatchRosterPolicyState {
               serverTick: this.matchTick,
               state: this.state,
               isHost: false,
+              isDevSyncRoom: this.isDevSyncRoom,
               roster,
             }),
     };

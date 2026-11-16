@@ -292,6 +292,7 @@ export async function handleAuthoritativeWorkerMessage(
           matchDurationSeconds: data.durationSeconds ?? 300,
           maxOvertimeSeconds: data.maxOvertimeSeconds || 360,
           lobbyMode: Boolean(data.lobbyMode),
+          isDevSyncRoom: Boolean(data.isDevSyncRoom),
           skipReplayByDefault:
             data.skipReplayByDefault !== undefined ? Boolean(data.skipReplayByDefault) : false,
         });

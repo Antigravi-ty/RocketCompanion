@@ -30,6 +30,7 @@ export type OnlineMatchControlDomainPort = MatchModeTransitionDomainPort & {
 
 export type OnlineWarmupRoomConfigSpec = {
   readonly roomType: string;
+  readonly isDevSyncRoom: boolean;
   readonly gameMode: string;
   readonly botFillMode: string;
   readonly durationSeconds: number;
@@ -43,12 +44,18 @@ export type InitialClockPacingStateInput = Parameters<
 export function buildOnlineWarmupRoomConfig(
   opts: HostOnlineWarmupPortOptions
 ): OnlineWarmupRoomConfigSpec {
+  const isDevSyncRoom = Boolean(opts.isDevSyncRoom);
   return {
     roomType: opts.roomType || 'match',
+    isDevSyncRoom,
     gameMode: opts.gameMode || '2v2',
     botFillMode: opts.botFillMode || 'auto_fill',
     durationSeconds: opts.durationSeconds ?? 300,
-    lobbyMode: opts.lobbyMode !== undefined ? Boolean(opts.lobbyMode) : true,
+    lobbyMode: isDevSyncRoom
+      ? false
+      : opts.lobbyMode !== undefined
+        ? Boolean(opts.lobbyMode)
+        : true,
   };
 }
 
@@ -133,7 +140,7 @@ export function createRuntimeMatchPort(domain: OnlineMatchControlDomainPort): Ru
       const session = domain.multiplayerSession;
       const roomConfig = buildOnlineWarmupRoomConfig(opts);
       const applyTrainingActivity = () => {
-        if (opts.roomType === 'warmup' || opts.boostPolicy) {
+        if (!opts.isDevSyncRoom && (opts.roomType === 'warmup' || opts.boostPolicy)) {
           sessionCoordinator.authoritativeServer?.switchActivity({
             activityId: 'multiplayer_training',
             stateSummary: {

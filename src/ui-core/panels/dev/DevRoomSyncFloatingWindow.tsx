@@ -294,7 +294,7 @@ export const DevRoomSyncFloatingWindow: React.FC<DevRoomSyncFloatingWindowProps>
           <RefreshCw className="w-3.5 h-3.5" />
           <span>Broadcast Sync Now</span>
         </button>
-        {isHosting && (
+        {(isHosting || (onlineSession?.isDevSyncRoom && Boolean(onlineSession?.roomId))) && (
           <button
             type="button"
             onClick={() => {
@@ -307,7 +307,7 @@ export const DevRoomSyncFloatingWindow: React.FC<DevRoomSyncFloatingWindowProps>
             }`}
           >
             <LogOut className="w-3.5 h-3.5" />
-            <span>Stop Room</span>
+            <span>{isHosting ? 'Stop Room' : 'Leave Sync Room'}</span>
           </button>
         )}
       </div>

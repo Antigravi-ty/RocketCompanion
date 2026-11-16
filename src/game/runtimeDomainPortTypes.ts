@@ -21,6 +21,7 @@ export interface HostOnlineWarmupPortOptions {
   password?: string;
   playerName?: string;
   roomType?: string;
+  isDevSyncRoom?: boolean;
   gameMode?: string;
   botFillMode?: string;
   durationSeconds?: number;

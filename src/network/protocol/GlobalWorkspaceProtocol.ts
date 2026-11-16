@@ -31,6 +31,7 @@ export interface GlobalWorkspaceBroadcastPayload {
   epoch: number;
   tick: number;
   menuRoute: string | null;
+  matchMode?: string;
   openFloatingWindows: FloatingWindowSyncEntry[];
   telestratorPermission: TelestratorDrawPermission;
   playbackPaused: boolean;
@@ -105,13 +106,16 @@ export function sanitizeGlobalWorkspaceBroadcast(
         : undefined;
   const cameraSync = sanitizeCameraSync(src.cameraSync);
 
+  const matchMode =
+    typeof src.matchMode === 'string' && src.matchMode.trim() ? src.matchMode.trim() : undefined;
+
   return {
     epoch: typeof src.epoch === 'number' && Number.isFinite(src.epoch) ? src.epoch : 0,
     tick: typeof src.tick === 'number' && Number.isFinite(src.tick) ? src.tick : 0,
     menuRoute: typeof src.menuRoute === 'string' ? src.menuRoute : null,
+    ...(matchMode !== undefined ? { matchMode } : {}),
     openFloatingWindows: windows,
-    telestratorPermission:
-      src.telestratorPermission === 'everyone' ? 'everyone' : 'host_only',
+    telestratorPermission: src.telestratorPermission === 'everyone' ? 'everyone' : 'host_only',
     playbackPaused: Boolean(src.playbackPaused),
     pausedAtTick:
       typeof src.pausedAtTick === 'number' && Number.isFinite(src.pausedAtTick)
@@ -120,8 +124,7 @@ export function sanitizeGlobalWorkspaceBroadcast(
     pauseHeartbeatHz: clampPauseHeartbeatHz(
       typeof src.pauseHeartbeatHz === 'number' ? src.pauseHeartbeatHz : DEFAULT_PAUSE_HEARTBEAT_HZ
     ),
-    clientInputEnabled:
-      typeof src.clientInputEnabled === 'boolean' ? src.clientInputEnabled : true,
+    clientInputEnabled: typeof src.clientInputEnabled === 'boolean' ? src.clientInputEnabled : true,
     followHostWorkspace: Boolean(src.followHostWorkspace),
     ...(arenaPreset !== undefined ? { arenaPreset } : {}),
     ...(cameraSync !== undefined ? { cameraSync } : {}),

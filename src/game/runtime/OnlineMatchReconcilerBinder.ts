@@ -428,6 +428,11 @@ export class OnlineMatchReconcilerBinder {
         modeManager,
         diagnosticsProbe,
       });
+    } else if (msg?.isDevSyncRoom) {
+      lobbyDualWorld.configureArenaLobbyFlags(false, false);
+      reconciler?.setLobbyDualWorldMode?.(false);
+      reconciler?.setSpectateMirrorMode?.(true);
+      useAppStore?.getState?.()?.setMatchMode?.('freeplay');
     }
     if (msg?.roster) await applyRosterSnapshot(msg.roster);
     useAppStore?.getState?.()?.setOnlineSession?.(transition.onlineSessionPatch);

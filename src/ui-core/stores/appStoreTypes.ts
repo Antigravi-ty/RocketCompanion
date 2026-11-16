@@ -149,6 +149,7 @@ export interface AppState {
     activeRelayLabel?: string;
     pairingCode?: string;
     roomType?: 'warmup' | 'match';
+    isDevSyncRoom?: boolean;
     gameMode?: '1v1' | '2v2' | '3v3';
     botFillMode?: 'no_bots' | 'auto_fill' | 'bots_vs_humans' | 'custom';
     matchDurationSeconds?: number;
@@ -208,6 +209,7 @@ export interface AppState {
       password?: string;
       playerName: string;
       roomType?: 'warmup' | 'match';
+      isDevSyncRoom?: boolean;
       gameMode?: '1v1' | '2v2' | '3v3';
       botFillMode?: 'no_bots' | 'auto_fill' | 'bots_vs_humans' | 'custom';
       durationSeconds?: number;

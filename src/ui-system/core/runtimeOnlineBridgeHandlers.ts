@@ -5,6 +5,10 @@ import {
   detachVoiceFromPeer,
   syncVoiceRoomPolicy,
 } from './runtimeVoiceBridge.ts';
+import {
+  startDevSyncWorkspaceAutoBroadcast,
+  stopDevSyncWorkspaceAutoBroadcast,
+} from './runtimeSpectateWorkspaceBridge.ts';
 import { hudStore } from '../../ui-core/stores/hudStore.ts';
 import {
   clearOnlineRoomLaunchError,
@@ -150,6 +154,7 @@ const IDLE_ONLINE_SESSION_PATCH = {
   signalingHealthLevel: 'offline' as const,
   connectedPeers: [],
   roomType: 'match' as const,
+  isDevSyncRoom: false,
   gameMode: '3v3' as const,
   botFillMode: 'auto_fill' as const,
   matchDurationSeconds: 90,
@@ -172,6 +177,9 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
         const ok = await matchPort.hostOnlineWarmup(opts);
         if (ok && opts.ghostMode !== undefined) {
           replayPort.setLobbyGhostModeEnabled(opts.ghostMode === 'automatically-enable');
+        }
+        if (ok && opts.isDevSyncRoom) {
+          startDevSyncWorkspaceAutoBroadcast();
         }
         return ok;
       } catch (e) {
@@ -196,6 +204,7 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
     onDeclinePendingPeer: matchPort.declinePendingPeer.bind(matchPort),
     async onLeaveOnlineServer() {
       try {
+        stopDevSyncWorkspaceAutoBroadcast();
         detachVoiceFromPeer('*');
         await matchPort.leaveOnlineServer();
         const appState = useAppStore.getState();

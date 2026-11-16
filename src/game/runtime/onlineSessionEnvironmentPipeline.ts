@@ -202,6 +202,7 @@ export function createOnlineSessionBridgePort(
         signalingConnected: false,
         connectedPeers: [],
         roomType: 'warmup',
+        isDevSyncRoom: false,
         isReady: false,
       });
       ctx.domEventManager?.syncPausedAndInputState();
@@ -215,8 +216,13 @@ export function createOnlineSessionBridgePort(
       if (typeof ctx.onSessionReady === 'function') {
         ctx.onSessionReady(reconciler, channel);
       }
-      syncOnlineSessionAppStoreState('online-warmup', onlineSessionPatch);
-      getRosterSyncCoordinator().syncHostLobbyOngoingNotification();
+      const nextMode = onlineSessionPatch?.isDevSyncRoom
+        ? useAppStore.getState().matchMode || 'freeplay'
+        : 'online-warmup';
+      syncOnlineSessionAppStoreState(nextMode, onlineSessionPatch);
+      if (!onlineSessionPatch?.isDevSyncRoom) {
+        getRosterSyncCoordinator().syncHostLobbyOngoingNotification();
+      }
       ctx.domEventManager?.syncPausedAndInputState();
     },
     prepareWorldForClientJoin: () => {

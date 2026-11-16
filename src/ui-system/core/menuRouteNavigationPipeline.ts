@@ -39,6 +39,13 @@ function openStaticTrainingExitConfirmDialogue(
 }
 
 export async function leaveOnlineRoomAndCloseMenu(ctx: MenuRouteRenderContext): Promise<void> {
+  if (useAppStore.getState().onlineSession?.isDevSyncRoom) {
+    ctx.setMatchMode('freeplay');
+    ctx.closeMenu();
+    ctx.bridge.onSwitchRoomActivity?.({ activityId: 'freeplay' });
+    ctx.bridge.onReturnToFreeplay?.();
+    return;
+  }
   if (ctx.bridge.onLeaveOnlineServer) {
     await ctx.bridge.onLeaveOnlineServer();
   }

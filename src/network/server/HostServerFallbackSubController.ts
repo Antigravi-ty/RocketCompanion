@@ -61,6 +61,7 @@ export function buildWorkerInitEnvelopePayload(
     numCars: options.numCars || (options.isBotMatch ? 2 : 1),
     startAsMatch: Boolean(options.startAsMatch),
     lobbyMode: Boolean(options.lobbyMode),
+    isDevSyncRoom: Boolean(options.isDevSyncRoom),
     lobbyOptions: options.lobbyOptions || null,
     durationSeconds: options.durationSeconds ?? 300,
     skipReplayByDefault:
@@ -282,6 +283,7 @@ export class HostServerFallbackSubController {
       defaultBotType: (options.defaultBotType || options.botType || 'nexto') as string,
       matchDurationSeconds: options.durationSeconds ?? 300,
       lobbyMode: Boolean(options.lobbyMode),
+      isDevSyncRoom: Boolean(options.isDevSyncRoom),
       skipReplayByDefault:
         options.skipReplayByDefault !== undefined ? Boolean(options.skipReplayByDefault) : false,
       onClearRetainedReplay: clearRetainedMatchReplayOnMatchStart,

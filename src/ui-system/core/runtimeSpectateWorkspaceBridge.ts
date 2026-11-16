@@ -109,8 +109,12 @@ export function captureCameraSyncFromPort(
     isFreeCam,
     ballCam,
     focusedCarIndex,
-    ...(freeSnap?.eyeThreeJs ? { freeCamPosition: [...freeSnap.eyeThreeJs] as [number, number, number] } : {}),
-    ...(freeSnap?.targetThreeJs ? { freeCamLookAt: [...freeSnap.targetThreeJs] as [number, number, number] } : {}),
+    ...(freeSnap?.eyeThreeJs
+      ? { freeCamPosition: [...freeSnap.eyeThreeJs] as [number, number, number] }
+      : {}),
+    ...(freeSnap?.targetThreeJs
+      ? { freeCamLookAt: [...freeSnap.targetThreeJs] as [number, number, number] }
+      : {}),
   };
 }
 
@@ -162,11 +166,7 @@ export function applyIncomingWorkspaceBroadcast(
   const sanitized = sanitizeGlobalWorkspaceBroadcast(raw);
   useSpectateWorkspaceStore
     .getState()
-    .applyHostWorkspaceBroadcast(
-      sanitized,
-      applyWorkspaceStateLocally,
-      captureLocalWorkspaceState
-    );
+    .applyHostWorkspaceBroadcast(sanitized, applyWorkspaceStateLocally, captureLocalWorkspaceState);
   const telestrator = useTelestratorStore.getState();
   telestrator.setHostRole(
     false,
@@ -174,6 +174,12 @@ export function applyIncomingWorkspaceBroadcast(
   );
   telestrator.setIsCameraSynced(true);
   telestrator.setAllowClientDrawing(sanitized.telestratorPermission === 'everyone');
+  if (sanitized.followHostWorkspace && sanitized.matchMode) {
+    const app = useAppStore.getState();
+    if (app.matchMode !== sanitized.matchMode) {
+      app.setMatchMode?.(sanitized.matchMode as Parameters<typeof app.setMatchMode>[0]);
+    }
+  }
   if (sanitized.arenaPreset) {
     const app = useAppStore.getState();
     if (app.underDevelopment?.stadiumPreset !== sanitized.arenaPreset) {
@@ -204,6 +210,7 @@ export function buildHostWorkspaceBroadcastPayload(meta?: {
     epoch: meta?.epoch ?? 0,
     tick: meta?.tick ?? 0,
     menuRoute: local.menuRoute,
+    matchMode: app.matchMode,
     openFloatingWindows: local.windows,
     telestratorPermission: ws.telestratorPermission,
     playbackPaused: meta?.playbackPaused ?? ws.playbackPaused,
@@ -214,4 +221,58 @@ export function buildHostWorkspaceBroadcastPayload(meta?: {
     arenaPreset: currentArenaPreset,
     ...(meta?.cameraSync ? { cameraSync: meta.cameraSync } : {}),
   });
+}
+
+let devSyncAutoBroadcastCleanup: (() => void) | null = null;
+
+export function stopDevSyncWorkspaceAutoBroadcast(): void {
+  if (devSyncAutoBroadcastCleanup) {
+    devSyncAutoBroadcastCleanup();
+    devSyncAutoBroadcastCleanup = null;
+  }
+}
+
+export function startDevSyncWorkspaceAutoBroadcast(): void {
+  stopDevSyncWorkspaceAutoBroadcast();
+
+  const computeWorkspaceKey = () => {
+    const app = useAppStore.getState();
+    const snap = floatingStore.getSnapshot();
+    const winKey = snap.windows.map((w) => `${w.id}:${w.isMinimized ? 1 : 0}`).join(',');
+    const routeKey = app.isOpen ? app.activeRoute : '';
+    const stadium = app.underDevelopment?.stadiumPreset ?? 'standard';
+    return `${routeKey}|${app.matchMode}|${stadium}|${winKey}`;
+  };
+
+  let lastKey = computeWorkspaceKey();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const scheduleBroadcast = () => {
+    const app = useAppStore.getState();
+    if (!app.onlineSession?.isHosting || !app.onlineSession?.isDevSyncRoom) return;
+    if (!useSpectateWorkspaceStore.getState().followHostWorkspace) return;
+    const nextKey = computeWorkspaceKey();
+    if (nextKey === lastKey) return;
+    lastKey = nextKey;
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      const latest = useAppStore.getState();
+      if (!latest.onlineSession?.isHosting || !latest.onlineSession?.isDevSyncRoom) return;
+      if (!useSpectateWorkspaceStore.getState().followHostWorkspace) return;
+      latest.bridge.onBroadcastGlobalWorkspace?.({});
+    }, 16);
+  };
+
+  const unsubApp = useAppStore.subscribe(scheduleBroadcast);
+  const unsubFloating = floatingStore.subscribe(scheduleBroadcast);
+
+  devSyncAutoBroadcastCleanup = () => {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    unsubApp();
+    unsubFloating();
+  };
 }

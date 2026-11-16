@@ -110,8 +110,10 @@ export const Layer1MainMenuRecipe: React.FC<Layer1MainMenuRecipeProps> = ({
   );
 
   const isHosting = Boolean(onlineSession?.isHosting);
-  const isOnlineMatchRoom = onlineSession?.roomType === 'match';
-  const hasActiveOnlineRoom = matchMode === 'online-warmup' || Boolean(onlineSession?.roomId);
+  const isDevSyncRoom = Boolean(onlineSession?.isDevSyncRoom);
+  const isOnlineMatchRoom = !isDevSyncRoom && onlineSession?.roomType === 'match';
+  const hasActiveOnlineRoom =
+    !isDevSyncRoom && (matchMode === 'online-warmup' || Boolean(onlineSession?.roomId));
 
   const derivedVariation = deriveLayer1ContextVariation({
     matchMode,

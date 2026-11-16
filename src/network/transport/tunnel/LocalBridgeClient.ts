@@ -129,11 +129,14 @@ export class LocalBridgeClient {
       };
 
       ws.onerror = () => {
+        if (this.closed) return;
         const err = new Error(`Local WebSocket bridge connection error (${wsUrl})`);
-        console.error('[LocalBridgeClient]', err.message);
         if (!settled) {
           settled = true;
+          console.error('[LocalBridgeClient]', err.message);
           reject(err);
+        } else {
+          console.warn('[LocalBridgeClient]', err.message);
         }
       };
 
@@ -285,12 +288,17 @@ export class LocalBridgeClient {
       this.wt = null;
     }
     if (this.ws) {
+      const ws = this.ws;
+      this.ws = null;
+      ws.onopen = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      ws.onmessage = null;
       try {
-        this.ws.close();
+        ws.close();
       } catch {
         // ignore
       }
-      this.ws = null;
     }
   }
 }

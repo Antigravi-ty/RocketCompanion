@@ -201,6 +201,7 @@ export const createNavigationAndCarSlice: StateCreator<
     playerName: loadStoredPlayerName(),
     signalingConnected: false,
     roomType: 'match',
+    isDevSyncRoom: false,
     gameMode: '3v3',
     botFillMode: 'auto_fill',
     matchDurationSeconds: 90,

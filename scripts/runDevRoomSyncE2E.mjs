@@ -552,7 +552,8 @@ async function main() {
     }
     await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onSetClientInputEnabled?.(false)`);
     await waitFor(
-      () => clientCdp.eval(`window.__rcE2E.runtime?.networkReconciler?.clientInputEnabled === false`),
+      () =>
+        clientCdp.eval(`window.__rcE2E.runtime?.networkReconciler?.clientInputEnabled === false`),
       'Client input re-gated propagation',
       8_000,
       150
@@ -592,31 +593,31 @@ async function main() {
     await clientCdp.eval(`window.__rcE2E.getTelestratorState().setDrawingEnabled(true)`);
     await new Promise((r) => setTimeout(r, 100));
 
-    // Host draws a stroke via real CDP mouse events on the 3D arena canvas
+    // Host draws a stroke via real CDP mouse events on an unobstructed area of the 3D arena canvas
     await hostCdp.send('Input.dispatchMouseEvent', {
       type: 'mousePressed',
-      x: 640,
+      x: 960,
       y: 440,
       button: 'left',
       clickCount: 1,
     });
     await hostCdp.send('Input.dispatchMouseEvent', {
       type: 'mouseMoved',
-      x: 700,
+      x: 1020,
       y: 460,
       button: 'left',
     });
     await new Promise((r) => setTimeout(r, 80));
     await hostCdp.send('Input.dispatchMouseEvent', {
       type: 'mouseMoved',
-      x: 760,
+      x: 1080,
       y: 480,
       button: 'left',
     });
     await new Promise((r) => setTimeout(r, 80));
     await hostCdp.send('Input.dispatchMouseEvent', {
       type: 'mouseReleased',
-      x: 760,
+      x: 1080,
       y: 480,
       button: 'left',
       clickCount: 1,
@@ -929,10 +930,7 @@ async function main() {
 
     const hostHealth = await inspectPoseAndGoalHealth(hostCdp, 'host');
     const clientHealth = await inspectPoseAndGoalHealth(clientCdp, 'client');
-    const poseAnomalies = [
-      ...(hostHealth.anomalies || []),
-      ...(clientHealth.anomalies || []),
-    ];
+    const poseAnomalies = [...(hostHealth.anomalies || []), ...(clientHealth.anomalies || [])];
     const stuckInGoal = Boolean(hostHealth.stuckInGoal || clientHealth.stuckInGoal);
 
     const report = {

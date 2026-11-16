@@ -127,6 +127,10 @@ export function createLayer1ActionHandlers(params: {
     if (actionType === 'leave-room') {
       if (appOverrides?.onLeaveRoom) return appOverrides.onLeaveRoom();
       if (onTabChange) return onTabChange('leave-room');
+      if (useAppStore.getState().onlineSession?.isDevSyncRoom) {
+        handleReturnToFreeplay();
+        return;
+      }
       void bridge?.onLeaveOnlineServer?.();
       handleReturnToFreeplay();
     } else if (actionType === 'exit-edit-mode') {
