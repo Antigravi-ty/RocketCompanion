@@ -18,7 +18,10 @@ import { ReliableTunnelFramer } from '../src/network/transport/tunnel/ReliableTu
 import { PredictionReconciler } from '../src/network/client/PredictionReconciler.ts';
 import { NetworkSimulator } from '../src/network/transport/webrtc/NetworkSimulator.ts';
 import { CrossTabSignaling } from '../src/network/transport/webrtc/CrossTabSignaling.ts';
-import type { TunnelPacketPayload, TunnelTransport } from '../src/network/transport/tunnel/TunnelTransport.ts';
+import type {
+  TunnelPacketPayload,
+  TunnelTransport,
+} from '../src/network/transport/tunnel/TunnelTransport.ts';
 import { WebRtcNativeVoiceBridge } from '../src/audio/voice/WebRtcNativeVoiceBridge.ts';
 import { RoomActivityOrchestrator } from '../src/network/server/RoomActivityOrchestrator.ts';
 import { ACTIVITY_IDS, REPLICATION_MODES } from '../src/network/protocol/ReplicationBusProtocol.ts';
@@ -86,6 +89,8 @@ import {
   syncReplayWorkspaceToOnlineRoom,
 } from '../src/replay/replayOnlineSyncHelper.ts';
 import { bindRuntimeUiPort } from '../src/game/runtimeUiPort.ts';
+import { MATCH_STATES } from '../src/network/server/match/matchLoadoutAndSpawnPipeline.ts';
+import { routeActivityAndInputMessage } from '../src/network/server/workerActivityAndInputRouter.ts';
 
 function runSection(name: string, fn: () => void | Promise<void>): Promise<void> {
   return Promise.resolve()
@@ -96,7 +101,8 @@ function runSection(name: string, fn: () => void | Promise<void>): Promise<void>
 }
 
 async function testTunnelAndKickLeaveSignaling(): Promise<void> {
-  const sentPackets: Array<{ peerId: string; payload: TunnelPacketPayload; reliable: boolean }> = [];
+  const sentPackets: Array<{ peerId: string; payload: TunnelPacketPayload; reliable: boolean }> =
+    [];
   let hostTransport: DataChannelTransport;
   let clientTransport: DataChannelTransport;
   let dropNextReliableFrame = false;
@@ -140,7 +146,10 @@ async function testTunnelAndKickLeaveSignaling(): Promise<void> {
   // State packet -> unreliable tunnel
   const stateFrame = new Uint8Array([1, 2, 3, 4]);
   assert.equal(hostTransport.send(stateFrame, 1000), true);
-  assert.equal(sentPackets.some((p) => p.peerId === 'peer_client_1' && !p.reliable), true);
+  assert.equal(
+    sentPackets.some((p) => p.peerId === 'peer_client_1' && !p.reliable),
+    true
+  );
 
   // Reliable control -> framed via ReliableTunnelFramer with chunking & loss recovery
   let kickedPayload: Record<string, unknown> | null = null;
@@ -174,10 +183,7 @@ async function testTunnelAndKickLeaveSignaling(): Promise<void> {
     true
   );
   assert.equal(receivedWorkspace?.menuRoute, 'settings/audio');
-  assert.equal(
-    (receivedWorkspace?.openFloatingWindows as unknown[] | undefined)?.length,
-    60
-  );
+  assert.equal((receivedWorkspace?.openFloatingWindows as unknown[] | undefined)?.length, 60);
 
   // tunnel_endpoint_advertise must NOT go over tunnel (bootstraps via WebRTC/BroadcastChannel)
   const beforeCount = sentPackets.length;
@@ -193,7 +199,10 @@ async function testTunnelAndKickLeaveSignaling(): Promise<void> {
     leftPayload = msg;
   };
   assert.equal(
-    clientTransport.sendReliableControl({ type: 'peer_leave', peerId: 'peer_client_1' }, 'peer_leave'),
+    clientTransport.sendReliableControl(
+      { type: 'peer_leave', peerId: 'peer_client_1' },
+      'peer_leave'
+    ),
     true
   );
   assert.equal(leftPayload?.peerId, 'peer_client_1');
@@ -330,7 +339,10 @@ function testMultiplayerTrainingAndGhostRelay(): void {
   assert.equal(relay.getBallCount(), 3);
   const forPeer1 = relay.buildRelaySnapshot('peer_1');
   assert.equal(forPeer1.length, 2);
-  assert.equal(forPeer1.some((b) => b.ownerPeerId === 'peer_1'), false);
+  assert.equal(
+    forPeer1.some((b) => b.ownerPeerId === 'peer_1'),
+    false
+  );
   relay.removePeer('peer_2');
   assert.equal(relay.getBallCount(), 2);
 }
@@ -397,7 +409,9 @@ function testSpectatingAndGlobalWorkspace(): void {
   useSpectateWorkspaceStore.getState().applyHostWorkspaceBroadcast(sanitized, applyWorkspace);
   assert.equal(appliedRoute, 'home'); // state_only does not mirror UI
 
-  useSpectateWorkspaceStore.getState().setSpectateMode('spectate_mirror', captureLocal, applyWorkspace);
+  useSpectateWorkspaceStore
+    .getState()
+    .setSpectateMode('spectate_mirror', captureLocal, applyWorkspace);
   assert.equal(useSpectateWorkspaceStore.getState().isReadOnlyLocked, true);
   assert.equal(appliedRoute, 'settings/audio');
   assert.equal(appliedWindows[0].id, 'telestrator_toolbar');
@@ -415,7 +429,14 @@ function testTelestratorStressAndHashAck(): void {
   for (let i = 0; i < 50; i++) {
     const points: TelestratorPoint[] = [];
     for (let p = 0; p < 20; p++) {
-      points.push({ x: (i * 17 + p * 3) % 4000, y: (p * 11) % 5000, z: 20 + p, nx: 0, ny: 0, nz: 1 });
+      points.push({
+        x: (i * 17 + p * 3) % 4000,
+        y: (p * 11) % 5000,
+        z: 20 + p,
+        nx: 0,
+        ny: 0,
+        nz: 1,
+      });
     }
     const tool = tools[i % tools.length];
     const colorId = colors[i % colors.length];
@@ -567,10 +588,22 @@ async function testMultiClientLoopbackBotMatrix(): Promise<void> {
 
     // Verify team_only voice gating in Lobby (all-talk) vs Match (team-gated)
     voiceBridge.setRoomVoicePolicy('team_only', 0, true);
-    assert.equal(voiceBridge.isPeerVoiceAllowed({ team: 1 }), true, `${caseSpec.label} lobby all-talk`);
+    assert.equal(
+      voiceBridge.isPeerVoiceAllowed({ team: 1 }),
+      true,
+      `${caseSpec.label} lobby all-talk`
+    );
     voiceBridge.setRoomVoicePolicy('team_only', 0, false);
-    assert.equal(voiceBridge.isPeerVoiceAllowed({ team: 0 }), true, `${caseSpec.label} match teammate`);
-    assert.equal(voiceBridge.isPeerVoiceAllowed({ team: 1 }), false, `${caseSpec.label} match opponent`);
+    assert.equal(
+      voiceBridge.isPeerVoiceAllowed({ team: 0 }),
+      true,
+      `${caseSpec.label} match teammate`
+    );
+    assert.equal(
+      voiceBridge.isPeerVoiceAllowed({ team: 1 }),
+      false,
+      `${caseSpec.label} match opponent`
+    );
   }
 }
 
@@ -725,7 +758,10 @@ async function testRoomActivitySwitchWireAndEpochOrdering(): Promise<void> {
     });
   };
 
-  assert.equal(hostController.broadcastRoomActivitySwitch({ activityId: 'multiplayer_training' }), 1);
+  assert.equal(
+    hostController.broadcastRoomActivitySwitch({ activityId: 'multiplayer_training' }),
+    1
+  );
   assert.equal(hostController.broadcastRoomActivitySwitch({ activityId: 'replay' }), 1);
   // Inject stale out-of-order epoch 1 after epoch 2 -> must be ignored by PredictionReconciler
   clientTransport.handleIncomingMessage(
@@ -966,13 +1002,41 @@ async function testPureCsrSyncAllAndDualInputGating(): Promise<void> {
   const clientPkt = InputPacketCodec.encode(
     1,
     20,
-    [{ tick: 20, controls: { throttle: 1, steer: 0.5, pitch: 0, yaw: 0, roll: 0, jump: false, boost: true, handbrake: false } }],
+    [
+      {
+        tick: 20,
+        controls: {
+          throttle: 1,
+          steer: 0.5,
+          pitch: 0,
+          yaw: 0,
+          roll: 0,
+          jump: false,
+          boost: true,
+          handbrake: false,
+        },
+      },
+    ],
     1000
   );
   const hostPkt = InputPacketCodec.encode(
     0,
     20,
-    [{ tick: 20, controls: { throttle: 1, steer: 0, pitch: 0, yaw: 0, roll: 0, jump: false, boost: false, handbrake: false } }],
+    [
+      {
+        tick: 20,
+        controls: {
+          throttle: 1,
+          steer: 0,
+          pitch: 0,
+          yaw: 0,
+          roll: 0,
+          jump: false,
+          boost: false,
+          handbrake: false,
+        },
+      },
+    ],
     1000
   );
   routeProtocolMessageInWorker(workerCtx as never, {
@@ -980,14 +1044,22 @@ async function testPureCsrSyncAllAndDualInputGating(): Promise<void> {
     channelId: 'peer_csr_1',
     packet: clientPkt,
   });
-  assert.equal(pushedInputs.length, 0, 'Remote client input must be ignored when clientInputEnabled=false');
+  assert.equal(
+    pushedInputs.length,
+    0,
+    'Remote client input must be ignored when clientInputEnabled=false'
+  );
 
   routeProtocolMessageInWorker(workerCtx as never, {
     type: 'clientInput',
     channelId: 'host',
     packet: hostPkt,
   });
-  assert.equal(pushedInputs.length, 1, 'Host input must still be accepted when clientInputEnabled=false');
+  assert.equal(
+    pushedInputs.length,
+    1,
+    'Host input must still be accepted when clientInputEnabled=false'
+  );
 
   routeProtocolMessageInWorker(workerCtx as never, {
     type: HOST_WORKER_MSG_TYPES.SET_CLIENT_INPUT_ENABLED,
@@ -998,7 +1070,11 @@ async function testPureCsrSyncAllAndDualInputGating(): Promise<void> {
     channelId: 'peer_csr_1',
     packet: clientPkt,
   });
-  assert.equal(pushedInputs.length, 2, 'Remote client input must resume when clientInputEnabled=true');
+  assert.equal(
+    pushedInputs.length,
+    2,
+    'Remote client input must resume when clientInputEnabled=true'
+  );
 
   // 5. applyClientRoomActivitySwitch keeps Client in lightweight freeplay CSR shell
   const modeCalls: string[] = [];
@@ -1182,7 +1258,10 @@ async function testTelestratorFullLinkSyncAndPermissions(): Promise<void> {
     telestratorPermission: 'host_only',
   });
   const blockedStroke = makeStroke('stroke_blocked', 'peer_a', 1);
-  assert.equal(clientTransportA.sendTelestratorBytes(encodeTelestratorStroke(blockedStroke, false), true), true);
+  assert.equal(
+    clientTransportA.sendTelestratorBytes(encodeTelestratorStroke(blockedStroke, false), true),
+    true
+  );
   assert.equal(hostManager.getStrokeCount(), 0, 'Host must reject client stroke under host_only');
   assert.equal(peerBManager.getStrokeCount(), 0, 'Peer B must not receive rejected client stroke');
   assert.deepEqual(clientAPermSyncs, [false], 'Peer A must receive HOST_PERMISSION_SYNC(false)');
@@ -1234,13 +1313,24 @@ async function testTelestratorFullLinkSyncAndPermissions(): Promise<void> {
     encodeTelestratorClear({ scope: 'all', authorId: 'peer_a' }),
     true
   );
-  assert.equal(hostManager.getStrokeCount(), 1, 'Client clear(all) must only clear own strokes on Host');
-  assert.equal(peerBManager.getStrokeCount(), 1, 'Client clear(all) must only clear own strokes on Peer B');
+  assert.equal(
+    hostManager.getStrokeCount(),
+    1,
+    'Client clear(all) must only clear own strokes on Host'
+  );
+  assert.equal(
+    peerBManager.getStrokeCount(),
+    1,
+    'Client clear(all) must only clear own strokes on Peer B'
+  );
   assert.equal(hostManager.getAllStrokes()[0].id, 'stroke_host_1');
 
   // 3e. Host clear(all) clears everything
   hostManager.clearStrokesByScope('all', 'host');
-  hostController.broadcastTelestratorBytes(encodeTelestratorClear({ scope: 'all', authorId: 'host' }), true);
+  hostController.broadcastTelestratorBytes(
+    encodeTelestratorClear({ scope: 'all', authorId: 'host' }),
+    true
+  );
   assert.equal(peerAManager.getStrokeCount(), 0);
   assert.equal(peerBManager.getStrokeCount(), 0);
 
@@ -1363,7 +1453,13 @@ async function testReplayWatchTogetherAndCameraSync(): Promise<void> {
   clientReconciler.setClientInputEnabled(false);
 
   // 2. Inject Replay frames via syncReplayFrameToAuthoritativeServer -> enterStateOnlyMode
-  const makeReplayFrame = (frameIdx: number, ballX: number, ballY: number, ballZ: number, car0X: number): Float32Array => {
+  const makeReplayFrame = (
+    frameIdx: number,
+    ballX: number,
+    ballY: number,
+    ballZ: number,
+    car0X: number
+  ): Float32Array => {
     const snap = new Float32Array(448);
     snap[SIM_OFFSETS.TICK] = frameIdx;
     snap[SIM_OFFSETS.NUM_CARS] = 2;
@@ -1401,24 +1497,46 @@ async function testReplayWatchTogetherAndCameraSync(): Promise<void> {
     const frameBytes = host.systemControl.stepStateOnlyFrameIfActive();
     assert.ok(frameBytes && frameBytes.byteLength > 0, `Frame ${i} must emit state-only packet`);
     const tailoredBytes = sessionManager.buildClientPacket('peer_replay_1', frameBytes);
-    assert.ok(tailoredBytes && tailoredBytes.byteLength > 0, `Frame ${i} must build tailored client packet`);
+    assert.ok(
+      tailoredBytes && tailoredBytes.byteLength > 0,
+      `Frame ${i} must build tailored client packet`
+    );
 
     clientChannel.inboundQueue.push(tailoredBytes);
     clientReconciler.reconcile(1000 + i * 8.333);
 
-    assert.equal(clientReconciler.replayPlaybackMode, true, 'Client must enter replayPlaybackMode on first SYS_CTRL_STATE_ONLY');
-    assert.ok(clientReconciler.drainedReplayPackets.length > 0, `Frame ${i} must be pushed to drainedReplayPackets`);
+    assert.equal(
+      clientReconciler.replayPlaybackMode,
+      true,
+      'Client must enter replayPlaybackMode on first SYS_CTRL_STATE_ONLY'
+    );
+    assert.ok(
+      clientReconciler.drainedReplayPackets.length > 0,
+      `Frame ${i} must be pushed to drainedReplayPackets`
+    );
 
-    const pkt = clientReconciler.drainedReplayPackets[clientReconciler.drainedReplayPackets.length - 1];
+    const pkt =
+      clientReconciler.drainedReplayPackets[clientReconciler.drainedReplayPackets.length - 1];
     assert.ok(pkt?.stateSnapshot, 'Packet must include stateSnapshot');
     applyReplayFrameToEngine(clientPhysics, pkt.stateSnapshot, clientInterpolator);
     clientReconciler.drainedReplayPackets.length = 0;
 
-    const ballErrX = Math.abs(clientInterpolator.currState[SIM_OFFSETS.BALL + 0] - srcSnap[SIM_OFFSETS.BALL + 0]);
-    const ballErrY = Math.abs(clientInterpolator.currState[SIM_OFFSETS.BALL + 1] - srcSnap[SIM_OFFSETS.BALL + 1]);
-    const ballErrZ = Math.abs(clientInterpolator.currState[SIM_OFFSETS.BALL + 2] - srcSnap[SIM_OFFSETS.BALL + 2]);
-    const car0ErrX = Math.abs(clientInterpolator.currState[SIM_OFFSETS.CARS + 0] - srcSnap[SIM_OFFSETS.CARS + 0]);
-    assert.ok(ballErrX < 1e-3 && ballErrY < 1e-3 && ballErrZ < 1e-3, `Replay CSR ball sync error must be < 1e-3 (got ${ballErrX}, ${ballErrY}, ${ballErrZ})`);
+    const ballErrX = Math.abs(
+      clientInterpolator.currState[SIM_OFFSETS.BALL + 0] - srcSnap[SIM_OFFSETS.BALL + 0]
+    );
+    const ballErrY = Math.abs(
+      clientInterpolator.currState[SIM_OFFSETS.BALL + 1] - srcSnap[SIM_OFFSETS.BALL + 1]
+    );
+    const ballErrZ = Math.abs(
+      clientInterpolator.currState[SIM_OFFSETS.BALL + 2] - srcSnap[SIM_OFFSETS.BALL + 2]
+    );
+    const car0ErrX = Math.abs(
+      clientInterpolator.currState[SIM_OFFSETS.CARS + 0] - srcSnap[SIM_OFFSETS.CARS + 0]
+    );
+    assert.ok(
+      ballErrX < 1e-3 && ballErrY < 1e-3 && ballErrZ < 1e-3,
+      `Replay CSR ball sync error must be < 1e-3 (got ${ballErrX}, ${ballErrY}, ${ballErrZ})`
+    );
     assert.ok(car0ErrX < 1e-3, `Replay CSR car sync error must be < 1e-3 (got ${car0ErrX})`);
   }
 
@@ -1545,7 +1663,11 @@ async function testReplayWatchTogetherAndCameraSync(): Promise<void> {
     { playbackPaused: true, pausedAtTick: 42, pauseHeartbeatHz: 2 },
     1120
   );
-  assert.equal(sentOnCamChange, true, 'Camera mode change must bypass throttle and sync immediately');
+  assert.equal(
+    sentOnCamChange,
+    true,
+    'Camera mode change must bypass throttle and sync immediately'
+  );
   assert.equal(clientCamera.isFreeCam, true);
   assert.deepEqual(clientCamera.freeCamPos, [100, 220, -450]);
   assert.deepEqual(clientCamera.freeCamLook, [0, 80, 0]);
@@ -1554,21 +1676,405 @@ async function testReplayWatchTogetherAndCameraSync(): Promise<void> {
   hostController.cleanup();
 }
 
+async function testCustomTrainingPackAndRoomMatchAutoPull(): Promise<void> {
+  // Part A: Custom Training Pack (training_shot_reset + stateSummary metadata + Client no-RCDPack sync + input toggle)
+  let lastBallState: Record<string, unknown> | null = null;
+  const lastCarStates = new Map<number, Record<string, unknown>>();
+  let goalLatchResets = 0;
+  let boostPadResets = 0;
+  const unlimitedBoostByCar = new Map<number, boolean>();
+
+  const mockSim = {
+    setBallState: (s: Record<string, unknown>) => {
+      lastBallState = s;
+    },
+    setCarState: (carIdx: number, s: Record<string, unknown>) => {
+      lastCarStates.set(carIdx, s);
+    },
+    resetBoostPads: () => {
+      boostPadResets++;
+    },
+    setUnlimitedBoost: () => {},
+    setCarUnlimitedBoost: (carIdx: number, enabled: boolean) => {
+      unlimitedBoostByCar.set(carIdx, enabled);
+    },
+    setCarBoostCollectable: () => {},
+    getCarStateView: () => ({ isOnGround: true }),
+    resetKickoff: () => {},
+    saveCompactState: () => new Float32Array(16),
+    restoreState: () => {},
+  };
+
+  const activeCars = new Set<number>([0, 1]);
+  const mockPhysicsManager = {
+    sim: mockSim,
+    activeCarIndices: activeCars,
+    currentTick: 100,
+    isPaused: false,
+    inputBuffer: { setLobbyMode: () => {} },
+    resetGoalLatch: () => {
+      goalLatchResets++;
+    },
+    resetKickoff: () => {},
+    setInputMask: () => {},
+    restoreSolidCollisions: () => {},
+    applySignal: () => {},
+    registerCarEntity: (idx: number) => {
+      activeCars.add(idx);
+    },
+    unregisterCarEntity: (idx: number) => {
+      activeCars.delete(idx);
+    },
+    setTrainingBoostConfig: (cfg: MultiplayerTrainingConfig | null) => {
+      if (cfg) {
+        applyTrainingBoostPolicyToSim(mockSim, activeCars, cfg);
+      }
+    },
+  };
+
+  const sessionManager = new EstablishedSessionManager(null);
+  sessionManager.registerSession('host', { entityId: 0, playerName: 'CoachHost' });
+  sessionManager.registerSession('peer_client_1', { entityId: 1, playerName: 'Trainee1' });
+  sessionManager.registerSession('peer_client_2', { entityId: 2, playerName: 'Trainee2' });
+
+  const domain = new MatchDomainState({
+    roomId: 'room-step4-1',
+    gameMode: '2v2',
+    botFillMode: 'no_bots',
+  });
+  let nextEntityId = 0;
+  const matchManager = {
+    domain,
+    sessionManager,
+    getSnapshot: () =>
+      domain.buildSessionSnapshot(domain.buildRosterEnvelope(sessionManager).roster),
+    roster: {
+      players: domain.players,
+      spectators: domain.spectators,
+      setGameMode: (gm: string, dur?: number | null) => {
+        domain.applyRosterPolicyConfig({ gameMode: gm, durationSeconds: dur });
+      },
+      assignPlayerSlot: (sid: string, name: string, role = 'player', team = 0) => {
+        if (role === 'spectator') {
+          domain.spectators.set(sid, {
+            sessionId: sid,
+            name,
+            role: 'spectator',
+            pingMs: 0,
+          } as never);
+          return null;
+        }
+        const slot = {
+          sessionId: sid,
+          entityId: nextEntityId++,
+          team,
+          preferredTeam: team,
+          name,
+          role: 'player',
+          spawnSlot: nextEntityId - 1,
+          visualId: 'octane',
+          visualIndex: 0,
+          hitboxId: 'hitbox-octane',
+          hitboxIndex: 0,
+          colorSlot: 0,
+          isBot: false,
+          ready: false,
+          arenaLoaded: false,
+        };
+        domain.players.set(sid, slot as never);
+        return slot;
+      },
+      switchPlayerRoleOrTeam: (sid: string, role: string, team: number) => {
+        if (role === 'player') {
+          domain.spectators.delete(sid);
+          const existing = domain.players.get(sid);
+          if (existing) {
+            existing.team = team;
+            existing.role = 'player';
+          } else {
+            matchManager.roster.assignPlayerSlot(sid, sid, 'player', team);
+          }
+        }
+      },
+      broadcastRosterUpdate: () => {},
+    },
+    lifecycle: {
+      get state() {
+        return domain.state;
+      },
+      startTrainingMode: (opts: Record<string, unknown> = {}) => {
+        domain.applyLobbyOrTrainingTransition('training_start', opts);
+      },
+      startMatch: (dur?: number) => {
+        domain.resetForMatchStart(dur);
+        domain.beginKickoffPhase(360);
+      },
+    },
+  };
+  matchManager.roster.assignPlayerSlot('host', 'CoachHost', 'player', 0);
+  // Simulate peer_client_1 initially in CSR spectator state and peer_client_2 only in sessionManager
+  matchManager.roster.assignPlayerSlot('peer_client_1', 'Trainee1', 'spectator', 0);
+
+  let serverClientInputEnabled = false;
+  const mockDataHandler = {
+    setClientInputEnabled: (enabled: boolean) => {
+      serverClientInputEnabled = enabled;
+    },
+  };
+
+  const workerCtx: Record<string, unknown> = {
+    matchManager,
+    physicsManager: mockPhysicsManager,
+    dataHandler: mockDataHandler,
+    orchestrator: new RoomActivityOrchestrator(),
+  };
+
+  const workerReplies: Array<{ type: string; payload: Record<string, unknown> }> = [];
+  const reply = (t: string, p: unknown) => {
+    workerReplies.push({ type: t, payload: (p ?? {}) as Record<string, unknown> });
+  };
+
+  // 1. Switch to multiplayer_training with pack metadata (no local .RCDPack on client)
+  routeActivityAndInputMessage(
+    workerCtx as never,
+    HOST_WORKER_MSG_TYPES.ROOM_ACTIVITY_SWITCH,
+    {
+      activityId: ACTIVITY_IDS.MULTIPLAYER_TRAINING,
+      clientInputEnabled: false,
+      stateSummary: {
+        trainingPackId: 'aerial-pack-01',
+        packName: 'Aerial Redirects',
+        shotIndex: 0,
+        totalShots: 4,
+        shotName: 'Backboard Read',
+        boostPolicy: 'unlimited',
+        ballPose: { pos: [0, 2000, 600], vel: [0, -300, 100] },
+        carPose: { carIndex: 0, pos: [0, -1500, 17], boost: 100 },
+      },
+    },
+    reply,
+    () => {}
+  );
+
+  assert.equal(serverClientInputEnabled, false, 'Coach mode starts with client input gated');
+  assert.deepEqual((lastBallState as unknown as { pos: number[] })?.pos, [0, 2000, 600]);
+  assert.equal(unlimitedBoostByCar.get(0), true);
+
+  // 2. Dispatch training_shot_reset via ACTIVITY_CONTROL
+  routeActivityAndInputMessage(
+    workerCtx as never,
+    HOST_WORKER_MSG_TYPES.ACTIVITY_CONTROL,
+    {
+      controlType: 'training_shot_reset',
+      controlPayload: {
+        shotIndex: 1,
+        shotName: 'Double Tap',
+        ballPose: { pos: [120, 3200, 900], vel: [0, 100, 250], angVel: [0, 0, 1] },
+        carPose: { carIndex: 1, pos: [-400, -900, 17], rot: [0, 1.57, 0], boost: 85 },
+      },
+    },
+    reply,
+    () => {}
+  );
+
+  const actReply = workerReplies.find((r) => r.type === HOST_WORKER_MSG_TYPES.ACTIVITY_CONTROL);
+  assert.ok(actReply, 'ACTIVITY_CONTROL reply must be emitted');
+  assert.equal(actReply.payload.handled, true);
+  const csrSummary = (actReply.payload.csr as { uiSummary: Record<string, unknown> }).uiSummary;
+  assert.equal(csrSummary.trainingPackId, 'aerial-pack-01');
+  assert.equal(csrSummary.packName, 'Aerial Redirects');
+  assert.equal(csrSummary.shotIndex, 1);
+  assert.equal(csrSummary.shotName, 'Double Tap');
+  assert.equal(csrSummary.shotResetSeq, 1);
+  assert.deepEqual((lastBallState as unknown as { pos: number[] })?.pos, [120, 3200, 900]);
+  assert.deepEqual((lastCarStates.get(1) as { pos: number[] })?.pos, [-400, -900, 17]);
+  assert.ok(goalLatchResets >= 2, 'training_shot_reset must reset goal latch');
+  assert.ok(boostPadResets >= 2, 'training_shot_reset must reset boost pads');
+
+  // 3. Client receives ROOM_ACTIVITY_SWITCH without any local .RCDPack file
+  const mockOnlineSession: Record<string, unknown> = { activeRoomActivity: 'freeplay' };
+  bindRuntimeUiPort({
+    useAppStore: {
+      getState: () => ({
+        onlineSession: mockOnlineSession,
+        setOnlineSession: (patch: Record<string, unknown>) => {
+          Object.assign(mockOnlineSession, patch);
+        },
+        updateUnderDevelopment: () => {},
+      }),
+    } as never,
+  });
+
+  const reconciler = new PredictionReconciler(null as never, { clientCarIndex: 1 });
+  let clientModeSet: string | null = null;
+  const bridgePort = createOnlineSessionBridgePort({
+    modeManager: {
+      getActiveMode: () => ({ id: clientModeSet ?? 'freeplay' }),
+      setMode: (m: string) => {
+        clientModeSet = m;
+      },
+    } as never,
+    onShowNetworkHUD: () => {},
+  });
+
+  bridgePort.applyClientRoomActivitySwitch(reconciler, {
+    activityId: 'multiplayer_training',
+    trainingPackId: 'aerial-pack-01',
+    config: {
+      packName: 'Aerial Redirects',
+      shotIndex: 1,
+      totalShots: 4,
+      shotName: 'Double Tap',
+      shotResetSeq: 1,
+      clientInputEnabled: true,
+    },
+  });
+
+  assert.equal(reconciler.clientInputEnabled, true, 'Host toggle unlocks client training input');
+  assert.equal(mockOnlineSession.activeRoomActivity, 'multiplayer_training');
+  const trainingSummary = mockOnlineSession.trainingPackSummary as Record<string, unknown>;
+  assert.equal(trainingSummary?.packName, 'Aerial Redirects');
+  assert.equal(trainingSummary?.shotName, 'Double Tap');
+  assert.equal(trainingSummary?.shotIndex, 1);
+
+  // Part B: Room Match Auto-Pull (connected P2P peers -> Blue/Orange teams + ready/arenaLoaded + KICKOFF)
+  const hostController = new HostSessionController('room-step4-match');
+  hostController.peerChannels.set('peer_client_1', {
+    connected: true,
+    isOpen: true,
+    destroy: () => {},
+  } as never);
+  hostController.peerRoles.set('peer_client_1', 'player');
+  hostController.peerChannels.set('peer_client_2', {
+    connected: true,
+    isOpen: true,
+    destroy: () => {},
+  } as never);
+  hostController.peerRoles.set('peer_client_2', 'player');
+
+  // Initially neither peer is ready/arenaLoaded
+  assert.equal(hostController.recordPeerReadyState('peer_client_1', {}).allArenaLoaded, false);
+
+  routeActivityAndInputMessage(
+    workerCtx as never,
+    HOST_WORKER_MSG_TYPES.ROOM_ACTIVITY_SWITCH,
+    {
+      activityId: ACTIVITY_IDS.MATCH,
+      stateSummary: {
+        autoPullConnectedPeers: true,
+        durationSeconds: 180,
+      },
+    },
+    reply,
+    () => {}
+  );
+
+  // Verify all connected P2P peers were auto-pulled into matchManager.roster.players
+  assert.equal(
+    matchManager.roster.players.size,
+    3,
+    'Host + 2 P2P peers must all be in match roster'
+  );
+  const pHost = matchManager.roster.players.get('host');
+  const p1 = matchManager.roster.players.get('peer_client_1');
+  const p2 = matchManager.roster.players.get('peer_client_2');
+  assert.ok(pHost && p1 && p2, 'All 3 sessions must have player slots');
+  assert.equal(pHost.ready && pHost.arenaLoaded, true);
+  assert.equal(
+    p1.ready && p1.arenaLoaded,
+    true,
+    'peer_client_1 must be auto-marked ready & arenaLoaded'
+  );
+  assert.equal(
+    p2.ready && p2.arenaLoaded,
+    true,
+    'peer_client_2 must be auto-marked ready & arenaLoaded'
+  );
+
+  const blueTeamCount = [pHost, p1, p2].filter((p) => p.team === 0).length;
+  const orangeTeamCount = [pHost, p1, p2].filter((p) => p.team === 1).length;
+  assert.ok(
+    blueTeamCount >= 1 && orangeTeamCount >= 1,
+    'Auto-pulled peers must be split across Blue & Orange'
+  );
+  assert.equal(
+    matchManager.lifecycle.state,
+    MATCH_STATES.KICKOFF,
+    'Match must immediately enter KICKOFF'
+  );
+  assert.equal(serverClientInputEnabled, true, 'Match switch must enable client input by default');
+
+  // Verify Client stays in lightweight CSR shell (not BotMatchMode) and unlocks input on match switch
+  clientModeSet = null;
+  bridgePort.applyClientRoomActivitySwitch(reconciler, {
+    activityId: 'match',
+    config: { autoPullConnectedPeers: true },
+  });
+  assert.equal(clientModeSet, null, 'Client must stay in lightweight freeplay CSR shell on match');
+  assert.equal(reconciler.clientInputEnabled, true, 'Client input must be enabled in match');
+  assert.equal(mockOnlineSession.activeRoomActivity, 'match');
+
+  hostController.cleanup();
+}
+
 async function main(): Promise<void> {
   console.log('=== RocketCompanion Multiplayer Suite Test Matrix ===');
-  await runSection('1. Tunnel Transport & Kick/Leave Bidirectional Signaling', testTunnelAndKickLeaveSignaling);
-  await runSection('2. Voice Routing (open | team_only + Lobby all-chat | off)', testVoiceRoutingPolicies);
-  await runSection('3. Multiplayer Training (4 Boost Modes + GhostBallRelay)', testMultiplayerTrainingAndGhostRelay);
-  await runSection('4. Spectating & GlobalWorkspaceBroadcast + Pause ACK', testSpectatingAndGlobalWorkspace);
-  await runSection('5. Telestrator 50-Stroke Stress Test & HashAck', testTelestratorStressAndHashAck);
-  await runSection('6. MultiClientLoopbackSimulator Bot Takeover & 6-Car Matrix', testMultiClientLoopbackBotMatrix);
-  await runSection('7. WebRTC-First & Rust UDP Tunnel Automatic Fallback', testWebRtcFirstAndTunnelFallbackPath);
-  await runSection('8. Host Prewarmed Peer Rename & Tunnel Endpoint Routing', testHostPrewarmedPeerRenameAndTunnelEndpoint);
-  await runSection('9. ROOM_ACTIVITY_SWITCH Wire Delivery & Epoch Ordering', testRoomActivitySwitchWireAndEpochOrdering);
-  await runSection('10. ReliableTunnelFramer Multi-Chunk Out-of-Order & Loss Recovery', testReliableTunnelFramerOutOfOrderAndMultiDrop);
-  await runSection('11. Pure CSR Sync All, Dual-End Input Gating & Workspace Broadcast', testPureCsrSyncAllAndDualInputGating);
-  await runSection('12. Telestrator (0x05) Full-Link Sync, Dual-Store Linkage & Permission Gating', testTelestratorFullLinkSyncAndPermissions);
-  await runSection('13. Replay Watch Together (Pure CSR Frame Injection, Pause/Seek & Camera Sync)', testReplayWatchTogetherAndCameraSync);
+  await runSection(
+    '1. Tunnel Transport & Kick/Leave Bidirectional Signaling',
+    testTunnelAndKickLeaveSignaling
+  );
+  await runSection(
+    '2. Voice Routing (open | team_only + Lobby all-chat | off)',
+    testVoiceRoutingPolicies
+  );
+  await runSection(
+    '3. Multiplayer Training (4 Boost Modes + GhostBallRelay)',
+    testMultiplayerTrainingAndGhostRelay
+  );
+  await runSection(
+    '4. Spectating & GlobalWorkspaceBroadcast + Pause ACK',
+    testSpectatingAndGlobalWorkspace
+  );
+  await runSection(
+    '5. Telestrator 50-Stroke Stress Test & HashAck',
+    testTelestratorStressAndHashAck
+  );
+  await runSection(
+    '6. MultiClientLoopbackSimulator Bot Takeover & 6-Car Matrix',
+    testMultiClientLoopbackBotMatrix
+  );
+  await runSection(
+    '7. WebRTC-First & Rust UDP Tunnel Automatic Fallback',
+    testWebRtcFirstAndTunnelFallbackPath
+  );
+  await runSection(
+    '8. Host Prewarmed Peer Rename & Tunnel Endpoint Routing',
+    testHostPrewarmedPeerRenameAndTunnelEndpoint
+  );
+  await runSection(
+    '9. ROOM_ACTIVITY_SWITCH Wire Delivery & Epoch Ordering',
+    testRoomActivitySwitchWireAndEpochOrdering
+  );
+  await runSection(
+    '10. ReliableTunnelFramer Multi-Chunk Out-of-Order & Loss Recovery',
+    testReliableTunnelFramerOutOfOrderAndMultiDrop
+  );
+  await runSection(
+    '11. Pure CSR Sync All, Dual-End Input Gating & Workspace Broadcast',
+    testPureCsrSyncAllAndDualInputGating
+  );
+  await runSection(
+    '12. Telestrator (0x05) Full-Link Sync, Dual-Store Linkage & Permission Gating',
+    testTelestratorFullLinkSyncAndPermissions
+  );
+  await runSection(
+    '13. Replay Watch Together (Pure CSR Frame Injection, Pause/Seek & Camera Sync)',
+    testReplayWatchTogetherAndCameraSync
+  );
+  await runSection(
+    '14. Custom Training Pack (training_shot_reset + Metadata Sync) & Room Match Auto-Pull',
+    testCustomTrainingPackAndRoomMatchAutoPull
+  );
   console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
 }
 

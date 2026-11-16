@@ -153,6 +153,15 @@ export interface AppState {
     botFillMode?: 'no_bots' | 'auto_fill' | 'bots_vs_humans' | 'custom';
     matchDurationSeconds?: number;
     activeRoomActivity?: string;
+    trainingPackSummary?: {
+      trainingPackId?: string;
+      packName?: string;
+      shotIndex?: number;
+      totalShots?: number;
+      shotName?: string;
+      shotDescription?: string;
+      shotResetSeq?: number;
+    } | null;
     localTeam?: 'blue' | 'neutral' | 'orange';
     isReady?: boolean;
     pendingPairingRequests?: {
@@ -230,6 +239,7 @@ export interface AppState {
     }) => void;
     onBroadcastGlobalWorkspace?: (opts?: Record<string, unknown>) => number;
     onSetClientInputEnabled?: (enabled: boolean) => void;
+    onResetTrainingShot?: (opts?: Record<string, unknown>) => void;
     onReturnToOnlineLobby?: () => Promise<void> | void;
     onPauseOnlineMatch?: (pause: boolean, resumeCountdownSeconds?: number) => void;
     onResetBall?: () => void;

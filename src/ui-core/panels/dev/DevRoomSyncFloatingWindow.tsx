@@ -224,6 +224,59 @@ export const DevRoomSyncFloatingWindow: React.FC<DevRoomSyncFloatingWindowProps>
             ))}
           </div>
         </div>
+
+        {/* Room Activity Mode Switcher */}
+        <div className="flex flex-col gap-1.5 pt-1 border-t border-neutral-500/20">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-semibold">Room Activity Mode</span>
+            {activeActivity === 'multiplayer_training' && (
+              <button
+                type="button"
+                disabled={!isHosting}
+                onClick={() => bridge.onResetTrainingShot?.({})}
+                className="px-2 py-0.5 rounded-md border text-[11px] font-semibold bg-amber-500/20 border-amber-500/40 text-amber-300 hover:bg-amber-500/30 cursor-pointer disabled:opacity-40"
+              >
+                Reset Shot
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-4 gap-1">
+            {(
+              [
+                { id: 'freeplay', label: 'Freeplay' },
+                { id: 'multiplayer_training', label: 'Training' },
+                { id: 'replay', label: 'Replay' },
+                { id: 'match', label: 'Match' },
+              ] as const
+            ).map((act) => (
+              <button
+                key={act.id}
+                type="button"
+                disabled={!isHosting}
+                onClick={() => {
+                  if (act.id === 'match') {
+                    setClientInputEnabled(true);
+                    bridge.onSwitchRoomActivity?.({
+                      activityId: 'match',
+                      stateSummary: { autoPullConnectedPeers: true, clientInputEnabled: true },
+                    });
+                  } else {
+                    bridge.onSwitchRoomActivity?.({ activityId: act.id });
+                  }
+                }}
+                className={`px-1.5 py-1 rounded-lg border text-[11px] font-semibold cursor-pointer disabled:opacity-40 ${
+                  activeActivity === act.id
+                    ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                    : isLight
+                      ? 'bg-neutral-100 border-neutral-300 text-neutral-700'
+                      : 'bg-neutral-800 border-neutral-700 text-neutral-300'
+                }`}
+              >
+                {act.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Actions */}

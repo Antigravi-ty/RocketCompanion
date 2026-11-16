@@ -221,23 +221,77 @@ export function createRuntimeMatchPort(domain: OnlineMatchControlDomainPort): Ru
       networkManager.switchOnlineRoleOrTeam(role, team);
     },
     switchRoomActivity: (opts) => {
+      const storeState = useAppStore.getState();
+      const summary: Record<string, unknown> = {
+        ...(opts.stateSummary ?? {}),
+        ...(opts.trainingPackId ? { trainingPackId: opts.trainingPackId } : {}),
+        ...(opts.replayId ? { replayId: opts.replayId } : {}),
+      };
+      let nextClientInput: boolean | undefined =
+        typeof opts.stateSummary?.clientInputEnabled === 'boolean'
+          ? opts.stateSummary.clientInputEnabled
+          : undefined;
+
+      if (opts.activityId === 'match') {
+        const connectedPeers = storeState.onlineSession?.connectedPeers ?? [];
+        if (summary.autoPullConnectedPeers === undefined) {
+          summary.autoPullConnectedPeers = true;
+        }
+        if (summary.connectedPeers === undefined && connectedPeers.length > 0) {
+          summary.connectedPeers = connectedPeers;
+        }
+        const hostCtrl = domain.multiplayerSession?.hostController;
+        for (const peer of connectedPeers) {
+          if (peer?.id && !peer.isBot) {
+            hostCtrl?.recordPeerReadyState?.(peer.id, { ready: true, arenaLoaded: true });
+          }
+        }
+        if (nextClientInput === undefined) nextClientInput = true;
+        summary.clientInputEnabled = nextClientInput;
+      }
+
+      if (typeof nextClientInput === 'boolean') {
+        syncClientInputEnabledUi(nextClientInput);
+        sessionCoordinator.authoritativeServer?.setClientInputEnabled?.(nextClientInput);
+      }
+
       sessionCoordinator.authoritativeServer?.switchActivity({
         activityId: opts.activityId,
-        stateSummary: {
-          ...(opts.stateSummary ?? {}),
-          ...(opts.trainingPackId ? { trainingPackId: opts.trainingPackId } : {}),
-          ...(opts.replayId ? { replayId: opts.replayId } : {}),
-        },
+        stateSummary: summary,
       });
       getReconciler()?.setReplayPlaybackMode?.(opts.activityId === 'replay');
-      useAppStore.getState().setOnlineSession?.({ activeRoomActivity: opts.activityId });
+      storeState.setOnlineSession?.({
+        activeRoomActivity: opts.activityId,
+        ...(opts.activityId === 'multiplayer_training'
+          ? {
+              trainingPackSummary: {
+                trainingPackId:
+                  (summary.trainingPackId as string | undefined) ??
+                  (summary.packId as string | undefined),
+                packName: summary.packName as string | undefined,
+                shotIndex: typeof summary.shotIndex === 'number' ? summary.shotIndex : undefined,
+                totalShots: typeof summary.totalShots === 'number' ? summary.totalShots : undefined,
+                shotName: summary.shotName as string | undefined,
+                shotDescription: summary.shotDescription as string | undefined,
+              },
+            }
+          : {}),
+      });
       domain.multiplayerSession?.broadcastRoomActivitySwitch({
         activityId: opts.activityId,
         mode: opts.activityId,
         trainingPackId: opts.trainingPackId,
         replayId: opts.replayId,
-        config: opts.stateSummary,
+        config: summary,
       });
+      if (typeof nextClientInput === 'boolean') {
+        const wsPayload = buildHostWorkspaceBroadcastPayload({
+          clientInputEnabled: nextClientInput,
+        });
+        if (wsPayload) {
+          domain.multiplayerSession?.broadcastGlobalWorkspace?.(wsPayload);
+        }
+      }
     },
     broadcastGlobalWorkspace: (opts) => {
       const nextOpts = { ...(opts as Record<string, unknown> | undefined) };
@@ -260,6 +314,33 @@ export function createRuntimeMatchPort(domain: OnlineMatchControlDomainPort): Ru
       if (payload) {
         domain.multiplayerSession?.broadcastGlobalWorkspace?.(payload);
       }
+    },
+    resetTrainingShot: (opts) => {
+      const payload = opts && typeof opts === 'object' ? opts : {};
+      sessionCoordinator.authoritativeServer?.resetTrainingShot?.(payload);
+      const store = useAppStore.getState();
+      const prev = store.onlineSession?.trainingPackSummary ?? {};
+      const nextSummary = {
+        ...prev,
+        ...(typeof payload.trainingPackId === 'string'
+          ? { trainingPackId: payload.trainingPackId }
+          : {}),
+        ...(typeof payload.packName === 'string' ? { packName: payload.packName } : {}),
+        ...(typeof payload.shotIndex === 'number' ? { shotIndex: payload.shotIndex } : {}),
+        ...(typeof payload.totalShots === 'number' ? { totalShots: payload.totalShots } : {}),
+        ...(typeof payload.shotName === 'string' ? { shotName: payload.shotName } : {}),
+        ...(typeof payload.shotDescription === 'string'
+          ? { shotDescription: payload.shotDescription }
+          : {}),
+        shotResetSeq: (prev.shotResetSeq ?? 0) + 1,
+      };
+      store.setOnlineSession?.({ trainingPackSummary: nextSummary });
+      domain.multiplayerSession?.broadcastRoomActivitySwitch?.({
+        activityId: 'multiplayer_training',
+        mode: 'multiplayer_training',
+        trainingPackId: nextSummary.trainingPackId,
+        config: nextSummary,
+      });
     },
     setClockPacingMode: (pacingMode) => {
       getReconciler()?.setClockPacingMode?.(pacingMode);

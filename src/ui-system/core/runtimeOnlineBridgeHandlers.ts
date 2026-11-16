@@ -269,6 +269,9 @@ export function createOnlineBridgeHandlers(runtimePort: GameRuntimeUiBridgePort)
     onSetClientInputEnabled: (enabled: boolean) => {
       matchPort.setClientInputEnabled?.(enabled);
     },
+    onResetTrainingShot: (opts?: Record<string, unknown>) => {
+      matchPort.resetTrainingShot?.(opts);
+    },
     onClockPacingModeChange: matchPort.setClockPacingMode.bind(matchPort),
     onClockPacingPriorityChange: matchPort.setClockPacingPriority.bind(matchPort),
     onClockPacingParamsChange(params: ClockPacingParams) {

@@ -16,6 +16,8 @@ export interface ActivityAndInputPayload {
   channelId?: string;
   sessionId?: string;
   cameraMode?: string;
+  controlType?: string;
+  controlPayload?: Record<string, unknown>;
 }
 
 export function routeActivityAndInputMessage(
@@ -31,9 +33,10 @@ export function routeActivityAndInputMessage(
     case MSG.ROOM_ACTIVITY_SWITCH: {
       const orch = workerCtx.orchestrator ?? new RoomActivityOrchestrator();
       workerCtx.orchestrator = orch;
+      const targetActivity = typeof p.activityId === 'string' ? p.activityId : 'freeplay';
       const switched = orch.switchActivity(
         {
-          activityId: typeof p.activityId === 'string' ? p.activityId : 'freeplay',
+          activityId: targetActivity,
           seed: typeof p.seed === 'number' ? p.seed : undefined,
           replicationMode:
             p.replicationMode === REPLICATION_MODES.SPARSE
@@ -42,9 +45,7 @@ export function routeActivityAndInputMessage(
                 ? REPLICATION_MODES.CONTINUOUS
                 : undefined,
           authorityMask:
-            p.authorityMask && typeof p.authorityMask === 'object'
-              ? p.authorityMask
-              : undefined,
+            p.authorityMask && typeof p.authorityMask === 'object' ? p.authorityMask : undefined,
           stateSummary:
             p.stateSummary && typeof p.stateSummary === 'object' ? p.stateSummary : null,
           followHostEnabled: Boolean(p.followHostEnabled),
@@ -58,7 +59,36 @@ export function routeActivityAndInputMessage(
       reply(MSG.ROOM_ACTIVITY_SWITCH, switched);
       if (typeof p.clientInputEnabled === 'boolean') {
         dataHandler?.setClientInputEnabled?.(p.clientInputEnabled);
+      } else if (targetActivity === 'match') {
+        const summaryInput = p.stateSummary?.clientInputEnabled;
+        dataHandler?.setClientInputEnabled?.(summaryInput !== false);
       }
+      syncRoomState();
+      return true;
+    }
+
+    case MSG.ACTIVITY_CONTROL: {
+      const orch = workerCtx.orchestrator ?? new RoomActivityOrchestrator();
+      workerCtx.orchestrator = orch;
+      const controlType = typeof p.controlType === 'string' ? p.controlType : '';
+      const controlPayload =
+        p.controlPayload && typeof p.controlPayload === 'object' ? p.controlPayload : {};
+      const handled = controlType
+        ? orch.handleControlMessage(controlType, controlPayload, {
+            matchManager,
+            physicsManager,
+            epoch: orch.getEpoch(),
+          })
+        : false;
+      reply(MSG.ACTIVITY_CONTROL, {
+        handled,
+        controlType,
+        activityId: orch.getActiveActivityId(),
+        csr: orch.buildCsrBroadcast(
+          { matchManager, physicsManager, epoch: orch.getEpoch() },
+          Boolean(p.followHostEnabled)
+        ),
+      });
       syncRoomState();
       return true;
     }

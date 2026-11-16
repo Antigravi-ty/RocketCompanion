@@ -135,3 +135,166 @@ export class GhostBallRelayCoordinator {
     this.ballsByPeer.clear();
   }
 }
+
+export interface TrainingBallPose {
+  pos: [number, number, number];
+  vel?: [number, number, number];
+  angVel?: [number, number, number];
+}
+
+export interface TrainingCarPose {
+  carIndex?: number;
+  pos: [number, number, number];
+  rot?: [number, number, number];
+  vel?: [number, number, number];
+  angVel?: [number, number, number];
+  boost?: number;
+  isOnGround?: boolean;
+  hasFlipOrJump?: boolean;
+}
+
+export interface TrainingShotMetadata {
+  trainingPackId?: string;
+  packId?: string;
+  packName?: string;
+  shotIndex?: number;
+  totalShots?: number;
+  shotName?: string;
+  shotDescription?: string;
+  shotResetSeq?: number;
+}
+
+export interface TrainingShotResetPayload extends TrainingShotMetadata {
+  ballPose?: TrainingBallPose;
+  ballState?: TrainingBallPose;
+  carPose?: TrainingCarPose;
+  carState?: TrainingCarPose;
+  carPoses?: TrainingCarPose[] | Record<string, TrainingCarPose>;
+  applyToAllCars?: boolean;
+  resetBoostPads?: boolean;
+  [key: string]: unknown;
+}
+
+export interface TrainingResetPhysicsPort {
+  sim?: {
+    setBallState?: (state: Record<string, unknown>) => unknown;
+    setCarState?: (carIndex: number, state: Record<string, unknown>) => unknown;
+    resetBoostPads?: () => unknown;
+  } | null;
+  activeCarIndices?: Iterable<number>;
+  resetGoalLatch?: () => void;
+}
+
+function toVec3(raw: unknown, fallback: [number, number, number]): [number, number, number] {
+  if (!Array.isArray(raw) || raw.length < 3) return fallback;
+  const x = Number(raw[0]);
+  const y = Number(raw[1]);
+  const z = Number(raw[2]);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return fallback;
+  return [x, y, z];
+}
+
+export function extractTrainingShotMetadata(
+  raw?: Record<string, unknown> | null,
+  prev: TrainingShotMetadata = {},
+  incrementSeq = false
+): TrainingShotMetadata {
+  const next: TrainingShotMetadata = { ...prev };
+  if (raw && typeof raw === 'object') {
+    const packId =
+      typeof raw.trainingPackId === 'string'
+        ? raw.trainingPackId
+        : typeof raw.packId === 'string'
+          ? raw.packId
+          : undefined;
+    if (packId !== undefined) {
+      next.trainingPackId = packId;
+      next.packId = packId;
+    }
+    if (typeof raw.packName === 'string') next.packName = raw.packName;
+    if (typeof raw.shotIndex === 'number' && Number.isFinite(raw.shotIndex)) {
+      next.shotIndex = Math.max(0, Math.floor(raw.shotIndex));
+    }
+    if (typeof raw.totalShots === 'number' && Number.isFinite(raw.totalShots)) {
+      next.totalShots = Math.max(1, Math.floor(raw.totalShots));
+    }
+    if (typeof raw.shotName === 'string') next.shotName = raw.shotName;
+    if (typeof raw.shotDescription === 'string') next.shotDescription = raw.shotDescription;
+  }
+  if (incrementSeq) {
+    next.shotResetSeq = (prev.shotResetSeq ?? 0) + 1;
+  }
+  return next;
+}
+
+function buildSimCarPose(pose: TrainingCarPose): Record<string, unknown> {
+  const pos = toVec3(pose.pos, [0, 0, 17]);
+  return {
+    pos,
+    rot: toVec3(pose.rot, [0, 0, 0]),
+    vel: toVec3(pose.vel, [0, 0, 0]),
+    angVel: toVec3(pose.angVel, [0, 0, 0]),
+    boost: typeof pose.boost === 'number' && Number.isFinite(pose.boost) ? pose.boost : 100,
+    isOnGround: pose.isOnGround !== undefined ? Boolean(pose.isOnGround) : pos[2] <= 22,
+    hasFlipOrJump: pose.hasFlipOrJump !== undefined ? Boolean(pose.hasFlipOrJump) : true,
+  };
+}
+
+export function applyTrainingShotResetToSim(
+  physicsManager: TrainingResetPhysicsPort | null | undefined,
+  rawPayload?: Record<string, unknown> | null
+): boolean {
+  if (!physicsManager?.sim || !rawPayload || typeof rawPayload !== 'object') return false;
+  const payload = rawPayload as TrainingShotResetPayload;
+  const sim = physicsManager.sim;
+  let applied = false;
+
+  const ball = payload.ballPose ?? payload.ballState;
+  if (ball && typeof ball === 'object' && Array.isArray(ball.pos)) {
+    sim.setBallState?.({
+      pos: toVec3(ball.pos, [0, 0, 93]),
+      vel: toVec3(ball.vel, [0, 0, 0]),
+      angVel: toVec3(ball.angVel, [0, 0, 0]),
+    });
+    applied = true;
+  }
+
+  const singleCar = payload.carPose ?? payload.carState;
+  if (singleCar && typeof singleCar === 'object' && Array.isArray(singleCar.pos)) {
+    const carState = buildSimCarPose(singleCar);
+    if (payload.applyToAllCars && physicsManager.activeCarIndices) {
+      for (const idx of physicsManager.activeCarIndices) {
+        sim.setCarState?.(idx, carState);
+      }
+    } else {
+      const idx = typeof singleCar.carIndex === 'number' ? singleCar.carIndex : 0;
+      sim.setCarState?.(idx, carState);
+    }
+    applied = true;
+  }
+
+  if (Array.isArray(payload.carPoses)) {
+    for (let i = 0; i < payload.carPoses.length; i++) {
+      const entry = payload.carPoses[i];
+      if (!entry || !Array.isArray(entry.pos)) continue;
+      const idx = typeof entry.carIndex === 'number' ? entry.carIndex : i;
+      sim.setCarState?.(idx, buildSimCarPose(entry));
+      applied = true;
+    }
+  } else if (payload.carPoses && typeof payload.carPoses === 'object') {
+    for (const [key, entry] of Object.entries(payload.carPoses)) {
+      const idx = Number(key);
+      if (!Number.isInteger(idx) || !entry || !Array.isArray(entry.pos)) continue;
+      sim.setCarState?.(idx, buildSimCarPose(entry));
+      applied = true;
+    }
+  }
+
+  if (applied) {
+    physicsManager.resetGoalLatch?.();
+    if (payload.resetBoostPads !== false) {
+      sim.resetBoostPads?.();
+    }
+  }
+  return applied;
+}

@@ -160,6 +160,14 @@ export class RoomActivityOrchestrator {
     return true;
   }
 
+  handleControlMessage(
+    type: string,
+    payload: Record<string, unknown>,
+    ctx: ActivityKernelContext
+  ): boolean {
+    return Boolean(this.activeKernel.onControlMessage?.(ctx, type, payload));
+  }
+
   buildCsrBroadcast(
     ctx: ActivityKernelContext,
     followHostEnabled: boolean,

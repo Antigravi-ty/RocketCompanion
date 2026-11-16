@@ -320,11 +320,34 @@ export function createOnlineSessionBridgePort(
         }
       }
       const store = useAppStore.getState();
-      store.setOnlineSession?.({ activeRoomActivity: activityId });
       const cfg =
         payload.config && typeof payload.config === 'object'
           ? (payload.config as Record<string, unknown>)
           : null;
+      const trainingPackId =
+        typeof payload.trainingPackId === 'string'
+          ? payload.trainingPackId
+          : typeof cfg?.trainingPackId === 'string'
+            ? cfg.trainingPackId
+            : typeof cfg?.packId === 'string'
+              ? cfg.packId
+              : undefined;
+      store.setOnlineSession?.({
+        activeRoomActivity: activityId,
+        trainingPackSummary:
+          activityId === 'multiplayer_training'
+            ? {
+                trainingPackId,
+                packName: typeof cfg?.packName === 'string' ? cfg.packName : undefined,
+                shotIndex: typeof cfg?.shotIndex === 'number' ? cfg.shotIndex : undefined,
+                totalShots: typeof cfg?.totalShots === 'number' ? cfg.totalShots : undefined,
+                shotName: typeof cfg?.shotName === 'string' ? cfg.shotName : undefined,
+                shotDescription:
+                  typeof cfg?.shotDescription === 'string' ? cfg.shotDescription : undefined,
+                shotResetSeq: typeof cfg?.shotResetSeq === 'number' ? cfg.shotResetSeq : undefined,
+              }
+            : null,
+      });
       const arenaPreset =
         payload.arenaPreset === 'throwback' || cfg?.arenaPreset === 'throwback'
           ? 'throwback'
@@ -335,9 +358,17 @@ export function createOnlineSessionBridgePort(
         store.updateUnderDevelopment?.({ stadiumPreset: arenaPreset });
         syncArenaPresetUi(arenaPreset);
       }
-      if (typeof payload.clientInputEnabled === 'boolean') {
-        reconciler.setClientInputEnabled(payload.clientInputEnabled);
-        syncClientInputEnabledUi(payload.clientInputEnabled);
+      const resolvedInputEnabled =
+        typeof payload.clientInputEnabled === 'boolean'
+          ? payload.clientInputEnabled
+          : typeof cfg?.clientInputEnabled === 'boolean'
+            ? cfg.clientInputEnabled
+            : activityId === 'match'
+              ? true
+              : undefined;
+      if (typeof resolvedInputEnabled === 'boolean') {
+        reconciler.setClientInputEnabled(resolvedInputEnabled);
+        syncClientInputEnabledUi(resolvedInputEnabled);
       }
     },
   };

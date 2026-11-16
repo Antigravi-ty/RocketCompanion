@@ -277,6 +277,14 @@ export class AuthoritativeServerHost {
     this._postCommand(MSG.SET_CLIENT_INPUT_ENABLED, { clientInputEnabled: Boolean(enabled) });
   }
 
+  sendActivityControl(controlType: string, controlPayload: Record<string, unknown> = {}): void {
+    this._postCommand(MSG.ACTIVITY_CONTROL, { controlType, controlPayload });
+  }
+
+  resetTrainingShot(payload: Record<string, unknown> = {}): void {
+    this.sendActivityControl('training_shot_reset', payload);
+  }
+
   enterStateOnlyMode(s?: Float32Array | number[] | null, cursorTick?: number): void {
     this._postCommand('enterStateOnlyMode', {
       stateSnapshot: s ? Array.from<number>(s) : null,

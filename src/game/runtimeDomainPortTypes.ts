@@ -159,6 +159,7 @@ export interface RuntimeMatchPort {
   }): void;
   broadcastGlobalWorkspace?(options?: Record<string, unknown>): number;
   setClientInputEnabled?(enabled: boolean): void;
+  resetTrainingShot?(options?: Record<string, unknown>): void;
   setClockPacingMode(mode: string): void;
   setClockPacingPriority(priority: string): void;
   setClockPacingParams(params: Record<string, unknown> | null): void;
