@@ -74,10 +74,70 @@ export function applyWorkspaceStateLocally(
   }
 }
 
+export interface WorkspaceCameraPort {
+  isFreeCam?: boolean;
+  ballCam?: boolean;
+  focusedCarIndex?: number;
+  setFreeCam?: (enabled: boolean) => void;
+  setFreeCamPose?: (
+    position: [number, number, number],
+    lookAtTarget?: [number, number, number]
+  ) => void;
+  setFocusedCarIndex?: (carIndex: number) => void;
+  getFreeCamStateSnapshot?: () => {
+    eyeThreeJs?: [number, number, number];
+    targetThreeJs?: [number, number, number];
+  } | null;
+}
+
+export function captureCameraSyncFromPort(
+  camera: WorkspaceCameraPort | null | undefined,
+  followHostCamera = true
+): GlobalWorkspaceBroadcastPayload['cameraSync'] {
+  if (!camera) return undefined;
+  const isFreeCam = Boolean(camera.isFreeCam);
+  const ballCam = typeof camera.ballCam === 'boolean' ? camera.ballCam : true;
+  const focusedCarIndex =
+    typeof camera.focusedCarIndex === 'number' && Number.isFinite(camera.focusedCarIndex)
+      ? Math.max(0, Math.round(camera.focusedCarIndex))
+      : 0;
+  const freeSnap = isFreeCam ? camera.getFreeCamStateSnapshot?.() : null;
+  return {
+    followHostCamera,
+    isFreeCam,
+    ballCam,
+    focusedCarIndex,
+    ...(freeSnap?.eyeThreeJs ? { freeCamPosition: [...freeSnap.eyeThreeJs] as [number, number, number] } : {}),
+    ...(freeSnap?.targetThreeJs ? { freeCamLookAt: [...freeSnap.targetThreeJs] as [number, number, number] } : {}),
+  };
+}
+
+export function applyCameraSyncToPort(
+  camera: WorkspaceCameraPort | null | undefined,
+  cameraSync: GlobalWorkspaceBroadcastPayload['cameraSync']
+): void {
+  if (!camera || !cameraSync || !cameraSync.followHostCamera) return;
+  if (cameraSync.isFreeCam) {
+    if (cameraSync.freeCamPosition && cameraSync.freeCamLookAt && camera.setFreeCamPose) {
+      camera.setFreeCamPose(cameraSync.freeCamPosition, cameraSync.freeCamLookAt);
+    } else {
+      camera.setFreeCam?.(true);
+    }
+    return;
+  }
+  camera.setFreeCam?.(false);
+  camera.setFocusedCarIndex?.(cameraSync.focusedCarIndex);
+  if (typeof camera.ballCam === 'boolean' || 'ballCam' in camera) {
+    camera.ballCam = cameraSync.ballCam;
+  }
+}
+
 export function resetSpectateWorkspaceOnLeave(): void {
   const ws = useSpectateWorkspaceStore.getState();
   ws.setSpectatingActive(false, undefined, applyWorkspaceStateLocally);
   ws.setFollowHostWorkspace(false);
+  ws.setFollowHostCamera(false);
+  ws.setPlaybackState(false, 0);
   ws.setClientInputEnabled(true);
   const telestrator = useTelestratorStore.getState();
   telestrator.setHostRole(true, 'local');
@@ -129,6 +189,7 @@ export function buildHostWorkspaceBroadcastPayload(meta?: {
   clientInputEnabled?: boolean;
   followHostWorkspace?: boolean;
   arenaPreset?: 'standard' | 'throwback';
+  cameraSync?: GlobalWorkspaceBroadcastPayload['cameraSync'];
 }): GlobalWorkspaceBroadcastPayload {
   const local = captureLocalWorkspaceState();
   const ws = useSpectateWorkspaceStore.getState();
@@ -148,5 +209,6 @@ export function buildHostWorkspaceBroadcastPayload(meta?: {
     clientInputEnabled: meta?.clientInputEnabled ?? ws.clientInputEnabled,
     followHostWorkspace: meta?.followHostWorkspace ?? ws.followHostWorkspace,
     arenaPreset: currentArenaPreset,
+    ...(meta?.cameraSync ? { cameraSync: meta.cameraSync } : {}),
   });
 }

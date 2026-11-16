@@ -211,6 +211,7 @@ export function drainAndPrepareInboundSessionPacket(
       lobbyDualWorldMode: session.lobbyDualWorldMode,
       hostLobbyMode: session.hostLobbyMode,
       replayPlaybackMode: session.replayPlaybackMode,
+      isReplayPlaybackMode: () => session.replayPlaybackMode,
       inputBufferTarget: session.pacingController.inputBufferTarget,
       metrics: session.metrics,
       boostPadEdgeTracker: session.boostPadEdgeTracker,

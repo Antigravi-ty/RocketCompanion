@@ -43,6 +43,7 @@ export interface DrainServerPacketsContext {
   lobbyDualWorldMode: boolean;
   hostLobbyMode: boolean;
   replayPlaybackMode: boolean;
+  isReplayPlaybackMode?: () => boolean;
   inputBufferTarget: number;
   metrics: ReconcilerMetrics;
   boostPadEdgeTracker: BoostPadEdgeTracker;
@@ -296,7 +297,10 @@ export function drainAndParseServerPacketBatch(
     }
 
     if (packet) {
-      if (ctx.replayPlaybackMode && packet.stateSnapshot) {
+      const isReplayMode = ctx.isReplayPlaybackMode
+        ? ctx.isReplayPlaybackMode()
+        : ctx.replayPlaybackMode;
+      if (isReplayMode && packet.stateSnapshot) {
         drainedReplayPackets.push(packet);
       }
       if (!latestPacket || packet.serverTick >= latestPacket.serverTick) {

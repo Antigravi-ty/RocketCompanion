@@ -15,6 +15,7 @@ import type {
 } from './ReplayViewerRosterSubController.ts';
 import type { ReplayFrameSlotLike, ReplaySnapshotBuffer } from './ReplayCausalHybridEngine.ts';
 import type { ReplayTakeoverRuntimePort } from './ReplayTakeoverSubController.ts';
+import type { ReplayOnlineRuntimePort } from './replayOnlineSyncHelper.ts';
 import {
   warmupArenaTrailsFromReplayWindow,
   type ReplayTrailWarmupArenaPort,
@@ -92,6 +93,7 @@ export interface ReplayScoreboardModePort extends ReplayViewerRosterModePort {
 
 export interface ReplayScoreboardRuntimePort
   extends ReplayViewerRosterRuntimePort, ReplayTakeoverRuntimePort {
+  multiplayerSession?: ReplayOnlineRuntimePort['multiplayerSession'];
   physics?:
     | (NonNullable<ReplayViewerRosterRuntimePort['physics']> &
         NonNullable<ReplayTakeoverRuntimePort['physics']> & {

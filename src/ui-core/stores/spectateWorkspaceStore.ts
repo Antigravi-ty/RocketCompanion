@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { useTelestratorStore } from './telestratorStore.ts';
+import type { WorkspaceCameraSyncPayload } from '../../network/protocol/GlobalWorkspaceProtocol.ts';
 
 export type SpectateMode = 'spectate_state_only' | 'spectate_mirror';
 export type TelestratorDrawPermission = 'host_only' | 'everyone';
@@ -22,6 +23,7 @@ export interface GlobalWorkspaceStateInput {
   clientInputEnabled?: boolean;
   followHostWorkspace?: boolean;
   arenaPreset?: 'standard' | 'throwback';
+  cameraSync?: WorkspaceCameraSyncPayload;
 }
 
 export interface SpectateWorkspaceStoreState {
@@ -31,6 +33,8 @@ export interface SpectateWorkspaceStoreState {
   telestratorPermission: TelestratorDrawPermission;
   clientInputEnabled: boolean;
   followHostWorkspace: boolean;
+  followHostCamera: boolean;
+  hostCameraSync: WorkspaceCameraSyncPayload | null;
   arenaPreset: 'standard' | 'throwback';
   hostMenuRoute: string | null;
   hostFloatingWindows: FloatingWindowSyncEntry[];
@@ -55,6 +59,8 @@ export interface SpectateWorkspaceStoreState {
   setTelestratorPermission: (permission: TelestratorDrawPermission) => void;
   setClientInputEnabled: (enabled: boolean) => void;
   setFollowHostWorkspace: (follow: boolean) => void;
+  setFollowHostCamera: (follow: boolean) => void;
+  setPlaybackState: (paused: boolean, pausedAtTick: number) => void;
   setArenaPreset: (preset: 'standard' | 'throwback') => void;
   applyHostWorkspaceBroadcast: (
     payload: GlobalWorkspaceStateInput,
@@ -70,6 +76,8 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
   telestratorPermission: 'host_only',
   clientInputEnabled: true,
   followHostWorkspace: false,
+  followHostCamera: false,
+  hostCameraSync: null,
   arenaPreset: 'standard',
   hostMenuRoute: null,
   hostFloatingWindows: [],
@@ -153,6 +161,17 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
     set({ followHostWorkspace: Boolean(follow) });
   },
 
+  setFollowHostCamera: (follow) => {
+    set({ followHostCamera: Boolean(follow) });
+  },
+
+  setPlaybackState: (paused, pausedAtTick) => {
+    set({
+      playbackPaused: Boolean(paused),
+      pausedAtTick: Number.isFinite(pausedAtTick) ? Math.max(0, Math.round(pausedAtTick)) : 0,
+    });
+  },
+
   setArenaPreset: (preset) => {
     set({ arenaPreset: preset === 'throwback' ? 'throwback' : 'standard' });
   },
@@ -171,6 +190,10 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
       typeof payload.followHostWorkspace === 'boolean'
         ? payload.followHostWorkspace
         : s.followHostWorkspace;
+    const nextCameraSync = payload.cameraSync ?? s.hostCameraSync;
+    const nextFollowHostCamera = payload.cameraSync
+      ? Boolean(payload.cameraSync.followHostCamera)
+      : s.followHostCamera;
     const nextArenaPreset =
       payload.arenaPreset === 'throwback'
         ? 'throwback'
@@ -189,6 +212,8 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
         telestratorPermission: payload.telestratorPermission,
         clientInputEnabled: nextClientInputEnabled,
         followHostWorkspace: true,
+        followHostCamera: nextFollowHostCamera,
+        hostCameraSync: nextCameraSync,
         arenaPreset: nextArenaPreset,
         hostMenuRoute: payload.menuRoute,
         hostFloatingWindows: nextWindows,
@@ -215,6 +240,8 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
         telestratorPermission: payload.telestratorPermission,
         clientInputEnabled: nextClientInputEnabled,
         followHostWorkspace: false,
+        followHostCamera: nextFollowHostCamera,
+        hostCameraSync: nextCameraSync,
         arenaPreset: nextArenaPreset,
         hostMenuRoute: payload.menuRoute,
         hostFloatingWindows: nextWindows,
@@ -229,6 +256,8 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
       telestratorPermission: payload.telestratorPermission,
       clientInputEnabled: nextClientInputEnabled,
       followHostWorkspace: nextFollowHostWorkspace,
+      followHostCamera: nextFollowHostCamera,
+      hostCameraSync: nextCameraSync,
       arenaPreset: nextArenaPreset,
       hostMenuRoute: payload.menuRoute,
       hostFloatingWindows: nextWindows,

@@ -1,6 +1,7 @@
 import {
   useAppStore,
   buildHostWorkspaceBroadcastPayload,
+  captureCameraSyncFromPort,
   syncClientInputEnabledUi,
   type HostOnlineWarmupPortOptions,
   type RuntimeCameraPort,
@@ -22,7 +23,9 @@ import {
 } from './MatchModeTransitionBridge.ts';
 
 export type CameraControlDomainPort = Pick<RuntimeDomainPortOwner, 'camera' | 'networkManager'>;
-export type OnlineMatchControlDomainPort = MatchModeTransitionDomainPort;
+export type OnlineMatchControlDomainPort = MatchModeTransitionDomainPort & {
+  camera?: RuntimeDomainPortOwner['camera'];
+};
 
 export type OnlineWarmupRoomConfigSpec = {
   readonly roomType: string;
@@ -237,7 +240,12 @@ export function createRuntimeMatchPort(domain: OnlineMatchControlDomainPort): Ru
       });
     },
     broadcastGlobalWorkspace: (opts) => {
-      const payload = buildHostWorkspaceBroadcastPayload(opts as Record<string, unknown>);
+      const nextOpts = { ...(opts as Record<string, unknown> | undefined) };
+      if (nextOpts.cameraSync === undefined && domain.camera) {
+        const camSync = captureCameraSyncFromPort(domain.camera, true);
+        if (camSync) nextOpts.cameraSync = camSync;
+      }
+      const payload = buildHostWorkspaceBroadcastPayload(nextOpts);
       if (!payload) return 0;
       sessionCoordinator.authoritativeServer?.setClientInputEnabled?.(
         Boolean(payload.clientInputEnabled)

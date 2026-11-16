@@ -74,6 +74,18 @@ import { InputPacketCodec } from '../src/network/protocol/InputPacketCodec.ts';
 import { routeProtocolMessageInWorker } from '../src/network/server/HostWorkerMessageRouter.ts';
 import { HOST_WORKER_MSG_TYPES } from '../src/network/protocol/HostWorkerProtocol.ts';
 import { createOnlineSessionBridgePort } from '../src/game/runtime/onlineSessionEnvironmentPipeline.ts';
+import { MatchDomainState } from '../src/network/server/match/MatchDomainState.ts';
+import { MatchCommandQueueSubController } from '../src/network/server/match/MatchCommandQueueSubController.ts';
+import { MatchSystemControlSubController } from '../src/network/server/match/MatchSystemControlSubController.ts';
+import { encodeMatchGlobalFramePacket } from '../src/network/server/match/matchLifecyclePipeline.ts';
+import { applyReplayFrameToEngine } from '../src/replay/ReplayFrameInterpolator.ts';
+import { SYSTEM_CONTROL_SIGNALS, SIM_OFFSETS } from '../src/physics/RocketSimConstants.ts';
+import {
+  ReplayOnlineHeartbeatTracker,
+  syncReplayFrameToAuthoritativeServer,
+  syncReplayWorkspaceToOnlineRoom,
+} from '../src/replay/replayOnlineSyncHelper.ts';
+import { bindRuntimeUiPort } from '../src/game/runtimeUiPort.ts';
 
 function runSection(name: string, fn: () => void | Promise<void>): Promise<void> {
   return Promise.resolve()
@@ -1240,6 +1252,308 @@ async function testTelestratorFullLinkSyncAndPermissions(): Promise<void> {
   hostController.cleanup();
 }
 
+async function testReplayWatchTogetherAndCameraSync(): Promise<void> {
+  bindRuntimeUiPort({
+    buildHostWorkspaceBroadcastPayload: (meta?: Record<string, unknown>) =>
+      sanitizeGlobalWorkspaceBroadcast(meta),
+    captureCameraSyncFromPort: (cam: Record<string, unknown>, follow = true) => {
+      const snap =
+        cam.isFreeCam && typeof cam.getFreeCamStateSnapshot === 'function'
+          ? (cam.getFreeCamStateSnapshot() as {
+              eyeThreeJs?: [number, number, number];
+              targetThreeJs?: [number, number, number];
+            })
+          : null;
+      return {
+        followHostCamera: follow,
+        isFreeCam: Boolean(cam.isFreeCam),
+        ballCam: typeof cam.ballCam === 'boolean' ? cam.ballCam : true,
+        focusedCarIndex: Number(cam.focusedCarIndex) || 0,
+        ...(snap?.eyeThreeJs ? { freeCamPosition: snap.eyeThreeJs } : {}),
+        ...(snap?.targetThreeJs ? { freeCamLookAt: snap.targetThreeJs } : {}),
+      };
+    },
+  });
+
+  // 1. Setup real MatchSessionAdmin (Pure CSR state-only replay broadcaster)
+  const hostSimState = new Float32Array(448);
+  const hostPhysicsManager = {
+    currentTick: 0,
+    sim: {
+      state: hostSimState,
+      numCars: 2,
+      restoreState: (buf: Float32Array) => {
+        hostSimState.set(buf.subarray(0, Math.min(buf.length, hostSimState.length)));
+      },
+      saveCompactState: () => new Float32Array(hostSimState),
+      saveState: () => new Float32Array(hostSimState),
+      syncToStateObject: () => {},
+    },
+    getActiveCarMask: () => 0b11,
+    applySignal: () => {},
+  };
+  const sessionManager = new EstablishedSessionManager();
+  sessionManager.registerSession('peer_replay_1', {
+    entityId: 1,
+    role: 'player',
+    playerName: 'ReplayViewer',
+  });
+  const domain = new MatchDomainState({ gameMode: 'freeplay' });
+  const commandQueue = new MatchCommandQueueSubController({ domain });
+  const systemControl = new MatchSystemControlSubController({
+    domain,
+    commandQueue,
+    physicsManager: hostPhysicsManager as never,
+    replayBuffer: null as never,
+    encodeFramePacket: (snap) =>
+      encodeMatchGlobalFramePacket({
+        state: domain.state,
+        matchTick: domain.matchTick,
+        physicsSnapshot: snap as never,
+        physicsManager: hostPhysicsManager as never,
+        sessionManager: sessionManager as never,
+        replayBuffer: null as never,
+        commandController: commandQueue,
+      }),
+  });
+  const host = { systemControl };
+
+  // Client PredictionReconciler + lightweight physics/interpolator target
+  const clientState = new Float32Array(448);
+  const clientPrevState = new Float32Array(448);
+  const clientCurrState = new Float32Array(448);
+  const clientPhysics = {
+    state: clientState,
+    numCars: 2,
+    isCarSlotActive: (idx: number) => idx < 2,
+    addCarAtSlot: () => {},
+    restoreState: (buf: Float32Array) => {
+      clientState.set(buf.subarray(0, Math.min(buf.length, clientState.length)));
+    },
+    saveState: () => new Float32Array(clientState),
+    getHeaderView: () => ({ tick: clientState[0], tickCount: clientState[0], numCars: 2 }),
+  };
+  const clientInterpolator = {
+    prevState: clientPrevState,
+    currState: clientCurrState,
+    alpha: 0,
+  };
+  const clientChannel = {
+    inboundQueue: [] as Uint8Array[],
+    send: () => {},
+    isLoopback: false,
+  };
+  const clientReconciler = new PredictionReconciler(
+    clientPhysics as never,
+    clientChannel as never,
+    {
+      localCarIndex: 1,
+      interpolator: clientInterpolator as never,
+    }
+  );
+  clientReconciler.onSignals = (signals) => {
+    for (const s of signals) {
+      if (s?.signalType === SYSTEM_CONTROL_SIGNALS.SYS_CTRL_STATE_ONLY) {
+        clientReconciler.setReplayPlaybackMode(true);
+      } else if (s?.signalType === SYSTEM_CONTROL_SIGNALS.SYS_CTRL_PHYSICS_RESUME) {
+        clientReconciler.setReplayPlaybackMode(false);
+      }
+    }
+  };
+  clientReconciler.setClientInputEnabled(false);
+
+  // 2. Inject Replay frames via syncReplayFrameToAuthoritativeServer -> enterStateOnlyMode
+  const makeReplayFrame = (frameIdx: number, ballX: number, ballY: number, ballZ: number, car0X: number): Float32Array => {
+    const snap = new Float32Array(448);
+    snap[SIM_OFFSETS.TICK] = frameIdx;
+    snap[SIM_OFFSETS.NUM_CARS] = 2;
+    snap[SIM_OFFSETS.BALL + 0] = ballX;
+    snap[SIM_OFFSETS.BALL + 1] = ballY;
+    snap[SIM_OFFSETS.BALL + 2] = ballZ;
+    snap[SIM_OFFSETS.CARS + 0] = car0X;
+    snap[SIM_OFFSETS.CARS + 1] = -1200;
+    snap[SIM_OFFSETS.CARS + 2] = 17;
+    return snap;
+  };
+
+  const replayFrames = [
+    makeReplayFrame(10, 120.5, -450.25, 310.75, -200.5),
+    makeReplayFrame(11, 145.25, -420.5, 340.125, -185.25),
+    makeReplayFrame(12, 170.0, -390.75, 365.5, -170.0),
+  ];
+
+  // Test very first frame: SYS_CTRL_STATE_ONLY + stateSnapshot in the same packet
+  for (let i = 0; i < replayFrames.length; i++) {
+    const srcSnap = replayFrames[i];
+    syncReplayFrameToAuthoritativeServer(
+      {
+        physics: {
+          saveCompactState: () => srcSnap,
+          getHeaderView: () => ({ tickCount: srcSnap[0] }),
+        },
+        authoritativeServer: {
+          enterStateOnlyMode: (snap, tick) => host.systemControl.enterStateOnlyMode(snap, tick),
+        },
+      },
+      srcSnap[0]
+    );
+
+    const frameBytes = host.systemControl.stepStateOnlyFrameIfActive();
+    assert.ok(frameBytes && frameBytes.byteLength > 0, `Frame ${i} must emit state-only packet`);
+    const tailoredBytes = sessionManager.buildClientPacket('peer_replay_1', frameBytes);
+    assert.ok(tailoredBytes && tailoredBytes.byteLength > 0, `Frame ${i} must build tailored client packet`);
+
+    clientChannel.inboundQueue.push(tailoredBytes);
+    clientReconciler.reconcile(1000 + i * 8.333);
+
+    assert.equal(clientReconciler.replayPlaybackMode, true, 'Client must enter replayPlaybackMode on first SYS_CTRL_STATE_ONLY');
+    assert.ok(clientReconciler.drainedReplayPackets.length > 0, `Frame ${i} must be pushed to drainedReplayPackets`);
+
+    const pkt = clientReconciler.drainedReplayPackets[clientReconciler.drainedReplayPackets.length - 1];
+    assert.ok(pkt?.stateSnapshot, 'Packet must include stateSnapshot');
+    applyReplayFrameToEngine(clientPhysics, pkt.stateSnapshot, clientInterpolator);
+    clientReconciler.drainedReplayPackets.length = 0;
+
+    const ballErrX = Math.abs(clientInterpolator.currState[SIM_OFFSETS.BALL + 0] - srcSnap[SIM_OFFSETS.BALL + 0]);
+    const ballErrY = Math.abs(clientInterpolator.currState[SIM_OFFSETS.BALL + 1] - srcSnap[SIM_OFFSETS.BALL + 1]);
+    const ballErrZ = Math.abs(clientInterpolator.currState[SIM_OFFSETS.BALL + 2] - srcSnap[SIM_OFFSETS.BALL + 2]);
+    const car0ErrX = Math.abs(clientInterpolator.currState[SIM_OFFSETS.CARS + 0] - srcSnap[SIM_OFFSETS.CARS + 0]);
+    assert.ok(ballErrX < 1e-3 && ballErrY < 1e-3 && ballErrZ < 1e-3, `Replay CSR ball sync error must be < 1e-3 (got ${ballErrX}, ${ballErrY}, ${ballErrZ})`);
+    assert.ok(car0ErrX < 1e-3, `Replay CSR car sync error must be < 1e-3 (got ${car0ErrX})`);
+  }
+
+  // 3. Test Pause / Seek / Camera Sync over GlobalWorkspaceBroadcast + P2P DataChannelTransport
+  const roomId = 'room-replay-sync-1';
+  const hostController = new HostSessionController({
+    roomId,
+    playerName: 'Host',
+  });
+  const hostCh = hostController._createPeerChannel('peer_replay_1', 'ReplayViewer', 'spectator');
+  const clientTransport = new DataChannelTransport({
+    simulator: new NetworkSimulator({}),
+    signaling: new CrossTabSignaling({ roomId }),
+  });
+  const dcToClient = {
+    readyState: 'open',
+    send: (payload: unknown) => clientTransport.handleIncomingMessage(payload as never),
+    close: () => {},
+  } as unknown as RTCDataChannel;
+  const dcToHost = {
+    readyState: 'open',
+    send: (payload: unknown) => hostCh.transport.handleIncomingMessage(payload as never),
+    close: () => {},
+  } as unknown as RTCDataChannel;
+  hostCh.dataChannel = dcToClient;
+  hostCh.isOpen = true;
+  clientTransport.dataChannel = dcToHost;
+  clientTransport.isWebRTCOpen = true;
+
+  const clientReceivedWorkspaces: Array<Record<string, unknown>> = [];
+  const clientCamera = {
+    isFreeCam: false,
+    ballCam: true,
+    focusedCarIndex: 0,
+    freeCamPos: null as [number, number, number] | null,
+    freeCamLook: null as [number, number, number] | null,
+    setFreeCam(en: boolean) {
+      this.isFreeCam = en;
+    },
+    setFocusedCarIndex(idx: number) {
+      this.focusedCarIndex = idx;
+    },
+    setFreeCamPose(pos: [number, number, number], look: [number, number, number] = [0, 80, 0]) {
+      this.isFreeCam = true;
+      this.freeCamPos = pos;
+      this.freeCamLook = look;
+    },
+  };
+  clientTransport.onGlobalWorkspaceBroadcast = (msg) => {
+    clientReceivedWorkspaces.push(msg);
+    const payload = sanitizeGlobalWorkspaceBroadcast(msg);
+    useSpectateWorkspaceStore.getState().applyHostWorkspaceBroadcast(payload);
+    const camSync = payload.cameraSync;
+    if (camSync && camSync.followHostCamera) {
+      if (camSync.isFreeCam && camSync.freeCamPosition && camSync.freeCamLookAt) {
+        clientCamera.setFreeCamPose(camSync.freeCamPosition, camSync.freeCamLookAt);
+      } else {
+        clientCamera.setFreeCam(Boolean(camSync.isFreeCam));
+        clientCamera.setFocusedCarIndex(camSync.focusedCarIndex);
+        clientCamera.ballCam = camSync.ballCam;
+      }
+    }
+  };
+
+  const activitySwitches: Array<Record<string, unknown>> = [];
+  const hostCamera = {
+    isFreeCam: false,
+    ballCam: false,
+    focusedCarIndex: 2,
+    getFreeCamStateSnapshot: () => ({
+      eyeThreeJs: [100, 220, -450] as [number, number, number],
+      targetThreeJs: [0, 80, 0] as [number, number, number],
+    }),
+  };
+  const mockHostRuntime = {
+    camera: hostCamera,
+    multiplayerSession: {
+      isHosting: true,
+      broadcastRoomActivitySwitch: (opts: Record<string, unknown>) => {
+        activitySwitches.push(opts);
+      },
+      broadcastGlobalWorkspace: (payload: Record<string, unknown>) =>
+        hostController.broadcastGlobalWorkspace(payload),
+    },
+  };
+
+  syncReplayWorkspaceToOnlineRoom(mockHostRuntime, {
+    active: true,
+    playbackPaused: true,
+    pausedAtTick: 42,
+    switchActivity: true,
+    replayId: 'test-match.RCReplay',
+  });
+
+  assert.equal(activitySwitches.length, 1);
+  assert.equal(activitySwitches[0].activityId, 'replay');
+  assert.equal(clientReceivedWorkspaces.length, 1);
+  const ws = useSpectateWorkspaceStore.getState();
+  assert.equal(ws.playbackPaused, true);
+  assert.equal(ws.pausedAtTick, 42);
+  assert.equal(ws.followHostCamera, true);
+  assert.equal(clientCamera.isFreeCam, false);
+  assert.equal(clientCamera.focusedCarIndex, 2);
+  assert.equal(clientCamera.ballCam, false);
+
+  // 4. Test FreeCam pose sync & ReplayOnlineHeartbeatTracker immediate sync on camera change
+  const tracker = new ReplayOnlineHeartbeatTracker();
+  const sent1 = tracker.maybeSync(
+    mockHostRuntime,
+    { playbackPaused: true, pausedAtTick: 42, pauseHeartbeatHz: 2 },
+    1000
+  );
+  assert.equal(sent1, true, 'First heartbeat must emit');
+  const sentThrottled = tracker.maybeSync(
+    mockHostRuntime,
+    { playbackPaused: true, pausedAtTick: 42, pauseHeartbeatHz: 2 },
+    1100
+  );
+  assert.equal(sentThrottled, false, 'Heartbeat within 500ms without camera change must throttle');
+
+  hostCamera.isFreeCam = true;
+  const sentOnCamChange = tracker.maybeSync(
+    mockHostRuntime,
+    { playbackPaused: true, pausedAtTick: 42, pauseHeartbeatHz: 2 },
+    1120
+  );
+  assert.equal(sentOnCamChange, true, 'Camera mode change must bypass throttle and sync immediately');
+  assert.equal(clientCamera.isFreeCam, true);
+  assert.deepEqual(clientCamera.freeCamPos, [100, 220, -450]);
+  assert.deepEqual(clientCamera.freeCamLook, [0, 80, 0]);
+
+  clientTransport.signaling.destroy();
+  hostController.cleanup();
+}
+
 async function main(): Promise<void> {
   console.log('=== RocketCompanion Multiplayer Suite Test Matrix ===');
   await runSection('1. Tunnel Transport & Kick/Leave Bidirectional Signaling', testTunnelAndKickLeaveSignaling);
@@ -1254,6 +1568,7 @@ async function main(): Promise<void> {
   await runSection('10. ReliableTunnelFramer Multi-Chunk Out-of-Order & Loss Recovery', testReliableTunnelFramerOutOfOrderAndMultiDrop);
   await runSection('11. Pure CSR Sync All, Dual-End Input Gating & Workspace Broadcast', testPureCsrSyncAllAndDualInputGating);
   await runSection('12. Telestrator (0x05) Full-Link Sync, Dual-Store Linkage & Permission Gating', testTelestratorFullLinkSyncAndPermissions);
+  await runSection('13. Replay Watch Together (Pure CSR Frame Injection, Pause/Seek & Camera Sync)', testReplayWatchTogetherAndCameraSync);
   console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
 }
 

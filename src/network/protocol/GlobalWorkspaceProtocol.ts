@@ -18,6 +18,15 @@ export interface FloatingWindowSyncEntry {
   isMinimized: boolean;
 }
 
+export interface WorkspaceCameraSyncPayload {
+  followHostCamera: boolean;
+  isFreeCam: boolean;
+  ballCam: boolean;
+  focusedCarIndex: number;
+  freeCamPosition?: [number, number, number];
+  freeCamLookAt?: [number, number, number];
+}
+
 export interface GlobalWorkspaceBroadcastPayload {
   epoch: number;
   tick: number;
@@ -30,6 +39,7 @@ export interface GlobalWorkspaceBroadcastPayload {
   clientInputEnabled: boolean;
   followHostWorkspace: boolean;
   arenaPreset?: 'standard' | 'throwback';
+  cameraSync?: WorkspaceCameraSyncPayload;
 }
 
 export function clampPauseHeartbeatHz(hz: number): number {
@@ -39,6 +49,33 @@ export function clampPauseHeartbeatHz(hz: number): number {
 
 export function getPauseHeartbeatIntervalMs(hz: number): number {
   return Math.round(1000 / clampPauseHeartbeatHz(hz));
+}
+
+function sanitizeVec3Tuple(val: unknown): [number, number, number] | undefined {
+  if (!Array.isArray(val) || val.length < 3) return undefined;
+  const x = Number(val[0]);
+  const y = Number(val[1]);
+  const z = Number(val[2]);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return undefined;
+  return [x, y, z];
+}
+
+function sanitizeCameraSync(raw: unknown): WorkspaceCameraSyncPayload | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const src = raw as Record<string, unknown>;
+  const focusedRaw = Number(src.focusedCarIndex);
+  const focusedCarIndex =
+    Number.isFinite(focusedRaw) && focusedRaw >= 0 ? Math.round(focusedRaw) : 0;
+  const freeCamPosition = sanitizeVec3Tuple(src.freeCamPosition);
+  const freeCamLookAt = sanitizeVec3Tuple(src.freeCamLookAt);
+  return {
+    followHostCamera: typeof src.followHostCamera === 'boolean' ? src.followHostCamera : true,
+    isFreeCam: Boolean(src.isFreeCam),
+    ballCam: typeof src.ballCam === 'boolean' ? src.ballCam : true,
+    focusedCarIndex,
+    ...(freeCamPosition ? { freeCamPosition } : {}),
+    ...(freeCamLookAt ? { freeCamLookAt } : {}),
+  };
 }
 
 export function sanitizeGlobalWorkspaceBroadcast(
@@ -66,6 +103,7 @@ export function sanitizeGlobalWorkspaceBroadcast(
       : src.arenaPreset === 'standard'
         ? 'standard'
         : undefined;
+  const cameraSync = sanitizeCameraSync(src.cameraSync);
 
   return {
     epoch: typeof src.epoch === 'number' && Number.isFinite(src.epoch) ? src.epoch : 0,
@@ -86,5 +124,6 @@ export function sanitizeGlobalWorkspaceBroadcast(
       typeof src.clientInputEnabled === 'boolean' ? src.clientInputEnabled : true,
     followHostWorkspace: Boolean(src.followHostWorkspace),
     ...(arenaPreset !== undefined ? { arenaPreset } : {}),
+    ...(cameraSync !== undefined ? { cameraSync } : {}),
   };
 }

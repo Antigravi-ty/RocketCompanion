@@ -70,34 +70,20 @@ export class StandaloneReplayViewerController {
   }
 
   public attach(): void {
-    const uploadReplayFileHandler = (file: File): Promise<void> => this.handleUploadFile(file);
-    const loadRetainedMatchReplayHandler = (): void => this.handleLoadRetainedMatchReplay();
-    const startPlayingHandler = (): void => this.startPlaying();
-    const pausePlayingHandler = (): void => this.pausePlaying();
-    const seekFrameHandler = (frameIndex: number): void => this.seekFrame(frameIndex);
-    const pushBackwardStartHandler = (): void => this.beginScrub('rewinding');
-    const pushBackwardStopHandler = (): void => this.pauseScrub();
-    const pushForwardStartHandler = (): void => this.beginScrub('forwarding');
-    const pushForwardStopHandler = (): void => this.pauseScrub();
-    const resumeFromHereHandler = (): void => this.resumeFromCursor();
-    const returnToReplayHandler = (): void => this.returnToReplay();
-    const selectPovSlotHandler = (slotKey: number): void => this.selectPovSlot(slotKey);
-    const clearReplayHandler = (): void => this.clearReplay();
-
     useReplayViewerStore.getState().setRuntimeHandlers({
-      onUploadReplayFile: uploadReplayFileHandler,
-      onLoadRetainedMatchReplay: loadRetainedMatchReplayHandler,
-      onStartPlaying: startPlayingHandler,
-      onPausePlaying: pausePlayingHandler,
-      onSeekFrame: seekFrameHandler,
-      onPushBackwardStart: pushBackwardStartHandler,
-      onPushBackwardStop: pushBackwardStopHandler,
-      onPushForwardStart: pushForwardStartHandler,
-      onPushForwardStop: pushForwardStopHandler,
-      onResumeFromHere: resumeFromHereHandler,
-      onReturnToReplay: returnToReplayHandler,
-      onSelectPovSlot: selectPovSlotHandler,
-      onClearReplay: clearReplayHandler,
+      onUploadReplayFile: (file: File) => this.handleUploadFile(file),
+      onLoadRetainedMatchReplay: () => this.handleLoadRetainedMatchReplay(),
+      onStartPlaying: () => this.startPlaying(),
+      onPausePlaying: () => this.pausePlaying(),
+      onSeekFrame: (frameIndex: number) => this.seekFrame(frameIndex),
+      onPushBackwardStart: () => this.beginScrub('rewinding'),
+      onPushBackwardStop: () => this.pauseScrub(),
+      onPushForwardStart: () => this.beginScrub('forwarding'),
+      onPushForwardStop: () => this.pauseScrub(),
+      onResumeFromHere: () => this.resumeFromCursor(),
+      onReturnToReplay: () => this.returnToReplay(),
+      onSelectPovSlot: (slotKey: number) => this.selectPovSlot(slotKey),
+      onClearReplay: () => this.clearReplay(),
     });
     this._bindHotkeys();
     this._unsubscribeFloating?.();
@@ -179,9 +165,21 @@ export class StandaloneReplayViewerController {
     if (!this.hasLoadedReplay) return;
     const r = this.runtime;
     const freeplayMode = this.mode || r?.modeManager?.modes?.get?.('freeplay') || null;
-    const wasIntervening = useReplayViewerStore.getState().viewerState === 'intervening';
-    const result = this.rosterSubController.selectPovSlot(slotKey, r, freeplayMode, wasIntervening);
-    if (result) useReplayViewerStore.getState().updateLiveTelemetry(result);
+    const st = useReplayViewerStore.getState();
+    const result = this.rosterSubController.selectPovSlot(
+      slotKey,
+      r,
+      freeplayMode,
+      st.viewerState === 'intervening'
+    );
+    if (result) {
+      useReplayViewerStore.getState().updateLiveTelemetry(result);
+      this.causalSyncController.syncOnlineTransition(
+        r,
+        st.viewerState === 'paused',
+        Math.round(this.takeoverSubController.cursor || 0)
+      );
+    }
   }
 
   private _bindTimelines(
@@ -217,7 +215,12 @@ export class StandaloneReplayViewerController {
     );
   }
 
-  private _emitStateTransition(frameIdx: number): void {
+  private _emitStateTransition(
+    frameIdx: number,
+    paused = false,
+    switchActivity = false,
+    replayId?: string
+  ): void {
     const physics = this.runtime?.physics ?? null;
     emitSystemControlTransition(
       this.runtime,
@@ -225,6 +228,13 @@ export class StandaloneReplayViewerController {
       frameIdx,
       0,
       physics?.saveCompactState?.()
+    );
+    this.causalSyncController.syncOnlineTransition(
+      this.runtime,
+      paused,
+      frameIdx,
+      switchActivity,
+      replayId
     );
   }
 
@@ -257,7 +267,7 @@ export class StandaloneReplayViewerController {
     this.takeoverSubController.reset(0, Math.max(0, this.frames.length - 1));
     this.scoreboardSynchronizer.lastDispatchedCursorFrame = -1;
     this._applyFrameAtCursor(false, false);
-    this._emitStateTransition(0);
+    this._emitStateTransition(0, true, true, loadedFileName);
     this._silenceContinuousAudio();
     const camera = this.runtime?.camera ?? null;
     if (resetCameraView) camera?.resetView?.();
@@ -284,7 +294,7 @@ export class StandaloneReplayViewerController {
     );
     this.scoreboardSynchronizer.lastDispatchedCursorFrame = restoreIdx;
     this._applyFrameAtCursor(false, false);
-    this._emitStateTransition(restoreIdx);
+    this._emitStateTransition(restoreIdx, true, true);
     this._silenceContinuousAudio();
     const camera = this.runtime?.camera ?? null;
     camera?.resetView?.();
@@ -388,7 +398,7 @@ export class StandaloneReplayViewerController {
       this.frames.length
     );
     this._applyFrameAtCursor(false, false);
-    this._emitStateTransition(clamped);
+    this._emitStateTransition(clamped, true);
     this._silenceContinuousAudio();
     useReplayViewerStore.getState().updateLiveTelemetry({
       viewerState: 'paused',
@@ -403,9 +413,9 @@ export class StandaloneReplayViewerController {
     this._prepareRuntimeForReplayViewer();
     const clamped = this.takeoverSubController.seekToFrame(frameIndex, this.frames.length);
     this._applyFrameAtCursor(false, false);
-    this._emitStateTransition(clamped);
     const curState = useReplayViewerStore.getState().viewerState;
     const nextState = curState === 'playing' ? 'playing' : 'paused';
+    this._emitStateTransition(clamped, nextState === 'paused');
     if (nextState === 'paused') this._silenceContinuousAudio();
     useReplayViewerStore.getState().updateLiveTelemetry({
       viewerState: nextState,
@@ -464,6 +474,7 @@ export class StandaloneReplayViewerController {
     this._bindTimelines(null, null);
     this.scoreboardSynchronizer.reset();
     this.causalSyncController.resetArenaAfterClear(this.runtime);
+    this.causalSyncController.clearOnlineSession(this.runtime);
     useReplayViewerStore.getState().updateLiveTelemetry({
       viewerState: 'idle',
       loadedFileName: null,

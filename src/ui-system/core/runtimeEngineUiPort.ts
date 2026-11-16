@@ -73,6 +73,8 @@ import {
   resetSpectateWorkspaceOnLeave,
   syncClientInputEnabledUi,
   syncArenaPresetUi,
+  captureCameraSyncFromPort,
+  applyCameraSyncToPort,
 } from './runtimeSpectateWorkspaceBridge.ts';
 
 let initialized = false;
@@ -142,6 +144,8 @@ export function ensureRuntimeEngineUiPortBound(): void {
     resetSpectateWorkspaceOnLeave,
     syncClientInputEnabledUi,
     syncArenaPresetUi,
+    captureCameraSyncFromPort,
+    applyCameraSyncToPort,
   });
 }
 

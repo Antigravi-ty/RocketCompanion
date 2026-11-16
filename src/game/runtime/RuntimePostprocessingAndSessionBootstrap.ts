@@ -9,6 +9,7 @@ import {
   attachVoiceToPeerChannel,
   detachVoiceFromPeer,
   applyIncomingWorkspaceBroadcast,
+  applyCameraSyncToPort,
   resetSpectateWorkspaceOnLeave,
   useTelestratorStore,
 } from '../runtimeUiPort.ts';
@@ -181,9 +182,10 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
   isTouchHeadless: boolean;
   arena: ArenaWorld | null;
   physics: RocketSimPhysicsEngine;
+  camera?: CameraManager | null;
   callbacks: SceneGraphRuntimeCallbacks;
 }): VisualizersAndSessionBundle {
-  const { isTouchHeadless, arena, physics, callbacks } = params;
+  const { isTouchHeadless, arena, physics, camera, callbacks } = params;
   const { diagnosticsProbe, sessionCoordinator, rosterSyncCoordinator, loadoutCoordinator } =
     callbacks;
   let ballTrajectoryPredictor: BallTrajectoryPredictor | null = null;
@@ -288,6 +290,9 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
         };
         ch.onGlobalWorkspaceBroadcast = (msg) => {
           const payload = applyIncomingWorkspaceBroadcast(msg);
+          if (payload && payload.cameraSync && camera) {
+            applyCameraSyncToPort(camera, payload.cameraSync);
+          }
           const reconciler = (
             sessionCoordinator as {
               networkReconciler?: { setClientInputEnabled?: (enabled: boolean) => void } | null;

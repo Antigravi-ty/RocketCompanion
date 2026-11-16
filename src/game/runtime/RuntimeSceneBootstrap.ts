@@ -252,6 +252,7 @@ export async function createCoreSceneGraph(
       isTouchHeadless,
       arena,
       physics,
+      camera,
       callbacks,
     });
 

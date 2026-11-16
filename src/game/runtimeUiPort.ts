@@ -114,6 +114,8 @@ const _handlers: Record<string, PortHandlerFn | null> = {
   resetSpectateWorkspaceOnLeave: null,
   syncClientInputEnabledUi: null,
   syncArenaPresetUi: null,
+  captureCameraSyncFromPort: null,
+  applyCameraSyncToPort: null,
 };
 
 export function bindRuntimeUiPort(port: Record<string, unknown> = {}): void {
@@ -356,4 +358,17 @@ export function syncClientInputEnabledUi(enabled: boolean): void {
 }
 export function syncArenaPresetUi(preset: 'standard' | 'throwback'): void {
   _handlers.syncArenaPresetUi?.(preset);
+}
+export function captureCameraSyncFromPort(
+  camera: unknown,
+  followHostCamera = true
+): Record<string, unknown> | undefined {
+  return (
+    (_handlers.captureCameraSyncFromPort?.(camera, followHostCamera) as
+      | Record<string, unknown>
+      | undefined) ?? undefined
+  );
+}
+export function applyCameraSyncToPort(camera: unknown, cameraSync: unknown): void {
+  _handlers.applyCameraSyncToPort?.(camera, cameraSync);
 }

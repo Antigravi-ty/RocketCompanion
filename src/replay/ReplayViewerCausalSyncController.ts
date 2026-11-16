@@ -18,6 +18,11 @@ import {
   emitSystemControlTransition,
   type ReplayTakeoverSubController,
 } from './ReplayTakeoverSubController.ts';
+import {
+  ReplayOnlineHeartbeatTracker,
+  syncReplayFrameToAuthoritativeServer,
+  syncReplayWorkspaceToOnlineRoom,
+} from './replayOnlineSyncHelper.ts';
 import { SYSTEM_CONTROL_SIGNALS } from '../physics/RocketSimConstants.ts';
 import type {
   ReplayScoreboardRuntimePort,
@@ -60,9 +65,38 @@ export interface ReplayViewerCausalSyncSessionPort {
 
 export class ReplayViewerCausalSyncController {
   public readonly causalHybridEngine = new ReplayCausalHybridEngine();
+  public readonly onlineHeartbeat = new ReplayOnlineHeartbeatTracker();
 
   public clear(): void {
     this.causalHybridEngine.clear();
+    this.onlineHeartbeat.reset();
+  }
+
+  public syncOnlineTransition(
+    runtime: ReplayScoreboardRuntimePort | null,
+    paused: boolean,
+    frameIdx: number,
+    switchActivity = false,
+    replayId?: string
+  ): void {
+    syncReplayWorkspaceToOnlineRoom(runtime, {
+      active: true,
+      playbackPaused: paused,
+      pausedAtTick: frameIdx,
+      switchActivity,
+      replayId,
+    });
+  }
+
+  public clearOnlineSession(runtime: ReplayScoreboardRuntimePort | null): void {
+    if (!runtime?.multiplayerSession?.isHosting) return;
+    runtime.authoritativeServer?.resumePhysicsFromState?.(null, 0);
+    syncReplayWorkspaceToOnlineRoom(runtime, {
+      active: false,
+      playbackPaused: false,
+      pausedAtTick: 0,
+      switchActivity: true,
+    });
   }
 
   public buildCausalDataSource(
@@ -200,11 +234,11 @@ export class ReplayViewerCausalSyncController {
     });
   }
 
-  private _syncAuthoritativeServerState(r: ReplayScoreboardRuntimePort | null): void {
-    if (r?.authoritativeServer?.sim?.restoreState) {
-      const snap = r?.physics?.saveCompactState?.();
-      if (snap) void r.authoritativeServer.sim.restoreState(snap);
-    }
+  private _syncAuthoritativeServerState(
+    r: ReplayScoreboardRuntimePort | null,
+    cursorTick?: number
+  ): void {
+    syncReplayFrameToAuthoritativeServer(r, cursorTick);
   }
 
   public stepBeforePhysicsTick(session: ReplayViewerCausalSyncSessionPort): boolean {
@@ -232,7 +266,13 @@ export class ReplayViewerCausalSyncController {
       return true;
     }
 
-    if (state === 'paused') return false;
+    if (state === 'paused') {
+      this.onlineHeartbeat.maybeSync(r, {
+        playbackPaused: true,
+        pausedAtTick: Math.round(takeover.cursor || 0),
+      });
+      return false;
+    }
 
     if (state === 'playing') {
       const outcome = takeover.stepPlaying({
@@ -241,7 +281,11 @@ export class ReplayViewerCausalSyncController {
       });
       const isFinished = outcome.finishedAtFrame !== null;
       session._applyFrameAtCursor(!isFinished, true, { preserveEngineTick: true });
-      this._syncAuthoritativeServerState(r);
+      this._syncAuthoritativeServerState(r, outcome.appliedCursor);
+      this.onlineHeartbeat.maybeSync(r, {
+        playbackPaused: isFinished,
+        pausedAtTick: outcome.appliedCursor,
+      });
       if (isFinished) {
         session._silenceContinuousAudio();
         store.updateLiveTelemetry({
@@ -267,7 +311,11 @@ export class ReplayViewerCausalSyncController {
       });
       if (outcome.appliedCursor !== null) {
         session._applyFrameAtCursor(false, outcome.isForwarding, { preserveEngineTick: true });
-        this._syncAuthoritativeServerState(r);
+        this._syncAuthoritativeServerState(r, outcome.appliedCursor);
+        this.onlineHeartbeat.maybeSync(r, {
+          playbackPaused: false,
+          pausedAtTick: outcome.appliedCursor,
+        });
       }
       if (outcome.telemetryCursor !== null) {
         store.updateLiveTelemetry({
@@ -286,7 +334,7 @@ export class ReplayViewerCausalSyncController {
         audio: r?.options?.gameAudio || gameAudio,
       });
       session._applyFrameAtCursor(true, true, { preserveEngineTick: true });
-      this._syncAuthoritativeServerState(r);
+      this._syncAuthoritativeServerState(r, outcome.appliedCursor);
 
       if (outcome.handoffTargetIdx !== null) {
         this.executeHandoffToLiveFreeplay(session, outcome.handoffTargetIdx);
