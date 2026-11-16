@@ -109,6 +109,8 @@ export function createRcViteConfig(
     optimizeDeps: {
       entries: optimizeEntries,
       include: optimizeInclude,
+      noDiscovery: role === 'tuner',
+      holdUntilCrawlEnd: role === 'tuner' ? false : undefined,
     },
     server: {
       host: host || true,
@@ -124,9 +126,22 @@ export function createRcViteConfig(
                 './src/ui-system/index.tsx',
               ],
             }
-          : undefined,
+          : role === 'tuner'
+            ? {
+                clientFiles: ['./src/ui-tuner/main.tsx', './src/ui-tuner/UITunerApp.tsx'],
+              }
+            : undefined,
       watch: {
-        ignored: ['**/src-tauri/**'],
+        ignored: [
+          '**/src-tauri/**',
+          '**/.git/**',
+          '**/.cache/**',
+          '**/dist/**',
+          '**/rc-vite-cache/**',
+          '**/.DS_Store',
+          '**/._*',
+          '**/.AppleDouble',
+        ],
       },
       headers: {
         'Cross-Origin-Resource-Policy': 'cross-origin',
