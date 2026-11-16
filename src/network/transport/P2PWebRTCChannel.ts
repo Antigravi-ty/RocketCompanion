@@ -80,7 +80,19 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   onPeerKick: ChannelHook<[Record<string, unknown>]> = null;
   onPeerLeave: ChannelHook<[Record<string, unknown>]> = null;
   onVoiceSignal: ChannelHook<[Record<string, unknown>]> = null;
-  onGlobalWorkspaceBroadcast: ChannelHook<[Record<string, unknown>]> = null;
+  private _onGlobalWorkspaceBroadcast: ChannelHook<[Record<string, unknown>]> = null;
+  private pendingGlobalWorkspaceBroadcast: Record<string, unknown> | null = null;
+  get onGlobalWorkspaceBroadcast(): ChannelHook<[Record<string, unknown>]> {
+    return this._onGlobalWorkspaceBroadcast;
+  }
+  set onGlobalWorkspaceBroadcast(fn: ChannelHook<[Record<string, unknown>]>) {
+    this._onGlobalWorkspaceBroadcast = fn;
+    if (fn && this.pendingGlobalWorkspaceBroadcast) {
+      const queued = this.pendingGlobalWorkspaceBroadcast;
+      this.pendingGlobalWorkspaceBroadcast = null;
+      fn(queued);
+    }
+  }
   onTelestratorBytes: ChannelHook<[Uint8Array]> = null;
 
   readonly attachTunnelTransport: DataChannelTransport['attachTunnelTransport'];
@@ -226,7 +238,13 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
     this.transport.onPeerKick = (msg) => this.onPeerKick?.(msg);
     this.transport.onPeerLeave = (msg) => this.onPeerLeave?.(msg);
     this.transport.onVoiceSignal = (msg) => this.onVoiceSignal?.(msg);
-    this.transport.onGlobalWorkspaceBroadcast = (msg) => this.onGlobalWorkspaceBroadcast?.(msg);
+    this.transport.onGlobalWorkspaceBroadcast = (msg) => {
+      if (this._onGlobalWorkspaceBroadcast) {
+        this._onGlobalWorkspaceBroadcast(msg);
+      } else {
+        this.pendingGlobalWorkspaceBroadcast = msg;
+      }
+    };
     this.transport.onTelestratorBytes = (bytes) => this.onTelestratorBytes?.(bytes);
     this.send = this.transport.send.bind(this.transport);
     this.sendClientInput = this.transport.sendClientInput.bind(this.transport);

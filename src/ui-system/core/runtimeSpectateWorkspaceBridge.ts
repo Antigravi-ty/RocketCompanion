@@ -56,12 +56,14 @@ export function applyWorkspaceStateLocally(
     } else {
       const preset = PRESET_WINDOWS.find((p) => p.id === entry.id);
       floatingStore.spawnWindow({
+        ...(preset ?? {}),
         id: entry.id,
         title: preset?.title ?? entry.id,
         category: preset?.category,
         position: { x: 48 + desiredOpenIds.size * 24, y: 48 + desiredOpenIds.size * 24 },
         width: preset?.width ?? 340,
         height: preset?.height ?? 260,
+        hideFooter: preset?.hideFooter ?? false,
         startMinimized: entry.isMinimized,
       });
     }
