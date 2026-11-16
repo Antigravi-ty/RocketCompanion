@@ -13,6 +13,7 @@ import type { ArenaVehicleRegistry } from './ArenaVehicleRegistry.ts';
 import type { BoostPadSystem } from '../BoostPadSystem.ts';
 import type { BoostPadTemplates } from './BoostPadTemplateLoader.ts';
 import type { VehicleBoostEmitter } from '../vehicle/boost/vehicleBoostEmitter.ts';
+import { isFastestModeEnabled } from '../../utils/fastestMode.ts';
 
 export type { BoostPadTemplates };
 
@@ -46,6 +47,9 @@ export async function loadCarAndPadAssets(
   boostPadSystem: BoostPadSystem,
   activePreset = 'fennec'
 ): Promise<BoostPadTemplates | null> {
+  if (isFastestModeEnabled()) {
+    return null;
+  }
   const loaders = vehicleRegistry.carLoaders;
   const activeId = String(activePreset || 'fennec').toLowerCase();
 
@@ -166,6 +170,10 @@ export async function prepareAllArenaWarmupAssets(
   vehicleRegistry: ArenaVehicleRegistry,
   onProgress: ((loaded: number, total: number, label: string) => void) | null = null
 ): Promise<void> {
+  if (isFastestModeEnabled()) {
+    onProgress?.(1, 1, 'Fastest mode warmup skipped');
+    return;
+  }
   let completed = 0;
   const total = 4;
   const report = (label: string) => {

@@ -4,6 +4,7 @@
  */
 
 import { safeStorage, createLocalStorageStore, stringOrDefault, STORAGE_KEYS } from './storageHelpers';
+import { isFastestModeEnabled } from '../../utils/fastestMode.ts';
 
 export const DEFAULT_TRAINING_SETTINGS = Object.freeze({
   disableGoalReset: false,
@@ -255,6 +256,16 @@ export interface GraphicsConfigState {
 }
 
 export function getInitialGraphics(): GraphicsConfigState {
+  if (isFastestModeEnabled()) {
+    return {
+      renderScale: 10,
+      limitFps: true,
+      maxFps: 90,
+      showStadium: true,
+      pauseRenderingOnMenu: true,
+      menuPowerSave: '30',
+    };
+  }
   const raw = safeStorage.get(STORAGE_KEYS.GRAPHICS_SETTINGS);
   if (raw) {
     try {

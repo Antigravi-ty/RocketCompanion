@@ -88,8 +88,8 @@ export interface SceneGraphRuntimeCallbacks {
   onUpdateViewport(
     renderer: THREE.WebGLRenderer,
     camera: CameraManager,
-    composer: EffectComposer,
-    boostBloom: BoostBloom,
+    composer: EffectComposer | null,
+    boostBloom: BoostBloom | null,
     speedLinesPass: SupersonicSpeedLinesPass | null,
     activeGraphicsSettings: Record<string, unknown>
   ): void;

@@ -7,6 +7,7 @@ import { setMaterialsConfig, getInitialMaterials, onMaterialsConfigChange } from
 import { getInitialGraphics } from '../../config/trainingDefaults';
 import { getInitialTelemetry } from '../../config/uiConfig';
 import { type AppState } from '../appStoreTypes';
+import { isFastestModeEnabled } from '../../../utils/fastestMode.ts';
 
 export type CameraAndGraphicsSlice = Pick<
   AppState,
@@ -72,7 +73,9 @@ export const createCameraAndGraphicsSlice: StateCreator<
 
   updateGraphics: (patch) => {
     const nextGraphics = { ...get().graphics, ...patch };
-    safeStorage.set(STORAGE_KEYS.GRAPHICS_SETTINGS, JSON.stringify(nextGraphics));
+    if (!isFastestModeEnabled()) {
+      safeStorage.set(STORAGE_KEYS.GRAPHICS_SETTINGS, JSON.stringify(nextGraphics));
+    }
     set((s) => ({
       graphics: nextGraphics,
       renderScale: patch.renderScale !== undefined ? patch.renderScale : s.renderScale,

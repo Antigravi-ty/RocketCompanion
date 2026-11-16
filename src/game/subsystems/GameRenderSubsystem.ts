@@ -54,7 +54,7 @@ export class GameRenderSubsystem {
     } = context;
 
     const activeCamera = r.arena?.camera;
-    if (!r.renderer || !r.composer || !activeCamera) return;
+    if (!r.renderer || !activeCamera) return;
 
     r.arena?.prepareBallSpeedTrail?.(activeCamera);
 
@@ -104,6 +104,14 @@ export class GameRenderSubsystem {
     context.shouldSkipGpuRender = shouldSkipGpuRender;
 
     if (shouldSkipGpuRender) {
+      return;
+    }
+
+    if (!r.composer) {
+      if (r.profiler) r.profiler.mark();
+      if (r.arena) {
+        r.renderer.render(r.arena.scene, activeCamera);
+      }
       return;
     }
 

@@ -322,8 +322,12 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
 
   ignite(): void {
     this.boostBloom?.clear?.();
-    if (this.renderer?.shadowMap) this.renderer.shadowMap.needsUpdate = true;
-    this.composer?.render?.(0);
+    if (this.composer) {
+      if (this.renderer?.shadowMap) this.renderer.shadowMap.needsUpdate = true;
+      this.composer.render(0);
+    } else if (this.renderer && this.arena?.camera) {
+      this.renderer.render(this.arena.scene, this.arena.camera);
+    }
     this.lastTimestamp = performance.now();
     this.interpolator?.sync(this.lastTimestamp);
     this.start();

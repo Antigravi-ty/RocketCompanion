@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { VehicleBoostEmitter } from '../vehicle/boost/vehicleBoostEmitter.ts';
 import type { DemolitionEffect } from '../DemolitionEffect.ts';
 import { normalizeVisualId } from '../../ui-core/config/vehicleConstants.ts';
+import { isFastestModeEnabled } from '../../utils/fastestMode.ts';
 import {
   getVehicleDescriptor,
   hasVehicleDescriptor,
@@ -128,6 +129,7 @@ export class ArenaVehicleRegistry {
   }
 
   _ensureAsyncCustomAsset(visual: string, _slot: number): void {
+    if (isFastestModeEnabled()) return;
     const id = normalizeVisualId(visual);
     const desc = hasVehicleDescriptor(id) ? getVehicleDescriptor(id) : null;
     if (

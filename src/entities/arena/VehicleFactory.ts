@@ -18,8 +18,10 @@ import {
   DEFAULT_TEAM_COLORS,
   OCTANE_BOOST_OUTLETS,
   OCTANE_HITBOX_PRESET,
+  type HitboxPresetDimensions,
 } from './ArenaConstants.ts';
 import { createCarHitboxWireframe } from './ArenaMath.ts';
+import { isFastestModeEnabled } from '../../utils/fastestMode.ts';
 
 export function createDefaultVehicleLoaders() {
   return {
@@ -52,6 +54,146 @@ export interface VehicleLoaderCallbacks {
   [key: string]: unknown;
 }
 
+let sharedFastestWheelMaterial: THREE.LineBasicMaterial | null = null;
+
+function createFastestCarWireframe(
+  preset: HitboxPresetDimensions = OCTANE_HITBOX_PRESET
+): THREE.LineSegments {
+  const hx = preset.length * 0.5;
+  const hy = preset.height * 0.5;
+  const hz = preset.width * 0.5;
+  const f = preset.forward;
+  const u = preset.up;
+
+  const x0 = f - hx;
+  const x1 = f + hx;
+  const y0 = u - hy;
+  const y1 = u + hy;
+  const z0 = -hz;
+  const z1 = hz;
+
+  // 12 edges (24 vertices): 4 front (green), 4 rear (red), 4 longitudinal (red -> green)
+  const positions = new Float32Array([
+    // Front face (x = x1, bright green)
+    x1,
+    y0,
+    z0,
+    x1,
+    y1,
+    z0,
+    x1,
+    y1,
+    z0,
+    x1,
+    y1,
+    z1,
+    x1,
+    y1,
+    z1,
+    x1,
+    y0,
+    z1,
+    x1,
+    y0,
+    z1,
+    x1,
+    y0,
+    z0,
+    // Rear face (x = x0, bright red)
+    x0,
+    y0,
+    z0,
+    x0,
+    y1,
+    z0,
+    x0,
+    y1,
+    z0,
+    x0,
+    y1,
+    z1,
+    x0,
+    y1,
+    z1,
+    x0,
+    y0,
+    z1,
+    x0,
+    y0,
+    z1,
+    x0,
+    y0,
+    z0,
+    // Longitudinal edges (rear -> front)
+    x0,
+    y0,
+    z0,
+    x1,
+    y0,
+    z0,
+    x0,
+    y1,
+    z0,
+    x1,
+    y1,
+    z0,
+    x0,
+    y1,
+    z1,
+    x1,
+    y1,
+    z1,
+    x0,
+    y0,
+    z1,
+    x1,
+    y0,
+    z1,
+  ]);
+
+  const colors = new Float32Array([
+    // 4 front edges: RGB(0, 1, 0)
+    0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0,
+    // 4 rear edges: RGB(1, 0, 0)
+    1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0,
+    // 4 longitudinal edges: rear (1, 0, 0) -> front (0, 1, 0)
+    1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0,
+  ]);
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const mat = new THREE.LineBasicMaterial({ vertexColors: true });
+  const lines = new THREE.LineSegments(geom, mat);
+  lines.name = 'car-body-mesh';
+  return lines;
+}
+
+function createFastestWheelWireframe(radius: number): THREE.LineSegments {
+  const segments = 12;
+  const positions: number[] = [];
+  for (let i = 0; i < segments; i++) {
+    const a0 = (i / segments) * Math.PI * 2;
+    const a1 = ((i + 1) / segments) * Math.PI * 2;
+    positions.push(
+      Math.cos(a0) * radius,
+      Math.sin(a0) * radius,
+      0,
+      Math.cos(a1) * radius,
+      Math.sin(a1) * radius,
+      0
+    );
+  }
+  // Crossed spokes to show wheel spin
+  positions.push(-radius, 0, 0, radius, 0, 0, 0, -radius, 0, 0, radius, 0);
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  if (!sharedFastestWheelMaterial) {
+    sharedFastestWheelMaterial = new THREE.LineBasicMaterial({ color: 0x94a3b8 });
+  }
+  return new THREE.LineSegments(geom, sharedFastestWheelMaterial);
+}
+
 export function buildVehicleModel(
   rawVisual: string,
   teamColor: number,
@@ -63,6 +205,22 @@ export function buildVehicleModel(
   const visual = normalizeVisualId(rawVisual);
   const isHitbox = visual.startsWith('hitbox-');
   const isCustomGlb = hasVehicleDescriptor(visual);
+
+  if (isFastestModeEnabled()) {
+    const descriptor = isCustomGlb ? getVehicleDescriptor(visual) : null;
+    if (descriptor) {
+      recomputeDescriptorBoostOutlets(descriptor);
+    }
+    const hitboxKey = isHitbox ? visual : descriptor?.hitboxPreset || 'hitbox-octane';
+    const preset = HITBOX_PRESETS[hitboxKey as keyof typeof HITBOX_PRESETS] || OCTANE_HITBOX_PRESET;
+    const carModel = createFastestCarWireframe(preset);
+    const carHitbox = createCarHitboxWireframe(preset);
+    carHitbox.name = 'car-hitbox-wireframe';
+    carHitbox.visible = false;
+    const rawOutlets = descriptor?.boostOutlets || OCTANE_BOOST_OUTLETS;
+    const boostOutlets = rawOutlets.map(([x, y, z]: number[]) => new THREE.Vector3(x, y, z));
+    return { carModel, carHitbox, boostOutlets };
+  }
 
   let carModel: THREE.Object3D | null = null;
   let carHitbox: THREE.Object3D | null = null;
@@ -166,6 +324,29 @@ export function buildVehicleWheels(
   const isHitbox = visual.startsWith('hitbox-');
   const isCustomGlb = hasVehicleDescriptor(visual);
   const wheels: Array<{ steer: THREE.Group; spin: THREE.Group }> = [];
+
+  if (isFastestModeEnabled()) {
+    const descriptor = isCustomGlb ? getVehicleDescriptor(visual) : null;
+    const isThreeWheels = Boolean(
+      descriptor?.threeWheels || visual === 'trioctane-threewheel' || visual === 'hitbox-psyclops'
+    );
+    for (let i = 0; i < wheelSpecs.length; i++) {
+      const [specX, rawSpecZ, specRadius] = wheelSpecs[i] || [0, 0, 13.5];
+      const specZ = isThreeWheels && i === 0 ? 0.0 : rawSpecZ;
+      const steerGroup = new THREE.Group();
+      steerGroup.name = 'car-wheel-steer';
+      steerGroup.position.set(specX, -5.0, specZ);
+      if (isThreeWheels && i === 1) {
+        steerGroup.visible = false;
+      }
+      const spinGroup = new THREE.Group();
+      spinGroup.add(createFastestWheelWireframe(specRadius || 13.5));
+      steerGroup.add(spinGroup);
+      carRoot.add(steerGroup);
+      wheels.push({ steer: steerGroup, spin: spinGroup });
+    }
+    return wheels;
+  }
 
   if (isHitbox || !isCustomGlb) {
     if (!loaders.createProceduralSportWheel) {

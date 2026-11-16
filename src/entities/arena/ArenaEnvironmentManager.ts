@@ -34,6 +34,12 @@ import type { GoalBarrierVisual } from './GoalBarrierVisual.ts';
 import type { GoalVolumeHitboxVisual } from './GoalVolumeHitboxVisual.ts';
 import type { ArenaLightingManager } from './ArenaLighting.ts';
 import type { TraversableMaterialNode } from './VehiclePaint.ts';
+import { fetchArenaCollisionMeshes } from '../../physics/RocketSimMeshLoader.ts';
+import {
+  buildCmfCollisionMeshes,
+  disposeCmfCollisionMeshes,
+} from '../telestrator/cmfCollisionMeshBuilder.ts';
+import { isFastestModeEnabled } from '../../utils/fastestMode.ts';
 
 export interface ArenaEnvironmentHost {
   scene: THREE.Scene;
@@ -103,6 +109,29 @@ export class ArenaEnvironmentManager {
 
   public async loadArena(): Promise<void> {
     const h = this.arena;
+    if (isFastestModeEnabled()) {
+      const chunks = await fetchArenaCollisionMeshes();
+      const cmfMeshes = buildCmfCollisionMeshes(chunks, false);
+      const arenaGroup = new THREE.Group();
+      arenaGroup.name = 'FastestCmfArena';
+      const lineMat = new THREE.LineBasicMaterial({ color: 0x475569 });
+      for (const mesh of cmfMeshes) {
+        const edgesGeom = new THREE.EdgesGeometry(mesh.geometry, 15);
+        const lines = new THREE.LineSegments(edgesGeom, lineMat);
+        lines.name = mesh.name;
+        lines.frustumCulled = true;
+        lines.matrixAutoUpdate = false;
+        lines.updateMatrixWorld(true);
+        arenaGroup.add(lines);
+      }
+      disposeCmfCollisionMeshes(cmfMeshes);
+      this.driftwoodsStadium = arenaGroup;
+      this.driftwoodsStadiumVisible = true;
+      h.scene.add(arenaGroup);
+      arenaGroup.visible = Boolean(this.stadiumVisible && !this.isThrowbackStadiumActive);
+      h.markRenderTreeChanged();
+      return;
+    }
     const meshes = await loadArenaStadiumMeshes();
     if (meshes.driftwoodsStadium) {
       this.driftwoodsStadium = meshes.driftwoodsStadium;
@@ -199,7 +228,8 @@ export class ArenaEnvironmentManager {
       if (activeStadium) {
         activeStadium.visible = Boolean(visible);
       }
-      h.scene.background = new THREE.Color(visible ? 4679561 : 0);
+      const bgHex = isFastestModeEnabled() ? 0x0b0f17 : 4679561;
+      h.scene.background = new THREE.Color(visible ? bgHex : 0);
       h.markRenderTreeChanged();
     }
     if (this.isThrowbackStadiumActive && this.driftwoodsStadium) {
