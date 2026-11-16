@@ -326,6 +326,11 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
     this.boostBloom = sceneGraph.boostBloom;
     this.composer = sceneGraph.composer;
     this.domEventManager.setupWindowEvents();
+    if (typeof window !== 'undefined') {
+      const e2eHost = (window as unknown as { __rcE2E?: Record<string, unknown> }).__rcE2E ?? {};
+      e2eHost.runtime = this;
+      (window as unknown as { __rcE2E?: Record<string, unknown> }).__rcE2E = e2eHost;
+    }
   }
 
   ignite(): void {

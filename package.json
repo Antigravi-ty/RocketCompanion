@@ -33,6 +33,7 @@
     "test:baseline": "node scripts/runScenarioBaseline.mjs",
     "test:soak": "node scripts/runSoakWatchdog.mjs",
     "test:multiplayer-suite": "node --experimental-strip-types scripts/runMultiplayerSuiteTests.ts",
+    "test:dev-room-sync-e2e": "node scripts/runDevRoomSyncE2E.mjs",
     "repro:multiplayer-room": "node scripts/runMultiplayerRoomRepro.mjs",
     "repro:multiplayer-chaos": "node --experimental-strip-types scripts/runMultiplayerChaosRepro.ts"
   },

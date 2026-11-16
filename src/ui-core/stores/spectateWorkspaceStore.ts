@@ -270,3 +270,9 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
     }
   },
 }));
+
+if (typeof window !== 'undefined') {
+  const e2eHost = (window as unknown as { __rcE2E?: Record<string, unknown> }).__rcE2E ?? {};
+  e2eHost.getWorkspaceState = () => useSpectateWorkspaceStore.getState();
+  (window as unknown as { __rcE2E?: Record<string, unknown> }).__rcE2E = e2eHost;
+}

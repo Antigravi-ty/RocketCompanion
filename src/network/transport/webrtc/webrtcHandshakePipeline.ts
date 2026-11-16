@@ -344,5 +344,20 @@ export function classifyRoomMessage(
     return { action: 'raw_packet', payload: msg.buffer };
   }
 
+  if (
+    msg.type === 'global_workspace_broadcast' ||
+    msg.type === 'room_activity_switch' ||
+    msg.type === 'replication_mode_set' ||
+    msg.type === 'state_paused_ack' ||
+    msg.type === 'room_csr_state_broadcast' ||
+    msg.type === 'tunnel_endpoint_advertise' ||
+    msg.type === 'peer_kick' ||
+    msg.type === 'peer_leave' ||
+    msg.type === 'voice_signal' ||
+    msg.type === 'diagnostic_fleet_toggle'
+  ) {
+    return { action: 'raw_packet', payload: JSON.stringify(msg) };
+  }
+
   return { action: 'ignore' };
 }

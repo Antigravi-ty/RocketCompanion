@@ -53,6 +53,7 @@ declare global {
   interface Window {
     __ENABLE_DETERMINISM_HARNESS__?: boolean;
     __ENABLE_NETWORK_PREDICTION__?: boolean;
+    __rcE2E?: Record<string, unknown>;
   }
 }
 
@@ -351,6 +352,18 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
       });
     },
   });
+
+  if (typeof window !== 'undefined') {
+    window.__rcE2E = {
+      ...(window.__rcE2E ?? {}),
+      getAppState: () => useAppStore.getState(),
+      getTelestratorState: () => useTelestratorStore.getState(),
+      getMultiplayerSession: () => multiplayerSession,
+      getSessionCoordinator: () => sessionCoordinator,
+      getPhysics: () => physics,
+      getCamera: () => camera,
+    };
+  }
 
   return {
     ballTrajectoryPredictor,
