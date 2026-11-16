@@ -5,6 +5,7 @@ import {
   wheelModifierRuntimeConfig,
 } from '../ui-core/config/vehicleTunerConfig.ts';
 import { normalizeVisualId } from '../ui-core/config/vehicleConstants.ts';
+import { isFastestModeEnabled } from '../utils/fastestMode.ts';
 /**
  * src/entities/VehicleSuspensionSystem.ts
  * High-performance Vehicle Suspension, Steering & Reaction Control Thruster Subsystem.
@@ -219,6 +220,8 @@ export function updateCarSuspensionAndSteering(
       currCar.getWheelSusLength(1) > 0)
   );
 
+  const isFastest = isFastestModeEnabled();
+
   for (let wheelIndex = 0; wheelIndex < 4; wheelIndex++) {
     if (!wheelSpecs[wheelIndex] || !wheels[wheelIndex]) continue;
 
@@ -239,44 +242,47 @@ export function updateCarSuspensionAndSteering(
           : 1
       : wheelIndex;
 
-    let susLength = currCar.getWheelSusLength(wasmWheelIdx);
-    const isSteerableWheel = isThreeWheels ? wheelIndex === 0 : wheelIndex < 2;
-    const steerAngle = isSteerableWheel ? currCar.getWheelSteerAngle(wasmWheelIdx) : 0;
     const hasContact = currCar.getWheelContact(wasmWheelIdx);
     const [specX, rawSpecZ, wheelRadius] = wheelSpecs[wheelIndex];
-    const specZ = isThreeWheels && wheelIndex === 0 ? 0.0 : rawSpecZ;
 
-    // Scale guard: if susLength is in Bullet units (meters, < 2.0), scale to UU (50.0)
-    if (susLength > 0 && susLength < 2.0) {
-      susLength *= 50.0;
-    }
+    if (!isFastest) {
+      let susLength = currCar.getWheelSusLength(wasmWheelIdx);
+      const isSteerableWheel = isThreeWheels ? wheelIndex === 0 : wheelIndex < 2;
+      const steerAngle = isSteerableWheel ? currCar.getWheelSteerAngle(wasmWheelIdx) : 0;
+      const specZ = isThreeWheels && wheelIndex === 0 ? 0.0 : rawSpecZ;
 
-    const wheelRestHeight = getWheelRestHeight(vehiclePreset, wheelIndex);
-    // Default resting height places wheels resting on the ground (-4.5 UU under chassis origin)
-    const effectiveSusLength = susLength > 0 ? susLength : wheelRestHeight + 4.5;
-    const extraY = Number(wheelModifierRuntimeConfig.verticalOffsetY) || 0;
-    const customRestY = desc?.suspensionHeights?.[wheelIndex];
-    const restYDelta = typeof customRestY === 'number' ? customRestY - (wheelRadius - 17) : 0;
-    const mountY = wheelRestHeight - effectiveSusLength + extraY + restYDelta;
+      // Scale guard: if susLength is in Bullet units (meters, < 2.0), scale to UU (50.0)
+      if (susLength > 0 && susLength < 2.0) {
+        susLength *= 50.0;
+      }
 
-    if (wheels[wheelIndex].steer) {
-      wheels[wheelIndex].steer.position.set(specX, mountY, specZ);
-      wheels[wheelIndex].steer.rotation.y = -steerAngle;
-    }
+      const wheelRestHeight = getWheelRestHeight(vehiclePreset, wheelIndex);
+      // Default resting height places wheels resting on the ground (-4.5 UU under chassis origin)
+      const effectiveSusLength = susLength > 0 ? susLength : wheelRestHeight + 4.5;
+      const extraY = Number(wheelModifierRuntimeConfig.verticalOffsetY) || 0;
+      const customRestY = desc?.suspensionHeights?.[wheelIndex];
+      const restYDelta = typeof customRestY === 'number' ? customRestY - (wheelRadius - 17) : 0;
+      const mountY = wheelRestHeight - effectiveSusLength + extraY + restYDelta;
 
-    const sus = suspension?.[wheelIndex];
-    if (sus) {
-      _scratchWheelMount.set(specX, mountY, specZ);
-      _scratchKnucklePos
-        .set(0, 0, sus.innerZ - specZ)
-        .applyAxisAngle(_scratchAxisY, -steerAngle)
-        .add(_scratchWheelMount);
+      if (wheels[wheelIndex].steer) {
+        wheels[wheelIndex].steer.position.set(specX, mountY, specZ);
+        wheels[wheelIndex].steer.rotation.y = -steerAngle;
+      }
 
-      updateSuspensionUnitSpring(sus, _scratchKnucklePos);
-      if (sus.armFore && sus.foreRoot)
-        updateSuspensionArm(sus.armFore, sus.foreRoot, _scratchKnucklePos);
-      if (sus.armAft && sus.aftRoot)
-        updateSuspensionArm(sus.armAft, sus.aftRoot, _scratchKnucklePos);
+      const sus = suspension?.[wheelIndex];
+      if (sus) {
+        _scratchWheelMount.set(specX, mountY, specZ);
+        _scratchKnucklePos
+          .set(0, 0, sus.innerZ - specZ)
+          .applyAxisAngle(_scratchAxisY, -steerAngle)
+          .add(_scratchWheelMount);
+
+        updateSuspensionUnitSpring(sus, _scratchKnucklePos);
+        if (sus.armFore && sus.foreRoot)
+          updateSuspensionArm(sus.armFore, sus.foreRoot, _scratchKnucklePos);
+        if (sus.armAft && sus.aftRoot)
+          updateSuspensionArm(sus.armAft, sus.aftRoot, _scratchKnucklePos);
+      }
     }
 
     const spinDelta = hasContact ? forwardSpeed / wheelRadius : (carThrottle * 1410) / wheelRadius;

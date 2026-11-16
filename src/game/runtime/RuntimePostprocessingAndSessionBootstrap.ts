@@ -8,6 +8,7 @@ import {
   notifyNetworkTelemetryExportAvailable,
 } from '../runtimeUiPort.ts';
 import { BallTrajectoryPredictor } from '../../entities/BallTrajectoryPredictor.ts';
+import { isFastestModeEnabled } from '../../utils/fastestMode.ts';
 import { bindBallTrajectoryAnomalyUiBridge } from '../../entities/trajectory/ballTrajectoryAnomalyUiBridge.ts';
 import { ReachabilityVisualizer } from '../../entities/ReachabilityVisualizer.ts';
 import { CAR_COLOR_SLOTS } from '../../ui-core/config/vehicleConstants.ts';
@@ -88,8 +89,8 @@ export interface SceneGraphRuntimeCallbacks {
   onUpdateViewport(
     renderer: THREE.WebGLRenderer,
     camera: CameraManager,
-    composer: EffectComposer,
-    boostBloom: BoostBloom,
+    composer: EffectComposer | null,
+    boostBloom: BoostBloom | null,
     speedLinesPass: SupersonicSpeedLinesPass | null,
     activeGraphicsSettings: Record<string, unknown>
   ): void;
@@ -185,32 +186,34 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
   let reachabilityVisualizer: ReachabilityVisualizer | null = null;
 
   if (!isTouchHeadless && arena) {
-    ballTrajectoryPredictor = new BallTrajectoryPredictor(
-      arena.scene,
-      {},
-      physics?.ballRadius || 91.25,
-      physics,
-      (telemetry) => ballTrajectoryTunerStore.publishTelemetry(telemetry)
-    );
-    bindBallTrajectoryAnomalyUiBridge(
-      ballTrajectoryPredictor.anomalyRecorder,
-      ballTrajectoryTunerStore,
-      pushQuickNotification,
-      dismissQuickNotification
-    );
-    reachabilityVisualizer = new ReachabilityVisualizer(
-      arena.scene,
-      physics,
-      ballTrajectoryPredictor,
-      {
-        getConfig() {
-          return reachabilityStore.getConfig();
-        },
-        onTelemetry(telemetry: unknown) {
-          reachabilityStore.publishTelemetry(telemetry);
-        },
-      }
-    );
+    if (!isFastestModeEnabled()) {
+      ballTrajectoryPredictor = new BallTrajectoryPredictor(
+        arena.scene,
+        {},
+        physics?.ballRadius || 91.25,
+        physics,
+        (telemetry) => ballTrajectoryTunerStore.publishTelemetry(telemetry)
+      );
+      bindBallTrajectoryAnomalyUiBridge(
+        ballTrajectoryPredictor.anomalyRecorder,
+        ballTrajectoryTunerStore,
+        pushQuickNotification,
+        dismissQuickNotification
+      );
+      reachabilityVisualizer = new ReachabilityVisualizer(
+        arena.scene,
+        physics,
+        ballTrajectoryPredictor,
+        {
+          getConfig() {
+            return reachabilityStore.getConfig();
+          },
+          onTelemetry(telemetry: unknown) {
+            reachabilityStore.publishTelemetry(telemetry);
+          },
+        }
+      );
+    }
   }
 
   const urlParams =

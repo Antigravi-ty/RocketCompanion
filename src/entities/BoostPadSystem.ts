@@ -15,6 +15,7 @@ import {
   type BoostPadTemplates,
   type BoostPadInstance,
 } from './arena/BoostPadTemplateLoader.ts';
+import { isFastestModeEnabled } from '../utils/fastestMode.ts';
 export type { BoostPadTemplates, BoostPadInstance };
 
 function createCubicBezier(
@@ -264,6 +265,18 @@ export class BoostPadSystem {
     camera: THREE.Camera | null = null
   ) {
     if (!stateBuffer || this.pads.length === 0) return;
+
+    if (isFastestModeEnabled()) {
+      for (let i = 0; i < this.pads.length; i++) {
+        const pad = this.pads[i];
+        this._padView.attach(stateBuffer, i);
+        const isActive = this._padView.isActive;
+        pad.full.visible = isActive;
+        pad.base.visible = !isActive;
+      }
+      this._edgeStatesInitialized = true;
+      return;
+    }
 
     const now = performance.now();
     const safeDt = Number.isFinite(dt) && dt >= 0 ? Math.min(0.25, dt) : 0.016;

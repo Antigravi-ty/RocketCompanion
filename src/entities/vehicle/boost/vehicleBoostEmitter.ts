@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { isFastestModeEnabled } from '../../../utils/fastestMode.ts';
 import { boostParticleRuntimeConfig } from '../../../ui-core/config/vehicleTunerConfig.ts';
 import {
   normalizeHexColorString,
@@ -125,7 +126,7 @@ export class VehicleBoostEmitter {
     this.nozzleFlash.visible = false;
     carRoot.add(this.nozzleFlash);
 
-    if (!isBot) {
+    if (!isBot && !isFastestModeEnabled()) {
       const flameColor = new THREE.Color(ARCADE_BOOST_COLOR_HEX);
       this.light = new THREE.PointLight(flameColor, 0, 300, 2);
       this.light.castShadow = false;
@@ -249,6 +250,7 @@ export class VehicleBoostEmitter {
   }
 
   async preload(): Promise<void> {
+    if (isFastestModeEnabled()) return;
     await this.goldRush.preload();
   }
 

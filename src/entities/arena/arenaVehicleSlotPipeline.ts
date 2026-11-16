@@ -17,6 +17,7 @@ import {
   type VehicleWheelSet,
   type WheelSpecTuple,
 } from './ArenaVehicleLoadoutManager.ts';
+import { isFastestModeEnabled } from '../../utils/fastestMode.ts';
 
 export interface SuspensionUnitVisual {
   group?: THREE.Group;
@@ -108,12 +109,14 @@ export function applySlotPaintWithFallback(
   const carRoot = state.cars[slot];
   if (!carRoot) return;
   const activeColor = state.carColors[slot] ?? fallbackTeamColor;
-  applyVehiclePaint(
-    carRoot,
-    state.vehiclePresets[slot],
-    activeColor,
-    state.carPaintFinishes[slot] || null
-  );
+  if (!isFastestModeEnabled()) {
+    applyVehiclePaint(
+      carRoot,
+      state.vehiclePresets[slot],
+      activeColor,
+      state.carPaintFinishes[slot] || null
+    );
+  }
   const emitters = state.carBoosts[slot];
   if (Array.isArray(emitters)) {
     for (const emitter of emitters) {

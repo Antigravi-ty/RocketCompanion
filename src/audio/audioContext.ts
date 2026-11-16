@@ -2,6 +2,7 @@ import { AudioMixer } from './AudioMixer.ts';
 import { AudioSlotPool } from './AudioSlotPool.ts';
 import { audioConfig } from '../ui-core/config/audioConfig.ts';
 import { listenerManager } from './SpatialAudioSource.ts';
+import { isFastestModeEnabled } from '../utils/fastestMode.ts';
 
 export interface AudioTelemetryState {
   updatedAt: number;
@@ -198,11 +199,14 @@ export function getAudioContext(): AudioContext | null {
     const AudioContextClass = window.AudioContext || win.webkitAudioContext;
     if (!AudioContextClass) return null;
     let ctx: AudioContext;
+    const preferredLatencyHint: AudioContextLatencyCategory | number = isFastestModeEnabled()
+      ? 'playback'
+      : 0;
     try {
-      ctx = new AudioContextClass({ latencyHint: 0 });
+      ctx = new AudioContextClass({ latencyHint: preferredLatencyHint });
     } catch (_) {
       console.warn(
-        '[AudioArchitecture:getAudioContext] Failed latencyHint 0, fallback to interactive:',
+        `[AudioArchitecture:getAudioContext] Failed latencyHint ${String(preferredLatencyHint)}, fallback to interactive:`,
         _
       );
       try {

@@ -7,6 +7,7 @@ import {
 } from '../../../physics/RocketSimStateViews.ts';
 import { interpolatePhysicsTransform, unrealToThreeCoords } from '../../arena/ArenaMath.ts';
 import { supersonicTrailRuntimeConfig } from '../../../ui-core/config/supersonicTrailConfig.ts';
+import { isFastestModeEnabled } from '../../../utils/fastestMode.ts';
 
 export interface VehicleWheelRigLike {
   steer: THREE.Object3D;
@@ -137,8 +138,9 @@ export function warmupArenaTrailsFromReplayWindow(
   const fracAlpha = THREE.MathUtils.clamp(clampedCursor - baseIdx, 0, 1);
   const startIdx = Math.max(0, baseIdx - effectiveLookback);
 
+  const isFastest = isFastestModeEnabled();
   trailSys.resetCar?.(null);
-  arena.ballSpeedTrail?.reset?.();
+  if (!isFastest) arena.ballSpeedTrail?.reset?.();
 
   const stepSnapshotPair = (
     prevSnap: NumericStateBuffer,
@@ -149,7 +151,7 @@ export function warmupArenaTrailsFromReplayWindow(
     const header = _headerView.attach(currSnap);
     const numCars = Math.min(8, Math.max(0, header.numCars || 0));
 
-    if (arena.ballSpeedTrail?.update) {
+    if (!isFastest && arena.ballSpeedTrail?.update) {
       const prevBall = _prevBallView.attach(prevSnap);
       const currBall = _currBallView.attach(currSnap);
       interpolatePhysicsTransform(

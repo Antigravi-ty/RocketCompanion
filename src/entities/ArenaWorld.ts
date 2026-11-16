@@ -59,6 +59,7 @@ import { CarNoseOrientationArrows } from './arena/CarNoseOrientationArrows.ts';
 import { SupersonicWheelTrailSystem } from './vehicle/supersonic-trail/SupersonicWheelTrailSystem.ts';
 import type { VehicleBoostEmitter } from './vehicle/boost/vehicleBoostEmitter.ts';
 import { DemolitionSimPreviewController, type DemolitionEffect } from './DemolitionEffect.ts';
+import { isFastestModeEnabled } from '../utils/fastestMode.ts';
 
 export type { BoostPadDefinition, BoostPadInstance, BoostPadTemplates, BoostPadTunerConfig };
 
@@ -126,18 +127,23 @@ export class ArenaWorld {
     this.vehiclePreset = defaultCarVisual;
     this.carVisual = defaultCarVisual;
 
-    arenaScene.background = new THREE.Color(4679561);
-    arenaScene.fog = new THREE.Fog(6586005, 15000, 34000);
+    const isFastest = isFastestModeEnabled();
+    arenaScene.background = new THREE.Color(isFastest ? 0x0b0f17 : 4679561);
+    arenaScene.fog = isFastest ? null : new THREE.Fog(6586005, 15000, 34000);
 
     this.lighting = new ArenaLightingManager(arenaScene);
-    arenaScene.add(
-      this.sky,
-      this.ball,
-      this.goalBarrierVisual.group,
-      this.goalVolumeHitboxVisual.group
-    );
+    if (isFastest) {
+      arenaScene.add(this.ball, this.goalBarrierVisual.group, this.goalVolumeHitboxVisual.group);
+    } else {
+      arenaScene.add(
+        this.sky,
+        this.ball,
+        this.goalBarrierVisual.group,
+        this.goalVolumeHitboxVisual.group
+      );
+    }
     if (this.ballLocatorArrow.object) arenaScene.add(this.ballLocatorArrow.object);
-    if (this.ballSpeedTrail.object) arenaScene.add(this.ballSpeedTrail.object);
+    if (!isFastest && this.ballSpeedTrail.object) arenaScene.add(this.ballSpeedTrail.object);
 
     const rings = createBallGroundIndicatorRings(arenaScene, ballRadius);
     this.indicatorRing = rings.indicatorRing;
@@ -274,7 +280,9 @@ export class ArenaWorld {
   }
 
   prepareBallSpeedTrail(camera: THREE.Camera | null | undefined) {
-    this.ballSpeedTrail.prepare(camera);
+    if (!isFastestModeEnabled()) {
+      this.ballSpeedTrail.prepare(camera);
+    }
     this.supersonicWheelTrailSystem.prepare(camera, this);
   }
 

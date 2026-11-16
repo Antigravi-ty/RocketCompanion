@@ -11,6 +11,7 @@ import {
   createFallbackPadMeshes,
   cloneModelWithMaterials,
 } from './BoostPadShadersAndMeshes.ts';
+import { isFastestModeEnabled } from '../../utils/fastestMode.ts';
 
 export interface BoostPadDefinition {
   isBig: boolean;
@@ -31,7 +32,7 @@ export interface BoostPadInstance {
   full: THREE.Object3D;
   base: THREE.Object3D;
   glowMesh: THREE.Mesh | null;
-  glowMaterial: THREE.ShaderMaterial;
+  glowMaterial: THREE.ShaderMaterial | null;
   orbMesh: THREE.Mesh | null;
   shadowMesh: THREE.Mesh | null;
   group: THREE.Group;
@@ -59,6 +60,9 @@ export async function loadBoostPadTemplates(system: {
   tunerConfig: BoostPadTunerConfig & Record<string, number | string | boolean | undefined>;
   padTemplates: BoostPadTemplates | null;
 }): Promise<BoostPadTemplates | null> {
+  if (isFastestModeEnabled()) {
+    return null;
+  }
   const loader = new GLTFLoader();
   const padPaths = {
     smallBase: [BOOST_PAD_ASSET_URLS.smallBase],
@@ -145,6 +149,58 @@ export async function loadBoostPadTemplates(system: {
   }
 }
 
+function createFastestUpwardGlowGeometry(width: number, height: number): THREE.BufferGeometry {
+  const hw = width * 0.5;
+  const positions = new Float32Array([
+    // Quad along X
+    -hw,
+    2,
+    0,
+    hw,
+    2,
+    0,
+    hw,
+    height,
+    0,
+    -hw,
+    2,
+    0,
+    hw,
+    height,
+    0,
+    -hw,
+    height,
+    0,
+    // Quad along Z
+    0,
+    2,
+    -hw,
+    0,
+    2,
+    hw,
+    0,
+    height,
+    hw,
+    0,
+    2,
+    -hw,
+    0,
+    height,
+    hw,
+    0,
+    height,
+    -hw,
+  ]);
+  const colors = new Float32Array([
+    1, 0.85, 0.15, 1, 0.85, 0.15, 0, 0, 0, 1, 0.85, 0.15, 0, 0, 0, 0, 0, 0, 1, 0.85, 0.15, 1, 0.85,
+    0.15, 0, 0, 0, 1, 0.85, 0.15, 0, 0, 0, 0, 0, 0,
+  ]);
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geom;
+}
+
 export function buildBoostPadInstances(
   system: {
     pads: BoostPadInstance[];
@@ -159,6 +215,75 @@ export function buildBoostPadInstances(
   scene: THREE.Scene | THREE.Object3D | null = null,
   onPadMeshAdded: ((padGroup: THREE.Group) => void) | null = null
 ): void {
+  if (isFastestModeEnabled()) {
+    const computedAngles = computeAllPadRotations(system.tunerConfig);
+    const bigBaseGeom = new THREE.PlaneGeometry(110, 110);
+    bigBaseGeom.rotateX(-Math.PI / 2);
+    const smallBaseGeom = new THREE.PlaneGeometry(65, 65);
+    smallBaseGeom.rotateX(-Math.PI / 2);
+
+    const bigGlowGeom = createFastestUpwardGlowGeometry(95, 145);
+    const smallGlowGeom = createFastestUpwardGlowGeometry(52, 70);
+
+    const inactiveMat = new THREE.MeshBasicMaterial({ color: 0x334155 });
+    const activeBaseMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
+    const upwardGlowMat = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+
+    for (let padIndex = 0; padIndex < padsData.length; padIndex++) {
+      const data = padsData[padIndex];
+      const baseGeom = data.isBig ? bigBaseGeom : smallBaseGeom;
+      const glowGeom = data.isBig ? bigGlowGeom : smallGlowGeom;
+
+      const baseMesh = new THREE.Mesh(baseGeom, inactiveMat);
+      baseMesh.position.y = 2;
+      baseMesh.visible = false;
+
+      const fullGroup = new THREE.Group();
+      const activeGround = new THREE.Mesh(baseGeom, activeBaseMat);
+      activeGround.position.y = 2;
+      const upwardGlow = new THREE.Mesh(glowGeom, upwardGlowMat);
+      fullGroup.add(activeGround, upwardGlow);
+
+      const padGroup = new THREE.Group();
+      padGroup.position.set(
+        data.pos[0],
+        Number(system.tunerConfig.padHeightOffset) || 0,
+        data.pos[1]
+      );
+      padGroup.rotation.y = (computedAngles[padIndex] || 0) * (Math.PI / 180);
+      padGroup.add(fullGroup, baseMesh);
+
+      if (typeof onPadMeshAdded === 'function') {
+        onPadMeshAdded(padGroup);
+      }
+
+      system.pads.push({
+        id: padIndex,
+        full: fullGroup,
+        base: baseMesh,
+        glowMesh: null,
+        glowMaterial: null,
+        orbMesh: null,
+        shadowMesh: null,
+        group: padGroup,
+        isBig: data.isBig,
+        pos: data.pos,
+        angleDeg: computedAngles[padIndex] || 0,
+      });
+
+      if (scene && typeof scene.add === 'function') {
+        scene.add(padGroup);
+      }
+    }
+    return;
+  }
+
   const templates = padTemplates || system.padTemplates;
   if (!templates && padsData.length > 0) {
     console.warn(

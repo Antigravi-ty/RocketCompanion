@@ -470,14 +470,14 @@ export const DisplayTab: React.FC<DisplayTabProps> = ({
           { value: 75, label: '75%' },
         ]}
         defaultCustomValue={100}
-        min={25}
+        min={1}
         max={100}
         step={1}
         unit="%"
         customRowLabel="Custom Render Scale"
         onChange={handleRenderScaleChange}
         hoverDescription="Select a preset render scale (25%, 50%, 75%) or click Custom to reveal inline resolution slider."
-        customHoverDescription="Continuous internal resolution slider between 25% and 100%."
+        customHoverDescription="Continuous internal resolution slider between 1% and 100%."
         onHover={(desc) => desc && onHover(desc)}
         onLeave={onLeave}
         isLight={isLight}

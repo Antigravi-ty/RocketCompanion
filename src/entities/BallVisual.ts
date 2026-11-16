@@ -10,6 +10,7 @@ import {
   attachBallGoalShader,
   syncBallGoalEffectEnabledUniform,
 } from './arena/BallGoalRimShader.ts';
+import { isFastestModeEnabled } from '../utils/fastestMode.ts';
 
 export function createGeodesicBallGeometry(patternColor: THREE.ColorRepresentation | null = null) {
   const { BufferGeometry, BufferAttribute, IcosahedronGeometry, Vector3, Color } = THREE;
@@ -286,6 +287,16 @@ registerBallVisualApplier((config, ballRoot, indicatorRings) => {
 });
 
 export async function loadBallAsset() {
+  if (isFastestModeEnabled()) {
+    const group = new THREE.Group();
+    const geom = new THREE.IcosahedronGeometry(CLASSIC_BALL_RADIUS, 1);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xf1f5f9, wireframe: true });
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.name = 'fastest-ball-wireframe';
+    group.add(mesh);
+    return group;
+  }
+
   const compositeGroup = createClassicBall();
 
   const weakGroup = new WeakRef(compositeGroup);

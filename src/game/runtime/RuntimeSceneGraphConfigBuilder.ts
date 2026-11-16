@@ -114,8 +114,8 @@ export function buildRuntimeSceneGraphConfig(
     onUpdateViewport(
       renderer: THREE.WebGLRenderer,
       camera: CameraManager,
-      composer: EffectComposer,
-      boostBloom: BoostBloom,
+      composer: EffectComposer | null,
+      boostBloom: BoostBloom | null,
       speedLinesPass: SupersonicSpeedLinesPass | null,
       gfx: Record<string, unknown>
     ) {

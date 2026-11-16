@@ -25,6 +25,7 @@ import { EffectComposer } from '../../effects/PostprocessingPipeline.ts';
 import { RoomEnvironment } from '../../effects/RoomEnvironment.ts';
 import { ArenaWorld } from '../../entities/ArenaWorld.ts';
 import { EntityManager } from '../../entities/EntityManager.ts';
+import { isFastestModeEnabled } from '../../utils/fastestMode.ts';
 import {
   createSceneVisualizersAndMultiplayerSession,
   type HostRoomSettings,
@@ -178,8 +179,10 @@ export async function createCoreSceneGraph(
   let speedLinesPass: SupersonicSpeedLinesPass | null = null;
   let resolvedApplyVisualMaterials: typeof applyVisualMaterialsConfig | null = null;
 
+  const isFastest = isFastestModeEnabled();
+
   if (!isTouchHeadless) {
-    speedLinesPass = new SupersonicSpeedLinesPass();
+    speedLinesPass = isFastest ? null : new SupersonicSpeedLinesPass();
     arena = new ArenaWorld(physics.ballRadius, selectedPreset);
     await arena.loadAllAssets(onProgress);
     entityManager = new EntityManager({
@@ -243,9 +246,9 @@ export async function createCoreSceneGraph(
     cursorHintButton.className = 'cursor-hint';
   }
 
-  const activeGraphicsSettings: Record<string, unknown> = {
-    ...DEFAULT_GRAPHICS_SETTINGS,
-  };
+  const activeGraphicsSettings: Record<string, unknown> = isFastest
+    ? { ...DEFAULT_GRAPHICS_SETTINGS, maxFps: 75, renderScale: 30, limitFps: true }
+    : { ...DEFAULT_GRAPHICS_SETTINGS };
 
   const { ballTrajectoryPredictor, reachabilityVisualizer, multiplayerSession } =
     createSceneVisualizersAndMultiplayerSession({
@@ -287,29 +290,49 @@ export async function createCoreSceneGraph(
   let boostBloom: BoostBloom | null = null;
   let composer: EffectComposer | null = null;
 
-  if (!isTouchHeadless && arena && speedLinesPass) {
-    renderer = new THREE.WebGLRenderer({ antialias: true });
+  if (!isTouchHeadless && arena) {
+    renderer = new THREE.WebGLRenderer(
+      isFastest
+        ? {
+            antialias: false,
+            alpha: false,
+            stencil: false,
+            precision: 'mediump',
+            powerPreference: 'low-power',
+          }
+        : { antialias: true }
+    );
     const winWidth = typeof window !== 'undefined' ? window.innerWidth : 1280;
     const winHeight = typeof window !== 'undefined' ? window.innerHeight : 720;
-    const devicePixelRatio =
-      typeof window !== 'undefined' ? Math.min(window.devicePixelRatio, 2) : 1;
+    const devicePixelRatio = isFastest
+      ? 0.3
+      : typeof window !== 'undefined'
+        ? Math.min(window.devicePixelRatio, 2)
+        : 1;
 
     renderer.setSize(winWidth, winHeight);
     renderer.setPixelRatio(devicePixelRatio);
     if (renderer.shadowMap) {
-      renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.BasicShadowMap ?? THREE.PCFShadowMap ?? 0;
-      renderer.shadowMap.autoUpdate = false;
+      renderer.shadowMap.enabled = !isFastest;
+      if (!isFastest) {
+        renderer.shadowMap.type = THREE.BasicShadowMap ?? THREE.PCFShadowMap ?? 0;
+        renderer.shadowMap.autoUpdate = false;
+      }
     }
-    renderer.toneMapping = THREE.ACESFilmicToneMapping || 4;
-    renderer.toneMappingExposure = 1.15;
+    if (!isFastest) {
+      renderer.toneMapping = THREE.ACESFilmicToneMapping || 4;
+      renderer.toneMappingExposure = 1.15;
 
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const roomEnv = new RoomEnvironment();
-    arena.scene.environment = pmrem.fromScene(roomEnv, 0.04).texture;
-    arena.scene.environmentIntensity = 0.5;
-    roomEnv.dispose();
-    pmrem.dispose();
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      const roomEnv = new RoomEnvironment();
+      arena.scene.environment = pmrem.fromScene(roomEnv, 0.04).texture;
+      arena.scene.environmentIntensity = 0.5;
+      roomEnv.dispose();
+      pmrem.dispose();
+    } else {
+      renderer.toneMapping = THREE.NoToneMapping;
+      arena.scene.environment = null;
+    }
 
     if (container && renderer.domElement && renderer.domElement.parentNode !== container) {
       if (renderer.domElement.classList?.add) {
@@ -318,33 +341,34 @@ export async function createCoreSceneGraph(
       container.appendChild(renderer.domElement);
     }
 
-    boostBloom = new BoostBloom(renderer, winWidth, winHeight, renderer.getPixelRatio());
-    composer = new EffectComposer(renderer);
-    callbacks.onUpdateViewport(
-      renderer,
-      camera,
-      composer,
-      boostBloom,
-      speedLinesPass,
-      activeGraphicsSettings
-    );
+    if (!isFastest && speedLinesPass) {
+      boostBloom = new BoostBloom(renderer, winWidth, winHeight, renderer.getPixelRatio());
+      composer = new EffectComposer(renderer);
+      callbacks.onUpdateViewport(
+        renderer,
+        camera,
+        composer,
+        boostBloom,
+        speedLinesPass,
+        activeGraphicsSettings
+      );
 
-    composer.addPass(new RenderPass(arena.scene, camera.camera));
-    composer.addPass(
-      new ShaderPass(
-        new THREE.ShaderMaterial({
-          uniforms: {
-            baseTexture: { value: null },
-            bloomTexture: { value: boostBloom.texture },
-          },
-          vertexShader: `
+      composer.addPass(new RenderPass(arena.scene, camera.camera));
+      composer.addPass(
+        new ShaderPass(
+          new THREE.ShaderMaterial({
+            uniforms: {
+              baseTexture: { value: null },
+              bloomTexture: { value: boostBloom.texture },
+            },
+            vertexShader: `
             varying vec2 vUv;
             void main() {
               vUv = uv;
               gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
             }
           `,
-          fragmentShader: `
+            fragmentShader: `
             uniform sampler2D baseTexture;
             uniform sampler2D bloomTexture;
             varying vec2 vUv;
@@ -354,12 +378,16 @@ export async function createCoreSceneGraph(
               gl_FragColor = vec4(base.rgb + glow, base.a);
             }
           `,
-        }),
-        'baseTexture'
-      )
-    );
-    composer.addPass(new OutputPass());
-    composer.addPass(speedLinesPass.pass);
+          }),
+          'baseTexture'
+        )
+      );
+      composer.addPass(new OutputPass());
+      composer.addPass(speedLinesPass.pass);
+    } else {
+      callbacks.onDisposeHeadlessBloomOcclusion();
+      callbacks.onUpdateViewport(renderer, camera, null, null, null, activeGraphicsSettings);
+    }
   } else {
     callbacks.onDisposeHeadlessBloomOcclusion();
   }

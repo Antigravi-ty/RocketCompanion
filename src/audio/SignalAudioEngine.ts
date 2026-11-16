@@ -8,6 +8,7 @@ import {
   type SignalAudioRuntimePort,
 } from './audioContext.ts';
 import { SIGNAL_EVENT_TYPES } from '../physics/RocketSimConstants.ts';
+import { isFastestModeEnabled } from '../utils/fastestMode.ts';
 
 export type { SignalAudioActiveModePort, SignalAudioRuntimePort };
 
@@ -81,6 +82,7 @@ export class SignalAudioEngine {
     if (isSignalAudioMutedInGoalReplay()) return;
     let key: string | null = null;
     let minInterval = 0;
+    const isFastest = isFastestModeEnabled();
     switch (signalType) {
       case SIGNAL_EVENT_TYPES.COUNTDOWN_TICK:
       case SIGNAL_EVENT_TYPES.KICKOFF_WILL_START:
@@ -101,12 +103,16 @@ export class SignalAudioEngine {
         minInterval = 300;
         break;
       case SIGNAL_EVENT_TYPES.TIME_ALERT_60S:
-        key = 'match_60_seconds_left';
-        minInterval = 5000;
+        if (!isFastest) {
+          key = 'match_60_seconds_left';
+          minInterval = 5000;
+        }
         break;
       case SIGNAL_EVENT_TYPES.TIME_ALERT_30S:
-        key = 'match_30_seconds_left';
-        minInterval = 5000;
+        if (!isFastest) {
+          key = 'match_30_seconds_left';
+          minInterval = 5000;
+        }
         break;
       case SIGNAL_EVENT_TYPES.COUNTDOWN_10S:
       case 'match_countdown_10s':
@@ -116,19 +122,25 @@ export class SignalAudioEngine {
         break;
       case SIGNAL_EVENT_TYPES.OVERTIME_START:
       case 'match_entering_overtime':
-        key = 'match_entering_overtime';
-        minInterval = 1000;
+        if (!isFastest) {
+          key = 'match_entering_overtime';
+          minInterval = 1000;
+        }
         break;
       case SIGNAL_EVENT_TYPES.MATCH_ENDED:
       case SIGNAL_EVENT_TYPES.PODIUM_START:
       case 'endgame':
       case 'match_ended':
-        key = 'endgame';
-        minInterval = 5000;
+        if (!isFastest) {
+          key = 'endgame';
+          minInterval = 5000;
+        }
         break;
       case 'training_ball_expire':
-        key = 'training_ball_expire';
-        minInterval = 300;
+        if (!isFastest) {
+          key = 'training_ball_expire';
+          minInterval = 300;
+        }
         break;
       default:
         break;
@@ -139,6 +151,17 @@ export class SignalAudioEngine {
   }
 
   play(key: string, volMult = 1.0, minInterval = 0): void {
+    if (
+      isFastestModeEnabled() &&
+      key !== 'sfx_error_no_boost' &&
+      key !== 'boost_collect' &&
+      key !== 'match_countdown_321' &&
+      key !== 'training_countdown' &&
+      key !== 'match_countdown_10s' &&
+      key !== 'match_start_go'
+    ) {
+      return;
+    }
     if (isSignalAudioMutedInGoalReplay()) return;
     const now = performance.now();
     const effectiveMinInterval = key === 'endgame' ? Math.max(minInterval, 5000) : minInterval;

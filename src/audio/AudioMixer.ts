@@ -1,4 +1,5 @@
 import { clampVolume, type AudioConfigSettings } from '../ui-core/config/audioConstants.ts';
+import { isFastestModeEnabled } from '../utils/fastestMode.ts';
 import {
   MasterAcousticProcessor,
   type MasterAcousticProcessorSnapshot,
@@ -15,7 +16,7 @@ export interface AudioMixerOutputMetrics {
 
 export class AudioMixer {
   _analyserBuffer: Float32Array<ArrayBuffer> | null;
-  acousticProcessor: MasterAcousticProcessor;
+  acousticProcessor: MasterAcousticProcessor | null;
   active: boolean;
   analyser: AnalyserNode | null;
   connected: boolean;
@@ -27,7 +28,6 @@ export class AudioMixer {
   constructor(context: AudioContext) {
     this.context = context;
     this.input = context.createGain();
-    this.acousticProcessor = new MasterAcousticProcessor(context);
     this.output = context.createGain();
     this.output.gain.value = 0;
     this.volume = 1;
@@ -35,6 +35,14 @@ export class AudioMixer {
     this.connected = false;
     this.analyser = null;
     this._analyserBuffer = null;
+
+    if (isFastestModeEnabled()) {
+      this.acousticProcessor = null;
+      this.input.connect(this.output);
+      return;
+    }
+
+    this.acousticProcessor = new MasterAcousticProcessor(context);
 
     try {
       this.input.connect(this.acousticProcessor.input);
@@ -74,8 +82,8 @@ export class AudioMixer {
     this.acousticProcessor?.applyConfig(cfg, immediate);
   }
 
-  getAcousticSnapshot(): MasterAcousticProcessorSnapshot {
-    return this.acousticProcessor.getSnapshot();
+  getAcousticSnapshot(): MasterAcousticProcessorSnapshot | null {
+    return this.acousticProcessor ? this.acousticProcessor.getSnapshot() : null;
   }
 
   sampleOutputMetrics(): AudioMixerOutputMetrics {

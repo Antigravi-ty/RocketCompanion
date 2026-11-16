@@ -10,6 +10,7 @@ import {
 import type { VehicleAudioBuffers } from './VehicleAudioManager.ts';
 import type { IncidentAudioBuffers } from './IncidentAudioEngine.ts';
 import type { BallAudioBuffers } from './BallAudioEmitter.ts';
+import { isFastestModeEnabled } from '../utils/fastestMode.ts';
 
 export interface AudioAssetTargetFacade {
   vehicleManager: {
@@ -122,7 +123,25 @@ export async function loadAudioAssets(
   const ctx = getAudioContext();
   if (!ctx) return;
 
-  const audioDescriptors = getAudioDescriptors();
+  const rawDescriptors = getAudioDescriptors();
+  const audioDescriptors = isFastestModeEnabled()
+    ? rawDescriptors.filter(
+        (d) =>
+          d.id === 'boost_collect' ||
+          d.id === 'error_no_boost' ||
+          d.id === 'reset' ||
+          d.id === 'goalpost' ||
+          d.id.startsWith('crossbar_ping_') ||
+          d.id === 'match_countdown' ||
+          d.id === 'training_countdown' ||
+          d.id === 'match_countdown_10s' ||
+          d.id === 'match_start_go' ||
+          d.id.startsWith('jump_') ||
+          d.id.startsWith('double_jump_') ||
+          d.id.startsWith('dodge_') ||
+          d.id.startsWith('boost_')
+      )
+    : rawDescriptors;
   const poolLimit = 3;
   let completedCount = 0;
   const totalCount = audioDescriptors.length;

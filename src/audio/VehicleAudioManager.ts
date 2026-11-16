@@ -26,6 +26,7 @@ import {
   type VehicleCarStateSnapshot,
   type VehicleLandingTrackingState,
 } from './vehicleAudioAcousticPipeline.ts';
+import { isFastestModeEnabled } from '../utils/fastestMode.ts';
 
 export type { VehicleAudioBuffers, VehicleCarStateSnapshot, VehicleLandingTrackingState };
 
@@ -138,6 +139,8 @@ export class VehicleAudioManager {
     const audible =
       !hasBlockingOverlay && Boolean(isMatchActive) && (!isHidden || Boolean(continueOnBlur));
 
+    const isFastest = isFastestModeEnabled();
+
     for (let i = 0; i < totalCars; i++) {
       const emitter = this.getEmitter(i);
       emitter.setSelf(i === activeCarIndex);
@@ -149,12 +152,12 @@ export class VehicleAudioManager {
       const isAlive = !carState?.isDemoed;
       emitter.updateState({
         isBoosting: Boolean(carState?.isBoosting),
-        isSupersonic: Boolean(carState?.isSupersonic),
+        isSupersonic: isFastest ? false : Boolean(carState?.isSupersonic),
         isAlive,
         audible,
       });
 
-      if (carState && isAlive && audible) {
+      if (!isFastest && carState && isAlive && audible) {
         let landingSt = this._landingStateByCar.get(i);
         if (!landingSt) {
           landingSt = {
@@ -257,6 +260,7 @@ export class VehicleAudioManager {
       case INCIDENT_EVENT_TYPES.CAR_SUPERSONIC_ENTER:
       case PHYSICS_EVENT_TYPES.CAR_SUPERSONIC_ENTER:
       case 0x09: {
+        if (isFastestModeEnabled()) break;
         if (
           !this._checkCarCooldown(
             this._lastSupersonicEnterMsByCar,
@@ -314,6 +318,7 @@ export class VehicleAudioManager {
 
       case 'wheel_impact':
       case 0x12: {
+        if (isFastestModeEnabled()) break;
         if (
           !this._checkCarCooldown(
             this._lastWheelLandingMsByCar,

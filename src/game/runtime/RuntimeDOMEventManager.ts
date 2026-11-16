@@ -18,6 +18,7 @@ import {
   RuntimeWindowHotkeysController,
   type RuntimeWindowHotkeysHostPort,
 } from './RuntimeWindowHotkeysController.ts';
+import { isFastestModeEnabled } from '../../utils/fastestMode.ts';
 
 declare global {
   interface Window {
@@ -29,6 +30,7 @@ declare global {
 
 export interface RuntimeDOMEventHostPort extends RuntimeWindowHotkeysHostPort {
   readonly container: HTMLElement | null;
+  readonly renderer: THREE.WebGLRenderer | null;
   readonly composer: EffectComposer | null;
   readonly boostBloom: BoostBloom | null;
   readonly openOverlays: Set<string>;
@@ -65,9 +67,9 @@ export class RuntimeDOMEventManager {
 
   public updateViewport(graphics: GraphicsSettingsPort | null = null): void {
     const r = this.runtime;
-    const renderer = r.boostBloom?.renderer;
+    const renderer = r.boostBloom?.renderer ?? r.renderer;
     const renderPass = r.composer?.passes?.[0] as { camera?: THREE.PerspectiveCamera } | undefined;
-    const perspectiveCamera = renderPass?.camera;
+    const perspectiveCamera = renderPass?.camera ?? r.camera?.camera;
     if (typeof window === 'undefined' || !renderer || !perspectiveCamera) return;
 
     const width = window.innerWidth;
@@ -76,14 +78,15 @@ export class RuntimeDOMEventManager {
     perspectiveCamera.aspect = width / height;
     perspectiveCamera.updateProjectionMatrix();
 
+    const fastest = isFastestModeEnabled();
     const currentGraphics =
       graphics ||
       (useAppStore && typeof useAppStore.getState === 'function'
         ? useAppStore.getState().graphics
         : null);
-    const scale = Number(currentGraphics?.renderScale ?? 50) / 100;
-    const basePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-    const effectivePixelRatio = Math.max(0.1, basePixelRatio * scale);
+    const scale = Number(currentGraphics?.renderScale ?? (fastest ? 30 : 50)) / 100;
+    const basePixelRatio = fastest ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+    const effectivePixelRatio = Math.max(fastest ? 0.01 : 0.01, basePixelRatio * scale);
 
     renderer.setPixelRatio(effectivePixelRatio);
     renderer.setSize(width, height);
@@ -360,7 +363,7 @@ export class RuntimeDOMEventManager {
       document.addEventListener('visibilitychange', this._onWindowBlurFocus);
     }
 
-    const canvasDom = r.boostBloom?.renderer?.domElement;
+    const canvasDom = r.boostBloom?.renderer?.domElement ?? r.renderer?.domElement;
     if (canvasDom) {
       this._onCanvasMouseDown = (evt: MouseEvent) => {
         const telestratorState = useTelestratorStore?.getState?.();
@@ -452,7 +455,7 @@ export class RuntimeDOMEventManager {
     }
     this._onWindowBlurFocus = null;
     this._onToggleNetworkHUD = null;
-    const canvasDom = r.boostBloom?.renderer?.domElement;
+    const canvasDom = r.boostBloom?.renderer?.domElement ?? r.renderer?.domElement;
     if (canvasDom) {
       if (this._onCanvasMouseDown) {
         canvasDom.removeEventListener('mousedown', this._onCanvasMouseDown);
