@@ -1,6 +1,7 @@
 import type { MenuPanelId } from '../../../ui-core/tokens/menuLayoutTokens';
 import type { TabItem } from '../../../ui-core/primitives/UnderlineTabs';
 import type { JumpDirectoryItem } from '../../PageJumpDirectory';
+import type { ProfileTierVariantKind } from '../../../ui-core/manifest/surfaceMetaTypes';
 import type { Layer1MenuContextMode } from '../../../ui-core/recipes/layer1MenuContextSpecs';
 
 export type MenuVisibilityTier = 'user' | 'developer';
@@ -229,7 +230,7 @@ export interface LinearPlaylistStep {
   tier: MenuVisibilityTier;
   route: ActiveMenuRoute;
   subtab?: string;
-  profileTier?: 'anonymous' | 'signed-in' | 'developer';
+  profileTier?: ProfileTierVariantKind;
   storeOverrides?: Record<string, Record<string, unknown>>;
   contextMode?: Layer1MenuContextMode;
   progressStatus?: Layer3StepProgressStatus;

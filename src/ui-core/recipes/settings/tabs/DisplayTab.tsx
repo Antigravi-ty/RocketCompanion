@@ -76,6 +76,7 @@ export const SURFACE_VARIANT_META: SurfaceVariantMeta = {
   label: '3a. Display & Graphics (Browser)',
   description:
     'Browser display settings: Theme toggle, UI Scale, Safe Area Margin, FPS limiter, Render Scale, and Menu Power Save mode.',
+  runtimePlatform: 'web',
   tier: 'user',
   storeOverrides: {
     appStore: {
@@ -93,6 +94,7 @@ export const DISPLAY_TAURI_FULLSCREEN_VARIANT_META: SurfaceVariantMeta = {
   label: '3b. Display & Graphics (Tauri · Fullscreen)',
   description:
     'Tauri Desktop runtime display settings with Window Mode (Fullscreen / Borderless / Windowed) selector active in Fullscreen mode.',
+  runtimePlatform: 'tauri',
   tier: 'user',
   storeOverrides: {
     appStore: {

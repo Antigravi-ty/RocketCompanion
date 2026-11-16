@@ -47,6 +47,8 @@ export const SURFACE_VARIANT_META: SurfaceVariantMeta = {
   description:
     'Anonymous state without imported bundle: Developer Mode Disabled, Public Broker (Best-Effort / No SLA), and remote profile deployment off.',
   profileTier: 'anonymous',
+  authTier: 'anonymous',
+  bundleSource: 'public',
   tier: 'user',
   storeOverrides: {
     appStore: {
@@ -62,9 +64,11 @@ export const SURFACE_VARIANT_META: SurfaceVariantMeta = {
       turnServerCount: 0,
       customUrl: '',
       noKeySimulationActive: false,
+      snapshotExpanded: false,
     },
     cloudProfileSyncStore: {
       available: false,
+      loggedInUser: null,
       allowRemoteProfileDeployment: false,
     },
   },
@@ -72,10 +76,12 @@ export const SURFACE_VARIANT_META: SurfaceVariantMeta = {
 
 export const ADVANCED_PACK_IMPORTED_VARIANT_META: SurfaceVariantMeta = {
   variantId: 'settings:advanced-pack-imported',
-  label: '4b. Advanced & Telemetry (Pack Imported)',
+  label: '4b. Advanced & Telemetry (Pack Imported · Signed Out)',
   description:
-    'Bundle imported state: Developer Mode Disabled, locked .rctbnspib 4-relay bundle active, and live remote profile deployment enabled.',
-  profileTier: 'anonymous',
+    'Bundle imported but unauthenticated state: Developer Mode Disabled, locked .rctbnspib 4-relay bundle active with Signaling panel expanded for inspection.',
+  profileTier: 'pack-imported',
+  authTier: 'anonymous',
+  bundleSource: 'imported-bundle',
   tier: 'user',
   storeOverrides: {
     appStore: {
@@ -89,20 +95,94 @@ export const ADVANCED_PACK_IMPORTED_VARIANT_META: SurfaceVariantMeta = {
       relayCount: 4,
       relayLabels: ['CN-1', 'CN-2', 'GB-1', 'GB-2'],
       turnServerCount: 2,
+      snapshotExpanded: true,
     },
     cloudProfileSyncStore: {
       available: true,
+      loggedInUser: null,
+      allowRemoteProfileDeployment: false,
+    },
+  },
+};
+
+export const ADVANCED_SIGNED_IN_VARIANT_META: SurfaceVariantMeta = {
+  variantId: 'settings:advanced-signed-in',
+  label: '4c. Advanced & Telemetry (Pack Imported · Signed In)',
+  description:
+    'Authenticated user state with imported .rctbnspib bundle and live remote profile deployment enabled.',
+  profileTier: 'signed-in',
+  authTier: 'signed-in',
+  bundleSource: 'imported-bundle',
+  tier: 'user',
+  storeOverrides: {
+    appStore: {
+      settingsTargetTab: 'advanced',
+      developerMode: false,
+    },
+    signalingProfileStore: {
+      loaded: true,
+      source: 'imported-bundle',
+      shortHash: 'b4e92a',
+      relayCount: 4,
+      relayLabels: ['CN-1', 'CN-2', 'GB-1', 'GB-2'],
+      turnServerCount: 2,
+      snapshotExpanded: false,
+    },
+    cloudProfileSyncStore: {
+      available: true,
+      loggedInUser: {
+        userId: 'u_demo_01',
+        username: 'alex',
+        alias: 'ace-pilot',
+        displayName: 'AcePilot',
+        password: '••••••••',
+      },
       allowRemoteProfileDeployment: true,
+    },
+  },
+};
+
+export const ADVANCED_CUSTOM_BROKER_VARIANT_META: SurfaceVariantMeta = {
+  variantId: 'settings:advanced-custom-broker',
+  label: '4d. Advanced & Telemetry (Custom Self-Hosted Broker)',
+  description:
+    'User-configured custom self-hosted relay override (unverified, No SLA) with Signaling panel expanded.',
+  profileTier: 'anonymous',
+  authTier: 'anonymous',
+  bundleSource: 'custom',
+  tier: 'user',
+  storeOverrides: {
+    appStore: {
+      settingsTargetTab: 'advanced',
+      developerMode: false,
+    },
+    signalingProfileStore: {
+      loaded: true,
+      source: 'custom',
+      shortHash: 'c71f09',
+      relayCount: 1,
+      relayLabels: ['Custom Relay'],
+      turnServerCount: 0,
+      customUrl: 'wss://relay.example.com:8443/mqtt',
+      noKeySimulationActive: false,
+      snapshotExpanded: true,
+    },
+    cloudProfileSyncStore: {
+      available: false,
+      loggedInUser: null,
+      allowRemoteProfileDeployment: false,
     },
   },
 };
 
 export const ADVANCED_DEVELOPER_VARIANT_META: SurfaceVariantMeta = {
   variantId: 'settings:advanced-developer',
-  label: '4c. Advanced & Telemetry (Developer)',
+  label: '4e. Advanced & Telemetry (Developer)',
   description:
     'Developer Mode Active with dev-private 4-relay signaling profile and live remote profile deployment.',
   profileTier: 'developer',
+  authTier: 'developer',
+  bundleSource: 'dev-private',
   tier: 'developer',
   storeOverrides: {
     appStore: {
@@ -116,9 +196,11 @@ export const ADVANCED_DEVELOPER_VARIANT_META: SurfaceVariantMeta = {
       relayCount: 4,
       relayLabels: ['CN-1', 'CN-2', 'GB-1', 'GB-2'],
       turnServerCount: 2,
+      snapshotExpanded: false,
     },
     cloudProfileSyncStore: {
       available: true,
+      canManageAccounts: true,
       allowRemoteProfileDeployment: true,
     },
   },

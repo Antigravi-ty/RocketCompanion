@@ -47,12 +47,23 @@ export const SignalingProfileSection: React.FC<SignalingProfileSectionProps> = R
 
     const highlightSetting = useScopedStore('appStore', useAppStore, (s) => s.highlightSetting);
     const clearHighlightSetting = useScopedStore('appStore', useAppStore, (s) => s.clearHighlightSetting);
+    const snapshotExpanded = useScopedStore(
+      'signalingProfileStore',
+      useSignalingProfileStore,
+      (s) => s.snapshotExpanded
+    );
 
-    const [isExpanded, setIsExpanded] = useState(false);
+    const [isExpanded, setIsExpanded] = useState(Boolean(snapshotExpanded));
     const [selectedFileName, setSelectedFileName] = useState<string>('');
     const [rawBundleText, setRawBundleText] = useState<string>('');
     const [pinCode, setPinCode] = useState<string>('');
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+    useEffect(() => {
+      if (typeof snapshotExpanded === 'boolean') {
+        setIsExpanded(snapshotExpanded);
+      }
+    }, [snapshotExpanded]);
 
     useEffect(() => {
       if (highlightSetting === 'signaling-credential-bundle') {

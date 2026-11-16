@@ -69,6 +69,11 @@ export const MenuLayerStageRecipeRouter = React.memo<MenuLayerStageRecipeRouterP
       ? activePlaylistStep.storeOverrides
       : undefined;
 
+  const resolvedDeveloperMode =
+    typeof activeStepStoreOverrides?.appStore?.developerMode === 'boolean'
+      ? activeStepStoreOverrides.appStore.developerMode
+      : visibilityTier === 'developer';
+
   const goBack = () => {
     if (handleNavigateBack) {
       handleNavigateBack();
@@ -183,7 +188,7 @@ export const MenuLayerStageRecipeRouter = React.memo<MenuLayerStageRecipeRouterP
           overrides={{
             appStore: {
               settingsTargetTab: settingsTab,
-              developerMode: visibilityTier === 'developer',
+              developerMode: resolvedDeveloperMode,
               navigate: (route: string) => {
                 setLastParentRoute('settings');
                 if (route === 'trajectory') {
@@ -213,7 +218,7 @@ export const MenuLayerStageRecipeRouter = React.memo<MenuLayerStageRecipeRouterP
         <StoreSnapshotScope
           overrides={{
             appStore: {
-              developerMode: visibilityTier === 'developer',
+              developerMode: resolvedDeveloperMode,
             },
             onlineRoomStore: {
               ...resolveManageRoomRosterOverride(
@@ -250,7 +255,7 @@ export const MenuLayerStageRecipeRouter = React.memo<MenuLayerStageRecipeRouterP
         <StoreSnapshotScope
           overrides={{
             appStore: {
-              developerMode: visibilityTier === 'developer',
+              developerMode: resolvedDeveloperMode,
             },
             onlineRoomStore: {
               progressStatus: layer3StepOverride?.progressStatus,
