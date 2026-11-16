@@ -8,6 +8,7 @@ import {
   type SignalAudioRuntimePort,
 } from './audioContext.ts';
 import { SIGNAL_EVENT_TYPES } from '../physics/RocketSimConstants.ts';
+import { isFastestModeEnabled } from '../utils/fastestMode.ts';
 
 export type { SignalAudioActiveModePort, SignalAudioRuntimePort };
 
@@ -78,6 +79,7 @@ export class SignalAudioEngine {
   }
 
   handleSignal(signalType: string | number): void {
+    if (isFastestModeEnabled()) return;
     if (isSignalAudioMutedInGoalReplay()) return;
     let key: string | null = null;
     let minInterval = 0;
@@ -139,6 +141,9 @@ export class SignalAudioEngine {
   }
 
   play(key: string, volMult = 1.0, minInterval = 0): void {
+    if (isFastestModeEnabled() && key !== 'sfx_error_no_boost' && key !== 'boost_collect') {
+      return;
+    }
     if (isSignalAudioMutedInGoalReplay()) return;
     const now = performance.now();
     const effectiveMinInterval = key === 'endgame' ? Math.max(minInterval, 5000) : minInterval;

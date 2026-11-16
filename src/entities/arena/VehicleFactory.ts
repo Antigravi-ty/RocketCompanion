@@ -184,8 +184,6 @@ function createFastestWheelWireframe(radius: number): THREE.LineSegments {
       0
     );
   }
-  // Crossed spokes to show wheel spin
-  positions.push(-radius, 0, 0, radius, 0, 0, 0, -radius, 0, 0, radius, 0);
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   if (!sharedFastestWheelMaterial) {

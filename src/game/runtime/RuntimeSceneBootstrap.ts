@@ -247,7 +247,7 @@ export async function createCoreSceneGraph(
   }
 
   const activeGraphicsSettings: Record<string, unknown> = isFastest
-    ? { ...DEFAULT_GRAPHICS_SETTINGS, maxFps: 90, renderScale: 10, limitFps: true }
+    ? { ...DEFAULT_GRAPHICS_SETTINGS, maxFps: 75, renderScale: 30, limitFps: true }
     : { ...DEFAULT_GRAPHICS_SETTINGS };
 
   const { ballTrajectoryPredictor, reachabilityVisualizer, multiplayerSession } =
@@ -297,7 +297,7 @@ export async function createCoreSceneGraph(
     const winWidth = typeof window !== 'undefined' ? window.innerWidth : 1280;
     const winHeight = typeof window !== 'undefined' ? window.innerHeight : 720;
     const devicePixelRatio = isFastest
-      ? 0.1
+      ? 0.3
       : typeof window !== 'undefined'
         ? Math.min(window.devicePixelRatio, 2)
         : 1;

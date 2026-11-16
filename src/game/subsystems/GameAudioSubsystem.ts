@@ -16,6 +16,7 @@ import {
 } from '../../physics/RocketSimConstants.ts';
 import { hudStore } from '../runtimeUiPort.ts';
 import type { FrameContext } from '../pipeline/FramePipeline.ts';
+import { isFastestModeEnabled } from '../../utils/fastestMode.ts';
 
 export type { EngineSynthSlotEntry };
 
@@ -58,8 +59,9 @@ export class GameAudioSubsystem {
     onProgress: ((loaded: number, total?: number, file?: string) => void) | null = null
   ): Promise<void> {
     const r = this.runtime;
+    const isFastest = isFastestModeEnabled();
     const ctx = getAudioContext();
-    if (ctx) {
+    if (ctx && !isFastest) {
       await loadEngineAudioPackAssets(ctx, 'turtle_modem').catch((err) => {
         console.warn('[GameAudioSubsystem] Engine audio pack preload warning:', err);
       });
@@ -67,8 +69,10 @@ export class GameAudioSubsystem {
     }
     await gameAudio.preload(onProgress as any);
     await yieldIdleSlice(16);
-    await r.flipResetVisual?.preloadAudio?.();
-    await yieldIdleSlice(24);
+    if (!isFastest) {
+      await r.flipResetVisual?.preloadAudio?.();
+      await yieldIdleSlice(24);
+    }
     await r.arena?.prepareAssets?.();
   }
 
@@ -233,7 +237,13 @@ export class GameAudioSubsystem {
     const isAudibleActive =
       !hasBlockingOverlay && Boolean(isMatchActive) && (!isHidden || Boolean(continueOnBlur));
 
-    if (gameAudio && typeof gameAudio.updateBallAudio === 'function' && r.arena?.ball) {
+    const isFastest = isFastestModeEnabled();
+    if (
+      !isFastest &&
+      gameAudio &&
+      typeof gameAudio.updateBallAudio === 'function' &&
+      r.arena?.ball
+    ) {
       if (isAudibleActive) {
         gameAudio.updateBallAudio(r.arena.ball, r.camera, r.physics);
       } else {
@@ -303,16 +313,18 @@ export class GameAudioSubsystem {
       }
     }
 
-    this.engineLodController.updateFrame({
-      activeCar,
-      effectiveNumCars,
-      isAudibleActive,
-      curBoost,
-      activeCarMesh,
-      arenaCars: r.arena?.cars,
-      playerControls: r.playerControls,
-      resolveCarView,
-    });
+    if (!isFastest) {
+      this.engineLodController.updateFrame({
+        activeCar,
+        effectiveNumCars,
+        isAudibleActive,
+        curBoost,
+        activeCarMesh,
+        arenaCars: r.arena?.cars,
+        playerControls: r.playerControls,
+        resolveCarView,
+      });
+    }
 
     if (subsystemState?.lastTelemetry) {
       const audioCtx = getAudioContext();

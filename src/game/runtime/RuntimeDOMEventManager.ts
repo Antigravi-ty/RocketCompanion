@@ -84,7 +84,7 @@ export class RuntimeDOMEventManager {
       (useAppStore && typeof useAppStore.getState === 'function'
         ? useAppStore.getState().graphics
         : null);
-    const scale = Number(currentGraphics?.renderScale ?? (fastest ? 10 : 50)) / 100;
+    const scale = Number(currentGraphics?.renderScale ?? (fastest ? 30 : 50)) / 100;
     const basePixelRatio = fastest ? 1 : Math.min(window.devicePixelRatio || 1, 2);
     const effectivePixelRatio = Math.max(fastest ? 0.01 : 0.01, basePixelRatio * scale);
 

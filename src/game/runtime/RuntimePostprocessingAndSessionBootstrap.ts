@@ -8,6 +8,7 @@ import {
   notifyNetworkTelemetryExportAvailable,
 } from '../runtimeUiPort.ts';
 import { BallTrajectoryPredictor } from '../../entities/BallTrajectoryPredictor.ts';
+import { isFastestModeEnabled } from '../../utils/fastestMode.ts';
 import { bindBallTrajectoryAnomalyUiBridge } from '../../entities/trajectory/ballTrajectoryAnomalyUiBridge.ts';
 import { ReachabilityVisualizer } from '../../entities/ReachabilityVisualizer.ts';
 import { CAR_COLOR_SLOTS } from '../../ui-core/config/vehicleConstants.ts';
@@ -185,19 +186,21 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
   let reachabilityVisualizer: ReachabilityVisualizer | null = null;
 
   if (!isTouchHeadless && arena) {
-    ballTrajectoryPredictor = new BallTrajectoryPredictor(
-      arena.scene,
-      {},
-      physics?.ballRadius || 91.25,
-      physics,
-      (telemetry) => ballTrajectoryTunerStore.publishTelemetry(telemetry)
-    );
-    bindBallTrajectoryAnomalyUiBridge(
-      ballTrajectoryPredictor.anomalyRecorder,
-      ballTrajectoryTunerStore,
-      pushQuickNotification,
-      dismissQuickNotification
-    );
+    if (!isFastestModeEnabled()) {
+      ballTrajectoryPredictor = new BallTrajectoryPredictor(
+        arena.scene,
+        {},
+        physics?.ballRadius || 91.25,
+        physics,
+        (telemetry) => ballTrajectoryTunerStore.publishTelemetry(telemetry)
+      );
+      bindBallTrajectoryAnomalyUiBridge(
+        ballTrajectoryPredictor.anomalyRecorder,
+        ballTrajectoryTunerStore,
+        pushQuickNotification,
+        dismissQuickNotification
+      );
+    }
     reachabilityVisualizer = new ReachabilityVisualizer(
       arena.scene,
       physics,

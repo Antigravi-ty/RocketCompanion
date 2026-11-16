@@ -258,9 +258,9 @@ export interface GraphicsConfigState {
 export function getInitialGraphics(): GraphicsConfigState {
   if (isFastestModeEnabled()) {
     return {
-      renderScale: 10,
+      renderScale: 30,
       limitFps: true,
-      maxFps: 90,
+      maxFps: 75,
       showStadium: true,
       pauseRenderingOnMenu: true,
       menuPowerSave: '30',

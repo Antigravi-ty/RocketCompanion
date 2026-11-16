@@ -17,6 +17,7 @@ import {
 
 import { ArenaLightingDebugGizmo } from './ArenaLightingDebugGizmo.ts';
 import { ArenaBlobShadowSystem } from './ArenaBlobShadowSystem.ts';
+import { isFastestModeEnabled } from '../../utils/fastestMode.ts';
 import {
   applyEnvironmentalLightsConfig,
   applyShadowRigModeConfig,
@@ -51,13 +52,18 @@ export class ArenaLightingManager {
   public shadowConfig: ShadowConfig;
   public shadowFocus: THREE.Vector3;
   public isPovShadowActive: boolean;
+  public readonly isFastest: boolean;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
+    this.isFastest = isFastestModeEnabled();
     this.shadowFocus = new THREE.Vector3();
-    this.shadowConfig = { ...shadowRuntimeConfig };
+    this.shadowConfig = {
+      ...shadowRuntimeConfig,
+      ...(this.isFastest ? { mode: 'off' as const } : {}),
+    };
     this._numCars = 1;
-    this.isPovShadowActive = true;
+    this.isPovShadowActive = !this.isFastest;
 
     this.carSunTarget = new THREE.Group();
     this.ballSunTarget = new THREE.Group();
@@ -66,14 +72,25 @@ export class ArenaLightingManager {
 
     this.carSun = this.makeSubjectSun(this.carSunTarget, 260);
     this.ballSun = this.makeSubjectSun(this.ballSunTarget, 190);
-    this.scene.add(this.carSunTarget, this.ballSunTarget, this.carSun, this.ballSun);
-
     this.hemiLight = new THREE.HemisphereLight(13164543, 2569000, 1.0);
-    this.scene.add(this.hemiLight);
-
     this.keyLight = new THREE.DirectionalLight(8956671, 0.5);
     this.keyLight.position.set(-2000, 2000, -2000);
-    this.scene.add(this.keyLight);
+
+    if (!this.isFastest) {
+      this.scene.add(
+        this.carSunTarget,
+        this.ballSunTarget,
+        this.carSun,
+        this.ballSun,
+        this.hemiLight,
+        this.keyLight
+      );
+    } else {
+      this.carSun.visible = false;
+      this.ballSun.visible = false;
+      this.hemiLight.visible = false;
+      this.keyLight.visible = false;
+    }
 
     this._sunOffset = new THREE.Vector3(
       this.shadowConfig.sunOffsetX ?? DEFAULT_SUN_OFFSET_X,
@@ -88,8 +105,10 @@ export class ArenaLightingManager {
     this.debugGizmo = new ArenaLightingDebugGizmo(scene);
     this.blobShadows = new ArenaBlobShadowSystem(scene);
 
-    this._applyLightRigMode();
-    this._applyEnvironmentalLights();
+    if (!this.isFastest) {
+      this._applyLightRigMode();
+      this._applyEnvironmentalLights();
+    }
   }
 
   _recomputeShadowBasis(): void {
@@ -149,6 +168,7 @@ export class ArenaLightingManager {
   }
 
   public shouldRenderShadowMap(): boolean {
+    if (this.isFastest) return false;
     return this.shadowConfig.mode !== 'off' && this.isPovShadowActive;
   }
 
@@ -218,6 +238,7 @@ export class ArenaLightingManager {
     camera: THREE.Camera | null = null,
     cameraContext: ShadowSceneCameraContext | null = null
   ): void {
+    if (this.isFastest) return;
     const nextPovActive = resolvePovShadowActive(cameraContext);
     if (this.isPovShadowActive !== nextPovActive) {
       this.isPovShadowActive = nextPovActive;

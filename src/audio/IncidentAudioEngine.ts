@@ -19,6 +19,7 @@ import {
   isVehicleActionIncidentEvent,
   type IncidentAudioBuffers,
 } from './incidentEventAcousticPipeline.ts';
+import { isFastestModeEnabled } from '../utils/fastestMode.ts';
 
 export type { IncidentAudioBuffers };
 
@@ -53,6 +54,17 @@ export class IncidentAudioEngine {
 
     if (isVehicleActionIncidentEvent(type)) {
       this.vehicleManager?.handleCarEvent(event);
+      return;
+    }
+
+    if (isFastestModeEnabled()) {
+      if (
+        type === INCIDENT_EVENT_TYPES.BOOST_PICKUP ||
+        type === PHYSICS_EVENT_TYPES.BOOST_PICKUP ||
+        type === 0x0a
+      ) {
+        this.handleBoostPickup(event, camera);
+      }
       return;
     }
 
