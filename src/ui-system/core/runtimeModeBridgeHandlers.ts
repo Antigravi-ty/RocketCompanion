@@ -222,14 +222,16 @@ export function createModeBridgeHandlers(
       closeLabAndBotFloatingWindows();
       matchPort.returnToFreeplay(appState.gameplay.unlimitedBoost);
       useAppStore.setState({ matchMode: 'freeplay', isFreeCam: false });
-      appState.setOnlineSession({
-        isHosting: false,
-        roomId: '',
-        signalingConnected: false,
-        connectedPeers: [],
-        roomType: 'warmup',
-        isReady: false,
-      });
+      if (!appState.onlineSession?.isDevSyncRoom) {
+        appState.setOnlineSession({
+          isHosting: false,
+          roomId: '',
+          signalingConnected: false,
+          connectedPeers: [],
+          roomType: 'warmup',
+          isReady: false,
+        });
+      }
     },
     onExportRecentTrainingReplay(durationSeconds = 60): Promise<boolean> {
       return exportRecentTrainingReplayFromRuntime(runtimePort, durationSeconds);

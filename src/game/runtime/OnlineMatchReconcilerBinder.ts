@@ -432,11 +432,12 @@ export class OnlineMatchReconcilerBinder {
       lobbyDualWorld.configureArenaLobbyFlags(false, false);
       reconciler?.setLobbyDualWorldMode?.(false);
       reconciler?.setSpectateMirrorMode?.(true);
+      reconciler?.setClientInputEnabled?.(false);
       useAppStore?.getState?.()?.setMatchMode?.('freeplay');
     }
     if (msg?.roster) await applyRosterSnapshot(msg.roster);
     useAppStore?.getState?.()?.setOnlineSession?.(transition.onlineSessionPatch);
-    lobbyDualWorld.focusCameraOnCar(activePlayerCarIndex);
+    lobbyDualWorld.focusCameraOnCar(msg?.isDevSyncRoom ? 0 : activePlayerCarIndex);
     const handshakeColor = resolveHandshakeTeamColorSlot(msg);
     world.selectedColorSlot = handshakeColor.colorSlot;
     if (handshakeColor.colorHex)

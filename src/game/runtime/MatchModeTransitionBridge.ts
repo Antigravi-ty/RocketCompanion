@@ -109,6 +109,7 @@ export function leaveActiveBotMatchIfNeeded(
 export function stopActiveOnlineOrLoopbackSessionIfNeeded(
   domain: Pick<MatchModeTransitionDomainPort, 'multiplayerSession' | 'networkManager'>
 ): void {
+  if (useAppStore.getState().onlineSession?.isDevSyncRoom) return;
   teardownMultiplayerSignalingSession(domain.multiplayerSession);
   teardownNetworkCoordinatorSession(domain.networkManager?.sessionCoordinator, true);
 }
@@ -228,8 +229,10 @@ export function createMatchModeTransitionBridge(
     returnToFreeplay: (unlimitedBoost) => {
       closeTrainingAndDiagnosticFloatingWindows();
       disableActiveDiagnosticsFleetAndGhost(diagnosticsProbe);
-      teardownMultiplayerSignalingSession(domain.multiplayerSession);
-      teardownNetworkCoordinatorSession(sessionCoordinator, false);
+      if (!useAppStore.getState().onlineSession?.isDevSyncRoom) {
+        teardownMultiplayerSignalingSession(domain.multiplayerSession);
+        teardownNetworkCoordinatorSession(sessionCoordinator, false);
+      }
       leaveActiveBotMatchIfNeeded(domain);
 
       const { modeManager, trainingOptions } = domain;

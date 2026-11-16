@@ -91,6 +91,10 @@ import {
 import { bindRuntimeUiPort } from '../src/game/runtimeUiPort.ts';
 import { MATCH_STATES } from '../src/network/server/match/matchLoadoutAndSpawnPipeline.ts';
 import { routeActivityAndInputMessage } from '../src/network/server/workerActivityAndInputRouter.ts';
+import {
+  stopActiveOnlineOrLoopbackSessionIfNeeded,
+  createMatchModeTransitionBridge,
+} from '../src/game/runtime/MatchModeTransitionBridge.ts';
 
 function runSection(name: string, fn: () => void | Promise<void>): Promise<void> {
   return Promise.resolve()
@@ -2075,7 +2079,108 @@ async function main(): Promise<void> {
     '14. Custom Training Pack (training_shot_reset + Metadata Sync) & Room Match Auto-Pull',
     testCustomTrainingPackAndRoomMatchAutoPull
   );
+  await runSection(
+    '15. Dev Sync Room Lifecycle Preservation on Mode Switch & Client Spectate Default',
+    testDevSyncRoomLifecyclePreservationAndSpectateDefault
+  );
   console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
+}
+
+async function testDevSyncRoomLifecyclePreservationAndSpectateDefault(): Promise<void> {
+  const mockOnlineSession: Record<string, unknown> = {
+    isHosting: true,
+    isDevSyncRoom: true,
+    roomId: '4576',
+  };
+  const mockUseAppStore = {
+    getState: () => ({
+      onlineSession: mockOnlineSession,
+      matchMode: 'freeplay',
+      setOnlineSession: (patch: Record<string, unknown>) => {
+        Object.assign(mockOnlineSession, patch);
+      },
+      setMatchMode: () => {},
+      openMenu: () => {},
+    }),
+    setState: () => {},
+  };
+  bindRuntimeUiPort({ useAppStore: mockUseAppStore as never });
+
+  let stopHostingCalls = 0;
+  let stopOnlineServerCalls = 0;
+
+  const mockDomain = {
+    multiplayerSession: {
+      isHosting: true,
+      clientController: null,
+      signalingHandler: null,
+      stopHosting: async () => {
+        stopHostingCalls++;
+      },
+      leaveSession: async () => {},
+    },
+    networkManager: {
+      sessionCoordinator: {
+        authoritativeServer: {},
+        networkChannel: {},
+        networkReconciler: {},
+        cleanupOnlineSession: () => {},
+        stopOnlineServer: async () => {
+          stopOnlineServerCalls++;
+        },
+      },
+      diagnosticsProbe: {
+        diagnosticsFleetController: { enabled: false },
+        lobbyGhostMode: false,
+        toggleDiagnosticTestFleet: async () => {},
+        configureLobbyGhostMode: () => {},
+      },
+    },
+    botCoordinator: {
+      isBotMatch: false,
+      leaveBotMatch: () => {},
+    },
+    match: {
+      state: { mode: 'freeplay', countdown: 0 },
+      leave: () => {},
+      start: () => {},
+    },
+    modeManager: {
+      activeMode: { id: 'freeplay' },
+      setMode: () => {},
+      modes: new Map(),
+    },
+    domEventManager: {
+      syncPausedAndInputState: () => {},
+      handleOverlayChange: () => {},
+    },
+    trainingOptions: { boostOption: 'unlimited' },
+    physics: { setUnlimitedBoost: () => {} },
+    resetKickoff: () => {},
+  } as unknown as Parameters<typeof createMatchModeTransitionBridge>[0];
+
+  stopActiveOnlineOrLoopbackSessionIfNeeded(mockDomain);
+  createMatchModeTransitionBridge(mockDomain).returnToFreeplay(true);
+
+  assert.equal(
+    stopHostingCalls,
+    0,
+    'Dev Sync Room must not call stopHosting on mode switch/freeplay'
+  );
+  assert.equal(
+    stopOnlineServerCalls,
+    0,
+    'Dev Sync Room must not call stopOnlineServer on mode switch/freeplay'
+  );
+
+  mockOnlineSession.isDevSyncRoom = false;
+  stopActiveOnlineOrLoopbackSessionIfNeeded(mockDomain);
+  assert.equal(stopHostingCalls, 1, 'Standard room should call stopHosting on mode switch');
+  assert.equal(
+    stopOnlineServerCalls,
+    1,
+    'Standard room should call stopOnlineServer on mode switch'
+  );
 }
 
 main().catch((err) => {
