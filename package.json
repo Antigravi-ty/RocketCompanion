@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "preinstall": "npx only-allow pnpm",
+    "prepare": "node --experimental-strip-types scripts/git/ensureGitHooks.ts",
+    "hooks:install": "node --experimental-strip-types scripts/git/ensureGitHooks.ts",
     "predev": "node scripts/syncPrivateProfile.mjs",
     "dev": "node --experimental-strip-types scripts/devLauncher.ts",
     "dev:entry": "RC_VITE_ROLE=entry vite",
