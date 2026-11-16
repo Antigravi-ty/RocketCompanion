@@ -279,12 +279,22 @@ export const DisplayTab: React.FC<DisplayTabProps> = ({
       : undefined;
 
   const { rowGap } = useSettingActionRowStore();
-  const isTauri = isTauriRuntime();
-  const [tauriPlatform, setTauriPlatform] = useState(() => detectClientPlatformTag());
+  const tauriOverride = useStoreSnapshotOverride<{
+    isTauri?: boolean;
+    platform?: TauriPlatformTag;
+    windowMode?: TauriWindowMode;
+  }>('tauriRuntime');
+  const isTauri =
+    typeof tauriOverride?.isTauri === 'boolean'
+      ? tauriOverride.isTauri
+      : isTauriRuntime();
+  const [tauriPlatform, setTauriPlatform] = useState<TauriPlatformTag>(() =>
+    detectClientPlatformTag()
+  );
   const [tauriWindowMode, setTauriWindowMode] = useState<TauriWindowMode>('windowed');
 
   useEffect(() => {
-    if (!isTauri) return;
+    if (!isTauri || tauriOverride) return;
     let mounted = true;
     void getTauriLaunchState().then((state) => {
       if (!mounted) return;
@@ -294,9 +304,11 @@ export const DisplayTab: React.FC<DisplayTabProps> = ({
     return () => {
       mounted = false;
     };
-  }, [isTauri]);
+  }, [isTauri, tauriOverride]);
 
-  const isMacOs = tauriPlatform === 'macos';
+  const effectiveTauriPlatform = tauriOverride?.platform ?? tauriPlatform;
+  const effectiveTauriWindowMode = tauriOverride?.windowMode ?? tauriWindowMode;
+  const isMacOs = effectiveTauriPlatform === 'macos';
 
   const handleWindowModeChange = (val: string) => {
     const mode = val as TauriWindowMode;
@@ -321,7 +333,11 @@ export const DisplayTab: React.FC<DisplayTabProps> = ({
               ? 'macOS native fullscreen space or desktop window (Borderless disabled on macOS)'
               : 'Switch between Fullscreen, Borderless, and Windowed desktop display modes'
           }
-          value={isMacOs && tauriWindowMode === 'borderless' ? 'windowed' : tauriWindowMode}
+          value={
+            isMacOs && effectiveTauriWindowMode === 'borderless'
+              ? 'windowed'
+              : effectiveTauriWindowMode
+          }
           onChange={handleWindowModeChange}
           options={[
             { value: 'fullscreen', label: 'Fullscreen' },

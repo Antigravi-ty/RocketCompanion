@@ -88,8 +88,10 @@ export const Layer1TauriConfiguratorRecipe: React.FC<Layer1TauriConfiguratorReci
     const state = await getTauriLaunchState();
     setLaunchState(state);
     setDraftConfig(state.config);
-    applyDocumentTheme(state.config.themeMode);
-  }, [applyDocumentTheme]);
+    if (propIsLight === undefined) {
+      applyDocumentTheme(state.config.themeMode);
+    }
+  }, [applyDocumentTheme, propIsLight]);
 
   const [viewMode, setViewMode] = useState<'main' | 'advanced'>(() =>
     isDiagnosticsRoute() ? 'advanced' : 'main'

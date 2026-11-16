@@ -48,6 +48,12 @@ export const DisplayRefreshRateCard: React.FC<DisplayRefreshRateCardProps> = ({
   const ufoPosRef = useRef<number>(0);
   const lastStateUpdateRef = useRef<number>(0);
 
+  const tauriOverride = useStoreSnapshotOverride<{ isTauri?: boolean }>('tauriRuntime');
+  const effectiveIsTauri =
+    typeof tauriOverride?.isTauri === 'boolean'
+      ? tauriOverride.isTauri
+      : isTauriRuntime();
+
   useEffect(() => {
     let active = true;
     getTauriDisplayDiagnostics().then((diag) => {
@@ -149,7 +155,7 @@ export const DisplayRefreshRateCard: React.FC<DisplayRefreshRateCardProps> = ({
   const handleCopyReport = async () => {
     const report = {
       timestamp: new Date().toISOString(),
-      runtime: isTauriRuntime() ? 'Tauri WebView' : 'Browser',
+      runtime: effectiveIsTauri ? 'Tauri WebView' : 'Browser',
       platform: diagnostics?.platform ?? 'unknown',
       architecture: diagnostics?.arch ?? 'unknown',
       os: diagnostics?.os ?? 'unknown',
