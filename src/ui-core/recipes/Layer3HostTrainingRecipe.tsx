@@ -65,7 +65,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'Create shared online co-op training room with ghost collision mode and 5-step initialization',
   icon: 'Ghost',
   layer: 'layer3',
-  profileTierPolicy: 'tier-invariant',
+  profileTierPolicy: 'auth-triad',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 500,
@@ -79,6 +79,8 @@ export const SURFACE_META: SurfaceMeta = {
       variantId: 'idle',
       label: 'Idle Form',
       description: 'Default host training setup with identity fields and Ghost Mode policy.',
+      profileTier: 'anonymous',
+      bundleSource: 'public',
       entryFile: 'recipes/Layer3HostTrainingRecipe.tsx',
       storeOverrides: {
         onlineRoomStore: {
@@ -86,6 +88,41 @@ export const SURFACE_META: SurfaceMeta = {
           progressStatus: 'idle',
           currentStep: 1,
         },
+        signalingProfileStore: { source: 'public', shortHash: 'pub-0001' },
+      },
+    },
+    {
+      variantId: 'idle-pack-imported',
+      label: 'Idle · Imported Pack Signaling',
+      description: 'Host Training with imported .rctbnspib signaling bundle active.',
+      profileTier: 'pack-imported',
+      bundleSource: 'imported-bundle',
+      entryFile: 'recipes/online/OnlineRoomIdentityFields.tsx',
+      storeOverrides: {
+        onlineRoomStore: {
+          defaultGhostMode: 'automatically-enable',
+          progressStatus: 'idle',
+          currentStep: 1,
+        },
+        signalingProfileStore: { source: 'imported-bundle', shortHash: 'imp-a1b2', hasProbedOnce: true, probeResults: [{ ok: true }] },
+      },
+    },
+    {
+      variantId: 'idle-dev-private',
+      label: 'Idle · Dev Private Signaling',
+      description: 'Host Training with developer private signaling profile active.',
+      tier: 'developer',
+      profileTier: 'developer',
+      bundleSource: 'dev-private',
+      entryFile: 'recipes/online/OnlineRoomIdentityFields.tsx',
+      storeOverrides: {
+        appStore: { developerMode: true },
+        onlineRoomStore: {
+          defaultGhostMode: 'automatically-enable',
+          progressStatus: 'idle',
+          currentStep: 1,
+        },
+        signalingProfileStore: { source: 'dev-private', shortHash: 'dev-9f8e', hasProbedOnce: true, probeResults: [{ ok: true }] },
       },
     },
     {

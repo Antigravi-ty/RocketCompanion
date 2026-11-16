@@ -185,15 +185,13 @@ function checkRecipeProfileTierContracts(errors: string[]): void {
     }
 
     const policy = policyMatch[1];
-    if (policy === 'tier-invariant' && /\bdeveloperMode\b/.test(raw)) {
-      errors.push(
-        `[SURFACE TIER CONTRACT VIOLATION] ${rel} references 'developerMode' but declares profileTierPolicy: 'tier-invariant'. Use 'user-dev-split' or 'auth-triad'.`
-      );
-    }
-    if (policy === 'tier-invariant' && /\buseCloudProfileSyncStore\b/.test(raw)) {
-      errors.push(
-        `[SURFACE TIER CONTRACT VIOLATION] ${rel} references 'useCloudProfileSyncStore' but declares profileTierPolicy: 'tier-invariant'. Use 'auth-triad' with variants.`
-      );
+    if (policy === 'tier-invariant') {
+      const subtreeHits = scanRecipeSubtreeForTierStores(recipeFile);
+      for (const hit of subtreeHits) {
+        errors.push(
+          `[SURFACE TIER CONTRACT VIOLATION] ${rel} declares profileTierPolicy: 'tier-invariant' but subtree '${hit.file}' references '${hit.symbol}'. Use 'user-dev-split' or 'auth-triad'.`
+        );
+      }
     }
     if (policy === 'auth-triad') {
       const hasVariants = /\bvariants\s*:/.test(raw);
@@ -204,6 +202,90 @@ function checkRecipeProfileTierContracts(errors: string[]): void {
           `[SURFACE TIER CONTRACT VIOLATION] ${rel} declares profileTierPolicy: 'auth-triad' and must provide variants with 'profileTier' and 'storeOverrides'.`
         );
       }
+    }
+  }
+
+  checkMenuPlaylistVariantCoverage(recipeFiles, errors);
+}
+
+function scanRecipeSubtreeForTierStores(
+  entryFile: string
+): Array<{ file: string; symbol: string }> {
+  const visited = new Set<string>();
+  const stack: string[] = [entryFile];
+  const hits: Array<{ file: string; symbol: string }> = [];
+  const patterns: Array<{ symbol: string; re: RegExp }> = [
+    { symbol: 'developerMode', re: /\bdeveloperMode\b/ },
+    { symbol: 'useCloudProfileSyncStore', re: /\buseCloudProfileSyncStore\b/ },
+    { symbol: 'useSignalingProfileStore', re: /\buseSignalingProfileStore\b/ },
+  ];
+
+  while (stack.length > 0) {
+    const cur = stack.pop()!;
+    if (visited.has(cur) || !fs.existsSync(cur)) continue;
+    visited.add(cur);
+    const content = stripComments(fs.readFileSync(cur, 'utf8'));
+    for (const pat of patterns) {
+      if (pat.re.test(content)) {
+        hits.push({ file: toPosixRel(cur), symbol: pat.symbol });
+      }
+    }
+    const importRe = /from\s+['"]([^'"]+)['"]/g;
+    let m: RegExpExecArray | null;
+    while ((m = importRe.exec(content)) !== null) {
+      const spec = m[1];
+      if (!spec.startsWith('.')) continue;
+      const base = path.resolve(path.dirname(cur), spec);
+      for (const ext of ['.tsx', '.ts', '/index.tsx', '/index.ts']) {
+        const candidate = fs.existsSync(base) ? base : `${base}${ext}`;
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+          if (toPosixRel(candidate).startsWith('src/ui-core/recipes/')) {
+            stack.push(candidate);
+          }
+          break;
+        }
+      }
+    }
+  }
+  return hits;
+}
+
+function checkMenuPlaylistVariantCoverage(
+  recipeFiles: string[],
+  errors: string[]
+): void {
+  const playlistFiles = [
+    path.join(SRC_DIR, 'ui-tuner/pages/menu-layer/menuLayerLinearPlaylists.ts'),
+    path.join(SRC_DIR, 'ui-tuner/pages/menu-layer/menuLayerVariantPlaylistBuilder.ts'),
+    path.join(SRC_DIR, 'ui-tuner/pages/menu-layer/menuLayerOnlineRoomSteps.ts'),
+  ];
+  const combinedPlaylistSrc = playlistFiles
+    .filter((f) => fs.existsSync(f))
+    .map((f) => stripComments(fs.readFileSync(f, 'utf8')))
+    .join('\n');
+
+  for (const recipeFile of recipeFiles) {
+    const baseName = path.basename(recipeFile, '.tsx');
+    if (baseName === 'StaticTrainingShotInspectorDrawer') continue;
+    const raw = stripComments(fs.readFileSync(recipeFile, 'utf8'));
+    if (!/\bvariants\s*:/.test(raw)) continue;
+
+    const isOnlineStepRecipe =
+      baseName === 'Layer1MainMenuRecipe' ||
+      baseName === 'Layer2ManageRoomRecipe' ||
+      baseName === 'Layer3HostMatchRecipe' ||
+      baseName === 'Layer3HostTrainingRecipe' ||
+      baseName === 'Layer3JoinRoomRecipe';
+    if (isOnlineStepRecipe) continue;
+
+    const importedInPlaylist =
+      new RegExp(`recipes/${baseName}['"]`).test(combinedPlaylistSrc) ||
+      (baseName === 'Layer2GarageRecipe' &&
+        /\bGARAGE_SYNC_VARIANT_METAS\b/.test(combinedPlaylistSrc));
+    if (!importedInPlaylist) {
+      errors.push(
+        `[PLAYLIST COVERAGE VIOLATION] ${toPosixRel(recipeFile)} declares SURFACE_META.variants but is not consumed by menuLayerVariantPlaylistBuilder.ts or menuLayerLinearPlaylists.ts.`
+      );
     }
   }
 }

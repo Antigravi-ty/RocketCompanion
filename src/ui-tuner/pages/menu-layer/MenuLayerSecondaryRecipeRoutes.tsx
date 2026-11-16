@@ -1,5 +1,6 @@
 import React from 'react';
 import { normalizeMenuRoute } from './menuLayerRouteConfig';
+import { Layer1TauriConfiguratorRecipe } from '../../../ui-core/recipes/Layer1TauriConfiguratorRecipe';
 import { Layer3AcousticsEqualizerRecipe } from '../../../ui-core/recipes/Layer3AcousticsEqualizerRecipe';
 import { Layer3BallTrajectoryRecipe } from '../../../ui-core/recipes/Layer3BallTrajectoryRecipe';
 import { Layer3CameraRecipe } from '../../../ui-core/recipes/Layer3CameraRecipe';
@@ -21,6 +22,7 @@ import { Layer4DevSignalingLabRecipe } from '../../../ui-core/recipes/Layer4DevS
 import { useStaticTrainingPackStore } from '../../../ui-core/stores/staticTrainingPackStore';
 import { StoreSnapshotScope } from '../../../ui-core/stores/storeSnapshotScope';
 import { useMenuLayerSandbox } from './MenuLayerSandboxContext';
+import { isFloatingWindowPlaylistUnit } from '../floating-windows/floatingWindowsLinearPlaylists';
 
 export interface MenuLayerSecondaryRecipeRoutesProps {
   isLight: boolean;
@@ -37,7 +39,23 @@ export const MenuLayerSecondaryRecipeRoutes = React.memo<MenuLayerSecondaryRecip
       setLiveAnimPhase,
       handleTriggerCollapse,
       setLayer1ContextMode,
+      activePlaylistStep,
     } = useMenuLayerSandbox();
+
+    const activeStepStoreOverrides =
+      activePlaylistStep && !isFloatingWindowPlaylistUnit(activePlaylistStep)
+        ? activePlaylistStep.storeOverrides
+        : undefined;
+
+    const resolvedDeveloperMode =
+      typeof activeStepStoreOverrides?.appStore?.developerMode === 'boolean'
+        ? activeStepStoreOverrides.appStore.developerMode
+        : visibilityTier === 'developer';
+
+    const activeStepSubtab =
+      activePlaylistStep && !isFloatingWindowPlaylistUnit(activePlaylistStep)
+        ? activePlaylistStep.subtab
+        : undefined;
 
     const handleLivePreviewBack = () => {
       setLiveAnimPhase('expanded');
@@ -46,9 +64,13 @@ export const MenuLayerSecondaryRecipeRoutes = React.memo<MenuLayerSecondaryRecip
 
     return (
       <>
+        {displayedRoute === 'tauri-configurator' && (
+          <Layer1TauriConfiguratorRecipe isLight={isLight} />
+        )}
+
         {(displayedRoute === 'acoustics-equalizer' || displayedRoute === 'audio-eq') && (
           <StoreSnapshotScope
-            overrides={{ appStore: { developerMode: visibilityTier === 'developer' } }}
+            overrides={{ appStore: { developerMode: resolvedDeveloperMode } }}
           >
             <Layer3AcousticsEqualizerRecipe isLight={isLight} onBack={onBack} />
           </StoreSnapshotScope>
@@ -62,7 +84,7 @@ export const MenuLayerSecondaryRecipeRoutes = React.memo<MenuLayerSecondaryRecip
           <StoreSnapshotScope
             overrides={{
               appStore: {
-                developerMode: visibilityTier === 'developer',
+                developerMode: resolvedDeveloperMode,
                 setLivePreviewCollapsed: handleTriggerCollapse,
               },
             }}
@@ -84,7 +106,11 @@ export const MenuLayerSecondaryRecipeRoutes = React.memo<MenuLayerSecondaryRecip
               },
             }}
           >
-            <Layer3KeybindingsRecipe isLight={isLight} onBack={onBack} />
+            <Layer3KeybindingsRecipe
+              isLight={isLight}
+              activeTab={activeStepSubtab}
+              onBack={onBack}
+            />
           </StoreSnapshotScope>
         )}
 
@@ -239,7 +265,7 @@ export const MenuLayerSecondaryRecipeRoutes = React.memo<MenuLayerSecondaryRecip
         {displayedRoute === 'controller-settings' && (
           <Layer4ControllerSettingsRecipe
             isLight={isLight}
-            developerMode={visibilityTier === 'developer'}
+            developerMode={resolvedDeveloperMode}
             onBack={onBack}
           />
         )}
@@ -256,7 +282,7 @@ export const MenuLayerSecondaryRecipeRoutes = React.memo<MenuLayerSecondaryRecip
           <StoreSnapshotScope
             overrides={{
               appStore: {
-                developerMode: visibilityTier === 'developer',
+                developerMode: resolvedDeveloperMode,
                 setLivePreviewCollapsed: handleTriggerCollapse,
               },
             }}

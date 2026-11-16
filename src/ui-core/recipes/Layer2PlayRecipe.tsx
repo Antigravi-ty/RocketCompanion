@@ -23,7 +23,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: '2x3 grid of match, online lobby, and training disciplines',
   icon: 'Gamepad2',
   layer: 'layer2',
-  profileTierPolicy: 'tier-invariant',
+  profileTierPolicy: 'auth-triad',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 680,
@@ -31,6 +31,42 @@ export const SURFACE_META: SurfaceMeta = {
     maxHeight: 520,
     mode: 'adaptive',
   },
+  variants: [
+    {
+      variantId: 'public-fallback',
+      label: 'Public Fallback Signaling',
+      tier: 'user',
+      profileTier: 'anonymous',
+      authTier: 'anonymous',
+      bundleSource: 'public',
+      storeOverrides: {
+        signalingProfileStore: { source: 'public', shortHash: 'pub-0001' },
+      },
+    },
+    {
+      variantId: 'pack-imported',
+      label: 'Imported Pack Signaling',
+      tier: 'user',
+      profileTier: 'pack-imported',
+      authTier: 'anonymous',
+      bundleSource: 'imported-bundle',
+      storeOverrides: {
+        signalingProfileStore: { source: 'imported-bundle', shortHash: 'imp-a1b2' },
+      },
+    },
+    {
+      variantId: 'dev-private',
+      label: 'Dev Private Signaling',
+      tier: 'developer',
+      profileTier: 'developer',
+      authTier: 'developer',
+      bundleSource: 'dev-private',
+      storeOverrides: {
+        appStore: { developerMode: true },
+        signalingProfileStore: { source: 'dev-private', shortHash: 'dev-9f8e' },
+      },
+    },
+  ],
 };
 
 export interface Layer2PlayRecipeProps extends StandardSurfaceProps {

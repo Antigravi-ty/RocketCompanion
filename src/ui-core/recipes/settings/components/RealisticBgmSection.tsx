@@ -18,6 +18,7 @@ import { RealisticBgmTrackLibraryTable } from './RealisticBgmTrackLibraryTable';
 
 export interface RealisticBgmSectionProps {
   bordered?: boolean;
+  snapshotExpanded?: boolean;
   onHover: (desc: string) => void;
   onLeave: () => void;
   isLight?: boolean;
@@ -32,7 +33,7 @@ export interface RealisticBgmSectionProps {
  * - Filter state is persisted to localStorage while audio file blobs remain session-only.
  */
 export const RealisticBgmSection: React.FC<RealisticBgmSectionProps> = React.memo(
-  ({ bordered = false, onHover, onLeave, isLight = false }) => {
+  ({ bordered = false, snapshotExpanded, onHover, onLeave, isLight = false }) => {
     const bgmTracks = useSpatialAudioStore((s) => s.bgmTracks);
     const realisticBgmEnabled = useSpatialAudioStore((s) => s.realisticBgmEnabled);
     const setRealisticBgmEnabled = useSpatialAudioStore((s) => s.setRealisticBgmEnabled);
@@ -45,7 +46,12 @@ export const RealisticBgmSection: React.FC<RealisticBgmSectionProps> = React.mem
     const prevBgmTrack = useSpatialAudioStore((s) => s.prevBgmTrack);
     const toggleBgmPlayPause = useSpatialAudioStore((s) => s.toggleBgmPlayPause);
 
-    const [isExpanded, setIsExpanded] = useState(false);
+    const [isExpanded, setIsExpanded] = useState(Boolean(snapshotExpanded));
+    React.useEffect(() => {
+      if (typeof snapshotExpanded === 'boolean') {
+        setIsExpanded(snapshotExpanded);
+      }
+    }, [snapshotExpanded]);
     const { borderRadius, rowGap } = useSettingActionRowStore();
 
     const activePlaylist = useMemo(

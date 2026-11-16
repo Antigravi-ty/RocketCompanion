@@ -38,6 +38,15 @@ export const SURFACE_META: SurfaceMeta = {
     minHeight: 240,
     maxHeight: 1120,
   },
+  variants: [
+    {
+      variantId: 'developer-tier',
+      label: 'Developer Tier (500% Gain & JSON Export)',
+      tier: 'developer',
+      profileTier: 'developer',
+      storeOverrides: { appStore: { developerMode: true } },
+    },
+  ],
 };
 
 export interface AudioDetailCatalogEntry {

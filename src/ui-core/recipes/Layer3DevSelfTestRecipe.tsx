@@ -22,7 +22,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Automated subsystem self-test suites, VirtualClock fast-forward scenario runner, and Golden Baseline verification harnesses.',
   icon: 'bug-play',
   layer: 'layer3',
-  profileTierPolicy: 'tier-invariant',
+  profileTierPolicy: 'auth-triad',
   menuGroup: 'menu-layer',
   defaultSizing: {
     mode: 'adaptive',
@@ -35,6 +35,7 @@ export const SURFACE_META: SurfaceMeta = {
     {
       variantId: 'dev-private',
       label: 'Dev-Private Source (4-Server Lab + Scenario Runner)',
+      profileTier: 'developer',
       storeOverrides: {
         signalingProfileStore: { source: 'dev-private' },
       },
@@ -42,8 +43,9 @@ export const SURFACE_META: SurfaceMeta = {
     {
       variantId: 'public-default',
       label: 'Public / Bundle Source (Scenario Runner Ready)',
+      profileTier: 'anonymous',
       storeOverrides: {
-        signalingProfileStore: { source: 'public-default' },
+        signalingProfileStore: { source: 'public' },
       },
     },
   ],

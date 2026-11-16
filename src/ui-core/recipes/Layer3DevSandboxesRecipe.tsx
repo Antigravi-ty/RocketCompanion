@@ -38,7 +38,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Select an isolated subsystem to enter its dedicated test environment.',
   icon: 'flask-conical',
   layer: 'layer3',
-  profileTierPolicy: 'tier-invariant',
+  profileTierPolicy: 'user-dev-split',
   menuGroup: 'menu-layer',
   defaultSizing: {
     mode: 'adaptive',
@@ -47,6 +47,85 @@ export const SURFACE_META: SurfaceMeta = {
     minHeight: DEFAULT_PANEL_SIZING['layer3-dev-sandboxes'].minHeight,
     maxHeight: DEFAULT_PANEL_SIZING['layer3-dev-sandboxes'].maxHeight,
   },
+  variants: [
+    {
+      variantId: 'overview',
+      label: 'Sandboxes Overview (No Active Bench)',
+      tier: 'developer',
+      profileTier: 'developer',
+      storeOverrides: { appStore: { developerMode: true, matchMode: 'freeplay' } },
+    },
+    {
+      variantId: 'probes',
+      label: 'Active Bench · 1. Probes',
+      tier: 'developer',
+      profileTier: 'developer',
+      storeOverrides: {
+        appStore: { developerMode: true, matchMode: 'dev-test-lab' },
+        subsystemIsolationLabStore: { activeTab: 'probes' },
+      },
+    },
+    {
+      variantId: 'multi-ghost',
+      label: 'Active Bench · 2. Multi Ghost',
+      tier: 'developer',
+      profileTier: 'developer',
+      storeOverrides: {
+        appStore: { developerMode: true, matchMode: 'dev-test-lab' },
+        subsystemIsolationLabStore: { activeTab: 'multi-ghost' },
+      },
+    },
+    {
+      variantId: 'state-replay',
+      label: 'Active Bench · 3. State Replay',
+      tier: 'developer',
+      profileTier: 'developer',
+      storeOverrides: {
+        appStore: { developerMode: true, matchMode: 'dev-test-lab' },
+        subsystemIsolationLabStore: { activeTab: 'state-replay' },
+      },
+    },
+    {
+      variantId: '90s-match',
+      label: 'Active Bench · 4. 90s Match',
+      tier: 'developer',
+      profileTier: 'developer',
+      storeOverrides: {
+        appStore: { developerMode: true, matchMode: 'dev-test-lab' },
+        subsystemIsolationLabStore: { activeTab: '90s-match' },
+      },
+    },
+    {
+      variantId: 'goal-replay',
+      label: 'Active Bench · 5. Goal Replay',
+      tier: 'developer',
+      profileTier: 'developer',
+      storeOverrides: {
+        appStore: { developerMode: true, matchMode: 'dev-test-lab' },
+        subsystemIsolationLabStore: { activeTab: 'goal-replay' },
+      },
+    },
+    {
+      variantId: 'kickoff-duel',
+      label: 'Active Bench · 6. Kickoff Duel',
+      tier: 'developer',
+      profileTier: 'developer',
+      storeOverrides: {
+        appStore: { developerMode: true, matchMode: 'dev-test-lab' },
+        subsystemIsolationLabStore: { activeTab: 'kickoff-duel' },
+      },
+    },
+    {
+      variantId: 'demolish-respawn',
+      label: 'Active Bench · 7. Demo Respawn',
+      tier: 'developer',
+      profileTier: 'developer',
+      storeOverrides: {
+        appStore: { developerMode: true, matchMode: 'dev-test-lab' },
+        subsystemIsolationLabStore: { activeTab: 'demolish-respawn' },
+      },
+    },
+  ],
 };
 
 /**

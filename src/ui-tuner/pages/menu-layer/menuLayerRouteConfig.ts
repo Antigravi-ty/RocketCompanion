@@ -9,6 +9,7 @@ export type MenuVisibilityTier = 'user' | 'developer';
 export type ActiveMenuRoute =
   | 'layer-0'
   | 'main-menu'
+  | 'tauri-configurator'
   | 'play'
   | 'garage'
   | 'settings'
@@ -44,6 +45,7 @@ export type ActiveMenuRoute =
 
 export const ROUTE_TO_PANEL_ID: Record<Exclude<ActiveMenuRoute, 'layer-0'>, MenuPanelId> = {
   'main-menu': 'layer1-main',
+  'tauri-configurator': 'layer1-main',
   'play': 'layer2-play',
   'garage': 'layer2-garage',
   'settings': 'layer2-settings',
@@ -107,6 +109,7 @@ export const MENU_SANDBOX_JUMP_ITEMS: SandboxJumpEntry[] = [
   makeJumpItem('STAGE.L0', 'MenuLayerStageCanvas', 'Level 0 menu-less game state (0px)', 'Layer 0 · User', 'layer-0', 'user'),
   makeJumpItem('STAGE.EDGE', 'StaticTrainingShotInspectorDrawer', 'Static Training Shot Inspector Drawer (Edge Inspector)', 'Layer 0 · Edge Inspector', 'layer-0', 'user'),
   makeJumpItem('STAGE.L1', 'Layer1MainMenuRecipe', 'Main pause root menu (11 User Contexts)', 'Layer 1 · User', 'main-menu', 'user'),
+  makeJumpItem('STAGE.TAURI', 'Layer1TauriConfiguratorRecipe', 'Tauri Pre-Launch Configurator (Window & Tray)', 'Layer 1 · Tauri', 'tauri-configurator', 'user'),
   makeJumpItem('STAGE.PLAY', 'Layer2PlayRecipe', 'Mode Selection 2x3 Grid (Play)', 'Layer 2 · User', 'play', 'user'),
   makeJumpItem('STAGE.GARAGE', 'Layer2GarageRecipe', 'Garage Preset (5 Tabs includes Loadout)', 'Layer 2 · User', 'garage', 'user'),
   makeJumpItem('STAGE.SETTINGS', 'Layer2SettingsRecipe', '5-Tab icon+Text Settings (User 4 Tabs)', 'Layer 2 · User', 'settings', 'user'),
@@ -165,6 +168,7 @@ const makeRouteCfg = (
 export const MENU_ROUTE_CONFIG: Record<ActiveMenuRoute, LayerRouteConfig> = {
   'layer-0': makeRouteCfg('layer-0', 'Active Match (Layer 0)', 0, 0, 'both'),
   'main-menu': makeRouteCfg('main-menu', 'Main Menu', 1, 420, 'both'),
+  'tauri-configurator': makeRouteCfg('tauri-configurator', 'Tauri Pre-Launch Configurator', 1, 640, 'user', 'main-menu'),
   'play': makeRouteCfg('play', 'Play Modes', 2, 600, 'user', 'main-menu'),
   'garage': makeRouteCfg('garage', 'Garage Loadout', 2, 640, 'user', 'main-menu'),
   'settings': makeRouteCfg('settings', 'Game Settings', 2, 680, 'both', 'main-menu'),
@@ -227,6 +231,7 @@ export type Layer3StepProgressStatus = 'idle' | 'running' | 'error' | 'completed
 
 export interface LinearPlaylistStep {
   id: string;
+  variantId?: string;
   tier: MenuVisibilityTier;
   route: ActiveMenuRoute;
   subtab?: string;

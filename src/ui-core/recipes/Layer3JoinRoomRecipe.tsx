@@ -62,7 +62,7 @@ export const SURFACE_META: SurfaceMeta = {
   subtitle: 'Connect to peer-to-peer room via room code, optional key, and daisy-chain spectating relay',
   icon: 'Wifi',
   layer: 'layer3',
-  profileTierPolicy: 'tier-invariant',
+  profileTierPolicy: 'auth-triad',
   menuGroup: 'menu-layer',
   defaultSizing: {
     width: 500,
@@ -76,6 +76,7 @@ export const SURFACE_META: SurfaceMeta = {
       variantId: 'idle',
       label: 'Idle Form',
       description: 'Initial join room form prior to initiating peer signaling handshake.',
+      profileTier: 'anonymous',
       entryFile: 'recipes/Layer3JoinRoomRecipe.tsx',
       storeOverrides: {
         onlineRoomStore: { progressStatus: 'idle', currentStep: 1 },

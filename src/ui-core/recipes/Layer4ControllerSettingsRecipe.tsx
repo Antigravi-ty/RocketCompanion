@@ -18,7 +18,7 @@ import { resolveCalibratedSurfaceSizing } from '../manifest/surfaceCalibration';
 import { useAppStore } from '../stores/appStore';
 import { useMenuLayoutStore } from '../stores/menuLayoutStore';
 import { useSettingActionRowStore } from '../stores/settingRowStore';
-import { useStoreSnapshotOverride } from '../stores/storeSnapshotScope';
+import { useScopedStore, useStoreSnapshotOverride } from '../stores/storeSnapshotScope';
 import {
   ControllerDeadzoneAndVibrationSection,
   type ControllerAxesConfig,
@@ -41,6 +41,22 @@ export const SURFACE_META: SurfaceMeta = {
     minHeight: 260,
     maxHeight: 1120,
   },
+  variants: [
+    {
+      variantId: 'user-tier',
+      label: 'User Tier (Standard Axes & Deadzones)',
+      tier: 'user',
+      profileTier: 'anonymous',
+      storeOverrides: { appStore: { developerMode: false } },
+    },
+    {
+      variantId: 'developer-tier',
+      label: 'Developer Tier (Full Tuner & Curves)',
+      tier: 'developer',
+      profileTier: 'developer',
+      storeOverrides: { appStore: { developerMode: true } },
+    },
+  ],
 };
 
 export type AirRollConflictMode = 'override' | 'cancel';
@@ -71,9 +87,11 @@ export interface Layer4ControllerSettingsRecipeProps extends StandardSurfaceProp
 }
 
 export const Layer4ControllerSettingsRecipe: React.FC<Layer4ControllerSettingsRecipeProps> =
-  React.memo(({ isLight = false, developerMode = false, onBack, stateOverride, className = '' }) => {
-    const goBack = useAppStore((s) => s.goBack);
-    const bridge = useAppStore((s) => s.bridge);
+  React.memo(({ isLight = false, developerMode: propDeveloperMode, onBack, stateOverride, className = '' }) => {
+    const goBack = useScopedStore('appStore', useAppStore, (s) => s.goBack);
+    const bridge = useScopedStore('appStore', useAppStore, (s) => s.bridge);
+    const storeDeveloperMode = useScopedStore('appStore', useAppStore, (s) => s.developerMode);
+    const effectiveDeveloperMode = propDeveloperMode ?? storeDeveloperMode ?? false;
     const { rowGap } = useSettingActionRowStore();
     const scopeOverride =
       useStoreSnapshotOverride<Layer4ControllerSettingsStateOverride>('controllerSettings');
@@ -313,7 +331,7 @@ export const Layer4ControllerSettingsRecipe: React.FC<Layer4ControllerSettingsRe
               resolvedConfig={resolvedConfig}
               updateConfig={updateConfig}
               selectedGamepadIndex={selectedGamepadIndex}
-              developerMode={developerMode}
+              developerMode={effectiveDeveloperMode}
               isLight={isLight}
               onHoverDesc={setHoveredDesc}
               onResetAxesToDefault={handleResetAxesToDefault}
