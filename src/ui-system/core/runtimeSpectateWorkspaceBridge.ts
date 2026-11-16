@@ -136,6 +136,7 @@ export function applyCameraSyncToPort(
 
 export function resetSpectateWorkspaceOnLeave(): void {
   const ws = useSpectateWorkspaceStore.getState();
+  ws.setSpectateMode('spectate_state_only', undefined, applyWorkspaceStateLocally);
   ws.setSpectatingActive(false, undefined, applyWorkspaceStateLocally);
   ws.setFollowHostWorkspace(false);
   ws.setFollowHostCamera(false);

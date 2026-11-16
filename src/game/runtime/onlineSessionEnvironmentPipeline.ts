@@ -320,6 +320,12 @@ export function createOnlineSessionBridgePort(
         }
       }
       const store = useAppStore.getState();
+      if (activityId !== 'match') {
+        if (ctx.match?.state?.mode === 'match' || store.matchMode === 'match') {
+          resetRuntimeMatchStateToFreeplay(ctx.match, 'freeplay');
+          store.setMatchMode?.('freeplay');
+        }
+      }
       const cfg =
         payload.config && typeof payload.config === 'object'
           ? (payload.config as Record<string, unknown>)

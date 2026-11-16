@@ -107,6 +107,21 @@ export class OnlineSessionCoordinator {
     if (!isHost) {
       this.networkReconciler.onRoomActivitySwitch = (payload) => {
         if (this.networkReconciler) {
+          const activityId =
+            typeof payload.activityId === 'string' ? payload.activityId : 'freeplay';
+          if (
+            activityId === 'replay' ||
+            activityId === 'multiplayer_training' ||
+            activityId === 'match'
+          ) {
+            if (this.networkReconciler.lobbyDualWorldMode) {
+              this.networkReconciler.setLobbyDualWorldMode(false);
+            }
+            this.networkReconciler.hostLobbyMode = false;
+            this.lobbyDualWorld.configureArenaLobbyFlags(false, false);
+            this.diagnosticsProbe.setMultiWorldGhostVisible(false);
+            this.diagnosticsProbe.configureLobbyGhostMode(false);
+          }
           this.sessionBridge.applyClientRoomActivitySwitch(this.networkReconciler, payload);
         }
       };

@@ -1,6 +1,6 @@
 import { MATCH_SIGNALS } from '../../network/protocol/GlobalPayloadCodec.ts';
 import { isSignalAudioMutedInGoalReplay } from '../../audio/SignalAudioEngine.ts';
-import { hudStore } from '../runtimeUiPort.ts';
+import { hudStore, useAppStore } from '../runtimeUiPort.ts';
 import type { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
 import {
   RuntimeGoalReplaySignalSubController,
@@ -62,6 +62,14 @@ export class RuntimeSignalDomainSubController {
     const muteSignalAudio = isSignalAudioMutedInGoalReplay(ctx);
     switch (sig.signalType) {
       case MATCH_SIGNALS.SYS_CTRL_STATE_ONLY: {
+        const activeActivity = useAppStore.getState().onlineSession?.activeRoomActivity;
+        if (
+          activeActivity === 'freeplay' ||
+          activeActivity === 'multiplayer_training' ||
+          activeActivity === 'match'
+        ) {
+          return true;
+        }
         const isLocalControllerActive = isLocalReplayOrRewinderBlockingLivePhysics(ctx.modeManager);
         reconciler?.setReplayPlaybackMode?.(true);
         if (!isLocalControllerActive) {

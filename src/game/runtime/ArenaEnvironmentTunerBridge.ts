@@ -122,6 +122,10 @@ async function applyUnderDevelopmentRuntimeConfig(
       config.threeWheelsEnabled ? playerIdx : null,
       () => domain.resetKickoff()
     );
+    networkManager.sessionCoordinator.authoritativeServer?.setArenaPreset?.(
+      spec.manifestUrl,
+      spec.arenaPresetIndex
+    );
   }
 
   if (patch.threeWheelsEnabled !== undefined) {

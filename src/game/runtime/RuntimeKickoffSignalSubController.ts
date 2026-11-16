@@ -181,6 +181,19 @@ export class RuntimeKickoffSignalSubController {
           targetFrame > 0
             ? this.latch.lastKickoffTargetFrame !== targetFrame
             : isFirstSeenSignalId || this.latch.lastKickoffTargetFrame !== targetFrame;
+        const appState = useAppStore.getState();
+        const activeActivity = appState.onlineSession?.activeRoomActivity;
+        const isSpectateMirror = Boolean(
+          (reconciler as { spectateMirrorMode?: boolean } | null)?.spectateMirrorMode
+        );
+        if (
+          reconciler.replayPlaybackMode ||
+          activeActivity === 'replay' ||
+          activeActivity === 'multiplayer_training' ||
+          (isSpectateMirror && activeActivity === 'freeplay')
+        ) {
+          return { handled: true, currentTick };
+        }
         const effectiveTick =
           typeof packetServerTick === 'number' && packetServerTick >= 0
             ? packetServerTick

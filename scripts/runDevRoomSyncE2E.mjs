@@ -434,27 +434,50 @@ async function main() {
             const rec = window.__rcE2E.runtime?.networkReconciler;
             if (!ws?.isSpectating || ws.spectateMode !== 'spectate_mirror') return null;
             if (ws.clientInputEnabled !== false || rec?.clientInputEnabled !== false) return null;
+            if (rec?.lobbyDualWorldMode !== false) return null;
             return {
               isSpectating: ws.isSpectating,
               spectateMode: ws.spectateMode,
               clientInputEnabled: ws.clientInputEnabled,
               followHostWorkspace: ws.followHostWorkspace,
               arenaPreset: ws.arenaPreset,
+              lobbyDualWorldMode: rec?.lobbyDualWorldMode,
             };
           })()`),
-        'Client Pure CSR spectate_mirror state',
+        'Client Pure CSR spectate_mirror state & lobbyDualWorldMode=false',
         10_000,
         150
       );
     } catch (err) {
       const diag = await clientCdp
         .eval(
-          `({ ws: window.__rcE2E.getWorkspaceState(), recInput: window.__rcE2E.runtime?.networkReconciler?.clientInputEnabled, hasChHandler: Boolean(window.__rcE2E.runtime?.networkChannel?.onGlobalWorkspaceBroadcast) })`
+          `({ ws: window.__rcE2E.getWorkspaceState(), recInput: window.__rcE2E.runtime?.networkReconciler?.clientInputEnabled, lobbyDual: window.__rcE2E.runtime?.networkReconciler?.lobbyDualWorldMode, hasChHandler: Boolean(window.__rcE2E.runtime?.networkChannel?.onGlobalWorkspaceBroadcast) })`
         )
         .catch(() => null);
       console.error('[DevRoomSyncE2E] Stage 3 diag client:', JSON.stringify(diag));
       throw err;
     }
+
+    // Verify Host & Client ballPos actually converge in Pure CSR
+    const csrBallSync = await waitFor(
+      async () => {
+        const hb = await hostCdp.eval(`(() => {
+          const b = window.__rcE2E.runtime?.physics?.getBallStateView?.();
+          return b ? [b.posX, b.posY, b.posZ] : null;
+        })()`);
+        const cb = await clientCdp.eval(`(() => {
+          const b = window.__rcE2E.runtime?.physics?.getBallStateView?.();
+          return b ? [b.posX, b.posY, b.posZ] : null;
+        })()`);
+        if (!hb || !cb) return null;
+        const dist = Math.hypot(hb[0] - cb[0], hb[1] - cb[1], hb[2] - cb[2]);
+        return dist < 50 ? { dist, hostBall: hb, clientBall: cb } : null;
+      },
+      'Host & Client Pure CSR ballPos convergence',
+      10_000,
+      150
+    );
+    csrState.ballSyncDist = Math.round(csrBallSync.dist * 100) / 100;
 
     // Test Arena Preset Sync via DevRoomSyncFloatingWindow buttons
     await hostCdp.eval(`(() => {
@@ -721,26 +744,32 @@ async function main() {
     // Inject a Replay state frame via authoritativeServer.enterStateOnlyMode & broadcast pause/cameraSync
     await hostCdp.eval(`(() => {
       const server = window.__rcE2E.runtime.authoritativeServer;
-      server?.enterStateOnlyMode?.({
-        ball: { pos: { x: 120, y: -350, z: 240 }, vel: { x: 0, y: 0, z: 0 }, angVel: { x: 0, y: 0, z: 0 } },
-        cars: [{ pos: { x: -400, y: 200, z: 17 }, vel: { x: 0, y: 0, z: 0 }, angVel: { x: 0, y: 0, z: 0 }, forward: { x: 1, y: 0, z: 0 }, up: { x: 0, y: 0, z: 1 }, boost: 55 }],
-      }, 420);
+      const phys = window.__rcE2E.runtime.physics;
+      phys.setBallState?.({ pos: [120, -350, 240], vel: [0, 0, 0], angVel: [0, 0, 0] });
+      const snap = phys.saveCompactState?.() ?? phys.saveState?.();
+      server?.enterStateOnlyMode?.(snap, 420);
       window.__rcE2E.getAppState().bridge.onBroadcastGlobalWorkspace?.({
         playbackPaused: true,
         pausedAtTick: 420,
-        cameraSync: { mode: 'ballcam', targetCarIndex: 0 },
+        cameraSync: { followHostCamera: true, ballCam: true, focusedCarIndex: 0 },
       });
     })()`);
-    await waitFor(
+    const replayClientState = await waitFor(
       () =>
-        clientCdp.eval(
-          `window.__rcE2E.getWorkspaceState()?.playbackPaused === true && window.__rcE2E.getWorkspaceState()?.pausedAtTick === 420`
-        ),
-      'Client Replay pause/tick & camera sync',
-      8_000,
+        clientCdp.eval(`(() => {
+          const ws = window.__rcE2E.getWorkspaceState();
+          const b = window.__rcE2E.runtime?.physics?.getBallStateView?.();
+          if (!ws?.playbackPaused || ws.pausedAtTick !== 420) return null;
+          if (!ws.followHostCamera || ws.hostCameraSync?.ballCam !== true) return null;
+          if (!b) return null;
+          const dist = Math.hypot(b.posX - 120, b.posY - (-350), b.posZ - 240);
+          return dist < 50 ? { dist: Math.round(dist * 100) / 100, ballPos: [Math.round(b.posX), Math.round(b.posY), Math.round(b.posZ)] } : null;
+        })()`),
+      'Client Replay pause/tick, cameraSync & ballPos convergence',
+      10_000,
       150
     );
-    stageResults.replayWatchTogether = { synced: true, pausedAtTick: 420 };
+    stageResults.replayWatchTogether = { synced: true, pausedAtTick: 420, ...replayClientState };
     console.log('[DevRoomSyncE2E] Stage 6 PASS: Replay Watch Together verified.');
 
     // Stage 7: Custom Training Pack (metadata sync + Reset Shot)
@@ -784,15 +813,113 @@ async function main() {
     await waitFor(
       () =>
         clientCdp.eval(
-          `window.__rcE2E.getAppState().onlineSession?.activeRoomActivity === 'match' && window.__rcE2E.runtime?.networkReconciler?.clientInputEnabled === true`
+          `window.__rcE2E.getAppState().onlineSession?.activeRoomActivity === 'match' && window.__rcE2E.runtime?.networkReconciler?.clientInputEnabled === true && window.__rcE2E.runtime?.networkReconciler?.replayPlaybackMode === false`
         ),
       'Client Room Match Auto-Pull + clientInputEnabled=true',
       12_000,
       150
     );
-    await new Promise((r) => setTimeout(r, 1200));
-    stageResults.roomMatchAutoPull = { synced: true };
+    const matchBallSync = await waitFor(
+      async () => {
+        const hb = await hostCdp.eval(`(() => {
+          const b = window.__rcE2E.runtime?.physics?.getBallStateView?.();
+          return b ? [b.posX, b.posY, b.posZ] : null;
+        })()`);
+        const cb = await clientCdp.eval(`(() => {
+          const b = window.__rcE2E.runtime?.physics?.getBallStateView?.();
+          return b ? [b.posX, b.posY, b.posZ] : null;
+        })()`);
+        if (!hb || !cb) return null;
+        const dist = Math.hypot(hb[0] - cb[0], hb[1] - cb[1], hb[2] - cb[2]);
+        return dist < 50 ? { dist: Math.round(dist * 100) / 100 } : null;
+      },
+      'Host & Client Match ballPos convergence',
+      10_000,
+      150
+    );
+    stageResults.roomMatchAutoPull = { synced: true, ...matchBallSync };
     console.log('[DevRoomSyncE2E] Stage 8 PASS: Room Match Auto-Pull verified.');
+
+    // Stage 9: Reverse Transitions (Match -> Replay -> Freeplay/Lobby -> Leave Room)
+    await hostCdp.eval(`(() => {
+      const grids = Array.from(document.querySelectorAll('.grid-cols-4'));
+      for (const g of grids) {
+        const b = Array.from(g.querySelectorAll('button')).find((x) => (x.textContent || '').trim() === 'Replay');
+        if (b) { b.click(); return; }
+      }
+      const btns = Array.from(document.querySelectorAll('button'));
+      btns.find((x) => (x.textContent || '').trim() === 'Replay')?.click();
+    })()`);
+    try {
+      await waitFor(
+        () =>
+          clientCdp.eval(
+            `window.__rcE2E.getAppState().onlineSession?.activeRoomActivity === 'replay' && window.__rcE2E.runtime?.networkReconciler?.replayPlaybackMode === true && window.__rcE2E.getAppState().matchMode !== 'match'`
+          ),
+        'Client Match -> Replay reverse transition',
+        10_000,
+        150
+      );
+    } catch (err) {
+      const hDiag = await hostCdp
+        .eval(
+          `({ active: window.__rcE2E.getAppState().onlineSession?.activeRoomActivity, btns: Array.from(document.querySelectorAll('button')).map(b => (b.textContent || '').trim()).filter(Boolean) })`
+        )
+        .catch(() => null);
+      const cDiag = await clientCdp
+        .eval(
+          `({ active: window.__rcE2E.getAppState().onlineSession?.activeRoomActivity, replayMode: window.__rcE2E.runtime?.networkReconciler?.replayPlaybackMode, matchMode: window.__rcE2E.getAppState().matchMode })`
+        )
+        .catch(() => null);
+      console.error('[DevRoomSyncE2E] Stage 9 diag host:', JSON.stringify(hDiag));
+      console.error('[DevRoomSyncE2E] Stage 9 diag client:', JSON.stringify(cDiag));
+      throw err;
+    }
+    await hostCdp.eval(`(() => {
+      const grids = Array.from(document.querySelectorAll('.grid-cols-4'));
+      for (const g of grids) {
+        const b = Array.from(g.querySelectorAll('button')).find((x) => (x.textContent || '').trim() === 'Freeplay');
+        if (b) { b.click(); return; }
+      }
+      const btns = Array.from(document.querySelectorAll('button'));
+      btns.find((x) => (x.textContent || '').trim() === 'Freeplay')?.click();
+    })()`);
+    try {
+      await waitFor(
+        () =>
+          clientCdp.eval(
+            `window.__rcE2E.getAppState().onlineSession?.activeRoomActivity === 'freeplay' && window.__rcE2E.runtime?.networkReconciler?.replayPlaybackMode === false`
+          ),
+        'Client Replay -> Freeplay (Lobby) reverse transition',
+        10_000,
+        150
+      );
+    } catch (err) {
+      const hDiag = await hostCdp
+        .eval(`window.__rcE2E.getAppState().onlineSession?.activeRoomActivity`)
+        .catch(() => null);
+      const cDiag = await clientCdp
+        .eval(
+          `({ active: window.__rcE2E.getAppState().onlineSession?.activeRoomActivity, replayMode: window.__rcE2E.runtime?.networkReconciler?.replayPlaybackMode, matchMode: window.__rcE2E.getAppState().matchMode })`
+        )
+        .catch(() => null);
+      console.error('[DevRoomSyncE2E] Stage 9b diag host:', JSON.stringify(hDiag));
+      console.error('[DevRoomSyncE2E] Stage 9b diag client:', JSON.stringify(cDiag));
+      throw err;
+    }
+    await clientCdp.eval(`window.__rcE2E.getAppState().bridge.onLeaveOnlineServer?.()`);
+    await waitFor(
+      () =>
+        clientCdp.eval(`(() => {
+          const ws = window.__rcE2E.getWorkspaceState();
+          return ws?.isSpectating === false && ws?.spectateMode === 'spectate_state_only' && ws?.clientInputEnabled === true;
+        })()`),
+      'Client Leave Room restores local workspace state',
+      10_000,
+      150
+    );
+    stageResults.reverseTransitionsAndLeave = { synced: true };
+    console.log('[DevRoomSyncE2E] Stage 9 PASS: Reverse Transitions & Leave Room verified.');
 
     // Final Hard Assertions: runtime_error === 0, poseAnomalies === 0, stuckInGoal === false
     const hostPageErrors = await hostCdp.eval(`window.__e2eErrors || []`);

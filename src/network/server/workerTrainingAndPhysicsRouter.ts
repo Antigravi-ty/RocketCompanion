@@ -25,6 +25,8 @@ export interface WorkerTrainingAndPhysicsPayload extends TrainingRulesetOptions 
   fz?: number;
   gravityScale?: number;
   mutators?: Record<string, unknown>;
+  manifestUrl?: string;
+  arenaPresetIndex?: number;
   paused?: boolean;
   countdownSeconds?: number;
   stateSnapshot?: Float32Array | number[] | null;
@@ -133,6 +135,30 @@ export function routeTrainingAndPhysicsMessage(
     case 'setArenaMutators':
       sim?.setArenaMutators?.(payload.mutators || payload);
       return true;
+
+    case 'setArenaPreset': {
+      const manifestUrl = typeof payload.manifestUrl === 'string' ? payload.manifestUrl : '';
+      const arenaPresetIndex = Number(payload.arenaPresetIndex ?? 0);
+      const reloadSim = sim as
+        | (typeof sim & {
+            reloadMeshes?: (url: string) => Promise<void> | void;
+            setArenaPreset?: (idx: number) => void;
+          })
+        | null
+        | undefined;
+      if (reloadSim?.reloadMeshes && manifestUrl) {
+        Promise.resolve(reloadSim.reloadMeshes(manifestUrl))
+          .then(() => {
+            reloadSim.setArenaPreset?.(arenaPresetIndex);
+          })
+          .catch((err: unknown) => {
+            console.warn('[AuthoritativeServer] setArenaPreset reloadMeshes failed:', err);
+          });
+      } else {
+        reloadSim?.setArenaPreset?.(arenaPresetIndex);
+      }
+      return true;
+    }
 
     case 'resetGoalLatch':
       physicsManager?.resetGoalLatch();

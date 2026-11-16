@@ -257,6 +257,10 @@ export class AuthoritativeServerHost {
     this._postCommand('configureTrainingRuleset', opts);
   }
 
+  setArenaPreset(manifestUrl: string, arenaPresetIndex: number): void {
+    this._postCommand('setArenaPreset', { manifestUrl, arenaPresetIndex });
+  }
+
   switchActivity(payload: Partial<RoomActivitySwitchPayload>): void {
     this._postCommand(MSG.ROOM_ACTIVITY_SWITCH, payload as Record<string, unknown>);
   }

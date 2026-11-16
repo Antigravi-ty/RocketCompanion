@@ -115,6 +115,7 @@ export class PredictionReconciler
   boostPadEdgeTracker = createBoostPadEdgeTracker();
   lobbyDualWorldMode = false;
   hostLobbyMode = false;
+  spectateMirrorMode = false;
   clientInputEnabled = true;
   replayPlaybackMode = false;
   localSkipReplayReady = false;
@@ -246,6 +247,10 @@ export class PredictionReconciler
 
   setClientInputEnabled(enabled: boolean): void {
     this.clientInputEnabled = Boolean(enabled);
+  }
+
+  setSpectateMirrorMode(enabled: boolean): void {
+    this.spectateMirrorMode = Boolean(enabled);
   }
 
   resetTimelineState(preserveTimelineSync = false): void {

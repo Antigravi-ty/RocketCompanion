@@ -58,6 +58,7 @@ export interface ReconcileSessionTarget extends RollbackStepState {
   localCarIndex: number;
   lobbyDualWorldMode: boolean;
   hostLobbyMode: boolean;
+  spectateMirrorMode?: boolean;
   clientInputEnabled?: boolean;
   replayPlaybackMode: boolean;
   kickoffMaskUntilTick: number;
@@ -210,6 +211,7 @@ export function drainAndPrepareInboundSessionPacket(
       channel: session.channel,
       lobbyDualWorldMode: session.lobbyDualWorldMode,
       hostLobbyMode: session.hostLobbyMode,
+      spectateMirrorMode: Boolean(session.spectateMirrorMode),
       replayPlaybackMode: session.replayPlaybackMode,
       isReplayPlaybackMode: () => session.replayPlaybackMode,
       inputBufferTarget: session.pacingController.inputBufferTarget,

@@ -42,6 +42,7 @@ export interface DrainServerPacketsContext {
   channel: TelemetryChannelPort | null | undefined;
   lobbyDualWorldMode: boolean;
   hostLobbyMode: boolean;
+  spectateMirrorMode?: boolean;
   replayPlaybackMode: boolean;
   isReplayPlaybackMode?: () => boolean;
   inputBufferTarget: number;
@@ -206,6 +207,8 @@ export function drainAndParseServerPacketBatch(
             const isStaleLobbyPhysicsInMatch =
               !ctx.lobbyDualWorldMode &&
               !ctx.hostLobbyMode &&
+              !ctx.spectateMirrorMode &&
+              !ctx.replayPlaybackMode &&
               !ctx.channel?.isLoopback &&
               typeof physMask === 'number' &&
               (physMask & 0xc0) !== 0;

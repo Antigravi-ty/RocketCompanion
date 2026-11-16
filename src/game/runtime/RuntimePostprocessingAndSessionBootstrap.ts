@@ -294,13 +294,39 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
           if (payload && payload.cameraSync && camera) {
             applyCameraSyncToPort(camera, payload.cameraSync);
           }
-          const reconciler = (
-            sessionCoordinator as {
-              networkReconciler?: { setClientInputEnabled?: (enabled: boolean) => void } | null;
+          const coord = sessionCoordinator as {
+            networkReconciler?: {
+              lobbyDualWorldMode?: boolean;
+              hostLobbyMode?: boolean;
+              setLobbyDualWorldMode?: (enabled: boolean) => void;
+              setSpectateMirrorMode?: (enabled: boolean) => void;
+              setClientInputEnabled?: (enabled: boolean) => void;
+            } | null;
+            lobbyDualWorld?: {
+              configureArenaLobbyFlags?: (isLobby: boolean, isHostLobby: boolean) => void;
+            } | null;
+          };
+          const probe = diagnosticsProbe as {
+            setMultiWorldGhostVisible?: (visible: boolean) => void;
+            configureLobbyGhostMode?: (enabled: boolean) => void;
+          };
+          const reconciler = coord.networkReconciler;
+          if (reconciler && payload) {
+            if (payload.followHostWorkspace) {
+              reconciler.setSpectateMirrorMode?.(true);
+              if (reconciler.lobbyDualWorldMode) {
+                reconciler.setLobbyDualWorldMode?.(false);
+              }
+              reconciler.hostLobbyMode = false;
+              coord.lobbyDualWorld?.configureArenaLobbyFlags?.(false, false);
+              probe.setMultiWorldGhostVisible?.(false);
+              probe.configureLobbyGhostMode?.(false);
+            } else if (payload.followHostWorkspace === false) {
+              reconciler.setSpectateMirrorMode?.(false);
             }
-          ).networkReconciler;
-          if (payload && typeof payload.clientInputEnabled === 'boolean') {
-            reconciler?.setClientInputEnabled?.(payload.clientInputEnabled);
+            if (typeof payload.clientInputEnabled === 'boolean') {
+              reconciler.setClientInputEnabled?.(payload.clientInputEnabled);
+            }
           }
         };
       }

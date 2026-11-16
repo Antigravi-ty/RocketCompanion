@@ -21,6 +21,7 @@ import {
   createMatchModeTransitionBridge,
   type MatchModeTransitionDomainPort,
 } from './MatchModeTransitionBridge.ts';
+import { resetRuntimeMatchStateToFreeplay } from './onlineSessionEnvironmentPipeline.ts';
 
 export type CameraControlDomainPort = Pick<RuntimeDomainPortOwner, 'camera' | 'networkManager'>;
 export type OnlineMatchControlDomainPort = MatchModeTransitionDomainPort & {
@@ -260,6 +261,12 @@ export function createRuntimeMatchPort(domain: OnlineMatchControlDomainPort): Ru
         stateSummary: summary,
       });
       getReconciler()?.setReplayPlaybackMode?.(opts.activityId === 'replay');
+      if (opts.activityId !== 'match') {
+        if (domain.match?.state?.mode === 'match' || storeState.matchMode === 'match') {
+          resetRuntimeMatchStateToFreeplay(domain.match ?? null, 'freeplay');
+          storeState.setMatchMode?.('freeplay');
+        }
+      }
       storeState.setOnlineSession?.({
         activeRoomActivity: opts.activityId,
         ...(opts.activityId === 'multiplayer_training'
