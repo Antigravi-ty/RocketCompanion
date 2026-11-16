@@ -71,6 +71,7 @@ export interface MultiplayerSessionCallbacks {
   onColorSelect?: (carIdx: number, slotId: number | null, hex: string | null) => void;
   onPairingApprovalRequest?: (request: PendingPairingRequest) => void;
   onUnexpectedDisconnect?: () => void;
+  onTelestratorBytes?: (bytes: Uint8Array, peerId?: string) => void;
   resolvePlayerName?: () => string;
   resolveTeamColor?: (assignedTeam: number | null) => SessionColorSelection | null;
 }
@@ -327,6 +328,9 @@ export class MultiplayerSessionManager {
             connectRemoteSessionTunnelEndpoint(this.getTunnelState(), peerCh, endpoint, peerId);
           }
         },
+        onTelestratorBytes: (peerId, bytes) => {
+          this.callbacks.onTelestratorBytes?.(bytes, peerId);
+        },
       }
     );
 
@@ -365,6 +369,17 @@ export class MultiplayerSessionManager {
   ): number {
     if (!this.isHosting || !this.hostController) return 0;
     return this.hostController.broadcastGlobalWorkspace(payload);
+  }
+
+  broadcastTelestratorBytes(bytes: Uint8Array, reliable = true): number {
+    if (this.isHosting && this.hostController) {
+      return this.hostController.broadcastTelestratorBytes(bytes, reliable);
+    }
+    const ch = this.clientController?.channel;
+    if (ch && (ch.connected || ch.isOpen)) {
+      return ch.sendTelestratorBytes(bytes, reliable) ? 1 : 0;
+    }
+    return 0;
   }
 
   async reprobeAndRefreshHostSignaling(): Promise<void> {
@@ -420,6 +435,9 @@ export class MultiplayerSessionManager {
         },
         joinServer: async (cfg) => {
           this.bindChannelTunnelExchange(cfg.channel, 'host');
+          cfg.channel.onTelestratorBytes = (bytes) => {
+            this.callbacks.onTelestratorBytes?.(bytes, 'host');
+          };
           cfg.channel.onPeerKick = (msg) => {
             console.warn('[MultiplayerSessionManager] Kicked from room by host:', msg);
             this.updateSessionStatus({

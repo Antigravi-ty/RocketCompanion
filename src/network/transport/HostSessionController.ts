@@ -11,6 +11,7 @@ import {
   sanitizeGlobalWorkspaceBroadcast,
   type GlobalWorkspaceBroadcastPayload,
 } from '../protocol/GlobalWorkspaceProtocol.ts';
+import { handleHostInboundTelestratorBytes } from './hostTelestratorRelay.ts';
 
 export const DEFAULT_MAX_INPUT_CHANNELS = 6;
 export const DEFAULT_MAX_BROADCAST_CHANNELS = 16;
@@ -42,6 +43,7 @@ export interface HostSessionCallbacks {
   onIceCandidate?: (cand: RTCIceCandidateInit | Record<string, unknown>, peerId: string) => void;
   getLocalTunnelDescriptor?: () => Record<string, unknown> | null;
   onRemoteTunnelEndpoint?: (endpoint: Record<string, unknown>, peerId: string) => void;
+  onTelestratorBytes?: (peerId: string, bytes: Uint8Array) => void;
 }
 
 export interface ConnectedPeerSummary {
@@ -84,6 +86,7 @@ export class HostSessionController {
     config?: Record<string, unknown>;
   } | null = null;
   activeGlobalWorkspace: GlobalWorkspaceBroadcastPayload | null = null;
+  telestratorAllowedClientIds = new Set<string>();
 
   constructor(options: HostSessionOptions, callbacks: HostSessionCallbacks = {}) {
     this.roomId = options.roomId;
@@ -179,6 +182,22 @@ export class HostSessionController {
         ch.peerColorHex = msg.hex;
       }
       this.callbacks.onColorChange?.(cIdx, msg.slotId, msg.hex);
+    };
+
+    ch.onTelestratorBytes = (bytes: Uint8Array) => {
+      const activePeerId = ch.peerId || peerId;
+      handleHostInboundTelestratorBytes(
+        {
+          allowClientDrawing: this.activeGlobalWorkspace?.telestratorPermission === 'everyone',
+          allowedClientIds: this.telestratorAllowedClientIds,
+          peerChannels: this.peerChannels,
+          onLocalDeliver: (senderId, outBytes) =>
+            this.callbacks.onTelestratorBytes?.(senderId, outBytes),
+        },
+        activePeerId,
+        ch,
+        bytes
+      );
     };
 
     ch.onIceCandidate = (cand: RTCIceCandidateInit | Record<string, unknown>) => {
@@ -481,6 +500,23 @@ export class HostSessionController {
     return sentCount;
   }
 
+  setTelestratorAllowedClientIds(ids: readonly string[]): void {
+    this.telestratorAllowedClientIds.clear();
+    for (const id of ids) {
+      if (id) this.telestratorAllowedClientIds.add(id);
+    }
+  }
+
+  broadcastTelestratorBytes(bytes: Uint8Array, reliable = true): number {
+    let sentCount = 0;
+    for (const ch of this.peerChannels.values()) {
+      if ((ch.connected || ch.isOpen) && ch.sendTelestratorBytes(bytes, reliable)) {
+        sentCount++;
+      }
+    }
+    return sentCount;
+  }
+
   cleanup(): void {
     this.offersSentTime.clear();
     this.peerRoles.clear();
@@ -490,6 +526,7 @@ export class HostSessionController {
     this._activityEpoch = 0;
     this.activeRoomActivity = null;
     this.activeGlobalWorkspace = null;
+    this.telestratorAllowedClientIds.clear();
     for (const ch of this.peerChannels.values()) {
       try {
         ch.destroy();

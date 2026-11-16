@@ -8,7 +8,7 @@ import {
   type TelestratorColorId,
   type TelestratorPresetIndex,
   type TelestratorStrokeDebugDump,
-} from '../../entities/telestrator/telestratorTypes';
+} from '../../entities/telestrator/telestratorTypes.ts';
 
 export interface TelestratorRuntimeHandlers {
   onUndo?: () => void;
@@ -80,8 +80,9 @@ export interface TelestratorState {
 export function canLocalDrawInTelestrator(s: TelestratorState): boolean {
   if (!s.strokesVisible) return false;
   if (s.isHost) return true;
+  if (s.allowClientDrawing) return true;
   if (!s.isCameraSynced) return false;
-  return s.allowClientDrawing || s.allowedClientIds.includes(s.localAuthorId);
+  return s.allowedClientIds.includes(s.localAuthorId);
 }
 
 export const useTelestratorStore = create<TelestratorState>((set, get) => ({

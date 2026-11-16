@@ -34,14 +34,29 @@ import {
   sanitizeGlobalWorkspaceBroadcast,
 } from '../src/network/protocol/GlobalWorkspaceProtocol.ts';
 import { useSpectateWorkspaceStore } from '../src/ui-core/stores/spectateWorkspaceStore.ts';
+import {
+  canLocalDrawInTelestrator,
+  useTelestratorStore,
+} from '../src/ui-core/stores/telestratorStore.ts';
+import { TelestratorManager } from '../src/entities/telestrator/TelestratorManager.ts';
+import {
+  applyRemoteTelestratorWireBytes,
+  canTelestratorDrawNow,
+} from '../src/game/subsystems/telestratorOverlayHelpers.ts';
 import { computeStrokeHash } from '../src/entities/telestrator/telestratorStrokeMath.ts';
 import {
+  TELESTRATOR_WIRE_MSG_TYPE,
   decodeHostPermissionSync,
+  decodeTelestratorClear,
   decodeTelestratorHashAck,
   decodeTelestratorStroke,
+  decodeTelestratorUndo,
   encodeHostPermissionSync,
+  encodeTelestratorClear,
   encodeTelestratorHashAck,
   encodeTelestratorStroke,
+  encodeTelestratorUndo,
+  getTelestratorWireMsgType,
 } from '../src/network/protocol/TelestratorWireCodec.ts';
 import type {
   TelestratorBrushTool,
@@ -1019,6 +1034,212 @@ async function testPureCsrSyncAllAndDualInputGating(): Promise<void> {
   hostController.cleanup();
 }
 
+async function testTelestratorFullLinkSyncAndPermissions(): Promise<void> {
+  // 1. Binary codec round-trip for Undo & Clear
+  const undoBytes = encodeTelestratorUndo({ authorId: 'peer_a', strokeId: 's_123' });
+  assert.equal(getTelestratorWireMsgType(undoBytes), TELESTRATOR_WIRE_MSG_TYPE.STROKE_UNDO);
+  const decodedUndo = decodeTelestratorUndo(undoBytes);
+  assert.equal(decodedUndo?.authorId, 'peer_a');
+  assert.equal(decodedUndo?.strokeId, 's_123');
+
+  const clearBytes = encodeTelestratorClear({ scope: 'all', authorId: 'host' });
+  assert.equal(getTelestratorWireMsgType(clearBytes), TELESTRATOR_WIRE_MSG_TYPE.STROKE_CLEAR);
+  const decodedClear = decodeTelestratorClear(clearBytes);
+  assert.equal(decodedClear?.scope, 'all');
+  assert.equal(decodedClear?.authorId, 'host');
+
+  // 2. Dual-store linkage & isCameraSynced gate fix
+  useTelestratorStore.getState().setHostRole(false, 'peer_a');
+  useTelestratorStore.getState().setIsCameraSynced(false);
+  useTelestratorStore.getState().setAllowClientDrawing(false);
+  assert.equal(canTelestratorDrawNow(useTelestratorStore.getState()), false);
+  assert.equal(canLocalDrawInTelestrator(useTelestratorStore.getState()), false);
+
+  useSpectateWorkspaceStore.getState().applyHostWorkspaceBroadcast(
+    sanitizeGlobalWorkspaceBroadcast({
+      epoch: 2,
+      tick: 100,
+      menuRoute: null,
+      openFloatingWindows: [],
+      telestratorPermission: 'everyone',
+      clientInputEnabled: false,
+      followHostWorkspace: false,
+      arenaPreset: 'standard',
+    })
+  );
+  assert.equal(useSpectateWorkspaceStore.getState().telestratorPermission, 'everyone');
+  assert.equal(useTelestratorStore.getState().allowClientDrawing, true);
+  assert.equal(useTelestratorStore.getState().isCameraSynced, true);
+  assert.equal(canTelestratorDrawNow(useTelestratorStore.getState()), true);
+  assert.equal(canLocalDrawInTelestrator(useTelestratorStore.getState()), true);
+
+  // 3. Full P2P 0x05 transport loop: HostSessionController + 2 Clients (peer_a, peer_b)
+  const hostManager = new TelestratorManager();
+  const peerAManager = new TelestratorManager();
+  const peerBManager = new TelestratorManager();
+
+  const hostController = new HostSessionController(
+    { roomId: 'room-tele-1', playerName: 'Host' },
+    {
+      onTelestratorBytes: (_peerId, bytes) => {
+        applyRemoteTelestratorWireBytes(hostManager, bytes, () => {});
+      },
+    }
+  );
+
+  const hostChA = hostController._createPeerChannel('peer_a', 'Alice', 'player');
+  const hostChB = hostController._createPeerChannel('peer_b', 'Bob', 'spectator');
+  const clientTransportA = new DataChannelTransport({
+    simulator: new NetworkSimulator({}),
+    signaling: new CrossTabSignaling({ roomId: 'room-tele-1' }),
+  });
+  const clientTransportB = new DataChannelTransport({
+    simulator: new NetworkSimulator({}),
+    signaling: new CrossTabSignaling({ roomId: 'room-tele-1' }),
+  });
+
+  const wirePair = (hostCh: typeof hostChA, clientT: DataChannelTransport) => {
+    const dcToClient = {
+      readyState: 'open',
+      send: (payload: unknown) => clientT.handleIncomingMessage(payload as never),
+      close: () => {},
+    } as unknown as RTCDataChannel;
+    const dcToHost = {
+      readyState: 'open',
+      send: (payload: unknown) => hostCh.transport.handleIncomingMessage(payload as never),
+      close: () => {},
+    } as unknown as RTCDataChannel;
+    hostCh.dataChannel = dcToClient;
+    hostCh.isOpen = true;
+    clientT.dataChannel = dcToHost;
+    clientT.isWebRTCOpen = true;
+  };
+  wirePair(hostChA, clientTransportA);
+  wirePair(hostChB, clientTransportB);
+
+  const clientAAcks: Array<{ strokeId: string; matched: boolean }> = [];
+  const clientAPermSyncs: boolean[] = [];
+  clientTransportA.onTelestratorBytes = (bytes) => {
+    const t = getTelestratorWireMsgType(bytes);
+    if (t === TELESTRATOR_WIRE_MSG_TYPE.STROKE_HASH_ACK) {
+      const ack = decodeTelestratorHashAck(bytes);
+      if (ack) clientAAcks.push({ strokeId: ack.strokeId, matched: ack.matched });
+    } else if (t === TELESTRATOR_WIRE_MSG_TYPE.HOST_PERMISSION_SYNC) {
+      const sync = decodeHostPermissionSync(bytes);
+      if (sync) clientAPermSyncs.push(sync.allowClientDrawing);
+    }
+    applyRemoteTelestratorWireBytes(peerAManager, bytes, () => {});
+  };
+  clientTransportB.onTelestratorBytes = (bytes) => {
+    applyRemoteTelestratorWireBytes(peerBManager, bytes, () => {});
+  };
+
+  const makeStroke = (id: string, authorId: string, seq: number): TelestratorStroke => {
+    const pts: TelestratorPoint[] = [
+      { x: 0, y: 100, z: 20, nx: 0, ny: 0, nz: 1 },
+      { x: 200, y: 300, z: 20, nx: 0, ny: 0, nz: 1 },
+    ];
+    const hash = computeStrokeHash('solid', 'yellow', 0, 0.9, 10, 20, 12, pts);
+    return {
+      id,
+      authorId,
+      strokeSeq: seq,
+      tool: 'solid',
+      colorId: 'yellow',
+      presetIndex: 0,
+      opacity: 0.9,
+      widthRefPx: 10,
+      arrowLengthRefPx: 20,
+      arrowWidthRefPx: 12,
+      camPos: { x: 0, y: -1500, z: 400 },
+      camForward: { x: 0, y: 1, z: -0.2 },
+      camFovDeg: 90,
+      createdTick: 100,
+      fadeDurationTicks: 0,
+      points: pts,
+      hash,
+    };
+  };
+
+  // 3a. When host_only, Peer A stroke must be blocked & rejected with HOST_PERMISSION_SYNC
+  hostController.broadcastGlobalWorkspace({
+    epoch: 1,
+    tick: 10,
+    menuRoute: null,
+    openFloatingWindows: [],
+    telestratorPermission: 'host_only',
+  });
+  const blockedStroke = makeStroke('stroke_blocked', 'peer_a', 1);
+  assert.equal(clientTransportA.sendTelestratorBytes(encodeTelestratorStroke(blockedStroke, false), true), true);
+  assert.equal(hostManager.getStrokeCount(), 0, 'Host must reject client stroke under host_only');
+  assert.equal(peerBManager.getStrokeCount(), 0, 'Peer B must not receive rejected client stroke');
+  assert.deepEqual(clientAPermSyncs, [false], 'Peer A must receive HOST_PERMISSION_SYNC(false)');
+
+  // 3b. Switch to everyone: Peer A draft + commit -> Host + Peer B receive + Peer A gets STROKE_HASH_ACK
+  hostController.broadcastGlobalWorkspace({
+    epoch: 2,
+    tick: 20,
+    menuRoute: null,
+    openFloatingWindows: [],
+    telestratorPermission: 'everyone',
+  });
+  const aliceStroke = makeStroke('stroke_alice_1', 'peer_a', 2);
+  peerAManager.addOrReplaceRemoteStroke(aliceStroke);
+  clientTransportA.sendTelestratorBytes(encodeTelestratorStroke(aliceStroke, true), false);
+  assert.equal(hostManager.getStrokeCount(), 1, 'Host must apply Peer A draft');
+  assert.equal(peerBManager.getStrokeCount(), 1, 'Peer B must receive relayed Peer A draft');
+
+  clientTransportA.sendTelestratorBytes(encodeTelestratorStroke(aliceStroke, false), true);
+  assert.equal(hostManager.getStrokeCount(), 1, 'Host must replace draft with committed stroke');
+  assert.equal(peerBManager.getStrokeCount(), 1, 'Peer B must replace draft with committed stroke');
+  assert.equal(clientAAcks.length, 1);
+  assert.equal(clientAAcks[0].strokeId, 'stroke_alice_1');
+  assert.equal(clientAAcks[0].matched, true);
+
+  // 3c. Peer A undo -> Host & Peer B both remove stroke
+  peerAManager.undoOwnStroke('peer_a');
+  clientTransportA.sendTelestratorBytes(
+    encodeTelestratorUndo({ authorId: 'peer_a', strokeId: 'stroke_alice_1' }),
+    true
+  );
+  assert.equal(hostManager.getStrokeCount(), 0, 'Host must undo Peer A stroke');
+  assert.equal(peerBManager.getStrokeCount(), 0, 'Peer B must undo Peer A stroke');
+
+  // 3d. Host draws + Peer A draws -> Peer A tries scope:'all' clear -> Host downgrades to scope:'own'
+  const hostStroke = makeStroke('stroke_host_1', 'host', 1);
+  hostManager.addOrReplaceRemoteStroke(hostStroke);
+  hostController.broadcastTelestratorBytes(encodeTelestratorStroke(hostStroke, false), true);
+  assert.equal(peerAManager.getStrokeCount(), 1);
+  assert.equal(peerBManager.getStrokeCount(), 1);
+
+  const aliceStroke2 = makeStroke('stroke_alice_2', 'peer_a', 3);
+  peerAManager.addOrReplaceRemoteStroke(aliceStroke2);
+  clientTransportA.sendTelestratorBytes(encodeTelestratorStroke(aliceStroke2, false), true);
+  assert.equal(hostManager.getStrokeCount(), 2);
+  assert.equal(peerBManager.getStrokeCount(), 2);
+
+  clientTransportA.sendTelestratorBytes(
+    encodeTelestratorClear({ scope: 'all', authorId: 'peer_a' }),
+    true
+  );
+  assert.equal(hostManager.getStrokeCount(), 1, 'Client clear(all) must only clear own strokes on Host');
+  assert.equal(peerBManager.getStrokeCount(), 1, 'Client clear(all) must only clear own strokes on Peer B');
+  assert.equal(hostManager.getAllStrokes()[0].id, 'stroke_host_1');
+
+  // 3e. Host clear(all) clears everything
+  hostManager.clearStrokesByScope('all', 'host');
+  hostController.broadcastTelestratorBytes(encodeTelestratorClear({ scope: 'all', authorId: 'host' }), true);
+  assert.equal(peerAManager.getStrokeCount(), 0);
+  assert.equal(peerBManager.getStrokeCount(), 0);
+
+  hostManager.dispose();
+  peerAManager.dispose();
+  peerBManager.dispose();
+  clientTransportA.signaling.destroy();
+  clientTransportB.signaling.destroy();
+  hostController.cleanup();
+}
+
 async function main(): Promise<void> {
   console.log('=== RocketCompanion Multiplayer Suite Test Matrix ===');
   await runSection('1. Tunnel Transport & Kick/Leave Bidirectional Signaling', testTunnelAndKickLeaveSignaling);
@@ -1032,6 +1253,7 @@ async function main(): Promise<void> {
   await runSection('9. ROOM_ACTIVITY_SWITCH Wire Delivery & Epoch Ordering', testRoomActivitySwitchWireAndEpochOrdering);
   await runSection('10. ReliableTunnelFramer Multi-Chunk Out-of-Order & Loss Recovery', testReliableTunnelFramerOutOfOrderAndMultiDrop);
   await runSection('11. Pure CSR Sync All, Dual-End Input Gating & Workspace Broadcast', testPureCsrSyncAllAndDualInputGating);
+  await runSection('12. Telestrator (0x05) Full-Link Sync, Dual-Store Linkage & Permission Gating', testTelestratorFullLinkSyncAndPermissions);
   console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
 }
 

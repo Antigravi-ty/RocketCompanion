@@ -389,6 +389,19 @@ export class TelestratorManager {
     return null;
   }
 
+  public undoRemoteStroke(authorId: string, strokeId?: string): TelestratorStroke | null {
+    if (strokeId) {
+      const idx = this.strokes.findIndex((e) => e.stroke.id === strokeId);
+      if (idx >= 0) {
+        const [removed] = this.strokes.splice(idx, 1);
+        this.rootGroup.remove(removed.group);
+        disposeThreeGroup(removed.group);
+        return removed.stroke;
+      }
+    }
+    return this.undoOwnStroke(authorId);
+  }
+
   public clearStrokesByScope(scope: 'own' | 'all', authorId = 'local'): void {
     this.cancelDraft();
     if (scope === 'all') {

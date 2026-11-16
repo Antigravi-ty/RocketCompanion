@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useTelestratorStore } from './telestratorStore.ts';
 
 export type SpectateMode = 'spectate_state_only' | 'spectate_mirror';
 export type TelestratorDrawPermission = 'host_only' | 'everyone';
@@ -139,7 +140,9 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
   },
 
   setTelestratorPermission: (permission) => {
-    set({ telestratorPermission: permission === 'everyone' ? 'everyone' : 'host_only' });
+    const next = permission === 'everyone' ? 'everyone' : 'host_only';
+    set({ telestratorPermission: next });
+    useTelestratorStore.getState().setAllowClientDrawing(next === 'everyone');
   },
 
   setClientInputEnabled: (enabled) => {
@@ -157,6 +160,9 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
   applyHostWorkspaceBroadcast: (payload, applyWorkspaceState, captureLocalState) => {
     const s = get();
     const nextWindows = payload.openFloatingWindows.map((w) => ({ ...w }));
+    const telestrator = useTelestratorStore.getState();
+    telestrator.setIsCameraSynced(true);
+    telestrator.setAllowClientDrawing(payload.telestratorPermission === 'everyone');
     const nextClientInputEnabled =
       typeof payload.clientInputEnabled === 'boolean'
         ? payload.clientInputEnabled

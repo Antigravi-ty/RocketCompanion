@@ -5,6 +5,7 @@ import {
   useSpectateWorkspaceStore,
   type FloatingWindowSyncEntry,
 } from '../../ui-core/stores/spectateWorkspaceStore.ts';
+import { useTelestratorStore } from '../../ui-core/stores/telestratorStore.ts';
 import {
   sanitizeGlobalWorkspaceBroadcast,
   type GlobalWorkspaceBroadcastPayload,
@@ -78,6 +79,10 @@ export function resetSpectateWorkspaceOnLeave(): void {
   ws.setSpectatingActive(false, undefined, applyWorkspaceStateLocally);
   ws.setFollowHostWorkspace(false);
   ws.setClientInputEnabled(true);
+  const telestrator = useTelestratorStore.getState();
+  telestrator.setHostRole(true, 'local');
+  telestrator.setAllowClientDrawing(false);
+  telestrator.setAllowedClientIds([]);
 }
 
 export function syncClientInputEnabledUi(enabled: boolean): void {
@@ -99,6 +104,13 @@ export function applyIncomingWorkspaceBroadcast(
       applyWorkspaceStateLocally,
       captureLocalWorkspaceState
     );
+  const telestrator = useTelestratorStore.getState();
+  telestrator.setHostRole(
+    false,
+    telestrator.localAuthorId === 'local' ? 'client' : telestrator.localAuthorId
+  );
+  telestrator.setIsCameraSynced(true);
+  telestrator.setAllowClientDrawing(sanitized.telestratorPermission === 'everyone');
   if (sanitized.arenaPreset) {
     const app = useAppStore.getState();
     if (app.underDevelopment?.stadiumPreset !== sanitized.arenaPreset) {

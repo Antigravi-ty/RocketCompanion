@@ -313,6 +313,14 @@ export class GameRuntime implements GameRuntimeUiBridgePort {
     this.ballTrajectoryPredictor = sceneGraph.ballTrajectoryPredictor;
     this.reachabilityVisualizer = sceneGraph.reachabilityVisualizer;
     this.multiplayerSession = sceneGraph.multiplayerSession;
+    if (this.multiplayerSession) {
+      this.telestratorOverlay.setNetworkTransport(
+        (bytes, reliable) => this.multiplayerSession?.broadcastTelestratorBytes(bytes, reliable) ?? 0
+      );
+      this.multiplayerSession.callbacks.onTelestratorBytes = (bytes) => {
+        this.telestratorOverlay.handleRemoteTelestratorBytes(bytes);
+      };
+    }
     this.gameUI = sceneGraph.gameUI;
     this.renderer = sceneGraph.renderer;
     this.boostBloom = sceneGraph.boostBloom;

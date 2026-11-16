@@ -341,3 +341,78 @@ export function decodeHostPermissionSync(
     return null;
   }
 }
+
+export function getTelestratorWireMsgType(bytes: Uint8Array): number | null {
+  if (bytes.byteLength < 5) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.getUint32(0, true) !== WIRE_MAGIC) return null;
+  return view.getUint8(4);
+}
+
+export interface TelestratorUndoMsg {
+  authorId: string;
+  strokeId?: string;
+}
+
+export function encodeTelestratorUndo(msg: TelestratorUndoMsg): Uint8Array {
+  const authorBytes = textEncoder.encode(msg.authorId);
+  const strokeBytes = textEncoder.encode(msg.strokeId ?? '');
+  const buffer = new ArrayBuffer(10 + authorBytes.length + strokeBytes.length);
+  const view = new DataView(buffer);
+  const out = new Uint8Array(buffer);
+  view.setUint32(0, WIRE_MAGIC, true);
+  view.setUint8(4, TELESTRATOR_WIRE_MSG_TYPE.STROKE_UNDO);
+  view.setUint8(5, 0);
+  view.setUint16(6, authorBytes.length, true);
+  view.setUint16(8, strokeBytes.length, true);
+  out.set(authorBytes, 10);
+  out.set(strokeBytes, 10 + authorBytes.length);
+  return out;
+}
+
+export function decodeTelestratorUndo(bytes: Uint8Array): TelestratorUndoMsg | null {
+  if (bytes.byteLength < 10) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.getUint32(0, true) !== WIRE_MAGIC) return null;
+  if (view.getUint8(4) !== TELESTRATOR_WIRE_MSG_TYPE.STROKE_UNDO) return null;
+  const authorLen = view.getUint16(6, true);
+  const strokeLen = view.getUint16(8, true);
+  if (bytes.byteLength < 10 + authorLen + strokeLen) return null;
+  const authorId = textDecoder.decode(bytes.subarray(10, 10 + authorLen));
+  const strokeId =
+    strokeLen > 0
+      ? textDecoder.decode(bytes.subarray(10 + authorLen, 10 + authorLen + strokeLen))
+      : undefined;
+  return { authorId, strokeId };
+}
+
+export interface TelestratorClearMsg {
+  scope: 'own' | 'all';
+  authorId: string;
+}
+
+export function encodeTelestratorClear(msg: TelestratorClearMsg): Uint8Array {
+  const authorBytes = textEncoder.encode(msg.authorId);
+  const buffer = new ArrayBuffer(8 + authorBytes.length);
+  const view = new DataView(buffer);
+  const out = new Uint8Array(buffer);
+  view.setUint32(0, WIRE_MAGIC, true);
+  view.setUint8(4, TELESTRATOR_WIRE_MSG_TYPE.STROKE_CLEAR);
+  view.setUint8(5, msg.scope === 'all' ? 1 : 0);
+  view.setUint16(6, authorBytes.length, true);
+  out.set(authorBytes, 8);
+  return out;
+}
+
+export function decodeTelestratorClear(bytes: Uint8Array): TelestratorClearMsg | null {
+  if (bytes.byteLength < 8) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.getUint32(0, true) !== WIRE_MAGIC) return null;
+  if (view.getUint8(4) !== TELESTRATOR_WIRE_MSG_TYPE.STROKE_CLEAR) return null;
+  const scope: 'own' | 'all' = view.getUint8(5) === 1 ? 'all' : 'own';
+  const authorLen = view.getUint16(6, true);
+  if (bytes.byteLength < 8 + authorLen) return null;
+  const authorId = textDecoder.decode(bytes.subarray(8, 8 + authorLen));
+  return { scope, authorId };
+}
+

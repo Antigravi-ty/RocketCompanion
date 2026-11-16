@@ -5,6 +5,12 @@
 
 import { InputPacketCodec, type InputHistoryEntry } from '../../protocol/InputPacketCodec.ts';
 import type { CarControlsInput } from '../../protocol/GlobalPayloadCodec.ts';
+import {
+  TUNNEL_ENVELOPE_FLAGS,
+  TUNNEL_PACKET_TYPES,
+  encodeTunnelEnvelope,
+} from '../../protocol/TunnelProtocol.ts';
+import type { TunnelFramerBridgeState } from './tunnelFramerBridge.ts';
 import type { SimulatedPayload } from './NetworkSimulator.ts';
 import {
   injectLoopbackCandidate,
@@ -73,6 +79,7 @@ export type DataChannelTransportEvent =
   | { readonly type: 'peer_leave'; readonly payload: Record<string, unknown> }
   | { readonly type: 'voice_signal'; readonly payload: Record<string, unknown> }
   | { readonly type: 'global_workspace_broadcast'; readonly payload: Record<string, unknown> }
+  | { readonly type: 'telestrator_sync'; readonly payload: Uint8Array }
   | { readonly type: 'packet'; readonly payload: SimulatedPayload };
 
 export function parseInboundControlFrame(raw: string): InboundControlFrame | null {
@@ -441,4 +448,49 @@ export function normalizeGatheredCandidate(rtcCand: RTCIceCandidate): IceCandida
     });
   }
   return extracted;
+}
+
+export function transmitTelestratorEnvelope(
+  controlDc: RTCDataChannel | null,
+  fallbackSnapshotDc: RTCDataChannel | null,
+  tunnelBridge: TunnelFramerBridgeState,
+  roomChannel: BroadcastChannel | null,
+  bytes: Uint8Array,
+  reliable = true
+): boolean {
+  const flags = reliable ? TUNNEL_ENVELOPE_FLAGS.RELIABLE : TUNNEL_ENVELOPE_FLAGS.NONE;
+  const envelope = encodeTunnelEnvelope(TUNNEL_PACKET_TYPES.TELESTRATOR_SYNC, bytes, flags);
+  const targetDc =
+    reliable && controlDc && controlDc.readyState === 'open'
+      ? controlDc
+      : fallbackSnapshotDc && fallbackSnapshotDc.readyState === 'open'
+        ? fallbackSnapshotDc
+        : controlDc && controlDc.readyState === 'open'
+          ? controlDc
+          : null;
+  if (targetDc) {
+    try {
+      (targetDc as unknown as { send(data: Uint8Array): void }).send(envelope);
+      return true;
+    } catch (err) {
+      console.warn('[P2PWebRTCChannel] Failed to send telestrator frame via DataChannel:', err);
+    }
+  }
+  if (tunnelBridge.tunnel?.isOpen && tunnelBridge.remotePeerId) {
+    if (reliable && tunnelBridge.framer && tunnelBridge.framer.sendReliable(envelope)) {
+      return true;
+    }
+    if (tunnelBridge.tunnel.sendToPeer(tunnelBridge.remotePeerId, envelope, reliable)) {
+      return true;
+    }
+  }
+  if (roomChannel) {
+    try {
+      roomChannel.postMessage(envelope);
+      return true;
+    } catch (err) {
+      console.warn('[P2PWebRTCChannel] Failed to send telestrator frame via RoomChannel:', err);
+    }
+  }
+  return false;
 }

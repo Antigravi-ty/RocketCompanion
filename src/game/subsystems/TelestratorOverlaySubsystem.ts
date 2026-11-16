@@ -13,8 +13,14 @@ import {
   fetchArenaCollisionMeshes,
   preloadThrowbackCollisionMeshes,
 } from '../../physics/RocketSimMeshLoader.ts';
+import {
+  encodeTelestratorClear,
+  encodeTelestratorStroke,
+  encodeTelestratorUndo,
+} from '../../network/protocol/TelestratorWireCodec.ts';
 import { useTelestratorStore } from '../runtimeUiPort.ts';
 import {
+  applyRemoteTelestratorWireBytes,
   canTelestratorDrawNow,
   clientPointToNdc,
   collectTelestratorRaycastTargets,
@@ -68,6 +74,8 @@ export class TelestratorOverlaySubsystem {
   private lastPointerX = 0;
   private lastPointerY = 0;
   private lastWireBytes = 0;
+  private lastDraftSendMs = 0;
+  private sendNetworkBytes: ((bytes: Uint8Array, reliable: boolean) => void) | null = null;
   private unsubKeyDown: (() => void) | null = null;
   private unsubStore: (() => void) | null = null;
   private standardCmfMeshes: THREE.Mesh[] | null = null;
@@ -105,6 +113,19 @@ export class TelestratorOverlaySubsystem {
         probeAt: (x: number, y: number) => this.probeScreenPoint(x, y),
       };
     }
+  }
+
+  public setNetworkTransport(
+    sendFn: ((bytes: Uint8Array, reliable: boolean) => void) | null
+  ): void {
+    this.sendNetworkBytes = sendFn;
+  }
+
+  public handleRemoteTelestratorBytes(bytes: Uint8Array): void {
+    if (this.runtime.arena?.scene) {
+      this.telestrator.attachToScene(this.runtime.arena.scene);
+    }
+    applyRemoteTelestratorWireBytes(this.telestrator, bytes, () => this.syncStrokeStoreState());
   }
 
   public activate(): void {
@@ -238,8 +259,14 @@ export class TelestratorOverlaySubsystem {
 
   private undoLastStroke(): void {
     const st = useTelestratorStore.getState();
-    this.telestrator.undoOwnStroke(st.localAuthorId);
+    const undone = this.telestrator.undoOwnStroke(st.localAuthorId);
     this.syncStrokeStoreState();
+    if (undone && this.sendNetworkBytes) {
+      this.sendNetworkBytes(
+        encodeTelestratorUndo({ authorId: st.localAuthorId, strokeId: undone.id }),
+        true
+      );
+    }
   }
 
   private clearStrokes(): void {
@@ -247,6 +274,9 @@ export class TelestratorOverlaySubsystem {
     const scope = st.isHost && st.pendingClearPurge ? 'all' : 'own';
     this.telestrator.clearStrokesByScope(scope, st.localAuthorId);
     this.syncStrokeStoreState();
+    if (this.sendNetworkBytes) {
+      this.sendNetworkBytes(encodeTelestratorClear({ scope, authorId: st.localAuthorId }), true);
+    }
   }
 
   private syncStrokeStoreState(): void {
@@ -426,7 +456,7 @@ export class TelestratorOverlaySubsystem {
     const { hit, diag } = raycastScreenToArenaWithDiag(ndcX, ndcY, cam, this.getRaycastTargets());
     this.pointerDiag.record('move', hit ? 'ok' : 'no-hit', move, hit, diag);
     if (!hit) return;
-    this.telestrator.appendDraftPoint({
+    const appended = this.telestrator.appendDraftPoint({
       x: hit.point.x,
       y: hit.point.y,
       z: hit.point.z,
@@ -434,6 +464,16 @@ export class TelestratorOverlaySubsystem {
       ny: hit.normal.y,
       nz: hit.normal.z,
     });
+    if (appended && this.sendNetworkBytes) {
+      const now = performance.now();
+      if (now - this.lastDraftSendMs >= 50) {
+        const draft = this.telestrator.getDraftStrokeSnapshot();
+        if (draft) {
+          this.lastDraftSendMs = now;
+          this.sendNetworkBytes(encodeTelestratorStroke(draft, true), false);
+        }
+      }
+    }
   }
 
   private handlePointerUp(e: PointerEvent): void {
@@ -448,6 +488,7 @@ export class TelestratorOverlaySubsystem {
     if (committed) {
       this.lastWireBytes = verifyTelestratorStrokeWire(committed);
       this.syncStrokeStoreState();
+      this.sendNetworkBytes?.(encodeTelestratorStroke(committed, false), true);
     }
   }
 
@@ -461,7 +502,9 @@ export class TelestratorOverlaySubsystem {
     this.isDrawingPointerDown = false;
     const committed = this.telestrator.endStroke();
     if (committed) {
+      this.lastWireBytes = verifyTelestratorStrokeWire(committed);
       this.syncStrokeStoreState();
+      this.sendNetworkBytes?.(encodeTelestratorStroke(committed, false), true);
     }
   }
 

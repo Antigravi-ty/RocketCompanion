@@ -17,6 +17,11 @@ import {
   type RoomActivitySwitchPayload,
   type StatePausedAckPayload,
 } from '../../protocol/ReplicationBusProtocol.ts';
+import {
+  TUNNEL_PACKET_TYPES,
+  decodeTunnelEnvelope,
+  isTunnelEnvelope,
+} from '../../protocol/TunnelProtocol.ts';
 import type { TunnelTransport } from '../tunnel/TunnelTransport.ts';
 import { ReliableTunnelFramer } from '../tunnel/ReliableTunnelFramer.ts';
 import {
@@ -33,6 +38,7 @@ import {
   transmitClonedPayload,
   dispatchDualChannelControlFrame,
   transmitReliableControlFrame,
+  transmitTelestratorEnvelope,
   type PendingColorChangeState,
   type StructuredClientInputPacket,
   type ClientInputPacketPayload,
@@ -113,6 +119,7 @@ export class DataChannelTransport {
   onPeerLeave: ControlPayloadListener | null = null;
   onVoiceSignal: ControlPayloadListener | null = null;
   onGlobalWorkspaceBroadcast: ControlPayloadListener | null = null;
+  onTelestratorBytes: ((bytes: Uint8Array) => void) | null = null;
 
   private readonly tunnelBridge = createTunnelFramerBridgeState();
   private readonly utf8Decoder = new TextDecoder();
@@ -270,6 +277,16 @@ export class DataChannelTransport {
         this.tunnelBridge.framer.handleIncomingFrame(data);
       }
       return;
+    }
+
+    if (isTunnelEnvelope(data)) {
+      const env = decodeTunnelEnvelope(data);
+      if (env && env.header.packetType === TUNNEL_PACKET_TYPES.TELESTRATOR_SYNC) {
+        const payloadCopy = new Uint8Array(env.payload);
+        this.transportEvents.push({ type: 'telestrator_sync', payload: payloadCopy });
+        this.onTelestratorBytes?.(payloadCopy);
+        return;
+      }
     }
 
     if (isSparsePingPong16B(data)) {
@@ -444,6 +461,17 @@ export class DataChannelTransport {
     return this.sendReliableControl(
       { type: 'global_workspace_broadcast', ...payload },
       'global_workspace_broadcast'
+    );
+  }
+
+  sendTelestratorBytes(bytes: Uint8Array, reliable = true): boolean {
+    return transmitTelestratorEnvelope(
+      this.controlDataChannel,
+      this.resolveActiveDataChannel(),
+      this.tunnelBridge,
+      this.signaling.roomBroadcastChannel,
+      bytes,
+      reliable
     );
   }
 

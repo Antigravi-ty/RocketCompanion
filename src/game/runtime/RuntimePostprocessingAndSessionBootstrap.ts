@@ -10,6 +10,7 @@ import {
   detachVoiceFromPeer,
   applyIncomingWorkspaceBroadcast,
   resetSpectateWorkspaceOnLeave,
+  useTelestratorStore,
 } from '../runtimeUiPort.ts';
 import { BallTrajectoryPredictor } from '../../entities/BallTrajectoryPredictor.ts';
 import { bindBallTrajectoryAnomalyUiBridge } from '../../entities/trajectory/ballTrajectoryAnomalyUiBridge.ts';
@@ -247,10 +248,17 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
       notifyNetworkTelemetryExportAvailable('disconnected');
     },
     async onHostServer(opts: HostRoomSettings) {
+      const telestrator = useTelestratorStore.getState();
+      telestrator.setHostRole(true, 'host');
+      telestrator.setIsCameraSynced(true);
       await sessionCoordinator.hostOnlineServer(opts);
     },
     async onStopServer() {
       detachVoiceFromPeer('*');
+      const telestrator = useTelestratorStore.getState();
+      telestrator.setHostRole(true, 'local');
+      telestrator.setAllowClientDrawing(false);
+      telestrator.setAllowedClientIds([]);
       await sessionCoordinator.stopOnlineServer();
     },
     async onLeaveServer() {
@@ -259,6 +267,12 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
       await sessionCoordinator.stopOnlineServer();
     },
     async onJoinServer(opts: JoinRoomSettings) {
+      const telestrator = useTelestratorStore.getState();
+      const authorId =
+        (opts.channel as { peerId?: string } | undefined)?.peerId ||
+        (typeof opts.playerName === 'string' && opts.playerName ? opts.playerName : 'client');
+      telestrator.setHostRole(false, authorId);
+      telestrator.setIsCameraSynced(true);
       await sessionCoordinator.joinOnlineServer(opts);
       if (opts.channel) {
         attachVoiceToPeerChannel(

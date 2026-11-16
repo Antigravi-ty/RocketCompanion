@@ -81,6 +81,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   onPeerLeave: ChannelHook<[Record<string, unknown>]> = null;
   onVoiceSignal: ChannelHook<[Record<string, unknown>]> = null;
   onGlobalWorkspaceBroadcast: ChannelHook<[Record<string, unknown>]> = null;
+  onTelestratorBytes: ChannelHook<[Uint8Array]> = null;
 
   readonly attachTunnelTransport: DataChannelTransport['attachTunnelTransport'];
   readonly detachTunnelTransport: DataChannelTransport['detachTunnelTransport'];
@@ -93,6 +94,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   readonly sendReliableControl: DataChannelTransport['sendReliableControl'];
   readonly sendVoiceSignal: DataChannelTransport['sendVoiceSignal'];
   readonly sendGlobalWorkspaceBroadcast: DataChannelTransport['sendGlobalWorkspaceBroadcast'];
+  readonly sendTelestratorBytes: DataChannelTransport['sendTelestratorBytes'];
   readonly sendRoomActivitySwitch: DataChannelTransport['sendRoomActivitySwitch'];
   readonly sendStatePausedAck: DataChannelTransport['sendStatePausedAck'];
   readonly sendCsrStateBroadcast: DataChannelTransport['sendCsrStateBroadcast'];
@@ -225,6 +227,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
     this.transport.onPeerLeave = (msg) => this.onPeerLeave?.(msg);
     this.transport.onVoiceSignal = (msg) => this.onVoiceSignal?.(msg);
     this.transport.onGlobalWorkspaceBroadcast = (msg) => this.onGlobalWorkspaceBroadcast?.(msg);
+    this.transport.onTelestratorBytes = (bytes) => this.onTelestratorBytes?.(bytes);
     this.send = this.transport.send.bind(this.transport);
     this.sendClientInput = this.transport.sendClientInput.bind(this.transport);
     this.sendServerState = this.transport.send.bind(this.transport);
@@ -235,6 +238,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
     this.sendGlobalWorkspaceBroadcast = this.transport.sendGlobalWorkspaceBroadcast.bind(
       this.transport
     );
+    this.sendTelestratorBytes = this.transport.sendTelestratorBytes.bind(this.transport);
     this.sendRoomActivitySwitch = this.transport.sendRoomActivitySwitch.bind(this.transport);
     this.sendStatePausedAck = this.transport.sendStatePausedAck.bind(this.transport);
     this.sendCsrStateBroadcast = this.transport.sendCsrStateBroadcast.bind(this.transport);

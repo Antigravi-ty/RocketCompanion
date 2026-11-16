@@ -1,9 +1,14 @@
 import * as THREE from 'three';
 import {
+  TELESTRATOR_WIRE_MSG_TYPE,
+  decodeHostPermissionSync,
+  decodeTelestratorClear,
   decodeTelestratorHashAck,
   decodeTelestratorStroke,
+  decodeTelestratorUndo,
   encodeTelestratorHashAck,
   encodeTelestratorStroke,
+  getTelestratorWireMsgType,
 } from '../../network/protocol/TelestratorWireCodec.ts';
 import type { TelestratorManager } from '../../entities/telestrator/TelestratorManager.ts';
 import type { TelestratorStroke } from '../../entities/telestrator/telestratorTypes.ts';
@@ -24,8 +29,9 @@ export function canTelestratorDrawNow(
 ): boolean {
   if (!st.strokesVisible) return false;
   if (st.isHost) return true;
+  if (st.allowClientDrawing) return true;
   if (!st.isCameraSynced) return false;
-  return st.allowClientDrawing || st.allowedClientIds.includes(st.localAuthorId);
+  return st.allowedClientIds.includes(st.localAuthorId);
 }
 
 export function shouldTelestratorTakeOverPointer(): boolean {
@@ -181,4 +187,56 @@ export function collectTelestratorRaycastTargets(
     }
   }
   return { cmfTargets, stadiumTargets };
+}
+
+export function applyRemoteTelestratorWireBytes(
+  telestrator: TelestratorManager,
+  bytes: Uint8Array,
+  onMutated: () => void
+): boolean {
+  const msgType = getTelestratorWireMsgType(bytes);
+  if (msgType === null) return false;
+
+  if (
+    msgType === TELESTRATOR_WIRE_MSG_TYPE.STROKE_COMMIT ||
+    msgType === TELESTRATOR_WIRE_MSG_TYPE.STROKE_DRAFT
+  ) {
+    const decoded = decodeTelestratorStroke(bytes);
+    if (!decoded) return false;
+    telestrator.addOrReplaceRemoteStroke(decoded.stroke);
+    onMutated();
+    return true;
+  }
+
+  if (msgType === TELESTRATOR_WIRE_MSG_TYPE.STROKE_UNDO) {
+    const msg = decodeTelestratorUndo(bytes);
+    if (!msg) return false;
+    telestrator.undoRemoteStroke(msg.authorId, msg.strokeId);
+    onMutated();
+    return true;
+  }
+
+  if (msgType === TELESTRATOR_WIRE_MSG_TYPE.STROKE_CLEAR) {
+    const msg = decodeTelestratorClear(bytes);
+    if (!msg) return false;
+    telestrator.clearStrokesByScope(msg.scope, msg.authorId);
+    onMutated();
+    return true;
+  }
+
+  if (msgType === TELESTRATOR_WIRE_MSG_TYPE.HOST_PERMISSION_SYNC) {
+    const sync = decodeHostPermissionSync(bytes);
+    if (!sync) return false;
+    const st = useTelestratorStore.getState();
+    st.setAllowClientDrawing?.(sync.allowClientDrawing);
+    st.setAllowedClientIds?.(sync.allowedClientIds);
+    st.setStrokesVisible?.(sync.strokesVisible);
+    return true;
+  }
+
+  if (msgType === TELESTRATOR_WIRE_MSG_TYPE.STROKE_HASH_ACK) {
+    return decodeTelestratorHashAck(bytes) !== null;
+  }
+
+  return false;
 }
