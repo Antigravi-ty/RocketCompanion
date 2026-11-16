@@ -136,14 +136,18 @@ function spawnTauriDev(): void {
   });
 }
 
-async function restartForTauriChange(previousSig: string | null, nextSig: string): Promise<void> {
+async function restartForTauriChange(
+  previousSig: string | null,
+  nextSig: string,
+  reason: string
+): Promise<void> {
   if (isShuttingDown || isRestarting) return;
   isRestarting = true;
   baselineSignature = nextSig;
   baselineHeadSha = readHeadSha();
 
   console.log(
-    `\n[tauri-dev-watch] Native src-tauri/ change detected:\n  prev: ${previousSig ?? 'none'}\n  next: ${nextSig}\n-> Restarting Tauri dev shell & Vite servers...`
+    `\n[tauri-dev-watch] ${reason} detected:\n  prev: ${previousSig ?? 'none'}\n  next: ${nextSig}\n-> Restarting Tauri dev shell & Vite servers (incremental rebuild updates tray/title Commit ID)...`
   );
 
   try {
@@ -157,7 +161,7 @@ async function restartForTauriChange(previousSig: string | null, nextSig: string
   }
 }
 
-function scheduleTauriRestart(previousSig: string | null): void {
+function scheduleTauriRestart(previousSig: string | null, reason: string): void {
   if (isShuttingDown || isRestarting) return;
 
   if (!settleTimer) {
@@ -175,13 +179,13 @@ function scheduleTauriRestart(previousSig: string | null): void {
     if (isShuttingDown || isRestarting) return;
 
     if (isCheckoutLockActive(REPO_ROOT_DIR) && Date.now() - settleStartAt < SETTLE_MAX_WAIT_MS) {
-      scheduleTauriRestart(previousSig);
+      scheduleTauriRestart(previousSig, reason);
       return;
     }
 
     const settled = readCompositeGitHeadState(REPO_ROOT_DIR);
     if (!settled.signature) return;
-    void restartForTauriChange(previousSig, settled.signature);
+    void restartForTauriChange(previousSig, settled.signature, reason);
   }, delay);
   settleTimer.unref?.();
 }
@@ -194,13 +198,18 @@ function checkCheckoutSignals(): void {
     lastSeenEventId = event.eventId;
     const prevSig = baselineSignature;
     const currentSig = readCompositeGitHeadState(REPO_ROOT_DIR).signature;
-    if (event.tauriChanged) {
-      scheduleTauriRestart(prevSig);
+    const nextSha = event.nextHead || readHeadSha();
+    const commitChanged = Boolean(nextSha && baselineHeadSha && nextSha !== baselineHeadSha);
+    if (event.tauriChanged || commitChanged) {
+      const reason = event.tauriChanged
+        ? `Native src-tauri/ change (${event.hook})`
+        : `HEAD commit change (${event.hook})`;
+      scheduleTauriRestart(prevSig, reason);
     } else {
       baselineSignature = currentSig ?? baselineSignature;
-      baselineHeadSha = event.nextHead || readHeadSha();
+      baselineHeadSha = nextSha;
       console.log(
-        `\n[tauri-dev-watch] Frontend-only checkout (${event.hook}); keeping Tauri shell alive while Vite servers restart.`
+        `\n[tauri-dev-watch] Same-commit checkout (${event.hook}); keeping Tauri shell alive while Vite servers restart.`
       );
     }
     return;
@@ -218,13 +227,15 @@ function checkCheckoutSignals(): void {
   if (current.signature !== baselineSignature && !settleTimer) {
     const nextSha = readHeadSha();
     const tauriChanged = didTauriChangeSince(baselineHeadSha, nextSha);
-    if (tauriChanged) {
-      scheduleTauriRestart(baselineSignature);
+    const commitChanged = Boolean(nextSha && baselineHeadSha && nextSha !== baselineHeadSha);
+    if (tauriChanged || commitChanged) {
+      const reason = tauriChanged ? 'Native src-tauri/ change' : 'HEAD commit change';
+      scheduleTauriRestart(baselineSignature, reason);
     } else {
       baselineSignature = current.signature;
       baselineHeadSha = nextSha;
       console.log(
-        '\n[tauri-dev-watch] Frontend-only HEAD change detected; keeping Tauri shell alive while Vite servers restart.'
+        '\n[tauri-dev-watch] Same-commit HEAD ref change detected; keeping Tauri shell alive while Vite servers restart.'
       );
     }
   }
