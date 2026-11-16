@@ -51,12 +51,14 @@ async function startAllServers() {
       configFile: false,
     });
     await server.listen();
-    if (ep.role === 'entry') {
+    if (ep.role === 'entry' || ep.role === 'tuner') {
       try {
         await (
           server as ViteDevServer & { waitForRequestsIdle?: () => Promise<void> }
         ).waitForRequestsIdle?.();
-        await server.warmupRequest('/src/entry/main.tsx');
+        await server.warmupRequest(
+          ep.role === 'entry' ? '/src/entry/main.tsx' : '/src/ui-tuner/main.tsx'
+        );
       } catch {
         // Ignore warmup errors
       }
