@@ -106,13 +106,45 @@ export function createReversedLoopBuffer(
   return revBuffer;
 }
 
+const ENGINE_AUDIO_FETCH_TIMEOUT_MS = 15000;
+const ENGINE_AUDIO_DECODE_TIMEOUT_MS = 10000;
+
+async function fetchWithTimeout(
+  url: string,
+  timeoutMs = ENGINE_AUDIO_FETCH_TIMEOUT_MS
+): Promise<Response> {
+  if (typeof AbortController === 'undefined') {
+    return await fetch(url);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchAndDecodeBuffer(ctx: AudioContext, url: string): Promise<AudioBuffer> {
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url);
   if (!res.ok) {
     throw new Error(`HTTP ${res.status} fetching ${url}`);
   }
   const arrayBuf = await res.arrayBuffer();
-  return await ctx.decodeAudioData(arrayBuf);
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      ctx.decodeAudioData(arrayBuf),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`Audio decode timed out for ${url}`)),
+          ENGINE_AUDIO_DECODE_TIMEOUT_MS
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
 }
 
 export function getResolvedEngineAudioPackAssets(
@@ -123,14 +155,15 @@ export function getResolvedEngineAudioPackAssets(
 
 export function loadEngineAudioPackAssets(
   ctx: AudioContext,
-  packId: EngineAudioPackId = 'turtle_modem'
+  packId: EngineAudioPackId = 'turtle_modem',
+  onProgress?: ((loaded: number, total: number, file: string) => void) | null
 ): Promise<LoadedEngineAudioPackAssets> {
   const existing = packAssetCache.get(packId);
   if (existing) return existing;
 
   const descriptor = getEngineAudioPack(packId);
   const promise = (async () => {
-    const metaRes = await fetch(descriptor.metadataUrl);
+    const metaRes = await fetchWithTimeout(descriptor.metadataUrl);
     if (!metaRes.ok) {
       throw new Error(`HTTP ${metaRes.status} fetching ${descriptor.metadataUrl}`);
     }
@@ -233,6 +266,7 @@ export function loadEngineAudioPackAssets(
           rms,
         };
         loadedCount++;
+        onProgress?.(loadedCount, totalSlices, sliceMeta.on_file || '');
         if (loadedCount === totalSlices || loadedCount % 5 === 0) {
           publishEngineAudioTelemetry({
             loadedSlicesCount: loadedCount,
@@ -280,5 +314,10 @@ export function loadEngineAudioPackAssets(
   })();
 
   packAssetCache.set(packId, promise);
+  promise.catch(() => {
+    if (packAssetCache.get(packId) === promise) {
+      packAssetCache.delete(packId);
+    }
+  });
   return promise;
 }

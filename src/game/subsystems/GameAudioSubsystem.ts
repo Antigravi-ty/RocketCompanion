@@ -60,7 +60,9 @@ export class GameAudioSubsystem {
     const r = this.runtime;
     const ctx = getAudioContext();
     if (ctx) {
-      await loadEngineAudioPackAssets(ctx, 'turtle_modem').catch((err) => {
+      await loadEngineAudioPackAssets(ctx, 'turtle_modem', (loaded, total, file) => {
+        onProgress?.(loaded, total, file);
+      }).catch((err) => {
         console.warn('[GameAudioSubsystem] Engine audio pack preload warning:', err);
       });
       await yieldIdleSlice(16);
@@ -69,7 +71,9 @@ export class GameAudioSubsystem {
     await yieldIdleSlice(16);
     await r.flipResetVisual?.preloadAudio?.();
     await yieldIdleSlice(24);
-    await r.arena?.prepareAssets?.();
+    await r.arena?.prepareAssets?.((loaded: number, total: number, label: string) => {
+      onProgress?.(loaded, total, label);
+    });
   }
 
   public resetMatchClockTracking(durationSeconds = -1): void {
