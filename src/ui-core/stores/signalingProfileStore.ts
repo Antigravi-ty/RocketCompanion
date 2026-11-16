@@ -67,6 +67,7 @@ export interface SignalingProfileStoreState {
   errorMessage: string | null;
   probeResults: SignalingRelayProbeViewItem[];
   lastExport: SignalingProfileExportSnapshot | null;
+  snapshotExpanded?: boolean;
   bridge: SignalingProfileBridgeCallbacks;
 
   syncStatus: (patch: {

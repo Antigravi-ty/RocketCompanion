@@ -33,7 +33,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Full-mesh EMQX CN/GB + Supabase JP/SG physical dir/brg isolation, 4-bit mask, and 5-layer anti-loop guards',
   icon: 'wifi',
   layer: 'layer4',
-  profileTierPolicy: 'tier-invariant',
+  profileTierPolicy: 'user-dev-split',
   menuGroup: 'menu-layer',
   defaultSizing: {
     mode: 'adaptive',

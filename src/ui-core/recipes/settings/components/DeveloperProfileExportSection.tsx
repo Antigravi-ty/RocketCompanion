@@ -44,8 +44,18 @@ export const DeveloperProfileExportSection: React.FC<DeveloperProfileExportSecti
     const isBusy = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.isBusy);
     const lastExport = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.lastExport);
     const exportBundle = useScopedStore('signalingProfileStore', useSignalingProfileStore, (s) => s.exportBundle);
+    const snapshotExpanded = useScopedStore(
+      'signalingProfileStore',
+      useSignalingProfileStore,
+      (s) => s.snapshotExpanded
+    );
 
-    const [isExpanded, setIsExpanded] = useState(false);
+    const [isExpanded, setIsExpanded] = useState(Boolean(snapshotExpanded));
+    React.useEffect(() => {
+      if (typeof snapshotExpanded === 'boolean') {
+        setIsExpanded(snapshotExpanded);
+      }
+    }, [snapshotExpanded]);
     const [showOverride, setShowOverride] = useState(false);
     const [windowMinutes, setWindowMinutes] = useState<number>(15);
     const [customPin, setCustomPin] = useState<string>('');

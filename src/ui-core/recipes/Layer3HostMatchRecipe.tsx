@@ -91,6 +91,32 @@ export const SURFACE_META: SurfaceMeta = {
       },
     },
     {
+      variantId: 'idle-pack-imported',
+      label: 'Idle · Imported Pack Signaling',
+      description: 'Host Match with imported .rctbnspib signaling bundle active.',
+      profileTier: 'pack-imported',
+      bundleSource: 'imported-bundle',
+      entryFile: 'recipes/online/OnlineRoomIdentityFields.tsx',
+      storeOverrides: {
+        onlineRoomStore: { defaultEditingConfig: false, progressStatus: 'idle', currentStep: 1 },
+        signalingProfileStore: { source: 'imported-bundle', shortHash: 'imp-a1b2', hasProbedOnce: true, probeResults: [{ ok: true }] },
+      },
+    },
+    {
+      variantId: 'idle-dev-private',
+      label: 'Idle · Dev Private Signaling',
+      description: 'Host Match with developer private 4-server signaling profile active.',
+      tier: 'developer',
+      profileTier: 'developer',
+      bundleSource: 'dev-private',
+      entryFile: 'recipes/online/OnlineRoomIdentityFields.tsx',
+      storeOverrides: {
+        appStore: { developerMode: true },
+        onlineRoomStore: { defaultEditingConfig: false, progressStatus: 'idle', currentStep: 1 },
+        signalingProfileStore: { source: 'dev-private', shortHash: 'dev-9f8e', hasProbedOnce: true, probeResults: [{ ok: true }] },
+      },
+    },
+    {
       variantId: 'running-step-3',
       label: 'Step 3/5 · Registering Room Code',
       description: 'Binding room access code and key on the peer discovery relay.',

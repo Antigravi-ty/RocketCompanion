@@ -40,7 +40,15 @@ export interface SurfaceSizingSpec {
   mode?: SurfaceSizingMode;
 }
 
-export type ProfileTierVariantKind = 'anonymous' | 'signed-in' | 'developer';
+export type ProfileTierVariantKind =
+  | 'anonymous'
+  | 'pack-imported'
+  | 'signed-in'
+  | 'developer';
+
+export type VariantAuthTier = 'anonymous' | 'signed-in' | 'developer';
+export type VariantBundleSource = 'public' | 'custom' | 'imported-bundle' | 'dev-private';
+export type VariantRuntimePlatform = 'web' | 'tauri';
 
 export type SurfaceProfileTierPolicy =
   | 'tier-invariant'
@@ -53,6 +61,9 @@ export interface SurfaceVariantMeta {
   description?: string;
   entryFile?: string;
   profileTier?: ProfileTierVariantKind;
+  authTier?: VariantAuthTier;
+  bundleSource?: VariantBundleSource;
+  runtimePlatform?: VariantRuntimePlatform;
   tier?: 'user' | 'developer';
   storeOverrides?: Record<string, Record<string, unknown>>;
 }

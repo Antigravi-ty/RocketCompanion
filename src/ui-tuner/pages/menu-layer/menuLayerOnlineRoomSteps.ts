@@ -91,6 +91,9 @@ export interface OnlineRoomProgressStepSpec {
   status: Layer3StepProgressStatus;
   step: number;
   editing?: boolean;
+  tier?: 'user' | 'developer';
+  profileTier?: LinearPlaylistStep['profileTier'];
+  storeOverrides?: Record<string, Record<string, unknown>>;
   label: string;
   description: string;
 }
@@ -98,7 +101,7 @@ export interface OnlineRoomProgressStepSpec {
 /**
  * Streamlined Host Match inspection steps:
  * Removes redundant running intermediate steps and focuses on Idle, Expanded,
- * Probe/Signaling Error (Step 2/5), Room Code Error (Step 3/5), and Completed (Step 5/5).
+ * Signaling Source variations, Probe/Signaling Error (Step 2/5), Room Code Error (Step 3/5), and Completed (Step 5/5).
  */
 export const HOST_MATCH_PROGRESS_STEPS: OnlineRoomProgressStepSpec[] = [
   {
@@ -116,6 +119,42 @@ export const HOST_MATCH_PROGRESS_STEPS: OnlineRoomProgressStepSpec[] = [
     editing: true,
     label: 'Expanded (Editing Rules)',
     description: 'Expanded configuration editor showing Team Format, Bot Fill Policy, Match Duration, and Advanced Settings.',
+  },
+  {
+    suffix: 'idle-pack-imported',
+    status: 'idle',
+    step: 1,
+    editing: false,
+    profileTier: 'pack-imported',
+    storeOverrides: {
+      signalingProfileStore: {
+        source: 'imported-bundle',
+        shortHash: 'imp-a1b2',
+        hasProbedOnce: true,
+        probeResults: [{ ok: true }],
+      },
+    },
+    label: 'Idle · Imported Pack Signaling',
+    description: 'Host Match with imported .rctbnspib signaling bundle active.',
+  },
+  {
+    suffix: 'idle-dev-private',
+    status: 'idle',
+    step: 1,
+    editing: false,
+    tier: 'developer',
+    profileTier: 'developer',
+    storeOverrides: {
+      appStore: { developerMode: true },
+      signalingProfileStore: {
+        source: 'dev-private',
+        shortHash: 'dev-9f8e',
+        hasProbedOnce: true,
+        probeResults: [{ ok: true }],
+      },
+    },
+    label: 'Idle · Dev Private Signaling',
+    description: 'Host Match with developer private 4-server signaling profile active.',
   },
   {
     suffix: 'error-signaling',
@@ -145,7 +184,7 @@ export const HOST_MATCH_PROGRESS_STEPS: OnlineRoomProgressStepSpec[] = [
 
 /**
  * Streamlined Host Training inspection steps:
- * Focuses on Idle, Probe/Signaling Error (Step 2/5), Room Code Error (Step 3/5), and Completed (Step 5/5).
+ * Focuses on Idle, Signaling Source variations, Probe/Signaling Error (Step 2/5), Room Code Error (Step 3/5), and Completed (Step 5/5).
  */
 export const HOST_TRAINING_PROGRESS_STEPS: OnlineRoomProgressStepSpec[] = [
   {
@@ -154,6 +193,40 @@ export const HOST_TRAINING_PROGRESS_STEPS: OnlineRoomProgressStepSpec[] = [
     step: 1,
     label: 'Idle (Default Setup)',
     description: 'Default host training setup with identity fields and Ghost Mode collision policy.',
+  },
+  {
+    suffix: 'idle-pack-imported',
+    status: 'idle',
+    step: 1,
+    profileTier: 'pack-imported',
+    storeOverrides: {
+      signalingProfileStore: {
+        source: 'imported-bundle',
+        shortHash: 'imp-a1b2',
+        hasProbedOnce: true,
+        probeResults: [{ ok: true }],
+      },
+    },
+    label: 'Idle · Imported Pack Signaling',
+    description: 'Host Training with imported .rctbnspib signaling bundle active.',
+  },
+  {
+    suffix: 'idle-dev-private',
+    status: 'idle',
+    step: 1,
+    tier: 'developer',
+    profileTier: 'developer',
+    storeOverrides: {
+      appStore: { developerMode: true },
+      signalingProfileStore: {
+        source: 'dev-private',
+        shortHash: 'dev-9f8e',
+        hasProbedOnce: true,
+        probeResults: [{ ok: true }],
+      },
+    },
+    label: 'Idle · Dev Private Signaling',
+    description: 'Host Training with developer private signaling profile active.',
   },
   {
     suffix: 'error-signaling',
@@ -189,6 +262,40 @@ export const JOIN_ROOM_PROGRESS_STEPS: OnlineRoomProgressStepSpec[] = [
     step: 1,
     label: 'Idle (Enter Room Code)',
     description: 'Initial client join room form with room code, optional key, and spectating relay toggle.',
+  },
+  {
+    suffix: 'idle-pack-imported',
+    status: 'idle',
+    step: 1,
+    profileTier: 'pack-imported',
+    storeOverrides: {
+      signalingProfileStore: {
+        source: 'imported-bundle',
+        shortHash: 'imp-a1b2',
+        hasProbedOnce: true,
+        probeResults: [{ ok: true }],
+      },
+    },
+    label: 'Idle · Imported Pack Signaling',
+    description: 'Join Room with imported .rctbnspib signaling bundle active.',
+  },
+  {
+    suffix: 'idle-dev-private',
+    status: 'idle',
+    step: 1,
+    tier: 'developer',
+    profileTier: 'developer',
+    storeOverrides: {
+      appStore: { developerMode: true },
+      signalingProfileStore: {
+        source: 'dev-private',
+        shortHash: 'dev-9f8e',
+        hasProbedOnce: true,
+        probeResults: [{ ok: true }],
+      },
+    },
+    label: 'Idle · Dev Private Signaling',
+    description: 'Join Room with developer private signaling profile active.',
   },
   {
     suffix: 'error-signaling',
@@ -228,8 +335,11 @@ export const MANAGE_ROOM_PLAYLIST_STEPS: LinearPlaylistStep[] =
 export const HOST_MATCH_PLAYLIST_STEPS: LinearPlaylistStep[] =
   HOST_MATCH_PROGRESS_STEPS.map((hm) => ({
     id: `user-l3-host-match-${hm.suffix}`,
-    tier: 'user',
+    variantId: hm.suffix,
+    tier: hm.tier ?? 'user',
     route: 'host-match',
+    profileTier: hm.profileTier,
+    storeOverrides: hm.storeOverrides,
     progressStatus: hm.status,
     currentStep: hm.step,
     defaultEditingConfig: hm.editing,
@@ -241,8 +351,11 @@ export const HOST_MATCH_PLAYLIST_STEPS: LinearPlaylistStep[] =
 export const HOST_TRAINING_PLAYLIST_STEPS: LinearPlaylistStep[] =
   HOST_TRAINING_PROGRESS_STEPS.map((ht) => ({
     id: `user-l3-host-training-${ht.suffix}`,
-    tier: 'user',
+    variantId: ht.suffix,
+    tier: ht.tier ?? 'user',
     route: 'host-training',
+    profileTier: ht.profileTier,
+    storeOverrides: ht.storeOverrides,
     progressStatus: ht.status,
     currentStep: ht.step,
     layer: 3,
@@ -253,8 +366,11 @@ export const HOST_TRAINING_PLAYLIST_STEPS: LinearPlaylistStep[] =
 export const JOIN_ROOM_PLAYLIST_STEPS: LinearPlaylistStep[] =
   JOIN_ROOM_PROGRESS_STEPS.map((jr) => ({
     id: `user-l3-join-room-${jr.suffix}`,
-    tier: 'user',
+    variantId: jr.suffix,
+    tier: jr.tier ?? 'user',
     route: 'join-room',
+    profileTier: jr.profileTier,
+    storeOverrides: jr.storeOverrides,
     progressStatus: jr.status,
     currentStep: jr.step,
     layer: 3,

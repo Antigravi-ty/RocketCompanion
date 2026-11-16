@@ -93,11 +93,7 @@ export function resolveLedgerVariantRecord(
   variantId: string
 ): SurfaceVariantApprovalUnit | undefined {
   if (!ledgerRecord?.variants || variantId === 'default') return undefined;
-  if (ledgerRecord.variants[variantId]) return ledgerRecord.variants[variantId];
-  const stripped = variantId
-    .replace(/^(?:user|dev)-l\d+-(?:garage|settings|main-menu)-/, '')
-    .replace(/^(?:user|dev)-l1-/, '');
-  return ledgerRecord.variants[stripped];
+  return ledgerRecord.variants[variantId];
 }
 
 export function extractAlphaMotherDeps(record?: SurfaceApprovalRecord): string[] {

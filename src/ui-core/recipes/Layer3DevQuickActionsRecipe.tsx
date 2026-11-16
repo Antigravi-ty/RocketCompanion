@@ -37,6 +37,22 @@ export const SURFACE_META: SurfaceMeta = {
     minHeight: DEFAULT_PANEL_SIZING['layer3-dev-quick-actions'].minHeight,
     maxHeight: DEFAULT_PANEL_SIZING['layer3-dev-quick-actions'].maxHeight,
   },
+  variants: [
+    {
+      variantId: 'user-locked',
+      label: 'User Tier (Developer Mode OFF)',
+      tier: 'user',
+      profileTier: 'anonymous',
+      storeOverrides: { appStore: { developerMode: false } },
+    },
+    {
+      variantId: 'developer-active',
+      label: 'Developer Tier (Auto-Activated)',
+      tier: 'developer',
+      profileTier: 'developer',
+      storeOverrides: { appStore: { developerMode: true } },
+    },
+  ],
 };
 
 export const Layer3DevQuickActionsRecipe: React.FC<Layer3DevQuickActionsRecipeProps> = ({

@@ -36,7 +36,7 @@ export const SURFACE_META: SurfaceMeta = {
     'Audio debounce shielding, collision impulse thresholds, event filter catalog, and telemetry rules',
   icon: 'filter',
   layer: 'layer4',
-  profileTierPolicy: 'tier-invariant',
+  profileTierPolicy: 'user-dev-split',
   menuGroup: 'menu-layer',
   defaultSizing: {
     mode: 'adaptive',
