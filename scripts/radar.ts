@@ -50,6 +50,7 @@ import {
   checkUiNamingAndRouteAlignment,
   detectCircularDependencies,
 } from './radar/radarUiAndRepoGuards.ts';
+import { checkPlaylistVariantSyncAlignment } from './radar/radarVariantSyncGuards.ts';
 
 function runRadarChecks(
   allFiles: string[],
@@ -299,6 +300,7 @@ function runRadarChecks(
   }
 
   checkUiNamingAndRouteAlignment(errors);
+  checkPlaylistVariantSyncAlignment(errors);
   detectCircularDependencies(importGraph, errors);
   checkRootConfigAndWasmParity(errors);
   const structuralHotspots = analyzeStructuralCoupling(allFiles, importGraph, errors, auditFilter);

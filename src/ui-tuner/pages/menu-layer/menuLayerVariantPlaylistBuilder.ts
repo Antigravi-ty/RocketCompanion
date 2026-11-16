@@ -38,10 +38,15 @@ function resolveVariantTier(
   return defaultTier;
 }
 
-function resolveSettingsSubtab(variantId: string): string {
-  if (variantId.startsWith('display')) return 'display';
-  if (variantId.startsWith('advanced')) return 'advanced';
-  return variantId;
+function resolveSettingsSubtab(variant: SurfaceVariantMeta): string {
+  const fromOverride = variant.storeOverrides?.appStore?.settingsTargetTab;
+  if (typeof fromOverride === 'string' && fromOverride.length > 0) {
+    return fromOverride;
+  }
+  const stripped = variant.variantId.replace(/^settings:/, '');
+  if (stripped.startsWith('display')) return 'display';
+  if (stripped.startsWith('advanced')) return 'advanced';
+  return stripped;
 }
 
 export function buildSettingsPlaylistSteps(
@@ -56,7 +61,7 @@ export function buildSettingsPlaylistSteps(
     variantId: v.variantId,
     tier,
     route: 'settings' as const,
-    subtab: resolveSettingsSubtab(v.variantId),
+    subtab: resolveSettingsSubtab(v),
     profileTier: v.profileTier,
     storeOverrides: v.storeOverrides,
     layer: 2 as const,
