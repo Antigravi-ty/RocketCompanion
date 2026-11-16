@@ -1,46 +1,91 @@
-import {
-  computeCombinedVisualAstHash,
-  computeVisualFileHash,
-} from '../../../ui-core/manifest/visualFileHash';
-
-type ImportMetaGlobRawFn = (
-  pattern: string,
-  options: { query: string; import: string; eager: boolean }
-) => Record<string, string>;
-
-const importMetaGlob = (
-  import.meta as unknown as { glob?: ImportMetaGlobRawFn }
-).glob;
-
-const rawUiCoreSources: Record<string, string> =
-  typeof importMetaGlob === 'function'
-    ? importMetaGlob('../../../ui-core/**/*.{ts,tsx}', {
-        query: '?raw',
-        import: 'default',
-        eager: true,
-      })
-    : {};
+import { computeCombinedVisualAstHash } from '../../../ui-core/manifest/visualFileHash';
 
 const liveFileHashMap = new Map<string, string>();
+const hashListeners = new Set<() => void>();
+let hasLoadedHashes = false;
+let inFlightFetch: Promise<boolean> | null = null;
 
-for (const [globKey, sourceText] of Object.entries(rawUiCoreSources)) {
-  if (typeof sourceText !== 'string') continue;
-  const normalizedRel = globKey.replace(/^(\.\.\/)+/, 'src/');
-  liveFileHashMap.set(normalizedRel, computeVisualFileHash(sourceText));
+function notifyHashListeners(): void {
+  for (const listener of hashListeners) {
+    try {
+      listener();
+    } catch {
+      // Ignore listener errors
+    }
+  }
+}
+
+export function subscribeLiveSubtreeHashes(listener: () => void): () => void {
+  hashListeners.add(listener);
+  return () => {
+    hashListeners.delete(listener);
+  };
+}
+
+export function ensureLiveSubtreeHashesLoaded(): Promise<boolean> {
+  if (hasLoadedHashes) return Promise.resolve(false);
+  if (typeof window === 'undefined' || typeof fetch !== 'function') {
+    return Promise.resolve(false);
+  }
+  if (inFlightFetch) return inFlightFetch;
+
+  inFlightFetch = fetch('/__rc_ui_core_hashes', { cache: 'no-store' })
+    .then(async (res) => {
+      if (!res.ok) return false;
+      const payload = (await res.json()) as { hashes?: Record<string, string> };
+      if (!payload?.hashes || typeof payload.hashes !== 'object') return false;
+      liveFileHashMap.clear();
+      for (const [fileRel, hash] of Object.entries(payload.hashes)) {
+        if (typeof hash === 'string') {
+          liveFileHashMap.set(fileRel, hash);
+        }
+      }
+      hasLoadedHashes = true;
+      notifyHashListeners();
+      return true;
+    })
+    .catch(() => false)
+    .finally(() => {
+      inFlightFetch = null;
+    });
+
+  return inFlightFetch;
+}
+
+if (import.meta.hot) {
+  import.meta.hot.on(
+    'rc-ui-tuner:ui-core-hashes-updated',
+    (data: { file?: string; hash?: string | null }) => {
+      if (!data?.file) return;
+      if (typeof data.hash === 'string') {
+        liveFileHashMap.set(data.file, data.hash);
+      } else {
+        liveFileHashMap.delete(data.file);
+      }
+      hasLoadedHashes = true;
+      notifyHashListeners();
+    }
+  );
 }
 
 export function getLiveFileVisualHash(fileRel: string): string | undefined {
+  if (!hasLoadedHashes) {
+    void ensureLiveSubtreeHashesLoaded();
+  }
   const cleanRel = fileRel.startsWith('src/') ? fileRel : `src/ui-core/${fileRel}`;
   return liveFileHashMap.get(cleanRel);
 }
 
 /**
  * Compares recorded `fileVisualHashes` in `uiApprovalLedger.json` against the
- * current on-disk source files loaded via Vite `?raw` glob.
+ * current on-disk source files fetched from `/__rc_ui_core_hashes`.
  */
 export function detectChangedSubtreeFiles(
   recordedHashes?: Record<string, string>
 ): string[] {
+  if (!hasLoadedHashes) {
+    void ensureLiveSubtreeHashesLoaded();
+  }
   if (!recordedHashes || liveFileHashMap.size === 0) return [];
   const changed: string[] = [];
   for (const [fileRel, recordedHash] of Object.entries(recordedHashes)) {
@@ -61,6 +106,9 @@ export function computeLiveSubtreeCombinedHash(
   recordedHashes?: Record<string, string>,
   fallbackEntryFile?: string
 ): string {
+  if (!hasLoadedHashes) {
+    void ensureLiveSubtreeHashesLoaded();
+  }
   const liveMap: Record<string, string> = {};
   if (recordedHashes) {
     for (const [fileRel, recordedHash] of Object.entries(recordedHashes)) {

@@ -6,7 +6,10 @@ import {
   buildApprovalMessageWithDiffs,
   stripInjectedDiffSuffixFromNote,
 } from './exportDiffAndSizeTiering';
-import { computeLiveSubtreeCombinedHash } from './liveSubtreeHashScanner';
+import {
+  computeLiveSubtreeCombinedHash,
+  subscribeLiveSubtreeHashes,
+} from './liveSubtreeHashScanner';
 import {
   buildAllReviewUnits,
   buildUnitKey,
@@ -106,6 +109,7 @@ export interface ReviewLedgerStoreState {
   activeBucketFilter: ReviewQueueFilterId;
   simulateTemplateStale: boolean;
   isExporterModalOpen: boolean;
+  hashesRevision: number;
 
   setActiveUnit: (meta: RegisterReviewUnitMetadata) => void;
   setPlaylistScope: (scope: UnifiedPlaylistScope) => void;
@@ -138,6 +142,7 @@ export const useReviewLedgerStore = create<ReviewLedgerStoreState>((set, get) =>
   activeBucketFilter: initialPersisted.activeBucketFilter,
   simulateTemplateStale: initialPersisted.simulateTemplateStale,
   isExporterModalOpen: false,
+  hashesRevision: 0,
 
   setActiveUnit: (meta) => {
     const variantId = meta.variantId?.trim() || 'default';
@@ -516,3 +521,11 @@ export const useReviewLedgerStore = create<ReviewLedgerStoreState>((set, get) =>
     });
   },
 }));
+
+if (typeof window !== 'undefined') {
+  subscribeLiveSubtreeHashes(() => {
+    useReviewLedgerStore.setState((s) => ({
+      hashesRevision: s.hashesRevision + 1,
+    }));
+  });
+}
