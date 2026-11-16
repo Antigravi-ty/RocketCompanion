@@ -15,6 +15,7 @@ import {
   type WheelTrailSample,
   type RibbonGeometryBuffers,
 } from './SupersonicWheelTrailGeometry.ts';
+import { isFastestModeEnabled } from '../../../utils/fastestMode.ts';
 
 export type { WheelTrailSample };
 
@@ -353,7 +354,7 @@ export class SupersonicWheelRibbon {
     this.geometry.index!.needsUpdate = true;
     this.geometry.setDrawRange(0, indexCount);
     this.preOcclusionMesh.visible = true;
-    this.foregroundMesh.visible = true;
+    this.foregroundMesh.visible = !isFastestModeEnabled();
   }
 
   public dispose(): void {

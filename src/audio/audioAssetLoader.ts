@@ -129,6 +129,13 @@ export async function loadAudioAssets(
         (d) =>
           d.id === 'boost_collect' ||
           d.id === 'error_no_boost' ||
+          d.id === 'reset' ||
+          d.id === 'goalpost' ||
+          d.id.startsWith('crossbar_ping_') ||
+          d.id === 'match_countdown' ||
+          d.id === 'training_countdown' ||
+          d.id === 'match_countdown_10s' ||
+          d.id === 'match_start_go' ||
           d.id.startsWith('jump_') ||
           d.id.startsWith('double_jump_') ||
           d.id.startsWith('dodge_') ||

@@ -200,20 +200,20 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
         pushQuickNotification,
         dismissQuickNotification
       );
+      reachabilityVisualizer = new ReachabilityVisualizer(
+        arena.scene,
+        physics,
+        ballTrajectoryPredictor,
+        {
+          getConfig() {
+            return reachabilityStore.getConfig();
+          },
+          onTelemetry(telemetry: unknown) {
+            reachabilityStore.publishTelemetry(telemetry);
+          },
+        }
+      );
     }
-    reachabilityVisualizer = new ReachabilityVisualizer(
-      arena.scene,
-      physics,
-      ballTrajectoryPredictor,
-      {
-        getConfig() {
-          return reachabilityStore.getConfig();
-        },
-        onTelemetry(telemetry: unknown) {
-          reachabilityStore.publishTelemetry(telemetry);
-        },
-      }
-    );
   }
 
   const urlParams =

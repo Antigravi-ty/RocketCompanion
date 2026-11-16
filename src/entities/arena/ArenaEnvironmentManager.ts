@@ -313,14 +313,15 @@ export class ArenaEnvironmentManager {
     h.ball.visible = !currHidden;
     h.indicatorRing.visible = !currHidden;
     h.indicatorHeightRing.visible = !currHidden;
+    const isFastest = isFastestModeEnabled();
     if (currHidden) {
       h.ballVelocity.set(0, 0, 0);
-      h.ballSpeedTrail?.reset?.();
+      if (!isFastest) h.ballSpeedTrail?.reset?.();
       h.goalBarrierVisual?.update?.(actualDelta);
       return;
     }
 
-    if (isRespawning) h.ballSpeedTrail?.reset?.();
+    if (isRespawning && !isFastest) h.ballSpeedTrail?.reset?.();
     interpolatePhysicsTransform(
       h.ball,
       isRespawning ? currBall : prevBall,
@@ -333,7 +334,7 @@ export class ArenaEnvironmentManager {
       h.qB
     );
     unrealToThreeCoords(h.ballVelocity, currBall.velX, currBall.velY, currBall.velZ);
-    h.ballSpeedTrail?.update(h.ball.position, h.ballVelocity, actualDelta);
+    if (!isFastest) h.ballSpeedTrail?.update(h.ball.position, h.ballVelocity, actualDelta);
 
     const ballPos = h.ball.position;
     updateBallGoalEffect(h.ball, Boolean(this.isThrowbackStadiumActive), actualDelta);

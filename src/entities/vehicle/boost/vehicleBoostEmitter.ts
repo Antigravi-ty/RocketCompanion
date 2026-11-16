@@ -250,6 +250,7 @@ export class VehicleBoostEmitter {
   }
 
   async preload(): Promise<void> {
+    if (isFastestModeEnabled()) return;
     await this.goldRush.preload();
   }
 

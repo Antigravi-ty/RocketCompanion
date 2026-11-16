@@ -292,7 +292,15 @@ export async function createCoreSceneGraph(
 
   if (!isTouchHeadless && arena) {
     renderer = new THREE.WebGLRenderer(
-      isFastest ? { antialias: false, powerPreference: 'low-power' } : { antialias: true }
+      isFastest
+        ? {
+            antialias: false,
+            alpha: false,
+            stencil: false,
+            precision: 'mediump',
+            powerPreference: 'low-power',
+          }
+        : { antialias: true }
     );
     const winWidth = typeof window !== 'undefined' ? window.innerWidth : 1280;
     const winHeight = typeof window !== 'undefined' ? window.innerHeight : 720;

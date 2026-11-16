@@ -143,7 +143,7 @@ export class ArenaWorld {
       );
     }
     if (this.ballLocatorArrow.object) arenaScene.add(this.ballLocatorArrow.object);
-    if (this.ballSpeedTrail.object) arenaScene.add(this.ballSpeedTrail.object);
+    if (!isFastest && this.ballSpeedTrail.object) arenaScene.add(this.ballSpeedTrail.object);
 
     const rings = createBallGroundIndicatorRings(arenaScene, ballRadius);
     this.indicatorRing = rings.indicatorRing;
@@ -280,7 +280,9 @@ export class ArenaWorld {
   }
 
   prepareBallSpeedTrail(camera: THREE.Camera | null | undefined) {
-    this.ballSpeedTrail.prepare(camera);
+    if (!isFastestModeEnabled()) {
+      this.ballSpeedTrail.prepare(camera);
+    }
     this.supersonicWheelTrailSystem.prepare(camera, this);
   }
 

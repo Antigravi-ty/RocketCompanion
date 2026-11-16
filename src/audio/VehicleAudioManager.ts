@@ -288,7 +288,6 @@ export class VehicleAudioManager {
       case INCIDENT_EVENT_TYPES.FLIP_RESET_GAINED:
       case PHYSICS_EVENT_TYPES.FLIP_RESET_GAINED:
       case 0x0f: {
-        if (isFastestModeEnabled()) break;
         if (!isBallFlipResetEvent(event)) break;
         if (!this._lastFlipResetMsByCar) this._lastFlipResetMsByCar = new Map();
         if (

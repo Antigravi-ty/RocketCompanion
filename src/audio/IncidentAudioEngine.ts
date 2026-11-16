@@ -1,6 +1,10 @@
 import { audioConfig } from '../ui-core/config/audioConfig.ts';
 import { getAudioSlotPool } from './audioContext.ts';
-import { INCIDENT_EVENT_TYPES, PHYSICS_EVENT_TYPES } from '../physics/RocketSimConstants.ts';
+import {
+  INCIDENT_EVENT_TYPES,
+  PHYSICS_EVENT_TYPES,
+  SURFACE_SUBTYPES,
+} from '../physics/RocketSimConstants.ts';
 import {
   WorldImpactAudioHandler,
   type PhysicsImpactAudioEvent,
@@ -64,6 +68,19 @@ export class IncidentAudioEngine {
         type === 0x0a
       ) {
         this.handleBoostPickup(event, camera);
+      } else if (
+        type === INCIDENT_EVENT_TYPES.BALL_GOALPOST_HIT ||
+        type === PHYSICS_EVENT_TYPES.BALL_GOALPOST_HIT
+      ) {
+        this.worldImpactHandler.handleBallGoalpostHit(event, camera);
+      } else if (
+        (type === INCIDENT_EVENT_TYPES.BALL_WORLD_HIT ||
+          type === PHYSICS_EVENT_TYPES.BALL_WORLD_HIT) &&
+        (event.isCrossbar ||
+          event.surfaceTag === SURFACE_SUBTYPES.GOALPOST ||
+          event.surfaceTag === SURFACE_SUBTYPES.CROSSBAR)
+      ) {
+        this.worldImpactHandler.handleBallGoalpostHit(event, camera);
       }
       return;
     }
