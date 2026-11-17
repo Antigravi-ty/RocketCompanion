@@ -317,6 +317,7 @@ export class MatchSystemControlSubController {
         isCarSlotActive?: (idx: number) => boolean;
         addCarAtSlot?: (idx: number, team: number, preset?: string) => void;
         addCar?: (team: number, preset?: string) => void;
+        removeCar?: (idx: number) => boolean | void;
       };
       const headerCars =
         snap.length > SIM_OFFSETS.NUM_CARS
@@ -330,9 +331,21 @@ export class MatchSystemControlSubController {
           for (let c = 0; c < headerCars; c++) {
             if (!simAny.isCarSlotActive(c)) simAny.addCarAtSlot(c, c % 2, 'octane');
           }
-        } else if (typeof simAny.addCar === 'function') {
-          while ((simAny.numCars ?? 0) < headerCars) {
-            simAny.addCar((simAny.numCars ?? 0) % 2, 'octane');
+          if (typeof simAny.removeCar === 'function') {
+            for (let c = headerCars; c < 8; c++) {
+              if (simAny.isCarSlotActive(c)) simAny.removeCar(c);
+            }
+          }
+        } else {
+          if (typeof simAny.addCar === 'function') {
+            while ((simAny.numCars ?? 0) < headerCars) {
+              simAny.addCar((simAny.numCars ?? 0) % 2, 'octane');
+            }
+          }
+          if (typeof simAny.removeCar === 'function') {
+            while ((simAny.numCars ?? 0) > headerCars && (simAny.numCars ?? 0) > 1) {
+              if (!simAny.removeCar((simAny.numCars ?? 1) - 1)) break;
+            }
           }
         }
       }
@@ -357,6 +370,19 @@ export class MatchSystemControlSubController {
         Math.round(o.fifoDurationSeconds * MATCH_TICK_RATE)
       );
     }
+  }
+
+  pushBroadcastSnapshot(snap?: Float32Array | number[] | null, cursorTick?: number): void {
+    if (!this.isStateOnlyMode) {
+      this.enterStateOnlyMode(snap, cursorTick);
+      return;
+    }
+    const { domain } = this.host;
+    this.interveneTargetTick = this.interveneRemainingTicks = -1;
+    if (typeof cursorTick === 'number' && Number.isFinite(cursorTick) && cursorTick >= 0) {
+      domain.matchTick = Math.floor(cursorTick);
+    }
+    this.loadSimSnapshot(snap, cursorTick);
   }
 
   enterStateOnlyMode(snap?: Float32Array | number[] | null, cursorTick?: number): void {

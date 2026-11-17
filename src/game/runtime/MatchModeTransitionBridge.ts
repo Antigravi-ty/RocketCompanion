@@ -109,7 +109,16 @@ export function leaveActiveBotMatchIfNeeded(
 export function stopActiveOnlineOrLoopbackSessionIfNeeded(
   domain: Pick<MatchModeTransitionDomainPort, 'multiplayerSession' | 'networkManager'>
 ): void {
-  if (useAppStore.getState().onlineSession?.isDevSyncRoom) return;
+  const onlineSession = useAppStore.getState().onlineSession;
+  if (onlineSession?.isDevSyncRoom) {
+    if (onlineSession.isHosting && onlineSession.activeRoomActivity === 'match') {
+      useAppStore.getState().setOnlineSession?.({ activeRoomActivity: 'freeplay' });
+      domain.networkManager?.sessionCoordinator?.authoritativeServer?.switchActivity?.({
+        activityId: 'freeplay',
+      });
+    }
+    return;
+  }
   teardownMultiplayerSignalingSession(domain.multiplayerSession);
   teardownNetworkCoordinatorSession(domain.networkManager?.sessionCoordinator, true);
 }

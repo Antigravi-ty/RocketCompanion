@@ -20,6 +20,7 @@ import {
   type PodiumFormationSpot,
 } from '../../replay/podiumFormationPipeline.ts';
 import type { CameraManager } from '../../camera/CameraManager.ts';
+import { useAppStore } from '../runtimeUiPort.ts';
 
 export type { PodiumFormationSpot };
 
@@ -304,6 +305,13 @@ export class PodiumCelebrationController {
     }
 
     const isBotMatch = Boolean(r.botCoordinator?.isBotMatch);
+    const onlineSession = useAppStore?.getState?.()?.onlineSession;
+    const isHostBroadcasting = Boolean(
+      r.authoritativeServer &&
+        onlineSession?.isDevSyncRoom &&
+        onlineSession?.isHosting &&
+        onlineSession?.activeRoomActivity !== 'match'
+    );
 
     for (let i = 0; i < substeps; i++) {
       this.podiumTick++;
@@ -322,8 +330,8 @@ export class PodiumCelebrationController {
             carControlsMap.set(c, botCtrl);
           }
           sim.setControls?.(c, botCtrl);
-          r.authoritativeServer?.setCarControls?.(c, botCtrl);
-        } else if (r.networkReconciler?.historyBuffer?.lastRemoteControls) {
+          if (!isHostBroadcasting) r.authoritativeServer?.setCarControls?.(c, botCtrl);
+        } else if (!isHostBroadcasting && r.networkReconciler?.historyBuffer?.lastRemoteControls) {
           const remote = r.networkReconciler.historyBuffer.lastRemoteControls.get(c);
           const remoteCtrl = remote?.controls ? remote.controls : remote || NEUTRAL_PODIUM_CONTROLS;
           sim.setControls?.(c, remoteCtrl);
@@ -334,7 +342,7 @@ export class PodiumCelebrationController {
         r.interpolator.prevState.set(r.interpolator.currState);
       }
 
-      if (r.networkReconciler?.sampleAndPredictInput) {
+      if (!isHostBroadcasting && r.networkReconciler?.sampleAndPredictInput) {
         const predicted =
           r.networkReconciler.sampleAndPredictInput(localCarIndex, effectivePlayerControls) ||
           effectivePlayerControls;

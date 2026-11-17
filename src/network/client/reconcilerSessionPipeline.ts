@@ -212,6 +212,7 @@ export function drainAndPrepareInboundSessionPacket(
       lobbyDualWorldMode: session.lobbyDualWorldMode,
       hostLobbyMode: session.hostLobbyMode,
       spectateMirrorMode: Boolean(session.spectateMirrorMode),
+      clientInputEnabled: session.clientInputEnabled,
       replayPlaybackMode: session.replayPlaybackMode,
       isReplayPlaybackMode: () => session.replayPlaybackMode,
       inputBufferTarget: session.pacingController.inputBufferTarget,
@@ -240,8 +241,18 @@ export function drainAndPrepareInboundSessionPacket(
   session.lastServerRecordedInputTick = session.controlMessenger.lastServerRecordedInputTick;
   if (!packet) return null;
 
+  const isPureCsrSpectate = Boolean(
+    session.spectateMirrorMode &&
+      session.clientInputEnabled === false &&
+      !session.hostLobbyMode
+  );
   const serverTick = packet.serverTick;
-  if (!session.replayPlaybackMode && serverTick <= session.lastAckedServerTick && serverTick > 0) {
+  if (
+    !session.replayPlaybackMode &&
+    !isPureCsrSpectate &&
+    serverTick <= session.lastAckedServerTick &&
+    serverTick > 0
+  ) {
     return null;
   }
 
@@ -256,7 +267,7 @@ export function drainAndPrepareInboundSessionPacket(
   session.lobbyCurrAuthoritativeState = lobbySnaps.curr;
 
   const effectiveRtt = session._resolveEffectiveRtt();
-  if (session.replayPlaybackMode) {
+  if (session.replayPlaybackMode || isPureCsrSpectate) {
     session.lastAckedServerTick = serverTick;
     session.metrics.applyServerAck(serverTick, effectiveRtt);
     session.historyBuffer.recordAcknowledgedRemoteControls(

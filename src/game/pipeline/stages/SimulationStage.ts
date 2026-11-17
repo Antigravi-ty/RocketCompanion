@@ -17,6 +17,11 @@ import {
   evaluateSimulationFrameFlags,
 } from './simulationFrameClassifierPipeline.ts';
 import { stepNetworkReconciliationAndReplayStream } from './simulationNetworkReconcilePipeline.ts';
+import {
+  HostBroadcastPublisher,
+  isDevSyncClientPureCsrSpectateMode,
+  isDevSyncHostBroadcastingMode,
+} from './HostBroadcastPublisher.ts';
 
 export type { CarActionDebounceState };
 
@@ -78,6 +83,7 @@ const CUSTOM_STEP_MODES = new Set([
 export class SimulationStage implements PipelineStage {
   public runtime: SimulationStageRuntimePort;
   public readonly actionSynthesizer = new CarActionEventSynthesizer();
+  public readonly broadcastPublisher = new HostBroadcastPublisher(60);
   private _lastRecordedClientReplayTick = -1;
   private _pendingGoalScored = false;
 
@@ -115,19 +121,21 @@ export class SimulationStage implements PipelineStage {
     const reconciler = session?.networkReconciler ?? null;
     const server = session?.authoritativeServer ?? null;
     const fleet = networkManager?.diagnosticsProbe?.diagnosticsFleetController ?? null;
+    const isBroadcastingHost = isDevSyncHostBroadcastingMode(Boolean(server));
+    const isPureCsrClient = isDevSyncClientPureCsrSpectateMode(reconciler);
 
     const flags = evaluateSimulationFrameFlags({
       matchState,
       activeMode,
       isPodiumControllerActive: Boolean(podiumController?.isActive),
-      hasReconciler: Boolean(reconciler),
+      hasReconciler: Boolean(reconciler && !isBroadcastingHost),
       hasServer: Boolean(server),
     });
 
     context.isPodiumActive = flags.isPodiumActive;
     context.isMatchActive = flags.isMatchActive;
 
-    if (flags.shouldHoldAccumulator) {
+    if (flags.shouldHoldAccumulator || isPureCsrClient) {
       if (!flags.isGoalReplay && !podiumController?.isActive) {
         interpolator.sync(timestamp);
       }
@@ -141,7 +149,7 @@ export class SimulationStage implements PipelineStage {
           if (activeCar >= 0 && !this.runtime.playerControls?.jump) {
             this.actionSynthesizer.debounceRegistry.notifyLocalJumpReleased(activeCar);
           }
-          if (fleet?.enabled && !reconciler) {
+          if (fleet?.enabled && (!reconciler || isBroadcastingHost)) {
             const cTick = Math.floor(physics.getHeaderView().tickCount);
             fleet.applyToAuthority(physics, cTick);
           }
@@ -161,7 +169,7 @@ export class SimulationStage implements PipelineStage {
       );
     }
 
-    if (reconciler) {
+    if (reconciler && !isBroadcastingHost) {
       context.goalScored = matchState.phase === 'goal';
     } else {
       if (physics.pollGoal() !== 0) {
@@ -173,7 +181,7 @@ export class SimulationStage implements PipelineStage {
       }
     }
 
-    if (reconciler && !flags.isLocalDirectorPreview) {
+    if ((reconciler || isBroadcastingHost) && !flags.isLocalDirectorPreview) {
       this._lastRecordedClientReplayTick = stepNetworkReconciliationAndReplayStream({
         timestamp,
         physics,
@@ -189,7 +197,19 @@ export class SimulationStage implements PipelineStage {
         fleetController: fleet,
         sessionStateTarget: session,
         lastRecordedClientReplayTick: this._lastRecordedClientReplayTick,
+        skipReconciler: isBroadcastingHost,
       });
+    }
+
+    if (isBroadcastingHost && server) {
+      this.broadcastPublisher.publishIfReady({
+        timestamp,
+        physics,
+        server,
+        isPaused: flags.shouldHoldAccumulator,
+      });
+    } else {
+      this.broadcastPublisher.reset();
     }
 
     if (flags.shouldSynthesizeTickEvents) {
@@ -199,7 +219,7 @@ export class SimulationStage implements PipelineStage {
         physics,
         playerCarIndex: this.runtime.playerCarIndex ?? 0,
         playerControls: this.runtime.playerControls,
-        networkReconciler: reconciler,
+        networkReconciler: isBroadcastingHost ? null : reconciler,
         testCarAudioEnabled: Boolean(networkManager?.diagnosticsProbe?.testCarAudioEnabled),
         isMatchEnded: flags.isMatchEnded,
         matchPhase: matchState.phase ?? 'playing',

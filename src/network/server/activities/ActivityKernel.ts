@@ -155,6 +155,10 @@ class MatchActivityKernel implements RoomActivityKernel {
       typeof ctx.stateSummary?.durationSeconds === 'number'
         ? ctx.stateSummary.durationSeconds
         : undefined;
+    if (ctx.matchManager?.systemControl?.isStateOnlyMode) {
+      ctx.matchManager.systemControl.clear();
+      ctx.matchManager.domain.applySystemControlState('resume', ctx.matchManager.domain.matchTick);
+    }
     autoPullConnectedPeersForMatch(ctx);
     ctx.matchManager?.lifecycle.startMatch(duration);
   }

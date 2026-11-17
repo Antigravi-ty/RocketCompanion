@@ -316,6 +316,9 @@ export function createOnlineSessionBridgePort(
     applyClientRoomActivitySwitch: (reconciler, payload) => {
       const activityId = typeof payload.activityId === 'string' ? payload.activityId : 'freeplay';
       reconciler.setReplayPlaybackMode(activityId === 'replay');
+      if (useAppStore.getState().onlineSession?.isDevSyncRoom) {
+        reconciler.setSpectateMirrorMode?.(activityId !== 'match');
+      }
       // Client in an online/CSR room has no local .RCDPack / .RCSPack / .RCReplay files
       // and must not trigger local BotMatchMode AI via setMode('match') or setMatchMode('match').
       // Keep GameModeManager in the lightweight 'freeplay' CSR-receiving shell driven by Host SNAPSHOT + stateSummary.

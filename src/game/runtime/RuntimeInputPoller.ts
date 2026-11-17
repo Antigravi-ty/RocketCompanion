@@ -20,6 +20,7 @@ export interface RuntimeInputPollerHostPort extends TouchAgentWorldContext {
   readonly networkReconciler?: PredictionReconciler | null;
   readonly networkManager?: {
     readonly sessionCoordinator?: {
+      readonly authoritativeServer?: unknown;
       readonly networkReconciler: PredictionReconciler | null;
     };
     readonly rosterSyncCoordinator?: {
@@ -257,15 +258,22 @@ export class RuntimeInputPoller {
       return true;
     }
 
-    const reconciler = port.networkManager?.sessionCoordinator?.networkReconciler ?? null;
-    if (reconciler?.shouldSkipLocalStep) {
+    const sessionCoord = port.networkManager?.sessionCoordinator;
+    const reconciler = sessionCoord?.networkReconciler ?? null;
+    const isHostBroadcasting = Boolean(
+      sessionCoord?.authoritativeServer &&
+        appState?.onlineSession?.isDevSyncRoom &&
+        appState?.onlineSession?.isHosting &&
+        appState?.onlineSession?.activeRoomActivity !== 'match'
+    );
+    if (!isHostBroadcasting && reconciler?.shouldSkipLocalStep) {
       reconciler.shouldSkipLocalStep = false;
       return false;
     }
 
     const playerCarIndex = port.playerCarIndex;
     let car0Controls: CarControlsInput = command.normalizedControls;
-    if (reconciler) {
+    if (reconciler && !isHostBroadcasting) {
       car0Controls =
         (reconciler.sampleAndPredictInput(
           playerCarIndex,
@@ -279,7 +287,7 @@ export class RuntimeInputPoller {
 
     port.botCoordinator?.stepAuthoritativeBotControls(command.isKickoff);
 
-    if (reconciler?.historyBuffer.lastRemoteControls) {
+    if (!isHostBroadcasting && reconciler?.historyBuffer.lastRemoteControls) {
       const numCars = Math.min(physics.numCars, 8);
       for (let c = 0; c < numCars; c++) {
         if (c !== playerCarIndex) {

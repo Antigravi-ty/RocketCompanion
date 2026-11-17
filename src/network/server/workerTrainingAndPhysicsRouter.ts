@@ -187,6 +187,13 @@ export function routeTrainingAndPhysicsMessage(
       );
       return true;
 
+    case 'pushBroadcastSnapshot':
+      matchManager?.systemControl.pushBroadcastSnapshot(
+        payload?.stateSnapshot ?? null,
+        payload?.cursorTick
+      );
+      return true;
+
     case 'beginInterveneCountdown':
       matchManager?.systemControl.beginInterveneCountdown(
         payload?.countdownSeconds ?? 3,

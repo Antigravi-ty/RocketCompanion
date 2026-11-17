@@ -43,6 +43,7 @@ export interface DrainServerPacketsContext {
   lobbyDualWorldMode: boolean;
   hostLobbyMode: boolean;
   spectateMirrorMode?: boolean;
+  clientInputEnabled?: boolean;
   replayPlaybackMode: boolean;
   isReplayPlaybackMode?: () => boolean;
   inputBufferTarget: number;
@@ -303,7 +304,10 @@ export function drainAndParseServerPacketBatch(
       const isReplayMode = ctx.isReplayPlaybackMode
         ? ctx.isReplayPlaybackMode()
         : ctx.replayPlaybackMode;
-      if (isReplayMode && packet.stateSnapshot) {
+      const isPureCsrSpectate = Boolean(
+        ctx.spectateMirrorMode && ctx.clientInputEnabled === false && !ctx.hostLobbyMode
+      );
+      if ((isReplayMode || isPureCsrSpectate) && packet.stateSnapshot) {
         drainedReplayPackets.push(packet);
       }
       if (!latestPacket || packet.serverTick >= latestPacket.serverTick) {

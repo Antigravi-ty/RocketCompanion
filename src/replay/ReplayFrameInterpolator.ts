@@ -50,6 +50,7 @@ export interface ReplayFrameEnginePort {
   numCars?: number;
   isCarSlotActive?: (carIndex: number) => boolean;
   addCarAtSlot?: (carIndex: number, team: number, preset: string) => number | void;
+  removeCar?: (carIndex: number) => boolean | void;
   state?: Float32Array | null;
   addCar?: (team: number, preset: string) => number | void;
   restoreState?: (buffer: Float32Array, options?: { preserveEngineTick?: boolean }) => void;
@@ -89,9 +90,21 @@ export function applyReplayFrameToEngine(
         targetPort.addCarAtSlot(c, c % 2, 'octane');
       }
     }
+    if (headerCars > 0 && typeof targetPort.removeCar === 'function') {
+      for (let c = headerCars; c < MAX_CARS; c++) {
+        if (targetPort.isCarSlotActive(c)) {
+          targetPort.removeCar(c);
+        }
+      }
+    }
   } else {
     while ((targetPort.numCars ?? 0) < headerCars && typeof targetPort.addCar === 'function') {
       targetPort.addCar((targetPort.numCars ?? 0) % 2, 'octane');
+    }
+    if (headerCars > 0 && typeof targetPort.removeCar === 'function') {
+      while ((targetPort.numCars ?? 0) > headerCars && (targetPort.numCars ?? 0) > 1) {
+        if (!targetPort.removeCar((targetPort.numCars ?? 1) - 1)) break;
+      }
     }
   }
 

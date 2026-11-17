@@ -252,6 +252,11 @@ export class StandaloneReplayViewerController {
     resetCameraView: boolean
   ): void {
     this._prepareRuntimeForReplayViewer();
+    (
+      this.runtime as {
+        networkReconciler?: { setReplayPlaybackMode?: (enabled: boolean) => void } | null;
+      } | null
+    )?.networkReconciler?.setReplayPlaybackMode?.(true);
     this.causalSyncController.clear();
     this.frames = frames;
     this.frameSlots = frameSlots;

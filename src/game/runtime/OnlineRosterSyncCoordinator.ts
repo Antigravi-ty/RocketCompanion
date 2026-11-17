@@ -171,6 +171,9 @@ export class OnlineRosterSyncCoordinator {
     }
 
     const isClientSpectatingHost = isDevSyncRoom && !isHostRole && world.playerCarIndex === 0;
+    const isHostBroadcasting = Boolean(
+      isDevSyncRoom && isHostRole && onlineState?.activeRoomActivity !== 'match'
+    );
 
     for (const p of roster.players) {
       const cIdx = p.entityId;
@@ -201,14 +204,16 @@ export class OnlineRosterSyncCoordinator {
         );
       }
 
-      this.peerSynchronizer.syncRosterPlayerCarInWorld(
-        p,
-        cIdx,
-        physicsTeam,
-        preset,
-        hitbox,
-        isLobbyDualWorld
-      );
+      if (!isHostBroadcasting) {
+        this.peerSynchronizer.syncRosterPlayerCarInWorld(
+          p,
+          cIdx,
+          physicsTeam,
+          preset,
+          hitbox,
+          isLobbyDualWorld
+        );
+      }
     }
 
     if (isDevSyncRoom && Array.isArray(roster.spectators)) {
@@ -237,10 +242,12 @@ export class OnlineRosterSyncCoordinator {
       }
     }
 
-    setNameTagRuntimeState({
-      isMultiplayerOrMultiCarMode: true,
-      carEntries: nameTagEntries,
-    });
+    if (!isHostBroadcasting) {
+      setNameTagRuntimeState({
+        isMultiplayerOrMultiCarMode: true,
+        carEntries: nameTagEntries,
+      });
+    }
 
     if (useAppStore && typeof useAppStore.getState === 'function') {
       const localRosterEntry = roster.players.find(

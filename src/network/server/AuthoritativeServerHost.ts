@@ -295,6 +295,12 @@ export class AuthoritativeServerHost {
       cursorTick,
     });
   }
+  pushBroadcastSnapshot(s?: Float32Array | number[] | null, cursorTick?: number): void {
+    this._postCommand('pushBroadcastSnapshot', {
+      stateSnapshot: s ? Array.from<number>(s) : null,
+      cursorTick,
+    });
+  }
   beginInterveneCountdown(countdownSeconds = 3, s?: Float32Array | number[] | null): void {
     this._postCommand('beginInterveneCountdown', {
       countdownSeconds,

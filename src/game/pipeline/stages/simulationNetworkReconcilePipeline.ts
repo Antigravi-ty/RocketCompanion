@@ -60,7 +60,7 @@ export interface NetworkReconcileStepInput {
   readonly camera: CameraManager | null;
   readonly matchState: SimulationMatchStateSnapshot;
   readonly flags: SimulationFrameExecutionFlags;
-  readonly reconciler: PredictionReconciler;
+  readonly reconciler: PredictionReconciler | null;
   readonly server: AuthoritativeServerHost | null;
   readonly replayTimelineController: ReplayTimelineController | null;
   readonly rosterCapturePort: ReplayDirectorRosterRuntimePort;
@@ -71,6 +71,7 @@ export interface NetworkReconcileStepInput {
   } | null;
   readonly sessionStateTarget: { clientReplayOverflowPaused?: boolean } | null;
   readonly lastRecordedClientReplayTick: number;
+  readonly skipReconciler?: boolean;
 }
 
 export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcileStepInput): number {
@@ -88,17 +89,36 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
     diagnosticDumpMaxFrames,
     fleetController,
     sessionStateTarget,
+    skipReconciler = false,
   } = input;
 
   let nextRecordedTick = input.lastRecordedClientReplayTick;
   const now = performance.now();
 
   if (server) {
-    if (fleetController?.enabled && !server.isWorker) {
+    if (!skipReconciler && fleetController?.enabled && !server.isWorker) {
       const sTick = Math.floor(server.sim?.getHeaderView?.()?.tickCount ?? 0);
       fleetController.applyToAuthority(server, sTick);
     }
     server.update();
+  }
+
+  if (skipReconciler || !reconciler) {
+    const currentTick = Math.floor(physics.getHeaderView().tickCount);
+    if (
+      sessionStateTarget &&
+      !matchState.paused &&
+      !flags.isMatchEnded &&
+      !flags.isGoalReplay &&
+      currentTick !== nextRecordedTick
+    ) {
+      const recOut = recordClientDiagnosticReplayFrame(physics, diagnosticDumpMaxFrames);
+      sessionStateTarget.clientReplayOverflowPaused = recOut.overflowPaused;
+      if (recOut.recorded) {
+        nextRecordedTick = currentTick;
+      }
+    }
+    return nextRecordedTick;
   }
 
   const tickBeforeReconcile = Math.floor(physics.getHeaderView().tickCount);
@@ -114,7 +134,13 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
   }
   const tickAfterReconcile = Math.floor(physics.getHeaderView().tickCount);
 
-  if (!flags.isGoalReplay && !reconciler.replayPlaybackMode && physics.state) {
+  const isPureCsrSpectate = Boolean(
+    reconciler.spectateMirrorMode &&
+      reconciler.clientInputEnabled === false &&
+      !reconciler.hostLobbyMode
+  );
+
+  if (!flags.isGoalReplay && !reconciler.replayPlaybackMode && !isPureCsrSpectate && physics.state) {
     if (hasPhysicsStatePositionNaN(physics)) {
       physics.restoreCompactState?.(physics.state, { preserveEngineTick: true });
       interpolator.sync(timestamp);
@@ -131,7 +157,7 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
   }
 
   if (
-    reconciler.replayPlaybackMode &&
+    (reconciler.replayPlaybackMode || isPureCsrSpectate) &&
     Array.isArray(reconciler.drainedReplayPackets) &&
     reconciler.drainedReplayPackets.length > 0
   ) {
@@ -139,7 +165,11 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
     const isCustomScrubbing = Boolean(
       s && (s.isScrubbing || s.isPaused || Math.abs((s.playbackSpeed ?? 1.0) - 1.0) > 0.01)
     );
-    for (let i = 0; i < reconciler.drainedReplayPackets.length; i++) {
+    const startIdx =
+      !reconciler.replayPlaybackMode && isPureCsrSpectate
+        ? reconciler.drainedReplayPackets.length - 1
+        : 0;
+    for (let i = startIdx; i < reconciler.drainedReplayPackets.length; i++) {
       const pkt = reconciler.drainedReplayPackets[i];
       if (!pkt || !pkt.stateSnapshot) continue;
       if (flags.isGoalReplay && replayTimelineController) {
@@ -183,6 +213,7 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
     !flags.isMatchEnded &&
     !flags.isGoalReplay &&
     !reconciler.replayPlaybackMode &&
+    !isPureCsrSpectate &&
     tickAfterReconcile !== nextRecordedTick
   ) {
     const recOut = recordClientDiagnosticReplayFrame(physics, diagnosticDumpMaxFrames);
