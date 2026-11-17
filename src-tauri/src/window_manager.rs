@@ -128,6 +128,7 @@ pub fn launch_main_window_with_config(
     let _ = main_win.unminimize();
     let _ = main_win.show();
     let _ = main_win.set_focus();
+    let _ = main_win.eval("window.dispatchEvent(new CustomEvent('rc-tauri-window-shown'));");
     Ok(())
 }
 

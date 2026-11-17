@@ -235,6 +235,17 @@ export function getAudioContext(): AudioContext | null {
 
     const onAudioReady = () => {
       if (ctx.state === 'running') {
+        const isDocVisible = typeof document === 'undefined' || !document.hidden;
+        const continueOnBlur = Boolean(audioConfig.get('continueAudioOnLostFocus'));
+        if (isDocVisible || continueOnBlur) {
+          if (subsystemState.slotPool) {
+            subsystemState.slotPool.isMuted = false;
+          }
+          subsystemState.audioEngine?.stadiumSpatialEngine?.handleWindowFocusChange?.(
+            true,
+            continueOnBlur
+          );
+        }
         master.setActive(true);
         master.apply();
         subsystemState.audioEngine?.ballEngine?._startLoops?.();
@@ -255,7 +266,7 @@ export function getAudioContext(): AudioContext | null {
             console.warn('[AudioArchitecture] AudioContext unlock resume failed/blocked:', err);
           });
       } else if (ctx.state === 'running') {
-        if (!master.active || !master.connected) {
+        if (!master.active || !master.connected || subsystemState.slotPool?.isMuted) {
           onAudioReady();
         }
       }
@@ -303,9 +314,19 @@ export function getAudioContext(): AudioContext | null {
         ? !document.hidden && (typeof document.hasFocus === 'function' ? document.hasFocus() : true)
         : true;
 
+    let focusRecheckTimer: ReturnType<typeof setTimeout> | null = null;
     const handleFocus = (hasFocus: boolean, source: string = 'focus') => {
-      const effectiveFocus =
-        Boolean(hasFocus) && (typeof document === 'undefined' || !document.hidden);
+      const isHidden = typeof document !== 'undefined' && Boolean(document.hidden);
+      if (hasFocus && isHidden && source !== 'document.visibilitychange') {
+        if (focusRecheckTimer) clearTimeout(focusRecheckTimer);
+        focusRecheckTimer = setTimeout(() => {
+          focusRecheckTimer = null;
+          if (typeof document !== 'undefined' && !document.hidden) {
+            handleFocus(true, `${source}:recheck`);
+          }
+        }, 80);
+      }
+      const effectiveFocus = Boolean(hasFocus) && !isHidden;
       const wasFocused = isWindowCurrentlyFocused;
       isWindowCurrentlyFocused = effectiveFocus;
 
@@ -381,6 +402,9 @@ export function getAudioContext(): AudioContext | null {
       if (typeof document === 'undefined' || !document.hidden) {
         handleFocus(true, 'window.pageshow');
       }
+    });
+    window.addEventListener('rc-tauri-window-shown', () => {
+      handleFocus(true, 'tauri.window_shown');
     });
 
     audioConfig.subscribe((cfg) => {

@@ -70,6 +70,46 @@ export function applyBoostVariationBuffers(
   });
 }
 
+const AUDIO_FETCH_TIMEOUT_MS = 15000;
+const AUDIO_DECODE_TIMEOUT_MS = 10000;
+
+async function fetchWithTimeout(
+  url: string,
+  timeoutMs = AUDIO_FETCH_TIMEOUT_MS
+): Promise<Response> {
+  if (typeof AbortController === 'undefined') {
+    return await fetch(url);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function decodeAudioWithTimeout(
+  ctx: AudioContext,
+  arrayBuffer: ArrayBuffer,
+  timeoutMs = AUDIO_DECODE_TIMEOUT_MS
+): Promise<AudioBuffer> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      ctx.decodeAudioData(arrayBuffer),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`Audio decode timed out after ${timeoutMs}ms`)),
+          timeoutMs
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
+}
+
 export async function fetchAudioBuffer(
   ctx: AudioContext,
   url: string,
@@ -78,16 +118,16 @@ export async function fetchAudioBuffer(
   const resolvedUrl = resolveAssetPath(url);
   const resolvedFallback = fallbackUrl ? resolveAssetPath(fallbackUrl) : null;
   try {
-    let res = await fetch(resolvedUrl);
+    let res = await fetchWithTimeout(resolvedUrl);
     if (!res.ok && resolvedFallback) {
       console.warn('[Audio:Fallback] Primary audio missing (404), falling back:', {
         primary: resolvedUrl,
         fallback: resolvedFallback,
       });
-      res = await fetch(resolvedFallback);
+      res = await fetchWithTimeout(resolvedFallback);
     }
     if (!res.ok) return null;
-    return await ctx.decodeAudioData(await res.arrayBuffer());
+    return await decodeAudioWithTimeout(ctx, await res.arrayBuffer());
   } catch (e) {
     console.warn('[AudioArchitecture] Failed to load/decode primary audio url:', resolvedUrl, e);
     if (resolvedFallback) {
@@ -97,9 +137,9 @@ export async function fetchAudioBuffer(
           fallback: resolvedFallback,
           error: e,
         });
-        const res = await fetch(resolvedFallback);
+        const res = await fetchWithTimeout(resolvedFallback);
         if (res.ok) {
-          return await ctx.decodeAudioData(await res.arrayBuffer());
+          return await decodeAudioWithTimeout(ctx, await res.arrayBuffer());
         }
       } catch (e2) {
         console.error(

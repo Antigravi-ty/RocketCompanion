@@ -105,8 +105,13 @@ function spawnWorker(): void {
       }
 
       console.error(
-        `\n[dev-supervisor] Worker exited unexpectedly (code ${code ?? 'null'}). Waiting for next Git checkout to retry...`
+        `\n[dev-supervisor] Worker exited unexpectedly (code ${code ?? 'null'}). Restarting 4-port Vite worker in 1000ms...`
       );
+      setTimeout(() => {
+        if (!isShuttingDown && !isRestarting && !activeWorker) {
+          spawnWorker();
+        }
+      }, 1000).unref?.();
     });
   });
 }
