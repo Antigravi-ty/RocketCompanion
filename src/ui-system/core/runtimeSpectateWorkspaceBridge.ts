@@ -284,6 +284,11 @@ export function isSpectatePlaybackPaused(): boolean {
   return Boolean(useSpectateWorkspaceStore.getState().playbackPaused);
 }
 
+export function getSpectateHostMatchMode(): string | null {
+  const ws = useSpectateWorkspaceStore.getState();
+  return ws.followHostWorkspace ? ws.hostMatchMode : null;
+}
+
 export function buildHostWorkspaceBroadcastPayload(meta?: {
   epoch?: number;
   tick?: number;
@@ -291,6 +296,9 @@ export function buildHostWorkspaceBroadcastPayload(meta?: {
   pausedAtTick?: number;
   pauseHeartbeatHz?: number;
   clientInputEnabled?: boolean;
+  authorityEpoch?: number;
+  activeInputPeerId?: string;
+  authorityMode?: GlobalWorkspaceBroadcastPayload['authorityMode'];
   followHostWorkspace?: boolean;
   menuStateIncluded?: boolean;
   arenaPreset?: 'standard' | 'throwback';
@@ -303,6 +311,7 @@ export function buildHostWorkspaceBroadcastPayload(meta?: {
   const currentArenaPreset =
     meta?.arenaPreset ??
     (app.underDevelopment?.stadiumPreset === 'throwback' ? 'throwback' : ws.arenaPreset);
+  const isDevSyncHost = Boolean(app.onlineSession?.isHosting && app.onlineSession?.isDevSyncRoom);
   return sanitizeGlobalWorkspaceBroadcast({
     epoch: meta?.epoch ?? 0,
     tick: meta?.tick ?? 0,
@@ -314,7 +323,13 @@ export function buildHostWorkspaceBroadcastPayload(meta?: {
     pausedAtTick: meta?.pausedAtTick ?? ws.pausedAtTick,
     pauseHeartbeatHz: meta?.pauseHeartbeatHz ?? ws.pauseHeartbeatHz,
     clientInputEnabled: meta?.clientInputEnabled ?? ws.clientInputEnabled,
-    followHostWorkspace: meta?.followHostWorkspace ?? ws.followHostWorkspace,
+    ...(typeof meta?.authorityEpoch === 'number' ? { authorityEpoch: meta.authorityEpoch } : {}),
+    ...(typeof meta?.activeInputPeerId === 'string'
+      ? { activeInputPeerId: meta.activeInputPeerId }
+      : {}),
+    ...(meta?.authorityMode ? { authorityMode: meta.authorityMode } : {}),
+    followHostWorkspace:
+      meta?.followHostWorkspace ?? (isDevSyncHost ? true : ws.followHostWorkspace),
     menuStateIncluded: includeMenu,
     arenaPreset: currentArenaPreset,
     ...(meta?.cameraSync ? { cameraSync: meta.cameraSync } : {}),
@@ -348,7 +363,6 @@ export function startDevSyncWorkspaceAutoBroadcast(): void {
   const scheduleBroadcast = () => {
     const app = useAppStore.getState();
     if (!app.onlineSession?.isHosting || !app.onlineSession?.isDevSyncRoom) return;
-    if (!useSpectateWorkspaceStore.getState().followHostWorkspace) return;
     const nextKey = computeWorkspaceKey();
     if (nextKey === lastKey) return;
     lastKey = nextKey;
@@ -357,7 +371,6 @@ export function startDevSyncWorkspaceAutoBroadcast(): void {
       timer = null;
       const latest = useAppStore.getState();
       if (!latest.onlineSession?.isHosting || !latest.onlineSession?.isDevSyncRoom) return;
-      if (!useSpectateWorkspaceStore.getState().followHostWorkspace) return;
       latest.bridge.onBroadcastGlobalWorkspace?.({});
     }, 16);
   };

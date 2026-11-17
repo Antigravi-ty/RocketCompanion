@@ -54,6 +54,32 @@ export interface ConnectedPeerSummary {
   arenaLoaded: boolean;
 }
 
+export function buildConnectedPeerSummaryList(
+  peerChannels: Map<string, P2PWebRTCChannel>,
+  peerRoles: Map<string, string>,
+  peerReadyStates: Map<string, { ready: boolean; arenaLoaded: boolean }>,
+  peerPairingCodes: Map<string, string>
+): ConnectedPeerSummary[] {
+  const list: ConnectedPeerSummary[] = [];
+  for (const [peerId, ch] of peerChannels.entries()) {
+    if (ch.connected || ch.isOpen) {
+      const readyInfo = peerReadyStates.get(peerId) || { ready: false, arenaLoaded: false };
+      list.push({
+        id: peerId,
+        name: ch.peerName || 'Player',
+        role: peerRoles.get(peerId) || 'player',
+        carIndex: typeof ch.carIndex === 'number' ? ch.carIndex : undefined,
+        pingMs: Math.round(ch.measuredRttMs || ch.rttMs || 0),
+        pairingCode: ch.pairingCode || peerPairingCodes.get(peerId) || undefined,
+        allowSpectatorRelay: Boolean(ch.allowSpectatorRelay),
+        ready: readyInfo.ready,
+        arenaLoaded: readyInfo.arenaLoaded,
+      });
+    }
+  }
+  return list;
+}
+
 export function stepHostPauseAckLoop(
   peerChannels: Map<string, P2PWebRTCChannel>,
   pauseAckController: HostPauseAckController,

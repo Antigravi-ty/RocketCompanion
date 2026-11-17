@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import { useAppStore } from '../runtimeUiPort.ts';
+import { getSpectateHostMatchMode, useAppStore } from '../runtimeUiPort.ts';
 import { audioConfig } from '../../ui-core/config/audioConfig.ts';
 import type { CarStateView } from '../../physics/RocketSimStateViews.ts';
 
@@ -34,6 +34,7 @@ export interface FramePipelineRuntimePort {
   audioSubsystem: { update(context: FrameContext): void } | null;
   renderSubsystem: { update(context: FrameContext): void } | null;
   telestratorOverlay?: { update?(): void } | null;
+  networkReconciler?: { spectateMirrorMode?: boolean } | null;
   pollInputs(commitPhysicsStep?: boolean): boolean;
 }
 
@@ -137,9 +138,23 @@ export class GameplayModeStage implements PipelineStage {
 
     r.modeManager?.update?.(context);
 
+    const online = useAppStore?.getState?.()?.onlineSession;
+    const isSpectatingFollow = Boolean(
+      online?.isDevSyncRoom && !online?.isHosting && r.networkReconciler?.spectateMirrorMode
+    );
+    if (isSpectatingFollow && r.match) {
+      const wsHostMode = getSpectateHostMatchMode();
+      const targetMode = wsHostMode || useAppStore.getState().matchMode;
+      if (targetMode && targetMode !== 'online-warmup' && r.match.state.mode !== targetMode) {
+        r.match.state.mode = targetMode;
+      }
+      if (wsHostMode && useAppStore.getState().matchMode !== wsHostMode) {
+        useAppStore.getState().setMatchMode(wsHostMode);
+      }
+    }
     if (r.container && r.match && r.container.dataset.gameMode !== r.match.state.mode) {
       r.container.dataset.gameMode = r.match.state.mode;
-      if (useAppStore && typeof useAppStore.getState === 'function') {
+      if (!isSpectatingFollow && useAppStore && typeof useAppStore.getState === 'function') {
         useAppStore.getState().setMatchMode(r.match.state.mode);
       }
     }

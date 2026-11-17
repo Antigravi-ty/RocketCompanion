@@ -66,6 +66,8 @@ export class HandshakeSession {
   readonly simulator: NetworkSimulator;
   lastProcessedOfferToken: string | null = null;
   currentAnswerToken: string | null = null;
+  disableDirectCrossTabJoin = false;
+  private hasDedicatedSubRoom = false;
 
   onCrossTabActivated: CrossTabActivatedListener | null;
   onDataChannelBound: DataChannelBoundListener | null;
@@ -129,7 +131,7 @@ export class HandshakeSession {
     }
   }
 
-  private activateCrossTabSession(peerPatch: PeerAppearancePatch): void {
+  public activateCrossTabSession(peerPatch: PeerAppearancePatch): void {
     this.localState = { ...this.localState, ...peerPatch, isOpen: true };
     this.handshakeEvents.push({ type: 'cross_tab_activated', peerPatch });
     if (this.onCrossTabActivated) {
@@ -201,7 +203,7 @@ export class HandshakeSession {
       const signaling = this.signaling;
       const connection = this.connection;
 
-      if (roomId) {
+      if (roomId && !this.hasDedicatedSubRoom) {
         signaling.initRoomChannel(roomId);
         signaling.sendRoomMessage(buildCrossTabJoinMessage(state), state.peerId);
       }
@@ -288,6 +290,7 @@ export class HandshakeSession {
         }
         return;
       case 'cross_tab_join': {
+        if (this.disableDirectCrossTabJoin) return;
         console.log(resolved.logLine);
         this.activateCrossTabSession(resolved.peerPatch);
         const updated = this.getStateSnapshot();
@@ -296,6 +299,10 @@ export class HandshakeSession {
       }
       case 'cross_tab_ack': {
         console.log(resolved.logLine);
+        if (resolved.subRoomId) {
+          this.hasDedicatedSubRoom = true;
+          this.signaling.initRoomChannel(resolved.subRoomId);
+        }
         this.activateCrossTabSession(resolved.peerPatch);
         if (resolved.offerTokenToAccept) {
           this.acceptOfferAndCreateAnswer(resolved.offerTokenToAccept)

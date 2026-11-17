@@ -108,6 +108,9 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
 
   if (skipReconciler || !reconciler) {
     spectateInterpolationBuffer?.reset();
+    if (skipReconciler && reconciler && !server) {
+      reconciler.flushPendingControlPackets?.(now);
+    }
     const currentTick = Math.floor(physics.getHeaderView().tickCount);
     if (
       sessionStateTarget &&
@@ -140,15 +143,20 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
 
   const isPureCsrSpectate = Boolean(
     reconciler.spectateMirrorMode &&
-      reconciler.clientInputEnabled === false &&
-      !reconciler.hostLobbyMode
+    reconciler.clientInputEnabled === false &&
+    !reconciler.hostLobbyMode
   );
 
   if (!isPureCsrSpectate || reconciler.replayPlaybackMode) {
     spectateInterpolationBuffer?.reset();
   }
 
-  if (!flags.isGoalReplay && !reconciler.replayPlaybackMode && !isPureCsrSpectate && physics.state) {
+  if (
+    !flags.isGoalReplay &&
+    !reconciler.replayPlaybackMode &&
+    !isPureCsrSpectate &&
+    physics.state
+  ) {
     if (hasPhysicsStatePositionNaN(physics)) {
       physics.restoreCompactState?.(physics.state, { preserveEngineTick: true });
       interpolator.sync(timestamp);
@@ -165,7 +173,10 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
   }
 
   if (isPureCsrSpectate && !reconciler.replayPlaybackMode && spectateInterpolationBuffer) {
-    if (Array.isArray(reconciler.drainedReplayPackets) && reconciler.drainedReplayPackets.length > 0) {
+    if (
+      Array.isArray(reconciler.drainedReplayPackets) &&
+      reconciler.drainedReplayPackets.length > 0
+    ) {
       for (let i = 0; i < reconciler.drainedReplayPackets.length; i++) {
         const pkt = reconciler.drainedReplayPackets[i];
         if (!pkt || !pkt.stateSnapshot) continue;

@@ -18,12 +18,19 @@ import {
 } from './simulationFrameClassifierPipeline.ts';
 import { stepNetworkReconciliationAndReplayStream } from './simulationNetworkReconcilePipeline.ts';
 import {
+  ClientAuthorityPublisher,
   HostBroadcastPublisher,
+  isDevSyncClientInputAuthorityMode,
   isDevSyncClientPureCsrSpectateMode,
   isDevSyncHostBroadcastingMode,
 } from './HostBroadcastPublisher.ts';
+import { applyReplayFrameToEngine } from '../../../replay/ReplayFrameInterpolator.ts';
 import { SpectateInterpolationBuffer } from '../../../network/sync/ReplicationStateInterpolator.ts';
-import { isSpectatePlaybackPaused } from '../../runtimeUiPort.ts';
+import {
+  buildHostWorkspaceBroadcastPayload,
+  isSpectatePlaybackPaused,
+  syncClientInputEnabledUi,
+} from '../../runtimeUiPort.ts';
 
 export type { CarActionDebounceState };
 
@@ -40,8 +47,16 @@ export interface SimulationStageRuntimePort extends CarActionSynthesizerRuntimeP
   } | null;
   multiplayerSession?: {
     isHosting?: boolean;
+    broadcastGlobalWorkspace?: (payload: Record<string, unknown>) => number;
     hostController?: {
       stepPauseAckLoop?: (nowMs?: number) => void;
+      inputAuthority?: {
+        activeInputPeerId: string;
+        authorityMode: string;
+        authorityEpoch: number;
+        setAuthority: (enabled: boolean, targetPeerId?: string) => Record<string, unknown>;
+        consumeLatestFrame: () => { snapshot: Float32Array; tick: number } | null;
+      };
     } | null;
   } | null;
   networkManager: {
@@ -92,6 +107,7 @@ export class SimulationStage implements PipelineStage {
   public runtime: SimulationStageRuntimePort;
   public readonly actionSynthesizer = new CarActionEventSynthesizer();
   public readonly broadcastPublisher = new HostBroadcastPublisher(60);
+  public readonly clientAuthorityPublisher = new ClientAuthorityPublisher(60);
   public readonly spectateInterpolationBuffer = new SpectateInterpolationBuffer();
   private _lastRecordedClientReplayTick = -1;
   private _pendingGoalScored = false;
@@ -132,19 +148,73 @@ export class SimulationStage implements PipelineStage {
     const fleet = networkManager?.diagnosticsProbe?.diagnosticsFleetController ?? null;
     const isBroadcastingHost = isDevSyncHostBroadcastingMode(Boolean(server));
     const isPureCsrClient = isDevSyncClientPureCsrSpectateMode(reconciler);
+    const isClientInputAuthority = isDevSyncClientInputAuthorityMode(reconciler);
+    const hostInputAuthority = isBroadcastingHost
+      ? (this.runtime.multiplayerSession?.hostController?.inputAuthority ?? null)
+      : null;
+    let remoteHasAuthority = Boolean(
+      hostInputAuthority && hostInputAuthority.activeInputPeerId !== 'host'
+    );
+
+    if (remoteHasAuthority && hostInputAuthority?.authorityMode === 'fpv_master_slave') {
+      this.runtime.pollInputs(false);
+      const ctrl = this.runtime.playerControls;
+      const hostMoved = Boolean(
+        ctrl &&
+        (Math.abs(ctrl.throttle ?? 0) > 0.05 ||
+          Math.abs(ctrl.steer ?? 0) > 0.05 ||
+          ctrl.jump ||
+          ctrl.boost)
+      );
+      if (hostMoved) {
+        const reclaimPatch = hostInputAuthority.setAuthority(false, 'host');
+        syncClientInputEnabledUi(false);
+        server?.setClientInputEnabled?.(false);
+        const wsPayload = buildHostWorkspaceBroadcastPayload(reclaimPatch);
+        if (wsPayload) {
+          this.runtime.multiplayerSession?.broadcastGlobalWorkspace?.(wsPayload);
+        }
+        remoteHasAuthority = false;
+      }
+    }
 
     const flags = evaluateSimulationFrameFlags({
       matchState,
       activeMode,
       isPodiumControllerActive: Boolean(podiumController?.isActive),
-      hasReconciler: Boolean(reconciler && !isBroadcastingHost),
+      hasReconciler: Boolean(reconciler && !isBroadcastingHost && !isClientInputAuthority),
       hasServer: Boolean(server),
     });
+
+    if (
+      isClientInputAuthority &&
+      !isSpectatePlaybackPaused() &&
+      !flags.isReplayPaused &&
+      !flags.isGoalReplay &&
+      !flags.isMatchEnded
+    ) {
+      physics.setSimulationFrozen?.(false, 0, false);
+      if (matchState.paused) {
+        matchState.paused = false;
+      }
+      if (matchState.phase === 'lobby') {
+        matchState.phase = 'playing';
+      }
+    }
 
     context.isPodiumActive = flags.isPodiumActive;
     context.isMatchActive = flags.isMatchActive;
 
-    if (flags.shouldHoldAccumulator || isPureCsrClient) {
+    const holdForClientAuthorityLobby =
+      flags.shouldHoldAccumulator &&
+      !(
+        isClientInputAuthority &&
+        !isSpectatePlaybackPaused() &&
+        !flags.isReplayPaused &&
+        !flags.isGoalReplay &&
+        !flags.isMatchEnded
+      );
+    if (holdForClientAuthorityLobby || isPureCsrClient || remoteHasAuthority) {
       if (!flags.isGoalReplay && !podiumController?.isActive) {
         interpolator.sync(timestamp);
       }
@@ -178,7 +248,15 @@ export class SimulationStage implements PipelineStage {
       );
     }
 
-    if (reconciler && !isBroadcastingHost) {
+    if (remoteHasAuthority && hostInputAuthority) {
+      const clientFrame = hostInputAuthority.consumeLatestFrame();
+      if (clientFrame) {
+        applyReplayFrameToEngine(physics, clientFrame.snapshot, interpolator);
+        server?.pushBroadcastSnapshot(clientFrame.snapshot, clientFrame.tick);
+      }
+    }
+
+    if (reconciler && !isBroadcastingHost && !isClientInputAuthority) {
       context.goalScored = matchState.phase === 'goal';
     } else {
       if (physics.pollGoal() !== 0) {
@@ -206,7 +284,7 @@ export class SimulationStage implements PipelineStage {
         fleetController: fleet,
         sessionStateTarget: session,
         lastRecordedClientReplayTick: this._lastRecordedClientReplayTick,
-        skipReconciler: isBroadcastingHost,
+        skipReconciler: isBroadcastingHost || isClientInputAuthority,
         spectateInterpolationBuffer: this.spectateInterpolationBuffer,
       });
     }
@@ -215,7 +293,21 @@ export class SimulationStage implements PipelineStage {
       this.runtime.multiplayerSession.hostController?.stepPauseAckLoop?.(Date.now());
     }
 
-    if (isBroadcastingHost && server) {
+    if (isClientInputAuthority) {
+      this.clientAuthorityPublisher.publishIfReady({
+        timestamp,
+        physics,
+        channel: reconciler?.channel as {
+          peerId?: string | null;
+          sendClientAuthorityFrame?: (payload: Record<string, unknown>) => boolean;
+        },
+        authorityEpoch: reconciler?.authorityEpoch ?? 0,
+      });
+    } else {
+      this.clientAuthorityPublisher.reset();
+    }
+
+    if (isBroadcastingHost && server && !remoteHasAuthority) {
       this.broadcastPublisher.publishIfReady({
         timestamp,
         physics,

@@ -83,6 +83,7 @@ export type RoomMessageResolution =
   | {
       readonly action: 'cross_tab_join';
       readonly peerPatch: PeerAppearancePatch;
+      readonly clientPeerId: string | null;
       readonly logLine: string;
     }
   | {
@@ -90,6 +91,7 @@ export type RoomMessageResolution =
       readonly peerPatch: PeerAppearancePatch;
       readonly logLine: string;
       readonly offerTokenToAccept: string | null;
+      readonly subRoomId: string | null;
     }
   | { readonly action: 'room_answer'; readonly sdp: string; readonly clientName: string }
   | {
@@ -195,13 +197,17 @@ export function decodeAndValidateAnswer(
 
 export function buildCrossTabAckMessage(
   state: HandshakeMetadataState,
-  includeOfferToken: boolean
+  includeOfferToken: boolean,
+  targetPeerId?: string | null,
+  subRoomId?: string | null
 ): Record<string, unknown> {
   return {
     type: 'cross_tab_ack',
     hostName: state.playerName,
     hostColorSlot: state.localColorSlot,
     hostColorHex: state.localColorHex,
+    ...(targetPeerId ? { targetPeerId } : {}),
+    ...(subRoomId ? { subRoomId } : {}),
     ...(includeOfferToken ? { offerToken: state.offerToken } : {}),
   };
 }
@@ -212,6 +218,7 @@ export function buildCrossTabJoinMessage(state: HandshakeMetadataState): Record<
     clientName: state.playerName,
     clientColorSlot: state.localColorSlot,
     clientColorHex: state.localColorHex,
+    ...(state.peerId ? { clientPeerId: state.peerId } : {}),
   };
 }
 
@@ -279,8 +286,15 @@ export function classifyRoomMessage(
   if (msg.type === 'cross_tab_join') {
     if (state.role !== 'host') return { action: 'ignore' };
     const clientName = typeof msg.clientName === 'string' ? msg.clientName : 'Player 2';
+    const clientPeerId =
+      typeof msg.clientPeerId === 'string' && msg.clientPeerId
+        ? msg.clientPeerId
+        : typeof msg.senderId === 'string' && msg.senderId
+          ? msg.senderId
+          : null;
     return {
       action: 'cross_tab_join',
+      clientPeerId,
       logLine: `[P2PWebRTCChannel] Host received cross_tab_join from ${clientName} (color: slot ${String(msg.clientColorSlot)} ${String(msg.clientColorHex)}), activating BroadcastChannel transport immediately`,
       peerPatch: {
         peerName: clientName || 'Player 2',
@@ -292,9 +306,18 @@ export function classifyRoomMessage(
 
   if (msg.type === 'cross_tab_ack') {
     if (state.role !== 'client') return { action: 'ignore' };
+    if (
+      typeof msg.targetPeerId === 'string' &&
+      msg.targetPeerId &&
+      state.peerId &&
+      msg.targetPeerId !== state.peerId
+    ) {
+      return { action: 'ignore' };
+    }
     const offerToken = typeof msg.offerToken === 'string' && msg.offerToken ? msg.offerToken : null;
     const shouldAcceptOffer = Boolean(offerToken && !state.answerToken && !hasRemoteDescription);
     const hostName = typeof msg.hostName === 'string' ? msg.hostName : 'Host';
+    const subRoomId = typeof msg.subRoomId === 'string' && msg.subRoomId ? msg.subRoomId : null;
     return {
       action: 'cross_tab_ack',
       logLine: `[P2PWebRTCChannel] Client received cross_tab_ack from ${hostName} (color: slot ${String(msg.hostColorSlot)} ${String(msg.hostColorHex)}), activating BroadcastChannel transport immediately`,
@@ -304,14 +327,11 @@ export function classifyRoomMessage(
         peerColorHex: typeof msg.hostColorHex === 'string' ? msg.hostColorHex : null,
       },
       offerTokenToAccept: shouldAcceptOffer ? offerToken : null,
+      subRoomId,
     };
   }
 
-  if (
-    msg.type === 'room_answer' &&
-    state.role === 'host' &&
-    typeof msg.sdp === 'string'
-  ) {
+  if (msg.type === 'room_answer' && state.role === 'host' && typeof msg.sdp === 'string') {
     return {
       action: 'room_answer',
       sdp: msg.sdp,
@@ -349,6 +369,7 @@ export function classifyRoomMessage(
     msg.type === 'pause_state_sync' ||
     msg.type === 'pause_state_ack' ||
     msg.type === 'presence_ping' ||
+    msg.type === 'client_authority_frame' ||
     msg.type === 'room_activity_switch' ||
     msg.type === 'replication_mode_set' ||
     msg.type === 'state_paused_ack' ||

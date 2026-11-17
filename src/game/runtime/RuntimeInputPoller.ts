@@ -255,25 +255,36 @@ export class RuntimeInputPoller {
     }
 
     if (!commitPhysicsStep) {
+      port.playerControls = command.normalizedControls;
       return true;
     }
 
     const sessionCoord = port.networkManager?.sessionCoordinator;
     const reconciler = sessionCoord?.networkReconciler ?? null;
-    const isHostBroadcasting = Boolean(
-      sessionCoord?.authoritativeServer &&
-        appState?.onlineSession?.isDevSyncRoom &&
-        appState?.onlineSession?.isHosting &&
-        appState?.onlineSession?.activeRoomActivity !== 'match'
+    const isDevSyncNonMatch = Boolean(
+      appState?.onlineSession?.isDevSyncRoom &&
+      appState?.onlineSession?.activeRoomActivity !== 'match'
     );
-    if (!isHostBroadcasting && reconciler?.shouldSkipLocalStep) {
+    const isHostBroadcasting = Boolean(
+      sessionCoord?.authoritativeServer && isDevSyncNonMatch && appState?.onlineSession?.isHosting
+    );
+    const isClientInputAuthority = Boolean(
+      reconciler &&
+      isDevSyncNonMatch &&
+      !appState?.onlineSession?.isHosting &&
+      reconciler.spectateMirrorMode &&
+      reconciler.clientInputEnabled === true &&
+      !reconciler.replayPlaybackMode
+    );
+    const bypassReconcilerInput = isHostBroadcasting || isClientInputAuthority;
+    if (!bypassReconcilerInput && reconciler?.shouldSkipLocalStep) {
       reconciler.shouldSkipLocalStep = false;
       return false;
     }
 
     const playerCarIndex = port.playerCarIndex;
     let car0Controls: CarControlsInput = command.normalizedControls;
-    if (reconciler && !isHostBroadcasting) {
+    if (reconciler && !bypassReconcilerInput) {
       car0Controls =
         (reconciler.sampleAndPredictInput(
           playerCarIndex,

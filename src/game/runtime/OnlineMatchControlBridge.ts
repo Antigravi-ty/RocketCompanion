@@ -324,7 +324,17 @@ export function createRuntimeMatchPort(domain: OnlineMatchControlDomainPort): Ru
       const next = Boolean(enabled);
       syncClientInputEnabledUi(next);
       sessionCoordinator.authoritativeServer?.setClientInputEnabled?.(next);
-      const payload = buildHostWorkspaceBroadcastPayload({ clientInputEnabled: next });
+      const authPatch = (
+        domain.multiplayerSession?.hostController as
+          | {
+              inputAuthority?: {
+                setAuthority: (enabled: boolean, targetPeerId?: string) => Record<string, unknown>;
+              };
+            }
+          | null
+          | undefined
+      )?.inputAuthority?.setAuthority(next, 'any') ?? { clientInputEnabled: next };
+      const payload = buildHostWorkspaceBroadcastPayload(authPatch);
       if (payload) {
         domain.multiplayerSession?.broadcastGlobalWorkspace?.(payload);
       }

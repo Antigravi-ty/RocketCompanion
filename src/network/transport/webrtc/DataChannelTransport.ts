@@ -106,6 +106,7 @@ export class DataChannelTransport {
   onPauseStateSync: ControlPayloadListener | null = null;
   onPauseStateAck: ControlPayloadListener | null = null;
   onPresencePing: ControlPayloadListener | null = null;
+  onClientAuthorityFrame: ControlPayloadListener | null = null;
   onTelestratorBytes: ((bytes: Uint8Array) => void) | null = null;
 
   private readonly tunnelBridge = createTunnelFramerBridgeState();
@@ -318,6 +319,7 @@ export class DataChannelTransport {
           onPauseStateSync: this.onPauseStateSync,
           onPauseStateAck: this.onPauseStateAck,
           onPresencePing: this.onPresencePing,
+          onClientAuthorityFrame: this.onClientAuthorityFrame,
           receiveSimulatorPayload: (payload, onDelivered, ts) =>
             sim.receivePayload(payload, onDelivered, ts),
           popInboundQueue: () => {
@@ -347,7 +349,10 @@ export class DataChannelTransport {
     reliable = false
   ): boolean {
     const dc = this.resolveActiveDataChannel();
-    if (dc?.readyState !== 'open' && tryTransmitViaTunnelBridge(this.tunnelBridge, payload, reliable)) {
+    if (
+      dc?.readyState !== 'open' &&
+      tryTransmitViaTunnelBridge(this.tunnelBridge, payload, reliable)
+    ) {
       return true;
     }
     return transmitClonedPayload(
@@ -429,8 +434,7 @@ export class DataChannelTransport {
 
   sendReliableControl(messageObj: Record<string, unknown>, label = 'reliable_control'): boolean {
     const dc = this.resolveActiveDataChannel();
-    const webrtcOpen =
-      this.controlDataChannel?.readyState === 'open' || dc?.readyState === 'open';
+    const webrtcOpen = this.controlDataChannel?.readyState === 'open' || dc?.readyState === 'open';
     if (!webrtcOpen && sendReliableControlViaTunnelBridge(this.tunnelBridge, messageObj)) {
       return true;
     }
@@ -489,6 +493,13 @@ export class DataChannelTransport {
 
   sendPresencePing(payload: Record<string, unknown>): boolean {
     return this.sendReliableControl({ ...payload, type: 'presence_ping' }, 'presence_ping');
+  }
+
+  sendClientAuthorityFrame(payload: Record<string, unknown>): boolean {
+    return this.sendReliableControl(
+      { ...payload, type: 'client_authority_frame' },
+      'client_authority_frame'
+    );
   }
 
   sendCsrStateBroadcast(payload: CsrStateBroadcastPayload): boolean {

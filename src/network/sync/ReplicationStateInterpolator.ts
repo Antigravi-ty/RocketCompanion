@@ -238,7 +238,12 @@ export class SpectateInterpolationBuffer {
     if (this.lastPushedArrivalMs > 0 && tick > this.lastPushedTick) {
       const expectedDeltaMs = (tick - this.lastPushedTick) * SPECTATE_TICK_MS;
       const actualDeltaMs = nowMs - this.lastPushedArrivalMs;
-      if (expectedDeltaMs > 0 && expectedDeltaMs < 500 && actualDeltaMs >= 0 && actualDeltaMs < 500) {
+      if (
+        expectedDeltaMs > 0 &&
+        expectedDeltaMs < 500 &&
+        actualDeltaMs >= 0 &&
+        actualDeltaMs < 500
+      ) {
         const jitterSample = Math.abs(actualDeltaMs - expectedDeltaMs);
         this.jitterMs = this.jitterMs + (jitterSample - this.jitterMs) * 0.125;
       }

@@ -97,6 +97,11 @@ import {
   createMatchModeTransitionBridge,
 } from '../src/game/runtime/MatchModeTransitionBridge.ts';
 import { SpectateInterpolationBuffer } from '../src/network/sync/ReplicationStateInterpolator.ts';
+import {
+  HostInputAuthorityTracker,
+  syncPeerWorkspaceSnapshot,
+} from '../src/network/transport/hostCrossTabAndAuthority.ts';
+import { classifyRoomMessage } from '../src/network/transport/webrtc/webrtcHandshakePipeline.ts';
 
 function runSection(name: string, fn: () => void | Promise<void>): Promise<void> {
   return Promise.resolve()
@@ -2093,6 +2098,14 @@ async function main(): Promise<void> {
     '17. Reliable Pause/Resume ACK, 100ms Retry, Timeout & 1-2Hz Presence Heartbeat',
     testReliablePauseAckAndHeartbeat
   );
+  await runSection(
+    '18. Multi-Client CrossTab Isolation & Late-Join Workspace Sync',
+    testMultiClientCrossTabIsolationAndWorkspaceSync
+  );
+  await runSection(
+    '19. Authority Handover & FPV Master/Slave Epoch Fencing',
+    testAuthorityHandoverAndFpvMasterSlave
+  );
   console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
 }
 
@@ -2293,7 +2306,8 @@ async function testReliablePauseAckAndHeartbeat(): Promise<void> {
   const timeouts: string[][] = [];
   ctrl.tick(1050, {
     sendPauseStateSyncToPeer: (peerId, p) => retried.push({ peerId, pauseSeq: p.pauseSeq }),
-    broadcastPresencePing: (p) => pings.push({ pauseSeq: p.pauseSeq, pausedAtTick: p.pausedAtTick }),
+    broadcastPresencePing: (p) =>
+      pings.push({ pauseSeq: p.pauseSeq, pausedAtTick: p.pausedAtTick }),
     onPauseAckTimeout: (ids) => timeouts.push(ids),
   });
   assert.equal(retried.length, 0);
@@ -2301,7 +2315,8 @@ async function testReliablePauseAckAndHeartbeat(): Promise<void> {
   // At +100ms: retries PAUSE_STATE_SYNC to both un-ACKed peers
   ctrl.tick(1100, {
     sendPauseStateSyncToPeer: (peerId, p) => retried.push({ peerId, pauseSeq: p.pauseSeq }),
-    broadcastPresencePing: (p) => pings.push({ pauseSeq: p.pauseSeq, pausedAtTick: p.pausedAtTick }),
+    broadcastPresencePing: (p) =>
+      pings.push({ pauseSeq: p.pauseSeq, pausedAtTick: p.pausedAtTick }),
     onPauseAckTimeout: (ids) => timeouts.push(ids),
   });
   assert.equal(retried.length, 2);
@@ -2332,12 +2347,14 @@ async function testReliablePauseAckAndHeartbeat(): Promise<void> {
   // In pausedIdle at 2Hz (500ms interval): +200ms -> no ping; +500ms -> 1 presence_ping
   ctrl.tick(1350, {
     sendPauseStateSyncToPeer: () => {},
-    broadcastPresencePing: (p) => pings.push({ pauseSeq: p.pauseSeq, pausedAtTick: p.pausedAtTick }),
+    broadcastPresencePing: (p) =>
+      pings.push({ pauseSeq: p.pauseSeq, pausedAtTick: p.pausedAtTick }),
   });
   assert.equal(pings.length, 0);
   ctrl.tick(1650, {
     sendPauseStateSyncToPeer: () => {},
-    broadcastPresencePing: (p) => pings.push({ pauseSeq: p.pauseSeq, pausedAtTick: p.pausedAtTick }),
+    broadcastPresencePing: (p) =>
+      pings.push({ pauseSeq: p.pauseSeq, pausedAtTick: p.pausedAtTick }),
   });
   assert.equal(pings.length, 1);
   assert.equal(pings[0].pauseSeq, 1);
@@ -2436,6 +2453,114 @@ async function testReliablePauseAckAndHeartbeat(): Promise<void> {
     'Host should transition to pausedIdle after receiving client PAUSE_STATE_ACK'
   );
   hostCtrl.cleanup();
+}
+
+function testMultiClientCrossTabIsolationAndWorkspaceSync(): void {
+  const client1State = {
+    role: 'client',
+    roomId: '0608',
+    peerId: 'client_1',
+    playerName: 'Client1',
+    localColorSlot: 0,
+    localColorHex: '#38bdf8',
+    peerName: 'Host',
+    peerColorSlot: 0,
+    peerColorHex: '#38bdf8',
+    offerToken: null,
+    answerToken: null,
+    isOpen: false,
+  };
+  const client2State = {
+    ...client1State,
+    peerId: 'client_2',
+    playerName: 'Client2',
+  };
+
+  // cross_tab_ack targeted at client_2 must be ignored by client_1 and accepted by client_2 with dedicated subRoomId
+  const ackForClient2 = {
+    type: 'cross_tab_ack',
+    targetPeerId: 'client_2',
+    subRoomId: '0608_peer_client_2',
+    hostName: 'Host',
+    hostColorSlot: 0,
+    hostColorHex: '#38bdf8',
+    offerToken: 'offer_abc',
+  };
+  assert.equal(classifyRoomMessage(ackForClient2, client1State, false).action, 'ignore');
+  const res2 = classifyRoomMessage(ackForClient2, client2State, false);
+  assert.equal(res2.action, 'cross_tab_ack');
+  if (res2.action === 'cross_tab_ack') {
+    assert.equal(res2.subRoomId, '0608_peer_client_2');
+    assert.equal(res2.offerTokenToAccept, 'offer_abc');
+  }
+
+  // Late-join workspace sync delivers active workspace + activity to the newly connected peer channel
+  const sentWorkspace: Record<string, unknown>[] = [];
+  const sentActivities: Record<string, unknown>[] = [];
+  const mockCh = {
+    isOpen: true,
+    sendGlobalWorkspaceBroadcast: (p: Record<string, unknown>) => {
+      sentWorkspace.push(p);
+      return true;
+    },
+    sendRoomActivitySwitch: (p: Record<string, unknown>) => {
+      sentActivities.push(p);
+      return true;
+    },
+  } as unknown as Parameters<typeof syncPeerWorkspaceSnapshot>[0];
+
+  syncPeerWorkspaceSnapshot(
+    mockCh,
+    () => ({
+      matchMode: 'static-training-pack',
+      followHostWorkspace: true,
+      playbackPaused: true,
+      pausedAtTick: 120,
+    }),
+    () => ({ activityId: 'multiplayer_training', epoch: 3 })
+  );
+  assert.equal(sentWorkspace.length, 1);
+  assert.equal(sentWorkspace[0]?.matchMode, 'static-training-pack');
+  assert.equal(sentActivities.length, 1);
+  assert.equal(sentActivities[0]?.activityId, 'multiplayer_training');
+}
+
+function testAuthorityHandoverAndFpvMasterSlave(): void {
+  const tracker = new HostInputAuthorityTracker();
+  assert.equal(tracker.activeInputPeerId, 'host');
+  assert.equal(tracker.authorityEpoch, 0);
+
+  // Handover to any client (epoch increments to 1)
+  const grant = tracker.setAuthority(true, 'any', 'fpv_master_slave');
+  assert.equal(grant.authorityEpoch, 1);
+  assert.equal(grant.activeInputPeerId, 'any');
+  assert.equal(grant.clientInputEnabled, true);
+
+  // Stale epoch (0) is rejected; current epoch (1) is ingested and consumed
+  const snap = Array.from({ length: 24 }, (_, i) => i + 1);
+  assert.equal(
+    tracker.ingestFrame('client_1', { authorityEpoch: 0, tick: 50, snapshot: snap }),
+    false
+  );
+  assert.equal(
+    tracker.ingestFrame('client_1', { authorityEpoch: 1, tick: 51, snapshot: snap }),
+    true
+  );
+  const consumed = tracker.consumeLatestFrame();
+  assert.ok(consumed);
+  assert.equal(consumed.tick, 51);
+  assert.equal(consumed.peerId, 'client_1');
+  assert.equal(tracker.consumeLatestFrame(), null);
+
+  // FPV Master/Slave host reclaim increments epoch to 2 and drops late client frames from epoch 1
+  const reclaim = tracker.setAuthority(false, 'host');
+  assert.equal(reclaim.authorityEpoch, 2);
+  assert.equal(reclaim.activeInputPeerId, 'host');
+  assert.equal(reclaim.clientInputEnabled, false);
+  assert.equal(
+    tracker.ingestFrame('client_1', { authorityEpoch: 1, tick: 52, snapshot: snap }),
+    false
+  );
 }
 
 main().catch((err) => {

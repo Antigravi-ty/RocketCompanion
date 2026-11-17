@@ -61,7 +61,12 @@ export function syncReplayFrameToAuthoritativeServer(
     const tick =
       typeof tickOverride === 'number' && Number.isFinite(tickOverride)
         ? Math.max(0, Math.round(tickOverride))
-        : Math.max(0, Math.round(Number(snap[0]) || Number(runtime?.physics?.getHeaderView?.()?.tickCount) || 0));
+        : Math.max(
+            0,
+            Math.round(
+              Number(snap[0]) || Number(runtime?.physics?.getHeaderView?.()?.tickCount) || 0
+            )
+          );
     server.enterStateOnlyMode(snap, tick);
     return;
   }

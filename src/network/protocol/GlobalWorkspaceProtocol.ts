@@ -27,6 +27,8 @@ export interface WorkspaceCameraSyncPayload {
   freeCamLookAt?: [number, number, number];
 }
 
+export type InputAuthorityMode = 'explicit' | 'fpv_master_slave';
+
 export interface GlobalWorkspaceBroadcastPayload {
   epoch: number;
   tick: number;
@@ -39,10 +41,21 @@ export interface GlobalWorkspaceBroadcastPayload {
   pauseHeartbeatHz: number;
   pauseSeq?: number;
   clientInputEnabled: boolean;
+  authorityEpoch?: number;
+  activeInputPeerId?: string;
+  authorityMode?: InputAuthorityMode;
   followHostWorkspace: boolean;
   menuStateIncluded?: boolean;
   arenaPreset?: 'standard' | 'throwback';
   cameraSync?: WorkspaceCameraSyncPayload;
+}
+
+export interface ClientAuthorityFramePayload {
+  type?: 'client_authority_frame';
+  authorityEpoch: number;
+  tick: number;
+  peerId: string;
+  snapshot: number[];
 }
 
 export interface PauseStateSyncPayload {
@@ -155,6 +168,15 @@ export function sanitizeGlobalWorkspaceBroadcast(
       ? { pauseSeq: Math.max(0, Math.round(src.pauseSeq)) }
       : {}),
     clientInputEnabled: typeof src.clientInputEnabled === 'boolean' ? src.clientInputEnabled : true,
+    ...(typeof src.authorityEpoch === 'number' && Number.isFinite(src.authorityEpoch)
+      ? { authorityEpoch: Math.max(0, Math.round(src.authorityEpoch)) }
+      : {}),
+    ...(typeof src.activeInputPeerId === 'string' && src.activeInputPeerId.trim()
+      ? { activeInputPeerId: src.activeInputPeerId.trim() }
+      : {}),
+    ...(src.authorityMode === 'explicit' || src.authorityMode === 'fpv_master_slave'
+      ? { authorityMode: src.authorityMode }
+      : {}),
     followHostWorkspace: Boolean(src.followHostWorkspace),
     menuStateIncluded: typeof src.menuStateIncluded === 'boolean' ? src.menuStateIncluded : true,
     ...(arenaPreset !== undefined ? { arenaPreset } : {}),
@@ -191,7 +213,8 @@ export function sanitizePauseStateAck(
   fallbackPeerId = 'peer'
 ): PauseStateAckPayload {
   const src = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-  const peerIdRaw = typeof src.peerId === 'string' && src.peerId.trim() ? src.peerId.trim() : fallbackPeerId;
+  const peerIdRaw =
+    typeof src.peerId === 'string' && src.peerId.trim() ? src.peerId.trim() : fallbackPeerId;
   return {
     type: 'pause_state_ack',
     pauseSeq:

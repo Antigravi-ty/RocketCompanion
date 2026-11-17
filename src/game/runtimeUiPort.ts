@@ -112,6 +112,7 @@ const _handlers: Record<string, PortHandlerFn | null> = {
   applyIncomingWorkspaceBroadcast: null,
   applyIncomingPauseStateSync: null,
   isSpectatePlaybackPaused: null,
+  getSpectateHostMatchMode: null,
   buildHostWorkspaceBroadcastPayload: null,
   resetSpectateWorkspaceOnLeave: null,
   syncClientInputEnabledUi: null,
@@ -349,12 +350,13 @@ export function applyIncomingWorkspaceBroadcast(
 export function applyIncomingPauseStateSync(
   raw: Record<string, unknown>
 ): Record<string, unknown> | null {
-  return (
-    (_handlers.applyIncomingPauseStateSync?.(raw) as Record<string, unknown> | null) ?? null
-  );
+  return (_handlers.applyIncomingPauseStateSync?.(raw) as Record<string, unknown> | null) ?? null;
 }
 export function isSpectatePlaybackPaused(): boolean {
   return Boolean(_handlers.isSpectatePlaybackPaused?.());
+}
+export function getSpectateHostMatchMode(): string | null {
+  return (_handlers.getSpectateHostMatchMode?.() as string | null) ?? null;
 }
 export function buildHostWorkspaceBroadcastPayload(
   meta?: Record<string, unknown>

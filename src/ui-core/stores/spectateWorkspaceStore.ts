@@ -24,6 +24,7 @@ export interface GlobalWorkspaceStateInput {
   followHostWorkspace?: boolean;
   menuStateIncluded?: boolean;
   arenaPreset?: 'standard' | 'throwback';
+  matchMode?: string;
   cameraSync?: WorkspaceCameraSyncPayload;
 }
 
@@ -38,6 +39,7 @@ export interface SpectateWorkspaceStoreState {
   followHostCamera: boolean;
   hostCameraSync: WorkspaceCameraSyncPayload | null;
   arenaPreset: 'standard' | 'throwback';
+  hostMatchMode: string | null;
   hostMenuRoute: string | null;
   hostFloatingWindows: FloatingWindowSyncEntry[];
   playbackPaused: boolean;
@@ -84,6 +86,7 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
   followHostCamera: false,
   hostCameraSync: null,
   arenaPreset: 'standard',
+  hostMatchMode: null,
   hostMenuRoute: null,
   hostFloatingWindows: [],
   playbackPaused: false,
@@ -217,6 +220,10 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
         : payload.arenaPreset === 'standard'
           ? 'standard'
           : s.arenaPreset;
+    const nextHostMatchMode =
+      typeof payload.matchMode === 'string' && payload.matchMode
+        ? payload.matchMode
+        : s.hostMatchMode;
 
     if (nextFollowHostWorkspace) {
       const snapshot =
@@ -232,6 +239,7 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
         followHostCamera: nextFollowHostCamera,
         hostCameraSync: nextCameraSync,
         arenaPreset: nextArenaPreset,
+        hostMatchMode: nextHostMatchMode,
         hostMenuRoute: menuIncluded ? payload.menuRoute : s.hostMenuRoute,
         hostFloatingWindows: nextWindows,
         playbackPaused: payload.playbackPaused,
@@ -262,6 +270,7 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
         followHostCamera: nextFollowHostCamera,
         hostCameraSync: nextCameraSync,
         arenaPreset: nextArenaPreset,
+        hostMatchMode: null,
         hostMenuRoute: payload.menuRoute,
         hostFloatingWindows: nextWindows,
         playbackPaused: payload.playbackPaused,
@@ -278,6 +287,7 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
       followHostCamera: nextFollowHostCamera,
       hostCameraSync: nextCameraSync,
       arenaPreset: nextArenaPreset,
+      hostMatchMode: nextHostMatchMode,
       hostMenuRoute: payload.menuRoute,
       hostFloatingWindows: nextWindows,
       playbackPaused: payload.playbackPaused,

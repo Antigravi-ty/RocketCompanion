@@ -272,7 +272,14 @@ export function createOnlineSessionBridgePort(
       if (typeof ctx.onSessionReady === 'function') {
         ctx.onSessionReady(reconciler, channel);
       }
-      syncOnlineSessionAppStoreState('online-warmup', {
+      const curStore = useAppStore.getState();
+      const nextMode =
+        curStore.onlineSession?.isDevSyncRoom &&
+        curStore.matchMode &&
+        curStore.matchMode !== 'online-warmup'
+          ? curStore.matchMode
+          : 'online-warmup';
+      syncOnlineSessionAppStoreState(nextMode, {
         isHosting: false,
         playerName,
         signalingConnected: true,
@@ -316,6 +323,9 @@ export function createOnlineSessionBridgePort(
     applyClientRoomActivitySwitch: (reconciler, payload) => {
       const activityId = typeof payload.activityId === 'string' ? payload.activityId : 'freeplay';
       reconciler.setReplayPlaybackMode(activityId === 'replay');
+      if (activityId !== 'replay') {
+        ctx.physics?.setSimulationFrozen?.(false, 0, false);
+      }
       if (useAppStore.getState().onlineSession?.isDevSyncRoom) {
         reconciler.setSpectateMirrorMode?.(activityId !== 'match');
       }

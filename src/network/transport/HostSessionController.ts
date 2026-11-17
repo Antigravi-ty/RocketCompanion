@@ -14,6 +14,7 @@ import {
 import { HostPauseAckController } from './HostPauseAckController.ts';
 import {
   broadcastHostWorkspaceWithPauseSync,
+  buildConnectedPeerSummaryList,
   stepHostPauseAckLoop,
   type ConnectedPeerSummary,
   type HostSessionCallbacks,
@@ -21,13 +22,16 @@ import {
   type HostSignalingPort,
 } from './hostPauseAckBridge.ts';
 import { handleHostInboundTelestratorBytes } from './hostTelestratorRelay.ts';
+import {
+  createHostCrossTabDiscovery,
+  HostInputAuthorityTracker,
+  promotePrewarmedPeerChannel,
+  scheduleLateJoinWorkspaceSync,
+  syncPeerWorkspaceSnapshot,
+} from './hostCrossTabAndAuthority.ts';
+import type { CrossTabSignaling } from './webrtc/CrossTabSignaling.ts';
 
-export type {
-  ConnectedPeerSummary,
-  HostSessionCallbacks,
-  HostSessionOptions,
-  HostSignalingPort,
-};
+export type { ConnectedPeerSummary, HostSessionCallbacks, HostSessionOptions, HostSignalingPort };
 
 export const DEFAULT_MAX_INPUT_CHANNELS = 6;
 export const DEFAULT_MAX_BROADCAST_CHANNELS = 16;
@@ -48,6 +52,8 @@ export class HostSessionController {
   peerPairingCodes = new Map<string, string>();
   daisyChainCoordinator = new SpectatorDaisyChainCoordinator();
   readonly pauseAckController = new HostPauseAckController();
+  readonly inputAuthority = new HostInputAuthorityTracker();
+  private discoverySignaling: CrossTabSignaling | null = null;
   offerToken = '';
   offersSentTime = new Map<string, number>();
   _nextPeerSeq = 1;
@@ -91,6 +97,10 @@ export class HostSessionController {
     ch.peerName = peerName;
     ch.pairingCode = metadata.pairingCode || null;
     ch.allowSpectatorRelay = metadata.allowSpectatorRelay !== false;
+    ch.handshake.disableDirectCrossTabJoin = true;
+    ch.onClientAuthorityFrame = (raw) => {
+      this.inputAuthority.ingestFrame(ch.peerId || peerId, raw);
+    };
 
     const currentPlayerCount = this.getInputChannelCount();
     const assignedRole =
@@ -144,6 +154,11 @@ export class HostSessionController {
           ch.sendPauseStateSync(sync as unknown as Record<string, unknown>);
         }
       }
+      scheduleLateJoinWorkspaceSync(
+        ch,
+        () => this.activeGlobalWorkspace as unknown as Record<string, unknown> | null,
+        () => this.activeRoomActivity
+      );
     };
 
     ch.onDisconnected = () => {
@@ -155,13 +170,18 @@ export class HostSessionController {
       this.callbacks.onPeerDisconnected?.(activePeerId, ch);
     };
 
+    ch.onPresencePing = () => {
+      syncPeerWorkspaceSnapshot(
+        ch,
+        () => this.activeGlobalWorkspace as unknown as Record<string, unknown> | null,
+        () => this.activeRoomActivity
+      );
+    };
+
     ch.onPauseStateAck = (raw: Record<string, unknown>) => {
       const activePeerId = ch.peerId || peerId;
       const ack = sanitizePauseStateAck(raw, activePeerId);
-      this.pauseAckController.handlePauseAck({
-        ...ack,
-        peerId: activePeerId,
-      });
+      this.pauseAckController.handlePauseAck(ack);
     };
 
     ch.onColorChange = (msg: { carIndex?: number; slotId: number | null; hex: string | null }) => {
@@ -216,24 +236,12 @@ export class HostSessionController {
   }
 
   getConnectedPeerList(): ConnectedPeerSummary[] {
-    const list: ConnectedPeerSummary[] = [];
-    for (const [peerId, ch] of this.peerChannels.entries()) {
-      if (ch.connected || ch.isOpen) {
-        const readyInfo = this.peerReadyStates.get(peerId) || { ready: false, arenaLoaded: false };
-        list.push({
-          id: peerId,
-          name: ch.peerName || 'Player',
-          role: this.peerRoles.get(peerId) || 'player',
-          carIndex: typeof ch.carIndex === 'number' ? ch.carIndex : undefined,
-          pingMs: Math.round(ch.measuredRttMs || ch.rttMs || 0),
-          pairingCode: ch.pairingCode || this.peerPairingCodes.get(peerId) || undefined,
-          allowSpectatorRelay: Boolean(ch.allowSpectatorRelay),
-          ready: readyInfo.ready,
-          arenaLoaded: readyInfo.arenaLoaded,
-        });
-      }
-    }
-    return list;
+    return buildConnectedPeerSummaryList(
+      this.peerChannels,
+      this.peerRoles,
+      this.peerReadyStates,
+      this.peerPairingCodes
+    );
   }
 
   async initializeChannel(): Promise<string> {
@@ -246,6 +254,19 @@ export class HostSessionController {
       roomId: this.roomId,
       hostColorSlot: this.colorSlot,
       hostColorHex: this.colorHex,
+    });
+
+    this.discoverySignaling = createHostCrossTabDiscovery({
+      roomId: this.roomId,
+      playerName: this.playerName,
+      colorSlot: this.colorSlot,
+      colorHex: this.colorHex,
+      offerToken: this.offerToken,
+      peerChannels: this.peerChannels,
+      peerRoles: this.peerRoles,
+      peerReadyStates: this.peerReadyStates,
+      createPeerChannel: (peerId, peerName, role) =>
+        this._createPeerChannel(peerId, peerName, role),
     });
 
     return this.offerToken;
@@ -298,38 +319,23 @@ export class HostSessionController {
     let targetChannel = this.peerChannels.get(peerId);
 
     if (!targetChannel) {
-      const prewarmed = this.peerChannels.get('peer_1');
-      if (
-        prewarmed &&
-        !prewarmed.connected &&
-        !prewarmed.isOpen &&
-        (!prewarmed.connection.pc || prewarmed.connection.pc.signalingState === 'have-local-offer')
-      ) {
-        this.peerChannels.delete('peer_1');
-        const prevRole = effectiveRole || this.peerRoles.get('peer_1') || role;
-        this.peerRoles.delete('peer_1');
-        const prevReady = this.peerReadyStates.get('peer_1') || {
-          ready: false,
-          arenaLoaded: false,
-        };
-        this.peerReadyStates.delete('peer_1');
-
-        prewarmed.peerId = peerId;
-        prewarmed.peerName = peerName || 'Player 2';
-        prewarmed.pairingCode = metadata.pairingCode || null;
-        prewarmed.allowSpectatorRelay = metadata.allowSpectatorRelay !== false;
-        this.peerChannels.set(peerId, prewarmed);
-        this.peerRoles.set(peerId, prevRole);
-        this.peerReadyStates.set(peerId, prevReady);
-        targetChannel = prewarmed;
-      } else {
-        targetChannel = this._createPeerChannel(
+      targetChannel =
+        promotePrewarmedPeerChannel(
+          this.peerChannels,
+          this.peerRoles,
+          this.peerReadyStates,
+          peerId,
+          peerName || 'Player 2',
+          effectiveRole || role,
+          metadata,
+          true
+        ) ??
+        this._createPeerChannel(
           peerId,
           peerName || `Player ${++this._nextPeerSeq}`,
           effectiveRole,
           metadata
         );
-      }
     } else if (metadata.pairingCode) {
       targetChannel.pairingCode = metadata.pairingCode;
     }
@@ -496,11 +502,17 @@ export class HostSessionController {
   broadcastGlobalWorkspace(
     payload: GlobalWorkspaceBroadcastPayload | Record<string, unknown>
   ): number {
+    const withAuthority: Record<string, unknown> = {
+      authorityEpoch: this.inputAuthority.authorityEpoch,
+      activeInputPeerId: this.inputAuthority.activeInputPeerId,
+      authorityMode: this.inputAuthority.authorityMode,
+      ...payload,
+    };
     const { normalized, sentCount } = broadcastHostWorkspaceWithPauseSync(
       this.peerChannels,
       this.pauseAckController,
       this.getConnectedPeerIds(),
-      payload
+      withAuthority
     );
     this.activeGlobalWorkspace = normalized;
     return sentCount;
@@ -524,6 +536,9 @@ export class HostSessionController {
   }
 
   cleanup(): void {
+    this.discoverySignaling?.destroy();
+    this.discoverySignaling = null;
+    this.inputAuthority.reset();
     this.offersSentTime.clear();
     this.peerRoles.clear();
     this.peerReadyStates.clear();

@@ -431,7 +431,10 @@ export class OnlineMatchReconcilerBinder {
       if (transition.assignedCarIndex === null && physics && physics.numCars > 1) {
         physics.configureCars('default', false, 0);
       }
-      useAppStore?.getState?.()?.setMatchMode?.('freeplay');
+      const curMode = useAppStore?.getState?.()?.matchMode;
+      if (!curMode || curMode === 'online-warmup') {
+        useAppStore?.getState?.()?.setMatchMode?.('freeplay');
+      }
     } else if (transition.isMidMatchJoin) {
       lobbyDualWorld.configureArenaLobbyFlags(false, false);
       this.applyMidMatchHandshakeTransition({

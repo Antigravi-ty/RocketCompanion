@@ -430,7 +430,14 @@ async function main() {
     await client2Cdp.eval(
       `window.__rcE2E.getAppState().bridge.onJoinOnlineWarmup({ roomId: ${JSON.stringify(roomId)}, playerName: 'Client2' })`
     );
-    await new Promise((r) => setTimeout(r, 1500));
+    await waitFor(
+      async () => {
+        const s = await readSimSnapshot(client2Cdp);
+        return s.matchMode === 'static-training-pack';
+      },
+      'Client2 workspace sync',
+      5_000
+    ).catch(() => {});
     const mcHost = await readSimSnapshot(hostCdp);
     const mcC2 = await readSimSnapshot(client2Cdp);
     recordScenario(
@@ -448,17 +455,24 @@ async function main() {
     await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onReturnToFreeplay()`);
     await new Promise((r) => setTimeout(r, 400));
     await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onSetClientInputEnabled?.(true)`);
-    await new Promise((r) => setTimeout(r, 400));
+    await waitFor(
+      () =>
+        client1Cdp.eval(`Boolean(window.__rcE2E.runtime?.networkReconciler?.clientInputEnabled)`),
+      'Client1 input authority',
+      5_000
+    ).catch(() => {});
     const ciBefore = await readSimSnapshot(hostCdp);
     await client1Cdp.send('Page.bringToFront');
     await client1Cdp.eval(`(() => {
       const kb = window.__rcE2E.runtime.keyboard;
-      if (kb?.keys) { kb.keys['KeyW'] = true; }
+      if (kb?.keys?.add) { kb.keys.add('KeyW'); kb.keys.add('ShiftLeft'); }
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', key: 'w' }));
     })()`);
     await new Promise((r) => setTimeout(r, 900));
     await client1Cdp.eval(`(() => {
       const kb = window.__rcE2E.runtime.keyboard;
-      if (kb?.keys) { kb.keys['KeyW'] = false; }
+      if (kb?.keys?.delete) { kb.keys.delete('KeyW'); kb.keys.delete('ShiftLeft'); }
+      window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', key: 'w' }));
     })()`);
     const ciHost = await readSimSnapshot(hostCdp);
     const ciClient = await readSimSnapshot(client1Cdp);

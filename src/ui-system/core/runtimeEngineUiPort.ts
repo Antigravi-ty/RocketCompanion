@@ -78,6 +78,7 @@ import {
   captureCameraSyncFromPort,
   applyCameraSyncToPort,
   getSpectateCameraFollowTargetIndex,
+  getSpectateHostMatchMode,
 } from './runtimeSpectateWorkspaceBridge.ts';
 
 let initialized = false;
@@ -145,6 +146,7 @@ export function ensureRuntimeEngineUiPortBound(): void {
     applyIncomingWorkspaceBroadcast,
     applyIncomingPauseStateSync,
     isSpectatePlaybackPaused,
+    getSpectateHostMatchMode,
     buildHostWorkspaceBroadcastPayload,
     resetSpectateWorkspaceOnLeave,
     syncClientInputEnabledUi,

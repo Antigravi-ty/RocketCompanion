@@ -291,6 +291,7 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
           peerId?: string | null;
           onGlobalWorkspaceBroadcast?: ((msg: Record<string, unknown>) => void) | null;
           onPauseStateSync?: ((msg: Record<string, unknown>) => void) | null;
+          sendPresencePing?: (payload?: Record<string, unknown>) => boolean;
         };
         ch.onPauseStateSync = (msg) => {
           const sync = applyIncomingPauseStateSync(msg);
@@ -324,7 +325,9 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
               hostLobbyMode?: boolean;
               setLobbyDualWorldMode?: (enabled: boolean) => void;
               setSpectateMirrorMode?: (enabled: boolean) => void;
+              setReplayPlaybackMode?: (enabled: boolean) => void;
               setClientInputEnabled?: (enabled: boolean) => void;
+              setAuthorityState?: (epoch: number, activePeerId: string) => void;
             } | null;
             lobbyDualWorld?: {
               configureArenaLobbyFlags?: (isLobby: boolean, isHostLobby: boolean) => void;
@@ -336,6 +339,13 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
           };
           const reconciler = coord.networkReconciler;
           if (reconciler && payload) {
+            if (typeof payload.matchMode === 'string') {
+              const isReplayMode = payload.matchMode === 'replay-viewer';
+              reconciler.setReplayPlaybackMode?.(isReplayMode);
+              if (!isReplayMode && !payload.playbackPaused) {
+                physics?.setSimulationFrozen?.(false, 0, false);
+              }
+            }
             if (payload.followHostWorkspace) {
               reconciler.setSpectateMirrorMode?.(true);
               if (reconciler.lobbyDualWorldMode) {
@@ -350,13 +360,27 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
             }
             if (typeof payload.clientInputEnabled === 'boolean') {
               reconciler.setClientInputEnabled?.(payload.clientInputEnabled);
+              if (payload.clientInputEnabled) {
+                physics?.setSimulationFrozen?.(false, 0, false);
+              }
+            }
+            if (
+              typeof payload.authorityEpoch === 'number' ||
+              typeof payload.activeInputPeerId === 'string'
+            ) {
+              reconciler.setAuthorityState?.(
+                typeof payload.authorityEpoch === 'number' ? payload.authorityEpoch : 0,
+                typeof payload.activeInputPeerId === 'string' ? payload.activeInputPeerId : 'host'
+              );
             }
           }
         };
+        ch.sendPresencePing?.({ peerId: ch.peerId || authorId, readyForWorkspaceSync: true });
       }
     },
     async onPeerConnected(channel: NetworkSessionChannelLike, name: string) {
-      const assignedCarIdx = (await rosterSyncCoordinator.onRemotePlayerConnected(channel, name)) ?? -1;
+      const assignedCarIdx =
+        (await rosterSyncCoordinator.onRemotePlayerConnected(channel, name)) ?? -1;
       const peerId = (channel as { peerId?: string }).peerId || name;
       attachVoiceToPeerChannel(channel, peerId, name, null);
       return assignedCarIdx;

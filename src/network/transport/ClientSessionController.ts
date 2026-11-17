@@ -82,6 +82,7 @@ export class ClientSessionController {
       colorHex: this.colorHex,
       extraLatencyMs: 0,
     });
+    this.channel.peerId = `client_${Math.random().toString(36).slice(2, 9)}`;
 
     this.channel.initRoomChannel(this.roomId);
 
@@ -109,6 +110,8 @@ export class ClientSessionController {
 
     this.channel.sendRoomMessage({
       type: 'cross_tab_join',
+      senderId: this.channel.peerId,
+      clientPeerId: this.channel.peerId,
       clientName: this.playerName,
       clientColorSlot: this.colorSlot,
       clientColorHex: this.colorHex,

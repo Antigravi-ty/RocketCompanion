@@ -121,6 +121,8 @@ export class PredictionReconciler
   hostLobbyMode = false;
   spectateMirrorMode = false;
   clientInputEnabled = true;
+  authorityEpoch = 0;
+  activeInputPeerId = 'host';
   replayPlaybackMode = false;
   localSkipReplayReady = false;
   lobbyPrevAuthoritativeState: Float32Array | null = null;
@@ -251,6 +253,15 @@ export class PredictionReconciler
 
   setClientInputEnabled(enabled: boolean): void {
     this.clientInputEnabled = Boolean(enabled);
+  }
+
+  setAuthorityState(epoch: number, activePeerId: string): void {
+    if (Number.isFinite(epoch) && epoch >= 0) {
+      this.authorityEpoch = Math.round(epoch);
+    }
+    if (typeof activePeerId === 'string' && activePeerId.trim()) {
+      this.activeInputPeerId = activePeerId.trim();
+    }
   }
 
   setSpectateMirrorMode(enabled: boolean): void {
@@ -449,7 +460,8 @@ export class PredictionReconciler
           if (epoch > 0) this.lastRoomActivityEpoch = epoch;
           this.onRoomActivitySwitch(evt.payload);
         } else if (evt.type === 'pause_state_sync') {
-          const seq = typeof evt.payload.pauseSeq === 'number' ? Math.round(evt.payload.pauseSeq) : 0;
+          const seq =
+            typeof evt.payload.pauseSeq === 'number' ? Math.round(evt.payload.pauseSeq) : 0;
           const paused = Boolean(evt.payload.paused);
           const pausedAtTick =
             typeof evt.payload.pausedAtTick === 'number' ? Math.round(evt.payload.pausedAtTick) : 0;

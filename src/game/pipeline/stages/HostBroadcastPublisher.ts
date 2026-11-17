@@ -8,8 +8,8 @@ export function isDevSyncHostBroadcastingMode(hasServer: boolean): boolean {
   const onlineSession = useAppStore?.getState?.()?.onlineSession;
   return Boolean(
     onlineSession?.isDevSyncRoom &&
-      onlineSession?.isHosting &&
-      onlineSession?.activeRoomActivity !== 'match'
+    onlineSession?.isHosting &&
+    onlineSession?.activeRoomActivity !== 'match'
   );
 }
 
@@ -20,37 +20,39 @@ export function isDevSyncClientPureCsrSpectateMode(
   const onlineSession = useAppStore?.getState?.()?.onlineSession;
   return Boolean(
     onlineSession?.isDevSyncRoom &&
-      !onlineSession?.isHosting &&
-      onlineSession?.activeRoomActivity !== 'match' &&
-      reconciler.spectateMirrorMode &&
-      reconciler.clientInputEnabled === false &&
-      !reconciler.replayPlaybackMode
+    !onlineSession?.isHosting &&
+    onlineSession?.activeRoomActivity !== 'match' &&
+    reconciler.spectateMirrorMode &&
+    reconciler.clientInputEnabled === false &&
+    !reconciler.replayPlaybackMode
   );
 }
 
-function computeBroadcastSignature(snap: Float32Array): number {
-  let hash = 2166136261;
-  const n = snap.length;
-  const indices = [0, 1, 4, 5, 6, 7, 8, 9, 22, 23, 24, 25, 26, 27];
-  for (let i = 0; i < indices.length; i++) {
-    const idx = indices[i];
-    if (idx >= n) continue;
-    const val = Math.round((Number(snap[idx]) || 0) * 10);
-    hash ^= val & 0xff;
-    hash = Math.imul(hash, 16777619);
-    hash ^= (val >> 8) & 0xff;
-    hash = Math.imul(hash, 16777619);
-    hash ^= (val >> 16) & 0xff;
-    hash = Math.imul(hash, 16777619);
+export function isDevSyncClientInputAuthorityMode(
+  reconciler: PredictionReconciler | null | undefined
+): boolean {
+  if (!reconciler) return false;
+  const onlineSession = useAppStore?.getState?.()?.onlineSession;
+  if (
+    !onlineSession?.isDevSyncRoom ||
+    onlineSession?.isHosting ||
+    onlineSession?.activeRoomActivity === 'match' ||
+    !reconciler.spectateMirrorMode ||
+    reconciler.clientInputEnabled !== true ||
+    reconciler.replayPlaybackMode
+  ) {
+    return false;
   }
-  return hash >>> 0;
+  const activePeer = reconciler.activeInputPeerId || 'any';
+  if (activePeer === 'host') return false;
+  if (activePeer === 'any') return true;
+  const localPeerId = (reconciler.channel as { peerId?: string | null } | null | undefined)?.peerId;
+  return !localPeerId || activePeer === localPeerId;
 }
 
 export class HostBroadcastPublisher {
   private lastPublishMs = 0;
-  private lastEngineTick = -1;
-  private lastStreamTick = -1;
-  private lastSignature = 0;
+  private lastPublishedTick = -1;
   private hasPublishedInitial = false;
   private wasPaused = false;
   private readonly publishIntervalMs: number;
@@ -61,9 +63,7 @@ export class HostBroadcastPublisher {
 
   public reset(): void {
     this.lastPublishMs = 0;
-    this.lastEngineTick = -1;
-    this.lastStreamTick = -1;
-    this.lastSignature = 0;
+    this.lastPublishedTick = -1;
     this.hasPublishedInitial = false;
     this.wasPaused = false;
   }
@@ -82,26 +82,19 @@ export class HostBroadcastPublisher {
     const snap = physics.saveCompactState?.();
     if (!snap || snap.length < 22) return false;
 
-    const engineTick = Math.floor(
-      physics.getHeaderView?.()?.tickCount ?? (Number(snap[0]) || 0)
-    );
-    const sig = computeBroadcastSignature(snap);
+    const currentTick = Math.floor(physics.getHeaderView?.()?.tickCount ?? (Number(snap[0]) || 0));
 
     if (!this.hasPublishedInitial) {
-      server.enterStateOnlyMode(snap, engineTick);
+      server.enterStateOnlyMode(snap, currentTick);
       this.hasPublishedInitial = true;
       this.lastPublishMs = timestamp;
-      this.lastEngineTick = engineTick;
-      this.lastStreamTick = engineTick;
-      this.lastSignature = sig;
+      this.lastPublishedTick = currentTick;
       this.wasPaused = isPaused;
       return true;
     }
 
-    const engineTickChanged = engineTick !== this.lastEngineTick;
-    const signatureChanged = sig !== this.lastSignature;
-    const stateChangedWhilePaused = Boolean(isPaused && (engineTickChanged || signatureChanged));
-    if (isPaused && !stateChangedWhilePaused) {
+    const tickChangedWhilePaused = Boolean(isPaused && currentTick !== this.lastPublishedTick);
+    if (isPaused && !tickChangedWhilePaused) {
       this.wasPaused = true;
       return false;
     }
@@ -110,23 +103,62 @@ export class HostBroadcastPublisher {
     this.wasPaused = isPaused;
 
     const elapsed = timestamp - this.lastPublishMs;
-    const effectiveInterval = this.publishIntervalMs > 4 ? this.publishIntervalMs - 2 : this.publishIntervalMs;
-    if (elapsed < effectiveInterval && !stateChangedWhilePaused && !resumedFromPause) {
+    const effectiveInterval =
+      this.publishIntervalMs > 4 ? this.publishIntervalMs - 2 : this.publishIntervalMs;
+    if (elapsed < effectiveInterval && !tickChangedWhilePaused && !resumedFromPause) {
       return false;
     }
 
-    let nextStreamTick = engineTick;
-    if (!engineTickChanged && signatureChanged) {
-      nextStreamTick = this.lastStreamTick + 1;
-    } else if (engineTick <= this.lastStreamTick && signatureChanged) {
-      nextStreamTick = this.lastStreamTick + 1;
-    }
-
-    server.pushBroadcastSnapshot(snap, nextStreamTick);
+    server.pushBroadcastSnapshot(snap, currentTick);
     this.lastPublishMs = timestamp;
-    this.lastEngineTick = engineTick;
-    this.lastStreamTick = nextStreamTick;
-    this.lastSignature = sig;
+    this.lastPublishedTick = currentTick;
     return true;
+  }
+}
+
+export interface ClientAuthorityChannelPort {
+  peerId?: string | null;
+  sendClientAuthorityFrame?: (payload: Record<string, unknown>) => boolean;
+}
+
+export class ClientAuthorityPublisher {
+  private lastPublishMs = 0;
+  private readonly publishIntervalMs: number;
+
+  constructor(publishHz = 60) {
+    this.publishIntervalMs = publishHz > 0 ? 1000 / publishHz : 1000 / 60;
+  }
+
+  public reset(): void {
+    this.lastPublishMs = 0;
+  }
+
+  public publishIfReady(params: {
+    readonly timestamp: number;
+    readonly physics: RocketSimPhysicsEngine;
+    readonly channel: ClientAuthorityChannelPort | null | undefined;
+    readonly authorityEpoch: number;
+  }): boolean {
+    const { timestamp, physics, channel, authorityEpoch } = params;
+    if (!channel?.sendClientAuthorityFrame) return false;
+    const elapsed = timestamp - this.lastPublishMs;
+    const effectiveInterval =
+      this.publishIntervalMs > 4 ? this.publishIntervalMs - 2 : this.publishIntervalMs;
+    if (this.lastPublishMs > 0 && elapsed < effectiveInterval) {
+      return false;
+    }
+    const snap = physics.saveCompactState?.();
+    if (!snap || snap.length < 22) return false;
+    const tick = Math.floor(physics.getHeaderView?.()?.tickCount ?? (Number(snap[0]) || 0));
+    const sent = channel.sendClientAuthorityFrame({
+      authorityEpoch,
+      tick,
+      peerId: channel.peerId || 'client',
+      snapshot: Array.from(snap),
+    });
+    if (sent) {
+      this.lastPublishMs = timestamp;
+    }
+    return sent;
   }
 }
