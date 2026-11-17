@@ -23,6 +23,10 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { createServer } from 'vite';
 
+if (!process.env.RC_VITE_ROLE) {
+  process.env.RC_VITE_ROLE = 'rc-http';
+}
+
 const OUT_PATH = '/tmp/dev-room-sync-e2e-report.json';
 const MAX_DURATION_MS = 180_000;
 
