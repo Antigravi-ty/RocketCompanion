@@ -75,6 +75,7 @@ import {
   syncArenaPresetUi,
   captureCameraSyncFromPort,
   applyCameraSyncToPort,
+  getSpectateCameraFollowTargetIndex,
 } from './runtimeSpectateWorkspaceBridge.ts';
 
 let initialized = false;
@@ -146,6 +147,7 @@ export function ensureRuntimeEngineUiPortBound(): void {
     syncArenaPresetUi,
     captureCameraSyncFromPort,
     applyCameraSyncToPort,
+    getSpectateCameraFollowTargetIndex,
   });
 }
 

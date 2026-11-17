@@ -340,14 +340,15 @@ export function setVoicePeerTeam(peerId: string, team: number | null): void {
 export function applyIncomingWorkspaceBroadcast(
   raw: Record<string, unknown>
 ): Record<string, unknown> | null {
-  return (_handlers.applyIncomingWorkspaceBroadcast?.(raw) as Record<string, unknown> | null) ?? null;
+  return (
+    (_handlers.applyIncomingWorkspaceBroadcast?.(raw) as Record<string, unknown> | null) ?? null
+  );
 }
 export function buildHostWorkspaceBroadcastPayload(
   meta?: Record<string, unknown>
 ): Record<string, unknown> | null {
   return (
-    (_handlers.buildHostWorkspaceBroadcastPayload?.(meta) as Record<string, unknown> | null) ??
-    null
+    (_handlers.buildHostWorkspaceBroadcastPayload?.(meta) as Record<string, unknown> | null) ?? null
   );
 }
 export function resetSpectateWorkspaceOnLeave(): void {
@@ -365,10 +366,13 @@ export function captureCameraSyncFromPort(
 ): Record<string, unknown> | undefined {
   return (
     (_handlers.captureCameraSyncFromPort?.(camera, followHostCamera) as
-      | Record<string, unknown>
-      | undefined) ?? undefined
+      Record<string, unknown> | undefined) ?? undefined
   );
 }
 export function applyCameraSyncToPort(camera: unknown, cameraSync: unknown): void {
   _handlers.applyCameraSyncToPort?.(camera, cameraSync);
+}
+export function getSpectateCameraFollowTargetIndex(): number | null {
+  const val = _handlers.getSpectateCameraFollowTargetIndex?.();
+  return typeof val === 'number' && val >= 0 ? val : null;
 }

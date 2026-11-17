@@ -271,7 +271,7 @@ export function resolveClientHandshakeTransition(
 ) {
   const state = msg?.state;
   const isDevSyncRoom = Boolean(msg?.isDevSyncRoom);
-  const isMidMatchJoin = Boolean(state && MID_MATCH_STATES.has(state));
+  const isMidMatchJoin = !isDevSyncRoom && Boolean(state && MID_MATCH_STATES.has(state));
   const isLobbyOrWarmup = !isDevSyncRoom && (state === 'lobby' || state === 'freeplay' || !state);
   const assignedCarIndex =
     typeof msg?.entityId === 'number' && msg.entityId >= 0 ? msg.entityId : null;

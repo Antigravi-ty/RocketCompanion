@@ -209,7 +209,7 @@ export function resolveRosterSlotAssignmentOutcome(p: {
     p.dispatchSignal(MATCH_SIGNALS.PLAYER_JOINED, domain.matchTick, -1, 2);
     return {
       slot: { entityId: -1, team: -1, role: 'spectator', spawnSlot: -1 },
-      broadcastRoster: false,
+      broadcastRoster: Boolean(domain.isDevSyncRoom),
       triggerBotFill: false,
       triggerLobbyAutoStart: false,
     };

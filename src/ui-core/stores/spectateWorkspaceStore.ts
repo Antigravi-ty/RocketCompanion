@@ -22,6 +22,7 @@ export interface GlobalWorkspaceStateInput {
   pauseHeartbeatHz?: number;
   clientInputEnabled?: boolean;
   followHostWorkspace?: boolean;
+  menuStateIncluded?: boolean;
   arenaPreset?: 'standard' | 'throwback';
   cameraSync?: WorkspaceCameraSyncPayload;
 }
@@ -33,6 +34,7 @@ export interface SpectateWorkspaceStoreState {
   telestratorPermission: TelestratorDrawPermission;
   clientInputEnabled: boolean;
   followHostWorkspace: boolean;
+  broadcastMenuState: boolean;
   followHostCamera: boolean;
   hostCameraSync: WorkspaceCameraSyncPayload | null;
   arenaPreset: 'standard' | 'throwback';
@@ -59,6 +61,7 @@ export interface SpectateWorkspaceStoreState {
   setTelestratorPermission: (permission: TelestratorDrawPermission) => void;
   setClientInputEnabled: (enabled: boolean) => void;
   setFollowHostWorkspace: (follow: boolean) => void;
+  setBroadcastMenuState: (includeMenu: boolean) => void;
   setFollowHostCamera: (follow: boolean) => void;
   setPlaybackState: (paused: boolean, pausedAtTick: number) => void;
   setArenaPreset: (preset: 'standard' | 'throwback') => void;
@@ -76,6 +79,7 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
   telestratorPermission: 'host_only',
   clientInputEnabled: true,
   followHostWorkspace: false,
+  broadcastMenuState: true,
   followHostCamera: false,
   hostCameraSync: null,
   arenaPreset: 'standard',
@@ -161,6 +165,10 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
     set({ followHostWorkspace: Boolean(follow) });
   },
 
+  setBroadcastMenuState: (includeMenu) => {
+    set({ broadcastMenuState: Boolean(includeMenu) });
+  },
+
   setFollowHostCamera: (follow) => {
     set({ followHostCamera: Boolean(follow) });
   },
@@ -178,7 +186,10 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
 
   applyHostWorkspaceBroadcast: (payload, applyWorkspaceState, captureLocalState) => {
     const s = get();
-    const nextWindows = payload.openFloatingWindows.map((w) => ({ ...w }));
+    const menuIncluded = payload.menuStateIncluded !== false;
+    const nextWindows = menuIncluded
+      ? payload.openFloatingWindows.map((w) => ({ ...w }))
+      : s.hostFloatingWindows;
     const telestrator = useTelestratorStore.getState();
     telestrator.setIsCameraSynced(true);
     telestrator.setAllowClientDrawing(payload.telestratorPermission === 'everyone');
@@ -207,7 +218,7 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
       set({
         isSpectating: true,
         spectateMode: 'spectate_mirror',
-        isReadOnlyLocked: true,
+        isReadOnlyLocked: menuIncluded,
         localSnapshotBeforeMirror: snapshot,
         telestratorPermission: payload.telestratorPermission,
         clientInputEnabled: nextClientInputEnabled,
@@ -215,13 +226,15 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
         followHostCamera: nextFollowHostCamera,
         hostCameraSync: nextCameraSync,
         arenaPreset: nextArenaPreset,
-        hostMenuRoute: payload.menuRoute,
+        hostMenuRoute: menuIncluded ? payload.menuRoute : s.hostMenuRoute,
         hostFloatingWindows: nextWindows,
         playbackPaused: payload.playbackPaused,
         pausedAtTick: payload.pausedAtTick,
         pauseHeartbeatHz: payload.pauseHeartbeatHz ?? s.pauseHeartbeatHz,
       });
-      applyWorkspaceState?.(payload.menuRoute, nextWindows);
+      if (menuIncluded) {
+        applyWorkspaceState?.(payload.menuRoute, nextWindows);
+      }
       return;
     }
 

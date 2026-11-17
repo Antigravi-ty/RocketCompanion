@@ -212,9 +212,12 @@ export class MatchRosterPolicyState {
     this.isDevSyncRoom = Boolean(opts.isDevSyncRoom);
     this.externalBotTunnels = Boolean(opts.externalBotTunnels);
     this.lobbyMode = Boolean(opts.lobbyMode);
-    this.isTrainingMode = opts.isTrainingMode ?? this.lobbyMode;
+    this.isTrainingMode = opts.isTrainingMode ?? (this.lobbyMode || this.isDevSyncRoom);
+    if (this.isDevSyncRoom && !this.lobbyMode) {
+      this.state = MATCH_STATES.PLAYING;
+    }
     this.maxPlayers = resolveMaxPlayersForGameMode(this.gameMode);
-    this.autoStartWhenFull = opts.autoStartWhenFull ?? !this.lobbyMode;
+    this.autoStartWhenFull = opts.autoStartWhenFull ?? (!this.lobbyMode && !this.isDevSyncRoom);
     this.skipReplayByDefault =
       opts.skipReplayByDefault !== undefined ? Boolean(opts.skipReplayByDefault) : false;
     this.clockDuration =
@@ -308,6 +311,7 @@ export class MatchRosterPolicyState {
               isHost: false,
               isDevSyncRoom: this.isDevSyncRoom,
               roster,
+              initialSnapshot: initialSnapshot || null,
             }),
     };
   }

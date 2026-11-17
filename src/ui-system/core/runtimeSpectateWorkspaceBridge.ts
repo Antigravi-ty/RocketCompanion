@@ -7,6 +7,10 @@ import {
 } from '../../ui-core/stores/spectateWorkspaceStore.ts';
 import { useTelestratorStore } from '../../ui-core/stores/telestratorStore.ts';
 import {
+  pushQuickNotification,
+  dismissQuickNotification,
+} from '../../ui-core/stores/quickNotificationStore.ts';
+import {
   sanitizeGlobalWorkspaceBroadcast,
   type GlobalWorkspaceBroadcastPayload,
 } from '../../network/protocol/GlobalWorkspaceProtocol.ts';
@@ -138,7 +142,81 @@ export function applyCameraSyncToPort(
   }
 }
 
+export function getSpectateCameraFollowTargetIndex(): number | null {
+  const ws = useSpectateWorkspaceStore.getState();
+  if (
+    !ws.isSpectating ||
+    !ws.followHostCamera ||
+    !ws.hostCameraSync ||
+    ws.hostCameraSync.isFreeCam
+  ) {
+    return null;
+  }
+  const idx = ws.hostCameraSync.focusedCarIndex;
+  return typeof idx === 'number' && idx >= 0 ? idx : null;
+}
+
+const DEV_SYNC_CLIENT_NOTIF_KEY = 'dev-sync-room-client';
+
+function syncDevRoomClientNotification(isSpectating: boolean, isFollowing: boolean): void {
+  const app = useAppStore.getState();
+  if (!isSpectating || app.onlineSession?.isHosting) {
+    dismissQuickNotification(DEV_SYNC_CLIENT_NOTIF_KEY);
+    return;
+  }
+  const roomId = app.onlineSession?.roomId || 'Room';
+  pushQuickNotification({
+    id: DEV_SYNC_CLIENT_NOTIF_KEY,
+    collapseKey: DEV_SYNC_CLIENT_NOTIF_KEY,
+    sourceNamespace: 'dev-sync-room',
+    collapseStrategy: 'ALWAYS_REPLACE',
+    type: 'ongoing',
+    duration: 0,
+    tone: 'info',
+    icon: 'radio',
+    content: isFollowing
+      ? `Dev Sync Room (${roomId}) · Syncing with Host`
+      : `Dev Sync Room (${roomId}) · Sync paused`,
+    buttons: [
+      {
+        key: isFollowing ? 'stop-sync' : 'resume-sync',
+        label: isFollowing ? 'Stop Syncing' : 'Resume Sync',
+        color: isFollowing ? 'amber' : 'green',
+        dismissOnClick: false,
+        onClick: () => {
+          const ws = useSpectateWorkspaceStore.getState();
+          if (ws.followHostWorkspace) {
+            ws.setFollowHostWorkspace(false);
+            ws.setFollowHostCamera(false);
+            ws.setSpectateMode('spectate_state_only', undefined, applyWorkspaceStateLocally);
+            syncDevRoomClientNotification(true, false);
+          } else {
+            ws.setFollowHostWorkspace(true);
+            ws.setFollowHostCamera(true);
+            ws.setSpectateMode(
+              'spectate_mirror',
+              captureLocalWorkspaceState,
+              applyWorkspaceStateLocally
+            );
+            syncDevRoomClientNotification(true, true);
+          }
+        },
+      },
+      {
+        key: 'exit-room',
+        label: 'Exit Room',
+        color: 'red',
+        dismissOnClick: true,
+        onClick: () => {
+          void useAppStore.getState().bridge.onLeaveOnlineServer?.();
+        },
+      },
+    ],
+  });
+}
+
 export function resetSpectateWorkspaceOnLeave(): void {
+  dismissQuickNotification(DEV_SYNC_CLIENT_NOTIF_KEY);
   const ws = useSpectateWorkspaceStore.getState();
   ws.setSpectateMode('spectate_state_only', undefined, applyWorkspaceStateLocally);
   ws.setSpectatingActive(false, undefined, applyWorkspaceStateLocally);
@@ -167,6 +245,8 @@ export function applyIncomingWorkspaceBroadcast(
   useSpectateWorkspaceStore
     .getState()
     .applyHostWorkspaceBroadcast(sanitized, applyWorkspaceStateLocally, captureLocalWorkspaceState);
+  const wsAfter = useSpectateWorkspaceStore.getState();
+  syncDevRoomClientNotification(wsAfter.isSpectating, wsAfter.followHostWorkspace);
   const telestrator = useTelestratorStore.getState();
   telestrator.setHostRole(
     false,
@@ -197,11 +277,13 @@ export function buildHostWorkspaceBroadcastPayload(meta?: {
   pauseHeartbeatHz?: number;
   clientInputEnabled?: boolean;
   followHostWorkspace?: boolean;
+  menuStateIncluded?: boolean;
   arenaPreset?: 'standard' | 'throwback';
   cameraSync?: GlobalWorkspaceBroadcastPayload['cameraSync'];
 }): GlobalWorkspaceBroadcastPayload {
-  const local = captureLocalWorkspaceState();
   const ws = useSpectateWorkspaceStore.getState();
+  const includeMenu = meta?.menuStateIncluded ?? ws.broadcastMenuState;
+  const local = includeMenu ? captureLocalWorkspaceState() : { menuRoute: null, windows: [] };
   const app = useAppStore.getState();
   const currentArenaPreset =
     meta?.arenaPreset ??
@@ -218,6 +300,7 @@ export function buildHostWorkspaceBroadcastPayload(meta?: {
     pauseHeartbeatHz: meta?.pauseHeartbeatHz ?? ws.pauseHeartbeatHz,
     clientInputEnabled: meta?.clientInputEnabled ?? ws.clientInputEnabled,
     followHostWorkspace: meta?.followHostWorkspace ?? ws.followHostWorkspace,
+    menuStateIncluded: includeMenu,
     arenaPreset: currentArenaPreset,
     ...(meta?.cameraSync ? { cameraSync: meta.cameraSync } : {}),
   });

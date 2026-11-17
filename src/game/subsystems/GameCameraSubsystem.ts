@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   getNameTagRuntimeState,
+  getSpectateCameraFollowTargetIndex,
   hudStore,
   setNameTagRuntimeState,
   useReferenceOverlayStore,
@@ -198,12 +199,17 @@ export class GameCameraSubsystem {
       typeof r?.replayPovCarIndex === 'number' &&
       r.replayPovCarIndex >= 0;
 
+    const spectateFollowIdx = getSpectateCameraFollowTargetIndex();
+
     const diagTarget = r?.networkManager?.diagnosticsProbe?.diagnosticObservationTarget ?? 0;
     const obsTargetIdx = isReplayPov
       ? (r.replayPovCarIndex ?? activeCar)
-      : diagTarget > 0 && r.arena?.cars?.[diagTarget]?.visible
-        ? diagTarget
-        : activeCar;
+      : spectateFollowIdx !== null &&
+          (spectateFollowIdx === 0 || r?.arena?.cars?.[spectateFollowIdx]?.visible)
+        ? spectateFollowIdx
+        : diagTarget > 0 && r.arena?.cars?.[diagTarget]?.visible
+          ? diagTarget
+          : activeCar;
 
     let cameraMode = r?.camera?.currentMode || 'pov';
     if (r?.camera?.isFreeCam) {

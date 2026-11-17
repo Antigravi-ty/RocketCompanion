@@ -5,7 +5,7 @@
  * homologous Training / Freeplay ruleset configuration, and server replay timeline stepping.
  */
 
-import { SYSTEM_CONTROL_SIGNALS } from '../../../physics/RocketSimConstants.ts';
+import { SIM_OFFSETS, SYSTEM_CONTROL_SIGNALS } from '../../../physics/RocketSimConstants.ts';
 import { REPLAY_BUFFER_MODES } from '../../../replay/ReplayRingBuffer.ts';
 import {
   interpolateReplaySnapshots,
@@ -312,6 +312,30 @@ export class MatchSystemControlSubController {
     const pm = this.host.physicsManager;
     if (!pm) return;
     if (snap && pm.sim) {
+      const simAny = pm.sim as unknown as {
+        numCars?: number;
+        isCarSlotActive?: (idx: number) => boolean;
+        addCarAtSlot?: (idx: number, team: number, preset?: string) => void;
+        addCar?: (team: number, preset?: string) => void;
+      };
+      const headerCars =
+        snap.length > SIM_OFFSETS.NUM_CARS
+          ? Math.min(8, Math.max(0, Math.round(Number(snap[SIM_OFFSETS.NUM_CARS]) || 0)))
+          : 0;
+      if (headerCars > 0) {
+        if (
+          typeof simAny.isCarSlotActive === 'function' &&
+          typeof simAny.addCarAtSlot === 'function'
+        ) {
+          for (let c = 0; c < headerCars; c++) {
+            if (!simAny.isCarSlotActive(c)) simAny.addCarAtSlot(c, c % 2, 'octane');
+          }
+        } else if (typeof simAny.addCar === 'function') {
+          while ((simAny.numCars ?? 0) < headerCars) {
+            simAny.addCar((simAny.numCars ?? 0) % 2, 'octane');
+          }
+        }
+      }
       const opts = typeof tick === 'number' && tick >= 0 ? { overrideTick: tick } : undefined;
       if (typeof pm.sim.restoreCompactState === 'function') pm.sim.restoreCompactState(snap, opts);
       else if (typeof pm.sim.restoreState === 'function') pm.sim.restoreState(snap, opts);
@@ -419,10 +443,18 @@ export class MatchSystemControlSubController {
       : sim?.saveState
         ? sim.saveState()
         : null;
+    const snapCarCount =
+      rawSnap && rawSnap.length > SIM_OFFSETS.NUM_CARS
+        ? Math.min(8, Math.max(0, Math.round(Number(rawSnap[SIM_OFFSETS.NUM_CARS]) || 0)))
+        : 0;
+    const stateOnlyCarMask =
+      snapCarCount > 0
+        ? ((1 << snapCarCount) - 1) & 0xff
+        : physicsManager?.getActiveCarMask?.() || 1;
     return this.host.encodeFramePacket(
       rawSnap
         ? {
-            activeCarMask: physicsManager?.getActiveCarMask?.() || 1,
+            activeCarMask: stateOnlyCarMask,
             stateSnapshot: rawSnap,
             acknowledgedControls: [],
             isReplaySlice: true,

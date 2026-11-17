@@ -146,6 +146,32 @@ export class OnlineRosterSyncCoordinator {
       isBot: boolean;
     }> = [];
 
+    const onlineState = useAppStore?.getState?.()?.onlineSession;
+    const isDevSyncRoom = Boolean(onlineState?.isDevSyncRoom);
+    const isHostRole = Boolean(session.authoritativeServer);
+    if (isDevSyncRoom && !isHostRole) {
+      const localName = onlineState?.playerName;
+      const nonHostMatchPlayer = roster.players.find(
+        (p) =>
+          p &&
+          !p.isBot &&
+          p.sessionId !== 'host' &&
+          p.entityId >= 1 &&
+          (!localName || p.name === localName || roster.players.length === 2)
+      );
+      const targetLocalIdx =
+        onlineState?.activeRoomActivity === 'match' && nonHostMatchPlayer
+          ? nonHostMatchPlayer.entityId
+          : 0;
+      if (world.playerCarIndex !== targetLocalIdx) {
+        (world as { playerCarIndex: number }).playerCarIndex = targetLocalIdx;
+        if (world.arena) world.arena.playerCarIndex = targetLocalIdx;
+        if (session.networkReconciler) session.networkReconciler.localCarIndex = targetLocalIdx;
+      }
+    }
+
+    const isClientSpectatingHost = isDevSyncRoom && !isHostRole && world.playerCarIndex === 0;
+
     for (const p of roster.players) {
       const cIdx = p.entityId;
       if (typeof cIdx !== 'number' || cIdx < 0 || cIdx >= 8) continue;
@@ -163,7 +189,7 @@ export class OnlineRosterSyncCoordinator {
         isBot: Boolean(p.isBot),
       });
 
-      if (cIdx !== world.playerCarIndex) {
+      if (cIdx !== world.playerCarIndex || (isClientSpectatingHost && cIdx === 0)) {
         connectedPeers.push(
           this.peerSynchronizer.resolveConnectedPeerEntry(
             p,
@@ -183,6 +209,23 @@ export class OnlineRosterSyncCoordinator {
         hitbox,
         isLobbyDualWorld
       );
+    }
+
+    if (isDevSyncRoom && Array.isArray(roster.spectators)) {
+      for (const spec of roster.spectators) {
+        if (!spec || !spec.sessionId) continue;
+        if (!isHostRole && spec.name && spec.name === onlineState?.playerName) continue;
+        connectedPeers.push({
+          id: spec.sessionId,
+          name: spec.name || 'Spectator',
+          carIndex: -1,
+          team: 'spectator',
+          pingMs: spec.pingMs ?? 0,
+          isBot: false,
+          ready: true,
+          arenaLoaded: true,
+        });
+      }
     }
 
     if (isLobbyDualWorld || diagnostics.isDiagnosticFleetEnabled()) {

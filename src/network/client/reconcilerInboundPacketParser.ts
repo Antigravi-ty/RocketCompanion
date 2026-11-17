@@ -263,9 +263,7 @@ export function drainAndParseServerPacketBatch(
       }
       if (parsedItem && typeof parsedItem === 'object') {
         const obj = parsedItem as Record<string, unknown>;
-        if (typeof obj.serverTick === 'number') {
-          packet = obj as unknown as ParsedReconcilerPacket;
-        } else if (obj.type === 'roster_update') {
+        if (obj.type === 'roster_update') {
           ctx.onRosterUpdate?.(obj);
           continue;
         } else if (obj.type === 'handshake_response') {
@@ -295,6 +293,8 @@ export function drainAndParseServerPacketBatch(
           }
           ctx.onHandshakeResponse?.(obj);
           continue;
+        } else if (typeof obj.serverTick === 'number') {
+          packet = obj as unknown as ParsedReconcilerPacket;
         }
       }
     }

@@ -414,7 +414,38 @@ async function main() {
       console.error('[DevRoomSyncE2E] Stage 2 diag client:', JSON.stringify(cDiag));
       throw err;
     }
-    stageResults.clientJoinRoom = { connected: true, roomId: hostRoomInfo.roomId };
+    const freeplaySpectateSync = await waitFor(
+      async () => {
+        const h = await hostCdp.eval(`({
+          numCars: window.__rcE2E.runtime?.physics?.numCars,
+          playerCarIndex: window.__rcE2E.runtime?.playerCarIndex,
+        })`);
+        const c = await clientCdp.eval(`({
+          numCars: window.__rcE2E.runtime?.physics?.numCars,
+          playerCarIndex: window.__rcE2E.runtime?.playerCarIndex,
+          focusedCarIndex: window.__rcE2E.runtime?.camera?.focusedCarIndex,
+          isDevSyncRoom: window.__rcE2E.getAppState()?.onlineSession?.isDevSyncRoom,
+        })`);
+        if (
+          h.numCars === 1 &&
+          c.numCars === 1 &&
+          c.playerCarIndex === 0 &&
+          c.focusedCarIndex === 0 &&
+          c.isDevSyncRoom === true
+        ) {
+          return { host: h, client: c };
+        }
+        return null;
+      },
+      'Freeplay spectate-only sync (1 car on both ends, client camera on car 0)',
+      10_000,
+      150
+    );
+    stageResults.clientJoinRoom = {
+      connected: true,
+      roomId: hostRoomInfo.roomId,
+      ...freeplaySpectateSync,
+    };
     console.log('[DevRoomSyncE2E] Stage 2 PASS: Client joined room via plain UI.');
 
     // Stage 3: Pure CSR Sync All (workspace mirror + clientInputEnabled=false + arenaPreset sync)
@@ -770,7 +801,33 @@ async function main() {
       10_000,
       150
     );
-    stageResults.replayWatchTogether = { synced: true, pausedAtTick: 420, ...replayClientState };
+    // Verify 6-car (3v3) Replay snapshot preserves all 6 cars on both Host and Client
+    await hostCdp.eval(`(() => {
+      const server = window.__rcE2E.runtime.authoritativeServer;
+      const phys = window.__rcE2E.runtime.physics;
+      for (let c = 0; c < 6; c++) {
+        if (!phys.isCarSlotActive?.(c)) phys.addCarAtSlot?.(c, c % 2, 'octane');
+      }
+      phys.step?.(1 / 120);
+      const snap6 = phys.saveCompactState?.() ?? phys.saveState?.();
+      server?.enterStateOnlyMode?.(snap6, 500);
+    })()`);
+    const sixCarReplayState = await waitFor(
+      async () => {
+        const hCars = await hostCdp.eval(`window.__rcE2E.runtime?.physics?.numCars`);
+        const cCars = await clientCdp.eval(`window.__rcE2E.runtime?.physics?.numCars`);
+        return hCars === 6 && cCars === 6 ? { hostCars: hCars, clientCars: cCars } : null;
+      },
+      '6-car (3v3) Replay sync on Host and Client',
+      10_000,
+      150
+    );
+    stageResults.replayWatchTogether = {
+      synced: true,
+      pausedAtTick: 420,
+      ...replayClientState,
+      ...sixCarReplayState,
+    };
     console.log('[DevRoomSyncE2E] Stage 6 PASS: Replay Watch Together verified.');
 
     // Stage 7: Custom Training Pack (metadata sync + Reset Shot)

@@ -226,10 +226,18 @@ export class MatchRosterSubController {
     loadoutOptions: PlayerLoadoutOptions | string | number = {},
     colorSlotArg: number | null = null
   ) {
+    const isMatchActive =
+      !this.domain.isTrainingMode &&
+      (this.domain.state === 'prepare' ||
+        this.domain.state === 'kickoff' ||
+        this.domain.state === 'playing' ||
+        this.domain.state === 'goal_scored');
+    const effectiveRole =
+      this.domain.isDevSyncRoom && sessionId !== 'host' && !isMatchActive ? 'spectator' : role;
     const outcome = resolveRosterSlotAssignmentOutcome({
       sessionId,
       playerName,
-      role,
+      role: effectiveRole,
       preferredTeam,
       loadoutOptions,
       colorSlotArg,

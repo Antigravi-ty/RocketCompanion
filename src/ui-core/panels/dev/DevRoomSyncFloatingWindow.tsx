@@ -40,10 +40,12 @@ export const DevRoomSyncFloatingWindow: React.FC<DevRoomSyncFloatingWindowProps>
   const {
     clientInputEnabled,
     followHostWorkspace,
+    broadcastMenuState,
     telestratorPermission,
     arenaPreset,
     setClientInputEnabled,
     setFollowHostWorkspace,
+    setBroadcastMenuState,
     setTelestratorPermission,
     setArenaPreset,
   } = useSpectateWorkspaceStore();
@@ -62,6 +64,7 @@ export const DevRoomSyncFloatingWindow: React.FC<DevRoomSyncFloatingWindowProps>
     bridge.onBroadcastGlobalWorkspace?.({
       clientInputEnabled,
       followHostWorkspace,
+      menuStateIncluded: broadcastMenuState,
       telestratorPermission,
       arenaPreset: currentArena,
       ...(overrides ?? {}),

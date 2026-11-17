@@ -159,7 +159,16 @@ class MatchActivityKernel implements RoomActivityKernel {
     ctx.matchManager?.lifecycle.startMatch(duration);
   }
 
-  onUnmount(_ctx: ActivityKernelContext): void {}
+  onUnmount(ctx: ActivityKernelContext): void {
+    const mm = ctx.matchManager;
+    if (!mm?.domain?.isDevSyncRoom) return;
+    for (const [sid, p] of Array.from(mm.roster.players.entries())) {
+      if (sid !== 'host' && !p.isBot) {
+        mm.roster.switchPlayerRoleOrTeam?.(sid, 'spectator', -1);
+      }
+    }
+    mm.roster.broadcastRosterUpdate();
+  }
 
   getStateSummary(ctx: ActivityKernelContext): Record<string, unknown> {
     const snap = ctx.matchManager?.getSnapshot();

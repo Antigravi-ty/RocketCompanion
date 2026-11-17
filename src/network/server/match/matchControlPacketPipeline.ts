@@ -260,11 +260,12 @@ export function evaluateSessionControlPacket(params: {
         anthemId: pd.anthemId,
       }
     );
-    if (dataHandler && info && typeof info === 'object' && 'visualId' in info) {
+    if (dataHandler && info && typeof info === 'object') {
       const rawSnap = sim?.saveCompactState ? sim.saveCompactState() : sim?.saveState?.();
+      const slotForHandshake = 'visualId' in info ? (info as MatchPlayerSlot) : null;
       dataHandler.sendPacket(
         channelId,
-        buildHandshakeJson(info as MatchPlayerSlot, rawSnap ? Array.from<number>(rawSnap) : null)
+        buildHandshakeJson(slotForHandshake, rawSnap ? Array.from<number>(rawSnap) : null)
       );
     }
     return info;

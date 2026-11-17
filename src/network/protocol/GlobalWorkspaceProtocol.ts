@@ -39,6 +39,7 @@ export interface GlobalWorkspaceBroadcastPayload {
   pauseHeartbeatHz: number;
   clientInputEnabled: boolean;
   followHostWorkspace: boolean;
+  menuStateIncluded?: boolean;
   arenaPreset?: 'standard' | 'throwback';
   cameraSync?: WorkspaceCameraSyncPayload;
 }
@@ -126,6 +127,7 @@ export function sanitizeGlobalWorkspaceBroadcast(
     ),
     clientInputEnabled: typeof src.clientInputEnabled === 'boolean' ? src.clientInputEnabled : true,
     followHostWorkspace: Boolean(src.followHostWorkspace),
+    menuStateIncluded: typeof src.menuStateIncluded === 'boolean' ? src.menuStateIncluded : true,
     ...(arenaPreset !== undefined ? { arenaPreset } : {}),
     ...(cameraSync !== undefined ? { cameraSync } : {}),
   };

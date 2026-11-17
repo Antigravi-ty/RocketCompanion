@@ -394,6 +394,10 @@ export class OnlineMatchReconcilerBinder {
       world.playerCarIndex = transition.assignedCarIndex;
       if (reconciler) reconciler.localCarIndex = transition.assignedCarIndex;
       if (arena) arena.playerCarIndex = transition.assignedCarIndex;
+    } else if (msg?.isDevSyncRoom) {
+      world.playerCarIndex = 0;
+      if (reconciler) reconciler.localCarIndex = 0;
+      if (arena) arena.playerCarIndex = 0;
     }
     const activePlayerCarIndex = world.playerCarIndex ?? 0;
     onResetReplayRecording();
@@ -419,6 +423,15 @@ export class OnlineMatchReconcilerBinder {
         await diagnosticsProbe.ensureClientLobbyDiagnosticProbes();
       }
       interpolator?.sync?.(performance.now());
+    } else if (msg?.isDevSyncRoom) {
+      lobbyDualWorld.configureArenaLobbyFlags(false, false);
+      reconciler?.setLobbyDualWorldMode?.(false);
+      reconciler?.setSpectateMirrorMode?.(true);
+      reconciler?.setClientInputEnabled?.(false);
+      if (transition.assignedCarIndex === null && physics && physics.numCars > 1) {
+        physics.configureCars('default', false, 0);
+      }
+      useAppStore?.getState?.()?.setMatchMode?.('freeplay');
     } else if (transition.isMidMatchJoin) {
       lobbyDualWorld.configureArenaLobbyFlags(false, false);
       this.applyMidMatchHandshakeTransition({
@@ -428,26 +441,22 @@ export class OnlineMatchReconcilerBinder {
         modeManager,
         diagnosticsProbe,
       });
-    } else if (msg?.isDevSyncRoom) {
-      lobbyDualWorld.configureArenaLobbyFlags(false, false);
-      reconciler?.setLobbyDualWorldMode?.(false);
-      reconciler?.setSpectateMirrorMode?.(true);
-      reconciler?.setClientInputEnabled?.(false);
-      useAppStore?.getState?.()?.setMatchMode?.('freeplay');
     }
-    if (msg?.roster) await applyRosterSnapshot(msg.roster);
     useAppStore?.getState?.()?.setOnlineSession?.(transition.onlineSessionPatch);
+    if (msg?.roster) await applyRosterSnapshot(msg.roster);
     lobbyDualWorld.focusCameraOnCar(msg?.isDevSyncRoom ? 0 : activePlayerCarIndex);
     const handshakeColor = resolveHandshakeTeamColorSlot(msg);
     world.selectedColorSlot = handshakeColor.colorSlot;
-    if (handshakeColor.colorHex)
+    if (handshakeColor.colorHex && transition.assignedCarIndex !== null)
       arena?.vehicleRegistry.setCarColor(activePlayerCarIndex, handshakeColor.colorHex);
-    this.queueHandshakeLoadoutAndAck(
-      reconciler,
-      joinCfg,
-      handshakeColor.colorSlot,
-      lobbyDualWorld.getLocalLoadout(),
-      transition.isMidMatchJoin
-    );
+    if (transition.assignedCarIndex !== null) {
+      this.queueHandshakeLoadoutAndAck(
+        reconciler,
+        joinCfg,
+        handshakeColor.colorSlot,
+        lobbyDualWorld.getLocalLoadout(),
+        transition.isMidMatchJoin
+      );
+    }
   }
 }

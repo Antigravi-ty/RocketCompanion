@@ -22,10 +22,7 @@ import type { AuthoritativePhysicsSimPort } from './authoritativePhysicsStepPipe
 import type { LobbyGhostConfigOptions } from './LobbyGhostCarCoordinator.ts';
 import type { CarControlsInput } from '../protocol/GlobalPayloadCodec.ts';
 import type { ClientReliableCommand } from './match/MatchCommandQueueSubController.ts';
-import {
-  type ActivityId,
-  type ReplicationMode,
-} from '../protocol/ReplicationBusProtocol.ts';
+import { type ActivityId, type ReplicationMode } from '../protocol/ReplicationBusProtocol.ts';
 import { RoomActivityOrchestrator } from './RoomActivityOrchestrator.ts';
 import {
   routeActivityAndInputMessage,
@@ -197,6 +194,13 @@ export function routeProtocolMessageInWorker(
     case MSG.ROOM_CREATE: {
       if (matchManager) {
         if (p.roomId) matchManager.domain.roomId = p.roomId;
+        if (p.isDevSyncRoom !== undefined) {
+          matchManager.domain.isDevSyncRoom = Boolean(p.isDevSyncRoom);
+          if (matchManager.domain.isDevSyncRoom) {
+            matchManager.domain.isTrainingMode = true;
+            matchManager.domain.autoStartWhenFull = false;
+          }
+        }
         if (p.botFillMode) matchManager.domain.botFillMode = p.botFillMode;
         if (p.gameMode) matchManager.roster.setGameMode(p.gameMode, p.durationSeconds ?? null);
         if (p.startAsMatch) matchManager.lifecycle.startMatch(p.durationSeconds);
