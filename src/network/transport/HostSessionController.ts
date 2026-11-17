@@ -23,10 +23,12 @@ import {
 } from './hostPauseAckBridge.ts';
 import { handleHostInboundTelestratorBytes } from './hostTelestratorRelay.ts';
 import {
+  bindHostPeerCameraAndRelayHandlers,
+  broadcastHostCameraStateSync,
   createHostCrossTabDiscovery,
+  finalizeLateJoinPeerSync,
   HostInputAuthorityTracker,
   promotePrewarmedPeerChannel,
-  scheduleLateJoinWorkspaceSync,
   syncPeerWorkspaceSnapshot,
 } from './hostCrossTabAndAuthority.ts';
 import type { CrossTabSignaling } from './webrtc/CrossTabSignaling.ts';
@@ -98,9 +100,14 @@ export class HostSessionController {
     ch.pairingCode = metadata.pairingCode || null;
     ch.allowSpectatorRelay = metadata.allowSpectatorRelay !== false;
     ch.handshake.disableDirectCrossTabJoin = true;
-    ch.onClientAuthorityFrame = (raw) => {
-      this.inputAuthority.ingestFrame(ch.peerId || peerId, raw);
-    };
+    bindHostPeerCameraAndRelayHandlers({
+      ch,
+      fallbackPeerId: peerId,
+      inputAuthority: this.inputAuthority,
+      peerChannels: this.peerChannels,
+      onDeliverCamera: this.callbacks.onCameraStateSync,
+      onColorChange: this.callbacks.onColorChange,
+    });
 
     const currentPlayerCount = this.getInputChannelCount();
     const assignedRole =
@@ -136,29 +143,19 @@ export class HostSessionController {
           ch.carIndex = assignedCarIdx;
         }
       }
-      ch.sendColorChange(this.colorSlot, this.colorHex, 0);
-      if (ch.peerColorHex) {
-        this.callbacks.onColorChange?.(ch.carIndex ?? 1, ch.peerColorSlot, ch.peerColorHex);
-      }
-      if (this.activeRoomActivity && this.activeRoomActivity.activityId !== 'freeplay') {
-        ch.sendRoomActivitySwitch(this.activeRoomActivity);
-      }
-      if (this.activeGlobalWorkspace) {
-        ch.sendGlobalWorkspaceBroadcast(
-          this.activeGlobalWorkspace as unknown as Record<string, unknown>
-        );
-      }
-      if (this.pauseAckController.paused) {
-        const sync = this.pauseAckController.onPeerConnected(activePeerId);
-        if (sync) {
-          ch.sendPauseStateSync(sync as unknown as Record<string, unknown>);
-        }
-      }
-      scheduleLateJoinWorkspaceSync(
+      finalizeLateJoinPeerSync({
         ch,
-        () => this.activeGlobalWorkspace as unknown as Record<string, unknown> | null,
-        () => this.activeRoomActivity
-      );
+        activePeerId,
+        colorSlot: this.colorSlot,
+        colorHex: this.colorHex,
+        onColorChange: this.callbacks.onColorChange,
+        getWorkspace: () => this.activeGlobalWorkspace as unknown as Record<string, unknown> | null,
+        getActivity: () => this.activeRoomActivity,
+        onPausePeerConnected: () =>
+          this.pauseAckController.paused
+            ? (this.pauseAckController.onPeerConnected(activePeerId) as Record<string, unknown> | null)
+            : null,
+      });
     };
 
     ch.onDisconnected = () => {
@@ -182,17 +179,6 @@ export class HostSessionController {
       const activePeerId = ch.peerId || peerId;
       const ack = sanitizePauseStateAck(raw, activePeerId);
       this.pauseAckController.handlePauseAck(ack);
-    };
-
-    ch.onColorChange = (msg: { carIndex?: number; slotId: number | null; hex: string | null }) => {
-      const cIdx = msg.carIndex ?? ch.carIndex ?? 1;
-      if (msg.slotId !== undefined) {
-        ch.peerColorSlot = msg.slotId;
-      }
-      if (msg.hex !== undefined) {
-        ch.peerColorHex = msg.hex;
-      }
-      this.callbacks.onColorChange?.(cIdx, msg.slotId, msg.hex);
     };
 
     ch.onTelestratorBytes = (bytes: Uint8Array) => {
@@ -516,6 +502,10 @@ export class HostSessionController {
     );
     this.activeGlobalWorkspace = normalized;
     return sentCount;
+  }
+
+  broadcastCameraStateSync(payload: Record<string, unknown>): number {
+    return broadcastHostCameraStateSync(this.peerChannels, payload);
   }
 
   setTelestratorAllowedClientIds(ids: readonly string[]): void {

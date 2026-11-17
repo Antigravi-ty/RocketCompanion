@@ -107,6 +107,7 @@ export class DataChannelTransport {
   onPauseStateAck: ControlPayloadListener | null = null;
   onPresencePing: ControlPayloadListener | null = null;
   onClientAuthorityFrame: ControlPayloadListener | null = null;
+  onCameraStateSync: ControlPayloadListener | null = null;
   onTelestratorBytes: ((bytes: Uint8Array) => void) | null = null;
 
   private readonly tunnelBridge = createTunnelFramerBridgeState();
@@ -304,30 +305,17 @@ export class DataChannelTransport {
       const control = parseInboundControlFrame(maybeString);
       if (control) {
         dispatchInboundControlFrame(control, {
+          ...this,
           rawData: data,
           nowMs: now,
           pushEvent: (ev) => this.transportEvents.push(ev),
           setReplicationMode: (isSparse) =>
             this.pacer.setMode(isSparse ? REPLICATION_MODES.SPARSE : REPLICATION_MODES.CONTINUOUS),
-          onColorChange: this.onColorChange,
-          onDiagnosticFleetToggle: this.onDiagnosticFleetToggle,
-          onTunnelEndpointAdvertise: this.onTunnelEndpointAdvertise,
-          onPeerKick: this.onPeerKick,
-          onPeerLeave: this.onPeerLeave,
-          onVoiceSignal: this.onVoiceSignal,
-          onGlobalWorkspaceBroadcast: this.onGlobalWorkspaceBroadcast,
-          onPauseStateSync: this.onPauseStateSync,
-          onPauseStateAck: this.onPauseStateAck,
-          onPresencePing: this.onPresencePing,
-          onClientAuthorityFrame: this.onClientAuthorityFrame,
-          receiveSimulatorPayload: (payload, onDelivered, ts) =>
-            sim.receivePayload(payload, onDelivered, ts),
-          popInboundQueue: () => {
-            if (sim.inboundQueue.length > 0) sim.inboundQueue.pop();
-          },
-          sendPong: (sendTime) => this.sendPong(sendTime),
-          handlePong: (sendTime) => sim.handlePong(sendTime),
-          emitPacket: (delivered) => this.emitPacket(delivered),
+          receiveSimulatorPayload: (p, cb, ts) => sim.receivePayload(p, cb, ts),
+          popInboundQueue: () => sim.inboundQueue.pop(),
+          sendPong: (t) => this.sendPong(t),
+          handlePong: (t) => sim.handlePong(t),
+          emitPacket: (d) => this.emitPacket(d),
         });
         return;
       }
@@ -483,23 +471,27 @@ export class DataChannelTransport {
     return this.sendReliableControl({ type: 'state_paused_ack', ...payload }, 'state_paused_ack');
   }
 
-  sendPauseStateSync(payload: Record<string, unknown>): boolean {
-    return this.sendReliableControl({ ...payload, type: 'pause_state_sync' }, 'pause_state_sync');
+  sendPauseStateSync(p: Record<string, unknown>): boolean {
+    return this.sendReliableControl({ ...p, type: 'pause_state_sync' }, 'pause_state_sync');
   }
 
-  sendPauseStateAck(payload: Record<string, unknown>): boolean {
-    return this.sendReliableControl({ ...payload, type: 'pause_state_ack' }, 'pause_state_ack');
+  sendPauseStateAck(p: Record<string, unknown>): boolean {
+    return this.sendReliableControl({ ...p, type: 'pause_state_ack' }, 'pause_state_ack');
   }
 
-  sendPresencePing(payload: Record<string, unknown>): boolean {
-    return this.sendReliableControl({ ...payload, type: 'presence_ping' }, 'presence_ping');
+  sendPresencePing(p: Record<string, unknown>): boolean {
+    return this.sendReliableControl({ ...p, type: 'presence_ping' }, 'presence_ping');
   }
 
-  sendClientAuthorityFrame(payload: Record<string, unknown>): boolean {
+  sendClientAuthorityFrame(p: Record<string, unknown>): boolean {
     return this.sendReliableControl(
-      { ...payload, type: 'client_authority_frame' },
+      { ...p, type: 'client_authority_frame' },
       'client_authority_frame'
     );
+  }
+
+  sendCameraStateSync(p: Record<string, unknown>): boolean {
+    return this.sendReliableControl({ ...p, type: 'camera_state_sync' }, 'camera_state_sync');
   }
 
   sendCsrStateBroadcast(payload: CsrStateBroadcastPayload): boolean {

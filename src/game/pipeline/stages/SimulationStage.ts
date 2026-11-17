@@ -26,10 +26,11 @@ import {
 } from './HostBroadcastPublisher.ts';
 import { applyReplayFrameToEngine } from '../../../replay/ReplayFrameInterpolator.ts';
 import { SpectateInterpolationBuffer } from '../../../network/sync/ReplicationStateInterpolator.ts';
+import { CoachAuthorityHandoverController } from '../../runtime/CoachAuthorityHandoverController.ts';
+import { sharedAuthorityCameraSyncTracker } from './AuthorityCameraSyncTracker.ts';
 import {
   buildHostWorkspaceBroadcastPayload,
   isSpectatePlaybackPaused,
-  syncClientInputEnabledUi,
 } from '../../runtimeUiPort.ts';
 
 export type { CarActionDebounceState };
@@ -48,14 +49,24 @@ export interface SimulationStageRuntimePort extends CarActionSynthesizerRuntimeP
   multiplayerSession?: {
     isHosting?: boolean;
     broadcastGlobalWorkspace?: (payload: Record<string, unknown>) => number;
+    broadcastCameraStateSync?: (payload: Record<string, unknown>) => number;
     hostController?: {
       stepPauseAckLoop?: (nowMs?: number) => void;
+      getConnectedPeerList?: () => Array<{ id: string }>;
       inputAuthority?: {
         activeInputPeerId: string;
+        clientInputEnabled: boolean;
         authorityMode: string;
         authorityEpoch: number;
         setAuthority: (enabled: boolean, targetPeerId?: string) => Record<string, unknown>;
+        syncFromHandover?: (state: {
+          authorityEpoch: number;
+          activeInputPeerId: string;
+          authorityMode: 'explicit' | 'fpv_master_slave';
+          clientInputEnabled: boolean;
+        }) => void;
         consumeLatestFrame: () => { snapshot: Float32Array; tick: number } | null;
+        consumePendingFrames?: () => Array<{ snapshot: Float32Array; tick: number }>;
       };
     } | null;
   } | null;
@@ -109,6 +120,8 @@ export class SimulationStage implements PipelineStage {
   public readonly broadcastPublisher = new HostBroadcastPublisher(60);
   public readonly clientAuthorityPublisher = new ClientAuthorityPublisher(60);
   public readonly spectateInterpolationBuffer = new SpectateInterpolationBuffer();
+  public readonly hostAuthoritySpectateBuffer = new SpectateInterpolationBuffer();
+  public readonly coachHandoverController = new CoachAuthorityHandoverController();
   private _lastRecordedClientReplayTick = -1;
   private _pendingGoalScored = false;
 
@@ -156,25 +169,54 @@ export class SimulationStage implements PipelineStage {
       hostInputAuthority && hostInputAuthority.activeInputPeerId !== 'host'
     );
 
-    if (remoteHasAuthority && hostInputAuthority?.authorityMode === 'fpv_master_slave') {
+    if (
+      isBroadcastingHost &&
+      hostInputAuthority &&
+      hostInputAuthority.authorityMode === 'fpv_master_slave' &&
+      hostInputAuthority.clientInputEnabled
+    ) {
+      if (this.coachHandoverController.authorityEpoch !== hostInputAuthority.authorityEpoch) {
+        this.coachHandoverController.configure({
+          clientInputEnabled: hostInputAuthority.clientInputEnabled,
+          targetPeerId: hostInputAuthority.activeInputPeerId,
+          authorityMode: 'fpv_master_slave',
+        });
+        this.coachHandoverController.authorityEpoch = hostInputAuthority.authorityEpoch;
+        this.coachHandoverController.activeInputPeerId = hostInputAuthority.activeInputPeerId;
+      }
       this.runtime.pollInputs(false);
-      const ctrl = this.runtime.playerControls;
-      const hostMoved = Boolean(
-        ctrl &&
-        (Math.abs(ctrl.throttle ?? 0) > 0.05 ||
-          Math.abs(ctrl.steer ?? 0) > 0.05 ||
-          ctrl.jump ||
-          ctrl.boost)
+      const hasPeer = Boolean(
+        (this.runtime.multiplayerSession?.hostController?.getConnectedPeerList?.().length ?? 1) > 0
       );
-      if (hostMoved) {
-        const reclaimPatch = hostInputAuthority.setAuthority(false, 'host');
-        syncClientInputEnabledUi(false);
-        server?.setClientInputEnabled?.(false);
-        const wsPayload = buildHostWorkspaceBroadcastPayload(reclaimPatch);
+      const handoverStep = this.coachHandoverController.step({
+        nowMs: timestamp,
+        controls: this.runtime.playerControls,
+        hasTargetPeer: hasPeer,
+      });
+      if (handoverStep.changed) {
+        if (handoverStep.action === 'reclaim_to_host') {
+          const lastClientFrame = hostInputAuthority.consumeLatestFrame();
+          if (lastClientFrame) {
+            applyReplayFrameToEngine(physics, lastClientFrame.snapshot, interpolator);
+          }
+          this.hostAuthoritySpectateBuffer.reset();
+        }
+        hostInputAuthority.syncFromHandover?.({
+          authorityEpoch: handoverStep.authorityEpoch,
+          activeInputPeerId: handoverStep.activeInputPeerId,
+          authorityMode: handoverStep.authorityMode,
+          clientInputEnabled: handoverStep.clientInputEnabled,
+        });
+        const wsPayload = buildHostWorkspaceBroadcastPayload({
+          authorityEpoch: handoverStep.authorityEpoch,
+          activeInputPeerId: handoverStep.activeInputPeerId,
+          authorityMode: handoverStep.authorityMode,
+          clientInputEnabled: handoverStep.clientInputEnabled,
+        });
         if (wsPayload) {
           this.runtime.multiplayerSession?.broadcastGlobalWorkspace?.(wsPayload);
         }
-        remoteHasAuthority = false;
+        remoteHasAuthority = handoverStep.activeInputPeerId !== 'host';
       }
     }
 
@@ -249,11 +291,25 @@ export class SimulationStage implements PipelineStage {
     }
 
     if (remoteHasAuthority && hostInputAuthority) {
-      const clientFrame = hostInputAuthority.consumeLatestFrame();
-      if (clientFrame) {
-        applyReplayFrameToEngine(physics, clientFrame.snapshot, interpolator);
-        server?.pushBroadcastSnapshot(clientFrame.snapshot, clientFrame.tick);
+      const frames =
+        hostInputAuthority.consumePendingFrames?.() ??
+        (() => {
+          const single = hostInputAuthority.consumeLatestFrame();
+          return single ? [single] : [];
+        })();
+      for (let i = 0; i < frames.length; i++) {
+        const cf = frames[i];
+        this.hostAuthoritySpectateBuffer.pushFrame(cf.snapshot, cf.tick, timestamp);
+        if (i === frames.length - 1) {
+          server?.pushBroadcastSnapshot(cf.snapshot, cf.tick);
+        }
       }
+      const sampled = this.hostAuthoritySpectateBuffer.sample(timestamp);
+      if (sampled) {
+        applyReplayFrameToEngine(physics, sampled.snapshot, interpolator);
+      }
+    } else {
+      this.hostAuthoritySpectateBuffer.reset();
     }
 
     if (reconciler && !isBroadcastingHost && !isClientInputAuthority) {
@@ -305,6 +361,27 @@ export class SimulationStage implements PipelineStage {
       });
     } else {
       this.clientAuthorityPublisher.reset();
+    }
+
+    const isLocalCameraAuthority =
+      (isBroadcastingHost && !remoteHasAuthority) || isClientInputAuthority;
+    if (isLocalCameraAuthority && camera) {
+      const authEpoch = isBroadcastingHost
+        ? (hostInputAuthority?.authorityEpoch ?? 0)
+        : (reconciler?.authorityEpoch ?? 0);
+      const localPeerId = isBroadcastingHost
+        ? 'host'
+        : (reconciler?.channel as { peerId?: string | null } | null)?.peerId || 'client';
+      const camEmission = sharedAuthorityCameraSyncTracker.pollLocalCameraChange(
+        camera,
+        authEpoch,
+        localPeerId
+      );
+      if (camEmission) {
+        this.runtime.multiplayerSession?.broadcastCameraStateSync?.(
+          camEmission as unknown as Record<string, unknown>
+        );
+      }
     }
 
     if (isBroadcastingHost && server && !remoteHasAuthority) {

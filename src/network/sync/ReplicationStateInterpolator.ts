@@ -214,14 +214,15 @@ export class SpectateInterpolationBuffer {
   }
 
   pushFrame(snapshot: Float32Array, serverTick: number, nowMs = performance.now()): void {
-    if (!snapshot || snapshot.length < 410) return;
+    if (!snapshot || snapshot.length < SIM_OFFSETS.CARS) return;
 
     const rawTick = Number(snapshot[SIM_OFFSETS.TICK]);
     const tick =
       Number.isFinite(rawTick) && rawTick > 0
         ? Math.round(rawTick)
         : Math.max(0, Math.round(serverTick || 0));
-    const numCars = Math.round(snapshot[SIM_OFFSETS.NUM_CARS] || 0);
+    const numCars = Math.max(0, Math.round(snapshot[SIM_OFFSETS.NUM_CARS] || 0));
+    if (snapshot.length < SIM_OFFSETS.CARS + numCars * 40) return;
 
     if (this.frames.length > 0) {
       const last = this.frames[this.frames.length - 1];

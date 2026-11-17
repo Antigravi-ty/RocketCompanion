@@ -25,6 +25,7 @@ export type InboundControlFrame =
   | { readonly kind: 'pause_state_ack'; readonly raw: Record<string, unknown> }
   | { readonly kind: 'presence_ping'; readonly raw: Record<string, unknown> }
   | { readonly kind: 'client_authority_frame'; readonly raw: Record<string, unknown> }
+  | { readonly kind: 'camera_state_sync'; readonly raw: Record<string, unknown> }
   | { readonly kind: 'ping'; readonly sendTime: number; readonly rtt: number | null }
   | { readonly kind: 'pong'; readonly sendTime: number };
 
@@ -52,6 +53,7 @@ export type DataChannelTransportEvent =
   | { readonly type: 'pause_state_ack'; readonly payload: Record<string, unknown> }
   | { readonly type: 'presence_ping'; readonly payload: Record<string, unknown> }
   | { readonly type: 'client_authority_frame'; readonly payload: Record<string, unknown> }
+  | { readonly type: 'camera_state_sync'; readonly payload: Record<string, unknown> }
   | { readonly type: 'telestrator_sync'; readonly payload: Uint8Array }
   | { readonly type: 'packet'; readonly payload: SimulatedPayload };
 
@@ -109,6 +111,9 @@ export function parseInboundControlFrame(raw: string): InboundControlFrame | nul
     if (msg.type === 'client_authority_frame') {
       return { kind: 'client_authority_frame', raw: msg };
     }
+    if (msg.type === 'camera_state_sync') {
+      return { kind: 'camera_state_sync', raw: msg };
+    }
     if (msg.type === 'ping') {
       const sendTime = typeof msg.sendTime === 'number' ? msg.sendTime : 0;
       const rtt =
@@ -141,6 +146,7 @@ export interface InboundControlDispatchContext {
   readonly onPauseStateAck?: ((raw: Record<string, unknown>) => void) | null;
   readonly onPresencePing?: ((raw: Record<string, unknown>) => void) | null;
   readonly onClientAuthorityFrame?: ((raw: Record<string, unknown>) => void) | null;
+  readonly onCameraStateSync?: ((raw: Record<string, unknown>) => void) | null;
   readonly receiveSimulatorPayload: (
     data: SimulatedPayload,
     onDelivered: (delivered: SimulatedPayload) => void,
@@ -209,6 +215,10 @@ export function dispatchInboundControlFrame(
     case 'client_authority_frame':
       ctx.pushEvent({ type: 'client_authority_frame', payload: control.raw });
       ctx.onClientAuthorityFrame?.(control.raw);
+      return true;
+    case 'camera_state_sync':
+      ctx.pushEvent({ type: 'camera_state_sync', payload: control.raw });
+      ctx.onCameraStateSync?.(control.raw);
       return true;
     case 'room_activity_switch':
     case 'replication_mode_set':

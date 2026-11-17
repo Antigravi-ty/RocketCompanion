@@ -109,6 +109,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   onPauseStateAck: ChannelHook<[Record<string, unknown>]> = null;
   onPresencePing: ChannelHook<[Record<string, unknown>]> = null;
   onClientAuthorityFrame: ChannelHook<[Record<string, unknown>]> = null;
+  onCameraStateSync: ChannelHook<[Record<string, unknown>]> = null;
   onTelestratorBytes: ChannelHook<[Uint8Array]> = null;
 
   readonly attachTunnelTransport: DataChannelTransport['attachTunnelTransport'];
@@ -126,6 +127,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   readonly sendPauseStateAck: DataChannelTransport['sendPauseStateAck'];
   readonly sendPresencePing: DataChannelTransport['sendPresencePing'];
   readonly sendClientAuthorityFrame: DataChannelTransport['sendClientAuthorityFrame'];
+  readonly sendCameraStateSync: DataChannelTransport['sendCameraStateSync'];
   readonly sendTelestratorBytes: DataChannelTransport['sendTelestratorBytes'];
   readonly sendRoomActivitySwitch: DataChannelTransport['sendRoomActivitySwitch'];
   readonly sendStatePausedAck: DataChannelTransport['sendStatePausedAck'];
@@ -275,6 +277,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
     this.transport.onPauseStateAck = (msg) => this.onPauseStateAck?.(msg);
     this.transport.onPresencePing = (msg) => this.onPresencePing?.(msg);
     this.transport.onClientAuthorityFrame = (msg) => this.onClientAuthorityFrame?.(msg);
+    this.transport.onCameraStateSync = (msg) => this.onCameraStateSync?.(msg);
     this.transport.onTelestratorBytes = (bytes) => this.onTelestratorBytes?.(bytes);
     this.send = this.transport.send.bind(this.transport);
     this.sendClientInput = this.transport.sendClientInput.bind(this.transport);
@@ -290,6 +293,7 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
     this.sendPauseStateAck = this.transport.sendPauseStateAck.bind(this.transport);
     this.sendPresencePing = this.transport.sendPresencePing.bind(this.transport);
     this.sendClientAuthorityFrame = this.transport.sendClientAuthorityFrame.bind(this.transport);
+    this.sendCameraStateSync = this.transport.sendCameraStateSync.bind(this.transport);
     this.sendTelestratorBytes = this.transport.sendTelestratorBytes.bind(this.transport);
     this.sendRoomActivitySwitch = this.transport.sendRoomActivitySwitch.bind(this.transport);
     this.sendStatePausedAck = this.transport.sendStatePausedAck.bind(this.transport);

@@ -23,8 +23,8 @@ export function isDevSyncClientPureCsrSpectateMode(
     !onlineSession?.isHosting &&
     onlineSession?.activeRoomActivity !== 'match' &&
     reconciler.spectateMirrorMode &&
-    reconciler.clientInputEnabled === false &&
-    !reconciler.replayPlaybackMode
+    !reconciler.replayPlaybackMode &&
+    !isDevSyncClientInputAuthorityMode(reconciler)
   );
 }
 

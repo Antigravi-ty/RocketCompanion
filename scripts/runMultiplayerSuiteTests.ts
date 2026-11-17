@@ -43,6 +43,8 @@ import {
   useTelestratorStore,
 } from '../src/ui-core/stores/telestratorStore.ts';
 import { TelestratorManager } from '../src/entities/telestrator/TelestratorManager.ts';
+import { CoachAuthorityHandoverController } from '../src/game/runtime/CoachAuthorityHandoverController.ts';
+import { AuthorityCameraSyncTracker } from '../src/game/pipeline/stages/AuthorityCameraSyncTracker.ts';
 import {
   applyRemoteTelestratorWireBytes,
   canTelestratorDrawNow,
@@ -2106,6 +2108,14 @@ async function main(): Promise<void> {
     '19. Authority Handover & FPV Master/Slave Epoch Fencing',
     testAuthorityHandoverAndFpvMasterSlave
   );
+  await runSection(
+    '20. CoachAuthorityHandoverController (Preemption, Handbrake & 300ms Idle Handover)',
+    testCoachAuthorityHandoverController
+  );
+  await runSection(
+    '21. AuthorityCameraSyncTracker (Edge-Triggered Camera Sync & Non-Override)',
+    testAuthorityCameraSyncTracker
+  );
   console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
 }
 
@@ -2560,6 +2570,131 @@ function testAuthorityHandoverAndFpvMasterSlave(): void {
   assert.equal(
     tracker.ingestFrame('client_1', { authorityEpoch: 1, tick: 52, snapshot: snap }),
     false
+  );
+}
+
+function testCoachAuthorityHandoverController(): void {
+  const ctrl = new CoachAuthorityHandoverController();
+  ctrl.configure({
+    clientInputEnabled: true,
+    targetPeerId: 'peer_student',
+    authorityMode: 'fpv_master_slave',
+    idleHandoverMs: 300,
+  });
+  assert.equal(ctrl.activeInputPeerId, 'peer_student');
+  assert.equal(ctrl.authorityEpoch, 1);
+
+  // Neutral input leaves student in control
+  const s1 = ctrl.step({
+    nowMs: 1000,
+    controls: { throttle: 0, steer: 0, jump: false, boost: false, handbrake: false },
+    hasTargetPeer: true,
+  });
+  assert.equal(s1.changed, false);
+  assert.equal(s1.activeInputPeerId, 'peer_student');
+
+  // Host presses handbrake -> immediate reclaim!
+  const s2 = ctrl.step({
+    nowMs: 1050,
+    controls: { throttle: 0, steer: 0, jump: false, boost: false, handbrake: true },
+    hasTargetPeer: true,
+  });
+  assert.equal(s2.changed, true);
+  assert.equal(s2.action, 'reclaim_to_host');
+  assert.equal(s2.activeInputPeerId, 'host');
+  assert.equal(s2.authorityEpoch, 2);
+  assert.equal(ctrl.isEpochValid(1), false);
+  assert.equal(ctrl.isEpochValid(2), true);
+
+  // Host releases input: 200ms idle -> still Host
+  const s3 = ctrl.step({
+    nowMs: 1250,
+    controls: { throttle: 0, steer: 0, jump: false, boost: false, handbrake: false },
+    hasTargetPeer: true,
+  });
+  assert.equal(s3.changed, false);
+  assert.equal(s3.activeInputPeerId, 'host');
+
+  // Host stays idle >= 300ms (1050 + 300 = 1350) -> auto-handover back to student!
+  const s4 = ctrl.step({
+    nowMs: 1360,
+    controls: { throttle: 0, steer: 0, jump: false, boost: false, handbrake: false },
+    hasTargetPeer: true,
+  });
+  assert.equal(s4.changed, true);
+  assert.equal(s4.action, 'grant_to_client');
+  assert.equal(s4.activeInputPeerId, 'peer_student');
+  assert.equal(s4.authorityEpoch, 3);
+}
+
+function testAuthorityCameraSyncTracker(): void {
+  const hostTracker = new AuthorityCameraSyncTracker();
+  const clientTracker = new AuthorityCameraSyncTracker();
+
+  const hostCam = { isFreeCam: false, ballCam: true, focusedCarIndex: 0 };
+  const clientCam = { isFreeCam: false, ballCam: true, focusedCarIndex: 0 };
+
+  // Initial poll records baseline without emitting
+  assert.equal(hostTracker.pollLocalCameraChange(hostCam, 0, 'host'), null);
+
+  // Host switches Ball Cam -> Car Cam
+  hostCam.ballCam = false;
+  const ev1 = hostTracker.pollLocalCameraChange(hostCam, 0, 'host');
+  assert.ok(ev1);
+  assert.equal(ev1.cameraSyncSeq, 1);
+  assert.equal(ev1.cameraSync.ballCam, false);
+
+  // Client receives ev1 -> applies
+  assert.equal(
+    clientTracker.shouldApplyIncomingCameraSync({
+      cameraSync: ev1.cameraSync,
+      isLocalAuthority: false,
+      incomingEpoch: 0,
+    }),
+    true
+  );
+  clientCam.ballCam = ev1.cameraSync.ballCam;
+
+  // Client switches locally to Ball Cam while Host does not touch camera
+  clientCam.ballCam = true;
+  // Host sends periodic workspace broadcast with same seq=1 -> Client MUST NOT be overridden!
+  assert.equal(
+    clientTracker.shouldApplyIncomingCameraSync({
+      cameraSync: ev1.cameraSync,
+      isLocalAuthority: false,
+      incomingEpoch: 0,
+    }),
+    false
+  );
+  assert.equal(clientCam.ballCam, true);
+
+  // Host switches Car Cam -> Ball Cam (seq=2) -> Client follows!
+  hostCam.ballCam = true;
+  const ev2 = hostTracker.pollLocalCameraChange(hostCam, 0, 'host');
+  assert.ok(ev2);
+  assert.equal(ev2.cameraSyncSeq, 2);
+  assert.equal(
+    clientTracker.shouldApplyIncomingCameraSync({
+      cameraSync: ev2.cameraSync,
+      isLocalAuthority: false,
+      incomingEpoch: 0,
+    }),
+    true
+  );
+
+  // Authority transfers to Client (epoch=1). Client switches Ball Cam -> Car Cam -> Host follows!
+  const clientStart = clientTracker.pollLocalCameraChange(clientCam, 1, 'client_1');
+  assert.equal(clientStart, null); // baseline already synced
+  clientCam.ballCam = false;
+  const ev3 = clientTracker.pollLocalCameraChange(clientCam, 1, 'client_1');
+  assert.ok(ev3);
+  assert.equal(
+    hostTracker.shouldApplyIncomingCameraSync({
+      cameraSync: ev3.cameraSync,
+      isLocalAuthority: false,
+      incomingEpoch: 1,
+    }),
+    true
   );
 }
 

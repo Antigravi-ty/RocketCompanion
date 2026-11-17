@@ -10,6 +10,7 @@ import {
   useAppStore,
 } from '../game/runtimeUiPort.ts';
 import { getPauseHeartbeatIntervalMs } from '../network/protocol/GlobalWorkspaceProtocol.ts';
+import { sharedAuthorityCameraSyncTracker } from '../game/pipeline/stages/AuthorityCameraSyncTracker.ts';
 
 import type { ReplayTakeoverRuntimePort } from './ReplayTakeoverSubController.ts';
 
@@ -96,8 +97,15 @@ export function syncReplayWorkspaceToOnlineRoom(
     });
   }
 
-  const cameraSync = runtime?.camera
+  const rawCam = runtime?.camera
     ? captureCameraSyncFromPort(runtime.camera, opts.active)
+    : undefined;
+  const cameraSync = rawCam
+    ? {
+        ...rawCam,
+        cameraSyncSeq: sharedAuthorityCameraSyncTracker.getCurrentSeq(),
+        authorityPeerId: 'host',
+      }
     : undefined;
   const payload = buildHostWorkspaceBroadcastPayload({
     playbackPaused: Boolean(opts.playbackPaused),

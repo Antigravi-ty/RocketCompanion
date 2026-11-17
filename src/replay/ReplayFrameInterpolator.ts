@@ -75,12 +75,13 @@ export function applyReplayFrameToEngine(
   prevFrameBuffer: Float32Array | null = null,
   alpha = 1.0
 ): boolean {
-  if (!targetPort || !frameBuffer || frameBuffer.length < 410) return false;
+  if (!targetPort || !frameBuffer || frameBuffer.length < SIM_OFFSETS.CARS) return false;
 
   const headerCars = Math.min(
     MAX_CARS,
     Math.max(0, Math.round(frameBuffer[SIM_OFFSETS.NUM_CARS] || 0))
   );
+  if (frameBuffer.length < SIM_OFFSETS.CARS + headerCars * CAR_STATE_STRIDE) return false;
   if (
     typeof targetPort.isCarSlotActive === 'function' &&
     typeof targetPort.addCarAtSlot === 'function'

@@ -13,8 +13,10 @@ export interface ClientAuthorityFrameSnapshot {
 export class HostInputAuthorityTracker {
   authorityEpoch = 0;
   activeInputPeerId = 'host';
+  clientInputEnabled = false;
   authorityMode: InputAuthorityMode = 'fpv_master_slave';
   latestFrame: ClientAuthorityFrameSnapshot | null = null;
+  pendingFrames: ClientAuthorityFrameSnapshot[] = [];
 
   setAuthority(
     enabled: boolean,
@@ -27,19 +29,29 @@ export class HostInputAuthorityTracker {
     clientInputEnabled: boolean;
   } {
     this.authorityEpoch += 1;
-    this.activeInputPeerId = enabled ? targetPeerId || 'any' : 'host';
+    this.clientInputEnabled = Boolean(enabled);
+    this.activeInputPeerId = enabled && targetPeerId !== 'host' ? targetPeerId || 'any' : 'host';
     if (mode === 'explicit' || mode === 'fpv_master_slave') {
       this.authorityMode = mode;
-    }
-    if (!enabled) {
-      this.latestFrame = null;
     }
     return {
       authorityEpoch: this.authorityEpoch,
       activeInputPeerId: this.activeInputPeerId,
       authorityMode: this.authorityMode,
-      clientInputEnabled: enabled,
+      clientInputEnabled: this.clientInputEnabled,
     };
+  }
+
+  syncFromHandover(state: {
+    authorityEpoch: number;
+    activeInputPeerId: string;
+    authorityMode: InputAuthorityMode;
+    clientInputEnabled: boolean;
+  }): void {
+    this.authorityEpoch = state.authorityEpoch;
+    this.activeInputPeerId = state.activeInputPeerId;
+    this.authorityMode = state.authorityMode;
+    this.clientInputEnabled = state.clientInputEnabled;
   }
 
   ingestFrame(peerId: string, raw: Record<string, unknown>, nowMs = performance.now()): boolean {
@@ -48,27 +60,43 @@ export class HostInputAuthorityTracker {
     const epoch = typeof raw.authorityEpoch === 'number' ? Math.round(raw.authorityEpoch) : -1;
     if (epoch !== this.authorityEpoch) return false;
     if (!Array.isArray(raw.snapshot) || raw.snapshot.length < 22) return false;
-    this.latestFrame = {
+    const frame: ClientAuthorityFrameSnapshot = {
       authorityEpoch: epoch,
       tick: typeof raw.tick === 'number' && Number.isFinite(raw.tick) ? Math.floor(raw.tick) : 0,
       peerId,
       snapshot: new Float32Array(raw.snapshot as number[]),
       receivedAtMs: nowMs,
     };
+    this.latestFrame = frame;
+    this.pendingFrames.push(frame);
+    if (this.pendingFrames.length > 32) {
+      this.pendingFrames.shift();
+    }
     return true;
   }
 
   consumeLatestFrame(): ClientAuthorityFrameSnapshot | null {
     const frame = this.latestFrame;
     this.latestFrame = null;
+    this.pendingFrames.length = 0;
     return frame;
+  }
+
+  consumePendingFrames(): ClientAuthorityFrameSnapshot[] {
+    if (this.pendingFrames.length === 0) return [];
+    const out = this.pendingFrames.slice();
+    this.pendingFrames.length = 0;
+    this.latestFrame = null;
+    return out;
   }
 
   reset(): void {
     this.authorityEpoch = 0;
     this.activeInputPeerId = 'host';
+    this.clientInputEnabled = false;
     this.authorityMode = 'fpv_master_slave';
     this.latestFrame = null;
+    this.pendingFrames.length = 0;
   }
 }
 
@@ -203,6 +231,100 @@ export function syncPeerWorkspaceSnapshot(
   if (ws) {
     ch.sendGlobalWorkspaceBroadcast(ws);
   }
+}
+
+export function relayHostInboundCameraStateSync(params: {
+  inputAuthority: HostInputAuthorityTracker;
+  sourceChannel: P2PWebRTCChannel;
+  activePeerId: string;
+  raw: Record<string, unknown>;
+  peerChannels: Map<string, P2PWebRTCChannel>;
+  onDeliver?: (raw: Record<string, unknown>, peerId: string) => void;
+}): void {
+  const { inputAuthority, sourceChannel, activePeerId, raw, peerChannels, onDeliver } = params;
+  const epoch = typeof raw.authorityEpoch === 'number' ? Math.round(raw.authorityEpoch) : -1;
+  if (inputAuthority.activeInputPeerId === 'host') return;
+  if (
+    inputAuthority.activeInputPeerId !== 'any' &&
+    inputAuthority.activeInputPeerId !== activePeerId
+  ) {
+    return;
+  }
+  if (epoch !== inputAuthority.authorityEpoch) return;
+  onDeliver?.(raw, activePeerId);
+  for (const other of peerChannels.values()) {
+    if (other !== sourceChannel && other.isOpen) {
+      other.sendCameraStateSync(raw);
+    }
+  }
+}
+
+export function broadcastHostCameraStateSync(
+  peerChannels: Map<string, P2PWebRTCChannel>,
+  payload: Record<string, unknown>
+): number {
+  let sentCount = 0;
+  for (const ch of peerChannels.values()) {
+    if (ch.isOpen && ch.sendCameraStateSync(payload)) {
+      sentCount++;
+    }
+  }
+  return sentCount;
+}
+
+export function finalizeLateJoinPeerSync(params: {
+  ch: P2PWebRTCChannel;
+  activePeerId: string;
+  colorSlot: number;
+  colorHex: string;
+  onColorChange?: (carIdx: number, slotId: number | null, hex: string | null) => void;
+  getWorkspace: () => Record<string, unknown> | null;
+  getActivity: () => { activityId: string; epoch: number; [key: string]: unknown } | null;
+  onPausePeerConnected: () => Record<string, unknown> | null;
+}): void {
+  const { ch, colorSlot, colorHex, onColorChange, getWorkspace, getActivity, onPausePeerConnected } =
+    params;
+  ch.sendColorChange(colorSlot, colorHex, 0);
+  if (ch.peerColorHex) {
+    onColorChange?.(ch.carIndex ?? 1, ch.peerColorSlot, ch.peerColorHex);
+  }
+  syncPeerWorkspaceSnapshot(ch, getWorkspace, getActivity);
+  const pauseSync = onPausePeerConnected();
+  if (pauseSync) {
+    ch.sendPauseStateSync(pauseSync);
+  }
+  scheduleLateJoinWorkspaceSync(ch, getWorkspace, getActivity);
+}
+
+export function bindHostPeerCameraAndRelayHandlers(params: {
+  ch: P2PWebRTCChannel;
+  fallbackPeerId: string;
+  inputAuthority: HostInputAuthorityTracker;
+  peerChannels: Map<string, P2PWebRTCChannel>;
+  onDeliverCamera?: (raw: Record<string, unknown>, peerId: string) => void;
+  onColorChange?: (carIdx: number, slotId: number | null, hex: string | null) => void;
+}): void {
+  const { ch, fallbackPeerId, inputAuthority, peerChannels, onDeliverCamera, onColorChange } =
+    params;
+  ch.onClientAuthorityFrame = (raw) => {
+    inputAuthority.ingestFrame(ch.peerId || fallbackPeerId, raw);
+  };
+  ch.onCameraStateSync = (raw) => {
+    relayHostInboundCameraStateSync({
+      inputAuthority,
+      sourceChannel: ch,
+      activePeerId: ch.peerId || fallbackPeerId,
+      raw,
+      peerChannels,
+      onDeliver: onDeliverCamera,
+    });
+  };
+  ch.onColorChange = (msg: { carIndex?: number; slotId: number | null; hex: string | null }) => {
+    const cIdx = msg.carIndex ?? ch.carIndex ?? 1;
+    if (msg.slotId !== undefined) ch.peerColorSlot = msg.slotId;
+    if (msg.hex !== undefined) ch.peerColorHex = msg.hex;
+    onColorChange?.(cIdx, msg.slotId, msg.hex);
+  };
 }
 
 export function scheduleLateJoinWorkspaceSync(

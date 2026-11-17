@@ -22,6 +22,7 @@ import {
   type MatchModeTransitionDomainPort,
 } from './MatchModeTransitionBridge.ts';
 import { resetRuntimeMatchStateToFreeplay } from './onlineSessionEnvironmentPipeline.ts';
+import { sharedAuthorityCameraSyncTracker } from '../pipeline/stages/AuthorityCameraSyncTracker.ts';
 
 export type CameraControlDomainPort = Pick<RuntimeDomainPortOwner, 'camera' | 'networkManager'>;
 export type OnlineMatchControlDomainPort = MatchModeTransitionDomainPort & {
@@ -311,7 +312,21 @@ export function createRuntimeMatchPort(domain: OnlineMatchControlDomainPort): Ru
       const nextOpts = { ...(opts as Record<string, unknown> | undefined) };
       if (nextOpts.cameraSync === undefined && domain.camera) {
         const camSync = captureCameraSyncFromPort(domain.camera, true);
-        if (camSync) nextOpts.cameraSync = camSync;
+        if (camSync) {
+          const authEpoch =
+            (
+              domain.multiplayerSession?.hostController as
+                | { inputAuthority?: { authorityEpoch?: number } }
+                | null
+                | undefined
+            )?.inputAuthority?.authorityEpoch ?? 0;
+          nextOpts.cameraSync = {
+            ...camSync,
+            cameraSyncSeq: sharedAuthorityCameraSyncTracker.getCurrentSeq(),
+            authorityEpoch: authEpoch,
+            authorityPeerId: 'host',
+          };
+        }
       }
       const payload = buildHostWorkspaceBroadcastPayload(nextOpts);
       if (!payload) return 0;
@@ -324,16 +339,19 @@ export function createRuntimeMatchPort(domain: OnlineMatchControlDomainPort): Ru
       const next = Boolean(enabled);
       syncClientInputEnabledUi(next);
       sessionCoordinator.authoritativeServer?.setClientInputEnabled?.(next);
-      const authPatch = (
-        domain.multiplayerSession?.hostController as
-          | {
-              inputAuthority?: {
-                setAuthority: (enabled: boolean, targetPeerId?: string) => Record<string, unknown>;
-              };
-            }
-          | null
-          | undefined
-      )?.inputAuthority?.setAuthority(next, 'any') ?? { clientInputEnabled: next };
+      const hostCtrl = domain.multiplayerSession?.hostController as
+        | {
+            getConnectedPeerIds?: () => string[];
+            inputAuthority?: {
+              setAuthority: (enabled: boolean, targetPeerId?: string) => Record<string, unknown>;
+            };
+          }
+        | null
+        | undefined;
+      const targetPeerId = next ? hostCtrl?.getConnectedPeerIds?.()?.[0] || 'any' : 'host';
+      const authPatch = hostCtrl?.inputAuthority?.setAuthority(next, targetPeerId) ?? {
+        clientInputEnabled: next,
+      };
       const payload = buildHostWorkspaceBroadcastPayload(authPatch);
       if (payload) {
         domain.multiplayerSession?.broadcastGlobalWorkspace?.(payload);

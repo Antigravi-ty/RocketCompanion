@@ -8,8 +8,6 @@ import {
   notifyNetworkTelemetryExportAvailable,
   attachVoiceToPeerChannel,
   detachVoiceFromPeer,
-  applyIncomingWorkspaceBroadcast,
-  applyIncomingPauseStateSync,
   applyCameraSyncToPort,
   resetSpectateWorkspaceOnLeave,
   useTelestratorStore,
@@ -23,6 +21,14 @@ import {
   loadStoredPlayerName,
 } from '../../ui-core/config/vehiclePresets.ts';
 import { MultiplayerSessionManager } from '../../network/transport/MultiplayerSessionManager.ts';
+import { sharedAuthorityCameraSyncTracker } from '../pipeline/stages/AuthorityCameraSyncTracker.ts';
+import {
+  bindDevSyncClientChannelHandlers,
+  type DevSyncChannelPort,
+  type DevSyncDiagnosticsProbePort,
+  type DevSyncSessionCoordinatorPort,
+} from './devSyncChannelHandlers.ts';
+import type { WorkspaceCameraSyncPayload } from '../../network/protocol/GlobalWorkspaceProtocol.ts';
 import type {
   HostOnlineServerOptions,
   JoinOnlineServerOptions,
@@ -252,12 +258,14 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
       notifyNetworkTelemetryExportAvailable('disconnected');
     },
     async onHostServer(opts: HostRoomSettings) {
+      sharedAuthorityCameraSyncTracker.reset();
       const telestrator = useTelestratorStore.getState();
       telestrator.setHostRole(true, 'host');
       telestrator.setIsCameraSynced(true);
       await sessionCoordinator.hostOnlineServer(opts);
     },
     async onStopServer() {
+      sharedAuthorityCameraSyncTracker.reset();
       detachVoiceFromPeer('*');
       const telestrator = useTelestratorStore.getState();
       telestrator.setHostRole(true, 'local');
@@ -266,9 +274,26 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
       await sessionCoordinator.stopOnlineServer();
     },
     async onLeaveServer() {
+      sharedAuthorityCameraSyncTracker.reset();
       detachVoiceFromPeer('*');
       resetSpectateWorkspaceOnLeave();
       await sessionCoordinator.stopOnlineServer();
+    },
+    onCameraStateSync(raw) {
+      const camSync = raw.cameraSync as WorkspaceCameraSyncPayload | undefined;
+      const authPeer =
+        multiplayerSession?.hostController?.inputAuthority?.activeInputPeerId ?? 'host';
+      if (
+        camera &&
+        camSync &&
+        sharedAuthorityCameraSyncTracker.shouldApplyIncomingCameraSync({
+          cameraSync: camSync,
+          isLocalAuthority: authPeer === 'host',
+          incomingEpoch: typeof raw.authorityEpoch === 'number' ? raw.authorityEpoch : 0,
+        })
+      ) {
+        applyCameraSyncToPort(camera, camSync);
+      }
     },
     async onJoinServer(opts: JoinRoomSettings) {
       const telestrator = useTelestratorStore.getState();
@@ -287,95 +312,14 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
             : 'Host',
           null
         );
-        const ch = opts.channel as unknown as {
-          peerId?: string | null;
-          onGlobalWorkspaceBroadcast?: ((msg: Record<string, unknown>) => void) | null;
-          onPauseStateSync?: ((msg: Record<string, unknown>) => void) | null;
-          sendPresencePing?: (payload?: Record<string, unknown>) => boolean;
-        };
-        ch.onPauseStateSync = (msg) => {
-          const sync = applyIncomingPauseStateSync(msg);
-          const coord = sessionCoordinator as {
-            networkReconciler?: {
-              sendPauseAck?: (params: {
-                pauseSeq: number;
-                paused: boolean;
-                pausedAtTick: number;
-                peerId?: string;
-              }) => boolean;
-            } | null;
-          };
-          if (sync && coord.networkReconciler?.sendPauseAck) {
-            coord.networkReconciler.sendPauseAck({
-              pauseSeq: Number(sync.pauseSeq) || 0,
-              paused: Boolean(sync.paused),
-              pausedAtTick: Number(sync.pausedAtTick) || 0,
-              peerId: ch.peerId || authorId,
-            });
-          }
-        };
-        ch.onGlobalWorkspaceBroadcast = (msg) => {
-          const payload = applyIncomingWorkspaceBroadcast(msg);
-          if (payload && payload.cameraSync && camera) {
-            applyCameraSyncToPort(camera, payload.cameraSync);
-          }
-          const coord = sessionCoordinator as {
-            networkReconciler?: {
-              lobbyDualWorldMode?: boolean;
-              hostLobbyMode?: boolean;
-              setLobbyDualWorldMode?: (enabled: boolean) => void;
-              setSpectateMirrorMode?: (enabled: boolean) => void;
-              setReplayPlaybackMode?: (enabled: boolean) => void;
-              setClientInputEnabled?: (enabled: boolean) => void;
-              setAuthorityState?: (epoch: number, activePeerId: string) => void;
-            } | null;
-            lobbyDualWorld?: {
-              configureArenaLobbyFlags?: (isLobby: boolean, isHostLobby: boolean) => void;
-            } | null;
-          };
-          const probe = diagnosticsProbe as {
-            setMultiWorldGhostVisible?: (visible: boolean) => void;
-            configureLobbyGhostMode?: (enabled: boolean) => void;
-          };
-          const reconciler = coord.networkReconciler;
-          if (reconciler && payload) {
-            if (typeof payload.matchMode === 'string') {
-              const isReplayMode = payload.matchMode === 'replay-viewer';
-              reconciler.setReplayPlaybackMode?.(isReplayMode);
-              if (!isReplayMode && !payload.playbackPaused) {
-                physics?.setSimulationFrozen?.(false, 0, false);
-              }
-            }
-            if (payload.followHostWorkspace) {
-              reconciler.setSpectateMirrorMode?.(true);
-              if (reconciler.lobbyDualWorldMode) {
-                reconciler.setLobbyDualWorldMode?.(false);
-              }
-              reconciler.hostLobbyMode = false;
-              coord.lobbyDualWorld?.configureArenaLobbyFlags?.(false, false);
-              probe.setMultiWorldGhostVisible?.(false);
-              probe.configureLobbyGhostMode?.(false);
-            } else if (payload.followHostWorkspace === false) {
-              reconciler.setSpectateMirrorMode?.(false);
-            }
-            if (typeof payload.clientInputEnabled === 'boolean') {
-              reconciler.setClientInputEnabled?.(payload.clientInputEnabled);
-              if (payload.clientInputEnabled) {
-                physics?.setSimulationFrozen?.(false, 0, false);
-              }
-            }
-            if (
-              typeof payload.authorityEpoch === 'number' ||
-              typeof payload.activeInputPeerId === 'string'
-            ) {
-              reconciler.setAuthorityState?.(
-                typeof payload.authorityEpoch === 'number' ? payload.authorityEpoch : 0,
-                typeof payload.activeInputPeerId === 'string' ? payload.activeInputPeerId : 'host'
-              );
-            }
-          }
-        };
-        ch.sendPresencePing?.({ peerId: ch.peerId || authorId, readyForWorkspaceSync: true });
+        bindDevSyncClientChannelHandlers({
+          channel: opts.channel as unknown as DevSyncChannelPort,
+          authorId,
+          camera,
+          physics,
+          sessionCoordinator: sessionCoordinator as unknown as DevSyncSessionCoordinatorPort,
+          diagnosticsProbe: diagnosticsProbe as unknown as DevSyncDiagnosticsProbePort,
+        });
       }
     },
     async onPeerConnected(channel: NetworkSessionChannelLike, name: string) {

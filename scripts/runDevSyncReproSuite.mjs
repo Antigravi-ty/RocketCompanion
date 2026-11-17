@@ -281,7 +281,7 @@ async function main() {
       if (kb?.keys) { kb.keys['KeyW'] = false; kb.keys['ShiftLeft'] = false; }
       window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', key: 'w' }));
     })()`);
-    await new Promise((r) => setTimeout(r, 250));
+    await new Promise((r) => setTimeout(r, 450));
     const fpHost = await readSimSnapshot(hostCdp);
     const fpClient = await readSimSnapshot(client1Cdp);
     const hostMoved =
@@ -344,43 +344,93 @@ async function main() {
       })()`);
     } else {
       await hostCdp.eval(`(() => {
-        const server = window.__rcE2E.runtime.authoritativeServer;
         const phys = window.__rcE2E.runtime.physics;
+        const rv = window.__rcE2E.runtime.modeManager.modes.get('freeplay').standaloneReplayViewer;
         for (let c = 0; c < 6; c++) {
           if (!phys.isCarSlotActive?.(c)) phys.addCarAtSlot?.(c, c % 2, 'octane');
         }
-        phys.step?.(1 / 120);
-        const snap6 = phys.saveCompactState?.() ?? phys.saveState?.();
-        server?.enterStateOnlyMode?.(snap6, 500);
+        const frames = [];
+        for (let f = 0; f < 300; f++) {
+          phys.step?.(1 / 120);
+          const snap = new Float32Array(phys.saveCompactState?.() ?? phys.saveState?.());
+          snap[0] = f + 1;
+          snap[4] = (f - 150) * 10; // move ball X visibly across frames
+          snap[5] = 0;
+          snap[6] = 93;
+          frames.push(snap);
+        }
+        rv.frames = frames;
+        rv.hasLoadedReplay = true;
+        rv.takeoverSubController.cursor = 0;
+        rv.startPlaying();
       })()`);
     }
-    await new Promise((r) => setTimeout(r, 1200));
-    const repHost = await readSimSnapshot(hostCdp);
-    const repClient = await readSimSnapshot(client1Cdp);
+    await new Promise((r) => setTimeout(r, 800));
+    const repHostPlay = await readSimSnapshot(hostCdp);
+    const repClientPlay = await readSimSnapshot(client1Cdp);
+    await hostCdp.eval(
+      `window.__rcE2E.runtime.modeManager.modes.get('freeplay').standaloneReplayViewer.pausePlaying()`
+    );
+    await waitFor(
+      () =>
+        hostCdp.eval(`(() => {
+          const pac = window.__rcE2E.getMultiplayerSession?.()?.hostController?.pauseAckController;
+          return Boolean(pac?.paused && pac?.unackedPeers?.size === 0);
+        })()`),
+      'Replay Pause ACK from Client1',
+      5_000
+    ).catch(() => {});
+    const pauseAckState = await hostCdp.eval(`(() => {
+      const pac = window.__rcE2E.getMultiplayerSession?.()?.hostController?.pauseAckController;
+      return { paused: Boolean(pac?.paused), unacked: pac?.unackedPeers?.size ?? -1 };
+    })()`);
+    await hostCdp.eval(
+      `window.__rcE2E.runtime.modeManager.modes.get('freeplay').standaloneReplayViewer.seekFrame(240)`
+    );
+    await new Promise((r) => setTimeout(r, 200));
+    await client1Cdp.send('Page.bringToFront');
+    await new Promise((r) => setTimeout(r, 400));
+    const repHostSeek = await readSimSnapshot(hostCdp);
+    const repClientSeek = await readSimSnapshot(client1Cdp);
+    await hostCdp.send('Page.bringToFront');
+    await hostCdp.eval(
+      `window.__rcE2E.runtime.modeManager.modes.get('freeplay').standaloneReplayViewer.startPlaying()`
+    );
+    await new Promise((r) => setTimeout(r, 400));
+    const repHostResume = await readSimSnapshot(hostCdp);
     const hasPauseAckProtocol = await client1Cdp.eval(
       `typeof window.__rcE2E.runtime?.networkReconciler?.sendPauseAck === 'function'`
     );
-    const replayBallDist =
-      repHost.ballPos && repClient.ballPos
+    const seekBallDist =
+      repHostSeek.ballPos && repClientSeek.ballPos
         ? Math.round(
             Math.hypot(
-              repHost.ballPos[0] - repClient.ballPos[0],
-              repHost.ballPos[1] - repClient.ballPos[1],
-              repHost.ballPos[2] - repClient.ballPos[2]
+              repHostSeek.ballPos[0] - repClientSeek.ballPos[0],
+              repHostSeek.ballPos[1] - repClientSeek.ballPos[1],
+              repHostSeek.ballPos[2] - repClientSeek.ballPos[2]
             )
           )
         : -1;
     recordScenario(
-      '3. Real 3v3 RCReplay Load & Playback + Pause ACK',
-      repHost.numCars === 6 && repClient.numCars === 6 && hasPauseAckProtocol,
+      '3. Real 3v3 RCReplay Load & Playback + Pause ACK + Seek + Resume',
+      repHostPlay.numCars === 6 &&
+        repClientPlay.numCars === 6 &&
+        repHostPlay.rvCursor > 0 &&
+        pauseAckState.paused === true &&
+        pauseAckState.unacked === 0 &&
+        seekBallDist >= 0 &&
+        seekBallDist < 100 &&
+        repHostResume.rvCursor > repHostSeek.rvCursor &&
+        hasPauseAckProtocol,
       {
-        replaySource: replayPath ? path.basename(replayPath) : 'synthetic-6car',
-        hostCars: repHost.numCars,
-        clientCars: repClient.numCars,
-        hostCursor: repHost.rvCursor,
-        hostBall: repHost.ballPos,
-        clientBall: repClient.ballPos,
-        ballDist: replayBallDist,
+        replaySource: replayPath ? path.basename(replayPath) : 'synthetic-300f-6car',
+        hostCars: repHostPlay.numCars,
+        clientCars: repClientPlay.numCars,
+        cursorPlay: repHostPlay.rvCursor,
+        cursorSeek: repHostSeek.rvCursor,
+        cursorResume: repHostResume.rvCursor,
+        pauseAckState,
+        seekBallDist,
         hasPauseAckProtocol,
       }
     );
@@ -474,8 +524,30 @@ async function main() {
       if (kb?.keys?.delete) { kb.keys.delete('KeyW'); kb.keys.delete('ShiftLeft'); }
       window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', key: 'w' }));
     })()`);
+    await hostCdp.send('Page.bringToFront');
+    await waitFor(
+      async () => {
+        const s = await readSimSnapshot(hostCdp);
+        return (
+          ciBefore.car0Pos &&
+          s.car0Pos &&
+          Math.hypot(s.car0Pos[0] - ciBefore.car0Pos[0], s.car0Pos[1] - ciBefore.car0Pos[1]) > 50
+        );
+      },
+      'Host receives Client1 driving position',
+      3_000
+    ).catch(() => {});
     const ciHost = await readSimSnapshot(hostCdp);
     const ciClient = await readSimSnapshot(client1Cdp);
+    const hostAuthDebug = await hostCdp.eval(`(() => {
+      const ha = window.__rcE2E.getMultiplayerSession?.()?.hostController?.inputAuthority;
+      return {
+        activeInputPeerId: ha?.activeInputPeerId ?? null,
+        authorityEpoch: ha?.authorityEpoch ?? -1,
+        clientInputEnabled: Boolean(ha?.clientInputEnabled),
+        hasLatestFrame: Boolean(ha?.latestFrame),
+      };
+    })()`);
     const clientMovedHost =
       ciBefore.car0Pos &&
       ciHost.car0Pos &&
@@ -486,7 +558,246 @@ async function main() {
       hostCar0Before: ciBefore.car0Pos,
       hostCar0After: ciHost.car0Pos,
       clientCar0After: ciClient.car0Pos,
+      hostAuthDebug,
     });
+
+    // Scenario 7: Dynamic Training Pack Shot & Reset Sync
+    await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onSetClientInputEnabled?.(false)`);
+    await hostCdp.eval(`(() => {
+      const rt = window.__rcE2E.runtime;
+      const app = window.__rcE2E.getAppState();
+      app.setMatchMode?.('dynamic-training-pack');
+      if (rt?.match?.state) rt.match.state.mode = 'dynamic-training-pack';
+      rt?.modeManager?.setMode?.('dynamic-training-pack');
+      const dyn = rt?.modeManager?.modes?.get?.('dynamic-training-pack');
+      if (dyn) {
+        const session = {
+          id: 'e2e-dyn-sess',
+          name: 'E2E Session',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          sourceKind: 'replay-capture',
+          sourceFrame120Hz: 0,
+          prerollStartFrame120Hz: 0,
+          originEndFrame120Hz: 0,
+          interveneLocalFrameIndex: 0,
+          durationSeconds: 1,
+          tickRate: 120,
+          defaultPovSlotIndex: 0,
+          roster: [{ slotIndex: 0, team: 0, name: 'Player', presetId: 'octane' }],
+          frames: [{
+            timeSeconds: 0,
+            ballPos: [350, -800, 120],
+            ballRot: [0, 0, 0, 1],
+            ballVel: [0, 0, 0],
+            ballAngVel: [0, 0, 0],
+            boostPadCooldowns: [],
+            cars: [{
+              slotIndex: 0,
+              entityActive: true,
+              pos: [-400, -1800, 17],
+              rot: [0, 0, 0, 1],
+              vel: [0, 0, 0],
+              angVel: [0, 0, 0],
+              boostAmount: 33,
+              isOnGround: true,
+              isSupersonic: false,
+              hasFlipOrJump: true,
+              airTimeSinceJump: 0,
+              activeFlags: [false, false, false, false],
+              controls: [0, 0, 0, 0, 0, false, false, false],
+            }],
+          }],
+        };
+        const shot = {
+          id: 'e2e-dyn-shot',
+          name: 'E2E Shot',
+          sessionId: 'e2e-dyn-sess',
+          povSlotIndex: 0,
+          interveneOffsetFrames: 0,
+          perCarTakeover: { 0: { mode: 'player' } },
+          timeoutSeconds: 10,
+        };
+        dyn.startShot(shot, session);
+      }
+    })()`);
+    await new Promise((r) => setTimeout(r, 700));
+    const dynHost = await readSimSnapshot(hostCdp);
+    const dynC1 = await readSimSnapshot(client1Cdp);
+    const dynC2 = await readSimSnapshot(client2Cdp);
+    const dynDist1 =
+      dynHost.car0Pos && dynC1.car0Pos
+        ? Math.round(
+            Math.hypot(
+              dynHost.car0Pos[0] - dynC1.car0Pos[0],
+              dynHost.car0Pos[1] - dynC1.car0Pos[1]
+            )
+          )
+        : -1;
+    recordScenario(
+      '7. Dynamic Training Pack Shot & Multi-Client Sync',
+      dynHost.matchMode === 'dynamic-training-pack' &&
+        dynC1.matchMode === 'dynamic-training-pack' &&
+        dynC2.matchMode === 'dynamic-training-pack' &&
+        dynDist1 >= 0 &&
+        dynDist1 < 150,
+      {
+        hostMode: dynHost.matchMode,
+        c1Mode: dynC1.matchMode,
+        c2Mode: dynC2.matchMode,
+        dynDist1,
+      }
+    );
+
+    // Scenario 8: 1 Host + 2 Client Telestrator (0x05) Bidirectional Sync & Permission Gating
+    await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onReturnToFreeplay()`);
+    await new Promise((r) => setTimeout(r, 300));
+    await hostCdp.eval(`(() => {
+      window.__rcE2E.runtime?.telestratorOverlay?.telestrator?.clearAll?.();
+      window.__rcE2E.getWorkspaceState?.().setTelestratorPermission?.('host_only');
+      window.__rcE2E.getAppState().bridge.onBroadcastGlobalWorkspace?.({});
+    })()`);
+    await client1Cdp.eval(`window.__rcE2E.runtime?.telestratorOverlay?.telestrator?.clearAll?.()`);
+    await client2Cdp.eval(`window.__rcE2E.runtime?.telestratorOverlay?.telestrator?.clearAll?.()`);
+    await new Promise((r) => setTimeout(r, 300));
+    const c1BlockedWhenHostOnly = await client1Cdp.eval(
+      `!window.__rcE2E.getTelestratorState().allowClientDrawing`
+    );
+    await hostCdp.eval(`(() => {
+      window.__rcE2E.getWorkspaceState?.().setTelestratorPermission?.('everyone');
+      window.__rcE2E.getAppState().bridge.onBroadcastGlobalWorkspace?.({});
+    })()`);
+    await waitFor(
+      () => client1Cdp.eval(`Boolean(window.__rcE2E.getTelestratorState().allowClientDrawing)`),
+      'Client1 telestrator permission=everyone',
+      5_000
+    );
+    await client1Cdp.send('Page.bringToFront');
+    await client1Cdp.eval(`window.__rcE2E.getTelestratorState().setOverlayActive?.(true)`);
+    await new Promise((r) => setTimeout(r, 200));
+    await client1Cdp.eval(`window.__rcE2E.getTelestratorState().setDrawingEnabled?.(true)`);
+    await client1Cdp.send('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: 640,
+      y: 480,
+      button: 'left',
+      clickCount: 1,
+    });
+    await client1Cdp.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: 760,
+      y: 480,
+      button: 'left',
+    });
+    await new Promise((r) => setTimeout(r, 120));
+    await client1Cdp.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: 760,
+      y: 480,
+      button: 'left',
+      clickCount: 1,
+    });
+    await client1Cdp.eval(`(() => {
+      const ts = window.__rcE2E.getTelestratorState();
+      ts.setDrawingEnabled?.(false);
+      ts.setOverlayActive?.(false);
+    })()`);
+    await hostCdp.send('Page.bringToFront');
+    await waitFor(
+      () =>
+        Promise.all([
+          hostCdp.eval(`(window.__rcE2E.getTelestratorState().strokeCount ?? 0) >= 1`),
+          client2Cdp.eval(`(window.__rcE2E.getTelestratorState().strokeCount ?? 0) >= 1`),
+        ]).then(([h, c2]) => h && c2),
+      'Host & Client2 receive Client1 telestrator stroke',
+      5_000
+    ).catch(() => {});
+    const c1Diag = await client1Cdp.eval(`({
+      dump: window.__rcTelestratorDiag?.getDump?.()?.slice?.(-3) ?? window.__rcTelestratorDiag?.getDump?.() ?? null,
+      probe: window.__rcTelestratorDiag?.probeAt?.(640, 480) ?? null,
+    })`);
+    const teleCounts = {
+      host: await hostCdp.eval(`window.__rcE2E.getTelestratorState().strokeCount ?? 0`),
+      c1: await client1Cdp.eval(`window.__rcE2E.getTelestratorState().strokeCount ?? 0`),
+      c2: await client2Cdp.eval(`window.__rcE2E.getTelestratorState().strokeCount ?? 0`),
+    };
+    recordScenario(
+      '8. 1 Host + 2 Client Telestrator (0x05) Sync & Gating',
+      c1BlockedWhenHostOnly && teleCounts.host >= 1 && teleCounts.c1 >= 1 && teleCounts.c2 >= 1,
+      { c1BlockedWhenHostOnly, teleCounts, c1Diag }
+    );
+
+    // Scenario 9: Edge-Triggered Authority Camera Sync & Non-Override + FPV 300ms Idle Handover
+    await hostCdp.eval(`(() => {
+      const cam = window.__rcE2E.getCamera();
+      if (cam) cam.ballCam = true;
+    })()`);
+    await new Promise((r) => setTimeout(r, 200));
+    await hostCdp.eval(`(() => {
+      const cam = window.__rcE2E.getCamera();
+      if (cam) cam.ballCam = false;
+    })()`);
+    await waitFor(
+      () =>
+        Promise.all([
+          client1Cdp.eval(`window.__rcE2E.getCamera()?.ballCam === false`),
+          client2Cdp.eval(`window.__rcE2E.getCamera()?.ballCam === false`),
+        ]).then(([a, b]) => a && b),
+      'Clients follow Host Car Cam switch',
+      5_000
+    ).catch(() => {});
+    const c1AfterHostSwitch = await client1Cdp.eval(`window.__rcE2E.getCamera()?.ballCam`);
+    await client1Cdp.eval(`(() => {
+      const cam = window.__rcE2E.getCamera();
+      if (cam) cam.ballCam = true;
+    })()`);
+    await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onBroadcastGlobalWorkspace?.({})`);
+    await new Promise((r) => setTimeout(r, 300));
+    const c1PreservedLocalCam = await client1Cdp.eval(`window.__rcE2E.getCamera()?.ballCam === true`);
+    await hostCdp.eval(`(() => {
+      const cam = window.__rcE2E.getCamera();
+      if (cam) cam.ballCam = true;
+    })()`);
+    await waitFor(
+      () => client2Cdp.eval(`window.__rcE2E.getCamera()?.ballCam === true`),
+      'Client2 follows Host back to Ball Cam',
+      5_000
+    ).catch(() => {});
+    const c2FollowedBack = await client2Cdp.eval(`window.__rcE2E.getCamera()?.ballCam === true`);
+
+    await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onSetClientInputEnabled?.(true)`);
+    await new Promise((r) => setTimeout(r, 250));
+    await hostCdp.eval(`(() => {
+      const kb = window.__rcE2E.runtime.keyboard;
+      kb?.keys?.add?.('KeyW');
+    })()`);
+    await new Promise((r) => setTimeout(r, 150));
+    const authAfterPreempt = await hostCdp.eval(
+      `window.__rcE2E.getMultiplayerSession?.()?.hostController?.inputAuthority?.activeInputPeerId`
+    );
+    await hostCdp.eval(`(() => {
+      const kb = window.__rcE2E.runtime.keyboard;
+      kb?.keys?.delete?.('KeyW');
+    })()`);
+    await new Promise((r) => setTimeout(r, 500));
+    const authAfterIdle = await hostCdp.eval(
+      `window.__rcE2E.getMultiplayerSession?.()?.hostController?.inputAuthority?.activeInputPeerId`
+    );
+    recordScenario(
+      '9. Edge-Triggered Authority Camera Sync & FPV 300ms Idle Handover',
+      c1AfterHostSwitch === false &&
+        c1PreservedLocalCam === true &&
+        c2FollowedBack === true &&
+        authAfterPreempt === 'host' &&
+        authAfterIdle !== 'host',
+      {
+        c1AfterHostSwitch,
+        c1PreservedLocalCam,
+        c2FollowedBack,
+        authAfterPreempt,
+        authAfterIdle,
+      }
+    );
 
     const reproducedCount = scenarios.filter((s) => !s.passed).length;
     const report = {

@@ -39,6 +39,7 @@ export interface HostSessionCallbacks {
   getLocalTunnelDescriptor?: () => Record<string, unknown> | null;
   onRemoteTunnelEndpoint?: (endpoint: Record<string, unknown>, peerId: string) => void;
   onTelestratorBytes?: (peerId: string, bytes: Uint8Array) => void;
+  onCameraStateSync?: (raw: Record<string, unknown>, peerId: string) => void;
   onPauseAckTimeout?: (unackedPeerIds: string[]) => void;
 }
 

@@ -143,7 +143,7 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
 
   const isPureCsrSpectate = Boolean(
     reconciler.spectateMirrorMode &&
-    reconciler.clientInputEnabled === false &&
+    (reconciler.clientInputEnabled === false || reconciler.activeInputPeerId === 'host') &&
     !reconciler.hostLobbyMode
   );
 

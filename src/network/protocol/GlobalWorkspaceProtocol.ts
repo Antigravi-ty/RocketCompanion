@@ -25,6 +25,17 @@ export interface WorkspaceCameraSyncPayload {
   focusedCarIndex: number;
   freeCamPosition?: [number, number, number];
   freeCamLookAt?: [number, number, number];
+  cameraSyncSeq?: number;
+  authorityEpoch?: number;
+  authorityPeerId?: string;
+}
+
+export interface AuthorityCameraSyncPayload {
+  type?: 'camera_state_sync';
+  authorityEpoch: number;
+  cameraSyncSeq: number;
+  peerId: string;
+  cameraSync: WorkspaceCameraSyncPayload;
 }
 
 export type InputAuthorityMode = 'explicit' | 'fpv_master_slave';
@@ -109,6 +120,18 @@ function sanitizeCameraSync(raw: unknown): WorkspaceCameraSyncPayload | undefine
     Number.isFinite(focusedRaw) && focusedRaw >= 0 ? Math.round(focusedRaw) : 0;
   const freeCamPosition = sanitizeVec3Tuple(src.freeCamPosition);
   const freeCamLookAt = sanitizeVec3Tuple(src.freeCamLookAt);
+  const cameraSyncSeq =
+    typeof src.cameraSyncSeq === 'number' && Number.isFinite(src.cameraSyncSeq)
+      ? Math.max(0, Math.round(src.cameraSyncSeq))
+      : undefined;
+  const authorityEpoch =
+    typeof src.authorityEpoch === 'number' && Number.isFinite(src.authorityEpoch)
+      ? Math.max(0, Math.round(src.authorityEpoch))
+      : undefined;
+  const authorityPeerId =
+    typeof src.authorityPeerId === 'string' && src.authorityPeerId.trim()
+      ? src.authorityPeerId.trim()
+      : undefined;
   return {
     followHostCamera: typeof src.followHostCamera === 'boolean' ? src.followHostCamera : true,
     isFreeCam: Boolean(src.isFreeCam),
@@ -116,6 +139,9 @@ function sanitizeCameraSync(raw: unknown): WorkspaceCameraSyncPayload | undefine
     focusedCarIndex,
     ...(freeCamPosition ? { freeCamPosition } : {}),
     ...(freeCamLookAt ? { freeCamLookAt } : {}),
+    ...(cameraSyncSeq !== undefined ? { cameraSyncSeq } : {}),
+    ...(authorityEpoch !== undefined ? { authorityEpoch } : {}),
+    ...(authorityPeerId !== undefined ? { authorityPeerId } : {}),
   };
 }
 

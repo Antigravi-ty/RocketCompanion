@@ -72,6 +72,7 @@ export interface MultiplayerSessionCallbacks {
   onPairingApprovalRequest?: (request: PendingPairingRequest) => void;
   onUnexpectedDisconnect?: () => void;
   onTelestratorBytes?: (bytes: Uint8Array, peerId?: string) => void;
+  onCameraStateSync?: (raw: Record<string, unknown>, peerId?: string) => void;
   resolvePlayerName?: () => string;
   resolveTeamColor?: (assignedTeam: number | null) => SessionColorSelection | null;
 }
@@ -331,6 +332,9 @@ export class MultiplayerSessionManager {
         onTelestratorBytes: (peerId, bytes) => {
           this.callbacks.onTelestratorBytes?.(bytes, peerId);
         },
+        onCameraStateSync: (raw, peerId) => {
+          this.callbacks.onCameraStateSync?.(raw, peerId);
+        },
       }
     );
 
@@ -369,6 +373,17 @@ export class MultiplayerSessionManager {
   ): number {
     if (!this.isHosting || !this.hostController) return 0;
     return this.hostController.broadcastGlobalWorkspace(payload);
+  }
+
+  broadcastCameraStateSync(payload: Record<string, unknown>): number {
+    if (this.isHosting && this.hostController) {
+      return this.hostController.broadcastCameraStateSync(payload);
+    }
+    const ch = this.clientController?.channel;
+    if (ch && (ch.connected || ch.isOpen)) {
+      return ch.sendCameraStateSync(payload) ? 1 : 0;
+    }
+    return 0;
   }
 
   broadcastTelestratorBytes(bytes: Uint8Array, reliable = true): number {
