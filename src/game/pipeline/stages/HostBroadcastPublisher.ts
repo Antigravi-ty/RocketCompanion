@@ -32,6 +32,7 @@ export class HostBroadcastPublisher {
   private lastPublishMs = 0;
   private lastPublishedTick = -1;
   private hasPublishedInitial = false;
+  private wasPaused = false;
   private readonly publishIntervalMs: number;
 
   constructor(publishHz = 60) {
@@ -42,6 +43,7 @@ export class HostBroadcastPublisher {
     this.lastPublishMs = 0;
     this.lastPublishedTick = -1;
     this.hasPublishedInitial = false;
+    this.wasPaused = false;
   }
 
   public publishIfReady(params: {
@@ -67,13 +69,22 @@ export class HostBroadcastPublisher {
       this.hasPublishedInitial = true;
       this.lastPublishMs = timestamp;
       this.lastPublishedTick = currentTick;
+      this.wasPaused = isPaused;
       return true;
     }
 
-    const elapsed = timestamp - this.lastPublishMs;
     const tickChangedWhilePaused = Boolean(isPaused && currentTick !== this.lastPublishedTick);
+    if (isPaused && !tickChangedWhilePaused) {
+      this.wasPaused = true;
+      return false;
+    }
+
+    const resumedFromPause = this.wasPaused && !isPaused;
+    this.wasPaused = isPaused;
+
+    const elapsed = timestamp - this.lastPublishMs;
     const effectiveInterval = this.publishIntervalMs > 4 ? this.publishIntervalMs - 2 : this.publishIntervalMs;
-    if (elapsed < effectiveInterval && !tickChangedWhilePaused) {
+    if (elapsed < effectiveInterval && !tickChangedWhilePaused && !resumedFromPause) {
       return false;
     }
 

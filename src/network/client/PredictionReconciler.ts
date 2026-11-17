@@ -107,7 +107,11 @@ export class PredictionReconciler
   onRosterUpdate: ReconcilerMessageCallback<RosterStatePayload> | null = null;
   onHandshakeResponse: ReconcilerMessageCallback<HandshakeResponsePayload> | null = null;
   onRoomActivitySwitch: ((payload: Record<string, unknown>) => void) | null = null;
+  onPauseStateSync: ((payload: Record<string, unknown>) => void) | null = null;
+  onPresencePing: ((payload: Record<string, unknown>) => void) | null = null;
   lastRoomActivityEpoch = 0;
+  lastPauseSeq = 0;
+  lastPresencePingAtMs = 0;
   kickoffMaskUntilTick = -1;
   carVisualPresets = new Map<number, string>();
   carNames = new Map<number, string>();
@@ -414,6 +418,27 @@ export class PredictionReconciler
     return committed;
   }
 
+  sendPauseAck(params: {
+    pauseSeq: number;
+    paused: boolean;
+    pausedAtTick: number;
+    peerId?: string;
+  }): boolean {
+    if (!this.channel?.sendPauseStateAck) return false;
+    const seq = Math.max(0, Math.round(params.pauseSeq || 0));
+    const tick = Math.max(0, Math.round(params.pausedAtTick || 0));
+    const peerId = params.peerId || this.channel.peerId || 'client';
+    return Boolean(
+      this.channel.sendPauseStateAck({
+        type: 'pause_state_ack',
+        pauseSeq: seq,
+        paused: Boolean(params.paused),
+        pausedAtTick: tick,
+        peerId,
+      })
+    );
+  }
+
   reconcile(nowMs = performance.now()): void {
     const transportEvents = this.channel?.drainTransportEvents?.();
     if (transportEvents && transportEvents.length > 0) {
@@ -423,6 +448,19 @@ export class PredictionReconciler
           if (epoch > 0 && epoch < this.lastRoomActivityEpoch) continue;
           if (epoch > 0) this.lastRoomActivityEpoch = epoch;
           this.onRoomActivitySwitch(evt.payload);
+        } else if (evt.type === 'pause_state_sync') {
+          const seq = typeof evt.payload.pauseSeq === 'number' ? Math.round(evt.payload.pauseSeq) : 0;
+          const paused = Boolean(evt.payload.paused);
+          const pausedAtTick =
+            typeof evt.payload.pausedAtTick === 'number' ? Math.round(evt.payload.pausedAtTick) : 0;
+          if (seq >= this.lastPauseSeq) {
+            this.lastPauseSeq = seq;
+            this.onPauseStateSync?.(evt.payload);
+          }
+          this.sendPauseAck({ pauseSeq: seq, paused, pausedAtTick });
+        } else if (evt.type === 'presence_ping') {
+          this.lastPresencePingAtMs = nowMs;
+          this.onPresencePing?.(evt.payload);
         }
       }
     }

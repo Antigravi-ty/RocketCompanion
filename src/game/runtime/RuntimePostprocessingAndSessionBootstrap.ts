@@ -9,6 +9,7 @@ import {
   attachVoiceToPeerChannel,
   detachVoiceFromPeer,
   applyIncomingWorkspaceBroadcast,
+  applyIncomingPauseStateSync,
   applyCameraSyncToPort,
   resetSpectateWorkspaceOnLeave,
   useTelestratorStore,
@@ -287,7 +288,30 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
           null
         );
         const ch = opts.channel as unknown as {
+          peerId?: string | null;
           onGlobalWorkspaceBroadcast?: ((msg: Record<string, unknown>) => void) | null;
+          onPauseStateSync?: ((msg: Record<string, unknown>) => void) | null;
+        };
+        ch.onPauseStateSync = (msg) => {
+          const sync = applyIncomingPauseStateSync(msg);
+          const coord = sessionCoordinator as {
+            networkReconciler?: {
+              sendPauseAck?: (params: {
+                pauseSeq: number;
+                paused: boolean;
+                pausedAtTick: number;
+                peerId?: string;
+              }) => boolean;
+            } | null;
+          };
+          if (sync && coord.networkReconciler?.sendPauseAck) {
+            coord.networkReconciler.sendPauseAck({
+              pauseSeq: Number(sync.pauseSeq) || 0,
+              paused: Boolean(sync.paused),
+              pausedAtTick: Number(sync.pausedAtTick) || 0,
+              peerId: ch.peerId || authorId,
+            });
+          }
         };
         ch.onGlobalWorkspaceBroadcast = (msg) => {
           const payload = applyIncomingWorkspaceBroadcast(msg);

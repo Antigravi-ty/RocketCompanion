@@ -42,6 +42,7 @@ export interface SimulationFrameExecutionFlags {
   readonly isGoalReplay: boolean;
   readonly isMinimizedOffline: boolean;
   readonly isLocalReplayControllerStepping: boolean;
+  readonly isReplayPaused: boolean;
   readonly shouldHoldAccumulator: boolean;
   readonly isMatchActive: boolean;
   readonly shouldSynthesizeTickEvents: boolean;
@@ -136,6 +137,7 @@ export function evaluateSimulationFrameFlags(params: {
     isGoalReplay,
     isMinimizedOffline,
     isLocalReplayControllerStepping,
+    isReplayPaused,
     shouldHoldAccumulator,
     isMatchActive,
     shouldSynthesizeTickEvents,

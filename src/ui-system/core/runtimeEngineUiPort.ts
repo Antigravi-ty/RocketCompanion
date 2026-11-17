@@ -69,6 +69,8 @@ import {
 } from './runtimeVoiceBridge.ts';
 import {
   applyIncomingWorkspaceBroadcast,
+  applyIncomingPauseStateSync,
+  isSpectatePlaybackPaused,
   buildHostWorkspaceBroadcastPayload,
   resetSpectateWorkspaceOnLeave,
   syncClientInputEnabledUi,
@@ -141,6 +143,8 @@ export function ensureRuntimeEngineUiPortBound(): void {
     detachVoiceFromPeer,
     setVoicePeerTeam,
     applyIncomingWorkspaceBroadcast,
+    applyIncomingPauseStateSync,
+    isSpectatePlaybackPaused,
     buildHostWorkspaceBroadcastPayload,
     resetSpectateWorkspaceOnLeave,
     syncClientInputEnabledUi,

@@ -8,55 +8,29 @@
 import { P2PWebRTCChannel } from './P2PWebRTCChannel.ts';
 import { SpectatorDaisyChainCoordinator } from './SpectatorDaisyChainCoordinator.ts';
 import {
-  sanitizeGlobalWorkspaceBroadcast,
+  sanitizePauseStateAck,
   type GlobalWorkspaceBroadcastPayload,
 } from '../protocol/GlobalWorkspaceProtocol.ts';
+import { HostPauseAckController } from './HostPauseAckController.ts';
+import {
+  broadcastHostWorkspaceWithPauseSync,
+  stepHostPauseAckLoop,
+  type ConnectedPeerSummary,
+  type HostSessionCallbacks,
+  type HostSessionOptions,
+  type HostSignalingPort,
+} from './hostPauseAckBridge.ts';
 import { handleHostInboundTelestratorBytes } from './hostTelestratorRelay.ts';
+
+export type {
+  ConnectedPeerSummary,
+  HostSessionCallbacks,
+  HostSessionOptions,
+  HostSignalingPort,
+};
 
 export const DEFAULT_MAX_INPUT_CHANNELS = 6;
 export const DEFAULT_MAX_BROADCAST_CHANNELS = 16;
-
-export interface HostSessionOptions {
-  roomId: string;
-  playerName: string;
-  colorSlot?: number;
-  colorHex?: string;
-  maxInputChannels?: number;
-  maxBroadcastChannels?: number;
-}
-
-export interface HostSignalingPort {
-  peerId?: string;
-  sendOffer: (targetPeerId: string, offerToken: string) => unknown;
-  sendRelayAssignment?: (targetPeerId: string, relayPlan: unknown) => Promise<unknown>;
-}
-
-export interface HostSessionCallbacks {
-  onPeerConnected?: (
-    ch: P2PWebRTCChannel,
-    resolvedName: string,
-    peerId: string,
-    assignedRole: string
-  ) => Promise<number | void> | number | void;
-  onPeerDisconnected?: (peerId: string, ch: P2PWebRTCChannel) => void;
-  onColorChange?: (carIdx: number, slotId: number | null, hex: string | null) => void;
-  onIceCandidate?: (cand: RTCIceCandidateInit | Record<string, unknown>, peerId: string) => void;
-  getLocalTunnelDescriptor?: () => Record<string, unknown> | null;
-  onRemoteTunnelEndpoint?: (endpoint: Record<string, unknown>, peerId: string) => void;
-  onTelestratorBytes?: (peerId: string, bytes: Uint8Array) => void;
-}
-
-export interface ConnectedPeerSummary {
-  id: string;
-  name: string;
-  role: string;
-  carIndex?: number;
-  pingMs: number;
-  pairingCode?: string;
-  allowSpectatorRelay: boolean;
-  ready: boolean;
-  arenaLoaded: boolean;
-}
 
 export class HostSessionController {
   roomId: string;
@@ -73,6 +47,7 @@ export class HostSessionController {
   peerReadyStates = new Map<string, { ready: boolean; arenaLoaded: boolean }>();
   peerPairingCodes = new Map<string, string>();
   daisyChainCoordinator = new SpectatorDaisyChainCoordinator();
+  readonly pauseAckController = new HostPauseAckController();
   offerToken = '';
   offersSentTime = new Map<string, number>();
   _nextPeerSeq = 1;
@@ -163,6 +138,12 @@ export class HostSessionController {
           this.activeGlobalWorkspace as unknown as Record<string, unknown>
         );
       }
+      if (this.pauseAckController.paused) {
+        const sync = this.pauseAckController.onPeerConnected(activePeerId);
+        if (sync) {
+          ch.sendPauseStateSync(sync as unknown as Record<string, unknown>);
+        }
+      }
     };
 
     ch.onDisconnected = () => {
@@ -170,7 +151,14 @@ export class HostSessionController {
       this.peerReadyStates.delete(activePeerId);
       this.peerPairingCodes.delete(activePeerId);
       this.daisyChainCoordinator.unregisterNode(activePeerId);
+      this.pauseAckController.onPeerDisconnected(activePeerId);
       this.callbacks.onPeerDisconnected?.(activePeerId, ch);
+    };
+
+    ch.onPauseStateAck = (raw: Record<string, unknown>) => {
+      const activePeerId = ch.peerId || peerId;
+      const ack = sanitizePauseStateAck(raw, activePeerId);
+      this.pauseAckController.handlePauseAck(ack);
     };
 
     ch.onColorChange = (msg: { carIndex?: number; slotId: number | null; hex: string | null }) => {
@@ -483,20 +471,35 @@ export class HostSessionController {
     return sentCount;
   }
 
+  getConnectedPeerIds(): string[] {
+    const ids: string[] = [];
+    for (const [peerId, ch] of this.peerChannels.entries()) {
+      if (ch.connected || ch.isOpen) {
+        ids.push(peerId);
+      }
+    }
+    return ids;
+  }
+
+  stepPauseAckLoop(nowMs = Date.now()): void {
+    stepHostPauseAckLoop(
+      this.peerChannels,
+      this.pauseAckController,
+      nowMs,
+      this.callbacks.onPauseAckTimeout
+    );
+  }
+
   broadcastGlobalWorkspace(
     payload: GlobalWorkspaceBroadcastPayload | Record<string, unknown>
   ): number {
-    const normalized = sanitizeGlobalWorkspaceBroadcast(payload);
+    const { normalized, sentCount } = broadcastHostWorkspaceWithPauseSync(
+      this.peerChannels,
+      this.pauseAckController,
+      this.getConnectedPeerIds(),
+      payload
+    );
     this.activeGlobalWorkspace = normalized;
-    let sentCount = 0;
-    for (const ch of this.peerChannels.values()) {
-      if (
-        (ch.connected || ch.isOpen) &&
-        ch.sendGlobalWorkspaceBroadcast(normalized as unknown as Record<string, unknown>)
-      ) {
-        sentCount++;
-      }
-    }
     return sentCount;
   }
 
@@ -523,6 +526,7 @@ export class HostSessionController {
     this.peerReadyStates.clear();
     this.peerPairingCodes.clear();
     this.daisyChainCoordinator.clear();
+    this.pauseAckController.reset();
     this._activityEpoch = 0;
     this.activeRoomActivity = null;
     this.activeGlobalWorkspace = null;

@@ -346,6 +346,9 @@ export function classifyRoomMessage(
 
   if (
     msg.type === 'global_workspace_broadcast' ||
+    msg.type === 'pause_state_sync' ||
+    msg.type === 'pause_state_ack' ||
+    msg.type === 'presence_ping' ||
     msg.type === 'room_activity_switch' ||
     msg.type === 'replication_mode_set' ||
     msg.type === 'state_paused_ack' ||

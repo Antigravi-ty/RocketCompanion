@@ -24,9 +24,11 @@ export interface TelemetrySimulatorPort {
 }
 
 export interface TelemetryChannelPort extends TelemetrySimulatorPort {
+  peerId?: string | null;
   simulator?: TelemetrySimulatorPort;
   sendClientInput?: (packet: Uint8Array, nowMs?: number) => unknown;
   send?: (packet: Uint8Array, nowMs?: number) => unknown;
+  sendPauseStateAck?: (payload: Record<string, unknown>) => boolean;
   receiveClientPackets?: (nowMs?: number) => unknown[];
   receiveServerPackets?: (nowMs?: number) => unknown[];
   drainTransportEvents?: () => Array<{ type: string; payload: Record<string, unknown> }>;

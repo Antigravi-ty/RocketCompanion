@@ -110,6 +110,8 @@ const _handlers: Record<string, PortHandlerFn | null> = {
   detachVoiceFromPeer: null,
   setVoicePeerTeam: null,
   applyIncomingWorkspaceBroadcast: null,
+  applyIncomingPauseStateSync: null,
+  isSpectatePlaybackPaused: null,
   buildHostWorkspaceBroadcastPayload: null,
   resetSpectateWorkspaceOnLeave: null,
   syncClientInputEnabledUi: null,
@@ -343,6 +345,16 @@ export function applyIncomingWorkspaceBroadcast(
   return (
     (_handlers.applyIncomingWorkspaceBroadcast?.(raw) as Record<string, unknown> | null) ?? null
   );
+}
+export function applyIncomingPauseStateSync(
+  raw: Record<string, unknown>
+): Record<string, unknown> | null {
+  return (
+    (_handlers.applyIncomingPauseStateSync?.(raw) as Record<string, unknown> | null) ?? null
+  );
+}
+export function isSpectatePlaybackPaused(): boolean {
+  return Boolean(_handlers.isSpectatePlaybackPaused?.());
 }
 export function buildHostWorkspaceBroadcastPayload(
   meta?: Record<string, unknown>

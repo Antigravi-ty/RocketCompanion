@@ -12,7 +12,9 @@ import {
 } from '../../ui-core/stores/quickNotificationStore.ts';
 import {
   sanitizeGlobalWorkspaceBroadcast,
+  sanitizePauseStateSync,
   type GlobalWorkspaceBroadcastPayload,
+  type PauseStateSyncPayload,
 } from '../../network/protocol/GlobalWorkspaceProtocol.ts';
 
 export function captureLocalWorkspaceState(): {
@@ -267,6 +269,19 @@ export function applyIncomingWorkspaceBroadcast(
     }
   }
   return sanitized;
+}
+
+export function applyIncomingPauseStateSync(raw: Record<string, unknown>): PauseStateSyncPayload {
+  const sanitized = sanitizePauseStateSync(raw);
+  const st = useSpectateWorkspaceStore.getState();
+  if (sanitized.pauseSeq >= st.pauseSeq) {
+    st.setPlaybackState(sanitized.paused, sanitized.pausedAtTick, sanitized.pauseSeq);
+  }
+  return sanitized;
+}
+
+export function isSpectatePlaybackPaused(): boolean {
+  return Boolean(useSpectateWorkspaceStore.getState().playbackPaused);
 }
 
 export function buildHostWorkspaceBroadcastPayload(meta?: {

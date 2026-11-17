@@ -93,6 +93,21 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
       fn(queued);
     }
   }
+  private _onPauseStateSync: ChannelHook<[Record<string, unknown>]> = null;
+  private pendingPauseStateSync: Record<string, unknown> | null = null;
+  get onPauseStateSync(): ChannelHook<[Record<string, unknown>]> {
+    return this._onPauseStateSync;
+  }
+  set onPauseStateSync(fn: ChannelHook<[Record<string, unknown>]>) {
+    this._onPauseStateSync = fn;
+    if (fn && this.pendingPauseStateSync) {
+      const queued = this.pendingPauseStateSync;
+      this.pendingPauseStateSync = null;
+      fn(queued);
+    }
+  }
+  onPauseStateAck: ChannelHook<[Record<string, unknown>]> = null;
+  onPresencePing: ChannelHook<[Record<string, unknown>]> = null;
   onTelestratorBytes: ChannelHook<[Uint8Array]> = null;
 
   readonly attachTunnelTransport: DataChannelTransport['attachTunnelTransport'];
@@ -106,6 +121,9 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   readonly sendReliableControl: DataChannelTransport['sendReliableControl'];
   readonly sendVoiceSignal: DataChannelTransport['sendVoiceSignal'];
   readonly sendGlobalWorkspaceBroadcast: DataChannelTransport['sendGlobalWorkspaceBroadcast'];
+  readonly sendPauseStateSync: DataChannelTransport['sendPauseStateSync'];
+  readonly sendPauseStateAck: DataChannelTransport['sendPauseStateAck'];
+  readonly sendPresencePing: DataChannelTransport['sendPresencePing'];
   readonly sendTelestratorBytes: DataChannelTransport['sendTelestratorBytes'];
   readonly sendRoomActivitySwitch: DataChannelTransport['sendRoomActivitySwitch'];
   readonly sendStatePausedAck: DataChannelTransport['sendStatePausedAck'];
@@ -245,6 +263,15 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
         this.pendingGlobalWorkspaceBroadcast = msg;
       }
     };
+    this.transport.onPauseStateSync = (msg) => {
+      if (this._onPauseStateSync) {
+        this._onPauseStateSync(msg);
+      } else {
+        this.pendingPauseStateSync = msg;
+      }
+    };
+    this.transport.onPauseStateAck = (msg) => this.onPauseStateAck?.(msg);
+    this.transport.onPresencePing = (msg) => this.onPresencePing?.(msg);
     this.transport.onTelestratorBytes = (bytes) => this.onTelestratorBytes?.(bytes);
     this.send = this.transport.send.bind(this.transport);
     this.sendClientInput = this.transport.sendClientInput.bind(this.transport);
@@ -256,6 +283,9 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
     this.sendGlobalWorkspaceBroadcast = this.transport.sendGlobalWorkspaceBroadcast.bind(
       this.transport
     );
+    this.sendPauseStateSync = this.transport.sendPauseStateSync.bind(this.transport);
+    this.sendPauseStateAck = this.transport.sendPauseStateAck.bind(this.transport);
+    this.sendPresencePing = this.transport.sendPresencePing.bind(this.transport);
     this.sendTelestratorBytes = this.transport.sendTelestratorBytes.bind(this.transport);
     this.sendRoomActivitySwitch = this.transport.sendRoomActivitySwitch.bind(this.transport);
     this.sendStatePausedAck = this.transport.sendStatePausedAck.bind(this.transport);

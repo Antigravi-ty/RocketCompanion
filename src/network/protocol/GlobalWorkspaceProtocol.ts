@@ -37,11 +37,37 @@ export interface GlobalWorkspaceBroadcastPayload {
   playbackPaused: boolean;
   pausedAtTick: number;
   pauseHeartbeatHz: number;
+  pauseSeq?: number;
   clientInputEnabled: boolean;
   followHostWorkspace: boolean;
   menuStateIncluded?: boolean;
   arenaPreset?: 'standard' | 'throwback';
   cameraSync?: WorkspaceCameraSyncPayload;
+}
+
+export interface PauseStateSyncPayload {
+  type?: 'pause_state_sync';
+  pauseSeq: number;
+  paused: boolean;
+  pausedAtTick: number;
+  snapshotHash?: number;
+  epoch?: number;
+}
+
+export interface PauseStateAckPayload {
+  type?: 'pause_state_ack';
+  pauseSeq: number;
+  paused: boolean;
+  pausedAtTick: number;
+  peerId: string;
+}
+
+export interface PresencePingPayload {
+  type: 'presence_ping';
+  pauseSeq: number;
+  paused: boolean;
+  pausedAtTick: number;
+  epoch?: number;
 }
 
 export function clampPauseHeartbeatHz(hz: number): number {
@@ -125,10 +151,74 @@ export function sanitizeGlobalWorkspaceBroadcast(
     pauseHeartbeatHz: clampPauseHeartbeatHz(
       typeof src.pauseHeartbeatHz === 'number' ? src.pauseHeartbeatHz : DEFAULT_PAUSE_HEARTBEAT_HZ
     ),
+    ...(typeof src.pauseSeq === 'number' && Number.isFinite(src.pauseSeq)
+      ? { pauseSeq: Math.max(0, Math.round(src.pauseSeq)) }
+      : {}),
     clientInputEnabled: typeof src.clientInputEnabled === 'boolean' ? src.clientInputEnabled : true,
     followHostWorkspace: Boolean(src.followHostWorkspace),
     menuStateIncluded: typeof src.menuStateIncluded === 'boolean' ? src.menuStateIncluded : true,
     ...(arenaPreset !== undefined ? { arenaPreset } : {}),
     ...(cameraSync !== undefined ? { cameraSync } : {}),
   };
+}
+
+export function sanitizePauseStateSync(
+  raw: Record<string, unknown> | Partial<PauseStateSyncPayload> | null | undefined
+): PauseStateSyncPayload {
+  const src = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  return {
+    type: 'pause_state_sync',
+    pauseSeq:
+      typeof src.pauseSeq === 'number' && Number.isFinite(src.pauseSeq)
+        ? Math.max(0, Math.round(src.pauseSeq))
+        : 0,
+    paused: Boolean(src.paused),
+    pausedAtTick:
+      typeof src.pausedAtTick === 'number' && Number.isFinite(src.pausedAtTick)
+        ? Math.max(0, Math.round(src.pausedAtTick))
+        : 0,
+    ...(typeof src.snapshotHash === 'number' && Number.isFinite(src.snapshotHash)
+      ? { snapshotHash: src.snapshotHash >>> 0 }
+      : {}),
+    ...(typeof src.epoch === 'number' && Number.isFinite(src.epoch)
+      ? { epoch: Math.max(0, Math.round(src.epoch)) }
+      : {}),
+  };
+}
+
+export function sanitizePauseStateAck(
+  raw: Record<string, unknown> | Partial<PauseStateAckPayload> | null | undefined,
+  fallbackPeerId = 'peer'
+): PauseStateAckPayload {
+  const src = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const peerIdRaw = typeof src.peerId === 'string' && src.peerId.trim() ? src.peerId.trim() : fallbackPeerId;
+  return {
+    type: 'pause_state_ack',
+    pauseSeq:
+      typeof src.pauseSeq === 'number' && Number.isFinite(src.pauseSeq)
+        ? Math.max(0, Math.round(src.pauseSeq))
+        : 0,
+    paused: Boolean(src.paused),
+    pausedAtTick:
+      typeof src.pausedAtTick === 'number' && Number.isFinite(src.pausedAtTick)
+        ? Math.max(0, Math.round(src.pausedAtTick))
+        : 0,
+    peerId: peerIdRaw,
+  };
+}
+
+export function computeCompactSnapshotHash(snap: ArrayLike<number> | null | undefined): number {
+  if (!snap || snap.length < 22) return 0;
+  let hash = 2166136261;
+  const indices = [0, 4, 5, 6, 22, 23, 24];
+  for (let i = 0; i < indices.length; i++) {
+    const idx = indices[i];
+    if (idx >= snap.length) continue;
+    const val = Math.round(Number(snap[idx]) || 0);
+    hash ^= val & 0xff;
+    hash = Math.imul(hash, 16777619);
+    hash ^= (val >> 8) & 0xff;
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }

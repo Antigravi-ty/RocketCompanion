@@ -23,6 +23,7 @@ import {
   isDevSyncHostBroadcastingMode,
 } from './HostBroadcastPublisher.ts';
 import { SpectateInterpolationBuffer } from '../../../network/sync/ReplicationStateInterpolator.ts';
+import { isSpectatePlaybackPaused } from '../../runtimeUiPort.ts';
 
 export type { CarActionDebounceState };
 
@@ -36,6 +37,12 @@ export interface SimulationStageRuntimePort extends CarActionSynthesizerRuntimeP
   replayTimelineController: ReplayTimelineController | null;
   modeManager: {
     getActiveMode(): ActiveModeSimulationPort | null;
+  } | null;
+  multiplayerSession?: {
+    isHosting?: boolean;
+    hostController?: {
+      stepPauseAckLoop?: (nowMs?: number) => void;
+    } | null;
   } | null;
   networkManager: {
     diagnosticDumpMaxFrames?: number;
@@ -204,12 +211,16 @@ export class SimulationStage implements PipelineStage {
       });
     }
 
+    if (this.runtime.multiplayerSession?.isHosting) {
+      this.runtime.multiplayerSession.hostController?.stepPauseAckLoop?.(Date.now());
+    }
+
     if (isBroadcastingHost && server) {
       this.broadcastPublisher.publishIfReady({
         timestamp,
         physics,
         server,
-        isPaused: flags.shouldHoldAccumulator,
+        isPaused: flags.shouldHoldAccumulator || flags.isReplayPaused || isSpectatePlaybackPaused(),
       });
     } else {
       this.broadcastPublisher.reset();

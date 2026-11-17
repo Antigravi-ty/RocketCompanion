@@ -14,6 +14,7 @@
 import assert from 'node:assert/strict';
 import { DataChannelTransport } from '../src/network/transport/webrtc/DataChannelTransport.ts';
 import { HostSessionController } from '../src/network/transport/HostSessionController.ts';
+import { HostPauseAckController } from '../src/network/transport/HostPauseAckController.ts';
 import { ReliableTunnelFramer } from '../src/network/transport/tunnel/ReliableTunnelFramer.ts';
 import { PredictionReconciler } from '../src/network/client/PredictionReconciler.ts';
 import { NetworkSimulator } from '../src/network/transport/webrtc/NetworkSimulator.ts';
@@ -2088,6 +2089,10 @@ async function main(): Promise<void> {
     '16. SpectateInterpolationBuffer (Reverse-Delay Jitter Buffer & Sub-Tick Interpolation)',
     testSpectateInterpolationBufferReverseDelay
   );
+  await runSection(
+    '17. Reliable Pause/Resume ACK, 100ms Retry, Timeout & 1-2Hz Presence Heartbeat',
+    testReliablePauseAckAndHeartbeat
+  );
   console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
 }
 
@@ -2259,6 +2264,178 @@ async function testSpectateInterpolationBufferReverseDelay(): Promise<void> {
     sTeleport.snapshot[SIM_OFFSETS.BALL] === 0 || sTeleport.snapshot[SIM_OFFSETS.BALL] >= 2000,
     `Teleport should snap instead of mid-arena lerp, got ballX=${sTeleport.snapshot[SIM_OFFSETS.BALL]}`
   );
+}
+
+async function testReliablePauseAckAndHeartbeat(): Promise<void> {
+  // 1. HostPauseAckController state machine: awaitingPauseAck -> 100ms retry -> pausedIdle -> 2Hz presence_ping -> resume
+  const ctrl = new HostPauseAckController();
+  assert.equal(ctrl.state, 'playing');
+  assert.equal(ctrl.shouldStreamPhysicsSnapshots(), true);
+
+  const sync1 = ctrl.setPausedState({
+    paused: true,
+    pausedAtTick: 420,
+    heartbeatHz: 2,
+    connectedPeerIds: ['peer_a', 'peer_b'],
+    nowMs: 1000,
+  });
+  assert.ok(sync1);
+  assert.equal(sync1.pauseSeq, 1);
+  assert.equal(sync1.paused, true);
+  assert.equal(sync1.pausedAtTick, 420);
+  assert.equal(ctrl.state, 'awaitingPauseAck');
+  assert.equal(ctrl.shouldStreamPhysicsSnapshots(), false);
+  assert.equal(ctrl.unackedPeers.size, 2);
+
+  // At +50ms: no retry yet (< 100ms)
+  const retried: Array<{ peerId: string; pauseSeq: number }> = [];
+  const pings: Array<{ pauseSeq: number; pausedAtTick: number }> = [];
+  const timeouts: string[][] = [];
+  ctrl.tick(1050, {
+    sendPauseStateSyncToPeer: (peerId, p) => retried.push({ peerId, pauseSeq: p.pauseSeq }),
+    broadcastPresencePing: (p) => pings.push({ pauseSeq: p.pauseSeq, pausedAtTick: p.pausedAtTick }),
+    onPauseAckTimeout: (ids) => timeouts.push(ids),
+  });
+  assert.equal(retried.length, 0);
+
+  // At +100ms: retries PAUSE_STATE_SYNC to both un-ACKed peers
+  ctrl.tick(1100, {
+    sendPauseStateSyncToPeer: (peerId, p) => retried.push({ peerId, pauseSeq: p.pauseSeq }),
+    broadcastPresencePing: (p) => pings.push({ pauseSeq: p.pauseSeq, pausedAtTick: p.pausedAtTick }),
+    onPauseAckTimeout: (ids) => timeouts.push(ids),
+  });
+  assert.equal(retried.length, 2);
+
+  // peer_a ACKs -> still awaiting peer_b
+  assert.equal(
+    ctrl.handlePauseAck({ pauseSeq: 1, paused: true, pausedAtTick: 420, peerId: 'peer_a' }, 1120),
+    true
+  );
+  assert.equal(ctrl.state, 'awaitingPauseAck');
+  assert.equal(ctrl.unackedPeers.size, 1);
+
+  // Stale pauseSeq=0 ACK is ignored
+  assert.equal(
+    ctrl.handlePauseAck({ pauseSeq: 0, paused: true, pausedAtTick: 420, peerId: 'peer_b' }, 1130),
+    false
+  );
+
+  // peer_b ACKs -> transitions to pausedIdle
+  assert.equal(
+    ctrl.handlePauseAck({ pauseSeq: 1, paused: true, pausedAtTick: 420, peerId: 'peer_b' }, 1150),
+    true
+  );
+  assert.equal(ctrl.state, 'pausedIdle');
+  assert.equal(ctrl.unackedPeers.size, 0);
+  assert.equal(ctrl.shouldStreamPhysicsSnapshots(), false);
+
+  // In pausedIdle at 2Hz (500ms interval): +200ms -> no ping; +500ms -> 1 presence_ping
+  ctrl.tick(1350, {
+    sendPauseStateSyncToPeer: () => {},
+    broadcastPresencePing: (p) => pings.push({ pauseSeq: p.pauseSeq, pausedAtTick: p.pausedAtTick }),
+  });
+  assert.equal(pings.length, 0);
+  ctrl.tick(1650, {
+    sendPauseStateSyncToPeer: () => {},
+    broadcastPresencePing: (p) => pings.push({ pauseSeq: p.pauseSeq, pausedAtTick: p.pausedAtTick }),
+  });
+  assert.equal(pings.length, 1);
+  assert.equal(pings[0].pauseSeq, 1);
+  assert.equal(pings[0].pausedAtTick, 420);
+
+  // Resume -> increments pauseSeq, transitions to playing, resumes physics stream
+  const resumeSync = ctrl.setPausedState({
+    paused: false,
+    pausedAtTick: 420,
+    connectedPeerIds: ['peer_a', 'peer_b'],
+    nowMs: 1700,
+  });
+  assert.ok(resumeSync);
+  assert.equal(resumeSync.pauseSeq, 2);
+  assert.equal(resumeSync.paused, false);
+  assert.equal(ctrl.state, 'playing');
+  assert.equal(ctrl.shouldStreamPhysicsSnapshots(), true);
+
+  // Dead peer timeout after maxRetryMs (5000ms) transitions to pausedIdle and fires callback
+  ctrl.setPausedState({
+    paused: true,
+    pausedAtTick: 500,
+    connectedPeerIds: ['dead_peer'],
+    nowMs: 2000,
+  });
+  ctrl.tick(7000, {
+    sendPauseStateSyncToPeer: () => {},
+    broadcastPresencePing: () => {},
+    onPauseAckTimeout: (ids) => timeouts.push(ids),
+  });
+  assert.equal(timeouts.length, 1);
+  assert.deepEqual(timeouts[0], ['dead_peer']);
+  assert.equal(ctrl.state, 'pausedIdle');
+
+  // 2. PredictionReconciler.sendPauseAck + HostSessionController round-trip over DataChannelTransport
+  const hostCtrl = new HostSessionController({ roomId: 'room-pause-ack-1', playerName: 'Host' });
+  const peerCh = hostCtrl._createPeerChannel('peer_pause_1', 'Client1', 'spectator');
+  peerCh.dataChannel = {
+    readyState: 'open',
+    send: () => {},
+    close: () => {},
+  } as unknown as RTCDataChannel;
+
+  const clientTransport = new DataChannelTransport({
+    simulator: new NetworkSimulator(),
+    signaling: new CrossTabSignaling(),
+  });
+  // Wire peerCh <-> clientTransport via reliable control JSON
+  peerCh.transport.sendReliableControl = (msg: Record<string, unknown>) => {
+    clientTransport.handleIncomingMessage(JSON.stringify(msg));
+    return true;
+  };
+  clientTransport.sendReliableControl = (msg: Record<string, unknown>) => {
+    peerCh.transport.handleIncomingMessage(JSON.stringify(msg));
+    return true;
+  };
+
+  const clientReconciler = new PredictionReconciler(
+    {
+      numCars: 1,
+      getCarStateView: () => ({ posX: 0, posY: 0, posZ: 17 }),
+      saveStateSlot: () => {},
+      restoreStateSlot: () => {},
+      restoreState: () => {},
+      addCar: () => {},
+    },
+    { clientCarIndex: 0 }
+  );
+  clientReconciler.channel = {
+    peerId: 'peer_pause_1',
+    drainTransportEvents: () => clientTransport.drainTransportEvents(),
+    sendPauseStateAck: (payload: Record<string, unknown>) =>
+      clientTransport.sendPauseStateAck(payload),
+    receiveServerPackets: () => [],
+  };
+
+  let receivedSyncOnClient = false;
+  clientReconciler.onPauseStateSync = () => {
+    receivedSyncOnClient = true;
+  };
+
+  hostCtrl.broadcastGlobalWorkspace({
+    playbackPaused: true,
+    pausedAtTick: 777,
+    pauseHeartbeatHz: 2,
+  });
+  assert.equal(hostCtrl.pauseAckController.state, 'awaitingPauseAck');
+
+  // Client reconciles -> receives pause_state_sync -> automatically sends pause_state_ack back
+  clientReconciler.reconcile(performance.now());
+  assert.equal(receivedSyncOnClient, true);
+  assert.equal(clientReconciler.lastPauseSeq, 1);
+  assert.equal(
+    hostCtrl.pauseAckController.state,
+    'pausedIdle',
+    'Host should transition to pausedIdle after receiving client PAUSE_STATE_ACK'
+  );
+  hostCtrl.cleanup();
 }
 
 main().catch((err) => {

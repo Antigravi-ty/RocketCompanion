@@ -33,8 +33,6 @@ import {
   tryTransmitViaTunnelBridge,
 } from './tunnelFramerBridge.ts';
 import {
-  parseInboundControlFrame,
-  dispatchInboundControlFrame,
   transmitClonedPayload,
   dispatchDualChannelControlFrame,
   transmitReliableControlFrame,
@@ -42,9 +40,22 @@ import {
   type PendingColorChangeState,
   type StructuredClientInputPacket,
   type ClientInputPacketPayload,
+} from './dataChannelFramingPipeline.ts';
+import {
+  dispatchInboundControlFrame,
+  parseInboundControlFrame,
   type InboundControlFrame,
   type DataChannelTransportEvent,
-} from './dataChannelFramingPipeline.ts';
+} from './dataChannelControlFraming.ts';
+import type {
+  VoidTransportListener,
+  LocalColorUpdatedListener,
+  ColorChangeMessageListener,
+  DiagnosticFleetToggleListener,
+  PacketDeliveredListener,
+  ControlPayloadListener,
+  DataChannelTransportPort,
+} from './dataChannelTransportTypes.ts';
 import {
   dispatchSimulatedClientInput,
   dispatchSimulatedPacket,
@@ -60,41 +71,14 @@ export type {
   ClientInputPacketPayload,
   InboundControlFrame,
   DataChannelTransportEvent,
+  VoidTransportListener,
+  LocalColorUpdatedListener,
+  ColorChangeMessageListener,
+  DiagnosticFleetToggleListener,
+  PacketDeliveredListener,
+  ControlPayloadListener,
+  DataChannelTransportPort,
 };
-
-export type VoidTransportListener = () => void;
-export type LocalColorUpdatedListener = (
-  slotId: number,
-  hex: string,
-  pendingIfClosed?: PendingColorChangeState
-) => void;
-export type ColorChangeMessageListener = (msg: Record<string, unknown>) => void;
-export type DiagnosticFleetToggleListener = (enabled: boolean, anchorMode: string) => void;
-export type PacketDeliveredListener = (data: SimulatedPayload) => void;
-export type ControlPayloadListener = (msg: Record<string, unknown>) => void;
-
-export interface DataChannelTransportPort {
-  simulator: NetworkSimulator;
-  signaling: CrossTabSignaling;
-  getDataChannel?: () => RTCDataChannel | null;
-  setDataChannel?: (channel: RTCDataChannel | null) => void;
-  isChannelOpen?: () => boolean;
-  isCrossTabActive?: () => boolean;
-  onChannelOpen?: VoidTransportListener | null;
-  onChannelClosed?: VoidTransportListener | null;
-  onWebRTCDataChannelOpen?: VoidTransportListener | null;
-  onWebRTCDataChannelClosed?: VoidTransportListener | null;
-  markDataChannelOpen?: VoidTransportListener | null;
-  markDataChannelClosed?: VoidTransportListener | null;
-  onLocalColorUpdated?: LocalColorUpdatedListener | null;
-  updateLocalColor?: LocalColorUpdatedListener | null;
-  onColorChange?: ColorChangeMessageListener | null;
-  deliverColorChange?: ColorChangeMessageListener | null;
-  onDiagnosticFleetToggle?: DiagnosticFleetToggleListener | null;
-  deliverDiagnosticFleetToggle?: DiagnosticFleetToggleListener | null;
-  onPacketDelivered?: PacketDeliveredListener | null;
-  deliverPacket?: PacketDeliveredListener | null;
-}
 
 export class DataChannelTransport {
   readonly simulator: NetworkSimulator;
@@ -119,6 +103,9 @@ export class DataChannelTransport {
   onPeerLeave: ControlPayloadListener | null = null;
   onVoiceSignal: ControlPayloadListener | null = null;
   onGlobalWorkspaceBroadcast: ControlPayloadListener | null = null;
+  onPauseStateSync: ControlPayloadListener | null = null;
+  onPauseStateAck: ControlPayloadListener | null = null;
+  onPresencePing: ControlPayloadListener | null = null;
   onTelestratorBytes: ((bytes: Uint8Array) => void) | null = null;
 
   private readonly tunnelBridge = createTunnelFramerBridgeState();
@@ -328,6 +315,9 @@ export class DataChannelTransport {
           onPeerLeave: this.onPeerLeave,
           onVoiceSignal: this.onVoiceSignal,
           onGlobalWorkspaceBroadcast: this.onGlobalWorkspaceBroadcast,
+          onPauseStateSync: this.onPauseStateSync,
+          onPauseStateAck: this.onPauseStateAck,
+          onPresencePing: this.onPresencePing,
           receiveSimulatorPayload: (payload, onDelivered, ts) =>
             sim.receivePayload(payload, onDelivered, ts),
           popInboundQueue: () => {
@@ -487,6 +477,18 @@ export class DataChannelTransport {
 
   sendStatePausedAck(payload: StatePausedAckPayload): boolean {
     return this.sendReliableControl({ type: 'state_paused_ack', ...payload }, 'state_paused_ack');
+  }
+
+  sendPauseStateSync(payload: Record<string, unknown>): boolean {
+    return this.sendReliableControl({ ...payload, type: 'pause_state_sync' }, 'pause_state_sync');
+  }
+
+  sendPauseStateAck(payload: Record<string, unknown>): boolean {
+    return this.sendReliableControl({ ...payload, type: 'pause_state_ack' }, 'pause_state_ack');
+  }
+
+  sendPresencePing(payload: Record<string, unknown>): boolean {
+    return this.sendReliableControl({ ...payload, type: 'presence_ping' }, 'presence_ping');
   }
 
   sendCsrStateBroadcast(payload: CsrStateBroadcastPayload): boolean {

@@ -43,6 +43,7 @@ export interface SpectateWorkspaceStoreState {
   playbackPaused: boolean;
   pausedAtTick: number;
   pauseHeartbeatHz: number;
+  pauseSeq: number;
   localSnapshotBeforeMirror: {
     menuRoute: string | null;
     windows: FloatingWindowSyncEntry[];
@@ -63,7 +64,7 @@ export interface SpectateWorkspaceStoreState {
   setFollowHostWorkspace: (follow: boolean) => void;
   setBroadcastMenuState: (includeMenu: boolean) => void;
   setFollowHostCamera: (follow: boolean) => void;
-  setPlaybackState: (paused: boolean, pausedAtTick: number) => void;
+  setPlaybackState: (paused: boolean, pausedAtTick: number, pauseSeq?: number) => void;
   setArenaPreset: (preset: 'standard' | 'throwback') => void;
   applyHostWorkspaceBroadcast: (
     payload: GlobalWorkspaceStateInput,
@@ -88,6 +89,7 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
   playbackPaused: false,
   pausedAtTick: 0,
   pauseHeartbeatHz: 2,
+  pauseSeq: 0,
   localSnapshotBeforeMirror: null,
 
   setSpectatingActive: (active, captureLocalState, applyWorkspaceState) => {
@@ -173,11 +175,15 @@ export const useSpectateWorkspaceStore = create<SpectateWorkspaceStoreState>((se
     set({ followHostCamera: Boolean(follow) });
   },
 
-  setPlaybackState: (paused, pausedAtTick) => {
-    set({
+  setPlaybackState: (paused, pausedAtTick, pauseSeq) => {
+    set((s) => ({
       playbackPaused: Boolean(paused),
       pausedAtTick: Number.isFinite(pausedAtTick) ? Math.max(0, Math.round(pausedAtTick)) : 0,
-    });
+      pauseSeq:
+        typeof pauseSeq === 'number' && Number.isFinite(pauseSeq)
+          ? Math.max(0, Math.round(pauseSeq))
+          : s.pauseSeq,
+    }));
   },
 
   setArenaPreset: (preset) => {
