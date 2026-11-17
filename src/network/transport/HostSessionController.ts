@@ -158,7 +158,10 @@ export class HostSessionController {
     ch.onPauseStateAck = (raw: Record<string, unknown>) => {
       const activePeerId = ch.peerId || peerId;
       const ack = sanitizePauseStateAck(raw, activePeerId);
-      this.pauseAckController.handlePauseAck(ack);
+      this.pauseAckController.handlePauseAck({
+        ...ack,
+        peerId: activePeerId,
+      });
     };
 
     ch.onColorChange = (msg: { carIndex?: number; slotId: number | null; hex: string | null }) => {
