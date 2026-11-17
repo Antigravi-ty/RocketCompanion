@@ -22,6 +22,7 @@ import {
   isDevSyncClientPureCsrSpectateMode,
   isDevSyncHostBroadcastingMode,
 } from './HostBroadcastPublisher.ts';
+import { SpectateInterpolationBuffer } from '../../../network/sync/ReplicationStateInterpolator.ts';
 
 export type { CarActionDebounceState };
 
@@ -84,6 +85,7 @@ export class SimulationStage implements PipelineStage {
   public runtime: SimulationStageRuntimePort;
   public readonly actionSynthesizer = new CarActionEventSynthesizer();
   public readonly broadcastPublisher = new HostBroadcastPublisher(60);
+  public readonly spectateInterpolationBuffer = new SpectateInterpolationBuffer();
   private _lastRecordedClientReplayTick = -1;
   private _pendingGoalScored = false;
 
@@ -198,6 +200,7 @@ export class SimulationStage implements PipelineStage {
         sessionStateTarget: session,
         lastRecordedClientReplayTick: this._lastRecordedClientReplayTick,
         skipReconciler: isBroadcastingHost,
+        spectateInterpolationBuffer: this.spectateInterpolationBuffer,
       });
     }
 

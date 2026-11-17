@@ -95,6 +95,7 @@ import {
   stopActiveOnlineOrLoopbackSessionIfNeeded,
   createMatchModeTransitionBridge,
 } from '../src/game/runtime/MatchModeTransitionBridge.ts';
+import { SpectateInterpolationBuffer } from '../src/network/sync/ReplicationStateInterpolator.ts';
 
 function runSection(name: string, fn: () => void | Promise<void>): Promise<void> {
   return Promise.resolve()
@@ -2083,6 +2084,10 @@ async function main(): Promise<void> {
     '15. Dev Sync Room Lifecycle Preservation on Mode Switch & Client Spectate Default',
     testDevSyncRoomLifecyclePreservationAndSpectateDefault
   );
+  await runSection(
+    '16. SpectateInterpolationBuffer (Reverse-Delay Jitter Buffer & Sub-Tick Interpolation)',
+    testSpectateInterpolationBufferReverseDelay
+  );
   console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
 }
 
@@ -2180,6 +2185,79 @@ async function testDevSyncRoomLifecyclePreservationAndSpectateDefault(): Promise
     stopOnlineServerCalls,
     1,
     'Standard room should call stopOnlineServer on mode switch'
+  );
+}
+
+async function testSpectateInterpolationBufferReverseDelay(): Promise<void> {
+  const makeSnap = (tick: number, numCars: number, ballX: number, car0X: number): Float32Array => {
+    const snap = new Float32Array(448);
+    snap[SIM_OFFSETS.TICK] = tick;
+    snap[SIM_OFFSETS.NUM_CARS] = numCars;
+    snap[SIM_OFFSETS.BALL] = ballX;
+    snap[SIM_OFFSETS.BALL + 2] = 93;
+    snap[SIM_OFFSETS.CARS] = car0X;
+    snap[SIM_OFFSETS.CARS + 2] = 17;
+    // Unit forward/right/up basis for car0
+    snap[SIM_OFFSETS.CARS + 3] = 1;
+    snap[SIM_OFFSETS.CARS + 7] = 1;
+    snap[SIM_OFFSETS.CARS + 11] = 1;
+    return snap;
+  };
+
+  const buf = new SpectateInterpolationBuffer(32);
+  const TICK_MS = 1000 / 120;
+
+  // 1. Steady 60Hz broadcast (2 ticks per packet) with 0 jitter -> interpDelayTicks == 2
+  for (let i = 0; i < 6; i++) {
+    const tick = 100 + i * 2;
+    buf.pushFrame(makeSnap(tick, 1, i * 20, i * 10), tick, 1000 + i * 2 * TICK_MS);
+  }
+  let stats = buf.getStats();
+  assert.equal(stats.interpDelayTicks, 2, 'Zero-jitter stream should clamp interpDelayTicks to 2');
+
+  // Sample at midpoint between tick 108 and 110 (renderTick should start at 110 - 2 = 108, advance +1 tick after 1*TICK_MS)
+  const s1 = buf.sample(1000 + 10 * TICK_MS);
+  assert.ok(s1, 'Should produce sample');
+  const s2 = buf.sample(1000 + 11 * TICK_MS);
+  assert.ok(s2, 'Should produce interpolated sample on intermediate 120Hz render frame');
+  assert.equal(s2.wasInterpolated, true, 'Intermediate frame should be interpolated');
+  assert.ok(
+    s2.snapshot[SIM_OFFSETS.BALL] > 80 && s2.snapshot[SIM_OFFSETS.BALL] < 100,
+    `Ball X should interpolate between 80 and 100, got ${s2.snapshot[SIM_OFFSETS.BALL]}`
+  );
+  assert.ok(
+    s2.snapshot[SIM_OFFSETS.CARS] > 40 && s2.snapshot[SIM_OFFSETS.CARS] < 50,
+    `Car0 X should interpolate between 40 and 50, got ${s2.snapshot[SIM_OFFSETS.CARS]}`
+  );
+
+  // 2. Simulated 15ms-20ms arrival jitter -> interpDelayTicks should increase dynamically (4..10)
+  for (let i = 6; i < 20; i++) {
+    const tick = 100 + i * 2;
+    const jitterOffset = i % 2 === 0 ? 18 : -14;
+    buf.pushFrame(makeSnap(tick, 1, i * 20, i * 10), tick, 1000 + i * 2 * TICK_MS + jitterOffset);
+  }
+  stats = buf.getStats();
+  assert.ok(
+    stats.interpDelayTicks >= 4 && stats.interpDelayTicks <= 10,
+    `Jittery stream should raise interpDelayTicks into [4,10], got ${stats.interpDelayTicks} (jitterMs=${stats.jitterMs})`
+  );
+
+  // 3. Mode switch (car count 1 -> 6) should reset buffer cleanly without interpolating across topologies
+  buf.pushFrame(makeSnap(140, 6, 0, -256), 140, 2000);
+  stats = buf.getStats();
+  assert.equal(stats.bufferedFrames, 1, 'Car count change should reset buffer to new mode frame');
+  const sMode = buf.sample(2000);
+  assert.ok(sMode);
+  assert.equal(Math.round(sMode.snapshot[SIM_OFFSETS.NUM_CARS]), 6);
+
+  // 4. Teleport (>900 uu) should snap to target frame instead of lerping through the arena
+  buf.pushFrame(makeSnap(142, 6, 2000, -256), 142, 2000 + 2 * TICK_MS);
+  buf.pushFrame(makeSnap(144, 6, 2010, -256), 144, 2000 + 4 * TICK_MS);
+  const sTeleport = buf.sample(2000 + 3 * TICK_MS);
+  assert.ok(sTeleport);
+  assert.ok(
+    sTeleport.snapshot[SIM_OFFSETS.BALL] === 0 || sTeleport.snapshot[SIM_OFFSETS.BALL] >= 2000,
+    `Teleport should snap instead of mid-arena lerp, got ballX=${sTeleport.snapshot[SIM_OFFSETS.BALL]}`
   );
 }
 

@@ -72,7 +72,8 @@ export class HostBroadcastPublisher {
 
     const elapsed = timestamp - this.lastPublishMs;
     const tickChangedWhilePaused = Boolean(isPaused && currentTick !== this.lastPublishedTick);
-    if (elapsed < this.publishIntervalMs && !tickChangedWhilePaused) {
+    const effectiveInterval = this.publishIntervalMs > 4 ? this.publishIntervalMs - 2 : this.publishIntervalMs;
+    if (elapsed < effectiveInterval && !tickChangedWhilePaused) {
       return false;
     }
 

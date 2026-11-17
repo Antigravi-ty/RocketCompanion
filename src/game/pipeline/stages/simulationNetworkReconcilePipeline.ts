@@ -3,6 +3,7 @@ import {
   type ReplayDirectorRosterRuntimePort,
   captureRuntimeReplayCarEntries,
 } from '../../../replay/replayDirectorCarRosterPipeline.ts';
+import type { SpectateInterpolationBuffer } from '../../../network/sync/ReplicationStateInterpolator.ts';
 import type { CameraManager } from '../../../camera/CameraManager.ts';
 import type { AuthoritativeServerHost } from '../../../network/server/AuthoritativeServerHost.ts';
 import type { PredictionReconciler } from '../../../network/client/PredictionReconciler.ts';
@@ -72,6 +73,7 @@ export interface NetworkReconcileStepInput {
   readonly sessionStateTarget: { clientReplayOverflowPaused?: boolean } | null;
   readonly lastRecordedClientReplayTick: number;
   readonly skipReconciler?: boolean;
+  readonly spectateInterpolationBuffer?: SpectateInterpolationBuffer | null;
 }
 
 export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcileStepInput): number {
@@ -90,6 +92,7 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
     fleetController,
     sessionStateTarget,
     skipReconciler = false,
+    spectateInterpolationBuffer = null,
   } = input;
 
   let nextRecordedTick = input.lastRecordedClientReplayTick;
@@ -104,6 +107,7 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
   }
 
   if (skipReconciler || !reconciler) {
+    spectateInterpolationBuffer?.reset();
     const currentTick = Math.floor(physics.getHeaderView().tickCount);
     if (
       sessionStateTarget &&
@@ -140,6 +144,10 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
       !reconciler.hostLobbyMode
   );
 
+  if (!isPureCsrSpectate || reconciler.replayPlaybackMode) {
+    spectateInterpolationBuffer?.reset();
+  }
+
   if (!flags.isGoalReplay && !reconciler.replayPlaybackMode && !isPureCsrSpectate && physics.state) {
     if (hasPhysicsStatePositionNaN(physics)) {
       physics.restoreCompactState?.(physics.state, { preserveEngineTick: true });
@@ -156,7 +164,30 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
     }
   }
 
-  if (
+  if (isPureCsrSpectate && !reconciler.replayPlaybackMode && spectateInterpolationBuffer) {
+    if (Array.isArray(reconciler.drainedReplayPackets) && reconciler.drainedReplayPackets.length > 0) {
+      for (let i = 0; i < reconciler.drainedReplayPackets.length; i++) {
+        const pkt = reconciler.drainedReplayPackets[i];
+        if (!pkt || !pkt.stateSnapshot) continue;
+        spectateInterpolationBuffer.pushFrame(pkt.stateSnapshot, pkt.serverTick || 0, now);
+      }
+      reconciler.drainedReplayPackets.length = 0;
+    }
+
+    if (!flags.isLocalReplayControllerStepping && !(server && !flags.isGoalReplay)) {
+      const sampled = spectateInterpolationBuffer.sample(now);
+      if (sampled) {
+        if (reconciler.metrics) {
+          reconciler.metrics.measuredJitterMs = Math.round(sampled.jitterMs * 10) / 10;
+        }
+        applyReplayFrameToEngine(physics, sampled.snapshot, interpolator);
+        if (!matchState.paused && !flags.isMatchEnded && sessionStateTarget) {
+          const recOut = recordClientDiagnosticReplayFrame(physics, diagnosticDumpMaxFrames);
+          sessionStateTarget.clientReplayOverflowPaused = recOut.overflowPaused;
+        }
+      }
+    }
+  } else if (
     (reconciler.replayPlaybackMode || isPureCsrSpectate) &&
     Array.isArray(reconciler.drainedReplayPackets) &&
     reconciler.drainedReplayPackets.length > 0
