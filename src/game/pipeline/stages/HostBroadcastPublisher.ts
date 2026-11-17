@@ -1,3 +1,4 @@
+import type { CarControlsInput } from '../../../network/protocol/InputPacketCodec.ts';
 import type { AuthoritativeServerHost } from '../../../network/server/AuthoritativeServerHost.ts';
 import type { PredictionReconciler } from '../../../network/client/PredictionReconciler.ts';
 import type { RocketSimPhysicsEngine } from '../../../physics/RocketSimPhysicsEngine.ts';
@@ -73,8 +74,9 @@ export class HostBroadcastPublisher {
     readonly physics: RocketSimPhysicsEngine;
     readonly server: AuthoritativeServerHost | null;
     readonly isPaused?: boolean;
+    readonly acknowledgedControls?: Array<{ carIndex: number; controls: CarControlsInput }> | null;
   }): boolean {
-    const { timestamp, physics, server, isPaused = false } = params;
+    const { timestamp, physics, server, isPaused = false, acknowledgedControls = null } = params;
     if (!server || !isDevSyncHostBroadcastingMode(true)) {
       return false;
     }
@@ -85,7 +87,7 @@ export class HostBroadcastPublisher {
     const currentTick = Math.floor(physics.getHeaderView?.()?.tickCount ?? (Number(snap[0]) || 0));
 
     if (!this.hasPublishedInitial) {
-      server.enterStateOnlyMode(snap, currentTick);
+      server.enterStateOnlyMode(snap, currentTick, acknowledgedControls);
       this.hasPublishedInitial = true;
       this.lastPublishMs = timestamp;
       this.lastPublishedTick = currentTick;
@@ -109,7 +111,7 @@ export class HostBroadcastPublisher {
       return false;
     }
 
-    server.pushBroadcastSnapshot(snap, currentTick);
+    server.pushBroadcastSnapshot(snap, currentTick, acknowledgedControls);
     this.lastPublishMs = timestamp;
     this.lastPublishedTick = currentTick;
     return true;
@@ -138,8 +140,9 @@ export class ClientAuthorityPublisher {
     readonly physics: RocketSimPhysicsEngine;
     readonly channel: ClientAuthorityChannelPort | null | undefined;
     readonly authorityEpoch: number;
+    readonly acknowledgedControls?: Array<{ carIndex: number; controls: CarControlsInput }> | null;
   }): boolean {
-    const { timestamp, physics, channel, authorityEpoch } = params;
+    const { timestamp, physics, channel, authorityEpoch, acknowledgedControls } = params;
     if (!channel?.sendClientAuthorityFrame) return false;
     const elapsed = timestamp - this.lastPublishMs;
     const effectiveInterval =
@@ -155,6 +158,7 @@ export class ClientAuthorityPublisher {
       tick,
       peerId: channel.peerId || 'client',
       snapshot: Array.from(snap),
+      ...(acknowledgedControls && acknowledgedControls.length > 0 ? { acknowledgedControls } : {}),
     });
     if (sent) {
       this.lastPublishMs = timestamp;

@@ -4,7 +4,10 @@ import {
 } from './workerReplayAndDiagnosticsRouter.ts';
 import type { CarControlsInput } from '../protocol/GlobalPayloadCodec.ts';
 import type { ExtraLoadoutConfig } from './match/matchLoadoutAndSpawnPipeline.ts';
-import type { TrainingRulesetOptions } from './match/MatchSystemControlSubController.ts';
+import type {
+  BroadcastAcknowledgedControlEntry,
+  TrainingRulesetOptions,
+} from './match/MatchSystemControlSubController.ts';
 
 export interface WorkerTrainingAndPhysicsPayload extends TrainingRulesetOptions {
   carIndex?: number;
@@ -30,6 +33,7 @@ export interface WorkerTrainingAndPhysicsPayload extends TrainingRulesetOptions 
   paused?: boolean;
   countdownSeconds?: number;
   stateSnapshot?: Float32Array | number[] | null;
+  acknowledgedControls?: BroadcastAcknowledgedControlEntry[] | null;
   cursorTick?: number;
   resumeTick?: number;
   durationSeconds?: number;
@@ -183,14 +187,16 @@ export function routeTrainingAndPhysicsMessage(
     case 'enterStateOnlyMode':
       matchManager?.systemControl.enterStateOnlyMode(
         payload?.stateSnapshot ?? null,
-        payload?.cursorTick
+        payload?.cursorTick,
+        payload?.acknowledgedControls ?? null
       );
       return true;
 
     case 'pushBroadcastSnapshot':
       matchManager?.systemControl.pushBroadcastSnapshot(
         payload?.stateSnapshot ?? null,
-        payload?.cursorTick
+        payload?.cursorTick,
+        payload?.acknowledgedControls ?? null
       );
       return true;
 

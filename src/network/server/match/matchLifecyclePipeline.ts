@@ -5,6 +5,7 @@
  */
 
 import { MATCH_SIGNALS, GlobalPayloadCodec } from '../../protocol/GlobalPayloadCodec.ts';
+import type { CarControlsInput } from '../../protocol/InputPacketCodec.ts';
 import { FLIP_RESET_SUBTYPES, isBallFlipResetEvent } from '../../../physics/RocketSimConstants.ts';
 import { packLoadoutSignalParam2 } from '../../../ui-core/config/vehicleConstants.ts';
 import { releasePodiumLocksOnEngine } from '../../../replay/podiumFormationPipeline.ts';
@@ -107,7 +108,7 @@ export interface LifecyclePhysicsSnapshotPort {
   incidents?: LifecycleIncidentEntry[] | null;
   acknowledgedControls?: Array<{
     carIndex: number;
-    controls: Record<string, number | boolean>;
+    controls: CarControlsInput | Record<string, number | boolean>;
   }> | null;
   activeCarMask?: number;
 }

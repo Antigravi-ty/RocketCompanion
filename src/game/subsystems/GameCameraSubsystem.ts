@@ -13,6 +13,9 @@ import type { ArenaWorld } from '../../entities/ArenaWorld.ts';
 import type { CameraManager } from '../../camera/CameraManager.ts';
 import type { PhysicsStateInterpolator } from '../../physics/PhysicsStateInterpolator.ts';
 import type { FrameContext } from '../pipeline/FramePipeline.ts';
+import type { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
+import type { CarControlsInput } from '../../network/protocol/InputPacketCodec.ts';
+import { isDevSyncClientPureCsrSpectateMode } from '../pipeline/stages/HostBroadcastPublisher.ts';
 
 export interface FrameCameraMetadata {
   obsTargetIdx: number;
@@ -63,6 +66,18 @@ export interface CameraSubsystemRuntimePort {
   replayPovCarIndex: number | null;
   networkManager: {
     diagnosticsProbe: { diagnosticObservationTarget?: number };
+    sessionCoordinator?: {
+      networkReconciler?: PredictionReconciler | null;
+    } | null;
+  } | null;
+  multiplayerSession?: {
+    isHosting?: boolean;
+    hostController?: {
+      inputAuthority?: {
+        activeInputPeerId?: string;
+        latestAcknowledgedControls?: Array<{ carIndex: number; controls: CarControlsInput }> | null;
+      } | null;
+    } | null;
   } | null;
   podiumController: { isActive?: boolean } | null;
   keyboard: { held?(action: string): boolean } | null;
@@ -386,11 +401,42 @@ export class GameCameraSubsystem {
     const numCars = r.interpolator?.getCurrHeaderView?.()?.numCars ?? r.interpolator?.numCars ?? 0;
     r.arena?.nameTagSystem?.update(r.arena, numCars, r.camera.camera);
     r.arena?.spatialAudioVisualizer?.update(r.arena, r.camera.camera);
+
+    const reconciler = r.networkManager?.sessionCoordinator?.networkReconciler ?? null;
+    const hostAuthority = r.multiplayerSession?.isHosting
+      ? (r.multiplayerSession.hostController?.inputAuthority ?? null)
+      : null;
+    const isHostSpectatingRemoteAuthority = Boolean(
+      hostAuthority && hostAuthority.activeInputPeerId && hostAuthority.activeInputPeerId !== 'host'
+    );
+    let remoteSpectate: { isRemoteSpectating: boolean; controls?: CarControlsInput | null } | null =
+      null;
+    if (isDevSyncClientPureCsrSpectateMode(reconciler)) {
+      const ackList = reconciler?.lastParsedPacket?.acknowledgedControls;
+      const matched = Array.isArray(ackList)
+        ? ackList.find((entry) => entry.carIndex === obsTargetIdx)
+        : undefined;
+      remoteSpectate = {
+        isRemoteSpectating: true,
+        controls: matched?.controls ?? null,
+      };
+    } else if (isHostSpectatingRemoteAuthority) {
+      const ackList = hostAuthority?.latestAcknowledgedControls;
+      const matched = Array.isArray(ackList)
+        ? ackList.find((entry) => entry.carIndex === obsTargetIdx)
+        : undefined;
+      remoteSpectate = {
+        isRemoteSpectating: true,
+        controls: matched?.controls ?? null,
+      };
+    }
+
     r.arena?.carNoseOrientationArrows?.update(
       effectiveCarObject,
       r.arena?.vehiclePresets?.[obsTargetIdx] ?? r.arena?.vehiclePreset ?? 'hitbox-octane',
       r.camera.camera,
-      r.keyboard
+      r.keyboard,
+      remoteSpectate
     );
 
     const hud = hudStore.getState();

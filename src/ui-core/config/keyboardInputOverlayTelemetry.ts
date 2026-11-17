@@ -24,6 +24,8 @@ export interface KeyboardInputOverlayTelemetry {
   aDir: CameraSpaceVec3;
   dDir: CameraSpaceVec3;
 
+  /** Whether the overlay is currently reflecting a remote spectated car instead of local input */
+  isRemoteSpectating: boolean;
   /** Live pressed state for the 9 keys (from engine controls or direct keyboard events) */
   qPressed: boolean;
   wPressed: boolean;
@@ -36,6 +38,59 @@ export interface KeyboardInputOverlayTelemetry {
   jumpPressed: boolean;
 }
 
+export interface RemoteCarControlsLike {
+  throttle?: number;
+  steer?: number;
+  pitch?: number;
+  yaw?: number;
+  roll?: number;
+  jump?: boolean | number;
+  boost?: boolean | number;
+  handbrake?: boolean | number;
+}
+
+export function mapRemoteControlsToOverlayKeys(controls: RemoteCarControlsLike | null | undefined): {
+  qPressed: boolean;
+  wPressed: boolean;
+  ePressed: boolean;
+  aPressed: boolean;
+  sPressed: boolean;
+  dPressed: boolean;
+  slidePressed: boolean;
+  boostPressed: boolean;
+  jumpPressed: boolean;
+} {
+  if (!controls) {
+    return {
+      qPressed: false,
+      wPressed: false,
+      ePressed: false,
+      aPressed: false,
+      sPressed: false,
+      dPressed: false,
+      slidePressed: false,
+      boostPressed: false,
+      jumpPressed: false,
+    };
+  }
+  const throttle = Number(controls.throttle) || 0;
+  const steer = Number(controls.steer) || 0;
+  const pitch = Number(controls.pitch) || 0;
+  const yaw = Number(controls.yaw) || 0;
+  const roll = Number(controls.roll) || 0;
+  return {
+    wPressed: throttle > 0.1 || pitch < -0.1,
+    sPressed: throttle < -0.1 || pitch > 0.1,
+    aPressed: steer < -0.1 || yaw < -0.1,
+    dPressed: steer > 0.1 || yaw > 0.1,
+    qPressed: roll < -0.1,
+    ePressed: roll > 0.1,
+    slidePressed: Boolean(controls.handbrake),
+    boostPressed: Boolean(controls.boost),
+    jumpPressed: Boolean(controls.jump),
+  };
+}
+
 const DEFAULT_TELEMETRY: KeyboardInputOverlayTelemetry = {
   wAngleDeg: 0,
   sAngleDeg: 180,
@@ -45,6 +100,7 @@ const DEFAULT_TELEMETRY: KeyboardInputOverlayTelemetry = {
   sDir: [0, -1, 0],
   aDir: [-1, 0, 0],
   dDir: [1, 0, 0],
+  isRemoteSpectating: false,
   qPressed: false,
   wPressed: false,
   ePressed: false,
@@ -118,6 +174,7 @@ export function updateKeyboardInputOverlayTelemetry(
   }
 
   const boolKeys = [
+    'isRemoteSpectating',
     'qPressed',
     'wPressed',
     'ePressed',

@@ -28,7 +28,7 @@ import {
   initServerGoalReplaySession,
   stepServerGoalReplaySession,
   type ServerReplayTimelineState,
-} from './MatchSystemControlSubController.ts';
+} from './serverGoalReplaySessionPipeline.ts';
 import type { MatchDomainState } from './MatchDomainState.ts';
 import type { MatchCommandQueueSubController } from './MatchCommandQueueSubController.ts';
 import type { ReplayRingBuffer } from '../../../replay/ReplayRingBuffer.ts';

@@ -123,29 +123,31 @@ export function useKeyboardOverlayLiveInputs() {
   }, []);
 
   const isKeyPressed = (id: KeyboardOverlayKeyId): boolean => {
+    const useLocal = !telemetry.isRemoteSpectating;
     switch (id) {
       case 'q':
-        return Boolean(localHeld.q || telemetry.qPressed);
+        return Boolean((useLocal && localHeld.q) || telemetry.qPressed);
       case 'w':
-        return Boolean(localHeld.w || telemetry.wPressed);
+        return Boolean((useLocal && localHeld.w) || telemetry.wPressed);
       case 'e':
-        return Boolean(localHeld.e || telemetry.ePressed);
+        return Boolean((useLocal && localHeld.e) || telemetry.ePressed);
       case 'a':
-        return Boolean(localHeld.a || telemetry.aPressed);
+        return Boolean((useLocal && localHeld.a) || telemetry.aPressed);
       case 's':
-        return Boolean(localHeld.s || telemetry.sPressed);
+        return Boolean((useLocal && localHeld.s) || telemetry.sPressed);
       case 'd':
-        return Boolean(localHeld.d || telemetry.dPressed);
+        return Boolean((useLocal && localHeld.d) || telemetry.dPressed);
       case 'slide':
-        return Boolean(localHeld.slide || telemetry.slidePressed);
+        return Boolean((useLocal && localHeld.slide) || telemetry.slidePressed);
       case 'boost':
-        return Boolean(localHeld.boost || telemetry.boostPressed);
+        return Boolean((useLocal && localHeld.boost) || telemetry.boostPressed);
       case 'jump':
-        return Boolean(localHeld.jump || telemetry.jumpPressed);
+        return Boolean((useLocal && localHeld.jump) || telemetry.jumpPressed);
     }
   };
 
   const setPointerHeld = (id: KeyboardOverlayKeyId, held: boolean) => {
+    if (telemetry.isRemoteSpectating) return;
     setLocalHeld((prev) => (prev[id] === held ? prev : { ...prev, [id]: held }));
   };
 

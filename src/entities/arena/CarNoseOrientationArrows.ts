@@ -16,7 +16,11 @@ import {
   getKeyboardInputOverlayConfig,
   resolveNoseArrowHexColors,
 } from '../../ui-core/config/keyboardInputOverlayConfig.ts';
-import { updateKeyboardInputOverlayTelemetry } from '../../ui-core/config/keyboardInputOverlayTelemetry.ts';
+import {
+  mapRemoteControlsToOverlayKeys,
+  updateKeyboardInputOverlayTelemetry,
+  type RemoteCarControlsLike,
+} from '../../ui-core/config/keyboardInputOverlayTelemetry.ts';
 import { HITBOX_PRESETS } from '../../ui-core/config/vehiclePresets.ts';
 import { OCTANE_HITBOX_PRESET } from './ArenaConstants.ts';
 import {
@@ -155,23 +159,38 @@ export class CarNoseOrientationArrows {
       | undefined,
     carPresetKey: string | null | undefined,
     camera: THREE.Camera | null | undefined,
-    keyboard?: { held?(action: string): boolean } | null
+    keyboard?: { held?(action: string): boolean } | null,
+    remoteSpectate?: {
+      isRemoteSpectating: boolean;
+      controls?: RemoteCarControlsLike | null;
+    } | null
   ): void {
     const cfg = getKeyboardInputOverlayConfig();
+    const isRemoteSpectating = Boolean(remoteSpectate?.isRemoteSpectating);
+    const remoteKeys = isRemoteSpectating
+      ? mapRemoteControlsToOverlayKeys(remoteSpectate?.controls)
+      : null;
 
-    const qPressed = Boolean(keyboard?.held?.('airRollLeft'));
-    const wPressed = Boolean(keyboard?.held?.('throttleForward'));
-    const ePressed = Boolean(keyboard?.held?.('airRollRight'));
-    const aPressed = Boolean(keyboard?.held?.('steerLeft'));
-    const sPressed = Boolean(keyboard?.held?.('throttleReverse'));
-    const dPressed = Boolean(keyboard?.held?.('steerRight'));
-    const slidePressed = Boolean(keyboard?.held?.('powerslide'));
-    const boostPressed = Boolean(keyboard?.held?.('boost'));
-    const jumpPressed = Boolean(keyboard?.held?.('jump'));
+    const qPressed = remoteKeys ? remoteKeys.qPressed : Boolean(keyboard?.held?.('airRollLeft'));
+    const wPressed = remoteKeys
+      ? remoteKeys.wPressed
+      : Boolean(keyboard?.held?.('throttleForward'));
+    const ePressed = remoteKeys ? remoteKeys.ePressed : Boolean(keyboard?.held?.('airRollRight'));
+    const aPressed = remoteKeys ? remoteKeys.aPressed : Boolean(keyboard?.held?.('steerLeft'));
+    const sPressed = remoteKeys
+      ? remoteKeys.sPressed
+      : Boolean(keyboard?.held?.('throttleReverse'));
+    const dPressed = remoteKeys ? remoteKeys.dPressed : Boolean(keyboard?.held?.('steerRight'));
+    const slidePressed = remoteKeys
+      ? remoteKeys.slidePressed
+      : Boolean(keyboard?.held?.('powerslide'));
+    const boostPressed = remoteKeys ? remoteKeys.boostPressed : Boolean(keyboard?.held?.('boost'));
+    const jumpPressed = remoteKeys ? remoteKeys.jumpPressed : Boolean(keyboard?.held?.('jump'));
 
     if (!targetCar || targetCar.visible === false) {
       this.rootGroup.visible = false;
       updateKeyboardInputOverlayTelemetry({
+        isRemoteSpectating,
         qPressed,
         wPressed,
         ePressed,
@@ -244,6 +263,7 @@ export class CarNoseOrientationArrows {
         sDir: projS.dir3d,
         aDir: projA.dir3d,
         dDir: projD.dir3d,
+        isRemoteSpectating,
         qPressed,
         wPressed,
         ePressed,
@@ -256,6 +276,7 @@ export class CarNoseOrientationArrows {
       });
     } else {
       updateKeyboardInputOverlayTelemetry({
+        isRemoteSpectating,
         qPressed,
         wPressed,
         ePressed,

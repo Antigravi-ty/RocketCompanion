@@ -98,6 +98,15 @@ import {
   stopActiveOnlineOrLoopbackSessionIfNeeded,
   createMatchModeTransitionBridge,
 } from '../src/game/runtime/MatchModeTransitionBridge.ts';
+import {
+  ClientAuthorityPublisher,
+  HostBroadcastPublisher,
+} from '../src/game/pipeline/stages/HostBroadcastPublisher.ts';
+import {
+  getKeyboardInputOverlayTelemetry,
+  mapRemoteControlsToOverlayKeys,
+  updateKeyboardInputOverlayTelemetry,
+} from '../src/ui-core/config/keyboardInputOverlayTelemetry.ts';
 import { SpectateInterpolationBuffer } from '../src/network/sync/ReplicationStateInterpolator.ts';
 import {
   HostInputAuthorityTracker,
@@ -2116,6 +2125,10 @@ async function main(): Promise<void> {
     '21. AuthorityCameraSyncTracker (Edge-Triggered Camera Sync & Non-Override)',
     testAuthorityCameraSyncTracker
   );
+  await runSection(
+    '22. Pure CSR acknowledgedControls Broadcast, Coach Handover Multi-Client Input & KeyboardInputOverlay Remote Mapping',
+    testPureCsrAcknowledgedControlsAndCoachMultiClientInput
+  );
   console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
 }
 
@@ -2696,6 +2709,241 @@ function testAuthorityCameraSyncTracker(): void {
     }),
     true
   );
+}
+
+function testPureCsrAcknowledgedControlsAndCoachMultiClientInput(): void {
+  // 1. Host -> Client Pure CSR acknowledgedControls -> KeyboardInputOverlay mapping
+  const hostSimState = new Float32Array(448);
+  hostSimState[0] = 500;
+  hostSimState[2] = 2;
+  const hostPhysicsManager = {
+    currentTick: 500,
+    sim: {
+      state: hostSimState,
+      numCars: 2,
+      restoreCompactState: (buf: Float32Array) => {
+        hostSimState.set(buf.subarray(0, Math.min(buf.length, hostSimState.length)));
+      },
+      saveCompactState: () => new Float32Array(hostSimState),
+      syncToStateObject: () => {},
+    },
+    getActiveCarMask: () => 0b11,
+    applySignal: () => {},
+  };
+  const sessionManager = new EstablishedSessionManager();
+  sessionManager.registerSession('peer_bravo', {
+    entityId: 1,
+    role: 'spectator',
+    playerName: 'ClientBravo',
+  });
+  const domain = new MatchDomainState({ gameMode: 'freeplay' });
+  const commandQueue = new MatchCommandQueueSubController({ domain });
+  const systemControl = new MatchSystemControlSubController({
+    domain,
+    commandQueue,
+    physicsManager: hostPhysicsManager as never,
+    replayBuffer: null as never,
+    encodeFramePacket: (snap) =>
+      encodeMatchGlobalFramePacket({
+        state: domain.state,
+        matchTick: domain.matchTick,
+        physicsSnapshot: snap as never,
+        physicsManager: hostPhysicsManager as never,
+        sessionManager: sessionManager as never,
+        replayBuffer: null as never,
+        commandController: commandQueue,
+      }),
+  });
+
+  const mockOnlineSession = {
+    isDevSyncRoom: true,
+    isHosting: true,
+    activeRoomActivity: 'freeplay',
+  };
+  bindRuntimeUiPort({
+    useAppStore: { getState: () => ({ onlineSession: mockOnlineSession }) } as never,
+  });
+
+  const hostPublisher = new HostBroadcastPublisher(60);
+  const mockHostPhysics = {
+    saveCompactState: () => new Float32Array(hostSimState),
+    getHeaderView: () => ({ tickCount: hostSimState[0] }),
+  };
+
+  hostPublisher.publishIfReady({
+    timestamp: 1000,
+    physics: mockHostPhysics as never,
+    server: systemControl as never,
+    isPaused: false,
+    acknowledgedControls: [
+      {
+        carIndex: 0,
+        controls: {
+          throttle: 1,
+          steer: -0.6,
+          pitch: 0,
+          yaw: 0,
+          roll: -1,
+          jump: true,
+          boost: true,
+          handbrake: false,
+        },
+      },
+      {
+        carIndex: 1,
+        controls: {
+          throttle: -1,
+          steer: 0.8,
+          pitch: 0,
+          yaw: 0,
+          roll: 0,
+          jump: false,
+          boost: false,
+          handbrake: true,
+        },
+      },
+    ],
+  });
+
+  const rawPacket = systemControl.stepStateOnlyFrameIfActive();
+  assert.ok(rawPacket, 'Host Pure CSR stepStateOnlyFrameIfActive must produce packet');
+
+  const bravoState = new Float32Array(448);
+  const bravoPhysics = {
+    state: bravoState,
+    numCars: 2,
+    isCarSlotActive: (idx: number) => idx < 2,
+    addCarAtSlot: () => {},
+    restoreState: (buf: Float32Array) => {
+      bravoState.set(buf.subarray(0, Math.min(buf.length, bravoState.length)));
+    },
+    saveState: () => new Float32Array(bravoState),
+    getCarStateView: () => ({
+      posX: 0,
+      posY: 0,
+      posZ: 0,
+      velX: 0,
+      velY: 0,
+      velZ: 0,
+      isOnGround: false,
+      hasFlipOrJump: false,
+      isFlipping: false,
+    }),
+    setCarState: () => {},
+    getCarMaxFlipCount: () => 1,
+    getHeaderView: () => ({ tick: bravoState[0], tickCount: bravoState[0], numCars: 2 }),
+  };
+  const bravoChannel = { inboundQueue: [] as Uint8Array[], send: () => {}, isLoopback: false };
+  const bravoReconciler = new PredictionReconciler(bravoPhysics as never, bravoChannel as never, {
+    localCarIndex: 0,
+    interpolator: {
+      prevState: new Float32Array(448),
+      currState: new Float32Array(448),
+      alpha: 0,
+    } as never,
+  });
+  bravoReconciler.setSpectateMirrorMode(true);
+  bravoReconciler.setClientInputEnabled(false);
+
+  bravoChannel.inboundQueue.push(sessionManager.buildClientPacket('peer_bravo', rawPacket));
+  bravoReconciler.reconcile(1000);
+
+  const bravoAck = bravoReconciler.lastParsedPacket?.acknowledgedControls ?? [];
+  assert.equal(bravoAck.length, 2);
+
+  const car0Keys = mapRemoteControlsToOverlayKeys(
+    bravoAck.find((c) => c.carIndex === 0)?.controls
+  );
+  assert.equal(car0Keys.wPressed, true);
+  assert.equal(car0Keys.aPressed, true);
+  assert.equal(car0Keys.qPressed, true);
+  assert.equal(car0Keys.boostPressed, true);
+  assert.equal(car0Keys.jumpPressed, true);
+
+  const car1Keys = mapRemoteControlsToOverlayKeys(
+    bravoAck.find((c) => c.carIndex === 1)?.controls
+  );
+  assert.equal(car1Keys.sPressed, true);
+  assert.equal(car1Keys.dPressed, true);
+  assert.equal(car1Keys.slidePressed, true);
+
+  updateKeyboardInputOverlayTelemetry({ isRemoteSpectating: true, ...car0Keys });
+  assert.equal(getKeyboardInputOverlayTelemetry().isRemoteSpectating, true);
+  assert.equal(getKeyboardInputOverlayTelemetry().wPressed, true);
+
+  // 2. Coach Handover Multi-Client Input: Client Alpha -> Coach (Host) -> Client Bravo
+  const sentFrames: Record<string, unknown>[] = [];
+  const alphaPublisher = new ClientAuthorityPublisher(60);
+  const alphaSnap = new Float32Array(448);
+  alphaSnap[0] = 520;
+  alphaSnap[2] = 2;
+  const alphaSent = alphaPublisher.publishIfReady({
+    timestamp: 2000,
+    physics: {
+      saveCompactState: () => alphaSnap,
+      getHeaderView: () => ({ tickCount: 520 }),
+    } as never,
+    channel: {
+      peerId: 'peer_alpha',
+      sendClientAuthorityFrame: (payload) => {
+        sentFrames.push(payload);
+        return true;
+      },
+    },
+    authorityEpoch: 1,
+    acknowledgedControls: [
+      {
+        carIndex: 0,
+        controls: {
+          throttle: 1,
+          steer: 0,
+          pitch: -0.5,
+          yaw: 0,
+          roll: 0.8,
+          jump: false,
+          boost: true,
+          handbrake: true,
+        },
+      },
+    ],
+  });
+  assert.equal(alphaSent, true);
+  assert.equal(sentFrames.length, 1);
+
+  const authorityTracker = new HostInputAuthorityTracker();
+  authorityTracker.setAuthority(true, 'peer_alpha', 'fpv_master_slave');
+  assert.equal(authorityTracker.ingestFrame('peer_alpha', sentFrames[0], 2005), true);
+
+  // Coach (Host) sees Client Alpha's inputs via latestAcknowledgedControls
+  const coachKeys = mapRemoteControlsToOverlayKeys(
+    authorityTracker.latestAcknowledgedControls?.find((c) => c.carIndex === 0)?.controls
+  );
+  assert.equal(coachKeys.wPressed, true);
+  assert.equal(coachKeys.ePressed, true);
+  assert.equal(coachKeys.boostPressed, true);
+  assert.equal(coachKeys.slidePressed, true);
+
+  // Coach forwards Client Alpha's snapshot + acknowledgedControls to Pure CSR broadcast for Client Bravo
+  const pending = authorityTracker.consumePendingFrames();
+  assert.equal(pending.length, 1);
+  systemControl.pushBroadcastSnapshot(
+    pending[0].snapshot,
+    pending[0].tick,
+    pending[0].acknowledgedControls
+  );
+  const relayPacket = systemControl.stepStateOnlyFrameIfActive();
+  assert.ok(relayPacket);
+
+  bravoChannel.inboundQueue.push(sessionManager.buildClientPacket('peer_bravo', relayPacket));
+  bravoReconciler.reconcile(2010);
+  const bravoRelayedAck = bravoReconciler.lastParsedPacket?.acknowledgedControls ?? [];
+  const bravoRelayedKeys = mapRemoteControlsToOverlayKeys(
+    bravoRelayedAck.find((c) => c.carIndex === 0)?.controls
+  );
+  assert.equal(bravoRelayedKeys.wPressed, true);
+  assert.equal(bravoRelayedKeys.ePressed, true);
+  assert.equal(bravoRelayedKeys.boostPressed, true);
+  assert.equal(bravoRelayedKeys.slidePressed, true);
 }
 
 main().catch((err) => {

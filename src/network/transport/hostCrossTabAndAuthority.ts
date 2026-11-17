@@ -1,3 +1,4 @@
+import type { CarControlsInput } from '../protocol/InputPacketCodec.ts';
 import type { InputAuthorityMode } from '../protocol/GlobalWorkspaceProtocol.ts';
 import type { P2PWebRTCChannel } from './P2PWebRTCChannel.ts';
 import { CrossTabSignaling } from './webrtc/CrossTabSignaling.ts';
@@ -7,7 +8,40 @@ export interface ClientAuthorityFrameSnapshot {
   tick: number;
   peerId: string;
   snapshot: Float32Array;
+  acknowledgedControls?: Array<{ carIndex: number; controls: CarControlsInput }>;
   receivedAtMs: number;
+}
+
+function sanitizeAckControls(
+  raw: unknown
+): Array<{ carIndex: number; controls: CarControlsInput }> | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const out: Array<{ carIndex: number; controls: CarControlsInput }> = [];
+  for (let i = 0; i < raw.length && i < 8; i++) {
+    const item = raw[i] as { carIndex?: unknown; controls?: unknown } | null | undefined;
+    if (!item || typeof item !== 'object' || !item.controls || typeof item.controls !== 'object') {
+      continue;
+    }
+    const carIndex =
+      typeof item.carIndex === 'number' && Number.isFinite(item.carIndex)
+        ? Math.max(0, Math.min(7, Math.floor(item.carIndex)))
+        : 0;
+    const c = item.controls as Record<string, unknown>;
+    out.push({
+      carIndex,
+      controls: {
+        throttle: typeof c.throttle === 'number' ? c.throttle : 0,
+        steer: typeof c.steer === 'number' ? c.steer : 0,
+        pitch: typeof c.pitch === 'number' ? c.pitch : 0,
+        yaw: typeof c.yaw === 'number' ? c.yaw : 0,
+        roll: typeof c.roll === 'number' ? c.roll : 0,
+        jump: Boolean(c.jump),
+        boost: Boolean(c.boost),
+        handbrake: Boolean(c.handbrake),
+      },
+    });
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 export class HostInputAuthorityTracker {
@@ -16,6 +50,7 @@ export class HostInputAuthorityTracker {
   clientInputEnabled = false;
   authorityMode: InputAuthorityMode = 'fpv_master_slave';
   latestFrame: ClientAuthorityFrameSnapshot | null = null;
+  latestAcknowledgedControls: Array<{ carIndex: number; controls: CarControlsInput }> | null = null;
   pendingFrames: ClientAuthorityFrameSnapshot[] = [];
 
   setAuthority(
@@ -60,14 +95,17 @@ export class HostInputAuthorityTracker {
     const epoch = typeof raw.authorityEpoch === 'number' ? Math.round(raw.authorityEpoch) : -1;
     if (epoch !== this.authorityEpoch) return false;
     if (!Array.isArray(raw.snapshot) || raw.snapshot.length < 22) return false;
+    const acknowledgedControls = sanitizeAckControls(raw.acknowledgedControls);
     const frame: ClientAuthorityFrameSnapshot = {
       authorityEpoch: epoch,
       tick: typeof raw.tick === 'number' && Number.isFinite(raw.tick) ? Math.floor(raw.tick) : 0,
       peerId,
       snapshot: new Float32Array(raw.snapshot as number[]),
+      acknowledgedControls,
       receivedAtMs: nowMs,
     };
     this.latestFrame = frame;
+    this.latestAcknowledgedControls = acknowledgedControls ?? null;
     this.pendingFrames.push(frame);
     if (this.pendingFrames.length > 32) {
       this.pendingFrames.shift();
@@ -96,6 +134,7 @@ export class HostInputAuthorityTracker {
     this.clientInputEnabled = false;
     this.authorityMode = 'fpv_master_slave';
     this.latestFrame = null;
+    this.latestAcknowledgedControls = null;
     this.pendingFrames.length = 0;
   }
 }

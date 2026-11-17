@@ -17,6 +17,7 @@ import { FLIP_RESET_SUBTYPES, SYSTEM_CONTROL_SIGNALS } from '../src/physics/Rock
 import { syncReplayWorkspaceToOnlineRoom } from '../src/replay/replayOnlineSyncHelper.ts';
 import {
   getKeyboardInputOverlayTelemetry,
+  mapRemoteControlsToOverlayKeys,
   updateKeyboardInputOverlayTelemetry,
 } from '../src/ui-core/config/keyboardInputOverlayTelemetry.ts';
 import { useReplayViewerStore } from '../src/ui-core/stores/replayViewerStore.ts';
@@ -74,7 +75,7 @@ function createHostBroadcaster() {
         commandController: commandQueue,
       }),
   });
-  return { hostSimState, hostPhysicsManager, domain, commandQueue, systemControl };
+  return { hostSimState, hostPhysicsManager, domain, commandQueue, systemControl, sessionManager };
 }
 
 function createClientReconciler() {
@@ -133,7 +134,7 @@ async function reproIssue1UserInputBroadcastAndOverlay(): Promise<ReproResult> {
       activeRoomActivity: 'freeplay',
     };
 
-  const { systemControl, hostSimState } = createHostBroadcaster();
+  const { systemControl, hostSimState, sessionManager } = createHostBroadcaster();
   const publisher = new HostBroadcastPublisher(60);
 
   const mockPhysics = {
@@ -141,11 +142,28 @@ async function reproIssue1UserInputBroadcastAndOverlay(): Promise<ReproResult> {
     getHeaderView: () => ({ tickCount: 101 }),
   };
 
+  const testControls = [
+    {
+      carIndex: 0,
+      controls: {
+        throttle: 1,
+        steer: -0.6,
+        pitch: 0,
+        yaw: 0,
+        roll: -1,
+        jump: true,
+        boost: true,
+        handbrake: false,
+      },
+    },
+  ];
+
   publisher.publishIfReady({
     timestamp: 1000,
     physics: mockPhysics as never,
     server: systemControl as never,
     isPaused: false,
+    acknowledgedControls: testControls,
   });
 
   hostSimState[0] = 102;
@@ -154,6 +172,7 @@ async function reproIssue1UserInputBroadcastAndOverlay(): Promise<ReproResult> {
     physics: mockPhysics as never,
     server: systemControl as never,
     isPaused: false,
+    acknowledgedControls: testControls,
   });
 
   const rawPacket = systemControl.stepStateOnlyFrameIfActive();
@@ -166,38 +185,41 @@ async function reproIssue1UserInputBroadcastAndOverlay(): Promise<ReproResult> {
     };
   }
 
-  const decoded = GlobalPayloadCodec.decode(rawPacket.subarray(1));
+  const decoded = GlobalPayloadCodec.decode(rawPacket);
   const ackCount = decoded.physics?.acknowledgedControls?.length ?? 0;
 
   const { reconciler, clientChannel } = createClientReconciler();
-  clientChannel.inboundQueue.push(rawPacket);
+  const clientPacket = sessionManager.buildClientPacket('peer_client_1', rawPacket);
+  clientChannel.inboundQueue.push(clientPacket);
   reconciler.reconcile(1000);
-  const clientAckCount = reconciler.lastParsedPacket?.acknowledgedControls?.length ?? 0;
+  const clientAckList = reconciler.lastParsedPacket?.acknowledgedControls ?? [];
+  const clientAckCount = clientAckList.length;
 
+  const matched = clientAckList.find((c) => c.carIndex === 0);
+  const mappedKeys = mapRemoteControlsToOverlayKeys(matched?.controls ?? null);
   updateKeyboardInputOverlayTelemetry({
-    wPressed: false,
-    aPressed: false,
-    sPressed: false,
-    dPressed: false,
-    qPressed: false,
-    ePressed: false,
-    boostPressed: false,
-    jumpPressed: false,
-    slidePressed: false,
+    isRemoteSpectating: true,
+    ...mappedKeys,
   });
   const telemetry = getKeyboardInputOverlayTelemetry();
 
-  const missingAckControls = ackCount === 0 && clientAckCount === 0;
-  const overlayUnupdated = !telemetry.wPressed && !telemetry.boostPressed && !telemetry.jumpPressed;
+  const missingAckControls = ackCount === 0 || clientAckCount === 0;
+  const overlayUnupdated =
+    !telemetry.isRemoteSpectating ||
+    !telemetry.wPressed ||
+    !telemetry.aPressed ||
+    !telemetry.qPressed ||
+    !telemetry.boostPressed ||
+    !telemetry.jumpPressed;
 
   if (missingAckControls) {
     details.push(
-      `Host broadcast packet has acknowledgedControls.length=${ackCount}, client lastParsedPacket.acknowledgedControls.length=${clientAckCount} (HostBroadcastPublisher & MatchSystemControlSubController.stepStateOnlyFrameIfActive hardcode []).`
+      `Host broadcast packet has acknowledgedControls.length=${ackCount}, client lastParsedPacket.acknowledgedControls.length=${clientAckCount}.`
     );
   }
   if (overlayUnupdated) {
     details.push(
-      'Client keyboardInputOverlayTelemetry remains all-false because CarNoseOrientationArrows & useKeyboardOverlayLiveInputs only read local keyboard/window events instead of spectated car acknowledgedControls.'
+      'Client keyboardInputOverlayTelemetry failed to reflect spectated car acknowledgedControls.'
     );
   }
 

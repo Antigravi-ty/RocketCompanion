@@ -289,16 +289,26 @@ export class AuthoritativeServerHost {
     this.sendActivityControl('training_shot_reset', payload);
   }
 
-  enterStateOnlyMode(s?: Float32Array | number[] | null, cursorTick?: number): void {
+  enterStateOnlyMode(
+    s?: Float32Array | number[] | null,
+    cursorTick?: number,
+    acknowledgedControls?: Array<{ carIndex: number; controls: CarControlsInput }> | null
+  ): void {
     this._postCommand('enterStateOnlyMode', {
       stateSnapshot: s ? Array.from<number>(s) : null,
       cursorTick,
+      acknowledgedControls: acknowledgedControls ?? null,
     });
   }
-  pushBroadcastSnapshot(s?: Float32Array | number[] | null, cursorTick?: number): void {
+  pushBroadcastSnapshot(
+    s?: Float32Array | number[] | null,
+    cursorTick?: number,
+    acknowledgedControls?: Array<{ carIndex: number; controls: CarControlsInput }> | null
+  ): void {
     this._postCommand('pushBroadcastSnapshot', {
       stateSnapshot: s ? Array.from<number>(s) : null,
       cursorTick,
+      acknowledgedControls: acknowledgedControls ?? null,
     });
   }
   beginInterveneCountdown(countdownSeconds = 3, s?: Float32Array | number[] | null): void {

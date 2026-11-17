@@ -1,3 +1,4 @@
+import type { CarControlsInput } from '../../../network/protocol/InputPacketCodec.ts';
 import type { CameraManager } from '../../../camera/CameraManager.ts';
 import type { CameraTransformLike } from '../../../audio/SpatialAudioSource.ts';
 import type { AuthoritativeServerHost } from '../../../network/server/AuthoritativeServerHost.ts';
@@ -43,8 +44,16 @@ export interface SimulationStageRuntimePort extends CarActionSynthesizerRuntimeP
   camera: CameraManager | null;
   podiumController: { isActive: boolean } | null;
   replayTimelineController: ReplayTimelineController | null;
+  botCoordinator?: {
+    isBotMatch?: boolean;
+    botControls?: CarControlsInput;
+  } | null;
   modeManager: {
-    getActiveMode(): ActiveModeSimulationPort | null;
+    getActiveMode():
+      | (ActiveModeSimulationPort & {
+          getCarControls?(carIdx: number): CarControlsInput | Record<string, unknown> | null;
+        })
+      | null;
   } | null;
   multiplayerSession?: {
     isHosting?: boolean;
@@ -65,8 +74,16 @@ export interface SimulationStageRuntimePort extends CarActionSynthesizerRuntimeP
           authorityMode: 'explicit' | 'fpv_master_slave';
           clientInputEnabled: boolean;
         }) => void;
-        consumeLatestFrame: () => { snapshot: Float32Array; tick: number } | null;
-        consumePendingFrames?: () => Array<{ snapshot: Float32Array; tick: number }>;
+        consumeLatestFrame: () => {
+          snapshot: Float32Array;
+          tick: number;
+          acknowledgedControls?: Array<{ carIndex: number; controls: CarControlsInput }>;
+        } | null;
+        consumePendingFrames?: () => Array<{
+          snapshot: Float32Array;
+          tick: number;
+          acknowledgedControls?: Array<{ carIndex: number; controls: CarControlsInput }>;
+        }>;
       };
     } | null;
   } | null;
@@ -301,7 +318,7 @@ export class SimulationStage implements PipelineStage {
         const cf = frames[i];
         this.hostAuthoritySpectateBuffer.pushFrame(cf.snapshot, cf.tick, timestamp);
         if (i === frames.length - 1) {
-          server?.pushBroadcastSnapshot(cf.snapshot, cf.tick);
+          server?.pushBroadcastSnapshot(cf.snapshot, cf.tick, cf.acknowledgedControls);
         }
       }
       const sampled = this.hostAuthoritySpectateBuffer.sample(timestamp);
@@ -350,6 +367,10 @@ export class SimulationStage implements PipelineStage {
     }
 
     if (isClientInputAuthority) {
+      const targetCarIdx = activeCar >= 0 ? activeCar : (this.runtime.playerCarIndex ?? 0);
+      const ackControls = this.runtime.playerControls
+        ? [{ carIndex: targetCarIdx, controls: this.runtime.playerControls as CarControlsInput }]
+        : null;
       this.clientAuthorityPublisher.publishIfReady({
         timestamp,
         physics,
@@ -358,6 +379,7 @@ export class SimulationStage implements PipelineStage {
           sendClientAuthorityFrame?: (payload: Record<string, unknown>) => boolean;
         },
         authorityEpoch: reconciler?.authorityEpoch ?? 0,
+        acknowledgedControls: ackControls,
       });
     } else {
       this.clientAuthorityPublisher.reset();
@@ -385,11 +407,29 @@ export class SimulationStage implements PipelineStage {
     }
 
     if (isBroadcastingHost && server && !remoteHasAuthority) {
+      const numCars = Math.min(8, Math.max(1, Math.round(Number(physics.getHeaderView?.()?.numCars) || 1)));
+      const playerCarIdx = activeCar >= 0 ? activeCar : (this.runtime.playerCarIndex ?? 0);
+      const botCoord = this.runtime.botCoordinator;
+      const acknowledgedControls: Array<{ carIndex: number; controls: CarControlsInput }> = [];
+      for (let carIdx = 0; carIdx < numCars; carIdx++) {
+        const modeCtrl = activeMode?.getCarControls?.(carIdx) as CarControlsInput | null | undefined;
+        if (modeCtrl) {
+          acknowledgedControls.push({ carIndex: carIdx, controls: modeCtrl });
+        } else if (carIdx === playerCarIdx && this.runtime.playerControls) {
+          acknowledgedControls.push({
+            carIndex: carIdx,
+            controls: this.runtime.playerControls as CarControlsInput,
+          });
+        } else if (botCoord?.isBotMatch && carIdx === 1 && botCoord.botControls) {
+          acknowledgedControls.push({ carIndex: carIdx, controls: botCoord.botControls });
+        }
+      }
       this.broadcastPublisher.publishIfReady({
         timestamp,
         physics,
         server,
         isPaused: flags.shouldHoldAccumulator || flags.isReplayPaused || isSpectatePlaybackPaused(),
+        acknowledgedControls,
       });
     } else {
       this.broadcastPublisher.reset();

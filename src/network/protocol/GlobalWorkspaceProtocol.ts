@@ -67,6 +67,7 @@ export interface ClientAuthorityFramePayload {
   tick: number;
   peerId: string;
   snapshot: number[];
+  acknowledgedControls?: Array<{ carIndex: number; controls: Record<string, unknown> }>;
 }
 
 export interface PauseStateSyncPayload {
