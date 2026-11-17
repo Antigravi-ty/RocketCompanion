@@ -36,7 +36,8 @@
     "test:dev-room-sync-e2e": "node scripts/runDevRoomSyncE2E.mjs",
     "repro:dev-sync-bugs": "node scripts/runDevSyncReproSuite.mjs",
     "repro:multiplayer-room": "node scripts/runMultiplayerRoomRepro.mjs",
-    "repro:multiplayer-chaos": "node --experimental-strip-types scripts/runMultiplayerChaosRepro.ts"
+    "repro:multiplayer-chaos": "node --experimental-strip-types scripts/runMultiplayerChaosRepro.ts",
+    "repro:sync-issues": "node --experimental-strip-types scripts/runMultiplayerSyncIssuesRepro.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.23",
