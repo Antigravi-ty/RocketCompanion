@@ -12,6 +12,7 @@ import {
   applyCameraSyncToPort,
   resetSpectateWorkspaceOnLeave,
   useTelestratorStore,
+  hudStore,
 } from '../runtimeUiPort.ts';
 import { BallTrajectoryPredictor } from '../../entities/BallTrajectoryPredictor.ts';
 import { bindBallTrajectoryAnomalyUiBridge } from '../../entities/trajectory/ballTrajectoryAnomalyUiBridge.ts';
@@ -377,6 +378,8 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
     window.__rcE2E = {
       ...(window.__rcE2E ?? {}),
       getAppState: () => useAppStore.getState(),
+      getHudState: () => hudStore.getState(),
+      subscribeHudState: (listener: (state: unknown) => void) => hudStore.subscribe(listener),
       getTelestratorState: () => useTelestratorStore.getState(),
       getMultiplayerSession: () => multiplayerSession,
       getSessionCoordinator: () => sessionCoordinator,

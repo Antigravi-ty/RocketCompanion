@@ -245,12 +245,13 @@ async function main() {
     );
     await hostCdp.eval(`window.__rcE2E.getAppState().closeMenu()`);
 
-    // Client 1 joins
-    const c1Target = await (
-      await fetch(`http://127.0.0.1:${cdpPort}/json/new?${encodeURIComponent(baseUrl)}`, {
-        method: 'PUT',
-      })
-    ).json();
+    // Client 1 joins (separate window so Chrome does not throttle rAF)
+    const { targetId: c1TargetId } = await hostCdp.send('Target.createTarget', {
+      url: baseUrl,
+      newWindow: true,
+    });
+    const c1Targets = await (await fetch(`http://127.0.0.1:${cdpPort}/json`)).json();
+    const c1Target = c1Targets.find((t) => t.id === c1TargetId);
     client1Cdp = new CdpClient(c1Target.webSocketDebuggerUrl, 'client1');
     await client1Cdp.connect();
     await waitFor(
@@ -324,19 +325,41 @@ async function main() {
     await client1Cdp.eval(`(() => {
       window.__exCdLog = [];
       let lastCd = null;
-      window.__exCdTimer = setInterval(() => {
-        const ms = window.__rcE2E.runtime?.match?.state;
-        const cd = ms?.phase === 'kickoff' ? ms.countdown : 0;
-        if (cd > 0 && cd !== lastCd) {
-          lastCd = cd;
-          window.__exCdLog.push(cd);
-        }
-      }, 50);
+      if (typeof window.__rcE2E.subscribeHudState === 'function') {
+        window.__exCdUnsub = window.__rcE2E.subscribeHudState((hs) => {
+          const cd = hs?.matchPhase === 'kickoff' ? hs?.kickoffCountdown : 0;
+          if (cd > 0 && cd !== lastCd) {
+            lastCd = cd;
+            window.__exCdLog.push(cd);
+          }
+          if (hs?.matchPhase === 'playing') {
+            window.__exCdDone = true;
+          }
+        });
+      } else {
+        window.__exCdTimer = setInterval(() => {
+          const ms = window.__rcE2E.runtime?.match?.state;
+          const cd = ms?.phase === 'kickoff' ? ms.countdown : 0;
+          if (cd > 0 && cd !== lastCd) {
+            lastCd = cd;
+            window.__exCdLog.push(cd);
+          }
+          if (ms?.phase === 'playing') {
+            window.__exCdDone = true;
+          }
+        }, 50);
+      }
     })()`);
     await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onStartMatch('necto', 90, 'standard')`);
-    await new Promise((r) => setTimeout(r, 3400));
+    await waitFor(
+      () => client1Cdp.eval(`Boolean(window.__exCdDone && (window.__exCdLog?.length || 0) >= 3)`),
+      'Client1 completes 3-2-1 countdown',
+      10_000,
+      100
+    ).catch(() => {});
     const clientCountdownNums = await client1Cdp.eval(`(() => {
-      clearInterval(window.__exCdTimer);
+      if (window.__exCdTimer) clearInterval(window.__exCdTimer);
+      if (window.__exCdUnsub) window.__exCdUnsub();
       return window.__exCdLog || [];
     })()`);
     const exHost = await readSimSnapshot(hostCdp);
@@ -443,7 +466,9 @@ async function main() {
         : -1;
     const clientReplayDom = await client1Cdp.eval(`(() => {
       const sb = document.querySelector('[data-alpha-id*="StepperScoreboardHUD"]');
-      const cards = Array.from(document.querySelectorAll('[data-alpha-id^="roster-card-"]'));
+      const cards = Array.from(document.querySelectorAll('[data-alpha-id*="EdgePlayerSlotCard"]')).filter(
+        (el) => getComputedStyle(el).display !== 'none'
+      );
       return {
         domScoreboard: Boolean(sb),
         domRosterCards: cards.length,
@@ -823,16 +848,31 @@ async function main() {
     const authAfterIdle = await hostCdp.eval(
       `window.__rcE2E.getMultiplayerSession?.()?.hostController?.inputAuthority?.activeInputPeerId`
     );
+    await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onSetClientInputEnabled?.(false)`);
+    await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onStartMatch('necto', 90, 'standard')`);
+    await waitFor(
+      () => client2Cdp.eval(`Boolean(window.__rcE2E.runtime?.arena?.cars?.[2]?.visible)`),
+      'Client2 6-car arena visible for camera focus switch',
+      10_000
+    ).catch(() => {});
     await hostCdp.eval(`(() => {
+      const probe = window.__rcE2E.runtime?.networkManager?.diagnosticsProbe;
+      if (probe) probe.diagnosticObservationTarget = 2;
       const cam = window.__rcE2E.getCamera();
       if (cam?.setFocusedCarIndex) cam.setFocusedCarIndex(2);
       else if (cam) cam.focusedCarIndex = 2;
     })()`);
-    await new Promise((r) => setTimeout(r, 600));
+    await waitFor(
+      () => client2Cdp.eval(`window.__rcE2E.getCamera()?.focusedCarIndex === 2`),
+      'Client2 follows Host focusedCarIndex=2',
+      5_000
+    ).catch(() => {});
     const c2FocusedAfterSwitch = await client2Cdp.eval(
       `window.__rcE2E.getCamera()?.focusedCarIndex ?? -1`
     );
     await hostCdp.eval(`(() => {
+      const probe = window.__rcE2E.runtime?.networkManager?.diagnosticsProbe;
+      if (probe) probe.diagnosticObservationTarget = 0;
       const cam = window.__rcE2E.getCamera();
       if (cam?.setFocusedCarIndex) cam.setFocusedCarIndex(0);
       else if (cam) cam.focusedCarIndex = 0;

@@ -119,6 +119,7 @@ const _handlers: Record<string, PortHandlerFn | null> = {
   syncArenaPresetUi: null,
   captureCameraSyncFromPort: null,
   applyCameraSyncToPort: null,
+  getSpectateCameraFollowTargetIndex: null,
 };
 
 export function bindRuntimeUiPort(port: Record<string, unknown> = {}): void {

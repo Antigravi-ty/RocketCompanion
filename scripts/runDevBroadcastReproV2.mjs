@@ -221,12 +221,13 @@ async function main() {
     );
     await hostCdp.eval(`window.__rcE2E.getAppState().closeMenu()`);
 
-    // Client joins Developer Sync Room
-    const c1Target = await (
-      await fetch(`http://127.0.0.1:${cdpPort}/json/new?${encodeURIComponent(baseUrl)}`, {
-        method: 'PUT',
-      })
-    ).json();
+    // Client joins Developer Sync Room (separate window so Chrome does not throttle rAF)
+    const { targetId: c1TargetId } = await hostCdp.send('Target.createTarget', {
+      url: baseUrl,
+      newWindow: true,
+    });
+    const allTargets = await (await fetch(`http://127.0.0.1:${cdpPort}/json`)).json();
+    const c1Target = allTargets.find((t) => t.id === c1TargetId);
     clientCdp = new CdpClient(c1Target.webSocketDebuggerUrl, 'client');
     await clientCdp.connect();
     await waitFor(
@@ -315,42 +316,66 @@ async function main() {
     })()`);
 
     await clientCdp.send('Page.bringToFront');
-    await new Promise((r) => setTimeout(r, 1200));
-
-    const [hostRepUi, clientRepUi] = await Promise.all([
-      hostCdp.eval(`(() => {
-        const sbEl = document.querySelector('[data-alpha-id="Alpha:StepperScoreboardHUD"]');
-        const cards = Array.from(document.querySelectorAll('[data-alpha-id*="EdgePlayerSlotCard"]'));
-        const cardNames = cards.map((el) => (el.textContent || '').trim()).filter(Boolean);
-        return {
-          domScoreboard: Boolean(sbEl),
-          scoreboardText: sbEl ? (sbEl.textContent || '').replace(/\\s+/g, ' ').trim() : null,
-          domRosterCards: cards.length,
-          cardNames,
-          focusedCarIndex: window.__rcE2E.getCamera?.()?.focusedCarIndex ?? -1,
-        };
-      })()`),
-      clientCdp.eval(`(() => {
+    const readReplayUi = async (cdp, includeClientMeta) =>
+      cdp.eval(`(() => {
         const app = window.__rcE2E.getAppState?.();
         const sbEl = document.querySelector('[data-alpha-id="Alpha:StepperScoreboardHUD"]');
-        const cards = Array.from(document.querySelectorAll('[data-alpha-id*="EdgePlayerSlotCard"]'));
+        const cards = Array.from(document.querySelectorAll('[data-alpha-id*="EdgePlayerSlotCard"]')).filter(
+          (el) => getComputedStyle(el).display !== 'none'
+        );
         const cardNames = cards.map((el) => (el.textContent || '').trim()).filter(Boolean);
         return {
-          matchMode: app?.matchMode ?? null,
-          activeRoomActivity: app?.onlineSession?.activeRoomActivity ?? null,
+          ${
+            includeClientMeta
+              ? `matchMode: app?.matchMode ?? null,
+                activeRoomActivity: app?.onlineSession?.activeRoomActivity ?? null,
+                playerCarIndex: window.__rcE2E.runtime?.playerCarIndex ?? -1,`
+              : ''
+          }
           domScoreboard: Boolean(sbEl),
           scoreboardText: sbEl ? (sbEl.textContent || '').replace(/\\s+/g, ' ').trim() : null,
           domRosterCards: cards.length,
           cardNames,
           focusedCarIndex: window.__rcE2E.getCamera?.()?.focusedCarIndex ?? -1,
-          playerCarIndex: window.__rcE2E.runtime?.playerCarIndex ?? -1,
         };
-      })()`),
-    ]);
+      })()`);
+
+    let hostRepUi = null;
+    let clientRepUi = null;
+    await waitFor(
+      async () => {
+        [hostRepUi, clientRepUi] = await Promise.all([
+          readReplayUi(hostCdp, false),
+          readReplayUi(clientCdp, true),
+        ]);
+        const isDefaultPlaceholder = (names) =>
+          names.some((n) => n.includes('You (Octane_99)') || n.includes('Zen_Master_RL'));
+        return (
+          hostRepUi.domScoreboard &&
+          clientRepUi.domScoreboard &&
+          hostRepUi.domRosterCards === 6 &&
+          clientRepUi.domRosterCards === 6 &&
+          !isDefaultPlaceholder(hostRepUi.cardNames) &&
+          !isDefaultPlaceholder(clientRepUi.cardNames) &&
+          JSON.stringify(hostRepUi.cardNames) === JSON.stringify(clientRepUi.cardNames)
+        );
+      },
+      'Host & Client replay HUD + 6 roster cards synced',
+      8_000,
+      150
+    ).catch(() => {});
+    if (!hostRepUi || !clientRepUi) {
+      [hostRepUi, clientRepUi] = await Promise.all([
+        readReplayUi(hostCdp, false),
+        readReplayUi(clientCdp, true),
+      ]);
+    }
 
     const bug2Reproduced =
-      clientRepUi.domRosterCards === 0 ||
-      clientRepUi.cardNames.length === 0 ||
+      hostRepUi.domRosterCards !== 6 ||
+      clientRepUi.domRosterCards !== 6 ||
+      clientRepUi.cardNames.length !== 6 ||
+      JSON.stringify(hostRepUi.cardNames) !== JSON.stringify(clientRepUi.cardNames) ||
       !clientRepUi.domScoreboard ||
       hostRepUi.scoreboardText !== clientRepUi.scoreboardText;
     record(
@@ -429,6 +454,17 @@ async function main() {
           return origPlay(key, ...rest);
         };
       }
+      if (!window.__reproHudUnsub && typeof window.__rcE2E.subscribeHudState === 'function') {
+        let lastHudKey = null;
+        window.__reproHudUnsub = window.__rcE2E.subscribeHudState((hs) => {
+          const val = hs ? { phase: hs.matchPhase, cd: hs.kickoffCountdown } : null;
+          const key = JSON.stringify(val);
+          if (key !== lastHudKey && val) {
+            lastHudKey = key;
+            window.__countdownLog.matchStates.push(val);
+          }
+        });
+      }
       if (!window.__reproHudPoll) {
         let lastVal = null;
         let lastDom = null;
@@ -436,7 +472,7 @@ async function main() {
           const ms = window.__rcE2E.runtime?.match?.state;
           const val = ms ? { phase: ms.phase, cd: ms.countdown } : null;
           const key = JSON.stringify(val);
-          if (key !== lastVal && val) {
+          if (key !== lastVal && val && !window.__reproHudUnsub) {
             lastVal = key;
             window.__countdownLog.matchStates.push(val);
           }
@@ -453,8 +489,19 @@ async function main() {
     await clientCdp.eval(installSpyExpr);
 
     await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onStartMatch('necto', 90, 'standard')`);
-    // Wait 3.8s for full 3-2-1-GO countdown
-    await new Promise((r) => setTimeout(r, 3800));
+    await waitFor(
+      () =>
+        clientCdp.eval(`(() => {
+          const states = window.__countdownLog?.matchStates || [];
+          const sawKickoff = states.some((s) => s.phase === 'kickoff');
+          const last = states[states.length - 1];
+          return sawKickoff && last?.phase === 'playing';
+        })()`),
+      'Client finishes 3-2-1-GO countdown',
+      10_000,
+      100
+    ).catch(() => {});
+    await new Promise((r) => setTimeout(r, 200));
 
     const [hostCd, clientCd] = await Promise.all([
       hostCdp.eval(`window.__countdownLog`),
