@@ -8,6 +8,7 @@ import {
 } from '../../../replay/ReplayRingBuffer.ts';
 import { ReplayTimelineController } from '../../../replay/ReplayTimelineController.ts';
 import { MATCH_SIGNALS } from '../../../physics/RocketSimConstants.ts';
+import { isDevSyncHostBroadcastingMode } from '../../pipeline/stages/HostBroadcastPublisher.ts';
 import {
   endGoalReplaySession,
   stepGoalReplaySessionFrame,
@@ -107,10 +108,27 @@ export class ExperimentalMultiBotsReplayController {
       this.pushSignalToPhysicsEngine(sig);
       if (this.replayRingBuffer.findFrameByTick(targetTick)) {
         this.replayRingBuffer.appendSignal(targetTick, sig);
-        return sig;
       }
+    } else {
+      this.pendingFrameSignals.push(sig);
     }
-    this.pendingFrameSignals.push(sig);
+    const server = (
+      this.runtime as {
+        networkManager?: {
+          server?: {
+            pushBroadcastSignal?: (
+              signalType: number,
+              frameId?: number,
+              param1?: number,
+              param2?: number
+            ) => void;
+          } | null;
+        } | null;
+      } | null
+    )?.networkManager?.server;
+    if (isDevSyncHostBroadcastingMode(Boolean(server))) {
+      server?.pushBroadcastSignal?.(signalType, targetTick, param1, param2);
+    }
     return sig;
   }
 

@@ -19,7 +19,9 @@ import {
 } from './simulationFrameClassifierPipeline.ts';
 import { stepNetworkReconciliationAndReplayStream } from './simulationNetworkReconcilePipeline.ts';
 import {
+  broadcastHostFlipResetSignalsIfNeeded,
   ClientAuthorityPublisher,
+  collectHostBroadcastControls,
   HostBroadcastPublisher,
   isDevSyncClientInputAuthorityMode,
   isDevSyncClientPureCsrSpectateMode,
@@ -274,7 +276,7 @@ export class SimulationStage implements PipelineStage {
         !flags.isMatchEnded
       );
     if (holdForClientAuthorityLobby || isPureCsrClient || remoteHasAuthority) {
-      if (!flags.isGoalReplay && !podiumController?.isActive) {
+      if ((!flags.isGoalReplay || isPureCsrClient) && !podiumController?.isActive) {
         interpolator.sync(timestamp);
       }
     } else {
@@ -407,23 +409,17 @@ export class SimulationStage implements PipelineStage {
     }
 
     if (isBroadcastingHost && server && !remoteHasAuthority) {
-      const numCars = Math.min(8, Math.max(1, Math.round(Number(physics.getHeaderView?.()?.numCars) || 1)));
-      const playerCarIdx = activeCar >= 0 ? activeCar : (this.runtime.playerCarIndex ?? 0);
-      const botCoord = this.runtime.botCoordinator;
-      const acknowledgedControls: Array<{ carIndex: number; controls: CarControlsInput }> = [];
-      for (let carIdx = 0; carIdx < numCars; carIdx++) {
-        const modeCtrl = activeMode?.getCarControls?.(carIdx) as CarControlsInput | null | undefined;
-        if (modeCtrl) {
-          acknowledgedControls.push({ carIndex: carIdx, controls: modeCtrl });
-        } else if (carIdx === playerCarIdx && this.runtime.playerControls) {
-          acknowledgedControls.push({
-            carIndex: carIdx,
-            controls: this.runtime.playerControls as CarControlsInput,
-          });
-        } else if (botCoord?.isBotMatch && carIdx === 1 && botCoord.botControls) {
-          acknowledgedControls.push({ carIndex: carIdx, controls: botCoord.botControls });
-        }
-      }
+      const numCars = Math.min(
+        8,
+        Math.max(1, Math.round(Number(physics.getHeaderView?.()?.numCars) || 1))
+      );
+      const acknowledgedControls = collectHostBroadcastControls({
+        numCars,
+        playerCarIdx: activeCar >= 0 ? activeCar : (this.runtime.playerCarIndex ?? 0),
+        playerControls: this.runtime.playerControls,
+        activeMode,
+        botCoordinator: this.runtime.botCoordinator,
+      });
       this.broadcastPublisher.publishIfReady({
         timestamp,
         physics,
@@ -456,6 +452,13 @@ export class SimulationStage implements PipelineStage {
         getFlipResetVisual: (carIndex) => this.runtime.getFlipResetVisual?.(carIndex) ?? null,
         arena: this.runtime.arena,
       });
+      if (isBroadcastingHost && server) {
+        broadcastHostFlipResetSignalsIfNeeded(
+          server,
+          tickRes,
+          Math.floor(physics.getHeaderView().tickCount)
+        );
+      }
     }
 
     if (profiler && !context.isSimulationOnly) {

@@ -85,7 +85,21 @@ import { MatchCommandQueueSubController } from '../src/network/server/match/Matc
 import { MatchSystemControlSubController } from '../src/network/server/match/MatchSystemControlSubController.ts';
 import { encodeMatchGlobalFramePacket } from '../src/network/server/match/matchLifecyclePipeline.ts';
 import { applyReplayFrameToEngine } from '../src/replay/ReplayFrameInterpolator.ts';
-import { SYSTEM_CONTROL_SIGNALS, SIM_OFFSETS } from '../src/physics/RocketSimConstants.ts';
+import {
+  FLIP_RESET_SUBTYPES,
+  SYSTEM_CONTROL_SIGNALS,
+  SIM_OFFSETS,
+} from '../src/physics/RocketSimConstants.ts';
+import {
+  GlobalPayloadCodec,
+  MATCH_SIGNALS,
+} from '../src/network/protocol/GlobalPayloadCodec.ts';
+import { sharedAuthorityCameraSyncTracker } from '../src/game/pipeline/stages/AuthorityCameraSyncTracker.ts';
+import {
+  resolveModeRosterEntries,
+  createResolvedModeRosterBuffer,
+} from '../src/game/pipeline/stages/hudRosterResolverPipeline.ts';
+import { useReplayViewerStore } from '../src/ui-core/stores/replayViewerStore.ts';
 import {
   ReplayOnlineHeartbeatTracker,
   syncReplayFrameToAuthoritativeServer,
@@ -2129,6 +2143,14 @@ async function main(): Promise<void> {
     '22. Pure CSR acknowledgedControls Broadcast, Coach Handover Multi-Client Input & KeyboardInputOverlay Remote Mapping',
     testPureCsrAcknowledgedControlsAndCoachMultiClientInput
   );
+  await runSection(
+    '23. Pure CSR pushBroadcastSignal (Countdown, Score, Flip Reset, Ball Reset, Goal Replay & Director Signal)',
+    testPureCsrPushBroadcastSignalsAndGoalReplay
+  );
+  await runSection(
+    '24. Replay Watch Together Metadata, Roster Names/Colors & Edge-Triggered CameraSync Non-Override',
+    testReplayWatchTogetherMetadataRosterAndEdgeCameraSync
+  );
   console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
 }
 
@@ -2944,6 +2966,240 @@ function testPureCsrAcknowledgedControlsAndCoachMultiClientInput(): void {
   assert.equal(bravoRelayedKeys.ePressed, true);
   assert.equal(bravoRelayedKeys.boostPressed, true);
   assert.equal(bravoRelayedKeys.slidePressed, true);
+}
+
+async function testPureCsrPushBroadcastSignalsAndGoalReplay(): Promise<void> {
+  const hostState = new Float32Array(448);
+  hostState[0] = 500;
+  hostState[2] = 2;
+  const hostPhysicsManager = {
+    currentTick: 500,
+    sim: {
+      state: hostState,
+      numCars: 2,
+      restoreState: (buf: Float32Array) => hostState.set(buf.subarray(0, hostState.length)),
+      restoreCompactState: (buf: Float32Array) => hostState.set(buf.subarray(0, hostState.length)),
+      saveCompactState: () => new Float32Array(hostState),
+      saveState: () => new Float32Array(hostState),
+      syncToStateObject: () => {},
+    },
+    getActiveCarMask: () => 0b11,
+    applySignal: () => {},
+  };
+  const sessionManager = new EstablishedSessionManager();
+  sessionManager.registerSession('peer_csr_1', {
+    entityId: 1,
+    role: 'spectator',
+    playerName: 'Spectator1',
+  });
+  const domain = new MatchDomainState({ gameMode: 'freeplay' });
+  const commandQueue = new MatchCommandQueueSubController({ domain });
+  const systemControl = new MatchSystemControlSubController({
+    domain,
+    commandQueue,
+    physicsManager: hostPhysicsManager as never,
+    replayBuffer: null as never,
+    encodeFramePacket: (snap) =>
+      encodeMatchGlobalFramePacket({
+        state: domain.state,
+        matchTick: domain.matchTick,
+        physicsSnapshot: snap as never,
+        physicsManager: hostPhysicsManager as never,
+        sessionManager: sessionManager as never,
+        replayBuffer: null as never,
+        commandController: commandQueue,
+      }),
+  });
+
+  systemControl.enterStateOnlyMode(hostState, 500);
+  systemControl.pushBroadcastSignal(MATCH_SIGNALS.KICKOFF_WILL_START, 500, 180, 3);
+  systemControl.pushBroadcastSignal(MATCH_SIGNALS.SCORE_UPDATED, 500, 2, 1);
+  systemControl.pushBroadcastSignal(
+    MATCH_SIGNALS.FLIP_RESET_GAINED,
+    500,
+    0,
+    FLIP_RESET_SUBTYPES.BALL
+  );
+  systemControl.pushBroadcastSignal(MATCH_SIGNALS.GOAL_REPLAY_WILL_START, 500, 0, 1);
+  systemControl.pushBroadcastSignal(MATCH_SIGNALS.GOAL_REPLAY_START, 500, 360, 0b10);
+
+  const rawPkt = systemControl.stepStateOnlyFrameIfActive();
+  assert.ok(rawPkt);
+  const decoded = GlobalPayloadCodec.decode(rawPkt);
+  const types = (decoded.signals || []).map((s) => s.signalType);
+  assert.ok(types.includes(MATCH_SIGNALS.KICKOFF_WILL_START));
+  assert.ok(types.includes(MATCH_SIGNALS.SCORE_UPDATED));
+  assert.ok(types.includes(MATCH_SIGNALS.FLIP_RESET_GAINED));
+  assert.ok(types.includes(MATCH_SIGNALS.GOAL_REPLAY_WILL_START));
+  assert.ok(types.includes(MATCH_SIGNALS.GOAL_REPLAY_START));
+
+  const clientState = new Float32Array(448);
+  const clientChannel = { inboundQueue: [] as Uint8Array[], send: () => {}, isLoopback: false };
+  const reconciler = new PredictionReconciler(
+    {
+      state: clientState,
+      numCars: 2,
+      isCarSlotActive: (idx: number) => idx < 2,
+      addCarAtSlot: () => {},
+      restoreState: (buf: Float32Array) => clientState.set(buf.subarray(0, clientState.length)),
+      saveState: () => new Float32Array(clientState),
+      getCarStateView: () => ({
+        posX: 0,
+        posY: 0,
+        posZ: 0,
+        velX: 0,
+        velY: 0,
+        velZ: 0,
+        isOnGround: false,
+        hasFlipOrJump: false,
+        isFlipping: false,
+      }),
+      setCarState: () => {},
+      getCarMaxFlipCount: () => 1,
+      getHeaderView: () => ({ tick: clientState[0], tickCount: clientState[0], numCars: 2 }),
+    } as never,
+    clientChannel as never,
+    {
+      localCarIndex: 0,
+      interpolator: { prevState: new Float32Array(448), currState: new Float32Array(448), alpha: 0 } as never,
+    }
+  );
+  reconciler.setSpectateMirrorMode(true);
+  reconciler.setClientInputEnabled(false);
+  const seenSignals: number[] = [];
+  reconciler.onSignals = (sigs) => {
+    for (const s of sigs) seenSignals.push(s.signalType);
+  };
+  clientChannel.inboundQueue.push(sessionManager.buildClientPacket('peer_csr_1', rawPkt));
+  reconciler.reconcile(1000);
+
+  assert.ok(seenSignals.includes(MATCH_SIGNALS.KICKOFF_WILL_START));
+  assert.ok(seenSignals.includes(MATCH_SIGNALS.SCORE_UPDATED));
+  assert.ok(seenSignals.includes(MATCH_SIGNALS.FLIP_RESET_GAINED));
+  assert.ok(seenSignals.includes(MATCH_SIGNALS.GOAL_REPLAY_WILL_START));
+  assert.ok(seenSignals.includes(MATCH_SIGNALS.GOAL_REPLAY_START));
+
+  // Verify GOAL_REPLAY_END retires GOAL_REPLAY_START/WILL_START
+  systemControl.pushBroadcastSignal(MATCH_SIGNALS.GOAL_REPLAY_END, 501, 0, 0, [
+    MATCH_SIGNALS.GOAL_REPLAY_WILL_START,
+    MATCH_SIGNALS.GOAL_REPLAY_START,
+    MATCH_SIGNALS.GOAL_REPLAY_WILL_END,
+  ]);
+  const endPkt = systemControl.stepStateOnlyFrameIfActive();
+  assert.ok(endPkt);
+  const decodedEnd = GlobalPayloadCodec.decode(endPkt);
+  const endTypes = (decodedEnd.signals || []).map((s) => s.signalType);
+  assert.ok(endTypes.includes(MATCH_SIGNALS.GOAL_REPLAY_END));
+  assert.ok(!endTypes.includes(MATCH_SIGNALS.GOAL_REPLAY_START));
+}
+
+async function testReplayWatchTogetherMetadataRosterAndEdgeCameraSync(): Promise<void> {
+  bindRuntimeUiPort({
+    useReplayViewerStore: useReplayViewerStore as never,
+    buildHostWorkspaceBroadcastPayload: (meta?: Record<string, unknown>) =>
+      sanitizeGlobalWorkspaceBroadcast(meta),
+    captureCameraSyncFromPort: (cam: Record<string, unknown>, follow = true) => ({
+      followHostCamera: follow,
+      isFreeCam: Boolean(cam.isFreeCam),
+      ballCam: typeof cam.ballCam === 'boolean' ? cam.ballCam : true,
+      focusedCarIndex: Number(cam.focusedCarIndex) || 0,
+    }),
+  });
+
+  sharedAuthorityCameraSyncTracker.reset();
+  const sentActivities: Array<Record<string, unknown>> = [];
+  const sentWorkspaces: Array<Record<string, unknown>> = [];
+  const hostCam = { isFreeCam: false, ballCam: true, focusedCarIndex: 1 };
+  const hostRuntime = {
+    camera: hostCam,
+    multiplayerSession: {
+      isHosting: true,
+      broadcastRoomActivitySwitch: (opts: Record<string, unknown>) => sentActivities.push(opts),
+      broadcastGlobalWorkspace: (payload: Record<string, unknown>) => {
+        sentWorkspaces.push(payload);
+        return 1;
+      },
+    },
+  };
+
+  syncReplayWorkspaceToOnlineRoom(hostRuntime as never, {
+    active: true,
+    playbackPaused: false,
+    pausedAtTick: 1200,
+    switchActivity: true,
+    replayId: 'match-90s.rc',
+    replaySync: {
+      fileName: 'match-90s.rc',
+      totalFrames: 10800,
+      currentFrame: 1200,
+      playbackState: 'playing',
+      focusedCarIndex: 1,
+      roster: [
+        { carIndex: 0, name: 'AlphaOrange', team: 1 },
+        { carIndex: 1, name: 'BetaBlue', team: 0 },
+      ],
+    },
+  });
+
+  const ws0 = sentWorkspaces[0] as {
+    cameraSync?: { cameraSyncSeq?: number };
+    replaySync?: { fileName?: string; totalFrames?: number; roster?: Array<{ name: string }> };
+  };
+  assert.equal(ws0.replaySync?.fileName, 'match-90s.rc');
+  assert.equal(ws0.replaySync?.totalFrames, 10800);
+  assert.equal(ws0.replaySync?.roster?.length, 2);
+  const seq0 = ws0.cameraSync?.cameraSyncSeq ?? 0;
+  assert.ok(seq0 >= 1);
+
+  // Periodic heartbeat without camera change MUST NOT increment cameraSyncSeq (edge-triggered non-override)
+  const hb = new ReplayOnlineHeartbeatTracker();
+  assert.equal(hb.maybeSync(hostRuntime as never, { playbackPaused: false, pausedAtTick: 1200 }, 1000), true);
+  const ws1 = sentWorkspaces[1] as { cameraSync?: { cameraSyncSeq?: number } };
+  assert.equal(ws1.cameraSync?.cameraSyncSeq, seq0);
+
+  // Camera change MUST increment cameraSyncSeq
+  hostCam.focusedCarIndex = 0;
+  assert.equal(hb.maybeSync(hostRuntime as never, { playbackPaused: false, pausedAtTick: 1260 }, 1100), true);
+  const ws2 = sentWorkspaces[2] as { cameraSync?: { cameraSyncSeq?: number } };
+  assert.ok((ws2.cameraSync?.cameraSyncSeq ?? 0) > seq0);
+
+  // Client applies activity switch -> useReplayViewerStore & hudRosterResolverPipeline resolve exact names/teams
+  const bridgePort = createOnlineSessionBridgePort(
+    {
+      modeManager: { getActiveMode: () => ({ id: 'freeplay' }), setMode: () => {} },
+      match: { state: { mode: 'freeplay' } },
+      trainingOptions: {},
+    } as never,
+    () => ({}) as never,
+    () => ({}) as never
+  );
+  const clientReconciler = {
+    setReplayPlaybackMode: () => {},
+    setSpectateMirrorMode: () => {},
+    setClientInputEnabled: () => {},
+  };
+  bridgePort.applyClientRoomActivitySwitch(clientReconciler as never, sentActivities[0] as never);
+  const rv = useReplayViewerStore.getState();
+  assert.equal(rv.viewerState, 'playing');
+  assert.equal(rv.loadedFileName, 'match-90s.rc');
+  const resolved = resolveModeRosterEntries(
+    {
+      matchMode: 'freeplay',
+      isReplayViewerLoaded: false,
+      replayViewerState: rv.viewerState,
+      replayViewerResolvedRoster: rv.resolvedRoster,
+      numCars: 2,
+    },
+    createResolvedModeRosterBuffer()
+  );
+  assert.deepEqual(
+    resolved.blueEntries.map((e) => e.name),
+    ['BetaBlue']
+  );
+  assert.deepEqual(
+    resolved.orangeEntries.map((e) => e.name),
+    ['AlphaOrange']
+  );
 }
 
 main().catch((err) => {

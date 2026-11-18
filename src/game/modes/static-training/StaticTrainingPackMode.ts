@@ -4,6 +4,8 @@ import {
   type GameModeRuntimePort,
 } from '../BaseGameMode.ts';
 import type { FrameContext } from '../../pipeline/FramePipeline.ts';
+import { MATCH_SIGNALS } from '../../../network/protocol/GlobalPayloadCodec.ts';
+import { isDevSyncHostBroadcastingMode } from '../../pipeline/stages/HostBroadcastPublisher.ts';
 import { StaticTrainingVisuals } from './StaticTrainingVisuals.ts';
 import { useStaticTrainingPackStore, hudStore } from '../../runtimeUiPort.ts';
 import { type StaticTrainingEditSubMode, type StaticTrainingShotConfig } from './ShotGizmoMath.ts';
@@ -272,6 +274,24 @@ export class StaticTrainingPackMode extends BaseGameMode {
 
     syncReloadedShotLiveTelemetry(timeoutSec, isPlayableSession);
     resetStaticTrainingHudToPlaying(r.match?.state);
+    const server = (
+      r as {
+        networkManager?: {
+          server?: {
+            pushBroadcastSignal?: (
+              signalType: number,
+              frameId?: number,
+              param1?: number,
+              param2?: number
+            ) => void;
+          } | null;
+        } | null;
+      }
+    )?.networkManager?.server;
+    if (isDevSyncHostBroadcastingMode(Boolean(server))) {
+      const currentTick = Math.floor(r.physics.getHeaderView?.()?.tickCount ?? 0);
+      server?.pushBroadcastSignal?.(MATCH_SIGNALS.BALL_RESET, currentTick, 0, 0);
+    }
   }
 
   private _completeReplayAndAdvance = (): void => {

@@ -8,8 +8,12 @@ import {
   buildHostWorkspaceBroadcastPayload,
   captureCameraSyncFromPort,
   useAppStore,
+  useReplayViewerStore,
 } from '../game/runtimeUiPort.ts';
-import { getPauseHeartbeatIntervalMs } from '../network/protocol/GlobalWorkspaceProtocol.ts';
+import {
+  getPauseHeartbeatIntervalMs,
+  type WorkspaceReplaySyncPayload,
+} from '../network/protocol/GlobalWorkspaceProtocol.ts';
 import { sharedAuthorityCameraSyncTracker } from '../game/pipeline/stages/AuthorityCameraSyncTracker.ts';
 
 import type { ReplayTakeoverRuntimePort } from './ReplayTakeoverSubController.ts';
@@ -48,6 +52,7 @@ export interface ReplayOnlineWorkspaceSyncOptions {
   pausedAtTick: number;
   switchActivity?: boolean;
   replayId?: string;
+  replaySync?: Partial<WorkspaceReplaySyncPayload>;
 }
 
 export function syncReplayFrameToAuthoritativeServer(
@@ -83,7 +88,45 @@ export function syncReplayWorkspaceToOnlineRoom(
   const session = runtime?.multiplayerSession;
   if (!session?.isHosting) return 0;
 
+  const rvStore = useReplayViewerStore?.getState?.();
+  const rawCam = runtime?.camera
+    ? captureCameraSyncFromPort(runtime.camera, opts.active)
+    : undefined;
+  const focusedCarIndex =
+    opts.replaySync?.focusedCarIndex ??
+    (rawCam && typeof rawCam.focusedCarIndex === 'number' ? rawCam.focusedCarIndex : undefined) ??
+    rvStore?.activePovCarIndex;
+  const replaySync: WorkspaceReplaySyncPayload | undefined = opts.active
+    ? {
+        fileName: opts.replaySync?.fileName ?? opts.replayId ?? rvStore?.loadedFileName ?? undefined,
+        totalFrames: opts.replaySync?.totalFrames ?? rvStore?.totalFrames ?? 0,
+        currentFrame:
+          opts.replaySync?.currentFrame ??
+          rvStore?.cursorFrame ??
+          Math.max(0, Math.round(opts.pausedAtTick || 0)),
+        playbackState:
+          opts.replaySync?.playbackState ?? (opts.playbackPaused ? 'paused' : 'playing'),
+        flowPct: opts.replaySync?.flowPct ?? rvStore?.effectiveFlowPct ?? 100,
+        ...(typeof focusedCarIndex === 'number' ? { focusedCarIndex } : {}),
+        ...(opts.replaySync?.roster
+          ? { roster: opts.replaySync.roster }
+          : Array.isArray(rvStore?.resolvedRoster) && rvStore.resolvedRoster.length > 0
+            ? {
+                roster: rvStore.resolvedRoster.map((r) => ({
+                  carIndex: r.carIndex,
+                  name: r.name || `Car ${r.carIndex + 1}`,
+                  team: (r.team === 1 ? 1 : 0) as 0 | 1,
+                  ...(typeof r.isBot === 'boolean' ? { isBot: r.isBot } : {}),
+                })),
+              }
+            : {}),
+      }
+    : undefined;
+
   if (opts.switchActivity) {
+    if (opts.active) {
+      sharedAuthorityCameraSyncTracker.bumpLocalSeq();
+    }
     const activityId = opts.active ? 'replay' : 'freeplay';
     useAppStore.getState().setOnlineSession?.({ activeRoomActivity: activityId });
     session.broadcastRoomActivitySwitch?.({
@@ -93,13 +136,11 @@ export function syncReplayWorkspaceToOnlineRoom(
       config: {
         playbackPaused: Boolean(opts.playbackPaused),
         pausedAtTick: Math.max(0, Math.round(opts.pausedAtTick || 0)),
+        ...(replaySync ? { replaySync } : {}),
       },
     });
   }
 
-  const rawCam = runtime?.camera
-    ? captureCameraSyncFromPort(runtime.camera, opts.active)
-    : undefined;
   const cameraSync = rawCam
     ? {
         ...rawCam,
@@ -111,6 +152,7 @@ export function syncReplayWorkspaceToOnlineRoom(
     playbackPaused: Boolean(opts.playbackPaused),
     pausedAtTick: Math.max(0, Math.round(opts.pausedAtTick || 0)),
     ...(cameraSync ? { cameraSync } : {}),
+    ...(replaySync ? { replaySync } : {}),
   });
   if (!payload) return 0;
   return session.broadcastGlobalWorkspace?.(payload) ?? 0;
@@ -136,9 +178,13 @@ export class ReplayOnlineHeartbeatTracker {
       ? `${Boolean(cam.isFreeCam)}:${typeof cam.ballCam === 'boolean' ? cam.ballCam : true}:${Math.round(Number(cam.focusedCarIndex) || 0)}`
       : '';
     const intervalMs = getPauseHeartbeatIntervalMs(opts.pauseHeartbeatHz ?? 2);
-    const cameraChanged = camKey !== '' && camKey !== this.lastCameraKey;
+    const cameraChanged =
+      camKey !== '' && this.lastCameraKey !== '' && camKey !== this.lastCameraKey;
     if (!cameraChanged && nowMs - this.lastSyncMs < intervalMs) {
       return false;
+    }
+    if (cameraChanged) {
+      sharedAuthorityCameraSyncTracker.bumpLocalSeq();
     }
     this.lastSyncMs = nowMs;
     this.lastCameraKey = camKey;

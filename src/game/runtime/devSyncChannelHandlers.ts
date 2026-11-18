@@ -1,12 +1,16 @@
 import type { CameraManager } from '../../camera/CameraManager.ts';
 import type { RocketSimPhysicsEngine } from '../../physics/RocketSimPhysicsEngine.ts';
-import type { WorkspaceCameraSyncPayload } from '../../network/protocol/GlobalWorkspaceProtocol.ts';
+import type {
+  WorkspaceCameraSyncPayload,
+  WorkspaceReplaySyncPayload,
+} from '../../network/protocol/GlobalWorkspaceProtocol.ts';
 import { sharedAuthorityCameraSyncTracker } from '../pipeline/stages/AuthorityCameraSyncTracker.ts';
 import { isDevSyncClientInputAuthorityMode } from '../pipeline/stages/HostBroadcastPublisher.ts';
 import {
   applyCameraSyncToPort,
   applyIncomingPauseStateSync,
   applyIncomingWorkspaceBroadcast,
+  useReplayViewerStore,
 } from '../runtimeUiPort.ts';
 
 export interface DevSyncSessionCoordinatorPort {
@@ -140,6 +144,22 @@ export function bindDevSyncClientChannelHandlers(params: {
       })
     ) {
       applyCameraSyncToPort(camera, camSync);
+    }
+    const replaySync = (payload as { replaySync?: WorkspaceReplaySyncPayload } | null)?.replaySync;
+    if (replaySync) {
+      useReplayViewerStore?.getState?.()?.updateLiveTelemetry?.({
+        viewerState: replaySync.playbackState === 'paused' ? 'paused' : 'playing',
+        ...(replaySync.fileName !== undefined ? { loadedFileName: replaySync.fileName } : {}),
+        totalFrames: replaySync.totalFrames,
+        cursorFrame: replaySync.currentFrame,
+        ...(typeof replaySync.flowPct === 'number'
+          ? { effectiveFlowPct: replaySync.flowPct }
+          : {}),
+        ...(typeof replaySync.focusedCarIndex === 'number'
+          ? { activePovCarIndex: replaySync.focusedCarIndex }
+          : {}),
+        ...(Array.isArray(replaySync.roster) ? { resolvedRoster: replaySync.roster } : {}),
+      });
     }
   };
 

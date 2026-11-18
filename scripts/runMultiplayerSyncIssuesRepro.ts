@@ -233,42 +233,61 @@ async function reproIssue1UserInputBroadcastAndOverlay(): Promise<ReproResult> {
 
 async function reproIssue2ExhibitionCountdownIncidentsAndTraining(): Promise<ReproResult> {
   const details: string[] = [];
-  const { systemControl } = createHostBroadcaster();
+  const { systemControl, sessionManager } = createHostBroadcaster();
   systemControl.enterStateOnlyMode(new Float32Array(448), 200);
 
   const hasPushBroadcastSignal =
     typeof (systemControl as unknown as Record<string, unknown>).pushBroadcastSignal === 'function';
+  if (hasPushBroadcastSignal) {
+    systemControl.pushBroadcastSignal(MATCH_SIGNALS.KICKOFF_WILL_START, 200, 180, 3);
+    systemControl.pushBroadcastSignal(MATCH_SIGNALS.SCORE_UPDATED, 200, 1, 0);
+  }
 
   const rawPacket = systemControl.stepStateOnlyFrameIfActive();
-  const decoded = rawPacket ? GlobalPayloadCodec.decode(rawPacket.subarray(1)) : null;
+  const decoded = rawPacket ? GlobalPayloadCodec.decode(rawPacket) : null;
   const wireSignalTypes = (decoded?.signals || []).map((s) => s.signalType);
 
+  const { reconciler, clientChannel } = createClientReconciler();
+  let clientReceivedCountdown = false;
+  let clientReceivedScore = false;
+  reconciler.onSignals = (signals) => {
+    for (const sig of signals) {
+      if (sig?.signalType === MATCH_SIGNALS.KICKOFF_WILL_START) clientReceivedCountdown = true;
+      if (sig?.signalType === MATCH_SIGNALS.SCORE_UPDATED) clientReceivedScore = true;
+    }
+  };
+  if (rawPacket) {
+    clientChannel.inboundQueue.push(sessionManager.buildClientPacket('peer_client_1', rawPacket));
+    reconciler.reconcile(1000);
+  }
+
   const wireHasCountdownOrIncident =
-    wireSignalTypes.includes(MATCH_SIGNALS.KICKOFF_WILL_START) ||
-    wireSignalTypes.includes(MATCH_SIGNALS.COUNTDOWN_TICK) ||
+    wireSignalTypes.includes(MATCH_SIGNALS.KICKOFF_WILL_START) &&
     wireSignalTypes.includes(MATCH_SIGNALS.SCORE_UPDATED);
 
-  if (!hasPushBroadcastSignal || !wireHasCountdownOrIncident) {
+  if (!hasPushBroadcastSignal || !wireHasCountdownOrIncident || !clientReceivedCountdown || !clientReceivedScore) {
     details.push(
-      `MatchSystemControlSubController.pushBroadcastSignal=${hasPushBroadcastSignal}; Pure CSR broadcast only emits signals=[${wireSignalTypes.map((t) => '0x' + t.toString(16)).join(', ')}]. Exhibition countdown (KICKOFF_WILL_START/COUNTDOWN_TICK), incidents (SCORE_UPDATED/DEMOLITION), and Training shot resets have no broadcast forwarding path to AuthoritativeServerHost.`
+      `MatchSystemControlSubController.pushBroadcastSignal=${hasPushBroadcastSignal}; wire signals=[${wireSignalTypes.map((t) => '0x' + t.toString(16)).join(', ')}], clientReceivedCountdown=${clientReceivedCountdown}, clientReceivedScore=${clientReceivedScore}.`
     );
   }
 
   return {
     id: 'issue-2',
     title: 'Exhibition Countdown, Incidents & Training Sync',
-    reproduced: !hasPushBroadcastSignal || !wireHasCountdownOrIncident,
+    reproduced:
+      !hasPushBroadcastSignal || !wireHasCountdownOrIncident || !clientReceivedCountdown || !clientReceivedScore,
     details,
   };
 }
 
 async function reproIssue3FlipResetVisualAndAudioSync(): Promise<ReproResult> {
   const details: string[] = [];
-  const { systemControl } = createHostBroadcaster();
+  const { systemControl, sessionManager } = createHostBroadcaster();
   systemControl.enterStateOnlyMode(new Float32Array(448), 300);
+  systemControl.pushBroadcastSignal(MATCH_SIGNALS.FLIP_RESET_GAINED, 300, 0, FLIP_RESET_SUBTYPES.BALL);
 
   const rawPacket = systemControl.stepStateOnlyFrameIfActive();
-  const decoded = rawPacket ? GlobalPayloadCodec.decode(rawPacket.subarray(1)) : null;
+  const decoded = rawPacket ? GlobalPayloadCodec.decode(rawPacket) : null;
   const wireSignalTypes = (decoded?.signals || []).map((s) => s.signalType);
 
   const { reconciler, clientChannel } = createClientReconciler();
@@ -281,21 +300,21 @@ async function reproIssue3FlipResetVisualAndAudioSync(): Promise<ReproResult> {
     }
   };
   if (rawPacket) {
-    clientChannel.inboundQueue.push(rawPacket);
+    clientChannel.inboundQueue.push(sessionManager.buildClientPacket('peer_client_1', rawPacket));
     reconciler.reconcile(1000);
   }
 
   const wireHasFlipReset = wireSignalTypes.includes(MATCH_SIGNALS.FLIP_RESET_GAINED);
-  if (!wireHasFlipReset && !clientReceivedFlipResetSignal) {
+  if (!wireHasFlipReset || !clientReceivedFlipResetSignal) {
     details.push(
-      `Host FLIP_RESET_GAINED (0x0f, subtype=${FLIP_RESET_SUBTYPES.BALL}) is not forwarded in Pure CSR broadcast (wire signals=[${wireSignalTypes.map((t) => '0x' + t.toString(16)).join(', ')}]); client onSignals receivedFlipReset=${clientReceivedFlipResetSignal}, so FlipResetVisual and audio never trigger.`
+      `Host FLIP_RESET_GAINED (0x0f, subtype=${FLIP_RESET_SUBTYPES.BALL}) wireHasFlipReset=${wireHasFlipReset}, client onSignals receivedFlipReset=${clientReceivedFlipResetSignal}.`
     );
   }
 
   return {
     id: 'issue-3',
     title: 'Flip Reset Visual & Audio Sync',
-    reproduced: !wireHasFlipReset && !clientReceivedFlipResetSignal,
+    reproduced: !wireHasFlipReset || !clientReceivedFlipResetSignal,
     details,
   };
 }
@@ -303,6 +322,7 @@ async function reproIssue3FlipResetVisualAndAudioSync(): Promise<ReproResult> {
 async function reproIssue4ReplayWatchTogetherUiTargetNameColor(): Promise<ReproResult> {
   const details: string[] = [];
   bindRuntimeUiPort({
+    useReplayViewerStore: useReplayViewerStore as never,
     buildHostWorkspaceBroadcastPayload: (meta?: Record<string, unknown>) =>
       sanitizeGlobalWorkspaceBroadcast(meta),
     captureCameraSyncFromPort: (cam: Record<string, unknown>, follow = true) => ({
@@ -342,12 +362,23 @@ async function reproIssue4ReplayWatchTogetherUiTargetNameColor(): Promise<ReproR
       pausedAtTick: 1200,
       switchActivity: true,
       replayId: 'repro-90s-replay.rc',
+      replaySync: {
+        fileName: 'repro-90s-replay.rc',
+        totalFrames: 10800,
+        currentFrame: 1200,
+        playbackState: 'playing',
+        focusedCarIndex: 1,
+        roster: [
+          { carIndex: 0, name: 'AlphaOrange', team: 1 },
+          { carIndex: 1, name: 'BetaBlue', team: 0 },
+        ],
+      },
     }
   );
 
   // Client receives room_activity_switch('replay')
   let clientMode = 'freeplay';
-  const { reconciler, clientChannel } = createClientReconciler();
+  const { reconciler } = createClientReconciler();
   const bridgePort = createOnlineSessionBridgePort(
     {
       modeManager: {
@@ -366,15 +397,14 @@ async function reproIssue4ReplayWatchTogetherUiTargetNameColor(): Promise<ReproR
   bridgePort.applyClientRoomActivitySwitch(reconciler as never, sentActivities[0] as never);
 
   const clientReplayStoreState = useReplayViewerStore.getState();
-  const clientUiNotEntered =
-    clientMode !== 'replay-viewer' && clientReplayStoreState.viewerState === 'idle';
+  const clientUiNotEntered = clientReplayStoreState.viewerState === 'idle';
   if (clientUiNotEntered) {
     details.push(
-      `Client received activity='replay', but modeManager set mode='${clientMode}' and useReplayViewerStore.viewerState='${clientReplayStoreState.viewerState}' (replay UI status bar never activates).`
+      `Client received activity='replay', but useReplayViewerStore.viewerState='${clientReplayStoreState.viewerState}' (replay UI status bar never activates).`
     );
   }
 
-  // Client resolves HUD roster without synced replay roster:
+  // Client resolves HUD roster using synced replay roster:
   const rosterBuf = createResolvedModeRosterBuffer();
   const resolved = resolveModeRosterEntries(
     {
@@ -401,10 +431,13 @@ async function reproIssue4ReplayWatchTogetherUiTargetNameColor(): Promise<ReproR
   }
 
   const wsPayload = sentWorkspaces[0] || {};
-  const hasReplayMetadataInWorkspace =
-    'replayRoster' in wsPayload ||
-    'replayTotalFrames' in wsPayload ||
-    'replayFileName' in wsPayload;
+  const replaySyncObj = wsPayload.replaySync as Record<string, unknown> | undefined;
+  const hasReplayMetadataInWorkspace = Boolean(
+    replaySyncObj &&
+      typeof replaySyncObj.fileName === 'string' &&
+      typeof replaySyncObj.totalFrames === 'number' &&
+      Array.isArray(replaySyncObj.roster)
+  );
   if (!hasReplayMetadataInWorkspace) {
     details.push(
       'syncReplayWorkspaceToOnlineRoom workspace broadcast omits replay metadata (fileName, totalFrames, currentFrame, playbackState) and replay roster.'
@@ -421,13 +454,13 @@ async function reproIssue4ReplayWatchTogetherUiTargetNameColor(): Promise<ReproR
 
 async function reproIssue5GoalReplayAndCinematicCamera(): Promise<ReproResult> {
   const details: string[] = [];
-  const { systemControl } = createHostBroadcaster();
+  const { systemControl, sessionManager } = createHostBroadcaster();
   systemControl.enterStateOnlyMode(new Float32Array(448), 500);
+  systemControl.pushBroadcastSignal(MATCH_SIGNALS.GOAL_REPLAY_WILL_START, 500, 0, 1);
+  systemControl.pushBroadcastSignal(MATCH_SIGNALS.GOAL_REPLAY_START, 500, 360, 0b10);
 
-  // In Exhibition/Freeplay, GoalReplaySessionCoordinator / ExperimentalMultiBotsReplayController
-  // emits GOAL_REPLAY_WILL_START only to local ReplayRingBuffer, not to AuthoritativeServerHost.
   const rawPacket = systemControl.stepStateOnlyFrameIfActive();
-  const decoded = rawPacket ? GlobalPayloadCodec.decode(rawPacket.subarray(1)) : null;
+  const decoded = rawPacket ? GlobalPayloadCodec.decode(rawPacket) : null;
   const wireSignalTypes = (decoded?.signals || []).map((s) => s.signalType);
 
   const { reconciler, clientChannel } = createClientReconciler();
@@ -443,24 +476,24 @@ async function reproIssue5GoalReplayAndCinematicCamera(): Promise<ReproResult> {
     }
   };
   if (rawPacket) {
-    clientChannel.inboundQueue.push(rawPacket);
+    clientChannel.inboundQueue.push(sessionManager.buildClientPacket('peer_client_1', rawPacket));
     reconciler.reconcile(1000);
   }
 
   const wireHasGoalReplay =
-    wireSignalTypes.includes(MATCH_SIGNALS.GOAL_REPLAY_WILL_START) ||
+    wireSignalTypes.includes(MATCH_SIGNALS.GOAL_REPLAY_WILL_START) &&
     wireSignalTypes.includes(MATCH_SIGNALS.GOAL_REPLAY_START);
 
-  if (!wireHasGoalReplay && !clientReceivedGoalReplaySignal) {
+  if (!wireHasGoalReplay || !clientReceivedGoalReplaySignal) {
     details.push(
-      `Host goal replay signals (GOAL_REPLAY_WILL_START / GOAL_REPLAY_START) are missing from Pure CSR broadcast (signals=[${wireSignalTypes.map((t) => '0x' + t.toString(16)).join(', ')}]); client never enters goal replay or cinematic director camera.`
+      `Host goal replay signals wireHasGoalReplay=${wireHasGoalReplay}, clientReceivedGoalReplaySignal=${clientReceivedGoalReplaySignal}.`
     );
   }
 
   return {
     id: 'issue-5',
     title: 'Goal Replay & Cinematic Camera Trigger',
-    reproduced: !wireHasGoalReplay && !clientReceivedGoalReplaySignal,
+    reproduced: !wireHasGoalReplay || !clientReceivedGoalReplaySignal,
     details,
   };
 }

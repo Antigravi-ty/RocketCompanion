@@ -1,8 +1,50 @@
 import type { CarControlsInput } from '../../../network/protocol/InputPacketCodec.ts';
+import { MATCH_SIGNALS } from '../../../network/protocol/GlobalPayloadCodec.ts';
 import type { AuthoritativeServerHost } from '../../../network/server/AuthoritativeServerHost.ts';
 import type { PredictionReconciler } from '../../../network/client/PredictionReconciler.ts';
+import { FLIP_RESET_SUBTYPES } from '../../../physics/RocketSimConstants.ts';
 import type { RocketSimPhysicsEngine } from '../../../physics/RocketSimPhysicsEngine.ts';
 import { useAppStore } from '../../runtimeUiPort.ts';
+
+export function broadcastHostFlipResetSignalsIfNeeded(
+  server: AuthoritativeServerHost | null | undefined,
+  tickRes: { flipResetVisualCarIndices?: readonly number[] } | null | undefined,
+  currentTick: number
+): void {
+  if (!server || !isDevSyncHostBroadcastingMode(true)) return;
+  const indices = tickRes?.flipResetVisualCarIndices;
+  if (!Array.isArray(indices) || indices.length === 0) return;
+  for (let i = 0; i < indices.length; i++) {
+    server.pushBroadcastSignal(
+      MATCH_SIGNALS.FLIP_RESET_GAINED,
+      currentTick,
+      indices[i],
+      FLIP_RESET_SUBTYPES.BALL
+    );
+  }
+}
+
+export function collectHostBroadcastControls(params: {
+  numCars: number;
+  playerCarIdx: number;
+  playerControls: CarControlsInput | Record<string, unknown> | null | undefined;
+  activeMode: {
+    getCarControls?: (carIdx: number) => CarControlsInput | Record<string, unknown> | null;
+  } | null;
+  botCoordinator?: { isBotMatch?: boolean; botControls?: CarControlsInput } | null;
+}): Array<{ carIndex: number; controls: CarControlsInput }> {
+  const { numCars, playerCarIdx, playerControls, activeMode, botCoordinator } = params;
+  const out: Array<{ carIndex: number; controls: CarControlsInput }> = [];
+  for (let carIdx = 0; carIdx < numCars; carIdx++) {
+    const modeCtrl = activeMode?.getCarControls?.(carIdx) as CarControlsInput | null | undefined;
+    if (modeCtrl) out.push({ carIndex: carIdx, controls: modeCtrl });
+    else if (carIdx === playerCarIdx && playerControls)
+      out.push({ carIndex: carIdx, controls: playerControls as CarControlsInput });
+    else if (botCoordinator?.isBotMatch && carIdx === 1 && botCoordinator.botControls)
+      out.push({ carIndex: carIdx, controls: botCoordinator.botControls });
+  }
+  return out;
+}
 
 export function isDevSyncHostBroadcastingMode(hasServer: boolean): boolean {
   if (!hasServer) return false;

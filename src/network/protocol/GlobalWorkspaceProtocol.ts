@@ -40,6 +40,23 @@ export interface AuthorityCameraSyncPayload {
 
 export type InputAuthorityMode = 'explicit' | 'fpv_master_slave';
 
+export interface WorkspaceReplayRosterEntry {
+  carIndex: number;
+  name: string;
+  team: 0 | 1;
+  isBot?: boolean;
+}
+
+export interface WorkspaceReplaySyncPayload {
+  fileName?: string;
+  totalFrames: number;
+  currentFrame: number;
+  playbackState: 'playing' | 'paused' | 'ended';
+  flowPct?: number;
+  focusedCarIndex?: number;
+  roster?: WorkspaceReplayRosterEntry[];
+}
+
 export interface GlobalWorkspaceBroadcastPayload {
   epoch: number;
   tick: number;
@@ -59,6 +76,7 @@ export interface GlobalWorkspaceBroadcastPayload {
   menuStateIncluded?: boolean;
   arenaPreset?: 'standard' | 'throwback';
   cameraSync?: WorkspaceCameraSyncPayload;
+  replaySync?: WorkspaceReplaySyncPayload;
 }
 
 export interface ClientAuthorityFramePayload {
@@ -146,6 +164,64 @@ function sanitizeCameraSync(raw: unknown): WorkspaceCameraSyncPayload | undefine
   };
 }
 
+function sanitizeReplaySync(raw: unknown): WorkspaceReplaySyncPayload | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const src = raw as Record<string, unknown>;
+  const fileName =
+    typeof src.fileName === 'string' && src.fileName.trim() ? src.fileName.trim() : undefined;
+  const totalFrames =
+    typeof src.totalFrames === 'number' && Number.isFinite(src.totalFrames)
+      ? Math.max(0, Math.round(src.totalFrames))
+      : 0;
+  const currentFrame =
+    typeof src.currentFrame === 'number' && Number.isFinite(src.currentFrame)
+      ? Math.max(0, Math.round(src.currentFrame))
+      : 0;
+  const playbackState =
+    src.playbackState === 'paused' || src.playbackState === 'ended' ? src.playbackState : 'playing';
+  const flowPct =
+    typeof src.flowPct === 'number' && Number.isFinite(src.flowPct)
+      ? Math.max(1, Math.round(src.flowPct))
+      : undefined;
+  const focusedCarIndex =
+    typeof src.focusedCarIndex === 'number' && Number.isFinite(src.focusedCarIndex)
+      ? Math.max(0, Math.min(7, Math.round(src.focusedCarIndex)))
+      : undefined;
+  let roster: WorkspaceReplayRosterEntry[] | undefined;
+  if (Array.isArray(src.roster)) {
+    const out: WorkspaceReplayRosterEntry[] = [];
+    for (let i = 0; i < src.roster.length && i < 8; i++) {
+      const item = src.roster[i] as Record<string, unknown> | null | undefined;
+      if (!item || typeof item !== 'object') continue;
+      const carIndex =
+        typeof item.carIndex === 'number' && Number.isFinite(item.carIndex)
+          ? Math.max(0, Math.min(7, Math.round(item.carIndex)))
+          : i;
+      const name =
+        typeof item.name === 'string' && item.name.trim()
+          ? item.name.trim()
+          : `Car ${carIndex + 1}`;
+      const team: 0 | 1 = item.team === 1 ? 1 : 0;
+      out.push({
+        carIndex,
+        name,
+        team,
+        ...(typeof item.isBot === 'boolean' ? { isBot: item.isBot } : {}),
+      });
+    }
+    if (out.length > 0) roster = out;
+  }
+  return {
+    ...(fileName !== undefined ? { fileName } : {}),
+    totalFrames,
+    currentFrame,
+    playbackState,
+    ...(flowPct !== undefined ? { flowPct } : {}),
+    ...(focusedCarIndex !== undefined ? { focusedCarIndex } : {}),
+    ...(roster ? { roster } : {}),
+  };
+}
+
 export function sanitizeGlobalWorkspaceBroadcast(
   raw: Record<string, unknown> | Partial<GlobalWorkspaceBroadcastPayload> | null | undefined
 ): GlobalWorkspaceBroadcastPayload {
@@ -172,6 +248,7 @@ export function sanitizeGlobalWorkspaceBroadcast(
         ? 'standard'
         : undefined;
   const cameraSync = sanitizeCameraSync(src.cameraSync);
+  const replaySync = sanitizeReplaySync(src.replaySync);
 
   const matchMode =
     typeof src.matchMode === 'string' && src.matchMode.trim() ? src.matchMode.trim() : undefined;
@@ -208,6 +285,7 @@ export function sanitizeGlobalWorkspaceBroadcast(
     menuStateIncluded: typeof src.menuStateIncluded === 'boolean' ? src.menuStateIncluded : true,
     ...(arenaPreset !== undefined ? { arenaPreset } : {}),
     ...(cameraSync !== undefined ? { cameraSync } : {}),
+    ...(replaySync !== undefined ? { replaySync } : {}),
   };
 }
 

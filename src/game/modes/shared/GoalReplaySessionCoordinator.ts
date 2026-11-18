@@ -8,6 +8,8 @@ import {
   type ReplayStepEventsPayload,
 } from '../../../replay/ReplayFrameEventDispatcher.ts';
 import type { ReplayPlaybackStepResult } from '../../../replay/ReplayTimelineController.ts';
+import { MATCH_SIGNALS } from '../../../network/protocol/GlobalPayloadCodec.ts';
+import { isDevSyncHostBroadcastingMode } from '../../pipeline/stages/HostBroadcastPublisher.ts';
 import {
   bindGoalReplayHudStateAndCallbacks,
   type GoalReplayCameraMode,
@@ -129,6 +131,37 @@ export function beginGoalReplaySession(
   }
   if (options.syncHud !== false)
     bindGoalReplayHudCallbacks({ ...options, runtime: scenePort, replayController });
+  if (source !== 'network-streamed') {
+    const netPort = scenePort as {
+      networkManager?: {
+        server?: {
+          pushBroadcastSignal?: (
+            signalType: number,
+            frameId?: number,
+            param1?: number,
+            param2?: number,
+            replaceTypes?: number[]
+          ) => void;
+        } | null;
+      } | null;
+      physics?: { getHeaderView?: () => { tickCount?: number } } | null;
+    } | null;
+    const server = netPort?.networkManager?.server;
+    if (isDevSyncHostBroadcastingMode(Boolean(server))) {
+      const currentTick = Math.floor(netPort?.physics?.getHeaderView?.()?.tickCount ?? 0);
+      const replayTicks =
+        (replayController as { totalFrames?: number } | null | undefined)?.totalFrames ??
+        (replayController?.sessionState as { totalFrames?: number } | undefined)?.totalFrames ??
+        360;
+      const packedMeta = (scoringTeam & 0x1) | ((scorerCarIndex & 0xff) << 1);
+      server?.pushBroadcastSignal?.(
+        MATCH_SIGNALS.GOAL_REPLAY_START,
+        currentTick,
+        replayTicks,
+        packedMeta
+      );
+    }
+  }
 }
 
 export function stepGoalReplaySessionFrame(
@@ -270,4 +303,29 @@ export function endGoalReplaySession(
     }
   }
   resetGoalReplayHudStateOnEnd(options);
+  if (source !== 'network-streamed') {
+    const netPort = scenePort as {
+      networkManager?: {
+        server?: {
+          pushBroadcastSignal?: (
+            signalType: number,
+            frameId?: number,
+            param1?: number,
+            param2?: number,
+            replaceTypes?: number[]
+          ) => void;
+        } | null;
+      } | null;
+      physics?: { getHeaderView?: () => { tickCount?: number } } | null;
+    } | null;
+    const server = netPort?.networkManager?.server;
+    if (isDevSyncHostBroadcastingMode(Boolean(server))) {
+      const currentTick = Math.floor(netPort?.physics?.getHeaderView?.()?.tickCount ?? 0);
+      server?.pushBroadcastSignal?.(MATCH_SIGNALS.GOAL_REPLAY_END, currentTick, 0, 0, [
+        MATCH_SIGNALS.GOAL_REPLAY_WILL_START,
+        MATCH_SIGNALS.GOAL_REPLAY_START,
+        MATCH_SIGNALS.GOAL_REPLAY_WILL_END,
+      ]);
+    }
+  }
 }

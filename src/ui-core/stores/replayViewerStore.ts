@@ -57,6 +57,13 @@ export interface ReplayViewerStoreState {
   activePovSlotKey: number | null;
   activePovTeam: 0 | 1;
   isLoadingReplay: boolean;
+  resolvedRoster?: Array<{
+    carIndex: number;
+    name?: string;
+    team?: number;
+    isSelf?: boolean;
+    isBot?: boolean;
+  }>;
 
   setDownCounterSec: (sec: ReplayDownCounterOption) => void;
   setFlowPreset: (preset: ReplayFlowPreset) => void;

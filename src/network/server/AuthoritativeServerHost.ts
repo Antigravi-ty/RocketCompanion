@@ -311,6 +311,21 @@ export class AuthoritativeServerHost {
       acknowledgedControls: acknowledgedControls ?? null,
     });
   }
+  pushBroadcastSignal(
+    signalType: number,
+    frameId?: number,
+    param1 = 0,
+    param2 = 0,
+    replaceTypes?: number[]
+  ): void {
+    this._postCommand('pushBroadcastSignal', {
+      signalType,
+      frameId,
+      param1,
+      param2,
+      replaceTypes: Array.isArray(replaceTypes) ? replaceTypes : undefined,
+    });
+  }
   beginInterveneCountdown(countdownSeconds = 3, s?: Float32Array | number[] | null): void {
     this._postCommand('beginInterveneCountdown', {
       countdownSeconds,

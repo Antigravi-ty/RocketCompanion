@@ -287,7 +287,9 @@ export class TelemetryStage implements PipelineStage {
       : viewerRoster?.activePovCarIndex;
     src.replayViewerResolvedRoster = useRlrcSession
       ? rlrcResolvedRoster
-      : viewerRoster?.resolvedRoster;
+      : viewerRoster?.resolvedRoster?.length
+        ? viewerRoster.resolvedRoster
+        : useReplayViewerStore.getState().resolvedRoster;
     src.expPlayerParticipation = expStore?.playerParticipation;
     src.expSpawnedCars = expSpawnedCars;
     src.rawRosterSnapshot =

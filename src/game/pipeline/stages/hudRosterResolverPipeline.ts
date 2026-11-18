@@ -184,7 +184,11 @@ export function resolveModeRosterEntries(
     );
   };
 
-  if (source.isReplayViewerLoaded) {
+  const hasSyncedReplayRoster =
+    Boolean(source.replayViewerState && source.replayViewerState !== 'idle') &&
+    Array.isArray(source.replayViewerResolvedRoster) &&
+    source.replayViewerResolvedRoster.length > 0;
+  if (source.isReplayViewerLoaded || hasSyncedReplayRoster) {
     const viewerState = source.replayViewerState;
     const isReplayViewerIntervening =
       viewerState === 'preroll-countdown' || viewerState === 'intervening';

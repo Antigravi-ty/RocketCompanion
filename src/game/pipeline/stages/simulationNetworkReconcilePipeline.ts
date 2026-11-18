@@ -3,6 +3,7 @@ import {
   type ReplayDirectorRosterRuntimePort,
   captureRuntimeReplayCarEntries,
 } from '../../../replay/replayDirectorCarRosterPipeline.ts';
+import { MATCH_SIGNALS } from '../../../network/protocol/GlobalPayloadCodec.ts';
 import type { SpectateInterpolationBuffer } from '../../../network/sync/ReplicationStateInterpolator.ts';
 import type { CameraManager } from '../../../camera/CameraManager.ts';
 import type { AuthoritativeServerHost } from '../../../network/server/AuthoritativeServerHost.ts';
@@ -173,6 +174,17 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
   }
 
   if (isPureCsrSpectate && !reconciler.replayPlaybackMode && spectateInterpolationBuffer) {
+    const lastSignals = (
+      reconciler.lastParsedPacket as { signals?: Array<{ signalType?: number }> } | null
+    )?.signals;
+    if (
+      Array.isArray(lastSignals) &&
+      lastSignals.some(
+        (s) => s?.signalType === MATCH_SIGNALS.BALL_RESET || s?.signalType === MATCH_SIGNALS.ROUND_STARTED
+      )
+    ) {
+      spectateInterpolationBuffer.reset();
+    }
     if (
       Array.isArray(reconciler.drainedReplayPackets) &&
       reconciler.drainedReplayPackets.length > 0

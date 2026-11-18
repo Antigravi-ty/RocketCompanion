@@ -44,6 +44,11 @@ export class AuthorityCameraSyncTracker {
     return this.localSeq;
   }
 
+  public bumpLocalSeq(): number {
+    this.localSeq += 1;
+    return this.localSeq;
+  }
+
   public computeCameraKey(
     camera:
       | { isFreeCam?: boolean; ballCam?: boolean; focusedCarIndex?: number }

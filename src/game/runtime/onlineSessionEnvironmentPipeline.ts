@@ -4,6 +4,7 @@ import type { ReplayTimelineController } from '../../replay/ReplayTimelineContro
 import {
   hudStore,
   useAppStore,
+  useReplayViewerStore,
   syncArenaPresetUi,
   syncClientInputEnabledUi,
 } from '../runtimeUiPort.ts';
@@ -394,6 +395,55 @@ export function createOnlineSessionBridgePort(
       if (typeof resolvedInputEnabled === 'boolean') {
         reconciler.setClientInputEnabled(resolvedInputEnabled);
         syncClientInputEnabledUi(resolvedInputEnabled);
+      }
+      const rvStore = useReplayViewerStore?.getState?.();
+      if (rvStore?.updateLiveTelemetry) {
+        if (activityId === 'replay') {
+          const rs =
+            cfg?.replaySync && typeof cfg.replaySync === 'object'
+              ? (cfg.replaySync as Record<string, unknown>)
+              : null;
+          const playbackPaused = Boolean(cfg?.playbackPaused ?? rs?.playbackState === 'paused');
+          rvStore.updateLiveTelemetry({
+            viewerState: playbackPaused ? 'paused' : 'playing',
+            loadedFileName:
+              typeof rs?.fileName === 'string'
+                ? rs.fileName
+                : typeof payload.replayId === 'string'
+                  ? payload.replayId
+                  : null,
+            ...(typeof rs?.totalFrames === 'number' ? { totalFrames: rs.totalFrames } : {}),
+            cursorFrame:
+              typeof rs?.currentFrame === 'number'
+                ? rs.currentFrame
+                : typeof cfg?.pausedAtTick === 'number'
+                  ? cfg.pausedAtTick
+                  : 0,
+            ...(typeof rs?.flowPct === 'number' ? { effectiveFlowPct: rs.flowPct } : {}),
+            ...(typeof rs?.focusedCarIndex === 'number'
+              ? { activePovCarIndex: rs.focusedCarIndex }
+              : {}),
+            ...(Array.isArray(rs?.roster)
+              ? {
+                  resolvedRoster: rs.roster as Array<{
+                    carIndex: number;
+                    name?: string;
+                    team?: number;
+                    isSelf?: boolean;
+                    isBot?: boolean;
+                  }>,
+                }
+              : {}),
+          });
+        } else {
+          rvStore.updateLiveTelemetry({
+            viewerState: 'idle',
+            loadedFileName: null,
+            totalFrames: 0,
+            cursorFrame: 0,
+            resolvedRoster: [],
+          });
+        }
       }
     },
   };

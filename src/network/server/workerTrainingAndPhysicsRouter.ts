@@ -200,6 +200,18 @@ export function routeTrainingAndPhysicsMessage(
       );
       return true;
 
+    case 'pushBroadcastSignal':
+      if (typeof payload?.signalType === 'number') {
+        matchManager?.systemControl.pushBroadcastSignal(
+          payload.signalType,
+          typeof payload.frameId === 'number' ? payload.frameId : undefined,
+          typeof payload.param1 === 'number' ? payload.param1 : 0,
+          typeof payload.param2 === 'number' ? payload.param2 : 0,
+          Array.isArray(payload.replaceTypes) ? (payload.replaceTypes as number[]) : undefined
+        );
+      }
+      return true;
+
     case 'beginInterveneCountdown':
       matchManager?.systemControl.beginInterveneCountdown(
         payload?.countdownSeconds ?? 3,

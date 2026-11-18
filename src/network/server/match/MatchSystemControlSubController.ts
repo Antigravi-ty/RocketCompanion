@@ -170,6 +170,24 @@ export class MatchSystemControlSubController {
     this.loadSimSnapshot(snap, cursorTick);
   }
 
+  pushBroadcastSignal(
+    signalType: number,
+    frameId?: number,
+    param1 = 0,
+    param2 = 0,
+    replaceTypes?: number[]
+  ): void {
+    if (!this.isStateOnlyMode) return;
+    if (Array.isArray(replaceTypes) && replaceTypes.length > 0) {
+      this.host.commandQueue.retireSignalTypes(replaceTypes, true);
+    }
+    const targetFrame =
+      typeof frameId === 'number' && Number.isFinite(frameId)
+        ? Math.floor(frameId)
+        : this.host.domain.matchTick;
+    this.host.commandQueue.dispatchSignal(signalType, targetFrame, param1, param2);
+  }
+
   enterStateOnlyMode(
     snap?: Float32Array | number[] | null,
     cursorTick?: number,
