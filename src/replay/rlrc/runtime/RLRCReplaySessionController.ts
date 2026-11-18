@@ -1,5 +1,10 @@
 import { useReplayToRcsImporterStore } from '../../../game/runtimeUiPort.ts';
 import { ReplayHotkeySubController } from '../../ReplayHotkeySubController.ts';
+import {
+  ReplayOnlineHeartbeatTracker,
+  syncReplayWorkspaceToOnlineRoom,
+  type ReplayOnlineRuntimePort,
+} from '../../replayOnlineSyncHelper.ts';
 import type {
   ReplayScoreboardModePort,
   ReplayScoreboardRuntimePort,
@@ -54,6 +59,7 @@ export class RLRCReplaySessionController {
   public readonly interveneController: RLRCInterveneTakeoverSubController;
   public readonly hotkeySubController = new ReplayHotkeySubController();
   public readonly audioEdgeSynthesizer = new RLRCPlaybackAudioEdgeSynthesizer();
+  public readonly onlineHeartbeat = new ReplayOnlineHeartbeatTracker();
   private _frac = 0;
   private _tick = 0;
   private _hudKey = '';
@@ -115,12 +121,15 @@ export class RLRCReplaySessionController {
       this._syncRoster(this.session.roster);
       this._applyFrame(this.cursorFrame120Hz, false);
       this.runtime?.camera?.resetView?.();
+      this._syncOnlineRoom(true, true);
     }
   }
 
   public deactivateMode(): void {
     if (this.isIntervening) this.interveneController.exitInterveneToViewing();
     this.audioEdgeSynthesizer.reset();
+    this.onlineHeartbeat.reset();
+    this._syncOnlineRoom(true, false);
     setTelem({
       isWindowOpen: false,
       hasHotkeyPriority: false,
@@ -162,6 +171,7 @@ export class RLRCReplaySessionController {
     this._applyFrame(clamped, false);
     this.runtime?.camera?.resetView?.();
     publishConvertedSessionTelemetry(c, fileName, clamped, this.activePovSlotIndex);
+    this._syncOnlineRoom(true, true);
   }
 
   public async exportRcsReplayPack(): Promise<void> {
@@ -179,6 +189,7 @@ export class RLRCReplaySessionController {
     }
     this._tick = 0;
     setTelem({ viewerState: 'playing', cursorFrame: this.cursorFrame120Hz });
+    this._syncOnlineRoom(false, true);
   }
 
   public pausePlaying(): void {
@@ -191,6 +202,7 @@ export class RLRCReplaySessionController {
       cursorFrame: this.cursorFrame120Hz,
       targetFrame: this.cursorFrame120Hz,
     });
+    this._syncOnlineRoom(false, true);
   }
 
   public beginScrub(direction: 'rewinding' | 'forwarding'): void {
@@ -218,6 +230,7 @@ export class RLRCReplaySessionController {
     this._hudKey = '';
     this._applyFrame(clamped, false);
     setTelem({ viewerState: 'paused', cursorFrame: clamped, targetFrame: clamped });
+    this._syncOnlineRoom(false, true);
   }
 
   public selectPovSlot(slotKey: number): void {
@@ -238,6 +251,7 @@ export class RLRCReplaySessionController {
       applyCurrentFrame: () => this._applyFrame(this.cursorFrame120Hz, false),
     });
     if (!resolved) return;
+    this._syncOnlineRoom(false, true);
   }
 
   public resumeFromCursor(): void {
@@ -275,6 +289,8 @@ export class RLRCReplaySessionController {
     if (this.isIntervening) this.interveneController.exitInterveneToViewing();
     this.runtime?.audioSubsystem?.resetAudio?.();
     this.audioEdgeSynthesizer.reset();
+    this.onlineHeartbeat.reset();
+    this._syncOnlineRoom(true, false);
     this.session = null;
     this.cursorFrame120Hz = 0;
     this._frac = 0;
@@ -343,6 +359,13 @@ export class RLRCReplaySessionController {
     this._frac = res.frac;
     this.cursorFrame120Hz = res.cursorFrame120Hz;
     this._tick = res.tick;
+    const rt = this.runtime as unknown as ReplayOnlineRuntimePort | null;
+    if (rt?.multiplayerSession?.isHosting) {
+      this.onlineHeartbeat.maybeSync(rt, {
+        playbackPaused: state === 'paused',
+        pausedAtTick: this.cursorFrame120Hz,
+      });
+    }
     return res.stepped;
   }
 
@@ -359,6 +382,38 @@ export class RLRCReplaySessionController {
       originEndFrame120Hz: options?.originEndFrame,
       povSlotIndex: this.activePovSlotIndex,
       sourceReplayName: st.loadedFileName || this.session.header?.replayName || 'replay',
+    });
+  }
+
+  private _syncOnlineRoom(switchActivity: boolean, active: boolean): void {
+    const rt = this.runtime as unknown as ReplayOnlineRuntimePort | null;
+    if (!rt?.multiplayerSession?.isHosting) return;
+    const st = getSt();
+    const s = this.session;
+    syncReplayWorkspaceToOnlineRoom(rt, {
+      active,
+      playbackPaused: st.viewerState === 'paused',
+      pausedAtTick: this.cursorFrame120Hz,
+      switchActivity,
+      replayId: st.loadedFileName || s?.header?.replayName || undefined,
+      ...(active && s
+        ? {
+            replaySync: {
+              fileName: st.loadedFileName || s.header?.replayName || undefined,
+              totalFrames: s.frames120Hz.length,
+              currentFrame: this.cursorFrame120Hz,
+              playbackState: st.viewerState === 'paused' ? 'paused' : 'playing',
+              flowPct: st.effectiveFlowPct,
+              focusedCarIndex: this.activePovSlotIndex,
+              roster: s.roster.map((m) => ({
+                carIndex: m.slotIndex,
+                name: m.userName || `Player ${m.slotIndex + 1}`,
+                team: (m.team === 1 ? 1 : 0) as 0 | 1,
+                isBot: false,
+              })),
+            },
+          }
+        : {}),
     });
   }
 

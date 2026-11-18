@@ -111,9 +111,15 @@ export class AuthorityCameraSyncTracker {
     cameraSync: WorkspaceCameraSyncPayload | null | undefined;
     isLocalAuthority: boolean;
     incomingEpoch?: number;
+    allowClientIndependentCamera?: boolean;
   }): boolean {
-    const { cameraSync, isLocalAuthority, incomingEpoch } = params;
-    if (isLocalAuthority || !cameraSync || cameraSync.followHostCamera === false) {
+    const { cameraSync, isLocalAuthority, incomingEpoch, allowClientIndependentCamera } = params;
+    if (
+      isLocalAuthority ||
+      allowClientIndependentCamera ||
+      !cameraSync ||
+      cameraSync.followHostCamera === false
+    ) {
       return false;
     }
     const seq =

@@ -78,6 +78,7 @@ import { NetworkDataHandler } from '../src/network/server/NetworkDataHandler.ts'
 import { EstablishedSessionManager } from '../src/network/server/EstablishedSessionManager.ts';
 import { InputPacketCodec } from '../src/network/protocol/InputPacketCodec.ts';
 import { routeProtocolMessageInWorker } from '../src/network/server/HostWorkerMessageRouter.ts';
+import { bindDevSyncClientChannelHandlers } from '../src/game/runtime/devSyncChannelHandlers.ts';
 import { HOST_WORKER_MSG_TYPES } from '../src/network/protocol/HostWorkerProtocol.ts';
 import { createOnlineSessionBridgePort } from '../src/game/runtime/onlineSessionEnvironmentPipeline.ts';
 import { MatchDomainState } from '../src/network/server/match/MatchDomainState.ts';
@@ -115,6 +116,7 @@ import {
 import {
   ClientAuthorityPublisher,
   HostBroadcastPublisher,
+  isDevSyncClientPureCsrSpectateMode,
 } from '../src/game/pipeline/stages/HostBroadcastPublisher.ts';
 import {
   getKeyboardInputOverlayTelemetry,
@@ -3091,6 +3093,21 @@ async function testPureCsrPushBroadcastSignalsAndGoalReplay(): Promise<void> {
   const endTypes = (decodedEnd.signals || []).map((s) => s.signalType);
   assert.ok(endTypes.includes(MATCH_SIGNALS.GOAL_REPLAY_END));
   assert.ok(!endTypes.includes(MATCH_SIGNALS.GOAL_REPLAY_START));
+
+  // Verify Pure CSR spectate mode stays active during Host-streamed goal replay
+  bindRuntimeUiPort({
+    useAppStore: {
+      getState: () => ({
+        onlineSession: {
+          isDevSyncRoom: true,
+          isHosting: false,
+          activeRoomActivity: 'freeplay',
+        },
+      }),
+    } as never,
+  });
+  assert.equal(reconciler.replayPlaybackMode, false);
+  assert.equal(isDevSyncClientPureCsrSpectateMode(reconciler), true);
 }
 
 async function testReplayWatchTogetherMetadataRosterAndEdgeCameraSync(): Promise<void> {
@@ -3200,6 +3217,61 @@ async function testReplayWatchTogetherMetadataRosterAndEdgeCameraSync(): Promise
     resolved.orangeEntries.map((e) => e.name),
     ['AlphaOrange']
   );
+
+  // Verify bindDevSyncClientChannelHandlers syncs 3D arena/physics teams and respects allowClientIndependentCamera
+  const teamUpdates: Array<{ target: string; carIndex: number; team: number }> = [];
+  let clientCamFocused = 1;
+  const mockChannel: {
+    peerId: string;
+    onGlobalWorkspaceBroadcast?: ((msg: Record<string, unknown>) => void) | null;
+    onCameraStateSync?: ((msg: Record<string, unknown>) => void) | null;
+    onPauseStateSync?: ((msg: Record<string, unknown>) => void) | null;
+    sendPresencePing?: () => boolean;
+  } = { peerId: 'peer_client_1', sendPresencePing: () => true };
+
+  let allowIndepCam = true;
+  bindRuntimeUiPort({
+    ...({
+      useAppStore: {
+        getState: () => ({
+          onlineSession: { allowClientIndependentCamera: allowIndepCam },
+        }),
+      },
+      useReplayViewerStore: useReplayViewerStore as never,
+      applyIncomingWorkspaceBroadcast: (m: unknown) => m,
+      applyCameraSyncToPort: (_cam: unknown, camSync: { focusedCarIndex?: number }) => {
+        if (typeof camSync?.focusedCarIndex === 'number') {
+          clientCamFocused = camSync.focusedCarIndex;
+        }
+      },
+    } as Record<string, unknown>),
+  });
+
+  bindDevSyncClientChannelHandlers({
+    channel: mockChannel as never,
+    authorId: 'peer_client_1',
+    camera: { focusedCarIndex: clientCamFocused } as never,
+    physics: {
+      setCarTeam: (carIndex: number, team: number) =>
+        teamUpdates.push({ target: 'physics', carIndex, team }),
+    } as never,
+    arena: {
+      setCarTeam: (carIndex: number, team: number) =>
+        teamUpdates.push({ target: 'arena', carIndex, team }),
+    },
+    sessionCoordinator: { networkReconciler: clientReconciler as never },
+    diagnosticsProbe: {},
+  });
+
+  mockChannel.onGlobalWorkspaceBroadcast?.({ ...ws2, replaySync: ws0.replaySync } as never);
+  assert.equal(clientCamFocused, 1);
+  assert.ok(
+    teamUpdates.some((u) => u.target === 'arena' && u.carIndex === 0 && u.team === 1)
+  );
+  assert.ok(
+    teamUpdates.some((u) => u.target === 'physics' && u.carIndex === 1 && u.team === 0)
+  );
+  allowIndepCam = false;
 }
 
 main().catch((err) => {

@@ -154,6 +154,7 @@ export interface AppState {
     botFillMode?: 'no_bots' | 'auto_fill' | 'bots_vs_humans' | 'custom';
     matchDurationSeconds?: number;
     activeRoomActivity?: string;
+    allowClientIndependentCamera?: boolean;
     trainingPackSummary?: {
       trainingPackId?: string;
       packName?: string;

@@ -317,6 +317,7 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
           authorId,
           camera,
           physics,
+          arena,
           sessionCoordinator: sessionCoordinator as unknown as DevSyncSessionCoordinatorPort,
           diagnosticsProbe: diagnosticsProbe as unknown as DevSyncDiagnosticsProbePort,
         });

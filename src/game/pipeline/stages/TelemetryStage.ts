@@ -266,14 +266,21 @@ export class TelemetryStage implements PipelineStage {
           ? r.reconciler.localCarIndex
           : (r?.playerCarIndex ?? 0);
 
+    const rvStoreState = useReplayViewerStore.getState();
+    const isClientSyncedReplay =
+      !isReplayViewerLoaded &&
+      appState?.onlineSession?.activeRoomActivity === 'replay' &&
+      Boolean(rvStoreState?.viewerState && rvStoreState.viewerState !== 'idle');
+
     const src = this._rosterSourceScratch;
     src.matchMode = matchMode;
     src.isReplayViewerLoaded = isReplayViewerLoaded;
-    src.replayViewerState = isReplayViewerLoaded
-      ? useRlrcSession
-        ? rlrcStoreState?.viewerState
-        : useReplayViewerStore.getState().viewerState
-      : undefined;
+    src.replayViewerState =
+      isReplayViewerLoaded || isClientSyncedReplay
+        ? useRlrcSession
+          ? rlrcStoreState?.viewerState
+          : rvStoreState.viewerState
+        : undefined;
     src.replayViewerActivePovTeam = useRlrcSession
       ? rlrcActivePovTeam
       : viewerRoster?.activePovTeam;
@@ -284,12 +291,13 @@ export class TelemetryStage implements PipelineStage {
       : viewerRoster?.localTeam;
     src.replayViewerActivePovCarIndex = useRlrcSession
       ? rlrcActivePovIdx
-      : viewerRoster?.activePovCarIndex;
+      : (viewerRoster?.activePovCarIndex ??
+        (isClientSyncedReplay ? rvStoreState.activePovCarIndex : undefined));
     src.replayViewerResolvedRoster = useRlrcSession
       ? rlrcResolvedRoster
       : viewerRoster?.resolvedRoster?.length
         ? viewerRoster.resolvedRoster
-        : useReplayViewerStore.getState().resolvedRoster;
+        : rvStoreState.resolvedRoster;
     src.expPlayerParticipation = expStore?.playerParticipation;
     src.expSpawnedCars = expSpawnedCars;
     src.rawRosterSnapshot =

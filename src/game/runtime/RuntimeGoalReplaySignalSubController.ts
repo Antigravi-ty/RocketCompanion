@@ -2,6 +2,7 @@ import { MATCH_SIGNALS } from '../../network/protocol/GlobalPayloadCodec.ts';
 import { isSignalAudioMutedInGoalReplay } from '../../audio/SignalAudioEngine.ts';
 import { hudStore } from '../runtimeUiPort.ts';
 import type { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
+import { isDevSyncClientPureCsrSpectateMode } from '../pipeline/stages/HostBroadcastPublisher.ts';
 import {
   RuntimeParticipantAndCombatSignalSubController,
   resolveParticipantAnthemId,
@@ -145,8 +146,11 @@ export class RuntimeGoalReplaySignalSubController {
     this.latch.lastKickoffTargetFrame = -1;
     this.latch.latchedKickoffSeconds.clear();
     audio?.resetIncidentDebounceState?.();
-    reconciler.setReplayPlaybackMode?.(true);
-    if (!ctx.clientReplayOverflowPaused) physics?.setReplayRecordingActive?.(true);
+    const isPureCsrSpectate = isDevSyncClientPureCsrSpectateMode(reconciler);
+    if (!isPureCsrSpectate) {
+      reconciler.setReplayPlaybackMode?.(true);
+      if (!ctx.clientReplayOverflowPaused) physics?.setReplayRecordingActive?.(true);
+    }
     physics?.resetGoalLatch?.();
     const replayTicks = (sig.param1 ?? 0) > 0 ? sig.param1! : 360;
     const rawMeta = sig.param2 ?? 0;

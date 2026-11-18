@@ -10,6 +10,7 @@ import {
   applyCameraSyncToPort,
   applyIncomingPauseStateSync,
   applyIncomingWorkspaceBroadcast,
+  useAppStore,
   useReplayViewerStore,
 } from '../runtimeUiPort.ts';
 
@@ -51,11 +52,12 @@ export function bindDevSyncClientChannelHandlers(params: {
   channel: DevSyncChannelPort;
   authorId: string;
   camera: CameraManager | null | undefined;
-  physics: RocketSimPhysicsEngine;
+  physics: RocketSimPhysicsEngine & { setCarTeam?: (carIndex: number, team: number) => void };
+  arena?: { setCarTeam?: (carIndex: number, team: number) => void } | null;
   sessionCoordinator: DevSyncSessionCoordinatorPort;
   diagnosticsProbe: DevSyncDiagnosticsProbePort;
 }): void {
-  const { channel, authorId, camera, physics, sessionCoordinator, diagnosticsProbe } = params;
+  const { channel, authorId, camera, physics, arena, sessionCoordinator, diagnosticsProbe } = params;
   sharedAuthorityCameraSyncTracker.reset();
 
   channel.onCameraStateSync = (msg) => {
@@ -65,6 +67,9 @@ export function bindDevSyncClientChannelHandlers(params: {
         typeof isDevSyncClientInputAuthorityMode
       >[0]
     );
+    const allowIndependentCam = Boolean(
+      useAppStore?.getState?.()?.onlineSession?.allowClientIndependentCamera
+    );
     if (
       camera &&
       camSync &&
@@ -72,6 +77,7 @@ export function bindDevSyncClientChannelHandlers(params: {
         cameraSync: camSync,
         isLocalAuthority: isLocalAuth,
         incomingEpoch: typeof msg.authorityEpoch === 'number' ? msg.authorityEpoch : 0,
+        allowClientIndependentCamera: allowIndependentCam,
       })
     ) {
       applyCameraSyncToPort(camera, camSync);
@@ -130,6 +136,9 @@ export function bindDevSyncClientChannelHandlers(params: {
       }
     }
 
+    const allowIndependentCam = Boolean(
+      useAppStore?.getState?.()?.onlineSession?.allowClientIndependentCamera
+    );
     const camSync = payload?.cameraSync as WorkspaceCameraSyncPayload | undefined;
     if (
       camSync &&
@@ -141,12 +150,19 @@ export function bindDevSyncClientChannelHandlers(params: {
         ),
         incomingEpoch:
           typeof payload?.authorityEpoch === 'number' ? payload.authorityEpoch : undefined,
+        allowClientIndependentCamera: allowIndependentCam,
       })
     ) {
       applyCameraSyncToPort(camera, camSync);
     }
     const replaySync = (payload as { replaySync?: WorkspaceReplaySyncPayload } | null)?.replaySync;
     if (replaySync) {
+      if (Array.isArray(replaySync.roster)) {
+        for (const entry of replaySync.roster) {
+          physics?.setCarTeam?.(entry.carIndex, entry.team);
+          arena?.setCarTeam?.(entry.carIndex, entry.team);
+        }
+      }
       useReplayViewerStore?.getState?.()?.updateLiveTelemetry?.({
         viewerState: replaySync.playbackState === 'paused' ? 'paused' : 'playing',
         ...(replaySync.fileName !== undefined ? { loadedFileName: replaySync.fileName } : {}),
@@ -155,7 +171,7 @@ export function bindDevSyncClientChannelHandlers(params: {
         ...(typeof replaySync.flowPct === 'number'
           ? { effectiveFlowPct: replaySync.flowPct }
           : {}),
-        ...(typeof replaySync.focusedCarIndex === 'number'
+        ...(!allowIndependentCam && typeof replaySync.focusedCarIndex === 'number'
           ? { activePovCarIndex: replaySync.focusedCarIndex }
           : {}),
         ...(Array.isArray(replaySync.roster) ? { resolvedRoster: replaySync.roster } : {}),
