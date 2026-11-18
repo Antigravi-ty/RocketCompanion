@@ -28,6 +28,7 @@ export interface ExpMatchLifecycleMutableState {
   kickoffTick: number;
   ticksSinceKickoff: number;
   lastKickoffStartTick: number;
+  kickoffTargetTick?: number;
   clockStarted: boolean;
   clockTickAccum: number;
   configuredDuration: number;
@@ -165,8 +166,15 @@ export function startExpKickoffCountdownState(
   state.clockStarted = false;
   state.clockTickAccum = 0;
   state.matchPhase = 'kickoff (3)';
-  state.lastKickoffStartTick = Math.floor(simPorts?.physics?.getHeaderView?.()?.tickCount ?? 0) + 1;
-  replayPort.emitReplaySignal(MATCH_SIGNALS.KICKOFF_WILL_START, KICKOFF_COUNTDOWN_TICKS, 3);
+  const currentTick = Math.floor(simPorts?.physics?.getHeaderView?.()?.tickCount ?? 0);
+  state.lastKickoffStartTick = currentTick + 1;
+  const targetTick = currentTick + KICKOFF_COUNTDOWN_TICKS;
+  state.kickoffTargetTick = targetTick;
+  replayPort.emitReplaySignal(
+    MATCH_SIGNALS.KICKOFF_WILL_START,
+    targetTick,
+    state.isOvertime ? 1 : 0
+  );
 
   tracker.syncKickoffCountdownStart(
     simPorts,
@@ -240,11 +248,17 @@ export function stepExpCountdownPhaseState(
   if (stepRes.transitionedSecond === 2 || stepRes.transitionedSecond === 1) {
     const sec = stepRes.transitionedSecond;
     state.matchPhase = `kickoff (${sec})`;
-    replayPort.emitReplaySignal(MATCH_SIGNALS.KICKOFF_WILL_START, state.countdownTicks, sec);
+    const targetTick = state.kickoffTargetTick ?? currentTick + state.countdownTicks;
+    replayPort.emitReplaySignal(
+      MATCH_SIGNALS.KICKOFF_WILL_START,
+      targetTick,
+      state.isOvertime ? 1 : 0
+    );
     tracker.syncCountdownTransitionHudAndAudio(simPorts, sec, state.matchPhase, stepRes.audioCue);
   } else if (stepRes.transitionedSecond === 0) {
     state.matchPhase = state.isOvertime ? 'overtime' : 'playing';
     state.lastKickoffStartTick = currentTick + 1;
+    state.kickoffTargetTick = undefined;
     replayPort.emitReplaySignal(MATCH_SIGNALS.KICKOFF_START, 0, 0);
     tracker.syncCountdownTransitionHudAndAudio(simPorts, 0, state.matchPhase, stepRes.audioCue);
   }

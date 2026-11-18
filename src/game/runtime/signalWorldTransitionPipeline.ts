@@ -255,7 +255,7 @@ function syncParticipantCarSlotInWorld(
     physics.setCarCollisionMask?.(slotIndex, true, true);
     physics.setCarLinearFactorAndGravity?.(slotIndex, 1, 1, 1, 1);
     if (arena) {
-      arena.vehicleRegistry.ensureCar(slotIndex, team, preset);
+      arena.vehicleRegistry?.ensureCar?.(slotIndex, team, preset);
       if (arena.cars?.[slotIndex]) arena.cars[slotIndex].visible = true;
     }
     return;

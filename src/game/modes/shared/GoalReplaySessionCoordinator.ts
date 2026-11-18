@@ -132,21 +132,21 @@ export function beginGoalReplaySession(
   if (options.syncHud !== false)
     bindGoalReplayHudCallbacks({ ...options, runtime: scenePort, replayController });
   if (source !== 'network-streamed') {
+    type BroadcastServerLike = {
+      pushBroadcastSignal?: (
+        signalType: number,
+        frameId?: number,
+        param1?: number,
+        param2?: number,
+        replaceTypes?: number[]
+      ) => void;
+    } | null;
     const netPort = scenePort as {
-      networkManager?: {
-        server?: {
-          pushBroadcastSignal?: (
-            signalType: number,
-            frameId?: number,
-            param1?: number,
-            param2?: number,
-            replaceTypes?: number[]
-          ) => void;
-        } | null;
-      } | null;
+      authoritativeServer?: BroadcastServerLike;
+      networkManager?: { server?: BroadcastServerLike } | null;
       physics?: { getHeaderView?: () => { tickCount?: number } } | null;
     } | null;
-    const server = netPort?.networkManager?.server;
+    const server = netPort?.networkManager?.server ?? netPort?.authoritativeServer;
     if (isDevSyncHostBroadcastingMode(Boolean(server))) {
       const currentTick = Math.floor(netPort?.physics?.getHeaderView?.()?.tickCount ?? 0);
       const replayTicks =
@@ -304,21 +304,21 @@ export function endGoalReplaySession(
   }
   resetGoalReplayHudStateOnEnd(options);
   if (source !== 'network-streamed') {
+    type BroadcastServerLike = {
+      pushBroadcastSignal?: (
+        signalType: number,
+        frameId?: number,
+        param1?: number,
+        param2?: number,
+        replaceTypes?: number[]
+      ) => void;
+    } | null;
     const netPort = scenePort as {
-      networkManager?: {
-        server?: {
-          pushBroadcastSignal?: (
-            signalType: number,
-            frameId?: number,
-            param1?: number,
-            param2?: number,
-            replaceTypes?: number[]
-          ) => void;
-        } | null;
-      } | null;
+      authoritativeServer?: BroadcastServerLike;
+      networkManager?: { server?: BroadcastServerLike } | null;
       physics?: { getHeaderView?: () => { tickCount?: number } } | null;
     } | null;
-    const server = netPort?.networkManager?.server;
+    const server = netPort?.networkManager?.server ?? netPort?.authoritativeServer;
     if (isDevSyncHostBroadcastingMode(Boolean(server))) {
       const currentTick = Math.floor(netPort?.physics?.getHeaderView?.()?.tickCount ?? 0);
       server?.pushBroadcastSignal?.(MATCH_SIGNALS.GOAL_REPLAY_END, currentTick, 0, 0, [

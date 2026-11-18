@@ -1,8 +1,10 @@
 import {
   BALL_REST_Z,
   BALL_STATE_STRIDE,
+  MATCH_SIGNALS,
   SIM_OFFSETS,
 } from '../../../physics/RocketSimConstants.ts';
+import { isDevSyncHostBroadcastingMode } from '../../pipeline/stages/HostBroadcastPublisher.ts';
 import {
   evaluateGoalScoredFromBallView,
   type BallStateViewLike,
@@ -160,6 +162,14 @@ export function syncFreeplayAuthoritativeServerKickoffState(
   if (!server || !sim || !sim.saveCompactState) return;
   const snap = sim.saveCompactState();
   const curTick = Math.floor((sim.getHeaderView ? sim.getHeaderView()?.tickCount : undefined) ?? 0);
+  if (isDevSyncHostBroadcastingMode(Boolean(server))) {
+    server.pushBroadcastSignal?.(MATCH_SIGNALS.BALL_RESET, curTick, 0, 0, [
+      MATCH_SIGNALS.GOAL_REPLAY_WILL_START,
+      MATCH_SIGNALS.GOAL_REPLAY_START,
+      MATCH_SIGNALS.GOAL_REPLAY_WILL_END,
+    ]);
+    return;
+  }
   if (server.startTrainingMode) {
     server.startTrainingMode({
       unlimitedBoost: Boolean(sim.isUnlimitedBoost),

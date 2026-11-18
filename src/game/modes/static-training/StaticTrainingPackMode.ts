@@ -274,20 +274,25 @@ export class StaticTrainingPackMode extends BaseGameMode {
 
     syncReloadedShotLiveTelemetry(timeoutSec, isPlayableSession);
     resetStaticTrainingHudToPlaying(r.match?.state);
-    const server = (
-      r as {
-        networkManager?: {
-          server?: {
-            pushBroadcastSignal?: (
-              signalType: number,
-              frameId?: number,
-              param1?: number,
-              param2?: number
-            ) => void;
-          } | null;
-        } | null;
-      }
-    )?.networkManager?.server;
+    type BroadcastServerLike = {
+      pushBroadcastSignal?: (
+        signalType: number,
+        frameId?: number,
+        param1?: number,
+        param2?: number
+      ) => void;
+    } | null;
+    const netRt = r as {
+      authoritativeServer?: BroadcastServerLike;
+      networkManager?: {
+        server?: BroadcastServerLike;
+        sessionCoordinator?: { authoritativeServer?: BroadcastServerLike } | null;
+      } | null;
+    } | null;
+    const server =
+      netRt?.authoritativeServer ??
+      netRt?.networkManager?.sessionCoordinator?.authoritativeServer ??
+      netRt?.networkManager?.server;
     if (isDevSyncHostBroadcastingMode(Boolean(server))) {
       const currentTick = Math.floor(r.physics.getHeaderView?.()?.tickCount ?? 0);
       server?.pushBroadcastSignal?.(MATCH_SIGNALS.BALL_RESET, currentTick, 0, 0);

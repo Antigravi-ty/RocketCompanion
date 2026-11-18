@@ -112,20 +112,25 @@ export class ExperimentalMultiBotsReplayController {
     } else {
       this.pendingFrameSignals.push(sig);
     }
-    const server = (
-      this.runtime as {
-        networkManager?: {
-          server?: {
-            pushBroadcastSignal?: (
-              signalType: number,
-              frameId?: number,
-              param1?: number,
-              param2?: number
-            ) => void;
-          } | null;
-        } | null;
-      } | null
-    )?.networkManager?.server;
+    type BroadcastServerLike = {
+      pushBroadcastSignal?: (
+        signalType: number,
+        frameId?: number,
+        param1?: number,
+        param2?: number
+      ) => void;
+    } | null;
+    const netRt = this.runtime as {
+      authoritativeServer?: BroadcastServerLike;
+      networkManager?: {
+        server?: BroadcastServerLike;
+        sessionCoordinator?: { authoritativeServer?: BroadcastServerLike } | null;
+      } | null;
+    } | null;
+    const server =
+      netRt?.authoritativeServer ??
+      netRt?.networkManager?.sessionCoordinator?.authoritativeServer ??
+      netRt?.networkManager?.server;
     if (isDevSyncHostBroadcastingMode(Boolean(server))) {
       server?.pushBroadcastSignal?.(signalType, targetTick, param1, param2);
     }

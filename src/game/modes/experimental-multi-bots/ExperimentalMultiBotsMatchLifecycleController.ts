@@ -1,5 +1,7 @@
 import { MATCH_SIGNALS } from '../../../physics/RocketSimConstants.ts';
+import type { PredictionReconciler } from '../../../network/client/PredictionReconciler.ts';
 import { clearRetainedMatchReplayOnMatchStart } from '../../../replay/ReplayFileExporter.ts';
+import { isDevSyncClientPureCsrSpectateMode } from '../../pipeline/stages/HostBroadcastPublisher.ts';
 import { useExperimentalMultiBotsStore } from '../../runtimeUiPort.ts';
 import { PodiumCelebrationController } from '../PodiumCelebrationController.ts';
 import type {
@@ -105,6 +107,11 @@ export class ExperimentalMultiBotsMatchLifecycleController implements ExpMatchLi
   ): Promise<void> {
     const r = this.runtime;
     if (!r?.physics) return;
+    const netReconciler = (r as { networkReconciler?: PredictionReconciler | null })
+      .networkReconciler;
+    if (isDevSyncClientPureCsrSpectateMode(netReconciler) || netReconciler?.spectateMirrorMode) {
+      return;
+    }
     const token = ++this.matchStartToken;
 
     clearRetainedMatchReplayOnMatchStart();

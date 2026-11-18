@@ -14,6 +14,7 @@ import {
   type CarStateViewLike,
 } from '../shared/goalAndBallTouchPipeline.ts';
 import { syncLocalMatchStateToRuntimeAndHud } from '../shared/matchClockAndPhasePipeline.ts';
+import { isDevSyncHostBroadcastingMode } from '../../pipeline/stages/HostBroadcastPublisher.ts';
 
 export interface FreeplayGoalMetadataTargetPort {
   goalScoringTeam: number;
@@ -102,6 +103,13 @@ export interface FreeplayGoalAndTouchRuntimePort extends HotkeyRuntimeOverlayPor
     sim?: { restoreState?: (state: Float32Array) => Promise<void> | void } | null;
     clientInputBuffer?: { clear?: () => void } | null;
     lastReceivedControls?: { clear?: () => void } | null;
+    pushBroadcastSignal?: (
+      signalType: number,
+      frameId?: number,
+      param1?: number,
+      param2?: number,
+      replaceTypes?: number[]
+    ) => void;
   } | null;
   networkReconciler?: {
     lobbyDualWorldMode?: boolean;
@@ -272,7 +280,7 @@ export function recordManualExpireAndSyncHud(params: {
   ballSpeedKph: number;
 }): void {
   const { scenePort, ringBuffer, currentTick, playerTeam, scoringTeam, ballSpeedKph } = params;
-  ringBuffer.appendAudioEvent(currentTick, {
+  ringBuffer.appendAudioEvent?.(currentTick, {
     cueId: 'training_ball_expire',
     cueName: 'training_ball_expire',
     volume: 1.0,
@@ -291,6 +299,16 @@ export function recordManualExpireAndSyncHud(params: {
     replayBallSpeedKph: ballSpeedKph,
     replayAssistName: null,
   });
+  const server = scenePort.authoritativeServer;
+  if (isDevSyncHostBroadcastingMode(Boolean(server))) {
+    const meta = (scoringTeam & 0x1) | ((Math.round(ballSpeedKph) & 0xffff) << 16);
+    server?.pushBroadcastSignal?.(
+      MATCH_SIGNALS.GOAL_REPLAY_WILL_START,
+      currentTick,
+      meta,
+      currentTick + 150
+    );
+  }
 }
 
 export function recordGoalScoredAndSyncHud(params: {
@@ -317,7 +335,7 @@ export function recordGoalScoredAndSyncHud(params: {
     ballSpeedUu,
     ballSpeedKph,
   } = params;
-  ringBuffer.appendIncident(currentTick, {
+  ringBuffer.appendIncident?.(currentTick, {
     type: INCIDENT_EVENT_TYPES.GOAL_SCORED,
     tick: currentTick,
     carIndex: scorerCarIndex,
@@ -327,13 +345,13 @@ export function recordGoalScoredAndSyncHud(params: {
     posZ: bView.posZ,
     intensity: ballSpeedUu,
   });
-  ringBuffer.appendSignal(currentTick, {
+  ringBuffer.appendSignal?.(currentTick, {
     signalType: MATCH_SIGNALS.SCORE_UPDATED,
     frameId: currentTick,
     param1: scoringTeam === 0 ? 1 : 0,
     param2: scoringTeam === 1 ? 1 : 0,
   });
-  ringBuffer.appendAudioEvent(currentTick, {
+  ringBuffer.appendAudioEvent?.(currentTick, {
     cueName: 'sfx_goal_poof',
     volume: 1.0,
   });
@@ -350,4 +368,17 @@ export function recordGoalScoredAndSyncHud(params: {
     replayBallSpeedKph: ballSpeedKph,
     replayAssistName: null,
   });
+  const server = scenePort.authoritativeServer;
+  if (isDevSyncHostBroadcastingMode(Boolean(server))) {
+    const meta =
+      (scoringTeam & 0x1) |
+      ((scorerCarIndex & 0xff) << 8) |
+      ((Math.round(ballSpeedKph) & 0xffff) << 16);
+    server?.pushBroadcastSignal?.(
+      MATCH_SIGNALS.GOAL_REPLAY_WILL_START,
+      currentTick,
+      meta,
+      currentTick + 150
+    );
+  }
 }

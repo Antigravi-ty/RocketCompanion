@@ -284,8 +284,8 @@ export class FreeplayMode extends BaseGameMode<FreeplayRuntimePort> {
     this.directorPreview.exitPatternPreview();
   public override skipGoalReplay(): void {
     if (!this.isGoalReplayActive() && this.goalAndTouch.getEffectiveGoalResetTicks() <= 0) return;
-    if (this.runtime?.networkReconciler && !this.directorPreview.isReplayActive) {
-      this.runtime.networkManager?.voteSkipReplay?.();
+    if (this.goalAndTouch.shouldVoteSkipReplay(this.directorPreview.isReplayActive)) {
+      this.runtime?.networkManager?.voteSkipReplay?.();
       this.onResetKickoff();
       return;
     }

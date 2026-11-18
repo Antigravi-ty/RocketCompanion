@@ -1,5 +1,10 @@
 import { INCIDENT_EVENT_TYPES } from '../../../physics/RocketSimConstants.ts';
 import type { ReplayRingBuffer } from '../../../replay/ReplayRingBuffer.ts';
+import type { PredictionReconciler } from '../../../network/client/PredictionReconciler.ts';
+import {
+  isDevSyncClientInputAuthorityMode,
+  isDevSyncHostBroadcastingMode,
+} from '../../pipeline/stages/HostBroadcastPublisher.ts';
 import { useStaticTrainingBallCamTunerStore } from '../../runtimeUiPort.ts';
 import { setTemporaryBallOpacityOverride } from '../../../ui-core/config/ballVisualConfig.ts';
 import {
@@ -160,13 +165,25 @@ export class FreeplayGoalAndTouchSubController {
   public getEffectiveGoalResetTicks(): number {
     if (this.goalResetTicks > 0) return this.goalResetTicks;
     const scenePort = this.deps.getRuntime();
+    const isBroadcastingHost = isDevSyncHostBroadcastingMode(
+      Boolean(scenePort?.authoritativeServer)
+    );
     if (
       scenePort?.match?.state?.phase === 'goal' &&
+      !isBroadcastingHost &&
       (scenePort.authoritativeServer || scenePort.networkReconciler)
     ) {
       return scenePort.authoritativeServer?.fallbackManager?.domain?.goalBufferTicks ?? 1;
     }
     return 0;
+  }
+
+  public shouldVoteSkipReplay(isDirectorReplayActive: boolean): boolean {
+    const scenePort = this.deps.getRuntime();
+    const isBroadcastingHost = isDevSyncHostBroadcastingMode(
+      Boolean(scenePort?.authoritativeServer)
+    );
+    return Boolean(scenePort?.networkReconciler && !isBroadcastingHost && !isDirectorReplayActive);
   }
 
   public resetPlayTouchAndGoalState(defaultTeam: 0 | 1): void {
@@ -237,8 +254,18 @@ export class FreeplayGoalAndTouchSubController {
       this.deps.onAfterFrameRecorded();
     }
 
+    const isBroadcastingHost = isDevSyncHostBroadcastingMode(
+      Boolean(scenePort.authoritativeServer)
+    );
+    const isClientInputAuthority = isDevSyncClientInputAuthorityMode(
+      scenePort.networkReconciler as PredictionReconciler | null | undefined
+    );
+    const isRemoteControlled =
+      !isBroadcastingHost &&
+      (Boolean(scenePort.authoritativeServer) ||
+        (Boolean(scenePort.networkReconciler) && !isClientInputAuthority));
     if (
-      (scenePort.authoritativeServer || scenePort.networkReconciler) &&
+      isRemoteControlled &&
       !(this.goalResetTicks > 0 && this.replayPendingType === 'expire')
     ) {
       if (sim.pollGoal) sim.pollGoal();
@@ -282,7 +309,7 @@ export class FreeplayGoalAndTouchSubController {
         scenePort.arena.setCarTeam(playerCarIndex, playerTeam);
       }
       const scorerName = resolveFreeplayScorerName(playerCarIndex);
-      this.deps.directorPreview.setGoalMetadata({
+      this.deps.directorPreview.setGoalMetadata?.({
         scoringTeam,
         scorerCarIndex: playerCarIndex,
         scorerName,
