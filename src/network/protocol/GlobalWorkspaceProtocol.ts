@@ -54,6 +54,12 @@ export interface WorkspaceReplaySyncPayload {
   playbackState: 'playing' | 'paused' | 'ended';
   flowPct?: number;
   focusedCarIndex?: number;
+  blueScore?: number;
+  orangeScore?: number;
+  remainingSeconds?: number;
+  isOvertime?: boolean;
+  overtimeSeconds?: number;
+  matchPhase?: string;
   roster?: WorkspaceReplayRosterEntry[];
 }
 
@@ -211,6 +217,25 @@ function sanitizeReplaySync(raw: unknown): WorkspaceReplaySyncPayload | undefine
     }
     if (out.length > 0) roster = out;
   }
+  const blueScore =
+    typeof src.blueScore === 'number' && Number.isFinite(src.blueScore)
+      ? Math.max(0, Math.round(src.blueScore))
+      : undefined;
+  const orangeScore =
+    typeof src.orangeScore === 'number' && Number.isFinite(src.orangeScore)
+      ? Math.max(0, Math.round(src.orangeScore))
+      : undefined;
+  const remainingSeconds =
+    typeof src.remainingSeconds === 'number' && Number.isFinite(src.remainingSeconds)
+      ? Math.max(0, Math.round(src.remainingSeconds))
+      : undefined;
+  const isOvertime = typeof src.isOvertime === 'boolean' ? src.isOvertime : undefined;
+  const overtimeSeconds =
+    typeof src.overtimeSeconds === 'number' && Number.isFinite(src.overtimeSeconds)
+      ? Math.max(0, Math.round(src.overtimeSeconds))
+      : undefined;
+  const matchPhase =
+    typeof src.matchPhase === 'string' && src.matchPhase.trim() ? src.matchPhase.trim() : undefined;
   return {
     ...(fileName !== undefined ? { fileName } : {}),
     totalFrames,
@@ -218,6 +243,12 @@ function sanitizeReplaySync(raw: unknown): WorkspaceReplaySyncPayload | undefine
     playbackState,
     ...(flowPct !== undefined ? { flowPct } : {}),
     ...(focusedCarIndex !== undefined ? { focusedCarIndex } : {}),
+    ...(blueScore !== undefined ? { blueScore } : {}),
+    ...(orangeScore !== undefined ? { orangeScore } : {}),
+    ...(remainingSeconds !== undefined ? { remainingSeconds } : {}),
+    ...(isOvertime !== undefined ? { isOvertime } : {}),
+    ...(overtimeSeconds !== undefined ? { overtimeSeconds } : {}),
+    ...(matchPhase !== undefined ? { matchPhase } : {}),
     ...(roster ? { roster } : {}),
   };
 }

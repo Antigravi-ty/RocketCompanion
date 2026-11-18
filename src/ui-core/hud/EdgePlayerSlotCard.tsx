@@ -187,7 +187,10 @@ const EdgePlayerSlotCardInner = forwardRef<EdgePlayerSlotCardHandle, EdgePlayerS
     useImperativeHandle(ref, () => ({ setRoster: applyRoster }), [applyRoster]);
 
     useEffect(() => {
-      if (subscribeRoster) return subscribeRoster(applyRoster);
+      if (subscribeRoster) {
+        applyRoster(globalHudTransientChannel.getRoster());
+        return subscribeRoster(applyRoster);
+      }
       const baseRoster = globalHudTransientChannel.getRoster();
       applyRoster({
         ...baseRoster,

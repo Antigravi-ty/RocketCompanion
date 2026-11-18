@@ -269,14 +269,21 @@ export const InGameHUD: React.FC<InGameHUDProps> = ({ className = '' }) => {
     isReplayViewerLoaded,
   });
 
+  const isSyncedReplayHud = Boolean(
+    onlineSession.isDevSyncRoom &&
+      (onlineSession.activeRoomActivity === 'replay' || matchMode === 'replay-viewer')
+  );
   const showTopScoreboard =
     matchMode === 'match' ||
     matchMode === 'exp-multi-bots' ||
     (matchMode === 'online-warmup' && onlineSession.roomType === 'match') ||
-    isReplayViewerLoaded;
+    isReplayViewerLoaded ||
+    isSyncedReplayHud;
 
   const showEdgeRosterStrips =
-    showTopScoreboard && !isLobbyPhase && matchPhase !== 'podium' && matchPhase !== 'ended';
+    (showTopScoreboard && !isLobbyPhase && matchPhase !== 'podium' && matchPhase !== 'ended') ||
+    isReplayViewerLoaded ||
+    isSyncedReplayHud;
 
   return (
     <div

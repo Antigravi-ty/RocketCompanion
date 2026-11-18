@@ -57,7 +57,7 @@ export interface ReplayViewerRosterRuntimePort {
     setCarLoadout?: (carIndex: number, loadout: Record<string, unknown>) => void;
   } | null;
   keyboard?: { ballControlEnabled?: boolean } | null;
-  camera?: { resetView?: () => void } | null;
+  camera?: { resetView?: () => void; setFocusedCarIndex?: (carIndex: number) => void } | null;
   flipResetVisual?: { dispose?: () => void } | null;
   getFlipResetVisual?: (carIndex: number) => { play?: () => void } | null;
   releaseGoalReplayCameraOverride?: () => void;
@@ -341,6 +341,7 @@ export class ReplayViewerRosterSubController {
         runtime.releaseGoalReplayCameraOverride?.();
         hudStore.getState().setReplayState({ replayCameraMode: 'pov' });
       }
+      camera?.setFocusedCarIndex?.(entry.carIndex);
       camera?.resetView?.();
     }
 

@@ -7,6 +7,7 @@
 import {
   buildHostWorkspaceBroadcastPayload,
   captureCameraSyncFromPort,
+  hudStore,
   useAppStore,
   useReplayViewerStore,
 } from '../game/runtimeUiPort.ts';
@@ -89,6 +90,7 @@ export function syncReplayWorkspaceToOnlineRoom(
   if (!session?.isHosting) return 0;
 
   const rvStore = useReplayViewerStore?.getState?.();
+  const hudState = hudStore?.getState?.();
   const rawCam = runtime?.camera
     ? captureCameraSyncFromPort(runtime.camera, opts.active)
     : undefined;
@@ -96,6 +98,24 @@ export function syncReplayWorkspaceToOnlineRoom(
     opts.replaySync?.focusedCarIndex ??
     (rawCam && typeof rawCam.focusedCarIndex === 'number' ? rawCam.focusedCarIndex : undefined) ??
     rvStore?.activePovCarIndex;
+  const blueScore =
+    opts.replaySync?.blueScore ??
+    (typeof hudState?.blueScore === 'number' ? hudState.blueScore : undefined);
+  const orangeScore =
+    opts.replaySync?.orangeScore ??
+    (typeof hudState?.orangeScore === 'number' ? hudState.orangeScore : undefined);
+  const remainingSeconds =
+    opts.replaySync?.remainingSeconds ??
+    (typeof hudState?.remainingSeconds === 'number' ? hudState.remainingSeconds : undefined);
+  const isOvertime =
+    opts.replaySync?.isOvertime ??
+    (typeof hudState?.isOvertime === 'boolean' ? hudState.isOvertime : undefined);
+  const overtimeSeconds =
+    opts.replaySync?.overtimeSeconds ??
+    (typeof hudState?.overtimeSeconds === 'number' ? hudState.overtimeSeconds : undefined);
+  const matchPhase =
+    opts.replaySync?.matchPhase ??
+    (typeof hudState?.matchPhase === 'string' ? hudState.matchPhase : undefined);
   const replaySync: WorkspaceReplaySyncPayload | undefined = opts.active
     ? {
         fileName: opts.replaySync?.fileName ?? opts.replayId ?? rvStore?.loadedFileName ?? undefined,
@@ -108,6 +128,12 @@ export function syncReplayWorkspaceToOnlineRoom(
           opts.replaySync?.playbackState ?? (opts.playbackPaused ? 'paused' : 'playing'),
         flowPct: opts.replaySync?.flowPct ?? rvStore?.effectiveFlowPct ?? 100,
         ...(typeof focusedCarIndex === 'number' ? { focusedCarIndex } : {}),
+        ...(typeof blueScore === 'number' ? { blueScore } : {}),
+        ...(typeof orangeScore === 'number' ? { orangeScore } : {}),
+        ...(typeof remainingSeconds === 'number' ? { remainingSeconds } : {}),
+        ...(typeof isOvertime === 'boolean' ? { isOvertime } : {}),
+        ...(typeof overtimeSeconds === 'number' ? { overtimeSeconds } : {}),
+        ...(typeof matchPhase === 'string' ? { matchPhase } : {}),
         ...(opts.replaySync?.roster
           ? { roster: opts.replaySync.roster }
           : Array.isArray(rvStore?.resolvedRoster) && rvStore.resolvedRoster.length > 0
@@ -161,10 +187,12 @@ export function syncReplayWorkspaceToOnlineRoom(
 export class ReplayOnlineHeartbeatTracker {
   private lastSyncMs = 0;
   private lastCameraKey = '';
+  private lastHudKey = '';
 
   public reset(): void {
     this.lastSyncMs = 0;
     this.lastCameraKey = '';
+    this.lastHudKey = '';
   }
 
   public maybeSync(
@@ -177,10 +205,16 @@ export class ReplayOnlineHeartbeatTracker {
     const camKey = cam
       ? `${Boolean(cam.isFreeCam)}:${typeof cam.ballCam === 'boolean' ? cam.ballCam : true}:${Math.round(Number(cam.focusedCarIndex) || 0)}`
       : '';
+    const hud = hudStore?.getState?.();
+    const hudKey = hud
+      ? `${hud.blueScore ?? 0}:${hud.orangeScore ?? 0}:${hud.remainingSeconds ?? 0}:${hud.isOvertime ? 1 : 0}:${hud.matchPhase ?? ''}`
+      : '';
     const intervalMs = getPauseHeartbeatIntervalMs(opts.pauseHeartbeatHz ?? 2);
     const cameraChanged =
       camKey !== '' && this.lastCameraKey !== '' && camKey !== this.lastCameraKey;
-    if (!cameraChanged && nowMs - this.lastSyncMs < intervalMs) {
+    const hudChanged =
+      hudKey !== '' && this.lastHudKey !== '' && hudKey !== this.lastHudKey;
+    if (!cameraChanged && !hudChanged && nowMs - this.lastSyncMs < intervalMs) {
       return false;
     }
     if (cameraChanged) {
@@ -188,6 +222,7 @@ export class ReplayOnlineHeartbeatTracker {
     }
     this.lastSyncMs = nowMs;
     this.lastCameraKey = camKey;
+    this.lastHudKey = hudKey;
     syncReplayWorkspaceToOnlineRoom(runtime, {
       active: true,
       playbackPaused: opts.playbackPaused,

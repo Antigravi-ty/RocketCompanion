@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { HudZone, HudSlot } from '../layout/HudAnchorStage';
+import { useAppStore } from '../stores/appStore';
 import { useReplayViewerStore } from '../stores/replayViewerStore';
 import { useReplayToRcsImporterStore } from '../stores/replayToRcsImporterStore';
 import { useRewinderStore } from '../stores/rewinderStore';
@@ -119,15 +120,25 @@ export function useGoalReplayAndTakeoverHudState(params: {
     matchPhase === 'replay' ||
     isTakeoverPreroll;
 
+  const isDevSyncReplayActivity = useAppStore(
+    (s) =>
+      Boolean(s.onlineSession?.isDevSyncRoom) &&
+      (s.onlineSession?.activeRoomActivity === 'replay' || s.matchMode === 'replay-viewer')
+  );
+
   const isReplayViewerActive = Boolean(
-    replayViewerFileName &&
+    (replayViewerFileName &&
       replayViewerTotalFrames > 0 &&
       replayViewerState !== 'idle' &&
       replayViewerState !== 'preroll-countdown' &&
-      replayViewerState !== 'intervening'
+      replayViewerState !== 'intervening') ||
+      (isDevSyncReplayActivity &&
+        replayViewerState !== 'preroll-countdown' &&
+        replayViewerState !== 'intervening')
   );
   const isReplayViewerLoaded = Boolean(
-    replayViewerFileName && replayViewerTotalFrames > 0 && replayViewerState !== 'idle'
+    (replayViewerFileName && replayViewerTotalFrames > 0 && replayViewerState !== 'idle') ||
+      isDevSyncReplayActivity
   );
   const isReplayViewerIntervening = Boolean(
     isReplayViewerLoaded &&

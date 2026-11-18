@@ -4,6 +4,7 @@ import {
   getSpectateCameraFollowTargetIndex,
   hudStore,
   setNameTagRuntimeState,
+  useAppStore,
   useReferenceOverlayStore,
 } from '../runtimeUiPort.ts';
 import { getDesiredRespawnPose } from '../../physics/RocketSimConstants.ts';
@@ -215,16 +216,29 @@ export class GameCameraSubsystem {
       r.replayPovCarIndex >= 0;
 
     const spectateFollowIdx = getSpectateCameraFollowTargetIndex();
+    const allowIndependentCam = Boolean(
+      useAppStore?.getState?.()?.onlineSession?.allowClientIndependentCamera
+    );
+    const localCamFocusedIdx =
+      allowIndependentCam &&
+      typeof r?.camera?.focusedCarIndex === 'number' &&
+      r.camera.focusedCarIndex >= 0
+        ? r.camera.focusedCarIndex
+        : null;
 
     const diagTarget = r?.networkManager?.diagnosticsProbe?.diagnosticObservationTarget ?? 0;
-    const obsTargetIdx = isReplayPov
-      ? (r.replayPovCarIndex ?? activeCar)
-      : spectateFollowIdx !== null &&
-          (spectateFollowIdx === 0 || r?.arena?.cars?.[spectateFollowIdx]?.visible)
+    const obsTargetIdx =
+      spectateFollowIdx !== null &&
+      (spectateFollowIdx === 0 || r?.arena?.cars?.[spectateFollowIdx]?.visible)
         ? spectateFollowIdx
-        : diagTarget > 0 && r.arena?.cars?.[diagTarget]?.visible
-          ? diagTarget
-          : activeCar;
+        : isReplayPov
+          ? (r.replayPovCarIndex ?? activeCar)
+          : localCamFocusedIdx !== null &&
+              (localCamFocusedIdx === 0 || r?.arena?.cars?.[localCamFocusedIdx]?.visible)
+            ? localCamFocusedIdx
+            : diagTarget > 0 && r.arena?.cars?.[diagTarget]?.visible
+              ? diagTarget
+              : activeCar;
 
     let cameraMode = r?.camera?.currentMode || 'pov';
     if (r?.camera?.isFreeCam) {

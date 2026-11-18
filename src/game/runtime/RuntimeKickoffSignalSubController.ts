@@ -190,7 +190,10 @@ export class RuntimeKickoffSignalSubController {
           reconciler.replayPlaybackMode ||
           activeActivity === 'replay' ||
           activeActivity === 'multiplayer_training' ||
-          (isSpectateMirror && activeActivity === 'freeplay')
+          (isSpectateMirror &&
+            activeActivity === 'freeplay' &&
+            appState.matchMode !== 'exp-multi-bots' &&
+            appState.matchMode !== 'match')
         ) {
           return { handled: true, currentTick };
         }

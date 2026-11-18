@@ -498,9 +498,9 @@ async function reproIssue4ReplayWatchTogetherUiTargetNameColor(): Promise<ReproR
     viewerState: 'playing',
     loadedFileName: 'repro-3v3.rcreplay',
     totalFrames: 10800,
-    currentFrame: 1200,
+    cursorFrame: 1200,
     activePovCarIndex: 3,
-    roster: [
+    resolvedRoster: [
       { carIndex: 0, name: 'Player 1', team: 0 },
       { carIndex: 1, name: 'Nexto #2', team: 0 },
       { carIndex: 2, name: 'Nexto #3', team: 0 },
@@ -510,13 +510,17 @@ async function reproIssue4ReplayWatchTogetherUiTargetNameColor(): Promise<ReproR
     ],
   });
 
-  let capturedRoster: { entries?: Array<{ name?: string }> } | null = null;
+  let capturedRoster: {
+    leftPlayers?: Array<{ name?: string }>;
+    rightPlayers?: Array<{ name?: string }>;
+    entries?: Array<{ name?: string }>;
+  } | null = null;
   bindRuntimeUiPort({
     useReplayViewerStore: useReplayViewerStore as never,
     globalHudTransientChannel: {
       ...globalHudTransientChannel,
       setRoster: (val: unknown) => {
-        capturedRoster = val as { entries?: Array<{ name?: string }> } | null;
+        capturedRoster = val as typeof capturedRoster;
       },
       setMiniMap: () => {},
     } as never,
@@ -543,9 +547,14 @@ async function reproIssue4ReplayWatchTogetherUiTargetNameColor(): Promise<ReproR
     }
   )._syncEdgeRosterHud({}, { matchPhase: 'playing' });
 
-  const entryCount = capturedRoster?.entries?.length ?? 0;
+  const allEntries = [
+    ...(capturedRoster?.leftPlayers ?? []),
+    ...(capturedRoster?.rightPlayers ?? []),
+    ...(capturedRoster?.entries ?? []),
+  ].filter((e) => (e as { exists?: boolean }).exists !== false);
+  const entryCount = allEntries.length;
   const hasSyncedNames =
-    entryCount === 6 && capturedRoster?.entries?.some((e) => e.name === 'Nexto #2');
+    entryCount === 6 && allEntries.some((e) => e.name === 'Nexto #2');
 
   if (!hasSyncedNames) {
     details.push(

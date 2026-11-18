@@ -10,6 +10,7 @@ import {
   applyCameraSyncToPort,
   applyIncomingPauseStateSync,
   applyIncomingWorkspaceBroadcast,
+  hudStore,
   useAppStore,
   useReplayViewerStore,
 } from '../runtimeUiPort.ts';
@@ -81,6 +82,15 @@ export function bindDevSyncClientChannelHandlers(params: {
       })
     ) {
       applyCameraSyncToPort(camera, camSync);
+      if (
+        useAppStore?.getState?.()?.onlineSession?.activeRoomActivity === 'replay' &&
+        !camSync.isFreeCam &&
+        typeof camSync.focusedCarIndex === 'number'
+      ) {
+        useReplayViewerStore
+          ?.getState?.()
+          ?.updateLiveTelemetry?.({ activePovCarIndex: camSync.focusedCarIndex });
+      }
     }
   };
 
@@ -154,6 +164,15 @@ export function bindDevSyncClientChannelHandlers(params: {
       })
     ) {
       applyCameraSyncToPort(camera, camSync);
+      if (
+        useAppStore?.getState?.()?.onlineSession?.activeRoomActivity === 'replay' &&
+        !camSync.isFreeCam &&
+        typeof camSync.focusedCarIndex === 'number'
+      ) {
+        useReplayViewerStore
+          ?.getState?.()
+          ?.updateLiveTelemetry?.({ activePovCarIndex: camSync.focusedCarIndex });
+      }
     }
     const replaySync = (payload as { replaySync?: WorkspaceReplaySyncPayload } | null)?.replaySync;
     if (replaySync) {
@@ -176,6 +195,20 @@ export function bindDevSyncClientChannelHandlers(params: {
           : {}),
         ...(Array.isArray(replaySync.roster) ? { resolvedRoster: replaySync.roster } : {}),
       });
+      const hudPatch: Record<string, unknown> = {};
+      if (typeof replaySync.blueScore === 'number') hudPatch.blueScore = replaySync.blueScore;
+      if (typeof replaySync.orangeScore === 'number') hudPatch.orangeScore = replaySync.orangeScore;
+      if (typeof replaySync.remainingSeconds === 'number') {
+        hudPatch.remainingSeconds = replaySync.remainingSeconds;
+      }
+      if (typeof replaySync.isOvertime === 'boolean') hudPatch.isOvertime = replaySync.isOvertime;
+      if (typeof replaySync.overtimeSeconds === 'number') {
+        hudPatch.overtimeSeconds = replaySync.overtimeSeconds;
+      }
+      if (typeof replaySync.matchPhase === 'string') hudPatch.matchPhase = replaySync.matchPhase;
+      if (Object.keys(hudPatch).length > 0) {
+        hudStore?.getState?.()?.setMatchState?.(hudPatch);
+      }
     }
   };
 

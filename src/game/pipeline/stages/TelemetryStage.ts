@@ -165,9 +165,18 @@ export class TelemetryStage implements PipelineStage {
       Boolean(rlrcSession?.hasLoadedReplay);
     const useRlrcSession = isRlrcLoaded && Boolean(rlrcSession?.isActive || !isStandaloneLoaded);
     const isReplayViewerLoaded = isStandaloneLoaded || isRlrcLoaded;
+    const rvStoreState = useReplayViewerStore.getState();
+    const isClientSyncedReplay =
+      !isReplayViewerLoaded &&
+      (appState?.onlineSession?.activeRoomActivity === 'replay' ||
+        appState?.matchMode === 'replay-viewer' ||
+        matchMode === 'replay-viewer') &&
+      Boolean(rvStoreState?.viewerState && rvStoreState.viewerState !== 'idle');
 
     if (
       !isReplayViewerLoaded &&
+      !isClientSyncedReplay &&
+      matchMode !== 'replay-viewer' &&
       matchMode !== 'exp-multi-bots' &&
       matchMode !== 'match' &&
       matchMode !== 'online-warmup' &&
@@ -265,12 +274,6 @@ export class TelemetryStage implements PipelineStage {
         : typeof r?.reconciler?.localCarIndex === 'number' && r.reconciler.localCarIndex >= 0
           ? r.reconciler.localCarIndex
           : (r?.playerCarIndex ?? 0);
-
-    const rvStoreState = useReplayViewerStore.getState();
-    const isClientSyncedReplay =
-      !isReplayViewerLoaded &&
-      appState?.onlineSession?.activeRoomActivity === 'replay' &&
-      Boolean(rvStoreState?.viewerState && rvStoreState.viewerState !== 'idle');
 
     const src = this._rosterSourceScratch;
     src.matchMode = matchMode;

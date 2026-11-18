@@ -1,4 +1,5 @@
 import type * as THREE from 'three';
+import { gameAudio } from '../../audio/GameAudioEngineFacade.ts';
 import {
   useAppStore,
   pushQuickNotification,
@@ -381,6 +382,7 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
       getSessionCoordinator: () => sessionCoordinator,
       getPhysics: () => physics,
       getCamera: () => camera,
+      gameAudio,
     };
   }
 

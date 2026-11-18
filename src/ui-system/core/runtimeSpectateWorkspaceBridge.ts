@@ -129,6 +129,10 @@ export function applyCameraSyncToPort(
   cameraSync: GlobalWorkspaceBroadcastPayload['cameraSync']
 ): void {
   if (!camera || !cameraSync || !cameraSync.followHostCamera) return;
+  const wsState = useSpectateWorkspaceStore.getState();
+  if (wsState.hostCameraSync !== cameraSync) {
+    useSpectateWorkspaceStore.setState({ hostCameraSync: cameraSync });
+  }
   if (cameraSync.isFreeCam) {
     if (cameraSync.freeCamPosition && cameraSync.freeCamLookAt && camera.setFreeCamPose) {
       camera.setFreeCamPose(cameraSync.freeCamPosition, cameraSync.freeCamLookAt);
@@ -146,9 +150,11 @@ export function applyCameraSyncToPort(
 
 export function getSpectateCameraFollowTargetIndex(): number | null {
   const ws = useSpectateWorkspaceStore.getState();
+  const app = useAppStore.getState();
   if (
     !ws.isSpectating ||
     !ws.followHostCamera ||
+    app.onlineSession?.allowClientIndependentCamera ||
     !ws.hostCameraSync ||
     ws.hostCameraSync.isFreeCam
   ) {
@@ -303,6 +309,7 @@ export function buildHostWorkspaceBroadcastPayload(meta?: {
   menuStateIncluded?: boolean;
   arenaPreset?: 'standard' | 'throwback';
   cameraSync?: GlobalWorkspaceBroadcastPayload['cameraSync'];
+  replaySync?: GlobalWorkspaceBroadcastPayload['replaySync'];
 }): GlobalWorkspaceBroadcastPayload {
   const ws = useSpectateWorkspaceStore.getState();
   const includeMenu = meta?.menuStateIncluded ?? ws.broadcastMenuState;
@@ -333,6 +340,7 @@ export function buildHostWorkspaceBroadcastPayload(meta?: {
     menuStateIncluded: includeMenu,
     arenaPreset: currentArenaPreset,
     ...(meta?.cameraSync ? { cameraSync: meta.cameraSync } : {}),
+    ...(meta?.replaySync ? { replaySync: meta.replaySync } : {}),
   });
 }
 

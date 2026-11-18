@@ -23,6 +23,7 @@ import {
   syncReplayFrameToAuthoritativeServer,
   syncReplayWorkspaceToOnlineRoom,
 } from './replayOnlineSyncHelper.ts';
+import { sharedAuthorityCameraSyncTracker } from '../game/pipeline/stages/AuthorityCameraSyncTracker.ts';
 import { SYSTEM_CONTROL_SIGNALS } from '../physics/RocketSimConstants.ts';
 import type {
   ReplayScoreboardRuntimePort,
@@ -77,8 +78,12 @@ export class ReplayViewerCausalSyncController {
     paused: boolean,
     frameIdx: number,
     switchActivity = false,
-    replayId?: string
+    replayId?: string,
+    bumpCameraSeq = false
   ): void {
+    if (bumpCameraSeq) {
+      sharedAuthorityCameraSyncTracker.bumpLocalSeq();
+    }
     syncReplayWorkspaceToOnlineRoom(runtime, {
       active: true,
       playbackPaused: paused,

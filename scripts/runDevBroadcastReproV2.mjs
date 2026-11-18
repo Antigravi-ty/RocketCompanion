@@ -369,8 +369,7 @@ async function main() {
     await hostCdp.send('Page.bringToFront');
     await hostCdp.eval(`(() => {
       const rv = window.__rcE2E.runtime.modeManager.modes.get('freeplay').standaloneReplayViewer;
-      rv.selectPovCarIndex?.(2);
-      window.__rcE2E.runtime.playerCarIndex = 2;
+      rv.selectPovSlot?.(3);
       window.__rcE2E.getCamera()?.setFocusedCarIndex?.(2);
     })()`);
     await clientCdp.send('Page.bringToFront');
@@ -418,7 +417,8 @@ async function main() {
     const installSpyExpr = `(() => {
       const rt = window.__rcE2E.runtime;
       window.__countdownLog = { audioPlays: [], matchStates: [], domCountdownTexts: [] };
-      const audioTarget = rt.audio || rt.audioSubsystem?.audio;
+      const audioTarget =
+        window.__rcE2E?.gameAudio || rt.options?.gameAudio || rt.audio || rt.audioSubsystem?.audio;
       const origPlay = audioTarget?.play?.bind(audioTarget);
       if (origPlay && !audioTarget.__reproPatched) {
         audioTarget.__reproPatched = true;

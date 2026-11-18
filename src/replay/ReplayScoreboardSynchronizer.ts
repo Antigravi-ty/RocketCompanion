@@ -242,6 +242,11 @@ export class ReplayScoreboardSynchronizer {
       activePovCarIndex: source.rosterSubController.activePovCarIndex,
       activePovSlotKey: source.rosterSubController.activePovSlotKey,
       activePovTeam: source.rosterSubController.activePovTeam,
+      resolvedRoster: source.rosterSubController.resolvedRoster.map((r) => ({
+        carIndex: r.carIndex,
+        name: r.name || `Car ${r.carIndex + 1}`,
+        team: (r.team === 1 ? 1 : 0) as 0 | 1,
+      })),
     };
   }
 

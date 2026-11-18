@@ -134,11 +134,18 @@ export class AuthorityCameraSyncTracker {
           : 0;
 
     if (seq >= 0) {
+      const incomingKey = this.computeCameraKey(cameraSync);
       if (epoch < this.lastAppliedEpoch) return false;
-      if (epoch === this.lastAppliedEpoch && seq <= this.lastAppliedSeq) return false;
+      if (epoch === this.lastAppliedEpoch && seq < this.lastAppliedSeq) return false;
+      if (
+        epoch === this.lastAppliedEpoch &&
+        seq === this.lastAppliedSeq &&
+        (!incomingKey || incomingKey === this.lastAppliedKey)
+      ) {
+        return false;
+      }
       this.lastAppliedEpoch = epoch;
       this.lastAppliedSeq = seq;
-      const incomingKey = this.computeCameraKey(cameraSync);
       if (incomingKey) {
         this.lastLocalCameraKey = incomingKey;
         this.lastAppliedKey = incomingKey;

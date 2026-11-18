@@ -177,7 +177,10 @@ export class StandaloneReplayViewerController {
       this.causalSyncController.syncOnlineTransition(
         r,
         st.viewerState === 'paused',
-        Math.round(this.takeoverSubController.cursor || 0)
+        Math.round(this.takeoverSubController.cursor || 0),
+        false,
+        undefined,
+        true
       );
     }
   }
@@ -272,7 +275,6 @@ export class StandaloneReplayViewerController {
     this.takeoverSubController.reset(0, Math.max(0, this.frames.length - 1));
     this.scoreboardSynchronizer.lastDispatchedCursorFrame = -1;
     this._applyFrameAtCursor(false, false);
-    this._emitStateTransition(0, true, true, loadedFileName);
     this._silenceContinuousAudio();
     const camera = this.runtime?.camera ?? null;
     if (resetCameraView) camera?.resetView?.();
@@ -288,6 +290,7 @@ export class StandaloneReplayViewerController {
       errorMessage: null,
       ...this.scoreboardSynchronizer.buildTimelineStorePatch(this),
     });
+    this._emitStateTransition(0, true, true, loadedFileName);
   }
 
   public returnToReplay(): void {
@@ -299,7 +302,6 @@ export class StandaloneReplayViewerController {
     );
     this.scoreboardSynchronizer.lastDispatchedCursorFrame = restoreIdx;
     this._applyFrameAtCursor(false, false);
-    this._emitStateTransition(restoreIdx, true, true);
     this._silenceContinuousAudio();
     const camera = this.runtime?.camera ?? null;
     camera?.resetView?.();
@@ -310,6 +312,7 @@ export class StandaloneReplayViewerController {
       targetFrame: restoreIdx,
       prerollRemainingSec: 0,
     });
+    this._emitStateTransition(restoreIdx, true, true);
   }
 
   public async handleUploadFile(file: File | null | undefined): Promise<void> {
@@ -386,13 +389,13 @@ export class StandaloneReplayViewerController {
       this.takeoverSubController.cursor,
       this.frames.length
     );
-    this._emitStateTransition(clamped);
     useReplayViewerStore.getState().updateLiveTelemetry({
       viewerState: 'playing',
       cursorFrame: clamped,
       targetFrame: clamped,
       prerollRemainingSec: 0,
     });
+    this._emitStateTransition(clamped);
   }
 
   public pausePlaying(): void {
@@ -403,7 +406,6 @@ export class StandaloneReplayViewerController {
       this.frames.length
     );
     this._applyFrameAtCursor(false, false);
-    this._emitStateTransition(clamped, true);
     this._silenceContinuousAudio();
     useReplayViewerStore.getState().updateLiveTelemetry({
       viewerState: 'paused',
@@ -411,6 +413,7 @@ export class StandaloneReplayViewerController {
       targetFrame: clamped,
       prerollRemainingSec: 0,
     });
+    this._emitStateTransition(clamped, true);
   }
 
   public seekFrame(frameIndex: number): void {

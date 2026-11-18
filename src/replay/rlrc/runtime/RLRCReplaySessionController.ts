@@ -5,6 +5,7 @@ import {
   syncReplayWorkspaceToOnlineRoom,
   type ReplayOnlineRuntimePort,
 } from '../../replayOnlineSyncHelper.ts';
+import { sharedAuthorityCameraSyncTracker } from '../../../game/pipeline/stages/AuthorityCameraSyncTracker.ts';
 import type {
   ReplayScoreboardModePort,
   ReplayScoreboardRuntimePort,
@@ -251,6 +252,7 @@ export class RLRCReplaySessionController {
       applyCurrentFrame: () => this._applyFrame(this.cursorFrame120Hz, false),
     });
     if (!resolved) return;
+    sharedAuthorityCameraSyncTracker.bumpLocalSeq();
     this._syncOnlineRoom(false, true);
   }
 
@@ -421,6 +423,7 @@ export class RLRCReplaySessionController {
     if (!this.runtime) return;
     this.runtime.playerCarIndex = slot;
     if (this.runtime.arena) this.runtime.arena.playerCarIndex = slot;
+    this.runtime.camera?.setFocusedCarIndex?.(slot);
   }
 
   private _syncRoster(roster: readonly RLRCPlayerSlotMeta[]): void {
