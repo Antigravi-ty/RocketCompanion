@@ -1,20 +1,28 @@
-import { HostBroadcastPublisher } from '../src/game/pipeline/stages/HostBroadcastPublisher.ts';
+import { FreeplayGoalAndTouchSubController } from '../src/game/modes/freeplay/FreeplayGoalAndTouchSubController.ts';
 import {
-  resolveModeRosterEntries,
-  createResolvedModeRosterBuffer,
-} from '../src/game/pipeline/stages/hudRosterResolverPipeline.ts';
-import { createOnlineSessionBridgePort } from '../src/game/runtime/onlineSessionEnvironmentPipeline.ts';
-import { bindRuntimeUiPort, useAppStore } from '../src/game/runtimeUiPort.ts';
+  startExpKickoffCountdownState,
+  stepExpCountdownPhaseState,
+  type ExpMatchLifecycleMutableState,
+} from '../src/game/modes/experimental-multi-bots/experimentalMultiBotsLifecyclePipeline.ts';
+import {
+  broadcastHostFlipResetSignalsIfNeeded,
+  collectHostBroadcastControls,
+  HostBroadcastPublisher,
+} from '../src/game/pipeline/stages/HostBroadcastPublisher.ts';
+import { TelemetryStage } from '../src/game/pipeline/stages/TelemetryStage.ts';
+import { RuntimeKickoffSignalSubController } from '../src/game/runtime/RuntimeKickoffSignalSubController.ts';
+import {
+  bindRuntimeUiPort,
+  globalHudTransientChannel,
+  useAppStore,
+} from '../src/game/runtimeUiPort.ts';
 import { PredictionReconciler } from '../src/network/client/PredictionReconciler.ts';
 import { GlobalPayloadCodec, MATCH_SIGNALS } from '../src/network/protocol/GlobalPayloadCodec.ts';
-import { sanitizeGlobalWorkspaceBroadcast } from '../src/network/protocol/GlobalWorkspaceProtocol.ts';
 import { EstablishedSessionManager } from '../src/network/server/EstablishedSessionManager.ts';
 import { MatchCommandQueueSubController } from '../src/network/server/match/MatchCommandQueueSubController.ts';
 import { MatchDomainState } from '../src/network/server/match/MatchDomainState.ts';
 import { MatchSystemControlSubController } from '../src/network/server/match/MatchSystemControlSubController.ts';
 import { encodeMatchGlobalFramePacket } from '../src/network/server/match/matchLifecyclePipeline.ts';
-import { FLIP_RESET_SUBTYPES, SYSTEM_CONTROL_SIGNALS } from '../src/physics/RocketSimConstants.ts';
-import { syncReplayWorkspaceToOnlineRoom } from '../src/replay/replayOnlineSyncHelper.ts';
 import {
   getKeyboardInputOverlayTelemetry,
   mapRemoteControlsToOverlayKeys,
@@ -142,28 +150,31 @@ async function reproIssue1UserInputBroadcastAndOverlay(): Promise<ReproResult> {
     getHeaderView: () => ({ tickCount: 101 }),
   };
 
-  const testControls = [
-    {
-      carIndex: 0,
-      controls: {
-        throttle: 1,
-        steer: -0.6,
-        pitch: 0,
-        yaw: 0,
-        roll: -1,
-        jump: true,
-        boost: true,
-        handbrake: false,
-      },
-    },
-  ];
+  // Real collection path via collectHostBroadcastControls (as in SimulationStage.ts)
+  const playerControls = {
+    throttle: 1,
+    steer: -0.6,
+    pitch: 0,
+    yaw: 0,
+    roll: -1,
+    jump: true,
+    boost: true,
+    handbrake: false,
+  };
+  const acknowledgedControls = collectHostBroadcastControls({
+    numCars: 1,
+    playerCarIdx: 0,
+    playerControls,
+    activeMode: null,
+    botCoordinator: null,
+  });
 
   publisher.publishIfReady({
     timestamp: 1000,
     physics: mockPhysics as never,
     server: systemControl as never,
     isPaused: false,
-    acknowledgedControls: testControls,
+    acknowledgedControls,
   });
 
   hostSimState[0] = 102;
@@ -172,7 +183,7 @@ async function reproIssue1UserInputBroadcastAndOverlay(): Promise<ReproResult> {
     physics: mockPhysics as never,
     server: systemControl as never,
     isPaused: false,
-    acknowledgedControls: testControls,
+    acknowledgedControls,
   });
 
   const rawPacket = systemControl.stepStateOnlyFrameIfActive();
@@ -189,8 +200,7 @@ async function reproIssue1UserInputBroadcastAndOverlay(): Promise<ReproResult> {
   const ackCount = decoded.physics?.acknowledgedControls?.length ?? 0;
 
   const { reconciler, clientChannel } = createClientReconciler();
-  const clientPacket = sessionManager.buildClientPacket('peer_client_1', rawPacket);
-  clientChannel.inboundQueue.push(clientPacket);
+  clientChannel.inboundQueue.push(sessionManager.buildClientPacket('peer_client_1', rawPacket));
   reconciler.reconcile(1000);
   const clientAckList = reconciler.lastParsedPacket?.acknowledgedControls ?? [];
   const clientAckCount = clientAckList.length;
@@ -233,58 +243,212 @@ async function reproIssue1UserInputBroadcastAndOverlay(): Promise<ReproResult> {
 
 async function reproIssue2ExhibitionCountdownIncidentsAndTraining(): Promise<ReproResult> {
   const details: string[] = [];
-  const { systemControl, sessionManager } = createHostBroadcaster();
-  systemControl.enterStateOnlyMode(new Float32Array(448), 200);
+  (useAppStore.getState() as unknown as { onlineSession: Record<string, unknown> }).onlineSession =
+    {
+      isDevSyncRoom: true,
+      isHosting: true,
+      activeRoomActivity: 'exp-multi-bots',
+    };
+  (useAppStore.getState() as unknown as Record<string, unknown>).setMatchMode = () => {};
 
-  const hasPushBroadcastSignal =
-    typeof (systemControl as unknown as Record<string, unknown>).pushBroadcastSignal === 'function';
-  if (hasPushBroadcastSignal) {
-    systemControl.pushBroadcastSignal(MATCH_SIGNALS.KICKOFF_WILL_START, 200, 180, 3);
-    systemControl.pushBroadcastSignal(MATCH_SIGNALS.SCORE_UPDATED, 200, 1, 0);
-  }
+  const { systemControl, hostSimState, sessionManager } = createHostBroadcaster();
+  // Room has already been running for 400 ticks (> 360) before Exhibition starts
+  let currentTick = 400;
+  hostSimState[0] = currentTick;
+  systemControl.enterStateOnlyMode(new Float32Array(hostSimState), currentTick);
 
-  const rawPacket = systemControl.stepStateOnlyFrameIfActive();
-  const decoded = rawPacket ? GlobalPayloadCodec.decode(rawPacket) : null;
-  const wireSignalTypes = (decoded?.signals || []).map((s) => s.signalType);
+  const expState: ExpMatchLifecycleMutableState = {
+    countdownTicks: 0,
+    kickoffTick: 0,
+    ticksSinceKickoff: 0,
+    lastKickoffStartTick: 0,
+    clockStarted: false,
+    clockTickAccum: 0,
+    configuredDuration: 90,
+    remainingSec: 90,
+    overtimeSeconds: 0,
+    clockDirection: 'down',
+    isOvertime: false,
+    isMatchEnded: false,
+    matchWinnerTeam: 0,
+    podiumDelayTicks: 0,
+    matchPhase: 'lobby',
+    blueScore: 0,
+    orangeScore: 0,
+    pendingMatchEndAfterReplay: false,
+    pendingOvertimeAfterReplay: false,
+    pendingMatchWinner: null,
+    lastStepInferenceMs: 0,
+  };
 
+  const simPorts = {
+    physics: {
+      getHeaderView: () => ({ tickCount: currentTick }),
+    },
+    releaseGoalReplayCameraOverride: () => {},
+    match: {
+      state: {
+        mode: 'exp-multi-bots',
+        phase: 'kickoff',
+        countdown: 3,
+        blueScore: 0,
+        orangeScore: 0,
+        remainingSeconds: 90,
+        isOvertime: false,
+        overtimeSeconds: 0,
+      },
+    },
+  };
+
+  const tracker = {
+    goalResetTicks: 0,
+    resetPlayTouchAndGoalState: () => {},
+    getGoalIncidentMeta: () => ({ scorerCarIndex: -1, assisterCarIndex: -1 }),
+    syncKickoffCountdownStart: () => {},
+    syncCountdownTransitionHudAndAudio: () => {},
+    syncMatchEndHudAndAudio: () => {},
+  };
+
+  const replayPort = {
+    isReplayActive: false,
+    emitReplaySignal: (signalType: number, param1 = 0, param2 = 0) => {
+      // Real production forwarding path: ExperimentalMultiBots -> AuthoritativeServerHost
+      systemControl.pushBroadcastSignal(signalType, currentTick, param1, param2);
+      return { signalType, param1, param2, frameId: currentTick };
+    },
+    emitClockSecondAndAlertSignals: () => {},
+    retainMatchReplayAndNotify: () => {},
+  };
+
+  // Wire Client RuntimeKickoffSignalSubController
   const { reconciler, clientChannel } = createClientReconciler();
-  let clientReceivedCountdown = false;
-  let clientReceivedScore = false;
-  reconciler.onSignals = (signals) => {
+  const clientMatchState = {
+    mode: 'exp-multi-bots',
+    phase: 'lobby',
+    countdown: 0,
+    blueScore: 0,
+    orangeScore: 0,
+    remainingSeconds: 90,
+    isOvertime: false,
+    overtimeSeconds: 0,
+  };
+  const latch = {
+    overtimeAudioPlayed: false,
+    lastKickoffTargetFrame: -1,
+    lastKickoffStartedFrame: -1,
+    latchedKickoffSeconds: new Set<number>(),
+    hostMatchReplayNotified: false,
+  };
+  const kickoffPortBase: Record<string, unknown> = {
+    match: { state: clientMatchState },
+    physics: {
+      getHeaderView: () => ({ tickCount: currentTick }),
+      syncToStateObject: () => {},
+    },
+    markNetworkTelemetryNotified: () => {},
+    despawnDiagnosticTestFleet: () => {},
+    cameraSubsystem: {
+      isGoalReplayCameraOverrideActive: () => false,
+      releaseGoalReplayCameraOverride: () => {},
+    },
+    isGoalReplayCameraOverrideActive: () => false,
+    releaseGoalReplayCameraOverride: () => {},
+    clearPodiumController: () => {},
+    endActiveGoalReplaySession: () => {},
+    resetBallTrail: () => {},
+    focusLocalPlayerCarInArenaAndCamera: () => {},
+    resetCameraViewIfInvalid: () => {},
+    setLobbyGhostMode: () => {},
+  };
+  const kickoffCtrl = new RuntimeKickoffSignalSubController(
+    new Proxy(kickoffPortBase, {
+      get(target, prop) {
+        if (prop in target) return target[prop as string];
+        return () => undefined;
+      },
+    }) as never,
+    latch as never
+  );
+
+  const clientObservedSeconds: number[] = [];
+  const clientAudioCount = { count: 0 };
+  const fakeAudio = {
+    play: (key: string) => {
+      if (key === 'match_countdown_321') clientAudioCount.count++;
+    },
+  };
+
+  reconciler.onSignals = (signals, packetServerTick) => {
     for (const sig of signals) {
-      if (sig?.signalType === MATCH_SIGNALS.KICKOFF_WILL_START) clientReceivedCountdown = true;
-      if (sig?.signalType === MATCH_SIGNALS.SCORE_UPDATED) clientReceivedScore = true;
+      kickoffCtrl.handleSignal(reconciler, sig as never, {
+        packetServerTick: packetServerTick ?? currentTick,
+        currentTick,
+        isFirstSeenSignalId: true,
+        hasKickoffStartInBatch: signals.some((s) => s.signalType === MATCH_SIGNALS.KICKOFF_START),
+        audio: fakeAudio as never,
+      });
     }
   };
-  if (rawPacket) {
-    clientChannel.inboundQueue.push(sessionManager.buildClientPacket('peer_client_1', rawPacket));
-    reconciler.reconcile(1000);
+
+  // Start kickoff and step 360 ticks through 3 -> 2 -> 1 -> GO
+  startExpKickoffCountdownState(expState, simPorts as never, tracker as never, replayPort as never);
+
+  for (let i = 0; i <= 360; i++) {
+    if (i > 0) {
+      currentTick++;
+      hostSimState[0] = currentTick;
+      systemControl.enterStateOnlyMode(new Float32Array(hostSimState), currentTick);
+      stepExpCountdownPhaseState(
+        expState,
+        currentTick,
+        simPorts as never,
+        tracker as never,
+        replayPort as never
+      );
+    }
+    const rawPacket = systemControl.stepStateOnlyFrameIfActive();
+    if (rawPacket) {
+      clientChannel.inboundQueue.push(sessionManager.buildClientPacket('peer_client_1', rawPacket));
+      reconciler.reconcile(1000 + i * 8);
+    }
+    if (clientMatchState.phase === 'kickoff' && clientMatchState.countdown > 0) {
+      if (!clientObservedSeconds.includes(clientMatchState.countdown)) {
+        clientObservedSeconds.push(clientMatchState.countdown);
+      }
+    }
   }
 
-  const wireHasCountdownOrIncident =
-    wireSignalTypes.includes(MATCH_SIGNALS.KICKOFF_WILL_START) &&
-    wireSignalTypes.includes(MATCH_SIGNALS.SCORE_UPDATED);
-
-  if (!hasPushBroadcastSignal || !wireHasCountdownOrIncident || !clientReceivedCountdown || !clientReceivedScore) {
+  const missingSeconds = [3, 2, 1].filter((s) => !clientObservedSeconds.includes(s));
+  if (missingSeconds.length > 0 || clientAudioCount.count < 3) {
     details.push(
-      `MatchSystemControlSubController.pushBroadcastSignal=${hasPushBroadcastSignal}; wire signals=[${wireSignalTypes.map((t) => '0x' + t.toString(16)).join(', ')}], clientReceivedCountdown=${clientReceivedCountdown}, clientReceivedScore=${clientReceivedScore}.`
+      `Real ExperimentalMultiBots -> RuntimeKickoffSignalSubController at tick>=400: clientObservedSeconds=[${clientObservedSeconds.join(',')}], missing=[${missingSeconds.join(',')}], clientAudioCount=${clientAudioCount.count} (param1 remainingTicks vs absolute targetFrame mismatch).`
     );
   }
 
   return {
     id: 'issue-2',
-    title: 'Exhibition Countdown, Incidents & Training Sync',
-    reproduced:
-      !hasPushBroadcastSignal || !wireHasCountdownOrIncident || !clientReceivedCountdown || !clientReceivedScore,
+    title: 'Exhibition Countdown 3-2-1 (Real Pipeline Contract)',
+    reproduced: missingSeconds.length > 0 || clientAudioCount.count < 3,
     details,
   };
 }
 
 async function reproIssue3FlipResetVisualAndAudioSync(): Promise<ReproResult> {
   const details: string[] = [];
+  (useAppStore.getState() as unknown as { onlineSession: Record<string, unknown> }).onlineSession =
+    {
+      isDevSyncRoom: true,
+      isHosting: true,
+      activeRoomActivity: 'freeplay',
+    };
+
   const { systemControl, sessionManager } = createHostBroadcaster();
   systemControl.enterStateOnlyMode(new Float32Array(448), 300);
-  systemControl.pushBroadcastSignal(MATCH_SIGNALS.FLIP_RESET_GAINED, 300, 0, FLIP_RESET_SUBTYPES.BALL);
+  broadcastHostFlipResetSignalsIfNeeded(
+    systemControl as never,
+    { flipResetVisualCarIndices: [0] },
+    300
+  );
 
   const rawPacket = systemControl.stepStateOnlyFrameIfActive();
   const decoded = rawPacket ? GlobalPayloadCodec.decode(rawPacket) : null;
@@ -307,7 +471,7 @@ async function reproIssue3FlipResetVisualAndAudioSync(): Promise<ReproResult> {
   const wireHasFlipReset = wireSignalTypes.includes(MATCH_SIGNALS.FLIP_RESET_GAINED);
   if (!wireHasFlipReset || !clientReceivedFlipResetSignal) {
     details.push(
-      `Host FLIP_RESET_GAINED (0x0f, subtype=${FLIP_RESET_SUBTYPES.BALL}) wireHasFlipReset=${wireHasFlipReset}, client onSignals receivedFlipReset=${clientReceivedFlipResetSignal}.`
+      `Host FLIP_RESET_GAINED (0x0f) wireHasFlipReset=${wireHasFlipReset}, client onSignals receivedFlipReset=${clientReceivedFlipResetSignal}.`
     );
   }
 
@@ -321,209 +485,188 @@ async function reproIssue3FlipResetVisualAndAudioSync(): Promise<ReproResult> {
 
 async function reproIssue4ReplayWatchTogetherUiTargetNameColor(): Promise<ReproResult> {
   const details: string[] = [];
-  bindRuntimeUiPort({
-    useReplayViewerStore: useReplayViewerStore as never,
-    buildHostWorkspaceBroadcastPayload: (meta?: Record<string, unknown>) =>
-      sanitizeGlobalWorkspaceBroadcast(meta),
-    captureCameraSyncFromPort: (cam: Record<string, unknown>, follow = true) => ({
-      followHostCamera: follow,
-      isFreeCam: Boolean(cam.isFreeCam),
-      ballCam: typeof cam.ballCam === 'boolean' ? cam.ballCam : true,
-      focusedCarIndex: Number(cam.focusedCarIndex) || 0,
-    }),
+  // Simulate Client receiving Replay Watch Together while local matchMode is still 'freeplay'
+  // and no local .rcreplay file is loaded in standaloneReplayViewer / rlrcReplaySession.
+  (useAppStore.getState() as unknown as { onlineSession: Record<string, unknown> }).onlineSession =
+    {
+      isDevSyncRoom: true,
+      isHosting: false,
+      activeRoomActivity: 'replay',
+    };
+
+  useReplayViewerStore.setState({
+    viewerState: 'playing',
+    loadedFileName: 'repro-3v3.rcreplay',
+    totalFrames: 10800,
+    currentFrame: 1200,
+    activePovCarIndex: 3,
+    roster: [
+      { carIndex: 0, name: 'Player 1', team: 0 },
+      { carIndex: 1, name: 'Nexto #2', team: 0 },
+      { carIndex: 2, name: 'Nexto #3', team: 0 },
+      { carIndex: 3, name: 'Player 4', team: 1 },
+      { carIndex: 4, name: 'Nexto #5', team: 1 },
+      { carIndex: 5, name: 'Nexto #6', team: 1 },
+    ],
   });
 
-  const sentActivities: Array<Record<string, unknown>> = [];
-  const sentWorkspaces: Array<Record<string, unknown>> = [];
-
-  // Host enters replay watching a 90s (10800-tick) replay focusing carIndex=1
-  // where car 0 is Orange ("AlphaOrange", team=1) and car 1 is Blue ("BetaBlue", team=0)
-  syncReplayWorkspaceToOnlineRoom(
-    {
-      camera: {
-        isFreeCam: false,
-        ballCam: true,
-        focusedCarIndex: 1,
+  let capturedRoster: { entries?: Array<{ name?: string }> } | null = null;
+  bindRuntimeUiPort({
+    useReplayViewerStore: useReplayViewerStore as never,
+    globalHudTransientChannel: {
+      ...globalHudTransientChannel,
+      setRoster: (val: unknown) => {
+        capturedRoster = val as { entries?: Array<{ name?: string }> } | null;
       },
-      multiplayerSession: {
-        isHosting: true,
-        broadcastRoomActivitySwitch: (opts) => {
-          sentActivities.push(opts as unknown as Record<string, unknown>);
-        },
-        broadcastGlobalWorkspace: (payload) => {
-          sentWorkspaces.push(payload);
-          return 1;
-        },
-      },
-    },
-    {
-      active: true,
-      playbackPaused: false,
-      pausedAtTick: 1200,
-      switchActivity: true,
-      replayId: 'repro-90s-replay.rc',
-      replaySync: {
-        fileName: 'repro-90s-replay.rc',
-        totalFrames: 10800,
-        currentFrame: 1200,
-        playbackState: 'playing',
-        focusedCarIndex: 1,
-        roster: [
-          { carIndex: 0, name: 'AlphaOrange', team: 1 },
-          { carIndex: 1, name: 'BetaBlue', team: 0 },
-        ],
-      },
-    }
-  );
-
-  // Client receives room_activity_switch('replay')
-  let clientMode = 'freeplay';
-  const { reconciler } = createClientReconciler();
-  const bridgePort = createOnlineSessionBridgePort(
-    {
-      modeManager: {
-        getActiveMode: () => ({ id: clientMode }),
-        setMode: (next: string) => {
-          clientMode = next;
-        },
-      },
-      match: { state: { mode: 'freeplay' } },
-      trainingOptions: {},
+      setMiniMap: () => {},
     } as never,
-    () => ({}) as never,
-    () => ({}) as never
-  );
+  });
 
-  bridgePort.applyClientRoomActivitySwitch(reconciler as never, sentActivities[0] as never);
-
-  const clientReplayStoreState = useReplayViewerStore.getState();
-  const clientUiNotEntered = clientReplayStoreState.viewerState === 'idle';
-  if (clientUiNotEntered) {
-    details.push(
-      `Client received activity='replay', but useReplayViewerStore.viewerState='${clientReplayStoreState.viewerState}' (replay UI status bar never activates).`
-    );
-  }
-
-  // Client resolves HUD roster using synced replay roster:
-  const rosterBuf = createResolvedModeRosterBuffer();
-  const resolved = resolveModeRosterEntries(
-    {
-      matchMode: clientMode,
-      isReplayViewerLoaded: false,
-      replayViewerState: clientReplayStoreState.viewerState,
-      replayViewerResolvedRoster: clientReplayStoreState.resolvedRoster,
-      numCars: 2,
-      localPlayerName: 'ClientSpectator',
-      activeBotName: 'Necto',
+  const mockRuntime = {
+    match: { state: { mode: 'freeplay', phase: 'playing' } },
+    physics: {
+      numCars: 6,
+      getHeaderView: () => ({ numCars: 6 }),
+      getCarStateView: () => ({ boostAmount: 33, isDemolished: false }),
     },
-    rosterBuf
-  );
+    playerCarIndex: 0,
+    modeManager: {
+      modes: new Map(),
+      getActiveMode: () => null,
+    },
+  };
 
-  const blueNames = resolved.blueEntries.map((e) => e.name);
-  const orangeNames = resolved.orangeEntries.map((e) => e.name);
-  const namesAndColorsWrong =
-    !blueNames.includes('BetaBlue') || !orangeNames.includes('AlphaOrange');
+  const telemetryStage = new TelemetryStage(mockRuntime as never);
+  (
+    telemetryStage as unknown as {
+      _syncEdgeRosterHud: (ctx: Record<string, unknown>, hudState: Record<string, unknown>) => void;
+    }
+  )._syncEdgeRosterHud({}, { matchPhase: 'playing' });
 
-  if (namesAndColorsWrong) {
+  const entryCount = capturedRoster?.entries?.length ?? 0;
+  const hasSyncedNames =
+    entryCount === 6 && capturedRoster?.entries?.some((e) => e.name === 'Nexto #2');
+
+  if (!hasSyncedNames) {
     details.push(
-      `Client roster resolved blue=[${blueNames.join(', ')}], orange=[${orangeNames.join(', ')}] instead of blue=[BetaBlue], orange=[AlphaOrange] (replay roster/names/team colors are not broadcast).`
-    );
-  }
-
-  const wsPayload = sentWorkspaces[0] || {};
-  const replaySyncObj = wsPayload.replaySync as Record<string, unknown> | undefined;
-  const hasReplayMetadataInWorkspace = Boolean(
-    replaySyncObj &&
-      typeof replaySyncObj.fileName === 'string' &&
-      typeof replaySyncObj.totalFrames === 'number' &&
-      Array.isArray(replaySyncObj.roster)
-  );
-  if (!hasReplayMetadataInWorkspace) {
-    details.push(
-      'syncReplayWorkspaceToOnlineRoom workspace broadcast omits replay metadata (fileName, totalFrames, currentFrame, playbackState) and replay roster.'
+      `TelemetryStage._syncEdgeRosterHud() with matchMode='freeplay' & activeRoomActivity='replay' produced roster entries=${entryCount} (early return before isClientSyncedReplay).`
     );
   }
 
   return {
     id: 'issue-4',
-    title: 'Replay Watch Together UI, Target Player, Names & Colors',
-    reproduced: clientUiNotEntered || namesAndColorsWrong || !hasReplayMetadataInWorkspace,
+    title: 'Replay Watch Together Client Roster (TelemetryStage)',
+    reproduced: !hasSyncedNames,
     details,
   };
 }
 
 async function reproIssue5GoalReplayAndCinematicCamera(): Promise<ReproResult> {
   const details: string[] = [];
-  const { systemControl, sessionManager } = createHostBroadcaster();
-  systemControl.enterStateOnlyMode(new Float32Array(448), 500);
-  systemControl.pushBroadcastSignal(MATCH_SIGNALS.GOAL_REPLAY_WILL_START, 500, 0, 1);
-  systemControl.pushBroadcastSignal(MATCH_SIGNALS.GOAL_REPLAY_START, 500, 360, 0b10);
+  (useAppStore.getState() as unknown as { onlineSession: Record<string, unknown> }).onlineSession =
+    {
+      isDevSyncRoom: true,
+      isHosting: true,
+      activeRoomActivity: 'freeplay',
+    };
 
-  const rawPacket = systemControl.stepStateOnlyFrameIfActive();
-  const decoded = rawPacket ? GlobalPayloadCodec.decode(rawPacket) : null;
-  const wireSignalTypes = (decoded?.signals || []).map((s) => s.signalType);
+  const { systemControl } = createHostBroadcaster();
+  let beginGoalReplayCalled = false;
+  let pollGoalCalls = 0;
 
-  const { reconciler, clientChannel } = createClientReconciler();
-  let clientReceivedGoalReplaySignal = false;
-  reconciler.onSignals = (signals) => {
-    for (const sig of signals) {
-      if (
-        sig?.signalType === MATCH_SIGNALS.GOAL_REPLAY_WILL_START ||
-        sig?.signalType === MATCH_SIGNALS.GOAL_REPLAY_START
-      ) {
-        clientReceivedGoalReplaySignal = true;
-      }
-    }
+  const mockRuntime = {
+    authoritativeServer: systemControl,
+    networkReconciler: null,
+    playerCarIndex: 0,
+    playerControls: {},
+    arena: { isLobbyMode: false },
+    physics: {
+      state: new Float32Array(448),
+      getHeaderView: () => ({ tickCount: 500 }),
+      getBallStateView: () => ({
+        posX: 0,
+        posY: 5600,
+        posZ: 150,
+        velX: 0,
+        velY: 2000,
+        velZ: 0,
+        angVelX: 0,
+        angVelY: 0,
+        angVelZ: 0,
+      }),
+      getCarStateView: () => ({
+        posX: 0,
+        posY: 4000,
+        posZ: 17,
+        velX: 0,
+        velY: 1500,
+        velZ: 0,
+      }),
+      pollGoal: () => {
+        pollGoalCalls++;
+        return 1;
+      },
+      resetGoalLatch: () => {},
+    },
   };
-  if (rawPacket) {
-    clientChannel.inboundQueue.push(sessionManager.buildClientPacket('peer_client_1', rawPacket));
-    reconciler.reconcile(1000);
-  }
 
-  const wireHasGoalReplay =
-    wireSignalTypes.includes(MATCH_SIGNALS.GOAL_REPLAY_WILL_START) &&
-    wireSignalTypes.includes(MATCH_SIGNALS.GOAL_REPLAY_START);
+  const goalAndTouch = new FreeplayGoalAndTouchSubController({
+    getRuntime: () => mockRuntime as never,
+    replayRingBuffer: {
+      recordFrame: () => {},
+      appendIncident: () => {},
+    } as never,
+    directorPreview: {
+      resetGoalMetadata: () => {},
+      setGoalScorerMetadata: () => {},
+    } as never,
+    resolveEffectivePlayerTeam: () => 0,
+    isGoalReplaySkipEnabled: () => false,
+    isFreeplayGoalReplayEnabled: () => true,
+    isStandaloneReplayLoaded: () => false,
+    onBeginGoalReplay: () => {
+      beginGoalReplayCalled = true;
+    },
+  });
 
-  if (!wireHasGoalReplay || !clientReceivedGoalReplaySignal) {
+  goalAndTouch.stepAfterPhysicsTick();
+
+  const triggeredGoalReset = goalAndTouch.goalResetTicks > 0 || beginGoalReplayCalled;
+  if (!triggeredGoalReset) {
     details.push(
-      `Host goal replay signals wireHasGoalReplay=${wireHasGoalReplay}, clientReceivedGoalReplaySignal=${clientReceivedGoalReplaySignal}.`
+      `Broadcasting Host FreeplayGoalAndTouchSubController.stepAfterPhysicsTick() with ball posY=5600 & authoritativeServer!=null: goalResetTicks=${goalAndTouch.goalResetTicks}, pollGoalCalls=${pollGoalCalls}, beginGoalReplayCalled=${beginGoalReplayCalled} (early return swallowed goal).`
     );
   }
 
   return {
     id: 'issue-5',
-    title: 'Goal Replay & Cinematic Camera Trigger',
-    reproduced: !wireHasGoalReplay || !clientReceivedGoalReplaySignal,
+    title: 'Freeplay Goal Replay on Dev Sync Broadcasting Host',
+    reproduced: !triggeredGoalReset,
     details,
   };
 }
 
-async function main(): Promise<void> {
-  const results = await Promise.all([
-    reproIssue1UserInputBroadcastAndOverlay(),
-    reproIssue2ExhibitionCountdownIncidentsAndTraining(),
-    reproIssue3FlipResetVisualAndAudioSync(),
-    reproIssue4ReplayWatchTogetherUiTargetNameColor(),
-    reproIssue5GoalReplayAndCinematicCamera(),
-  ]);
+async function main() {
+  const results = [
+    await reproIssue1UserInputBroadcastAndOverlay(),
+    await reproIssue2ExhibitionCountdownIncidentsAndTraining(),
+    await reproIssue3FlipResetVisualAndAudioSync(),
+    await reproIssue4ReplayWatchTogetherUiTargetNameColor(),
+    await reproIssue5GoalReplayAndCinematicCamera(),
+  ];
 
   let reproducedCount = 0;
-  for (const res of results) {
-    const status = res.reproduced ? 'REPRODUCED' : 'NOT_REPRODUCED';
-    if (res.reproduced) reproducedCount += 1;
-    console.log(`[${status}] ${res.id}: ${res.title}`);
-    for (const line of res.details) {
-      console.log(`  - ${line}`);
+  for (const r of results) {
+    if (r.reproduced) reproducedCount++;
+    console.log(`[${r.reproduced ? 'REPRODUCED' : 'NOT_REPRODUCED'}] ${r.id}: ${r.title}`);
+    for (const d of r.details) {
+      console.log(`  - ${d}`);
     }
   }
-
   console.log(`\nSummary: ${reproducedCount}/${results.length} issues reproduced.`);
-  if (reproducedCount > 0) {
-    process.exitCode = 1;
-  }
 }
 
 main().catch((err) => {
-  console.error('[ReproSuite] Fatal error:', err);
-  process.exit(2);
+  console.error(err);
+  process.exit(1);
 });

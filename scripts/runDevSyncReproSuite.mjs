@@ -267,18 +267,25 @@ async function main() {
       15_000
     );
 
-    // Scenario 1: Freeplay Live Driving Sync
+    // Scenario 1: Freeplay Live Driving Sync + Remote Input Overlay
     await hostCdp.send('Page.bringToFront');
     const fpBefore = await readSimSnapshot(hostCdp);
     await hostCdp.eval(`(() => {
       const kb = window.__rcE2E.runtime.keyboard;
-      if (kb?.keys) { kb.keys['KeyW'] = true; kb.keys['ShiftLeft'] = true; }
+      if (kb?.keys?.add) { kb.keys.add('KeyW'); kb.keys.add('ShiftLeft'); }
       window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', key: 'w' }));
     })()`);
     await new Promise((r) => setTimeout(r, 1000));
+    const fpClientOverlay = await client1Cdp
+      .eval(
+        `(() => {
+      return window.__rcE2E.getKeyboardInputOverlayTelemetry?.() ?? null;
+    })()`
+      )
+      .catch(() => null);
     await hostCdp.eval(`(() => {
       const kb = window.__rcE2E.runtime.keyboard;
-      if (kb?.keys) { kb.keys['KeyW'] = false; kb.keys['ShiftLeft'] = false; }
+      if (kb?.keys?.delete) { kb.keys.delete('KeyW'); kb.keys.delete('ShiftLeft'); }
       window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', key: 'w' }));
     })()`);
     await new Promise((r) => setTimeout(r, 450));
@@ -307,24 +314,47 @@ async function main() {
         hostCar0: fpHost.car0Pos,
         clientCar0: fpClient.car0Pos,
         dist: fpDist,
+        fpClientOverlay,
         hostSnaps: fpHost.hardSnaps,
         clientSnaps: fpClient.hardSnaps,
       }
     );
 
-    // Scenario 2: Exhibition 3v3 Spectating
+    // Scenario 2: Exhibition 3v3 Spectating + 3-2-1 Countdown
+    await client1Cdp.eval(`(() => {
+      window.__exCdLog = [];
+      let lastCd = null;
+      window.__exCdTimer = setInterval(() => {
+        const ms = window.__rcE2E.runtime?.match?.state;
+        const cd = ms?.phase === 'kickoff' ? ms.countdown : 0;
+        if (cd > 0 && cd !== lastCd) {
+          lastCd = cd;
+          window.__exCdLog.push(cd);
+        }
+      }, 50);
+    })()`);
     await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onStartMatch('necto', 90, 'standard')`);
-    await new Promise((r) => setTimeout(r, 2500));
+    await new Promise((r) => setTimeout(r, 3400));
+    const clientCountdownNums = await client1Cdp.eval(`(() => {
+      clearInterval(window.__exCdTimer);
+      return window.__exCdLog || [];
+    })()`);
     const exHost = await readSimSnapshot(hostCdp);
     const exClient = await readSimSnapshot(client1Cdp);
-    recordScenario('2. Exhibition 3v3 Spectating', exHost.numCars === 6 && exClient.numCars === 6, {
-      hostMode: exHost.matchMode,
-      hostCars: exHost.numCars,
-      clientMode: exClient.matchMode,
-      clientCars: exClient.numCars,
-      hostSnaps: exHost.hardSnaps,
-      clientSnaps: exClient.hardSnaps,
-    });
+    const exHas321 = [3, 2, 1].every((n) => clientCountdownNums.includes(n));
+    recordScenario(
+      '2. Exhibition 3v3 Spectating & 3-2-1 Countdown',
+      exHost.numCars === 6 && exClient.numCars === 6 && exHas321,
+      {
+        hostMode: exHost.matchMode,
+        hostCars: exHost.numCars,
+        clientMode: exClient.matchMode,
+        clientCars: exClient.numCars,
+        clientCountdownNums,
+        hostSnaps: exHost.hardSnaps,
+        clientSnaps: exClient.hardSnaps,
+      }
+    );
 
     // Scenario 3: Real 3v3 .RCReplay Load, Playback & Pause/ACK
     await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onReturnToFreeplay()`);
@@ -411,8 +441,16 @@ async function main() {
             )
           )
         : -1;
+    const clientReplayDom = await client1Cdp.eval(`(() => {
+      const sb = document.querySelector('[data-alpha-id*="StepperScoreboardHUD"]');
+      const cards = Array.from(document.querySelectorAll('[data-alpha-id^="roster-card-"]'));
+      return {
+        domScoreboard: Boolean(sb),
+        domRosterCards: cards.length,
+      };
+    })()`);
     recordScenario(
-      '3. Real 3v3 RCReplay Load & Playback + Pause ACK + Seek + Resume',
+      '3. Real 3v3 RCReplay Load & Playback + Pause ACK + Seek + Resume + HUD',
       repHostPlay.numCars === 6 &&
         repClientPlay.numCars === 6 &&
         repHostPlay.rvCursor > 0 &&
@@ -421,7 +459,9 @@ async function main() {
         seekBallDist >= 0 &&
         seekBallDist < 100 &&
         repHostResume.rvCursor > repHostSeek.rvCursor &&
-        hasPauseAckProtocol,
+        hasPauseAckProtocol &&
+        clientReplayDom.domScoreboard === true &&
+        clientReplayDom.domRosterCards >= 6,
       {
         replaySource: replayPath ? path.basename(replayPath) : 'synthetic-300f-6car',
         hostCars: repHostPlay.numCars,
@@ -432,6 +472,7 @@ async function main() {
         pauseAckState,
         seekBallDist,
         hasPauseAckProtocol,
+        clientReplayDom,
       }
     );
 
@@ -628,10 +669,7 @@ async function main() {
     const dynDist1 =
       dynHost.car0Pos && dynC1.car0Pos
         ? Math.round(
-            Math.hypot(
-              dynHost.car0Pos[0] - dynC1.car0Pos[0],
-              dynHost.car0Pos[1] - dynC1.car0Pos[1]
-            )
+            Math.hypot(dynHost.car0Pos[0] - dynC1.car0Pos[0], dynHost.car0Pos[1] - dynC1.car0Pos[1])
           )
         : -1;
     recordScenario(
@@ -753,7 +791,9 @@ async function main() {
     })()`);
     await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onBroadcastGlobalWorkspace?.({})`);
     await new Promise((r) => setTimeout(r, 300));
-    const c1PreservedLocalCam = await client1Cdp.eval(`window.__rcE2E.getCamera()?.ballCam === true`);
+    const c1PreservedLocalCam = await client1Cdp.eval(
+      `window.__rcE2E.getCamera()?.ballCam === true`
+    );
     await hostCdp.eval(`(() => {
       const cam = window.__rcE2E.getCamera();
       if (cam) cam.ballCam = true;
@@ -783,17 +823,34 @@ async function main() {
     const authAfterIdle = await hostCdp.eval(
       `window.__rcE2E.getMultiplayerSession?.()?.hostController?.inputAuthority?.activeInputPeerId`
     );
+    await hostCdp.eval(`(() => {
+      const cam = window.__rcE2E.getCamera();
+      if (cam?.setFocusedCarIndex) cam.setFocusedCarIndex(2);
+      else if (cam) cam.focusedCarIndex = 2;
+    })()`);
+    await new Promise((r) => setTimeout(r, 600));
+    const c2FocusedAfterSwitch = await client2Cdp.eval(
+      `window.__rcE2E.getCamera()?.focusedCarIndex ?? -1`
+    );
+    await hostCdp.eval(`(() => {
+      const cam = window.__rcE2E.getCamera();
+      if (cam?.setFocusedCarIndex) cam.setFocusedCarIndex(0);
+      else if (cam) cam.focusedCarIndex = 0;
+    })()`);
+
     recordScenario(
       '9. Edge-Triggered Authority Camera Sync & FPV 300ms Idle Handover',
       c1AfterHostSwitch === false &&
         c1PreservedLocalCam === true &&
         c2FollowedBack === true &&
+        c2FocusedAfterSwitch === 2 &&
         authAfterPreempt === 'host' &&
         authAfterIdle !== 'host',
       {
         c1AfterHostSwitch,
         c1PreservedLocalCam,
         c2FollowedBack,
+        c2FocusedAfterSwitch,
         authAfterPreempt,
         authAfterIdle,
       }
