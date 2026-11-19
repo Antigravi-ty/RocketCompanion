@@ -42,7 +42,8 @@
     "repro:dev-broadcast-v3": "node scripts/runDevBroadcastReproV3.mjs",
     "repro:dev-extra-routes": "node scripts/runDevSyncExtraRoutesE2E.mjs",
     "env:doctor": "node scripts/env/doctor.mjs",
-    "env:setup": "bash scripts/env/setup.sh"
+    "env:setup": "bash scripts/env/setup.sh",
+    "replay:generate-ducky": "node --experimental-strip-types scripts/env/generateReplayFixture.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.23",
