@@ -50,6 +50,12 @@ import {
   checkUiNamingAndRouteAlignment,
   detectCircularDependencies,
 } from './radar/radarUiAndRepoGuards.ts';
+import {
+  analyzeArchDebtGuards,
+  type ArchDebtAuditReport,
+  HARD_ENGINE_NAMETAG_SCATTER_LIMIT,
+  printArchDebtAuditReport,
+} from './radar/radarArchDebtGuards.ts';
 
 function runRadarChecks(
   allFiles: string[],
@@ -59,6 +65,7 @@ function runRadarChecks(
 ): RadarScanResult & {
   totalLargeFileCount: number;
   structuralHotspots: FileStructuralMetrics[];
+  archDebtReport: ArchDebtAuditReport;
 } {
   const errors: string[] = [];
   const hardCeilingViolations: FileVolumeMeta[] = [];
@@ -302,6 +309,7 @@ function runRadarChecks(
   detectCircularDependencies(importGraph, errors);
   checkRootConfigAndWasmParity(errors);
   const structuralHotspots = analyzeStructuralCoupling(allFiles, importGraph, errors, auditFilter);
+  const archDebtReport = analyzeArchDebtGuards(allFiles, errors);
 
   const tsResult = skipTsc
     ? { ok: true, command: 'skipped (--no-tsc)', errors: [] }
@@ -331,6 +339,7 @@ function runRadarChecks(
     tsResult,
     totalLargeFileCount,
     structuralHotspots,
+    archDebtReport,
   };
 }
 
@@ -383,6 +392,9 @@ function main(): void {
   console.log(
     ` Anti-Fake-Split     : 0 Multi-Stmt Lines | HostPen<=${HARD_HOST_PENETRATION_LIMIT} | PassThru<=${HARD_PASSTHROUGH_PROXY_LIMIT} (${result.structuralHotspots.length} audit targets; pass --audit)`
   );
+  console.log(
+    ` Arch-Debt Ratchets  : NameTagScatter=${result.archDebtReport.nameTagScatterFiles.length}/${HARD_ENGINE_NAMETAG_SCATTER_LIMIT} | BoolHotspots=${result.archDebtReport.booleanFlagHotspots.length} | UnscopedCaches=${result.archDebtReport.unscopedCacheFiles.length}`
+  );
 
   const engineSubsystems = [...result.subsystemStats.entries()]
     .filter(([k]) => !k.startsWith('src/ui-') && k !== 'src/entry')
@@ -404,6 +416,7 @@ function main(): void {
 
   if (auditMode) {
     printStructuralAuditReport(result.structuralHotspots, auditFilter);
+    printArchDebtAuditReport(result.archDebtReport);
   }
 
   let printedSection = false;
