@@ -9,11 +9,11 @@ import { normalizeVisualId, resolveVehicleHitboxId } from '../ui-core/config/veh
 import { getMaterialsConfig } from '../ui-core/config/materialsConfig.ts';
 import { resolveBotFallbackColorForTeam } from '../ui-core/config/botsLoadoutConfig.ts';
 import {
-  setNameTagRuntimeState,
   useSpatialAudioStore,
   useAppStore,
   hudStore,
 } from '../game/runtimeUiPort.ts';
+import { projectMatchRoster } from '../game/runtime/MatchRosterProjection.ts';
 import { gameAudio } from '../audio/GameAudioEngineFacade.ts';
 import {
   resolveReplayRosterData,
@@ -158,19 +158,20 @@ export class ReplayViewerRosterSubController {
 
   private _syncNameTagsAndHudTeam(takenOverIdx: number | null, takenOverTeam: number): void {
     if (this.resolvedRoster.length > 0) {
-      setNameTagRuntimeState({
-        isMultiplayerOrMultiCarMode: this.resolvedRoster.length > 1,
-        carEntries: this.resolvedRoster.map((e) => ({
+      projectMatchRoster({
+        roster: this.resolvedRoster.map((e) => ({
           carIndex: e.carIndex,
           name: e.name,
-          username: e.name,
           team: e.carIndex === takenOverIdx ? takenOverTeam : e.team,
           isBot: e.carIndex === takenOverIdx ? false : !e.isSelf,
-          isLocalPlayer: e.carIndex === (takenOverIdx ?? this.activePovCarIndex),
         })),
+        focusedCarIndex: takenOverIdx ?? this.activePovCarIndex,
+        isMultiplayerOrMultiCarMode: this.resolvedRoster.length > 1,
+        localTeam: takenOverTeam,
       });
+    } else {
+      hudStore.getState().setMatchState({ localTeam: takenOverTeam });
     }
-    hudStore.getState().setMatchState({ localTeam: takenOverTeam });
   }
 
   resolveAndApplyToArena(

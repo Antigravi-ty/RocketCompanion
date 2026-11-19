@@ -18,10 +18,10 @@ import { endGoalReplaySession } from './shared/GoalReplaySessionCoordinator.ts';
 import {
   getActiveReplayTimelineController,
   setActiveReplayTimelineController,
-  setNameTagRuntimeState,
   hudStore,
   useReplayToRcsImporterStore,
 } from '../runtimeUiPort.ts';
+import { clearMatchRosterProjection } from '../runtime/MatchRosterProjection.ts';
 import { getPreferredFreeplayTeam } from '../../ui-core/config/vehiclePresets.ts';
 import { StandaloneReplayViewerController } from '../../replay/StandaloneReplayViewerController.ts';
 import { RLRCReplaySessionController } from '../../replay/rlrc/runtime/RLRCReplaySessionController.ts';
@@ -356,7 +356,7 @@ export class FreeplayMode extends BaseGameMode<FreeplayRuntimePort> {
       nameTagTunerController: this.nameTagTunerController,
       rewinderController: this.rewinderController,
     });
-    setNameTagRuntimeState({ isMultiplayerOrMultiCarMode: false, carEntries: [] });
+    clearMatchRosterProjection();
     if (r) {
       endGoalReplaySession(r, null, { resetHudFlags: false });
       const pref = getPreferredFreeplayTeam();

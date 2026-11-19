@@ -36,8 +36,8 @@ import {
   hudStore,
   useAppStore,
   useReplayViewerStore,
-  setNameTagRuntimeState,
 } from '../game/runtimeUiPort.ts';
+import { clearMatchRosterProjection } from '../game/runtime/MatchRosterProjection.ts';
 import { getPreferredColorHex } from '../ui-core/config/vehiclePresets.ts';
 import { gameAudio } from '../audio/GameAudioEngineFacade.ts';
 
@@ -451,10 +451,7 @@ export class ReplayViewerCausalSyncController {
 
   public resetArenaAfterClear(runtime: ReplayScoreboardRuntimePort | null): void {
     const r = runtime;
-    setNameTagRuntimeState({
-      isMultiplayerOrMultiCarMode: false,
-      carEntries: [],
-    });
+    clearMatchRosterProjection();
     if (!r) return;
     r.ballTrajectoryPredictor?.clear?.();
     r.playerCarIndex = 0;

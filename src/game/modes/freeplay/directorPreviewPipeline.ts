@@ -2,9 +2,9 @@ import {
   getActiveReplayTimelineController,
   getLatestRetainedReplayTimelineController,
   hudStore,
-  setNameTagRuntimeState,
   useAppStore,
 } from '../../runtimeUiPort.ts';
+import { setMatchRosterMultiCarMode } from '../../runtime/MatchRosterProjection.ts';
 import { SIM_OFFSETS, MAX_CARS } from '../../../physics/RocketSimConstants.ts';
 import {
   parseDirectorDiagnosticPatternText,
@@ -264,7 +264,7 @@ export function finalizeFreeplayReplaySessionCleanup(params: {
   });
   if (shouldRestoreSingleCar) {
     restoreSingleCarAfterPreview(scenePort, savedCar0);
-    setNameTagRuntimeState({ isMultiplayerOrMultiCarMode: false });
+    setMatchRosterMultiCarMode(false);
   }
   if (scenePort) {
     if (scenePort.keyboard) {

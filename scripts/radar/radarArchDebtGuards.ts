@@ -5,7 +5,7 @@ import { stripComments, toPosixRel } from './radarConstantsAndFs.ts';
  * Ratchet ceilings for architectural debt tracked by Wave 0.
  * Drop HARD_ENGINE_NAMETAG_SCATTER_LIMIT to 1 once MatchRosterProjection SSOT lands.
  */
-export const HARD_ENGINE_NAMETAG_SCATTER_LIMIT = 15;
+export const HARD_ENGINE_NAMETAG_SCATTER_LIMIT = 1;
 export const HARD_BOOLEAN_FLAG_CLUSTER_LIMIT = 15;
 export const HARD_COMPOUND_FLAG_IF_LIMIT = 12;
 

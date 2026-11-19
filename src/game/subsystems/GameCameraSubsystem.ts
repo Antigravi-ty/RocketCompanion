@@ -1,12 +1,11 @@
 import * as THREE from 'three';
 import {
-  getNameTagRuntimeState,
   getSpectateCameraFollowTargetIndex,
   hudStore,
-  setNameTagRuntimeState,
   useAppStore,
   useReferenceOverlayStore,
 } from '../runtimeUiPort.ts';
+import { projectNameTagCameraFocus } from '../runtime/MatchRosterProjection.ts';
 import { getDesiredRespawnPose } from '../../physics/RocketSimConstants.ts';
 import { applyRespawnPoseToObject3D } from '../../entities/arena/RespawnGhostPreview.ts';
 import type { CarStateView } from '../../physics/RocketSimStateViews.ts';
@@ -409,16 +408,7 @@ export class GameCameraSubsystem {
       );
     }
 
-    const nameTagRuntime = getNameTagRuntimeState();
-    if (
-      nameTagRuntime.activeCameraMode !== activeCameraMode ||
-      nameTagRuntime.focusedCarIndex !== obsTargetIdx
-    ) {
-      setNameTagRuntimeState({
-        activeCameraMode,
-        focusedCarIndex: obsTargetIdx,
-      });
-    }
+    projectNameTagCameraFocus(activeCameraMode, obsTargetIdx);
 
     const numCars = r.interpolator?.getCurrHeaderView?.()?.numCars ?? r.interpolator?.numCars ?? 0;
     r.arena?.nameTagSystem?.update(r.arena, numCars, r.camera.camera);

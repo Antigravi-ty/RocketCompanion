@@ -11,10 +11,10 @@ import {
   applyIncomingPauseStateSync,
   applyIncomingWorkspaceBroadcast,
   hudStore,
-  setNameTagRuntimeState,
   useAppStore,
   useReplayViewerStore,
 } from '../runtimeUiPort.ts';
+import { projectMatchRoster } from './MatchRosterProjection.ts';
 
 export interface DevSyncSessionCoordinatorPort {
   networkReconciler?: {
@@ -63,29 +63,7 @@ export function syncReplayRosterTeamsAndNameTags(params: {
   physics?: { setCarTeam?: (carIndex: number, team: number) => void } | null;
   arena?: { setCarTeam?: (carIndex: number, team: number) => void } | null;
 }): void {
-  const { roster, focusedCarIndex, physics, arena } = params;
-  if (!Array.isArray(roster) || roster.length === 0) return;
-  for (const entry of roster) {
-    if (typeof entry?.carIndex === 'number' && typeof entry?.team === 'number') {
-      physics?.setCarTeam?.(entry.carIndex, entry.team);
-      arena?.setCarTeam?.(entry.carIndex, entry.team);
-    }
-  }
-  const focusedIdx = typeof focusedCarIndex === 'number' ? focusedCarIndex : undefined;
-  setNameTagRuntimeState({
-    isMultiplayerOrMultiCarMode: roster.length > 1,
-    carEntries: roster.map((entry) => {
-      const resolvedName = entry.name || `Car ${entry.carIndex + 1}`;
-      return {
-        carIndex: entry.carIndex,
-        name: resolvedName,
-        username: resolvedName,
-        team: entry.team === 1 ? 1 : 0,
-        isBot: Boolean(entry.isBot),
-        isLocalPlayer: focusedIdx !== undefined ? entry.carIndex === focusedIdx : false,
-      };
-    }),
-  });
+  projectMatchRoster(params);
 }
 
 export function applyClientReplayActivitySync(params: {

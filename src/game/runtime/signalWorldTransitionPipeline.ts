@@ -1,10 +1,10 @@
 import {
   useAppStore,
   hudStore,
-  setNameTagRuntimeState,
   notifyNetworkTelemetryExportAvailable,
   getSpectateCameraFollowTargetIndex,
 } from '../runtimeUiPort.ts';
+import { projectRosterCarEntries } from './MatchRosterProjection.ts';
 import { captureRuntimeReplayCarEntries } from '../../replay/replayDirectorCarRosterPipeline.ts';
 import { retainCompletedMatchReplayAndNotify } from '../../replay/ReplayFileExporter.ts';
 import type { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
@@ -150,7 +150,7 @@ export function startGoalReplayDirectorSession(
   const carEntries = captureRuntimeReplayCarEntries(directorPort, {
     defaultTeam: options.scoringTeam,
   });
-  setNameTagRuntimeState({ carEntries });
+  projectRosterCarEntries(carEntries);
   directorPort.replayTimelineController?.beginReplaySession?.({
     ...options,
     carEntries,

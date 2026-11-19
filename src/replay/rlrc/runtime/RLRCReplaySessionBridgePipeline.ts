@@ -6,9 +6,9 @@
 
 import {
   hudStore,
-  setNameTagRuntimeState,
   useReplayToRcsImporterStore,
 } from '../../../game/runtimeUiPort.ts';
+import { projectMatchRoster } from '../../../game/runtime/MatchRosterProjection.ts';
 import type { ReplayScoreboardRuntimePort } from '../../ReplayScoreboardSynchronizer.ts';
 import { packAndCompressRLRCContainer } from '../container/RLRCBinaryContainerCodec.ts';
 import type { RLRCConvertedReplaySession } from '../RLReplayToRLRCConverter.ts';
@@ -42,17 +42,16 @@ export function syncRLRCNameTagRoster(
   roster: readonly RLRCPlayerSlotMeta[],
   activePovSlotIndex: number = roster[0]?.slotIndex ?? 0
 ): void {
-  setNameTagRuntimeState({
-    isMultiplayerOrMultiCarMode: roster.length > 1,
-    focusedCarIndex: activePovSlotIndex,
-    carEntries: roster.map((r) => ({
+  projectMatchRoster({
+    roster: roster.map((r) => ({
       carIndex: r.slotIndex,
       name: r.userName,
-      username: r.userName,
       team: r.team,
       isBot: false,
-      isLocalPlayer: r.slotIndex === activePovSlotIndex,
     })),
+    focusedCarIndex: activePovSlotIndex,
+    includeFocusedCarIndexInPatch: true,
+    isMultiplayerOrMultiCarMode: roster.length > 1,
   });
 }
 
