@@ -116,6 +116,7 @@ export class SupersonicWheelRibbon {
     this.activeSampleCount = 0;
     this.lastSampleValid = false;
     this.geometry.setDrawRange(0, 0);
+    this.geometry.dispose();
     this.preOcclusionMesh.visible = false;
     this.foregroundMesh.visible = false;
   }

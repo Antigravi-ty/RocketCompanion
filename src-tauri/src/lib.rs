@@ -68,10 +68,7 @@ pub fn run() {
             tauri_tunnel_get_status,
         ])
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                // Prevent window destruction and process exit; close to tray
-                api.prevent_close();
-                let _ = window.hide();
+            if let WindowEvent::Destroyed = event {
                 let label = window.label();
                 let app_handle = window.app_handle();
                 update_macos_activation_policy(app_handle, Some(label));
@@ -150,6 +147,17 @@ pub fn run() {
                         let _ = launch_main_window_with_config(app_handle, &state.config);
                     } else {
                         let _ = open_configurator_window(app_handle);
+                    }
+                }
+            }
+            tauri::RunEvent::ExitRequested { api, code, .. } => {
+                if code.is_none() {
+                    let state = load_launch_state(app_handle);
+                    let tray_only =
+                        should_start_tray_only_from_env() || state.config.tray_only_mode;
+                    if tray_only {
+                        api.prevent_exit();
+                        update_macos_activation_policy(app_handle, None);
                     }
                 }
             }

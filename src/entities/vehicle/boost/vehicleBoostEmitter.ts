@@ -358,10 +358,19 @@ export class VehicleBoostEmitter {
     this.physics.reset();
     this.goldRush.reset();
     this.customAttach?.reset();
+    this.customAttach?.mesh?.geometry?.dispose?.();
     this.customTrail?.reset();
+    this.trail.mesh.geometry.dispose();
+    this.drive.mesh.geometry.dispose();
     this.coneOpacity = 0;
     this.cone.visible = false;
-    if (this.nozzleFlash) this.nozzleFlash.visible = false;
+    this.cone.traverse((child) => {
+      (child as THREE.Mesh).geometry?.dispose?.();
+    });
+    if (this.nozzleFlash) {
+      this.nozzleFlash.visible = false;
+      this.nozzleFlash.geometry?.dispose?.();
+    }
     if (this.light) this.light.intensity = 0;
   }
 

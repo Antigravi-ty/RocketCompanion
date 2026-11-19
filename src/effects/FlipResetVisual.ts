@@ -262,6 +262,9 @@ export class FlipResetVisual {
     this.core.material.opacity = 0;
     this.outlineMaterial.opacity = 0;
     this.sparksMaterial.uniforms.opacity.value = 0;
+    this.root.traverse((obj) => {
+      (obj as THREE.Mesh).geometry?.dispose?.();
+    });
   }
 
   dispose(): void {

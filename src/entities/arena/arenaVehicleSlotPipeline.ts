@@ -233,6 +233,20 @@ export function rebuildRegistrySlotVisual(
     DEFAULT_TEAM_COLORS[teamIndex % 2];
 
   state._ensureAsyncCustomAsset(resolvedVisual, carIndex);
+  const keepGeometryUuids = new Set<string>();
+  for (let j = 0; j < state.cars.length; j++) {
+    if (j === carIndex) continue;
+    const other = state.cars[j];
+    if (!other) continue;
+    other.traverse?.((n: THREE.Object3D & { geometry?: { uuid?: string } }) => {
+      if (n.geometry?.uuid) keepGeometryUuids.add(n.geometry.uuid);
+    });
+  }
+  for (const child of carRoot.children) {
+    if (child.name === 'car-body-mesh') {
+      disposeObjectGeometryAndMaterials(child, keepGeometryUuids);
+    }
+  }
   removeCarMeshes(carRoot, true);
 
   const { carModel, carHitbox, boostOutlets } = buildVehicleModel(
@@ -278,8 +292,17 @@ export function disposeAndRemoveRegistrySlot(
   if (carIndex < 0 || carIndex >= state.cars.length) return false;
   const carRoot = state.cars[carIndex];
   if (carRoot) {
+    const keepGeometryUuids = new Set<string>();
+    for (let j = 0; j < state.cars.length; j++) {
+      if (j === carIndex) continue;
+      const other = state.cars[j];
+      if (!other) continue;
+      other.traverse?.((n: THREE.Object3D & { geometry?: { uuid?: string } }) => {
+        if (n.geometry?.uuid) keepGeometryUuids.add(n.geometry.uuid);
+      });
+    }
     state.scene.remove(carRoot);
-    disposeObjectGeometryAndMaterials(carRoot);
+    disposeObjectGeometryAndMaterials(carRoot, keepGeometryUuids);
   }
 
   const demo = state.carDemolitions[carIndex];

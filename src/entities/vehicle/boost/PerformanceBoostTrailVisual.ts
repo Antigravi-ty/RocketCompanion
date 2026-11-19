@@ -128,6 +128,7 @@ export class PerformanceBoostTrailVisual {
     this.activeSampleCount = 0;
     this.lastSampleValid = false;
     this.geometry.setDrawRange(0, 0);
+    this.geometry.dispose();
     this.mesh.visible = false;
   }
 

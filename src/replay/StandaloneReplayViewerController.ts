@@ -497,6 +497,7 @@ export class StandaloneReplayViewerController {
       synthesizedSignalCount: 0,
       incidentMarkers: [],
       signalMarkers: [],
+      resolvedRoster: [],
       prerollRemainingSec: 0,
       activePovCarIndex: 0,
       activePovSlotKey: 1,

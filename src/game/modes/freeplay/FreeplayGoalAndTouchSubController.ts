@@ -342,6 +342,7 @@ export class FreeplayGoalAndTouchSubController {
   }
 
   public applyCleanFreeplayReset(options: CleanFreeplayResetOptions): void {
+    this.deps.replayRingBuffer?.clear?.();
     applyCleanFreeplaySubsystemsReset(this.deps.getRuntime(), this.deps.directorPreview, options);
   }
 

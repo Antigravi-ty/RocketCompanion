@@ -60,19 +60,29 @@ export interface VehicleLoadoutTarget {
   swapCarVisual(carIndex: number, newVisual: string): boolean;
 }
 
-export function disposeObjectGeometryAndMaterials(root: THREE.Object3D): void {
+export function disposeObjectGeometryAndMaterials(
+  root: THREE.Object3D,
+  keepGeometryUuids?: Set<string>
+): void {
   root.traverse?.((node: TraversableMaterialNode) => {
-    let inSharedGlbShell = false;
-    let p: THREE.Object3D | null = node;
-    while (p) {
-      if (p.name?.endsWith?.('-shell')) {
-        inSharedGlbShell = true;
-        break;
+    const geom = node.geometry as (THREE.BufferGeometry & { uuid?: string }) | undefined;
+    if (geom) {
+      let inSharedGlbShell = false;
+      if (keepGeometryUuids) {
+        inSharedGlbShell = Boolean(geom.uuid && keepGeometryUuids.has(geom.uuid));
+      } else {
+        let p: THREE.Object3D | null = node;
+        while (p) {
+          if (p.name?.endsWith?.('-shell')) {
+            inSharedGlbShell = true;
+            break;
+          }
+          p = p.parent;
+        }
       }
-      p = p.parent;
-    }
-    if (!inSharedGlbShell) {
-      node.geometry?.dispose?.();
+      if (!inSharedGlbShell) {
+        geom.dispose?.();
+      }
     }
     if (node.material) {
       const mats = Array.isArray(node.material) ? node.material : [node.material];
