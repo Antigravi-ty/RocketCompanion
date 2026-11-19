@@ -42,7 +42,8 @@
     "repro:dev-broadcast-v3": "node scripts/runDevBroadcastReproV3.mjs",
     "repro:dev-extra-routes": "node scripts/runDevSyncExtraRoutesE2E.mjs",
     "env:check": "node scripts/env/checkEnv.mjs",
-    "env:setup": "bash scripts/env/bootstrap.sh"
+    "env:setup": "bash scripts/env/bootstrap.sh",
+    "env:setup:rust": "bash scripts/env/bootstrap.sh --with-rust"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.23",

@@ -52,11 +52,22 @@ if [ ! -f "$REPLAY_FIXTURE" ]; then
   node scripts/env/generateSyntheticReplayFixture.mjs "$REPLAY_FIXTURE"
 fi
 
-# 6. Optional Rust/Cargo bootstrap (for Tauri C4 verification)
-if [ "$WITH_RUST" = "1" ] && ! command -v cargo >/dev/null 2>&1; then
-  echo "[env:setup] Installing Rust toolchain (minimal)..."
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
+# 6. Optional Rust/Cargo + Tauri C toolchain bootstrap (for Tauri C4 verification)
+if [ "$WITH_RUST" = "1" ]; then
+  if command -v apt-get >/dev/null 2>&1; then
+    if ! command -v cc >/dev/null 2>&1 || ! command -v pkg-config >/dev/null 2>&1 || ! pkg-config --exists webkit2gtk-4.1 2>/dev/null; then
+      echo "[env:setup] Installing C/Tauri Linux build dependencies via apt-get..."
+      DEBIAN_FRONTEND=noninteractive apt-get update -qq
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        gcc libc6-dev pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libssl-dev || true
+    fi
+  fi
   export PATH="$HOME/.cargo/bin:$PATH"
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "[env:setup] Installing Rust toolchain (minimal)..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
+    export PATH="$HOME/.cargo/bin:$PATH"
+  fi
 fi
 
 echo "[env:setup] Running verification probe..."
