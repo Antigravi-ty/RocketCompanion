@@ -81,6 +81,7 @@ export interface GameModeRuntimePort extends GoalReplayRuntimePort {
           collideBall: boolean
         ) => void;
         setPossessionReportingEnabled?: (enabled: boolean) => void;
+        reclaimWasmMemoryIfGrown?: (playerTeam?: number) => Promise<boolean>;
       })
     | null;
   arena?:

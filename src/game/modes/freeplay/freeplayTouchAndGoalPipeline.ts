@@ -57,6 +57,8 @@ export interface FreeplayPhysicsEnginePort {
   saveStateSlot?: (slot: number) => void;
   removeCar?: (carIndex: number) => void;
   saveCompactState?: () => Float32Array;
+  clearReplayBuffer?: () => void;
+  reclaimWasmMemoryIfGrown?: (playerTeam?: number) => Promise<boolean>;
 }
 
 export interface FreeplayAudioPort {
@@ -85,7 +87,10 @@ export interface FreeplayGoalAndTouchRuntimePort extends HotkeyRuntimeOverlayPor
     carDemolitions?: Array<{ stop?: () => void } | null | undefined>;
     supersonicWheelTrailSystem?: { resetCar?: (carIndex: number) => void } | null;
     lighting?: { updateSunIntensities?: (scale: number) => void } | null;
+    ballSpeedTrail?: { reset?: () => void } | null;
+    vehicleRegistry?: { removeCar?: (carIndex: number) => boolean } | null;
   } | null;
+  renderer?: { renderLists?: { dispose?: () => void } } | null;
   match?: {
     state?: { mode?: string; phase?: string; [key: string]: unknown } | null;
   } | null;

@@ -168,6 +168,7 @@ export class SpeedTrail implements SpeedTrailRibbonState {
     }
     this.ribbon.visible = false;
     this.geometry.setDrawRange(0, 0);
+    this.geometry.dispose();
     this.geometryDirty = true;
   }
 

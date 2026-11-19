@@ -175,6 +175,9 @@ export class RocketSimWasmStateAndReplayBase {
   recordReplayFrame(): void {
     const mod = this.module;
     if (!mod) return;
+    if (typeof mod._physics_getReplayBufferSize === 'function' && mod._physics_getReplayBufferSize() === 0) {
+      return;
+    }
     mod._physics_recordReplayFrame();
   }
 

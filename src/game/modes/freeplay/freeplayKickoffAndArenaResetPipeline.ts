@@ -136,19 +136,27 @@ export function resetFreeplayExtraCarsAndArenaToSingleCar(
   const arena = scenePort?.arena;
   if (arena?.cars) {
     if (arena.cars[0]) arena.cars[0].visible = true;
-    for (let i = 1; i < arena.cars.length; i++) {
-      if (arena.cars[i]) arena.cars[i]!.visible = false;
+    arena.resetCarBoosts?.(0);
+    arena.supersonicWheelTrailSystem?.resetCar?.(0);
+    arena.ballSpeedTrail?.reset?.();
+    for (let i = arena.cars.length - 1; i >= 1; i--) {
       if (arena.resetCarBoosts) arena.resetCarBoosts(i);
       const demo = arena.carDemolitions?.[i];
       if (demo?.stop) demo.stop();
       if (arena.supersonicWheelTrailSystem?.resetCar) {
         arena.supersonicWheelTrailSystem.resetCar(i);
       }
+      if (arena.vehicleRegistry?.removeCar) {
+        arena.vehicleRegistry.removeCar(i);
+      } else if (arena.cars[i]) {
+        arena.cars[i]!.visible = false;
+      }
     }
     if (arena.lighting?.updateSunIntensities) {
       arena.lighting.updateSunIntensities(1);
     }
   }
+  scenePort?.renderer?.renderLists?.dispose?.();
   if (scenePort?.audioSubsystem?.resetAudio) {
     scenePort.audioSubsystem.resetAudio();
   }

@@ -115,6 +115,7 @@ export interface ReplayScoreboardRuntimePort
         syncCarsCount?: (numCars: number) => void;
         resetCarBoosts?: (carIndex: number) => void;
         resetBallTrail?: () => void;
+        ballSpeedTrail?: { reset?: () => void } | null;
         supersonicWheelTrailSystem?: {
           clear?: () => void;
           resetCar?: (carIndex: number) => void;
@@ -129,8 +130,10 @@ export interface ReplayScoreboardRuntimePort
             allowShadows?: boolean
           ) => void;
         } | null;
+        vehicleRegistry?: { removeCar?: (carIndex: number) => boolean } | null;
       })
     | null;
+  renderer?: { renderLists?: { dispose?: () => void } } | null;
   interpolator?: { prevState: Float32Array; currState: Float32Array; alpha: number } | null;
   match?: {
     state?: { mode?: string; phase?: string; paused?: boolean; [key: string]: unknown };

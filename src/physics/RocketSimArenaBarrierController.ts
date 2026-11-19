@@ -7,6 +7,7 @@
 
 import {
   loadRocketSimWasmModule,
+  clearCachedRocketSimWasmModule,
   type RocketSimWasmModule,
   type RocketSimWasmModuleOptions,
 } from './RocketSimWasm.ts';
@@ -83,6 +84,8 @@ export class RocketSimArenaBarrierController {
   public goalBarrierChunks: Uint8Array[] = [];
   public goalBarrierMeta: GoalBarrierMetadata | null = null;
   private wasmMod: RocketSimWasmModule | null = null;
+  private initialWasmHeapBytes = 0;
+  private reclaimingWasm = false;
 
   constructor() {
     const weakThis = new WeakRef(this);
@@ -131,9 +134,75 @@ export class RocketSimArenaBarrierController {
 
     sim.stateView = null;
     sim.controlsView = null;
-    mod._physics_initReplayBuffer?.();
     if (sim.eventReader && mod.HEAPU8?.buffer) {
       sim.eventReader.attach(mod, sim.eventBufferPtr);
+    }
+    this.initialWasmHeapBytes = mod.HEAPU8?.byteLength ?? 0;
+  }
+
+  public async reclaimWasmMemoryIfGrown(
+    sim: ArenaBarrierSimTarget,
+    options: {
+      playerTeam?: number;
+      onBeforeSwap?: (oldMod: RocketSimWasmModule) => void;
+    } = {}
+  ): Promise<boolean> {
+    const oldMod = sim.module;
+    const curBytes = oldMod?.HEAPU8?.byteLength ?? 0;
+    if (
+      !oldMod ||
+      this.reclaimingWasm ||
+      this.initialWasmHeapBytes <= 0 ||
+      curBytes <= this.initialWasmHeapBytes
+    ) {
+      return false;
+    }
+    this.reclaimingWasm = true;
+    try {
+      const collisionData = sim.getCachedCollisionData();
+      if (!collisionData) return false;
+      clearCachedRocketSimWasmModule();
+      const newMod = await loadRocketSimWasmModule({});
+      initWasmCollisionMeshes(newMod, this.getEffectiveCollisionChunks(collisionData));
+      if (newMod._physics_createArena() !== 1) return false;
+      syncGoalVolumeBoxToWasm(newMod, this.arenaPreset, this.goalVolumeBox);
+      initWasmBallPrediction(newMod, 5.0);
+      const wasUnlimited = sim.isUnlimitedBoost;
+      const team = options.playerTeam === 1 ? 1 : 0;
+      const prevSpec = sim._carSpecs[0] ?? null;
+      const hitboxIndex = prevSpec?.hitboxIndex ?? 0;
+      if (typeof newMod._physics_addCarAtSlot === 'function') {
+        newMod._physics_addCarAtSlot(0, team, hitboxIndex);
+      } else {
+        newMod._physics_addCar(team, hitboxIndex);
+      }
+      sim._carSpecs = [{ team, hitboxIndex, threeWheels: Boolean(prevSpec?.threeWheels) }];
+      newMod._physics_setUnlimitedBoost(wasUnlimited ? 1 : 0);
+      newMod._physics_resetKickoff(-1);
+
+      options.onBeforeSwap?.(oldMod);
+      sim.module = newMod;
+      this.wasmMod = newMod;
+      sim.statePtr = newMod._physics_getStatePtr();
+      sim.stateLen = newMod._physics_getStateSize();
+      sim.controlsPtr = newMod._physics_getControlsPtr();
+      if (typeof newMod._physics_getEventBufferPtr === 'function') {
+        sim.eventBufferPtr = newMod._physics_getEventBufferPtr();
+        sim.eventBufferSize = newMod._physics_getEventBufferSize?.() ?? EVENT_TOTAL_BUFFER_BYTES;
+        sim.eventReader = new PhysicsEventReader(newMod, sim.eventBufferPtr);
+      } else {
+        sim.eventReader = null;
+      }
+      sim.stateView = null;
+      sim.controlsView = null;
+      if (sim.eventReader && newMod.HEAPU8?.buffer) {
+        sim.eventReader.attach(newMod, sim.eventBufferPtr);
+      }
+      sim.setCarThreeWheels(0, Boolean(prevSpec?.threeWheels));
+      this.initialWasmHeapBytes = newMod.HEAPU8?.byteLength ?? this.initialWasmHeapBytes;
+      return true;
+    } finally {
+      this.reclaimingWasm = false;
     }
   }
 

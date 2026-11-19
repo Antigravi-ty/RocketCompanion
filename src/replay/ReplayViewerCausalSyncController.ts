@@ -462,17 +462,23 @@ export class ReplayViewerCausalSyncController {
       r.arena.playerCarIndex = 0;
       if (r.arena.cars) {
         if (r.arena.cars[0]) r.arena.cars[0]!.visible = true;
-        for (let i = 1; i < r.arena.cars.length; i++) {
-          if (r.arena.cars[i]) {
-            r.arena.cars[i]!.visible = false;
-          }
+        r.arena.resetCarBoosts?.(0);
+        r.arena.supersonicWheelTrailSystem?.resetCar?.(0);
+        r.arena.ballSpeedTrail?.reset?.();
+        for (let i = r.arena.cars.length - 1; i >= 1; i--) {
           r.arena.resetCarBoosts?.(i);
           r.arena.carDemolitions?.[i]?.stop?.();
           r.arena.supersonicWheelTrailSystem?.resetCar?.(i);
+          if (r.arena.vehicleRegistry?.removeCar) {
+            r.arena.vehicleRegistry.removeCar(i);
+          } else if (r.arena.cars[i]) {
+            r.arena.cars[i]!.visible = false;
+          }
         }
       }
       r.arena.lighting?.updateSunIntensities?.(1);
     }
+    r.renderer?.renderLists?.dispose?.();
     r.audioSubsystem?.resetAudio?.();
     if (r.physics) {
       while (r.physics.numCars > 1 && typeof r.physics.removeCar === 'function') {

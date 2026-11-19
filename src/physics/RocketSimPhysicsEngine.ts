@@ -317,6 +317,24 @@ export class RocketSimPhysicsEngine extends RocketSimCarMutatorController {
     return wasmGrounded || Boolean(this.eventDispatcher.ballTouchedFloorInLastStep);
   }
 
+  async reclaimWasmMemoryIfGrown(playerTeam = 0): Promise<boolean> {
+    return this.arenaBarriers.reclaimWasmMemoryIfGrown(this, {
+      playerTeam,
+      onBeforeSwap: (oldMod) => {
+        if (this.wasmStatePtr && typeof oldMod._free === 'function') {
+          oldMod._free(this.wasmStatePtr);
+        }
+        this.wasmStatePtr = 0;
+        this.wasmStateSize = 0;
+        this.cachedSnapshotBuffer = null;
+        this.headerViewInstance = null;
+        this.ballStateViewInstance = null;
+        this.carStateViewInstances = [];
+        this.boostPadStateViewInstances = [];
+      },
+    });
+  }
+
   destroy(): void {
     const mod = this.module;
     if (this.wasmStatePtr && mod && typeof mod._free === 'function') {
