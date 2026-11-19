@@ -91,6 +91,7 @@ import {
   SYSTEM_CONTROL_SIGNALS,
   SIM_OFFSETS,
 } from '../src/physics/RocketSimConstants.ts';
+import { BoostPadSystem } from '../src/entities/BoostPadSystem.ts';
 import { GlobalPayloadCodec, MATCH_SIGNALS } from '../src/network/protocol/GlobalPayloadCodec.ts';
 import { sharedAuthorityCameraSyncTracker } from '../src/game/pipeline/stages/AuthorityCameraSyncTracker.ts';
 import {
@@ -2152,6 +2153,10 @@ async function main(): Promise<void> {
     '24. Replay Watch Together Metadata, Roster Names/Colors & Edge-Triggered CameraSync Non-Override',
     testReplayWatchTogetherMetadataRosterAndEdgeCameraSync
   );
+  await runSection(
+    '25. BoostPadSystem Duplicate Frame Skip & Cooldown Micro-Jitter Debounce (Bug 4 / C-Track)',
+    testBoostPadDuplicateFrameAndJitterDebounce
+  );
   console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
 }
 
@@ -3340,6 +3345,90 @@ async function testReplayWatchTogetherMetadataRosterAndEdgeCameraSync(): Promise
   assert.ok(teamUpdates.some((u) => u.target === 'arena' && u.carIndex === 0 && u.team === 1));
   assert.ok(teamUpdates.some((u) => u.target === 'physics' && u.carIndex === 1 && u.team === 0));
   allowIndepCam = false;
+}
+
+async function testBoostPadDuplicateFrameAndJitterDebounce(): Promise<void> {
+  const sys = new BoostPadSystem();
+  const makeMockPad = (isBig: boolean) => ({
+    isBig,
+    full: { visible: true },
+    base: { visible: false },
+    group: { position: { distanceTo: () => 100 } },
+    glowMesh: { scale: { y: 1 } },
+    orbMesh: isBig ? { visible: true, position: { y: 0 }, scale: { set: () => {} } } : null,
+    shadowMesh: { visible: true, scale: { set: () => {} } },
+    glowMaterial: { uniforms: { uRefillActive: { value: 0 }, uRefillProgress: { value: 0 } } },
+  });
+  sys.pads = [makeMockPad(true), makeMockPad(false)] as unknown as BoostPadSystem['pads'];
+
+  const padBase = BOOST_PAD_DISCRETE_FIELD_OFFSETS.baseOffset;
+  const padStride = BOOST_PAD_DISCRETE_FIELD_OFFSETS.stride;
+  const buf = new Float32Array(448);
+
+  const setPad = (idx: number, active: number, cd: number) => {
+    buf[padBase + idx * padStride] = active;
+    buf[padBase + idx * padStride + 1] = cd;
+  };
+
+  // Frame 1: Big pad 0 inactive at 3.2s cooldown, Small pad 1 inactive at 0.55s cooldown (refilling)
+  buf[SIM_OFFSETS.TICK] = 1000;
+  setPad(0, 0, 3.2);
+  setPad(1, 0, 0.55);
+  sys.update(buf, undefined, 0.016);
+  assert.equal(sys.pads[0].full.visible, false, 'Big pad at 3.2s > 3.0s threshold should hide full');
+  assert.equal(sys.pads[1].full.visible, true, 'Small pad at 0.55s <= 1.0s threshold should refill');
+
+  // Repeated duplicate frames (same TICK & unchanged pad states, plus explicit isDuplicateFrame: true)
+  // Must NOT decrement padCooldownTimers prematurely or toggle pad.full.visible
+  let pad0Flips = 0;
+  let pad1Flips = 0;
+  let prev0 = sys.pads[0].full.visible;
+  let prev1 = sys.pads[1].full.visible;
+  for (let f = 0; f < 40; f++) {
+    sys.update(buf, undefined, 0.016, null, f % 2 === 0 ? { isDuplicateFrame: true } : undefined);
+    if (sys.pads[0].full.visible !== prev0) {
+      pad0Flips++;
+      prev0 = sys.pads[0].full.visible;
+    }
+    if (sys.pads[1].full.visible !== prev1) {
+      pad1Flips++;
+      prev1 = sys.pads[1].full.visible;
+    }
+  }
+  assert.equal(pad0Flips, 0, 'Duplicate frames must not flip big pad visibility');
+  assert.equal(pad1Flips, 0, 'Duplicate frames must not flip refilling small pad visibility');
+  assert.equal(sys.collectAnimations.size, 0, 'Duplicate frames must not trigger collect animations');
+
+  // Cooldown micro-jitter: big pad enters refill at 2.65s, then jitters upward to 3.15s
+  // Must NOT re-trigger collectAnimation or exit refill back above threshold
+  buf[SIM_OFFSETS.TICK] = 1005;
+  setPad(0, 0, 2.65);
+  sys.update(buf, undefined, 0.016);
+  assert.equal(sys.pads[0].full.visible, true, 'Big pad at 2.65s should enter refill');
+
+  buf[SIM_OFFSETS.TICK] = 1006;
+  setPad(0, 0, 3.15);
+  sys.update(buf, undefined, 0.016);
+  assert.equal(sys.collectAnimations.has(0), false, 'Mid-cooldown upward jitter must not trigger collect');
+  assert.equal(sys.pads[0].full.visible, true, 'Small upward jitter must not flicker refill off');
+
+  // Genuine full-cycle respawn-and-recollect (prev <= 1.0, curr >= fullTimeout - 1.0) DOES trigger collect
+  buf[SIM_OFFSETS.TICK] = 1007;
+  setPad(0, 0, 0.5);
+  sys.update(buf, undefined, 0.016);
+  buf[SIM_OFFSETS.TICK] = 1020;
+  setPad(0, 0, 9.8);
+  sys.update(buf, undefined, 0.016);
+  assert.equal(sys.collectAnimations.has(0), true, 'Genuine respawn-and-recollect should trigger collect');
+
+  // Transition back to active clears stale collect animation
+  buf[SIM_OFFSETS.TICK] = 1021;
+  setPad(0, 1, 0);
+  sys.update(buf, undefined, 0.016);
+  assert.equal(sys.collectAnimations.has(0), false, 'Respawn to active should clear stale collect animation');
+  assert.equal(sys.pads[0].full.visible, true);
+
+  sys.dispose();
 }
 
 main().catch((err) => {

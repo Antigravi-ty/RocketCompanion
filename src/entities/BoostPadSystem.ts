@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SIM_OFFSETS } from '../physics/RocketSimConstants.ts';
 import { BoostPadStateView } from '../physics/RocketSimStateViews.ts';
 import {
   computeAllPadRotations,
@@ -85,6 +86,7 @@ export class BoostPadSystem {
   public _bezierSolver: (t: number) => number;
   public _edgeStatesInitialized = false;
   public _glowBezierSolver: (t: number) => number;
+  public _lastStateTick = -1;
   public _orbBezierSolver: (t: number) => number;
   public _padView = new BoostPadStateView();
   public bigOrbs: THREE.Mesh[] = [];
@@ -147,6 +149,7 @@ export class BoostPadSystem {
     this.prevBufferCooldowns.fill(0);
     this.padCooldownTimers.fill(0);
     this._edgeStatesInitialized = false;
+    this._lastStateTick = -1;
 
     buildBoostPadInstances(this, padsData, padTemplates, scene, onPadMeshAdded);
     this.applyCurrentTuning();
@@ -261,7 +264,8 @@ export class BoostPadSystem {
     stateBuffer: Float32Array | null | undefined,
     boostPadStatesOffset?: number,
     dt = 0.016,
-    camera: THREE.Camera | null = null
+    camera: THREE.Camera | null = null,
+    options?: { isDuplicateFrame?: boolean }
   ) {
     if (!stateBuffer || this.pads.length === 0) return;
 
@@ -272,6 +276,28 @@ export class BoostPadSystem {
     const smallThreshold = c.smallRefillThreshold || 1.0;
     const firstFrame = !this._edgeStatesInitialized;
 
+    const currTick = Number(stateBuffer[SIM_OFFSETS.TICK]);
+    const hasValidTick = Number.isFinite(currTick) && currTick > 0;
+    let isDuplicateFrame = Boolean(options?.isDuplicateFrame);
+    if (!isDuplicateFrame && hasValidTick && !firstFrame && currTick === this._lastStateTick) {
+      let anyPadChanged = false;
+      for (let i = 0; i < this.pads.length; i++) {
+        this._padView.attach(stateBuffer, i);
+        const activeNum = this._padView.isActive ? 1 : 0;
+        const cd = this._padView.cooldown;
+        if (
+          activeNum !== this.prevActiveStates[i] ||
+          (!this._padView.isActive && Math.abs(cd - this.prevBufferCooldowns[i]) >= 1e-6)
+        ) {
+          anyPadChanged = true;
+          break;
+        }
+      }
+      if (!anyPadChanged) {
+        isDuplicateFrame = true;
+      }
+    }
+
     for (let i = 0; i < this.pads.length; i++) {
       const pad = this.pads[i];
       this._padView.attach(stateBuffer, i);
@@ -279,6 +305,7 @@ export class BoostPadSystem {
       const isActive = this._padView.isActive;
       const fullTimeout = pad.isBig ? 10.0 : 4.0;
       const bufferCooldown = this._padView.cooldown;
+      const threshold = pad.isBig ? bigThreshold : smallThreshold;
 
       if (firstFrame) {
         this.prevActiveStates[i] = isActive ? 1 : 0;
@@ -288,11 +315,16 @@ export class BoostPadSystem {
           : bufferCooldown > 0 && bufferCooldown <= fullTimeout
             ? bufferCooldown
             : fullTimeout;
-      } else {
+      } else if (!isDuplicateFrame) {
         const wasActive = this.prevActiveStates[i] === 1;
         const prevBufferCd = this.prevBufferCooldowns[i];
         const respawnedAndCollected =
-          !wasActive && !isActive && prevBufferCd > 0 && bufferCooldown > prevBufferCd + 0.5;
+          !wasActive &&
+          !isActive &&
+          prevBufferCd > 0 &&
+          prevBufferCd <= 1.0 &&
+          bufferCooldown >= fullTimeout - 1.0 &&
+          bufferCooldown > prevBufferCd + 0.5;
         const isBufferFrozen =
           safeDt === 0 || (bufferCooldown > 0 && Math.abs(bufferCooldown - prevBufferCd) < 1e-6);
         if ((wasActive && !isActive) || respawnedAndCollected) {
@@ -302,19 +334,43 @@ export class BoostPadSystem {
         } else if (!isActive) {
           if (isBufferFrozen) {
             if (bufferCooldown > 0 && bufferCooldown <= fullTimeout) {
-              this.padCooldownTimers[i] = bufferCooldown;
+              const prevTimer = this.padCooldownTimers[i];
+              const isSmallUpwardJitter =
+                bufferCooldown > prevTimer && bufferCooldown - prevTimer <= 0.5;
+              const wouldExitRefill = prevTimer <= threshold && bufferCooldown > threshold;
+              if (!isSmallUpwardJitter && !wouldExitRefill) {
+                this.padCooldownTimers[i] = bufferCooldown;
+              }
             }
           } else {
-            this.padCooldownTimers[i] = Math.max(0.0, this.padCooldownTimers[i] - safeDt);
+            let nextTimer = Math.max(0.0, this.padCooldownTimers[i] - safeDt);
+            if (bufferCooldown > 0.05 && bufferCooldown <= fullTimeout) {
+              const minExtrapolated = Math.max(0.05, bufferCooldown - 0.35);
+              if (nextTimer < minExtrapolated) {
+                nextTimer = minExtrapolated;
+              }
+            }
             if (
               bufferCooldown > 0 &&
               bufferCooldown < fullTimeout &&
-              Math.abs(this.padCooldownTimers[i] - bufferCooldown) > 0.5
+              Math.abs(nextTimer - bufferCooldown) > 0.5
             ) {
-              this.padCooldownTimers[i] = bufferCooldown;
+              const isUpwardJitter =
+                bufferCooldown > nextTimer && bufferCooldown - prevBufferCd <= 0.5;
+              const wouldExitRefill =
+                nextTimer <= threshold &&
+                bufferCooldown > threshold &&
+                bufferCooldown <= threshold + 0.5;
+              if (!isUpwardJitter && !wouldExitRefill) {
+                nextTimer = bufferCooldown;
+              }
             }
+            this.padCooldownTimers[i] = nextTimer;
           }
         } else {
+          if (!wasActive) {
+            this.collectAnimations.delete(i);
+          }
           this.padCooldownTimers[i] = 0.0;
         }
         this.prevActiveStates[i] = isActive ? 1 : 0;
@@ -383,7 +439,6 @@ export class BoostPadSystem {
         }
       }
 
-      const threshold = pad.isBig ? bigThreshold : smallThreshold;
       const isRefilling =
         isSimulatingRefill || (c.refillEnabled && cooldownTimer <= threshold && cooldownTimer > 0);
 
@@ -438,6 +493,7 @@ export class BoostPadSystem {
       }
     }
     this._edgeStatesInitialized = true;
+    this._lastStateTick = hasValidTick ? currTick : -1;
   }
 
   resetPads() {
@@ -447,6 +503,7 @@ export class BoostPadSystem {
     this.prevBufferCooldowns.fill(0);
     this.padCooldownTimers.fill(0);
     this._edgeStatesInitialized = false;
+    this._lastStateTick = -1;
     for (const pad of this.pads) {
       if (!pad) continue;
       if (pad.full) pad.full.visible = true;
