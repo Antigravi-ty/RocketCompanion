@@ -27,6 +27,11 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createServer } from 'vite';
+import {
+  ensureReproEnvReady,
+  attachCdpDiagnostics,
+  safeCleanupChrome,
+} from './env/reproPreflight.mjs';
 
 if (!process.env.RC_VITE_ROLE) {
   process.env.RC_VITE_ROLE = 'rc-http';
@@ -143,6 +148,10 @@ async function sampleMemory(cdp) {
 }
 
 async function main() {
+  const { chromeBin, replayPath } = ensureReproEnvReady({
+    label: 'DevBroadcastReproV3',
+    needReplayFixture: true,
+  });
   const port = 5174;
   const server = await createServer({
     server: { host: '127.0.0.1', port, strictPort: true },
@@ -151,7 +160,6 @@ async function main() {
   const baseUrl = `http://127.0.0.1:${port}/?skipShaderPrewarm=1`;
   console.log(`[DevBroadcastReproV3] Vite listening at ${baseUrl}`);
 
-  const chromeBin = process.env.CHROME_BIN || '/usr/bin/google-chrome';
   const userDataDir = `/tmp/chrome-dev-broadcast-repro-v3-${Date.now()}`;
   const chromeProc = spawn(
     chromeBin,
@@ -203,6 +211,7 @@ async function main() {
 
   let hostCdp = null;
   let clientCdp = null;
+  let hostErrors = [];
 
   try {
     await waitFor(() => cdpPort, 'Chrome CDP port', 15_000);
@@ -210,11 +219,19 @@ async function main() {
     const hostTarget = targets.find((t) => t.type === 'page');
     hostCdp = new CdpClient(hostTarget.webSocketDebuggerUrl, 'host');
     await hostCdp.connect();
-    await waitFor(
-      () => hostCdp.eval(`Boolean(window.__rcE2E?.runtime?.physics)`),
-      'Host boot',
-      60_000
-    );
+    hostErrors = attachCdpDiagnostics(hostCdp, 'host');
+    try {
+      await waitFor(
+        () => hostCdp.eval(`Boolean(window.__rcE2E?.runtime?.physics)`),
+        'Host boot',
+        60_000
+      );
+    } catch (bootErr) {
+      if (hostErrors.length > 0) {
+        console.error('[DevBroadcastReproV3] Host browser errors:\n' + hostErrors.join('\n'));
+      }
+      throw bootErr;
+    }
 
     const bootMem = await sampleMemory(hostCdp);
 
@@ -331,12 +348,6 @@ async function main() {
     await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onStartReplayViewer()`);
     await new Promise((r) => setTimeout(r, 300));
 
-    const replayPath = resolveReplayFilePath();
-    if (!replayPath) {
-      throw new Error(
-        'Replay file not found at /tmp/rc-replay-3v3-1-0-2026-11-13T07-26-58.rcreplay'
-      );
-    }
     const b64 = fs.readFileSync(replayPath).toString('base64');
     await hostCdp.eval(`(async () => {
       const bin = Uint8Array.from(atob(${JSON.stringify(b64)}), (c) => c.charCodeAt(0));
@@ -520,19 +531,7 @@ async function main() {
     );
   } finally {
     clearTimeout(watchdog);
-    hostCdp?.close();
-    clientCdp?.close();
-    try {
-      chromeProc.kill('SIGKILL');
-    } catch {
-      // Ignore
-    }
-    await server.close();
-    try {
-      fs.rmSync(userDataDir, { recursive: true, force: true });
-    } catch {
-      // Ignore delayed Chrome file lock cleanup
-    }
+    await safeCleanupChrome({ chromeProc, userDataDir, server, hostCdp, clientCdp });
   }
 }
 
