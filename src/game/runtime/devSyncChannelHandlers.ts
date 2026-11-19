@@ -50,6 +50,131 @@ export interface DevSyncChannelPort {
   sendPresencePing?: (payload?: Record<string, unknown>) => boolean;
 }
 
+export interface ReplayRosterSyncEntryLike {
+  carIndex: number;
+  name?: string;
+  team?: number;
+  isBot?: boolean;
+}
+
+export function syncReplayRosterTeamsAndNameTags(params: {
+  roster: ReadonlyArray<ReplayRosterSyncEntryLike> | undefined;
+  focusedCarIndex?: number;
+  physics?: { setCarTeam?: (carIndex: number, team: number) => void } | null;
+  arena?: { setCarTeam?: (carIndex: number, team: number) => void } | null;
+}): void {
+  const { roster, focusedCarIndex, physics, arena } = params;
+  if (!Array.isArray(roster) || roster.length === 0) return;
+  for (const entry of roster) {
+    if (typeof entry?.carIndex === 'number' && typeof entry?.team === 'number') {
+      physics?.setCarTeam?.(entry.carIndex, entry.team);
+      arena?.setCarTeam?.(entry.carIndex, entry.team);
+    }
+  }
+  const focusedIdx = typeof focusedCarIndex === 'number' ? focusedCarIndex : undefined;
+  setNameTagRuntimeState({
+    isMultiplayerOrMultiCarMode: roster.length > 1,
+    carEntries: roster.map((entry) => {
+      const resolvedName = entry.name || `Car ${entry.carIndex + 1}`;
+      return {
+        carIndex: entry.carIndex,
+        name: resolvedName,
+        username: resolvedName,
+        team: entry.team === 1 ? 1 : 0,
+        isBot: Boolean(entry.isBot),
+        isLocalPlayer: focusedIdx !== undefined ? entry.carIndex === focusedIdx : false,
+      };
+    }),
+  });
+}
+
+export function applyClientReplayActivitySync(params: {
+  activityId: string;
+  payload: Record<string, unknown>;
+  cfg: Record<string, unknown> | null;
+  physics?: { setCarTeam?: (carIndex: number, team: number) => void } | null;
+  arena?: { setCarTeam?: (carIndex: number, team: number) => void } | null;
+  camera?: {
+    setFreeCam?: (free: boolean) => void;
+    setFocusedCarIndex?: (idx: number) => void;
+  } | null;
+}): void {
+  const { activityId, payload, cfg, physics, arena, camera } = params;
+  const rvStore = useReplayViewerStore?.getState?.();
+  if (!rvStore?.updateLiveTelemetry) return;
+  if (activityId !== 'replay') {
+    rvStore.updateLiveTelemetry({
+      viewerState: 'idle',
+      loadedFileName: null,
+      totalFrames: 0,
+      cursorFrame: 0,
+      localTeam: undefined,
+      resolvedRoster: [],
+    });
+    return;
+  }
+  const rs =
+    cfg?.replaySync && typeof cfg.replaySync === 'object'
+      ? (cfg.replaySync as Record<string, unknown>)
+      : null;
+  const playbackPaused = Boolean(cfg?.playbackPaused ?? rs?.playbackState === 'paused');
+  rvStore.updateLiveTelemetry({
+    viewerState: playbackPaused ? 'paused' : 'playing',
+    loadedFileName:
+      typeof rs?.fileName === 'string'
+        ? rs.fileName
+        : typeof payload.replayId === 'string'
+          ? payload.replayId
+          : null,
+    ...(typeof rs?.totalFrames === 'number' ? { totalFrames: rs.totalFrames } : {}),
+    cursorFrame:
+      typeof rs?.currentFrame === 'number'
+        ? rs.currentFrame
+        : typeof cfg?.pausedAtTick === 'number'
+          ? cfg.pausedAtTick
+          : 0,
+    ...(typeof rs?.flowPct === 'number' ? { effectiveFlowPct: rs.flowPct } : {}),
+    ...(typeof rs?.focusedCarIndex === 'number' ? { activePovCarIndex: rs.focusedCarIndex } : {}),
+    ...(rs?.localTeam === 0 || rs?.localTeam === 1 ? { localTeam: rs.localTeam } : {}),
+    ...(Array.isArray(rs?.roster)
+      ? {
+          resolvedRoster: rs.roster as Array<{
+            carIndex: number;
+            name?: string;
+            team?: number;
+            isSelf?: boolean;
+            isBot?: boolean;
+          }>,
+        }
+      : {}),
+  });
+  if (!rs) return;
+  syncReplayRosterTeamsAndNameTags({
+    roster: rs.roster as ReadonlyArray<ReplayRosterSyncEntryLike> | undefined,
+    focusedCarIndex: typeof rs.focusedCarIndex === 'number' ? rs.focusedCarIndex : undefined,
+    physics,
+    arena,
+  });
+  const hudPatch: Record<string, unknown> = {};
+  if (typeof rs.blueScore === 'number') hudPatch.blueScore = rs.blueScore;
+  if (typeof rs.orangeScore === 'number') hudPatch.orangeScore = rs.orangeScore;
+  if (typeof rs.remainingSeconds === 'number') hudPatch.remainingSeconds = rs.remainingSeconds;
+  if (typeof rs.isOvertime === 'boolean') hudPatch.isOvertime = rs.isOvertime;
+  if (typeof rs.overtimeSeconds === 'number') hudPatch.overtimeSeconds = rs.overtimeSeconds;
+  if (typeof rs.matchPhase === 'string') hudPatch.matchPhase = rs.matchPhase;
+  if (rs.localTeam === 0 || rs.localTeam === 1) hudPatch.localTeam = rs.localTeam;
+  if (Object.keys(hudPatch).length > 0) {
+    hudStore?.getState?.()?.setMatchState?.(hudPatch);
+  }
+  if (
+    typeof rs.focusedCarIndex === 'number' &&
+    !useAppStore.getState().onlineSession?.allowClientIndependentCamera
+  ) {
+    camera?.setFreeCam?.(false);
+    camera?.setFocusedCarIndex?.(rs.focusedCarIndex);
+  }
+}
+
 export function bindDevSyncClientChannelHandlers(params: {
   channel: DevSyncChannelPort;
   authorId: string;
@@ -178,27 +303,12 @@ export function bindDevSyncClientChannelHandlers(params: {
     }
     const replaySync = (payload as { replaySync?: WorkspaceReplaySyncPayload } | null)?.replaySync;
     if (replaySync) {
-      if (Array.isArray(replaySync.roster)) {
-        for (const entry of replaySync.roster) {
-          physics?.setCarTeam?.(entry.carIndex, entry.team);
-          arena?.setCarTeam?.(entry.carIndex, entry.team);
-        }
-        if (replaySync.roster.length > 0) {
-          const focusedIdx =
-            typeof replaySync.focusedCarIndex === 'number' ? replaySync.focusedCarIndex : undefined;
-          setNameTagRuntimeState({
-            isMultiplayerOrMultiCarMode: replaySync.roster.length > 1,
-            carEntries: replaySync.roster.map((entry) => ({
-              carIndex: entry.carIndex,
-              name: entry.name,
-              username: entry.name,
-              team: entry.team,
-              isBot: Boolean(entry.isBot),
-              isLocalPlayer: focusedIdx !== undefined ? entry.carIndex === focusedIdx : false,
-            })),
-          });
-        }
-      }
+      syncReplayRosterTeamsAndNameTags({
+        roster: replaySync.roster,
+        focusedCarIndex: replaySync.focusedCarIndex,
+        physics,
+        arena,
+      });
       useReplayViewerStore?.getState?.()?.updateLiveTelemetry?.({
         viewerState: replaySync.playbackState === 'paused' ? 'paused' : 'playing',
         ...(replaySync.fileName !== undefined ? { loadedFileName: replaySync.fileName } : {}),

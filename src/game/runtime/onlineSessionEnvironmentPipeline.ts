@@ -3,12 +3,11 @@ import type { PodiumCelebrationController } from '../modes/PodiumCelebrationCont
 import type { ReplayTimelineController } from '../../replay/ReplayTimelineController.ts';
 import {
   hudStore,
-  setNameTagRuntimeState,
   useAppStore,
-  useReplayViewerStore,
   syncArenaPresetUi,
   syncClientInputEnabledUi,
 } from '../runtimeUiPort.ts';
+import { applyClientReplayActivitySync } from './devSyncChannelHandlers.ts';
 import type { NetworkDiagnosticsProbe } from './NetworkDiagnosticsProbe.ts';
 import type {
   OnlineLobbyDualWorldController,
@@ -397,81 +396,14 @@ export function createOnlineSessionBridgePort(
         reconciler.setClientInputEnabled(resolvedInputEnabled);
         syncClientInputEnabledUi(resolvedInputEnabled);
       }
-      const rvStore = useReplayViewerStore?.getState?.();
-      if (rvStore?.updateLiveTelemetry) {
-        if (activityId === 'replay') {
-          const rs =
-            cfg?.replaySync && typeof cfg.replaySync === 'object'
-              ? (cfg.replaySync as Record<string, unknown>)
-              : null;
-          const playbackPaused = Boolean(cfg?.playbackPaused ?? rs?.playbackState === 'paused');
-          rvStore.updateLiveTelemetry({
-            viewerState: playbackPaused ? 'paused' : 'playing',
-            loadedFileName:
-              typeof rs?.fileName === 'string'
-                ? rs.fileName
-                : typeof payload.replayId === 'string'
-                  ? payload.replayId
-                  : null,
-            ...(typeof rs?.totalFrames === 'number' ? { totalFrames: rs.totalFrames } : {}),
-            cursorFrame:
-              typeof rs?.currentFrame === 'number'
-                ? rs.currentFrame
-                : typeof cfg?.pausedAtTick === 'number'
-                  ? cfg.pausedAtTick
-                  : 0,
-            ...(typeof rs?.flowPct === 'number' ? { effectiveFlowPct: rs.flowPct } : {}),
-            ...(typeof rs?.focusedCarIndex === 'number'
-              ? { activePovCarIndex: rs.focusedCarIndex }
-              : {}),
-            ...(rs?.localTeam === 0 || rs?.localTeam === 1 ? { localTeam: rs.localTeam } : {}),
-            ...(Array.isArray(rs?.roster)
-              ? {
-                  resolvedRoster: rs.roster as Array<{
-                    carIndex: number;
-                    name?: string;
-                    team?: number;
-                    isSelf?: boolean;
-                    isBot?: boolean;
-                  }>,
-                }
-              : {}),
-          });
-          if (rs) {
-            const hudPatch: Record<string, unknown> = {};
-            if (typeof rs.blueScore === 'number') hudPatch.blueScore = rs.blueScore;
-            if (typeof rs.orangeScore === 'number') hudPatch.orangeScore = rs.orangeScore;
-            if (typeof rs.remainingSeconds === 'number') {
-              hudPatch.remainingSeconds = rs.remainingSeconds;
-            }
-            if (typeof rs.isOvertime === 'boolean') hudPatch.isOvertime = rs.isOvertime;
-            if (typeof rs.overtimeSeconds === 'number') {
-              hudPatch.overtimeSeconds = rs.overtimeSeconds;
-            }
-            if (typeof rs.matchPhase === 'string') hudPatch.matchPhase = rs.matchPhase;
-            if (rs.localTeam === 0 || rs.localTeam === 1) hudPatch.localTeam = rs.localTeam;
-            if (Object.keys(hudPatch).length > 0) {
-              hudStore?.getState?.()?.setMatchState?.(hudPatch);
-            }
-            if (
-              typeof rs.focusedCarIndex === 'number' &&
-              !useAppStore.getState().onlineSession?.allowClientIndependentCamera
-            ) {
-              ctx.camera?.setFreeCam?.(false);
-              ctx.camera?.setFocusedCarIndex?.(rs.focusedCarIndex);
-            }
-          }
-        } else {
-          rvStore.updateLiveTelemetry({
-            viewerState: 'idle',
-            loadedFileName: null,
-            totalFrames: 0,
-            cursorFrame: 0,
-            localTeam: undefined,
-            resolvedRoster: [],
-          });
-        }
-      }
+      applyClientReplayActivitySync({
+        activityId,
+        payload,
+        cfg,
+        physics: ctx.physics,
+        arena: ctx.arena,
+        camera: ctx.camera,
+      });
     },
   };
 }
