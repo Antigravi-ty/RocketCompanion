@@ -88,7 +88,7 @@ function buildOrthonormalBasisFromVelocity(
   return { fx, fy, fz, rx, ry, rz, ux, uy, uz };
 }
 
-const STRING_CSV_HEADERS = new Set([
+const STRING_CSV_HEADERS: ReadonlySet<string> = new Set([
   'focus_car_visual_id',
   'focus_car_hitbox_id',
   'cars_pose_compact',

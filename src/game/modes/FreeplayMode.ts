@@ -367,9 +367,6 @@ export class FreeplayMode extends BaseGameMode<FreeplayRuntimePort> {
         }) ?? pref;
       hudStore.getState().setMatchState({ localTeam: team });
       if (r.keyboard) r.keyboard.ballControlEnabled = true;
-      r.physics?.clearReplayBuffer?.();
-      void r.physics?.reclaimWasmMemoryIfGrown?.(team);
-      r.renderer?.renderLists?.dispose?.();
     }
   }
   private _syncPlayingHud(phase: 'playing' | 'lobby', localTeam?: 0 | 1): void {

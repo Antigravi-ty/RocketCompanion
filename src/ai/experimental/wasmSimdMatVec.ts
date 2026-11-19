@@ -7,6 +7,8 @@
  * Loads co-located `simdMatVec.wasm` via `new URL('./simdMatVec.wasm', import.meta.url)`.
  */
 
+import { runtimeResourceRegistry } from '../../game/runtime/RuntimeResourceRegistry.ts';
+
 type WasmMatVecFn = (
   wPtr: number,
   xPtr: number,
@@ -232,4 +234,20 @@ export async function preuploadSimdTensorsAsync(
     }
   }
 }
+
+export function resetWasmSimdMatVec(): void {
+  sWasmMem = null;
+  sWasmMatVec = null;
+  sF32View = null;
+  sHeapOffset = WEIGHT_HEAP_START;
+  sWeightPtrMap = new WeakMap<Float32Array, number>();
+  sPendingTensors.clear();
+  sInitPromise = null;
+}
+
+runtimeResourceRegistry.register({
+  id: 'ai:wasm-simd-matvec',
+  scope: 'ai',
+  dispose: resetWasmSimdMatVec,
+});
 
