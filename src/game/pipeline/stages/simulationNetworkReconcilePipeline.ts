@@ -12,6 +12,7 @@ import type { PhysicsStateInterpolator } from '../../../physics/PhysicsStateInte
 import type { RocketSimPhysicsEngine } from '../../../physics/RocketSimPhysicsEngine.ts';
 import type { ReplayTimelineController } from '../../../replay/ReplayTimelineController.ts';
 import type {
+  SimulationDrivePolicy,
   SimulationFrameExecutionFlags,
   SimulationMatchStateSnapshot,
 } from './simulationFrameClassifierPipeline.ts';
@@ -55,6 +56,64 @@ function recordClientDiagnosticReplayFrame(
   return { recorded: false, overflowPaused: false };
 }
 
+function shouldFlushReconcilerControls(
+  policy: SimulationDrivePolicy,
+  matchState: SimulationMatchStateSnapshot,
+  flags: SimulationFrameExecutionFlags,
+  reconciler: PredictionReconciler
+): boolean {
+  if (policy.mode === 'client-goal-replay' || policy.mode === 'local-replay-playback') {
+    return true;
+  }
+  if (reconciler.replayPlaybackMode) {
+    return true;
+  }
+  if (flags.isMatchEnded || matchState.paused) {
+    return true;
+  }
+  return matchState.phase === 'prepare';
+}
+
+function canRecordLiveDiagnosticTick(
+  policy: SimulationDrivePolicy,
+  matchState: SimulationMatchStateSnapshot,
+  flags: SimulationFrameExecutionFlags
+): boolean {
+  if (matchState.paused) return false;
+  if (flags.isMatchEnded) return false;
+  if (flags.isGoalReplay) return false;
+  return policy.mode === 'host-authoritative' || policy.mode === 'local-freeplay';
+}
+
+function feedStreamedReplayPacket(
+  pkt: { stateSnapshot?: Float32Array; serverTick?: number; acknowledgedControls?: unknown },
+  replayTimelineController: ReplayTimelineController | null,
+  rosterCapturePort: ReplayDirectorRosterRuntimePort,
+  matchState: SimulationMatchStateSnapshot
+): void {
+  if (!replayTimelineController || !pkt.stateSnapshot) return;
+  if (!replayTimelineController.sessionState.isActive) {
+    const carEntries = captureRuntimeReplayCarEntries(rosterCapturePort, {
+      frameBuffer: pkt.stateSnapshot,
+      defaultTeam: matchState.scorer ?? 0,
+    });
+    replayTimelineController.beginReplaySession({
+      scoringTeam: matchState.scorer ?? 0,
+      scorerCarIndex: matchState.scorerCarIndex ?? 0,
+      carEntries,
+      isNetworkStreamed: true,
+    });
+  }
+  const recordedReplayTick = Math.floor(
+    Number(pkt.stateSnapshot[0]) > 0 ? pkt.stateSnapshot[0] : pkt.serverTick || 0
+  );
+  replayTimelineController.appendStreamedReplayFrame?.(
+    pkt.stateSnapshot,
+    recordedReplayTick,
+    pkt.acknowledgedControls as never
+  );
+}
+
 export interface NetworkReconcileStepInput {
   readonly timestamp: number;
   readonly physics: RocketSimPhysicsEngine;
@@ -62,6 +121,7 @@ export interface NetworkReconcileStepInput {
   readonly camera: CameraManager | null;
   readonly matchState: SimulationMatchStateSnapshot;
   readonly flags: SimulationFrameExecutionFlags;
+  readonly policy: SimulationDrivePolicy;
   readonly reconciler: PredictionReconciler | null;
   readonly server: AuthoritativeServerHost | null;
   readonly replayTimelineController: ReplayTimelineController | null;
@@ -85,6 +145,7 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
     camera,
     matchState,
     flags,
+    policy,
     reconciler,
     server,
     replayTimelineController,
@@ -115,9 +176,7 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
     const currentTick = Math.floor(physics.getHeaderView().tickCount);
     if (
       sessionStateTarget &&
-      !matchState.paused &&
-      !flags.isMatchEnded &&
-      !flags.isGoalReplay &&
+      canRecordLiveDiagnosticTick(policy, matchState, flags) &&
       currentTick !== nextRecordedTick
     ) {
       const recOut = recordClientDiagnosticReplayFrame(physics, diagnosticDumpMaxFrames);
@@ -131,13 +190,7 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
 
   const tickBeforeReconcile = Math.floor(physics.getHeaderView().tickCount);
   reconciler.reconcile(now);
-  if (
-    matchState.paused ||
-    flags.isMatchEnded ||
-    flags.isGoalReplay ||
-    reconciler.replayPlaybackMode ||
-    matchState.phase === 'prepare'
-  ) {
+  if (shouldFlushReconcilerControls(policy, matchState, flags, reconciler)) {
     reconciler.flushPendingControlPackets?.(now);
   }
   const tickAfterReconcile = Math.floor(physics.getHeaderView().tickCount);
@@ -147,53 +200,40 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
     (reconciler.clientInputEnabled === false || reconciler.activeInputPeerId === 'host') &&
     !reconciler.hostLobbyMode
   );
+  const useSpectateBuffer =
+    (policy.mode === 'client-csr-spectate' || policy.mode === 'client-goal-replay') &&
+    isPureCsrSpectate &&
+    !reconciler.replayPlaybackMode &&
+    Boolean(spectateInterpolationBuffer);
 
-  if (!isPureCsrSpectate || reconciler.replayPlaybackMode) {
+  if (!useSpectateBuffer) {
     spectateInterpolationBuffer?.reset();
   }
 
-  if (
-    !flags.isGoalReplay &&
-    !reconciler.replayPlaybackMode &&
-    !isPureCsrSpectate &&
-    physics.state
-  ) {
-    if (hasPhysicsStatePositionNaN(physics)) {
-      physics.restoreCompactState?.(physics.state, { preserveEngineTick: true });
-      interpolator.sync(timestamp);
-      camera?.resetView();
-    } else {
-      interpolator.currState.set(physics.state);
-      if (
-        tickAfterReconcile !== tickBeforeReconcile ||
-        (reconciler.metrics.lastCorrectionDelta > 0.05 && !reconciler.enableSmoothing)
-      ) {
-        interpolator.prevState.set(physics.state);
-      }
-    }
-  }
-
-  if (isPureCsrSpectate && !reconciler.replayPlaybackMode && spectateInterpolationBuffer) {
+  if (useSpectateBuffer && spectateInterpolationBuffer) {
     const lastSignals = (
       reconciler.lastParsedPacket as { signals?: Array<{ signalType?: number }> } | null
     )?.signals;
-    if (
+    const hasResetSignal =
       Array.isArray(lastSignals) &&
       lastSignals.some(
         (s) =>
           s?.signalType === MATCH_SIGNALS.BALL_RESET ||
           s?.signalType === MATCH_SIGNALS.ROUND_STARTED
-      )
-    ) {
+      );
+    if (hasResetSignal) {
       spectateInterpolationBuffer.reset();
     }
-    if (
-      Array.isArray(reconciler.drainedReplayPackets) &&
-      reconciler.drainedReplayPackets.length > 0
-    ) {
-      if (flags.isGoalReplay && replayTimelineController) {
-        const lastPkt = reconciler.drainedReplayPackets[reconciler.drainedReplayPackets.length - 1];
-        if (lastPkt?.stateSnapshot && !replayTimelineController.sessionState.isActive) {
+
+    const packets = reconciler.drainedReplayPackets;
+    if (Array.isArray(packets) && packets.length > 0) {
+      if (policy.shouldFeedReplayTimeline) {
+        const lastPkt = packets[packets.length - 1];
+        if (
+          lastPkt?.stateSnapshot &&
+          replayTimelineController &&
+          !replayTimelineController.sessionState.isActive
+        ) {
           const carEntries = captureRuntimeReplayCarEntries(rosterCapturePort, {
             frameBuffer: lastPkt.stateSnapshot,
             defaultTeam: matchState.scorer ?? 0,
@@ -206,25 +246,20 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
           });
         }
       }
-      for (let i = 0; i < reconciler.drainedReplayPackets.length; i++) {
-        const pkt = reconciler.drainedReplayPackets[i];
-        if (!pkt || !pkt.stateSnapshot) continue;
+      for (let i = 0; i < packets.length; i++) {
+        const pkt = packets[i];
+        if (!pkt?.stateSnapshot) continue;
         spectateInterpolationBuffer.pushFrame(pkt.stateSnapshot, pkt.serverTick || 0, now);
-        if (flags.isGoalReplay && replayTimelineController) {
-          const recordedReplayTick = Math.floor(
-            Number(pkt.stateSnapshot[0]) > 0 ? pkt.stateSnapshot[0] : pkt.serverTick || 0
-          );
-          replayTimelineController.appendStreamedReplayFrame?.(
-            pkt.stateSnapshot,
-            recordedReplayTick,
-            pkt.acknowledgedControls
-          );
+        if (policy.shouldFeedReplayTimeline) {
+          feedStreamedReplayPacket(pkt, replayTimelineController, rosterCapturePort, matchState);
         }
       }
-      reconciler.drainedReplayPackets.length = 0;
+      packets.length = 0;
     }
 
-    if (!flags.isLocalReplayControllerStepping && !(server && !flags.isGoalReplay)) {
+    const canSampleToEngine =
+      !flags.isLocalReplayControllerStepping && !(server && policy.mode !== 'client-goal-replay');
+    if (canSampleToEngine) {
       const sampled = spectateInterpolationBuffer.sample(now);
       if (sampled) {
         if (reconciler.metrics) {
@@ -237,49 +272,30 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
         }
       }
     }
-  } else if (
-    (reconciler.replayPlaybackMode || isPureCsrSpectate) &&
-    Array.isArray(reconciler.drainedReplayPackets) &&
-    reconciler.drainedReplayPackets.length > 0
-  ) {
+    return nextRecordedTick;
+  }
+
+  const packets = reconciler.drainedReplayPackets;
+  const isReplayStreamMode =
+    reconciler.replayPlaybackMode || isPureCsrSpectate || policy.mode === 'client-goal-replay';
+  if (isReplayStreamMode && Array.isArray(packets) && packets.length > 0) {
     const s = replayTimelineController?.sessionState;
     const isCustomScrubbing = Boolean(
       s && (s.isScrubbing || s.isPaused || Math.abs((s.playbackSpeed ?? 1.0) - 1.0) > 0.01)
     );
-    const startIdx =
-      !reconciler.replayPlaybackMode && isPureCsrSpectate
-        ? reconciler.drainedReplayPackets.length - 1
-        : 0;
-    for (let i = startIdx; i < reconciler.drainedReplayPackets.length; i++) {
-      const pkt = reconciler.drainedReplayPackets[i];
-      if (!pkt || !pkt.stateSnapshot) continue;
-      if (flags.isGoalReplay && replayTimelineController) {
-        if (!replayTimelineController.sessionState.isActive) {
-          const carEntries = captureRuntimeReplayCarEntries(rosterCapturePort, {
-            frameBuffer: pkt.stateSnapshot,
-            defaultTeam: matchState.scorer ?? 0,
-          });
-          replayTimelineController.beginReplaySession({
-            scoringTeam: matchState.scorer ?? 0,
-            scorerCarIndex: matchState.scorerCarIndex ?? 0,
-            carEntries,
-            isNetworkStreamed: true,
-          });
-        }
-        const recordedReplayTick = Math.floor(
-          Number(pkt.stateSnapshot[0]) > 0 ? pkt.stateSnapshot[0] : pkt.serverTick || 0
-        );
-        replayTimelineController.appendStreamedReplayFrame?.(
-          pkt.stateSnapshot,
-          recordedReplayTick,
-          pkt.acknowledgedControls
-        );
+    const startIdx = !reconciler.replayPlaybackMode && isPureCsrSpectate ? packets.length - 1 : 0;
+    const canApplyStreamFrame =
+      !(isCustomScrubbing && policy.mode === 'client-goal-replay') &&
+      !flags.isLocalReplayControllerStepping &&
+      !(server && policy.mode !== 'client-goal-replay');
+
+    for (let i = startIdx; i < packets.length; i++) {
+      const pkt = packets[i];
+      if (!pkt?.stateSnapshot) continue;
+      if (policy.shouldFeedReplayTimeline) {
+        feedStreamedReplayPacket(pkt, replayTimelineController, rosterCapturePort, matchState);
       }
-      if (
-        (!isCustomScrubbing || !flags.isGoalReplay) &&
-        !flags.isLocalReplayControllerStepping &&
-        !(server && !flags.isGoalReplay)
-      ) {
+      if (canApplyStreamFrame) {
         applyReplayFrameToEngine(physics, pkt.stateSnapshot, interpolator);
         if (!matchState.paused && !flags.isMatchEnded && sessionStateTarget) {
           const recOut = recordClientDiagnosticReplayFrame(physics, diagnosticDumpMaxFrames);
@@ -287,14 +303,29 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
         }
       }
     }
-    reconciler.drainedReplayPackets.length = 0;
-  } else if (
+    packets.length = 0;
+    return nextRecordedTick;
+  }
+
+  if (policy.mode === 'local-freeplay' && physics.state) {
+    if (hasPhysicsStatePositionNaN(physics)) {
+      physics.restoreCompactState?.(physics.state, { preserveEngineTick: true });
+      interpolator.sync(timestamp);
+      camera?.resetView();
+    } else {
+      interpolator.currState.set(physics.state);
+      const needsPrevSnap =
+        tickAfterReconcile !== tickBeforeReconcile ||
+        (reconciler.metrics.lastCorrectionDelta > 0.05 && !reconciler.enableSmoothing);
+      if (needsPrevSnap) {
+        interpolator.prevState.set(physics.state);
+      }
+    }
+  }
+
+  if (
     sessionStateTarget &&
-    !matchState.paused &&
-    !flags.isMatchEnded &&
-    !flags.isGoalReplay &&
-    !reconciler.replayPlaybackMode &&
-    !isPureCsrSpectate &&
+    canRecordLiveDiagnosticTick(policy, matchState, flags) &&
     tickAfterReconcile !== nextRecordedTick
   ) {
     const recOut = recordClientDiagnosticReplayFrame(physics, diagnosticDumpMaxFrames);

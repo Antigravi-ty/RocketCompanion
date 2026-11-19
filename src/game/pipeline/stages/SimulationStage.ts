@@ -15,6 +15,7 @@ import {
 import {
   type ActiveModeSimulationPort,
   type SimulationMatchStateSnapshot,
+  classifySimulationDrivePolicy,
   evaluateSimulationFrameFlags,
 } from './simulationFrameClassifierPipeline.ts';
 import { stepNetworkReconciliationAndReplayStream } from './simulationNetworkReconcilePipeline.ts';
@@ -239,6 +240,7 @@ export class SimulationStage implements PipelineStage {
       }
     }
 
+    const isSpectatePaused = isSpectatePlaybackPaused();
     const flags = evaluateSimulationFrameFlags({
       matchState,
       activeMode,
@@ -246,14 +248,25 @@ export class SimulationStage implements PipelineStage {
       hasReconciler: Boolean(reconciler && !isBroadcastingHost && !isClientInputAuthority),
       hasServer: Boolean(server),
     });
+    const policy = classifySimulationDrivePolicy({
+      flags,
+      hasServer: Boolean(server),
+      isBroadcastingHost,
+      hasReconciler: Boolean(reconciler && !isBroadcastingHost),
+      isPureCsrClient,
+      isClientInputAuthority,
+      isReconcilerReplayPlayback: Boolean(reconciler?.replayPlaybackMode),
+      remoteHasAuthority,
+      isSpectatePaused,
+    });
 
-    if (
+    const canUnfreezeClientAuthority =
       isClientInputAuthority &&
-      !isSpectatePlaybackPaused() &&
+      policy.mode === 'local-freeplay' &&
+      !isSpectatePaused &&
       !flags.isReplayPaused &&
-      !flags.isGoalReplay &&
-      !flags.isMatchEnded
-    ) {
+      !flags.isMatchEnded;
+    if (canUnfreezeClientAuthority) {
       physics.setSimulationFrozen?.(false, 0, false);
       if (matchState.paused) {
         matchState.paused = false;
@@ -266,20 +279,15 @@ export class SimulationStage implements PipelineStage {
     context.isPodiumActive = flags.isPodiumActive;
     context.isMatchActive = flags.isMatchActive;
 
-    const holdForClientAuthorityLobby =
-      flags.shouldHoldAccumulator &&
-      !(
-        isClientInputAuthority &&
-        !isSpectatePlaybackPaused() &&
-        !flags.isReplayPaused &&
-        !flags.isGoalReplay &&
-        !flags.isMatchEnded
-      );
-    if (holdForClientAuthorityLobby || isPureCsrClient || remoteHasAuthority) {
-      if ((!flags.isGoalReplay || isPureCsrClient) && !podiumController?.isActive) {
+    if (policy.shouldHoldAccumulator) {
+      const isClientStreamMode =
+        policy.mode === 'client-csr-spectate' || policy.mode === 'client-goal-replay';
+      const shouldSyncInterpolator =
+        (isClientStreamMode || !flags.isGoalReplay) && !flags.isPodiumActive;
+      if (shouldSyncInterpolator) {
         interpolator.sync(timestamp);
       }
-    } else {
+    } else if (policy.shouldStepLocalPhysics) {
       const modeName = matchState.mode;
       const isCustomStepMode = CUSTOM_STEP_MODES.has(modeName);
       interpolator.update(
@@ -331,7 +339,10 @@ export class SimulationStage implements PipelineStage {
       this.hostAuthoritySpectateBuffer.reset();
     }
 
-    if (reconciler && !isBroadcastingHost && !isClientInputAuthority) {
+    const useClientPredictedGoalState = Boolean(
+      reconciler && !isBroadcastingHost && !isClientInputAuthority
+    );
+    if (useClientPredictedGoalState) {
       context.goalScored = matchState.phase === 'goal';
     } else {
       if (physics.pollGoal() !== 0) {
@@ -351,6 +362,7 @@ export class SimulationStage implements PipelineStage {
         camera,
         matchState,
         flags,
+        policy,
         reconciler,
         server,
         replayTimelineController,
@@ -408,7 +420,7 @@ export class SimulationStage implements PipelineStage {
       }
     }
 
-    if (isBroadcastingHost && server && !remoteHasAuthority) {
+    if (policy.shouldBroadcastSnapshot && server) {
       const numCars = Math.min(
         8,
         Math.max(1, Math.round(Number(physics.getHeaderView?.()?.numCars) || 1))
@@ -421,15 +433,15 @@ export class SimulationStage implements PipelineStage {
         botCoordinator: this.runtime.botCoordinator,
       });
       const isHostBroadcastPaused =
-        (flags.shouldHoldAccumulator && !flags.isGoalReplay) ||
+        (policy.mode === 'host-authoritative' && policy.shouldHoldAccumulator) ||
         flags.isReplayPaused ||
-        isSpectatePlaybackPaused();
+        isSpectatePaused;
       this.broadcastPublisher.publishIfReady({
         timestamp,
         physics,
         server,
         isPaused: isHostBroadcastPaused,
-        isGoalReplay: flags.isGoalReplay,
+        isGoalReplay: policy.mode === 'host-goal-replay',
         acknowledgedControls,
       });
     } else {
