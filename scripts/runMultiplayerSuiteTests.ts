@@ -91,10 +91,7 @@ import {
   SYSTEM_CONTROL_SIGNALS,
   SIM_OFFSETS,
 } from '../src/physics/RocketSimConstants.ts';
-import {
-  GlobalPayloadCodec,
-  MATCH_SIGNALS,
-} from '../src/network/protocol/GlobalPayloadCodec.ts';
+import { GlobalPayloadCodec, MATCH_SIGNALS } from '../src/network/protocol/GlobalPayloadCodec.ts';
 import { sharedAuthorityCameraSyncTracker } from '../src/game/pipeline/stages/AuthorityCameraSyncTracker.ts';
 import {
   resolveModeRosterEntries,
@@ -124,6 +121,8 @@ import {
   updateKeyboardInputOverlayTelemetry,
 } from '../src/ui-core/config/keyboardInputOverlayTelemetry.ts';
 import { SpectateInterpolationBuffer } from '../src/network/sync/ReplicationStateInterpolator.ts';
+import { BOOST_PAD_DISCRETE_FIELD_OFFSETS } from '../src/replay/boostPadSnapshotInterpolationPipeline.ts';
+import { interpolateReplaySnapshots } from '../src/replay/ReplayFrameInterpolator.ts';
 import {
   HostInputAuthorityTracker,
   syncPeerWorkspaceSnapshot,
@@ -2324,6 +2323,73 @@ async function testSpectateInterpolationBufferReverseDelay(): Promise<void> {
     sTeleport.snapshot[SIM_OFFSETS.BALL] === 0 || sTeleport.snapshot[SIM_OFFSETS.BALL] >= 2000,
     `Teleport should snap instead of mid-arena lerp, got ballX=${sTeleport.snapshot[SIM_OFFSETS.BALL]}`
   );
+
+  // 5. Arch-0D: frameCursor & isDuplicateFrame contract
+  const dupBuf = new SpectateInterpolationBuffer(16);
+  dupBuf.pushFrame(makeSnap(200, 1, 0, 0), 200, 3000);
+  const d1 = dupBuf.sample(3000);
+  assert.ok(d1);
+  assert.equal(d1.frameCursor, 200);
+  assert.equal(d1.isDuplicateFrame, false, 'First sample should not be duplicate');
+  const d2 = dupBuf.sample(3000 + TICK_MS);
+  assert.ok(d2);
+  assert.equal(d2.frameCursor, 200);
+  assert.equal(
+    d2.isDuplicateFrame,
+    true,
+    'Repeated sample on stationary single frame should be duplicate'
+  );
+  dupBuf.reset();
+  dupBuf.pushFrame(makeSnap(200, 1, 0, 0), 200, 3020);
+  const d3 = dupBuf.sample(3020);
+  assert.ok(d3);
+  assert.equal(d3.isDuplicateFrame, false, 'Sample after reset() should not be duplicate');
+
+  // 6. Arch-0D: BoostPad discrete isActive step & cooldown monotonicity protection
+  const padBase = BOOST_PAD_DISCRETE_FIELD_OFFSETS.baseOffset;
+  const padStride = BOOST_PAD_DISCRETE_FIELD_OFFSETS.stride;
+  const snapA = makeSnap(300, 1, 0, 0);
+  const snapB = makeSnap(302, 1, 20, 10);
+  // Pad 0: collected transition (1 -> 0)
+  snapA[padBase] = 1;
+  snapA[padBase + 1] = 0;
+  snapB[padBase] = 0;
+  snapB[padBase + 1] = 9.98;
+  // Pad 1: normal monotone countdown (0 -> 0, 5.0 -> 4.0)
+  snapA[padBase + padStride] = 0;
+  snapA[padBase + padStride + 1] = 5.0;
+  snapB[padBase + padStride] = 0;
+  snapB[padBase + padStride + 1] = 4.0;
+  // Pad 2: cross-frame upward jump (respawn + immediate recollect: 0.1 -> 9.9)
+  snapA[padBase + 2 * padStride] = 0;
+  snapA[padBase + 2 * padStride + 1] = 0.1;
+  snapB[padBase + 2 * padStride] = 0;
+  snapB[padBase + 2 * padStride + 1] = 9.9;
+
+  const interpLow = interpolateReplaySnapshots(snapA, snapB, 0.25);
+  assert.ok(interpLow);
+  assert.equal(interpLow[padBase], 1, 'Pad 0 isActive should step to prev (1) at alpha=0.25');
+  assert.equal(interpLow[padBase + 1], 0, 'Pad 0 cooldown must be 0 when isActive=1');
+  assert.ok(
+    Math.abs(interpLow[padBase + padStride + 1] - 4.75) < 1e-4,
+    `Pad 1 monotone cooldown should lerp to 4.75 at alpha=0.25, got ${interpLow[padBase + padStride + 1]}`
+  );
+  assert.ok(
+    Math.abs(interpLow[padBase + 2 * padStride + 1] - 0.1) < 1e-4,
+    `Pad 2 upward cooldown jump should step to 0.1 at alpha=0.25, got ${interpLow[padBase + 2 * padStride + 1]}`
+  );
+
+  const interpHigh = interpolateReplaySnapshots(snapA, snapB, 0.75);
+  assert.ok(interpHigh);
+  assert.equal(interpHigh[padBase], 0, 'Pad 0 isActive should step to curr (0) at alpha=0.75');
+  assert.ok(
+    Math.abs(interpHigh[padBase + 1] - 9.98) < 1e-4,
+    `Pad 0 cooldown should step to 9.98 at alpha=0.75, got ${interpHigh[padBase + 1]}`
+  );
+  assert.ok(
+    Math.abs(interpHigh[padBase + 2 * padStride + 1] - 9.9) < 1e-4,
+    `Pad 2 upward cooldown jump should step to 9.9 at alpha=0.75, got ${interpHigh[padBase + 2 * padStride + 1]}`
+  );
 }
 
 async function testReliablePauseAckAndHeartbeat(): Promise<void> {
@@ -2875,18 +2941,14 @@ function testPureCsrAcknowledgedControlsAndCoachMultiClientInput(): void {
   const bravoAck = bravoReconciler.lastParsedPacket?.acknowledgedControls ?? [];
   assert.equal(bravoAck.length, 2);
 
-  const car0Keys = mapRemoteControlsToOverlayKeys(
-    bravoAck.find((c) => c.carIndex === 0)?.controls
-  );
+  const car0Keys = mapRemoteControlsToOverlayKeys(bravoAck.find((c) => c.carIndex === 0)?.controls);
   assert.equal(car0Keys.wPressed, true);
   assert.equal(car0Keys.aPressed, true);
   assert.equal(car0Keys.qPressed, true);
   assert.equal(car0Keys.boostPressed, true);
   assert.equal(car0Keys.jumpPressed, true);
 
-  const car1Keys = mapRemoteControlsToOverlayKeys(
-    bravoAck.find((c) => c.carIndex === 1)?.controls
-  );
+  const car1Keys = mapRemoteControlsToOverlayKeys(bravoAck.find((c) => c.carIndex === 1)?.controls);
   assert.equal(car1Keys.sPressed, true);
   assert.equal(car1Keys.dPressed, true);
   assert.equal(car1Keys.slidePressed, true);
@@ -3063,7 +3125,11 @@ async function testPureCsrPushBroadcastSignalsAndGoalReplay(): Promise<void> {
     clientChannel as never,
     {
       localCarIndex: 0,
-      interpolator: { prevState: new Float32Array(448), currState: new Float32Array(448), alpha: 0 } as never,
+      interpolator: {
+        prevState: new Float32Array(448),
+        currState: new Float32Array(448),
+        alpha: 0,
+      } as never,
     }
   );
   reconciler.setSpectateMirrorMode(true);
@@ -3170,13 +3236,19 @@ async function testReplayWatchTogetherMetadataRosterAndEdgeCameraSync(): Promise
 
   // Periodic heartbeat without camera change MUST NOT increment cameraSyncSeq (edge-triggered non-override)
   const hb = new ReplayOnlineHeartbeatTracker();
-  assert.equal(hb.maybeSync(hostRuntime as never, { playbackPaused: false, pausedAtTick: 1200 }, 1000), true);
+  assert.equal(
+    hb.maybeSync(hostRuntime as never, { playbackPaused: false, pausedAtTick: 1200 }, 1000),
+    true
+  );
   const ws1 = sentWorkspaces[1] as { cameraSync?: { cameraSyncSeq?: number } };
   assert.equal(ws1.cameraSync?.cameraSyncSeq, seq0);
 
   // Camera change MUST increment cameraSyncSeq
   hostCam.focusedCarIndex = 0;
-  assert.equal(hb.maybeSync(hostRuntime as never, { playbackPaused: false, pausedAtTick: 1260 }, 1100), true);
+  assert.equal(
+    hb.maybeSync(hostRuntime as never, { playbackPaused: false, pausedAtTick: 1260 }, 1100),
+    true
+  );
   const ws2 = sentWorkspaces[2] as { cameraSync?: { cameraSyncSeq?: number } };
   assert.ok((ws2.cameraSync?.cameraSyncSeq ?? 0) > seq0);
 
@@ -3265,12 +3337,8 @@ async function testReplayWatchTogetherMetadataRosterAndEdgeCameraSync(): Promise
 
   mockChannel.onGlobalWorkspaceBroadcast?.({ ...ws2, replaySync: ws0.replaySync } as never);
   assert.equal(clientCamFocused, 1);
-  assert.ok(
-    teamUpdates.some((u) => u.target === 'arena' && u.carIndex === 0 && u.team === 1)
-  );
-  assert.ok(
-    teamUpdates.some((u) => u.target === 'physics' && u.carIndex === 1 && u.team === 0)
-  );
+  assert.ok(teamUpdates.some((u) => u.target === 'arena' && u.carIndex === 0 && u.team === 1));
+  assert.ok(teamUpdates.some((u) => u.target === 'physics' && u.carIndex === 1 && u.team === 0));
   allowIndepCam = false;
 }
 
