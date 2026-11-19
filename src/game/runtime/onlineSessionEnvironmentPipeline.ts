@@ -423,6 +423,7 @@ export function createOnlineSessionBridgePort(
             ...(typeof rs?.focusedCarIndex === 'number'
               ? { activePovCarIndex: rs.focusedCarIndex }
               : {}),
+            ...(rs?.localTeam === 0 || rs?.localTeam === 1 ? { localTeam: rs.localTeam } : {}),
             ...(Array.isArray(rs?.roster)
               ? {
                   resolvedRoster: rs.roster as Array<{
@@ -435,12 +436,37 @@ export function createOnlineSessionBridgePort(
                 }
               : {}),
           });
+          if (rs) {
+            const hudPatch: Record<string, unknown> = {};
+            if (typeof rs.blueScore === 'number') hudPatch.blueScore = rs.blueScore;
+            if (typeof rs.orangeScore === 'number') hudPatch.orangeScore = rs.orangeScore;
+            if (typeof rs.remainingSeconds === 'number') {
+              hudPatch.remainingSeconds = rs.remainingSeconds;
+            }
+            if (typeof rs.isOvertime === 'boolean') hudPatch.isOvertime = rs.isOvertime;
+            if (typeof rs.overtimeSeconds === 'number') {
+              hudPatch.overtimeSeconds = rs.overtimeSeconds;
+            }
+            if (typeof rs.matchPhase === 'string') hudPatch.matchPhase = rs.matchPhase;
+            if (rs.localTeam === 0 || rs.localTeam === 1) hudPatch.localTeam = rs.localTeam;
+            if (Object.keys(hudPatch).length > 0) {
+              hudStore?.getState?.()?.setMatchState?.(hudPatch);
+            }
+            if (
+              typeof rs.focusedCarIndex === 'number' &&
+              !useAppStore.getState().onlineSession?.allowClientIndependentCamera
+            ) {
+              ctx.camera?.setFreeCam?.(false);
+              ctx.camera?.setFocusedCarIndex?.(rs.focusedCarIndex);
+            }
+          }
         } else {
           rvStore.updateLiveTelemetry({
             viewerState: 'idle',
             loadedFileName: null,
             totalFrames: 0,
             cursorFrame: 0,
+            localTeam: undefined,
             resolvedRoster: [],
           });
         }

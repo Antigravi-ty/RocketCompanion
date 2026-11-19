@@ -193,6 +193,9 @@ export function bindDevSyncClientChannelHandlers(params: {
         ...(!allowIndependentCam && typeof replaySync.focusedCarIndex === 'number'
           ? { activePovCarIndex: replaySync.focusedCarIndex }
           : {}),
+        ...(replaySync.localTeam === 0 || replaySync.localTeam === 1
+          ? { localTeam: replaySync.localTeam }
+          : {}),
         ...(Array.isArray(replaySync.roster) ? { resolvedRoster: replaySync.roster } : {}),
       });
       const hudPatch: Record<string, unknown> = {};
@@ -206,6 +209,9 @@ export function bindDevSyncClientChannelHandlers(params: {
         hudPatch.overtimeSeconds = replaySync.overtimeSeconds;
       }
       if (typeof replaySync.matchPhase === 'string') hudPatch.matchPhase = replaySync.matchPhase;
+      if (replaySync.localTeam === 0 || replaySync.localTeam === 1) {
+        hudPatch.localTeam = replaySync.localTeam;
+      }
       if (Object.keys(hudPatch).length > 0) {
         hudStore?.getState?.()?.setMatchState?.(hudPatch);
       }

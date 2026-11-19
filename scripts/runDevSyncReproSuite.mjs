@@ -22,8 +22,18 @@ if (!process.env.RC_VITE_ROLE) {
 }
 
 const OUT_PATH = '/tmp/dev-sync-repro-report.json';
+const CHECKPOINT_PATH =
+  process.env.RC_REPRO_CHECKPOINT_FILE || '/tmp/dev-sync-repro-checkpoint.json';
 const REPORT_ONLY = process.argv.includes('--report-only');
-const MAX_DURATION_MS = 180_000;
+const RESUME_MODE =
+  process.argv.includes('--resume') || process.env.RC_REPRO_RESUME === '1';
+const FROM_ARG = process.argv.find((a) => a.startsWith('--from='));
+const EXPLICIT_FROM = FROM_ARG
+  ? Number(FROM_ARG.split('=')[1])
+  : process.env.RC_REPRO_FROM
+    ? Number(process.env.RC_REPRO_FROM)
+    : null;
+const MAX_DURATION_MS = 260_000;
 
 class CdpClient {
   constructor(wsUrl, label) {
@@ -55,10 +65,25 @@ class CdpClient {
     await this.send('Page.enable');
   }
 
-  send(method, params = {}) {
+  send(method, params = {}, timeoutMs = 60_000) {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        if (this.pending.has(id)) {
+          this.pending.delete(id);
+          reject(new Error(`CDP ${this.label} ${method} timed out after ${timeoutMs}ms`));
+        }
+      }, timeoutMs);
+      this.pending.set(id, {
+        resolve: (val) => {
+          clearTimeout(timer);
+          resolve(val);
+        },
+        reject: (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+      });
       this.ws.send(JSON.stringify({ id, method, params }));
     });
   }
@@ -206,8 +231,35 @@ async function main() {
   }, MAX_DURATION_MS);
 
   const scenarios = [];
+  let fromScenario = EXPLICIT_FROM && EXPLICIT_FROM >= 1 ? EXPLICIT_FROM : 1;
+  if ((RESUME_MODE || EXPLICIT_FROM) && fs.existsSync(CHECKPOINT_PATH)) {
+    try {
+      const ck = JSON.parse(fs.readFileSync(CHECKPOINT_PATH, 'utf8'));
+      const saved = Array.isArray(ck?.scenarios) ? ck.scenarios : [];
+      const keepBefore = EXPLICIT_FROM ? EXPLICIT_FROM - 1 : saved.length;
+      for (const item of saved.slice(0, keepBefore)) {
+        scenarios.push(item);
+      }
+      if (!EXPLICIT_FROM) {
+        fromScenario = scenarios.length + 1;
+      }
+      console.log(
+        `[DevSyncRepro] Resuming from Scenario ${fromScenario} (loaded ${scenarios.length} checkpointed scenarios from ${CHECKPOINT_PATH})`
+      );
+    } catch {
+      // Ignore corrupt checkpoint
+    }
+  }
   const recordScenario = (name, passed, detail) => {
     scenarios.push({ name, passed, detail });
+    try {
+      fs.writeFileSync(
+        CHECKPOINT_PATH,
+        JSON.stringify({ updatedAt: new Date().toISOString(), scenarios }, null, 2)
+      );
+    } catch {
+      // Ignore checkpoint write errors
+    }
     const tag = passed ? 'PASS' : 'REPRODUCED_BUG';
     console.log(`[DevSyncRepro] [${tag}] ${name}: ${JSON.stringify(detail)}`);
   };
@@ -257,7 +309,7 @@ async function main() {
     await waitFor(
       () => client1Cdp.eval(`Boolean(window.__rcE2E?.runtime?.physics)`),
       'Client1 boot',
-      45_000
+      90_000
     );
     await client1Cdp.eval(
       `window.__rcE2E.getAppState().bridge.onJoinOnlineWarmup({ roomId: ${JSON.stringify(roomId)}, playerName: 'Client1' })`
@@ -268,6 +320,7 @@ async function main() {
       15_000
     );
 
+    if (fromScenario <= 1) {
     // Scenario 1: Freeplay Live Driving Sync + Remote Input Overlay
     await hostCdp.send('Page.bringToFront');
     const fpBefore = await readSimSnapshot(hostCdp);
@@ -321,6 +374,9 @@ async function main() {
       }
     );
 
+    }
+
+    if (fromScenario <= 2) {
     // Scenario 2: Exhibition 3v3 Spectating + 3-2-1 Countdown
     await client1Cdp.eval(`(() => {
       window.__exCdLog = [];
@@ -379,6 +435,9 @@ async function main() {
       }
     );
 
+    }
+
+    if (fromScenario <= 3) {
     // Scenario 3: Real 3v3 .RCReplay Load, Playback & Pause/ACK
     await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onReturnToFreeplay()`);
     await new Promise((r) => setTimeout(r, 400));
@@ -513,6 +572,9 @@ async function main() {
       }
     );
 
+    }
+
+    if (fromScenario <= 4) {
     // Scenario 4: Static Training Pack Sync
     await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onReturnToFreeplay()`);
     await new Promise((r) => setTimeout(r, 400));
@@ -541,11 +603,15 @@ async function main() {
         carDist: trCarDist,
       }
     );
+    } else if (fromScenario === 5) {
+      await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onStartStaticTrainingPack()`);
+      await new Promise((r) => setTimeout(r, 800));
+    }
 
     // Scenario 5: Multi-Client (2 Clients) Broadcast
     const { targetId: c2TargetId } = await hostCdp.send('Target.createTarget', {
       url: baseUrl,
-      newWindow: true,
+      newWindow: false,
     });
     const c2Targets = await (await fetch(`http://127.0.0.1:${cdpPort}/json`)).json();
     const c2Target = c2Targets.find((t) => t.id === c2TargetId);
@@ -554,7 +620,7 @@ async function main() {
     await waitFor(
       () => client2Cdp.eval(`Boolean(window.__rcE2E?.runtime?.physics)`),
       'Client2 boot',
-      45_000
+      90_000
     );
     await client2Cdp.eval(
       `window.__rcE2E.getAppState().bridge.onJoinOnlineWarmup({ roomId: ${JSON.stringify(roomId)}, playerName: 'Client2' })`
@@ -567,19 +633,22 @@ async function main() {
       'Client2 workspace sync',
       5_000
     ).catch(() => {});
-    const mcHost = await readSimSnapshot(hostCdp);
-    const mcC2 = await readSimSnapshot(client2Cdp);
-    recordScenario(
-      '5. Multi-Client (2+ Clients) Dev Sync Room',
-      mcHost.connectedPeersCount >= 2 && mcC2.matchMode === mcHost.matchMode,
-      {
-        hostConnectedPeers: mcHost.connectedPeersCount,
-        hostMode: mcHost.matchMode,
-        client2Mode: mcC2.matchMode,
-        client2Car0: mcC2.car0Pos,
+      const mcHost = await readSimSnapshot(hostCdp);
+      const mcC2 = await readSimSnapshot(client2Cdp);
+      if (fromScenario <= 5) {
+        recordScenario(
+          '5. Multi-Client (2+ Clients) Dev Sync Room',
+          mcHost.connectedPeersCount >= 2 && mcC2.matchMode === mcHost.matchMode,
+          {
+            hostConnectedPeers: mcHost.connectedPeersCount,
+            hostMode: mcHost.matchMode,
+            client2Mode: mcC2.matchMode,
+            client2Car0: mcC2.car0Pos,
+          }
+        );
       }
-    );
 
+    if (fromScenario <= 6) {
     // Scenario 6: Client Input Handover
     await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onReturnToFreeplay()`);
     await new Promise((r) => setTimeout(r, 400));
@@ -640,6 +709,9 @@ async function main() {
       hostAuthDebug,
     });
 
+    }
+
+    if (fromScenario <= 7) {
     // Scenario 7: Dynamic Training Pack Shot & Reset Sync
     await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onSetClientInputEnabled?.(false)`);
     await hostCdp.eval(`(() => {
@@ -725,6 +797,9 @@ async function main() {
       }
     );
 
+    }
+
+    if (fromScenario <= 8) {
     // Scenario 8: 1 Host + 2 Client Telestrator (0x05) Bidirectional Sync & Permission Gating
     await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onReturnToFreeplay()`);
     await new Promise((r) => setTimeout(r, 300));
@@ -803,6 +878,9 @@ async function main() {
       { c1BlockedWhenHostOnly, teleCounts, c1Diag }
     );
 
+    }
+
+    if (fromScenario <= 9) {
     // Scenario 9: Edge-Triggered Authority Camera Sync & Non-Override + FPV 300ms Idle Handover
     await hostCdp.eval(`(() => {
       const cam = window.__rcE2E.getCamera();
@@ -908,6 +986,7 @@ async function main() {
         authAfterIdle,
       }
     );
+    }
 
     const reproducedCount = scenarios.filter((s) => !s.passed).length;
     const report = {

@@ -278,6 +278,7 @@ export class StandaloneReplayViewerController {
     this._silenceContinuousAudio();
     const camera = this.runtime?.camera ?? null;
     if (resetCameraView) camera?.resetView?.();
+    this.rosterSubController.applyInitialPovToRuntime(this.runtime);
 
     useReplayViewerStore.getState().updateLiveTelemetry({
       isLoadingReplay: false,

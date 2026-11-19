@@ -58,6 +58,7 @@ export interface ReplayViewerRosterRuntimePort {
   } | null;
   keyboard?: { ballControlEnabled?: boolean } | null;
   camera?: { resetView?: () => void; setFocusedCarIndex?: (carIndex: number) => void } | null;
+  replayPovCarIndex?: number | null;
   flipResetVisual?: { dispose?: () => void } | null;
   getFlipResetVisual?: (carIndex: number) => { play?: () => void } | null;
   releaseGoalReplayCameraOverride?: () => void;
@@ -144,6 +145,15 @@ export class ReplayViewerRosterSubController {
     this.activePovTeam = 0;
     this.isTakenOverLoadoutApplied = false;
     this.activeTakenOverAnthemId = 'none';
+  }
+
+  public applyInitialPovToRuntime(runtime: ReplayViewerRosterRuntimePort | null | undefined): void {
+    if (!runtime) return;
+    const idx = this.activePovCarIndex;
+    if (typeof idx === 'number' && idx >= 0) {
+      runtime.replayPovCarIndex = idx;
+      runtime.camera?.setFocusedCarIndex?.(idx);
+    }
   }
 
   private _syncNameTagsAndHudTeam(takenOverIdx: number | null, takenOverTeam: number): void {
@@ -330,6 +340,7 @@ export class ReplayViewerRosterSubController {
     if (runtime) {
       const { arena, camera } = runtime;
       runtime.playerCarIndex = entry.carIndex;
+      runtime.replayPovCarIndex = entry.carIndex;
       if (arena) {
         arena.playerCarIndex = entry.carIndex;
       }

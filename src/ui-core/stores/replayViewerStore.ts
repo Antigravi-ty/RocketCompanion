@@ -56,6 +56,7 @@ export interface ReplayViewerStoreState {
   activePovCarIndex: number;
   activePovSlotKey: number | null;
   activePovTeam: 0 | 1;
+  localTeam?: 0 | 1;
   isLoadingReplay: boolean;
   resolvedRoster?: Array<{
     carIndex: number;

@@ -116,6 +116,9 @@ export function syncReplayWorkspaceToOnlineRoom(
   const matchPhase =
     opts.replaySync?.matchPhase ??
     (typeof hudState?.matchPhase === 'string' ? hudState.matchPhase : undefined);
+  const localTeam: 0 | 1 | undefined =
+    opts.replaySync?.localTeam ??
+    (hudState?.localTeam === 1 ? 1 : hudState?.localTeam === 0 ? 0 : undefined);
   const replaySync: WorkspaceReplaySyncPayload | undefined = opts.active
     ? {
         fileName: opts.replaySync?.fileName ?? opts.replayId ?? rvStore?.loadedFileName ?? undefined,
@@ -134,6 +137,7 @@ export function syncReplayWorkspaceToOnlineRoom(
         ...(typeof isOvertime === 'boolean' ? { isOvertime } : {}),
         ...(typeof overtimeSeconds === 'number' ? { overtimeSeconds } : {}),
         ...(typeof matchPhase === 'string' ? { matchPhase } : {}),
+        ...(localTeam !== undefined ? { localTeam } : {}),
         ...(opts.replaySync?.roster
           ? { roster: opts.replaySync.roster }
           : Array.isArray(rvStore?.resolvedRoster) && rvStore.resolvedRoster.length > 0

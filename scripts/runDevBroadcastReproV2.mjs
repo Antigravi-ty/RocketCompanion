@@ -32,7 +32,7 @@ if (!process.env.RC_VITE_ROLE) {
 }
 
 const OUT_PATH = '/tmp/dev-broadcast-repro-v2.json';
-const MAX_DURATION_MS = 180_000;
+const MAX_DURATION_MS = 260_000;
 
 class CdpClient {
   constructor(wsUrl, label) {
@@ -274,7 +274,24 @@ async function main() {
       const bv = window.__rcE2E.runtime.physics?.getBallStateView?.();
       return bv ? { posY: Math.round(bv.posY), velY: Math.round(bv.velY) } : null;
     })()`);
-    await new Promise((r) => setTimeout(r, 1200));
+    await waitFor(
+      async () => {
+        const [hostReady, clientPhases] = await Promise.all([
+          hostCdp.eval(
+            `Boolean(window.__rcE2E.runtime.modeManager?.modes?.get?.('freeplay')?.isGoalReplayActive?.())`
+          ),
+          clientCdp.eval(`window.__bug1ClientPhases || []`),
+        ]);
+        return (
+          hostReady &&
+          Array.isArray(clientPhases) &&
+          (clientPhases.includes('goal') || clientPhases.includes('replay'))
+        );
+      },
+      'Host & Client enter Freeplay Goal Replay',
+      6_000,
+      150
+    ).catch(() => {});
 
     const [repro1Snap, clientBug1Phases] = await Promise.all([
       hostCdp.eval(`(() => {
@@ -416,7 +433,6 @@ async function main() {
     await hostCdp.eval(`(() => {
       const rv = window.__rcE2E.runtime.modeManager.modes.get('freeplay').standaloneReplayViewer;
       rv.selectPovSlot?.(3);
-      window.__rcE2E.getCamera()?.setFocusedCarIndex?.(2);
     })()`);
     await clientCdp.send('Page.bringToFront');
     await new Promise((r) => setTimeout(r, 600));
@@ -437,31 +453,32 @@ async function main() {
       })()`),
     ]);
 
-    // Client locally switches to car 4 while Host stays on car 2 -> must NOT be pulled back
+    // Client locally switches to car 4 while Host stays on slot 3 -> must NOT be pulled back
     await clientCdp.eval(`window.__rcE2E.getCamera()?.setFocusedCarIndex?.(4)`);
     await new Promise((r) => setTimeout(r, 450));
     const clientLocalHoldFocused = await clientCdp.eval(
       `window.__rcE2E.getCamera?.()?.focusedCarIndex ?? -1`
     );
 
-    // Host switches to car 5 -> Client must immediately follow to car 5
+    // Host switches to slot 6 -> Client must immediately follow Host's new focusedCarIndex
     await hostCdp.send('Page.bringToFront');
     await hostCdp.eval(`(() => {
       const rv = window.__rcE2E.runtime.modeManager.modes.get('freeplay').standaloneReplayViewer;
       rv.selectPovSlot?.(6);
-      window.__rcE2E.getCamera()?.setFocusedCarIndex?.(5);
     })()`);
     await clientCdp.send('Page.bringToFront');
     await new Promise((r) => setTimeout(r, 600));
-    const clientAfterHostSwitch5 = await clientCdp.eval(
-      `window.__rcE2E.getCamera?.()?.focusedCarIndex ?? -1`
-    );
+    const [hostAfterSwitch6, clientAfterHostSwitch6] = await Promise.all([
+      hostCdp.eval(`window.__rcE2E.getCamera?.()?.focusedCarIndex ?? -1`),
+      clientCdp.eval(`window.__rcE2E.getCamera?.()?.focusedCarIndex ?? -1`),
+    ]);
 
     const bug3Reproduced =
       camSwitch1[0] !== camSwitch1[1].focusedCarIndex ||
       clientRepUi.focusedCarIndex !== hostRepUi.focusedCarIndex ||
       clientLocalHoldFocused !== 4 ||
-      clientAfterHostSwitch5 !== 5;
+      clientAfterHostSwitch6 !== hostAfterSwitch6 ||
+      hostAfterSwitch6 === 4;
     record(
       'bug-3-camera-player-switch-sync',
       'Camera Player Switch (1-6) & Default Focus Not Persisted on Client',
@@ -472,7 +489,8 @@ async function main() {
         afterSwitchHostFocused: camSwitch1[0],
         afterSwitchClient: camSwitch1[1],
         clientLocalHoldFocused,
-        clientAfterHostSwitch5,
+        hostAfterSwitch6,
+        clientAfterHostSwitch6,
       }
     );
 

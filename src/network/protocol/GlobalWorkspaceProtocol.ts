@@ -60,6 +60,7 @@ export interface WorkspaceReplaySyncPayload {
   isOvertime?: boolean;
   overtimeSeconds?: number;
   matchPhase?: string;
+  localTeam?: 0 | 1;
   roster?: WorkspaceReplayRosterEntry[];
 }
 
@@ -236,6 +237,8 @@ function sanitizeReplaySync(raw: unknown): WorkspaceReplaySyncPayload | undefine
       : undefined;
   const matchPhase =
     typeof src.matchPhase === 'string' && src.matchPhase.trim() ? src.matchPhase.trim() : undefined;
+  const localTeam: 0 | 1 | undefined =
+    src.localTeam === 1 ? 1 : src.localTeam === 0 ? 0 : undefined;
   return {
     ...(fileName !== undefined ? { fileName } : {}),
     totalFrames,
@@ -249,6 +252,7 @@ function sanitizeReplaySync(raw: unknown): WorkspaceReplaySyncPayload | undefine
     ...(isOvertime !== undefined ? { isOvertime } : {}),
     ...(overtimeSeconds !== undefined ? { overtimeSeconds } : {}),
     ...(matchPhase !== undefined ? { matchPhase } : {}),
+    ...(localTeam !== undefined ? { localTeam } : {}),
     ...(roster ? { roster } : {}),
   };
 }

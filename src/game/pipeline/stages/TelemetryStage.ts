@@ -291,7 +291,9 @@ export class TelemetryStage implements PipelineStage {
       ? isRlrcIntervening
         ? rlrcActivePovTeam
         : 0
-      : viewerRoster?.localTeam;
+      : isClientSyncedReplay
+        ? (rvStoreState?.localTeam ?? (hudState?.localTeam === 1 ? 1 : 0))
+        : viewerRoster?.localTeam;
     src.replayViewerActivePovCarIndex = useRlrcSession
       ? rlrcActivePovIdx
       : (viewerRoster?.activePovCarIndex ??

@@ -338,7 +338,11 @@ export class OnlineLobbyDualWorldController {
       }
     }
 
-    camera?.setFocusedCarIndex?.(localCarIndex);
+    const onlineSession = useAppStore?.getState?.()?.onlineSession;
+    const isDevSyncClient = Boolean(onlineSession?.isDevSyncRoom && !onlineSession?.isHosting);
+    if (!isDevSyncClient) {
+      camera?.setFocusedCarIndex?.(localCarIndex);
+    }
     camera?.resetView?.();
     interpolator?.sync?.(performance.now());
     return true;

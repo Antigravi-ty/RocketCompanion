@@ -10,6 +10,7 @@ import {
   useAppStore,
   hudStore,
   networkDiagnosticsStore,
+  getSpectateCameraFollowTargetIndex,
   snapshotCurrentTelemetryPayload,
   notifyNetworkTelemetryExportAvailable,
 } from '../runtimeUiPort.ts';
@@ -447,7 +448,9 @@ export class OnlineMatchReconcilerBinder {
     }
     useAppStore?.getState?.()?.setOnlineSession?.(transition.onlineSessionPatch);
     if (msg?.roster) await applyRosterSnapshot(msg.roster);
-    lobbyDualWorld.focusCameraOnCar(msg?.isDevSyncRoom ? 0 : activePlayerCarIndex);
+    lobbyDualWorld.focusCameraOnCar(
+      msg?.isDevSyncRoom ? (getSpectateCameraFollowTargetIndex() ?? 0) : activePlayerCarIndex
+    );
     const handshakeColor = resolveHandshakeTeamColorSlot(msg);
     world.selectedColorSlot = handshakeColor.colorSlot;
     if (handshakeColor.colorHex && transition.assignedCarIndex !== null)
