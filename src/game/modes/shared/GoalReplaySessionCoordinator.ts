@@ -10,6 +10,7 @@ import {
 import type { ReplayPlaybackStepResult } from '../../../replay/ReplayTimelineController.ts';
 import { MATCH_SIGNALS } from '../../../network/protocol/GlobalPayloadCodec.ts';
 import { isDevSyncHostBroadcastingMode } from '../../pipeline/stages/HostBroadcastPublisher.ts';
+import { getSpectateCameraFollowTargetIndex } from '../../runtimeUiPort.ts';
 import {
   bindGoalReplayHudStateAndCallbacks,
   type GoalReplayCameraMode,
@@ -295,7 +296,20 @@ export function endGoalReplaySession(
             : (options.fallbackLocalCarIndex ?? scenePort.playerCarIndex ?? 0);
       scenePort.playerCarIndex = localCarIdx;
       if (scenePort.arena) scenePort.arena.playerCarIndex = localCarIdx;
-      scenePort.camera?.setFocusedCarIndex?.(localCarIdx);
+      const isSpectateMirror = Boolean(
+        (scenePort.networkReconciler as { spectateMirrorMode?: boolean } | null | undefined)
+          ?.spectateMirrorMode ||
+          (scenePort.reconciler as { spectateMirrorMode?: boolean } | null | undefined)
+            ?.spectateMirrorMode
+      );
+      if (isSpectateMirror) {
+        const spectateTarget = getSpectateCameraFollowTargetIndex();
+        if (spectateTarget !== null) {
+          scenePort.camera?.setFocusedCarIndex?.(spectateTarget);
+        }
+      } else {
+        scenePort.camera?.setFocusedCarIndex?.(localCarIdx);
+      }
       if (options.syncAfterEnd) {
         scenePort.camera?.resetView?.();
         scenePort.interpolator?.sync?.();

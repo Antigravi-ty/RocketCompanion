@@ -3,6 +3,7 @@ import {
   hudStore,
   setNameTagRuntimeState,
   notifyNetworkTelemetryExportAvailable,
+  getSpectateCameraFollowTargetIndex,
 } from '../runtimeUiPort.ts';
 import { captureRuntimeReplayCarEntries } from '../../replay/replayDirectorCarRosterPipeline.ts';
 import { retainCompletedMatchReplayAndNotify } from '../../replay/ReplayFileExporter.ts';
@@ -63,7 +64,14 @@ export function focusLocalPlayerCarInArenaAndCamera(
   if (idx !== null) {
     focusPort.playerCarIndex = idx;
     if (arena) arena.playerCarIndex = idx;
-    camera?.setFocusedCarIndex?.(idx);
+    if (reconciler?.spectateMirrorMode) {
+      const spectateTarget = getSpectateCameraFollowTargetIndex();
+      if (spectateTarget !== null) {
+        camera?.setFocusedCarIndex?.(spectateTarget);
+      }
+    } else {
+      camera?.setFocusedCarIndex?.(idx);
+    }
   }
   if (options.resetView) camera?.resetView?.();
   if (options.syncInterpolator) interpolator?.sync?.();
