@@ -116,9 +116,17 @@ export class HostBroadcastPublisher {
     readonly physics: RocketSimPhysicsEngine;
     readonly server: AuthoritativeServerHost | null;
     readonly isPaused?: boolean;
+    readonly isGoalReplay?: boolean;
     readonly acknowledgedControls?: Array<{ carIndex: number; controls: CarControlsInput }> | null;
   }): boolean {
-    const { timestamp, physics, server, isPaused = false, acknowledgedControls = null } = params;
+    const {
+      timestamp,
+      physics,
+      server,
+      isPaused = false,
+      isGoalReplay = false,
+      acknowledgedControls = null,
+    } = params;
     if (!server || !isDevSyncHostBroadcastingMode(true)) {
       return false;
     }
@@ -153,9 +161,16 @@ export class HostBroadcastPublisher {
       return false;
     }
 
-    server.pushBroadcastSnapshot(snap, currentTick, acknowledgedControls);
+    let publishTick = currentTick;
+    if (isGoalReplay && !isPaused) {
+      const tickStep = this.lastPublishMs > 0 ? Math.max(1, Math.round(elapsed / (1000 / 120))) : 1;
+      publishTick = Math.max(currentTick, this.lastPublishedTick + tickStep);
+      snap[0] = publishTick;
+    }
+
+    server.pushBroadcastSnapshot(snap, publishTick, acknowledgedControls);
     this.lastPublishMs = timestamp;
-    this.lastPublishedTick = currentTick;
+    this.lastPublishedTick = publishTick;
     return true;
   }
 }

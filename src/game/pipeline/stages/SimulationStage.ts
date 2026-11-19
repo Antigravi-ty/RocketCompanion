@@ -420,11 +420,16 @@ export class SimulationStage implements PipelineStage {
         activeMode,
         botCoordinator: this.runtime.botCoordinator,
       });
+      const isHostBroadcastPaused =
+        (flags.shouldHoldAccumulator && !flags.isGoalReplay) ||
+        flags.isReplayPaused ||
+        isSpectatePlaybackPaused();
       this.broadcastPublisher.publishIfReady({
         timestamp,
         physics,
         server,
-        isPaused: flags.shouldHoldAccumulator || flags.isReplayPaused || isSpectatePlaybackPaused(),
+        isPaused: isHostBroadcastPaused,
+        isGoalReplay: flags.isGoalReplay,
         acknowledgedControls,
       });
     } else {

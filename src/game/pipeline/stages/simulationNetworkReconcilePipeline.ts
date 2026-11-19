@@ -180,7 +180,9 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
     if (
       Array.isArray(lastSignals) &&
       lastSignals.some(
-        (s) => s?.signalType === MATCH_SIGNALS.BALL_RESET || s?.signalType === MATCH_SIGNALS.ROUND_STARTED
+        (s) =>
+          s?.signalType === MATCH_SIGNALS.BALL_RESET ||
+          s?.signalType === MATCH_SIGNALS.ROUND_STARTED
       )
     ) {
       spectateInterpolationBuffer.reset();
@@ -189,10 +191,35 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
       Array.isArray(reconciler.drainedReplayPackets) &&
       reconciler.drainedReplayPackets.length > 0
     ) {
+      if (flags.isGoalReplay && replayTimelineController) {
+        const lastPkt = reconciler.drainedReplayPackets[reconciler.drainedReplayPackets.length - 1];
+        if (lastPkt?.stateSnapshot && !replayTimelineController.sessionState.isActive) {
+          const carEntries = captureRuntimeReplayCarEntries(rosterCapturePort, {
+            frameBuffer: lastPkt.stateSnapshot,
+            defaultTeam: matchState.scorer ?? 0,
+          });
+          replayTimelineController.beginReplaySession({
+            scoringTeam: matchState.scorer ?? 0,
+            scorerCarIndex: matchState.scorerCarIndex ?? 0,
+            carEntries,
+            isNetworkStreamed: true,
+          });
+        }
+      }
       for (let i = 0; i < reconciler.drainedReplayPackets.length; i++) {
         const pkt = reconciler.drainedReplayPackets[i];
         if (!pkt || !pkt.stateSnapshot) continue;
         spectateInterpolationBuffer.pushFrame(pkt.stateSnapshot, pkt.serverTick || 0, now);
+        if (flags.isGoalReplay && replayTimelineController) {
+          const recordedReplayTick = Math.floor(
+            Number(pkt.stateSnapshot[0]) > 0 ? pkt.stateSnapshot[0] : pkt.serverTick || 0
+          );
+          replayTimelineController.appendStreamedReplayFrame?.(
+            pkt.stateSnapshot,
+            recordedReplayTick,
+            pkt.acknowledgedControls
+          );
+        }
       }
       reconciler.drainedReplayPackets.length = 0;
     }
