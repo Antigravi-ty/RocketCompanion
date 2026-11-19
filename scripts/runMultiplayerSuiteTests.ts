@@ -129,6 +129,11 @@ import {
   syncPeerWorkspaceSnapshot,
 } from '../src/network/transport/hostCrossTabAndAuthority.ts';
 import { classifyRoomMessage } from '../src/network/transport/webrtc/webrtcHandshakePipeline.ts';
+import {
+  classifySimulationDrivePolicy,
+  evaluateSimulationFrameFlags,
+} from '../src/game/pipeline/stages/simulationFrameClassifierPipeline.ts';
+import { stepNetworkReconciliationAndReplayStream } from '../src/game/pipeline/stages/simulationNetworkReconcilePipeline.ts';
 
 function runSection(name: string, fn: () => void | Promise<void>): Promise<void> {
   return Promise.resolve()
@@ -2157,6 +2162,10 @@ async function main(): Promise<void> {
     '25. BoostPadSystem Duplicate Frame Skip & Cooldown Micro-Jitter Debounce (Bug 4 / C-Track)',
     testBoostPadDuplicateFrameAndJitterDebounce
   );
+  await runSection(
+    '26. client-csr-spectate Physics Lookahead & Convergence (Bug 3 / B-Track)',
+    testClientCsrSpectateLookaheadAndConvergence
+  );
   console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
 }
 
@@ -3375,8 +3384,16 @@ async function testBoostPadDuplicateFrameAndJitterDebounce(): Promise<void> {
   setPad(0, 0, 3.2);
   setPad(1, 0, 0.55);
   sys.update(buf, undefined, 0.016);
-  assert.equal(sys.pads[0].full.visible, false, 'Big pad at 3.2s > 3.0s threshold should hide full');
-  assert.equal(sys.pads[1].full.visible, true, 'Small pad at 0.55s <= 1.0s threshold should refill');
+  assert.equal(
+    sys.pads[0].full.visible,
+    false,
+    'Big pad at 3.2s > 3.0s threshold should hide full'
+  );
+  assert.equal(
+    sys.pads[1].full.visible,
+    true,
+    'Small pad at 0.55s <= 1.0s threshold should refill'
+  );
 
   // Repeated duplicate frames (same TICK & unchanged pad states, plus explicit isDuplicateFrame: true)
   // Must NOT decrement padCooldownTimers prematurely or toggle pad.full.visible
@@ -3397,7 +3414,11 @@ async function testBoostPadDuplicateFrameAndJitterDebounce(): Promise<void> {
   }
   assert.equal(pad0Flips, 0, 'Duplicate frames must not flip big pad visibility');
   assert.equal(pad1Flips, 0, 'Duplicate frames must not flip refilling small pad visibility');
-  assert.equal(sys.collectAnimations.size, 0, 'Duplicate frames must not trigger collect animations');
+  assert.equal(
+    sys.collectAnimations.size,
+    0,
+    'Duplicate frames must not trigger collect animations'
+  );
 
   // Cooldown micro-jitter: big pad enters refill at 2.65s, then jitters upward to 3.15s
   // Must NOT re-trigger collectAnimation or exit refill back above threshold
@@ -3409,7 +3430,11 @@ async function testBoostPadDuplicateFrameAndJitterDebounce(): Promise<void> {
   buf[SIM_OFFSETS.TICK] = 1006;
   setPad(0, 0, 3.15);
   sys.update(buf, undefined, 0.016);
-  assert.equal(sys.collectAnimations.has(0), false, 'Mid-cooldown upward jitter must not trigger collect');
+  assert.equal(
+    sys.collectAnimations.has(0),
+    false,
+    'Mid-cooldown upward jitter must not trigger collect'
+  );
   assert.equal(sys.pads[0].full.visible, true, 'Small upward jitter must not flicker refill off');
 
   // Genuine full-cycle respawn-and-recollect (prev <= 1.0, curr >= fullTimeout - 1.0) DOES trigger collect
@@ -3419,16 +3444,216 @@ async function testBoostPadDuplicateFrameAndJitterDebounce(): Promise<void> {
   buf[SIM_OFFSETS.TICK] = 1020;
   setPad(0, 0, 9.8);
   sys.update(buf, undefined, 0.016);
-  assert.equal(sys.collectAnimations.has(0), true, 'Genuine respawn-and-recollect should trigger collect');
+  assert.equal(
+    sys.collectAnimations.has(0),
+    true,
+    'Genuine respawn-and-recollect should trigger collect'
+  );
 
   // Transition back to active clears stale collect animation
   buf[SIM_OFFSETS.TICK] = 1021;
   setPad(0, 1, 0);
   sys.update(buf, undefined, 0.016);
-  assert.equal(sys.collectAnimations.has(0), false, 'Respawn to active should clear stale collect animation');
+  assert.equal(
+    sys.collectAnimations.has(0),
+    false,
+    'Respawn to active should clear stale collect animation'
+  );
   assert.equal(sys.pads[0].full.visible, true);
 
   sys.dispose();
+}
+
+async function testClientCsrSpectateLookaheadAndConvergence(): Promise<void> {
+  // 1. Verify SimulationDrivePolicy enables shouldRunLookahead only when active
+  const activeFlags = evaluateSimulationFrameFlags({
+    matchState: { mode: 'freeplay', phase: 'playing', paused: false },
+    activeMode: null,
+    isPodiumControllerActive: false,
+    hasReconciler: true,
+    hasServer: false,
+  });
+  const activePolicy = classifySimulationDrivePolicy({
+    flags: activeFlags,
+    hasServer: false,
+    isBroadcastingHost: false,
+    hasReconciler: true,
+    isPureCsrClient: true,
+    isClientInputAuthority: false,
+    isReconcilerReplayPlayback: false,
+    remoteHasAuthority: false,
+    isSpectatePaused: false,
+  });
+  assert.equal(activePolicy.mode, 'client-csr-spectate');
+  assert.equal(activePolicy.shouldRunLookahead, true);
+
+  const pausedPolicy = classifySimulationDrivePolicy({
+    flags: activeFlags,
+    hasServer: false,
+    isBroadcastingHost: false,
+    hasReconciler: true,
+    isPureCsrClient: true,
+    isClientInputAuthority: false,
+    isReconcilerReplayPlayback: false,
+    remoteHasAuthority: false,
+    isSpectatePaused: true,
+  });
+  assert.equal(pausedPolicy.mode, 'client-csr-spectate');
+  assert.equal(pausedPolicy.shouldRunLookahead, false);
+
+  // 2. Verify stepNetworkReconciliationAndReplayStream runs local WASM lookahead on duplicate frames
+  //    and converges smoothly when fresh frames resume
+  const stateLen = 448;
+  const mockState = new Float32Array(stateLen);
+  mockState[SIM_OFFSETS.TICK] = 100;
+  mockState[SIM_OFFSETS.NUM_CARS] = 1;
+  mockState[SIM_OFFSETS.BALL] = 0;
+  mockState[SIM_OFFSETS.BALL + 1] = 0;
+  mockState[SIM_OFFSETS.BALL + 2] = 93.15;
+  mockState[SIM_OFFSETS.BALL + 9] = 600; // velX = 600 uu/s
+
+  let stepCalls = 0;
+  let controlsApplied = 0;
+  const mockPhysics = {
+    state: mockState,
+    numCars: 1,
+    getHeaderView: () => ({ tickCount: mockState[SIM_OFFSETS.TICK], numCars: 1 }),
+    isCarSlotActive: (c: number) => c === 0,
+    setCarControls: () => {
+      controlsApplied++;
+    },
+    restoreState: (buf: Float32Array, opts?: { preserveEngineTick?: boolean }) => {
+      const savedTick = mockState[SIM_OFFSETS.TICK];
+      mockState.set(buf.subarray(0, stateLen));
+      if (opts?.preserveEngineTick) {
+        mockState[SIM_OFFSETS.TICK] = savedTick;
+      }
+    },
+    step: (ticks = 1) => {
+      stepCalls += ticks;
+      mockState[SIM_OFFSETS.TICK] += ticks;
+      mockState[SIM_OFFSETS.BALL] += (mockState[SIM_OFFSETS.BALL + 9] || 600) * (ticks / 120);
+    },
+  };
+  const mockInterpolator = {
+    prevState: new Float32Array(mockState),
+    currState: new Float32Array(mockState),
+    alpha: 0,
+  };
+
+  const makeSnap = (tick: number, ballX: number): Float32Array => {
+    const s = new Float32Array(stateLen);
+    s[SIM_OFFSETS.TICK] = tick;
+    s[SIM_OFFSETS.NUM_CARS] = 1;
+    s[SIM_OFFSETS.BALL] = ballX;
+    s[SIM_OFFSETS.BALL + 1] = 0;
+    s[SIM_OFFSETS.BALL + 2] = 93.15;
+    s[SIM_OFFSETS.BALL + 9] = 600;
+    return s;
+  };
+
+  const buf = new SpectateInterpolationBuffer(32);
+  const drainedReplayPackets: Array<{
+    stateSnapshot: Float32Array;
+    serverTick: number;
+    acknowledgedControls?: Array<{ carIndex: number; controls: Record<string, unknown> }>;
+  }> = [
+    {
+      stateSnapshot: makeSnap(200, 100),
+      serverTick: 200,
+      acknowledgedControls: [{ carIndex: 0, controls: { throttle: 1, boost: true } }],
+    },
+  ];
+  const mockReconciler = {
+    spectateMirrorMode: true,
+    clientInputEnabled: false,
+    activeInputPeerId: 'host',
+    hostLobbyMode: false,
+    replayPlaybackMode: false,
+    drainedReplayPackets,
+    lastParsedPacket: { acknowledgedControls: [{ carIndex: 0, controls: { throttle: 1 } }] },
+    metrics: { measuredJitterMs: 0, lastCorrectionDelta: 0 },
+    reconcile: () => {},
+    flushPendingControlPackets: () => {},
+  };
+
+  // Frame 1: fresh frame arrives -> applied directly, tick synced to 200
+  stepNetworkReconciliationAndReplayStream({
+    timestamp: 1000,
+    physics: mockPhysics as never,
+    interpolator: mockInterpolator as never,
+    camera: null,
+    matchState: { mode: 'freeplay', phase: 'playing', paused: false },
+    flags: activeFlags,
+    policy: activePolicy,
+    reconciler: mockReconciler as never,
+    server: null,
+    replayTimelineController: null,
+    rosterCapturePort: {} as never,
+    diagnosticDumpMaxFrames: 36000,
+    fleetController: null,
+    sessionStateTarget: null,
+    lastRecordedClientReplayTick: -1,
+    spectateInterpolationBuffer: buf,
+  });
+  assert.equal(mockState[SIM_OFFSETS.TICK], 200);
+  assert.equal(mockState[SIM_OFFSETS.BALL], 100);
+  assert.equal(stepCalls, 0);
+
+  // Frame 2: no new packets -> SpectateInterpolationBuffer returns duplicate frame -> lookahead steps physics!
+  stepNetworkReconciliationAndReplayStream({
+    timestamp: 1016,
+    physics: mockPhysics as never,
+    interpolator: mockInterpolator as never,
+    camera: null,
+    matchState: { mode: 'freeplay', phase: 'playing', paused: false },
+    flags: activeFlags,
+    policy: activePolicy,
+    reconciler: mockReconciler as never,
+    server: null,
+    replayTimelineController: null,
+    rosterCapturePort: {} as never,
+    diagnosticDumpMaxFrames: 36000,
+    fleetController: null,
+    sessionStateTarget: null,
+    lastRecordedClientReplayTick: -1,
+    spectateInterpolationBuffer: buf,
+  });
+  assert.ok(stepCalls >= 1, 'Duplicate frame should trigger local WASM physics lookahead step');
+  assert.ok(controlsApplied >= 1, 'Lookahead step should apply last acknowledgedControls');
+  assert.ok(mockState[SIM_OFFSETS.TICK] > 200, 'Tick count must advance during lookahead');
+  assert.ok(mockState[SIM_OFFSETS.BALL] > 100, 'Ball position must advance during lookahead');
+
+  // Frame 3: fresh frames resume (tick 202, 204, 206) -> smooth convergence (not hard snap back)
+  const lookaheadBallX = mockState[SIM_OFFSETS.BALL];
+  drainedReplayPackets.push(
+    { stateSnapshot: makeSnap(202, 110), serverTick: 202 },
+    { stateSnapshot: makeSnap(204, 120), serverTick: 204 },
+    { stateSnapshot: makeSnap(206, 130), serverTick: 206 }
+  );
+  stepNetworkReconciliationAndReplayStream({
+    timestamp: 1032,
+    physics: mockPhysics as never,
+    interpolator: mockInterpolator as never,
+    camera: null,
+    matchState: { mode: 'freeplay', phase: 'playing', paused: false },
+    flags: activeFlags,
+    policy: activePolicy,
+    reconciler: mockReconciler as never,
+    server: null,
+    replayTimelineController: null,
+    rosterCapturePort: {} as never,
+    diagnosticDumpMaxFrames: 36000,
+    fleetController: null,
+    sessionStateTarget: null,
+    lastRecordedClientReplayTick: -1,
+    spectateInterpolationBuffer: buf,
+  });
+  // Ball should be smoothly blended between lookaheadBallX and sampled snapshot (not frozen)
+  assert.ok(
+    Math.abs(mockState[SIM_OFFSETS.BALL] - lookaheadBallX) > 0.01,
+    'Fresh frame after lookahead should converge physics state'
+  );
 }
 
 main().catch((err) => {

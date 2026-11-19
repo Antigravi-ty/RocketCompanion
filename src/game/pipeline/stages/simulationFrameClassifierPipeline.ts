@@ -246,15 +246,22 @@ export function classifySimulationDrivePolicy(
         shouldRunLookahead: false,
         shouldFeedReplayTimeline: true,
       };
-    case 'client-csr-spectate':
+    case 'client-csr-spectate': {
+      const isSpectateHalted =
+        input.isSpectatePaused ||
+        flags.shouldHoldAccumulator ||
+        flags.isReplayPaused ||
+        flags.isMatchEnded ||
+        flags.isGoalReplay;
       return {
         mode,
         shouldStepLocalPhysics: false,
         shouldHoldAccumulator: true,
         shouldBroadcastSnapshot: false,
-        shouldRunLookahead: false,
+        shouldRunLookahead: !isSpectateHalted,
         shouldFeedReplayTimeline: false,
       };
+    }
     case 'local-replay-playback':
       return {
         mode,
