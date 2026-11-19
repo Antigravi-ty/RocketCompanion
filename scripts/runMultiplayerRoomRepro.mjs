@@ -360,6 +360,7 @@ async function main() {
       chromeBin,
       [
         '--headless=new',
+        '--no-proxy-server',
         '--remote-debugging-port=0',
         '--use-gl=angle',
         '--use-angle=swiftshader',

@@ -22,10 +22,14 @@
  *    RuntimeKickoffSignalSubController treats param1 as an absolute targetFrame tick.
  */
 
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createServer } from 'vite';
+import {
+  cleanupHeadlessChrome,
+  launchHeadlessChrome,
+} from './env/launchHeadlessChrome.mjs';
+import { generateSynthetic3v3ReplayFixture } from './env/generateSyntheticReplayFixture.mjs';
 
 if (!process.env.RC_VITE_ROLE) {
   process.env.RC_VITE_ROLE = 'rc-http';
@@ -124,7 +128,7 @@ function resolveReplayFilePath() {
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;
   }
-  return null;
+  return generateSynthetic3v3ReplayFixture('/tmp/rc-replay-3v3-1-0-2026-11-13T07-26-58.rcreplay');
 }
 
 async function main() {
@@ -139,37 +143,9 @@ async function main() {
   const baseUrl = `http://127.0.0.1:${port}/?skipShaderPrewarm=1`;
   console.log(`[DevBroadcastReproV2] Vite listening at ${baseUrl}`);
 
-  const chromeBin = process.env.CHROME_BIN || '/usr/bin/google-chrome';
-  const userDataDir = `/tmp/chrome-dev-broadcast-repro-v2-${Date.now()}`;
-  const chromeProc = spawn(
-    chromeBin,
-    [
-      '--headless=new',
-      '--remote-debugging-port=0',
-      '--use-gl=angle',
-      '--use-angle=swiftshader',
-      '--enable-unsafe-swiftshader',
-      '--ignore-gpu-blocklist',
-      '--enable-webgl',
-      '--no-sandbox',
-      '--disable-gpu-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-background-timer-throttling',
-      '--disable-renderer-backgrounding',
-      '--disable-backgrounding-occluded-windows',
-      '--autoplay-policy=no-user-gesture-required',
-      `--user-data-dir=${userDataDir}`,
-      '--window-size=1280,720',
-      baseUrl,
-    ],
-    { stdio: ['ignore', 'pipe', 'pipe'] }
-  );
-
-  let cdpPort = null;
-  chromeProc.stderr.on('data', (chunk) => {
-    const m = chunk.toString('utf8').match(/DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)\//);
-    if (m) cdpPort = Number(m[1]);
+  const { chromeProc, userDataDir, getCdpPort } = launchHeadlessChrome({
+    url: baseUrl,
+    userDataDirPrefix: 'chrome-dev-broadcast-repro-v2',
   });
 
   const watchdog = setTimeout(() => {
@@ -193,7 +169,7 @@ async function main() {
   let clientCdp = null;
 
   try {
-    await waitFor(() => cdpPort, 'Chrome CDP port', 15_000);
+    const cdpPort = await waitFor(() => getCdpPort(), 'Chrome CDP port', 15_000);
     const targets = await (await fetch(`http://127.0.0.1:${cdpPort}/json`)).json();
     const hostTarget = targets.find((t) => t.type === 'page');
     hostCdp = new CdpClient(hostTarget.webSocketDebuggerUrl, 'host');
@@ -608,13 +584,8 @@ async function main() {
     clearTimeout(watchdog);
     hostCdp?.close();
     clientCdp?.close();
-    try {
-      chromeProc.kill('SIGKILL');
-    } catch {
-      // Ignore
-    }
+    await cleanupHeadlessChrome(chromeProc, userDataDir);
     await server.close();
-    fs.rmSync(userDataDir, { recursive: true, force: true });
   }
 }
 

@@ -305,6 +305,7 @@ async function main() {
   const chromeBin = process.env.CHROME_BIN || '/usr/bin/google-chrome';
   const chromeArgs = [
     '--headless=new',
+    '--no-proxy-server',
     '--use-gl=angle',
     '--use-angle=swiftshader',
     '--enable-unsafe-swiftshader',

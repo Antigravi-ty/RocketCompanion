@@ -40,7 +40,9 @@
     "repro:sync-issues": "node scripts/runTsWithVite.mjs scripts/runMultiplayerSyncIssuesRepro.ts",
     "repro:dev-broadcast-v2": "node scripts/runDevBroadcastReproV2.mjs",
     "repro:dev-broadcast-v3": "node scripts/runDevBroadcastReproV3.mjs",
-    "repro:dev-extra-routes": "node scripts/runDevSyncExtraRoutesE2E.mjs"
+    "repro:dev-extra-routes": "node scripts/runDevSyncExtraRoutesE2E.mjs",
+    "env:check": "node scripts/env/checkEnv.mjs",
+    "env:setup": "bash scripts/env/bootstrap.sh"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.23",
