@@ -210,7 +210,8 @@ export function stepArenaVehiclesFrame(
     }
 
     if (!arena.cars[carIndex]) {
-      const defaultTeam = carIndex === 6 ? 0 : carIndex === 7 ? 1 : carIndex % 2;
+      const defaultTeam =
+        vr.carTeams[carIndex] ?? (carIndex === 6 ? 0 : carIndex === 7 ? 1 : carIndex % 2);
       vr.ensureCar(carIndex, defaultTeam, arena.carVisual || 'fennec');
     }
     if (!arena.cars[carIndex]) continue;

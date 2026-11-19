@@ -3,6 +3,7 @@ import type { PodiumCelebrationController } from '../modes/PodiumCelebrationCont
 import type { ReplayTimelineController } from '../../replay/ReplayTimelineController.ts';
 import {
   hudStore,
+  setNameTagRuntimeState,
   useAppStore,
   useReplayViewerStore,
   syncArenaPresetUi,

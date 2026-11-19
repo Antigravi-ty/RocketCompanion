@@ -11,6 +11,7 @@ import {
   applyIncomingPauseStateSync,
   applyIncomingWorkspaceBroadcast,
   hudStore,
+  setNameTagRuntimeState,
   useAppStore,
   useReplayViewerStore,
 } from '../runtimeUiPort.ts';
@@ -58,7 +59,8 @@ export function bindDevSyncClientChannelHandlers(params: {
   sessionCoordinator: DevSyncSessionCoordinatorPort;
   diagnosticsProbe: DevSyncDiagnosticsProbePort;
 }): void {
-  const { channel, authorId, camera, physics, arena, sessionCoordinator, diagnosticsProbe } = params;
+  const { channel, authorId, camera, physics, arena, sessionCoordinator, diagnosticsProbe } =
+    params;
   sharedAuthorityCameraSyncTracker.reset();
 
   channel.onCameraStateSync = (msg) => {
@@ -181,15 +183,28 @@ export function bindDevSyncClientChannelHandlers(params: {
           physics?.setCarTeam?.(entry.carIndex, entry.team);
           arena?.setCarTeam?.(entry.carIndex, entry.team);
         }
+        if (replaySync.roster.length > 0) {
+          const focusedIdx =
+            typeof replaySync.focusedCarIndex === 'number' ? replaySync.focusedCarIndex : undefined;
+          setNameTagRuntimeState({
+            isMultiplayerOrMultiCarMode: replaySync.roster.length > 1,
+            carEntries: replaySync.roster.map((entry) => ({
+              carIndex: entry.carIndex,
+              name: entry.name,
+              username: entry.name,
+              team: entry.team,
+              isBot: Boolean(entry.isBot),
+              isLocalPlayer: focusedIdx !== undefined ? entry.carIndex === focusedIdx : false,
+            })),
+          });
+        }
       }
       useReplayViewerStore?.getState?.()?.updateLiveTelemetry?.({
         viewerState: replaySync.playbackState === 'paused' ? 'paused' : 'playing',
         ...(replaySync.fileName !== undefined ? { loadedFileName: replaySync.fileName } : {}),
         totalFrames: replaySync.totalFrames,
         cursorFrame: replaySync.currentFrame,
-        ...(typeof replaySync.flowPct === 'number'
-          ? { effectiveFlowPct: replaySync.flowPct }
-          : {}),
+        ...(typeof replaySync.flowPct === 'number' ? { effectiveFlowPct: replaySync.flowPct } : {}),
         ...(!allowIndependentCam && typeof replaySync.focusedCarIndex === 'number'
           ? { activePovCarIndex: replaySync.focusedCarIndex }
           : {}),
