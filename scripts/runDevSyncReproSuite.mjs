@@ -464,16 +464,28 @@ async function main() {
             )
           )
         : -1;
-    const clientReplayDom = await client1Cdp.eval(`(() => {
-      const sb = document.querySelector('[data-alpha-id*="StepperScoreboardHUD"]');
-      const cards = Array.from(document.querySelectorAll('[data-alpha-id*="EdgePlayerSlotCard"]')).filter(
-        (el) => getComputedStyle(el).display !== 'none'
-      );
-      return {
-        domScoreboard: Boolean(sb),
-        domRosterCards: cards.length,
-      };
-    })()`);
+    let clientReplayDom = null;
+    await waitFor(
+      async () => {
+        clientReplayDom = await client1Cdp.eval(`(() => {
+          const sb = document.querySelector('[data-alpha-id*="StepperScoreboardHUD"]');
+          const cards = Array.from(document.querySelectorAll('[data-alpha-id*="EdgePlayerSlotCard"]')).filter(
+            (el) => getComputedStyle(el).display !== 'none'
+          );
+          const app = window.__rcE2E.getAppState?.();
+          return {
+            domScoreboard: Boolean(sb),
+            domRosterCards: cards.length,
+            matchMode: app?.matchMode ?? null,
+            activeRoomActivity: app?.onlineSession?.activeRoomActivity ?? null,
+          };
+        })()`);
+        return clientReplayDom.domScoreboard && clientReplayDom.domRosterCards >= 6;
+      },
+      'Client1 replay HUD + 6 roster cards',
+      5_000,
+      150
+    ).catch(() => {});
     recordScenario(
       '3. Real 3v3 RCReplay Load & Playback + Pause ACK + Seek + Resume + HUD',
       repHostPlay.numCars === 6 &&
@@ -531,11 +543,12 @@ async function main() {
     );
 
     // Scenario 5: Multi-Client (2 Clients) Broadcast
-    const c2Target = await (
-      await fetch(`http://127.0.0.1:${cdpPort}/json/new?${encodeURIComponent(baseUrl)}`, {
-        method: 'PUT',
-      })
-    ).json();
+    const { targetId: c2TargetId } = await hostCdp.send('Target.createTarget', {
+      url: baseUrl,
+      newWindow: true,
+    });
+    const c2Targets = await (await fetch(`http://127.0.0.1:${cdpPort}/json`)).json();
+    const c2Target = c2Targets.find((t) => t.id === c2TargetId);
     client2Cdp = new CdpClient(c2Target.webSocketDebuggerUrl, 'client2');
     await client2Cdp.connect();
     await waitFor(

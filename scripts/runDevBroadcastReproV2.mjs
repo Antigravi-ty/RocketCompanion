@@ -249,6 +249,16 @@ async function main() {
     // =========================================================================
     // REPRO 1: Freeplay Goal Scoring -> No Cinematic Goal Replay (Ball Stuck/Dark)
     // =========================================================================
+    await clientCdp.eval(`(() => {
+      window.__bug1ClientPhases = [];
+      if (typeof window.__rcE2E.subscribeHudState === 'function') {
+        window.__bug1ClientUnsub = window.__rcE2E.subscribeHudState((hs) => {
+          if (hs?.matchPhase && !window.__bug1ClientPhases.includes(hs.matchPhase)) {
+            window.__bug1ClientPhases.push(hs.matchPhase);
+          }
+        });
+      }
+    })()`);
     await hostCdp.eval(`(() => {
       const rt = window.__rcE2E.runtime;
       const phys = rt.physics;
@@ -264,27 +274,38 @@ async function main() {
       const bv = window.__rcE2E.runtime.physics?.getBallStateView?.();
       return bv ? { posY: Math.round(bv.posY), velY: Math.round(bv.velY) } : null;
     })()`);
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 1200));
 
-    const repro1Snap = await hostCdp.eval(`(() => {
-      const rt = window.__rcE2E.runtime;
-      const fp = rt.modeManager?.modes?.get?.('freeplay');
-      const bv = rt.physics?.getBallStateView?.();
-      const hdr = rt.physics?.getHeaderView?.();
-      return {
-        matchMode: rt.match?.state?.mode ?? null,
-        matchPhase: rt.match?.state?.phase ?? null,
-        hasAuthServer: Boolean(rt.authoritativeServer),
-        isGoalReplayActive: Boolean(fp?.isGoalReplayActive?.()),
-        goalResetTicks: fp?.goalAndTouch?.goalResetTicks ?? -1,
-        goalIncidentTick: fp?.goalAndTouch?.goalIncidentTick ?? -1,
-        ballPosY: bv ? Math.round(bv.posY) : null,
-        ballVelY: bv ? Math.round(bv.velY) : null,
-        goalScoredFlag: hdr?.goalScoredFlag ?? 0,
-      };
-    })()`);
+    const [repro1Snap, clientBug1Phases] = await Promise.all([
+      hostCdp.eval(`(() => {
+        const rt = window.__rcE2E.runtime;
+        const fp = rt.modeManager?.modes?.get?.('freeplay');
+        const bv = rt.physics?.getBallStateView?.();
+        const hdr = rt.physics?.getHeaderView?.();
+        return {
+          matchMode: rt.match?.state?.mode ?? null,
+          matchPhase: rt.match?.state?.phase ?? null,
+          hasAuthServer: Boolean(rt.authoritativeServer),
+          isGoalReplayActive: Boolean(fp?.isGoalReplayActive?.()),
+          goalResetTicks: fp?.goalAndTouch?.goalResetTicks ?? -1,
+          goalIncidentTick: fp?.goalAndTouch?.goalIncidentTick ?? -1,
+          ballPosY: bv ? Math.round(bv.posY) : null,
+          ballVelY: bv ? Math.round(bv.velY) : null,
+          goalScoredFlag: hdr?.goalScoredFlag ?? 0,
+        };
+      })()`),
+      clientCdp.eval(`(() => {
+        if (window.__bug1ClientUnsub) window.__bug1ClientUnsub();
+        return window.__bug1ClientPhases || [];
+      })()`),
+    ]);
     repro1Snap.midBall = repro1Mid;
-    const bug1Reproduced = !repro1Snap.isGoalReplayActive && repro1Snap.goalResetTicks <= 0;
+    repro1Snap.clientPhases = clientBug1Phases;
+    const clientSawGoalOrReplay =
+      clientBug1Phases.includes('goal') || clientBug1Phases.includes('replay');
+    const bug1Reproduced =
+      (!repro1Snap.isGoalReplayActive && repro1Snap.goalResetTicks <= 0) ||
+      !clientSawGoalOrReplay;
     record(
       'bug-1-freeplay-goal-replay',
       'Freeplay Goal Scoring Fails to Trigger Cinematic Goal Replay in Dev Sync Room',
@@ -416,9 +437,31 @@ async function main() {
       })()`),
     ]);
 
+    // Client locally switches to car 4 while Host stays on car 2 -> must NOT be pulled back
+    await clientCdp.eval(`window.__rcE2E.getCamera()?.setFocusedCarIndex?.(4)`);
+    await new Promise((r) => setTimeout(r, 450));
+    const clientLocalHoldFocused = await clientCdp.eval(
+      `window.__rcE2E.getCamera?.()?.focusedCarIndex ?? -1`
+    );
+
+    // Host switches to car 5 -> Client must immediately follow to car 5
+    await hostCdp.send('Page.bringToFront');
+    await hostCdp.eval(`(() => {
+      const rv = window.__rcE2E.runtime.modeManager.modes.get('freeplay').standaloneReplayViewer;
+      rv.selectPovSlot?.(6);
+      window.__rcE2E.getCamera()?.setFocusedCarIndex?.(5);
+    })()`);
+    await clientCdp.send('Page.bringToFront');
+    await new Promise((r) => setTimeout(r, 600));
+    const clientAfterHostSwitch5 = await clientCdp.eval(
+      `window.__rcE2E.getCamera?.()?.focusedCarIndex ?? -1`
+    );
+
     const bug3Reproduced =
       camSwitch1[0] !== camSwitch1[1].focusedCarIndex ||
-      clientRepUi.focusedCarIndex !== hostRepUi.focusedCarIndex;
+      clientRepUi.focusedCarIndex !== hostRepUi.focusedCarIndex ||
+      clientLocalHoldFocused !== 4 ||
+      clientAfterHostSwitch5 !== 5;
     record(
       'bug-3-camera-player-switch-sync',
       'Camera Player Switch (1-6) & Default Focus Not Persisted on Client',
@@ -428,6 +471,8 @@ async function main() {
         initialClientFocused: clientRepUi.focusedCarIndex,
         afterSwitchHostFocused: camSwitch1[0],
         afterSwitchClient: camSwitch1[1],
+        clientLocalHoldFocused,
+        clientAfterHostSwitch5,
       }
     );
 

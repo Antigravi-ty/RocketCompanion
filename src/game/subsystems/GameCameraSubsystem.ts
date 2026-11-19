@@ -216,11 +216,11 @@ export class GameCameraSubsystem {
       r.replayPovCarIndex >= 0;
 
     const spectateFollowIdx = getSpectateCameraFollowTargetIndex();
-    const allowIndependentCam = Boolean(
-      useAppStore?.getState?.()?.onlineSession?.allowClientIndependentCamera
-    );
+    const onlineSession = useAppStore?.getState?.()?.onlineSession;
+    const allowIndependentCam = Boolean(onlineSession?.allowClientIndependentCamera);
+    const isSpectateCamClient = Boolean(onlineSession?.isDevSyncRoom && !onlineSession?.isHosting);
     const localCamFocusedIdx =
-      allowIndependentCam &&
+      (allowIndependentCam || isSpectateCamClient) &&
       typeof r?.camera?.focusedCarIndex === 'number' &&
       r.camera.focusedCarIndex >= 0
         ? r.camera.focusedCarIndex
@@ -228,14 +228,14 @@ export class GameCameraSubsystem {
 
     const diagTarget = r?.networkManager?.diagnosticsProbe?.diagnosticObservationTarget ?? 0;
     const obsTargetIdx =
-      spectateFollowIdx !== null &&
-      (spectateFollowIdx === 0 || r?.arena?.cars?.[spectateFollowIdx]?.visible)
-        ? spectateFollowIdx
-        : isReplayPov
-          ? (r.replayPovCarIndex ?? activeCar)
-          : localCamFocusedIdx !== null &&
-              (localCamFocusedIdx === 0 || r?.arena?.cars?.[localCamFocusedIdx]?.visible)
-            ? localCamFocusedIdx
+      localCamFocusedIdx !== null &&
+      (localCamFocusedIdx === 0 || r?.arena?.cars?.[localCamFocusedIdx]?.visible)
+        ? localCamFocusedIdx
+        : spectateFollowIdx !== null &&
+            (spectateFollowIdx === 0 || r?.arena?.cars?.[spectateFollowIdx]?.visible)
+          ? spectateFollowIdx
+          : isReplayPov
+            ? (r.replayPovCarIndex ?? activeCar)
             : diagTarget > 0 && r.arena?.cars?.[diagTarget]?.visible
               ? diagTarget
               : activeCar;
@@ -296,7 +296,15 @@ export class GameCameraSubsystem {
         ? r.interpolator?.getCurrCarStateView(obsTargetIdx)
         : playerCarView;
 
-    r.camera.setFocusedCarIndex?.(obsTargetIdx);
+    const curFocused = r.camera.focusedCarIndex;
+    const isPendingSpectateTarget =
+      typeof curFocused === 'number' &&
+      curFocused > 0 &&
+      !r.arena?.cars?.[curFocused]?.visible &&
+      Boolean(useAppStore?.getState?.()?.onlineSession?.isDevSyncRoom);
+    if (!isPendingSpectateTarget) {
+      r.camera.setFocusedCarIndex?.(obsTargetIdx);
+    }
 
     let effectiveCarObject:
       | THREE.Object3D
