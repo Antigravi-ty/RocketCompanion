@@ -12,6 +12,7 @@ import type {
   FreeplayModeCleanupPort,
   RuntimeDomainPortOwner,
 } from './GoalBarrierRuntimeBridge.ts';
+import { runtimeResourceRegistry } from './RuntimeResourceRegistry.ts';
 
 export type MatchModeTransitionDomainPort = Pick<
   RuntimeDomainPortOwner,
@@ -251,6 +252,7 @@ export function createMatchModeTransitionBridge(
       const freeplayMode = modeManager?.modes?.get?.('freeplay') as
         FreeplayModeCleanupPort | undefined;
       freeplayMode?.resetToCleanFreeplay?.();
+      void runtimeResourceRegistry.disposeScopes(['replay', 'ai', 'session']);
 
       domain.physics?.setUnlimitedBoost?.(unlimitedBoost);
       if (trainingOptions) {

@@ -7,10 +7,14 @@
 import { type NameTagCameraMode } from '../../ui-core/config/nameTagConfig.ts';
 import {
   getNameTagConfig,
-  setNameTagRuntimeState,
   subscribeNameTagConfig,
   useAppStore,
 } from '../runtimeUiPort.ts';
+import {
+  bindNameTagTunerCallbacks,
+  clearMatchRosterProjection,
+  projectNameTagTunerState,
+} from '../runtime/MatchRosterProjection.ts';
 import { isEditableEventTarget, subscribeGlobalKeyDown } from '../../input/hotkeyInputGuard.ts';
 import {
   NEUTRAL_HOLD_CONTROLS,
@@ -49,7 +53,7 @@ export class NameTagTunerArenaController {
   }
 
   public attach(): void {
-    setNameTagRuntimeState({
+    bindNameTagTunerCallbacks({
       onEnterTunerArena: () => {
         void this.enterTunerArena();
       },
@@ -123,7 +127,7 @@ export class NameTagTunerArenaController {
     }
     const cam = this._sceneTarget?.camera;
     const cameraMode: NameTagCameraMode = cam?.isFreeCam ? 'free' : cam?.currentMode || 'pov';
-    setNameTagRuntimeState({
+    projectNameTagTunerState({
       isTunerArenaActive: this.isActive,
       kickoffPermutationIndex: this.permutationIndex,
       activeCameraMode: cameraMode,
@@ -230,11 +234,10 @@ export class NameTagTunerArenaController {
     this.focusedCarIndex = 0;
     this._unbindPovHotkeys();
     restoreSceneFromNameTagTuner(this._sceneTarget);
-    setNameTagRuntimeState({
+    clearMatchRosterProjection({
       isTunerArenaActive: false,
       activeCameraMode: 'pov',
       focusedCarIndex: 0,
-      carEntries: [],
     });
   }
 }

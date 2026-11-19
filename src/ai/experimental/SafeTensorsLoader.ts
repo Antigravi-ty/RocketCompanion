@@ -16,6 +16,7 @@ import {
   preuploadSimdTensors,
   preuploadSimdTensorsAsync,
 } from './wasmSimdMatVec.ts';
+import { runtimeResourceRegistry } from '../../game/runtime/RuntimeResourceRegistry.ts';
 
 export const EXPERIMENTAL_MODEL_URLS = Object.freeze({
   necto: '/assets/models/experimental/necto_policy.safetensors',
@@ -295,3 +296,14 @@ export function registerCachedSafeTensors(modelId, parsedSafeTensors) {
 export function getCachedSafeTensors(modelId) {
   return _modelCache.get(modelId) || null;
 }
+
+export function clearSafeTensorsModelCache(): void {
+  _modelCache.clear();
+  _loadingPromises.clear();
+}
+
+runtimeResourceRegistry.register({
+  id: 'ai:safetensors-model-cache',
+  scope: 'ai',
+  dispose: clearSafeTensorsModelCache,
+});

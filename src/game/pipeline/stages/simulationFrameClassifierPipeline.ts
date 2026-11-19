@@ -143,3 +143,143 @@ export function evaluateSimulationFrameFlags(params: {
     shouldSynthesizeTickEvents,
   };
 }
+
+export type SimulationDriveMode =
+  | 'local-freeplay'
+  | 'host-authoritative'
+  | 'host-goal-replay'
+  | 'client-csr-spectate'
+  | 'client-goal-replay'
+  | 'local-replay-playback';
+
+export interface SimulationDrivePolicy {
+  readonly mode: SimulationDriveMode;
+  readonly shouldStepLocalPhysics: boolean;
+  readonly shouldHoldAccumulator: boolean;
+  readonly shouldBroadcastSnapshot: boolean;
+  readonly shouldRunLookahead: boolean;
+  readonly shouldFeedReplayTimeline: boolean;
+}
+
+export interface SimulationDriveClassificationInput {
+  readonly flags: SimulationFrameExecutionFlags;
+  readonly hasServer: boolean;
+  readonly isBroadcastingHost: boolean;
+  readonly hasReconciler: boolean;
+  readonly isPureCsrClient: boolean;
+  readonly isClientInputAuthority: boolean;
+  readonly isReconcilerReplayPlayback: boolean;
+  readonly remoteHasAuthority: boolean;
+  readonly isSpectatePaused: boolean;
+}
+
+function resolveSimulationDriveMode(
+  input: SimulationDriveClassificationInput
+): SimulationDriveMode {
+  const {
+    flags,
+    hasServer,
+    hasReconciler,
+    isPureCsrClient,
+    isClientInputAuthority,
+    isReconcilerReplayPlayback,
+  } = input;
+
+  if (flags.isLocalDirectorPreview || flags.isLocalReplayControllerStepping) {
+    return 'local-replay-playback';
+  }
+  if (hasServer) {
+    return flags.isGoalReplay ? 'host-goal-replay' : 'host-authoritative';
+  }
+  if (hasReconciler) {
+    if (isClientInputAuthority) {
+      return flags.isGoalReplay ? 'client-goal-replay' : 'local-freeplay';
+    }
+    if (isReconcilerReplayPlayback) {
+      return 'local-replay-playback';
+    }
+    if (flags.isGoalReplay) {
+      return 'client-goal-replay';
+    }
+    if (isPureCsrClient) {
+      return 'client-csr-spectate';
+    }
+    return 'local-freeplay';
+  }
+  return flags.isGoalReplay ? 'local-replay-playback' : 'local-freeplay';
+}
+
+export function classifySimulationDrivePolicy(
+  input: SimulationDriveClassificationInput
+): SimulationDrivePolicy {
+  const mode = resolveSimulationDriveMode(input);
+  const { flags, isBroadcastingHost, hasReconciler, isClientInputAuthority, remoteHasAuthority } =
+    input;
+
+  switch (mode) {
+    case 'host-goal-replay':
+      return {
+        mode,
+        shouldStepLocalPhysics: false,
+        shouldHoldAccumulator: true,
+        shouldBroadcastSnapshot: isBroadcastingHost && !remoteHasAuthority,
+        shouldRunLookahead: false,
+        shouldFeedReplayTimeline: false,
+      };
+    case 'host-authoritative': {
+      const hold = flags.shouldHoldAccumulator || remoteHasAuthority;
+      return {
+        mode,
+        shouldStepLocalPhysics: !hold,
+        shouldHoldAccumulator: hold,
+        shouldBroadcastSnapshot: isBroadcastingHost && !remoteHasAuthority,
+        shouldRunLookahead: false,
+        shouldFeedReplayTimeline: false,
+      };
+    }
+    case 'client-goal-replay':
+      return {
+        mode,
+        shouldStepLocalPhysics: false,
+        shouldHoldAccumulator: true,
+        shouldBroadcastSnapshot: false,
+        shouldRunLookahead: false,
+        shouldFeedReplayTimeline: true,
+      };
+    case 'client-csr-spectate':
+      return {
+        mode,
+        shouldStepLocalPhysics: false,
+        shouldHoldAccumulator: true,
+        shouldBroadcastSnapshot: false,
+        shouldRunLookahead: false,
+        shouldFeedReplayTimeline: false,
+      };
+    case 'local-replay-playback':
+      return {
+        mode,
+        shouldStepLocalPhysics: !flags.shouldHoldAccumulator,
+        shouldHoldAccumulator: flags.shouldHoldAccumulator,
+        shouldBroadcastSnapshot: false,
+        shouldRunLookahead: false,
+        shouldFeedReplayTimeline: Boolean(hasReconciler && flags.isGoalReplay),
+      };
+    case 'local-freeplay': {
+      const clientAuthorityActive =
+        isClientInputAuthority &&
+        !input.isSpectatePaused &&
+        !flags.isReplayPaused &&
+        !flags.isGoalReplay &&
+        !flags.isMatchEnded;
+      const hold = flags.shouldHoldAccumulator && !clientAuthorityActive;
+      return {
+        mode,
+        shouldStepLocalPhysics: !hold,
+        shouldHoldAccumulator: hold,
+        shouldBroadcastSnapshot: false,
+        shouldRunLookahead: false,
+        shouldFeedReplayTimeline: false,
+      };
+    }
+  }
+}

@@ -1,10 +1,9 @@
 import {
   useAppStore,
   hudStore,
-  getNameTagRuntimeState,
-  setNameTagRuntimeState,
   type RuntimeTunerPort,
 } from '../runtimeUiPort.ts';
+import { patchProjectedCarEntry } from './MatchRosterProjection.ts';
 import {
   getPreferredColorHex,
   getPreferredFreeplayTeam,
@@ -89,12 +88,7 @@ export function resolveCustomVehicleHitboxOverride(
 }
 
 function syncPlayerTeamInNameTagState(playerIdx: number, team: number): void {
-  const ntState = getNameTagRuntimeState();
-  if (Array.isArray(ntState?.carEntries) && ntState.carEntries.length > 0) {
-    setNameTagRuntimeState({
-      carEntries: ntState.carEntries.map((c) => (c.carIndex === playerIdx ? { ...c, team } : c)),
-    });
-  }
+  patchProjectedCarEntry(playerIdx, { team });
 }
 
 function applyLocalPlayerTeamToWorld(

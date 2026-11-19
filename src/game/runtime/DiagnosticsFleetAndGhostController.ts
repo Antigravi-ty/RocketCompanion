@@ -11,10 +11,9 @@ import {
 import { configureClientLobbyDiagnosticProbes } from '../../network/client/NetworkTelemetryCollector.ts';
 import {
   networkDiagnosticsStore,
-  getNameTagRuntimeState,
-  setNameTagRuntimeState,
   type NameTagCarEntry,
 } from '../runtimeUiPort.ts';
+import { mergeProjectedCarEntries } from './MatchRosterProjection.ts';
 import {
   LobbyGhostIsolationController,
   type LobbyGhostModeConfigResult,
@@ -156,12 +155,7 @@ export class DiagnosticsFleetAndGhostController extends LobbyGhostIsolationContr
     }
 
     try {
-      const currentNameTags = getNameTagRuntimeState?.();
-      const updatedEntries = mergeDiagnosticProbeNameTagEntries(currentNameTags?.carEntries);
-      setNameTagRuntimeState?.({
-        isMultiplayerOrMultiCarMode: true,
-        carEntries: updatedEntries,
-      });
+      mergeProjectedCarEntries((entries) => mergeDiagnosticProbeNameTagEntries(entries), true);
     } catch {
       // Ignore name tag state update errors in headless environments
     }
@@ -246,12 +240,7 @@ export class DiagnosticsFleetAndGhostController extends LobbyGhostIsolationContr
     }
 
     try {
-      const currentNameTags = getNameTagRuntimeState?.();
-      const updatedEntries = mergeDiagnosticProbeNameTagEntries(currentNameTags?.carEntries);
-      setNameTagRuntimeState?.({
-        isMultiplayerOrMultiCarMode: true,
-        carEntries: updatedEntries,
-      });
+      mergeProjectedCarEntries((entries) => mergeDiagnosticProbeNameTagEntries(entries), true);
     } catch {
       // Ignore name tag state update errors in headless environments
     }

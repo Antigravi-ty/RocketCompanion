@@ -10,6 +10,7 @@ import {
   CAR_STATE_STRIDE,
   MAX_CARS,
 } from '../physics/RocketSimConstants.ts';
+import { interpolateBoostPadSnapshots } from './boostPadSnapshotInterpolationPipeline.ts';
 
 function clamp(val: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, val));
@@ -441,5 +442,6 @@ export function interpolateReplaySnapshots(
       lerpIdx(tBase + k);
     }
   }
+  interpolateBoostPadSnapshots(prevSnap, currSnap, out, t);
   return out;
 }

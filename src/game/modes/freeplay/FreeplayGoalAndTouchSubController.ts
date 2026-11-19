@@ -32,11 +32,13 @@ import {
   applyCleanFreeplaySubsystemsReset,
   applyStandaloneViewerKickoffReset,
   handleDisabledOrLobbyGoalLatch,
+  registerFreeplayRuntimeResources,
   resetFreeplayExtraCarsAndArenaToSingleCar,
   syncFreeplayAuthoritativeServerKickoffState,
   type CleanFreeplayResetOptions,
   type StandaloneViewerKickoffResetPort,
 } from './freeplayKickoffAndArenaResetPipeline.ts';
+import { getPreferredFreeplayTeam } from '../../../ui-core/config/vehiclePresets.ts';
 
 export type { FreeplayGoalAndTouchRuntimePort, FreeplayGoalMetadataTargetPort };
 
@@ -75,6 +77,11 @@ export class FreeplayGoalAndTouchSubController {
 
   public attach(): void {
     this.detach();
+    registerFreeplayRuntimeResources(
+      this.deps.getRuntime,
+      this.deps.replayRingBuffer,
+      getPreferredFreeplayTeam
+    );
     this._unsubKeyDown = subscribeGlobalKeyDown((e: KeyboardEvent) => {
       if (e.defaultPrevented || e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.code !== 'KeyU')
         return;

@@ -5,11 +5,11 @@
  */
 
 import {
-  setNameTagRuntimeState,
   useAppStore,
   useQuickNotificationStore,
   type OnlinePeerEntryPort,
 } from '../runtimeUiPort.ts';
+import { projectRosterCarEntries } from './MatchRosterProjection.ts';
 import {
   OnlineRemotePeerVehicleSynchronizer,
   type FlipResetVisualHandle,
@@ -243,9 +243,8 @@ export class OnlineRosterSyncCoordinator {
     }
 
     if (!isHostBroadcasting) {
-      setNameTagRuntimeState({
+      projectRosterCarEntries(nameTagEntries, {
         isMultiplayerOrMultiCarMode: true,
-        carEntries: nameTagEntries,
       });
     }
 

@@ -13,8 +13,11 @@ import {
   useExperimentalMultiBotsStore,
   getExpColorSwatch,
   useSpatialAudioStore,
-  setNameTagRuntimeState,
 } from '../../runtimeUiPort.ts';
+import {
+  clearMatchRosterProjection,
+  projectRosterCarEntries,
+} from '../../runtime/MatchRosterProjection.ts';
 import { getMaterialsConfig } from '../../../ui-core/config/materialsConfig.ts';
 import { rollRandomBotLoadout } from '../../../ui-core/config/botsLoadoutConfig.ts';
 import { assignTeamSlotKeys } from '../../../replay/container/RCReplayTimelineParser.ts';
@@ -135,14 +138,14 @@ export class ExperimentalMultiBotsRosterController {
       nectoLoaded: isExperimentalEngineReady('necto'),
     });
 
-    setNameTagRuntimeState({
-      isMultiplayerOrMultiCarMode: true,
-      carEntries: this.spawnedCars.map((c) => ({
+    projectRosterCarEntries(
+      this.spawnedCars.map((c) => ({
         carIndex: c.carIndex,
         name: c.name || getExpCarDisplayName(c, this.spawnedCars),
         team: c.team === 1 ? 1 : 0,
       })),
-    });
+      { isMultiplayerOrMultiCarMode: true }
+    );
   }
 
   syncCarColorsFromStore(): void {
@@ -413,10 +416,7 @@ export class ExperimentalMultiBotsRosterController {
       r.physics.setSimulationFrozen?.(false, 0, false);
       r.physics.setUnlimitedBoost?.(true);
     }
-    setNameTagRuntimeState({
-      isMultiplayerOrMultiCarMode: false,
-      carEntries: [],
-    });
+    clearMatchRosterProjection();
     if (r?.arena?.cars) {
       if (r.arena.cars[0]) r.arena.cars[0].visible = true;
       for (let i = 1; i < r.arena.cars.length; i++) {

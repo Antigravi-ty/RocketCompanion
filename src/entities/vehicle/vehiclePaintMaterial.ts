@@ -11,6 +11,7 @@ import {
   anodizedPaintTuning,
   subscribeAnodizedPaintTuning,
 } from '../../ui-core/config/vehicleTunerConfig.ts';
+import { runtimeResourceRegistry } from '../../game/runtime/RuntimeResourceRegistry.ts';
 
 const customToonRampCache = new Map();
 
@@ -335,3 +336,23 @@ export function cloneVehicleMeshWithPaint(mesh, teamColor, colorOptions) {
   applyVehicleMaterials(cloned, palette);
   return cloned;
 }
+
+export function clearVehiclePaintMaterialCaches(): void {
+  customToonRampCache.clear();
+  carPaintCache.clear();
+  activeAnodizedMaterials.clear();
+}
+
+runtimeResourceRegistry.register({
+  id: 'entities:vehicle-paint-material-cache',
+  scope: 'session',
+  dispose: clearVehiclePaintMaterialCaches,
+});
+
+runtimeResourceRegistry.register({
+  id: 'three:global-cache',
+  scope: 'replay',
+  dispose: () => {
+    THREE.Cache.clear();
+  },
+});

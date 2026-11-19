@@ -1,4 +1,5 @@
-import { hudStore, setNameTagRuntimeState, useAppStore } from '../../runtimeUiPort.ts';
+import { hudStore, useAppStore } from '../../runtimeUiPort.ts';
+import { projectRosterCarEntries } from '../../runtime/MatchRosterProjection.ts';
 import {
   captureRuntimeReplayCarEntries,
   type NormalizedReplayDirectorCarEntry,
@@ -161,9 +162,8 @@ export function activateFreeplayPatternPreviewScene(params: {
     savedCar0,
     fallbackScorerName
   );
-  setNameTagRuntimeState({
+  projectRosterCarEntries(roster.effectiveCarEntries, {
     isMultiplayerOrMultiCarMode: roster.numCars > 1,
-    carEntries: roster.effectiveCarEntries,
   });
   replayController.startPreviewSession({
     loop: true,
@@ -267,7 +267,7 @@ export function prepareAndLaunchFreeplayGoalReplay(params: {
     initialSnapshot: prepared.extractedFrames[0].snapshot,
   });
 
-  setNameTagRuntimeState({ carEntries: prepared.carEntries });
+  projectRosterCarEntries(prepared.carEntries);
   replayController.sessionState.carEntries = prepared.carEntries;
   return { prepared, totalFrames };
 }

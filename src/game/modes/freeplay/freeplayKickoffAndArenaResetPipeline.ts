@@ -14,6 +14,7 @@ import type {
   FreeplayGoalMetadataTargetPort,
   FreeplayPhysicsEnginePort,
 } from './freeplayTouchAndGoalPipeline.ts';
+import { runtimeResourceRegistry } from '../../runtime/RuntimeResourceRegistry.ts';
 
 const _lobbyCenterBallResetState = new Float32Array([
   0,
@@ -226,6 +227,37 @@ export function applyCleanFreeplaySubsystemsReset(
   }
   resetFreeplayExtraCarsAndArenaToSingleCar(scenePort);
   directorPreview.previewSpawnedExtraCars = false;
+  void runtimeResourceRegistry.disposeScope('replay');
+}
+
+export function registerFreeplayRuntimeResources(
+  getRuntime: () => FreeplayGoalAndTouchRuntimePort | null | undefined,
+  replayRingBuffer: { clear(): void },
+  getPreferredTeam: () => 0 | 1
+): void {
+  runtimeResourceRegistry.register({
+    id: 'freeplay:replay-ring-buffer',
+    scope: 'replay',
+    dispose: () => {
+      replayRingBuffer.clear();
+    },
+  });
+  runtimeResourceRegistry.register({
+    id: 'physics:wasm-replay-buffer',
+    scope: 'replay',
+    dispose: () => {
+      const runtime = getRuntime();
+      runtime?.physics?.clearReplayBuffer?.();
+      return runtime?.physics?.reclaimWasmMemoryIfGrown?.(getPreferredTeam()).then(() => undefined);
+    },
+  });
+  runtimeResourceRegistry.register({
+    id: 'renderer:render-lists',
+    scope: 'replay',
+    dispose: () => {
+      getRuntime()?.renderer?.renderLists?.dispose?.();
+    },
+  });
 }
 
 export function applyStandaloneViewerKickoffReset(
