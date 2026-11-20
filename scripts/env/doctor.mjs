@@ -23,6 +23,15 @@ import {
 } from './tmpfsGuard.mjs';
 
 const ROOT_DIR = path.resolve(import.meta.dirname, '../..');
+if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  console.log(`Usage: node scripts/env/doctor.mjs [--auto-restore] [--require-rust] [--help]
+
+Options:
+  --auto-restore   Restore tmpfs caches, pnpm, public/ submodule, node_modules, and .rcreplay
+  --require-rust   Treat missing Rust/Cargo toolchain as a failure (and install if --auto-restore)
+  --help, -h       Show this help (for full command list run: pnpm run env:help)`);
+  process.exit(0);
+}
 const requireRust = process.argv.includes('--require-rust');
 const autoRestore = process.argv.includes('--auto-restore');
 

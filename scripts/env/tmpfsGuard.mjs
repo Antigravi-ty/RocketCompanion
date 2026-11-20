@@ -508,6 +508,14 @@ fi
 
 if [ -f "scripts/env/tmpfsGuard.mjs" ] && [ -z "\${RC_TMPFS_GUARD_SKIP:-}" ]; then
   RC_TMPFS_GUARD_SKIP=1 node scripts/env/tmpfsGuard.mjs --ensure >/dev/null 2>&1 || true
+  case "\${1:-}" in
+    env:*|install|i) ;;
+    *)
+      if [ ! -f "node_modules/.modules.yaml" ] || [ ! -d "public" ]; then
+        echo "[pnpm-tmpfs] /tmp cache incomplete (node_modules or public/ missing). Run: node scripts/env/doctor.mjs --auto-restore" >&2
+      fi
+      ;;
+  esac
 fi
 
 exec "\$REAL_PNPM" "\$@"

@@ -4,23 +4,30 @@ One-click setup, diagnostics, and preflight helpers for running `pnpm run check`
 
 ## Quick Commands
 
-- **Check environment & Headless WebGL**:
+- **Show concise environment & self-healing cheat-sheet**:
   ```bash
+  pnpm run env:help
+  ```
+- **Check environment, OverlayFS budget, & Headless WebGL**:
+  ```bash
+  pnpm run env:check
   pnpm run env:doctor
   ```
-- **One-click setup / repair** (installs `pnpm` if missing, initializes `public/` submodule, installs `node_modules`, generates synthetic 3v3 `.rcreplay` fixture, verifies SwiftShader WebGL):
+- **One-click setup / auto-restore** (installs `pnpm` into tmpfs, syncs `public/` submodule, installs `node_modules` into tmpfs, generates 3v3 `.rcreplay` fixture, verifies SwiftShader WebGL):
   ```bash
+  node scripts/env/doctor.mjs --auto-restore
+  # or:
   pnpm run env:setup
   # or before pnpm is installed:
-  bash scripts/env/setup.sh
+  bash scripts/env/bootstrap.sh
   ```
 - **Include optional Rust toolchain** (needed for `src-tauri` `cargo check` / `pnpm run tauri:build`):
   ```bash
-  bash scripts/env/setup.sh --with-rust
+  bash scripts/env/bootstrap.sh --with-rust
   ```
 - **Generate 3v3 `.rcreplay` fixture manually**:
   ```bash
-  node --experimental-strip-types scripts/env/generateReplayFixture.ts
+  pnpm run replay:generate-ducky
   ```
 
 ## Why E2E previously failed with `Timeout waiting for Host boot` / `ENOTEMPTY`

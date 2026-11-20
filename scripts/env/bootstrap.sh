@@ -10,6 +10,12 @@ for arg in "$@"; do
   case "$arg" in
     --with-rust) WITH_RUST=1 ;;
     --pnpm-only) PNPM_ONLY=1 ;;
+    --help|-h)
+      echo "Usage: bash scripts/env/bootstrap.sh [--with-rust] [--pnpm-only] [--help]"
+      echo "  --with-rust   Also install Rust/Cargo and Tauri C dependencies into tmpfs"
+      echo "  --pnpm-only   Only install pnpm and self-healing wrapper into tmpfs"
+      exit 0
+      ;;
   esac
 done
 if [ "${RC_INSTALL_RUST:-0}" = "1" ]; then
