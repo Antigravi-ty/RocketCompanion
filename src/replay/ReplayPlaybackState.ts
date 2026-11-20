@@ -487,3 +487,30 @@ export function resolveTimelineFrameBufferByOffset(
     return ringBuffer.getFrameByOffset(safeOffset)?.snapshot || null;
   return null;
 }
+
+export function trimLeadingIdleGoalReplayFrames<
+  T extends { snapshot?: Float32Array | null } = ReplayRingBufferSlot,
+>(frames: T[], leadInFrames = 12): T[] {
+  if (!Array.isArray(frames) || frames.length <= leadInFrames * 2) {
+    return frames;
+  }
+  let firstActiveIdx = -1;
+  for (let i = 0; i < frames.length; i++) {
+    const snap = frames[i]?.snapshot;
+    if (!snap || snap.length < 10) continue;
+    if (
+      Math.abs(snap[4]) > 2 ||
+      Math.abs(snap[5]) > 2 ||
+      Math.abs(snap[7]) > 5 ||
+      Math.abs(snap[8]) > 5 ||
+      Math.abs(snap[9]) > 5
+    ) {
+      firstActiveIdx = i;
+      break;
+    }
+  }
+  if (firstActiveIdx > leadInFrames) {
+    return frames.slice(firstActiveIdx - leadInFrames);
+  }
+  return frames;
+}

@@ -76,6 +76,7 @@ export class BallTrajectoryTubeRenderer {
   private _lastRadialSegments = 0;
 
   public activeTriangleCount = 0;
+  private _gpuBuffersAllocated = false;
 
   constructor(scene: THREE.Scene | null | undefined) {
     this.group = new THREE.Group();
@@ -235,11 +236,23 @@ export class BallTrajectoryTubeRenderer {
   }
 
   public hideAll(): void {
+    const shouldReleaseGpu =
+      this._gpuBuffersAllocated ||
+      this.preOcclusionMesh.visible ||
+      this.foregroundMesh.visible ||
+      this.bounceInstancedMesh.visible ||
+      this.groundDropLines.visible;
     if (this.preOcclusionMesh.visible) this.preOcclusionMesh.visible = false;
     if (this.foregroundMesh.visible) this.foregroundMesh.visible = false;
     if (this.bounceInstancedMesh.visible) this.bounceInstancedMesh.visible = false;
     if (this.groundDropLines.visible) this.groundDropLines.visible = false;
     this.activeTriangleCount = 0;
+    if (shouldReleaseGpu) {
+      this._gpuBuffersAllocated = false;
+      this.tubeGeometry.dispose();
+      this.bounceInstancedMesh.geometry.dispose();
+      this.groundDropGeometry.dispose();
+    }
   }
 
   public hideTubeOnly(): void {
@@ -282,6 +295,7 @@ export class BallTrajectoryTubeRenderer {
       this.bounceInstancedMesh.count = count;
       this.bounceInstancedMesh.instanceMatrix.needsUpdate = true;
       this.bounceInstancedMesh.visible = true;
+      this._gpuBuffersAllocated = true;
     } else if (this.bounceInstancedMesh.visible) {
       this.bounceInstancedMesh.visible = false;
       this.bounceInstancedMesh.count = 0;
@@ -301,6 +315,7 @@ export class BallTrajectoryTubeRenderer {
         this._groundDropAttr.needsUpdate = true;
         this.groundDropGeometry.setDrawRange(0, vertCount);
         this.groundDropLines.visible = true;
+        this._gpuBuffersAllocated = true;
       } else {
         this.groundDropLines.visible = false;
       }
@@ -367,6 +382,7 @@ export class BallTrajectoryTubeRenderer {
       this.tubeGeometry.setDrawRange(0, indexCount);
       this.preOcclusionMesh.visible = true;
       this.foregroundMesh.visible = true;
+      this._gpuBuffersAllocated = true;
       this.activeTriangleCount = indexCount / 3;
     } else {
       this.hideTubeOnly();

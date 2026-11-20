@@ -5,7 +5,10 @@ import {
   type NormalizedReplayDirectorCarEntry,
   type ReplayCarEntryRuntimePort,
 } from '../../../replay/replayDirectorCarRosterPipeline.ts';
-import { extractGoalReplayFrames } from '../../../replay/ReplayPlaybackState.ts';
+import {
+  extractGoalReplayFrames,
+  trimLeadingIdleGoalReplayFrames,
+} from '../../../replay/ReplayPlaybackState.ts';
 import type { ReplayRingBuffer, ReplayRingBufferSlot } from '../../../replay/ReplayRingBuffer.ts';
 import type { ReplayTimelineController } from '../../../replay/ReplayTimelineController.ts';
 import { EXPIRE_REPLAY_LOOKBACK_TICKS } from '../shared/goalAndBallTouchPipeline.ts';
@@ -78,7 +81,7 @@ export function prepareFreeplayGoalReplaySessionData(params: {
   const scorerCarIndex = incident.scorerCarIndex;
   const scorerName = incident.scorerName || 'Player';
   const goalTick = incident.goalIncidentTick > 0 ? incident.goalIncidentTick : currentTick;
-  const extractedFrames =
+  let extractedFrames =
     incident.replayType === 'expire'
       ? ringBuffer.getFramesInTickRange(
           Math.max(incident.lastKickoffStartTick, goalTick - EXPIRE_REPLAY_LOOKBACK_TICKS),
@@ -95,6 +98,10 @@ export function prepareFreeplayGoalReplaySessionData(params: {
           lastKickoffWillStartTick: incident.lastKickoffStartTick,
         });
   if (!Array.isArray(extractedFrames) || extractedFrames.length === 0) return null;
+
+  if (incident.replayType !== 'expire' && incident.lastTouchTick < 0) {
+    extractedFrames = trimLeadingIdleGoalReplayFrames(extractedFrames, 12);
+  }
 
   const resolvedPlayerTeam: 0 | 1 = playerTeam === 1 ? 1 : 0;
   const fallbackCarName = incident.replayType === 'expire' ? 'Player' : scorerName;

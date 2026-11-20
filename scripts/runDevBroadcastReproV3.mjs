@@ -323,6 +323,24 @@ async function main() {
       rv.startPlaying();
     })()`);
     await new Promise((r) => setTimeout(r, 2500));
+    await clientCdp.send('Page.bringToFront');
+    await waitFor(
+      () =>
+        clientCdp.eval(`(() => {
+          const rt = window.__rcE2E.runtime;
+          const nts = rt.arena?.nameTagSystem;
+          return (
+            rt.physics?.getHeaderView?.()?.numCars === 6 &&
+            (nts?._visibleCards2D?.length ?? 0) > 0
+          );
+        })()`),
+      'Client NameTags rendered',
+      10_000,
+      100
+    ).catch(() => {});
+    await clientCdp.eval(`new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    })`);
 
     const [hostTeamsAndTags, clientTeamsAndTags] = await Promise.all([
       hostCdp.eval(`(() => {

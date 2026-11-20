@@ -126,14 +126,7 @@ export class ReplicationStateInterpolator {
     }
 
     const alpha = (renderTimeMs - s0.timestampMs) / spanMs;
-    return interpolateRigidBodyHermiteSlerp(
-      s0.body,
-      s1.body,
-      alpha,
-      spanMs / 1000,
-      'hermite-clamped',
-      this.maxSpeedUu
-    );
+    return interpolateRigidBodyHermiteSlerp(s0.body, s1.body, alpha, spanMs / 1000, 'hermite-clamped', this.maxSpeedUu);
   }
 }
 
@@ -181,6 +174,27 @@ export interface SpectateInterpolationStats {
   stallCount: number;
 }
 
+const B = SIM_OFFSETS.BALL;
+const C = SIM_OFFSETS.CARS;
+const isSamePose = (a: Float32Array, b: Float32Array): boolean =>
+  Math.abs(a[B] - b[B]) <= 1e-3 &&
+  Math.abs(a[B + 1] - b[B + 1]) <= 1e-3 &&
+  Math.abs(a[B + 2] - b[B + 2]) <= 1e-3 &&
+  ((b[SIM_OFFSETS.NUM_CARS] || 0) < 0.5 ||
+    (Math.abs(a[C] - b[C]) <= 1e-3 &&
+      Math.abs(a[C + 1] - b[C + 1]) <= 1e-3 &&
+      Math.abs(a[C + 2] - b[C + 2]) <= 1e-3));
+
+function isTrueTeleportJump(a: Float32Array, b: Float32Array, tickDelta: number): boolean {
+  if (!isSpectateTeleportJump(a, b)) return false;
+  if (tickDelta <= 12) return true;
+  const maxDist = Math.max(900, tickDelta * 65);
+  const dx = b[B] - a[B];
+  const dy = b[B + 1] - a[B + 1];
+  const dz = b[B + 2] - a[B + 2];
+  return dx * dx + dy * dy + dz * dz > maxDist * maxDist;
+}
+
 export class SpectateInterpolationBuffer {
   private readonly frames: BufferedSpectateFrame[] = [];
   private readonly lookaheadFrames: BufferedSpectateFrame[] = [];
@@ -213,11 +227,8 @@ export class SpectateInterpolationBuffer {
 
   constructor(maxFrames = 64, options: SpectateInterpolationBufferOptions = {}) {
     this.maxFrames = Math.max(8, maxFrames);
-    const reqLookahead = options.lookaheadWindowFrames ?? SPECTATE_MIN_LOOKAHEAD_FRAMES;
-    this.lookaheadWindowFrames = Math.max(
-      SPECTATE_MIN_LOOKAHEAD_FRAMES,
-      Math.min(SPECTATE_MAX_LOOKAHEAD_FRAMES, Math.round(reqLookahead))
-    );
+    const req = Math.round(options.lookaheadWindowFrames ?? SPECTATE_MIN_LOOKAHEAD_FRAMES);
+    this.lookaheadWindowFrames = Math.max(SPECTATE_MIN_LOOKAHEAD_FRAMES, Math.min(SPECTATE_MAX_LOOKAHEAD_FRAMES, req));
     this.stallTimeoutMs = Math.max(120, options.stallTimeoutMs ?? SPECTATE_STALL_TIMEOUT_MS);
   }
 
@@ -242,37 +253,21 @@ export class SpectateInterpolationBuffer {
     this.lastSampledRevision = -1;
   }
 
-  getCursorState(): SpectateCursorState {
-    return this.cursorState;
-  }
-
-  getLookaheadWindowSize(): number {
-    return this.lookaheadWindowFrames;
-  }
-
-  getLookaheadWindow(): readonly BufferedSpectateFrame[] {
-    return this.lookaheadFrames;
-  }
-
-  hasLookaheadWindow(): boolean {
-    return this.lookaheadFrames.length >= this.lookaheadWindowFrames;
-  }
+  getCursorState(): SpectateCursorState { return this.cursorState; }
+  getLookaheadWindowSize(): number { return this.lookaheadWindowFrames; }
+  getLookaheadWindow(): readonly BufferedSpectateFrame[] { return this.lookaheadFrames; }
+  hasLookaheadWindow(): boolean { return this.lookaheadFrames.length >= this.lookaheadWindowFrames; }
 
   getStats(): SpectateInterpolationStats {
     return {
-      bufferedFrames: this.frames.length,
-      latestHostTick: this.latestHostTick,
-      renderTick: this.renderTick,
-      interpDelayTicks: this.interpDelayTicks,
+      bufferedFrames: this.frames.length, latestHostTick: this.latestHostTick,
+      renderTick: this.renderTick, interpDelayTicks: this.interpDelayTicks,
       jitterMs: Math.round(this.jitterMs * 10) / 10,
-      interpolatedSamples: this.interpolatedSamples,
-      snappedSamples: this.snappedSamples,
-      duplicateSamples: this.duplicateSamples,
-      cursorState: this.cursorState,
+      interpolatedSamples: this.interpolatedSamples, snappedSamples: this.snappedSamples,
+      duplicateSamples: this.duplicateSamples, cursorState: this.cursorState,
       lookaheadWindowFrames: this.lookaheadWindowFrames,
       lookaheadFramesAvailable: this.lookaheadFrames.length,
-      lookaheadSamples: this.lookaheadSamples,
-      stallCount: this.stallCount,
+      lookaheadSamples: this.lookaheadSamples, stallCount: this.stallCount,
     };
   }
 
@@ -281,16 +276,6 @@ export class SpectateInterpolationBuffer {
       this.hasExternalLookahead = true;
       this.frameRevision++;
     }
-  }
-
-  private ensureLookaheadWindow(nowMs: number): void {
-    fillSpectateLookaheadWindow(
-      this.frames,
-      this.lookaheadFrames,
-      this.lookaheadWindowFrames,
-      this.ticksPerFrameEstimate,
-      nowMs
-    );
   }
 
   pushFrame(snapshot: Float32Array, serverTick: number, nowMs = performance.now()): void {
@@ -304,13 +289,17 @@ export class SpectateInterpolationBuffer {
     const numCars = Math.max(0, Math.round(snapshot[SIM_OFFSETS.NUM_CARS] || 0));
     if (snapshot.length < SIM_OFFSETS.CARS + numCars * 40) return;
 
-    if (this.frames.length > 0) {
-      const last = this.frames[this.frames.length - 1];
+    const frames = this.frames;
+    if (frames.length > 0) {
+      const last = frames[frames.length - 1];
       const lastNumCars = Math.round(last.snapshot[SIM_OFFSETS.NUM_CARS] || 0);
+      if (numCars === lastNumCars && tick === last.tick && isSamePose(last.snapshot, snapshot)) {
+        return;
+      }
       if (
         numCars !== lastNumCars ||
         tick < last.tick - 12 ||
-        isSpectateTeleportJump(last.snapshot, snapshot)
+        isTrueTeleportJump(last.snapshot, snapshot, Math.max(0, tick - last.tick))
       ) {
         this.reset();
       }
@@ -323,12 +312,7 @@ export class SpectateInterpolationBuffer {
       }
       const expectedDeltaMs = tickDelta * SPECTATE_TICK_MS;
       const actualDeltaMs = nowMs - this.lastPushedArrivalMs;
-      if (
-        expectedDeltaMs > 0 &&
-        expectedDeltaMs < 500 &&
-        actualDeltaMs >= 0 &&
-        actualDeltaMs < 500
-      ) {
+      if (expectedDeltaMs > 0 && expectedDeltaMs < 500 && actualDeltaMs > 0 && actualDeltaMs < 500) {
         const jitterSample = Math.abs(actualDeltaMs - expectedDeltaMs);
         this.jitterMs = this.jitterMs + (jitterSample - this.jitterMs) * 0.125;
       }
@@ -346,48 +330,46 @@ export class SpectateInterpolationBuffer {
     );
 
     const copy = new Float32Array(snapshot);
-    const len = this.frames.length;
-    if (len === 0 || tick > this.frames[len - 1].tick) {
-      this.frames.push({ tick, arrivalMs: nowMs, snapshot: copy });
-    } else if (tick === this.frames[len - 1].tick) {
-      this.frames[len - 1] = { tick, arrivalMs: nowMs, snapshot: copy };
+    const len = frames.length;
+    if (len === 0 || tick > frames[len - 1].tick) {
+      frames.push({ tick, arrivalMs: nowMs, snapshot: copy });
+    } else if (tick === frames[len - 1].tick) {
+      frames[len - 1] = { tick, arrivalMs: nowMs, snapshot: copy };
     } else {
       let inserted = false;
       for (let i = len - 1; i >= 0; i--) {
-        if (this.frames[i].tick === tick) {
-          this.frames[i] = { tick, arrivalMs: nowMs, snapshot: copy };
+        if (frames[i].tick === tick) {
+          frames[i] = { tick, arrivalMs: nowMs, snapshot: copy };
           inserted = true;
           break;
         }
-        if (this.frames[i].tick < tick) {
-          this.frames.splice(i + 1, 0, { tick, arrivalMs: nowMs, snapshot: copy });
+        if (frames[i].tick < tick) {
+          frames.splice(i + 1, 0, { tick, arrivalMs: nowMs, snapshot: copy });
           inserted = true;
           break;
         }
       }
       if (!inserted) {
-        this.frames.unshift({ tick, arrivalMs: nowMs, snapshot: copy });
+        frames.unshift({ tick, arrivalMs: nowMs, snapshot: copy });
       }
     }
 
-    if (this.frames.length > this.maxFrames) {
-      this.frames.splice(0, this.frames.length - this.maxFrames);
+    if (frames.length > this.maxFrames) {
+      frames.splice(0, frames.length - this.maxFrames);
     }
 
     this.frameRevision++;
-    this.latestHostTick = this.frames[this.frames.length - 1].tick;
+    this.latestHostTick = frames[frames.length - 1].tick;
     this.lookaheadFrames.length = 0;
     this.hasExternalLookahead = false;
-    if (this.frames.length >= this.lookaheadWindowFrames) {
+    if (frames.length >= this.lookaheadWindowFrames) {
       this.hasReachedInitialLookahead = true;
     }
-    this.cursorState = this.frames.length < 2 ? 'buffering' : 'tracking';
+    this.cursorState = frames.length < 2 ? 'buffering' : 'tracking';
   }
 
   private setCursorState(nextState: SpectateCursorState): void {
-    if (nextState === 'stalled' && this.cursorState !== 'stalled') {
-      this.stallCount++;
-    }
+    if (nextState === 'stalled' && this.cursorState !== 'stalled') this.stallCount++;
     this.cursorState = nextState;
   }
 
@@ -406,36 +388,27 @@ export class SpectateInterpolationBuffer {
     this.hasLastSampledCursor = true;
     this.lastSampledFrameCursor = frameCursor;
     this.lastSampledRevision = this.frameRevision;
-    if (isDuplicateFrame) {
-      this.duplicateSamples++;
-    }
-    if (isLookahead) {
-      this.lookaheadSamples++;
-    }
+    if (isDuplicateFrame) this.duplicateSamples++;
+    if (isLookahead) this.lookaheadSamples++;
     return {
-      snapshot,
-      renderTick,
-      frameCursor,
-      isDuplicateFrame,
-      interpDelayTicks: this.interpDelayTicks,
-      jitterMs: this.jitterMs,
-      alpha,
-      wasInterpolated,
-      cursorState: this.cursorState,
-      isLookahead,
-      lookaheadFramesAvailable: this.lookaheadFrames.length,
+      snapshot, renderTick, frameCursor, isDuplicateFrame,
+      interpDelayTicks: this.interpDelayTicks, jitterMs: this.jitterMs,
+      alpha, wasInterpolated, cursorState: this.cursorState,
+      isLookahead, lookaheadFramesAvailable: this.lookaheadFrames.length,
     };
   }
 
   sample(nowMs = performance.now()): SpectateInterpolationSample | null {
-    const len = this.frames.length;
+    const frames = this.frames;
+    const la = this.lookaheadFrames;
+    const len = frames.length;
     if (len === 0) {
       this.setCursorState('empty');
       return null;
     }
 
     if (len === 1) {
-      const f = this.frames[0];
+      const f = frames[0];
       this.renderTick = f.tick;
       this.lastSampleNowMs = nowMs;
       this.hasInitializedRenderTick = true;
@@ -444,22 +417,21 @@ export class SpectateInterpolationBuffer {
       return this.buildSample(f.snapshot, f.tick, f.tick, 1, false, false);
     }
 
-    const oldestTick = this.frames[0].tick;
-    const newestTick = this.frames[len - 1].tick;
+    const oldestTick = frames[0].tick;
+    const newestTick = frames[len - 1].tick;
     const sinceAdvanceMs = nowMs - this.lastTickAdvanceMs;
     const isHostAdvancing = sinceAdvanceMs <= 120;
     const isWithinStallWindow = sinceAdvanceMs <= this.stallTimeoutMs;
 
-    if (isHostAdvancing || this.hasExternalLookahead) {
-      this.ensureLookaheadWindow(nowMs);
+    if (isWithinStallWindow || this.hasExternalLookahead) {
+      fillSpectateLookaheadWindow(frames, la, this.lookaheadWindowFrames, this.ticksPerFrameEstimate, nowMs);
     }
 
-    const lookaheadMaxTick =
-      this.lookaheadFrames.length > 0
-        ? this.lookaheadFrames[this.lookaheadFrames.length - 1].tick
-        : newestTick;
+    const lookaheadMaxTick = la.length > 0 ? la[la.length - 1].tick : newestTick;
     const maxRenderTick =
-      isHostAdvancing || this.hasExternalLookahead ? lookaheadMaxTick : newestTick;
+      isWithinStallWindow || this.hasExternalLookahead
+        ? lookaheadMaxTick
+        : Math.max(newestTick, Math.min(lookaheadMaxTick, this.renderTick));
     const targetTick = isHostAdvancing
       ? Math.max(oldestTick, newestTick - this.interpDelayTicks)
       : newestTick;
@@ -476,8 +448,10 @@ export class SpectateInterpolationBuffer {
 
     this.renderTick += dtMs / SPECTATE_TICK_MS;
     const drift = targetTick - this.renderTick;
-    if (Math.abs(drift) > 24) {
+    if (Math.abs(drift) > 600) {
       this.renderTick = targetTick;
+    } else if (Math.abs(drift) > 24) {
+      this.renderTick += Math.sign(drift) * Math.min(Math.abs(drift), 6);
     } else if (this.renderTick <= newestTick && Math.abs(drift) > 0.25) {
       this.renderTick += drift * 0.1;
     }
@@ -496,51 +470,29 @@ export class SpectateInterpolationBuffer {
 
     if (this.renderTick <= oldestTick) {
       this.snappedSamples++;
-      return this.buildSample(this.frames[0].snapshot, oldestTick, oldestTick, 0, false, false);
+      return this.buildSample(frames[0].snapshot, oldestTick, oldestTick, 0, false, false);
     }
     if (this.renderTick >= maxRenderTick) {
-      const tailFrame =
-        isLookahead && this.lookaheadFrames.length > 0
-          ? this.lookaheadFrames[this.lookaheadFrames.length - 1]
-          : this.frames[len - 1];
+      const tail = isLookahead && la.length > 0 ? la[la.length - 1] : frames[len - 1];
       this.snappedSamples++;
-      return this.buildSample(
-        tailFrame.snapshot,
-        tailFrame.tick,
-        tailFrame.tick,
-        1,
-        false,
-        isLookahead
-      );
+      return this.buildSample(tail.snapshot, tail.tick, tail.tick, 1, false, isLookahead);
     }
 
-    const bracket = findSpectateBracketFrames(this.frames, this.lookaheadFrames, this.renderTick);
+    const bracket = findSpectateBracketFrames(frames, la, this.renderTick);
     if (!bracket) {
       this.snappedSamples++;
-      return this.buildSample(
-        this.frames[len - 1].snapshot,
-        newestTick,
-        newestTick,
-        1,
-        false,
-        false
-      );
+      return this.buildSample(frames[len - 1].snapshot, newestTick, newestTick, 1, false, false);
     }
 
     const { s0, s1 } = bracket;
     const span = s1.tick - s0.tick;
-    if (span <= 0 || isSpectateTeleportJump(s0.snapshot, s1.snapshot)) {
+    if (span <= 0 || isTrueTeleportJump(s0.snapshot, s1.snapshot, span)) {
       this.snappedSamples++;
       return this.buildSample(s1.snapshot, s1.tick, s1.tick, 1, false, isLookahead);
     }
 
     const alpha = Math.max(0, Math.min(1, (this.renderTick - s0.tick) / span));
-    const interpolated = interpolateReplaySnapshots(
-      s0.snapshot,
-      s1.snapshot,
-      alpha,
-      this.scratchOut
-    );
+    const interpolated = interpolateReplaySnapshots(s0.snapshot, s1.snapshot, alpha, this.scratchOut);
     if (!interpolated) {
       this.snappedSamples++;
       return this.buildSample(s1.snapshot, s1.tick, s1.tick, 1, false, isLookahead);
