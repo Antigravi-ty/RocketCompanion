@@ -12,6 +12,7 @@ export interface RuntimeDisposableResource {
  */
 export class RuntimeResourceRegistry {
   private readonly resources = new Map<string, RuntimeDisposableResource>();
+  private readonly activeDisposingScopes = new Set<RuntimeResourceScope>();
 
   public register(resource: RuntimeDisposableResource): () => void {
     this.resources.set(resource.id, resource);
@@ -42,24 +43,30 @@ export class RuntimeResourceRegistry {
   }
 
   public async disposeScope(scope: RuntimeResourceScope): Promise<void> {
+    if (this.activeDisposingScopes.has(scope)) return;
+    this.activeDisposingScopes.add(scope);
     const pending: Promise<void>[] = [];
-    for (const resource of this.resources.values()) {
-      if (resource.scope !== scope) continue;
-      try {
-        const result = resource.dispose();
-        if (result && typeof (result as Promise<void>).then === 'function') {
-          pending.push(
-            Promise.resolve(result).catch((err: unknown) => {
-              console.warn(`[RuntimeResourceRegistry] Failed to dispose "${resource.id}":`, err);
-            })
-          );
+    try {
+      for (const resource of Array.from(this.resources.values())) {
+        if (resource.scope !== scope) continue;
+        try {
+          const result = resource.dispose();
+          if (result && typeof (result as Promise<void>).then === 'function') {
+            pending.push(
+              Promise.resolve(result).catch((err: unknown) => {
+                console.warn(`[RuntimeResourceRegistry] Failed to dispose "${resource.id}":`, err);
+              })
+            );
+          }
+        } catch (err: unknown) {
+          console.warn(`[RuntimeResourceRegistry] Failed to dispose "${resource.id}":`, err);
         }
-      } catch (err: unknown) {
-        console.warn(`[RuntimeResourceRegistry] Failed to dispose "${resource.id}":`, err);
       }
-    }
-    if (pending.length > 0) {
-      await Promise.all(pending);
+      if (pending.length > 0) {
+        await Promise.all(pending);
+      }
+    } finally {
+      this.activeDisposingScopes.delete(scope);
     }
   }
 

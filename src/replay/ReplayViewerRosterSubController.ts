@@ -8,11 +8,7 @@ import { MAX_CARS } from '../physics/RocketSimConstants.ts';
 import { normalizeVisualId, resolveVehicleHitboxId } from '../ui-core/config/vehicleConstants.ts';
 import { getMaterialsConfig } from '../ui-core/config/materialsConfig.ts';
 import { resolveBotFallbackColorForTeam } from '../ui-core/config/botsLoadoutConfig.ts';
-import {
-  useSpatialAudioStore,
-  useAppStore,
-  hudStore,
-} from '../game/runtimeUiPort.ts';
+import { useSpatialAudioStore, useAppStore, hudStore } from '../game/runtimeUiPort.ts';
 import { projectMatchRoster } from '../game/runtime/MatchRosterProjection.ts';
 import { gameAudio } from '../audio/GameAudioEngineFacade.ts';
 import {
@@ -60,6 +56,7 @@ export interface ReplayViewerRosterRuntimePort {
   camera?: { resetView?: () => void; setFocusedCarIndex?: (carIndex: number) => void } | null;
   replayPovCarIndex?: number | null;
   flipResetVisual?: { dispose?: () => void } | null;
+  flipResetVisuals?: Map<number, { dispose?: () => void; stopVisual?: () => void }> | null;
   getFlipResetVisual?: (carIndex: number) => { play?: () => void } | null;
   releaseGoalReplayCameraOverride?: () => void;
   options?: {
@@ -126,6 +123,21 @@ export function buildTakenOverUserLoadoutSnapshot(
   };
 }
 
+export function disposeRuntimeFlipResetVisuals(
+  runtime: ReplayViewerRosterRuntimePort | null | undefined
+): void {
+  if (!runtime) return;
+  if (runtime.flipResetVisuals && typeof runtime.flipResetVisuals.entries === 'function') {
+    for (const [carIdx, visual] of Array.from(runtime.flipResetVisuals.entries())) {
+      visual?.stopVisual?.();
+      visual?.dispose?.();
+      runtime.flipResetVisuals.delete(carIdx);
+    }
+  } else {
+    runtime.flipResetVisual?.dispose?.();
+  }
+}
+
 export class ReplayViewerRosterSubController {
   public resolvedRoster: ReplayRosterEntry[] = [];
   public slotKeyToCarIndex: Record<number, number> = {};
@@ -145,6 +157,10 @@ export class ReplayViewerRosterSubController {
     this.activePovTeam = 0;
     this.isTakenOverLoadoutApplied = false;
     this.activeTakenOverAnthemId = 'none';
+  }
+
+  public disposeFlipResetVisuals(runtime: ReplayViewerRosterRuntimePort | null | undefined): void {
+    disposeRuntimeFlipResetVisuals(runtime);
   }
 
   public applyInitialPovToRuntime(runtime: ReplayViewerRosterRuntimePort | null | undefined): void {
