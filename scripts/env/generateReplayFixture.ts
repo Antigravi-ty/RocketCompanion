@@ -40,7 +40,7 @@ export async function generate3v3DuckyReplayFixture(
   options: GenerateDuckyReplayOptions = {}
 ): Promise<string> {
   const outPath = options.outPath || DEFAULT_REPLAY_FIXTURE_PATH;
-  const frameCount = options.frameCount ?? 720; // 12 seconds at 60fps
+  const frameCount = options.frameCount ?? 1800; // 15 seconds at 120Hz playback (30s at 60fps)
   const ticksPerFrame = options.ticksPerFrame ?? 2; // 120Hz physics
   const seed = options.seed ?? (Date.now() & 0xffff);
 

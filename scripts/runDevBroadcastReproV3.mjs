@@ -353,7 +353,7 @@ async function main() {
       const file = new File([bin], ${JSON.stringify(path.basename(replayPath))}, { type: 'application/octet-stream' });
       const rv = window.__rcE2E.runtime.modeManager.modes.get('freeplay').standaloneReplayViewer;
       await rv.handleUploadFile(file);
-      rv.seekToTime?.(1.0);
+      rv.seekFrame?.(120);
       rv.startPlaying();
     })()`);
     await new Promise((r) => setTimeout(r, 2500));
