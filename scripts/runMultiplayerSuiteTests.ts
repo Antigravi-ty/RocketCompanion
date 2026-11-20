@@ -2404,6 +2404,57 @@ async function testSpectateInterpolationBufferReverseDelay(): Promise<void> {
     Math.abs(interpHigh[padBase + 2 * padStride + 1] - 9.9) < 1e-4,
     `Pad 2 upward cooldown jump should step to 9.9 at alpha=0.75, got ${interpHigh[padBase + 2 * padStride + 1]}`
   );
+
+  // 7. W2-A: >= 5-frame lookahead window & SpectateCursorState machine
+  const laBuf = new SpectateInterpolationBuffer(32, { lookaheadWindowFrames: 3 });
+  assert.equal(laBuf.getCursorState(), 'empty', 'Fresh buffer should start in empty state');
+  assert.ok(
+    laBuf.getLookaheadWindowSize() >= 5,
+    `Lookahead window must enforce >= 5 frames, got ${laBuf.getLookaheadWindowSize()}`
+  );
+
+  const makeVelSnap = (tick: number, ballX: number, ballVx: number): Float32Array => {
+    const s = makeSnap(tick, 1, ballX, 0);
+    s[SIM_OFFSETS.BALL + 12] = ballVx;
+    return s;
+  };
+
+  laBuf.pushFrame(makeVelSnap(500, 100, 1200), 500, 5000);
+  assert.equal(laBuf.getCursorState(), 'buffering', 'Single frame should enter buffering state');
+  laBuf.pushFrame(makeVelSnap(502, 120, 1200), 502, 5000 + 2 * TICK_MS);
+  assert.equal(laBuf.getCursorState(), 'tracking', 'Two frames should enter tracking state');
+
+  // Sample at 5000 + 2*TICK_MS (initializes renderTick = 502 - 2 = 500), then advance +4 ticks -> enters lookahead (504 > 502)
+  const laInit = laBuf.sample(5000 + 2 * TICK_MS);
+  assert.ok(laInit);
+  const laAhead = laBuf.sample(5000 + 6 * TICK_MS);
+  assert.ok(laAhead);
+  assert.equal(laAhead.cursorState, 'lookahead', 'Advancing past newestTick while host advances should enter lookahead');
+  assert.equal(laAhead.isLookahead, true);
+  assert.equal(laAhead.isDuplicateFrame, false, 'Lookahead sample must not be marked duplicate');
+  assert.ok(
+    laBuf.hasLookaheadWindow() && laAhead.lookaheadFramesAvailable >= 5,
+    `Lookahead window should have >= 5 frames, got ${laAhead.lookaheadFramesAvailable}`
+  );
+  assert.ok(
+    laAhead.snapshot[SIM_OFFSETS.BALL] > 120,
+    `Lookahead ball X should advance beyond 120, got ${laAhead.snapshot[SIM_OFFSETS.BALL]}`
+  );
+
+  // External WASM lookahead injection & authoritative overwrite
+  laBuf.pushLookaheadFrame(makeVelSnap(504, 155, 1200), 504, 5000 + 6 * TICK_MS);
+  assert.ok(
+    laBuf.getLookaheadWindow().some((f) => f.tick === 504 && f.snapshot[SIM_OFFSETS.BALL] === 155),
+    'External pushLookaheadFrame should update lookahead window'
+  );
+  laBuf.pushFrame(makeVelSnap(504, 140, 1200), 504, 5000 + 6 * TICK_MS);
+  assert.equal(laBuf.getCursorState(), 'tracking', 'Authoritative pushFrame should return cursor to tracking');
+
+  // Stall transition after stallTimeoutMs
+  const stalled = laBuf.sample(5000 + 6 * TICK_MS + 400);
+  assert.ok(stalled);
+  assert.equal(stalled.cursorState, 'stalled', 'Elapsed silence past stallTimeoutMs should transition to stalled');
+  assert.ok(laBuf.getStats().stallCount >= 1, 'stallCount should increment on stall transition');
 }
 
 async function testReliablePauseAckAndHeartbeat(): Promise<void> {

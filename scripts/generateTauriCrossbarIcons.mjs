@@ -198,6 +198,7 @@ async function main() {
     chromeBin,
     [
       '--headless=new',
+      '--no-proxy-server',
       '--no-sandbox',
       '--disable-gpu',
       '--disable-dev-shm-usage',
