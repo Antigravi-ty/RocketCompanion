@@ -53,6 +53,7 @@ export class RenderClockScheduler {
 
     this.wake = () => {
       if (!this.active()) {
+        this.stopBackgroundWorker();
         this.clearFrameTimer();
         this.nextFrameTime = 0;
         this.nextSimTime = 0;
@@ -70,8 +71,12 @@ export class RenderClockScheduler {
           this.displayRequest = null;
         }
         this.clearPending();
-      } else if (this.displayRequest === null && typeof requestAnimationFrame === 'function') {
-        this.displayRequest = requestAnimationFrame(this.measureDisplay);
+        this.startBackgroundWorker();
+      } else {
+        this.stopBackgroundWorker();
+        if (this.displayRequest === null && typeof requestAnimationFrame === 'function') {
+          this.displayRequest = requestAnimationFrame(this.measureDisplay);
+        }
       }
       this.nextFrameTime = 0;
       this.clearFrameTimer();
@@ -89,8 +94,7 @@ export class RenderClockScheduler {
     };
 
     this.queueTick = () => {
-      this.frameTimer = null;
-      this.frameTask = null;
+      this.clearFrameTimer();
       if (!this.queued && this.active()) {
         this.queued = true;
         this.channel.port2.postMessage(null);
