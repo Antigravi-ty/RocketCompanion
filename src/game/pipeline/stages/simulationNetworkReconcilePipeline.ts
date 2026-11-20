@@ -3,14 +3,8 @@ import {
   type ReplayDirectorRosterRuntimePort,
   captureRuntimeReplayCarEntries,
 } from '../../../replay/replayDirectorCarRosterPipeline.ts';
-import type { CarControlsInput } from '../../../network/protocol/InputPacketCodec.ts';
 import { MATCH_SIGNALS } from '../../../network/protocol/GlobalPayloadCodec.ts';
 import type { SpectateInterpolationBuffer } from '../../../network/sync/ReplicationStateInterpolator.ts';
-import {
-  applySpectateSampleOrLookahead,
-  getSpectateLookaheadState,
-  resetSpectateLookaheadState,
-} from './spectatePhysicsLookaheadPipeline.ts';
 import type { CameraManager } from '../../../camera/CameraManager.ts';
 import type { AuthoritativeServerHost } from '../../../network/server/AuthoritativeServerHost.ts';
 import type { PredictionReconciler } from '../../../network/client/PredictionReconciler.ts';
@@ -176,7 +170,6 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
 
   if (skipReconciler || !reconciler) {
     spectateInterpolationBuffer?.reset();
-    resetSpectateLookaheadState(spectateInterpolationBuffer);
     if (skipReconciler && reconciler && !server) {
       reconciler.flushPendingControlPackets?.(now);
     }
@@ -219,11 +212,9 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
 
   if (!useSpectateBuffer) {
     spectateInterpolationBuffer?.reset();
-    resetSpectateLookaheadState(spectateInterpolationBuffer);
   }
 
   if (useSpectateBuffer && spectateInterpolationBuffer) {
-    const lookaheadState = getSpectateLookaheadState(spectateInterpolationBuffer);
     const lastSignals = (
       reconciler.lastParsedPacket as { signals?: Array<{ signalType?: number }> } | null
     )?.signals;
@@ -236,7 +227,6 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
       );
     if (hasResetSignal) {
       spectateInterpolationBuffer.reset();
-      resetSpectateLookaheadState(spectateInterpolationBuffer);
     }
 
     const packets = reconciler.drainedReplayPackets;
@@ -264,51 +254,23 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
         const pkt = packets[i];
         if (!pkt?.stateSnapshot) continue;
         spectateInterpolationBuffer.pushFrame(pkt.stateSnapshot, pkt.serverTick || 0, now);
-        if (Array.isArray(pkt.acknowledgedControls) && pkt.acknowledgedControls.length > 0) {
-          lookaheadState.lastAcknowledgedControls = pkt.acknowledgedControls as Array<{
-            carIndex: number;
-            controls: CarControlsInput;
-          }>;
-        }
         if (policy.shouldFeedReplayTimeline) {
           feedStreamedReplayPacket(pkt, replayTimelineController, rosterCapturePort, matchState);
         }
       }
       packets.length = 0;
-    } else if (
-      Array.isArray(reconciler.lastParsedPacket?.acknowledgedControls) &&
-      reconciler.lastParsedPacket.acknowledgedControls.length > 0
-    ) {
-      lookaheadState.lastAcknowledgedControls = reconciler.lastParsedPacket
-        .acknowledgedControls as Array<{ carIndex: number; controls: CarControlsInput }>;
     }
 
     const canSampleToEngine =
       !flags.isLocalReplayControllerStepping && !(server && policy.mode !== 'client-goal-replay');
     if (canSampleToEngine) {
       const sampled = spectateInterpolationBuffer.sample(now);
-      if (sampled && reconciler.metrics) {
-        reconciler.metrics.measuredJitterMs = Math.round(sampled.jitterMs * 10) / 10;
-      }
-      const shouldRunLookahead =
-        (policy.shouldRunLookahead ||
-          (isRemoteReplayWatchTogether &&
-            !flags.isReplayPaused &&
-            !flags.isMatchEnded &&
-            !flags.isGoalReplay)) &&
-        !matchState.paused &&
-        !(isRemoteReplayWatchTogether && sampled?.cursorState === 'stalled');
-      const applied = applySpectateSampleOrLookahead({
-        buffer: spectateInterpolationBuffer,
-        sampled,
-        shouldRunLookahead,
-        now,
-        physics,
-        interpolator,
-      });
-      if (applied && !matchState.paused && !flags.isMatchEnded && sessionStateTarget) {
-        const recOut = recordClientDiagnosticReplayFrame(physics, diagnosticDumpMaxFrames);
-        sessionStateTarget.clientReplayOverflowPaused = recOut.overflowPaused;
+      if (sampled) {
+        applyReplayFrameToEngine(physics, sampled.snapshot, interpolator);
+        if (!matchState.paused && !flags.isMatchEnded && sessionStateTarget) {
+          const recOut = recordClientDiagnosticReplayFrame(physics, diagnosticDumpMaxFrames);
+          sessionStateTarget.clientReplayOverflowPaused = recOut.overflowPaused;
+        }
       }
     }
     return nextRecordedTick;

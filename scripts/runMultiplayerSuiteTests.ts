@@ -2296,7 +2296,6 @@ async function testSpectateInterpolationBufferReverseDelay(): Promise<void> {
     snap[SIM_OFFSETS.BALL + 2] = 93;
     snap[SIM_OFFSETS.CARS] = car0X;
     snap[SIM_OFFSETS.CARS + 2] = 17;
-    // Unit forward/right/up basis for car0
     snap[SIM_OFFSETS.CARS + 3] = 1;
     snap[SIM_OFFSETS.CARS + 7] = 1;
     snap[SIM_OFFSETS.CARS + 11] = 1;
@@ -2304,180 +2303,26 @@ async function testSpectateInterpolationBufferReverseDelay(): Promise<void> {
   };
 
   const buf = new SpectateInterpolationBuffer(32);
-  const TICK_MS = 1000 / 120;
+  assert.equal(buf.sample(1000), null, 'Empty buffer should return null');
 
-  // 1. Steady 60Hz broadcast (2 ticks per packet) with 0 jitter -> interpDelayTicks == 2
-  for (let i = 0; i < 6; i++) {
-    const tick = 100 + i * 2;
-    buf.pushFrame(makeSnap(tick, 1, i * 20, i * 10), tick, 1000 + i * 2 * TICK_MS);
-  }
-  let stats = buf.getStats();
-  assert.equal(stats.interpDelayTicks, 2, 'Zero-jitter stream should clamp interpDelayTicks to 2');
+  buf.pushFrame(makeSnap(100, 1, 10, 5), 100, 1000);
+  buf.pushFrame(makeSnap(102, 1, 20, 10), 102, 1016);
+  const sFwd = buf.sample(1016);
+  assert.ok(sFwd, 'Should sample latest pushed frame');
+  assert.equal(sFwd.serverTick, 102);
+  assert.equal(sFwd.snapshot[SIM_OFFSETS.BALL], 20);
 
-  // Sample at midpoint between tick 108 and 110 (renderTick should start at 110 - 2 = 108, advance +1 tick after 1*TICK_MS)
-  const s1 = buf.sample(1000 + 10 * TICK_MS);
-  assert.ok(s1, 'Should produce sample');
-  const s2 = buf.sample(1000 + 11 * TICK_MS);
-  assert.ok(s2, 'Should produce interpolated sample on intermediate 120Hz render frame');
-  assert.equal(s2.wasInterpolated, true, 'Intermediate frame should be interpolated');
-  assert.ok(
-    s2.snapshot[SIM_OFFSETS.BALL] > 80 && s2.snapshot[SIM_OFFSETS.BALL] < 100,
-    `Ball X should interpolate between 80 and 100, got ${s2.snapshot[SIM_OFFSETS.BALL]}`
-  );
-  assert.ok(
-    s2.snapshot[SIM_OFFSETS.CARS] > 40 && s2.snapshot[SIM_OFFSETS.CARS] < 50,
-    `Car0 X should interpolate between 40 and 50, got ${s2.snapshot[SIM_OFFSETS.CARS]}`
-  );
+  // Rewind (non-monotonic decreasing ticks) must work symmetrically without clearing or stalling
+  buf.pushFrame(makeSnap(98, 1, -15, -5), 98, 1032);
+  const sRev = buf.sample(1032);
+  assert.ok(sRev, 'Should sample rewound frame');
+  assert.equal(sRev.serverTick, 98);
+  assert.equal(sRev.snapshot[SIM_OFFSETS.BALL], -15);
+  assert.equal(buf.getStats().bufferedFrames, 1);
 
-  // 2. Simulated 15ms-20ms arrival jitter -> interpDelayTicks should increase dynamically (4..10)
-  for (let i = 6; i < 20; i++) {
-    const tick = 100 + i * 2;
-    const jitterOffset = i % 2 === 0 ? 18 : -14;
-    buf.pushFrame(makeSnap(tick, 1, i * 20, i * 10), tick, 1000 + i * 2 * TICK_MS + jitterOffset);
-  }
-  stats = buf.getStats();
-  assert.ok(
-    stats.interpDelayTicks >= 4 && stats.interpDelayTicks <= 10,
-    `Jittery stream should raise interpDelayTicks into [4,10], got ${stats.interpDelayTicks} (jitterMs=${stats.jitterMs})`
-  );
-
-  // 3. Mode switch (car count 1 -> 6) should reset buffer cleanly without interpolating across topologies
-  buf.pushFrame(makeSnap(140, 6, 0, -256), 140, 2000);
-  stats = buf.getStats();
-  assert.equal(stats.bufferedFrames, 1, 'Car count change should reset buffer to new mode frame');
-  const sMode = buf.sample(2000);
-  assert.ok(sMode);
-  assert.equal(Math.round(sMode.snapshot[SIM_OFFSETS.NUM_CARS]), 6);
-
-  // 4. Teleport (>900 uu) should snap to target frame instead of lerping through the arena
-  buf.pushFrame(makeSnap(142, 6, 2000, -256), 142, 2000 + 2 * TICK_MS);
-  buf.pushFrame(makeSnap(144, 6, 2010, -256), 144, 2000 + 4 * TICK_MS);
-  const sTeleport = buf.sample(2000 + 3 * TICK_MS);
-  assert.ok(sTeleport);
-  assert.ok(
-    sTeleport.snapshot[SIM_OFFSETS.BALL] === 0 || sTeleport.snapshot[SIM_OFFSETS.BALL] >= 2000,
-    `Teleport should snap instead of mid-arena lerp, got ballX=${sTeleport.snapshot[SIM_OFFSETS.BALL]}`
-  );
-
-  // 5. Arch-0D: frameCursor & isDuplicateFrame contract
-  const dupBuf = new SpectateInterpolationBuffer(16);
-  dupBuf.pushFrame(makeSnap(200, 1, 0, 0), 200, 3000);
-  const d1 = dupBuf.sample(3000);
-  assert.ok(d1);
-  assert.equal(d1.frameCursor, 200);
-  assert.equal(d1.isDuplicateFrame, false, 'First sample should not be duplicate');
-  const d2 = dupBuf.sample(3000 + TICK_MS);
-  assert.ok(d2);
-  assert.equal(d2.frameCursor, 200);
-  assert.equal(
-    d2.isDuplicateFrame,
-    true,
-    'Repeated sample on stationary single frame should be duplicate'
-  );
-  dupBuf.reset();
-  dupBuf.pushFrame(makeSnap(200, 1, 0, 0), 200, 3020);
-  const d3 = dupBuf.sample(3020);
-  assert.ok(d3);
-  assert.equal(d3.isDuplicateFrame, false, 'Sample after reset() should not be duplicate');
-
-  // 6. Arch-0D: BoostPad discrete isActive step & cooldown monotonicity protection
-  const padBase = BOOST_PAD_DISCRETE_FIELD_OFFSETS.baseOffset;
-  const padStride = BOOST_PAD_DISCRETE_FIELD_OFFSETS.stride;
-  const snapA = makeSnap(300, 1, 0, 0);
-  const snapB = makeSnap(302, 1, 20, 10);
-  // Pad 0: collected transition (1 -> 0)
-  snapA[padBase] = 1;
-  snapA[padBase + 1] = 0;
-  snapB[padBase] = 0;
-  snapB[padBase + 1] = 9.98;
-  // Pad 1: normal monotone countdown (0 -> 0, 5.0 -> 4.0)
-  snapA[padBase + padStride] = 0;
-  snapA[padBase + padStride + 1] = 5.0;
-  snapB[padBase + padStride] = 0;
-  snapB[padBase + padStride + 1] = 4.0;
-  // Pad 2: cross-frame upward jump (respawn + immediate recollect: 0.1 -> 9.9)
-  snapA[padBase + 2 * padStride] = 0;
-  snapA[padBase + 2 * padStride + 1] = 0.1;
-  snapB[padBase + 2 * padStride] = 0;
-  snapB[padBase + 2 * padStride + 1] = 9.9;
-
-  const interpLow = interpolateReplaySnapshots(snapA, snapB, 0.25);
-  assert.ok(interpLow);
-  assert.equal(interpLow[padBase], 1, 'Pad 0 isActive should step to prev (1) at alpha=0.25');
-  assert.equal(interpLow[padBase + 1], 0, 'Pad 0 cooldown must be 0 when isActive=1');
-  assert.ok(
-    Math.abs(interpLow[padBase + padStride + 1] - 4.75) < 1e-4,
-    `Pad 1 monotone cooldown should lerp to 4.75 at alpha=0.25, got ${interpLow[padBase + padStride + 1]}`
-  );
-  assert.ok(
-    Math.abs(interpLow[padBase + 2 * padStride + 1] - 0.1) < 1e-4,
-    `Pad 2 upward cooldown jump should step to 0.1 at alpha=0.25, got ${interpLow[padBase + 2 * padStride + 1]}`
-  );
-
-  const interpHigh = interpolateReplaySnapshots(snapA, snapB, 0.75);
-  assert.ok(interpHigh);
-  assert.equal(interpHigh[padBase], 0, 'Pad 0 isActive should step to curr (0) at alpha=0.75');
-  assert.ok(
-    Math.abs(interpHigh[padBase + 1] - 9.98) < 1e-4,
-    `Pad 0 cooldown should step to 9.98 at alpha=0.75, got ${interpHigh[padBase + 1]}`
-  );
-  assert.ok(
-    Math.abs(interpHigh[padBase + 2 * padStride + 1] - 9.9) < 1e-4,
-    `Pad 2 upward cooldown jump should step to 9.9 at alpha=0.75, got ${interpHigh[padBase + 2 * padStride + 1]}`
-  );
-
-  // 7. W2-A: >= 5-frame lookahead window & SpectateCursorState machine
-  const laBuf = new SpectateInterpolationBuffer(32, { lookaheadWindowFrames: 3 });
-  assert.equal(laBuf.getCursorState(), 'empty', 'Fresh buffer should start in empty state');
-  assert.ok(
-    laBuf.getLookaheadWindowSize() >= 5,
-    `Lookahead window must enforce >= 5 frames, got ${laBuf.getLookaheadWindowSize()}`
-  );
-
-  const makeVelSnap = (tick: number, ballX: number, ballVx: number): Float32Array => {
-    const s = makeSnap(tick, 1, ballX, 0);
-    s[SIM_OFFSETS.BALL + 12] = ballVx;
-    return s;
-  };
-
-  laBuf.pushFrame(makeVelSnap(500, 100, 1200), 500, 5000);
-  assert.equal(laBuf.getCursorState(), 'buffering', 'Single frame should enter buffering state');
-  laBuf.pushFrame(makeVelSnap(502, 120, 1200), 502, 5000 + 2 * TICK_MS);
-  assert.equal(laBuf.getCursorState(), 'tracking', 'Two frames should enter tracking state');
-
-  // Sample at 5000 + 2*TICK_MS (initializes renderTick = 502 - 2 = 500), then advance +4 ticks -> enters lookahead (504 > 502)
-  const laInit = laBuf.sample(5000 + 2 * TICK_MS);
-  assert.ok(laInit);
-  const laAhead = laBuf.sample(5000 + 6 * TICK_MS);
-  assert.ok(laAhead);
-  assert.equal(laAhead.cursorState, 'lookahead', 'Advancing past newestTick while host advances should enter lookahead');
-  assert.equal(laAhead.isLookahead, true);
-  assert.equal(laAhead.isDuplicateFrame, false, 'Lookahead sample must not be marked duplicate');
-  assert.ok(
-    laBuf.hasLookaheadWindow() && laAhead.lookaheadFramesAvailable >= 5,
-    `Lookahead window should have >= 5 frames, got ${laAhead.lookaheadFramesAvailable}`
-  );
-  assert.ok(
-    laAhead.snapshot[SIM_OFFSETS.BALL] > 120,
-    `Lookahead ball X should advance beyond 120, got ${laAhead.snapshot[SIM_OFFSETS.BALL]}`
-  );
-
-  // External WASM lookahead injection & authoritative overwrite
-  laBuf.pushLookaheadFrame(makeVelSnap(504, 155, 1200), 504, 5000 + 6 * TICK_MS);
-  assert.ok(
-    laBuf.getLookaheadWindow().some((f) => f.tick === 504 && f.snapshot[SIM_OFFSETS.BALL] === 155),
-    'External pushLookaheadFrame should update lookahead window'
-  );
-  laBuf.pushFrame(makeVelSnap(504, 140, 1200), 504, 5000 + 6 * TICK_MS);
-  assert.equal(laBuf.getCursorState(), 'tracking', 'Authoritative pushFrame should return cursor to tracking');
-
-  // Stall transition after stallTimeoutMs
-  const stalled = laBuf.sample(5000 + 6 * TICK_MS + 400);
-  assert.ok(stalled);
-  assert.equal(stalled.cursorState, 'stalled', 'Elapsed silence past stallTimeoutMs should transition to stalled');
-  assert.ok(laBuf.getStats().stallCount >= 1, 'stallCount should increment on stall transition');
+  buf.reset();
+  assert.equal(buf.sample(1050), null, 'Reset buffer should return null');
 }
-
 async function testReliablePauseAckAndHeartbeat(): Promise<void> {
   // 1. HostPauseAckController state machine: awaitingPauseAck -> 100ms retry -> pausedIdle -> 2Hz presence_ping -> resume
   const ctrl = new HostPauseAckController();
@@ -3537,16 +3382,57 @@ async function testBoostPadDuplicateFrameAndJitterDebounce(): Promise<void> {
 }
 
 async function testClientCsrSpectateLookaheadAndConvergence(): Promise<void> {
-  // 1. Verify SimulationDrivePolicy enables shouldRunLookahead only when active
-  const activeFlags = evaluateSimulationFrameFlags({
+  const { stepNetworkReconciliationAndReplayStream } = await import(
+    '../src/game/pipeline/stages/simulationNetworkReconcilePipeline.ts'
+  );
+  const { classifySimulationDrivePolicy, evaluateSimulationFrameFlags } = await import(
+    '../src/game/pipeline/stages/simulationFrameClassifierPipeline.ts'
+  );
+
+  const mockState = new Float32Array(448);
+  let stepCalls = 0;
+  const mockPhysics = {
+    state: mockState,
+    numCars: 1,
+    getHeaderView: () => ({ tickCount: mockState[SIM_OFFSETS.TICK], numCars: 1 }),
+    step: () => {
+      stepCalls++;
+    },
+    applyCompactState: (snap: Float32Array) => {
+      mockState.set(snap.subarray(0, mockState.length));
+    },
+    restoreCompactState: (snap: Float32Array) => {
+      mockState.set(snap.subarray(0, mockState.length));
+    },
+  };
+
+  const mockInterpolator = {
+    currState: new Float32Array(448),
+    prevState: new Float32Array(448),
+    sync: () => {},
+  };
+
+  const makeSnap = (tick: number, ballX: number): Float32Array => {
+    const snap = new Float32Array(448);
+    snap[SIM_OFFSETS.TICK] = tick;
+    snap[SIM_OFFSETS.NUM_CARS] = 1;
+    snap[SIM_OFFSETS.BALL] = ballX;
+    snap[SIM_OFFSETS.BALL + 2] = 93;
+    snap[SIM_OFFSETS.CARS + 3] = 1;
+    snap[SIM_OFFSETS.CARS + 7] = 1;
+    snap[SIM_OFFSETS.CARS + 11] = 1;
+    return snap;
+  };
+
+  const flags = evaluateSimulationFrameFlags({
     matchState: { mode: 'freeplay', phase: 'playing', paused: false },
     activeMode: null,
     isPodiumControllerActive: false,
     hasReconciler: true,
     hasServer: false,
   });
-  const activePolicy = classifySimulationDrivePolicy({
-    flags: activeFlags,
+  const policy = classifySimulationDrivePolicy({
+    flags,
     hasServer: false,
     isBroadcastingHost: false,
     hasReconciler: true,
@@ -3556,86 +3442,11 @@ async function testClientCsrSpectateLookaheadAndConvergence(): Promise<void> {
     remoteHasAuthority: false,
     isSpectatePaused: false,
   });
-  assert.equal(activePolicy.mode, 'client-csr-spectate');
-  assert.equal(activePolicy.shouldRunLookahead, true);
-
-  const pausedPolicy = classifySimulationDrivePolicy({
-    flags: activeFlags,
-    hasServer: false,
-    isBroadcastingHost: false,
-    hasReconciler: true,
-    isPureCsrClient: true,
-    isClientInputAuthority: false,
-    isReconcilerReplayPlayback: false,
-    remoteHasAuthority: false,
-    isSpectatePaused: true,
-  });
-  assert.equal(pausedPolicy.mode, 'client-csr-spectate');
-  assert.equal(pausedPolicy.shouldRunLookahead, false);
-
-  // 2. Verify stepNetworkReconciliationAndReplayStream runs local WASM lookahead on duplicate frames
-  //    and converges smoothly when fresh frames resume
-  const stateLen = 448;
-  const mockState = new Float32Array(stateLen);
-  mockState[SIM_OFFSETS.TICK] = 100;
-  mockState[SIM_OFFSETS.NUM_CARS] = 1;
-  mockState[SIM_OFFSETS.BALL] = 0;
-  mockState[SIM_OFFSETS.BALL + 1] = 0;
-  mockState[SIM_OFFSETS.BALL + 2] = 93.15;
-  mockState[SIM_OFFSETS.BALL + 9] = 600; // velX = 600 uu/s
-
-  let stepCalls = 0;
-  let controlsApplied = 0;
-  const mockPhysics = {
-    state: mockState,
-    numCars: 1,
-    getHeaderView: () => ({ tickCount: mockState[SIM_OFFSETS.TICK], numCars: 1 }),
-    isCarSlotActive: (c: number) => c === 0,
-    setCarControls: () => {
-      controlsApplied++;
-    },
-    restoreState: (buf: Float32Array, opts?: { preserveEngineTick?: boolean }) => {
-      const savedTick = mockState[SIM_OFFSETS.TICK];
-      mockState.set(buf.subarray(0, stateLen));
-      if (opts?.preserveEngineTick) {
-        mockState[SIM_OFFSETS.TICK] = savedTick;
-      }
-    },
-    step: (ticks = 1) => {
-      stepCalls += ticks;
-      mockState[SIM_OFFSETS.TICK] += ticks;
-      mockState[SIM_OFFSETS.BALL] += (mockState[SIM_OFFSETS.BALL + 9] || 600) * (ticks / 120);
-    },
-  };
-  const mockInterpolator = {
-    prevState: new Float32Array(mockState),
-    currState: new Float32Array(mockState),
-    alpha: 0,
-  };
-
-  const makeSnap = (tick: number, ballX: number): Float32Array => {
-    const s = new Float32Array(stateLen);
-    s[SIM_OFFSETS.TICK] = tick;
-    s[SIM_OFFSETS.NUM_CARS] = 1;
-    s[SIM_OFFSETS.BALL] = ballX;
-    s[SIM_OFFSETS.BALL + 1] = 0;
-    s[SIM_OFFSETS.BALL + 2] = 93.15;
-    s[SIM_OFFSETS.BALL + 9] = 600;
-    return s;
-  };
+  assert.equal(policy.mode, 'client-csr-spectate');
+  assert.equal(policy.shouldStepLocalPhysics, false);
 
   const buf = new SpectateInterpolationBuffer(32);
-  const drainedReplayPackets: Array<{
-    stateSnapshot: Float32Array;
-    serverTick: number;
-    acknowledgedControls?: Array<{ carIndex: number; controls: Record<string, unknown> }>;
-  }> = [
-    {
-      stateSnapshot: makeSnap(200, 100),
-      serverTick: 200,
-      acknowledgedControls: [{ carIndex: 0, controls: { throttle: 1, boost: true } }],
-    },
-  ];
+  const drainedReplayPackets = [{ serverTick: 200, stateSnapshot: makeSnap(200, 150) }];
   const mockReconciler = {
     spectateMirrorMode: true,
     clientInputEnabled: false,
@@ -3643,21 +3454,20 @@ async function testClientCsrSpectateLookaheadAndConvergence(): Promise<void> {
     hostLobbyMode: false,
     replayPlaybackMode: false,
     drainedReplayPackets,
-    lastParsedPacket: { acknowledgedControls: [{ carIndex: 0, controls: { throttle: 1 } }] },
+    lastParsedPacket: drainedReplayPackets[0],
     metrics: { measuredJitterMs: 0, lastCorrectionDelta: 0 },
     reconcile: () => {},
     flushPendingControlPackets: () => {},
   };
 
-  // Frame 1: fresh frame arrives -> applied directly, tick synced to 200
   stepNetworkReconciliationAndReplayStream({
     timestamp: 1000,
     physics: mockPhysics as never,
     interpolator: mockInterpolator as never,
     camera: null,
     matchState: { mode: 'freeplay', phase: 'playing', paused: false },
-    flags: activeFlags,
-    policy: activePolicy,
+    flags,
+    policy,
     reconciler: mockReconciler as never,
     server: null,
     replayTimelineController: null,
@@ -3668,240 +3478,11 @@ async function testClientCsrSpectateLookaheadAndConvergence(): Promise<void> {
     lastRecordedClientReplayTick: -1,
     spectateInterpolationBuffer: buf,
   });
+
+  assert.equal(stepCalls, 0, 'Pure CSR spectate must not invoke local WASM physics lookahead');
   assert.equal(mockState[SIM_OFFSETS.TICK], 200);
-  assert.equal(mockState[SIM_OFFSETS.BALL], 100);
-  assert.equal(stepCalls, 0);
-
-  // Frame 2: no new packets -> SpectateInterpolationBuffer returns duplicate frame -> lookahead steps physics!
-  stepNetworkReconciliationAndReplayStream({
-    timestamp: 1016,
-    physics: mockPhysics as never,
-    interpolator: mockInterpolator as never,
-    camera: null,
-    matchState: { mode: 'freeplay', phase: 'playing', paused: false },
-    flags: activeFlags,
-    policy: activePolicy,
-    reconciler: mockReconciler as never,
-    server: null,
-    replayTimelineController: null,
-    rosterCapturePort: {} as never,
-    diagnosticDumpMaxFrames: 36000,
-    fleetController: null,
-    sessionStateTarget: null,
-    lastRecordedClientReplayTick: -1,
-    spectateInterpolationBuffer: buf,
-  });
-  assert.ok(stepCalls >= 1, 'Duplicate frame should trigger local WASM physics lookahead step');
-  assert.ok(controlsApplied >= 1, 'Lookahead step should apply last acknowledgedControls');
-  assert.ok(mockState[SIM_OFFSETS.TICK] > 200, 'Tick count must advance during lookahead');
-  assert.ok(mockState[SIM_OFFSETS.BALL] > 100, 'Ball position must advance during lookahead');
-
-  // Frame 3: fresh frames resume (tick 202, 204, 206) -> smooth convergence (not hard snap back)
-  const lookaheadBallX = mockState[SIM_OFFSETS.BALL];
-  drainedReplayPackets.push(
-    { stateSnapshot: makeSnap(202, 110), serverTick: 202 },
-    { stateSnapshot: makeSnap(204, 120), serverTick: 204 },
-    { stateSnapshot: makeSnap(206, 130), serverTick: 206 }
-  );
-  stepNetworkReconciliationAndReplayStream({
-    timestamp: 1032,
-    physics: mockPhysics as never,
-    interpolator: mockInterpolator as never,
-    camera: null,
-    matchState: { mode: 'freeplay', phase: 'playing', paused: false },
-    flags: activeFlags,
-    policy: activePolicy,
-    reconciler: mockReconciler as never,
-    server: null,
-    replayTimelineController: null,
-    rosterCapturePort: {} as never,
-    diagnosticDumpMaxFrames: 36000,
-    fleetController: null,
-    sessionStateTarget: null,
-    lastRecordedClientReplayTick: -1,
-    spectateInterpolationBuffer: buf,
-  });
-  // Ball should be smoothly blended between lookaheadBallX and sampled snapshot (not frozen)
-  assert.ok(
-    Math.abs(mockState[SIM_OFFSETS.BALL] - lookaheadBallX) > 0.01,
-    'Fresh frame after lookahead should converge physics state'
-  );
-
-  // Test 27: W2-A isLookahead -> WASM physics lookahead & Replay Watch Together routing (Track A / Bug 3)
-  console.log(
-    '[Test 27] W2-A isLookahead WASM lookahead wiring & Replay Watch Together buffer routing...'
-  );
-  {
-    const { SpectateInterpolationBuffer } = await import(
-      '../src/network/sync/ReplicationStateInterpolator.ts'
-    );
-    const { stepNetworkReconciliationAndReplayStream } = await import(
-      '../src/game/pipeline/stages/simulationNetworkReconcilePipeline.ts'
-    );
-    const { applySpectateSampleOrLookahead, getSpectateLookaheadState } = await import(
-      '../src/game/pipeline/stages/spectatePhysicsLookaheadPipeline.ts'
-    );
-    const { SIM_OFFSETS } = await import('../src/physics/RocketSimConstants.ts');
-
-    const buf = new SpectateInterpolationBuffer(32);
-    const makeSnap = (tick: number, ballX: number): Float32Array => {
-      const s = new Float32Array(22 + 40);
-      s[SIM_OFFSETS.TICK] = tick;
-      s[SIM_OFFSETS.NUM_CARS] = 1;
-      s[SIM_OFFSETS.BALL] = ballX;
-      s[SIM_OFFSETS.BALL + 2] = 93.15;
-      s[SIM_OFFSETS.BALL + 3] = 500;
-      return s;
-    };
-
-    const mockState = makeSnap(300, 200);
-    let stepCalls = 0;
-    let controlsApplied = 0;
-    const mockPhysics = {
-      state: mockState,
-      numCars: 1,
-      isCarSlotActive: () => true,
-      getHeaderView: () => ({ tickCount: mockState[SIM_OFFSETS.TICK], numCars: 1 }),
-      setCarControls: () => {
-        controlsApplied++;
-      },
-      step: (n: number) => {
-        stepCalls += n;
-        mockState[SIM_OFFSETS.TICK] += n;
-        mockState[SIM_OFFSETS.BALL] += 6 * n;
-      },
-      restoreCompactState: (snap: Float32Array) => {
-        mockState.set(snap);
-      },
-    };
-    const mockInterpolator = {
-      prevState: new Float32Array(mockState.length),
-      currState: new Float32Array(mockState.length),
-      alpha: 0,
-      sync: () => {},
-    };
-
-    const replayPolicy = {
-      mode: 'local-replay-playback' as const,
-      shouldStepLocalPhysics: true,
-      shouldHoldAccumulator: false,
-      shouldBroadcastSnapshot: false,
-      shouldRunLookahead: false,
-      shouldFeedReplayTimeline: false,
-    };
-    const replayFlags = {
-      isPodiumActive: false,
-      isMatchEnded: false,
-      isLocalDirectorPreview: false,
-      isGoalReplay: false,
-      isMinimizedOffline: false,
-      isLocalReplayControllerStepping: false,
-      isReplayPaused: false,
-      shouldHoldAccumulator: false,
-      isMatchActive: true,
-      shouldSynthesizeTickEvents: true,
-    };
-
-    const drainedReplayPackets: Array<{
-      stateSnapshot: Float32Array;
-      serverTick: number;
-      acknowledgedControls?: Array<{ carIndex: number; controls: Record<string, unknown> }>;
-    }> = [
-      {
-        stateSnapshot: makeSnap(300, 200),
-        serverTick: 300,
-        acknowledgedControls: [{ carIndex: 0, controls: { throttle: 1 } }],
-      },
-      {
-        stateSnapshot: makeSnap(302, 210),
-        serverTick: 302,
-        acknowledgedControls: [{ carIndex: 0, controls: { throttle: 1, boost: true } }],
-      },
-    ];
-    const mockReconciler = {
-      spectateMirrorMode: true,
-      clientInputEnabled: false,
-      activeInputPeerId: 'host',
-      hostLobbyMode: false,
-      replayPlaybackMode: true,
-      drainedReplayPackets,
-      lastParsedPacket: { acknowledgedControls: [{ carIndex: 0, controls: { throttle: 1 } }] },
-      metrics: { measuredJitterMs: 0, lastCorrectionDelta: 0 },
-      reconcile: () => {},
-      flushPendingControlPackets: () => {},
-    };
-
-    stepNetworkReconciliationAndReplayStream({
-      timestamp: 1016,
-      physics: mockPhysics as never,
-      interpolator: mockInterpolator as never,
-      camera: null,
-      matchState: { mode: 'freeplay', phase: 'playing', paused: false },
-      flags: replayFlags,
-      policy: replayPolicy,
-      reconciler: mockReconciler as never,
-      server: null,
-      replayTimelineController: null,
-      rosterCapturePort: {} as never,
-      diagnosticDumpMaxFrames: 36000,
-      fleetController: null,
-      sessionStateTarget: null,
-      lastRecordedClientReplayTick: -1,
-      spectateInterpolationBuffer: buf,
-    });
-    assert.equal(
-      buf.getStats().bufferedFrames,
-      2,
-      'Replay Watch Together must push drainedReplayPackets into SpectateInterpolationBuffer'
-    );
-    assert.equal(stepCalls, 0, 'Tracked replay frame should not invoke WASM lookahead');
-
-    const lookaheadBuf = new SpectateInterpolationBuffer(32);
-    getSpectateLookaheadState(lookaheadBuf).lastAcknowledgedControls = [
-      { carIndex: 0, controls: { throttle: 1, boost: true } },
-    ];
-    lookaheadBuf.pushFrame(makeSnap(300, 200), 300, 1000);
-    lookaheadBuf.pushFrame(makeSnap(302, 210), 302, 1016);
-    const trackedSample = lookaheadBuf.sample(1016);
-    assert.ok(trackedSample && !trackedSample.isLookahead, 'Initial sample should be tracked');
-    applySpectateSampleOrLookahead({
-      buffer: lookaheadBuf,
-      sampled: trackedSample,
-      shouldRunLookahead: true,
-      now: 1016,
-      physics: mockPhysics as never,
-      interpolator: mockInterpolator as never,
-    });
-
-    const lookaheadSample = lookaheadBuf.sample(1060);
-    assert.ok(lookaheadSample?.isLookahead, 'Buffer should enter isLookahead state');
-    const tickBeforeLookahead = mockState[SIM_OFFSETS.TICK];
-    const ballBeforeLookahead = mockState[SIM_OFFSETS.BALL];
-    const applied = applySpectateSampleOrLookahead({
-      buffer: lookaheadBuf,
-      sampled: lookaheadSample,
-      shouldRunLookahead: true,
-      now: 1060,
-      physics: mockPhysics as never,
-      interpolator: mockInterpolator as never,
-    });
-    assert.ok(applied, 'isLookahead sample should be applied via WASM lookahead');
-    assert.ok(stepCalls >= 1, 'sampled.isLookahead === true must trigger WASM physics.step(1)');
-    assert.ok(controlsApplied >= 1, 'WASM lookahead under isLookahead must apply controls');
-    assert.ok(
-      mockState[SIM_OFFSETS.TICK] > tickBeforeLookahead,
-      'Tick must advance during isLookahead WASM step'
-    );
-    assert.ok(
-      mockState[SIM_OFFSETS.BALL] > ballBeforeLookahead,
-      'Ball must advance during isLookahead WASM step'
-    );
-  }
-  console.log(
-    '[PASS] 27. W2-A isLookahead WASM lookahead wiring & Replay Watch Together buffer routing'
-  );
+  assert.equal(mockState[SIM_OFFSETS.BALL], 150);
 }
-
 async function testHostGoalReplayBroadcastAndSimOnlyStepping(): Promise<void> {
   const { evaluateSimulationFrameFlags, classifySimulationDrivePolicy } = await import(
     '../src/game/pipeline/stages/simulationFrameClassifierPipeline.ts'

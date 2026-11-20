@@ -157,7 +157,6 @@ export interface SimulationDrivePolicy {
   readonly shouldStepLocalPhysics: boolean;
   readonly shouldHoldAccumulator: boolean;
   readonly shouldBroadcastSnapshot: boolean;
-  readonly shouldRunLookahead: boolean;
   readonly shouldFeedReplayTimeline: boolean;
 }
 
@@ -229,7 +228,6 @@ export function classifySimulationDrivePolicy(
         shouldStepLocalPhysics: false,
         shouldHoldAccumulator: true,
         shouldBroadcastSnapshot: isBroadcastingHost && !remoteHasAuthority,
-        shouldRunLookahead: false,
         shouldFeedReplayTimeline: false,
       };
     case 'host-authoritative': {
@@ -239,7 +237,6 @@ export function classifySimulationDrivePolicy(
         shouldStepLocalPhysics: !hold,
         shouldHoldAccumulator: hold,
         shouldBroadcastSnapshot: isBroadcastingHost && !remoteHasAuthority,
-        shouldRunLookahead: false,
         shouldFeedReplayTimeline: false,
       };
     }
@@ -249,32 +246,22 @@ export function classifySimulationDrivePolicy(
         shouldStepLocalPhysics: false,
         shouldHoldAccumulator: true,
         shouldBroadcastSnapshot: false,
-        shouldRunLookahead: false,
         shouldFeedReplayTimeline: true,
       };
-    case 'client-csr-spectate': {
-      const isSpectateHalted =
-        input.isSpectatePaused ||
-        flags.shouldHoldAccumulator ||
-        flags.isReplayPaused ||
-        flags.isMatchEnded ||
-        flags.isGoalReplay;
+    case 'client-csr-spectate':
       return {
         mode,
         shouldStepLocalPhysics: false,
         shouldHoldAccumulator: true,
         shouldBroadcastSnapshot: false,
-        shouldRunLookahead: !isSpectateHalted,
         shouldFeedReplayTimeline: false,
       };
-    }
     case 'local-replay-playback':
       return {
         mode,
         shouldStepLocalPhysics: !flags.shouldHoldAccumulator,
         shouldHoldAccumulator: flags.shouldHoldAccumulator,
         shouldBroadcastSnapshot: false,
-        shouldRunLookahead: false,
         shouldFeedReplayTimeline: Boolean(hasReconciler && flags.isGoalReplay),
       };
     case 'local-freeplay': {
@@ -290,7 +277,6 @@ export function classifySimulationDrivePolicy(
         shouldStepLocalPhysics: !hold,
         shouldHoldAccumulator: hold,
         shouldBroadcastSnapshot: false,
-        shouldRunLookahead: false,
         shouldFeedReplayTimeline: false,
       };
     }
