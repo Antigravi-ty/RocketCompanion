@@ -52,6 +52,26 @@ export class HostInputAuthorityTracker {
   latestFrame: ClientAuthorityFrameSnapshot | null = null;
   latestAcknowledgedControls: Array<{ carIndex: number; controls: CarControlsInput }> | null = null;
   pendingFrames: ClientAuthorityFrameSnapshot[] = [];
+  lastStudentInputAtMs = 0;
+  lastStudentPeerId = '';
+  lastStudentHasActiveInput = false;
+
+  recordStudentInputProbe(
+    peerId: string,
+    hasActiveInput: boolean,
+    nowMs = performance.now()
+  ): void {
+    this.lastStudentPeerId = peerId;
+    this.lastStudentHasActiveInput = Boolean(hasActiveInput);
+    if (this.lastStudentHasActiveInput) {
+      this.lastStudentInputAtMs = nowMs;
+    }
+  }
+
+  hasRecentStudentInput(nowMs = performance.now(), maxAgeMs = 250): boolean {
+    if (!this.lastStudentHasActiveInput || this.lastStudentInputAtMs <= 0) return false;
+    return nowMs - this.lastStudentInputAtMs <= maxAgeMs;
+  }
 
   setAuthority(
     enabled: boolean,
@@ -136,6 +156,9 @@ export class HostInputAuthorityTracker {
     this.latestFrame = null;
     this.latestAcknowledgedControls = null;
     this.pendingFrames.length = 0;
+    this.lastStudentInputAtMs = 0;
+    this.lastStudentPeerId = '';
+    this.lastStudentHasActiveInput = false;
   }
 }
 
@@ -321,8 +344,15 @@ export function finalizeLateJoinPeerSync(params: {
   getActivity: () => { activityId: string; epoch: number; [key: string]: unknown } | null;
   onPausePeerConnected: () => Record<string, unknown> | null;
 }): void {
-  const { ch, colorSlot, colorHex, onColorChange, getWorkspace, getActivity, onPausePeerConnected } =
-    params;
+  const {
+    ch,
+    colorSlot,
+    colorHex,
+    onColorChange,
+    getWorkspace,
+    getActivity,
+    onPausePeerConnected,
+  } = params;
   ch.sendColorChange(colorSlot, colorHex, 0);
   if (ch.peerColorHex) {
     onColorChange?.(ch.carIndex ?? 1, ch.peerColorSlot, ch.peerColorHex);

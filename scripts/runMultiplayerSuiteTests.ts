@@ -44,6 +44,12 @@ import {
 } from '../src/ui-core/stores/telestratorStore.ts';
 import { TelestratorManager } from '../src/entities/telestrator/TelestratorManager.ts';
 import { CoachAuthorityHandoverController } from '../src/game/runtime/CoachAuthorityHandoverController.ts';
+import { ClientFpvAuthorityGuard } from '../src/game/runtime/ClientFpvAuthorityGuard.ts';
+import {
+  TrainingPackBroadcastAdapter,
+  buildGhostCarReservation,
+  lookupGhostSampleAtTick,
+} from '../src/game/modes/TrainingPackBroadcastAdapter.ts';
 import { AuthorityCameraSyncTracker } from '../src/game/pipeline/stages/AuthorityCameraSyncTracker.ts';
 import {
   applyRemoteTelestratorWireBytes,
@@ -2183,6 +2189,10 @@ async function main(): Promise<void> {
       '28. Freeplay Goal Replay Leading Idle Kickoff Trim (Bug 1 / CC-Track)',
       testFreeplayGoalReplayLeadingIdleTrim
     );
+    await runSection(
+      '29. FPV Dual Arbitration (300ms + Student Input Guardrail, Preemption) & Training Ghost Reservation (W1-06)',
+      testFpvDualArbitrationAndTrainingGhostReservation
+    );
     console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
   } finally {
     activeWatchdog = null;
@@ -3382,12 +3392,10 @@ async function testBoostPadDuplicateFrameAndJitterDebounce(): Promise<void> {
 }
 
 async function testClientCsrSpectateLookaheadAndConvergence(): Promise<void> {
-  const { stepNetworkReconciliationAndReplayStream } = await import(
-    '../src/game/pipeline/stages/simulationNetworkReconcilePipeline.ts'
-  );
-  const { classifySimulationDrivePolicy, evaluateSimulationFrameFlags } = await import(
-    '../src/game/pipeline/stages/simulationFrameClassifierPipeline.ts'
-  );
+  const { stepNetworkReconciliationAndReplayStream } =
+    await import('../src/game/pipeline/stages/simulationNetworkReconcilePipeline.ts');
+  const { classifySimulationDrivePolicy, evaluateSimulationFrameFlags } =
+    await import('../src/game/pipeline/stages/simulationFrameClassifierPipeline.ts');
 
   const mockState = new Float32Array(448);
   let stepCalls = 0;
@@ -3484,9 +3492,8 @@ async function testClientCsrSpectateLookaheadAndConvergence(): Promise<void> {
   assert.equal(mockState[SIM_OFFSETS.BALL], 150);
 }
 async function testHostGoalReplayBroadcastAndSimOnlyStepping(): Promise<void> {
-  const { evaluateSimulationFrameFlags, classifySimulationDrivePolicy } = await import(
-    '../src/game/pipeline/stages/simulationFrameClassifierPipeline.ts'
-  );
+  const { evaluateSimulationFrameFlags, classifySimulationDrivePolicy } =
+    await import('../src/game/pipeline/stages/simulationFrameClassifierPipeline.ts');
 
   const replayFlags = evaluateSimulationFrameFlags({
     matchState: { mode: 'freeplay', phase: 'replay', paused: false },
@@ -3531,9 +3538,8 @@ async function testHostGoalReplayBroadcastAndSimOnlyStepping(): Promise<void> {
 
 async function testFreeplayGoalReplayLeadingIdleTrim(): Promise<void> {
   const { ReplayRingBuffer } = await import('../src/replay/ReplayRingBuffer.ts');
-  const { extractGoalReplayFrames, trimLeadingIdleGoalReplayFrames } = await import(
-    '../src/replay/ReplayPlaybackState.ts'
-  );
+  const { extractGoalReplayFrames, trimLeadingIdleGoalReplayFrames } =
+    await import('../src/replay/ReplayPlaybackState.ts');
 
   const ringBuffer = new ReplayRingBuffer(120);
   for (let i = 1; i <= 60; i++) {
@@ -3573,6 +3579,155 @@ async function testFreeplayGoalReplayLeadingIdleTrim(): Promise<void> {
     trimmed[12].snapshot[SIM_OFFSETS.BALL + 1] > 4000,
     'Active ball motion should begin right after the 12-frame lead-in'
   );
+}
+
+function testFpvDualArbitrationAndTrainingGhostReservation(): void {
+  const neutral = { throttle: 0, steer: 0, jump: false, boost: false, handbrake: false };
+  const ctrl = new CoachAuthorityHandoverController();
+  ctrl.configure({
+    clientInputEnabled: true,
+    targetPeerId: 'peer_student',
+    authorityMode: 'fpv_master_slave',
+    idleHandoverMs: 300,
+  });
+
+  // Coach takes control immediately on input (epoch=2)
+  const reclaim1 = ctrl.step({
+    nowMs: 1000,
+    controls: { ...neutral, throttle: 1 },
+    studentControls: { ...neutral, steer: 0.8 },
+    hasTargetPeer: true,
+  });
+  assert.equal(reclaim1.changed, true);
+  assert.equal(reclaim1.action, 'reclaim_to_host');
+  assert.equal(reclaim1.activeInputPeerId, 'host');
+  assert.equal(reclaim1.authorityEpoch, 2);
+
+  // Coach idle >= 300ms, BUT Student has zero input -> Coach retains authority!
+  const idleNoStudent = ctrl.step({
+    nowMs: 1350,
+    controls: neutral,
+    studentControls: neutral,
+    hasTargetPeer: true,
+  });
+  assert.equal(idleNoStudent.changed, false);
+  assert.equal(idleNoStudent.activeInputPeerId, 'host');
+  assert.equal(idleNoStudent.authorityEpoch, 2);
+
+  // Coach idle >= 300ms AND Student has non-zero input -> Student takes broadcast authority!
+  const grantToStudent = ctrl.step({
+    nowMs: 1360,
+    controls: neutral,
+    studentControls: { ...neutral, throttle: 0.9 },
+    hasTargetPeer: true,
+  });
+  assert.equal(grantToStudent.changed, true);
+  assert.equal(grantToStudent.action, 'grant_to_client');
+  assert.equal(grantToStudent.activeInputPeerId, 'peer_student');
+  assert.equal(grantToStudent.authorityEpoch, 3);
+
+  // Student-side ClientFpvAuthorityGuard verification
+  const studentGuard = new ClientFpvAuthorityGuard();
+  const grantedRes = studentGuard.applyIncomingAuthority({
+    authorityEpoch: 3,
+    activeInputPeerId: 'peer_student',
+    localPeerId: 'peer_student',
+    clientInputEnabled: true,
+    authorityMode: 'fpv_master_slave',
+  });
+  assert.equal(grantedRes.accepted, true);
+  assert.equal(grantedRes.granted, true);
+  assert.equal(studentGuard.shouldIgnoreLocalInput('peer_student'), false);
+  assert.equal(studentGuard.canBroadcastLocalFrame(3, 'peer_student'), true);
+
+  // Stale epoch is rejected
+  const staleRes = studentGuard.applyIncomingAuthority({
+    authorityEpoch: 2,
+    activeInputPeerId: 'host',
+    localPeerId: 'peer_student',
+  });
+  assert.equal(staleRes.accepted, false);
+
+  // Coach re-inputs -> immediate preemption (epoch=4), Student stops local physics immediately
+  const reclaim2 = ctrl.step({
+    nowMs: 1500,
+    controls: { ...neutral, boost: true },
+    studentControls: { ...neutral, throttle: 1 },
+    hasTargetPeer: true,
+  });
+  assert.equal(reclaim2.changed, true);
+  assert.equal(reclaim2.action, 'reclaim_to_host');
+  assert.equal(reclaim2.authorityEpoch, 4);
+
+  const preemptRes = studentGuard.applyIncomingAuthority({
+    authorityEpoch: 4,
+    activeInputPeerId: 'host',
+    localPeerId: 'peer_student',
+  });
+  assert.equal(preemptRes.accepted, true);
+  assert.equal(preemptRes.preempted, true);
+  assert.equal(preemptRes.shouldStopLocalPhysics, true);
+  assert.equal(preemptRes.shouldSnapToAuthoritative, true);
+  assert.equal(studentGuard.shouldIgnoreLocalInput('peer_student'), true);
+  assert.equal(studentGuard.canBroadcastLocalFrame(3, 'peer_student'), false);
+
+  // HostInputAuthorityTracker student input probe expiration
+  const tracker = new HostInputAuthorityTracker();
+  tracker.recordStudentInputProbe('peer_student', true, 2000);
+  assert.equal(tracker.hasRecentStudentInput(2100, 250), true);
+  assert.equal(tracker.hasRecentStudentInput(2300, 250), false);
+
+  // TrainingPackBroadcastAdapter + Ghost Car reservation & tick lookup
+  const ghost = buildGhostCarReservation({
+    carIndex: 2,
+    ghostKind: 'static_trajectory',
+    visualId: 'fennec',
+    team: 0,
+    opacity: 0.4,
+    trajectoryHash: '0xCAFEBABE',
+  });
+  assert.equal(ghost.roleFlag, 'ghost');
+  assert.equal(ghost.interactWithBall, false);
+  assert.equal(ghost.interactWithCars, false);
+
+  const adapter = new TrainingPackBroadcastAdapter();
+  const shot1 = adapter.beginShotReset({
+    trainingKind: 'dynamic',
+    packId: 'pack-air-dribble',
+    packName: 'Air Dribble Pack',
+    shotIndex: 0,
+    totalShots: 5,
+    shotName: 'Wall Setup',
+    trainingPhase: 'preroll_countdown',
+    countdownSeconds: 3,
+    remainingTimeoutSeconds: 12,
+    isShotLaunched: false,
+    ghostModeEnabled: true,
+    ghostReservations: [ghost],
+    ghostTrajectoryHash: '0xCAFEBABE',
+  });
+  assert.equal(shot1.frameHeader.shotResetSeq, 1);
+  assert.equal(shot1.metadataChanged, true);
+  assert.match(shot1.metadataHash, /^0x[0-9A-F]{8}$/);
+
+  const sampled = lookupGhostSampleAtTick(
+    {
+      trajectoryId: 'traj-1',
+      trajectoryHash: '0xCAFEBABE',
+      carVisualId: 'fennec',
+      totalTicks: 20,
+      tickRateHz: 60,
+      frames: [
+        { tick: 10, pos: [0, 0, 20], rot: [0, 0, 0], vel: [0, 100, 0], boost: 100 },
+        { tick: 20, pos: [0, 100, 40], rot: [0, 0, 0], vel: [0, 200, 0], boost: 80 },
+      ],
+    },
+    15
+  );
+  assert.ok(sampled);
+  assert.equal(sampled.pos[1], 50);
+  assert.equal(sampled.pos[2], 30);
+  assert.equal(sampled.boost, 90);
 }
 
 main().catch((err) => {

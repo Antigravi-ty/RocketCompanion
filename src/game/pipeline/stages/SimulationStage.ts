@@ -31,11 +31,13 @@ import {
 import { applyReplayFrameToEngine } from '../../../replay/ReplayFrameInterpolator.ts';
 import { SpectateInterpolationBuffer } from '../../../network/sync/ReplicationStateInterpolator.ts';
 import { CoachAuthorityHandoverController } from '../../runtime/CoachAuthorityHandoverController.ts';
-import { sharedAuthorityCameraSyncTracker } from './AuthorityCameraSyncTracker.ts';
+import { ClientFpvAuthorityGuard } from '../../runtime/ClientFpvAuthorityGuard.ts';
 import {
-  buildHostWorkspaceBroadcastPayload,
-  isSpectatePlaybackPaused,
-} from '../../runtimeUiPort.ts';
+  stepHostFpvCoachHandover,
+  syncClientFpvAuthorityGuard,
+} from './fpvDualAuthorityPipeline.ts';
+import { sharedAuthorityCameraSyncTracker } from './AuthorityCameraSyncTracker.ts';
+import { isSpectatePlaybackPaused } from '../../runtimeUiPort.ts';
 
 export type { CarActionDebounceState };
 
@@ -77,6 +79,7 @@ export interface SimulationStageRuntimePort extends CarActionSynthesizerRuntimeP
           authorityMode: 'explicit' | 'fpv_master_slave';
           clientInputEnabled: boolean;
         }) => void;
+        hasRecentStudentInput?: (nowMs?: number, maxAgeMs?: number) => boolean;
         consumeLatestFrame: () => {
           snapshot: Float32Array;
           tick: number;
@@ -142,6 +145,7 @@ export class SimulationStage implements PipelineStage {
   public readonly spectateInterpolationBuffer = new SpectateInterpolationBuffer();
   public readonly hostAuthoritySpectateBuffer = new SpectateInterpolationBuffer();
   public readonly coachHandoverController = new CoachAuthorityHandoverController();
+  public readonly clientFpvAuthorityGuard = new ClientFpvAuthorityGuard();
   private _lastRecordedClientReplayTick = -1;
   private _pendingGoalScored = false;
 
@@ -189,55 +193,34 @@ export class SimulationStage implements PipelineStage {
       hostInputAuthority && hostInputAuthority.activeInputPeerId !== 'host'
     );
 
+    const isClientFpvPreempted =
+      !isBroadcastingHost && syncClientFpvAuthorityGuard(this.clientFpvAuthorityGuard, reconciler);
+    if (isClientFpvPreempted) {
+      this.clientAuthorityPublisher.reset();
+    }
+
     if (
       isBroadcastingHost &&
       hostInputAuthority &&
       hostInputAuthority.authorityMode === 'fpv_master_slave' &&
       hostInputAuthority.clientInputEnabled
     ) {
-      if (this.coachHandoverController.authorityEpoch !== hostInputAuthority.authorityEpoch) {
-        this.coachHandoverController.configure({
-          clientInputEnabled: hostInputAuthority.clientInputEnabled,
-          targetPeerId: hostInputAuthority.activeInputPeerId,
-          authorityMode: 'fpv_master_slave',
-        });
-        this.coachHandoverController.authorityEpoch = hostInputAuthority.authorityEpoch;
-        this.coachHandoverController.activeInputPeerId = hostInputAuthority.activeInputPeerId;
-      }
-      this.runtime.pollInputs(false);
       const hasPeer = Boolean(
         (this.runtime.multiplayerSession?.hostController?.getConnectedPeerList?.().length ?? 1) > 0
       );
-      const handoverStep = this.coachHandoverController.step({
-        nowMs: timestamp,
-        controls: this.runtime.playerControls,
-        hasTargetPeer: hasPeer,
+      remoteHasAuthority = stepHostFpvCoachHandover({
+        timestamp,
+        coachHandoverController: this.coachHandoverController,
+        hostInputAuthority,
+        pollInputs: (apply) => this.runtime.pollInputs(apply),
+        playerControls: this.runtime.playerControls,
+        hasPeer,
+        physics,
+        interpolator,
+        resetHostSpectateBuffer: () => this.hostAuthoritySpectateBuffer.reset(),
+        broadcastWorkspace: (wsPayload) =>
+          this.runtime.multiplayerSession?.broadcastGlobalWorkspace?.(wsPayload) ?? 0,
       });
-      if (handoverStep.changed) {
-        if (handoverStep.action === 'reclaim_to_host') {
-          const lastClientFrame = hostInputAuthority.consumeLatestFrame();
-          if (lastClientFrame) {
-            applyReplayFrameToEngine(physics, lastClientFrame.snapshot, interpolator);
-          }
-          this.hostAuthoritySpectateBuffer.reset();
-        }
-        hostInputAuthority.syncFromHandover?.({
-          authorityEpoch: handoverStep.authorityEpoch,
-          activeInputPeerId: handoverStep.activeInputPeerId,
-          authorityMode: handoverStep.authorityMode,
-          clientInputEnabled: handoverStep.clientInputEnabled,
-        });
-        const wsPayload = buildHostWorkspaceBroadcastPayload({
-          authorityEpoch: handoverStep.authorityEpoch,
-          activeInputPeerId: handoverStep.activeInputPeerId,
-          authorityMode: handoverStep.authorityMode,
-          clientInputEnabled: handoverStep.clientInputEnabled,
-        });
-        if (wsPayload) {
-          this.runtime.multiplayerSession?.broadcastGlobalWorkspace?.(wsPayload);
-        }
-        remoteHasAuthority = handoverStep.activeInputPeerId !== 'host';
-      }
     }
 
     const isSpectatePaused = isSpectatePlaybackPaused();
