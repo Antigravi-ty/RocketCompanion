@@ -60,7 +60,26 @@ import { SupersonicWheelTrailSystem } from './vehicle/supersonic-trail/Supersoni
 import type { VehicleBoostEmitter } from './vehicle/boost/vehicleBoostEmitter.ts';
 import { DemolitionSimPreviewController, type DemolitionEffect } from './DemolitionEffect.ts';
 
-export type { BoostPadDefinition, BoostPadInstance, BoostPadTemplates, BoostPadTunerConfig };
+import {
+  applyRosterManifestToArena,
+  type ApplyRosterManifestOptions,
+  type ApplyRosterManifestResult,
+  type RosterCarRoleFlag,
+  type RosterManifest,
+  type RosterManifestCarEntry,
+} from './arena/arenaRosterManifestPipeline.ts';
+
+export type {
+  ApplyRosterManifestOptions,
+  ApplyRosterManifestResult,
+  BoostPadDefinition,
+  BoostPadInstance,
+  BoostPadTemplates,
+  BoostPadTunerConfig,
+  RosterCarRoleFlag,
+  RosterManifest,
+  RosterManifestCarEntry,
+};
 
 export class ArenaWorld {
   public scene: THREE.Scene = new THREE.Scene();
@@ -95,6 +114,8 @@ export class ArenaWorld {
   public carDemolitions: Array<DemolitionEffect | null>;
   public carColors: Array<number | null | undefined>;
   public carTeams: number[];
+  public carRoleFlags: RosterCarRoleFlag[] = [];
+  public lastRosterMetadataHash: number | null = null;
   public aerialClimbTracker: VehicleAerialClimbTracker = new VehicleAerialClimbTracker(8);
   public carBoostAmounts: Float32Array;
   public carVerticalVelZUu: Float32Array;
@@ -271,6 +292,12 @@ export class ArenaWorld {
   }
   clearAllGhostOpacities() {
     clearAllRegistryGhostOpacities(this.vehicleRegistry);
+  }
+  applyRosterManifest(
+    manifest: RosterManifest | null | undefined,
+    options?: ApplyRosterManifestOptions
+  ): ApplyRosterManifestResult {
+    return applyRosterManifestToArena(this, manifest, options);
   }
 
   prepareBallSpeedTrail(camera: THREE.Camera | null | undefined) {

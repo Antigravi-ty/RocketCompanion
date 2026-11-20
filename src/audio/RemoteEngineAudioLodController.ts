@@ -85,6 +85,18 @@ export class RemoteEngineAudioLodController {
     }
   }
 
+  public silenceAll(): void {
+    this._awakeRemoteIndices.clear();
+    for (let i = 0; i < this.engineSynths.length; i++) {
+      const eng = this.engineSynths[i];
+      if (!eng) continue;
+      eng.dormant = true;
+      eng.synth?.setDormant?.(true);
+      eng.synth?.silence?.();
+      eng.spatialBus?.setEnabled?.(false);
+    }
+  }
+
   public countActiveAwakeSynths(): number {
     let count = 0;
     for (let i = 0; i < this.engineSynths.length; i++) {

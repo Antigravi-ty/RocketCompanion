@@ -9,6 +9,8 @@ import type { CarStateView } from '../../physics/RocketSimStateViews.ts';
  * and lightweight pipeline stages (InputStage, GameplayModeStage, AudioStage, RenderStage).
  */
 
+export type VNextPlaybackState = 'playing' | 'paused' | 'ended';
+
 export type ActiveCarMeshPort = THREE.Object3D & {
   group?: THREE.Object3D;
   visible?: boolean;
@@ -28,7 +30,7 @@ export interface FramePipelineRuntimePort {
     getCurrCarStateView(carIndex: number): CarStateView | null;
   } | null;
   keyboard: { enabled?: boolean } | null;
-  match: { state: { mode: string; phase?: string } } | null;
+  match: { state: { mode: string; phase?: string; playbackState?: VNextPlaybackState } } | null;
   profiler: { frameStart(): void; mark(): void } | null;
   modeManager: {
     update(context: FrameContext): void;
@@ -37,7 +39,11 @@ export interface FramePipelineRuntimePort {
   audioSubsystem: { update(context: FrameContext): void } | null;
   renderSubsystem: { update(context: FrameContext): void } | null;
   telestratorOverlay?: { update?(): void } | null;
-  networkReconciler?: { spectateMirrorMode?: boolean } | null;
+  networkReconciler?: {
+    spectateMirrorMode?: boolean;
+    playbackState?: VNextPlaybackState;
+  } | null;
+  playbackState?: VNextPlaybackState;
   pollInputs(commitPhysicsStep?: boolean): boolean;
 }
 
@@ -67,6 +73,7 @@ export class FrameContext {
   public hasBlockingOverlay = false;
   public continueOnBlur = false;
   public isHidden = false;
+  public playbackState: VNextPlaybackState = 'playing';
   public shouldSkipGpuRender = false;
   public isSimulationOnly = false;
 
@@ -95,6 +102,7 @@ export class FrameContext {
     this.hasBlockingOverlay = false;
     this.continueOnBlur = false;
     this.isHidden = false;
+    this.playbackState = 'playing';
     this.shouldSkipGpuRender = false;
     this.isSimulationOnly = false;
   }
@@ -191,6 +199,13 @@ export class AudioStage implements PipelineStage {
     context.continueOnBlur = continueOnBlur;
     context.isHidden = isHidden;
     context.hasBlockingOverlay = hasBlockingOverlay;
+    const rawPlaybackState =
+      r.playbackState ?? r.networkReconciler?.playbackState ?? r.match?.state?.playbackState;
+    if (rawPlaybackState === 'paused' || rawPlaybackState === 'ended') {
+      context.playbackState = rawPlaybackState;
+    } else if (rawPlaybackState === 'playing') {
+      context.playbackState = 'playing';
+    }
 
     r.audioSubsystem?.update?.(context);
 
