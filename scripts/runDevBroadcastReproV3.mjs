@@ -295,15 +295,16 @@ async function main() {
           `Boolean(window.__rcE2E.runtime.modeManager?.modes?.get?.('freeplay')?.isGoalReplayActive?.())`
         ),
       'Host enters Freeplay Goal Replay',
-      20_000
+      40_000
     );
+    await clientCdp.send('Page.bringToFront');
     await waitFor(
       () =>
         clientCdp.eval(
           `window.__rcE2E.runtime.match?.state?.phase === 'replay' || window.__rcE2E.getHudState?.()?.matchPhase === 'replay'`
         ),
       'Client enters Goal Replay',
-      10_000
+      20_000
     ).catch(() => {});
     await waitFor(
       () =>
@@ -444,7 +445,7 @@ async function main() {
         return c.cam.focusedCarIndex === 2 && c.cam.ballCam === false ? c.cam : null;
       },
       'Client edge-triggered camera sync (car 2, ballCam=false)',
-      5_000,
+      15_000,
       100
     ).catch(() => null);
 
@@ -465,7 +466,7 @@ async function main() {
         return c.cam.focusedCarIndex === 5 && c.cam.ballCam === true ? c.cam : null;
       },
       'Client edge-triggered camera sync (car 5, ballCam=true)',
-      5_000,
+      15_000,
       100
     ).catch(() => null);
 
