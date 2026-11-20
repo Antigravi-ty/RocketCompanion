@@ -17,19 +17,17 @@ import {
 } from './RewinderHandoffAndMarkerController.ts';
 import { gameAudio } from '../audio/GameAudioEngineFacade.ts';
 import {
-  encodeRewinderSliceBytes,
-  decodeRewinderSliceBytes,
-  type RewinderSliceMetadata,
+  decodeRewinderSlice,
+  encodeRewinderSlice,
+  type EncodedRewinderSlice,
 } from './rewinderBulkSliceCodec.ts';
-
-export interface RewinderBulkChannelPort {
-  sendRewinderSlice: (
-    sliceBytes: Uint8Array,
-    meta: { startFrame?: number; endFrame?: number; cursor?: number; frameCount?: number }
-  ) => Promise<unknown>;
-}
+import type { RewinderSliceBulkMetadata } from '../network/protocol/BulkAssetProtocol.ts';
 
 export type { RewinderFrameEntry, FreeplayRewinderRuntimePort, FreeplayRewinderModePort };
+
+export interface RewinderBulkSenderPort {
+  sendRewinderSlice: (payload: Uint8Array, metadata: RewinderSliceBulkMetadata) => number;
+}
 
 const REWINDER_HOTKEY_CONFLICT_MSG =
   '[FreeplayRewinderController] Cannot bind Rewinder Configurator hotkeys (O/P/[/]/G): Replay Viewer window is already open and claimed the hotkeys first.';
@@ -468,62 +466,48 @@ export class FreeplayRewinderController {
     );
   }
 
-  public exportRewinderSliceBytes(
-    options: {
-      startFrame?: number;
-      endFrame?: number;
-      interveneFromHere?: boolean;
-      meta?: RewinderSliceMetadata;
-    } = {}
-  ): Uint8Array {
-    return encodeRewinderSliceBytes({
-      frames: this.rewinderFrames,
-      startFrame: options.startFrame,
-      endFrame: options.endFrame,
-      cursor: this.rewinderCursor,
-      interveneFromHere: options.interveneFromHere,
-      meta: options.meta,
+  public exportRewinderSliceForBulk(
+    startFrame?: number,
+    endFrame?: number
+  ): EncodedRewinderSlice | null {
+    if (this.rewinderFrames.length === 0) return null;
+    return encodeRewinderSlice(this.rewinderFrames, {
+      startFrame,
+      endFrame,
+      cursorFrame: Math.round(this.rewinderCursor),
+      targetFrame: Math.round(this.rewinderTargetFrame),
+      arenaPreset: (this.runtime?.match?.state as { arenaPreset?: number } | undefined)?.arenaPreset,
     });
   }
 
-  public async sendRewinderSliceToBulkChannel(
-    bulkChannel: RewinderBulkChannelPort,
-    options: {
-      startFrame?: number;
-      endFrame?: number;
-      interveneFromHere?: boolean;
-      meta?: RewinderSliceMetadata;
-    } = {}
-  ): Promise<unknown> {
-    const start = Math.max(0, options.startFrame ?? 0);
-    const end = Math.min(
-      this.rewinderFrames.length,
-      options.endFrame ?? this.rewinderFrames.length
-    );
-    const bytes = this.exportRewinderSliceBytes(options);
-    return bulkChannel.sendRewinderSlice(bytes, {
-      startFrame: start,
-      endFrame: end,
-      cursor: this.rewinderCursor,
-      frameCount: Math.max(0, end - start),
-    });
+  public sendRewinderSliceViaBulkChannel(
+    bulkChannel: RewinderBulkSenderPort,
+    startFrame?: number,
+    endFrame?: number
+  ): number | null {
+    const encoded = this.exportRewinderSliceForBulk(startFrame, endFrame);
+    if (!encoded) return null;
+    return bulkChannel.sendRewinderSlice(encoded.payload, encoded.metadata);
   }
 
-  public applyIncomingRewinderSliceBytes(
-    sliceBytes: Uint8Array,
-    options: { applyCursorFrame?: boolean } = {}
+  public importRewinderSliceFromBulk(
+    payload: Uint8Array,
+    options: { applyCursorImmediately?: boolean } = {}
   ): boolean {
-    const decoded = decodeRewinderSliceBytes(sliceBytes);
-    if (!decoded) return false;
+    const decoded = decodeRewinderSlice(payload);
+    if (!decoded || decoded.frames.length === 0) return false;
     this.rewinderFrames = decoded.frames;
-    const clampedCursor = Math.max(
-      0,
-      Math.min(Math.max(0, decoded.frames.length - 1), Math.round(decoded.cursor))
-    );
-    this.takeoverSubController.reset(clampedCursor, clampedCursor);
-    if (options.applyCursorFrame && decoded.frames.length > 0) {
+    this.takeoverSubController.reset(decoded.cursorFrame, decoded.targetFrame);
+    if (options.applyCursorImmediately && this.runtime) {
       this.applyFrameAtCursor(false, { preserveEngineTick: true });
     }
+    useRewinderStore.getState().updateLiveTelemetry({
+      rewinderState: 'paused-scrub',
+      rewinderRecordedFrames: decoded.frames.length,
+      rewinderCursorFrame: decoded.cursorFrame,
+      rewinderTargetFrame: decoded.targetFrame,
+      rewinderPrerollRemainingSec: 0,
+    });
     return true;
   }
 }

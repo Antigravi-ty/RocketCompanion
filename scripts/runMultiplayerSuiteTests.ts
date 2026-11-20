@@ -2183,6 +2183,13 @@ async function main(): Promise<void> {
       '28. Freeplay Goal Replay Leading Idle Kickoff Trim (Bug 1 / CC-Track)',
       testFreeplayGoalReplayLeadingIdleTrim
     );
+    await runSection(
+      '29. Channel 4 BulkAssetChannel (Chunking, fileHash, Backpressure & FreeplayRewinder Slice)',
+      async () => {
+        const { runBulkAssetChannelTests } = await import('./testBulkAssetChannel.ts');
+        await runBulkAssetChannelTests();
+      }
+    );
     console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
   } finally {
     activeWatchdog = null;

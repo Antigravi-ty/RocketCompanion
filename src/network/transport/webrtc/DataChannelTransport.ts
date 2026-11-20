@@ -6,7 +6,6 @@
 import type { NetworkSimulator, SimulatedPayload } from './NetworkSimulator.ts';
 import type { CrossTabSignaling } from './CrossTabSignaling.ts';
 import { AdaptiveReplicationPacer } from './AdaptiveReplicationPacer.ts';
-import { BulkAssetChannel } from './BulkAssetChannel.ts';
 import {
   PING_PONG_KIND_PING,
   PING_PONG_KIND_PONG,
@@ -23,6 +22,8 @@ import {
   decodeTunnelEnvelope,
   isTunnelEnvelope,
 } from '../../protocol/TunnelProtocol.ts';
+import { isBulkAssetFrame } from '../../protocol/BulkAssetProtocol.ts';
+import { BulkAssetChannel } from '../BulkAssetChannel.ts';
 import type { TunnelTransport } from '../tunnel/TunnelTransport.ts';
 import { ReliableTunnelFramer } from '../tunnel/ReliableTunnelFramer.ts';
 import {
@@ -34,6 +35,8 @@ import {
   tryTransmitViaTunnelBridge,
 } from './tunnelFramerBridge.ts';
 import {
+  attachBulkDataChannelHandlers,
+  attachControlDataChannelHandlers,
   transmitClonedPayload,
   dispatchDualChannelControlFrame,
   transmitReliableControlFrame,
@@ -86,10 +89,12 @@ export class DataChannelTransport {
   readonly signaling: CrossTabSignaling;
   dataChannel: RTCDataChannel | null = null;
   controlDataChannel: RTCDataChannel | null = null;
-  readonly bulkChannel = new BulkAssetChannel();
+  bulkDataChannel: RTCDataChannel | null = null;
   isWebRTCOpen = false;
   isControlChannelOpen = false;
+  isBulkChannelOpen = false;
   readonly pacer = new AdaptiveReplicationPacer();
+  readonly bulkChannel = new BulkAssetChannel();
   localColorSlot = 0;
   localColorHex = '#ff7043';
   pendingColorChange: PendingColorChangeState | null = null;
@@ -200,8 +205,7 @@ export class DataChannelTransport {
       return;
     }
     if (dataChannel.label === 'game_bulk') {
-      this.bulkChannel.bindDataChannel(dataChannel);
-      this.transportEvents.push({ type: 'control_channel_open' });
+      this.bindBulkDataChannel(dataChannel);
       return;
     }
     this.dataChannel = dataChannel;
@@ -245,28 +249,45 @@ export class DataChannelTransport {
 
   bindControlDataChannel(controlChannel: RTCDataChannel): void {
     this.controlDataChannel = controlChannel;
-    controlChannel.onopen = () => {
-      console.log(`[P2PWebRTCChannel] Control DataChannel "${controlChannel.label}" OPEN!`);
-      this.isControlChannelOpen = true;
-      this.transportEvents.push({ type: 'control_channel_open' });
-    };
-    controlChannel.onclose = () => {
-      console.log(`[P2PWebRTCChannel] Control DataChannel "${controlChannel.label}" CLOSED.`);
-      this.isControlChannelOpen = false;
-      this.transportEvents.push({ type: 'control_channel_closed' });
-    };
-    controlChannel.onerror = (err) => {
-      console.error('[P2PWebRTCChannel] Control DataChannel error:', err);
-    };
-    controlChannel.onmessage = (event: MessageEvent<SimulatedPayload>) => {
-      this.handleIncomingMessage(event.data);
-    };
+    attachControlDataChannelHandlers(
+      controlChannel,
+      () => {
+        this.isControlChannelOpen = true;
+        this.transportEvents.push({ type: 'control_channel_open' });
+      },
+      () => {
+        this.isControlChannelOpen = false;
+        this.transportEvents.push({ type: 'control_channel_closed' });
+      },
+      (data) => this.handleIncomingMessage(data)
+    );
+  }
+
+  bindBulkDataChannel(bulkDc: RTCDataChannel): void {
+    this.bulkDataChannel = bulkDc;
+    attachBulkDataChannelHandlers(
+      bulkDc,
+      this.bulkChannel,
+      () => {
+        this.isBulkChannelOpen = true;
+        this.transportEvents.push({ type: 'bulk_channel_open' });
+      },
+      () => {
+        this.isBulkChannelOpen = false;
+        this.transportEvents.push({ type: 'bulk_channel_closed' });
+      }
+    );
   }
 
   handleIncomingMessage(data: SimulatedPayload | null | undefined): void {
     const sim = this.simulator;
     const now = performance.now();
     sim.stats.packetsReceived++;
+
+    if (isBulkAssetFrame(data)) {
+      this.bulkChannel.handleIncomingFrame(data);
+      return;
+    }
 
     if (data instanceof Uint8Array && ReliableTunnelFramer.isReliableFrame(data)) {
       if (this.tunnelBridge.framer) {

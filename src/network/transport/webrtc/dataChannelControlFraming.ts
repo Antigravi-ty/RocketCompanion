@@ -34,6 +34,8 @@ export type DataChannelTransportEvent =
   | { readonly type: 'channel_closed' }
   | { readonly type: 'control_channel_open' }
   | { readonly type: 'control_channel_closed' }
+  | { readonly type: 'bulk_channel_open' }
+  | { readonly type: 'bulk_channel_closed' }
   | { readonly type: 'color_change'; readonly payload: Record<string, unknown> }
   | {
       readonly type: 'diagnostic_fleet_toggle';

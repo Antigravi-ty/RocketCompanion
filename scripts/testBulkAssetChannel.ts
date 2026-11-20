@@ -1,360 +1,397 @@
+#!/usr/bin/env node
 /**
  * scripts/testBulkAssetChannel.ts
- * Wave 1 (W1-09) unit tests for Channel 4 (BulkAssetChannel):
- * 1. Chunked transfer & byte-exact reassembly + COMPLETE_ACK
- * 2. 64-bit FNV-1a fileHash verification & corruption ABORT
- * 3. bufferedAmount backpressure throttling & onBufferedAmountLow resume
- * 4. FreeplayRewinderController slice encode/transfer/apply roundtrip
- * 5. Reserved Ghost Trajectory & Replay File transfers
- * 6. Physical isolation in DataChannelTransport ('game_bulk' vs 'game_net'/'game_ctrl')
- * 7. Abort & maxAssetBytes guard
+ * Unit & integration tests for Channel 4 (Bulk / Asset):
+ * 1. BulkAssetProtocol binary chunk & control frame roundtrip + FNV-1a fileHash
+ * 2. Multi-chunk transfer, reassembly, fileHash verification, and COMPLETE_ACK
+ * 3. bufferedAmount backpressure throttling & low-watermark resume
+ * 4. fileHash corruption detection & HASH_MISMATCH_NACK rejection
+ * 5. FreeplayRewinderController history slice export -> Channel 4 transfer -> import & state restore
+ * 6. Reserved Ghost trajectory & Replay file transfers
+ * 7. DataChannelTransport 'game_bulk' physical isolation from 'game_net' and 'game_ctrl'
  */
 
 import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
 import {
-  BULK_ABORT_REASONS,
-  computeBulkFileHash64,
+  BULK_FRAME_TYPES,
+  computeBulkFileHash,
+  decodeBulkAssetFrame,
+  encodeBulkChunkFrame,
+  encodeBulkControlFrame,
+  formatBulkFileHashHex,
+  isBulkAssetFrame,
 } from '../src/network/protocol/BulkAssetProtocol.ts';
 import {
   BulkAssetChannel,
-  type BulkRawTransportPort,
-} from '../src/network/transport/webrtc/BulkAssetChannel.ts';
+  type BulkAssetTransportSink,
+  type BulkTransferError,
+  type BulkTransferProgress,
+  type ReceivedBulkAsset,
+} from '../src/network/transport/BulkAssetChannel.ts';
 import { DataChannelTransport } from '../src/network/transport/webrtc/DataChannelTransport.ts';
 import { NetworkSimulator } from '../src/network/transport/webrtc/NetworkSimulator.ts';
 import { CrossTabSignaling } from '../src/network/transport/webrtc/CrossTabSignaling.ts';
-import { P2PWebRTCChannel } from '../src/network/transport/P2PWebRTCChannel.ts';
-import { FreeplayRewinderController } from '../src/replay/FreeplayRewinderController.ts';
+import {
+  decodeRewinderSlice,
+  encodeRewinderSlice,
+} from '../src/replay/rewinderBulkSliceCodec.ts';
 import type { RewinderFrameEntry } from '../src/replay/replayDataPayloadPipeline.ts';
 
-function createLinkedPair(options?: {
-  chunkBytes?: number;
-  highWaterMarkBytes?: number;
-  lowWaterMarkBytes?: number;
-  maxAssetBytes?: number;
-  onFrameAtoB?: (bytes: Uint8Array) => Uint8Array;
-  simulateBackpressure?: boolean;
-}) {
-  const chA = new BulkAssetChannel({
-    chunkBytes: options?.chunkBytes ?? 4096,
-    highWaterMarkBytes: options?.highWaterMarkBytes ?? 32 * 1024,
-    lowWaterMarkBytes: options?.lowWaterMarkBytes ?? 8 * 1024,
-    maxAssetBytes: options?.maxAssetBytes,
-    ackTimeoutMs: 5000,
-    backpressurePollMs: 10,
-  });
-  const chB = new BulkAssetChannel({
-    chunkBytes: options?.chunkBytes ?? 4096,
-    highWaterMarkBytes: options?.highWaterMarkBytes ?? 32 * 1024,
-    lowWaterMarkBytes: options?.lowWaterMarkBytes ?? 8 * 1024,
-    maxAssetBytes: options?.maxAssetBytes,
-    ackTimeoutMs: 5000,
-    backpressurePollMs: 10,
-  });
-
-  let bufferedA = 0;
-  let lowCbA: (() => void) | null = null;
-  let lowThresholdA = 8 * 1024;
-
-  const portA: BulkRawTransportPort = {
-    isOpen: () => true,
-    getBufferedAmount: () => bufferedA,
-    setBufferedAmountLowThreshold: (bytes) => {
-      lowThresholdA = bytes;
-    },
-    onBufferedAmountLow: (cb) => {
-      lowCbA = cb;
-    },
-    sendBytes: (bytes) => {
-      if (options?.simulateBackpressure) {
-        bufferedA += bytes.byteLength;
-      }
-      const delivered = options?.onFrameAtoB ? options.onFrameAtoB(bytes) : bytes;
-      queueMicrotask(() => chB.handleIncomingRaw(delivered));
-      return true;
-    },
-  };
-
-  const portB: BulkRawTransportPort = {
-    isOpen: () => true,
-    getBufferedAmount: () => 0,
-    sendBytes: (bytes) => {
-      queueMicrotask(() => chA.handleIncomingRaw(bytes));
-      return true;
-    },
-  };
-
-  chA.attachTransportPort(portA);
-  chB.attachTransportPort(portB);
-
-  return {
-    chA,
-    chB,
-    drainBufferedA: (newAmount = 0) => {
-      bufferedA = newAmount;
-      if (bufferedA <= lowThresholdA) {
-        lowCbA?.();
-      }
-    },
-    getBufferedA: () => bufferedA,
-  };
-}
-
-async function testChunkedTransferAndHash(): Promise<void> {
-  const { chA, chB } = createLinkedPair({ chunkBytes: 4096 });
-  const payload = new Uint8Array(65537);
-  for (let i = 0; i < payload.byteLength; i++) {
-    payload[i] = (i * 31 + 7) & 0xff;
+function makeDeterministicPayload(byteLength: number, seed = 17): Uint8Array {
+  const buf = new Uint8Array(byteLength);
+  for (let i = 0; i < byteLength; i++) {
+    buf[i] = (i * 31 + seed) & 0xff;
   }
-
-  let receivedPayload: Uint8Array | null = null;
-  let receivedHash = '';
-  chB.onAssetReceived = (ev) => {
-    receivedPayload = ev.payload;
-    receivedHash = ev.fileHashHex;
-  };
-
-  const res = await chA.sendAsset({
-    assetKind: 'training_pack',
-    payload,
-    meta: { fileName: 'aerial-pack.json' },
-  });
-
-  assert.equal(res.acknowledged, true);
-  assert.equal(res.totalBytes, payload.byteLength);
-  assert.equal(res.totalChunks, Math.ceil(payload.byteLength / 4096));
-  assert.ok(receivedPayload !== null);
-  assert.equal(receivedHash, computeBulkFileHash64(payload).hex);
-  assert.deepEqual(receivedPayload, payload);
-
-  chA.dispose();
-  chB.dispose();
-  console.log('[PASS] 1. Chunked transfer & 64-bit fileHash verification');
+  return buf;
 }
 
-async function testCorruptionRejectedByFileHash(): Promise<void> {
-  let chunkFramesSeen = 0;
-  const { chA, chB } = createLinkedPair({
-    chunkBytes: 1024,
-    onFrameAtoB: (bytes) => {
-      // Corrupt 1 byte in the second frame (first CHUNK frame after MANIFEST)
-      chunkFramesSeen++;
-      if (chunkFramesSeen === 2) {
-        const corrupted = new Uint8Array(bytes);
-        corrupted[corrupted.byteLength - 1] ^= 0xff;
-        return corrupted;
-      }
-      return bytes;
-    },
-  });
-
-  let receiverGotAsset = false;
-  let receiverErrReason: number | null = null;
-  chB.onAssetReceived = () => {
-    receiverGotAsset = true;
-  };
-  chB.onTransferError = (err) => {
-    receiverErrReason = err.reasonCode;
-  };
-
-  const payload = new Uint8Array(3000).fill(0x5a);
-  await assert.rejects(() => chA.sendAsset({ assetKind: 'replay_file', payload }), /aborted/i);
-
-  assert.equal(receiverGotAsset, false);
-  assert.equal(receiverErrReason, BULK_ABORT_REASONS.HASH_MISMATCH);
-
-  chA.dispose();
-  chB.dispose();
-  console.log('[PASS] 2. Corrupted chunk rejected via fileHash mismatch ABORT');
-}
-
-async function testBackpressureThrottling(): Promise<void> {
-  const { chA, chB, drainBufferedA } = createLinkedPair({
-    chunkBytes: 2048,
-    highWaterMarkBytes: 4096,
-    lowWaterMarkBytes: 1024,
-    simulateBackpressure: true,
-  });
-
-  let sawThrottled = false;
-  chA.onProgress = (p) => {
-    if (p.throttled) {
-      sawThrottled = true;
-      setTimeout(() => drainBufferedA(0), 15);
-    }
-  };
-
-  let receivedSize = 0;
-  chB.onAssetReceived = (ev) => {
-    receivedSize = ev.totalBytes;
-  };
-
-  const payload = new Uint8Array(12 * 1024).fill(0x33);
-  const res = await chA.sendAsset({ assetKind: 'replay_file', payload });
-  assert.equal(sawThrottled, true);
-  assert.equal(res.acknowledged, true);
-  assert.equal(receivedSize, payload.byteLength);
-
-  chA.dispose();
-  chB.dispose();
-  console.log('[PASS] 3. bufferedAmount backpressure throttling & low-watermark resume');
-}
-
-async function testFreeplayRewinderSliceRoundtrip(): Promise<void> {
-  const { chA, chB } = createLinkedPair({ chunkBytes: 1024 });
-
-  const senderRewinder = new FreeplayRewinderController(null, null);
-  const receiverRewinder = new FreeplayRewinderController(null, null);
-
-  const syntheticFrames: RewinderFrameEntry[] = [];
-  for (let i = 0; i < 6; i++) {
-    const compactSnap = new Float32Array(16);
-    compactSnap[0] = i * 10.5;
-    compactSnap[1] = i * 2.25;
-    const renderState = new Float32Array(16);
-    renderState[0] = i * 10.5;
-    syntheticFrames.push({
+function makeMockRewinderFrames(count: number): RewinderFrameEntry[] {
+  const frames: RewinderFrameEntry[] = [];
+  for (let i = 0; i < count; i++) {
+    const compactSnap = new Float32Array(24);
+    compactSnap[0] = i + 1;
+    compactSnap[1] = 100 + i * 2.5;
+    compactSnap[2] = -200 + i * 1.5;
+    const renderState = new Float32Array(32);
+    renderState[0] = i + 1;
+    renderState[1] = 0.5 * i;
+    frames.push({
       compactSnap,
       renderState,
-      controls: { throttle: i % 2 === 0 ? 1 : -0.5, boost: i === 3 },
-      acknowledgedControls: [{ carIndex: 0, controls: { throttle: 1 } }],
-      incidents: i === 2 ? [{ type: 1, tick: 120 + i }] : [],
-      signals: [],
-      audioEvents: [],
-      hadTouch: i === 2,
-      lastTouchTick: i >= 2 ? 122 : -1,
+      controls: {
+        throttle: 1,
+        steer: i % 2 === 0 ? 0.25 : -0.25,
+        boost: i % 3 === 0,
+        jump: false,
+      },
+      acknowledgedControls: [{ carIndex: 0, throttle: 1, steer: 0 }],
+      incidents: i === 5 ? [{ type: 1, tick: i + 1 }] : [],
+      hadTouch: i === 5,
+      lastTouchTick: i >= 5 ? 6 : -1,
     });
   }
-  senderRewinder.rewinderFrames = syntheticFrames;
-  senderRewinder.rewinderCursor = 3;
-
-  let applied = false;
-  chB.onAssetReceived = (ev) => {
-    assert.equal(ev.assetKind, 'rewinder_slice');
-    applied = receiverRewinder.applyIncomingRewinderSliceBytes(ev.payload);
-  };
-
-  await senderRewinder.sendRewinderSliceToBulkChannel(chA, {
-    startFrame: 1,
-    endFrame: 5,
-    interveneFromHere: true,
-    meta: { roomId: 'room-rewinder-test', tickRate: 120 },
-  });
-
-  assert.equal(applied, true);
-  assert.equal(receiverRewinder.rewinderFrames.length, 4);
-  assert.equal(receiverRewinder.rewinderCursor, 3);
-  assert.equal(receiverRewinder.rewinderFrames[1].hadTouch, true);
-  assert.equal(receiverRewinder.rewinderFrames[1].lastTouchTick, 122);
-  assert.equal(receiverRewinder.rewinderFrames[1].incidents.length, 1);
-  assert.ok(Math.abs(receiverRewinder.rewinderFrames[2].compactSnap[0] - 31.5) < 1e-4);
-
-  chA.dispose();
-  chB.dispose();
-  console.log('[PASS] 4. FreeplayRewinderController slice encode/Channel-4/apply roundtrip');
+  return frames;
 }
 
-async function testReservedGhostAndReplayDescriptors(): Promise<void> {
-  const { chA, chB } = createLinkedPair({ chunkBytes: 2048 });
-  const receivedKinds: string[] = [];
-  const receivedFiles: string[] = [];
+export async function runBulkAssetChannelTests(): Promise<void> {
+  // 1. Protocol codec roundtrip & fileHash
+  {
+    const sample = makeDeterministicPayload(128, 7);
+    const hash = computeBulkFileHash(sample);
+    assert.ok(formatBulkFileHashHex(hash).startsWith('0x'));
+    assert.equal(formatBulkFileHashHex(hash).length, 10);
 
-  chB.onAssetReceived = (ev) => {
-    receivedKinds.push(ev.assetKind);
-    receivedFiles.push(ev.meta.fileName ?? '');
-  };
+    const metaBytes = new TextEncoder().encode(JSON.stringify({ fileName: 'test.rcreplay' }));
+    const frame = encodeBulkChunkFrame({
+      transferId: 42,
+      assetKind: 'replay_file',
+      chunkIndex: 0,
+      totalChunks: 3,
+      totalBytes: 384,
+      fileHash: hash,
+      metadataBytes: metaBytes,
+      payload: sample,
+    });
+    assert.equal(isBulkAssetFrame(frame), true);
+    const decoded = decodeBulkAssetFrame(frame);
+    assert.ok(decoded && decoded.frameType === BULK_FRAME_TYPES.CHUNK);
+    assert.equal(decoded.transferId, 42);
+    assert.equal(decoded.assetKind, 'replay_file');
+    assert.equal(decoded.chunkIndex, 0);
+    assert.equal(decoded.totalChunks, 3);
+    assert.equal(decoded.totalBytes, 384);
+    assert.equal(decoded.fileHash, hash);
+    assert.deepEqual(decoded.metadataBytes, metaBytes);
+    assert.deepEqual(decoded.payload, sample);
 
-  await chA.sendGhostTrajectory({
-    carIndex: 1,
-    playerName: 'CoachBot',
-    tickRate: 120,
-    frameCount: 240,
-    trajectoryBytes: new Uint8Array(5000).fill(0x11),
-  });
+    const ackFrame = encodeBulkControlFrame(BULK_FRAME_TYPES.COMPLETE_ACK, 42, hash, 0);
+    const decodedAck = decodeBulkAssetFrame(ackFrame);
+    assert.ok(decodedAck && decodedAck.frameType === BULK_FRAME_TYPES.COMPLETE_ACK);
+    assert.equal(decodedAck.transferId, 42);
+    assert.equal(decodedAck.fileHash, hash);
+  }
 
-  await chA.sendReplayFile({
-    fileName: 'match-3v3.rcreplay.gz',
-    tickRate: 120,
-    frameCount: 3600,
-    durationSec: 30,
-    compressedBytes: new Uint8Array(9000).fill(0x22),
-  });
+  // 2. Multi-chunk transfer + reassembly + fileHash verification + COMPLETE_ACK
+  {
+    const sender = new BulkAssetChannel({
+      chunkSizeBytes: 1024,
+      maxChunksPerPump: 64,
+    });
+    const receiver = new BulkAssetChannel({
+      chunkSizeBytes: 1024,
+      maxChunksPerPump: 64,
+    });
 
-  assert.deepEqual(receivedKinds, ['ghost_trajectory', 'replay_file']);
-  assert.deepEqual(receivedFiles, ['CoachBot-ghost.rcghost', 'match-3v3.rcreplay.gz']);
+    const senderToReceiverSink: BulkAssetTransportSink = {
+      sendFrame: (frame) => receiver.handleIncomingFrame(frame),
+      getBufferedAmount: () => 0,
+      isReady: () => true,
+    };
+    const receiverToSenderSink: BulkAssetTransportSink = {
+      sendFrame: (frame) => sender.handleIncomingFrame(frame),
+      getBufferedAmount: () => 0,
+      isReady: () => true,
+    };
 
-  chA.dispose();
-  chB.dispose();
-  console.log('[PASS] 5. Reserved Ghost Trajectory & Replay File Channel-4 transfers');
+    sender.setTransportSink(senderToReceiverSink);
+    receiver.setTransportSink(receiverToSenderSink);
+
+    const receivedAssets: ReceivedBulkAsset[] = [];
+    const ackedTransfers: number[] = [];
+    const sendProgress: BulkTransferProgress[] = [];
+    receiver.onAssetReceived = (asset) => receivedAssets.push(asset);
+    sender.onTransferAcked = (ev) => ackedTransfers.push(ev.transferId);
+    sender.onProgress = (p) => sendProgress.push(p);
+
+    const payload = makeDeterministicPayload(10 * 1024 + 333, 99);
+    const txId = sender.sendReplayFile(payload, {
+      fileName: 'match_3v3.rcreplay',
+      format: 'rcreplay',
+      totalFrames: 600,
+      durationSeconds: 10,
+      arenaPreset: 0,
+    });
+
+    assert.equal(receivedAssets.length, 1);
+    assert.equal(receivedAssets[0].transferId, txId);
+    assert.equal(receivedAssets[0].kind, 'replay_file');
+    assert.deepEqual(receivedAssets[0].payload, payload);
+    assert.equal(receivedAssets[0].fileHash, computeBulkFileHash(payload));
+    assert.equal((receivedAssets[0].metadata as { fileName: string }).fileName, 'match_3v3.rcreplay');
+    assert.deepEqual(ackedTransfers, [txId]);
+    assert.equal(sendProgress.length, 11);
+    assert.equal(sender.stats.chunksSent, 11);
+    assert.equal(receiver.stats.chunksReceived, 11);
+
+    sender.dispose();
+    receiver.dispose();
+  }
+
+  // 3. bufferedAmount backpressure throttling & low-watermark resume
+  {
+    let simulatedBuffered = 0;
+    const forwardedFrames: Uint8Array[] = [];
+    const sender = new BulkAssetChannel({
+      chunkSizeBytes: 1024,
+      highWaterMarkBytes: 4096,
+      lowWaterMarkBytes: 1024,
+      maxChunksPerPump: 16,
+    });
+    const receiver = new BulkAssetChannel({ chunkSizeBytes: 1024 });
+
+    sender.setTransportSink({
+      sendFrame: (frame) => {
+        forwardedFrames.push(frame);
+        simulatedBuffered += frame.byteLength;
+        return true;
+      },
+      getBufferedAmount: () => simulatedBuffered,
+      isReady: () => true,
+    });
+    receiver.setTransportSink({
+      sendFrame: (frame) => sender.handleIncomingFrame(frame),
+      getBufferedAmount: () => 0,
+      isReady: () => true,
+    });
+
+    const receivedAssets: ReceivedBulkAsset[] = [];
+    receiver.onAssetReceived = (asset) => receivedAssets.push(asset);
+
+    const largePayload = makeDeterministicPayload(12 * 1024, 55);
+    sender.sendGhostTrajectory(largePayload, {
+      carIndex: 2,
+      playerName: 'GhostDucky',
+      team: 1,
+      startTick: 100,
+      endTick: 400,
+      tickCount: 300,
+      roleFlag: 'ghost',
+    });
+
+    assert.ok(sender.stats.backpressurePauses >= 1, 'Expected at least 1 backpressure pause');
+    assert.ok(sender.getPendingOutgoingCount() === 1, 'Transfer should remain queued while backpressured');
+    assert.equal(sender.isBackpressured(), true);
+
+    while (sender.getPendingOutgoingCount() > 0) {
+      simulatedBuffered = 0;
+      sender.notifyBufferedAmountLow();
+    }
+
+    for (const f of forwardedFrames) {
+      receiver.handleIncomingFrame(f);
+    }
+
+    assert.equal(receivedAssets.length, 1);
+    assert.equal(receivedAssets[0].kind, 'ghost_trajectory');
+    assert.deepEqual(receivedAssets[0].payload, largePayload);
+
+    sender.dispose();
+    receiver.dispose();
+  }
+
+  // 4. fileHash corruption detection & HASH_MISMATCH_NACK
+  {
+    const sender = new BulkAssetChannel({ chunkSizeBytes: 512, maxChunksPerPump: 16 });
+    const receiver = new BulkAssetChannel({ chunkSizeBytes: 512 });
+
+    const senderErrors: BulkTransferError[] = [];
+    const receiverErrors: BulkTransferError[] = [];
+    const receivedAssets: ReceivedBulkAsset[] = [];
+
+    sender.onTransferError = (err) => senderErrors.push(err);
+    receiver.onTransferError = (err) => receiverErrors.push(err);
+    receiver.onAssetReceived = (asset) => receivedAssets.push(asset);
+
+    let chunkCounter = 0;
+    sender.setTransportSink({
+      sendFrame: (frame) => {
+        const copy = new Uint8Array(frame);
+        if (chunkCounter === 1) {
+          copy[copy.byteLength - 1] ^= 0xff;
+        }
+        chunkCounter++;
+        return receiver.handleIncomingFrame(copy);
+      },
+      getBufferedAmount: () => 0,
+      isReady: () => true,
+    });
+    receiver.setTransportSink({
+      sendFrame: (frame) => sender.handleIncomingFrame(frame),
+      getBufferedAmount: () => 0,
+      isReady: () => true,
+    });
+
+    const payload = makeDeterministicPayload(2048, 13);
+    sender.sendTrainingPack(payload, {
+      packId: 'pack-1',
+      packName: 'Aerials',
+      shotCount: 10,
+      schemaVersion: 1,
+    });
+
+    assert.equal(receivedAssets.length, 0, 'Corrupted asset must NOT be delivered');
+    assert.equal(receiverErrors.length, 1);
+    assert.equal(receiverErrors[0].reason, 'hash_mismatch');
+    assert.equal(senderErrors.length, 1);
+    assert.equal(senderErrors[0].reason, 'hash_mismatch');
+    assert.equal(receiver.stats.hashMismatches, 1);
+
+    sender.dispose();
+    receiver.dispose();
+  }
+
+  // 5. FreeplayRewinder slice export -> Channel 4 transfer -> decode & verify
+  {
+    const hostFrames = makeMockRewinderFrames(12);
+    const encoded = encodeRewinderSlice(hostFrames, {
+      startFrame: 2,
+      endFrame: 10,
+      cursorFrame: 7,
+      targetFrame: 7,
+      arenaPreset: 0,
+    });
+
+    const hostBulk = new BulkAssetChannel({ chunkSizeBytes: 512, maxChunksPerPump: 64 });
+    const clientBulk = new BulkAssetChannel({ chunkSizeBytes: 512 });
+
+    hostBulk.setTransportSink({
+      sendFrame: (frame) => clientBulk.handleIncomingFrame(frame),
+      getBufferedAmount: () => 0,
+      isReady: () => true,
+    });
+    clientBulk.setTransportSink({
+      sendFrame: (frame) => hostBulk.handleIncomingFrame(frame),
+      getBufferedAmount: () => 0,
+      isReady: () => true,
+    });
+
+    let decodedSlice: ReturnType<typeof decodeRewinderSlice> = null;
+    clientBulk.onAssetReceived = (asset) => {
+      if (asset.kind === 'rewinder_slice') {
+        decodedSlice = decodeRewinderSlice(asset.payload);
+      }
+    };
+
+    const txId = hostBulk.sendRewinderSlice(encoded.payload, encoded.metadata);
+    assert.ok(txId > 0);
+    assert.ok(decodedSlice !== null);
+    assert.equal(decodedSlice.frames.length, 8);
+    assert.equal(decodedSlice.cursorFrame, 5);
+    assert.equal(decodedSlice.frames[3].hadTouch, true);
+    assert.equal(decodedSlice.frames[3].incidents[0].type, 1);
+    assert.deepEqual(
+      Array.from(decodedSlice.frames[0].compactSnap),
+      Array.from(hostFrames[2].compactSnap)
+    );
+
+    hostBulk.dispose();
+    clientBulk.dispose();
+  }
+
+  // 6. DataChannelTransport 'game_bulk' physical isolation
+  {
+    const signaling = new CrossTabSignaling({ roomId: 'bulk-isolation-test' });
+    const transport = new DataChannelTransport({
+      simulator: new NetworkSimulator({}),
+      signaling,
+    });
+
+    let deliveredNonBulkPackets = 0;
+    transport.onPacketDelivered = () => {
+      deliveredNonBulkPackets++;
+    };
+
+    const receivedBulk: ReceivedBulkAsset[] = [];
+    transport.bulkChannel.onAssetReceived = (asset) => receivedBulk.push(asset);
+
+    const mockBulkDc = {
+      label: 'game_bulk',
+      readyState: 'open',
+      bufferedAmount: 0,
+      bufferedAmountLowThreshold: 0,
+      binaryType: 'arraybuffer',
+      onopen: null as (() => void) | null,
+      onclose: null as (() => void) | null,
+      onerror: null as ((ev: unknown) => void) | null,
+      onmessage: null as ((ev: { data: unknown }) => void) | null,
+      onbufferedamountlow: null as (() => void) | null,
+      send: (data: Uint8Array) => {
+        mockBulkDc.onmessage?.({ data });
+      },
+    } as unknown as RTCDataChannel;
+
+    transport.bindDataChannel(mockBulkDc);
+    (mockBulkDc.onopen as (() => void) | null)?.();
+
+    assert.equal(transport.isBulkChannelOpen, true);
+    assert.equal(transport.dataChannel, null, 'game_bulk must NOT overwrite game_net dataChannel');
+    assert.equal(transport.controlDataChannel, null, 'game_bulk must NOT overwrite game_ctrl');
+
+    const payload = makeDeterministicPayload(4096, 33);
+    transport.bulkChannel.sendReplayFile(payload, {
+      fileName: 'isolated.rlrc',
+      format: 'rlrc',
+      totalFrames: 120,
+      durationSeconds: 2,
+    });
+
+    assert.equal(receivedBulk.length, 1);
+    assert.deepEqual(receivedBulk[0].payload, payload);
+    assert.equal(deliveredNonBulkPackets, 0, 'Channel 4 traffic must not leak into Channel 1');
+
+    transport.bulkChannel.dispose();
+    signaling.destroy();
+  }
 }
 
-async function testDataChannelTransportIsolation(): Promise<void> {
-  const simulator = new NetworkSimulator();
-  const signaling = new CrossTabSignaling();
-  const transport = new DataChannelTransport({ simulator, signaling });
-
-  const fakeBulkDc = {
-    label: 'game_bulk',
-    readyState: 'open',
-    bufferedAmount: 0,
-    bufferedAmountLowThreshold: 0,
-    binaryType: 'arraybuffer',
-    onopen: null,
-    onclose: null,
-    onerror: null,
-    onmessage: null,
-    onbufferedamountlow: null,
-    send: () => undefined,
-  } as unknown as RTCDataChannel;
-
-  transport.bindDataChannel(fakeBulkDc);
-  assert.equal(transport.dataChannel, null);
-  assert.equal(transport.controlDataChannel, null);
-  assert.equal(transport.bulkChannel.isOpen, true);
-
-  const p2p = new P2PWebRTCChannel();
-  assert.ok(p2p.bulkAssetChannel instanceof BulkAssetChannel);
-
-  transport.bulkChannel.dispose();
-  console.log(
-    '[PASS] 6. DataChannelTransport physically isolates game_bulk from game_net/game_ctrl'
-  );
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  runBulkAssetChannelTests()
+    .then(() => {
+      console.log('=== BULK ASSET CHANNEL TESTS PASSED ===');
+    })
+    .catch((err) => {
+      console.error('[FAIL]', err);
+      process.exit(1);
+    });
 }
-
-async function testAbortAndSizeLimit(): Promise<void> {
-  const { chA, chB } = createLinkedPair({ maxAssetBytes: 1024 });
-  await assert.rejects(
-    () =>
-      chA.sendAsset({
-        assetKind: 'replay_file',
-        payload: new Uint8Array(2048),
-      }),
-    /exceeds maxAssetBytes/i
-  );
-
-  const p = chA.sendAsset({
-    assetKind: 'training_pack',
-    payload: new Uint8Array(512),
-  });
-  chA.abortTransfer(1, BULK_ABORT_REASONS.CANCELLED);
-  await assert.rejects(() => p, /aborted/i);
-
-  chA.dispose();
-  chB.dispose();
-  console.log('[PASS] 7. Size limit guard & transfer abort');
-}
-
-async function main(): Promise<void> {
-  await testChunkedTransferAndHash();
-  await testCorruptionRejectedByFileHash();
-  await testBackpressureThrottling();
-  await testFreeplayRewinderSliceRoundtrip();
-  await testReservedGhostAndReplayDescriptors();
-  await testDataChannelTransportIsolation();
-  await testAbortAndSizeLimit();
-  console.log('\nAll W1-09 BulkAssetChannel tests PASSED.');
-}
-
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});

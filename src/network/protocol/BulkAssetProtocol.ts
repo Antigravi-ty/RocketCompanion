@@ -1,233 +1,277 @@
 /**
- * BulkAssetProtocol.ts
- * Wave 1 Channel 4 (Bulk / Asset Large-File Stream) binary wire protocol & temporary TS interfaces.
- * Physically isolated from Channels 1/2/3 to prevent Head-of-Line Blocking.
+ * src/network/protocol/BulkAssetProtocol.ts
+ * Channel 4 (Bulk / Asset) binary framing protocol:
+ * - Self-describing chunk frames with 32-bit FNV-1a fileHash integrity check
+ * - Control frames (COMPLETE_ACK, HASH_MISMATCH_NACK, CANCEL)
+ * - Wave 1 typed metadata contracts for Rewinder slices, Ghost trajectories, Replay files, and Training packs
  */
 
 export const BULK_FRAME_MAGIC = 0x424b; // 'BK'
-export const BULK_HEADER_BYTES = 32;
-export const BULK_DEFAULT_CHUNK_BYTES = 16 * 1024; // 16 KiB safe WebRTC DataChannel chunk
+export const BULK_PROTOCOL_VERSION = 1;
+export const BULK_CHUNK_HEADER_BYTES = 28;
+export const BULK_CONTROL_FRAME_BYTES = 13;
 
-export const BULK_FRAME_TYPES = {
-  MANIFEST: 1,
-  CHUNK: 2,
-  COMPLETE_ACK: 3,
-  ABORT: 4,
-} as const;
+export const BULK_FRAME_TYPES = Object.freeze({
+  CHUNK: 0x01,
+  COMPLETE_ACK: 0x02,
+  HASH_MISMATCH_NACK: 0x03,
+  CANCEL: 0x04,
+} as const);
 
 export type BulkFrameType = (typeof BULK_FRAME_TYPES)[keyof typeof BULK_FRAME_TYPES];
 
-export const BULK_ASSET_KIND_CODES = {
-  rewinder_slice: 1,
-  ghost_trajectory: 2,
-  replay_file: 3,
-  training_pack: 4,
-} as const;
+export const BULK_ASSET_KINDS = Object.freeze({
+  REWINDER_SLICE: 1,
+  GHOST_TRAJECTORY: 2,
+  REPLAY_FILE: 3,
+  TRAINING_PACK: 4,
+} as const);
 
-export type BulkAssetKind = keyof typeof BULK_ASSET_KIND_CODES;
+export type BulkAssetKindCode = (typeof BULK_ASSET_KINDS)[keyof typeof BULK_ASSET_KINDS];
 
-export const BULK_ABORT_REASONS = {
-  CANCELLED: 1,
-  HASH_MISMATCH: 2,
-  TIMEOUT: 3,
-  SIZE_LIMIT_EXCEEDED: 4,
-  INVALID_FRAME: 5,
-} as const;
+export type BulkAssetKind =
+  | 'rewinder_slice'
+  | 'ghost_trajectory'
+  | 'replay_file'
+  | 'training_pack';
 
-export type BulkAbortReasonCode = (typeof BULK_ABORT_REASONS)[keyof typeof BULK_ABORT_REASONS];
-
-export interface BulkFileHash64 {
-  hi: number;
-  lo: number;
-  hex: string;
-}
-
-export interface BulkAssetManifestMeta {
-  fileName?: string;
-  mimeType?: string;
-  roomId?: string;
-  startFrame?: number;
-  endFrame?: number;
-  cursor?: number;
-  tickRate?: number;
-  frameCount?: number;
-  carIndex?: number;
-  durationSec?: number;
-  extra?: Record<string, string | number | boolean>;
-}
-
-export interface DecodedBulkFrame {
-  frameType: BulkFrameType;
-  assetKind: BulkAssetKind;
-  transferId: number;
-  seqOrChunkIndex: number;
-  totalBytes: number;
-  fileHash: BulkFileHash64;
-  chunkSizeOrReserved: number;
-  body: Uint8Array;
-  meta: BulkAssetManifestMeta | null;
-}
-
-export interface BulkAssetTransferProgress {
-  transferId: number;
-  direction: 'outbound' | 'inbound';
-  assetKind: BulkAssetKind;
-  completedChunks: number;
-  totalChunks: number;
-  transferredBytes: number;
-  totalBytes: number;
-  fileHashHex: string;
-  bufferedAmountBytes: number;
-  throttled: boolean;
-}
-
-export interface BulkAssetReceivedEvent {
-  transferId: number;
-  assetKind: BulkAssetKind;
-  fileHashHex: string;
-  totalBytes: number;
-  payload: Uint8Array;
-  meta: BulkAssetManifestMeta;
-}
-
-/**
- * Reserved Wave 1 payload descriptor for Ghost Car trajectory pre-distribution (Channel 4).
- */
-export interface GhostTrajectoryBulkDescriptor {
-  carIndex: number;
-  playerName: string;
-  tickRate: number;
-  frameCount: number;
-  trajectoryBytes: Uint8Array;
-}
-
-/**
- * Reserved Wave 1 payload descriptor for .rlrc / .rcreplay.gz pre-distribution (Channel 4).
- */
-export interface ReplayFileBulkDescriptor {
-  fileName: string;
-  tickRate: number;
-  frameCount: number;
-  durationSec: number;
-  compressedBytes: Uint8Array;
-}
-
-const CODE_TO_ASSET_KIND: Record<number, BulkAssetKind> = {
-  1: 'rewinder_slice',
-  2: 'ghost_trajectory',
-  3: 'replay_file',
-  4: 'training_pack',
+export const BULK_ASSET_KIND_TO_CODE: Record<BulkAssetKind, BulkAssetKindCode> = {
+  rewinder_slice: BULK_ASSET_KINDS.REWINDER_SLICE,
+  ghost_trajectory: BULK_ASSET_KINDS.GHOST_TRAJECTORY,
+  replay_file: BULK_ASSET_KINDS.REPLAY_FILE,
+  training_pack: BULK_ASSET_KINDS.TRAINING_PACK,
 };
 
-const utf8Encoder = new TextEncoder();
-const utf8Decoder = new TextDecoder();
+export const BULK_CODE_TO_ASSET_KIND: Record<number, BulkAssetKind> = {
+  [BULK_ASSET_KINDS.REWINDER_SLICE]: 'rewinder_slice',
+  [BULK_ASSET_KINDS.GHOST_TRAJECTORY]: 'ghost_trajectory',
+  [BULK_ASSET_KINDS.REPLAY_FILE]: 'replay_file',
+  [BULK_ASSET_KINDS.TRAINING_PACK]: 'training_pack',
+};
+
+export interface RewinderSliceBulkMetadata {
+  startFrame: number;
+  endFrame: number;
+  cursorFrame: number;
+  targetFrame: number;
+  frameCount: number;
+  totalRewinderFrames: number;
+  arenaPreset?: number;
+}
+
+export interface GhostTrajectoryBulkMetadata {
+  carIndex: number;
+  playerName: string;
+  team: number;
+  visualId?: string;
+  colorHex?: string;
+  startTick: number;
+  endTick: number;
+  tickCount: number;
+  roleFlag: 'ghost';
+}
+
+export interface ReplayFileBulkMetadata {
+  fileName: string;
+  format: 'rcreplay' | 'rlrc';
+  totalFrames: number;
+  durationSeconds: number;
+  arenaPreset?: number;
+  schemaHash?: string;
+}
+
+export interface TrainingPackBulkMetadata {
+  packId: string;
+  packName: string;
+  shotCount: number;
+  schemaVersion: number;
+}
+
+export type BulkAssetMetadata =
+  | RewinderSliceBulkMetadata
+  | GhostTrajectoryBulkMetadata
+  | ReplayFileBulkMetadata
+  | TrainingPackBulkMetadata
+  | Record<string, unknown>;
+
+export interface BulkChunkEncodeParams {
+  transferId: number;
+  assetKind: BulkAssetKind;
+  flags?: number;
+  chunkIndex: number;
+  totalChunks: number;
+  totalBytes: number;
+  fileHash: number;
+  metadataBytes?: Uint8Array;
+  payload: Uint8Array;
+}
+
+export interface DecodedBulkChunkFrame {
+  readonly frameType: typeof BULK_FRAME_TYPES.CHUNK;
+  readonly version: number;
+  readonly transferId: number;
+  readonly assetKind: BulkAssetKind;
+  readonly flags: number;
+  readonly chunkIndex: number;
+  readonly totalChunks: number;
+  readonly totalBytes: number;
+  readonly fileHash: number;
+  readonly metadataBytes: Uint8Array;
+  readonly payload: Uint8Array;
+}
+
+export interface DecodedBulkControlFrame {
+  readonly frameType:
+    | typeof BULK_FRAME_TYPES.COMPLETE_ACK
+    | typeof BULK_FRAME_TYPES.HASH_MISMATCH_NACK
+    | typeof BULK_FRAME_TYPES.CANCEL;
+  readonly version: number;
+  readonly transferId: number;
+  readonly fileHash: number;
+  readonly reasonCode: number;
+}
+
+export type DecodedBulkFrame = DecodedBulkChunkFrame | DecodedBulkControlFrame;
 
 /**
- * Computes a deterministic 64-bit FNV-1a hash (split into hi/lo Uint32 + 16-char hex).
+ * Deterministic 32-bit FNV-1a hash over a byte buffer.
+ * Fast, synchronous, zero-dependency, suitable for browser, Worker, and Node.
  */
-export function computeBulkFileHash64(data: Uint8Array): BulkFileHash64 {
-  let hash = 0xcbf29ce484222325n;
-  const prime = 0x100000001b3n;
-  const mask64 = 0xffffffffffffffffn;
+export function computeBulkFileHash(data: Uint8Array): number {
+  let hash = 0x811c9dc5;
   for (let i = 0; i < data.byteLength; i++) {
-    hash ^= BigInt(data[i]);
-    hash = (hash * prime) & mask64;
+    hash ^= data[i];
+    hash = Math.imul(hash, 0x01000193);
   }
-  const hi = Number((hash >> 32n) & 0xffffffffn) >>> 0;
-  const lo = Number(hash & 0xffffffffn) >>> 0;
-  const hex = `${hi.toString(16).padStart(8, '0')}${lo.toString(16).padStart(8, '0')}`;
-  return { hi, lo, hex };
+  return hash >>> 0;
 }
 
-export function isBulkAssetFrame(data: unknown): data is Uint8Array {
-  if (!(data instanceof Uint8Array) || data.byteLength < BULK_HEADER_BYTES) {
-    return false;
-  }
-  return data[0] === 0x42 && data[1] === 0x4b;
+export function formatBulkFileHashHex(hash: number): string {
+  return `0x${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
-export function encodeBulkFrame(params: {
-  frameType: BulkFrameType;
-  assetKind: BulkAssetKind;
-  transferId: number;
-  seqOrChunkIndex: number;
-  totalBytes: number;
-  fileHash: BulkFileHash64;
-  chunkSizeOrReserved?: number;
-  body?: Uint8Array;
-  meta?: BulkAssetManifestMeta | null;
-}): Uint8Array {
-  let bodyBytes = params.body;
-  if (!bodyBytes && params.frameType === BULK_FRAME_TYPES.MANIFEST && params.meta) {
-    bodyBytes = utf8Encoder.encode(JSON.stringify(params.meta));
+function toUint8Array(data: unknown): Uint8Array | null {
+  if (data instanceof Uint8Array) return data;
+  if (data instanceof ArrayBuffer) return new Uint8Array(data);
+  if (ArrayBuffer.isView(data)) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
   }
-  const bodyLen = bodyBytes ? bodyBytes.byteLength : 0;
-  const frame = new Uint8Array(BULK_HEADER_BYTES + bodyLen);
-  const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
+  return null;
+}
+
+export function isBulkAssetFrame(data: unknown): data is Uint8Array | ArrayBuffer {
+  const bytes = toUint8Array(data);
+  if (!bytes || bytes.byteLength < BULK_CONTROL_FRAME_BYTES) return false;
+  return bytes[0] === 0x42 && bytes[1] === 0x4b;
+}
+
+export function encodeBulkChunkFrame(params: BulkChunkEncodeParams): Uint8Array {
+  const metaLen = params.metadataBytes?.byteLength ?? 0;
+  const payloadLen = params.payload.byteLength;
+  const out = new Uint8Array(BULK_CHUNK_HEADER_BYTES + metaLen + payloadLen);
+  const view = new DataView(out.buffer);
 
   view.setUint16(0, BULK_FRAME_MAGIC, false);
-  view.setUint8(2, params.frameType);
-  view.setUint8(3, BULK_ASSET_KIND_CODES[params.assetKind]);
+  view.setUint8(2, BULK_PROTOCOL_VERSION);
+  view.setUint8(3, BULK_FRAME_TYPES.CHUNK);
   view.setUint32(4, params.transferId >>> 0, false);
-  view.setUint32(8, params.seqOrChunkIndex >>> 0, false);
-  view.setUint32(12, params.totalBytes >>> 0, false);
-  view.setUint32(16, params.fileHash.hi >>> 0, false);
-  view.setUint32(20, params.fileHash.lo >>> 0, false);
-  view.setUint32(24, (params.chunkSizeOrReserved ?? 0) >>> 0, false);
-  view.setUint32(28, bodyLen >>> 0, false);
+  view.setUint8(8, BULK_ASSET_KIND_TO_CODE[params.assetKind]);
+  view.setUint8(9, (params.flags ?? 0) & 0xff);
+  view.setUint32(10, params.chunkIndex >>> 0, false);
+  view.setUint32(14, params.totalChunks >>> 0, false);
+  view.setUint32(18, params.totalBytes >>> 0, false);
+  view.setUint32(22, params.fileHash >>> 0, false);
+  view.setUint16(26, metaLen & 0xffff, false);
 
-  if (bodyBytes && bodyLen > 0) {
-    frame.set(bodyBytes, BULK_HEADER_BYTES);
+  if (metaLen > 0 && params.metadataBytes) {
+    out.set(params.metadataBytes, BULK_CHUNK_HEADER_BYTES);
   }
-  return frame;
+  if (payloadLen > 0) {
+    out.set(params.payload, BULK_CHUNK_HEADER_BYTES + metaLen);
+  }
+  return out;
 }
 
-export function decodeBulkFrame(data: Uint8Array): DecodedBulkFrame | null {
-  if (!isBulkAssetFrame(data)) {
-    return null;
-  }
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  const frameType = view.getUint8(2) as BulkFrameType;
-  const kindCode = view.getUint8(3);
-  const assetKind = CODE_TO_ASSET_KIND[kindCode];
-  if (!assetKind) {
-    return null;
-  }
+export function encodeBulkControlFrame(
+  frameType:
+    | typeof BULK_FRAME_TYPES.COMPLETE_ACK
+    | typeof BULK_FRAME_TYPES.HASH_MISMATCH_NACK
+    | typeof BULK_FRAME_TYPES.CANCEL,
+  transferId: number,
+  fileHash: number,
+  reasonCode = 0
+): Uint8Array {
+  const out = new Uint8Array(BULK_CONTROL_FRAME_BYTES);
+  const view = new DataView(out.buffer);
+  view.setUint16(0, BULK_FRAME_MAGIC, false);
+  view.setUint8(2, BULK_PROTOCOL_VERSION);
+  view.setUint8(3, frameType);
+  view.setUint32(4, transferId >>> 0, false);
+  view.setUint32(8, fileHash >>> 0, false);
+  view.setUint8(12, reasonCode & 0xff);
+  return out;
+}
+
+export function decodeBulkAssetFrame(
+  input: Uint8Array | ArrayBuffer | DataView
+): DecodedBulkFrame | null {
+  const bytes = toUint8Array(input);
+  if (!bytes || bytes.byteLength < BULK_CONTROL_FRAME_BYTES) return null;
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.getUint16(0, false) !== BULK_FRAME_MAGIC) return null;
+
+  const version = view.getUint8(2);
+  if (version !== BULK_PROTOCOL_VERSION) return null;
+
+  const frameType = view.getUint8(3);
   const transferId = view.getUint32(4, false);
-  const seqOrChunkIndex = view.getUint32(8, false);
-  const totalBytes = view.getUint32(12, false);
-  const hi = view.getUint32(16, false);
-  const lo = view.getUint32(20, false);
-  const chunkSizeOrReserved = view.getUint32(24, false);
-  const bodyLen = view.getUint32(28, false);
 
-  if (BULK_HEADER_BYTES + bodyLen > data.byteLength) {
+  if (
+    frameType === BULK_FRAME_TYPES.COMPLETE_ACK ||
+    frameType === BULK_FRAME_TYPES.HASH_MISMATCH_NACK ||
+    frameType === BULK_FRAME_TYPES.CANCEL
+  ) {
+    const fileHash = view.getUint32(8, false);
+    const reasonCode = view.getUint8(12);
+    return {
+      frameType,
+      version,
+      transferId,
+      fileHash,
+      reasonCode,
+    };
+  }
+
+  if (frameType !== BULK_FRAME_TYPES.CHUNK || bytes.byteLength < BULK_CHUNK_HEADER_BYTES) {
     return null;
   }
 
-  const body = data.subarray(BULK_HEADER_BYTES, BULK_HEADER_BYTES + bodyLen);
-  let meta: BulkAssetManifestMeta | null = null;
-  if (frameType === BULK_FRAME_TYPES.MANIFEST && bodyLen > 0) {
-    try {
-      const parsed = JSON.parse(utf8Decoder.decode(body)) as unknown;
-      if (parsed && typeof parsed === 'object') {
-        meta = parsed as BulkAssetManifestMeta;
-      }
-    } catch {
-      return null;
-    }
-  }
+  const assetKindCode = view.getUint8(8);
+  const assetKind = BULK_CODE_TO_ASSET_KIND[assetKindCode];
+  if (!assetKind) return null;
 
-  const hex = `${hi.toString(16).padStart(8, '0')}${lo.toString(16).padStart(8, '0')}`;
+  const flags = view.getUint8(9);
+  const chunkIndex = view.getUint32(10, false);
+  const totalChunks = view.getUint32(14, false);
+  const totalBytes = view.getUint32(18, false);
+  const fileHash = view.getUint32(22, false);
+  const metadataLength = view.getUint16(26, false);
+
+  const payloadOffset = BULK_CHUNK_HEADER_BYTES + metadataLength;
+  if (payloadOffset > bytes.byteLength) return null;
+
   return {
-    frameType,
-    assetKind,
+    frameType: BULK_FRAME_TYPES.CHUNK,
+    version,
     transferId,
-    seqOrChunkIndex,
+    assetKind,
+    flags,
+    chunkIndex,
+    totalChunks,
     totalBytes,
-    fileHash: { hi, lo, hex },
-    chunkSizeOrReserved,
-    body,
-    meta,
+    fileHash,
+    metadataBytes: bytes.subarray(BULK_CHUNK_HEADER_BYTES, payloadOffset),
+    payload: bytes.subarray(payloadOffset),
   };
 }
