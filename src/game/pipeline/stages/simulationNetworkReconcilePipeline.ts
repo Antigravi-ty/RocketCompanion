@@ -291,11 +291,13 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
         reconciler.metrics.measuredJitterMs = Math.round(sampled.jitterMs * 10) / 10;
       }
       const shouldRunLookahead =
-        policy.shouldRunLookahead ||
-        (isRemoteReplayWatchTogether &&
-          !flags.isReplayPaused &&
-          !flags.isMatchEnded &&
-          !flags.isGoalReplay);
+        (policy.shouldRunLookahead ||
+          (isRemoteReplayWatchTogether &&
+            !flags.isReplayPaused &&
+            !flags.isMatchEnded &&
+            !flags.isGoalReplay)) &&
+        !matchState.paused &&
+        !(isRemoteReplayWatchTogether && sampled?.cursorState === 'stalled');
       const applied = applySpectateSampleOrLookahead({
         buffer: spectateInterpolationBuffer,
         sampled,

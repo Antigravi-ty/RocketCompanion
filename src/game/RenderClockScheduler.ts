@@ -79,6 +79,7 @@ export class RenderClockScheduler {
         }
       }
       this.nextFrameTime = 0;
+      this.nextSimTime = 0;
       this.clearFrameTimer();
       this.schedule();
     };
@@ -86,6 +87,18 @@ export class RenderClockScheduler {
     this.measureDisplay = (time: number) => {
       this.displayRequest = null;
       if (this.active() && typeof document !== 'undefined' && !document.hidden) {
+        if (this.simulate && this.pending.length >= 2) {
+          const now = performance.now();
+          if (now >= this.nextSimTime - 0.1) {
+            const simTarget = this.nextSimTime + SIM_INTERVAL_MS;
+            this.nextSimTime = simTarget > now ? simTarget : now + SIM_INTERVAL_MS;
+            try {
+              this.simulate(now);
+            } catch (simErr) {
+              console.error('[RenderClockScheduler] Uncaught error during simulation tick:', simErr);
+            }
+          }
+        }
         this.displayFrame(time);
         if (typeof requestAnimationFrame === 'function') {
           this.displayRequest = requestAnimationFrame(this.measureDisplay);
@@ -360,7 +373,7 @@ export class RenderClockScheduler {
     if (effectiveInterval > 0) {
       const now = performance.now();
       const nextTargetTime =
-        this.simulate && effectiveInterval > SIM_INTERVAL_MS && this.nextSimTime > 0
+        this.simulate && this.nextSimTime > 0
           ? Math.min(this.nextFrameTime, this.nextSimTime)
           : this.nextFrameTime;
       const waitMs = Math.max(

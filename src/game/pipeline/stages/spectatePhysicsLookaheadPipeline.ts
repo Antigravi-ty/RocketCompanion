@@ -189,10 +189,14 @@ export function applySpectateSampleOrLookahead(params: {
   ) {
     const dtMs =
       state.lastLookaheadMs > 0
-        ? Math.max(0, Math.min(50, now - state.lastLookaheadMs))
+        ? Math.max(0, Math.min(200, now - state.lastLookaheadMs))
         : SPECTATE_TICK_MS;
     state.lastLookaheadMs = now;
-    const ticksToStep = Math.max(1, Math.min(4, Math.round(dtMs / SPECTATE_TICK_MS)));
+    const remainingLookahead = Math.max(1, SPECTATE_LOOKAHEAD_MAX_TICKS - state.lookaheadTicksActive);
+    const ticksToStep = Math.max(
+      1,
+      Math.min(24, remainingLookahead, Math.round(dtMs / SPECTATE_TICK_MS))
+    );
     const prevTick = Math.max(16, getCurrentEngineTick(physics), state.lastAppliedTick);
     if (state.lastAcknowledgedControls && typeof physics.setCarControls === 'function') {
       for (let i = 0; i < state.lastAcknowledgedControls.length; i++) {
