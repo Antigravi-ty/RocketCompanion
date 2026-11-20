@@ -202,6 +202,9 @@ export function applySpectateSampleOrLookahead(params: {
         }
       }
     }
+    if (typeof physics.setSimulationFrozen === 'function') {
+      physics.setSimulationFrozen(false, 0, false);
+    }
     for (let t = 0; t < ticksToStep; t++) {
       physics.step(1);
     }

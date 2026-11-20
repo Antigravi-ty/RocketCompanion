@@ -25,6 +25,8 @@ export class RenderClockScheduler {
   displayRequest: number | null = null;
   frameTimer: ReturnType<typeof setTimeout> | null = null;
   frameTask: AbortController | null = null;
+  bgWorker: Worker | null = null;
+  bgWorkerUrl: string | null = null;
   frameInterval = 0;
   unfocusedFrameInterval = 1000 / 30;
   nextFrameTime = 0;
@@ -238,6 +240,7 @@ export class RenderClockScheduler {
 
   dispose(): void {
     this.running = false;
+    this.stopBackgroundWorker();
     this.clearFrameTimer();
     this.clearPending();
 
@@ -254,6 +257,53 @@ export class RenderClockScheduler {
     if (this.gl && this.gl.canvas) {
       this.gl.canvas.removeEventListener('webglcontextlost', this.wake);
       this.gl.canvas.removeEventListener('webglcontextrestored', this.wake);
+    }
+  }
+
+  startBackgroundWorker(): void {
+    if (this.bgWorker || !this.simulate || !this.active()) return;
+    if (typeof Worker === 'undefined' || typeof Blob === 'undefined' || typeof URL === 'undefined') {
+      return;
+    }
+    try {
+      const code = 'const id=setInterval(()=>postMessage(0),8);onmessage=()=>{clearInterval(id);close();};';
+      const blob = new Blob([code], { type: 'application/javascript' });
+      const url = URL.createObjectURL(blob);
+      const worker = new Worker(url);
+      worker.onmessage = () => {
+        if (!this.active() || typeof document === 'undefined' || !document.hidden) {
+          this.stopBackgroundWorker();
+          return;
+        }
+        this.queueTick();
+      };
+      worker.onerror = () => {
+        this.stopBackgroundWorker();
+      };
+      this.bgWorker = worker;
+      this.bgWorkerUrl = url;
+    } catch {
+      this.stopBackgroundWorker();
+    }
+  }
+
+  stopBackgroundWorker(): void {
+    if (this.bgWorker) {
+      try {
+        this.bgWorker.postMessage(null);
+        this.bgWorker.terminate();
+      } catch {
+        // Ignore
+      }
+      this.bgWorker = null;
+    }
+    if (this.bgWorkerUrl) {
+      try {
+        URL.revokeObjectURL(this.bgWorkerUrl);
+      } catch {
+        // Ignore
+      }
+      this.bgWorkerUrl = null;
     }
   }
 

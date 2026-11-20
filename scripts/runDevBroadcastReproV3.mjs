@@ -253,11 +253,39 @@ async function main() {
     // =========================================================================
     // REPRO 1: Goal Replay enters on Client, but has no dynamics (static)
     // =========================================================================
+    await clientCdp.eval(`(() => {
+      window.__rcBug1Samples = [];
+      window.__rcBug1Sampling = true;
+      function sampleTick() {
+        const rt = window.__rcE2E?.runtime;
+        if (rt) {
+          const phase = rt.match?.state?.phase ?? null;
+          const hudPhase = window.__rcE2E.getHudState?.()?.matchPhase ?? null;
+          if (phase === 'replay' || hudPhase === 'replay') {
+            const bv = rt.physics.getBallStateView();
+            const simStage = rt.pipeline?.stages?.find?.((s) => s.spectateInterpolationBuffer);
+            window.__rcBug1Samples.push({
+              phase,
+              hudPhase,
+              camMode: rt.arena?.cameraMode ?? null,
+              override: Boolean(rt.isGoalReplayCameraOverrideActive?.()),
+              bx: Math.round(bv.posX * 10) / 10,
+              by: Math.round(bv.posY * 10) / 10,
+              bz: Math.round(bv.posZ * 10) / 10,
+              bufFrames: simStage?.spectateInterpolationBuffer?.getStats?.()?.bufferedFrames ?? -1,
+            });
+          }
+        }
+        if (window.__rcBug1Sampling) requestAnimationFrame(sampleTick);
+      }
+      requestAnimationFrame(sampleTick);
+    })()`);
+
     await hostCdp.send('Page.bringToFront');
     await hostCdp.eval(`(() => {
       window.__rcE2E.runtime.physics.setBallState({
-        pos: [0, 4850, 95],
-        vel: [0, 2950, 40],
+        pos: [0, 1500, 95],
+        vel: [0, 2000, 200],
         angVel: [0, 0, 0],
       });
     })()`);
@@ -267,7 +295,7 @@ async function main() {
           `Boolean(window.__rcE2E.runtime.modeManager?.modes?.get?.('freeplay')?.isGoalReplayActive?.())`
         ),
       'Host enters Freeplay Goal Replay',
-      10_000
+      20_000
     );
     await waitFor(
       () =>
@@ -275,42 +303,34 @@ async function main() {
           `window.__rcE2E.runtime.match?.state?.phase === 'replay' || window.__rcE2E.getHudState?.()?.matchPhase === 'replay'`
         ),
       'Client enters Goal Replay',
-      6_000
+      10_000
     ).catch(() => {});
+    await waitFor(
+      () =>
+        hostCdp.eval(
+          `!window.__rcE2E.runtime.modeManager?.modes?.get?.('freeplay')?.isGoalReplayActive?.()`
+        ),
+      'Host exits Freeplay Goal Replay',
+      30_000
+    ).catch(() => {});
+    await new Promise((r) => setTimeout(r, 300));
 
-    const replaySamples = [];
-    for (let i = 0; i < 6; i++) {
-      await new Promise((r) => setTimeout(r, 200));
-      const cSample = await clientCdp.eval(`(() => {
-        const rt = window.__rcE2E.runtime;
-        const bv = rt.physics.getBallStateView();
-        const simStage = rt.pipeline?.stages?.find?.((s) => s.spectateInterpolationBuffer);
-        return {
-          phase: rt.match?.state?.phase ?? null,
-          hudPhase: window.__rcE2E.getHudState?.()?.matchPhase ?? null,
-          camMode: rt.arena?.cameraMode ?? null,
-          override: Boolean(rt.isGoalReplayCameraOverrideActive?.()),
-          bx: Math.round(bv.posX * 10) / 10,
-          by: Math.round(bv.posY * 10) / 10,
-          bz: Math.round(bv.posZ * 10) / 10,
-          bufFrames: simStage?.spectateInterpolationBuffer?.getStats?.()?.bufferedFrames ?? -1,
-        };
-      })()`);
-      replaySamples.push(cSample);
-    }
+    const replaySamples = await clientCdp.eval(`(() => {
+      window.__rcBug1Sampling = false;
+      const arr = Array.isArray(window.__rcBug1Samples) ? window.__rcBug1Samples : [];
+      return arr.filter((s) => s.phase === 'replay' || s.hudPhase === 'replay');
+    })()`);
 
     const distinctBallPositions = new Set(
       replaySamples.map((s) => `${s.bx},${s.by},${s.bz}`)
     ).size;
-    const enteredReplay = replaySamples.some(
-      (s) => s.phase === 'replay' || s.hudPhase === 'replay'
-    );
+    const enteredReplay = replaySamples.length > 0;
     const bug1Reproduced = !enteredReplay || distinctBallPositions <= 2;
     record(
       'bug-1-goal-replay-client-static-no-dynamics',
       'Client Enters Goal Replay Without Ball/Car Dynamics',
       bug1Reproduced,
-      { enteredReplay, distinctBallPositions, replaySamples }
+      { enteredReplay, distinctBallPositions, sampleCount: replaySamples.length, replaySamples: replaySamples.slice(0, 12) }
     );
 
     // =========================================================================
@@ -333,7 +353,7 @@ async function main() {
       const file = new File([bin], ${JSON.stringify(path.basename(replayPath))}, { type: 'application/octet-stream' });
       const rv = window.__rcE2E.runtime.modeManager.modes.get('freeplay').standaloneReplayViewer;
       await rv.handleUploadFile(file);
-      rv.seekToTime?.(8.0);
+      rv.seekToTime?.(1.0);
       rv.startPlaying();
     })()`);
     await new Promise((r) => setTimeout(r, 2500));
@@ -356,49 +376,114 @@ async function main() {
       requestAnimationFrame(() => requestAnimationFrame(resolve));
     })`);
 
+    const readTeamsAndTags = (cdp) =>
+      cdp.eval(`(() => {
+        const rt = window.__rcE2E.runtime;
+        const nts = rt.arena?.nameTagSystem;
+        const cam = window.__rcE2E.getCamera?.() || rt.camera;
+        const ntState = window.__rcE2E.getNameTagState?.();
+        const carEntries = Array.isArray(ntState?.carEntries)
+          ? [...ntState.carEntries]
+              .map((e) => ({
+                carIndex: e.carIndex,
+                name: e.name || '',
+                team: e.team === 1 ? 1 : 0,
+              }))
+              .sort((a, b) => a.carIndex - b.carIndex)
+          : [];
+        const tags = [
+          ...(nts?._visibleCards2D || []),
+          ...(nts?._offscreenIndicators2D || []),
+        ].map((c) => ({ carIndex: c.carIndex, displayText: c.displayText }));
+        return {
+          numCars: rt.physics.getHeaderView().numCars,
+          arenaCarTeams: (rt.arena?.carTeams || []).slice(0, 6),
+          carEntries,
+          tagsCount: tags.length,
+          cam: {
+            focusedCarIndex: cam?.focusedCarIndex ?? null,
+            ballCam: typeof cam?.ballCam === 'boolean' ? cam.ballCam : null,
+            isFreeCam: Boolean(cam?.isFreeCam),
+          },
+        };
+      })()`);
+
     const [hostTeamsAndTags, clientTeamsAndTags] = await Promise.all([
-      hostCdp.eval(`(() => {
-        const rt = window.__rcE2E.runtime;
-        const nts = rt.arena?.nameTagSystem;
-        const tags = [
-          ...(nts?._visibleCards2D || []),
-          ...(nts?._offscreenIndicators2D || []),
-        ].map((c) => ({ carIndex: c.carIndex, displayText: c.displayText }));
-        return {
-          numCars: rt.physics.getHeaderView().numCars,
-          arenaCarTeams: (rt.arena?.carTeams || []).slice(0, 6),
-          tags,
-        };
-      })()`),
-      clientCdp.eval(`(() => {
-        const rt = window.__rcE2E.runtime;
-        const nts = rt.arena?.nameTagSystem;
-        const tags = [
-          ...(nts?._visibleCards2D || []),
-          ...(nts?._offscreenIndicators2D || []),
-        ].map((c) => ({ carIndex: c.carIndex, displayText: c.displayText }));
-        return {
-          numCars: rt.physics.getHeaderView().numCars,
-          arenaCarTeams: (rt.arena?.carTeams || []).slice(0, 6),
-          tags,
-        };
-      })()`),
+      readTeamsAndTags(hostCdp),
+      readTeamsAndTags(clientCdp),
     ]);
 
-    const hostTagByIdx = new Map(hostTeamsAndTags.tags.map((t) => [t.carIndex, t.displayText]));
-    const clientTagByIdx = new Map(clientTeamsAndTags.tags.map((t) => [t.carIndex, t.displayText]));
-    const tagTextMismatches = [];
-    for (const [idx, hText] of hostTagByIdx.entries()) {
-      const cText = clientTagByIdx.get(idx) ?? null;
-      if (cText !== hText) {
-        tagTextMismatches.push({ carIndex: idx, host: hText, client: cText });
+    const carEntryMismatches = [];
+    for (let i = 0; i < 6; i++) {
+      const hEntry = hostTeamsAndTags.carEntries.find((e) => e.carIndex === i) ?? null;
+      const cEntry = clientTeamsAndTags.carEntries.find((e) => e.carIndex === i) ?? null;
+      if (
+        !hEntry ||
+        !cEntry ||
+        hEntry.name !== cEntry.name ||
+        hEntry.team !== cEntry.team
+      ) {
+        carEntryMismatches.push({ carIndex: i, host: hEntry, client: cEntry });
       }
     }
     const teamMismatch =
       JSON.stringify(hostTeamsAndTags.arenaCarTeams) !==
-      JSON.stringify(clientTeamsAndTags.arenaCarTeams);
+        JSON.stringify(clientTeamsAndTags.arenaCarTeams) ||
+      JSON.stringify(clientTeamsAndTags.arenaCarTeams) !== JSON.stringify([0, 0, 0, 1, 1, 1]);
+
+    // Edge-triggered camera sync verification:
+    // 1. Host switches focusedCarIndex -> 2, ballCam -> false => Client must follow
+    await hostCdp.eval(`(() => {
+      const cam = window.__rcE2E.getCamera();
+      cam.setFocusedCarIndex(2);
+      cam.ballCam = false;
+    })()`);
+    const clientAfterHostEdge1 = await waitFor(
+      async () => {
+        const c = await readTeamsAndTags(clientCdp);
+        return c.cam.focusedCarIndex === 2 && c.cam.ballCam === false ? c.cam : null;
+      },
+      'Client edge-triggered camera sync (car 2, ballCam=false)',
+      5_000,
+      100
+    ).catch(() => null);
+
+    // 2. Client locally switches focusedCarIndex -> 4 while Host stays idle => Client stays on 4
+    await clientCdp.eval(`window.__rcE2E.getCamera().setFocusedCarIndex(4)`);
+    await new Promise((r) => setTimeout(r, 1200));
+    const clientAfterLocalSwitch = (await readTeamsAndTags(clientCdp)).cam;
+
+    // 3. Host switches focusedCarIndex -> 5, ballCam -> true => Client snaps to Host
+    await hostCdp.eval(`(() => {
+      const cam = window.__rcE2E.getCamera();
+      cam.setFocusedCarIndex(5);
+      cam.ballCam = true;
+    })()`);
+    const clientAfterHostEdge2 = await waitFor(
+      async () => {
+        const c = await readTeamsAndTags(clientCdp);
+        return c.cam.focusedCarIndex === 5 && c.cam.ballCam === true ? c.cam : null;
+      },
+      'Client edge-triggered camera sync (car 5, ballCam=true)',
+      5_000,
+      100
+    ).catch(() => null);
+
+    // Restore Host camera to car 0
+    await hostCdp.eval(`window.__rcE2E.getCamera().setFocusedCarIndex(0)`);
+
+    const edgeSyncOk =
+      Boolean(clientAfterHostEdge1) &&
+      clientAfterLocalSwitch.focusedCarIndex === 4 &&
+      Boolean(clientAfterHostEdge2);
+
     const bug2Reproduced =
-      teamMismatch || tagTextMismatches.length > 0 || clientTeamsAndTags.tags.length === 0;
+      teamMismatch ||
+      hostTeamsAndTags.carEntries.length !== 6 ||
+      clientTeamsAndTags.carEntries.length !== 6 ||
+      carEntryMismatches.length > 0 ||
+      clientTeamsAndTags.tagsCount === 0 ||
+      !edgeSyncOk;
     record(
       'bug-2-replay-nametag-and-team-desync',
       'Replay Watch Together: Client NameTags & arena.carTeams Not Synced',
@@ -407,7 +492,13 @@ async function main() {
         host: hostTeamsAndTags,
         client: clientTeamsAndTags,
         teamMismatch,
-        tagTextMismatches,
+        carEntryMismatches,
+        edgeSync: {
+          edgeSyncOk,
+          clientAfterHostEdge1,
+          clientAfterLocalSwitch,
+          clientAfterHostEdge2,
+        },
       }
     );
 

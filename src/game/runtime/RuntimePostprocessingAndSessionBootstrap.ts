@@ -13,6 +13,7 @@ import {
   resetSpectateWorkspaceOnLeave,
   useTelestratorStore,
   hudStore,
+  getNameTagRuntimeState,
 } from '../runtimeUiPort.ts';
 import { BallTrajectoryPredictor } from '../../entities/BallTrajectoryPredictor.ts';
 import { bindBallTrajectoryAnomalyUiBridge } from '../../entities/trajectory/ballTrajectoryAnomalyUiBridge.ts';
@@ -385,6 +386,7 @@ export function createSceneVisualizersAndMultiplayerSession(params: {
       getSessionCoordinator: () => sessionCoordinator,
       getPhysics: () => physics,
       getCamera: () => camera,
+      getNameTagState: () => getNameTagRuntimeState(),
       gameAudio,
     };
   }
