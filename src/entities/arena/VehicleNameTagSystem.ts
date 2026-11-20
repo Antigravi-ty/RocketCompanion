@@ -80,6 +80,9 @@ export class VehicleNameTagSystem {
 
     if (!shouldShowVehicleNameTags(config, runtimeState, arena, numCars)) {
       this.root.visible = false;
+      this._visibleSprites.length = 0;
+      this._visibleCards2D.length = 0;
+      this._offscreenIndicators2D.length = 0;
       hideOverlayCanvas(this._overlayState);
       return;
     }
