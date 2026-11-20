@@ -2,6 +2,10 @@ import { HOST_WORKER_MSG_TYPES as MSG } from '../protocol/HostWorkerProtocol.ts'
 import { REPLICATION_MODES } from '../protocol/ReplicationBusProtocol.ts';
 import { RoomActivityOrchestrator } from './RoomActivityOrchestrator.ts';
 import type { WorkerRouterContext } from './workerReplayAndDiagnosticsRouter.ts';
+import type {
+  WorkerBusActivityMode,
+  WorkerBusPlaybackState,
+} from './StateFrameSlidingWindow.ts';
 
 export interface ActivityAndInputPayload {
   activityId?: string;
@@ -18,6 +22,15 @@ export interface ActivityAndInputPayload {
   cameraMode?: string;
   controlType?: string;
   controlPayload?: Record<string, unknown>;
+  activityMode?: WorkerBusActivityMode;
+  broadcastHz?: number;
+  metadataHash?: number;
+  playbackState?: WorkerBusPlaybackState;
+  playbackSpeed?: number;
+  totalFrames?: number;
+  replayFps?: number;
+  seekFrameIndex?: number;
+  ackedTxSeq?: number;
 }
 
 export function routeActivityAndInputMessage(
@@ -142,6 +155,51 @@ export function routeActivityAndInputMessage(
         typeof p.cameraMode === 'string' ? p.cameraMode : undefined
       );
       reply(MSG.ROOM_CSR_STATE_BROADCAST, csr);
+      return true;
+    }
+
+    case MSG.WORKER_BUS_CONFIGURE: {
+      const bus = workerCtx.authorityBus;
+      if (bus) {
+        if (p.activityMode) bus.setActivityMode(p.activityMode);
+        if (typeof p.broadcastHz === 'number') bus.setBroadcastHz(p.broadcastHz);
+        if (typeof p.metadataHash === 'number') bus.setMetadataHash(p.metadataHash);
+        reply(MSG.WORKER_BUS_CONFIGURE, {
+          activityMode: bus.getActivityMode(),
+          broadcastHz: bus.getBroadcastHz(),
+          latestTxSeq: bus.slidingWindow.getLatestTxSeq(),
+        });
+      }
+      return true;
+    }
+
+    case MSG.WORKER_BUS_REPLAY_CONTROL: {
+      const bus = workerCtx.authorityBus;
+      if (bus) {
+        bus.configureReplayCursor({
+          playbackState: p.playbackState,
+          playbackSpeed: p.playbackSpeed,
+          totalFrames: p.totalFrames,
+          replayFps: p.replayFps,
+          seekFrameIndex: p.seekFrameIndex,
+        });
+        reply(MSG.WORKER_BUS_REPLAY_CONTROL, bus.getReplayCursor());
+      }
+      return true;
+    }
+
+    case MSG.WORKER_BUS_TX_SEQ_ACK: {
+      const chId = p.channelId || p.sessionId;
+      const ackSeq = typeof p.ackedTxSeq === 'number' ? p.ackedTxSeq : 0;
+      let recorded = 0;
+      if (chId && ackSeq > 0) {
+        if (workerCtx.authorityBus) {
+          recorded = workerCtx.authorityBus.recordSessionTxSeqAck(chId, ackSeq);
+        } else if (workerCtx.sessionManager) {
+          recorded = workerCtx.sessionManager.recordClientTxSeqAck(chId, ackSeq);
+        }
+      }
+      reply(MSG.WORKER_BUS_TX_SEQ_ACK, { channelId: chId, ackedTxSeq: recorded });
       return true;
     }
 

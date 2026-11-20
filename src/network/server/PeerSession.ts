@@ -57,6 +57,7 @@ export class PeerSession {
   acknowledgedSignalIds = new Set<number>();
   processedCommandIds = new Set<number>();
   lastAckedCommandId = 0;
+  lastAckedTxSeq = 0;
   isInputStale = false;
   deferPhysicsRegistration: boolean;
 
@@ -95,6 +96,13 @@ export class PeerSession {
       this._lastValidInputTime = serverNowMs;
       this.isInputStale = false;
     }
+  }
+
+  _recordTxSeqAck(ackedTxSeq: number): number {
+    if (Number.isFinite(ackedTxSeq) && ackedTxSeq > this.lastAckedTxSeq) {
+      this.lastAckedTxSeq = Math.floor(ackedTxSeq);
+    }
+    return this.lastAckedTxSeq;
   }
 
   updateRtt(measuredRtt: number): void {

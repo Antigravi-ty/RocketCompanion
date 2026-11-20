@@ -178,6 +178,32 @@ export class EstablishedSessionManager {
     return this.signalBuffer.acknowledgeSignals(sessionId, acks, this._getHumanAckSessionIds());
   }
 
+  recordClientTxSeqAck(sessionId: string, ackedTxSeq: number): number {
+    if (!sessionId) return 0;
+    const session = this.sessions.get(sessionId);
+    if (!session) return 0;
+    return session._recordTxSeqAck(ackedTxSeq);
+  }
+
+  getSessionLastAckedTxSeq(sessionId: string): number {
+    const session = this.sessions.get(sessionId);
+    return session ? session.lastAckedTxSeq : 0;
+  }
+
+  getMinHumanAckedTxSeq(): number {
+    const humanIds = this._getHumanAckSessionIds();
+    if (humanIds.length === 0) return 0;
+    let minSeq = Infinity;
+    for (let i = 0; i < humanIds.length; i++) {
+      const session = this.sessions.get(humanIds[i]);
+      if (!session) continue;
+      if (session.lastAckedTxSeq < minSeq) {
+        minSeq = session.lastAckedTxSeq;
+      }
+    }
+    return Number.isFinite(minSeq) ? minSeq : 0;
+  }
+
   ingestClientCommands(
     sessionId: string,
     commands: PiggybackedClientCommand[],
