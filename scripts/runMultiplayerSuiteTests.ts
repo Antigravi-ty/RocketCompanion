@@ -134,13 +134,19 @@ import {
   evaluateSimulationFrameFlags,
 } from '../src/game/pipeline/stages/simulationFrameClassifierPipeline.ts';
 import { stepNetworkReconciliationAndReplayStream } from '../src/game/pipeline/stages/simulationNetworkReconcilePipeline.ts';
+import { createSoftTimeoutWatchdog } from './lib/softTimeoutWatchdog.mjs';
 
-function runSection(name: string, fn: () => void | Promise<void>): Promise<void> {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      console.log(`[PASS] ${name}`);
-    });
+let activeWatchdog: ReturnType<typeof createSoftTimeoutWatchdog> | null = null;
+
+async function runSection(name: string, fn: () => void | Promise<void>): Promise<void> {
+  if (activeWatchdog) {
+    await activeWatchdog.runStage(name, fn);
+    return;
+  }
+  const t0 = Date.now();
+  process.stdout.write(`[MultiplayerSuite] [START] ${name}\n`);
+  await Promise.resolve().then(fn);
+  process.stdout.write(`[PASS] ${name} (${Date.now() - t0}ms)\n`);
 }
 
 async function testTunnelAndKickLeaveSignaling(): Promise<void> {
@@ -2061,120 +2067,127 @@ async function testCustomTrainingPackAndRoomMatchAutoPull(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  console.log('=== RocketCompanion Multiplayer Suite Test Matrix ===');
-  await runSection(
-    '1. Tunnel Transport & Kick/Leave Bidirectional Signaling',
-    testTunnelAndKickLeaveSignaling
-  );
-  await runSection(
-    '2. Voice Routing (open | team_only + Lobby all-chat | off)',
-    testVoiceRoutingPolicies
-  );
-  await runSection(
-    '3. Multiplayer Training (4 Boost Modes + GhostBallRelay)',
-    testMultiplayerTrainingAndGhostRelay
-  );
-  await runSection(
-    '4. Spectating & GlobalWorkspaceBroadcast + Pause ACK',
-    testSpectatingAndGlobalWorkspace
-  );
-  await runSection(
-    '5. Telestrator 50-Stroke Stress Test & HashAck',
-    testTelestratorStressAndHashAck
-  );
-  await runSection(
-    '6. MultiClientLoopbackSimulator Bot Takeover & 6-Car Matrix',
-    testMultiClientLoopbackBotMatrix
-  );
-  await runSection(
-    '7. WebRTC-First & Rust UDP Tunnel Automatic Fallback',
-    testWebRtcFirstAndTunnelFallbackPath
-  );
-  await runSection(
-    '8. Host Prewarmed Peer Rename & Tunnel Endpoint Routing',
-    testHostPrewarmedPeerRenameAndTunnelEndpoint
-  );
-  await runSection(
-    '9. ROOM_ACTIVITY_SWITCH Wire Delivery & Epoch Ordering',
-    testRoomActivitySwitchWireAndEpochOrdering
-  );
-  await runSection(
-    '10. ReliableTunnelFramer Multi-Chunk Out-of-Order & Loss Recovery',
-    testReliableTunnelFramerOutOfOrderAndMultiDrop
-  );
-  await runSection(
-    '11. Pure CSR Sync All, Dual-End Input Gating & Workspace Broadcast',
-    testPureCsrSyncAllAndDualInputGating
-  );
-  await runSection(
-    '12. Telestrator (0x05) Full-Link Sync, Dual-Store Linkage & Permission Gating',
-    testTelestratorFullLinkSyncAndPermissions
-  );
-  await runSection(
-    '13. Replay Watch Together (Pure CSR Frame Injection, Pause/Seek & Camera Sync)',
-    testReplayWatchTogetherAndCameraSync
-  );
-  await runSection(
-    '14. Custom Training Pack (training_shot_reset + Metadata Sync) & Room Match Auto-Pull',
-    testCustomTrainingPackAndRoomMatchAutoPull
-  );
-  await runSection(
-    '15. Dev Sync Room Lifecycle Preservation on Mode Switch & Client Spectate Default',
-    testDevSyncRoomLifecyclePreservationAndSpectateDefault
-  );
-  await runSection(
-    '16. SpectateInterpolationBuffer (Reverse-Delay Jitter Buffer & Sub-Tick Interpolation)',
-    testSpectateInterpolationBufferReverseDelay
-  );
-  await runSection(
-    '17. Reliable Pause/Resume ACK, 100ms Retry, Timeout & 1-2Hz Presence Heartbeat',
-    testReliablePauseAckAndHeartbeat
-  );
-  await runSection(
-    '18. Multi-Client CrossTab Isolation & Late-Join Workspace Sync',
-    testMultiClientCrossTabIsolationAndWorkspaceSync
-  );
-  await runSection(
-    '19. Authority Handover & FPV Master/Slave Epoch Fencing',
-    testAuthorityHandoverAndFpvMasterSlave
-  );
-  await runSection(
-    '20. CoachAuthorityHandoverController (Preemption, Handbrake & 300ms Idle Handover)',
-    testCoachAuthorityHandoverController
-  );
-  await runSection(
-    '21. AuthorityCameraSyncTracker (Edge-Triggered Camera Sync & Non-Override)',
-    testAuthorityCameraSyncTracker
-  );
-  await runSection(
-    '22. Pure CSR acknowledgedControls Broadcast, Coach Handover Multi-Client Input & KeyboardInputOverlay Remote Mapping',
-    testPureCsrAcknowledgedControlsAndCoachMultiClientInput
-  );
-  await runSection(
-    '23. Pure CSR pushBroadcastSignal (Countdown, Score, Flip Reset, Ball Reset, Goal Replay & Director Signal)',
-    testPureCsrPushBroadcastSignalsAndGoalReplay
-  );
-  await runSection(
-    '24. Replay Watch Together Metadata, Roster Names/Colors & Edge-Triggered CameraSync Non-Override',
-    testReplayWatchTogetherMetadataRosterAndEdgeCameraSync
-  );
-  await runSection(
-    '25. BoostPadSystem Duplicate Frame Skip & Cooldown Micro-Jitter Debounce (Bug 4 / C-Track)',
-    testBoostPadDuplicateFrameAndJitterDebounce
-  );
-  await runSection(
-    '26. client-csr-spectate Physics Lookahead & Convergence (Bug 3 / B-Track)',
-    testClientCsrSpectateLookaheadAndConvergence
-  );
-  await runSection(
-    '27. Host Freeplay Goal Replay Broadcast Policy & Sim-Only Stepping (Bug 1 / Track B)',
-    testHostGoalReplayBroadcastAndSimOnlyStepping
-  );
-  await runSection(
-    '28. Freeplay Goal Replay Leading Idle Kickoff Trim (Bug 1 / CC-Track)',
-    testFreeplayGoalReplayLeadingIdleTrim
-  );
-  console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
+  const watchdog = createSoftTimeoutWatchdog({ label: 'MultiplayerSuite' });
+  activeWatchdog = watchdog;
+  try {
+    console.log('=== RocketCompanion Multiplayer Suite Test Matrix ===');
+    await runSection(
+      '1. Tunnel Transport & Kick/Leave Bidirectional Signaling',
+      testTunnelAndKickLeaveSignaling
+    );
+    await runSection(
+      '2. Voice Routing (open | team_only + Lobby all-chat | off)',
+      testVoiceRoutingPolicies
+    );
+    await runSection(
+      '3. Multiplayer Training (4 Boost Modes + GhostBallRelay)',
+      testMultiplayerTrainingAndGhostRelay
+    );
+    await runSection(
+      '4. Spectating & GlobalWorkspaceBroadcast + Pause ACK',
+      testSpectatingAndGlobalWorkspace
+    );
+    await runSection(
+      '5. Telestrator 50-Stroke Stress Test & HashAck',
+      testTelestratorStressAndHashAck
+    );
+    await runSection(
+      '6. MultiClientLoopbackSimulator Bot Takeover & 6-Car Matrix',
+      testMultiClientLoopbackBotMatrix
+    );
+    await runSection(
+      '7. WebRTC-First & Rust UDP Tunnel Automatic Fallback',
+      testWebRtcFirstAndTunnelFallbackPath
+    );
+    await runSection(
+      '8. Host Prewarmed Peer Rename & Tunnel Endpoint Routing',
+      testHostPrewarmedPeerRenameAndTunnelEndpoint
+    );
+    await runSection(
+      '9. ROOM_ACTIVITY_SWITCH Wire Delivery & Epoch Ordering',
+      testRoomActivitySwitchWireAndEpochOrdering
+    );
+    await runSection(
+      '10. ReliableTunnelFramer Multi-Chunk Out-of-Order & Loss Recovery',
+      testReliableTunnelFramerOutOfOrderAndMultiDrop
+    );
+    await runSection(
+      '11. Pure CSR Sync All, Dual-End Input Gating & Workspace Broadcast',
+      testPureCsrSyncAllAndDualInputGating
+    );
+    await runSection(
+      '12. Telestrator (0x05) Full-Link Sync, Dual-Store Linkage & Permission Gating',
+      testTelestratorFullLinkSyncAndPermissions
+    );
+    await runSection(
+      '13. Replay Watch Together (Pure CSR Frame Injection, Pause/Seek & Camera Sync)',
+      testReplayWatchTogetherAndCameraSync
+    );
+    await runSection(
+      '14. Custom Training Pack (training_shot_reset + Metadata Sync) & Room Match Auto-Pull',
+      testCustomTrainingPackAndRoomMatchAutoPull
+    );
+    await runSection(
+      '15. Dev Sync Room Lifecycle Preservation on Mode Switch & Client Spectate Default',
+      testDevSyncRoomLifecyclePreservationAndSpectateDefault
+    );
+    await runSection(
+      '16. SpectateInterpolationBuffer (Reverse-Delay Jitter Buffer & Sub-Tick Interpolation)',
+      testSpectateInterpolationBufferReverseDelay
+    );
+    await runSection(
+      '17. Reliable Pause/Resume ACK, 100ms Retry, Timeout & 1-2Hz Presence Heartbeat',
+      testReliablePauseAckAndHeartbeat
+    );
+    await runSection(
+      '18. Multi-Client CrossTab Isolation & Late-Join Workspace Sync',
+      testMultiClientCrossTabIsolationAndWorkspaceSync
+    );
+    await runSection(
+      '19. Authority Handover & FPV Master/Slave Epoch Fencing',
+      testAuthorityHandoverAndFpvMasterSlave
+    );
+    await runSection(
+      '20. CoachAuthorityHandoverController (Preemption, Handbrake & 300ms Idle Handover)',
+      testCoachAuthorityHandoverController
+    );
+    await runSection(
+      '21. AuthorityCameraSyncTracker (Edge-Triggered Camera Sync & Non-Override)',
+      testAuthorityCameraSyncTracker
+    );
+    await runSection(
+      '22. Pure CSR acknowledgedControls Broadcast, Coach Handover Multi-Client Input & KeyboardInputOverlay Remote Mapping',
+      testPureCsrAcknowledgedControlsAndCoachMultiClientInput
+    );
+    await runSection(
+      '23. Pure CSR pushBroadcastSignal (Countdown, Score, Flip Reset, Ball Reset, Goal Replay & Director Signal)',
+      testPureCsrPushBroadcastSignalsAndGoalReplay
+    );
+    await runSection(
+      '24. Replay Watch Together Metadata, Roster Names/Colors & Edge-Triggered CameraSync Non-Override',
+      testReplayWatchTogetherMetadataRosterAndEdgeCameraSync
+    );
+    await runSection(
+      '25. BoostPadSystem Duplicate Frame Skip & Cooldown Micro-Jitter Debounce (Bug 4 / C-Track)',
+      testBoostPadDuplicateFrameAndJitterDebounce
+    );
+    await runSection(
+      '26. client-csr-spectate Physics Lookahead & Convergence (Bug 3 / B-Track)',
+      testClientCsrSpectateLookaheadAndConvergence
+    );
+    await runSection(
+      '27. Host Freeplay Goal Replay Broadcast Policy & Sim-Only Stepping (Bug 1 / Track B)',
+      testHostGoalReplayBroadcastAndSimOnlyStepping
+    );
+    await runSection(
+      '28. Freeplay Goal Replay Leading Idle Kickoff Trim (Bug 1 / CC-Track)',
+      testFreeplayGoalReplayLeadingIdleTrim
+    );
+    console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
+  } finally {
+    activeWatchdog = null;
+    watchdog.dispose();
+  }
 }
 
 async function testDevSyncRoomLifecyclePreservationAndSpectateDefault(): Promise<void> {

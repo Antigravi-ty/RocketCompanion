@@ -15,15 +15,15 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { createServer } from 'vite';
+import { createSoftTimeoutWatchdog, resolveSoftLimitMs } from './lib/softTimeoutWatchdog.mjs';
 
 const DEFAULT_OUT_PATH = '/tmp/multiplayer-room-repro-report.json';
-const DEFAULT_MAX_DURATION_MS = 270_000;
 const PER_MODE_TIMEOUT_MS = 115_000;
 
 function parseCliArgs(argv) {
   let mode = 'all';
   let speed = 1;
-  let maxDurationMs = DEFAULT_MAX_DURATION_MS;
+  let maxDurationMs = resolveSoftLimitMs();
   let outPath = DEFAULT_OUT_PATH;
   let bridgeSignaling = true;
   let chaos = false;
@@ -53,7 +53,7 @@ function parseCliArgs(argv) {
     } else if (arg.startsWith('--max-duration-ms=')) {
       maxDurationMs = Math.max(
         15_000,
-        Number(arg.slice('--max-duration-ms='.length)) || DEFAULT_MAX_DURATION_MS
+        Number(arg.slice('--max-duration-ms='.length)) || resolveSoftLimitMs()
       );
     } else if (arg.startsWith('--out=')) {
       outPath = arg.slice('--out='.length).trim() || DEFAULT_OUT_PATH;
@@ -272,16 +272,25 @@ async function main() {
     activeChromeProc = null;
   };
 
-  const watchdogTimer = setTimeout(() => {
-    autoTerminatedByWatchdog = true;
-    console.warn(
-      `\n[MultiplayerRoomRepro] 4.5-minute auto-termination watchdog (${opts.maxDurationMs}ms) reached! Terminating active browser and flushing collected telemetry...`
-    );
-    killActiveChrome();
-    if (modeCompletionNotifier) {
-      modeCompletionNotifier('watchdog');
-    }
-  }, opts.maxDurationMs);
+  const watchdog = createSoftTimeoutWatchdog({
+    label: 'MultiplayerRoomRepro',
+    softLimitMs: opts.maxDurationMs,
+    autoExitOnTimeout: false,
+    onTimeout: () => {
+      autoTerminatedByWatchdog = true;
+      killActiveChrome();
+      if (modeCompletionNotifier) {
+        modeCompletionNotifier('watchdog');
+      }
+    },
+    onSignal: () => {
+      autoTerminatedByWatchdog = true;
+      killActiveChrome();
+      if (modeCompletionNotifier) {
+        modeCompletionNotifier('signal');
+      }
+    },
+  });
 
   const chromeBin = process.env.CHROME_BIN || '/usr/bin/google-chrome';
 
@@ -466,7 +475,7 @@ async function main() {
     }
   }
 
-  clearTimeout(watchdogTimer);
+  watchdog.dispose();
   await server.close();
 
   for (const m of opts.modesToRun) {

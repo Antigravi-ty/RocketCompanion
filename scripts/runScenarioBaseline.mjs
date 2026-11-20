@@ -12,9 +12,9 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createServer } from 'vite';
+import { createSoftTimeoutWatchdog } from './lib/softTimeoutWatchdog.mjs';
 
 const DEFAULT_OUT_PATH = '/tmp/telemetry-baseline-report.json';
-const TIMEOUT_MS = 270_000;
 
 function parseCliArgs(argv) {
   let scenario = 'all';
@@ -355,13 +355,21 @@ async function main() {
     }
   });
 
-  const timeoutHandle = setTimeout(() => {
-    rejectReport(new Error(`Scenario baseline timed out after ${TIMEOUT_MS}ms`));
-  }, TIMEOUT_MS);
+  const watchdog = createSoftTimeoutWatchdog({
+    label: 'ScenarioRunner',
+    exitCode: 1,
+    onTimeout: async () => {
+      try {
+        chromeProc.kill('SIGKILL');
+      } catch {
+        // Ignore
+      }
+      await server.close().catch(() => {});
+    },
+  });
 
   try {
     const report = await reportPromise;
-    clearTimeout(timeoutHandle);
 
     const resolvedOut = path.resolve(outPath);
     fs.mkdirSync(path.dirname(resolvedOut), { recursive: true });
@@ -370,10 +378,10 @@ async function main() {
     printFormattedBaselineReport(report, resolvedOut);
     process.exitCode = report.overallPassed ? 0 : 1;
   } catch (err) {
-    clearTimeout(timeoutHandle);
     console.error('[ScenarioRunner] Baseline execution failed:', err);
     process.exitCode = 1;
   } finally {
+    watchdog.dispose();
     try {
       chromeProc.kill('SIGKILL');
     } catch {

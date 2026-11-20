@@ -12,9 +12,9 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createServer } from 'vite';
+import { createSoftTimeoutWatchdog } from './lib/softTimeoutWatchdog.mjs';
 
 const DEFAULT_OUT_PATH = '/tmp/soak-watchdog-report.json';
-const TIMEOUT_MS = 180_000;
 
 function parseCliArgs(argv) {
   let scenario = 'freeplay_chaos_soak';
@@ -268,13 +268,21 @@ async function main() {
     }
   });
 
-  const timeoutHandle = setTimeout(() => {
-    rejectReport(new Error(`Soak watchdog timed out after ${TIMEOUT_MS}ms`));
-  }, TIMEOUT_MS);
+  const watchdog = createSoftTimeoutWatchdog({
+    label: 'SoakWatchdog',
+    exitCode: 1,
+    onTimeout: async () => {
+      try {
+        chromeProc.kill('SIGKILL');
+      } catch {
+        // Ignore
+      }
+      await server.close().catch(() => {});
+    },
+  });
 
   try {
     const suiteReport = await reportPromise;
-    clearTimeout(timeoutHandle);
 
     const sc = suiteReport.scenarios?.[0];
     const soakReport = sc?.soakWatchdog;
@@ -300,10 +308,10 @@ async function main() {
       process.exitCode = suiteReport.overallPassed && !tripped ? 0 : 1;
     }
   } catch (err) {
-    clearTimeout(timeoutHandle);
     console.error('[SoakWatchdog] Execution failed:', err);
     process.exitCode = 1;
   } finally {
+    watchdog.dispose();
     try {
       chromeProc.kill('SIGKILL');
     } catch {

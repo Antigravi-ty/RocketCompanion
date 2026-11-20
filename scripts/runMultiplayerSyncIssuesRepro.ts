@@ -29,6 +29,7 @@ import {
   updateKeyboardInputOverlayTelemetry,
 } from '../src/ui-core/config/keyboardInputOverlayTelemetry.ts';
 import { useReplayViewerStore } from '../src/ui-core/stores/replayViewerStore.ts';
+import { createSoftTimeoutWatchdog } from './lib/softTimeoutWatchdog.mjs';
 
 interface ReproResult {
   id: string;
@@ -656,23 +657,42 @@ async function reproIssue5GoalReplayAndCinematicCamera(): Promise<ReproResult> {
 }
 
 async function main() {
-  const results = [
-    await reproIssue1UserInputBroadcastAndOverlay(),
-    await reproIssue2ExhibitionCountdownIncidentsAndTraining(),
-    await reproIssue3FlipResetVisualAndAudioSync(),
-    await reproIssue4ReplayWatchTogetherUiTargetNameColor(),
-    await reproIssue5GoalReplayAndCinematicCamera(),
+  const results: ReproResult[] = [];
+  const watchdog = createSoftTimeoutWatchdog({
+    label: 'SyncIssuesRepro',
+    onTimeout: () => {
+      const reproducedCount = results.filter((r) => r.reproduced).length;
+      process.stderr.write(
+        `[SyncIssuesRepro] Partial summary before timeout: ${reproducedCount}/${results.length} reproduced.\n`
+      );
+    },
+  });
+
+  const tasks: Array<[string, () => Promise<ReproResult>]> = [
+    ['issue-1: User Input Broadcast & Overlay', reproIssue1UserInputBroadcastAndOverlay],
+    ['issue-2: Exhibition Countdown Incidents & Training', reproIssue2ExhibitionCountdownIncidentsAndTraining],
+    ['issue-3: Flip Reset Visual & Audio Sync', reproIssue3FlipResetVisualAndAudioSync],
+    ['issue-4: Replay Watch Together Client Roster', reproIssue4ReplayWatchTogetherUiTargetNameColor],
+    ['issue-5: Freeplay Goal Replay on Broadcasting Host', reproIssue5GoalReplayAndCinematicCamera],
   ];
 
-  let reproducedCount = 0;
-  for (const r of results) {
-    if (r.reproduced) reproducedCount++;
-    console.log(`[${r.reproduced ? 'REPRODUCED' : 'NOT_REPRODUCED'}] ${r.id}: ${r.title}`);
-    for (const d of r.details) {
-      console.log(`  - ${d}`);
+  try {
+    for (const [label, fn] of tasks) {
+      const r = await watchdog.runStage(label, fn);
+      results.push(r);
+      process.stdout.write(
+        `[${r.reproduced ? 'REPRODUCED' : 'NOT_REPRODUCED'}] ${r.id}: ${r.title}\n`
+      );
+      for (const d of r.details) {
+        process.stdout.write(`  - ${d}\n`);
+      }
     }
+
+    const reproducedCount = results.filter((r) => r.reproduced).length;
+    process.stdout.write(`\nSummary: ${reproducedCount}/${results.length} issues reproduced.\n`);
+  } finally {
+    watchdog.dispose();
   }
-  console.log(`\nSummary: ${reproducedCount}/${results.length} issues reproduced.`);
 }
 
 main().catch((err) => {

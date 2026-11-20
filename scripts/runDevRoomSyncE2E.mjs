@@ -22,13 +22,13 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { createServer } from 'vite';
+import { createSoftTimeoutWatchdog } from './lib/softTimeoutWatchdog.mjs';
 
 if (!process.env.RC_VITE_ROLE) {
   process.env.RC_VITE_ROLE = 'rc-http';
 }
 
 const OUT_PATH = '/tmp/dev-room-sync-e2e-report.json';
-const MAX_DURATION_MS = 180_000;
 
 class CdpClient {
   constructor(wsUrl, label, onRuntimeError) {
@@ -253,19 +253,40 @@ async function main() {
     if (m) cdpPort = Number(m[1]);
   });
 
-  const watchdog = setTimeout(() => {
-    console.error('[DevRoomSyncE2E] Watchdog timeout reached!');
-    try {
-      chromeProc.kill('SIGKILL');
-    } catch {
-      // Ignore
-    }
-    process.exit(1);
-  }, MAX_DURATION_MS);
-
   let hostCdp = null;
   let clientCdp = null;
   const stageResults = {};
+
+  const watchdog = createSoftTimeoutWatchdog({
+    label: 'DevRoomSyncE2E',
+    exitCode: 1,
+    onTimeout: async () => {
+      try {
+        fs.writeFileSync(
+          OUT_PATH,
+          JSON.stringify(
+            {
+              generatedAt: new Date().toISOString(),
+              timedOut: true,
+              stageResults,
+            },
+            null,
+            2
+          )
+        );
+      } catch {
+        // Ignore
+      }
+      hostCdp?.close();
+      clientCdp?.close();
+      try {
+        chromeProc.kill('SIGKILL');
+      } catch {
+        // Ignore
+      }
+      await server.close().catch(() => {});
+    },
+  });
 
   try {
     await waitFor(() => cdpPort !== null, 'Chrome CDP port', 15_000, 100);
@@ -1020,7 +1041,7 @@ async function main() {
       `[DevRoomSyncE2E] ALL E2E CHECKS PASSED in ${report.durationMs}ms (runtime_error=0, poseAnomalies=0, stuckInGoal=false)`
     );
   } finally {
-    clearTimeout(watchdog);
+    watchdog.dispose();
     hostCdp?.close();
     clientCdp?.close();
     try {

@@ -16,6 +16,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createServer } from 'vite';
+import { createSoftTimeoutWatchdog } from './lib/softTimeoutWatchdog.mjs';
 
 if (!process.env.RC_VITE_ROLE) {
   process.env.RC_VITE_ROLE = 'rc-http';
@@ -33,7 +34,6 @@ const EXPLICIT_FROM = FROM_ARG
   : process.env.RC_REPRO_FROM
     ? Number(process.env.RC_REPRO_FROM)
     : null;
-const MAX_DURATION_MS = 260_000;
 
 class CdpClient {
   constructor(wsUrl, label) {
@@ -220,17 +220,39 @@ async function main() {
     if (m) cdpPort = Number(m[1]);
   });
 
-  const watchdog = setTimeout(() => {
-    console.error('[DevSyncRepro] Watchdog timeout reached!');
-    try {
-      chromeProc.kill('SIGKILL');
-    } catch {
-      // Ignore
-    }
-    process.exit(1);
-  }, MAX_DURATION_MS);
-
   const scenarios = [];
+  const watchdog = createSoftTimeoutWatchdog({
+    label: 'DevSyncRepro',
+    exitCode: 1,
+    onTimeout: async () => {
+      try {
+        const reproducedCount = scenarios.filter((s) => !s.passed).length;
+        fs.writeFileSync(
+          OUT_PATH,
+          JSON.stringify(
+            {
+              passedAll: false,
+              timedOut: true,
+              reproducedBugs: reproducedCount,
+              totalScenarios: scenarios.length,
+              durationMs: Date.now() - startMs,
+              scenarios,
+            },
+            null,
+            2
+          )
+        );
+      } catch {
+        // Ignore
+      }
+      try {
+        chromeProc.kill('SIGKILL');
+      } catch {
+        // Ignore
+      }
+      await server.close().catch(() => {});
+    },
+  });
   let fromScenario = EXPLICIT_FROM && EXPLICIT_FROM >= 1 ? EXPLICIT_FROM : 1;
   if ((RESUME_MODE || EXPLICIT_FROM) && fs.existsSync(CHECKPOINT_PATH)) {
     try {
@@ -1004,7 +1026,7 @@ async function main() {
       process.exitCode = 1;
     }
   } finally {
-    clearTimeout(watchdog);
+    watchdog.dispose();
     hostCdp?.close();
     client1Cdp?.close();
     client2Cdp?.close();

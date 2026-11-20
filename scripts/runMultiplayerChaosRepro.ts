@@ -27,9 +27,9 @@ import { MultiClientLoopbackSimulator } from '../src/game/scenario/MultiClientLo
 import { sanitizeGlobalWorkspaceBroadcast } from '../src/network/protocol/GlobalWorkspaceProtocol.ts';
 import { WebRtcNativeVoiceBridge } from '../src/audio/voice/WebRtcNativeVoiceBridge.ts';
 import { useSpectateWorkspaceStore } from '../src/ui-core/stores/spectateWorkspaceStore.ts';
+import { createSoftTimeoutWatchdog, resolveSoftLimitMs } from './lib/softTimeoutWatchdog.mjs';
 
 const DEFAULT_OUT_PATH = '/tmp/multiplayer-chaos-repro-report.json';
-const DEFAULT_MAX_DURATION_MS = 270_000;
 
 interface ChaosStepResult {
   name: string;
@@ -40,13 +40,13 @@ interface ChaosStepResult {
 }
 
 function parseArgs(argv: string[]): { maxDurationMs: number; outPath: string } {
-  let maxDurationMs = DEFAULT_MAX_DURATION_MS;
+  let maxDurationMs = resolveSoftLimitMs();
   let outPath = DEFAULT_OUT_PATH;
   for (const arg of argv.slice(2)) {
     if (arg.startsWith('--max-duration-ms=')) {
       maxDurationMs = Math.max(
         5_000,
-        Number(arg.slice('--max-duration-ms='.length)) || DEFAULT_MAX_DURATION_MS
+        Number(arg.slice('--max-duration-ms='.length)) || resolveSoftLimitMs()
       );
     } else if (arg.startsWith('--out=')) {
       outPath = arg.slice('--out='.length).trim() || DEFAULT_OUT_PATH;
@@ -390,12 +390,16 @@ async function main(): Promise<void> {
     fs.writeFileSync(outPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   };
 
-  const watchdog = setTimeout(() => {
-    timedOut = true;
-    emitStream({ type: 'watchdog_timeout', elapsedMs: Date.now() - startMs });
-    flushReport();
-    process.exit(1);
-  }, maxDurationMs);
+  const watchdog = createSoftTimeoutWatchdog({
+    label: 'ChaosRepro',
+    softLimitMs: maxDurationMs,
+    exitCode: 1,
+    onTimeout: () => {
+      timedOut = true;
+      emitStream({ type: 'watchdog_timeout', elapsedMs: Date.now() - startMs });
+      flushReport();
+    },
+  });
 
   const tasks: Array<[string, () => Promise<string>]> = [
     ['1. Cancel / Re-Host / Re-Join Lifecycle Chaos', runCancelAndRejoinChaos],
@@ -407,30 +411,33 @@ async function main(): Promise<void> {
   ];
 
   let hasFailure = false;
-  for (const [name, fn] of tasks) {
-    const t0 = Date.now();
-    emitStream({ type: 'step_start', name });
-    try {
-      const detail = await fn();
-      const result: ChaosStepResult = { name, passed: true, durationMs: Date.now() - t0, detail };
-      steps.push(result);
-      emitStream({ type: 'step_pass', ...result });
-    } catch (err) {
-      hasFailure = true;
-      const result: ChaosStepResult = {
-        name,
-        passed: false,
-        durationMs: Date.now() - t0,
-        error: err instanceof Error ? err.message : String(err),
-      };
-      steps.push(result);
-      emitStream({ type: 'step_fail', ...result });
+  try {
+    for (const [name, fn] of tasks) {
+      const t0 = Date.now();
+      emitStream({ type: 'step_start', name });
+      try {
+        const detail = await fn();
+        const result: ChaosStepResult = { name, passed: true, durationMs: Date.now() - t0, detail };
+        steps.push(result);
+        emitStream({ type: 'step_pass', ...result });
+      } catch (err) {
+        hasFailure = true;
+        const result: ChaosStepResult = {
+          name,
+          passed: false,
+          durationMs: Date.now() - t0,
+          error: err instanceof Error ? err.message : String(err),
+        };
+        steps.push(result);
+        emitStream({ type: 'step_fail', ...result });
+      }
     }
-  }
 
-  clearTimeout(watchdog);
-  flushReport();
-  if (hasFailure) process.exit(1);
+    flushReport();
+    if (hasFailure) process.exit(1);
+  } finally {
+    watchdog.dispose();
+  }
 }
 
 main().catch((err) => {

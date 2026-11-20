@@ -31,13 +31,13 @@ import {
   launchHeadlessChrome,
 } from './env/launchHeadlessChrome.mjs';
 import { generateSynthetic3v3ReplayFixture } from './env/generateSyntheticReplayFixture.mjs';
+import { createSoftTimeoutWatchdog } from './lib/softTimeoutWatchdog.mjs';
 
 if (!process.env.RC_VITE_ROLE) {
   process.env.RC_VITE_ROLE = 'rc-http';
 }
 
 const OUT_PATH = '/tmp/dev-broadcast-repro-v3.json';
-const MAX_DURATION_MS = 260_000;
 
 class CdpClient {
   constructor(wsUrl, label) {
@@ -161,24 +161,38 @@ async function main() {
   });
 
   const results = [];
-  const watchdog = setTimeout(() => {
-    console.error(`[DevBroadcastReproV3] Watchdog timeout reached (${MAX_DURATION_MS}ms)! Completed=${results.length}/5: ${JSON.stringify(results.map((r) => r.id))}`);
-    try {
-      chromeProc.kill('SIGKILL');
-    } catch {
-      // Ignore
-    }
-    process.exit(2);
-  }, MAX_DURATION_MS);
+  let hostCdp = null;
+  let clientCdp = null;
+
+  const watchdog = createSoftTimeoutWatchdog({
+    label: 'DevBroadcastReproV3',
+    exitCode: 2,
+    onTimeout: async () => {
+      try {
+        const partial = {
+          timestamp: new Date().toISOString(),
+          suite: 'DevBroadcastReproV3',
+          timedOut: true,
+          reproducedCount: results.filter((r) => r.reproduced).length,
+          totalCount: results.length,
+          results,
+        };
+        fs.writeFileSync(OUT_PATH, JSON.stringify(partial, null, 2));
+      } catch {
+        // Ignore
+      }
+      hostCdp?.close();
+      clientCdp?.close();
+      await cleanupHeadlessChrome(chromeProc, userDataDir);
+      await server.close().catch(() => {});
+    },
+  });
 
   const record = (id, title, reproduced, detail) => {
     results.push({ id, title, reproduced, detail });
     const tag = reproduced ? 'REPRODUCED_BUG' : 'PASS_FIXED';
-    console.log(`[DevBroadcastReproV3] [${tag}] ${id}: ${title} -> ${JSON.stringify(detail)}`);
+    watchdog.log(`[${tag}] ${id}: ${title} -> ${JSON.stringify(detail)}`);
   };
-
-  let hostCdp = null;
-  let clientCdp = null;
 
   try {
     const cdpPort = await waitFor(() => getCdpPort(), 'Chrome CDP port', 15_000);
@@ -513,7 +527,7 @@ async function main() {
       `[DevBroadcastReproV3] Report written to ${OUT_PATH} (reproduced=${reproducedCount}/${results.length})`
     );
   } finally {
-    clearTimeout(watchdog);
+    watchdog.dispose();
     hostCdp?.close();
     clientCdp?.close();
     await cleanupHeadlessChrome(chromeProc, userDataDir);

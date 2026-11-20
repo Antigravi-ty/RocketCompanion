@@ -32,6 +32,31 @@ export RUSTUP_HOME="${RUSTUP_HOME:-${CACHE_ROOT}/rustup-home}"
 export npm_config_update_notifier="${npm_config_update_notifier:-false}"
 export pnpm_config_update_notifier="${pnpm_config_update_notifier:-false}"
 export NO_UPDATE_NOTIFIER="${NO_UPDATE_NOTIFIER:-1}"
+export RC_SOFT_LIMIT_MS="${RC_SOFT_LIMIT_MS:-270000}"
+
+SOFT_LIMIT_SEC=$(( (RC_SOFT_LIMIT_MS + 999) / 1000 ))
+if [ "$SOFT_LIMIT_SEC" -lt 1 ]; then
+  SOFT_LIMIT_SEC=1
+fi
+BOOTSTRAP_PID=$$
+(
+  sleep "$SOFT_LIMIT_SEC"
+  if kill -0 "$BOOTSTRAP_PID" 2>/dev/null; then
+    echo "[env:setup] Soft timeout watchdog reached (${RC_SOFT_LIMIT_MS}ms). Terminating bootstrap..." >&2
+    kill -TERM "$BOOTSTRAP_PID" 2>/dev/null || true
+    sleep 2
+    kill -KILL "$BOOTSTRAP_PID" 2>/dev/null || true
+  fi
+) >/dev/null 2>&1 &
+BOOTSTRAP_WATCHDOG_PID=$!
+
+cleanup_bootstrap_watchdog() {
+  if [ -n "${BOOTSTRAP_WATCHDOG_PID:-}" ]; then
+    kill "$BOOTSTRAP_WATCHDOG_PID" 2>/dev/null || true
+    wait "$BOOTSTRAP_WATCHDOG_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup_bootstrap_watchdog EXIT INT TERM
 
 if [ -n "${NODE_OPTIONS:-}" ]; then
   CLEAN_NODE_OPTIONS="$(printf '%s' "$NODE_OPTIONS" | sed -E 's/(^|[[:space:]])(--require|-r)(=|[[:space:]]+)global-agent\/bootstrap([[:space:]]|$)/ /g; s/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//')"

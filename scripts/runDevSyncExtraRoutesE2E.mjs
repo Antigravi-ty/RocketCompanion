@@ -16,13 +16,13 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createServer } from 'vite';
+import { createSoftTimeoutWatchdog } from './lib/softTimeoutWatchdog.mjs';
 
 if (!process.env.RC_VITE_ROLE) {
   process.env.RC_VITE_ROLE = 'rc-http';
 }
 
 const OUT_PATH = '/tmp/dev-sync-extra-routes-e2e.json';
-const MAX_DURATION_MS = 260_000;
 
 class CdpClient {
   constructor(wsUrl, label) {
@@ -177,26 +177,53 @@ async function main() {
     if (m) cdpPort = Number(m[1]);
   });
 
-  const watchdog = setTimeout(() => {
-    console.error('[DevSyncExtraRoutes] Watchdog timeout reached!');
-    try {
-      chromeProc.kill('SIGKILL');
-    } catch {
-      // Ignore
-    }
-    process.exit(2);
-  }, MAX_DURATION_MS);
-
   const results = [];
-  const record = (id, title, passed, detail) => {
-    results.push({ id, title, passed, detail });
-    const tag = passed ? 'PASS' : 'FAIL';
-    console.log(`[DevSyncExtraRoutes] [${tag}] ${id}: ${title} -> ${JSON.stringify(detail)}`);
-  };
-
   let hostCdp = null;
   let client1Cdp = null;
   let client2Cdp = null;
+
+  const watchdog = createSoftTimeoutWatchdog({
+    label: 'DevSyncExtraRoutes',
+    exitCode: 2,
+    onTimeout: async () => {
+      try {
+        const failedCount = results.filter((r) => !r.passed).length;
+        fs.writeFileSync(
+          OUT_PATH,
+          JSON.stringify(
+            {
+              generatedAt: new Date().toISOString(),
+              durationMs: Date.now() - startMs,
+              timedOut: true,
+              passedAll: false,
+              failedCount,
+              totalRoutes: results.length,
+              results,
+            },
+            null,
+            2
+          )
+        );
+      } catch {
+        // Ignore
+      }
+      hostCdp?.close();
+      client1Cdp?.close();
+      client2Cdp?.close();
+      try {
+        chromeProc.kill('SIGKILL');
+      } catch {
+        // Ignore
+      }
+      await server.close().catch(() => {});
+    },
+  });
+
+  const record = (id, title, passed, detail) => {
+    results.push({ id, title, passed, detail });
+    const tag = passed ? 'PASS' : 'FAIL';
+    watchdog.log(`[${tag}] ${id}: ${title} -> ${JSON.stringify(detail)}`);
+  };
 
   try {
     await waitFor(() => cdpPort, 'Chrome CDP port', 15_000);
@@ -531,7 +558,7 @@ async function main() {
       process.exitCode = 1;
     }
   } finally {
-    clearTimeout(watchdog);
+    watchdog.dispose();
     hostCdp?.close();
     client1Cdp?.close();
     client2Cdp?.close();
