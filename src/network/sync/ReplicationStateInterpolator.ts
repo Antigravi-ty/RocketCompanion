@@ -225,7 +225,7 @@ export class SpectateInterpolationBuffer {
   private lastSampledFrameCursor = -1;
   private lastSampledRevision = -1;
 
-  constructor(maxFrames = 64, options: SpectateInterpolationBufferOptions = {}) {
+  constructor(maxFrames = 360, options: SpectateInterpolationBufferOptions = {}) {
     this.maxFrames = Math.max(8, maxFrames);
     const req = Math.round(options.lookaheadWindowFrames ?? SPECTATE_MIN_LOOKAHEAD_FRAMES);
     this.lookaheadWindowFrames = Math.max(SPECTATE_MIN_LOOKAHEAD_FRAMES, Math.min(SPECTATE_MAX_LOOKAHEAD_FRAMES, req));
