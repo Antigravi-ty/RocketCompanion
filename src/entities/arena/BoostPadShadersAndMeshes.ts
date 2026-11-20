@@ -206,8 +206,17 @@ export function createUpwardGlowMaterial(tunerConfig = DEFAULT_BOOST_PAD_TUNER) 
 /**
  * Creates camera-facing soft black out-glow billboard behind Big Pad orb.
  */
+let sharedBigOrbShadowGeometry: THREE.PlaneGeometry | null = null;
+
+function getSharedBigOrbShadowGeometry(): THREE.PlaneGeometry {
+  if (!sharedBigOrbShadowGeometry) {
+    sharedBigOrbShadowGeometry = new THREE.PlaneGeometry(1, 1);
+  }
+  return sharedBigOrbShadowGeometry;
+}
+
 export function createBigOrbShadowMesh(tunerConfig) {
-  const geo = new THREE.PlaneGeometry(1, 1);
+  const geo = getSharedBigOrbShadowGeometry();
   const mat = new THREE.ShaderMaterial({
     uniforms: {
       uIntensity: {
