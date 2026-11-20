@@ -9,6 +9,11 @@ import {
   resolveChromeBinary,
 } from './launchHeadlessChrome.mjs';
 import { DEFAULT_SYNTHETIC_REPLAY_PATH } from './generateSyntheticReplayFixture.mjs';
+import {
+  autoRestoreTmpfs,
+  inspectTmpfsState,
+  printTmpfsDiagnostic,
+} from './tmpfsGuard.mjs';
 
 function checkCommand(cmd, args = ['--version']) {
   try {
@@ -41,7 +46,7 @@ async function probeHeadlessWebGL2(chromeBin) {
       ws.addEventListener('error', reject, { once: true });
     });
     const probe = await new Promise((resolve) => {
-      const timer = setTimeout(() => resolve({ ok: false, detail: 'Eval timeout' }), 5000);
+      const timer = setTimeout(() => resolve({ ok: false, detail: 'Eval timeout' }), 15_000);
       ws.addEventListener('message', (evt) => {
         const msg = JSON.parse(String(evt.data));
         if (msg.id === 1) {
@@ -75,9 +80,17 @@ async function probeHeadlessWebGL2(chromeBin) {
 async function main() {
   const cwd = process.cwd();
   const skipWebGLProbe = process.argv.includes('--quick');
+  const autoRestore = process.argv.includes('--auto-restore');
+  const withRust = process.argv.includes('--with-rust');
+
+  if (autoRestore) {
+    autoRestoreTmpfs(cwd, { withRust });
+  }
+
+  const tmpfsReport = inspectTmpfsState(cwd);
   const nodeOk = Number(process.versions.node.split('.')[0]) >= 20;
   const pnpmRes = checkCommand('pnpm');
-  const depsOk = fs.existsSync(path.join(cwd, 'node_modules'));
+  const depsOk = fs.existsSync(path.join(cwd, 'node_modules', '.modules.yaml')) || fs.existsSync(path.join(cwd, 'node_modules'));
   const submoduleOk = isPublicSubmoduleReady(cwd);
   const chromeBin = resolveChromeBinary();
   const replayExists = [
@@ -88,8 +101,8 @@ async function main() {
   ]
     .filter(Boolean)
     .some((p) => fs.existsSync(p));
-  const cargoBinDir = path.join(process.env.HOME || '/root', '.cargo', 'bin');
-  const envWithCargo = { ...process.env, PATH: `${cargoBinDir}:${process.env.PATH || ''}` };
+  const cargoBinDir = path.join(process.env.CARGO_HOME || path.join(process.env.HOME || '/root', '.cargo'), 'bin');
+  const envWithCargo = { ...process.env, PATH: `${cargoBinDir}:${process.env.HOME || '/root'}/.cargo/bin:${process.env.PATH || ''}` };
   const checkCargoCmd = (cmd) => {
     try {
       const out = execFileSync(cmd, ['--version'], {
@@ -113,10 +126,15 @@ async function main() {
   }
 
   const rustReady = cargoRes.ok && rustcRes.ok && ccRes.ok;
+  const overlayDetail = `${tmpfsReport.currentOverlayMB ?? '?'} MB (baseline: ${
+    tmpfsReport.baseline?.baselineMB ?? 'n/a'
+  } MB, budget: <= ${tmpfsReport.overlayBudgetMB} MB)`;
   const rows = [
     ['Node.js >= 20', nodeOk, `v${process.versions.node}`],
     ['pnpm', pnpmRes.ok, pnpmRes.version || 'missing'],
-    ['node_modules', depsOk, depsOk ? 'installed' : 'missing'],
+    ['node_modules', depsOk, depsOk ? (tmpfsReport.symlinks.find((s) => s.rel === 'node_modules')?.status === 'ok' ? 'installed (tmpfs)' : 'installed') : 'missing'],
+    ['tmpfs sentinel', tmpfsReport.sentinelExists && !tmpfsReport.tmpfsResetDetected, tmpfsReport.tmpfsResetDetected ? 'RESET DETECTED' : tmpfsReport.sentinelExists ? tmpfsReport.sentinelPath : 'missing'],
+    ['OverlayFS size', tmpfsReport.overlayWithinBudget, overlayDetail],
     ['public/ submodule', submoduleOk, submoduleOk ? 'initialized' : 'missing (camera.wasm not found)'],
     ['Chrome binary', Boolean(chromeBin), chromeBin || 'missing'],
     ['Headless WebGL2', webglRes.ok, webglRes.detail],
@@ -136,14 +154,20 @@ async function main() {
     console.log(`${ok ? '[OK]  ' : '[WARN]'} ${label.padEnd(24)} ${detail}`);
   }
 
+  if (tmpfsReport.tmpfsResetDetected) {
+    printTmpfsDiagnostic(tmpfsReport);
+  }
+
   const criticalOk = nodeOk && pnpmRes.ok && depsOk && submoduleOk && Boolean(chromeBin) && (skipWebGLProbe || webglRes.ok);
   if (!criticalOk) {
     console.log('\nMissing required E2E/WebGL dependencies. Run:');
+    console.log('  node scripts/env/checkEnv.mjs --auto-restore');
+    console.log('  # or:');
     console.log('  pnpm run env:setup');
     process.exit(1);
   }
   if (!replayExists) {
-    console.log('\nNote: 3v3 .rcreplay fixture is missing; run "pnpm run env:setup" to generate it.');
+    console.log('\nNote: 3v3 .rcreplay fixture is missing; run "pnpm run replay:generate-ducky" or "pnpm run env:setup" to generate it.');
   }
 }
 
