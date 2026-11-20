@@ -209,6 +209,12 @@ class FreeplayActivityKernel implements RoomActivityKernel {
   }
 }
 
+import { ReplayWatchCursorEngine } from '../../../replay/watch-together/ReplayWatchCursorEngine.ts';
+import type {
+  ReplayWatchFrameStreamPacket,
+  ReplayWatchPlaybackCommand,
+} from '../../../replay/watch-together/ReplayWatchTogetherTypes.ts';
+
 class ReplayActivityKernel implements RoomActivityKernel {
   readonly id = ACTIVITY_IDS.REPLAY;
   readonly defaultReplicationMode = REPLICATION_MODES.SPARSE;
@@ -217,13 +223,37 @@ class ReplayActivityKernel implements RoomActivityKernel {
     REPLICATION_MODES.SPARSE,
     true
   );
+  readonly watchEngine = new ReplayWatchCursorEngine();
+  private lastFramePacket: ReplayWatchFrameStreamPacket | null = null;
 
   onMount(ctx: ActivityKernelContext): void {
+    this.lastFramePacket = null;
     ctx.matchManager?.systemControl.enterStateOnlyMode(null, ctx.matchManager.domain.matchTick);
   }
 
   onUnmount(ctx: ActivityKernelContext): void {
+    this.lastFramePacket = null;
+    this.watchEngine.applyCommand({ type: 'unload' });
     ctx.matchManager?.systemControl.resumePhysicsFromState(null, ctx.matchManager.domain.matchTick);
+  }
+
+  onControlMessage(
+    _ctx: ActivityKernelContext,
+    type: string,
+    payload: Record<string, unknown>
+  ): boolean {
+    if (type === 'replay_watch_command' && payload.command && typeof payload.command === 'object') {
+      this.lastFramePacket = this.watchEngine.applyCommand(
+        payload.command as ReplayWatchPlaybackCommand
+      );
+      return true;
+    }
+    if (type === 'replay_watch_step') {
+      const dtMs = typeof payload.dtMs === 'number' ? payload.dtMs : 0;
+      this.lastFramePacket = this.watchEngine.step(dtMs);
+      return true;
+    }
+    return false;
   }
 
   getStateSummary(ctx: ActivityKernelContext): Record<string, unknown> {
@@ -231,6 +261,9 @@ class ReplayActivityKernel implements RoomActivityKernel {
       activityId: this.id,
       stateOnlyMode: Boolean(ctx.matchManager?.domain.stateOnlyMode),
       matchTick: ctx.matchManager?.domain.matchTick ?? 0,
+      replayWatch: this.watchEngine.getStatus(),
+      rosterManifest: this.watchEngine.getManifest(),
+      lastFramePacket: this.lastFramePacket,
     };
   }
 }
