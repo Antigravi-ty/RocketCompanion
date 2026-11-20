@@ -18,6 +18,7 @@ import {
 import {
   autoRestoreTmpfs,
   DEFAULT_CACHE_ROOT,
+  hasPopulatedNodeModules,
   inspectTmpfsState,
   printTmpfsDiagnostic,
 } from './tmpfsGuard.mjs';
@@ -164,7 +165,7 @@ async function main() {
   check('Node.js', true, process.version);
   check('pnpm', hasCommand('pnpm'), hasCommand('pnpm') ? 'installed' : 'missing (run: bash scripts/env/bootstrap.sh --pnpm-only)');
 
-  const nmOk = fs.existsSync(path.join(ROOT_DIR, 'node_modules', '.modules.yaml')) || fs.existsSync(path.join(ROOT_DIR, 'node_modules'));
+  const nmOk = hasPopulatedNodeModules(ROOT_DIR);
   const nmLink = tmpfsReport.symlinks.find((s) => s.rel === 'node_modules');
   check(
     'node_modules',

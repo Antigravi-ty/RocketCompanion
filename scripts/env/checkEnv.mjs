@@ -11,6 +11,7 @@ import {
 import { DEFAULT_SYNTHETIC_REPLAY_PATH } from './generateSyntheticReplayFixture.mjs';
 import {
   autoRestoreTmpfs,
+  hasPopulatedNodeModules,
   inspectTmpfsState,
   printTmpfsDiagnostic,
 } from './tmpfsGuard.mjs';
@@ -90,7 +91,7 @@ async function main() {
   const tmpfsReport = inspectTmpfsState(cwd);
   const nodeOk = Number(process.versions.node.split('.')[0]) >= 20;
   const pnpmRes = checkCommand('pnpm');
-  const depsOk = fs.existsSync(path.join(cwd, 'node_modules', '.modules.yaml')) || fs.existsSync(path.join(cwd, 'node_modules'));
+  const depsOk = hasPopulatedNodeModules(cwd);
   const submoduleOk = isPublicSubmoduleReady(cwd);
   const chromeBin = resolveChromeBinary();
   const replayExists = [

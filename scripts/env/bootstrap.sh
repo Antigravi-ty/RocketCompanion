@@ -29,6 +29,18 @@ export npm_config_cache_dir="${npm_config_cache_dir:-${CACHE_ROOT}/pnpm-cache}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${CACHE_ROOT}/cargo-target}"
 export CARGO_HOME="${CARGO_HOME:-${CACHE_ROOT}/cargo-home}"
 export RUSTUP_HOME="${RUSTUP_HOME:-${CACHE_ROOT}/rustup-home}"
+export npm_config_update_notifier="${npm_config_update_notifier:-false}"
+export pnpm_config_update_notifier="${pnpm_config_update_notifier:-false}"
+export NO_UPDATE_NOTIFIER="${NO_UPDATE_NOTIFIER:-1}"
+
+if [ -n "${NODE_OPTIONS:-}" ]; then
+  CLEAN_NODE_OPTIONS="$(printf '%s' "$NODE_OPTIONS" | sed -E 's/(^|[[:space:]])(--require|-r)(=|[[:space:]]+)global-agent\/bootstrap([[:space:]]|$)/ /g; s/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//')"
+  if [ -n "$CLEAN_NODE_OPTIONS" ]; then
+    export NODE_OPTIONS="$CLEAN_NODE_OPTIONS"
+  else
+    unset NODE_OPTIONS
+  fi
+fi
 
 echo "[env:setup] Bootstrapping RocketCompanion E2E & WebGL environment in $ROOT_DIR..."
 
@@ -36,7 +48,7 @@ echo "[env:setup] Bootstrapping RocketCompanion E2E & WebGL environment in $ROOT
 node scripts/env/tmpfsGuard.mjs --ensure
 
 # 1. Ensure pnpm is available (installed into tmpfs via npm + self-healing wrapper)
-if ! command -v pnpm >/dev/null 2>&1 || [ "$PNPM_ONLY" = "1" ]; then
+if ! command -v pnpm >/dev/null 2>&1 || [ ! -x "${CACHE_ROOT}/pnpm-global/bin/pnpm" ] || [ "$PNPM_ONLY" = "1" ]; then
   node scripts/env/tmpfsGuard.mjs --install-pnpm
   export PATH="/usr/local/bin:${HOME}/.local/bin:${CACHE_ROOT}/pnpm-global/bin:${PATH}"
 fi
@@ -55,7 +67,11 @@ fi
 # 3. Install JS dependencies if missing (node_modules is symlinked to tmpfs)
 if [ ! -f "node_modules/.modules.yaml" ] || [ ! -d "node_modules/.bin" ]; then
   echo "[env:setup] Installing npm dependencies with pnpm into tmpfs..."
-  pnpm install --no-frozen-lockfile --ignore-scripts --store-dir="$npm_config_store_dir"
+  PNPM_REPORTER_ARGS=()
+  if [ ! -t 1 ]; then
+    PNPM_REPORTER_ARGS+=(--reporter=append-only)
+  fi
+  pnpm install --no-frozen-lockfile --ignore-scripts --store-dir="$npm_config_store_dir" "${PNPM_REPORTER_ARGS[@]}"
   node scripts/env/tmpfsGuard.mjs --ensure
 fi
 

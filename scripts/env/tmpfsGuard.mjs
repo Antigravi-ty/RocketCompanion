@@ -17,6 +17,50 @@ export const DEFAULT_REPLAY_FIXTURE = '/tmp/rc-replay-3v3-1-0-2026-11-13T07-26-5
 export const PNPM_VERSION = process.env.RC_PNPM_VERSION || '10.28.2';
 export const OVERLAY_BUDGET_MB = Number(process.env.RC_OVERLAY_BUDGET_MB || 100);
 
+export function sanitizeNodeOptions(nodeOptions = process.env.NODE_OPTIONS || '') {
+  return String(nodeOptions)
+    .replace(/(?:^|\s)(?:--require|-r)(?:=|\s+)global-agent\/bootstrap(?=\s|$)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function getPnpmEnv(baseEnv = process.env, cacheRoot = DEFAULT_CACHE_ROOT) {
+  const env = { ...baseEnv };
+  const cleanedNodeOpts = sanitizeNodeOptions(env.NODE_OPTIONS || '');
+  if (cleanedNodeOpts) {
+    env.NODE_OPTIONS = cleanedNodeOpts;
+  } else {
+    delete env.NODE_OPTIONS;
+  }
+  env.npm_config_update_notifier = 'false';
+  env.pnpm_config_update_notifier = 'false';
+  env.NO_UPDATE_NOTIFIER = '1';
+  env.npm_config_store_dir = env.npm_config_store_dir || path.join(cacheRoot, 'pnpm-store');
+  env.npm_config_cache_dir = env.npm_config_cache_dir || path.join(cacheRoot, 'pnpm-cache');
+  env.XDG_CACHE_HOME = env.XDG_CACHE_HOME || path.join(cacheRoot, 'xdg-cache');
+  env.XDG_DATA_HOME = env.XDG_DATA_HOME || path.join(cacheRoot, 'xdg-data');
+  env.XDG_STATE_HOME = env.XDG_STATE_HOME || path.join(cacheRoot, 'xdg-state');
+  return env;
+}
+
+export function hasPopulatedDir(dirPath, ignoreNames = new Set(['.vite', '.cache'])) {
+  try {
+    if (!fs.existsSync(dirPath)) return false;
+    const entries = fs.readdirSync(dirPath);
+    return entries.some((name) => !ignoreNames.has(name));
+  } catch {
+    return false;
+  }
+}
+
+export function hasPopulatedNodeModules(repoRoot) {
+  const nmDir = path.join(repoRoot, 'node_modules');
+  return (
+    fs.existsSync(path.join(nmDir, '.modules.yaml')) &&
+    hasPopulatedDir(nmDir)
+  );
+}
+
 export function getManagedSymlinks(repoRoot, cacheRoot = DEFAULT_CACHE_ROOT) {
   const entries = [
     { rel: 'node_modules', target: path.join(cacheRoot, 'node_modules'), required: true },
@@ -469,7 +513,7 @@ export function installPnpmToTmpfs(cacheRoot = DEFAULT_CACHE_ROOT) {
       ['install', '-g', `pnpm@${PNPM_VERSION}`, '--prefix', pnpmPrefix, '--force', '--no-audit', '--no-fund'],
       {
         stdio: 'inherit',
-        env: { ...process.env, NPM_CONFIG_CACHE: npmCache },
+        env: { ...getPnpmEnv(process.env, cacheRoot), NPM_CONFIG_CACHE: npmCache },
       }
     );
     fs.rmSync(npmCache, { recursive: true, force: true });
@@ -498,6 +542,18 @@ export XDG_STATE_HOME="\${XDG_STATE_HOME:-\${CACHE_ROOT}/xdg-state}"
 export npm_config_store_dir="\${npm_config_store_dir:-\${CACHE_ROOT}/pnpm-store}"
 export npm_config_cache_dir="\${npm_config_cache_dir:-\${CACHE_ROOT}/pnpm-cache}"
 export CARGO_TARGET_DIR="\${CARGO_TARGET_DIR:-\${CACHE_ROOT}/cargo-target}"
+export npm_config_update_notifier="\${npm_config_update_notifier:-false}"
+export pnpm_config_update_notifier="\${pnpm_config_update_notifier:-false}"
+export NO_UPDATE_NOTIFIER="\${NO_UPDATE_NOTIFIER:-1}"
+
+if [ -n "\${NODE_OPTIONS:-}" ]; then
+  CLEAN_NODE_OPTIONS="\$(printf '%s' "\$NODE_OPTIONS" | sed -E 's/(^|[[:space:]])(--require|-r)(=|[[:space:]]+)global-agent\\/bootstrap([[:space:]]|$)/ /g; s/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+\$//')"
+  if [ -n "\$CLEAN_NODE_OPTIONS" ]; then
+    export NODE_OPTIONS="\$CLEAN_NODE_OPTIONS"
+  else
+    unset NODE_OPTIONS
+  fi
+fi
 
 if [ ! -x "\$REAL_PNPM" ]; then
   echo "[pnpm-tmpfs] /tmp reset detected; reinstalling pnpm@${PNPM_VERSION} into \${REAL_PREFIX}..." >&2
@@ -550,21 +606,24 @@ export function autoRestoreTmpfs(repoRoot, { withRust = false, cacheRoot = DEFAU
     syncPublicSubmoduleToTmpfs(repoRoot, cacheRoot);
   }
 
-  const nmModulesYaml = path.join(repoRoot, 'node_modules', '.modules.yaml');
-  if (!fs.existsSync(nmModulesYaml)) {
+  if (!hasPopulatedNodeModules(repoRoot)) {
     console.log('[tmpfsGuard] Restoring node_modules into tmpfs...');
     const pnpmCmd = fs.existsSync(path.join(cacheRoot, 'pnpm-global', 'bin', 'pnpm'))
       ? path.join(cacheRoot, 'pnpm-global', 'bin', 'pnpm')
       : 'pnpm';
+    const installArgs = [
+      'install',
+      '--no-frozen-lockfile',
+      '--ignore-scripts',
+      `--store-dir=${path.join(cacheRoot, 'pnpm-store')}`,
+    ];
+    if (!process.stdout.isTTY) {
+      installArgs.push('--reporter=append-only');
+    }
     execFileSync(
       pnpmCmd,
-      [
-        'install',
-        '--no-frozen-lockfile',
-        '--ignore-scripts',
-        `--store-dir=${path.join(cacheRoot, 'pnpm-store')}`,
-      ],
-      { cwd: repoRoot, stdio: 'inherit' }
+      installArgs,
+      { cwd: repoRoot, stdio: 'inherit', env: getPnpmEnv(process.env, cacheRoot) }
     );
     // Ensure node_modules/.vite is also linked cleanly after pnpm install
     ensureTmpfsLayout(repoRoot, cacheRoot);
