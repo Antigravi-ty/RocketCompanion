@@ -2170,6 +2170,10 @@ async function main(): Promise<void> {
     '27. Host Freeplay Goal Replay Broadcast Policy & Sim-Only Stepping (Bug 1 / Track B)',
     testHostGoalReplayBroadcastAndSimOnlyStepping
   );
+  await runSection(
+    '28. Freeplay Goal Replay Leading Idle Kickoff Trim (Bug 1 / CC-Track)',
+    testFreeplayGoalReplayLeadingIdleTrim
+  );
   console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
 }
 
@@ -3929,6 +3933,52 @@ async function testHostGoalReplayBroadcastAndSimOnlyStepping(): Promise<void> {
   });
   assert.equal(offlinePolicy.mode, 'local-replay-playback');
   assert.equal(offlinePolicy.shouldBroadcastSnapshot, false);
+}
+
+async function testFreeplayGoalReplayLeadingIdleTrim(): Promise<void> {
+  const { ReplayRingBuffer } = await import('../src/replay/ReplayRingBuffer.ts');
+  const { extractGoalReplayFrames, trimLeadingIdleGoalReplayFrames } = await import(
+    '../src/replay/ReplayPlaybackState.ts'
+  );
+
+  const ringBuffer = new ReplayRingBuffer(120);
+  for (let i = 1; i <= 60; i++) {
+    const snap = new Float32Array(448);
+    snap[SIM_OFFSETS.TICK] = i;
+    snap[SIM_OFFSETS.NUM_CARS] = 1;
+    if (i <= 40) {
+      snap[SIM_OFFSETS.BALL + 0] = 0;
+      snap[SIM_OFFSETS.BALL + 1] = 0;
+      snap[SIM_OFFSETS.BALL + 2] = 93.2;
+    } else {
+      snap[SIM_OFFSETS.BALL + 0] = 0;
+      snap[SIM_OFFSETS.BALL + 1] = 4850 + (i - 41) * 40;
+      snap[SIM_OFFSETS.BALL + 2] = 95;
+      snap[SIM_OFFSETS.BALL + 4] = 2950;
+    }
+    ringBuffer.recordFrame(i, snap, []);
+  }
+
+  const extracted = extractGoalReplayFrames({
+    ringBuffer,
+    engine: null,
+    goalIncidentTick: 45,
+    scorerTouchTick: -1,
+    lookbackSeconds: 10.0,
+    touchLookbackSeconds: 7.0,
+    postGoalTicks: 15,
+    lastKickoffWillStartTick: 1,
+  });
+  const trimmed = trimLeadingIdleGoalReplayFrames(extracted, 12);
+
+  assert.ok(
+    trimmed.length < extracted.length,
+    `Leading idle kickoff frames should be trimmed (got ${trimmed.length} vs ${extracted.length})`
+  );
+  assert.ok(
+    trimmed[12].snapshot[SIM_OFFSETS.BALL + 1] > 4000,
+    'Active ball motion should begin right after the 12-frame lead-in'
+  );
 }
 
 main().catch((err) => {
