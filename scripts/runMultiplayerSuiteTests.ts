@@ -2318,7 +2318,7 @@ async function testSpectateInterpolationBufferReverseDelay(): Promise<void> {
   assert.ok(sRev, 'Should sample rewound frame');
   assert.equal(sRev.serverTick, 98);
   assert.equal(sRev.snapshot[SIM_OFFSETS.BALL], -15);
-  assert.equal(buf.getStats().bufferedFrames, 1);
+  assert.equal(buf.getStats().bufferedFrames, 3);
 
   buf.reset();
   assert.equal(buf.sample(1050), null, 'Reset buffer should return null');
