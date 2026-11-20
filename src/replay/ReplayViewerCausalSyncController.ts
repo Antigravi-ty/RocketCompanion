@@ -31,13 +31,13 @@ import type {
   ReplayScoreboardStateInputTimelinePort,
   ReplayScoreboardIncidentTimelinePort,
 } from './ReplayScoreboardSynchronizer.ts';
-import type { ReplayRosterEntry } from './ReplayViewerRosterSubController.ts';
 import {
-  hudStore,
-  useAppStore,
-  useReplayViewerStore,
-} from '../game/runtimeUiPort.ts';
+  disposeRuntimeFlipResetVisuals,
+  type ReplayRosterEntry,
+} from './ReplayViewerRosterSubController.ts';
+import { hudStore, useAppStore, useReplayViewerStore } from '../game/runtimeUiPort.ts';
 import { clearMatchRosterProjection } from '../game/runtime/MatchRosterProjection.ts';
+import { runtimeResourceRegistry } from '../game/runtime/RuntimeResourceRegistry.ts';
 import { getPreferredColorHex } from '../ui-core/config/vehiclePresets.ts';
 import { gameAudio } from '../audio/GameAudioEngineFacade.ts';
 
@@ -454,6 +454,7 @@ export class ReplayViewerCausalSyncController {
     clearMatchRosterProjection();
     if (!r) return;
     r.ballTrajectoryPredictor?.clear?.();
+    disposeRuntimeFlipResetVisuals(r);
     r.playerCarIndex = 0;
     if (r.arena) {
       r.arena.playerCarIndex = 0;
@@ -461,7 +462,9 @@ export class ReplayViewerCausalSyncController {
         if (r.arena.cars[0]) r.arena.cars[0]!.visible = true;
         r.arena.resetCarBoosts?.(0);
         r.arena.supersonicWheelTrailSystem?.resetCar?.(0);
+        r.arena.supersonicWheelTrailSystem?.clear?.();
         r.arena.ballSpeedTrail?.reset?.();
+        r.arena.resetBallTrail?.();
         for (let i = r.arena.cars.length - 1; i >= 1; i--) {
           r.arena.resetCarBoosts?.(i);
           r.arena.carDemolitions?.[i]?.stop?.();
@@ -506,5 +509,9 @@ export class ReplayViewerCausalSyncController {
     if (r.keyboard) {
       r.keyboard.ballControlEnabled = r.match?.state?.mode === 'freeplay';
     }
+    (
+      r as { networkReconciler?: { setReplayPlaybackMode?: (enabled: boolean) => void } | null }
+    ).networkReconciler?.setReplayPlaybackMode?.(false);
+    void runtimeResourceRegistry.disposeScope('replay');
   }
 }
