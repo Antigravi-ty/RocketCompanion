@@ -101,12 +101,25 @@ export function applySpectateSampleOrLookahead(params: {
   const state = getSpectateLookaheadState(buffer);
 
   if (sampled && !sampled.isDuplicateFrame && !(shouldRunLookahead && sampled.isLookahead)) {
+    const sampledNumCars = Math.round(sampled.snapshot[SIM_OFFSETS.NUM_CARS] || 0);
+    const currentNumCars = Math.round(physics.getHeaderView?.()?.numCars ?? 0);
+    const isSessionOrSeekReset =
+      state.hasReceivedFrame &&
+      ((sampledNumCars > 0 && currentNumCars > 0 && sampledNumCars !== currentNumCars) ||
+        (state.lastSampledTick > 0 &&
+          sampled.renderTick > 0 &&
+          sampled.renderTick + 12 < state.lastSampledTick));
+
+    if (isSessionOrSeekReset) {
+      resetSpectateLookaheadState(buffer);
+    }
+
     const rawSampledTick =
       sampled.renderTick > 0
         ? Math.max(16, Math.round(sampled.renderTick))
         : Math.max(16, Math.round(sampled.snapshot[SIM_OFFSETS.TICK] || 0));
 
-    // Reject strictly stale out-of-order samples whose renderTick regressed behind an earlier sample.
+    // Reject strictly stale out-of-order samples whose renderTick regressed slightly behind an earlier sample.
     if (
       state.hasReceivedFrame &&
       state.lastSampledTick > 0 &&
@@ -120,7 +133,9 @@ export function applySpectateSampleOrLookahead(params: {
     const monotonicFloor = state.hasReceivedFrame
       ? Math.max(currentEngineTick, state.lastAppliedTick)
       : 0;
-    const monotonicTick = Math.max(16, monotonicFloor, rawSampledTick);
+    const monotonicTick = state.hasReceivedFrame
+      ? Math.max(16, monotonicFloor, rawSampledTick)
+      : Math.max(16, rawSampledTick);
 
     state.hasReceivedFrame = true;
     state.lastLookaheadMs = now;
