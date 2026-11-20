@@ -2166,6 +2166,10 @@ async function main(): Promise<void> {
     '26. client-csr-spectate Physics Lookahead & Convergence (Bug 3 / B-Track)',
     testClientCsrSpectateLookaheadAndConvergence
   );
+  await runSection(
+    '27. Host Freeplay Goal Replay Broadcast Policy & Sim-Only Stepping (Bug 1 / Track B)',
+    testHostGoalReplayBroadcastAndSimOnlyStepping
+  );
   console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
 }
 
@@ -3705,6 +3709,52 @@ async function testClientCsrSpectateLookaheadAndConvergence(): Promise<void> {
     Math.abs(mockState[SIM_OFFSETS.BALL] - lookaheadBallX) > 0.01,
     'Fresh frame after lookahead should converge physics state'
   );
+}
+
+async function testHostGoalReplayBroadcastAndSimOnlyStepping(): Promise<void> {
+  const { evaluateSimulationFrameFlags, classifySimulationDrivePolicy } = await import(
+    '../src/game/pipeline/stages/simulationFrameClassifierPipeline.ts'
+  );
+
+  const replayFlags = evaluateSimulationFrameFlags({
+    matchState: { mode: 'freeplay', phase: 'replay', paused: false },
+    activeMode: { directorPreview: { isReplayActive: true } },
+    isPodiumControllerActive: false,
+    hasReconciler: false,
+    hasServer: true,
+  });
+  assert.equal(replayFlags.isLocalDirectorPreview, true);
+  assert.equal(replayFlags.isGoalReplay, true);
+
+  const hostPolicy = classifySimulationDrivePolicy({
+    flags: replayFlags,
+    hasServer: true,
+    isBroadcastingHost: true,
+    hasReconciler: false,
+    isPureCsrClient: false,
+    isClientInputAuthority: false,
+    isReconcilerReplayPlayback: false,
+    remoteHasAuthority: false,
+    isSpectatePaused: false,
+  });
+  assert.equal(hostPolicy.mode, 'host-goal-replay');
+  assert.equal(hostPolicy.shouldBroadcastSnapshot, true);
+  assert.equal(hostPolicy.shouldHoldAccumulator, true);
+  assert.equal(hostPolicy.shouldStepLocalPhysics, false);
+
+  const offlinePolicy = classifySimulationDrivePolicy({
+    flags: replayFlags,
+    hasServer: false,
+    isBroadcastingHost: false,
+    hasReconciler: false,
+    isPureCsrClient: false,
+    isClientInputAuthority: false,
+    isReconcilerReplayPlayback: false,
+    remoteHasAuthority: false,
+    isSpectatePaused: false,
+  });
+  assert.equal(offlinePolicy.mode, 'local-replay-playback');
+  assert.equal(offlinePolicy.shouldBroadcastSnapshot, false);
 }
 
 main().catch((err) => {

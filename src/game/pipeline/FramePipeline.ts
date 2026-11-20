@@ -28,9 +28,12 @@ export interface FramePipelineRuntimePort {
     getCurrCarStateView(carIndex: number): CarStateView | null;
   } | null;
   keyboard: { enabled?: boolean } | null;
-  match: { state: { mode: string } } | null;
+  match: { state: { mode: string; phase?: string } } | null;
   profiler: { frameStart(): void; mark(): void } | null;
-  modeManager: { update(context: FrameContext): void } | null;
+  modeManager: {
+    update(context: FrameContext): void;
+    getActiveMode?(): { isGoalReplayActive?(): boolean } | null;
+  } | null;
   audioSubsystem: { update(context: FrameContext): void } | null;
   renderSubsystem: { update(context: FrameContext): void } | null;
   telestratorOverlay?: { update?(): void } | null;
@@ -229,11 +232,21 @@ export class FramePipeline {
 
   public executeSimulationOnly(timestamp: number): void {
     const r = this.runtime;
+    const dt = Math.min(Math.max(0, (timestamp - r.lastTimestamp) / 1000), 0.1);
+    r.lastTimestamp = timestamp;
     this.context.timestamp = timestamp;
+    this.context.dt = dt;
     this.context.isSimulationOnly = true;
 
     for (let i = 0; i < Math.min(2, this.stages.length); i++) {
       this.stages[i].execute(this.context);
+    }
+    const activeMode = r.modeManager?.getActiveMode?.();
+    if (
+      (activeMode?.isGoalReplayActive?.() || r.match?.state?.phase === 'replay') &&
+      this.stages.length > 2
+    ) {
+      this.stages[2].execute(this.context);
     }
 
     this._accumSimTicks += r.interpolator?.lastTicks ?? 0;
