@@ -6,6 +6,7 @@
 import type { NetworkSimulator, SimulatedPayload } from './NetworkSimulator.ts';
 import type { CrossTabSignaling } from './CrossTabSignaling.ts';
 import { AdaptiveReplicationPacer } from './AdaptiveReplicationPacer.ts';
+import { BulkAssetChannel } from './BulkAssetChannel.ts';
 import {
   PING_PONG_KIND_PING,
   PING_PONG_KIND_PONG,
@@ -85,6 +86,7 @@ export class DataChannelTransport {
   readonly signaling: CrossTabSignaling;
   dataChannel: RTCDataChannel | null = null;
   controlDataChannel: RTCDataChannel | null = null;
+  readonly bulkChannel = new BulkAssetChannel();
   isWebRTCOpen = false;
   isControlChannelOpen = false;
   readonly pacer = new AdaptiveReplicationPacer();
@@ -195,6 +197,11 @@ export class DataChannelTransport {
   bindDataChannel(dataChannel: RTCDataChannel): void {
     if (dataChannel.label === 'game_ctrl') {
       this.bindControlDataChannel(dataChannel);
+      return;
+    }
+    if (dataChannel.label === 'game_bulk') {
+      this.bulkChannel.bindDataChannel(dataChannel);
+      this.transportEvents.push({ type: 'control_channel_open' });
       return;
     }
     this.dataChannel = dataChannel;

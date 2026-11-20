@@ -16,6 +16,18 @@ import {
   type RewinderIncidentRecord,
 } from './RewinderHandoffAndMarkerController.ts';
 import { gameAudio } from '../audio/GameAudioEngineFacade.ts';
+import {
+  encodeRewinderSliceBytes,
+  decodeRewinderSliceBytes,
+  type RewinderSliceMetadata,
+} from './rewinderBulkSliceCodec.ts';
+
+export interface RewinderBulkChannelPort {
+  sendRewinderSlice: (
+    sliceBytes: Uint8Array,
+    meta: { startFrame?: number; endFrame?: number; cursor?: number; frameCount?: number }
+  ) => Promise<unknown>;
+}
 
 export type { RewinderFrameEntry, FreeplayRewinderRuntimePort, FreeplayRewinderModePort };
 
@@ -454,5 +466,64 @@ export class FreeplayRewinderController {
       this.rewinderFrames,
       this.takeoverSubController
     );
+  }
+
+  public exportRewinderSliceBytes(
+    options: {
+      startFrame?: number;
+      endFrame?: number;
+      interveneFromHere?: boolean;
+      meta?: RewinderSliceMetadata;
+    } = {}
+  ): Uint8Array {
+    return encodeRewinderSliceBytes({
+      frames: this.rewinderFrames,
+      startFrame: options.startFrame,
+      endFrame: options.endFrame,
+      cursor: this.rewinderCursor,
+      interveneFromHere: options.interveneFromHere,
+      meta: options.meta,
+    });
+  }
+
+  public async sendRewinderSliceToBulkChannel(
+    bulkChannel: RewinderBulkChannelPort,
+    options: {
+      startFrame?: number;
+      endFrame?: number;
+      interveneFromHere?: boolean;
+      meta?: RewinderSliceMetadata;
+    } = {}
+  ): Promise<unknown> {
+    const start = Math.max(0, options.startFrame ?? 0);
+    const end = Math.min(
+      this.rewinderFrames.length,
+      options.endFrame ?? this.rewinderFrames.length
+    );
+    const bytes = this.exportRewinderSliceBytes(options);
+    return bulkChannel.sendRewinderSlice(bytes, {
+      startFrame: start,
+      endFrame: end,
+      cursor: this.rewinderCursor,
+      frameCount: Math.max(0, end - start),
+    });
+  }
+
+  public applyIncomingRewinderSliceBytes(
+    sliceBytes: Uint8Array,
+    options: { applyCursorFrame?: boolean } = {}
+  ): boolean {
+    const decoded = decodeRewinderSliceBytes(sliceBytes);
+    if (!decoded) return false;
+    this.rewinderFrames = decoded.frames;
+    const clampedCursor = Math.max(
+      0,
+      Math.min(Math.max(0, decoded.frames.length - 1), Math.round(decoded.cursor))
+    );
+    this.takeoverSubController.reset(clampedCursor, clampedCursor);
+    if (options.applyCursorFrame && decoded.frames.length > 0) {
+      this.applyFrameAtCursor(false, { preserveEngineTick: true });
+    }
+    return true;
   }
 }
