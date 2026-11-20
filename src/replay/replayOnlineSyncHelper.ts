@@ -64,6 +64,25 @@ export function syncReplayFrameToAuthoritativeServer(
   if (!server) return;
   const snap = runtime?.physics?.saveCompactState?.() ?? null;
   if (!snap) return;
+  if (
+    typeof (server as { pushBroadcastSnapshot?: (s: Float32Array, t: number) => void })
+      .pushBroadcastSnapshot === 'function'
+  ) {
+    const tick =
+      typeof tickOverride === 'number' && Number.isFinite(tickOverride)
+        ? Math.max(0, Math.round(tickOverride))
+        : Math.max(
+            0,
+            Math.round(
+              Number(snap[0]) || Number(runtime?.physics?.getHeaderView?.()?.tickCount) || 0
+            )
+          );
+    (server as { pushBroadcastSnapshot: (s: Float32Array, t: number) => void }).pushBroadcastSnapshot(
+      snap,
+      tick
+    );
+    return;
+  }
   if (typeof server.enterStateOnlyMode === 'function') {
     const tick =
       typeof tickOverride === 'number' && Number.isFinite(tickOverride)

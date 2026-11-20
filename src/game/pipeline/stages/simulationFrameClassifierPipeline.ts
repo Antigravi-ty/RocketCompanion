@@ -199,6 +199,9 @@ function resolveSimulationDriveMode(
       return flags.isGoalReplay ? 'client-goal-replay' : 'local-freeplay';
     }
     if (isReconcilerReplayPlayback) {
+      if (isPureCsrClient) {
+        return flags.isGoalReplay ? 'client-goal-replay' : 'client-csr-spectate';
+      }
       return 'local-replay-playback';
     }
     if (flags.isGoalReplay) {
