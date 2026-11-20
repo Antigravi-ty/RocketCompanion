@@ -104,16 +104,17 @@ export class FreeplayRewinderController {
     const { match, isBotMatch, botCoordinator } = this.runtime ?? {};
     const currentMode = match?.state?.mode || 'freeplay';
     const online = useAppStore.getState().onlineSession;
-    const isOnlineActive = Boolean(
-      online?.isHosting ||
-      online?.signalingConnected ||
-      online?.roomId ||
-      isBotMatch ||
-      botCoordinator?.isBotMatch
+    const isRemoteNonHostClient = Boolean(
+      !online?.isHosting && (online?.signalingConnected || online?.roomId)
     );
-    if (isOnlineActive || (currentMode !== 'freeplay' && currentMode !== 'dev-test-lab')) {
+    const isBlockedByBotOrMode = Boolean(
+      isBotMatch ||
+      botCoordinator?.isBotMatch ||
+      (currentMode !== 'freeplay' && currentMode !== 'dev-test-lab')
+    );
+    if (isRemoteNonHostClient || isBlockedByBotOrMode) {
       console.warn(
-        `[FreeplayRewinderController] Cannot execute "${actionName}": active mode is "${currentMode}" (Rewinder Configurator requires offline "freeplay" or "dev-test-lab").`
+        `[FreeplayRewinderController] Cannot execute "${actionName}": active mode is "${currentMode}" (Rewinder Configurator requires local or hosting authority in "freeplay" or "dev-test-lab").`
       );
       return false;
     }
