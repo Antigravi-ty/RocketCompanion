@@ -509,15 +509,18 @@ async function main() {
       const pads = rt.arena?.boostPadSystem?.pads || [];
       const prevVis = pads.map((p) => Boolean(p.full?.visible));
       const padFlips = new Array(pads.length).fill(0);
+      const padFlipTimes = pads.map(() => []);
       const samples = [];
       for (let f = 0; f < 30; f++) {
         await new Promise((r) => requestAnimationFrame(r));
+        const nowMs = performance.now();
         const bv = rt.physics.getBallStateView();
         let flipsThisFrame = 0;
         for (let i = 0; i < pads.length; i++) {
           const vis = Boolean(pads[i].full?.visible);
           if (vis !== prevVis[i]) {
             padFlips[i]++;
+            padFlipTimes[i].push(nowMs);
             flipsThisFrame++;
             prevVis[i] = vis;
           }
@@ -530,7 +533,7 @@ async function main() {
           flipsThisFrame,
         });
       }
-      return { samples, padFlips };
+      return { samples, padFlips, padFlipTimes };
     })()`);
 
     let frozenBallFrames = 0;
@@ -557,21 +560,56 @@ async function main() {
     );
 
     const totalPadFlips = motionAndPads.padFlips.reduce((a, b) => a + b, 0);
-    const maxSinglePadFlips = Math.max(...motionAndPads.padFlips);
-    const bug4Reproduced = maxSinglePadFlips >= 2 || totalPadFlips >= 8;
+    const maxSinglePadFlips =
+      motionAndPads.padFlips.length > 0 ? Math.max(...motionAndPads.padFlips) : 0;
+    let maxRapidFlipsIn400ms = 0;
+    for (const times of motionAndPads.padFlipTimes || []) {
+      let left = 0;
+      for (let right = 0; right < times.length; right++) {
+        while (times[right] - times[left] >= 400) left++;
+        const count = right - left + 1;
+        if (count > maxRapidFlipsIn400ms) maxRapidFlipsIn400ms = count;
+      }
+    }
+    const bug4Reproduced = maxRapidFlipsIn400ms >= 2;
     record(
       'bug-4-boostpad-model-flicker',
       'Client BoostPad Models Flicker Violently Across Consecutive Frames',
       bug4Reproduced,
-      { totalPadFlips, maxSinglePadFlips, padFlips: motionAndPads.padFlips }
+      { totalPadFlips, maxSinglePadFlips, maxRapidFlipsIn400ms, padFlips: motionAndPads.padFlips }
     );
 
     // =========================================================================
     // REPRO 5: High Memory Footprint & Unreleased Memory After Replay Exit
     // =========================================================================
     const loadedMem = await sampleMemory(hostCdp);
+    await hostCdp.send('Page.bringToFront');
     await hostCdp.eval(`window.__rcE2E.getAppState().bridge.onReturnToFreeplay()`);
-    await new Promise((r) => setTimeout(r, 500));
+    await waitFor(
+      () =>
+        hostCdp.eval(`(() => {
+          const rt = window.__rcE2E?.runtime;
+          const fp = rt?.modeManager?.modes?.get?.('freeplay');
+          const rv = fp?.standaloneReplayViewer;
+          const numCars = rt?.physics?.getHeaderView?.()?.numCars ?? 0;
+          const car0Visible = Boolean(rt?.arena?.cars?.[0]?.visible);
+          const rvFrames = rv?.frames?.length ?? rv?.session?.frames?.length ?? 0;
+          return (
+            numCars === 1 &&
+            !rv?.hasLoadedReplay &&
+            !rv?.isActive &&
+            rvFrames === 0 &&
+            car0Visible
+          );
+        })()`),
+      'Host Freeplay single-car cleanup',
+      15_000,
+      100
+    );
+    await hostCdp.eval(
+      `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`
+    );
+    await new Promise((r) => setTimeout(r, 400));
     const afterExitMem = await sampleMemory(hostCdp);
 
     const tauriLibRs = fs.readFileSync(

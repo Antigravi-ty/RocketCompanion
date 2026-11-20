@@ -2,6 +2,7 @@ import {
   BALL_REST_Z,
   BALL_STATE_STRIDE,
   MATCH_SIGNALS,
+  MAX_CARS,
   SIM_OFFSETS,
 } from '../../../physics/RocketSimConstants.ts';
 import { isDevSyncHostBroadcastingMode } from '../../pipeline/stages/HostBroadcastPublisher.ts';
@@ -140,13 +141,13 @@ export function resetFreeplayExtraCarsAndArenaToSingleCar(
     arena.resetCarBoosts?.(0);
     arena.supersonicWheelTrailSystem?.resetCar?.(0);
     arena.ballSpeedTrail?.reset?.();
+    for (let i = Math.max(arena.cars.length, MAX_CARS) - 1; i >= 1; i--) {
+      arena.supersonicWheelTrailSystem?.resetCar?.(i);
+    }
     for (let i = arena.cars.length - 1; i >= 1; i--) {
       if (arena.resetCarBoosts) arena.resetCarBoosts(i);
       const demo = arena.carDemolitions?.[i];
       if (demo?.stop) demo.stop();
-      if (arena.supersonicWheelTrailSystem?.resetCar) {
-        arena.supersonicWheelTrailSystem.resetCar(i);
-      }
       if (arena.vehicleRegistry?.removeCar) {
         arena.vehicleRegistry.removeCar(i);
       } else if (arena.cars[i]) {
