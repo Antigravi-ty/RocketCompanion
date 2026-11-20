@@ -311,13 +311,18 @@ export function syncPublicSubmoduleToTmpfs(repoRoot, cacheRoot = DEFAULT_CACHE_R
 
   const tmpPublicDir = path.join(cacheRoot, 'public');
   const repoPublicDir = path.join(repoRoot, 'public');
+  const gitTimeoutMs = Number(process.env.RC_GIT_TIMEOUT_MS || 180_000);
+  const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
 
-  // If tmpPublicDir doesn't have a valid git checkout, clone shallowly (or full if pinnedSha needed)
   let tmpValid = false;
+  let currentHead = '';
   if (fs.existsSync(path.join(tmpPublicDir, '.git'))) {
     try {
-      execFileSync('git', ['-C', tmpPublicDir, 'rev-parse', 'HEAD'], { stdio: 'ignore' });
-      tmpValid = true;
+      currentHead = execFileSync('git', ['-C', tmpPublicDir, 'rev-parse', 'HEAD'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+      tmpValid = Boolean(currentHead);
     } catch {
       tmpValid = false;
     }
@@ -325,14 +330,36 @@ export function syncPublicSubmoduleToTmpfs(repoRoot, cacheRoot = DEFAULT_CACHE_R
 
   if (!tmpValid) {
     fs.rmSync(tmpPublicDir, { recursive: true, force: true });
-    console.log(`[tmpfsGuard] Cloning public/ submodule into ${tmpPublicDir} (tmpfs)...`);
-    execFileSync('git', ['clone', '--depth', '1', subUrl, tmpPublicDir], {
-      stdio: 'inherit',
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
-    });
-  }
-
-  if (pinnedSha) {
+    let fetchedPinnedDirectly = false;
+    if (pinnedSha) {
+      console.log(`[tmpfsGuard] Fetching public/ submodule (${pinnedSha.slice(0, 8)}) into ${tmpPublicDir} (tmpfs)...`);
+      try {
+        fs.mkdirSync(tmpPublicDir, { recursive: true });
+        execFileSync('git', ['-C', tmpPublicDir, 'init', '-q'], { env: gitEnv });
+        execFileSync('git', ['-C', tmpPublicDir, 'remote', 'add', 'origin', subUrl], { env: gitEnv });
+        execFileSync('git', ['-C', tmpPublicDir, 'fetch', '--depth', '1', 'origin', pinnedSha], {
+          stdio: 'inherit',
+          env: gitEnv,
+          timeout: gitTimeoutMs,
+        });
+        execFileSync('git', ['-C', tmpPublicDir, 'checkout', '-q', '--detach', 'FETCH_HEAD'], {
+          stdio: 'inherit',
+          env: gitEnv,
+        });
+        fetchedPinnedDirectly = true;
+      } catch {
+        fs.rmSync(tmpPublicDir, { recursive: true, force: true });
+      }
+    }
+    if (!fetchedPinnedDirectly) {
+      console.log(`[tmpfsGuard] Cloning public/ submodule into ${tmpPublicDir} (tmpfs)...`);
+      execFileSync('git', ['clone', '--depth', '1', '--single-branch', subUrl, tmpPublicDir], {
+        stdio: 'inherit',
+        env: gitEnv,
+        timeout: gitTimeoutMs,
+      });
+    }
+  } else if (pinnedSha && currentHead !== pinnedSha) {
     let hasPinned = false;
     try {
       execFileSync('git', ['-C', tmpPublicDir, 'cat-file', '-e', `${pinnedSha}^{commit}`], {
@@ -345,14 +372,16 @@ export function syncPublicSubmoduleToTmpfs(repoRoot, cacheRoot = DEFAULT_CACHE_R
     if (!hasPinned) {
       try {
         execFileSync('git', ['-C', tmpPublicDir, 'fetch', '--depth', '1', 'origin', pinnedSha], {
-          stdio: 'ignore',
-          env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+          stdio: 'inherit',
+          env: gitEnv,
+          timeout: gitTimeoutMs,
         });
       } catch {
         try {
           execFileSync('git', ['-C', tmpPublicDir, 'fetch', '--all', '--tags', '--prune'], {
-            stdio: 'ignore',
-            env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+            stdio: 'inherit',
+            env: gitEnv,
+            timeout: gitTimeoutMs,
           });
         } catch {
           // Ignore
@@ -360,14 +389,9 @@ export function syncPublicSubmoduleToTmpfs(repoRoot, cacheRoot = DEFAULT_CACHE_R
       }
     }
     try {
-      const cur = execFileSync('git', ['-C', tmpPublicDir, 'rev-parse', 'HEAD'], {
-        encoding: 'utf8',
-      }).trim();
-      if (cur !== pinnedSha) {
-        execFileSync('git', ['-C', tmpPublicDir, 'checkout', '--detach', pinnedSha], {
-          stdio: 'ignore',
-        });
-      }
+      execFileSync('git', ['-C', tmpPublicDir, 'checkout', '-q', '--detach', pinnedSha], {
+        stdio: 'ignore',
+      });
     } catch {
       // Ignore
     }

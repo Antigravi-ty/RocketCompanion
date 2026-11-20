@@ -160,8 +160,9 @@ async function main() {
     userDataDirPrefix: 'chrome-dev-broadcast-repro-v3',
   });
 
+  const results = [];
   const watchdog = setTimeout(() => {
-    console.error('[DevBroadcastReproV3] Watchdog timeout reached!');
+    console.error(`[DevBroadcastReproV3] Watchdog timeout reached (${MAX_DURATION_MS}ms)! Completed=${results.length}/5: ${JSON.stringify(results.map((r) => r.id))}`);
     try {
       chromeProc.kill('SIGKILL');
     } catch {
@@ -170,7 +171,6 @@ async function main() {
     process.exit(2);
   }, MAX_DURATION_MS);
 
-  const results = [];
   const record = (id, title, reproduced, detail) => {
     results.push({ id, title, reproduced, detail });
     const tag = reproduced ? 'REPRODUCED_BUG' : 'PASS_FIXED';
