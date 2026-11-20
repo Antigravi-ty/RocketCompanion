@@ -76,7 +76,7 @@ export function applySpectateSampleOrLookahead(params: {
   const { buffer, sampled, shouldRunLookahead, now, physics, interpolator } = params;
   const state = getSpectateLookaheadState(buffer);
 
-  if (sampled && !sampled.isDuplicateFrame) {
+  if (sampled && !sampled.isDuplicateFrame && !(shouldRunLookahead && sampled.isLookahead)) {
     state.hasReceivedFrame = true;
     state.lastLookaheadMs = now;
     if (
@@ -150,6 +150,13 @@ export function applySpectateSampleOrLookahead(params: {
   }
 
   if (sampled) {
+    if (
+      shouldRunLookahead &&
+      state.hasReceivedFrame &&
+      state.lookaheadTicksActive >= SPECTATE_LOOKAHEAD_MAX_TICKS
+    ) {
+      return false;
+    }
     state.hasReceivedFrame = true;
     state.lookaheadTicksActive = 0;
     state.lastLookaheadMs = now;

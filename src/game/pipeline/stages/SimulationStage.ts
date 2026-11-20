@@ -354,7 +354,7 @@ export class SimulationStage implements PipelineStage {
       }
     }
 
-    if ((reconciler || isBroadcastingHost) && !flags.isLocalDirectorPreview) {
+    if (isBroadcastingHost || (reconciler && !flags.isLocalDirectorPreview)) {
       this._lastRecordedClientReplayTick = stepNetworkReconciliationAndReplayStream({
         timestamp,
         physics,

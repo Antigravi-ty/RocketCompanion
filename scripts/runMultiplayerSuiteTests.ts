@@ -2166,6 +2166,10 @@ async function main(): Promise<void> {
     '26. client-csr-spectate Physics Lookahead & Convergence (Bug 3 / B-Track)',
     testClientCsrSpectateLookaheadAndConvergence
   );
+  await runSection(
+    '27. Host Freeplay Goal Replay Broadcast Policy & Sim-Only Stepping (Bug 1 / Track B)',
+    testHostGoalReplayBroadcastAndSimOnlyStepping
+  );
   console.log('=== ALL MULTIPLAYER SUITE TESTS PASSED ===');
 }
 
@@ -3705,6 +3709,226 @@ async function testClientCsrSpectateLookaheadAndConvergence(): Promise<void> {
     Math.abs(mockState[SIM_OFFSETS.BALL] - lookaheadBallX) > 0.01,
     'Fresh frame after lookahead should converge physics state'
   );
+
+  // Test 27: W2-A isLookahead -> WASM physics lookahead & Replay Watch Together routing (Track A / Bug 3)
+  console.log(
+    '[Test 27] W2-A isLookahead WASM lookahead wiring & Replay Watch Together buffer routing...'
+  );
+  {
+    const { SpectateInterpolationBuffer } = await import(
+      '../src/network/sync/ReplicationStateInterpolator.ts'
+    );
+    const { stepNetworkReconciliationAndReplayStream } = await import(
+      '../src/game/pipeline/stages/simulationNetworkReconcilePipeline.ts'
+    );
+    const { applySpectateSampleOrLookahead, getSpectateLookaheadState } = await import(
+      '../src/game/pipeline/stages/spectatePhysicsLookaheadPipeline.ts'
+    );
+    const { SIM_OFFSETS } = await import('../src/physics/RocketSimConstants.ts');
+
+    const buf = new SpectateInterpolationBuffer(32);
+    const makeSnap = (tick: number, ballX: number): Float32Array => {
+      const s = new Float32Array(22 + 40);
+      s[SIM_OFFSETS.TICK] = tick;
+      s[SIM_OFFSETS.NUM_CARS] = 1;
+      s[SIM_OFFSETS.BALL] = ballX;
+      s[SIM_OFFSETS.BALL + 2] = 93.15;
+      s[SIM_OFFSETS.BALL + 3] = 500;
+      return s;
+    };
+
+    const mockState = makeSnap(300, 200);
+    let stepCalls = 0;
+    let controlsApplied = 0;
+    const mockPhysics = {
+      state: mockState,
+      numCars: 1,
+      isCarSlotActive: () => true,
+      getHeaderView: () => ({ tickCount: mockState[SIM_OFFSETS.TICK], numCars: 1 }),
+      setCarControls: () => {
+        controlsApplied++;
+      },
+      step: (n: number) => {
+        stepCalls += n;
+        mockState[SIM_OFFSETS.TICK] += n;
+        mockState[SIM_OFFSETS.BALL] += 6 * n;
+      },
+      restoreCompactState: (snap: Float32Array) => {
+        mockState.set(snap);
+      },
+    };
+    const mockInterpolator = {
+      prevState: new Float32Array(mockState.length),
+      currState: new Float32Array(mockState.length),
+      alpha: 0,
+      sync: () => {},
+    };
+
+    const replayPolicy = {
+      mode: 'local-replay-playback' as const,
+      shouldStepLocalPhysics: true,
+      shouldHoldAccumulator: false,
+      shouldBroadcastSnapshot: false,
+      shouldRunLookahead: false,
+      shouldFeedReplayTimeline: false,
+    };
+    const replayFlags = {
+      isPodiumActive: false,
+      isMatchEnded: false,
+      isLocalDirectorPreview: false,
+      isGoalReplay: false,
+      isMinimizedOffline: false,
+      isLocalReplayControllerStepping: false,
+      isReplayPaused: false,
+      shouldHoldAccumulator: false,
+      isMatchActive: true,
+      shouldSynthesizeTickEvents: true,
+    };
+
+    const drainedReplayPackets: Array<{
+      stateSnapshot: Float32Array;
+      serverTick: number;
+      acknowledgedControls?: Array<{ carIndex: number; controls: Record<string, unknown> }>;
+    }> = [
+      {
+        stateSnapshot: makeSnap(300, 200),
+        serverTick: 300,
+        acknowledgedControls: [{ carIndex: 0, controls: { throttle: 1 } }],
+      },
+      {
+        stateSnapshot: makeSnap(302, 210),
+        serverTick: 302,
+        acknowledgedControls: [{ carIndex: 0, controls: { throttle: 1, boost: true } }],
+      },
+    ];
+    const mockReconciler = {
+      spectateMirrorMode: true,
+      clientInputEnabled: false,
+      activeInputPeerId: 'host',
+      hostLobbyMode: false,
+      replayPlaybackMode: true,
+      drainedReplayPackets,
+      lastParsedPacket: { acknowledgedControls: [{ carIndex: 0, controls: { throttle: 1 } }] },
+      metrics: { measuredJitterMs: 0, lastCorrectionDelta: 0 },
+      reconcile: () => {},
+      flushPendingControlPackets: () => {},
+    };
+
+    stepNetworkReconciliationAndReplayStream({
+      timestamp: 1016,
+      physics: mockPhysics as never,
+      interpolator: mockInterpolator as never,
+      camera: null,
+      matchState: { mode: 'freeplay', phase: 'playing', paused: false },
+      flags: replayFlags,
+      policy: replayPolicy,
+      reconciler: mockReconciler as never,
+      server: null,
+      replayTimelineController: null,
+      rosterCapturePort: {} as never,
+      diagnosticDumpMaxFrames: 36000,
+      fleetController: null,
+      sessionStateTarget: null,
+      lastRecordedClientReplayTick: -1,
+      spectateInterpolationBuffer: buf,
+    });
+    assert.equal(
+      buf.getStats().bufferedFrames,
+      2,
+      'Replay Watch Together must push drainedReplayPackets into SpectateInterpolationBuffer'
+    );
+    assert.equal(stepCalls, 0, 'Tracked replay frame should not invoke WASM lookahead');
+
+    const lookaheadBuf = new SpectateInterpolationBuffer(32);
+    getSpectateLookaheadState(lookaheadBuf).lastAcknowledgedControls = [
+      { carIndex: 0, controls: { throttle: 1, boost: true } },
+    ];
+    lookaheadBuf.pushFrame(makeSnap(300, 200), 300, 1000);
+    lookaheadBuf.pushFrame(makeSnap(302, 210), 302, 1016);
+    const trackedSample = lookaheadBuf.sample(1016);
+    assert.ok(trackedSample && !trackedSample.isLookahead, 'Initial sample should be tracked');
+    applySpectateSampleOrLookahead({
+      buffer: lookaheadBuf,
+      sampled: trackedSample,
+      shouldRunLookahead: true,
+      now: 1016,
+      physics: mockPhysics as never,
+      interpolator: mockInterpolator as never,
+    });
+
+    const lookaheadSample = lookaheadBuf.sample(1060);
+    assert.ok(lookaheadSample?.isLookahead, 'Buffer should enter isLookahead state');
+    const tickBeforeLookahead = mockState[SIM_OFFSETS.TICK];
+    const ballBeforeLookahead = mockState[SIM_OFFSETS.BALL];
+    const applied = applySpectateSampleOrLookahead({
+      buffer: lookaheadBuf,
+      sampled: lookaheadSample,
+      shouldRunLookahead: true,
+      now: 1060,
+      physics: mockPhysics as never,
+      interpolator: mockInterpolator as never,
+    });
+    assert.ok(applied, 'isLookahead sample should be applied via WASM lookahead');
+    assert.ok(stepCalls >= 1, 'sampled.isLookahead === true must trigger WASM physics.step(1)');
+    assert.ok(controlsApplied >= 1, 'WASM lookahead under isLookahead must apply controls');
+    assert.ok(
+      mockState[SIM_OFFSETS.TICK] > tickBeforeLookahead,
+      'Tick must advance during isLookahead WASM step'
+    );
+    assert.ok(
+      mockState[SIM_OFFSETS.BALL] > ballBeforeLookahead,
+      'Ball must advance during isLookahead WASM step'
+    );
+  }
+  console.log(
+    '[PASS] 27. W2-A isLookahead WASM lookahead wiring & Replay Watch Together buffer routing'
+  );
+}
+
+async function testHostGoalReplayBroadcastAndSimOnlyStepping(): Promise<void> {
+  const { evaluateSimulationFrameFlags, classifySimulationDrivePolicy } = await import(
+    '../src/game/pipeline/stages/simulationFrameClassifierPipeline.ts'
+  );
+
+  const replayFlags = evaluateSimulationFrameFlags({
+    matchState: { mode: 'freeplay', phase: 'replay', paused: false },
+    activeMode: { directorPreview: { isReplayActive: true } },
+    isPodiumControllerActive: false,
+    hasReconciler: false,
+    hasServer: true,
+  });
+  assert.equal(replayFlags.isLocalDirectorPreview, true);
+  assert.equal(replayFlags.isGoalReplay, true);
+
+  const hostPolicy = classifySimulationDrivePolicy({
+    flags: replayFlags,
+    hasServer: true,
+    isBroadcastingHost: true,
+    hasReconciler: false,
+    isPureCsrClient: false,
+    isClientInputAuthority: false,
+    isReconcilerReplayPlayback: false,
+    remoteHasAuthority: false,
+    isSpectatePaused: false,
+  });
+  assert.equal(hostPolicy.mode, 'host-goal-replay');
+  assert.equal(hostPolicy.shouldBroadcastSnapshot, true);
+  assert.equal(hostPolicy.shouldHoldAccumulator, true);
+  assert.equal(hostPolicy.shouldStepLocalPhysics, false);
+
+  const offlinePolicy = classifySimulationDrivePolicy({
+    flags: replayFlags,
+    hasServer: false,
+    isBroadcastingHost: false,
+    hasReconciler: false,
+    isPureCsrClient: false,
+    isClientInputAuthority: false,
+    isReconcilerReplayPlayback: false,
+    remoteHasAuthority: false,
+    isSpectatePaused: false,
+  });
+  assert.equal(offlinePolicy.mode, 'local-replay-playback');
+  assert.equal(offlinePolicy.shouldBroadcastSnapshot, false);
 }
 
 main().catch((err) => {

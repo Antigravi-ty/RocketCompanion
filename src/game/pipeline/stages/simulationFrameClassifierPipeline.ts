@@ -185,11 +185,14 @@ function resolveSimulationDriveMode(
     isReconcilerReplayPlayback,
   } = input;
 
-  if (flags.isLocalDirectorPreview || flags.isLocalReplayControllerStepping) {
+  if (flags.isLocalReplayControllerStepping && !flags.isLocalDirectorPreview) {
     return 'local-replay-playback';
   }
   if (hasServer) {
     return flags.isGoalReplay ? 'host-goal-replay' : 'host-authoritative';
+  }
+  if (flags.isLocalDirectorPreview) {
+    return 'local-replay-playback';
   }
   if (hasReconciler) {
     if (isClientInputAuthority) {

@@ -207,10 +207,14 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
     (reconciler.clientInputEnabled === false || reconciler.activeInputPeerId === 'host') &&
     !reconciler.hostLobbyMode
   );
+  const isRemoteReplayWatchTogether = Boolean(
+    reconciler.replayPlaybackMode && isPureCsrSpectate && !flags.isLocalReplayControllerStepping
+  );
   const useSpectateBuffer =
-    (policy.mode === 'client-csr-spectate' || policy.mode === 'client-goal-replay') &&
+    (policy.mode === 'client-csr-spectate' ||
+      policy.mode === 'client-goal-replay' ||
+      isRemoteReplayWatchTogether) &&
     isPureCsrSpectate &&
-    !reconciler.replayPlaybackMode &&
     Boolean(spectateInterpolationBuffer);
 
   if (!useSpectateBuffer) {
@@ -286,10 +290,16 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
       if (sampled && reconciler.metrics) {
         reconciler.metrics.measuredJitterMs = Math.round(sampled.jitterMs * 10) / 10;
       }
+      const shouldRunLookahead =
+        policy.shouldRunLookahead ||
+        (isRemoteReplayWatchTogether &&
+          !flags.isReplayPaused &&
+          !flags.isMatchEnded &&
+          !flags.isGoalReplay);
       const applied = applySpectateSampleOrLookahead({
         buffer: spectateInterpolationBuffer,
         sampled,
-        shouldRunLookahead: policy.shouldRunLookahead,
+        shouldRunLookahead,
         now,
         physics,
         interpolator,
