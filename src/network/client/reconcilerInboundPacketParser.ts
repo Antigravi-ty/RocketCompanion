@@ -119,6 +119,11 @@ export function drainAndParseServerPacketBatch(
           const gp = frame.globalPayload;
           if (gp?.signals && gp.signals.length > 0) {
             messenger.acknowledgeServerSignals(gp.signals);
+            for (const sig of gp.signals) {
+              if (sig?.signalType === MATCH_SIGNALS.COMMAND_ACK && typeof sig.param1 === 'number') {
+                messenger.resolveClientCommandAck(sig.param1);
+              }
+            }
             ctx.onSignals?.(gp.signals, frame.simTick);
           }
           if (gp?.hasPhysics && gp.physics?.stateSnapshot) {

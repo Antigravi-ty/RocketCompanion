@@ -18,6 +18,8 @@ import type { DiagnosticsTestVehicleController } from '../diagnostics/Diagnostic
 import type { AuthoritativePhysicsSimPort } from './authoritativePhysicsStepPipeline.ts';
 import { WorkerAuthorityBus } from './WorkerAuthorityBus.ts';
 import { VNEXT_CHANNEL1_SCHEMA_HASH } from '../protocol/VNextSchemaHash.ts';
+import { GlobalPayloadCodec } from '../protocol/GlobalPayloadCodec.ts';
+import { VNextWorldFrameCodec, type VNextFramePhase } from '../protocol/VNextWorldFrameCodec.ts';
 
 export interface AuthoritativeWorkerIncomingEvent extends HostWorkerInitOptions {
   type?: string;
@@ -144,7 +146,27 @@ function tick(): void {
     botPortBridge.step(matchManager, sim, physicsManager, dataHandler, registerWorkerChannel);
   }
   if (globalPayloadBytes && globalPayloadBytes.length > 0) {
-    if (authorityBus) {
+    const isStateOnlyBroadcast = Boolean(matchManager.systemControl?.isStateOnlyMode);
+    if (isStateOnlyBroadcast && authorityBus && dataHandler && sessionManager) {
+      const gp = GlobalPayloadCodec.decode(globalPayloadBytes);
+      const simTick = physicsManager?.currentTick ?? matchManager.lifecycle.matchTick;
+      const nowMs = performance.now();
+      const vnextBytes = VNextWorldFrameCodec.encode({
+        txSeq: authorityBus.slidingWindow.getLatestTxSeq() + 1,
+        metadataHash: 0,
+        activityMode: authorityBus.getActivityMode(),
+        playbackState: 'playing',
+        phase: (matchManager.lifecycle.state || 'playing') as VNextFramePhase,
+        simTick,
+        clockSeconds: matchManager.domain.clockSecondsRemaining,
+        timestampMs: nowMs,
+        globalPayload: gp
+          ? {
+              physics: gp.physics,
+              signals: gp.signals,
+            }
+          : null,
+      });
       authorityBus.slidingWindow.pushFrame({
         schemaHash: VNEXT_CHANNEL1_SCHEMA_HASH,
         metadataHash: 0,
@@ -152,15 +174,38 @@ function tick(): void {
         playbackState: 'playing',
         phase: matchManager.lifecycle.state,
         clockSeconds: matchManager.domain.clockSecondsRemaining,
-        simTick: physicsManager?.currentTick ?? matchManager.lifecycle.matchTick,
+        simTick,
         replayFrameIndex: 0,
         focusedCarIndex: 0,
-        timestampMs: performance.now(),
-        payloadBytes: globalPayloadBytes,
+        timestampMs: nowMs,
+        payloadBytes: vnextBytes,
       });
-    }
-    if (dataHandler) {
-      dataHandler.dispatchFrameToSessions(globalPayloadBytes);
+      const sessions = sessionManager.getAllSessions();
+      for (let i = 0; i < sessions.length; i++) {
+        const s = sessions[i];
+        const ch = dataHandler.channels.get(s.sessionId);
+        if (ch?.isVirtualBot) continue;
+        dataHandler.sendPacket(s.sessionId, vnextBytes);
+      }
+    } else {
+      if (authorityBus) {
+        authorityBus.slidingWindow.pushFrame({
+          schemaHash: VNEXT_CHANNEL1_SCHEMA_HASH,
+          metadataHash: 0,
+          activityMode: authorityBus.getActivityMode(),
+          playbackState: 'playing',
+          phase: matchManager.lifecycle.state,
+          clockSeconds: matchManager.domain.clockSecondsRemaining,
+          simTick: physicsManager?.currentTick ?? matchManager.lifecycle.matchTick,
+          replayFrameIndex: 0,
+          focusedCarIndex: 0,
+          timestampMs: performance.now(),
+          payloadBytes: globalPayloadBytes,
+        });
+      }
+      if (dataHandler) {
+        dataHandler.dispatchFrameToSessions(globalPayloadBytes);
+      }
     }
   }
 }
