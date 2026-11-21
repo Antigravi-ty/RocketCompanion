@@ -74,7 +74,8 @@ export function applyReplayFrameToEngine(
   frameBuffer: Float32Array | null | undefined,
   interpolator: ReplayFrameInterpolatorStatePort | null = null,
   prevFrameBuffer: Float32Array | null = null,
-  alpha = 1.0
+  alpha = 1.0,
+  options?: { preserveEngineTick?: boolean }
 ): boolean {
   if (!targetPort || !frameBuffer || frameBuffer.length < SIM_OFFSETS.CARS) return false;
 
@@ -112,7 +113,9 @@ export function applyReplayFrameToEngine(
 
   const targetState = targetPort.state ?? null;
   if (typeof targetPort.restoreState === 'function') {
-    targetPort.restoreState(frameBuffer, { preserveEngineTick: true });
+    targetPort.restoreState(frameBuffer, {
+      preserveEngineTick: options?.preserveEngineTick ?? true,
+    });
   } else {
     if (typeof targetPort.setBallState === 'function') {
       targetPort.setBallState(

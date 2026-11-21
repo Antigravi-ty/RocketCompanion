@@ -253,7 +253,8 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
       for (let i = 0; i < packets.length; i++) {
         const pkt = packets[i];
         if (!pkt?.stateSnapshot) continue;
-        spectateInterpolationBuffer.pushFrame(pkt.stateSnapshot, pkt.serverTick || 0, now);
+        const pktArrivalMs = now - (packets.length - 1 - i) * (1000 / 60);
+        spectateInterpolationBuffer.pushFrame(pkt.stateSnapshot, pkt.serverTick || 0, pktArrivalMs);
         if (policy.shouldFeedReplayTimeline) {
           feedStreamedReplayPacket(pkt, replayTimelineController, rosterCapturePort, matchState);
         }
@@ -266,7 +267,9 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
     if (canSampleToEngine) {
       const sampled = spectateInterpolationBuffer.sample(now);
       if (sampled) {
-        applyReplayFrameToEngine(physics, sampled.snapshot, interpolator);
+        applyReplayFrameToEngine(physics, sampled.snapshot, interpolator, null, 1.0, {
+          preserveEngineTick: false,
+        });
         if (!matchState.paused && !flags.isMatchEnded && sessionStateTarget) {
           const recOut = recordClientDiagnosticReplayFrame(physics, diagnosticDumpMaxFrames);
           sessionStateTarget.clientReplayOverflowPaused = recOut.overflowPaused;
@@ -297,7 +300,9 @@ export function stepNetworkReconciliationAndReplayStream(input: NetworkReconcile
         feedStreamedReplayPacket(pkt, replayTimelineController, rosterCapturePort, matchState);
       }
       if (canApplyStreamFrame) {
-        applyReplayFrameToEngine(physics, pkt.stateSnapshot, interpolator);
+        applyReplayFrameToEngine(physics, pkt.stateSnapshot, interpolator, null, 1.0, {
+          preserveEngineTick: false,
+        });
         if (!matchState.paused && !flags.isMatchEnded && sessionStateTarget) {
           const recOut = recordClientDiagnosticReplayFrame(physics, diagnosticDumpMaxFrames);
           sessionStateTarget.clientReplayOverflowPaused = recOut.overflowPaused;

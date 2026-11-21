@@ -15,6 +15,9 @@ import {
   type DecodedGlobalPayload,
   type MatchSignalDescriptor,
 } from '../protocol/GlobalPayloadCodec.ts';
+import { decodeVNextChannelPacket } from '../protocol/ReplicationBusProtocol.ts';
+import { VNEXT_CHANNEL1_SCHEMA_HASH, VNEXT_CHANNEL2_SCHEMA_HASH } from '../protocol/VNextSchemaHash.ts';
+import type { DecodedVNextWorldFrame } from '../protocol/VNextWorldFrameCodec.ts';
 import {
   createBoostPadEdgeTracker,
   seedBoostPadEdgeTrackerFromSnapshot,
@@ -35,6 +38,7 @@ export interface ParsedReconcilerPacket extends InspectablePacketInput {
   timestamp?: number;
   clientHeader?: ParsedClientPacketHeader;
   globalPayload?: DecodedGlobalPayload;
+  vnextWorldFrame?: DecodedVNextWorldFrame;
   rawBytes?: Uint8Array | ArrayBuffer;
 }
 
@@ -93,6 +97,61 @@ export function drainAndParseServerPacketBatch(
 
     if (rawItem instanceof Uint8Array || rawItem instanceof ArrayBuffer) {
       lastReceivedPacketRaw = rawItem;
+      const u8 = rawItem instanceof Uint8Array ? rawItem : new Uint8Array(rawItem);
+      if (u8.byteLength >= 4) {
+        const prefixHash = new DataView(u8.buffer, u8.byteOffset, 4).getUint32(0, true);
+        if (
+          prefixHash === VNEXT_CHANNEL1_SCHEMA_HASH ||
+          prefixHash === VNEXT_CHANNEL2_SCHEMA_HASH
+        ) {
+          const decodedVNext = decodeVNextChannelPacket(u8);
+          if (!decodedVNext) continue;
+          if (decodedVNext.channel === 2 && 'manifest' in decodedVNext) {
+            ctx.onRosterUpdate?.({
+              type: 'vnext_roster_manifest',
+              manifest: decodedVNext.manifest,
+              metadataHash: decodedVNext.manifest.metadataHash,
+            });
+            continue;
+          }
+          if (!('frame' in decodedVNext)) continue;
+          const frame = decodedVNext.frame;
+          const gp = frame.globalPayload;
+          if (gp?.signals && gp.signals.length > 0) {
+            messenger.acknowledgeServerSignals(gp.signals);
+            ctx.onSignals?.(gp.signals, frame.simTick);
+          }
+          if (gp?.hasPhysics && gp.physics?.stateSnapshot) {
+            const stateSnap = gp.physics.stateSnapshot;
+            applyBoostPadEdgeCooldowns(stateSnap, frame.simTick, boostPadTracker);
+            packet = {
+              serverTick: frame.simTick,
+              activeCarMask: gp.physics.activeCarMask,
+              activeCarIndices: gp.physics.activeCarIndices,
+              boostPadMaskLow: gp.physics.boostPadMaskLow,
+              boostPadMaskHigh: gp.physics.boostPadMaskHigh,
+              stateSnapshot: stateSnap,
+              timestamp: frame.timestampMs,
+              globalPayload: gp,
+              vnextWorldFrame: frame,
+              rawBytes: rawItem,
+            };
+            const isReplayMode = ctx.isReplayPlaybackMode
+              ? ctx.isReplayPlaybackMode()
+              : ctx.replayPlaybackMode;
+            const isPureCsrSpectate = Boolean(
+              ctx.spectateMirrorMode && ctx.clientInputEnabled === false && !ctx.hostLobbyMode
+            );
+            if ((isReplayMode || isPureCsrSpectate) && packet.stateSnapshot) {
+              drainedReplayPackets.push(packet);
+            }
+            if (!latestPacket || packet.serverTick >= latestPacket.serverTick) {
+              latestPacket = packet;
+            }
+          }
+          continue;
+        }
+      }
       const clientHeader = EstablishedSessionManager.parseClientPacket(rawItem);
       if (clientHeader) {
         if (
