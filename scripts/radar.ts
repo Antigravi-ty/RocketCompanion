@@ -54,6 +54,7 @@ import {
   analyzeArchDebtGuards,
   type ArchDebtAuditReport,
   HARD_ENGINE_NAMETAG_SCATTER_LIMIT,
+  HARD_SILENT_CATCH_LIMIT,
   printArchDebtAuditReport,
 } from './radar/radarArchDebtGuards.ts';
 
@@ -393,7 +394,7 @@ function main(): void {
     ` Anti-Fake-Split     : 0 Multi-Stmt Lines | HostPen<=${HARD_HOST_PENETRATION_LIMIT} | PassThru<=${HARD_PASSTHROUGH_PROXY_LIMIT} (${result.structuralHotspots.length} audit targets; pass --audit)`
   );
   console.log(
-    ` Arch-Debt Ratchets  : NameTagScatter=${result.archDebtReport.nameTagScatterFiles.length}/${HARD_ENGINE_NAMETAG_SCATTER_LIMIT} | BoolHotspots=${result.archDebtReport.booleanFlagHotspots.length} | UnscopedCaches=${result.archDebtReport.unscopedCacheFiles.length}`
+    ` Arch-Debt Ratchets  : NameTagScatter=${result.archDebtReport.nameTagScatterFiles.length}/${HARD_ENGINE_NAMETAG_SCATTER_LIMIT} | BoolHotspots=${result.archDebtReport.booleanFlagHotspots.length} | UnscopedCaches=${result.archDebtReport.unscopedCacheFiles.length} | SilentCatches=${result.archDebtReport.silentCatches.length}/${HARD_SILENT_CATCH_LIMIT}`
   );
 
   const engineSubsystems = [...result.subsystemStats.entries()]

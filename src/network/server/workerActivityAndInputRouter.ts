@@ -6,6 +6,7 @@ import type {
   WorkerBusActivityMode,
   WorkerBusPlaybackState,
 } from './StateFrameSlidingWindow.ts';
+import type { VNextRosterManifestInput } from '../protocol/VNextRosterManifestCodec.ts';
 
 export interface ActivityAndInputPayload {
   activityId?: string;
@@ -25,6 +26,7 @@ export interface ActivityAndInputPayload {
   activityMode?: WorkerBusActivityMode;
   broadcastHz?: number;
   metadataHash?: number;
+  manifest?: VNextRosterManifestInput;
   playbackState?: WorkerBusPlaybackState;
   playbackSpeed?: number;
   totalFrames?: number;
@@ -200,6 +202,16 @@ export function routeActivityAndInputMessage(
         }
       }
       reply(MSG.WORKER_BUS_TX_SEQ_ACK, { channelId: chId, ackedTxSeq: recorded });
+      return true;
+    }
+
+    case 'set_roster_manifest': {
+      const bus = workerCtx.authorityBus;
+      if (bus && p.manifest) {
+        const metadataHash = bus.setRosterManifest(p.manifest);
+        bus.broadcastRosterManifestToSessions();
+        reply('set_roster_manifest', { metadataHash });
+      }
       return true;
     }
 

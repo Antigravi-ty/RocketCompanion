@@ -172,14 +172,23 @@ fn handle_tray_menu_event(app: &AppHandle, menu_id: &str) {
         "tray_launch" => {
             let state = load_launch_state(app);
             if state.has_valid_default {
-                let _ = launch_main_window_with_config(app, &state.config);
+                if let Err(err) = launch_main_window_with_config(app, &state.config) {
+                    log::error!("[Tray] Failed to launch main window: {}", err);
+                    eprintln!("[Tray] Failed to launch main window: {}", err);
+                }
             } else {
                 sync_tray_launch_enabled(app, false);
-                let _ = open_configurator_window(app);
+                if let Err(err) = open_configurator_window(app) {
+                    log::error!("[Tray] Failed to open configurator window: {}", err);
+                    eprintln!("[Tray] Failed to open configurator window: {}", err);
+                }
             }
         }
         "tray_configurator" => {
-            let _ = open_configurator_window(app);
+            if let Err(err) = open_configurator_window(app) {
+                log::error!("[Tray] Failed to open configurator window: {}", err);
+                eprintln!("[Tray] Failed to open configurator window: {}", err);
+            }
         }
         "tray_devtools" => {
             let state = load_launch_state(app);

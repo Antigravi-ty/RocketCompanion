@@ -15,6 +15,11 @@ import type { PhysicsEngineManager } from './PhysicsEngineManager.ts';
 import { VNEXT_CHANNEL1_SCHEMA_HASH } from '../protocol/VNextSchemaHash.ts';
 import { VNextWorldFrameCodec, type VNextFramePhase } from '../protocol/VNextWorldFrameCodec.ts';
 import {
+  VNextRosterManifestCodec,
+  type VNextRosterManifest,
+  type VNextRosterManifestInput,
+} from '../protocol/VNextRosterManifestCodec.ts';
+import {
   DEFAULT_SLIDING_WINDOW_CAPACITY,
   StateFrameSlidingWindow,
   type SessionTrimmedBatch,
@@ -100,6 +105,8 @@ export class WorkerAuthorityBus {
   private broadcastAccumulatorMs = 0;
   private latestStepOutput: WorkerBusStepOutput | null = null;
   private publishedFrameCount = 0;
+  private rosterManifest: VNextRosterManifest | null = null;
+  private rosterManifestBytes: Uint8Array | null = null;
 
   constructor(options: WorkerAuthorityBusOptions = {}) {
     this.matchManager = options.matchManager ?? null;
@@ -159,8 +166,50 @@ export class WorkerAuthorityBus {
     this.broadcastHz = this.clampBroadcastHz(hz);
   }
 
+  getMetadataHash(): number {
+    return this.metadataHash;
+  }
+
   setMetadataHash(hash: number): void {
     this.metadataHash = hash >>> 0;
+  }
+
+  getRosterManifest(): VNextRosterManifest | null {
+    return this.rosterManifest;
+  }
+
+  getRosterManifestBytes(): Uint8Array | null {
+    return this.rosterManifestBytes;
+  }
+
+  setRosterManifest(manifest: VNextRosterManifestInput): number {
+    const encoded = VNextRosterManifestCodec.encode(manifest);
+    const decoded = VNextRosterManifestCodec.decode(encoded);
+    this.rosterManifest = decoded;
+    this.rosterManifestBytes = encoded;
+    this.metadataHash = decoded.metadataHash >>> 0;
+    return this.metadataHash;
+  }
+
+  sendRosterManifestToSession(sessionId: string): boolean {
+    if (!this.rosterManifestBytes || !this.dataHandler) return false;
+    const ch = this.dataHandler.channels.get(sessionId);
+    if (!ch || ch.isVirtualBot) return false;
+    this.dataHandler.sendPacket(sessionId, this.rosterManifestBytes);
+    return true;
+  }
+
+  broadcastRosterManifestToSessions(): number {
+    if (!this.rosterManifestBytes || !this.dataHandler || !this.sessionManager) return 0;
+    let sent = 0;
+    const sessions = this.sessionManager.getAllSessions();
+    for (let i = 0; i < sessions.length; i++) {
+      const s = sessions[i];
+      if (this.sendRosterManifestToSession(s.sessionId)) {
+        sent += 1;
+      }
+    }
+    return sent;
   }
 
   setModeStepper(stepper: WorkerBusModeStepper | null): void {

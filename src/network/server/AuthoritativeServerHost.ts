@@ -241,6 +241,9 @@ export class AuthoritativeServerHost {
   switchRoleTeam(sessionId: string | null, role: string, team: number): void {
     this._postCommand('switchRoleTeam', { sessionId, role, team });
   }
+  pushRosterManifest(manifest: Record<string, unknown>): void {
+    this._postCommand('set_roster_manifest', { manifest });
+  }
 
   startTrainingMode(opts: AuthoritativeServerHostOptions = {}): void {
     this.hostReplayRingBuffer?.configureMode?.(RBM.COUNTUP_FIFO, opts.replayCapacityTicks || null);

@@ -23,6 +23,7 @@ import {
 } from './MatchModeTransitionBridge.ts';
 import { resetRuntimeMatchStateToFreeplay } from './onlineSessionEnvironmentPipeline.ts';
 import { sharedAuthorityCameraSyncTracker } from '../pipeline/stages/AuthorityCameraSyncTracker.ts';
+import { toVNextRosterManifest } from '../../network/protocol/MatchExhibitionRosterManifest.ts';
 
 export type CameraControlDomainPort = Pick<RuntimeDomainPortOwner, 'camera' | 'networkManager'>;
 export type OnlineMatchControlDomainPort = MatchModeTransitionDomainPort & {
@@ -268,6 +269,16 @@ export function createRuntimeMatchPort(domain: OnlineMatchControlDomainPort): Ru
         activityId: opts.activityId,
         stateSummary: summary,
       });
+      const activeModeWithRoster = domain.modeManager?.getActiveMode?.() as
+        | { getRosterManifest?: () => Parameters<typeof toVNextRosterManifest>[0] | null }
+        | null
+        | undefined;
+      const modeRoster = activeModeWithRoster?.getRosterManifest?.();
+      if (modeRoster) {
+        sessionCoordinator.authoritativeServer?.pushRosterManifest?.(
+          toVNextRosterManifest(modeRoster) as unknown as Record<string, unknown>
+        );
+      }
       getReconciler()?.setReplayPlaybackMode?.(opts.activityId === 'replay');
       if (opts.activityId !== 'match') {
         if (domain.match?.state?.mode === 'match' || storeState.matchMode === 'match') {

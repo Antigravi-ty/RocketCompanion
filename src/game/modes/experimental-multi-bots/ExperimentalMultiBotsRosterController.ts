@@ -23,8 +23,10 @@ import { rollRandomBotLoadout } from '../../../ui-core/config/botsLoadoutConfig.
 import { assignTeamSlotKeys } from '../../../replay/container/RCReplayTimelineParser.ts';
 import {
   buildExhibitionRosterManifest,
+  toVNextRosterManifest,
   type MatchExhibitionRosterManifest,
 } from '../../../network/protocol/MatchExhibitionRosterManifest.ts';
+import { isDevSyncHostBroadcastingMode } from '../../pipeline/stages/HostBroadcastPublisher.ts';
 import {
   type CarControls,
   type ExpActiveCarRef,
@@ -165,6 +167,27 @@ export class ExperimentalMultiBotsRosterController {
       this.manifestVersion += 1;
       nextManifest.manifestVersion = this.manifestVersion;
       this.latestRosterManifest = nextManifest;
+    }
+
+    const netRt = this.runtime as {
+      authoritativeServer?: { pushRosterManifest?: (m: Record<string, unknown>) => void } | null;
+      networkManager?: {
+        sessionCoordinator?: {
+          authoritativeServer?: {
+            pushRosterManifest?: (m: Record<string, unknown>) => void;
+          } | null;
+        } | null;
+      } | null;
+    } | null;
+    const authServer =
+      netRt?.authoritativeServer ?? netRt?.networkManager?.sessionCoordinator?.authoritativeServer;
+    if (
+      this.latestRosterManifest &&
+      isDevSyncHostBroadcastingMode(Boolean(authServer?.pushRosterManifest))
+    ) {
+      authServer?.pushRosterManifest?.(
+        toVNextRosterManifest(this.latestRosterManifest) as unknown as Record<string, unknown>
+      );
     }
 
     projectRosterCarEntries(

@@ -144,6 +144,10 @@ export const Layer1TauriConfiguratorRecipe: React.FC<Layer1TauriConfiguratorReci
           ? 'Configuration saved — System Tray "Launch" is enabled.'
           : 'Configuration saved — Check "Use this configuration as default" to enable Tray Launch.'
       );
+    } catch (err) {
+      const message = String((err as Error)?.message || err);
+      console.error('[TauriConfigurator] Failed to save configuration:', err);
+      setStatusMessage(`Save failed: ${message}`);
     } finally {
       setIsBusy(false);
     }
@@ -156,6 +160,10 @@ export const Layer1TauriConfiguratorRecipe: React.FC<Layer1TauriConfiguratorReci
       setLaunchState(updated);
       setDraftConfig(updated.config);
       onLaunched?.(updated);
+    } catch (err) {
+      const message = String((err as Error)?.message || err);
+      console.error('[TauriConfigurator] Failed to launch Rocket Companion:', err);
+      setStatusMessage(`Launch failed: ${message}`);
     } finally {
       setIsBusy(false);
     }
@@ -169,6 +177,10 @@ export const Layer1TauriConfiguratorRecipe: React.FC<Layer1TauriConfiguratorReci
       setDraftConfig(updated.config);
       applyDocumentTheme(updated.config.themeMode);
       setStatusMessage('Cleared launch-config.json — System Tray "Launch" is now disabled.');
+    } catch (err) {
+      const message = String((err as Error)?.message || err);
+      console.error('[TauriConfigurator] Failed to reset configuration:', err);
+      setStatusMessage(`Reset failed: ${message}`);
     } finally {
       setIsBusy(false);
     }

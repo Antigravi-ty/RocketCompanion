@@ -68,10 +68,20 @@ pub fn run() {
             tauri_tunnel_get_status,
         ])
         .on_window_event(|window, event| {
-            if let WindowEvent::Destroyed = event {
-                let label = window.label();
-                let app_handle = window.app_handle();
-                update_macos_activation_policy(app_handle, Some(label));
+            match event {
+                WindowEvent::CloseRequested { api, .. } if window.label() == "configurator" => {
+                    api.prevent_close();
+                    if let Err(err) = window.hide() {
+                        log::error!("[RocketCompanion] Failed to hide configurator window: {}", err);
+                    }
+                    update_macos_activation_policy(window.app_handle(), Some("configurator"));
+                }
+                WindowEvent::Destroyed => {
+                    let label = window.label();
+                    let app_handle = window.app_handle();
+                    update_macos_activation_policy(app_handle, Some(label));
+                }
+                _ => {}
             }
         })
         .setup(|app| {

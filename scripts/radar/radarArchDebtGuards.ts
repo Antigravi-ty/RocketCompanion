@@ -8,6 +8,7 @@ import { stripComments, toPosixRel } from './radarConstantsAndFs.ts';
 export const HARD_ENGINE_NAMETAG_SCATTER_LIMIT = 1;
 export const HARD_BOOLEAN_FLAG_CLUSTER_LIMIT = 15;
 export const HARD_COMPOUND_FLAG_IF_LIMIT = 12;
+export const HARD_SILENT_CATCH_LIMIT = 231;
 
 export interface ArchDebtAuditReport {
   readonly nameTagScatterFiles: readonly string[];
@@ -19,6 +20,11 @@ export interface ArchDebtAuditReport {
   readonly unscopedCacheFiles: readonly {
     readonly rel: string;
     readonly reason: string;
+  }[];
+  readonly silentCatches: readonly {
+    readonly rel: string;
+    readonly line: number;
+    readonly kind: 'empty-catch' | 'silent-promise-catch';
   }[];
 }
 
@@ -33,11 +39,29 @@ export function analyzeArchDebtGuards(
     compoundIfs: number;
   }[] = [];
   const unscopedCacheFiles: { rel: string; reason: string }[] = [];
+  const silentCatches: {
+    rel: string;
+    line: number;
+    kind: 'empty-catch' | 'silent-promise-catch';
+  }[] = [];
+
+  const emptyCatchRe = /\bcatch\s*(?:\([^)]*\))?\s*\{\s*\}/g;
+  const silentPromiseCatchRe =
+    /\.catch\s*\(\s*(?:\([^)]*\)|[a-zA-Z_$][\w$]*)?\s*=>\s*(?:\{\s*\}|undefined|null|false)\s*\)/g;
 
   for (const file of allFiles) {
     const rel = toPosixRel(file);
     const raw = fs.readFileSync(file, 'utf8');
     const clean = stripComments(raw);
+
+    for (const m of clean.matchAll(emptyCatchRe)) {
+      const line = clean.slice(0, m.index ?? 0).split(/\r?\n/).length;
+      silentCatches.push({ rel, line, kind: 'empty-catch' });
+    }
+    for (const m of clean.matchAll(silentPromiseCatchRe)) {
+      const line = clean.slice(0, m.index ?? 0).split(/\r?\n/).length;
+      silentCatches.push({ rel, line, kind: 'silent-promise-catch' });
+    }
 
     const isEngineFile =
       rel !== 'src/game/runtimeUiPort.ts' &&
@@ -99,18 +123,29 @@ export function analyzeArchDebtGuards(
     );
   }
 
+  if (silentCatches.length > HARD_SILENT_CATCH_LIMIT) {
+    const newest = silentCatches
+      .slice(-5)
+      .map((s) => `${s.rel}:${s.line}`)
+      .join(', ');
+    errors.push(
+      `[SILENT CATCH VIOLATION] ${silentCatches.length} silent catch blocks/.catch(() => {}) found (ratchet ceiling <= ${HARD_SILENT_CATCH_LIMIT}; e.g. ${newest}). Log via console.warn/error or propagate explicitly.`
+    );
+  }
+
   booleanFlagHotspots.sort((a, b) => b.compoundIfs - a.compoundIfs || b.distinctFlags - a.distinctFlags);
 
   return {
     nameTagScatterFiles,
     booleanFlagHotspots,
     unscopedCacheFiles,
+    silentCatches,
   };
 }
 
 export function printArchDebtAuditReport(report: ArchDebtAuditReport): void {
   console.log(
-    ` ARCH DEBT AUDIT: NameTagScatter=${report.nameTagScatterFiles.length}/${HARD_ENGINE_NAMETAG_SCATTER_LIMIT} | BoolHotspots=${report.booleanFlagHotspots.length} | UnscopedCaches=${report.unscopedCacheFiles.length}`
+    ` ARCH DEBT AUDIT: NameTagScatter=${report.nameTagScatterFiles.length}/${HARD_ENGINE_NAMETAG_SCATTER_LIMIT} | BoolHotspots=${report.booleanFlagHotspots.length} | UnscopedCaches=${report.unscopedCacheFiles.length} | SilentCatches=${report.silentCatches.length}/${HARD_SILENT_CATCH_LIMIT}`
   );
   for (const h of report.booleanFlagHotspots) {
     console.log(
@@ -122,6 +157,12 @@ export function printArchDebtAuditReport(report: ArchDebtAuditReport): void {
   }
   for (const c of report.unscopedCacheFiles.slice(0, 12)) {
     console.log(`  [C] ${c.rel} | ${c.reason} | Rx: DISPOSABLE_RESOURCE_REGISTRY`);
+  }
+  for (const s of report.silentCatches.slice(0, 20)) {
+    console.log(`  [E] ${s.rel}:${s.line} | ${s.kind} | Rx: LOG_OR_PROPAGATE_ERROR`);
+  }
+  if (report.silentCatches.length > 20) {
+    console.log(`  ... and ${report.silentCatches.length - 20} more silent catches`);
   }
   console.log('----------------------------------------------------------------------');
 }

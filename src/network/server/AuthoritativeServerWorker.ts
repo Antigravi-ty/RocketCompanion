@@ -104,6 +104,7 @@ function registerWorkerChannel(channelId: string): void {
     send: (packet) => sendToMain(channelId, packet),
     postMessage: (packet) => sendToMain(channelId, packet),
   });
+  authorityBus?.sendRosterManifestToSession(channelId);
 }
 
 function unregisterWorkerChannel(channelId: string): void {
@@ -151,9 +152,10 @@ function tick(): void {
       const gp = GlobalPayloadCodec.decode(globalPayloadBytes);
       const simTick = physicsManager?.currentTick ?? matchManager.lifecycle.matchTick;
       const nowMs = performance.now();
+      const metadataHash = authorityBus.getMetadataHash();
       const vnextBytes = VNextWorldFrameCodec.encode({
         txSeq: authorityBus.slidingWindow.getLatestTxSeq() + 1,
-        metadataHash: 0,
+        metadataHash,
         activityMode: authorityBus.getActivityMode(),
         playbackState: 'playing',
         phase: (matchManager.lifecycle.state || 'playing') as VNextFramePhase,
@@ -169,7 +171,7 @@ function tick(): void {
       });
       authorityBus.slidingWindow.pushFrame({
         schemaHash: VNEXT_CHANNEL1_SCHEMA_HASH,
-        metadataHash: 0,
+        metadataHash,
         activityMode: authorityBus.getActivityMode(),
         playbackState: 'playing',
         phase: matchManager.lifecycle.state,
@@ -191,7 +193,7 @@ function tick(): void {
       if (authorityBus) {
         authorityBus.slidingWindow.pushFrame({
           schemaHash: VNEXT_CHANNEL1_SCHEMA_HASH,
-          metadataHash: 0,
+          metadataHash: authorityBus.getMetadataHash(),
           activityMode: authorityBus.getActivityMode(),
           playbackState: 'playing',
           phase: matchManager.lifecycle.state,

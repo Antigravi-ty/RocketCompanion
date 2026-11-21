@@ -72,7 +72,20 @@ export class GameRenderSubsystem {
     const winHeight = domCanvas?.clientHeight || window.innerHeight;
     const curTick = r.physics?.getHeaderView()?.tickCount ?? 0;
     const effectiveGoalReplayActive = Boolean(r.arena?.isGoalReplayActive || isGoalReplayActive);
+    const appState = useAppStore.getState();
+    const isReplayOrBroadcastSpectate = Boolean(
+      appState.matchMode === 'replay-viewer' ||
+        (appState.onlineSession?.isDevSyncRoom &&
+          (appState.onlineSession?.activeRoomActivity === 'replay' ||
+            (!appState.onlineSession?.isHosting &&
+              appState.onlineSession?.activeRoomActivity !== 'match')))
+    );
     if (r.ballTrajectoryPredictor) {
+      if (isReplayOrBroadcastSpectate) {
+        r.ballTrajectoryPredictor.acquireTemporarySuppression?.('replay-or-broadcast-spectate');
+      } else {
+        r.ballTrajectoryPredictor.releaseTemporarySuppression?.('replay-or-broadcast-spectate');
+      }
       r.ballTrajectoryPredictor.setSceneContext?.({
         isGoalReplayActive: effectiveGoalReplayActive,
         isPodiumActive,
@@ -88,8 +101,6 @@ export class GameRenderSubsystem {
     if (r.reachabilityVisualizer) {
       r.reachabilityVisualizer.update(r, curTick, winWidth, winHeight);
     }
-
-    const appState = useAppStore.getState();
     const isTransparentPreviewRoute =
       appState.activeRoute === 'trajectory' || appState.activeRoute === 'camera';
     const isLiveMenuOpen = Boolean(

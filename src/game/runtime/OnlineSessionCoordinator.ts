@@ -86,6 +86,11 @@ export class OnlineSessionCoordinator {
   private bindRosterUpdateHandler(isHost: boolean): void {
     if (!this.networkReconciler) return;
     this.networkReconciler.onRosterUpdate = async (msg: RosterUpdateMessage) => {
+      const vnextMsg = msg as RosterUpdateMessage & { type?: string; manifest?: unknown };
+      if (vnextMsg?.type === 'vnext_roster_manifest' && vnextMsg.manifest) {
+        await this.sessionBridge.applyVNextRosterManifest?.(vnextMsg.manifest);
+        return;
+      }
       if (msg?.state) this.latestServerRosterState = msg.state;
       if (msg?.state === 'lobby' && this.latestServerRosterState === 'lobby') {
         const phaseSnapshot = this.sessionBridge.readMatchPhaseSnapshot();

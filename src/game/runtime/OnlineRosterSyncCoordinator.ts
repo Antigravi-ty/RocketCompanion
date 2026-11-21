@@ -6,10 +6,13 @@
 
 import {
   useAppStore,
+  useExperimentalMultiBotsStore,
   useQuickNotificationStore,
   type OnlinePeerEntryPort,
 } from '../runtimeUiPort.ts';
 import { projectRosterCarEntries } from './MatchRosterProjection.ts';
+import type { VNextRosterManifest } from '../../network/protocol/VNextRosterManifestCodec.ts';
+import { fromVNextRosterManifest } from '../../entities/arena/arenaRosterManifestPipeline.ts';
 import {
   OnlineRemotePeerVehicleSynchronizer,
   type FlipResetVisualHandle,
@@ -280,6 +283,56 @@ export class OnlineRosterSyncCoordinator {
     }
     if (isHostLobby || session.authoritativeServer) {
       this.syncHostLobbyOngoingNotification();
+    }
+  }
+
+  public async applyVNextRosterManifest(
+    manifest: VNextRosterManifest | null | undefined
+  ): Promise<void> {
+    if (!manifest || !Array.isArray(manifest.entries)) return;
+    const { world, session } = this.host;
+    if (session.authoritativeServer) return;
+
+    const arenaWithManifest = world.arena as {
+      applyRosterManifest?: (m: ReturnType<typeof fromVNextRosterManifest>) => unknown;
+    } | null;
+    arenaWithManifest?.applyRosterManifest?.(fromVNextRosterManifest(manifest));
+
+    const projectedEntries = manifest.entries.map((e) => ({
+      carIndex: e.carIndex,
+      name: e.name || `Car ${e.carIndex + 1}`,
+      team: (e.team === 1 ? 1 : 0) as 0 | 1,
+      isBot: Boolean(e.isBot),
+    }));
+    projectRosterCarEntries(projectedEntries, {
+      isMultiplayerOrMultiCarMode: manifest.entries.length > 1,
+    });
+
+    if (
+      manifest.activityId === 'exp-multi-bots' ||
+      useAppStore.getState().matchMode === 'exp-multi-bots'
+    ) {
+      useExperimentalMultiBotsStore?.getState?.()?.updateLiveTelemetry?.({
+        spawnedCars: manifest.entries.map((e) => ({
+          carIndex: e.carIndex,
+          keyNumber: e.slotKey || e.carIndex + 1,
+          team: (e.team === 1 ? 1 : 0) as 0 | 1,
+          teamSlotIndex: e.teamSlotIndex,
+          isPlayer: !e.isBot && e.roleFlag === 'player',
+          botType: e.botType || 'necto',
+          visualId: e.visualId,
+          hitboxId: e.hitboxId,
+          colorSlot: e.colorSlot,
+          colorHex: e.colorHex,
+          colorName: '',
+          paintFinish: e.paintFinish,
+          boostVisual: e.boostVisual,
+          boostAudio: e.boostAudio,
+          anthemId: e.anthemId,
+          name: e.name,
+          label: e.name,
+        })),
+      });
     }
   }
 

@@ -67,14 +67,30 @@ pub fn apply_window_titles(app: &AppHandle) {
     }
 }
 
+fn ensure_webview_window(app: &AppHandle, label: &str) -> Result<WebviewWindow, String> {
+    if let Some(win) = app.get_webview_window(label) {
+        return Ok(win);
+    }
+    let win_cfg = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == label)
+        .cloned()
+        .ok_or_else(|| format!("Window config '{}' not found", label))?;
+    tauri::WebviewWindowBuilder::from_config(app, &win_cfg)
+        .map_err(|e| format!("Failed to prepare window '{}': {}", label, e))?
+        .build()
+        .map_err(|e| format!("Failed to recreate window '{}': {}", label, e))
+}
+
 pub fn launch_main_window_with_config(
     app: &AppHandle,
     raw_config: &TauriLaunchConfig,
 ) -> Result<(), String> {
     let config = sanitize_config_for_platform(raw_config.clone());
-    let main_win = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window handle not found".to_string())?;
+    let main_win = ensure_webview_window(app, "main")?;
 
     let _ = main_win.set_title(&format_window_title(MAIN_WINDOW_BASE_TITLE));
     apply_window_mode_to_webview(&main_win, &config.window_mode);
@@ -137,9 +153,7 @@ pub fn open_configurator_window(app: &AppHandle) -> Result<(), String> {
     let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
     apply_app_and_window_icons(app);
 
-    let cfg_win = app
-        .get_webview_window("configurator")
-        .ok_or_else(|| "Configurator window handle not found".to_string())?;
+    let cfg_win = ensure_webview_window(app, "configurator")?;
     let _ = cfg_win.set_title(&format_window_title(CONFIGURATOR_WINDOW_BASE_TITLE));
     let _ = cfg_win.unminimize();
     let _ = cfg_win.eval("window.dispatchEvent(new CustomEvent('rc-tauri-config-updated'));");

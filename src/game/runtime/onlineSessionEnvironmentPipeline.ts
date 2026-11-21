@@ -96,6 +96,7 @@ export interface OnlineSessionBridgePort {
     showHUD: boolean
   ): void;
   applyRosterSnapshot(roster: OnlineRosterSnapshotPayload | null): Promise<void>;
+  applyVNextRosterManifest?(manifest: unknown): Promise<void>;
   syncHostLobbyNotification(): void;
   applyClientRoomActivitySwitch(
     reconciler: PredictionReconciler,
@@ -320,6 +321,12 @@ export function createOnlineSessionBridgePort(
       }
     },
     applyRosterSnapshot: (roster) => getRosterSyncCoordinator().applyRosterSnapshot(roster),
+    applyVNextRosterManifest: (manifest) =>
+      getRosterSyncCoordinator().applyVNextRosterManifest(
+        manifest as Parameters<
+          ReturnType<typeof getRosterSyncCoordinator>['applyVNextRosterManifest']
+        >[0]
+      ),
     syncHostLobbyNotification: () => getRosterSyncCoordinator().syncHostLobbyOngoingNotification(),
     applyClientRoomActivitySwitch: (reconciler, payload) => {
       const activityId = typeof payload.activityId === 'string' ? payload.activityId : 'freeplay';
