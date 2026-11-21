@@ -13,8 +13,8 @@ const GOAL_HEIGHT = 642.775;
 const GOAL_DEPTH = 880;
 const BALL_RADIUS = 91.25;
 
-// Exact RocketSim Soccar boost pad order (0..27 small, 28..33 big) in RocketSim (x, y, z) UU
-const SOCCAR_SMALL_PAD_LOCS: ReadonlyArray<readonly [number, number, number]> = [
+// RocketSim Standard arena boost pad coordinates in (x, y, z) UU
+const STANDARD_SMALL_PAD_LOCS: ReadonlyArray<readonly [number, number, number]> = [
   [0, -4240, 70],
   [-1792, -4184, 70],
   [1792, -4184, 70],
@@ -45,7 +45,7 @@ const SOCCAR_SMALL_PAD_LOCS: ReadonlyArray<readonly [number, number, number]> = 
   [0, 4240, 70],
 ];
 
-const SOCCAR_BIG_PAD_LOCS: ReadonlyArray<readonly [number, number, number]> = [
+const STANDARD_BIG_PAD_LOCS: ReadonlyArray<readonly [number, number, number]> = [
   [-3584, 0, 73],
   [3584, 0, 73],
   [-3072, 4096, 73],
@@ -53,6 +53,17 @@ const SOCCAR_BIG_PAD_LOCS: ReadonlyArray<readonly [number, number, number]> = [
   [-3072, -4096, 73],
   [3072, -4096, 73],
 ];
+
+interface BoostPadDef {
+  loc: readonly [number, number, number];
+  isBig: boolean;
+}
+
+// Match RocketSim BoostPadGrid::new RLBot/RLGym ordering: sort by (y, x)
+const STANDARD_BOOST_PADS: ReadonlyArray<BoostPadDef> = [
+  ...STANDARD_SMALL_PAD_LOCS.map((loc) => ({ loc, isBig: false })),
+  ...STANDARD_BIG_PAD_LOCS.map((loc) => ({ loc, isBig: true })),
+].sort((a, b) => (a.loc[1] !== b.loc[1] ? a.loc[1] - b.loc[1] : a.loc[0] - b.loc[0]));
 
 export class ArenaRenderer {
   private readonly canvas: HTMLCanvasElement;
@@ -253,8 +264,9 @@ export class ArenaRenderer {
       this.boostPadMeshes.push(mesh);
     };
 
-    for (const loc of SOCCAR_SMALL_PAD_LOCS) addPad(loc, false);
-    for (const loc of SOCCAR_BIG_PAD_LOCS) addPad(loc, true);
+    for (const pad of STANDARD_BOOST_PADS) {
+      addPad(pad.loc, pad.isBig);
+    }
   }
 
   private loadStadiumModel(): void {
@@ -337,7 +349,7 @@ export class ArenaRenderer {
           ? ((frame.boostPadsLo >>> i) & 1) !== 0
           : ((frame.boostPadsHi >>> (i - 32)) & 1) !== 0;
       const mat = this.boostPadMeshes[i].material as THREE.MeshBasicMaterial;
-      const isBig = i >= 28;
+      const isBig = STANDARD_BOOST_PADS[i]?.isBig ?? false;
       if (isActive) {
         mat.color.setHex(isBig ? 0xf59e0b : 0x38bdf8);
         mat.opacity = isBig ? 0.85 : 0.6;

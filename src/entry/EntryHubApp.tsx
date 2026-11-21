@@ -193,6 +193,17 @@ export const EntryHubApp: React.FC = () => {
                   <span>?touch=2</span>
                 </a>
               </div>
+
+              <a
+                href={`${rcHttpsBase}/mvp1.html`}
+                target="_blank"
+                rel="noreferrer"
+                className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 font-mono font-semibold text-xs transition-colors"
+              >
+                <Cpu className="w-3.5 h-3.5" />
+                <span>MVP-1 Rust Testbed (mvp1.html)</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
             </div>
           </div>
 
@@ -317,6 +328,17 @@ export const EntryHubApp: React.FC = () => {
                   HTTP ?nokey=1
                 </a>
               </div>
+
+              <a
+                href={`${tauriHttpBase}/mvp1.html`}
+                target="_blank"
+                rel="noreferrer"
+                className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 font-mono font-semibold text-xs transition-colors"
+              >
+                <Cpu className="w-3.5 h-3.5" />
+                <span>MVP-1 Testbed (HTTP mvp1.html)</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
             </div>
           </div>
         </div>

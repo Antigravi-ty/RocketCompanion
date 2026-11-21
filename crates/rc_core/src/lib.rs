@@ -404,4 +404,72 @@ mod tests {
             "A+E stall must NOT apply horizontal dodge impulse, got {horiz_delta_ae}"
         );
     }
+
+    #[test]
+    fn stall_after_prior_flip_clears_flip_torque() {
+        let mut arena = Arena::new(GameMode::Soccar);
+        let car_idx = arena.add_car(Team::Blue, CarBodyConfig::OCTANE);
+        arena.reset_to_random_kickoff(Some(42));
+
+        // 1. Perform a front-flip and let the car land & settle
+        arena.set_car_controls(car_idx, CarControls { jump: true, ..CarControls::DEFAULT });
+        for _ in 0..6 {
+            let _ = arena.step_tick();
+        }
+        arena.set_car_controls(car_idx, CarControls::DEFAULT);
+        for _ in 0..3 {
+            let _ = arena.step_tick();
+        }
+        arena.set_car_controls(car_idx, CarControls { pitch: -1.0, jump: true, ..CarControls::DEFAULT });
+        let _ = arena.step_tick();
+        arena.set_car_controls(car_idx, CarControls::DEFAULT);
+        for _ in 0..240 {
+            let _ = arena.step_tick();
+        }
+        assert!(arena.get_car_state(car_idx).is_on_ground());
+
+        // 2. Jump again and perform a Q+D stall
+        arena.set_car_controls(car_idx, CarControls { jump: true, ..CarControls::DEFAULT });
+        for _ in 0..12 {
+            let _ = arena.step_tick();
+        }
+        arena.set_car_controls(car_idx, CarControls::DEFAULT);
+        for _ in 0..3 {
+            let _ = arena.step_tick();
+        }
+        arena.set_car_controls(
+            car_idx,
+            CarControls {
+                yaw: 1.0,
+                roll: -1.0,
+                jump: true,
+                ..CarControls::DEFAULT
+            },
+        );
+        let _ = arena.step_tick();
+        let state = arena.get_car_state(car_idx);
+        assert!(state.has_flipped, "Q+D stall after prior flip must trigger has_flipped");
+        assert!(
+            state.flip_rel_torque.length_squared() < 1e-6,
+            "Q+D stall must zero flip_rel_torque, got {:?}",
+            state.flip_rel_torque
+        );
+    }
+
+    #[test]
+    fn soccar_boost_pads_are_sorted_by_y_then_x() {
+        let arena = Arena::new(GameMode::Soccar);
+        let n = arena.num_boost_pads();
+        assert_eq!(n, 34);
+        for i in 1..n {
+            let prev = arena.get_boost_pad_config(i - 1).pos;
+            let curr = arena.get_boost_pad_config(i).pos;
+            assert!(
+                prev.y < curr.y || (prev.y == curr.y && prev.x <= curr.x),
+                "Pad {i} ({:?}) out of (y, x) order relative to {:?}",
+                curr,
+                prev
+            );
+        }
+    }
 }

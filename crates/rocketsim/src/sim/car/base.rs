@@ -629,6 +629,7 @@ impl Car {
         if self.state.cache.is_on_ground {
             self.state.has_double_jumped = false;
             self.state.has_flipped = false;
+            self.state.flip_rel_torque = Vec3A::ZERO;
             self.state.air_time = 0.0;
             self.state.air_time_since_jump = 0.0;
             self.state.flip_time += TICK_TIME;
@@ -724,6 +725,8 @@ impl Car {
 
                         rb.add_impulse(Impulse::Linear(final_delta_vel * UU_TO_BT), false, false);
                         rb.limit_vels(car_consts::MAX_SPEED * UU_TO_BT, car_consts::MAX_ANG_SPEED);
+                    } else {
+                        self.state.flip_rel_torque = Vec3A::ZERO;
                     }
                 } else {
                     let jump_start_force =
