@@ -11,8 +11,8 @@ import {
   type RLRCOrthonormalBasis,
 } from '../../replay/rlrc/synthesis/RLRCHermiteSlerpMathPipeline.ts';
 import type { RLRCRigidBodySample } from '../../replay/rlrc/RLRCReplayTypes.ts';
-import { SIM_OFFSETS } from '../../physics/RocketSimConstants.ts';
 import { REPLICATION_MODES, type ReplicationMode } from '../protocol/ReplicationBusProtocol.ts';
+import { TimelineFrameBuffer, type TimelineFrameBufferOptions } from './TimelineFrameBuffer.ts';
 
 export type { RLRCOrthonormalBasis, RLRCRigidBodySample };
 
@@ -118,7 +118,7 @@ export class ReplicationStateInterpolator {
   }
 }
 
-export interface SpectateInterpolationBufferOptions {
+export interface SpectateInterpolationBufferOptions extends TimelineFrameBufferOptions {
   maxFrames?: number;
 }
 
@@ -134,51 +134,43 @@ export interface SpectateInterpolationStats {
 }
 
 /**
- * Clean empty-shell pass-through frame buffer for spectate/replay streams.
- * Holds the latest authoritative snapshot with no lookahead extrapolation
- * and no monotonic tick assumptions (safe for rewind, pause, and seek).
+ * Arrival-timeline spectate/replay frame buffer backed by TimelineFrameBuffer.
+ * Supports 60Hz+ pass-through and 15/30Hz dual-frame interpolation with no
+ * lookahead extrapolation and no monotonic tick assumptions.
  */
 export class SpectateInterpolationBuffer {
-  private latestSnapshot: Float32Array | null = null;
-  private latestTick = 0;
-  private latestArrivalMs = 0;
+  private readonly timeline: TimelineFrameBuffer;
 
-  constructor(_maxFrames = 16, _options: SpectateInterpolationBufferOptions = {}) {}
+  constructor(maxFrames = 32, options: SpectateInterpolationBufferOptions = {}) {
+    this.timeline = new TimelineFrameBuffer({
+      ...options,
+      capacity: options.maxFrames ?? maxFrames,
+    });
+  }
 
   reset(): void {
-    this.latestSnapshot = null;
-    this.latestTick = 0;
-    this.latestArrivalMs = 0;
+    this.timeline.reset();
   }
 
   getStats(): SpectateInterpolationStats {
+    const stats = this.timeline.getStats();
     return {
-      bufferedFrames: this.latestSnapshot ? 1 : 0,
-      latestTick: this.latestTick,
+      bufferedFrames: stats.bufferedFrames,
+      latestTick: stats.latestTick,
     };
   }
 
   pushFrame(snapshot: Float32Array, serverTick = 0, nowMs = performance.now()): void {
-    if (!snapshot || snapshot.length < SIM_OFFSETS.CARS) return;
-    const rawTick = Number(snapshot[SIM_OFFSETS.TICK]);
-    const tick =
-      Number.isFinite(rawTick) && rawTick > 0
-        ? Math.round(rawTick)
-        : Math.max(0, Math.round(serverTick || 0));
-    const numCars = Math.max(0, Math.round(snapshot[SIM_OFFSETS.NUM_CARS] || 0));
-    if (snapshot.length < SIM_OFFSETS.CARS + numCars * 40) return;
-
-    this.latestSnapshot = new Float32Array(snapshot);
-    this.latestTick = tick;
-    this.latestArrivalMs = nowMs;
+    this.timeline.pushFrame(snapshot, serverTick, nowMs);
   }
 
-  sample(_nowMs = performance.now()): SpectateInterpolationSample | null {
-    if (!this.latestSnapshot) return null;
+  sample(nowMs = performance.now()): SpectateInterpolationSample | null {
+    const res = this.timeline.sample(nowMs);
+    if (!res) return null;
     return {
-      snapshot: this.latestSnapshot,
-      serverTick: this.latestTick,
-      arrivalMs: this.latestArrivalMs,
+      snapshot: res.snapshot,
+      serverTick: res.serverTick,
+      arrivalMs: res.arrivalMs,
     };
   }
 }

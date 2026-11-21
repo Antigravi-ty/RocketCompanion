@@ -162,6 +162,8 @@ export class HandshakeSession {
       this.bindIncomingDataChannel(dc);
       const ctrlDc = pc.createDataChannel('game_ctrl', { ordered: true });
       this.bindIncomingDataChannel(ctrlDc);
+      const bulkDc = pc.createDataChannel('game_bulk', { ordered: true });
+      this.bindIncomingDataChannel(bulkDc);
       sdp = await connection.createOfferDescription();
     }
 

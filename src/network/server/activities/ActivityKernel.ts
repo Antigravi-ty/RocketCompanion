@@ -13,6 +13,7 @@ import {
 } from '../../protocol/ReplicationBusProtocol.ts';
 import type { MatchSessionAdmin } from '../match/MatchSessionAdmin.ts';
 import type { PhysicsEngineManager } from '../PhysicsEngineManager.ts';
+import { ExhibitionActivityKernel } from './ExhibitionActivityKernel.ts';
 
 export interface ActivityKernelContext {
   matchManager: MatchSessionAdmin | null | undefined;
@@ -186,6 +187,8 @@ class MatchActivityKernel implements RoomActivityKernel {
   }
 }
 
+import { FreeplaySpectateStreamController } from './FreeplaySpectateStreamController.ts';
+
 class FreeplayActivityKernel implements RoomActivityKernel {
   readonly id = ACTIVITY_IDS.FREEPLAY;
   readonly defaultReplicationMode = REPLICATION_MODES.CONTINUOUS;
@@ -193,21 +196,116 @@ class FreeplayActivityKernel implements RoomActivityKernel {
     ACTIVITY_IDS.FREEPLAY,
     REPLICATION_MODES.CONTINUOUS
   );
+  private readonly spectateStream = new FreeplaySpectateStreamController();
+
+  getSpectateStreamController(): FreeplaySpectateStreamController {
+    return this.spectateStream;
+  }
 
   onMount(ctx: ActivityKernelContext): void {
     ctx.matchManager?.lifecycle.startTrainingMode();
+    if (typeof ctx.stateSummary?.unlimitedBoost === 'boolean') {
+      this.spectateStream.setUnlimitedBoost(ctx.stateSummary.unlimitedBoost);
+    }
+    if (typeof ctx.stateSummary?.goalReplayEnabled === 'boolean') {
+      this.spectateStream.setGoalReplayEnabled(ctx.stateSummary.goalReplayEnabled);
+    }
+    if (
+      ctx.stateSummary?.arenaPreset === 'throwback' ||
+      ctx.stateSummary?.arenaPreset === 'standard'
+    ) {
+      this.spectateStream.setArenaPreset(ctx.stateSummary.arenaPreset);
+    }
+    this.spectateStream.triggerKickoffReset(ctx.matchManager?.domain.matchTick ?? 0);
   }
 
-  onUnmount(_ctx: ActivityKernelContext): void {}
+  onUnmount(ctx: ActivityKernelContext): void {
+    this.spectateStream.triggerKickoffReset(ctx.matchManager?.domain.matchTick ?? 0);
+  }
+
+  onControlMessage(
+    ctx: ActivityKernelContext,
+    type: string,
+    payload: Record<string, unknown>
+  ): boolean {
+    const tick = ctx.matchManager?.domain.matchTick ?? 0;
+    if (type === 'freeplay_reset_kickoff') {
+      this.spectateStream.triggerKickoffReset(tick);
+      return true;
+    }
+    if (type === 'freeplay_expire_ball') {
+      return this.spectateStream.triggerManualBallExpire({
+        tick,
+        scoringTeam: payload.scoringTeam === 1 ? 1 : 0,
+        scorerCarIndex: typeof payload.scorerCarIndex === 'number' ? payload.scorerCarIndex : 0,
+        ballSpeedKph: typeof payload.ballSpeedKph === 'number' ? payload.ballSpeedKph : null,
+      });
+    }
+    if (type === 'freeplay_goal_scored') {
+      this.spectateStream.triggerGoalScored({
+        tick,
+        scoringTeam: payload.scoringTeam === 1 ? 1 : 0,
+        scorerCarIndex: typeof payload.scorerCarIndex === 'number' ? payload.scorerCarIndex : 0,
+        scorerName: typeof payload.scorerName === 'string' ? payload.scorerName : 'Player',
+        ballSpeedKph: typeof payload.ballSpeedKph === 'number' ? payload.ballSpeedKph : null,
+      });
+      return true;
+    }
+    if (type === 'freeplay_skip_goal_replay') {
+      return this.spectateStream.skipGoalReplay(tick);
+    }
+    if (type === 'freeplay_set_unlimited_boost') {
+      const enabled = payload.unlimitedBoost !== false;
+      this.spectateStream.setUnlimitedBoost(enabled);
+      ctx.matchManager?.lifecycle.startTrainingMode({ unlimitedBoost: enabled });
+      return true;
+    }
+    if (type === 'freeplay_set_replay_camera_mode') {
+      const mode = payload.cameraMode === 'pov' ? 'pov' : 'director';
+      const carIdx =
+        typeof payload.focusedCarIndex === 'number' ? payload.focusedCarIndex : undefined;
+      this.spectateStream.setReplayCameraMode(mode, carIdx);
+      return true;
+    }
+    if (type === 'freeplay_rewinder_command') {
+      const action = payload.action;
+      if (
+        action === 'start_recording' ||
+        action === 'stop_recording' ||
+        action === 'begin_scrub' ||
+        action === 'pause_scrub' ||
+        action === 'seek_frame' ||
+        action === 'resume_from_here' ||
+        action === 'clear_buffer'
+      ) {
+        return this.spectateStream.handleRewinderCommand(action, {
+          direction: payload.direction === 'forwarding' ? 'forwarding' : 'rewinding',
+          frameIndex: typeof payload.frameIndex === 'number' ? payload.frameIndex : undefined,
+          scrubRate: typeof payload.scrubRate === 'number' ? payload.scrubRate : undefined,
+        });
+      }
+      return false;
+    }
+    return false;
+  }
 
   getStateSummary(ctx: ActivityKernelContext): Record<string, unknown> {
+    const streamSummary = this.spectateStream.getStateSummary();
     return {
-      activityId: this.id,
-      unlimitedBoost: ctx.matchManager?.domain.trainingUnlimitedBoost ?? true,
-      matchTick: ctx.matchManager?.domain.matchTick ?? 0,
+      ...streamSummary,
+      unlimitedBoost:
+        ctx.matchManager?.domain.trainingUnlimitedBoost ??
+        (streamSummary.unlimitedBoost as boolean),
+      matchTick: ctx.matchManager?.domain.matchTick ?? (streamSummary.matchTick as number),
     };
   }
 }
+
+import { ReplayWatchCursorEngine } from '../../../replay/watch-together/ReplayWatchCursorEngine.ts';
+import type {
+  ReplayWatchFrameStreamPacket,
+  ReplayWatchPlaybackCommand,
+} from '../../../replay/watch-together/ReplayWatchTogetherTypes.ts';
 
 class ReplayActivityKernel implements RoomActivityKernel {
   readonly id = ACTIVITY_IDS.REPLAY;
@@ -217,13 +315,37 @@ class ReplayActivityKernel implements RoomActivityKernel {
     REPLICATION_MODES.SPARSE,
     true
   );
+  readonly watchEngine = new ReplayWatchCursorEngine();
+  private lastFramePacket: ReplayWatchFrameStreamPacket | null = null;
 
   onMount(ctx: ActivityKernelContext): void {
+    this.lastFramePacket = null;
     ctx.matchManager?.systemControl.enterStateOnlyMode(null, ctx.matchManager.domain.matchTick);
   }
 
   onUnmount(ctx: ActivityKernelContext): void {
+    this.lastFramePacket = null;
+    this.watchEngine.applyCommand({ type: 'unload' });
     ctx.matchManager?.systemControl.resumePhysicsFromState(null, ctx.matchManager.domain.matchTick);
+  }
+
+  onControlMessage(
+    _ctx: ActivityKernelContext,
+    type: string,
+    payload: Record<string, unknown>
+  ): boolean {
+    if (type === 'replay_watch_command' && payload.command && typeof payload.command === 'object') {
+      this.lastFramePacket = this.watchEngine.applyCommand(
+        payload.command as ReplayWatchPlaybackCommand
+      );
+      return true;
+    }
+    if (type === 'replay_watch_step') {
+      const dtMs = typeof payload.dtMs === 'number' ? payload.dtMs : 0;
+      this.lastFramePacket = this.watchEngine.step(dtMs);
+      return true;
+    }
+    return false;
   }
 
   getStateSummary(ctx: ActivityKernelContext): Record<string, unknown> {
@@ -231,6 +353,9 @@ class ReplayActivityKernel implements RoomActivityKernel {
       activityId: this.id,
       stateOnlyMode: Boolean(ctx.matchManager?.domain.stateOnlyMode),
       matchTick: ctx.matchManager?.domain.matchTick ?? 0,
+      replayWatch: this.watchEngine.getStatus(),
+      rosterManifest: this.watchEngine.getManifest(),
+      lastFramePacket: this.lastFramePacket,
     };
   }
 }
@@ -368,6 +493,7 @@ class MultiplayerTrainingActivityKernel implements RoomActivityKernel {
 export function createDefaultActivityKernelRegistry(): Map<ActivityId, RoomActivityKernel> {
   const registry = new Map<ActivityId, RoomActivityKernel>();
   registry.set(ACTIVITY_IDS.MATCH, new MatchActivityKernel());
+  registry.set(ACTIVITY_IDS.EXHIBITION, new ExhibitionActivityKernel());
   registry.set(ACTIVITY_IDS.FREEPLAY, new FreeplayActivityKernel());
   registry.set(ACTIVITY_IDS.MULTIPLAYER_TRAINING, new MultiplayerTrainingActivityKernel());
   registry.set(ACTIVITY_IDS.REPLAY, new ReplayActivityKernel());

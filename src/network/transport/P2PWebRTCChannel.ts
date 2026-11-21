@@ -15,6 +15,7 @@ import { WebRTCConnection } from './webrtc/WebRTCConnection.ts';
 import type { IceCandidateDescriptor } from './webrtc/SdpUtils.ts';
 import { HandshakeSession, type HandshakeMetadataState } from './webrtc/HandshakeSession.ts';
 import { DataChannelTransport } from './webrtc/DataChannelTransport.ts';
+import type { BulkAssetChannel } from './BulkAssetChannel.ts';
 
 export interface P2PWebRTCChannelOptions extends NetworkSimulatorOptions {
   role?: string;
@@ -65,6 +66,10 @@ export class P2PWebRTCChannel implements HandshakeMetadataState {
   readonly connection: WebRTCConnection;
   readonly handshake: HandshakeSession;
   readonly transport: DataChannelTransport;
+
+  get bulkChannel(): BulkAssetChannel {
+    return this.transport.bulkChannel;
+  }
 
   onConnected: ChannelHook = null;
   onDisconnected: ChannelHook = null;

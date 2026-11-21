@@ -12,6 +12,8 @@ import {
 } from '../../protocol/TunnelProtocol.ts';
 import type { TunnelFramerBridgeState } from './tunnelFramerBridge.ts';
 import type { SimulatedPayload } from './NetworkSimulator.ts';
+import { isBulkAssetFrame } from '../../protocol/BulkAssetProtocol.ts';
+import type { BulkAssetChannel } from '../BulkAssetChannel.ts';
 import {
   injectLoopbackCandidate,
   injectLoopbackIntoSdp,
@@ -295,4 +297,52 @@ export function transmitTelestratorEnvelope(
     }
   }
   return false;
+}
+
+export function attachBulkDataChannelHandlers(
+  bulkDc: RTCDataChannel,
+  bulkChannel: BulkAssetChannel,
+  onOpen: () => void,
+  onClose: () => void
+): void {
+  bulkChannel.bindDataChannel(bulkDc);
+  bulkDc.onopen = () => {
+    console.log(`[P2PWebRTCChannel] Bulk DataChannel "${bulkDc.label}" OPEN!`);
+    onOpen();
+    bulkChannel.pumpOutgoingQueue();
+  };
+  bulkDc.onclose = () => {
+    console.log(`[P2PWebRTCChannel] Bulk DataChannel "${bulkDc.label}" CLOSED.`);
+    onClose();
+  };
+  bulkDc.onerror = (err) => {
+    console.error('[P2PWebRTCChannel] Bulk DataChannel error:', err);
+  };
+  bulkDc.onmessage = (event: MessageEvent<SimulatedPayload>) => {
+    if (isBulkAssetFrame(event.data)) {
+      bulkChannel.handleIncomingFrame(event.data);
+    }
+  };
+}
+
+export function attachControlDataChannelHandlers(
+  controlChannel: RTCDataChannel,
+  onOpen: () => void,
+  onClose: () => void,
+  onMessage: (data: SimulatedPayload) => void
+): void {
+  controlChannel.onopen = () => {
+    console.log(`[P2PWebRTCChannel] Control DataChannel "${controlChannel.label}" OPEN!`);
+    onOpen();
+  };
+  controlChannel.onclose = () => {
+    console.log(`[P2PWebRTCChannel] Control DataChannel "${controlChannel.label}" CLOSED.`);
+    onClose();
+  };
+  controlChannel.onerror = (err) => {
+    console.error('[P2PWebRTCChannel] Control DataChannel error:', err);
+  };
+  controlChannel.onmessage = (event: MessageEvent<SimulatedPayload>) => {
+    onMessage(event.data);
+  };
 }

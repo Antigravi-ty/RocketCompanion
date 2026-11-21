@@ -257,7 +257,9 @@ export class PredictionReconciler
 
   setAuthorityState(epoch: number, activePeerId: string): void {
     if (Number.isFinite(epoch) && epoch >= 0) {
-      this.authorityEpoch = Math.round(epoch);
+      const rounded = Math.round(epoch);
+      if (rounded < this.authorityEpoch) return;
+      this.authorityEpoch = rounded;
     }
     if (typeof activePeerId === 'string' && activePeerId.trim()) {
       this.activeInputPeerId = activePeerId.trim();

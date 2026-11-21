@@ -26,10 +26,10 @@ export function hasActiveCoachControlInput(
   if (!controls) return false;
   return Boolean(
     Math.abs(controls.throttle ?? 0) > AXIS_DEADZONE ||
-      Math.abs(controls.steer ?? 0) > AXIS_DEADZONE ||
-      controls.jump ||
-      controls.boost ||
-      controls.handbrake
+    Math.abs(controls.steer ?? 0) > AXIS_DEADZONE ||
+    controls.jump ||
+    controls.boost ||
+    controls.handbrake
   );
 }
 
@@ -72,7 +72,11 @@ export class CoachAuthorityHandoverController {
     if (typeof opts.clientInputEnabled === 'boolean') {
       this.clientInputEnabled = opts.clientInputEnabled;
     }
-    if (typeof opts.targetPeerId === 'string' && opts.targetPeerId && opts.targetPeerId !== 'host') {
+    if (
+      typeof opts.targetPeerId === 'string' &&
+      opts.targetPeerId &&
+      opts.targetPeerId !== 'host'
+    ) {
       this.targetPeerId = opts.targetPeerId;
     }
     if (opts.authorityMode !== undefined) {
@@ -80,9 +84,7 @@ export class CoachAuthorityHandoverController {
     }
     this.authorityEpoch += 1;
     const shouldGrant =
-      this.clientInputEnabled &&
-      this.authorityMode !== 'host_only' &&
-      opts.targetPeerId !== 'host';
+      this.clientInputEnabled && this.authorityMode !== 'host_only' && opts.targetPeerId !== 'host';
     this.activeInputPeerId = shouldGrant ? this.targetPeerId || 'any' : 'host';
     this.lastHostInputAtMs = 0;
     return {
@@ -101,12 +103,25 @@ export class CoachAuthorityHandoverController {
     return epoch === this.authorityEpoch;
   }
 
+  public getIdleElapsedMs(nowMs: number): number {
+    if (this.lastHostInputAtMs === 0) return 0;
+    return Math.max(0, nowMs - this.lastHostInputAtMs);
+  }
+
   public step(params: {
     nowMs: number;
     controls: CoachControlInputSample | null | undefined;
+    studentControls?: CoachControlInputSample | null;
+    studentHasActiveInput?: boolean;
     hasTargetPeer?: boolean;
   }): CoachAuthorityStepResult {
-    const { nowMs, controls, hasTargetPeer = true } = params;
+    const {
+      nowMs,
+      controls,
+      studentControls,
+      studentHasActiveInput,
+      hasTargetPeer = true,
+    } = params;
 
     if (this.authorityMode === 'host_only') {
       if (this.activeInputPeerId !== 'host') {
@@ -143,6 +158,12 @@ export class CoachAuthorityHandoverController {
         return this.buildResult(false, 'none');
       }
       if (nowMs - this.lastHostInputAtMs >= this.idleHandoverMs) {
+        const hasStudentGate = studentHasActiveInput !== undefined || studentControls !== undefined;
+        const studentActive =
+          Boolean(studentHasActiveInput) || hasActiveCoachControlInput(studentControls);
+        if (hasStudentGate && !studentActive) {
+          return this.buildResult(false, 'none');
+        }
         this.authorityEpoch += 1;
         this.activeInputPeerId = this.targetPeerId || 'any';
         return this.buildResult(true, 'grant_to_client');

@@ -297,9 +297,11 @@ function updateSlotInPlace(
   const isFocused =
     isGoalReplayView && replayCameraMode === 'director'
       ? false
-      : viewMode === 'player-live'
-        ? Boolean(entry.isSelf || entry.carIndex === activeCameraCar)
-        : entry.carIndex === activeCameraCar;
+      : typeof activeCameraCar === 'number' && activeCameraCar >= 0
+        ? entry.carIndex === activeCameraCar
+        : viewMode === 'player-live'
+          ? Boolean(entry.isSelf)
+          : false;
 
   const replaySkipReady = isGoalReplayView
     ? Boolean(

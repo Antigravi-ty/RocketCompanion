@@ -9,6 +9,10 @@ import { MATCH_SIGNALS } from '../../protocol/GlobalPayloadCodec.ts';
 import { extractGoalReplayFrames } from '../../../replay/ReplayPlaybackState.ts';
 import { ReplayDirectorCameraSubController } from '../../../replay/ReplayDirectorCameraSubController.ts';
 import {
+  UnifiedGoalReplayStateMachine,
+  type GoalReplayStreamFrameOutput,
+} from '../../../replay/UnifiedGoalReplayStateMachine.ts';
+import {
   createInitialReplaySessionState,
   type DirectorCameraState,
   type ReplaySessionState,
@@ -114,6 +118,7 @@ const REPLAY_RETIRE_SIGNALS = [
 export class MatchGoalReplaySubController {
   readonly host: MatchGoalReplayHostPort;
   readonly directorCamera = new ReplayDirectorCameraSubController();
+  readonly unifiedGoalReplay = new UnifiedGoalReplayStateMachine();
   sessionState: ReplaySessionState = createInitialReplaySessionState();
   replayController: ServerReplayTimelineHandle | null = null;
   activeReplayFrames: Array<Float32Array | { snapshot?: Float32Array | null }> | null = null;
@@ -229,6 +234,15 @@ export class MatchGoalReplaySubController {
       });
       this.sessionState = init.sessionState;
       this.replayTicksRemaining = init.replayTicksRemaining;
+      this.unifiedGoalReplay.begin({
+        frames: extracted,
+        scoringTeam: this.lastScoringTeam ?? 0,
+        scorerCarIndex: this.lastScorerCarIndex ?? 0,
+        ballSpeedKph: this.lastGoalBallSpeedKph ?? null,
+        carTeamResolver: init.sessionState.carTeamResolver ?? undefined,
+        enableDramaticSlowMo: this.enableDramaticReplaySlowMo !== false,
+        cameraMode: 'director',
+      });
     } else {
       this.sessionState.isActive = false;
       this.replayTicksRemaining = GOAL_REPLAY_DURATION_TICKS;
@@ -247,8 +261,13 @@ export class MatchGoalReplaySubController {
     );
   }
 
+  getGoalReplayFrameOutput(): GoalReplayStreamFrameOutput | null {
+    return this.unifiedGoalReplay.getLatestOutput();
+  }
+
   finishGoalReplay(): void {
     const { domain, commandQueue, actions, physicsManager } = this.host;
+    this.unifiedGoalReplay.end();
     this.sessionState.isActive = false;
     this.activeReplayFrames = null;
     this.activeReplayCursor = 0;
@@ -283,6 +302,7 @@ export class MatchGoalReplaySubController {
     const s = this.sessionState;
 
     if (s.isActive && s.activeFrames.length > 0) {
+      this.unifiedGoalReplay.step(1 / 120);
       const { baseIdx, blendedSnap } = stepServerGoalReplaySession({
         sessionState: s,
         directorCamera: this.directorCamera,

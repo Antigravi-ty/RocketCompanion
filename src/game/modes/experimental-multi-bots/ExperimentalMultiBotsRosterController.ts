@@ -22,6 +22,10 @@ import { getMaterialsConfig } from '../../../ui-core/config/materialsConfig.ts';
 import { rollRandomBotLoadout } from '../../../ui-core/config/botsLoadoutConfig.ts';
 import { assignTeamSlotKeys } from '../../../replay/container/RCReplayTimelineParser.ts';
 import {
+  buildExhibitionRosterManifest,
+  type MatchExhibitionRosterManifest,
+} from '../../../network/protocol/MatchExhibitionRosterManifest.ts';
+import {
   type CarControls,
   type ExpActiveCarRef,
   type ExpModeRuntimePort,
@@ -52,9 +56,15 @@ export class ExperimentalMultiBotsRosterController {
   public readonly carControlsMap = new Map<number, CarControls>();
   public humanPlayerCarIndex = -1;
   public kickoffPermutationSeed = 0;
+  public latestRosterManifest: MatchExhibitionRosterManifest | null = null;
+  private manifestVersion = 0;
 
   constructor(runtime: ExpModeRuntimePort | null) {
     this.runtime = runtime;
+  }
+
+  getRosterManifest(): MatchExhibitionRosterManifest | null {
+    return this.latestRosterManifest;
   }
 
   getCarControls(carIndex: number): CarControls {
@@ -137,6 +147,25 @@ export class ExperimentalMultiBotsRosterController {
       nextoLoaded: isExperimentalEngineReady('nexto'),
       nectoLoaded: isExperimentalEngineReady('necto'),
     });
+
+    const nextManifest = buildExhibitionRosterManifest(
+      this.spawnedCars.map((c) => ({
+        ...c,
+        name: c.name || getExpCarDisplayName(c, this.spawnedCars),
+      })),
+      {
+        manifestVersion: this.manifestVersion + 1,
+        matchDurationSeconds: Number(store.matchDurationSeconds) || 300,
+      }
+    );
+    if (
+      !this.latestRosterManifest ||
+      this.latestRosterManifest.metadataHash !== nextManifest.metadataHash
+    ) {
+      this.manifestVersion += 1;
+      nextManifest.manifestVersion = this.manifestVersion;
+      this.latestRosterManifest = nextManifest;
+    }
 
     projectRosterCarEntries(
       this.spawnedCars.map((c) => ({

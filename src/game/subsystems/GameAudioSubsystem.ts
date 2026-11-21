@@ -15,9 +15,9 @@ import {
   isDiagnosticProbeSlot,
 } from '../../physics/RocketSimConstants.ts';
 import { hudStore } from '../runtimeUiPort.ts';
-import type { FrameContext } from '../pipeline/FramePipeline.ts';
+import type { FrameContext, VNextPlaybackState } from '../pipeline/FramePipeline.ts';
 
-export type { EngineSynthSlotEntry };
+export type { EngineSynthSlotEntry, VNextPlaybackState };
 
 /**
  * GameAudioSubsystem.ts
@@ -34,6 +34,7 @@ export class GameAudioSubsystem {
   public lastCountdown = -1;
   public lastBoostPressed = false;
   public lastPhase: string | null = null;
+  public lastPlaybackState: VNextPlaybackState = 'playing';
   private readonly _lobbyCarViews: CarStateView[];
   private readonly _prevTestCarBoosting: Record<number, boolean> = { 6: false, 7: false };
   private _scratchVehiclePos: { posX: number; posY: number; posZ: number } | null = null;
@@ -84,11 +85,18 @@ export class GameAudioSubsystem {
     this.lastRemainingSec = durationSeconds;
   }
 
+  public silenceAll(): void {
+    const audio = this.runtime?.options?.gameAudio || gameAudio;
+    this.engineLodController.silenceAll();
+    audio?.silenceAll?.();
+  }
+
   public resetAudio(): void {
     const r = this.runtime;
     const activeIdx = typeof r?.playerCarIndex === 'number' ? r.playerCarIndex : 0;
     this.engineLodController.resetAll(activeIdx);
-    gameAudio?.silenceAll?.();
+    const audio = r?.options?.gameAudio || gameAudio;
+    audio?.silenceAll?.();
     this.lastGoalScored = false;
     this.lastCountdown = -1;
     this.last10sCountdown = -1;
@@ -225,10 +233,31 @@ export class GameAudioSubsystem {
       hasBlockingOverlay,
       continueOnBlur,
       isHidden,
+      playbackState = 'playing',
       goalScored,
       curBoost,
       isSupersonic,
     } = context;
+
+    if (playbackState !== 'playing') {
+      this.silenceAll();
+      this.lastPlaybackState = playbackState;
+      if (subsystemState?.lastTelemetry) {
+        const audioCtx = getAudioContext();
+        const t = subsystemState.lastTelemetry as unknown as Record<string, unknown>;
+        t.updatedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        t.contextCurrentTime = audioCtx ? audioCtx.currentTime : 0;
+        t.isMatchActive = Boolean(isMatchActive);
+        t.hasBlockingOverlay = Boolean(hasBlockingOverlay);
+        t.continueOnBlur = Boolean(continueOnBlur);
+        t.isHidden = Boolean(isHidden);
+        t.isAudibleActive = false;
+        t.playbackState = playbackState;
+        t.activeEngineSynths = 0;
+      }
+      return;
+    }
+    this.lastPlaybackState = playbackState;
 
     if (!r.camera?.camera) return;
 
@@ -237,11 +266,12 @@ export class GameAudioSubsystem {
     const isAudibleActive =
       !hasBlockingOverlay && Boolean(isMatchActive) && (!isHidden || Boolean(continueOnBlur));
 
-    if (gameAudio && typeof gameAudio.updateBallAudio === 'function' && r.arena?.ball) {
+    const audio = r.options?.gameAudio || gameAudio;
+    if (audio && typeof audio.updateBallAudio === 'function' && r.arena?.ball) {
       if (isAudibleActive) {
-        gameAudio.updateBallAudio(r.arena.ball, r.camera, r.physics);
+        audio.updateBallAudio(r.arena.ball, r.camera, r.physics);
       } else {
-        gameAudio.ballEngine?.silenceAll?.();
+        audio.ballEngine?.silenceAll?.();
       }
     }
 
@@ -345,7 +375,7 @@ export class GameAudioSubsystem {
       t.activeEngineSynths = activeSynths;
     }
 
-    if (gameAudio && typeof gameAudio.updateVehicles === 'function') {
+    if (audio && typeof audio.updateVehicles === 'function') {
       if (!this._scratchVehiclePos) {
         this._scratchVehiclePos = { posX: 0, posY: 0, posZ: 0 };
       }
@@ -385,7 +415,7 @@ export class GameAudioSubsystem {
       vOpts.hasBlockingOverlay = hasBlockingOverlay;
       vOpts.continueOnBlur = continueOnBlur;
       vOpts.isHidden = isHidden;
-      gameAudio.updateVehicles(vOpts);
+      audio.updateVehicles(vOpts);
     }
 
     if (isMatchActive) {

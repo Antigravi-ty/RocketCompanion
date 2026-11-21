@@ -98,6 +98,7 @@ export class SyncAuthorityRouter {
       }
     } else if (
       payload.activityId === ACTIVITY_IDS.MATCH ||
+      payload.activityId === ACTIVITY_IDS.EXHIBITION ||
       payload.activityId === ACTIVITY_IDS.FREEPLAY
     ) {
       this.setEntityAuthority('ball', ENTITY_AUTHORITY_ROLES.HOST, 'host');

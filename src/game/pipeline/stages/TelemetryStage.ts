@@ -26,6 +26,11 @@ import {
   type HudTransientRosterInput,
 } from './hudTransientFramePipeline.ts';
 import { buildRuntimeDiagnosticReport } from './runtimeDiagnosticReportBuilder.ts';
+import { pushVNextHudFrameToChannel } from './vnextHudRosterConsumer.ts';
+import type {
+  VNextRosterManifest,
+  VNextWorldFrameCameraAndHudHeader,
+} from './vnextHudCameraTypes.ts';
 import type { FrameContext, PipelineStage } from '../FramePipeline.ts';
 
 const _EMPTY_ARRAY: readonly never[] = [];
@@ -152,6 +157,29 @@ export class TelemetryStage implements PipelineStage {
 
   private _syncEdgeRosterHud(context: FrameContext, hudState: any): void {
     const r = this.runtime;
+    const vnextManifest = r?.vnextRosterManifest as VNextRosterManifest | null | undefined;
+    const vnextFrame = r?.vnextWorldFrame as VNextWorldFrameCameraAndHudHeader | null | undefined;
+    if (vnextManifest && vnextFrame) {
+      const pushState = {
+        hasPushedInitialRoster: this._hasPushedInitialRoster,
+        hasPushedInitialMiniMap: this._hasPushedInitialMiniMap,
+      };
+      pushVNextHudFrameToChannel(
+        vnextManifest,
+        vnextFrame,
+        this._physicsInputScratch,
+        this._cameraInputScratch,
+        this._frameBuffer,
+        pushState,
+        globalHudTransientChannel,
+        hudState,
+        r
+      );
+      this._hasPushedInitialRoster = pushState.hasPushedInitialRoster;
+      this._hasPushedInitialMiniMap = pushState.hasPushedInitialMiniMap;
+      return;
+    }
+
     const appState = useAppStore?.getState?.();
     const matchMode = r?.match?.state?.mode || appState?.matchMode || 'freeplay';
     const freeplayMode = r?.modeManager?.modes?.get?.('freeplay') || null;
@@ -242,19 +270,27 @@ export class TelemetryStage implements PipelineStage {
         ? (rlrcSession?.session?.frames120Hz?.[rlrcSession?.cursorFrame120Hz ?? 0] ?? null)
         : null;
 
+    const isSpectateClient = Boolean(
+      appState?.onlineSession?.isDevSyncRoom && !appState?.onlineSession?.isHosting
+    );
+    const camFocusedCar =
+      typeof r?.camera?.focusedCarIndex === 'number' && r.camera.focusedCarIndex >= 0
+        ? r.camera.focusedCarIndex
+        : null;
+
     const activeCameraCar: number = isReplayViewerLoaded
       ? useRlrcSession
         ? rlrcActivePovIdx
         : typeof viewerRoster?.activePovCarIndex === 'number'
           ? viewerRoster.activePovCarIndex
-          : (r?.playerCarIndex ?? 0)
+          : (camFocusedCar ?? r?.playerCarIndex ?? 0)
       : isReplayPov
         ? r.replayPovCarIndex
-        : typeof context?.activeCar === 'number'
-          ? context.activeCar
-          : typeof r?.playerCarIndex === 'number'
-            ? r.playerCarIndex
-            : 0;
+        : (isSpectateClient || isClientSyncedReplay) && camFocusedCar !== null
+          ? camFocusedCar
+          : typeof context?.activeCar === 'number'
+            ? context.activeCar
+            : (camFocusedCar ?? (typeof r?.playerCarIndex === 'number' ? r.playerCarIndex : 0));
 
     const expStore =
       matchMode === 'exp-multi-bots' ? useExperimentalMultiBotsStore.getState() : null;

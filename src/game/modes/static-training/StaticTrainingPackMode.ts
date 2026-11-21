@@ -25,12 +25,14 @@ import {
   syncReloadedShotLiveTelemetry,
   teardownRuntimeNetworkForStaticTraining,
 } from './staticTrainingSessionPipeline.ts';
+import { TrainingPackBroadcastAdapter } from '../TrainingPackBroadcastAdapter.ts';
 
 export class StaticTrainingPackMode extends BaseGameMode {
   public readonly arenaController: StaticTrainingArenaController;
   public readonly replaySession: StaticTrainingReplayController;
   public readonly editor: StaticTrainingShotEditor;
   public readonly simulationController: StaticTrainingSimulationController;
+  public readonly broadcastAdapter = new TrainingPackBroadcastAdapter();
 
   public visuals: StaticTrainingVisuals | null = null;
   public isFreeCamTrajectoryTesting = false;
@@ -92,6 +94,7 @@ export class StaticTrainingPackMode extends BaseGameMode {
     this.replaySession.abortSession();
     this.replaySession.clearBuffer();
     this.visuals?.setVisible(false);
+    this.broadcastAdapter.reset();
     this.arenaController.teardownRuntimeModeExit();
     resetStaticTrainingHudToPlaying();
   }
@@ -261,6 +264,20 @@ export class StaticTrainingPackMode extends BaseGameMode {
       Boolean(store.downCounterEnabled),
       Number(store.downCounterValue) || 1
     );
+    const activePack = store.activePack;
+    this.broadcastAdapter.beginShotReset({
+      trainingKind: 'static',
+      packId: activePack?.metadata?.uuid || 'static-pack',
+      packName: activePack?.metadata?.title || 'Static Training Pack',
+      shotIndex: store.currentShotIndex || 0,
+      totalShots: Math.max(1, activePack?.items?.length || 1),
+      shotName: effectiveShot.name || `Shot ${(store.currentShotIndex || 0) + 1}`,
+      trainingPhase: isPlayableSession ? 'ready' : 'idle',
+      countdownSeconds:
+        isPlayableSession && store.downCounterEnabled ? Number(store.downCounterValue) || 1 : 0,
+      remainingTimeoutSeconds: timeoutSec,
+      isShotLaunched: false,
+    });
 
     if (!isPlayableSession) {
       const editSubMode = store.editSubMode as StaticTrainingEditSubMode;

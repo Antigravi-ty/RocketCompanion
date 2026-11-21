@@ -16,8 +16,18 @@ import {
   type RewinderIncidentRecord,
 } from './RewinderHandoffAndMarkerController.ts';
 import { gameAudio } from '../audio/GameAudioEngineFacade.ts';
+import {
+  decodeRewinderSlice,
+  encodeRewinderSlice,
+  type EncodedRewinderSlice,
+} from './rewinderBulkSliceCodec.ts';
+import type { RewinderSliceBulkMetadata } from '../network/protocol/BulkAssetProtocol.ts';
 
 export type { RewinderFrameEntry, FreeplayRewinderRuntimePort, FreeplayRewinderModePort };
+
+export interface RewinderBulkSenderPort {
+  sendRewinderSlice: (payload: Uint8Array, metadata: RewinderSliceBulkMetadata) => number;
+}
 
 const REWINDER_HOTKEY_CONFLICT_MSG =
   '[FreeplayRewinderController] Cannot bind Rewinder Configurator hotkeys (O/P/[/]/G): Replay Viewer window is already open and claimed the hotkeys first.';
@@ -104,16 +114,17 @@ export class FreeplayRewinderController {
     const { match, isBotMatch, botCoordinator } = this.runtime ?? {};
     const currentMode = match?.state?.mode || 'freeplay';
     const online = useAppStore.getState().onlineSession;
-    const isOnlineActive = Boolean(
-      online?.isHosting ||
-      online?.signalingConnected ||
-      online?.roomId ||
-      isBotMatch ||
-      botCoordinator?.isBotMatch
+    const isRemoteNonHostClient = Boolean(
+      !online?.isHosting && (online?.signalingConnected || online?.roomId)
     );
-    if (isOnlineActive || (currentMode !== 'freeplay' && currentMode !== 'dev-test-lab')) {
+    const isBlockedByBotOrMode = Boolean(
+      isBotMatch ||
+      botCoordinator?.isBotMatch ||
+      (currentMode !== 'freeplay' && currentMode !== 'dev-test-lab')
+    );
+    if (isRemoteNonHostClient || isBlockedByBotOrMode) {
       console.warn(
-        `[FreeplayRewinderController] Cannot execute "${actionName}": active mode is "${currentMode}" (Rewinder Configurator requires offline "freeplay" or "dev-test-lab").`
+        `[FreeplayRewinderController] Cannot execute "${actionName}": active mode is "${currentMode}" (Rewinder Configurator requires local or hosting authority in "freeplay" or "dev-test-lab").`
       );
       return false;
     }
@@ -454,5 +465,50 @@ export class FreeplayRewinderController {
       this.rewinderFrames,
       this.takeoverSubController
     );
+  }
+
+  public exportRewinderSliceForBulk(
+    startFrame?: number,
+    endFrame?: number
+  ): EncodedRewinderSlice | null {
+    if (this.rewinderFrames.length === 0) return null;
+    return encodeRewinderSlice(this.rewinderFrames, {
+      startFrame,
+      endFrame,
+      cursorFrame: Math.round(this.rewinderCursor),
+      targetFrame: Math.round(this.rewinderTargetFrame),
+      arenaPreset: (this.runtime?.match?.state as { arenaPreset?: number } | undefined)?.arenaPreset,
+    });
+  }
+
+  public sendRewinderSliceViaBulkChannel(
+    bulkChannel: RewinderBulkSenderPort,
+    startFrame?: number,
+    endFrame?: number
+  ): number | null {
+    const encoded = this.exportRewinderSliceForBulk(startFrame, endFrame);
+    if (!encoded) return null;
+    return bulkChannel.sendRewinderSlice(encoded.payload, encoded.metadata);
+  }
+
+  public importRewinderSliceFromBulk(
+    payload: Uint8Array,
+    options: { applyCursorImmediately?: boolean } = {}
+  ): boolean {
+    const decoded = decodeRewinderSlice(payload);
+    if (!decoded || decoded.frames.length === 0) return false;
+    this.rewinderFrames = decoded.frames;
+    this.takeoverSubController.reset(decoded.cursorFrame, decoded.targetFrame);
+    if (options.applyCursorImmediately && this.runtime) {
+      this.applyFrameAtCursor(false, { preserveEngineTick: true });
+    }
+    useRewinderStore.getState().updateLiveTelemetry({
+      rewinderState: 'paused-scrub',
+      rewinderRecordedFrames: decoded.frames.length,
+      rewinderCursorFrame: decoded.cursorFrame,
+      rewinderTargetFrame: decoded.targetFrame,
+      rewinderPrerollRemainingSec: 0,
+    });
+    return true;
   }
 }

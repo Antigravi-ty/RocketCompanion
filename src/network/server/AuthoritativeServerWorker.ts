@@ -16,6 +16,8 @@ import {
 import { WorkerDirectBotPortBridge } from './workerReplayAndDiagnosticsRouter.ts';
 import type { DiagnosticsTestVehicleController } from '../diagnostics/DiagnosticsTestVehicles.ts';
 import type { AuthoritativePhysicsSimPort } from './authoritativePhysicsStepPipeline.ts';
+import { WorkerAuthorityBus } from './WorkerAuthorityBus.ts';
+import { VNEXT_CHANNEL1_SCHEMA_HASH } from '../protocol/VNextSchemaHash.ts';
 
 export interface AuthoritativeWorkerIncomingEvent extends HostWorkerInitOptions {
   type?: string;
@@ -33,6 +35,7 @@ let inputBuffer: NetworkInputBuffer | null = null;
 let sessionManager: EstablishedSessionManager | null = null;
 let matchManager: MatchSessionAdmin | null = null;
 let dataHandler: NetworkDataHandler | null = null;
+let authorityBus: WorkerAuthorityBus | null = null;
 let diagnosticsController: DiagnosticsTestVehicleController | null = null;
 const botPortBridge = new WorkerDirectBotPortBridge();
 
@@ -140,8 +143,25 @@ function tick(): void {
   if (botPortBridge.botPort && matchManager.domain.externalBotTunnels) {
     botPortBridge.step(matchManager, sim, physicsManager, dataHandler, registerWorkerChannel);
   }
-  if (globalPayloadBytes && globalPayloadBytes.length > 0 && dataHandler) {
-    dataHandler.dispatchFrameToSessions(globalPayloadBytes);
+  if (globalPayloadBytes && globalPayloadBytes.length > 0) {
+    if (authorityBus) {
+      authorityBus.slidingWindow.pushFrame({
+        schemaHash: VNEXT_CHANNEL1_SCHEMA_HASH,
+        metadataHash: 0,
+        activityMode: authorityBus.getActivityMode(),
+        playbackState: 'playing',
+        phase: matchManager.lifecycle.state,
+        clockSeconds: matchManager.domain.clockSecondsRemaining,
+        simTick: physicsManager?.currentTick ?? matchManager.lifecycle.matchTick,
+        replayFrameIndex: 0,
+        focusedCarIndex: 0,
+        timestampMs: performance.now(),
+        payloadBytes: globalPayloadBytes,
+      });
+    }
+    if (dataHandler) {
+      dataHandler.dispatchFrameToSessions(globalPayloadBytes);
+    }
   }
 }
 
@@ -185,6 +205,7 @@ export function getAuthoritativeWorkerState() {
     sessionManager,
     matchManager,
     dataHandler,
+    authorityBus,
     isRunning,
   };
 }
@@ -210,6 +231,7 @@ export async function handleAuthoritativeWorkerMessage(
     sessionManager,
     matchManager,
     dataHandler,
+    authorityBus,
     diagnosticsController,
     registerWorkerChannel,
     unregisterWorkerChannel,
@@ -302,6 +324,13 @@ export async function handleAuthoritativeWorkerMessage(
           physicsManager,
         });
         matchManager.dataHandler = dataHandler;
+        authorityBus = new WorkerAuthorityBus({
+          matchManager,
+          sessionManager,
+          physicsManager,
+          dataHandler,
+          activityMode: data.startAsMatch ? 'match' : 'freeplay',
+        });
         diagnosticsController =
           (matchManager.diagnosticsController as unknown as DiagnosticsTestVehicleController | null) ||
           null;
@@ -404,6 +433,7 @@ export async function handleAuthoritativeWorkerMessage(
     case HOST_WORKER_MSG_TYPES.WORKER_DESTROY: {
       stopLoop();
       botPortBridge.detach();
+      authorityBus?.destroy();
       matchManager?.destroy();
       sessionManager?.destroy();
       dataHandler?.destroy();
@@ -413,6 +443,7 @@ export async function handleAuthoritativeWorkerMessage(
       sessionManager = null;
       matchManager = null;
       dataHandler = null;
+      authorityBus = null;
       diagnosticsController = null;
       lastSyncedRoomSignature = '';
       break;
