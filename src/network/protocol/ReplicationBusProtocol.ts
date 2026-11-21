@@ -4,6 +4,10 @@
  * dynamic packet section flags, and 16-byte sparse Ping-Pong binary codec.
  */
 
+import { VNEXT_CHANNEL1_SCHEMA_HASH, VNEXT_CHANNEL2_SCHEMA_HASH } from './VNextSchemaHash.ts';
+import { VNextWorldFrameCodec, type DecodedVNextWorldFrame } from './VNextWorldFrameCodec.ts';
+import { VNextRosterManifestCodec, type VNextRosterManifest } from './VNextRosterManifestCodec.ts';
+
 export const REPLICATION_MODES = Object.freeze({
   CONTINUOUS: 'continuous',
   SPARSE: 'sparse',
@@ -13,6 +17,7 @@ export type ReplicationMode = (typeof REPLICATION_MODES)[keyof typeof REPLICATIO
 
 export const ACTIVITY_IDS = Object.freeze({
   MATCH: 'match',
+  EXHIBITION: 'exp-multi-bots',
   FREEPLAY: 'freeplay',
   MULTIPLAYER_TRAINING: 'multiplayer_training',
   REPLAY: 'replay',
@@ -34,6 +39,10 @@ export const REPLICATION_PACKET_FLAGS = Object.freeze({
 
 export const ACTIVITY_DEFAULT_PACKET_FLAGS: Readonly<Record<string, number>> = Object.freeze({
   [ACTIVITY_IDS.MATCH]:
+    REPLICATION_PACKET_FLAGS.STATE_SNAPSHOT |
+    REPLICATION_PACKET_FLAGS.USER_INPUT |
+    REPLICATION_PACKET_FLAGS.CLOCK_AND_SCORE,
+  [ACTIVITY_IDS.EXHIBITION]:
     REPLICATION_PACKET_FLAGS.STATE_SNAPSHOT |
     REPLICATION_PACKET_FLAGS.USER_INPUT |
     REPLICATION_PACKET_FLAGS.CLOCK_AND_SCORE,
@@ -155,4 +164,26 @@ export function resolvePacketFlagsForActivity(
     flags |= REPLICATION_PACKET_FLAGS.FOLLOW_HOST_CAMERA | REPLICATION_PACKET_FLAGS.CSR_SUMMARY;
   }
   return flags;
+}
+
+export type DecodedVNextChannelPacket =
+  | { channel: 1; frame: DecodedVNextWorldFrame }
+  | { channel: 2; manifest: VNextRosterManifest };
+
+export function decodeVNextChannelPacket(
+  data: Uint8Array | ArrayBuffer
+): DecodedVNextChannelPacket | null {
+  const view =
+    data instanceof Uint8Array
+      ? new DataView(data.buffer, data.byteOffset, data.byteLength)
+      : new DataView(data);
+  if (view.byteLength < 4) return null;
+  const schemaHash = view.getUint32(0, false);
+  if (schemaHash === VNEXT_CHANNEL1_SCHEMA_HASH) {
+    return { channel: 1, frame: VNextWorldFrameCodec.decode(view) };
+  }
+  if (schemaHash === VNEXT_CHANNEL2_SCHEMA_HASH) {
+    return { channel: 2, manifest: VNextRosterManifestCodec.decode(view) };
+  }
+  return null;
 }
