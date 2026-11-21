@@ -8,22 +8,32 @@ export interface InputCallbacks {
 
 export class InputController {
   private readonly pressed = new Set<string>();
+  private readonly mouseButtons = new Set<number>();
   private ballCam = true;
   private readonly callbacks: InputCallbacks;
   private readonly boundKeyDown: (e: KeyboardEvent) => void;
   private readonly boundKeyUp: (e: KeyboardEvent) => void;
+  private readonly boundMouseDown: (e: MouseEvent) => void;
+  private readonly boundMouseUp: (e: MouseEvent) => void;
+  private readonly boundContextMenu: (e: MouseEvent) => void;
   private readonly boundBlur: () => void;
 
   constructor(callbacks: InputCallbacks) {
     this.callbacks = callbacks;
     this.boundKeyDown = (e) => this.handleKeyDown(e);
     this.boundKeyUp = (e) => this.handleKeyUp(e);
+    this.boundMouseDown = (e) => this.handleMouseDown(e);
+    this.boundMouseUp = (e) => this.handleMouseUp(e);
+    this.boundContextMenu = (e) => this.handleContextMenu(e);
     this.boundBlur = () => this.handleBlur();
   }
 
   attach(): void {
     window.addEventListener('keydown', this.boundKeyDown);
     window.addEventListener('keyup', this.boundKeyUp);
+    window.addEventListener('mousedown', this.boundMouseDown);
+    window.addEventListener('mouseup', this.boundMouseUp);
+    window.addEventListener('contextmenu', this.boundContextMenu);
     window.addEventListener('blur', this.boundBlur);
     this.emitControls();
   }
@@ -31,6 +41,9 @@ export class InputController {
   detach(): void {
     window.removeEventListener('keydown', this.boundKeyDown);
     window.removeEventListener('keyup', this.boundKeyUp);
+    window.removeEventListener('mousedown', this.boundMouseDown);
+    window.removeEventListener('mouseup', this.boundMouseUp);
+    window.removeEventListener('contextmenu', this.boundContextMenu);
     window.removeEventListener('blur', this.boundBlur);
   }
 
@@ -53,8 +66,9 @@ export class InputController {
       pitch: s - w,
       yaw: d - a,
       roll: e - q,
-      jump: this.pressed.has('ArrowRight') || this.pressed.has('Slash'),
-      boost: this.pressed.has('ArrowLeft') || this.pressed.has('Period'),
+      jump: this.pressed.has('ArrowRight') || this.pressed.has('Slash') || this.mouseButtons.has(2),
+      boost:
+        this.pressed.has('ArrowLeft') || this.pressed.has('Period') || this.mouseButtons.has(0),
       handbrake: this.pressed.has('ShiftLeft'),
       ballCam: this.ballCam,
     };
@@ -105,9 +119,33 @@ export class InputController {
     }
   }
 
+  private handleMouseDown(event: MouseEvent): void {
+    if (event.button !== 0 && event.button !== 2) return;
+    const target = event.target as HTMLElement | null;
+    if (target && target.closest('button, a, input, select, textarea')) return;
+    if (!this.mouseButtons.has(event.button)) {
+      this.mouseButtons.add(event.button);
+      this.emitControls();
+    }
+  }
+
+  private handleMouseUp(event: MouseEvent): void {
+    if (this.mouseButtons.delete(event.button)) {
+      this.emitControls();
+    }
+  }
+
+  private handleContextMenu(event: MouseEvent): void {
+    const target = event.target as HTMLElement | null;
+    if (target && target.tagName === 'CANVAS') {
+      event.preventDefault();
+    }
+  }
+
   private handleBlur(): void {
-    if (this.pressed.size > 0) {
+    if (this.pressed.size > 0 || this.mouseButtons.size > 0) {
       this.pressed.clear();
+      this.mouseButtons.clear();
       this.emitControls();
     }
   }

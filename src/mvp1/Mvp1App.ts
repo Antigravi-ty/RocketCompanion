@@ -5,6 +5,8 @@ import {
   FRAME_FLAG_BALL_CAM,
   FRAME_FLAG_BOOSTING,
   FRAME_FLAG_GROUNDED,
+  FRAME_FLAG_HAS_FLIPPED,
+  FRAME_FLAG_HAS_JUMPED,
   FRAME_FLAG_SUPERSONIC,
   createEmptyRenderFrame,
   decodeTelemetryBuffer,
@@ -235,10 +237,12 @@ export class Mvp1App {
     const grounded = (f.flags & FRAME_FLAG_GROUNDED) !== 0 ? 'GND' : 'AIR';
     const boosting = (f.flags & FRAME_FLAG_BOOSTING) !== 0 ? 'BOOST' : '-';
     const supersonic = (f.flags & FRAME_FLAG_SUPERSONIC) !== 0 ? 'SUPER' : '-';
+    const jumped = (f.flags & FRAME_FLAG_HAS_JUMPED) !== 0 ? 'JUMP' : '-';
+    const flipped = (f.flags & FRAME_FLAG_HAS_FLIPPED) !== 0 ? 'FLIP' : '-';
 
     this.hudEl.textContent = [
       `Tick: ${d.tick} | TeleportSeq: ${d.teleportSeq} | Cam: ${d.ballCam ? 'BallCam' : 'CarCam'}`,
-      `Boost: ${d.boost} | Speed: ${d.speedUu} uu/s | State: ${grounded} / ${boosting} / ${supersonic}`,
+      `Boost: ${d.boost} | Speed: ${d.speedUu} uu/s | State: ${grounded} / ${boosting} / ${supersonic} / ${jumped} / ${flipped}`,
       `FOV: ${d.camFov} deg | L-Buf: ${d.leftDepthTicks}t | R-Buf: ${d.rightDepthTicks}t | Jitter: ${d.lastJitterMs}ms`,
     ].join('\n');
   }
