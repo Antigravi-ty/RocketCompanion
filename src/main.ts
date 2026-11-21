@@ -239,11 +239,50 @@ async function bootApplication(): Promise<void> {
   }
 }
 
+function mountMvp1ShortcutButton(): void {
+  if (typeof document === 'undefined') return;
+  const mount = () => {
+    if (document.getElementById('rc-mvp1-shortcut-btn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'rc-mvp1-shortcut-btn';
+    btn.type = 'button';
+    btn.textContent = 'MVP-1 Rust Testbed →';
+    Object.assign(btn.style, {
+      position: 'fixed',
+      right: '14px',
+      bottom: '14px',
+      zIndex: '99999',
+      padding: '8px 14px',
+      borderRadius: '8px',
+      border: '1px solid rgba(56, 189, 248, 0.6)',
+      background: 'rgba(15, 23, 42, 0.9)',
+      color: '#e0f2fe',
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+      fontSize: '12px',
+      fontWeight: '600',
+      cursor: 'pointer',
+      boxShadow: '0 4px 14px rgba(0,0,0,0.45)',
+    });
+    btn.addEventListener('click', () => {
+      const url = new URL(window.location.href);
+      url.searchParams.set('mvp1', '1');
+      window.location.assign(url.toString());
+    });
+    document.body.appendChild(btn);
+  };
+  if (document.body) {
+    mount();
+  } else {
+    window.addEventListener('DOMContentLoaded', mount, { once: true });
+  }
+}
+
 if (
   typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).get('mvp1') === '1'
 ) {
   void import('./mvp1/Mvp1App.ts').then((mod) => mod.bootstrapMvp1());
 } else {
+  mountMvp1ShortcutButton();
   bootApplication();
 }

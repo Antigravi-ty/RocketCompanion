@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { SpeedTrail } from '../entities/SpeedTrail.ts';
-import { createGeodesicBallGeometry } from '../entities/BallVisual.ts';
+import { createGeodesicBallGeometry, loadBallAsset } from '../entities/BallVisual.ts';
+import { loadDriftwoodsStadium } from '../entities/stadium/driftwoods/DriftwoodsStadiumLoader.ts';
 import { FRAME_FLAG_BOOSTING, FRAME_FLAG_SUPERSONIC, type RenderFrameData } from './protocol.ts';
 
 const ARENA_HALF_X = 4096;
@@ -12,15 +13,59 @@ const GOAL_HEIGHT = 642.775;
 const GOAL_DEPTH = 880;
 const BALL_RADIUS = 91.25;
 
+// Exact RocketSim Soccar boost pad order (0..27 small, 28..33 big) in RocketSim (x, y, z) UU
+const SOCCAR_SMALL_PAD_LOCS: ReadonlyArray<readonly [number, number, number]> = [
+  [0, -4240, 70],
+  [-1792, -4184, 70],
+  [1792, -4184, 70],
+  [-940, -3308, 70],
+  [940, -3308, 70],
+  [0, -2816, 70],
+  [-3584, -2484, 70],
+  [3584, -2484, 70],
+  [-1788, -2300, 70],
+  [1788, -2300, 70],
+  [-2048, -1036, 70],
+  [0, -1024, 70],
+  [2048, -1036, 70],
+  [-1024, 0, 70],
+  [1024, 0, 70],
+  [-2048, 1036, 70],
+  [0, 1024, 70],
+  [2048, 1036, 70],
+  [-1788, 2300, 70],
+  [1788, 2300, 70],
+  [-3584, 2484, 70],
+  [3584, 2484, 70],
+  [0, 2816, 70],
+  [-940, 3308, 70],
+  [940, 3308, 70],
+  [-1792, 4184, 70],
+  [1792, 4184, 70],
+  [0, 4240, 70],
+];
+
+const SOCCAR_BIG_PAD_LOCS: ReadonlyArray<readonly [number, number, number]> = [
+  [-3584, 0, 73],
+  [3584, 0, 73],
+  [-3072, 4096, 73],
+  [3072, 4096, 73],
+  [-3072, -4096, 73],
+  [3072, -4096, 73],
+];
+
 export class ArenaRenderer {
   private readonly canvas: HTMLCanvasElement;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
 
-  private readonly ballMesh: THREE.Mesh;
+  private readonly ballGroup = new THREE.Group();
+  private readonly fallbackBallMesh: THREE.Mesh;
   private readonly carGroup = new THREE.Group();
   private readonly fallbackCarMesh: THREE.Mesh;
+  private readonly fallbackArenaGroup = new THREE.Group();
+  private readonly boostPadMeshes: THREE.Mesh[] = [];
   private readonly boostFlames: THREE.Mesh[] = [];
   private readonly ballTrail = new SpeedTrail();
   private readonly carTrail = new SpeedTrail();
@@ -45,16 +90,17 @@ export class ArenaRenderer {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0b101b);
-    this.scene.fog = new THREE.Fog(0x0b101b, 4500, 14000);
+    this.scene.fog = new THREE.Fog(0x0b101b, 6000, 18000);
 
     const aspect =
       canvas.clientWidth > 0 && canvas.clientHeight > 0
         ? canvas.clientWidth / canvas.clientHeight
         : 16 / 9;
-    this.camera = new THREE.PerspectiveCamera(60, aspect, 10, 25000);
+    this.camera = new THREE.PerspectiveCamera(60, aspect, 10, 28000);
 
     this.setupLighting();
     this.buildArenaEnvironment();
+    this.buildBoostPadHitboxes();
 
     const ballGeo = createGeodesicBallGeometry(0x1f2937);
     const ballMat = new THREE.MeshStandardMaterial({
@@ -62,9 +108,10 @@ export class ArenaRenderer {
       roughness: 0.35,
       metalness: 0.25,
     });
-    this.ballMesh = new THREE.Mesh(ballGeo, ballMat);
-    this.ballMesh.scale.setScalar(BALL_RADIUS);
-    this.scene.add(this.ballMesh);
+    this.fallbackBallMesh = new THREE.Mesh(ballGeo, ballMat);
+    this.fallbackBallMesh.scale.setScalar(BALL_RADIUS);
+    this.ballGroup.add(this.fallbackBallMesh);
+    this.scene.add(this.ballGroup);
 
     const fallbackGeo = new THREE.BoxGeometry(118, 36, 84);
     const fallbackMat = new THREE.MeshStandardMaterial({
@@ -99,6 +146,8 @@ export class ArenaRenderer {
     this.scene.add(this.carTrail.object);
 
     this.loadOctaneModel();
+    this.loadBallModel();
+    this.loadStadiumModel();
     this.resize();
   }
 
@@ -125,26 +174,30 @@ export class ArenaRenderer {
     });
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.position.y = 0;
-    this.scene.add(floor);
+    this.fallbackArenaGroup.add(floor);
 
     const grid = new THREE.GridHelper(ARENA_HALF_Z * 2, 32, 0x334155, 0x1e293b);
     grid.position.y = 0.5;
     grid.scale.x = ARENA_HALF_X / ARENA_HALF_Z;
-    this.scene.add(grid);
+    this.fallbackArenaGroup.add(grid);
 
     const lineMat = new THREE.LineBasicMaterial({ color: 0x64748b });
     const midfieldPts = [
       new THREE.Vector3(-ARENA_HALF_X, 1.5, 0),
       new THREE.Vector3(ARENA_HALF_X, 1.5, 0),
     ];
-    this.scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(midfieldPts), lineMat));
+    this.fallbackArenaGroup.add(
+      new THREE.Line(new THREE.BufferGeometry().setFromPoints(midfieldPts), lineMat)
+    );
 
     const circlePts: THREE.Vector3[] = [];
     for (let i = 0; i <= 64; i++) {
       const a = (i / 64) * Math.PI * 2;
       circlePts.push(new THREE.Vector3(Math.cos(a) * 900, 1.5, Math.sin(a) * 900));
     }
-    this.scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(circlePts), lineMat));
+    this.fallbackArenaGroup.add(
+      new THREE.Line(new THREE.BufferGeometry().setFromPoints(circlePts), lineMat)
+    );
 
     const wallMat = new THREE.MeshBasicMaterial({
       color: 0x38bdf8,
@@ -162,7 +215,7 @@ export class ArenaRenderer {
     );
     const walls = new THREE.Mesh(wallBox, wallMat);
     walls.position.y = ARENA_HEIGHT * 0.5;
-    this.scene.add(walls);
+    this.fallbackArenaGroup.add(walls);
 
     const addGoalFrame = (zSign: number, color: number) => {
       const goalMat = new THREE.MeshBasicMaterial({
@@ -174,10 +227,60 @@ export class ArenaRenderer {
       const goalGeo = new THREE.BoxGeometry(GOAL_HALF_WIDTH * 2, GOAL_HEIGHT, GOAL_DEPTH, 4, 2, 2);
       const goal = new THREE.Mesh(goalGeo, goalMat);
       goal.position.set(0, GOAL_HEIGHT * 0.5, zSign * (ARENA_HALF_Z + GOAL_DEPTH * 0.5));
-      this.scene.add(goal);
+      this.fallbackArenaGroup.add(goal);
     };
     addGoalFrame(-1, 0x3b82f6);
     addGoalFrame(1, 0xf97316);
+
+    this.scene.add(this.fallbackArenaGroup);
+  }
+
+  private buildBoostPadHitboxes(): void {
+    const smallGeo = new THREE.CylinderGeometry(144, 144, 14, 20);
+    const bigGeo = new THREE.CylinderGeometry(208, 208, 26, 24);
+
+    const addPad = (loc: readonly [number, number, number], isBig: boolean) => {
+      const mat = new THREE.MeshBasicMaterial({
+        color: isBig ? 0xf59e0b : 0x38bdf8,
+        transparent: true,
+        opacity: 0.72,
+        wireframe: false,
+      });
+      const mesh = new THREE.Mesh(isBig ? bigGeo : smallGeo, mat);
+      // RocketSim (x, y, z) -> Three.js (x, z, y); place hitbox flush on field floor
+      mesh.position.set(loc[0], isBig ? 14 : 8, loc[1]);
+      this.scene.add(mesh);
+      this.boostPadMeshes.push(mesh);
+    };
+
+    for (const loc of SOCCAR_SMALL_PAD_LOCS) addPad(loc, false);
+    for (const loc of SOCCAR_BIG_PAD_LOCS) addPad(loc, true);
+  }
+
+  private loadStadiumModel(): void {
+    loadDriftwoodsStadium()
+      .then((stadiumGroup) => {
+        if (this.disposed || !stadiumGroup) return;
+        this.scene.add(stadiumGroup);
+        this.fallbackArenaGroup.visible = false;
+      })
+      .catch((err) => {
+        console.warn('[ArenaRenderer] Fallback to wireframe arena (driftwoods load failed):', err);
+      });
+  }
+
+  private loadBallModel(): void {
+    loadBallAsset()
+      .then((ballAsset) => {
+        if (this.disposed || !ballAsset) return;
+        this.ballGroup.remove(this.fallbackBallMesh);
+        this.fallbackBallMesh.geometry.dispose();
+        (this.fallbackBallMesh.material as THREE.Material).dispose();
+        this.ballGroup.add(ballAsset);
+      })
+      .catch((err) => {
+        console.warn('[ArenaRenderer] Fallback to geodesic ball:', err);
+      });
   }
 
   private loadOctaneModel(): void {
@@ -219,13 +322,30 @@ export class ArenaRenderer {
   render(frame: RenderFrameData, dtSec: number, teleported: boolean): void {
     if (this.disposed) return;
 
-    this.ballMesh.position.set(frame.ballPos[0], frame.ballPos[1], frame.ballPos[2]);
-    this.ballMesh.quaternion.set(
+    this.ballGroup.position.set(frame.ballPos[0], frame.ballPos[1], frame.ballPos[2]);
+    this.ballGroup.quaternion.set(
       frame.ballQuat[0],
       frame.ballQuat[1],
       frame.ballQuat[2],
       frame.ballQuat[3]
     );
+
+    const padCount = this.boostPadMeshes.length;
+    for (let i = 0; i < padCount; i++) {
+      const isActive =
+        i < 32
+          ? ((frame.boostPadsLo >>> i) & 1) !== 0
+          : ((frame.boostPadsHi >>> (i - 32)) & 1) !== 0;
+      const mat = this.boostPadMeshes[i].material as THREE.MeshBasicMaterial;
+      const isBig = i >= 28;
+      if (isActive) {
+        mat.color.setHex(isBig ? 0xf59e0b : 0x38bdf8);
+        mat.opacity = isBig ? 0.85 : 0.6;
+      } else {
+        mat.color.setHex(0x334155);
+        mat.opacity = 0.2;
+      }
+    }
 
     this.carGroup.position.set(frame.carPos[0], frame.carPos[1], frame.carPos[2]);
     this.carGroup.quaternion.set(

@@ -20,11 +20,11 @@ const profile = process.argv.includes('--release') ? 'release' : 'dev-wasm';
 
 execFileSync(
   'cargo',
-  ['build', '-p', 'rc_core', '--target', 'wasm32-unknown-unknown', '--profile', profile],
+  ['build', '-p', 'rc_core_wasm', '--target', 'wasm32-unknown-unknown', '--profile', profile],
   { cwd: cratesDir, env, stdio: 'inherit' }
 );
 
-const srcWasm = resolve(env.CARGO_TARGET_DIR, 'wasm32-unknown-unknown', profile, 'rc_core.wasm');
+const srcWasm = resolve(env.CARGO_TARGET_DIR, 'wasm32-unknown-unknown', profile, 'rc_core_wasm.wasm');
 const dstWasm = resolve(rootDir, 'src/mvp1/rc_core.wasm');
 mkdirSync(dirname(dstWasm), { recursive: true });
 copyFileSync(srcWasm, dstWasm);

@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "rocketsim",
     "rc_core",
+    "rc_core_wasm",
 ]
 
 [workspace.package]

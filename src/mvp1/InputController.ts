@@ -42,8 +42,8 @@ export class InputController {
   getSnapshot(): CarControlInput {
     const w = this.pressed.has('KeyW') ? 1 : 0;
     const s = this.pressed.has('KeyS') ? 1 : 0;
-    const a = this.pressed.has('KeyA') || this.pressed.has('ArrowLeft') ? 1 : 0;
-    const d = this.pressed.has('KeyD') || this.pressed.has('ArrowRight') ? 1 : 0;
+    const a = this.pressed.has('KeyA') ? 1 : 0;
+    const d = this.pressed.has('KeyD') ? 1 : 0;
     const q = this.pressed.has('KeyQ') ? 1 : 0;
     const e = this.pressed.has('KeyE') ? 1 : 0;
 
@@ -53,9 +53,9 @@ export class InputController {
       pitch: s - w,
       yaw: d - a,
       roll: e - q,
-      jump: this.pressed.has('Space'),
-      boost: this.pressed.has('ShiftLeft'),
-      handbrake: this.pressed.has('Period'),
+      jump: this.pressed.has('ArrowRight') || this.pressed.has('Slash'),
+      boost: this.pressed.has('ArrowLeft') || this.pressed.has('Period'),
+      handbrake: this.pressed.has('ShiftLeft'),
       ballCam: this.ballCam,
     };
   }
@@ -66,13 +66,20 @@ export class InputController {
 
   private handleKeyDown(event: KeyboardEvent): void {
     const code = event.code;
-    if (code === 'Space' || code === 'ArrowLeft' || code === 'ArrowRight' || code === 'Slash') {
+    if (
+      code === 'Space' ||
+      code === 'ArrowLeft' ||
+      code === 'ArrowRight' ||
+      code === 'Slash' ||
+      code === 'Period' ||
+      code === 'F10'
+    ) {
       event.preventDefault();
     }
 
     if (event.repeat) return;
 
-    if (code === 'Slash') {
+    if (code === 'Space') {
       this.ballCam = !this.ballCam;
       this.emitControls();
       return;
@@ -83,7 +90,7 @@ export class InputController {
       return;
     }
 
-    if (code === 'KeyT') {
+    if (code === 'KeyT' || code === 'F10') {
       this.callbacks.onExportTelemetry();
       return;
     }

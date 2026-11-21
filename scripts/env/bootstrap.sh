@@ -5,14 +5,17 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 WITH_RUST=0
+WITH_TAURI=0
 PNPM_ONLY=0
 for arg in "$@"; do
   case "$arg" in
     --with-rust) WITH_RUST=1 ;;
+    --with-tauri) WITH_RUST=1; WITH_TAURI=1 ;;
     --pnpm-only) PNPM_ONLY=1 ;;
     --help|-h)
-      echo "Usage: bash scripts/env/bootstrap.sh [--with-rust] [--pnpm-only] [--help]"
-      echo "  --with-rust   Also install Rust/Cargo and Tauri C dependencies into tmpfs"
+      echo "Usage: bash scripts/env/bootstrap.sh [--with-rust] [--with-tauri] [--pnpm-only] [--help]"
+      echo "  --with-rust   Install Rust/Cargo + wasm32-unknown-unknown into tmpfs (0 MB OverlayFS)"
+      echo "  --with-tauri  Also install Linux Tauri C/GTK/WebKitGTK dependencies via apt-get"
       echo "  --pnpm-only   Only install pnpm and self-healing wrapper into tmpfs"
       exit 0
       ;;
@@ -20,6 +23,10 @@ for arg in "$@"; do
 done
 if [ "${RC_INSTALL_RUST:-0}" = "1" ]; then
   WITH_RUST=1
+fi
+if [ "${RC_INSTALL_TAURI:-0}" = "1" ]; then
+  WITH_RUST=1
+  WITH_TAURI=1
 fi
 
 CACHE_ROOT="${RC_TMPFS_CACHE_DIR:-/tmp/rc-cache}"
@@ -123,9 +130,9 @@ if [ ! -f "$REPLAY_FIXTURE" ]; then
   fi
 fi
 
-# 6. Optional Rust/Cargo + Tauri C toolchain bootstrap (CARGO_HOME/RUSTUP_HOME/CARGO_TARGET_DIR on tmpfs)
+# 6. Optional Rust/Cargo + WASM toolchain bootstrap (CARGO_HOME/RUSTUP_HOME/CARGO_TARGET_DIR on tmpfs)
 if [ "$WITH_RUST" = "1" ]; then
-  if command -v apt-get >/dev/null 2>&1; then
+  if [ "$WITH_TAURI" = "1" ] && command -v apt-get >/dev/null 2>&1; then
     if ! command -v cc >/dev/null 2>&1 || ! command -v pkg-config >/dev/null 2>&1 || ! pkg-config --exists webkit2gtk-4.1 2>/dev/null; then
       echo "[env:setup] Installing C/Tauri Linux build dependencies via apt-get..."
       DEBIAN_FRONTEND=noninteractive apt-get update -qq
@@ -138,6 +145,12 @@ if [ "$WITH_RUST" = "1" ]; then
     echo "[env:setup] Installing Rust toolchain (minimal) into ${CARGO_HOME} / ${RUSTUP_HOME}..."
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
     export PATH="${CARGO_HOME}/bin:${HOME}/.cargo/bin:${PATH}"
+  fi
+  if command -v rustup >/dev/null 2>&1; then
+    if ! rustup target list --installed | grep -qx 'wasm32-unknown-unknown'; then
+      echo "[env:setup] Adding wasm32-unknown-unknown target..."
+      rustup target add wasm32-unknown-unknown
+    fi
   fi
 fi
 

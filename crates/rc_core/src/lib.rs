@@ -1,11 +1,12 @@
-mod camera_kernel;
-mod coords;
-mod render_frame;
-mod telemetry;
+pub mod camera_kernel;
+pub mod coords;
+pub mod render_frame;
+pub mod telemetry;
 
-use core::cell::UnsafeCell;
-
-use rocketsim::{Arena, CarBodyConfig, CarControls, GameMode, Team, init_or_reload_soccar_from_slices};
+pub use rocketsim::CarControls;
+use rocketsim::{
+    Arena, CarBodyConfig, GameMode, Team, init_or_reload_soccar_from_slices,
+};
 
 use crate::camera_kernel::{CameraStepInput, CleanPovCameraKernel};
 use crate::coords::{ue_rot_to_three_quat, ue_to_three_vec3};
@@ -15,11 +16,10 @@ use crate::render_frame::{
 };
 use crate::telemetry::TelemetryRingBuffer;
 
-const FIXED_DT: f64 = 1.0 / 120.0;
+pub const FIXED_DT: f64 = 1.0 / 120.0;
 const ARENA_GAME_MODE: GameMode = GameMode::Soccar;
 
-struct SimCoreState {
-    mesh_chunks: Vec<Vec<u8>>,
+pub struct SimCore {
     arena: Option<Arena>,
     car_idx: usize,
     controls: CarControls,
@@ -31,14 +31,17 @@ struct SimCoreState {
     camera: CleanPovCameraKernel,
     frame: RenderFrame,
     telemetry: TelemetryRingBuffer,
-    telemetry_bytes_len: usize,
-    telemetry_bytes_ptr: *const u8,
 }
 
-impl SimCoreState {
-    fn new() -> Self {
+impl Default for SimCore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SimCore {
+    pub fn new() -> Self {
         Self {
-            mesh_chunks: Vec::new(),
             arena: None,
             car_idx: 0,
             controls: CarControls::DEFAULT,
@@ -53,9 +56,84 @@ impl SimCoreState {
                 ..RenderFrame::default()
             },
             telemetry: TelemetryRingBuffer::new(),
-            telemetry_bytes_len: 0,
-            telemetry_bytes_ptr: core::ptr::null(),
         }
+    }
+
+    pub fn load_arena_meshes_from_slices(slices: &[&[u8]]) -> Result<(), ()> {
+        init_or_reload_soccar_from_slices(slices).map_err(|_| ())
+    }
+
+    pub fn create_soccar_freeplay(&mut self, seed: Option<u64>) {
+        let mut arena = Arena::new(ARENA_GAME_MODE);
+        let car_idx = arena.add_car(Team::Blue, CarBodyConfig::OCTANE);
+        arena.reset_to_random_kickoff(seed.or(Some(42)));
+        self.arena = Some(arena);
+        self.car_idx = car_idx;
+        self.controls = CarControls::DEFAULT;
+        self.tick = 0;
+        self.teleport_seq = 1;
+        self.pending_teleport = true;
+        self.camera.reset();
+        self.telemetry.clear();
+        self.update_render_frame();
+    }
+
+    pub fn set_controls(&mut self, controls: CarControls, want_ball_cam: bool) {
+        self.controls = controls;
+        self.want_ball_cam = want_ball_cam;
+    }
+
+    pub fn set_aspect(&mut self, aspect: f32) {
+        if aspect.is_finite() && aspect > 0.1 {
+            self.aspect = aspect as f64;
+        }
+    }
+
+    pub fn reset_kickoff(&mut self) -> u32 {
+        if let Some(arena) = self.arena.as_mut() {
+            let seed = (self.tick as u64)
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1);
+            arena.reset_to_random_kickoff(Some(seed));
+            self.teleport_seq = self.teleport_seq.wrapping_add(1);
+            self.pending_teleport = true;
+            self.update_render_frame();
+        }
+        self.teleport_seq
+    }
+
+    pub fn step(&mut self) -> u32 {
+        if let Some(arena) = self.arena.as_mut() {
+            arena.set_car_controls(self.car_idx, self.controls);
+            let _events = arena.step_tick();
+            self.tick = self.tick.wrapping_add(1);
+            self.update_render_frame();
+        }
+        self.tick
+    }
+
+    pub fn render_frame(&self) -> &RenderFrame {
+        &self.frame
+    }
+
+    pub fn render_frame_bytes(&self) -> &[u8] {
+        self.frame.as_bytes()
+    }
+
+    pub fn prepare_telemetry_bytes(&mut self) -> &[u8] {
+        self.telemetry.prepare_ordered_bytes()
+    }
+
+    pub fn arena(&self) -> Option<&Arena> {
+        self.arena.as_ref()
+    }
+
+    pub fn arena_mut(&mut self) -> Option<&mut Arena> {
+        self.arena.as_mut()
+    }
+
+    pub fn car_idx(&self) -> usize {
+        self.car_idx
     }
 
     fn update_render_frame(&mut self) {
@@ -143,176 +221,6 @@ impl SimCoreState {
     }
 }
 
-struct GlobalState(UnsafeCell<Option<SimCoreState>>);
-
-// SAFETY: WASM execution in the Web Worker is single-threaded.
-unsafe impl Sync for GlobalState {}
-
-static STATE: GlobalState = GlobalState(UnsafeCell::new(None));
-
-fn with_state<R>(f: impl FnOnce(&mut SimCoreState) -> R) -> R {
-    // SAFETY: Single-threaded Web Worker access; no re-entrant mutable borrows.
-    let slot = unsafe { &mut *STATE.0.get() };
-    let state = slot.get_or_insert_with(SimCoreState::new);
-    f(state)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rc_alloc(size: usize) -> *mut u8 {
-    let mut buf = Vec::<u8>::with_capacity(size);
-    let ptr = buf.as_mut_ptr();
-    core::mem::forget(buf);
-    ptr
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rc_free(ptr: *mut u8, size: usize) {
-    if ptr.is_null() || size == 0 {
-        return;
-    }
-    // SAFETY: Matches allocation from rc_alloc with exact capacity.
-    unsafe {
-        let _ = Vec::from_raw_parts(ptr, 0, size);
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rc_reset_mesh_staging() {
-    with_state(|s| {
-        s.mesh_chunks.clear();
-    });
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rc_push_mesh_chunk(ptr: *const u8, len: usize) -> i32 {
-    if ptr.is_null() || len == 0 {
-        return -1;
-    }
-    // SAFETY: Caller passes valid WASM linear memory slice allocated via rc_alloc.
-    let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
-    with_state(|s| {
-        s.mesh_chunks.push(slice.to_vec());
-        s.mesh_chunks.len() as i32
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rc_finalize_arena_meshes() -> i32 {
-    with_state(|s| {
-        let refs: Vec<&[u8]> = s.mesh_chunks.iter().map(|v| v.as_slice()).collect();
-        let res = init_or_reload_soccar_from_slices(&refs);
-        s.mesh_chunks.clear();
-        if res.is_ok() { 0 } else { -1 }
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rc_create_sim() -> i32 {
-    with_state(|s| {
-        let mut arena = Arena::new(ARENA_GAME_MODE);
-        let car_idx = arena.add_car(Team::Blue, CarBodyConfig::OCTANE);
-        arena.reset_to_random_kickoff(Some(42));
-        s.arena = Some(arena);
-        s.car_idx = car_idx;
-        s.controls = CarControls::DEFAULT;
-        s.tick = 0;
-        s.teleport_seq = 1;
-        s.pending_teleport = true;
-        s.camera.reset();
-        s.telemetry.clear();
-        s.update_render_frame();
-        0
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rc_set_controls(
-    throttle: f32,
-    steer: f32,
-    pitch: f32,
-    yaw: f32,
-    roll: f32,
-    jump: u32,
-    boost: u32,
-    handbrake: u32,
-    ball_cam: u32,
-) {
-    with_state(|s| {
-        s.controls = CarControls {
-            throttle,
-            steer,
-            pitch,
-            yaw,
-            roll,
-            jump: jump != 0,
-            boost: boost != 0,
-            handbrake: handbrake != 0,
-        };
-        s.want_ball_cam = ball_cam != 0;
-    });
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rc_set_aspect(aspect: f32) {
-    with_state(|s| {
-        if aspect.is_finite() && aspect > 0.1 {
-            s.aspect = aspect as f64;
-        }
-    });
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rc_reset_kickoff() -> u32 {
-    with_state(|s| {
-        if let Some(arena) = s.arena.as_mut() {
-            let seed = (s.tick as u64).wrapping_mul(6364136223846793005).wrapping_add(1);
-            arena.reset_to_random_kickoff(Some(seed));
-            s.teleport_seq = s.teleport_seq.wrapping_add(1);
-            s.pending_teleport = true;
-            s.update_render_frame();
-        }
-        s.teleport_seq
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rc_step_sim() -> u32 {
-    with_state(|s| {
-        if let Some(arena) = s.arena.as_mut() {
-            arena.set_car_controls(s.car_idx, s.controls);
-            let _events = arena.step_tick();
-            s.tick = s.tick.wrapping_add(1);
-            s.update_render_frame();
-        }
-        s.tick
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rc_get_render_frame_ptr() -> *const u8 {
-    with_state(|s| s.frame.as_bytes().as_ptr())
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rc_get_render_frame_byte_len() -> usize {
-    RenderFrame::BYTE_LEN
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rc_prepare_telemetry() -> usize {
-    with_state(|s| {
-        let bytes = s.telemetry.prepare_ordered_bytes();
-        s.telemetry_bytes_ptr = bytes.as_ptr();
-        s.telemetry_bytes_len = bytes.len();
-        s.telemetry_bytes_len
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rc_get_telemetry_ptr() -> *const u8 {
-    with_state(|s| s.telemetry_bytes_ptr)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,7 +274,134 @@ mod tests {
         let bytes = ring.prepare_ordered_bytes();
         assert_eq!(
             bytes.len(),
-            crate::telemetry::TELEMETRY_CAPACITY * core::mem::size_of::<crate::telemetry::TelemetrySample>()
+            crate::telemetry::TELEMETRY_CAPACITY
+                * core::mem::size_of::<crate::telemetry::TelemetrySample>()
+        );
+    }
+
+    fn ensure_test_arena_meshes_loaded() -> bool {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../public/arenamesh");
+        if !dir.is_dir() {
+            return false;
+        }
+        let mut blobs = Vec::new();
+        for i in 0..16 {
+            let p = dir.join(format!("mesh_{i}.cmf"));
+            if let Ok(bytes) = std::fs::read(&p) {
+                blobs.push(bytes);
+            }
+        }
+        if blobs.is_empty() {
+            return false;
+        }
+        let slices: Vec<&[u8]> = blobs.iter().map(|b| b.as_slice()).collect();
+        SimCore::load_arena_meshes_from_slices(&slices).is_ok()
+    }
+
+    fn run_air_dodge_sequence(pitch: f32, yaw: f32, roll: f32) -> (rocketsim::CarState, rocketsim::CarState) {
+        assert!(ensure_test_arena_meshes_loaded(), "public/arenamesh/*.cmf required for physics test");
+        let mut sim = SimCore::new();
+        sim.create_soccar_freeplay(Some(42));
+
+        // 1. Jump off the ground for 12 ticks
+        sim.set_controls(
+            CarControls {
+                jump: true,
+                ..CarControls::DEFAULT
+            },
+            true,
+        );
+        for _ in 0..12 {
+            sim.step();
+        }
+
+        // 2. Release jump for 2 ticks so second jump can trigger a dodge
+        sim.set_controls(CarControls::DEFAULT, true);
+        for _ in 0..2 {
+            sim.step();
+        }
+
+        let before = sim.arena().unwrap().get_car_state(sim.car_idx()).clone();
+
+        // 3. Trigger dodge/stall with given pitch/yaw/roll + jump=true
+        sim.set_controls(
+            CarControls {
+                pitch,
+                yaw,
+                roll,
+                jump: true,
+                ..CarControls::DEFAULT
+            },
+            true,
+        );
+        for _ in 0..10 {
+            sim.step();
+        }
+
+        let after = sim.arena().unwrap().get_car_state(sim.car_idx()).clone();
+        (before, after)
+    }
+
+    #[test]
+    fn aerial_directional_flips_and_stalls_work_in_rocketsim() {
+        // W (pitch = -1): Front flip accelerates forward along +X/+Y car heading
+        let (before_w, after_w) = run_air_dodge_sequence(-1.0, 0.0, 0.0);
+        assert!(after_w.has_flipped, "W front-flip should set has_flipped");
+        let horiz_delta_w = ((after_w.phys.vel.x - before_w.phys.vel.x).powi(2)
+            + (after_w.phys.vel.y - before_w.phys.vel.y).powi(2))
+        .sqrt();
+        assert!(horiz_delta_w > 300.0, "W front-flip should apply horizontal dodge impulse, got {horiz_delta_w}");
+
+        // S (pitch = +1): Back flip accelerates backward
+        let (before_s, after_s) = run_air_dodge_sequence(1.0, 0.0, 0.0);
+        assert!(after_s.has_flipped, "S back-flip should set has_flipped");
+        let horiz_delta_s = ((after_s.phys.vel.x - before_s.phys.vel.x).powi(2)
+            + (after_s.phys.vel.y - before_s.phys.vel.y).powi(2))
+        .sqrt();
+        assert!(horiz_delta_s > 300.0, "S back-flip should apply horizontal dodge impulse, got {horiz_delta_s}");
+
+        // A / D (yaw = -1 / +1): Left / Right side flip
+        let (before_a, after_a) = run_air_dodge_sequence(0.0, -1.0, 0.0);
+        assert!(after_a.has_flipped, "A side-flip should set has_flipped");
+        let horiz_delta_a = ((after_a.phys.vel.x - before_a.phys.vel.x).powi(2)
+            + (after_a.phys.vel.y - before_a.phys.vel.y).powi(2))
+        .sqrt();
+        assert!(horiz_delta_a > 300.0, "A side-flip should apply horizontal dodge impulse, got {horiz_delta_a}");
+
+        let (before_d, after_d) = run_air_dodge_sequence(0.0, 1.0, 0.0);
+        assert!(after_d.has_flipped, "D side-flip should set has_flipped");
+        let horiz_delta_d = ((after_d.phys.vel.x - before_d.phys.vel.x).powi(2)
+            + (after_d.phys.vel.y - before_d.phys.vel.y).powi(2))
+        .sqrt();
+        assert!(horiz_delta_d > 300.0, "D side-flip should apply horizontal dodge impulse, got {horiz_delta_d}");
+
+        // Q / E (roll = -1 / +1): Air-roll left / right side flip
+        let (_, after_q) = run_air_dodge_sequence(0.0, 0.0, -1.0);
+        assert!(after_q.has_flipped, "Q air-roll flip should set has_flipped");
+        let (_, after_e) = run_air_dodge_sequence(0.0, 0.0, 1.0);
+        assert!(after_e.has_flipped, "E air-roll flip should set has_flipped");
+
+        // Q + D simultaneously (roll = -1, yaw = +1): Stall!
+        // Triggers has_flipped (is dodging), keeps vertical velocity near zero, and applies NO horizontal dodge impulse.
+        let (before_qd, after_qd) = run_air_dodge_sequence(0.0, 1.0, -1.0);
+        assert!(after_qd.has_flipped, "Q+D stall should trigger has_flipped");
+        let horiz_delta_qd = ((after_qd.phys.vel.x - before_qd.phys.vel.x).powi(2)
+            + (after_qd.phys.vel.y - before_qd.phys.vel.y).powi(2))
+        .sqrt();
+        assert!(
+            horiz_delta_qd < 50.0,
+            "Q+D stall must NOT apply horizontal dodge impulse, got {horiz_delta_qd}"
+        );
+
+        // A + E simultaneously (yaw = -1, roll = +1): Opposite Stall!
+        let (before_ae, after_ae) = run_air_dodge_sequence(0.0, -1.0, 1.0);
+        assert!(after_ae.has_flipped, "A+E stall should trigger has_flipped");
+        let horiz_delta_ae = ((after_ae.phys.vel.x - before_ae.phys.vel.x).powi(2)
+            + (after_ae.phys.vel.y - before_ae.phys.vel.y).powi(2))
+        .sqrt();
+        assert!(
+            horiz_delta_ae < 50.0,
+            "A+E stall must NOT apply horizontal dodge impulse, got {horiz_delta_ae}"
         );
     }
 }
