@@ -36,6 +36,10 @@ import {
   type SignalDispatchFn,
 } from './matchRosterPhysicsAndBotPipeline.ts';
 import type { MatchDomainState } from './MatchDomainState.ts';
+import {
+  buildMatchRosterManifest,
+  type MatchExhibitionRosterManifest,
+} from '../../protocol/MatchExhibitionRosterManifest.ts';
 
 export interface RosterDataHandlerPort extends RoleSwitchDataHandlerPort {
   broadcast?: (packet: string | Uint8Array, filter?: (id: string) => boolean) => void;
@@ -348,6 +352,13 @@ export class MatchRosterSubController {
       applyBotFillPolicy: () => this.applyBotFillPolicy(),
       broadcastRosterUpdate: () => this.broadcastRosterUpdate(),
       dispatchSignal: this.emitSignal,
+    });
+  }
+
+  getRosterManifest(manifestVersion = 1): MatchExhibitionRosterManifest {
+    return buildMatchRosterManifest(this.players.values(), {
+      manifestVersion,
+      matchDurationSeconds: this.domain.clockDuration ?? 300,
     });
   }
 

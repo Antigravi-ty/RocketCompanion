@@ -365,9 +365,46 @@ class MultiplayerTrainingActivityKernel implements RoomActivityKernel {
   }
 }
 
+class ExhibitionActivityKernel implements RoomActivityKernel {
+  readonly id = ACTIVITY_IDS.EXHIBITION;
+  readonly defaultReplicationMode = REPLICATION_MODES.CONTINUOUS;
+  readonly defaultPacketFlags = resolvePacketFlagsForActivity(
+    ACTIVITY_IDS.EXHIBITION,
+    REPLICATION_MODES.CONTINUOUS,
+    true
+  );
+
+  onMount(ctx: ActivityKernelContext): void {
+    if (ctx.matchManager?.systemControl?.isStateOnlyMode) {
+      ctx.matchManager.systemControl.clear();
+      ctx.matchManager.domain.applySystemControlState('resume', ctx.matchManager.domain.matchTick);
+    }
+    const duration =
+      typeof ctx.stateSummary?.durationSeconds === 'number'
+        ? ctx.stateSummary.durationSeconds
+        : undefined;
+    ctx.matchManager?.lifecycle.startMatch(duration);
+  }
+
+  onUnmount(_ctx: ActivityKernelContext): void {}
+
+  getStateSummary(ctx: ActivityKernelContext): Record<string, unknown> {
+    const snap = ctx.matchManager?.getSnapshot();
+    return {
+      activityId: this.id,
+      isExhibition: true,
+      state: snap?.state ?? 'KICKOFF',
+      blueScore: snap?.blueScore ?? 0,
+      orangeScore: snap?.orangeScore ?? 0,
+      clockSecondsRemaining: snap?.clockSecondsRemaining ?? 0,
+    };
+  }
+}
+
 export function createDefaultActivityKernelRegistry(): Map<ActivityId, RoomActivityKernel> {
   const registry = new Map<ActivityId, RoomActivityKernel>();
   registry.set(ACTIVITY_IDS.MATCH, new MatchActivityKernel());
+  registry.set(ACTIVITY_IDS.EXHIBITION, new ExhibitionActivityKernel());
   registry.set(ACTIVITY_IDS.FREEPLAY, new FreeplayActivityKernel());
   registry.set(ACTIVITY_IDS.MULTIPLAYER_TRAINING, new MultiplayerTrainingActivityKernel());
   registry.set(ACTIVITY_IDS.REPLAY, new ReplayActivityKernel());

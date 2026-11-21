@@ -7,6 +7,10 @@ import {
   type ReplayRecordedIncident,
 } from '../../../replay/ReplayRingBuffer.ts';
 import { ReplayTimelineController } from '../../../replay/ReplayTimelineController.ts';
+import {
+  UnifiedGoalReplayStateMachine,
+  type GoalReplayStreamFrameOutput,
+} from '../../../replay/UnifiedGoalReplayStateMachine.ts';
 import { MATCH_SIGNALS } from '../../../physics/RocketSimConstants.ts';
 import { isDevSyncHostBroadcastingMode } from '../../pipeline/stages/HostBroadcastPublisher.ts';
 import {
@@ -35,6 +39,7 @@ export class ExperimentalMultiBotsReplayController {
   private readonly runtime: ExpModeRuntimePort | null;
   public readonly replayRingBuffer: ReplayRingBuffer;
   public readonly replayController: ReplayTimelineController;
+  public readonly unifiedGoalReplay = new UnifiedGoalReplayStateMachine();
 
   public isReplayActive = false;
   public replayCameraMode: 'director' | 'pov' = 'director';
@@ -299,6 +304,16 @@ export class ExperimentalMultiBotsReplayController {
     this.isReplayActive = true;
     this.replayCameraMode = 'director';
     this.replayPovCarIndex = goalMeta.goalScorerCarIndex;
+    this.unifiedGoalReplay.begin({
+      frames: win.extractedFrames,
+      scoringTeam: goalMeta.goalScoringTeam,
+      scorerCarIndex: goalMeta.goalScorerCarIndex,
+      scorerName: goalMeta.goalScorerName,
+      assistName: goalMeta.goalAssistName,
+      ballSpeedKph: goalMeta.goalBallSpeedKph,
+      carTeamResolver: win.carTeamResolver,
+      cameraMode: 'director',
+    });
 
     launchExpGoalReplaySession({
       simPorts: r,
@@ -314,8 +329,13 @@ export class ExperimentalMultiBotsReplayController {
     return true;
   }
 
+  getGoalReplayFrameOutput(): GoalReplayStreamFrameOutput | null {
+    return this.unifiedGoalReplay.getLatestOutput();
+  }
+
   endSession(rosterCtrl: ExperimentalMultiBotsRosterController): void {
     const r = this.runtime;
+    this.unifiedGoalReplay.end();
     endGoalReplaySession(r, this.replayController, {
       source: 'exp-multi-bots-replay',
       clearHud: false,
@@ -341,6 +361,9 @@ export class ExperimentalMultiBotsReplayController {
         ? this.replayPovCarIndex
         : this.activeGoalMeta.goalScorerCarIndex;
     this.replayPovCarIndex = rosterCtrl.applyCameraCarIndex(povCarIdx);
+    this.unifiedGoalReplay.setCameraMode(this.replayCameraMode, this.replayPovCarIndex);
+    const dt = typeof context?.dt === 'number' ? context.dt : 1 / 60;
+    this.unifiedGoalReplay.step(dt);
 
     stepGoalReplaySessionFrame({
       runtime: r,
