@@ -128,7 +128,11 @@ async function bootApplication(): Promise<void> {
   const heartbeatTimer =
     typeof window !== 'undefined'
       ? window.setInterval(() => {
-          if (loader.hasError || loader.isCompleted || loader.activeTaskId !== 'bootstrap.module_graph') {
+          if (
+            loader.hasError ||
+            loader.isCompleted ||
+            loader.activeTaskId !== 'bootstrap.module_graph'
+          ) {
             return;
           }
           const elapsedSec = ((performance.now() - bootStartMs) / 1000).toFixed(1);
@@ -235,4 +239,11 @@ async function bootApplication(): Promise<void> {
   }
 }
 
-bootApplication();
+if (
+  typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).get('mvp1') === '1'
+) {
+  void import('./mvp1/Mvp1App.ts').then((mod) => mod.bootstrapMvp1());
+} else {
+  bootApplication();
+}

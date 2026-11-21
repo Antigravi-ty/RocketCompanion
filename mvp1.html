@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>RocketCompanion MVP-1: Authoritative Rust Core + Thin Renderer</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #070b14;
+        color: #e2e8f0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        width: 100%;
+        height: 100%;
+        gap: 2px;
+        background: #1e293b;
+      }
+      .pane {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #0b101b;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      .pane-label {
+        position: absolute;
+        top: 10px;
+        left: 12px;
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+        background: rgba(15, 23, 42, 0.78);
+        border: 1px solid rgba(56, 189, 248, 0.35);
+        pointer-events: none;
+      }
+      .overlay {
+        position: fixed;
+        bottom: 12px;
+        left: 12px;
+        right: 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        pointer-events: none;
+        gap: 12px;
+      }
+      .panel {
+        pointer-events: auto;
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      pre {
+        white-space: pre-wrap;
+        font-family: inherit;
+      }
+      .controls-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 6px;
+      }
+      button {
+        background: #1e293b;
+        color: #f8fafc;
+        border: 1px solid #475569;
+        border-radius: 4px;
+        padding: 4px 10px;
+        font-size: 11px;
+        font-family: inherit;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #334155;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <div class="pane">
+        <canvas id="canvas-left"></canvas>
+        <div class="pane-label">LEFT: 120Hz Direct (Authoritative Core)</div>
+      </div>
+      <div class="pane">
+        <canvas id="canvas-right"></canvas>
+        <div class="pane-label">RIGHT: 60Hz + 5..25ms Jitter Sim (Same ArenaRenderer)</div>
+      </div>
+    </div>
+
+    <div class="overlay">
+      <div class="panel">
+        <div id="mvp1-status">Initializing WASM Core...</div>
+        <pre id="mvp1-hud">Waiting for frames...</pre>
+      </div>
+      <div class="panel">
+        <div>
+          Controls: W/S Throttle/Pitch | A/D or Left/Right Steer/Yaw | Q/E Roll | Space Jump |
+          ShiftLeft Boost | . Handbrake | / BallCam | R Reset | T Telemetry
+        </div>
+        <div class="controls-row">
+          <button id="btn-reset" type="button">Reset Kickoff (R)</button>
+          <button id="btn-ballcam" type="button">Toggle BallCam (/)</button>
+          <button id="btn-telemetry" type="button">Export Telemetry (T)</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/mvp1/Mvp1App.ts"></script>
+  </body>
+</html>

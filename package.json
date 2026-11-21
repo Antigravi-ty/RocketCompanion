@@ -32,7 +32,14 @@
     "extract:golden": "node scripts/extractGoldenBaseline65f1538d.mjs",
     "test:baseline": "node scripts/runScenarioBaseline.mjs",
     "test:soak": "node scripts/runSoakWatchdog.mjs",
-    "repro:multiplayer-room": "node scripts/runMultiplayerRoomRepro.mjs"
+    "repro:multiplayer-room": "node scripts/runMultiplayerRoomRepro.mjs",
+    "env:help": "node scripts/env/help.mjs",
+    "env:check": "node scripts/env/checkEnv.mjs",
+    "env:doctor": "node scripts/env/doctor.mjs",
+    "env:setup": "bash scripts/env/bootstrap.sh",
+    "env:setup:rust": "bash scripts/env/bootstrap.sh --with-rust",
+    "build:rc-core": "node scripts/buildRcCoreWasm.mjs",
+    "test:rc-core": "cargo test --manifest-path crates/Cargo.toml -p rc_core"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.23",
