@@ -1,7 +1,7 @@
 import { BaseGameMode } from './BaseGameMode.ts';
 import type { FrameContext } from '../pipeline/FramePipeline.ts';
 import { ensureExperimentalEngine } from '../../ai/experimental/ExperimentalBotAgent.ts';
-import { useExperimentalMultiBotsStore, hudStore } from '../runtimeUiPort.ts';
+import { useExperimentalMultiBotsStore, hudStore, useAppStore } from '../runtimeUiPort.ts';
 import type {
   CarControls,
   ExpModeRuntimePort,
@@ -231,14 +231,26 @@ export class ExperimentalMultiBotsMode extends BaseGameMode<ExpModeRuntimePort |
       return;
     }
 
-    const playerCarView = context.playerCarView as
-      { boost?: number; isBoosting?: number | boolean } | null | undefined;
-    if (playerCarView && typeof playerCarView.boost === 'number') {
-      const activeCarIdx = context.activeCar ?? r?.playerCarIndex ?? 0;
-      const carUnlimited = r?.physics?.getCarUnlimitedBoost?.(activeCarIdx) ?? unlimited;
+    const isSpectateClient = Boolean(
+      useAppStore.getState()?.onlineSession?.isDevSyncRoom &&
+      !useAppStore.getState()?.onlineSession?.isHosting
+    );
+    const camFocused = (r?.camera as { focusedCarIndex?: number } | undefined)?.focusedCarIndex;
+    const focusedCarIdx =
+      isSpectateClient && typeof camFocused === 'number' && camFocused >= 0
+        ? camFocused
+        : (context.activeCar ?? r?.playerCarIndex ?? 0);
+    const targetCarView = (
+      isSpectateClient
+        ? r?.interpolator?.getCurrCarStateView?.(focusedCarIdx) ||
+          r?.physics?.getCarStateView?.(focusedCarIdx)
+        : context.playerCarView
+    ) as { boost?: number; isBoosting?: number | boolean } | null | undefined;
+    if (targetCarView && typeof targetCarView.boost === 'number') {
+      const carUnlimited = r?.physics?.getCarUnlimitedBoost?.(focusedCarIdx) ?? unlimited;
       hudStore
         .getState()
-        .setBoost(playerCarView.boost, Boolean(playerCarView.isBoosting), carUnlimited);
+        .setBoost(targetCarView.boost, Boolean(targetCarView.isBoosting), carUnlimited);
     }
   }
 

@@ -161,6 +161,13 @@ pub fn run() {
                     }
                 }
             }
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } if label == "main" => {
+                cleanup_all_tunnels(app_handle);
+            }
             tauri::RunEvent::Exit => {
                 cleanup_all_tunnels(app_handle);
             }
