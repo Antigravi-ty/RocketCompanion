@@ -16,6 +16,11 @@ import type { FrameContext } from '../pipeline/FramePipeline.ts';
 import type { PredictionReconciler } from '../../network/client/PredictionReconciler.ts';
 import type { CarControlsInput } from '../../network/protocol/InputPacketCodec.ts';
 import { isDevSyncClientPureCsrSpectateMode } from '../pipeline/stages/HostBroadcastPublisher.ts';
+import {
+  VNextGoalReplayCameraConsumer,
+  type BroadcasterCameraApplyResult,
+} from './vnextGoalReplayCameraConsumer.ts';
+import type { VNextWorldFrameCameraAndHudHeader } from '../pipeline/stages/vnextHudCameraTypes.ts';
 
 export interface FrameCameraMetadata {
   obsTargetIdx: number;
@@ -106,6 +111,7 @@ export class GameCameraSubsystem {
 
   public cameraDynamics: CameraDynamicsState | null;
   public cameraInputState: CameraInputState;
+  public readonly vnextCameraConsumer = new VNextGoalReplayCameraConsumer();
 
   constructor(runtime: CameraSubsystemRuntimePort) {
     this.runtime = runtime;
@@ -159,9 +165,21 @@ export class GameCameraSubsystem {
     this.setGoalReplayCameraOverrideState(false);
   }
 
+  public applyBroadcasterCameraFrame(
+    frame: VNextWorldFrameCameraAndHudHeader
+  ): BroadcasterCameraApplyResult {
+    return this.vnextCameraConsumer.applyFrame(
+      frame,
+      this.runtime?.camera,
+      this,
+      hudStore?.getState?.()
+    );
+  }
+
   private _hasActiveGoalReplaySession(): boolean {
     const r = this.runtime;
     if (!r) return false;
+    if (this.vnextCameraConsumer.isBroadcasterDirectorActive) return true;
     const activeMode = r.modeManager?.getActiveMode?.() as ActiveModeCameraPort | null;
     const activeReplayViewer = activeMode?.standaloneReplayViewer;
     const activeRlrcSession = activeMode?.rlrcReplaySession;
@@ -457,6 +475,7 @@ export class GameCameraSubsystem {
   }
 
   public dispose(): void {
+    this.vnextCameraConsumer.reset(this);
     this.scratchGroundNormal = null;
     this.scratchVelocity = null;
     this.respawnCameraProxy = null;
