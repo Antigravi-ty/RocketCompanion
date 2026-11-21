@@ -21,6 +21,7 @@
     "tauri:build": "tauri build",
     "tauri:icons": "node scripts/generateTauriCrossbarIcons.mjs",
     "build": "NODE_OPTIONS=--max-old-space-size=4096 vite build",
+    "build:rc-core-wasm": "node scripts/buildRcCoreWasm.mjs",
     "preview": "vite preview",
     "sync:profile": "node scripts/syncPrivateProfile.mjs --force",
     "typecheck": "tsc --noEmit",

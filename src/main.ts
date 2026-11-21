@@ -52,6 +52,12 @@ async function bootApplication(): Promise<void> {
   applyCleanStartupFromQueryIfNeeded();
 
   const host = typeof document !== 'undefined' ? document.querySelector<HTMLElement>('#app') : null;
+  if (new URLSearchParams(window.location.search).get('mvp1') === '1') {
+    const { startMvp1SplitScreen } = await import('./mvp1/main.ts');
+    startMvp1SplitScreen();
+    return;
+  }
+
   if ((isConfiguratorRoute() || isDiagnosticsRoute()) && host) {
     const { mountTauriConfigurator } = await import('./ui-system/mountTauriConfigurator.tsx');
     mountTauriConfigurator(host);
