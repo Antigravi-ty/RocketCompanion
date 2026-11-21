@@ -99,7 +99,7 @@ export function drainAndParseServerPacketBatch(
       lastReceivedPacketRaw = rawItem;
       const u8 = rawItem instanceof Uint8Array ? rawItem : new Uint8Array(rawItem);
       if (u8.byteLength >= 4) {
-        const prefixHash = new DataView(u8.buffer, u8.byteOffset, 4).getUint32(0, true);
+        const prefixHash = new DataView(u8.buffer, u8.byteOffset, 4).getUint32(0, false);
         if (
           prefixHash === VNEXT_CHANNEL1_SCHEMA_HASH ||
           prefixHash === VNEXT_CHANNEL2_SCHEMA_HASH
